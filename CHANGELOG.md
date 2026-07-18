@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.1](https://github.com/BeppeTemp/cartographer/compare/v0.1.0...v0.1.1) (2026-07-18)
+
+
+### Bug Fixes
+
+* shorten MCP registry description to the 100-char limit ([59dcc5c](https://github.com/BeppeTemp/cartographer/commit/59dcc5c9e7ce1a9db73ddc9f6a3037469757a922))
+
 ## 0.1.0 (2026-07-18)
 
 
