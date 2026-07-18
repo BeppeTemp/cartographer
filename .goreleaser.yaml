@@ -1,0 +1,59 @@
+version: 2
+
+project_name: cartographer
+
+builds:
+  - main: ./cmd/cartographer
+    binary: cartographer
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    # main.version must keep the leading "v" ({{.Version}} strips it): the
+    # Makefile injects `git describe` output (v2.1.2) and install.sh compares
+    # `cartographer version` against the release tag verbatim.
+    ldflags:
+      - -s -w -X main.version=v{{ .Version }}
+
+# Raw per-platform binaries (cartographer-<os>-<arch>), matching what
+# install.sh downloads from the GitHub Release.
+archives:
+  - formats: [binary]
+    name_template: "{{ .ProjectName }}-{{ .Os }}-{{ .Arch }}"
+
+checksum:
+  name_template: sha256sums.txt
+  algorithm: sha256
+
+# The GitHub Release is created by release-please with the changelog as body:
+# GoReleaser only attaches the binaries and checksums to it.
+release:
+  mode: keep-existing
+
+# Release notes are owned by release-please (CHANGELOG.md + release body).
+changelog:
+  disable: true
+
+# Casks are macOS-only: Linux users install via install.sh. The binary target
+# defaults to the cask name (cartographer); the downloaded asset keeps its
+# platform-suffixed name, hence the recursive quarantine removal on the whole
+# staged path (binaries are not notarized).
+homebrew_casks:
+  - name: cartographer
+    repository:
+      owner: BeppeTemp
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    directory: Casks
+    homepage: https://github.com/BeppeTemp/cartographer
+    description: "MCP governance server for the Agentic Wiki — persistent, git-backed knowledge bases for LLM agents"
+    hooks:
+      post:
+        install: |
+          if OS.mac?
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}"]
+          end

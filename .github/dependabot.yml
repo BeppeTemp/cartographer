@@ -1,0 +1,18 @@
+version: 2
+updates:
+  # Grouped weekly PRs: one chore(deps) entry per round in the release-please
+  # changelog instead of one per dependency.
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      go-dependencies:
+        patterns: ["*"]
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      github-actions:
+        patterns: ["*"]

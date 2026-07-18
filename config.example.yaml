@@ -1,0 +1,74 @@
+# Example configuration for `cartographer serve --config config.yaml`.
+# Every field here is optional; unset ones fall back to environment
+# variables, then to the built-in defaults. See internal/config for the
+# full precedence rules (flag > env > YAML > default).
+
+http: ":8080"
+init: true
+auth:
+  mode: "on"            # on | off | auto (default auto: on if tokens are present)
+  # Tokens are preferably passed via env CARTOGRAPHER_TOKENS (secret, don't commit).
+  # Each entry is a bare scalar (admin, full access to every KB) or a mapping
+  # with optional per-KB scopes ("kb:<name>:r" read-only / "kb:<name>:rw").
+  # tokens:
+  #   - "admin-token-no-scopes"                 # full access (legacy/admin)
+  #   - token: "reader-token"
+  #     scopes: ["kb:wiki-kb:r"]                # read-only on wiki-kb
+  #   - token: "writer-token"
+  #     scopes: ["kb:wiki-kb:rw", "kb:notes:r"]
+data: /data
+kbs:
+  - remote: https://gitea.example.com/user/wiki-kb.git
+    name: wiki-kb          # explicit KB name (D53): wins over the name derived from
+                            # the remote/path — drives the HTTP endpoint, token scopes
+                            # (kb:wiki-kb:*), the clone dir (/data/wiki-kb), and the
+                            # git.token_dir/sops.age_key_dir conventions below.
+  - path: /data/kb-locale
+    # optional per-KB overrides (zero value = fall back to global git/sops):
+    # ssh_key: /etc/kb-ssh/id_ed25519_locale
+    # author_name: cartographer-locale
+    # author_email: locale@example.com
+    # sops_age_key_file: /etc/kb-sops/locale.age
+    # allow_artifact_write: true   # enables artifact_write/artifact_delete on this
+                                   # KB (default false, D71): writing a skill means
+                                   # injecting instructions that clients will run —
+                                   # grant per-KB, an rw token alone does not imply it
+git:
+  autocommit: true
+  sync: true
+  ssh_key: /etc/kb-ssh/id_ed25519
+  known_hosts: /etc/kb-ssh/known_hosts
+  # default identity for autocommits (per-KB overridable in kbs[].author_*):
+  author_name: cartographer
+  author_email: cartographer@localhost
+  # committer_name/committer_email: default to the author identity when unset
+  # token_dir (D53): directory with one file per KB, <token_dir>/<name>.token
+  # (trimmed content = the token), used as HTTPS git credentials for that KB's
+  # remote — e.g. /etc/kb-git-tokens/wiki-kb.token for the "wiki-kb" KB above.
+  # token_dir: /etc/kb-git-tokens
+  # in_window (D76): freshness window for SyncIn (fetch+pull-rebase) — writes
+  # within this window of the last successful SyncIn skip it. Default 30s,
+  # 0 = sync on every write.
+  # in_window: 30s
+  # out_debounce (D76): debounce window for the async per-KB push worker —
+  # bursts of writes coalesce into one push, out_debounce after the last one.
+  # Default 3s, 0 = synchronous inline push, no worker (rollback flag).
+  # out_debounce: 3s
+sops:
+  # default age key for decrypting secret refs (per-KB overridable):
+  # age_key_file: /etc/kb-sops/keys.age
+  # age_key_dir (D53): directory with one age key per KB, <age_key_dir>/<name>.age
+  # — e.g. /etc/kb-sops-keys/wiki-kb.age for the "wiki-kb" KB above.
+  # age_key_dir: /etc/kb-sops-keys
+search:
+  ollama_url: ""
+  ollama_model: nomic-embed-text
+audit:
+  log: ""               # e.g. /data/audit.log
+tools:
+  # profile: which tools tools/list advertises to the LLM agent (D65).
+  #   agent (default) — core set only (read/write/search/log, structure,
+  #                     git-conflict self-recovery); governance and
+  #                     provisioning plumbing stay callable but unlisted.
+  #   full            — advertise every registered tool.
+  # profile: agent

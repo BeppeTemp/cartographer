@@ -1,0 +1,20 @@
+name: release-please
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    steps:
+      # RELEASE_PLEASE_TOKEN is a PAT: PRs opened with the default
+      # GITHUB_TOKEN do not trigger pull_request workflows, and the release
+      # PR would stay blocked without the required "test" check.
+      - uses: googleapis/release-please-action@v4
+        with:
+          token: ${{ secrets.RELEASE_PLEASE_TOKEN }}

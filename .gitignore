@@ -1,0 +1,17 @@
+/bin/
+/cartographer
+/demo-kb/
+*.sqlite
+*.db
+.DS_Store
+migrated-kb/
+.claude/*
+!.claude/skills/
+/data/kb/
+!/data/kb/.gitkeep
+.env
+age-key.txt
+.vscode/
+graphify-out/
+.claude/skills/deploy/
+dist/
