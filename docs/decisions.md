@@ -1351,7 +1351,7 @@ f) **Homelab downstream**: the cluster consumes the public `ghcr.io` image (mani
 
 **Decision.** The v2.x public line is retired and public versioning restarts at **v0.1.0**:
 
-a) Manifest reset to `0.0.0` and `bump-minor-pre-major: true` in `release-please-config.json`: the next release PR computes `0.1.0` from the `feat` commits on `main`. Pre-1.0 semantics: **breaking changes bump the minor** (0.x convention), fixes bump the patch; `1.0.0` when the MCP tool surface and CLI stabilize.
+a) Manifest reset to `0.0.0` and `bump-minor-pre-major: true` + `initial-version: 0.1.0` in `release-please-config.json` (with no tag matching the manifest, release-please takes the initial-release path and would otherwise default to `1.0.0`): the next release PR computes `0.1.0`. Pre-1.0 semantics: **breaking changes bump the minor** (0.x convention), fixes bump the patch; `1.0.0` when the MCP tool surface and CLI stabilize.
 
 b) The `v2.2.0` GitHub release and tag are deleted (operator action: they predate this decision and would otherwise remain "latest" and confuse the badge and `releases/latest`). The `ghcr.io` image tag `v2.2.0` and the Homebrew cask `2.2.0` are left as-is — registries are append-only in spirit and the next release overwrites `latest`/the cask. Homebrew will not auto-downgrade; irrelevant at current adoption.
 
