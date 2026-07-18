@@ -33,6 +33,8 @@ COPY --from=dist /dist /
 
 # Final stage (default): server runtime image.
 FROM alpine:3.21
+# Ownership verification for the MCP Registry (must match server.json's name).
+LABEL io.modelcontextprotocol.server.name="io.github.beppetemp/cartographer"
 RUN apk add --no-cache git sops age openssh-client
 COPY --from=builder /cartographer /usr/local/bin/cartographer
 RUN adduser -D -h /home/cartographer cartographer
