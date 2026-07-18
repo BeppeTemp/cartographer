@@ -16,6 +16,13 @@
 [![Go](https://img.shields.io/badge/Go-1.26+-00ADD8?logo=go)](https://go.dev/)
 [![MCP](https://img.shields.io/badge/protocol-MCP-7C3AED)]()
 
+> [!WARNING]
+> **Beta software.** Cartographer is pre-1.0: the MCP tool surface, CLI and
+> configuration may change between minor releases without a deprecation
+> period. Breaking changes bump the **minor** version (0.x semantics) and are
+> called out in the [changelog](CHANGELOG.md). Expect rough edges — bug
+> reports are very welcome.
+
 LLM agents forget everything between sessions, and stateless RAG only bolts retrieval onto that
 amnesia. The alternative is a knowledge base the agent itself **builds and maintains over time** —
 but letting an agent loose on a folder of files ends in broken links, lost history, and silent

@@ -1,8 +1,6 @@
 # Changelog
 
-## [2.2.0](https://github.com/BeppeTemp/cartographer/compare/v2.1.2...v2.2.0) (2026-07-18)
-
-
-### Features
-
-* initial public release ([9c0fb45](https://github.com/BeppeTemp/cartographer/commit/9c0fb45fa884c2b371308348a05afe533f5fb64a))
+> Public versioning starts at v0.1.0. Earlier version numbers (the v2.x line)
+> belonged to the internal pre-open-source development history and were retired
+> when versioning was reset to reflect the project's beta status
+> (`docs/decisions.md` §D80).
