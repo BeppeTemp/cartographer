@@ -15,6 +15,6 @@ jobs:
       # RELEASE_PLEASE_TOKEN is a PAT: PRs opened with the default
       # GITHUB_TOKEN do not trigger pull_request workflows, and the release
       # PR would stay blocked without the required "test" check.
-      - uses: googleapis/release-please-action@v4
+      - uses: googleapis/release-please-action@v5
         with:
           token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
