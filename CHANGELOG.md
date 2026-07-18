@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.2](https://github.com/BeppeTemp/cartographer/compare/v0.1.1...v0.1.2) (2026-07-18)
+
+
+### Bug Fixes
+
+* match MCP registry server name casing to the GitHub account ([81183e4](https://github.com/BeppeTemp/cartographer/commit/81183e454b9dcf6755fc9ae4b22b37cba4efe0a4))
+
 ## [0.1.1](https://github.com/BeppeTemp/cartographer/compare/v0.1.0...v0.1.1) (2026-07-18)
 
 
