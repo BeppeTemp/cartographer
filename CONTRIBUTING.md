@@ -41,6 +41,10 @@ contributions — CI runs `make vet && make test`.
   (`feat: ...`, `fix: ...`, `docs: ...`, ...). CI enforces this. Releases are
   cut automatically from these commits by release-please, so the title you
   write is the changelog line users will read.
+- The project is in **beta** (pre-1.0): breaking changes bump the **minor**
+  version (release-please `bump-minor-pre-major`), so any 0.x minor release
+  may break compatibility. 1.0.0 will be tagged once the MCP tool surface and
+  the CLI stabilize.
 - **Documentation moves with the code in the same PR** — it's a project rule:
   any change touching interfaces, behavior, configuration, or architecture
   updates the corresponding `docs/` pages (see `docs/index.md` §Maintenance
