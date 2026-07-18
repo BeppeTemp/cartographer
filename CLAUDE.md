@@ -89,9 +89,10 @@ graphify graph in `graphify-out/` (not versioned). Structural questions about th
 
 ## Workflow and documentation
 
+- All changes land via PR: `main` is protected (required `test` check, squash-merge only, no direct pushes). Branch `feat/<slug>` → `gh pr create` → merge on green CI. PR titles are conventional commits (linted in CI): release-please computes the semver bump from them.
 - Isolable code → `dev` agent (or OpenCode with prior confirmation, for mechanical work); the coordinator verifies `make vet && make test`.
 - Analysis/design and implementation often happen in separate sessions: the handoff is the `/plan` skill → a self-contained plan in `docs/plans/<slug>.md`, consumed (deleted) at the end of implementation.
-- Server and client releases (semver bump, tag, CI, rollout, local client update) → `/deploy` skill.
+- Server and client releases (release-please PR merge, pipeline, rollout, local client update) → `/deploy` skill (maintainer-local, not versioned).
 - **Documentation is updated in the same session in which the code is changed — never afterward.** The "what changes → which file to update" table is in `docs/index.md` §Maintenance rules: use it for every change.
 - Conventions → `docs/conventions.md`. Every non-obvious choice → a D entry in `docs/decisions.md`.
 - Milestone completed → `docs/roadmap.md`.
