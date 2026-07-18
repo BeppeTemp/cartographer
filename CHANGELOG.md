@@ -13,8 +13,6 @@
 
 * pin release-please initial version to 0.1.0 ([491e60a](https://github.com/BeppeTemp/cartographer/commit/491e60ae86c622e9282626de18b3e34e62db64e4))
 
-## Changelog
-
 > Public versioning starts at v0.1.0. Earlier version numbers (the v2.x line)
 > belonged to the internal pre-open-source development history and were retired
 > when versioning was reset to reflect the project's beta status

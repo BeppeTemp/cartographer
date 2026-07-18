@@ -2,7 +2,7 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.beppetemp/cartographer",
   "title": "Cartographer",
-  "description": "MCP governance server for agent-maintained knowledge bases: OKF concepts, git-backed writes, search, lint and provisioning.",
+  "description": "Governance MCP server for agent-maintained knowledge bases (OKF): git-backed writes, search, lint.",
   "repository": {
     "url": "https://github.com/BeppeTemp/cartographer",
     "source": "github"
