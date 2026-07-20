@@ -37,7 +37,7 @@ only the pages relevant to your task.
 |---|---|
 | New user | `getting-started.md` → `deployment.md` (when you outgrow Local Core) |
 | New to the codebase | `overview.md` → `data-plane.md` → `control-plane.md` |
-| Add an MCP tool | `control-plane.md` §tools → `conventions.md` → `CLAUDE.md` (recipe) |
+| Add an MCP tool | `control-plane.md` §tools → `conventions.md` → `AGENTS.md` (recipe) |
 | Debug concurrency / git conflicts | `concurrency.md` |
 | Add a skill or external service | `skills-services-secrets.md` |
 | Deploy / production operations | `deployment.md` |
@@ -65,8 +65,9 @@ matching file **in the same session/PR** as the change:
 | Client subcommands (`agents`/`connect`/`disconnect`/`status`/`sync`/TUI) or server YAML config | `configurator.md` (client) / `deployment.md` (server config) |
 | Token/scope format or enforcement (`kb:<name>:r\|rw`), per-KB git identity or SOPS | `transport-auth.md` (auth/scopes) + `deployment.md` (server config, `KBSpec`) |
 | New provisioning `kind` (beyond skill/agent/hook) or per-provider destination | `configurator.md` (client) + `sync.md` (manifest/diff) |
-| Milestone completed or task dropped | `roadmap.md` (never in `CLAUDE.md`: it is stable imprinting) |
+| Milestone completed or task dropped | `roadmap.md` (never in `AGENTS.md`: it is stable imprinting) |
 | Any non-obvious choice (why X and not Y) | `decisions.md` (new D entry) |
 | New external dependency | `decisions.md` (D entry) + `conventions.md` §dependencies |
 | New test level or pre-release checklist change | `testing.md` |
+| Contributor workflow (PR flow, plan issues, build loop) | `CONTRIBUTING.md` |
 | User-facing install/onboarding flow | `getting-started.md` + README |
