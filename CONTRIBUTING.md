@@ -26,7 +26,9 @@ contributions — CI runs `make vet && make test`.
 
 ## Finding your way around
 
-- [`CLAUDE.md`](CLAUDE.md) has a compact code map (what lives where).
+- [`AGENTS.md`](AGENTS.md) has a compact code map (what lives where). It is
+  the canonical instructions file for coding agents (`CLAUDE.md` is a symlink
+  to it).
 - [`docs/index.md`](docs/index.md) is the documentation index, with reading
   paths and maintenance rules.
 - The *why* behind non-obvious choices lives in
@@ -49,9 +51,35 @@ contributions — CI runs `make vet && make test`.
   any change touching interfaces, behavior, configuration, or architecture
   updates the corresponding `docs/` pages (see `docs/index.md` §Maintenance
   rules). Non-obvious choices get an entry in `docs/decisions.md`.
-- New MCP tools follow the checklist in `CLAUDE.md` §Adding an MCP tool and
+- New MCP tools follow the checklist in `AGENTS.md` §Adding an MCP tool and
   come with tests in `internal/mcpserver/server_test.go`.
 - Coding conventions: [`docs/conventions.md`](docs/conventions.md).
+
+## Plan issues (design → implementation handoff)
+
+Non-trivial changes start as a **plan issue**: a GitHub issue created from the
+`Plan` template (label `plan`) that packages the outcome of an analysis/design
+discussion into a self-contained implementation plan. The pattern: one session
+(or person) analyzes and decides; a separate one implements. The issue is the
+**only bridge** between the two — the implementer does not see the analysis
+discussion.
+
+Self-sufficiency test (determines the level of detail): a fresh session with
+only the issue and the repo must be able to implement without asking questions.
+
+- Every non-obvious decision is **already made and justified in one line** —
+  the implementer does not relitigate it.
+- No open questions; anything delegated to the implementer is explicitly
+  marked and is only a detail (local naming, test order).
+- Expected errors and edge cases are listed with the desired behavior.
+- **No code in the plan**: exact semantics plus real `file:line` pointers,
+  derived from the code before writing — not paraphrases of it.
+
+The implementation PR references the issue (`Closes #<n>`), executes the work
+packages in order (`make vet && make test` green after each), updates the docs
+per the issue's closing checklist and adds the `D<n>` entry to
+`docs/decisions.md`. If the plan contradicts the actual code, stop and flag it
+in an issue comment: the plan may be stale relative to `main`.
 
 ## Reporting bugs
 
