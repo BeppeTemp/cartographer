@@ -10,7 +10,7 @@
 > MCP governance server in **Go** for the *Agentic Wiki* — knowledge that **composes**, not that you query.
 
 [![CI](https://github.com/BeppeTemp/cartographer/actions/workflows/ci.yml/badge.svg)](https://github.com/BeppeTemp/cartographer/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/github/v/release/BeppeTemp/cartographer)](https://github.com/BeppeTemp/cartographer/releases/latest)
+[![Release](https://img.shields.io/github/v/release/BeppeTemp/cartographer?include_prereleases)](https://github.com/BeppeTemp/cartographer/releases)
 [![Go Report Card](https://goreportcard.com/badge/github.com/BeppeTemp/cartographer)](https://goreportcard.com/report/github.com/BeppeTemp/cartographer)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![Go](https://img.shields.io/badge/Go-1.26+-00ADD8?logo=go)](https://go.dev/)
