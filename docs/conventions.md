@@ -4,8 +4,7 @@ Rules to keep the code consistent. New code should resemble the existing code.
 
 ## Language
 
-- **Code entirely in English**: comments, error messages, identifiers, doc-comments.
-- **Only the documentation** (`.md` files in `docs/`, `CLAUDE.md`, `README.md`) stays in Italian.
+- **Everything in English**: code (comments, error messages, identifiers, doc-comments), documentation (`docs/`, `README.md`, `AGENTS.md`), plan issues and D entries.
 - MCP tool `Description`s in English (consumed by LLM agents).
 
 ## Go style
