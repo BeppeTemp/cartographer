@@ -75,6 +75,10 @@ only the issue and the repo must be able to implement without asking questions.
 - Expected errors and edge cases are listed with the desired behavior.
 - **No code in the plan**: exact semantics plus real `file:line` pointers,
   derived from the code before writing — not paraphrases of it.
+- A single analysis may yield **several plan issues**: each one states the
+  cross-plan execution order and which sibling plans touch the same files
+  (those land sequentially, never in parallel). Amendments made before
+  implementation starts go in the issue body; later ones in comments.
 
 The implementation PR references the issue (`Closes #<n>`), executes the work
 packages in order (`make vet && make test` green after each), updates the docs
