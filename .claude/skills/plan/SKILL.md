@@ -21,6 +21,11 @@ Claude-side glue.
    structure, then:
    `gh issue create --title "Plan: <title> (D<n>)" --label plan --body-file <file>`.
 4. Apply the self-sufficiency test from `CONTRIBUTING.md` before submitting.
+5. One analysis, several plans → every issue states the cross-plan execution
+   order and which sibling plans touch the same files (those land strictly
+   sequentially, never in parallel). Amend a plan by editing the issue body
+   while nothing is implemented yet; once implementation starts, amend via
+   comments only.
 
 ## Consuming a plan (implementing session)
 
