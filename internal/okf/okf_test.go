@@ -248,6 +248,108 @@ func TestListHeadings_Dimensioni(t *testing.T) {
 	}
 }
 
+// --- fence-aware heading detection (D87) ---
+
+// fencedFixtureBody reproduces the reported case (bash comments inside a backtick
+// fence) plus a ~~~ fence, an info string on the opening fence, and a heading
+// immediately after a closing fence. Used to assert ListHeadings, ExtractSection
+// and SectionHashes all agree on the same section boundaries.
+const fencedFixtureBody = "# Intro\n" +
+	"Testo introduttivo.\n" +
+	"```bash\n" +
+	"#!/usr/bin/env bash\n" +
+	"# Usage: foo.sh\n" +
+	"echo hi\n" +
+	"```\n" +
+	"## After fence\n" +
+	"Testo dopo la fence.\n" +
+	"~~~\n" +
+	"# not a heading either\n" +
+	"~~~\n" +
+	"# Final\n" +
+	"Fine."
+
+func TestListHeadings_IgnoraHeadingDentroFence(t *testing.T) {
+	got := ListHeadings(fencedFixtureBody)
+	if len(got) != 3 {
+		t.Fatalf("ListHeadings: expected 3 headings (fence lines ignored), got %d: %+v", len(got), got)
+	}
+	if got[0].Level != 1 || got[0].Title != "Intro" {
+		t.Errorf("ListHeadings[0]: got %+v", got[0])
+	}
+	if got[1].Level != 2 || got[1].Title != "After fence" {
+		t.Errorf("ListHeadings[1]: got %+v", got[1])
+	}
+	if got[2].Level != 1 || got[2].Title != "Final" {
+		t.Errorf("ListHeadings[2]: got %+v", got[2])
+	}
+}
+
+func TestExtractSection_IgnoraHeadingDentroFence(t *testing.T) {
+	got, ok := ExtractSection(fencedFixtureBody, "# Intro")
+	if !ok {
+		t.Fatal("ExtractSection: heading not found")
+	}
+	if !strings.Contains(got, "#!/usr/bin/env bash") || !strings.Contains(got, "# Usage: foo.sh") {
+		t.Fatal("ExtractSection: fence content must be preserved verbatim inside the section")
+	}
+	if strings.Contains(got, "Fine.") {
+		t.Fatal("ExtractSection: must stop before the next top-level heading (# Final)")
+	}
+}
+
+func TestSectionHashes_IgnoraHeadingDentroFence(t *testing.T) {
+	hashes := SectionHashes(fencedFixtureBody)
+	if _, ok := hashes["Usage: foo.sh"]; ok {
+		t.Fatal("SectionHashes: fenced '#' line must not be treated as a section heading")
+	}
+	if _, ok := hashes["Intro"]; !ok {
+		t.Fatal("SectionHashes: expected 'Intro' section")
+	}
+	if _, ok := hashes["After fence"]; !ok {
+		t.Fatal("SectionHashes: expected 'After fence' section")
+	}
+	if _, ok := hashes["Final"]; !ok {
+		t.Fatal("SectionHashes: expected 'Final' section")
+	}
+}
+
+func TestFenceAware_ConsumatoriConcordano(t *testing.T) {
+	headings := ListHeadings(fencedFixtureBody)
+	for _, h := range headings {
+		heading := strings.Repeat("#", h.Level) + " " + h.Title
+		section, ok := ExtractSection(fencedFixtureBody, heading)
+		if !ok {
+			t.Fatalf("ExtractSection: heading %q not found, but ListHeadings returned it", heading)
+		}
+		if h.Bytes != len(section) {
+			t.Errorf("mismatch for %q: ListHeadings.Bytes=%d, len(ExtractSection)=%d", heading, h.Bytes, len(section))
+		}
+	}
+}
+
+func TestListHeadings_FenceNonChiusa(t *testing.T) {
+	body := "# Heading\n```\n# Not a heading\nStill inside the fence.\n"
+	got := ListHeadings(body)
+	if len(got) != 1 {
+		t.Fatalf("ListHeadings: expected 1 heading (unclosed fence swallows the rest), got %d: %+v", len(got), got)
+	}
+	if got[0].Title != "Heading" {
+		t.Errorf("ListHeadings[0]: got %+v", got[0])
+	}
+}
+
+func TestListHeadings_HeadingSubitoDopoFenceChiusa(t *testing.T) {
+	body := "```\ncode\n```\n# Right After\nBody."
+	got := ListHeadings(body)
+	if len(got) != 1 {
+		t.Fatalf("ListHeadings: expected 1 heading, got %d: %+v", len(got), got)
+	}
+	if got[0].Level != 1 || got[0].Title != "Right After" {
+		t.Errorf("ListHeadings[0]: got %+v", got[0])
+	}
+}
+
 func TestListHeadings_BodySenzaHeading(t *testing.T) {
 	got := ListHeadings("Solo testo, nessun heading.\nSeconda riga.")
 	if len(got) != 0 {
