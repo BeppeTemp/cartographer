@@ -65,6 +65,12 @@ discussion into a self-contained implementation plan. The pattern: one session
 **only bridge** between the two — the implementer does not see the analysis
 discussion.
 
+Before designing, survey the **open plan issues** (label `plan`) as well as the
+code: a request already covered by an open plan or already implemented on
+`main` is reported, not re-planned; a partial overlap is reconciled by amending
+the existing issue or by stating the relationship (execution order, shared
+files) in the new one.
+
 Self-sufficiency test (determines the level of detail): a fresh session with
 only the issue and the repo must be able to implement without asking questions.
 

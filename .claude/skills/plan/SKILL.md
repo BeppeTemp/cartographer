@@ -12,16 +12,22 @@ Claude-side glue.
 
 ## Writing a plan
 
-1. Reserve the next free D number (`grep "^## D" docs/decisions.md | tail -3`)
+1. Survey the open plans before designing, not just the code:
+   `gh issue list --label plan --state open`, then read the candidates that
+   touch the same area. A request already covered by an open plan (or already
+   implemented on `main`) is reported back, not re-planned; a partial overlap
+   means extending/amending the existing issue or stating the relationship
+   (execution order, shared files) in the new one.
+2. Reserve the next free D number (`grep "^## D" docs/decisions.md | tail -3`)
    and use it in the title: `Plan: <title> (D<n>)`. The D entry is written **at
    the end of implementation**, not now: the plan is its draft.
-2. Derive the real `file:line` pointers before writing (graphify query /
+3. Derive the real `file:line` pointers before writing (graphify query /
    targeted symbol grep): the plan contains pointers, not paraphrases.
-3. Write the body (in English) to a scratch file following the template
+4. Write the body (in English) to a scratch file following the template
    structure, then:
    `gh issue create --title "Plan: <title> (D<n>)" --label plan --body-file <file>`.
-4. Apply the self-sufficiency test from `CONTRIBUTING.md` before submitting.
-5. One analysis, several plans → every issue states the cross-plan execution
+5. Apply the self-sufficiency test from `CONTRIBUTING.md` before submitting.
+6. One analysis, several plans → every issue states the cross-plan execution
    order and which sibling plans touch the same files (those land strictly
    sequentially, never in parallel). Amend a plan by editing the issue body
    while nothing is implemented yet; once implementation starts, amend via
