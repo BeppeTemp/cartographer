@@ -7,6 +7,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"strings"
 
 	"github.com/BeppeTemp/cartographer/internal/auth"
 )
@@ -14,11 +15,13 @@ import (
 // HTTPHandler returns an http.Handler that serves MCP over Streamable HTTP.
 // POST /mcp accepts a JSON-RPC 2.0 request and returns a JSON response.
 // GET /mcp opens an SSE stream (optional, not yet implemented).
-// GET /health returns 200 OK with a JSON status body.
+// GET /health returns 200 OK with a JSON status body (liveness).
+// GET /ready returns readiness (single-KB server is always ready).
 func (s *Server) HTTPHandler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/mcp", s.handleMCP)
 	mux.HandleFunc("/health", s.handleHealth)
+	mux.HandleFunc("/ready", s.handleReady)
 	return mux
 }
 
@@ -153,8 +156,22 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	result := map[string]interface{}{
 		"status":  "ok",
 		"version": s.version,
+		"ready":   true, // a single-KB server always has its one KB mounted
 	}
 	json.NewEncoder(w).Encode(result)
+}
+
+// handleReady reports readiness: a single-KB server is always ready (its one
+// KB is mounted at construction time), unlike MultiKBServer where 0 KBs
+// mounted means not ready.
+func (s *Server) handleReady(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]interface{}{"ready": true})
 }
 
 // ListenAndServe starts the HTTP server on the given address (e.g. ":8080").
@@ -195,6 +212,7 @@ func (s *Server) FullHTTPHandler(oauthMetadata []byte) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/mcp", s.handleMCP)
 	mux.HandleFunc("/health", s.handleHealth)
+	mux.HandleFunc("/ready", s.handleReady)
 	if oauthMetadata != nil {
 		mux.HandleFunc("/.well-known/oauth-protected-resource", WellKnownHandler(oauthMetadata))
 	}
@@ -242,21 +260,41 @@ func (m *MultiKBServer) MountKB(name string, setupFn func(s *Server)) {
 	m.kbs = append(m.kbs, KBInfo{Name: name, Status: "normal"})
 }
 
-// Handler returns the HTTP handler that routes /mcp?kb=<name> to the correct KB server.
+// Handler returns the HTTP handler that routes MCP requests to the correct
+// KB server. Three ways to select a KB:
+//   - bare /mcp: auto-routes when exactly one KB is mounted;
+//   - /mcp?kb=<name>: explicit selection by query parameter;
+//   - /mcp/<name>: explicit selection by path.
+//
+// /mcp/<name> and ?kb= may not disagree: if both are present and name the
+// same KB, path wins as the explicit route; if they differ, the request is
+// rejected with 400 (conflicting kb selection) rather than silently
+// preferring one over the other.
 func (m *MultiKBServer) Handler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case "/health":
+		switch {
+		case r.URL.Path == "/health":
 			w.Header().Set("Content-Type", "application/json")
 			result := map[string]interface{}{
 				"status":  "ok",
 				"version": m.version,
 				"kbs":     m.kbs,
+				"ready":   len(m.servers) > 0,
 			}
 			json.NewEncoder(w).Encode(result)
 			return
 
-		case "/mcp":
+		case r.URL.Path == "/ready":
+			w.Header().Set("Content-Type", "application/json")
+			if len(m.servers) == 0 {
+				w.WriteHeader(http.StatusServiceUnavailable)
+				json.NewEncoder(w).Encode(map[string]interface{}{"ready": false, "kbs": 0})
+				return
+			}
+			json.NewEncoder(w).Encode(map[string]interface{}{"ready": true})
+			return
+
+		case r.URL.Path == "/mcp":
 			kbName := r.URL.Query().Get("kb")
 
 			// Single-KB mode: if only one KB is mounted, use it as default.
@@ -274,18 +312,33 @@ func (m *MultiKBServer) Handler() http.Handler {
 				http.Error(w, "kb parameter required", http.StatusBadRequest)
 				return
 			}
-			srv, ok := m.servers[kbName]
-			if !ok {
-				http.Error(w, fmt.Sprintf("KB %q not found", kbName), http.StatusNotFound)
+			m.serveKB(w, r, kbName)
+			return
+
+		case strings.HasPrefix(r.URL.Path, "/mcp/"):
+			pathName := strings.TrimPrefix(r.URL.Path, "/mcp/")
+			if queryName := r.URL.Query().Get("kb"); queryName != "" && queryName != pathName {
+				http.Error(w, "conflicting kb selection", http.StatusBadRequest)
 				return
 			}
-			mcpAccessGuard(kbName, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				srv.handleMCP(w, r)
-			})).ServeHTTP(w, r)
+			m.serveKB(w, r, pathName)
 			return
 
 		default:
 			http.Error(w, "not found", http.StatusNotFound)
 		}
 	})
+}
+
+// serveKB routes r to the named KB's MCP handler (through the per-KB access
+// guard), or responds 404 "unknown kb" if no KB with that name is mounted.
+func (m *MultiKBServer) serveKB(w http.ResponseWriter, r *http.Request, kbName string) {
+	srv, ok := m.servers[kbName]
+	if !ok {
+		http.Error(w, fmt.Sprintf("unknown kb %q", kbName), http.StatusNotFound)
+		return
+	}
+	mcpAccessGuard(kbName, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		srv.handleMCP(w, r)
+	})).ServeHTTP(w, r)
 }

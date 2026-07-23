@@ -119,7 +119,7 @@ Deployment's `env:` become redundant and can be removed.
 
 **Explicit KB name, git token, and per-KB SOPS key by convention (D53)**: `kbs[].name` fixes the
 KB's name (overrides the name derived from remote/path) — it's the name used everywhere: the HTTP
-endpoint (`/mcp/<name>`), the token scope (`kb:<name>:r|rw`), the clone directory (`<data>/<name>`), and the two
+endpoint (`/mcp/<name>`, see below), the token scope (`kb:<name>:r|rw`), the clone directory (`<data>/<name>`), and the two
 conventions below. With an `http(s)://` remote, if the file
 `<git.token_dir>/<name>.token` exists (content: the token, trimmed), the server uses it as the HTTPS
 credential for clone/fetch/pull/push of that KB, injected via `credential.helper` in the
@@ -181,7 +181,7 @@ cartographer service uninstall               # removes the service; config and d
 - macOS: LaunchAgent `~/Library/LaunchAgents/com.cartographer.serve.plist` (`KeepAlive`, logging to `~/Library/Logs/cartographer/server.log`). The plist's binary path prefers a stable Homebrew symlink (`/opt/homebrew/bin/cartographer` or `/usr/local/bin/cartographer`) over the versioned Caskroom path, so it survives `brew upgrade` without a re-install (D83);
 - Linux: systemd user unit `~/.config/systemd/user/cartographer.service` (log via `journalctl --user -u cartographer`; on a headless host, `loginctl enable-linger <user>` is needed for the service to survive logout).
 
-Binds to **loopback** by default (`127.0.0.1:8080`) → auth stays in auto-off mode without exposing anything on the network. With an empty (or missing — D83: `serve` creates it and treats it as empty rather than failing) data dir the server starts with 0 KBs (`/health` is still up): create a subfolder per KB (or add `kbs:` entries to clone remotes, §Bootstrapping a KB) and `service restart`.
+Binds to **loopback** by default (`127.0.0.1:8080`) → auth stays in auto-off mode without exposing anything on the network. With an empty (or missing — D83: `serve` creates it and treats it as empty rather than failing) data dir the server starts with 0 KBs — `/health` is still up (liveness: `status:"ok"`) but `/ready` reports `503 {"ready":false}` (D84, §Observability): create a subfolder per KB (or add `kbs:` entries to clone remotes, §Bootstrapping a KB) and `service restart`.
 
 `service status` uses systemctl-like exit codes: `0` running, `3` installed but stopped, `4` not installed — this is what lets `install.sh update` automatically restart only a running service (see §Client installation).
 
@@ -244,6 +244,17 @@ This topology serves **multiple clients** (one or more agents connected via `car
 `cartographer sync`, all over HTTP): git remains the sync/backup layer between the server and the
 remote KBs, not a requirement for the client.
 
+### HTTP routing (D84)
+
+`MultiKBServer.Handler` (`internal/mcpserver/httpserver.go`) selects a KB three ways:
+- bare `/mcp` — auto-routes when exactly one KB is mounted (single-KB convenience);
+- `/mcp?kb=<name>` — explicit selection by query parameter;
+- `/mcp/<name>` — explicit selection by path (the form implied by `kbs[].name`, §Configuration above).
+
+If both `/mcp/<name>` and `?kb=` are present and disagree, the request is rejected with `400
+conflicting kb selection` rather than silently picking one; an unknown `<name>` (either form) is
+`404 unknown kb`.
+
 ### Runtime secrets
 
 Git credentials, MCP tokens, **and** the age/SOPS key (`SOPS_AGE_KEY_FILE`/`SOPS_AGE_KEY_CMD`, or an IAM role for KMS) are runtime secrets — **never** in the bundles. The same applies to the bootstrap SSH key (`git.ssh_key`): always from a mounted Secret/volume, never in the ConfigMap nor in the committed YAML file.
@@ -267,7 +278,14 @@ Metrics derived from the audit log:
 - p99 latency of `search`.
 - Tokens consumed per phase (ingest, judge, deep lint, embedding).
 
-**`/health`** and readiness endpoints. SLI/SLO and alert thresholds. Without these the system is a black box in production.
+**Liveness vs readiness (D84)**: `/health` is liveness — `status:"ok"` unconditionally (a probe that
+restarted the process on `status != "ok"` must never fire from a KB-mounting issue); it also carries
+a `ready: <bool>` field (single-KB server: always `true`; MultiKB: `len(kbs) > 0`) for callers that
+want both signals from one request. `/ready` is the dedicated readiness endpoint: `200
+{"ready":true}` once at least one KB is mounted, `503 {"ready":false,"kbs":0}` otherwise (e.g. a
+fresh local install with an empty data dir, §Cold start). Point k8s `livenessProbe` at `/health` and
+`readinessProbe` at `/ready`. SLI/SLO and alert thresholds beyond this are still open — without them
+the system is otherwise a black box in production.
 
 ## Backup and disaster recovery
 

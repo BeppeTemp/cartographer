@@ -30,8 +30,8 @@ Format: `kb:<name>:<r|rw>`, space or `;` separated (`auth.ParseScopes`). Example
 
 `<name>` is the KB name: `kbs[].name` explicit if set (D53), otherwise the **basename**
 of the directory/repo (last path segment, `.git` suffix removed) — the same derivation used
-for `?kb=<name>` routing and for the clone directory. A token's scope must match
-this name exactly.
+for `?kb=<name>`/`/mcp/<name>` routing (D84, see [`deployment.md`](deployment.md) §HTTP routing)
+and for the clone directory. A token's scope must match this name exactly.
 
 **Token configuration with scope** (YAML `auth.tokens` or `CARTOGRAPHER_TOKENS`/`--tokens`):
 - YAML: each entry is `{token: ..., scopes: ["kb:homelab:rw", "kb:archivio-storico:r"]}` (`config.TokenSpec`); a bare scalar (string) remains supported for backward compatibility and means full access.
@@ -40,7 +40,7 @@ this name exactly.
 
 **Enforcement** (`internal/auth`, `internal/mcpserver/httpserver.go`):
 1. `auth.TokenStore` (created via `auth.NewScopedTokenStore`) maps the token hash → `[]auth.KBScope`. `TokenStore.Middleware` validates the bearer and injects the scopes into the context (`auth.ContextWithScopes`/`ScopesFromContext`).
-2. The HTTP guard (`mcpAccessGuard` in `httpserver.go`, downstream of the Middleware, for each KB mounted at `/mcp?kb=<name>`) reads the scopes from the context: **empty/nil scopes → always pass** (full access). Otherwise it peeks at the JSON-RPC body (`io.LimitReader` 2MB) to decide whether the request needs `r` or `rw`, then **always restores `r.Body`** (`io.NopCloser` over the read bytes) so the downstream handler re-reads it intact.
+2. The HTTP guard (`mcpAccessGuard` in `httpserver.go`, downstream of the Middleware, for each KB mounted whether reached via `/mcp?kb=<name>` or `/mcp/<name>`) reads the scopes from the context: **empty/nil scopes → always pass** (full access). Otherwise it peeks at the JSON-RPC body (`io.LimitReader` 2MB) to decide whether the request needs `r` or `rw`, then **always restores `r.Body`** (`io.NopCloser` over the read bytes) so the downstream handler re-reads it intact.
 3. r/rw decision: `method != "tools/call"` (initialize, tools/list, ping, ...) → requires `r`; `tools/call` → requires `rw` if the tool is not marked `ReadOnly` (see `ToolRequiresWrite` in `internal/mcpserver/readonly.go`), otherwise `r`. **Fail-closed**: unparsable body or unknown tool → requires `rw`.
 4. Final check with `auth.HasAccess(scopes, kbName, needWrite)`; if denied → `403 forbidden` (`auth.Forbidden`).
 
