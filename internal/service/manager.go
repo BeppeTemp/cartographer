@@ -85,9 +85,7 @@ func (m *Manager) Install(opts InstallOptions) ([]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("service: resolve binary path: %w", err)
 	}
-	if resolved, err := filepath.EvalSymlinks(binPath); err == nil {
-		binPath = resolved
-	}
+	binPath = resolveStableBinPath(binPath)
 
 	configPath, err := opts.resolvedConfigPath()
 	if err != nil {
@@ -97,9 +95,13 @@ func (m *Manager) Install(opts InstallOptions) ([]string, error) {
 		return nil, fmt.Errorf("service: create config dir: %w", err)
 	}
 
+	dataDir := opts.DataDir
 	if _, err := os.Stat(configPath); err == nil {
 		if opts.DataExplicit || opts.HTTPExplicit {
 			warnings = append(warnings, fmt.Sprintf("config %s already exists; --data/--http are ignored (edit the file directly to change them)", configPath))
+		}
+		if cfg, cfgErr := config.Load(configPath); cfgErr == nil && cfg.Data != "" {
+			dataDir = cfg.Data
 		}
 	} else if os.IsNotExist(err) {
 		yamlData := DefaultServerYAML(opts.DataDir, opts.HTTPAddr)
@@ -108,6 +110,15 @@ func (m *Manager) Install(opts InstallOptions) ([]string, error) {
 		}
 	} else {
 		return nil, fmt.Errorf("service: stat config: %w", err)
+	}
+
+	if dataDir != "" {
+		if _, err := os.Stat(dataDir); os.IsNotExist(err) {
+			if err := os.MkdirAll(dataDir, 0o755); err != nil {
+				return nil, fmt.Errorf("service: create data dir: %w", err)
+			}
+			fmt.Fprintf(os.Stderr, "created %s\n", dataDir)
+		}
 	}
 
 	switch goos {
@@ -281,10 +292,7 @@ func (m *Manager) Status(configPath string) (Status, error) {
 		st.ConfigPath = p
 	}
 	if bin, err := osExecutable(); err == nil {
-		if resolved, err := filepath.EvalSymlinks(bin); err == nil {
-			bin = resolved
-		}
-		st.BinPath = bin
+		st.BinPath = resolveStableBinPath(bin)
 	}
 
 	switch goos {

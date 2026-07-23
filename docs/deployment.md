@@ -177,10 +177,11 @@ cartographer service uninstall               # removes the service; config and d
 
 `service install` (idempotent: re-running it rewrites the plist/unit and restarts):
 - generates `~/.config/cartographer/server.yaml` **only if it doesn't exist** (`--config` for a different path; `--data`, default `~/cartographer-data`, and `--http`, default `127.0.0.1:8080`, are only used at generation time — if the config already exists they are ignored with a warning: edit the file and run `service restart`);
-- macOS: LaunchAgent `~/Library/LaunchAgents/com.cartographer.serve.plist` (`KeepAlive`, logging to `~/Library/Logs/cartographer/server.log`);
+- creates the configured data dir if it doesn't exist yet (D83), so a fresh install never leaves `serve` pointed at a missing directory;
+- macOS: LaunchAgent `~/Library/LaunchAgents/com.cartographer.serve.plist` (`KeepAlive`, logging to `~/Library/Logs/cartographer/server.log`). The plist's binary path prefers a stable Homebrew symlink (`/opt/homebrew/bin/cartographer` or `/usr/local/bin/cartographer`) over the versioned Caskroom path, so it survives `brew upgrade` without a re-install (D83);
 - Linux: systemd user unit `~/.config/systemd/user/cartographer.service` (log via `journalctl --user -u cartographer`; on a headless host, `loginctl enable-linger <user>` is needed for the service to survive logout).
 
-Binds to **loopback** by default (`127.0.0.1:8080`) → auth stays in auto-off mode without exposing anything on the network. With an empty data dir the server starts with 0 KBs (`/health` is still up): create a subfolder per KB (or add `kbs:` entries to clone remotes, §Bootstrapping a KB) and `service restart`.
+Binds to **loopback** by default (`127.0.0.1:8080`) → auth stays in auto-off mode without exposing anything on the network. With an empty (or missing — D83: `serve` creates it and treats it as empty rather than failing) data dir the server starts with 0 KBs (`/health` is still up): create a subfolder per KB (or add `kbs:` entries to clone remotes, §Bootstrapping a KB) and `service restart`.
 
 `service status` uses systemctl-like exit codes: `0` running, `3` installed but stopped, `4` not installed — this is what lets `install.sh update` automatically restart only a running service (see §Client installation).
 
