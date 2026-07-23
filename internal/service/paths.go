@@ -13,6 +13,37 @@ var (
 	goos        = runtime.GOOS
 )
 
+// stableBinSymlinks lists the Homebrew-managed symlinks that stay stable
+// across `brew upgrade` (unlike the versioned Caskroom path the binary is
+// actually invoked from). Var so tests can point it at a fake layout.
+var stableBinSymlinks = []string{
+	"/opt/homebrew/bin/cartographer",
+	"/usr/local/bin/cartographer",
+}
+
+// resolveStableBinPath returns the path to record in the generated
+// plist/unit for the given as-invoked binary path. It never resolves
+// symlinks on binPath itself (a resolved Homebrew Caskroom path is
+// version-pinned and breaks on every `brew upgrade`). If one of
+// stableBinSymlinks exists and resolves to the same file as binPath, that
+// stable symlink is preferred; otherwise binPath is returned unchanged.
+func resolveStableBinPath(binPath string) string {
+	target, err := filepath.EvalSymlinks(binPath)
+	if err != nil {
+		target = binPath
+	}
+	for _, candidate := range stableBinSymlinks {
+		resolved, err := filepath.EvalSymlinks(candidate)
+		if err != nil {
+			continue
+		}
+		if resolved == target {
+			return candidate
+		}
+	}
+	return binPath
+}
+
 // ConfigPath returns the standard path of the server YAML config generated
 // and consumed by `cartographer service`: ~/.config/cartographer/server.yaml.
 func ConfigPath() (string, error) {

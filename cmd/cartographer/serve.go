@@ -456,9 +456,19 @@ func resolveAuth(authCfg config.AuthConfig) (bool, error) {
 	}
 }
 
-// discoverKBPaths scans dataDir and returns the paths of its direct subdirectories (dotfiles excluded).
+// discoverKBPaths scans dataDir and returns the paths of its direct
+// subdirectories (dotfiles excluded). A missing dataDir is tolerated: it is
+// created and treated as empty (0 KB, matching D73's "empty data dir" case)
+// rather than failing the whole server startup.
 func discoverKBPaths(dataDir string) ([]string, error) {
 	entries, err := os.ReadDir(dataDir)
+	if os.IsNotExist(err) {
+		if mkErr := os.MkdirAll(dataDir, 0o755); mkErr != nil {
+			return nil, fmt.Errorf("create missing data dir %q: %w", dataDir, mkErr)
+		}
+		fmt.Fprintf(os.Stderr, "data dir %q did not exist, created\n", dataDir)
+		return nil, nil
+	}
 	if err != nil {
 		return nil, fmt.Errorf("read dir %q: %w", dataDir, err)
 	}
