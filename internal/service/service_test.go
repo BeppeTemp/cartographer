@@ -3,6 +3,7 @@ package service
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -155,8 +156,9 @@ func TestInstall_GeneratesConfigAndPlist_Darwin(t *testing.T) {
 	osExecutable = func() (string, error) { return binPath, nil }
 	t.Cleanup(func() { osExecutable = origExecutable })
 
+	dataDir := filepath.Join(home, "cartographer-data")
 	m, stub := newTestManager()
-	warnings, err := m.Install(InstallOptions{DataDir: "/data", HTTPAddr: "127.0.0.1:8080"})
+	warnings, err := m.Install(InstallOptions{DataDir: dataDir, HTTPAddr: "127.0.0.1:8080"})
 	if err != nil {
 		t.Fatalf("Install: %v", err)
 	}
@@ -169,8 +171,11 @@ func TestInstall_GeneratesConfigAndPlist_Darwin(t *testing.T) {
 	if err != nil {
 		t.Fatalf("config not written: %v", err)
 	}
-	if !strings.Contains(string(data), `data: "/data"`) {
-		t.Errorf("config content = %q, want data: \"/data\"", data)
+	if !strings.Contains(string(data), `data: `+strconv.Quote(dataDir)) {
+		t.Errorf("config content = %q, want data: %s", data, strconv.Quote(dataDir))
+	}
+	if _, err := os.Stat(dataDir); err != nil {
+		t.Errorf("data dir not created: %v", err)
 	}
 
 	plistPath := filepath.Join(home, "Library", "LaunchAgents", "com.cartographer.serve.plist")
@@ -189,6 +194,59 @@ func TestInstall_GeneratesConfigAndPlist_Darwin(t *testing.T) {
 	}
 }
 
+// TestInstall_PrefersStableCaskroomSymlink covers the D83 fix: the plist
+// must record the stable Homebrew symlink, not the versioned Caskroom path
+// os.Executable() resolves to (which brew upgrade removes on every version
+// bump, breaking the service until `service install` is re-run).
+func TestInstall_PrefersStableCaskroomSymlink(t *testing.T) {
+	home := withTestHome(t, "darwin")
+
+	// Fake Caskroom layout: the real binary lives under a versioned dir,
+	// and a stable symlink (mirroring /opt/homebrew/bin/cartographer)
+	// points at it.
+	caskDir := filepath.Join(home, "Caskroom", "cartographer", "0.1.0")
+	if err := os.MkdirAll(caskDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	realBin := filepath.Join(caskDir, "cartographer")
+	if err := os.WriteFile(realBin, []byte("x"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	stableSymlink := filepath.Join(home, "bin", "cartographer")
+	if err := os.MkdirAll(filepath.Dir(stableSymlink), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(realBin, stableSymlink); err != nil {
+		t.Fatal(err)
+	}
+
+	origSymlinks := stableBinSymlinks
+	stableBinSymlinks = []string{stableSymlink}
+	t.Cleanup(func() { stableBinSymlinks = origSymlinks })
+
+	origExecutable := osExecutable
+	// os.Executable() as invoked returns the versioned Caskroom path.
+	osExecutable = func() (string, error) { return realBin, nil }
+	t.Cleanup(func() { osExecutable = origExecutable })
+
+	m, _ := newTestManager()
+	if _, err := m.Install(InstallOptions{DataDir: filepath.Join(home, "data"), HTTPAddr: "127.0.0.1:8080"}); err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+
+	plistPath := filepath.Join(home, "Library", "LaunchAgents", "com.cartographer.serve.plist")
+	plist, err := os.ReadFile(plistPath)
+	if err != nil {
+		t.Fatalf("plist not written: %v", err)
+	}
+	if !strings.Contains(string(plist), stableSymlink) {
+		t.Errorf("plist = %q, want it to contain the stable symlink %q", plist, stableSymlink)
+	}
+	if strings.Contains(string(plist), realBin) {
+		t.Errorf("plist = %q, must not contain the versioned Caskroom path %q", plist, realBin)
+	}
+}
+
 func TestInstall_ExistingConfigNotOverwritten_WarnsOnExplicitFlags(t *testing.T) {
 	home := withTestHome(t, "darwin")
 	binDir := t.TempDir()
@@ -200,13 +258,14 @@ func TestInstall_ExistingConfigNotOverwritten_WarnsOnExplicitFlags(t *testing.T)
 
 	configPath := filepath.Join(home, ".config", "cartographer", "server.yaml")
 	os.MkdirAll(filepath.Dir(configPath), 0o755)
-	existing := "http: \":9999\"\ndata: /custom\n"
+	customDataDir := filepath.Join(home, "custom")
+	existing := "http: \":9999\"\ndata: " + customDataDir + "\n"
 	if err := os.WriteFile(configPath, []byte(existing), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
 	m, _ := newTestManager()
-	warnings, err := m.Install(InstallOptions{DataDir: "/data", HTTPAddr: "127.0.0.1:8080", DataExplicit: true})
+	warnings, err := m.Install(InstallOptions{DataDir: filepath.Join(home, "data"), HTTPAddr: "127.0.0.1:8080", DataExplicit: true})
 	if err != nil {
 		t.Fatalf("Install: %v", err)
 	}
@@ -221,10 +280,13 @@ func TestInstall_ExistingConfigNotOverwritten_WarnsOnExplicitFlags(t *testing.T)
 	if string(got) != existing {
 		t.Errorf("existing config was modified: %q", got)
 	}
+	if _, err := os.Stat(customDataDir); err != nil {
+		t.Errorf("existing config's data dir not created: %v", err)
+	}
 }
 
 func TestInstall_Idempotent(t *testing.T) {
-	withTestHome(t, "darwin")
+	home := withTestHome(t, "darwin")
 	binDir := t.TempDir()
 	binPath := filepath.Join(binDir, "cartographer")
 	os.WriteFile(binPath, []byte("x"), 0o755)
@@ -233,7 +295,7 @@ func TestInstall_Idempotent(t *testing.T) {
 	t.Cleanup(func() { osExecutable = origExecutable })
 
 	m, _ := newTestManager()
-	opts := InstallOptions{DataDir: "/data", HTTPAddr: "127.0.0.1:8080"}
+	opts := InstallOptions{DataDir: filepath.Join(home, "data"), HTTPAddr: "127.0.0.1:8080"}
 	if _, err := m.Install(opts); err != nil {
 		t.Fatalf("first Install: %v", err)
 	}

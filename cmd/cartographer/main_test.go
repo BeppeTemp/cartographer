@@ -49,10 +49,22 @@ func TestDiscoverKBPaths(t *testing.T) {
 	}
 }
 
-func TestDiscoverKBPathsNonexistent(t *testing.T) {
-	_, err := discoverKBPaths("/nonexistent/path/that/does/not/exist")
-	if err == nil {
-		t.Fatal("expected error for nonexistent directory, got nil")
+// TestDiscoverKBPathsMissingDirCreated covers the D83 fix: a missing data
+// dir must not fail server startup (launchd install races data dir
+// creation with the first serve, and a removed data dir must not
+// crash-loop the service). It is created and treated as empty.
+func TestDiscoverKBPathsMissingDirCreated(t *testing.T) {
+	base := filepath.Join(t.TempDir(), "does-not-exist-yet")
+
+	got, err := discoverKBPaths(base)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("expected empty result, got %v", got)
+	}
+	if info, statErr := os.Stat(base); statErr != nil || !info.IsDir() {
+		t.Fatalf("expected data dir to be created at %q, stat: %v", base, statErr)
 	}
 }
 
