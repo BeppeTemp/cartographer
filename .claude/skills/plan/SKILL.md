@@ -32,6 +32,10 @@ Claude-side glue.
    sequentially, never in parallel). Amend a plan by editing the issue body
    while nothing is implemented yet; once implementation starts, amend via
    comments only.
+7. Sibling cross-links: create the issues in execution order, then amend each
+   body to reference siblings as `D<n> (#<issue>)` — the numbers exist only
+   after creation. A pointer into a sibling's not-yet-implemented artifact
+   cites the plan (`D<n> WP<m>`), never an invented `file:line`.
 
 ## Consuming a plan (implementing session)
 
