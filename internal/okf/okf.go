@@ -128,9 +128,14 @@ func ExtractSection(body string, heading string) (string, bool) {
 		targetTitle = strings.TrimSpace(heading[targetLevel:])
 	}
 
+	headingEligible := headingEligibleLines(lines)
+
 	startIdx := -1
 	foundLevel := 0
 	for i, line := range lines {
+		if !headingEligible[i] {
+			continue
+		}
 		level, title := parseHeading(line)
 		if level == 0 {
 			continue
@@ -183,8 +188,13 @@ func ListHeadings(body string) []Heading {
 		title    string
 		startIdx int // index into lines right after the heading line
 	}
+	headingEligible := headingEligibleLines(lines)
+
 	var raws []raw
 	for i, line := range lines {
+		if !headingEligible[i] {
+			continue
+		}
 		level, title := parseHeading(line)
 		if level == 0 {
 			continue
@@ -209,6 +219,49 @@ func ListHeadings(body string) []Heading {
 		})
 	}
 	return headings
+}
+
+// fenceMarkers are the recognized code-fence delimiters (pragmatic CommonMark subset).
+var fenceMarkers = [...]string{"```", "~~~"}
+
+// headingEligibleLines returns, for each line, whether it may be parsed as a heading.
+// Shared by ListHeadings, ExtractSection and SectionHashes so the three consumers agree
+// on section boundaries. A line whose trimmed content starts with one of fenceMarkers
+// toggles fence state: the opening line (which may carry an info string) and every line
+// up to and including the matching closing fence (same marker) are ineligible. An
+// unclosed fence extends to the end of the document — the rest of the body is treated
+// as fenced content rather than falling back to heading parsing.
+func headingEligibleLines(lines []string) []bool {
+	eligible := make([]bool, len(lines))
+	inFence := false
+	fenceMarker := ""
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if inFence {
+			if strings.HasPrefix(trimmed, fenceMarker) {
+				inFence = false
+			}
+			continue
+		}
+		if marker := fenceOpenMarker(trimmed); marker != "" {
+			inFence = true
+			fenceMarker = marker
+			continue
+		}
+		eligible[i] = true
+	}
+	return eligible
+}
+
+// fenceOpenMarker returns the fence marker ("```" or "~~~") if the trimmed line opens
+// a code fence, or "" otherwise. The remainder of the line (info string) is ignored.
+func fenceOpenMarker(trimmed string) string {
+	for _, m := range fenceMarkers {
+		if strings.HasPrefix(trimmed, m) {
+			return m
+		}
+	}
+	return ""
 }
 
 // parseHeading parses a markdown line and returns the heading level (1-6) and title.
@@ -289,8 +342,13 @@ func SectionHashes(content string) map[string]string {
 		headIdx int // index of the heading line in lines
 	}
 
+	headingEligible := headingEligibleLines(lines)
+
 	var sections []section
 	for i, line := range lines {
+		if !headingEligible[i] {
+			continue
+		}
 		level, title := parseHeading(line)
 		if level == 1 || level == 2 {
 			sections = append(sections, section{title: title, level: level, headIdx: i})
