@@ -39,6 +39,7 @@ hooks); `connect`/`sync` print an info line for each one.
 ```bash
 cartographer connect                                   # all agents detected on the machine
 cartographer connect claude                             # Claude Code only
+cartographer connect --agents claude,codex              # selected subset
 cartographer connect opencode --server-url http://cartographer.example.com/mcp --auth
 cartographer connect all --auto-trust --dry-run
 ```
@@ -46,6 +47,7 @@ cartographer connect all --auto-trust --dry-run
 | Flag | Default | Description |
 |------|---------|-------------|
 | (positional) | `all` | `claude` \| `opencode` \| `codex` \| `kiro` \| `all` (all detected agents) |
+| `--agents` | *(unset)* | Comma-separated subset (`claude,codex`); cannot be combined with the positional provider |
 | `--server-url` | `http://localhost:8080/mcp` | Cartographer server URL |
 | `--auth` | `false` | Enables the Bearer header in generated configs |
 | `--token-env` | `CARTOGRAPHER_TOKENS` | Env var holding the Bearer token |
@@ -55,14 +57,16 @@ cartographer connect all --auto-trust --dry-run
 If no provider is detected and no explicit name is passed, the command exits with an error
 (exit 1) without writing anything.
 
-**Interactive form (TTY, D49+D64).** With no form flags and in a TTY, the form shared with the
+**Interactive form (TTY, D49+D64+D86).** With no form flags and in a TTY, the form shared with the
 TUI opens (`connectform.go`): each field shows a contextual hint below it when focused
 ("Token env var" is the **name** of the environment variable holding the bearer token — the token
 itself is never written to disk; with Auth off the field is rendered secondary and the hint says it is
-ignored). The Server URL prefill follows the precedence existing `.cartographer.yaml` >
+ignored). In the standalone `connect` form, the four provider checkboxes are pre-selected from the
+installed-agent set; select one or more with Space or Enter. The Server URL prefill follows the precedence existing `.cartographer.yaml` >
 `CARTOGRAPHER_SERVER_URL` (client env) > `http://localhost:8080/mcp`. On submit a **probe** runs
-(`client.Ping`, JSON-RPC `ping`, 5s timeout, token from env only if Auth is enabled) before writing
-any file: on failure the form is re-shown with the entered values and an inline error
+(`client.Health`, `GET /health`, 5s timeout, token from env only if Auth is enabled) before writing
+any file: a reachable server with no mounted KB explains the `kb create` then service-restart path;
+otherwise on failure the form is re-shown with the entered values and an inline error
 (distinguishing a 401 "token rejected" from a network error), with an override available — in CLI a
 `y/N` prompt "proceed anyway?", in the TUI a second consecutive Connect with no changes forces the
 connection. A failed `doConnect` also re-shows the form populated (connect is idempotent: no
@@ -73,7 +77,10 @@ and the native service isn't running, before the `y/N` override the CLI flow off
 install and start the local service (`cartographer service install` with defaults, polling
 `/health` for up to 10s, then an automatic re-probe). In the non-interactive path, a deferred
 materialization to a loopback URL only adds a hint on stderr suggesting
-`cartographer service install`.
+`cartographer service install` when unreachable; a reachable 0-KB server instead prints
+`cartographer kb create <name>` followed by `cartographer service restart`. A successful connect
+prints the absolute paths of generated MCP configs and reminds the user to restart the selected
+agent sessions to load the MCP tools.
 
 ### `cartographer disconnect [provider|all]`
 
@@ -91,12 +98,14 @@ preserving `server_url`/`server_name`/`auth`/`token_env`/`trust`/`kbs` as defaul
 ```bash
 cartographer disconnect                # every connected provider
 cartographer disconnect claude         # Claude Code only
+cartographer disconnect --agents claude,codex # selected subset
 cartographer disconnect all --dry-run  # preview without writing
 ```
 
 | Flag | Default | Description |
 |------|---------|-------------|
 | (positional) | `all` | `claude` \| `opencode` \| `codex` \| `kiro` \| `all` (every connected provider) |
+| `--agents` | *(unset)* | Comma-separated subset (`claude,codex`); cannot be combined with the positional provider |
 | `--dry-run` | `false` | Prints without removing |
 
 Idempotent: exit 0 even if there was nothing to remove (no `.cartographer.yaml`, provider
