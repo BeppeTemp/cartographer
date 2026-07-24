@@ -14,6 +14,7 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/config"
+	"github.com/BeppeTemp/cartographer/internal/gitx"
 	"github.com/BeppeTemp/cartographer/internal/kb"
 	"github.com/BeppeTemp/cartographer/internal/service"
 )
@@ -46,8 +47,10 @@ func cmdKB(args []string) int {
 	switch target {
 	case "create":
 		return cmdKBCreate(rest)
+	case "clone":
+		return cmdKBClone(rest)
 	default:
-		fmt.Fprintln(os.Stderr, "Error: usage: cartographer kb create <name> [--data <dir>] [--restart]")
+		fmt.Fprintln(os.Stderr, "Error: usage: cartographer kb create <name> [--data <dir>] [--restart]\n       cartographer kb clone <remote> [name] [--data <dir>] [--restart]")
 		return 2
 	}
 }
@@ -122,6 +125,70 @@ func cmdKBCreate(args []string) int {
 	}
 	fmt.Printf("KB %q created at %s\n", name, path)
 
+	printPostCreateGuidanceFn(*restartFlag)
+	return 0
+}
+
+// cmdKBClone implements `cartographer kb clone <remote> [name] [--data <dir>]
+// [--restart]`: mounts a remote KB in the local service data directory. A
+// failed clone or a clone that is not an OKF KB is removed, so auto-discovery
+// never mistakes an unusable directory for a mountable KB.
+func cmdKBClone(args []string) int {
+	remote, rest := splitPositional(args, "")
+	name, rest := splitPositional(rest, "")
+
+	fs := flag.NewFlagSet("kb clone", flag.ExitOnError)
+	dataFlag := fs.String("data", "", "KB data directory (default: the server config's data:, or "+defaultDataDir()+")")
+	restartFlag := fs.Bool("restart", false, "Restart the local service and wait until healthy after mounting the KB")
+	fs.Parse(rest)
+
+	if remote == "" || fs.NArg() != 0 {
+		fmt.Fprintln(os.Stderr, "Usage: cartographer kb clone <remote> [name] [--data <dir>] [--restart]")
+		return 2
+	}
+	if name == "" {
+		name = remoteKBName(remote)
+	}
+	if err := validateKBName(name); err != nil {
+		fmt.Fprintln(os.Stderr, "Error:", err)
+		return 2
+	}
+
+	dataDir := *dataFlag
+	if dataDir == "" {
+		dataDir = resolveServerDataDir()
+	}
+	path := filepath.Join(dataDir, name)
+	if _, err := os.Stat(path); err == nil {
+		fmt.Fprintf(os.Stderr, "Error: %s already exists\n", path)
+		return 1
+	} else if !os.IsNotExist(err) {
+		fmt.Fprintln(os.Stderr, "Error:", err)
+		return 1
+	}
+	if err := os.MkdirAll(dataDir, 0o755); err != nil {
+		fmt.Fprintln(os.Stderr, "Error:", err)
+		return 1
+	}
+
+	cloned := false
+	defer func() {
+		if !cloned {
+			_ = os.RemoveAll(path)
+		}
+	}()
+	if err := gitx.Clone(remote, path); err != nil {
+		fmt.Fprintln(os.Stderr, "Error:", err)
+		fmt.Fprintln(os.Stderr, "Hint: authenticate git with your SSH agent or credential helper, then retry.")
+		return 1
+	}
+	if _, err := kb.Open(path); err != nil {
+		fmt.Fprintln(os.Stderr, "Error: not an OKF KB — import it with the kb-import skill, push, then retry")
+		return 1
+	}
+
+	cloned = true
+	fmt.Printf("KB %q mounted at %s\n", name, path)
 	printPostCreateGuidanceFn(*restartFlag)
 	return 0
 }

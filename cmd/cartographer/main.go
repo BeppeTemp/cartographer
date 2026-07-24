@@ -22,7 +22,7 @@ type subcommand struct {
 // subcommands lists every subcommand for the usage output.
 var subcommands = []subcommand{
 	{"serve", "Run the MCP server (stdio or HTTP)"},
-	{"kb", "Create and manage local KBs (kb create <name>)"},
+	{"kb", "Create or mount local KBs (kb create|clone)"},
 	{"version", "Print the build version"},
 	{"help", "Show this help message"},
 	{"agents", "List detected/connected agent clients on this machine"},
