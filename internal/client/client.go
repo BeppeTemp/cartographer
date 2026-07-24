@@ -36,9 +36,34 @@ type MCPClient struct {
 // distinguish an older server that did not send either field from an explicit
 // false/empty value.
 type Health struct {
-	Status string             `json:"status"`
-	Ready  *bool              `json:"ready"`
-	KBs    *[]json.RawMessage `json:"kbs"`
+	Status string      `json:"status"`
+	Ready  *bool       `json:"ready"`
+	KBs    *[]HealthKB `json:"kbs"`
+}
+
+// HealthKB is the additive per-KB item returned by a MultiKB server's
+// /health endpoint. A single-KB (and older) server omits the kbs field
+// altogether, which callers distinguish through Health.KBs being nil.
+type HealthKB struct {
+	Name string `json:"name"`
+}
+
+// UnmarshalJSON accepts the current {"name":"..."} health shape and the
+// short string array used by early multi-KB builds. Keeping both shapes makes
+// client enumeration additive in the same way the optional kbs field is.
+func (k *HealthKB) UnmarshalJSON(data []byte) error {
+	var name string
+	if err := json.Unmarshal(data, &name); err == nil {
+		k.Name = name
+		return nil
+	}
+	type wire HealthKB
+	var value wire
+	if err := json.Unmarshal(data, &value); err != nil {
+		return err
+	}
+	*k = HealthKB(value)
+	return nil
 }
 
 // New creates an MCPClient for serverURL with an optional bearer token.

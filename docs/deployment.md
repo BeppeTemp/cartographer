@@ -256,6 +256,12 @@ If both `/mcp/<name>` and `?kb=` are present and disagree, the request is reject
 conflicting kb selection` rather than silently picking one; an unknown `<name>` (either form) is
 `404 unknown kb`.
 
+For a client connected to a multi-KB server, `cartographer connect` and `cartographer sync` use
+the query form deliberately: they create one provider MCP entry per mounted KB,
+`<server_name>-<kb> → /mcp?kb=<kb>`. This makes the selected KB explicit to every current client
+without requiring a client to understand path routing. A one-KB server remains a single bare
+`<server_name> → /mcp` entry for backwards compatibility.
+
 ### Runtime secrets
 
 Git credentials, MCP tokens, **and** the age/SOPS key (`SOPS_AGE_KEY_FILE`/`SOPS_AGE_KEY_CMD`, or an IAM role for KMS) are runtime secrets — **never** in the bundles. The same applies to the bootstrap SSH key (`git.ssh_key`): always from a mounted Secret/volume, never in the ConfigMap nor in the committed YAML file.

@@ -33,6 +33,46 @@ func cmdSync(args []string) int {
 		return 0
 	}
 
+	// Reconcile the provider MCP entries from the mounted KB list before
+	// sync_pull. On an unreachable server no local entry or persisted KB list
+	// changes; fetchMergedManifest below then reports the ordinary sync error.
+	kbs, listed, healthErr := enumerateKBs(cfg.ServerURL, cfg.Auth, cfg.TokenEnv)
+	if healthErr != nil {
+		fmt.Fprintf(os.Stderr, "Warning: MCP entry reconciliation skipped, server unreachable: %v\n", healthErr)
+	} else {
+		entryKBs := kbs
+		if !listed {
+			entryKBs = nil
+		}
+		entries, err := entriesForKBs(cfg.ServerName, cfg.ServerURL, entryKBs)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "Error:", err)
+			return 2
+		}
+		if _, err := removeMCPEntries(cfg.ServerName, cfg.KBs, cfg.Agents, dir, cfg.Auth, cfg.TokenEnv, *dryRun); err != nil {
+			fmt.Fprintln(os.Stderr, "Error:", err)
+			return 2
+		}
+		if _, err := applyMCPEntries(entries, cfg.Agents, dir, cfg.Auth, cfg.TokenEnv, *dryRun); err != nil {
+			fmt.Fprintln(os.Stderr, "Error:", err)
+			return 2
+		}
+		for _, name := range entryNames(entries) {
+			if *dryRun {
+				fmt.Printf("[dry-run] would write MCP entry %s\n", name)
+			} else {
+				fmt.Printf("wrote MCP entry %s\n", name)
+			}
+		}
+		if !*dryRun {
+			cfg.KBs = kbs
+			if err := clientconfig.Save(dir, cfg); err != nil {
+				fmt.Fprintln(os.Stderr, "Error:", err)
+				return 2
+			}
+		}
+	}
+
 	// The bootstrap hook (D60) is purely local — it must be guaranteed even if
 	// the manifest fetch below fails (server temporarily down): it is precisely
 	// the hook that, on the next session, will kick off a successful sync.

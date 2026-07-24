@@ -36,6 +36,16 @@ server is up. Materialized hooks are also **automatically registered** in the
 provider's native mechanism (`settings.json` / `config.toml` / JS plugin — `sync.md` §Agents and
 hooks); `connect`/`sync` print an info line for each one.
 
+**Multi-KB servers (D92).** `connect` reads `GET /health` before emitting MCP
+configuration. With one mounted KB (or an older single-KB server that omits
+`kbs`) it keeps the compatible single entry, `<server_name>`, pointed at the
+bare `/mcp` URL. With two or more KBs it writes one entry per KB, named
+`<server_name>-<kb>` and pointed at `/mcp?kb=<kb>`, and records that KB list in
+`.cartographer.yaml`. `sync` repeats the enumeration: it adds new entries,
+removes entries for disappeared KBs, and performs the bare↔suffixed rename on
+one-to-many transitions. If the server cannot be reached, it leaves the MCP
+entries and `kbs` list untouched and warns; run `sync` again once it is up.
+
 ```bash
 cartographer connect                                   # all agents detected on the machine
 cartographer connect claude                             # Claude Code only
@@ -85,7 +95,8 @@ agent sessions to load the MCP tools.
 ### `cartographer disconnect [provider|all]`
 
 The inverse of `connect`: for each target provider — default `all` = every provider **connected**
-in `.cartographer.yaml` — it surgically removes only the MCP server entry from that provider's
+in `.cartographer.yaml` — it surgically removes every managed MCP server entry (the bare name and
+any persisted per-KB suffixed names) from that provider's
 config file (`internal/configurator.Remove`, the inverse non-destructive merge: the rest of the
 file is left intact; if the `mcpServers`/`mcp` map ends up empty it is not deleted), prunes the
 managed artifacts registered for that provider in the lockfile (`provisioning.PruneManaged` — only
@@ -307,7 +318,7 @@ server_name: cartographer  # name under which the server is registered in the MC
 auth: false
 token_env: CARTOGRAPHER_TOKENS
 agents: [claude, opencode]
-kbs: []          # optional: KB names to sync (empty = the default single-KB endpoint)
+kbs: []          # mounted KB names discovered by connect/sync; empty = bare single-KB endpoint
 search_roots: ["~/Documents"]   # where repoindex.Scan looks for git clones for {{repo:<key>}} (D75)
 paths: {}                       # manual name -> path mapping for {{path:<name>}} (and an override for {{repo:<key>}}, D75)
 ```

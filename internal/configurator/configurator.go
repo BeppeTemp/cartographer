@@ -21,7 +21,6 @@ type ServerConfig struct {
 	URL         string
 	AuthEnabled bool
 	TokenEnv    string
-	KBNames     []string
 }
 
 // DefaultConfig returns a ServerConfig with reasonable defaults.
@@ -31,7 +30,6 @@ func DefaultConfig() *ServerConfig {
 		URL:         "http://localhost:8080/mcp",
 		AuthEnabled: false,
 		TokenEnv:    "CARTOGRAPHER_TOKENS",
-		KBNames:     []string{},
 	}
 }
 

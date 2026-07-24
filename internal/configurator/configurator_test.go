@@ -23,9 +23,6 @@ func TestDefaultConfig(t *testing.T) {
 	if cfg.TokenEnv == "" {
 		t.Error("TokenEnv should have a default value")
 	}
-	if cfg.KBNames == nil {
-		t.Error("KBNames should be initialized (not nil)")
-	}
 }
 
 func TestEmitClaudeCode(t *testing.T) {
@@ -71,9 +68,8 @@ func TestEmitClaudeCode(t *testing.T) {
 
 func TestEmitAll(t *testing.T) {
 	cfg := &configurator.ServerConfig{
-		Name:    "wiki",
-		URL:     "http://localhost:8080/mcp",
-		KBNames: []string{},
+		Name: "wiki",
+		URL:  "http://localhost:8080/mcp",
 	}
 	results, err := configurator.EmitAll(cfg)
 	if err != nil {
@@ -176,9 +172,8 @@ func TestEmitOpenCode_HTTP_Auth(t *testing.T) {
 
 func TestApplyDryRun(t *testing.T) {
 	cfg := &configurator.ServerConfig{
-		Name:    "wiki",
-		URL:     "http://localhost:8080/mcp",
-		KBNames: []string{},
+		Name: "wiki",
+		URL:  "http://localhost:8080/mcp",
 	}
 	results, err := configurator.EmitAll(cfg)
 	if err != nil {
@@ -360,9 +355,8 @@ func TestRemove_DryRunDoesNotWrite(t *testing.T) {
 
 func TestApplyWrite(t *testing.T) {
 	cfg := &configurator.ServerConfig{
-		Name:    "wiki",
-		URL:     "http://localhost:8080/mcp",
-		KBNames: []string{},
+		Name: "wiki",
+		URL:  "http://localhost:8080/mcp",
 	}
 	results, err := configurator.EmitAll(cfg)
 	if err != nil {
