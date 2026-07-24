@@ -14,7 +14,6 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/client"
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
-	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
 	"github.com/BeppeTemp/cartographer/internal/service"
 )
@@ -387,6 +386,13 @@ func cmdConnect(args []string) int {
 // factored out so both the non-interactive path and the interactive retry
 // loop in cmdConnect (D64) share exactly one rendering of a successful result.
 func printConnectResult(dir string, providers []string, opts connectOptions, res connectResult) {
+	for _, entry := range res.MCPEntries {
+		if opts.DryRun {
+			fmt.Printf("[dry-run] would write MCP entry %s\n", entry)
+		} else {
+			fmt.Printf("wrote MCP entry %s\n", entry)
+		}
+	}
 	for _, p := range res.ConfigsWritten {
 		if opts.DryRun {
 			fmt.Printf("[dry-run] would write %s\n", p)
@@ -444,6 +450,7 @@ type connectResult struct {
 	Deferred       bool
 	DeferredErr    error
 	ConfigsWritten []string
+	MCPEntries     []string
 }
 
 // doConnect runs the connect flow for opts.Providers against opts.Dir: writes the
@@ -456,19 +463,28 @@ func doConnect(opts connectOptions) (connectResult, error) {
 		return connectResult{}, fmt.Errorf("no providers to connect")
 	}
 
-	// 1. Generate + apply MCP configs (HTTP only).
-	scfg := &configurator.ServerConfig{Name: opts.Name, URL: opts.ServerURL, AuthEnabled: opts.Auth, TokenEnv: opts.TokenEnv}
-	var configsWritten []string
-	for _, p := range opts.Providers {
-		r, err := configurator.Emit(scfg, configurator.Provider(p))
-		if err != nil {
-			return connectResult{}, fmt.Errorf("emit %s: %w", p, err)
-		}
-		written, err := configurator.Apply([]*configurator.EmitResult{r}, opts.Dir, opts.DryRun)
-		if err != nil {
-			return connectResult{}, fmt.Errorf("write config for %s: %w", p, err)
-		}
-		configsWritten = append(configsWritten, written...)
+	// 1. Discover mounted KBs before generating MCP entries. A down server
+	// deliberately falls back to the historical bare entry, so connection can
+	// still be recorded and materialized later with `cartographer sync`.
+	existing, err := clientconfig.Load(opts.Dir)
+	if err != nil {
+		existing = clientconfig.Default()
+	}
+	kbs, healthListed, healthErr := enumerateKBs(opts.ServerURL, opts.Auth, opts.TokenEnv)
+	entryKBs := kbs
+	if healthErr != nil || !healthListed {
+		entryKBs = nil
+	}
+	entries, err := entriesForKBs(opts.Name, opts.ServerURL, entryKBs)
+	if err != nil {
+		return connectResult{}, err
+	}
+	if _, err := removeMCPEntries(opts.Name, existing.KBs, opts.Providers, opts.Dir, opts.Auth, opts.TokenEnv, opts.DryRun); err != nil {
+		return connectResult{}, err
+	}
+	configsWritten, err := applyMCPEntries(entries, opts.Providers, opts.Dir, opts.Auth, opts.TokenEnv, opts.DryRun)
+	if err != nil {
+		return connectResult{}, err
 	}
 
 	// 1b. Ensure the bootstrap hook (D60): purely local, independent of the
@@ -480,13 +496,13 @@ func doConnect(opts connectOptions) (connectResult, error) {
 	}
 
 	// 2. Materialize skills via sync_pull (best-effort: a deferred sync is not fatal).
-	existing, err := clientconfig.Load(opts.Dir)
-	if err != nil {
-		existing = clientconfig.Default()
+	pullKBs := existing.KBs
+	if healthErr == nil {
+		pullKBs = kbs
 	}
-	pullCfg := &clientconfig.Config{ServerURL: opts.ServerURL, ServerName: opts.Name, Auth: opts.Auth, TokenEnv: opts.TokenEnv, KBs: existing.KBs}
+	pullCfg := &clientconfig.Config{ServerURL: opts.ServerURL, ServerName: opts.Name, Auth: opts.Auth, TokenEnv: opts.TokenEnv, KBs: pullKBs}
 
-	res := connectResult{Providers: opts.Providers, ConfigsWritten: configsWritten}
+	res := connectResult{Providers: opts.Providers, ConfigsWritten: configsWritten, MCPEntries: entryNames(entries)}
 	if m, err := fetchMergedManifest(pullCfg); err != nil {
 		res.Deferred = true
 		res.DeferredErr = err
@@ -500,6 +516,9 @@ func doConnect(opts connectOptions) (connectResult, error) {
 
 	// 3. Persist .cartographer.yaml.
 	existing.ServerURL, existing.ServerName, existing.Auth, existing.TokenEnv, existing.Trust = opts.ServerURL, opts.Name, opts.Auth, opts.TokenEnv, opts.Trust
+	if healthErr == nil {
+		existing.KBs = kbs
+	}
 	for _, p := range opts.Providers {
 		existing.AddAgent(p)
 	}

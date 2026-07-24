@@ -243,6 +243,7 @@ func printPostCreateGuidance(restart bool) {
 
 	if !restart {
 		fmt.Println("Restart the service to mount it: cartographer service restart")
+		fmt.Println("On connected client machines, run: cartographer sync")
 		return
 	}
 

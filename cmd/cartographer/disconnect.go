@@ -7,7 +7,6 @@ import (
 	"os"
 
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
-	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
 )
 
@@ -120,8 +119,6 @@ func doDisconnect(opts disconnectOptions) (disconnectResult, error) {
 	if err != nil {
 		cfg = clientconfig.Default()
 	}
-	scfg := &configurator.ServerConfig{Name: cfg.ServerName, URL: cfg.ServerURL, AuthEnabled: cfg.Auth, TokenEnv: cfg.TokenEnv}
-
 	lockPath := lockFilePath(opts.Dir)
 	lockFile, err := provisioning.ReadLockFile(lockPath)
 	if err != nil {
@@ -131,11 +128,11 @@ func doDisconnect(opts disconnectOptions) (disconnectResult, error) {
 	for _, p := range opts.Providers {
 		pr := disconnectProviderResult{Provider: p}
 
-		removed, err := configurator.Remove(scfg, configurator.Provider(p), opts.Dir, opts.DryRun)
+		removed, err := removeMCPEntries(cfg.ServerName, cfg.KBs, []string{p}, opts.Dir, cfg.Auth, cfg.TokenEnv, opts.DryRun)
 		if err != nil {
 			return disconnectResult{}, fmt.Errorf("remove config for %s: %w", p, err)
 		}
-		pr.ConfigRemoved = removed
+		pr.ConfigRemoved = removed[p]
 
 		lock := lockFile.ForProvider(p)
 		pruned, err := provisioning.PruneManaged(lock.Managed, opts.Dir, opts.DryRun)
