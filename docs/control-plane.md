@@ -41,7 +41,7 @@ Tools marked **[A]** (advanced, `advancedToolNames` in `internal/mcpserver/visib
 
 | Tool | Purpose |
 |---|---|
-| `search(query, [scope], [use_semantic])` **[R]** | Keyword or hybrid (keyword + vector) search. `use_semantic=true` requires Ollama to be configured. Every hit includes `title` (from the frontmatter) and `snippet` (an excerpt of ~200 chars around the match; FTS5 uses its native `snippet()`, otherwise it's extracted in-memory) — avoids a `concept_read` just to judge a hit's relevance (D70). |
+| `search(query, [scope], [mode])` **[R]** | Keyword, semantic, or hybrid (keyword + vector) search. `mode` is `keyword` (default), `semantic`, or `hybrid`; semantic/hybrid require Ollama to be configured. `use_semantic=true` remains a deprecated alias for `mode=hybrid`. Keyword matching first requires all query terms, then retries with any term if that returns no hits. Every hit includes `title` (from the frontmatter) and `snippet` (an excerpt of ~200 chars around the match; FTS5 uses its native `snippet()`, otherwise it's extracted in-memory) — avoids a `concept_read` just to judge a hit's relevance (D70). |
 | `index_rebuild()` **[R]** **[A]** | Rebuilds the keyword index (in-memory and FTS5 if present) and the embeddings if Ollama is active (with a content-hash cache). Read-only: it mutates only the derived/gitignored index, never KB content (D45). |
 
 ### Writing and ingest
@@ -109,7 +109,7 @@ See `docs/sync.md` for the full model (Manifest, Lock, Diff, layered triggers).
 
 Semantic search is available when the server is started with `--ollama <url>` (or `CARTOGRAPHER_OLLAMA=<url>`). In that case:
 
-- The `search` tool accepts `use_semantic=true` to combine keyword + cosine similarity (hybrid mode).
+- The `search` tool accepts `mode=semantic` or `mode=hybrid` to use vector similarity; `use_semantic=true` remains a deprecated alias for `mode=hybrid`.
 - The `index_rebuild` tool rebuilds the keyword index and per-concept embeddings.
 - The model is configurable via `CARTOGRAPHER_OLLAMA_MODEL` (default: `nomic-embed-text`).
 - If Ollama is unreachable or embedding fails, keyword search is always available as a fallback.
@@ -119,7 +119,7 @@ Semantic search is available when the server is started with `--ollama <url>` (o
 **Rebuildable index** (*vault = truth, index = disposable*), with two persistence levels:
 
 - **In-memory (default/Core)**: a pure-Go keyword inverted index (`internal/search`) + an in-memory vector store (`internal/embed`). Rebuilt on every startup by walking the concepts.
-- **Persisted SQLite (`internal/sqlindex`, D32)**: when the KB has an openable `.cartographer/index.db`, keyword search uses **FTS5 with a trigram tokenizer** (supports substrings, not just whole words) and embeddings are persisted in SQLite with a **content-hash cache** — `index_rebuild` recomputes Ollama embeddings only for concepts whose hash changed. On this path, the `search` response's `mode` field is `keyword_fts5`/`hybrid_fts5`. Best-effort: if the DB can't be opened or FTS5 is unavailable, it degrades to the in-memory path.
+- **Persisted SQLite (`internal/sqlindex`, D32)**: when the KB has an openable `.cartographer/index.db`, keyword search uses **FTS5 with a trigram tokenizer** (supports substrings, not just whole words). Multi-term matching tries all terms first, then any term only if the all-terms search is empty; terms shorter than three characters are omitted from the FTS match. Embeddings are persisted in SQLite with a **content-hash cache** — `index_rebuild` recomputes Ollama embeddings only for concepts whose hash changed. On this path, the `search` response's `mode` field is `keyword_fts5`/`hybrid_fts5`. Best-effort: if the DB can't be opened or FTS5 is unavailable, it degrades to the in-memory path.
 - **Semantic**: embedding vectors (e.g. Ollama), cosine similarity outside SQL. Independent commit: if the embedder is down, keyword search still moves forward. Embedder-identity guard: full re-embedding if the model changes (content-hash invalidates the cache).
 
 At small scale `index.md` alone can be enough, and keyword search beats embeddings on cost; semantic search is nonetheless active from the start in the Server profile and scales with the wiki.

@@ -79,6 +79,65 @@ func TestUpsertAndSearchFTS(t *testing.T) {
 	}
 }
 
+func TestSearchFTS_MultiTermFallback(t *testing.T) {
+	ix, err := Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer ix.Close()
+	if err := ix.Upsert("both", "h1", "karpenter handles cluster downscaler work"); err != nil {
+		t.Fatalf("Upsert both: %v", err)
+	}
+	if err := ix.Upsert("first", "h2", "karpenter provisions nodes"); err != nil {
+		t.Fatalf("Upsert first: %v", err)
+	}
+	if err := ix.Upsert("second", "h3", "downscaler schedules maintenance"); err != nil {
+		t.Fatalf("Upsert second: %v", err)
+	}
+
+	hits, err := ix.SearchFTS("karpenter downscaler", "", 10)
+	if err != nil {
+		t.Fatalf("SearchFTS AND: %v", err)
+	}
+	if len(hits) != 1 || hits[0].ID != "both" {
+		t.Fatalf("AND search got %+v, want only both", hits)
+	}
+
+	hits, err = ix.SearchFTS("provisions maintenance", "", 10)
+	if err != nil {
+		t.Fatalf("SearchFTS OR fallback: %v", err)
+	}
+	if len(hits) != 2 {
+		t.Fatalf("OR fallback got %+v, want 2 hits", hits)
+	}
+}
+
+func TestSearchFTS_ShortTokensAndSingleTerm(t *testing.T) {
+	ix, err := Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer ix.Close()
+	if err := ix.Upsert("c", "h", "api gateway kubernetes"); err != nil {
+		t.Fatalf("Upsert: %v", err)
+	}
+
+	hits, err := ix.SearchFTS("an kubernetes", "", 10)
+	if err != nil {
+		t.Fatalf("SearchFTS short token: %v", err)
+	}
+	if len(hits) != 1 || hits[0].ID != "c" {
+		t.Fatalf("short-token search got %+v, want c", hits)
+	}
+	hits, err = ix.SearchFTS("api", "", 10)
+	if err != nil {
+		t.Fatalf("SearchFTS single term: %v", err)
+	}
+	if len(hits) != 1 || hits[0].ID != "c" {
+		t.Fatalf("single-term search got %+v, want c", hits)
+	}
+}
+
 func TestUpsertUpdate(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "test.db")
 	ix, err := Open(path)
