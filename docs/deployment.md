@@ -60,14 +60,14 @@ kbs:                          # (kbs[]) explicit KBs, local path or remote git (
                                                       # does not imply it
 git:
   autocommit: true            # (git.autocommit) commit after every write
-  sync: true                  # (git.sync) fetch/pull-rebase+push if the KB has a remote
+  sync: true                  # (git.sync) read/write fetch/pull-rebase + post-write push if the KB has a remote
   ssh_key: /etc/kb-ssh/id_ed25519      # (git.ssh_key) default SSH identity for cloning kbs[] remotes
   known_hosts: /etc/kb-ssh/known_hosts # (git.known_hosts) host verification for the same clone
   author_name: cartographer            # (git.author_name) default author/committer (final fallback)
   author_email: cartographer@localhost # (git.author_email)
   token_dir: /etc/kb-git-tokens         # (git.token_dir) directory <token_dir>/<name>.token (D53, see below)
   in_window: 30s                # (git.in_window) SyncIn freshness window: within this duration
-                                # since the last successful fetch+pull, subsequent writes skip it
+                                # since the last successful fetch+pull, subsequent reads and writes skip it
                                 # (no-op). Default 30s, 0 = sync on every write (D76)
   out_debounce: 3s              # (git.out_debounce) debounce of the per-KB async push after the
                                 # commit: N writes in quick succession = 1 push. Default 3s, 0 = push
@@ -146,9 +146,9 @@ Every startup option has a corresponding environment variable (the CLI flag take
 | `CARTOGRAPHER_TOKENS` | `--tokens` | Bearer tokens, comma/whitespace-separated. Each entry is either a bare `token` (admin, full access to every KB) or `token\|scope1;scope2` with per-KB scopes `kb:<name>:r\|rw` (scopes separated by `;`, never by spaces/commas, to avoid colliding with the between-entry separator). E.g. `admintok, readtok\|kb:wiki:r, writetok\|kb:wiki:rw;kb:notes:r` (D44). |
 | `CARTOGRAPHER_AUTH` | — | Explicit auth toggle (see §Auth) |
 | `CARTOGRAPHER_GIT_AUTOCOMMIT` | `--git-autocommit` | Enables the git commit after every write. Default `true`; set to `false` or `0` to disable. |
-| `CARTOGRAPHER_GIT_SYNC` | `--git-sync` | If the KB has an `origin` remote, runs fetch+pull-rebase before and push after every write (git as inter-instance sync). Default `true`; `false`/`0` to disable. Inert if the KB has no remote. |
+| `CARTOGRAPHER_GIT_SYNC` | `--git-sync` | If the KB has an `origin` remote, runs fetch+pull-rebase before reads and writes, then pushes after writes (git as inter-instance sync). Default `true`; `false`/`0` to disable. Inert if the KB has no remote. Read-side sync is best-effort: a network failure serves the local replica; a rebase conflict is registered and the read also serves locally. |
 | `CARTOGRAPHER_GIT_TOKEN_DIR` | — | Directory with one file per KB (`<dir>/<name>.token`) used as the HTTPS credential for that KB's git (D53, see §Bootstrapping a KB from a git remote). |
-| `CARTOGRAPHER_SYNC_IN_WINDOW` | — | Go duration (e.g. `30s`, `0`) of the freshness window on `SyncIn`: within this window since the last successful fetch+pull, subsequent writes skip it. Default `30s`; `0` = sync on every write (D76). |
+| `CARTOGRAPHER_SYNC_IN_WINDOW` | — | Go duration (e.g. `30s`, `0`) of the freshness window on `SyncIn`: within this window since the last successful fetch+pull, subsequent reads and writes skip it. Default `30s`; `0` = sync on every read and write (D76, D93). |
 | `CARTOGRAPHER_SYNC_OUT_DEBOUNCE` | — | Go duration (e.g. `3s`, `0`) of the per-KB async push debounce: N writes in quick succession = 1 push, performed this long after the last signal. Default `3s`; `0` = push synchronously inline, no worker (rollback flag, D76). |
 | `CARTOGRAPHER_SOPS_AGE_KEY_DIR` | — | Directory with a per-KB age key (`<dir>/<name>.age`), a fallback checked before `CARTOGRAPHER_SOPS_AGE_KEY_FILE` (D53). |
 | `CARTOGRAPHER_TOOLS_PROFILE` | `--tools-profile` | `tools/list` tool profile: `agent` (default, only the core set for the LLM agent) \| `full` (all of them). Hidden tools remain callable via `tools/call` (D65, → `control-plane.md` §MCP API). |

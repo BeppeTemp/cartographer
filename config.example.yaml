@@ -46,9 +46,9 @@ git:
   # (trimmed content = the token), used as HTTPS git credentials for that KB's
   # remote — e.g. /etc/kb-git-tokens/wiki-kb.token for the "wiki-kb" KB above.
   # token_dir: /etc/kb-git-tokens
-  # in_window (D76): freshness window for SyncIn (fetch+pull-rebase) — writes
-  # within this window of the last successful SyncIn skip it. Default 30s,
-  # 0 = sync on every write.
+  # in_window (D76, D93): freshness window for SyncIn (fetch+pull-rebase) — reads
+  # and writes within this window of the last successful SyncIn skip it. Default 30s,
+  # 0 = sync on every read and write.
   # in_window: 30s
   # out_debounce (D76): debounce window for the async per-KB push worker —
   # bursts of writes coalesce into one push, out_debounce after the last one.
