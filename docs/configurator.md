@@ -168,14 +168,16 @@ A mechanical import scaffold (D74 WP2), a sibling of the agentic `kb-import` ski
 server, it operates directly on a local clone of the KB (`--kb`). It walks the `.md` files under `--source`
 (recursively, skipping hidden directories), maps each source directory onto a destination map (or
 expanded concept), fills in the frontmatter (never overwriting a field already present), and writes via
-`kb.Open`+`WriteConcept` — no commit: the operator reviews the working tree and commits once, at
-the end.
+`kb.Open`+`WriteConcept`. By default it leaves the working tree for the operator to review; `--commit`
+creates one final commit containing only the paths written by that import.
 
 ```bash
 cartographer import --source ./obsidian-vault --kb ./kb-clone \
   --default-map notes --map people=clients/people --dry-run
 cartographer import --source ./obsidian-vault --kb ./kb-clone \
   --default-map notes --map people=clients/people
+cartographer import --source ./docs --kb ./kb-clone \
+  --default-map notes --dir-as-concept --commit
 ```
 
 | Flag | Default | Description |
@@ -185,6 +187,9 @@ cartographer import --source ./obsidian-vault --kb ./kb-clone \
 | `--default-map` | `""` | Default map for source directories with no `--map` (D77: used to be `--archive`) |
 | `--map` | *(repeatable)* | Per-directory mapping `<srcdir>=<map>` (`srcdir` relative to `--source`, `.` for the root) |
 | `--dry-run` | `false` | Prints the mapping plan (source → concept id) without writing |
+| `--commit` | `false` | Makes one final commit containing only import-written paths; pre-existing dirty work is untouched |
+| `--message` | `import: <source> -> <kb>` | Commit message; implies `--commit` |
+| `--dir-as-concept` | `false` | Promotes a source directory with `index.md` (or `README.md`) into an expanded concept and keeps its satellites together |
 
 For every file: if it already has YAML frontmatter it's preserved, only adding missing fields;
 otherwise it synthesizes the minimum — `title` from the body's first H1 (fallback: file name), `type: Note` if absent
@@ -196,6 +201,14 @@ are rewritten best-effort against the new layout; wiki-links `[[...]]` are left 
 (no write) with the list of unmapped directories. Final output: counts of files
 imported/skipped (non-markdown)/errors — a write error on a single file does not block the
 rest of the batch.
+
+With `--dir-as-concept`, a directory containing `index.md` — or `README.md` when no
+`index.md` exists — becomes `<map>/<directory>/`: the chosen file is written as that
+expanded concept's `index.md`, while its sibling markdown files become satellites below it.
+The dry-run labels the promotion explicitly. Without the flag, importing remains flat and a
+source `index.md` is still rejected as a reserved destination filename. `--commit` also commits
+the scaffold (`_map.md`, `index.md`, `log.md`) created for each new destination map; on partial
+write failures it commits only successful paths and reports that the batch had errors.
 
 ### `cartographer resolve repo:<key>|path:<name>`
 
