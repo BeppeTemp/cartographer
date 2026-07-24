@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 )
 
 // ErrNothingToCommit signals that there was nothing to commit.
@@ -363,8 +364,79 @@ func AddPath(dir, path string) error {
 
 // FileChange represents a changed file in a diff.
 type FileChange struct {
-	Status string // "A", "M", "D", "R"
-	Path   string
+	Status  string // "A", "M", "D", "R"
+	Path    string
+	OldPath string // set for renames; Path is the destination
+}
+
+// CommitChanges contains the files changed by one commit in git log order
+// (newest first). Files retain git's name-status order.
+type CommitChanges struct {
+	SHA     string
+	At      time.Time
+	Author  string
+	Subject string
+	Files   []FileChange
+}
+
+// LogNameStatus returns commits since the supplied instant with their changed
+// files. Renames are normalised to status "R", with OldPath and Path holding
+// the source and destination respectively. A directory that is not a git
+// repository, or a repository with no commits in range, returns an empty slice.
+func LogNameStatus(dir string, since time.Time) ([]CommitChanges, error) {
+	if !IsRepo(dir) {
+		return []CommitChanges{}, nil
+	}
+	if _, err := HeadSHA(dir); err != nil {
+		// A freshly initialised repository has no HEAD yet. It has no history to
+		// report, just like a repository whose commits all predate since.
+		return []CommitChanges{}, nil
+	}
+
+	// The record separator gives each commit an unambiguous boundary while the
+	// NUL-separated header keeps subjects with spaces intact. --name-status is
+	// deliberately left line-oriented to match git's ordinary path format.
+	format := "%x1e%H%x00%aI%x00%an%x00%s"
+	out, err := runGitEnv(dir, nil, "log", "--since="+since.Format(time.RFC3339), "--name-status", "-M", "--pretty=format:"+format)
+	if err != nil {
+		return nil, fmt.Errorf("git log --name-status: %w: %s", err, out)
+	}
+
+	commits := []CommitChanges{}
+	for _, record := range strings.Split(out, "\x1e") {
+		if record == "" {
+			continue
+		}
+		head := strings.SplitN(record, "\x00", 4)
+		if len(head) != 4 {
+			continue
+		}
+		at, err := time.Parse(time.RFC3339, head[1])
+		if err != nil {
+			return nil, fmt.Errorf("parse git commit time %q: %w", head[1], err)
+		}
+		subjectAndFiles := strings.SplitN(head[3], "\n", 2)
+		commit := CommitChanges{SHA: head[0], At: at, Author: head[2], Subject: subjectAndFiles[0]}
+		if len(subjectAndFiles) == 2 {
+			for _, line := range strings.Split(subjectAndFiles[1], "\n") {
+				if line == "" {
+					continue
+				}
+				parts := strings.Split(line, "\t")
+				if len(parts) < 2 {
+					continue
+				}
+				status := string(parts[0][0])
+				change := FileChange{Status: status, Path: parts[len(parts)-1]}
+				if status == "R" && len(parts) >= 3 {
+					change.OldPath = parts[len(parts)-2]
+				}
+				commit.Files = append(commit.Files, change)
+			}
+		}
+		commits = append(commits, commit)
+	}
+	return commits, nil
 }
 
 // DiffNameStatus returns changed files between two refs as a list of FileChange.
@@ -386,7 +458,11 @@ func DiffNameStatus(dir, from, to string) ([]FileChange, error) {
 		// For renames, format is: R<score>\t<old>\t<new>; take last field as path.
 		status := string(parts[0][0])
 		path := parts[len(parts)-1]
-		changes = append(changes, FileChange{Status: status, Path: path})
+		change := FileChange{Status: status, Path: path}
+		if status == "R" && len(parts) >= 3 {
+			change.OldPath = parts[len(parts)-2]
+		}
+		changes = append(changes, change)
 	}
 	return changes, nil
 }
