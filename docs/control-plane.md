@@ -17,6 +17,8 @@ For each mounted KB, the server keeps only a **rebuildable derived index** and a
 
 **Commit per logical operation (Step 1 — local commit)**: every write tool (`concept_write`, `concept_patch`, `map_create`, `map_delete`, `concept_expand`, `log_append`, `snapshot`, `supersede`, `concept_move`, `concept_delete`, `conflict_resolve`, `skill_install`) is wrapped by `gitWrap`, which acquires the per-KB mutex, runs the tool, and on success (no application error) calls `CommitOp`. A failed commit does not turn a successful operation into an error: it is logged to stderr. `AutoCommit=false` (the struct's zero value) leaves everything unchanged and keeps compatibility with existing tests.
 
+**Read freshness across instances (D93)**: when `git.sync` is enabled and a KB has an `origin`, every tool marked **[R]** piggybacks a fetch + pull-rebase before handling the read, at most once per `git.in_window` per KB. A pull that moves HEAD reconciles the derived indexes before the read, so a remote concept becomes both readable and searchable. Read-side sync is best-effort: a fetch error is logged and serves the local replica; a rebase conflict is registered and its concepts are marked degraded, then the read still serves the local tree. There is no background poller.
+
 ## MCP API
 
 This list is the **source of truth** for the active tools (do not duplicate counts elsewhere).

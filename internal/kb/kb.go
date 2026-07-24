@@ -80,10 +80,11 @@ type KB struct {
 	mu sync.Mutex // serialises git operations (see gitsync.go)
 
 	// lastSyncIn is the timestamp of the last successful SyncIn (fetch+pull).
-	// It is only ever read/written while the caller holds the git lock
-	// (gitWrap runs SyncIn under k.WithGitLock), so no separate mutex is
-	// needed. Zero value means "never synced".
-	lastSyncIn time.Time
+	// Read-side sync checks it before taking mu, so lastSyncInMu protects this
+	// small freshness cache independently of the git-operation lock. Zero value
+	// means "never synced".
+	lastSyncInMu sync.RWMutex
+	lastSyncIn   time.Time
 
 	// pushMu guards all async-push-worker bookkeeping below (see
 	// pushworker.go). It is a distinct lock from mu/WithGitLock, which the

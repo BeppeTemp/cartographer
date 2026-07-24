@@ -10,6 +10,7 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/gitx"
 	"github.com/BeppeTemp/cartographer/internal/kb"
+	"github.com/BeppeTemp/cartographer/internal/sqlindex"
 )
 
 // setupGitKB initialises a temp KB and verifies the initial git commit was made.
@@ -174,6 +175,157 @@ func remoteCommitCount(t *testing.T, dir, branch string) string {
 		t.Fatalf("git rev-list --count: %v\n%s", err, out)
 	}
 	return strings.TrimSpace(string(out))
+}
+
+// pushRemoteFile simulates a second server by committing a KB file through a
+// fresh clone of the shared bare remote.
+func pushRemoteFile(t *testing.T, bare, branch, relPath, content, message string) {
+	t.Helper()
+	clone := filepath.Join(t.TempDir(), "clone")
+	run := func(dir string, args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)
+		}
+	}
+	run(filepath.Dir(clone), "clone", bare, clone)
+	run(clone, "checkout", branch)
+	path := filepath.Join(clone, relPath)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	run(clone, "add", relPath)
+	run(clone, "-c", "user.email=test@test", "-c", "user.name=test", "commit", "-m", message)
+	run(clone, "push", "origin", branch)
+}
+
+func syncInForTest(t *testing.T, k *kb.KB) {
+	t.Helper()
+	if err := k.WithGitLock(func() error {
+		_, err := k.SyncIn()
+		return err
+	}); err != nil {
+		t.Fatalf("SyncIn: %v", err)
+	}
+}
+
+func TestReadSyncWrap_RefreshesRemoteConceptAndSearch(t *testing.T) {
+	k, bare := setupGitKBWithRemote(t)
+	k.GitSync = true
+	if err := k.SyncOut(); err != nil {
+		t.Fatalf("seed SyncOut: %v", err)
+	}
+	k.SyncInWindow = time.Hour
+	branch, _ := gitx.Branch(k.Root)
+
+	sqlIdx, err := sqlindex.Open(filepath.Join(t.TempDir(), "index.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sqlIdx.Close()
+	s := New("0.1.0-test")
+	RegisterKBTools(s, k, Deps{SQLIndex: sqlIdx})
+
+	pushRemoteFile(t, bare, branch, "data/remote/fresh.md", "---\ntype: Note\ntitle: Fresh\n---\nremote-sync-fresh\n", "remote fresh")
+	resps := runMCPSequence(t, s, []string{
+		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
+		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_read","arguments":{"id":"remote/fresh"}}}`,
+		`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"search","arguments":{"query":"remote-sync-fresh"}}}`,
+	})
+	if got := decodeToolResult(t, resps[1]); got.IsError || !strings.Contains(got.Content[0].Text, "remote-sync-fresh") {
+		t.Fatalf("concept_read after remote change = %+v", got)
+	}
+	if got := decodeToolResult(t, resps[2]); got.IsError || !strings.Contains(got.Content[0].Text, "remote/fresh") {
+		t.Fatalf("search after read-side SyncIn = %+v", got)
+	}
+
+	// A second remote commit remains invisible during the freshness window: the
+	// immediate read must not fetch again.
+	pushRemoteFile(t, bare, branch, "data/remote/second.md", "---\ntype: Note\ntitle: Second\n---\nremote-sync-second\n", "remote second")
+	resps = runMCPSequence(t, s, []string{
+		`{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"concept_read","arguments":{"id":"remote/second"}}}`,
+	})
+	if got := decodeToolResult(t, resps[0]); !got.IsError {
+		t.Fatalf("concept_read within SyncInWindow fetched remote change: %+v", got)
+	}
+
+	// Disabling the window makes the next read fetch the pending change.
+	k.SyncInWindow = 0
+	resps = runMCPSequence(t, s, []string{
+		`{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"concept_read","arguments":{"id":"remote/second"}}}`,
+	})
+	if got := decodeToolResult(t, resps[0]); got.IsError || !strings.Contains(got.Content[0].Text, "remote-sync-second") {
+		t.Fatalf("concept_read after SyncInWindow disabled = %+v", got)
+	}
+}
+
+func TestReadSyncWrap_ConflictDegradesAndServesLocalRead(t *testing.T) {
+	k, bare := setupGitKBWithRemote(t)
+	k.GitSync = true
+	if err := k.SyncOut(); err != nil {
+		t.Fatalf("seed SyncOut: %v", err)
+	}
+	branch, _ := gitx.Branch(k.Root)
+	path := "data/remote/conflict.md"
+	base := "---\ntype: Note\ntitle: Conflict\n---\nbase\n"
+	pushRemoteFile(t, bare, branch, path, base, "remote base")
+	syncInForTest(t, k)
+
+	local := "---\ntype: Note\ntitle: Conflict\n---\nlocal version\n"
+	if err := os.WriteFile(filepath.Join(k.Root, path), []byte(local), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := gitx.Commit(k.Root, "local conflict", "test", "test@test"); err != nil {
+		t.Fatal(err)
+	}
+	remote := "---\ntype: Note\ntitle: Conflict\n---\nremote version\n"
+	pushRemoteFile(t, bare, branch, path, remote, "remote conflict")
+
+	s := New("0.1.0-test")
+	RegisterKBTools(s, k, Deps{})
+	resps := runMCPSequence(t, s, []string{
+		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
+		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_read","arguments":{"id":"remote/conflict"}}}`,
+	})
+	if got := decodeToolResult(t, resps[1]); got.IsError || !strings.Contains(got.Content[0].Text, "local version") {
+		t.Fatalf("read after rebase conflict = %+v", got)
+	}
+	conflicts, err := k.ListConflicts()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(conflicts) != 1 || conflicts[0].ConceptID != "remote/conflict" {
+		t.Fatalf("registered conflicts = %+v", conflicts)
+	}
+}
+
+func TestReadSyncWrap_DisabledOrNoRemoteKeepsReadPathWorking(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		gitSync bool
+	}{
+		{name: "sync disabled", gitSync: false},
+		{name: "no remote", gitSync: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			k := setupTestKB(t)
+			k.GitSync = tc.gitSync
+			s := New("0.1.0-test")
+			RegisterKBTools(s, k, Deps{})
+			resps := runMCPSequence(t, s, []string{
+				`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
+				`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_read","arguments":{"id":"manutenzione/test-runbook"}}}`,
+			})
+			if got := decodeToolResult(t, resps[1]); got.IsError || !strings.Contains(got.Content[0].Text, "Test Runbook") {
+				t.Fatalf("concept_read = %+v", got)
+			}
+		})
+	}
 }
 
 // TestGitWrap_AsyncPush_CommitIsSyncPushIsDeferred verifies the D76/WP4
