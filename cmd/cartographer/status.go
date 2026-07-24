@@ -4,10 +4,25 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"time"
 
+	"github.com/BeppeTemp/cartographer/internal/client"
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/service"
+)
+
+const statusHealthTimeout = 5 * time.Second
+
+// Indirection keeps cmdStatus's version report independently testable without
+// a network connection or a real launchd/systemd service.
+var (
+	statusHealthFn = func(cfg *clientconfig.Config) (*client.Health, error) {
+		return client.New(cfg.ServerURL, resolveToken(cfg)).Health(statusHealthTimeout)
+	}
+	statusManifestFn = fetchMergedManifest
+	statusServiceFn  = func() (service.Status, error) { return service.NewManager().Status("") }
 )
 
 // cmdStatus reports the sync status of every connected provider against the
@@ -32,7 +47,9 @@ func cmdStatus(args []string) int {
 		return 0
 	}
 
-	m, err := fetchMergedManifest(cfg)
+	printVersionStatus(cfg)
+
+	m, err := statusManifestFn(cfg)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		return 2
@@ -95,4 +112,29 @@ func cmdStatus(args []string) int {
 		return 1
 	}
 	return 0
+}
+
+// printVersionStatus reports the binary versions before the artifact status.
+// A failed health request is intentionally non-fatal here: the following
+// sync_pull still performs the existing artifact check and preserves its exit
+// code/error behaviour. Version skew is advisory, never provisioning drift.
+func printVersionStatus(cfg *clientconfig.Config) {
+	health, err := statusHealthFn(cfg)
+	if err != nil {
+		fmt.Printf("client %s — server unreachable (%s)\n", version, cfg.ServerURL)
+		return
+	}
+
+	fmt.Printf("client %s — server %s (%s)\n", version, health.Version, cfg.ServerURL)
+	if version == "" || health.Version == "" || version == "dev" || health.Version == "dev" || version == health.Version {
+		return
+	}
+
+	fmt.Printf("version skew: client %s ≠ server %s\n", version, health.Version)
+	if !isLoopbackURL(cfg.ServerURL) {
+		return
+	}
+	if st, err := statusServiceFn(); err == nil && st.Installed {
+		fmt.Println("local service may still run the old binary — run: cartographer service restart")
+	}
 }

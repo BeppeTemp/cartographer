@@ -140,7 +140,7 @@ name, token env var, auth) instead of the flag defaults; pass `--no-input` to
 force the non-interactive behavior. Once connected:
 
 ```bash
-cartographer status   # drift check: exit 0 in-sync / 1 drift / 2 error
+cartographer status   # drift check and client/server version check after upgrades; exit 0 in-sync / 1 drift / 2 error
 cartographer sync     # re-apply after drift
 ```
 

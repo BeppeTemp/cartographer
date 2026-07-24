@@ -36,9 +36,10 @@ type MCPClient struct {
 // distinguish an older server that did not send either field from an explicit
 // false/empty value.
 type Health struct {
-	Status string      `json:"status"`
-	Ready  *bool       `json:"ready"`
-	KBs    *[]HealthKB `json:"kbs"`
+	Status  string      `json:"status"`
+	Version string      `json:"version"`
+	Ready   *bool       `json:"ready"`
+	KBs     *[]HealthKB `json:"kbs"`
 }
 
 // HealthKB is the additive per-KB item returned by a MultiKB server's
