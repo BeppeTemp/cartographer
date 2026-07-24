@@ -1216,6 +1216,7 @@ per machine, pointed at **one server at a time**.
 - `kb.WriteConcept` requires a non-empty `type` (pre-existing OKF invariant, not discussed in D74's original text): when the source file has no `type` — neither pre-existing nor otherwise derivable — the scaffold synthesizes `type: Note` alongside `title`/`status`. A `type` already present in the source frontmatter is never touched.
 - The `--map <srcdir>=<archivio>` mapping is **exact** per-directory: it matches only the literal source directory (relative to `--source`, `.` for the root), with no inheritance on nested subdirectories — consistent with WP2's "mechanical, not intelligent scaffold" spirit; subdirectories not explicitly mapped fall back to `--archive` (flat default) or, in its absence, fail the whole command with the list of unmapped directories, before any write.
 - Slug collisions (two source files normalizing to the same destination concept ID) are resolved with an incremental numeric suffix (`-2`, `-3`, …) instead of failing the import.
+- **Amended by D91.** The optional final commit, map scaffold, and directory-as-expanded-concept import behavior are specified in D91; the default remains an uncommitted, flat mechanical pass.
 
 **Rationale.** The mechanical conversion (frontmatter, layout, links) must not consume LLM tokens — on a large wiki it would be unsustainable; the semantic part (mapping onto the archives, dedup, substantive rewrites) stays with the agent **with a human checkpoint on the mapping plan** before any write. Discarded alternatives: a server-side MCP import tool (re-creates the `source_ingest` removed with D28); fully agentic import (cost proportional to the corpus, not to the part requiring judgment).
 
@@ -1552,6 +1553,16 @@ safe to verify from any working directory.
 **Decision.** SQLite stores one content hash per concept, so reconciliation walks the KB, compares its hashes with `AllHashes()`, and incrementally upserts new/changed concepts and deletes vanished ones. The in-memory index follows the same add/remove path as MCP writes. Reconciliation runs at boot, after a successful `SyncIn` that changes HEAD, and through the write-scoped `reindex` MCP tool. `cartographer reindex [--kb <name>]` calls a healthy configured server over HTTP; only while it is down does the local administrative CLI open `<kb>/.cartographer/index.db` directly.
 
 **Rationale.** Hash reconciliation makes the index converge without an always-on watcher, preserves the server's single owner of a live SQLite connection, and avoids needless embedding work: changed hashes naturally miss the existing embedding cache until a semantic rebuild/search refreshes them. A filesystem watcher (`fsnotify`) was rejected for this release: it adds platform-specific lifecycle and event-loss complexity while still requiring reconciliation after imports, git pulls, and restarts.
+
+## D91 — Import convenience without widening the default write surface
+
+**Status: implemented (2026-07-24).**
+
+**Decision.** `cartographer import` remains uncommitted and flat by default, preserving D74's mechanical-review workflow. `--commit` makes exactly one final commit of only the paths written by the import; `--message` supplies its message and implies `--commit`. It uses the KB git lock and an isolated Git index seeded from `HEAD`, so pre-existing staged or unstaged work cannot enter the import commit. A partial batch still commits its successful writes and reports the errors.
+
+Each absent destination map is created through `CreateMap`, adding the same `_map.md`/`index.md`/`log.md` scaffold as `map_create`; existing maps are not altered. `--dir-as-concept` promotes a source directory with `index.md`, or `README.md` if no index exists, into `<map>/<dirname>/`: its chosen index is written through the expanded-concept path and its sibling markdown files become satellites. The dry-run identifies each promotion. Without the flag, `index.md` retains the established reserved-name rejection and other files remain flat.
+
+**Rationale.** An opt-in single commit supplies the expected convenience without making a mass import silently commit by default, and the isolated index makes that promise meaningful even in a dirty clone. Reusing map creation and expanded-concept resolution keeps the CLI output structurally identical to the MCP write path instead of adding another partial KB shape. Directory promotion is explicit because automatic hierarchy inference would turn D74's deliberately mechanical importer into a semantic mapper.
 
 ## D92 — Per-KB MCP entries for multi-KB servers
 

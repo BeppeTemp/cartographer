@@ -2,6 +2,7 @@ package main
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -204,6 +205,131 @@ func TestCmdImport_MapPerDirectory(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(kbDir, "data", "notes", "misc.md")); err != nil {
 		t.Errorf("expected default-map destination notes/misc.md: %v", err)
 	}
+}
+
+func TestCmdImport_NewMapHasScaffold(t *testing.T) {
+	src := t.TempDir()
+	writeSourceFile(t, src, "note.md", "A note.\n")
+
+	kbDir := t.TempDir()
+	if _, err := kb.Init(kbDir); err != nil {
+		t.Fatalf("kb.Init: %v", err)
+	}
+
+	withStdout(t, func() {
+		if code := cmdImport([]string{"--source", src, "--kb", kbDir, "--default-map", "notes"}); code != 0 {
+			t.Fatalf("cmdImport = %d, want 0", code)
+		}
+	})
+	for _, rel := range []string{"_map.md", "index.md", "log.md"} {
+		if _, err := os.Stat(filepath.Join(kbDir, "data", "notes", rel)); err != nil {
+			t.Errorf("new map missing scaffold %s: %v", rel, err)
+		}
+	}
+}
+
+func TestCmdImport_DirAsConcept(t *testing.T) {
+	src := t.TempDir()
+	writeSourceFile(t, src, "guide/index.md", "# Guide\n\nRead [setup](setup.md).\n")
+	writeSourceFile(t, src, "guide/setup.md", "# Setup\n")
+
+	kbDir := t.TempDir()
+	if _, err := kb.Init(kbDir); err != nil {
+		t.Fatalf("kb.Init: %v", err)
+	}
+	out := withStdout(t, func() {
+		code := cmdImport([]string{"--source", src, "--kb", kbDir, "--default-map", "notes", "--dir-as-concept"})
+		if code != 0 {
+			t.Errorf("cmdImport = %d, want 0", code)
+		}
+	})
+	if !strings.Contains(out, "imported: 2, skipped: 0, errors: 0") {
+		t.Errorf("unexpected summary: %q", out)
+	}
+	index := mustReadConcept(t, kbDir, "notes/guide/index.md")
+	if !strings.Contains(index, "[setup](setup.md)") {
+		t.Errorf("expanded index link was not preserved relative to its satellites:\n%s", index)
+	}
+	if _, err := os.Stat(filepath.Join(kbDir, "data", "notes", "guide", "setup.md")); err != nil {
+		t.Errorf("expected satellite inside expanded concept: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(kbDir, "data", "notes", "guide.md")); !os.IsNotExist(err) {
+		t.Errorf("expanded concept must not create direct guide.md (got %v)", err)
+	}
+}
+
+func TestCmdImport_WithoutDirAsConceptKeepsFlattenAndRejectsIndex(t *testing.T) {
+	src := t.TempDir()
+	writeSourceFile(t, src, "guide/index.md", "# Guide\n")
+	writeSourceFile(t, src, "guide/setup.md", "# Setup\n")
+
+	kbDir := t.TempDir()
+	if _, err := kb.Init(kbDir); err != nil {
+		t.Fatalf("kb.Init: %v", err)
+	}
+	withStdout(t, func() {
+		code := cmdImport([]string{"--source", src, "--kb", kbDir, "--default-map", "notes"})
+		if code != 1 {
+			t.Errorf("cmdImport = %d, want 1 because index.md remains reserved", code)
+		}
+	})
+	if _, err := os.Stat(filepath.Join(kbDir, "data", "notes", "setup.md")); err != nil {
+		t.Errorf("expected satellite flattened without --dir-as-concept: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(kbDir, "data", "notes", "guide", "index.md")); !os.IsNotExist(err) {
+		t.Errorf("expanded concept must not be created without flag (got %v)", err)
+	}
+}
+
+func TestCmdImport_MessageCommitsOnlyImportPaths(t *testing.T) {
+	src := t.TempDir()
+	writeSourceFile(t, src, "note.md", "A note.\n")
+
+	kbDir := t.TempDir()
+	if _, err := kb.Init(kbDir); err != nil {
+		t.Fatalf("kb.Init: %v", err)
+	}
+	runImportGit(t, kbDir, "config", "user.email", "test@wiki.local")
+	runImportGit(t, kbDir, "config", "user.name", "Wiki Test")
+	if err := exec.Command("git", "-C", kbDir, "rev-parse", "--verify", "HEAD").Run(); err != nil {
+		runImportGit(t, kbDir, "add", "-A")
+		runImportGit(t, kbDir, "commit", "-m", "initial")
+	}
+	writeSourceFile(t, kbDir, "data/unrelated.md", "do not commit\n")
+
+	withStdout(t, func() {
+		code := cmdImport([]string{"--source", src, "--kb", kbDir, "--default-map", "notes", "--message", "import: only planned paths"})
+		if code != 0 {
+			t.Errorf("cmdImport = %d, want 0", code)
+		}
+	})
+
+	message := strings.TrimSpace(runImportGit(t, kbDir, "log", "-1", "--format=%s"))
+	if message != "import: only planned paths" {
+		t.Errorf("commit message = %q", message)
+	}
+	files := runImportGit(t, kbDir, "show", "--format=", "--name-only", "HEAD")
+	for _, want := range []string{"data/notes/_map.md", "data/notes/index.md", "data/notes/log.md", "data/notes/note.md"} {
+		if !strings.Contains(files, want) {
+			t.Errorf("commit missing planned path %s:\n%s", want, files)
+		}
+	}
+	if strings.Contains(files, "data/unrelated.md") {
+		t.Errorf("commit included unrelated dirty path:\n%s", files)
+	}
+	status := runImportGit(t, kbDir, "status", "--short")
+	if !strings.Contains(status, "?? data/unrelated.md") {
+		t.Errorf("unrelated dirty path was changed or staged: %q", status)
+	}
+}
+
+func runImportGit(t *testing.T, dir string, args ...string) string {
+	t.Helper()
+	out, err := exec.Command("git", append([]string{"-C", dir}, args...)...).CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)
+	}
+	return string(out)
 }
 
 // TestCmdImport_UnmappedSourceWithoutMap_Errors verifies that a source

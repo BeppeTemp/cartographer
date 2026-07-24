@@ -58,6 +58,44 @@ func Commit(dir, message, authorName, authorEmail string, env ...string) error {
 	if out, err := runGitEnv(dir, env, "add", "-A"); err != nil {
 		return fmt.Errorf("git add -A: %w: %s", err, out)
 	}
+	return commit(dir, message, authorName, authorEmail, env...)
+}
+
+// CommitPaths creates one commit containing changes to paths only. It uses a
+// temporary index seeded from HEAD, so pre-existing staged or unstaged work in
+// the caller's real index is neither changed nor accidentally committed.
+func CommitPaths(dir string, paths []string, message, authorName, authorEmail string, env ...string) error {
+	if len(paths) == 0 {
+		return ErrNothingToCommit
+	}
+
+	index, err := os.CreateTemp("", "cartographer-git-index-*")
+	if err != nil {
+		return fmt.Errorf("create temporary git index: %w", err)
+	}
+	indexPath := index.Name()
+	if err := index.Close(); err != nil {
+		os.Remove(indexPath)
+		return fmt.Errorf("close temporary git index: %w", err)
+	}
+	// Git expects a missing index file, not an empty one.
+	if err := os.Remove(indexPath); err != nil {
+		return fmt.Errorf("remove temporary git index: %w", err)
+	}
+	defer os.Remove(indexPath)
+
+	commitEnv := append(append([]string{}, env...), "GIT_INDEX_FILE="+indexPath)
+	if out, err := runGitEnv(dir, commitEnv, "read-tree", "HEAD"); err != nil {
+		return fmt.Errorf("git read-tree HEAD: %w: %s", err, out)
+	}
+	args := append([]string{"add", "--"}, paths...)
+	if out, err := runGitEnv(dir, commitEnv, args...); err != nil {
+		return fmt.Errorf("git add paths: %w: %s", err, out)
+	}
+	return commit(dir, message, authorName, authorEmail, commitEnv...)
+}
+
+func commit(dir, message, authorName, authorEmail string, env ...string) error {
 
 	args := []string{
 		"commit",

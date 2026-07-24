@@ -745,13 +745,46 @@ func stubExpandedIndex(dirAbs string) error {
 //     it (see stubExpandedIndex), so index_get never fails on a real
 //     expanded concept.
 func (kb *KB) WriteConcept(id okf.ConceptID, fm *okf.Frontmatter, body string, ifMatch string) (string, error) {
+	return kb.writeConcept(id, fm, body, ifMatch, false)
+}
+
+// WriteExpandedConcept writes the index of a new or existing expanded concept
+// directly to "<id>/index.md". Unlike WriteConcept, it never falls back to
+// the direct "<id>.md" form; callers that intentionally create an expanded
+// concept can therefore write its index before any satellite exists.
+func (kb *KB) WriteExpandedConcept(id okf.ConceptID, fm *okf.Frontmatter, body string, ifMatch string) (string, error) {
+	return kb.writeConcept(id, fm, body, ifMatch, true)
+}
+
+func (kb *KB) writeConcept(id okf.ConceptID, fm *okf.Frontmatter, body string, ifMatch string, forceExpanded bool) (string, error) {
 	if id == "" {
 		return "", fmt.Errorf("%w: empty ConceptID", okf.ErrInvalidConcept)
 	}
 
-	relPath, expanded, err := kb.resolveConceptRelPath(id, true)
-	if err != nil {
-		return "", err
+	inServices := isServicesID(id)
+	segments := strings.Split(string(id), "/")
+	var (
+		relPath  string
+		expanded bool
+		err      error
+	)
+	if forceExpanded {
+		if inServices || len(segments) != 2 {
+			return "", fmt.Errorf("%w: expanded concept requires a map/concept id, got %s", okf.ErrInvalidPath, id)
+		}
+		directAbs, resolveErr := kb.ResolvePath(okf.IDToPath(id), false)
+		if resolveErr != nil {
+			return "", resolveErr
+		}
+		if _, statErr := os.Stat(directAbs); statErr == nil {
+			return "", fmt.Errorf("expanded_ambiguous: direct concept %s already exists", id)
+		}
+		relPath, expanded = filepath.Join(string(id), "index.md"), true
+	} else {
+		relPath, expanded, err = kb.resolveConceptRelPath(id, true)
+		if err != nil {
+			return "", err
+		}
 	}
 
 	// The reserved-name check applies to the direct form only: an expanded
@@ -765,8 +798,6 @@ func (kb *KB) WriteConcept(id okf.ConceptID, fm *okf.Frontmatter, body string, i
 		return "", fmt.Errorf("%w: type field is required", okf.ErrInvalidConcept)
 	}
 
-	inServices := isServicesID(id)
-	segments := strings.Split(string(id), "/")
 	if !inServices && len(segments) > maxConceptDepth {
 		return "", fmt.Errorf("%w: concept depth (%d segments) exceeds the max of %d (map/concept/child): %s",
 			okf.ErrInvalidPath, len(segments), maxConceptDepth, id)

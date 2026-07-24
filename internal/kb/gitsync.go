@@ -173,3 +173,22 @@ func (k *KB) CommitOp(message string) error {
 	}
 	return nil
 }
+
+// CommitPaths creates one commit containing changes to paths only. The
+// per-KB lock serialises its staging and commit with other git operations;
+// gitx uses a temporary index so unrelated dirty work remains untouched.
+func (k *KB) CommitPaths(paths []string, message string) error {
+	return k.WithGitLock(func() error {
+		if !gitx.IsRepo(k.Root) {
+			return fmt.Errorf("CommitPaths: KB root is not a git repository")
+		}
+		authorName, authorEmail := k.gitAuthor()
+		if err := gitx.CommitPaths(k.Root, paths, message, authorName, authorEmail, k.GitEnv...); err != nil {
+			if errors.Is(err, gitx.ErrNothingToCommit) {
+				return nil
+			}
+			return err
+		}
+		return nil
+	})
+}
