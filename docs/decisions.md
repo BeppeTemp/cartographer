@@ -1595,6 +1595,14 @@ into a 400, without introducing a client-side multiplexing protocol.
 
 **Rationale.** Every MCP write already creates a Git commit, so Git supplies the authoritative timestamp, author and concept-level history without introducing client state. A compact per-concept aggregate answers a return-to-work digest without exposing raw commit noise.
 
+## D95 — Upgrade transparency through version-skew hints
+
+**Status: implemented (2026-07-24).**
+
+**Decision.** `cartographer status` reports the client and server versions before its provisioning-artifact result. A non-`dev` version mismatch is advisory and leaves the existing status exit codes unchanged; for a loopback server with an installed native service, the warning includes the explicit `cartographer service restart` command. Servers that predate the health version field remain compatible and simply produce no skew warning.
+
+**Rationale.** A Homebrew upgrade replaces the binary at the stable path, but cannot safely replace a process already executing it. Automatically restarting from a cask hook could interrupt an in-flight write and bypass the operator's drain decision, while an explicit, contextual hint makes the necessary restart visible. The same report makes a client ahead of a Kubernetes image rollout observable without inventing a separate drift state.
+
 ## D96 — Operations knowledge ships as a bundled skill
 
 **Status: implemented (2026-07-24).**
