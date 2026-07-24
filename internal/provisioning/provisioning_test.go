@@ -10,6 +10,7 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/skillbundle"
 )
 
 // test bundleFS with a single bundled skill.
@@ -76,6 +77,25 @@ func TestContentHashDir_OrdineFile(t *testing.T) {
 }
 
 // --- BuildManifest ---
+
+func TestBuildManifest_BundledSkillInventory(t *testing.T) {
+	m, err := provisioning.BuildManifest(skillbundle.FS, nil, false)
+	if err != nil {
+		t.Fatalf("BuildManifest bundled skills: %v", err)
+	}
+
+	found := make(map[string]bool)
+	for _, artifact := range m.Artifacts {
+		if artifact.Kind == "skill" && artifact.Source == "bundle" {
+			found[artifact.Name] = true
+		}
+	}
+	for _, name := range []string{"cartographer-ops", "kb-conflict-resolve", "kb-create", "kb-import"} {
+		if !found[name] {
+			t.Errorf("bundled skill %q missing from manifest", name)
+		}
+	}
+}
 
 func TestBuildManifest_RevisioneDeterministica(t *testing.T) {
 	bundleFS := makeBundleFS("Body.")

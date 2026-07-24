@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"testing/fstest"
+
+	"github.com/BeppeTemp/cartographer/internal/skillbundle"
 )
 
 // writeSkillMD creates a SKILL.md file in the given directory with the provided content.
@@ -259,6 +261,27 @@ func TestLoadAllFromFS(t *testing.T) {
 	}
 	if !found["other-skill"] {
 		t.Error("other-skill not found")
+	}
+}
+
+func TestBundledSkillsValidate(t *testing.T) {
+	skills, errs := LoadAllFromFS(skillbundle.FS, "bundled")
+	if len(errs) != 0 {
+		t.Fatalf("load bundled skills: %v", errs)
+	}
+
+	found := make(map[string]bool, len(skills))
+	for i := range skills {
+		found[skills[i].Name] = true
+		if issues := Validate(&skills[i]); len(issues) != 0 {
+			t.Errorf("bundled skill %q failed validation: %v", skills[i].Name, issues)
+		}
+	}
+
+	for _, name := range []string{"cartographer-ops", "kb-conflict-resolve", "kb-create", "kb-import"} {
+		if !found[name] {
+			t.Errorf("bundled skill %q not found", name)
+		}
 	}
 }
 
