@@ -132,6 +132,7 @@ type connectDoneMsg struct {
 type probeDoneMsg struct {
 	provider string
 	opts     connectOptions
+	state    probeState
 	err      error
 }
 
@@ -305,8 +306,8 @@ func loadRemoteStatusCmd(dir string) tea.Cmd {
 // check, kicked off on form submit.
 func probeCmd(provider string, opts connectOptions) tea.Cmd {
 	return func() tea.Msg {
-		err := probeServer(opts)
-		return probeDoneMsg{provider: provider, opts: opts, err: err}
+		state, err := probeServer(opts)
+		return probeDoneMsg{provider: provider, opts: opts, state: state, err: err}
 	}
 }
 
@@ -509,13 +510,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case probeDoneMsg:
 		m.probing = false
-		if msg.err != nil {
+		if msg.err != nil || msg.state != probeReady {
 			// Stay on screenConnect (never touched here) with the values just
 			// entered still in connectForm: withError resets submitted so
 			// Enter on Submit fires again, and forceRetry=true (D64) means
 			// that — unless the user edits a field first, which clears it —
 			// the *next* submit skips the probe and goes straight to connect.
-			errText := probeErrorMessage(msg.err) + " — press Connect again to force"
+			errText := probeErrorMessage(msg.state, msg.err) + " — press Connect again to force"
 			m.connectForm = m.connectForm.withError(errText, true)
 			m.err = nil
 			m.message = ""
@@ -702,11 +703,12 @@ func (m Model) openConnectForm(row dashboardAgent) Model {
 	if err != nil {
 		cfg = clientconfig.Default()
 	}
-	prefill := connectOptions{ServerURL: cfg.ServerURL, Name: cfg.ServerName, TokenEnv: cfg.TokenEnv, Auth: cfg.Auth, Trust: cfg.Trust}
+	prefill := connectOptions{Providers: []string{string(row.Provider)}, ServerURL: cfg.ServerURL, Name: cfg.ServerName, TokenEnv: cfg.TokenEnv, Auth: cfg.Auth, Trust: cfg.Trust}
 
 	m.screen = screenConnect
 	m.formProvider = string(row.Provider)
 	m.connectForm = newConnectFormModel(fmt.Sprintf("Connect %s", row.Provider), prefill, false)
+	m.connectForm.selectAgents = false
 	m.probing = false
 	m.submitting = false
 	m.message = ""

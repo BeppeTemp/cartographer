@@ -24,26 +24,44 @@ import (
 // client package's normal 30s HTTP timeout used for the real sync_pull calls.
 const probeTimeout = 5 * time.Second
 
-// probeServer performs a lightweight reachability/auth check against
-// opts.ServerURL before anything is written to disk (D64): a single "ping"
-// JSON-RPC round trip (client.MCPClient.Ping), using the bearer token from
-// opts.TokenEnv only when opts.Auth is enabled — the same rule
-// resolveToken/clientsync.go applies for the real sync calls. Returns nil if
-// the server answered, client.ErrUnauthorized if it rejected the token
-// (wrap-checked via errors.Is by callers), or the underlying network error.
-func probeServer(opts connectOptions) error {
+type probeState int
+
+const (
+	// probeReady is zero so existing asynchronous success messages that do not
+	// carry an explicit state remain successful.
+	probeReady probeState = iota
+	probeUnreachable
+	probeNoKB
+)
+
+// probeServer checks /health before writing anything to disk. It distinguishes
+// an unreachable server, a reachable server with no mounted KB, and a usable
+// server. Health parsing accepts pre-D84 servers: without ready, only an
+// explicitly present empty kbs list is treated as no KB.
+func probeServer(opts connectOptions) (probeState, error) {
 	token := ""
 	if opts.Auth && opts.TokenEnv != "" {
 		token = os.Getenv(opts.TokenEnv)
 	}
-	return client.New(opts.ServerURL, token).Ping(probeTimeout)
+	health, err := client.New(opts.ServerURL, token).Health(probeTimeout)
+	if err != nil {
+		return probeUnreachable, err
+	}
+	if health.Ready != nil && !*health.Ready {
+		return probeNoKB, nil
+	}
+	if health.Ready == nil && health.KBs != nil && len(*health.KBs) == 0 {
+		return probeNoKB, nil
+	}
+	return probeReady, nil
 }
 
-// probeErrorMessage renders a probeServer error for display, distinguishing a
-// rejected token (HTTP 401, client.ErrUnauthorized) from every other failure
-// (server down, DNS, timeout) — see mandate: "distinguish an auth error from
-// a network error".
-func probeErrorMessage(err error) string {
+// probeErrorMessage renders a probe result for display, distinguishing the
+// first-KB onboarding case from auth and network failures.
+func probeErrorMessage(state probeState, err error) string {
+	if state == probeNoKB {
+		return "server is up but no KB is mounted — create one with: cartographer kb create <name>, then: cartographer service restart"
+	}
 	if errors.Is(err, client.ErrUnauthorized) {
 		return fmt.Sprintf("server reached but the token was rejected (check Token env var / Auth): %v", err)
 	}
@@ -126,6 +144,7 @@ var connectFormFlagNames = map[string]bool{
 	"server-url": true,
 	"auth":       true,
 	"token-env":  true,
+	"agents":     true,
 }
 
 // wantsConnectForm decides whether cmdConnect should open the interactive
@@ -210,7 +229,7 @@ func resolveConnectSettings(passed map[string]bool, flagURL string, flagAuth boo
 // instead of using the flag defaults — pass --no-input to force the
 // non-interactive behavior regardless of TTY.
 func cmdConnect(args []string) int {
-	target, rest := splitPositional(args, "all")
+	target, rest := splitPositional(args, "")
 
 	fs := flag.NewFlagSet("connect", flag.ExitOnError)
 	serverURL := fs.String("server-url", "http://localhost:8080/mcp", "Cartographer server URL")
@@ -219,11 +238,12 @@ func cmdConnect(args []string) int {
 	dryRun := fs.Bool("dry-run", false, "Print what would be written without writing")
 	autoTrust := fs.Bool("auto-trust", false, "Trust KB-sourced skills without explicit signature")
 	noInput := fs.Bool("no-input", false, "Never open the interactive form, even in a TTY")
+	agentsCSV := fs.String("agents", "", "Comma-separated agent subset: claude,codex")
 	fs.Parse(rest)
 
 	interactive := wantsConnectForm(fs, *noInput)
 
-	providers, err := resolveTargetProviders(target)
+	providers, err := resolveTargetProviders(target, *agentsCSV)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		return 2
@@ -269,7 +289,7 @@ func cmdConnect(args []string) int {
 			prefill = clientconfig.Default()
 		}
 		title := fmt.Sprintf("Connect %s", strings.Join(providers, ", "))
-		formPrefill := connectOptions{ServerURL: prefill.ServerURL, Name: prefill.ServerName, Auth: prefill.Auth, TokenEnv: prefill.TokenEnv, Trust: prefill.Trust}
+		formPrefill := connectOptions{Providers: providers, ServerURL: prefill.ServerURL, Name: prefill.ServerName, Auth: prefill.Auth, TokenEnv: prefill.TokenEnv, Trust: prefill.Trust}
 		errMsg := ""
 
 		// Loop: form → probe (with a y/N override) → doConnect. A failure at
@@ -287,20 +307,26 @@ func cmdConnect(args []string) int {
 				return 1
 			}
 
-			if perr := probeServer(formOpts); perr != nil {
-				msg := probeErrorMessage(perr)
+			if len(formOpts.Providers) == 0 {
+				formPrefill, errMsg = formOpts, "select at least one agent"
+				continue
+			}
+
+			state, perr := probeServer(formOpts)
+			if state != probeReady {
+				msg := probeErrorMessage(state, perr)
 				fmt.Fprintln(os.Stderr, "Warning:", msg)
 
 				recovered := false
-				if isLoopbackURL(formOpts.ServerURL) {
+				if state == probeUnreachable && !errors.Is(perr, client.ErrUnauthorized) && isLoopbackURL(formOpts.ServerURL) {
 					mgr := service.NewManager()
 					st, statusErr := mgr.Status("")
 					if statusErr == nil && shouldOfferServiceInstall(true, st.Running) {
 						if promptYesNo("The local server is not responding. Install and start the cartographer service on this machine? [y/N] ") {
 							if instErr := installServiceAndWaitHealthy(mgr, 10*time.Second); instErr != nil {
 								fmt.Fprintln(os.Stderr, "Error:", instErr)
-							} else if perr2 := probeServer(formOpts); perr2 != nil {
-								msg = probeErrorMessage(perr2)
+							} else if state2, perr2 := probeServer(formOpts); state2 != probeReady {
+								msg = probeErrorMessage(state2, perr2)
 								fmt.Fprintln(os.Stderr, "Warning:", msg)
 							} else {
 								fmt.Println("service installed and started")
@@ -319,8 +345,9 @@ func cmdConnect(args []string) int {
 				}
 			}
 
-			opts.ServerURL, opts.Name, opts.Auth, opts.TokenEnv, opts.Trust =
-				formOpts.ServerURL, formOpts.Name, formOpts.Auth, formOpts.TokenEnv, formOpts.Trust
+			providers = formOpts.Providers
+			opts.Providers, opts.ServerURL, opts.Name, opts.Auth, opts.TokenEnv, opts.Trust =
+				providers, formOpts.ServerURL, formOpts.Name, formOpts.Auth, formOpts.TokenEnv, formOpts.Trust
 
 			res, err := doConnect(opts)
 			if err != nil {
@@ -341,7 +368,15 @@ func cmdConnect(args []string) int {
 		return 2
 	}
 	if res.Deferred && isLoopbackURL(opts.ServerURL) {
-		fmt.Fprintln(os.Stderr, "hint: the local server isn't responding — run `cartographer service install` to run it as a native background service")
+		state, probeErr := probeServer(opts)
+		switch state {
+		case probeNoKB:
+			fmt.Fprintln(os.Stderr, "hint:", probeErrorMessage(state, nil))
+		case probeUnreachable:
+			if !errors.Is(probeErr, client.ErrUnauthorized) {
+				fmt.Fprintln(os.Stderr, "hint: the local server isn't responding — run `cartographer service install` to run it as a native background service")
+			}
+		}
 	}
 	printConnectResult(dir, providers, opts, res)
 	return 0
@@ -368,6 +403,9 @@ func printConnectResult(dir string, providers []string, opts connectOptions, res
 
 	for _, p := range providers {
 		fmt.Printf("connected: %s\n", p)
+	}
+	if !opts.DryRun {
+		fmt.Printf("restart the %s sessions to load the MCP tools\n", strings.Join(providers, ", "))
 	}
 	if res.Deferred {
 		fmt.Println("warning: skill sync deferred (server unreachable); run `cartographer sync` once the server is up")
@@ -397,8 +435,8 @@ type connectOptions struct {
 // connectResult is the outcome of doConnect: which providers were connected, the
 // per-provider materialization result (nil when Deferred), the deferral error
 // if the server was unreachable during skill materialization, and the
-// baseDir-relative MCP config paths written (or that would be written, in
-// DryRun) by configurator.Apply — callers render their own "wrote <path>"
+// absolute MCP config paths written (or that would be written, in DryRun) by
+// configurator.Apply — callers render their own "wrote <path>"
 // output from this (cmdConnect for the CLI; the TUI stays silent on stdout).
 type connectResult struct {
 	Providers      []string

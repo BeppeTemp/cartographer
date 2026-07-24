@@ -77,6 +77,10 @@ const (
 type EmitResult struct {
 	Provider Provider
 	FilePath string // path relative to baseDir where the file should be written
+	// AbsolutePath is populated by Apply with the exact filesystem path it
+	// wrote (or would write in dry-run mode). FilePath remains relative because
+	// emitters and Remove use it to locate provider-native config files.
+	AbsolutePath string
 	// Content is the file content to write for JSON-format providers (claude,
 	// kiro, opencode). For TOML-format providers (codex, FilePath ends in
 	// ".toml") it is instead just the body of the Cartographer-managed block —
@@ -137,8 +141,8 @@ func EmitAll(cfg *ServerConfig) ([]*EmitResult, error) {
 	return results, nil
 }
 
-// Apply writes the emitted files into baseDir and returns the (baseDir-relative)
-// paths written — or, if dryRun=true, the paths that would be written, without
+// Apply writes the emitted files into baseDir and returns their absolute paths
+// — or, if dryRun=true, the paths that would be written, without
 // writing anything. Apply does not print anything: callers that want CLI-style
 // "wrote <path>" output (cmdConnect) render it themselves from the returned
 // paths, so callers that must not touch stdout (the TUI dashboard) can ignore it.
@@ -146,10 +150,15 @@ func EmitAll(cfg *ServerConfig) ([]*EmitResult, error) {
 // the new entry into it non-destructively.
 func Apply(results []*EmitResult, baseDir string, dryRun bool) ([]string, error) {
 	written := make([]string, 0, len(results))
+	absoluteBaseDir, err := filepath.Abs(baseDir)
+	if err != nil {
+		return written, fmt.Errorf("resolve base directory %s: %w", baseDir, err)
+	}
 	for _, r := range results {
-		fullPath := filepath.Join(baseDir, r.FilePath)
+		fullPath := filepath.Join(absoluteBaseDir, r.FilePath)
+		r.AbsolutePath = fullPath
 		if dryRun {
-			written = append(written, r.FilePath)
+			written = append(written, r.AbsolutePath)
 			continue
 		}
 		if err := os.MkdirAll(filepath.Dir(fullPath), 0o755); err != nil {
@@ -163,7 +172,7 @@ func Apply(results []*EmitResult, baseDir string, dryRun bool) ([]string, error)
 			if err := blocktext.Write(fullPath, codexMCPBlockBegin, codexMCPBlockEnd, string(r.Content)); err != nil {
 				return written, fmt.Errorf("write %s: %w", fullPath, err)
 			}
-			written = append(written, r.FilePath)
+			written = append(written, r.AbsolutePath)
 			continue
 		}
 
@@ -183,7 +192,7 @@ func Apply(results []*EmitResult, baseDir string, dryRun bool) ([]string, error)
 		if err := os.WriteFile(fullPath, content, 0o644); err != nil {
 			return written, fmt.Errorf("write %s: %w", fullPath, err)
 		}
-		written = append(written, r.FilePath)
+		written = append(written, r.AbsolutePath)
 	}
 	return written, nil
 }

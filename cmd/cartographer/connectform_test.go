@@ -38,13 +38,33 @@ func TestConnectFormModel_Prefill(t *testing.T) {
 func TestConnectFormModel_TabCyclesFocus(t *testing.T) {
 	m := newConnectFormModel("Connect claude", connectOptions{}, false)
 
-	order := []connectField{fieldTokenEnv, fieldAuth, fieldTrust, fieldSubmit, fieldServerURL}
+	order := []connectField{fieldAgentClaude, fieldAgentOpenCode, fieldAgentCodex, fieldAgentKiro, fieldTokenEnv, fieldAuth, fieldTrust, fieldSubmit, fieldServerURL}
 	for i, want := range order {
 		tm, _ := m.Update(tea.KeyMsg{Type: tea.KeyTab})
 		m = tm.(connectFormModel)
 		if m.focus != want {
 			t.Fatalf("tab #%d: focus = %v, want %v", i+1, m.focus, want)
 		}
+	}
+}
+
+func TestConnectFormModel_AgentMultiSelect(t *testing.T) {
+	m := newConnectFormModel("Connect", connectOptions{Providers: []string{"claude", "codex"}}, false)
+	if !m.providers["claude"] || !m.providers["codex"] || m.providers["kiro"] {
+		t.Fatalf("unexpected preselected providers: %+v", m.providers)
+	}
+
+	m.setFormFocus(fieldAgentCodex)
+	tm, _ := m.Update(tea.KeyMsg{Type: tea.KeySpace})
+	m = tm.(connectFormModel)
+	m.setFormFocus(fieldAgentKiro)
+	tm, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = tm.(connectFormModel)
+
+	got := m.Values().Providers
+	want := []string{"claude", "kiro"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("selected providers = %v, want %v", got, want)
 	}
 }
 

@@ -199,6 +199,25 @@ func TestApplyDryRun(t *testing.T) {
 	}
 }
 
+func TestApply_ReturnsAbsolutePaths(t *testing.T) {
+	r, err := configurator.Emit(&configurator.ServerConfig{Name: "wiki", URL: "http://localhost:8080/mcp"}, configurator.ProviderClaudeCode)
+	if err != nil {
+		t.Fatal(err)
+	}
+	baseDir := t.TempDir()
+	written, err := configurator.Apply([]*configurator.EmitResult{r}, baseDir, true)
+	if err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	want := filepath.Join(baseDir, r.FilePath)
+	if r.AbsolutePath != want {
+		t.Errorf("AbsolutePath = %q, want %q", r.AbsolutePath, want)
+	}
+	if len(written) != 1 || written[0] != want || !filepath.IsAbs(written[0]) {
+		t.Errorf("written = %v, want [%q]", written, want)
+	}
+}
+
 func TestRemove_NonDestructiveMerge(t *testing.T) {
 	cfg := &configurator.ServerConfig{Name: "wiki", URL: "http://localhost:8080/mcp"}
 	r, err := configurator.Emit(cfg, configurator.ProviderClaudeCode)

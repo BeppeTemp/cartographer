@@ -214,3 +214,25 @@ func TestPing_DoesNotMutateClientTimeout(t *testing.T) {
 		t.Fatalf("Ping mutated the shared HTTP client timeout: %v -> %v", before, c.HTTP.Timeout)
 	}
 }
+
+func TestHealth_StripsMCPPathAndPreservesAbsentFields(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Errorf("method = %s, want GET", r.Method)
+		}
+		if r.URL.Path != "/health" {
+			t.Errorf("path = %q, want /health", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"status":"ok","kbs":[]}`))
+	}))
+	defer srv.Close()
+
+	health, err := client.New(srv.URL+"/mcp", "").Health(time.Second)
+	if err != nil {
+		t.Fatalf("Health: %v", err)
+	}
+	if health.Status != "ok" || health.Ready != nil || health.KBs == nil || len(*health.KBs) != 0 {
+		t.Errorf("Health = %+v, want status=ok ready=nil kbs=empty-present", health)
+	}
+}

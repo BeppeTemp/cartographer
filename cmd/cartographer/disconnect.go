@@ -18,10 +18,11 @@ import (
 // .cartographer.yaml. Idempotent — disconnecting an already-disconnected
 // provider succeeds with exit 0.
 func cmdDisconnect(args []string) int {
-	target, rest := splitPositional(args, "all")
+	target, rest := splitPositional(args, "")
 
 	fs := flag.NewFlagSet("disconnect", flag.ExitOnError)
 	dryRun := fs.Bool("dry-run", false, "Print what would be removed without removing")
+	agentsCSV := fs.String("agents", "", "Comma-separated agent subset: claude,codex")
 	fs.Parse(rest)
 
 	dir, err := clientconfig.TargetDir()
@@ -35,7 +36,7 @@ func cmdDisconnect(args []string) int {
 		connectedAgents = cfg.Agents
 	}
 
-	providers, err := resolveDisconnectProviders(target, connectedAgents)
+	providers, err := resolveDisconnectProviders(target, *agentsCSV, connectedAgents)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		return 2
@@ -60,16 +61,17 @@ func cmdDisconnect(args []string) int {
 //   - an explicit provider name → that provider, whether or not it is currently
 //     connected (idempotent: disconnecting an unconnected provider is a no-op,
 //     not an error — same spirit as resolveTargetProviders for connect/sync)
-func resolveDisconnectProviders(target string, connectedAgents []string) ([]string, error) {
+func resolveDisconnectProviders(target, csv string, connectedAgents []string) ([]string, error) {
+	if csv != "" {
+		if target != "" {
+			return nil, fmt.Errorf("--agents cannot be used with positional provider %q", target)
+		}
+		return resolveProviderCSV(csv)
+	}
 	if target == "" || target == "all" {
 		return append([]string(nil), connectedAgents...), nil
 	}
-	switch configurator.Provider(target) {
-	case configurator.ProviderClaudeCode, configurator.ProviderOpenCode, configurator.ProviderCodex, configurator.ProviderKiro:
-		return []string{target}, nil
-	default:
-		return nil, fmt.Errorf("unknown provider %q (want claude|opencode|codex|kiro|all)", target)
-	}
+	return resolveProvider(target)
 }
 
 // disconnectOptions bundles the parameters of a disconnect operation, shared by
