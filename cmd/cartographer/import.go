@@ -19,15 +19,17 @@ import (
 // files, maps their source directories onto KB Map/expanded-concept
 // destinations, synthesizes/completes OKF frontmatter (always ensuring
 // status: imported, D74 WP1's lint anchor) and writes the result into --kb
-// via kb.WriteConcept. It never commits: the operator reviews the working
-// tree and commits once, per the mandate (no per-file LLM-driven commits for
-// a mechanical pass).
+// via kb.WriteConcept. By default it leaves the changes for the operator to
+// review; --commit opts into one explicit final commit for the whole plan.
 func cmdImport(args []string) int {
 	fs := flag.NewFlagSet("import", flag.ExitOnError)
 	source := fs.String("source", "", "Source directory to import (.md files, walked recursively)")
 	kbDir := fs.String("kb", "", "Destination KB directory (an existing local clone, see kb.Open)")
 	defaultMap := fs.String("default-map", "", "Default destination map for source directories with no --map entry (D77: was --archive)")
 	dryRun := fs.Bool("dry-run", false, "Print the mapping plan without writing")
+	commit := fs.Bool("commit", false, "Commit all successfully written import paths once")
+	message := fs.String("message", "", "Commit message (implies --commit)")
+	dirAsConcept := fs.Bool("dir-as-concept", false, "Import a directory with index.md or README.md as one expanded concept")
 	var mapFlags stringSliceFlag
 	fs.Var(&mapFlags, "map", "Per-directory mapping <srcdir>=<map> (repeatable)")
 	fs.Parse(args)
@@ -43,7 +45,7 @@ func cmdImport(args []string) int {
 		return 2
 	}
 
-	plan, err := buildImportPlan(*source, mapping, *defaultMap)
+	plan, err := buildImportPlanWithOptions(*source, mapping, *defaultMap, *dirAsConcept)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		return 2
@@ -60,7 +62,30 @@ func cmdImport(args []string) int {
 		return 2
 	}
 
-	imported, errored := applyImportPlan(k, plan, *source)
+	scaffoldPaths, err := createImportMaps(k, plan)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "Error:", err)
+		return 2
+	}
+	imported, errored, writtenPaths := applyImportPlan(k, plan, *source)
+	writtenPaths = append(scaffoldPaths, writtenPaths...)
+	if *commit || *message != "" {
+		commitMessage := *message
+		if commitMessage == "" {
+			commitMessage = fmt.Sprintf("import: %s -> %s", *source, *kbDir)
+		}
+		if len(writtenPaths) > 0 {
+			if err := k.CommitPaths(writtenPaths, commitMessage); err != nil {
+				fmt.Fprintln(os.Stderr, "Error: commit:", err)
+				return 1
+			}
+			if errored > 0 {
+				fmt.Printf("committed %d import path(s) despite %d error(s)\n", len(writtenPaths), errored)
+			} else {
+				fmt.Printf("committed %d import path(s)\n", len(writtenPaths))
+			}
+		}
+	}
 	fmt.Printf("imported: %d, skipped: %d, errors: %d\n", imported, len(plan.skipped), errored)
 	if errored > 0 {
 		return 1
@@ -107,8 +132,10 @@ func parseImportMap(raw []string) ([]importMapEntry, error) {
 // importFile is one planned import: the source path (relative to --source,
 // forward-slash, with .md) and its destination concept ID.
 type importFile struct {
-	srcRel string
-	destID okf.ConceptID
+	srcRel   string
+	destID   okf.ConceptID
+	destPath string // data-root-relative path actually written, including .md
+	promoted bool
 }
 
 // importPlan is the full result of walking --source and resolving the
@@ -117,6 +144,7 @@ type importFile struct {
 type importPlan struct {
 	files   []importFile
 	skipped []string // non-.md files found under --source, for the summary count
+	maps    []string // destination map names, one per map touched by the plan
 }
 
 // buildImportPlan walks source for .md files (skipping hidden directories),
@@ -126,6 +154,12 @@ type importPlan struct {
 // Returns an explicit error if any source directory containing .md files has
 // neither a --map entry nor a --default-map to fall back to.
 func buildImportPlan(source string, mapping []importMapEntry, defaultMap string) (*importPlan, error) {
+	return buildImportPlanWithOptions(source, mapping, defaultMap, false)
+}
+
+// buildImportPlanWithOptions also promotes source directories containing an
+// index.md (or, when absent, README.md) into expanded concepts when requested.
+func buildImportPlanWithOptions(source string, mapping []importMapEntry, defaultMap string, dirAsConcept bool) (*importPlan, error) {
 	source = filepath.Clean(source)
 
 	var mdFiles []string
@@ -192,29 +226,78 @@ func buildImportPlan(source string, mapping []importMapEntry, defaultMap string)
 			strings.Join(dirs, ", "))
 	}
 
+	promotedIndex := map[string]string{}
+	if dirAsConcept {
+		for _, rel := range mdFiles {
+			dir := path.Dir(rel)
+			switch {
+			case strings.EqualFold(path.Base(rel), "index.md"):
+				promotedIndex[dir] = rel // index.md takes precedence over README.md
+			case strings.EqualFold(path.Base(rel), "README.md"):
+				if _, already := promotedIndex[dir]; !already {
+					promotedIndex[dir] = rel
+				}
+			}
+		}
+	}
+
 	plan := &importPlan{skipped: skipped}
+	mapNames := map[string]bool{}
 	used := map[string]int{}
 	for _, rel := range mdFiles {
 		destDir := destDirFor[path.Dir(rel)]
-		slug := slugify(strings.TrimSuffix(path.Base(rel), ".md"))
-		destID := path.Join(destDir, slug)
-		if n, ok := used[destID]; ok {
-			n++
-			used[destID] = n
-			destID = fmt.Sprintf("%s-%d", destID, n)
+		mapNames[strings.Split(destDir, "/")[0]] = true
+		var destID, destPath string
+		promoted := false
+		if indexRel, ok := promotedIndex[path.Dir(rel)]; ok {
+			concept := path.Join(destDir, slugify(importSourceDirName(source, path.Dir(rel))))
+			if rel == indexRel {
+				destID, destPath, promoted = concept, path.Join(concept, "index.md"), true
+			} else {
+				destID = path.Join(concept, slugify(strings.TrimSuffix(path.Base(rel), ".md")))
+				destPath = destID + ".md"
+			}
 		} else {
-			used[destID] = 1
+			destID = path.Join(destDir, slugify(strings.TrimSuffix(path.Base(rel), ".md")))
+			destPath = destID + ".md"
 		}
-		plan.files = append(plan.files, importFile{srcRel: rel, destID: okf.ConceptID(destID)})
+		if n, ok := used[destPath]; ok {
+			n++
+			used[destPath] = n
+			destID = fmt.Sprintf("%s-%d", destID, n)
+			if promoted {
+				destPath = path.Join(destID, "index.md")
+			} else {
+				destPath = destID + ".md"
+			}
+		} else {
+			used[destPath] = 1
+		}
+		plan.files = append(plan.files, importFile{srcRel: rel, destID: okf.ConceptID(destID), destPath: destPath, promoted: promoted})
 	}
+	for name := range mapNames {
+		plan.maps = append(plan.maps, name)
+	}
+	sort.Strings(plan.maps)
 	return plan, nil
+}
+
+func importSourceDirName(source, dir string) string {
+	if dir == "." {
+		return filepath.Base(source)
+	}
+	return path.Base(dir)
 }
 
 // printImportPlan renders the --dry-run output: one "source -> dest" line
 // per planned file plus a summary count.
 func printImportPlan(plan *importPlan) {
 	for _, f := range plan.files {
-		fmt.Printf("[dry-run] %s -> %s.md\n", f.srcRel, f.destID)
+		if f.promoted {
+			fmt.Printf("[dry-run] promote %s -> %s\n", f.srcRel, f.destPath)
+		} else {
+			fmt.Printf("[dry-run] %s -> %s\n", f.srcRel, f.destPath)
+		}
 	}
 	fmt.Printf("would import: %d, skipped: %d\n", len(plan.files), len(plan.skipped))
 }
@@ -225,10 +308,10 @@ func printImportPlan(plan *importPlan) {
 // wiki-links are left untouched, D72/D74), and writes it via
 // kb.WriteConcept. A per-file error is reported and counted, not fatal to the
 // rest of the batch.
-func applyImportPlan(k *kb.KB, plan *importPlan, source string) (imported, errored int) {
+func applyImportPlan(k *kb.KB, plan *importPlan, source string) (imported, errored int, writtenPaths []string) {
 	moveMap := make(map[string]string, len(plan.files))
 	for _, f := range plan.files {
-		moveMap[strings.TrimSuffix(f.srcRel, ".md")] = string(f.destID)
+		moveMap[strings.TrimSuffix(f.srcRel, ".md")] = f.destPath
 	}
 
 	for _, f := range plan.files {
@@ -249,17 +332,51 @@ func applyImportPlan(k *kb.KB, plan *importPlan, source string) (imported, error
 			continue
 		}
 
-		newBody := rewriteMarkdownLinks(body, f.srcRel, string(f.destID), moveMap)
+		newBody := rewriteMarkdownLinks(body, f.srcRel, f.destPath, moveMap)
 
-		if _, err := k.WriteConcept(f.destID, frontmatter, newBody, ""); err != nil {
-			fmt.Fprintf(os.Stderr, "Error: write %s: %v\n", f.destID, err)
+		var writeErr error
+		if f.promoted {
+			_, writeErr = k.WriteExpandedConcept(f.destID, frontmatter, newBody, "")
+		} else {
+			_, writeErr = k.WriteConcept(f.destID, frontmatter, newBody, "")
+		}
+		if writeErr != nil {
+			fmt.Fprintf(os.Stderr, "Error: write %s: %v\n", f.destID, writeErr)
 			errored++
 			continue
 		}
 		fmt.Printf("imported %s -> %s.md\n", f.srcRel, f.destID)
 		imported++
+		writtenPaths = append(writtenPaths, filepath.ToSlash(filepath.Join("data", f.destPath)))
 	}
-	return imported, errored
+	return imported, errored, writtenPaths
+}
+
+// createImportMaps creates the standard scaffold for every destination map
+// absent from the KB before import. Existing maps, including legacy implicit
+// directories, are left untouched.
+func createImportMaps(k *kb.KB, plan *importPlan) ([]string, error) {
+	var paths []string
+	for _, name := range plan.maps {
+		mapAbs := filepath.Join(k.DataRoot(), name)
+		info, err := os.Stat(mapAbs)
+		if err == nil {
+			if !info.IsDir() {
+				return nil, fmt.Errorf("destination map %q is not a directory", name)
+			}
+			continue
+		}
+		if !os.IsNotExist(err) {
+			return nil, fmt.Errorf("stat destination map %q: %w", name, err)
+		}
+		if err := k.CreateMap(name, name, "map", nil, ""); err != nil {
+			return nil, err
+		}
+		for _, scaffold := range []string{"_map.md", "index.md", "log.md"} {
+			paths = append(paths, filepath.ToSlash(filepath.Join("data", name, scaffold)))
+		}
+	}
+	return paths, nil
 }
 
 // firstH1Re matches a level-1 markdown heading line.
@@ -310,9 +427,9 @@ var importMDLinkRe = regexp.MustCompile(`\[([^\]]*)\]\(([^)]+)\)`)
 // fragment-only links and mailto: links are left untouched, as are links
 // with no match in moveMap (best-effort, broken_link is the safety net).
 // Wiki-links [[...]] are not touched at all here — D74/D72 keep them as-is.
-func rewriteMarkdownLinks(body, srcRel, destID string, moveMap map[string]string) string {
+func rewriteMarkdownLinks(body, srcRel, destPath string, moveMap map[string]string) string {
 	baseDir := path.Dir(srcRel)
-	newBaseDir := path.Dir(destID)
+	newBaseDir := path.Dir(destPath)
 
 	return importMDLinkRe.ReplaceAllStringFunc(body, func(match string) string {
 		sub := importMDLinkRe.FindStringSubmatch(match)
@@ -345,7 +462,7 @@ func rewriteMarkdownLinks(body, srcRel, destID string, moveMap map[string]string
 			return match
 		}
 
-		newHref := relLinkPath(newBaseDir, newTarget+".md") + frag
+		newHref := relLinkPath(newBaseDir, newTarget) + frag
 		return "[" + text + "](" + newHref + ")"
 	})
 }
