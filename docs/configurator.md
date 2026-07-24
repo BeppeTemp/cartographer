@@ -135,7 +135,9 @@ cartographer status
 Exit code: `0` all providers in sync, `1` at least one provider in drift, `2` error (no
 `.cartographer.yaml`, server unreachable, ...). For every provider it also prints per-kind
 counts (`provisioning.KindCounts`), e.g. `skill 4/5 · agent 2/2 · hook 1/1`. On drift it
-prints the diff (added/updated/removed, with `signed`).
+prints the diff (added/updated/removed, with `signed`). Before the artifact report it prints the
+client and server versions. A non-`dev` mismatch is a warning only (it does not change the exit
+code); on loopback, an installed local service also gets a `cartographer service restart` hint.
 
 ### `cartographer sync`
 

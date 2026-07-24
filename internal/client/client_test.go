@@ -215,7 +215,7 @@ func TestPing_DoesNotMutateClientTimeout(t *testing.T) {
 	}
 }
 
-func TestHealth_StripsMCPPathAndPreservesAbsentFields(t *testing.T) {
+func TestHealth_StripsMCPPathAndParsesVersion(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			t.Errorf("method = %s, want GET", r.Method)
@@ -224,7 +224,7 @@ func TestHealth_StripsMCPPathAndPreservesAbsentFields(t *testing.T) {
 			t.Errorf("path = %q, want /health", r.URL.Path)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"status":"ok","kbs":[]}`))
+		w.Write([]byte(`{"status":"ok","version":"v1.2.3","kbs":[]}`))
 	}))
 	defer srv.Close()
 
@@ -232,7 +232,23 @@ func TestHealth_StripsMCPPathAndPreservesAbsentFields(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Health: %v", err)
 	}
-	if health.Status != "ok" || health.Ready != nil || health.KBs == nil || len(*health.KBs) != 0 {
-		t.Errorf("Health = %+v, want status=ok ready=nil kbs=empty-present", health)
+	if health.Status != "ok" || health.Version != "v1.2.3" || health.Ready != nil || health.KBs == nil || len(*health.KBs) != 0 {
+		t.Errorf("Health = %+v, want status=ok version=v1.2.3 ready=nil kbs=empty-present", health)
+	}
+}
+
+func TestHealth_PreservesAbsentVersion(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"status":"ok"}`))
+	}))
+	defer srv.Close()
+
+	health, err := client.New(srv.URL, "").Health(time.Second)
+	if err != nil {
+		t.Fatalf("Health: %v", err)
+	}
+	if health.Version != "" {
+		t.Errorf("Health.Version = %q, want empty for an older server", health.Version)
 	}
 }

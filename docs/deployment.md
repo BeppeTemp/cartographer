@@ -324,6 +324,7 @@ At boot the server detects and repairs an interrupted git state: a half-finished
 ## Upgrades, schema migration, and repo growth
 
 - **Server upgrade** with mounted KBs: drain (flush pushes, release mutexes) before restart.
+- **Homebrew upgrade**: `brew upgrade` replaces the binary behind Homebrew's stable symlink, but an already-running native service keeps its old process until `cartographer service restart`. Run `cartographer status` after upgrading: it reports client/server versions and warns about skew, including the restart hint for an installed local service. Do not restart from a cask hook: an explicit restart keeps the operator in control of the drain. For Kubernetes, bump the image tag; connected clients surface the same version skew while the rollout catches up.
 - **Schema versioning**: bundle-level `okf_version` **and** per-concept `schema_version`, with a migration procedure for existing `.md` files (no destructive overwrite).
 - **Repo growth**: retention/archival of closed journals, `git-LFS` or blobless/shallow clone for large `raw/` content, incremental index for `commit_gate`.
 
