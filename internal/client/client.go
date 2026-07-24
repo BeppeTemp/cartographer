@@ -12,6 +12,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 )
 
@@ -27,6 +28,17 @@ type MCPClient struct {
 	Token     string // bearer token, empty = no Authorization header
 	KB        string // optional KB name; appended as ?kb=<KB> (multi-KB server routing, see httpserver.go)
 	HTTP      *http.Client
+}
+
+// Health is the additive subset of the server's /health response that clients
+// use to distinguish a reachable-but-unusable empty multi-KB server from one
+// that can accept MCP requests. Ready and KBs are pointers so callers can
+// distinguish an older server that did not send either field from an explicit
+// false/empty value.
+type Health struct {
+	Status string             `json:"status"`
+	Ready  *bool              `json:"ready"`
+	KBs    *[]json.RawMessage `json:"kbs"`
 }
 
 // New creates an MCPClient for serverURL with an optional bearer token.
@@ -153,6 +165,54 @@ func (c *MCPClient) Ping(timeout time.Duration) error {
 	cp.HTTP = &hc
 	_, err := cp.do("ping", nil)
 	return err
+}
+
+// Health fetches GET /health for the configured MCP endpoint. serverURL
+// normally ends in /mcp; only that terminal path segment is stripped, leaving
+// deployments whose endpoint is rooted elsewhere intact. Like Ping, timeout
+// applies only to this call and does not mutate the client shared by later
+// sync_pull requests.
+func (c *MCPClient) Health(timeout time.Duration) (*Health, error) {
+	u, err := url.Parse(c.ServerURL)
+	if err != nil {
+		return nil, fmt.Errorf("client: invalid server URL %q: %w", c.ServerURL, err)
+	}
+	u.Path = strings.TrimSuffix(strings.TrimRight(u.Path, "/"), "/mcp")
+	u.RawQuery = ""
+	u.Fragment = ""
+	u.Path = strings.TrimRight(u.Path, "/") + "/health"
+
+	hc := *c.HTTP
+	hc.Timeout = timeout
+	req, err := http.NewRequest(http.MethodGet, u.String(), nil)
+	if err != nil {
+		return nil, fmt.Errorf("client: build health request: %w", err)
+	}
+	if c.Token != "" {
+		req.Header.Set("Authorization", "Bearer "+c.Token)
+	}
+
+	resp, err := hc.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("client: health request to %s: %w", u, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		if resp.StatusCode == http.StatusUnauthorized {
+			return nil, fmt.Errorf("client: %s: %w", u, ErrUnauthorized)
+		}
+		body, readErr := io.ReadAll(io.LimitReader(resp.Body, 8*1024*1024))
+		if readErr != nil {
+			return nil, fmt.Errorf("client: read health response: %w", readErr)
+		}
+		return nil, fmt.Errorf("client: %s returned HTTP %d: %s", u, resp.StatusCode, body)
+	}
+
+	var health Health
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 8*1024*1024)).Decode(&health); err != nil {
+		return nil, fmt.Errorf("client: decode health response: %w", err)
+	}
+	return &health, nil
 }
 
 // Call invokes an MCP tool via tools/call and returns the decoded JSON payload from

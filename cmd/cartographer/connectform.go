@@ -24,12 +24,25 @@ type connectField int
 
 const (
 	fieldServerURL connectField = iota
+	fieldAgentClaude
+	fieldAgentOpenCode
+	fieldAgentCodex
+	fieldAgentKiro
 	fieldTokenEnv
 	fieldAuth
 	fieldTrust
 	fieldSubmit
-	fieldCount
 )
+
+var formProviders = []string{"claude", "opencode", "codex", "kiro"}
+
+func providerForField(f connectField) (string, bool) {
+	idx := int(f - fieldAgentClaude)
+	if idx < 0 || idx >= len(formProviders) {
+		return "", false
+	}
+	return formProviders[idx], true
+}
 
 // connectFormModel is the bubbletea model for the connect form. It carries no
 // knowledge of providers, KB dirs, or network calls — those stay in
@@ -39,9 +52,14 @@ type connectFormModel struct {
 	title string
 	focus connectField
 
-	url      textinput.Model
-	tokenEnv textinput.Model
-	auth     bool
+	url       textinput.Model
+	tokenEnv  textinput.Model
+	providers map[string]bool
+	// selectAgents controls whether this invocation exposes the multi-select
+	// fields. The standalone `connect` form does; the dashboard already starts
+	// from one selected row and must not show controls it does not apply.
+	selectAgents bool
+	auth         bool
 	// trust is the "trust KB artifacts" toggle (see connectOptions.Trust):
 	// prefilled from .cartographer.yaml when it exists, defaults to true
 	// otherwise (see clientconfig.Default). Persisted at connect time by
@@ -105,16 +123,40 @@ func newConnectFormModel(title string, prefill connectOptions, standalone bool) 
 	tokenEnv.SetValue(prefill.TokenEnv)
 
 	m := connectFormModel{
-		title:      title,
-		url:        url,
-		serverName: prefill.Name,
-		tokenEnv:   tokenEnv,
-		auth:       prefill.Auth,
-		trust:      prefill.Trust,
-		standalone: standalone,
+		title:        title,
+		url:          url,
+		serverName:   prefill.Name,
+		tokenEnv:     tokenEnv,
+		auth:         prefill.Auth,
+		trust:        prefill.Trust,
+		providers:    make(map[string]bool),
+		selectAgents: true,
+		standalone:   standalone,
+	}
+	for _, provider := range prefill.Providers {
+		m.providers[provider] = true
 	}
 	m.setFormFocus(fieldServerURL)
 	return m
+}
+
+func (m connectFormModel) focusOrder() []connectField {
+	fields := []connectField{fieldServerURL}
+	if m.selectAgents {
+		fields = append(fields, fieldAgentClaude, fieldAgentOpenCode, fieldAgentCodex, fieldAgentKiro)
+	}
+	return append(fields, fieldTokenEnv, fieldAuth, fieldTrust, fieldSubmit)
+}
+
+func (m *connectFormModel) moveFocus(delta int) {
+	fields := m.focusOrder()
+	for i, field := range fields {
+		if field == m.focus {
+			m.setFormFocus(fields[(i+delta+len(fields))%len(fields)])
+			return
+		}
+	}
+	m.setFormFocus(fields[0])
 }
 
 // setFormFocus moves focus to f, (un)focusing the underlying textinput.Models.
@@ -165,7 +207,13 @@ func (m connectFormModel) Values() connectOptions {
 	if tokenEnv == "" {
 		tokenEnv = "CARTOGRAPHER_TOKENS"
 	}
-	return connectOptions{ServerURL: url, Name: name, Auth: m.auth, TokenEnv: tokenEnv, Trust: m.trust}
+	var providers []string
+	for _, provider := range formProviders {
+		if m.providers[provider] {
+			providers = append(providers, provider)
+		}
+	}
+	return connectOptions{Providers: providers, ServerURL: url, Name: name, Auth: m.auth, TokenEnv: tokenEnv, Trust: m.trust}
 }
 
 // --- tea.Model ---
@@ -190,15 +238,23 @@ func (m connectFormModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "tab", "down":
-		m.setFormFocus((m.focus + 1) % fieldCount)
+		m.moveFocus(1)
 		return m, nil
 
 	case "shift+tab", "up":
-		m.setFormFocus((m.focus - 1 + fieldCount) % fieldCount)
+		m.moveFocus(-1)
 		return m, nil
 
 	case " ":
 		switch m.focus {
+		case fieldAgentClaude, fieldAgentOpenCode, fieldAgentCodex, fieldAgentKiro:
+			if !m.selectAgents {
+				break
+			}
+			provider, _ := providerForField(m.focus)
+			m.providers[provider] = !m.providers[provider]
+			m.clearProbeState()
+			return m, nil
 		case fieldAuth:
 			m.auth = !m.auth
 			m.clearProbeState()
@@ -211,6 +267,14 @@ func (m connectFormModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case "enter":
 		switch m.focus {
+		case fieldAgentClaude, fieldAgentOpenCode, fieldAgentCodex, fieldAgentKiro:
+			if !m.selectAgents {
+				break
+			}
+			provider, _ := providerForField(m.focus)
+			m.providers[provider] = !m.providers[provider]
+			m.clearProbeState()
+			return m, nil
 		case fieldAuth:
 			m.auth = !m.auth
 			m.clearProbeState()
@@ -234,7 +298,7 @@ func (m connectFormModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		default:
-			m.setFormFocus((m.focus + 1) % fieldCount)
+			m.moveFocus(1)
 			return m, nil
 		}
 	}
@@ -279,12 +343,16 @@ func (m connectFormModel) View() string {
 		tokenEnvLine = styleSubtitle.Render(tokenEnvLine)
 	}
 
-	fields := []string{
-		formFieldLine("Server URL", m.url.View(), m.focus == fieldServerURL),
-		tokenEnvLine,
-		formFieldLine("Auth", auth, m.focus == fieldAuth),
-		formFieldLine("Trust KB artifacts", trust, m.focus == fieldTrust),
+	fields := []string{formFieldLine("Server URL", m.url.View(), m.focus == fieldServerURL)}
+	if m.selectAgents {
+		fields = append(fields,
+			formProviderLine("claude", m.providers["claude"], m.focus == fieldAgentClaude),
+			formProviderLine("opencode", m.providers["opencode"], m.focus == fieldAgentOpenCode),
+			formProviderLine("codex", m.providers["codex"], m.focus == fieldAgentCodex),
+			formProviderLine("kiro", m.providers["kiro"], m.focus == fieldAgentKiro),
+		)
 	}
+	fields = append(fields, tokenEnvLine, formFieldLine("Auth", auth, m.focus == fieldAuth), formFieldLine("Trust KB artifacts", trust, m.focus == fieldTrust))
 
 	submit := "  Connect"
 	if m.focus == fieldSubmit {
@@ -319,6 +387,14 @@ func formFieldLine(label, value string, focused bool) string {
 	return fmt.Sprintf("%s%-12s %s", marker, label+":", value)
 }
 
+func formProviderLine(provider string, selected bool, focused bool) string {
+	value := "[ ]"
+	if selected {
+		value = "[x]"
+	}
+	return formFieldLine("Agent "+provider, value, focused)
+}
+
 // fieldHint returns the one-line contextual help shown below the fields for
 // the currently focused field f (empty for fieldSubmit, which needs none).
 // authEnabled changes the Token env hint: the variable is read from the
@@ -330,6 +406,8 @@ func fieldHint(f connectField, authEnabled bool) string {
 	switch f {
 	case fieldServerURL:
 		return "MCP endpoint of the server, e.g. https://host/mcp"
+	case fieldAgentClaude, fieldAgentOpenCode, fieldAgentCodex, fieldAgentKiro:
+		return "space or enter toggles this agent; select one or more agents to connect"
 	case fieldTokenEnv:
 		if !authEnabled {
 			return "name of the environment variable with the token — ignored while Auth is disabled"

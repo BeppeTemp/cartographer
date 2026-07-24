@@ -75,6 +75,7 @@ func newParsedConnectFlagSet(t *testing.T, args ...string) (*flag.FlagSet, bool)
 	fs.Bool("dry-run", false, "")
 	fs.Bool("auto-trust", false, "")
 	noInput := fs.Bool("no-input", false, "")
+	fs.String("agents", "", "")
 	if err := fs.Parse(args); err != nil {
 		t.Fatalf("parse %v: %v", args, err)
 	}
@@ -151,7 +152,8 @@ func TestProbeServer_Success(t *testing.T) {
 	srv := pingServer(t, "")
 	defer srv.Close()
 
-	if err := probeServer(connectOptions{ServerURL: srv.URL}); err != nil {
+	state, err := probeServer(connectOptions{ServerURL: srv.URL})
+	if err != nil || state != probeReady {
 		t.Fatalf("probeServer: %v", err)
 	}
 }
@@ -162,29 +164,73 @@ func TestProbeServer_TokenOnlyWhenAuthEnabled(t *testing.T) {
 	t.Setenv("PROBE_TOKEN", "sekret")
 
 	// Auth enabled: token read from the env var, probe succeeds.
-	if err := probeServer(connectOptions{ServerURL: srv.URL, Auth: true, TokenEnv: "PROBE_TOKEN"}); err != nil {
+	state, err := probeServer(connectOptions{ServerURL: srv.URL, Auth: true, TokenEnv: "PROBE_TOKEN"})
+	if err != nil || state != probeReady {
 		t.Fatalf("probeServer with auth: %v", err)
 	}
 
 	// Auth disabled: no Authorization header is sent even though the env var
 	// is set (same rule as resolveToken in clientsync.go) → the server 401s.
-	err := probeServer(connectOptions{ServerURL: srv.URL, Auth: false, TokenEnv: "PROBE_TOKEN"})
+	_, err = probeServer(connectOptions{ServerURL: srv.URL, Auth: false, TokenEnv: "PROBE_TOKEN"})
 	if !errors.Is(err, client.ErrUnauthorized) {
 		t.Fatalf("expected ErrUnauthorized without auth, got %v", err)
 	}
 }
 
 func TestProbeErrorMessage_DistinguishesAuthFromNetwork(t *testing.T) {
-	authMsg := probeErrorMessage(fmt.Errorf("wrap: %w", client.ErrUnauthorized))
+	authMsg := probeErrorMessage(probeUnreachable, fmt.Errorf("wrap: %w", client.ErrUnauthorized))
 	if !strings.Contains(authMsg, "token") {
 		t.Errorf("401 message should point at the token, got %q", authMsg)
 	}
-	netMsg := probeErrorMessage(errors.New("dial tcp: connection refused"))
+	netMsg := probeErrorMessage(probeUnreachable, errors.New("dial tcp: connection refused"))
 	if !strings.Contains(netMsg, "unreachable") {
 		t.Errorf("network message should say unreachable, got %q", netMsg)
 	}
 	if strings.Contains(netMsg, "token was rejected") {
 		t.Errorf("network message must not mention a rejected token, got %q", netMsg)
+	}
+}
+
+func TestProbeServer_TriStateHealth(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+		want probeState
+	}{
+		{"ready false", `{"status":"ok","ready":false,"kbs":[]}`, probeNoKB},
+		{"ready true", `{"status":"ok","ready":true,"kbs":["kb"]}`, probeReady},
+		{"pre D84 empty kbs", `{"status":"ok","kbs":[]}`, probeNoKB},
+		{"pre D84 nonempty kbs", `{"status":"ok","kbs":["kb"]}`, probeReady},
+		{"pre D84 absent fields", `{"status":"ok"}`, probeReady},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path != "/health" {
+					t.Errorf("path = %q, want /health", r.URL.Path)
+				}
+				w.Header().Set("Content-Type", "application/json")
+				fmt.Fprint(w, tc.body)
+			}))
+			defer srv.Close()
+
+			state, err := probeServer(connectOptions{ServerURL: srv.URL + "/mcp"})
+			if err != nil {
+				t.Fatalf("probeServer: %v", err)
+			}
+			if state != tc.want {
+				t.Errorf("state = %v, want %v", state, tc.want)
+			}
+		})
+	}
+}
+
+func TestProbeErrorMessage_NoKBGuidance(t *testing.T) {
+	msg := probeErrorMessage(probeNoKB, nil)
+	for _, want := range []string{"server is up but no KB is mounted", "cartographer kb create <name>", "cartographer service restart"} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("message %q missing %q", msg, want)
+		}
 	}
 }
 

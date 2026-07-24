@@ -312,11 +312,20 @@ func sortedKeys(m map[string]provisioning.AppliedResult) []string {
 	return keys
 }
 
-// resolveTargetProviders resolves the `connect`/`sync` positional target argument:
-//   - "" or "all" → every agent detected on this machine (internal/agents.Detect)
-//   - an explicit provider name → that provider, regardless of detection (the
-//     user's explicit choice overrides detection)
-func resolveTargetProviders(target string) ([]string, error) {
+// resolveTargetProviders resolves connect's positional target and --agents CSV:
+//   - no target or "all" → every detected agent;
+//   - one explicit positional provider → that provider, regardless of detection;
+//   - --agents → the selected validated provider subset.
+//
+// A positional target and --agents are deliberately mutually exclusive so a
+// command cannot quietly ignore one of two conflicting selections.
+func resolveTargetProviders(target, csv string) ([]string, error) {
+	if csv != "" {
+		if target != "" {
+			return nil, fmt.Errorf("--agents cannot be used with positional provider %q", target)
+		}
+		return resolveProviderCSV(csv)
+	}
 	if target == "" || target == "all" {
 		var out []string
 		for _, a := range agents.Detect() {
@@ -326,11 +335,38 @@ func resolveTargetProviders(target string) ([]string, error) {
 		}
 		return out, nil
 	}
+	return resolveProvider(target)
+}
+
+// resolveProviderCSV validates a non-empty comma-separated provider list while
+// preserving its order. Repeating a provider is harmless but redundant, so it
+// is represented only once in the resulting operation.
+func resolveProviderCSV(csv string) ([]string, error) {
+	var providers []string
+	seen := make(map[string]bool)
+	for _, part := range strings.Split(csv, ",") {
+		name := strings.TrimSpace(part)
+		if name == "" {
+			return nil, fmt.Errorf("invalid --agents value %q (want comma-separated claude|opencode|codex|kiro)", csv)
+		}
+		provider, err := resolveProvider(name)
+		if err != nil {
+			return nil, err
+		}
+		if !seen[provider[0]] {
+			providers = append(providers, provider[0])
+			seen[provider[0]] = true
+		}
+	}
+	return providers, nil
+}
+
+func resolveProvider(target string) ([]string, error) {
 	switch configurator.Provider(target) {
 	case configurator.ProviderClaudeCode, configurator.ProviderOpenCode, configurator.ProviderCodex, configurator.ProviderKiro:
 		return []string{target}, nil
 	default:
-		return nil, fmt.Errorf("unknown provider %q (want claude|opencode|codex|kiro|all)", target)
+		return nil, fmt.Errorf("unknown provider %q (want claude|opencode|codex|kiro)", target)
 	}
 }
 

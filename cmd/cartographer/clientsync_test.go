@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -10,6 +11,52 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
 )
+
+func TestResolveTargetProviders_AgentSubsets(t *testing.T) {
+	tests := []struct {
+		name    string
+		target  string
+		csv     string
+		want    []string
+		wantErr string
+	}{
+		{"csv subset", "", "claude,codex", []string{"claude", "codex"}, ""},
+		{"csv trims and deduplicates", "", "claude, codex,claude", []string{"claude", "codex"}, ""},
+		{"invalid csv name", "", "claude,unknown", nil, "unknown provider"},
+		{"empty csv item", "", "claude,,codex", nil, "invalid --agents"},
+		{"csv plus positional", "claude", "codex", nil, "cannot be used with positional"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := resolveTargetProviders(tc.target, tc.csv)
+			if tc.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+					t.Fatalf("error = %v, want containing %q", err, tc.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("resolveTargetProviders: %v", err)
+			}
+			if !reflect.DeepEqual(got, tc.want) {
+				t.Errorf("providers = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestResolveDisconnectProviders_AgentSubsets(t *testing.T) {
+	got, err := resolveDisconnectProviders("", "claude,kiro", []string{"claude", "codex", "kiro"})
+	if err != nil {
+		t.Fatalf("resolveDisconnectProviders: %v", err)
+	}
+	if want := []string{"claude", "kiro"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("providers = %v, want %v", got, want)
+	}
+	if _, err := resolveDisconnectProviders("all", "codex", nil); err == nil || !strings.Contains(err.Error(), "cannot be used with positional") {
+		t.Errorf("csv+positional error = %v, want conflict", err)
+	}
+}
 
 // kbSkillManifest builds a single-artifact manifest with one unsigned,
 // kb:-sourced skill — the shape sync_pull returns before any trust decision
