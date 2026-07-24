@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/BeppeTemp/cartographer/internal/config"
 	"github.com/BeppeTemp/cartographer/internal/service"
 )
 
@@ -70,6 +71,13 @@ func cmdServiceInstall(args []string) int {
 		return exitStatusError
 	}
 	fmt.Println("service installed and started")
+
+	dataDir := *dataFlag
+	if cfg, cfgErr := config.Load(*configFlag); cfgErr == nil && cfg.Data != "" {
+		dataDir = cfg.Data
+	}
+	printNoKBHintIfEmpty(dataDir)
+
 	return exitStatusRunning
 }
 
