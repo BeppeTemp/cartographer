@@ -21,6 +21,9 @@ go install github.com/BeppeTemp/cartographer/cmd/cartographer@latest
 multi-provider client (`connect` / `status` / `sync`), and a TUI dashboard
 (run it with no arguments in a terminal).
 
+If an agent is performing the installation from a repository link and a first KB remote, use the
+imperative [agent-driven installation runbook](agent-install.md) instead of this human walkthrough.
+
 ## 2. Start a server with a fresh KB
 
 ```bash

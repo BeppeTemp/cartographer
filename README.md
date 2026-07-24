@@ -109,6 +109,16 @@ curl -fsSL https://raw.githubusercontent.com/BeppeTemp/cartographer/main/install
 go install github.com/BeppeTemp/cartographer/cmd/cartographer@latest
 ```
 
+### Agent-driven install
+
+Give an agent this prompt to install Cartographer, mount its first KB, connect itself, and verify the setup:
+
+```text
+Set up Cartographer on this machine by following
+https://raw.githubusercontent.com/BeppeTemp/cartographer/main/docs/agent-install.md
+My first knowledge base is at: `<git remote URL>`
+```
+
 ## Quick start
 
 The primary path is four commands: install the binary, run it as a native service, create your

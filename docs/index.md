@@ -8,6 +8,7 @@ only the pages relevant to your task.
 | File | Contents |
 |---|---|
 | [getting-started.md](getting-started.md) | Zero-to-wiki tutorial: install, first KB, connect an agent, first session |
+| [agent-install.md](agent-install.md) | Command-by-command runbook for an agent to install Cartographer, mount a first KB, connect, and verify |
 | [deployment.md](deployment.md) | Topologies (native local service / k8s / multi-server), server config, observability, backup/DR, crash recovery, upgrades, CI/CD |
 | [configurator.md](configurator.md) | Multi-provider client (`cartographer agents/connect/disconnect/status/sync` + TUI): flags, generated files per provider, `.cartographer.yaml`, lockfile v2, installation |
 | [control-plane.md](control-plane.md) | Go server, complete MCP tool API (source of truth for the list), search index, validation and provenance |
@@ -71,3 +72,4 @@ matching file **in the same session/PR** as the change:
 | New test level or pre-release checklist change | `testing.md` |
 | Contributor workflow (PR flow, plan issues, build loop) | `CONTRIBUTING.md` |
 | User-facing install/onboarding flow | `getting-started.md` + README |
+| Agent-driven install/onboarding flow | `agent-install.md` + README |
