@@ -23,7 +23,8 @@ package mcpserver
 // the default working set, unlike the enumeration/removal tools below. Also
 // NOT advanced: concept_expand (D77 WP2) — growing a concept into an
 // expanded concept is a normal, frequent agent action, same tier as
-// concept_move/concept_delete.
+// concept_move/concept_delete. Also NOT advanced: map_delete (D88 WP2) —
+// same tier as its counterpart map_create, normal Atlas upkeep.
 //
 // TestToolsProfile (server_test.go) is the golden test: it builds a real
 // registry and asserts the exact agent-visible set, so adding a tool without
