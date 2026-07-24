@@ -33,6 +33,7 @@ var subcommands = []subcommand{
 	{"service", "Manage the MCP server as a native service (install|uninstall|start|stop|restart|status)"},
 	{"import", "Mechanically import an external markdown corpus into a KB (D74 scaffold)"},
 	{"resolve", "Resolve a {{repo:<key>}}/{{path:<name>}} placeholder to a local path (D75)"},
+	{"reindex", "Reconcile search indexes after out-of-band KB changes"},
 }
 
 // serveFn/versionFn/agentsFn/connectFn/disconnectFn/statusFn/syncFn are
@@ -52,6 +53,7 @@ var (
 	importFn     = cmdImport
 	resolveFn    = cmdResolve
 	kbFn         = cmdKB
+	reindexFn    = cmdReindex
 )
 
 func main() {
@@ -101,6 +103,8 @@ func run(args []string) int {
 		return importFn(rest)
 	case "resolve":
 		return resolveFn(rest)
+	case "reindex":
+		return reindexFn(rest)
 	default:
 		if strings.HasPrefix(cmd, "-") {
 			fmt.Fprintf(os.Stderr, "Error: flags are not accepted at the root level; did you mean %q?\n\n", "cartographer serve ...")

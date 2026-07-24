@@ -302,14 +302,12 @@ func runServe(cfg *config.Config) {
 		sqlIdxs[filepath.Clean(k.Root)] = ix
 		log.Printf("sqlindex: opened %s", sqlPath)
 
-		// Cold start recovery: index.db is gitignored, so a fresh clone (e.g.
-		// after a pod restart) starts with an empty SQLite index even though
-		// the concepts are all on disk. Best-effort, keyword-only (no
-		// embedding — Ollama may not be reachable yet at boot).
-		if n, err := mcpserver.EnsureSQLIndexFresh(k, ix); err != nil {
-			log.Printf("sqlindex: ensure fresh %s: %v", sqlPath, err)
-		} else if n > 0 {
-			log.Printf("sqlindex: rebuilt %d concepts at startup (index was empty)", n)
+		// Best-effort, keyword-only reconciliation with out-of-band changes.
+		// Embeddings remain lazy because Ollama may not be reachable at boot.
+		if stats, err := mcpserver.EnsureSQLIndexFresh(k, ix); err != nil {
+			log.Printf("sqlindex: reconcile %s: %v", sqlPath, err)
+		} else if stats.Indexed > 0 || stats.Updated > 0 || stats.Removed > 0 {
+			log.Printf("sqlindex: reconciled at startup: indexed=%d updated=%d removed=%d", stats.Indexed, stats.Updated, stats.Removed)
 		}
 	}
 

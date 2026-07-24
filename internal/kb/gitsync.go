@@ -55,6 +55,7 @@ func (k *KB) SyncIn() error {
 	if branch == "" {
 		return nil // detached HEAD — skip sync
 	}
+	headBefore, _ := gitx.HeadSHA(k.Root)
 	// Fetch first to update remote refs.
 	if err := gitx.Fetch(k.Root, remote, k.GitEnv...); err != nil {
 		return fmt.Errorf("SyncIn fetch: %w", err)
@@ -63,6 +64,9 @@ func (k *KB) SyncIn() error {
 		return err
 	}
 	k.lastSyncIn = time.Now()
+	if headAfter, err := gitx.HeadSHA(k.Root); err == nil && headAfter != headBefore && k.OnSyncIn != nil {
+		k.OnSyncIn()
+	}
 	return nil
 }
 

@@ -52,6 +52,18 @@ func RegisterKBTools(s *Server, k *kb.KB, deps Deps) {
 
 	idx, meta := buildIndex(k)
 	live := newLiveIndex(idx, meta)
+	if deps.SQLIndex != nil {
+		k.OnSyncIn = func() {
+			stats, err := ReconcileIndex(k, live, deps.SQLIndex)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "cartographer: reconcile after git sync: %v\n", err)
+				return
+			}
+			if stats.Indexed > 0 || stats.Updated > 0 || stats.Removed > 0 {
+				fmt.Fprintf(os.Stderr, "cartographer: reconciled index after git sync: indexed=%d updated=%d removed=%d\n", stats.Indexed, stats.Updated, stats.Removed)
+			}
+		}
+	}
 
 	s.RegisterTool(toolAtlasOverview(k))
 	s.RegisterTool(toolIndexGet(k))
@@ -70,6 +82,7 @@ func RegisterKBTools(s *Server, k *kb.KB, deps Deps) {
 	s.RegisterTool(toolGraphNeighbors(k))
 	s.RegisterTool(toolSearch(k, live, deps))
 	s.RegisterTool(toolIndexRebuild(k, live, deps))
+	s.RegisterTool(toolReindex(k, live, deps.SQLIndex))
 	s.RegisterTool(toolLint(k))
 	s.RegisterTool(toolCommitGate(k))
 	s.RegisterTool(toolGateCheck(k))
