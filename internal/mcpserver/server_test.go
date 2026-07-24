@@ -633,6 +633,41 @@ func TestServer_MapCreate_Journal(t *testing.T) {
 	}
 }
 
+// TestServer_MapDelete_NonEmpty verifies that map_delete refuses to remove a
+// map that still holds concepts, and the error lists them (D88 WP2).
+func TestServer_MapDelete_NonEmpty(t *testing.T) {
+	k := setupTestKB(t)
+	s := New("0.1.0-m1")
+	RegisterKBTools(s, k, Deps{})
+
+	msgs := []string{
+		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
+		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"map_create","arguments":{"name":"test-map-nonempty","title":"Test Map","kind":"map"}}}`,
+		`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"test-map-nonempty/keeper","frontmatter":{"type":"Note","title":"Keeper"},"body":"# Corpo\n"}}}`,
+		`{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"map_delete","arguments":{"map":"test-map-nonempty"}}}`,
+	}
+	resps := runMCPSequence(t, s, msgs)
+
+	if tr := decodeToolResult(t, resps[1]); tr.IsError {
+		t.Fatalf("map_create: unexpected isError=true: %v", tr.Content)
+	}
+	if tr := decodeToolResult(t, resps[2]); tr.IsError {
+		t.Fatalf("concept_write: unexpected isError=true: %v", tr.Content)
+	}
+
+	trDelete := decodeToolResult(t, resps[3])
+	if !trDelete.IsError {
+		t.Fatal("map_delete on non-empty map: expected isError=true")
+	}
+	if !strings.Contains(trDelete.Content[0].Text, "test-map-nonempty/keeper") {
+		t.Errorf("map_delete: expected error to list the remaining concept: %s", trDelete.Content[0].Text)
+	}
+
+	if _, err := os.Stat(filepath.Join(k.DataRoot(), "test-map-nonempty")); err != nil {
+		t.Errorf("map_delete: map directory should still be present after refusal, err=%v", err)
+	}
+}
+
 func TestServer_ConceptExpand(t *testing.T) {
 	k := setupTestKB(t)
 	s := New("0.1.0-m1")
@@ -2384,7 +2419,7 @@ func TestServer_ToolsProfile(t *testing.T) {
 	s.SetToolsProfile("agent")
 	agentVisible := []string{
 		"atlas_overview", "index_get", "concept_read", "log_tail",
-		"concept_write", "concept_patch", "map_create", "concept_expand", "log_append", "snapshot",
+		"concept_write", "concept_patch", "map_create", "map_delete", "concept_expand", "log_append", "snapshot",
 		"map_list", "concept_list", "graph_neighbors", "search",
 		"supersede", "concept_move", "concept_delete",
 		"conflicts_list", "git_conflict_resolve",
@@ -2836,6 +2871,82 @@ func TestServer_ConceptPatch_BatchEditsWithFrontmatter(t *testing.T) {
 	}
 	if !strings.Contains(text, "status: final") && !strings.Contains(text, `"status":"final"`) && !strings.Contains(text, "status:final") {
 		t.Errorf("concept_patch batch+frontmatter: expected frontmatter status=final: %s", text)
+	}
+}
+
+// --- concept_patch frontmatter null-as-unset (D88 WP1) ---
+
+// TestServer_ConceptPatch_UnsetKey verifies that passing null for a
+// frontmatter key in concept_patch removes it (rather than setting it to a
+// literal null value).
+func TestServer_ConceptPatch_UnsetKey(t *testing.T) {
+	k := setupTestKB(t)
+	s := New("1.0.0")
+	RegisterKBTools(s, k, Deps{})
+
+	msgs := []string{
+		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
+		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"note/patch-unset","frontmatter":{"type":"Note","status":"imported"},"body":"# Corpo\n"}}}`,
+	}
+	resps := runMCPSequence(t, s, msgs)
+	trWrite := decodeToolResult(t, resps[1])
+	if trWrite.IsError {
+		t.Fatalf("concept_write: unexpected error: %v", trWrite.Content)
+	}
+	hash := conceptHash(t, trWrite)
+
+	patchArgs := fmt.Sprintf(`{"id":"note/patch-unset","old_string":"# Corpo","new_string":"# Corpo","frontmatter":{"status":null},"if_match":%q}`, hash)
+	resps2 := runMCPSequence(t, s, []string{
+		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
+		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_patch","arguments":` + patchArgs + `}}`,
+		`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"concept_read","arguments":{"id":"note/patch-unset"}}}`,
+	})
+
+	trPatch := decodeToolResult(t, resps2[1])
+	if trPatch.IsError {
+		t.Fatalf("concept_patch: unexpected error: %v", trPatch.Content)
+	}
+
+	trRead := decodeToolResult(t, resps2[2])
+	if trRead.IsError {
+		t.Fatalf("concept_read: unexpected error: %v", trRead.Content)
+	}
+	if strings.Contains(trRead.Content[0].Text, "status") {
+		t.Errorf("concept_patch: expected 'status' key to be removed, got: %s", trRead.Content[0].Text)
+	}
+}
+
+// TestServer_ConceptPatch_UnsetProtectedKey verifies that null-ing out a
+// required key ("type") fails with the existing write-path validation error,
+// rather than silently producing a concept without a type.
+func TestServer_ConceptPatch_UnsetProtectedKey(t *testing.T) {
+	k := setupTestKB(t)
+	s := New("1.0.0")
+	RegisterKBTools(s, k, Deps{})
+
+	msgs := []string{
+		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
+		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"note/patch-unset-protected","frontmatter":{"type":"Note"},"body":"# Corpo\n"}}}`,
+	}
+	resps := runMCPSequence(t, s, msgs)
+	trWrite := decodeToolResult(t, resps[1])
+	if trWrite.IsError {
+		t.Fatalf("concept_write: unexpected error: %v", trWrite.Content)
+	}
+	hash := conceptHash(t, trWrite)
+
+	patchArgs := fmt.Sprintf(`{"id":"note/patch-unset-protected","old_string":"# Corpo","new_string":"# Corpo","frontmatter":{"type":null},"if_match":%q}`, hash)
+	resps2 := runMCPSequence(t, s, []string{
+		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
+		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_patch","arguments":` + patchArgs + `}}`,
+	})
+
+	trPatch := decodeToolResult(t, resps2[1])
+	if !trPatch.IsError {
+		t.Fatal("concept_patch nulling out 'type': expected isError=true")
+	}
+	if !strings.Contains(trPatch.Content[0].Text, "type field is required") {
+		t.Errorf("concept_patch: expected 'type field is required' error: %s", trPatch.Content[0].Text)
 	}
 }
 

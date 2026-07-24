@@ -98,6 +98,48 @@ func TestGitWrap_ConceptWrite_FailedOp_NoCommit(t *testing.T) {
 	}
 }
 
+// TestGitWrap_MapDelete_EmptyMap_CreatesCommit verifies that map_delete on an
+// empty map (only the map_create scaffold, no concepts) removes the
+// directory and creates a git commit (D88 WP2).
+func TestGitWrap_MapDelete_EmptyMap_CreatesCommit(t *testing.T) {
+	k, sha1 := setupGitKB(t)
+	k.AutoCommit = true
+
+	s := New("0.1.0-test")
+	RegisterKBTools(s, k, Deps{})
+
+	msgs := []string{
+		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
+		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"map_create","arguments":{"name":"empty-map","title":"Empty Map","kind":"map"}}}`,
+		`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"map_delete","arguments":{"map":"empty-map"}}}`,
+	}
+	resps := runMCPSequence(t, s, msgs)
+	if len(resps) != 3 {
+		t.Fatalf("expected 3 responses, got %d", len(resps))
+	}
+
+	if tr := decodeToolResult(t, resps[1]); tr.IsError {
+		t.Fatalf("map_create: isError=true: %v", tr.Content)
+	}
+
+	trDelete := decodeToolResult(t, resps[2])
+	if trDelete.IsError {
+		t.Fatalf("map_delete: isError=true: %v", trDelete.Content)
+	}
+
+	if _, err := os.Stat(filepath.Join(k.DataRoot(), "empty-map")); !os.IsNotExist(err) {
+		t.Errorf("map_delete: directory still present on disk, err=%v", err)
+	}
+
+	sha2, err := gitx.HeadSHA(k.Root)
+	if err != nil {
+		t.Fatalf("HeadSHA: %v", err)
+	}
+	if sha1 == sha2 {
+		t.Fatal("expected a new commit after map_delete with AutoCommit=true, but HEAD SHA is unchanged")
+	}
+}
+
 // setupGitKBWithRemote initialises a temp KB with a bare remote attached as
 // "origin" (D76/WP4: needed to exercise the async push worker end-to-end
 // through gitWrap, not just kb.SchedulePush/FlushPush directly).

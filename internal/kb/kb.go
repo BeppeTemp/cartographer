@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -985,6 +986,46 @@ func (kb *KB) CreateMap(name, title, kind string, conceptTypes []string, ontolog
 		return fmt.Errorf("CreateMap: write log.md: %w", err)
 	}
 
+	return nil
+}
+
+// DeleteMap removes a map or journal directory, but only if it is empty —
+// i.e. it contains nothing but the scaffold files written by CreateMap
+// (_map.md, index.md, log.md). If any concept remains under it, the map is
+// left untouched and the error lists the concepts so the caller can move
+// them out first (concept_move) before retrying.
+func (kb *KB) DeleteMap(name string) error {
+	if _, err := okf.PathToID(name + ".md"); err != nil {
+		return fmt.Errorf("%w: invalid map name %q", okf.ErrInvalidPath, name)
+	}
+
+	mapAbs := filepath.Join(kb.DataRoot(), name)
+	if _, err := os.Stat(mapAbs); err != nil {
+		if os.IsNotExist(err) {
+			return fmt.Errorf("DeleteMap: map %q does not exist", name)
+		}
+		return fmt.Errorf("DeleteMap: %w", err)
+	}
+
+	var remaining []string
+	err := kb.WalkConcepts(func(id okf.ConceptID, content string) error {
+		idStr := string(id)
+		if idStr == name || strings.HasPrefix(idStr, name+"/") {
+			remaining = append(remaining, idStr)
+		}
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("DeleteMap: %w", err)
+	}
+	if len(remaining) > 0 {
+		sort.Strings(remaining)
+		return fmt.Errorf("DeleteMap: map %q is not empty, move these concepts first (concept_move): %s", name, strings.Join(remaining, ", "))
+	}
+
+	if err := os.RemoveAll(mapAbs); err != nil {
+		return fmt.Errorf("DeleteMap: remove %q: %w", name, err)
+	}
 	return nil
 }
 
