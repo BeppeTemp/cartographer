@@ -62,7 +62,7 @@ func (idx *Index) remove(id string) {
 }
 
 // Search returns hits matching the query, scored by term-frequency relevance.
-// All query terms must appear in a document (AND semantics).
+// It first requires all query terms, then falls back to any term if needed.
 // If scope is non-empty, only concepts whose ID starts with scope are returned.
 func (idx *Index) Search(query string, scope string, limit int) []Hit {
 	if limit <= 0 {
@@ -73,23 +73,9 @@ func (idx *Index) Search(query string, scope string, limit int) []Hit {
 		return nil
 	}
 
-	candidates := idx.posting(terms[0])
-	if candidates == nil {
-		return nil
-	}
-	for _, term := range terms[1:] {
-		next := idx.posting(term)
-		if next == nil {
-			return nil
-		}
-		for id := range candidates {
-			if _, ok := next[id]; !ok {
-				delete(candidates, id)
-			}
-		}
-		if len(candidates) == 0 {
-			return nil
-		}
+	candidates := idx.andCandidates(terms)
+	if len(candidates) == 0 && len(terms) >= 2 {
+		candidates = idx.orCandidates(terms)
 	}
 
 	var hits []Hit
@@ -122,6 +108,38 @@ func (idx *Index) Search(query string, scope string, limit int) []Hit {
 		hits = hits[:limit]
 	}
 	return hits
+}
+
+func (idx *Index) andCandidates(terms []string) map[string]int {
+	candidates := idx.posting(terms[0])
+	if candidates == nil {
+		return nil
+	}
+	for _, term := range terms[1:] {
+		next := idx.posting(term)
+		if next == nil {
+			return nil
+		}
+		for id := range candidates {
+			if _, ok := next[id]; !ok {
+				delete(candidates, id)
+			}
+		}
+		if len(candidates) == 0 {
+			return nil
+		}
+	}
+	return candidates
+}
+
+func (idx *Index) orCandidates(terms []string) map[string]int {
+	candidates := make(map[string]int)
+	for _, term := range terms {
+		for id := range idx.posting(term) {
+			candidates[id] = 1
+		}
+	}
+	return candidates
 }
 
 // posting returns a copy of the posting list for a term.

@@ -11,9 +11,15 @@ import (
 	"testing"
 	"testing/fstest"
 
+	"github.com/BeppeTemp/cartographer/internal/embed"
 	"github.com/BeppeTemp/cartographer/internal/kb"
 	"github.com/BeppeTemp/cartographer/internal/sqlindex"
 )
+
+type testEmbedder struct{}
+
+func (testEmbedder) Embed(string) (embed.Vector, error) { return embed.Vector{1, 0}, nil }
+func (testEmbedder) Model() string                      { return "test" }
 
 // setupTestKB creates a temporary KB with minimal content for tests.
 func setupTestKB(t *testing.T) *kb.KB {
@@ -861,6 +867,44 @@ func TestServer_Validate(t *testing.T) {
 	}
 	if !strings.Contains(tr.Content[0].Text, "senza-tipo.md") {
 		t.Errorf("validate: output does not contain expected error: %s", tr.Content[0].Text)
+	}
+}
+
+func TestSearch_ModeProfiles(t *testing.T) {
+	k := setupTestKB(t)
+	idx, meta := buildIndex(k)
+	live := newLiveIndex(idx, meta)
+
+	core := toolSearch(k, live, Deps{})
+	if !strings.Contains(string(core.InputSchema), `"mode"`) {
+		t.Fatal("Core search schema does not expose mode")
+	}
+	result, err := core.Handler(json.RawMessage(`{"query":"runbook","mode":"semantic"}`))
+	if err != nil {
+		t.Fatalf("Core semantic mode: %v", err)
+	}
+	if !result.IsError || !strings.Contains(result.Content[0].Text, "semantic/hybrid require a server started with --ollama") {
+		t.Fatalf("Core semantic mode got %+v", result)
+	}
+
+	store := embed.NewStore()
+	store.Add("manutenzione/test-runbook", embed.Vector{1, 0})
+	hybrid := toolSearch(k, live, Deps{Embedder: testEmbedder{}, VecStore: store})
+	if !strings.Contains(string(hybrid.InputSchema), `"mode"`) {
+		t.Fatal("hybrid search schema does not expose mode")
+	}
+	for _, args := range []string{
+		`{"query":"runbook","mode":"semantic"}`,
+		`{"query":"runbook","mode":"hybrid"}`,
+		`{"query":"runbook","use_semantic":true}`,
+	} {
+		result, err := hybrid.Handler(json.RawMessage(args))
+		if err != nil {
+			t.Fatalf("hybrid mode %s: %v", args, err)
+		}
+		if result.IsError || !strings.Contains(result.Content[0].Text, `"mode": "hybrid"`) {
+			t.Fatalf("hybrid mode %s got %+v", args, result)
+		}
 	}
 }
 

@@ -47,6 +47,22 @@ func TestIndex_SearchMultiTerm(t *testing.T) {
 	}
 }
 
+func TestIndex_SearchMultiTermORFallback(t *testing.T) {
+	idx := New()
+	idx.Add("both", "karpenter handles cluster downscaler work")
+	idx.Add("first", "karpenter provisions nodes")
+	idx.Add("second", "downscaler schedules maintenance")
+
+	hits := idx.Search("karpenter downscaler", "", 10)
+	if len(hits) != 1 || hits[0].ID != "both" {
+		t.Fatalf("AND search got %+v, want only both", hits)
+	}
+	hits = idx.Search("provisions maintenance", "", 10)
+	if len(hits) != 2 {
+		t.Fatalf("OR fallback got %+v, want 2 hits", hits)
+	}
+}
+
 func TestIndex_SearchScope(t *testing.T) {
 	idx := New()
 	idx.Add("arch/runbook", "production deploy runbook")

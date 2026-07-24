@@ -16,6 +16,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"unicode/utf8"
 
 	_ "modernc.org/sqlite" // register "sqlite" driver (pure-Go, no CGo)
 )
@@ -153,7 +154,22 @@ func (ix *Index) Delete(id string) error {
 // Any double quotes in the input are stripped to avoid syntax errors.
 func sanitizeFTSQuery(q string) string {
 	clean := strings.ReplaceAll(q, "\"", "")
-	return `"` + clean + `"`
+	tokens := ftsTokens(clean)
+	if len(tokens) == 0 {
+		return `"` + clean + `"`
+	}
+	return `"` + strings.Join(tokens, `" AND "`) + `"`
+}
+
+// ftsTokens returns query terms accepted by FTS5's trigram tokenizer.
+func ftsTokens(q string) []string {
+	var tokens []string
+	for _, token := range strings.Fields(q) {
+		if utf8.RuneCountInString(token) >= 3 {
+			tokens = append(tokens, token)
+		}
+	}
+	return tokens
 }
 
 // ftsSnippetTokens bounds the width of the excerpt returned by FTS5's
@@ -175,11 +191,21 @@ func (ix *Index) SearchFTS(query, scope string, limit int) ([]Hit, error) {
 		return nil, nil
 	}
 
-	sanitized := sanitizeFTSQuery(q)
+	hits, err := ix.searchFTS(sanitizeFTSQuery(q), scope, limit)
+	if err != nil {
+		return nil, err
+	}
 
+	tokens := ftsTokens(strings.ReplaceAll(q, "\"", ""))
+	if len(hits) == 0 && len(tokens) >= 2 {
+		return ix.searchFTS(`"`+strings.Join(tokens, `" OR "`)+`"`, scope, limit)
+	}
+	return hits, nil
+}
+
+func (ix *Index) searchFTS(query, scope string, limit int) ([]Hit, error) {
 	var rows *sql.Rows
 	var err error
-
 	if scope != "" {
 		rows, err = ix.db.Query(
 			`SELECT c.id, -1.0 * bm25(concepts_fts) AS score,
@@ -189,7 +215,7 @@ func (ix *Index) SearchFTS(query, scope string, limit int) ([]Hit, error) {
 			 WHERE concepts_fts MATCH ? AND c.id LIKE ?
 			 ORDER BY score DESC
 			 LIMIT ?`,
-			ftsSnippetTokens, sanitized, scope+"%", limit,
+			ftsSnippetTokens, query, scope+"%", limit,
 		)
 	} else {
 		rows, err = ix.db.Query(
@@ -200,7 +226,7 @@ func (ix *Index) SearchFTS(query, scope string, limit int) ([]Hit, error) {
 			 WHERE concepts_fts MATCH ?
 			 ORDER BY score DESC
 			 LIMIT ?`,
-			ftsSnippetTokens, sanitized, limit,
+			ftsSnippetTokens, query, limit,
 		)
 	}
 	if err != nil {

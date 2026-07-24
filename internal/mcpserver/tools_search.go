@@ -32,9 +32,10 @@ var hybridSearchInputSchema = json.RawMessage(`{
 			"type": "integer",
 			"description": "Maximum number of results (default 20)"
 		},
-		"use_semantic": {
-			"type": "boolean",
-			"description": "If true, combines keyword search with vector similarity (requires Ollama). Default false."
+		"mode": {
+			"type": "string",
+			"enum": ["keyword", "semantic", "hybrid"],
+			"description": "Search mode: keyword (default), semantic, or hybrid (requires Ollama)."
 		}
 	}
 }`)
@@ -59,7 +60,8 @@ var keywordOnlySearchInputSchema = json.RawMessage(`{
 		},
 		"mode": {
 			"type": "string",
-			"description": "Search mode: keyword (default). Semantic and hybrid modes not yet available."
+			"enum": ["keyword", "semantic", "hybrid"],
+			"description": "Search mode: keyword (default), semantic, or hybrid. Semantic and hybrid require Ollama."
 		}
 	}
 }`)
@@ -90,11 +92,11 @@ func toolSearch(k *kb.KB, live *liveIndex, deps Deps) Tool {
 	hasEmbed := deps.Embedder != nil && deps.VecStore != nil
 	hasSQL := deps.SQLIndex != nil
 
-	description := "Keyword search over KB concepts. Returns matching concept IDs ranked by relevance. All query terms must appear (AND semantics)."
+	description := "Keyword search over KB concepts. Returns matching concept IDs ranked by relevance. All query terms are preferred (AND, then OR fallback)."
 	schema := keywordOnlySearchInputSchema
 	switch {
 	case hasEmbed:
-		description = "Keyword and optional semantic search over KB concepts. Set use_semantic=true to combine vector similarity with keyword results."
+		description = "Keyword, semantic, and hybrid search over KB concepts. Set mode=hybrid to combine keyword and vector results."
 		schema = hybridSearchInputSchema
 	case hasSQL:
 		description = "Keyword search over KB concepts (SQLite FTS5 with substring matching). Returns matching concept IDs ranked by relevance."
@@ -130,7 +132,7 @@ func handleKeywordOnlySearch(live *liveIndex, args json.RawMessage) (ToolResult,
 		return errorResult("'query' is required"), nil
 	}
 	if params.Mode != "" && params.Mode != "keyword" {
-		return errorResult(fmt.Sprintf("mode %q not available; only 'keyword' is supported in Core", params.Mode)), nil
+		return errorResult(fmt.Sprintf("mode %q not available: semantic/hybrid require a server started with --ollama", params.Mode)), nil
 	}
 
 	hits := live.get().Search(params.Query, params.Scope, params.Limit)
@@ -164,6 +166,7 @@ func handleHybridSearch(live *liveIndex, deps Deps, args json.RawMessage) (ToolR
 		Query       string `json:"query"`
 		Scope       string `json:"scope"`
 		Limit       int    `json:"limit"`
+		Mode        string `json:"mode"`
 		UseSemantic bool   `json:"use_semantic"`
 	}
 	if err := json.Unmarshal(args, &params); err != nil {
@@ -172,6 +175,10 @@ func handleHybridSearch(live *liveIndex, deps Deps, args json.RawMessage) (ToolR
 	if params.Query == "" {
 		return errorResult("'query' is required"), nil
 	}
+	if params.Mode != "" && params.Mode != "keyword" && params.Mode != "semantic" && params.Mode != "hybrid" {
+		return errorResult(fmt.Sprintf("invalid mode %q; expected keyword, semantic, or hybrid", params.Mode)), nil
+	}
+	useSemantic := params.UseSemantic || params.Mode == "semantic" || params.Mode == "hybrid"
 	limit := params.Limit
 	if limit <= 0 {
 		limit = 20
@@ -217,7 +224,7 @@ func handleHybridSearch(live *liveIndex, deps Deps, args json.RawMessage) (ToolR
 		kwSet[h.ID] = h.Score
 	}
 
-	if !params.UseSemantic {
+	if !useSemantic {
 		sort.Slice(kwHits, func(i, j int) bool {
 			if kwHits[i].Score != kwHits[j].Score {
 				return kwHits[i].Score > kwHits[j].Score
