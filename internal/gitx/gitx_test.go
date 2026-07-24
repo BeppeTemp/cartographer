@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func hasGit() bool {
@@ -85,6 +86,78 @@ func TestCommit_NothingToCommit(t *testing.T) {
 	err = Commit(dir, "empty", "Wiki Test", "test@wiki.local")
 	if err != ErrNothingToCommit {
 		t.Fatalf("Commit without changes: expected ErrNothingToCommit, got %v", err)
+	}
+}
+
+func TestLogNameStatus(t *testing.T) {
+	if !hasGit() {
+		t.Skip("git not in PATH, skipping gitx tests")
+	}
+
+	dir := t.TempDir()
+	if err := Init(dir); err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "data"), 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+
+	first := time.Date(2024, time.January, 2, 3, 4, 5, 0, time.UTC)
+	second := first.Add(time.Hour)
+	path := filepath.Join(dir, "data", "before.md")
+	if err := os.WriteFile(path, []byte("before\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	if err := Commit(dir, "concept_write: before", "First Author", "first@example.test",
+		"GIT_AUTHOR_DATE="+first.Format(time.RFC3339), "GIT_COMMITTER_DATE="+first.Format(time.RFC3339)); err != nil {
+		t.Fatalf("Commit first: %v", err)
+	}
+
+	if err := os.Rename(path, filepath.Join(dir, "data", "after.md")); err != nil {
+		t.Fatalf("Rename: %v", err)
+	}
+	if err := Commit(dir, "concept_move: after", "Second Author", "second@example.test",
+		"GIT_AUTHOR_DATE="+second.Format(time.RFC3339), "GIT_COMMITTER_DATE="+second.Format(time.RFC3339)); err != nil {
+		t.Fatalf("Commit rename: %v", err)
+	}
+
+	commits, err := LogNameStatus(dir, first.Add(-time.Second))
+	if err != nil {
+		t.Fatalf("LogNameStatus: %v", err)
+	}
+	if len(commits) != 2 {
+		t.Fatalf("LogNameStatus commits = %d, want 2: %#v", len(commits), commits)
+	}
+	if commits[0].Subject != "concept_move: after" || commits[0].Author != "Second Author" {
+		t.Fatalf("newest commit = %#v", commits[0])
+	}
+	if len(commits[0].Files) != 1 {
+		t.Fatalf("rename files = %#v", commits[0].Files)
+	}
+	got := commits[0].Files[0]
+	if got.Status != "R" || got.OldPath != "data/before.md" || got.Path != "data/after.md" {
+		t.Errorf("rename = %#v, want R data/before.md -> data/after.md", got)
+	}
+	if commits[1].Files[0].Status != "A" || commits[1].Files[0].Path != "data/before.md" {
+		t.Errorf("add = %#v, want A data/before.md", commits[1].Files[0])
+	}
+}
+
+func TestLogNameStatus_EmptyHistory(t *testing.T) {
+	if !hasGit() {
+		t.Skip("git not in PATH, skipping gitx tests")
+	}
+
+	dir := t.TempDir()
+	if err := Init(dir); err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+	commits, err := LogNameStatus(dir, time.Now())
+	if err != nil {
+		t.Fatalf("LogNameStatus empty repository: %v", err)
+	}
+	if len(commits) != 0 {
+		t.Fatalf("LogNameStatus empty repository = %#v, want no commits", commits)
 	}
 }
 

@@ -10,8 +10,10 @@ import (
 	"strings"
 	"testing"
 	"testing/fstest"
+	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/embed"
+	"github.com/BeppeTemp/cartographer/internal/gitx"
 	"github.com/BeppeTemp/cartographer/internal/kb"
 	"github.com/BeppeTemp/cartographer/internal/sqlindex"
 )
@@ -257,6 +259,145 @@ func TestServer_AtlasOverview(t *testing.T) {
 	// not as 0 dossiers (regression for a flat-KB map being reported as empty).
 	if !strings.Contains(tr.Content[0].Text, "**manutenzione** (1 concepts)") {
 		t.Fatalf("atlas_overview: expected flat map concept count in output, got: %s", tr.Content[0].Text)
+	}
+}
+
+func TestParseChangesSince(t *testing.T) {
+	now := time.Date(2026, time.July, 24, 12, 0, 0, 0, time.UTC)
+	for _, tc := range []struct {
+		name  string
+		input string
+		want  time.Time
+		valid bool
+	}{
+		{name: "default", want: now.Add(-7 * 24 * time.Hour), valid: true},
+		{name: "rfc3339", input: "2026-07-22T10:30:00Z", want: time.Date(2026, time.July, 22, 10, 30, 0, 0, time.UTC), valid: true},
+		{name: "days", input: "2d", want: now.Add(-48 * time.Hour), valid: true},
+		{name: "hours", input: "48h", want: now.Add(-48 * time.Hour), valid: true},
+		{name: "garbage", input: "tomorrow", valid: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := parseChangesSince(tc.input, now)
+			if tc.valid {
+				if err != nil || !got.Equal(tc.want) {
+					t.Fatalf("parseChangesSince(%q) = %v, %v; want %v, nil", tc.input, got, err, tc.want)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("parseChangesSince(%q) succeeded, want error", tc.input)
+			}
+		})
+	}
+}
+
+func TestToolChangesSince(t *testing.T) {
+	k := setupTestKB(t)
+	if !gitx.IsRepo(k.Root) {
+		t.Skip("git not in PATH, skipping changes_since test")
+	}
+
+	// setupTestKB's initial commit is deliberately before this window. Keeping
+	// the test commits in the near future makes the window independent of the
+	// wall-clock instant at which the fixture was initialised.
+	base := time.Now().UTC().Truncate(time.Second).Add(5 * time.Minute)
+	if err := gitx.Commit(k.Root, "test: fixture", "Fixture", "fixture@example.test"); err != nil {
+		t.Fatalf("commit fixture: %v", err)
+	}
+	commitAt := func(at time.Time, subject, author string) {
+		t.Helper()
+		err := gitx.Commit(k.Root, subject, author, strings.ToLower(strings.ReplaceAll(author, " ", "."))+"@example.test",
+			"GIT_AUTHOR_DATE="+at.Format(time.RFC3339), "GIT_COMMITTER_DATE="+at.Format(time.RFC3339))
+		if err != nil {
+			t.Fatalf("commit %q: %v", subject, err)
+		}
+	}
+	write := func(rel, content string) {
+		t.Helper()
+		path := filepath.Join(k.Root, rel)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatalf("MkdirAll %s: %v", rel, err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatalf("WriteFile %s: %v", rel, err)
+		}
+	}
+
+	// Make a local .cartographer path trackable so the test exercises its
+	// explicit exclusion rather than git's usual info/exclude protection.
+	if err := os.WriteFile(filepath.Join(k.Root, ".git", "info", "exclude"), nil, 0o644); err != nil {
+		t.Fatalf("clear git exclude: %v", err)
+	}
+	write("data/changes/moved.md", "moved\n")
+	write("data/changes/deleted.md", "deleted\n")
+	write("data/changes/modified.md", "first\n")
+	write("skills/example/SKILL.md", "skill\n")
+	write(".cartographer/local.json", "{}\n")
+	commitAt(base.Add(time.Minute), "concept_write: seed changes", "Alice")
+
+	write("data/changes/modified.md", "second\n")
+	if err := os.Remove(filepath.Join(k.Root, "data/changes/deleted.md")); err != nil {
+		t.Fatalf("Remove deleted concept: %v", err)
+	}
+	write("data/log.md", "# Log\n\nchanged\n")
+	commitAt(base.Add(2*time.Minute), "concept_patch: modified", "Bob")
+
+	if err := os.Rename(filepath.Join(k.Root, "data/changes/moved.md"), filepath.Join(k.Root, "data/changes/renamed.md")); err != nil {
+		t.Fatalf("Rename moved concept: %v", err)
+	}
+	commitAt(base.Add(3*time.Minute), "concept_move: renamed", "Carol")
+
+	call := func(args string) changesSinceResult {
+		t.Helper()
+		tr, err := toolChangesSince(k).Handler(json.RawMessage(args))
+		if err != nil || tr.IsError {
+			t.Fatalf("changes_since %s: result=%+v err=%v", args, tr, err)
+		}
+		var result changesSinceResult
+		if err := json.Unmarshal([]byte(tr.Content[0].Text), &result); err != nil {
+			t.Fatalf("decode changes_since: %v; output=%s", err, tr.Content[0].Text)
+		}
+		return result
+	}
+
+	since := base.Format(time.RFC3339)
+	result := call(fmt.Sprintf(`{"since":%q}`, since))
+	if result.CommitCount != 3 || result.OtherChanges != 2 || result.Truncated {
+		t.Errorf("summary = %+v, want 3 commits, 2 other changes, not truncated", result)
+	}
+	byID := map[string]changesSinceConcept{}
+	for _, concept := range result.Concepts {
+		byID[concept.ID] = concept
+	}
+	for id, want := range map[string]string{
+		"changes/renamed":  "moved",
+		"changes/deleted":  "deleted",
+		"changes/modified": "modified",
+	} {
+		got, ok := byID[id]
+		if !ok || got.Change != want {
+			t.Errorf("concept %q = %+v, want change %q", id, got, want)
+		}
+	}
+	if _, found := byID["changes/moved"]; found {
+		t.Errorf("rename source must not be returned: %#v", byID["changes/moved"])
+	}
+	if got := byID["changes/modified"]; len(got.Authors) != 2 || got.Authors[0] != "Bob" || got.Authors[1] != "Alice" {
+		t.Errorf("modified authors = %#v, want newest-first Bob and Alice", got.Authors)
+	}
+
+	limited := call(fmt.Sprintf(`{"since":%q,"limit":2}`, since))
+	if !limited.Truncated || len(limited.Concepts) != 2 {
+		t.Errorf("limited result = %+v, want two concepts and truncated=true", limited)
+	}
+	empty := call(fmt.Sprintf(`{"since":%q}`, base.Add(24*time.Hour).Format(time.RFC3339)))
+	if len(empty.Concepts) != 0 || empty.Note == "" {
+		t.Errorf("empty window = %+v, want empty concepts and note", empty)
+	}
+
+	tr, err := toolChangesSince(k).Handler(json.RawMessage(`{"since":"tomorrow"}`))
+	if err != nil || !tr.IsError || !strings.Contains(tr.Content[0].Text, "RFC3339") {
+		t.Errorf("invalid since = %+v, %v; want accepted-format error", tr, err)
 	}
 }
 
@@ -2539,7 +2680,7 @@ func TestServer_ToolsProfile(t *testing.T) {
 	// Agent profile: exactly the core set.
 	s.SetToolsProfile("agent")
 	agentVisible := []string{
-		"atlas_overview", "index_get", "concept_read", "log_tail",
+		"atlas_overview", "index_get", "concept_read", "log_tail", "changes_since",
 		"concept_write", "concept_patch", "map_create", "map_delete", "concept_expand", "log_append", "snapshot",
 		"map_list", "concept_list", "graph_neighbors", "search",
 		"supersede", "concept_move", "concept_delete",

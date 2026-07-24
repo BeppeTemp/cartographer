@@ -4,8 +4,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
+	"time"
 
+	"github.com/BeppeTemp/cartographer/internal/gitx"
 	"github.com/BeppeTemp/cartographer/internal/kb"
 	"github.com/BeppeTemp/cartographer/internal/okf"
 )
@@ -273,6 +276,200 @@ func toolLogTail(k *kb.KB) Tool {
 				return textResult(string(out)), nil
 			}
 			return textResult(content), nil
+		},
+	}
+}
+
+// --- changes_since ---
+
+const (
+	defaultChangesSinceWindow = 7 * 24 * time.Hour
+	defaultChangesSinceLimit  = 100
+	maxChangesSinceLimit      = 500
+)
+
+type changesSinceConcept struct {
+	ID      string   `json:"id"`
+	Change  string   `json:"change"`
+	LastAt  string   `json:"last_at"`
+	Authors []string `json:"authors"`
+	Ops     []string `json:"ops"`
+}
+
+type changesSinceResult struct {
+	Since        string                `json:"since"`
+	Head         string                `json:"head"`
+	CommitCount  int                   `json:"commit_count"`
+	Concepts     []changesSinceConcept `json:"concepts"`
+	OtherChanges int                   `json:"other_changes"`
+	Truncated    bool                  `json:"truncated"`
+	Note         string                `json:"note,omitempty"`
+}
+
+func parseChangesSince(value string, now time.Time) (time.Time, error) {
+	if value == "" {
+		return now.UTC().Add(-defaultChangesSinceWindow), nil
+	}
+	if parsed, err := time.Parse(time.RFC3339, value); err == nil {
+		return parsed, nil
+	}
+	if len(value) >= 2 {
+		unit := value[len(value)-1]
+		n, err := strconv.ParseInt(value[:len(value)-1], 10, 64)
+		if err == nil && n >= 0 && (unit == 'd' || unit == 'h') {
+			unitDuration := time.Hour
+			if unit == 'd' {
+				unitDuration *= 24
+			}
+			if n <= int64((time.Duration(1<<63-1))/unitDuration) {
+				return now.UTC().Add(-time.Duration(n) * unitDuration), nil
+			}
+		}
+	}
+	return time.Time{}, fmt.Errorf("invalid since %q; use an RFC3339 timestamp or duration shorthand <N>d/<N>h (for example 2d or 48h)", value)
+}
+
+func changeSinceStatus(status string) string {
+	switch status {
+	case "A":
+		return "added"
+	case "D":
+		return "deleted"
+	case "R":
+		return "moved"
+	default:
+		return "modified"
+	}
+}
+
+func isCartographerPath(path string) bool {
+	return path == ".cartographer" || strings.HasPrefix(path, ".cartographer/")
+}
+
+func toolChangesSince(k *kb.KB) Tool {
+	return Tool{
+		Name:        "changes_since",
+		Description: "Summarizes concept changes from git history since an RFC3339 timestamp or a duration such as 2d or 48h. Aggregates each concept's newest change, latest timestamp, authors, and recent operations.",
+		ReadOnly:    true,
+		InputSchema: json.RawMessage(`{
+			"type": "object",
+			"properties": {
+				"since": {
+					"type": "string",
+					"description": "RFC3339 timestamp or duration shorthand <N>d/<N>h, such as '2d' or '48h'. Default 7d."
+				},
+				"limit": {
+					"type": "integer",
+					"description": "Maximum concepts to return. Default 100; maximum 500."
+				}
+			}
+		}`),
+		Handler: func(args json.RawMessage) (ToolResult, error) {
+			var params struct {
+				Since string `json:"since"`
+				Limit int    `json:"limit"`
+			}
+			if err := json.Unmarshal(args, &params); err != nil {
+				return errorResult("invalid params: " + err.Error()), nil
+			}
+
+			since, err := parseChangesSince(params.Since, time.Now())
+			if err != nil {
+				return errorResult(err.Error()), nil
+			}
+			commits, err := gitx.LogNameStatus(k.Root, since)
+			if err != nil {
+				return errorResult("changes_since git log: " + err.Error()), nil
+			}
+			head, _ := gitx.HeadSHA(k.Root)
+
+			limit := params.Limit
+			if limit <= 0 {
+				limit = defaultChangesSinceLimit
+			}
+			if limit > maxChangesSinceLimit {
+				limit = maxChangesSinceLimit
+			}
+
+			conceptByID := map[string]*changesSinceConcept{}
+			authorSeen := map[string]map[string]bool{}
+			opSeen := map[string]map[string]bool{}
+			movedTo := map[string]string{}
+			resolveMovedID := func(id string) string {
+				for movedTo[id] != "" {
+					id = movedTo[id]
+				}
+				return id
+			}
+			otherChanges := 0
+			for _, commit := range commits {
+				for _, file := range commit.Files {
+					if isCartographerPath(file.Path) {
+						continue
+					}
+					id, ok := kb.GitPathToConceptID(file.Path)
+					if !ok {
+						otherChanges++
+						continue
+					}
+					if file.Status == "R" {
+						if oldID, oldOK := kb.GitPathToConceptID(file.OldPath); oldOK {
+							movedTo[oldID] = id
+						}
+					}
+					id = resolveMovedID(id)
+					info, exists := conceptByID[id]
+					if !exists {
+						info = &changesSinceConcept{
+							ID:      id,
+							Change:  changeSinceStatus(file.Status),
+							LastAt:  commit.At.UTC().Format(time.RFC3339),
+							Authors: []string{},
+							Ops:     []string{},
+						}
+						conceptByID[id] = info
+						authorSeen[id] = map[string]bool{}
+						opSeen[id] = map[string]bool{}
+					}
+					if !authorSeen[id][commit.Author] {
+						authorSeen[id][commit.Author] = true
+						info.Authors = append(info.Authors, commit.Author)
+					}
+					if !opSeen[id][commit.Subject] && len(info.Ops) < 5 {
+						opSeen[id][commit.Subject] = true
+						info.Ops = append(info.Ops, commit.Subject)
+					}
+				}
+			}
+
+			concepts := make([]changesSinceConcept, 0, len(conceptByID))
+			for _, info := range conceptByID {
+				concepts = append(concepts, *info)
+			}
+			sort.Slice(concepts, func(i, j int) bool {
+				if concepts[i].LastAt == concepts[j].LastAt {
+					return concepts[i].ID < concepts[j].ID
+				}
+				return concepts[i].LastAt > concepts[j].LastAt
+			})
+			truncated := len(concepts) > limit
+			if truncated {
+				concepts = concepts[:limit]
+			}
+
+			result := changesSinceResult{
+				Since:        since.UTC().Format(time.RFC3339),
+				Head:         head,
+				CommitCount:  len(commits),
+				Concepts:     concepts,
+				OtherChanges: otherChanges,
+				Truncated:    truncated,
+			}
+			if len(commits) == 0 {
+				result.Note = fmt.Sprintf("no commits since %s", result.Since)
+			}
+			out, _ := json.MarshalIndent(result, "", "  ")
+			return textResult(string(out)), nil
 		},
 	}
 }

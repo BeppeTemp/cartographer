@@ -14,6 +14,7 @@ var readOnlyToolNames = map[string]bool{
 	"index_get":       true,
 	"concept_read":    true,
 	"log_tail":        true,
+	"changes_since":   true,
 	"validate":        true,
 	"map_list":        true,
 	"concept_list":    true,
