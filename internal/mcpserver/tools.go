@@ -40,6 +40,13 @@ type Deps struct {
 //
 // Builds the keyword index at registration time.
 func RegisterKBTools(s *Server, k *kb.KB, deps Deps) {
+	register := func(t Tool) {
+		if t.ReadOnly {
+			t = readSyncWrap(k, t)
+		}
+		s.RegisterTool(t)
+	}
+
 	// D76/WP4: route conflicts detected by the async push worker (see
 	// pushworker.go) through the same conflict-registry/degraded handling
 	// used for synchronous pushes in gitWrap. No-op when SyncOutDebounce==0
@@ -65,52 +72,52 @@ func RegisterKBTools(s *Server, k *kb.KB, deps Deps) {
 		}
 	}
 
-	s.RegisterTool(toolAtlasOverview(k))
-	s.RegisterTool(toolIndexGet(k))
-	s.RegisterTool(toolConceptRead(k))
-	s.RegisterTool(toolLogTail(k))
-	s.RegisterTool(gitWrap(k, toolConceptWrite(k, live, deps.SQLIndex)))
-	s.RegisterTool(gitWrap(k, toolConceptPatch(k, live, deps.SQLIndex)))
-	s.RegisterTool(gitWrap(k, toolMapCreate(k)))
-	s.RegisterTool(gitWrap(k, toolMapDelete(k)))
-	s.RegisterTool(gitWrap(k, toolConceptExpand(k)))
-	s.RegisterTool(gitWrap(k, toolLogAppend(k)))
-	s.RegisterTool(gitWrap(k, toolSnapshot(k)))
-	s.RegisterTool(toolValidate(k))
-	s.RegisterTool(toolMapList(k))
-	s.RegisterTool(toolConceptList(k))
-	s.RegisterTool(toolGraphNeighbors(k))
-	s.RegisterTool(toolSearch(k, live, deps))
-	s.RegisterTool(toolIndexRebuild(k, live, deps))
-	s.RegisterTool(toolReindex(k, live, deps.SQLIndex))
-	s.RegisterTool(toolLint(k))
-	s.RegisterTool(toolCommitGate(k))
-	s.RegisterTool(toolGateCheck(k))
-	s.RegisterTool(gitWrap(k, toolSupersede(k)))
-	s.RegisterTool(gitWrap(k, toolConceptMove(k, live, deps.SQLIndex)))
-	s.RegisterTool(gitWrap(k, toolConceptDelete(k, live, deps.SQLIndex)))
-	s.RegisterTool(gitWrap(k, toolConflictResolve(k)))
-	s.RegisterTool(toolKBStatus(k))
-	s.RegisterTool(toolContradictionReport(k))
-	s.RegisterTool(toolConflictsList(k))
-	s.RegisterTool(toolGitConflictResolve(k))
-	s.RegisterTool(toolServiceGet(k))
-	s.RegisterTool(toolServiceList(k))
-	s.RegisterTool(toolArtifactRead(k))
-	s.RegisterTool(toolArtifactList(k))
+	register(toolAtlasOverview(k))
+	register(toolIndexGet(k))
+	register(toolConceptRead(k))
+	register(toolLogTail(k))
+	register(gitWrap(k, toolConceptWrite(k, live, deps.SQLIndex)))
+	register(gitWrap(k, toolConceptPatch(k, live, deps.SQLIndex)))
+	register(gitWrap(k, toolMapCreate(k)))
+	register(gitWrap(k, toolMapDelete(k)))
+	register(gitWrap(k, toolConceptExpand(k)))
+	register(gitWrap(k, toolLogAppend(k)))
+	register(gitWrap(k, toolSnapshot(k)))
+	register(toolValidate(k))
+	register(toolMapList(k))
+	register(toolConceptList(k))
+	register(toolGraphNeighbors(k))
+	register(toolSearch(k, live, deps))
+	register(toolIndexRebuild(k, live, deps))
+	register(toolReindex(k, live, deps.SQLIndex))
+	register(toolLint(k))
+	register(toolCommitGate(k))
+	register(toolGateCheck(k))
+	register(gitWrap(k, toolSupersede(k)))
+	register(gitWrap(k, toolConceptMove(k, live, deps.SQLIndex)))
+	register(gitWrap(k, toolConceptDelete(k, live, deps.SQLIndex)))
+	register(gitWrap(k, toolConflictResolve(k)))
+	register(toolKBStatus(k))
+	register(toolContradictionReport(k))
+	register(toolConflictsList(k))
+	register(toolGitConflictResolve(k))
+	register(toolServiceGet(k))
+	register(toolServiceList(k))
+	register(toolArtifactRead(k))
+	register(toolArtifactList(k))
 	if k.AllowArtifactWrite {
-		s.RegisterTool(artifactNotifyWrap(s, gitWrap(k, toolArtifactWrite(k))))
-		s.RegisterTool(artifactNotifyWrap(s, gitWrap(k, toolArtifactDelete(k))))
+		register(artifactNotifyWrap(s, gitWrap(k, toolArtifactWrite(k))))
+		register(artifactNotifyWrap(s, gitWrap(k, toolArtifactDelete(k))))
 	}
 
 	if deps.BundleFS != nil {
-		s.RegisterTool(toolSkillListWithBundle(k, deps.BundleFS))
-		s.RegisterTool(notifyWrap(s, gitWrap(k, toolSkillInstall(k, deps.BundleFS)), "notifications/skills/list_changed"))
-		s.RegisterTool(toolSyncCheck(k, deps.BundleFS))
-		s.RegisterTool(toolSyncApply(k, deps.BundleFS))
-		s.RegisterTool(toolSyncPull(k, deps.BundleFS))
+		register(toolSkillListWithBundle(k, deps.BundleFS))
+		register(notifyWrap(s, gitWrap(k, toolSkillInstall(k, deps.BundleFS)), "notifications/skills/list_changed"))
+		register(toolSyncCheck(k, deps.BundleFS))
+		register(toolSyncApply(k, deps.BundleFS))
+		register(toolSyncPull(k, deps.BundleFS))
 	} else {
-		s.RegisterTool(toolSkillList(k))
+		register(toolSkillList(k))
 	}
 }
 

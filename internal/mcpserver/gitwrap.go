@@ -50,7 +50,7 @@ func gitWrap(k *kb.KB, t Tool) Tool {
 			// Step 2: fetch + pull --rebase before every write operation.
 			// If the KB has no remote or GitSync is false, SyncIn is a no-op.
 			syncInStart := time.Now()
-			syncErr := k.SyncIn()
+			_, syncErr := k.SyncIn()
 			syncInDur = time.Since(syncInStart)
 			if syncErr != nil {
 				var rce *gitx.RebaseConflictError
@@ -110,6 +110,58 @@ func gitWrap(k *kb.KB, t Tool) Tool {
 		})
 		total := time.Since(start)
 		fmt.Fprintln(os.Stderr, formatTiming(commitMessage(orig.Name, args), syncInDur, handlerDur, commitDur, pushDur, pushAsync, total))
+		return res, handlerErr
+	}
+	return t
+}
+
+// readSyncWrap refreshes a Git-synchronised KB before serving a read. Unlike
+// gitWrap, sync failures are deliberately non-fatal: a reader receives the
+// best currently available local view while an operator can still inspect the
+// stderr diagnostic or the conflict registry.
+func readSyncWrap(k *kb.KB, t Tool) Tool {
+	orig := t
+	t.Handler = func(args json.RawMessage) (ToolResult, error) {
+		// Avoid the git lock entirely when sync is disabled, no remote exists, or
+		// the successful SyncIn is still within its freshness window. The check
+		// can race another SyncIn; SyncIn repeats it after this wrapper acquires
+		// the lock, turning that case into a harmless no-op.
+		if !k.SyncInDue() {
+			return orig.Handler(args)
+		}
+
+		var res ToolResult
+		var handlerErr error
+		var syncInDur, handlerDur time.Duration
+		var fetchRan bool
+		start := time.Now()
+		_ = k.WithGitLock(func() error { // inner func always returns nil
+			syncInStart := time.Now()
+			var syncErr error
+			fetchRan, syncErr = k.SyncIn()
+			if fetchRan {
+				syncInDur = time.Since(syncInStart)
+			}
+			if syncErr != nil {
+				var rce *gitx.RebaseConflictError
+				if errors.As(syncErr, &rce) {
+					n := handleConflictError(k, rce)
+					fmt.Fprintf(os.Stderr,
+						"cartographer: git conflict during read sync (%s): registered %d concept(s) as degraded\n",
+						orig.Name, n)
+				} else {
+					fmt.Fprintf(os.Stderr, "cartographer: git sync failed during read (%s): %v\n", orig.Name, syncErr)
+				}
+			}
+
+			handlerStart := time.Now()
+			res, handlerErr = orig.Handler(args)
+			handlerDur = time.Since(handlerStart)
+			return nil
+		})
+		if fetchRan {
+			fmt.Fprintln(os.Stderr, formatTiming(orig.Name, syncInDur, handlerDur, 0, 0, false, time.Since(start)))
+		}
 		return res, handlerErr
 	}
 	return t

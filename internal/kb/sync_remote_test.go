@@ -122,10 +122,10 @@ func TestSyncIn_FreshnessWindow_SkipsRedundantFetch(t *testing.T) {
 	branch, _ := gitx.Branch(k.Root)
 
 	k.SyncInWindow = 30 * time.Second
-	if err := k.SyncIn(); err != nil {
+	if _, err := k.SyncIn(); err != nil {
 		t.Fatalf("first SyncIn: %v", err)
 	}
-	if k.lastSyncIn.IsZero() {
+	if k.lastSyncInAt().IsZero() {
 		t.Fatalf("first SyncIn should have set lastSyncIn")
 	}
 
@@ -133,7 +133,7 @@ func TestSyncIn_FreshnessWindow_SkipsRedundantFetch(t *testing.T) {
 
 	// Second SyncIn, immediately after the first: within the freshness
 	// window, so it must be a no-op and NOT pull the remote change down.
-	if err := k.SyncIn(); err != nil {
+	if _, err := k.SyncIn(); err != nil {
 		t.Fatalf("second SyncIn (within window): %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(k.Root, "remote-change.txt")); err == nil {
@@ -142,8 +142,8 @@ func TestSyncIn_FreshnessWindow_SkipsRedundantFetch(t *testing.T) {
 
 	// Simulate the window having elapsed by rewinding lastSyncIn: SyncIn
 	// must now actually fetch and pull the remote change.
-	k.lastSyncIn = time.Now().Add(-31 * time.Second)
-	if err := k.SyncIn(); err != nil {
+	k.setLastSyncIn(time.Now().Add(-31 * time.Second))
+	if _, err := k.SyncIn(); err != nil {
 		t.Fatalf("third SyncIn (window elapsed): %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(k.Root, "remote-change.txt")); err != nil {
@@ -165,7 +165,7 @@ func TestSyncIn_WindowZero_AlwaysFetches(t *testing.T) {
 	k.SyncInWindow = 0 // current behavior: sync on every call
 	callbackCalls := 0
 	k.OnSyncIn = func() { callbackCalls++ }
-	if err := k.SyncIn(); err != nil {
+	if _, err := k.SyncIn(); err != nil {
 		t.Fatalf("first SyncIn: %v", err)
 	}
 	if callbackCalls != 0 {
@@ -174,7 +174,7 @@ func TestSyncIn_WindowZero_AlwaysFetches(t *testing.T) {
 
 	pushCommitToBare(t, bare, branch, "remote-change.txt")
 
-	if err := k.SyncIn(); err != nil {
+	if _, err := k.SyncIn(); err != nil {
 		t.Fatalf("second SyncIn: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(k.Root, "remote-change.txt")); err != nil {
@@ -196,7 +196,7 @@ func TestSyncIn_NoRemote_NoOp(t *testing.T) {
 	}
 	k.GitSync = true // enabled but with no remote → still a no-op
 
-	if err := k.SyncIn(); err != nil {
+	if _, err := k.SyncIn(); err != nil {
 		t.Fatalf("SyncIn without a remote must be a no-op, err: %v", err)
 	}
 }

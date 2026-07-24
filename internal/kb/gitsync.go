@@ -28,8 +28,49 @@ func (k *KB) hasRemote() (string, bool) {
 	return "origin", true
 }
 
+// SyncInDue reports whether a SyncIn call could run a fetch. It is deliberately
+// safe to call before acquiring the git lock so read-side callers can avoid the
+// lock on the common disabled, no-remote, and fresh-window paths. A concurrent
+// SyncIn may make the answer stale before the caller acquires that lock; SyncIn
+// repeats the check and safely becomes a no-op in that case.
+func (k *KB) SyncInDue() bool {
+	if !k.GitSync || !gitx.IsRepo(k.Root) {
+		return false
+	}
+	if k.syncInWithinWindow() {
+		return false
+	}
+	if _, ok := k.hasRemote(); !ok {
+		return false
+	}
+	branch, _ := gitx.Branch(k.Root)
+	return branch != ""
+}
+
+func (k *KB) syncInWithinWindow() bool {
+	if k.SyncInWindow <= 0 {
+		return false
+	}
+	k.lastSyncInMu.RLock()
+	last := k.lastSyncIn
+	k.lastSyncInMu.RUnlock()
+	return !last.IsZero() && time.Since(last) < k.SyncInWindow
+}
+
+func (k *KB) setLastSyncIn(now time.Time) {
+	k.lastSyncInMu.Lock()
+	k.lastSyncIn = now
+	k.lastSyncInMu.Unlock()
+}
+
+func (k *KB) lastSyncInAt() time.Time {
+	k.lastSyncInMu.RLock()
+	defer k.lastSyncInMu.RUnlock()
+	return k.lastSyncIn
+}
+
 // SyncIn performs a fetch + pull --rebase --autostash from the "origin" remote
-// BEFORE a write operation. It is a no-op when:
+// before a git-synchronised operation. It is a no-op when:
 //   - k.GitSync is false, or
 //   - the KB root is not a git repository, or
 //   - no "origin" remote is configured, or
@@ -37,37 +78,30 @@ func (k *KB) hasRemote() (string, bool) {
 //     successful SyncIn happened less than k.SyncInWindow ago (D76/WP3) —
 //     avoids a redundant fetch+pull on every write during a burst.
 //
-// Returns gitx.ErrRebaseConflict if the pull hits a conflict (the rebase is
-// aborted automatically). Other network/git errors are propagated as-is.
-// lastSyncIn is only updated after a fetch+pull that actually succeeds.
-func (k *KB) SyncIn() error {
-	if !k.GitSync || !gitx.IsRepo(k.Root) {
-		return nil
+// The returned bool reports whether a fetch was attempted, including a fetch
+// that failed. Returns gitx.ErrRebaseConflict if the pull hits a conflict (the
+// rebase is aborted automatically). Other network/git errors are propagated as
+// is. lastSyncIn is only updated after a fetch+pull that actually succeeds.
+// Callers must hold the git lock.
+func (k *KB) SyncIn() (bool, error) {
+	if !k.SyncInDue() {
+		return false, nil
 	}
-	if k.SyncInWindow > 0 && !k.lastSyncIn.IsZero() && time.Since(k.lastSyncIn) < k.SyncInWindow {
-		return nil
-	}
-	remote, ok := k.hasRemote()
-	if !ok {
-		return nil
-	}
+	remote := "origin"
 	branch, _ := gitx.Branch(k.Root)
-	if branch == "" {
-		return nil // detached HEAD — skip sync
-	}
 	headBefore, _ := gitx.HeadSHA(k.Root)
 	// Fetch first to update remote refs.
 	if err := gitx.Fetch(k.Root, remote, k.GitEnv...); err != nil {
-		return fmt.Errorf("SyncIn fetch: %w", err)
+		return true, fmt.Errorf("SyncIn fetch: %w", err)
 	}
 	if err := gitx.PullRebaseAutostash(k.Root, remote, branch, k.GitEnv...); err != nil {
-		return err
+		return true, err
 	}
-	k.lastSyncIn = time.Now()
+	k.setLastSyncIn(time.Now())
 	if headAfter, err := gitx.HeadSHA(k.Root); err == nil && headAfter != headBefore && k.OnSyncIn != nil {
 		k.OnSyncIn()
 	}
-	return nil
+	return true, nil
 }
 
 // SyncOut pushes the current branch to "origin" AFTER a successful commit.
