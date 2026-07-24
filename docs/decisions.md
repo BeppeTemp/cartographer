@@ -1543,6 +1543,16 @@ safe to verify from any working directory.
 
 **Rationale.** Requiring a whole multi-word trigram phrase was stricter than the in-memory all-terms behavior and missed documents containing the terms apart. The OR retry improves recall only when the more precise result is empty, while preserving ranking and ordinary keyword behavior. This unifies the public schema without changing the capability gate: as established by D43 and AD11, semantic/hybrid search still requires a server started with Ollama and keyword search remains available without it.
 
+## D90 — Content-hash reconciliation for derived search indexes
+
+**Status: implemented (2026-07-24).**
+
+**Context.** Incremental index updates previously occurred only through MCP writes. Imports, manual filesystem edits, and concepts pulled by git therefore left a non-empty SQLite index stale; startup only rebuilt when the table was empty, so one service restart did not repair drift.
+
+**Decision.** SQLite stores one content hash per concept, so reconciliation walks the KB, compares its hashes with `AllHashes()`, and incrementally upserts new/changed concepts and deletes vanished ones. The in-memory index follows the same add/remove path as MCP writes. Reconciliation runs at boot, after a successful `SyncIn` that changes HEAD, and through the write-scoped `reindex` MCP tool. `cartographer reindex [--kb <name>]` calls a healthy configured server over HTTP; only while it is down does the local administrative CLI open `<kb>/.cartographer/index.db` directly.
+
+**Rationale.** Hash reconciliation makes the index converge without an always-on watcher, preserves the server's single owner of a live SQLite connection, and avoids needless embedding work: changed hashes naturally miss the existing embedding cache until a semantic rebuild/search refreshes them. A filesystem watcher (`fsnotify`) was rejected for this release: it adds platform-specific lifecycle and event-loss complexity while still requiring reconciliation after imports, git pulls, and restarts.
+
 ## D96 — Operations knowledge ships as a bundled skill
 
 **Status: implemented (2026-07-24).**

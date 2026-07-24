@@ -163,8 +163,13 @@ func TestSyncIn_WindowZero_AlwaysFetches(t *testing.T) {
 	branch, _ := gitx.Branch(k.Root)
 
 	k.SyncInWindow = 0 // current behavior: sync on every call
+	callbackCalls := 0
+	k.OnSyncIn = func() { callbackCalls++ }
 	if err := k.SyncIn(); err != nil {
 		t.Fatalf("first SyncIn: %v", err)
+	}
+	if callbackCalls != 0 {
+		t.Fatalf("OnSyncIn called %d times without a HEAD change", callbackCalls)
 	}
 
 	pushCommitToBare(t, bare, branch, "remote-change.txt")
@@ -174,6 +179,9 @@ func TestSyncIn_WindowZero_AlwaysFetches(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(k.Root, "remote-change.txt")); err != nil {
 		t.Fatalf("second SyncIn with window=0 should have pulled the remote change: %v", err)
+	}
+	if callbackCalls != 1 {
+		t.Fatalf("OnSyncIn called %d times after a pulled HEAD change, want 1", callbackCalls)
 	}
 }
 

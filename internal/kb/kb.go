@@ -73,6 +73,10 @@ type KB struct {
 	// the conflict to stderr.
 	OnPushConflict func(*gitx.RebaseConflictError)
 
+	// OnSyncIn, if set, runs after a successful SyncIn that changed HEAD.
+	// mcpserver uses it to reconcile derived indexes with pulled KB files.
+	OnSyncIn func()
+
 	mu sync.Mutex // serialises git operations (see gitsync.go)
 
 	// lastSyncIn is the timestamp of the last successful SyncIn (fetch+pull).

@@ -10,7 +10,8 @@ package mcpserver
 //
 // Classification rationale:
 //   - governance/diagnostics (validate, lint, gate_check, commit_gate,
-//     kb_status, contradiction_report, conflict_resolve, index_rebuild):
+//     kb_status, contradiction_report, conflict_resolve, index_rebuild,
+//     reindex):
 //     operator-level maintenance, not part of a normal agent session;
 //   - provisioning plumbing (sync_*, skill_*, service_*): consumed by the
 //     client CLI / hooks, or operator-level (skill_install, service_get).
@@ -38,6 +39,7 @@ var advancedToolNames = map[string]bool{
 	"contradiction_report": true,
 	"conflict_resolve":     true,
 	"index_rebuild":        true,
+	"reindex":              true,
 	"sync_check":           true,
 	"sync_apply":           true,
 	"sync_pull":            true,

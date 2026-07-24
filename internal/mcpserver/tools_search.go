@@ -467,24 +467,9 @@ func rebuildSQLIndex(k *kb.KB, deps Deps, withEmbed bool) sqlRebuildStats {
 	return stats
 }
 
-// EnsureSQLIndexFresh populates ix's FTS5 table from k's concepts when ix
-// looks empty (Count()==0). This recovers from a fresh git clone: since
-// <kb>/.cartographer/index.db is gitignored, a pod restart that re-clones the
-// KB starts with an empty SQLite index even though every concept is already
-// on disk — until now, only a manual index_rebuild call would fix it.
-// Deliberately skips embeddings (Ollama may be absent/slow at boot); the
-// embedding cache is populated lazily by index_rebuild or search. Returns the
-// number of concepts (re)indexed (0 if ix was already non-empty), and a
-// non-nil error only if the emptiness check itself failed — callers should
-// treat that as best-effort too and not fail startup on it.
-func EnsureSQLIndexFresh(k *kb.KB, ix *sqlindex.Index) (int, error) {
-	n, err := ix.Count()
-	if err != nil {
-		return 0, err
-	}
-	if n > 0 {
-		return 0, nil
-	}
-	stats := rebuildSQLIndex(k, Deps{SQLIndex: ix}, false)
-	return stats.upserted, nil
+// EnsureSQLIndexFresh reconciles SQLite FTS5 with the KB files at startup.
+// It deliberately skips embeddings (Ollama may be absent or slow at boot);
+// the embedding cache is populated lazily by index_rebuild or search.
+func EnsureSQLIndexFresh(k *kb.KB, ix *sqlindex.Index) (ReconcileStats, error) {
+	return ReconcileIndex(k, nil, ix)
 }

@@ -149,6 +149,29 @@ func (ix *Index) Delete(id string) error {
 	return nil
 }
 
+// AllHashes returns the persisted content hash for every indexed concept.
+// Callers use it to reconcile the derived index with the KB files on disk.
+func (ix *Index) AllHashes() (map[string]string, error) {
+	rows, err := ix.db.Query(`SELECT id, content_hash FROM concepts`)
+	if err != nil {
+		return nil, fmt.Errorf("sqlindex: all hashes: %w", err)
+	}
+	defer rows.Close()
+
+	hashes := make(map[string]string)
+	for rows.Next() {
+		var id, hash string
+		if err := rows.Scan(&id, &hash); err != nil {
+			return nil, fmt.Errorf("sqlindex: scan hash: %w", err)
+		}
+		hashes[id] = hash
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("sqlindex: iterate hashes: %w", err)
+	}
+	return hashes, nil
+}
+
 // sanitizeFTSQuery wraps the query string for safe FTS5 trigram MATCH.
 // The trigram tokenizer with a quoted string performs a substring search.
 // Any double quotes in the input are stripped to avoid syntax errors.

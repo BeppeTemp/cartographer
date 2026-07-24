@@ -174,6 +174,27 @@ func TestUpsertUpdate(t *testing.T) {
 	}
 }
 
+func TestAllHashes(t *testing.T) {
+	ix, err := Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ix.Close()
+	if err := ix.Upsert("a", "hash-a", "alpha"); err != nil {
+		t.Fatal(err)
+	}
+	if err := ix.Upsert("b", "hash-b", "beta"); err != nil {
+		t.Fatal(err)
+	}
+	hashes, err := ix.AllHashes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hashes) != 2 || hashes["a"] != "hash-a" || hashes["b"] != "hash-b" {
+		t.Fatalf("AllHashes = %#v", hashes)
+	}
+}
+
 func TestEmbeddingRoundTrip(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "test.db")
 	ix, err := Open(path)

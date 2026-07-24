@@ -2049,12 +2049,12 @@ func TestEnsureSQLIndexFresh_ColdStart(t *testing.T) {
 		t.Fatalf("precondition: expected empty index, got count=%d err=%v", n, err)
 	}
 
-	n, err := EnsureSQLIndexFresh(k, sqlIdx)
+	stats, err := EnsureSQLIndexFresh(k, sqlIdx)
 	if err != nil {
 		t.Fatalf("EnsureSQLIndexFresh: %v", err)
 	}
-	if n != 3 {
-		t.Errorf("EnsureSQLIndexFresh: expected 3 concepts indexed, got %d", n)
+	if stats.Indexed != 3 || stats.Updated != 0 || stats.Removed != 0 {
+		t.Errorf("EnsureSQLIndexFresh: got %+v, want indexed=3", stats)
 	}
 
 	s := New("1.0.0")
@@ -2076,13 +2076,90 @@ func TestEnsureSQLIndexFresh_ColdStart(t *testing.T) {
 		t.Errorf("search after cold-start rebuild: expected mode 'keyword_fts5': %s", tr.Content[0].Text)
 	}
 
-	// A second call on an already-populated index is a no-op.
-	n2, err := EnsureSQLIndexFresh(k, sqlIdx)
+	// A second call on an already-populated, unchanged index is a no-op.
+	stats2, err := EnsureSQLIndexFresh(k, sqlIdx)
 	if err != nil {
 		t.Fatalf("EnsureSQLIndexFresh (second call): %v", err)
 	}
-	if n2 != 0 {
-		t.Errorf("EnsureSQLIndexFresh (second call): expected no-op (0), got %d", n2)
+	if stats2 != (ReconcileStats{}) {
+		t.Errorf("EnsureSQLIndexFresh (second call): expected no-op, got %+v", stats2)
+	}
+}
+
+func TestReconcileIndex_OutOfBandChanges(t *testing.T) {
+	k := setupTestKB(t)
+	sqlIdx, err := sqlindex.Open(filepath.Join(t.TempDir(), "index.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sqlIdx.Close()
+
+	if stats, err := EnsureSQLIndexFresh(k, sqlIdx); err != nil || stats.Indexed == 0 {
+		t.Fatalf("initial reconcile = %+v, %v", stats, err)
+	}
+	s := New("1.0.0")
+	RegisterKBTools(s, k, Deps{SQLIndex: sqlIdx})
+
+	newPath := filepath.Join(k.DataRoot(), "manutenzione", "out-of-band.md")
+	if err := os.WriteFile(newPath, []byte("---\ntype: Note\n---\n# Out of band\nreconcileunique\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	msgs := []string{
+		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
+		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"reindex","arguments":{}}}`,
+		`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"search","arguments":{"query":"reconcileunique"}}}`,
+	}
+	resps := runMCPSequence(t, s, msgs)
+	if got := decodeToolResult(t, resps[1]); got.IsError || !strings.Contains(got.Content[0].Text, `"indexed": 1`) {
+		t.Fatalf("reindex add = %+v", got)
+	}
+	if got := decodeToolResult(t, resps[2]); got.IsError || !strings.Contains(got.Content[0].Text, "manutenzione/out-of-band") {
+		t.Fatalf("search after add = %+v", got)
+	}
+
+	if err := os.Remove(newPath); err != nil {
+		t.Fatal(err)
+	}
+	msgs = []string{
+		`{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"reindex","arguments":{}}}`,
+		`{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"search","arguments":{"query":"reconcileunique"}}}`,
+	}
+	resps = runMCPSequence(t, s, msgs)
+	if got := decodeToolResult(t, resps[0]); got.IsError || !strings.Contains(got.Content[0].Text, `"removed": 1`) {
+		t.Fatalf("reindex remove = %+v", got)
+	}
+	if got := decodeToolResult(t, resps[1]); got.IsError || !strings.Contains(got.Content[0].Text, `"count": 0`) {
+		t.Fatalf("search after removal = %+v", got)
+	}
+	if stats, err := ReconcileIndex(k, nil, sqlIdx); err != nil || stats != (ReconcileStats{}) {
+		t.Fatalf("unchanged reconcile = %+v, %v", stats, err)
+	}
+}
+
+func TestEnsureSQLIndexFresh_ReconcilesNonEmptyDrift(t *testing.T) {
+	k := setupTestKB(t)
+	sqlIdx, err := sqlindex.Open(filepath.Join(t.TempDir(), "index.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sqlIdx.Close()
+	if _, err := EnsureSQLIndexFresh(k, sqlIdx); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(k.DataRoot(), "manutenzione", "test-runbook.md")
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, append(content, []byte("\nbootreconcileunique\n")...), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	stats, err := EnsureSQLIndexFresh(k, sqlIdx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stats.Updated != 1 || stats.Indexed != 0 || stats.Removed != 0 {
+		t.Fatalf("startup drift reconcile = %+v, want one updated", stats)
 	}
 }
 

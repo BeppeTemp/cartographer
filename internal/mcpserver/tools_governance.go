@@ -9,7 +9,34 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/kb"
 	"github.com/BeppeTemp/cartographer/internal/lint"
 	"github.com/BeppeTemp/cartographer/internal/okf"
+	"github.com/BeppeTemp/cartographer/internal/sqlindex"
 )
+
+// toolReindex reconciles the derived search indexes with out-of-band KB
+// changes. It is deliberately a write-scoped administrative action: although
+// it never changes KB content, it writes the server-owned SQLite database.
+func toolReindex(k *kb.KB, live *liveIndex, sqlIdx *sqlindex.Index) Tool {
+	return Tool{
+		Name:        "reindex",
+		Description: "Reconciles the derived search index with KB files changed outside MCP, including imports, manual edits, and git pulls. Returns indexed, updated, and removed counts.",
+		InputSchema: json.RawMessage(`{"type":"object","properties":{}}`),
+		Handler: func(json.RawMessage) (ToolResult, error) {
+			if sqlIdx == nil {
+				return errorResult("reindex: SQLite index is unavailable"), nil
+			}
+			stats, err := ReconcileIndex(k, live, sqlIdx)
+			if err != nil {
+				return errorResult("reindex: " + err.Error()), nil
+			}
+			out, _ := json.MarshalIndent(map[string]int{
+				"indexed": stats.Indexed,
+				"updated": stats.Updated,
+				"removed": stats.Removed,
+			}, "", "  ")
+			return textResult(string(out)), nil
+		},
+	}
+}
 
 // --- validate ---
 
