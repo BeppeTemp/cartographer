@@ -76,6 +76,7 @@ func RegisterKBTools(s *Server, k *kb.KB, deps Deps) {
 	register(toolIndexGet(k))
 	register(toolConceptRead(k))
 	register(toolLogTail(k))
+	register(toolChangesSince(k))
 	register(gitWrap(k, toolConceptWrite(k, live, deps.SQLIndex)))
 	register(gitWrap(k, toolConceptPatch(k, live, deps.SQLIndex)))
 	register(gitWrap(k, toolMapCreate(k)))
