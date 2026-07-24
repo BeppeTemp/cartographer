@@ -22,6 +22,7 @@ type subcommand struct {
 // subcommands lists every subcommand for the usage output.
 var subcommands = []subcommand{
 	{"serve", "Run the MCP server (stdio or HTTP)"},
+	{"kb", "Create and manage local KBs (kb create <name>)"},
 	{"version", "Print the build version"},
 	{"help", "Show this help message"},
 	{"agents", "List detected/connected agent clients on this machine"},
@@ -50,6 +51,7 @@ var (
 	runTUIFn     = runTUI
 	importFn     = cmdImport
 	resolveFn    = cmdResolve
+	kbFn         = cmdKB
 )
 
 func main() {
@@ -76,6 +78,8 @@ func run(args []string) int {
 	switch cmd {
 	case "serve":
 		return serveFn(rest)
+	case "kb":
+		return kbFn(rest)
 	case "version":
 		return versionFn()
 	case "help", "-h", "--help":
