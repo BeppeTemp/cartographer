@@ -1553,6 +1553,21 @@ safe to verify from any working directory.
 
 **Rationale.** Hash reconciliation makes the index converge without an always-on watcher, preserves the server's single owner of a live SQLite connection, and avoids needless embedding work: changed hashes naturally miss the existing embedding cache until a semantic rebuild/search refreshes them. A filesystem watcher (`fsnotify`) was rejected for this release: it adds platform-specific lifecycle and event-loss complexity while still requiring reconciliation after imports, git pulls, and restarts.
 
+## D92 — Per-KB MCP entries for multi-KB servers
+
+**Status: implemented (2026-07-24).**
+
+**Decision.** `connect` and `sync` enumerate mounted KBs from `GET /health`. A multi-KB server
+emits one entry per KB, named `<server_name>-<kb>` and scoped with `?kb=<kb>`; the discovered list
+is persisted in `.cartographer.yaml` and `sync` reconciles additions, removals and the
+one↔many rename. A one-KB or older server retains the single bare `<server_name>` entry. Disconnect
+removes both the bare entry and every persisted suffixed entry.
+
+**Rationale.** Query routing already works on every server version that can mount multiple KBs,
+whereas path routing is newer and not required by all clients. Separate agent-visible entries make
+the KB choice explicit and prevent a second mounted KB from turning an existing bare `/mcp` entry
+into a 400, without introducing a client-side multiplexing protocol.
+
 ## D96 — Operations knowledge ships as a bundled skill
 
 **Status: implemented (2026-07-24).**
