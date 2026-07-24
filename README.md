@@ -111,31 +111,32 @@ go install github.com/BeppeTemp/cartographer/cmd/cartographer@latest
 
 ## Quick start
 
+The primary path is four commands: install the binary, run it as a native service, create your
+first KB, and connect an agent client to it.
+
 ```bash
-# Local stdio (Local Core)
-cartographer serve --kb /path/to/kb --init
+brew install beppetemp/tap/cartographer   # or curl install.sh, or `go install` (see Install above)
+cartographer service install              # generates config, installs and starts the service
+cartographer kb create <name>             # scaffolds a KB in the service's data dir
+cartographer connect                      # connects an agent client (Claude Code, OpenCode, Codex, Kiro)
+```
 
-# HTTP multi-KB (Server profile, auth disabled)
-CARTOGRAPHER_KB=/data/kb CARTOGRAPHER_HTTP=:8080 CARTOGRAPHER_AUTH=false \
-  cartographer serve
+`cartographer kb create <name>` prints how to get the server to pick up the new KB
+(`cartographer service restart`, or `--restart` to do it and wait for it automatically); `service
+install` itself hints at `kb create` if it starts with no KB mounted yet.
 
-# HTTP with auth
-CARTOGRAPHER_KB=/data/kb CARTOGRAPHER_HTTP=:8080 CARTOGRAPHER_AUTH=true \
-  CARTOGRAPHER_TOKENS=mytoken cartographer serve
+`connect` with no flags in a TTY opens an interactive form (server URL, server
+name, token env var, auth) instead of the flag defaults; pass `--no-input` to
+force the non-interactive behavior. Once connected:
 
-# Local native service (launchd on macOS, systemd user unit on Linux)
-cartographer service install   # generates config, installs and starts the service
-cartographer service status    # exit 0 running / 3 stopped / 4 not installed
-
-# Connect an agent client (Claude Code, OpenCode, Codex, Kiro) to a running server
-cartographer connect
+```bash
 cartographer status   # drift check: exit 0 in-sync / 1 drift / 2 error
 cartographer sync     # re-apply after drift
 ```
 
-`connect` with no flags in a TTY opens an interactive form (server URL, server
-name, token env var, auth) instead of the flag defaults; pass `--no-input` to
-force the non-interactive behavior.
+For local stdio use (a single KB, no service, typically for development) or a manually-configured
+HTTP server, see `serve --kb <path> --init` in `docs/deployment.md` — the native-service path above
+covers everyday use.
 
 ## Configuration
 
