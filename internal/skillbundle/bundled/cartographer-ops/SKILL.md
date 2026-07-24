@@ -19,6 +19,7 @@ around writes.
 | `cartographer serve` | Starting the server directly, for development or a custom deployment. |
 | `cartographer service install\|status\|restart` | Installing, checking, or restarting the native local service. |
 | `cartographer kb create <name>` | Creating the first local KB in the service data directory. |
+| `cartographer kb clone <remote> [name]` | Mounting an existing OKF KB remote in the service data directory. |
 | `cartographer connect [provider\|all] [--agents a,b]` | Connecting one or more detected agent clients to a server. |
 | `cartographer status` | Checking client configuration and provisioning drift. |
 | `cartographer sync` | Realigning provisioned skills, agents, hooks, and instructions. |
