@@ -88,6 +88,10 @@ func toolConceptWrite(k *kb.KB, live *liveIndex, sqlIdx *sqlindex.Index) Tool {
 
 // applyFrontmatterMap shallow-applies a JSON-decoded frontmatter map onto fm,
 // converting each value to the string/[]string forms okf.Frontmatter expects.
+// A JSON null value unsets the key (D88): fm.Delete(key), rather than setting
+// it to a literal nil value. Reserved/managed keys (e.g. "type") keep their
+// existing protection downstream in kb.WriteConcept, which still fails the
+// write if the required field ends up missing.
 // Shared by concept_write (full frontmatter) and concept_patch (optional
 // partial frontmatter merge, D70).
 func applyFrontmatterMap(fm *okf.Frontmatter, m map[string]interface{}) {
@@ -102,7 +106,7 @@ func applyFrontmatterMap(fm *okf.Frontmatter, m map[string]interface{}) {
 			}
 			fm.Set(key, ss)
 		case nil:
-			fm.Set(key, nil)
+			fm.Delete(key)
 		default:
 			fm.Set(key, fmt.Sprintf("%v", val))
 		}
@@ -183,7 +187,8 @@ func toolConceptPatch(k *kb.KB, live *liveIndex, sqlIdx *sqlindex.Index) Tool {
 			"if content changed since. Fails with old_string_not_found or old_string_ambiguous " +
 			"(pass replace_all to allow multiple matches); for a batch, the error names the failing " +
 			"edit's index and nothing is written. frontmatter, if given, is shallow-merged onto the " +
-			"existing frontmatter. Returns the new content_hash.",
+			"existing frontmatter; set a key to null to remove it (fails if the key is required, e.g. " +
+			"'type'). Returns the new content_hash.",
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"required": ["id", "if_match"],
@@ -223,7 +228,7 @@ func toolConceptPatch(k *kb.KB, live *liveIndex, sqlIdx *sqlindex.Index) Tool {
 				},
 				"frontmatter": {
 					"type": "object",
-					"description": "Optional: frontmatter keys to shallow-merge onto the existing frontmatter (e.g. bump 'aggiornato'). Keys not listed are left untouched."
+					"description": "Optional: frontmatter keys to shallow-merge onto the existing frontmatter (e.g. bump 'aggiornato'). Keys not listed are left untouched; set a key to null to remove it (fails if the key is required, e.g. 'type')."
 				}
 			}
 		}`),
@@ -389,6 +394,51 @@ func toolMapCreate(k *kb.KB) Tool {
 			result := map[string]interface{}{
 				"map":    params.Name,
 				"status": "created",
+			}
+			out, _ := json.MarshalIndent(result, "", "  ")
+			return textResult(string(out)), nil
+		},
+	}
+}
+
+// --- map_delete ---
+
+func toolMapDelete(k *kb.KB) Tool {
+	return Tool{
+		Name: "map_delete",
+		Description: "Deletes a Map or Journal directory, but only if it is empty — i.e. it contains " +
+			"nothing but the scaffold files written by map_create (_map.md, index.md, log.md). If any " +
+			"concept remains under it, the map is left untouched and the error lists them: move them " +
+			"first with concept_move, then retry.",
+		InputSchema: json.RawMessage(`{
+			"type": "object",
+			"required": ["map"],
+			"properties": {
+				"map": {
+					"type": "string",
+					"description": "Map/journal directory name (as passed to map_create)"
+				}
+			}
+		}`),
+		Handler: func(args json.RawMessage) (ToolResult, error) {
+			var params struct {
+				Map string `json:"map"`
+			}
+			if err := json.Unmarshal(args, &params); err != nil {
+				return errorResult("invalid params: " + err.Error()), nil
+			}
+			if params.Map == "" {
+				return errorResult("'map' is required"), nil
+			}
+
+			if err := k.DeleteMap(params.Map); err != nil {
+				return errorResult(fmt.Sprintf("map_delete %q: %v", params.Map, err)), nil
+			}
+
+			_ = k.AppendLog("map_delete: "+params.Map, time.Now())
+			result := map[string]interface{}{
+				"map":    params.Map,
+				"status": "deleted",
 			}
 			out, _ := json.MarshalIndent(result, "", "  ")
 			return textResult(string(out)), nil

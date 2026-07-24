@@ -69,6 +69,8 @@ Per session, pick a **batch** (5–15) of `imported_draft` findings. For each co
 2. fix links to real `[[id]]` targets; merge duplicates (`concept_move` batch does backlink
    rewrite; `supersede` for content replaced by a better page);
 3. when the page meets KB standards, **remove `status: imported`** — that pops it off the queue.
+   Shortcut: `concept_patch(id, frontmatter: {status: null}, if_match, ...)` unsets the key in
+   place, without a full `concept_write` rewrite (D88).
 
 Close each curation session with `log_append` (batch done, what remains). The marker makes the
 backlog resumable by any future session — resist finishing it in one go.
@@ -80,7 +82,7 @@ full `lint`, `log_append` with the closing summary.
 ## Reference
 
 - Tools: `atlas_overview`, `map_create`, `concept_expand`, `concept_read`, `concept_write`,
-  `concept_move`, `concept_list`, `supersede`, `lint`, `search`, `log_append`.
+  `concept_patch`, `concept_move`, `concept_list`, `supersede`, `lint`, `search`, `log_append`.
 - CLI: `cartographer import` (see D74 WP2), `kb-create` skill for a brand-new target KB.
 - Rationale and scope: `decisions.md` D74 (import), D28 (why no server-side ingest), D72
   (wiki-links, `concept_move` batch).
