@@ -28,7 +28,7 @@ Lint runs with a **different provider** than the one used for ingest; when two p
 
 Separate git KBs (`incident`, `runbook`, `research`), each with an `IngestionContract`, `last_indexed_commit`, a single-writer mutex, and an `access` → roles mapping. Each KB synchronizes **independently**; a real conflict puts only that KB into `needs-resolution`. A cross-domain ingest opens separate PRs per KB.
 
-Reads are Resources, writes are gated Tools; compliance-grade RBAC/audit is a future extension.
+Reads are Resources, writes are gated Tools. Authorization is per-KB (`r`/`rw` scope per token): there is no finer-grained RBAC and no permission-aware retrieval (issue #51).
 
 ---
 

@@ -42,17 +42,18 @@ Streamable HTTP transport (`POST /mcp`, `/health`, RFC 9728), bearer token + sco
 - **D78 — Robust reads on large concepts** (2026-07-14): `log_tail(path)` reads the root-log entries with `[<path>] ` prefix (was silently empty); size guard on `concept_read` (outline beyond 60 KB, `section`/`full` escape hatches); `concept_oversize` lint. Detail in `decisions.md` §D78.
 - **D79 — Open source release** (2026-07-18): Apache-2.0, public repo `github.com/BeppeTemp/cartographer` (squashed initial commit, protected `main`: PR + `test` check, squash-only, no admin bypass), GitHub Actions pipeline (release-please + GoReleaser: binaries, Homebrew cask on `BeppeTemp/homebrew-tap`, `ghcr.io/beppetemp/cartographer`), docs and code fully in English, Gitea archived, homelab switched to ghcr. First public release `v2.2.0`. Detail in `decisions.md` §D79.
 - **D80 — Versioning reset to 0.x beta** (2026-07-18): the v2.x line inherited from internal development is retired (it also broke Go tooling: no `/v2` module-path suffix, so `v2.2.0` was invisible to `go install`); public versioning restarts at `v0.1.0` with pre-major semver (`bump-minor-pre-major`: breaking → minor), beta disclaimer in README, pre-1.0 policy in CONTRIBUTING. Detail in `decisions.md` §D80.
+- **D81–D82 — Public-repo workflow** (2026-07): agent-neutral workflow with canonical `AGENTS.md` and plans as GitHub issues (D81); beta marked through GitHub's pre-release flag instead of a `-beta` version suffix (D82).
+- **D83–D86 — Local service and first-KB onboarding** (2026-07): service install robustness — data dir created, absence tolerated, stable plist binary path (D83); readiness signal and per-KB path routing (D84); `kb create` as a CLI command, not only the agentic skill (D85); connect UX — agent subsets, 0-KB diagnostics, absolute paths (D86).
+- **D87–D91 — Read/write ergonomics** (2026-07): fence-aware heading detection shared by `ListHeadings`/`ExtractSection`/`SectionHashes` (D87); frontmatter unset in `concept_patch` + `map_delete` tool (D88); multi-term search fallback and coherent search modes (D89); content-hash reconciliation for the derived indexes (D90); import convenience without widening the default write surface (D91).
+- **D92–D97 — Multi-KB client and agent-driven onboarding** (2026-07): per-KB MCP entries for multi-KB servers (D92); git freshness on the read path (D93); `changes_since` history digest (D94); client/server version-skew hints (D95); operations knowledge shipped as the bundled `cartographer-ops` skill (D96); agent-driven onboarding mounting remotes through `kb clone` (D97). Released as `v0.2.0`.
 
 ## Known bugs
 
-None open.
+- Codex rewrites `~/.codex/config.toml` dropping our comment markers, so a later `connect` re-appends the managed block → duplicate key, Codex won't start (issue #50).
 
-## Future phases
+## Planned work
 
-→ `decisions.md` §Future extensions and risks for the detail.
-
-- **Phase 3**: granular RBAC scope enforcement; permission-aware retrieval; MCP registry allow-list + per-artifact approval for `mcp` artifacts (natural hook: D69's WP5); 2026-07-28 MCP features; post-quantum age identity; dynamic secret manager.
-- **Server git profile**: working branch + PR for conflict resolution.
+Not-yet-implemented features live as **GitHub issues** (label `enhancement`), not in this file: [open enhancements](https://github.com/BeppeTemp/cartographer/issues?q=is%3Aissue+is%3Aopen+label%3Aenhancement). Design risks and watch items → `decisions.md` §Risks and watch items.
 
 ## Advancement rules
 

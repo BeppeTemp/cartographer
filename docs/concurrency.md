@@ -23,14 +23,14 @@ Two-phase mechanism (`internal/kb/conflicts.go`):
 1. **Record** — `RecordResolution` saves the decision in the per-concept registry (`resolution_strategy`/`resolution_body`). As long as unresolved conflicts remain (`PendingConflictCount > 0`), git is not touched: the tool returns the list of pending items.
 2. **Finalize** — when *all* open conflicts have a resolution, `FinalizeConflicts` runs **a single** transaction: stash uncommitted `degraded` markers → `git merge --no-commit --no-ff <remote_sha>` → overwrite each file with the resolved content (`ours`/`theirs` materialized via `git show <sha>:<path>` — avoids the `--ours/--theirs` swap of the rebase) and `git add` → rejects if conflicting files remain outside the registry → merge commit → `SyncOut` (best-effort push) → clears the registry and discards the `degraded` markers. On any git error: `merge --abort` + stash restore (working tree intact).
 
-The record/finalize separation avoids a persistent "half-done" rebase/merge state between calls (crash-safe: the decisions live in the registry; on restart the finalize is re-run). Materializing the sides by content (`git show`) instead of with `--ours/--theirs` eliminates the footgun of the reversed semantics during rebase. The Server profile (working branch + PR) remains future work.
+The record/finalize separation avoids a persistent "half-done" rebase/merge state between calls (crash-safe: the decisions live in the registry; on restart the finalize is re-run). Materializing the sides by content (`git show`) instead of with `--ours/--theirs` eliminates the footgun of the reversed semantics during rebase.
 
 | Profile | Gate | Merge to main |
 |---|---|---|
-| **Local Core** | Lightweight gate (validate + lint + commit_gate) | Fast-forward on passing the gate; optional push to a personal remote. |
-| **Server** | PR on a dedicated branch (readable diff, approval, audit) | On merge: mandatory rebase of the branch onto `main`, re-validate (gate), then fast-forward-merge and push. |
+| **Local Core** (the only one implemented) | Lightweight gate (validate + lint + commit_gate) | Fast-forward on passing the gate; optional push to a personal remote. |
+| **Server** — *design sketch, not implemented* (issue #53) | PR on a dedicated branch (readable diff, approval, audit) | On merge: mandatory rebase of the branch onto `main`, re-validate (gate), then fast-forward-merge and push. |
 
-**Authority of `if_match`**: the content-hash is anchored to `main` at the moment the PR is opened. The pre-merge rebase is the point where two PRs on the same concept get reconciled: the second one fails with `stale_write` and must be replanned.
+Every profile writes directly on the KB branch: there is no working-branch/PR code path in the server.
 
 > **Operational constraint**: a single writer-server per KB repo. Write-replicating the same KB across different hosts is out of scope; scaling is done by partitioning different KBs across different instances.
 
