@@ -400,6 +400,9 @@ func printConnectResult(dir string, providers []string, opts connectOptions, res
 			fmt.Printf("wrote %s\n", p)
 		}
 	}
+	for _, w := range res.Warnings {
+		fmt.Fprintf(os.Stderr, "warning: %s\n", w)
+	}
 
 	if res.Deferred {
 		fmt.Fprintf(os.Stderr, "Warning: skill sync deferred, server unreachable: %v\n", res.DeferredErr)
@@ -440,10 +443,11 @@ type connectOptions struct {
 
 // connectResult is the outcome of doConnect: which providers were connected, the
 // per-provider materialization result (nil when Deferred), the deferral error
-// if the server was unreachable during skill materialization, and the
+// if the server was unreachable during skill materialization, the
 // absolute MCP config paths written (or that would be written, in DryRun) by
-// configurator.Apply — callers render their own "wrote <path>"
-// output from this (cmdConnect for the CLI; the TUI stays silent on stdout).
+// configurator.Apply, and the non-fatal warnings it produced — callers render
+// their own "wrote <path>" output from this (cmdConnect for the CLI; the TUI
+// stays silent on stdout).
 type connectResult struct {
 	Providers      []string
 	Applied        map[string]provisioning.AppliedResult
@@ -451,6 +455,7 @@ type connectResult struct {
 	DeferredErr    error
 	ConfigsWritten []string
 	MCPEntries     []string
+	Warnings       []string
 }
 
 // doConnect runs the connect flow for opts.Providers against opts.Dir: writes the
@@ -482,7 +487,7 @@ func doConnect(opts connectOptions) (connectResult, error) {
 	if _, err := removeMCPEntries(opts.Name, existing.KBs, opts.Providers, opts.Dir, opts.Auth, opts.TokenEnv, opts.DryRun); err != nil {
 		return connectResult{}, err
 	}
-	configsWritten, err := applyMCPEntries(entries, opts.Providers, opts.Dir, opts.Auth, opts.TokenEnv, opts.DryRun)
+	configsWritten, configWarnings, err := applyMCPEntries(entries, opts.Providers, opts.Dir, opts.Auth, opts.TokenEnv, opts.DryRun)
 	if err != nil {
 		return connectResult{}, err
 	}
@@ -502,7 +507,7 @@ func doConnect(opts connectOptions) (connectResult, error) {
 	}
 	pullCfg := &clientconfig.Config{ServerURL: opts.ServerURL, ServerName: opts.Name, Auth: opts.Auth, TokenEnv: opts.TokenEnv, KBs: pullKBs}
 
-	res := connectResult{Providers: opts.Providers, ConfigsWritten: configsWritten, MCPEntries: entryNames(entries)}
+	res := connectResult{Providers: opts.Providers, ConfigsWritten: configsWritten, MCPEntries: entryNames(entries), Warnings: configWarnings}
 	if m, err := fetchMergedManifest(pullCfg); err != nil {
 		res.Deferred = true
 		res.DeferredErr = err
