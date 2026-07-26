@@ -77,7 +77,7 @@ In the initial sandbox environment `go get` failed due to a MITM proxy: the M1�
 Newline-delimited JSON-RPC 2.0, pure stdlib. Choice: full control + zero dependencies for the local Core. Streamable HTTP (Phase 1) is evaluated separately (D16). An MCP SDK can be introduced if needed now that D1 is resolved.
 
 ### D3 — SQLite: `modernc.org/sqlite` planned, not yet introduced
-For the FTS5 trigram index, `modernc.org/sqlite` is preferred (pure Go, no cgo). To be introduced when the in-memory index is no longer enough (large KBs, semantic search in SQLite).
+For the FTS5 trigram index, `modernc.org/sqlite` is preferred (pure Go, no cgo). To be introduced when the in-memory index is no longer enough (large KBs, semantic search in SQLite). *(Superseded by D32/D43: introduced as `internal/sqlindex` — FTS5 trigram + embedding cache, best-effort with in-memory fallback.)*
 
 ### D5 — Normalized content-hash
 `ContentHash` = sha256 hex of the normalized content: CRLF→LF, whitespace trim, removal of trailing empty lines, removal of `timestamp:` (auto-generated). Canonical ordering of YAML keys + per-section hashes (`SectionHashes`) since M2. Avoids spurious `stale_write` on non-substantive variations.
@@ -95,7 +95,7 @@ The tool receives the frontmatter as a JSON `map[string]interface{}`; the key or
 `internal/search`: lowercase tokenization on non-alphanumeric boundaries, multi-term AND, TF scoring, scope filtering (concept ID prefix). No substring matching (queries must be whole words). Trigram can be added in the same package without changing the interfaces.
 
 ### D13 — Graph neighbors: standard markdown links
-`ExtractLinks` parses only `[text](path.md)`. Absolute links, anchor-only (#), and paths outside the KB are ignored. Wiki-links `[[...]]` can be added in the future.
+`ExtractLinks` parses only `[text](path.md)`. Absolute links, anchor-only (#), and paths outside the KB are ignored. *(Superseded by D72: `[[id]]` wiki-links are first-class in `ExtractLinks`, so graph and lint see them.)*
 
 ### D14 — Lint: deterministic checks only in the Core
 Only `broken_link`, `stale_claim`, `orphan`. Reasoning checks (cross-model deep lint) deferred to the Server profile. `Now` for stale_claim is injectable for testability.
@@ -1631,6 +1631,16 @@ invariants that make a directory mountable by the service. Keeping the bootstrap
 from the human tutorial gives an agent a raw-URL-safe, imperative procedure before Cartographer or
 its provisioned `cartographer-ops` skill exists locally.
 
+## D98 — Planned work lives in GitHub issues, not in the docs
+
+**Decision.** The docs describe the **current state** only. A feature that is not implemented — deferred, "future work", "Phase 3" — is a GitHub issue labelled `enhancement`; the page that touches it keeps the *current* limit (what the code does today, so a caller can rely on it) plus a link to the issue, and nothing about the plan. `roadmap.md` keeps completed milestones and known bugs; `decisions.md`'s closing table becomes §Risks and watch items (design risks and things to adopt when stable, which are not backlog).
+
+Applied by extracting six backlog items from the prose into issues #51–#56 (fine-grained RBAC/permission-aware retrieval/compliance audit; `mcp` per-artifact approval + server-side allow-list; Server git profile; real signature verification; `mcp` stdio transport and `env` emission; per-ref secret least privilege), and by removing from the table the rows already marked ✅ implemented — history, which belongs to the git log.
+
+**Rationale.** Backlog inside the docs rots in a way prose can't signal: a reader cannot tell "this exists" from "we intend this", and the two drift apart silently. Two real cases found while doing this: `docs/concurrency.md` described the Server git profile's PR flow affirmatively (a table row and an `if_match` paragraph) with the only disclaimer buried in an earlier sentence, and D3/D13 still announced as "future" two things implemented since (SQLite index → D32/D43, wiki-links → D72). Issues also have what prose lacks: a state, an assignee, a closing PR.
+
+**Consequences.** `docs/index.md` §Maintenance rules gains the routing row ("feature not implemented → issue, never prose"). `roadmap.md` §Planned work is a pointer to the `enhancement` label. A plan issue (label `plan`) remains the design→implementation handoff for *scheduled* work: `enhancement` is the not-yet-scheduled backlog.
+
 ## Known deviations from the specification
 
 - TUI configurator: implemented (D35), opt-in via `--tui`.
@@ -1638,25 +1648,17 @@ its provisioned `cartographer-ops` skill exists locally.
 
 ---
 
-## Future extensions and risks
+## Risks and watch items
 
-| Extension / Risk | Notes |
+Known limits of the current design and things to keep an eye on. **Planned work does not live here**: features that are not implemented yet are GitHub issues (label `enhancement`), so this file stays a record of decisions rather than a backlog.
+
+| Risk / Watch item | Notes |
 |---|---|
-| Fine-grained RBAC + compliance-grade audit | Phase 3 |
-| MCP 2026-07-28 features (stateless, Multi-Round-Trip) | Adopt when stable |
-| Dynamic secret manager + post-quantum age identity | Downstream of SOPS |
-| Fencing/lease on the remote (split-brain) | Out of scope for now |
-| `kind: mcp` provisioning (third-party MCP servers from the KBs) | ✅ implemented, HTTP transport only (D69) |
-| MCP registry allow-list (MCP servers allowed server-side) | Phase 3 — not implemented (D69 WP5) |
-| Point approval per `mcp` artifact (distinct from generic trust) | Phase 3 — today only permanent `Signed:false`, no approval tool (D69 WP5) |
-| Multi-provider configurator with TUI | ✅ implemented (D35 `--tui`; single binary with subcommands D37) |
-| Client synchronization (manifest+lockfile+triggers) | ✅ Layers 1–3, all providers, remote HTTP client; kinds skill+agent+hook+instructions (D27+D34+D40+D48+D55+D56, `sync.md`) |
-| Event-driven exporter (git webhook) | Removed (D28); possible reintroduction Phase 3 |
-| Full semantic search (FTS5 trigram + SQLite) | ✅ implemented (D32) |
 | Single-writer bottleneck on high-frequency KBs | Mitigation: coalescing + per-KB partitioning |
+| Fencing/lease on the remote (split-brain) | Out of scope for now |
 | Insufficient human checkpoint (rubber-stamping) | Backpressure on ingest (`loop.md`) |
 | Cross-model lint contaminated by the same provider | Different provider + sample audits |
-| SOPS `path_regex` footgun (issues #465/#480) | Always invoke from the root |
-| Import of external non-OKF wikis/KBs | ✅ implemented (D74) |
-| Per-machine paths in shared KBs | ✅ implemented (D75) |
+| SOPS `path_regex` footgun (issues #465/#480 upstream) | Always invoke from the root |
 | Encrypted files stay in git history forever | Rotate secrets upstream + break-glass |
+| MCP 2026-07-28 features (stateless, Multi-Round-Trip) | Adopt when stable |
+| Dynamic secret manager + post-quantum age identity | Downstream of SOPS, no decision taken |
