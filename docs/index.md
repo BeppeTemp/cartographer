@@ -28,7 +28,7 @@ only the pages relevant to your task.
 | [interoperability.md](interoperability.md) | OKF compliance, multi-provider configurator, capability matrix (Claude/Codex/Kiro/OpenCode) |
 | [decisions.md](decisions.md) | Decision register: closed architectural (AD) and implementation (D) entries. Each entry = decision + reason + pointer; history lives in the git log |
 | [conventions.md](conventions.md) | Go conventions (language, style, errors, data-plane safety, tests, dependencies) |
-| [roadmap.md](roadmap.md) | **Project status** (the only place it lives) and milestones, completed and future |
+| [roadmap.md](roadmap.md) | **Project status** (the only place it lives): completed milestones and known bugs. Planned work lives in GitHub issues, not in the docs |
 | [testing.md](testing.md) | Test strategy: levels (unit/smoke/HTTP/agent-level), operator-vs-agent distinction, pre-release checklist |
 | [references.md](references.md) | Bibliography (Karpathy, OKF, MCP spec, SOPS, agentskills.io) |
 
@@ -67,6 +67,7 @@ matching file **in the same session/PR** as the change:
 | Token/scope format or enforcement (`kb:<name>:r\|rw`), per-KB git identity or SOPS | `transport-auth.md` (auth/scopes) + `deployment.md` (server config, `KBSpec`) |
 | New provisioning `kind` (beyond skill/agent/hook) or per-provider destination | `configurator.md` (client) + `sync.md` (manifest/diff) |
 | Milestone completed or task dropped | `roadmap.md` (never in `AGENTS.md`: it is stable imprinting) |
+| A feature is **not** implemented (deferred, planned, "future work") | A GitHub issue labelled `enhancement` — never prose in `docs/`. The page keeps only the current limit, with a link to the issue |
 | Any non-obvious choice (why X and not Y) | `decisions.md` (new D entry) |
 | New external dependency | `decisions.md` (D entry) + `conventions.md` §dependencies |
 | New test level or pre-release checklist change | `testing.md` |
