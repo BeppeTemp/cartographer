@@ -1068,8 +1068,12 @@ func Apply(m Manifest, opts ApplyOptions) (AppliedResult, error) {
 							return AppliedResult{}, fmt.Errorf("provisioning: register hook %s in settings.json: %w", a.Name, err)
 						}
 					case configurator.ProviderCodex:
-						if err := registerHookConfigTOML(opts.BaseDir, a.Name, fullDestDir); err != nil {
+						warning, err := registerHookConfigTOML(opts.BaseDir, a.Name, fullDestDir)
+						if err != nil {
 							return AppliedResult{}, fmt.Errorf("provisioning: register hook %s in config.toml: %w", a.Name, err)
+						}
+						if warning != "" {
+							result.Warnings = append(result.Warnings, warning)
 						}
 					case configurator.ProviderOpenCode:
 						// Unlike claude/codex (patching an existing shared

@@ -53,9 +53,13 @@ func cmdSync(args []string) int {
 			fmt.Fprintln(os.Stderr, "Error:", err)
 			return 2
 		}
-		if _, err := applyMCPEntries(entries, cfg.Agents, dir, cfg.Auth, cfg.TokenEnv, *dryRun); err != nil {
+		_, warnings, err := applyMCPEntries(entries, cfg.Agents, dir, cfg.Auth, cfg.TokenEnv, *dryRun)
+		if err != nil {
 			fmt.Fprintln(os.Stderr, "Error:", err)
 			return 2
+		}
+		for _, w := range warnings {
+			fmt.Fprintf(os.Stderr, "warning: %s\n", w)
 		}
 		for _, name := range entryNames(entries) {
 			if *dryRun {
