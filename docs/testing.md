@@ -81,7 +81,7 @@ use `E2E_MODEL=opencode-go/claude-sonnet-4-5 make e2e`.
 
 The oracle is the **state of the KB on filesystem and git**, not the text produced by the agent
 (operator-vs-agent principle). Every scenario is self-contained: it creates its own KB, starts
-and stops its own server (trap EXIT). See [`test/e2e/README.md`](../test/e2e/README.md)
+and stops its own server (trap EXIT). See [`test/e2e/README.md`](https://github.com/BeppeTemp/cartographer/blob/main/test/e2e/README.md)
 for prerequisites, flags and how to add scenarios.
 
 #### Available E2E scenarios
