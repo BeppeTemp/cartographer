@@ -53,7 +53,7 @@ Cartographer offers **two complementary profiles**:
 ## Key features
 
 - 🔧 **Full MCP tool suite** — complete list in [`docs/control-plane.md`](docs/control-plane.md)
-- 📖 **Read & navigation** — `kb_overview`, `concept_read`, `archive_list` / `dossier_list`,
+- 📖 **Read & navigation** — `atlas_overview`, `index_get`, `concept_read`, `map_list`,
   `graph_neighbors`
 - 🔍 **Search** — keyword (pure-Go inverted index) plus optional hybrid semantic search via Ollama
 - ✍️ **Validated writes** with optimistic concurrency (`if_match` / content-hash)
@@ -77,7 +77,8 @@ Cartographer offers **two complementary profiles**:
 Cartographer separates a **data plane** from a **control plane**:
 
 - **Data plane** — the KB itself: OKF Markdown files under `data/`, organized as
-  `archive → dossier → concept`. Plain files + git: history, diff, backup, sharing for free.
+  **atlas → map → concept** (the KB, its thematic archives, the pages; journals are the
+  chronological maps). Plain files + git: history, diff, backup, sharing for free.
 - **Control plane** — the MCP tools the agent calls. The server applies every invariant (validation,
   gates, immutability) so the agent operates safely without direct filesystem access.
 
@@ -185,37 +186,15 @@ system is clear enough for production. It needs an OpenAI-compatible endpoint
 ## Project structure
 
 ```
-cmd/
-  cartographer/main.go      # Entry point: subcommand dispatch (serve/version/help/agents/connect/status/sync)
-  cartographer/serve.go     # Server: flags + env vars + YAML config, stdio/HTTP
-  cartographer/tui.go       # Interactive dashboard (no-args, TTY)
-internal/
-  config/                   # Server YAML config (flag > env > YAML > default)
-  okf/                      # OKF primitives: ConceptID, frontmatter, content-hash
-  kb/                       # Data plane: Open, Init, Read/WriteConcept, Validate
-  kb/graph.go               # Graph navigation: ExtractLinks, GraphNeighbors
-  kb/gate.go                # CommitGate
-  kb/gitsync.go             # Transactional git: lock, commit, sync in/out
-  kb/conflicts.go           # Conflict registry, MarkDegraded
-  mcpserver/                # MCP server: stdio, HTTP handler, MultiKBServer, tools (split by domain)
-  mcpserver/gitwrap.go      # Write wrapper: lock + commit + sync
-  search/                   # Pure-Go inverted index
-  sqlindex/                 # Persisted SQLite index: FTS5 trigram + embedding cache
-  lint/                     # Deterministic lint
-  gitx/                     # git wrapper: commit, rebase, push, fetch, stash
-  audit/                    # Audit log: JSONL hash-chain + Ed25519
-  auth/                     # TokenStore, middleware, RBAC, scopes
-  embed/                    # Embedder interface + Ollama adapter + vector store
-  skill/                    # SKILL.md loader and validator (agentskills.io)
-  sops/                     # SOPS decryption wrapper
-  configurator/             # Multi-provider adapters, HTTP-only (Claude Code, Codex, Kiro, OpenCode)
-  provisioning/             # Manifest, lock (v1/v2 multi-provider), diff, apply — client↔server sync
-  agents/                   # Detect() installed agent CLIs on this machine
-  clientconfig/             # .cartographer.yaml (server URL, connected agents)
-  client/                   # Minimal MCP client (JSON-RPC over HTTP) for the client subcommands
-docs/                       # Full documentation (see docs/index.md)
-test/e2e/                   # Agent-level E2E harness
+cmd/cartographer/   # single binary: server (serve), client (connect/status/sync/kb/service), TUI
+internal/           # okf, kb, mcpserver, search, sqlindex, lint, gitx, audit, auth, embed,
+                    # skill, sops, configurator, provisioning, agents, clientconfig, client
+docs/               # full documentation (docs/index.md is the map)
+test/e2e/           # agent-level E2E harness
 ```
+
+Package-by-package map, with what each one owns → [`AGENTS.md`](AGENTS.md) §Code map (kept next to
+the contributor instructions so there is a single copy to keep true).
 
 ## Documentation
 
