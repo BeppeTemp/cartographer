@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.3.0](https://github.com/BeppeTemp/cartographer/compare/v0.2.0...v0.3.0) (2026-07-26)
+
+
+### Features
+
+* **docs:** publish docs/ to GitHub Pages with MkDocs Material ([#58](https://github.com/BeppeTemp/cartographer/issues/58)) ([fa9fc11](https://github.com/BeppeTemp/cartographer/commit/fa9fc1160630ac05d574b1975124bb729514be81))
+
+
+### Bug Fixes
+
+* **configurator:** adopt orphaned tables in Codex config.toml ([#61](https://github.com/BeppeTemp/cartographer/issues/61)) ([28677c3](https://github.com/BeppeTemp/cartographer/commit/28677c3f7c9e22457c67aa697aeb4266b261ef96)), closes [#50](https://github.com/BeppeTemp/cartographer/issues/50)
+
 ## [0.2.0](https://github.com/BeppeTemp/cartographer/compare/v0.1.2...v0.2.0) (2026-07-24)
 
 
