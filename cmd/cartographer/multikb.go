@@ -89,16 +89,19 @@ func entryNames(entries []mcpEntry) []string {
 
 // applyMCPEntries emits all entries for each provider. Codex represents all
 // Cartographer MCP entries in one marker-delimited TOML block, so its emitted
-// bodies are joined before Apply replaces that block.
-func applyMCPEntries(entries []mcpEntry, providers []string, dir string, auth bool, tokenEnv string, dryRun bool) ([]string, error) {
-	written := make([]string, 0, len(providers))
+// bodies are joined before Apply replaces that block. Returns the config paths
+// written plus the non-fatal warnings Apply collected (a header the provider
+// cannot represent, D69; a duplicate table adopted from a Codex rewrite, D99),
+// for the caller to render.
+func applyMCPEntries(entries []mcpEntry, providers []string, dir string, auth bool, tokenEnv string, dryRun bool) (written []string, warnings []string, err error) {
+	written = make([]string, 0, len(providers))
 	seenPaths := map[string]bool{}
 	for _, provider := range providers {
 		results := make([]*configurator.EmitResult, 0, len(entries))
 		for _, entry := range entries {
 			r, err := configurator.Emit(&configurator.ServerConfig{Name: entry.Name, URL: entry.URL, AuthEnabled: auth, TokenEnv: tokenEnv}, configurator.Provider(provider))
 			if err != nil {
-				return nil, fmt.Errorf("emit %s: %w", provider, err)
+				return nil, nil, fmt.Errorf("emit %s: %w", provider, err)
 			}
 			results = append(results, r)
 		}
@@ -113,7 +116,7 @@ func applyMCPEntries(entries []mcpEntry, providers []string, dir string, auth bo
 		}
 		paths, err := configurator.Apply(results, dir, dryRun)
 		if err != nil {
-			return nil, fmt.Errorf("write config for %s: %w", provider, err)
+			return nil, nil, fmt.Errorf("write config for %s: %w", provider, err)
 		}
 		for _, path := range paths {
 			if !seenPaths[path] {
@@ -121,8 +124,11 @@ func applyMCPEntries(entries []mcpEntry, providers []string, dir string, auth bo
 				seenPaths[path] = true
 			}
 		}
+		for _, r := range results {
+			warnings = append(warnings, r.Warnings...)
+		}
 	}
-	return written, nil
+	return written, warnings, nil
 }
 
 func removeMCPEntries(baseName string, kbs []string, providers []string, dir string, auth bool, tokenEnv string, dryRun bool) (map[string]bool, error) {

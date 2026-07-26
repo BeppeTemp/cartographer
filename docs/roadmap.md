@@ -49,7 +49,7 @@ Streamable HTTP transport (`POST /mcp`, `/health`, RFC 9728), bearer token + sco
 
 ## Known bugs
 
-- Codex rewrites `~/.codex/config.toml` dropping our comment markers, so a later `connect` re-appends the managed block → duplicate key, Codex won't start (issue #50).
+*(none open — open bug reports live as GitHub issues labelled `bug`)*
 
 ## Planned work
 

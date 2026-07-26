@@ -167,6 +167,18 @@ func Apply(results []*EmitResult, baseDir string, dryRun bool) ([]string, error)
 		// instead of parsing/re-serializing the user's hand-curated config.toml
 		// (D58) — see EmitResult.Content's doc comment.
 		if filepath.Ext(fullPath) == ".toml" {
+			// Codex rewrites config.toml behind our back and drops the markers
+			// with every other comment: adopt the tables it left orphaned
+			// before writing the block, or they would become duplicate keys
+			// (D99).
+			adopted, err := AdoptCodexOrphanTables(fullPath, CodexMCPTableOwner(string(r.Content)))
+			if err != nil {
+				return written, fmt.Errorf("reconcile %s: %w", fullPath, err)
+			}
+			for _, key := range adopted {
+				r.Warnings = append(r.Warnings, fmt.Sprintf(
+					"codex: removed a stale [%s] table left outside the managed block by Codex's own config.toml rewrite (it would have been a duplicate key)", key))
+			}
 			if err := blocktext.Write(fullPath, codexMCPBlockBegin, codexMCPBlockEnd, string(r.Content)); err != nil {
 				return written, fmt.Errorf("write %s: %w", fullPath, err)
 			}

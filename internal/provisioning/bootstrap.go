@@ -129,7 +129,11 @@ func EnsureBootstrapHook(baseDir string, provider configurator.Provider, lock Lo
 				return Lock{}, fmt.Errorf("provisioning: register bootstrap hook in settings.json: %w", err)
 			}
 		case configurator.ProviderCodex:
-			if err := registerHookConfigTOML(baseDir, BootstrapHookName, fullDestDir); err != nil {
+			// The repair warning (D99) is dropped here: EnsureBootstrapHook has
+			// no warnings channel, and connect/sync already surface the same
+			// repair on the MCP entry, which is what makes the file visibly
+			// change.
+			if _, err := registerHookConfigTOML(baseDir, BootstrapHookName, fullDestDir); err != nil {
 				return Lock{}, fmt.Errorf("provisioning: register bootstrap hook in config.toml: %w", err)
 			}
 		case configurator.ProviderOpenCode:

@@ -129,7 +129,7 @@ func TestRemoveMCPEntries_RemovesEveryManagedEntry(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := applyMCPEntries(entries, []string{"claude", "codex", "kiro", "opencode"}, dir, false, "", false); err != nil {
+	if _, _, err := applyMCPEntries(entries, []string{"claude", "codex", "kiro", "opencode"}, dir, false, "", false); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := removeMCPEntries("wiki", []string{"a", "b"}, []string{"claude", "codex", "kiro", "opencode"}, dir, false, "", false); err != nil {
@@ -159,7 +159,7 @@ func TestCmdSync_ReconcilesOneToManyAndBack(t *testing.T) {
 		t.Fatal(err)
 	}
 	bare, _ := entriesForKBs("wiki", cfg.ServerURL, cfg.KBs)
-	if _, err := applyMCPEntries(bare, cfg.Agents, dir, false, "", false); err != nil {
+	if _, _, err := applyMCPEntries(bare, cfg.Agents, dir, false, "", false); err != nil {
 		t.Fatal(err)
 	}
 
@@ -199,7 +199,7 @@ func TestDoDisconnect_RemovesPersistedPerKBEntries(t *testing.T) {
 		t.Fatal(err)
 	}
 	entries, _ := entriesForKBs("wiki", cfg.ServerURL, cfg.KBs)
-	if _, err := applyMCPEntries(entries, cfg.Agents, dir, false, "", false); err != nil {
+	if _, _, err := applyMCPEntries(entries, cfg.Agents, dir, false, "", false); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := doDisconnect(disconnectOptions{Providers: []string{"claude"}, Dir: dir}); err != nil {
@@ -222,7 +222,7 @@ func TestCmdSync_ServerDownKeepsMCPEntriesAndKBs(t *testing.T) {
 		t.Fatal(err)
 	}
 	entries, _ := entriesForKBs("wiki", cfg.ServerURL, cfg.KBs)
-	if _, err := applyMCPEntries(entries, cfg.Agents, dir, false, "", false); err != nil {
+	if _, _, err := applyMCPEntries(entries, cfg.Agents, dir, false, "", false); err != nil {
 		t.Fatal(err)
 	}
 	beforeConfig, err := os.ReadFile(clientconfig.Path(dir))
@@ -240,5 +240,57 @@ func TestCmdSync_ServerDownKeepsMCPEntriesAndKBs(t *testing.T) {
 	afterMCP, _ := os.ReadFile(filepath.Join(dir, ".claude.json"))
 	if string(afterConfig) != string(beforeConfig) || string(afterMCP) != string(beforeMCP) {
 		t.Error("server-down sync changed persisted KBs or MCP entries")
+	}
+}
+
+func TestDoConnect_Codex_RepairsConfigDuplicatedByCodexRewrite(t *testing.T) {
+	// Acceptance for D99: connect on a config.toml Codex rewrote (markers gone,
+	// our table left behind) must leave a single [mcp_servers.cartographer],
+	// keep every unrelated user section, and say why the file changed.
+	srv := multiKBServer(t, `{"status":"ok","kbs":[{"name":"only"}]}`)
+	defer srv.Close()
+
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, ".codex", "config.toml")
+	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	broken := `model = "gpt-5.6-terra"
+
+[mcp_servers.cartographer]
+bearer_token_env_var = "CARTOGRAPHER_TOKENS"
+url = "https://cartographer.example.test/mcp"
+
+[mcp_servers.openaiDeveloperDocs]
+url = "https://developers.openai.com/mcp"
+
+[mcp_servers.cartographer]
+url = "https://cartographer.example.test/mcp"
+bearer_token_env_var = "CARTOGRAPHER_TOKENS"
+`
+	if err := os.WriteFile(configPath, []byte(broken), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	res, err := doConnect(connectOptions{Providers: []string{"codex"}, Dir: dir, ServerURL: srv.URL + "/mcp", Name: "cartographer", TokenEnv: "TOKEN", Trust: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := string(data)
+	if n := strings.Count(got, "[mcp_servers.cartographer]"); n != 1 {
+		t.Errorf("expected exactly 1 [mcp_servers.cartographer] after connect, found %d:\n%s", n, got)
+	}
+	for _, want := range []string{`model = "gpt-5.6-terra"`, "[mcp_servers.openaiDeveloperDocs]"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("unrelated content %q lost:\n%s", want, got)
+		}
+	}
+	if len(res.Warnings) == 0 {
+		t.Error("the adopted duplicates must be reported through connectResult.Warnings")
 	}
 }

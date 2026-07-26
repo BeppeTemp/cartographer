@@ -285,15 +285,42 @@ func codexHookMarkers(hookName string) (begin, end string) {
 	return "# cartographer:hook:" + hookName + ":begin", "# cartographer:hook:" + hookName + ":end"
 }
 
+// codexHookOwnershipMarker is the substring that marks a config.toml hook
+// registration as owned by hookName: the command of a registration Cartographer
+// wrote for this hook always points inside the hook's own materialized
+// directory (D58). Same role as hookOwnershipMarker for Claude's settings.json,
+// and the identity used to recognize the marker-less copies Codex leaves behind
+// when it rewrites config.toml (D99) — the table name cannot serve as identity
+// here, since [[hooks.<event>]] is shared by every hook on that event.
+func codexHookOwnershipMarker(hookName string) string {
+	return ".codex/hooks/" + hookName + "/"
+}
+
+// codexHookTableOwner returns an owned-predicate (see
+// configurator.AdoptCodexOrphanTables) matching the [[hooks.<event>]]
+// registrations of hookName. The [hooks.state."…"] tables are deliberately left
+// alone: they are Codex's own bookkeeping (per-hook trusted hashes), not a
+// registration — a stale one is inert, since Codex gates it on a hash we do not
+// compute (D99).
+func codexHookTableOwner(hookName string) func(key []string, body string) bool {
+	marker := codexHookOwnershipMarker(hookName)
+	return func(key []string, body string) bool {
+		return len(key) >= 2 && key[0] == "hooks" && key[1] != "state" && strings.Contains(body, marker)
+	}
+}
+
 // registerHookConfigTOML mirrors registerHookSettings but for Codex (D58):
 // reads hook.json from fullDestDir and upserts its registration as a
-// marker-delimited TOML block in <baseDir>/.codex/config.toml. Best-effort on
+// marker-delimited TOML block in <baseDir>/.codex/config.toml, after adopting
+// any marker-less copy of that registration Codex's own rewrite of the file
+// left outside the block (D99) — otherwise the hook would be registered, and
+// fire, twice. Returns a warning describing that repair, if any. Best-effort on
 // a missing/malformed hook.json (via readHookSpec) — Apply's materialization
 // of the hook's files never fails because of it.
-func registerHookConfigTOML(baseDir, hookName, fullDestDir string) error {
+func registerHookConfigTOML(baseDir, hookName, fullDestDir string) (string, error) {
 	spec, ok := readHookSpec(fullDestDir)
 	if !ok {
-		return nil
+		return "", nil
 	}
 	command := resolveHookCommand(spec.Command, fullDestDir)
 	event := codexHookEvent(spec.Event)
@@ -307,8 +334,21 @@ func registerHookConfigTOML(baseDir, hookName, fullDestDir string) error {
 	sb.WriteString("type = \"command\"\n")
 	fmt.Fprintf(&sb, "command = %s\n", configurator.QuoteTOMLString(command))
 
+	path := codexConfigTOMLPath(baseDir)
+	adopted, err := configurator.AdoptCodexOrphanTables(path, codexHookTableOwner(hookName))
+	if err != nil {
+		return "", fmt.Errorf("provisioning: reconcile %s: %w", path, err)
+	}
+
 	begin, end := codexHookMarkers(hookName)
-	return blocktext.Write(codexConfigTOMLPath(baseDir), begin, end, sb.String())
+	if err := blocktext.Write(path, begin, end, sb.String()); err != nil {
+		return "", err
+	}
+	if len(adopted) == 0 {
+		return "", nil
+	}
+	return fmt.Sprintf("codex: hook %q — removed %d stale registration(s) left outside the managed block by Codex's own config.toml rewrite (the hook would have fired twice)",
+		hookName, len(adopted)), nil
 }
 
 // removeHookConfigTOML strips hookName's marker-delimited block (if present)

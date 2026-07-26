@@ -352,3 +352,142 @@ func TestPruneManaged_Codex_Hook_RimuoveEntryConfigTOML(t *testing.T) {
 		t.Errorf("mcp_servers block must not be touched: %s", content)
 	}
 }
+
+// --- Adoption of the registrations Codex leaves orphaned when it rewrites config.toml (D99) ---
+
+// stripCodexComments simulates Codex CLI re-serializing config.toml when it
+// persists its own settings: the tables survive, every comment line — the
+// Cartographer markers included — is dropped.
+func stripCodexComments(t *testing.T, path string) {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var kept []string
+	for _, line := range strings.Split(string(data), "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "#") {
+			continue
+		}
+		kept = append(kept, line)
+	}
+	if err := os.WriteFile(path, []byte(strings.Join(kept, "\n")), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestApply_Codex_Hook_ReApplyAfterCodexRewrite_NoDuplicate(t *testing.T) {
+	kbRoot := t.TempDir()
+	writeCodexHookKB(t, kbRoot, "notify", "PostToolUse", "concept_write", "./notify.sh")
+	writeCodexHookKB(t, kbRoot, "other", "SessionStart", "", "./notify.sh")
+
+	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, true)
+	if err != nil {
+		t.Fatalf("BuildManifest: %v", err)
+	}
+
+	baseDir := t.TempDir()
+	opts := provisioning.ApplyOptions{
+		KBRoots:  map[string]string{"kb": kbRoot},
+		Provider: configurator.ProviderCodex,
+		BaseDir:  baseDir,
+		Lock:     provisioning.Lock{},
+	}
+	if _, err := provisioning.Apply(m, opts); err != nil {
+		t.Fatalf("Apply (1): %v", err)
+	}
+
+	configPath := filepath.Join(baseDir, ".codex", "config.toml")
+	stripCodexComments(t, configPath)
+
+	res, err := provisioning.Apply(m, opts)
+	if err != nil {
+		t.Fatalf("Apply (2): %v", err)
+	}
+
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := string(data)
+	for _, header := range []string{"[[hooks.PostToolUse]]", "[[hooks.SessionStart]]"} {
+		if n := strings.Count(got, header); n != 1 {
+			t.Errorf("expected 1 occurrence of %s after Codex's rewrite, found %d:\n%s", header, n, got)
+		}
+	}
+	for _, name := range []string{"notify", "other"} {
+		marker := "# cartographer:hook:" + name + ":begin"
+		if !strings.Contains(got, marker) {
+			t.Errorf("missing %s: %s", marker, got)
+		}
+		if n := strings.Count(got, filepath.Join(".codex", "hooks", name, "notify.sh")); n != 1 {
+			t.Errorf("hook %q registered %d times:\n%s", name, n, got)
+		}
+	}
+	if len(res.Warnings) != 2 {
+		t.Errorf("expected one repair warning per hook, got %v", res.Warnings)
+	}
+}
+
+func TestApply_Codex_Hook_Adoption_PreservesUserHookAndState(t *testing.T) {
+	kbRoot := t.TempDir()
+	writeCodexHookKB(t, kbRoot, "notify", "PostToolUse", "concept_write", "./notify.sh")
+	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, true)
+	if err != nil {
+		t.Fatalf("BuildManifest: %v", err)
+	}
+
+	baseDir := t.TempDir()
+	configPath := filepath.Join(baseDir, ".codex", "config.toml")
+	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	preexisting := `model = "gpt-5.6"
+
+[hooks.state."/Users/me/.codex/config.toml:post_tool_use:0:0"]
+trusted_hash = "sha256:abc"
+
+[[hooks.PostToolUse]]
+matcher = "Bash"
+[[hooks.PostToolUse.hooks]]
+type = "command"
+command = "/Users/me/scripts/mine.sh"
+`
+	if err := os.WriteFile(configPath, []byte(preexisting), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	opts := provisioning.ApplyOptions{
+		KBRoots:  map[string]string{"kb": kbRoot},
+		Provider: configurator.ProviderCodex,
+		BaseDir:  baseDir,
+		Lock:     provisioning.Lock{},
+	}
+	if _, err := provisioning.Apply(m, opts); err != nil {
+		t.Fatalf("Apply (1): %v", err)
+	}
+	stripCodexComments(t, configPath)
+	if _, err := provisioning.Apply(m, opts); err != nil {
+		t.Fatalf("Apply (2): %v", err)
+	}
+
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := string(data)
+	if n := strings.Count(got, "[[hooks.PostToolUse]]"); n != 2 {
+		t.Errorf("expected the user's registration plus ours, found %d:\n%s", n, got)
+	}
+	for _, want := range []string{
+		`command = "/Users/me/scripts/mine.sh"`,
+		`matcher = "Bash"`,
+		`[hooks.state."/Users/me/.codex/config.toml:post_tool_use:0:0"]`,
+		`trusted_hash = "sha256:abc"`,
+		`model = "gpt-5.6"`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("%q must not be touched:\n%s", want, got)
+		}
+	}
+}

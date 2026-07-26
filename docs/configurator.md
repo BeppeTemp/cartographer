@@ -266,6 +266,14 @@ bearer_token_env_var = "CARTOGRAPHER_TOKENS"
 # cartographer:mcp:end
 ```
 
+Codex CLI rewrites `config.toml` whenever it saves its own settings, re-emitting the
+tables in canonical form and dropping every comment — the markers with them. `connect`
+and `sync` reconcile this: before writing a block they remove the copies of the tables
+that block owns (the MCP entry, and the hook registrations of D58) left elsewhere in the
+file, which would otherwise be duplicate keys and stop Codex from starting, and report
+each removal as a `warning:` line. Everything else in the file — comments, ordering,
+unrelated tables, Codex's own `[hooks.state."…"]` bookkeeping — is left as it is (D99).
+
 **Kiro**:
 ```json
 {
