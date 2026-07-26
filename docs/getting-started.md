@@ -24,29 +24,31 @@ multi-provider client (`connect` / `status` / `sync`), and a TUI dashboard
 If an agent is performing the installation from a repository link and a first KB remote, use the
 imperative [agent-driven installation runbook](agent-install.md) instead of this human walkthrough.
 
-## 2. Start a server with a fresh KB
+## 2. Run the server and create your first KB
+
+Install it as a native service (launchd on macOS, systemd user unit on Linux),
+so the server survives reboots and listens on `127.0.0.1:8080`:
 
 ```bash
-cartographer serve --kb ~/my-kb --init --http :8080
+cartographer service install    # generates the config, installs and starts the service
+cartographer kb create my-kb --restart
 ```
 
-`--init` creates the KB skeleton: a git repository with `data/index.md` and
-`data/log.md`, plus a local search index under `.cartographer/` (never
-committed). Every future write will be one git commit — the KB is a plain
+`kb create` scaffolds the KB in the service's data dir: a git repository with
+`data/index.md` and `data/log.md`, plus a local search index under
+`.cartographer/` (never committed). `--restart` makes the running server pick
+it up. Every write from now on will be one git commit — the KB is a plain
 folder of Markdown you can open in any editor or in Obsidian.
 
-For everyday use, install it as a native service instead (launchd on macOS,
-systemd user unit on Linux), so the server survives reboots:
-
-```bash
-cartographer service install
-cartographer service status    # exit 0 = running
-```
+> **Running it by hand instead.** For development you can skip the service and
+> run a one-off server on a KB of your choice:
+> `cartographer serve --kb ~/my-kb --init --http :8080` (`--init` scaffolds
+> it). The service path above is the one to use daily.
 
 ## 3. Connect your agent
 
 ```bash
-cartographer connect claude --server-url http://127.0.0.1:8080/mcp
+cartographer connect claude
 ```
 
 This registers the `cartographer` MCP server in Claude Code's configuration
@@ -73,9 +75,9 @@ on it. That accumulation is the whole point.
 ## 5. Look at what happened
 
 ```bash
-cd ~/my-kb
-git log --oneline    # one commit per write operation, revertible
-ls data/             # plain Markdown with YAML frontmatter
+cd ~/cartographer-data/my-kb   # the service's data dir
+git log --oneline              # one commit per write operation, revertible
+ls data/                       # plain Markdown with YAML frontmatter
 ```
 
 Nothing is opaque: the KB is the files, git is the history, and any write the
