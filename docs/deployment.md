@@ -26,7 +26,7 @@ The server process is **ephemeral** (k8s pod or local service); what persists on
 (`internal/config`, `config.Default()`). The YAML file is optional: without `--config`, only
 defaults + env + flags apply, as in earlier versions.
 
-Full annotated example: [`config.example.yaml`](../config.example.yaml) (repo root).
+Full annotated example: [`config.example.yaml`](https://github.com/BeppeTemp/cartographer/blob/main/config.example.yaml) (repo root).
 Schema (`internal/config.Config`, YAML tags in parentheses):
 
 ```yaml

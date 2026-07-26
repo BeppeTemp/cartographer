@@ -219,6 +219,8 @@ test/e2e/                   # Agent-level E2E harness
 
 ## Documentation
 
+Browsable at **[beppetemp.github.io/cartographer](https://beppetemp.github.io/cartographer/)** — same content as `docs/`, rendered.
+
 The full index lives in [`docs/index.md`](docs/index.md). Main entry points:
 
 - [`docs/overview.md`](docs/overview.md) — vision, guiding principles, architecture
