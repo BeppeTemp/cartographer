@@ -1,0 +1,73 @@
+site_name: Cartographer
+site_description: MCP server for the Agentic Wiki — Karpathy pattern + Open Knowledge Format
+site_url: https://beppetemp.github.io/cartographer/
+repo_url: https://github.com/BeppeTemp/cartographer
+repo_name: BeppeTemp/cartographer
+edit_uri: edit/main/docs/
+copyright: Apache-2.0 — the docs are the files in docs/, published as-is
+
+docs_dir: docs
+
+theme:
+  name: material
+  icon:
+    repo: fontawesome/brands/github
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+  features:
+    - navigation.sections
+    - navigation.top
+    - navigation.tracking
+    - content.action.edit
+    - content.code.copy
+    - search.highlight
+    - search.suggest
+    - toc.follow
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - pymdownx.details
+  - pymdownx.superfences
+  - toc:
+      permalink: true
+
+plugins:
+  - search
+
+# Mirrors the grouping of docs/index.md — that page stays the canonical map,
+# this nav is only the sidebar rendering of it.
+nav:
+  - Home: index.md
+  - Using Cartographer:
+      - Getting started: getting-started.md
+      - Agent install runbook: agent-install.md
+      - Deployment: deployment.md
+      - Client (configurator): configurator.md
+      - Control plane (MCP API): control-plane.md
+      - Data plane (KB model): data-plane.md
+      - Skills, services, secrets: skills-services-secrets.md
+      - Provisioning sync: sync.md
+      - Use cases: use-cases.md
+  - Internals & contributing:
+      - Overview: overview.md
+      - Concurrency and git: concurrency.md
+      - Transport and auth: transport-auth.md
+      - Operating loop: loop.md
+      - Interoperability: interoperability.md
+      - Decisions: decisions.md
+      - Go conventions: conventions.md
+      - Roadmap and status: roadmap.md
+      - Testing: testing.md
+      - References: references.md
