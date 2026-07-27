@@ -33,6 +33,13 @@ When `git.sync` is enabled and `origin` exists:
 4. A rejected push retries through fetch + pull/rebase + push, with bounded
    backoff. Cartographer never force-pushes automatically.
 
+`sync_status` is the authoritative read-only view of replication: it reports
+whether sync is disabled, no remote exists, a push is pending, or the latest
+commit/push failed, together with the best available ahead count. A failure is
+cleared only after a real push succeeds. Offline writes remain local-successful;
+in debounced mode their response reports `pending` because the later result is
+not yet knowable.
+
 Without a remote, synchronization is a no-op and local commits still work.
 
 ## Conflict registry

@@ -43,6 +43,7 @@ var advancedToolNames = map[string]bool{
 	"sync_check":           true,
 	"sync_apply":           true,
 	"sync_pull":            true,
+	"sync_status":          true,
 	"skill_list":           true,
 	"skill_install":        true,
 	"service_get":          true,

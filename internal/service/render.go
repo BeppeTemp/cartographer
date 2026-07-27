@@ -65,5 +65,10 @@ func DefaultServerYAML(dataDir, httpAddr string) string {
 http: %q
 data: %q
 init: true
+# Set both values to a forge account when remote push rules validate authors.
+# See config.example.yaml for identity and other git options.
+git:
+  # author_name: "Your Name"
+  # author_email: "you@example.com"
 `, httpAddr, dataDir)
 }

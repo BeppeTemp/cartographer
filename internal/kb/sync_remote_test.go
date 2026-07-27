@@ -79,6 +79,52 @@ func TestSyncOut_PushesToRemote(t *testing.T) {
 	}
 }
 
+func TestSyncOut_DetachedHeadRecordsFailure(t *testing.T) {
+	if !haveGit() {
+		t.Skip("git not in PATH")
+	}
+	k, _ := setupKBWithRemote(t)
+	k.GitSync = true
+	gitHere(t, k.Root, "checkout", "--detach")
+	if err := k.SyncOut(); err == nil || !strings.Contains(err.Error(), "detached HEAD") {
+		t.Fatalf("SyncOut detached HEAD error = %v", err)
+	}
+	if s := k.GitStatusSnapshot(); s.State != "failed" || s.Attempts != 1 || !strings.Contains(s.LastError, "detached HEAD") {
+		t.Fatalf("status = %+v", s)
+	}
+}
+
+func TestGitStatusSnapshot_MissingRemoteTrackingRefHasUnknownAheadCount(t *testing.T) {
+	if !haveGit() {
+		t.Skip("git not in PATH")
+	}
+	k, _ := setupKBWithRemote(t)
+	k.GitSync = true
+	if s := k.GitStatusSnapshot(); s.UnpushedCommits != nil {
+		t.Fatalf("unpushed commits = %v, want nil without origin tracking ref", *s.UnpushedCommits)
+	}
+}
+
+func TestSyncOut_PushFailureRecordsAllAttemptsWithoutBackoff(t *testing.T) {
+	if !haveGit() {
+		t.Skip("git not in PATH")
+	}
+	k, bare := setupKBWithRemote(t)
+	k.GitSync = true
+	if err := os.RemoveAll(bare); err != nil {
+		t.Fatal(err)
+	}
+	oldAttempts, oldBackoff, oldSleep := syncOutMaxAttempts, syncOutInitialBackoff, syncOutSleep
+	syncOutMaxAttempts, syncOutInitialBackoff, syncOutSleep = 3, 0, func(time.Duration) {}
+	t.Cleanup(func() { syncOutMaxAttempts, syncOutInitialBackoff, syncOutSleep = oldAttempts, oldBackoff, oldSleep })
+	if err := k.SyncOut(); err == nil {
+		t.Fatal("SyncOut push rejection succeeded")
+	}
+	if s := k.GitStatusSnapshot(); s.State != "failed" || s.Attempts != 3 || s.LastError == "" {
+		t.Fatalf("status = %+v", s)
+	}
+}
+
 // gitIn runs git with dir as its working directory (as opposed to gitHere,
 // which uses "-C dir" and therefore cannot be used to run "clone" into a
 // not-yet-existing target directory).

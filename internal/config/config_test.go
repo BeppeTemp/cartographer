@@ -25,8 +25,8 @@ func TestDefault(t *testing.T) {
 	if cfg.Search.OllamaModel != "nomic-embed-text" {
 		t.Errorf("Search.OllamaModel = %q, want %q", cfg.Search.OllamaModel, "nomic-embed-text")
 	}
-	if cfg.Git.AuthorName != "cartographer" || cfg.Git.AuthorEmail != "cartographer@localhost" {
-		t.Errorf("Git author defaults = %+v", cfg.Git)
+	if cfg.Git.AuthorName != "" || cfg.Git.AuthorEmail != "" {
+		t.Errorf("Git author defaults should be unspecified, got %+v", cfg.Git)
 	}
 	if cfg.Git.CommitterName != "" || cfg.Git.CommitterEmail != "" {
 		t.Errorf("Git committer defaults should be empty (fallback to author), got %+v", cfg.Git)

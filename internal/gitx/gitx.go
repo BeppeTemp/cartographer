@@ -97,12 +97,11 @@ func CommitPaths(dir string, paths []string, message, authorName, authorEmail st
 }
 
 func commit(dir, message, authorName, authorEmail string, env ...string) error {
-
-	args := []string{
-		"commit",
-		"--author", fmt.Sprintf("%s <%s>", authorName, authorEmail),
-		"-m", message,
+	args := []string{"commit"}
+	if authorName != "" && authorEmail != "" {
+		args = append(args, "--author", fmt.Sprintf("%s <%s>", authorName, authorEmail))
 	}
+	args = append(args, "-m", message)
 	out, err := runGitEnv(dir, env, args...)
 	if err != nil {
 		// git commit exits with code 1 when there is nothing to commit.
@@ -113,6 +112,44 @@ func commit(dir, message, authorName, authorEmail string, env ...string) error {
 		return fmt.Errorf("git commit: %w: %s", err, out)
 	}
 	return nil
+}
+
+// AuthorIdent returns the identity resolved by Git itself (including local,
+// global and ambient GIT_AUTHOR_* configuration). Empty values mean Git could
+// not resolve a usable identity.
+func AuthorIdent(dir string, env ...string) (name, email string, err error) {
+	out, err := runGitEnv(dir, env, "var", "GIT_AUTHOR_IDENT")
+	if err != nil {
+		return "", "", fmt.Errorf("git var GIT_AUTHOR_IDENT: %w: %s", err, out)
+	}
+	ident := strings.TrimSpace(out)
+	start, end := strings.LastIndex(ident, " <"), strings.LastIndex(ident, ">")
+	if start < 1 || end <= start+2 {
+		return "", "", fmt.Errorf("git var GIT_AUTHOR_IDENT: malformed identity %q", ident)
+	}
+	return strings.TrimSpace(ident[:start]), ident[start+2 : end], nil
+}
+
+// AheadCount returns commits reachable from HEAD but not origin/<branch>.
+// known is false when the remote-tracking ref is absent, so callers never
+// mistake an unavailable comparison for zero unpushed commits.
+func AheadCount(dir, remote, branch string) (count int, known bool, err error) {
+	if branch == "" {
+		return 0, false, nil
+	}
+	ref := remote + "/" + branch
+	if _, err := runGit(dir, "rev-parse", "--verify", "refs/remotes/"+ref); err != nil {
+		return 0, false, nil
+	}
+	out, err := runGit(dir, "rev-list", "--count", ref+"..HEAD")
+	if err != nil {
+		return 0, false, fmt.Errorf("git rev-list %s..HEAD: %w: %s", ref, err, out)
+	}
+	var n int
+	if _, err := fmt.Sscanf(strings.TrimSpace(out), "%d", &n); err != nil {
+		return 0, false, fmt.Errorf("git rev-list count %q: %w", out, err)
+	}
+	return n, true, nil
 }
 
 // HeadSHA returns the SHA of the HEAD commit.

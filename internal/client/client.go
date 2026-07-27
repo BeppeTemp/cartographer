@@ -241,9 +241,7 @@ func (c *MCPClient) Health(timeout time.Duration) (*Health, error) {
 	return &health, nil
 }
 
-// Call invokes an MCP tool via tools/call and returns the decoded JSON payload from
-// the tool's first text content block (the convention used by every cartographer
-// tool: textResult/errorResult in internal/mcpserver/protocol.go).
+// Call invokes an MCP tool via tools/call and preserves all text content blocks.
 func (c *MCPClient) Call(tool string, args any) (json.RawMessage, error) {
 	raw, err := c.do("tools/call", map[string]any{"name": tool, "arguments": args})
 	if err != nil {
@@ -260,5 +258,15 @@ func (c *MCPClient) Call(tool string, args any) (json.RawMessage, error) {
 	if tr.IsError {
 		return nil, fmt.Errorf("client: tool %q returned an error: %s", tool, tr.Content[0].Text)
 	}
-	return json.RawMessage(tr.Content[0].Text), nil
+	texts := make([]string, 0, len(tr.Content))
+	for _, block := range tr.Content {
+		if block.Type == "text" {
+			texts = append(texts, block.Text)
+		}
+	}
+	if len(texts) == 1 {
+		return json.RawMessage(texts[0]), nil
+	}
+	combined, _ := json.Marshal(texts)
+	return combined, nil
 }

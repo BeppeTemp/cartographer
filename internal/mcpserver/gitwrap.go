@@ -77,6 +77,9 @@ func gitWrap(k *kb.KB, t Tool) Tool {
 				commitDur = time.Since(commitStart)
 				if commitErr != nil {
 					fmt.Fprintf(os.Stderr, "cartographer: git commit failed (%s): %v\n", orig.Name, commitErr)
+					k.SetGitStatus("failed", fmt.Errorf("commit: %w", commitErr))
+					appendSyncWarning(&res, k)
+					return nil
 				}
 				// Step 2 / D76-WP4: push after the commit. If SyncOutDebounce
 				// is set, take the push off the critical path entirely by
@@ -88,7 +91,9 @@ func gitWrap(k *kb.KB, t Tool) Tool {
 				// conflicts as degraded concepts.
 				if k.SyncOutDebounce > 0 {
 					k.SchedulePush()
+					k.MarkPushPending()
 					pushAsync = true
+					appendSyncWarning(&res, k)
 				} else {
 					pushStart := time.Now()
 					syncErr := k.SyncOut()
@@ -104,6 +109,7 @@ func gitWrap(k *kb.KB, t Tool) Tool {
 							fmt.Fprintf(os.Stderr, "cartographer: git push failed (%s): %v\n", orig.Name, syncErr)
 						}
 					}
+					appendSyncWarning(&res, k)
 				}
 			}
 			return nil
@@ -113,6 +119,15 @@ func gitWrap(k *kb.KB, t Tool) Tool {
 		return res, handlerErr
 	}
 	return t
+}
+
+func appendSyncWarning(res *ToolResult, k *kb.KB) {
+	s := k.GitStatusSnapshot()
+	if s.State != "failed" && s.State != "pending" {
+		return
+	}
+	b, _ := json.Marshal(map[string]any{"sync_state": s.State, "last_error": s.LastError})
+	res.Content = append(res.Content, ContentBlock{Type: "text", Text: string(b)})
 }
 
 // readSyncWrap refreshes a Git-synchronised KB before serving a read. Unlike

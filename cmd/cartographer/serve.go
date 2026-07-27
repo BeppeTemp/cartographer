@@ -17,6 +17,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/auth"
 	"github.com/BeppeTemp/cartographer/internal/config"
 	"github.com/BeppeTemp/cartographer/internal/embed"
+	"github.com/BeppeTemp/cartographer/internal/gitx"
 	"github.com/BeppeTemp/cartographer/internal/kb"
 	"github.com/BeppeTemp/cartographer/internal/mcpserver"
 	"github.com/BeppeTemp/cartographer/internal/skillbundle"
@@ -141,6 +142,13 @@ func firstNonEmpty(vs ...string) string {
 	return ""
 }
 
+func completeIdentity(name, email, scope string) error {
+	if (name == "") != (email == "") {
+		return fmt.Errorf("%s git author_name and author_email must be configured together", scope)
+	}
+	return nil
+}
+
 // resolveSopsAgeKeyFile resolves the SOPS age key file for a KB (D53).
 // Resolution order: spec.SopsAgeKeyFile (explicit per-KB override) wins;
 // otherwise <sops.AgeKeyDir>/<name>.age if that file exists; otherwise the
@@ -262,9 +270,28 @@ func runServe(cfg *config.Config) {
 		k.GitSync = cfg.Git.Sync
 		k.SyncInWindow = cfg.Git.SyncInWindow
 		k.SyncOutDebounce = cfg.Git.SyncOutDebounce
-		k.GitAuthorName = firstNonEmpty(m.Spec.AuthorName, cfg.Git.AuthorName)
-		k.GitAuthorEmail = firstNonEmpty(m.Spec.AuthorEmail, cfg.Git.AuthorEmail)
 		k.GitEnv = gitEnvForKB(m.Spec, cfg.Git, m.Name)
+		if err := completeIdentity(m.Spec.AuthorName, m.Spec.AuthorEmail, "kbs[]"); err != nil {
+			log.Fatal(err)
+		}
+		if err := completeIdentity(m.Spec.CommitterName, m.Spec.CommitterEmail, "kbs[] committer"); err != nil {
+			log.Fatal(err)
+		}
+		if err := completeIdentity(cfg.Git.AuthorName, cfg.Git.AuthorEmail, "git"); err != nil {
+			log.Fatal(err)
+		}
+		if err := completeIdentity(cfg.Git.CommitterName, cfg.Git.CommitterEmail, "git committer"); err != nil {
+			log.Fatal(err)
+		}
+		k.GitAuthorName, k.GitAuthorEmail = firstNonEmpty(m.Spec.AuthorName, cfg.Git.AuthorName), firstNonEmpty(m.Spec.AuthorEmail, cfg.Git.AuthorEmail)
+		k.GitAuthorExplicit = k.GitAuthorName != ""
+		if !k.GitAuthorExplicit {
+			if name, email, identErr := gitx.AuthorIdent(k.Root, k.GitEnv...); identErr == nil {
+				k.GitAuthorName, k.GitAuthorEmail = name, email
+			} else {
+				k.GitAuthorName, k.GitAuthorEmail, k.GitAuthorExplicit = "cartographer", "cartographer@localhost", true
+			}
+		}
 		k.SopsAgeKeyFile = resolveSopsAgeKeyFile(m.Spec, cfg.Sops, m.Name)
 		k.AllowArtifactWrite = m.Spec.AllowArtifactWrite
 		name := m.Name
@@ -280,6 +307,9 @@ func runServe(cfg *config.Config) {
 		kbs = append(kbs, k)
 		kbNames = append(kbNames, name)
 		kbToolPrefixes = append(kbToolPrefixes, toolPrefix)
+		if _, ok := k.HasRemote(); kb.ShouldWarnGitIdentity(k.GitSync, ok, k.GitAuthorEmail) {
+			log.Printf("WARNING: KB %q commits will be authored as cartographer@localhost; forges with author push rules will reject the push", name)
+		}
 	}
 
 	if len(kbs) == 0 && (cfg.Data == "" || cfg.HTTP == "") {

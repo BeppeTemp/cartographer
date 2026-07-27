@@ -54,6 +54,10 @@ func fakeMCPServer(t *testing.T, wantToken string) *httptest.Server {
 			}
 			json.NewEncoder(w).Encode(resp)
 			return
+		case "multi_tool":
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]any{"jsonrpc": "2.0", "id": req.ID, "result": map[string]any{"content": []map[string]any{{"type": "text", "text": "first"}, {"type": "text", "text": "second"}}}})
+			return
 		default:
 			http.Error(w, "unknown tool", http.StatusInternalServerError)
 			return
@@ -68,6 +72,19 @@ func fakeMCPServer(t *testing.T, wantToken string) *httptest.Server {
 		}
 		json.NewEncoder(w).Encode(resp)
 	}))
+}
+
+func TestCall_PreservesMultipleTextBlocks(t *testing.T) {
+	srv := fakeMCPServer(t, "")
+	defer srv.Close()
+	raw, err := client.New(srv.URL, "").Call("multi_tool", map[string]any{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	if err := json.Unmarshal(raw, &got); err != nil || len(got) != 2 || got[0] != "first" || got[1] != "second" {
+		t.Fatalf("blocks = %s, %v", raw, err)
+	}
 }
 
 func TestCall_Success(t *testing.T) {

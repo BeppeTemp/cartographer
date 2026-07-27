@@ -29,6 +29,7 @@ var readOnlyToolNames = map[string]bool{
 	"skill_list":      true,
 	"sync_check":      true,
 	"sync_pull":       true,
+	"sync_status":     true,
 	"index_rebuild":   true,
 	"artifact_read":   true,
 	"artifact_list":   true,

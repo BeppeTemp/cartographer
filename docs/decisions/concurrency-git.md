@@ -111,3 +111,12 @@ e) Per-phase telemetry on stderr for every write, in `gitWrap`: `cartographer: t
 **Decision.** `changes_since` is a read-only, server-side digest over Git history. The caller supplies an RFC3339 timestamp or `<N>d`/`<N>h` duration; no per-client last-seen state is stored. File changes aggregate by concept with newest-status-wins, including renames under their destination ID. `.cartographer/` is ignored, while logs, maps and provisioning artifacts remain only in the `other_changes` count.
 
 **Rationale.** Every MCP write already creates a Git commit, so Git supplies the authoritative timestamp, author and concept-level history without introducing client state. A compact per-concept aggregate answers a return-to-work digest without exposing raw commit noise.
+
+---
+
+<a id="d103"></a>
+## D103 — Observable replication failures and native Git identity fallback
+
+**Decision.** Git replication state is exposed through the read-only `sync_status` tool. Failed commits and pushes remain non-fatal to local writes but are retained until a real push succeeds; debounced writes report pending rather than pretending their future push succeeded. When Cartographer has no complete configured author pair, commits use Git's own resolved identity; the placeholder is retained only as Git's final fallback.
+
+**Rationale.** Local durability and remote replication are separate states. Reporting their distinction preserves offline operation while making enterprise forge push-rule failures actionable without log scraping.

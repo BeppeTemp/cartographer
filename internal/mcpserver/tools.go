@@ -101,6 +101,7 @@ func RegisterKBTools(s *Server, k *kb.KB, deps Deps) {
 	register(toolKBStatus(k))
 	register(toolContradictionReport(k))
 	register(toolConflictsList(k))
+	register(toolSyncStatus(k))
 	register(toolGitConflictResolve(k))
 	register(toolServiceGet(k))
 	register(toolServiceList(k))
