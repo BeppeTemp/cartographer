@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -148,7 +147,11 @@ func Set(kbRoot, relativePath, pointer, value string, env ...string) error {
 	if err != nil {
 		return err
 	}
-	if !bytes.Contains(raw, []byte("sops:")) {
+	originalNode, err := yamlDocument(raw)
+	if err != nil {
+		return fmt.Errorf("parse encrypted %s: %w", relativePath, err)
+	}
+	if !hasSOPSMetadata(originalNode) {
 		return fmt.Errorf("%s is not SOPS-encrypted (missing sops metadata)", relativePath)
 	}
 	mode := os.FileMode(0o600)
@@ -172,20 +175,27 @@ func Set(kbRoot, relativePath, pointer, value string, env ...string) error {
 	if err = os.Chmod(tmpName, mode); err != nil {
 		return err
 	}
-	selector, err := selectorForPointer(pointer)
+	selector, err := selectorForPointer(originalNode, pointer)
 	if err != nil {
 		return err
 	}
 	encoded, _ := json.Marshal(value)
-	cmd := exec.Command("sops", "set", "--value-stdin", selector, filepath.Base(tmpName))
-	cmd.Dir = dir
+	tmpRel, err := filepath.Rel(kbRoot, tmpName)
+	if err != nil || !filepath.IsLocal(tmpRel) {
+		return fmt.Errorf("temporary secret path must stay inside the KB")
+	}
+	// SOPS 3.13 expects file before the selector. Keep the root cwd so its
+	// repository-relative creation_rules/path_regex matching is unchanged.
+	cmd := exec.Command("sops", "set", "--value-stdin", tmpRel, selector)
+	cmd.Dir = kbRoot
 	cmd.Stdin = bytes.NewReader(encoded)
 	if len(env) > 0 {
 		cmd.Env = append(os.Environ(), env...)
 	}
-	out, err := cmd.CombinedOutput()
+	_, err = cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("sops set %s: %w: %s", relativePath, err, redact(string(out), value))
+		// SOPS may include decrypted material in diagnostics. Never surface it.
+		return fmt.Errorf("sops set %s: %w", relativePath, err)
 	}
 	updated, err := os.ReadFile(tmpName)
 	if err != nil {
@@ -253,7 +263,7 @@ func flatten(n *yaml.Node, ptr string, out map[string]string) error {
 		seen := map[string]bool{}
 		for i := 0; i < len(n.Content); i += 2 {
 			k, v := n.Content[i], n.Content[i+1]
-			if k.Kind != yaml.ScalarNode {
+			if k.Kind != yaml.ScalarNode || k.Tag != "!!str" {
 				return fmt.Errorf("map keys must be strings")
 			}
 			if seen[k.Value] {
@@ -297,37 +307,113 @@ func unescape(s string) (string, error) {
 	}
 	return strings.ReplaceAll(strings.ReplaceAll(s, "~1", "/"), "~0", "~"), nil
 }
-func selectorForPointer(pointer string) (string, error) {
+func selectorForPointer(root *yaml.Node, pointer string) (string, error) {
+	if !strings.HasPrefix(pointer, "/") {
+		return "", fmt.Errorf("key must be a JSON Pointer starting with /")
+	}
 	parts := strings.Split(strings.TrimPrefix(pointer, "/"), "/")
+	n := root
 	var b strings.Builder
-	for _, p := range parts {
-		p, err := unescape(p)
+	for i, raw := range parts {
+		part, err := unescape(raw)
 		if err != nil {
 			return "", err
 		}
-		if n, err := strconv.Atoi(p); err == nil {
-			b.WriteString("[")
-			b.WriteString(strconv.Itoa(n))
-			b.WriteString("]")
-		} else {
-			q, _ := json.Marshal(p)
-			b.WriteString("[")
+		switch n.Kind {
+		case yaml.MappingNode:
+			q, _ := json.Marshal(part)
+			b.WriteByte('[')
 			b.Write(q)
-			b.WriteString("]")
+			b.WriteByte(']')
+			child, ok := mappingValue(n, part)
+			if !ok {
+				if i == len(parts)-1 {
+					return b.String(), nil
+				}
+				return "", fmt.Errorf("JSON Pointer %q: missing mapping key %q", pointer, part)
+			}
+			n = child
+		case yaml.SequenceNode:
+			idx, err := strconv.Atoi(part)
+			if err != nil || idx < 0 || idx >= len(n.Content) {
+				return "", fmt.Errorf("JSON Pointer %q: invalid sequence index %q", pointer, part)
+			}
+			b.WriteString("[")
+			b.WriteString(strconv.Itoa(idx))
+			b.WriteByte(']')
+			n = n.Content[idx]
+		default:
+			return "", fmt.Errorf("JSON Pointer %q: cannot descend through scalar", pointer)
 		}
 	}
 	return b.String(), nil
 }
 func verifyEncryptedPointer(data []byte, pointer string) error {
-	var doc yaml.Node
-	if err := yaml.Unmarshal(data, &doc); err != nil {
+	n, err := yamlDocument(data)
+	if err != nil {
 		return fmt.Errorf("parse encrypted result: %w", err)
 	}
-	if !bytes.Contains(data, []byte("ENC[")) {
-		return fmt.Errorf("sops result left target cleartext")
+	target, err := nodeAtPointer(n, pointer)
+	if err != nil {
+		return err
+	}
+	if target.Kind != yaml.ScalarNode {
+		return fmt.Errorf("sops result target %q is not a scalar", pointer)
+	}
+	if !strings.HasPrefix(target.Value, "ENC[") {
+		return fmt.Errorf("sops result left target %q cleartext", pointer)
 	}
 	return nil
 }
-func redact(s, value string) string { return strings.ReplaceAll(s, value, "[REDACTED]") }
 
-var _ io.Reader
+func yamlDocument(data []byte) (*yaml.Node, error) {
+	var doc yaml.Node
+	if err := yaml.Unmarshal(data, &doc); err != nil {
+		return nil, err
+	}
+	if len(doc.Content) != 1 || doc.Content[0].Kind != yaml.MappingNode {
+		return nil, fmt.Errorf("root must be a mapping")
+	}
+	return doc.Content[0], nil
+}
+func mappingValue(n *yaml.Node, key string) (*yaml.Node, bool) {
+	for i := 0; i < len(n.Content); i += 2 {
+		if n.Content[i].Kind == yaml.ScalarNode && n.Content[i].Value == key {
+			return n.Content[i+1], true
+		}
+	}
+	return nil, false
+}
+func hasSOPSMetadata(root *yaml.Node) bool {
+	n, ok := mappingValue(root, "sops")
+	return ok && n.Kind == yaml.MappingNode
+}
+func nodeAtPointer(root *yaml.Node, pointer string) (*yaml.Node, error) {
+	if !strings.HasPrefix(pointer, "/") {
+		return nil, fmt.Errorf("key must be a JSON Pointer starting with /")
+	}
+	n := root
+	for _, raw := range strings.Split(strings.TrimPrefix(pointer, "/"), "/") {
+		part, err := unescape(raw)
+		if err != nil {
+			return nil, err
+		}
+		switch n.Kind {
+		case yaml.MappingNode:
+			var ok bool
+			n, ok = mappingValue(n, part)
+			if !ok {
+				return nil, fmt.Errorf("sops result target %q is missing", pointer)
+			}
+		case yaml.SequenceNode:
+			idx, err := strconv.Atoi(part)
+			if err != nil || idx < 0 || idx >= len(n.Content) {
+				return nil, fmt.Errorf("sops result target %q has invalid index %q", pointer, part)
+			}
+			n = n.Content[idx]
+		default:
+			return nil, fmt.Errorf("sops result target %q cannot descend through scalar", pointer)
+		}
+	}
+	return n, nil
+}

@@ -167,17 +167,21 @@ func parseSecretRefs(raw any) ([]sops.SecretRef, error) {
 }
 
 func resolveFrontmatterSecrets(k *kb.KB, fm *okf.Frontmatter) (map[string]string, string, bool, error) {
+	var refs []sops.SecretRef
+	if raw, ok := fm.Get("secret_refs"); ok {
+		var err error
+		refs, err = parseSecretRefs(raw)
+		if err != nil {
+			return nil, "", false, err
+		}
+	}
 	if k.SopsAgeKeyFile == "" {
 		return nil, "", false, fmt.Errorf("requires a sops_age_key_file configured for this KB")
 	}
 	if !sops.Available() {
 		return nil, "", false, fmt.Errorf("sops binary not found in PATH")
 	}
-	if raw, ok := fm.Get("secret_refs"); ok {
-		refs, err := parseSecretRefs(raw)
-		if err != nil {
-			return nil, "", false, err
-		}
+	if refs != nil {
 		values, err := sops.ResolveRefs(k.Root, refs, sops.AgeKeyEnv(k.SopsAgeKeyFile)...)
 		return values, "declared refs", false, err
 	}

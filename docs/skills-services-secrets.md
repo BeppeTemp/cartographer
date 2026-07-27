@@ -82,7 +82,8 @@ legacy `secrets_source` whole-file behavior.
 encrypted `secrets/*.sops.yaml` file. It uses `sops set --value-stdin`, checks
 that the result remains encrypted, and commits through the normal KB write
 flow. Creating the encrypted file and choosing its recipients remain an
-operator action; Cartographer never writes `.sops.yaml`.
+operator action; Cartographer never writes the root `.sops.yaml` creation-rules
+file, but it does update existing encrypted `*.sops.yaml` secret files.
 
 ## Operational guidance
 

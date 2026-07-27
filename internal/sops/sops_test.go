@@ -141,3 +141,42 @@ func TestDecrypt_NoEnv_FakeSops(t *testing.T) {
 		t.Errorf("resolved_key = %q, want empty when no env passed", sf.Values["resolved_key"])
 	}
 }
+
+func TestParseYAMLFlat_NestedPointersAndTypes(t *testing.T) {
+	values, err := parseYAMLFlat([]byte("a:\n  b:\n    c:\n      leaf: one\nlist:\n  - false\n  - null\n  - nested: two\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for key, want := range map[string]string{"/a/b/c/leaf": "one", "/list/0": "false", "/list/1": "", "/list/2/nested": "two"} {
+		if got := values[key]; got != want {
+			t.Errorf("%s = %q, want %q", key, got, want)
+		}
+	}
+}
+
+func TestParseYAMLFlatRejectsAliasAndNonStringKey(t *testing.T) {
+	for _, input := range []string{"a: &x value\nb: *x\n", "1: value\n"} {
+		if _, err := parseYAMLFlat([]byte(input)); err == nil {
+			t.Errorf("parseYAMLFlat(%q) succeeded", input)
+		}
+	}
+}
+
+func TestSelectorAndVerifyEncryptedPointerRespectNodeKinds(t *testing.T) {
+	root, err := yamlDocument([]byte("map:\n  \"0\": ENC[x]\nlist:\n  - ENC[y]\nsops: {}\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := selectorForPointer(root, "/map/0"); err != nil || got != `["map"]["0"]` {
+		t.Errorf("map numeric selector = %q, %v", got, err)
+	}
+	if got, err := selectorForPointer(root, "/list/0"); err != nil || got != `["list"][0]` {
+		t.Errorf("list selector = %q, %v", got, err)
+	}
+	if err := verifyEncryptedPointer([]byte("map:\n  \"0\": clear\nsops: {}\n"), "/map/0"); err == nil {
+		t.Error("clear target accepted")
+	}
+	if err := verifyEncryptedPointer([]byte("map:\n  \"0\": ENC[x]\nsops: {}\n"), "/map/missing"); err == nil {
+		t.Error("missing target accepted")
+	}
+}
