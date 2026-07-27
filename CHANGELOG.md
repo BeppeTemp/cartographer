@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.1](https://github.com/BeppeTemp/cartographer/compare/v0.3.0...v0.3.1) (2026-07-27)
+
+
+### Bug Fixes
+
+* **mcp:** opt-in per-KB tool-name prefix for flat-namespace clients ([#63](https://github.com/BeppeTemp/cartographer/issues/63)) ([ffffb21](https://github.com/BeppeTemp/cartographer/commit/ffffb21c547e927592ecd10fcbaf8d9b6a1951e4))
+
 ## [0.3.0](https://github.com/BeppeTemp/cartographer/compare/v0.2.0...v0.3.0) (2026-07-26)
 
 
