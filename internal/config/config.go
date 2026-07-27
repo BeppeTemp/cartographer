@@ -28,6 +28,19 @@ type Config struct {
 	// (default) hides the advanced/operator tools, "full" advertises all.
 	// Hidden tools stay callable via tools/call (D65).
 	ToolsProfile string
+	// MCP controls MCP-protocol-level server behaviour that isn't specific
+	// to a single KB (currently: the tool-name prefix default, D102).
+	MCP MCPConfig
+}
+
+// MCPConfig controls MCP-protocol-level server behaviour.
+type MCPConfig struct {
+	// ToolPrefixMode is the default per-KB tool-name prefix policy for KBs
+	// that don't set an explicit KBSpec.ToolPrefix: "off" (default) leaves
+	// tool names unprefixed, byte-identical to pre-D102 behaviour; "kb-name"
+	// derives the prefix from the KB's resolved name (sanitised, see
+	// SanitizeToolPrefix — e.g. "ai-team" → "ai_team__concept_read").
+	ToolPrefixMode string
 }
 
 // AuthConfig controls HTTP bearer-token authentication.
@@ -106,6 +119,15 @@ type KBSpec struct {
 	// capability is opt-in per-KB rather than implied by an rw token alone.
 	// Default false. Propagated to kb.KB.AllowArtifactWrite (see serve.go).
 	AllowArtifactWrite bool `yaml:"allow_artifact_write,omitempty"`
+
+	// ToolPrefix, if set, namespaces every MCP tool this KB registers as
+	// "<prefix>__<tool>" (opt-in per-KB tool-name prefix, D102 — for MCP
+	// clients whose tool namespace is flat across servers, e.g. Kiro CLI).
+	// Wins over the global MCP.ToolPrefixMode. Resolved, sanitised
+	// (SanitizeToolPrefix) and shape-validated (ValidateToolPrefixShape) at
+	// KB-mount time via ResolveToolPrefix — an invalid result is a fail-fast
+	// startup error naming the KB; the KB is not mounted.
+	ToolPrefix string `yaml:"tool_prefix,omitempty"`
 }
 
 // GitConfig controls per-KB git autocommit/sync, the SSH identity used to
@@ -176,6 +198,7 @@ func Default() *Config {
 			OllamaModel: "nomic-embed-text",
 		},
 		ToolsProfile: "agent",
+		MCP:          MCPConfig{ToolPrefixMode: "off"},
 	}
 }
 
@@ -193,10 +216,15 @@ type rawConfig struct {
 	Audit  AuditConfig `yaml:"audit"`
 	Sops   SopsConfig  `yaml:"sops"`
 	Tools  rawTools    `yaml:"tools"`
+	MCP    rawMCP      `yaml:"mcp"`
 }
 
 type rawTools struct {
 	Profile string `yaml:"profile"`
+}
+
+type rawMCP struct {
+	ToolPrefixMode string `yaml:"tool_prefix_mode"`
 }
 
 type rawAuth struct {
@@ -281,6 +309,10 @@ func Load(path string) (*Config, error) {
 		cfg.ToolsProfile = normalizeToolsProfile(raw.Tools.Profile)
 	}
 
+	if raw.MCP.ToolPrefixMode != "" {
+		cfg.MCP.ToolPrefixMode = normalizeToolPrefixMode(raw.MCP.ToolPrefixMode)
+	}
+
 	return cfg, nil
 }
 
@@ -346,6 +378,9 @@ func FromEnv(cfg *Config) {
 	if v := os.Getenv("CARTOGRAPHER_TOOLS_PROFILE"); v != "" {
 		cfg.ToolsProfile = normalizeToolsProfile(v)
 	}
+	if v := os.Getenv("CARTOGRAPHER_MCP_TOOL_PREFIX_MODE"); v != "" {
+		cfg.MCP.ToolPrefixMode = normalizeToolPrefixMode(v)
+	}
 }
 
 // FlagOverrides carries the `cartographer serve` flag values that were
@@ -409,6 +444,16 @@ func normalizeToolsProfile(v string) string {
 		return "full"
 	}
 	return "agent"
+}
+
+// normalizeToolPrefixMode maps a tool_prefix_mode spelling onto the
+// canonical "off"/"kb-name". Anything unrecognized falls back to "off"
+// (fail-closed: no behavioural change for existing deployments/clients).
+func normalizeToolPrefixMode(v string) string {
+	if strings.ToLower(strings.TrimSpace(v)) == "kb-name" {
+		return "kb-name"
+	}
+	return "off"
 }
 
 // normalizeAuthMode maps the legacy boolean-ish spellings (accepted by both

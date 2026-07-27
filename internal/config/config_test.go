@@ -151,6 +151,7 @@ func TestLoadFullYAML(t *testing.T) {
 		Audit:        AuditConfig{Log: "/data/audit.log", KeySeed: "deadbeef"},
 		Sops:         SopsConfig{AgeKeyFile: "/etc/cartographer/age.key", AgeKeyDir: "/etc/kb-sops-keys"},
 		ToolsProfile: "full",
+		MCP:          MCPConfig{ToolPrefixMode: "off"},
 	}
 
 	if !reflect.DeepEqual(cfg, want) {
