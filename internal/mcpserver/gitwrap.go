@@ -91,7 +91,7 @@ func gitWrap(k *kb.KB, t Tool) Tool {
 				// conflicts as degraded concepts.
 				if k.SyncOutDebounce > 0 {
 					k.SchedulePush()
-					k.SetGitStatus("pending", nil)
+					k.MarkPushPending()
 					pushAsync = true
 					appendSyncWarning(&res, k)
 				} else {

@@ -72,6 +72,7 @@ func TestCommitOp_PerKBIdentity(t *testing.T) {
 	k.AutoCommit = true
 	k.GitAuthorName = "Author Person"
 	k.GitAuthorEmail = "author@wiki.local"
+	k.GitAuthorExplicit = true
 	k.GitEnv = []string{"GIT_COMMITTER_NAME=Committer Bot", "GIT_COMMITTER_EMAIL=committer@wiki.local"}
 
 	if err := k.WriteFileAtomic("data/gitsync-identity.md", []byte("---\ntype: Note\ntitle: Identity\n---\ntest\n")); err != nil {

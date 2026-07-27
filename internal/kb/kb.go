@@ -134,6 +134,7 @@ type GitStatus struct {
 	HeadSHA         string     `json:"head_sha,omitempty"`
 	UnpushedCommits *int       `json:"unpushed_commits"`
 	IdentityWarning bool       `json:"identity_warning,omitempty"`
+	Attempts        int        `json:"attempts"`
 }
 
 // Default git author identity used when GitAuthorName/GitAuthorEmail are
@@ -151,8 +152,12 @@ func (k *KB) gitAuthor() (name, email string) {
 
 // SetGitStatus records a status transition without taking the git-operation lock.
 func (k *KB) SetGitStatus(state string, err error) {
+	k.setGitStatus(state, err, 0)
+}
+
+func (k *KB) setGitStatus(state string, err error, attempts int) {
 	now := time.Now().UTC()
-	s := GitStatus{State: state, LastAttemptAt: &now}
+	s := GitStatus{State: state, LastAttemptAt: &now, Attempts: attempts}
 	if err != nil {
 		s.LastError = err.Error()
 	}
@@ -164,7 +169,8 @@ func (k *KB) SetGitStatus(state string, err error) {
 			s.UnpushedCommits = &n
 		}
 	}
-	s.IdentityWarning = k.GitAuthorEmail == defaultGitAuthorEmail
+	_, remote := k.hasRemote()
+	s.IdentityWarning = k.GitSync && remote && k.GitAuthorEmail == defaultGitAuthorEmail
 	k.gitStatusMu.Lock()
 	k.gitStatus = s
 	k.gitStatusMu.Unlock()
@@ -187,6 +193,7 @@ func (k *KB) GitStatusSnapshot() GitStatus {
 	if sha, err := gitx.HeadSHA(k.Root); err == nil {
 		s.HeadSHA = sha
 	}
+	s.UnpushedCommits = nil
 	if branch, _ := gitx.Branch(k.Root); branch != "" {
 		if n, known, err := gitx.AheadCount(k.Root, "origin", branch); err == nil && known {
 			s.UnpushedCommits = &n
@@ -195,8 +202,18 @@ func (k *KB) GitStatusSnapshot() GitStatus {
 			}
 		}
 	}
-	s.IdentityWarning = k.GitAuthorEmail == defaultGitAuthorEmail
+	_, remote := k.hasRemote()
+	s.IdentityWarning = k.GitSync && remote && k.GitAuthorEmail == defaultGitAuthorEmail
 	return s
+}
+
+// MarkPushPending keeps an existing failure visible until a push succeeds.
+func (k *KB) MarkPushPending() {
+	k.gitStatusMu.Lock()
+	if k.gitStatus.State != "failed" {
+		k.gitStatus = GitStatus{State: "pending"}
+	}
+	k.gitStatusMu.Unlock()
 }
 
 // DataRoot returns the conceptual root of the KB (index.md, log.md, archives).

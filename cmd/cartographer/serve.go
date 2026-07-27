@@ -274,7 +274,13 @@ func runServe(cfg *config.Config) {
 		if err := completeIdentity(m.Spec.AuthorName, m.Spec.AuthorEmail, "kbs[]"); err != nil {
 			log.Fatal(err)
 		}
+		if err := completeIdentity(m.Spec.CommitterName, m.Spec.CommitterEmail, "kbs[] committer"); err != nil {
+			log.Fatal(err)
+		}
 		if err := completeIdentity(cfg.Git.AuthorName, cfg.Git.AuthorEmail, "git"); err != nil {
+			log.Fatal(err)
+		}
+		if err := completeIdentity(cfg.Git.CommitterName, cfg.Git.CommitterEmail, "git committer"); err != nil {
 			log.Fatal(err)
 		}
 		k.GitAuthorName, k.GitAuthorEmail = firstNonEmpty(m.Spec.AuthorName, cfg.Git.AuthorName), firstNonEmpty(m.Spec.AuthorEmail, cfg.Git.AuthorEmail)
