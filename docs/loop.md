@@ -1,35 +1,45 @@
-# Operating loop: ingest, query, lint
+# Operating loop
 
-The loop is the backbone of the Karpathy pattern: every cycle enriches the wiki with new knowledge, answering with citations and maintaining consistency.
+Cartographer provides deterministic building blocks; the agent decides how to
+combine them for a task. There is no built-in LLM judge, review queue or
+automatic PR workflow.
 
-## Ingest
+## Orient and read
 
-1. The agent reads the source, discusses its key points, writes to the KB's **working branch** (never to `main`) via `concept_write`.
-2. **Checkpoint calibrated to the profile:**
-   - **Local Core**: lightweight gate (validate + lint + commit_gate) → fast-forward to `main`.
-   - **Server**: PR on the dedicated branch → merge with rebase + gate.
-3. **Safe-outputs** before the checkpoint: OKF/frontmatter/link validation, absence of PII. A **quality-gate LLM-as-judge** (faithfulness/grounding, statement-level) runs beforehand and modulates the intensity: high grounding + small diff → lightweight gate; low grounding or new content → strong gate. For robustness against injection, the judge uses a **different provider** and does not treat the content as instructions.
-4. **Opt-in batching** only for trusted sources and low-risk diffs. `commit_gate` and hard contradictions are **always active**.
+1. Use `atlas_overview` or `map_list` to understand the KB shape.
+2. Use `search` to find candidates.
+3. Read only the relevant concept or section with `concept_read`.
+4. Follow links with `graph_neighbors` when nearby context matters.
 
-## Query
+Search results and indexes are derived. The Markdown concept remains the source
+of truth.
 
-`search` + `index_get` → `concept_read(id, section)` (bounded) → synthesis **with citations**.
+## Write
 
-**Temporal query** via `valid_from`/`valid_to`: "what's true now" / "as-of date X".
+1. Read the target first and retain its content hash.
+2. Use `concept_write` for a complete concept, `concept_patch` for bounded
+   body/frontmatter edits, or `log_append` for a Journal entry.
+3. Pass `if_match` when updating existing content. A concurrent change fails
+   with `stale_write` instead of being overwritten.
+4. The server validates the write, updates live indexes and—when enabled—
+   creates one local git commit for the logical operation.
 
-**Compounding**: if the answer is valuable, it gets trimmed as a new concept.
+Remote synchronization is handled around writes when configured. See
+[concurrency](concurrency.md) for freshness, asynchronous push and conflicts.
 
-## Lint
+## Validate and lint
 
-| Mode | When | Cost |
-|---|---|---|
-| **Scoped** | After every ingest; only changed nodes + graph neighbors | Cheap, frequent |
-| **Full sweep** | Rare | Deterministic part in shell/grep (orphans, stubs, broken links, stale claims via decaying `confidence`); reasoning checks use the model |
-| **Deep / cross-model** | Periodic, on large KBs | Semantic comparison between tag-overlapping pairs, with a **different provider** from the one that did the ingest (mitigates the self-referential loop). Token budget cap (100 pages ≈ 300k+ tokens). Emits soft edges or, if hard, a `Contradiction` node. |
+- `validate` checks KB and frontmatter invariants.
+- `lint(scope, scope_neighbors)` runs deterministic checks over a scope and,
+  optionally, its graph neighbors.
+- `gate_check` combines the repository's deterministic validation checks.
 
-## Loop capabilities and costs
+Reasoning checks such as factual grounding, PII review or semantic
+contradiction analysis are agent/human policy. Cartographer does not currently
+run a second model or emit contradiction concepts automatically.
 
-- **Human checkpoint**: define sustainable PRs/day per reviewer with **backpressure** (growing queue → ingest slows down) to avoid rubber-stamping.
-- **Deep lint**: replace O(n²) pairwise comparison with **pre-filtering via clustering/ANN** on the embeddings (~O(n log n)); token budget/month per KB; unevaluated pairs in a persistent queue (debt tracked with a coverage metric).
-- **Single-provider fallback**: if only one provider is available, cross-model lint is **disabled with a warning** (running it on the same model would defeat the mitigation).
-- **Cost observability**: tokens spent (ingest, judge, deep lint, embedding) tracked in the audit log and aggregated as a metric. See [`deployment.md`](deployment.md) §observability.
+## Compound useful results
+
+When a result should survive the session, write it back as a focused concept
+with links and provenance appropriate to that KB. This is a convention, not an
+automatic post-processing step.

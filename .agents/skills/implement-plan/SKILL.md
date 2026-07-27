@@ -4,7 +4,7 @@ description: >-
   Orchestrates implementation of one or more approved plan issues (label
   `plan`) into merged PRs through wave planning, delegation to `dev` subagents
   in isolated worktrees, coordinator review, and ordered squash-merge with
-  docs-append conflict resolution. Use when the user asks to implement, ship,
+  topic-owned documentation conflict resolution. Use when the user asks to implement, ship,
   or land open plan issues (one or many). Sibling of the `plan` skill: `plan`
   writes issues (design → handoff), while `implement-plan` consumes them
   (issue → merged PR).
@@ -30,7 +30,9 @@ those first; do not duplicate them here.
 2. `gh issue view <n>` each; extract the **execution order** line (plans state it explicitly) and the **file-set** each touches.
 3. Build the graph, two edge types:
    - **Hard code dependency** — a plan uses code a sibling introduces (e.g. a new client method, a new helper). These form **strictly sequential chains**: never start a plan before its predecessor is on `main`.
-   - **Shared file** — plans touching the same file conflict at merge (always true for `docs/decisions.md`/`docs/index.md`: each appends its own `D<n>`). Not a start-order constraint, a merge-order one.
+   - **Shared file** — plans touching the same code, current-state page or
+     decision topic can conflict at merge. A D entry only touches its owning
+     `docs/decisions/<topic>.md`; unrelated topics are not a shared file.
 4. Emit **waves**: independent roots with disjoint code file-sets run in parallel; dependency chains run internally sequential but in parallel with each other when their file-sets are disjoint. One plan = one PR.
 5. State the wave plan to the user before spawning (spawning N dev agents + opening N public PRs is outward-facing).
 
@@ -56,7 +58,7 @@ Canonical mandate:
 - Read the plan: `gh issue view <n>` (add `--comments` — later amendments live there).
 - Implement **all** WPs exactly, starting from the `file:line` pointers in the plan (do not re-explore from scratch).
 - Write the tests in the plan's "Tests" section.
-- **Same session**: update the docs in the "Closing" section per `docs/index.md` §Maintenance rules, add the `## D<n>` entry to `docs/decisions.md` (grep `## D<n-1>` for position/format).
+- **Same session**: update the docs in the "Closing" section per `docs/index.md` §Maintenance rules, add the `## D<n>` entry to the owning topic named by the plan (search that file for the local format; keep entries numerically ordered).
 - `make vet && make test` green — iterate until they are.
 - Branch `feat/<slug>` (from the plan), single commit, message = PR title (conventional commit, the plan gives it), Co-Authored-By trailer.
 - `git push -u origin feat/<slug>` + `gh pr create` with body ending `Closes #<n>` and the Generated-with trailer.
@@ -69,12 +71,15 @@ agent's report. Confirm CI: `gh pr view <pr> --json statusCheckRollup`. This
 gate is not automatable — a self-authored PR without an independent look
 defeats two-party review.
 
-## 4 — Ordered merge with append-conflict resolution
+## 4 — Ordered merge with documentation-conflict resolution
 
-Merge in dependency order. After each merge the sibling PRs sharing docs go `CONFLICTING` — that is **expected and systematic** (append of distinct `D<n>` entries at the same offset), not a real conflict:
+Merge in dependency order. Sibling PRs only conflict when their actual
+file-sets overlap; decision entries in different topic files do not:
 
 1. `git fetch origin`; enter the plan's worktree; `git rebase origin/main`.
-2. Resolve the append conflict: keep **both** entries in **numeric order** in `docs/decisions.md`; keep both rows in `docs/index.md` §Maintenance rules. A conflict that is **not** a clean append (real code/prose divergence) → **STOP**, surface to the user.
+2. Resolve a clean decision append by keeping **both** entries in numeric order
+   in the shared topic file. A conflict that is not a clean append (real
+   code/current-state prose divergence) → **STOP**, surface to the user.
 3. `git rebase --continue`; run the plan's affected package tests (`go test ./internal/<pkg>/...`); `git push --force-with-lease`.
 4. Wait for CI `test` = SUCCESS and `mergeable == MERGEABLE`, then `gh pr merge <pr> --squash --delete-branch`.
 5. Update local `main` with a fast-forward pull. Remove the dedicated worktree and delete only the corresponding stale local plan branch after verifying both exact paths/names.

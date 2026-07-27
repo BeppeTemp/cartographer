@@ -9,7 +9,7 @@
 #       the KB filesystem on every call), `cartographer sync` prunes it from the
 #       client.
 #
-# Requires a live server (the client ALWAYS talks over HTTP, see decisions.md).
+# Requires a live server (the client ALWAYS talks over HTTP; see docs/decisions/client-configurator.md D37).
 # Does NOT require the agent.
 #
 # Expected environment variables: E2E_TMP_DIR, E2E_HTTP_PORT, REPO_ROOT.

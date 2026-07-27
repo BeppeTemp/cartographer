@@ -6,7 +6,7 @@
 # into .opencode/skills/.
 #
 # The client ALWAYS talks to the server over HTTP (no filesystem-only channel, see
-# decisions.md): unlike the old cartographer-configure, it therefore requires a
+# docs/decisions/client-configurator.md D37): unlike the old cartographer-configure, it therefore requires a
 # live server. Does NOT require the agent (no LLM model involved).
 #
 # Expected environment variables: E2E_TMP_DIR, E2E_HTTP_PORT, REPO_ROOT.

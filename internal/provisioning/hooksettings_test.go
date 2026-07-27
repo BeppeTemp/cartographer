@@ -2,7 +2,7 @@ package provisioning_test
 
 // Tests for the automatic registration of Claude Code hooks in settings.json
 // (D57). See provisioning_agent_hook_test.go for the pre-existing
-// materialization tests (D48) and docs/decisions.md D57.
+// materialization tests (D48) and docs/decisions/sync-provisioning.md D57.
 
 import (
 	"encoding/json"
