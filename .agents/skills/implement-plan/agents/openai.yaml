@@ -1,0 +1,4 @@
+interface:
+  display_name: "Implement Plan Issues"
+  short_description: "Orchestrate plan issues through merged PRs"
+  default_prompt: "Use $implement-plan to implement and land the approved plan issues."

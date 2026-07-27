@@ -1,0 +1,4 @@
+interface:
+  display_name: "Plan Issue"
+  short_description: "Create self-contained GitHub plan issues"
+  default_prompt: "Use $plan to package this design into a self-contained GitHub plan issue."
