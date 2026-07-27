@@ -1,0 +1,4 @@
+interface:
+  display_name: "Deploy Cartographer"
+  short_description: "Release server and client end to end"
+  default_prompt: "Use $deploy to release Cartographer across GitHub, the homelab, and the local client."
