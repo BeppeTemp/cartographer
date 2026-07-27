@@ -114,6 +114,11 @@ func ResolveRefs(kbRoot string, refs []SecretRef, env ...string) (map[string]str
 			cache[ref.SOPSFile] = sf
 		}
 		val, ok := sf.Values[ref.SOPSKey]
+		// Flat legacy YAML keeps top-level keys unprefixed for compatibility,
+		// while secret_refs always use JSON Pointer syntax.
+		if !ok && strings.HasPrefix(ref.SOPSKey, "/") && !strings.Contains(strings.TrimPrefix(ref.SOPSKey, "/"), "/") {
+			val, ok = sf.Values[strings.TrimPrefix(ref.SOPSKey, "/")]
+		}
 		if !ok {
 			keys := make([]string, 0, len(sf.Values))
 			for k := range sf.Values {
