@@ -241,7 +241,8 @@ func runServe(cfg *config.Config) {
 
 	seenNames := make(map[string]string) // name → first path seen
 	var kbs []*kb.KB
-	var kbNames []string // index-aligned with kbs
+	var kbNames []string        // index-aligned with kbs
+	var kbToolPrefixes []string // index-aligned with kbs (D102, "" = unprefixed)
 	for _, m := range mounts {
 		var k *kb.KB
 		var err error
@@ -271,9 +272,14 @@ func runServe(cfg *config.Config) {
 			log.Printf("warning: KB name collision %q (first: %s, duplicate: %s) — skipping duplicate", name, prev, m.Path)
 			continue
 		}
+		toolPrefix, err := config.ResolveToolPrefix(m.Spec, cfg.MCP.ToolPrefixMode, name)
+		if err != nil {
+			log.Fatal(err)
+		}
 		seenNames[name] = m.Path
 		kbs = append(kbs, k)
 		kbNames = append(kbNames, name)
+		kbToolPrefixes = append(kbToolPrefixes, toolPrefix)
 	}
 
 	if len(kbs) == 0 && (cfg.Data == "" || cfg.HTTP == "") {
@@ -312,7 +318,7 @@ func runServe(cfg *config.Config) {
 	}
 
 	if cfg.HTTP != "" {
-		serveHTTP(cfg.HTTP, kbs, kbNames, cfg.Auth, cfg.ToolsProfile, emb, vecStore, sqlIdxs, auditLog)
+		serveHTTP(cfg.HTTP, kbs, kbNames, kbToolPrefixes, cfg.Auth, cfg.ToolsProfile, emb, vecStore, sqlIdxs, auditLog)
 	} else {
 		serveStdio(kbs[0], cfg.ToolsProfile, emb, vecStore, sqlIdxs, auditLog)
 	}
@@ -340,7 +346,7 @@ func serveStdio(k *kb.KB, toolsProfile string, emb embed.Embedder, store *embed.
 	}
 }
 
-func serveHTTP(addr string, kbs []*kb.KB, names []string, authCfg config.AuthConfig, toolsProfile string, emb embed.Embedder, vecStore *embed.Store, sqlIdxs map[string]*sqlindex.Index, auditLog *audit.Log) {
+func serveHTTP(addr string, kbs []*kb.KB, names []string, toolPrefixes []string, authCfg config.AuthConfig, toolsProfile string, emb embed.Embedder, vecStore *embed.Store, sqlIdxs map[string]*sqlindex.Index, auditLog *audit.Log) {
 	if auditLog != nil {
 		log.Printf("audit log active")
 	}
@@ -360,15 +366,32 @@ func serveHTTP(addr string, kbs []*kb.KB, names []string, authCfg config.AuthCon
 	}
 
 	multi := mcpserver.NewMultiKBServer(version)
+	// serverInfo.name (D102) identifies the mounted KB only when more than
+	// one is mounted — a single-KB HTTP server keeps the historical bare
+	// "cartographer" (asserted verbatim in server_test.go).
+	multiKB := len(kbs) > 1
 	for i, k := range kbs {
 		k := k
 		name := names[i]
-		multi.MountKB(name, func(s *mcpserver.Server) {
+		prefix := toolPrefixes[i]
+		err := multi.MountKBWithPrefix(name, prefix, func(s *mcpserver.Server) {
+			if multiKB {
+				s.SetDisplayName("cartographer:" + name)
+			}
 			sqlIdx := sqlIdxs[filepath.Clean(k.Root)]
 			mcpserver.RegisterKBTools(s, k, mcpserver.Deps{Embedder: emb, VecStore: vecStore, SQLIndex: sqlIdx, BundleFS: skillbundle.FS})
 			s.SetToolsProfile(toolsProfile)
 		})
-		log.Printf("mounted KB %q at %s (tools profile: %s)", name, k.Root, toolsProfile)
+		if err != nil {
+			log.Fatal(err)
+		}
+		// The unprefixed line stays exactly as it was pre-D102: the prefix is
+		// only mentioned when there is one.
+		prefixLog := ""
+		if prefix != "" {
+			prefixLog = fmt.Sprintf(", tool prefix: %s__", prefix)
+		}
+		log.Printf("mounted KB %q at %s (tools profile: %s%s)", name, k.Root, toolsProfile, prefixLog)
 	}
 
 	handler := store.Middleware(multi.Handler())

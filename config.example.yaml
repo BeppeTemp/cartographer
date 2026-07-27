@@ -33,6 +33,18 @@ kbs:
                                    # KB (default false, D71): writing a skill means
                                    # injecting instructions that clients will run —
                                    # grant per-KB, an rw token alone does not imply it
+    # tool_prefix: "locale"        # (D102) opt-in per-KB MCP tool-name prefix: this
+                                   # KB's tools register as "locale__<tool>" instead
+                                   # of "<tool>". Default "" (off). Needed for MCP
+                                   # clients with a flat tool namespace across servers
+                                   # (e.g. Kiro CLI) when mounting 2+ KBs; wins over
+                                   # mcp.tool_prefix_mode below. See docs/deployment.md
+                                   # §MCP tool-name prefix.
+mcp:
+  # tool_prefix_mode: "off"        # (D102) off (default) | kb-name — global default
+                                   # applied to every KB above that doesn't set its own
+                                   # tool_prefix; kb-name derives the prefix from the
+                                   # KB's own name.
 git:
   autocommit: true
   sync: true

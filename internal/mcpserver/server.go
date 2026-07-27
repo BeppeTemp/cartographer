@@ -49,7 +49,18 @@ type Server struct {
 	// so New() keeps its historical behavior; `serve` sets it from
 	// config.ToolsProfile (default "agent").
 	agentProfile bool
-	mu           sync.Mutex
+	// toolPrefix, when non-empty, is prepended (as "<toolPrefix>__") to
+	// every tool name at RegisterTool time (D102: opt-in per-KB tool-name
+	// namespacing for MCP clients with a flat tool namespace, e.g. Kiro).
+	// Zero value = unprefixed, byte-identical to pre-D102 behaviour. Set via
+	// SetToolNamePrefix, before RegisterKBTools/setupFn runs — see
+	// MultiKBServer.MountKBWithPrefix.
+	toolPrefix string
+	// displayName, when non-empty, overrides the "cartographer" literal
+	// reported as serverInfo.name by initialize (D102). Set via
+	// SetDisplayName.
+	displayName string
+	mu          sync.Mutex
 
 	writeMu sync.Mutex    // serializes writes to the shared encoder
 	enc     *json.Encoder // active stdio encoder; nil when not in Run (e.g. HTTP)
@@ -72,6 +83,61 @@ func (s *Server) SetToolsProfile(profile string) {
 	s.agentProfile = profile == "agent"
 }
 
+// SetToolNamePrefix sets the opt-in per-KB tool-name prefix (D102): every
+// tool registered afterwards via RegisterTool is renamed
+// "<prefix>__<name>". Must be called before the tools are registered
+// (RegisterKBTools/setupFn) — it does not rename tools already registered.
+// Empty (the default) leaves tool names unchanged.
+func (s *Server) SetToolNamePrefix(prefix string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.toolPrefix = prefix
+}
+
+// SetDisplayName overrides the serverInfo.name reported by initialize
+// (D102). Empty (the default) keeps the historical "cartographer".
+func (s *Server) SetDisplayName(name string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.displayName = name
+}
+
+// stripToolPrefixLocked removes this server's tool-name prefix (see
+// SetToolNamePrefix) from name, if name carries it; otherwise returns name
+// unchanged. Callers must already hold s.mu (it does not lock itself, to
+// stay reentrant-safe when called from handleToolsList).
+func (s *Server) stripToolPrefixLocked(name string) string {
+	if s.toolPrefix == "" {
+		return name
+	}
+	p := s.toolPrefix + "__"
+	if strings.HasPrefix(name, p) {
+		return name[len(p):]
+	}
+	return name
+}
+
+// StripToolPrefix removes this server's tool-name prefix (SetToolNamePrefix,
+// D102) from name, if name carries it; otherwise returns name unchanged. Used
+// by mcpAccessGuard to classify a possibly-prefixed tool name against the
+// pre-prefix name tables (ToolRequiresWrite, the service_get/resolve_secrets
+// override).
+func (s *Server) StripToolPrefix(name string) string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.stripToolPrefixLocked(name)
+}
+
+// ToolRequiresWrite reports whether name — which may carry this server's
+// tool-name prefix (SetToolNamePrefix) — requires write access to the KB.
+// It strips the prefix, if any, then delegates to the package-level
+// ToolRequiresWrite classification. Used by mcpAccessGuard so that a
+// read-only ("kb:<name>:r") scope token still rejects every write tool when
+// a prefix is configured.
+func (s *Server) ToolRequiresWrite(name string) bool {
+	return ToolRequiresWrite(s.StripToolPrefix(name))
+}
+
 // Tools returns a snapshot of all registered tools, keyed by name (for
 // introspection/tests, e.g. the ReadOnly golden test).
 func (s *Server) Tools() map[string]Tool {
@@ -84,10 +150,18 @@ func (s *Server) Tools() map[string]Tool {
 	return out
 }
 
-// RegisterTool registers an MCP tool. Overwrites if the same name is already registered.
+// RegisterTool registers an MCP tool. Overwrites if the same name is already
+// registered. If a tool-name prefix is set (SetToolNamePrefix, D102), t.Name
+// is rewritten to "<prefix>__<name>" here — the single injection point that
+// covers every tool, including conditionally-registered ones
+// (skill_install, sync_*, artifact_*), without touching individual toolXxx
+// constructors.
 func (s *Server) RegisterTool(t Tool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.toolPrefix != "" {
+		t.Name = s.toolPrefix + "__" + t.Name
+	}
 	if _, exists := s.tools[t.Name]; !exists {
 		s.toolsOrd = append(s.toolsOrd, t.Name)
 	}
@@ -213,6 +287,13 @@ func (s *Server) handleInitialize(req *Request) Response {
 		negotiated = params.ProtocolVersion
 	}
 
+	s.mu.Lock()
+	name := "cartographer"
+	if s.displayName != "" {
+		name = s.displayName
+	}
+	s.mu.Unlock()
+
 	result := map[string]interface{}{
 		"protocolVersion": negotiated,
 		"capabilities": map[string]interface{}{
@@ -221,7 +302,7 @@ func (s *Server) handleInitialize(req *Request) Response {
 			"skills":    map[string]interface{}{"listChanged": true},
 		},
 		"serverInfo": map[string]interface{}{
-			"name":    "cartographer",
+			"name":    name,
 			"version": s.version,
 		},
 	}
@@ -235,7 +316,7 @@ func (s *Server) handleToolsList(req *Request) Response {
 
 	descriptors := make([]toolDescriptor, 0, len(s.toolsOrd))
 	for _, name := range s.toolsOrd {
-		if s.agentProfile && ToolAdvanced(name) {
+		if s.agentProfile && ToolAdvanced(s.stripToolPrefixLocked(name)) {
 			continue
 		}
 		t := s.tools[name]

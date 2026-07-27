@@ -58,6 +58,9 @@ func cmdSync(args []string) int {
 			fmt.Fprintln(os.Stderr, "Error:", err)
 			return 2
 		}
+		if w := kiroFlatNamespaceWarning(cfg.Agents, entries); w != "" {
+			warnings = append(warnings, w)
+		}
 		for _, w := range warnings {
 			fmt.Fprintf(os.Stderr, "warning: %s\n", w)
 		}

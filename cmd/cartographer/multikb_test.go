@@ -92,6 +92,51 @@ func TestDoConnect_PerKBEntries_AllProviders(t *testing.T) {
 	}
 }
 
+// TestKiroFlatNamespaceWarning covers the D102 client-side follow-up: a
+// warning fires unconditionally whenever kiro is among the target providers
+// and >=2 MCP entries are about to be written (multi-KB), and stays silent
+// otherwise (single entry, or no kiro provider).
+func TestKiroFlatNamespaceWarning(t *testing.T) {
+	twoEntries := []mcpEntry{{Name: "cartographer-alpha"}, {Name: "cartographer-beta"}}
+	oneEntry := []mcpEntry{{Name: "cartographer"}}
+
+	if w := kiroFlatNamespaceWarning([]string{"kiro"}, twoEntries); w == "" {
+		t.Error("expected a warning: kiro provider + 2 entries")
+	}
+	if w := kiroFlatNamespaceWarning([]string{"claude", "kiro", "codex"}, twoEntries); w == "" {
+		t.Error("expected a warning: kiro among several providers + 2 entries")
+	}
+	if w := kiroFlatNamespaceWarning([]string{"kiro"}, oneEntry); w != "" {
+		t.Errorf("expected no warning for a single entry, got %q", w)
+	}
+	if w := kiroFlatNamespaceWarning([]string{"claude", "codex", "opencode"}, twoEntries); w != "" {
+		t.Errorf("expected no warning without kiro among the providers, got %q", w)
+	}
+}
+
+// TestDoConnect_Kiro_MultiKB_WarnsFlatNamespace exercises the warning through
+// doConnect end-to-end: connecting kiro to a 2-KB server surfaces the
+// warning in connectResult.Warnings (rendered on stderr by
+// printConnectResult / the TUI).
+func TestDoConnect_Kiro_MultiKB_WarnsFlatNamespace(t *testing.T) {
+	srv := multiKBServer(t, `{"status":"ok","kbs":[{"name":"alpha"},{"name":"beta"}]}`)
+	defer srv.Close()
+	dir := t.TempDir()
+	res, err := doConnect(connectOptions{Providers: []string{"kiro"}, Dir: dir, ServerURL: srv.URL + "/mcp", Name: "cartographer", TokenEnv: "TOKEN", Trust: true})
+	if err != nil {
+		t.Fatalf("doConnect: %v", err)
+	}
+	found := false
+	for _, w := range res.Warnings {
+		if strings.Contains(w, "flat MCP tool namespace") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected a flat-namespace warning in %v", res.Warnings)
+	}
+}
+
 func TestEntriesForKBs_SingleStaysBare(t *testing.T) {
 	entries, err := entriesForKBs("wiki", "https://example.test/mcp", []string{"only"})
 	if err != nil || len(entries) != 1 || entries[0].Name != "wiki" || entries[0].URL != "https://example.test/mcp" {

@@ -46,6 +46,14 @@ removes entries for disappeared KBs, and performs the bare↔suffixed rename on
 one-to-many transitions. If the server cannot be reached, it leaves the MCP
 entries and `kbs` list untouched and warns; run `sync` again once it is up.
 
+**Kiro and flat tool namespaces (D102).** Kiro's MCP tool namespace is flat across servers, unlike
+Claude Code/Codex/OpenCode which namespace per server: writing 2+ MCP entries for `kiro` (i.e.
+connecting to a 2+-KB server) leaves only one KB's tools reachable in a Kiro session unless the
+*server* mounts the others with a `tool_prefix` (`docs/deployment.md` §MCP tool-name prefix, D102).
+`connect`/`sync` print an unconditional warning on stderr in that case — they cannot tell from
+`/health` whether the server already has prefixes configured, so the warning fires on the
+precondition alone; the operator is expected to add `tool_prefix`/`tool_prefix_mode` server-side.
+
 ```bash
 cartographer connect                                   # all agents detected on the machine
 cartographer connect claude                             # Claude Code only

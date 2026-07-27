@@ -491,6 +491,9 @@ func doConnect(opts connectOptions) (connectResult, error) {
 	if err != nil {
 		return connectResult{}, err
 	}
+	if w := kiroFlatNamespaceWarning(opts.Providers, entries); w != "" {
+		configWarnings = append(configWarnings, w)
+	}
 
 	// 1b. Ensure the bootstrap hook (D60): purely local, independent of the
 	// server manifest fetched in step 2 below — must be in place even when that
