@@ -47,3 +47,24 @@ func TestResolveSopsAgeKeyFile(t *testing.T) {
 		}
 	})
 }
+
+func TestCompleteIdentity(t *testing.T) {
+	for _, tc := range []struct {
+		name, nameValue, email string
+		wantErr                bool
+	}{
+		{name: "global complete", nameValue: "Bot", email: "bot@example.test"},
+		{name: "per KB complete", nameValue: "KB Bot", email: "kb@example.test"},
+		{name: "global partial author", nameValue: "Bot", wantErr: true},
+		{name: "global partial email", email: "bot@example.test", wantErr: true},
+		{name: "per KB partial author", nameValue: "Bot", wantErr: true},
+		{name: "per KB partial email", email: "bot@example.test", wantErr: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := completeIdentity(tc.nameValue, tc.email, tc.name)
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("completeIdentity(%q, %q) error = %v", tc.nameValue, tc.email, err)
+			}
+		})
+	}
+}

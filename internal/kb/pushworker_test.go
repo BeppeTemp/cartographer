@@ -132,6 +132,9 @@ func TestSchedulePush_Conflict_InvokesOnPushConflict(t *testing.T) {
 	if got == nil {
 		t.Fatal("expected a non-nil *gitx.RebaseConflictError")
 	}
+	if status := k.GitStatusSnapshot(); status.State != "failed" || status.LastError == "" {
+		t.Fatalf("rebase conflict status = %+v", status)
+	}
 }
 
 // TestFlushPush_NoPending_NoOp verifies that FlushPush is a no-op — and does

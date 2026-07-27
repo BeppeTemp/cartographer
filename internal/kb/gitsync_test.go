@@ -141,12 +141,52 @@ func TestCommitOp_NativeRepositoryIdentity(t *testing.T) {
 	}
 }
 
+func TestCommitOp_PlaceholderFallbackWithoutRepositoryIdentity(t *testing.T) {
+	k, _ := initGitKB(t)
+	k.AutoCommit = true
+	k.GitEnv = []string{
+		"GIT_AUTHOR_NAME=",
+		"GIT_AUTHOR_EMAIL=",
+		"GIT_COMMITTER_NAME=Committer",
+		"GIT_COMMITTER_EMAIL=committer@example.test",
+	}
+	if err := k.WriteFileAtomic("data/fallback.md", []byte("fallback\n")); err != nil {
+		t.Fatal(err)
+	}
+	if err := k.CommitOp("fallback"); err != nil {
+		t.Fatal(err)
+	}
+	got, err := gitLogFormat(t, k.Root, "%an <%ae>")
+	if err != nil || got != "cartographer <cartographer@localhost>" {
+		t.Fatalf("placeholder identity = %q, %v", got, err)
+	}
+}
+
 func TestGitStatusSnapshot_NoRemoteAndIdentityWarning(t *testing.T) {
 	k, _ := initGitKB(t)
 	k.GitSync = true
 	k.GitAuthorEmail = defaultGitAuthorEmail
 	if s := k.GitStatusSnapshot(); s.State != "no_remote" || s.IdentityWarning {
 		t.Fatalf("status = %+v", s)
+	}
+}
+
+func TestShouldWarnGitIdentity(t *testing.T) {
+	for _, tc := range []struct {
+		name, email  string
+		sync, remote bool
+		want         bool
+	}{
+		{name: "placeholder with sync and remote", email: defaultGitAuthorEmail, sync: true, remote: true, want: true},
+		{name: "configured identity", email: "bot@example.test", sync: true, remote: true},
+		{name: "no remote", email: defaultGitAuthorEmail, sync: true},
+		{name: "sync disabled", email: defaultGitAuthorEmail, remote: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := ShouldWarnGitIdentity(tc.sync, tc.remote, tc.email); got != tc.want {
+				t.Fatalf("ShouldWarnGitIdentity = %v, want %v", got, tc.want)
+			}
+		})
 	}
 }
 

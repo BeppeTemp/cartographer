@@ -307,10 +307,8 @@ func runServe(cfg *config.Config) {
 		kbs = append(kbs, k)
 		kbNames = append(kbNames, name)
 		kbToolPrefixes = append(kbToolPrefixes, toolPrefix)
-		if k.GitSync && k.GitAuthorEmail == "cartographer@localhost" {
-			if _, ok := k.HasRemote(); ok {
-				log.Printf("WARNING: KB %q commits will be authored as cartographer@localhost; forges with author push rules will reject the push", name)
-			}
+		if _, ok := k.HasRemote(); kb.ShouldWarnGitIdentity(k.GitSync, ok, k.GitAuthorEmail) {
+			log.Printf("WARNING: KB %q commits will be authored as cartographer@localhost; forges with author push rules will reject the push", name)
 		}
 	}
 

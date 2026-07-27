@@ -6,6 +6,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/BeppeTemp/cartographer/internal/config"
 )
 
 func TestRenderLaunchdPlist(t *testing.T) {
@@ -62,6 +64,17 @@ func TestDefaultServerYAML(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Errorf("yaml missing %q\n---\n%s", want, out)
 		}
+	}
+	path := filepath.Join(t.TempDir(), "server.yaml")
+	if err := os.WriteFile(path, []byte(out), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("config.Load generated YAML: %v", err)
+	}
+	if cfg.HTTP != "127.0.0.1:8080" || cfg.Data != "/home/x/cartographer-data" || !cfg.Init {
+		t.Fatalf("loaded generated YAML = %+v", cfg)
 	}
 }
 

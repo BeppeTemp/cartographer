@@ -9,6 +9,12 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/gitx"
 )
 
+var (
+	syncOutMaxAttempts    = 5
+	syncOutInitialBackoff = 50 * time.Millisecond
+	syncOutSleep          = time.Sleep
+)
+
 // WithGitLock acquires the per-KB mutex, executes fn, then releases it.
 // This serialises git operations so that concurrent tool calls do not interleave
 // their working-tree changes and commits.
@@ -125,8 +131,8 @@ func (k *KB) SyncOut() error {
 		return nil
 	}
 
-	const maxAttempts = 5
-	backoff := 50 * time.Millisecond
+	maxAttempts := syncOutMaxAttempts
+	backoff := syncOutInitialBackoff
 
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
 		branch, _ := gitx.Branch(k.Root)
@@ -157,7 +163,7 @@ func (k *KB) SyncOut() error {
 				k.setGitStatus("failed", err, attempt)
 				return err
 			}
-			time.Sleep(backoff)
+			syncOutSleep(backoff)
 			backoff *= 2
 			continue
 		}
@@ -169,7 +175,7 @@ func (k *KB) SyncOut() error {
 				k.setGitStatus("failed", err, attempt)
 				return err
 			}
-			time.Sleep(backoff)
+			syncOutSleep(backoff)
 			backoff *= 2
 			continue
 		}
@@ -184,12 +190,12 @@ func (k *KB) SyncOut() error {
 				k.setGitStatus("failed", err, attempt)
 				return err
 			}
-			time.Sleep(backoff)
+			syncOutSleep(backoff)
 			backoff *= 2
 			continue
 		}
 
-		time.Sleep(backoff)
+		syncOutSleep(backoff)
 		backoff *= 2
 	}
 

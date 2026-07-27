@@ -170,7 +170,7 @@ func (k *KB) setGitStatus(state string, err error, attempts int) {
 		}
 	}
 	_, remote := k.hasRemote()
-	s.IdentityWarning = k.GitSync && remote && k.GitAuthorEmail == defaultGitAuthorEmail
+	s.IdentityWarning = ShouldWarnGitIdentity(k.GitSync, remote, k.GitAuthorEmail)
 	k.gitStatusMu.Lock()
 	k.gitStatus = s
 	k.gitStatusMu.Unlock()
@@ -203,8 +203,14 @@ func (k *KB) GitStatusSnapshot() GitStatus {
 		}
 	}
 	_, remote := k.hasRemote()
-	s.IdentityWarning = k.GitSync && remote && k.GitAuthorEmail == defaultGitAuthorEmail
+	s.IdentityWarning = ShouldWarnGitIdentity(k.GitSync, remote, k.GitAuthorEmail)
 	return s
+}
+
+// ShouldWarnGitIdentity reports whether a synchronised remote KB still uses
+// Cartographer's placeholder author identity.
+func ShouldWarnGitIdentity(gitSync, hasRemote bool, authorEmail string) bool {
+	return gitSync && hasRemote && authorEmail == defaultGitAuthorEmail
 }
 
 // MarkPushPending keeps an existing failure visible until a push succeeds.
