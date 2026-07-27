@@ -82,7 +82,7 @@ echo "[09] init bare remote + KB on clone A"
 git init --bare "$BARE" >/dev/null 2>&1
 mkdir -p "$KBA"
 
-CARTOGRAPHER_AUTH=false CARTOGRAPHER_GIT_SYNC=true \
+CARTOGRAPHER_AUTH=false CARTOGRAPHER_GIT_SYNC=true CARTOGRAPHER_SYNC_OUT_DEBOUNCE=0 \
     "$BIN" serve --kb "$KBA" --init --http ":${PORT_A}" >"${DIR}/srvA.log" 2>&1 &
 PID_A=$!
 wait_health "$PORT_A" || { echo "[ERROR] server A not responding"; cat "${DIR}/srvA.log" >&2; exit 1; }
@@ -97,7 +97,7 @@ echo "[09] clone B from remote + start instance B"
 git clone "$BARE" "$KBB" >/dev/null 2>&1
 git -C "$KBB" config user.email "test@wiki.local" && git -C "$KBB" config user.name "Wiki Test"
 
-CARTOGRAPHER_AUTH=false CARTOGRAPHER_GIT_SYNC=true \
+CARTOGRAPHER_AUTH=false CARTOGRAPHER_GIT_SYNC=true CARTOGRAPHER_SYNC_OUT_DEBOUNCE=0 \
     "$BIN" serve --kb "$KBB" --init --http ":${PORT_B}" >"${DIR}/srvB.log" 2>&1 &
 PID_B=$!
 wait_health "$PORT_B" || { echo "[ERROR] server B not responding"; cat "${DIR}/srvB.log" >&2; exit 1; }

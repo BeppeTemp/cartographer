@@ -50,9 +50,9 @@ var docsNonTools = map[string]bool{
 	"concept_collapse": true,
 }
 
-// docsFiles are the markdown files whose tool citations must resolve. Excludes
-// decisions.md and roadmap.md: those record history, where naming a tool that
-// was later renamed or removed is correct.
+// docsFiles are the markdown files whose tool citations must resolve. The
+// decision registers are excluded because they intentionally retain historical
+// tool names. Walk recursively so a new nested current-state page is covered.
 func docsFiles(t *testing.T) []string {
 	t.Helper()
 	root := filepath.Join("..", "..")
@@ -60,16 +60,24 @@ func docsFiles(t *testing.T) []string {
 	for _, p := range []string{"README.md", "AGENTS.md", "CONTRIBUTING.md"} {
 		files = append(files, filepath.Join(root, p))
 	}
-	entries, err := os.ReadDir(filepath.Join(root, "docs"))
-	if err != nil {
-		t.Fatalf("read docs/: %v", err)
-	}
-	for _, e := range entries {
-		name := e.Name()
-		if !strings.HasSuffix(name, ".md") || name == "decisions.md" || name == "roadmap.md" {
-			continue
+	docsRoot := filepath.Join(root, "docs")
+	err := filepath.WalkDir(docsRoot, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
 		}
-		files = append(files, filepath.Join(root, "docs", name))
+		if entry.IsDir() {
+			if path == filepath.Join(docsRoot, "decisions") {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if strings.HasSuffix(entry.Name(), ".md") && entry.Name() != "decisions.md" {
+			files = append(files, path)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("walk docs/: %v", err)
 	}
 	return files
 }

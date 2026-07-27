@@ -135,7 +135,7 @@ func runGit(dir string, args ...string) (string, error) {
 // (cmd.Env = append(os.Environ(), env...)): entries in env take precedence
 // over the process environment (later entries win on duplicate keys), the
 // inverse of setupGitSSH's "process environment wins" rule for the global
-// GIT_SSH_COMMAND fallback — see docs/decisions.md D46. A nil/empty env
+// GIT_SSH_COMMAND fallback — see docs/decisions/concurrency-git.md D46. A nil/empty env
 // behaves exactly like runGit.
 func runGitEnv(dir string, env []string, args ...string) (string, error) {
 	fullArgs := append([]string{"-C", dir}, args...)

@@ -7,8 +7,8 @@ Go MCP server for the *Agentic Wiki* (Karpathy pattern + OKF). The agent never t
 | Need | Source of truth |
 |---|---|
 | Full doc map + reading paths | `docs/index.md` (read that first, then only the relevant pages) |
-| Project status and milestones | `docs/roadmap.md` |
-| Why behind a choice (AD/D entries) | `docs/decisions.md` — Grep for the entry (`## D<n>`), never read in full |
+| Project status and planned work | GitHub issues, pull requests and releases (links in `docs/index.md`) |
+| Why behind a choice (AD/D entries) | `docs/decisions.md` routes to the topic registers; search `docs/decisions/` |
 | List of MCP tools | `docs/control-plane.md` §API MCP |
 | `CARTOGRAPHER_*` env vars, YAML config, deploy | `docs/deployment.md` |
 | Client subcommands / TUI | `docs/configurator.md` |
@@ -26,6 +26,7 @@ make run             # stdio with demo KB
 make run-http        # HTTP on :8080 with demo KB
 make smoke           # build + quick stdio test
 make smoke-http      # operator-level HTTP smoke test (creates temp KBs via curl)
+make e2e             # deterministic HTTP/CLI end-to-end scenarios
 make docker          # build Docker image
 make clean           # removes bin/ and demo-kb/
 ```
@@ -74,7 +75,7 @@ internal/client/             # minimal MCPClient (JSON-RPC 2.0 over HTTP) for th
 
 graphify graph in `graphify-out/` (not versioned). Structural questions about the code (where does X live, who calls Y, what does Z depend on) are answered by querying **the graph first** — `graphify query "<question>" --budget <n>`, `graphify path "<A>" "<B>"`, `graphify explain "<node>"` — then reading only the indicated `file:line` locations. No broad Grep/Explore if the graph can answer (for an exact, already-known symbol a targeted grep is equivalent); the `/graphify` skill is only for building/updating the graph, never for queries. Specific rules:
 
-- the graph gives the **where/how it connects**; the **why** lives in `docs/decisions.md` (Grep the entry), current status in `docs/` (map in `docs/index.md`);
+- the graph gives the **where/how it connects**; the **why** lives in `docs/decisions/` (search the D/AD entry), current behavior in `docs/` (map in `docs/index.md`);
 - in mandates to `dev`/OpenCode include the `file:line` pointers already derived from the graph: the subagent should not re-explore from scratch;
 - the graph realigns itself via the post-commit hook (`graphify hook status`); it reflects the last build: for just-modified files, trust the disk.
 
@@ -85,7 +86,7 @@ graphify graph in `graphify-out/` (not versioned). Structural questions about th
 3. Register in `RegisterKBTools` (`tools.go`).
 4. Test in `internal/mcpserver/server_test.go`.
 5. `make vet && make test` green.
-6. Update `docs/control-plane.md` §API MCP and `docs/decisions.md` if it's a non-obvious choice.
+6. Update `docs/control-plane.md` §API MCP and the owning file under `docs/decisions/` if it's a non-obvious choice.
 
 ## Workflow and documentation
 
@@ -94,6 +95,6 @@ graphify graph in `graphify-out/` (not versioned). Structural questions about th
 - Analysis/design and implementation often happen in separate sessions: the handoff is a **plan issue** — a self-contained GitHub issue from the `Plan` template, label `plan` (procedure and self-sufficiency test in `CONTRIBUTING.md` §Plan issues). The implementing session reads it with `gh issue view <n>` and the implementation PR closes it (`Closes #<n>`).
 - Server and client releases (release-please PR merge, pipeline, rollout, local client update) → maintainer-local tooling, not versioned here.
 - **Documentation is updated in the same session in which the code is changed — never afterward.** The "what changes → which file to update" table is in `docs/index.md` §Maintenance rules: use it for every change.
-- Conventions → `docs/conventions.md`. Every non-obvious choice → a D entry in `docs/decisions.md`.
-- Milestone completed → `docs/roadmap.md`.
-- **This file is stable imprinting**: no mutable state, versions, counts or changelog here — those live in `docs/roadmap.md` and `docs/decisions.md`. The docs describe the **current state**, not history: "how we got here" lives only in `decisions.md` and the git log.
+- Conventions → `docs/conventions.md`. Every non-obvious choice → one D entry in the owning topic file under `docs/decisions/`.
+- Project status and backlog live in GitHub issues, pull requests and releases; user-visible completed work lives in `CHANGELOG.md`.
+- **This file is stable imprinting**: no mutable state, versions, counts or changelog here. Topic docs describe the **current state**; "how we got here" lives in `docs/decisions/` and the git log.

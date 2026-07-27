@@ -174,14 +174,12 @@ make build         # → bin/cartographer
 make test          # Unit tests (go test ./...)
 make smoke         # stdio smoke test
 make smoke-http    # operator-level HTTP smoke test (creates temp KBs via curl)
-make e2e           # agent-level E2E tests with headless OpenCode (9 scenarios)
-make e2e-quick     # CRUD scenario only
+make e2e           # deterministic HTTP/CLI end-to-end scenarios
 ```
 
-The E2E harness drives **OpenCode in headless mode** as a real agent against a local server, using a
-deliberately economical model as a clarity gate: if a cheap model can complete the mandates, the
-system is clear enough for production. It needs an OpenAI-compatible endpoint
-(`E2E_LLM_BASE_URL`); full strategy → [`docs/testing.md`](docs/testing.md).
+The E2E suite drives the compiled binary through HTTP, CLI, filesystem and real
+temporary git remotes. It is deterministic, requires no model credentials and
+runs in CI. Full strategy → [`docs/testing.md`](docs/testing.md).
 
 ## Project structure
 
@@ -190,7 +188,7 @@ cmd/cartographer/   # single binary: server (serve), client (connect/status/sync
 internal/           # okf, kb, mcpserver, search, sqlindex, lint, gitx, audit, auth, embed,
                     # skill, sops, configurator, provisioning, agents, clientconfig, client
 docs/               # full documentation (docs/index.md is the map)
-test/e2e/           # agent-level E2E harness
+test/               # deterministic HTTP smoke and cross-component E2E tests
 ```
 
 Package-by-package map, with what each one owns → [`AGENTS.md`](AGENTS.md) §Code map (kept next to

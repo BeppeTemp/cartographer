@@ -67,7 +67,7 @@ git init --bare "$BARE" >/dev/null 2>&1
 mkdir -p "$KBA"
 
 # Start instance A on KBA with --init (creates structure + git init + initial commit).
-CARTOGRAPHER_AUTH=false CARTOGRAPHER_GIT_SYNC=true \
+CARTOGRAPHER_AUTH=false CARTOGRAPHER_GIT_SYNC=true CARTOGRAPHER_SYNC_OUT_DEBOUNCE=0 \
     "$BIN" serve --kb "$KBA" --init --http ":${PORT_A}" >"${DIR}/srvA.log" 2>&1 &
 PID_A=$!
 wait_health "$PORT_A" || { echo "[ERROR] server A not responding"; exit 1; }
@@ -80,7 +80,7 @@ git -C "$KBA" push -u origin "$BRANCH" >/dev/null 2>&1
 # Clone B from the bare repo and start instance B.
 echo "[08] clone B from remote + start instance B"
 git clone "$BARE" "$KBB" >/dev/null 2>&1
-CARTOGRAPHER_AUTH=false CARTOGRAPHER_GIT_SYNC=true \
+CARTOGRAPHER_AUTH=false CARTOGRAPHER_GIT_SYNC=true CARTOGRAPHER_SYNC_OUT_DEBOUNCE=0 \
     "$BIN" serve --kb "$KBB" --init --http ":${PORT_B}" >"${DIR}/srvB.log" 2>&1 &
 PID_B=$!
 wait_health "$PORT_B" || { echo "[ERROR] server B not responding"; exit 1; }

@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # test-kb-flow.sh — smoke test of the full KB flow: create, map, expanded concept, overview.
 # Starts the native binary on a temp data dir, populates two KBs via MCP and checks the response.
-# Usage: ./scripts/test-kb-flow.sh (or `make smoke-http`, which builds first)
+# Usage: ./test/smoke/http.sh (or `make smoke-http`, which builds first)
 set -euo pipefail
 
-BASE="$(cd "$(dirname "$0")/.." && pwd)"
+BASE="$(cd "$(dirname "$0")/../.." && pwd)"
 BIN="$BASE/bin/cartographer"
 [ -x "$BIN" ] || { echo "missing $BIN: run 'make build' first" >&2; exit 1; }
 

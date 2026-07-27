@@ -9,15 +9,20 @@ The server is distributed as a native **Go binary** (via `install.sh`, see §Cli
 | Topology | Description |
 |---|---|
 | **Local** | The binary runs as a native user service (`cartographer service`, launchd/systemd); the client on the same machine points to `127.0.0.1`. |
-| **Shared server** | HTTP+OAuth/token to multiple agents, on a trusted network / reverse proxy (k8s). |
-| **Multi-server** | Several instances (local and/or shared) mount the **same KB** from the same git remote: every write does pull-rebase → commit → push, git is the sync fabric. Concurrent writes to the same concept → rebase-conflict and `needs-resolution` (expected behavior, not a failure). A client points to **one server at a time**. |
+| **Shared server** | HTTP with optional static bearer tokens for multiple agents, on a trusted network or behind a reverse proxy (for example Kubernetes). |
+| **Partitioned servers** | Several instances mount different KBs. A client can connect to entries from more than one server. Do not use several active writer servers as replicas for the same KB; git conflict recovery is a safety net, not a write-scaling protocol. |
 
 ### State and volumes
 
 The server process is **ephemeral** (k8s pod or local service); what persists on volume/disk:
 - The KBs' git working trees.
 - SQLite indices (optional, rebuildable).
-- The **audit log** (not in the `.md` git repo → persistent storage, must not be lost with the ephemeral container).
+- Optional local runtime files under `.cartographer/`. Search indexes are
+  rebuildable; conflict registries are operational state and should survive a
+  restart until resolved.
+
+The configured audit file is not currently populated by MCP tool execution and
+must not be treated as a complete request log.
 
 ### Configuration: flags, env, YAML
 
@@ -304,7 +309,9 @@ without requiring a client to understand path routing. A one-KB server remains a
 
 ### Runtime secrets
 
-Git credentials, MCP tokens, **and** the age/SOPS key (`SOPS_AGE_KEY_FILE`/`SOPS_AGE_KEY_CMD`, or an IAM role for KMS) are runtime secrets — **never** in the bundles. The same applies to the bootstrap SSH key (`git.ssh_key`): always from a mounted Secret/volume, never in the ConfigMap nor in the committed YAML file.
+Git credentials, MCP tokens, and the age/SOPS key (`SOPS_AGE_KEY_FILE`) are
+runtime secrets — never in the bundles. The same applies to the bootstrap SSH
+key (`git.ssh_key`): mount or configure it outside committed YAML.
 
 ### Cold start
 
@@ -316,25 +323,24 @@ Imports and manual filesystem edits no longer require a service restart: call th
 
 ### Administration
 
-**Server CLI** (purely administrative): tokens, KB registration, index rebuild, snapshot, `conflict_resolve`, `reindex`. It does not write content through the agent's tools.
+Run `cartographer help` for the authoritative command list. Server lifecycle,
+KB create/clone, client connection/sync, import, resolve and reindex have CLI
+commands; concept writes, snapshots and contradiction resolution remain MCP
+tool operations. There is no separate runtime token-registration command.
 
 ## Observability
 
-Metrics derived from the audit log:
-- KBs in `needs-resolution`.
-- Ingest queue depth.
-- Git push lag/failures.
-- p99 latency of `search`.
-- Tokens consumed per phase (ingest, judge, deep lint, embedding).
+Cartographer emits structured operational messages and per-phase sync timing
+to stderr. It does not expose Prometheus metrics or derive token/queue/search
+SLIs from the audit file.
 
 **Liveness vs readiness (D84)**: `/health` is liveness — `status:"ok"` unconditionally (a probe that
 restarted the process on `status != "ok"` must never fire from a KB-mounting issue); it also carries
 a `ready: <bool>` field (single-KB server: always `true`; MultiKB: `len(kbs) > 0`) for callers that
 want both signals from one request. `/ready` is the dedicated readiness endpoint: `200
 {"ready":true}` once at least one KB is mounted, `503 {"ready":false,"kbs":0}` otherwise (e.g. a
-fresh local install with an empty data dir, §Cold start). Point k8s `livenessProbe` at `/health` and
-`readinessProbe` at `/ready`. SLI/SLO and alert thresholds beyond this are still open — without them
-the system is otherwise a black box in production.
+fresh local install with an empty data dir, §Cold start). Point k8s
+`livenessProbe` at `/health` and `readinessProbe` at `/ready`.
 
 ## Backup and disaster recovery
 
@@ -348,24 +354,29 @@ A truly unrecoverable scenario. Prevent it with multi-recipient escrow + restore
 
 ### Working-tree crash recovery
 
-At boot the server detects and repairs an interrupted git state: a half-finished rebase → `abort`, leftover stash, an orphaned `index.lock`, a crash between rename and commit.
+The server does not repair arbitrary interrupted git state at boot. Before
+mounting, inspect and clean up an active merge/rebase, stale lock file or
+unexpected working-tree changes using normal git recovery procedures. Keep a
+backup before discarding any state.
 
 ### External component failures
 
 | Component | Behavior |
 |---|---|
-| Git remote unreachable | Distinguished from non-fast-forward; retried with backoff |
-| OAuth AS down | JWKS cache + grace period |
-| Expired git credentials | 401/403 ≠ network down; flagged explicitly |
+| Git remote unreachable | The local commit remains; asynchronous push logs the failure and a later sync retries |
+| Invalid/expired git credentials | The git command fails and the error is surfaced; rotate the configured token/key |
 | Disk full | Atomic writes fail cleanly |
 | Corrupted SQLite index | Rebuilt from the `.md` files |
 
 ## Upgrades, schema migration, and repo growth
 
-- **Server upgrade** with mounted KBs: drain (flush pushes, release mutexes) before restart.
+- **Server upgrade** with mounted KBs: graceful HTTP shutdown flushes pending
+  pushes before the process exits.
 - **Homebrew upgrade**: `brew upgrade` replaces the binary behind Homebrew's stable symlink, but an already-running native service keeps its old process until `cartographer service restart`. Run `cartographer status` after upgrading: it reports client/server versions and warns about skew, including the restart hint for an installed local service. Do not restart from a cask hook: an explicit restart keeps the operator in control of the drain. For Kubernetes, bump the image tag; connected clients surface the same version skew while the rollout catches up.
-- **Schema versioning**: bundle-level `okf_version` **and** per-concept `schema_version`, with a migration procedure for existing `.md` files (no destructive overwrite).
-- **Repo growth**: retention/archival of closed journals, `git-LFS` or blobless/shallow clone for large `raw/` content, incremental index for `commit_gate`.
+- **KB format changes**: follow the release notes and back up the git remote
+  before a migration. There is no general automatic schema migration engine.
+- **Repo growth**: keep large binary/source archives outside the KB and link
+  them; Cartographer is optimized for Markdown knowledge repositories.
 
 ## CI/CD: release + deploy pipeline
 

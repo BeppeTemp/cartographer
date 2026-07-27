@@ -1,4 +1,4 @@
-.PHONY: help build test vet fmt run run-http smoke docker clean migrate e2e e2e-quick
+.PHONY: help build test vet fmt run run-http smoke smoke-http docker clean e2e
 
 VERSION ?= $(shell git describe --tags --always 2>/dev/null || echo dev)
 
@@ -24,7 +24,7 @@ run-http: build ## Start the HTTP server on :8080 with a demo KB
 	./bin/cartographer serve --kb ./demo-kb --init --http :8080
 
 smoke-http: build ## HTTP flow smoke test: creates KB, archives, dossiers via MCP
-	@./scripts/test-kb-flow.sh
+	@./test/smoke/http.sh
 
 smoke: build ## Build + quick stdio test
 	@echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{}}}' | \
@@ -37,11 +37,5 @@ docker: ## Build the Docker image
 clean: ## Remove bin/ and demo-kb/
 	rm -rf bin/ demo-kb/
 
-migrate: ## Migrate an existing wiki (SRC=<wiki-dir> DST=<kb-dir>)
-	@./scripts/migrate-wiki.sh $(SRC) $(DST)
-
-e2e: build ## Run all agent-level E2E scenarios with headless OpenCode
+e2e: ## Run deterministic HTTP/CLI end-to-end scenarios
 	@./test/e2e/run.sh
-
-e2e-quick: build ## Run only the basic CRUD scenario (01_mcp_crud)
-	@./test/e2e/run.sh --only 01_mcp_crud

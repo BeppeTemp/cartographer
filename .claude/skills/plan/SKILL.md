@@ -18,9 +18,12 @@ Claude-side glue.
    implemented on `main`) is reported back, not re-planned; a partial overlap
    means extending/amending the existing issue or stating the relationship
    (execution order, shared files) in the new one.
-2. Reserve the next free D number (`grep "^## D" docs/decisions.md | tail -3`)
-   and use it in the title: `Plan: <title> (D<n>)`. The D entry is written **at
-   the end of implementation**, not now: the plan is its draft.
+2. Reserve the next free D number. Inspect both implemented records
+   (`rtk proxy rg -o '^## D[0-9]+' docs/decisions/`) and every plan issue title
+   (`rtk gh issue list --label plan --state all --limit 1000`), then choose the
+   next number above both maxima. An issue title reserves its number even
+   before the entry exists. Use `Plan: <title> (D<n>)`; the D entry is written
+   **at the end of implementation**, not now: the plan is its draft.
 3. Derive the real `file:line` pointers before writing (graphify query /
    targeted symbol grep): the plan contains pointers, not paraphrases.
 4. Write the body (in English) to a scratch file following the template
@@ -41,7 +44,8 @@ Claude-side glue.
 
 1. `gh issue view <n>` (add `--comments`: later amendments live there).
 2. Execute the WPs in order, `make vet && make test` after each.
-3. Update the docs per the closing checklist, write the `D<n>` entry; the
-   implementation PR body includes `Closes #<n>`.
+3. Update the docs per the closing checklist and write the `D<n>` entry in the
+   single owning topic under `docs/decisions/`; the implementation PR body
+   includes `Closes #<n>`.
 4. Contradiction between plan and code → **stop and flag it** in an issue
    comment: the plan may be stale relative to `main`.

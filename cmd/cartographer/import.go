@@ -389,7 +389,7 @@ var firstH1Re = regexp.MustCompile(`(?m)^#[ \t]+(.+?)[ \t]*$`)
 // fallbackTitle (the source filename without extension). type has no
 // equivalent in the source spec text but is required by kb.WriteConcept, so
 // a generic "Note" default is synthesized when absent (documented deviation,
-// see docs/decisions.md D74). status defaults to "imported" — the D74 WP1
+// see docs/decisions/data-plane.md D74). status defaults to "imported" — the D74 WP1
 // lint anchor.
 func prepareFrontmatter(fmRaw string, hasFM bool, body string, fallbackTitle string) (*okf.Frontmatter, error) {
 	raw := ""

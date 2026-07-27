@@ -7,7 +7,7 @@
 #   (c) After `cartographer sync --auto-trust`, `cartographer status` exits 0 again.
 #
 # The oracle is the exit code of `cartographer status` (0=in-sync, 1=drift, 2=error).
-# Requires a live server (the client ALWAYS talks over HTTP, see decisions.md).
+# Requires a live server (the client ALWAYS talks over HTTP; see docs/decisions/client-configurator.md D37).
 # Does NOT require the agent.
 #
 # Expected environment variables: E2E_TMP_DIR, E2E_HTTP_PORT, REPO_ROOT.

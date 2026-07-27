@@ -27,6 +27,8 @@ jobs:
           git config --global init.defaultBranch master
       - run: make vet
       - run: make test
+      - run: make smoke-http
+      - run: make e2e
 
   # With squash-merge the PR title becomes the commit on main that
   # release-please reads: it must be a valid conventional commit.

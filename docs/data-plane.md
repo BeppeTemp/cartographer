@@ -119,12 +119,17 @@ Concept ID = path relative to the bundle without `.md`. File names are `kebab-ca
 
 **Links between concepts** (both syntaxes are seen by the graph, lint, and `concept_move`'s backlink-rewrite, D72 WP0): wiki-links `[[id]]` / `[[id#section]]` with **root-relative** IDs (path from the KB root without `.md`, e.g. `[[smart-home/otbr]]`); markdown links `[text](rel/path.md)` **relative to the file** containing them. The alias form `[[id|text]]` is not supported.
 
-## Schema of the extended concept types
+## Extended concept types
 
-The `Service` and `Contradiction` types have a frontmatter grammar checked by `validate()` when the map is `strict`.
+`Service` and `Contradiction` are conventional types used by dedicated tools.
+`validate()` enforces the normal frontmatter/layout rules and, in a strict Map,
+that the type is present in the Map's `concept_types` palette. It does not
+validate a nested per-type grammar.
 
-**`Service`**: `kind`, `protocol`, `base_url`, `endpoints{}`, `auth{method,…}`, `secret_refs[{name, secret}]`, `secrets_source`, `expose_as_mcp` (bool), `version` (semver).
+- A `Service` commonly carries flat fields such as `kind`, `base_url` and
+  `secrets_source`; see [skills, services and secrets](skills-services-secrets.md).
+- The contradiction tools use `resolution_status`, `contradiction_kind`,
+  `involves` and `reason`.
 
-**`Contradiction`**: `resolution_status` (`open` | `resolved` | `accepted`), `contradiction_kind` (`temporal` | `factual` | `perspective`), `involves` (list of concept IDs), `asserted_by` (provenance per source/provider), `reason`.
-
-> Structural links in the frontmatter (`superseded_by`, `service_ref`, `involves`) carry an immutable concept uid alongside the path, so a rename never breaks referential correctness.
+Concept references are path-based. There is no separate immutable UID layer,
+so use `concept_move` with backlink rewriting when an ID changes.

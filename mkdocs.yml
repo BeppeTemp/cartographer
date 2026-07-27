@@ -66,8 +66,18 @@ nav:
       - Transport and auth: transport-auth.md
       - Operating loop: loop.md
       - Interoperability: interoperability.md
-      - Decisions: decisions.md
+      - Decisions:
+          - Guide: decisions.md
+          - Architecture: decisions/architecture.md
+          - Data plane: decisions/data-plane.md
+          - Control plane, search and lint: decisions/control-plane.md
+          - Transport and authorization: decisions/transport-auth.md
+          - Concurrency and git: decisions/concurrency-git.md
+          - Skills, services and secrets: decisions/skills-services-secrets.md
+          - Synchronization and provisioning: decisions/sync-provisioning.md
+          - Client and configurator: decisions/client-configurator.md
+          - Deployment and release: decisions/deployment-release.md
+          - Project governance: decisions/project-governance.md
       - Go conventions: conventions.md
-      - Roadmap and status: roadmap.md
       - Testing: testing.md
       - References: references.md

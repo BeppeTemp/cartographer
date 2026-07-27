@@ -5,10 +5,10 @@ title: 'Plan: <title> (D<n>)'
 labels: plan
 ---
 
-> **Status**: approved, not implemented. On completion: `D<n>` entry in
-> `docs/decisions.md`, update the affected docs (`docs/index.md` §Maintenance
-> rules), `docs/roadmap.md` if a milestone closes, then close this issue from
-> the implementation PR (`Closes #<n>`).
+> **Status**: approved, not implemented. On completion: add the final `D<n>`
+> entry to the owning topic under `docs/decisions/`, update the affected
+> current-state docs (`docs/index.md` §Maintenance rules), then close this
+> issue from the implementation PR (`Closes #<n>`).
 
 ## Context and diagnosis
 
@@ -23,5 +23,8 @@ semantics and error cases; tests to add; acceptance criterion.
 
 ## Closing
 
-<!-- Checklist: docs to update (docs/index.md §Maintenance rules), D entry,
-roadmap, release if planned. -->
+<!-- Replace every placeholder. -->
+
+- [ ] Current-state docs: `docs/<page>.md`
+- [ ] Decision record owner: `docs/decisions/<topic>.md`
+- [ ] Release impact: `<none | describe>`

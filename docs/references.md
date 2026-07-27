@@ -19,7 +19,7 @@
   https://github.com/getsops/sops
 
 - **age** (X25519, modern encryption).
-  https://pkg.go.dev/github.com/getsops/sops/v3/decrypt
+  https://github.com/FiloSottile/age
 
 - **Agent Skills standard** (`SKILL.md`, agentskills.io, Dec 2025).
   https://agentskills.io/specification
@@ -30,9 +30,3 @@
 - OpenAI Codex CLI: https://developers.openai.com/codex
 - Kiro: https://kiro.dev/docs
 - OpenCode: https://opencode.ai/docs
-
-## State of the art (June 2026)
-
-- **Contradictions**: Wikidata rank+references; RDF 1.2; Graphiti/Zep; argumentation frameworks.
-- **Human-on-the-loop ingest**: EU AI Act Art.14; PR-based pattern.
-- **Real-world cases**: Datadog (AI content marked, scrubbing, per-section model), Zalando (Claude on 2 years of postmortems, curation from 100% to sampling), Stripe (human review on every PR).

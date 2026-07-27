@@ -33,7 +33,7 @@ func sshCommand(key, knownHosts string) string {
 // already-set GIT_SSH_COMMAND (the environment wins). This is the global
 // fallback for KBs with no per-KB override; see gitEnvForKB for the
 // per-KB case, where — inversely — the per-KB env wins over the process
-// environment (docs/decisions.md D46).
+// environment (docs/decisions/concurrency-git.md D46).
 func setupGitSSH(g config.GitConfig) error {
 	cmd := sshCommand(g.SSHKey, g.KnownHosts)
 	if cmd == "" {

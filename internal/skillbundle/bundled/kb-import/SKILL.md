@@ -84,5 +84,5 @@ full `lint`, `log_append` with the closing summary.
 - Tools: `atlas_overview`, `map_create`, `concept_expand`, `concept_read`, `concept_write`,
   `concept_patch`, `concept_move`, `concept_list`, `supersede`, `lint`, `search`, `log_append`.
 - CLI: `cartographer import` (see D74 WP2), `kb-create` skill for a brand-new target KB.
-- Rationale and scope: `decisions.md` D74 (import), D28 (why no server-side ingest), D72
+- Rationale and scope: `docs/decisions/data-plane.md` D74 (import), D28 (why no server-side ingest), D72
   (wiki-links, `concept_move` batch).

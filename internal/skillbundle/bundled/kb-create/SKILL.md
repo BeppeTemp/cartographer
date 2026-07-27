@@ -115,4 +115,8 @@ v1.x and can be driven by the agent, not just the operator:
 - Multi-KB HTTP: endpoint is `/mcp?kb=<name>` when more than one KB is mounted; `<name>` is always
   the KB's basename (see step 1).
 - Config reference: `config.example.yaml`, `docs/deployment.md` §Bootstrap KB da remote git e
-  §Configurazione, `docs/transport-auth.md` §Autorizzazione per-KB, `decisions.md` D39/D44/D46/D47.
+  §Configurazione, `docs/transport-auth.md` §Autorizzazione per-KB,
+  `docs/decisions/deployment-release.md` D39,
+  `docs/decisions/transport-auth.md` D44,
+  `docs/decisions/concurrency-git.md` D46,
+  `docs/decisions/skills-services-secrets.md` D47.
