@@ -65,7 +65,7 @@ Cartographer offers **two complementary profiles**:
   guided skill)
 - 🗂️ **Multi-KB** with `?kb=<name>` routing; bearer-token auth with scopes / RBAC
 - 🔐 **Audit log** — append-only with hash-chain and Ed25519 signature
-- 🧩 **Domain skills** (`SKILL.md` / agentskills.io format) with provisioning and client↔server sync
+- 🧩 **Domain skills** (`SKILL.md` / agentskills.io format) with provisioning and client↔server sync, including executable scripts and binary assets
 - 🔑 **Secrets via SOPS** — JSON Pointer references, scoped resolution and safe rotation; plaintext values never stored
 - ⚙️ **Multi-provider configurator** — generates MCP config for Claude Code, Codex CLI, Kiro,
   OpenCode

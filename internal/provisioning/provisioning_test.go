@@ -174,6 +174,114 @@ func TestBuildManifest_KBSkillAutoTrust(t *testing.T) {
 	}
 }
 
+func TestBuildManifest_ExecutableSkillChangesHashAndApplyMode(t *testing.T) {
+	kbRoot := t.TempDir()
+	skillDir := filepath.Join(kbRoot, "skills", "run")
+	if err := os.MkdirAll(skillDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("---\nname: run\ndescription: test\n---\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	script := filepath.Join(skillDir, "run.sh")
+	if err := os.WriteFile(script, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	m1, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var skillArtifact provisioning.Artifact
+	for _, a := range m1.Artifacts {
+		if a.Kind == "skill" {
+			skillArtifact = a
+		}
+	}
+	files, err := provisioning.ReadArtifactFiles(skillArtifact, nil, map[string]string{"kb": kbRoot})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !files[1].Executable {
+		t.Fatal("script executable bit was not read")
+	}
+	base := t.TempDir()
+	if _, err := provisioning.Apply(m1, provisioning.ApplyOptions{KBRoots: map[string]string{"kb": kbRoot}, Provider: configurator.ProviderClaudeCode, BaseDir: base, Lock: provisioning.Lock{}}); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(filepath.Join(base, ".claude", "skills", "run", "run.sh"))
+	if err != nil || info.Mode()&0o111 == 0 {
+		t.Fatalf("materialized script mode = %v, %v", info.Mode(), err)
+	}
+	if err := os.Chmod(script, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m2, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var skillArtifact2 provisioning.Artifact
+	for _, a := range m2.Artifacts {
+		if a.Kind == "skill" {
+			skillArtifact2 = a
+		}
+	}
+	if m1.Revision == m2.Revision || skillArtifact.ContentHash == skillArtifact2.ContentHash {
+		t.Fatal("chmod must change manifest and artifact hash")
+	}
+}
+
+func TestApply_CorrectsExecutableModeDriftWithoutDryRunMutation(t *testing.T) {
+	m := provisioning.Manifest{
+		Revision: "mode-drift",
+		Artifacts: []provisioning.Artifact{{
+			Kind:        "skill",
+			Name:        "mode",
+			Source:      "kb:test",
+			ContentHash: "mode-hash",
+			Signed:      true,
+			Files: []provisioning.ArtifactFile{
+				{Path: "SKILL.md", Content: []byte("---\nname: mode\ndescription: test\n---\n")},
+				{Path: "run.sh", Content: []byte("#!/bin/sh\n"), Executable: true},
+			},
+		}},
+	}
+	base := t.TempDir()
+	opts := provisioning.ApplyOptions{
+		Provider: configurator.ProviderClaudeCode,
+		BaseDir:  base,
+		Lock:     provisioning.Lock{},
+	}
+	first, err := provisioning.Apply(m, opts)
+	if err != nil {
+		t.Fatalf("initial Apply: %v", err)
+	}
+	script := filepath.Join(base, ".claude", "skills", "mode", "run.sh")
+	if err := os.Chmod(script, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	opts.Lock = first.NewLock
+	if _, err := provisioning.Apply(m, opts); err != nil {
+		t.Fatalf("Apply correcting mode drift: %v", err)
+	}
+	info, err := os.Stat(script)
+	if err != nil || info.Mode()&0o111 == 0 {
+		t.Fatalf("Apply did not restore executable mode: %v, %v", info.Mode(), err)
+	}
+
+	if err := os.Chmod(script, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	opts.DryRun = true
+	if _, err := provisioning.Apply(m, opts); err != nil {
+		t.Fatalf("dry-run Apply: %v", err)
+	}
+	info, err = os.Stat(script)
+	if err != nil || info.Mode()&0o111 != 0 {
+		t.Fatalf("dry-run changed executable mode: %v, %v", info.Mode(), err)
+	}
+}
+
 func TestBuildManifest_DedupBundleVsKB(t *testing.T) {
 	// skill_install case: the same "kb-create" skill exists both in the bundle and the KB.
 	// The manifest must contain it ONLY once, with the KB taking precedence.

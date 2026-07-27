@@ -236,6 +236,7 @@ func toolSyncApply(k *kb.KB, bundleFS fs.FS) Tool {
 type pulledFileJSON struct {
 	Path       string `json:"path"`
 	ContentB64 string `json:"content_b64"`
+	Executable bool   `json:"executable"`
 }
 
 // pulledArtifactJSON is an Artifact plus its file contents, as returned by sync_pull.
@@ -279,7 +280,7 @@ func toolSyncPull(k *kb.KB, bundleFS fs.FS) Tool {
 				}
 				fj := make([]pulledFileJSON, len(files))
 				for i, f := range files {
-					fj[i] = pulledFileJSON{Path: f.Path, ContentB64: base64.StdEncoding.EncodeToString(f.Content)}
+					fj[i] = pulledFileJSON{Path: f.Path, ContentB64: base64.StdEncoding.EncodeToString(f.Content), Executable: f.Executable}
 				}
 				arts = append(arts, pulledArtifactJSON{
 					Kind:        a.Kind,
