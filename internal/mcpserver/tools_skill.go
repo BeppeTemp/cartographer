@@ -6,6 +6,8 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
+	"sort"
 	"strings"
 
 	"github.com/BeppeTemp/cartographer/internal/kb"
@@ -113,39 +115,23 @@ func toolServiceGet(k *kb.KB) Tool {
 				return textResult(sb.String()), nil
 			}
 
-			// secrets_source is a flat string field (frontmatter supports only
-			// string/[]string — okf/frontmatter.go — so per-ref least-privilege
-			// via secret_refs is not parsable; the whole file is decrypted).
-			raw, ok := fm.Get("secrets_source")
-			if !ok {
-				return errorResult(fmt.Sprintf("service_get: %q has no secrets_source", params.ServiceID)), nil
-			}
-			secretsSource, ok := raw.(string)
-			if !ok || secretsSource == "" {
-				return errorResult(fmt.Sprintf("service_get: %q secrets_source is not a non-empty string", params.ServiceID)), nil
-			}
-			// secrets_source must stay inside the KB root: reject absolute paths
-			// and "../" traversal so a crafted frontmatter can't decrypt files
-			// outside the KB with the KB's age key (defence in depth: also gated rw).
-			if !filepath.IsLocal(secretsSource) {
-				return errorResult(fmt.Sprintf("service_get: secrets_source %q must be a path inside the KB (no absolute paths or '..')", secretsSource)), nil
-			}
-			if k.SopsAgeKeyFile == "" {
-				return errorResult("service_get: resolve_secrets requires a sops_age_key_file configured for this KB"), nil
-			}
-			if !sops.Available() {
-				return errorResult("service_get: sops binary not found in PATH"), nil
-			}
-
-			sf, err := sops.Decrypt(filepath.Join(k.Root, secretsSource), sops.AgeKeyEnv(k.SopsAgeKeyFile)...)
+			values, source, legacy, err := resolveFrontmatterSecrets(k, fm)
 			if err != nil {
-				return errorResult(fmt.Sprintf("service_get: resolve_secrets: %v", err)), nil
+				return errorResult("service_get: resolve_secrets: " + err.Error()), nil
 			}
-
 			sb.WriteString("\n\n---\nsecrets (from ")
-			sb.WriteString(secretsSource)
+			sb.WriteString(source)
 			sb.WriteString("):\n")
-			for key, val := range sf.Values {
+			if legacy {
+				sb.WriteString("note: no secret_refs declared; returning whole secrets_source.\n")
+			}
+			keys := make([]string, 0, len(values))
+			for key := range values {
+				keys = append(keys, key)
+			}
+			sort.Strings(keys)
+			for _, key := range keys {
+				val := values[key]
 				sb.WriteString(key)
 				sb.WriteString("=")
 				sb.WriteString(val)
@@ -154,6 +140,130 @@ func toolServiceGet(k *kb.KB) Tool {
 			return textResult(sb.String()), nil
 		},
 	}
+}
+
+var secretRefName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+
+func parseSecretRefs(raw any) ([]sops.SecretRef, error) {
+	entries, ok := raw.([]string)
+	if !ok || len(entries) == 0 {
+		return nil, fmt.Errorf("secret_refs must be a non-empty list of NAME=secrets/file.sops.yaml#/json-pointer")
+	}
+	refs := make([]sops.SecretRef, 0, len(entries))
+	seen := map[string]bool{}
+	for _, entry := range entries {
+		eq, hash := strings.Index(entry, "="), strings.Index(entry, "#")
+		if eq <= 0 || hash <= eq+1 || hash == len(entry)-1 {
+			return nil, fmt.Errorf("invalid secret_refs entry %q; expected NAME=secrets/file.sops.yaml#/json-pointer", entry)
+		}
+		name, path, ptr := entry[:eq], entry[eq+1:hash], entry[hash+1:]
+		if strings.TrimSpace(name) != name || strings.TrimSpace(path) != path || strings.TrimSpace(ptr) != ptr || !secretRefName.MatchString(name) || !filepath.IsLocal(path) || !strings.HasPrefix(path, "secrets/") || !strings.HasSuffix(path, ".sops.yaml") || !strings.HasPrefix(ptr, "/") || seen[name] {
+			return nil, fmt.Errorf("invalid secret_refs entry %q; expected NAME=secrets/file.sops.yaml#/json-pointer", entry)
+		}
+		seen[name] = true
+		refs = append(refs, sops.SecretRef{Name: name, SOPSFile: path, SOPSKey: ptr})
+	}
+	return refs, nil
+}
+
+func resolveFrontmatterSecrets(k *kb.KB, fm *okf.Frontmatter) (map[string]string, string, bool, error) {
+	var refs []sops.SecretRef
+	if raw, ok := fm.Get("secret_refs"); ok {
+		var err error
+		refs, err = parseSecretRefs(raw)
+		if err != nil {
+			return nil, "", false, err
+		}
+	}
+	if k.SopsAgeKeyFile == "" {
+		return nil, "", false, fmt.Errorf("requires a sops_age_key_file configured for this KB")
+	}
+	if !sops.Available() {
+		return nil, "", false, fmt.Errorf("sops binary not found in PATH")
+	}
+	if refs != nil {
+		values, err := sops.ResolveRefs(k.Root, refs, sops.AgeKeyEnv(k.SopsAgeKeyFile)...)
+		return values, "declared refs", false, err
+	}
+	raw, ok := fm.Get("secrets_source")
+	if !ok {
+		return nil, "", false, fmt.Errorf("concept has no secret_refs or secrets_source")
+	}
+	source, ok := raw.(string)
+	if !ok || source == "" || !filepath.IsLocal(source) || !strings.HasPrefix(source, "secrets/") || !strings.HasSuffix(source, ".sops.yaml") {
+		return nil, "", false, fmt.Errorf("secrets_source must be a path inside the KB under secrets/*.sops.yaml")
+	}
+	sf, err := sops.Decrypt(k.Root, source, sops.AgeKeyEnv(k.SopsAgeKeyFile)...)
+	if err != nil {
+		return nil, "", false, err
+	}
+	return sf.Values, source, true, nil
+}
+
+func toolSecretResolve(k *kb.KB) Tool {
+	return Tool{Name: "secret_resolve", Description: "Resolves declared SOPS secret_refs for any concept (requires rw scope).", InputSchema: json.RawMessage(`{"type":"object","required":["concept_id"],"properties":{"concept_id":{"type":"string"},"names":{"type":"array","items":{"type":"string"}}}}`), Handler: func(args json.RawMessage) (ToolResult, error) {
+		var p struct {
+			ConceptID string   `json:"concept_id"`
+			Names     []string `json:"names"`
+		}
+		if err := json.Unmarshal(args, &p); err != nil {
+			return errorResult("invalid params: " + err.Error()), nil
+		}
+		data, err := k.ReadConcept(okf.ConceptID(p.ConceptID))
+		if err != nil {
+			return errorResult(fmt.Sprintf("secret_resolve %q: %v", p.ConceptID, err)), nil
+		}
+		fm, err := okf.ParseFrontmatter(data.FrontmatterRaw)
+		if err != nil {
+			return errorResult("secret_resolve: parse frontmatter: " + err.Error()), nil
+		}
+		values, _, _, err := resolveFrontmatterSecrets(k, fm)
+		if err != nil {
+			return errorResult("secret_resolve: " + err.Error()), nil
+		}
+		wanted := map[string]bool{}
+		for _, n := range p.Names {
+			wanted[n] = true
+		}
+		var sb strings.Builder
+		keys := make([]string, 0, len(values))
+		for n := range values {
+			if len(wanted) == 0 || wanted[n] {
+				keys = append(keys, n)
+			}
+		}
+		sort.Strings(keys)
+		for _, n := range keys {
+			sb.WriteString(n + "=" + values[n] + "\n")
+		}
+		return textResult(strings.TrimSuffix(sb.String(), "\n")), nil
+	}}
+}
+
+func toolSecretSet(k *kb.KB) Tool {
+	return Tool{Name: "secret_set", Description: "Sets one JSON Pointer in an existing encrypted SOPS file (requires rw scope).", InputSchema: json.RawMessage(`{"type":"object","required":["path","key","value"],"properties":{"path":{"type":"string"},"key":{"type":"string"},"value":{"type":"string"}}}`), Handler: func(args json.RawMessage) (ToolResult, error) {
+		var p struct {
+			Path  string `json:"path"`
+			Key   string `json:"key"`
+			Value string `json:"value"`
+		}
+		if err := json.Unmarshal(args, &p); err != nil {
+			return errorResult("invalid params: " + err.Error()), nil
+		}
+		if !filepath.IsLocal(p.Path) || !strings.HasPrefix(p.Path, "secrets/") || !strings.HasSuffix(p.Path, ".sops.yaml") {
+			return errorResult("secret_set: path must be a local secrets/*.sops.yaml path"), nil
+		}
+		if _, err := os.Stat(filepath.Join(k.Root, p.Path)); os.IsNotExist(err) {
+			return errorResult("secret_set: file does not exist; bootstrapping an encrypted file and its recipients is an operator action"), nil
+		}
+		if k.SopsAgeKeyFile == "" {
+			return errorResult("secret_set: requires a sops_age_key_file configured for this KB"), nil
+		}
+		if err := sops.Set(k.Root, p.Path, p.Key, p.Value, sops.AgeKeyEnv(k.SopsAgeKeyFile)...); err != nil {
+			return errorResult("secret_set: " + err.Error()), nil
+		}
+		return textResult(fmt.Sprintf("secret_set: updated %s %s", p.Path, p.Key)), nil
+	}}
 }
 
 // --- service_list ---

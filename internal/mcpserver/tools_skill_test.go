@@ -24,6 +24,8 @@ func setupServiceTestKB(t *testing.T, sopsAgeKeyFile string) *kb.KB {
 	if err := os.WriteFile(filepath.Join(k.DataRoot(), "svc-test.md"), []byte(svcContent), 0o644); err != nil {
 		t.Fatalf("write service concept: %v", err)
 	}
+	if err := os.MkdirAll(filepath.Join(k.Root, "secrets"), 0o755); err != nil { t.Fatalf("mkdir secrets: %v", err) }
+	if err := os.WriteFile(filepath.Join(k.Root, "secrets", "test.sops.yaml"), []byte("placeholder"), 0o600); err != nil { t.Fatalf("write secret: %v", err) }
 	return k
 }
 

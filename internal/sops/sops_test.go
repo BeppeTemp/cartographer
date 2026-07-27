@@ -14,7 +14,7 @@ token: "quoted-value"
 # comment
 empty_line:
 
-nested_key: value-with-colon: in-it
+nested_key: "value-with-colon: in-it"
 `)
 	vals, err := parseYAMLFlat(input)
 	if err != nil {
@@ -61,7 +61,7 @@ func TestDecryptMissingSops(t *testing.T) {
 	if Available() {
 		t.Skip("sops is available, skipping missing-sops test")
 	}
-	_, err := Decrypt("/nonexistent/file.sops.yaml")
+	_, err := Decrypt(t.TempDir(), "nonexistent/file.sops.yaml")
 	if err == nil {
 		t.Error("expected error when sops not available")
 	}
@@ -103,7 +103,14 @@ echo "resolved_key: ${SOPS_AGE_KEY_FILE}"
 func TestDecrypt_WithEnv_FakeSops(t *testing.T) {
 	fakeSopsInPath(t)
 
-	sf, err := Decrypt("/any/path.sops.yaml", AgeKeyEnv("/tmp/age-key.txt")...)
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "secrets"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "secrets", "test.sops.yaml"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	sf, err := Decrypt(root, "secrets/test.sops.yaml", AgeKeyEnv("/tmp/age-key.txt")...)
 	if err != nil {
 		t.Fatalf("Decrypt: %v", err)
 	}
@@ -119,11 +126,57 @@ func TestDecrypt_NoEnv_FakeSops(t *testing.T) {
 	fakeSopsInPath(t)
 	t.Setenv("SOPS_AGE_KEY_FILE", "") // ensure no ambient value leaks in
 
-	sf, err := Decrypt("/any/path.sops.yaml")
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "secrets"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "secrets", "test.sops.yaml"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	sf, err := Decrypt(root, "secrets/test.sops.yaml")
 	if err != nil {
 		t.Fatalf("Decrypt: %v", err)
 	}
 	if sf.Values["resolved_key"] != "" {
 		t.Errorf("resolved_key = %q, want empty when no env passed", sf.Values["resolved_key"])
+	}
+}
+
+func TestParseYAMLFlat_NestedPointersAndTypes(t *testing.T) {
+	values, err := parseYAMLFlat([]byte("a:\n  b:\n    c:\n      leaf: one\nlist:\n  - false\n  - null\n  - nested: two\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for key, want := range map[string]string{"/a/b/c/leaf": "one", "/list/0": "false", "/list/1": "", "/list/2/nested": "two"} {
+		if got := values[key]; got != want {
+			t.Errorf("%s = %q, want %q", key, got, want)
+		}
+	}
+}
+
+func TestParseYAMLFlatRejectsAliasAndNonStringKey(t *testing.T) {
+	for _, input := range []string{"a: &x value\nb: *x\n", "1: value\n"} {
+		if _, err := parseYAMLFlat([]byte(input)); err == nil {
+			t.Errorf("parseYAMLFlat(%q) succeeded", input)
+		}
+	}
+}
+
+func TestSelectorAndVerifyEncryptedPointerRespectNodeKinds(t *testing.T) {
+	root, err := yamlDocument([]byte("map:\n  \"0\": ENC[x]\nlist:\n  - ENC[y]\nsops: {}\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := selectorForPointer(root, "/map/0"); err != nil || got != `["map"]["0"]` {
+		t.Errorf("map numeric selector = %q, %v", got, err)
+	}
+	if got, err := selectorForPointer(root, "/list/0"); err != nil || got != `["list"][0]` {
+		t.Errorf("list selector = %q, %v", got, err)
+	}
+	if err := verifyEncryptedPointer([]byte("map:\n  \"0\": clear\nsops: {}\n"), "/map/0"); err == nil {
+		t.Error("clear target accepted")
+	}
+	if err := verifyEncryptedPointer([]byte("map:\n  \"0\": ENC[x]\nsops: {}\n"), "/map/missing"); err == nil {
+		t.Error("missing target accepted")
 	}
 }
