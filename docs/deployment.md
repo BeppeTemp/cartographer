@@ -76,8 +76,8 @@ git:
   sync: true                  # (git.sync) read/write fetch/pull-rebase + post-write push if the KB has a remote
   ssh_key: /etc/kb-ssh/id_ed25519      # (git.ssh_key) default SSH identity for cloning kbs[] remotes
   known_hosts: /etc/kb-ssh/known_hosts # (git.known_hosts) host verification for the same clone
-  author_name: cartographer            # (git.author_name) default author/committer (final fallback)
-  author_email: cartographer@localhost # (git.author_email)
+  author_name: "Team Bot"             # (git.author_name) default author (set with author_email)
+  author_email: team-bot@example.com   # explicit configuration wins over Git config
   token_dir: /etc/kb-git-tokens         # (git.token_dir) directory <token_dir>/<name>.token (D53, see below)
   in_window: 30s                # (git.in_window) SyncIn freshness window: within this duration
                                 # since the last successful fetch+pull, subsequent reads and writes skip it
@@ -121,14 +121,21 @@ a separate Kubernetes init container for the initial clone (see §K8s example).
 **Per-KB git identity (D46)**: each `kbs[]` entry can override, for that one KB, the SSH key
 (`ssh_key`/`known_hosts`) and the author/committer identity (`author_name`/`author_email`,
 `committer_name`/`committer_email`) used by `serve` for the initial clone and for every commit
-(`CommitOp`, conflict resolution). Fallback cascade: the KB's value → global `git.*` → hard-coded
-default (`cartographer`/`cartographer@localhost`); the default committer is the default author
+(`CommitOp`, conflict resolution). Fallback cascade: the KB's value → global `git.*` → the
+repository/global Git identity (including Git's native ambient resolution) → hard-coded
+`cartographer`/`cartographer@localhost` only when Git has no identity. Identity names and emails
+must be configured as pairs; the default committer follows the resolved author
 (the KB's own or the global one) if `committer_*` is not set. The per-KB environment assembled
 this way **overrides** the server's process environment (the reverse of the "environment wins"
 rule that applies to the global `git.ssh_key`/`GIT_SSH_COMMAND` above) — see
 `internal/gitx.runGitEnv`. With the identity set via `kbs[].author_name`/`author_email`/`committer_*`
 (or via global `git.author_name`/`author_email`), any `GIT_AUTHOR_*`/`GIT_COMMITTER_*` in the k8s
 Deployment's `env:` become redundant and can be removed.
+
+If your forge enforces author push rules, set a complete `author_name`/`author_email` pair to a
+forge account. `service install` writes the same commented identity block into its generated
+configuration. Existing placeholder-authored commits must be rewritten manually before the first
+accepted push, because the forge validates every commit in that push.
 
 **Explicit KB name, git token, and per-KB SOPS key by convention (D53)**: `kbs[].name` fixes the
 KB's name (overrides the name derived from remote/path) — it's the name used everywhere: the HTTP

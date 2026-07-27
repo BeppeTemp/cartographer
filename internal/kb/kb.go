@@ -36,6 +36,9 @@ type KB struct {
 	// defaultGitAuthorName/defaultGitAuthorEmail.
 	GitAuthorName  string
 	GitAuthorEmail string
+	// GitAuthorExplicit is true only when Cartographer configuration supplied a
+	// complete identity. When false CommitOp lets Git resolve its native author.
+	GitAuthorExplicit bool
 	// GitEnv is the per-KB environment (e.g. GIT_SSH_COMMAND,
 	// GIT_COMMITTER_NAME/EMAIL) layered onto git subprocesses — see
 	// gitx.runGitEnv. Nil means "run with the process environment", the
@@ -86,6 +89,9 @@ type KB struct {
 	lastSyncInMu sync.RWMutex
 	lastSyncIn   time.Time
 
+	gitStatusMu sync.RWMutex
+	gitStatus   GitStatus
+
 	// pushMu guards all async-push-worker bookkeeping below (see
 	// pushworker.go). It is a distinct lock from mu/WithGitLock, which the
 	// worker acquires separately (and only around the actual SyncOut call,
@@ -119,6 +125,17 @@ type KB struct {
 	pushWaiters []chan struct{}
 }
 
+// GitStatus is the durable-in-process snapshot exposed by sync_status.
+// UnpushedCommits is nil when no trustworthy remote-tracking comparison exists.
+type GitStatus struct {
+	State           string     `json:"state"`
+	LastError       string     `json:"last_error,omitempty"`
+	LastAttemptAt   *time.Time `json:"last_attempt_at,omitempty"`
+	HeadSHA         string     `json:"head_sha,omitempty"`
+	UnpushedCommits *int       `json:"unpushed_commits"`
+	IdentityWarning bool       `json:"identity_warning,omitempty"`
+}
+
 // Default git author identity used when GitAuthorName/GitAuthorEmail are
 // unset (zero-value KB, e.g. constructed directly by tests).
 const (
@@ -129,14 +146,57 @@ const (
 // gitAuthor returns k.GitAuthorName/GitAuthorEmail, falling back to the
 // package defaults when either is empty.
 func (k *KB) gitAuthor() (name, email string) {
-	name, email = k.GitAuthorName, k.GitAuthorEmail
-	if name == "" {
-		name = defaultGitAuthorName
+	return k.GitAuthorName, k.GitAuthorEmail
+}
+
+// SetGitStatus records a status transition without taking the git-operation lock.
+func (k *KB) SetGitStatus(state string, err error) {
+	now := time.Now().UTC()
+	s := GitStatus{State: state, LastAttemptAt: &now}
+	if err != nil {
+		s.LastError = err.Error()
 	}
-	if email == "" {
-		email = defaultGitAuthorEmail
+	if sha, shaErr := gitx.HeadSHA(k.Root); shaErr == nil {
+		s.HeadSHA = sha
 	}
-	return name, email
+	if branch, _ := gitx.Branch(k.Root); branch != "" {
+		if n, known, countErr := gitx.AheadCount(k.Root, "origin", branch); countErr == nil && known {
+			s.UnpushedCommits = &n
+		}
+	}
+	s.IdentityWarning = k.GitAuthorEmail == defaultGitAuthorEmail
+	k.gitStatusMu.Lock()
+	k.gitStatus = s
+	k.gitStatusMu.Unlock()
+}
+
+// GitStatusSnapshot recomputes divergence for an accurate post-restart view.
+func (k *KB) GitStatusSnapshot() GitStatus {
+	k.gitStatusMu.RLock()
+	s := k.gitStatus
+	k.gitStatusMu.RUnlock()
+	if s.State == "" {
+		if !k.GitSync || !gitx.IsRepo(k.Root) {
+			s.State = "disabled"
+		} else if _, ok := k.hasRemote(); !ok {
+			s.State = "no_remote"
+		} else {
+			s.State = "clean"
+		}
+	}
+	if sha, err := gitx.HeadSHA(k.Root); err == nil {
+		s.HeadSHA = sha
+	}
+	if branch, _ := gitx.Branch(k.Root); branch != "" {
+		if n, known, err := gitx.AheadCount(k.Root, "origin", branch); err == nil && known {
+			s.UnpushedCommits = &n
+			if s.State == "clean" && n > 0 {
+				s.State = "pending"
+			}
+		}
+	}
+	s.IdentityWarning = k.GitAuthorEmail == defaultGitAuthorEmail
+	return s
 }
 
 // DataRoot returns the conceptual root of the KB (index.md, log.md, archives).

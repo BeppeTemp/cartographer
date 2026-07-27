@@ -189,8 +189,6 @@ func Default() *Config {
 		Git: GitConfig{
 			Autocommit:      true,
 			Sync:            true,
-			AuthorName:      "cartographer",
-			AuthorEmail:     "cartographer@localhost",
 			SyncInWindow:    30 * time.Second,
 			SyncOutDebounce: 3 * time.Second,
 		},

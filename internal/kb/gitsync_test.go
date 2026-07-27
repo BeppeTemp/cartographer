@@ -101,7 +101,10 @@ func TestCommitOp_PerKBIdentity(t *testing.T) {
 func TestCommitOp_DefaultIdentity_NoOverride(t *testing.T) {
 	k, _ := initGitKB(t)
 	k.AutoCommit = true
-	// GitAuthorName/GitAuthorEmail/GitEnv left at zero value.
+	// Explicitly clear the fixture's repository identity and force the final
+	// fallback, so the placeholder assertion is independent of user config.
+	k.GitAuthorName, k.GitAuthorEmail = defaultGitAuthorName, defaultGitAuthorEmail
+	k.GitAuthorExplicit = true
 
 	if err := k.WriteFileAtomic("data/gitsync-default-identity.md", []byte("---\ntype: Note\ntitle: Default\n---\ntest\n")); err != nil {
 		t.Fatalf("WriteFileAtomic: %v", err)

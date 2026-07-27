@@ -116,10 +116,12 @@ func (k *KB) SyncIn() (bool, error) {
 // After 5 failed attempts it returns an error.
 func (k *KB) SyncOut() error {
 	if !k.GitSync || !gitx.IsRepo(k.Root) {
+		k.SetGitStatus("disabled", nil)
 		return nil
 	}
 	remote, ok := k.hasRemote()
 	if !ok {
+		k.SetGitStatus("no_remote", nil)
 		return nil
 	}
 
@@ -129,11 +131,14 @@ func (k *KB) SyncOut() error {
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
 		branch, _ := gitx.Branch(k.Root)
 		if branch == "" {
-			return fmt.Errorf("SyncOut: detached HEAD, cannot push")
+			err := fmt.Errorf("SyncOut: detached HEAD, cannot push")
+			k.SetGitStatus("failed", err)
+			return err
 		}
 
 		pushErr := gitx.Push(k.Root, remote, branch, k.GitEnv...)
 		if pushErr == nil {
+			k.SetGitStatus("clean", nil)
 			return nil
 		}
 
@@ -148,7 +153,9 @@ func (k *KB) SyncOut() error {
 			// Network or authentication error: still count as an attempt,
 			// back off and retry rather than returning immediately.
 			if attempt == maxAttempts {
-				return fmt.Errorf("SyncOut: push failed after %d attempts: %w", maxAttempts, pushErr)
+				err := fmt.Errorf("SyncOut: push failed after %d attempts: %w", maxAttempts, pushErr)
+				k.SetGitStatus("failed", err)
+				return err
 			}
 			time.Sleep(backoff)
 			backoff *= 2
@@ -158,7 +165,9 @@ func (k *KB) SyncOut() error {
 		// Non-fast-forward: fetch + pull --rebase, then retry push.
 		if fetchErr := gitx.Fetch(k.Root, remote, k.GitEnv...); fetchErr != nil {
 			if attempt == maxAttempts {
-				return fmt.Errorf("SyncOut: push failed after %d attempts: %w", maxAttempts, pushErr)
+				err := fmt.Errorf("SyncOut: push failed after %d attempts: %w", maxAttempts, pushErr)
+				k.SetGitStatus("failed", err)
+				return err
 			}
 			time.Sleep(backoff)
 			backoff *= 2
@@ -167,10 +176,13 @@ func (k *KB) SyncOut() error {
 
 		if rebaseErr := gitx.PullRebaseAutostash(k.Root, remote, branch, k.GitEnv...); rebaseErr != nil {
 			if errors.Is(rebaseErr, gitx.ErrRebaseConflict) {
+				k.SetGitStatus("failed", rebaseErr)
 				return rebaseErr
 			}
 			if attempt == maxAttempts {
-				return fmt.Errorf("SyncOut: push failed after %d attempts: %w", maxAttempts, pushErr)
+				err := fmt.Errorf("SyncOut: push failed after %d attempts: %w", maxAttempts, pushErr)
+				k.SetGitStatus("failed", err)
+				return err
 			}
 			time.Sleep(backoff)
 			backoff *= 2
@@ -181,8 +193,13 @@ func (k *KB) SyncOut() error {
 		backoff *= 2
 	}
 
-	return fmt.Errorf("SyncOut: push failed after %d attempts", maxAttempts)
+	err := fmt.Errorf("SyncOut: push failed after %d attempts", maxAttempts)
+	k.SetGitStatus("failed", err)
+	return err
 }
+
+// HasRemote reports whether the KB has a configured origin remote.
+func (k *KB) HasRemote() (string, bool) { return k.hasRemote() }
 
 // CommitOp creates a git commit if AutoCommit is enabled, the KB root is a git
 // repository, and the working tree is dirty. It is a no-op in every other case.
@@ -199,6 +216,11 @@ func (k *KB) CommitOp(message string) error {
 		return nil
 	}
 	authorName, authorEmail := k.gitAuthor()
+	if authorName == "" && authorEmail == "" {
+		if _, _, err := gitx.AuthorIdent(k.Root, k.GitEnv...); err != nil {
+			authorName, authorEmail = defaultGitAuthorName, defaultGitAuthorEmail
+		}
+	}
 	if err := gitx.Commit(k.Root, message, authorName, authorEmail, k.GitEnv...); err != nil {
 		if errors.Is(err, gitx.ErrNothingToCommit) {
 			return nil
@@ -217,6 +239,11 @@ func (k *KB) CommitPaths(paths []string, message string) error {
 			return fmt.Errorf("CommitPaths: KB root is not a git repository")
 		}
 		authorName, authorEmail := k.gitAuthor()
+		if authorName == "" && authorEmail == "" {
+			if _, _, err := gitx.AuthorIdent(k.Root, k.GitEnv...); err != nil {
+				authorName, authorEmail = defaultGitAuthorName, defaultGitAuthorEmail
+			}
+		}
 		if err := gitx.CommitPaths(k.Root, paths, message, authorName, authorEmail, k.GitEnv...); err != nil {
 			if errors.Is(err, gitx.ErrNothingToCommit) {
 				return nil

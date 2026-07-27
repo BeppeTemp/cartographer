@@ -13,6 +13,23 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
 )
 
+// toolSyncStatus returns the authoritative local commit/push replication state.
+func toolSyncStatus(k *kb.KB) Tool {
+	return Tool{Name: "sync_status", ReadOnly: true,
+		Description: "Returns local git commit and remote replication status, including pending or failed pushes. Read-only.",
+		InputSchema: json.RawMessage(`{"type":"object","properties":{}}`),
+		Handler: func(args json.RawMessage) (ToolResult, error) {
+			s := k.GitStatusSnapshot()
+			mode := "synchronous"
+			if k.SyncOutDebounce > 0 {
+				mode = "debounced"
+			}
+			out, _ := json.MarshalIndent(map[string]any{"state": s.State, "last_error": s.LastError, "last_attempt_at": s.LastAttemptAt, "head_sha": s.HeadSHA, "unpushed_commits": s.UnpushedCommits, "identity_warning": s.IdentityWarning, "push_mode": mode}, "", "  ")
+			return textResult(string(out)), nil
+		},
+	}
+}
+
 // flushPendingPush is called at the start of sync-sensitive tool handlers
 // (D76/WP4) so they don't race an in-flight async push scheduled by a
 // preceding write. Best-effort: a timeout/failure is logged and does not
