@@ -1,96 +1,88 @@
-# Skills, services, and secrets in the KB
+# Skills, services and secrets
 
-Every KB is a self-contained package: besides knowledge, it carries domain **skills**, external **services**, and their **secrets**. The configurator (→ [`interoperability.md`](interoperability.md)) installs and connects them.
+A KB can distribute agent procedures, describe external services and keep
+encrypted service values beside its versioned knowledge.
 
-## Domain skills (SKILL.md)
+## Skills
 
-**Format**: the open `SKILL.md` standard (agentskills.io). A skill is a folder `skills/<kb-ns>--<skill-name>/SKILL.md` (folder name == `name`, lowercase-hyphenated). Minimal frontmatter: `name` + `description` (rich in activation keywords), plus `license`, `metadata.version` (semver, aligned with the KB's git tags), `compatibility`. Body `< 500 lines / < 5000 tokens`.
+An installed skill lives at `skills/<name>/SKILL.md`. Cartographer validates
+the Agent Skills frontmatter (`name` and `description`) and exposes installed
+and binary-bundled skills through `skill_list`. `skill_install` copies a
+bundled skill into the KB.
 
-**Skill folder structure**:
+Client provisioning materializes KB skills into each provider's native
+directory. See [synchronization](sync.md) for the manifest, trust and pruning
+rules.
 
-```
-skills/<kb-ns>--<name>/
-├── SKILL.md           # manifest + instructions
-├── scripts/           # service clients
-├── references/        # on-demand docs
-├── assets/            # templates
-└── evals/             # tests
-```
+Skills and hooks can execute with the agent's privileges. The current `signed`
+manifest field is a trust-policy result, not a cryptographic signature:
 
-**Progressive disclosure**: ~100 tokens/skill catalog at startup; body loaded on activation; resources on demand.
+- bundled artifacts are trusted;
+- KB artifacts require the user's persisted trust choice or an explicit
+  one-shot override;
+- Cartographer does not verify signed commits or Sigstore attestations.
 
-**Namespace**: `kbiam--…` prefix to avoid collisions between KBs and with wiki-management skills.
+Keep executable content reviewable, pin external dependencies inside the skill
+where appropriate and never store plaintext credentials in skill files.
 
-**Distribution**: the KB's git repo **is** the registry; materialization into the providers' native directories is handled by provisioning with drift detection and pruning (→ [`sync.md`](sync.md)). The core stays portable with only `name`+`description`+relative paths.
+## Service concepts
 
-**Supply-chain security**: skills (and hooks) are **executable code** with the privileges of the process.
-- **Signing** required (signed commits or Sigstore/cosign) with **pre-execution verification**.
-- **Pinning to a reviewed tag/sha** (not symbolic `HEAD` → would propagate a malicious commit).
-- A gate that rejects unsigned artifacts.
-- **Least-privilege**: a skill only receives the `secret_refs` of the service it declares.
-- **No secrets** in skill files.
-
-## Services — `type: Service` descriptors
-
-A service describes how to connect to an external system. It's an OKF concept of `type: Service`:
+Service descriptors are regular concepts under `services/` with
+`type: Service`. Frontmatter supports Cartographer's scalar/list subset, so a
+descriptor intended for `service_get` should stay flat:
 
 ```yaml
 ---
 type: Service
-id: svc-keycloak
-title: "Keycloak (IAM)"
-version: "1.2.0"
-kind: idp                           # idp | db | queue | object-store | http-api …
-protocol: https
-base_url: "https://keycloak.example.internal"
-endpoints:
-  token:    "/realms/{realm}/protocol/openid-connect/token"
-  admin:    "/admin/realms/{realm}"
-auth:
-  method: oauth2_client_credentials
-  token_endpoint: token
-  scopes: ["openid"]
-secret_refs:
-  - { name: KEYCLOAK_CLIENT_ID,     secret: keycloak/client_id }
-  - { name: KEYCLOAK_CLIENT_SECRET, secret: keycloak/client_secret }
-secrets_source: "secrets/keycloak.sops.yaml"
-expose_as_mcp: false
+title: Keycloak
+kind: idp
+base_url: https://keycloak.example.internal
+secrets_source: secrets/keycloak.sops.yaml
 ---
 ```
 
-**Skill ↔ service**: the skill references the service with a bundle-relative OKF link (`metadata.service_ref` + a link in the body), without duplicating endpoints/credentials.
+The body can document endpoints, authentication flow and links to the skills
+that operate the service. Cartographer does not validate a richer Service
+schema beyond the normal concept and strict-map type rules.
 
-**Direct-vs-skill rule**: for a one-off/exploratory operation, the agent reads the descriptor and goes **directly** to the service; for a recurring/multi-step operation, it uses the **skill**. Pick **one** primary mode to avoid divergence.
+`service_list` inventories Service concepts. `service_get` returns one
+descriptor; with `resolve_secrets: true` it also decrypts the complete flat
+file named by `secrets_source`.
 
-**`expose_as_mcp: true`** only when access is stable, recurring, shared, and benefits from typed tools.
+## SOPS files
 
-## SOPS secrets
+Encrypted values can be committed under `secrets/*.sops.yaml`. Cartographer
+invokes the `sops` CLI and parses the decrypted document as flat key/value
+pairs.
 
-**Where**: inside the KB, versioned encrypted, in `secrets/<service>.sops.yaml`. Consistent with auth-via-git: whoever has the repo + the SOPS key has everything.
+The age key is selected in this order:
 
-**Format**: YAML with encrypted values only and cleartext keys (readable PRs/diffs). Governed by a `.sops.yaml` at the root with:
-- **Ordered** `creation_rules` (first match wins; no catch-all at the top).
-- `path_regex` on the full path from the root (e.g. `^secrets/[^/]+\.sops\.ya?ml$`).
-- Targeted `encrypted_regex` (`*_secret`, `*token*`, `password`).
-- `mac_only_encrypted: true` (cleartext metadata can vary without false `MacMismatch`).
+1. `kbs[].sops_age_key_file`;
+2. global `sops.age_key_file`;
+3. `CARTOGRAPHER_SOPS_AGE_KEY_FILE`.
 
-**Key backend**: `age` (X25519) by default; cloud KMS or HashiCorp Vault Transit optional. Multi-recipient for teams (dev key + CI/server key).
+It is passed to the child process as `SOPS_AGE_KEY_FILE` and must never be
+stored in the KB.
 
-**Runtime**:
-- Go server: decrypts in memory with `github.com/getsops/sops/v3/decrypt`.
-- Skills as external processes: `sops exec-env` on encrypted dotenv/yaml, exposes `secret_refs` as env vars.
-- Runtime key via `SOPS_AGE_KEY_FILE` or `SOPS_AGE_KEY_CMD` (never in the repo).
-- Always invoke `sops` **from the root** (footgun with `path_regex`, issues #465/#480).
+`service_get(resolve_secrets=true)` requires:
 
-**Per-KB key**: the server resolves the age key from `kbs[].sops_age_key_file` (per KB) with a fallback to the global `sops.age_key_file` (YAML) or `CARTOGRAPHER_SOPS_AGE_KEY_FILE` (env); propagated to the `sops` process as `SOPS_AGE_KEY_FILE` (`internal/sops.AgeKeyEnv`, D47), never in the repo.
+- `sops` in `PATH`;
+- a configured key that can decrypt the file;
+- `rw` scope for HTTP access.
 
-**Tool `service_get(service_id, resolve_secrets=false)`**: reads the `Service` descriptor; with `resolve_secrets: true` it also decrypts the service's `secrets_source` (the entire flat SOPS file) and includes the values in the result. **Known limitation**: OKF frontmatter only supports `string`/`[]string` (no map/list of objects), so per-ref structured `secret_refs` (`{name, secret}`) **cannot be parsed**: `resolve_secrets` always decrypts the entire `secrets_source`, with no per-ref least privilege (issue #56). Requires a KB with `sops_age_key_file` configured and the `sops` binary in PATH; without it, returns an explicit error (never a panic). **Requires `rw` scope** on the KB (secret access ≥ write access): enforced in the HTTP guard (`mcpAccessGuard`), not in the per-tool-name classification (`service_get` remains `ReadOnly` for the normal path).
+The whole `secrets_source` is returned. Structured per-reference
+`secret_refs` are not representable by the current frontmatter parser, so
+there is no per-key least-privilege filter.
 
-**Rotation**:
-- Onboarding → `sops updatekeys` (re-encrypts only the data key).
-- Offboarding/compromise → `sops rotate -r` **and then rotate the actual secrets upstream** (the encrypted values remain in git history).
-- Defenses: pre-commit anti-leak, `.gitattributes` `diff=sopsdiffer`. Minimum version **SOPS 3.13.x**.
+## Operational guidance
 
-**Recovery / break-glass (mandatory)**: multi-recipient with at least one **break-glass key** kept offline (escrow, optionally Shamir). Without it, losing the keys means **irreversible** loss of the secrets. Verify ≥1 valid recipient after every offboarding; run a **periodic test** of decryption from backup.
+- Define `.sops.yaml` rules from the repository root and test their
+  `path_regex`.
+- Use multiple recipients when loss of one key must not make recovery
+  impossible.
+- On offboarding, update recipients and rotate the real upstream credentials;
+  encrypted historical values remain in git.
+- Keep at least one tested offline recovery key.
 
-> **Scope limit**: SOPS is not a dynamic secret manager (no automatic rotation, no ephemeral credentials). For short-lived secrets, use a dedicated downstream secret manager.
+SOPS is encrypted storage, not a dynamic secret manager: it does not issue
+short-lived credentials or rotate services automatically.

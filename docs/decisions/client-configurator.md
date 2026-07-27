@@ -1,0 +1,244 @@
+# Client and configurator decisions
+
+Client CLI/TUI behavior and provider-specific configuration. Current behavior: [`../configurator.md`](../configurator.md).
+
+These records explain why choices were made and may describe superseded behavior.
+For the supported interface, follow the current-state page linked above.
+
+<a id="d23"></a>
+## D23 — Multi-provider configurator: CLI flags + per-provider JSON adapters, non-destructive merge
+**Decision.** The configurator accepts CLI flags (`--name`, `--transport`, `--url`, `--auth`, `--token-env`) with sensible defaults (`DefaultConfig()`) and generates the MCP configuration files for Claude Code (`.claude.json`, `mcpServers` key), Codex CLI (`.codex/config.json`), Kiro (`.kiro/settings/mcp.json`), and OpenCode (`.opencode/config.json`). Claude Code reads `mcpServers` from `~/.claude.json`, not from a separate `.claude/mcp_servers.json` file. Merging with existing files is non-destructive: entries for other servers are preserved. Implemented as the `internal/configurator` package + the `cmd/configure` binary.
+**Rationale.** CLI flags are the simplest and most composable configuration point — no YAML file to maintain in the KB, no extra parsers. The non-destructive merge is essential to avoid overwriting the user's existing configurations. The JSON format uses stdlib `encoding/json`. The `mcp/wiki.yaml` (previously the source of truth) was removed together with the `mcp/` and `raw/` directories from the KB structure (June 2026, D28). *(Superseded by D37: `cmd/configure` was deleted — the client subcommands now live in `cmd/cartographer`, HTTP-only transport.)* *(Bug discovered in D58: `.codex/config.json` was never the file Codex CLI reads — Codex reads only `config.toml`. `emitCodex` now generates managed-block TOML; see D58.)*
+
+---
+
+<a id="d29"></a>
+## D29 — OpenCode format aligned to the official schema + `kb.Init` creates the git repo
+
+### D29a — OpenCode format: `opencode.json`, `$schema`, `enabled`, `command` array
+**Decision.** `emitOpenCode` in `internal/configurator/configurator.go` is aligned to the official OpenCode v1.17.10 schema (`https://opencode.ai/config.json`):
+- The generated file is `opencode.json` (not `.opencode/config.json`).
+- The root key `"$schema": "https://opencode.ai/config.json"` is always included.
+- Each MCP entry includes `"enabled": true`.
+- For stdio transport: `"command"` is an **array of strings** (not a scalar string).
+- For remote transport with auth: `"headers"` uses OpenCode's native `{env:VAR}` syntax (not `${VAR}`).
+**Rationale.** The previous format was based on incomplete documentation. The real schema (verified against an OpenCode v1.17.10 config) requires a `command` array and an explicit `enabled`. The `{env:VAR}` syntax for env vars diverges from Claude/Kiro's (`${VAR}`) and must be documented explicitly to avoid misconfigurations. Known risk: OpenCode is SSE-first and custom header support on remote MCP may require `mcp-remote`/`mcp-auth.json` (see `interoperability.md`).
+
+### D29b — `kb.Init` initializes the KB as a git repository (best-effort)
+**Decision.** `kb.Init` runs `gitx.Init` + initial commit "init: KB inizializzata" after creating the layout, only if the directory is not already a git repo (`gitx.IsRepo`). The git init is **best-effort**: if git is unavailable or the init fails, Init does not fail — the KB remains valid without git. `WriteConcept` does not auto-commit: commits remain an explicit operation (`commit_gate`).
+**Rationale.** `interoperability.md` states that "each KB is its own git repository", but `Init` did not initialize the repo, leaving the KB non-git unless a manual step was taken. This caused `ErrNothingToCommit` on the first `commit_gate` and broke tools that assumed a git repo (e.g. `sync_check`). Best-effort ensures that tests and environments without git installed are not broken.
+
+---
+
+<a id="d35"></a>
+## D35 — Configurator: opt-in interactive TUI (`--tui`)
+
+**Decision.** The `cmd/configure` binary gains an interactive TUI mode activated by `--tui`, based on `github.com/charmbracelet/bubbletea` (+ `bubbles`, `lipgloss`). The generation business logic (Emit/Apply MCP config + `provisioning.BuildManifest`/`Apply` for skills) was extracted into a shared function `runConfigure(configureParams)`; both the flag mode (default, unchanged) and the TUI call it. The wizard collects KB/provider/transport/URL/auth/token-env/name/base-dir/dry-run with defaults from `DefaultConfig()` and a confirmation screen.
+
+**Rationale.** AD4 called for the TUI **only** in the multi-provider configurator (never in the server): this decision implements it. The key condition is **zero duplication**: the TUI is a pure front-end that populates the same parameters as the flags and delegates to `runConfigure`, so the two modes cannot diverge. Flags remain the default (the TUI is opt-in) → no regression for scripted/CI uses. `bubbletea` is the idiomatic TUI library in Go and is pure-Go (no cgo). It adds transitive dependencies (lipgloss/bubbles/x), acceptable for an administrative binary separate from the server.
+
+*(Superseded by D37: `cmd/configure` was deleted and the TUI recast as the flag-less dashboard of `cartographer` — `--tui` no longer exists, see `docs/configurator.md` §TUI mode.)*
+
+---
+
+<a id="d37"></a>
+## D37 — Single binary with subcommands; client always HTTP (no stdio/`--check`/`--base-dir`)
+
+**Decision.** `cartographer-configure` is eliminated: `cmd/cartographer` becomes a binary with
+subcommands (`serve`, `version`, `help`, plus the client subcommands `agents`/`connect`/`status`/
+`sync`); with no arguments it opens a TUI dashboard in a TTY. The client always talks to the server via
+HTTP: the client-side stdio transport, `--check` (replaced by `status`), and `--base-dir`
+(replaced by cwd/`--global`) are removed.
+**Rationale.** Real deploy topologies (local Docker, multi-client k8s) have the client
+on a different machine from the server, or in any case connected over the network: a "direct on the
+filesystem" stdio transport was dead code duplicating the materialization logic. A single binary with
+subcommands (`git`/`kubectl` style) is more discoverable than two binaries with different flags.
+Details: `docs/configurator.md`, `docs/deployment.md` §Topologies.
+
+---
+
+<a id="d42"></a>
+## D42 — `cartographer disconnect`: inverse of `connect`, inverse JSON merge, full provider prune
+
+**Decision.** New subcommand `cartographer disconnect [provider|all]`, business logic
+shared (`doDisconnect`) between CLI and TUI. Per provider: `configurator.Remove` (inverse of
+`Apply`) removes only the server's entry from the MCP config file without destroying the rest;
+`provisioning.PruneManaged` removes **all** the provider's managed files from the lockfile — not just
+the diff against the manifest — because `disconnect` must not depend on the server being
+reachable.
+**Rationale.** Reuse instead of duplication: `PruneManaged`/`Remove` are the same functions used
+by `Apply`, applied in the opposite direction. The "full" prune (the whole managed set) is the
+fundamental difference from `sync`: disconnecting is a local operation.
+Details: `docs/configurator.md` §`cartographer disconnect`.
+
+---
+
+<a id="d49"></a>
+## D49 — Interactive `cartographer connect`: bubbletea form shared TUI/CLI
+
+**Decision.** The connect form (server URL, name, token env var, auth toggle) is extracted into a
+standalone bubbletea component, `connectFormModel` (`connectform.go`), reused unchanged by TUI and
+CLI. A `standalone` field decides whether submit/cancel emit `tea.Quit` (command running its own
+program) or stay no-op (form nested in the TUI, which reacts to `Submitted()`/`Cancelled()`).
+`cmdConnect` opens the form (new `--no-input` flag as escape hatch) only if none of the four
+form flags was passed explicitly and both stdin and stdout are a TTY
+(`wantsConnectForm`, a pure function testable without a real `tea.Program`).
+**Rationale.** The delicate constraint is "the nested form must never emit `tea.Quit`": without the
+`standalone` field the TUI would exit every time the user closes the connect form. Same struct,
+same `Update`, parametric quitting behavior instead of two parallel implementations.
+Details: `docs/configurator.md` §`cartographer connect [provider|all]`, §TUI mode.
+
+---
+
+<a id="d51"></a>
+## D51 — MCP server name fixed to "cartographer"; auto-trust hint with the exact command
+
+**Decision.** The name under which the server is registered in the providers' MCP configs is no longer
+configurable via flag/form: it is always **`cartographer`** (escape hatch: `server_name` in
+`.cartographer.yaml`). Every "needs approval" message now prints the exact command to run
+(`cartographer sync --auto-trust`) via `autoTrustCommand`, instead of the vague "use --auto-trust".
+**Rationale.** The name was a knob with no real use cases that lengthened the form and risked
+duplicate MCP entries on every rename.
+
+*(Superseded state: `--global` removed from `autoTrustCommand`/everywhere → D52.)*
+
+---
+
+<a id="d52"></a>
+## D52 — `.cartographer.yaml` always machine-wide (home): project/global scope removed
+
+**Context.** Every client subcommand and the TUI had a `--global`/`g` flag/key to choose
+between `.cartographer.yaml` in the cwd or in the home. The project scope was never used: the
+connection to a server is a property of the machine, not of the repo in which the command runs.
+
+**Decision.** `.cartographer.yaml`/the lockfile **always** live in `~/`. `clientconfig.
+TargetDir()` no longer takes a `global` parameter. Removed everywhere: the `--global` flag, the `g`
+key in the TUI, the `global` parameter from `printApplySummary`/`autoTrustCommand`.
+
+**Discarded alternatives.** Keeping the flag with a `true` default (it would have left a dead
+project-scope codepath to maintain for no benefit).
+Details: `docs/configurator.md` §`.cartographer.yaml`.
+
+---
+
+<a id="d63"></a>
+## D63 — Complete prune: empty directories with boundaries, MCP configs reduced to empty (WP7)
+
+**Context.** A `connect`→`disconnect` round trip did not return the filesystem to its initial
+state: `PruneManaged` ran `os.Remove` on the individual `ManagedFile` entries but never on the
+containing directories left empty; `configurator.Remove` left `{"mcpServers": {}}` on disk once
+the only entry was removed.
+
+**Decision.**
+1. **Empty directories (`pruneEmptyDirs`).** After removing a managed file, it walks up the
+   parent directories deleting them if empty, always stopping at a known root
+   (`.claude`, `.codex`, `.kiro`, `.opencode`, `.config`, `.config/opencode`, or `BaseDir`).
+   `os.Remove` (never `os.RemoveAll`) fails on its own on a non-empty directory, so a user
+   file/other artifact stops the ascent without an explicit check.
+2. **MCP configs reduced to empty.** If the server map ends up empty, the key is deleted; for
+   files dedicated solely to MCP config (kiro, opencode) the whole file is deleted if nothing
+   else remains.
+3. **Absolute invariant: `.claude.json` is never deleted** (shared state broader than
+   Claude Code) — it stays reduced to `{}`, a residue accepted by construction.
+4. **End-to-end test** (`TestRoundTrip_ConnectDisconnect_NessunResiduo`) verifies, with a
+   `filepath.Walk` before/after, that the only difference is the set of exceptions above and that
+   pre-existing user files survive.
+**Discarded alternatives.** `os.RemoveAll` on the providers' directories (it would delete content not
+managed by Cartographer); always deleting the MCP config file when the entry is removed (wrong
+for `.claude.json`, broader shared state).
+Details: `docs/configurator.md` §`cartographer disconnect`.
+
+---
+
+<a id="d64"></a>
+## D64 — Connect UX: per-field hints, retry with populated form, persistent default, pre-connect probe (WP8)
+
+**Context.** Four frictions in the `connect` flow: the "Token env" field mistaken for the token
+itself; on error the typed values were lost (CLI exited with exit 2); `doDisconnect`
+deleted `.cartographer.yaml`, so the next connect restarted from localhost even on
+machines pointed at a real server; no validation at submit (errors discovered only at a
+"deferred" sync).
+
+**Decision.**
+1. **Per-field hints** (`fieldHint`): "Token env var" label with a contextual hint clarifying it is
+   the env var's *name*, not the token; ignored if Auth is off.
+2. **Error → form re-presented with the entered values**: `errMsg`/`forceRetry` in `connectFormModel`,
+   inline error, connect stays idempotent (no `disconnect` needed to retry).
+3. **Persistent default server**: `doDisconnect` clears only `agents` in `.cartographer.yaml`,
+   preserving `server_url`/`trust`/`kbs` as prefill; new env `CARTOGRAPHER_SERVER_URL`.
+4. **Pre-connect probe with force-override**: new `client.Ping(timeout)` (JSON-RPC `ping`, 5s) at
+   submit, before writing files; on failure the form returns with the error, but a second consecutive
+   submit with no changes skips the probe and proceeds (server temporarily down with a valid
+   config) — CLI equivalent via `y/N` prompt.
+**Discarded alternatives.** Skipping the Token env field from the tab order with Auth off (complicates the
+focus cycle for little gain); `tools/list`/`initialize` as probe (`ping` is cheaper);
+blocking probe without override (it would prevent saving a correct config with the server down).
+Details: `docs/configurator.md` §`cartographer connect [provider|all]`.
+**Follow-up (July 2026).** Point 3 preserved `server_url` in `.cartographer.yaml`, but only the
+*interactive form* re-read it as prefill: in the non-interactive path (`--no-input`, non-TTY)
+`cmdConnect` built `opts` from the flags' defaults, so a bare `connect <agent>` on a machine
+already pointed at a remote server rewrote the shared config to `http://localhost:8080` / `auth:false`.
+Now the **flag > config > default** precedence also applies there: `resolveConnectSettings` (a pure,
+tested function) inherits `server_url`/`auth`/`token_env` from the existing `.cartographer.yaml` for each flag not
+passed explicitly.
+
+---
+
+<a id="d86"></a>
+## D86 — Connect UX: agent subsets, 0-KB diagnostics, absolute paths
+
+**Status: implemented (2026-07-24).**
+
+**Context.** A healthy service with no mounted KB returned `400 kb parameter required` from
+`/mcp`, which `connect` described as an unreachable local service. `connect` and `disconnect`
+also accepted only one provider or `all`, despite the configurator already supporting all four
+providers independently; and their success output showed paths relative to the target directory,
+making a write look as if it had happened in the current directory.
+
+**Decision.**
+- **Health-aware probe.** `internal/client.Health` derives `/health` from the configured MCP URL
+  and parses the additive `ready` and `kbs` fields defensively. A false `ready`, or an explicitly
+  empty `kbs` list from a pre-D84 server, produces the first-KB guidance (`kb create`, then
+  `service restart`); only an actually unreachable loopback service offers installation. A missing
+  `ready`/`kbs` remains compatible with older healthy servers.
+- **Provider subsets.** `connect` and `disconnect` accept `--agents claude,codex` as a validated
+  comma-separated selection; it cannot be combined with the positional provider. The interactive
+  Bubble Tea form exposes one checkbox per supported provider, preselected from the detected set.
+- **Unambiguous output.** `configurator.Apply` records and returns absolute config paths while
+  retaining relative paths for provider-native file lookup. A successful non-dry-run connect also
+  tells the user to restart the selected agent sessions so their MCP clients reload the tools.
+
+**Rationale.** Health is the appropriate readiness signal for a client-side onboarding decision:
+it distinguishes a server that needs its first KB from one that is down without making `/mcp`'s
+transport error carry product guidance. CSV and checkboxes cover the common partial-install case
+without adding a new provider model, while absolute paths make the side effects of configuration
+safe to verify from any working directory.
+
+---
+
+<a id="d92"></a>
+## D92 — Per-KB MCP entries for multi-KB servers
+
+**Status: implemented (2026-07-24).**
+
+**Decision.** `connect` and `sync` enumerate mounted KBs from `GET /health`. A multi-KB server
+emits one entry per KB, named `<server_name>-<kb>` and scoped with `?kb=<kb>`; the discovered list
+is persisted in `.cartographer.yaml` and `sync` reconciles additions, removals and the
+one↔many rename. A one-KB or older server retains the single bare `<server_name>` entry. Disconnect
+removes both the bare entry and every persisted suffixed entry.
+
+**Rationale.** Query routing already works on every server version that can mount multiple KBs,
+whereas path routing is newer and not required by all clients. Separate agent-visible entries make
+the KB choice explicit and prevent a second mounted KB from turning an existing bare `/mcp` entry
+into a 400, without introducing a client-side multiplexing protocol.
+
+---
+
+<a id="d99"></a>
+## D99 — Codex's `config.toml`: comment markers are not enough, orphaned tables are adopted
+
+**Decision.** Before rewriting one of its managed blocks in `~/.codex/config.toml`, Cartographer removes from the rest of the file every table that block owns: the `[mcp_servers.<name>]` tables declared in the block being written (`configurator.Apply`, `CodexMCPTableOwner`) and the `[[hooks.<event>]]` registrations whose `command` points inside `.codex/hooks/<name>/` (`registerHookConfigTOML`, `codexHookTableOwner`). The scan (`internal/configurator/codextoml.go`) stays purely textual, as D58 requires: it recognizes table headers, folds each header's sub-tables into its span, skips anything inside *any* Cartographer block, and leaves every other byte — comments, ordering, unrelated tables — untouched. Each adoption is reported as a warning on `connect`/`sync`.
+
+**Rationale.** D58's ownership model (comment markers + `internal/blocktext`) assumes the markers survive. They do not: Codex CLI re-serializes the whole `config.toml` whenever it persists its own settings (trusted hook hashes, `[tui]`, `[projects.*]`), emitting the tables in canonical form and dropping every comment. The tables survive, the markers do not, and `blocktext.Write` — which appends when it finds no markers — then declares `[mcp_servers.cartographer]` a second time: a duplicate key, so `codex` refuses to start. For hooks the file stays valid (an array-of-tables may repeat) and the hook simply fires twice, which is quieter and worse. Parsing the file as TOML would fix it and lose exactly what D58 exists to protect, so ownership is instead resolved by identity: a table we would write, outside every block of ours, is a copy of ours.
+
+**Consequences.** `connect`/`sync` self-heal an already-broken machine on the next run: no hand-editing, and nothing on the client's read path parses `config.toml`, so a duplicated file never blocks the repair. `[hooks.state."…"]` entries are deliberately **not** pruned: they are Codex's own bookkeeping (a trusted hash per hook, keyed by position), a stale one is inert because Codex gates it on a hash we do not compute, and deleting them would mean interpreting Codex's internals — the very format-awareness D58 rules out. `EnsureBootstrapHook` has no warnings channel and drops its repair message; the same repair on the MCP entry is reported, which is what makes the file visibly change. Table identity is the reason hooks are matched by command path and not by header: `[[hooks.PreToolUse]]` is shared by every hook on that event.

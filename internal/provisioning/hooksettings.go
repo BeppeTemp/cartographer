@@ -2,9 +2,9 @@
 // <baseDir>/.claude/settings.json for the hooks materialized by Apply/PruneManaged.
 // Before D57 Apply stopped at materializing the hook's files
 // (.claude/hooks/<name>/) and left the user to paste the settings.json entry by
-// hand (docs/decisions.md D48); here the hook becomes effective on its own,
+// hand (docs/decisions/sync-provisioning.md D48); here the hook becomes effective on its own,
 // idempotently (no duplicates on re-apply) and prunably (the entry disappears
-// when the hook is removed). See docs/decisions.md D57, docs/sync.md
+// when the hook is removed). See docs/decisions/sync-provisioning.md D57, docs/sync.md
 // §Agents and hooks.
 package provisioning
 
@@ -536,7 +536,7 @@ func openCodePluginIdentifier(hookName string) string {
 // generateOpenCodePlugin renders the deterministic JS source of hookName's
 // OpenCode plugin wrapper: same (spec, mapping, command) always produces
 // byte-identical output, so re-apply on an unchanged hook never perturbs the
-// file (idempotence — see docs/decisions.md D59) and PruneManaged/re-apply can
+// file (idempotence — see docs/decisions/sync-provisioning.md D59) and PruneManaged/re-apply can
 // tell "unchanged" from "updated" the same way every other artifact does
 // (content hash of the *hook*, not of this generated file, drives that: this
 // file is a side effect of materializing the hook, not itself hashed/diffed).

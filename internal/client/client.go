@@ -1,6 +1,6 @@
 // Package client implements a minimal MCP client over HTTP (JSON-RPC 2.0), used by
 // `cartographer agents/connect/status/sync` to talk to a remote cartographer server.
-// The client always uses the HTTP transport (see decisions.md D-client-http):
+// The client always uses HTTP (see docs/decisions/client-configurator.md D37):
 // generating stdio MCP configs is out of scope, the CLI itself is the only consumer.
 package client
 

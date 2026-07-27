@@ -1,6 +1,6 @@
 // Package service manages the cartographer MCP server as a native per-user
 // service: a launchd agent on macOS, a systemd user unit on Linux. It
-// replaces the local Docker-based deployment (see decisions.md).
+// replaces local Docker deployment (docs/decisions/deployment-release.md D73).
 //
 // The package separates pure file generation (Render*, DefaultServerYAML,
 // the path functions) from platform command execution (Manager, which runs

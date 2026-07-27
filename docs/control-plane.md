@@ -10,10 +10,15 @@ For each mounted KB, the server keeps only a **rebuildable derived index** and a
 
 ## Read/write boundary
 
-- Concepts → writes go **only through tools**, with validation (frontmatter, `type`, provenance, OKF, map ontology).
-- Updates → prefer **appending to `# History`**; supersession replaces content non-destructively.
-- Every write → an entry in `log.md`; with `CARTOGRAPHER_GIT_AUTOCOMMIT=true` (default), it also produces a **per-operation git commit** (author `cartographer <cartographer@localhost>`).
-- KBs are exposed as MCP Resources for **reads**; **writes** are gated MCP Tools.
+- Concepts are read and written through MCP tools. Writes validate parseable
+  frontmatter, required fields, path/layout constraints and strict-map type
+  palettes.
+- `if_match` protects updates from stale overwrites.
+- With git auto-commit enabled, each successful logical write produces one
+  commit. A write does not implicitly append to `log.md`; use `log_append`
+  when a chronological record is wanted.
+- Read-only tools carry `Tool.ReadOnly=true`; HTTP scopes enforce the
+  read/write boundary.
 
 **Commit per logical operation (Step 1 — local commit)**: every write tool (`concept_write`, `concept_patch`, `map_create`, `map_delete`, `concept_expand`, `log_append`, `snapshot`, `supersede`, `concept_move`, `concept_delete`, `conflict_resolve`, `skill_install`) is wrapped by `gitWrap`, which acquires the per-KB mutex, runs the tool, and on success (no application error) calls `CommitOp`. A failed commit does not turn a successful operation into an error: it is logged to stderr. `AutoCommit=false` (the struct's zero value) leaves everything unchanged and keeps compatibility with existing tests.
 
@@ -68,7 +73,7 @@ Tools marked **[A]** (advanced, `advancedToolNames` in `internal/mcpserver/visib
 | Tool | Purpose |
 |---|---|
 | `validate(scope)` **[R]** **[A]** | OKF compliance (frontmatter, `type`, reserved files). |
-| `lint(scope, [mode])` **[R]** **[A]** | `mode`: scoped (delta + neighbors) \| full \| deep (cross-model). |
+| `lint([scope], [scope_neighbors])` **[R]** **[A]** | Runs deterministic broken-link, stale-claim, orphan and structural checks. `scope_neighbors=true` adds one-hop graph neighbors. There is no model-backed/deep mode. |
 | `commit_gate()` **[A]** | Blocks when open `Contradiction`s are involved in the diff. |
 | `gate_check()` **[R]** **[A]** | Combines validate + lint + commit_gate in a single tool (lightweight local gate). |
 | `conflict_resolve(contradiction_id, resolution, [reason])` **[A]** | Closes an open `Contradiction`. |
@@ -90,7 +95,7 @@ Tools marked **[A]** (advanced, `advancedToolNames` in `internal/mcpserver/visib
 
 | Tool | Purpose |
 |---|---|
-| `sync_check([applied_revision])` **[R]** **[A]** | Read-only. Returns the current manifest's `revision` (bundle + KB), the artifact list (`kind`: `skill`/`agent`/`hook`/`instructions`, `name`, `source`, `signed`), `in_sync=true/false` (if the client's lockfile revision is supplied), and **`open_conflicts`** (the count of open git rebase conflicts — useful as a SessionStart hook). Safe even on a remote server. |
+| `sync_check([applied_revision])` **[R]** **[A]** | Read-only. Returns the current manifest's `revision` (bundle + KB), the artifact list (`kind`: `skill`/`agent`/`hook`/`instructions`/`mcp`, `name`, `source`, `signed`), `in_sync=true/false` (if the client's lockfile revision is supplied), and **`open_conflicts`** (the count of open git rebase conflicts — useful as a SessionStart hook). Safe even on a remote server. |
 | `sync_apply(base_dir, [dry_run], [auto_trust])` **[A]** | Materializes into `base_dir` the artifacts with `signed=true`, prunes obsolete managed ones, and updates the lockfile (`.cartographer-sync.lock.json`). Intended for local (stdio) deployments where server and client share the filesystem. Unsigned artifacts go into `needs_approval`. `dry_run=true` shows the diff without writing. `auto_trust=true` also treats KB skills as trusted (opt-in workspace policy: `signed` is set by policy, not cryptographically verified — issue #54). |
 | `sync_pull()` **[R]** **[A]** | Read-only, no parameters. Returns the provisioning manifest with each artifact's file contents embedded in base64, for a remote HTTP client that does not share the filesystem with the server. Used by `cartographer connect`/`cartographer sync`/`cartographer status` on the client side (the `auto_trust` trust decision is client-side, not a tool parameter). |
 
@@ -126,20 +131,29 @@ Semantic search is available when the server is started with `--ollama <url>` (o
 - **Persisted SQLite (`internal/sqlindex`, D32)**: when the KB has an openable `.cartographer/index.db`, keyword search uses **FTS5 with a trigram tokenizer** (supports substrings, not just whole words). Multi-term matching tries all terms first, then any term only if the all-terms search is empty; terms shorter than three characters are omitted from the FTS match. Embeddings are persisted in SQLite with a **content-hash cache** — `index_rebuild` recomputes Ollama embeddings only for concepts whose hash changed. At boot, after a git pull that moves HEAD, and on `reindex`, content hashes reconcile external additions, changes, and removals without a restart. On this path, the `search` response's `mode` field is `keyword_fts5`/`hybrid_fts5`. Best-effort: if the DB can't be opened or FTS5 is unavailable, it degrades to the in-memory path.
 - **Semantic**: embedding vectors (e.g. Ollama), cosine similarity outside SQL. Independent commit: if the embedder is down, keyword search still moves forward. Embedder-identity guard: full re-embedding if the model changes (content-hash invalidates the cache).
 
-At small scale `index.md` alone can be enough, and keyword search beats embeddings on cost; semantic search is nonetheless active from the start in the Server profile and scales with the wiki.
+At small scale `index.md` and keyword search can be enough. Semantic search is
+opt-in and active only when an Ollama endpoint is configured.
 
 ## Validation and invariants
 
-- **OKF compliance** (`validate`): parseable frontmatter, non-empty `type`, well-formed reserved files.
-- **Project invariants**: `provenance` on derived concepts; `type` allowed by the palette if `ontology_mode: strict`.
-- **Contradictions — hybrid model:**
-  - **SOFT / scope-mismatch** → typed edges (`contradicts`/`tension`) emitted by lint, non-blocking.
-  - **HARD** → a first-class `type: Contradiction` node with `resolution_status`.
-  - **Deterministic commit gate**: `grep` for `resolution_status: open` on `Contradiction` nodes that `involves` a concept touched by the diff — near-zero model cost, blocks/escalates.
-- **Broken-link tolerance**: informative stubs, not errors.
+- `validate` checks parseable frontmatter, a non-empty `type`, reserved files,
+  layout/depth rules and the allowed type palette of strict Maps.
+- `lint` reports deterministic findings. It does not generate typed graph
+  edges or Contradiction concepts.
+- `commit_gate` inspects existing `type: Contradiction` concepts with
+  `resolution_status: open` and blocks a supplied set of changed concept IDs
+  when they are involved.
+- Broken links are tolerated on write and surfaced by lint.
 
-## Provenance, citations, audit
+## Provenance, history and audit
 
-Every concept is traceable to its raw sources (`provenance` + `# Citations`). `log.md` = chronological audit trail with agent identity. **git** = full history. The server also maintains its own **proprietary audit log** (append-only JSONL with hash-chain): server, tool, args, outcome, timing, commit-sha.
+Provenance and citation sections are KB conventions; the server does not
+require them on every concept. `log.md` is updated only through explicit log
+tools. Git commits are the durable change history when auto-commit is enabled.
 
-The content-hash is computed **per-section** (as well as per-file) on normalized content (UTF-8/LF, sorted YAML keys, excluding auto-generated fields like `timestamp`) to avoid spurious `stale_write`s. Appends to `# History`/`log.md` use an **idempotent** primitive that does not require `if_match` on the whole file.
+`internal/audit` implements a JSONL hash-chain with optional Ed25519
+signatures, but request/tool handlers do not currently append execution events
+to it. It must not be presented as a complete operational audit trail.
+
+The content hash is computed on normalized content and per section to avoid
+spurious `stale_write` failures.

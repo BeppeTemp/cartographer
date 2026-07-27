@@ -8,7 +8,8 @@ counts), `sync` (realigns), `resolve` (resolves a `{{repo:}}`/`{{path:}}` placeh
 a **TUI dashboard** when invoked with no arguments in a terminal.
 
 The client **always talks to the server over HTTP** (the `sync_pull` tool): there is no
-stdio transport on the client side, nor a separate binary — see `decisions.md` for the
+stdio transport on the client side, nor a separate binary — see
+[the client decision records](decisions/client-configurator.md) for the
 rationale. Generating the MCP config files (`internal/configurator`) and the
 materialization logic (`internal/provisioning`) are the same used server-side by
 `sync_check`/`sync_apply` (`docs/sync.md`).
@@ -203,7 +204,8 @@ cartographer import --source ./docs --kb ./kb-clone \
 
 For every file: if it already has YAML frontmatter it's preserved, only adding missing fields;
 otherwise it synthesizes the minimum — `title` from the body's first H1 (fallback: file name), `type: Note` if absent
-(`WriteConcept` always requires it — a deviation from the original spec, see `decisions.md` §D74) — and
+(`WriteConcept` always requires it — a deviation from the original spec, see
+[D74](decisions/data-plane.md#d74)) — and
 in both cases it ensures `status: imported`, hooking into the `imported_draft` lint (warning) that
 keeps the curation backlog visible across sessions. Relative markdown links `[text](path.md)`
 are rewritten best-effort against the new layout; wiki-links `[[...]]` are left as-is

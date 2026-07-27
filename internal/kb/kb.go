@@ -907,7 +907,7 @@ func (kb *KB) DeleteConcept(id okf.ConceptID) error {
 //   - "<id>/" does not already exist (the concept is not already expanded).
 //
 // The inverse (concept_collapse) is intentionally not implemented (YAGNI —
-// see docs/decisions.md D77).
+// see docs/decisions/data-plane.md D77).
 func (kb *KB) ExpandConcept(id okf.ConceptID) error {
 	segments := strings.Split(string(id), "/")
 	if len(segments) != 2 {

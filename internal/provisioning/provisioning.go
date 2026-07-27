@@ -1028,7 +1028,7 @@ func Apply(m Manifest, opts ApplyOptions) (AppliedResult, error) {
 				}
 				// Placeholder expansion (D75 WP3) BEFORE the per-provider
 				// translation: the hash stays provider-agnostic, like every other
-				// kind (docs/decisions.md D50) — it only differs based on the
+				// kind (docs/decisions/sync-provisioning.md D50) — it only differs based on the
 				// KB content and local resolution, never on the destination
 				// provider.
 				content = expandPlaceholders(content, opts, tracker)

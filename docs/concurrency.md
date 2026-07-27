@@ -1,66 +1,74 @@
-# Concurrency, transactionality and git synchronization
+# Concurrency, commits and git synchronization
 
-## Single-writer model
+## Writer boundary
 
-The server is the **sole writer** of each KB's working copy, serialized by a **per-KB mutex** (`KB.mu`) that protects the entire disk-write + git-commit sequence. `main` is **protected**: the server never commits to it directly, but to a **per-KB working branch**.
+Each mounted KB has one in-process mutex. Write tools acquire it for the
+filesystem change and the associated git operation, so one server process is
+the sole writer of that working copy.
 
-Cycle: `stage → commit per logical operation → debounce/coalescing → (Server: open/update PR)`.
+Do not mount the same local checkout into multiple writer processes. Separate
+clones can synchronize through the same remote, but high-contention
+multi-writer operation is not a supported scaling model; partition KBs across
+instances instead.
 
-**Step 1 (local commit) — implemented.** Every write tool is wrapped by `gitWrap` (in `internal/mcpserver/gitwrap.go`), which acquires `KB.mu`, runs the tool, and on success calls `KB.CommitOp` (in `internal/kb/gitsync.go`). Enabled via `KB.AutoCommit=true` (default `false` at struct level, default `true` in the server via `CARTOGRAPHER_GIT_AUTOCOMMIT`).
+## Local commit
 
-**Step 2 (optional remote sync) — implemented.** If the KB has an `origin` remote and `KB.GitSync=true` (default `true` in the server via `CARTOGRAPHER_GIT_SYNC`), the wrapper runs `KB.SyncIn()` **before** the operation (fetch + `pull --rebase --autostash`) and `KB.SyncOut()` **after** the commit (push with a fetch+pull-rebase+push loop, exponential backoff cap 5). Without a remote both methods are no-ops: only the local commits from Step 1 remain. The primitive is `gitx.PullRebaseAutostash`; a rebase conflict is aborted and reported via `*gitx.RebaseConflictError` (which carries the conflicting files, LocalSHA, RemoteSHA, Branch). Rich handling of this error is Step 3. Multiple independent instances, each on its own clone of the same KB-remote, thus converge via git (Local Core profile); verified by the E2E scenario `08_git_multiclone`.
+When `git.auto_commit` is enabled, successful write tools are wrapped by
+`gitWrap` and produce one commit per logical operation. Multi-file operations
+are committed together. Individual file replacement is atomic.
 
-**Step 3 (agentic conflict handling) — implemented.** When `SyncIn` or `SyncOut` return a `*gitx.RebaseConflictError`, `gitWrap` (in `internal/mcpserver/gitwrap.go`) does the following for each conflicting file:
-1. Converts the git path (`data/<path>.md`) to a ConceptID via `kb.GitPathToConceptID`.
-2. Registers the conflict in `<root>/.cartographer/conflicts.json` (local, non-versioned state) via `KB.RegisterConflict`.
-3. Marks the concept as `status: degraded` in the frontmatter (working tree, not committed) via `KB.MarkDegraded`.
+Cartographer writes to the branch currently checked out in the KB clone. It
+does not create working branches, open pull requests or merge into `main`.
+Repository review policy belongs to the remote hosting workflow.
 
-The agent receives an `errorResult` with the count of registered concepts and is directed to the `conflicts_list` tool and the `kb-conflict-resolve` skill. The KB remains operational: writes to other (non-conflicting) concepts work; the `conflicts_list` tool is always available; `sync_check` reports the `open_conflicts` field. The bundled `kb-conflict-resolve` skill guides the agent step by step. Verified by the E2E scenario `09_git_conflict`.
+## Remote synchronization
 
-**Step 4 (closing the resolution loop) — implemented (local profile).** The `git_conflict_resolve(concept_id, strategy, [body])` tool closes the loop without the agent having to touch git. `strategy ∈ {ours, theirs, edit}`: `ours` = local version, `theirs` = remote version, `edit` = reconciled content passed in `body` (full file, frontmatter included). The tool is **not** wrapped by `gitWrap` (it manages its own per-KB lock and must not re-trigger `SyncIn/SyncOut`, which would hit the same conflict again).
+When `git.sync` is enabled and `origin` exists:
 
-Two-phase mechanism (`internal/kb/conflicts.go`):
-1. **Record** — `RecordResolution` saves the decision in the per-concept registry (`resolution_strategy`/`resolution_body`). As long as unresolved conflicts remain (`PendingConflictCount > 0`), git is not touched: the tool returns the list of pending items.
-2. **Finalize** — when *all* open conflicts have a resolution, `FinalizeConflicts` runs **a single** transaction: stash uncommitted `degraded` markers → `git merge --no-commit --no-ff <remote_sha>` → overwrite each file with the resolved content (`ours`/`theirs` materialized via `git show <sha>:<path>` — avoids the `--ours/--theirs` swap of the rebase) and `git add` → rejects if conflicting files remain outside the registry → merge commit → `SyncOut` (best-effort push) → clears the registry and discards the `degraded` markers. On any git error: `merge --abort` + stash restore (working tree intact).
+1. `SyncIn` fetches and runs pull/rebase/autostash before a write. A freshness
+   window can skip repeated fetches within the configured interval.
+2. The write and local commit run under the same KB lock.
+3. `SyncOut` queues a debounced background push. Sync-sensitive operations and
+   graceful HTTP shutdown flush pending work.
+4. A rejected push retries through fetch + pull/rebase + push, with bounded
+   backoff. Cartographer never force-pushes automatically.
 
-The record/finalize separation avoids a persistent "half-done" rebase/merge state between calls (crash-safe: the decisions live in the registry; on restart the finalize is re-run). Materializing the sides by content (`git show`) instead of with `--ours/--theirs` eliminates the footgun of the reversed semantics during rebase.
+Without a remote, synchronization is a no-op and local commits still work.
 
-| Profile | Gate | Merge to main |
-|---|---|---|
-| **Local Core** (the only one implemented) | Lightweight gate (validate + lint + commit_gate) | Fast-forward on passing the gate; optional push to a personal remote. |
-| **Server** — *design sketch, not implemented* (issue #53) | PR on a dedicated branch (readable diff, approval, audit) | On merge: mandatory rebase of the branch onto `main`, re-validate (gate), then fast-forward-merge and push. |
+## Conflict registry
 
-Every profile writes directly on the KB branch: there is no working-branch/PR code path in the server.
+A rebase conflict is aborted immediately. For conflicting concept files the
+server records local/remote SHAs in
+`.cartographer/conflicts.json` and marks the working copy's concept
+`status: degraded`.
 
-> **Operational constraint**: a single writer-server per KB repo. Write-replicating the same KB across different hosts is out of scope; scaling is done by partitioning different KBs across different instances.
+The KB remains available for unrelated concepts. `conflicts_list` exposes the
+registry and `sync_check` reports `open_conflicts`.
 
-## Git synchronization to the remote
+`git_conflict_resolve(concept_id, strategy, body?)` records one of:
 
-- `fetch` before operating and periodically.
-- On non-fast-forward push: `fetch + pull --rebase --autostash + push` loop with **exponential backoff, cap 5**.
-- **Never** automatic force-push; intentional rewrite only with `--force-with-lease=<ref>:<sha> --force-if-includes`.
-- `merge.conflictStyle=zdiff3`.
-- **Atomic** per-file writes (write-temp + rename); the **git commit** is the multi-file transactional unit.
+- `ours` — retain the local version;
+- `theirs` — retain the remote version;
+- `edit` — use the supplied complete reconciled file.
 
-## KB state machine
+After every registered conflict has a resolution, Cartographer performs one
+merge transaction, materializes the selected contents, commits and attempts
+the push. On failure it aborts the merge and keeps the registry so resolution
+can be retried.
 
-| State | Meaning |
-|---|---|
-| `normal` | Operational. |
-| `syncing` | Sync in progress. |
-| `degraded (concept)` | One or more concepts are marked `status: degraded` due to an unresolved rebase conflict. The KB remains writable on other concepts; conflicts are visible via `conflicts_list`. |
+## Optimistic content concurrency
 
-**Resolving `degraded`**: the agent calls `conflicts_list`, reads the versions involved, decides on the reconciled content, rewrites the concept with `concept_write` (without `status: degraded`). The `sync_check` tool exposes the `open_conflicts` field for the SessionStart hook.
+`concept_read` returns normalized content hashes. Write tools that accept
+`if_match` reject an update with `stale_write` when the stored content no
+longer matches.
 
-## Optimistic concurrency
+There are no advisory per-concept leases or session locks. Concurrency safety
+comes from the KB mutex, content hashes and git conflict handling.
 
-- `concept_read` returns the **per-section content-hash** (normalized).
-- `concept_write` with `if_match` fails with `stale_write` if the content has changed.
-- **Advisory per-concept (or per-expanded-concept) lock** with TTL lease + heartbeat and `owner-id` persisted outside the versioned content (state file, not git). They expire on their own (no orphan locks on crash). They are released at the long-running checkpoint (Async Tasks); on resume each `if_match` is re-validated.
-- Neither the hash nor the lock is tied to an MCP session (stateless-friendly).
+## Operator recovery
 
-## Crash recovery
-
-On boot the server **detects and repairs** interrupted git state before serving the KB: half-done rebase → `abort`, leftover stash, orphan `index.lock`, crash between rename and commit.
-
-See also: [`deployment.md`](deployment.md) §backup/DR for failures of external components.
+Cartographer does not promise automatic repair of arbitrary interrupted git
+state. Before mounting a KB, the checkout should have no active merge/rebase
+and no unexplained working-tree changes. Back up the repository and follow the
+[deployment recovery procedure](deployment.md#backup-and-disaster-recovery)
+for storage or remote failures.

@@ -19,20 +19,23 @@ make fmt      # gofmt -w .
 make smoke    # quick stdio smoke test
 ```
 
-The agent-level E2E suite (`make e2e`) additionally needs OpenCode and an
-OpenAI-compatible LLM endpoint (`E2E_LLM_BASE_URL`); see
-[`test/e2e/README.md`](test/e2e/README.md). It is not required for regular
-contributions — CI runs `make vet && make test`.
+The deterministic E2E suite (`make e2e`) exercises the built HTTP server, CLI
+client and temporary git remotes without model credentials; see
+[`test/e2e/README.md`](test/e2e/README.md). CI runs `make vet`, `make test`,
+`make smoke-http` and `make e2e`.
 
 ## Finding your way around
 
-- [`AGENTS.md`](AGENTS.md) has a compact code map (what lives where). It is
-  the canonical instructions file for coding agents (`CLAUDE.md` is a symlink
-  to it).
+- [`AGENTS.md`](AGENTS.md) is the canonical agent entry point and has a
+  compact code map (what lives where). `CLAUDE.md` resolves to the same shared
+  instructions.
 - [`docs/index.md`](docs/index.md) is the documentation index, with reading
   paths and maintenance rules.
-- The *why* behind non-obvious choices lives in
-  [`docs/decisions.md`](docs/decisions.md) — grep the `## D<n>` entry.
+- The *why* behind non-obvious choices lives in the topic registers routed by
+  [`docs/decisions.md`](docs/decisions.md). Search `docs/decisions/` for the
+  `## D<n>` entry.
+- Project state lives in GitHub: issues for backlog and bugs, pull requests
+  for delivery, releases and `CHANGELOG.md` for completed user-visible work.
 
 ## Pull requests
 
@@ -51,7 +54,8 @@ contributions — CI runs `make vet && make test`.
 - **Documentation moves with the code in the same PR** — it's a project rule:
   any change touching interfaces, behavior, configuration, or architecture
   updates the corresponding `docs/` pages (see `docs/index.md` §Maintenance
-  rules). Non-obvious choices get an entry in `docs/decisions.md`.
+  rules). Non-obvious choices get one entry in the owning topic file under
+  `docs/decisions/`.
 - New MCP tools follow the checklist in `AGENTS.md` §Adding an MCP tool and
   come with tests in `internal/mcpserver/server_test.go`.
 - Coding conventions: [`docs/conventions.md`](docs/conventions.md).
@@ -84,13 +88,20 @@ only the issue and the repo must be able to implement without asking questions.
 - A single analysis may yield **several plan issues**: each one states the
   cross-plan execution order and which sibling plans touch the same files
   (those land sequentially, never in parallel). Amendments made before
-  implementation starts go in the issue body; later ones in comments.
+implementation starts go in the issue body; later ones in comments.
+
+A plan title reserves its `D<n>` number. Choose the next number above both the
+implemented entries in `docs/decisions/` and existing plan issue titles; a
+single topic file is never a complete allocator. The issue's Closing section
+names the one decision topic that will own the final entry.
 
 The implementation PR references the issue (`Closes #<n>`), executes the work
 packages in order (`make vet && make test` green after each), updates the docs
-per the issue's closing checklist and adds the `D<n>` entry to
-`docs/decisions.md`. If the plan contradicts the actual code, stop and flag it
-in an issue comment: the plan may be stale relative to `main`.
+per the issue's closing checklist and adds the final `D<n>` entry to that topic
+file. The entry records the implemented choice and any deviation from the
+plan; it does not duplicate current-state documentation. If the plan
+contradicts the actual code, stop and flag it in an issue comment: the plan may
+be stale relative to `main`.
 
 ## Reporting bugs
 

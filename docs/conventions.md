@@ -42,6 +42,8 @@ Rules to keep the code consistent. New code should resemble the existing code.
 
 ## Dependencies
 
-- Before adding an external import, check decision D1 in `decisions.md`.
+- Before adding an external import, check
+  [D1](decisions/project-governance.md#d1) and record a new dependency decision
+  in the topic that owns it.
 - Current default: stdlib preferred; external dependencies allowed when the benefit is clear.
 - Active external dependencies: `modernc.org/sqlite` (persisted search index, D32 — pure-Go, no cgo); `charmbracelet/bubbletea`+`bubbles`+`lipgloss`+`x/term` (client TUI dashboard, D35/D37 — `cmd/cartographer`, TTY detection); `gopkg.in/yaml.v3` (server YAML config and client `.cartographer.yaml`, D38).

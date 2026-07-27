@@ -15,7 +15,7 @@ import (
 )
 
 // ServerConfig holds the MCP server configuration. The client always talks to the
-// server over HTTP (see decisions.md): there is no stdio transport option.
+// server over HTTP (see docs/decisions/client-configurator.md D37): there is no stdio transport option.
 type ServerConfig struct {
 	Name        string
 	URL         string
@@ -510,7 +510,7 @@ var bearerEnvPattern = regexp.MustCompile(`^Bearer \$\{([A-Za-z_][A-Za-z0-9_]*)\
 //
 // Before D58, this wrote .codex/config.json with a "mcpServers" key — a format
 // Codex CLI never actually reads (it only reads config.toml); see
-// docs/decisions.md D58.
+// docs/decisions/sync-provisioning.md D58.
 func emitCodexServer(name string, spec ServerSpec) (*EmitResult, error) {
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "[mcp_servers.%s]\n", name)
@@ -584,7 +584,7 @@ func QuoteTOMLMultiline(s string) string {
 // emitKiroServer generates the .kiro/settings/mcp.json entry for name/spec
 // (Kiro format). Kiro's schema has no known auth-header field: spec.Headers is
 // intentionally not represented here (pre-existing gap, unrelated to D69 — see
-// docs/decisions.md D69's note on internal/provisioning surfacing a Warning for
+// docs/decisions/sync-provisioning.md D69's note on internal/provisioning surfacing a Warning for
 // KB-sourced servers that need it, since Cartographer's own entry never has
 // relied on Kiro auth headers either).
 func emitKiroServer(name string, spec ServerSpec) (*EmitResult, error) {
