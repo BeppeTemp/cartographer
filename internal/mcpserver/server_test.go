@@ -2535,6 +2535,16 @@ func TestServer_SyncApply(t *testing.T) {
 // artifact's file contents (base64), decodable and consistent with the test bundle.
 func TestServer_SyncPull(t *testing.T) {
 	k := setupTestKB(t)
+	skillDir := filepath.Join(k.Root, "skills", "binary")
+	if err := os.MkdirAll(skillDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("---\nname: binary\ndescription: test\n---\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(skillDir, "asset.bin"), []byte{0, 0xff, 1}, 0o755); err != nil {
+		t.Fatal(err)
+	}
 
 	bundleFS := fstest.MapFS{
 		"bundled/kb-create/SKILL.md": &fstest.MapFile{
@@ -2571,6 +2581,7 @@ func TestServer_SyncPull(t *testing.T) {
 			Files       []struct {
 				Path       string `json:"path"`
 				ContentB64 string `json:"content_b64"`
+				Executable bool   `json:"executable"`
 			} `json:"files"`
 		} `json:"artifacts"`
 	}
@@ -2582,8 +2593,8 @@ func TestServer_SyncPull(t *testing.T) {
 	}
 	// 2 artifacts expected: the bundled kb-create skill + the imprinting
 	// "instructions" artifact that BuildManifest always generates, one per KB (D56).
-	if len(result.Artifacts) != 2 {
-		t.Fatalf("sync_pull: expected 2 artifacts (kb-create bundled + instructions), got %d: %+v", len(result.Artifacts), result.Artifacts)
+	if len(result.Artifacts) != 3 {
+		t.Fatalf("sync_pull: expected 3 artifacts, got %d: %+v", len(result.Artifacts), result.Artifacts)
 	}
 	var art, instr *struct {
 		Kind        string `json:"kind"`
@@ -2594,12 +2605,15 @@ func TestServer_SyncPull(t *testing.T) {
 		Files       []struct {
 			Path       string `json:"path"`
 			ContentB64 string `json:"content_b64"`
+			Executable bool   `json:"executable"`
 		} `json:"files"`
 	}
 	for i := range result.Artifacts {
 		switch result.Artifacts[i].Kind {
 		case "skill":
-			art = &result.Artifacts[i]
+			if result.Artifacts[i].Name == "kb-create" {
+				art = &result.Artifacts[i]
+			}
 		case "instructions":
 			instr = &result.Artifacts[i]
 		}
@@ -2625,6 +2639,30 @@ func TestServer_SyncPull(t *testing.T) {
 	}
 	if !strings.Contains(string(decoded), "Body sync_pull.") {
 		t.Errorf("sync_pull: unexpected decoded content: %s", decoded)
+	}
+	foundBinary := false
+	for _, a := range result.Artifacts {
+		if a.Name != "binary" {
+			continue
+		}
+		foundBinary = true
+		assetB64 := ""
+		assetExec := false
+		for i := range a.Files {
+			if a.Files[i].Path == "asset.bin" {
+				assetB64, assetExec = a.Files[i].ContentB64, a.Files[i].Executable
+			}
+		}
+		if assetB64 == "" || !assetExec {
+			t.Fatalf("sync_pull: binary skill mode missing: %+v", a.Files)
+		}
+		got, err := base64.StdEncoding.DecodeString(assetB64)
+		if err != nil || string(got) != string([]byte{0, 0xff, 1}) {
+			t.Fatalf("sync_pull binary bytes: %x %v", got, err)
+		}
+	}
+	if !foundBinary {
+		t.Fatal("sync_pull: binary artifact missing")
 	}
 }
 

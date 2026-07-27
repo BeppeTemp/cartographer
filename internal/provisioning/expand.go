@@ -2,6 +2,7 @@ package provisioning
 
 import (
 	"crypto/sha256"
+	"encoding/binary"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -115,9 +116,8 @@ func buildPathsTable(resolved map[string]string) string {
 	return b.String()
 }
 
-// hashArtifactFiles mirrors ContentHashDir's algorithm (sha256 over each
-// file's slash path + NUL + content + newline, in path-sorted order) but
-// over in-memory files instead of a filesystem. Used to record
+// hashArtifactFiles uses a versioned, domain-separated length-prefixed
+// encoding of path, effective executable mode and raw bytes. Used to record
 // ManagedFile.ContentHash on the actually-written (placeholder-expanded)
 // bytes: when expansion is a no-op (no placeholder present), files are
 // byte-identical to the source, so this returns exactly Artifact.ContentHash
@@ -127,10 +127,22 @@ func hashArtifactFiles(files []ArtifactFile) string {
 	sort.Slice(sorted, func(i, j int) bool { return sorted[i].Path < sorted[j].Path })
 
 	h := sha256.New()
+	h.Write([]byte("cartographer:artifact-content:v1\x00"))
 	for _, f := range sorted {
-		fmt.Fprintf(h, "%s\x00", f.Path)
-		h.Write(f.Content)
-		h.Write([]byte{'\n'})
+		writeHashField(h, []byte(f.Path))
+		if f.Executable {
+			h.Write([]byte{1})
+		} else {
+			h.Write([]byte{0})
+		}
+		writeHashField(h, f.Content)
 	}
 	return fmt.Sprintf("%x", h.Sum(nil))
+}
+
+func writeHashField(h interface{ Write([]byte) (int, error) }, data []byte) {
+	var length [8]byte
+	binary.BigEndian.PutUint64(length[:], uint64(len(data)))
+	h.Write(length[:])
+	h.Write(data)
 }

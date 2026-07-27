@@ -143,8 +143,81 @@ func TestBuildManifest_HookHash_MultiFile_OrdineIndipendente(t *testing.T) {
 			hookHash = a.ContentHash
 		}
 	}
-	if hookHash != h1 {
-		t.Errorf("BuildManifest hook hash: expected %q (ContentHashDirOS), got %q — not reusing the existing hashing function", h1, hookHash)
+	if hookHash == h1 {
+		t.Error("BuildManifest hook hash must include the executable floor for hook scripts")
+	}
+}
+
+func TestHookEffectiveModes_HardFloorAndHashStability(t *testing.T) {
+	kbRoot := t.TempDir()
+	dir := filepath.Join(kbRoot, "hooks", "floor")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "hook.json"), []byte(`{"event":"SessionStart"}`), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "run.sh"), []byte("#!/bin/sh\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	roots := map[string]string{"kb": kbRoot}
+	m1, err := provisioning.BuildManifest(nil, roots, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var hook provisioning.Artifact
+	for _, a := range m1.Artifacts {
+		if a.Kind == "hook" {
+			hook = a
+		}
+	}
+	files, err := provisioning.ReadArtifactFiles(hook, nil, roots)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range files {
+		if filepath.Base(f.Path) == "hook.json" && f.Executable {
+			t.Fatal("hook.json must be non-executable")
+		}
+		if filepath.Base(f.Path) != "hook.json" && !f.Executable {
+			t.Fatal("hook script must keep executable floor")
+		}
+	}
+	base := t.TempDir()
+	if _, err := provisioning.Apply(m1, provisioning.ApplyOptions{KBRoots: roots, Provider: configurator.ProviderClaudeCode, BaseDir: base}); err != nil {
+		t.Fatal(err)
+	}
+	for name, wantExec := range map[string]bool{"hook.json": false, "run.sh": true} {
+		info, err := os.Stat(filepath.Join(base, ".claude", "hooks", "floor", name))
+		if err != nil || (info.Mode()&0o111 != 0) != wantExec {
+			t.Fatalf("%s mode=%v err=%v", name, info.Mode(), err)
+		}
+	}
+	if err := os.Chmod(filepath.Join(dir, "run.sh"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	m2, err := provisioning.BuildManifest(nil, roots, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var hook2 provisioning.Artifact
+	for _, a := range m2.Artifacts {
+		if a.Kind == "hook" {
+			hook2 = a
+		}
+	}
+	if hook2.Name == "" || m1.Revision != m2.Revision || hook.ContentHash != hook2.ContentHash {
+		t.Fatal("raw hook script mode must not change artifact hash or revision")
+	}
+	if err := os.Chmod(filepath.Join(dir, "hook.json"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m3, err := provisioning.BuildManifest(nil, roots, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m1.Revision != m3.Revision {
+		t.Fatal("raw hook.json mode must not change revision")
 	}
 }
 

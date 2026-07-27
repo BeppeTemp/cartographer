@@ -20,6 +20,7 @@ import (
 type pulledFileJSON struct {
 	Path       string `json:"path"`
 	ContentB64 string `json:"content_b64"`
+	Executable bool   `json:"executable"`
 }
 
 type pulledArtifactJSON struct {
@@ -91,7 +92,7 @@ func fetchMergedManifest(cfg *clientconfig.Config) (provisioning.Manifest, error
 				if err != nil {
 					return provisioning.Manifest{}, fmt.Errorf("sync_pull: decode file %s/%s/%s: %w", pa.Kind, pa.Name, pf.Path, err)
 				}
-				files[i] = provisioning.ArtifactFile{Path: pf.Path, Content: data}
+				files[i] = provisioning.ArtifactFile{Path: pf.Path, Content: data, Executable: pf.Executable}
 			}
 			all = append(all, provisioning.Artifact{
 				Kind: pa.Kind, Name: pa.Name, Source: pa.Source, Version: pa.Version,

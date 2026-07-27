@@ -10,6 +10,9 @@ the Agent Skills frontmatter (`name` and `description`) and exposes installed
 and binary-bundled skills through `skill_list`. `skill_install` copies a
 bundled skill into the KB.
 
+Skills may include executable `scripts/` files and binary `assets/`; provisioning
+preserves each source file's executable bit and transports auxiliary files as raw bytes.
+
 Client provisioning materializes KB skills into each provider's native
 directory. See [synchronization](sync.md) for the manifest, trust and pruning
 rules.

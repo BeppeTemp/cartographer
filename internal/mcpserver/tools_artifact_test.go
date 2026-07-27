@@ -1,12 +1,261 @@
 package mcpserver
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
+
+func TestArtifactTools_BinaryAndExecutableRoundTrip(t *testing.T) {
+	k := setupTestKB(t)
+	k.AllowArtifactWrite = true
+	s := New("test")
+	RegisterKBTools(s, k, Deps{})
+	data := []byte{0x00, 0xff, 0x80, 0x01}
+	path := "skills/bin/assets/icon.bin"
+	resps := runMCPSequence(t, s, []string{initMsg, artifactCallMsg(t, 2, "artifact_write", map[string]any{
+		"path": path, "content": base64.StdEncoding.EncodeToString(data), "encoding": "base64", "executable": true,
+	})})
+	if tr := decodeToolResult(t, resps[1]); tr.IsError {
+		t.Fatalf("binary write: %+v", tr.Content)
+	}
+	resps = runMCPSequence(t, s, []string{initMsg, artifactCallMsg(t, 2, "artifact_read", map[string]any{"path": path})})
+	tr := decodeToolResult(t, resps[1])
+	if tr.IsError {
+		t.Fatalf("binary read: %+v", tr.Content)
+	}
+	var read struct{ Content, Encoding string }
+	if err := json.Unmarshal([]byte(tr.Content[0].Text), &read); err != nil {
+		t.Fatal(err)
+	}
+	if read.Encoding != "base64" || read.Content != base64.StdEncoding.EncodeToString(data) {
+		t.Fatalf("binary read = %#v", read)
+	}
+	info, err := os.Stat(filepath.Join(k.Root, filepath.FromSlash(path)))
+	if err != nil || info.Mode()&0o111 == 0 {
+		t.Fatalf("executable mode = %v, %v", info.Mode(), err)
+	}
+}
+
+func TestArtifactTools_ExecutableTriState(t *testing.T) {
+	k := setupTestKB(t)
+	k.AllowArtifactWrite = true
+	s := New("test")
+	RegisterKBTools(s, k, Deps{})
+	path := "skills/mode/assets/run.sh"
+	call := func(args map[string]any) ToolResult {
+		resps := runMCPSequence(t, s, []string{initMsg, artifactCallMsg(t, 2, "artifact_write", args)})
+		return decodeToolResult(t, resps[1])
+	}
+	tr := call(map[string]any{"path": path, "content": "one", "executable": true})
+	if tr.IsError {
+		t.Fatalf("create: %+v", tr.Content)
+	}
+	var first struct {
+		SHA256 string `json:"sha256"`
+	}
+	if err := json.Unmarshal([]byte(tr.Content[0].Text), &first); err != nil {
+		t.Fatal(err)
+	}
+	mode := func() os.FileMode {
+		info, err := os.Stat(filepath.Join(k.Root, filepath.FromSlash(path)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return info.Mode()
+	}
+	if mode()&0o111 == 0 {
+		t.Fatal("explicit true did not set executable")
+	}
+	tr = call(map[string]any{"path": path, "content": "two", "if_match": first.SHA256})
+	if tr.IsError || mode()&0o111 == 0 {
+		t.Fatalf("omitted executable did not preserve mode: %+v", tr.Content)
+	}
+	var second struct {
+		SHA256 string `json:"sha256"`
+	}
+	if err := json.Unmarshal([]byte(tr.Content[0].Text), &second); err != nil {
+		t.Fatal(err)
+	}
+	tr = call(map[string]any{"path": path, "content": "three", "if_match": second.SHA256, "executable": false})
+	if tr.IsError || mode()&0o111 != 0 {
+		t.Fatalf("explicit false did not clear executable: %+v", tr.Content)
+	}
+}
+
+func TestArtifactTools_SymlinksRejected(t *testing.T) {
+	cases := []struct {
+		name  string
+		tool  string
+		path  string
+		args  map[string]any
+		setup func(t *testing.T, root, target string)
+	}{
+		{
+			name: "read final file", tool: "artifact_read", path: "skills/read/assets/link.bin",
+			setup: func(t *testing.T, root, target string) {
+				t.Helper()
+				if err := os.MkdirAll(filepath.Join(root, "skills", "read", "assets"), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Symlink(target, filepath.Join(root, "skills", "read", "assets", "link.bin")); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
+		{
+			name: "write final file", tool: "artifact_write", path: "skills/write/assets/link.bin",
+			args: map[string]any{"content": "replacement"},
+			setup: func(t *testing.T, root, target string) {
+				t.Helper()
+				if err := os.MkdirAll(filepath.Join(root, "skills", "write", "assets"), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Symlink(target, filepath.Join(root, "skills", "write", "assets", "link.bin")); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
+		{
+			name: "delete final file", tool: "artifact_delete", path: "skills/delete/assets/link.bin",
+			args: map[string]any{"if_match": sha256Hex([]byte("outside"))},
+			setup: func(t *testing.T, root, target string) {
+				t.Helper()
+				if err := os.MkdirAll(filepath.Join(root, "skills", "delete", "assets"), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Symlink(target, filepath.Join(root, "skills", "delete", "assets", "link.bin")); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
+		{
+			name: "list tree", tool: "artifact_list",
+			setup: func(t *testing.T, root, target string) {
+				t.Helper()
+				if err := os.MkdirAll(filepath.Join(root, "skills", "list"), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Symlink(target, filepath.Join(root, "skills", "list", "link.bin")); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			k := setupTestKB(t)
+			k.AllowArtifactWrite = true
+			target := filepath.Join(t.TempDir(), "outside.bin")
+			if err := os.WriteFile(target, []byte("outside"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			tc.setup(t, k.Root, target)
+
+			s := New("test")
+			RegisterKBTools(s, k, Deps{})
+			args := make(map[string]any, len(tc.args)+1)
+			for key, value := range tc.args {
+				args[key] = value
+			}
+			if tc.tool != "artifact_list" {
+				args["path"] = tc.path
+			}
+			resps := runMCPSequence(t, s, []string{initMsg, artifactCallMsg(t, 2, tc.tool, args)})
+			tr := decodeToolResult(t, resps[1])
+			if !tr.IsError || !containsText(tr, "symlink") {
+				t.Fatalf("%s: expected symlink rejection, got %+v", tc.tool, tr.Content)
+			}
+			if data, err := os.ReadFile(target); err != nil || string(data) != "outside" {
+				t.Fatalf("%s changed symlink target: data=%q err=%v", tc.tool, data, err)
+			}
+		})
+	}
+}
+
+func TestArtifactTools_ListReportsExecutableAuxiliarySkillFile(t *testing.T) {
+	k := setupTestKB(t)
+	skillDir := filepath.Join(k.Root, "skills", "aux")
+	if err := os.MkdirAll(skillDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("---\nname: aux\ndescription: test\n---\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(skillDir, "run.sh"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	s := New("test")
+	RegisterKBTools(s, k, Deps{})
+	resps := runMCPSequence(t, s, []string{initMsg, artifactCallMsg(t, 2, "artifact_list", map[string]any{})})
+	tr := decodeToolResult(t, resps[1])
+	if tr.IsError {
+		t.Fatalf("artifact_list: %+v", tr.Content)
+	}
+	var entries []artifactEntry
+	if err := json.Unmarshal([]byte(tr.Content[0].Text), &entries); err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		if entry.Kind != "skill" || entry.Name != "aux" {
+			continue
+		}
+		for _, file := range entry.Files {
+			if file.Path == "skills/aux/run.sh" {
+				if !file.Executable {
+					t.Fatal("artifact_list marked executable auxiliary file as non-executable")
+				}
+				return
+			}
+		}
+	}
+	t.Fatalf("artifact_list did not return skills/aux/run.sh: %+v", entries)
+}
+
+func TestArtifactTools_InvalidBase64DoesNotWrite(t *testing.T) {
+	k := setupTestKB(t)
+	k.AllowArtifactWrite = true
+	s := New("test")
+	RegisterKBTools(s, k, Deps{})
+	path := "skills/b64/assets/file.bin"
+	resps := runMCPSequence(t, s, []string{initMsg, artifactCallMsg(t, 2, "artifact_write", map[string]any{"path": path, "content": "%%%", "encoding": "base64"})})
+	tr := decodeToolResult(t, resps[1])
+	if !tr.IsError || !containsText(tr, "invalid") {
+		t.Fatalf("invalid base64: %+v", tr.Content)
+	}
+	if _, err := os.Stat(filepath.Join(k.Root, filepath.FromSlash(path))); !os.IsNotExist(err) {
+		t.Fatalf("invalid base64 wrote a file: %v", err)
+	}
+}
+
+func TestArtifactTools_TextEncodingAndDecodedLimits(t *testing.T) {
+	k := setupTestKB(t)
+	k.AllowArtifactWrite = true
+	s := New("test")
+	RegisterKBTools(s, k, Deps{})
+	call := func(args map[string]any) ToolResult {
+		r := runMCPSequence(t, s, []string{initMsg, artifactCallMsg(t, 2, "artifact_write", args)})
+		return decodeToolResult(t, r[1])
+	}
+	if tr := call(map[string]any{"path": "skills/text/assets/x", "content": "%%%", "encoding": "text"}); tr.IsError {
+		t.Fatalf("text must remain text: %+v", tr.Content)
+	}
+	if got, _ := os.ReadFile(filepath.Join(k.Root, "skills", "text", "assets", "x")); string(got) != "%%%" {
+		t.Fatalf("text changed: %q", got)
+	}
+	over := base64.StdEncoding.EncodeToString(make([]byte, artifactMaxFileSize+1))
+	if tr := call(map[string]any{"path": "skills/text/assets/large", "content": over, "encoding": "base64"}); !tr.IsError || !containsText(tr, "decoded content") {
+		t.Fatalf("oversize: %+v", tr.Content)
+	}
+	if tr := call(map[string]any{"path": "skills/bad/SKILL.md", "content": base64.StdEncoding.EncodeToString([]byte{0xff}), "encoding": "base64"}); !tr.IsError || !containsText(tr, "UTF-8") {
+		t.Fatalf("structured binary: %+v", tr.Content)
+	}
+}
 
 // artifactCallMsg builds a single-line JSON-RPC tools/call request for name
 // with the given arguments (marshaled as JSON), safe for content containing
