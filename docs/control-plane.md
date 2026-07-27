@@ -107,7 +107,7 @@ Tools marked **[A]** (advanced, `advancedToolNames` in `internal/mcpserver/visib
 | Tool | Purpose |
 |---|---|
 | `artifact_read(path, [encoding])` **[R]** | Reads an artifact file (`skills/<slug>/**`, `agents/<slug>.md`, `hooks/**`, `mcp/<slug>.json`, `instructions.md`) and returns its content, `encoding` (`text` or `base64`) and raw-byte `sha256` (the `if_match` for `artifact_write`). Non-UTF-8 bytes are always base64. |
-| `artifact_list()` **[R]** **[A]** | Lists artifacts by kind, with their files and sha256 (classification reused from `provisioning.BuildManifest`; for `instructions` it reads the raw `instructions.md` file, not the generated content). |
+| `artifact_list()` **[R]** **[A]** | Lists artifacts by kind, with their files, raw-byte sha256 and executable metadata (classification reused from `provisioning.BuildManifest`; for `instructions` it reads the raw `instructions.md` file, not the generated content). |
 | `artifact_write(path, content, [encoding], [executable], [if_match])` | Creates/updates an artifact file. `encoding` is `text` (default) or `base64`; the 256 KiB limit applies after decoding. `executable` is tri-state: omitted preserves an existing mode and defaults false on creation. Structured principal files remain UTF-8 and non-executable. On an existing file, `if_match` (raw-byte sha256) is **mandatory** (`already_exists` if missing, `stale_write` if wrong); per-kind validation applies before the write. Only registered if the KB has `allow_artifact_write: true`. |
 | `artifact_delete(path, if_match)` **[A]** | Removes the file (and the directory if left empty). Same per-KB flag as `artifact_write`. |
 

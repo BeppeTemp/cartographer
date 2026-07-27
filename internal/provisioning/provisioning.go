@@ -194,7 +194,10 @@ func contentHashDir(fsys fs.FS, dir string, executable func(string, bool) bool) 
 }
 
 func effectiveExecutable(kind, path string, executable bool) bool {
-	return executable || (kind == "hook" && filepath.Base(path) != "hook.json")
+	if kind != "hook" {
+		return executable
+	}
+	return filepath.Base(path) != "hook.json"
 }
 
 // ContentHashDirOS computes the hash of a folder on the real filesystem.

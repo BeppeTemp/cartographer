@@ -447,9 +447,14 @@ No server-side substitution: it would break `content_hash`/`if_match` (hash on t
 <a id="d105"></a>
 ## D105 — Binary-safe provisioning artifacts and executable KB scripts
 
-**Status: implemented (2026-07-27).** Artifact content is raw bytes; MCP read/write uses explicit
-`text`/`base64` encoding and retains raw-byte `sha256` for `if_match`. The executable bit is derived
-from the KB filesystem rather than a descriptor: git already versions it and the KB is the registry.
-The effective mode is included in the versioned, domain-separated artifact hash, because otherwise a
-`chmod` would not change the manifest revision and existing installations would never be rematerialized.
-Hook files retain their executable floor except `hook.json`, which is always non-executable.
+**Decision.** Provisioning artifact content is raw bytes; MCP read/write uses explicit `text`/`base64`
+encoding and retains raw-byte `sha256` for `if_match`. Executability is derived from the KB filesystem,
+not a descriptor. Hooks impose an effective mode: every file except `hook.json` is executable, while
+`hook.json` is always non-executable. The versioned, domain-separated artifact hash includes that
+effective mode.
+
+**Rationale.** Git already versions the executable bit, so the KB remains the sole registry rather
+than requiring a parallel metadata file. Including the effective mode in the hash makes `chmod` change
+the manifest revision and realign existing installations; normalizing the hook floor avoids drift from
+raw mode changes that cannot affect the materialized result. Base64 prevents byte corruption while
+preserving the existing text API and `if_match` contract.

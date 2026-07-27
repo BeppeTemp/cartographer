@@ -416,6 +416,14 @@ func toolArtifactWrite(k *kb.KB) Tool {
 			case !fileExists && params.IfMatch != "":
 				return errorResult(fmt.Sprintf("stale_write: %s not found", params.Path)), nil
 			}
+			mode := os.FileMode(0o644)
+			if fileExists {
+				stat, statErr := os.Stat(abs)
+				if statErr != nil {
+					return errorResult(fmt.Sprintf("artifact_write %q: stat: %v", params.Path, statErr)), nil
+				}
+				mode = stat.Mode()
+			}
 
 			if err := validateArtifactContent(info, params.Path, data); err != nil {
 				return errorResult(fmt.Sprintf("artifact_write %q: %v", params.Path, err)), nil
@@ -429,12 +437,6 @@ func toolArtifactWrite(k *kb.KB) Tool {
 			}
 			if err := os.WriteFile(abs, data, 0o644); err != nil {
 				return errorResult(fmt.Sprintf("artifact_write %q: %v", params.Path, err)), nil
-			}
-			mode := os.FileMode(0o644)
-			if fileExists {
-				if stat, statErr := os.Stat(abs); statErr == nil {
-					mode = stat.Mode()
-				}
 			}
 			if params.Executable != nil {
 				if *params.Executable {

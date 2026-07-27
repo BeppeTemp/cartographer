@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -11,6 +12,23 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
 )
+
+func TestPulledFileJSON_ExecutableBackwardCompatibility(t *testing.T) {
+	var current pulledFileJSON
+	if err := json.Unmarshal([]byte(`{"path":"run.sh","content_b64":"eA==","executable":true}`), &current); err != nil {
+		t.Fatal(err)
+	}
+	if !current.Executable {
+		t.Fatal("current transport payload lost executable")
+	}
+	var old pulledFileJSON
+	if err := json.Unmarshal([]byte(`{"path":"run.sh","content_b64":"eA=="}`), &old); err != nil {
+		t.Fatal(err)
+	}
+	if old.Executable {
+		t.Fatal("old payload must default executable to false")
+	}
+}
 
 func TestResolveTargetProviders_AgentSubsets(t *testing.T) {
 	tests := []struct {

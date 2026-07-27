@@ -40,6 +40,68 @@ func TestArtifactTools_BinaryAndExecutableRoundTrip(t *testing.T) {
 	}
 }
 
+func TestArtifactTools_ExecutableTriState(t *testing.T) {
+	k := setupTestKB(t)
+	k.AllowArtifactWrite = true
+	s := New("test")
+	RegisterKBTools(s, k, Deps{})
+	path := "skills/mode/assets/run.sh"
+	call := func(args map[string]any) ToolResult {
+		resps := runMCPSequence(t, s, []string{initMsg, artifactCallMsg(t, 2, "artifact_write", args)})
+		return decodeToolResult(t, resps[1])
+	}
+	tr := call(map[string]any{"path": path, "content": "one", "executable": true})
+	if tr.IsError {
+		t.Fatalf("create: %+v", tr.Content)
+	}
+	var first struct {
+		SHA256 string `json:"sha256"`
+	}
+	if err := json.Unmarshal([]byte(tr.Content[0].Text), &first); err != nil {
+		t.Fatal(err)
+	}
+	mode := func() os.FileMode {
+		info, err := os.Stat(filepath.Join(k.Root, filepath.FromSlash(path)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return info.Mode()
+	}
+	if mode()&0o111 == 0 {
+		t.Fatal("explicit true did not set executable")
+	}
+	tr = call(map[string]any{"path": path, "content": "two", "if_match": first.SHA256})
+	if tr.IsError || mode()&0o111 == 0 {
+		t.Fatalf("omitted executable did not preserve mode: %+v", tr.Content)
+	}
+	var second struct {
+		SHA256 string `json:"sha256"`
+	}
+	if err := json.Unmarshal([]byte(tr.Content[0].Text), &second); err != nil {
+		t.Fatal(err)
+	}
+	tr = call(map[string]any{"path": path, "content": "three", "if_match": second.SHA256, "executable": false})
+	if tr.IsError || mode()&0o111 != 0 {
+		t.Fatalf("explicit false did not clear executable: %+v", tr.Content)
+	}
+}
+
+func TestArtifactTools_InvalidBase64DoesNotWrite(t *testing.T) {
+	k := setupTestKB(t)
+	k.AllowArtifactWrite = true
+	s := New("test")
+	RegisterKBTools(s, k, Deps{})
+	path := "skills/b64/assets/file.bin"
+	resps := runMCPSequence(t, s, []string{initMsg, artifactCallMsg(t, 2, "artifact_write", map[string]any{"path": path, "content": "%%%", "encoding": "base64"})})
+	tr := decodeToolResult(t, resps[1])
+	if !tr.IsError || !containsText(tr, "invalid") {
+		t.Fatalf("invalid base64: %+v", tr.Content)
+	}
+	if _, err := os.Stat(filepath.Join(k.Root, filepath.FromSlash(path))); !os.IsNotExist(err) {
+		t.Fatalf("invalid base64 wrote a file: %v", err)
+	}
+}
+
 // artifactCallMsg builds a single-line JSON-RPC tools/call request for name
 // with the given arguments (marshaled as JSON), safe for content containing
 // quotes/newlines — unlike the raw string literals used elsewhere in this

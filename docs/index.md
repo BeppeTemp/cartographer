@@ -64,7 +64,7 @@ matching file **in the same session/PR** as the change:
 
 | What changes | File to update |
 |---|---|
-| New MCP tool or change to its interface (including provisioning artifact encodings and metadata) | `control-plane.md` §MCP tools |
+| New MCP tool or change to its interface | `control-plane.md` §MCP tools |
 | Change to the KB model / OKF / filesystem layout | `data-plane.md` |
 | Change to transport, auth or scopes | `transport-auth.md` |
 | Change to concurrency / git-sync logic | `concurrency.md` |
