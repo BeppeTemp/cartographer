@@ -25,7 +25,7 @@ var toolShaped = regexp.MustCompile(`\x60([a-z][a-z0-9_]*_[a-z0-9_]+)\x60`)
 // starting with one of these is expected to name a real tool.
 var toolPrefixes = []string{
 	"atlas_", "map_", "concept_", "index_", "log_", "graph_", "search_",
-	"skill_", "service_", "artifact_", "sync_", "git_", "kb_", "archive_",
+	"skill_", "service_", "secret_", "artifact_", "sync_", "git_", "kb_", "archive_",
 	"dossier_", "conflict_", "conflicts_", "commit_", "gate_", "changes_",
 	"contradiction_",
 }

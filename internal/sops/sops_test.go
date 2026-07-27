@@ -14,7 +14,7 @@ token: "quoted-value"
 # comment
 empty_line:
 
-nested_key: value-with-colon: in-it
+nested_key: "value-with-colon: in-it"
 `)
 	vals, err := parseYAMLFlat(input)
 	if err != nil {
@@ -61,7 +61,7 @@ func TestDecryptMissingSops(t *testing.T) {
 	if Available() {
 		t.Skip("sops is available, skipping missing-sops test")
 	}
-	_, err := Decrypt("/nonexistent/file.sops.yaml")
+	_, err := Decrypt(t.TempDir(), "nonexistent/file.sops.yaml")
 	if err == nil {
 		t.Error("expected error when sops not available")
 	}
@@ -103,7 +103,14 @@ echo "resolved_key: ${SOPS_AGE_KEY_FILE}"
 func TestDecrypt_WithEnv_FakeSops(t *testing.T) {
 	fakeSopsInPath(t)
 
-	sf, err := Decrypt("/any/path.sops.yaml", AgeKeyEnv("/tmp/age-key.txt")...)
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "secrets"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "secrets", "test.sops.yaml"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	sf, err := Decrypt(root, "secrets/test.sops.yaml", AgeKeyEnv("/tmp/age-key.txt")...)
 	if err != nil {
 		t.Fatalf("Decrypt: %v", err)
 	}
@@ -119,7 +126,14 @@ func TestDecrypt_NoEnv_FakeSops(t *testing.T) {
 	fakeSopsInPath(t)
 	t.Setenv("SOPS_AGE_KEY_FILE", "") // ensure no ambient value leaks in
 
-	sf, err := Decrypt("/any/path.sops.yaml")
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "secrets"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "secrets", "test.sops.yaml"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	sf, err := Decrypt(root, "secrets/test.sops.yaml")
 	if err != nil {
 		t.Fatalf("Decrypt: %v", err)
 	}

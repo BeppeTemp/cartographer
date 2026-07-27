@@ -105,6 +105,10 @@ func RegisterKBTools(s *Server, k *kb.KB, deps Deps) {
 	register(toolGitConflictResolve(k))
 	register(toolServiceGet(k))
 	register(toolServiceList(k))
+	// Secret resolution requires rw scope but is still a read-side operation;
+	// wrap explicitly so a synchronised KB is fresh before decryption.
+	register(readSyncWrap(k, toolSecretResolve(k)))
+	register(gitWrap(k, toolSecretSet(k)))
 	register(toolArtifactRead(k))
 	register(toolArtifactList(k))
 	if k.AllowArtifactWrite {

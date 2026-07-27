@@ -36,6 +36,22 @@ from contaminating requests on another in a multi-KB server (same reason as D46)
 in the guard keeps all r/rw enforcement in one place, consistent with D45.
 Details: `docs/skills-services-secrets.md` §SOPS secrets, `docs/transport-auth.md`.
 
+## D104 — Structured SOPS pointers, scoped refs and encrypted-only writes
+
+The line-oriented YAML parser silently collapsed nested DANTE bundles: repeated
+`client_secret` leaves overwrote one another, so a DEV request could receive
+the PROD value. YAML is now traversed structurally and flattened to RFC 6901
+JSON Pointers. The return type remains `map[string]string`: it is compatible
+with process environments while pointers keep the key space injective.
+
+`secret_refs` use scalar `NAME=path#pointer` entries because OKF frontmatter
+intentionally supports only strings and string lists. This gives per-ref least
+privilege without widening the frontmatter grammar. `secret_set` only operates
+on a pre-existing SOPS-encrypted file through `sops set --value-stdin`; file
+creation and recipient selection remain operator work, preventing plaintext
+commits. Rejected: indentation-aware flat parsing, map-valued frontmatter, and
+server-managed creation rules.
+
 ---
 
 <a id="d96"></a>

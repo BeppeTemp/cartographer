@@ -127,7 +127,8 @@ that the type is present in the Map's `concept_types` palette. It does not
 validate a nested per-type grammar.
 
 - A `Service` commonly carries flat fields such as `kind`, `base_url` and
-  `secrets_source`; see [skills, services and secrets](skills-services-secrets.md).
+  `secrets_source` or `secret_refs`; secrets may be owned by any concept, not
+  only a Service. See [skills, services and secrets](skills-services-secrets.md).
 - The contradiction tools use `resolution_status`, `contradiction_kind`,
   `involves` and `reason`.
 
