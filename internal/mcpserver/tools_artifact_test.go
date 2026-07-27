@@ -86,6 +86,137 @@ func TestArtifactTools_ExecutableTriState(t *testing.T) {
 	}
 }
 
+func TestArtifactTools_SymlinksRejected(t *testing.T) {
+	cases := []struct {
+		name  string
+		tool  string
+		path  string
+		args  map[string]any
+		setup func(t *testing.T, root, target string)
+	}{
+		{
+			name: "read final file", tool: "artifact_read", path: "skills/read/assets/link.bin",
+			setup: func(t *testing.T, root, target string) {
+				t.Helper()
+				if err := os.MkdirAll(filepath.Join(root, "skills", "read", "assets"), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Symlink(target, filepath.Join(root, "skills", "read", "assets", "link.bin")); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
+		{
+			name: "write final file", tool: "artifact_write", path: "skills/write/assets/link.bin",
+			args: map[string]any{"content": "replacement"},
+			setup: func(t *testing.T, root, target string) {
+				t.Helper()
+				if err := os.MkdirAll(filepath.Join(root, "skills", "write", "assets"), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Symlink(target, filepath.Join(root, "skills", "write", "assets", "link.bin")); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
+		{
+			name: "delete final file", tool: "artifact_delete", path: "skills/delete/assets/link.bin",
+			args: map[string]any{"if_match": sha256Hex([]byte("outside"))},
+			setup: func(t *testing.T, root, target string) {
+				t.Helper()
+				if err := os.MkdirAll(filepath.Join(root, "skills", "delete", "assets"), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Symlink(target, filepath.Join(root, "skills", "delete", "assets", "link.bin")); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
+		{
+			name: "list tree", tool: "artifact_list",
+			setup: func(t *testing.T, root, target string) {
+				t.Helper()
+				if err := os.MkdirAll(filepath.Join(root, "skills", "list"), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Symlink(target, filepath.Join(root, "skills", "list", "link.bin")); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			k := setupTestKB(t)
+			k.AllowArtifactWrite = true
+			target := filepath.Join(t.TempDir(), "outside.bin")
+			if err := os.WriteFile(target, []byte("outside"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			tc.setup(t, k.Root, target)
+
+			s := New("test")
+			RegisterKBTools(s, k, Deps{})
+			args := make(map[string]any, len(tc.args)+1)
+			for key, value := range tc.args {
+				args[key] = value
+			}
+			if tc.tool != "artifact_list" {
+				args["path"] = tc.path
+			}
+			resps := runMCPSequence(t, s, []string{initMsg, artifactCallMsg(t, 2, tc.tool, args)})
+			tr := decodeToolResult(t, resps[1])
+			if !tr.IsError || !containsText(tr, "symlink") {
+				t.Fatalf("%s: expected symlink rejection, got %+v", tc.tool, tr.Content)
+			}
+			if data, err := os.ReadFile(target); err != nil || string(data) != "outside" {
+				t.Fatalf("%s changed symlink target: data=%q err=%v", tc.tool, data, err)
+			}
+		})
+	}
+}
+
+func TestArtifactTools_ListReportsExecutableAuxiliarySkillFile(t *testing.T) {
+	k := setupTestKB(t)
+	skillDir := filepath.Join(k.Root, "skills", "aux")
+	if err := os.MkdirAll(skillDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("---\nname: aux\ndescription: test\n---\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(skillDir, "run.sh"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	s := New("test")
+	RegisterKBTools(s, k, Deps{})
+	resps := runMCPSequence(t, s, []string{initMsg, artifactCallMsg(t, 2, "artifact_list", map[string]any{})})
+	tr := decodeToolResult(t, resps[1])
+	if tr.IsError {
+		t.Fatalf("artifact_list: %+v", tr.Content)
+	}
+	var entries []artifactEntry
+	if err := json.Unmarshal([]byte(tr.Content[0].Text), &entries); err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		if entry.Kind != "skill" || entry.Name != "aux" {
+			continue
+		}
+		for _, file := range entry.Files {
+			if file.Path == "skills/aux/run.sh" {
+				if !file.Executable {
+					t.Fatal("artifact_list marked executable auxiliary file as non-executable")
+				}
+				return
+			}
+		}
+	}
+	t.Fatalf("artifact_list did not return skills/aux/run.sh: %+v", entries)
+}
+
 func TestArtifactTools_InvalidBase64DoesNotWrite(t *testing.T) {
 	k := setupTestKB(t)
 	k.AllowArtifactWrite = true

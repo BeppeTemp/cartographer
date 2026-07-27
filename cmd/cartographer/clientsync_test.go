@@ -1,7 +1,10 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -27,6 +30,72 @@ func TestPulledFileJSON_ExecutableBackwardCompatibility(t *testing.T) {
 	}
 	if old.Executable {
 		t.Fatal("old payload must default executable to false")
+	}
+}
+
+func TestFetchMergedManifest_PreservesBinaryExecutableFilesThroughApply(t *testing.T) {
+	binary := []byte{0x00, 0xff, 0x80, 0x01}
+	const artifactHash = "binary-executable-hash"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/mcp" {
+			http.NotFound(w, r)
+			return
+		}
+		var req struct {
+			ID int `json:"id"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Fatal(err)
+		}
+		payload := `{"revision":"wire-rev","artifacts":[{"kind":"skill","name":"wire","source":"kb:test","content_hash":"` + artifactHash + `","signed":true,"files":[{"path":"SKILL.md","content_b64":"LS0tXG5uYW1lOiB3aXJlXG5kZXNjcmlwdGlvbjogdGVzdFxuLS0tXG4=","executable":false},{"path":"run.bin","content_b64":"AP+AAQ==","executable":true}]}]}`
+		if err := json.NewEncoder(w).Encode(map[string]any{
+			"jsonrpc": "2.0",
+			"id":      req.ID,
+			"result":  map[string]any{"content": []map[string]string{{"type": "text", "text": payload}}},
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}))
+	defer srv.Close()
+
+	m, err := fetchMergedManifest(&clientconfig.Config{ServerURL: srv.URL + "/mcp"})
+	if err != nil {
+		t.Fatalf("fetchMergedManifest: %v", err)
+	}
+	if m.Revision == "" || len(m.Artifacts) != 1 {
+		t.Fatalf("manifest = %+v", m)
+	}
+	a := m.Artifacts[0]
+	if a.ContentHash != artifactHash || len(a.Files) != 2 || !a.Files[1].Executable || !bytes.Equal(a.Files[1].Content, binary) {
+		t.Fatalf("wire DTO mapping lost artifact data: %+v", a)
+	}
+
+	for provider, rel := range map[string]string{
+		"claude":   filepath.Join(".claude", "skills", "wire", "run.bin"),
+		"codex":    filepath.Join(".codex", "skills", "wire", "run.bin"),
+		"kiro":     filepath.Join(".kiro", "skills", "wire", "run.bin"),
+		"opencode": filepath.Join(".opencode", "skills", "wire", "run.bin"),
+	} {
+		base := t.TempDir()
+		res, err := provisioning.Apply(m, provisioning.ApplyOptions{
+			Provider: configurator.Provider(provider),
+			BaseDir:  base,
+			Lock:     provisioning.Lock{},
+		})
+		if err != nil {
+			t.Fatalf("Apply(%s): %v", provider, err)
+		}
+		if len(res.Written) != 2 || res.Written[0].ContentHash != artifactHash || res.Written[1].ContentHash != artifactHash {
+			t.Fatalf("Apply(%s) changed artifact hash: %+v", provider, res.Written)
+		}
+		data, err := os.ReadFile(filepath.Join(base, rel))
+		if err != nil || !bytes.Equal(data, binary) {
+			t.Fatalf("Apply(%s) binary = %x, err=%v", provider, data, err)
+		}
+		info, err := os.Stat(filepath.Join(base, rel))
+		if err != nil || info.Mode()&0o111 == 0 {
+			t.Fatalf("Apply(%s) mode = %v, err=%v", provider, info.Mode(), err)
+		}
 	}
 }
 

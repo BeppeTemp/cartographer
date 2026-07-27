@@ -193,14 +193,30 @@ func TestHookEffectiveModes_HardFloorAndHashStability(t *testing.T) {
 			t.Fatalf("%s mode=%v err=%v", name, info.Mode(), err)
 		}
 	}
-	if err := os.Chmod(filepath.Join(dir, "hook.json"), 0o644); err != nil {
+	if err := os.Chmod(filepath.Join(dir, "run.sh"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	m2, err := provisioning.BuildManifest(nil, roots, true)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if m1.Revision != m2.Revision {
+	var hook2 provisioning.Artifact
+	for _, a := range m2.Artifacts {
+		if a.Kind == "hook" {
+			hook2 = a
+		}
+	}
+	if hook2.Name == "" || m1.Revision != m2.Revision || hook.ContentHash != hook2.ContentHash {
+		t.Fatal("raw hook script mode must not change artifact hash or revision")
+	}
+	if err := os.Chmod(filepath.Join(dir, "hook.json"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m3, err := provisioning.BuildManifest(nil, roots, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m1.Revision != m3.Revision {
 		t.Fatal("raw hook.json mode must not change revision")
 	}
 }

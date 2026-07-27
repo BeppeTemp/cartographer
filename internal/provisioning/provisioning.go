@@ -922,17 +922,30 @@ func Apply(m Manifest, opts ApplyOptions) (AppliedResult, error) {
 
 	// Artifacts to update (add + update).
 	toWrite := append(diff.Added, diff.Updated...)
+	toWriteKeys := make(map[string]bool, len(toWrite))
+	for _, a := range toWrite {
+		toWriteKeys[a.Kind+"\x00"+a.Name] = true
+	}
+	// The lock tracks content hashes, so a chmod alone does not make an
+	// artifact Updated. Restore the promised executable modes nevertheless:
+	// scripts arrive over sync_pull with their mode in ArtifactFile and must not
+	// become non-runnable merely because their bytes are unchanged.
+	for _, a := range m.Artifacts {
+		key := a.Kind + "\x00" + a.Name
+		if toWriteKeys[key] || !a.Signed {
+			continue
+		}
+		if executableModeDrift(a, opts) {
+			toWrite = append(toWrite, a)
+			toWriteKeys[key] = true
+		}
+	}
 
 	// Build the new managed set, starting from the unchanged ones.
 	manifestKeys := make(map[string]bool, len(m.Artifacts))
 	for _, a := range m.Artifacts {
 		manifestKeys[a.Kind+"\x00"+a.Name] = true
 	}
-	toWriteKeys := make(map[string]bool, len(toWrite))
-	for _, a := range toWrite {
-		toWriteKeys[a.Kind+"\x00"+a.Name] = true
-	}
-
 	newManaged := make([]ManagedFile, 0)
 	for _, mf := range opts.Lock.Managed {
 		// The "instructions" kind (D56) is handled entirely by
@@ -1172,6 +1185,40 @@ func Apply(m Manifest, opts ApplyOptions) (AppliedResult, error) {
 	}
 
 	return result, nil
+}
+
+// executableModeDrift reports whether an unchanged skill or hook has a file
+// whose executable bits no longer match the manifest. Source-read failures are
+// intentionally ignored: before this best-effort repair Apply could complete
+// an unchanged manifest without reading its source at all.
+func executableModeDrift(a Artifact, opts ApplyOptions) bool {
+	if a.Kind != "skill" && a.Kind != "hook" {
+		return false
+	}
+	destRel := destDir(a.Kind, a.Name, opts.Provider)
+	if destRel == "" {
+		return false
+	}
+	files, err := ReadArtifactFiles(a, opts.BundleFS, opts.KBRoots)
+	if err != nil {
+		return false
+	}
+	for _, f := range files {
+		local := filepath.FromSlash(f.Path)
+		if !filepath.IsLocal(local) {
+			// copyArtifactFiles will surface this when the artifact otherwise
+			// changes; an unchanged malformed artifact is not mode drift.
+			return false
+		}
+		info, err := os.Stat(filepath.Join(opts.BaseDir, destRel, local))
+		if err != nil {
+			continue
+		}
+		if (info.Mode()&0o111 != 0) != effectiveExecutable(a.Kind, local, f.Executable) {
+			return true
+		}
+	}
+	return false
 }
 
 // --- Instructions: managed block (D56) ---

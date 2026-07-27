@@ -230,6 +230,58 @@ func TestBuildManifest_ExecutableSkillChangesHashAndApplyMode(t *testing.T) {
 	}
 }
 
+func TestApply_CorrectsExecutableModeDriftWithoutDryRunMutation(t *testing.T) {
+	m := provisioning.Manifest{
+		Revision: "mode-drift",
+		Artifacts: []provisioning.Artifact{{
+			Kind:        "skill",
+			Name:        "mode",
+			Source:      "kb:test",
+			ContentHash: "mode-hash",
+			Signed:      true,
+			Files: []provisioning.ArtifactFile{
+				{Path: "SKILL.md", Content: []byte("---\nname: mode\ndescription: test\n---\n")},
+				{Path: "run.sh", Content: []byte("#!/bin/sh\n"), Executable: true},
+			},
+		}},
+	}
+	base := t.TempDir()
+	opts := provisioning.ApplyOptions{
+		Provider: configurator.ProviderClaudeCode,
+		BaseDir:  base,
+		Lock:     provisioning.Lock{},
+	}
+	first, err := provisioning.Apply(m, opts)
+	if err != nil {
+		t.Fatalf("initial Apply: %v", err)
+	}
+	script := filepath.Join(base, ".claude", "skills", "mode", "run.sh")
+	if err := os.Chmod(script, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	opts.Lock = first.NewLock
+	if _, err := provisioning.Apply(m, opts); err != nil {
+		t.Fatalf("Apply correcting mode drift: %v", err)
+	}
+	info, err := os.Stat(script)
+	if err != nil || info.Mode()&0o111 == 0 {
+		t.Fatalf("Apply did not restore executable mode: %v, %v", info.Mode(), err)
+	}
+
+	if err := os.Chmod(script, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	opts.DryRun = true
+	if _, err := provisioning.Apply(m, opts); err != nil {
+		t.Fatalf("dry-run Apply: %v", err)
+	}
+	info, err = os.Stat(script)
+	if err != nil || info.Mode()&0o111 != 0 {
+		t.Fatalf("dry-run changed executable mode: %v, %v", info.Mode(), err)
+	}
+}
+
 func TestBuildManifest_DedupBundleVsKB(t *testing.T) {
 	// skill_install case: the same "kb-create" skill exists both in the bundle and the KB.
 	// The manifest must contain it ONLY once, with the KB taking precedence.
