@@ -2640,17 +2640,29 @@ func TestServer_SyncPull(t *testing.T) {
 	if !strings.Contains(string(decoded), "Body sync_pull.") {
 		t.Errorf("sync_pull: unexpected decoded content: %s", decoded)
 	}
+	foundBinary := false
 	for _, a := range result.Artifacts {
 		if a.Name != "binary" {
 			continue
 		}
-		if len(a.Files) != 2 || !a.Files[1].Executable {
+		foundBinary = true
+		assetB64 := ""
+		assetExec := false
+		for i := range a.Files {
+			if a.Files[i].Path == "asset.bin" {
+				assetB64, assetExec = a.Files[i].ContentB64, a.Files[i].Executable
+			}
+		}
+		if assetB64 == "" || !assetExec {
 			t.Fatalf("sync_pull: binary skill mode missing: %+v", a.Files)
 		}
-		got, err := base64.StdEncoding.DecodeString(a.Files[1].ContentB64)
+		got, err := base64.StdEncoding.DecodeString(assetB64)
 		if err != nil || string(got) != string([]byte{0, 0xff, 1}) {
 			t.Fatalf("sync_pull binary bytes: %x %v", got, err)
 		}
+	}
+	if !foundBinary {
+		t.Fatal("sync_pull: binary artifact missing")
 	}
 }
 

@@ -102,6 +102,30 @@ func TestArtifactTools_InvalidBase64DoesNotWrite(t *testing.T) {
 	}
 }
 
+func TestArtifactTools_TextEncodingAndDecodedLimits(t *testing.T) {
+	k := setupTestKB(t)
+	k.AllowArtifactWrite = true
+	s := New("test")
+	RegisterKBTools(s, k, Deps{})
+	call := func(args map[string]any) ToolResult {
+		r := runMCPSequence(t, s, []string{initMsg, artifactCallMsg(t, 2, "artifact_write", args)})
+		return decodeToolResult(t, r[1])
+	}
+	if tr := call(map[string]any{"path": "skills/text/assets/x", "content": "%%%", "encoding": "text"}); tr.IsError {
+		t.Fatalf("text must remain text: %+v", tr.Content)
+	}
+	if got, _ := os.ReadFile(filepath.Join(k.Root, "skills", "text", "assets", "x")); string(got) != "%%%" {
+		t.Fatalf("text changed: %q", got)
+	}
+	over := base64.StdEncoding.EncodeToString(make([]byte, artifactMaxFileSize+1))
+	if tr := call(map[string]any{"path": "skills/text/assets/large", "content": over, "encoding": "base64"}); !tr.IsError || !containsText(tr, "decoded content") {
+		t.Fatalf("oversize: %+v", tr.Content)
+	}
+	if tr := call(map[string]any{"path": "skills/bad/SKILL.md", "content": base64.StdEncoding.EncodeToString([]byte{0xff}), "encoding": "base64"}); !tr.IsError || !containsText(tr, "UTF-8") {
+		t.Fatalf("structured binary: %+v", tr.Content)
+	}
+}
+
 // artifactCallMsg builds a single-line JSON-RPC tools/call request for name
 // with the given arguments (marshaled as JSON), safe for content containing
 // quotes/newlines — unlike the raw string literals used elsewhere in this
