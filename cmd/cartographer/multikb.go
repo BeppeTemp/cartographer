@@ -40,6 +40,29 @@ func enumerateKBs(serverURL string, auth bool, tokenEnv string) (names []string,
 	return names, true, nil
 }
 
+// kiroFlatNamespaceWarning returns a non-empty warning when providers
+// includes kiro and entries has 2 or more entries (a multi-KB connection):
+// Kiro's MCP tool namespace is flat across servers — unlike Claude Code,
+// Codex and OpenCode, which namespace tools per server (verified empirically,
+// see the D102 issue thread) — so without a server-side tool_prefix on the
+// extra KBs, only one of them stays reachable in a Kiro session, silently.
+// There is no reliable client-side way to know whether the server has
+// prefixes configured (GET /health does not expose them), so the warning is
+// unconditional on the precondition rather than trying to guess (D102).
+func kiroFlatNamespaceWarning(providers []string, entries []mcpEntry) string {
+	if len(entries) < 2 {
+		return ""
+	}
+	for _, p := range providers {
+		if configurator.Provider(p) == configurator.ProviderKiro {
+			return fmt.Sprintf("kiro has a flat MCP tool namespace across servers: writing %d MCP entries "+
+				"means only one KB's tools will be reachable in a Kiro session unless the server mounts the "+
+				"others with a tool_prefix (see docs/deployment.md §MCP tool-name prefix)", len(entries))
+		}
+	}
+	return ""
+}
+
 // entriesForKBs implements D92's compatibility rule: a zero/one-KB server
 // keeps one bare entry; a multi-KB server gets one explicitly-scoped entry per
 // KB. url.URL is used rather than concatenation so an existing query survives.

@@ -58,6 +58,14 @@ kbs:                          # (kbs[]) explicit KBs, local path or remote git (
                                                       # clients will execute — the capability must be
                                                       # granted per-KB by the operator; an rw token alone
                                                       # does not imply it
+    tool_prefix: "team"                              # (kbs[].tool_prefix) opt-in per-KB tool-name prefix
+                                                      # (default "", off): registers this KB's tools as
+                                                      # `team__<tool>` instead of `<tool>`. Wins over
+                                                      # `mcp.tool_prefix_mode` below. See §MCP tool-name prefix.
+mcp:
+  tool_prefix_mode: "off"       # (mcp.tool_prefix_mode) off (default) | kb-name: global default for
+                                # every mounted KB that doesn't set its own kbs[].tool_prefix — kb-name
+                                # derives the prefix from the KB's own name. See §MCP tool-name prefix.
 git:
   autocommit: true            # (git.autocommit) commit after every write
   sync: true                  # (git.sync) read/write fetch/pull-rebase + post-write push if the KB has a remote
@@ -132,6 +140,36 @@ Similarly, `sops.age_key_dir` fixes a directory with a per-KB age key
 (explicit override) → `<sops.age_key_dir>/<name>.age` if the file exists → global
 `sops.age_key_file`.
 
+### MCP tool-name prefix (D102)
+
+Every KB mounted on a multi-KB server exposes the *same* 20 tool names (`concept_read`, `search`,
+...) on its own endpoint (`?kb=<name>` / `/mcp/<name>`). Clients that namespace MCP tools per
+server — Claude Code, Codex, OpenCode — are unaffected by the collision. Kiro's CLI has a single,
+flat tool namespace across every configured MCP server: mounting two KBs there means only one of
+them keeps its tools reachable, silently.
+
+The fix is an **opt-in, default-off** per-KB tool-name prefix: `kbs[].tool_prefix` (or the global
+`mcp.tool_prefix_mode: kb-name`/`CARTOGRAPHER_MCP_TOOL_PREFIX_MODE=kb-name`, which derives the
+prefix from the KB's own name for every KB that doesn't set its own `tool_prefix`) registers that
+KB's tools as `<prefix>__<tool>` instead of `<tool>`. Precedence: `kbs[].tool_prefix` (explicit) >
+`mcp.tool_prefix_mode`/env (global default) > off. It is off by default so that Claude
+Code/Codex/OpenCode deployments, unaffected by the problem, never see a tool rename.
+
+The raw prefix is sanitized before use: lowercased, every run of characters outside `[a-z0-9_]`
+collapsed to a single `_`, leading/trailing `_` stripped. The server fails fast at startup (not at
+first tool call) if, after sanitisation, the result is empty, starts with a digit, or the resulting
+`<prefix>__<tool>` name exceeds 48 characters for any tool the KB registers — the error names the
+KB and the offending tool/prefix. Read/write classification (§Auth) and the `agent`/`full` tools
+profile (D65) both match on the tool name *after* stripping the prefix, so scoped tokens and the
+tools profile behave identically with or without a prefix. When 2+ KBs are mounted, `serverInfo.name`
+also becomes `cartographer:<kb>` (a single-KB deployment keeps the bare `cartographer` it has
+always reported).
+
+`cartographer connect`/`cartographer sync` print a warning on stderr whenever the provider being
+configured is `kiro` and 2+ MCP entries (i.e. 2+ KBs) are about to be written, regardless of
+whether the server actually has prefixes configured (the client has no way to probe that): the
+operator adds `tool_prefix`/`tool_prefix_mode` to the server config as the fix.
+
 ### Environment variables
 
 Every startup option has a corresponding environment variable (the CLI flag takes precedence):
@@ -155,6 +193,7 @@ Every startup option has a corresponding environment variable (the CLI flag take
 | `CARTOGRAPHER_AUDIT_LOG` | — | Path to the audit log's JSONL file (e.g. `/data/audit.log`). If empty, audit is disabled. |
 | `CARTOGRAPHER_AUDIT_KEY` | — | Ed25519 seed (hex, 64 chars) for signing entries. Requires `CARTOGRAPHER_AUDIT_LOG`. |
 | `CARTOGRAPHER_SERVER_URL` | — | **Client** (not server): default server URL for `cartographer connect` on the client machine when no `.cartographer.yaml` exists yet. Precedence: existing yaml > env > `http://localhost:8080/mcp` (D64, `internal/clientconfig.Default`). |
+| `CARTOGRAPHER_MCP_TOOL_PREFIX_MODE` | — | Global default for `mcp.tool_prefix_mode`: `off` (default) \| `kb-name`. Overridden per KB by `kbs[].tool_prefix` (D102, see §MCP tool-name prefix). |
 
 **`CARTOGRAPHER_AUTH`** — three modes:
 

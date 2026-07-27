@@ -103,7 +103,11 @@ func (s *Server) handleMCPPost(w http.ResponseWriter, r *http.Request) {
 // least the same privilege as a write. The tool-name classification in
 // ToolRequiresWrite can't see arguments, so this per-argument override lives
 // here, at the one place that already parses the JSON-RPC body.
-func mcpAccessGuard(kbName string, next http.Handler) http.Handler {
+//
+// srv is the KB's own *Server: its ToolRequiresWrite method strips this
+// server's tool-name prefix (D102), if any, before classifying — so a
+// prefixed write tool is still correctly rejected for a read-only scope.
+func mcpAccessGuard(kbName string, srv *Server, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		scopes := auth.ScopesFromContext(r.Context())
 		if len(scopes) == 0 {
@@ -131,8 +135,8 @@ func mcpAccessGuard(kbName string, next http.Handler) http.Handler {
 					} `json:"arguments"`
 				}
 				_ = json.Unmarshal(req.Params, &params) // ignore errors: ToolRequiresWrite("") is fail-closed too
-				needWrite = ToolRequiresWrite(params.Name)
-				if params.Name == "service_get" && params.Arguments.ResolveSecrets {
+				needWrite = srv.ToolRequiresWrite(params.Name)
+				if srv.StripToolPrefix(params.Name) == "service_get" && params.Arguments.ResolveSecrets {
 					needWrite = true
 				}
 			}
@@ -252,12 +256,50 @@ func NewMultiKBServer(version string) *MultiKBServer {
 	}
 }
 
-// MountKB registers a KB with the given name. Creates a dedicated MCP server for it.
+// MountKB registers a KB with the given name, tool names unprefixed. Creates
+// a dedicated MCP server for it.
 func (m *MultiKBServer) MountKB(name string, setupFn func(s *Server)) {
+	// prefix == "" never fails MountKBWithPrefix's validation (no tool name
+	// grows), so the error is unreachable here.
+	_ = m.MountKBWithPrefix(name, "", setupFn)
+}
+
+// maxToolNameLen is the conservative per-tool-name budget (D102) enforced
+// once a tool-name prefix is set: Kiro (and MCP clients generally) may
+// reject or exclude a tool whose name is too long, and some clients add
+// their own "@server/" prefix on top — 48 leaves room for that.
+const maxToolNameLen = 48
+
+// MountKBWithPrefix mounts a KB whose tool names are all rewritten to
+// "<prefix>__<tool>" (D102: opt-in per-KB tool-name namespacing for MCP
+// clients with a flat tool namespace, e.g. Kiro CLI — Claude Code, Codex and
+// OpenCode already namespace tools per server and need no prefix). An empty
+// prefix leaves tool names unchanged — the default, byte-identical to
+// pre-D102 behaviour.
+//
+// prefix is assumed already sanitised and shape-validated (see
+// config.ResolveToolPrefix): this only enforces the tool-name length budget
+// (maxToolNameLen), which needs the KB's actual registered tool names and so
+// can only be checked after setupFn runs. On a budget violation the KB is
+// not mounted and an error naming the KB and the offending tool is
+// returned.
+func (m *MultiKBServer) MountKBWithPrefix(name, prefix string, setupFn func(s *Server)) error {
 	srv := New(m.version)
+	if prefix != "" {
+		srv.SetToolNamePrefix(prefix)
+	}
 	setupFn(srv)
+	if prefix != "" {
+		for _, toolName := range srv.toolsOrd {
+			if len(toolName) > maxToolNameLen {
+				return fmt.Errorf("KB %q: tool name %q (%d chars) exceeds the %d-char budget after applying tool_prefix %q; use a shorter prefix",
+					name, toolName, len(toolName), maxToolNameLen, prefix)
+			}
+		}
+	}
 	m.servers[name] = srv
 	m.kbs = append(m.kbs, KBInfo{Name: name, Status: "normal"})
+	return nil
 }
 
 // Handler returns the HTTP handler that routes MCP requests to the correct
@@ -301,7 +343,7 @@ func (m *MultiKBServer) Handler() http.Handler {
 			if kbName == "" && len(m.servers) == 1 {
 				for name, srv := range m.servers {
 					srv := srv
-					mcpAccessGuard(name, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					mcpAccessGuard(name, srv, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 						srv.handleMCP(w, r)
 					})).ServeHTTP(w, r)
 					return
@@ -338,7 +380,7 @@ func (m *MultiKBServer) serveKB(w http.ResponseWriter, r *http.Request, kbName s
 		http.Error(w, fmt.Sprintf("unknown kb %q", kbName), http.StatusNotFound)
 		return
 	}
-	mcpAccessGuard(kbName, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	mcpAccessGuard(kbName, srv, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		srv.handleMCP(w, r)
 	})).ServeHTTP(w, r)
 }

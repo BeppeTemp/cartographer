@@ -107,7 +107,7 @@ Tools marked **[A]** (advanced, `advancedToolNames` in `internal/mcpserver/visib
 
 See `docs/sync.md` for the full model (Manifest, Lock, Diff, layered triggers).
 
-> Multi-KB: every tool that operates on content accepts a `kb` parameter (omittable if there is only one KB).
+> Multi-KB: which KB a tool call reaches is decided per-connection, not per-call — `?kb=<name>` (query param) or `/mcp/<name>` (path) select one KB's isolated `Server` for the whole session; no tool takes a `kb` argument. Every KB exposes the same tool names by default, which flat-namespace MCP clients (e.g. Kiro) cannot disambiguate across servers — see `tool_prefix` in [`deployment.md`](deployment.md) §MCP tool-name prefix.
 
 ## Semantic search
 
