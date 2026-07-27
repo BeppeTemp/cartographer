@@ -1,12 +1,44 @@
 package mcpserver
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
+
+func TestArtifactTools_BinaryAndExecutableRoundTrip(t *testing.T) {
+	k := setupTestKB(t)
+	k.AllowArtifactWrite = true
+	s := New("test")
+	RegisterKBTools(s, k, Deps{})
+	data := []byte{0x00, 0xff, 0x80, 0x01}
+	path := "skills/bin/assets/icon.bin"
+	resps := runMCPSequence(t, s, []string{initMsg, artifactCallMsg(t, 2, "artifact_write", map[string]any{
+		"path": path, "content": base64.StdEncoding.EncodeToString(data), "encoding": "base64", "executable": true,
+	})})
+	if tr := decodeToolResult(t, resps[1]); tr.IsError {
+		t.Fatalf("binary write: %+v", tr.Content)
+	}
+	resps = runMCPSequence(t, s, []string{initMsg, artifactCallMsg(t, 2, "artifact_read", map[string]any{"path": path})})
+	tr := decodeToolResult(t, resps[1])
+	if tr.IsError {
+		t.Fatalf("binary read: %+v", tr.Content)
+	}
+	var read struct{ Content, Encoding string }
+	if err := json.Unmarshal([]byte(tr.Content[0].Text), &read); err != nil {
+		t.Fatal(err)
+	}
+	if read.Encoding != "base64" || read.Content != base64.StdEncoding.EncodeToString(data) {
+		t.Fatalf("binary read = %#v", read)
+	}
+	info, err := os.Stat(filepath.Join(k.Root, filepath.FromSlash(path)))
+	if err != nil || info.Mode()&0o111 == 0 {
+		t.Fatalf("executable mode = %v, %v", info.Mode(), err)
+	}
+}
 
 // artifactCallMsg builds a single-line JSON-RPC tools/call request for name
 // with the given arguments (marshaled as JSON), safe for content containing

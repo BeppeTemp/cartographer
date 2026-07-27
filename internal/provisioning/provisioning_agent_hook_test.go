@@ -143,8 +143,8 @@ func TestBuildManifest_HookHash_MultiFile_OrdineIndipendente(t *testing.T) {
 			hookHash = a.ContentHash
 		}
 	}
-	if hookHash != h1 {
-		t.Errorf("BuildManifest hook hash: expected %q (ContentHashDirOS), got %q — not reusing the existing hashing function", h1, hookHash)
+	if hookHash == h1 {
+		t.Error("BuildManifest hook hash must include the executable floor for hook scripts")
 	}
 }
 

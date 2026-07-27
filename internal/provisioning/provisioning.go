@@ -48,8 +48,9 @@ type Artifact struct {
 
 // ArtifactFile is a single file of an Artifact, with content in memory.
 type ArtifactFile struct {
-	Path    string // path relative to the artifact's (skill) folder
-	Content []byte
+	Path       string // path relative to the artifact's (skill) folder
+	Content    []byte
+	Executable bool
 }
 
 // Manifest is the server-side source of truth.
@@ -143,7 +144,11 @@ const LockFileName = ".cartographer-sync.lock.json"
 //
 // Use this for Artifact.ContentHash: a skill is a folder, not just SKILL.md.
 func ContentHashDir(fsys fs.FS, dir string) (string, error) {
-	h := sha256.New()
+	return contentHashDir(fsys, dir, nil)
+}
+
+func contentHashDir(fsys fs.FS, dir string, executable func(string, bool) bool) (string, error) {
+	var files []ArtifactFile
 	var paths []string
 
 	err := fs.WalkDir(fsys, dir, func(path string, d fs.DirEntry, walkErr error) error {
@@ -175,19 +180,33 @@ func ContentHashDir(fsys fs.FS, dir string) (string, error) {
 		if readErr != nil {
 			return "", fmt.Errorf("provisioning: read %s: %w", p, readErr)
 		}
-		// Include the relative path (\x00-separated) and the file's content in the hash.
-		fmt.Fprintf(h, "%s\x00", rel)
-		h.Write(data)
-		h.Write([]byte{'\n'})
+		info, statErr := fs.Stat(fsys, p)
+		if statErr != nil {
+			return "", fmt.Errorf("provisioning: stat %s: %w", p, statErr)
+		}
+		exec := info.Mode()&0o111 != 0
+		if executable != nil {
+			exec = executable(rel, exec)
+		}
+		files = append(files, ArtifactFile{Path: rel, Content: data, Executable: exec})
 	}
+	return hashArtifactFiles(files), nil
+}
 
-	return fmt.Sprintf("%x", h.Sum(nil)), nil
+func effectiveExecutable(kind, path string, executable bool) bool {
+	return executable || (kind == "hook" && filepath.Base(path) != "hook.json")
 }
 
 // ContentHashDirOS computes the hash of a folder on the real filesystem.
 // Reuses ContentHashDir via os.DirFS to avoid code duplication.
 func ContentHashDirOS(dirPath string) (string, error) {
 	return ContentHashDir(os.DirFS(dirPath), ".")
+}
+
+func contentHashDirOS(dirPath, kind string) (string, error) {
+	return contentHashDir(os.DirFS(dirPath), ".", func(path string, executable bool) bool {
+		return effectiveExecutable(kind, path, executable)
+	})
 }
 
 // --- Manifest ---
@@ -259,7 +278,7 @@ func BuildManifest(bundleFS fs.FS, kbRoots map[string]string, autoTrust bool) (M
 		kbSkills, _ := skill.LoadAllSkills(kbRoot)
 		for _, s := range kbSkills {
 			skillDir := filepath.Join(kbRoot, s.DirPath)
-			hash, err := ContentHashDirOS(skillDir)
+			hash, err := contentHashDirOS(skillDir, "skill")
 			if err != nil {
 				return Manifest{}, fmt.Errorf("provisioning: hash kb:%s/%s: %w", kbName, s.Name, err)
 			}
@@ -314,7 +333,7 @@ func BuildManifest(bundleFS fs.FS, kbRoots map[string]string, autoTrust bool) (M
 					continue
 				}
 				name := e.Name()
-				hash, err := ContentHashDirOS(filepath.Join(hooksDir, name))
+				hash, err := contentHashDirOS(filepath.Join(hooksDir, name), "hook")
 				if err != nil {
 					return Manifest{}, fmt.Errorf("provisioning: hash kb:%s/hooks/%s: %w", kbName, name, err)
 				}
@@ -553,19 +572,14 @@ func kbCuratedInstructions(kbRoot string) string {
 	return strings.TrimSpace(body)
 }
 
-// contentHashFile computes a deterministic sha256 hex of a single file,
-// in the same scheme as ContentHashDir (filename \x00 + content + \n) —
-// used for agents (agents/<name>.md, a single file per artifact).
+// contentHashFile computes the versioned artifact hash of a single,
+// non-executable file (agents and MCP descriptors).
 func contentHashFile(path string) (string, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return "", fmt.Errorf("provisioning: read %s: %w", path, err)
 	}
-	h := sha256.New()
-	fmt.Fprintf(h, "%s\x00", filepath.Base(path))
-	h.Write(data)
-	h.Write([]byte{'\n'})
-	return fmt.Sprintf("%x", h.Sum(nil)), nil
+	return hashArtifactFiles([]ArtifactFile{{Path: filepath.Base(path), Content: data}}), nil
 }
 
 // MergeArtifacts deduplicates a list of artifacts by kind+name, sorts them
@@ -1839,7 +1853,7 @@ func copyArtifactFiles(a Artifact, opts ApplyOptions, fullDestDir string, tracke
 			return nil, "", fmt.Errorf("provisioning: invalid file path %q in %s", f.Path, a.Name)
 		}
 		content := expandPlaceholders(f.Content, opts, tracker)
-		expanded = append(expanded, ArtifactFile{Path: f.Path, Content: content})
+		expanded = append(expanded, ArtifactFile{Path: f.Path, Content: content, Executable: f.Executable})
 
 		dstPath := filepath.Join(fullDestDir, local)
 		if err := os.MkdirAll(filepath.Dir(dstPath), 0o755); err != nil {
@@ -1851,7 +1865,7 @@ func copyArtifactFiles(a Artifact, opts ApplyOptions, fullDestDir string, tracke
 		// The explicit Chmod is needed for files that already exist: WriteFile only
 		// applies mode on creation.
 		mode := os.FileMode(0o644)
-		if a.Kind == "hook" && filepath.Base(local) != "hook.json" {
+		if effectiveExecutable(a.Kind, local, f.Executable) {
 			mode = 0o755
 		}
 		if err := os.WriteFile(dstPath, content, mode); err != nil {
@@ -1905,7 +1919,11 @@ func ReadArtifactFiles(a Artifact, bundleFS fs.FS, kbRoots map[string]string) ([
 			if readErr != nil {
 				return readErr
 			}
-			files = append(files, ArtifactFile{Path: rel, Content: data})
+			fileInfo, infoErr := d.Info()
+			if infoErr != nil {
+				return infoErr
+			}
+			files = append(files, ArtifactFile{Path: rel, Content: data, Executable: fileInfo.Mode()&0o111 != 0})
 			return nil
 		})
 		if err != nil {
@@ -1937,7 +1955,14 @@ func ReadArtifactFiles(a Artifact, bundleFS fs.FS, kbRoots map[string]string) ([
 		}
 		return []ArtifactFile{{Path: a.Name + ".json", Content: data}}, nil
 	case "hook":
-		return readDirFiles(filepath.Join(kbRoot, "hooks", a.Name))
+		files, err := readDirFiles(filepath.Join(kbRoot, "hooks", a.Name))
+		if err != nil {
+			return nil, err
+		}
+		for i := range files {
+			files[i].Executable = effectiveExecutable("hook", files[i].Path, files[i].Executable)
+		}
+		return files, nil
 	default: // "skill"
 		return readDirFiles(filepath.Join(kbRoot, "skills", a.Name))
 	}
@@ -1964,7 +1989,11 @@ func readDirFiles(srcDir string) ([]ArtifactFile, error) {
 		if readErr != nil {
 			return readErr
 		}
-		files = append(files, ArtifactFile{Path: filepath.ToSlash(rel), Content: data})
+		fileInfo, infoErr := d.Info()
+		if infoErr != nil {
+			return infoErr
+		}
+		files = append(files, ArtifactFile{Path: filepath.ToSlash(rel), Content: data, Executable: fileInfo.Mode()&0o111 != 0})
 		return nil
 	})
 	if err != nil {

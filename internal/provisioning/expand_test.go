@@ -7,6 +7,7 @@ package provisioning
 
 import (
 	"crypto/sha256"
+	"encoding/binary"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -111,14 +112,20 @@ func TestExpandHomePath(t *testing.T) {
 // --- hashArtifactFiles (unit) ---
 
 func TestHashArtifactFiles_MatchesContentHashFileFormula(t *testing.T) {
-	// Same formula as contentHashFile: sha256(basename + NUL + content + '\n').
+	// Same versioned formula as contentHashFile.
 	content := []byte("Body.\n")
 	got := hashArtifactFiles([]ArtifactFile{{Path: "reviewer.md", Content: content}})
 
 	h := sha256.New()
-	fmt.Fprintf(h, "%s\x00", "reviewer.md")
+	h.Write([]byte("cartographer:artifact-content:v1\x00"))
+	var length [8]byte
+	binary.BigEndian.PutUint64(length[:], uint64(len("reviewer.md")))
+	h.Write(length[:])
+	h.Write([]byte("reviewer.md"))
+	h.Write([]byte{0})
+	binary.BigEndian.PutUint64(length[:], uint64(len(content)))
+	h.Write(length[:])
 	h.Write(content)
-	h.Write([]byte{'\n'})
 	want := fmt.Sprintf("%x", h.Sum(nil))
 
 	if got != want {

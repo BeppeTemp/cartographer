@@ -11,6 +11,7 @@ package mcpserver
 
 import (
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -19,6 +20,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/BeppeTemp/cartographer/internal/kb"
 	"github.com/BeppeTemp/cartographer/internal/okf"
@@ -117,6 +119,48 @@ func sha256Hex(data []byte) string {
 	return hex.EncodeToString(sum[:])
 }
 
+func rejectArtifactSymlinks(root, relPath string) error {
+	current := root
+	for _, part := range strings.Split(filepath.ToSlash(relPath), "/") {
+		current = filepath.Join(current, part)
+		info, err := os.Lstat(current)
+		if os.IsNotExist(err) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("path not allowed: symlink %q", relPath)
+		}
+	}
+	return nil
+}
+
+func rejectArtifactTreeSymlinks(root string) error {
+	for _, rel := range []string{"skills", "agents", "hooks", "mcp", "instructions.md"} {
+		if err := rejectArtifactSymlinks(root, rel); err != nil {
+			return err
+		}
+		path := filepath.Join(root, rel)
+		if err := filepath.WalkDir(path, func(path string, d os.DirEntry, err error) error {
+			if err != nil {
+				if os.IsNotExist(err) {
+					return nil
+				}
+				return err
+			}
+			if d.Type()&os.ModeSymlink != 0 {
+				return fmt.Errorf("path not allowed: symlink %q", path)
+			}
+			return nil
+		}); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+	}
+	return nil
+}
+
 // --- artifact_read ---
 
 func toolArtifactRead(k *kb.KB) Tool {
@@ -134,16 +178,24 @@ func toolArtifactRead(k *kb.KB) Tool {
 					"type": "string",
 					"description": "Path relative to the KB root, e.g. skills/my-skill/SKILL.md"
 				}
+				,"encoding": {"type":"string","enum":["text","base64"],"description":"Optional requested response encoding; defaults to text, but non-UTF-8 content is always returned as base64"}
 			}
 		}`),
 		Handler: func(args json.RawMessage) (ToolResult, error) {
 			var params struct {
-				Path string `json:"path"`
+				Path     string `json:"path"`
+				Encoding string `json:"encoding"`
 			}
 			if err := json.Unmarshal(args, &params); err != nil {
 				return errorResult("invalid params: " + err.Error()), nil
 			}
 			if _, err := classifyArtifactPath(params.Path); err != nil {
+				return errorResult(err.Error()), nil
+			}
+			if params.Encoding != "" && params.Encoding != "text" && params.Encoding != "base64" {
+				return errorResult("encoding must be text or base64"), nil
+			}
+			if err := rejectArtifactSymlinks(k.Root, params.Path); err != nil {
 				return errorResult(err.Error()), nil
 			}
 			abs, err := k.ResolveRootPath(params.Path)
@@ -158,10 +210,16 @@ func toolArtifactRead(k *kb.KB) Tool {
 				return errorResult(fmt.Sprintf("artifact_read %q: %v", params.Path, err)), nil
 			}
 
+			encoding := "text"
+			content := string(data)
+			if params.Encoding == "base64" || !utf8.Valid(data) {
+				encoding, content = "base64", base64.StdEncoding.EncodeToString(data)
+			}
 			result := map[string]interface{}{
-				"path":    params.Path,
-				"content": string(data),
-				"sha256":  sha256Hex(data),
+				"path":     params.Path,
+				"content":  content,
+				"encoding": encoding,
+				"sha256":   sha256Hex(data),
 			}
 			out, _ := json.MarshalIndent(result, "", "  ")
 			return textResult(string(out)), nil
@@ -173,8 +231,9 @@ func toolArtifactRead(k *kb.KB) Tool {
 
 // artifactFileEntry/artifactEntry shape the artifact_list JSON output.
 type artifactFileEntry struct {
-	Path   string `json:"path"`
-	SHA256 string `json:"sha256"`
+	Path       string `json:"path"`
+	SHA256     string `json:"sha256"`
+	Executable bool   `json:"executable"`
 }
 
 type artifactEntry struct {
@@ -209,6 +268,9 @@ func toolArtifactList(k *kb.KB) Tool {
 			"for artifact_write/artifact_delete.",
 		InputSchema: json.RawMessage(`{"type":"object","properties":{}}`),
 		Handler: func(args json.RawMessage) (ToolResult, error) {
+			if err := rejectArtifactTreeSymlinks(k.Root); err != nil {
+				return errorResult("artifact_list: " + err.Error()), nil
+			}
 			kbRoots := map[string]string{artifactManifestKBKey: k.Root}
 			// Reuses provisioning.BuildManifest (no bundle) so the kind
 			// classification stays in a single place (D71 WP1).
@@ -229,8 +291,9 @@ func toolArtifactList(k *kb.KB) Tool {
 					entry := artifactEntry{Kind: a.Kind, Name: a.Name}
 					for _, f := range files {
 						entry.Files = append(entry.Files, artifactFileEntry{
-							Path:   prefix + f.Path,
-							SHA256: sha256Hex(f.Content),
+							Path:       prefix + f.Path,
+							SHA256:     sha256Hex(f.Content),
+							Executable: f.Executable,
 						})
 					}
 					out = append(out, entry)
@@ -286,8 +349,10 @@ func toolArtifactWrite(k *kb.KB) Tool {
 				},
 				"content": {
 					"type": "string",
-					"description": "New file content"
+					"description": "New file content, text by default or base64 when encoding is base64"
 				},
+				"encoding": {"type":"string","enum":["text","base64"],"description":"Content encoding; defaults to text"},
+				"executable": {"type":"boolean","description":"Optional executable bit; omitted preserves an existing file mode and defaults false for a new file"},
 				"if_match": {
 					"type": "string",
 					"description": "Expected sha256 of the current content — required when overwriting an existing file, omit when creating a new one"
@@ -296,9 +361,11 @@ func toolArtifactWrite(k *kb.KB) Tool {
 		}`),
 		Handler: func(args json.RawMessage) (ToolResult, error) {
 			var params struct {
-				Path    string `json:"path"`
-				Content string `json:"content"`
-				IfMatch string `json:"if_match"`
+				Path       string `json:"path"`
+				Content    string `json:"content"`
+				IfMatch    string `json:"if_match"`
+				Encoding   string `json:"encoding"`
+				Executable *bool  `json:"executable"`
 			}
 			if err := json.Unmarshal(args, &params); err != nil {
 				return errorResult("invalid params: " + err.Error()), nil
@@ -308,15 +375,28 @@ func toolArtifactWrite(k *kb.KB) Tool {
 				return errorResult(err.Error()), nil
 			}
 
+			if params.Encoding != "" && params.Encoding != "text" && params.Encoding != "base64" {
+				return errorResult("encoding must be text or base64"), nil
+			}
 			data := []byte(params.Content)
+			if params.Encoding == "base64" {
+				var decodeErr error
+				data, decodeErr = base64.StdEncoding.DecodeString(params.Content)
+				if decodeErr != nil {
+					return errorResult("encoding base64: invalid content"), nil
+				}
+			}
 			if len(data) > artifactMaxFileSize {
 				return errorResult(fmt.Sprintf(
-					"artifact_write %q: content is %d bytes, exceeds the %d bytes cap",
+					"artifact_write %q: decoded content is %d bytes, exceeds the %d bytes cap",
 					params.Path, len(data), artifactMaxFileSize)), nil
 			}
 
 			abs, err := k.ResolveRootPath(params.Path)
 			if err != nil {
+				return errorResult(err.Error()), nil
+			}
+			if err := rejectArtifactSymlinks(k.Root, params.Path); err != nil {
 				return errorResult(err.Error()), nil
 			}
 
@@ -340,12 +420,31 @@ func toolArtifactWrite(k *kb.KB) Tool {
 			if err := validateArtifactContent(info, params.Path, data); err != nil {
 				return errorResult(fmt.Sprintf("artifact_write %q: %v", params.Path, err)), nil
 			}
+			if params.Executable != nil && *params.Executable && isStructuredArtifact(info, params.Path) {
+				return errorResult("executable is not allowed for structured artifact files"), nil
+			}
 
 			if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
 				return errorResult(fmt.Sprintf("artifact_write %q: mkdir: %v", params.Path, err)), nil
 			}
 			if err := os.WriteFile(abs, data, 0o644); err != nil {
 				return errorResult(fmt.Sprintf("artifact_write %q: %v", params.Path, err)), nil
+			}
+			mode := os.FileMode(0o644)
+			if fileExists {
+				if stat, statErr := os.Stat(abs); statErr == nil {
+					mode = stat.Mode()
+				}
+			}
+			if params.Executable != nil {
+				if *params.Executable {
+					mode = 0o755
+				} else {
+					mode = 0o644
+				}
+			}
+			if err := os.Chmod(abs, mode); err != nil {
+				return errorResult(fmt.Sprintf("artifact_write %q: chmod: %v", params.Path, err)), nil
 			}
 
 			result := map[string]interface{}{
@@ -363,6 +462,9 @@ func toolArtifactWrite(k *kb.KB) Tool {
 // validated; hooks/** and instructions.md get no validation beyond the
 // generic size cap already applied by the caller.
 func validateArtifactContent(info artifactPathInfo, relPath string, data []byte) error {
+	if isStructuredArtifact(info, relPath) && !utf8.Valid(data) {
+		return fmt.Errorf("content must be valid UTF-8")
+	}
 	switch info.Kind {
 	case "skill":
 		if filepath.Base(relPath) != "SKILL.md" {
@@ -379,6 +481,10 @@ func validateArtifactContent(info artifactPathInfo, relPath string, data []byte)
 	default: // hook, instructions
 		return nil
 	}
+}
+
+func isStructuredArtifact(info artifactPathInfo, relPath string) bool {
+	return (info.Kind == "skill" && filepath.Base(relPath) == "SKILL.md") || info.Kind == "agent" || info.Kind == "mcp" || info.Kind == "instructions" || (info.Kind == "hook" && filepath.Base(relPath) == "hook.json")
 }
 
 // validateSkillArtifact parses a candidate skills/<slug>/SKILL.md content and
@@ -477,6 +583,9 @@ func toolArtifactDelete(k *kb.KB) Tool {
 			}
 			if params.IfMatch == "" {
 				return errorResult("'if_match' is required"), nil
+			}
+			if err := rejectArtifactSymlinks(k.Root, params.Path); err != nil {
+				return errorResult(err.Error()), nil
 			}
 
 			abs, err := k.ResolveRootPath(params.Path)
