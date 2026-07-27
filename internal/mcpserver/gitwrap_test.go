@@ -1,6 +1,8 @@
 package mcpserver
 
 import (
+	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -12,6 +14,125 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/kb"
 	"github.com/BeppeTemp/cartographer/internal/sqlindex"
 )
+
+func writeWrappedTool(t *testing.T, k *kb.KB, name string, beforeCommit func()) ToolResult {
+	t.Helper()
+	tool := gitWrap(k, Tool{Name: name, Handler: func(json.RawMessage) (ToolResult, error) {
+		if beforeCommit != nil {
+			beforeCommit()
+		}
+		if err := k.WriteFileAtomic("data/wrapped.md", []byte("wrapped\n")); err != nil {
+			return ToolResult{}, err
+		}
+		return textResult(`{"ok":true}`), nil
+	}})
+	res, err := tool.Handler(json.RawMessage(`{}`))
+	if err != nil {
+		t.Fatalf("wrapped handler: %v", err)
+	}
+	return res
+}
+
+func syncWarning(t *testing.T, res ToolResult) map[string]any {
+	t.Helper()
+	if len(res.Content) != 2 {
+		t.Fatalf("content blocks = %+v, want response plus warning", res.Content)
+	}
+	var warning map[string]any
+	if err := json.Unmarshal([]byte(res.Content[1].Text), &warning); err != nil {
+		t.Fatalf("warning JSON %q: %v", res.Content[1].Text, err)
+	}
+	return warning
+}
+
+func syncStatus(t *testing.T, k *kb.KB) map[string]any {
+	t.Helper()
+	res, err := toolSyncStatus(k).Handler(nil)
+	if err != nil {
+		t.Fatalf("sync_status: %v", err)
+	}
+	var status map[string]any
+	if err := json.Unmarshal([]byte(res.Content[0].Text), &status); err != nil {
+		t.Fatalf("sync_status JSON %q: %v", res.Content[0].Text, err)
+	}
+	return status
+}
+
+func TestGitWrap_SyncPushFailureAppendsFailedWarning(t *testing.T) {
+	k, bare := setupGitKBWithRemote(t)
+	k.AutoCommit, k.GitSync = true, true
+	if err := k.SyncOut(); err != nil {
+		t.Fatalf("seed SyncOut: %v", err)
+	}
+	res := writeWrappedTool(t, k, "test_write", func() {
+		if err := os.RemoveAll(bare); err != nil {
+			t.Fatal(err)
+		}
+	})
+	warning := syncWarning(t, res)
+	if warning["sync_state"] != "failed" || warning["last_error"] == "" {
+		t.Fatalf("warning = %+v", warning)
+	}
+	if status := k.GitStatusSnapshot(); status.State != "failed" || status.Attempts != 5 {
+		t.Fatalf("status = %+v", status)
+	}
+	status := syncStatus(t, k)
+	if status["state"] != "failed" || status["attempts"] != float64(5) || status["last_error"] == "" {
+		t.Fatalf("sync_status = %+v", status)
+	}
+}
+
+func TestGitWrap_DebouncedWriteAppendsPendingWarningAndPreservesFailure(t *testing.T) {
+	k, _ := setupGitKBWithRemote(t)
+	k.AutoCommit, k.GitSync, k.SyncOutDebounce = true, true, time.Hour
+	if err := k.SyncOut(); err != nil {
+		t.Fatalf("seed SyncOut: %v", err)
+	}
+	k.SetGitStatus("failed", fmt.Errorf("push rejected"))
+	res := writeWrappedTool(t, k, "test_write", nil)
+	warning := syncWarning(t, res)
+	if warning["sync_state"] != "failed" || warning["last_error"] != "push rejected" {
+		t.Fatalf("warning = %+v", warning)
+	}
+	if status := k.GitStatusSnapshot(); status.State != "failed" {
+		t.Fatalf("later write cleared failure: %+v", status)
+	}
+	k.SetGitStatus("clean", nil)
+	res = writeWrappedTool(t, k, "test_write_again", nil)
+	if warning = syncWarning(t, res); warning["sync_state"] != "pending" {
+		t.Fatalf("warning after successful push = %+v", warning)
+	}
+}
+
+func TestGitWrap_CommitFailureIsRecordedAndDoesNotSchedulePush(t *testing.T) {
+	k, bare := setupGitKBWithRemote(t)
+	k.AutoCommit, k.GitSync, k.SyncOutDebounce = true, true, time.Hour
+	if err := k.SyncOut(); err != nil {
+		t.Fatalf("seed SyncOut: %v", err)
+	}
+	hook := filepath.Join(k.Root, ".git", "hooks", "pre-commit")
+	if err := os.WriteFile(hook, []byte("#!/bin/sh\nexit 1\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	res := writeWrappedTool(t, k, "test_write", nil)
+	warning := syncWarning(t, res)
+	if warning["sync_state"] != "failed" || !strings.Contains(warning["last_error"].(string), "commit:") {
+		t.Fatalf("warning = %+v", warning)
+	}
+	branch, _ := gitx.Branch(k.Root)
+	if count := remoteCommitCount(t, bare, branch); count != "1" {
+		t.Fatalf("remote count = %s, want seed only", count)
+	}
+}
+
+func TestSyncStatus_MissingRemoteTrackingRefUsesJSONNull(t *testing.T) {
+	k, _ := setupGitKBWithRemote(t)
+	k.GitSync = true
+	status := syncStatus(t, k)
+	if status["unpushed_commits"] != nil {
+		t.Fatalf("sync_status unpushed_commits = %#v, want null", status["unpushed_commits"])
+	}
+}
 
 // setupGitKB initialises a temp KB and verifies the initial git commit was made.
 // If git is not available or not configured, the calling test is skipped.

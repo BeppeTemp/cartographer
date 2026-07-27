@@ -1,5 +1,9 @@
 # Changelog
 
+### Migration note
+
+KB histories with commits authored as `cartographer <cartographer@localhost>` may need a manual author rewrite before a forge with author push rules accepts the first push.
+
 ## [0.3.1](https://github.com/BeppeTemp/cartographer/compare/v0.3.0...v0.3.1) (2026-07-27)
 
 
