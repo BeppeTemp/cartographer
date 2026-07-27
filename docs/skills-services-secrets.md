@@ -46,14 +46,17 @@ that operate the service. Cartographer does not validate a richer Service
 schema beyond the normal concept and strict-map type rules.
 
 `service_list` inventories Service concepts. `service_get` returns one
-descriptor; with `resolve_secrets: true` it also decrypts the complete flat
-file named by `secrets_source`.
+descriptor; with `resolve_secrets: true` it resolves declared `secret_refs`.
+Any concept may own secret references and `secret_resolve` exposes them for
+task- and dossier-scoped credentials.
 
 ## SOPS files
 
 Encrypted values can be committed under `secrets/*.sops.yaml`. Cartographer
-invokes the `sops` CLI and parses the decrypted document as flat key/value
-pairs.
+invokes the `sops` CLI from the KB root and flattens decrypted YAML scalar
+leaves using RFC 6901 JSON Pointers, for example
+`/dante_client/DEV/client_secret` and `/admin/0/client_secret`. `~` and `/`
+in mapping keys are escaped as `~0` and `~1`; null is an empty string.
 
 The age key is selected in this order:
 
@@ -70,9 +73,17 @@ stored in the KB.
 - a configured key that can decrypt the file;
 - `rw` scope for HTTP access.
 
-The whole `secrets_source` is returned. Structured per-reference
-`secret_refs` are not representable by the current frontmatter parser, so
-there is no per-key least-privilege filter.
+Use `secret_refs` for least privilege: each list item is
+`NAME=secrets/file.sops.yaml#/json-pointer`. Resolution returns only the
+declared `NAME` values. Existing descriptors without `secret_refs` retain the
+legacy `secrets_source` whole-file behavior.
+
+`secret_set(path, key, value)` rotates or adds a pointer in an existing
+encrypted `secrets/*.sops.yaml` file. It uses `sops set --value-stdin`, checks
+that the result remains encrypted, and commits through the normal KB write
+flow. Creating the encrypted file and choosing its recipients remain an
+operator action; Cartographer never writes the root `.sops.yaml` creation-rules
+file, but it does update existing encrypted `*.sops.yaml` secret files.
 
 ## Operational guidance
 

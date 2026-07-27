@@ -88,7 +88,9 @@ Tools marked **[A]** (advanced, `advancedToolNames` in `internal/mcpserver/visib
 |---|---|
 | `skill_list()` **[R]** **[A]** | Lists the installed skills (`skills/`) and the ones bundled in the binary. Field `source`: `[installed]` \| `[bundled]`. |
 | `skill_install(name, force)` **[A]** | Copies a bundled skill into `kb.Root/skills/<name>/`. Errors if already present; `force=true` overwrites. |
-| `service_get(service_id, resolve_secrets=false)` **[R]** **[A]** | Reads a concept of type Service. With `resolve_secrets: true` it also decrypts the `secrets_source` (flat — the service's entire SOPS file; per-ref `secret_refs` cannot be parsed from the frontmatter, → `skills-services-secrets.md`) and includes it in the result; requires a KB with an age key configured and **rw scope** (enforced in the HTTP guard, not in the per-tool-name classification: `service_get` remains `ReadOnly` for the no-resolve path). |
+| `service_get(service_id, resolve_secrets=false)` **[R]** **[A]** | Reads a Service. With `resolve_secrets: true`, resolves declared `secret_refs` (or legacy whole `secrets_source`) and requires **rw** scope. |
+| `secret_resolve(concept_id, names?)` **[RW]** **[A]** | Resolves SOPS references declared by any concept; `names` narrows the declared values. |
+| `secret_set(path, key, value)` **[RW]** **[A]** | Sets a JSON Pointer in an existing encrypted SOPS file; plaintext is never committed or returned. |
 | `service_list()` **[R]** **[A]** | Lists all concepts of type Service. |
 
 ### Client ↔ provisioning synchronization

@@ -48,6 +48,8 @@ var advancedToolNames = map[string]bool{
 	"skill_install":        true,
 	"service_get":          true,
 	"service_list":         true,
+	"secret_resolve":       true,
+	"secret_set":           true,
 	"artifact_list":        true,
 	"artifact_delete":      true,
 }
