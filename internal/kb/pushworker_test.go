@@ -1,6 +1,7 @@
 package kb
 
 import (
+	"fmt"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -42,6 +43,34 @@ func TestSchedulePush_Burst_CoalescesIntoOnePush(t *testing.T) {
 	remoteCount := gitHere(t, bare, "rev-list", "--count", branch)
 	if remoteCount != localCount {
 		t.Fatalf("remote has %s commits, local has %s — burst was not fully pushed", remoteCount, localCount)
+	}
+}
+
+func TestSyncStatus_RealPushClearsPendingAndRecordsAttempt(t *testing.T) {
+	if !haveGit() {
+		t.Skip("git not in PATH")
+	}
+	k, _ := setupKBWithRemote(t)
+	k.GitSync = true
+	k.MarkPushPending()
+	if s := k.GitStatusSnapshot(); s.State != "pending" {
+		t.Fatalf("pending = %+v", s)
+	}
+	if err := k.SyncOut(); err != nil {
+		t.Fatal(err)
+	}
+	s := k.GitStatusSnapshot()
+	if s.State != "clean" || s.Attempts != 1 {
+		t.Fatalf("status = %+v", s)
+	}
+}
+
+func TestMarkPushPendingDoesNotClearFailure(t *testing.T) {
+	k, _ := initGitKB(t)
+	k.SetGitStatus("failed", fmt.Errorf("rejected"))
+	k.MarkPushPending()
+	if s := k.GitStatusSnapshot(); s.State != "failed" || s.LastError == "" {
+		t.Fatalf("status = %+v", s)
 	}
 }
 

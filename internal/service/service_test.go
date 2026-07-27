@@ -55,6 +55,9 @@ func TestDefaultServerYAML(t *testing.T) {
 		"init: true",
 		"cartographer service install",
 		"config.example.yaml",
+		"git:",
+		"# author_name:",
+		"# author_email:",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("yaml missing %q\n---\n%s", want, out)

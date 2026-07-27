@@ -124,6 +124,32 @@ func TestCommitOp_DefaultIdentity_NoOverride(t *testing.T) {
 	}
 }
 
+func TestCommitOp_NativeRepositoryIdentity(t *testing.T) {
+	k, _ := initGitKB(t)
+	k.AutoCommit = true
+	gitHere(t, k.Root, "config", "user.name", "Repository User")
+	gitHere(t, k.Root, "config", "user.email", "repo@example.test")
+	if err := k.WriteFileAtomic("data/native.md", []byte("native\n")); err != nil {
+		t.Fatal(err)
+	}
+	if err := k.CommitOp("native"); err != nil {
+		t.Fatal(err)
+	}
+	got, err := gitLogFormat(t, k.Root, "%an <%ae>")
+	if err != nil || got != "Repository User <repo@example.test>" {
+		t.Fatalf("native identity = %q, %v", got, err)
+	}
+}
+
+func TestGitStatusSnapshot_NoRemoteAndIdentityWarning(t *testing.T) {
+	k, _ := initGitKB(t)
+	k.GitSync = true
+	k.GitAuthorEmail = defaultGitAuthorEmail
+	if s := k.GitStatusSnapshot(); s.State != "no_remote" || s.IdentityWarning {
+		t.Fatalf("status = %+v", s)
+	}
+}
+
 // gitLogFormat runs "git log -1 --format=<format>" and returns the trimmed output.
 func gitLogFormat(t *testing.T, dir, format string) (string, error) {
 	t.Helper()
