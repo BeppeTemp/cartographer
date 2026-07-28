@@ -47,6 +47,16 @@ func hasCheck(findings []Finding, path, check string) bool {
 	return false
 }
 
+func countCheck(findings []Finding, path, check string) int {
+	count := 0
+	for _, f := range findings {
+		if f.Path == path && f.Check == check {
+			count++
+		}
+	}
+	return count
+}
+
 // --- broken_link ---
 
 func TestRun_BrokenLink_Detected(t *testing.T) {
@@ -381,6 +391,183 @@ func TestRun_AssetsOnlyProduceOrphanAsset(t *testing.T) {
 	}
 	if len(orphans) != 1 || orphans[0].Path != "arch/owner/evidence/screen.png" || orphans[0].Severity != SevInfo {
 		t.Fatalf("orphan assets: %v", orphans)
+	}
+}
+
+// --- declarative lint contracts (D107) ---
+
+func TestRun_MissingRequiredFieldContract(t *testing.T) {
+	k := tempKB(t)
+	writeFile(t, k.DataRoot(), "ops/_map.md", "---\ntype: Map\nrequired_fields: [timestamp, provenance]\nrequired_fields.Runbook: [owner]\n---\n")
+	writeFile(t, k.DataRoot(), "ops/a.md", "---\ntype: Runbook\ntimestamp: 2026-01-01\nprovenance: [, ]\nowner: Alice\n---\n")
+	writeFile(t, k.DataRoot(), "ops/b.md", "---\ntype: Note\ntimestamp: 2026-01-01\n---\n")
+	findings, err := Run(k, "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var missing []Finding
+	for _, f := range findings {
+		if f.Check == "missing_required_field" {
+			missing = append(missing, f)
+		}
+	}
+	if len(missing) != 2 || missing[0].Severity != SevError {
+		t.Fatalf("required-field findings = %#v", missing)
+	}
+}
+
+func TestRun_MissingRequiredFieldsWithoutFrontmatter(t *testing.T) {
+	k := tempKB(t)
+	writeFile(t, k.DataRoot(), "ops/_map.md", "---\ntype: Map\nrequired_fields: [timestamp, provenance]\n---\n")
+	writeFile(t, k.DataRoot(), "ops/no-frontmatter.md", "plain body\n")
+	findings, err := Run(k, "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if countCheck(findings, "ops/no-frontmatter.md", "missing_required_field") != 2 {
+		t.Fatalf("no-frontmatter findings = %#v", findings)
+	}
+}
+
+func TestRun_ContractMalformedAndServicesSkipped(t *testing.T) {
+	k := tempKB(t)
+	writeFile(t, k.DataRoot(), "ops/_map.md", "---\ntype: Map\nrequired_fields: [timestamp, timestamp, ]\nrequire_index_entry: maybe\n---\n")
+	writeFile(t, k.Root, "services/demo.md", "---\ntype: Service\n---\n")
+	findings, err := Run(k, "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	malformed := 0
+	for _, f := range findings {
+		if f.Check == "contract_malformed" {
+			malformed++
+		}
+		if f.Check == "missing_required_field" && strings.HasPrefix(f.Path, "services/") {
+			t.Fatalf("service matched a map contract: %#v", f)
+		}
+	}
+	if malformed != 2 {
+		t.Fatalf("contract_malformed = %d, findings=%#v", malformed, findings)
+	}
+}
+
+func TestRun_EmptyPerTypeContractSuffixMalformedOnce(t *testing.T) {
+	k := tempKB(t)
+	writeFile(t, k.DataRoot(), "ops/_map.md", "---\ntype: Map\nrequired_fields.: [owner]\n---\n")
+	findings, err := Run(k, "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if countCheck(findings, "ops/_map.md", "contract_malformed") != 1 {
+		t.Fatalf("empty type suffix findings = %#v", findings)
+	}
+}
+
+func TestRun_IndexContract_MapAndExpanded(t *testing.T) {
+	k := tempKB(t)
+	writeFile(t, k.DataRoot(), "ops/_map.md", "---\ntype: Map\nrequire_index_entry: true\n---\n")
+	writeFile(t, k.DataRoot(), "ops/index.md", "---\ntype: Index\n---\n[alpha](alpha.md)\n[[ops/owner]]\n[missing](missing.md)\n")
+	writeFile(t, k.DataRoot(), "ops/alpha.md", "---\ntype: Note\n---\n")
+	writeFile(t, k.DataRoot(), "ops/owner/index.md", "---\ntype: Note\n---\n")
+	writeFile(t, k.DataRoot(), "ops/owner/child.md", "---\ntype: Note\n---\n")
+	findings, err := Run(k, "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasCheck(findings, "ops/index.md", "broken_link") || !hasCheck(findings, "ops/owner/index.md", "index_incomplete") {
+		t.Fatalf("index contract findings = %#v", findings)
+	}
+	if hasCheck(findings, "ops/index.md", "index_incomplete") {
+		t.Fatalf("map index should include alpha and expanded owner: %#v", findings)
+	}
+}
+
+func TestRun_IndexContract_ScopedOnlyOwnMembership(t *testing.T) {
+	k := tempKB(t)
+	writeFile(t, k.DataRoot(), "ops/_map.md", "---\ntype: Map\nrequire_index_entry: true\n---\n")
+	writeFile(t, k.DataRoot(), "ops/index.md", "---\ntype: Index\n---\n[[ops/a]]\n")
+	writeFile(t, k.DataRoot(), "ops/a.md", "---\ntype: Note\n---\n")
+	writeFile(t, k.DataRoot(), "ops/b.md", "---\ntype: Note\n---\n")
+	findings, err := Run(k, "ops/a", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hasCheck(findings, "ops/index.md", "index_incomplete") {
+		t.Fatalf("scoped lint reported unrelated sibling: %#v", findings)
+	}
+	findings, err = Run(k, "ops/b", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasCheck(findings, "ops/index.md", "index_incomplete") {
+		t.Fatalf("scoped lint missed own membership: %#v", findings)
+	}
+}
+
+func TestRun_IndexContract_EmptyMapStillValidatesMapIndex(t *testing.T) {
+	for _, tc := range []struct {
+		name, index string
+		check       string
+	}{
+		{"dangling", "---\ntype: Index\n---\n[[ops/missing]]\n", "broken_link"},
+		{"missing", "", "index_incomplete"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			k := tempKB(t)
+			writeFile(t, k.DataRoot(), "ops/_map.md", "---\ntype: Map\nrequire_index_entry: true\n---\n")
+			if tc.index != "" {
+				writeFile(t, k.DataRoot(), "ops/index.md", tc.index)
+			}
+			findings, err := Run(k, "", false)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if countCheck(findings, "ops/index.md", tc.check) != 1 {
+				t.Fatalf("empty map findings = %#v", findings)
+			}
+			findings, err = Run(k, "ops", false)
+			if err != nil || countCheck(findings, "ops/index.md", tc.check) != 1 {
+				t.Fatalf("explicit map scope findings = %#v, %v", findings, err)
+			}
+		})
+	}
+}
+
+func TestRun_IndexContract_ExpandedIndexBrokenLinkOnceAndScopedMapIsolation(t *testing.T) {
+	k := tempKB(t)
+	writeFile(t, k.DataRoot(), "ops/_map.md", "---\ntype: Map\nrequire_index_entry: true\n---\n")
+	writeFile(t, k.DataRoot(), "ops/index.md", "---\ntype: Index\n---\n[[ops/missing-map-target]]\n")
+	writeFile(t, k.DataRoot(), "ops/owner/index.md", "---\ntype: Note\n---\n[[ops/missing-owner-target]]\n[[ops/owner/child]]\n")
+	writeFile(t, k.DataRoot(), "ops/owner/child.md", "---\ntype: Note\n---\n")
+	findings, err := Run(k, "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if countCheck(findings, "ops/owner.md", "broken_link") != 1 {
+		t.Fatalf("expanded-index broken links = %#v", findings)
+	}
+	findings, err = Run(k, "ops/owner/child", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hasCheck(findings, "ops/index.md", "broken_link") || hasCheck(findings, "ops/index.md", "index_incomplete") {
+		t.Fatalf("expanded scope leaked map-index findings: %#v", findings)
+	}
+}
+
+func TestRun_IndexContractFalseDoesNothingAndMissingIndexIsOneFinding(t *testing.T) {
+	k := tempKB(t)
+	writeFile(t, k.DataRoot(), "off/_map.md", "---\ntype: Map\nrequire_index_entry: false\n---\n")
+	writeFile(t, k.DataRoot(), "off/a.md", "---\ntype: Note\n---\n")
+	writeFile(t, k.DataRoot(), "on/_map.md", "---\ntype: Map\nrequire_index_entry: true\n---\n")
+	writeFile(t, k.DataRoot(), "on/a.md", "---\ntype: Note\n---\n")
+	writeFile(t, k.DataRoot(), "on/b.md", "---\ntype: Note\n---\n")
+	findings, err := Run(k, "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hasCheck(findings, "off/index.md", "index_incomplete") || countCheck(findings, "on/index.md", "index_incomplete") != 1 {
+		t.Fatalf("index contract enablement findings = %#v", findings)
 	}
 }
 

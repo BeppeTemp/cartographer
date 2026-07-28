@@ -867,6 +867,41 @@ func TestCreateMap_ErroreSeEsiste(t *testing.T) {
 	}
 }
 
+func TestCreateMap_ContractRoundTrip(t *testing.T) {
+	dir := tempKB(t)
+	k, _ := Init(dir)
+	contract := MapContract{
+		RequiredFields:       []string{"timestamp", "provenance", "timestamp"},
+		RequiredFieldsByType: map[string][]string{"Runbook": {"owner", "provenance"}},
+		RequireIndexEntry:    true,
+	}
+	if err := k.CreateMapWithContract("ops", "Ops", "map", nil, "", contract); err != nil {
+		t.Fatalf("CreateMapWithContract: %v", err)
+	}
+	got, err := k.ReadMapContract("ops")
+	if err != nil {
+		t.Fatalf("ReadMapContract: %v", err)
+	}
+	if !got.RequireIndexEntry || strings.Join(got.RequiredFor("Runbook"), ",") != "owner,provenance,timestamp" || strings.Join(got.RequiredFor("Note"), ",") != "provenance,timestamp" {
+		t.Fatalf("unexpected contract: %#v", got)
+	}
+}
+
+func TestReadMapContract_LegacyDescriptorIsEmpty(t *testing.T) {
+	dir := tempKB(t)
+	k, _ := Init(dir)
+	if err := os.MkdirAll(filepath.Join(k.DataRoot(), "legacy"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(k.DataRoot(), "legacy", "_archive.md"), []byte("---\ntype: Archive\ntitle: Legacy\n---\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	contract, err := k.ReadMapContract("legacy")
+	if err != nil || contract.RequireIndexEntry || len(contract.RequiredFor("Note")) != 0 || len(contract.Malformed) != 0 {
+		t.Fatalf("legacy contract = %#v, %v", contract, err)
+	}
+}
+
 func TestDeleteMap_RefusesAssetOnlyEntry(t *testing.T) {
 	dir := tempKB(t)
 	k, err := Init(dir)

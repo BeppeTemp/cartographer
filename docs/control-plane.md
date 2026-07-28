@@ -57,7 +57,7 @@ Tools marked **[A]** (advanced, `advancedToolNames` in `internal/mcpserver/visib
 
 | Tool | Purpose |
 |---|---|
-| `map_create(name, title, [kind], [concept_types], [ontology_mode])` | Creates a map (`kind: map`, default) or a journal (`kind: journal`): a directory with `_map.md`, `index.md`, `log.md`. |
+| `map_create(name, title, [kind], [concept_types], [ontology_mode], [required_fields], [required_fields_by_type], [require_index_entry])` | Creates a map (`kind: map`, default) or a journal (`kind: journal`): a directory with `_map.md`, `index.md`, `log.md`. The optional contract fields are serialized deterministically in its descriptor. |
 | `map_delete(map)` | Deletes a map/journal directory, but only if it holds nothing beyond the `map_create` scaffold (`_map.md`, `index.md`, `log.md`); if any concept remains, errors listing them — move them out with `concept_move` first, then retry (D88). |
 | `concept_expand(id)` | Promotes a concept to an expanded concept: `map/name.md` → `map/name/index.md`, **same ConceptID** (no backlink rewrite), from which it can grow with `map/name/child` satellites. Requires a 2-segment id; errors `not_found` / `already_expanded`. No inverse operation (D77). |
 | `asset_read(concept_id, path, [encoding])` **[R]** | Reads a non-Markdown asset inside an expanded concept. Returns content (`text` or base64; invalid UTF-8 is always base64), raw-byte `sha256`, size and executable mode. |
@@ -77,7 +77,7 @@ Tools marked **[A]** (advanced, `advancedToolNames` in `internal/mcpserver/visib
 | Tool | Purpose |
 |---|---|
 | `validate(scope)` **[R]** **[A]** | OKF compliance (frontmatter, `type`, reserved files). |
-| `lint([scope], [scope_neighbors])` **[R]** **[A]** | Runs deterministic broken-link, stale-claim, orphan and structural checks. `scope_neighbors=true` adds one-hop graph neighbors. There is no model-backed/deep mode. |
+| `lint([scope], [scope_neighbors])` **[R]** **[A]** | Runs deterministic broken-link, stale-claim, orphan, contract and structural checks. `scope_neighbors=true` adds one-hop graph neighbors. There is no model-backed/deep mode. |
 | `commit_gate()` **[A]** | Blocks when open `Contradiction`s are involved in the diff. |
 | `gate_check()` **[R]** **[A]** | Combines validate + lint + commit_gate in a single tool (lightweight local gate). |
 | `conflict_resolve(contradiction_id, resolution, [reason])` **[A]** | Closes an open `Contradiction`. |
@@ -147,6 +147,9 @@ opt-in and active only when an Ollama endpoint is configured.
   layout/depth rules and the allowed type palette of strict Maps.
 - `lint` reports deterministic findings. It does not generate typed graph
   edges or Contradiction concepts.
+- Contract findings are `missing_required_field` (error), `index_incomplete`
+  (warning), and `contract_malformed` (info). A lint error makes `gate_check`
+  fail; `commit_gate` remains contradiction-only.
 - `commit_gate` inspects existing `type: Contradiction` concepts with
   `resolution_status: open` and blocks a supplied set of changed concept IDs
   when they are involved.
