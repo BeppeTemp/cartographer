@@ -2,6 +2,7 @@ package mcpserver
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -68,6 +69,7 @@ func TestTemplateArtifactRejectsInvalidSyntax(t *testing.T) {
 		"colon":        "---\ntype: Note\ntitle: {{repo:x}}\n---\nbody\n",
 		"braces":       "---\ntype: Note\ntitle: x\n---\n{{broken}\n",
 		"key":          "---\n{{title}}: x\ntype: Note\n---\nbody\n",
+		"raw":          "---\ntype: Note\nraw {{x}}\n---\nbody\n",
 	} {
 		tr := decodeToolResult(t, runMCPSequence(t, s, []string{initMsg, artifactCallMsg(t, 2, "artifact_write", map[string]any{"path": "templates/" + name + ".md", "content": content})})[1])
 		if !tr.IsError {
@@ -76,6 +78,10 @@ func TestTemplateArtifactRejectsInvalidSyntax(t *testing.T) {
 	}
 	if _, err := classifyArtifactPath("templates/Bad.md"); err == nil {
 		t.Fatal("invalid template slug accepted")
+	}
+	tr := decodeToolResult(t, runMCPSequence(t, s, []string{initMsg, artifactCallMsg(t, 2, "artifact_write", map[string]any{"path": "templates/block-list.md", "content": "---\ntype: Note\ntags:\n- {{tag}}\n---\nbody\n"})})[1])
+	if tr.IsError {
+		t.Fatalf("valid block-list placeholder rejected: %+v", tr.Content)
 	}
 }
 
@@ -156,6 +162,25 @@ func TestConceptNewRevalidatesOutOfBandTemplate(t *testing.T) {
 	tr := decodeToolResult(t, runMCPSequence(t, s, []string{initMsg, artifactCallMsg(t, 2, "concept_new", map[string]any{"template": "bad", "id": "notes/x"})})[1])
 	if !tr.IsError || !containsText(tr, "invalid") {
 		t.Fatalf("out-of-band validation: %+v", tr.Content)
+	}
+}
+
+func TestConceptNewRejectsOutOfBandRawFrontmatterPlaceholder(t *testing.T) {
+	k := setupTestKB(t)
+	if err := os.MkdirAll(filepath.Join(k.Root, "templates"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(k.Root, "templates", "raw.md"), []byte("---\ntype: Note\nraw {{x}}\n---\nbody\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s := New("test")
+	RegisterKBTools(s, k, Deps{})
+	tr := decodeToolResult(t, runMCPSequence(t, s, []string{initMsg, artifactCallMsg(t, 2, "concept_new", map[string]any{"template": "raw", "id": "notes/raw"})})[1])
+	if !tr.IsError || !containsText(tr, "unrecognized") {
+		t.Fatalf("raw frontmatter validation: %+v", tr.Content)
+	}
+	if _, err := k.ReadConcept(okf.ConceptID("notes/raw")); !errors.Is(err, okf.ErrNotFound) {
+		t.Fatalf("concept_new wrote a rejected raw template: %v", err)
 	}
 }
 

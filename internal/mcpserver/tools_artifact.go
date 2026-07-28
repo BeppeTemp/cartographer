@@ -650,10 +650,8 @@ func validateTemplateArtifact(data []byte) (*okf.Frontmatter, string, []string, 
 	if err != nil {
 		return nil, "", nil, fmt.Errorf("parse frontmatter: %w", err)
 	}
-	for _, line := range strings.Split(fmRaw, "\n") {
-		if strings.HasPrefix(strings.TrimSpace(line), "#") && (strings.Contains(line, "{{") || strings.Contains(line, "}}")) {
-			return nil, "", nil, fmt.Errorf("template variables are not allowed in frontmatter comments")
-		}
+	if err := validateTemplateFrontmatterRaw(fmRaw); err != nil {
+		return nil, "", nil, err
 	}
 	if strings.TrimSpace(fm.Type()) == "" {
 		return nil, "", nil, fmt.Errorf("frontmatter 'type' must be a non-empty literal string")
@@ -702,6 +700,43 @@ func validateTemplateArtifact(data []byte) (*okf.Frontmatter, string, []string, 
 	}
 	sort.Strings(out)
 	return fm, body, out, nil
+}
+
+// validateTemplateFrontmatterRaw closes the permissive parser's raw-line gap:
+// a placeholder in a line it preserves as a comment/raw entry could otherwise
+// evade variable accounting. Block-list items remain valid only immediately
+// after a `key:` line, matching ParseFrontmatter's supported YAML subset.
+func validateTemplateFrontmatterRaw(raw string) error {
+	listOpen := false
+	for _, line := range strings.Split(raw, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			if strings.Contains(line, "{{") || strings.Contains(line, "}}") {
+				return fmt.Errorf("template variables are not allowed in frontmatter comments")
+			}
+			listOpen = false
+			continue
+		}
+		if strings.HasPrefix(trimmed, "- ") {
+			if listOpen {
+				continue
+			}
+			if strings.Contains(line, "{{") || strings.Contains(line, "}}") {
+				return fmt.Errorf("template placeholder in unrecognized frontmatter line %q", trimmed)
+			}
+			continue
+		}
+		colon := strings.Index(line, ":")
+		if colon < 0 {
+			if strings.Contains(line, "{{") || strings.Contains(line, "}}") {
+				return fmt.Errorf("template placeholder in unrecognized frontmatter line %q", trimmed)
+			}
+			listOpen = false
+			continue
+		}
+		listOpen = strings.TrimSpace(line[colon+1:]) == ""
+	}
+	return nil
 }
 
 // validateSkillArtifact parses a candidate skills/<slug>/SKILL.md content and
