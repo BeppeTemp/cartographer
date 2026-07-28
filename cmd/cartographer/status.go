@@ -83,8 +83,44 @@ func renderStatus(output string, s statusSnapshot, code int) int {
 		}
 	}
 	for _, p := range s.Providers {
-		if p.Connected {
+		if !p.Connected {
+			continue
+		}
+		if p.State == "in_sync" {
+			fmt.Printf("[%s] in-sync (revision %s)\n", p.Name, p.Revision)
+			if p.Kinds != "" {
+				fmt.Printf("  %s\n", p.Kinds)
+			}
+			continue
+		}
+		if p.State != "drift" {
 			fmt.Printf("[%s] %s\n", p.Name, strings.ReplaceAll(p.State, "_", "-"))
+			continue
+		}
+		fmt.Printf("[%s] drift (manifest %s, lock %s)\n", p.Name, p.Revision, p.LockRevision)
+		if p.Kinds != "" {
+			fmt.Printf("  %s\n", p.Kinds)
+		}
+		unsigned := false
+		for _, a := range p.Added {
+			fmt.Printf("  + %s/%s [%s] signed=%v\n", a.Kind, a.Name, a.Source, a.Signed)
+			unsigned = unsigned || !a.Signed
+			if a.Kind == "hook" {
+				fmt.Printf("    new hook: after the sync, add the entry to settings.json manually (see hook.json in .claude/hooks/%s/)\n", a.Name)
+			}
+		}
+		for _, a := range p.Updated {
+			fmt.Printf("  ~ %s/%s [%s] signed=%v\n", a.Kind, a.Name, a.Source, a.Signed)
+			unsigned = unsigned || !a.Signed
+			if a.Kind == "hook" {
+				fmt.Printf("    hook updated: after the sync, verify the entry in settings.json (see hook.json in .claude/hooks/%s/)\n", a.Name)
+			}
+		}
+		for _, a := range p.Removed {
+			fmt.Printf("  - %s/%s (%s)\n", a.Kind, a.Name, a.Path)
+		}
+		if unsigned {
+			fmt.Printf("  to approve the unsigned artifacts run: %s\n", autoTrustCommand())
 		}
 	}
 	return code

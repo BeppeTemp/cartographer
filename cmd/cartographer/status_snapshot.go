@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"net"
-	"net/url"
 	"strings"
 
 	"github.com/BeppeTemp/cartographer/internal/agents"
@@ -12,7 +11,6 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
-	"github.com/BeppeTemp/cartographer/internal/service"
 )
 
 // statusSchema is deliberately versioned: scripts can reject incompatible
@@ -26,13 +24,24 @@ type statusError struct {
 }
 
 type providerStatus struct {
-	Name      string `json:"name"`
-	Installed bool   `json:"installed"`
-	Connected bool   `json:"connected"`
-	State     string `json:"state"`
-	Added     int    `json:"added,omitempty"`
-	Updated   int    `json:"updated,omitempty"`
-	Removed   int    `json:"removed,omitempty"`
+	Name         string           `json:"name"`
+	Installed    bool             `json:"installed"`
+	Connected    bool             `json:"connected"`
+	State        string           `json:"state"`
+	Revision     string           `json:"revision,omitempty"`
+	LockRevision string           `json:"lock_revision,omitempty"`
+	Kinds        string           `json:"kind_status,omitempty"`
+	Added        []statusArtifact `json:"added,omitempty"`
+	Updated      []statusArtifact `json:"updated,omitempty"`
+	Removed      []statusArtifact `json:"removed,omitempty"`
+}
+
+type statusArtifact struct {
+	Kind   string `json:"kind"`
+	Name   string `json:"name"`
+	Source string `json:"source,omitempty"`
+	Path   string `json:"path,omitempty"`
+	Signed bool   `json:"signed,omitempty"`
 }
 
 type serviceSnapshot struct {
@@ -152,17 +161,38 @@ func snapshotForConfig(dir string, cfg *clientconfig.Config, includeService bool
 		}
 		pm := provisioning.FilterForProvider(m, configurator.Provider(s.Providers[i].Name))
 		d := provisioning.ComputeDiff(pm, lockFile.ForProvider(s.Providers[i].Name))
+		p := &s.Providers[i]
+		p.Revision = pm.Revision
+		p.LockRevision = lockFile.ForProvider(p.Name).AppliedRevision
+		p.Kinds = formatKindStatus(pm, lockFile.ForProvider(p.Name))
 		if d.InSync {
-			s.Providers[i].State = "in_sync"
+			p.State = "in_sync"
 			continue
 		}
-		s.Providers[i].State, s.Providers[i].Added, s.Providers[i].Updated, s.Providers[i].Removed = "drift", len(d.Added), len(d.Updated), len(d.Removed)
+		p.State = "drift"
+		p.Added, p.Updated, p.Removed = snapshotArtifacts(d.Added), snapshotArtifacts(d.Updated), snapshotRemoved(d.Removed)
 		s.State = "drift"
 	}
 	if s.Server != "" && s.Client != "" && s.Client != "dev" && s.Server != "dev" && s.Client != s.Server && s.State == "in_sync" {
 		s.State = "version_skew"
 	}
 	return s
+}
+
+func snapshotArtifacts(artifacts []provisioning.Artifact) []statusArtifact {
+	out := make([]statusArtifact, len(artifacts))
+	for i, a := range artifacts {
+		out[i] = statusArtifact{Kind: a.Kind, Name: a.Name, Source: a.Source, Signed: a.Signed}
+	}
+	return out
+}
+
+func snapshotRemoved(files []provisioning.ManagedFile) []statusArtifact {
+	out := make([]statusArtifact, len(files))
+	for i, f := range files {
+		out[i] = statusArtifact{Kind: f.Kind, Name: f.Name, Path: f.Path}
+	}
+	return out
 }
 
 func providerStatuses(cfg *clientconfig.Config) []providerStatus {
@@ -187,12 +217,3 @@ func providerStatuses(cfg *clientconfig.Config) []providerStatus {
 func emptySnapshot() statusSnapshot {
 	return statusSnapshot{Schema: statusSchema, Client: version, State: "not_configured", Providers: providerStatuses(nil)}
 }
-
-func effectiveEndpoint(raw string) string {
-	if u, err := url.Parse(raw); err == nil {
-		return u.String()
-	}
-	return raw
-}
-
-var _ = service.Status{}

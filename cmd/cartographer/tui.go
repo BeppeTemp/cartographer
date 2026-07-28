@@ -761,7 +761,7 @@ func (m Model) View() string {
 	fmt.Fprintf(&b, "%s %s\n%s\n\n",
 		styleTitle.Render("Cartographer"),
 		styleSubtitle.Render(displayVersion(m.version)),
-		styleSubtitle.Render(m.dir))
+		styleSubtitle.Render(compactForWidth(m.dir, m.width)))
 
 	switch m.screen {
 	case screenConnect:
@@ -790,14 +790,14 @@ func (m Model) View() string {
 
 	switch m.screen {
 	case screenConnect:
-		b.WriteString(styleFooter.Render("tab/shift+tab move · space toggle auth/trust · enter next/submit · esc cancel · ctrl+c quit"))
+		b.WriteString(styleFooter.Render(wrapForWidth("tab/shift+tab move · space toggle auth/trust · enter next/submit · esc cancel · ctrl+c quit", m.width-6)))
 	case screenConfirmDisconnect:
-		b.WriteString(styleFooter.Render("←/→ select · enter confirm · y/n shortcut · esc cancel · ctrl+c quit"))
+		b.WriteString(styleFooter.Render(wrapForWidth("←/→ select · enter confirm · y/n shortcut · esc cancel · ctrl+c quit", m.width-6)))
 	default:
 		if len(m.rows) > 0 && m.rows[m.cursor].Connected {
-			b.WriteString(styleFooter.Render("↑/↓ move · enter/s sync · S sync all · d disconnect · r refresh · q quit"))
+			b.WriteString(styleFooter.Render(wrapForWidth("↑/↓ move · enter/s sync · S sync all · d disconnect · r refresh · q quit", m.width-6)))
 		} else {
-			b.WriteString(styleFooter.Render("↑/↓ move · enter connect · r refresh · q quit"))
+			b.WriteString(styleFooter.Render(wrapForWidth("↑/↓ move · enter connect · r refresh · q quit", m.width-6)))
 		}
 	}
 
@@ -878,13 +878,13 @@ func (m Model) viewServerPanel() string {
 	state := strings.ReplaceAll(s.State, "_", "-")
 	line := fmt.Sprintf("Server  %s  %s", compactForWidth(s.ServerURL, m.width), state)
 	if s.Reachable {
-		line += fmt.Sprintf("  client %s · server %s", s.Client, s.Server)
+		line += fmt.Sprintf("  ready=%s  client %s · server %s", readinessLabel(s.Ready), s.Client, s.Server)
 	}
 	if len(s.KBs) > 0 {
 		line += "  KBs " + strings.Join(s.KBs, ", ")
 	}
 	if s.Error != nil {
-		line += "\n  " + s.Error.Message
+		line += "\n  " + wrapForWidth(s.Error.Message, m.width-8)
 	}
 	if s.Service != nil {
 		line += fmt.Sprintf("\n  local service: installed=%t running=%t", s.Service.Installed, s.Service.Running)
@@ -903,6 +903,32 @@ func compactForWidth(s string, width int) string {
 	return s[:limit/2] + "…" + s[len(s)-(limit-limit/2-1):]
 }
 
+func readinessLabel(ready *bool) string {
+	if ready == nil {
+		return "unknown"
+	}
+	if *ready {
+		return "ready"
+	}
+	return "not-ready"
+}
+
+func wrapForWidth(s string, width int) string {
+	if width <= 0 || len(s) <= width {
+		return s
+	}
+	var lines []string
+	for len(s) > width {
+		cut := strings.LastIndex(s[:width+1], " ")
+		if cut <= 0 {
+			cut = width
+		}
+		lines = append(lines, s[:cut])
+		s = strings.TrimSpace(s[cut:])
+	}
+	return strings.Join(append(lines, s), "\n")
+}
+
 func (m Model) viewConfirmDisconnect() string {
 	if m.disconnecting {
 		return fmt.Sprintf("Disconnect %s?\n\n%s disconnecting…", m.confirmProvider, m.spinner.View())
@@ -913,8 +939,7 @@ func (m Model) viewConfirmDisconnect() string {
 	} else {
 		no = styleSelected.Render("> no <")
 	}
-	return fmt.Sprintf("Disconnect %s? This removes its MCP config entry and managed artifacts.\n\n   %s   %s",
-		m.confirmProvider, yes, no)
+	return fmt.Sprintf("%s\n\n   %s   %s", wrapForWidth(fmt.Sprintf("Disconnect %s? This removes its MCP config entry and managed artifacts.", m.confirmProvider), m.width-6), yes, no)
 }
 
 // displayVersion normalizes the build version for the title bar: the
