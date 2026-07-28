@@ -799,6 +799,22 @@ func TestServer_MapCreate_Contract(t *testing.T) {
 	}
 }
 
+func TestServer_MapCreate_RejectsEmptyContractNames(t *testing.T) {
+	k := setupTestKB(t)
+	s := New("test")
+	RegisterKBTools(s, k, Deps{})
+	resps := runMCPSequence(t, s, []string{
+		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
+		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"map_create","arguments":{"name":"bad-field","title":"Bad","required_fields":[" "]}}}`,
+		`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"map_create","arguments":{"name":"bad-type","title":"Bad","required_fields_by_type":{" ":["owner"]}}}}`,
+	})
+	for _, response := range resps[1:] {
+		if result := decodeToolResult(t, response); !result.IsError {
+			t.Fatalf("map_create accepted an empty contract name: %#v", result)
+		}
+	}
+}
+
 // TestServer_MapDelete_NonEmpty verifies that map_delete refuses to remove a
 // map that still holds concepts, and the error lists them (D88 WP2).
 func TestServer_MapDelete_NonEmpty(t *testing.T) {

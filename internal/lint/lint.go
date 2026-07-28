@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -326,8 +327,11 @@ func Run(k *kb.KB, scope string, scopeNeighbors bool) ([]Finding, error) {
 					direct = append(direct, id)
 				}
 			}
-			if len(direct) > 0 {
-				checkCuratedIndex(k, archiveName, archiveName+"/index.md", direct, &findings)
+			// A full lint or an explicit map scope also validates the map index
+			// when it has no direct concepts. A scope inside an expanded concept
+			// must not surface unrelated map-index content.
+			if len(direct) > 0 || scopeNorm == "" || scopeNorm == archiveName {
+				checkCuratedIndex(k, archiveName, archiveName+"/index.md", direct, true, &findings)
 			}
 		}
 
@@ -348,7 +352,9 @@ func Run(k *kb.KB, scope string, scopeNeighbors bool) ([]Finding, error) {
 					}
 				}
 				if len(satellites) > 0 {
-					checkCuratedIndex(k, string(expandedID), string(expandedID)+"/index.md", satellites, &findings)
+					// Expanded indexes are emitted by WalkConcepts, so their link
+					// targets are already covered by the general broken_link pass.
+					checkCuratedIndex(k, string(expandedID), string(expandedID)+"/index.md", satellites, false, &findings)
 				}
 			}
 
@@ -479,7 +485,15 @@ func emptyFrontmatterValue(value interface{}) bool {
 	case string:
 		return strings.TrimSpace(v) == ""
 	case []string:
-		return len(v) == 0
+		if len(v) == 0 {
+			return true
+		}
+		for _, item := range v {
+			if strings.TrimSpace(item) != "" {
+				return false
+			}
+		}
+		return true
 	default:
 		return false
 	}
@@ -488,7 +502,7 @@ func emptyFrontmatterValue(value interface{}) bool {
 // checkCuratedIndex verifies both directions of an opted-in curated index.
 // folder is passed to ReadIndex; indexPath is the exact physical base used by
 // ExtractLinks so relative Markdown links resolve from the right directory.
-func checkCuratedIndex(k *kb.KB, folder, indexPath string, candidates []okf.ConceptID, findings *[]Finding) {
+func checkCuratedIndex(k *kb.KB, folder, indexPath string, candidates []okf.ConceptID, validateLinks bool, findings *[]Finding) {
 	content, err := k.ReadIndex(folder)
 	if err != nil {
 		*findings = append(*findings, Finding{
@@ -503,15 +517,18 @@ func checkCuratedIndex(k *kb.KB, folder, indexPath string, candidates []okf.Conc
 	targets := map[okf.ConceptID]bool{}
 	for _, target := range kb.ExtractLinks(body, indexPath) {
 		targets[target] = true
-		if _, readErr := k.ReadConcept(target); errors.Is(readErr, okf.ErrNotFound) {
-			*findings = append(*findings, Finding{
-				Path:     indexPath,
-				Check:    "broken_link",
-				Severity: SevWarning,
-				Message:  fmt.Sprintf("broken link to %s", okf.IDToPath(target)),
-			})
+		if validateLinks {
+			if _, readErr := k.ReadConcept(target); errors.Is(readErr, okf.ErrNotFound) {
+				*findings = append(*findings, Finding{
+					Path:     indexPath,
+					Check:    "broken_link",
+					Severity: SevWarning,
+					Message:  fmt.Sprintf("broken link to %s", okf.IDToPath(target)),
+				})
+			}
 		}
 	}
+	sort.Slice(candidates, func(i, j int) bool { return candidates[i] < candidates[j] })
 	for _, candidate := range candidates {
 		if !targets[candidate] {
 			*findings = append(*findings, Finding{
