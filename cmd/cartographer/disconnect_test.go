@@ -24,7 +24,8 @@ var testSkillDir = map[string]string{
 // `cartographer connect` would have left behind for each provider: the MCP
 // config file (via configurator.Emit/Apply), a v2 lockfile with one managed
 // skill file per provider, the skill file itself on disk, and
-// .cartographer.yaml listing every provider as connected.
+// .cartographer.yaml listing every provider as connected. Its explicit 8080
+// endpoint represents a configuration created before D112 and must survive.
 func setupDisconnectFixture(t *testing.T, providers ...string) string {
 	t.Helper()
 	dir := t.TempDir()

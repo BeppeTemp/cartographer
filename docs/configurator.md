@@ -67,7 +67,7 @@ cartographer connect all --auto-trust --dry-run
 |------|---------|-------------|
 | (positional) | `all` | `claude` \| `opencode` \| `codex` \| `kiro` \| `all` (all detected agents) |
 | `--agents` | *(unset)* | Comma-separated subset (`claude,codex`); cannot be combined with the positional provider |
-| `--server-url` | `http://localhost:8080/mcp` | Cartographer server URL |
+| `--server-url` | `http://localhost:39273/mcp` | Cartographer server URL |
 | `--auth` | `false` | Enables the Bearer header in generated configs |
 | `--token-env` | `CARTOGRAPHER_TOKENS` | Env var holding the Bearer token |
 | `--dry-run` | `false` | Prints without writing |
@@ -82,7 +82,7 @@ TUI opens (`connectform.go`): each field shows a contextual hint below it when f
 itself is never written to disk; with Auth off the field is rendered secondary and the hint says it is
 ignored). In the standalone `connect` form, the four provider checkboxes are pre-selected from the
 installed-agent set; select one or more with Space or Enter. The Server URL prefill follows the precedence existing `.cartographer.yaml` >
-`CARTOGRAPHER_SERVER_URL` (client env) > `http://localhost:8080/mcp`. On submit a **probe** runs
+`CARTOGRAPHER_SERVER_URL` (client env) > `http://localhost:39273/mcp`. On submit a **probe** runs
 (`client.Health`, `GET /health`, 5s timeout, token from env only if Auth is enabled) before writing
 any file: a reachable server with no mounted KB explains the `kb create` then service-restart path;
 otherwise on failure the form is re-shown with the entered values and an inline error
@@ -113,7 +113,7 @@ managed files, never untracked ones), then removes the provider from the lockfil
 `.cartographer.yaml`. If the lockfile ends up with no providers it is removed; `.cartographer.yaml`,
 on the other hand, is **never deleted** (D64): with zero agents it stays on disk with `agents: []`,
 preserving `server_url`/`server_name`/`auth`/`token_env`/`trust`/`kbs` as defaults for the next
-`connect` (a disconnect→connect restarts from the previous server, not from `http://localhost:8080/mcp`).
+`connect` (a disconnect→connect restarts from the previous server, not from `http://localhost:39273/mcp`).
 
 ```bash
 cartographer disconnect                # every connected provider
@@ -258,7 +258,7 @@ stderr with the full form to use), `2` usage error (missing argument or not in t
 {
   "mcpServers": {
     "cartographer": {
-      "url": "http://localhost:8080/mcp",
+      "url": "http://localhost:39273/mcp",
       "type": "http",
       "headers": { "Authorization": "Bearer ${CARTOGRAPHER_TOKENS}" }
     }
@@ -271,7 +271,7 @@ only the text between the markers is touched, via `internal/blocktext`):
 ```toml
 # cartographer:mcp:begin
 [mcp_servers.cartographer]
-url = "http://localhost:8080/mcp"
+url = "http://localhost:39273/mcp"
 bearer_token_env_var = "CARTOGRAPHER_TOKENS"
 # cartographer:mcp:end
 ```
@@ -289,7 +289,7 @@ unrelated tables, Codex's own `[hooks.state."…"]` bookkeeping — is left as i
 {
   "mcpServers": {
     "cartographer": {
-      "url": "http://localhost:8080/mcp",
+      "url": "http://localhost:39273/mcp",
       "type": "http",
       "autoApprove": []
     }
@@ -304,7 +304,7 @@ unrelated tables, Codex's own `[hooks.state."…"]` bookkeeping — is left as i
   "mcp": {
     "cartographer": {
       "type": "remote",
-      "url": "http://localhost:8080/mcp",
+      "url": "http://localhost:39273/mcp",
       "enabled": true
     }
   }
@@ -318,7 +318,7 @@ unrelated tables, Codex's own `[hooks.state."…"]` bookkeeping — is left as i
   "mcp": {
     "cartographer": {
       "type": "remote",
-      "url": "http://localhost:8080/mcp",
+      "url": "http://localhost:39273/mcp",
       "enabled": true,
       "headers": { "Authorization": "Bearer {env:CARTOGRAPHER_TOKENS}" }
     }
@@ -346,7 +346,7 @@ providers are connected. One file per machine, not per project: this avoids drif
 connected in one repo but not another.
 
 ```yaml
-server_url: http://localhost:8080/mcp
+server_url: http://localhost:39273/mcp
 server_name: cartographer  # name under which the server is registered in the MCP configs (no longer a flag: always "cartographer", override only by editing this file)
 auth: false
 token_env: CARTOGRAPHER_TOKENS

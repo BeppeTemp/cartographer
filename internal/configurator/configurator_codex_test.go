@@ -16,7 +16,7 @@ import (
 func TestEmitCodex_TOML(t *testing.T) {
 	cfg := &configurator.ServerConfig{
 		Name:        "cartographer",
-		URL:         "http://localhost:8080/mcp",
+		URL:         "https://mcp.example.test/mcp",
 		AuthEnabled: true,
 		TokenEnv:    "CARTOGRAPHER_TOKENS",
 	}
@@ -31,7 +31,7 @@ func TestEmitCodex_TOML(t *testing.T) {
 	if !strings.Contains(content, `[mcp_servers.cartographer]`) {
 		t.Errorf("missing [mcp_servers.cartographer] section header: %s", content)
 	}
-	if !strings.Contains(content, `url = "http://localhost:8080/mcp"`) {
+	if !strings.Contains(content, `url = "https://mcp.example.test/mcp"`) {
 		t.Errorf("missing url key: %s", content)
 	}
 	if !strings.Contains(content, `bearer_token_env_var = "CARTOGRAPHER_TOKENS"`) {
@@ -40,7 +40,7 @@ func TestEmitCodex_TOML(t *testing.T) {
 }
 
 func TestEmitCodex_TOML_NoAuth(t *testing.T) {
-	cfg := &configurator.ServerConfig{Name: "cartographer", URL: "http://localhost:8080/mcp"}
+	cfg := &configurator.ServerConfig{Name: "cartographer", URL: "https://mcp.example.test/mcp"}
 	r, err := configurator.Emit(cfg, configurator.ProviderCodex)
 	if err != nil {
 		t.Fatal(err)
@@ -61,7 +61,7 @@ func TestApplyCodex_PreservesUserTOML(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cfg := &configurator.ServerConfig{Name: "cartographer", URL: "http://localhost:8080/mcp"}
+	cfg := &configurator.ServerConfig{Name: "cartographer", URL: "https://mcp.example.test/mcp"}
 	r, err := configurator.Emit(cfg, configurator.ProviderCodex)
 	if err != nil {
 		t.Fatal(err)
@@ -100,7 +100,7 @@ func TestApplyCodex_PreservesUserTOML(t *testing.T) {
 
 func TestRemoveCodex_StripsBlock_DeletesFileIfEmpty(t *testing.T) {
 	dir := t.TempDir()
-	cfg := &configurator.ServerConfig{Name: "cartographer", URL: "http://localhost:8080/mcp"}
+	cfg := &configurator.ServerConfig{Name: "cartographer", URL: "https://mcp.example.test/mcp"}
 	r, err := configurator.Emit(cfg, configurator.ProviderCodex)
 	if err != nil {
 		t.Fatal(err)
@@ -128,7 +128,7 @@ func TestRemoveCodex_PreservesUserContent(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	cfg := &configurator.ServerConfig{Name: "cartographer", URL: "http://localhost:8080/mcp"}
+	cfg := &configurator.ServerConfig{Name: "cartographer", URL: "https://mcp.example.test/mcp"}
 	r, err := configurator.Emit(cfg, configurator.ProviderCodex)
 	if err != nil {
 		t.Fatal(err)
@@ -162,7 +162,7 @@ func TestRemoveCodex_PreservesUserContent(t *testing.T) {
 
 func TestRemoveCodex_DryRunDoesNotWrite(t *testing.T) {
 	dir := t.TempDir()
-	cfg := &configurator.ServerConfig{Name: "cartographer", URL: "http://localhost:8080/mcp"}
+	cfg := &configurator.ServerConfig{Name: "cartographer", URL: "https://mcp.example.test/mcp"}
 	r, err := configurator.Emit(cfg, configurator.ProviderCodex)
 	if err != nil {
 		t.Fatal(err)
@@ -200,7 +200,7 @@ func TestRemoveCodex_LegacyConfigJSON_Cleanup(t *testing.T) {
 	}
 	legacy := `{
   "mcpServers": {
-    "cartographer": {"url": "http://localhost:8080/mcp", "type": "http"},
+    "cartographer": {"url": "https://mcp.example.test/mcp", "type": "http"},
     "other": {"url": "https://example.com/mcp", "type": "http"}
   }
 }`
@@ -208,7 +208,7 @@ func TestRemoveCodex_LegacyConfigJSON_Cleanup(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cfg := &configurator.ServerConfig{Name: "cartographer", URL: "http://localhost:8080/mcp"}
+	cfg := &configurator.ServerConfig{Name: "cartographer", URL: "https://mcp.example.test/mcp"}
 	removed, err := configurator.Remove(cfg, configurator.ProviderCodex, dir, false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -235,12 +235,12 @@ func TestRemoveCodex_LegacyConfigJSON_DeletesIfOnlyEntry(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(legacyPath), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	legacy := `{"mcpServers": {"cartographer": {"url": "http://localhost:8080/mcp", "type": "http"}}}`
+	legacy := `{"mcpServers": {"cartographer": {"url": "https://mcp.example.test/mcp", "type": "http"}}}`
 	if err := os.WriteFile(legacyPath, []byte(legacy), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
-	cfg := &configurator.ServerConfig{Name: "cartographer", URL: "http://localhost:8080/mcp"}
+	cfg := &configurator.ServerConfig{Name: "cartographer", URL: "https://mcp.example.test/mcp"}
 	if _, err := configurator.Remove(cfg, configurator.ProviderCodex, dir, false); err != nil {
 		t.Fatal(err)
 	}
@@ -268,7 +268,7 @@ func writeCodexConfig(t *testing.T, dir, content string) string {
 // returns the resulting config.toml plus the warnings Apply produced.
 func applyCodexEntry(t *testing.T, dir string) (string, []string) {
 	t.Helper()
-	cfg := &configurator.ServerConfig{Name: "cartographer", URL: "http://localhost:8080/mcp"}
+	cfg := &configurator.ServerConfig{Name: "cartographer", URL: "https://mcp.example.test/mcp"}
 	r, err := configurator.Emit(cfg, configurator.ProviderCodex)
 	if err != nil {
 		t.Fatal(err)
@@ -291,7 +291,7 @@ func TestApplyCodex_AdoptsOrphanTable_AfterCodexRewrote(t *testing.T) {
 
 [mcp_servers.cartographer]
 bearer_token_env_var = "CARTOGRAPHER_TOKENS"
-url = "http://localhost:8080/mcp"
+url = "https://mcp.example.test/mcp"
 
 [mcp_servers.other]
 url = "https://example.com/mcp"
@@ -322,7 +322,7 @@ func TestApplyCodex_AdoptsOrphanTable_WithSubTable(t *testing.T) {
 model = "gpt-5.6"
 
 [mcp_servers.cartographer]
-url = "http://localhost:8080/mcp"
+url = "https://mcp.example.test/mcp"
 
 [mcp_servers.cartographer.env]
 FOO = "bar"
@@ -405,13 +405,13 @@ url = "https://developers.openai.com/mcp"
 
 [mcp_servers.cartographer]
 bearer_token_env_var = "CARTOGRAPHER_TOKENS"
-url = "http://localhost:8080/mcp"
+url = "https://mcp.example.test/mcp"
 
 [projects."/Users/me"]
 trust_level = "trusted"
 
 [mcp_servers.cartographer]
-url = "http://localhost:8080/mcp"
+url = "https://mcp.example.test/mcp"
 bearer_token_env_var = "CARTOGRAPHER_TOKENS"
 `)
 

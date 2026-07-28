@@ -20,8 +20,8 @@ fmt: ## Format the code with gofmt
 run: build ## Start the stdio server with a demo KB
 	./bin/cartographer serve --kb ./demo-kb --init
 
-run-http: build ## Start the HTTP server on :8080 with a demo KB
-	./bin/cartographer serve --kb ./demo-kb --init --http :8080
+run-http: build ## Start the HTTP server on :39273 with a demo KB
+	./bin/cartographer serve --kb ./demo-kb --init --http :39273
 
 smoke-http: build ## HTTP flow smoke test: creates KB, archives, dossiers via MCP
 	@./test/smoke/http.sh

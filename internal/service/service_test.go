@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/BeppeTemp/cartographer/internal/config"
+	"github.com/BeppeTemp/cartographer/internal/defaults"
 )
 
 func TestRenderLaunchdPlist(t *testing.T) {
@@ -50,9 +51,9 @@ func TestRenderSystemdUnit(t *testing.T) {
 }
 
 func TestDefaultServerYAML(t *testing.T) {
-	out := DefaultServerYAML("/home/x/cartographer-data", "127.0.0.1:8080")
+	out := DefaultServerYAML("/home/x/cartographer-data", defaults.DefaultListenAddress)
 	for _, want := range []string{
-		`http: "127.0.0.1:8080"`,
+		`http: "127.0.0.1:39273"`,
 		`data: "/home/x/cartographer-data"`,
 		"init: true",
 		"cartographer service install",
@@ -73,7 +74,7 @@ func TestDefaultServerYAML(t *testing.T) {
 	if err != nil {
 		t.Fatalf("config.Load generated YAML: %v", err)
 	}
-	if cfg.HTTP != "127.0.0.1:8080" || cfg.Data != "/home/x/cartographer-data" || !cfg.Init {
+	if cfg.HTTP != defaults.DefaultListenAddress || cfg.Data != "/home/x/cartographer-data" || !cfg.Init {
 		t.Fatalf("loaded generated YAML = %+v", cfg)
 	}
 }
@@ -174,7 +175,7 @@ func TestInstall_GeneratesConfigAndPlist_Darwin(t *testing.T) {
 
 	dataDir := filepath.Join(home, "cartographer-data")
 	m, stub := newTestManager()
-	warnings, err := m.Install(InstallOptions{DataDir: dataDir, HTTPAddr: "127.0.0.1:8080"})
+	warnings, err := m.Install(InstallOptions{DataDir: dataDir, HTTPAddr: "127.0.0.1:39273"})
 	if err != nil {
 		t.Fatalf("Install: %v", err)
 	}
@@ -246,7 +247,7 @@ func TestInstall_PrefersStableCaskroomSymlink(t *testing.T) {
 	t.Cleanup(func() { osExecutable = origExecutable })
 
 	m, _ := newTestManager()
-	if _, err := m.Install(InstallOptions{DataDir: filepath.Join(home, "data"), HTTPAddr: "127.0.0.1:8080"}); err != nil {
+	if _, err := m.Install(InstallOptions{DataDir: filepath.Join(home, "data"), HTTPAddr: "127.0.0.1:39273"}); err != nil {
 		t.Fatalf("Install: %v", err)
 	}
 
@@ -275,13 +276,14 @@ func TestInstall_ExistingConfigNotOverwritten_WarnsOnExplicitFlags(t *testing.T)
 	configPath := filepath.Join(home, ".config", "cartographer", "server.yaml")
 	os.MkdirAll(filepath.Dir(configPath), 0o755)
 	customDataDir := filepath.Join(home, "custom")
-	existing := "http: \":9999\"\ndata: " + customDataDir + "\n"
+	// A generated service must never migrate this persisted pre-D112 endpoint.
+	existing := "http: \"127.0.0.1:8080\"\ndata: " + customDataDir + "\n"
 	if err := os.WriteFile(configPath, []byte(existing), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
 	m, _ := newTestManager()
-	warnings, err := m.Install(InstallOptions{DataDir: filepath.Join(home, "data"), HTTPAddr: "127.0.0.1:8080", DataExplicit: true})
+	warnings, err := m.Install(InstallOptions{DataDir: filepath.Join(home, "data"), HTTPAddr: defaults.DefaultListenAddress, DataExplicit: true, HTTPExplicit: true})
 	if err != nil {
 		t.Fatalf("Install: %v", err)
 	}
@@ -311,7 +313,7 @@ func TestInstall_Idempotent(t *testing.T) {
 	t.Cleanup(func() { osExecutable = origExecutable })
 
 	m, _ := newTestManager()
-	opts := InstallOptions{DataDir: filepath.Join(home, "data"), HTTPAddr: "127.0.0.1:8080"}
+	opts := InstallOptions{DataDir: filepath.Join(home, "data"), HTTPAddr: "127.0.0.1:39273"}
 	if _, err := m.Install(opts); err != nil {
 		t.Fatalf("first Install: %v", err)
 	}
@@ -384,6 +386,8 @@ func TestStatus_InstalledAndRunning(t *testing.T) {
 
 	configPath := filepath.Join(home, ".config", "cartographer", "server.yaml")
 	os.MkdirAll(filepath.Dir(configPath), 0o755)
+	// A service installed before D112 may still listen on 8080; status reports
+	// the persisted value rather than substituting the new default.
 	os.WriteFile(configPath, []byte("http: \"127.0.0.1:8080\"\n"), 0o644)
 
 	m, _ := newTestManager() // stub run() succeeds unconditionally
@@ -398,15 +402,15 @@ func TestStatus_InstalledAndRunning(t *testing.T) {
 		t.Error("Running should be true, stub run() succeeds")
 	}
 	if st.HTTPAddr != "127.0.0.1:8080" {
-		t.Errorf("HTTPAddr = %q, want 127.0.0.1:8080", st.HTTPAddr)
+		t.Errorf("HTTPAddr = %q, want preserved 127.0.0.1:8080", st.HTTPAddr)
 	}
 }
 
 func TestHealthURL(t *testing.T) {
 	cases := map[string]string{
 		"":                  "",
-		":8080":             "http://127.0.0.1:8080/health",
-		"127.0.0.1:8080":    "http://127.0.0.1:8080/health",
+		":39273":            "http://127.0.0.1:39273/health",
+		"127.0.0.1:39273":   "http://127.0.0.1:39273/health",
 		"0.0.0.0:9090":      "http://0.0.0.0:9090/health",
 		"not-a-valid-value": "",
 	}

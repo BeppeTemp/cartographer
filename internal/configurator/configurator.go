@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/BeppeTemp/cartographer/internal/blocktext"
+	"github.com/BeppeTemp/cartographer/internal/defaults"
 )
 
 // ServerConfig holds the MCP server configuration. The client always talks to the
@@ -27,7 +28,7 @@ type ServerConfig struct {
 func DefaultConfig() *ServerConfig {
 	return &ServerConfig{
 		Name:        "cartographer",
-		URL:         "http://localhost:8080/mcp",
+		URL:         defaults.DefaultMCPURL,
 		AuthEnabled: false,
 		TokenEnv:    "CARTOGRAPHER_TOKENS",
 	}

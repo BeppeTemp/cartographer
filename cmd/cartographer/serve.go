@@ -42,7 +42,7 @@ func cmdServe(args []string) int {
 	kbFlag := fs.String("kb", "", "Path(s) to KB(s), comma-separated (or CARTOGRAPHER_KB)")
 	dataFlag := fs.String("data", "", "Directory whose direct subdirs are each a separate KB (or CARTOGRAPHER_DATA)")
 	initFlag := fs.Bool("init", false, "Initialize KB(s) if they do not exist")
-	httpFlag := fs.String("http", "", "HTTP listen address, e.g. :8080 (or CARTOGRAPHER_HTTP)")
+	httpFlag := fs.String("http", "", "HTTP listen address, e.g. :39273 (or CARTOGRAPHER_HTTP)")
 	tokensFlag := fs.String("tokens", "", "Comma-separated bearer tokens (or CARTOGRAPHER_TOKENS)")
 	ollamaFlag := fs.String("ollama", "", "Ollama base URL for semantic search, e.g. http://localhost:11434 (or CARTOGRAPHER_OLLAMA)")
 	gitAutoCommitFlag := fs.Bool("git-autocommit", true, "Create a git commit after each successful write operation (default true; or CARTOGRAPHER_GIT_AUTOCOMMIT=false to disable)")

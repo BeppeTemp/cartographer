@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 
 	"github.com/BeppeTemp/cartographer/internal/config"
+	"github.com/BeppeTemp/cartographer/internal/defaults"
 	"github.com/BeppeTemp/cartographer/internal/service"
 )
 
@@ -49,7 +50,7 @@ func cmdServiceInstall(args []string) int {
 	defaultConfig, _ := service.ConfigPath()
 	configFlag := fs.String("config", defaultConfig, "Path to the generated server config YAML")
 	dataFlag := fs.String("data", defaultDataDir(), "KB data directory (only used when generating a new config)")
-	httpFlag := fs.String("http", "127.0.0.1:8080", "HTTP listen address (only used when generating a new config)")
+	httpFlag := fs.String("http", defaults.DefaultListenAddress, "HTTP listen address (only used when generating a new config)")
 	fs.Parse(args)
 
 	passed := map[string]bool{}

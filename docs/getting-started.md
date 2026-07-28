@@ -27,7 +27,7 @@ imperative [agent-driven installation runbook](agent-install.md) instead of this
 ## 2. Run the server and create your first KB
 
 Install it as a native service (launchd on macOS, systemd user unit on Linux),
-so the server survives reboots and listens on `127.0.0.1:8080`:
+so the server survives reboots and listens on `127.0.0.1:39273`:
 
 ```bash
 cartographer service install    # generates the config, installs and starts the service
@@ -42,7 +42,7 @@ folder of Markdown you can open in any editor or in Obsidian.
 
 > **Running it by hand instead.** For development you can skip the service and
 > run a one-off server on a KB of your choice:
-> `cartographer serve --kb ~/my-kb --init --http :8080` (`--init` scaffolds
+> `cartographer serve --kb ~/my-kb --init --http :39273` (`--init` scaffolds
 > it). The service path above is the one to use daily.
 
 ## 3. Connect your agent

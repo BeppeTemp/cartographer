@@ -39,7 +39,7 @@ variables or the platform secret store, not in a committed YAML file.
 |---|---|
 | `CARTOGRAPHER_KB` | One or more explicit KB paths. |
 | `CARTOGRAPHER_DATA` | Data directory whose direct subfolders are discovered as KBs. |
-| `CARTOGRAPHER_HTTP` | HTTP listen address, such as `:8080`. |
+| `CARTOGRAPHER_HTTP` | HTTP listen address, such as `:39273`. |
 | `CARTOGRAPHER_AUTH` | Explicit auth mode: on, off, or automatic when unset. |
 | `CARTOGRAPHER_TOKENS` | Bearer tokens, including optional per-KB scopes. |
 | `CARTOGRAPHER_GIT_SYNC` | Set `false` only when remote git synchronization around writes is intentionally disabled. |
