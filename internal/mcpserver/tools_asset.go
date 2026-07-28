@@ -91,8 +91,8 @@ func toolAssetList(k *kb.KB) Tool {
 func toolAssetWrite(k *kb.KB) Tool {
 	return Tool{
 		Name:        "asset_write",
-		Description: "Creates or updates a non-Markdown asset inside an expanded concept. New assets must omit if_match; overwrites require the current raw-byte sha256 from asset_read or asset_list. Content may be text or base64 and executable explicitly controls the file mode.",
-		InputSchema: json.RawMessage(`{"type":"object","required":["concept_id","path","content"],"properties":{"concept_id":{"type":"string"},"path":{"type":"string"},"content":{"type":"string"},"encoding":{"type":"string","enum":["text","base64"]},"executable":{"type":"boolean"},"if_match":{"type":"string"}}}`),
+		Description: "Creates or updates a non-Markdown asset inside an expanded concept. New assets must omit if_match; overwrites require the current raw-byte sha256 from asset_read or asset_list. Content may be text or base64. executable is tri-state: omitted creates non-executable files and preserves an existing mode; true or false explicitly sets the mode.",
+		InputSchema: json.RawMessage(`{"type":"object","required":["concept_id","path","content"],"properties":{"concept_id":{"type":"string"},"path":{"type":"string"},"content":{"type":"string"},"encoding":{"type":"string","enum":["text","base64"]},"executable":{"type":"boolean","description":"Tri-state: omit to create non-executable or preserve an overwrite; true/false explicitly sets executable mode."},"if_match":{"type":"string"}}}`),
 		Handler: func(args json.RawMessage) (ToolResult, error) {
 			var p struct {
 				ConceptID  string `json:"concept_id"`

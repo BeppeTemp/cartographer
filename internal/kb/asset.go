@@ -3,12 +3,14 @@ package kb
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+	"syscall"
 
 	"github.com/BeppeTemp/cartographer/internal/okf"
 )
@@ -60,21 +62,9 @@ func (kb *KB) resolveAsset(id okf.ConceptID, assetPath string, writeMode bool) (
 		return "", "", fmt.Errorf("%w: expanded concept directory %s is not a directory", okf.ErrInvalidPath, id)
 	}
 
-	if assetPath == "" || filepath.IsAbs(assetPath) {
-		return "", "", fmt.Errorf("%w: asset path must be relative", okf.ErrInvalidPath)
-	}
-	clean := filepath.Clean(assetPath)
-	if clean == "." || clean == ".." || strings.HasPrefix(clean, ".."+string(os.PathSeparator)) {
-		return "", "", fmt.Errorf("%w: asset path escapes concept directory: %s", okf.ErrInvalidPath, assetPath)
-	}
-	parts := strings.Split(filepath.ToSlash(clean), "/")
-	for _, part := range parts {
-		if part == "" || strings.HasPrefix(part, ".") {
-			return "", "", fmt.Errorf("%w: hidden asset path segment %q", okf.ErrInvalidPath, part)
-		}
-	}
-	if strings.EqualFold(filepath.Ext(clean), ".md") {
-		return "", "", fmt.Errorf("%w: Markdown assets are not allowed; use concept_write", okf.ErrInvalidPath)
+	clean, parts, err := validateAssetRelativePath(assetPath, true)
+	if err != nil {
+		return "", "", err
 	}
 
 	// ResolvePath keeps the lexical guard anchored at data/. Lstat every
@@ -99,6 +89,30 @@ func (kb *KB) resolveAsset(id okf.ConceptID, assetPath string, writeMode bool) (
 		}
 	}
 	return rel, abs, nil
+}
+
+// validateAssetRelativePath applies the lexical ownership rules to both a
+// direct API path and every path discovered by ListAssets. Markdown files are
+// skipped by listings rather than treated as assets, so callers can opt out of
+// that final extension check while retaining all traversal/hidden guards.
+func validateAssetRelativePath(assetPath string, rejectMarkdown bool) (string, []string, error) {
+	if assetPath == "" || filepath.IsAbs(assetPath) {
+		return "", nil, fmt.Errorf("%w: asset path must be relative", okf.ErrInvalidPath)
+	}
+	clean := filepath.Clean(assetPath)
+	if clean == "." || clean == ".." || strings.HasPrefix(clean, ".."+string(os.PathSeparator)) {
+		return "", nil, fmt.Errorf("%w: asset path escapes concept directory: %s", okf.ErrInvalidPath, assetPath)
+	}
+	parts := strings.Split(filepath.ToSlash(clean), "/")
+	for _, part := range parts {
+		if part == "" || strings.HasPrefix(part, ".") {
+			return "", nil, fmt.Errorf("%w: hidden asset path segment %q", okf.ErrInvalidPath, part)
+		}
+	}
+	if rejectMarkdown && strings.EqualFold(filepath.Ext(clean), ".md") {
+		return "", nil, fmt.Errorf("%w: Markdown assets are not allowed; use concept_write", okf.ErrInvalidPath)
+	}
+	return clean, parts, nil
 }
 
 func checkAssetFile(abs, rel string) (os.FileInfo, error) {
@@ -165,7 +179,7 @@ func (kb *KB) WriteAsset(id okf.ConceptID, assetPath string, data []byte, ifMatc
 			return AssetEntry{}, fmt.Errorf("%w: %s content-hash mismatch", okf.ErrStaleWrite, assetPath)
 		}
 	} else if ifMatch != "" {
-		return AssetEntry{}, fmt.Errorf("%w: %s not found", okf.ErrStaleWrite, assetPath)
+		return AssetEntry{}, fmt.Errorf("%w: if_match must be omitted when creating %s", okf.ErrStaleWrite, assetPath)
 	}
 	if err := kb.WriteFileAtomic(rel, data); err != nil {
 		return AssetEntry{}, err
@@ -212,6 +226,10 @@ func (kb *KB) ListAssets(id okf.ConceptID) ([]AssetEntry, error) {
 			return fmt.Errorf("%w: asset %s is not a regular file", okf.ErrInvalidPath, abs)
 		}
 		rel, err := filepath.Rel(conceptAbs, abs)
+		if err != nil {
+			return err
+		}
+		rel, _, err = validateAssetRelativePath(rel, false)
 		if err != nil {
 			return err
 		}
@@ -268,7 +286,7 @@ func (kb *KB) DeleteAsset(id okf.ConceptID, assetPath, ifMatch string) error {
 	}
 	for dir := filepath.Dir(abs); dir != conceptDir; dir = filepath.Dir(dir) {
 		if err := os.Remove(dir); err != nil {
-			if os.IsNotExist(err) || strings.Contains(err.Error(), "directory not empty") {
+			if os.IsNotExist(err) || errors.Is(err, syscall.ENOTEMPTY) || errors.Is(err, syscall.EEXIST) {
 				break
 			}
 			return fmt.Errorf("DeleteAsset %s: prune: %w", assetPath, err)

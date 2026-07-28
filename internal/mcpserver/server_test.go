@@ -2819,6 +2819,16 @@ func TestServer_AssetToolsRoundTripAndClassification(t *testing.T) {
 	if read.Encoding != "base64" || read.Content != "/wA=" || !read.Executable || read.SHA256 == "" {
 		t.Fatalf("asset_read lost binary data: %+v", read)
 	}
+	if _, err := k.WriteAsset("manutenzione/test-runbook", "evidence/search.txt", []byte("asset-only-keyword"), "", nil); err != nil {
+		t.Fatalf("WriteAsset search fixture: %v", err)
+	}
+	searchResult, err := s.Tools()["search"].Handler(json.RawMessage(`{"query":"asset-only-keyword"}`))
+	if err != nil {
+		t.Fatalf("search handler: %v", err)
+	}
+	if strings.Contains(searchResult.Content[0].Text, "evidence/search.txt") || strings.Contains(searchResult.Content[0].Text, "manutenzione/test-runbook") {
+		t.Fatal("asset bytes entered the keyword index")
+	}
 	deleteMsg := `{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"asset_delete","arguments":{"concept_id":"manutenzione/test-runbook","path":"evidence/raw.bin","if_match":"` + read.SHA256 + `"}}}`
 	deleteResp := runMCPSequence(t, s, []string{deleteMsg})
 	if tr := decodeToolResult(t, deleteResp[0]); tr.IsError {
@@ -2839,7 +2849,10 @@ func TestServer_ExpandedMoveAndDeleteProtectAssets(t *testing.T) {
 		t.Fatal(err)
 	}
 	fm, _ := okf.ParseFrontmatter("type: Note\ntitle: Satellite")
-	if _, err := k.WriteConcept("manutenzione/test-runbook/child", fm, "# Child\n", ""); err != nil {
+	if _, err := k.WriteConcept("manutenzione/test-runbook/child", fm, "# Child\nsatellite-index-keyword\n", ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := k.WriteConcept("manutenzione/ref", fm, "# Ref\n[[manutenzione/test-runbook/child]]\n", ""); err != nil {
 		t.Fatal(err)
 	}
 	s := New("test")
@@ -2855,11 +2868,21 @@ func TestServer_ExpandedMoveAndDeleteProtectAssets(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(k.DataRoot(), "manutenzione", "moved", "reports", "one.csv")); err != nil {
 		t.Fatalf("moved nested asset: %v", err)
 	}
+	ref, err := k.ReadConcept("manutenzione/ref")
+	if err != nil || !strings.Contains(ref.Body, "[[manutenzione/moved/child]]") {
+		t.Fatalf("satellite backlink was not rewritten: data=%+v err=%v", ref, err)
+	}
+	searchResult, err := s.Tools()["search"].Handler(json.RawMessage(`{"query":"satellite-index-keyword"}`))
+	if err != nil || !strings.Contains(searchResult.Content[0].Text, "manutenzione/moved/child") || strings.Contains(searchResult.Content[0].Text, "test-runbook/child") {
+		t.Fatalf("satellite index mapping: result=%+v err=%v", searchResult, err)
+	}
 
 	deleteWithoutForce := `{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_delete","arguments":{"id":"manutenzione/moved"}}}`
 	resps = runMCPSequence(t, s, []string{deleteWithoutForce})
 	if tr := decodeToolResult(t, resps[0]); !tr.IsError {
 		t.Fatal("concept_delete without force should reject owned assets")
+	} else if text := tr.Content[0].Text; !strings.Contains(text, "2 asset(s)") || !strings.Contains(text, "reports/one.csv") || !strings.Contains(text, "scripts/check.sh") {
+		t.Fatalf("asset-delete refusal must list count and paths: %s", text)
 	}
 	if _, err := os.Stat(filepath.Join(k.DataRoot(), "manutenzione", "moved", "reports", "one.csv")); err != nil {
 		t.Fatalf("refused delete removed asset: %v", err)
@@ -2874,6 +2897,33 @@ func TestServer_ExpandedMoveAndDeleteProtectAssets(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(k.DataRoot(), "manutenzione", "moved", "child.md")); err != nil {
 		t.Fatalf("force delete removed satellite: %v", err)
+	}
+}
+
+func TestServer_ExpandedMoveBatchSwapIsRejectedBeforeRename(t *testing.T) {
+	k := setupTestKB(t)
+	fm, _ := okf.ParseFrontmatter("type: Note\ntitle: Owner")
+	for _, id := range []string{"manutenzione/test-runbook", "manutenzione/second"} {
+		if id == "manutenzione/second" {
+			if _, err := k.WriteConcept(okf.ConceptID(id), fm, "# Second\n", ""); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := k.ExpandConcept(okf.ConceptID(id)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	s := New("test")
+	RegisterKBTools(s, k, Deps{})
+	msg := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"concept_move","arguments":{"moves":[{"source_id":"manutenzione/test-runbook","target_id":"manutenzione/second"},{"source_id":"manutenzione/second","target_id":"manutenzione/test-runbook"}]}}}`
+	resps := runMCPSequence(t, s, []string{msg})
+	if tr := decodeToolResult(t, resps[0]); !tr.IsError {
+		t.Fatal("expanded batch swap should be rejected")
+	}
+	for _, name := range []string{"test-runbook", "second"} {
+		if _, err := os.Stat(filepath.Join(k.DataRoot(), "manutenzione", name, "index.md")); err != nil {
+			t.Fatalf("swap validation renamed %s before rejection: %v", name, err)
+		}
 	}
 }
 
