@@ -116,6 +116,32 @@ func TestBuildManifest_RevisioneDeterministica(t *testing.T) {
 	}
 }
 
+func TestBuildManifest_TemplatesAreIgnored(t *testing.T) {
+	root := t.TempDir()
+	baseline, err := provisioning.BuildManifest(nil, map[string]string{"kb": root}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "templates"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "templates", "note.md"), []byte("---\ntype: Note\ntitle: Note\n---\n# Note\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	withTemplate, err := provisioning.BuildManifest(nil, map[string]string{"kb": root}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if baseline.Revision != withTemplate.Revision {
+		t.Fatalf("template changed manifest revision: %q != %q", baseline.Revision, withTemplate.Revision)
+	}
+	for _, artifact := range withTemplate.Artifacts {
+		if artifact.Kind == "template" {
+			t.Fatalf("template leaked into manifest: %+v", artifact)
+		}
+	}
+}
+
 func TestBuildManifest_CambioContenuto(t *testing.T) {
 	bundleFS1 := makeBundleFS("Original body.")
 	bundleFS2 := makeBundleFS("Modified body.")

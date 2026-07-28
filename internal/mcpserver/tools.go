@@ -111,6 +111,8 @@ func RegisterKBTools(s *Server, k *kb.KB, deps Deps) {
 	register(gitWrap(k, toolSecretSet(k)))
 	register(toolArtifactRead(k))
 	register(toolArtifactList(k))
+	register(toolTemplateList(k))
+	register(gitWrap(k, toolConceptNew(k, live, deps.SQLIndex)))
 	register(toolAssetRead(k))
 	register(toolAssetList(k))
 	register(gitWrap(k, toolAssetWrite(k)))

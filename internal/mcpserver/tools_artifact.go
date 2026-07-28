@@ -1,8 +1,8 @@
 // tools_artifact.go implements the artifact_read/artifact_write/artifact_list/
-// artifact_delete tools (D71): direct MCP editing of the provisioning artifacts
-// that live at the KB root as siblings of data/ (skills/, agents/, hooks/,
-// mcp/, instructions.md) — the same files scanned by
-// internal/provisioning.BuildManifest for sync_check/sync_apply/sync_pull.
+// artifact_delete tools: direct MCP editing of KB-root artifacts. Provisioning
+// artifacts (skills/, agents/, hooks/, mcp/, instructions.md) are scanned by
+// internal/provisioning.BuildManifest; templates/ are KB-only artifacts (D109)
+// deliberately excluded from that manifest.
 //
 // Only artifact_read/artifact_list are always registered (read-only, see
 // RegisterKBTools); artifact_write/artifact_delete require the per-KB
@@ -51,15 +51,15 @@ const artifactManifestKBKey = "kb"
 
 // artifactPathInfo is the result of classifying a whitelisted artifact path.
 type artifactPathInfo struct {
-	Kind string // "skill" | "agent" | "hook" | "mcp" | "instructions"
+	Kind string // "skill" | "agent" | "hook" | "mcp" | "instructions" | "template"
 	Name string // artifact name (slug); "" for instructions
 }
 
 // classifyArtifactPath validates relPath against the D71 whitelist and
 // extracts its (kind, name). This is the single path guard shared by all
 // four artifact_* tools: skills/<slug>/**, agents/<slug>.md, hooks/**,
-// mcp/<slug>.json, instructions.md. Rejects absolute paths, traversal
-// ("../"), and anything not matching one of the five shapes above.
+// mcp/<slug>.json, instructions.md, templates/<slug>.md. Rejects absolute
+// paths, traversal ("../"), and anything not matching one of those shapes.
 func classifyArtifactPath(relPath string) (artifactPathInfo, error) {
 	if relPath == "" {
 		return artifactPathInfo{}, fmt.Errorf("'path' is required")
@@ -96,6 +96,13 @@ func classifyArtifactPath(relPath string) (artifactPathInfo, error) {
 				return artifactPathInfo{Kind: "mcp", Name: slug}, nil
 			}
 		}
+	case "templates":
+		if len(segs) == 2 && strings.HasSuffix(segs[1], ".md") {
+			slug := strings.TrimSuffix(segs[1], ".md")
+			if artifactSlugPattern.MatchString(slug) {
+				return artifactPathInfo{Kind: "template", Name: slug}, nil
+			}
+		}
 	case "skills":
 		if len(segs) >= 3 && artifactSlugPattern.MatchString(segs[1]) {
 			return artifactPathInfo{Kind: "skill", Name: segs[1]}, nil
@@ -107,7 +114,7 @@ func classifyArtifactPath(relPath string) (artifactPathInfo, error) {
 	}
 
 	return artifactPathInfo{}, fmt.Errorf(
-		"path %q is not a whitelisted provisioning artifact path (skills/<slug>/**, agents/<slug>.md, hooks/**, mcp/<slug>.json, instructions.md)",
+		"path %q is not a whitelisted artifact path (skills/<slug>/**, agents/<slug>.md, hooks/**, mcp/<slug>.json, instructions.md, templates/<slug>.md)",
 		relPath)
 }
 
@@ -138,7 +145,7 @@ func rejectArtifactSymlinks(root, relPath string) error {
 }
 
 func rejectArtifactTreeSymlinks(root string) error {
-	for _, rel := range []string{"skills", "agents", "hooks", "mcp", "instructions.md"} {
+	for _, rel := range []string{"skills", "agents", "hooks", "mcp", "instructions.md", "templates"} {
 		if err := rejectArtifactSymlinks(root, rel); err != nil {
 			return err
 		}
@@ -167,8 +174,8 @@ func toolArtifactRead(k *kb.KB) Tool {
 	return Tool{
 		Name:     "artifact_read",
 		ReadOnly: true,
-		Description: "Reads a provisioning artifact file (skills/<slug>/**, agents/<slug>.md, " +
-			"hooks/**, mcp/<slug>.json, instructions.md) from the KB root. Returns content and " +
+		Description: "Reads a KB-root artifact file (provisioning artifacts under skills/, agents/, hooks/, mcp/, " +
+			"or instructions.md; KB-only templates/<slug>.md). Returns content and " +
 			"sha256 — use the sha256 as if_match for a subsequent artifact_write/artifact_delete.",
 		InputSchema: json.RawMessage(`{
 			"type": "object",
@@ -242,6 +249,15 @@ type artifactEntry struct {
 	Files []artifactFileEntry `json:"files"`
 }
 
+// templateListEntry is the metadata emitted by template_list. Bodies stay on
+// the explicit artifact_read path.
+type templateListEntry struct {
+	Slug  string   `json:"slug"`
+	Type  string   `json:"type"`
+	Title string   `json:"title"`
+	Vars  []string `json:"vars"`
+}
+
 // artifactFilePrefix maps a (kind, name) to the path prefix used to turn a
 // provisioning.ArtifactFile's artifact-relative Path into a KB-root-relative
 // path, mirroring the destinations in classifyArtifactPath.
@@ -255,6 +271,8 @@ func artifactFilePrefix(kind, name string) string {
 		return "agents/"
 	case "mcp":
 		return "mcp/"
+	case "template":
+		return "templates/"
 	}
 	return ""
 }
@@ -263,9 +281,8 @@ func toolArtifactList(k *kb.KB) Tool {
 	return Tool{
 		Name:     "artifact_list",
 		ReadOnly: true,
-		Description: "Lists the provisioning artifacts present in the KB (skill/agent/hook/mcp/" +
-			"instructions), each with its files and their sha256 — use a file's sha256 as if_match " +
-			"for artifact_write/artifact_delete.",
+		Description: "Lists KB-root artifacts: provisioning skill/agent/hook/mcp/instructions artifacts and " +
+			"KB-only templates. Each has files and sha256 values for artifact_write/artifact_delete.",
 		InputSchema: json.RawMessage(`{"type":"object","properties":{}}`),
 		Handler: func(args json.RawMessage) (ToolResult, error) {
 			if err := rejectArtifactTreeSymlinks(k.Root); err != nil {
@@ -313,6 +330,20 @@ func toolArtifactList(k *kb.KB) Tool {
 					})
 				}
 			}
+			templates, err := listTemplateSlugs(k)
+			if err != nil {
+				return errorResult("artifact_list: " + err.Error()), nil
+			}
+			for _, slug := range templates {
+				data, err := os.ReadFile(filepath.Join(k.Root, "templates", slug+".md"))
+				if err != nil {
+					return errorResult("artifact_list: " + err.Error()), nil
+				}
+				out = append(out, artifactEntry{
+					Kind: "template", Name: slug,
+					Files: []artifactFileEntry{{Path: "templates/" + slug + ".md", SHA256: sha256Hex(data)}},
+				})
+			}
 
 			sort.Slice(out, func(i, j int) bool {
 				if out[i].Kind != out[j].Kind {
@@ -327,18 +358,94 @@ func toolArtifactList(k *kb.KB) Tool {
 	}
 }
 
+// listTemplateSlugs directly scans templates/, because template is deliberately
+// absent from the provisioning manifest. It does not validate content: an
+// out-of-band invalid template must remain readable and repairable through the
+// artifact lifecycle, while concept_new always revalidates the selected file.
+func listTemplateSlugs(k *kb.KB) ([]string, error) {
+	if err := rejectArtifactSymlinks(k.Root, "templates"); err != nil {
+		return nil, err
+	}
+	entries, err := os.ReadDir(filepath.Join(k.Root, "templates"))
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	out := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".md") {
+			continue
+		}
+		slug := strings.TrimSuffix(entry.Name(), ".md")
+		if !artifactSlugPattern.MatchString(slug) {
+			continue
+		}
+		relPath := "templates/" + entry.Name()
+		if err := rejectArtifactSymlinks(k.Root, relPath); err != nil {
+			return nil, err
+		}
+		out = append(out, slug)
+	}
+	sort.Strings(out)
+	return out, nil
+}
+
+// scanTemplates validates and projects templates for the discovery tool. A
+// malformed out-of-band file is reported here rather than silently advertised
+// as renderable; artifact_list/artifact_read still let an agent repair it.
+func scanTemplates(k *kb.KB) ([]templateListEntry, error) {
+	slugs, err := listTemplateSlugs(k)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]templateListEntry, 0, len(slugs))
+	for _, slug := range slugs {
+		data, err := os.ReadFile(filepath.Join(k.Root, "templates", slug+".md"))
+		if err != nil {
+			return nil, err
+		}
+		fm, _, vars, err := validateTemplateArtifact(data)
+		if err != nil {
+			return nil, fmt.Errorf("template %q: %w", slug, err)
+		}
+		title, _ := fm.Get("title")
+		titleString, _ := title.(string)
+		out = append(out, templateListEntry{Slug: slug, Type: fm.Type(), Title: titleString, Vars: vars})
+	}
+	return out, nil
+}
+
+func toolTemplateList(k *kb.KB) Tool {
+	return Tool{
+		Name: "template_list", ReadOnly: true,
+		Description: "Lists KB-only concept templates with slug, literal type, title, and sorted variables. " +
+			"Use artifact_read to retrieve a template body.",
+		InputSchema: json.RawMessage(`{"type":"object","properties":{}}`),
+		Handler: func(args json.RawMessage) (ToolResult, error) {
+			templates, err := scanTemplates(k)
+			if err != nil {
+				return errorResult("template_list: " + err.Error()), nil
+			}
+			out, _ := json.MarshalIndent(templates, "", "  ")
+			return textResult(string(out)), nil
+		},
+	}
+}
+
 // --- artifact_write ---
 
 func toolArtifactWrite(k *kb.KB) Tool {
 	return Tool{
 		Name: "artifact_write",
-		Description: "Creates or updates a provisioning artifact file (skills/<slug>/**, " +
-			"agents/<slug>.md, hooks/**, mcp/<slug>.json, instructions.md) at the KB root. " +
+		Description: "Creates or updates a KB-root artifact file (skills/<slug>/**, agents/<slug>.md, " +
+			"hooks/**, mcp/<slug>.json, instructions.md, templates/<slug>.md). " +
 			"On an existing file, if_match is required (sha256 of the current content, from " +
 			"artifact_read/artifact_list) — fails with stale_write if it's missing or doesn't " +
 			"match. On a new file, omit if_match — fails with already_exists if the file is " +
-			"actually already there. Validates skills/*/SKILL.md, agents/*.md and mcp/*.json " +
-			"content before writing.",
+			"actually already there. Validates structured artifacts, including template frontmatter and variables, " +
+			"before writing.",
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"required": ["path", "content"],
@@ -480,13 +587,121 @@ func validateArtifactContent(info artifactPathInfo, relPath string, data []byte)
 			return err
 		}
 		return nil
+	case "template":
+		_, _, _, err := validateTemplateArtifact(data)
+		return err
 	default: // hook, instructions
 		return nil
 	}
 }
 
 func isStructuredArtifact(info artifactPathInfo, relPath string) bool {
-	return (info.Kind == "skill" && filepath.Base(relPath) == "SKILL.md") || info.Kind == "agent" || info.Kind == "mcp" || info.Kind == "instructions" || (info.Kind == "hook" && filepath.Base(relPath) == "hook.json")
+	return (info.Kind == "skill" && filepath.Base(relPath) == "SKILL.md") || info.Kind == "agent" || info.Kind == "mcp" || info.Kind == "template" || info.Kind == "instructions" || (info.Kind == "hook" && filepath.Base(relPath) == "hook.json")
+}
+
+var templateVariablePattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+
+// validateTemplateText accepts only complete {{identifier}} placeholders. A
+// colon form such as {{repo:key}} is rejected: it belongs to D75's client-side
+// provisioning expansion, while these variables are rendered once server-side.
+func validateTemplateText(text string) ([]string, error) {
+	vars := map[string]bool{}
+	for pos := 0; pos < len(text); {
+		open := strings.Index(text[pos:], "{{")
+		close := strings.Index(text[pos:], "}}")
+		if open == -1 && close == -1 {
+			break
+		}
+		if close >= 0 && (open == -1 || close < open) {
+			return nil, fmt.Errorf("malformed template placeholder")
+		}
+		start := pos + open + 2
+		endRel := strings.Index(text[start:], "}}")
+		if endRel < 0 {
+			return nil, fmt.Errorf("malformed template placeholder")
+		}
+		name := text[start : start+endRel]
+		if !templateVariablePattern.MatchString(name) {
+			return nil, fmt.Errorf("invalid template variable %q (use {{identifier}}; colon placeholders are not allowed)", name)
+		}
+		vars[name] = true
+		pos = start + endRel + 2
+	}
+	out := make([]string, 0, len(vars))
+	for name := range vars {
+		out = append(out, name)
+	}
+	sort.Strings(out)
+	return out, nil
+}
+
+// validateTemplateArtifact parses a template and validates the deliberately
+// small, logic-free grammar. It is also used by concept_new for templates that
+// may have arrived out of band through Git.
+func validateTemplateArtifact(data []byte) (*okf.Frontmatter, string, []string, error) {
+	if !utf8.Valid(data) {
+		return nil, "", nil, fmt.Errorf("content must be valid UTF-8")
+	}
+	fmRaw, body, hasFM := okf.SplitFrontmatter(string(data))
+	if !hasFM {
+		return nil, "", nil, fmt.Errorf("frontmatter is required")
+	}
+	fm, err := okf.ParseFrontmatter(fmRaw)
+	if err != nil {
+		return nil, "", nil, fmt.Errorf("parse frontmatter: %w", err)
+	}
+	for _, line := range strings.Split(fmRaw, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "#") && (strings.Contains(line, "{{") || strings.Contains(line, "}}")) {
+			return nil, "", nil, fmt.Errorf("template variables are not allowed in frontmatter comments")
+		}
+	}
+	if strings.TrimSpace(fm.Type()) == "" {
+		return nil, "", nil, fmt.Errorf("frontmatter 'type' must be a non-empty literal string")
+	}
+	vars := map[string]bool{}
+	addVars := func(text string) error {
+		found, err := validateTemplateText(text)
+		if err != nil {
+			return err
+		}
+		for _, name := range found {
+			vars[name] = true
+		}
+		return nil
+	}
+	for _, key := range fm.Keys() {
+		if err := addVars(key); err != nil {
+			return nil, "", nil, fmt.Errorf("frontmatter key %q: %w", key, err)
+		}
+		if strings.Contains(key, "{{") || strings.Contains(key, "}}") {
+			return nil, "", nil, fmt.Errorf("template variables are not allowed in frontmatter keys")
+		}
+		value, _ := fm.Get(key)
+		switch v := value.(type) {
+		case string:
+			if err := addVars(v); err != nil {
+				return nil, "", nil, fmt.Errorf("frontmatter %q: %w", key, err)
+			}
+		case []string:
+			for _, item := range v {
+				if err := addVars(item); err != nil {
+					return nil, "", nil, fmt.Errorf("frontmatter %q: %w", key, err)
+				}
+			}
+		}
+	}
+	if typeVars, err := validateTemplateText(fm.Type()); err != nil || len(typeVars) > 0 {
+		return nil, "", nil, fmt.Errorf("frontmatter 'type' must be a non-empty literal string")
+	}
+	if err := addVars(body); err != nil {
+		return nil, "", nil, fmt.Errorf("body: %w", err)
+	}
+	out := make([]string, 0, len(vars))
+	for name := range vars {
+		out = append(out, name)
+	}
+	sort.Strings(out)
+	return fm, body, out, nil
 }
 
 // validateSkillArtifact parses a candidate skills/<slug>/SKILL.md content and
@@ -553,8 +768,8 @@ func validateAgentArtifact(data []byte) error {
 func toolArtifactDelete(k *kb.KB) Tool {
 	return Tool{
 		Name: "artifact_delete",
-		Description: "Deletes a provisioning artifact file (skills/<slug>/**, agents/<slug>.md, " +
-			"hooks/**, mcp/<slug>.json, instructions.md), and its now-empty containing artifact " +
+		Description: "Deletes a KB-root artifact file (skills/<slug>/**, agents/<slug>.md, hooks/**, " +
+			"mcp/<slug>.json, instructions.md, templates/<slug>.md), and its now-empty containing artifact " +
 			"directory for skills/hooks. if_match (sha256 of the current content, from " +
 			"artifact_read/artifact_list) is required.",
 		InputSchema: json.RawMessage(`{

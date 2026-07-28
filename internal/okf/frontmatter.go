@@ -5,6 +5,7 @@ package okf
 import (
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -123,7 +124,7 @@ func parseFlowList(inner string) []string {
 	if strings.TrimSpace(inner) == "" {
 		return []string{}
 	}
-	parts := strings.Split(inner, ",")
+	parts := splitFlowList(inner)
 	result := make([]string, 0, len(parts))
 	for _, p := range parts {
 		result = append(result, unquoteScalar(strings.TrimSpace(p)))
@@ -131,11 +132,53 @@ func parseFlowList(inner string) []string {
 	return result
 }
 
+// splitFlowList separates a small YAML flow list while respecting quoted
+// scalars emitted by serializeEntry. It intentionally supports only the OKF
+// string subset, not general YAML.
+func splitFlowList(inner string) []string {
+	var parts []string
+	start := 0
+	quoted := byte(0)
+	escaped := false
+	for i := 0; i < len(inner); i++ {
+		c := inner[i]
+		if quoted != 0 {
+			if escaped {
+				escaped = false
+				continue
+			}
+			if c == '\\' && quoted == '"' {
+				escaped = true
+				continue
+			}
+			if c == quoted {
+				quoted = 0
+			}
+			continue
+		}
+		if c == '"' || c == '\'' {
+			quoted = c
+			continue
+		}
+		if c == ',' {
+			parts = append(parts, inner[start:i])
+			start = i + 1
+		}
+	}
+	parts = append(parts, inner[start:])
+	return parts
+}
+
 // unquoteScalar removes outer quotes if present ("..." or '...').
 func unquoteScalar(s string) string {
 	if len(s) >= 2 {
-		if (s[0] == '"' && s[len(s)-1] == '"') ||
-			(s[0] == '\'' && s[len(s)-1] == '\'') {
+		if s[0] == '"' && s[len(s)-1] == '"' {
+			if unquoted, err := strconv.Unquote(s); err == nil {
+				return unquoted
+			}
+			return s[1 : len(s)-1]
+		}
+		if s[0] == '\'' && s[len(s)-1] == '\'' {
 			return s[1 : len(s)-1]
 		}
 	}
@@ -178,12 +221,26 @@ func serializeEntry(key string, value interface{}) string {
 	case nil:
 		return key + ":\n"
 	case string:
-		return key + ": " + v + "\n"
+		return key + ": " + serializeScalar(v) + "\n"
 	case []string:
-		return key + ": [" + strings.Join(v, ", ") + "]\n"
+		items := make([]string, len(v))
+		for i, item := range v {
+			items[i] = serializeScalar(item)
+		}
+		return key + ": [" + strings.Join(items, ", ") + "]\n"
 	default:
 		return key + ": " + fmt.Sprintf("%v", v) + "\n"
 	}
+}
+
+// serializeScalar keeps ordinary frontmatter readable while quoting values
+// that could otherwise change YAML structure. strconv.Quote also turns literal
+// newlines into \n escapes, which ParseFrontmatter decodes through unquoteScalar.
+func serializeScalar(value string) string {
+	if value == "" || strings.ContainsAny(value, ":,[]{}#\n\r\t\\\"") || strings.HasPrefix(value, "-") || strings.HasPrefix(value, " ") || strings.HasSuffix(value, " ") {
+		return strconv.Quote(value)
+	}
+	return value
 }
 
 // Get returns the value associated with the key, and true if the key exists.

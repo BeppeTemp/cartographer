@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -84,6 +85,171 @@ func toolConceptWrite(k *kb.KB, live *liveIndex, sqlIdx *sqlindex.Index) Tool {
 			return textResult(string(out)), nil
 		},
 	}
+}
+
+// --- concept_new ---
+
+// toolConceptNew creates a concept from a KB-owned template. Unlike
+// concept_write it is deliberately create-only: rendering is a one-shot,
+// literal substitution and never carries if_match overwrite semantics.
+func toolConceptNew(k *kb.KB, live *liveIndex, sqlIdx *sqlindex.Index) Tool {
+	return Tool{
+		Name: "concept_new",
+		Description: "Creates a new concept from a KB-only template (git commit). Template variables are substituted once, " +
+			"literally, in frontmatter values and the body. It refuses an existing target; use concept_write or concept_patch " +
+			"to update one. It does not pre-check strict-map ontology because a template may legitimately serve several maps, " +
+			"and it does not curate map indexes.",
+		InputSchema: json.RawMessage(`{
+			"type":"object", "required":["template", "id"],
+			"properties": {
+				"template":{"type":"string","description":"Template slug from template_list"},
+				"id":{"type":"string","description":"New ConceptID (path relative to KB root without .md)"},
+				"vars":{"type":"object","additionalProperties":{"type":"string"},"description":"Optional template variable values"}
+			}
+		}`),
+		Handler: func(args json.RawMessage) (ToolResult, error) {
+			var params struct {
+				Template string            `json:"template"`
+				ID       string            `json:"id"`
+				Vars     map[string]string `json:"vars"`
+			}
+			if err := json.Unmarshal(args, &params); err != nil {
+				return errorResult("invalid params: " + err.Error()), nil
+			}
+			if params.Template == "" {
+				return errorResult("'template' is required"), nil
+			}
+			if params.ID == "" {
+				return errorResult("'id' is required"), nil
+			}
+			id, err := okf.PathToID(params.ID + ".md")
+			if err != nil || string(id) != params.ID {
+				return errorResult(fmt.Sprintf("concept_new %q: invalid ConceptID (use kebab-case path segments)", params.ID)), nil
+			}
+			segments := strings.Split(params.ID, "/")
+			if !strings.HasPrefix(params.ID, "services/") && len(segments) > 3 {
+				return errorResult(fmt.Sprintf("concept_new %q: invalid ConceptID: concept depth exceeds the max of 3 segments", params.ID)), nil
+			}
+			if _, err := k.ReadConcept(id); err == nil {
+				return errorResult(fmt.Sprintf("concept_new %q: already exists — use concept_write or concept_patch to update it", params.ID)), nil
+			} else if !errors.Is(err, okf.ErrNotFound) {
+				return errorResult(fmt.Sprintf("concept_new %q: %v", params.ID, err)), nil
+			}
+
+			info, err := classifyArtifactPath("templates/" + params.Template + ".md")
+			if err != nil || info.Kind != "template" {
+				return errorResult(fmt.Sprintf("concept_new: invalid template %q", params.Template)), nil
+			}
+			if err := rejectArtifactSymlinks(k.Root, "templates/"+params.Template+".md"); err != nil {
+				return errorResult("concept_new: " + err.Error()), nil
+			}
+			path, err := k.ResolveRootPath("templates/" + params.Template + ".md")
+			if err != nil {
+				return errorResult("concept_new: " + err.Error()), nil
+			}
+			content, err := os.ReadFile(path)
+			if os.IsNotExist(err) {
+				available, listErr := listTemplateSlugs(k)
+				if listErr != nil {
+					return errorResult("concept_new: " + listErr.Error()), nil
+				}
+				slugs := available
+				truncated := len(slugs) > 20
+				if truncated {
+					slugs = slugs[:20]
+				}
+				return errorResult(fmt.Sprintf("concept_new: template %q not found; available templates: %s; truncated:%t", params.Template, strings.Join(slugs, ", "), truncated)), nil
+			}
+			if err != nil {
+				return errorResult(fmt.Sprintf("concept_new: read template %q: %v", params.Template, err)), nil
+			}
+			fm, body, wanted, err := validateTemplateArtifact(content)
+			if err != nil {
+				return errorResult(fmt.Sprintf("concept_new: template %q is invalid: %v", params.Template, err)), nil
+			}
+			provided := make([]string, 0, len(params.Vars))
+			for name := range params.Vars {
+				provided = append(provided, name)
+			}
+			sort.Strings(provided)
+			missing, extra := templateVariableDiff(wanted, provided)
+			if len(missing) > 0 {
+				return errorResult("concept_new: missing template vars: " + strings.Join(missing, ", ")), nil
+			}
+			if len(extra) > 0 {
+				return errorResult("concept_new: unexpected template vars: " + strings.Join(extra, ", ")), nil
+			}
+			for _, key := range fm.Keys() {
+				value, _ := fm.Get(key)
+				switch v := value.(type) {
+				case string:
+					fm.Set(key, renderTemplateText(v, params.Vars))
+				case []string:
+					rendered := make([]string, len(v))
+					for i, item := range v {
+						rendered[i] = renderTemplateText(item, params.Vars)
+					}
+					fm.Set(key, rendered)
+				}
+			}
+			body = renderTemplateText(body, params.Vars)
+			newHash, err := writeConceptAndIndex(k, live, sqlIdx, "concept_new", params.ID, fm, body, "")
+			if err != nil {
+				return errorResult(fmt.Sprintf("concept_new %q: %v", params.ID, err)), nil
+			}
+			out, _ := json.MarshalIndent(map[string]string{"id": params.ID, "template": params.Template, "content_hash": newHash}, "", "  ")
+			return textResult(string(out)), nil
+		},
+	}
+}
+
+func templateVariableDiff(wanted, provided []string) (missing, extra []string) {
+	wantedSet := make(map[string]bool, len(wanted))
+	providedSet := make(map[string]bool, len(provided))
+	for _, name := range wanted {
+		wantedSet[name] = true
+	}
+	for _, name := range provided {
+		providedSet[name] = true
+	}
+	for _, name := range wanted {
+		if !providedSet[name] {
+			missing = append(missing, name)
+		}
+	}
+	for _, name := range provided {
+		if !wantedSet[name] {
+			extra = append(extra, name)
+		}
+	}
+	return missing, extra
+}
+
+// renderTemplateText scans only the source template, so values containing $,
+// {{other}}, colons or newlines are inserted literally and never reinterpreted.
+func renderTemplateText(source string, vars map[string]string) string {
+	var rendered strings.Builder
+	for pos := 0; pos < len(source); {
+		open := strings.Index(source[pos:], "{{")
+		if open < 0 {
+			rendered.WriteString(source[pos:])
+			break
+		}
+		open += pos
+		rendered.WriteString(source[pos:open])
+		start := open + 2
+		end := strings.Index(source[start:], "}}")
+		// The template was validated before this call, so an absent close is
+		// unreachable; retaining the source is a defensive fail-closed fallback.
+		if end < 0 {
+			rendered.WriteString(source[open:])
+			break
+		}
+		end += start
+		rendered.WriteString(vars[source[start:end]])
+		pos = end + 2
+	}
+	return rendered.String()
 }
 
 // applyFrontmatterMap shallow-applies a JSON-decoded frontmatter map onto fm,
