@@ -4,8 +4,10 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -14,6 +16,59 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
 )
+
+var ansiRE = regexp.MustCompile(`\x1b\[[0-9;]*m`)
+
+func TestViewResponsiveServerPanelAndWidth(t *testing.T) {
+	ready := true
+	for _, width := range []int{60, 80, 120} {
+		m := testModel()
+		m.width = width
+		m.snapshot = &statusSnapshot{Schema: statusSchema, ServerURL: "https://very-long.example.test/a/really/long/mcp/endpoint", Reachable: true, Ready: &ready, Client: "v1", Server: "v2", State: "version_skew"}
+		out := ansiRE.ReplaceAllString(m.View(), "")
+		if !strings.Contains(out, "Server") || !strings.Contains(out, "ready=ready") {
+			t.Fatalf("width %d misses server/readiness: %s", width, out)
+		}
+		for _, line := range strings.Split(out, "\n") {
+			if got := utf8.RuneCountInString(line); got > width {
+				t.Fatalf("width %d overflow %d: %q", width, got, line)
+			}
+		}
+	}
+}
+
+func TestViewServerFailureOnceAndSyncAll(t *testing.T) {
+	m := testModel()
+	m.width = 80
+	m.snapshot = &statusSnapshot{Schema: statusSchema, ServerURL: "http://127.0.0.1:39273/mcp", State: "unavailable", Error: &statusError{Message: "could not reach server; check service status"}}
+	out := ansiRE.ReplaceAllString(m.View(), "")
+	if strings.Count(out, "could not reach server") != 1 {
+		t.Fatalf("server error repeated: %s", out)
+	}
+	next, cmd := m.Update(keyMsg("S"))
+	m = next.(Model)
+	if !m.loading || cmd == nil {
+		t.Fatal("S must sync all connected providers")
+	}
+}
+
+func TestNarrowFailureAndConfirmationDoNotOverflow(t *testing.T) {
+	for _, width := range []int{60, 80, 120} {
+		m := testModel()
+		m.width = width
+		m.snapshot = &statusSnapshot{Schema: statusSchema, State: "unavailable", Error: &statusError{Message: "could not reach https://a-very-long-endpoint.example.test/with/a/long/path; check cartographer service status"}}
+		m.screen, m.confirmProvider = screenConfirmDisconnect, "a-provider-with-a-long-name"
+		out := ansiRE.ReplaceAllString(m.View(), "")
+		for _, line := range strings.Split(out, "\n") {
+			if got := utf8.RuneCountInString(line); got > width {
+				t.Fatalf("width %d overflow %d: %q", width, got, line)
+			}
+		}
+		if !strings.Contains(out, "yes") {
+			t.Fatalf("width %d hides primary confirmation", width)
+		}
+	}
+}
 
 // testModel builds a minimal, deterministic Model for Update() tests, bypassing
 // newModel (which calls agents.Detect()/clientconfig.Load() against the real

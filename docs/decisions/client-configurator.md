@@ -242,3 +242,23 @@ into a 400, without introducing a client-side multiplexing protocol.
 **Rationale.** D58's ownership model (comment markers + `internal/blocktext`) assumes the markers survive. They do not: Codex CLI re-serializes the whole `config.toml` whenever it persists its own settings (trusted hook hashes, `[tui]`, `[projects.*]`), emitting the tables in canonical form and dropping every comment. The tables survive, the markers do not, and `blocktext.Write` — which appends when it finds no markers — then declares `[mcp_servers.cartographer]` a second time: a duplicate key, so `codex` refuses to start. For hooks the file stays valid (an array-of-tables may repeat) and the hook simply fires twice, which is quieter and worse. Parsing the file as TOML would fix it and lose exactly what D58 exists to protect, so ownership is instead resolved by identity: a table we would write, outside every block of ours, is a copy of ours.
 
 **Consequences.** `connect`/`sync` self-heal an already-broken machine on the next run: no hand-editing, and nothing on the client's read path parses `config.toml`, so a duplicated file never blocks the repair. `[hooks.state."…"]` entries are deliberately **not** pruned: they are Codex's own bookkeeping (a trusted hash per hook, keyed by position), a stale one is inert because Codex gates it on a hash we do not compute, and deleting them would mean interpreting Codex's internals — the very format-awareness D58 rules out. `EnsureBootstrapHook` has no warnings channel and drops its repair message; the same repair on the MCP entry is reported, which is what makes the file visibly change. Table identity is the reason hooks are matched by command path and not by header: `[[hooks.PreToolUse]]` is shared by every hook on that event.
+
+---
+
+<a id="d113"></a>
+## D113 — One client status snapshot across CLI and dashboard
+
+**Status: implemented (2026-07-28).**
+
+**Decision.** Client status is collected once into a versioned,
+renderer-independent snapshot. Table commands, JSON output and the Bubble Tea
+dashboard consume that snapshot. A failed endpoint request produces one
+classified server error and marks connected provider state unknown; JSON keeps
+the wrapped cause while human output gives the endpoint and an actionable next
+step. Command discovery is grouped and conservative, and the dashboard adapts
+its presentation and visible actions to terminal width and selection.
+
+**Rationale.** Independent render paths had drifted into separate network calls
+and contradictory repeated errors. A small stable schema gives scripts a safe
+contract while keeping the terminal interface concise, and makes the dashboard
+an alternate view of the same facts rather than a second status implementation.

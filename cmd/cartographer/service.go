@@ -1,8 +1,10 @@
 package main
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 
@@ -24,6 +26,10 @@ const (
 // cmdService manages the cartographer MCP server as a native per-user
 // service: launchd on macOS, a systemd user unit on Linux.
 func cmdService(args []string) int {
+	if len(args) == 1 && (args[0] == "-h" || args[0] == "--help") {
+		printServiceUsage(os.Stdout)
+		return 0
+	}
 	target, rest := splitPositional(args, "")
 
 	switch target {
@@ -40,9 +46,14 @@ func cmdService(args []string) int {
 	case "status":
 		return cmdServiceStatus(rest)
 	default:
-		fmt.Fprintln(os.Stderr, "Error: usage: cartographer service install|uninstall|start|stop|restart|status")
+		fmt.Fprintln(os.Stderr, "Error: service action required")
+		printServiceUsage(os.Stderr)
 		return exitStatusError
 	}
+}
+
+func printServiceUsage(w io.Writer) {
+	fmt.Fprintln(w, "Usage: cartographer service <install|uninstall|start|stop|restart|status> [flags]")
 }
 
 func cmdServiceInstall(args []string) int {
@@ -131,9 +142,14 @@ func cmdServiceRestart(args []string) int {
 }
 
 func cmdServiceStatus(args []string) int {
+	output, remaining, err := outputFlag(args)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "Error:", err)
+		return exitStatusError
+	}
 	fs := flag.NewFlagSet("service status", flag.ExitOnError)
 	configFlag := fs.String("config", "", "Server config YAML to read the http address from (default: the standard path)")
-	fs.Parse(args)
+	fs.Parse(remaining)
 
 	st, err := service.NewManager().Status(*configFlag)
 	if err != nil {
@@ -141,11 +157,21 @@ func cmdServiceStatus(args []string) int {
 		return exitStatusError
 	}
 
-	fmt.Printf("binary:  %s\n", st.BinPath)
-	fmt.Printf("config:  %s\n", st.ConfigPath)
-	fmt.Printf("installed: %v\n", st.Installed)
-	fmt.Printf("running:   %v\n", st.Running)
-	fmt.Printf("healthy:   %v (http %s)\n", st.Healthy, st.HTTPAddr)
+	s := statusSnapshot{Schema: statusSchema, Client: version, State: "running", Service: &serviceSnapshot{st.Installed, st.Running, st.Healthy, st.HTTPAddr}}
+	if !st.Installed {
+		s.State = "not_installed"
+	} else if !st.Running {
+		s.State = "stopped"
+	}
+	if output == "json" {
+		_ = json.NewEncoder(os.Stdout).Encode(s)
+	} else {
+		fmt.Printf("binary:  %s\n", st.BinPath)
+		fmt.Printf("config:  %s\n", st.ConfigPath)
+		fmt.Printf("installed: %v\n", st.Installed)
+		fmt.Printf("running:   %v\n", st.Running)
+		fmt.Printf("healthy:   %v (http %s)\n", st.Healthy, st.HTTPAddr)
+	}
 
 	if !st.Installed {
 		return exitStatusNotInstalled

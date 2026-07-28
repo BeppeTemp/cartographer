@@ -109,6 +109,9 @@ type connectFormModel struct {
 	// SpinnerView while Submitting is true — e.g. "probing the server…" during
 	// the pre-connect probe (D64). Empty means "connecting…".
 	SubmittingLabel string
+	// Width is supplied by the embedding dashboard. Zero preserves the
+	// standalone CLI form's natural layout.
+	Width int
 }
 
 // newConnectFormModel builds a connectFormModel titled title (e.g. "Connect
@@ -327,6 +330,13 @@ func (m *connectFormModel) clearProbeState() {
 }
 
 func (m connectFormModel) View() string {
+	if m.Width > 0 {
+		w := m.Width - 20
+		if w < 16 {
+			w = 16
+		}
+		m.url.Width, m.tokenEnv.Width = w, w
+	}
 	auth := "[ ] disabled"
 	if m.auth {
 		auth = "[x] enabled"
@@ -336,7 +346,11 @@ func (m connectFormModel) View() string {
 		trust = "[x] enabled"
 	}
 
-	tokenEnvLine := formFieldLine("Token env var", m.tokenEnv.View(), m.focus == fieldTokenEnv)
+	tokenLabel := "Token env var"
+	if m.Width > 0 && m.Width < 80 {
+		tokenLabel = "Token"
+	}
+	tokenEnvLine := formFieldLine(tokenLabel, m.tokenEnv.View(), m.focus == fieldTokenEnv)
 	if !m.auth {
 		// Secondary/dimmed when auth is off: the field is collected but unused
 		// (see resolveToken/probeServer, which only read it when Auth is
@@ -345,7 +359,11 @@ func (m connectFormModel) View() string {
 		tokenEnvLine = styleSubtitle.Render(tokenEnvLine)
 	}
 
-	fields := []string{formFieldLine("Server URL", m.url.View(), m.focus == fieldServerURL)}
+	urlLabel := "Server URL"
+	if m.Width > 0 && m.Width < 80 {
+		urlLabel = "URL"
+	}
+	fields := []string{formFieldLine(urlLabel, m.url.View(), m.focus == fieldServerURL)}
 	if m.selectAgents {
 		fields = append(fields,
 			formProviderLine("claude", m.providers["claude"], m.focus == fieldAgentClaude),
@@ -354,7 +372,11 @@ func (m connectFormModel) View() string {
 			formProviderLine("kiro", m.providers["kiro"], m.focus == fieldAgentKiro),
 		)
 	}
-	fields = append(fields, tokenEnvLine, formFieldLine("Auth", auth, m.focus == fieldAuth), formFieldLine("Trust KB artifacts", trust, m.focus == fieldTrust))
+	trustLabel := "Trust KB artifacts"
+	if m.Width > 0 && m.Width < 80 {
+		trustLabel = "Trust"
+	}
+	fields = append(fields, tokenEnvLine, formFieldLine("Auth", auth, m.focus == fieldAuth), formFieldLine(trustLabel, trust, m.focus == fieldTrust))
 
 	submit := "  Connect"
 	if m.focus == fieldSubmit {

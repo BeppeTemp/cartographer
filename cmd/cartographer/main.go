@@ -5,7 +5,6 @@ import (
 	"io"
 	"log"
 	"os"
-	"strings"
 )
 
 // version is the build version, normally overridden at link time via
@@ -15,25 +14,26 @@ var version = "dev"
 
 // subcommand describes one entry of `cartographer help`.
 type subcommand struct {
-	name string
-	desc string
+	group string
+	name  string
+	desc  string
 }
 
 // subcommands lists every subcommand for the usage output.
 var subcommands = []subcommand{
-	{"serve", "Run the MCP server (stdio or HTTP)"},
-	{"kb", "Create or mount local KBs (kb create|clone)"},
-	{"version", "Print the build version"},
-	{"help", "Show this help message"},
-	{"agents", "List detected/connected agent clients on this machine"},
-	{"connect", "Connect this machine to a cartographer server"},
-	{"disconnect", "Disconnect this machine from a cartographer server"},
-	{"status", "Show sync status against the configured server"},
-	{"sync", "Synchronize local agent clients with the configured server"},
-	{"service", "Manage the MCP server as a native service (install|uninstall|start|stop|restart|status)"},
-	{"import", "Mechanically import an external markdown corpus into a KB (D74 scaffold)"},
-	{"resolve", "Resolve a {{repo:<key>}}/{{path:<name>}} placeholder to a local path (D75)"},
-	{"reindex", "Reconcile search indexes after out-of-band KB changes"},
+	{"Get started", "help", "Show this help"},
+	{"Get started", "version", "Print the build version"},
+	{"Client", "agents", "List local agent clients"},
+	{"Client", "connect", "Connect an agent client"},
+	{"Client", "disconnect", "Disconnect an agent client"},
+	{"Client", "status", "Show client sync status"},
+	{"Client", "sync", "Synchronize agent clients"},
+	{"Server", "serve", "Run the MCP server"},
+	{"Server", "service", "Manage the native server service"},
+	{"Knowledge base", "kb", "Create or mount local knowledge bases"},
+	{"Knowledge base", "import", "Import an external markdown corpus"},
+	{"Knowledge base", "resolve", "Resolve a configured path placeholder"},
+	{"Diagnostics", "reindex", "Reconcile search indexes"},
 }
 
 // serveFn/versionFn/agentsFn/connectFn/disconnectFn/statusFn/syncFn are
@@ -82,7 +82,7 @@ func run(args []string) int {
 		return serveFn(rest)
 	case "kb":
 		return kbFn(rest)
-	case "version":
+	case "version", "--version":
 		return versionFn()
 	case "help", "-h", "--help":
 		printUsage(os.Stdout)
@@ -106,11 +106,12 @@ func run(args []string) int {
 	case "reindex":
 		return reindexFn(rest)
 	default:
-		if strings.HasPrefix(cmd, "-") {
-			fmt.Fprintf(os.Stderr, "Error: flags are not accepted at the root level; did you mean %q?\n\n", "cartographer serve ...")
-		} else {
-			fmt.Fprintf(os.Stderr, "Error: unknown command %q; did you mean %q?\n\n", cmd, "cartographer serve")
+		fmt.Fprintf(os.Stderr, "Error: unknown command %q", cmd)
+		if suggestion := commandSuggestion(cmd); suggestion != "" {
+			fmt.Fprintf(os.Stderr, "; did you mean %q", suggestion)
 		}
+		fmt.Fprintln(os.Stderr)
+		fmt.Fprintln(os.Stderr)
 		printUsage(os.Stderr)
 		return 2
 	}
@@ -132,13 +133,68 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(w, "Usage:")
 	fmt.Fprintln(w, "  cartographer <command> [flags]")
 	fmt.Fprintln(w, "")
-	fmt.Fprintln(w, "Commands:")
+	fmt.Fprintln(w, "Get started:")
 	fmt.Fprintf(w, "  %-10s %s\n", "(none)", "Launch interactive dashboard (TTY only)")
+	group := ""
 	for _, sc := range subcommands {
+		if sc.group != group {
+			if group != "" {
+				fmt.Fprintln(w)
+			}
+			if sc.group != "Get started" {
+				fmt.Fprintf(w, "%s:\n", sc.group)
+			}
+			group = sc.group
+		}
 		fmt.Fprintf(w, "  %-10s %s\n", sc.name, sc.desc)
 	}
 	fmt.Fprintln(w, "")
 	fmt.Fprintln(w, "Run 'cartographer <command> -h' for flags of a specific command.")
+}
+
+// commandSuggestion returns the only close command. A distance of two keeps
+// corrections useful ("agent" → "agents") without guessing unrelated input.
+func commandSuggestion(input string) string {
+	var match string
+	for _, sc := range subcommands {
+		if editDistance(input, sc.name) <= 2 {
+			if match != "" {
+				return ""
+			}
+			match = sc.name
+		}
+	}
+	return match
+}
+
+func editDistance(a, b string) int {
+	prev := make([]int, len(b)+1)
+	for j := range prev {
+		prev[j] = j
+	}
+	for i, ra := range a {
+		cur := make([]int, len(b)+1)
+		cur[0] = i + 1
+		for j, rb := range b {
+			cost := 0
+			if ra != rb {
+				cost = 1
+			}
+			cur[j+1] = minInt(prev[j+1]+1, cur[j]+1, prev[j]+cost)
+		}
+		prev = cur
+	}
+	return prev[len(b)]
+}
+
+func minInt(values ...int) int {
+	n := values[0]
+	for _, v := range values[1:] {
+		if v < n {
+			n = v
+		}
+	}
+	return n
 }
 
 // envFallback returns val if non-empty, else os.Getenv(envKey).

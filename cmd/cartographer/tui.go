@@ -89,6 +89,9 @@ type Model struct {
 	screen  screen
 	message string
 	err     error
+	// snapshot is shared with the non-interactive status command. It gives the
+	// dashboard one server-level explanation instead of repeating it per row.
+	snapshot *statusSnapshot
 
 	formProvider string
 	connectForm  connectFormModel
@@ -115,6 +118,7 @@ type Model struct {
 // keyed by provider name. Missing keys mean "leave SkillStatus unchanged".
 type remoteStatusMsg struct {
 	statuses map[string]string
+	snapshot statusSnapshot
 }
 
 // connectDoneMsg carries the result of a connectCmd run.
@@ -261,43 +265,16 @@ func loadRemoteStatusCmd(dir string) tea.Cmd {
 	return func() tea.Msg {
 		cfg, err := clientconfig.Load(dir)
 		if err != nil || len(cfg.Agents) == 0 {
-			return remoteStatusMsg{}
+			return remoteStatusMsg{snapshot: emptySnapshot()}
 		}
-
+		s := snapshotForConfig(dir, cfg, true)
 		statuses := make(map[string]string, len(cfg.Agents))
-		m, err := fetchMergedManifest(cfg)
-		if err != nil {
-			for _, p := range cfg.Agents {
-				statuses[p] = "server unreachable"
+		for _, p := range s.Providers {
+			if p.Connected {
+				statuses[p.Name] = strings.ReplaceAll(p.State, "_", "-")
 			}
-			return remoteStatusMsg{statuses: statuses}
 		}
-		// cfg.Trust (persisted at connect time, D54) upgrades kb:-sourced
-		// artifacts to Signed:true before the diff, matching cmdStatus.
-		m = upgradeTrustedManifest(m, cfg.Trust)
-
-		lockFile, err := provisioning.ReadLockFile(lockFilePath(dir))
-		if err != nil {
-			for _, p := range cfg.Agents {
-				statuses[p] = fmt.Sprintf("error: %v", err)
-			}
-			return remoteStatusMsg{statuses: statuses}
-		}
-
-		for _, p := range cfg.Agents {
-			lock := lockFile.ForProvider(p)
-			// Only the kinds the provider supports (see FilterForProvider): a
-			// hook opencode cannot materialize (or an agent for codex/kiro —
-			// D55) is not drift.
-			pm := provisioning.FilterForProvider(m, configurator.Provider(p))
-			d := provisioning.ComputeDiff(pm, lock)
-			status := formatDiffStatus(d)
-			if kindLine := formatKindStatus(pm, lock); kindLine != "" {
-				status += "  (" + kindLine + ")"
-			}
-			statuses[p] = status
-		}
-		return remoteStatusMsg{statuses: statuses}
+		return remoteStatusMsg{statuses: statuses, snapshot: s}
 	}
 }
 
@@ -498,6 +475,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case remoteStatusMsg:
 		m.loading = false
+		m.snapshot = &msg.snapshot
 		for i := range m.rows {
 			if !m.rows[i].Connected {
 				continue
@@ -611,6 +589,21 @@ func (m Model) updateList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, loadRemoteStatusCmd(m.dir)
 		}
 		return m, nil
+
+	case "S":
+		var cmds []tea.Cmd
+		for _, row := range m.rows {
+			if row.Connected {
+				cmds = append(cmds, syncCmd(string(row.Provider), m.dir))
+			}
+		}
+		if len(cmds) == 0 {
+			return m, nil
+		}
+		m.loading = true
+		m.message = "syncing all connected providers…"
+		m.err = nil
+		return m, tea.Batch(cmds...)
 
 	case "enter", "s":
 		if len(m.rows) == 0 {
@@ -768,11 +761,12 @@ func (m Model) View() string {
 	fmt.Fprintf(&b, "%s %s\n%s\n\n",
 		styleTitle.Render("Cartographer"),
 		styleSubtitle.Render(displayVersion(m.version)),
-		styleSubtitle.Render(m.dir))
+		styleSubtitle.Render(compactForWidth(m.dir, m.width)))
 
 	switch m.screen {
 	case screenConnect:
 		form := m.connectForm
+		form.Width = m.width
 		form.Submitting = m.probing || m.submitting
 		if m.probing {
 			form.SubmittingLabel = "probing the server…"
@@ -796,11 +790,15 @@ func (m Model) View() string {
 
 	switch m.screen {
 	case screenConnect:
-		b.WriteString(styleFooter.Render("tab/shift+tab move · space toggle auth/trust · enter next/submit · esc cancel · ctrl+c quit"))
+		b.WriteString(styleFooter.Render(wrapForWidth("tab/shift+tab move · space toggle auth/trust · enter next/submit · esc cancel · ctrl+c quit", m.width-6)))
 	case screenConfirmDisconnect:
-		b.WriteString(styleFooter.Render("←/→ select · enter confirm · y/n shortcut · esc cancel · ctrl+c quit"))
+		b.WriteString(styleFooter.Render(wrapForWidth("←/→ select · enter confirm · y/n shortcut · esc cancel · ctrl+c quit", m.width-6)))
 	default:
-		b.WriteString(styleFooter.Render("↑/↓ move · enter connect/sync · s sync · d disconnect · r refresh · q quit"))
+		if len(m.rows) > 0 && m.rows[m.cursor].Connected {
+			b.WriteString(styleFooter.Render(wrapForWidth("↑/↓ move · enter/s sync · S sync all · d disconnect · r refresh · q quit", m.width-6)))
+		} else {
+			b.WriteString(styleFooter.Render(wrapForWidth("↑/↓ move · enter connect · r refresh · q quit", m.width-6)))
+		}
 	}
 
 	box := styleBorder
@@ -817,6 +815,9 @@ func (m Model) View() string {
 
 func (m Model) viewList() string {
 	var lines []string
+	if m.snapshot != nil {
+		lines = append(lines, m.viewServerPanel(), "")
+	}
 	for i, row := range m.rows {
 		cursor := "  "
 		if i == m.cursor {
@@ -869,6 +870,65 @@ func (m Model) viewList() string {
 	return strings.Join(lines, "\n")
 }
 
+func (m Model) viewServerPanel() string {
+	s := m.snapshot
+	if s == nil {
+		return ""
+	}
+	state := strings.ReplaceAll(s.State, "_", "-")
+	line := fmt.Sprintf("Server  %s  %s", compactForWidth(s.ServerURL, m.width), state)
+	if s.Reachable {
+		line += fmt.Sprintf("  ready=%s  client %s · server %s", readinessLabel(s.Ready), s.Client, s.Server)
+	}
+	if len(s.KBs) > 0 {
+		line += "  KBs " + strings.Join(s.KBs, ", ")
+	}
+	if s.Error != nil {
+		line += "\n  " + wrapForWidth(s.Error.Message, m.width-8)
+	}
+	if s.Service != nil {
+		line += fmt.Sprintf("\n  local service: installed=%t running=%t", s.Service.Installed, s.Service.Running)
+	}
+	return line
+}
+
+func compactForWidth(s string, width int) string {
+	if width <= 0 || width >= 80 || len(s) <= width/2 {
+		return s
+	}
+	limit := width / 2
+	if limit < 12 {
+		limit = 12
+	}
+	return s[:limit/2] + "…" + s[len(s)-(limit-limit/2-1):]
+}
+
+func readinessLabel(ready *bool) string {
+	if ready == nil {
+		return "unknown"
+	}
+	if *ready {
+		return "ready"
+	}
+	return "not-ready"
+}
+
+func wrapForWidth(s string, width int) string {
+	if width <= 0 || len(s) <= width {
+		return s
+	}
+	var lines []string
+	for len(s) > width {
+		cut := strings.LastIndex(s[:width+1], " ")
+		if cut <= 0 {
+			cut = width
+		}
+		lines = append(lines, s[:cut])
+		s = strings.TrimSpace(s[cut:])
+	}
+	return strings.Join(append(lines, s), "\n")
+}
+
 func (m Model) viewConfirmDisconnect() string {
 	if m.disconnecting {
 		return fmt.Sprintf("Disconnect %s?\n\n%s disconnecting…", m.confirmProvider, m.spinner.View())
@@ -879,8 +939,7 @@ func (m Model) viewConfirmDisconnect() string {
 	} else {
 		no = styleSelected.Render("> no <")
 	}
-	return fmt.Sprintf("Disconnect %s? This removes its MCP config entry and managed artifacts.\n\n   %s   %s",
-		m.confirmProvider, yes, no)
+	return fmt.Sprintf("%s\n\n   %s   %s", wrapForWidth(fmt.Sprintf("Disconnect %s? This removes its MCP config entry and managed artifacts.", m.confirmProvider), m.width-6), yes, no)
 }
 
 // displayVersion normalizes the build version for the title bar: the
