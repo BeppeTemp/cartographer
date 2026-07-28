@@ -184,6 +184,78 @@ func TestGraphNeighbors(t *testing.T) {
 	}
 }
 
+func TestGraphNeighbors_DirectionsAndExpandedPhysicalPath(t *testing.T) {
+	dir, err := os.MkdirTemp("", "kb-graph-directions-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(dir)
+	k, err := Init(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	write := func(rel, content string) {
+		t.Helper()
+		if err := os.MkdirAll(filepath.Dir(filepath.Join(k.DataRoot(), rel)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(k.DataRoot(), rel), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("map/a.md", "---\ntype: Note\n---\n[[map/owner]]\n")
+	write("map/b.md", "---\ntype: Note\n---\n[a](a.md) and [missing](missing.md)\n")
+	write("map/owner/index.md", "---\ntype: Note\n---\n[child](child.md)\n")
+	write("map/owner/child.md", "---\ntype: Note\n---\n[leaf](../leaf.md)\n")
+	write("map/leaf.md", "---\ntype: Note\n---\n[a](a.md)\n")
+	write("map/no-backlinks.md", "---\ntype: Note\n---\n")
+
+	out, err := k.GraphNeighbors("map/owner", 2, "out")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out["map/owner/child"] != 1 || out["map/leaf"] != 2 {
+		t.Fatalf("expanded outbound links use wrong physical path: %v", out)
+	}
+
+	in, err := k.GraphNeighbors("map/owner", 2, "in")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if in["map/a"] != 1 || in["map/b"] != 2 {
+		t.Fatalf("inbound depth traversal: %v", in)
+	}
+
+	both, err := k.GraphNeighbors("map/a", 3, "both")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if both["map/owner"] != 1 || both["map/b"] != 1 || both["map/owner/child"] != 2 || both["map/leaf"] != 1 {
+		t.Fatalf("both direction/minimum distance: %v", both)
+	}
+	// leaf is reachable outbound in three hops and inbound in one, so both
+	// must retain the minimum distance.
+	if both["map/leaf"] != 1 {
+		t.Fatalf("both direction must retain minimum distance: %v", both)
+	}
+
+	missing, err := k.GraphNeighbors("map/missing", 1, "in")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if missing["map/b"] != 1 {
+		t.Fatalf("missing target should retain inbound backlinks: %v", missing)
+	}
+
+	noBacklinks, err := k.GraphNeighbors("map/no-backlinks", 1, "in")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(noBacklinks) != 0 {
+		t.Fatalf("concept without backlinks should return empty without error: %v", noBacklinks)
+	}
+}
+
 func TestWalkConcepts(t *testing.T) {
 	dir, err := os.MkdirTemp("", "kb-walk-test-*")
 	if err != nil {

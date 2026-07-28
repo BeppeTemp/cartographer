@@ -17,7 +17,7 @@ Every KB is a **conformant OKF v0.1 bundle** *and* a git repository in its own r
 
 | Level | What it does | Token cost |
 |---|---|---|
-| **MCP** | Data and capabilities (bounded reads, search, validated writes) | Proportional to the content read |
+| **MCP** | Data and capabilities (bounded reads, structured frontmatter queries, search, validated writes) | Proportional to the content read |
 | **Skill** | Competence/procedure (how to do ingest/query/lint), loaded on-demand | ~100 tokens catalog; body on-demand |
 | **Hook** | Deterministic client-side automation distributed by the KB | No model cost unless the hook invokes an agent |
 

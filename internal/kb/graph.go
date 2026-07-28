@@ -1,6 +1,7 @@
 package kb
 
 import (
+	"fmt"
 	"io/fs"
 	"os"
 	"path"
@@ -203,35 +204,94 @@ func relLink(baseDir, targetPath string) string {
 	return strings.Join(relParts, "/")
 }
 
+// linkAdjacency is the disposable directed graph derived from concept files.
+// It deliberately retains links to missing concepts and self-edges: lint needs
+// both facts. Graph traversal filters self-edges separately.
+type linkAdjacency struct {
+	out map[okf.ConceptID]map[okf.ConceptID]struct{}
+	in  map[okf.ConceptID]map[okf.ConceptID]struct{}
+}
+
+// buildLinkAdjacency derives the link graph from the files on every call.
+// physicalPath, rather than IDToPath(id), is essential for an expanded
+// concept: its ID is map/concept but its body lives in map/concept/index.md.
+func (kb *KB) buildLinkAdjacency() (linkAdjacency, error) {
+	graph := linkAdjacency{
+		out: make(map[okf.ConceptID]map[okf.ConceptID]struct{}),
+		in:  make(map[okf.ConceptID]map[okf.ConceptID]struct{}),
+	}
+	err := kb.walkConceptPaths(func(id okf.ConceptID, physicalPath, content string) error {
+		_, body, _ := okf.SplitFrontmatter(content)
+		if graph.out[id] == nil {
+			graph.out[id] = make(map[okf.ConceptID]struct{})
+		}
+		for _, target := range ExtractLinks(body, physicalPath) {
+			graph.out[id][target] = struct{}{}
+			if graph.in[target] == nil {
+				graph.in[target] = make(map[okf.ConceptID]struct{})
+			}
+			graph.in[target][id] = struct{}{}
+		}
+		return nil
+	})
+	return graph, err
+}
+
+// IncomingLinks returns the derived inbound links keyed by target concept.
+// The graph is computed on demand so it always follows the KB files.
+func (kb *KB) IncomingLinks() (map[okf.ConceptID]map[okf.ConceptID]struct{}, error) {
+	graph, err := kb.buildLinkAdjacency()
+	if err != nil {
+		return nil, err
+	}
+	return graph.in, nil
+}
+
 // GraphNeighbors returns the concept IDs reachable from id within depth hops.
-// The returned map is conceptID → minimum distance from the starting concept.
-// The starting concept itself is not included. depth <= 0 defaults to 1.
-func (kb *KB) GraphNeighbors(id okf.ConceptID, depth int) (map[string]int, error) {
+// The optional direction is out (default), in, or both. The returned map is
+// conceptID → minimum distance from the starting concept. The starting concept
+// and self-edges are not included. depth <= 0 defaults to 1.
+func (kb *KB) GraphNeighbors(id okf.ConceptID, depth int, directions ...string) (map[string]int, error) {
 	if depth <= 0 {
 		depth = 1
 	}
+	direction := "out"
+	if len(directions) > 0 && directions[0] != "" {
+		direction = directions[0]
+	}
+	if direction != "out" && direction != "in" && direction != "both" {
+		return nil, fmt.Errorf("invalid graph direction %q", direction)
+	}
+
+	graph, err := kb.buildLinkAdjacency()
+	if err != nil {
+		return nil, err
+	}
 
 	result := map[string]int{}
-	frontier := []string{string(id)}
+	frontier := []okf.ConceptID{id}
 
 	for d := 1; d <= depth; d++ {
-		var next []string
+		var next []okf.ConceptID
 		for _, cur := range frontier {
-			relPath := okf.IDToPath(okf.ConceptID(cur))
-			content, err := kb.ReadRaw(relPath)
-			if err != nil {
-				continue
+			neighbors := make(map[okf.ConceptID]struct{})
+			if direction == "out" || direction == "both" {
+				for neighbor := range graph.out[cur] {
+					neighbors[neighbor] = struct{}{}
+				}
 			}
-			_, body, _ := okf.SplitFrontmatter(content)
-			links := ExtractLinks(body, relPath)
-			for _, link := range links {
-				lid := string(link)
-				if lid == string(id) {
+			if direction == "in" || direction == "both" {
+				for neighbor := range graph.in[cur] {
+					neighbors[neighbor] = struct{}{}
+				}
+			}
+			for neighbor := range neighbors {
+				if neighbor == cur || neighbor == id {
 					continue
 				}
-				if _, seen := result[lid]; !seen {
-					result[lid] = d
-					next = append(next, lid)
+				if _, seen := result[string(neighbor)]; !seen {
+					result[string(neighbor)] = d
+					next = append(next, neighbor)
 				}
 			}
 		}
@@ -253,6 +313,14 @@ func (kb *KB) GraphNeighbors(id okf.ConceptID, depth int) (map[string]int, error
 // graph, lint and service_list). Other reserved files (log.md, _map.md,
 // _archive.md, AGENTS.md) are always skipped. raw/ is outside both roots.
 func (kb *KB) WalkConcepts(fn func(id okf.ConceptID, content string) error) error {
+	return kb.walkConceptPaths(func(id okf.ConceptID, _ string, content string) error {
+		return fn(id, content)
+	})
+}
+
+// walkConceptPaths is WalkConcepts' internal physical-path-aware variant.
+// physicalPath is always the actual KB-relative Markdown path for id.
+func (kb *KB) walkConceptPaths(fn func(id okf.ConceptID, physicalPath, content string) error) error {
 	files, err := kb.listMDFiles(".")
 	if err != nil {
 		return err
@@ -279,7 +347,7 @@ func (kb *KB) WalkConcepts(fn func(id okf.ConceptID, content string) error) erro
 			if err != nil {
 				continue
 			}
-			if err := fn(okf.ConceptID(dir), content); err != nil {
+			if err := fn(okf.ConceptID(dir), rel, content); err != nil {
 				return err
 			}
 			continue
@@ -293,7 +361,7 @@ func (kb *KB) WalkConcepts(fn func(id okf.ConceptID, content string) error) erro
 			continue
 		}
 		id := okf.ConceptID(strings.TrimSuffix(rel, ".md"))
-		if err := fn(id, content); err != nil {
+		if err := fn(id, rel, content); err != nil {
 			return err
 		}
 	}

@@ -1341,6 +1341,117 @@ func TestServer_ConceptList(t *testing.T) {
 	}
 }
 
+func TestServer_ConceptList_Facets(t *testing.T) {
+	k := setupTestKB(t)
+	write := func(name, content string) {
+		t.Helper()
+		if err := os.MkdirAll(filepath.Join(k.DataRoot(), "facets"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(k.DataRoot(), "facets", name+".md"), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("a", "---\ntype: Note\ntags: [red, blue]\nresource: api\ntimestamp: 2025-01-02\n---\n")
+	write("b", "---\ntype: Runbook\ntags: [red]\nresource: worker\ntimestamp: not-a-date\n---\n")
+	write("c", "---\ntype: Note\n---\n")
+	write("d", "---\ntype: Note\ntags: [blue]\nresource: a=b\ntimestamp: 2025-02-01T00:00:00Z\n---\n")
+
+	s := New("1.0.0")
+	RegisterKBTools(s, k, Deps{})
+	call := func(args string) (map[string]interface{}, ToolResult) {
+		t.Helper()
+		responses := runMCPSequence(t, s, []string{
+			`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
+			`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_list","arguments":` + args + `}}`,
+		})
+		tr := decodeToolResult(t, responses[1])
+		if tr.IsError {
+			return nil, tr
+		}
+		var result map[string]interface{}
+		if err := json.Unmarshal([]byte(tr.Content[0].Text), &result); err != nil {
+			t.Fatal(err)
+		}
+		return result, tr
+	}
+	ids := func(result map[string]interface{}) []string {
+		t.Helper()
+		var got []string
+		for _, raw := range result["results"].([]interface{}) {
+			got = append(got, raw.(map[string]interface{})["id"].(string))
+		}
+		return got
+	}
+
+	result, _ := call(`{"scope":"facets","where":["type=Runbook"]}`)
+	if got := strings.Join(ids(result), ","); got != "facets/b" {
+		t.Errorf("type filter = %q", got)
+	}
+	result, _ = call(`{"scope":"facets","where":["tags=red"]}`)
+	if got := strings.Join(ids(result), ","); got != "facets/a,facets/b" {
+		t.Errorf("list filter = %q", got)
+	}
+	result, _ = call(`{"scope":"facets","where":["resource=a=b"]}`)
+	if got := strings.Join(ids(result), ","); got != "facets/d" {
+		t.Errorf("custom value containing = filter = %q", got)
+	}
+	result, _ = call(`{"scope":"facets","where":["resource!=api"]}`)
+	if got := strings.Join(ids(result), ","); got != "facets/b,facets/c,facets/d" {
+		t.Errorf("inequality/missing-key filter = %q", got)
+	}
+	result, _ = call(`{"scope":"facets","where":["type=Note"],"timestamp_after":"2024-12-31"}`)
+	if got := strings.Join(ids(result), ","); got != "facets/a,facets/d" {
+		t.Errorf("date filter = %q", got)
+	}
+	if result["examined"].(float64) != 4 || result["skipped_timestamp"].(float64) != 1 {
+		t.Errorf("filter accounting = %#v", result)
+	}
+	result, _ = call(`{"scope":"facets","where":["type=Note"],"timestamp_before":"2025-01-02"}`)
+	if len(ids(result)) != 0 || result["skipped_timestamp"].(float64) != 1 {
+		t.Errorf("timestamp_before must be strict: %#v", result)
+	}
+	result, _ = call(`{"scope":"facets","where":["type=Note"],"timestamp_after":"2025-01-02"}`)
+	if got := strings.Join(ids(result), ","); got != "facets/d" || result["skipped_timestamp"].(float64) != 1 {
+		t.Errorf("timestamp_after boundary must be strict: %#v", result)
+	}
+	result, _ = call(`{"scope":"facets","where":["unknown=value"]}`)
+	if len(ids(result)) != 0 {
+		t.Errorf("unknown key should match nothing: %v", ids(result))
+	}
+	result, _ = call(`{"scope":"facets","where":["type=Note"],"limit":1}`)
+	if got := strings.Join(ids(result), ","); got != "facets/a" {
+		t.Errorf("limit must apply after filtering: %q", got)
+	}
+	_, tr := call(`{"where":["bad-filter"]}`)
+	if !tr.IsError || !strings.Contains(tr.Content[0].Text, "key=value") {
+		t.Errorf("malformed where must error clearly: %#v", tr)
+	}
+	_, tr = call(`{"timestamp_before":"2025-99-99"}`)
+	if !tr.IsError || !strings.Contains(tr.Content[0].Text, "timestamp_before") {
+		t.Errorf("malformed timestamp must error clearly: %#v", tr)
+	}
+	_, tr = call(`{"where":["=value"]}`)
+	if !tr.IsError || !strings.Contains(tr.Content[0].Text, "key must not be empty") {
+		t.Errorf("empty filter key must error clearly: %#v", tr)
+	}
+	write("empty", "---\ntype: Note\nempty_scalar:\nempty_list: [\"\"]\n---\n")
+	result, _ = call(`{"scope":"facets","where":["empty_scalar="]}`)
+	if got := strings.Join(ids(result), ","); got != "facets/empty" {
+		t.Errorf("empty scalar value must match explicitly empty value: %q", got)
+	}
+	result, _ = call(`{"scope":"facets","where":["empty_list="]}`)
+	if got := strings.Join(ids(result), ","); got != "facets/empty" {
+		t.Errorf("empty list element must match: %q", got)
+	}
+	write("no-frontmatter", "body without frontmatter\n")
+	write("malformed", "---\ntags: [unclosed\n---\nbody\n")
+	result, _ = call(`{"scope":"facets","where":["type!=Note"]}`)
+	if got := strings.Join(ids(result), ","); got != "facets/b,facets/no-frontmatter" {
+		t.Errorf("empty/malformed frontmatter must not panic or spuriously match: %q", got)
+	}
+}
+
 func TestServer_GraphNeighbors(t *testing.T) {
 	k := setupTestKB(t)
 	// Create linked concepts.
@@ -1370,6 +1481,63 @@ func TestServer_GraphNeighbors(t *testing.T) {
 	}
 	if !strings.Contains(tr.Content[0].Text, "manutenzione/test-runbook") {
 		t.Errorf("graph_neighbors: expected 'manutenzione/test-runbook': %s", tr.Content[0].Text)
+	}
+}
+
+func TestServer_GraphNeighbors_DirectionAndOrder(t *testing.T) {
+	k := setupTestKB(t)
+	write := func(name, body string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(k.DataRoot(), "manutenzione", name+".md"), []byte("---\ntype: Note\n---\n"+body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("a", "[b](b.md)\n")
+	write("b", "")
+	write("c", "[a](a.md)\n")
+	write("d", "[c](c.md)\n")
+
+	s := New("1.0.0")
+	RegisterKBTools(s, k, Deps{})
+	call := func(args string) (map[string]interface{}, ToolResult) {
+		t.Helper()
+		responses := runMCPSequence(t, s, []string{
+			`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
+			`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"graph_neighbors","arguments":` + args + `}}`,
+		})
+		tr := decodeToolResult(t, responses[1])
+		if tr.IsError {
+			return nil, tr
+		}
+		var result map[string]interface{}
+		if err := json.Unmarshal([]byte(tr.Content[0].Text), &result); err != nil {
+			t.Fatal(err)
+		}
+		return result, tr
+	}
+	neighborIDs := func(result map[string]interface{}) []string {
+		var ids []string
+		for _, raw := range result["neighbors"].([]interface{}) {
+			ids = append(ids, raw.(map[string]interface{})["id"].(string))
+		}
+		return ids
+	}
+
+	result, _ := call(`{"id":"manutenzione/a"}`)
+	if result["direction"] != "out" || result["depth"].(float64) != 1 || strings.Join(neighborIDs(result), ",") != "manutenzione/b" {
+		t.Errorf("default outbound result: %#v", result)
+	}
+	result, _ = call(`{"id":"manutenzione/a","direction":"in","depth":2}`)
+	if strings.Join(neighborIDs(result), ",") != "manutenzione/c,manutenzione/d" {
+		t.Errorf("inbound depth/order result: %#v", result)
+	}
+	result, _ = call(`{"id":"manutenzione/a","direction":"both","depth":1}`)
+	if strings.Join(neighborIDs(result), ",") != "manutenzione/b,manutenzione/c" {
+		t.Errorf("both/order result: %#v", result)
+	}
+	_, tr := call(`{"id":"manutenzione/a","direction":"sideways"}`)
+	if !tr.IsError || !strings.Contains(tr.Content[0].Text, "expected out, in, or both") {
+		t.Errorf("invalid direction must error clearly: %#v", tr)
 	}
 }
 
