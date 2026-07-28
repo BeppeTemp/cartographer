@@ -1,15 +1,14 @@
 package main
 
 import (
-	"flag"
+	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/client"
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
-	"github.com/BeppeTemp/cartographer/internal/configurator"
-	"github.com/BeppeTemp/cartographer/internal/provisioning"
 	"github.com/BeppeTemp/cartographer/internal/service"
 )
 
@@ -29,8 +28,15 @@ var (
 // configured server: in-sync or drift, with added/updated/removed detail.
 // Exit codes: 0 in-sync, 1 drift, 2 error (missing config, unreachable server, ...).
 func cmdStatus(args []string) int {
-	fs := flag.NewFlagSet("status", flag.ExitOnError)
-	fs.Parse(args)
+	output, remaining, err := outputFlag(args)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "Error:", err)
+		return 2
+	}
+	if len(remaining) != 0 {
+		fmt.Fprintln(os.Stderr, "Error: usage: cartographer status [--output table|json]")
+		return 2
+	}
 
 	dir, err := clientconfig.TargetDir()
 	if err != nil {
@@ -43,75 +49,81 @@ func cmdStatus(args []string) int {
 		return 2
 	}
 	if len(cfg.Agents) == 0 {
+		return renderStatus(output, emptySnapshot(), 0)
+	}
+	s := snapshotForConfig(dir, cfg, true)
+	code := 0
+	if s.State == "drift" {
+		code = 1
+	}
+	if s.State == "unavailable" || s.State == "error" {
+		code = 2
+	}
+	return renderStatus(output, s, code)
+}
+
+func renderStatus(output string, s statusSnapshot, code int) int {
+	if output == "json" {
+		_ = json.NewEncoder(os.Stdout).Encode(s)
+		return code
+	}
+	if s.State == "not_configured" {
 		fmt.Println("no agent connected (run `cartographer connect`)")
-		return 0
+		return code
 	}
-
-	printVersionStatus(cfg)
-
-	m, err := statusManifestFn(cfg)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "Error:", err)
-		return 2
+	if s.Reachable {
+		fmt.Printf("client %s — server %s (%s)\n", s.Client, s.Server, s.ServerURL)
+	} else if s.Error != nil {
+		fmt.Println(s.Error.Message)
 	}
-	// cfg.Trust (persisted at connect time, see D54) upgrades kb:-sourced
-	// artifacts to Signed:true before the diff, so the reported status is
-	// honest: a trusted server never shows a leftover "needs approval".
-	m = upgradeTrustedManifest(m, cfg.Trust)
-
-	lockFile, err := provisioning.ReadLockFile(lockFilePath(dir))
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "Error:", err)
-		return 2
+	if s.State == "version_skew" {
+		fmt.Printf("version skew: client %s ≠ server %s\n", s.Client, s.Server)
+		if s.Service != nil && s.Service.Installed {
+			fmt.Println("local service may still run the old binary — run: cartographer service restart")
+		}
 	}
-
-	drift := false
-	for _, p := range cfg.Agents {
-		lock := lockFile.ForProvider(p)
-		// Diff and counts only over the kinds the provider supports (see
-		// FilterForProvider): hook does not count as drift for opencode & co.
-		// (agent does for opencode, D55 — it stays excluded only for codex/kiro).
-		pm := provisioning.FilterForProvider(m, configurator.Provider(p))
-		d := provisioning.ComputeDiff(pm, lock)
-		if d.InSync {
-			fmt.Printf("[%s] in-sync (revision %s)\n", p, pm.Revision)
-			if kindLine := formatKindStatus(pm, lock); kindLine != "" {
-				fmt.Printf("  %s\n", kindLine)
+	for _, p := range s.Providers {
+		if !p.Connected {
+			continue
+		}
+		if p.State == "in_sync" {
+			fmt.Printf("[%s] in-sync (revision %s)\n", p.Name, p.Revision)
+			if p.Kinds != "" {
+				fmt.Printf("  %s\n", p.Kinds)
 			}
 			continue
 		}
-		drift = true
-		fmt.Printf("[%s] drift (manifest %s, lock %s)\n", p, pm.Revision, lock.AppliedRevision)
-		if kindLine := formatKindStatus(pm, lock); kindLine != "" {
-			fmt.Printf("  %s\n", kindLine)
+		if p.State != "drift" {
+			fmt.Printf("[%s] %s\n", p.Name, strings.ReplaceAll(p.State, "_", "-"))
+			continue
+		}
+		fmt.Printf("[%s] drift (manifest %s, lock %s)\n", p.Name, p.Revision, p.LockRevision)
+		if p.Kinds != "" {
+			fmt.Printf("  %s\n", p.Kinds)
 		}
 		unsigned := false
-		for _, a := range d.Added {
+		for _, a := range p.Added {
 			fmt.Printf("  + %s/%s [%s] signed=%v\n", a.Kind, a.Name, a.Source, a.Signed)
 			unsigned = unsigned || !a.Signed
 			if a.Kind == "hook" {
 				fmt.Printf("    new hook: after the sync, add the entry to settings.json manually (see hook.json in .claude/hooks/%s/)\n", a.Name)
 			}
 		}
-		for _, a := range d.Updated {
+		for _, a := range p.Updated {
 			fmt.Printf("  ~ %s/%s [%s] signed=%v\n", a.Kind, a.Name, a.Source, a.Signed)
 			unsigned = unsigned || !a.Signed
 			if a.Kind == "hook" {
 				fmt.Printf("    hook updated: after the sync, verify the entry in settings.json (see hook.json in .claude/hooks/%s/)\n", a.Name)
 			}
 		}
-		for _, mf := range d.Removed {
-			fmt.Printf("  - %s/%s (%s)\n", mf.Kind, mf.Name, mf.Path)
+		for _, a := range p.Removed {
+			fmt.Printf("  - %s/%s (%s)\n", a.Kind, a.Name, a.Path)
 		}
 		if unsigned {
 			fmt.Printf("  to approve the unsigned artifacts run: %s\n", autoTrustCommand())
 		}
 	}
-
-	if drift {
-		return 1
-	}
-	return 0
+	return code
 }
 
 // printVersionStatus reports the binary versions before the artifact status.

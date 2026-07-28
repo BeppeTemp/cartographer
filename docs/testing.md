@@ -22,6 +22,12 @@ client configuration.
 
 `make vet` runs `go vet ./...`. Both are required in CI.
 
+CLI JSON tests decode stdout as JSON and assert that diagnostics remain on
+stderr. Golden help is limited to 80 columns. Bubble Tea view/update tests use
+60, 80 and 120-column window messages, strip ANSI sequences before measuring
+line width, and cover healthy, unavailable, drift, connect retry, sync-all and
+disconnect confirmation states.
+
 ### Stdio smoke
 
 `make smoke` builds the binary, starts a temporary stdio server and verifies

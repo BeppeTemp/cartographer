@@ -1,7 +1,7 @@
 package main
 
 import (
-	"flag"
+	"encoding/json"
 	"fmt"
 	"os"
 
@@ -13,8 +13,15 @@ import (
 // this machine (internal/agents.Detect) and whether it is connected (listed in the
 // machine-wide .cartographer.yaml, see clientconfig.TargetDir).
 func cmdAgents(args []string) int {
-	fs := flag.NewFlagSet("agents", flag.ExitOnError)
-	fs.Parse(args)
+	output, remaining, err := outputFlag(args)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "Error:", err)
+		return 2
+	}
+	if len(remaining) != 0 {
+		fmt.Fprintln(os.Stderr, "Error: usage: cartographer agents [--output table|json]")
+		return 2
+	}
 
 	dir, err := clientconfig.TargetDir()
 	if err != nil {
@@ -22,17 +29,26 @@ func cmdAgents(args []string) int {
 		return 2
 	}
 
+	cfg, _ := clientconfig.Load(dir)
+	s := emptySnapshot()
+	s.Providers = providerStatuses(cfg)
+	if cfg != nil {
+		s.ServerURL = cfg.ServerURL
+		s.State = "configured"
+	}
+	if output == "json" {
+		_ = json.NewEncoder(os.Stdout).Encode(s)
+		return 0
+	}
+
+	fmt.Printf("%-10s %-10s %-10s %s\n", "PROVIDER", "INSTALLED", "CONNECTED", "EVIDENCE")
 	connected := map[string]bool{}
-	if cfg, err := clientconfig.Load(dir); err == nil {
+	if cfg != nil {
 		for _, a := range cfg.Agents {
 			connected[a] = true
 		}
 	}
-
-	detected := agents.Detect()
-
-	fmt.Printf("%-10s %-10s %-10s %s\n", "PROVIDER", "INSTALLED", "CONNECTED", "EVIDENCE")
-	for _, a := range detected {
+	for _, a := range agents.Detect() {
 		fmt.Printf("%-10s %-10s %-10s %s\n", a.Provider, yesNo(a.Installed), yesNo(connected[string(a.Provider)]), dashIfEmpty(a.Evidence))
 	}
 	return 0

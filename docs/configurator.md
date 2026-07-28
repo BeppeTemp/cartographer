@@ -16,6 +16,22 @@ materialization logic (`internal/provisioning`) are the same used server-side by
 
 ## Subcommands
 
+### Discovery, version and output formats
+
+Root help groups commands into Get started, Client, Server, Knowledge base and
+Diagnostics. `cartographer version` and `cartographer --version` are aliases;
+root and `service` help write to stdout and exit 0. Unknown commands only offer
+a correction for one command within edit distance two.
+
+`agents`, `status`, and `service status` accept `--output table|json` (table is
+the default). JSON is written only to stdout and uses schema
+`cartographer.status/v1`: it includes the schema version, effective server URL,
+client/server facts, provider states and artifact counts; when relevant it also
+contains native-service facts. State and error `code` fields are stable for
+automation; a wrapped low-level `cause` is retained in JSON only. `status`
+keeps exit 0 for in-sync, 1 for drift and 2 for configuration or operational
+errors. `service status` retains 0 running, 3 stopped and 4 not installed.
+
 ### `cartographer agents`
 
 Lists the four supported providers, whether they are installed on the machine (`internal/agents.Detect`:
@@ -147,6 +163,22 @@ counts (`provisioning.KindCounts`), e.g. `skill 4/5 · agent 2/2 · hook 1/1`. O
 prints the diff (added/updated/removed, with `signed`). Before the artifact report it prints the
 client and server versions. A non-`dev` mismatch is a warning only (it does not change the exit
 code); on loopback, an installed local service also gets a `cartographer service restart` hint.
+For an unavailable endpoint, the table names the configured endpoint once and
+suggests checking that URL (or `cartographer service status` for loopback);
+connected providers are reported as `unknown`, rather than repeating a network
+failure for each provider.
+
+### Dashboard
+
+With no subcommand in a TTY, the dashboard renders the same status snapshot as
+`status`. Its server panel shows the effective URL, reachability/readiness,
+versions, selected KBs and loopback native-service state. `Enter` connects a
+disconnected provider or syncs a connected one; `s` syncs the selected provider,
+`S` syncs all connected providers, `d` opens the disconnect confirmation and
+`r` refreshes. Unavailable actions are omitted from the contextual key map.
+At 60 columns it uses compact labels and shortened endpoints; 80 is the normal
+layout and 120 retains full endpoint and artifact detail. Failures keep the
+current selection and entered connect-form values.
 
 ### `cartographer sync`
 

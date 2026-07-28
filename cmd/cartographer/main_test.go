@@ -138,6 +138,39 @@ func TestRunVersionDispatch(t *testing.T) {
 	}
 }
 
+func TestRunVersionAliases(t *testing.T) {
+	orig := versionFn
+	defer func() { versionFn = orig }()
+	called := 0
+	versionFn = func() int { called++; return 0 }
+	for _, args := range [][]string{{"version"}, {"--version"}} {
+		if code := run(args); code != 0 {
+			t.Fatalf("run(%v) = %d", args, code)
+		}
+	}
+	if called != 2 {
+		t.Fatalf("version calls = %d, want 2", called)
+	}
+}
+
+func TestCommandSuggestionIsConservative(t *testing.T) {
+	if got := commandSuggestion("agnts"); got != "agents" {
+		t.Errorf("suggestion = %q", got)
+	}
+	if got := commandSuggestion("definitely-unrelated"); got != "" {
+		t.Errorf("unrelated suggestion = %q", got)
+	}
+}
+
+func TestUsageFits80Columns(t *testing.T) {
+	out := withStdout(t, func() { printUsage(os.Stdout) })
+	for _, line := range strings.Split(strings.TrimSuffix(out, "\n"), "\n") {
+		if len(line) > 80 {
+			t.Errorf("help line is %d columns: %q", len(line), line)
+		}
+	}
+}
+
 func TestRunServeDispatch(t *testing.T) {
 	origServeFn := serveFn
 	defer func() { serveFn = origServeFn }()
