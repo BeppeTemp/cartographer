@@ -144,7 +144,7 @@ func TestRoundTrip_ConnectDisconnect_NessunResiduo(t *testing.T) {
 		configurator.ProviderKiro,
 		configurator.ProviderOpenCode,
 	}
-	scfg := &configurator.ServerConfig{Name: "cartographer", URL: "http://localhost:8080/mcp"}
+	scfg := &configurator.ServerConfig{Name: "cartographer", URL: "https://mcp.example.test/mcp"}
 
 	// --- Connect: MCP config + bootstrap hook + manifest, same order as doConnect ---
 	lockPath := filepath.Join(targetDir, provisioning.LockFileName)

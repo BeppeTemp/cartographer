@@ -3,7 +3,7 @@
 # variables, then to the built-in defaults. See internal/config for the
 # full precedence rules (flag > env > YAML > default).
 
-http: ":8080"
+http: ":39273"
 init: true
 auth:
   mode: "on"            # on | off | auto (default auto: on if tokens are present)

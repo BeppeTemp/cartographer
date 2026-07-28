@@ -24,7 +24,7 @@ var ErrUnauthorized = errors.New("unauthorized (401): check the bearer token/env
 
 // MCPClient is a minimal JSON-RPC 2.0 client for the MCP `tools/call` method.
 type MCPClient struct {
-	ServerURL string // e.g. "http://localhost:8080/mcp"
+	ServerURL string // e.g. "http://localhost:39273/mcp"
 	Token     string // bearer token, empty = no Authorization header
 	KB        string // optional KB name; appended as ?kb=<KB> (multi-KB server routing, see httpserver.go)
 	HTTP      *http.Client

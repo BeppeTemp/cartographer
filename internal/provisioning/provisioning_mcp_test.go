@@ -247,7 +247,7 @@ func TestApply_MCP_PreservesOtherEntriesInSharedFile(t *testing.T) {
 
 	// Pre-existing .claude.json with Cartographer's own entry and unrelated keys.
 	claudeJSONPath := filepath.Join(dir, ".claude.json")
-	preexisting := `{"mcpServers":{"cartographer":{"url":"http://localhost:8080/mcp","type":"http"}},"model":"opus"}`
+	preexisting := `{"mcpServers":{"cartographer":{"url":"https://mcp.example.test/mcp","type":"http"}},"model":"opus"}`
 	if err := os.WriteFile(claudeJSONPath, []byte(preexisting), 0o644); err != nil {
 		t.Fatal(err)
 	}

@@ -53,7 +53,7 @@ func TestToolsProfileEnvAndNormalization(t *testing.T) {
 }
 
 const fullYAML = `
-http: ":8080"
+http: ":39273"
 init: true
 auth:
   mode: "on"
@@ -111,7 +111,7 @@ func TestLoadFullYAML(t *testing.T) {
 	}
 
 	want := &Config{
-		HTTP: ":8080",
+		HTTP: ":39273",
 		Init: true,
 		Auth: AuthConfig{Mode: "on", Tokens: []TokenSpec{
 			{Token: "tok-a"},
@@ -290,7 +290,7 @@ func TestFromEnvUnsetLeavesDefaults(t *testing.T) {
 func TestApplyFlagsPrecedenceOverEnvAndYAML(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.yaml")
-	if err := os.WriteFile(path, []byte(`http: ":8080"`+"\n"), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte(`http: ":39273"`+"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	cfg, err := Load(path)
@@ -313,9 +313,9 @@ func TestApplyFlagsPrecedenceOverEnvAndYAML(t *testing.T) {
 
 func TestApplyFlagsNilLeavesCfgUntouched(t *testing.T) {
 	cfg := Default()
-	cfg.HTTP = ":8080"
+	cfg.HTTP = ":39273"
 	ApplyFlags(cfg, FlagOverrides{})
-	if cfg.HTTP != ":8080" {
+	if cfg.HTTP != ":39273" {
 		t.Errorf("HTTP changed with nil overrides: %q", cfg.HTTP)
 	}
 }

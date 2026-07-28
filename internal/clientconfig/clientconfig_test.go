@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
+	"github.com/BeppeTemp/cartographer/internal/defaults"
 )
 
 func TestLoad_NotExist(t *testing.T) {
@@ -69,7 +70,7 @@ func TestDefault_TrustIsTrue(t *testing.T) {
 func TestLoad_TrustAbsent_DefaultsTrue(t *testing.T) {
 	dir := t.TempDir()
 	// Config file written before the `trust` field existed: no `trust` key at all.
-	data := "server_url: http://localhost:8080/mcp\nserver_name: cartographer\nauth: false\ntoken_env: CARTOGRAPHER_TOKENS\nagents: [claude]\n"
+	data := "server_url: https://saved.example.test/mcp\nserver_name: cartographer\nauth: false\ntoken_env: CARTOGRAPHER_TOKENS\nagents: [claude]\n"
 	if err := os.WriteFile(filepath.Join(dir, clientconfig.FileName), []byte(data), 0o644); err != nil {
 		t.Fatalf("write: %v", err)
 	}
@@ -84,7 +85,7 @@ func TestLoad_TrustAbsent_DefaultsTrue(t *testing.T) {
 
 func TestLoad_TrustExplicitFalse_StaysFalse(t *testing.T) {
 	dir := t.TempDir()
-	data := "server_url: http://localhost:8080/mcp\ntrust: false\n"
+	data := "server_url: https://saved.example.test/mcp\ntrust: false\n"
 	if err := os.WriteFile(filepath.Join(dir, clientconfig.FileName), []byte(data), 0o644); err != nil {
 		t.Fatalf("write: %v", err)
 	}
@@ -113,10 +114,10 @@ func TestSaveAndLoad_TrustRoundTrip(t *testing.T) {
 	}
 }
 
-func TestDefault_ServerURLFallsBackToLocalhost(t *testing.T) {
+func TestDefault_ServerURLFallsBackToLocalDefault(t *testing.T) {
 	cfg := clientconfig.Default()
-	if cfg.ServerURL != "http://localhost:8080/mcp" {
-		t.Errorf("ServerURL = %q, want http://localhost:8080/mcp with no env set", cfg.ServerURL)
+	if cfg.ServerURL != defaults.DefaultMCPURL {
+		t.Errorf("ServerURL = %q, want %q with no env set", cfg.ServerURL, defaults.DefaultMCPURL)
 	}
 }
 
@@ -143,6 +144,22 @@ func TestLoad_ExistingYAMLWinsOverServerURLEnv(t *testing.T) {
 	}
 	if loaded.ServerURL != "https://yaml.example.com/mcp" {
 		t.Errorf("ServerURL = %q, want the persisted yaml value (yaml > env precedence)", loaded.ServerURL)
+	}
+}
+
+func TestLoad_Existing8080ServerURLIsPreserved(t *testing.T) {
+	dir := t.TempDir()
+	const existing = "http://localhost:8080/mcp"
+	if err := os.WriteFile(filepath.Join(dir, clientconfig.FileName), []byte("server_url: "+existing+"\n"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	loaded, err := clientconfig.Load(dir)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if loaded.ServerURL != existing {
+		t.Errorf("ServerURL = %q, want preserved %q", loaded.ServerURL, existing)
 	}
 }
 

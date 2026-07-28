@@ -178,7 +178,7 @@ func (s *Server) handleReady(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]interface{}{"ready": true})
 }
 
-// ListenAndServe starts the HTTP server on the given address (e.g. ":8080").
+// ListenAndServe starts the HTTP server on the given address (e.g. ":39273").
 func (s *Server) ListenAndServe(addr string) error {
 	handler := s.HTTPHandler()
 	log.Printf("MCP HTTP server listening on %s", addr)
