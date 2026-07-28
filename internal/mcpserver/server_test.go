@@ -781,6 +781,40 @@ func TestServer_MapCreate_Journal(t *testing.T) {
 	}
 }
 
+func TestServer_MapCreate_Contract(t *testing.T) {
+	k := setupTestKB(t)
+	s := New("test")
+	RegisterKBTools(s, k, Deps{})
+	resps := runMCPSequence(t, s, []string{
+		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
+		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"map_create","arguments":{"name":"contract-map","title":"Contract","required_fields":["timestamp","timestamp"],"required_fields_by_type":{"Runbook":["provenance"]},"require_index_entry":true}}}`,
+	})
+	tr := decodeToolResult(t, resps[1])
+	if tr.IsError {
+		t.Fatalf("map_create: %v", tr.Content)
+	}
+	content, err := k.ReadRaw("contract-map/_map.md")
+	if err != nil || !strings.Contains(content, "required_fields: [timestamp]") || !strings.Contains(content, "required_fields.Runbook: [provenance]") || !strings.Contains(content, "require_index_entry: true") {
+		t.Fatalf("contract descriptor = %q, %v", content, err)
+	}
+}
+
+func TestServer_MapCreate_RejectsEmptyContractNames(t *testing.T) {
+	k := setupTestKB(t)
+	s := New("test")
+	RegisterKBTools(s, k, Deps{})
+	resps := runMCPSequence(t, s, []string{
+		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
+		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"map_create","arguments":{"name":"bad-field","title":"Bad","required_fields":[" "]}}}`,
+		`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"map_create","arguments":{"name":"bad-type","title":"Bad","required_fields_by_type":{" ":["owner"]}}}}`,
+	})
+	for _, response := range resps[1:] {
+		if result := decodeToolResult(t, response); !result.IsError {
+			t.Fatalf("map_create accepted an empty contract name: %#v", result)
+		}
+	}
+}
+
 // TestServer_MapDelete_NonEmpty verifies that map_delete refuses to remove a
 // map that still holds concepts, and the error lists them (D88 WP2).
 func TestServer_MapDelete_NonEmpty(t *testing.T) {
@@ -1471,6 +1505,21 @@ func TestServer_GateCheck_Blocked(t *testing.T) {
 	}
 	if !strings.Contains(tr.Content[0].Text, "factual") {
 		t.Errorf("gate_check: expected factual blocker: %s", tr.Content[0].Text)
+	}
+}
+
+func TestServer_GateCheck_BlockedByRequiredField(t *testing.T) {
+	k := setupTestKB(t)
+	os.WriteFile(filepath.Join(k.DataRoot(), "manutenzione", "_map.md"), []byte("---\ntype: Map\nrequired_fields: [provenance]\n---\n"), 0o644)
+	s := New("test")
+	RegisterKBTools(s, k, Deps{})
+	resps := runMCPSequence(t, s, []string{
+		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
+		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"gate_check","arguments":{"changed_ids":["manutenzione/test-runbook"]}}}`,
+	})
+	tr := decodeToolResult(t, resps[1])
+	if tr.IsError || !strings.Contains(tr.Content[0].Text, `"pass": false`) || !strings.Contains(tr.Content[0].Text, "missing_required_field") {
+		t.Fatalf("gate_check contract result: %#v", tr)
 	}
 }
 

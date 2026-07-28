@@ -365,16 +365,33 @@ func toolMapCreate(k *kb.KB) Tool {
 				"ontology_mode": {
 					"type": "string",
 					"description": "strict or flexible (default: flexible)"
+				},
+				"required_fields": {
+					"type": "array",
+					"items": {"type": "string"},
+					"description": "Frontmatter fields required for every concept in this map"
+				},
+				"required_fields_by_type": {
+					"type": "object",
+					"additionalProperties": {"type": "array", "items": {"type": "string"}},
+					"description": "Additional required fields keyed by exact concept type"
+				},
+				"require_index_entry": {
+					"type": "boolean",
+					"description": "Require each concept to be linked from its curated index"
 				}
 			}
 		}`),
 		Handler: func(args json.RawMessage) (ToolResult, error) {
 			var params struct {
-				Name         string   `json:"name"`
-				Title        string   `json:"title"`
-				Kind         string   `json:"kind"`
-				ConceptTypes []string `json:"concept_types"`
-				OntologyMode string   `json:"ontology_mode"`
+				Name                 string              `json:"name"`
+				Title                string              `json:"title"`
+				Kind                 string              `json:"kind"`
+				ConceptTypes         []string            `json:"concept_types"`
+				OntologyMode         string              `json:"ontology_mode"`
+				RequiredFields       []string            `json:"required_fields"`
+				RequiredFieldsByType map[string][]string `json:"required_fields_by_type"`
+				RequireIndexEntry    bool                `json:"require_index_entry"`
 			}
 			if err := json.Unmarshal(args, &params); err != nil {
 				return errorResult("invalid params: " + err.Error()), nil
@@ -385,8 +402,28 @@ func toolMapCreate(k *kb.KB) Tool {
 			if params.Title == "" {
 				return errorResult("'title' is required"), nil
 			}
+			for _, field := range params.RequiredFields {
+				if strings.TrimSpace(field) == "" {
+					return errorResult("'required_fields' must not contain empty field names"), nil
+				}
+			}
+			for typ, fields := range params.RequiredFieldsByType {
+				if strings.TrimSpace(typ) == "" {
+					return errorResult("'required_fields_by_type' must not contain an empty type name"), nil
+				}
+				for _, field := range fields {
+					if strings.TrimSpace(field) == "" {
+						return errorResult("'required_fields_by_type' must not contain empty field names"), nil
+					}
+				}
+			}
 
-			if err := k.CreateMap(params.Name, params.Title, params.Kind, params.ConceptTypes, params.OntologyMode); err != nil {
+			contract := kb.MapContract{
+				RequiredFields:       params.RequiredFields,
+				RequiredFieldsByType: params.RequiredFieldsByType,
+				RequireIndexEntry:    params.RequireIndexEntry,
+			}
+			if err := k.CreateMapWithContract(params.Name, params.Title, params.Kind, params.ConceptTypes, params.OntologyMode, contract); err != nil {
 				return errorResult(fmt.Sprintf("map_create %q: %v", params.Name, err)), nil
 			}
 

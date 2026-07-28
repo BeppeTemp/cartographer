@@ -1052,13 +1052,50 @@ func (kb *KB) mapDescriptorRelPath(archive string) (string, error) {
 	return filepath.Join(archive, mapDescriptorCandidates[0]), nil
 }
 
+// MapContract declares the optional deterministic lint contract of a map.
+// RequiredFields apply to every concept; RequiredFieldsByType are additive.
+type MapContract struct {
+	RequiredFields       []string
+	RequiredFieldsByType map[string][]string
+	RequireIndexEntry    bool
+	Malformed            []ContractMalformed
+}
+
+// ContractMalformed identifies a tolerated malformed contract entry.
+type ContractMalformed struct {
+	Descriptor string
+	Key        string
+}
+
+// RequiredFor returns the map-wide fields plus fields for conceptType.
+func (c MapContract) RequiredFor(conceptType string) []string {
+	seen := map[string]bool{}
+	var fields []string
+	for _, group := range [][]string{c.RequiredFields, c.RequiredFieldsByType[conceptType]} {
+		for _, field := range group {
+			if !seen[field] {
+				seen[field] = true
+				fields = append(fields, field)
+			}
+		}
+	}
+	sort.Strings(fields)
+	return fields
+}
+
 // CreateMap creates a map or journal with minimal structure: _map.md,
 // index.md, log.md (D77 WP1 — replaces the former CreateArchive/
 // "_archive.md" pair, which is now read-compat only, never written).
 // name must be a kebab-case segment; the map must not already exist.
 // kind must be "map" or "journal"; empty defaults to "map". If ontologyMode
-// is empty, defaults to "flexible".
+// is empty, defaults to "flexible". It creates no optional lint contract.
 func (kb *KB) CreateMap(name, title, kind string, conceptTypes []string, ontologyMode string) error {
+	return kb.CreateMapWithContract(name, title, kind, conceptTypes, ontologyMode, MapContract{})
+}
+
+// CreateMapWithContract creates a map or journal with its optional lint
+// contract serialized deterministically in _map.md.
+func (kb *KB) CreateMapWithContract(name, title, kind string, conceptTypes []string, ontologyMode string, contract MapContract) error {
 	if _, err := okf.PathToID(name + ".md"); err != nil {
 		return fmt.Errorf("%w: invalid map name %q", okf.ErrInvalidPath, name)
 	}
@@ -1091,6 +1128,23 @@ func (kb *KB) CreateMap(name, title, kind string, conceptTypes []string, ontolog
 		mapFM.WriteString("concept_types: [" + strings.Join(conceptTypes, ", ") + "]\n")
 	}
 	mapFM.WriteString("ontology_mode: " + ontologyMode + "\n")
+	if len(contract.RequiredFields) > 0 {
+		mapFM.WriteString("required_fields: [" + strings.Join(sortedUnique(contract.RequiredFields), ", ") + "]\n")
+	}
+	types := make([]string, 0, len(contract.RequiredFieldsByType))
+	for typ := range contract.RequiredFieldsByType {
+		types = append(types, typ)
+	}
+	sort.Strings(types)
+	for _, typ := range types {
+		fields := sortedUnique(contract.RequiredFieldsByType[typ])
+		if len(fields) > 0 {
+			mapFM.WriteString("required_fields." + typ + ": [" + strings.Join(fields, ", ") + "]\n")
+		}
+	}
+	if contract.RequireIndexEntry {
+		mapFM.WriteString("require_index_entry: true\n")
+	}
 	mapMD := "---\n" + strings.TrimRight(mapFM.String(), "\n") + "\n---\n# " + title + "\n"
 	if err := writeFileAtomic(filepath.Join(mapAbs, "_map.md"), []byte(mapMD)); err != nil {
 		return fmt.Errorf("CreateMap: write _map.md: %w", err)
@@ -1106,6 +1160,19 @@ func (kb *KB) CreateMap(name, title, kind string, conceptTypes []string, ontolog
 	}
 
 	return nil
+}
+
+func sortedUnique(values []string) []string {
+	seen := map[string]bool{}
+	var result []string
+	for _, value := range values {
+		if value = strings.TrimSpace(value); value != "" && !seen[value] {
+			seen[value] = true
+			result = append(result, value)
+		}
+	}
+	sort.Strings(result)
+	return result
 }
 
 // DeleteMap removes a map or journal directory, but only if it is empty —
@@ -1197,6 +1264,77 @@ func (kb *KB) ReadArchiveMeta(archive string) (*okf.Frontmatter, error) {
 		parsed.Set("kind", "map")
 	}
 	return parsed, nil
+}
+
+// ReadMapContract reads a map's optional lint contract. Unknown descriptor
+// keys remain ignored for permissive consumption; malformed recognized keys
+// are returned as findings for lint to surface without blocking reads.
+func (kb *KB) ReadMapContract(archive string) (MapContract, error) {
+	relPath, err := kb.mapDescriptorRelPath(archive)
+	if err != nil {
+		return MapContract{}, fmt.Errorf("ReadMapContract %s: %w", archive, err)
+	}
+	meta, err := kb.ReadArchiveMeta(archive)
+	if err != nil {
+		return MapContract{}, err
+	}
+	contract := MapContract{RequiredFieldsByType: map[string][]string{}}
+	malformedKeys := map[string]bool{}
+	bad := func(key string) {
+		if malformedKeys[key] {
+			return
+		}
+		malformedKeys[key] = true
+		contract.Malformed = append(contract.Malformed, ContractMalformed{Descriptor: relPath, Key: key})
+	}
+	for _, key := range meta.Keys() {
+		if key != "required_fields" && !strings.HasPrefix(key, "required_fields.") && key != "require_index_entry" {
+			continue
+		}
+		value, _ := meta.Get(key)
+		switch {
+		case key == "require_index_entry":
+			v, ok := value.(string)
+			if !ok || (v != "true" && v != "false") {
+				bad(key)
+				continue
+			}
+			contract.RequireIndexEntry = v == "true"
+		case key == "required_fields" || strings.HasPrefix(key, "required_fields."):
+			fields, ok := value.([]string)
+			if !ok {
+				bad(key)
+				continue
+			}
+			seen := map[string]bool{}
+			valid := make([]string, 0, len(fields))
+			malformed := false
+			for _, field := range fields {
+				field = strings.TrimSpace(field)
+				if field == "" || seen[field] {
+					malformed = true
+					continue
+				}
+				seen[field] = true
+				valid = append(valid, field)
+			}
+			if malformed {
+				bad(key)
+			}
+			sort.Strings(valid)
+			if key == "required_fields" {
+				contract.RequiredFields = valid
+				continue
+			}
+			typ := strings.TrimPrefix(key, "required_fields.")
+			if strings.TrimSpace(typ) == "" {
+				bad(key)
+				continue
+			}
+			contract.RequiredFieldsByType[typ] = valid
+		}
+	}
+	return contract, nil
 }
 
 // Validate validates .md files in the scope (path relative to the KB; if empty, the entire KB).

@@ -40,6 +40,7 @@ var docsNonTools = map[string]bool{
 	"expanded_missing_index": true, "legacy_archive_descriptor": true,
 	"imported_draft": true, "broken_link": true, "stale_claim": true,
 	"orphan_asset": true,
+	"index_incomplete": true,
 	// frontmatter fields and schema keys
 	"concept_id": true, "concept_types": true, "archive_type": true,
 	"contradiction_kind": true, "service_ref": true, "secret_refs": true,
