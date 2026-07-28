@@ -213,7 +213,7 @@ func TestApply_Codex_Hook_MCPBlock_CoesisteConHook(t *testing.T) {
 	}
 	baseDir := t.TempDir()
 
-	cfg := &configurator.ServerConfig{Name: "cartographer", URL: "http://localhost:8080/mcp"}
+	cfg := &configurator.ServerConfig{Name: "cartographer", URL: "https://mcp.example.test/mcp"}
 	r, err := configurator.Emit(cfg, configurator.ProviderCodex)
 	if err != nil {
 		t.Fatal(err)
@@ -306,7 +306,7 @@ func TestPruneManaged_Codex_Hook_RimuoveEntryConfigTOML(t *testing.T) {
 	// (everything before the em dash), or the block would be duplicated.
 	preexisting := "# cartographer:mcp:begin — blocco gestito da Cartographer, non modificare a mano\n" +
 		"[mcp_servers.cartographer]\n" +
-		"url = \"http://localhost:8080/mcp\"\n" +
+		"url = \"https://mcp.example.test/mcp\"\n" +
 		"# cartographer:mcp:end\n\n" +
 		"# cartographer:hook:notify:begin\n" +
 		"[[hooks.PostToolUse]]\n" +

@@ -260,7 +260,7 @@ func fetchHealth(baseURL string) (*healthInfo, error) {
 // If that config doesn't exist or has no http: set (stdio-only, or not
 // installed as a service yet), fall back to deriving it the way the client
 // does: .cartographer.yaml server_url, defaulting to
-// http://localhost:8080/mcp (clientconfig.Default), with the /mcp path
+// the local client default (clientconfig.Default), with the /mcp path
 // stripped.
 func serverBaseURL() string {
 	if cfgPath, err := service.ConfigPath(); err == nil {
@@ -280,8 +280,8 @@ func serverBaseURL() string {
 	return strings.TrimSuffix(serverURL, "/mcp")
 }
 
-// httpAddrToBaseURL turns a server http listen address (e.g. ":8080" or
-// "127.0.0.1:8080") into a base URL ("http://127.0.0.1:8080"), normalizing a
+// httpAddrToBaseURL turns a server http listen address (e.g. ":39273" or
+// "127.0.0.1:39273") into a base URL ("http://127.0.0.1:39273"), normalizing a
 // bare port to loopback the same way internal/service's healthURL does.
 // Returns "" if addr does not parse as host:port.
 func httpAddrToBaseURL(addr string) string {

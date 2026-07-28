@@ -162,7 +162,7 @@ func doDisconnect(opts disconnectOptions) (disconnectResult, error) {
 	// cfg (server_url/server_name/auth/token_env/trust/kbs) is preserved even
 	// when Agents ends up empty (D64): it seeds the next `connect` — server_url
 	// in particular, so a disconnect-then-reconnect doesn't fall back to
-	// http://localhost:8080/mcp when the user was pointed at a real server. Only
+	// the local default when the user was pointed at a real server. Only
 	// the agents list is zeroed; the file itself is never deleted.
 	cfg.Agents = removeStrings(cfg.Agents, opts.Providers)
 	if err := clientconfig.Save(opts.Dir, cfg); err != nil {

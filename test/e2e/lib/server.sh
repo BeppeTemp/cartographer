@@ -6,7 +6,7 @@
 #   E2E_TOKENS  token string (required if E2E_AUTH=true)
 
 # HTTP port for the E2E tests. High port unlikely to collide with common
-# services on 8080 (Docker/Colima, port-forward, etc.).
+# services on either the conventional HTTP port or Cartographer's local default.
 E2E_HTTP_PORT="${E2E_HTTP_PORT:-47821}"
 
 # File where the server process PID is saved.

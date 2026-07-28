@@ -23,7 +23,7 @@ make test            # go test ./...
 make vet             # go vet ./...
 make fmt             # gofmt -w .
 make run             # stdio with demo KB
-make run-http        # HTTP on :8080 with demo KB
+make run-http        # HTTP on :39273 with demo KB
 make smoke           # build + quick stdio test
 make smoke-http      # operator-level HTTP smoke test (creates temp KBs via curl)
 make e2e             # deterministic HTTP/CLI end-to-end scenarios

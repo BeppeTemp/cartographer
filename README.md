@@ -156,7 +156,7 @@ covers everyday use.
 |---|---|---|
 | `CARTOGRAPHER_KB` | — | KB path(s) (single, or multiple comma-separated) |
 | `CARTOGRAPHER_DATA` | — | Directory whose subfolders are auto-discovered KBs |
-| `CARTOGRAPHER_HTTP` | — | HTTP address (e.g. `:8080`). Absent = stdio only |
+| `CARTOGRAPHER_HTTP` | — | HTTP address (e.g. `:39273`). Absent = stdio only |
 | `CARTOGRAPHER_AUTH` | auto | `true` / `false` / unset (auto on HTTP) |
 | `CARTOGRAPHER_TOKENS` | — | Comma-separated bearer tokens |
 | `CARTOGRAPHER_GIT_AUTOCOMMIT` | `true` | One git commit per write operation |

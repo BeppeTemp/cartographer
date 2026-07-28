@@ -331,8 +331,8 @@ func (m *Manager) Status(configPath string) (Status, error) {
 }
 
 // checkHealth reports whether GET http://<addr>/health returns 200 within
-// healthTimeout. addr may be a bare port (":8080") or host:port
-// ("127.0.0.1:8080"); a bare port is normalized to a 127.0.0.1 host.
+// healthTimeout. addr may be a bare port (":39273") or host:port
+// ("127.0.0.1:39273"); a bare port is normalized to a 127.0.0.1 host.
 func checkHealth(addr string) bool {
 	url := healthURL(addr)
 	if url == "" {
@@ -348,7 +348,7 @@ func checkHealth(addr string) bool {
 }
 
 // healthURL builds the /health URL from a server http address, normalizing a
-// bare-port address (":8080") to a 127.0.0.1 host. Returns "" if addr is empty.
+// bare-port address (":39273") to a 127.0.0.1 host. Returns "" if addr is empty.
 func healthURL(addr string) string {
 	if addr == "" {
 		return ""

@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/BeppeTemp/cartographer/internal/configurator"
+	"github.com/BeppeTemp/cartographer/internal/defaults"
 )
 
 func TestDefaultConfig(t *testing.T) {
@@ -14,8 +15,8 @@ func TestDefaultConfig(t *testing.T) {
 	if cfg.Name == "" {
 		t.Error("Name should have a default value")
 	}
-	if cfg.URL == "" {
-		t.Error("URL should have a default value")
+	if cfg.URL != defaults.DefaultMCPURL {
+		t.Errorf("URL = %q, want %q", cfg.URL, defaults.DefaultMCPURL)
 	}
 	if cfg.AuthEnabled {
 		t.Error("AuthEnabled should default to false")
@@ -28,7 +29,7 @@ func TestDefaultConfig(t *testing.T) {
 func TestEmitClaudeCode(t *testing.T) {
 	cfg := &configurator.ServerConfig{
 		Name:        "wiki",
-		URL:         "http://localhost:8080/mcp",
+		URL:         "https://mcp.example.test/mcp",
 		AuthEnabled: true,
 		TokenEnv:    "CARTOGRAPHER_TOKENS",
 	}
@@ -69,7 +70,7 @@ func TestEmitClaudeCode(t *testing.T) {
 func TestEmitAll(t *testing.T) {
 	cfg := &configurator.ServerConfig{
 		Name: "wiki",
-		URL:  "http://localhost:8080/mcp",
+		URL:  "https://mcp.example.test/mcp",
 	}
 	results, err := configurator.EmitAll(cfg)
 	if err != nil {
@@ -100,7 +101,7 @@ func TestEmitAll(t *testing.T) {
 func TestEmitOpenCode_HTTP_NoAuth(t *testing.T) {
 	cfg := &configurator.ServerConfig{
 		Name:        "wiki",
-		URL:         "http://localhost:8080/mcp",
+		URL:         "https://mcp.example.test/mcp",
 		AuthEnabled: false,
 		TokenEnv:    "CARTOGRAPHER_TOKENS",
 	}
@@ -130,8 +131,8 @@ func TestEmitOpenCode_HTTP_NoAuth(t *testing.T) {
 	if entry["type"] != "remote" {
 		t.Errorf("type = %v, want remote", entry["type"])
 	}
-	if entry["url"] != "http://localhost:8080/mcp" {
-		t.Errorf("url = %v, want http://localhost:8080/mcp", entry["url"])
+	if entry["url"] != "https://mcp.example.test/mcp" {
+		t.Errorf("url = %v, want https://mcp.example.test/mcp", entry["url"])
 	}
 	if entry["enabled"] != true {
 		t.Errorf("enabled = %v, want true", entry["enabled"])
@@ -144,7 +145,7 @@ func TestEmitOpenCode_HTTP_NoAuth(t *testing.T) {
 func TestEmitOpenCode_HTTP_Auth(t *testing.T) {
 	cfg := &configurator.ServerConfig{
 		Name:        "wiki",
-		URL:         "http://localhost:8080/mcp",
+		URL:         "https://mcp.example.test/mcp",
 		AuthEnabled: true,
 		TokenEnv:    "CARTOGRAPHER_TOKENS",
 	}
@@ -173,7 +174,7 @@ func TestEmitOpenCode_HTTP_Auth(t *testing.T) {
 func TestApplyDryRun(t *testing.T) {
 	cfg := &configurator.ServerConfig{
 		Name: "wiki",
-		URL:  "http://localhost:8080/mcp",
+		URL:  "https://mcp.example.test/mcp",
 	}
 	results, err := configurator.EmitAll(cfg)
 	if err != nil {
@@ -195,7 +196,7 @@ func TestApplyDryRun(t *testing.T) {
 }
 
 func TestApply_ReturnsAbsolutePaths(t *testing.T) {
-	r, err := configurator.Emit(&configurator.ServerConfig{Name: "wiki", URL: "http://localhost:8080/mcp"}, configurator.ProviderClaudeCode)
+	r, err := configurator.Emit(&configurator.ServerConfig{Name: "wiki", URL: "https://mcp.example.test/mcp"}, configurator.ProviderClaudeCode)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -214,7 +215,7 @@ func TestApply_ReturnsAbsolutePaths(t *testing.T) {
 }
 
 func TestRemove_NonDestructiveMerge(t *testing.T) {
-	cfg := &configurator.ServerConfig{Name: "wiki", URL: "http://localhost:8080/mcp"}
+	cfg := &configurator.ServerConfig{Name: "wiki", URL: "https://mcp.example.test/mcp"}
 	r, err := configurator.Emit(cfg, configurator.ProviderClaudeCode)
 	if err != nil {
 		t.Fatal(err)
@@ -278,7 +279,7 @@ func TestRemove_NonDestructiveMerge(t *testing.T) {
 }
 
 func TestRemove_NoFileIsNoop(t *testing.T) {
-	cfg := &configurator.ServerConfig{Name: "wiki", URL: "http://localhost:8080/mcp"}
+	cfg := &configurator.ServerConfig{Name: "wiki", URL: "https://mcp.example.test/mcp"}
 	dir := t.TempDir()
 
 	removed, err := configurator.Remove(cfg, configurator.ProviderClaudeCode, dir, false)
@@ -291,7 +292,7 @@ func TestRemove_NoFileIsNoop(t *testing.T) {
 }
 
 func TestRemove_MissingKeyIsNoop(t *testing.T) {
-	cfg := &configurator.ServerConfig{Name: "wiki", URL: "http://localhost:8080/mcp"}
+	cfg := &configurator.ServerConfig{Name: "wiki", URL: "https://mcp.example.test/mcp"}
 	r, err := configurator.Emit(cfg, configurator.ProviderClaudeCode)
 	if err != nil {
 		t.Fatal(err)
@@ -301,7 +302,7 @@ func TestRemove_MissingKeyIsNoop(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	otherCfg := &configurator.ServerConfig{Name: "other", URL: "http://localhost:8080/mcp"}
+	otherCfg := &configurator.ServerConfig{Name: "other", URL: "https://mcp.example.test/mcp"}
 	removed, err := configurator.Remove(otherCfg, configurator.ProviderClaudeCode, dir, false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -321,7 +322,7 @@ func TestRemove_MissingKeyIsNoop(t *testing.T) {
 }
 
 func TestRemove_DryRunDoesNotWrite(t *testing.T) {
-	cfg := &configurator.ServerConfig{Name: "wiki", URL: "http://localhost:8080/mcp"}
+	cfg := &configurator.ServerConfig{Name: "wiki", URL: "https://mcp.example.test/mcp"}
 	r, err := configurator.Emit(cfg, configurator.ProviderClaudeCode)
 	if err != nil {
 		t.Fatal(err)
@@ -356,7 +357,7 @@ func TestRemove_DryRunDoesNotWrite(t *testing.T) {
 func TestApplyWrite(t *testing.T) {
 	cfg := &configurator.ServerConfig{
 		Name: "wiki",
-		URL:  "http://localhost:8080/mcp",
+		URL:  "https://mcp.example.test/mcp",
 	}
 	results, err := configurator.EmitAll(cfg)
 	if err != nil {

@@ -49,7 +49,7 @@ cartographer service install
 ```
 
 Expected output: the native user service is installed and started. It listens on
-`http://127.0.0.1:8080` and its data directory is ready for KBs.
+`http://127.0.0.1:39273` and its data directory is ready for KBs.
 
 ## 3. Mount the first KB
 
@@ -92,7 +92,7 @@ With two or more mounted KBs, Cartographer automatically creates one MCP entry p
 
 ```bash
 cartographer version
-curl -fsS http://127.0.0.1:8080/health
+curl -fsS http://127.0.0.1:39273/health
 cartographer status
 ```
 
@@ -108,6 +108,6 @@ operations, diagnosis, upgrades, and synchronization after installation.
 | Observed symptom | Next action |
 |---|---|
 | `command -v brew` has no output | Run the `install.sh` command in step 1. |
-| The service reports that port 8080 is busy | Stop or reconfigure the process using the port, then rerun `cartographer service install`. |
+| The service reports that port 39273 is busy | Stop or reconfigure the process using the port, then rerun `cartographer service install`. |
 | `kb clone` reports a git authentication failure | Configure ambient credentials (an SSH agent for SSH remotes or a git credential helper for HTTPS), then rerun the same `kb clone` command. |
 | `kb clone` says `not an OKF KB` | Use the `kb-import` skill to import the remote into an OKF KB, push it, then rerun `kb clone`. |

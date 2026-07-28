@@ -13,7 +13,7 @@ import (
 // resolves the config dir via clientconfig.TargetDir() (os.UserHomeDir()).
 func writeClientConfig(t *testing.T, home, extra string) {
 	t.Helper()
-	content := "server_url: http://localhost:8080/mcp\nserver_name: cartographer\n" + extra
+	content := "server_url: https://existing.example.test/mcp\nserver_name: cartographer\n" + extra
 	if err := os.WriteFile(filepath.Join(home, ".cartographer.yaml"), []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}

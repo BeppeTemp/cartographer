@@ -35,7 +35,7 @@ Full annotated example: [`config.example.yaml`](https://github.com/BeppeTemp/car
 Schema (`internal/config.Config`, YAML tags in parentheses):
 
 ```yaml
-http: ":8080"                 # (http) listen address; absent = stdio
+http: ":39273"                # (http) listen address; absent = stdio
 init: true                    # (init) initialize missing KBs
 auth:
   mode: "on"                  # (auth.mode) on | off | auto (default auto: on if tokens are present)
@@ -192,7 +192,7 @@ Every startup option has a corresponding environment variable (the CLI flag take
 | `CARTOGRAPHER_KB` | `--kb` | Path(s) to the KB(s), comma-separated |
 | `CARTOGRAPHER_KB_REMOTES` | — | Git remotes to clone into `--data` at startup, comma-separated (see §Bootstrapping a KB) |
 | `CARTOGRAPHER_DATA` | `--data` | Directory whose direct subfolders are separate KBs (auto-discovery) |
-| `CARTOGRAPHER_HTTP` | `--http` | HTTP listen address, e.g. `:8080` |
+| `CARTOGRAPHER_HTTP` | `--http` | HTTP listen address, e.g. `:39273` |
 | `CARTOGRAPHER_TOKENS` | `--tokens` | Bearer tokens, comma/whitespace-separated. Each entry is either a bare `token` (admin, full access to every KB) or `token\|scope1;scope2` with per-KB scopes `kb:<name>:r\|rw` (scopes separated by `;`, never by spaces/commas, to avoid colliding with the between-entry separator). E.g. `admintok, readtok\|kb:wiki:r, writetok\|kb:wiki:rw;kb:notes:r` (D44). |
 | `CARTOGRAPHER_AUTH` | — | Explicit auth toggle (see §Auth) |
 | `CARTOGRAPHER_GIT_AUTOCOMMIT` | `--git-autocommit` | Enables the git commit after every write. Default `true`; set to `false` or `0` to disable. |
@@ -204,7 +204,7 @@ Every startup option has a corresponding environment variable (the CLI flag take
 | `CARTOGRAPHER_TOOLS_PROFILE` | `--tools-profile` | `tools/list` tool profile: `agent` (default, only the core set for the LLM agent) \| `full` (all of them). Hidden tools remain callable via `tools/call` (D65, → `control-plane.md` §MCP API). |
 | `CARTOGRAPHER_AUDIT_LOG` | — | Path to the audit log's JSONL file (e.g. `/data/audit.log`). If empty, audit is disabled. |
 | `CARTOGRAPHER_AUDIT_KEY` | — | Ed25519 seed (hex, 64 chars) for signing entries. Requires `CARTOGRAPHER_AUDIT_LOG`. |
-| `CARTOGRAPHER_SERVER_URL` | — | **Client** (not server): default server URL for `cartographer connect` on the client machine when no `.cartographer.yaml` exists yet. Precedence: existing yaml > env > `http://localhost:8080/mcp` (D64, `internal/clientconfig.Default`). |
+| `CARTOGRAPHER_SERVER_URL` | — | **Client** (not server): default server URL for `cartographer connect` on the client machine when no `.cartographer.yaml` exists yet. Precedence: existing yaml > env > `http://localhost:39273/mcp` (D64, `internal/clientconfig.Default`). |
 | `CARTOGRAPHER_MCP_TOOL_PREFIX_MODE` | — | Global default for `mcp.tool_prefix_mode`: `off` (default) \| `kb-name`. Overridden per KB by `kbs[].tool_prefix` (D102, see §MCP tool-name prefix). |
 
 **`CARTOGRAPHER_AUTH`** — three modes:
@@ -229,12 +229,12 @@ cartographer kb clone <remote>               # mounts an existing remote KB in t
 ```
 
 `service install` (idempotent: re-running it rewrites the plist/unit and restarts):
-- generates `~/.config/cartographer/server.yaml` **only if it doesn't exist** (`--config` for a different path; `--data`, default `~/cartographer-data`, and `--http`, default `127.0.0.1:8080`, are only used at generation time — if the config already exists they are ignored with a warning: edit the file and run `service restart`);
+- generates `~/.config/cartographer/server.yaml` **only if it doesn't exist** (`--config` for a different path; `--data`, default `~/cartographer-data`, and `--http`, default `127.0.0.1:39273`, are only used at generation time — if the config already exists they are ignored with a warning: edit the file and run `service restart`);
 - creates the configured data dir if it doesn't exist yet (D83), so a fresh install never leaves `serve` pointed at a missing directory;
 - macOS: LaunchAgent `~/Library/LaunchAgents/com.cartographer.serve.plist` (`KeepAlive`, logging to `~/Library/Logs/cartographer/server.log`). The plist's binary path prefers a stable Homebrew symlink (`/opt/homebrew/bin/cartographer` or `/usr/local/bin/cartographer`) over the versioned Caskroom path, so it survives `brew upgrade` without a re-install (D83);
 - Linux: systemd user unit `~/.config/systemd/user/cartographer.service` (log via `journalctl --user -u cartographer`; on a headless host, `loginctl enable-linger <user>` is needed for the service to survive logout).
 
-Binds to **loopback** by default (`127.0.0.1:8080`) → auth stays in auto-off mode without exposing anything on the network. With an empty (or missing — D83: `serve` creates it and treats it as empty rather than failing) data dir the server starts with 0 KBs — `/health` is still up (liveness: `status:"ok"`) but `/ready` reports `503 {"ready":false}` (D84, §Observability): `cartographer kb create <name>` scaffolds a subfolder KB the same way `serve --kb <path> --init` would (D85), while `cartographer kb clone <remote>` mounts an existing OKF remote there (D97; `service install` itself prints a hint pointing at creation if it starts with 0 KBs mounted), or add `kbs:` entries to clone remotes (§Bootstrapping a KB) — either way, `service restart` (or `kb create --restart` / `kb clone --restart`, which do this for you and wait for the server to report healthy again) is what makes the new KB visible.
+Binds to **loopback** by default (`127.0.0.1:39273`) → auth stays in auto-off mode without exposing anything on the network. With an empty (or missing — D83: `serve` creates it and treats it as empty rather than failing) data dir the server starts with 0 KBs — `/health` is still up (liveness: `status:"ok"`) but `/ready` reports `503 {"ready":false}` (D84, §Observability): `cartographer kb create <name>` scaffolds a subfolder KB the same way `serve --kb <path> --init` would (D85), while `cartographer kb clone <remote>` mounts an existing OKF remote there (D97; `service install` itself prints a hint pointing at creation if it starts with 0 KBs mounted), or add `kbs:` entries to clone remotes (§Bootstrapping a KB) — either way, `service restart` (or `kb create --restart` / `kb clone --restart`, which do this for you and wait for the server to report healthy again) is what makes the new KB visible.
 
 `service status` uses systemctl-like exit codes: `0` running, `3` installed but stopped, `4` not installed — this is what lets `install.sh update` automatically restart only a running service (see §Client installation).
 
@@ -256,7 +256,7 @@ metadata:
   name: cartographer-config
 data:
   config.yaml: |
-    http: ":8080"
+    http: ":39273"
     auth:
       mode: "on"
     data: /data

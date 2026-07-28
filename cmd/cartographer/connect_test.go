@@ -9,14 +9,17 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/client"
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
+	"github.com/BeppeTemp/cartographer/internal/defaults"
+	"github.com/BeppeTemp/cartographer/internal/service"
 )
 
 // TestResolveConnectSettings_InheritsPersisted pins the fix for the footgun
 // where a bare `connect <agent>` rewrote server_url/auth/token_env of an
-// already-configured machine to the flag defaults (http://localhost:8080,
+// already-configured machine to the flag defaults,
 // auth:false). Flags not passed explicitly must inherit the persisted config.
 func TestResolveConnectSettings_InheritsPersisted(t *testing.T) {
 	existing := &clientconfig.Config{
@@ -28,7 +31,7 @@ func TestResolveConnectSettings_InheritsPersisted(t *testing.T) {
 	}
 
 	// No form flag passed → inherit everything from existing, ignoring defaults.
-	got := resolveConnectSettings(map[string]bool{}, "http://localhost:8080/mcp", false, "DEFAULT_ENV", existing)
+	got := resolveConnectSettings(map[string]bool{}, defaults.DefaultMCPURL, false, "DEFAULT_ENV", existing)
 	if got.ServerURL != existing.ServerURL {
 		t.Errorf("ServerURL = %q, want inherited %q", got.ServerURL, existing.ServerURL)
 	}
@@ -46,8 +49,8 @@ func TestResolveConnectSettings_InheritsPersisted(t *testing.T) {
 	}
 
 	// First-ever connect (existing nil) → flag defaults apply as-is.
-	got = resolveConnectSettings(map[string]bool{}, "http://localhost:8080/mcp", false, "DEFAULT_ENV", nil)
-	if got.ServerURL != "http://localhost:8080/mcp" || got.Auth || got.TokenEnv != "DEFAULT_ENV" {
+	got = resolveConnectSettings(map[string]bool{}, defaults.DefaultMCPURL, false, "DEFAULT_ENV", nil)
+	if got.ServerURL != defaults.DefaultMCPURL || got.Auth || got.TokenEnv != "DEFAULT_ENV" {
 		t.Errorf("first connect: got %+v, want flag defaults", got)
 	}
 	if got.Name != "cartographer" {
@@ -69,7 +72,7 @@ func withTTY(t *testing.T, tty bool) {
 func newParsedConnectFlagSet(t *testing.T, args ...string) (*flag.FlagSet, bool) {
 	t.Helper()
 	fs := flag.NewFlagSet("connect", flag.ContinueOnError)
-	fs.String("server-url", "http://localhost:8080/mcp", "")
+	fs.String("server-url", defaults.DefaultMCPURL, "")
 	fs.Bool("auth", false, "")
 	fs.String("token-env", "CARTOGRAPHER_TOKENS", "")
 	fs.Bool("dry-run", false, "")
@@ -236,9 +239,9 @@ func TestProbeErrorMessage_NoKBGuidance(t *testing.T) {
 
 func TestIsLoopbackURL(t *testing.T) {
 	cases := map[string]bool{
-		"http://localhost:8080/mcp":    true,
-		"http://127.0.0.1:8080/mcp":    true,
-		"http://[::1]:8080/mcp":        true,
+		"http://localhost:39273/mcp":   true,
+		"http://127.0.0.1:39273/mcp":   true,
+		"http://[::1]:39273/mcp":       true,
 		"https://wiki.example.com/mcp": false,
 		"not a url \x7f":               false,
 		"":                             false,
@@ -263,5 +266,24 @@ func TestShouldOfferServiceInstall(t *testing.T) {
 		if got := shouldOfferServiceInstall(tc.loopback, tc.running); got != tc.want {
 			t.Errorf("shouldOfferServiceInstall(%v, %v) = %v, want %v", tc.loopback, tc.running, got, tc.want)
 		}
+	}
+}
+
+func TestInstallServiceAndWaitHealthy_UsesDefaultListenAddress(t *testing.T) {
+	previous := installService
+	var got service.InstallOptions
+	stop := errors.New("stop after recording options")
+	installService = func(_ *service.Manager, opts service.InstallOptions) error {
+		got = opts
+		return stop
+	}
+	t.Cleanup(func() { installService = previous })
+
+	err := installServiceAndWaitHealthy(nil, time.Second)
+	if !errors.Is(err, stop) {
+		t.Fatalf("installServiceAndWaitHealthy error = %v, want %v", err, stop)
+	}
+	if got.HTTPAddr != defaults.DefaultListenAddress {
+		t.Errorf("automatic service HTTPAddr = %q, want %q", got.HTTPAddr, defaults.DefaultListenAddress)
 	}
 }

@@ -14,6 +14,7 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/client"
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
+	"github.com/BeppeTemp/cartographer/internal/defaults"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
 	"github.com/BeppeTemp/cartographer/internal/service"
 )
@@ -93,13 +94,18 @@ func shouldOfferServiceInstall(loopback bool, running bool) bool {
 	return loopback && !running
 }
 
+var installService = func(mgr *service.Manager, opts service.InstallOptions) error {
+	_, err := mgr.Install(opts)
+	return err
+}
+
 // installServiceAndWaitHealthy installs+starts the local cartographer
 // service with default options (mirroring `cartographer service install`
 // with no flags) and polls its /health endpoint until it responds or
 // timeout elapses. Returns the first error encountered (install failure, or
 // "still unhealthy after timeout").
 func installServiceAndWaitHealthy(mgr *service.Manager, timeout time.Duration) error {
-	if _, err := mgr.Install(service.InstallOptions{DataDir: defaultDataDir(), HTTPAddr: "127.0.0.1:8080"}); err != nil {
+	if err := installService(mgr, service.InstallOptions{DataDir: defaultDataDir(), HTTPAddr: defaults.DefaultListenAddress}); err != nil {
 		return fmt.Errorf("service install: %w", err)
 	}
 
@@ -182,7 +188,7 @@ type connectSettings struct {
 // (absent from passed) inherits the value already in existing rather than the
 // hard-coded flag default — so a bare `connect <agent>` on a machine already
 // pointed at a remote server never silently rewrites server_url/auth/token_env
-// to http://localhost:8080 / auth:false. existing is nil on a first-ever
+// to the local default / auth:false. existing is nil on a first-ever
 // connect, where the flag defaults (and Name "cartographer", Trust from
 // clientconfig.Default) apply as-is. The interactive form, when opened,
 // overrides ServerURL/Auth/TokenEnv/Trust afterwards with the user's input.
@@ -231,7 +237,7 @@ func cmdConnect(args []string) int {
 	target, rest := splitPositional(args, "")
 
 	fs := flag.NewFlagSet("connect", flag.ExitOnError)
-	serverURL := fs.String("server-url", "http://localhost:8080/mcp", "Cartographer server URL")
+	serverURL := fs.String("server-url", defaults.DefaultMCPURL, "Cartographer server URL")
 	auth := fs.Bool("auth", false, "Enable bearer-token auth in generated configs")
 	tokenEnv := fs.String("token-env", "CARTOGRAPHER_TOKENS", "Env var holding the bearer token")
 	dryRun := fs.Bool("dry-run", false, "Print what would be written without writing")

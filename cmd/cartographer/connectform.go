@@ -17,6 +17,8 @@ import (
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
+
+	"github.com/BeppeTemp/cartographer/internal/defaults"
 )
 
 // connectField identifies the focused field of the connect form.
@@ -115,7 +117,7 @@ type connectFormModel struct {
 // own tea.Program (see the standalone field doc).
 func newConnectFormModel(title string, prefill connectOptions, standalone bool) connectFormModel {
 	url := textinput.New()
-	url.Placeholder = "http://localhost:8080/mcp"
+	url.Placeholder = defaults.DefaultMCPURL
 	url.SetValue(prefill.ServerURL)
 
 	tokenEnv := textinput.New()
@@ -197,7 +199,7 @@ func (m connectFormModel) Cancelled() bool { return m.cancelled }
 func (m connectFormModel) Values() connectOptions {
 	url := m.url.Value()
 	if url == "" {
-		url = "http://localhost:8080/mcp"
+		url = defaults.DefaultMCPURL
 	}
 	name := m.serverName
 	if name == "" {

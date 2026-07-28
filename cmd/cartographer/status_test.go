@@ -38,7 +38,7 @@ func TestCmdStatus_VersionReport(t *testing.T) {
 		},
 		{
 			name:             "loopback installed service",
-			serverURL:        "http://127.0.0.1:8080/mcp",
+			serverURL:        "http://127.0.0.1:39273/mcp",
 			clientVersion:    "v1.2.3",
 			serverVersion:    "v1.2.2",
 			serviceInstalled: true,

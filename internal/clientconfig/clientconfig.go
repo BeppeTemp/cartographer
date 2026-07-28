@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/BeppeTemp/cartographer/internal/defaults"
 	"gopkg.in/yaml.v3"
 )
 
@@ -83,12 +84,12 @@ func Default() *Config {
 // machine, or right after `disconnect` zeroed out agents but kept the file
 // (see doDisconnect) — CARTOGRAPHER_SERVER_URL, if set, seeds the connect
 // form/CLI default instead of the hardcoded localhost (D64): precedence is
-// yaml > env > localhost.
+// yaml > env > local default.
 func defaultServerURL() string {
 	if v := os.Getenv("CARTOGRAPHER_SERVER_URL"); v != "" {
 		return v
 	}
-	return "http://localhost:8080/mcp"
+	return defaults.DefaultMCPURL
 }
 
 // Path returns the full path to the client config file inside dir.
