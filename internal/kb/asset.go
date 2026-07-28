@@ -3,14 +3,12 @@ package kb
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
-	"syscall"
 
 	"github.com/BeppeTemp/cartographer/internal/okf"
 )
@@ -286,7 +284,11 @@ func (kb *KB) DeleteAsset(id okf.ConceptID, assetPath, ifMatch string) error {
 	}
 	for dir := filepath.Dir(abs); dir != conceptDir; dir = filepath.Dir(dir) {
 		if err := os.Remove(dir); err != nil {
-			if os.IsNotExist(err) || errors.Is(err, syscall.ENOTEMPTY) || errors.Is(err, syscall.EEXIST) {
+			if os.IsNotExist(err) {
+				break
+			}
+			entries, readErr := os.ReadDir(dir)
+			if readErr == nil && len(entries) > 0 {
 				break
 			}
 			return fmt.Errorf("DeleteAsset %s: prune: %w", assetPath, err)

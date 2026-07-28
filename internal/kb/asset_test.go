@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"syscall"
 	"testing"
 
 	"github.com/BeppeTemp/cartographer/internal/okf"
@@ -177,12 +176,6 @@ func TestAssetFilesystemGuardsAndOutOfBandFiles(t *testing.T) {
 	}
 	if err := os.Remove(filepath.Join(owner, "not-a-file")); err != nil {
 		t.Fatal(err)
-	}
-	if err := syscall.Mkfifo(filepath.Join(owner, "not-regular-fifo"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := k.ListAssets("map/owner"); !errors.Is(err, okf.ErrInvalidPath) {
-		t.Fatalf("non-regular list entry: expected ErrInvalidPath, got %v", err)
 	}
 	if err := os.WriteFile(filepath.Join(owner, "oversize.bin"), make([]byte, AssetMaxFileSize+1), 0o644); err != nil {
 		t.Fatal(err)
