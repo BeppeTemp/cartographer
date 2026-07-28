@@ -73,7 +73,7 @@ flowchart TB
 
 ## Where to continue
 
-- [Data plane](data-plane.md): KB layout and concept model.
+- [Data plane](data-plane.md): KB layout, concept model, and non-Markdown dossier assets.
 - [Control plane](control-plane.md): complete MCP tool surface.
 - [Transport and authorization](transport-auth.md): stdio, HTTP and scopes.
 - [Concurrency](concurrency.md): commits, remote sync and conflicts.

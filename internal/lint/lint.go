@@ -123,6 +123,9 @@ func Run(k *kb.KB, scope string, scopeNeighbors bool) ([]Finding, error) {
 	for id, content := range allConcepts {
 		_, body, _ := okf.SplitFrontmatter(content)
 		relPath := okf.IDToPath(id)
+		if _, err := k.ReadRaw(string(id) + "/index.md"); err == nil {
+			relPath = string(id) + "/index.md"
+		}
 		for _, target := range kb.ExtractLinks(body, relPath) {
 			incomingLinks[target]++
 		}
@@ -340,6 +343,51 @@ func Run(k *kb.KB, scope string, scopeNeighbors bool) ([]Finding, error) {
 						Check:    "expanded_as_category",
 						Severity: SevWarning,
 						Message:  fmt.Sprintf("%d children, only %d linked to the concept's index — directory used as a category; categories belong to curated indexes, not the filesystem (D77)", len(children), linked),
+					})
+				}
+			}
+
+			// --- orphan_asset (info) ---
+			// Assets are intentionally outside WalkConcepts and the graph. They
+			// still need a lightweight provenance signal: an asset should be
+			// cited by its owner's index or one of that expanded concept's
+			// satellite concepts.
+			if indexErr == nil {
+				// An ambiguous direct+expanded pair is a pre-existing lint
+				// condition; assets cannot be resolved safely until the owner
+				// form is disambiguated, so leave it to expanded_ambiguous.
+				if _, directErr := k.ReadRaw(string(expandedID) + ".md"); directErr == nil {
+					continue
+				}
+				referenced := map[string]bool{}
+				for id, content := range allConcepts {
+					idStr := string(id)
+					if idStr != string(expandedID) && !strings.HasPrefix(idStr, string(expandedID)+"/") {
+						continue
+					}
+					_, body, _ := okf.SplitFrontmatter(content)
+					basePath := okf.IDToPath(id)
+					if id == expandedID {
+						basePath = string(expandedID) + "/index.md"
+					}
+					for _, target := range kb.ExtractAssetLinks(body, basePath) {
+						referenced[target] = true
+					}
+				}
+				assets, assetErr := k.ListAssets(expandedID)
+				if assetErr != nil {
+					return nil, fmt.Errorf("lint.Run: list assets for %s: %w", expandedID, assetErr)
+				}
+				for _, asset := range assets {
+					assetPath := string(expandedID) + "/" + asset.Path
+					if referenced[assetPath] {
+						continue
+					}
+					findings = append(findings, Finding{
+						Path:     assetPath,
+						Check:    "orphan_asset",
+						Severity: SevInfo,
+						Message:  "asset is not cited by its owning dossier document; cite dossier artifacts from the document that owns them",
 					})
 				}
 			}

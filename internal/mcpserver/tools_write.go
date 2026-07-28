@@ -675,7 +675,7 @@ func toolConceptMove(k *kb.KB, live *liveIndex, sqlIdx *sqlindex.Index) Tool {
 			"invalid entry aborts the whole batch, no move is applied. After applying the moves, " +
 			"unless rewrite_links=false, the server rewrites in a single pass every inbound wiki-link " +
 			"([[old-id]], [[old-id#section]]) and markdown link across the whole KB (including " +
-			"services/) to point at the new IDs.",
+			"services/) to point at the new IDs. Moving an expanded concept moves its whole directory, including assets and satellite concepts; inbound links to assets are intentionally left unchanged.",
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"properties": {
@@ -750,6 +750,8 @@ func toolConceptMove(k *kb.KB, live *liveIndex, sqlIdx *sqlindex.Index) Tool {
 				targetID string
 				fm       *okf.Frontmatter
 				body     string
+				expanded bool
+				mappings map[string]string
 			}
 			seenSources := map[string]bool{}
 			seenTargets := map[string]bool{}
@@ -770,6 +772,9 @@ func toolConceptMove(k *kb.KB, live *liveIndex, sqlIdx *sqlindex.Index) Tool {
 					return errorResult("duplicate target_id in batch: " + m.TargetID), nil
 				}
 				seenTargets[m.TargetID] = true
+				if _, err := okf.PathToID(m.TargetID + ".md"); err != nil {
+					return errorResult("invalid target_id: " + m.TargetID), nil
+				}
 
 				// Path traversal check (concept IDs are anchored at the data root).
 				targetAbs := filepath.Clean(filepath.Join(k.DataRoot(), m.TargetID+".md"))
@@ -794,7 +799,48 @@ func toolConceptMove(k *kb.KB, live *liveIndex, sqlIdx *sqlindex.Index) Tool {
 					return errorResult(fmt.Sprintf("concept_move: parse frontmatter %q: %v", m.SourceID, err)), nil
 				}
 
-				valid = append(valid, validMove{sourceID: m.SourceID, targetID: m.TargetID, fm: fm, body: data.Body})
+				vm := validMove{sourceID: m.SourceID, targetID: m.TargetID, fm: fm, body: data.Body, mappings: map[string]string{m.SourceID: m.TargetID}}
+				if _, indexErr := k.ReadRaw(filepath.Join(m.SourceID, "index.md")); indexErr == nil {
+					if len(strings.Split(m.SourceID, "/")) != 2 || len(strings.Split(m.TargetID, "/")) != 2 {
+						return errorResult("expanded concept moves require two-segment source_id and target_id"), nil
+					}
+					if strings.HasPrefix(m.TargetID+"/", m.SourceID+"/") || strings.HasPrefix(m.SourceID+"/", m.TargetID+"/") {
+						return errorResult("expanded concept target cannot be inside, above, or equal to its source"), nil
+					}
+					targetDir := filepath.Join(k.DataRoot(), m.TargetID)
+					if _, statErr := os.Lstat(targetDir); statErr == nil {
+						return errorResult("conflict: target directory already exists: " + m.TargetID), nil
+					} else if !os.IsNotExist(statErr) {
+						return errorResult(fmt.Sprintf("concept_move: check target directory %q: %v", m.TargetID, statErr)), nil
+					}
+					vm.expanded = true
+					if err := k.WalkConcepts(func(id okf.ConceptID, _ string) error {
+						idStr := string(id)
+						if idStr == m.SourceID || strings.HasPrefix(idStr, m.SourceID+"/") {
+							vm.mappings[idStr] = m.TargetID + strings.TrimPrefix(idStr, m.SourceID)
+						}
+						return nil
+					}); err != nil {
+						return errorResult(fmt.Sprintf("concept_move: list expanded source %q: %v", m.SourceID, err)), nil
+					}
+				}
+
+				valid = append(valid, vm)
+			}
+			for i, left := range valid {
+				if !left.expanded {
+					continue
+				}
+				for j, right := range valid {
+					if i == j {
+						continue
+					}
+					if strings.HasPrefix(right.sourceID+"/", left.sourceID+"/") || strings.HasPrefix(left.sourceID+"/", right.sourceID+"/") ||
+						strings.HasPrefix(right.targetID+"/", left.sourceID+"/") || strings.HasPrefix(left.targetID+"/", right.sourceID+"/") ||
+						strings.HasPrefix(right.sourceID+"/", left.targetID+"/") || strings.HasPrefix(left.sourceID+"/", right.targetID+"/") {
+						return errorResult("expanded concept moves cannot overlap, swap, or use ancestor/descendant paths in one batch"), nil
+					}
+				}
 			}
 
 			// --- apply pass: all entries already validated above. ---
@@ -803,31 +849,43 @@ func toolConceptMove(k *kb.KB, live *liveIndex, sqlIdx *sqlindex.Index) Tool {
 			logLines := make([]string, 0, len(valid)+1)
 
 			for _, mv := range valid {
-				if _, err := k.WriteConcept(okf.ConceptID(mv.targetID), mv.fm, mv.body, ""); err != nil {
-					return errorResult(fmt.Sprintf("concept_move: write target %q: %v", mv.targetID, err)), nil
-				}
+				if mv.expanded {
+					srcDir := filepath.Join(k.DataRoot(), mv.sourceID)
+					targetDir := filepath.Join(k.DataRoot(), mv.targetID)
+					if err := os.MkdirAll(filepath.Dir(targetDir), 0o755); err != nil {
+						return errorResult(fmt.Sprintf("concept_move: create target parent %q: %v", mv.targetID, err)), nil
+					}
+					if err := os.Rename(srcDir, targetDir); err != nil {
+						return errorResult(fmt.Sprintf("concept_move: move expanded source %q: %v", mv.sourceID, err)), nil
+					}
+				} else {
+					if _, err := k.WriteConcept(okf.ConceptID(mv.targetID), mv.fm, mv.body, ""); err != nil {
+						return errorResult(fmt.Sprintf("concept_move: write target %q: %v", mv.targetID, err)), nil
+					}
 
-				srcPath := filepath.Join(k.DataRoot(), mv.sourceID+".md")
-				if err := os.Remove(srcPath); err != nil && !os.IsNotExist(err) {
-					return errorResult(fmt.Sprintf("concept_move: remove source %q: %v", mv.sourceID, err)), nil
+					srcPath := filepath.Join(k.DataRoot(), mv.sourceID+".md")
+					if err := os.Remove(srcPath); err != nil && !os.IsNotExist(err) {
+						return errorResult(fmt.Sprintf("concept_move: remove source %q: %v", mv.sourceID, err)), nil
+					}
 				}
 
 				// Keep the keyword and FTS5 indexes in sync: deindex the old ID and
 				// index the new one, same pattern as concept_delete/concept_write.
-				live.remove(mv.sourceID)
-				if targetData, readErr := k.ReadConcept(okf.ConceptID(mv.targetID)); readErr == nil {
-					live.add(mv.targetID, targetData.Content)
-					if sqlIdx != nil {
-						if err := sqlIdx.Delete(mv.sourceID); err != nil {
-							fmt.Fprintf(os.Stderr, "concept_move: sqlindex delete %q: %v\n", mv.sourceID, err)
-						}
-						if err := sqlIdx.Upsert(mv.targetID, targetData.ContentHash, targetData.Content); err != nil {
-							fmt.Fprintf(os.Stderr, "concept_move: sqlindex upsert %q: %v\n", mv.targetID, err)
+				for oldID, newID := range mv.mappings {
+					live.remove(oldID)
+					if targetData, readErr := k.ReadConcept(okf.ConceptID(newID)); readErr == nil {
+						live.add(newID, targetData.Content)
+						if sqlIdx != nil {
+							if err := sqlIdx.Delete(oldID); err != nil {
+								fmt.Fprintf(os.Stderr, "concept_move: sqlindex delete %q: %v\n", oldID, err)
+							}
+							if err := sqlIdx.Upsert(newID, targetData.ContentHash, targetData.Content); err != nil {
+								fmt.Fprintf(os.Stderr, "concept_move: sqlindex upsert %q: %v\n", newID, err)
+							}
 						}
 					}
+					moveMap[oldID] = newID
 				}
-
-				moveMap[mv.sourceID] = mv.targetID
 				applied = append(applied, conceptMoveEntry{SourceID: mv.sourceID, TargetID: mv.targetID})
 				logLines = append(logLines, fmt.Sprintf("- %s → %s", mv.sourceID, mv.targetID))
 			}
@@ -881,7 +939,11 @@ func rewriteBacklinks(k *kb.KB, live *liveIndex, sqlIdx *sqlindex.Index, moveMap
 
 	err := k.WalkConcepts(func(id okf.ConceptID, content string) error {
 		fmRaw, body, _ := okf.SplitFrontmatter(content)
-		newBody, count := kb.RewriteLinks(body, okf.IDToPath(id), moveMap)
+		basePath := okf.IDToPath(id)
+		if _, err := k.ReadRaw(filepath.Join(string(id), "index.md")); err == nil {
+			basePath = filepath.Join(string(id), "index.md")
+		}
+		newBody, count := kb.RewriteLinks(body, basePath, moveMap)
 		if count == 0 {
 			return nil
 		}
@@ -922,7 +984,7 @@ func toolConceptDelete(k *kb.KB, live *liveIndex, sqlIdx *sqlindex.Index) Tool {
 	return Tool{
 		Name: "concept_delete",
 		Description: "Permanently removes a concept from the KB (git commit). Inbound links " +
-			"to the removed concept are NOT updated — run lint to find broken links.",
+			"to the removed concept are NOT updated — run lint to find broken links. Deleting an expanded concept that owns assets requires force=true; satellite concepts are preserved.",
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"required": ["id"],
@@ -934,6 +996,10 @@ func toolConceptDelete(k *kb.KB, live *liveIndex, sqlIdx *sqlindex.Index) Tool {
 				"if_match": {
 					"type": "string",
 					"description": "Expected content-hash (optional, for optimistic concurrency)"
+				},
+				"force": {
+					"type": "boolean",
+					"description": "Required to delete the non-Markdown assets owned by an expanded concept"
 				}
 			}
 		}`),
@@ -941,6 +1007,7 @@ func toolConceptDelete(k *kb.KB, live *liveIndex, sqlIdx *sqlindex.Index) Tool {
 			var params struct {
 				ID      string `json:"id"`
 				IfMatch string `json:"if_match"`
+				Force   bool   `json:"force"`
 			}
 			if err := json.Unmarshal(args, &params); err != nil {
 				return errorResult("invalid params: " + err.Error()), nil
@@ -962,7 +1029,7 @@ func toolConceptDelete(k *kb.KB, live *liveIndex, sqlIdx *sqlindex.Index) Tool {
 				}
 			}
 
-			if err := k.DeleteConcept(okf.ConceptID(params.ID)); err != nil {
+			if _, err := k.DeleteConceptWithAssets(okf.ConceptID(params.ID), params.Force); err != nil {
 				if errors.Is(err, okf.ErrNotFound) {
 					return errorResult(fmt.Sprintf("concept_delete %q: not found", params.ID)), nil
 				}

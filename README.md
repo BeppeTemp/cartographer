@@ -57,6 +57,7 @@ Cartographer offers **two complementary profiles**:
   `graph_neighbors`
 - 🔍 **Search** — keyword (pure-Go inverted index) plus optional hybrid semantic search via Ollama
 - ✍️ **Validated writes** with optimistic concurrency (`if_match` / content-hash)
+- 📎 **Concept assets** — read, write, list, and delete binary or text dossier files inside expanded concepts
 - 🛡️ **Governance** — deterministic `lint` (broken link, stale claim, orphan), `commit_gate`,
   `gate_check`, `supersede`, contradiction tracking
 - 🧬 **Transactional git** — one commit per write operation; optional synchronization to a remote
