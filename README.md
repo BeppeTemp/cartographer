@@ -54,7 +54,7 @@ Cartographer offers **two complementary profiles**:
 
 - 🔧 **Full MCP tool suite** — complete list in [`docs/control-plane.md`](docs/control-plane.md)
 - 📖 **Read & navigation** — `atlas_overview`, `index_get`, `concept_read`, `map_list`,
-  `graph_neighbors`
+  `graph_neighbors` (outbound links or backlinks) and `concept_list` (scoped frontmatter facets)
 - 🔍 **Search** — keyword (pure-Go inverted index) plus optional hybrid semantic search via Ollama
 - ✍️ **Validated writes** with optimistic concurrency (`if_match` / content-hash)
 - 📎 **Concept assets** — read, write, list, and delete binary or text dossier files inside expanded concepts

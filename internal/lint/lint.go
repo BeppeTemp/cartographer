@@ -119,17 +119,11 @@ func Run(k *kb.KB, scope string, scopeNeighbors bool) ([]Finding, error) {
 		}
 	}
 
-	// Build reverse-link map for the orphan check using ALL concepts, not just scope.
-	incomingLinks := map[okf.ConceptID]int{}
-	for id, content := range allConcepts {
-		_, body, _ := okf.SplitFrontmatter(content)
-		relPath := okf.IDToPath(id)
-		if _, err := k.ReadRaw(string(id) + "/index.md"); err == nil {
-			relPath = string(id) + "/index.md"
-		}
-		for _, target := range kb.ExtractLinks(body, relPath) {
-			incomingLinks[target]++
-		}
+	// Build the reverse-link graph once over all concepts for the orphan check.
+	// It retains self-links, preserving the pre-D108 orphan behaviour.
+	incomingLinks, err := k.IncomingLinks()
+	if err != nil {
+		return nil, fmt.Errorf("lint.Run: incoming links: %w", err)
 	}
 
 	// Archive name set for orphan skip rule.
@@ -265,7 +259,7 @@ func Run(k *kb.KB, scope string, scopeNeighbors bool) ([]Finding, error) {
 		}
 
 		// --- orphan (warning) ---
-		if incomingLinks[id] == 0 {
+		if len(incomingLinks[id]) == 0 {
 			parts := strings.Split(string(id), "/")
 			// Skip concepts at depth=1 inside a known archive (expected entry points).
 			atArchiveTop := len(parts) == 2 && archiveSet[parts[0]]

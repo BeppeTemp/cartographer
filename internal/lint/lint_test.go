@@ -312,6 +312,23 @@ func TestRun_Orphan_LinkedConcept_Clean(t *testing.T) {
 	}
 }
 
+// Self-links have always counted as incoming links for the orphan check. The
+// derived D108 adjacency retains that compatibility even though traversal
+// excludes self-edges.
+func TestRun_Orphan_SelfLinkRemainsClean(t *testing.T) {
+	k := tempKB(t)
+	writeFile(t, k.DataRoot(), "arch/self.md",
+		"---\ntype: Note\n---\nSee [[arch/self]].\n")
+
+	findings, err := Run(k, "", false)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if hasCheck(findings, "arch/self.md", "orphan") {
+		t.Errorf("self-link must retain pre-D108 orphan behaviour: %v", findings)
+	}
+}
+
 func TestRun_Orphan_ArchiveTopLevel_Skipped(t *testing.T) {
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "arch/_archive.md",

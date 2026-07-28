@@ -356,3 +356,21 @@ c) **`concept_oversize` lint** (`info` severity, like `map_oversize`): body beyo
 **Decision.** SQLite stores one content hash per concept, so reconciliation walks the KB, compares its hashes with `AllHashes()`, and incrementally upserts new/changed concepts and deletes vanished ones. The in-memory index follows the same add/remove path as MCP writes. Reconciliation runs at boot, after a successful `SyncIn` that changes HEAD, and through the write-scoped `reindex` MCP tool. `cartographer reindex [--kb <name>]` calls a healthy configured server over HTTP; only while it is down does the local administrative CLI open `<kb>/.cartographer/index.db` directly.
 
 **Rationale.** Hash reconciliation makes the index converge without an always-on watcher, preserves the server's single owner of a live SQLite connection, and avoids needless embedding work: changed hashes naturally miss the existing embedding cache until a semantic rebuild/search refreshes them. A filesystem watcher (`fsnotify`) was rejected for this release: it adds platform-specific lifecycle and event-loss complexity while still requiring reconciliation after imports, git pulls, and restarts.
+
+---
+
+<a id="d108"></a>
+## D108 — On-demand backlinks and frontmatter facets
+
+**Decision.** The link graph derives inbound and outbound adjacency on demand by
+walking the KB with each concept's physical path. It is not persisted: vault
+files remain the truth, including relative links inside expanded concepts, and
+the modest walk avoids a second index reconciliation surface. `graph_neighbors`
+selects `out`, `in`, or `both` direction on that same graph.
+
+Structured predicates belong on `concept_list`, which inventories existing
+concepts, rather than `search`, which ranks body text by relevance. Its small
+frontmatter grammar intentionally supports only ANDed exact `key=value` and
+`key!=value` predicates plus timestamp ranges. Regex and OR are absent: they
+would make bounded inventory reads harder to predict without serving the
+operational catalog questions this interface covers.

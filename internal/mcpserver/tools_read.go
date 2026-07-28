@@ -532,10 +532,72 @@ func toolMapList(k *kb.KB) Tool {
 // concept_list when the caller does not pass an explicit limit (D72 WP3).
 const defaultConceptListLimit = 500
 
+type conceptListFilter struct {
+	key   string
+	value string
+	not   bool
+}
+
+func parseConceptListFilter(entry string) (conceptListFilter, error) {
+	// Check != first: in "key!=a=b", the later = belongs to the value.
+	if i := strings.Index(entry, "!="); i >= 0 {
+		key := strings.TrimSpace(entry[:i])
+		if key == "" {
+			return conceptListFilter{}, fmt.Errorf("malformed where entry %q: key must not be empty (expected key=value or key!=value)", entry)
+		}
+		return conceptListFilter{key: key, value: strings.TrimSpace(entry[i+2:]), not: true}, nil
+	}
+	if i := strings.Index(entry, "="); i >= 0 {
+		key := strings.TrimSpace(entry[:i])
+		if key == "" {
+			return conceptListFilter{}, fmt.Errorf("malformed where entry %q: key must not be empty (expected key=value or key!=value)", entry)
+		}
+		return conceptListFilter{key: key, value: strings.TrimSpace(entry[i+1:])}, nil
+	}
+	return conceptListFilter{}, fmt.Errorf("malformed where entry %q: expected key=value or key!=value", entry)
+}
+
+func frontmatterValueMatches(value interface{}, want string) bool {
+	switch v := value.(type) {
+	case string:
+		return v == want
+	case []string:
+		for _, item := range v {
+			if item == want {
+				return true
+			}
+		}
+		return false
+	case nil:
+		// An explicit YAML `key:` is the parser's empty scalar value.
+		return want == ""
+	default:
+		return false
+	}
+}
+
+func matchesConceptListFilters(fm *okf.Frontmatter, filters []conceptListFilter) bool {
+	for _, filter := range filters {
+		value, exists := fm.Get(filter.key)
+		matches := exists && frontmatterValueMatches(value, filter.value)
+		if filter.not == matches {
+			return false
+		}
+	}
+	return true
+}
+
+func parseConceptListTimestamp(value string) (time.Time, error) {
+	if len(value) == len("2006-01-02") {
+		return time.Parse("2006-01-02", value)
+	}
+	return time.Parse(time.RFC3339, value)
+}
+
 func toolConceptList(k *kb.KB) Tool {
 	return Tool{
 		Name:        "concept_list",
-		Description: "Exhaustive inventory of concepts (id, title, type from frontmatter) under a scope prefix, sorted by id. Empty scope lists the whole KB. The bounded equivalent of 'ls -R'; use index_get for curated, progressive-disclosure navigation instead.",
+		Description: "Exhaustive inventory of concepts (id, title, type from frontmatter) under a scope prefix, sorted by id. Empty scope lists the whole KB. where predicates and timestamp ranges are applied before limit. The bounded equivalent of 'ls -R'; use index_get for curated, progressive-disclosure navigation instead.",
 		ReadOnly:    true,
 		InputSchema: json.RawMessage(`{
 			"type": "object",
@@ -547,13 +609,29 @@ func toolConceptList(k *kb.KB) Tool {
 				"limit": {
 					"type": "integer",
 					"description": "Maximum number of results. Default 500."
+				},
+				"where": {
+					"type": "array",
+					"items": {"type": "string"},
+					"description": "ANDed frontmatter predicates key=value or key!=value. Scalar fields match exactly and list fields match any element; matching is case-sensitive. A missing key matches != but not =."
+				},
+				"timestamp_before": {
+					"type": "string",
+					"description": "Strict upper bound for frontmatter timestamp, as RFC3339 or YYYY-MM-DD (midnight UTC)."
+				},
+				"timestamp_after": {
+					"type": "string",
+					"description": "Strict lower bound for frontmatter timestamp, as RFC3339 or YYYY-MM-DD (midnight UTC)."
 				}
 			}
 		}`),
 		Handler: func(args json.RawMessage) (ToolResult, error) {
 			var params struct {
-				Scope string `json:"scope"`
-				Limit int    `json:"limit"`
+				Scope           string   `json:"scope"`
+				Limit           int      `json:"limit"`
+				Where           []string `json:"where"`
+				TimestampBefore *string  `json:"timestamp_before"`
+				TimestampAfter  *string  `json:"timestamp_after"`
 			}
 			if err := json.Unmarshal(args, &params); err != nil {
 				return errorResult("invalid params: " + err.Error()), nil
@@ -565,6 +643,32 @@ func toolConceptList(k *kb.KB) Tool {
 			}
 
 			scope := strings.TrimSuffix(strings.ReplaceAll(params.Scope, "\\", "/"), "/")
+			filters := make([]conceptListFilter, 0, len(params.Where))
+			for _, entry := range params.Where {
+				filter, err := parseConceptListFilter(entry)
+				if err != nil {
+					return errorResult(err.Error()), nil
+				}
+				filters = append(filters, filter)
+			}
+
+			var before, after *time.Time
+			if params.TimestampBefore != nil {
+				parsed, err := parseConceptListTimestamp(*params.TimestampBefore)
+				if err != nil {
+					return errorResult("invalid timestamp_before: expected RFC3339 or YYYY-MM-DD"), nil
+				}
+				before = &parsed
+			}
+			if params.TimestampAfter != nil {
+				parsed, err := parseConceptListTimestamp(*params.TimestampAfter)
+				if err != nil {
+					return errorResult("invalid timestamp_after: expected RFC3339 or YYYY-MM-DD"), nil
+				}
+				after = &parsed
+			}
+			filtersApplied := len(filters) > 0 || before != nil || after != nil
+			timestampFilter := before != nil || after != nil
 
 			type conceptEntry struct {
 				ID    string `json:"id"`
@@ -572,20 +676,42 @@ func toolConceptList(k *kb.KB) Tool {
 				Type  string `json:"type,omitempty"`
 			}
 			entries := []conceptEntry{}
+			examined := 0
+			skippedTimestamp := 0
 			if err := k.WalkConcepts(func(id okf.ConceptID, content string) error {
 				idStr := string(id)
 				if scope != "" && idStr != scope && !strings.HasPrefix(idStr, scope+"/") {
 					return nil
 				}
+				examined++
 				fmRaw, _, _ := okf.SplitFrontmatter(content)
 				var title, typ string
-				if fm, err := okf.ParseFrontmatter(fmRaw); err == nil {
+				fm, parseErr := okf.ParseFrontmatter(fmRaw)
+				if parseErr == nil {
 					if v, ok := fm.Get("title"); ok {
 						if s, ok := v.(string); ok {
 							title = s
 						}
 					}
 					typ = fm.Type()
+				}
+				if filtersApplied {
+					// Malformed frontmatter is examined but cannot match a filter.
+					if parseErr != nil || !matchesConceptListFilters(fm, filters) {
+						return nil
+					}
+					if timestampFilter {
+						value, exists := fm.Get("timestamp")
+						timestamp, timestampOK := value.(string)
+						parsed, timestampErr := parseConceptListTimestamp(timestamp)
+						if !exists || !timestampOK || timestampErr != nil {
+							skippedTimestamp++
+							return nil
+						}
+						if (before != nil && !parsed.Before(*before)) || (after != nil && !parsed.After(*after)) {
+							return nil
+						}
+					}
 				}
 				entries = append(entries, conceptEntry{ID: idStr, Title: title, Type: typ})
 				return nil
@@ -609,6 +735,12 @@ func toolConceptList(k *kb.KB) Tool {
 				result["truncated"] = true
 				result["total"] = total
 			}
+			if filtersApplied {
+				result["examined"] = examined
+			}
+			if timestampFilter {
+				result["skipped_timestamp"] = skippedTimestamp
+			}
 			out, _ := json.MarshalIndent(result, "", "  ")
 			return textResult(string(out)), nil
 		},
@@ -620,7 +752,7 @@ func toolConceptList(k *kb.KB) Tool {
 func toolGraphNeighbors(k *kb.KB) Tool {
 	return Tool{
 		Name:        "graph_neighbors",
-		Description: "Returns the concepts linked from a given concept, up to depth hops (default 1). Useful for scoping lint and understanding relationships.",
+		Description: "Returns graph neighbors up to depth hops (default 1): direction out means concepts linked from this one, in means concepts that link to it, and both follows either edge. Useful for scoping lint and understanding relationships.",
 		ReadOnly:    true,
 		InputSchema: json.RawMessage(`{
 			"type": "object",
@@ -633,13 +765,19 @@ func toolGraphNeighbors(k *kb.KB) Tool {
 				"depth": {
 					"type": "integer",
 					"description": "Maximum traversal depth (default 1)"
+				},
+				"direction": {
+					"type": "string",
+					"enum": ["out", "in", "both"],
+					"description": "Edge direction: out (default) finds linked concepts, in finds backlinks, both follows either."
 				}
 			}
 		}`),
 		Handler: func(args json.RawMessage) (ToolResult, error) {
 			var params struct {
-				ID    string `json:"id"`
-				Depth int    `json:"depth"`
+				ID        string `json:"id"`
+				Depth     int    `json:"depth"`
+				Direction string `json:"direction"`
 			}
 			if err := json.Unmarshal(args, &params); err != nil {
 				return errorResult("invalid params: " + err.Error()), nil
@@ -648,7 +786,19 @@ func toolGraphNeighbors(k *kb.KB) Tool {
 				return errorResult("'id' is required"), nil
 			}
 
-			neighbors, err := k.GraphNeighbors(okf.ConceptID(params.ID), params.Depth)
+			direction := params.Direction
+			if direction == "" {
+				direction = "out"
+			}
+			if direction != "out" && direction != "in" && direction != "both" {
+				return errorResult(fmt.Sprintf("invalid direction %q: expected out, in, or both", direction)), nil
+			}
+			depth := params.Depth
+			if depth <= 0 {
+				depth = 1
+			}
+
+			neighbors, err := k.GraphNeighbors(okf.ConceptID(params.ID), depth, direction)
 			if err != nil {
 				return errorResult(fmt.Sprintf("graph_neighbors %q: %v", params.ID, err)), nil
 			}
@@ -661,10 +811,12 @@ func toolGraphNeighbors(k *kb.KB) Tool {
 			for id, dist := range neighbors {
 				list = append(list, neighbor{ID: id, Distance: dist})
 			}
+			sort.Slice(list, func(i, j int) bool { return list[i].ID < list[j].ID })
 
 			result := map[string]interface{}{
 				"id":        params.ID,
-				"depth":     params.Depth,
+				"depth":     depth,
+				"direction": direction,
 				"neighbors": list,
 				"count":     len(list),
 			}

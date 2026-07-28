@@ -121,7 +121,7 @@ review_after: 2026-09-25
 
 ## Cross-links and the graph
 
-**Bundle-relative** links starting with `/` (stable, path from the KB root). A link A→B asserts a relationship (the prose supplies the type). Broken links are legitimate stubs. The emergent graph is what lint walks for scoping.
+**Bundle-relative** links starting with `/` (stable, path from the KB root). A link A→B asserts a relationship (the prose supplies the type). Broken links are legitimate stubs. The emergent graph is what lint walks for scoping and is traversable both outbound and inbound (backlinks). Its reverse edges are derived on demand from the concept files; no link index is persisted.
 
 ## Naming and concept IDs
 
