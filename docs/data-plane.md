@@ -14,7 +14,7 @@ There is no intermediate categorization level (D77): category navigation is the 
 
 Depth is **enforced on the write path** (D72 WP4): a ConceptID under `data/` has at most 3 segments (`map/concept/child`, where the third segment only exists inside an expanded concept); deeper writes are rejected. Reads are unaffected (legacy KBs remain readable). If a write implicitly creates a new expansion directory (e.g. `concept_move` into a nested path), the server also generates the `index.md` stub (`type: Index`, title from the name) — so `index_get`'s progressive disclosure never breaks. Lint defends the semantics of the hierarchy (D77 WP4, `concept_oversize` D78): `expanded_missing_index` (a directory with no `index.md`), `expanded_ambiguous` (both `<id>.md` and `<id>/index.md` exist: writes are blocked until one form is removed), `expanded_as_category` (many children not linked from the concept's index: the directory is being used as a taxonomy), `map_oversize` (a map beyond the size threshold: a thematic split is preferable to a subfolder), `legacy_archive_descriptor` (a pre-D77 `_archive.md` descriptor), `concept_oversize` (a concept beyond the byte threshold: a candidate for `concept_expand` into a dossier).
 
-Every KB (Atlas) is split into two planes: the **conceptual root** (`data/`), which holds maps, journals, and concepts; and the support folders (`skills/`, `services/`, `agents/`, `hooks/`), which sit directly under the KB root. KBs are **isolated**: no cross-links between different KBs.
+Every KB (Atlas) is split into two planes: the **conceptual root** (`data/`), which holds maps, journals, and concepts; and the support folders (`skills/`, `services/`, `agents/`, `hooks/`, `templates/`), which sit directly under the KB root. KBs are **isolated**: no cross-links between different KBs.
 
 ## Filesystem layout of a KB
 
@@ -46,13 +46,18 @@ kb-<domain>/                          # git repo = OKF bundle (content directori
 ├── agents/                            # SUBAGENTS (provisioning kind: agent, D48)
 │   └── <name>.md                      # Claude subagent, single file
 │
-└── hooks/                             # HOOKS (provisioning kind: hook, D48)
-    └── <name>/
-        ├── hook.json                  # descriptor: event, matcher, command
-        └── <script>                   # executable invoked by the hook
+├── hooks/                             # HOOKS (provisioning kind: hook, D48)
+│   └── <name>/
+│       ├── hook.json                  # descriptor: event, matcher, command
+│       └── <script>                   # executable invoked by the hook
+│
+└── templates/                         # KB-ONLY CONCEPT TEMPLATES (not provisioning artifacts)
+    └── <slug>.md                      # frontmatter + Markdown skeleton; rendered by concept_new
 ```
 
 `services/` is included in `WalkConcepts` (search, graph, lint all see it) but its root is `kb.Root`, not `kb.DataRoot()`. Service concept IDs carry the `services/` prefix. `agents/` and `hooks/` are not concepts (no OKF frontmatter, they don't go through `WalkConcepts`): they are provisioning artifacts materialized client-side — see `docs/sync.md` §Agents and hooks.
+
+`templates/` is outside `WalkConcepts`: templates have no ConceptID and are never indexed, linted or added to the graph. A template is a KB-only artifact, not a provisioning kind: it is maintained through `artifact_*`, discovered with `template_list`, and used once by `concept_new`; it never affects a provisioning manifest or its revision.
 
 ### Assets
 

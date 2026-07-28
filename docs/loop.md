@@ -17,8 +17,10 @@ of truth.
 ## Write
 
 1. Read the target first and retain its content hash.
-2. Use `concept_write` for a complete concept, `concept_patch` for bounded
-   body/frontmatter edits, or `log_append` for a Journal entry.
+2. When a suitable template exists, use `template_list` then `concept_new` to
+   create its shaped starting point; otherwise use `concept_write` for a
+   complete concept, `concept_patch` for bounded body/frontmatter edits, or
+   `log_append` for a Journal entry.
 3. Pass `if_match` when updating existing content. A concurrent change fails
    with `stale_write` instead of being overwritten.
 4. The server validates the write, updates live indexes and—when enabled—

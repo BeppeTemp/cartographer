@@ -2937,11 +2937,11 @@ func TestServer_ToolsProfile(t *testing.T) {
 	s.SetToolsProfile("agent")
 	agentVisible := []string{
 		"atlas_overview", "index_get", "concept_read", "log_tail", "changes_since",
-		"concept_write", "concept_patch", "map_create", "map_delete", "concept_expand", "log_append", "snapshot",
+		"concept_write", "concept_new", "concept_patch", "map_create", "map_delete", "concept_expand", "log_append", "snapshot",
 		"map_list", "concept_list", "graph_neighbors", "search",
 		"supersede", "concept_move", "concept_delete",
 		"conflicts_list", "git_conflict_resolve",
-		"artifact_read",
+		"artifact_read", "template_list",
 		"asset_read", "asset_list", "asset_write",
 	}
 	got := listToolNames(t, s)

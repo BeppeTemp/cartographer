@@ -56,7 +56,7 @@ Cartographer offers **two complementary profiles**:
 - 📖 **Read & navigation** — `atlas_overview`, `index_get`, `concept_read`, `map_list`,
   `graph_neighbors` (outbound links or backlinks) and `concept_list` (scoped frontmatter facets)
 - 🔍 **Search** — keyword (pure-Go inverted index) plus optional hybrid semantic search via Ollama
-- ✍️ **Validated writes** with optimistic concurrency (`if_match` / content-hash)
+- ✍️ **Validated writes** with optimistic concurrency (`if_match` / content-hash), including `concept_new` from KB-owned templates discovered through `template_list`
 - 📎 **Concept assets** — read, write, list, and delete binary or text dossier files inside expanded concepts
 - 🛡️ **Governance** — deterministic `lint` (broken link, stale claim, orphan, map contracts), `commit_gate`,
   `gate_check`, `supersede`, contradiction tracking

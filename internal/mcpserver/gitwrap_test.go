@@ -188,6 +188,41 @@ func TestGitWrap_ConceptWrite_CreatesCommit(t *testing.T) {
 	}
 }
 
+func TestGitWrap_ConceptNew_CreatesOneCommit(t *testing.T) {
+	k, _ := setupGitKB(t)
+	if err := os.MkdirAll(filepath.Join(k.Root, "templates"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(k.Root, "templates", "note.md"), []byte("---\ntype: Note\ntitle: {{title}}\n---\n# Details\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := k.CommitOp("test: add template"); err != nil {
+		t.Fatal(err)
+	}
+	count := func() int {
+		out, err := exec.Command("git", "-C", k.Root, "rev-list", "--count", "HEAD").Output()
+		if err != nil {
+			t.Fatal(err)
+		}
+		var n int
+		if _, err := fmt.Sscan(string(out), &n); err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+	before := count()
+	k.AutoCommit = true
+	s := New("test")
+	RegisterKBTools(s, k, Deps{})
+	tr := decodeToolResult(t, runMCPSequence(t, s, []string{initMsg, artifactCallMsg(t, 2, "concept_new", map[string]any{"template": "note", "id": "notes/from-template", "vars": map[string]string{"title": "From template"}})})[1])
+	if tr.IsError {
+		t.Fatalf("concept_new: %+v", tr.Content)
+	}
+	if got := count(); got != before+1 {
+		t.Fatalf("commit count = %d, want %d", got, before+1)
+	}
+}
+
 func TestGitWrap_AssetWriteAndDeleteCreateOneCommitEach(t *testing.T) {
 	k, _ := setupGitKB(t)
 	fm, _ := okf.ParseFrontmatter("type: Note\ntitle: Asset owner")

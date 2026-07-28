@@ -33,6 +33,7 @@ var readOnlyToolNames = map[string]bool{
 	"index_rebuild":   true,
 	"artifact_read":   true,
 	"artifact_list":   true,
+	"template_list":   true,
 	"asset_read":      true,
 	"asset_list":      true,
 }

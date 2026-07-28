@@ -379,6 +379,9 @@ func TestArtifactTools_FlagEnabled_ProfileClassification(t *testing.T) {
 	if names["artifact_list"] {
 		t.Error("artifact_list: expected hidden (advanced) under the agent profile")
 	}
+	if !names["template_list"] {
+		t.Error("template_list: expected agent-visible when templates are KB-owned discovery data")
+	}
 
 	// artifact_delete stays callable via tools/call despite being hidden.
 	resps := runMCPSequence(t, s, []string{
