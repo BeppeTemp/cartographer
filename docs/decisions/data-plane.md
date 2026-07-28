@@ -283,3 +283,16 @@ Each absent destination map is created through `CreateMap`, adding the same `_ma
 **Decision.** A map may declare `required_fields`, additive `required_fields.<Type>`, and `require_index_entry` in `_map.md`. Lint reports a missing required field as an error and an incomplete curated index as a warning; malformed recognized entries are informational. The contract is optional, so no server-default vocabulary or schema is imposed. `gate_check` fails on the error, while `validate` and contradiction-only `commit_gate` retain their existing responsibilities.
 
 **Rationale.** A descriptor is versioned, local to the map it governs, and uses the existing string/list frontmatter grammar. It gives deterministic, auditable enforcement without executable plugins, which would make lint arbitrary-code execution and undermine its no-LLM guarantee. Required field contracts belong to governance rather than the read-path validator so legacy KBs remain consumable. Domain-specific rules (for example, required section prose or naming conventions) remain KB skill policy: generalising them would require a rule language outside this data-plane contract. `index_incomplete` deliberately complements, rather than replaces, `expanded_as_category`: the former reports each missing curated entry; the latter detects a broader filesystem-taxonomy smell.
+
+---
+
+<a id="d109"></a>
+## D109 — KB-owned concept templates and one-shot scaffolding
+
+**Decision.** Templates are plain Markdown artifacts at `templates/<slug>.md`, maintained through the artifact lifecycle and discovered with `template_list`. They are not concepts: they have no ConceptID and stay outside `WalkConcepts`, search, lint and the graph. `concept_new(template, id, vars)` renders a validated template into a new concept with literal, single-pass substitution; it never overwrites or curates a map index.
+
+Templates are deliberately excluded from the provisioning manifest, revision, lockfile, provider matrix and pruning. They are KB content for server-side page creation, not instructions or configuration to materialize into a client. This is the intentional divergence between the artifact whitelist and provisioning kinds.
+
+Template variables use only `{{identifier}}`. The syntax is disjoint from D75's client-side `{{repo:key}}` and `{{path:name}}`: colon forms are rejected so a provision-time placeholder can never silently survive into a concept. Rendering has no logic, includes or repeated interpretation; inserted values are literal.
+
+**Alternatives rejected.** Templates as concepts in a dedicated map would pollute the graph, indexes and lint; putting templates in a map descriptor would couple reusable shape to one location; adding a template parameter to `concept_write` would blur its full-content, `if_match` update contract. D107 remains complementary: templates prescribe a starting shape, while map contracts deterministically report required-field and curated-index conformance.
