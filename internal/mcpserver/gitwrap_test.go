@@ -12,6 +12,7 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/gitx"
 	"github.com/BeppeTemp/cartographer/internal/kb"
+	"github.com/BeppeTemp/cartographer/internal/okf"
 	"github.com/BeppeTemp/cartographer/internal/sqlindex"
 )
 
@@ -184,6 +185,55 @@ func TestGitWrap_ConceptWrite_CreatesCommit(t *testing.T) {
 	}
 	if sha1 == sha2 {
 		t.Fatal("expected a new commit after concept_write with AutoCommit=true, but HEAD SHA is unchanged")
+	}
+}
+
+func TestGitWrap_AssetWriteAndDeleteCreateOneCommitEach(t *testing.T) {
+	k, _ := setupGitKB(t)
+	fm, _ := okf.ParseFrontmatter("type: Note\ntitle: Asset owner")
+	if _, err := k.WriteConcept("assets/owner", fm, "# Owner\n", ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := k.ExpandConcept("assets/owner"); err != nil {
+		t.Fatal(err)
+	}
+	k.AutoCommit = true
+	if err := k.CommitOp("test: set up asset owner"); err != nil {
+		t.Fatal(err)
+	}
+	commitCount := func() int {
+		out, err := exec.Command("git", "-C", k.Root, "rev-list", "--count", "HEAD").Output()
+		if err != nil {
+			t.Fatal(err)
+		}
+		var n int
+		if _, err := fmt.Sscanf(strings.TrimSpace(string(out)), "%d", &n); err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+	before := commitCount()
+	s := New("0.1.0-test")
+	RegisterKBTools(s, k, Deps{})
+	write := s.Tools()["asset_write"]
+	result, err := write.Handler(json.RawMessage(`{"concept_id":"assets/owner","path":"evidence/check.txt","content":"check"}`))
+	if err != nil || result.IsError {
+		t.Fatalf("asset_write: result=%+v err=%v", result, err)
+	}
+	if got := commitCount(); got != before+1 {
+		t.Fatalf("asset_write commits = %d, want %d", got, before+1)
+	}
+	_, entry, err := k.ReadAsset("assets/owner", "evidence/check.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	deleteTool := s.Tools()["asset_delete"]
+	result, err = deleteTool.Handler(json.RawMessage(`{"concept_id":"assets/owner","path":"evidence/check.txt","if_match":"` + entry.SHA256 + `"}`))
+	if err != nil || result.IsError {
+		t.Fatalf("asset_delete: result=%+v err=%v", result, err)
+	}
+	if got := commitCount(); got != before+2 {
+		t.Fatalf("asset_delete commits = %d, want %d", got, before+2)
 	}
 }
 

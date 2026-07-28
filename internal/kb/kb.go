@@ -1126,11 +1126,31 @@ func (kb *KB) DeleteMap(name string) error {
 		return fmt.Errorf("DeleteMap: %w", err)
 	}
 
+	// Walk the physical tree rather than WalkConcepts: non-Markdown assets
+	// and asset-only directories are deliberately invisible to the concept
+	// graph, but map_delete must never RemoveAll either kind silently.
 	var remaining []string
-	err := kb.WalkConcepts(func(id okf.ConceptID, content string) error {
-		idStr := string(id)
-		if idStr == name || strings.HasPrefix(idStr, name+"/") {
-			remaining = append(remaining, idStr)
+	err := filepath.WalkDir(mapAbs, func(path string, d os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if path == mapAbs {
+			return nil
+		}
+		rel, err := filepath.Rel(mapAbs, path)
+		if err != nil {
+			return err
+		}
+		if filepath.Dir(rel) == "." && !d.IsDir() && (rel == "_map.md" || rel == "_archive.md" || rel == "index.md" || rel == "log.md") {
+			return nil
+		}
+		entry := filepath.ToSlash(rel)
+		if !d.IsDir() && strings.HasSuffix(entry, ".md") {
+			entry = strings.TrimSuffix(entry, ".md")
+		}
+		remaining = append(remaining, name+"/"+entry)
+		if d.IsDir() {
+			return filepath.SkipDir
 		}
 		return nil
 	})
@@ -1139,7 +1159,10 @@ func (kb *KB) DeleteMap(name string) error {
 	}
 	if len(remaining) > 0 {
 		sort.Strings(remaining)
-		return fmt.Errorf("DeleteMap: map %q is not empty, move these concepts first (concept_move): %s", name, strings.Join(remaining, ", "))
+		if len(remaining) > 10 {
+			remaining = append(remaining[:10], "...")
+		}
+		return fmt.Errorf("DeleteMap: map %q is not empty; remove or move these entries first: %s", name, strings.Join(remaining, ", "))
 	}
 
 	if err := os.RemoveAll(mapAbs); err != nil {

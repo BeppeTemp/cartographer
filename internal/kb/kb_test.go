@@ -867,6 +867,27 @@ func TestCreateMap_ErroreSeEsiste(t *testing.T) {
 	}
 }
 
+func TestDeleteMap_RefusesAssetOnlyEntry(t *testing.T) {
+	dir := tempKB(t)
+	k, err := Init(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := k.CreateMap("evidence", "Evidence", "map", nil, ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(k.DataRoot(), "evidence", "asset-only"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(k.DataRoot(), "evidence", "asset-only", "capture.bin"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	err = k.DeleteMap("evidence")
+	if err == nil || !strings.Contains(err.Error(), "evidence/asset-only") {
+		t.Fatalf("DeleteMap should name asset-only entry, got %v", err)
+	}
+}
+
 // --- ReadArchiveMeta: read-compat sul descriptor legacy (D77 WP1) ---
 
 func TestReadArchiveMeta_LegacyArchiveDescriptor(t *testing.T) {

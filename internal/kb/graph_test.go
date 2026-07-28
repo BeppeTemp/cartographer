@@ -52,6 +52,18 @@ func TestExtractLinks_NoExtension(t *testing.T) {
 	}
 }
 
+func TestExtractLinks_AssetTargetsAreNotConcepts(t *testing.T) {
+	body := `[csv](report.csv) [png](evidence/screen.png) [concept](sibling.md)`
+	links := ExtractLinks(body, "map/owner/index.md")
+	if len(links) != 1 || links[0] != "map/owner/sibling" {
+		t.Fatalf("asset paths became concept links: %v", links)
+	}
+	assets := ExtractAssetLinks(body, "map/owner/index.md")
+	if len(assets) != 2 || assets[0] != "map/owner/report.csv" || assets[1] != "map/owner/evidence/screen.png" {
+		t.Fatalf("asset links: %v", assets)
+	}
+}
+
 func TestExtractLinks_SkipAbsolute(t *testing.T) {
 	body := `[abs](https://example.com) and [mail](mailto:a@b.com)`
 	links := ExtractLinks(body, "a.md")

@@ -25,7 +25,7 @@ var toolShaped = regexp.MustCompile(`\x60([a-z][a-z0-9_]*_[a-z0-9_]+)\x60`)
 // starting with one of these is expected to name a real tool.
 var toolPrefixes = []string{
 	"atlas_", "map_", "concept_", "index_", "log_", "graph_", "search_",
-	"skill_", "service_", "secret_", "artifact_", "sync_", "git_", "kb_", "archive_",
+	"skill_", "service_", "secret_", "artifact_", "asset_", "sync_", "git_", "kb_", "archive_",
 	"dossier_", "conflict_", "conflicts_", "commit_", "gate_", "changes_",
 	"contradiction_",
 }
@@ -39,6 +39,7 @@ var docsNonTools = map[string]bool{
 	"expanded_as_category": true, "expanded_ambiguous": true,
 	"expanded_missing_index": true, "legacy_archive_descriptor": true,
 	"imported_draft": true, "broken_link": true, "stale_claim": true,
+	"orphan_asset": true,
 	// frontmatter fields and schema keys
 	"concept_id": true, "concept_types": true, "archive_type": true,
 	"contradiction_kind": true, "service_ref": true, "secret_refs": true,
