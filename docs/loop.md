@@ -31,8 +31,10 @@ Remote synchronization is handled around writes when configured. See
 
 - `validate` checks KB and frontmatter invariants.
 - `lint(scope, scope_neighbors)` runs deterministic checks over a scope and,
-  optionally, its graph neighbors.
-- `gate_check` combines the repository's deterministic validation checks.
+  optionally, its graph neighbors, including any declarative map contract for
+  required frontmatter and curated-index membership.
+- `gate_check` combines the repository's deterministic validation checks; lint
+  errors (including missing required fields) make it fail.
 
 Reasoning checks such as factual grounding, PII review or semantic
 contradiction analysis are agent/human policy. Cartographer does not currently

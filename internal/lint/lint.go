@@ -142,6 +142,26 @@ func Run(k *kb.KB, scope string, scopeNeighbors bool) ([]Finding, error) {
 	}
 
 	var findings []Finding
+	// Contracts are descriptor-level data. Cache them once per map for this
+	// run, so a map with many concepts does not repeatedly parse _map.md.
+	contracts := make(map[string]kb.MapContract, len(archives))
+	for _, archive := range archives {
+		contract, contractErr := k.ReadMapContract(archive)
+		if contractErr != nil {
+			continue // A non-map directory has no descriptor/contract.
+		}
+		contracts[archive] = contract
+		if scopeMatchesDir(scopeNorm, archive) {
+			for _, malformed := range contract.Malformed {
+				findings = append(findings, Finding{
+					Path:     malformed.Descriptor,
+					Check:    "contract_malformed",
+					Severity: SevInfo,
+					Message:  fmt.Sprintf("malformed lint contract key %q", malformed.Key),
+				})
+			}
+		}
+	}
 
 	for id, content := range toCheck {
 		relPath := okf.IDToPath(id)
@@ -181,10 +201,13 @@ func Run(k *kb.KB, scope string, scopeNeighbors bool) ([]Finding, error) {
 			})
 		}
 
-		// --- stale_claim / imported_draft (warning) ---
+		// --- stale_claim / imported_draft / missing_required_field ---
+		// services/ concepts are rooted outside data/ and therefore have no map
+		// descriptor to contract against.
+		var parsed *okf.Frontmatter
 		if hasFM {
-			parsed, fmErr := okf.ParseFrontmatter(fmRaw)
-			if fmErr == nil {
+			parsed, _ = okf.ParseFrontmatter(fmRaw)
+			if parsed != nil {
 				if raVal, ok := parsed.Get("review_after"); ok {
 					if dateStr, ok := raVal.(string); ok {
 						t, parseErr := time.Parse("2006-01-02", dateStr)
@@ -212,6 +235,30 @@ func Run(k *kb.KB, scope string, scopeNeighbors bool) ([]Finding, error) {
 							Message:  "imported concept awaiting curation",
 						})
 					}
+				}
+			}
+		}
+		parts := strings.Split(string(id), "/")
+		if len(parts) > 1 && archiveSet[parts[0]] {
+			contract := contracts[parts[0]]
+			for _, field := range contract.RequiredFor(func() string {
+				if parsed == nil {
+					return ""
+				}
+				return parsed.Type()
+			}()) {
+				missing := parsed == nil
+				if !missing {
+					value, exists := parsed.Get(field)
+					missing = !exists || emptyFrontmatterValue(value)
+				}
+				if missing {
+					findings = append(findings, Finding{
+						Path:     relPath,
+						Check:    "missing_required_field",
+						Severity: SevError,
+						Message:  fmt.Sprintf("missing required field %q required by map %q", field, parts[0]),
+					})
 				}
 			}
 		}
@@ -267,6 +314,23 @@ func Run(k *kb.KB, scope string, scopeNeighbors bool) ([]Finding, error) {
 			}
 		}
 
+		// --- index_incomplete / curated-index broken_link (D107) ---
+		// Only candidates in toCheck participate, which keeps a scoped lint
+		// actionable instead of reporting unrelated map siblings.
+		contract, hasContract := contracts[archiveName]
+		if hasContract && contract.RequireIndexEntry {
+			var direct []okf.ConceptID
+			for id := range toCheck {
+				parts := strings.Split(string(id), "/")
+				if len(parts) == 2 && parts[0] == archiveName {
+					direct = append(direct, id)
+				}
+			}
+			if len(direct) > 0 {
+				checkCuratedIndex(k, archiveName, archiveName+"/index.md", direct, &findings)
+			}
+		}
+
 		expandedDirs, err := k.ListExpanded(archiveName)
 		if err != nil {
 			continue
@@ -275,6 +339,17 @@ func Run(k *kb.KB, scope string, scopeNeighbors bool) ([]Finding, error) {
 			expandedID := okf.ConceptID(archiveName + "/" + d)
 			if !scopeMatchesDir(scopeNorm, string(expandedID)) {
 				continue
+			}
+			if contract, ok := contracts[archiveName]; ok && contract.RequireIndexEntry {
+				var satellites []okf.ConceptID
+				for id := range toCheck {
+					if strings.HasPrefix(string(id), string(expandedID)+"/") {
+						satellites = append(satellites, id)
+					}
+				}
+				if len(satellites) > 0 {
+					checkCuratedIndex(k, string(expandedID), string(expandedID)+"/index.md", satellites, &findings)
+				}
 			}
 
 			// --- expanded_missing_index (warning) ---
@@ -395,6 +470,58 @@ func Run(k *kb.KB, scope string, scopeNeighbors bool) ([]Finding, error) {
 	}
 
 	return findings, nil
+}
+
+func emptyFrontmatterValue(value interface{}) bool {
+	switch v := value.(type) {
+	case nil:
+		return true
+	case string:
+		return strings.TrimSpace(v) == ""
+	case []string:
+		return len(v) == 0
+	default:
+		return false
+	}
+}
+
+// checkCuratedIndex verifies both directions of an opted-in curated index.
+// folder is passed to ReadIndex; indexPath is the exact physical base used by
+// ExtractLinks so relative Markdown links resolve from the right directory.
+func checkCuratedIndex(k *kb.KB, folder, indexPath string, candidates []okf.ConceptID, findings *[]Finding) {
+	content, err := k.ReadIndex(folder)
+	if err != nil {
+		*findings = append(*findings, Finding{
+			Path:     indexPath,
+			Check:    "index_incomplete",
+			Severity: SevWarning,
+			Message:  "curated index is missing or unreadable",
+		})
+		return
+	}
+	_, body, _ := okf.SplitFrontmatter(content)
+	targets := map[okf.ConceptID]bool{}
+	for _, target := range kb.ExtractLinks(body, indexPath) {
+		targets[target] = true
+		if _, readErr := k.ReadConcept(target); errors.Is(readErr, okf.ErrNotFound) {
+			*findings = append(*findings, Finding{
+				Path:     indexPath,
+				Check:    "broken_link",
+				Severity: SevWarning,
+				Message:  fmt.Sprintf("broken link to %s", okf.IDToPath(target)),
+			})
+		}
+	}
+	for _, candidate := range candidates {
+		if !targets[candidate] {
+			*findings = append(*findings, Finding{
+				Path:     indexPath,
+				Check:    "index_incomplete",
+				Severity: SevWarning,
+				Message:  fmt.Sprintf("missing curated index entry for %s", candidate),
+			})
+		}
+	}
 }
 
 // scopeMatchesDir reports whether a directory path (a map or an expanded
