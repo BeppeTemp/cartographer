@@ -356,6 +356,34 @@ func TestRun_ExpandedMissingIndex_WithIndex_Clean(t *testing.T) {
 	}
 }
 
+func TestRun_AssetsOnlyProduceOrphanAsset(t *testing.T) {
+	k := tempKB(t)
+	writeFile(t, k.DataRoot(), "arch/_map.md", "---\ntype: Map\ntitle: Arch\nkind: map\n---\n")
+	writeFile(t, k.DataRoot(), "arch/owner/index.md", "---\ntype: Note\ntitle: Owner\n---\n[report](report.csv)\n")
+	if _, err := k.WriteAsset("arch/owner", "report.csv", []byte("a,b\n"), "", nil); err != nil {
+		t.Fatalf("WriteAsset report: %v", err)
+	}
+	if _, err := k.WriteAsset("arch/owner", "evidence/screen.png", []byte{0, 1}, "", nil); err != nil {
+		t.Fatalf("WriteAsset evidence: %v", err)
+	}
+	findings, err := Run(k, "", false)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	var orphans []Finding
+	for _, finding := range findings {
+		if finding.Check == "broken_link" {
+			t.Fatalf("asset link became broken_link: %v", finding)
+		}
+		if finding.Check == "orphan_asset" {
+			orphans = append(orphans, finding)
+		}
+	}
+	if len(orphans) != 1 || orphans[0].Path != "arch/owner/evidence/screen.png" || orphans[0].Severity != SevInfo {
+		t.Fatalf("orphan assets: %v", orphans)
+	}
+}
+
 // --- expanded_ambiguous (D77 WP4) ---
 
 func TestRun_ExpandedAmbiguous_Detected(t *testing.T) {

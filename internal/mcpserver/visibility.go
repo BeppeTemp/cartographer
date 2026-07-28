@@ -52,6 +52,7 @@ var advancedToolNames = map[string]bool{
 	"secret_set":           true,
 	"artifact_list":        true,
 	"artifact_delete":      true,
+	"asset_delete":         true,
 }
 
 // ToolAdvanced reports whether the named tool is hidden from tools/list under

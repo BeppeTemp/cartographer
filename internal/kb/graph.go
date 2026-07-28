@@ -52,7 +52,13 @@ func ExtractLinks(body string, basePath string) []okf.ConceptID {
 			continue
 		}
 
-		if !strings.HasSuffix(href, ".md") {
+		// A path with a non-Markdown extension is a file/asset link, not a
+		// shorthand ConceptID. In particular, report.csv must not become the
+		// false graph target report.csv.md.
+		if ext := path.Ext(href); ext != "" && !strings.EqualFold(ext, ".md") {
+			continue
+		}
+		if !strings.EqualFold(path.Ext(href), ".md") {
 			href += ".md"
 		}
 
@@ -73,6 +79,35 @@ func ExtractLinks(body string, basePath string) []okf.ConceptID {
 	}
 
 	return ids
+}
+
+// ExtractAssetLinks returns the physical KB-relative targets of Markdown
+// links that name a non-Markdown file. It deliberately does not turn those
+// paths into ConceptIDs. basePath is the actual source file path, so links in
+// an expanded owner's index.md resolve from the owner directory.
+func ExtractAssetLinks(body string, basePath string) []string {
+	baseDir := path.Dir(basePath)
+	seen := map[string]bool{}
+	var links []string
+	for _, m := range mdLinkRe.FindAllStringSubmatch(body, -1) {
+		href := m[2]
+		if strings.Contains(href, "://") || strings.HasPrefix(href, "#") || strings.HasPrefix(href, "mailto:") || strings.HasPrefix(href, "/") {
+			continue
+		}
+		if idx := strings.IndexAny(href, "?#"); idx >= 0 {
+			href = href[:idx]
+		}
+		if href == "" || path.Ext(href) == "" || strings.EqualFold(path.Ext(href), ".md") {
+			continue
+		}
+		resolved := path.Clean(path.Join(baseDir, href))
+		if strings.HasPrefix(resolved, "..") || seen[resolved] {
+			continue
+		}
+		seen[resolved] = true
+		links = append(links, resolved)
+	}
+	return links
 }
 
 // RewriteLinks rewrites, in body, every markdown link and wiki-link whose

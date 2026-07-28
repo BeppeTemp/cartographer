@@ -10,7 +10,7 @@ The data plane is the **source of truth**: UTF-8 `.md` files with YAML frontmatt
 | 2 | **Map** / **Journal** | Map: a thematic domain with mixed `concept_types` (e.g. `smart-home`, `infra`). Journal: a chronological, append-oriented log (e.g. `incidents`, `notes`) | Top-level subdirectory, described by `_map.md` (`kind: map\|journal`) |
 | 3 | **Concept** | A single knowledge page | `.md` file with frontmatter |
 
-There is no intermediate categorization level (D77): category navigation is the job of curated `index.md` files, `search`, and the graph — not the filesystem. A growing concept becomes an **expanded concept** — a *state*, not a level: `concept_expand` turns `map/name.md` into `map/name/index.md` **without changing the ConceptID** (ID resolution tries `<id>.md` and then `<id>/index.md`, so no backlink breaks), and from there the concept can grow with `map/name/child` satellites and artifacts. Expansion is also allowed in journals (e.g. a heavy incident with attachments). There is no inverse operation (`concept_collapse`, YAGNI — D77).
+There is no intermediate categorization level (D77): category navigation is the job of curated `index.md` files, `search`, and the graph — not the filesystem. A growing concept becomes an **expanded concept** — a *state*, not a level: `concept_expand` turns `map/name.md` into `map/name/index.md` **without changing the ConceptID** (ID resolution tries `<id>.md` and then `<id>/index.md`, so no backlink breaks), and from there the concept can grow with `map/name/child` satellites and assets. Expansion is the prerequisite for owning assets. Expansion is also allowed in journals (e.g. a heavy incident with attachments). There is no inverse operation (`concept_collapse`, YAGNI — D77).
 
 Depth is **enforced on the write path** (D72 WP4): a ConceptID under `data/` has at most 3 segments (`map/concept/child`, where the third segment only exists inside an expanded concept); deeper writes are rejected. Reads are unaffected (legacy KBs remain readable). If a write implicitly creates a new expansion directory (e.g. `concept_move` into a nested path), the server also generates the `index.md` stub (`type: Index`, title from the name) — so `index_get`'s progressive disclosure never breaks. Lint defends the semantics of the hierarchy (D77 WP4, `concept_oversize` D78): `expanded_missing_index` (a directory with no `index.md`), `expanded_ambiguous` (both `<id>.md` and `<id>/index.md` exist: writes are blocked until one form is removed), `expanded_as_category` (many children not linked from the concept's index: the directory is being used as a taxonomy), `map_oversize` (a map beyond the size threshold: a thematic split is preferable to a subfolder), `legacy_archive_descriptor` (a pre-D77 `_archive.md` descriptor), `concept_oversize` (a concept beyond the byte threshold: a candidate for `concept_expand` into a dossier).
 
@@ -32,7 +32,8 @@ kb-<domain>/                          # git repo = OKF bundle (content directori
 │   │   ├── frigate.md                 # CONCEPT (plain form)
 │   │   └── rete-thread/               # EXPANDED CONCEPT (same ID as before the expand)
 │   │       ├── index.md               #   the main page
-│   │       └── topologia.md           #   satellite (smart-home/rete-thread/topologia)
+│   │       ├── topologia.md           #   satellite (smart-home/rete-thread/topologia)
+│   │       └── evidence/flow.csv      #   ASSET (non-Markdown dossier file)
 │   └── incidents/                     # JOURNAL (kind: journal, chronological log)
 │       └── 2026-06-…-doppia-causa.md  # dated CONCEPT
 │
@@ -52,6 +53,12 @@ kb-<domain>/                          # git repo = OKF bundle (content directori
 ```
 
 `services/` is included in `WalkConcepts` (search, graph, lint all see it) but its root is `kb.Root`, not `kb.DataRoot()`. Service concept IDs carry the `services/` prefix. `agents/` and `hooks/` are not concepts (no OKF frontmatter, they don't go through `WalkConcepts`): they are provisioning artifacts materialized client-side — see `docs/sync.md` §Agents and hooks.
+
+### Assets
+
+An **asset** is a regular, non-Markdown file inside an expanded concept directory: a CSV inventory, script, screenshot, document, or other dossier evidence. `asset_read`, `asset_list`, `asset_write`, and `asset_delete` use raw-byte SHA-256 `if_match` tokens; text and base64 preserve both UTF-8 and binary content. Asset paths are relative to the expanded owner, cannot be hidden, escape it, or end in `.md`, and are capped at 1 MiB.
+
+An asset is **not** a concept: it has no frontmatter or ConceptID, is never emitted by `WalkConcepts`, indexed by search, validated as OKF, or made a graph node. A dossier document can link to it with a relative Markdown file link. Lint reports an uncited asset as `orphan_asset` (info). Moving an expanded concept moves its assets with it; inbound links from outside that directory to an asset are not rewritten. Deleting one requires explicit `force: true` when assets remain.
 
 ## Maps and Journals
 

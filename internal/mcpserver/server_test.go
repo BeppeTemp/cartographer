@@ -15,6 +15,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/embed"
 	"github.com/BeppeTemp/cartographer/internal/gitx"
 	"github.com/BeppeTemp/cartographer/internal/kb"
+	"github.com/BeppeTemp/cartographer/internal/okf"
 	"github.com/BeppeTemp/cartographer/internal/sqlindex"
 )
 
@@ -2724,6 +2725,7 @@ func TestServer_ToolsProfile(t *testing.T) {
 		"supersede", "concept_move", "concept_delete",
 		"conflicts_list", "git_conflict_resolve",
 		"artifact_read",
+		"asset_read", "asset_list", "asset_write",
 	}
 	got := listToolNames(t, s)
 	for _, name := range agentVisible {
@@ -2769,6 +2771,109 @@ func TestServer_ToolsProfile(t *testing.T) {
 	s.SetToolsProfile("full")
 	if got := listToolNames(t, s); len(got) != len(s.Tools()) {
 		t.Errorf("full profile: expected all %d tools advertised, got %d", len(s.Tools()), len(got))
+	}
+}
+
+func TestServer_AssetToolsRoundTripAndClassification(t *testing.T) {
+	k := setupTestKB(t)
+	if err := k.ExpandConcept("manutenzione/test-runbook"); err != nil {
+		t.Fatalf("ExpandConcept: %v", err)
+	}
+	s := New("test")
+	RegisterKBTools(s, k, Deps{})
+	for _, name := range []string{"asset_read", "asset_list"} {
+		if !s.Tools()[name].ReadOnly || ToolRequiresWrite(name) {
+			t.Errorf("%s must be read-only", name)
+		}
+	}
+	for _, name := range []string{"asset_write", "asset_delete"} {
+		if s.Tools()[name].ReadOnly || !ToolRequiresWrite(name) {
+			t.Errorf("%s must require rw", name)
+		}
+	}
+	if !ToolAdvanced("asset_delete") || ToolAdvanced("asset_write") {
+		t.Error("asset visibility classification is wrong")
+	}
+
+	msgs := []string{
+		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
+		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"asset_write","arguments":{"concept_id":"manutenzione/test-runbook","path":"evidence/raw.bin","content":"/wA=","encoding":"base64","executable":true}}}`,
+		`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"asset_read","arguments":{"concept_id":"manutenzione/test-runbook","path":"evidence/raw.bin"}}}`,
+		`{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"asset_list","arguments":{"concept_id":"manutenzione/test-runbook"}}}`,
+	}
+	resps := runMCPSequence(t, s, msgs)
+	for _, i := range []int{1, 2, 3} {
+		if tr := decodeToolResult(t, resps[i]); tr.IsError {
+			t.Fatalf("asset tool %d: %v", i, tr.Content)
+		}
+	}
+	var read struct {
+		Content    string `json:"content"`
+		Encoding   string `json:"encoding"`
+		SHA256     string `json:"sha256"`
+		Executable bool   `json:"executable"`
+	}
+	if err := json.Unmarshal([]byte(decodeToolResult(t, resps[2]).Content[0].Text), &read); err != nil {
+		t.Fatal(err)
+	}
+	if read.Encoding != "base64" || read.Content != "/wA=" || !read.Executable || read.SHA256 == "" {
+		t.Fatalf("asset_read lost binary data: %+v", read)
+	}
+	deleteMsg := `{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"asset_delete","arguments":{"concept_id":"manutenzione/test-runbook","path":"evidence/raw.bin","if_match":"` + read.SHA256 + `"}}}`
+	deleteResp := runMCPSequence(t, s, []string{deleteMsg})
+	if tr := decodeToolResult(t, deleteResp[0]); tr.IsError {
+		t.Fatalf("asset_delete: %v", tr.Content)
+	}
+}
+
+func TestServer_ExpandedMoveAndDeleteProtectAssets(t *testing.T) {
+	k := setupTestKB(t)
+	if err := k.ExpandConcept("manutenzione/test-runbook"); err != nil {
+		t.Fatal(err)
+	}
+	exec := true
+	if _, err := k.WriteAsset("manutenzione/test-runbook", "reports/one.csv", []byte("one"), "", nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := k.WriteAsset("manutenzione/test-runbook", "scripts/check.sh", []byte("#!/bin/sh\n"), "", &exec); err != nil {
+		t.Fatal(err)
+	}
+	fm, _ := okf.ParseFrontmatter("type: Note\ntitle: Satellite")
+	if _, err := k.WriteConcept("manutenzione/test-runbook/child", fm, "# Child\n", ""); err != nil {
+		t.Fatal(err)
+	}
+	s := New("test")
+	RegisterKBTools(s, k, Deps{})
+	move := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"concept_move","arguments":{"source_id":"manutenzione/test-runbook","target_id":"manutenzione/moved"}}}`
+	resps := runMCPSequence(t, s, []string{move})
+	if tr := decodeToolResult(t, resps[0]); tr.IsError {
+		t.Fatalf("concept_move: %v", tr.Content)
+	}
+	if info, err := os.Stat(filepath.Join(k.DataRoot(), "manutenzione", "moved", "scripts", "check.sh")); err != nil || info.Mode()&0o111 == 0 {
+		t.Fatalf("moved executable asset: info=%v err=%v", info, err)
+	}
+	if _, err := os.Stat(filepath.Join(k.DataRoot(), "manutenzione", "moved", "reports", "one.csv")); err != nil {
+		t.Fatalf("moved nested asset: %v", err)
+	}
+
+	deleteWithoutForce := `{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_delete","arguments":{"id":"manutenzione/moved"}}}`
+	resps = runMCPSequence(t, s, []string{deleteWithoutForce})
+	if tr := decodeToolResult(t, resps[0]); !tr.IsError {
+		t.Fatal("concept_delete without force should reject owned assets")
+	}
+	if _, err := os.Stat(filepath.Join(k.DataRoot(), "manutenzione", "moved", "reports", "one.csv")); err != nil {
+		t.Fatalf("refused delete removed asset: %v", err)
+	}
+	deleteForce := `{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"concept_delete","arguments":{"id":"manutenzione/moved","force":true}}}`
+	resps = runMCPSequence(t, s, []string{deleteForce})
+	if tr := decodeToolResult(t, resps[0]); tr.IsError {
+		t.Fatalf("concept_delete force: %v", tr.Content)
+	}
+	if _, err := os.Stat(filepath.Join(k.DataRoot(), "manutenzione", "moved", "index.md")); !os.IsNotExist(err) {
+		t.Fatalf("force delete kept index: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(k.DataRoot(), "manutenzione", "moved", "child.md")); err != nil {
+		t.Fatalf("force delete removed satellite: %v", err)
 	}
 }
 

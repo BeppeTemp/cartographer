@@ -111,6 +111,10 @@ func RegisterKBTools(s *Server, k *kb.KB, deps Deps) {
 	register(gitWrap(k, toolSecretSet(k)))
 	register(toolArtifactRead(k))
 	register(toolArtifactList(k))
+	register(toolAssetRead(k))
+	register(toolAssetList(k))
+	register(gitWrap(k, toolAssetWrite(k)))
+	register(gitWrap(k, toolAssetDelete(k)))
 	if k.AllowArtifactWrite {
 		register(artifactNotifyWrap(s, gitWrap(k, toolArtifactWrite(k))))
 		register(artifactNotifyWrap(s, gitWrap(k, toolArtifactDelete(k))))

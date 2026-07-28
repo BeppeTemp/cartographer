@@ -263,3 +263,14 @@ f) **Rename scope**: MCP surface + data model + docs only. The `internal/kb` pac
 Each absent destination map is created through `CreateMap`, adding the same `_map.md`/`index.md`/`log.md` scaffold as `map_create`; existing maps are not altered. `--dir-as-concept` promotes a source directory with `index.md`, or `README.md` if no index exists, into `<map>/<dirname>/`: its chosen index is written through the expanded-concept path and its sibling markdown files become satellites. The dry-run identifies each promotion. Without the flag, `index.md` retains the established reserved-name rejection and other files remain flat.
 
 **Rationale.** An opt-in single commit supplies the expected convenience without making a mass import silently commit by default, and the isolated index makes that promise meaningful even in a dirty clone. Reusing map creation and expanded-concept resolution keeps the CLI output structurally identical to the MCP write path instead of adding another partial KB shape. Directory promotion is explicit because automatic hierarchy inference would turn D74's deliberately mechanical importer into a semantic mapper.
+
+---
+
+<a id="d106"></a>
+## D106 — Concept-owned non-Markdown assets
+
+**Status: implemented (2026-07-28).**
+
+**Decision.** An expanded concept may own regular non-Markdown files through the `asset_*` MCP family. Assets remain filesystem-and-git-history data: they carry no frontmatter or ConceptID and stay outside `WalkConcepts`, validation, search, and the concept graph. They follow an expanded owner's directory move; deleting an owner with assets requires explicit force.
+
+**Alternative rejected.** Widening the provisioning `artifact_*` whitelist to `data/**` was rejected: provisioning artifacts and concept evidence have different validation, ownership, lifecycle, visibility, and `allow_artifact_write` semantics. A separate data-plane API preserves both boundaries.
