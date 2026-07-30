@@ -80,6 +80,9 @@ mcp_capture() {
 # --- Setup: bare remote + clone A initialized as KB ---
 echo "[09] init bare remote + KB on clone A"
 git init --bare "$BARE" >/dev/null 2>&1
+# A KB is always initialized on main; make the remote advertise the same branch
+# so the scenario does not depend on the host's init.defaultBranch.
+git -C "$BARE" symbolic-ref HEAD refs/heads/main
 mkdir -p "$KBA"
 
 CARTOGRAPHER_AUTH=false CARTOGRAPHER_GIT_SYNC=true CARTOGRAPHER_SYNC_OUT_DEBOUNCE=0 \
