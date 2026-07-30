@@ -170,7 +170,7 @@ func rejectArtifactTreeSymlinks(root string) error {
 
 // --- artifact_read ---
 
-func toolArtifactRead(k *kb.KB) Tool {
+func toolArtifactRead(k *kb.KB, allowlist []provisioning.MCPAllowlistEntry) Tool {
 	return Tool{
 		Name:     "artifact_read",
 		ReadOnly: true,
@@ -196,7 +196,8 @@ func toolArtifactRead(k *kb.KB) Tool {
 			if err := json.Unmarshal(args, &params); err != nil {
 				return errorResult("invalid params: " + err.Error()), nil
 			}
-			if _, err := classifyArtifactPath(params.Path); err != nil {
+			info, err := classifyArtifactPath(params.Path)
+			if err != nil {
 				return errorResult(err.Error()), nil
 			}
 			if params.Encoding != "" && params.Encoding != "text" && params.Encoding != "base64" {
@@ -215,6 +216,12 @@ func toolArtifactRead(k *kb.KB) Tool {
 					return errorResult(fmt.Sprintf("not_found: %s", params.Path)), nil
 				}
 				return errorResult(fmt.Sprintf("artifact_read %q: %v", params.Path, err)), nil
+			}
+			if info.Kind == "mcp" {
+				spec, parseErr := provisioning.ParseMCPServerSpec(info.Name, data)
+				if parseErr != nil || !provisioning.MCPAllowed(allowlist, info.Name, spec) {
+					return errorResult(fmt.Sprintf("not_found: %s", params.Path)), nil
+				}
 			}
 
 			encoding := "text"
@@ -277,7 +284,7 @@ func artifactFilePrefix(kind, name string) string {
 	return ""
 }
 
-func toolArtifactList(k *kb.KB) Tool {
+func toolArtifactList(k *kb.KB, allowlist []provisioning.MCPAllowlistEntry) Tool {
 	return Tool{
 		Name:     "artifact_list",
 		ReadOnly: true,
@@ -291,7 +298,7 @@ func toolArtifactList(k *kb.KB) Tool {
 			kbRoots := map[string]string{artifactManifestKBKey: k.Root}
 			// Reuses provisioning.BuildManifest (no bundle) so the kind
 			// classification stays in a single place (D71 WP1).
-			m, err := provisioning.BuildManifest(nil, kbRoots, provisioning.BuildOptions{})
+			m, err := provisioning.BuildManifest(nil, kbRoots, provisioning.BuildOptions{MCPAllowlists: map[string][]provisioning.MCPAllowlistEntry{artifactManifestKBKey: allowlist}})
 			if err != nil {
 				return errorResult("artifact_list: " + err.Error()), nil
 			}

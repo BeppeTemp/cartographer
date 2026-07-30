@@ -3,7 +3,9 @@ package clientconfig_test
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/defaults"
@@ -15,6 +17,39 @@ func TestLoad_NotExist(t *testing.T) {
 	if !os.IsNotExist(err) {
 		t.Fatalf("expected os.ErrNotExist, got %v", err)
 	}
+}
+
+func TestMCPApprovalRoundTripAndUnknownYAMLPreservation(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(clientconfig.Path(dir), []byte("server_url: http://x/mcp\ncustom_extension:\n  keep: true\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := clientconfig.Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cfg.ApproveMCP("kb", "tools", "abc", time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)); err != nil {
+		t.Fatal(err)
+	}
+	if err := clientconfig.Save(dir, cfg); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := clientconfig.Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := loaded.ApprovedMCPHashes()["kb:kb\x00tools"]; got != "abc" {
+		t.Fatalf("hash = %q", got)
+	}
+	data, err := os.ReadFile(clientconfig.Path(dir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "custom_extension:") {
+		t.Fatalf("unknown key lost: %s", data)
+	}
+	loaded.RevokeMCP("kb", "tools")
+	loaded.RevokeMCP("kb", "tools")
 }
 
 func TestSaveAndLoad_RoundTrip(t *testing.T) {

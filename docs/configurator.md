@@ -379,6 +379,17 @@ server, with per-name ownership in the same file (`mcpServers.<name>`/`mcp.<name
 
 ## `.cartographer.yaml`
 
+### MCP descriptor approval
+
+Unsigned third-party MCP descriptors need a separate, local approval even when
+`trust` or `--auto-trust` is enabled. Inspect and record the current descriptor
+with `cartographer approve mcp <name> --kb <kb> --yes` (interactive terminals
+default to no confirmation). Approval records the source KB, artifact name,
+content hash and timestamp in `.cartographer.yaml`; a content change requires
+reapproval. `cartographer approve revoke mcp <name> --kb <kb>` is idempotent
+and takes effect on the next `cartographer sync`, which prunes managed provider
+config.
+
 Written/updated by `connect` in the user's home directory (`~/.cartographer.yaml`, machine-wide —
 `clientconfig.TargetDir`, D52): it records which server the machine is connected to and which
 providers are connected. One file per machine, not per project: this avoids drift with a provider

@@ -93,7 +93,7 @@ func cmdSync(args []string) int {
 		return 2
 	}
 
-	results, err := materializeForProviders(m, cfg.Agents, dir, cfg.Trust || *autoTrust, *dryRun, cfg.SearchRoots, cfg.Paths)
+	results, err := materializeForProviders(m, cfg.Agents, dir, cfg.Trust || *autoTrust, *dryRun, cfg.SearchRoots, cfg.Paths, cfg.ApprovedMCPHashes())
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		return 2
