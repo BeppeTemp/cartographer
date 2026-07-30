@@ -291,7 +291,7 @@ func toolArtifactList(k *kb.KB) Tool {
 			kbRoots := map[string]string{artifactManifestKBKey: k.Root}
 			// Reuses provisioning.BuildManifest (no bundle) so the kind
 			// classification stays in a single place (D71 WP1).
-			m, err := provisioning.BuildManifest(nil, kbRoots, false)
+			m, err := provisioning.BuildManifest(nil, kbRoots, provisioning.BuildOptions{})
 			if err != nil {
 				return errorResult("artifact_list: " + err.Error()), nil
 			}

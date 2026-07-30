@@ -79,7 +79,7 @@ func TestContentHashDir_OrdineFile(t *testing.T) {
 // --- BuildManifest ---
 
 func TestBuildManifest_BundledSkillInventory(t *testing.T) {
-	m, err := provisioning.BuildManifest(skillbundle.FS, nil, false)
+	m, err := provisioning.BuildManifest(skillbundle.FS, nil, provisioning.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest bundled skills: %v", err)
 	}
@@ -100,11 +100,11 @@ func TestBuildManifest_BundledSkillInventory(t *testing.T) {
 func TestBuildManifest_RevisioneDeterministica(t *testing.T) {
 	bundleFS := makeBundleFS("Body.")
 
-	m1, err := provisioning.BuildManifest(bundleFS, nil, false)
+	m1, err := provisioning.BuildManifest(bundleFS, nil, provisioning.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest 1: %v", err)
 	}
-	m2, err := provisioning.BuildManifest(bundleFS, nil, false)
+	m2, err := provisioning.BuildManifest(bundleFS, nil, provisioning.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest 2: %v", err)
 	}
@@ -118,7 +118,7 @@ func TestBuildManifest_RevisioneDeterministica(t *testing.T) {
 
 func TestBuildManifest_TemplatesAreIgnored(t *testing.T) {
 	root := t.TempDir()
-	baseline, err := provisioning.BuildManifest(nil, map[string]string{"kb": root}, false)
+	baseline, err := provisioning.BuildManifest(nil, map[string]string{"kb": root}, provisioning.BuildOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -128,7 +128,7 @@ func TestBuildManifest_TemplatesAreIgnored(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "templates", "note.md"), []byte("---\ntype: Note\ntitle: Note\n---\n# Note\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	withTemplate, err := provisioning.BuildManifest(nil, map[string]string{"kb": root}, false)
+	withTemplate, err := provisioning.BuildManifest(nil, map[string]string{"kb": root}, provisioning.BuildOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -146,17 +146,17 @@ func TestBuildManifest_CambioContenuto(t *testing.T) {
 	bundleFS1 := makeBundleFS("Original body.")
 	bundleFS2 := makeBundleFS("Modified body.")
 
-	m1, _ := provisioning.BuildManifest(bundleFS1, nil, false)
-	m2, _ := provisioning.BuildManifest(bundleFS2, nil, false)
+	m1, _ := provisioning.BuildManifest(bundleFS1, nil, provisioning.BuildOptions{})
+	m2, _ := provisioning.BuildManifest(bundleFS2, nil, provisioning.BuildOptions{})
 
 	if m1.Revision == m2.Revision {
 		t.Error("BuildManifest: different content must produce a different revision")
 	}
 }
 
-func TestBuildManifest_SkillBundleSigned(t *testing.T) {
+func TestBuildManifest_SkillBundleBuiltIn(t *testing.T) {
 	bundleFS := makeBundleFS("Body.")
-	m, err := provisioning.BuildManifest(bundleFS, nil, false)
+	m, err := provisioning.BuildManifest(bundleFS, nil, provisioning.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest: %v", err)
 	}
@@ -164,38 +164,26 @@ func TestBuildManifest_SkillBundleSigned(t *testing.T) {
 		t.Fatal("BuildManifest: no artifacts")
 	}
 	for _, a := range m.Artifacts {
-		if a.Source == "bundle" && !a.Signed {
-			t.Errorf("bundle skill %q must have Signed:true", a.Name)
+		if a.Source == "bundle" && (!a.BuiltIn || a.Signed || a.Signature != nil) {
+			t.Errorf("bundle skill %q must use built-in trust, got %+v", a.Name, a)
 		}
 	}
 }
 
-func TestBuildManifest_KBSkillAutoTrust(t *testing.T) {
+func TestBuildManifest_KBSkillUnsignedWithoutSigner(t *testing.T) {
 	// Create a test KB with a skill.
 	kbRoot := t.TempDir()
 	skillDir := filepath.Join(kbRoot, "skills", "my-skill")
 	os.MkdirAll(skillDir, 0o755)
 	os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("---\nname: my-skill\ndescription: Test\n---\nBody.\n"), 0o644)
 
-	// autoTrust=false → Signed:false
-	m1, err := provisioning.BuildManifest(nil, map[string]string{"test-kb": kbRoot}, false)
+	m1, err := provisioning.BuildManifest(nil, map[string]string{"test-kb": kbRoot}, provisioning.BuildOptions{})
 	if err != nil {
-		t.Fatalf("BuildManifest autoTrust=false: %v", err)
+		t.Fatalf("BuildManifest: %v", err)
 	}
 	for _, a := range m1.Artifacts {
 		if a.Source == "kb:test-kb" && a.Signed {
-			t.Errorf("KB skill %q with autoTrust=false must have Signed:false", a.Name)
-		}
-	}
-
-	// autoTrust=true → Signed:true
-	m2, err := provisioning.BuildManifest(nil, map[string]string{"test-kb": kbRoot}, true)
-	if err != nil {
-		t.Fatalf("BuildManifest autoTrust=true: %v", err)
-	}
-	for _, a := range m2.Artifacts {
-		if a.Source == "kb:test-kb" && !a.Signed {
-			t.Errorf("KB skill %q with autoTrust=true must have Signed:true", a.Name)
+			t.Errorf("KB skill %q without signer must have Signed:false", a.Name)
 		}
 	}
 }
@@ -213,7 +201,7 @@ func TestBuildManifest_ExecutableSkillChangesHashAndApplyMode(t *testing.T) {
 	if err := os.WriteFile(script, []byte("#!/bin/sh\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	m1, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, true)
+	m1, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, provisioning.BuildOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -231,7 +219,7 @@ func TestBuildManifest_ExecutableSkillChangesHashAndApplyMode(t *testing.T) {
 		t.Fatal("script executable bit was not read")
 	}
 	base := t.TempDir()
-	if _, err := provisioning.Apply(m1, provisioning.ApplyOptions{KBRoots: map[string]string{"kb": kbRoot}, Provider: configurator.ProviderClaudeCode, BaseDir: base, Lock: provisioning.Lock{}}); err != nil {
+	if _, err := provisioning.Apply(m1, provisioning.ApplyOptions{AutoTrust: true, KBRoots: map[string]string{"kb": kbRoot}, Provider: configurator.ProviderClaudeCode, BaseDir: base, Lock: provisioning.Lock{}}); err != nil {
 		t.Fatal(err)
 	}
 	info, err := os.Stat(filepath.Join(base, ".claude", "skills", "run", "run.sh"))
@@ -241,7 +229,7 @@ func TestBuildManifest_ExecutableSkillChangesHashAndApplyMode(t *testing.T) {
 	if err := os.Chmod(script, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	m2, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, true)
+	m2, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, provisioning.BuildOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -319,7 +307,7 @@ func TestBuildManifest_DedupBundleVsKB(t *testing.T) {
 	os.WriteFile(filepath.Join(skillDir, "SKILL.md"),
 		[]byte("---\nname: kb-create\ndescription: KB version\n---\nKB body.\n"), 0o644)
 
-	m, err := provisioning.BuildManifest(bundleFS, map[string]string{"mia-kb": kbRoot}, true)
+	m, err := provisioning.BuildManifest(bundleFS, map[string]string{"mia-kb": kbRoot}, provisioning.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest: %v", err)
 	}
@@ -340,7 +328,7 @@ func TestBuildManifest_DedupBundleVsKB(t *testing.T) {
 	}
 
 	// The revision must remain deterministic even with the collision.
-	m2, _ := provisioning.BuildManifest(bundleFS, map[string]string{"mia-kb": kbRoot}, true)
+	m2, _ := provisioning.BuildManifest(bundleFS, map[string]string{"mia-kb": kbRoot}, provisioning.BuildOptions{})
 	if m.Revision != m2.Revision {
 		t.Errorf("dedup: non-deterministic revision: %q != %q", m.Revision, m2.Revision)
 	}
@@ -469,7 +457,7 @@ func TestApply_ScriveTrusted(t *testing.T) {
 	baseDir := t.TempDir()
 	bundleFS := makeBundleFS("Body skill bundled.")
 
-	m, err := provisioning.BuildManifest(bundleFS, nil, false)
+	m, err := provisioning.BuildManifest(bundleFS, nil, provisioning.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest: %v", err)
 	}
@@ -519,7 +507,7 @@ func TestApply_SaltaNonSigned(t *testing.T) {
 	os.MkdirAll(skillDir, 0o755)
 	os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("---\nname: kb-skill\ndescription: Test\n---\nBody.\n"), 0o644)
 
-	m, err := provisioning.BuildManifest(nil, map[string]string{"mia-kb": kbRoot}, false)
+	m, err := provisioning.BuildManifest(nil, map[string]string{"mia-kb": kbRoot}, provisioning.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest: %v", err)
 	}
@@ -594,7 +582,7 @@ func TestApply_DryRun(t *testing.T) {
 	baseDir := t.TempDir()
 	bundleFS := makeBundleFS("Body dry run.")
 
-	m, err := provisioning.BuildManifest(bundleFS, nil, false)
+	m, err := provisioning.BuildManifest(bundleFS, nil, provisioning.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest: %v", err)
 	}
@@ -632,7 +620,7 @@ func TestApply_Idempotente(t *testing.T) {
 	baseDir := t.TempDir()
 	bundleFS := makeBundleFS("Idempotent body.")
 
-	m, err := provisioning.BuildManifest(bundleFS, nil, false)
+	m, err := provisioning.BuildManifest(bundleFS, nil, provisioning.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest: %v", err)
 	}
@@ -671,7 +659,7 @@ func TestApply_OpenCode_Materializza(t *testing.T) {
 	baseDir := t.TempDir()
 	bundleFS := makeBundleFS("OpenCode test body.")
 
-	m, err := provisioning.BuildManifest(bundleFS, nil, false)
+	m, err := provisioning.BuildManifest(bundleFS, nil, provisioning.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest: %v", err)
 	}
@@ -715,7 +703,7 @@ func TestApply_Codex_Materializza(t *testing.T) {
 	baseDir := t.TempDir()
 	bundleFS := makeBundleFS("Codex test body.")
 
-	m, err := provisioning.BuildManifest(bundleFS, nil, false)
+	m, err := provisioning.BuildManifest(bundleFS, nil, provisioning.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest: %v", err)
 	}
@@ -756,7 +744,7 @@ func TestApply_Kiro_Materializza(t *testing.T) {
 	baseDir := t.TempDir()
 	bundleFS := makeBundleFS("Kiro test body.")
 
-	m, err := provisioning.BuildManifest(bundleFS, nil, false)
+	m, err := provisioning.BuildManifest(bundleFS, nil, provisioning.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest: %v", err)
 	}
@@ -797,7 +785,7 @@ func TestApply_ScriveLockfile(t *testing.T) {
 	baseDir := t.TempDir()
 	bundleFS := makeBundleFS("Lock test body.")
 
-	m, err := provisioning.BuildManifest(bundleFS, nil, false)
+	m, err := provisioning.BuildManifest(bundleFS, nil, provisioning.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest: %v", err)
 	}
@@ -961,7 +949,7 @@ func TestApply_SkipLockWrite(t *testing.T) {
 	baseDir := t.TempDir()
 	bundleFS := makeBundleFS("Skip lock body.")
 
-	m, err := provisioning.BuildManifest(bundleFS, nil, false)
+	m, err := provisioning.BuildManifest(bundleFS, nil, provisioning.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest: %v", err)
 	}

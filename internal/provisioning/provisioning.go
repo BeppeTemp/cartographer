@@ -12,6 +12,7 @@
 package provisioning
 
 import (
+	"crypto/ed25519"
 	"crypto/sha256"
 	"encoding/json"
 	"errors"
@@ -22,6 +23,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/BeppeTemp/cartographer/internal/artifactsig"
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/okf"
 	"github.com/BeppeTemp/cartographer/internal/skill"
@@ -35,7 +37,11 @@ type Artifact struct {
 	Source      string `json:"source"` // "bundle" | "kb:<name>"
 	Version     string `json:"version,omitempty"`
 	ContentHash string `json:"content_hash"` // sha256 hex of the whole skill folder
-	Signed      bool   `json:"signed"`       // trust policy (see signature note)
+	// Signed is true only after a cryptographic verification. It is never an
+	// authorization or policy decision.
+	Signed    bool                   `json:"signed"`
+	BuiltIn   bool                   `json:"built_in,omitempty"`
+	Signature *artifactsig.Signature `json:"signature,omitempty"`
 
 	// Files, if non-empty, holds the artifact's content already in memory
 	// (e.g. received via the sync_pull MCP tool on a remote HTTP client, with
@@ -45,6 +51,10 @@ type Artifact struct {
 	// structures).
 	Files []ArtifactFile `json:"-"`
 }
+
+// BuildOptions controls manifest construction. Signers is keyed by mounted KB
+// name; a missing signer leaves that KB's artifacts unsigned.
+type BuildOptions struct{ Signers map[string]ed25519.PrivateKey }
 
 // ArtifactFile is a single file of an Artifact, with content in memory.
 type ArtifactFile struct {
@@ -90,13 +100,15 @@ type Diff struct {
 
 // ApplyOptions collects the parameters for Apply.
 type ApplyOptions struct {
-	BundleFS  fs.FS                 // FS with the bundled skills (paths: "bundled/<name>/…")
-	KBRoots   map[string]string     // KB name → absolute path on disk
-	Provider  configurator.Provider // destination provider
-	BaseDir   string                // base directory where artifacts are materialized
-	DryRun    bool                  // if true, writes nothing
-	AutoTrust bool                  // KB trust policy (used in BuildManifest)
-	Lock      Lock                  // current lockfile
+	BundleFS fs.FS                 // FS with the bundled skills (paths: "bundled/<name>/…")
+	KBRoots  map[string]string     // KB name → absolute path on disk
+	Provider configurator.Provider // destination provider
+	BaseDir  string                // base directory where artifacts are materialized
+	DryRun   bool                  // if true, writes nothing
+	// AutoTrust explicitly authorizes eligible unsigned KB artifacts. It does
+	// not alter Artifact.Signed.
+	AutoTrust bool
+	Lock      Lock // current lockfile
 
 	// SkipLockWrite, if true, computes AppliedResult.NewLock but does not persist
 	// it to <BaseDir>/LockFileName. Used by the multi-provider clients
@@ -206,6 +218,60 @@ func ContentHashDirOS(dirPath string) (string, error) {
 	return ContentHashDir(os.DirFS(dirPath), ".")
 }
 
+// ContentHashFiles computes the canonical artifact hash for transport-received
+// files. It is the counterpart of ContentHashDir and includes paths and modes.
+func ContentHashFiles(files []ArtifactFile) string { return hashArtifactFiles(files) }
+
+// VerifyArtifactSignature verifies a KB artifact against the pinned key matching
+// its signature key ID. A missing signature is deliberately unsigned, not an error.
+func VerifyArtifactSignature(a Artifact, keys map[string]ed25519.PublicKey) error {
+	if a.Signature == nil {
+		return nil
+	}
+	if !strings.HasPrefix(a.Source, "kb:") {
+		return fmt.Errorf("provisioning: signature on non-KB artifact %s/%s", a.Kind, a.Name)
+	}
+	key, ok := keys[a.Signature.KeyID]
+	if !ok {
+		return fmt.Errorf("provisioning: unknown signing key for KB %q (key ID %s)", strings.TrimPrefix(a.Source, "kb:"), a.Signature.KeyID)
+	}
+	if err := artifactsig.Verify(key, artifactsig.Identity{Source: a.Source, Kind: a.Kind, Name: a.Name, Version: a.Version, ContentHash: a.ContentHash}, a.Signature); err != nil {
+		return fmt.Errorf("provisioning: verify %s/%s: %w", a.Kind, a.Name, err)
+	}
+	return nil
+}
+
+// VerifiedManifest returns a copy whose Signed flags are cryptographic
+// verification results only. Server-provided Signed values are never trusted.
+func VerifiedManifest(m Manifest, pins map[string][]ed25519.PublicKey) (Manifest, error) {
+	artifacts := append([]Artifact(nil), m.Artifacts...)
+	for i := range artifacts {
+		a := &artifacts[i]
+		a.Signed = false
+		a.BuiltIn = a.Source == "bundle"
+		if a.Signature == nil {
+			continue
+		}
+		kbName := strings.TrimPrefix(a.Source, "kb:")
+		if !strings.HasPrefix(a.Source, "kb:") {
+			return Manifest{}, fmt.Errorf("provisioning: signature source mismatch for %s/%s", a.Kind, a.Name)
+		}
+		keys := make(map[string]ed25519.PublicKey, len(pins[kbName]))
+		for _, key := range pins[kbName] {
+			id := artifactsig.KeyID(key)
+			if _, exists := keys[id]; exists {
+				return Manifest{}, fmt.Errorf("provisioning: duplicate signing key ID for KB %q", kbName)
+			}
+			keys[id] = key
+		}
+		if err := VerifyArtifactSignature(*a, keys); err != nil {
+			return Manifest{}, err
+		}
+		a.Signed = true
+	}
+	return Manifest{Revision: m.Revision, GeneratedAt: m.GeneratedAt, Artifacts: artifacts}, nil
+}
+
 func contentHashDirOS(dirPath, kind string) (string, error) {
 	return contentHashDir(os.DirFS(dirPath), ".", func(path string, executable bool) bool {
 		return effectiveExecutable(kind, path, executable)
@@ -219,16 +285,10 @@ func contentHashDirOS(dirPath, kind string) (string, error) {
 //
 // bundleFS: FS with the bundled skills (paths "bundled/<name>/…"). Can be nil.
 // kbRoots: KB name → absolute path map. KBs with no skills/ folder are skipped.
-// autoTrust: trust policy for KB skills (see signature note below).
-//
-// Note on signing (placeholder — NO real crypto):
-// Bundle skills are always Signed:true: they are compiled into the binary and
-// considered trusted by construction. KB skills are Signed:true only if
-// autoTrust==true (opt-in workspace policy). This is the hook point for a real
-// cryptographic signature check (e.g. cosign/Sigstore) in a future version:
-// replace autoTrust with verification of the signed git commit that introduced
-// the skill.
-func BuildManifest(bundleFS fs.FS, kbRoots map[string]string, autoTrust bool) (Manifest, error) {
+// KB artifacts are signed when BuildOptions has a signer for their mounted KB.
+// Bundled artifacts are trusted by construction and carry BuiltIn instead of a
+// forged Ed25519 signature.
+func BuildManifest(bundleFS fs.FS, kbRoots map[string]string, opts BuildOptions) (Manifest, error) {
 	var artifacts []Artifact
 
 	// 1. Skill dal bundle.
@@ -260,7 +320,7 @@ func BuildManifest(bundleFS fs.FS, kbRoots map[string]string, autoTrust bool) (M
 				Source:      "bundle",
 				Version:     versionByName[name],
 				ContentHash: hash,
-				Signed:      true, // bundle = trusted by construction (see note above)
+				BuiltIn:     true,
 			})
 		}
 	}
@@ -291,9 +351,6 @@ func BuildManifest(bundleFS fs.FS, kbRoots map[string]string, autoTrust bool) (M
 				Source:      "kb:" + kbName,
 				Version:     s.Version,
 				ContentHash: hash,
-				// Signature note (placeholder): Signed:true only if autoTrust==true.
-				// In the future: cryptographic signature check (cosign) on the git commit.
-				Signed: autoTrust,
 			})
 		}
 
@@ -317,7 +374,6 @@ func BuildManifest(bundleFS fs.FS, kbRoots map[string]string, autoTrust bool) (M
 					Name:        name,
 					Source:      "kb:" + kbName,
 					ContentHash: hash,
-					Signed:      autoTrust,
 				})
 			}
 		}
@@ -345,7 +401,6 @@ func BuildManifest(bundleFS fs.FS, kbRoots map[string]string, autoTrust bool) (M
 					Name:        name,
 					Source:      "kb:" + kbName,
 					ContentHash: hash,
-					Signed:      autoTrust,
 				})
 			}
 		}
@@ -404,12 +459,27 @@ func BuildManifest(bundleFS fs.FS, kbRoots map[string]string, autoTrust bool) (M
 			Kind:        "instructions",
 			Name:        kbName,
 			Source:      "kb:" + kbName,
-			ContentHash: contentHashBytes(instrContent),
-			Signed:      autoTrust,
+			ContentHash: hashArtifactFiles([]ArtifactFile{{Path: "instructions.md", Content: instrContent}}),
 			Files:       []ArtifactFile{{Path: "instructions.md", Content: instrContent}},
 		})
 	}
 
+	for i := range artifacts {
+		a := &artifacts[i]
+		if !strings.HasPrefix(a.Source, "kb:") {
+			continue
+		}
+		kbName := strings.TrimPrefix(a.Source, "kb:")
+		key := opts.Signers[kbName]
+		if len(key) == 0 {
+			continue
+		}
+		sig, err := artifactsig.Sign(key, artifactsig.Identity{Source: a.Source, Kind: a.Kind, Name: a.Name, Version: a.Version, ContentHash: a.ContentHash})
+		if err != nil {
+			return Manifest{}, fmt.Errorf("provisioning: sign kb:%s %s/%s: %w", kbName, a.Kind, a.Name, err)
+		}
+		a.Signature = sig
+	}
 	return MergeArtifacts(artifacts), nil
 }
 
@@ -883,12 +953,13 @@ func KindCounts(m Manifest, lock Lock) map[string]KindCount {
 
 // --- Apply ---
 
-// Apply materializes the signed artifacts into BaseDir, prunes stale managed
+// Apply materializes verified, built-in, or explicitly authorized artifacts into BaseDir, prunes stale managed
 // entries and writes the updated lockfile.
 //
 // Safety rules:
-//   - Signed:true → copy/update into BaseDir for the given provider.
-//   - Signed:false → does NOT write; adds to NeedsApproval (default signature gate).
+//   - Signed:true or BuiltIn:true → copy/update into BaseDir for the given provider.
+//   - AutoTrust:true explicitly authorizes eligible unsigned KB artifacts.
+//   - all other artifacts → NeedsApproval.
 //
 // Providers supported for direct materialization:
 //   - claude: skill in .claude/skills/<name>/, agent in .claude/agents/<name>.md,
@@ -932,7 +1003,7 @@ func Apply(m Manifest, opts ApplyOptions) (AppliedResult, error) {
 	// become non-runnable merely because their bytes are unchanged.
 	for _, a := range m.Artifacts {
 		key := a.Kind + "\x00" + a.Name
-		if toWriteKeys[key] || !a.Signed {
+		if toWriteKeys[key] || !artifactAuthorized(a, opts) {
 			continue
 		}
 		if executableModeDrift(a, opts) {
@@ -969,7 +1040,7 @@ func Apply(m Manifest, opts ApplyOptions) (AppliedResult, error) {
 		}
 	}
 
-	// Materialize the signed artifacts.
+	// Materialize the authorized artifacts.
 	for _, a := range toWrite {
 		if a.Kind == "instructions" {
 			// Handled as a group by applyInstructionsGroup below, not here.
@@ -984,7 +1055,7 @@ func Apply(m Manifest, opts ApplyOptions) (AppliedResult, error) {
 				"hook %q: name reserved by Cartographer (bootstrap), KB artifact ignored", a.Name))
 			continue
 		}
-		if !a.Signed {
+		if !artifactAuthorized(a, opts) {
 			// Unsigned artifact: notify + signature gate. Don't write.
 			result.NeedsApproval = append(result.NeedsApproval, a)
 			continue
@@ -1311,7 +1382,7 @@ func applyInstructionsGroup(m Manifest, diff Diff, opts ApplyOptions, tracker *e
 	}
 	sort.Slice(current, func(i, j int) bool { return current[i].Name < current[j].Name })
 
-	// Expanded content and hash computed here, once per signed artifact,
+	// Expanded content and hash computed here, once per authorized artifact,
 	// regardless of triggered: newManaged (below) must stay consistent with the
 	// expanded content even in rounds where the block isn't rewritten
 	// (D75 WP3 — the instructions content already lives in memory via a.Files,
@@ -1320,7 +1391,7 @@ func applyInstructionsGroup(m Manifest, diff Diff, opts ApplyOptions, tracker *e
 	expandedContent := make(map[string][]byte, len(current))
 	contentHashes := make(map[string]string, len(current))
 	for _, a := range current {
-		if !a.Signed {
+		if !artifactAuthorized(a, opts) {
 			result.NeedsApproval = append(result.NeedsApproval, a)
 			continue
 		}
@@ -1335,7 +1406,7 @@ func applyInstructionsGroup(m Manifest, diff Diff, opts ApplyOptions, tracker *e
 
 		contentHash := a.ContentHash
 		if opts.ExpandPlaceholders {
-			contentHash = contentHashBytes(content)
+			contentHash = hashArtifactFiles([]ArtifactFile{{Path: "instructions.md", Content: content}})
 		}
 		contentHashes[a.Name] = contentHash
 		*newManaged = append(*newManaged, ManagedFile{
@@ -1389,6 +1460,16 @@ func applyInstructionsGroup(m Manifest, diff Diff, opts ApplyOptions, tracker *e
 		})
 	}
 	return nil
+}
+
+func artifactAuthorized(a Artifact, opts ApplyOptions) bool {
+	if a.Signed || a.BuiltIn {
+		return true
+	}
+	// MCP descriptors retain their pre-existing stricter explicit approval
+	// boundary; generic trust only preserves compatibility for ordinary KB
+	// provisioning artifacts.
+	return opts.AutoTrust && a.Kind != "mcp" && strings.HasPrefix(a.Source, "kb:")
 }
 
 // writeInstructionsBlock creates or rewrites the managed block delimited by

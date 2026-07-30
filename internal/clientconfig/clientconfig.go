@@ -8,7 +8,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
+	"github.com/BeppeTemp/cartographer/internal/artifactsig"
 	"github.com/BeppeTemp/cartographer/internal/defaults"
 	"gopkg.in/yaml.v3"
 )
@@ -48,6 +50,10 @@ type Config struct {
 	// see repoindex.Resolve). Never written by `cartographer connect`/`sync`
 	// — this is purely user-maintained, per-machine.
 	Paths map[string]string `yaml:"paths,omitempty"`
+
+	// SigningKeys pins Ed25519 public keys by source KB. Pins are configured
+	// out of band and are never learned from sync_pull responses.
+	SigningKeys map[string][]string `yaml:"signing_keys,omitempty"`
 }
 
 // yamlConfig mirrors Config for YAML (de)serialization. Trust is a *bool here
@@ -55,15 +61,16 @@ type Config struct {
 // (nil, defaults to true) apart from an explicit `trust: false` written by a
 // user who revoked it.
 type yamlConfig struct {
-	ServerURL   string            `yaml:"server_url"`
-	ServerName  string            `yaml:"server_name"`
-	Auth        bool              `yaml:"auth"`
-	TokenEnv    string            `yaml:"token_env"`
-	Agents      []string          `yaml:"agents"`
-	KBs         []string          `yaml:"kbs,omitempty"`
-	Trust       *bool             `yaml:"trust,omitempty"`
-	SearchRoots []string          `yaml:"search_roots,omitempty"`
-	Paths       map[string]string `yaml:"paths,omitempty"`
+	ServerURL   string              `yaml:"server_url"`
+	ServerName  string              `yaml:"server_name"`
+	Auth        bool                `yaml:"auth"`
+	TokenEnv    string              `yaml:"token_env"`
+	Agents      []string            `yaml:"agents"`
+	KBs         []string            `yaml:"kbs,omitempty"`
+	Trust       *bool               `yaml:"trust,omitempty"`
+	SearchRoots []string            `yaml:"search_roots,omitempty"`
+	Paths       map[string]string   `yaml:"paths,omitempty"`
+	SigningKeys map[string][]string `yaml:"signing_keys,omitempty"`
 }
 
 // Default returns a Config with the same defaults as configurator.DefaultConfig.
@@ -122,6 +129,7 @@ func Load(dir string) (*Config, error) {
 		Trust:       true, // absent `trust` key defaults to true, see yamlConfig doc
 		SearchRoots: y.SearchRoots,
 		Paths:       y.Paths,
+		SigningKeys: y.SigningKeys,
 	}
 	if y.Trust != nil {
 		cfg.Trust = *y.Trust
@@ -149,6 +157,7 @@ func Save(dir string, cfg *Config) error {
 		Trust:       &cfg.Trust,
 		SearchRoots: cfg.SearchRoots,
 		Paths:       cfg.Paths,
+		SigningKeys: cfg.SigningKeys,
 	}
 	data, err := yaml.Marshal(&y)
 	if err != nil {
@@ -157,6 +166,26 @@ func Save(dir string, cfg *Config) error {
 	if err := os.WriteFile(Path(dir), data, 0o644); err != nil {
 		return fmt.Errorf("clientconfig: write %s: %w", Path(dir), err)
 	}
+	return nil
+}
+
+// AddSigningKey pins key for kbName unless it is already present.
+func (c *Config) AddSigningKey(kbName, key string) error {
+	if kbName == "" || kbName != strings.TrimSpace(kbName) || key == "" || key != strings.TrimSpace(key) {
+		return fmt.Errorf("clientconfig: invalid signing key pin")
+	}
+	if _, err := artifactsig.ParsePublicKey(key); err != nil {
+		return fmt.Errorf("clientconfig: invalid signing key pin: %w", err)
+	}
+	if c.SigningKeys == nil {
+		c.SigningKeys = make(map[string][]string)
+	}
+	for _, existing := range c.SigningKeys[kbName] {
+		if existing == key {
+			return nil
+		}
+	}
+	c.SigningKeys[kbName] = append(c.SigningKeys[kbName], key)
 	return nil
 }
 

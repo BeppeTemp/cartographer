@@ -22,6 +22,10 @@ client configuration.
 
 `make vet` runs `go vet ./...`. Both are required in CI.
 
+Provisioning signature coverage includes deterministic Ed25519 envelopes, strict
+key parsing and identity separation, plus remote `sync_pull` verification and
+tampering rejection before `Apply`.
+
 CLI JSON tests decode stdout as JSON and assert that diagnostics remain on
 stderr. Golden help is limited to 80 columns. Bubble Tea view/update tests use
 60, 80 and 120-column window messages, strip ANSI sequences before measuring

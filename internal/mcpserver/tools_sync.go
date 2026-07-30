@@ -1,6 +1,7 @@
 package mcpserver
 
 import (
+	"crypto/ed25519"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -8,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/BeppeTemp/cartographer/internal/artifactsig"
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/kb"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
@@ -46,7 +48,7 @@ func flushPendingPush(k *kb.KB, toolName string) {
 // toolSyncCheck returns the current revision of the provisioning manifest (bundle + KB).
 // Read-only: writes nothing, safe on a remote server too.
 // The client may pass its own lockfile revision; the response includes in_sync=true/false.
-func toolSyncCheck(k *kb.KB, bundleFS fs.FS) Tool {
+func toolSyncCheck(k *kb.KB, bundleFS fs.FS, signer ed25519.PrivateKey) Tool {
 	return Tool{
 		Name:     "sync_check",
 		ReadOnly: true,
@@ -71,7 +73,7 @@ func toolSyncCheck(k *kb.KB, bundleFS fs.FS) Tool {
 
 			// Use the basename of k.Root as the KB name in the manifest.
 			kbName := filepath.Base(k.Root)
-			m, err := provisioning.BuildManifest(bundleFS, map[string]string{kbName: k.Root}, false)
+			m, err := provisioning.BuildManifest(bundleFS, map[string]string{kbName: k.Root}, buildOptions(kbName, signer))
 			if err != nil {
 				return errorResult(fmt.Sprintf("sync_check: build manifest: %v", err)), nil
 			}
@@ -84,6 +86,7 @@ func toolSyncCheck(k *kb.KB, bundleFS fs.FS) Tool {
 				Source  string `json:"source"`
 				Version string `json:"version,omitempty"`
 				Signed  bool   `json:"signed"`
+				BuiltIn bool   `json:"built_in,omitempty"`
 			}
 			arts := make([]artifactJSON, len(m.Artifacts))
 			for i, a := range m.Artifacts {
@@ -93,6 +96,7 @@ func toolSyncCheck(k *kb.KB, bundleFS fs.FS) Tool {
 					Source:  a.Source,
 					Version: a.Version,
 					Signed:  a.Signed,
+					BuiltIn: a.BuiltIn,
 				}
 			}
 
@@ -120,7 +124,7 @@ func toolSyncCheck(k *kb.KB, bundleFS fs.FS) Tool {
 // toolSyncApply materializes the provisioning artifacts into the client's base_dir.
 // Intended for local deployment (stdio): server and client share the filesystem.
 // For remote deployment use `cartographer sync`/`cartographer connect` (via sync_pull) from the client machine.
-func toolSyncApply(k *kb.KB, bundleFS fs.FS) Tool {
+func toolSyncApply(k *kb.KB, bundleFS fs.FS, signer ed25519.PrivateKey) Tool {
 	return Tool{
 		Name: "sync_apply",
 		Description: "Materializes the provisioning skills into the given base_dir, updates the lockfile and prunes " +
@@ -162,9 +166,16 @@ func toolSyncApply(k *kb.KB, bundleFS fs.FS) Tool {
 			kbName := filepath.Base(k.Root)
 			kbRoots := map[string]string{kbName: k.Root}
 
-			m, err := provisioning.BuildManifest(bundleFS, kbRoots, params.AutoTrust)
+			m, err := provisioning.BuildManifest(bundleFS, kbRoots, buildOptions(kbName, signer))
 			if err != nil {
 				return errorResult(fmt.Sprintf("sync_apply: build manifest: %v", err)), nil
+			}
+			if len(signer) != 0 {
+				verified, verifyErr := provisioning.VerifiedManifest(m, map[string][]ed25519.PublicKey{kbName: {signer.Public().(ed25519.PublicKey)}})
+				if verifyErr != nil {
+					return errorResult(fmt.Sprintf("sync_apply: verify manifest: %v", verifyErr)), nil
+				}
+				m = verified
 			}
 
 			lockPath := filepath.Join(params.BaseDir, provisioning.LockFileName)
@@ -241,20 +252,22 @@ type pulledFileJSON struct {
 
 // pulledArtifactJSON is an Artifact plus its file contents, as returned by sync_pull.
 type pulledArtifactJSON struct {
-	Kind        string           `json:"kind"`
-	Name        string           `json:"name"`
-	Source      string           `json:"source"`
-	Version     string           `json:"version,omitempty"`
-	ContentHash string           `json:"content_hash"`
-	Signed      bool             `json:"signed"`
-	Files       []pulledFileJSON `json:"files"`
+	Kind        string                 `json:"kind"`
+	Name        string                 `json:"name"`
+	Source      string                 `json:"source"`
+	Version     string                 `json:"version,omitempty"`
+	ContentHash string                 `json:"content_hash"`
+	Signed      bool                   `json:"signed"`
+	BuiltIn     bool                   `json:"built_in,omitempty"`
+	Signature   *artifactsig.Signature `json:"signature,omitempty"`
+	Files       []pulledFileJSON       `json:"files"`
 }
 
 // toolSyncPull returns the provisioning manifest (bundle + KB) with each
 // artifact's file contents embedded (base64). Meant for a remote HTTP client
 // that does not share the filesystem with the server: the client materializes
 // locally without reading bundle/KB directly. Read-only, no arguments required.
-func toolSyncPull(k *kb.KB, bundleFS fs.FS) Tool {
+func toolSyncPull(k *kb.KB, bundleFS fs.FS, signer ed25519.PrivateKey) Tool {
 	return Tool{
 		Name:     "sync_pull",
 		ReadOnly: true,
@@ -267,7 +280,7 @@ func toolSyncPull(k *kb.KB, bundleFS fs.FS) Tool {
 			kbName := filepath.Base(k.Root)
 			kbRoots := map[string]string{kbName: k.Root}
 
-			m, err := provisioning.BuildManifest(bundleFS, kbRoots, false)
+			m, err := provisioning.BuildManifest(bundleFS, kbRoots, buildOptions(kbName, signer))
 			if err != nil {
 				return errorResult(fmt.Sprintf("sync_pull: build manifest: %v", err)), nil
 			}
@@ -289,6 +302,8 @@ func toolSyncPull(k *kb.KB, bundleFS fs.FS) Tool {
 					Version:     a.Version,
 					ContentHash: a.ContentHash,
 					Signed:      a.Signed,
+					BuiltIn:     a.BuiltIn,
+					Signature:   a.Signature,
 					Files:       fj,
 				})
 			}
@@ -301,4 +316,11 @@ func toolSyncPull(k *kb.KB, bundleFS fs.FS) Tool {
 			return textResult(string(out)), nil
 		},
 	}
+}
+
+func buildOptions(kbName string, signer ed25519.PrivateKey) provisioning.BuildOptions {
+	if len(signer) == 0 {
+		return provisioning.BuildOptions{}
+	}
+	return provisioning.BuildOptions{Signers: map[string]ed25519.PrivateKey{kbName: signer}}
 }

@@ -341,7 +341,7 @@ func TestApply_NomeRiservatoInKB_Warning(t *testing.T) {
 	kbRoot := t.TempDir()
 	writeHookKB(t, kbRoot, provisioning.BootstrapHookName, "PostToolUse", "", "./notify.sh")
 
-	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, true)
+	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, provisioning.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest: %v", err)
 	}

@@ -19,6 +19,11 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/service"
 )
 
+type repeatedString []string
+
+func (r *repeatedString) String() string         { return strings.Join(*r, ",") }
+func (r *repeatedString) Set(value string) error { *r = append(*r, value); return nil }
+
 // probeTimeout bounds probeServer's reachability check (D64): short enough
 // that a down server fails fast in the interactive form/CLI, well under the
 // client package's normal 30s HTTP timeout used for the real sync_pull calls.
@@ -242,6 +247,8 @@ func cmdConnect(args []string) int {
 	tokenEnv := fs.String("token-env", "CARTOGRAPHER_TOKENS", "Env var holding the bearer token")
 	dryRun := fs.Bool("dry-run", false, "Print what would be written without writing")
 	autoTrust := fs.Bool("auto-trust", false, "Trust KB-sourced skills without explicit signature")
+	var pinKeys repeatedString
+	fs.Var(&pinKeys, "pin-key", "Pin a KB Ed25519 public key as KB=PUBLIC_KEY (repeatable)")
 	noInput := fs.Bool("no-input", false, "Never open the interactive form, even in a TTY")
 	agentsCSV := fs.String("agents", "", "Comma-separated agent subset: claude,codex")
 	fs.Parse(rest)
@@ -286,6 +293,7 @@ func cmdConnect(args []string) int {
 		DryRun:    *dryRun,
 		AutoTrust: *autoTrust,
 		Trust:     settings.Trust,
+		PinKeys:   pinKeys,
 	}
 
 	if interactive {
@@ -444,7 +452,8 @@ type connectOptions struct {
 	// existing/default config, see cmdConnect) and persisted to
 	// .cartographer.yaml by doConnect. Unlike AutoTrust (a one-time flag),
 	// Trust applies to every future sync until changed again.
-	Trust bool
+	Trust   bool
+	PinKeys []string
 }
 
 // connectResult is the outcome of doConnect: which providers were connected, the
@@ -481,6 +490,15 @@ func doConnect(opts connectOptions) (connectResult, error) {
 	if err != nil {
 		existing = clientconfig.Default()
 	}
+	for _, pin := range opts.PinKeys {
+		kbName, key, found := strings.Cut(pin, "=")
+		if !found {
+			return connectResult{}, fmt.Errorf("invalid --pin-key %q (want KB=PUBLIC_KEY)", pin)
+		}
+		if err := existing.AddSigningKey(kbName, key); err != nil {
+			return connectResult{}, fmt.Errorf("invalid --pin-key %q: %w", pin, err)
+		}
+	}
 	kbs, healthListed, healthErr := enumerateKBs(opts.ServerURL, opts.Auth, opts.TokenEnv)
 	entryKBs := kbs
 	if healthErr != nil || !healthListed {
@@ -514,7 +532,7 @@ func doConnect(opts connectOptions) (connectResult, error) {
 	if healthErr == nil {
 		pullKBs = kbs
 	}
-	pullCfg := &clientconfig.Config{ServerURL: opts.ServerURL, ServerName: opts.Name, Auth: opts.Auth, TokenEnv: opts.TokenEnv, KBs: pullKBs}
+	pullCfg := &clientconfig.Config{ServerURL: opts.ServerURL, ServerName: opts.Name, Auth: opts.Auth, TokenEnv: opts.TokenEnv, KBs: pullKBs, SigningKeys: existing.SigningKeys}
 
 	res := connectResult{Providers: opts.Providers, ConfigsWritten: configsWritten, MCPEntries: entryNames(entries), Warnings: configWarnings}
 	if m, err := fetchMergedManifest(pullCfg); err != nil {
