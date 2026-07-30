@@ -439,11 +439,19 @@ func toolKBStatus(k *kb.KB) Tool {
 				return errorResult(fmt.Sprintf("kb_status: walk: %v", err)), nil
 			}
 
+			server := k.ServerGitStatus()
 			result := map[string]interface{}{
 				"total":               total,
 				"by_type":             typeCounts,
 				"stale_count":         staleCount,
 				"open_contradictions": openContradictions,
+				"git_profile":         server.Profile,
+				"base_branch":         server.BaseBranch,
+				"working_branch":      server.WorkingBranch,
+				"pr_number":           server.PRNumber,
+				"pr_url":              server.PRURL,
+				"pr_head_sha":         server.PRHeadSHA,
+				"last_forge_error":    server.LastForgeError,
 			}
 			out, _ := json.MarshalIndent(result, "", "  ")
 			return textResult(string(out)), nil
@@ -585,25 +593,33 @@ func toolConflictsList(k *kb.KB) Tool {
 			}
 
 			type conflictJSON struct {
-				ConceptID  string   `json:"concept_id"`
-				Path       string   `json:"path"`
-				LocalSHA   string   `json:"local_sha"`
-				RemoteSHA  string   `json:"remote_sha"`
-				Branch     string   `json:"branch"`
-				Files      []string `json:"files"`
-				DetectedAt string   `json:"detected_at"`
-				Guidance   string   `json:"guidance"`
+				ConceptID     string   `json:"concept_id"`
+				Path          string   `json:"path"`
+				LocalSHA      string   `json:"local_sha"`
+				RemoteSHA     string   `json:"remote_sha"`
+				Branch        string   `json:"branch"`
+				BaseBranch    string   `json:"base_branch,omitempty"`
+				WorkingBranch string   `json:"working_branch,omitempty"`
+				PRNumber      int      `json:"pr_number,omitempty"`
+				PRURL         string   `json:"pr_url,omitempty"`
+				Files         []string `json:"files"`
+				DetectedAt    string   `json:"detected_at"`
+				Guidance      string   `json:"guidance"`
 			}
 			results := make([]conflictJSON, len(conflicts))
 			for i, c := range conflicts {
 				results[i] = conflictJSON{
-					ConceptID:  c.ConceptID,
-					Path:       c.Path,
-					LocalSHA:   c.LocalSHA,
-					RemoteSHA:  c.RemoteSHA,
-					Branch:     c.Branch,
-					Files:      c.Files,
-					DetectedAt: c.DetectedAt,
+					ConceptID:     c.ConceptID,
+					Path:          c.Path,
+					LocalSHA:      c.LocalSHA,
+					RemoteSHA:     c.RemoteSHA,
+					Branch:        c.Branch,
+					BaseBranch:    c.BaseBranch,
+					WorkingBranch: c.WorkingBranch,
+					PRNumber:      c.PRNumber,
+					PRURL:         c.PRURL,
+					Files:         c.Files,
+					DetectedAt:    c.DetectedAt,
 					Guidance: "Read the concept with concept_read, reconcile the content, " +
 						"then rewrite it with concept_write removing status:degraded. " +
 						"See the kb-conflict-resolve skill for the full procedure.",

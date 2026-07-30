@@ -120,3 +120,27 @@ e) Per-phase telemetry on stderr for every write, in `gitWrap`: `cartographer: t
 **Decision.** Git replication state is exposed through the read-only `sync_status` tool. Failed commits and pushes remain non-fatal to local writes but are retained until a real push succeeds; debounced writes report pending rather than pretending their future push succeeded. When Cartographer has no complete configured author pair, commits use Git's own resolved identity; the placeholder is retained only as Git's final fallback.
 
 **Rationale.** Local durability and remote replication are separate states. Reporting their distinction preserves offline operation while making enterprise forge push-rule failures actionable without log scraping.
+
+---
+
+<a id="d117"></a>
+## D117 — Server Git profile uses a dedicated working branch and GitHub PR boundary
+
+**Decision.** Keep Local Core as the default `git.profile: local`. The opt-in `server`
+profile requires an explicit protected base, a dedicated working branch, GitHub
+repository/API coordinates and a token environment variable. It mounts only a clean,
+attached checkout, fetches `origin`, resumes a verified working branch or creates it
+from the remote base, and never repairs ambiguity by discarding files or commits.
+
+Writes rebase the working branch onto the base and push only that branch. The server
+uses an injected stdlib-HTTP GitHub forge boundary to maintain exactly one open PR,
+persisting only non-secret identity/state under `.cartographer/`. Finalization requires
+a current caller head plus review/check readiness, rebases and validates, uses
+force-with-lease solely for the working branch, then requests a squash merge. Local
+reconciliation failures remain degraded and recoverable; the base branch is never a Git
+push target.
+
+**Rationale.** A long-lived server needs reviewability without treating a protected
+branch as its synchronization transport. Separating Git transport from the forge API
+keeps the contract testable with local fixtures today and leaves a narrow extension
+point for another forge later.

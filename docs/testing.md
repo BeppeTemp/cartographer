@@ -26,6 +26,16 @@ Provisioning signature coverage includes deterministic Ed25519 envelopes, strict
 key parsing and identity separation, plus remote `sync_pull` verification and
 tampering rejection before `Apply`.
 
+Server Git profile coverage (D117) uses local two-clone remotes plus an injected
+fake forge over `httptest`: branch startup and resume, PR create/reuse and
+duplicate handling, base rebases, conflict registry resolution, stale caller
+heads, review/check rejection, finalize leases, base-SHA races and post-merge
+reconciliation after an uncertain outcome. CI never calls GitHub. Release
+validation may additionally run an opt-in sandbox smoke against a disposable
+protected repository and token; that smoke must assert the protected base stays
+unchanged until the forge confirms the squash merge, and must exercise a
+timeout-after-merge restart.
+
 CLI JSON tests decode stdout as JSON and assert that diagnostics remain on
 stderr. Golden help is limited to 80 columns. Bubble Tea view/update tests use
 60, 80 and 120-column window messages, strip ANSI sequences before measuring

@@ -121,6 +121,17 @@ type KBSpec struct {
 	CommitterEmail string `yaml:"committer_email,omitempty"`
 	SopsAgeKeyFile string `yaml:"sops_age_key_file,omitempty"`
 
+	// GitProfile and the server-git fields override their git: counterparts
+	// for this KB. Empty values retain the global/local defaults (D117).
+	GitProfile       string `yaml:"git_profile,omitempty"`
+	GitBaseBranch    string `yaml:"git_base_branch,omitempty"`
+	GitWorkingBranch string `yaml:"git_working_branch,omitempty"`
+	GitForge         string `yaml:"git_forge,omitempty"`
+	GitHubOwner      string `yaml:"github_owner,omitempty"`
+	GitHubRepository string `yaml:"github_repository,omitempty"`
+	GitHubAPIURL     string `yaml:"github_api_url,omitempty"`
+	GitHubTokenEnv   string `yaml:"github_token_env,omitempty"`
+
 	// AllowArtifactWrite enables the artifact_write/artifact_delete MCP tools
 	// (D71) for this KB — writing a provisioning artifact (skill/agent/hook/
 	// mcp) injects instructions a client agent will execute, so the
@@ -166,6 +177,16 @@ type GitConfig struct {
 	// before actually pushing (see kb.KB.SyncOutDebounce). Zero disables
 	// the worker: pushes stay synchronous and inline, as before D76/WP4.
 	SyncOutDebounce time.Duration
+	// Profile selects "local" (the backwards-compatible default) or "server"
+	// (D117: dedicated working branch + GitHub PR boundary).
+	Profile          string
+	BaseBranch       string
+	WorkingBranch    string
+	Forge            string
+	GitHubOwner      string
+	GitHubRepository string
+	GitHubAPIURL     string
+	GitHubTokenEnv   string
 }
 
 // SopsConfig controls the default SOPS age key used to decrypt secret refs.
@@ -239,17 +260,25 @@ type rawAuth struct {
 }
 
 type rawGit struct {
-	Autocommit     *bool  `yaml:"autocommit"`
-	Sync           *bool  `yaml:"sync"`
-	SSHKey         string `yaml:"ssh_key"`
-	KnownHosts     string `yaml:"known_hosts"`
-	AuthorName     string `yaml:"author_name"`
-	AuthorEmail    string `yaml:"author_email"`
-	CommitterName  string `yaml:"committer_name"`
-	CommitterEmail string `yaml:"committer_email"`
-	TokenDir       string `yaml:"token_dir"`
-	InWindow       string `yaml:"in_window"`
-	OutDebounce    string `yaml:"out_debounce"`
+	Autocommit       *bool  `yaml:"autocommit"`
+	Sync             *bool  `yaml:"sync"`
+	SSHKey           string `yaml:"ssh_key"`
+	KnownHosts       string `yaml:"known_hosts"`
+	AuthorName       string `yaml:"author_name"`
+	AuthorEmail      string `yaml:"author_email"`
+	CommitterName    string `yaml:"committer_name"`
+	CommitterEmail   string `yaml:"committer_email"`
+	TokenDir         string `yaml:"token_dir"`
+	InWindow         string `yaml:"in_window"`
+	OutDebounce      string `yaml:"out_debounce"`
+	Profile          string `yaml:"profile"`
+	BaseBranch       string `yaml:"base_branch"`
+	WorkingBranch    string `yaml:"working_branch"`
+	Forge            string `yaml:"forge"`
+	GitHubOwner      string `yaml:"github_owner"`
+	GitHubRepository string `yaml:"github_repository"`
+	GitHubAPIURL     string `yaml:"github_api_url"`
+	GitHubTokenEnv   string `yaml:"github_token_env"`
 }
 
 type rawSearch struct {
@@ -302,6 +331,16 @@ func Load(path string) (*Config, error) {
 	cfg.Git.CommitterName = raw.Git.CommitterName
 	cfg.Git.CommitterEmail = raw.Git.CommitterEmail
 	cfg.Git.TokenDir = raw.Git.TokenDir
+	if raw.Git.Profile != "" {
+		cfg.Git.Profile = normalizeGitProfile(raw.Git.Profile)
+	}
+	cfg.Git.BaseBranch = raw.Git.BaseBranch
+	cfg.Git.WorkingBranch = raw.Git.WorkingBranch
+	cfg.Git.Forge = raw.Git.Forge
+	cfg.Git.GitHubOwner = raw.Git.GitHubOwner
+	cfg.Git.GitHubRepository = raw.Git.GitHubRepository
+	cfg.Git.GitHubAPIURL = raw.Git.GitHubAPIURL
+	cfg.Git.GitHubTokenEnv = raw.Git.GitHubTokenEnv
 	if raw.Git.InWindow != "" {
 		cfg.Git.SyncInWindow = parseDuration(raw.Git.InWindow, cfg.Git.SyncInWindow)
 	}
@@ -358,6 +397,9 @@ func FromEnv(cfg *Config) {
 	}
 	if v := os.Getenv("CARTOGRAPHER_GIT_SYNC"); v != "" {
 		cfg.Git.Sync = parseBool(v, cfg.Git.Sync)
+	}
+	if v := os.Getenv("CARTOGRAPHER_GIT_PROFILE"); v != "" {
+		cfg.Git.Profile = normalizeGitProfile(v)
 	}
 	if v := os.Getenv("CARTOGRAPHER_GIT_TOKEN_DIR"); v != "" {
 		cfg.Git.TokenDir = v
@@ -445,6 +487,15 @@ func ApplyFlags(cfg *Config, o FlagOverrides) {
 	if o.ToolsProfile != nil {
 		cfg.ToolsProfile = normalizeToolsProfile(*o.ToolsProfile)
 	}
+}
+
+// NormalizeGitProfile canonicalizes the profile spelling. It intentionally
+// leaves invalid values visible so server startup can fail fast rather than
+// silently turn a requested review boundary into direct pushes.
+func NormalizeGitProfile(v string) string { return normalizeGitProfile(v) }
+
+func normalizeGitProfile(v string) string {
+	return strings.ToLower(strings.TrimSpace(v))
 }
 
 // normalizeToolsProfile maps a tools-profile spelling onto the canonical

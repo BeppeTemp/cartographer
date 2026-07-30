@@ -45,6 +45,14 @@ type KB struct {
 	// pre-existing behaviour.
 	GitEnv []string
 
+	// ServerGit is non-nil only for the opt-in server profile. Its dedicated
+	// working branch is the only branch this process may push (D117).
+	ServerGit *ServerGitConfig
+	// ServerMergeLint is wired by the MCP layer to run the full lint during a
+	// server-profile PR finalization. Keeping it injectable avoids a kb↔lint
+	// import cycle while preserving an in-lock gate.
+	ServerMergeLint func() error
+
 	// SopsAgeKeyFile is the path to the SOPS age key file used to decrypt
 	// this KB's secrets (e.g. via service_get resolve_secrets). Empty means
 	// no per-KB key is configured — secret resolution fails clearly instead

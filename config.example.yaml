@@ -75,6 +75,17 @@ git:
   # bursts of writes coalesce into one push, out_debounce after the last one.
   # Default 3s, 0 = synchronous inline push, no worker (rollback flag).
   # out_debounce: 3s
+  # profile (D117): local (default) | server. The server profile adds a GitHub PR
+  # boundary and makes every field below required (per-KB overrides: git_profile,
+  # git_base_branch, git_working_branch, git_forge, github_owner, ...).
+  # profile: server
+  # base_branch: main             # protected; Cartographer never pushes it directly
+  # working_branch: cartographer/wiki-kb   # optional, default cartographer/<kb-name>
+  # forge: github
+  # github_owner: example-org     # must match the origin remote path exactly
+  # github_repository: wiki
+  # github_api_url: https://api.github.com
+  # github_token_env: CARTOGRAPHER_GITHUB_TOKEN
 sops:
   # default age key for decrypting secret refs (per-KB overridable):
   # age_key_file: /etc/kb-sops/keys.age
