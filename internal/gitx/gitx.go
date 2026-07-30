@@ -34,12 +34,24 @@ func Clone(remote, dest string, env ...string) error {
 	return nil
 }
 
+// DefaultBranch is the branch a freshly initialized KB is created on. The
+// server Git profile compares the checked-out branch against a configured base
+// branch, so inheriting the host's init.defaultBranch would make a KB unusable
+// on any machine configured for "master".
+const DefaultBranch = "main"
+
 // Init initializes a git repository in the directory, if one does not already exist.
-// Configures merge.conflictStyle=zdiff3 locally.
+// Pins the initial branch to DefaultBranch and configures merge.conflictStyle=zdiff3
+// locally. Existing repositories keep whatever branch they are on.
 func Init(dir string) error {
 	if !IsRepo(dir) {
 		if out, err := runGit(dir, "init"); err != nil {
 			return fmt.Errorf("git init: %w: %s", err, out)
+		}
+		// The repository has no commits yet, so moving HEAD is safe and does
+		// not depend on a git version that supports "init -b".
+		if out, err := runGit(dir, "symbolic-ref", "HEAD", "refs/heads/"+DefaultBranch); err != nil {
+			return fmt.Errorf("git symbolic-ref HEAD: %w: %s", err, out)
 		}
 	}
 	// Configure zdiff3 for more readable diffs during merge conflicts.
@@ -302,6 +314,92 @@ func Fetch(dir, remote string, env ...string) error {
 	out, err := runGitEnv(dir, env, "fetch", remote)
 	if err != nil {
 		return fmt.Errorf("git fetch %s: %w: %s", remote, err, out)
+	}
+	return nil
+}
+
+// RemoteBranchExists reports whether refs/remotes/<remote>/<branch> exists.
+// Call Fetch first when the answer must reflect the forge's current state.
+func RemoteBranchExists(dir, remote, branch string) bool {
+	if remote == "" {
+		remote = "origin"
+	}
+	_, err := runGit(dir, "rev-parse", "--verify", "refs/remotes/"+remote+"/"+branch)
+	return err == nil
+}
+
+// CheckoutNewBranch checks out branch at start. It never resets an existing
+// branch; callers that see an existing branch must make an explicit, safe
+// decision instead of discarding history.
+func CheckoutNewBranch(dir, branch, start string, env ...string) error {
+	out, err := runGitEnv(dir, env, "checkout", "-b", branch, start)
+	if err != nil {
+		return fmt.Errorf("git checkout -b %s %s: %w: %s", branch, start, err, out)
+	}
+	return nil
+}
+
+// IsAncestor reports whether ancestor is reachable from descendant.
+func IsAncestor(dir, ancestor, descendant string) (bool, error) {
+	out, err := runGit(dir, "merge-base", "--is-ancestor", ancestor, descendant)
+	if err == nil {
+		return true, nil
+	}
+	if strings.TrimSpace(out) == "" {
+		return false, nil
+	}
+	return false, fmt.Errorf("git merge-base --is-ancestor %s %s: %w: %s", ancestor, descendant, err, out)
+}
+
+// RebaseOntoAutostash rebases the checked-out branch onto remote/branch. It
+// preserves a dirty tree with Git's autostash and returns the same structured
+// conflict error used by PullRebaseAutostash.
+func RebaseOntoAutostash(dir, remote, branch string, env ...string) error {
+	if remote == "" {
+		remote = "origin"
+	}
+	localSHA, _ := HeadSHA(dir)
+	target := remote + "/" + branch
+	out, err := runGitEnv(dir, env, "rebase", "--autostash", target)
+	if err == nil {
+		return nil
+	}
+	if strings.Contains(out, "CONFLICT") || strings.Contains(out, "could not apply") || strings.Contains(out, "error: could not") {
+		files, _ := UnmergedFiles(dir)
+		remoteSHA, _ := HeadSHAAt(dir, target)
+		_, _ = runGit(dir, "rebase", "--abort")
+		return &RebaseConflictError{Files: files, LocalSHA: localSHA, RemoteSHA: remoteSHA, Remote: remote, Branch: branch}
+	}
+	return fmt.Errorf("git rebase --autostash %s: %w: %s", target, err, out)
+}
+
+// HeadSHAAt returns the commit SHA for ref.
+func HeadSHAAt(dir, ref string) (string, error) {
+	out, err := runGit(dir, "rev-parse", ref)
+	if err != nil {
+		return "", fmt.Errorf("git rev-parse %s: %w: %s", ref, err, out)
+	}
+	return strings.TrimSpace(out), nil
+}
+
+// PushForceWithLease updates branch only if the remote still points at
+// expectedSHA. It is intended exclusively for an unprotected working branch.
+func PushForceWithLease(dir, remote, branch, expectedSHA string, env ...string) error {
+	lease := "--force-with-lease=refs/heads/" + branch + ":" + expectedSHA
+	out, err := runGitEnv(dir, env, "push", lease, remote, "HEAD:refs/heads/"+branch)
+	if err != nil {
+		return fmt.Errorf("git push %s %s: %w: %s", lease, branch, err, out)
+	}
+	return nil
+}
+
+// ResetHardTo resets a clean working tree to ref. It is deliberately narrow:
+// server-profile callers check cleanliness before using it for post-merge
+// reconciliation.
+func ResetHardTo(dir, ref string, env ...string) error {
+	out, err := runGitEnv(dir, env, "reset", "--hard", ref)
+	if err != nil {
+		return fmt.Errorf("git reset --hard %s: %w: %s", ref, err, out)
 	}
 	return nil
 }

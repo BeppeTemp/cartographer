@@ -64,6 +64,9 @@ mcp() {
 # --- Setup: bare remote + clone A initialized as KB ---
 echo "[08] init bare remote + KB on clone A"
 git init --bare "$BARE" >/dev/null 2>&1
+# A KB is always initialized on main; make the remote advertise the same branch
+# so the scenario does not depend on the host's init.defaultBranch.
+git -C "$BARE" symbolic-ref HEAD refs/heads/main
 mkdir -p "$KBA"
 
 # Start instance A on KBA with --init (creates structure + git init + initial commit).
