@@ -28,6 +28,7 @@ overrides the default base port.
 | `09_git_conflict` | Conflict registry, degraded marker and conflict listing |
 | `10_scoped_tokens` | Per-KB `r`/`rw` scope enforcement |
 | `11_signed_provisioning` | Signed artifact verification and fail-closed unpinned rotation |
+| `12_mcp_approval` | D115 allow-list, point approval, stale hash rejection and revoke/prune |
 
 The numbering is retained to preserve historical references. Removed gaps were
 LLM-driven scenarios; model behavior is evaluated during real usage, not in the

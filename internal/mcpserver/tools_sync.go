@@ -48,7 +48,7 @@ func flushPendingPush(k *kb.KB, toolName string) {
 // toolSyncCheck returns the current revision of the provisioning manifest (bundle + KB).
 // Read-only: writes nothing, safe on a remote server too.
 // The client may pass its own lockfile revision; the response includes in_sync=true/false.
-func toolSyncCheck(k *kb.KB, bundleFS fs.FS, signer ed25519.PrivateKey) Tool {
+func toolSyncCheck(k *kb.KB, bundleFS fs.FS, signer ed25519.PrivateKey, allowlist []provisioning.MCPAllowlistEntry) Tool {
 	return Tool{
 		Name:     "sync_check",
 		ReadOnly: true,
@@ -73,7 +73,7 @@ func toolSyncCheck(k *kb.KB, bundleFS fs.FS, signer ed25519.PrivateKey) Tool {
 
 			// Use the basename of k.Root as the KB name in the manifest.
 			kbName := filepath.Base(k.Root)
-			m, err := provisioning.BuildManifest(bundleFS, map[string]string{kbName: k.Root}, buildOptions(kbName, signer))
+			m, err := provisioning.BuildManifest(bundleFS, map[string]string{kbName: k.Root}, buildOptions(kbName, signer, allowlist))
 			if err != nil {
 				return errorResult(fmt.Sprintf("sync_check: build manifest: %v", err)), nil
 			}
@@ -124,7 +124,7 @@ func toolSyncCheck(k *kb.KB, bundleFS fs.FS, signer ed25519.PrivateKey) Tool {
 // toolSyncApply materializes the provisioning artifacts into the client's base_dir.
 // Intended for local deployment (stdio): server and client share the filesystem.
 // For remote deployment use `cartographer sync`/`cartographer connect` (via sync_pull) from the client machine.
-func toolSyncApply(k *kb.KB, bundleFS fs.FS, signer ed25519.PrivateKey) Tool {
+func toolSyncApply(k *kb.KB, bundleFS fs.FS, signer ed25519.PrivateKey, allowlist []provisioning.MCPAllowlistEntry) Tool {
 	return Tool{
 		Name: "sync_apply",
 		Description: "Materializes the provisioning skills into the given base_dir, updates the lockfile and prunes " +
@@ -166,7 +166,7 @@ func toolSyncApply(k *kb.KB, bundleFS fs.FS, signer ed25519.PrivateKey) Tool {
 			kbName := filepath.Base(k.Root)
 			kbRoots := map[string]string{kbName: k.Root}
 
-			m, err := provisioning.BuildManifest(bundleFS, kbRoots, buildOptions(kbName, signer))
+			m, err := provisioning.BuildManifest(bundleFS, kbRoots, buildOptions(kbName, signer, allowlist))
 			if err != nil {
 				return errorResult(fmt.Sprintf("sync_apply: build manifest: %v", err)), nil
 			}
@@ -267,7 +267,7 @@ type pulledArtifactJSON struct {
 // artifact's file contents embedded (base64). Meant for a remote HTTP client
 // that does not share the filesystem with the server: the client materializes
 // locally without reading bundle/KB directly. Read-only, no arguments required.
-func toolSyncPull(k *kb.KB, bundleFS fs.FS, signer ed25519.PrivateKey) Tool {
+func toolSyncPull(k *kb.KB, bundleFS fs.FS, signer ed25519.PrivateKey, allowlist []provisioning.MCPAllowlistEntry) Tool {
 	return Tool{
 		Name:     "sync_pull",
 		ReadOnly: true,
@@ -280,7 +280,7 @@ func toolSyncPull(k *kb.KB, bundleFS fs.FS, signer ed25519.PrivateKey) Tool {
 			kbName := filepath.Base(k.Root)
 			kbRoots := map[string]string{kbName: k.Root}
 
-			m, err := provisioning.BuildManifest(bundleFS, kbRoots, buildOptions(kbName, signer))
+			m, err := provisioning.BuildManifest(bundleFS, kbRoots, buildOptions(kbName, signer, allowlist))
 			if err != nil {
 				return errorResult(fmt.Sprintf("sync_pull: build manifest: %v", err)), nil
 			}
@@ -318,9 +318,10 @@ func toolSyncPull(k *kb.KB, bundleFS fs.FS, signer ed25519.PrivateKey) Tool {
 	}
 }
 
-func buildOptions(kbName string, signer ed25519.PrivateKey) provisioning.BuildOptions {
-	if len(signer) == 0 {
-		return provisioning.BuildOptions{}
+func buildOptions(kbName string, signer ed25519.PrivateKey, allowlist []provisioning.MCPAllowlistEntry) provisioning.BuildOptions {
+	opts := provisioning.BuildOptions{MCPAllowlists: map[string][]provisioning.MCPAllowlistEntry{kbName: allowlist}}
+	if len(signer) != 0 {
+		opts.Signers = map[string]ed25519.PrivateKey{kbName: signer}
 	}
-	return provisioning.BuildOptions{Signers: map[string]ed25519.PrivateKey{kbName: signer}}
+	return opts
 }

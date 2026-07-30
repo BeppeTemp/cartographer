@@ -11,6 +11,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/gitx"
 	"github.com/BeppeTemp/cartographer/internal/kb"
 	"github.com/BeppeTemp/cartographer/internal/okf"
+	"github.com/BeppeTemp/cartographer/internal/provisioning"
 	"github.com/BeppeTemp/cartographer/internal/search"
 	"github.com/BeppeTemp/cartographer/internal/sqlindex"
 )
@@ -22,6 +23,7 @@ type Deps struct {
 	SQLIndex       *sqlindex.Index    // nil → in-memory index
 	BundleFS       fs.FS              // nil → no bundled skills
 	ArtifactSigner ed25519.PrivateKey // nil → KB artifacts remain unsigned
+	MCPAllowlist   []provisioning.MCPAllowlistEntry
 }
 
 // RegisterKBTools registers all KB tools on the server, including search, navigation,
@@ -111,8 +113,8 @@ func RegisterKBTools(s *Server, k *kb.KB, deps Deps) {
 	// wrap explicitly so a synchronised KB is fresh before decryption.
 	register(readSyncWrap(k, toolSecretResolve(k)))
 	register(gitWrap(k, toolSecretSet(k)))
-	register(toolArtifactRead(k))
-	register(toolArtifactList(k))
+	register(toolArtifactRead(k, deps.MCPAllowlist))
+	register(toolArtifactList(k, deps.MCPAllowlist))
 	register(toolTemplateList(k))
 	register(gitWrap(k, toolConceptNew(k, live, deps.SQLIndex)))
 	register(toolAssetRead(k))
@@ -127,9 +129,9 @@ func RegisterKBTools(s *Server, k *kb.KB, deps Deps) {
 	if deps.BundleFS != nil {
 		register(toolSkillListWithBundle(k, deps.BundleFS))
 		register(notifyWrap(s, gitWrap(k, toolSkillInstall(k, deps.BundleFS)), "notifications/skills/list_changed"))
-		register(toolSyncCheck(k, deps.BundleFS, deps.ArtifactSigner))
-		register(toolSyncApply(k, deps.BundleFS, deps.ArtifactSigner))
-		register(toolSyncPull(k, deps.BundleFS, deps.ArtifactSigner))
+		register(toolSyncCheck(k, deps.BundleFS, deps.ArtifactSigner, deps.MCPAllowlist))
+		register(toolSyncApply(k, deps.BundleFS, deps.ArtifactSigner, deps.MCPAllowlist))
+		register(toolSyncPull(k, deps.BundleFS, deps.ArtifactSigner, deps.MCPAllowlist))
 	} else {
 		register(toolSkillList(k))
 	}

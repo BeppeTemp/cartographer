@@ -19,6 +19,16 @@ commit it, expose it in health/MCP output, or place it in logs. The server logs
 only the KB and derived key ID. Distribute and pin the corresponding public key
 on each client before switching a signer; unsigned KBs remain supported through
 the explicit client trust policy.
+
+### KB-provided MCP allow-list
+
+Third-party MCP descriptors under `mcp/*.json` are denied by default, including
+after an upgrade. To advertise one, add an exact per-KB `mcp_allowlist` entry
+with its artifact name, `http` transport and normalized absolute target URL.
+The server omits every unlisted descriptor from manifest and `artifact_list`
+responses and logs the configuration action at startup; headers and environment
+references never appear in that diagnostic. Stale allow-list entries are a
+warning, so an endpoint can be staged before its descriptor is committed.
 | **Partitioned servers** | Several instances mount different KBs. A client can connect to entries from more than one server. Do not use several active writer servers as replicas for the same KB; git conflict recovery is a safety net, not a write-scaling protocol. |
 
 ### State and volumes

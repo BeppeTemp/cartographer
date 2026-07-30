@@ -171,7 +171,7 @@ func upgradeTrustedManifest(m provisioning.Manifest, trust bool) provisioning.Ma
 // clientconfig.Config (cfg.SearchRoots/cfg.Paths) and drive placeholder
 // expansion (D75 WP3) — this is the one place cmd/cartographer turns
 // ApplyOptions.ExpandPlaceholders on; internal/mcpserver never does.
-func materializeForProviders(m provisioning.Manifest, providers []string, targetDir string, autoTrust, dryRun bool, searchRoots []string, paths map[string]string) (map[string]provisioning.AppliedResult, error) {
+func materializeForProviders(m provisioning.Manifest, providers []string, targetDir string, autoTrust, dryRun bool, searchRoots []string, paths map[string]string, approvalHashes ...map[string]string) (map[string]provisioning.AppliedResult, error) {
 	lockPath := lockFilePath(targetDir)
 	lockFile, err := provisioning.ReadLockFile(lockPath)
 	if err != nil {
@@ -179,12 +179,17 @@ func materializeForProviders(m provisioning.Manifest, providers []string, target
 	}
 
 	results := make(map[string]provisioning.AppliedResult, len(providers))
+	var approvedMCP map[string]string
+	if len(approvalHashes) > 0 {
+		approvedMCP = approvalHashes[0]
+	}
 	for _, p := range providers {
 		opts := provisioning.ApplyOptions{
 			Provider:           configurator.Provider(p),
 			BaseDir:            targetDir,
 			DryRun:             dryRun,
 			AutoTrust:          autoTrust,
+			ApprovedMCP:        approvedMCP,
 			Lock:               lockFile.ForProvider(p),
 			SkipLockWrite:      true,
 			ExpandPlaceholders: true,

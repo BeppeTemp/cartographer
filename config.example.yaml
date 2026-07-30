@@ -26,6 +26,10 @@ kbs:
   - path: /data/kb-locale
     # artifact_signing_seed: ${CARTOGRAPHER_ARTIFACT_SIGNING_SEED}
     # 32-byte hexadecimal Ed25519 seed from a secret mount; never commit it.
+    # mcp_allowlist:             # deny all KB-provided MCP endpoints by default
+    #   - name: wiki-tools
+    #     transport: http
+    #     target: https://tools.example.com/mcp  # normalized absolute URL, exact match
     # optional per-KB overrides (zero value = fall back to global git/sops):
     # ssh_key: /etc/kb-ssh/id_ed25519_locale
     # author_name: cartographer-locale

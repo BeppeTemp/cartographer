@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/artifactsig"
 	"github.com/BeppeTemp/cartographer/internal/defaults"
@@ -54,6 +55,16 @@ type Config struct {
 	// SigningKeys pins Ed25519 public keys by source KB. Pins are configured
 	// out of band and are never learned from sync_pull responses.
 	SigningKeys map[string][]string `yaml:"signing_keys,omitempty"`
+	// MCPApprovals is keyed by source KB then artifact name. Each entry binds
+	// consent to one exact descriptor content hash.
+	MCPApprovals map[string]map[string]MCPApproval `yaml:"mcp_approvals,omitempty"`
+	// Extra retains unknown top-level YAML keys across approval updates.
+	Extra map[string]interface{} `yaml:"-"`
+}
+
+type MCPApproval struct {
+	ContentHash string    `yaml:"content_hash"`
+	ApprovedAt  time.Time `yaml:"approved_at"`
 }
 
 // yamlConfig mirrors Config for YAML (de)serialization. Trust is a *bool here
@@ -61,16 +72,17 @@ type Config struct {
 // (nil, defaults to true) apart from an explicit `trust: false` written by a
 // user who revoked it.
 type yamlConfig struct {
-	ServerURL   string              `yaml:"server_url"`
-	ServerName  string              `yaml:"server_name"`
-	Auth        bool                `yaml:"auth"`
-	TokenEnv    string              `yaml:"token_env"`
-	Agents      []string            `yaml:"agents"`
-	KBs         []string            `yaml:"kbs,omitempty"`
-	Trust       *bool               `yaml:"trust,omitempty"`
-	SearchRoots []string            `yaml:"search_roots,omitempty"`
-	Paths       map[string]string   `yaml:"paths,omitempty"`
-	SigningKeys map[string][]string `yaml:"signing_keys,omitempty"`
+	ServerURL    string                            `yaml:"server_url"`
+	ServerName   string                            `yaml:"server_name"`
+	Auth         bool                              `yaml:"auth"`
+	TokenEnv     string                            `yaml:"token_env"`
+	Agents       []string                          `yaml:"agents"`
+	KBs          []string                          `yaml:"kbs,omitempty"`
+	Trust        *bool                             `yaml:"trust,omitempty"`
+	SearchRoots  []string                          `yaml:"search_roots,omitempty"`
+	Paths        map[string]string                 `yaml:"paths,omitempty"`
+	SigningKeys  map[string][]string               `yaml:"signing_keys,omitempty"`
+	MCPApprovals map[string]map[string]MCPApproval `yaml:"mcp_approvals,omitempty"`
 }
 
 // Default returns a Config with the same defaults as configurator.DefaultConfig.
@@ -119,17 +131,26 @@ func Load(dir string) (*Config, error) {
 	if err := yaml.Unmarshal(data, &y); err != nil {
 		return nil, fmt.Errorf("clientconfig: parse %s: %w", Path(dir), err)
 	}
+	var extra map[string]interface{}
+	if err := yaml.Unmarshal(data, &extra); err != nil {
+		return nil, fmt.Errorf("clientconfig: parse extras %s: %w", Path(dir), err)
+	}
+	for _, key := range []string{"server_url", "server_name", "auth", "token_env", "agents", "kbs", "trust", "search_roots", "paths", "signing_keys", "mcp_approvals"} {
+		delete(extra, key)
+	}
 	cfg := Config{
-		ServerURL:   y.ServerURL,
-		ServerName:  y.ServerName,
-		Auth:        y.Auth,
-		TokenEnv:    y.TokenEnv,
-		Agents:      y.Agents,
-		KBs:         y.KBs,
-		Trust:       true, // absent `trust` key defaults to true, see yamlConfig doc
-		SearchRoots: y.SearchRoots,
-		Paths:       y.Paths,
-		SigningKeys: y.SigningKeys,
+		ServerURL:    y.ServerURL,
+		ServerName:   y.ServerName,
+		Auth:         y.Auth,
+		TokenEnv:     y.TokenEnv,
+		Agents:       y.Agents,
+		KBs:          y.KBs,
+		Trust:        true, // absent `trust` key defaults to true, see yamlConfig doc
+		SearchRoots:  y.SearchRoots,
+		Paths:        y.Paths,
+		SigningKeys:  y.SigningKeys,
+		MCPApprovals: y.MCPApprovals,
+		Extra:        extra,
 	}
 	if y.Trust != nil {
 		cfg.Trust = *y.Trust
@@ -148,25 +169,93 @@ func Save(dir string, cfg *Config) error {
 		return fmt.Errorf("clientconfig: mkdir %s: %w", dir, err)
 	}
 	y := yamlConfig{
-		ServerURL:   cfg.ServerURL,
-		ServerName:  cfg.ServerName,
-		Auth:        cfg.Auth,
-		TokenEnv:    cfg.TokenEnv,
-		Agents:      cfg.Agents,
-		KBs:         cfg.KBs,
-		Trust:       &cfg.Trust,
-		SearchRoots: cfg.SearchRoots,
-		Paths:       cfg.Paths,
-		SigningKeys: cfg.SigningKeys,
+		ServerURL:    cfg.ServerURL,
+		ServerName:   cfg.ServerName,
+		Auth:         cfg.Auth,
+		TokenEnv:     cfg.TokenEnv,
+		Agents:       cfg.Agents,
+		KBs:          cfg.KBs,
+		Trust:        &cfg.Trust,
+		SearchRoots:  cfg.SearchRoots,
+		Paths:        cfg.Paths,
+		SigningKeys:  cfg.SigningKeys,
+		MCPApprovals: cfg.MCPApprovals,
 	}
 	data, err := yaml.Marshal(&y)
 	if err != nil {
 		return fmt.Errorf("clientconfig: marshal: %w", err)
 	}
-	if err := os.WriteFile(Path(dir), data, 0o644); err != nil {
-		return fmt.Errorf("clientconfig: write %s: %w", Path(dir), err)
+	var merged map[string]interface{}
+	if err := yaml.Unmarshal(data, &merged); err != nil {
+		return fmt.Errorf("clientconfig: encode fields: %w", err)
+	}
+	for key, value := range cfg.Extra {
+		if _, exists := merged[key]; !exists {
+			merged[key] = value
+		}
+	}
+	data, err = yaml.Marshal(merged)
+	if err != nil {
+		return fmt.Errorf("clientconfig: marshal merged: %w", err)
+	}
+	tmp, err := os.CreateTemp(dir, FileName+".tmp-*")
+	if err != nil {
+		return fmt.Errorf("clientconfig: create temp: %w", err)
+	}
+	tmpName := tmp.Name()
+	defer os.Remove(tmpName)
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		return fmt.Errorf("clientconfig: write temp: %w", err)
+	}
+	if err := tmp.Chmod(0o644); err != nil {
+		tmp.Close()
+		return fmt.Errorf("clientconfig: chmod temp: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("clientconfig: close temp: %w", err)
+	}
+	if err := os.Rename(tmpName, Path(dir)); err != nil {
+		return fmt.Errorf("clientconfig: replace %s: %w", Path(dir), err)
 	}
 	return nil
+}
+
+// ApproveMCP records the exact descriptor hash for one source/name pair.
+func (c *Config) ApproveMCP(sourceKB, name, hash string, at time.Time) error {
+	if sourceKB == "" || name == "" || hash == "" {
+		return fmt.Errorf("clientconfig: invalid MCP approval")
+	}
+	if c.MCPApprovals == nil {
+		c.MCPApprovals = make(map[string]map[string]MCPApproval)
+	}
+	if c.MCPApprovals[sourceKB] == nil {
+		c.MCPApprovals[sourceKB] = make(map[string]MCPApproval)
+	}
+	c.MCPApprovals[sourceKB][name] = MCPApproval{ContentHash: hash, ApprovedAt: at.UTC()}
+	return nil
+}
+
+// RevokeMCP removes an approval. Missing records are intentionally a no-op.
+func (c *Config) RevokeMCP(sourceKB, name string) {
+	if c.MCPApprovals == nil {
+		return
+	}
+	delete(c.MCPApprovals[sourceKB], name)
+	if len(c.MCPApprovals[sourceKB]) == 0 {
+		delete(c.MCPApprovals, sourceKB)
+	}
+}
+
+// ApprovedMCPHashes returns ApplyOptions' compact source/name → hash map.
+func (c *Config) ApprovedMCPHashes() map[string]string {
+	out := make(map[string]string)
+	for source, entries := range c.MCPApprovals {
+		for name, approval := range entries {
+			out["kb:"+source+"\x00"+name] = approval.ContentHash
+		}
+	}
+	return out
 }
 
 // AddSigningKey pins key for kbName unless it is already present.
