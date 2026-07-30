@@ -40,8 +40,9 @@ The server process is **ephemeral** (k8s pod or local service); what persists on
   rebuildable; conflict registries are operational state and should survive a
   restart until resolved.
 
-The configured audit file is not currently populated by MCP tool execution and
-must not be treated as a complete request log.
+When `audit.log` is set, MCP tool execution appends an attempt+completion event
+pair per call, so the file is a complete operational request log (D119). See
+§Audit log below and [transport-auth](transport-auth.md) §Operational audit.
 
 ### Configuration: flags, env, YAML
 
@@ -119,6 +120,10 @@ search:
 audit:
   log: ""                      # (audit.log) path to the audit log's JSONL file
   key_seed: ""                 # (audit.key_seed) Ed25519 hex seed for signing
+  mode: best_effort            # (audit.mode) best_effort (default) | required
+  max_segment_bytes: 0         # (audit.max_segment_bytes) rotate past this size; 0 = package default
+  archive_dir: ""              # (audit.archive_dir) rotated segments; empty = beside the log
+  retention_days: 0            # (audit.retention_days) delete checkpointed segments older than N days; 0 = keep
 sops:
   age_key_dir: /etc/kb-sops-keys # (sops.age_key_dir) directory <age_key_dir>/<name>.age (D53, see below)
 tools:
@@ -406,11 +411,43 @@ Rollout notes:
   outside its perimeter receives a generic `not found`, deliberately
   indistinguishable from a missing concept.
 
+### Audit log
+
+`audit.log` turns on the compliance trail (D119). Semantics and the guarantees
+are in [transport-auth](transport-auth.md) §Operational audit; this is the
+operator view.
+
+```yaml
+audit:
+  log: /var/lib/cartographer/audit.jsonl
+  key_seed: ${CARTOGRAPHER_AUDIT_SEED}   # Ed25519 hex seed; enables signatures
+  mode: required                         # best_effort (default) | required
+  max_segment_bytes: 67108864
+  archive_dir: /var/lib/cartographer/audit-archive
+  retention_days: 400
+```
+
+Rollout notes:
+
+- **Start in `best_effort`.** It is the default and the pre-D119 behaviour: a
+  broken sink never blocks a call. Move to `required` only once the log's
+  storage is as available as the service itself — in `required` mode an
+  unwritable audit log takes MCP calls down with it, which is the correct
+  trade for a compliance deployment and the wrong one everywhere else.
+- **Back up `archive_dir` together with the checkpoint index.** Retention only
+  ever deletes a segment already covered by a signed checkpoint, so verification
+  still succeeds afterwards, but only if the index survives.
+- **Keep the public key.** Without it `audit verify` checks the chain but not
+  the signatures; it reports the unsigned count rather than silently passing.
+- Verify from the operator machine, not the server: both commands read files
+  and never contact a running instance, so they work during an outage.
+
 ## Observability
 
 Cartographer emits structured operational messages and per-phase sync timing
 to stderr. It does not expose Prometheus metrics or derive token/queue/search
-SLIs from the audit file.
+SLIs from the audit file; the audit log is evidence for compliance review
+(`cartographer audit verify|export`), not a metrics source.
 
 **Liveness vs readiness (D84)**: `/health` is liveness — `status:"ok"` unconditionally (a probe that
 restarted the process on `status != "ok"` must never fire from a KB-mounting issue); it also carries

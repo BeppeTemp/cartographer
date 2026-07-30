@@ -168,8 +168,11 @@ require them on every concept. `log.md` is updated only through explicit log
 tools. Git commits are the durable change history when auto-commit is enabled.
 
 `internal/audit` implements a JSONL hash-chain with optional Ed25519
-signatures, but request/tool handlers do not currently append execution events
-to it. It must not be presented as a complete operational audit trail.
+signatures. When `audit.log` is configured, every `tools/call` appends an
+attempt event before dispatch and a completion event after it (D119), so the
+log is a complete operational audit trail: semantics, failure modes and the
+`cartographer audit verify|export` commands are in
+[`transport-auth.md`](transport-auth.md) §Operational audit.
 
 The content hash is computed on normalized content and per section to avoid
 spurious `stale_write` failures.

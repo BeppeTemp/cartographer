@@ -74,6 +74,12 @@ type ContentBlock struct {
 type ToolResult struct {
 	Content []ContentBlock `json:"content"`
 	IsError bool           `json:"isError,omitempty"`
+	// CommitSHA, if set by gitWrap after a successful write commit, is the
+	// resulting commit's SHA (captured under the per-KB git lock, never a
+	// later racy HEAD query — D119). It is internal call metadata only:
+	// excluded from the wire format (json:"-") and consumed solely by the
+	// audit completion event in handleToolsCall.
+	CommitSHA string `json:"-"`
 }
 
 // textResult builds a ToolResult with a single text block.

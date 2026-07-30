@@ -296,28 +296,42 @@ func (k *KB) HasRemote() (string, bool) { return k.hasRemote() }
 // If git commit itself fails, the error is returned to the caller; the wrapper in
 // mcpserver treats commit errors as non-fatal (logs to stderr, does not surface to
 // the MCP client).
-func (k *KB) CommitOp(message string) error {
+//
+// On a successful commit, sha is the new commit's SHA, resolved via
+// gitx.HeadSHA immediately after the commit — while the caller still holds
+// the per-KB git lock (WithGitLock in mcpserver.gitWrap), so this is never a
+// race with a concurrent commit/push on the same KB (D119: the audit log
+// records this SHA on the write's completion event instead of a later,
+// racier HEAD query). sha is empty when no commit was made (autocommit off,
+// not a repo, clean tree, or "nothing to commit").
+func (k *KB) CommitOp(message string) (sha string, err error) {
 	if !k.AutoCommit || !gitx.IsRepo(k.Root) {
-		return nil
+		return "", nil
 	}
 	status, err := gitx.Status(k.Root)
 	if err != nil || strings.TrimSpace(status) == "" {
 		// Either status check failed or working tree is clean — nothing to commit.
-		return nil
+		return "", nil
 	}
 	authorName, authorEmail := "", ""
 	if k.GitAuthorExplicit {
 		authorName, authorEmail = k.gitAuthor()
-	} else if _, _, err := gitx.AuthorIdent(k.Root, k.GitEnv...); err != nil {
+	} else if _, _, identErr := gitx.AuthorIdent(k.Root, k.GitEnv...); identErr != nil {
 		authorName, authorEmail = defaultGitAuthorName, defaultGitAuthorEmail
 	}
 	if err := gitx.Commit(k.Root, message, authorName, authorEmail, k.GitEnv...); err != nil {
 		if errors.Is(err, gitx.ErrNothingToCommit) {
-			return nil
+			return "", nil
 		}
-		return err
+		return "", err
 	}
-	return nil
+	sha, shaErr := gitx.HeadSHA(k.Root)
+	if shaErr != nil {
+		// The commit itself succeeded; a failure to resolve its SHA afterwards
+		// is not a commit failure and must not be reported as one.
+		return "", nil
+	}
+	return sha, nil
 }
 
 // CommitPaths creates one commit containing changes to paths only. The

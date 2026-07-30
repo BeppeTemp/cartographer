@@ -80,8 +80,11 @@ func gitWrap(k *kb.KB, t Tool) Tool {
 			if handlerErr == nil && !res.IsError {
 				msg := commitMessage(orig.Name, args)
 				commitStart := time.Now()
-				commitErr := k.CommitOp(msg)
+				sha, commitErr := k.CommitOp(msg)
 				commitDur = time.Since(commitStart)
+				if commitErr == nil {
+					res.CommitSHA = sha
+				}
 				if commitErr != nil {
 					fmt.Fprintf(os.Stderr, "cartographer: git commit failed (%s): %v\n", orig.Name, commitErr)
 					k.SetGitStatus("failed", fmt.Errorf("commit: %w", commitErr))

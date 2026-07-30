@@ -175,24 +175,25 @@ func resolveSopsAgeKeyFile(spec config.KBSpec, sops config.SopsConfig, name stri
 func runServe(cfg *config.Config) {
 	var auditLog *audit.Log
 	if cfg.Audit.Log != "" {
+		opts := auditOptions(cfg.Audit)
 		if cfg.Audit.KeySeed != "" {
 			kp, err := audit.KeyPairFromSeed(cfg.Audit.KeySeed)
 			if err != nil {
 				log.Fatalf("audit key seed invalid: %v", err)
 			}
-			al, err := audit.OpenWithKey(cfg.Audit.Log, kp)
+			al, err := audit.OpenWithKeyAndOptions(cfg.Audit.Log, kp, opts)
 			if err != nil {
 				log.Fatalf("audit log open: %v", err)
 			}
 			auditLog = al
-			log.Printf("audit log: %s (signing enabled)", cfg.Audit.Log)
+			log.Printf("audit log: %s (mode %s, signing enabled)", cfg.Audit.Log, auditLog.ModeName())
 		} else {
-			al, err := audit.Open(cfg.Audit.Log)
+			al, err := audit.OpenWithOptions(cfg.Audit.Log, opts)
 			if err != nil {
 				log.Fatalf("audit log open: %v", err)
 			}
 			auditLog = al
-			log.Printf("audit log: %s", cfg.Audit.Log)
+			log.Printf("audit log: %s (mode %s)", cfg.Audit.Log, auditLog.ModeName())
 		}
 	}
 
@@ -385,6 +386,9 @@ func serveStdio(k *kb.KB, artifactSigner ed25519.PrivateKey, allowlist []provisi
 	s := mcpserver.New(version)
 	mcpserver.RegisterKBTools(s, k, mcpserver.Deps{Embedder: emb, VecStore: store, SQLIndex: sqlIdx, BundleFS: skillbundle.FS, ArtifactSigner: artifactSigner, MCPAllowlist: allowlist})
 	s.SetToolsProfile(toolsProfile)
+	s.SetAuditLog(auditLog)
+	s.SetKBName(k.AuthName)
+	s.SetTransport("stdio")
 	log.Printf("stdio transport, KB: %s (tools profile: %s)", k.Root, toolsProfile)
 	// s.Run blocks on the stdio read loop and returns when the client closes
 	// stdin (or on a transport error) — that return is stdio's natural
@@ -434,6 +438,9 @@ func serveHTTP(addr string, kbs []*kb.KB, names []string, toolPrefixes []string,
 			sqlIdx := sqlIdxs[filepath.Clean(k.Root)]
 			mcpserver.RegisterKBTools(s, k, mcpserver.Deps{Embedder: emb, VecStore: vecStore, SQLIndex: sqlIdx, BundleFS: skillbundle.FS, ArtifactSigner: artifactSigners[i], MCPAllowlist: allowlists[i]})
 			s.SetToolsProfile(toolsProfile)
+			s.SetAuditLog(auditLog)
+			s.SetKBName(name)
+			s.SetTransport("http")
 		})
 		if err != nil {
 			log.Fatal(err)
@@ -591,4 +598,16 @@ func discoverKBPaths(dataDir string) ([]string, error) {
 		paths = append(paths, filepath.Join(dataDir, e.Name()))
 	}
 	return paths, nil
+}
+
+// auditOptions maps the operator-facing audit configuration onto the package
+// options. An empty AuditConfig yields the zero Options, i.e. the pre-D119
+// best-effort behaviour.
+func auditOptions(c config.AuditConfig) audit.Options {
+	return audit.Options{
+		Mode:          c.Mode,
+		MaxBytes:      c.MaxSegmentBytes,
+		RetentionDays: c.RetentionDays,
+		ArchiveDir:    c.ArchiveDir,
+	}
 }

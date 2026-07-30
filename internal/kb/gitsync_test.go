@@ -34,7 +34,7 @@ func TestCommitOp_AutoCommitEnabled_DirtyTree(t *testing.T) {
 		t.Fatalf("WriteFileAtomic: %v", err)
 	}
 
-	if err := k.CommitOp("test: gitsync dirty tree"); err != nil {
+	if _, err := k.CommitOp("test: gitsync dirty tree"); err != nil {
 		t.Fatalf("CommitOp: %v", err)
 	}
 
@@ -54,7 +54,7 @@ func TestCommitOp_AutoCommitDisabled_NoCommit(t *testing.T) {
 		t.Fatalf("WriteFileAtomic: %v", err)
 	}
 
-	if err := k.CommitOp("test: gitsync disabled"); err != nil {
+	if _, err := k.CommitOp("test: gitsync disabled"); err != nil {
 		t.Fatalf("CommitOp unexpected error: %v", err)
 	}
 
@@ -78,7 +78,7 @@ func TestCommitOp_PerKBIdentity(t *testing.T) {
 	if err := k.WriteFileAtomic("data/gitsync-identity.md", []byte("---\ntype: Note\ntitle: Identity\n---\ntest\n")); err != nil {
 		t.Fatalf("WriteFileAtomic: %v", err)
 	}
-	if err := k.CommitOp("test: per-KB identity"); err != nil {
+	if _, err := k.CommitOp("test: per-KB identity"); err != nil {
 		t.Fatalf("CommitOp: %v", err)
 	}
 
@@ -110,7 +110,7 @@ func TestCommitOp_DefaultIdentity_NoOverride(t *testing.T) {
 	if err := k.WriteFileAtomic("data/gitsync-default-identity.md", []byte("---\ntype: Note\ntitle: Default\n---\ntest\n")); err != nil {
 		t.Fatalf("WriteFileAtomic: %v", err)
 	}
-	if err := k.CommitOp("test: default identity"); err != nil {
+	if _, err := k.CommitOp("test: default identity"); err != nil {
 		t.Fatalf("CommitOp: %v", err)
 	}
 
@@ -132,7 +132,7 @@ func TestCommitOp_NativeRepositoryIdentity(t *testing.T) {
 	if err := k.WriteFileAtomic("data/native.md", []byte("native\n")); err != nil {
 		t.Fatal(err)
 	}
-	if err := k.CommitOp("native"); err != nil {
+	if _, err := k.CommitOp("native"); err != nil {
 		t.Fatal(err)
 	}
 	got, err := gitLogFormat(t, k.Root, "%an <%ae>")
@@ -153,7 +153,7 @@ func TestCommitOp_PlaceholderFallbackWithoutRepositoryIdentity(t *testing.T) {
 	if err := k.WriteFileAtomic("data/fallback.md", []byte("fallback\n")); err != nil {
 		t.Fatal(err)
 	}
-	if err := k.CommitOp("fallback"); err != nil {
+	if _, err := k.CommitOp("fallback"); err != nil {
 		t.Fatal(err)
 	}
 	got, err := gitLogFormat(t, k.Root, "%an <%ae>")
@@ -208,7 +208,7 @@ func TestCommitOp_CleanTree_NoCommit(t *testing.T) {
 	k.AutoCommit = true
 
 	// Working tree is clean after Init — CommitOp should be a no-op.
-	if err := k.CommitOp("test: gitsync clean tree"); err != nil {
+	if _, err := k.CommitOp("test: gitsync clean tree"); err != nil {
 		t.Fatalf("CommitOp unexpected error: %v", err)
 	}
 

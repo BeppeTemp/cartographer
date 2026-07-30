@@ -197,7 +197,7 @@ func TestGitWrap_ConceptNew_CreatesOneCommit(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(k.Root, "templates", "note.md"), []byte("---\ntype: Note\ntitle: {{title}}\n---\n# Details\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := k.CommitOp("test: add template"); err != nil {
+	if _, err := k.CommitOp("test: add template"); err != nil {
 		t.Fatal(err)
 	}
 	count := func() int {
@@ -234,7 +234,7 @@ func TestGitWrap_AssetWriteAndDeleteCreateOneCommitEach(t *testing.T) {
 		t.Fatal(err)
 	}
 	k.AutoCommit = true
-	if err := k.CommitOp("test: set up asset owner"); err != nil {
+	if _, err := k.CommitOp("test: set up asset owner"); err != nil {
 		t.Fatal(err)
 	}
 	commitCount := func() int {
@@ -551,7 +551,7 @@ func TestGitWrap_ReauthorizesAfterSyncInChangesConceptType(t *testing.T) {
 	if _, err := k.WriteConcept("manutenzione/reauth", fm, "body", ""); err != nil {
 		t.Fatal(err)
 	}
-	if err := k.CommitOp("seed RBAC fixture"); err != nil {
+	if _, err := k.CommitOp("seed RBAC fixture"); err != nil {
 		t.Fatal(err)
 	}
 	if err := k.SyncOut(); err != nil {

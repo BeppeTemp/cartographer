@@ -1,12 +1,16 @@
 package mcpserver
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
 	"strings"
+
+	"github.com/BeppeTemp/cartographer/internal/audit"
+	"github.com/BeppeTemp/cartographer/internal/auth"
 )
 
 // HTTPHandler returns an http.Handler that serves MCP over Streamable HTTP.
@@ -80,6 +84,104 @@ func (s *Server) handleMCPPost(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(resp)
 }
 
+// mcpAccessGuard wraps next (an /mcp handler for a single KB) with per-KB,
+// per-tool r/rw scope enforcement. Scopes come from the request context
+// (auth.ScopesFromContext, populated by TokenStore.Middleware from the
+// token's configured scopes); a nil/empty scope list means full access
+// (admin token) and the guard passes through unconditionally.
+//
+// To decide whether the request needs write access it peeks the JSON-RPC
+// body: any method other than "tools/call" (initialize, tools/list, ping,
+// ...) is treated as read-only; "tools/call" needs write iff
+// ToolRequiresWrite(params.name) — fail-closed, so an unparsable body or an
+// unknown tool name requires write. The body is always restored on r.Body
+// (via io.NopCloser over the buffered bytes) so the wrapped handler, which
+// reads it again from scratch, sees the exact original bytes.
+//
+// Special case (M4, D47): service_get is classified ReadOnly (it only reads
+// frontmatter+body by default), but with arguments.resolve_secrets==true it
+// decrypts and returns the service's secrets — access to secrets requires at
+// least the same privilege as a write. The tool-name classification in
+// ToolRequiresWrite can't see arguments, so this per-argument override lives
+// here, at the one place that already parses the JSON-RPC body.
+//
+// srv is the KB's own *Server: its ToolRequiresWrite method strips this
+// server's tool-name prefix (D102), if any, before classifying — so a
+// prefixed write tool is still correctly rejected for a read-only scope.
+//
+// D119: a denial of an actual "tools/call" request is recorded as one
+// attempt+completion audit event pair (outcome=unauthorized) via
+// srv.auditDenied, since this is the one place that decides the denial —
+// dispatch (and its own audit wrapping in handleToolsCall) never runs for a
+// request rejected here. Denials of any other JSON-RPC method (e.g. a
+// wrong-KB scoped token hitting tools/list) are not tool calls and are not
+// audited, matching handleToolsCall's own scope.
+func mcpAccessGuard(kbName string, srv *Server, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		scopes := auth.ScopesFromContext(r.Context())
+		if len(scopes) == 0 {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		body, err := io.ReadAll(io.LimitReader(r.Body, 2<<20))
+		if err != nil {
+			http.Error(w, "read error", http.StatusBadRequest)
+			return
+		}
+		r.Body = io.NopCloser(bytes.NewReader(body))
+
+		needWrite := true // fail-closed: an unparsable request requires write access
+		isToolCall := false
+		var toolName string
+		var toolArgs json.RawMessage
+		var req Request
+		if err := json.Unmarshal(body, &req); err == nil {
+			if req.Method != "tools/call" {
+				needWrite = false
+			} else {
+				isToolCall = true
+				var params struct {
+					Name      string          `json:"name"`
+					Arguments json.RawMessage `json:"arguments"`
+				}
+				_ = json.Unmarshal(req.Params, &params) // ignore errors: ToolRequiresWrite("") is fail-closed too
+				toolName, toolArgs = params.Name, params.Arguments
+				var resolve struct {
+					ResolveSecrets bool `json:"resolve_secrets"`
+				}
+				_ = json.Unmarshal(params.Arguments, &resolve)
+				needWrite = srv.ToolRequiresWrite(toolName)
+				if srv.StripToolPrefix(toolName) == "service_get" && resolve.ResolveSecrets {
+					needWrite = true
+				}
+			}
+		}
+
+		if !auth.HasAccess(scopes, kbName, needWrite) {
+			if isToolCall {
+				srv.auditDenied(r, toolName, toolArgs)
+			}
+			auth.Forbidden(w)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// auditState returns this Server's attached audit sink health (D119), or nil
+// if no sink is attached (SetAuditLog never called) — the pre-D119 default.
+func (s *Server) auditState() *audit.State {
+	s.mu.Lock()
+	l := s.auditLog
+	s.mu.Unlock()
+	if l == nil {
+		return nil
+	}
+	st := l.State()
+	return &st
+}
+
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -87,25 +189,46 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
+	ready := true // a single-KB server always has its one KB mounted
 	result := map[string]interface{}{
 		"status":  "ok",
 		"version": s.version,
-		"ready":   true, // a single-KB server always has its one KB mounted
 	}
+	if st := s.auditState(); st != nil {
+		result["audit"] = st
+		ready = ready && st.Ready
+	}
+	result["ready"] = ready
 	json.NewEncoder(w).Encode(result)
 }
 
 // handleReady reports readiness: a single-KB server is always ready (its one
 // KB is mounted at construction time), unlike MultiKBServer where 0 KBs
-// mounted means not ready.
+// mounted means not ready — UNLESS an attached audit sink in required mode is
+// unhealthy (D119: readiness gates on the sink so an operator, or a
+// readinessProbe, notices before the next required-mode call is rejected).
 func (s *Server) handleReady(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+	ready := true
+	var auditInfo interface{}
+	if st := s.auditState(); st != nil {
+		ready = st.Ready
+		auditInfo = st
+	}
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]interface{}{"ready": true})
+	if !ready {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	} else {
+		w.WriteHeader(http.StatusOK)
+	}
+	body := map[string]interface{}{"ready": ready}
+	if auditInfo != nil {
+		body["audit"] = auditInfo
+	}
+	json.NewEncoder(w).Encode(body)
 }
 
 // ListenAndServe starts the HTTP server on the given address (e.g. ":39273").

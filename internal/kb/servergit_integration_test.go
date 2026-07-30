@@ -226,7 +226,7 @@ func TestServerGitIfMatchTracksRebasedAndExternallyUpdatedWorkingContent(t *test
 	if _, err := k.WriteConcept("item", fm, "after base rebase\n", item.ContentHash); err != nil {
 		t.Fatalf("post-rebase if_match write: %v", err)
 	}
-	if err := k.CommitOp("post rebase update"); err != nil {
+	if _, err := k.CommitOp("post rebase update"); err != nil {
 		t.Fatal(err)
 	}
 	if err := k.SyncOut(); err != nil {
@@ -252,7 +252,7 @@ func TestServerGitIfMatchTracksRebasedAndExternallyUpdatedWorkingContent(t *test
 	if err := os.WriteFile(filepath.Join(k.Root, "data", "local.md"), []byte("---\ntype: Note\n---\nlocal\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := k.CommitOp("local concurrent write"); err != nil {
+	if _, err := k.CommitOp("local concurrent write"); err != nil {
 		t.Fatal(err)
 	}
 	if err := k.SyncOut(); err != nil {

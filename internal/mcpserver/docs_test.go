@@ -35,6 +35,10 @@ var toolPrefixes = []string{
 // an operation that does not exist (documented as such).
 var docsNonTools = map[string]bool{
 	"artifact_signing_seed": true,
+	// audit configuration keys (D119), not tools
+	"archive_dir":       true,
+	"retention_days":    true,
+	"max_segment_bytes": true,
 	// lint rules (internal/lint)
 	"concept_oversize": true, "map_oversize": true, "machine_path": true,
 	"expanded_as_category": true, "expanded_ambiguous": true,
