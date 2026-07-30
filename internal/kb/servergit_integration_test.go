@@ -25,7 +25,7 @@ func newServerGitMount(t *testing.T) (*KB, string) {
 	if err := os.MkdirAll(filepath.Dir(bare), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	serverGitRun(t, filepath.Dir(bare), "init", "--bare", bare)
+	serverGitInitBare(t, bare)
 	serverGitRemote(t, k, bare)
 	return k, bare
 }

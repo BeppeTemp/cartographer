@@ -34,12 +34,24 @@ func Clone(remote, dest string, env ...string) error {
 	return nil
 }
 
+// DefaultBranch is the branch a freshly initialized KB is created on. The
+// server Git profile compares the checked-out branch against a configured base
+// branch, so inheriting the host's init.defaultBranch would make a KB unusable
+// on any machine configured for "master".
+const DefaultBranch = "main"
+
 // Init initializes a git repository in the directory, if one does not already exist.
-// Configures merge.conflictStyle=zdiff3 locally.
+// Pins the initial branch to DefaultBranch and configures merge.conflictStyle=zdiff3
+// locally. Existing repositories keep whatever branch they are on.
 func Init(dir string) error {
 	if !IsRepo(dir) {
 		if out, err := runGit(dir, "init"); err != nil {
 			return fmt.Errorf("git init: %w: %s", err, out)
+		}
+		// The repository has no commits yet, so moving HEAD is safe and does
+		// not depend on a git version that supports "init -b".
+		if out, err := runGit(dir, "symbolic-ref", "HEAD", "refs/heads/"+DefaultBranch); err != nil {
+			return fmt.Errorf("git symbolic-ref HEAD: %w: %s", err, out)
 		}
 	}
 	// Configure zdiff3 for more readable diffs during merge conflicts.

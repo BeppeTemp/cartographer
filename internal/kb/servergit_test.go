@@ -257,6 +257,16 @@ func TestRecordServerRebaseConflictRetainsNonConceptPaths(t *testing.T) {
 	}
 }
 
+// serverGitInitBare creates the fake remote and makes it advertise the branch
+// the KB is actually on. Without the symbolic-ref a clone on a host configured
+// for init.defaultBranch=master checks out nothing, and every fixture built on
+// top of it sees an empty worktree.
+func serverGitInitBare(t *testing.T, bare string) {
+	t.Helper()
+	serverGitRun(t, filepath.Dir(bare), "init", "--bare", bare)
+	serverGitRun(t, bare, "symbolic-ref", "HEAD", "refs/heads/"+gitx.DefaultBranch)
+}
+
 func serverGitFinalizeFixture(t *testing.T) (*KB, string, string) {
 	t.Helper()
 	root := t.TempDir()
@@ -268,7 +278,7 @@ func serverGitFinalizeFixture(t *testing.T) (*KB, string, string) {
 	if err := os.MkdirAll(filepath.Dir(bare), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	serverGitRun(t, filepath.Dir(bare), "init", "--bare", bare)
+	serverGitInitBare(t, bare)
 	serverGitRemote(t, k, bare)
 	f := fakeForge{}
 	if err := k.ConfigureServerGit(ServerGitConfig{BaseBranch: "main", WorkingBranch: "cartographer/kb", Owner: "example", Repository: "wiki", Forge: f}); err != nil {
