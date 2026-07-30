@@ -201,11 +201,24 @@ func ftsTokens(q string) []string {
 // with the in-memory snippet extraction (D70).
 const ftsSnippetTokens = 200
 
+// ftsSearchBatch is deliberately bounded: SearchFTSFiltered reads additional
+// ranked pages only when hidden candidates leave the requested result page
+// short.
+const ftsSearchBatch = 64
+
 // SearchFTS performs a keyword search via FTS5 trigram tokenizer.
 // If scope is non-empty, only concepts whose id starts with scope are returned.
 // Results are sorted by BM25 relevance (higher score = better match). Each hit
 // carries a Snippet excerpt produced by FTS5's native snippet() function.
 func (ix *Index) SearchFTS(query, scope string, limit int) ([]Hit, error) {
+	return ix.SearchFTSFiltered(query, scope, limit, nil)
+}
+
+// SearchFTSFiltered scans ranked FTS rows in bounded pages until it collects
+// limit allowed hits or reaches EOF. The predicate is applied before a hit is
+// returned, preventing IDs, snippets, and result counts of hidden concepts
+// from escaping into caller-visible pagination.
+func (ix *Index) SearchFTSFiltered(query, scope string, limit int, allow func(id string) bool) ([]Hit, error) {
 	if limit <= 0 {
 		limit = 20
 	}
@@ -214,19 +227,47 @@ func (ix *Index) SearchFTS(query, scope string, limit int) ([]Hit, error) {
 		return nil, nil
 	}
 
-	hits, err := ix.searchFTS(sanitizeFTSQuery(q), scope, limit)
+	hits, found, err := ix.searchFTSFiltered(sanitizeFTSQuery(q), scope, limit, allow)
 	if err != nil {
 		return nil, err
 	}
 
 	tokens := ftsTokens(strings.ReplaceAll(q, "\"", ""))
-	if len(hits) == 0 && len(tokens) >= 2 {
-		return ix.searchFTS(`"`+strings.Join(tokens, `" OR "`)+`"`, scope, limit)
+	if !found && len(tokens) >= 2 {
+		fallback, _, err := ix.searchFTSFiltered(`"`+strings.Join(tokens, `" OR "`)+`"`, scope, limit, allow)
+		return fallback, err
 	}
 	return hits, nil
 }
 
-func (ix *Index) searchFTS(query, scope string, limit int) ([]Hit, error) {
+func (ix *Index) searchFTSFiltered(query, scope string, limit int, allow func(id string) bool) ([]Hit, bool, error) {
+	var hits []Hit
+	found := false
+	for offset := 0; ; offset += ftsSearchBatch {
+		batch, err := ix.searchFTSPage(query, scope, ftsSearchBatch, offset)
+		if err != nil {
+			return nil, false, err
+		}
+		if len(batch) == 0 {
+			return hits, found, nil
+		}
+		found = true
+		for _, hit := range batch {
+			if allow != nil && !allow(hit.ID) {
+				continue
+			}
+			hits = append(hits, hit)
+			if len(hits) == limit {
+				return hits, found, nil
+			}
+		}
+		if len(batch) < ftsSearchBatch {
+			return hits, found, nil
+		}
+	}
+}
+
+func (ix *Index) searchFTSPage(query, scope string, limit, offset int) ([]Hit, error) {
 	var rows *sql.Rows
 	var err error
 	if scope != "" {
@@ -236,9 +277,9 @@ func (ix *Index) searchFTS(query, scope string, limit int) ([]Hit, error) {
 			 FROM concepts_fts
 			 JOIN concepts c ON c.id = concepts_fts.id
 			 WHERE concepts_fts MATCH ? AND c.id LIKE ?
-			 ORDER BY score DESC
-			 LIMIT ?`,
-			ftsSnippetTokens, query, scope+"%", limit,
+			 ORDER BY score DESC, c.id
+			 LIMIT ? OFFSET ?`,
+			ftsSnippetTokens, query, scope+"%", limit, offset,
 		)
 	} else {
 		rows, err = ix.db.Query(
@@ -247,9 +288,9 @@ func (ix *Index) searchFTS(query, scope string, limit int) ([]Hit, error) {
 			 FROM concepts_fts
 			 JOIN concepts c ON c.id = concepts_fts.id
 			 WHERE concepts_fts MATCH ?
-			 ORDER BY score DESC
-			 LIMIT ?`,
-			ftsSnippetTokens, query, limit,
+			 ORDER BY score DESC, c.id
+			 LIMIT ? OFFSET ?`,
+			ftsSnippetTokens, query, limit, offset,
 		)
 	}
 	if err != nil {
@@ -306,6 +347,13 @@ func (ix *Index) UpsertEmbedding(id, contentHash, model string, vec []float64) e
 // Returns parallel slices of ids and vectors, plus the model identifier.
 // If no embeddings are stored, returns nil slices and empty model.
 func (ix *Index) AllEmbeddings() (ids []string, vecs [][]float64, model string, err error) {
+	return ix.AllEmbeddingsFiltered(nil)
+}
+
+// AllEmbeddingsFiltered reads only vectors accepted by allow. It is used by
+// semantic search so authorization is applied before candidates enter score
+// fusion. A nil predicate preserves AllEmbeddings behavior.
+func (ix *Index) AllEmbeddingsFiltered(allow func(id string) bool) (ids []string, vecs [][]float64, model string, err error) {
 	rows, err := ix.db.Query(`SELECT id, model, vec FROM embeddings`)
 	if err != nil {
 		return nil, nil, "", fmt.Errorf("sqlindex: all embeddings: %w", err)
@@ -317,6 +365,9 @@ func (ix *Index) AllEmbeddings() (ids []string, vecs [][]float64, model string, 
 		var blob []byte
 		if err := rows.Scan(&id, &m, &blob); err != nil {
 			return nil, nil, "", fmt.Errorf("sqlindex: scan embedding: %w", err)
+		}
+		if allow != nil && !allow(id) {
+			continue
 		}
 		ids = append(ids, id)
 		model = m // last model wins; caller should ensure consistency

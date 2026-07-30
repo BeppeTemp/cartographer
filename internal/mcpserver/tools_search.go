@@ -107,18 +107,18 @@ func toolSearch(k *kb.KB, live *liveIndex, deps Deps) Tool {
 		ReadOnly:    true,
 		Description: description,
 		InputSchema: schema,
-		Handler: func(args json.RawMessage) (ToolResult, error) {
+		Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
 			if !hasEmbed && !hasSQL {
-				return handleKeywordOnlySearch(live, args)
+				return handleKeywordOnlySearch(ctx, k, live, args)
 			}
-			return handleHybridSearch(live, deps, args)
+			return handleHybridSearch(ctx, k, live, deps, args)
 		},
 	}
 }
 
 // handleKeywordOnlySearch implements the plain keyword-only search behavior
 // (no Embedder/VecStore/SQLIndex configured).
-func handleKeywordOnlySearch(live *liveIndex, args json.RawMessage) (ToolResult, error) {
+func handleKeywordOnlySearch(ctx requestContext, k *kb.KB, live *liveIndex, args json.RawMessage) (ToolResult, error) {
 	var params struct {
 		Query string `json:"query"`
 		Scope string `json:"scope"`
@@ -135,9 +135,15 @@ func handleKeywordOnlySearch(live *liveIndex, args json.RawMessage) (ToolResult,
 		return errorResult(fmt.Sprintf("mode %q not available: semantic/hybrid require a server started with --ollama", params.Mode)), nil
 	}
 
-	hits := live.get().Search(params.Query, params.Scope, params.Limit)
+	limit := params.Limit
+	if limit <= 0 {
+		limit = 20
+	}
+	hits := live.get().SearchFiltered(params.Query, params.Scope, limit, func(id string) bool {
+		return Visible(ctx, k, id)
+	})
 
-	var results []searchHit
+	results := make([]searchHit, 0, len(hits))
 	for _, h := range hits {
 		results = append(results, searchHit{
 			ID:      h.ID,
@@ -161,7 +167,7 @@ func handleKeywordOnlySearch(live *liveIndex, args json.RawMessage) (ToolResult,
 // available (deps.Embedder+deps.VecStore and/or deps.SQLIndex). It reproduces
 // the previous toolSearchWithEmbed / toolSearchWithSQLIndex behavior exactly,
 // depending on which deps are set.
-func handleHybridSearch(live *liveIndex, deps Deps, args json.RawMessage) (ToolResult, error) {
+func handleHybridSearch(ctx requestContext, k *kb.KB, live *liveIndex, deps Deps, args json.RawMessage) (ToolResult, error) {
 	var params struct {
 		Query       string `json:"query"`
 		Scope       string `json:"scope"`
@@ -192,7 +198,9 @@ func handleHybridSearch(live *liveIndex, deps Deps, args json.RawMessage) (ToolR
 	ftsSnippets := map[string]string{}
 	useSQL := deps.SQLIndex != nil
 	if useSQL {
-		sqlHits, err := deps.SQLIndex.SearchFTS(params.Query, params.Scope, limit)
+		sqlHits, err := deps.SQLIndex.SearchFTSFiltered(params.Query, params.Scope, limit, func(id string) bool {
+			return Visible(ctx, k, id)
+		})
 		if err != nil {
 			useSQL = false
 		} else {
@@ -209,7 +217,9 @@ func handleHybridSearch(live *liveIndex, deps Deps, args json.RawMessage) (ToolR
 		}
 	}
 	if !useSQL {
-		memHits := live.get().Search(params.Query, params.Scope, limit)
+		memHits := live.get().SearchFiltered(params.Query, params.Scope, limit, func(id string) bool {
+			return Visible(ctx, k, id)
+		})
 		for _, h := range memHits {
 			kwHits = append(kwHits, searchHit{
 				ID: h.ID, Score: h.Score,
@@ -259,30 +269,32 @@ func handleHybridSearch(live *liveIndex, deps Deps, args json.RawMessage) (ToolR
 
 	var vecScores map[string]float64
 	if useSQL {
-		ids, vecs, _, err := deps.SQLIndex.AllEmbeddings()
+		ids, vecs, _, err := deps.SQLIndex.AllEmbeddingsFiltered(func(id string) bool {
+			return (params.Scope == "" || strings.HasPrefix(id, params.Scope)) && Visible(ctx, k, id)
+		})
 		if err != nil {
-			vecHits := deps.VecStore.Search(qVec, limit*2)
+			vecHits := deps.VecStore.SearchFiltered(qVec, limit, func(id string) bool {
+				return (params.Scope == "" || strings.HasPrefix(id, params.Scope)) && Visible(ctx, k, id)
+			})
 			vecScores = make(map[string]float64, len(vecHits))
 			for _, h := range vecHits {
-				if params.Scope == "" || strings.HasPrefix(h.ID, params.Scope) {
-					vecScores[h.ID] = h.Similarity
-				}
+				vecScores[h.ID] = h.Similarity
 			}
 		} else {
 			vecScores = make(map[string]float64, len(ids))
 			for i, id := range ids {
-				if params.Scope == "" || strings.HasPrefix(id, params.Scope) {
+				if (params.Scope == "" || strings.HasPrefix(id, params.Scope)) && Visible(ctx, k, id) {
 					vecScores[id] = embed.CosineSimilarity(qVec, vecs[i])
 				}
 			}
 		}
 	} else {
-		vecHits := deps.VecStore.Search(qVec, limit*2)
+		vecHits := deps.VecStore.SearchFiltered(qVec, limit, func(id string) bool {
+			return (params.Scope == "" || strings.HasPrefix(id, params.Scope)) && Visible(ctx, k, id)
+		})
 		vecScores = make(map[string]float64, len(vecHits))
 		for _, h := range vecHits {
-			if params.Scope == "" || strings.HasPrefix(h.ID, params.Scope) {
-				vecScores[h.ID] = h.Similarity
-			}
+			vecScores[h.ID] = h.Similarity
 		}
 	}
 
@@ -369,7 +381,7 @@ func toolIndexRebuild(k *kb.KB, live *liveIndex, deps Deps) Tool {
 		ReadOnly:    true,
 		Description: description,
 		InputSchema: indexRebuildInputSchema,
-		Handler: func(args json.RawMessage) (ToolResult, error) {
+		Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
 			newIdx, newMeta := buildIndex(k)
 			live.swap(newIdx, newMeta)
 

@@ -48,6 +48,27 @@ type MCPConfig struct {
 type AuthConfig struct {
 	Mode   string // "auto" | "on" | "off"
 	Tokens []TokenSpec
+	// Roles are named, reusable permission sets referenced by TokenSpec.Roles
+	// (D118). A deployment that only uses `scopes` declares none.
+	Roles []RoleSpec `yaml:"roles,omitempty"`
+}
+
+// RoleSpec is a named set of allow rules. Roles referenced by one token are
+// unioned; there are deliberately no deny rules, so evaluation is
+// order-independent.
+type RoleSpec struct {
+	Name  string     `yaml:"name"`
+	Rules []RuleSpec `yaml:"rules"`
+}
+
+// RuleSpec is one allow rule inside a role. Empty Maps, Journals and Types are
+// wildcards; non-empty selectors are intersected. Access is "r" or "rw".
+type RuleSpec struct {
+	KB       string   `yaml:"kb"`
+	Access   string   `yaml:"access"`
+	Maps     []string `yaml:"maps,omitempty"`
+	Journals []string `yaml:"journals,omitempty"`
+	Types    []string `yaml:"types,omitempty"`
 }
 
 // TokenStrings returns the bare token values, discarding scopes. Kept for
@@ -70,6 +91,13 @@ func (a AuthConfig) TokenStrings() []string {
 type TokenSpec struct {
 	Token  string   `yaml:"token"`
 	Scopes []string `yaml:"scopes,omitempty"`
+	// Roles references AuthConfig.Roles by name (D118). Roles and scopes may
+	// be combined: the resulting permissions are unioned.
+	Roles []string `yaml:"roles,omitempty"`
+	// ID is a stable, operator-chosen principal identifier used in logs and
+	// audit records. When empty a non-secret ID is derived from the token
+	// hash, never from a plaintext prefix.
+	ID string `yaml:"id,omitempty"`
 }
 
 // UnmarshalYAML accepts both a bare scalar ("tok1", legacy `tokens: [...]`
@@ -257,6 +285,7 @@ type rawMCP struct {
 type rawAuth struct {
 	Mode   string      `yaml:"mode"`
 	Tokens []TokenSpec `yaml:"tokens"`
+	Roles  []RoleSpec  `yaml:"roles"`
 }
 
 type rawGit struct {
@@ -313,6 +342,10 @@ func Load(path string) (*Config, error) {
 		cfg.Auth.Mode = normalizeAuthMode(raw.Auth.Mode)
 	}
 	cfg.Auth.Tokens = raw.Auth.Tokens
+	cfg.Auth.Roles = raw.Auth.Roles
+	if err := ValidateAuthRoles(cfg.Auth); err != nil {
+		return nil, fmt.Errorf("config: auth: %w", err)
+	}
 
 	if raw.Git.Autocommit != nil {
 		cfg.Git.Autocommit = *raw.Git.Autocommit
@@ -592,4 +625,81 @@ func parseTokenSpecs(v string) []TokenSpec {
 		out = append(out, spec)
 	}
 	return out
+}
+
+// ValidateAuthRoles rejects role and token configurations that would otherwise
+// degrade silently into broader access than the operator wrote (D118). It is
+// deliberately strict: every diagnostic names the offending role or rule, and
+// no diagnostic ever contains a token value.
+func ValidateAuthRoles(a AuthConfig) error {
+	seen := make(map[string]bool, len(a.Roles))
+	for _, role := range a.Roles {
+		if role.Name == "" {
+			return fmt.Errorf("role with no name")
+		}
+		if seen[role.Name] {
+			return fmt.Errorf("duplicate role %q", role.Name)
+		}
+		seen[role.Name] = true
+		if len(role.Rules) == 0 {
+			return fmt.Errorf("role %q has no rules", role.Name)
+		}
+		for i, rule := range role.Rules {
+			if err := validateRule(role.Name, i, rule); err != nil {
+				return err
+			}
+		}
+	}
+	ids := make(map[string]bool, len(a.Tokens))
+	for _, tok := range a.Tokens {
+		if tok.ID != "" {
+			if ids[tok.ID] {
+				return fmt.Errorf("duplicate principal id %q", tok.ID)
+			}
+			ids[tok.ID] = true
+		}
+		for _, name := range tok.Roles {
+			if !seen[name] {
+				return fmt.Errorf("token references unknown role %q", name)
+			}
+		}
+	}
+	return nil
+}
+
+func validateRule(role string, i int, rule RuleSpec) error {
+	where := fmt.Sprintf("role %q rule %d", role, i)
+	if rule.KB == "" {
+		return fmt.Errorf("%s: empty kb", where)
+	}
+	switch rule.Access {
+	case "r", "rw":
+	default:
+		return fmt.Errorf("%s: access must be \"r\" or \"rw\", got %q", where, rule.Access)
+	}
+	// A selector naming the same collection as both a map and a journal is an
+	// operator mistake: the two are intersected, so the rule would match
+	// nothing while reading as if it granted something.
+	journals := make(map[string]bool, len(rule.Journals))
+	for _, j := range rule.Journals {
+		journals[j] = true
+	}
+	for _, group := range [][]string{rule.Maps, rule.Journals, rule.Types} {
+		for _, sel := range group {
+			if sel == "" {
+				return fmt.Errorf("%s: empty selector", where)
+			}
+			// Selectors are matched against concept-ID segments; a traversal
+			// component would silently widen the perimeter.
+			if sel == "." || sel == ".." || strings.Contains(sel, "/") || strings.Contains(sel, `\`) {
+				return fmt.Errorf("%s: invalid selector %q", where, sel)
+			}
+		}
+	}
+	for _, m := range rule.Maps {
+		if journals[m] {
+			return fmt.Errorf("%s: %q declared as both map and journal", where, m)
+		}
+	}
+	return nil
 }

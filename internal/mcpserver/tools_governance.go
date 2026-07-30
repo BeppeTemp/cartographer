@@ -20,7 +20,7 @@ func toolReindex(k *kb.KB, live *liveIndex, sqlIdx *sqlindex.Index) Tool {
 		Name:        "reindex",
 		Description: "Reconciles the derived search index with KB files changed outside MCP, including imports, manual edits, and git pulls. Returns indexed, updated, and removed counts.",
 		InputSchema: json.RawMessage(`{"type":"object","properties":{}}`),
-		Handler: func(json.RawMessage) (ToolResult, error) {
+		Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
 			if sqlIdx == nil {
 				return errorResult("reindex: SQLite index is unavailable"), nil
 			}
@@ -55,7 +55,7 @@ func toolValidate(k *kb.KB) Tool {
 				}
 			}
 		}`),
-		Handler: func(args json.RawMessage) (ToolResult, error) {
+		Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
 			var params struct {
 				Scope string `json:"scope"`
 			}
@@ -101,7 +101,7 @@ func toolLint(k *kb.KB) Tool {
 				}
 			}
 		}`),
-		Handler: func(args json.RawMessage) (ToolResult, error) {
+		Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
 			var params struct {
 				Scope          string `json:"scope"`
 				ScopeNeighbors bool   `json:"scope_neighbors"`
@@ -161,7 +161,7 @@ func toolCommitGate(k *kb.KB) Tool {
 				}
 			}
 		}`),
-		Handler: func(args json.RawMessage) (ToolResult, error) {
+		Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
 			var params struct {
 				ChangedIDs []string `json:"changed_ids"`
 			}
@@ -228,7 +228,7 @@ func toolGateCheck(k *kb.KB) Tool {
 				}
 			}
 		}`),
-		Handler: func(args json.RawMessage) (ToolResult, error) {
+		Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
 			var params struct {
 				ChangedIDs []string `json:"changed_ids"`
 			}
@@ -346,7 +346,7 @@ func toolConflictResolve(k *kb.KB) Tool {
 				}
 			}
 		}`),
-		Handler: func(args json.RawMessage) (ToolResult, error) {
+		Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
 			var params struct {
 				ContradictionID string `json:"contradiction_id"`
 				Resolution      string `json:"resolution"`
@@ -401,7 +401,7 @@ func toolKBStatus(k *kb.KB) Tool {
 		Description: "Returns aggregate metrics about the KB: total concepts, per-type counts, stale concepts (review_after in the past), open contradictions.",
 		ReadOnly:    true,
 		InputSchema: json.RawMessage(`{"type":"object","properties":{}}`),
-		Handler: func(args json.RawMessage) (ToolResult, error) {
+		Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
 			today := time.Now().UTC().Format("2006-01-02")
 			typeCounts := map[string]int{}
 			total := 0
@@ -478,7 +478,7 @@ func toolContradictionReport(k *kb.KB) Tool {
 				}
 			}
 		}`),
-		Handler: func(args json.RawMessage) (ToolResult, error) {
+		Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
 			var params struct {
 				Scope  string `json:"scope"`
 				Status string `json:"status"`
@@ -512,6 +512,9 @@ func toolContradictionReport(k *kb.KB) Tool {
 
 				sid := string(id)
 				if params.Scope != "" && !strings.HasPrefix(sid, params.Scope) {
+					return nil
+				}
+				if !Visible(ctx, k, sid) {
 					return nil
 				}
 
@@ -583,7 +586,7 @@ func toolConflictsList(k *kb.KB) Tool {
 			"the branch, and the list of conflicting files. Use the kb-conflict-resolve skill " +
 			"for the step-by-step resolution procedure.",
 		InputSchema: json.RawMessage(`{"type":"object","properties":{}}`),
-		Handler: func(args json.RawMessage) (ToolResult, error) {
+		Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
 			conflicts, err := k.ListConflicts()
 			if err != nil {
 				return errorResult(fmt.Sprintf("conflicts_list: %v", err)), nil
@@ -656,7 +659,7 @@ func toolGitConflictResolve(k *kb.KB) Tool {
 				"body": {"type": "string", "description": "Full reconciled file content (frontmatter + body); required when strategy=edit."}
 			}
 		}`),
-		Handler: func(args json.RawMessage) (ToolResult, error) {
+		Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
 			// D76/WP4: flush any pending async push before touching the
 			// conflict registry/git state directly, so this handler does
 			// not race a push scheduled by a preceding write.

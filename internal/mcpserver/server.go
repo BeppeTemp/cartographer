@@ -2,25 +2,37 @@ package mcpserver
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"strings"
 	"sync"
+
+	"github.com/BeppeTemp/cartographer/internal/auth"
 )
+
+// requestContext is an alias kept package-local so every tool implementation
+// receives the transport request context without importing context itself.
+type requestContext = context.Context
 
 // Tool describes an MCP tool registered in the server.
 type Tool struct {
 	Name        string
 	Description string
+	// ResourceClass declares the authorization shape of this tool. It is
+	// assigned from the exhaustive registry inventory before registration;
+	// unknown tools are rejected rather than inheriting a permissive default.
+	ResourceClass string
 	// ReadOnly marks tools that never mutate KB content (safe under a read-only
 	// scope token). See ToolRequiresWrite and the readOnlyTools golden test.
 	ReadOnly bool
 	// InputSchema is the JSON Schema for the "arguments" parameter.
 	InputSchema json.RawMessage
-	// Handler receives the raw parameters (JSON object) and returns a result and application error.
-	// Application errors go in the ToolResult (isError:true), not as Go errors.
-	Handler func(args json.RawMessage) (ToolResult, error)
+	// Handler receives the request context and raw parameters (JSON object)
+	// and returns a result and application error. Application errors go in
+	// the ToolResult (isError:true), not as Go errors.
+	Handler func(context.Context, json.RawMessage) (ToolResult, error)
 }
 
 // toolDescriptor is the representation exported to the client for tools/list.
@@ -60,10 +72,52 @@ type Server struct {
 	// reported as serverInfo.name by initialize (D102). Set via
 	// SetDisplayName.
 	displayName string
-	mu          sync.Mutex
+	// policyKB is the mounted logical KB name used by authorization rules
+	// (SetPolicyKB); it lets the authorizer resolve the right KB even before
+	// RegisterKBTools sets kb.KB.AuthName.
+	policyKB string
+	// authorizer is installed during KB tool registration (installPolicy). It
+	// is a closure over immutable registration dependencies, never mutable
+	// request-global state.
+	authorizer func(context.Context, string, json.RawMessage) error
+	mu         sync.Mutex
 
 	writeMu sync.Mutex    // serializes writes to the shared encoder
 	enc     *json.Encoder // active stdio encoder; nil when not in Run (e.g. HTTP)
+}
+
+// authLocalContext returns a context carrying an explicit local-admin
+// principal, used for auth-disabled HTTP and trusted stdio transports so
+// handlers never infer authority from a missing context value.
+func authLocalContext() context.Context {
+	return auth.ContextWithPrincipal(context.Background(), auth.LocalAdminPrincipal())
+}
+
+// SetAuthorizer installs the transport-neutral policy gate used by both HTTP
+// and stdio dispatch. A nil authorizer is fail-closed for non-admin callers.
+func (s *Server) SetAuthorizer(fn func(context.Context, string, json.RawMessage) error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.authorizer = fn
+}
+
+// authorize resolves the transport-neutral policy decision for tool
+// (already prefix-stripped) against args. name=="" gates protocol metadata
+// calls (initialize/ping/tools/list): any resolved principal, even a
+// restricted one, is enough as long as it can reach the KB in some way. A
+// missing principal (no authorizer installed and no admin context) is fail
+// closed rather than treated as full access.
+func (s *Server) authorize(ctx context.Context, name string, args json.RawMessage) error {
+	s.mu.Lock()
+	fn := s.authorizer
+	s.mu.Unlock()
+	if fn == nil {
+		if auth.PrincipalFromContext(ctx).Policy.Admin {
+			return nil
+		}
+		return fmt.Errorf("forbidden")
+	}
+	return fn(ctx, name, args)
 }
 
 // New creates a new Server with the given version.
@@ -102,6 +156,20 @@ func (s *Server) SetDisplayName(name string) {
 	s.displayName = name
 }
 
+// SetPolicyKB sets the mounted logical KB name used by authorization rules.
+func (s *Server) SetPolicyKB(name string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.policyKB = name
+}
+
+// PolicyKB returns the mounted logical KB name set by SetPolicyKB.
+func (s *Server) PolicyKB() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.policyKB
+}
+
 // stripToolPrefixLocked removes this server's tool-name prefix (see
 // SetToolNamePrefix) from name, if name carries it; otherwise returns name
 // unchanged. Callers must already hold s.mu (it does not lock itself, to
@@ -118,10 +186,9 @@ func (s *Server) stripToolPrefixLocked(name string) string {
 }
 
 // StripToolPrefix removes this server's tool-name prefix (SetToolNamePrefix,
-// D102) from name, if name carries it; otherwise returns name unchanged. Used
-// by mcpAccessGuard to classify a possibly-prefixed tool name against the
-// pre-prefix name tables (ToolRequiresWrite, the service_get/resolve_secrets
-// override).
+// D102) from name, if name carries it; otherwise returns name unchanged. The
+// transport-neutral policy resolver (installPolicy) always receives this
+// canonical name.
 func (s *Server) StripToolPrefix(name string) string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -131,9 +198,7 @@ func (s *Server) StripToolPrefix(name string) string {
 // ToolRequiresWrite reports whether name — which may carry this server's
 // tool-name prefix (SetToolNamePrefix) — requires write access to the KB.
 // It strips the prefix, if any, then delegates to the package-level
-// ToolRequiresWrite classification. Used by mcpAccessGuard so that a
-// read-only ("kb:<name>:r") scope token still rejects every write tool when
-// a prefix is configured.
+// ToolRequiresWrite classification.
 func (s *Server) ToolRequiresWrite(name string) bool {
 	return ToolRequiresWrite(s.StripToolPrefix(name))
 }
@@ -168,10 +233,18 @@ func (s *Server) RegisterTool(t Tool) {
 	s.tools[t.Name] = &t
 }
 
-// Run starts the read/write loop on reader/writer.
+// Run starts the read/write loop on reader/writer under an explicit
+// local-admin principal (trusted stdio transport).
 // Blocks until EOF on reader or a fatal I/O error.
 // Diagnostic logs (if needed) must go to stderr, not to the writer.
 func (s *Server) Run(reader io.Reader, writer io.Writer) error {
+	return s.RunContext(authLocalContext(), reader, writer)
+}
+
+// RunContext starts the read/write loop on reader/writer under ctx, the
+// given request context (which must carry the caller's principal —
+// PrincipalFromContext returns the zero value, fail-closed, otherwise).
+func (s *Server) RunContext(ctx context.Context, reader io.Reader, writer io.Writer) error {
 	scanner := bufio.NewScanner(reader)
 	// Increase buffer for large messages.
 	scanner.Buffer(make([]byte, 1024*1024), 1024*1024)
@@ -216,13 +289,13 @@ func (s *Server) Run(reader io.Reader, writer io.Writer) error {
 
 		// Notifications do not receive a response.
 		if req.isNotification() {
-			s.handleNotification(&req)
+			s.handleNotification(ctx, &req)
 			continue
 		}
 
 		// IMPORTANT: do not hold writeMu across dispatch — Notify is called
 		// within the dispatch goroutine and acquires writeMu itself.
-		resp := s.dispatch(&req)
+		resp := s.dispatch(ctx, &req)
 		s.writeMu.Lock()
 		enc.Encode(resp)
 		s.writeMu.Unlock()
@@ -235,7 +308,7 @@ func (s *Server) Run(reader io.Reader, writer io.Writer) error {
 }
 
 // handleNotification handles messages without an id (no response expected).
-func (s *Server) handleNotification(req *Request) {
+func (s *Server) handleNotification(_ context.Context, req *Request) {
 	// notifications/initialized: no-op
 	// other notification methods: silently ignored
 }
@@ -253,8 +326,16 @@ func (s *Server) Notify(method string, params any) error {
 	return s.enc.Encode(msg)
 }
 
-// dispatch routes the request to the appropriate method.
-func (s *Server) dispatch(req *Request) Response {
+// dispatch routes the request to the appropriate method. initialize, ping and
+// tools/list are protocol metadata, not resource access, but a caller with no
+// resolvable principal must still be denied (fail-closed) rather than
+// implicitly treated as full access.
+func (s *Server) dispatch(ctx context.Context, req *Request) Response {
+	if req.Method == "initialize" || req.Method == "ping" || req.Method == "tools/list" {
+		if err := s.authorize(ctx, "", json.RawMessage(`{}`)); err != nil {
+			return successResponse(req.ID, errorResult(err.Error()))
+		}
+	}
 	switch req.Method {
 	case "initialize":
 		return s.handleInitialize(req)
@@ -263,7 +344,7 @@ func (s *Server) dispatch(req *Request) Response {
 	case "tools/list":
 		return s.handleToolsList(req)
 	case "tools/call":
-		return s.handleToolsCall(req)
+		return s.handleToolsCall(ctx, req)
 	default:
 		return errorResponse(req.ID, ErrCodeMethodNotFound, "method not found: "+req.Method)
 	}
@@ -338,8 +419,9 @@ func (s *Server) handleToolsList(req *Request) Response {
 	return successResponse(req.ID, map[string]interface{}{"tools": descriptors})
 }
 
-// handleToolsCall routes the call to the correct tool.
-func (s *Server) handleToolsCall(req *Request) Response {
+// handleToolsCall routes the call to the correct tool. Authorization runs
+// before the handler for every call — a denial never reaches tool logic.
+func (s *Server) handleToolsCall(ctx context.Context, req *Request) Response {
 	var params struct {
 		Name      string          `json:"name"`
 		Arguments json.RawMessage `json:"arguments"`
@@ -361,7 +443,11 @@ func (s *Server) handleToolsCall(req *Request) Response {
 		args = json.RawMessage(`{}`)
 	}
 
-	result, err := tool.Handler(args)
+	if err := s.authorize(ctx, s.StripToolPrefix(params.Name), args); err != nil {
+		return successResponse(req.ID, errorResult(err.Error()))
+	}
+
+	result, err := tool.Handler(ctx, args)
 	if err != nil {
 		// Internal server error (not an application error): return isError in the result.
 		return successResponse(req.ID, errorResult("internal error: "+err.Error()))

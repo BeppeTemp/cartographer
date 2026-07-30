@@ -188,7 +188,7 @@ func toolArtifactRead(k *kb.KB, allowlist []provisioning.MCPAllowlistEntry) Tool
 				,"encoding": {"type":"string","enum":["text","base64"],"description":"Optional requested response encoding; defaults to text, but non-UTF-8 content is always returned as base64"}
 			}
 		}`),
-		Handler: func(args json.RawMessage) (ToolResult, error) {
+		Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
 			var params struct {
 				Path     string `json:"path"`
 				Encoding string `json:"encoding"`
@@ -291,7 +291,7 @@ func toolArtifactList(k *kb.KB, allowlist []provisioning.MCPAllowlistEntry) Tool
 		Description: "Lists KB-root artifacts: provisioning skill/agent/hook/mcp/instructions artifacts and " +
 			"KB-only templates. Each has files and sha256 values for artifact_write/artifact_delete.",
 		InputSchema: json.RawMessage(`{"type":"object","properties":{}}`),
-		Handler: func(args json.RawMessage) (ToolResult, error) {
+		Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
 			if err := rejectArtifactTreeSymlinks(k.Root); err != nil {
 				return errorResult("artifact_list: " + err.Error()), nil
 			}
@@ -430,7 +430,7 @@ func toolTemplateList(k *kb.KB) Tool {
 		Description: "Lists KB-only concept templates with slug, literal type, title, and sorted variables. " +
 			"Use artifact_read to retrieve a template body.",
 		InputSchema: json.RawMessage(`{"type":"object","properties":{}}`),
-		Handler: func(args json.RawMessage) (ToolResult, error) {
+		Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
 			templates, err := scanTemplates(k)
 			if err != nil {
 				return errorResult("template_list: " + err.Error()), nil
@@ -473,7 +473,7 @@ func toolArtifactWrite(k *kb.KB) Tool {
 				}
 			}
 		}`),
-		Handler: func(args json.RawMessage) (ToolResult, error) {
+		Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
 			var params struct {
 				Path       string `json:"path"`
 				Content    string `json:"content"`
@@ -828,7 +828,7 @@ func toolArtifactDelete(k *kb.KB) Tool {
 				}
 			}
 		}`),
-		Handler: func(args json.RawMessage) (ToolResult, error) {
+		Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
 			var params struct {
 				Path    string `json:"path"`
 				IfMatch string `json:"if_match"`
@@ -928,8 +928,8 @@ func removeEmptyDirsUpTo(leafDir, boundary string) {
 // self-edited via artifact_write) gets a chance to refresh it.
 func artifactNotifyWrap(s *Server, t Tool) Tool {
 	orig := t
-	t.Handler = func(args json.RawMessage) (ToolResult, error) {
-		res, err := orig.Handler(args)
+	t.Handler = func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
+		res, err := orig.Handler(ctx, args)
 		if err == nil && !res.IsError {
 			var params struct {
 				Path string `json:"path"`

@@ -20,7 +20,7 @@ func toolSyncStatus(k *kb.KB) Tool {
 	return Tool{Name: "sync_status", ReadOnly: true,
 		Description: "Returns local git commit and remote replication status, including pending or failed pushes. Read-only.",
 		InputSchema: json.RawMessage(`{"type":"object","properties":{}}`),
-		Handler: func(args json.RawMessage) (ToolResult, error) {
+		Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
 			// A forge outage after a successful push is recoverable; status is an
 			// explicit retry point for the durable PR boundary (D117).
 			_ = k.ReconcileServerPR()
@@ -68,7 +68,7 @@ func toolSyncCheck(k *kb.KB, bundleFS fs.FS, signer ed25519.PrivateKey, allowlis
 				}
 			}
 		}`),
-		Handler: func(args json.RawMessage) (ToolResult, error) {
+		Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
 			flushPendingPush(k, "sync_check")
 			var params struct {
 				AppliedRevision string `json:"applied_revision"`
@@ -153,7 +153,7 @@ func toolSyncApply(k *kb.KB, bundleFS fs.FS, signer ed25519.PrivateKey, allowlis
 				}
 			}
 		}`),
-		Handler: func(args json.RawMessage) (ToolResult, error) {
+		Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
 			flushPendingPush(k, "sync_apply")
 			var params struct {
 				BaseDir   string `json:"base_dir"`
@@ -279,7 +279,7 @@ func toolSyncPull(k *kb.KB, bundleFS fs.FS, signer ed25519.PrivateKey, allowlist
 			"embedded in base64, ready for client-side materialization over HTTP (no shared filesystem " +
 			"with the server required). Read-only. Used by `cartographer connect`/`cartographer sync` on the client side.",
 		InputSchema: json.RawMessage(`{"type": "object", "properties": {}}`),
-		Handler: func(args json.RawMessage) (ToolResult, error) {
+		Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
 			flushPendingPush(k, "sync_pull")
 			kbName := filepath.Base(k.Root)
 			kbRoots := map[string]string{kbName: k.Root}

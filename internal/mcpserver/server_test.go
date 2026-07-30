@@ -350,7 +350,7 @@ func TestToolChangesSince(t *testing.T) {
 
 	call := func(args string) changesSinceResult {
 		t.Helper()
-		tr, err := toolChangesSince(k).Handler(json.RawMessage(args))
+		tr, err := toolChangesSince(k).Handler(authLocalContext(), json.RawMessage(args))
 		if err != nil || tr.IsError {
 			t.Fatalf("changes_since %s: result=%+v err=%v", args, tr, err)
 		}
@@ -396,7 +396,7 @@ func TestToolChangesSince(t *testing.T) {
 		t.Errorf("empty window = %+v, want empty concepts and note", empty)
 	}
 
-	tr, err := toolChangesSince(k).Handler(json.RawMessage(`{"since":"tomorrow"}`))
+	tr, err := toolChangesSince(k).Handler(authLocalContext(), json.RawMessage(`{"since":"tomorrow"}`))
 	if err != nil || !tr.IsError || !strings.Contains(tr.Content[0].Text, "RFC3339") {
 		t.Errorf("invalid since = %+v, %v; want accepted-format error", tr, err)
 	}
@@ -1055,7 +1055,7 @@ func TestSearch_ModeProfiles(t *testing.T) {
 	if !strings.Contains(string(core.InputSchema), `"mode"`) {
 		t.Fatal("Core search schema does not expose mode")
 	}
-	result, err := core.Handler(json.RawMessage(`{"query":"runbook","mode":"semantic"}`))
+	result, err := core.Handler(authLocalContext(), json.RawMessage(`{"query":"runbook","mode":"semantic"}`))
 	if err != nil {
 		t.Fatalf("Core semantic mode: %v", err)
 	}
@@ -1074,7 +1074,7 @@ func TestSearch_ModeProfiles(t *testing.T) {
 		`{"query":"runbook","mode":"hybrid"}`,
 		`{"query":"runbook","use_semantic":true}`,
 	} {
-		result, err := hybrid.Handler(json.RawMessage(args))
+		result, err := hybrid.Handler(authLocalContext(), json.RawMessage(args))
 		if err != nil {
 			t.Fatalf("hybrid mode %s: %v", args, err)
 		}
@@ -2594,7 +2594,7 @@ func TestServer_Notify(t *testing.T) {
 		Name:        "dummy",
 		Description: "A test tool that triggers a notification.",
 		InputSchema: json.RawMessage(`{"type":"object","properties":{}}`),
-		Handler: func(args json.RawMessage) (ToolResult, error) {
+		Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
 			return textResult("done"), nil
 		},
 	}
@@ -2652,7 +2652,7 @@ func TestServer_Notify_NoNotificationOnError(t *testing.T) {
 		Name:        "dummy_err",
 		Description: "A test tool that returns an error.",
 		InputSchema: json.RawMessage(`{"type":"object","properties":{}}`),
-		Handler: func(args json.RawMessage) (ToolResult, error) {
+		Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
 			return errorResult("failure"), nil
 		},
 	}
@@ -3041,7 +3041,7 @@ func TestServer_AssetToolsRoundTripAndClassification(t *testing.T) {
 	if _, err := k.WriteAsset("manutenzione/test-runbook", "evidence/search.txt", []byte("asset-only-keyword"), "", nil); err != nil {
 		t.Fatalf("WriteAsset search fixture: %v", err)
 	}
-	searchResult, err := s.Tools()["search"].Handler(json.RawMessage(`{"query":"asset-only-keyword"}`))
+	searchResult, err := s.Tools()["search"].Handler(authLocalContext(), json.RawMessage(`{"query":"asset-only-keyword"}`))
 	if err != nil {
 		t.Fatalf("search handler: %v", err)
 	}
@@ -3091,7 +3091,7 @@ func TestServer_ExpandedMoveAndDeleteProtectAssets(t *testing.T) {
 	if err != nil || !strings.Contains(ref.Body, "[[manutenzione/moved/child]]") {
 		t.Fatalf("satellite backlink was not rewritten: data=%+v err=%v", ref, err)
 	}
-	searchResult, err := s.Tools()["search"].Handler(json.RawMessage(`{"query":"satellite-index-keyword"}`))
+	searchResult, err := s.Tools()["search"].Handler(authLocalContext(), json.RawMessage(`{"query":"satellite-index-keyword"}`))
 	if err != nil || !strings.Contains(searchResult.Content[0].Text, "manutenzione/moved/child") || strings.Contains(searchResult.Content[0].Text, "test-runbook/child") {
 		t.Fatalf("satellite index mapping: result=%+v err=%v", searchResult, err)
 	}

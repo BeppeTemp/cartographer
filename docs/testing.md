@@ -70,6 +70,17 @@ The canonical scenario catalog and direct-run flags live in
 [`test/e2e/README.md`](https://github.com/BeppeTemp/cartographer/blob/main/test/e2e/README.md).
 The suite uses no LLM credentials and runs in CI.
 
+**Authorization is tested at two levels, on purpose.** `14_rbac_visibility`
+covers RBAC end-to-end at *KB* granularity, the only level `serve` currently
+accepts a policy for through env/CLI. The finer map/journal/type selectors that
+`auth.roles` compiles into are covered in Go
+(`internal/mcpserver/policy_test.go`, `internal/auth/auth_test.go`,
+`internal/config/roles_test.go`), because expressing them requires a YAML config
+file rather than the env-var form the scenarios use. Anything asserting
+*non-disclosure* belongs at whichever level can observe the raw response: a
+forbidden resource and a missing one must produce byte-identical output, and a
+filtered collection must not reveal hidden elements through a short page.
+
 ## What is deliberately not in CI
 
 - Whether a particular model interprets an instruction well.

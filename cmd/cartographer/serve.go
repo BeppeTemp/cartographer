@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"crypto/ed25519"
+	"crypto/sha256"
+	"encoding/hex"
 	"flag"
 	"fmt"
 	"log"
@@ -409,7 +411,7 @@ func serveHTTP(addr string, kbs []*kb.KB, names []string, toolPrefixes []string,
 
 	var store *auth.TokenStore
 	if authOn {
-		store = auth.NewScopedTokenStore(scopedTokens(authCfg.Tokens))
+		store = auth.NewScopedTokenStore(scopedTokensWithRoles(authCfg.Tokens, authCfg.Roles))
 		log.Printf("HTTP auth enabled (%d token(s))", len(authCfg.Tokens))
 	} else {
 		store = auth.NewTokenStore(nil)
@@ -489,6 +491,17 @@ func serveHTTP(addr string, kbs []*kb.KB, names []string, toolPrefixes []string,
 // auth.ParseScopes. An empty Scopes list yields nil KBScopes, i.e. full
 // (admin) access — the same semantics as before scoped tokens existed.
 func scopedTokens(specs []config.TokenSpec) []auth.ScopedToken {
+	return scopedTokensWithRoles(specs, nil)
+}
+
+// scopedTokensWithRoles additionally compiles the named roles of D118 into an
+// immutable per-token policy. Roles and legacy scopes are unioned, so a
+// deployment can migrate one token at a time.
+func scopedTokensWithRoles(specs []config.TokenSpec, roles []config.RoleSpec) []auth.ScopedToken {
+	byName := make(map[string]config.RoleSpec, len(roles))
+	for _, r := range roles {
+		byName[r.Name] = r
+	}
 	out := make([]auth.ScopedToken, len(specs))
 	for i, spec := range specs {
 		var scopes []auth.KBScope
@@ -498,16 +511,42 @@ func scopedTokens(specs []config.TokenSpec) []auth.ScopedToken {
 		// Fail loud on operator typos: a token that declared scopes but whose
 		// entries all failed to parse would otherwise silently degrade to nil
 		// scopes = full admin access. Warn so the misconfiguration is visible.
-		if len(spec.Scopes) > 0 && len(scopes) == 0 {
-			id := spec.Token
-			if len(id) > 8 {
-				id = id[:8]
-			}
-			log.Printf("WARNING: token %s… declares scopes %v but none parsed as kb:<name>:r|rw — this token has FULL ADMIN access; fix the scope syntax", id, spec.Scopes)
+		// A token carrying roles is already bounded, so it is not a typo case.
+		if len(spec.Scopes) > 0 && len(scopes) == 0 && len(spec.Roles) == 0 {
+			log.Printf("WARNING: token %s declares scopes %v but none parsed as kb:<name>:r|rw — this token has FULL ADMIN access; fix the scope syntax", principalID(spec), spec.Scopes)
 		}
-		out[i] = auth.ScopedToken{Token: spec.Token, Scopes: scopes}
+		var policy auth.Policy
+		for _, name := range spec.Roles {
+			for _, rule := range byName[name].Rules {
+				policy.Permissions = append(policy.Permissions, auth.Permission{
+					KB:       rule.KB,
+					Write:    rule.Access == "rw",
+					Maps:     rule.Maps,
+					Journals: rule.Journals,
+					Types:    rule.Types,
+				})
+			}
+		}
+		out[i] = auth.ScopedToken{
+			Token:     spec.Token,
+			Scopes:    scopes,
+			Principal: principalID(spec),
+			Policy:    policy,
+		}
 	}
 	return out
+}
+
+// principalID returns a stable, non-secret identifier for logs and audit
+// records: the operator-chosen ID when present, otherwise a short digest of
+// the token. A plaintext token prefix is never used — it would leak key
+// material into logs an operator reasonably treats as non-sensitive.
+func principalID(spec config.TokenSpec) string {
+	if spec.ID != "" {
+		return spec.ID
+	}
+	sum := sha256.Sum256([]byte(spec.Token))
+	return "tok-" + hex.EncodeToString(sum[:4])
 }
 
 // resolveAuth determines whether auth should be enforced.

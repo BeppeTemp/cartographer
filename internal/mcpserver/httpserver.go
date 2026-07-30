@@ -1,15 +1,12 @@
 package mcpserver
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
 	"strings"
-
-	"github.com/BeppeTemp/cartographer/internal/auth"
 )
 
 // HTTPHandler returns an http.Handler that serves MCP over Streamable HTTP.
@@ -71,83 +68,16 @@ func (s *Server) handleMCPPost(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if req.isNotification() {
-		s.handleNotification(&req)
+		s.handleNotification(r.Context(), &req)
 		w.WriteHeader(http.StatusAccepted)
 		return
 	}
 
-	resp := s.dispatch(&req)
+	resp := s.dispatch(r.Context(), &req)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(resp)
-}
-
-// mcpAccessGuard wraps next (an /mcp handler for a single KB) with per-KB,
-// per-tool r/rw scope enforcement. Scopes come from the request context
-// (auth.ScopesFromContext, populated by TokenStore.Middleware from the
-// token's configured scopes); a nil/empty scope list means full access
-// (admin token) and the guard passes through unconditionally.
-//
-// To decide whether the request needs write access it peeks the JSON-RPC
-// body: any method other than "tools/call" (initialize, tools/list, ping,
-// ...) is treated as read-only; "tools/call" needs write iff
-// ToolRequiresWrite(params.name) — fail-closed, so an unparsable body or an
-// unknown tool name requires write. The body is always restored on r.Body
-// (via io.NopCloser over the buffered bytes) so the wrapped handler, which
-// reads it again from scratch, sees the exact original bytes.
-//
-// Special case (M4, D47): service_get is classified ReadOnly (it only reads
-// frontmatter+body by default), but with arguments.resolve_secrets==true it
-// decrypts and returns the service's secrets — access to secrets requires at
-// least the same privilege as a write. The tool-name classification in
-// ToolRequiresWrite can't see arguments, so this per-argument override lives
-// here, at the one place that already parses the JSON-RPC body.
-//
-// srv is the KB's own *Server: its ToolRequiresWrite method strips this
-// server's tool-name prefix (D102), if any, before classifying — so a
-// prefixed write tool is still correctly rejected for a read-only scope.
-func mcpAccessGuard(kbName string, srv *Server, next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		scopes := auth.ScopesFromContext(r.Context())
-		if len(scopes) == 0 {
-			next.ServeHTTP(w, r)
-			return
-		}
-
-		body, err := io.ReadAll(io.LimitReader(r.Body, 2<<20))
-		if err != nil {
-			http.Error(w, "read error", http.StatusBadRequest)
-			return
-		}
-		r.Body = io.NopCloser(bytes.NewReader(body))
-
-		needWrite := true // fail-closed: an unparsable request requires write access
-		var req Request
-		if err := json.Unmarshal(body, &req); err == nil {
-			if req.Method != "tools/call" {
-				needWrite = false
-			} else {
-				var params struct {
-					Name      string `json:"name"`
-					Arguments struct {
-						ResolveSecrets bool `json:"resolve_secrets"`
-					} `json:"arguments"`
-				}
-				_ = json.Unmarshal(req.Params, &params) // ignore errors: ToolRequiresWrite("") is fail-closed too
-				needWrite = srv.ToolRequiresWrite(params.Name)
-				if srv.StripToolPrefix(params.Name) == "service_get" && params.Arguments.ResolveSecrets {
-					needWrite = true
-				}
-			}
-		}
-
-		if !auth.HasAccess(scopes, kbName, needWrite) {
-			auth.Forbidden(w)
-			return
-		}
-		next.ServeHTTP(w, r)
-	})
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
@@ -285,6 +215,7 @@ const maxToolNameLen = 48
 // returned.
 func (m *MultiKBServer) MountKBWithPrefix(name, prefix string, setupFn func(s *Server)) error {
 	srv := New(m.version)
+	srv.SetPolicyKB(name)
 	if prefix != "" {
 		srv.SetToolNamePrefix(prefix)
 	}
@@ -341,11 +272,9 @@ func (m *MultiKBServer) Handler() http.Handler {
 
 			// Single-KB mode: if only one KB is mounted, use it as default.
 			if kbName == "" && len(m.servers) == 1 {
-				for name, srv := range m.servers {
+				for _, srv := range m.servers {
 					srv := srv
-					mcpAccessGuard(name, srv, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-						srv.handleMCP(w, r)
-					})).ServeHTTP(w, r)
+					srv.handleMCP(w, r)
 					return
 				}
 			}
@@ -372,15 +301,15 @@ func (m *MultiKBServer) Handler() http.Handler {
 	})
 }
 
-// serveKB routes r to the named KB's MCP handler (through the per-KB access
-// guard), or responds 404 "unknown kb" if no KB with that name is mounted.
+// serveKB routes r to the named KB's MCP handler, or responds 404 "unknown
+// kb" if no KB with that name is mounted. Per-tool/per-resource
+// authorization happens centrally in Server.dispatch (installPolicy), not
+// here.
 func (m *MultiKBServer) serveKB(w http.ResponseWriter, r *http.Request, kbName string) {
 	srv, ok := m.servers[kbName]
 	if !ok {
 		http.Error(w, fmt.Sprintf("unknown kb %q", kbName), http.StatusNotFound)
 		return
 	}
-	mcpAccessGuard(kbName, srv, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		srv.handleMCP(w, r)
-	})).ServeHTTP(w, r)
+	srv.handleMCP(w, r)
 }

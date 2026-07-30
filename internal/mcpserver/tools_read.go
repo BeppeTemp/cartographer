@@ -21,31 +21,37 @@ func toolAtlasOverview(k *kb.KB) Tool {
 		Description: "Returns the Atlas's root index.md plus the list of Maps and Journals, each with its concept (and expanded-concept) count.",
 		ReadOnly:    true,
 		InputSchema: json.RawMessage(`{"type":"object","properties":{}}`),
-		Handler: func(args json.RawMessage) (ToolResult, error) {
-			indexContent, err := k.ReadIndex("")
-			if err != nil {
-				return errorResult(fmt.Sprintf("read index.md: %v", err)), nil
-			}
-
+		Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
 			archives, err := k.ListArchives()
 			if err != nil {
 				return errorResult(fmt.Sprintf("list maps: %v", err)), nil
 			}
 
 			var sb strings.Builder
-			sb.WriteString(indexContent)
+			if WholeVisible(ctx, k, false) {
+				indexContent, err := k.ReadIndex("")
+				if err != nil {
+					return errorResult(fmt.Sprintf("read index.md: %v", err)), nil
+				}
+				sb.WriteString(indexContent)
+			}
 			sb.WriteString("\n\n---\n\n## Maps & Journals\n\n")
 			if len(archives) == 0 {
 				sb.WriteString("No maps found.\n")
 			} else {
 				for _, a := range archives {
-					conceptCount, err := k.ConceptCount(a)
-					if err != nil {
-						conceptCount = 0
+					kind := "map"
+					if meta, err := k.ReadArchiveMeta(a); err == nil {
+						if v, ok := meta.Get("kind"); ok {
+							kind, _ = v.(string)
+						}
 					}
-					expandedCount, err := k.ExpandedCount(a)
-					if err != nil {
-						expandedCount = 0
+					if !VisibleCollection(ctx, k, a, kind) {
+						continue
+					}
+					conceptCount, expandedCount := visibleCounts(ctx, k, a)
+					if WholeVisible(ctx, k, false) {
+						expandedCount, _ = k.ExpandedCount(a)
 					}
 					if expandedCount > 0 {
 						sb.WriteString(fmt.Sprintf("- **%s** (%d concepts, %d expanded)\n", a, conceptCount, expandedCount))
@@ -75,7 +81,7 @@ func toolIndexGet(k *kb.KB) Tool {
 				}
 			}
 		}`),
-		Handler: func(args json.RawMessage) (ToolResult, error) {
+		Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
 			var params struct {
 				Path string `json:"path"`
 			}
@@ -148,7 +154,7 @@ func toolConceptRead(k *kb.KB) Tool {
 				}
 			}
 		}`),
-		Handler: func(args json.RawMessage) (ToolResult, error) {
+		Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
 			var params struct {
 				ID      string `json:"id"`
 				Section string `json:"section"`
@@ -256,7 +262,7 @@ func toolLogTail(k *kb.KB) Tool {
 				}
 			}
 		}`),
-		Handler: func(args json.RawMessage) (ToolResult, error) {
+		Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
 			var params struct {
 				Path string `json:"path"`
 				N    int    `json:"n"`
@@ -364,7 +370,7 @@ func toolChangesSince(k *kb.KB) Tool {
 				}
 			}
 		}`),
-		Handler: func(args json.RawMessage) (ToolResult, error) {
+		Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
 			var params struct {
 				Since string `json:"since"`
 				Limit int    `json:"limit"`
@@ -418,6 +424,9 @@ func toolChangesSince(k *kb.KB) Tool {
 						}
 					}
 					id = resolveMovedID(id)
+					if !Visible(ctx, k, id) {
+						continue
+					}
 					info, exists := conceptByID[id]
 					if !exists {
 						info = &changesSinceConcept{
@@ -460,10 +469,13 @@ func toolChangesSince(k *kb.KB) Tool {
 			result := changesSinceResult{
 				Since:        since.UTC().Format(time.RFC3339),
 				Head:         head,
-				CommitCount:  len(commits),
+				CommitCount:  0,
 				Concepts:     concepts,
-				OtherChanges: otherChanges,
+				OtherChanges: 0,
 				Truncated:    truncated,
+			}
+			if WholeVisible(ctx, k, false) {
+				result.CommitCount, result.OtherChanges = len(commits), otherChanges
 			}
 			if len(commits) == 0 {
 				result.Note = fmt.Sprintf("no commits since %s", result.Since)
@@ -474,6 +486,21 @@ func toolChangesSince(k *kb.KB) Tool {
 	}
 }
 
+// visibleCounts computes overview counters from the caller's view, before any
+// aggregation. ExpandedCount is intentionally limited to visible concepts so
+// a type-restricted principal cannot infer hidden satellites.
+func visibleCounts(ctx requestContext, k *kb.KB, archive string) (concepts, expanded int) {
+	_ = k.WalkConcepts(func(id okf.ConceptID, _ string) error {
+		idString := string(id)
+		if !strings.HasPrefix(idString, archive+"/") || !Visible(ctx, k, idString) {
+			return nil
+		}
+		concepts++
+		return nil
+	})
+	return concepts, expanded
+}
+
 // --- map_list ---
 
 func toolMapList(k *kb.KB) Tool {
@@ -482,7 +509,7 @@ func toolMapList(k *kb.KB) Tool {
 		Description: "Lists all Maps and Journals in the Atlas with their metadata (kind, ontology_mode, concept_types, expanded-concept count).",
 		ReadOnly:    true,
 		InputSchema: json.RawMessage(`{"type":"object","properties":{}}`),
-		Handler: func(args json.RawMessage) (ToolResult, error) {
+		Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
 			archives, err := k.ListArchives()
 			if err != nil {
 				return errorResult(fmt.Sprintf("map_list: %v", err)), nil
@@ -502,8 +529,19 @@ func toolMapList(k *kb.KB) Tool {
 
 			var infos []mapInfo
 			for _, name := range archives {
+				kind := "map"
+				if meta, err := k.ReadArchiveMeta(name); err == nil {
+					if v, ok := meta.Get("kind"); ok {
+						kind, _ = v.(string)
+					}
+				}
+				if !VisibleCollection(ctx, k, name, kind) {
+					continue
+				}
 				info := mapInfo{Name: name}
-				info.Expanded, _ = k.ExpandedCount(name)
+				if WholeVisible(ctx, k, false) {
+					info.Expanded, _ = k.ExpandedCount(name)
+				}
 				if meta, err := k.ReadArchiveMeta(name); err == nil {
 					if v, ok := meta.Get("title"); ok {
 						info.Title, _ = v.(string)
@@ -625,7 +663,7 @@ func toolConceptList(k *kb.KB) Tool {
 				}
 			}
 		}`),
-		Handler: func(args json.RawMessage) (ToolResult, error) {
+		Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
 			var params struct {
 				Scope           string   `json:"scope"`
 				Limit           int      `json:"limit"`
@@ -681,6 +719,9 @@ func toolConceptList(k *kb.KB) Tool {
 			if err := k.WalkConcepts(func(id okf.ConceptID, content string) error {
 				idStr := string(id)
 				if scope != "" && idStr != scope && !strings.HasPrefix(idStr, scope+"/") {
+					return nil
+				}
+				if !Visible(ctx, k, idStr) {
 					return nil
 				}
 				examined++
@@ -773,7 +814,7 @@ func toolGraphNeighbors(k *kb.KB) Tool {
 				}
 			}
 		}`),
-		Handler: func(args json.RawMessage) (ToolResult, error) {
+		Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
 			var params struct {
 				ID        string `json:"id"`
 				Depth     int    `json:"depth"`
@@ -809,6 +850,9 @@ func toolGraphNeighbors(k *kb.KB) Tool {
 			}
 			var list []neighbor
 			for id, dist := range neighbors {
+				if !Visible(ctx, k, id) {
+					continue
+				}
 				list = append(list, neighbor{ID: id, Distance: dist})
 			}
 			sort.Slice(list, func(i, j int) bool { return list[i].ID < list[j].ID })

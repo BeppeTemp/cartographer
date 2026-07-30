@@ -1,9 +1,11 @@
 package auth
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -18,8 +20,8 @@ func TestTokenStoreValidate(t *testing.T) {
 	if !ok {
 		t.Fatal("expected valid token to pass")
 	}
-	if agentID != tok[:8] {
-		t.Fatalf("agentID = %q, want %q", agentID, tok[:8])
+	if agentID == "" || agentID == tok[:8] {
+		t.Fatalf("agentID = %q must be a non-secret derived principal ID", agentID)
 	}
 
 	_, ok = ts.Validate("invalid-token")
@@ -154,6 +156,31 @@ func TestParseScopes(t *testing.T) {
 	}
 }
 
+func TestPolicyRoleUnionAndSelectors(t *testing.T) {
+	p := Policy{Permissions: []Permission{
+		{KB: "docs", Maps: []string{"runbooks"}, Types: []string{"Runbook"}},
+		{KB: "docs", Journals: []string{"journal"}, Write: true},
+	}}
+	if !p.Allows("docs", "runbooks", "", "Runbook", false) || p.Allows("docs", "runbooks", "", "Secret", false) {
+		t.Fatal("map/type intersection failed")
+	}
+	if !p.Allows("docs", "", "journal", "Entry", true) || p.Allows("docs", "", "journal", "Entry", false) == false {
+		t.Fatal("journal rw rule failed")
+	}
+	if p.AllowsWholeKB("docs", false) {
+		t.Fatal("selected role must not become whole-KB")
+	}
+}
+
+func TestDerivedPrincipalNeverContainsToken(t *testing.T) {
+	secret := "highly-sensitive-token-value"
+	ts := NewScopedTokenStore([]ScopedToken{{Token: secret}})
+	id, ok := ts.Validate(secret)
+	if !ok || strings.Contains(id, secret) || strings.Contains(id, secret[:8]) {
+		t.Fatalf("principal ID leaked token material: %q", id)
+	}
+}
+
 func TestParseScopesSemicolonSeparated(t *testing.T) {
 	// ";"-separated form (used by the CARTOGRAPHER_TOKENS env, where scopes
 	// cannot be whitespace-separated because whitespace splits token entries).
@@ -234,7 +261,7 @@ func TestNewTokenStoreBackwardCompat(t *testing.T) {
 	// NewTokenStore([]string) must still work and grant full access (nil scopes).
 	ts := NewTokenStore([]string{"tok-a", "tok-b"})
 	agentID, ok := ts.Validate("tok-a")
-	if !ok || agentID != "tok-a" {
+	if !ok || agentID == "tok-a" || agentID == "" {
 		t.Fatalf("Validate(tok-a) = %q, %v", agentID, ok)
 	}
 	scopes, ok := ts.ScopesOf("tok-a")
@@ -299,5 +326,28 @@ func TestMiddlewarePublicPaths(t *testing.T) {
 		if rec.Code != c.wantStatus {
 			t.Errorf("%s (auth=%q): status %d, want %d", c.path, c.auth, rec.Code, c.wantStatus)
 		}
+	}
+}
+
+func TestPolicyAndPrincipalCopiesCannotBeMutated(t *testing.T) {
+	input := ScopedToken{Token: "token", Principal: "reader", Policy: Policy{Permissions: []Permission{{KB: "docs", Maps: []string{"visible"}, Types: []string{"Runbook"}}}}}
+	ts := NewScopedTokenStore([]ScopedToken{input})
+	// Mutating the configuration after construction must not alter the store.
+	input.Policy.Permissions[0].Maps[0] = "hidden"
+	p, ok := ts.PrincipalOf("token")
+	if !ok || !p.Policy.Allows("docs", "visible", "", "Runbook", false) {
+		t.Fatal("store retained caller-owned policy slices")
+	}
+	// Nor may a returned principal mutate the stored policy or a context copy.
+	p.Policy.Permissions[0].Types[0] = "Secret"
+	again, _ := ts.PrincipalOf("token")
+	if !again.Policy.Allows("docs", "visible", "", "Runbook", false) {
+		t.Fatal("PrincipalOf returned mutable store state")
+	}
+	ctx := ContextWithPrincipal(context.Background(), again)
+	fromCtx := PrincipalFromContext(ctx)
+	fromCtx.Policy.Permissions[0].Maps[0] = "other"
+	if !PrincipalFromContext(ctx).Policy.Allows("docs", "visible", "", "Runbook", false) {
+		t.Fatal("PrincipalFromContext returned mutable context state")
 	}
 }

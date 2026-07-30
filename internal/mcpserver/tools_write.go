@@ -45,7 +45,7 @@ func toolConceptWrite(k *kb.KB, live *liveIndex, sqlIdx *sqlindex.Index) Tool {
 				}
 			}
 		}`),
-		Handler: func(args json.RawMessage) (ToolResult, error) {
+		Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
 			var params struct {
 				ID          string                 `json:"id"`
 				Frontmatter map[string]interface{} `json:"frontmatter"`
@@ -107,7 +107,7 @@ func toolConceptNew(k *kb.KB, live *liveIndex, sqlIdx *sqlindex.Index) Tool {
 				"vars":{"type":"object","additionalProperties":{"type":"string"},"description":"Optional template variable values"}
 			}
 		}`),
-		Handler: func(args json.RawMessage) (ToolResult, error) {
+		Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
 			var params struct {
 				Template string            `json:"template"`
 				ID       string            `json:"id"`
@@ -398,7 +398,7 @@ func toolConceptPatch(k *kb.KB, live *liveIndex, sqlIdx *sqlindex.Index) Tool {
 				}
 			}
 		}`),
-		Handler: func(args json.RawMessage) (ToolResult, error) {
+		Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
 			var params struct {
 				ID          string                 `json:"id"`
 				OldString   string                 `json:"old_string"`
@@ -548,7 +548,7 @@ func toolMapCreate(k *kb.KB) Tool {
 				}
 			}
 		}`),
-		Handler: func(args json.RawMessage) (ToolResult, error) {
+		Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
 			var params struct {
 				Name                 string              `json:"name"`
 				Title                string              `json:"title"`
@@ -623,7 +623,7 @@ func toolMapDelete(k *kb.KB) Tool {
 				}
 			}
 		}`),
-		Handler: func(args json.RawMessage) (ToolResult, error) {
+		Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
 			var params struct {
 				Map string `json:"map"`
 			}
@@ -668,7 +668,7 @@ func toolConceptExpand(k *kb.KB) Tool {
 				}
 			}
 		}`),
-		Handler: func(args json.RawMessage) (ToolResult, error) {
+		Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
 			var params struct {
 				ID string `json:"id"`
 			}
@@ -717,7 +717,7 @@ func toolLogAppend(k *kb.KB) Tool {
 				}
 			}
 		}`),
-		Handler: func(args json.RawMessage) (ToolResult, error) {
+		Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
 			var params struct {
 				Entry string `json:"entry"`
 				Path  string `json:"path"`
@@ -760,7 +760,7 @@ func toolSnapshot(k *kb.KB) Tool {
 				}
 			}
 		}`),
-		Handler: func(args json.RawMessage) (ToolResult, error) {
+		Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
 			var params struct {
 				Message string `json:"message"`
 			}
@@ -809,7 +809,7 @@ func toolSupersede(k *kb.KB) Tool {
 				}
 			}
 		}`),
-		Handler: func(args json.RawMessage) (ToolResult, error) {
+		Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
 			var params struct {
 				SourceID string `json:"source_id"`
 				TargetID string `json:"target_id"`
@@ -908,7 +908,7 @@ func toolConceptMove(k *kb.KB, live *liveIndex, sqlIdx *sqlindex.Index) Tool {
 				}
 			}
 		}`),
-		Handler: func(args json.RawMessage) (ToolResult, error) {
+		Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
 			var params struct {
 				SourceID     string             `json:"source_id"`
 				TargetID     string             `json:"target_id"`
@@ -1206,7 +1206,7 @@ func toolConceptDelete(k *kb.KB, live *liveIndex, sqlIdx *sqlindex.Index) Tool {
 				}
 			}
 		}`),
-		Handler: func(args json.RawMessage) (ToolResult, error) {
+		Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
 			var params struct {
 				ID      string `json:"id"`
 				IfMatch string `json:"if_match"`

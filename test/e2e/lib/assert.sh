@@ -101,6 +101,55 @@ assert_git_log_nonempty() {
     fi
 }
 
+# mcp_call <base_url> <kb> <token> <json_body>
+#   POSTs a JSON-RPC body to <base_url>?kb=<kb> with a bearer token and
+#   prints the raw HTTP response body. HTTP status is always 200 for a
+#   well-formed JSON-RPC request (D118): authorization outcomes are carried
+#   in the JSON-RPC result (isError + text), not the HTTP status code.
+mcp_call() {
+    local base="$1" kb="$2" token="$3" body="$4"
+    curl -s -X POST "${base}?kb=${kb}" \
+        -H "Content-Type: application/json" \
+        -H "Authorization: Bearer ${token}" \
+        -d "${body}"
+}
+
+# assert_mcp_ok <desc> <response_body>
+#   Verifies a tools/call response succeeded (isError absent/false).
+assert_mcp_ok() {
+    local desc="$1" body="$2"
+    if echo "$body" | grep -q '"isError":true'; then
+        _assert_fail "${desc} — expected success, got an application error: ${body}"
+    else
+        _assert_pass "$desc"
+    fi
+}
+
+# assert_mcp_error_text <desc> <response_body> <expected_text>
+#   Verifies a tools/call response is an application error whose content
+#   text is exactly <expected_text> (e.g. "forbidden" or the D118 generic
+#   non-disclosure string "not found").
+assert_mcp_error_text() {
+    local desc="$1" body="$2" want="$3"
+    if echo "$body" | grep -q '"isError":true' && echo "$body" | grep -qF "\"text\":\"${want}\""; then
+        _assert_pass "$desc"
+    else
+        _assert_fail "${desc} — expected isError with text '${want}', got: ${body}"
+    fi
+}
+
+# assert_mcp_not_discloses <desc> <response_body> <forbidden_substring>
+#   Verifies the response body does not leak the given substring (e.g. a
+#   hidden concept's id or title) — the D118 non-disclosure invariant.
+assert_mcp_not_discloses() {
+    local desc="$1" body="$2" needle="$3"
+    if echo "$body" | grep -qF "$needle"; then
+        _assert_fail "${desc} — response unexpectedly discloses '${needle}': ${body}"
+    else
+        _assert_pass "$desc"
+    fi
+}
+
 # assert_concept_exists <kb_dir> <pattern>
 #   Looks for a .md file under <kb_dir> that:
 #     1. Matches the pattern (passed to find -name)

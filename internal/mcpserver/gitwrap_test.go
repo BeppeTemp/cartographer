@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/BeppeTemp/cartographer/internal/auth"
 	"github.com/BeppeTemp/cartographer/internal/gitx"
 	"github.com/BeppeTemp/cartographer/internal/kb"
 	"github.com/BeppeTemp/cartographer/internal/okf"
@@ -18,7 +19,7 @@ import (
 
 func writeWrappedTool(t *testing.T, k *kb.KB, name string, beforeCommit func()) ToolResult {
 	t.Helper()
-	tool := gitWrap(k, Tool{Name: name, Handler: func(json.RawMessage) (ToolResult, error) {
+	tool := gitWrap(k, Tool{Name: name, Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
 		if beforeCommit != nil {
 			beforeCommit()
 		}
@@ -27,7 +28,7 @@ func writeWrappedTool(t *testing.T, k *kb.KB, name string, beforeCommit func()) 
 		}
 		return textResult(`{"ok":true}`), nil
 	}})
-	res, err := tool.Handler(json.RawMessage(`{}`))
+	res, err := tool.Handler(authLocalContext(), json.RawMessage(`{}`))
 	if err != nil {
 		t.Fatalf("wrapped handler: %v", err)
 	}
@@ -48,7 +49,7 @@ func syncWarning(t *testing.T, res ToolResult) map[string]any {
 
 func syncStatus(t *testing.T, k *kb.KB) map[string]any {
 	t.Helper()
-	res, err := toolSyncStatus(k).Handler(nil)
+	res, err := toolSyncStatus(k).Handler(authLocalContext(), nil)
 	if err != nil {
 		t.Fatalf("sync_status: %v", err)
 	}
@@ -251,7 +252,7 @@ func TestGitWrap_AssetWriteAndDeleteCreateOneCommitEach(t *testing.T) {
 	s := New("0.1.0-test")
 	RegisterKBTools(s, k, Deps{})
 	write := s.Tools()["asset_write"]
-	result, err := write.Handler(json.RawMessage(`{"concept_id":"assets/owner","path":"evidence/check.txt","content":"check"}`))
+	result, err := write.Handler(authLocalContext(), json.RawMessage(`{"concept_id":"assets/owner","path":"evidence/check.txt","content":"check"}`))
 	if err != nil || result.IsError {
 		t.Fatalf("asset_write: result=%+v err=%v", result, err)
 	}
@@ -263,7 +264,7 @@ func TestGitWrap_AssetWriteAndDeleteCreateOneCommitEach(t *testing.T) {
 		t.Fatal(err)
 	}
 	deleteTool := s.Tools()["asset_delete"]
-	result, err = deleteTool.Handler(json.RawMessage(`{"concept_id":"assets/owner","path":"evidence/check.txt","if_match":"` + entry.SHA256 + `"}`))
+	result, err = deleteTool.Handler(authLocalContext(), json.RawMessage(`{"concept_id":"assets/owner","path":"evidence/check.txt","if_match":"`+entry.SHA256+`"}`))
 	if err != nil || result.IsError {
 		t.Fatalf("asset_delete: result=%+v err=%v", result, err)
 	}
@@ -531,6 +532,50 @@ func TestReadSyncWrap_DisabledOrNoRemoteKeepsReadPathWorking(t *testing.T) {
 				t.Fatalf("concept_read = %+v", got)
 			}
 		})
+	}
+}
+
+func TestGitWrap_ReauthorizesAfterSyncInChangesConceptType(t *testing.T) {
+	k, bare := setupGitKBWithRemote(t)
+	k.AuthName = "docs"
+	k.AutoCommit, k.GitSync = true, true
+	if err := k.CreateMap("manutenzione", "Maintenance", "map", nil, ""); err != nil {
+		t.Fatal(err)
+	}
+	fm, err := okf.ParseFrontmatter("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fm.Set("type", "Runbook")
+	fm.Set("title", "before sync")
+	if _, err := k.WriteConcept("manutenzione/reauth", fm, "body", ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := k.CommitOp("seed RBAC fixture"); err != nil {
+		t.Fatal(err)
+	}
+	if err := k.SyncOut(); err != nil {
+		t.Fatal(err)
+	}
+	branch, _ := gitx.Branch(k.Root)
+
+	s := New("test")
+	RegisterKBTools(s, k, Deps{})
+	ctx := restrictedContext(auth.Policy{Permissions: []auth.Permission{{KB: "docs", Write: true, Maps: []string{"manutenzione"}, Types: []string{"Runbook"}}}})
+	// The first dispatch sees Runbook. SyncIn below replaces it with Secret;
+	// the lock-time decision must therefore deny before handler/log/commit.
+	pushRemoteFile(t, bare, branch, "data/manutenzione/reauth.md", "---\ntype: Secret\ntitle: after sync\n---\nbody\n", "change type remotely")
+	request := &Request{ID: json.RawMessage(`1`), Method: "tools/call", Params: json.RawMessage(`{"name":"concept_patch","arguments":{"id":"manutenzione/reauth","if_match":"any","old_string":"body","new_string":"changed"}}`)}
+	result := decodeToolResult(t, s.dispatch(ctx, request))
+	if !result.IsError || result.Content[0].Text != genericNotFound {
+		t.Fatalf("reauthorized write = %+v, want non-disclosing denial", result)
+	}
+	data, err := k.ReadConcept("manutenzione/reauth")
+	if err != nil || !strings.Contains(data.Content, "type: Secret") || strings.Contains(data.Content, "changed") {
+		t.Fatalf("denied write mutated synced concept: data=%+v err=%v", data, err)
+	}
+	if count := remoteCommitCount(t, bare, branch); count != "3" {
+		t.Fatalf("denied write committed or pushed: remote commits=%s, want 3", count)
 	}
 }
 

@@ -59,6 +59,7 @@ init: true                    # (init) initialize missing KBs
 auth:
   mode: "on"                  # (auth.mode) on | off | auto (default auto: on if tokens are present)
   tokens: [...]                # (auth.tokens) prefer env CARTOGRAPHER_TOKENS instead (secret)
+  roles: [...]                 # (auth.roles) named fine-grained permission sets (D118), see below
 data: /data                   # (data) directory with KB auto-discovery (one subfolder = one KB);
                               # paths already mounted explicitly (kbs[], including remote KBs cloned
                               # into this directory) are excluded from discovery — no double mount
@@ -222,6 +223,7 @@ Every startup option has a corresponding environment variable (the CLI flag take
 | `CARTOGRAPHER_HTTP` | `--http` | HTTP listen address, e.g. `:39273` |
 | `CARTOGRAPHER_TOKENS` | `--tokens` | Bearer tokens, comma/whitespace-separated. Each entry is either a bare `token` (admin, full access to every KB) or `token\|scope1;scope2` with per-KB scopes `kb:<name>:r\|rw` (scopes separated by `;`, never by spaces/commas, to avoid colliding with the between-entry separator). E.g. `admintok, readtok\|kb:wiki:r, writetok\|kb:wiki:rw;kb:notes:r` (D44). |
 | `CARTOGRAPHER_AUTH` | — | Explicit auth toggle (see §Auth) |
+| — | — | Fine-grained roles have no env form: `auth.roles` is YAML-only, because a rule is a structured object (see §Fine-grained roles). |
 | `CARTOGRAPHER_GIT_AUTOCOMMIT` | `--git-autocommit` | Enables the git commit after every write. Default `true`; set to `false` or `0` to disable. |
 | `CARTOGRAPHER_GIT_SYNC` | `--git-sync` | If the KB has an `origin` remote, runs fetch+pull-rebase before reads and writes, then pushes after writes (git as inter-instance sync). Default `true`; `false`/`0` to disable. Inert if the KB has no remote. Read-side sync is best-effort: a network failure serves the local replica; a rebase conflict is registered and the read also serves locally. |
 | `CARTOGRAPHER_GIT_TOKEN_DIR` | — | Directory with one file per KB (`<dir>/<name>.token`) used as the HTTPS credential for that KB's git (D53, see §Bootstrapping a KB from a git remote). |
@@ -361,6 +363,48 @@ Run `cartographer help` for the authoritative command list. Server lifecycle,
 KB create/clone, client connection/sync, import, resolve and reindex have CLI
 commands; concept writes, snapshots and contradiction resolution remain MCP
 tool operations. There is no separate runtime token-registration command.
+
+### Fine-grained roles
+
+`auth.roles` declares named permission sets that narrow a token below whole-KB
+granularity (D118). Semantics, the resource classes and the enforcement
+guarantees are in [transport-auth](transport-auth.md) §Roles and fine-grained
+permissions; this is the operator view.
+
+```yaml
+auth:
+  mode: "on"
+  roles:
+    - name: runbook-editor
+      rules:
+        - kb: homelab
+          access: rw            # r | rw
+          maps: [infra]         # empty = every map
+          types: [Runbook]      # empty = every type
+        - kb: reference
+          access: r
+  tokens:
+    - token: ${CARTOGRAPHER_TOKEN}
+      id: ci                    # stable principal id for logs; derived from a
+                                # token digest when omitted
+      roles: [runbook-editor]
+```
+
+Rollout notes:
+
+- **Nothing changes until you opt in.** Tokens without `roles` behave exactly as
+  before: unscoped tokens stay admin, `scopes` keep granting whole-KB access.
+- **Migrate one token at a time.** `roles` and `scopes` on the same token are
+  unioned, so a token can gain a narrow role while keeping an existing scope.
+- **Validation is fatal at startup.** A duplicate role or principal ID, an
+  unknown role reference, an empty `kb`, an `access` other than `r`/`rw`, an
+  empty or traversal selector, or a selector declared as both map and journal
+  aborts the boot. Diagnostics name the role and rule index, never a token.
+- **Selectors are not validated against KB content**: a role may reference a map
+  that does not exist yet, and grants nothing until it does.
+- Verify a rollout with a real request rather than by reading config: a token
+  outside its perimeter receives a generic `not found`, deliberately
+  indistinguishable from a missing concept.
 
 ## Observability
 

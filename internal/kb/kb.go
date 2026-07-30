@@ -20,7 +20,10 @@ import (
 // KB represents an open knowledge base identified by its root on the filesystem.
 // Always used as *KB; never copy a KB value (sync.Mutex field).
 type KB struct {
-	Root       string
+	Root string
+	// AuthName is the mounted logical name used by authorization policy. It is
+	// set by the transport at mount time and never contains a bearer secret.
+	AuthName   string
 	AutoCommit bool // if true, CommitOp creates a git commit after each write
 	GitSync    bool // if true, SyncIn/SyncOut fetch/push with the "origin" remote
 
