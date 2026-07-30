@@ -65,6 +65,13 @@ func (idx *Index) remove(id string) {
 // It first requires all query terms, then falls back to any term if needed.
 // If scope is non-empty, only concepts whose ID starts with scope are returned.
 func (idx *Index) Search(query string, scope string, limit int) []Hit {
+	return idx.SearchFiltered(query, scope, limit, nil)
+}
+
+// SearchFiltered returns the highest-ranked hits accepted by allow. Filtering
+// happens after ranking and before limit so inaccessible hits never consume a
+// caller's page. A nil predicate permits every hit.
+func (idx *Index) SearchFiltered(query string, scope string, limit int, allow func(id string) bool) []Hit {
 	if limit <= 0 {
 		limit = 20
 	}
@@ -104,10 +111,23 @@ func (idx *Index) Search(query string, scope string, limit int) []Hit {
 		}
 		return hits[i].ID < hits[j].ID
 	})
-	if len(hits) > limit {
-		hits = hits[:limit]
+	if allow == nil {
+		if len(hits) > limit {
+			return hits[:limit]
+		}
+		return hits
 	}
-	return hits
+	visible := make([]Hit, 0, min(limit, len(hits)))
+	for _, hit := range hits {
+		if !allow(hit.ID) {
+			continue
+		}
+		visible = append(visible, hit)
+		if len(visible) == limit {
+			break
+		}
+	}
+	return visible
 }
 
 func (idx *Index) andCandidates(terms []string) map[string]int {

@@ -50,6 +50,12 @@ func (s *Store) Remove(id string) {
 // Returns results sorted by descending similarity.
 // Because stored vectors are normalized, cosine similarity == dot product.
 func (s *Store) Search(query Vector, k int) []SearchHit {
+	return s.SearchFiltered(query, k, nil)
+}
+
+// SearchFiltered returns the highest-similarity hits accepted by allow. It
+// applies the predicate before k so hidden vectors never exhaust a page.
+func (s *Store) SearchFiltered(query Vector, k int, allow func(id string) bool) []SearchHit {
 	// Normalize query for dot-product shortcut.
 	q := make(Vector, len(query))
 	copy(q, query)
@@ -69,12 +75,28 @@ func (s *Store) Search(query Vector, k int) []SearchHit {
 	s.mu.RUnlock()
 
 	sort.Slice(hits, func(i, j int) bool {
-		return hits[i].Similarity > hits[j].Similarity
+		if hits[i].Similarity != hits[j].Similarity {
+			return hits[i].Similarity > hits[j].Similarity
+		}
+		return hits[i].ID < hits[j].ID
 	})
-	if k > 0 && k < len(hits) {
-		hits = hits[:k]
+	if allow == nil {
+		if k > 0 && k < len(hits) {
+			return hits[:k]
+		}
+		return hits
 	}
-	return hits
+	filtered := make([]SearchHit, 0, len(hits))
+	for _, hit := range hits {
+		if !allow(hit.ID) {
+			continue
+		}
+		filtered = append(filtered, hit)
+		if k > 0 && len(filtered) == k {
+			break
+		}
+	}
+	return filtered
 }
 
 // Count returns the number of stored vectors.

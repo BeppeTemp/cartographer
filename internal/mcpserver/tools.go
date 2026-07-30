@@ -44,7 +44,15 @@ type Deps struct {
 //
 // Builds the keyword index at registration time.
 func RegisterKBTools(s *Server, k *kb.KB, deps Deps) {
+	if s.PolicyKB() != "" {
+		k.AuthName = s.PolicyKB()
+	}
+	installPolicy(s, k)
 	register := func(t Tool) {
+		t.ResourceClass = resourceClassForTool(t.Name)
+		if t.ResourceClass == "" {
+			panic("mcpserver: tool without resource class: " + t.Name)
+		}
 		if t.ReadOnly {
 			t = readSyncWrap(k, t)
 		}
@@ -143,8 +151,8 @@ func RegisterKBTools(s *Server, k *kb.KB, deps Deps) {
 // (no Go error and res.IsError==false).
 func notifyWrap(s *Server, t Tool, method string) Tool {
 	orig := t
-	t.Handler = func(args json.RawMessage) (ToolResult, error) {
-		res, err := orig.Handler(args)
+	t.Handler = func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
+		res, err := orig.Handler(ctx, args)
 		if err == nil && !res.IsError {
 			_ = s.Notify(method, map[string]any{})
 		}

@@ -24,7 +24,7 @@ func toolSkillList(k *kb.KB) Tool {
 		Description: "Lists skills installed in the KB (under skills/ directory).",
 		ReadOnly:    true,
 		InputSchema: json.RawMessage(`{"type":"object","properties":{}}`),
-		Handler: func(args json.RawMessage) (ToolResult, error) {
+		Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
 			skills, errs := skill.LoadAllSkills(k.Root)
 			if len(skills) == 0 {
 				if len(errs) > 0 {
@@ -79,7 +79,7 @@ func toolServiceGet(k *kb.KB) Tool {
 				}
 			}
 		}`),
-		Handler: func(args json.RawMessage) (ToolResult, error) {
+		Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
 			var params struct {
 				ServiceID      string `json:"service_id"`
 				ResolveSecrets bool   `json:"resolve_secrets"`
@@ -201,7 +201,7 @@ func resolveFrontmatterSecrets(k *kb.KB, fm *okf.Frontmatter) (map[string]string
 }
 
 func toolSecretResolve(k *kb.KB) Tool {
-	return Tool{Name: "secret_resolve", Description: "Resolves declared SOPS secret_refs for any concept (requires rw scope).", InputSchema: json.RawMessage(`{"type":"object","required":["concept_id"],"properties":{"concept_id":{"type":"string"},"names":{"type":"array","items":{"type":"string"}}}}`), Handler: func(args json.RawMessage) (ToolResult, error) {
+	return Tool{Name: "secret_resolve", Description: "Resolves declared SOPS secret_refs for any concept (requires rw scope).", InputSchema: json.RawMessage(`{"type":"object","required":["concept_id"],"properties":{"concept_id":{"type":"string"},"names":{"type":"array","items":{"type":"string"}}}}`), Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
 		var p struct {
 			ConceptID string   `json:"concept_id"`
 			Names     []string `json:"names"`
@@ -241,7 +241,7 @@ func toolSecretResolve(k *kb.KB) Tool {
 }
 
 func toolSecretSet(k *kb.KB) Tool {
-	return Tool{Name: "secret_set", Description: "Sets one JSON Pointer in an existing encrypted SOPS file (requires rw scope).", InputSchema: json.RawMessage(`{"type":"object","required":["path","key","value"],"properties":{"path":{"type":"string"},"key":{"type":"string"},"value":{"type":"string"}}}`), Handler: func(args json.RawMessage) (ToolResult, error) {
+	return Tool{Name: "secret_set", Description: "Sets one JSON Pointer in an existing encrypted SOPS file (requires rw scope).", InputSchema: json.RawMessage(`{"type":"object","required":["path","key","value"],"properties":{"path":{"type":"string"},"key":{"type":"string"},"value":{"type":"string"}}}`), Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
 		var p struct {
 			Path  string `json:"path"`
 			Key   string `json:"key"`
@@ -274,7 +274,7 @@ func toolServiceList(k *kb.KB) Tool {
 		Description: "Lists all concepts of type Service in the KB.",
 		ReadOnly:    true,
 		InputSchema: json.RawMessage(`{"type":"object","properties":{}}`),
-		Handler: func(args json.RawMessage) (ToolResult, error) {
+		Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
 			type svcEntry struct {
 				ID     string `json:"id"`
 				Title  string `json:"title,omitempty"`
@@ -333,7 +333,7 @@ func toolSkillListWithBundle(k *kb.KB, bundleFS fs.FS) Tool {
 		Description: "Lists installed skills and available bundled skills. Source is [installed] or [bundled].",
 		ReadOnly:    true,
 		InputSchema: json.RawMessage(`{"type":"object","properties":{}}`),
-		Handler: func(args json.RawMessage) (ToolResult, error) {
+		Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
 			installed, _ := skill.LoadAllSkills(k.Root)
 			installedNames := make(map[string]bool, len(installed))
 			for _, s := range installed {
@@ -397,7 +397,7 @@ func toolSkillInstall(k *kb.KB, bundleFS fs.FS) Tool {
 				}
 			}
 		}`),
-		Handler: func(args json.RawMessage) (ToolResult, error) {
+		Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
 			var params struct {
 				Name  string `json:"name"`
 				Force bool   `json:"force"`
