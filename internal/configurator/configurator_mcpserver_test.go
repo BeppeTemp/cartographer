@@ -169,3 +169,47 @@ func TestEmitServer_NoHeaders(t *testing.T) {
 		}
 	}
 }
+
+func TestEmitServer_Stdio(t *testing.T) {
+	spec := configurator.ServerSpec{
+		Type:    "stdio",
+		Command: "local-tool",
+		Args:    []string{"serve", "--port", "39273"},
+		Env:     map[string]string{"TOKEN": "${LOCAL_TOKEN}"},
+	}
+	want := map[configurator.Provider]string{
+		configurator.ProviderClaudeCode: "{\n  \"mcpServers\": {\n    \"local\": {\n      \"args\": [\n        \"serve\",\n        \"--port\",\n        \"39273\"\n      ],\n      \"command\": \"local-tool\",\n      \"env\": {\n        \"TOKEN\": \"${LOCAL_TOKEN}\"\n      }\n    }\n  }\n}",
+		configurator.ProviderCodex:      "[mcp_servers.local]\ncommand = \"local-tool\"\nargs = [\"serve\", \"--port\", \"39273\"]\n[mcp_servers.local.env]\n\"TOKEN\" = \"${LOCAL_TOKEN}\"\n",
+		configurator.ProviderKiro:       "{\n  \"mcpServers\": {\n    \"local\": {\n      \"args\": [\n        \"serve\",\n        \"--port\",\n        \"39273\"\n      ],\n      \"autoApprove\": [],\n      \"command\": \"local-tool\",\n      \"env\": {\n        \"TOKEN\": \"${LOCAL_TOKEN}\"\n      }\n    }\n  }\n}",
+		configurator.ProviderOpenCode:   "{\n  \"$schema\": \"https://opencode.ai/config.json\",\n  \"mcp\": {\n    \"local\": {\n      \"command\": [\n        \"local-tool\",\n        \"serve\",\n        \"--port\",\n        \"39273\"\n      ],\n      \"enabled\": true,\n      \"environment\": {\n        \"TOKEN\": \"{env:LOCAL_TOKEN}\"\n      },\n      \"type\": \"local\"\n    }\n  }\n}",
+	}
+	for _, provider := range []configurator.Provider{configurator.ProviderClaudeCode, configurator.ProviderCodex, configurator.ProviderKiro, configurator.ProviderOpenCode} {
+		t.Run(string(provider), func(t *testing.T) {
+			r, err := configurator.EmitServer("local", spec, provider)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := string(r.Content); got != want[provider] {
+				t.Errorf("golden mismatch (-want +got)\nwant:\n%s\ngot:\n%s", want[provider], got)
+			}
+		})
+	}
+}
+
+func TestEmitServer_RejectsMixedTransportFieldsForEveryProvider(t *testing.T) {
+	providers := []configurator.Provider{configurator.ProviderClaudeCode, configurator.ProviderCodex, configurator.ProviderKiro, configurator.ProviderOpenCode}
+	for _, spec := range []configurator.ServerSpec{
+		{Type: "stdio", Command: "tool", URL: "https://example.test/mcp"},
+		{Type: "stdio", Command: "tool", Headers: map[string]string{"X": "${TOKEN}"}},
+		{Type: "http", URL: "https://example.test/mcp", Command: "tool"},
+		{Type: "http", URL: "https://example.test/mcp", Args: []string{"serve"}},
+	} {
+		for _, provider := range providers {
+			t.Run(string(provider)+"/"+spec.Type, func(t *testing.T) {
+				if _, err := configurator.EmitServer("mixed", spec, provider); err == nil {
+					t.Fatalf("accepted mixed transport fields: %+v", spec)
+				}
+			})
+		}
+	}
+}

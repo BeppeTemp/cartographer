@@ -458,3 +458,26 @@ func TestDoConnect_PersistsTrust(t *testing.T) {
 		t.Error("expected persisted Trust=true after reconnecting with Trust=true")
 	}
 }
+
+// TestMaterializeForProviders_StdioPreflightIsAtomic verifies the atomic
+// multi-provider preflight added ahead of the per-provider Apply loop: a
+// missing local command fails before any provider file or the lockfile is
+// touched, and the error names the provider it protected.
+func TestMaterializeForProviders_StdioPreflightIsAtomic(t *testing.T) {
+	dir := t.TempDir()
+	content := []byte(`{"type":"stdio","command":"cartographer-definitely-missing-command"}`)
+	file := provisioning.ArtifactFile{Path: "missing.json", Content: content}
+	m := provisioning.Manifest{Artifacts: []provisioning.Artifact{{
+		Kind: "mcp", Name: "missing", Source: "kb:kb", Signed: true,
+		ContentHash: provisioning.ContentHashFiles([]provisioning.ArtifactFile{file}), Files: []provisioning.ArtifactFile{file},
+	}}}
+	_, err := materializeForProviders(m, []string{"claude", "codex"}, dir, false, false, nil, nil)
+	if err == nil || !strings.Contains(err.Error(), "not found on PATH") || !strings.Contains(err.Error(), "for claude") {
+		t.Fatalf("preflight error = %v", err)
+	}
+	for _, path := range []string{filepath.Join(dir, ".claude.json"), filepath.Join(dir, ".codex", "config.toml"), lockFilePath(dir)} {
+		if _, statErr := os.Stat(path); !os.IsNotExist(statErr) {
+			t.Fatalf("%s changed after failed multi-provider preflight: %v", path, statErr)
+		}
+	}
+}

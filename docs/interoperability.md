@@ -37,9 +37,11 @@ side, [D37](decisions/client-configurator.md#d37)).
 
 **Automatic realignment** when skills/agents/hooks change (bundle or KB): manifest+revision server-side, lockfile client-side, drift detection and layered triggers (`SessionStart` hook, MCP tool, push). See → [`sync.md`](sync.md).
 
-**Secrets**: MCP descriptors may name environment variables in provider-native
-syntax, but Cartographer does not distribute their values. Runtime secret
-injection remains an operator responsibility.
+**Secrets and local commands**: MCP descriptors may name environment variables
+in provider-native syntax, but Cartographer does not distribute or resolve their
+values. A trusted stdio descriptor configures a provider to run a locally
+preflighted executable; Cartographer never launches it during provisioning.
+Runtime secret injection remains an operator responsibility.
 
 ## Provider behavior
 

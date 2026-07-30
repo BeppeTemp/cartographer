@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"crypto/ed25519"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -33,6 +34,22 @@ func mcpAllow(name, target string) provisioning.BuildOptions {
 	return provisioning.BuildOptions{MCPAllowlists: map[string][]provisioning.MCPAllowlistEntry{
 		"kb": {{Name: name, Transport: "http", Target: target}},
 	}}
+}
+
+func mcpAllowStdio(name, command string) provisioning.BuildOptions {
+	return provisioning.BuildOptions{MCPAllowlists: map[string][]provisioning.MCPAllowlistEntry{
+		"kb": {{Name: name, Transport: "stdio", Target: command}},
+	}}
+}
+
+// writeFakeExecutable writes a shell script at path that records its own
+// invocation into markerPath so a test can assert Cartographer never runs a
+// provisioned stdio MCP server.
+func writeFakeExecutable(t *testing.T, path, markerPath string) {
+	t.Helper()
+	if err := os.WriteFile(path, []byte("#!/bin/sh\ntouch \""+markerPath+"\"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func findMCPArtifact(t *testing.T, m provisioning.Manifest, name string) provisioning.Artifact {
@@ -350,6 +367,304 @@ func TestApply_MCP_AllProviders(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestApply_MCP_Stdio_AllProviders mirrors TestApply_MCP_AllProviders for the
+// stdio transport (D116): every provider must emit the command/args/env
+// natively, and the fake executable's marker must never appear — Apply only
+// materializes configuration, it never runs the described command.
+func TestApply_MCP_Stdio_AllProviders(t *testing.T) {
+	kbRoot := t.TempDir()
+	binDir := t.TempDir()
+	marker := filepath.Join(binDir, "executed")
+	script := filepath.Join(binDir, "fake-mcp")
+	writeFakeExecutable(t, script, marker)
+	writeMCPFixture(t, kbRoot, "local-tools", fmt.Sprintf(`{"type":"stdio","command":%q,"args":["serve","--flag"],"env":{"TOKEN":"${LOCAL_TOKEN}"}}`, script))
+
+	cases := []struct {
+		provider configurator.Provider
+		filePath string
+		check    func(t *testing.T, data []byte)
+	}{
+		{configurator.ProviderClaudeCode, ".claude.json", func(t *testing.T, data []byte) {
+			var root map[string]any
+			if err := json.Unmarshal(data, &root); err != nil {
+				t.Fatalf("invalid JSON: %v", err)
+			}
+			entry := root["mcpServers"].(map[string]any)["local-tools"].(map[string]any)
+			if entry["command"] != script {
+				t.Errorf("unexpected command: %+v", entry)
+			}
+		}},
+		{configurator.ProviderCodex, filepath.Join(".codex", "config.toml"), func(t *testing.T, data []byte) {
+			content := string(data)
+			if !strings.Contains(content, "[mcp_servers.local-tools]") || !strings.Contains(content, "command =") {
+				t.Errorf("missing stdio section: %s", content)
+			}
+		}},
+		{configurator.ProviderOpenCode, "opencode.json", func(t *testing.T, data []byte) {
+			var root map[string]any
+			if err := json.Unmarshal(data, &root); err != nil {
+				t.Fatalf("invalid JSON: %v", err)
+			}
+			entry := root["mcp"].(map[string]any)["local-tools"].(map[string]any)
+			if entry["type"] != "local" {
+				t.Errorf("unexpected entry: %+v", entry)
+			}
+		}},
+		{configurator.ProviderKiro, filepath.Join(".kiro", "settings", "mcp.json"), func(t *testing.T, data []byte) {
+			var root map[string]any
+			if err := json.Unmarshal(data, &root); err != nil {
+				t.Fatalf("invalid JSON: %v", err)
+			}
+			entry := root["mcpServers"].(map[string]any)["local-tools"].(map[string]any)
+			if entry["command"] != script {
+				t.Errorf("unexpected entry: %+v", entry)
+			}
+		}},
+	}
+
+	for _, tc := range cases {
+		t.Run(string(tc.provider), func(t *testing.T) {
+			m := signedMCPManifestStdio(t, kbRoot, "local-tools", script)
+			dir := t.TempDir()
+			res, err := provisioning.Apply(m, provisioning.ApplyOptions{
+				KBRoots:  map[string]string{"kb": kbRoot},
+				Provider: tc.provider,
+				BaseDir:  dir,
+			})
+			if err != nil {
+				t.Fatalf("Apply: %v", err)
+			}
+			data, err := os.ReadFile(filepath.Join(dir, tc.filePath))
+			if err != nil {
+				t.Fatalf("read %s: %v", tc.filePath, err)
+			}
+			tc.check(t, data)
+			if _, statErr := os.Stat(marker); !os.IsNotExist(statErr) {
+				t.Fatal("Apply executed the provisioned stdio command")
+			}
+			_ = res
+		})
+	}
+}
+
+// signedMCPManifestStdio mirrors signedMCPManifest for a stdio descriptor.
+func signedMCPManifestStdio(t *testing.T, kbRoot, name, command string) provisioning.Manifest {
+	t.Helper()
+	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, mcpAllowStdio(name, command))
+	if err != nil {
+		t.Fatalf("BuildManifest: %v", err)
+	}
+	for i := range m.Artifacts {
+		if m.Artifacts[i].Kind == "mcp" && m.Artifacts[i].Name == name {
+			m.Artifacts[i].Signed = true
+		}
+	}
+	return m
+}
+
+// TestApply_MCP_StdioPreflight_CommandResolution covers PATH lookup, absolute
+// path, a missing command, and a non-executable file (WP3): a bad command
+// fails before any provider file is written, and Cartographer never persists
+// the resolved absolute path for a bare command (normal PATH semantics are
+// preserved for the provider itself).
+func TestApply_MCP_StdioPreflight_CommandResolution(t *testing.T) {
+	t.Run("bare command resolved via PATH", func(t *testing.T) {
+		binDir := t.TempDir()
+		marker := filepath.Join(binDir, "executed")
+		script := filepath.Join(binDir, "fake-mcp")
+		writeFakeExecutable(t, script, marker)
+		t.Setenv("PATH", binDir)
+
+		kbRoot := t.TempDir()
+		writeMCPFixture(t, kbRoot, "local-tools", `{"type":"stdio","command":"fake-mcp"}`)
+		m := signedMCPManifestStdio(t, kbRoot, "local-tools", "fake-mcp")
+		dir := t.TempDir()
+		if _, err := provisioning.Apply(m, provisioning.ApplyOptions{KBRoots: map[string]string{"kb": kbRoot}, Provider: configurator.ProviderClaudeCode, BaseDir: dir}); err != nil {
+			t.Fatalf("Apply: %v", err)
+		}
+		data, err := os.ReadFile(filepath.Join(dir, ".claude.json"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(data), script) {
+			t.Errorf("bare command was persisted as its resolved absolute path: %s", data)
+		}
+		if !strings.Contains(string(data), `"fake-mcp"`) {
+			t.Errorf("bare command not preserved verbatim: %s", data)
+		}
+	})
+
+	t.Run("absolute path", func(t *testing.T) {
+		binDir := t.TempDir()
+		marker := filepath.Join(binDir, "executed")
+		script := filepath.Join(binDir, "fake-mcp")
+		writeFakeExecutable(t, script, marker)
+
+		kbRoot := t.TempDir()
+		writeMCPFixture(t, kbRoot, "local-tools", fmt.Sprintf(`{"type":"stdio","command":%q}`, script))
+		m := signedMCPManifestStdio(t, kbRoot, "local-tools", script)
+		dir := t.TempDir()
+		if _, err := provisioning.Apply(m, provisioning.ApplyOptions{KBRoots: map[string]string{"kb": kbRoot}, Provider: configurator.ProviderClaudeCode, BaseDir: dir}); err != nil {
+			t.Fatalf("Apply: %v", err)
+		}
+	})
+
+	t.Run("missing command fails closed", func(t *testing.T) {
+		kbRoot := t.TempDir()
+		missing := filepath.Join(t.TempDir(), "does-not-exist")
+		writeMCPFixture(t, kbRoot, "local-tools", fmt.Sprintf(`{"type":"stdio","command":%q}`, missing))
+		m := signedMCPManifestStdio(t, kbRoot, "local-tools", missing)
+		dir := t.TempDir()
+		_, err := provisioning.Apply(m, provisioning.ApplyOptions{KBRoots: map[string]string{"kb": kbRoot}, Provider: configurator.ProviderClaudeCode, BaseDir: dir})
+		if err == nil || !strings.Contains(err.Error(), "unavailable") {
+			t.Fatalf("Apply error = %v, want an unavailable-command error", err)
+		}
+		if _, statErr := os.Stat(filepath.Join(dir, ".claude.json")); !os.IsNotExist(statErr) {
+			t.Fatal("provider config was written despite a missing command")
+		}
+	})
+
+	t.Run("non-executable file fails closed", func(t *testing.T) {
+		kbRoot := t.TempDir()
+		notExec := filepath.Join(t.TempDir(), "not-executable")
+		if err := os.WriteFile(notExec, []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		writeMCPFixture(t, kbRoot, "local-tools", fmt.Sprintf(`{"type":"stdio","command":%q}`, notExec))
+		m := signedMCPManifestStdio(t, kbRoot, "local-tools", notExec)
+		dir := t.TempDir()
+		_, err := provisioning.Apply(m, provisioning.ApplyOptions{KBRoots: map[string]string{"kb": kbRoot}, Provider: configurator.ProviderClaudeCode, BaseDir: dir})
+		if err == nil || !strings.Contains(err.Error(), "not an executable regular file") {
+			t.Fatalf("Apply error = %v, want a not-executable error", err)
+		}
+		if _, statErr := os.Stat(filepath.Join(dir, ".claude.json")); !os.IsNotExist(statErr) {
+			t.Fatal("provider config was written despite a non-executable command")
+		}
+	})
+}
+
+// TestApply_MCP_StdioDryRun verifies --dry-run computes the plan without
+// writing any provider file or the lockfile, for a stdio descriptor.
+func TestApply_MCP_StdioDryRun(t *testing.T) {
+	kbRoot := t.TempDir()
+	binDir := t.TempDir()
+	script := filepath.Join(binDir, "fake-mcp")
+	writeFakeExecutable(t, script, filepath.Join(binDir, "executed"))
+	writeMCPFixture(t, kbRoot, "local-tools", fmt.Sprintf(`{"type":"stdio","command":%q}`, script))
+	m := signedMCPManifestStdio(t, kbRoot, "local-tools", script)
+
+	dir := t.TempDir()
+	res, err := provisioning.Apply(m, provisioning.ApplyOptions{
+		KBRoots:  map[string]string{"kb": kbRoot},
+		Provider: configurator.ProviderClaudeCode,
+		BaseDir:  dir,
+		DryRun:   true,
+	})
+	if err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	found := false
+	for _, w := range res.Written {
+		found = found || w.Kind == "mcp"
+	}
+	if !found {
+		t.Fatal("dry-run should still report the planned write in res.Written")
+	}
+	if _, statErr := os.Stat(filepath.Join(dir, ".claude.json")); !os.IsNotExist(statErr) {
+		t.Fatal("dry-run wrote the provider config file")
+	}
+	if _, statErr := os.Stat(filepath.Join(dir, provisioning.LockFileName)); !os.IsNotExist(statErr) {
+		t.Fatal("dry-run wrote the lockfile")
+	}
+}
+
+// TestBuildManifest_MCPAllowlistMatchesStdioCommandExactly is the stdio
+// counterpart of TestBuildManifest_MCPAllowlistDenyByDefaultAndExactEndpoint.
+func TestBuildManifest_MCPAllowlistMatchesStdioCommandExactly(t *testing.T) {
+	kbRoot := t.TempDir()
+	writeMCPFixture(t, kbRoot, "local-tools", `{"type":"stdio","command":"cartographer-test-tool"}`)
+
+	denied, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, mcpAllowStdio("local-tools", "other-tool"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, a := range denied.Artifacts {
+		if a.Kind == "mcp" {
+			t.Fatalf("mismatched stdio command was allowed: %+v", a)
+		}
+	}
+
+	allowed, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, mcpAllowStdio("local-tools", "cartographer-test-tool"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	findMCPArtifact(t, allowed, "local-tools")
+}
+
+// TestApply_MCP_StdioContentHashCoversEveryDescriptorField is the D116
+// regression test for the D115 hash-bound approval: the content hash is the
+// whole mcp/<name>.json file hash (WP3), so changing command, an argument, or
+// an environment reference must each invalidate a prior point approval.
+func TestApply_MCP_StdioContentHashCoversEveryDescriptorField(t *testing.T) {
+	kbRoot := t.TempDir()
+	binDir := t.TempDir()
+	script := filepath.Join(binDir, "fake-mcp")
+	writeFakeExecutable(t, script, filepath.Join(binDir, "executed"))
+
+	baseline := fmt.Sprintf(`{"type":"stdio","command":%q,"args":["serve"],"env":{"TOKEN":"${TOKEN}"}}`, script)
+	writeMCPFixture(t, kbRoot, "local-tools", baseline)
+	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, mcpAllowStdio("local-tools", script))
+	if err != nil {
+		t.Fatal(err)
+	}
+	baselineHash := findMCPArtifact(t, m, "local-tools").ContentHash
+	approved := map[string]string{"kb:kb\x00local-tools": baselineHash}
+
+	variants := []struct {
+		name           string
+		content        string
+		allowedCommand string
+	}{
+		// The allow-list also matches on exact command identity (D115), so a
+		// changed-command variant needs its own allow-list entry: the
+		// approval hash mismatch, not the allow-list, is what's under test here.
+		{"changed command", fmt.Sprintf(`{"type":"stdio","command":%q,"args":["serve"],"env":{"TOKEN":"${TOKEN}"}}`, script+"-other"), script + "-other"},
+		{"changed args", fmt.Sprintf(`{"type":"stdio","command":%q,"args":["serve","--extra"],"env":{"TOKEN":"${TOKEN}"}}`, script), script},
+		{"changed env ref", fmt.Sprintf(`{"type":"stdio","command":%q,"args":["serve"],"env":{"TOKEN":"${OTHER_TOKEN}"}}`, script), script},
+	}
+	for _, v := range variants {
+		name, content, allowedCommand := v.name, v.content, v.allowedCommand
+		t.Run(name, func(t *testing.T) {
+			writeMCPFixture(t, kbRoot, "local-tools", content)
+			changed, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, mcpAllowStdio("local-tools", allowedCommand))
+			if err != nil {
+				t.Fatal(err)
+			}
+			a := findMCPArtifact(t, changed, "local-tools")
+			if a.ContentHash == baselineHash {
+				t.Fatalf("%s: content hash unchanged (%s)", name, a.ContentHash)
+			}
+			res, err := provisioning.Apply(changed, provisioning.ApplyOptions{
+				KBRoots:     map[string]string{"kb": kbRoot},
+				Provider:    configurator.ProviderClaudeCode,
+				BaseDir:     t.TempDir(),
+				ApprovedMCP: approved,
+			})
+			if err != nil {
+				t.Fatalf("Apply: %v", err)
+			}
+			found := false
+			for _, pending := range res.NeedsApproval {
+				found = found || (pending.Kind == "mcp" && pending.Name == "local-tools")
+			}
+			if !found {
+				t.Fatalf("%s: stale approval was accepted for the changed descriptor", name)
+			}
+		})
+	}
+	writeMCPFixture(t, kbRoot, "local-tools", baseline)
 }
 
 func TestApply_MCP_PreservesOtherEntriesInSharedFile(t *testing.T) {

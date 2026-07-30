@@ -42,6 +42,17 @@ assert_file_exists() {
     fi
 }
 
+# assert_file_not_exists <path>
+#   Verifies that the file/path does not exist.
+assert_file_not_exists() {
+    local path="$1"
+    if [[ -e "$path" ]]; then
+        _assert_fail "file unexpectedly exists: ${path}"
+    else
+        _assert_pass "file absent: ${path}"
+    fi
+}
+
 # assert_file_contains <path> <substring>
 #   Verifies that the file contains the given substring.
 assert_file_contains() {
@@ -55,6 +66,21 @@ assert_file_contains() {
         _assert_pass "file '${path}' contains '${substring}'"
     else
         _assert_fail "file '${path}' does not contain '${substring}'"
+    fi
+}
+
+# assert_file_not_contains <path> <substring>
+#   Verifies that the file does not contain the given substring (an absent
+#   file trivially satisfies this).
+assert_file_not_contains() {
+    local path="$1"
+    local substring="$2"
+    if [[ ! -f "$path" ]]; then
+        _assert_pass "file absent (therefore lacks '${substring}'): ${path}"
+    elif grep -qF "$substring" "$path" 2>/dev/null; then
+        _assert_fail "file '${path}' unexpectedly contains '${substring}'"
+    else
+        _assert_pass "file '${path}' does not contain '${substring}'"
     fi
 }
 

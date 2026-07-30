@@ -163,6 +163,14 @@ func materializeForProviders(m provisioning.Manifest, providers []string, target
 	if len(approvalHashes) > 0 {
 		approvedMCP = approvalHashes[0]
 	}
+	// Validate every authorized local command for every destination before any
+	// provider file or lockfile can change. Provider is carried into errors so
+	// a failed multi-provider sync identifies the configuration it protected.
+	for _, p := range providers {
+		if err := provisioning.PreflightStdioMCP(m, provisioning.ApplyOptions{Provider: configurator.Provider(p), BaseDir: targetDir, AutoTrust: autoTrust, ApprovedMCP: approvedMCP}); err != nil {
+			return nil, err
+		}
+	}
 	for _, p := range providers {
 		opts := provisioning.ApplyOptions{
 			Provider:           configurator.Provider(p),

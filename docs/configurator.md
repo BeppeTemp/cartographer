@@ -294,6 +294,12 @@ stderr with the full form to use), `2` usage error (missing argument or not in t
 | Kiro | `.kiro/settings/mcp.json` | `mcpServers` (JSON) |
 | OpenCode | `opencode.json` | `mcp` (JSON) |
 
+KB-provided stdio descriptors (D116) share these same files with per-name ownership. Claude Code,
+Codex and Kiro receive native `command`, `args` and `env` fields (Kiro also keeps `autoApprove: []`);
+OpenCode uses `type: "local"`, an ordered command array and `environment` with `{env:VAR}` references.
+Cartographer only preflights the local executable before writing: it never runs it, and never resolves
+an environment reference into its value.
+
 ## Format of the generated files
 
 **Claude Code** — with auth:
