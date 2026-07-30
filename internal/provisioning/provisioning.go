@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -1005,6 +1006,9 @@ func KindCounts(m Manifest, lock Lock) map[string]KindCount {
 // Idempotent: two Apply calls on the same revision = no-op.
 // DryRun: computes everything but writes nothing (neither files nor lockfile).
 func Apply(m Manifest, opts ApplyOptions) (AppliedResult, error) {
+	if err := PreflightStdioMCP(m, opts); err != nil {
+		return AppliedResult{}, err
+	}
 	diff := ComputeDiff(m, opts.Lock)
 
 	var result AppliedResult
@@ -1133,7 +1137,7 @@ func Apply(m Manifest, opts ApplyOptions) (AppliedResult, error) {
 				if specErr != nil {
 					return AppliedResult{}, fmt.Errorf("provisioning: mcp %s: %w", a.Name, specErr)
 				}
-				spec := configurator.ServerSpec{Type: kbSpec.Type, URL: kbSpec.URL, Headers: kbSpec.Headers}
+				spec := configurator.ServerSpec{Type: kbSpec.Type, URL: kbSpec.URL, Command: kbSpec.Command, Args: kbSpec.Args, Headers: kbSpec.Headers, Env: kbSpec.Env}
 				if opts.Provider == configurator.ProviderKiro && len(kbSpec.Headers) > 0 {
 					// Kiro has never supported auth headers for MCP servers
 					// (pre-existing limit of the emitter, unchanged since D69) —
@@ -1514,6 +1518,43 @@ func artifactAuthorized(a Artifact, opts ApplyOptions) bool {
 	// boundary; generic trust only preserves compatibility for ordinary KB
 	// provisioning artifacts.
 	return opts.AutoTrust && a.Kind != "mcp" && strings.HasPrefix(a.Source, "kb:")
+}
+
+// PreflightStdioMCP verifies locally runnable commands without executing them.
+// It intentionally keeps a bare command unmodified so provider configuration
+// retains the user's normal PATH semantics.
+func PreflightStdioMCP(m Manifest, opts ApplyOptions) error {
+	for _, a := range m.Artifacts {
+		if a.Kind != "mcp" || !artifactAuthorized(a, opts) {
+			continue
+		}
+		content, err := singleArtifactContent(a, opts)
+		if err != nil {
+			return fmt.Errorf("provisioning: read mcp %s for preflight: %w", a.Name, err)
+		}
+		spec, err := parseMCPServerSpec(a.Name, content)
+		if err != nil {
+			return fmt.Errorf("provisioning: mcp %s preflight: %w", a.Name, err)
+		}
+		if spec.Type != "stdio" {
+			continue
+		}
+		path := spec.Command
+		if !filepath.IsAbs(path) {
+			path, err = exec.LookPath(path)
+			if err != nil {
+				return fmt.Errorf("provisioning: mcp %q for %s: command %q not found on PATH", a.Name, opts.Provider, spec.Command)
+			}
+		}
+		info, err := os.Stat(path)
+		if err != nil {
+			return fmt.Errorf("provisioning: mcp %q for %s: command %q unavailable: %w", a.Name, opts.Provider, spec.Command, err)
+		}
+		if !info.Mode().IsRegular() || info.Mode().Perm()&0o111 == 0 {
+			return fmt.Errorf("provisioning: mcp %q for %s: command %q is not an executable regular file", a.Name, opts.Provider, spec.Command)
+		}
+	}
+	return nil
 }
 
 func normalizedMCPURL(raw string) string {
