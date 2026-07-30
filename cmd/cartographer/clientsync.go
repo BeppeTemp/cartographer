@@ -143,33 +143,13 @@ func pinnedPublicKeys(cfg *clientconfig.Config) (map[string][]ed25519.PublicKey,
 	return pins, nil
 }
 
-// upgradeTrustedManifest remains the status-path compatibility hook. Trust is
-// authorization consumed by ApplyOptions, never a mutation of verification.
-func upgradeTrustedManifest(m provisioning.Manifest, trust bool) provisioning.Manifest { return m }
-
-// upgradeTrustedManifest returns a copy of m with every kb:-sourced artifact
-// upgraded to Signed:true when trust is true; m unchanged (same slice) when
-// trust is false. This is the single place the trust decision (persistent
-// cfg.Trust from .cartographer.yaml, or a one-time --auto-trust flag) is
-// applied to a manifest — used both by materializeForProviders, before
-// provisioning.Apply, and by callers that only need an honest diff/status
-// (cmdStatus, the TUI dashboard) without materializing anything. sync_pull
-// never accepts an auto_trust argument (unlike the local sync_apply MCP
-// tool): the trust decision is entirely client-side (see docs/sync.md
-// §Sicurezza — gate di firma).
-//
-// Kind "mcp" (D69, WP5) is excluded from this blanket upgrade: a third-party
-// MCP server is an endpoint that receives the agent's data, a stricter policy
-// than the other kinds — it always needs its own approval at first appearance
-// and at every hash change, even with AutoTrust/cfg.Trust on.
 // materializeForProviders applies manifest m for each provider in providers,
 // persisting a single v2 LockFile at <targetDir>/.cartographer-sync.lock.json (one
-// Lock entry per provider). autoTrust upgrades kb:-sourced artifacts to Signed:true
-// before materialization (see upgradeTrustedManifest) — callers pass
-// cfg.Trust || --auto-trust so the persisted per-server decision and the
-// one-time flag both apply. searchRoots/paths come from the loaded
-// clientconfig.Config (cfg.SearchRoots/cfg.Paths) and drive placeholder
-// expansion (D75 WP3) — this is the one place cmd/cartographer turns
+// Lock entry per provider). autoTrust is explicit authorization for eligible
+// unsigned KB artifacts, passed to ApplyOptions.AutoTrust; it never changes an
+// artifact's Signed verification result. searchRoots/paths come from the loaded
+// clientconfig.Config (cfg.SearchRoots/cfg.Paths) and drive placeholder expansion
+// (D75 WP3) — this is the one place cmd/cartographer turns
 // ApplyOptions.ExpandPlaceholders on; internal/mcpserver never does.
 func materializeForProviders(m provisioning.Manifest, providers []string, targetDir string, autoTrust, dryRun bool, searchRoots []string, paths map[string]string, approvalHashes ...map[string]string) (map[string]provisioning.AppliedResult, error) {
 	lockPath := lockFilePath(targetDir)
@@ -253,6 +233,7 @@ func ensureBootstrapForProviders(providers []string, targetDir string, dryRun bo
 // resolved settings.json path in printHookRegistered (D57).
 func printApplySummary(dir string, results map[string]provisioning.AppliedResult) {
 	needsApproval := false
+	needsMCPApproval := false
 	for _, p := range sortedKeys(results) {
 		r := results[p]
 		for _, w := range r.Written {
@@ -265,7 +246,11 @@ func printApplySummary(dir string, results map[string]provisioning.AppliedResult
 			fmt.Printf("[%s] pruned %s\n", p, pr.Path)
 		}
 		for _, na := range r.NeedsApproval {
-			needsApproval = true
+			if na.Kind == "mcp" {
+				needsMCPApproval = true
+			} else {
+				needsApproval = true
+			}
 			fmt.Printf("[%s] needs_approval: %s/%s [%s]\n", p, na.Kind, na.Name, na.Source)
 		}
 		for _, ua := range r.Unsupported {
@@ -277,6 +262,9 @@ func printApplySummary(dir string, results map[string]provisioning.AppliedResult
 	}
 	if needsApproval {
 		fmt.Printf("to approve the unsigned artifacts run: %s\n", autoTrustCommand())
+	}
+	if needsMCPApproval {
+		fmt.Println("MCP artifacts require a point approval: cartographer approve mcp <name> --kb <kb>, then cartographer sync")
 	}
 }
 

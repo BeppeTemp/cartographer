@@ -167,7 +167,11 @@ cartographer status
 Exit code: `0` all providers in sync, `1` at least one provider in drift, `2` error (no
 `.cartographer.yaml`, server unreachable, ...). For every provider it also prints per-kind
 counts (`provisioning.KindCounts`), e.g. `skill 4/5 · agent 2/2 · hook 1/1`. On drift it
-prints the diff (added/updated/removed, with `signed`). Before the artifact report it prints the
+prints the diff (added/updated/removed, with a `trust` state: `built_in`, `verified`, `trusted`,
+`approved`, `approval_stale` or `needs_approval` — see [D115](decisions/sync-provisioning.md#d115--mcp-allow-list-and-hash-bound-local-approval)
+for the MCP-specific approval states). MCP artifacts in `needs_approval`/`approval_stale` get their own
+`cartographer approve mcp <name> --kb <kb>` hint, separate from the `--auto-trust` suggestion for
+the other kinds. Before the artifact report it prints the
 client and server versions. A non-`dev` mismatch is a warning only (it does not change the exit
 code); on loopback, an installed local service also gets a `cartographer service restart` hint.
 For an unavailable endpoint, the table names the configured endpoint once and
