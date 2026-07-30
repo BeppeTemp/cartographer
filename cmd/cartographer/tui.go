@@ -271,11 +271,33 @@ func loadRemoteStatusCmd(dir string) tea.Cmd {
 		statuses := make(map[string]string, len(cfg.Agents))
 		for _, p := range s.Providers {
 			if p.Connected {
-				statuses[p.Name] = strings.ReplaceAll(p.State, "_", "-")
+				statuses[p.Name] = formatTUIProviderStatus(p)
 			}
 		}
 		return remoteStatusMsg{statuses: statuses, snapshot: s}
 	}
+}
+
+// formatTUIProviderStatus retains the compact dashboard state while making
+// the MCP approval outcome visible without suggesting generic auto-trust.
+func formatTUIProviderStatus(p providerStatus) string {
+	base := strings.ReplaceAll(p.State, "_", "-")
+	counts := map[string]int{}
+	for _, a := range append(append([]statusArtifact{}, p.Added...), p.Updated...) {
+		if a.Kind == "mcp" && a.Trust != "" {
+			counts[a.Trust]++
+		}
+	}
+	var parts []string
+	for _, state := range []string{"verified", "approved", "approval_stale", "needs_approval"} {
+		if counts[state] > 0 {
+			parts = append(parts, fmt.Sprintf("%s %d", strings.ReplaceAll(state, "_", "-"), counts[state]))
+		}
+	}
+	if len(parts) == 0 {
+		return base
+	}
+	return base + " (" + strings.Join(parts, ", ") + ")"
 }
 
 // probeCmd runs probeServer (connect.go) against opts for provider, before

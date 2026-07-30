@@ -42,6 +42,7 @@ type statusArtifact struct {
 	Source string `json:"source,omitempty"`
 	Path   string `json:"path,omitempty"`
 	Signed bool   `json:"signed,omitempty"`
+	Trust  string `json:"trust,omitempty"`
 }
 
 type serviceSnapshot struct {
@@ -147,7 +148,6 @@ func snapshotForConfig(dir string, cfg *clientconfig.Config, includeService bool
 		}
 		return s
 	}
-	m = upgradeTrustedManifest(m, cfg.Trust)
 	s.Artifacts = len(m.Artifacts)
 	lockFile, err := provisioning.ReadLockFile(lockFilePath(dir))
 	if err != nil {
@@ -170,7 +170,7 @@ func snapshotForConfig(dir string, cfg *clientconfig.Config, includeService bool
 			continue
 		}
 		p.State = "drift"
-		p.Added, p.Updated, p.Removed = snapshotArtifacts(d.Added), snapshotArtifacts(d.Updated), snapshotRemoved(d.Removed)
+		p.Added, p.Updated, p.Removed = snapshotArtifacts(d.Added, cfg), snapshotArtifacts(d.Updated, cfg), snapshotRemoved(d.Removed)
 		s.State = "drift"
 	}
 	if s.Server != "" && s.Client != "" && s.Client != "dev" && s.Server != "dev" && s.Client != s.Server && s.State == "in_sync" {
@@ -179,10 +179,27 @@ func snapshotForConfig(dir string, cfg *clientconfig.Config, includeService bool
 	return s
 }
 
-func snapshotArtifacts(artifacts []provisioning.Artifact) []statusArtifact {
+func snapshotArtifacts(artifacts []provisioning.Artifact, cfg *clientconfig.Config) []statusArtifact {
 	out := make([]statusArtifact, len(artifacts))
 	for i, a := range artifacts {
-		out[i] = statusArtifact{Kind: a.Kind, Name: a.Name, Source: a.Source, Signed: a.Signed}
+		trust := "needs_approval"
+		if a.BuiltIn {
+			trust = "built_in"
+		} else if a.Signed {
+			trust = "verified"
+		} else if a.Kind == "mcp" {
+			source := strings.TrimPrefix(a.Source, "kb:")
+			if approval, ok := cfg.MCPApprovals[source][a.Name]; ok {
+				if approval.ContentHash == a.ContentHash {
+					trust = "approved"
+				} else {
+					trust = "approval_stale"
+				}
+			}
+		} else if cfg.Trust && strings.HasPrefix(a.Source, "kb:") {
+			trust = "trusted"
+		}
+		out[i] = statusArtifact{Kind: a.Kind, Name: a.Name, Source: a.Source, Signed: a.Signed, Trust: trust}
 	}
 	return out
 }
