@@ -138,13 +138,17 @@ func NewScopedTokenStore(tokens []ScopedToken) *TokenStore {
 		if st.Token != "" {
 			h := hashToken(st.Token)
 			policy := clonePolicy(st.Policy)
-			if !policy.Admin && len(policy.Permissions) == 0 {
-				if len(st.Scopes) == 0 {
+			if !policy.Admin {
+				// Legacy scopes are unioned with any role-derived permissions
+				// rather than replaced by them, so a deployment can migrate one
+				// token at a time without silently dropping either half.
+				for _, scope := range st.Scopes {
+					policy.Permissions = append(policy.Permissions, Permission{KB: scope.KB, Write: scope.Write})
+				}
+				// A token that carries neither scopes nor permissions is the
+				// pre-scopes admin token: preserve its historical full access.
+				if len(policy.Permissions) == 0 {
 					policy.Admin = true
-				} else {
-					for _, scope := range st.Scopes {
-						policy.Permissions = append(policy.Permissions, Permission{KB: scope.KB, Write: scope.Write})
-					}
 				}
 			}
 			id := st.Principal
