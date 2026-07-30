@@ -104,6 +104,14 @@ git:
   out_debounce: 3s              # (git.out_debounce) debounce of the per-KB async push after the
                                 # commit: N writes in quick succession = 1 push. Default 3s, 0 = push
                                 # synchronously inline, no worker (rollback flag, D76)
+  # profile: server             # (git.profile) local (default) | server (D117): the fields below
+  # base_branch: main           # become required. Protected review target, never directly pushed.
+  # working_branch: cartographer/wiki  # optional; defaults to cartographer/<kb-name>
+  # forge: github               # only supported forge today
+  # github_owner: example-org   # must match the origin remote path exactly (HTTPS or SSH)
+  # github_repository: wiki
+  # github_api_url: https://api.github.com
+  # github_token_env: CARTOGRAPHER_GITHUB_TOKEN  # the value stays in this process environment only
 search:
   ollama_url: ""               # (search.ollama_url) enables semantic search
   ollama_model: nomic-embed-text

@@ -106,6 +106,8 @@ Tools marked **[A]** (advanced, `advancedToolNames` in `internal/mcpserver/visib
 | `sync_apply(base_dir, [dry_run], [auto_trust])` **[A]** | Materializes verified or built-in artifacts into `base_dir`; `auto_trust` is explicit unsigned authorization and never sets `signed`. A local signer is verified before applying. |
 | `sync_pull()` **[R]** **[A]** | Read-only, no parameters. Returns base64 file contents plus optional detached Ed25519 signature (`algorithm`, `key_id`, envelope version, value). Remote clients recompute hashes and verify pinned keys before materialization. KB-provided MCP descriptors appear only when the server-side allow-list permits them. |
 | `sync_status()` **[R]** **[A]** | Read-only. Returns local Git replication state (`disabled`, `no_remote`, `clean`, `pending`, or `failed`), the last error/attempt, HEAD, best-effort unpushed count, identity warning, and push mode. |
+| `pr_status()` **[R]** **[A]** | Read-only, server Git profile only (D117). Returns the profile, base/working branches, current PR identity and last forge error; reconciles a `merge_uncertain` state first. Never returns the forge token. |
+| `pr_finalize(head_sha)` **[A]** | Server Git profile only (D117). Squash-merges the open PR after checking that `head_sha` matches the current remote head, reviews/checks are satisfied, and a fresh rebase plus validation succeed. Force-with-lease touches only the working branch; the base is never pushed. |
 
 ### KB-root artifacts
 
