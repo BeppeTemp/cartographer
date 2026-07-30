@@ -85,7 +85,9 @@ func cmdApprove(args []string) int {
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		return 2
 	}
-	target, err := provisioning.NormalizeMCPHTTPURL(spec.URL)
+	// The approved identity is transport-specific: the normalized endpoint for
+	// http, the local command for stdio (D116).
+	target, err := provisioning.MCPDescriptorTarget(spec)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		return 2
