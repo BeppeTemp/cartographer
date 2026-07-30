@@ -101,17 +101,27 @@ func renderStatus(output string, s statusSnapshot, code int) int {
 		if p.Kinds != "" {
 			fmt.Printf("  %s\n", p.Kinds)
 		}
-		unsigned := false
+		unsigned, mcpPending := false, false
 		for _, a := range p.Added {
-			fmt.Printf("  + %s/%s [%s] signed=%v\n", a.Kind, a.Name, a.Source, a.Signed)
-			unsigned = unsigned || !a.Signed
+			trust := statusArtifactTrust(a)
+			fmt.Printf("  + %s/%s [%s] trust=%s\n", a.Kind, a.Name, a.Source, trust)
+			if a.Kind == "mcp" && (trust == "needs_approval" || trust == "approval_stale") {
+				mcpPending = true
+			} else {
+				unsigned = unsigned || trust == "needs_approval"
+			}
 			if a.Kind == "hook" {
 				fmt.Printf("    new hook: after the sync, add the entry to settings.json manually (see hook.json in .claude/hooks/%s/)\n", a.Name)
 			}
 		}
 		for _, a := range p.Updated {
-			fmt.Printf("  ~ %s/%s [%s] signed=%v\n", a.Kind, a.Name, a.Source, a.Signed)
-			unsigned = unsigned || !a.Signed
+			trust := statusArtifactTrust(a)
+			fmt.Printf("  ~ %s/%s [%s] trust=%s\n", a.Kind, a.Name, a.Source, trust)
+			if a.Kind == "mcp" && (trust == "needs_approval" || trust == "approval_stale") {
+				mcpPending = true
+			} else {
+				unsigned = unsigned || trust == "needs_approval"
+			}
 			if a.Kind == "hook" {
 				fmt.Printf("    hook updated: after the sync, verify the entry in settings.json (see hook.json in .claude/hooks/%s/)\n", a.Name)
 			}
@@ -122,8 +132,21 @@ func renderStatus(output string, s statusSnapshot, code int) int {
 		if unsigned {
 			fmt.Printf("  to approve the unsigned artifacts run: %s\n", autoTrustCommand())
 		}
+		if mcpPending {
+			fmt.Println("  MCP requires point approval: cartographer approve mcp <name> --kb <kb>")
+		}
 	}
 	return code
+}
+
+func statusArtifactTrust(a statusArtifact) string {
+	if a.Trust != "" {
+		return a.Trust
+	}
+	if a.Signed {
+		return "verified"
+	}
+	return "needs_approval"
 }
 
 // printVersionStatus reports the binary versions before the artifact status.

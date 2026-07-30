@@ -101,9 +101,11 @@ friction that verifies nothing.
 **Decision.** Trust becomes an explicit choice made once at `connect`, persisted:
 `clientconfig.Config.Trust bool` (default `true`), toggle in the connect form shared CLI/TUI.
 `sync`/`status`/TUI use `cfg.Trust` as default; `--auto-trust` remains a one-off override
-(`cfg.Trust || --auto-trust`). `status`/TUI apply the same upgrade (`upgradeTrustedManifest`)
-before the diff, so as not to show a false "needs approval". No symmetric `--no-trust`:
-revoking is rare, manually setting `trust: false` in `.cartographer.yaml` is enough.
+(`cfg.Trust || --auto-trust`) at materialization time. `status`/TUI never mutate `Signed`: they
+report a separate `trust` state per artifact (`snapshotArtifacts`, D115) that reads `cfg.Trust`
+read-only to report `trusted` instead of `needs_approval`, so as not to show a false pending
+approval without pretending the artifact was cryptographically verified. No symmetric
+`--no-trust`: revoking is rare, manually setting `trust: false` in `.cartographer.yaml` is enough.
 **Rationale.** The signature placeholder (D40) stays identical server-side; this decision concerns
 only who/when decides to trust (the user, at connect, persisted — not relitigated at every sync).
 **Discarded alternatives.** A symmetric CLI `--no-trust`: no real use case, it would only have
@@ -374,15 +376,14 @@ clean provider configs (`TestRoundTrip_ConnectDisconnect_NessunResiduo`).
 
 **WP5 — Trust and remote sync.** An MCP server is an endpoint that receives the agent's data:
 Before D114/D115, `BuildManifest` marked the `mcp` kind **always** `Signed:false`, regardless of `autoTrust` — unlike
-skill/agent/hook/instructions, which `autoTrust` signs. The remote client
-(`upgradeTrustedManifest`, `cmd/cartographer/clientsync.go`) likewise excludes `mcp` from
-its generic upgrade via `cfg.Trust`/`--auto-trust`: a stricter policy than the other kinds,
+skill/agent/hook/instructions, which `autoTrust` signs. The remote client likewise excluded `mcp`
+from its generic upgrade via `cfg.Trust`/`--auto-trust`: a stricter policy than the other kinds,
 `NeedsApproval` at first appearance and at every hash change, even with `AutoTrust` active.
-**Deviation from the plan**: there is (yet) no mechanism to mark a single `mcp` artifact
-`Signed:true` once approved — the only generic gate today is `cfg.Trust`/`--auto-trust`, which
-`mcp` always ignores by construction. A persisted point approval (of what exactly,
-for which hash) requires a new tool/state beyond this iteration: deferred together
-with the allow-list below. `sync_pull`/`tools_sync.go` and the HTTP client do not filter by kind (verified):
+**Deviation from the plan, since resolved**: this iteration had no mechanism to mark a single
+`mcp` artifact as approved — the only generic gate was `cfg.Trust`/`--auto-trust`, which `mcp`
+ignores by construction. The persisted point approval (of what exactly, for which hash) arrived
+with D115 as `cfg.MCPApprovals`; the client-side upgrade hook it describes no longer exists,
+since D114 made `Signed` an exclusively cryptographic result. `sync_pull`/`tools_sync.go` and the HTTP client do not filter by kind (verified):
 an `mcp` artifact travels as a single `ArtifactFile`, same schema as an agent.
 
 **Server-side allow-list**: **not implemented** (optional in the plan, tied to the Phase 3

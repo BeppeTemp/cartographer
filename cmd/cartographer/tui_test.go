@@ -617,6 +617,16 @@ func TestFormatDiffStatus(t *testing.T) {
 	}
 }
 
+func TestFormatTUIProviderStatusShowsMCPApprovalStates(t *testing.T) {
+	p := providerStatus{Name: "claude", Connected: true, State: "drift", Added: []statusArtifact{{Kind: "mcp", Trust: "approved"}, {Kind: "mcp", Trust: "approval_stale"}, {Kind: "mcp", Trust: "needs_approval"}}, Updated: []statusArtifact{{Kind: "mcp", Trust: "verified"}}}
+	got := formatTUIProviderStatus(p)
+	for _, want := range []string{"approved 1", "approval-stale 1", "needs-approval 1", "verified 1"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("%q missing %q", got, want)
+		}
+	}
+}
+
 func TestFormatKindStatus(t *testing.T) {
 	m := provisioning.Manifest{
 		Revision: "rev1",

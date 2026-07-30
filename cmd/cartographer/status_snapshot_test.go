@@ -5,8 +5,11 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/client"
+	"github.com/BeppeTemp/cartographer/internal/clientconfig"
+	"github.com/BeppeTemp/cartographer/internal/provisioning"
 )
 
 func TestStatusJSONSchemaAndStates(t *testing.T) {
@@ -54,9 +57,34 @@ func TestClassifyNetworkErrorAndOutputValidation(t *testing.T) {
 func TestStatusTableRetainsDriftDetails(t *testing.T) {
 	s := statusSnapshot{Schema: statusSchema, Reachable: true, Client: "v1", Server: "v1", ServerURL: "http://x/mcp", State: "drift", Providers: []providerStatus{{Name: "claude", Connected: true, State: "drift", Revision: "new", LockRevision: "old", Kinds: "skill 0/1", Added: []statusArtifact{{Kind: "hook", Name: "h", Source: "kb:x", Signed: false}}, Updated: []statusArtifact{{Kind: "skill", Name: "s", Source: "kb:x", Signed: true}}, Removed: []statusArtifact{{Kind: "agent", Name: "a", Path: "a.json"}}}}}
 	out := withStdout(t, func() { renderStatus("table", s, 1) })
-	for _, want := range []string{"drift (manifest new, lock old)", "skill 0/1", "+ hook/h [kb:x] signed=false", "new hook:", "~ skill/s [kb:x] signed=true", "- agent/a (a.json)", "cartographer sync --auto-trust"} {
+	for _, want := range []string{"drift (manifest new, lock old)", "skill 0/1", "+ hook/h [kb:x] trust=needs_approval", "new hook:", "~ skill/s [kb:x] trust=verified", "- agent/a (a.json)", "cartographer sync --auto-trust"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("missing %q in %s", want, out)
 		}
+	}
+}
+
+func TestSnapshotArtifactsMCPApprovalStates(t *testing.T) {
+	cfg := clientconfig.Default()
+	if err := cfg.ApproveMCP("kb", "approved", "same", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if err := cfg.ApproveMCP("kb", "stale", "old", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	arts := snapshotArtifacts([]provisioning.Artifact{{Kind: "mcp", Name: "approved", Source: "kb:kb", ContentHash: "same"}, {Kind: "mcp", Name: "stale", Source: "kb:kb", ContentHash: "new"}, {Kind: "mcp", Name: "pending", Source: "kb:kb", ContentHash: "x"}, {Kind: "mcp", Name: "verified", Source: "kb:kb", ContentHash: "x", Signed: true}}, cfg)
+	want := []string{"approved", "approval_stale", "needs_approval", "verified"}
+	for i := range want {
+		if arts[i].Trust != want[i] {
+			t.Errorf("%s trust=%q want %q", arts[i].Name, arts[i].Trust, want[i])
+		}
+	}
+}
+
+func TestSnapshotArtifactsBuiltIn(t *testing.T) {
+	cfg := clientconfig.Default()
+	arts := snapshotArtifacts([]provisioning.Artifact{{Kind: "hook", Name: "bootstrap", Source: "kb:kb", BuiltIn: true}}, cfg)
+	if got := arts[0].Trust; got != "built_in" {
+		t.Errorf("trust=%q want built_in", got)
 	}
 }
