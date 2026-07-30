@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 
 	"github.com/BeppeTemp/cartographer/internal/blocktext"
@@ -34,7 +35,7 @@ func DefaultConfig() *ServerConfig {
 	}
 }
 
-// ServerSpec is the provider-neutral description of a single MCP server's HTTP
+// ServerSpec is the provider-neutral description of a single MCP server's
 // transport config (D69): the shared core EmitServer renders for any given
 // provider, used both for Cartographer's own entry (Emit, via ServerConfig.toSpec
 // below) and for third-party servers distributed by a KB (internal/provisioning
@@ -46,9 +47,12 @@ func DefaultConfig() *ServerConfig {
 // internal/provisioning's KB-side validator for third-party servers, and always
 // true by construction for Cartographer's own entry (toSpec below).
 type ServerSpec struct {
-	Type    string // "http" (only transport in this iteration, D69)
+	Type    string // "http" or "stdio"
 	URL     string
+	Command string
+	Args    []string
 	Headers map[string]string
+	Env     map[string]string
 }
 
 // toSpec converts cfg into the provider-neutral ServerSpec EmitServer consumes.
@@ -112,6 +116,9 @@ func Emit(cfg *ServerConfig, provider Provider) (*EmitResult, error) {
 // kind (D69, third-party servers distributed by a KB — see
 // internal/provisioning/mcpsettings.go, registerMCPServer/removeMCPServer).
 func EmitServer(name string, spec ServerSpec, provider Provider) (*EmitResult, error) {
+	if err := validateServerSpec(name, spec); err != nil {
+		return nil, err
+	}
 	switch provider {
 	case ProviderClaudeCode:
 		return emitClaudeCodeServer(name, spec)
@@ -124,6 +131,28 @@ func EmitServer(name string, spec ServerSpec, provider Provider) (*EmitResult, e
 	default:
 		return nil, fmt.Errorf("unknown provider: %s", provider)
 	}
+}
+
+// validateServerSpec keeps direct EmitServer callers from silently dropping
+// incompatible transport fields. KB descriptors receive stricter validation in
+// provisioning; this is the final emitter boundary for every caller.
+func validateServerSpec(name string, spec ServerSpec) error {
+	switch spec.Type {
+	case "http":
+		if spec.Command != "" || len(spec.Args) != 0 {
+			return fmt.Errorf("mcp %q: http transport rejects command and args", name)
+		}
+	case "stdio":
+		if spec.Command == "" {
+			return fmt.Errorf("mcp %q: stdio transport requires command", name)
+		}
+		if spec.URL != "" || len(spec.Headers) != 0 {
+			return fmt.Errorf("mcp %q: stdio transport rejects url and headers", name)
+		}
+	default:
+		return fmt.Errorf("mcp %q: unsupported transport %q", name, spec.Type)
+	}
+	return nil
 }
 
 // EmitAll generates the configuration for all providers.
@@ -452,12 +481,24 @@ func jsonDeepMerge(dst, src map[string]any) {
 // Code format). Header values are passed through verbatim: Claude Code natively
 // resolves "${VAR}" against its own environment.
 func emitClaudeCodeServer(name string, spec ServerSpec) (*EmitResult, error) {
-	entry := map[string]any{
-		"url":  spec.URL,
-		"type": "http",
-	}
-	if len(spec.Headers) > 0 {
-		entry["headers"] = spec.Headers
+	entry := map[string]any{}
+	switch spec.Type {
+	case "http":
+		entry["url"] = spec.URL
+		entry["type"] = "http"
+		if len(spec.Headers) > 0 {
+			entry["headers"] = spec.Headers
+		}
+	case "stdio":
+		entry["command"] = spec.Command
+		if len(spec.Args) > 0 {
+			entry["args"] = spec.Args
+		}
+		if len(spec.Env) > 0 {
+			entry["env"] = spec.Env
+		}
+	default:
+		return nil, fmt.Errorf("mcp %q: unsupported transport %q", name, spec.Type)
 	}
 
 	root := map[string]any{
@@ -515,6 +556,31 @@ var bearerEnvPattern = regexp.MustCompile(`^Bearer \$\{([A-Za-z_][A-Za-z0-9_]*)\
 func emitCodexServer(name string, spec ServerSpec) (*EmitResult, error) {
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "[mcp_servers.%s]\n", name)
+	if spec.Type == "stdio" {
+		fmt.Fprintf(&sb, "command = %s\n", QuoteTOMLString(spec.Command))
+		if len(spec.Args) > 0 {
+			quoted := make([]string, len(spec.Args))
+			for i, arg := range spec.Args {
+				quoted[i] = QuoteTOMLString(arg)
+			}
+			fmt.Fprintf(&sb, "args = [%s]\n", strings.Join(quoted, ", "))
+		}
+		if len(spec.Env) > 0 {
+			keys := make([]string, 0, len(spec.Env))
+			for key := range spec.Env {
+				keys = append(keys, key)
+			}
+			sort.Strings(keys)
+			fmt.Fprintf(&sb, "[mcp_servers.%s.env]\n", name)
+			for _, key := range keys {
+				fmt.Fprintf(&sb, "%s = %s\n", QuoteTOMLString(key), QuoteTOMLString(spec.Env[key]))
+			}
+		}
+		return &EmitResult{Provider: ProviderCodex, FilePath: filepath.Join(".codex", "config.toml"), Content: []byte(sb.String())}, nil
+	}
+	if spec.Type != "http" {
+		return nil, fmt.Errorf("mcp %q: unsupported transport %q", name, spec.Type)
+	}
 	fmt.Fprintf(&sb, "url = %s\n", QuoteTOMLString(spec.URL))
 
 	var warnings []string
@@ -589,10 +655,21 @@ func QuoteTOMLMultiline(s string) string {
 // KB-sourced servers that need it, since Cartographer's own entry never has
 // relied on Kiro auth headers either).
 func emitKiroServer(name string, spec ServerSpec) (*EmitResult, error) {
-	entry := map[string]any{
-		"autoApprove": []string{},
-		"url":         spec.URL,
-		"type":        "http",
+	entry := map[string]any{"autoApprove": []string{}}
+	switch spec.Type {
+	case "http":
+		entry["url"] = spec.URL
+		entry["type"] = "http"
+	case "stdio":
+		entry["command"] = spec.Command
+		if len(spec.Args) > 0 {
+			entry["args"] = spec.Args
+		}
+		if len(spec.Env) > 0 {
+			entry["env"] = spec.Env
+		}
+	default:
+		return nil, fmt.Errorf("mcp %q: unsupported transport %q", name, spec.Type)
 	}
 
 	root := map[string]any{
@@ -627,12 +704,25 @@ var openCodeEnvRefPattern = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)\}`)
 // require mcp-remote/mcp-auth.json; see docs/interoperability.md §Known
 // configurator risks.
 func emitOpenCodeServer(name string, spec ServerSpec) (*EmitResult, error) {
-	entry := map[string]any{
-		"type":    "remote",
-		"url":     spec.URL,
-		"enabled": true,
+	entry := map[string]any{"enabled": true}
+	switch spec.Type {
+	case "http":
+		entry["type"] = "remote"
+		entry["url"] = spec.URL
+	case "stdio":
+		entry["type"] = "local"
+		entry["command"] = append([]string{spec.Command}, spec.Args...)
+		if len(spec.Env) > 0 {
+			env := make(map[string]string, len(spec.Env))
+			for k, v := range spec.Env {
+				env[k] = openCodeEnvRefPattern.ReplaceAllString(v, "{env:$1}")
+			}
+			entry["environment"] = env
+		}
+	default:
+		return nil, fmt.Errorf("mcp %q: unsupported transport %q", name, spec.Type)
 	}
-	if len(spec.Headers) > 0 {
+	if spec.Type == "http" && len(spec.Headers) > 0 {
 		headers := make(map[string]string, len(spec.Headers))
 		for k, v := range spec.Headers {
 			headers[k] = openCodeEnvRefPattern.ReplaceAllString(v, "{env:$1}")

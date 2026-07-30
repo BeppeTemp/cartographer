@@ -29,6 +29,7 @@ overrides the default base port.
 | `10_scoped_tokens` | Per-KB `r`/`rw` scope enforcement |
 | `11_signed_provisioning` | Signed artifact verification and fail-closed unpinned rotation |
 | `12_mcp_approval` | D115 allow-list, point approval, stale hash rejection and revoke/prune |
+| `13_stdio_mcp` | D116 trusted stdio MCP lifecycle across all provider configurations |
 
 The numbering is retained to preserve historical references. Removed gaps were
 LLM-driven scenarios; model behavior is evaluated during real usage, not in the
@@ -52,6 +53,9 @@ test/e2e/
     08_git_multiclone.sh
     09_git_conflict.sh
     10_scoped_tokens.sh
+    11_signed_provisioning.sh
+    12_mcp_approval.sh
+    13_stdio_mcp.sh
 ```
 
 Each scenario creates its own directory under `E2E_TMP_DIR`, owns the server

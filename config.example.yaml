@@ -30,6 +30,9 @@ kbs:
     #   - name: wiki-tools
     #     transport: http
     #     target: https://tools.example.com/mcp  # normalized absolute URL, exact match
+    #   - name: local-tools      # stdio: the target is the exact command, never a
+    #     transport: stdio       # shell expression; PATH name or clean absolute path
+    #     target: /usr/local/bin/local-tools
     # optional per-KB overrides (zero value = fall back to global git/sops):
     # ssh_key: /etc/kb-ssh/id_ed25519_locale
     # author_name: cartographer-locale
