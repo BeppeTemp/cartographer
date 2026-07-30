@@ -14,7 +14,7 @@ func toolPRStatus(k *kb.KB) Tool {
 	return Tool{Name: "pr_status", ReadOnly: true,
 		Description: "Returns the server Git profile, dedicated branches, current pull request identity and last forge error. Advanced operator tool.",
 		InputSchema: json.RawMessage(`{"type":"object","properties":{}}`),
-		Handler: func(args json.RawMessage) (ToolResult, error) {
+		Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
 			_ = k.ReconcileServerPR()
 			state := k.ServerGitStatus()
 			out, _ := json.MarshalIndent(state, "", "  ")
@@ -29,7 +29,7 @@ func toolPRFinalize(k *kb.KB) Tool {
 	return Tool{Name: "pr_finalize",
 		Description: "Squash-merges the current reviewed server-profile pull request after checking the supplied remote head SHA, rebase and validation. Advanced operator tool.",
 		InputSchema: json.RawMessage(`{"type":"object","required":["head_sha"],"properties":{"head_sha":{"type":"string","description":"Current remote PR head SHA observed by the operator."}}}`),
-		Handler: func(args json.RawMessage) (ToolResult, error) {
+		Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
 			// D76/WP4: flush any pending async push before touching git state
 			// directly, so this handler does not race a push scheduled by a
 			// preceding write.

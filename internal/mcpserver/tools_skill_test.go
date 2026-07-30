@@ -58,7 +58,7 @@ func callServiceGet(t *testing.T, k *kb.KB, serviceID string, resolveSecrets boo
 		"service_id":      serviceID,
 		"resolve_secrets": resolveSecrets,
 	})
-	res, err := tool.Handler(args)
+	res, err := tool.Handler(authLocalContext(), args)
 	if err != nil {
 		t.Fatalf("service_get handler error: %v", err)
 	}

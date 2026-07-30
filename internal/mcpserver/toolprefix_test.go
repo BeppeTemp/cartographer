@@ -117,7 +117,9 @@ func TestMountKBWithPrefix_TwoKBs_DisjointNames(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("MountKBWithPrefix(ai-team): %v", err)
 	}
-	handler := multi.Handler()
+	// Auth-disabled HTTP injects an explicit local-admin principal. Calling the
+	// bare multi-KB handler would intentionally be denied as a missing caller.
+	handler := auth.NewTokenStore(nil).Middleware(multi.Handler())
 
 	rrPersonal := doMCP(handler, "personal-kb", "", toolsListBody)
 	if rrPersonal.Code != http.StatusOK {
@@ -174,7 +176,7 @@ func TestMountKBWithPrefix_ToolsCall_HitsCorrectKB(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("MountKBWithPrefix(kb-b): %v", err)
 	}
-	handler := multi.Handler()
+	handler := auth.NewTokenStore(nil).Middleware(multi.Handler())
 
 	rr := doMCP(handler, "kb-b", "", writeToolCallBody("kbb__atlas_overview"))
 	if rr.Code != http.StatusOK {
@@ -222,9 +224,7 @@ func TestMountKBWithPrefix_ScopedTokenMatrix(t *testing.T) {
 	handler := ts.Middleware(multi.Handler())
 
 	rr := doMCP(handler, "ai-team", "r-tok", writeToolCallBody("aiteam__concept_write"))
-	if rr.Code != http.StatusForbidden {
-		t.Fatalf("prefixed write tool with r scope: status = %d, want 403; body=%s", rr.Code, rr.Body.String())
-	}
+	assertMCPForbidden(t, rr)
 
 	rr = doMCP(handler, "ai-team", "r-tok", writeToolCallBody("aiteam__atlas_overview"))
 	if rr.Code != http.StatusOK {

@@ -40,7 +40,7 @@ const pushFlushTimeout = 5 * time.Second
 //     as success).
 func gitWrap(k *kb.KB, t Tool) Tool {
 	orig := t
-	t.Handler = func(args json.RawMessage) (ToolResult, error) {
+	t.Handler = func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
 		var res ToolResult
 		var handlerErr error
 		var syncInDur, handlerDur, commitDur, pushDur time.Duration
@@ -67,8 +67,15 @@ func gitWrap(k *kb.KB, t Tool) Tool {
 				}
 				return nil
 			}
+			// SyncIn may have changed maps, journals, or concept frontmatter.
+			// Recheck only after that refreshed state is installed, immediately
+			// before the handler can mutate content.
+			if authErr := reauthorizeUnderLock(ctx, k, orig.Name, args); authErr != nil {
+				res = errorResult(authErr.Error())
+				return nil
+			}
 			handlerStart := time.Now()
-			res, handlerErr = orig.Handler(args)
+			res, handlerErr = orig.Handler(ctx, args)
 			handlerDur = time.Since(handlerStart)
 			if handlerErr == nil && !res.IsError {
 				msg := commitMessage(orig.Name, args)
@@ -136,13 +143,13 @@ func appendSyncWarning(res *ToolResult, k *kb.KB) {
 // stderr diagnostic or the conflict registry.
 func readSyncWrap(k *kb.KB, t Tool) Tool {
 	orig := t
-	t.Handler = func(args json.RawMessage) (ToolResult, error) {
+	t.Handler = func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
 		// Avoid the git lock entirely when sync is disabled, no remote exists, or
 		// the successful SyncIn is still within its freshness window. The check
 		// can race another SyncIn; SyncIn repeats it after this wrapper acquires
 		// the lock, turning that case into a harmless no-op.
 		if !k.SyncInDue() {
-			return orig.Handler(args)
+			return orig.Handler(ctx, args)
 		}
 
 		var res ToolResult
@@ -170,7 +177,7 @@ func readSyncWrap(k *kb.KB, t Tool) Tool {
 			}
 
 			handlerStart := time.Now()
-			res, handlerErr = orig.Handler(args)
+			res, handlerErr = orig.Handler(ctx, args)
 			handlerDur = time.Since(handlerStart)
 			return nil
 		})

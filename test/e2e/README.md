@@ -30,6 +30,7 @@ overrides the default base port.
 | `11_signed_provisioning` | Signed artifact verification and fail-closed unpinned rotation |
 | `12_mcp_approval` | D115 allow-list, point approval, stale hash rejection and revoke/prune |
 | `13_stdio_mcp` | D116 trusted stdio MCP lifecycle across all provider configurations |
+| `14_rbac_visibility` | D118 fine-grained RBAC: per-KB collection visibility, exact-resource non-disclosure, out-of-perimeter write denial, admin/legacy retrocompatibility |
 
 The numbering is retained to preserve historical references. Removed gaps were
 LLM-driven scenarios; model behavior is evaluated during real usage, not in the
@@ -56,6 +57,7 @@ test/e2e/
     11_signed_provisioning.sh
     12_mcp_approval.sh
     13_stdio_mcp.sh
+    14_rbac_visibility.sh
 ```
 
 Each scenario creates its own directory under `E2E_TMP_DIR`, owns the server

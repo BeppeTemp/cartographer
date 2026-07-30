@@ -5,15 +5,16 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"testing/fstest"
 
 	"github.com/BeppeTemp/cartographer/internal/auth"
 )
 
-// newScopedTestHandler mounts two KBs ("kbx" and "kby") on a MultiKBServer and
-// wraps it with ts.Middleware, reproducing the exact production wiring
-// (store.Middleware(multi.Handler())) used by serveHTTP.
+// newScopedTestHandler mounts two KBs ("kbx" and "kby") on a MultiKBServer
+// and wraps it with authentication. Authorization itself happens in common
+// dispatch, not by peeking at HTTP request bodies.
 func newScopedTestHandler(t *testing.T, ts *auth.TokenStore) http.Handler {
 	t.Helper()
 	multi := NewMultiKBServer("test")
@@ -51,6 +52,21 @@ func writeToolCallBody(name string) string {
 	return string(b)
 }
 
+func assertMCPForbidden(t *testing.T, rr *httptest.ResponseRecorder) {
+	t.Helper()
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status=%d, want MCP application error: %s", rr.Code, rr.Body.String())
+	}
+	var resp Response
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	tr := decodeToolResult(t, resp)
+	if !tr.IsError || len(tr.Content) == 0 || !strings.Contains(tr.Content[0].Text, "forbidden") {
+		t.Fatalf("want forbidden application error: %+v", tr)
+	}
+}
+
 func TestHTTPGuard_ReadScope_BlocksWrite_AllowsRead(t *testing.T) {
 	ts := auth.NewScopedTokenStore([]auth.ScopedToken{
 		{Token: "r-tok", Scopes: []auth.KBScope{{KB: "kbx", Write: false}}},
@@ -59,9 +75,7 @@ func TestHTTPGuard_ReadScope_BlocksWrite_AllowsRead(t *testing.T) {
 
 	// concept_write is a write tool: must be forbidden with a read-only scope.
 	rr := doMCP(handler, "kbx", "r-tok", writeToolCallBody("concept_write"))
-	if rr.Code != http.StatusForbidden {
-		t.Fatalf("write tool with r scope: status = %d, want 403; body=%s", rr.Code, rr.Body.String())
-	}
+	assertMCPForbidden(t, rr)
 
 	// atlas_overview is read-only: must be allowed.
 	rr = doMCP(handler, "kbx", "r-tok", writeToolCallBody("atlas_overview"))
@@ -110,9 +124,7 @@ func TestHTTPGuard_CrossKB_Forbidden(t *testing.T) {
 	// Token only has access to kbx; a request against kby must be forbidden
 	// even for a read-only tool.
 	rr := doMCP(handler, "kby", "x-tok", writeToolCallBody("atlas_overview"))
-	if rr.Code != http.StatusForbidden {
-		t.Fatalf("cross-KB read: status = %d, want 403; body=%s", rr.Code, rr.Body.String())
-	}
+	assertMCPForbidden(t, rr)
 }
 
 func TestHTTPGuard_NonToolsCallMethod(t *testing.T) {
@@ -129,16 +141,12 @@ func TestHTTPGuard_NonToolsCallMethod(t *testing.T) {
 
 	// Same method against a KB the token has no access to at all: forbidden.
 	rr = doMCP(handler, "kby", "r-tok", toolsListBody)
-	if rr.Code != http.StatusForbidden {
-		t.Fatalf("tools/list on kby with no access: status = %d, want 403; body=%s", rr.Code, rr.Body.String())
-	}
+	assertMCPForbidden(t, rr)
 }
 
-// TestHTTPGuard_BodyRestored verifies that after the guard peeks the request
-// body it is fully restored, so the wrapped handler (which reads r.Body again
-// from scratch) still sees the original JSON-RPC request and produces the
-// expected tool result rather than a parse error / empty body.
-func TestHTTPGuard_BodyRestored(t *testing.T) {
+// TestHTTPDispatchReadsBodyOnce verifies dispatch receives the original body
+// without a second authorization-body peek.
+func TestHTTPDispatchReadsBodyOnce(t *testing.T) {
 	ts := auth.NewScopedTokenStore([]auth.ScopedToken{
 		{Token: "r-tok", Scopes: []auth.KBScope{{KB: "kbx", Write: false}}},
 	})
@@ -151,17 +159,17 @@ func TestHTTPGuard_BodyRestored(t *testing.T) {
 
 	var resp Response
 	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("response body is not valid JSON-RPC (body not restored?): %v; body=%s", err, rr.Body.String())
+		t.Fatalf("response body is not valid JSON-RPC: %v; body=%s", err, rr.Body.String())
 	}
 	if resp.Error != nil {
-		t.Fatalf("unexpected RPC error (body not restored?): %v", resp.Error)
+		t.Fatalf("unexpected RPC error: %v", resp.Error)
 	}
 	tr := decodeToolResult(t, resp)
 	if tr.IsError {
 		t.Fatalf("atlas_overview returned isError=true: %v", tr.Content)
 	}
 	if len(tr.Content) == 0 || tr.Content[0].Text == "" {
-		t.Fatal("atlas_overview returned empty content — body was likely not restored for the downstream handler")
+		t.Fatal("atlas_overview returned empty content")
 	}
 }
 
@@ -183,10 +191,9 @@ func writeServiceGetCallBody(resolveSecrets bool) string {
 	return string(b)
 }
 
-// TestHTTPGuard_ServiceGet_ResolveSecrets_RequiresRW verifies the D47 special
-// case in mcpAccessGuard: service_get is classified ReadOnly by tool name,
-// but a call with resolve_secrets=true decrypts and returns secrets, so it
-// must be rejected for a read-only scope and allowed for rw.
+// TestHTTPGuard_ServiceGet_ResolveSecrets_RequiresRW verifies the central
+// resolver upgrades secret resolution from the read-side service tool to an
+// explicit whole-KB write capability.
 func TestHTTPGuard_ServiceGet_ResolveSecrets_RequiresRW(t *testing.T) {
 	ts := auth.NewScopedTokenStore([]auth.ScopedToken{
 		{Token: "r-tok", Scopes: []auth.KBScope{{KB: "kbx", Write: false}}},
@@ -202,13 +209,10 @@ func TestHTTPGuard_ServiceGet_ResolveSecrets_RequiresRW(t *testing.T) {
 
 	// resolve_secrets=true: read scope must be forbidden.
 	rr = doMCP(handler, "kbx", "r-tok", writeServiceGetCallBody(true))
-	if rr.Code != http.StatusForbidden {
-		t.Fatalf("service_get resolve_secrets=true with r scope: status = %d, want 403; body=%s", rr.Code, rr.Body.String())
-	}
+	assertMCPForbidden(t, rr)
 
-	// resolve_secrets=true: rw scope must pass the guard (the tool handler
-	// itself may still error, e.g. missing service/age key — that's a 200
-	// with an isError tool result, not a 403 from the guard).
+	// resolve_secrets=true: rw scope must pass dispatch (the tool handler may
+	// still error, e.g. for a missing service/age key).
 	rr = doMCP(handler, "kbx", "rw-tok", writeServiceGetCallBody(true))
 	if rr.Code != http.StatusOK {
 		t.Fatalf("service_get resolve_secrets=true with rw scope: status = %d, want 200 (guard should pass); body=%s", rr.Code, rr.Body.String())

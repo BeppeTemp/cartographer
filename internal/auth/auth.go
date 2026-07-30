@@ -15,19 +15,108 @@ import (
 // contextKey is a private type for context keys to avoid collisions.
 type contextKey int
 
-const scopesKey contextKey = 0
+const principalKey contextKey = 0
+
+// Permission is one immutable allow rule. Empty Maps, Journals and Types are
+// wildcards; non-empty selectors are intersected. There are intentionally no
+// deny rules: permissions are unioned, which keeps policy evaluation
+// deterministic and order-independent.
+type Permission struct {
+	KB       string
+	Write    bool
+	Maps     []string
+	Journals []string
+	Types    []string
+}
+
+// Policy is the complete, immutable policy assigned to a principal.
+type Policy struct {
+	Admin       bool
+	Permissions []Permission
+}
+
+// Principal identifies the caller without retaining its bearer secret.
+type Principal struct {
+	ID     string
+	Policy Policy
+}
+
+// LocalAdminPrincipal is used for auth-disabled HTTP and trusted stdio. It is
+// explicit so handlers never infer authority from a missing context value.
+func LocalAdminPrincipal() Principal {
+	return Principal{ID: "local-admin", Policy: Policy{Admin: true}}
+}
+
+// Allows reports whether a policy allows an operation on a resource. mapName
+// and journalName are mutually exclusive resource descriptors; typeName may
+// be empty for non-concept resources. rw implies r.
+func (p Policy) Allows(kbName, mapName, journalName, typeName string, write bool) bool {
+	if p.Admin {
+		return true
+	}
+	for _, rule := range p.Permissions {
+		if rule.KB != kbName || (write && !rule.Write) {
+			continue
+		}
+		if !matchesSelector(rule.Maps, mapName) || !matchesSelector(rule.Journals, journalName) || !matchesSelector(rule.Types, typeName) {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
+// AllowsWholeKB requires an unselected permission. It is used for operations
+// which cannot safely be scoped to a partial collection.
+func (p Policy) AllowsWholeKB(kbName string, write bool) bool {
+	if p.Admin {
+		return true
+	}
+	for _, rule := range p.Permissions {
+		if rule.KB == kbName && (!write || rule.Write) && len(rule.Maps) == 0 && len(rule.Journals) == 0 && len(rule.Types) == 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// HasKBAccess reports whether any rule grants the requested mode on a KB,
+// regardless of resource selectors. It gates protocol metadata only.
+func (p Policy) HasKBAccess(kbName string, write bool) bool {
+	if p.Admin {
+		return true
+	}
+	for _, rule := range p.Permissions {
+		if rule.KB == kbName && (!write || rule.Write) {
+			return true
+		}
+	}
+	return false
+}
+
+func matchesSelector(values []string, value string) bool {
+	if len(values) == 0 {
+		return true
+	}
+	for _, v := range values {
+		if v == value {
+			return true
+		}
+	}
+	return false
+}
 
 // TokenStore manages valid bearer tokens stored as SHA-256 hashes, each mapped
 // to its per-KB scopes. A nil or empty scope list means full access (admin):
 // the token is not restricted to any KB.
-type TokenStore struct {
-	hashes map[string][]KBScope // sha256 hex of each valid token -> scopes (nil/empty = full access)
-}
+type TokenStore struct{ hashes map[string]Principal }
 
 // ScopedToken pairs a plaintext bearer token with the KB scopes it grants.
 type ScopedToken struct {
-	Token  string
-	Scopes []KBScope
+	Token     string
+	Scopes    []KBScope
+	Principal string
+	Policy    Policy
 }
 
 // NewTokenStore creates a token store from plain token strings, each granted full
@@ -44,10 +133,29 @@ func NewTokenStore(tokens []string) *TokenStore {
 // per-KB scopes. A token with nil/empty Scopes has full access. If tokens is
 // nil or empty, auth is disabled.
 func NewScopedTokenStore(tokens []ScopedToken) *TokenStore {
-	ts := &TokenStore{hashes: make(map[string][]KBScope)}
+	ts := &TokenStore{hashes: make(map[string]Principal)}
 	for _, st := range tokens {
 		if st.Token != "" {
-			ts.hashes[hashToken(st.Token)] = st.Scopes
+			h := hashToken(st.Token)
+			policy := clonePolicy(st.Policy)
+			if !policy.Admin {
+				// Legacy scopes are unioned with any role-derived permissions
+				// rather than replaced by them, so a deployment can migrate one
+				// token at a time without silently dropping either half.
+				for _, scope := range st.Scopes {
+					policy.Permissions = append(policy.Permissions, Permission{KB: scope.KB, Write: scope.Write})
+				}
+				// A token that carries neither scopes nor permissions is the
+				// pre-scopes admin token: preserve its historical full access.
+				if len(policy.Permissions) == 0 {
+					policy.Admin = true
+				}
+			}
+			id := st.Principal
+			if id == "" {
+				id = "token-" + h[:16]
+			}
+			ts.hashes[h] = Principal{ID: id, Policy: clonePolicy(policy)}
 		}
 	}
 	return ts
@@ -58,13 +166,13 @@ func (ts *TokenStore) IsEnabled() bool {
 	return len(ts.hashes) > 0
 }
 
-// Validate checks if the given token is valid.
-// Returns agentID (first 8 chars of token) and whether the token is valid.
+// Validate checks if the given token is valid. The returned ID is never
+// derived from the plaintext token.
 func (ts *TokenStore) Validate(token string) (agentID string, ok bool) {
 	h := hashToken(token)
-	_, ok = ts.hashes[h]
+	p, ok := ts.hashes[h]
 	if ok {
-		agentID = truncate(token, 8)
+		agentID = p.ID
 	}
 	return agentID, ok
 }
@@ -72,8 +180,23 @@ func (ts *TokenStore) Validate(token string) (agentID string, ok bool) {
 // ScopesOf returns the KB scopes granted to the given token, and whether the
 // token is valid. A valid token with nil/empty scopes has full access.
 func (ts *TokenStore) ScopesOf(token string) ([]KBScope, bool) {
-	scopes, ok := ts.hashes[hashToken(token)]
+	p, ok := ts.hashes[hashToken(token)]
+	if !ok || p.Policy.Admin {
+		return nil, ok
+	}
+	var scopes []KBScope
+	for _, rule := range p.Policy.Permissions {
+		if len(rule.Maps) == 0 && len(rule.Journals) == 0 && len(rule.Types) == 0 {
+			scopes = append(scopes, KBScope{KB: rule.KB, Write: rule.Write})
+		}
+	}
 	return scopes, ok
+}
+
+// PrincipalOf returns the authenticated immutable principal.
+func (ts *TokenStore) PrincipalOf(token string) (Principal, bool) {
+	p, ok := ts.hashes[hashToken(token)]
+	return clonePrincipal(p), ok
 }
 
 // Middleware returns an HTTP middleware that validates the Authorization: Bearer header.
@@ -82,7 +205,7 @@ func (ts *TokenStore) ScopesOf(token string) ([]KBScope, bool) {
 func (ts *TokenStore) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !ts.IsEnabled() || isPublicPath(r.URL.Path) {
-			next.ServeHTTP(w, r)
+			next.ServeHTTP(w, r.WithContext(ContextWithPrincipal(r.Context(), LocalAdminPrincipal())))
 			return
 		}
 		token, ok := extractBearer(r)
@@ -94,8 +217,8 @@ func (ts *TokenStore) Middleware(next http.Handler) http.Handler {
 			unauthorized(w)
 			return
 		}
-		scopes, _ := ts.ScopesOf(token)
-		ctx := ContextWithScopes(r.Context(), scopes)
+		principal, _ := ts.PrincipalOf(token)
+		ctx := ContextWithPrincipal(r.Context(), principal)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
@@ -117,16 +240,62 @@ func ScopesFromToken(_ string) []KBScope {
 	return nil
 }
 
-// ContextWithScopes stores scopes in the request context.
+// ContextWithScopes is retained for compatibility with callers/tests. It
+// compiles legacy scopes to a principal policy.
 func ContextWithScopes(ctx context.Context, scopes []KBScope) context.Context {
-	return context.WithValue(ctx, scopesKey, scopes)
+	policy := Policy{}
+	if len(scopes) == 0 {
+		policy.Admin = true
+	} else {
+		for _, s := range scopes {
+			policy.Permissions = append(policy.Permissions, Permission{KB: s.KB, Write: s.Write})
+		}
+	}
+	return ContextWithPrincipal(ctx, Principal{ID: "legacy-context", Policy: policy})
 }
 
 // ScopesFromContext retrieves scopes previously stored by ContextWithScopes.
 // Returns nil if no scopes were set.
 func ScopesFromContext(ctx context.Context) []KBScope {
-	v, _ := ctx.Value(scopesKey).([]KBScope)
-	return v
+	p := PrincipalFromContext(ctx)
+	if p.Policy.Admin {
+		return nil
+	}
+	var out []KBScope
+	for _, rule := range p.Policy.Permissions {
+		if len(rule.Maps) == 0 && len(rule.Journals) == 0 && len(rule.Types) == 0 {
+			out = append(out, KBScope{KB: rule.KB, Write: rule.Write})
+		}
+	}
+	return out
+}
+
+func ContextWithPrincipal(ctx context.Context, principal Principal) context.Context {
+	return context.WithValue(ctx, principalKey, clonePrincipal(principal))
+}
+func PrincipalFromContext(ctx context.Context) Principal {
+	p, ok := ctx.Value(principalKey).(Principal)
+	if !ok {
+		return Principal{}
+	}
+	return clonePrincipal(p)
+}
+
+func clonePrincipal(p Principal) Principal {
+	p.Policy = clonePolicy(p.Policy)
+	return p
+}
+
+func clonePolicy(p Policy) Policy {
+	source := p.Permissions
+	p.Permissions = make([]Permission, len(p.Permissions))
+	for i, rule := range source {
+		rule.Maps = append([]string(nil), rule.Maps...)
+		rule.Journals = append([]string(nil), rule.Journals...)
+		rule.Types = append([]string(nil), rule.Types...)
+		p.Permissions[i] = rule
+	}
+	return p
 }
 
 // Forbidden writes a 403 response in the standard format used across the HTTP

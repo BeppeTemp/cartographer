@@ -57,18 +57,18 @@ func TestServiceAndSecretResolveScopeDeclaredRefs(t *testing.T) {
 	}
 	writeSecretConcept(t, k.Root, "dossier", "type: Dossier\nsecret_refs:\n  - TOKEN=secrets/test.sops.yaml#/allowed\n")
 	args, _ := json.Marshal(map[string]any{"concept_id": "dossier", "names": []string{"TOKEN"}})
-	got, _ := toolSecretResolve(k).Handler(args)
+	got, _ := toolSecretResolve(k).Handler(authLocalContext(), args)
 	if got.IsError || got.Content[0].Text != "TOKEN=only-this" {
 		t.Fatalf("resolve=%#v", got)
 	}
 	args, _ = json.Marshal(map[string]any{"concept_id": "dossier", "names": []string{"UNKNOWN"}})
-	got, _ = toolSecretResolve(k).Handler(args)
+	got, _ = toolSecretResolve(k).Handler(authLocalContext(), args)
 	if got.IsError || got.Content[0].Text != "" {
 		t.Fatalf("unknown filter=%#v", got)
 	}
 	writeSecretConcept(t, k.Root, "none", "type: Dossier\n")
 	args, _ = json.Marshal(map[string]any{"concept_id": "none"})
-	got, _ = toolSecretResolve(k).Handler(args)
+	got, _ = toolSecretResolve(k).Handler(authLocalContext(), args)
 	if !got.IsError || !strings.Contains(got.Content[0].Text, "no secret_refs") {
 		t.Fatalf("missing declaration=%#v", got)
 	}
@@ -93,7 +93,7 @@ func TestSecretSetSafetyAndRegistration(t *testing.T) {
 	os.WriteFile(filepath.Join(k.Root, "secrets", "test.sops.yaml"), []byte("key: ENC[old]\nsops: {}\n"), 0o600)
 	value := "private-value"
 	args, _ := json.Marshal(map[string]string{"path": "secrets/test.sops.yaml", "key": "/key", "value": value})
-	res, _ := toolSecretSet(k).Handler(args)
+	res, _ := toolSecretSet(k).Handler(authLocalContext(), args)
 	if res.IsError || strings.Contains(res.Content[0].Text, value) || !strings.Contains(res.Content[0].Text, "secrets/test.sops.yaml /key") {
 		t.Fatalf("set=%#v", res)
 	}
@@ -102,7 +102,7 @@ func TestSecretSetSafetyAndRegistration(t *testing.T) {
 	}
 	for _, a := range []map[string]string{{"path": "secrets/missing.sops.yaml", "key": "/key", "value": value}, {"path": "../bad", "key": "/key", "value": value}, {"path": "secrets/test.sops.yaml", "key": "bad", "value": value}} {
 		b, _ := json.Marshal(a)
-		r, _ := toolSecretSet(k).Handler(b)
+		r, _ := toolSecretSet(k).Handler(authLocalContext(), b)
 		if !r.IsError || strings.Contains(r.Content[0].Text, value) {
 			t.Errorf("unsafe error %#v", r)
 		}
