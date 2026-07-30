@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/BeppeTemp/cartographer/internal/audit"
 	"github.com/BeppeTemp/cartographer/internal/auth"
 )
 
@@ -80,7 +81,18 @@ type Server struct {
 	// is a closure over immutable registration dependencies, never mutable
 	// request-global state.
 	authorizer func(context.Context, string, json.RawMessage) error
-	mu         sync.Mutex
+	// auditLog, if set (SetAuditLog), records an attempt+completion event pair
+	// for every tools/call dispatched through this server (D119). Nil (the
+	// default) means auditing is off — byte-identical to pre-D119 behaviour.
+	auditLog *audit.Log
+	// kbName identifies the KB this server serves, recorded on every audit
+	// event. Set via SetKBName at mount time.
+	kbName string
+	// transport is the fixed transport ("stdio" or "http") this Server
+	// instance dispatches over, recorded on every audit event. Set via
+	// SetTransport at mount time.
+	transport string
+	mu        sync.Mutex
 
 	writeMu sync.Mutex    // serializes writes to the shared encoder
 	enc     *json.Encoder // active stdio encoder; nil when not in Run (e.g. HTTP)
@@ -168,6 +180,33 @@ func (s *Server) PolicyKB() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.policyKB
+}
+
+// SetAuditLog attaches the operational audit sink (D119): every subsequent
+// tools/call dispatched through this Server records an attempt event before
+// the tool runs and a completion event afterward (internal/mcpserver/audit.go).
+// nil (the default, unchanged from pre-D119) leaves auditing off.
+func (s *Server) SetAuditLog(l *audit.Log) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.auditLog = l
+}
+
+// SetKBName records the KB name (config.KBSpec-resolved) attributed to every
+// audit event this Server emits (D119).
+func (s *Server) SetKBName(name string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.kbName = name
+}
+
+// SetTransport records the fixed transport ("stdio" or "http") attributed to
+// every audit event this Server emits (D119). A Server instance only ever
+// dispatches over one transport for its whole lifetime.
+func (s *Server) SetTransport(transport string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.transport = transport
 }
 
 // stripToolPrefixLocked removes this server's tool-name prefix (see
@@ -295,6 +334,9 @@ func (s *Server) RunContext(ctx context.Context, reader io.Reader, writer io.Wri
 
 		// IMPORTANT: do not hold writeMu across dispatch — Notify is called
 		// within the dispatch goroutine and acquires writeMu itself.
+		// Stdio is a single, already-trusted local caller: the context carries
+		// the local-admin principal, which is what audit events are attributed
+		// to (see docs/transport-auth.md).
 		resp := s.dispatch(ctx, &req)
 		s.writeMu.Lock()
 		enc.Encode(resp)
@@ -344,6 +386,10 @@ func (s *Server) dispatch(ctx context.Context, req *Request) Response {
 	case "tools/list":
 		return s.handleToolsList(req)
 	case "tools/call":
+		// The principal attributed to an audit event (D119) is read from the
+		// context rather than passed alongside it: since D118 the authenticated
+		// principal already travels there, and a second channel could disagree
+		// with the one authorization actually used.
 		return s.handleToolsCall(ctx, req)
 	default:
 		return errorResponse(req.ID, ErrCodeMethodNotFound, "method not found: "+req.Method)
@@ -420,7 +466,9 @@ func (s *Server) handleToolsList(req *Request) Response {
 }
 
 // handleToolsCall routes the call to the correct tool. Authorization runs
-// before the handler for every call — a denial never reaches tool logic.
+// before the handler for every call — a denial never reaches tool logic — and
+// an attempt+completion audit event pair is recorded around the dispatch when
+// an audit sink is attached (SetAuditLog, D119; see audit.go).
 func (s *Server) handleToolsCall(ctx context.Context, req *Request) Response {
 	var params struct {
 		Name      string          `json:"name"`
@@ -434,20 +482,44 @@ func (s *Server) handleToolsCall(ctx context.Context, req *Request) Response {
 	tool, ok := s.tools[params.Name]
 	s.mu.Unlock()
 
-	if !ok {
-		return successResponse(req.ID, errorResult("tool not found: "+params.Name))
-	}
-
 	args := params.Arguments
 	if args == nil {
 		args = json.RawMessage(`{}`)
 	}
 
-	if err := s.authorize(ctx, s.StripToolPrefix(params.Name), args); err != nil {
+	canonicalName := s.StripToolPrefix(params.Name)
+	externalName := ""
+	if canonicalName != params.Name {
+		externalName = params.Name
+	}
+	principal := auth.PrincipalFromContext(ctx).ID
+
+	if err := s.authorize(ctx, canonicalName, args); err != nil {
 		return successResponse(req.ID, errorResult(err.Error()))
 	}
 
+	if !ok {
+		// Unknown tool: never resolve/record arguments for a tool this server
+		// has no allow-list entry for; the outcome itself names the case.
+		result := errorResult("tool not found: " + params.Name)
+		call, rejected, ok := s.beginAuditCall(principal, canonicalName, externalName, false, nil)
+		if !ok {
+			return successResponse(req.ID, rejected)
+		}
+		call.end(s, audit.OutcomeUnknownTool, result)
+		return successResponse(req.ID, result)
+	}
+
+	resources := extractResources(canonicalName, args)
+	call, rejected, ok := s.beginAuditCall(principal, canonicalName, externalName, tool.ReadOnly, resources)
+	if !ok {
+		// Required mode, attempt-phase append failed: reject before the tool
+		// ever runs — see beginAuditCall.
+		return successResponse(req.ID, rejected)
+	}
+
 	result, err := tool.Handler(ctx, args)
+	call.end(s, classifyOutcome(result, err), result)
 	if err != nil {
 		// Internal server error (not an application error): return isError in the result.
 		return successResponse(req.ID, errorResult("internal error: "+err.Error()))
