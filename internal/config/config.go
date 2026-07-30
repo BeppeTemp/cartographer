@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/BeppeTemp/cartographer/internal/provisioning"
 	"gopkg.in/yaml.v3"
 )
 
@@ -98,8 +99,11 @@ type KBSpec struct {
 	// sign provisioning artifacts served from this KB. It is never exposed by
 	// health, MCP responses, or diagnostic output.
 	ArtifactSigningSeed string `yaml:"artifact_signing_seed,omitempty"`
-	Path                string `yaml:"path"`
-	Remote              string `yaml:"remote"`
+	// MCPAllowlist is the per-KB operator policy for third-party HTTP MCP
+	// descriptors. An absent or empty list intentionally denies every one.
+	MCPAllowlist []provisioning.MCPAllowlistEntry `yaml:"mcp_allowlist,omitempty"`
+	Path         string                           `yaml:"path"`
+	Remote       string                           `yaml:"remote"`
 
 	// Name overrides the KB name that would otherwise be derived from the
 	// basename of Remote/Path (see cmd/cartographer.resolveKBName). If set,
@@ -269,6 +273,11 @@ func Load(path string) (*Config, error) {
 	cfg.Init = raw.Init
 	cfg.Data = raw.Data
 	cfg.KBs = raw.KBs
+	for _, spec := range cfg.KBs {
+		if err := provisioning.ValidateMCPAllowlist(spec.MCPAllowlist); err != nil {
+			return nil, fmt.Errorf("config: mcp_allowlist: %w", err)
+		}
+	}
 	cfg.Audit = raw.Audit
 
 	if raw.Auth.Mode != "" {

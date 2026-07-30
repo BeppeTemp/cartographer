@@ -5,6 +5,8 @@ package provisioning_test
 // config nativo di ciascun provider (internal/provisioning/mcpsettings.go).
 
 import (
+	"bytes"
+	"crypto/ed25519"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -27,6 +29,12 @@ func writeMCPFixture(t *testing.T, kbRoot, name, content string) {
 	}
 }
 
+func mcpAllow(name, target string) provisioning.BuildOptions {
+	return provisioning.BuildOptions{MCPAllowlists: map[string][]provisioning.MCPAllowlistEntry{
+		"kb": {{Name: name, Transport: "http", Target: target}},
+	}}
+}
+
 func findMCPArtifact(t *testing.T, m provisioning.Manifest, name string) provisioning.Artifact {
 	t.Helper()
 	for _, a := range m.Artifacts {
@@ -40,7 +48,7 @@ func findMCPArtifact(t *testing.T, m provisioning.Manifest, name string) provisi
 
 func TestBuildManifest_MCP_NoDirIsRetrocompat(t *testing.T) {
 	kbRoot := t.TempDir()
-	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, provisioning.BuildOptions{})
+	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, mcpAllow("wiki-tools", "https://tools.example.com/mcp"))
 	if err != nil {
 		t.Fatalf("BuildManifest: %v", err)
 	}
@@ -51,13 +59,98 @@ func TestBuildManifest_MCP_NoDirIsRetrocompat(t *testing.T) {
 	}
 }
 
+func TestBuildManifest_MCPAllowlistDenyByDefaultAndExactEndpoint(t *testing.T) {
+	kbRoot := t.TempDir()
+	writeMCPFixture(t, kbRoot, "tools", `{"type":"http","url":"https://TOOLS.example.com/mcp"}`)
+
+	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, mcpAllow("wiki-tools", "https://tools.example.com/mcp"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, a := range m.Artifacts {
+		if a.Kind == "mcp" {
+			t.Fatalf("deny-by-default exposed %+v", a)
+		}
+	}
+	wrong := mcpAllow("tools", "https://tools.example.com/other")
+	m, err = provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, wrong)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, a := range m.Artifacts {
+		if a.Kind == "mcp" {
+			t.Fatalf("wrong endpoint exposed %+v", a)
+		}
+	}
+	allowed := mcpAllow("tools", "https://tools.example.com/mcp")
+	m, err = provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, allowed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	findMCPArtifact(t, m, "tools")
+}
+
+func TestApply_MCPHashBoundApproval(t *testing.T) {
+	kbRoot := t.TempDir()
+	writeMCPFixture(t, kbRoot, "tools", `{"type":"http","url":"https://tools.example.com/mcp"}`)
+	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, mcpAllow("tools", "https://tools.example.com/mcp"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := findMCPArtifact(t, m, "tools")
+	opts := provisioning.ApplyOptions{KBRoots: map[string]string{"kb": kbRoot}, Provider: configurator.ProviderClaudeCode, BaseDir: t.TempDir(), ApprovedMCP: map[string]string{"kb:kb\x00tools": a.ContentHash}}
+	res, err := provisioning.Apply(m, opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, pending := range res.NeedsApproval {
+		if pending.Kind == "mcp" {
+			t.Fatalf("approved descriptor needs approval: %+v", res.NeedsApproval)
+		}
+	}
+	if len(res.Written) == 0 {
+		t.Fatal("approved descriptor was not materialized")
+	}
+	writeMCPFixture(t, kbRoot, "tools", `{"type":"http","url":"https://tools.example.com/changed"}`)
+	m, err = provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, mcpAllow("tools", "https://tools.example.com/changed"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err = provisioning.Apply(m, opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, pending := range res.NeedsApproval {
+		if pending.Kind == "mcp" && pending.Name == "tools" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("changed descriptor must need reapproval: %+v", res.NeedsApproval)
+	}
+}
+
+func TestBuildManifest_MCPAllowlistDiagnosticsAreSafe(t *testing.T) {
+	kbRoot := t.TempDir()
+	writeMCPFixture(t, kbRoot, "tools", `{"type":"http","url":"https://tools.example.com/mcp","headers":{"Authorization":"Bearer ${TOKEN}"}}`)
+	var diagnostics []string
+	_, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, provisioning.BuildOptions{MCPDiagnostic: func(s string) { diagnostics = append(diagnostics, s) }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(diagnostics) != 1 || !strings.Contains(diagnostics[0], "tools") || strings.Contains(diagnostics[0], "TOKEN") {
+		t.Fatalf("unsafe or missing diagnostic: %v", diagnostics)
+	}
+}
+
 func TestBuildManifest_MCP_ScansAndAlwaysUnsigned(t *testing.T) {
 	kbRoot := t.TempDir()
 	writeMCPFixture(t, kbRoot, "wiki-tools",
 		`{"type":"http","url":"https://tools.example.com/mcp","headers":{"Authorization":"Bearer ${WIKI_TOOLS_TOKEN}"}}`)
 
 	{
-		m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, provisioning.BuildOptions{})
+		m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, mcpAllow("wiki-tools", "https://tools.example.com/mcp"))
 		if err != nil {
 			t.Fatalf("BuildManifest: %v", err)
 		}
@@ -72,6 +165,26 @@ func TestBuildManifest_MCP_ScansAndAlwaysUnsigned(t *testing.T) {
 		if a.Signed {
 			t.Error("Signed = true, want false without signer")
 		}
+	}
+}
+
+func TestBuildManifest_MCPAllowedDescriptorCanBeVerified(t *testing.T) {
+	kbRoot := t.TempDir()
+	writeMCPFixture(t, kbRoot, "tools", `{"type":"http","url":"https://tools.example.com/mcp"}`)
+	key := ed25519.NewKeyFromSeed(bytes.Repeat([]byte{1}, ed25519.SeedSize))
+	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, provisioning.BuildOptions{
+		Signers:       map[string]ed25519.PrivateKey{"kb": key},
+		MCPAllowlists: map[string][]provisioning.MCPAllowlistEntry{"kb": {{Name: "tools", Transport: "http", Target: "https://tools.example.com/mcp"}}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	verified, err := provisioning.VerifiedManifest(m, map[string][]ed25519.PublicKey{"kb": {key.Public().(ed25519.PublicKey)}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !findMCPArtifact(t, verified, "tools").Signed {
+		t.Fatal("verified allowed MCP must be authorized without point approval")
 	}
 }
 
@@ -100,7 +213,7 @@ func TestBuildManifest_MCP_LiteralSecretFailsBuild(t *testing.T) {
 // TestBuildManifest_MCP_ScansAndAlwaysUnsigned).
 func signedMCPManifest(t *testing.T, kbRoot, name string) provisioning.Manifest {
 	t.Helper()
-	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, provisioning.BuildOptions{})
+	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, mcpAllow(name, "https://tools.example.com/mcp"))
 	if err != nil {
 		t.Fatalf("BuildManifest: %v", err)
 	}
@@ -115,7 +228,7 @@ func signedMCPManifest(t *testing.T, kbRoot, name string) provisioning.Manifest 
 func TestApply_MCP_UnsignedNeedsApproval(t *testing.T) {
 	kbRoot := t.TempDir()
 	writeMCPFixture(t, kbRoot, "wiki-tools", `{"type":"http","url":"https://tools.example.com/mcp"}`)
-	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, provisioning.BuildOptions{})
+	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, mcpAllow("wiki-tools", "https://tools.example.com/mcp"))
 	if err != nil {
 		t.Fatalf("BuildManifest: %v", err)
 	}

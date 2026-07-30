@@ -104,7 +104,7 @@ Tools marked **[A]** (advanced, `advancedToolNames` in `internal/mcpserver/visib
 |---|---|
 | `sync_check([applied_revision])` **[R]** **[A]** | Read-only. Returns the current manifest's revision and artifact list, including cryptographic `signed` verification output and separate `built_in` trust origin. |
 | `sync_apply(base_dir, [dry_run], [auto_trust])` **[A]** | Materializes verified or built-in artifacts into `base_dir`; `auto_trust` is explicit unsigned authorization and never sets `signed`. A local signer is verified before applying. |
-| `sync_pull()` **[R]** **[A]** | Read-only, no parameters. Returns base64 file contents plus optional detached Ed25519 signature (`algorithm`, `key_id`, envelope version, value). Remote clients recompute hashes and verify pinned keys before materialization. |
+| `sync_pull()` **[R]** **[A]** | Read-only, no parameters. Returns base64 file contents plus optional detached Ed25519 signature (`algorithm`, `key_id`, envelope version, value). Remote clients recompute hashes and verify pinned keys before materialization. KB-provided MCP descriptors appear only when the server-side allow-list permits them. |
 | `sync_status()` **[R]** **[A]** | Read-only. Returns local Git replication state (`disabled`, `no_remote`, `clean`, `pending`, or `failed`), the last error/attempt, HEAD, best-effort unpushed count, identity warning, and push mode. |
 
 ### KB-root artifacts

@@ -319,7 +319,7 @@ func syncCmd(provider, dir string) tea.Cmd {
 		if err != nil {
 			return syncDoneMsg{provider: provider, err: err}
 		}
-		applied, err := materializeForProviders(m, []string{provider}, dir, cfg.Trust, false, cfg.SearchRoots, cfg.Paths)
+		applied, err := materializeForProviders(m, []string{provider}, dir, cfg.Trust, false, cfg.SearchRoots, cfg.Paths, cfg.ApprovedMCPHashes())
 		if err != nil {
 			return syncDoneMsg{provider: provider, err: err}
 		}

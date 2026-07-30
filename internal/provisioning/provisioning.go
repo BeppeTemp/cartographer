@@ -54,7 +54,13 @@ type Artifact struct {
 
 // BuildOptions controls manifest construction. Signers is keyed by mounted KB
 // name; a missing signer leaves that KB's artifacts unsigned.
-type BuildOptions struct{ Signers map[string]ed25519.PrivateKey }
+type BuildOptions struct {
+	Signers       map[string]ed25519.PrivateKey
+	MCPAllowlists map[string][]MCPAllowlistEntry
+	// MCPDiagnostic receives non-fatal denied/stale allow-list diagnostics.
+	// It never contains descriptor headers or environment references.
+	MCPDiagnostic func(string)
+}
 
 // ArtifactFile is a single file of an Artifact, with content in memory.
 type ArtifactFile struct {
@@ -108,7 +114,10 @@ type ApplyOptions struct {
 	// AutoTrust explicitly authorizes eligible unsigned KB artifacts. It does
 	// not alter Artifact.Signed.
 	AutoTrust bool
-	Lock      Lock // current lockfile
+	// ApprovedMCP holds exact local approvals keyed as "kb:<source>\x00<name>".
+	// It is authorization, not verification; Signed is never mutated by it.
+	ApprovedMCP map[string]string
+	Lock        Lock // current lockfile
 
 	// SkipLockWrite, if true, computes AppliedResult.NewLock but does not persist
 	// it to <BaseDir>/LockFileName. Used by the multi-provider clients
@@ -334,6 +343,7 @@ func BuildManifest(bundleFS fs.FS, kbRoots map[string]string, opts BuildOptions)
 
 	for _, kbName := range kbNames {
 		kbRoot := kbRoots[kbName]
+		matchedMCPAllowlist := make(map[string]bool)
 
 		// 2. Skill (skills/<name>/SKILL.md, several files per artifact). A KB with
 		// no skills/ folder or an unreadable directory: kbSkills is empty,
@@ -409,13 +419,9 @@ func BuildManifest(bundleFS fs.FS, kbRoots map[string]string, opts BuildOptions)
 		// server, single-file like agents. No mcp/ folder → zero artifacts
 		// (backward compat). Parse+validation here (parseMCPServerSpec): a
 		// malformed file, or one with a headers/env value that looks like a
-		// literal secret, fails BuildManifest, not Apply (WP2). Signed is
-		// always false regardless of autoTrust (WP5): an MCP server is an
-		// endpoint that receives the agent's data, a stricter policy than other
-		// kinds — always NeedsApproval on first appearance and on every hash
-		// change, even with AutoTrust enabled (see also upgradeTrustedManifest
-		// in cmd/cartographer/clientsync.go, which likewise excludes the "mcp"
-		// kind from the remote client's Signed:true upgrade).
+		// literal secret, fails BuildManifest, not Apply (WP2). An unsigned MCP
+		// descriptor needs its own hash-bound approval: generic AutoTrust never
+		// authorizes it. A D114 signature remains independently verifiable.
 		mcpDir := filepath.Join(kbRoot, "mcp")
 		mcpEntries, err := os.ReadDir(mcpDir)
 		if err == nil {
@@ -429,9 +435,17 @@ func BuildManifest(bundleFS fs.FS, kbRoots map[string]string, opts BuildOptions)
 				if readErr != nil {
 					return Manifest{}, fmt.Errorf("provisioning: read kb:%s/mcp/%s: %w", kbName, name, readErr)
 				}
-				if _, specErr := parseMCPServerSpec(name, data); specErr != nil {
+				spec, specErr := parseMCPServerSpec(name, data)
+				if specErr != nil {
 					return Manifest{}, fmt.Errorf("provisioning: %w", specErr)
 				}
+				if !MCPAllowed(opts.MCPAllowlists[kbName], name, spec) {
+					if opts.MCPDiagnostic != nil {
+						opts.MCPDiagnostic(fmt.Sprintf("KB %q omits MCP artifact %q: add mcp_allowlist entry with transport http and target %q", kbName, name, normalizedMCPURL(spec.URL)))
+					}
+					continue
+				}
+				matchedMCPAllowlist[name] = true
 				hash, hashErr := contentHashFile(mcpPath)
 				if hashErr != nil {
 					return Manifest{}, fmt.Errorf("provisioning: hash kb:%s/mcp/%s: %w", kbName, name, hashErr)
@@ -443,6 +457,11 @@ func BuildManifest(bundleFS fs.FS, kbRoots map[string]string, opts BuildOptions)
 					ContentHash: hash,
 					Signed:      false,
 				})
+			}
+		}
+		for _, entry := range opts.MCPAllowlists[kbName] {
+			if !matchedMCPAllowlist[entry.Name] && opts.MCPDiagnostic != nil {
+				opts.MCPDiagnostic(fmt.Sprintf("KB %q MCP allow-list entry %q has no matching descriptor", kbName, entry.Name))
 			}
 		}
 
@@ -1011,6 +1030,23 @@ func Apply(m Manifest, opts ApplyOptions) (AppliedResult, error) {
 			toWriteKeys[key] = true
 		}
 	}
+	unauthorizedMCPKeys := make(map[string]bool)
+	// A revoked MCP approval must be observed even when the manifest hash is
+	// unchanged. Add it to the authorization pass so its previously managed
+	// provider entry is pruned instead of surviving on stale local state.
+	for _, a := range m.Artifacts {
+		key := a.Kind + "\x00" + a.Name
+		if a.Kind == "mcp" && !toWriteKeys[key] && !artifactAuthorized(a, opts) {
+			toWrite = append(toWrite, a)
+			toWriteKeys[key] = true
+			unauthorizedMCPKeys[key] = true
+		}
+	}
+	for _, a := range toWrite {
+		if a.Kind == "mcp" && !artifactAuthorized(a, opts) {
+			unauthorizedMCPKeys[a.Kind+"\x00"+a.Name] = true
+		}
+	}
 
 	// Build the new managed set, starting from the unchanged ones.
 	manifestKeys := make(map[string]bool, len(m.Artifacts))
@@ -1229,6 +1265,11 @@ func Apply(m Manifest, opts ApplyOptions) (AppliedResult, error) {
 	var genericRemoved []ManagedFile
 	for _, mf := range diff.Removed {
 		if mf.Kind != "instructions" {
+			genericRemoved = append(genericRemoved, mf)
+		}
+	}
+	for _, mf := range opts.Lock.Managed {
+		if mf.Kind == "mcp" && unauthorizedMCPKeys[mf.Kind+"\x00"+mf.Name] {
 			genericRemoved = append(genericRemoved, mf)
 		}
 	}
@@ -1466,10 +1507,21 @@ func artifactAuthorized(a Artifact, opts ApplyOptions) bool {
 	if a.Signed || a.BuiltIn {
 		return true
 	}
+	if a.Kind == "mcp" {
+		return opts.ApprovedMCP[a.Source+"\x00"+a.Name] == a.ContentHash
+	}
 	// MCP descriptors retain their pre-existing stricter explicit approval
 	// boundary; generic trust only preserves compatibility for ordinary KB
 	// provisioning artifacts.
 	return opts.AutoTrust && a.Kind != "mcp" && strings.HasPrefix(a.Source, "kb:")
+}
+
+func normalizedMCPURL(raw string) string {
+	normalized, err := NormalizeMCPHTTPURL(raw)
+	if err != nil {
+		return "<invalid>"
+	}
+	return normalized
 }
 
 // writeInstructionsBlock creates or rewrites the managed block delimited by

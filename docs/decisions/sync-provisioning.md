@@ -373,7 +373,7 @@ cleanup as `configurator.Remove` (D63) for kiro/opencode. Round-trip test in
 clean provider configs (`TestRoundTrip_ConnectDisconnect_NessunResiduo`).
 
 **WP5 — Trust and remote sync.** An MCP server is an endpoint that receives the agent's data:
-`BuildManifest` marks the `mcp` kind **always** `Signed:false`, regardless of `autoTrust` — unlike
+Before D114/D115, `BuildManifest` marked the `mcp` kind **always** `Signed:false`, regardless of `autoTrust` — unlike
 skill/agent/hook/instructions, which `autoTrust` signs. The remote client
 (`upgradeTrustedManifest`, `cmd/cartographer/clientsync.go`) likewise excludes `mcp` from
 its generic upgrade via `cfg.Trust`/`--auto-trust`: a stricter policy than the other kinds,
@@ -441,6 +441,24 @@ No server-side substitution: it would break `content_hash`/`if_match` (hash on t
 **WP6 — `machine_path` lint (warning, server-side).** Flags home-anchored paths in concept bodies: `/Users/`, `/home/`, `~/`, `C:\Users\`. Deliberately narrow pattern: absolute container/cluster paths (`/etc/...`, `/var/...`) are legitimate and identical everywhere.
 
 **Rationale.** The git remote is the only identifier of a repo that is **already** shared and stable across the team's machines — using it as the key eliminates the one-to-one manual mapping that does not scale. Resolution lives in the client (scan+cache) and in the two channels the agent already has: the materialized imprinting (table) and the local binary (`resolve`). Discarded alternatives: pure manual mapping (does not scale, it was the v0 of this decision); server-side per-user profiles (identity and filesystem on the server side, hash breakage); resolution via env vars (explodes into N envs for N repos).
+
+---
+
+<a id="d115"></a>
+## D115 — MCP allow-list and hash-bound local approval
+
+**Decision.** A KB-provided HTTP MCP descriptor is exposed only when an exact
+per-KB operator allow-list entry matches its name, transport and normalized
+absolute target URL. Empty policy denies all. A client then materializes an
+unsigned descriptor only when a local record binds its source KB, artifact name
+and full content hash; generic trust never applies. Cryptographic verification
+remains independent and is sufficient on the client, but cannot bypass the
+server allow-list.
+
+**Rationale.** The server controls which endpoints a KB may advertise; the
+client controls consent to execute one exact descriptor. Hash-binding covers
+headers and environment references as well as URLs, and keeps either grant
+from silently authorizing a changed endpoint.
 
 ---
 
