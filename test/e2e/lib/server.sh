@@ -4,6 +4,7 @@
 # Optional environment variables for server_start:
 #   E2E_AUTH    "true" | "false" (default: false) — enables bearer token auth
 #   E2E_TOKENS  token string (required if E2E_AUTH=true)
+#   E2E_CONFIG  server YAML path; when set it replaces --kb/--http flags
 
 # HTTP port for the E2E tests. High port unlikely to collide with common
 # services on either the conventional HTTP port or Cartographer's local default.
@@ -33,12 +34,14 @@ server_start() {
     local auth="${E2E_AUTH:-false}"
     local tokens="${E2E_TOKENS:-}"
 
-    CARTOGRAPHER_AUTH="${auth}" \
-    CARTOGRAPHER_TOKENS="${tokens}" \
-        "$bin" serve \
-        --kb "$kb_paths" \
-        --init \
-        --http ":${E2E_HTTP_PORT}" \
+	local args=(serve --kb "$kb_paths" --init --http ":${E2E_HTTP_PORT}")
+	if [[ -n "${E2E_CONFIG:-}" ]]; then
+		args=(serve --config "$E2E_CONFIG")
+	fi
+
+	CARTOGRAPHER_AUTH="${auth}" \
+	CARTOGRAPHER_TOKENS="${tokens}" \
+		"$bin" "${args[@]}" \
         >"${E2E_TMP_DIR:-/tmp}/cartographer_e2e.log" 2>&1 &
 
     echo "$!" > "$_SERVER_PID_FILE"

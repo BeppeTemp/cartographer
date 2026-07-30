@@ -94,8 +94,12 @@ func (t *TokenSpec) UnmarshalYAML(node *yaml.Node) error {
 // optional per-KB overrides for git identity and SOPS; a zero value falls
 // back to the corresponding global GitConfig/SopsConfig setting.
 type KBSpec struct {
-	Path   string `yaml:"path"`
-	Remote string `yaml:"remote"`
+	// ArtifactSigningSeed is a 32-byte hexadecimal Ed25519 seed used only to
+	// sign provisioning artifacts served from this KB. It is never exposed by
+	// health, MCP responses, or diagnostic output.
+	ArtifactSigningSeed string `yaml:"artifact_signing_seed,omitempty"`
+	Path                string `yaml:"path"`
+	Remote              string `yaml:"remote"`
 
 	// Name overrides the KB name that would otherwise be derived from the
 	// basename of Remote/Path (see cmd/cartographer.resolveKBName). If set,

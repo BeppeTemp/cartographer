@@ -24,6 +24,8 @@ kbs:
                             # (kb:wiki-kb:*), the clone dir (/data/wiki-kb), and the
                             # git.token_dir/sops.age_key_dir conventions below.
   - path: /data/kb-locale
+    # artifact_signing_seed: ${CARTOGRAPHER_ARTIFACT_SIGNING_SEED}
+    # 32-byte hexadecimal Ed25519 seed from a secret mount; never commit it.
     # optional per-KB overrides (zero value = fall back to global git/sops):
     # ssh_key: /etc/kb-ssh/id_ed25519_locale
     # author_name: cartographer-locale

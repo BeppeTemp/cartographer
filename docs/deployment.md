@@ -10,6 +10,15 @@ The server is distributed as a native **Go binary** (via `install.sh`, see §Cli
 |---|---|
 | **Local** | The binary runs as a native user service (`cartographer service`, launchd/systemd); the client on the same machine points to `127.0.0.1`. |
 | **Shared server** | HTTP with optional static bearer tokens for multiple agents, on a trusted network or behind a reverse proxy (for example Kubernetes). |
+
+### Provisioning artifact signing
+
+An explicit `kbs:` entry may set `artifact_signing_seed` to a 32-byte hex
+Ed25519 seed. Mount it from a secret manager or protected secret volume: never
+commit it, expose it in health/MCP output, or place it in logs. The server logs
+only the KB and derived key ID. Distribute and pin the corresponding public key
+on each client before switching a signer; unsigned KBs remain supported through
+the explicit client trust policy.
 | **Partitioned servers** | Several instances mount different KBs. A client can connect to entries from more than one server. Do not use several active writer servers as replicas for the same KB; git conflict recovery is a safety net, not a write-scaling protocol. |
 
 ### State and volumes

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/ed25519"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -9,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/BeppeTemp/cartographer/internal/agents"
+	"github.com/BeppeTemp/cartographer/internal/artifactsig"
 	"github.com/BeppeTemp/cartographer/internal/client"
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/configurator"
@@ -24,13 +26,15 @@ type pulledFileJSON struct {
 }
 
 type pulledArtifactJSON struct {
-	Kind        string           `json:"kind"`
-	Name        string           `json:"name"`
-	Source      string           `json:"source"`
-	Version     string           `json:"version,omitempty"`
-	ContentHash string           `json:"content_hash"`
-	Signed      bool             `json:"signed"`
-	Files       []pulledFileJSON `json:"files"`
+	Kind        string                 `json:"kind"`
+	Name        string                 `json:"name"`
+	Source      string                 `json:"source"`
+	Version     string                 `json:"version,omitempty"`
+	ContentHash string                 `json:"content_hash"`
+	Signed      bool                   `json:"signed"`
+	BuiltIn     bool                   `json:"built_in,omitempty"`
+	Signature   *artifactsig.Signature `json:"signature,omitempty"`
+	Files       []pulledFileJSON       `json:"files"`
 }
 
 type pulledManifestJSON struct {
@@ -70,6 +74,7 @@ func kbTargets(cfg *clientconfig.Config) []string {
 func fetchMergedManifest(cfg *clientconfig.Config) (provisioning.Manifest, error) {
 	token := resolveToken(cfg)
 	var all []provisioning.Artifact
+	seen := make(map[string]provisioning.Artifact)
 
 	for _, kbName := range kbTargets(cfg) {
 		c := client.New(cfg.ServerURL, token).WithKB(kbName)
@@ -94,15 +99,53 @@ func fetchMergedManifest(cfg *clientconfig.Config) (provisioning.Manifest, error
 				}
 				files[i] = provisioning.ArtifactFile{Path: pf.Path, Content: data, Executable: pf.Executable}
 			}
-			all = append(all, provisioning.Artifact{
+			if got := provisioning.ContentHashFiles(files); got != pa.ContentHash {
+				return provisioning.Manifest{}, fmt.Errorf("sync_pull: content hash mismatch for %s/%s", pa.Kind, pa.Name)
+			}
+			a := provisioning.Artifact{
 				Kind: pa.Kind, Name: pa.Name, Source: pa.Source, Version: pa.Version,
-				ContentHash: pa.ContentHash, Signed: pa.Signed, Files: files,
-			})
+				ContentHash: pa.ContentHash, BuiltIn: pa.BuiltIn, Signature: pa.Signature, Files: files,
+			}
+			key := a.Kind + "\x00" + a.Name + "\x00" + a.Source
+			if previous, exists := seen[key]; exists && !sameSignature(previous.Signature, a.Signature) {
+				return provisioning.Manifest{}, fmt.Errorf("sync_pull: conflicting signatures for %s/%s", a.Kind, a.Name)
+			}
+			seen[key] = a
+			all = append(all, a)
 		}
 	}
 
-	return provisioning.MergeArtifacts(all), nil
+	pins, err := pinnedPublicKeys(cfg)
+	if err != nil {
+		return provisioning.Manifest{}, err
+	}
+	return provisioning.VerifiedManifest(provisioning.MergeArtifacts(all), pins)
 }
+
+func sameSignature(a, b *artifactsig.Signature) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return a.Algorithm == b.Algorithm && a.KeyID == b.KeyID && a.EnvelopeVersion == b.EnvelopeVersion && a.Value == b.Value
+}
+
+func pinnedPublicKeys(cfg *clientconfig.Config) (map[string][]ed25519.PublicKey, error) {
+	pins := make(map[string][]ed25519.PublicKey)
+	for kbName, encoded := range cfg.SigningKeys {
+		for _, value := range encoded {
+			key, err := artifactsig.ParsePublicKey(value)
+			if err != nil {
+				return nil, fmt.Errorf("invalid signing key pin for KB %q: %w", kbName, err)
+			}
+			pins[kbName] = append(pins[kbName], key)
+		}
+	}
+	return pins, nil
+}
+
+// upgradeTrustedManifest remains the status-path compatibility hook. Trust is
+// authorization consumed by ApplyOptions, never a mutation of verification.
+func upgradeTrustedManifest(m provisioning.Manifest, trust bool) provisioning.Manifest { return m }
 
 // upgradeTrustedManifest returns a copy of m with every kb:-sourced artifact
 // upgraded to Signed:true when trust is true; m unchanged (same slice) when
@@ -119,20 +162,6 @@ func fetchMergedManifest(cfg *clientconfig.Config) (provisioning.Manifest, error
 // MCP server is an endpoint that receives the agent's data, a stricter policy
 // than the other kinds — it always needs its own approval at first appearance
 // and at every hash change, even with AutoTrust/cfg.Trust on.
-func upgradeTrustedManifest(m provisioning.Manifest, trust bool) provisioning.Manifest {
-	if !trust {
-		return m
-	}
-	artifacts := make([]provisioning.Artifact, len(m.Artifacts))
-	copy(artifacts, m.Artifacts)
-	for i := range artifacts {
-		if artifacts[i].Kind != "mcp" && strings.HasPrefix(artifacts[i].Source, "kb:") {
-			artifacts[i].Signed = true
-		}
-	}
-	return provisioning.Manifest{Revision: m.Revision, Artifacts: artifacts}
-}
-
 // materializeForProviders applies manifest m for each provider in providers,
 // persisting a single v2 LockFile at <targetDir>/.cartographer-sync.lock.json (one
 // Lock entry per provider). autoTrust upgrades kb:-sourced artifacts to Signed:true
@@ -143,8 +172,6 @@ func upgradeTrustedManifest(m provisioning.Manifest, trust bool) provisioning.Ma
 // expansion (D75 WP3) — this is the one place cmd/cartographer turns
 // ApplyOptions.ExpandPlaceholders on; internal/mcpserver never does.
 func materializeForProviders(m provisioning.Manifest, providers []string, targetDir string, autoTrust, dryRun bool, searchRoots []string, paths map[string]string) (map[string]provisioning.AppliedResult, error) {
-	mm := upgradeTrustedManifest(m, autoTrust)
-
 	lockPath := lockFilePath(targetDir)
 	lockFile, err := provisioning.ReadLockFile(lockPath)
 	if err != nil {
@@ -157,6 +184,7 @@ func materializeForProviders(m provisioning.Manifest, providers []string, target
 			Provider:           configurator.Provider(p),
 			BaseDir:            targetDir,
 			DryRun:             dryRun,
+			AutoTrust:          autoTrust,
 			Lock:               lockFile.ForProvider(p),
 			SkipLockWrite:      true,
 			ExpandPlaceholders: true,
@@ -167,7 +195,7 @@ func materializeForProviders(m provisioning.Manifest, providers []string, target
 		// unsupported kinds (e.g. hook outside Claude Code, or agent outside
 		// Claude Code/OpenCode — D55) are neither drift nor pending, they
 		// simply don't concern it.
-		applied, err := provisioning.Apply(provisioning.FilterForProvider(mm, configurator.Provider(p)), opts)
+		applied, err := provisioning.Apply(provisioning.FilterForProvider(m, configurator.Provider(p)), opts)
 		if err != nil {
 			return nil, fmt.Errorf("apply %s: %w", p, err)
 		}

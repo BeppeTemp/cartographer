@@ -34,6 +34,7 @@ var toolPrefixes = []string{
 // not tools: lint rule names, frontmatter fields, and one deliberate mention of
 // an operation that does not exist (documented as such).
 var docsNonTools = map[string]bool{
+	"artifact_signing_seed": true,
 	// lint rules (internal/lint)
 	"concept_oversize": true, "map_oversize": true, "machine_path": true,
 	"expanded_as_category": true, "expanded_ambiguous": true,

@@ -76,6 +76,7 @@ cartographer connect                                   # all agents detected on 
 cartographer connect claude                             # Claude Code only
 cartographer connect --agents claude,codex              # selected subset
 cartographer connect opencode --server-url http://cartographer.example.com/mcp --auth
+cartographer connect claude --pin-key homelab=0123...  # pin a KB Ed25519 public key
 cartographer connect all --auto-trust --dry-run
 ```
 
@@ -88,6 +89,12 @@ cartographer connect all --auto-trust --dry-run
 | `--token-env` | `CARTOGRAPHER_TOKENS` | Env var holding the Bearer token |
 | `--dry-run` | `false` | Prints without writing |
 | `--auto-trust` | `false` | Also treats KB skills as trusted (unsigned) |
+| `--pin-key` | *(repeatable)* | Pins `KB=PUBLIC_KEY` for Ed25519-verified provisioning artifacts; existing pins are preserved |
+
+`signing_keys` in `.cartographer.yaml` stores public-key pins per KB. Pins are
+operator-supplied and are never learned from `sync_pull`; multiple pins permit
+key rotation. Pin the new key, switch the server signer, then remove the old
+pin after all clients have synchronized.
 
 If no provider is detected and no explicit name is passed, the command exits with an error
 (exit 1) without writing anything.

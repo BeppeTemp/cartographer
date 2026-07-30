@@ -40,7 +40,7 @@ func findMCPArtifact(t *testing.T, m provisioning.Manifest, name string) provisi
 
 func TestBuildManifest_MCP_NoDirIsRetrocompat(t *testing.T) {
 	kbRoot := t.TempDir()
-	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, false)
+	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, provisioning.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest: %v", err)
 	}
@@ -56,10 +56,10 @@ func TestBuildManifest_MCP_ScansAndAlwaysUnsigned(t *testing.T) {
 	writeMCPFixture(t, kbRoot, "wiki-tools",
 		`{"type":"http","url":"https://tools.example.com/mcp","headers":{"Authorization":"Bearer ${WIKI_TOOLS_TOKEN}"}}`)
 
-	for _, autoTrust := range []bool{false, true} {
-		m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, autoTrust)
+	{
+		m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, provisioning.BuildOptions{})
 		if err != nil {
-			t.Fatalf("BuildManifest(autoTrust=%v): %v", autoTrust, err)
+			t.Fatalf("BuildManifest: %v", err)
 		}
 		a := findMCPArtifact(t, m, "wiki-tools")
 		if a.Source != "kb:kb" {
@@ -68,10 +68,9 @@ func TestBuildManifest_MCP_ScansAndAlwaysUnsigned(t *testing.T) {
 		if a.ContentHash == "" {
 			t.Error("ContentHash should not be empty")
 		}
-		// D69 WP5: never signed regardless of autoTrust — a stricter policy
-		// than the other kinds.
+		// Without a configured signer, an MCP artifact remains unsigned.
 		if a.Signed {
-			t.Errorf("autoTrust=%v: Signed = true, want always false for kind mcp", autoTrust)
+			t.Error("Signed = true, want false without signer")
 		}
 	}
 }
@@ -80,7 +79,7 @@ func TestBuildManifest_MCP_MalformedFileFailsBuild(t *testing.T) {
 	kbRoot := t.TempDir()
 	writeMCPFixture(t, kbRoot, "broken", `{not json`)
 
-	if _, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, false); err == nil {
+	if _, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, provisioning.BuildOptions{}); err == nil {
 		t.Fatal("expected BuildManifest to fail on a malformed mcp/*.json file")
 	}
 }
@@ -90,7 +89,7 @@ func TestBuildManifest_MCP_LiteralSecretFailsBuild(t *testing.T) {
 	writeMCPFixture(t, kbRoot, "leaky",
 		`{"type":"http","url":"https://example.com/mcp","headers":{"Authorization":"Bearer sk-live-hardcoded"}}`)
 
-	if _, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, false); err == nil {
+	if _, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, provisioning.BuildOptions{}); err == nil {
 		t.Fatal("expected BuildManifest to fail on a literal secret in headers")
 	}
 }
@@ -101,7 +100,7 @@ func TestBuildManifest_MCP_LiteralSecretFailsBuild(t *testing.T) {
 // TestBuildManifest_MCP_ScansAndAlwaysUnsigned).
 func signedMCPManifest(t *testing.T, kbRoot, name string) provisioning.Manifest {
 	t.Helper()
-	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, true)
+	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, provisioning.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest: %v", err)
 	}
@@ -116,7 +115,7 @@ func signedMCPManifest(t *testing.T, kbRoot, name string) provisioning.Manifest 
 func TestApply_MCP_UnsignedNeedsApproval(t *testing.T) {
 	kbRoot := t.TempDir()
 	writeMCPFixture(t, kbRoot, "wiki-tools", `{"type":"http","url":"https://tools.example.com/mcp"}`)
-	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, true)
+	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, provisioning.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest: %v", err)
 	}

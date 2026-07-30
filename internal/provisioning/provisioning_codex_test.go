@@ -29,9 +29,10 @@ func TestApply_Codex_MaterializzaAgent_ConFrontmatter(t *testing.T) {
 	m := provisioning.MergeArtifacts([]provisioning.Artifact{a})
 
 	res, err := provisioning.Apply(m, provisioning.ApplyOptions{
-		Provider: configurator.ProviderCodex,
-		BaseDir:  baseDir,
-		Lock:     provisioning.Lock{},
+		AutoTrust: true,
+		Provider:  configurator.ProviderCodex,
+		BaseDir:   baseDir,
+		Lock:      provisioning.Lock{},
 	})
 	if err != nil {
 		t.Fatalf("Apply: %v", err)
@@ -73,9 +74,10 @@ func TestApply_Codex_MaterializzaAgent_SenzaFrontmatter(t *testing.T) {
 	m := provisioning.MergeArtifacts([]provisioning.Artifact{a})
 
 	_, err := provisioning.Apply(m, provisioning.ApplyOptions{
-		Provider: configurator.ProviderCodex,
-		BaseDir:  baseDir,
-		Lock:     provisioning.Lock{},
+		AutoTrust: true,
+		Provider:  configurator.ProviderCodex,
+		BaseDir:   baseDir,
+		Lock:      provisioning.Lock{},
 	})
 	if err != nil {
 		t.Fatalf("Apply: %v", err)
@@ -124,17 +126,18 @@ func TestApply_Codex_Hook_RegistraConfigTOML(t *testing.T) {
 	kbRoot := t.TempDir()
 	writeCodexHookKB(t, kbRoot, "notify", "PostToolUse", "concept_write", "./notify.sh")
 
-	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, true)
+	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, provisioning.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest: %v", err)
 	}
 
 	baseDir := t.TempDir()
 	res, err := provisioning.Apply(m, provisioning.ApplyOptions{
-		KBRoots:  map[string]string{"kb": kbRoot},
-		Provider: configurator.ProviderCodex,
-		BaseDir:  baseDir,
-		Lock:     provisioning.Lock{},
+		AutoTrust: true,
+		KBRoots:   map[string]string{"kb": kbRoot},
+		Provider:  configurator.ProviderCodex,
+		BaseDir:   baseDir,
+		Lock:      provisioning.Lock{},
 	})
 	if err != nil {
 		t.Fatalf("Apply: %v", err)
@@ -174,17 +177,18 @@ func TestApply_Codex_Hook_ReApply_NessunDuplicato(t *testing.T) {
 	kbRoot := t.TempDir()
 	writeCodexHookKB(t, kbRoot, "notify", "PostToolUse", "concept_write", "./notify.sh")
 
-	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, true)
+	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, provisioning.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest: %v", err)
 	}
 
 	baseDir := t.TempDir()
 	opts := provisioning.ApplyOptions{
-		KBRoots:  map[string]string{"kb": kbRoot},
-		Provider: configurator.ProviderCodex,
-		BaseDir:  baseDir,
-		Lock:     provisioning.Lock{},
+		AutoTrust: true,
+		KBRoots:   map[string]string{"kb": kbRoot},
+		Provider:  configurator.ProviderCodex,
+		BaseDir:   baseDir,
+		Lock:      provisioning.Lock{},
 	}
 	for i := 0; i < 3; i++ {
 		if _, err := provisioning.Apply(m, opts); err != nil {
@@ -207,7 +211,7 @@ func TestApply_Codex_Hook_MCPBlock_CoesisteConHook(t *testing.T) {
 	// erase the other.
 	kbRoot := t.TempDir()
 	writeCodexHookKB(t, kbRoot, "notify", "PostToolUse", "concept_write", "./notify.sh")
-	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, true)
+	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, provisioning.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest: %v", err)
 	}
@@ -223,10 +227,11 @@ func TestApply_Codex_Hook_MCPBlock_CoesisteConHook(t *testing.T) {
 	}
 
 	if _, err := provisioning.Apply(m, provisioning.ApplyOptions{
-		KBRoots:  map[string]string{"kb": kbRoot},
-		Provider: configurator.ProviderCodex,
-		BaseDir:  baseDir,
-		Lock:     provisioning.Lock{},
+		AutoTrust: true,
+		KBRoots:   map[string]string{"kb": kbRoot},
+		Provider:  configurator.ProviderCodex,
+		BaseDir:   baseDir,
+		Lock:      provisioning.Lock{},
 	}); err != nil {
 		t.Fatalf("provisioning.Apply: %v", err)
 	}
@@ -247,17 +252,18 @@ func TestApply_Codex_Hook_MCPBlock_CoesisteConHook(t *testing.T) {
 func TestApply_Codex_Hook_Removed_RipulisceConfigTOML(t *testing.T) {
 	kbRoot := t.TempDir()
 	writeCodexHookKB(t, kbRoot, "notify", "PostToolUse", "concept_write", "./notify.sh")
-	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, true)
+	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, provisioning.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest: %v", err)
 	}
 	baseDir := t.TempDir()
 
 	res, err := provisioning.Apply(m, provisioning.ApplyOptions{
-		KBRoots:  map[string]string{"kb": kbRoot},
-		Provider: configurator.ProviderCodex,
-		BaseDir:  baseDir,
-		Lock:     provisioning.Lock{},
+		AutoTrust: true,
+		KBRoots:   map[string]string{"kb": kbRoot},
+		Provider:  configurator.ProviderCodex,
+		BaseDir:   baseDir,
+		Lock:      provisioning.Lock{},
 	})
 	if err != nil {
 		t.Fatalf("Apply (materialize): %v", err)
@@ -266,16 +272,17 @@ func TestApply_Codex_Hook_Removed_RipulisceConfigTOML(t *testing.T) {
 	if err := os.RemoveAll(filepath.Join(kbRoot, "hooks", "notify")); err != nil {
 		t.Fatal(err)
 	}
-	m2, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, true)
+	m2, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, provisioning.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest (2): %v", err)
 	}
 
 	res2, err := provisioning.Apply(m2, provisioning.ApplyOptions{
-		KBRoots:  map[string]string{"kb": kbRoot},
-		Provider: configurator.ProviderCodex,
-		BaseDir:  baseDir,
-		Lock:     res.NewLock,
+		AutoTrust: true,
+		KBRoots:   map[string]string{"kb": kbRoot},
+		Provider:  configurator.ProviderCodex,
+		BaseDir:   baseDir,
+		Lock:      res.NewLock,
 	})
 	if err != nil {
 		t.Fatalf("Apply (removal): %v", err)
@@ -381,17 +388,18 @@ func TestApply_Codex_Hook_ReApplyAfterCodexRewrite_NoDuplicate(t *testing.T) {
 	writeCodexHookKB(t, kbRoot, "notify", "PostToolUse", "concept_write", "./notify.sh")
 	writeCodexHookKB(t, kbRoot, "other", "SessionStart", "", "./notify.sh")
 
-	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, true)
+	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, provisioning.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest: %v", err)
 	}
 
 	baseDir := t.TempDir()
 	opts := provisioning.ApplyOptions{
-		KBRoots:  map[string]string{"kb": kbRoot},
-		Provider: configurator.ProviderCodex,
-		BaseDir:  baseDir,
-		Lock:     provisioning.Lock{},
+		AutoTrust: true,
+		KBRoots:   map[string]string{"kb": kbRoot},
+		Provider:  configurator.ProviderCodex,
+		BaseDir:   baseDir,
+		Lock:      provisioning.Lock{},
 	}
 	if _, err := provisioning.Apply(m, opts); err != nil {
 		t.Fatalf("Apply (1): %v", err)
@@ -432,7 +440,7 @@ func TestApply_Codex_Hook_ReApplyAfterCodexRewrite_NoDuplicate(t *testing.T) {
 func TestApply_Codex_Hook_Adoption_PreservesUserHookAndState(t *testing.T) {
 	kbRoot := t.TempDir()
 	writeCodexHookKB(t, kbRoot, "notify", "PostToolUse", "concept_write", "./notify.sh")
-	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, true)
+	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, provisioning.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest: %v", err)
 	}
@@ -458,10 +466,11 @@ command = "/Users/me/scripts/mine.sh"
 	}
 
 	opts := provisioning.ApplyOptions{
-		KBRoots:  map[string]string{"kb": kbRoot},
-		Provider: configurator.ProviderCodex,
-		BaseDir:  baseDir,
-		Lock:     provisioning.Lock{},
+		AutoTrust: true,
+		KBRoots:   map[string]string{"kb": kbRoot},
+		Provider:  configurator.ProviderCodex,
+		BaseDir:   baseDir,
+		Lock:      provisioning.Lock{},
 	}
 	if _, err := provisioning.Apply(m, opts); err != nil {
 		t.Fatalf("Apply (1): %v", err)

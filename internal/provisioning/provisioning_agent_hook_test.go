@@ -26,7 +26,7 @@ func TestBuildManifest_AgentKB(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	m, err := provisioning.BuildManifest(nil, map[string]string{"mia-kb": kbRoot}, false)
+	m, err := provisioning.BuildManifest(nil, map[string]string{"mia-kb": kbRoot}, provisioning.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest: %v", err)
 	}
@@ -54,11 +54,11 @@ func TestBuildManifest_AgentHash_Determinismo(t *testing.T) {
 	os.MkdirAll(agentsDir, 0o755)
 	os.WriteFile(filepath.Join(agentsDir, "reviewer.md"), []byte("Body v1.\n"), 0o644)
 
-	m1, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, false)
+	m1, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, provisioning.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest 1: %v", err)
 	}
-	m2, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, false)
+	m2, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, provisioning.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest 2: %v", err)
 	}
@@ -67,7 +67,7 @@ func TestBuildManifest_AgentHash_Determinismo(t *testing.T) {
 	}
 
 	os.WriteFile(filepath.Join(agentsDir, "reviewer.md"), []byte("Body v2.\n"), 0o644)
-	m3, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, false)
+	m3, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, provisioning.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest 3: %v", err)
 	}
@@ -85,7 +85,7 @@ func TestBuildManifest_HookKB(t *testing.T) {
 	os.WriteFile(filepath.Join(hookDir, "hook.json"), []byte(`{"event":"PostToolUse","matcher":"concept_write","command":"./notify.sh"}`), 0o644)
 	os.WriteFile(filepath.Join(hookDir, "notify.sh"), []byte("#!/bin/sh\necho ok\n"), 0o755)
 
-	m, err := provisioning.BuildManifest(nil, map[string]string{"mia-kb": kbRoot}, false)
+	m, err := provisioning.BuildManifest(nil, map[string]string{"mia-kb": kbRoot}, provisioning.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest: %v", err)
 	}
@@ -133,7 +133,7 @@ func TestBuildManifest_HookHash_MultiFile_OrdineIndipendente(t *testing.T) {
 		t.Errorf("multi-file hook hash: identical content must produce the same hash: %q != %q", h1, h2)
 	}
 
-	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot1}, false)
+	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot1}, provisioning.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest: %v", err)
 	}
@@ -161,7 +161,7 @@ func TestHookEffectiveModes_HardFloorAndHashStability(t *testing.T) {
 		t.Fatal(err)
 	}
 	roots := map[string]string{"kb": kbRoot}
-	m1, err := provisioning.BuildManifest(nil, roots, true)
+	m1, err := provisioning.BuildManifest(nil, roots, provisioning.BuildOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -184,7 +184,8 @@ func TestHookEffectiveModes_HardFloorAndHashStability(t *testing.T) {
 		}
 	}
 	base := t.TempDir()
-	if _, err := provisioning.Apply(m1, provisioning.ApplyOptions{KBRoots: roots, Provider: configurator.ProviderClaudeCode, BaseDir: base}); err != nil {
+	if _, err := provisioning.Apply(m1, provisioning.ApplyOptions{
+		AutoTrust: true, KBRoots: roots, Provider: configurator.ProviderClaudeCode, BaseDir: base}); err != nil {
 		t.Fatal(err)
 	}
 	for name, wantExec := range map[string]bool{"hook.json": false, "run.sh": true} {
@@ -196,7 +197,7 @@ func TestHookEffectiveModes_HardFloorAndHashStability(t *testing.T) {
 	if err := os.Chmod(filepath.Join(dir, "run.sh"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	m2, err := provisioning.BuildManifest(nil, roots, true)
+	m2, err := provisioning.BuildManifest(nil, roots, provisioning.BuildOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -212,7 +213,7 @@ func TestHookEffectiveModes_HardFloorAndHashStability(t *testing.T) {
 	if err := os.Chmod(filepath.Join(dir, "hook.json"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	m3, err := provisioning.BuildManifest(nil, roots, true)
+	m3, err := provisioning.BuildManifest(nil, roots, provisioning.BuildOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -227,7 +228,7 @@ func TestBuildManifest_NoAgentsHooksDir_ZeroArtefatti(t *testing.T) {
 	kbRoot := t.TempDir()
 	os.MkdirAll(filepath.Join(kbRoot, "skills"), 0o755)
 
-	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, false)
+	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, provisioning.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest: %v", err)
 	}
@@ -279,9 +280,10 @@ func TestApply_DestDir_Matrix(t *testing.T) {
 		m := provisioning.MergeArtifacts([]provisioning.Artifact{a})
 		baseDir := t.TempDir()
 		res, err := provisioning.Apply(m, provisioning.ApplyOptions{
-			Provider: c.provider,
-			BaseDir:  baseDir,
-			Lock:     provisioning.Lock{},
+			AutoTrust: true,
+			Provider:  c.provider,
+			BaseDir:   baseDir,
+			Lock:      provisioning.Lock{},
 		})
 		if err != nil {
 			t.Fatalf("%s/%s: Apply: %v", c.kind, c.provider, err)
@@ -324,17 +326,18 @@ func TestApply_MaterializzaAgent(t *testing.T) {
 	os.MkdirAll(agentsDir, 0o755)
 	os.WriteFile(filepath.Join(agentsDir, "reviewer.md"), []byte("---\nname: reviewer\n---\nBody.\n"), 0o644)
 
-	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, true)
+	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, provisioning.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest: %v", err)
 	}
 
 	baseDir := t.TempDir()
 	res, err := provisioning.Apply(m, provisioning.ApplyOptions{
-		KBRoots:  map[string]string{"kb": kbRoot},
-		Provider: configurator.ProviderClaudeCode,
-		BaseDir:  baseDir,
-		Lock:     provisioning.Lock{},
+		AutoTrust: true,
+		KBRoots:   map[string]string{"kb": kbRoot},
+		Provider:  configurator.ProviderClaudeCode,
+		BaseDir:   baseDir,
+		Lock:      provisioning.Lock{},
 	})
 	if err != nil {
 		t.Fatalf("Apply: %v", err)
@@ -375,9 +378,10 @@ func TestApply_OpenCode_MaterializzaAgent_ConFrontmatter(t *testing.T) {
 	m := provisioning.MergeArtifacts([]provisioning.Artifact{a})
 
 	res, err := provisioning.Apply(m, provisioning.ApplyOptions{
-		Provider: configurator.ProviderOpenCode,
-		BaseDir:  baseDir,
-		Lock:     provisioning.Lock{},
+		AutoTrust: true,
+		Provider:  configurator.ProviderOpenCode,
+		BaseDir:   baseDir,
+		Lock:      provisioning.Lock{},
 	})
 	if err != nil {
 		t.Fatalf("Apply: %v", err)
@@ -415,9 +419,10 @@ func TestApply_OpenCode_MaterializzaAgent_SenzaFrontmatter(t *testing.T) {
 	m := provisioning.MergeArtifacts([]provisioning.Artifact{a})
 
 	_, err := provisioning.Apply(m, provisioning.ApplyOptions{
-		Provider: configurator.ProviderOpenCode,
-		BaseDir:  baseDir,
-		Lock:     provisioning.Lock{},
+		AutoTrust: true,
+		Provider:  configurator.ProviderOpenCode,
+		BaseDir:   baseDir,
+		Lock:      provisioning.Lock{},
 	})
 	if err != nil {
 		t.Fatalf("Apply: %v", err)
@@ -450,9 +455,10 @@ func TestApply_OpenCode_MaterializzaAgent_DescriptionQuotataConDuePunti(t *testi
 	m := provisioning.MergeArtifacts([]provisioning.Artifact{a})
 
 	_, err := provisioning.Apply(m, provisioning.ApplyOptions{
-		Provider: configurator.ProviderOpenCode,
-		BaseDir:  baseDir,
-		Lock:     provisioning.Lock{},
+		AutoTrust: true,
+		Provider:  configurator.ProviderOpenCode,
+		BaseDir:   baseDir,
+		Lock:      provisioning.Lock{},
 	})
 	if err != nil {
 		t.Fatalf("Apply: %v", err)
@@ -496,17 +502,18 @@ func TestApply_MaterializzaHook(t *testing.T) {
 	os.WriteFile(filepath.Join(hookDir, "hook.json"), []byte(`{"event":"PostToolUse"}`), 0o644)
 	os.WriteFile(filepath.Join(hookDir, "run.sh"), []byte("#!/bin/sh\n"), 0o755)
 
-	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, true)
+	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, provisioning.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest: %v", err)
 	}
 
 	baseDir := t.TempDir()
 	res, err := provisioning.Apply(m, provisioning.ApplyOptions{
-		KBRoots:  map[string]string{"kb": kbRoot},
-		Provider: configurator.ProviderClaudeCode,
-		BaseDir:  baseDir,
-		Lock:     provisioning.Lock{},
+		AutoTrust: true,
+		KBRoots:   map[string]string{"kb": kbRoot},
+		Provider:  configurator.ProviderClaudeCode,
+		BaseDir:   baseDir,
+		Lock:      provisioning.Lock{},
 	})
 	if err != nil {
 		t.Fatalf("Apply: %v", err)
@@ -568,9 +575,10 @@ func TestApply_Prune_AgentHook(t *testing.T) {
 	}
 
 	res, err := provisioning.Apply(m, provisioning.ApplyOptions{
-		Provider: configurator.ProviderClaudeCode,
-		BaseDir:  baseDir,
-		Lock:     lock,
+		AutoTrust: true,
+		Provider:  configurator.ProviderClaudeCode,
+		BaseDir:   baseDir,
+		Lock:      lock,
 	})
 	if err != nil {
 		t.Fatalf("Apply prune: %v", err)
@@ -602,9 +610,10 @@ func TestApply_RifiutaPathTraversal_AgentHook(t *testing.T) {
 	for i, a := range cases {
 		m := provisioning.MergeArtifacts([]provisioning.Artifact{a})
 		_, err := provisioning.Apply(m, provisioning.ApplyOptions{
-			Provider: configurator.ProviderClaudeCode,
-			BaseDir:  baseDir,
-			Lock:     provisioning.Lock{},
+			AutoTrust: true,
+			Provider:  configurator.ProviderClaudeCode,
+			BaseDir:   baseDir,
+			Lock:      provisioning.Lock{},
 		})
 		if err == nil {
 			t.Errorf("case %d (kind=%s name=%q): Apply should have rejected the malicious name", i, a.Kind, a.Name)

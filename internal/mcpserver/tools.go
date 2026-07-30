@@ -1,6 +1,7 @@
 package mcpserver
 
 import (
+	"crypto/ed25519"
 	"encoding/json"
 	"fmt"
 	"io/fs"
@@ -16,10 +17,11 @@ import (
 
 // Deps holds the optional dependencies for tool registration.
 type Deps struct {
-	Embedder embed.Embedder  // nil → keyword-only search
-	VecStore *embed.Store    // required if Embedder is set
-	SQLIndex *sqlindex.Index // nil → in-memory index
-	BundleFS fs.FS           // nil → no bundled skills
+	Embedder       embed.Embedder     // nil → keyword-only search
+	VecStore       *embed.Store       // required if Embedder is set
+	SQLIndex       *sqlindex.Index    // nil → in-memory index
+	BundleFS       fs.FS              // nil → no bundled skills
+	ArtifactSigner ed25519.PrivateKey // nil → KB artifacts remain unsigned
 }
 
 // RegisterKBTools registers all KB tools on the server, including search, navigation,
@@ -125,9 +127,9 @@ func RegisterKBTools(s *Server, k *kb.KB, deps Deps) {
 	if deps.BundleFS != nil {
 		register(toolSkillListWithBundle(k, deps.BundleFS))
 		register(notifyWrap(s, gitWrap(k, toolSkillInstall(k, deps.BundleFS)), "notifications/skills/list_changed"))
-		register(toolSyncCheck(k, deps.BundleFS))
-		register(toolSyncApply(k, deps.BundleFS))
-		register(toolSyncPull(k, deps.BundleFS))
+		register(toolSyncCheck(k, deps.BundleFS, deps.ArtifactSigner))
+		register(toolSyncApply(k, deps.BundleFS, deps.ArtifactSigner))
+		register(toolSyncPull(k, deps.BundleFS, deps.ArtifactSigner))
 	} else {
 		register(toolSkillList(k))
 	}

@@ -21,7 +21,8 @@ import (
 
 func TestExpandPlaceholders_NoopWhenDisabled(t *testing.T) {
 	content := []byte("See {{path:design}} for the assets.")
-	opts := ApplyOptions{Paths: map[string]string{"design": "/mnt/design"}} // ExpandPlaceholders: false
+	opts := ApplyOptions{
+		AutoTrust: true, Paths: map[string]string{"design": "/mnt/design"}} // ExpandPlaceholders: false
 	tracker := newExpansionTracker()
 
 	got := expandPlaceholders(content, opts, tracker)
@@ -35,7 +36,8 @@ func TestExpandPlaceholders_NoopWhenDisabled(t *testing.T) {
 
 func TestExpandPlaceholders_PathResolved(t *testing.T) {
 	content := []byte("See {{path:design}} for the assets.")
-	opts := ApplyOptions{ExpandPlaceholders: true, Paths: map[string]string{"design": "/mnt/design"}}
+	opts := ApplyOptions{
+		AutoTrust: true, ExpandPlaceholders: true, Paths: map[string]string{"design": "/mnt/design"}}
 	tracker := newExpansionTracker()
 
 	got := expandPlaceholders(content, opts, tracker)
@@ -54,7 +56,8 @@ func TestExpandPlaceholders_RepoResolvedViaManualPathsOverride(t *testing.T) {
 	// repoindex.Resolve checks manualPaths BEFORE touching cache/filesystem:
 	// so this test neither scans nor writes anything on the real filesystem.
 	content := []byte("The repo is in {{repo:cartographer}}.")
-	opts := ApplyOptions{ExpandPlaceholders: true, Paths: map[string]string{"cartographer": "/home/x/repos/cartographer"}}
+	opts := ApplyOptions{
+		AutoTrust: true, ExpandPlaceholders: true, Paths: map[string]string{"cartographer": "/home/x/repos/cartographer"}}
 	tracker := newExpansionTracker()
 
 	got := expandPlaceholders(content, opts, tracker)
@@ -68,7 +71,8 @@ func TestExpandPlaceholders_RepoResolvedViaManualPathsOverride(t *testing.T) {
 
 func TestExpandPlaceholders_UnresolvedLeftAsIsWithWarning(t *testing.T) {
 	content := []byte("See {{path:missing}} for the assets.")
-	opts := ApplyOptions{ExpandPlaceholders: true, Paths: map[string]string{}}
+	opts := ApplyOptions{
+		AutoTrust: true, ExpandPlaceholders: true, Paths: map[string]string{}}
 	tracker := newExpansionTracker()
 
 	got := expandPlaceholders(content, opts, tracker)
@@ -82,7 +86,8 @@ func TestExpandPlaceholders_UnresolvedLeftAsIsWithWarning(t *testing.T) {
 
 func TestExpandPlaceholders_NoPlaceholdersUntouched(t *testing.T) {
 	content := []byte("No placeholder here.")
-	opts := ApplyOptions{ExpandPlaceholders: true, Paths: map[string]string{}}
+	opts := ApplyOptions{
+		AutoTrust: true, ExpandPlaceholders: true, Paths: map[string]string{}}
 	tracker := newExpansionTracker()
 
 	got := expandPlaceholders(content, opts, tracker)
@@ -149,7 +154,7 @@ func TestApply_ExpandPlaceholders_ZeroDriftAgent(t *testing.T) {
 	os.MkdirAll(agentsDir, 0o755)
 	os.WriteFile(filepath.Join(agentsDir, "reviewer.md"), []byte("---\nname: reviewer\n---\nNo placeholder here.\n"), 0o644)
 
-	m, err := BuildManifest(nil, map[string]string{"kb": kbRoot}, true)
+	m, err := BuildManifest(nil, map[string]string{"kb": kbRoot}, BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest: %v", err)
 	}
@@ -165,6 +170,7 @@ func TestApply_ExpandPlaceholders_ZeroDriftAgent(t *testing.T) {
 
 	baseDir := t.TempDir()
 	res, err := Apply(m, ApplyOptions{
+		AutoTrust:          true,
 		KBRoots:            map[string]string{"kb": kbRoot},
 		Provider:           configurator.ProviderClaudeCode,
 		BaseDir:            baseDir,
@@ -192,7 +198,7 @@ func TestApply_ExpandPlaceholders_AgentPathPlaceholder(t *testing.T) {
 	os.MkdirAll(agentsDir, 0o755)
 	os.WriteFile(filepath.Join(agentsDir, "reviewer.md"), []byte("---\nname: reviewer\n---\nThe assets are in {{path:design}}.\n"), 0o644)
 
-	m, err := BuildManifest(nil, map[string]string{"kb": kbRoot}, true)
+	m, err := BuildManifest(nil, map[string]string{"kb": kbRoot}, BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest: %v", err)
 	}
@@ -205,6 +211,7 @@ func TestApply_ExpandPlaceholders_AgentPathPlaceholder(t *testing.T) {
 
 	baseDir := t.TempDir()
 	res, err := Apply(m, ApplyOptions{
+		AutoTrust:          true,
 		KBRoots:            map[string]string{"kb": kbRoot},
 		Provider:           configurator.ProviderClaudeCode,
 		BaseDir:            baseDir,
@@ -241,13 +248,14 @@ func TestApply_ExpandPlaceholders_UnresolvedWarnsAndLeavesLiteral(t *testing.T) 
 	os.MkdirAll(agentsDir, 0o755)
 	os.WriteFile(filepath.Join(agentsDir, "reviewer.md"), []byte("---\nname: reviewer\n---\nThe assets are in {{path:missing}}.\n"), 0o644)
 
-	m, err := BuildManifest(nil, map[string]string{"kb": kbRoot}, true)
+	m, err := BuildManifest(nil, map[string]string{"kb": kbRoot}, BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest: %v", err)
 	}
 
 	baseDir := t.TempDir()
 	res, err := Apply(m, ApplyOptions{
+		AutoTrust:          true,
 		KBRoots:            map[string]string{"kb": kbRoot},
 		Provider:           configurator.ProviderClaudeCode,
 		BaseDir:            baseDir,
@@ -276,7 +284,7 @@ func TestApply_ExpandPlaceholders_ServerNeverExpands(t *testing.T) {
 	os.MkdirAll(agentsDir, 0o755)
 	os.WriteFile(filepath.Join(agentsDir, "reviewer.md"), []byte("---\nname: reviewer\n---\nThe assets are in {{path:design}}.\n"), 0o644)
 
-	m, err := BuildManifest(nil, map[string]string{"kb": kbRoot}, true)
+	m, err := BuildManifest(nil, map[string]string{"kb": kbRoot}, BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest: %v", err)
 	}
@@ -290,10 +298,11 @@ func TestApply_ExpandPlaceholders_ServerNeverExpands(t *testing.T) {
 	baseDir := t.TempDir()
 	// Like internal/mcpserver: ExpandPlaceholders never set (default false).
 	res, err := Apply(m, ApplyOptions{
-		KBRoots:  map[string]string{"kb": kbRoot},
-		Provider: configurator.ProviderClaudeCode,
-		BaseDir:  baseDir,
-		Lock:     Lock{},
+		AutoTrust: true,
+		KBRoots:   map[string]string{"kb": kbRoot},
+		Provider:  configurator.ProviderClaudeCode,
+		BaseDir:   baseDir,
+		Lock:      Lock{},
 	})
 	if err != nil {
 		t.Fatalf("Apply: %v", err)
@@ -329,7 +338,7 @@ func TestApply_ExpandPlaceholders_ZeroDriftSkill(t *testing.T) {
 	os.MkdirAll(skillDir, 0o755)
 	os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("---\nname: kb-skill\ndescription: Test\n---\nNo placeholder.\n"), 0o644)
 
-	m, err := BuildManifest(nil, map[string]string{"kb": kbRoot}, true)
+	m, err := BuildManifest(nil, map[string]string{"kb": kbRoot}, BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest: %v", err)
 	}
@@ -342,6 +351,7 @@ func TestApply_ExpandPlaceholders_ZeroDriftSkill(t *testing.T) {
 
 	baseDir := t.TempDir()
 	res, err := Apply(m, ApplyOptions{
+		AutoTrust:          true,
 		KBRoots:            map[string]string{"kb": kbRoot},
 		Provider:           configurator.ProviderClaudeCode,
 		BaseDir:            baseDir,
@@ -371,13 +381,14 @@ func TestApply_ExpandPlaceholders_SkillMultiFilePlaceholder(t *testing.T) {
 	os.WriteFile(filepath.Join(skillDir, "notes.md"), []byte("No placeholder here.\n"), 0o644)
 	os.WriteFile(filepath.Join(skillDir, "run.sh"), []byte("{{path:tools}}/run\n"), 0o755)
 
-	m, err := BuildManifest(nil, map[string]string{"kb": kbRoot}, true)
+	m, err := BuildManifest(nil, map[string]string{"kb": kbRoot}, BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest: %v", err)
 	}
 
 	baseDir := t.TempDir()
 	result, err := Apply(m, ApplyOptions{
+		AutoTrust:          true,
 		KBRoots:            map[string]string{"kb": kbRoot},
 		Provider:           configurator.ProviderClaudeCode,
 		BaseDir:            baseDir,
@@ -421,14 +432,14 @@ func TestApply_ExpandPlaceholders_SkillMultiFilePlaceholder(t *testing.T) {
 // --- Apply: instructions (group) ---
 
 func instructionsArtifactForExpandTest(name, content string) Artifact {
-	h := sha256.Sum256([]byte(content))
+	files := []ArtifactFile{{Path: "instructions.md", Content: []byte(content)}}
 	return Artifact{
 		Kind:        "instructions",
 		Name:        name,
 		Source:      "kb:" + name,
-		ContentHash: fmt.Sprintf("%x", h),
+		ContentHash: hashArtifactFiles(files),
 		Signed:      true,
-		Files:       []ArtifactFile{{Path: "instructions.md", Content: []byte(content)}},
+		Files:       files,
 	}
 }
 
@@ -438,6 +449,7 @@ func TestApply_ExpandPlaceholders_Instructions(t *testing.T) {
 	m := MergeArtifacts([]Artifact{a})
 
 	res, err := Apply(m, ApplyOptions{
+		AutoTrust:          true,
 		Provider:           configurator.ProviderClaudeCode,
 		BaseDir:            baseDir,
 		Lock:               Lock{},
@@ -469,6 +481,7 @@ func TestApply_ExpandPlaceholders_ZeroDriftInstructions(t *testing.T) {
 	m := MergeArtifacts([]Artifact{a})
 
 	res, err := Apply(m, ApplyOptions{
+		AutoTrust:          true,
 		Provider:           configurator.ProviderClaudeCode,
 		BaseDir:            baseDir,
 		Lock:               Lock{},
@@ -519,13 +532,14 @@ func TestApply_ExpandPlaceholders_PathsTableInInstructions(t *testing.T) {
 	// in this same Apply (tracker, not per-kind).
 	os.WriteFile(filepath.Join(agentsDir, "reviewer.md"), []byte("---\nname: reviewer\n---\nThe assets are in {{path:design}}.\n"), 0o644)
 
-	m, err := BuildManifest(nil, map[string]string{"kb": kbRoot}, true)
+	m, err := BuildManifest(nil, map[string]string{"kb": kbRoot}, BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest: %v", err)
 	}
 
 	baseDir := t.TempDir()
 	_, err = Apply(m, ApplyOptions{
+		AutoTrust:          true,
 		KBRoots:            map[string]string{"kb": kbRoot},
 		Provider:           configurator.ProviderClaudeCode,
 		BaseDir:            baseDir,
@@ -559,13 +573,14 @@ func TestApply_ExpandPlaceholders_NoPathsTableWhenNothingResolved(t *testing.T) 
 	os.MkdirAll(agentsDir, 0o755)
 	os.WriteFile(filepath.Join(agentsDir, "reviewer.md"), []byte("---\nname: reviewer\n---\nNo placeholder here.\n"), 0o644)
 
-	m, err := BuildManifest(nil, map[string]string{"kb": kbRoot}, true)
+	m, err := BuildManifest(nil, map[string]string{"kb": kbRoot}, BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest: %v", err)
 	}
 
 	baseDir := t.TempDir()
 	_, err = Apply(m, ApplyOptions{
+		AutoTrust:          true,
 		KBRoots:            map[string]string{"kb": kbRoot},
 		Provider:           configurator.ProviderClaudeCode,
 		BaseDir:            baseDir,
@@ -591,7 +606,7 @@ func TestApply_ExpandPlaceholders_NoPathsTableServerSide(t *testing.T) {
 	os.MkdirAll(agentsDir, 0o755)
 	os.WriteFile(filepath.Join(agentsDir, "reviewer.md"), []byte("---\nname: reviewer\n---\nThe assets are in {{path:design}}.\n"), 0o644)
 
-	m, err := BuildManifest(nil, map[string]string{"kb": kbRoot}, true)
+	m, err := BuildManifest(nil, map[string]string{"kb": kbRoot}, BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest: %v", err)
 	}
@@ -599,10 +614,11 @@ func TestApply_ExpandPlaceholders_NoPathsTableServerSide(t *testing.T) {
 	baseDir := t.TempDir()
 	// ExpandPlaceholders never set, like internal/mcpserver.
 	_, err = Apply(m, ApplyOptions{
-		KBRoots:  map[string]string{"kb": kbRoot},
-		Provider: configurator.ProviderClaudeCode,
-		BaseDir:  baseDir,
-		Lock:     Lock{},
+		AutoTrust: true,
+		KBRoots:   map[string]string{"kb": kbRoot},
+		Provider:  configurator.ProviderClaudeCode,
+		BaseDir:   baseDir,
+		Lock:      Lock{},
 	})
 	if err != nil {
 		t.Fatalf("Apply: %v", err)

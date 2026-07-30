@@ -25,17 +25,18 @@ func TestApply_OpenCode_Hook_GeneraPluginToolBefore(t *testing.T) {
 	kbRoot := t.TempDir()
 	writeHookKB(t, kbRoot, "notify", "PreToolUse", "Bash", "./notify.sh")
 
-	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, true)
+	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, provisioning.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest: %v", err)
 	}
 
 	baseDir := t.TempDir()
 	res, err := provisioning.Apply(m, provisioning.ApplyOptions{
-		KBRoots:  map[string]string{"kb": kbRoot},
-		Provider: configurator.ProviderOpenCode,
-		BaseDir:  baseDir,
-		Lock:     provisioning.Lock{},
+		AutoTrust: true,
+		KBRoots:   map[string]string{"kb": kbRoot},
+		Provider:  configurator.ProviderOpenCode,
+		BaseDir:   baseDir,
+		Lock:      provisioning.Lock{},
 	})
 	if err != nil {
 		t.Fatalf("Apply: %v", err)
@@ -90,17 +91,18 @@ func TestApply_OpenCode_Hook_GeneraPluginSessionStart(t *testing.T) {
 	kbRoot := t.TempDir()
 	writeHookKB(t, kbRoot, "greet", "SessionStart", "", "./notify.sh")
 
-	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, true)
+	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, provisioning.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest: %v", err)
 	}
 
 	baseDir := t.TempDir()
 	res, err := provisioning.Apply(m, provisioning.ApplyOptions{
-		KBRoots:  map[string]string{"kb": kbRoot},
-		Provider: configurator.ProviderOpenCode,
-		BaseDir:  baseDir,
-		Lock:     provisioning.Lock{},
+		AutoTrust: true,
+		KBRoots:   map[string]string{"kb": kbRoot},
+		Provider:  configurator.ProviderOpenCode,
+		BaseDir:   baseDir,
+		Lock:      provisioning.Lock{},
 	})
 	if err != nil {
 		t.Fatalf("Apply: %v", err)
@@ -123,17 +125,18 @@ func TestApply_OpenCode_Hook_ReApply_Idempotente(t *testing.T) {
 	kbRoot := t.TempDir()
 	writeHookKB(t, kbRoot, "notify", "PostToolUse", "concept_write", "./notify.sh")
 
-	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, true)
+	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, provisioning.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest: %v", err)
 	}
 
 	baseDir := t.TempDir()
 	opts := provisioning.ApplyOptions{
-		KBRoots:  map[string]string{"kb": kbRoot},
-		Provider: configurator.ProviderOpenCode,
-		BaseDir:  baseDir,
-		Lock:     provisioning.Lock{},
+		AutoTrust: true,
+		KBRoots:   map[string]string{"kb": kbRoot},
+		Provider:  configurator.ProviderOpenCode,
+		BaseDir:   baseDir,
+		Lock:      provisioning.Lock{},
 	}
 
 	if _, err := provisioning.Apply(m, opts); err != nil {
@@ -173,17 +176,18 @@ func TestApply_OpenCode_Hook_Removed_RimuovePluginEFile(t *testing.T) {
 	kbRoot := t.TempDir()
 	writeHookKB(t, kbRoot, "notify", "PostToolUse", "", "./notify.sh")
 
-	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, true)
+	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, provisioning.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest: %v", err)
 	}
 
 	baseDir := t.TempDir()
 	opts := provisioning.ApplyOptions{
-		KBRoots:  map[string]string{"kb": kbRoot},
-		Provider: configurator.ProviderOpenCode,
-		BaseDir:  baseDir,
-		Lock:     provisioning.Lock{},
+		AutoTrust: true,
+		KBRoots:   map[string]string{"kb": kbRoot},
+		Provider:  configurator.ProviderOpenCode,
+		BaseDir:   baseDir,
+		Lock:      provisioning.Lock{},
 	}
 
 	res, err := provisioning.Apply(m, opts)
@@ -197,7 +201,7 @@ func TestApply_OpenCode_Hook_Removed_RimuovePluginEFile(t *testing.T) {
 	if err := os.RemoveAll(filepath.Join(kbRoot, "hooks", "notify")); err != nil {
 		t.Fatal(err)
 	}
-	m2, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, true)
+	m2, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, provisioning.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest (2): %v", err)
 	}
@@ -223,17 +227,18 @@ func TestApply_OpenCode_Hook_EventoNonMappato_NessunPluginNessunErrore(t *testin
 	kbRoot := t.TempDir()
 	writeHookKB(t, kbRoot, "onprompt", "UserPromptSubmit", "", "./notify.sh")
 
-	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, true)
+	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, provisioning.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest: %v", err)
 	}
 
 	baseDir := t.TempDir()
 	res, err := provisioning.Apply(m, provisioning.ApplyOptions{
-		KBRoots:  map[string]string{"kb": kbRoot},
-		Provider: configurator.ProviderOpenCode,
-		BaseDir:  baseDir,
-		Lock:     provisioning.Lock{},
+		AutoTrust: true,
+		KBRoots:   map[string]string{"kb": kbRoot},
+		Provider:  configurator.ProviderOpenCode,
+		BaseDir:   baseDir,
+		Lock:      provisioning.Lock{},
 	})
 	if err != nil {
 		t.Fatalf("Apply: expected no fatal error, got %v", err)

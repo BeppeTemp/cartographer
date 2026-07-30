@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/ed25519"
 	"flag"
 	"fmt"
 	"log"
@@ -13,6 +14,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/BeppeTemp/cartographer/internal/artifactsig"
 	"github.com/BeppeTemp/cartographer/internal/audit"
 	"github.com/BeppeTemp/cartographer/internal/auth"
 	"github.com/BeppeTemp/cartographer/internal/config"
@@ -249,8 +251,9 @@ func runServe(cfg *config.Config) {
 
 	seenNames := make(map[string]string) // name → first path seen
 	var kbs []*kb.KB
-	var kbNames []string        // index-aligned with kbs
-	var kbToolPrefixes []string // index-aligned with kbs (D102, "" = unprefixed)
+	var kbNames []string                       // index-aligned with kbs
+	var kbToolPrefixes []string                // index-aligned with kbs (D102, "" = unprefixed)
+	var kbArtifactSigners []ed25519.PrivateKey // index-aligned with kbs
 	for _, m := range mounts {
 		var k *kb.KB
 		var err error
@@ -304,9 +307,18 @@ func runServe(cfg *config.Config) {
 			log.Fatal(err)
 		}
 		seenNames[name] = m.Path
+		var artifactSigner ed25519.PrivateKey
+		if m.Spec.ArtifactSigningSeed != "" {
+			artifactSigner, err = artifactsig.ParseSeed(m.Spec.ArtifactSigningSeed)
+			if err != nil {
+				log.Fatalf("KB %q artifact signing seed invalid: %v", name, err)
+			}
+			log.Printf("KB %q provisioning artifact signing enabled (key ID %s)", name, artifactsig.KeyID(artifactSigner.Public().(ed25519.PublicKey)))
+		}
 		kbs = append(kbs, k)
 		kbNames = append(kbNames, name)
 		kbToolPrefixes = append(kbToolPrefixes, toolPrefix)
+		kbArtifactSigners = append(kbArtifactSigners, artifactSigner)
 		if _, ok := k.HasRemote(); kb.ShouldWarnGitIdentity(k.GitSync, ok, k.GitAuthorEmail) {
 			log.Printf("WARNING: KB %q commits will be authored as cartographer@localhost; forges with author push rules will reject the push", name)
 		}
@@ -348,19 +360,19 @@ func runServe(cfg *config.Config) {
 	}
 
 	if cfg.HTTP != "" {
-		serveHTTP(cfg.HTTP, kbs, kbNames, kbToolPrefixes, cfg.Auth, cfg.ToolsProfile, emb, vecStore, sqlIdxs, auditLog)
+		serveHTTP(cfg.HTTP, kbs, kbNames, kbToolPrefixes, kbArtifactSigners, cfg.Auth, cfg.ToolsProfile, emb, vecStore, sqlIdxs, auditLog)
 	} else {
-		serveStdio(kbs[0], cfg.ToolsProfile, emb, vecStore, sqlIdxs, auditLog)
+		serveStdio(kbs[0], kbArtifactSigners[0], cfg.ToolsProfile, emb, vecStore, sqlIdxs, auditLog)
 	}
 }
 
-func serveStdio(k *kb.KB, toolsProfile string, emb embed.Embedder, store *embed.Store, sqlIdxs map[string]*sqlindex.Index, auditLog *audit.Log) {
+func serveStdio(k *kb.KB, artifactSigner ed25519.PrivateKey, toolsProfile string, emb embed.Embedder, store *embed.Store, sqlIdxs map[string]*sqlindex.Index, auditLog *audit.Log) {
 	if auditLog != nil {
 		log.Printf("audit log active")
 	}
 	sqlIdx := sqlIdxs[filepath.Clean(k.Root)]
 	s := mcpserver.New(version)
-	mcpserver.RegisterKBTools(s, k, mcpserver.Deps{Embedder: emb, VecStore: store, SQLIndex: sqlIdx, BundleFS: skillbundle.FS})
+	mcpserver.RegisterKBTools(s, k, mcpserver.Deps{Embedder: emb, VecStore: store, SQLIndex: sqlIdx, BundleFS: skillbundle.FS, ArtifactSigner: artifactSigner})
 	s.SetToolsProfile(toolsProfile)
 	log.Printf("stdio transport, KB: %s (tools profile: %s)", k.Root, toolsProfile)
 	// s.Run blocks on the stdio read loop and returns when the client closes
@@ -376,7 +388,7 @@ func serveStdio(k *kb.KB, toolsProfile string, emb embed.Embedder, store *embed.
 	}
 }
 
-func serveHTTP(addr string, kbs []*kb.KB, names []string, toolPrefixes []string, authCfg config.AuthConfig, toolsProfile string, emb embed.Embedder, vecStore *embed.Store, sqlIdxs map[string]*sqlindex.Index, auditLog *audit.Log) {
+func serveHTTP(addr string, kbs []*kb.KB, names []string, toolPrefixes []string, artifactSigners []ed25519.PrivateKey, authCfg config.AuthConfig, toolsProfile string, emb embed.Embedder, vecStore *embed.Store, sqlIdxs map[string]*sqlindex.Index, auditLog *audit.Log) {
 	if auditLog != nil {
 		log.Printf("audit log active")
 	}
@@ -409,7 +421,7 @@ func serveHTTP(addr string, kbs []*kb.KB, names []string, toolPrefixes []string,
 				s.SetDisplayName("cartographer:" + name)
 			}
 			sqlIdx := sqlIdxs[filepath.Clean(k.Root)]
-			mcpserver.RegisterKBTools(s, k, mcpserver.Deps{Embedder: emb, VecStore: vecStore, SQLIndex: sqlIdx, BundleFS: skillbundle.FS})
+			mcpserver.RegisterKBTools(s, k, mcpserver.Deps{Embedder: emb, VecStore: vecStore, SQLIndex: sqlIdx, BundleFS: skillbundle.FS, ArtifactSigner: artifactSigners[i]})
 			s.SetToolsProfile(toolsProfile)
 		})
 		if err != nil {

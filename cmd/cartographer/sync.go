@@ -80,16 +80,15 @@ func cmdSync(args []string) int {
 		}
 	}
 
-	// The bootstrap hook (D60) is purely local — it must be guaranteed even if
-	// the manifest fetch below fails (server temporarily down): it is precisely
-	// the hook that, on the next session, will kick off a successful sync.
-	if err := ensureBootstrapForProviders(cfg.Agents, dir, *dryRun); err != nil {
+	m, err := fetchMergedManifest(cfg)
+	if err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		return 2
 	}
 
-	m, err := fetchMergedManifest(cfg)
-	if err != nil {
+	// Do not write even the local bootstrap hook until the complete remote
+	// manifest has passed its content and signature checks.
+	if err := ensureBootstrapForProviders(cfg.Agents, dir, *dryRun); err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		return 2
 	}
