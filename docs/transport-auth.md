@@ -138,10 +138,48 @@ Bearer tokens authorize requests; they do not become git signing identities.
 Git author/committer and SSH settings are configured globally or per KB as
 described in [deployment](deployment.md).
 
-`internal/audit` provides a JSONL hash-chain and optional Ed25519 signatures,
-but the HTTP/stdio tool execution path does not currently append tool calls to
-that log. Do not treat configured audit files as a complete request audit
-trail.
+## Operational audit
+
+When `audit.log` is configured, every `tools/call` dispatched over HTTP or
+stdio records **two** events (D119): an *attempt* before the tool runs and a
+*completion* after it, carrying the tool name, the KB, the transport, the
+principal and the outcome (`success`, `application_error`, `internal_error`,
+`unauthorized`, `unknown_tool`, …). An attempt with no matching completion is
+itself evidence: a crash mid-operation becomes visible rather than silent. The
+principal is read from the request context, so it is always the identity
+authorization actually used. Arguments of an unregistered tool are never
+recorded.
+
+Entries form a JSONL hash chain with optional Ed25519 signatures: altering one
+recorded entry invalidates every entry after it.
+
+Two failure modes, selected by `audit.mode`:
+
+- `best_effort` (default): a failed append is counted and logged, and the MCP
+  call proceeds. Availability wins; the log may have gaps.
+- `required`: a failed attempt-phase append rejects the call **before the tool
+  runs**, so the log can never be missing an operation that actually happened.
+  The sink recovers on its own once writes succeed again.
+
+Segments rotate at `audit.max_segment_bytes` into `audit.archive_dir`. A
+rotated segment is recorded in a signed checkpoint index *before* retention may
+delete it, so `audit.retention_days` never breaks verifiability: the chain
+stays checkable across segments no longer on disk, which `audit verify` reports
+as checkpoint-only.
+
+The operator commands are offline by design — they read the files, not a
+running server, because an audit trail is most needed when the server is down:
+
+```
+cartographer audit verify --log /var/lib/cartographer/audit.jsonl [--public-key <hex>]
+cartographer audit export --log /var/lib/cartographer/audit.jsonl --out report.json
+```
+
+`verify` exits non-zero on a broken chain; `export` refuses to write a report
+for a chain it cannot verify, so an exported document is never
+authoritative-looking without being authoritative. Without `--public-key` the
+chain is checked but signatures are not, and the unsigned count is reported so
+the two situations stay distinguishable.
 
 ## Stateless behavior
 

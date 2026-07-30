@@ -1078,3 +1078,25 @@ func Segments(path, archiveDir string) ([]string, error) {
 	sort.Strings(out)
 	return append(out, path), nil
 }
+
+// ModeName reports the configured failure mode ("best_effort" or "required"),
+// so startup logs can state which one is active instead of leaving an operator
+// to infer it from configuration.
+func (l *Log) ModeName() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.opts.Mode == "" {
+		return "best_effort"
+	}
+	return l.opts.Mode
+}
+
+// FailAppendsForTest makes every subsequent durable append fail, and returns a
+// function restoring the real writer. It exists so callers outside this package
+// (the MCP audit layer, whose whole contract is what happens when auditing
+// fails) can exercise the failure path without reimplementing the sink.
+func FailAppendsForTest() func() {
+	orig := writeAllFunc
+	writeAllFunc = func(*os.File, []byte) error { return errors.New("audit: injected write failure") }
+	return func() { writeAllFunc = orig }
+}

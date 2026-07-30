@@ -81,6 +81,15 @@ file rather than the env-var form the scenarios use. Anything asserting
 forbidden resource and a missing one must produce byte-identical output, and a
 filtered collection must not reveal hidden elements through a short page.
 
+**Audit failure paths are tested by fault injection.** The whole contract of
+`audit.mode` is what happens when the sink is broken, so the write path is made
+to fail on purpose (`audit.FailAppendsForTest`) rather than waiting for a real
+disk error: `best_effort` must let the call through, `required` must reject it
+**before the tool handler runs** — that last assertion is the one that matters,
+since a log missing an operation that actually happened is worse than no log.
+`15_operational_audit` closes the loop end-to-end by tampering with a recorded
+entry and requiring `audit verify` and `audit export` to fail on it.
+
 ## What is deliberately not in CI
 
 - Whether a particular model interprets an instruction well.

@@ -237,6 +237,20 @@ type SearchConfig struct {
 type AuditConfig struct {
 	Log     string `yaml:"log"`
 	KeySeed string `yaml:"key_seed"`
+	// Mode is "best_effort" (default) or "required" (D119). In best_effort a
+	// failed append is logged and the MCP call proceeds; in required the call
+	// is rejected before the tool runs, so the log can never be missing an
+	// operation that actually happened.
+	Mode string `yaml:"mode,omitempty"`
+	// MaxSegmentBytes rotates the active segment once it exceeds this size.
+	// Zero keeps the package default.
+	MaxSegmentBytes int64 `yaml:"max_segment_bytes,omitempty"`
+	// ArchiveDir holds rotated segments. Empty keeps them beside the log.
+	ArchiveDir string `yaml:"archive_dir,omitempty"`
+	// RetentionDays deletes a rotated segment once it is older than this many
+	// days AND its checkpoint has been durably written — never before, so the
+	// chain stays verifiable. Zero disables retention.
+	RetentionDays int `yaml:"retention_days,omitempty"`
 }
 
 // Default returns the configuration used when no YAML file is provided.
