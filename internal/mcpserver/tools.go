@@ -107,6 +107,8 @@ func RegisterKBTools(s *Server, k *kb.KB, deps Deps) {
 	register(toolConflictsList(k))
 	register(toolSyncStatus(k))
 	register(toolGitConflictResolve(k))
+	register(toolPRStatus(k))
+	register(toolPRFinalize(k))
 	register(toolServiceGet(k))
 	register(toolServiceList(k))
 	// Secret resolution requires rw scope but is still a read-side operation;
