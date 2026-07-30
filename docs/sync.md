@@ -70,14 +70,14 @@ On the stdio transport, the server emits `notifications/skills/list_changed` aft
 When client and server don't share a filesystem (`internal/client`, `internal/clientconfig`, `cmd/cartographer/clientsync.go`):
 
 1. the client calls `sync_pull` (once per KB configured in `.cartographer.yaml`) and merges the manifests with `provisioning.MergeArtifacts`;
-2. **trust is decided client-side** (§Security): trusted `kb:*` artifacts are marked `Signed:true` before `provisioning.Apply`;
+2. it reconstructs each artifact hash from received paths, bytes and executable modes, then verifies any detached signature against the local KB pin;
 3. `Apply` materializes/prunes and writes the v2 lockfile;
 4. pruning remains managed-only.
 
 ## Security
 
-- **Signature gate (default: notify + gate).** Skills and hooks are executable code: `sync_apply`/`Apply` automatically materialize only `signed:true` artifacts; the rest is flagged and requires approval. Bundle = always trusted (compiled into the binary); `kb:*` artifacts = trusted if `cfg.Trust || --auto-trust`. The `signed` field is set by policy, not verified: there is no cryptography behind it (issue #54).
-- **Per-server persisted trust.** An explicit choice made once at `connect` (toggle in the form, `trust` field in `.cartographer.yaml`, default `true`); `--auto-trust` remains a one-off override. Revocation: `trust: false` in the file. Details → [D54](decisions/sync-provisioning.md#d54).
+- **Cryptographic signature gate.** A configured KB signer creates a canonical Ed25519 envelope over domain, format version, source KB, kind, name, version and content hash. The remote client recomputes the content hash and verifies against out-of-band `signing_keys` pins before writing any provider file or lockfile. `signed:true` is verification output only; malformed, invalid, source-mismatched, unknown-key or tampered content fails the whole sync. Bundled artifacts use the separate `built_in:true` origin.
+- **Explicit unsigned authorization.** `trust: true` and one-shot `--auto-trust` retain the backwards-compatible approval path for eligible unsigned KB artifacts, but never change `signed`. Rotate keys by pinning the new public key first, switching the server signer second, then removing the old pin.
 - **Path traversal.** Artifact names and paths come from the server via JSON: `provisioning.Apply` rejects anything that is not `filepath.IsLocal` (no absolute paths, no `../`) before writing. Applies to every kind.
 - Sync never carries secrets, only references (`skills-services-secrets.md`).
 

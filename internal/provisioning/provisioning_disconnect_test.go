@@ -124,7 +124,7 @@ func TestRoundTrip_ConnectDisconnect_NessunResiduo(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, true)
+	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, provisioning.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest: %v", err)
 	}

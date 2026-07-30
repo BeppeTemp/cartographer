@@ -75,11 +75,11 @@ func TestBuildManifest_Instructions_Determinismo(t *testing.T) {
 		"topics":   {"networking.md"},
 	})
 
-	m1, err := provisioning.BuildManifest(nil, map[string]string{"homelab": kbRoot}, false)
+	m1, err := provisioning.BuildManifest(nil, map[string]string{"homelab": kbRoot}, provisioning.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest 1: %v", err)
 	}
-	m2, err := provisioning.BuildManifest(nil, map[string]string{"homelab": kbRoot}, false)
+	m2, err := provisioning.BuildManifest(nil, map[string]string{"homelab": kbRoot}, provisioning.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest 2: %v", err)
 	}
@@ -102,7 +102,7 @@ func TestBuildManifest_Instructions_Determinismo(t *testing.T) {
 	// A new page in an existing archive does NOT change the content (no
 	// counts, D65): the hash stays stable and the block doesn't need re-syncing.
 	os.WriteFile(filepath.Join(kbRoot, "data", "entities", "new.md"), []byte("# new\n"), 0o644)
-	m3, err := provisioning.BuildManifest(nil, map[string]string{"homelab": kbRoot}, false)
+	m3, err := provisioning.BuildManifest(nil, map[string]string{"homelab": kbRoot}, provisioning.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest 3: %v", err)
 	}
@@ -114,7 +114,7 @@ func TestBuildManifest_Instructions_Determinismo(t *testing.T) {
 	// A new archive, on the other hand, changes the listed structure: the hash must change.
 	os.MkdirAll(filepath.Join(kbRoot, "data", "incidents"), 0o755)
 	os.WriteFile(filepath.Join(kbRoot, "data", "incidents", "i1.md"), []byte("# i1\n"), 0o644)
-	m4, err := provisioning.BuildManifest(nil, map[string]string{"homelab": kbRoot}, false)
+	m4, err := provisioning.BuildManifest(nil, map[string]string{"homelab": kbRoot}, provisioning.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest 4: %v", err)
 	}
@@ -138,7 +138,7 @@ func TestBuildManifest_Instructions_ArchiviElencatiEdEsclusioneInfra(t *testing.
 		os.MkdirAll(filepath.Join(kbRoot, d), 0o755)
 	}
 
-	m, err := provisioning.BuildManifest(nil, map[string]string{"homelab": kbRoot}, false)
+	m, err := provisioning.BuildManifest(nil, map[string]string{"homelab": kbRoot}, provisioning.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest: %v", err)
 	}
@@ -171,7 +171,7 @@ func TestBuildManifest_Instructions_NessunArchivio(t *testing.T) {
 	kbRoot := t.TempDir()
 	os.MkdirAll(filepath.Join(kbRoot, "data"), 0o755)
 
-	m, err := provisioning.BuildManifest(nil, map[string]string{"vuota": kbRoot}, false)
+	m, err := provisioning.BuildManifest(nil, map[string]string{"vuota": kbRoot}, provisioning.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest: %v", err)
 	}
@@ -195,7 +195,7 @@ func TestBuildManifest_Instructions_SezioneAgent(t *testing.T) {
 		"---\nname: zorro\ndescription: Defends the KB from intruders\n---\nzorro prompt.\n")
 	writeFile(t, filepath.Join(agentsDir, "anonimo.md"), "No frontmatter here.\n")
 
-	m, err := provisioning.BuildManifest(nil, map[string]string{"homelab": kbRoot}, false)
+	m, err := provisioning.BuildManifest(nil, map[string]string{"homelab": kbRoot}, provisioning.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest: %v", err)
 	}
@@ -214,7 +214,7 @@ func TestBuildManifest_Instructions_SezioneAgent(t *testing.T) {
 func TestBuildManifest_Instructions_NessunaSezioneSenzaAgentNeCurato(t *testing.T) {
 	kbRoot := makeKBWithArchives(t, map[string][]string{"entities": {"a.md"}})
 
-	m, err := provisioning.BuildManifest(nil, map[string]string{"homelab": kbRoot}, false)
+	m, err := provisioning.BuildManifest(nil, map[string]string{"homelab": kbRoot}, provisioning.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest: %v", err)
 	}
@@ -239,7 +239,7 @@ func TestBuildManifest_Instructions_CuratoSenzaFrontmatter(t *testing.T) {
 	kbRoot := makeKBWithArchives(t, map[string][]string{"entities": {"a.md"}})
 	writeFile(t, filepath.Join(kbRoot, "instructions.md"), "Rule: bulk reads -> explorer.\n")
 
-	m, err := provisioning.BuildManifest(nil, map[string]string{"homelab": kbRoot}, false)
+	m, err := provisioning.BuildManifest(nil, map[string]string{"homelab": kbRoot}, provisioning.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest: %v", err)
 	}
@@ -260,7 +260,7 @@ func TestBuildManifest_Instructions_CuratoConFrontmatter(t *testing.T) {
 	writeFile(t, filepath.Join(kbRoot, "instructions.md"),
 		"---\ntitle: orchestration\n---\nDelegate mechanical work to OpenCode.\n")
 
-	m, err := provisioning.BuildManifest(nil, map[string]string{"homelab": kbRoot}, false)
+	m, err := provisioning.BuildManifest(nil, map[string]string{"homelab": kbRoot}, provisioning.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest: %v", err)
 	}
@@ -283,7 +283,7 @@ func TestBuildManifest_Instructions_HashStabileConDescriptionAgent(t *testing.T)
 	agentPath := filepath.Join(agentsDir, "reviewer.md")
 	writeFile(t, agentPath, "---\ndescription: First version\n---\nPrompt.\n")
 
-	m1, err := provisioning.BuildManifest(nil, map[string]string{"homelab": kbRoot}, false)
+	m1, err := provisioning.BuildManifest(nil, map[string]string{"homelab": kbRoot}, provisioning.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest 1: %v", err)
 	}
@@ -293,7 +293,7 @@ func TestBuildManifest_Instructions_HashStabileConDescriptionAgent(t *testing.T)
 	// change the block. (The updated description still travels with the
 	// "agent" kind artifact, which has its own ContentHash.)
 	writeFile(t, agentPath, "---\ndescription: Second version\n---\nPrompt.\n")
-	m2, err := provisioning.BuildManifest(nil, map[string]string{"homelab": kbRoot}, false)
+	m2, err := provisioning.BuildManifest(nil, map[string]string{"homelab": kbRoot}, provisioning.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest 2: %v", err)
 	}
@@ -305,7 +305,7 @@ func TestBuildManifest_Instructions_HashStabileConDescriptionAgent(t *testing.T)
 
 	// An extra agent, on the other hand, changes the list of names: the hash must change.
 	writeFile(t, filepath.Join(agentsDir, "nuovo.md"), "---\ndescription: X\n---\nPrompt.\n")
-	m3, err := provisioning.BuildManifest(nil, map[string]string{"homelab": kbRoot}, false)
+	m3, err := provisioning.BuildManifest(nil, map[string]string{"homelab": kbRoot}, provisioning.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest 3: %v", err)
 	}
@@ -320,14 +320,14 @@ func TestBuildManifest_Instructions_HashCambiaConCurato(t *testing.T) {
 	instrPath := filepath.Join(kbRoot, "instructions.md")
 	writeFile(t, instrPath, "Version one.\n")
 
-	m1, err := provisioning.BuildManifest(nil, map[string]string{"homelab": kbRoot}, false)
+	m1, err := provisioning.BuildManifest(nil, map[string]string{"homelab": kbRoot}, provisioning.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest 1: %v", err)
 	}
 	h1 := findInstructionsArtifact(t, m1, "homelab").ContentHash
 
 	writeFile(t, instrPath, "Version two.\n")
-	m2, err := provisioning.BuildManifest(nil, map[string]string{"homelab": kbRoot}, false)
+	m2, err := provisioning.BuildManifest(nil, map[string]string{"homelab": kbRoot}, provisioning.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest 2: %v", err)
 	}

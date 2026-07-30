@@ -102,9 +102,9 @@ Tools marked **[A]** (advanced, `advancedToolNames` in `internal/mcpserver/visib
 
 | Tool | Purpose |
 |---|---|
-| `sync_check([applied_revision])` **[R]** **[A]** | Read-only. Returns the current manifest's `revision` (bundle + KB), the artifact list (`kind`: `skill`/`agent`/`hook`/`instructions`/`mcp`, `name`, `source`, `signed`), `in_sync=true/false` (if the client's lockfile revision is supplied), and **`open_conflicts`** (the count of open git rebase conflicts — useful as a SessionStart hook). Safe even on a remote server. |
-| `sync_apply(base_dir, [dry_run], [auto_trust])` **[A]** | Materializes into `base_dir` the artifacts with `signed=true`, prunes obsolete managed ones, and updates the lockfile (`.cartographer-sync.lock.json`). Intended for local (stdio) deployments where server and client share the filesystem. Unsigned artifacts go into `needs_approval`. `dry_run=true` shows the diff without writing. `auto_trust=true` also treats KB skills as trusted (opt-in workspace policy: `signed` is set by policy, not cryptographically verified — issue #54). |
-| `sync_pull()` **[R]** **[A]** | Read-only, no parameters. Returns the provisioning manifest with each artifact's file contents embedded in base64, for a remote HTTP client that does not share the filesystem with the server. Used by `cartographer connect`/`cartographer sync`/`cartographer status` on the client side (the `auto_trust` trust decision is client-side, not a tool parameter). |
+| `sync_check([applied_revision])` **[R]** **[A]** | Read-only. Returns the current manifest's revision and artifact list, including cryptographic `signed` verification output and separate `built_in` trust origin. |
+| `sync_apply(base_dir, [dry_run], [auto_trust])` **[A]** | Materializes verified or built-in artifacts into `base_dir`; `auto_trust` is explicit unsigned authorization and never sets `signed`. A local signer is verified before applying. |
+| `sync_pull()` **[R]** **[A]** | Read-only, no parameters. Returns base64 file contents plus optional detached Ed25519 signature (`algorithm`, `key_id`, envelope version, value). Remote clients recompute hashes and verify pinned keys before materialization. |
 | `sync_status()` **[R]** **[A]** | Read-only. Returns local Git replication state (`disabled`, `no_remote`, `clean`, `pending`, or `failed`), the last error/attempt, HEAD, best-effort unpushed count, identity warning, and push mode. |
 
 ### KB-root artifacts

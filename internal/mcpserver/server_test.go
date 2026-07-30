@@ -2796,6 +2796,7 @@ func TestServer_SyncPull(t *testing.T) {
 			Source      string `json:"source"`
 			ContentHash string `json:"content_hash"`
 			Signed      bool   `json:"signed"`
+			BuiltIn     bool   `json:"built_in"`
 			Files       []struct {
 				Path       string `json:"path"`
 				ContentB64 string `json:"content_b64"`
@@ -2820,6 +2821,7 @@ func TestServer_SyncPull(t *testing.T) {
 		Source      string `json:"source"`
 		ContentHash string `json:"content_hash"`
 		Signed      bool   `json:"signed"`
+		BuiltIn     bool   `json:"built_in"`
 		Files       []struct {
 			Path       string `json:"path"`
 			ContentB64 string `json:"content_b64"`
@@ -2845,7 +2847,7 @@ func TestServer_SyncPull(t *testing.T) {
 	if instr.Source == "bundle" || len(instr.Files) != 1 || instr.Files[0].Path != "instructions.md" {
 		t.Errorf("sync_pull: unexpected instructions artifact: %+v", instr)
 	}
-	if art.Name != "kb-create" || art.Source != "bundle" || !art.Signed {
+	if art.Name != "kb-create" || art.Source != "bundle" || art.Signed || !art.BuiltIn {
 		t.Errorf("sync_pull: unexpected artifact: %+v", art)
 	}
 	if len(art.Files) != 1 || art.Files[0].Path != "SKILL.md" {

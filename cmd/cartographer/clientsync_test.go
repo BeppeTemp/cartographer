@@ -2,6 +2,8 @@ package main
 
 import (
 	"bytes"
+	"crypto/ed25519"
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -11,6 +13,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/BeppeTemp/cartographer/internal/artifactsig"
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
@@ -35,7 +38,13 @@ func TestPulledFileJSON_ExecutableBackwardCompatibility(t *testing.T) {
 
 func TestFetchMergedManifest_PreservesBinaryExecutableFilesThroughApply(t *testing.T) {
 	binary := []byte{0x00, 0xff, 0x80, 0x01}
-	const artifactHash = "binary-executable-hash"
+	first, err := base64.StdEncoding.DecodeString("LS0tXG5uYW1lOiB3aXJlXG5kZXNjcmlwdGlvbjogdGVzdFxuLS0tXG4=")
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifactHash := provisioning.ContentHashFiles([]provisioning.ArtifactFile{
+		{Path: "SKILL.md", Content: first}, {Path: "run.bin", Content: binary, Executable: true},
+	})
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/mcp" {
 			http.NotFound(w, r)
@@ -47,7 +56,7 @@ func TestFetchMergedManifest_PreservesBinaryExecutableFilesThroughApply(t *testi
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			t.Fatal(err)
 		}
-		payload := `{"revision":"wire-rev","artifacts":[{"kind":"skill","name":"wire","source":"kb:test","content_hash":"` + artifactHash + `","signed":true,"files":[{"path":"SKILL.md","content_b64":"LS0tXG5uYW1lOiB3aXJlXG5kZXNjcmlwdGlvbjogdGVzdFxuLS0tXG4=","executable":false},{"path":"run.bin","content_b64":"AP+AAQ==","executable":true}]}]}`
+		payload := `{"revision":"wire-rev","artifacts":[{"kind":"skill","name":"wire","source":"bundle","content_hash":"` + artifactHash + `","built_in":true,"files":[{"path":"SKILL.md","content_b64":"LS0tXG5uYW1lOiB3aXJlXG5kZXNjcmlwdGlvbjogdGVzdFxuLS0tXG4=","executable":false},{"path":"run.bin","content_b64":"AP+AAQ==","executable":true}]}]}`
 		if err := json.NewEncoder(w).Encode(map[string]any{
 			"jsonrpc": "2.0",
 			"id":      req.ID,
@@ -96,6 +105,106 @@ func TestFetchMergedManifest_PreservesBinaryExecutableFilesThroughApply(t *testi
 		if err != nil || info.Mode()&0o111 == 0 {
 			t.Fatalf("Apply(%s) mode = %v, err=%v", provider, info.Mode(), err)
 		}
+	}
+}
+
+func TestFetchMergedManifestVerifiesPinnedSignatureAndRejectsTampering(t *testing.T) {
+	key, err := artifactsig.ParseSeed(strings.Repeat("03", ed25519.SeedSize))
+	if err != nil {
+		t.Fatal(err)
+	}
+	files := []provisioning.ArtifactFile{{Path: "SKILL.md", Content: []byte("skill")}}
+	hash := provisioning.ContentHashFiles(files)
+	identity := artifactsig.Identity{Source: "kb:homelab", Kind: "skill", Name: "signed", ContentHash: hash}
+	sig, err := artifactsig.Sign(key, identity)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	serve := func(content string) *httptest.Server {
+		return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			_ = json.NewEncoder(w).Encode(map[string]any{"jsonrpc": "2.0", "id": 1, "result": map[string]any{"content": []map[string]string{{"type": "text", "text": content}}}})
+		}))
+	}
+	payloadFor := func(mutate func(map[string]any)) string {
+		copySig := *sig
+		artifact := map[string]any{
+			"kind": "skill", "name": "signed", "source": "kb:homelab", "content_hash": hash, "signature": &copySig,
+			"files": []map[string]any{{"path": "SKILL.md", "content_b64": base64.StdEncoding.EncodeToString(files[0].Content), "executable": false}},
+		}
+		if mutate != nil {
+			mutate(artifact)
+		}
+		payload, marshalErr := json.Marshal(map[string]any{"revision": "r", "artifacts": []map[string]any{artifact}})
+		if marshalErr != nil {
+			t.Fatal(marshalErr)
+		}
+		return string(payload)
+	}
+	payload := payloadFor(nil)
+	srv := serve(string(payload))
+	cfg := &clientconfig.Config{ServerURL: srv.URL, SigningKeys: map[string][]string{"homelab": {artifactsig.PublicKeyHex(key.Public().(ed25519.PublicKey))}}}
+	m, err := fetchMergedManifest(cfg)
+	srv.Close()
+	if err != nil || len(m.Artifacts) != 1 || !m.Artifacts[0].Signed {
+		t.Fatalf("verified manifest = %+v, err=%v", m, err)
+	}
+
+	target := t.TempDir()
+	if _, err := materializeForProviders(m, []string{"claude"}, target, false, false, nil, nil); err != nil {
+		t.Fatalf("materialize valid manifest: %v", err)
+	}
+	lockPath := filepath.Join(target, provisioning.LockFileName)
+	providerPath := filepath.Join(target, ".claude", "skills", "signed", "SKILL.md")
+	beforeState, err := os.ReadFile(providerPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	beforeLock, _ := os.ReadFile(lockPath)
+	for _, tc := range []struct {
+		name   string
+		mutate func(map[string]any)
+	}{
+		{"file bytes", func(a map[string]any) {
+			a["files"] = []map[string]any{{"path": "SKILL.md", "content_b64": base64.StdEncoding.EncodeToString([]byte("evil")), "executable": false}}
+		}},
+		{"executable mode", func(a map[string]any) {
+			a["files"] = []map[string]any{{"path": "SKILL.md", "content_b64": base64.StdEncoding.EncodeToString(files[0].Content), "executable": true}}
+		}},
+		{"path", func(a map[string]any) {
+			a["files"] = []map[string]any{{"path": "renamed.md", "content_b64": base64.StdEncoding.EncodeToString(files[0].Content), "executable": false}}
+		}},
+		{"source", func(a map[string]any) { a["source"] = "bundle" }},
+		{"kind", func(a map[string]any) { a["kind"] = "hook" }},
+		{"signature", func(a map[string]any) {
+			a["signature"].(*artifactsig.Signature).Value = base64.RawStdEncoding.EncodeToString(make([]byte, ed25519.SignatureSize))
+		}},
+		{"unknown key", func(a map[string]any) { a["signature"].(*artifactsig.Signature).KeyID = strings.Repeat("0", 64) }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := serve(payloadFor(tc.mutate))
+			cfg.ServerURL = srv.URL
+			fetched, fetchErr := fetchMergedManifest(cfg)
+			srv.Close()
+			if fetchErr == nil {
+				_, fetchErr = materializeForProviders(fetched, []string{"claude"}, target, false, false, nil, nil)
+			}
+			if fetchErr == nil {
+				t.Fatal("tampered sync unexpectedly succeeded")
+			}
+			afterState, stateErr := os.ReadFile(providerPath)
+			afterLock, lockErr := os.ReadFile(lockPath)
+			if stateErr != nil || lockErr != nil || !bytes.Equal(beforeState, afterState) || !bytes.Equal(beforeLock, afterLock) {
+				t.Fatalf("tampering changed local state: state=%q/%v lock=%q/%v", afterState, stateErr, afterLock, lockErr)
+			}
+		})
+	}
+}
+
+func TestFetchMergedManifestRejectsMalformedConfiguredPin(t *testing.T) {
+	cfg := &clientconfig.Config{SigningKeys: map[string][]string{"homelab": {"not-a-public-key"}}}
+	if _, err := pinnedPublicKeys(cfg); err == nil || !strings.Contains(err.Error(), "invalid signing key pin") {
+		t.Fatalf("pinnedPublicKeys error = %v", err)
 	}
 }
 
@@ -164,23 +273,16 @@ func kbSkillManifest() provisioning.Manifest {
 	}
 }
 
-func TestUpgradeTrustedManifest_TrustSignsKBArtifacts(t *testing.T) {
+func TestAuthorizationDoesNotSetSigned(t *testing.T) {
 	m := kbSkillManifest()
-	got := upgradeTrustedManifest(m, true)
-	if !got.Artifacts[0].Signed {
-		t.Error("expected kb: artifact to be Signed=true when trust=true")
-	}
-	// original untouched.
 	if m.Artifacts[0].Signed {
-		t.Error("upgradeTrustedManifest must not mutate its input")
+		t.Fatal("test fixture must be unsigned")
 	}
-}
-
-func TestUpgradeTrustedManifest_NoTrustLeavesUnsigned(t *testing.T) {
-	m := kbSkillManifest()
-	got := upgradeTrustedManifest(m, false)
-	if got.Artifacts[0].Signed {
-		t.Error("expected kb: artifact to stay Signed=false when trust=false")
+	if _, err := materializeForProviders(m, []string{"claude"}, t.TempDir(), true, true, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if m.Artifacts[0].Signed {
+		t.Error("authorization must not mutate verification state")
 	}
 }
 
@@ -284,24 +386,19 @@ func TestMaterializeForProviders_Instructions_ClaudeEKiro(t *testing.T) {
 	}
 }
 
-// TestDiffWithTrust_NoNeedsApproval mirrors what cmdStatus/loadRemoteStatusCmd
-// do: upgradeTrustedManifest before ComputeDiff. With trust active, an added
-// kb: artifact must report Signed=true in the diff — not a leftover "needs
-// approval" — matching the real materialization outcome.
-func TestDiffWithTrust_NoNeedsApproval(t *testing.T) {
+func TestDiffWithTrustKeepsVerificationState(t *testing.T) {
 	m := kbSkillManifest()
-	trusted := upgradeTrustedManifest(m, true)
-	pm := provisioning.FilterForProvider(trusted, configurator.ProviderClaudeCode)
+	pm := provisioning.FilterForProvider(m, configurator.ProviderClaudeCode)
 	d := provisioning.ComputeDiff(pm, provisioning.Lock{})
 
 	if len(d.Added) != 1 {
 		t.Fatalf("expected 1 added artifact, got %d", len(d.Added))
 	}
-	if !d.Added[0].Signed {
-		t.Error("expected Added[0].Signed=true with trust active (no leftover needs-approval)")
+	if d.Added[0].Signed {
+		t.Error("trust must not change cryptographic verification state")
 	}
-	if got := formatDiffStatus(d); got != "drift +1 ~0 -0" {
-		t.Errorf("formatDiffStatus = %q, want no needs-approval suffix", got)
+	if got := formatDiffStatus(d); got != "drift +1 ~0 -0 (1 needs approval, use CLI --auto-trust)" {
+		t.Errorf("formatDiffStatus = %q", got)
 	}
 }
 

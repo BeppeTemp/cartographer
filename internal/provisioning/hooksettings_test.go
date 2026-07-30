@@ -74,17 +74,18 @@ func TestApply_Hook_RegistraSettingsJSON(t *testing.T) {
 	kbRoot := t.TempDir()
 	writeHookKB(t, kbRoot, "notify", "PostToolUse", "concept_write", "./notify.sh")
 
-	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, true)
+	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, provisioning.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest: %v", err)
 	}
 
 	baseDir := t.TempDir()
 	res, err := provisioning.Apply(m, provisioning.ApplyOptions{
-		KBRoots:  map[string]string{"kb": kbRoot},
-		Provider: configurator.ProviderClaudeCode,
-		BaseDir:  baseDir,
-		Lock:     provisioning.Lock{},
+		AutoTrust: true,
+		KBRoots:   map[string]string{"kb": kbRoot},
+		Provider:  configurator.ProviderClaudeCode,
+		BaseDir:   baseDir,
+		Lock:      provisioning.Lock{},
 	})
 	if err != nil {
 		t.Fatalf("Apply: %v", err)
@@ -117,17 +118,18 @@ func TestApply_Hook_ReApply_NessunDuplicato(t *testing.T) {
 	kbRoot := t.TempDir()
 	writeHookKB(t, kbRoot, "notify", "PostToolUse", "concept_write", "./notify.sh")
 
-	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, true)
+	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, provisioning.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest: %v", err)
 	}
 
 	baseDir := t.TempDir()
 	opts := provisioning.ApplyOptions{
-		KBRoots:  map[string]string{"kb": kbRoot},
-		Provider: configurator.ProviderClaudeCode,
-		BaseDir:  baseDir,
-		Lock:     provisioning.Lock{},
+		AutoTrust: true,
+		KBRoots:   map[string]string{"kb": kbRoot},
+		Provider:  configurator.ProviderClaudeCode,
+		BaseDir:   baseDir,
+		Lock:      provisioning.Lock{},
 	}
 
 	if _, err := provisioning.Apply(m, opts); err != nil {
@@ -159,17 +161,18 @@ func TestApply_Hook_ScriptMaterializzatoEseguibile(t *testing.T) {
 	kbRoot := t.TempDir()
 	writeHookKB(t, kbRoot, "notify", "PostToolUse", "concept_write", "./notify.sh")
 
-	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, true)
+	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, provisioning.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest: %v", err)
 	}
 
 	baseDir := t.TempDir()
 	if _, err := provisioning.Apply(m, provisioning.ApplyOptions{
-		KBRoots:  map[string]string{"kb": kbRoot},
-		Provider: configurator.ProviderClaudeCode,
-		BaseDir:  baseDir,
-		Lock:     provisioning.Lock{},
+		AutoTrust: true,
+		KBRoots:   map[string]string{"kb": kbRoot},
+		Provider:  configurator.ProviderClaudeCode,
+		BaseDir:   baseDir,
+		Lock:      provisioning.Lock{},
 	}); err != nil {
 		t.Fatalf("Apply: %v", err)
 	}
@@ -199,17 +202,18 @@ func TestApply_Hook_ComandoBare_VerbatimConMarkerCommento(t *testing.T) {
 	bare := "jq -e '.tool_input.x' >/dev/null 2>&1 && exit 2 || true"
 	writeHookKB(t, kbRoot, "env-block", "PreToolUse", "Edit|Write", bare)
 
-	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, true)
+	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, provisioning.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest: %v", err)
 	}
 
 	baseDir := t.TempDir()
 	opts := provisioning.ApplyOptions{
-		KBRoots:  map[string]string{"kb": kbRoot},
-		Provider: configurator.ProviderClaudeCode,
-		BaseDir:  baseDir,
-		Lock:     provisioning.Lock{},
+		AutoTrust: true,
+		KBRoots:   map[string]string{"kb": kbRoot},
+		Provider:  configurator.ProviderClaudeCode,
+		BaseDir:   baseDir,
+		Lock:      provisioning.Lock{},
 	}
 	if _, err := provisioning.Apply(m, opts); err != nil {
 		t.Fatalf("Apply (1): %v", err)
@@ -235,7 +239,7 @@ func TestApply_Hook_PreservaChiaviUtenteESettingsPreesistente(t *testing.T) {
 	kbRoot := t.TempDir()
 	writeHookKB(t, kbRoot, "notify", "PostToolUse", "concept_write", "./notify.sh")
 
-	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, true)
+	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, provisioning.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest: %v", err)
 	}
@@ -258,10 +262,11 @@ func TestApply_Hook_PreservaChiaviUtenteESettingsPreesistente(t *testing.T) {
 	}
 
 	_, err = provisioning.Apply(m, provisioning.ApplyOptions{
-		KBRoots:  map[string]string{"kb": kbRoot},
-		Provider: configurator.ProviderClaudeCode,
-		BaseDir:  baseDir,
-		Lock:     provisioning.Lock{},
+		AutoTrust: true,
+		KBRoots:   map[string]string{"kb": kbRoot},
+		Provider:  configurator.ProviderClaudeCode,
+		BaseDir:   baseDir,
+		Lock:      provisioning.Lock{},
 	})
 	if err != nil {
 		t.Fatalf("Apply: %v", err)
@@ -298,7 +303,7 @@ func TestApply_Hook_Removed_RimuoveEntrySettings(t *testing.T) {
 	kbRoot := t.TempDir()
 	writeHookKB(t, kbRoot, "notify", "PostToolUse", "concept_write", "./notify.sh")
 
-	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, true)
+	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, provisioning.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest: %v", err)
 	}
@@ -321,10 +326,11 @@ func TestApply_Hook_Removed_RimuoveEntrySettings(t *testing.T) {
 	}
 
 	res, err := provisioning.Apply(m, provisioning.ApplyOptions{
-		KBRoots:  map[string]string{"kb": kbRoot},
-		Provider: configurator.ProviderClaudeCode,
-		BaseDir:  baseDir,
-		Lock:     provisioning.Lock{},
+		AutoTrust: true,
+		KBRoots:   map[string]string{"kb": kbRoot},
+		Provider:  configurator.ProviderClaudeCode,
+		BaseDir:   baseDir,
+		Lock:      provisioning.Lock{},
 	})
 	if err != nil {
 		t.Fatalf("Apply (materialize): %v", err)
@@ -335,16 +341,17 @@ func TestApply_Hook_Removed_RimuoveEntrySettings(t *testing.T) {
 	if err := os.RemoveAll(filepath.Join(kbRoot, "hooks", "notify")); err != nil {
 		t.Fatal(err)
 	}
-	m2, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, true)
+	m2, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, provisioning.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest (2): %v", err)
 	}
 
 	res2, err := provisioning.Apply(m2, provisioning.ApplyOptions{
-		KBRoots:  map[string]string{"kb": kbRoot},
-		Provider: configurator.ProviderClaudeCode,
-		BaseDir:  baseDir,
-		Lock:     res.NewLock,
+		AutoTrust: true,
+		KBRoots:   map[string]string{"kb": kbRoot},
+		Provider:  configurator.ProviderClaudeCode,
+		BaseDir:   baseDir,
+		Lock:      res.NewLock,
 	})
 	if err != nil {
 		t.Fatalf("Apply (removal): %v", err)
