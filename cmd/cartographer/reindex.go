@@ -44,19 +44,25 @@ func cmdReindex(args []string) int {
 			cfg = loaded
 		}
 	}
-	targetNames := kbTargets(cfg)
+	selected := cfg.KBs
 	if *kbFlag != "" {
-		targetNames = []string{*kbFlag}
+		selected = []string{*kbFlag}
 	}
 
-	if _, err := fetchHealth(strings.TrimSuffix(cfg.ServerURL, "/mcp")); err == nil {
-		for _, name := range targetNames {
-			raw, err := client.New(cfg.ServerURL, resolveToken(cfg)).WithKB(name).Call("reindex", map[string]any{})
+	token := resolveToken(cfg)
+	if health, err := client.New(cfg.ServerURL, token).Health(probeTimeout); err == nil {
+		targets, err := resolveKBTargets(health, selected)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "reindex:", err)
+			return 1
+		}
+		for _, target := range targets {
+			raw, err := callTool(client.New(cfg.ServerURL, token).WithKB(target.Name), target, "reindex", map[string]any{})
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "reindex %s: %v\n", displayKBName(name), err)
+				fmt.Fprintf(os.Stderr, "reindex %s: %v\n", displayKBName(target.Name), err)
 				return 1
 			}
-			fmt.Printf("%s: %s\n", displayKBName(name), strings.TrimSpace(string(raw)))
+			fmt.Printf("%s: %s\n", displayKBName(target.Name), strings.TrimSpace(string(raw)))
 		}
 		return 0
 	}

@@ -186,3 +186,21 @@ the two situations stay distinguishable.
 Authorization and optimistic content hashes do not depend on an MCP session.
 Per-KB conflict and provisioning state is stored outside versioned concept
 content where required.
+
+## Tool namespace discovery
+
+`GET /health` reports, per mounted KB, the **effective** tool-name prefix under
+which that KB's tools are registered (`tool_prefix`, empty when unprefixed —
+the default). This is the authoritative source for any client that needs to
+call a tool by name (D120).
+
+Clients must not re-derive the prefix from the KB name: `tool_prefix` is an
+arbitrary operator-chosen string, so a derived value is a guess that produces
+calls to tools that do not exist. The value is read live per operation and
+never persisted, so an operator changing a prefix server-side does not require
+any client-side reconnection.
+
+Prefixing is exact, not additive: on a prefixed KB the bare tool name does not
+resolve. It applies uniformly to every tool the KB registers, including the
+ones hidden by the `agent` tools profile, so the advanced/operator tools stay
+reachable by name under the same namespace.

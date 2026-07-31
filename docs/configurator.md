@@ -67,9 +67,18 @@ entries and `kbs` list untouched and warns; run `sync` again once it is up.
 Claude Code/Codex/OpenCode which namespace per server: writing 2+ MCP entries for `kiro` (i.e.
 connecting to a 2+-KB server) leaves only one KB's tools reachable in a Kiro session unless the
 *server* mounts the others with a `tool_prefix` (`docs/deployment.md` §MCP tool-name prefix, D102).
-`connect`/`sync` print an unconditional warning on stderr in that case — they cannot tell from
-`/health` whether the server already has prefixes configured, so the warning fires on the
-precondition alone; the operator is expected to add `tool_prefix`/`tool_prefix_mode` server-side.
+`connect`/`sync` warn on stderr in that case; the operator is expected to add
+`tool_prefix`/`tool_prefix_mode` server-side. Since D120 `/health` advertises each KB's effective
+`tool_prefix`, so the client can see which KBs are already namespaced instead of reasoning from the
+precondition alone.
+
+**Prefix discovery (D120).** Every client-owned direct tool call — manifest pull during `sync`,
+remote `reindex`, the TUI's status probes — qualifies the tool name with the prefix the server
+advertises for that KB in `/health`, never with one re-derived locally from the KB name. A locally
+derived prefix is a guess: `tool_prefix` is an arbitrary operator string, so a client that guessed it
+called tools that did not exist and reported the resulting failure as an unreachable server. The
+discovered value is used live and never persisted, so changing a prefix server-side needs no
+client-side reconnect.
 
 ```bash
 cartographer connect                                   # all agents detected on the machine

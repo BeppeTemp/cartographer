@@ -46,6 +46,10 @@ func TestFetchMergedManifest_PreservesBinaryExecutableFilesThroughApply(t *testi
 		{Path: "SKILL.md", Content: first}, {Path: "run.bin", Content: binary, Executable: true},
 	})
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/health" {
+			_ = json.NewEncoder(w).Encode(map[string]any{"status": "ok", "version": "test"})
+			return
+		}
 		if r.URL.Path != "/mcp" {
 			http.NotFound(w, r)
 			return
