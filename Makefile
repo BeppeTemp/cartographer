@@ -1,4 +1,4 @@
-.PHONY: help build test vet fmt run run-http smoke smoke-http docker clean e2e
+.PHONY: help build test vet fmt run run-http smoke smoke-http docker clean e2e test-install
 
 VERSION ?= $(shell git describe --tags --always 2>/dev/null || echo dev)
 
@@ -39,3 +39,7 @@ clean: ## Remove bin/ and demo-kb/
 
 e2e: ## Run deterministic HTTP/CLI end-to-end scenarios
 	@./test/e2e/run.sh
+
+test-install: ## Run the network-free install.sh/Cask upgrade-repair suite and the .goreleaser.yaml guard
+	@./test/install/run.sh
+	@./test/install/goreleaser_guard.sh

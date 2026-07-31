@@ -182,7 +182,9 @@ for the MCP-specific approval states). MCP artifacts in `needs_approval`/`approv
 `cartographer approve mcp <name> --kb <kb>` hint, separate from the `--auto-trust` suggestion for
 the other kinds. Before the artifact report it prints the
 client and server versions. A non-`dev` mismatch is a warning only (it does not change the exit
-code); on loopback, an installed local service also gets a `cartographer service restart` hint.
+code); on loopback, an installed local service also gets a `cartographer upgrade-repair` hint
+(D121: it replaces the running service **and** re-syncs the providers in place, where the former
+`service restart` hint only did the first half).
 For an unavailable endpoint, the table names the configured endpoint once and
 suggests checking that URL (or `cartographer service status` for loopback);
 connected providers are reported as `unknown`, rather than repeating a network
@@ -209,6 +211,11 @@ add/update, prunes obsolete artifacts, updates the lockfile. Idempotent.
 cartographer sync [--auto-trust] [--dry-run]
 ```
 
+This is also how a configured provider is repaired **in place** after a local upgrade: the same
+in-process runner is what `cartographer upgrade-repair` calls (D121). `disconnect` followed by
+`connect` is never an upgrade step — it would delete user-owned configuration to rebuild it.
+Already-open provider sessions still need to be restarted to reopen the MCP connection.
+
 ### `cartographer service <action>`
 
 Manages the **server** as a native user service on the machine (local mode, D73):
@@ -218,11 +225,18 @@ client subcommands talk to the daemonized server over loopback.
 ```bash
 cartographer service install [--config <path>] [--data <dir>] [--http <addr>]
 cartographer service uninstall|start|stop|restart
+cartographer service restart --wait [--config <path>]   # graceful, version-gated (D121)
 cartographer service status        # exit: 0 running, 3 installed but stopped, 4 not installed
 ```
 
+Plain `restart` keeps its previous behavior. `restart --wait` gracefully replaces the process
+(`SIGTERM`, so in-flight requests drain) and only prints success once `/health` proves the
+installed binary version is serving; `--config` selects the config used for that verification,
+and is otherwise unnecessary because the installed service definition is discoverable.
+
 Operational details (generated paths, defaults, behavior with an existing config, automatic
-restart on `install.sh update`) in `deployment.md` §Example: native local service.
+repair on `install.sh update` and Cask upgrade) in `deployment.md` §Example: native local service
+and §Upgrades, schema migration, and repo growth.
 
 ### `cartographer import`
 

@@ -23,6 +23,15 @@ const (
 	exitStatusNotInstalled = 4
 )
 
+// serviceRestartFn/serviceReplaceFn are indirected through package-level vars
+// so cmdServiceRestart's dispatch (plain restart vs --wait's graceful,
+// version-gated replacement) is testable without a real launchctl/systemctl
+// or a live /health endpoint.
+var (
+	serviceRestartFn = func() error { return service.NewManager().Restart() }
+	serviceReplaceFn = func(opts service.ReplaceOptions) error { return service.NewManager().Replace(opts) }
+)
+
 // cmdService manages the cartographer MCP server as a native per-user
 // service: launchd on macOS, a systemd user unit on Linux.
 func cmdService(args []string) int {
@@ -131,13 +140,24 @@ func cmdServiceStop(args []string) int {
 
 func cmdServiceRestart(args []string) int {
 	fs := flag.NewFlagSet("service restart", flag.ExitOnError)
+	wait := fs.Bool("wait", false, "Gracefully replace the running service (SIGTERM) and block until /health proves the installed version is serving")
+	configFlag := fs.String("config", "", "Server config YAML used to verify the replacement (default: discovered from the installed service definition, else the standard path)")
 	fs.Parse(args)
 
-	if err := service.NewManager().Restart(); err != nil {
+	if !*wait {
+		if err := serviceRestartFn(); err != nil {
+			fmt.Fprintln(os.Stderr, "Error:", err)
+			return exitStatusError
+		}
+		fmt.Println("service restarted")
+		return exitStatusRunning
+	}
+
+	if err := serviceReplaceFn(service.ReplaceOptions{ConfigPath: *configFlag, ExpectedVersion: version}); err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		return exitStatusError
 	}
-	fmt.Println("service restarted")
+	fmt.Printf("service restarted and verified running version %s\n", version)
 	return exitStatusRunning
 }
 

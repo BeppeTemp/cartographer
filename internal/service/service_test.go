@@ -1,11 +1,18 @@
 package service
 
 import (
+	"encoding/json"
+	"fmt"
+	"net"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/config"
 	"github.com/BeppeTemp/cartographer/internal/defaults"
@@ -441,5 +448,364 @@ func TestUnsupportedPlatform(t *testing.T) {
 	}
 	if _, err := m.Status(""); err == nil {
 		t.Error("Status on unsupported platform should error")
+	}
+}
+
+// --- WP1: EffectiveConfigPath, Replace ---------------------------------
+
+func TestEffectiveConfigPath_ExplicitOverrideWins(t *testing.T) {
+	withTestHome(t, "darwin")
+	m, _ := newTestManager()
+	got, err := m.EffectiveConfigPath("/explicit/server.yaml")
+	if err != nil {
+		t.Fatalf("EffectiveConfigPath: %v", err)
+	}
+	if got != "/explicit/server.yaml" {
+		t.Errorf("EffectiveConfigPath = %q, want the explicit override", got)
+	}
+}
+
+func TestEffectiveConfigPath_NoInstalledDefinitionUsesStandardPath(t *testing.T) {
+	home := withTestHome(t, "darwin")
+	m, _ := newTestManager()
+	got, err := m.EffectiveConfigPath("")
+	if err != nil {
+		t.Fatalf("EffectiveConfigPath: %v", err)
+	}
+	want := filepath.Join(home, ".config", "cartographer", "server.yaml")
+	if got != want {
+		t.Errorf("EffectiveConfigPath = %q, want standard path %q", got, want)
+	}
+}
+
+func TestEffectiveConfigPath_DiscoversGeneratedDarwinPlist(t *testing.T) {
+	home := withTestHome(t, "darwin")
+	plistPath := filepath.Join(home, "Library", "LaunchAgents", "com.cartographer.serve.plist")
+	os.MkdirAll(filepath.Dir(plistPath), 0o755)
+	custom := filepath.Join(home, "custom", "server.yaml")
+	plist := RenderLaunchdPlist("/usr/local/bin/cartographer", custom, filepath.Join(home, "log"))
+	if err := os.WriteFile(plistPath, []byte(plist), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	m, _ := newTestManager()
+	got, err := m.EffectiveConfigPath("")
+	if err != nil {
+		t.Fatalf("EffectiveConfigPath: %v", err)
+	}
+	if got != custom {
+		t.Errorf("EffectiveConfigPath = %q, want the plist's --config argument %q", got, custom)
+	}
+}
+
+func TestEffectiveConfigPath_DiscoversGeneratedLinuxUnit(t *testing.T) {
+	home := withTestHome(t, "linux")
+	unitPath := filepath.Join(home, ".config", "systemd", "user", "cartographer.service")
+	os.MkdirAll(filepath.Dir(unitPath), 0o755)
+	custom := filepath.Join(home, "custom", "server.yaml")
+	unit := RenderSystemdUnit("/usr/local/bin/cartographer", custom)
+	if err := os.WriteFile(unitPath, []byte(unit), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	m, _ := newTestManager()
+	got, err := m.EffectiveConfigPath("")
+	if err != nil {
+		t.Fatalf("EffectiveConfigPath: %v", err)
+	}
+	if got != custom {
+		t.Errorf("EffectiveConfigPath = %q, want the unit's --config argument %q", got, custom)
+	}
+}
+
+func TestEffectiveConfigPath_MalformedPlistFails(t *testing.T) {
+	home := withTestHome(t, "darwin")
+	plistPath := filepath.Join(home, "Library", "LaunchAgents", "com.cartographer.serve.plist")
+	os.MkdirAll(filepath.Dir(plistPath), 0o755)
+	if err := os.WriteFile(plistPath, []byte("<plist><dict>not a real definition</dict></plist>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	m, _ := newTestManager()
+	if _, err := m.EffectiveConfigPath(""); err == nil {
+		t.Error("EffectiveConfigPath should fail on a malformed installed plist")
+	}
+}
+
+func TestEffectiveConfigPath_MalformedUnitFails(t *testing.T) {
+	home := withTestHome(t, "linux")
+	unitPath := filepath.Join(home, ".config", "systemd", "user", "cartographer.service")
+	os.MkdirAll(filepath.Dir(unitPath), 0o755)
+	if err := os.WriteFile(unitPath, []byte("[Unit]\nDescription=broken\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	m, _ := newTestManager()
+	if _, err := m.EffectiveConfigPath(""); err == nil {
+		t.Error("EffectiveConfigPath should fail on a malformed installed unit")
+	}
+}
+
+// healthServer starts an httptest server whose /health handler returns
+// statuses in sequence (repeating the last one once exhausted), and reports
+// how many requests it received.
+type healthServer struct {
+	*httptest.Server
+	requests int32
+}
+
+func newHealthServer(t *testing.T, responses ...func(w http.ResponseWriter)) *healthServer {
+	t.Helper()
+	hs := &healthServer{}
+	var idx int32
+	hs.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&hs.requests, 1)
+		i := atomic.AddInt32(&idx, 1) - 1
+		if int(i) >= len(responses) {
+			i = int32(len(responses) - 1)
+		}
+		responses[i](w)
+	}))
+	t.Cleanup(hs.Close)
+	return hs
+}
+
+func healthOK(version string) func(http.ResponseWriter) {
+	return func(w http.ResponseWriter) {
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(HealthStatus{Status: "ok", Version: version})
+	}
+}
+
+func healthNonOK() func(http.ResponseWriter) {
+	return func(w http.ResponseWriter) { w.WriteHeader(http.StatusServiceUnavailable) }
+}
+
+func healthMalformed() func(http.ResponseWriter) {
+	return func(w http.ResponseWriter) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("not json"))
+	}
+}
+
+// writeReplaceConfig writes a minimal config YAML pointing at srv's address
+// and returns its path.
+func writeReplaceConfig(t *testing.T, home, httpAddr string) string {
+	t.Helper()
+	configPath := filepath.Join(home, ".config", "cartographer", "server.yaml")
+	os.MkdirAll(filepath.Dir(configPath), 0o755)
+	if err := os.WriteFile(configPath, []byte(fmt.Sprintf("http: %q\n", httpAddr)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return configPath
+}
+
+func serverAddr(srv *httptest.Server) string {
+	return strings.TrimPrefix(srv.URL, "http://")
+}
+
+func TestReplace_DarwinSendsLaunchctlKillSIGTERM(t *testing.T) {
+	home := withTestHome(t, "darwin")
+	srv := newHealthServer(t, healthOK("v1.2.3"))
+	configPath := writeReplaceConfig(t, home, serverAddr(srv.Server))
+
+	m, stub := newTestManager()
+	if err := m.Replace(ReplaceOptions{ConfigPath: configPath, ExpectedVersion: "v1.2.3", Timeout: time.Second, PollInterval: 10 * time.Millisecond}); err != nil {
+		t.Fatalf("Replace: %v", err)
+	}
+	var gotKill bool
+	for _, c := range stub.calls {
+		if len(c) >= 2 && c[0] == "launchctl" && c[1] == "kill" {
+			gotKill = true
+			if !(len(c) >= 3 && c[2] == "SIGTERM") {
+				t.Errorf("launchctl kill call = %v, want SIGTERM", c)
+			}
+		}
+		if len(c) >= 2 && c[0] == "launchctl" && c[1] == "kickstart" {
+			t.Errorf("Replace must not use launchctl kickstart -k, got %v", c)
+		}
+	}
+	if !gotKill {
+		t.Errorf("expected a launchctl kill call, got %v", stub.calls)
+	}
+}
+
+func TestReplace_LinuxSelectsSystemctlRestart(t *testing.T) {
+	home := withTestHome(t, "linux")
+	srv := newHealthServer(t, healthOK("v1.2.3"))
+	configPath := writeReplaceConfig(t, home, serverAddr(srv.Server))
+
+	m, stub := newTestManager()
+	if err := m.Replace(ReplaceOptions{ConfigPath: configPath, ExpectedVersion: "v1.2.3", Timeout: time.Second, PollInterval: 10 * time.Millisecond}); err != nil {
+		t.Fatalf("Replace: %v", err)
+	}
+	var gotRestart bool
+	for _, c := range stub.calls {
+		if len(c) >= 3 && c[0] == "systemctl" && c[1] == "--user" && c[2] == "restart" {
+			gotRestart = true
+		}
+	}
+	if !gotRestart {
+		t.Errorf("expected a systemctl --user restart call, got %v", stub.calls)
+	}
+}
+
+func TestReplace_RetriesConnectionRefusal(t *testing.T) {
+	home := withTestHome(t, "linux")
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	addr := ln.Addr().String()
+	ln.Close() // nothing listens on addr from here on: connection refused
+
+	configPath := writeReplaceConfig(t, home, addr)
+	m, _ := newTestManager()
+	start := time.Now()
+	err = m.Replace(ReplaceOptions{ConfigPath: configPath, ExpectedVersion: "v1.2.3", Timeout: 100 * time.Millisecond, PollInterval: 20 * time.Millisecond})
+	if err == nil {
+		t.Fatal("Replace should fail when the server is never reachable")
+	}
+	if elapsed := time.Since(start); elapsed < 80*time.Millisecond {
+		t.Errorf("connection refusal should be retried until the timeout (~100ms), took %s", elapsed)
+	}
+}
+
+func TestReplace_RetriesNonOKThenOldVersionThenMatches(t *testing.T) {
+	home := withTestHome(t, "linux")
+	srv := newHealthServer(t, healthNonOK(), healthOK("v1.0.0"), healthOK("v1.2.3"))
+	configPath := writeReplaceConfig(t, home, serverAddr(srv.Server))
+
+	m, _ := newTestManager()
+	if err := m.Replace(ReplaceOptions{ConfigPath: configPath, ExpectedVersion: "v1.2.3", Timeout: time.Second, PollInterval: 5 * time.Millisecond}); err != nil {
+		t.Fatalf("Replace: %v", err)
+	}
+	if got := atomic.LoadInt32(&srv.requests); got < 3 {
+		t.Errorf("expected at least 3 requests (non-200, old version, match), got %d", got)
+	}
+}
+
+func TestReplace_MatchingVersionSucceeds(t *testing.T) {
+	home := withTestHome(t, "linux")
+	srv := newHealthServer(t, healthOK("v1.2.3"))
+	configPath := writeReplaceConfig(t, home, serverAddr(srv.Server))
+
+	m, _ := newTestManager()
+	if err := m.Replace(ReplaceOptions{ConfigPath: configPath, ExpectedVersion: "v1.2.3", Timeout: time.Second, PollInterval: 10 * time.Millisecond}); err != nil {
+		t.Fatalf("Replace: %v", err)
+	}
+}
+
+func TestReplace_DevVersionRequiresHealthOnly(t *testing.T) {
+	home := withTestHome(t, "linux")
+	srv := newHealthServer(t, healthOK("v9.9.9")) // different from "dev", must still succeed
+	configPath := writeReplaceConfig(t, home, serverAddr(srv.Server))
+
+	m, _ := newTestManager()
+	if err := m.Replace(ReplaceOptions{ConfigPath: configPath, ExpectedVersion: "dev", Timeout: time.Second, PollInterval: 10 * time.Millisecond}); err != nil {
+		t.Fatalf("Replace with dev expected version: %v", err)
+	}
+	if err := m.Replace(ReplaceOptions{ConfigPath: configPath, ExpectedVersion: "", Timeout: time.Second, PollInterval: 10 * time.Millisecond}); err != nil {
+		t.Fatalf("Replace with empty expected version: %v", err)
+	}
+}
+
+func TestReplace_MalformedHealthFailsFast(t *testing.T) {
+	home := withTestHome(t, "linux")
+	srv := newHealthServer(t, healthMalformed())
+	configPath := writeReplaceConfig(t, home, serverAddr(srv.Server))
+
+	m, _ := newTestManager()
+	start := time.Now()
+	err := m.Replace(ReplaceOptions{ConfigPath: configPath, ExpectedVersion: "v1.2.3", Timeout: 5 * time.Second, PollInterval: 10 * time.Millisecond})
+	if err == nil {
+		t.Fatal("Replace should fail on a malformed /health response")
+	}
+	if elapsed := time.Since(start); elapsed > time.Second {
+		t.Errorf("malformed /health should fail fast, took %s", elapsed)
+	}
+}
+
+func TestReplace_TimeoutIncludesLastObserved(t *testing.T) {
+	home := withTestHome(t, "linux")
+	srv := newHealthServer(t, healthOK("v1.0.0")) // never matches expected
+	configPath := writeReplaceConfig(t, home, serverAddr(srv.Server))
+
+	m, _ := newTestManager()
+	err := m.Replace(ReplaceOptions{ConfigPath: configPath, ExpectedVersion: "v1.2.3", Timeout: 50 * time.Millisecond, PollInterval: 10 * time.Millisecond})
+	if err == nil {
+		t.Fatal("Replace should time out when the version never matches")
+	}
+	for _, want := range []string{serverAddr(srv.Server), "v1.2.3", "v1.0.0"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("timeout error = %q, want it to contain %q", err, want)
+		}
+	}
+}
+
+func TestReplace_ZeroKBsMatchingHealthSucceeds(t *testing.T) {
+	// /health is 200 status:"ok" regardless of mounted KBs (D84); Replace
+	// must not require a kbs field or any KB-related content.
+	home := withTestHome(t, "linux")
+	srv := newHealthServer(t, healthOK("v1.2.3"))
+	configPath := writeReplaceConfig(t, home, serverAddr(srv.Server))
+
+	m, _ := newTestManager()
+	if err := m.Replace(ReplaceOptions{ConfigPath: configPath, ExpectedVersion: "v1.2.3", Timeout: time.Second, PollInterval: 10 * time.Millisecond}); err != nil {
+		t.Fatalf("Replace with zero mounted KBs: %v", err)
+	}
+}
+
+func TestReplace_MalformedConfigFailsBeforeSignaling(t *testing.T) {
+	home := withTestHome(t, "linux")
+	configPath := filepath.Join(home, "server.yaml")
+	if err := os.WriteFile(configPath, []byte("not: [valid yaml"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	m, stub := newTestManager()
+	if err := m.Replace(ReplaceOptions{ConfigPath: configPath, ExpectedVersion: "v1.2.3"}); err == nil {
+		t.Fatal("Replace should fail on a malformed config")
+	}
+	if len(stub.calls) != 0 {
+		t.Errorf("Replace must not signal the process before the config is validated, got calls: %v", stub.calls)
+	}
+}
+
+func TestReplace_MissingHTTPAddrFailsBeforeSignaling(t *testing.T) {
+	home := withTestHome(t, "linux")
+	configPath := filepath.Join(home, "server.yaml")
+	if err := os.WriteFile(configPath, []byte("data: /tmp/x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	m, stub := newTestManager()
+	if err := m.Replace(ReplaceOptions{ConfigPath: configPath}); err == nil {
+		t.Fatal("Replace should fail when the config has no http address")
+	}
+	if len(stub.calls) != 0 {
+		t.Errorf("Replace must not signal the process without an http address, got calls: %v", stub.calls)
+	}
+}
+
+func TestRestart_Darwin_UsesKickstartK(t *testing.T) {
+	withTestHome(t, "darwin")
+	m, stub := newTestManager()
+	if err := m.Restart(); err != nil {
+		t.Fatalf("Restart: %v", err)
+	}
+	if len(stub.calls) != 1 || stub.calls[0][0] != "launchctl" || stub.calls[0][1] != "kickstart" || stub.calls[0][2] != "-k" {
+		t.Errorf("plain Restart calls = %v, want launchctl kickstart -k", stub.calls)
+	}
+}
+
+func TestRestart_Linux_UsesSystemctlRestart(t *testing.T) {
+	withTestHome(t, "linux")
+	m, stub := newTestManager()
+	if err := m.Restart(); err != nil {
+		t.Fatalf("Restart: %v", err)
+	}
+	if len(stub.calls) != 1 || stub.calls[0][0] != "systemctl" || stub.calls[0][1] != "--user" || stub.calls[0][2] != "restart" {
+		t.Errorf("plain Restart calls = %v, want systemctl --user restart", stub.calls)
 	}
 }
