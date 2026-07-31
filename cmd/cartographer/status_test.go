@@ -44,7 +44,7 @@ func TestCmdStatus_VersionReport(t *testing.T) {
 			serviceInstalled: true,
 			want: []string{
 				"version skew: client v1.2.3 ≠ server v1.2.2",
-				"local service may still run the old binary — run: cartographer service restart",
+				"local service may still run the old binary — run: cartographer upgrade-repair",
 			},
 		},
 		{

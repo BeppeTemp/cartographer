@@ -80,6 +80,15 @@ re-derived client-side (D120: `resolveKBTargets`/`qualifyTool` in `cmd/cartograp
 This keeps the client plumbing correct whether the server prefixes tools or not — an unprefixed
 KB is called unchanged, exactly as before D120.
 
+A **native local upgrade** is another trigger for the same path: after `install.sh` or the
+generated Homebrew Cask replaces the binary, `cartographer upgrade-repair` reconciles the
+configured providers in place (D121, → [deployment](deployment.md) §Upgrades, schema migration,
+and repo growth). It runs the very same in-process sync as plain `cartographer sync` — same
+authorization, same persisted trust, pinned keys, point approvals and allow-lists. Automatic
+repair never implies `--auto-trust`, never invents an approval and never broadens trust; it also
+never disconnects or reconnects a provider. It only runs when the client is configured against
+that same native service over loopback HTTP; any other endpoint is skipped rather than contacted.
+
 ## Security
 
 - **Cryptographic signature gate.** A configured KB signer creates a canonical Ed25519 envelope over domain, format version, source KB, kind, name, version and content hash. The remote client recomputes the content hash and verifies against out-of-band `signing_keys` pins before writing any provider file or lockfile. `signed:true` is verification output only; malformed, invalid, source-mismatched, unknown-key or tampered content fails the whole sync. Bundled artifacts use the separate `built_in:true` origin.

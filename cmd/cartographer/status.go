@@ -79,7 +79,7 @@ func renderStatus(output string, s statusSnapshot, code int) int {
 	if s.State == "version_skew" {
 		fmt.Printf("version skew: client %s ≠ server %s\n", s.Client, s.Server)
 		if s.Service != nil && s.Service.Installed {
-			fmt.Println("local service may still run the old binary — run: cartographer service restart")
+			fmt.Println("local service may still run the old binary — run: cartographer upgrade-repair")
 		}
 	}
 	for _, p := range s.Providers {
@@ -170,6 +170,6 @@ func printVersionStatus(cfg *clientconfig.Config) {
 		return
 	}
 	if st, err := statusServiceFn(); err == nil && st.Installed {
-		fmt.Println("local service may still run the old binary — run: cartographer service restart")
+		fmt.Println("local service may still run the old binary — run: cartographer upgrade-repair")
 	}
 }

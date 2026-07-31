@@ -56,4 +56,23 @@ homebrew_casks:
         install: |
           if OS.mac?
             system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}"]
+
+            # Repair any native service in place (D121): gracefully replace an
+            # already-running local server, prove the new version is serving,
+            # and reconcile configured providers. Runs on first install too,
+            # where it is an idempotent no-op (no native service yet). Never
+            # invoke a versioned Caskroom path: always the stable linked
+            # binary, so it works identically across upgrades. Non-fatal by
+            # design — a repair issue must never fail or roll back the
+            # Homebrew transaction.
+            result = system_command "#{HOMEBREW_PREFIX}/bin/cartographer",
+                                     args: ["upgrade-repair"],
+                                     must_succeed: false
+            if result.exit_status != 0
+              opoo <<~EOS
+                cartographer upgrade-repair reported an issue (exit #{result.exit_status}):
+                #{result.stdout}#{result.stderr}
+                Retry manually with: #{HOMEBREW_PREFIX}/bin/cartographer upgrade-repair
+              EOS
+            end
           end

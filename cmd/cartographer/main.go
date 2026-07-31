@@ -31,6 +31,7 @@ var subcommands = []subcommand{
 	{"Client", "approve", "Approve or revoke a third-party MCP descriptor"},
 	{"Server", "serve", "Run the MCP server"},
 	{"Server", "service", "Manage the native server service"},
+	{"Server", "upgrade-repair", "Repair the native service and provider sync after an upgrade"},
 	{"Knowledge base", "kb", "Create or mount local knowledge bases"},
 	{"Knowledge base", "import", "Import an external markdown corpus"},
 	{"Knowledge base", "resolve", "Resolve a configured path placeholder"},
@@ -43,21 +44,22 @@ var subcommands = []subcommand{
 // exercise run()'s dispatch logic without actually starting the server or
 // hitting the network.
 var (
-	serveFn      = cmdServe
-	versionFn    = cmdVersion
-	agentsFn     = cmdAgents
-	connectFn    = cmdConnect
-	disconnectFn = cmdDisconnect
-	statusFn     = cmdStatus
-	syncFn       = cmdSync
-	approveFn    = cmdApprove
-	serviceFn    = cmdService
-	runTUIFn     = runTUI
-	importFn     = cmdImport
-	resolveFn    = cmdResolve
-	kbFn         = cmdKB
-	reindexFn    = cmdReindex
-	auditFn      = cmdAudit
+	serveFn         = cmdServe
+	versionFn       = cmdVersion
+	agentsFn        = cmdAgents
+	connectFn       = cmdConnect
+	disconnectFn    = cmdDisconnect
+	statusFn        = cmdStatus
+	syncFn          = cmdSync
+	approveFn       = cmdApprove
+	serviceFn       = cmdService
+	upgradeRepairFn = cmdUpgradeRepair
+	runTUIFn        = runTUI
+	importFn        = cmdImport
+	resolveFn       = cmdResolve
+	kbFn            = cmdKB
+	reindexFn       = cmdReindex
+	auditFn         = cmdAudit
 )
 
 func main() {
@@ -105,6 +107,8 @@ func run(args []string) int {
 		return approveFn(rest)
 	case "service":
 		return serviceFn(rest)
+	case "upgrade-repair":
+		return upgradeRepairFn(rest)
 	case "import":
 		return importFn(rest)
 	case "resolve":

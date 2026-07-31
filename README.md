@@ -137,6 +137,11 @@ cartographer connect                      # connects an agent client (Claude Cod
 (`cartographer service restart`, or `--restart` to do it and wait for it automatically); `service
 install` itself hints at `kb create` if it starts with no KB mounted yet.
 
+Upgrades of a native local install (`brew upgrade` or `install.sh update`) repair themselves:
+the new binary restarts the running service and re-synchronizes the configured providers in
+place — `disconnect`/`connect` is never an upgrade step. Only already-open agent sessions need
+restarting. See `docs/deployment.md` §Upgrades, schema migration, and repo growth.
+
 `connect` with no flags in a TTY opens an interactive form (server URL, server
 name, token env var, auth) instead of the flag defaults; pass `--no-input` to
 force the non-interactive behavior. Once connected:
