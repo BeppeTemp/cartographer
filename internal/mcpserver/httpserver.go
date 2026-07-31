@@ -292,6 +292,14 @@ type KBInfo struct {
 	Name   string `json:"name"`
 	Root   string `json:"root"`
 	Status string `json:"status"` // "normal", "syncing", "needs-resolution"
+	// ToolPrefix is the effective tool-name prefix (D102) this KB's tools were
+	// registered under, e.g. "ai_team" for tools named "ai_team__concept_read".
+	// Empty (omitted) for an unprefixed KB — the same shape a pre-D120 client
+	// already tolerates (see client.HealthKB). Set once, at mount time, from
+	// the exact sanitised value MountKBWithPrefix passed to
+	// Server.SetToolNamePrefix (D120): clients discover it here rather than
+	// re-deriving config.ResolveToolPrefix themselves.
+	ToolPrefix string `json:"tool_prefix,omitempty"`
 }
 
 // MultiKBServer wraps multiple KB instances served by a single HTTP server.
@@ -352,7 +360,7 @@ func (m *MultiKBServer) MountKBWithPrefix(name, prefix string, setupFn func(s *S
 		}
 	}
 	m.servers[name] = srv
-	m.kbs = append(m.kbs, KBInfo{Name: name, Status: "normal"})
+	m.kbs = append(m.kbs, KBInfo{Name: name, Status: "normal", ToolPrefix: prefix})
 	return nil
 }
 

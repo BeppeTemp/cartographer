@@ -56,34 +56,36 @@ func resolveToken(cfg *clientconfig.Config) string {
 	return os.Getenv(cfg.TokenEnv)
 }
 
-// kbTargets returns the list of KB names to query for cfg: cfg.KBs verbatim, or a
-// single "" entry (the server's default single-KB endpoint, see
-// MultiKBServer.Handler in internal/mcpserver/httpserver.go) when cfg.KBs is empty.
-func kbTargets(cfg *clientconfig.Config) []string {
-	if len(cfg.KBs) == 0 {
-		return []string{""}
-	}
-	return cfg.KBs
-}
-
-// fetchMergedManifest connects to cfg.ServerURL and calls sync_pull once per KB
-// target (cfg.KBs, or the default single-KB endpoint when empty), decoding each
-// artifact's in-memory file contents (base64) and merging everything into a single
-// provisioning.Manifest via provisioning.MergeArtifacts — the same precedence rule
-// (KB source wins over bundle) BuildManifest applies server-side for one KB.
+// fetchMergedManifest connects to cfg.ServerURL, discovers the live per-KB
+// tool-name prefixes from /health (D120: resolveKBTargets), and calls
+// sync_pull — qualified with each target's advertised prefix — once per KB
+// target (cfg.KBs, or the server's default single-KB endpoint when empty),
+// decoding each artifact's in-memory file contents (base64) and merging
+// everything into a single provisioning.Manifest via
+// provisioning.MergeArtifacts — the same precedence rule (KB source wins over
+// bundle) BuildManifest applies server-side for one KB.
 func fetchMergedManifest(cfg *clientconfig.Config) (provisioning.Manifest, error) {
 	token := resolveToken(cfg)
+	health, err := client.New(cfg.ServerURL, token).Health(probeTimeout)
+	if err != nil {
+		return provisioning.Manifest{}, fmt.Errorf("health: %w", err)
+	}
+	targets, err := resolveKBTargets(health, cfg.KBs)
+	if err != nil {
+		return provisioning.Manifest{}, err
+	}
+
 	var all []provisioning.Artifact
 	seen := make(map[string]provisioning.Artifact)
 
-	for _, kbName := range kbTargets(cfg) {
-		c := client.New(cfg.ServerURL, token).WithKB(kbName)
-		raw, err := c.Call("sync_pull", map[string]any{})
+	for _, target := range targets {
+		c := client.New(cfg.ServerURL, token).WithKB(target.Name)
+		raw, err := callTool(c, target, "sync_pull", map[string]any{})
 		if err != nil {
-			if kbName == "" {
+			if target.Name == "" {
 				return provisioning.Manifest{}, fmt.Errorf("sync_pull: %w", err)
 			}
-			return provisioning.Manifest{}, fmt.Errorf("sync_pull (kb=%s): %w", kbName, err)
+			return provisioning.Manifest{}, fmt.Errorf("sync_pull (kb=%s): %w", target.Name, err)
 		}
 
 		var pm pulledManifestJSON

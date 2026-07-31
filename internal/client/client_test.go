@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -127,6 +128,32 @@ func TestCall_ToolError(t *testing.T) {
 	}
 }
 
+// TestCall_ToolError_ClassifiesAsRemoteFailed is the exact D120 regression
+// scenario: the server is reachable (it returns a valid JSON-RPC response)
+// but the requested tool doesn't exist there (e.g. a stale/unqualified tool
+// name) — this must classify as RemoteFailed/mcp_failed, never as
+// RemoteUnavailable (which would render as "server unreachable").
+func TestCall_ToolError_ClassifiesAsRemoteFailed(t *testing.T) {
+	srv := fakeMCPServer(t, "")
+	defer srv.Close()
+
+	c := client.New(srv.URL, "")
+	_, err := c.Call("err_tool", map[string]any{})
+	var re *client.RemoteError
+	if !errors.As(err, &re) {
+		t.Fatalf("err = %v, want a *client.RemoteError", err)
+	}
+	if re.State != client.RemoteFailed {
+		t.Errorf("State = %q, want %q", re.State, client.RemoteFailed)
+	}
+	if re.Code != client.CodeMCPFailed {
+		t.Errorf("Code = %q, want %q", re.Code, client.CodeMCPFailed)
+	}
+	if !strings.Contains(err.Error(), "boom") {
+		t.Errorf("error = %v, want it to preserve the tool's error text", err)
+	}
+}
+
 func TestCall_WithKB(t *testing.T) {
 	srv := fakeMCPServer(t, "")
 	defer srv.Close()
@@ -149,6 +176,87 @@ func TestCall_Unreachable(t *testing.T) {
 	c := client.New("http://127.0.0.1:1", "")
 	if _, err := c.Call("ok_tool", map[string]any{}); err == nil {
 		t.Fatal("expected error for unreachable server, got nil")
+	}
+}
+
+// TestCall_Unreachable_ClassifiesAsRemoteUnavailable is the dial-time
+// counterpart of TestCall_ToolError_ClassifiesAsRemoteFailed: a connection
+// that never reaches an HTTP server classifies as RemoteUnavailable, code
+// unreachable (not dns_failed: 127.0.0.1 resolves fine, the connection is
+// refused).
+func TestCall_Unreachable_ClassifiesAsRemoteUnavailable(t *testing.T) {
+	c := client.New("http://127.0.0.1:1", "")
+	_, err := c.Call("ok_tool", map[string]any{})
+	var re *client.RemoteError
+	if !errors.As(err, &re) {
+		t.Fatalf("err = %v, want a *client.RemoteError", err)
+	}
+	if re.State != client.RemoteUnavailable {
+		t.Errorf("State = %q, want %q", re.State, client.RemoteUnavailable)
+	}
+	if re.Code != client.CodeUnreachable {
+		t.Errorf("Code = %q, want %q", re.Code, client.CodeUnreachable)
+	}
+}
+
+// TestCall_Unauthorized_ClassifiesAsRemoteUnavailable confirms 401 responses
+// keep classifying as RemoteUnavailable/unauthorized, and that
+// errors.Is(err, client.ErrUnauthorized) still works through the
+// RemoteError wrapper (pre-D120 callers rely on this).
+func TestCall_Unauthorized_ClassifiesAsRemoteUnavailable(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+	}))
+	defer srv.Close()
+
+	_, err := client.New(srv.URL, "wrong-token").Call("ok_tool", map[string]any{})
+	var re *client.RemoteError
+	if !errors.As(err, &re) {
+		t.Fatalf("err = %v, want a *client.RemoteError", err)
+	}
+	if re.State != client.RemoteUnavailable || re.Code != client.CodeUnauthorized {
+		t.Errorf("State/Code = %q/%q, want %q/%q", re.State, re.Code, client.RemoteUnavailable, client.CodeUnauthorized)
+	}
+	if !errors.Is(err, client.ErrUnauthorized) {
+		t.Fatalf("expected errors.Is(err, client.ErrUnauthorized) through the RemoteError wrapper, got %v", err)
+	}
+}
+
+// TestCall_MalformedJSONRPCResponse_ClassifiesAsRemoteFailed: a reachable
+// server (HTTP 200) that returns a body that isn't valid JSON-RPC classifies
+// as RemoteFailed/mcp_failed, alongside the tool-level isError:true case.
+func TestCall_MalformedJSONRPCResponse_ClassifiesAsRemoteFailed(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte("not json"))
+	}))
+	defer srv.Close()
+
+	_, err := client.New(srv.URL, "").Call("ok_tool", map[string]any{})
+	var re *client.RemoteError
+	if !errors.As(err, &re) {
+		t.Fatalf("err = %v, want a *client.RemoteError", err)
+	}
+	if re.State != client.RemoteFailed || re.Code != client.CodeMCPFailed {
+		t.Errorf("State/Code = %q/%q, want %q/%q", re.State, re.Code, client.RemoteFailed, client.CodeMCPFailed)
+	}
+}
+
+// TestCall_HTTPStatusFailure_ClassifiesAsRemoteUnavailable: a non-401 HTTP
+// failure status (e.g. 500) classifies as RemoteUnavailable/http_failed.
+func TestCall_HTTPStatusFailure_ClassifiesAsRemoteUnavailable(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "boom", http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+
+	_, err := client.New(srv.URL, "").Call("ok_tool", map[string]any{})
+	var re *client.RemoteError
+	if !errors.As(err, &re) {
+		t.Fatalf("err = %v, want a *client.RemoteError", err)
+	}
+	if re.State != client.RemoteUnavailable || re.Code != client.CodeHTTPFailed {
+		t.Errorf("State/Code = %q/%q, want %q/%q", re.State, re.Code, client.RemoteUnavailable, client.CodeHTTPFailed)
 	}
 }
 
@@ -251,6 +359,57 @@ func TestHealth_StripsMCPPathAndParsesVersion(t *testing.T) {
 	}
 	if health.Status != "ok" || health.Version != "v1.2.3" || health.Ready != nil || health.KBs == nil || len(*health.KBs) != 0 {
 		t.Errorf("Health = %+v, want status=ok version=v1.2.3 ready=nil kbs=empty-present", health)
+	}
+}
+
+// TestHealth_DecodesToolPrefix is D120: the client must decode each KB's
+// advertised tool_prefix, and keep tolerating the older shapes (string-only
+// KB list, or no tool_prefix field at all) as an empty (unprefixed) value.
+func TestHealth_DecodesToolPrefix(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"status":"ok","kbs":[{"name":"alpha"},{"name":"beta","tool_prefix":"custom_name"}]}`))
+	}))
+	defer srv.Close()
+
+	health, err := client.New(srv.URL, "").Health(time.Second)
+	if err != nil {
+		t.Fatalf("Health: %v", err)
+	}
+	if health.KBs == nil || len(*health.KBs) != 2 {
+		t.Fatalf("KBs = %+v, want 2 entries", health.KBs)
+	}
+	kbs := *health.KBs
+	if kbs[0].Name != "alpha" || kbs[0].ToolPrefix != "" {
+		t.Errorf("kbs[0] = %+v, want Name=alpha ToolPrefix=\"\"", kbs[0])
+	}
+	if kbs[1].Name != "beta" || kbs[1].ToolPrefix != "custom_name" {
+		t.Errorf("kbs[1] = %+v, want Name=beta ToolPrefix=custom_name", kbs[1])
+	}
+}
+
+// TestHealth_ToolPrefixAbsentOnLegacyShapes confirms both older shapes an
+// existing client already tolerates — the bare string-array KB list, and an
+// object KB entry that predates tool_prefix entirely — decode to an empty
+// (unprefixed) ToolPrefix rather than failing.
+func TestHealth_ToolPrefixAbsentOnLegacyShapes(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"status":"ok","kbs":["alpha","beta"]}`))
+	}))
+	defer srv.Close()
+
+	health, err := client.New(srv.URL, "").Health(time.Second)
+	if err != nil {
+		t.Fatalf("Health: %v", err)
+	}
+	if health.KBs == nil || len(*health.KBs) != 2 {
+		t.Fatalf("KBs = %+v, want 2 entries", health.KBs)
+	}
+	for _, kb := range *health.KBs {
+		if kb.ToolPrefix != "" {
+			t.Errorf("kb %+v: ToolPrefix = %q, want empty for the legacy string-array shape", kb, kb.ToolPrefix)
+		}
 	}
 }
 

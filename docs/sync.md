@@ -74,6 +74,12 @@ When client and server don't share a filesystem (`internal/client`, `internal/cl
 3. `Apply` materializes/prunes and writes the v2 lockfile;
 4. pruning remains managed-only.
 
+Each `sync_pull` call (and the equivalent `cartographer reindex` remote call) is qualified with
+that KB's tool-name prefix (D102), discovered from a live `/health` snapshot rather than
+re-derived client-side (D120: `resolveKBTargets`/`qualifyTool` in `cmd/cartographer/multikb.go`).
+This keeps the client plumbing correct whether the server prefixes tools or not — an unprefixed
+KB is called unchanged, exactly as before D120.
+
 ## Security
 
 - **Cryptographic signature gate.** A configured KB signer creates a canonical Ed25519 envelope over domain, format version, source KB, kind, name, version and content hash. The remote client recomputes the content hash and verifies against out-of-band `signing_keys` pins before writing any provider file or lockfile. `signed:true` is verification output only; malformed, invalid, source-mismatched, unknown-key or tampered content fails the whole sync. Bundled artifacts use the separate `built_in:true` origin.

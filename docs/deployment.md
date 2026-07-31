@@ -215,6 +215,14 @@ configured is `kiro` and 2+ MCP entries (i.e. 2+ KBs) are about to be written, r
 whether the server actually has prefixes configured (the client has no way to probe that): the
 operator adds `tool_prefix`/`tool_prefix_mode` to the server config as the fix.
 
+`GET /health`'s `kbs[]` items carry the KB's *effective* prefix as `tool_prefix` (omitted when
+unprefixed) — the exact sanitised value the server registered its tools under, whether it came
+from an explicit `kbs[].tool_prefix` or a derived `kb-name` mode (D120). Client-owned direct
+administrative tool calls (`cartographer sync`'s `sync_pull`, `cartographer reindex`) discover
+this value from a live `/health` snapshot before qualifying the tool name; they never re-derive
+it from the server's own YAML. A stale client selection (a configured KB no longer among the
+KBs the server currently advertises) is reported as an explicit error rather than guessed.
+
 ### Environment variables
 
 Every startup option has a corresponding environment variable (the CLI flag takes precedence):

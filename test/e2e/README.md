@@ -32,6 +32,7 @@ overrides the default base port.
 | `13_stdio_mcp` | D116 trusted stdio MCP lifecycle across all provider configurations |
 | `14_rbac_visibility` | D118 fine-grained RBAC: per-KB collection visibility, exact-resource non-disclosure, out-of-perimeter write denial, admin/legacy retrocompatibility |
 | `15_operational_audit` | D119 compliance audit: attempt/completion event pairs, chain verification, export, tamper detection |
+| `16_prefixed_multikb` | D120 prefixed multi-KB: prefix discovery via /health, prefixed vs bare tool resolution, client connect/status/sync/reindex without false diagnostics |
 
 The numbering is retained to preserve historical references. Removed gaps were
 LLM-driven scenarios; model behavior is evaluated during real usage, not in the
@@ -60,6 +61,7 @@ test/e2e/
     13_stdio_mcp.sh
     14_rbac_visibility.sh
     15_operational_audit.sh
+    16_prefixed_multikb.sh
 ```
 
 Each scenario creates its own directory under `E2E_TMP_DIR`, owns the server

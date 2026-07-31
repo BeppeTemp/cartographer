@@ -90,6 +90,13 @@ since a log missing an operation that actually happened is worse than no log.
 `15_operational_audit` closes the loop end-to-end by tampering with a recorded
 entry and requiring `audit verify` and `audit export` to fail on it.
 
+**Prefixed multi-KB is exercised with an arbitrary prefix.** `16_prefixed_multikb`
+sets `tool_prefix` to a string unrelated to the KB name, precisely so a client
+that re-derived the prefix from the KB name instead of discovering it from
+`/health` fails the scenario. It also asserts the negative — the bare tool name
+must *not* resolve on the prefixed KB — because the D102 promise is that
+prefixing is exact, not additive.
+
 ## What is deliberately not in CI
 
 - Whether a particular model interprets an instruction well.
