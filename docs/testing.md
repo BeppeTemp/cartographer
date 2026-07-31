@@ -97,6 +97,25 @@ that re-derived the prefix from the KB name instead of discovering it from
 must *not* resolve on the prefixed KB — because the D102 promise is that
 prefixing is exact, not additive.
 
+### Packaging (`install.sh` and the generated Cask)
+
+`make test-install` runs the network-free suite under `test/install/` plus
+`test/install/goreleaser_guard.sh`, and runs in CI after `make e2e`. The
+scenarios drive `install.sh` against a fake `curl` and a **stateful fake
+installed binary** that records its invocations and returns a scripted exit
+code, so the D121 contract is asserted without downloading a release or
+touching a real launchd/systemd service: an already-current version never
+invokes `upgrade-repair`, a stopped or absent service is never started, exit
+`1` still leaves the binary update successful, and exit `2` (or an unexpected
+code) fails visibly but only *after* the new binary is in place.
+
+The Cask hook is checked as a **repository template**, never as the generated
+file in `BeppeTemp/homebrew-tap`: the guard asserts that
+`.goreleaser.yaml` keeps the quarantine removal, invokes the stable linked
+binary rather than a versioned Caskroom path, and runs `upgrade-repair`
+non-fatally. Its Ruby is not executed — that would need a real Homebrew and
+GoReleaser environment, which is out of the deterministic gate (see below).
+
 ## What is deliberately not in CI
 
 - Whether a particular model interprets an instruction well.
@@ -114,6 +133,7 @@ make vet
 make test
 make smoke-http
 make e2e
+make test-install
 ```
 
 ## Before a release
