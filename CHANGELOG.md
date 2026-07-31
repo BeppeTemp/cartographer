@@ -4,6 +4,34 @@
 
 KB histories with commits authored as `cartographer <cartographer@localhost>` may need a manual author rewrite before a forge with author push rules accepts the first push.
 
+## [0.4.0](https://github.com/BeppeTemp/cartographer/compare/v0.3.1...v0.4.0) (2026-07-31)
+
+
+### Features
+
+* add backlinks and frontmatter facets ([#80](https://github.com/BeppeTemp/cartographer/issues/80)) ([e5f1fd9](https://github.com/BeppeTemp/cartographer/commit/e5f1fd9412190ed0a2ba6a8fa8e31b6543a43e45)), closes [#71](https://github.com/BeppeTemp/cartographer/issues/71)
+* add concept assets ([#78](https://github.com/BeppeTemp/cartographer/issues/78)) ([4061f47](https://github.com/BeppeTemp/cartographer/commit/4061f47d0a900e52616d45fe3574a0fbceb8df07))
+* add declarative lint contracts ([#79](https://github.com/BeppeTemp/cartographer/issues/79)) ([88f3532](https://github.com/BeppeTemp/cartographer/commit/88f3532166f93736b93120377deaf5750529b876))
+* add KB concept templates ([#81](https://github.com/BeppeTemp/cartographer/issues/81)) ([44e5511](https://github.com/BeppeTemp/cartographer/commit/44e5511ce8bfc3d22933f16eec8dd874fdc2e18b))
+* **audit:** complete the operational audit and compliance controls ([#96](https://github.com/BeppeTemp/cartographer/issues/96)) ([472d816](https://github.com/BeppeTemp/cartographer/commit/472d81670db3364c8f12eb2c91a38c5fe30105f4))
+* **auth:** add fine-grained RBAC and permission-aware retrieval ([#95](https://github.com/BeppeTemp/cartographer/issues/95)) ([ecc774c](https://github.com/BeppeTemp/cartographer/commit/ecc774c61b7dbad2441df4686bc54d7ee62e5429))
+* gate MCP artifacts with hash-bound approvals ([#90](https://github.com/BeppeTemp/cartographer/issues/90)) ([7747341](https://github.com/BeppeTemp/cartographer/commit/774734177b9d24a8d7b4f58b11a77bf3c8889f42))
+* **git:** add the server Git profile with working-branch pull requests ([#94](https://github.com/BeppeTemp/cartographer/issues/94)) ([ddc6c09](https://github.com/BeppeTemp/cartographer/commit/ddc6c0939d5f592598709a18402185e1e3ba0f4a))
+* preserve executable and binary provisioning artifacts ([#77](https://github.com/BeppeTemp/cartographer/issues/77)) ([acdc751](https://github.com/BeppeTemp/cartographer/commit/acdc751717f656ca2859e549a362492be0f1f335))
+* **service:** make native local upgrades restart and repair agents transparently ([#98](https://github.com/BeppeTemp/cartographer/issues/98)) ([d8eff03](https://github.com/BeppeTemp/cartographer/commit/d8eff03a40c0e48d138476222f09dfeb1129ab6c))
+* support nested and writable SOPS secrets ([#76](https://github.com/BeppeTemp/cartographer/issues/76)) ([fc7d1dc](https://github.com/BeppeTemp/cartographer/commit/fc7d1dcad81cc7c25c6f5c14b1142470df0fdc86))
+* **sync:** provision stdio MCP servers and environment references ([#93](https://github.com/BeppeTemp/cartographer/issues/93)) ([35f9acb](https://github.com/BeppeTemp/cartographer/commit/35f9acb0e84c8ec119944d120c971a0a337aacae))
+* unify CLI and TUI user experience ([#86](https://github.com/BeppeTemp/cartographer/issues/86)) ([a999b99](https://github.com/BeppeTemp/cartographer/commit/a999b99f8850e06ba07375353d783329720abd74))
+* verify provisioning artifacts cryptographically ([#89](https://github.com/BeppeTemp/cartographer/issues/89)) ([f498155](https://github.com/BeppeTemp/cartographer/commit/f4981550d8febfb17c0e1ae343dab566148222f3))
+
+
+### Bug Fixes
+
+* **client:** discover the per-KB tool prefix instead of deriving it ([#97](https://github.com/BeppeTemp/cartographer/issues/97)) ([72726aa](https://github.com/BeppeTemp/cartographer/commit/72726aa9ea40ef2736df740bba893d59a0046797))
+* **client:** propagate MCP trust states to status and TUI output ([#92](https://github.com/BeppeTemp/cartographer/issues/92)) ([61994c4](https://github.com/BeppeTemp/cartographer/commit/61994c4c5a0fcbe0291bdac70dd983af5c9db197))
+* move local defaults off port 8080 ([#85](https://github.com/BeppeTemp/cartographer/issues/85)) ([cc967f5](https://github.com/BeppeTemp/cartographer/commit/cc967f5f08839f5f29f6e03d15e72f9fb710ac15)), closes [#82](https://github.com/BeppeTemp/cartographer/issues/82)
+* surface git push failures and resolve commit identity ([#74](https://github.com/BeppeTemp/cartographer/issues/74)) ([466201e](https://github.com/BeppeTemp/cartographer/commit/466201e8a1576435f4ebe2f35357b700f05173bd))
+
 ## [0.3.1](https://github.com/BeppeTemp/cartographer/compare/v0.3.0...v0.3.1) (2026-07-27)
 
 
