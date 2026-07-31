@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -21,6 +22,68 @@ import (
 // probing a server before committing to a connect (Ping, D64) can tell "wrong
 // token/env" apart from "server unreachable" and word their error accordingly.
 var ErrUnauthorized = errors.New("unauthorized (401): check the bearer token/env var")
+
+// RemoteState classifies a RemoteError as either the server being completely
+// unreachable/unusable (RemoteUnavailable: DNS/connection failure, HTTP
+// non-2xx, 401) or reached-but-this-call-failed (RemoteFailed: a malformed
+// JSON-RPC response, a JSON-RPC error object, or a tool result with
+// isError:true — e.g. an unqualified tool name after a healthy discovery,
+// the D120 regression this taxonomy exists to distinguish). Callers
+// (cmd/cartographer's status/TUI panels) render on this distinction instead
+// of a single hardcoded "server unreachable".
+type RemoteState string
+
+const (
+	RemoteUnavailable RemoteState = "unavailable"
+	RemoteFailed      RemoteState = "error"
+)
+
+// Remote error codes (D120): stable, machine-readable strings surfaced in
+// `cartographer status --output json` and matched by cmd/cartographer's
+// unified classifier.
+const (
+	CodeDNSFailed    = "dns_failed"
+	CodeUnreachable  = "unreachable"
+	CodeUnauthorized = "unauthorized"
+	CodeHTTPFailed   = "http_failed"
+	CodeMCPFailed    = "mcp_failed"
+)
+
+// RemoteError is returned by MCPClient's do/Call/Health/Ping for every
+// failure that involves the network or the remote server's response.
+// Local-only errors that never reach the network (an invalid server URL, a
+// JSON marshal failure) are not wrapped — only genuinely remote-shaped
+// failures are, so errors.As(err, &client.RemoteError{}) reliably means "we
+// talked to (or tried to talk to) the network for this call".
+type RemoteError struct {
+	State   RemoteState
+	Code    string
+	Message string
+	Cause   error
+}
+
+func (e *RemoteError) Error() string {
+	if e.Cause != nil {
+		return fmt.Sprintf("%s: %v", e.Message, e.Cause)
+	}
+	return e.Message
+}
+
+// Unwrap exposes Cause so errors.Is/As (including the pre-D120
+// errors.Is(err, ErrUnauthorized) check callers already rely on) keeps
+// working through a RemoteError.
+func (e *RemoteError) Unwrap() error { return e.Cause }
+
+// classifyDialErr distinguishes a DNS failure from any other dial-time
+// network error (connection refused, timeout, ...), mirroring the
+// pre-existing cmd/cartographer/status_snapshot.go classification.
+func classifyDialErr(err error) string {
+	var dnsErr *net.DNSError
+	if errors.As(err, &dnsErr) {
+		return CodeDNSFailed
+	}
+	return CodeUnreachable
+}
 
 // MCPClient is a minimal JSON-RPC 2.0 client for the MCP `tools/call` method.
 type MCPClient struct {
@@ -45,8 +108,14 @@ type Health struct {
 // HealthKB is the additive per-KB item returned by a MultiKB server's
 // /health endpoint. A single-KB (and older) server omits the kbs field
 // altogether, which callers distinguish through Health.KBs being nil.
+// ToolPrefix (D120) is the effective, already-sanitised tool-name prefix
+// (mcpserver.KBInfo.ToolPrefix) this KB's tools are registered under; empty
+// means unprefixed, which is also what an older server (that never sent the
+// field at all) decodes to — additive, byte-compatible with pre-D120
+// servers/clients.
 type HealthKB struct {
-	Name string `json:"name"`
+	Name       string `json:"name"`
+	ToolPrefix string `json:"tool_prefix,omitempty"`
 }
 
 // UnmarshalJSON accepts the current {"name":"..."} health shape and the
@@ -151,27 +220,34 @@ func (c *MCPClient) do(method string, params any) (json.RawMessage, error) {
 
 	resp, err := c.HTTP.Do(httpReq)
 	if err != nil {
-		return nil, fmt.Errorf("client: request to %s: %w", reqURL, err)
+		return nil, &RemoteError{State: RemoteUnavailable, Code: classifyDialErr(err),
+			Message: fmt.Sprintf("could not reach %s", reqURL), Cause: err}
 	}
 	defer resp.Body.Close()
 
 	respBody, err := io.ReadAll(io.LimitReader(resp.Body, 8*1024*1024))
 	if err != nil {
-		return nil, fmt.Errorf("client: read response: %w", err)
+		return nil, &RemoteError{State: RemoteUnavailable, Code: CodeHTTPFailed,
+			Message: fmt.Sprintf("could not read response from %s", reqURL), Cause: err}
 	}
 	if resp.StatusCode != http.StatusOK {
 		if resp.StatusCode == http.StatusUnauthorized {
-			return nil, fmt.Errorf("client: %s: %w", reqURL, ErrUnauthorized)
+			return nil, &RemoteError{State: RemoteUnavailable, Code: CodeUnauthorized,
+				Message: fmt.Sprintf("%s rejected the request", reqURL), Cause: ErrUnauthorized}
 		}
-		return nil, fmt.Errorf("client: %s returned HTTP %d: %s", reqURL, resp.StatusCode, respBody)
+		return nil, &RemoteError{State: RemoteUnavailable, Code: CodeHTTPFailed,
+			Message: fmt.Sprintf("%s returned HTTP %d", reqURL, resp.StatusCode),
+			Cause:   fmt.Errorf("%s", respBody)}
 	}
 
 	var rpcResp rpcResponse
 	if err := json.Unmarshal(respBody, &rpcResp); err != nil {
-		return nil, fmt.Errorf("client: decode JSON-RPC response: %w", err)
+		return nil, &RemoteError{State: RemoteFailed, Code: CodeMCPFailed,
+			Message: fmt.Sprintf("invalid JSON-RPC response from %s", reqURL), Cause: err}
 	}
 	if rpcResp.Error != nil {
-		return nil, fmt.Errorf("client: JSON-RPC error %d: %s", rpcResp.Error.Code, rpcResp.Error.Message)
+		return nil, &RemoteError{State: RemoteFailed, Code: CodeMCPFailed,
+			Message: fmt.Sprintf("JSON-RPC error %d: %s", rpcResp.Error.Code, rpcResp.Error.Message)}
 	}
 	return rpcResp.Result, nil
 }
@@ -220,23 +296,28 @@ func (c *MCPClient) Health(timeout time.Duration) (*Health, error) {
 
 	resp, err := hc.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("client: health request to %s: %w", u, err)
+		return nil, &RemoteError{State: RemoteUnavailable, Code: classifyDialErr(err),
+			Message: fmt.Sprintf("could not reach %s", u), Cause: err}
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		if resp.StatusCode == http.StatusUnauthorized {
-			return nil, fmt.Errorf("client: %s: %w", u, ErrUnauthorized)
+			return nil, &RemoteError{State: RemoteUnavailable, Code: CodeUnauthorized,
+				Message: fmt.Sprintf("%s rejected the request", u), Cause: ErrUnauthorized}
 		}
 		body, readErr := io.ReadAll(io.LimitReader(resp.Body, 8*1024*1024))
 		if readErr != nil {
-			return nil, fmt.Errorf("client: read health response: %w", readErr)
+			return nil, &RemoteError{State: RemoteUnavailable, Code: CodeHTTPFailed,
+				Message: fmt.Sprintf("could not read response from %s", u), Cause: readErr}
 		}
-		return nil, fmt.Errorf("client: %s returned HTTP %d: %s", u, resp.StatusCode, body)
+		return nil, &RemoteError{State: RemoteUnavailable, Code: CodeHTTPFailed,
+			Message: fmt.Sprintf("%s returned HTTP %d", u, resp.StatusCode), Cause: fmt.Errorf("%s", body)}
 	}
 
 	var health Health
 	if err := json.NewDecoder(io.LimitReader(resp.Body, 8*1024*1024)).Decode(&health); err != nil {
-		return nil, fmt.Errorf("client: decode health response: %w", err)
+		return nil, &RemoteError{State: RemoteFailed, Code: CodeMCPFailed,
+			Message: fmt.Sprintf("invalid health response from %s", u), Cause: err}
 	}
 	return &health, nil
 }
@@ -250,13 +331,16 @@ func (c *MCPClient) Call(tool string, args any) (json.RawMessage, error) {
 
 	var tr toolResult
 	if err := json.Unmarshal(raw, &tr); err != nil {
-		return nil, fmt.Errorf("client: decode tool result for %q: %w", tool, err)
+		return nil, &RemoteError{State: RemoteFailed, Code: CodeMCPFailed,
+			Message: fmt.Sprintf("invalid tool result for %q", tool), Cause: err}
 	}
 	if len(tr.Content) == 0 {
-		return nil, fmt.Errorf("client: tool %q returned no content", tool)
+		return nil, &RemoteError{State: RemoteFailed, Code: CodeMCPFailed,
+			Message: fmt.Sprintf("tool %q returned no content", tool)}
 	}
 	if tr.IsError {
-		return nil, fmt.Errorf("client: tool %q returned an error: %s", tool, tr.Content[0].Text)
+		return nil, &RemoteError{State: RemoteFailed, Code: CodeMCPFailed,
+			Message: fmt.Sprintf("tool %q returned an error: %s", tool, tr.Content[0].Text)}
 	}
 	texts := make([]string, 0, len(tr.Content))
 	for _, block := range tr.Content {

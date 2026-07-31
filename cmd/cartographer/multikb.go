@@ -1,11 +1,13 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/url"
 
 	"github.com/BeppeTemp/cartographer/internal/client"
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
+	"github.com/BeppeTemp/cartographer/internal/config"
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 )
 
@@ -13,6 +15,97 @@ import (
 type mcpEntry struct {
 	Name string
 	URL  string
+}
+
+// kbTarget is one resolved remote-KB target for a top-level administrative
+// client operation (fetchMergedManifest, cmdReindex): Name is the KB name to
+// select via WithKB (empty selects the server's default single-KB endpoint,
+// see MultiKBServer.Handler), ToolPrefix is that KB's currently effective
+// tool-name prefix (D102), as advertised by /health (mcpserver.KBInfo.ToolPrefix,
+// D120) — never re-derived client-side from config.ResolveToolPrefix, which
+// would require reading the server's own YAML. Every direct call against a
+// target must go through qualifyTool/callTool so a discovery mismatch is
+// impossible.
+type kbTarget struct {
+	Name       string
+	ToolPrefix string
+}
+
+// qualifyTool returns the tool name to call for a target's advertised
+// prefix: base unchanged for an empty prefix, "<prefix>__<base>" otherwise —
+// the client-side mirror of Server.RegisterTool's own renaming (D102).
+func qualifyTool(prefix, base string) string {
+	if prefix == "" {
+		return base
+	}
+	return prefix + "__" + base
+}
+
+// callTool issues one direct administrative tools/call against target using
+// c (already scoped to target.Name via WithKB), qualifying base with
+// target.ToolPrefix. This is the one seam every Cartographer-owned direct
+// tool call must go through (D120) — see TestNoUnqualifiedProductionToolCalls.
+func callTool(c *client.MCPClient, target kbTarget, base string, args any) (json.RawMessage, error) {
+	return c.Call(qualifyTool(target.ToolPrefix, base), args)
+}
+
+// resolveKBTargets resolves the KB targets for one top-level client
+// operation from a live /health snapshot (D120): the KB names it selects are
+// always the ones the caller already asked for (selectedNames — typically
+// cfg.KBs, or an operator's explicit --kb override), qualified with each
+// KB's currently advertised tool-name prefix rather than a client-side
+// re-derivation. Rules:
+//
+//   - selectedNames non-empty: every name must appear in health.KBs (when
+//     health carries KB metadata at all) — a persisted/explicit name absent
+//     from current health metadata is a stale-selection error naming the KB;
+//     a legacy health response with no kbs field at all preserves the
+//     pre-D120 unprefixed behaviour verbatim (no way to check or qualify);
+//   - selectedNames empty and health advertises exactly one KB: the bare
+//     endpoint, qualified with that KB's advertised prefix;
+//   - selectedNames empty and health advertises zero or 2+ KBs, or omits KB
+//     metadata entirely: the bare endpoint, unqualified — the server's own
+//     "kb parameter required"/"unknown kb" response is the explicit-selection
+//     error that surfaces, exactly as it did before D120; this function never
+//     guesses a KB.
+//
+// A non-empty advertised prefix is validated (config.ValidateToolPrefixShape)
+// before use: malformed server metadata is a protocol error, never silently
+// re-sanitized or retried.
+func resolveKBTargets(health *client.Health, selectedNames []string) ([]kbTarget, error) {
+	haveMetadata := health != nil && health.KBs != nil
+	prefixByName := make(map[string]string, len(selectedNames))
+	if haveMetadata {
+		for _, kb := range *health.KBs {
+			if kb.ToolPrefix != "" {
+				if err := config.ValidateToolPrefixShape(kb.ToolPrefix); err != nil {
+					return nil, fmt.Errorf("server advertised an invalid tool_prefix %q for KB %q: %w", kb.ToolPrefix, kb.Name, err)
+				}
+			}
+			prefixByName[kb.Name] = kb.ToolPrefix
+		}
+	}
+
+	if len(selectedNames) > 0 {
+		targets := make([]kbTarget, 0, len(selectedNames))
+		for _, name := range selectedNames {
+			if !haveMetadata {
+				targets = append(targets, kbTarget{Name: name})
+				continue
+			}
+			prefix, ok := prefixByName[name]
+			if !ok {
+				return nil, fmt.Errorf("configured KB %q is not among the KBs currently advertised by the server (stale selection: check .cartographer.yaml or the server config)", name)
+			}
+			targets = append(targets, kbTarget{Name: name, ToolPrefix: prefix})
+		}
+		return targets, nil
+	}
+
+	if haveMetadata && len(*health.KBs) == 1 {
+		return []kbTarget{{ToolPrefix: (*health.KBs)[0].ToolPrefix}}, nil
+	}
+	return []kbTarget{{}}, nil
 }
 
 // enumerateKBs obtains the mounted KB names from /health. present is false

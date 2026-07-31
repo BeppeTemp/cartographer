@@ -692,7 +692,7 @@ func TestViewList_ExplicitStates(t *testing.T) {
 		version: "test",
 		dir:     "/tmp/does-not-matter",
 		rows: []dashboardAgent{
-			{Agent: agents.Agent{Name: "Claude Code", Installed: true, Evidence: "/bin/claude"}, Connected: true, MCPConfigOK: true, SkillStatus: "in-sync"},
+			{Agent: agents.Agent{Name: "Claude Code", Installed: true, Evidence: "/bin/claude"}, Connected: true, MCPConfigState: mcpConfigInSync, SkillStatus: "in-sync"},
 			{Agent: agents.Agent{Name: "OpenCode", Installed: true, Evidence: "/bin/opencode"}},
 			{Agent: agents.Agent{Name: "Kiro"}},
 		},
@@ -765,7 +765,8 @@ func TestView_StretchesToTerminalWidth(t *testing.T) {
 // TestMCPConfigStatus_CodexTOML pins the fix for the JSON-only check that made
 // Codex always report mcp-config "missing": config.toml is TOML, so the old
 // json.Unmarshal path always failed. mcpConfigStatus must instead match the
-// [mcp_servers.<name>] table emitCodex writes.
+// [mcp_servers.<name>] table emitCodex writes. Zero/one-KB set: exactly one
+// expected entry (the bare server name), so the badge is binary missing/in-sync.
 func TestMCPConfigStatus_CodexTOML(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(dir, ".codex"), 0o755); err != nil {
@@ -777,8 +778,8 @@ func TestMCPConfigStatus_CodexTOML(t *testing.T) {
 	if err := os.WriteFile(tomlPath, []byte("model = \"gpt-5.5\"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if mcpConfigStatus(dir, configurator.ProviderCodex, "cartographer") {
-		t.Error("expected false: config.toml has no [mcp_servers.cartographer] table")
+	if got := mcpConfigStatus(dir, configurator.ProviderCodex, "cartographer", nil); got != mcpConfigMissing {
+		t.Errorf("state = %v, want mcpConfigMissing: config.toml has no [mcp_servers.cartographer] table", got)
 	}
 
 	// With the managed block → in-sync.
@@ -786,13 +787,48 @@ func TestMCPConfigStatus_CodexTOML(t *testing.T) {
 	if err := os.WriteFile(tomlPath, []byte(body), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if !mcpConfigStatus(dir, configurator.ProviderCodex, "cartographer") {
-		t.Error("expected true: config.toml declares [mcp_servers.cartographer]")
+	if got := mcpConfigStatus(dir, configurator.ProviderCodex, "cartographer", nil); got != mcpConfigInSync {
+		t.Errorf("state = %v, want mcpConfigInSync: config.toml declares [mcp_servers.cartographer]", got)
+	}
+}
+
+// TestMCPConfigStatus_CodexTOML_MultiKB covers the three-state badge (D120)
+// on the TOML provider across a multi-KB set: none, some, and all of the
+// per-KB [mcp_servers.cartographer-<kb>] tables present.
+func TestMCPConfigStatus_CodexTOML_MultiKB(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, ".codex"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	tomlPath := filepath.Join(dir, ".codex", "config.toml")
+	kbs := []string{"alpha", "beta"}
+
+	if err := os.WriteFile(tomlPath, []byte("model = \"gpt-5.5\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := mcpConfigStatus(dir, configurator.ProviderCodex, "cartographer", kbs); got != mcpConfigMissing {
+		t.Errorf("none present: state = %v, want mcpConfigMissing", got)
+	}
+
+	if err := os.WriteFile(tomlPath, []byte("[mcp_servers.cartographer-alpha]\nurl = \"http://x\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := mcpConfigStatus(dir, configurator.ProviderCodex, "cartographer", kbs); got != mcpConfigPartial {
+		t.Errorf("one of two present: state = %v, want mcpConfigPartial", got)
+	}
+
+	body := "[mcp_servers.cartographer-alpha]\nurl = \"http://x\"\n[mcp_servers.cartographer-beta]\nurl = \"http://y\"\n"
+	if err := os.WriteFile(tomlPath, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := mcpConfigStatus(dir, configurator.ProviderCodex, "cartographer", kbs); got != mcpConfigInSync {
+		t.Errorf("both present: state = %v, want mcpConfigInSync", got)
 	}
 }
 
 // TestMCPConfigStatus_JSONProviders guards the untouched JSON path
-// (claude/opencode): presence of the server under the right key means in-sync.
+// (claude/opencode): presence of the server under the right key means
+// in-sync; a wrong name means missing.
 func TestMCPConfigStatus_JSONProviders(t *testing.T) {
 	dir := t.TempDir()
 	r, err := configurator.Emit(&configurator.ServerConfig{Name: "cartographer", URL: "http://x"}, configurator.ProviderOpenCode)
@@ -806,11 +842,49 @@ func TestMCPConfigStatus_JSONProviders(t *testing.T) {
 	if err := os.WriteFile(full, []byte(`{"mcp":{"cartographer":{"type":"remote"}}}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if !mcpConfigStatus(dir, configurator.ProviderOpenCode, "cartographer") {
-		t.Error("expected true: opencode config declares the server under \"mcp\"")
+	if got := mcpConfigStatus(dir, configurator.ProviderOpenCode, "cartographer", nil); got != mcpConfigInSync {
+		t.Errorf("state = %v, want mcpConfigInSync: opencode config declares the server under \"mcp\"", got)
 	}
-	if mcpConfigStatus(dir, configurator.ProviderOpenCode, "other") {
-		t.Error("expected false: server name not present")
+	if got := mcpConfigStatus(dir, configurator.ProviderOpenCode, "other", nil); got != mcpConfigMissing {
+		t.Errorf("state = %v, want mcpConfigMissing: server name not present", got)
+	}
+}
+
+// TestMCPConfigStatus_JSONProviders_MultiKB covers the three-state badge on
+// the JSON path across a multi-KB set: none, some, and all of the per-KB
+// entries present under "mcp".
+func TestMCPConfigStatus_JSONProviders_MultiKB(t *testing.T) {
+	dir := t.TempDir()
+	r, err := configurator.Emit(&configurator.ServerConfig{Name: "cartographer", URL: "http://x"}, configurator.ProviderOpenCode)
+	if err != nil {
+		t.Fatal(err)
+	}
+	full := filepath.Join(dir, r.FilePath)
+	if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	kbs := []string{"alpha", "beta"}
+
+	if err := os.WriteFile(full, []byte(`{"mcp":{}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := mcpConfigStatus(dir, configurator.ProviderOpenCode, "cartographer", kbs); got != mcpConfigMissing {
+		t.Errorf("none present: state = %v, want mcpConfigMissing", got)
+	}
+
+	if err := os.WriteFile(full, []byte(`{"mcp":{"cartographer-alpha":{"type":"remote"}}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := mcpConfigStatus(dir, configurator.ProviderOpenCode, "cartographer", kbs); got != mcpConfigPartial {
+		t.Errorf("one of two present: state = %v, want mcpConfigPartial", got)
+	}
+
+	body := `{"mcp":{"cartographer-alpha":{"type":"remote"},"cartographer-beta":{"type":"remote"}}}`
+	if err := os.WriteFile(full, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := mcpConfigStatus(dir, configurator.ProviderOpenCode, "cartographer", kbs); got != mcpConfigInSync {
+		t.Errorf("both present: state = %v, want mcpConfigInSync", got)
 	}
 }
 

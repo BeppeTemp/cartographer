@@ -59,12 +59,28 @@ const (
 // manifest has been fetched.
 type dashboardAgent struct {
 	agents.Agent
-	Connected   bool
-	MCPConfigOK bool
+	Connected bool
+	// MCPConfigState is the mcp-config badge for a connected agent: whether
+	// every entry cartographer connect would currently write for this KB set
+	// is present on disk (see mcpConfigStatus).
+	MCPConfigState mcpConfigState
 	// SkillStatus is one of: "not connected", "checking…", "in-sync",
 	// "drift ..." (see formatDiffStatus), "server unreachable", or "error: ...".
 	SkillStatus string
 }
+
+// mcpConfigState is the three-state mcp-config badge (D120): a connected
+// agent's on-disk MCP config may declare every entry cartographer connect
+// would currently write for the configured KB set (in-sync), some but not
+// all of them (partial — e.g. a KB was added to .cartographer.yaml but
+// `cartographer sync` hasn't run yet for this provider), or none (missing).
+type mcpConfigState int
+
+const (
+	mcpConfigMissing mcpConfigState = iota
+	mcpConfigPartial
+	mcpConfigInSync
+)
 
 // Model is the bubbletea model for the dashboard. It holds only data and
 // transitions; every actual side effect (network call, file read/write) is
@@ -185,8 +201,10 @@ func buildRows(dir string) []dashboardAgent {
 
 	connected := map[string]bool{}
 	serverName := "cartographer"
+	var kbs []string
 	if cfg, err := clientconfig.Load(dir); err == nil {
 		serverName = cfg.ServerName
+		kbs = cfg.KBs
 		for _, a := range cfg.Agents {
 			connected[a] = true
 		}
@@ -197,7 +215,7 @@ func buildRows(dir string) []dashboardAgent {
 		row := dashboardAgent{Agent: a}
 		if connected[string(a.Provider)] {
 			row.Connected = true
-			row.MCPConfigOK = mcpConfigStatus(dir, a.Provider, serverName)
+			row.MCPConfigState = mcpConfigStatus(dir, a.Provider, serverName, kbs)
 			row.SkillStatus = "checking…"
 		} else {
 			row.SkillStatus = "not connected"
@@ -216,45 +234,79 @@ func hasConnectedAgent(rows []dashboardAgent) bool {
 	return false
 }
 
-// mcpConfigStatus reports whether provider's MCP config file exists under dir and
-// declares an MCP server named serverName. Dashboard-only presentation check: the
-// actual config generation/writing lives in configurator.Emit/Apply — this just
-// reads back what Emit would have written, to find the file path, and checks the
-// on-disk content.
-func mcpConfigStatus(dir string, provider configurator.Provider, serverName string) bool {
+// mcpConfigStatus reports whether provider's MCP config file under dir declares
+// every entry cartographer connect/sync currently write for kbs (D92/D120: a
+// zero/one-KB set is one bare serverName entry, a multi-KB set is one entry
+// per KB — see entriesForKBs). Dashboard-only presentation check: the actual
+// config generation/writing lives in configurator.Emit/Apply — this just reads
+// back what Emit would have written, to find the file path, and checks which
+// of the expected entry names are present in the on-disk content.
+//
+// Deliberately does not use managedEntryNames: that helper enumerates every
+// name this client may have *ever* owned (for safe removal across KB set
+// changes), which is not the same set as "currently expected" — a KB removed
+// from .cartographer.yaml should not keep counting toward in-sync/partial.
+func mcpConfigStatus(dir string, provider configurator.Provider, serverName string, kbs []string) mcpConfigState {
+	entries, err := entriesForKBs(serverName, "http://placeholder", kbs)
+	if err != nil || len(entries) == 0 {
+		return mcpConfigMissing
+	}
+	expected := entryNames(entries)
+
 	r, err := configurator.Emit(&configurator.ServerConfig{Name: serverName, URL: "http://placeholder"}, provider)
 	if err != nil {
-		return false
+		return mcpConfigMissing
 	}
 	data, err := os.ReadFile(filepath.Join(dir, r.FilePath))
 	if err != nil {
-		return false
+		return mcpConfigMissing
 	}
-	// TOML providers (codex) store the server as a [mcp_servers.<name>] table
-	// merged into config.toml — not JSON, so json.Unmarshal below would always
-	// fail. Match the table header emitCodex writes instead.
+
+	present := 0
+	// TOML providers (codex) store each server as its own [mcp_servers.<name>]
+	// table merged into config.toml — not JSON, so json.Unmarshal below would
+	// always fail. Match the table header emitCodex writes instead.
 	if strings.HasSuffix(r.FilePath, ".toml") {
-		return strings.Contains(string(data), "[mcp_servers."+serverName+"]")
+		for _, name := range expected {
+			if strings.Contains(string(data), "[mcp_servers."+name+"]") {
+				present++
+			}
+		}
+		return mcpConfigStateFromCounts(present, len(expected))
 	}
+
 	var root map[string]json.RawMessage
 	if err := json.Unmarshal(data, &root); err != nil {
-		return false
+		return mcpConfigMissing
 	}
 	// "mcpServers" (claude/kiro) or "mcp" (opencode) — see configurator.go.
+	var servers map[string]json.RawMessage
 	for _, key := range []string{"mcpServers", "mcp"} {
 		raw, ok := root[key]
 		if !ok {
 			continue
 		}
-		var servers map[string]json.RawMessage
-		if err := json.Unmarshal(raw, &servers); err != nil {
-			continue
-		}
-		if _, ok := servers[serverName]; ok {
-			return true
+		if err := json.Unmarshal(raw, &servers); err == nil {
+			break
 		}
 	}
-	return false
+	for _, name := range expected {
+		if _, ok := servers[name]; ok {
+			present++
+		}
+	}
+	return mcpConfigStateFromCounts(present, len(expected))
+}
+
+func mcpConfigStateFromCounts(present, expected int) mcpConfigState {
+	switch {
+	case expected > 0 && present == expected:
+		return mcpConfigInSync
+	case present > 0:
+		return mcpConfigPartial
+	default:
+		return mcpConfigMissing
+	}
 }
 
 // --- tea.Cmd builders ---
@@ -870,9 +922,14 @@ func (m Model) viewList() string {
 			lines = append(lines, "      "+styleSubtitle.Render("binary      ")+styleEvidence.Render(row.Evidence))
 		}
 		if row.Connected {
-			mcpBadge := styleDrift.Render("missing")
-			if row.MCPConfigOK {
+			var mcpBadge string
+			switch row.MCPConfigState {
+			case mcpConfigInSync:
 				mcpBadge = styleConnected.Render("in-sync")
+			case mcpConfigPartial:
+				mcpBadge = styleDrift.Render("partial")
+			default:
+				mcpBadge = styleDrift.Render("missing")
 			}
 			skill := row.SkillStatus
 			if skill == "checking…" && m.loading {
