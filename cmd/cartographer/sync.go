@@ -11,7 +11,9 @@ import (
 // cmdSync re-fetches the manifest from the configured server (sync_pull) and
 // re-applies it for every connected provider: materialize add/update, prune
 // obsolete managed files, update the lockfile. Idempotent — running it twice on an
-// unchanged server is a no-op.
+// unchanged server is a no-op. Loads the client config itself, then delegates
+// the actual work to runSync — the same in-process runner `upgrade-repair`
+// uses (D121), so both commands share one authorization/materialization path.
 func cmdSync(args []string) int {
 	fs := flag.NewFlagSet("sync", flag.ExitOnError)
 	dryRun := fs.Bool("dry-run", false, "Print what would change without writing")
@@ -33,6 +35,37 @@ func cmdSync(args []string) int {
 		return 0
 	}
 
+	if _, err := runSync(dir, cfg, syncOptions{DryRun: *dryRun, AutoTrust: *autoTrust}); err != nil {
+		fmt.Fprintln(os.Stderr, "Error:", err)
+		return 2
+	}
+	return 0
+}
+
+// syncOptions carries runSync's policy knobs. Both cmdSync and
+// cartographer upgrade-repair (D121) construct this from an already loaded
+// clientconfig.Config; automatic repair never sets AutoTrust, so it never
+// implies a one-shot trust override beyond the persisted `trust` setting.
+type syncOptions struct {
+	DryRun    bool
+	AutoTrust bool
+}
+
+// syncResult is the subset of a completed sync a caller may need beyond the
+// printed progress (e.g. upgrade-repair's success message).
+type syncResult struct {
+	Revision string
+}
+
+// runSync is the single in-process sync implementation: reconcile the
+// provider MCP entries from the mounted KB list, pull and verify the merged
+// manifest, write the session-start bootstrap, and materialize artifacts for
+// every provider in cfg.Agents. It accepts an already loaded target
+// directory/config and returns an error instead of an exit code, so it is
+// callable both from cmdSync and from upgrade-repair without spawning a
+// nested cartographer process or duplicating configurator/approval/
+// signature/provisioning logic.
+func runSync(dir string, cfg *clientconfig.Config, opts syncOptions) (syncResult, error) {
 	// Reconcile the provider MCP entries from the mounted KB list before
 	// sync_pull. On an unreachable server no local entry or persisted KB list
 	// changes; fetchMergedManifest below then reports the ordinary sync error.
@@ -46,17 +79,14 @@ func cmdSync(args []string) int {
 		}
 		entries, err := entriesForKBs(cfg.ServerName, cfg.ServerURL, entryKBs)
 		if err != nil {
-			fmt.Fprintln(os.Stderr, "Error:", err)
-			return 2
+			return syncResult{}, err
 		}
-		if _, err := removeMCPEntries(cfg.ServerName, cfg.KBs, cfg.Agents, dir, cfg.Auth, cfg.TokenEnv, *dryRun); err != nil {
-			fmt.Fprintln(os.Stderr, "Error:", err)
-			return 2
+		if _, err := removeMCPEntries(cfg.ServerName, cfg.KBs, cfg.Agents, dir, cfg.Auth, cfg.TokenEnv, opts.DryRun); err != nil {
+			return syncResult{}, err
 		}
-		_, warnings, err := applyMCPEntries(entries, cfg.Agents, dir, cfg.Auth, cfg.TokenEnv, *dryRun)
+		_, warnings, err := applyMCPEntries(entries, cfg.Agents, dir, cfg.Auth, cfg.TokenEnv, opts.DryRun)
 		if err != nil {
-			fmt.Fprintln(os.Stderr, "Error:", err)
-			return 2
+			return syncResult{}, err
 		}
 		if w := kiroFlatNamespaceWarning(cfg.Agents, entries); w != "" {
 			warnings = append(warnings, w)
@@ -65,40 +95,36 @@ func cmdSync(args []string) int {
 			fmt.Fprintf(os.Stderr, "warning: %s\n", w)
 		}
 		for _, name := range entryNames(entries) {
-			if *dryRun {
+			if opts.DryRun {
 				fmt.Printf("[dry-run] would write MCP entry %s\n", name)
 			} else {
 				fmt.Printf("wrote MCP entry %s\n", name)
 			}
 		}
-		if !*dryRun {
+		if !opts.DryRun {
 			cfg.KBs = kbs
 			if err := clientconfig.Save(dir, cfg); err != nil {
-				fmt.Fprintln(os.Stderr, "Error:", err)
-				return 2
+				return syncResult{}, err
 			}
 		}
 	}
 
 	m, err := fetchMergedManifest(cfg)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "Error:", err)
-		return 2
+		return syncResult{}, err
 	}
 
 	// Do not write even the local bootstrap hook until the complete remote
 	// manifest has passed its content and signature checks.
-	if err := ensureBootstrapForProviders(cfg.Agents, dir, *dryRun); err != nil {
-		fmt.Fprintln(os.Stderr, "Error:", err)
-		return 2
+	if err := ensureBootstrapForProviders(cfg.Agents, dir, opts.DryRun); err != nil {
+		return syncResult{}, err
 	}
 
-	results, err := materializeForProviders(m, cfg.Agents, dir, cfg.Trust || *autoTrust, *dryRun, cfg.SearchRoots, cfg.Paths, cfg.ApprovedMCPHashes())
+	results, err := materializeForProviders(m, cfg.Agents, dir, cfg.Trust || opts.AutoTrust, opts.DryRun, cfg.SearchRoots, cfg.Paths, cfg.ApprovedMCPHashes())
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "Error:", err)
-		return 2
+		return syncResult{}, err
 	}
 	printApplySummary(dir, results)
 	fmt.Printf("synced to revision %s\n", m.Revision)
-	return 0
+	return syncResult{Revision: m.Revision}, nil
 }

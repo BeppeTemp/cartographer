@@ -1,12 +1,15 @@
 package service
 
 import (
+	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -18,6 +21,13 @@ const (
 	launchdLabel  = "com.cartographer.serve"
 	systemdUnit   = "cartographer.service"
 	healthTimeout = 2 * time.Second
+
+	// DefaultReplaceTimeout/DefaultReplacePollInterval bound Manager.Replace's
+	// poll loop for callers (cmd/cartographer's `service restart --wait`) that
+	// do not set ReplaceOptions.Timeout/PollInterval. Tests inject a shorter
+	// window instead of waiting out these defaults.
+	DefaultReplaceTimeout      = 30 * time.Second
+	DefaultReplacePollInterval = 500 * time.Millisecond
 )
 
 // runFunc runs an external command and returns its combined output. Injected
@@ -264,6 +274,257 @@ func (m *Manager) Restart() error {
 	default:
 		return fmt.Errorf("service: unsupported platform %q", goos)
 	}
+}
+
+// EffectiveConfigPath resolves the server config path that governs the
+// currently installed native service. An explicit override always wins. With
+// no explicit path, the installed launchd plist / systemd unit is read and
+// the argument following "serve --config" is extracted, preserving
+// custom-config installations. If no service definition is installed, the
+// standard ConfigPath() is used. An installed but unreadable or malformed
+// definition is a contextual error, returned before any process is signaled.
+func (m *Manager) EffectiveConfigPath(explicit string) (string, error) {
+	if explicit != "" {
+		return explicit, nil
+	}
+	switch goos {
+	case "darwin":
+		plistPath, err := LaunchdPlistPath()
+		if err != nil {
+			return "", fmt.Errorf("service: resolve plist path: %w", err)
+		}
+		data, err := os.ReadFile(plistPath)
+		if err != nil {
+			if os.IsNotExist(err) {
+				return ConfigPath()
+			}
+			return "", fmt.Errorf("service: read installed plist %s: %w", plistPath, err)
+		}
+		cfgPath, err := extractPlistConfigPath(data)
+		if err != nil {
+			return "", fmt.Errorf("service: installed plist %s does not declare a usable config: %w", plistPath, err)
+		}
+		return cfgPath, nil
+	case "linux":
+		unitPath, err := SystemdUnitPath()
+		if err != nil {
+			return "", fmt.Errorf("service: resolve unit path: %w", err)
+		}
+		data, err := os.ReadFile(unitPath)
+		if err != nil {
+			if os.IsNotExist(err) {
+				return ConfigPath()
+			}
+			return "", fmt.Errorf("service: read installed unit %s: %w", unitPath, err)
+		}
+		cfgPath, err := extractUnitConfigPath(data)
+		if err != nil {
+			return "", fmt.Errorf("service: installed unit %s does not declare a usable config: %w", unitPath, err)
+		}
+		return cfgPath, nil
+	default:
+		return "", fmt.Errorf("service: unsupported platform %q", goos)
+	}
+}
+
+var (
+	plistProgramArgsRe = regexp.MustCompile(`(?s)<key>ProgramArguments</key>\s*<array>(.*?)</array>`)
+	plistStringRe      = regexp.MustCompile(`<string>(.*?)</string>`)
+)
+
+// extractPlistConfigPath reads the argument following "serve --config" out
+// of a generated launchd plist's ProgramArguments array (see
+// RenderLaunchdPlist). Returns an error if the array or the --config
+// argument is missing, which callers treat as a malformed definition.
+func extractPlistConfigPath(data []byte) (string, error) {
+	m := plistProgramArgsRe.FindSubmatch(data)
+	if m == nil {
+		return "", fmt.Errorf("no ProgramArguments array found")
+	}
+	matches := plistStringRe.FindAllSubmatch(m[1], -1)
+	args := make([]string, len(matches))
+	for i, s := range matches {
+		args[i] = string(s[1])
+	}
+	return configArgAfter(args)
+}
+
+// extractUnitConfigPath reads the argument following "serve --config" out of
+// a generated systemd unit's ExecStart line (see RenderSystemdUnit).
+func extractUnitConfigPath(data []byte) (string, error) {
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "ExecStart=") {
+			continue
+		}
+		return configArgAfter(strings.Fields(strings.TrimPrefix(line, "ExecStart=")))
+	}
+	return "", fmt.Errorf("no ExecStart line found")
+}
+
+// configArgAfter returns the value immediately following a "--config" token
+// in args, erroring if the flag is absent or has no value.
+func configArgAfter(args []string) (string, error) {
+	for i, a := range args {
+		if a == "--config" {
+			if i+1 >= len(args) || args[i+1] == "" {
+				return "", fmt.Errorf("--config has no value")
+			}
+			return args[i+1], nil
+		}
+	}
+	return "", fmt.Errorf("no --config argument found")
+}
+
+// HealthStatus is the decoded subset of a server's /health response used to
+// prove a version-gated replacement: JSON field names match the server's
+// wire format (see internal/client.Health).
+type HealthStatus struct {
+	Status  string `json:"status"`
+	Version string `json:"version"`
+}
+
+// healthProtocolError marks a /health response that was received (HTTP 200)
+// but is not well-formed proof of a healthy server: malformed JSON or a
+// status other than "ok". Unlike connection failures and non-200 responses,
+// this is not retried — it indicates the endpoint is not a cartographer
+// server, so waiting out the timeout would not help.
+type healthProtocolError struct{ err error }
+
+func (e *healthProtocolError) Error() string { return e.err.Error() }
+func (e *healthProtocolError) Unwrap() error { return e.err }
+
+// ProbeHealth fetches and decodes GET http://<addr>/health, using the same
+// addr normalization as healthURL (bare port or host:port). A connection
+// failure or non-200 response is returned as a plain error (transient,
+// callers may retry); malformed JSON or a status other than "ok" is wrapped
+// in healthProtocolError (not transient — fail fast).
+func ProbeHealth(addr string, timeout time.Duration) (HealthStatus, error) {
+	url := healthURL(addr)
+	if url == "" {
+		return HealthStatus{}, fmt.Errorf("service: no http address configured")
+	}
+	c := http.Client{Timeout: timeout}
+	resp, err := c.Get(url)
+	if err != nil {
+		return HealthStatus{}, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return HealthStatus{}, fmt.Errorf("service: %s returned %s", url, resp.Status)
+	}
+	var hs HealthStatus
+	if err := json.NewDecoder(resp.Body).Decode(&hs); err != nil {
+		return HealthStatus{}, &healthProtocolError{fmt.Errorf("service: decode %s response: %w", url, err)}
+	}
+	if hs.Status != "ok" {
+		return hs, &healthProtocolError{fmt.Errorf("service: %s reported status %q, want \"ok\"", url, hs.Status)}
+	}
+	return hs, nil
+}
+
+// versionSatisfies reports whether observed proves expected is serving. An
+// empty or "dev" expected version only requires a healthy response —
+// development builds are not uniquely identifiable.
+func versionSatisfies(observed, expected string) bool {
+	return expected == "" || expected == "dev" || observed == expected
+}
+
+// signalGraceful sends the platform's graceful-stop signal so the service
+// manager's supervisor (launchd KeepAlive / systemd Restart=on-failure)
+// relaunches it: SIGTERM lets serve.go drain in-flight HTTP requests before
+// exiting, unlike Restart's launchctl kickstart -k.
+func (m *Manager) signalGraceful() error {
+	switch goos {
+	case "darwin":
+		_, err := m.run("launchctl", "kill", "SIGTERM", fmt.Sprintf("gui/%d/%s", os.Getuid(), launchdLabel))
+		return err
+	case "linux":
+		_, err := m.run("systemctl", "--user", "restart", systemdUnit)
+		return err
+	default:
+		return fmt.Errorf("service: unsupported platform %q", goos)
+	}
+}
+
+// ReplaceOptions parametrizes Manager.Replace.
+type ReplaceOptions struct {
+	// ConfigPath overrides EffectiveConfigPath's discovery when non-empty.
+	ConfigPath string
+	// ExpectedVersion is the binary version the caller expects to observe
+	// after replacement. Empty or "dev" skips the equality check.
+	ExpectedVersion string
+	// Timeout bounds the poll loop; defaults to DefaultReplaceTimeout when <= 0.
+	Timeout time.Duration
+	// PollInterval paces retries; defaults to DefaultReplacePollInterval when <= 0.
+	PollInterval time.Duration
+}
+
+// Replace gracefully replaces the already-running native service (SIGTERM,
+// relaunched by the platform supervisor) and blocks until /health proves the
+// expected version is serving, or returns a timeout error. Connection
+// failures, non-200 responses, and an old version are retried; a malformed
+// /health response fails immediately. Zero mounted KBs do not affect this —
+// /health stays 200 regardless of readiness (D84).
+func (m *Manager) Replace(opts ReplaceOptions) error {
+	configPath, err := m.EffectiveConfigPath(opts.ConfigPath)
+	if err != nil {
+		return err
+	}
+	cfg, err := config.Load(configPath)
+	if err != nil {
+		return fmt.Errorf("service: load config %s: %w", configPath, err)
+	}
+	if cfg.HTTP == "" {
+		return fmt.Errorf("service: config %s has no http address configured", configPath)
+	}
+
+	if err := m.signalGraceful(); err != nil {
+		return fmt.Errorf("service: graceful restart: %w", err)
+	}
+
+	timeout := opts.Timeout
+	if timeout <= 0 {
+		timeout = DefaultReplaceTimeout
+	}
+	interval := opts.PollInterval
+	if interval <= 0 {
+		interval = DefaultReplacePollInterval
+	}
+
+	endpoint := healthURL(cfg.HTTP)
+	deadline := time.Now().Add(timeout)
+	var lastStatus, lastVersion string
+	var lastErr error
+	for {
+		hs, err := ProbeHealth(cfg.HTTP, healthTimeout)
+		if err != nil {
+			var protoErr *healthProtocolError
+			if errors.As(err, &protoErr) {
+				return fmt.Errorf("service: %s did not prove a healthy replacement (endpoint %s, expected version %s): %w", configPath, endpoint, displayVersion(opts.ExpectedVersion), err)
+			}
+			lastErr = err
+		} else {
+			lastStatus, lastVersion = hs.Status, hs.Version
+			if versionSatisfies(hs.Version, opts.ExpectedVersion) {
+				return nil
+			}
+		}
+		if time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(interval)
+	}
+	return fmt.Errorf("service: timed out waiting for %s to serve version %s (last observed status=%q version=%q, last error=%v)", endpoint, displayVersion(opts.ExpectedVersion), lastStatus, lastVersion, lastErr)
+}
+
+// displayVersion renders an expected version for an error message, since an
+// empty ExpectedVersion means "any" rather than the empty string literal.
+func displayVersion(expected string) string {
+	if expected == "" {
+		return "(any)"
+	}
+	return expected
 }
 
 // Status reports the current state of the service.
