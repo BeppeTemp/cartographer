@@ -107,15 +107,25 @@ do_install() {
         *) log "note: ${dir} is not in your PATH" ;;
     esac
 
-    # Restart the native service only if it is currently running (status rc 0):
-    # a deliberately stopped service (rc 3) must stay stopped after an update,
-    # and `launchctl kickstart` fails on a job that is not loaded anyway.
+    # Repair any native service in place (D121): upgrade-repair gracefully
+    # replaces an already-running service, proves the new version is serving,
+    # and reconciles configured providers. It is a no-op when the service is
+    # stopped or not installed, so it never starts something deliberately
+    # left off.
     rc=0
-    "$dest" service status >/dev/null 2>&1 || rc=$?
-    if [ "$rc" -eq 0 ]; then
-        log "restarting cartographer service"
-        "$dest" service restart
-    fi
+    "$dest" upgrade-repair || rc=$?
+    case "$rc" in
+        0) ;;
+        1)
+            log "provider sync is pending — the binary update succeeded; retry with: ${dest} sync"
+            ;;
+        2)
+            fail "new binary installed at ${dest} but the running native service could not be verified — inspect it manually (e.g. \`${dest} service status\`) and retry \`${dest} upgrade-repair\`"
+            ;;
+        *)
+            fail "unexpected exit code ${rc} from '${dest} upgrade-repair' — inspect the service manually and retry"
+            ;;
+    esac
 }
 
 do_uninstall() {
