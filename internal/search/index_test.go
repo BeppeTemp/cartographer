@@ -140,3 +140,13 @@ func TestIndex_SearchLimit(t *testing.T) {
 		t.Fatalf("Search with limit 5: got %d hits, want 5", len(hits))
 	}
 }
+
+func TestIndex_SearchFilteredFillsLimitAfterHiddenHits(t *testing.T) {
+	idx := New()
+	idx.Add("hidden", "needle needle needle")
+	idx.Add("visible", "needle")
+	hits := idx.SearchFiltered("needle", "", 1, func(id string) bool { return id != "hidden" })
+	if len(hits) != 1 || hits[0].ID != "visible" {
+		t.Fatalf("filtered hits = %+v, want visible", hits)
+	}
+}
