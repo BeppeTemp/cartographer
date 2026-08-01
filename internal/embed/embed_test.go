@@ -117,6 +117,16 @@ func TestStoreEmpty(t *testing.T) {
 	}
 }
 
+func TestStoreSearchFilteredFillsLimitAfterHiddenHits(t *testing.T) {
+	s := NewStore()
+	s.Add("hidden", Vector{1, 0})
+	s.Add("visible", Vector{0.8, 0.2})
+	hits := s.SearchFiltered(Vector{1, 0}, 1, func(id string) bool { return id != "hidden" })
+	if len(hits) != 1 || hits[0].ID != "visible" {
+		t.Fatalf("filtered hits = %+v, want visible", hits)
+	}
+}
+
 // -- OllamaEmbedder --
 
 func TestOllamaEmbed(t *testing.T) {

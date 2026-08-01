@@ -1,6 +1,7 @@
 package sqlindex
 
 import (
+	"fmt"
 	"math"
 	"path/filepath"
 	"strings"
@@ -109,6 +110,29 @@ func TestSearchFTS_MultiTermFallback(t *testing.T) {
 	}
 	if len(hits) != 2 {
 		t.Fatalf("OR fallback got %+v, want 2 hits", hits)
+	}
+}
+
+func TestSearchFTSFilteredFillsLimitAcrossHiddenPages(t *testing.T) {
+	ix, err := Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ix.Close()
+	for i := 0; i < ftsSearchBatch+1; i++ {
+		if err := ix.Upsert(fmt.Sprintf("hidden/%03d", i), fmt.Sprintf("h%d", i), "needle needle"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := ix.Upsert("visible", "visible", "needle"); err != nil {
+		t.Fatal(err)
+	}
+	hits, err := ix.SearchFTSFiltered("needle", "", 1, func(id string) bool { return !strings.HasPrefix(id, "hidden/") })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hits) != 1 || hits[0].ID != "visible" {
+		t.Fatalf("filtered FTS hits = %+v, want visible", hits)
 	}
 }
 

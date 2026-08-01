@@ -343,3 +343,24 @@ func TestNormalizeAuthMode(t *testing.T) {
 		}
 	}
 }
+
+// TestLoadServerGitProfile pins the YAML surface of the server Git profile
+// (D117): the keys are operator-facing, so a silent rename or a missing
+// mapping would leave a configured profile inert rather than failing.
+func TestLoadServerGitProfile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	data := []byte("git:\n  profile: server\n  base_branch: main\n  working_branch: cartographer/wiki\n  forge: github\n  github_owner: acme\n  github_repository: wiki\n  github_api_url: https://api.github.test\n  github_token_env: CARTOGRAPHER_GITHUB_TOKEN\n")
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Git.Profile != "server" || cfg.Git.BaseBranch != "main" || cfg.Git.WorkingBranch != "cartographer/wiki" || cfg.Git.Forge != "github" || cfg.Git.GitHubOwner != "acme" || cfg.Git.GitHubRepository != "wiki" {
+		t.Fatalf("server git config = %#v", cfg.Git)
+	}
+	if cfg.Git.GitHubAPIURL != "https://api.github.test" || cfg.Git.GitHubTokenEnv != "CARTOGRAPHER_GITHUB_TOKEN" {
+		t.Fatalf("server git endpoint/token config = %#v", cfg.Git)
+	}
+}
