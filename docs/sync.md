@@ -146,7 +146,7 @@ Materialization: a **managed block** delimited by markers (`<!-- cartographer:in
 ## Path portability placeholders (D75)
 
 Shared content (concepts and provisioning artifacts) must never contain machine-specific
-absolute paths: two placeholders, resolved **client-side only**, at materialization time:
+(client-local) absolute paths: two placeholders, resolved **client-side only**, at materialization time:
 
 - `{{repo:<name>}}` (short form) / `{{repo:<host>/<owner>/<name>}}` (full, canonical form) —
   resolved **automatically**: the key is the normalized git remote (`internal/repoindex`,
@@ -157,6 +157,12 @@ absolute paths: two placeholders, resolved **client-side only**, at materializat
 - `{{path:<name>}}` — manual `paths:` mapping in `.cartographer.yaml`, a fallback for directories that
   aren't git repos (and an override for `{{repo:<key>}}` too: `repoindex.Resolve` checks `paths:`
   before cache/scan).
+
+The server-side `machine_path` lint flags a literal client-local path left in a concept body
+instead of one of these placeholders. Not every absolute path in a body is client-local: a Map's
+`machine_path_allow_prefixes` contract (D124, `docs/data-plane.md` §Maps and Journals) declares
+absolute prefixes — a container image's home directory, a remote node's runtime path — that are
+identical on every reader's machine and therefore not a placeholder candidate.
 
 **No server-side expansion**: it would break `content_hash`/`if_match` (hash on the raw content, content
 served differently per client) and the server doesn't know clients' filesystems. `internal/mcpserver`

@@ -713,19 +713,25 @@ func toolMapCreate(k *kb.KB) Tool {
 				"require_index_entry": {
 					"type": "boolean",
 					"description": "Require each concept to be linked from its curated index"
+				},
+				"machine_path_allow_prefixes": {
+					"type": "array",
+					"items": {"type": "string"},
+					"description": "Absolute path prefixes (POSIX or Windows) that the machine_path lint should treat as this map's operational target paths rather than client-local paths (D124)"
 				}
 			}
 		}`),
 		Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
 			var params struct {
-				Name                 string              `json:"name"`
-				Title                string              `json:"title"`
-				Kind                 string              `json:"kind"`
-				ConceptTypes         []string            `json:"concept_types"`
-				OntologyMode         string              `json:"ontology_mode"`
-				RequiredFields       []string            `json:"required_fields"`
-				RequiredFieldsByType map[string][]string `json:"required_fields_by_type"`
-				RequireIndexEntry    bool                `json:"require_index_entry"`
+				Name                     string              `json:"name"`
+				Title                    string              `json:"title"`
+				Kind                     string              `json:"kind"`
+				ConceptTypes             []string            `json:"concept_types"`
+				OntologyMode             string              `json:"ontology_mode"`
+				RequiredFields           []string            `json:"required_fields"`
+				RequiredFieldsByType     map[string][]string `json:"required_fields_by_type"`
+				RequireIndexEntry        bool                `json:"require_index_entry"`
+				MachinePathAllowPrefixes []string            `json:"machine_path_allow_prefixes"`
 			}
 			if err := json.Unmarshal(args, &params); err != nil {
 				return errorResult("invalid params: " + err.Error()), nil
@@ -751,11 +757,17 @@ func toolMapCreate(k *kb.KB) Tool {
 					}
 				}
 			}
+			for _, prefix := range params.MachinePathAllowPrefixes {
+				if strings.TrimSpace(prefix) == "" {
+					return errorResult("'machine_path_allow_prefixes' must not contain empty entries"), nil
+				}
+			}
 
 			contract := kb.MapContract{
-				RequiredFields:       params.RequiredFields,
-				RequiredFieldsByType: params.RequiredFieldsByType,
-				RequireIndexEntry:    params.RequireIndexEntry,
+				RequiredFields:           params.RequiredFields,
+				RequiredFieldsByType:     params.RequiredFieldsByType,
+				RequireIndexEntry:        params.RequireIndexEntry,
+				MachinePathAllowPrefixes: params.MachinePathAllowPrefixes,
 			}
 			if err := k.CreateMapWithContract(params.Name, params.Title, params.Kind, params.ConceptTypes, params.OntologyMode, contract); err != nil {
 				return errorResult(fmt.Sprintf("map_create %q: %v", params.Name, err)), nil

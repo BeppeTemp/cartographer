@@ -61,7 +61,7 @@ Tools marked **[A]** (advanced, `advancedToolNames` in `internal/mcpserver/visib
 
 | Tool | Purpose |
 |---|---|
-| `map_create(name, title, [kind], [concept_types], [ontology_mode], [required_fields], [required_fields_by_type], [require_index_entry])` | Creates a map (`kind: map`, default) or a journal (`kind: journal`): a directory with `_map.md`, `index.md`, `log.md`. The optional contract fields are serialized deterministically in its descriptor. |
+| `map_create(name, title, [kind], [concept_types], [ontology_mode], [required_fields], [required_fields_by_type], [require_index_entry], [machine_path_allow_prefixes])` | Creates a map (`kind: map`, default) or a journal (`kind: journal`): a directory with `_map.md`, `index.md`, `log.md`. The optional contract fields are serialized deterministically in its descriptor. |
 | `map_delete(map)` | Deletes a map/journal directory, but only if it holds nothing beyond the `map_create` scaffold (`_map.md`, `index.md`, `log.md`); if any concept remains, errors listing them — move them out with `concept_move` first, then retry (D88). |
 | `concept_expand(id)` | Promotes a concept to an expanded concept: `map/name.md` → `map/name/index.md`, **same ConceptID** (no backlink rewrite), from which it can grow with `map/name/child` satellites. Requires a 2-segment id; errors `not_found` / `already_expanded`. No inverse operation (D77). |
 | `asset_read(concept_id, path, [encoding])` **[R]** | Reads a non-Markdown asset inside an expanded concept. Returns content (`text` or base64; invalid UTF-8 is always base64), raw-byte `sha256`, size and executable mode. |

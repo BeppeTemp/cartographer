@@ -20,7 +20,17 @@ import (
 // homes, tilde shorthand, Windows Users dir): container/cluster absolute
 // paths (/etc/..., /var/...) are legitimate and identical across machines,
 // so they are intentionally not flagged.
+//
+// A candidate match here is not automatically a finding (D124): it can still
+// be inside a URL (urlRe below) or covered by the concept's Map
+// machine_path_allow_prefixes contract, both of which make it an
+// operational/target path rather than a client-local one.
 var machinePathRe = regexp.MustCompile(`(?:/Users/|/home/|~/|C:\\Users\\)[^\s` + "`" + `'"()]*`)
+
+// urlRe matches a URL with an explicit scheme (e.g. "https://", "s3://"). A
+// machine_path candidate found inside one of these spans is a URL host/path
+// component, not a filesystem path on the machine that wrote it (D124).
+var urlRe = regexp.MustCompile(`[A-Za-z][A-Za-z0-9+.-]*://[^\s` + "`" + `'"()]*`)
 
 // Severity levels.
 const (
@@ -161,6 +171,11 @@ func Run(k *kb.KB, scope string, scopeNeighbors bool) ([]Finding, error) {
 	for id, content := range toCheck {
 		relPath := okf.IDToPath(id)
 		fmRaw, body, hasFM := okf.SplitFrontmatter(content)
+		parts := strings.Split(string(id), "/")
+		var allowPrefixes []string
+		if len(parts) > 1 && archiveSet[parts[0]] {
+			allowPrefixes = contracts[parts[0]].MachinePathAllowPrefixes
+		}
 
 		// --- broken_link (warning) ---
 		for _, target := range kb.ExtractLinks(body, relPath) {
@@ -176,13 +191,13 @@ func Run(k *kb.KB, scope string, scopeNeighbors bool) ([]Finding, error) {
 			}
 		}
 
-		// --- machine_path (warning, D75 WP6) ---
-		if matches := machinePathRe.FindAllString(body, -1); len(matches) > 0 {
+		// --- machine_path (warning, D75 WP6 / D124) ---
+		if disallowed := firstDisallowedMachinePath(body, allowPrefixes); disallowed != "" {
 			findings = append(findings, Finding{
 				Path:     relPath,
 				Check:    "machine_path",
 				Severity: SevWarning,
-				Message:  fmt.Sprintf("machine-specific path %q — use {{repo:<key>}}/{{path:<nome>}} instead (D75)", matches[0]),
+				Message:  fmt.Sprintf("client-local path %q — use {{repo:<key>}}/{{path:<nome>}} instead (D75); operational paths on containers/remote hosts are not client-local (D124)", disallowed),
 			})
 		}
 
@@ -233,7 +248,6 @@ func Run(k *kb.KB, scope string, scopeNeighbors bool) ([]Finding, error) {
 				}
 			}
 		}
-		parts := strings.Split(string(id), "/")
 		if len(parts) > 1 && archiveSet[parts[0]] {
 			contract := contracts[parts[0]]
 			for _, field := range contract.RequiredFor(func() string {
@@ -470,6 +484,69 @@ func Run(k *kb.KB, scope string, scopeNeighbors bool) ([]Finding, error) {
 	}
 
 	return findings, nil
+}
+
+// firstDisallowedMachinePath scans body for machine_path candidates in order
+// and returns the first one that is neither inside a URL nor covered by
+// allowPrefixes (the concept's Map machine_path_allow_prefixes contract,
+// D124). Scanning continues past an allowed match so a later disallowed
+// match still surfaces. Returns "" when every candidate is allowed or there
+// is none.
+func firstDisallowedMachinePath(body string, allowPrefixes []string) string {
+	candidates := machinePathRe.FindAllStringIndex(body, -1)
+	if len(candidates) == 0 {
+		return ""
+	}
+	urlSpans := urlRe.FindAllStringIndex(body, -1)
+	for _, span := range candidates {
+		if withinAnySpan(span, urlSpans) {
+			continue
+		}
+		candidate := body[span[0]:span[1]]
+		if matchesAllowedPrefix(candidate, allowPrefixes) {
+			continue
+		}
+		return candidate
+	}
+	return ""
+}
+
+// withinAnySpan reports whether span (a [start, end) match position) is
+// fully contained by one of the given spans.
+func withinAnySpan(span []int, spans [][]int) bool {
+	for _, s := range spans {
+		if span[0] >= s[0] && span[1] <= s[1] {
+			return true
+		}
+	}
+	return false
+}
+
+// matchesAllowedPrefix reports whether candidate is covered by one of the
+// Map's machine_path_allow_prefixes (D124), using literal segment-boundary
+// prefix matching: "/home/nonroot" covers "/home/nonroot/.headroom" but not
+// "/home/nonroot2" (prefix-boundary collision).
+func matchesAllowedPrefix(candidate string, allowPrefixes []string) bool {
+	for _, prefix := range allowPrefixes {
+		if pathHasPrefix(candidate, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+func pathHasPrefix(candidate, prefix string) bool {
+	if !strings.HasPrefix(candidate, prefix) {
+		return false
+	}
+	if len(candidate) == len(prefix) {
+		return true
+	}
+	if last := prefix[len(prefix)-1]; last == '/' || last == '\\' {
+		return true // prefix already ends at a separator boundary (e.g. bare "/" or "C:\" root)
+	}
+	next := candidate[len(prefix)]
+	return next == '/' || next == '\\'
 }
 
 func emptyFrontmatterValue(value interface{}) bool {

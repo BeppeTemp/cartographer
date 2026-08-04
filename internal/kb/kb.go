@@ -1209,11 +1209,17 @@ func (kb *KB) mapDescriptorRelPath(archive string) (string, error) {
 
 // MapContract declares the optional deterministic lint contract of a map.
 // RequiredFields apply to every concept; RequiredFieldsByType are additive.
+// MachinePathAllowPrefixes lists absolute path prefixes that the machine_path
+// lint (D124) must treat as this map's operational target paths rather than
+// client-local paths — e.g. a container image's home directory or a remote
+// node's runtime path, which are identical across every reader's machine and
+// therefore not a false positive.
 type MapContract struct {
-	RequiredFields       []string
-	RequiredFieldsByType map[string][]string
-	RequireIndexEntry    bool
-	Malformed            []ContractMalformed
+	RequiredFields           []string
+	RequiredFieldsByType     map[string][]string
+	RequireIndexEntry        bool
+	MachinePathAllowPrefixes []string
+	Malformed                []ContractMalformed
 }
 
 // ContractMalformed identifies a tolerated malformed contract entry.
@@ -1300,6 +1306,9 @@ func (kb *KB) CreateMapWithContract(name, title, kind string, conceptTypes []str
 	if contract.RequireIndexEntry {
 		mapFM.WriteString("require_index_entry: true\n")
 	}
+	if len(contract.MachinePathAllowPrefixes) > 0 {
+		mapFM.WriteString("machine_path_allow_prefixes: [" + strings.Join(sortedUnique(contract.MachinePathAllowPrefixes), ", ") + "]\n")
+	}
 	mapMD := "---\n" + strings.TrimRight(mapFM.String(), "\n") + "\n---\n# " + title + "\n"
 	if err := writeFileAtomic(filepath.Join(mapAbs, "_map.md"), []byte(mapMD)); err != nil {
 		return fmt.Errorf("CreateMap: write _map.md: %w", err)
@@ -1315,6 +1324,54 @@ func (kb *KB) CreateMapWithContract(name, title, kind string, conceptTypes []str
 	}
 
 	return nil
+}
+
+// normalizeAllowPrefix validates and normalizes one
+// machine_path_allow_prefixes entry (D124). Only an absolute path is
+// accepted: POSIX ("/...") or Windows drive-absolute ("C:\..." or "C:/...").
+// A relative path — including a drive-less Windows form such as
+// "Users\foo" or "\Users\foo" — is rejected as malformed, same as an empty
+// entry. Normalization is limited to stripping harmless trailing separators;
+// everything else (case, "..", separator style) is compared literally by
+// the caller.
+func normalizeAllowPrefix(raw string) (string, bool) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return "", false
+	}
+
+	isPOSIX := strings.HasPrefix(trimmed, "/")
+	isWindows := isWindowsDriveAbsolute(trimmed)
+	if !isPOSIX && !isWindows {
+		return "", false
+	}
+
+	minLen := 1 // bare POSIX root "/"
+	if isWindows {
+		minLen = 3 // bare Windows drive root "C:\" or "C:/"
+	}
+	normalized := trimmed
+	for len(normalized) > minLen {
+		last := normalized[len(normalized)-1]
+		if last != '/' && last != '\\' {
+			break
+		}
+		normalized = normalized[:len(normalized)-1]
+	}
+	return normalized, true
+}
+
+// isWindowsDriveAbsolute reports whether s starts with a drive letter
+// followed by ":" and a path separator (e.g. "C:\" or "C:/"). A Windows path
+// without a drive letter is relative or root-relative and therefore not
+// accepted as an absolute allow-prefix.
+func isWindowsDriveAbsolute(s string) bool {
+	if len(s) < 3 {
+		return false
+	}
+	c := s[0]
+	isLetter := (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')
+	return isLetter && s[1] == ':' && (s[2] == '\\' || s[2] == '/')
 }
 
 func sortedUnique(values []string) []string {
@@ -1443,7 +1500,8 @@ func (kb *KB) ReadMapContract(archive string) (MapContract, error) {
 		contract.Malformed = append(contract.Malformed, ContractMalformed{Descriptor: relPath, Key: key})
 	}
 	for _, key := range meta.Keys() {
-		if key != "required_fields" && !strings.HasPrefix(key, "required_fields.") && key != "require_index_entry" {
+		if key != "required_fields" && !strings.HasPrefix(key, "required_fields.") &&
+			key != "require_index_entry" && key != "machine_path_allow_prefixes" {
 			continue
 		}
 		value, _ := meta.Get(key)
@@ -1455,6 +1513,29 @@ func (kb *KB) ReadMapContract(archive string) (MapContract, error) {
 				continue
 			}
 			contract.RequireIndexEntry = v == "true"
+		case key == "machine_path_allow_prefixes":
+			raws, ok := value.([]string)
+			if !ok {
+				bad(key)
+				continue
+			}
+			seen := map[string]bool{}
+			valid := make([]string, 0, len(raws))
+			malformed := false
+			for _, raw := range raws {
+				normalized, normOK := normalizeAllowPrefix(raw)
+				if !normOK || seen[normalized] {
+					malformed = true
+					continue
+				}
+				seen[normalized] = true
+				valid = append(valid, normalized)
+			}
+			if malformed {
+				bad(key)
+			}
+			sort.Strings(valid)
+			contract.MachinePathAllowPrefixes = valid
 		case key == "required_fields" || strings.HasPrefix(key, "required_fields."):
 			fields, ok := value.([]string)
 			if !ok {

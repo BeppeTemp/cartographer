@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -884,6 +885,98 @@ func TestCreateMap_ContractRoundTrip(t *testing.T) {
 	}
 	if !got.RequireIndexEntry || strings.Join(got.RequiredFor("Runbook"), ",") != "owner,provenance,timestamp" || strings.Join(got.RequiredFor("Note"), ",") != "provenance,timestamp" {
 		t.Fatalf("unexpected contract: %#v", got)
+	}
+}
+
+// --- MachinePathAllowPrefixes (D124) ---
+
+func TestCreateMap_MachinePathAllowPrefixesRoundTrip(t *testing.T) {
+	dir := tempKB(t)
+	k, _ := Init(dir)
+	contract := MapContract{
+		MachinePathAllowPrefixes: []string{"/home/nonroot", `C:\Data\App`, "/home/nonroot"},
+	}
+	if err := k.CreateMapWithContract("infra", "Infra", "map", nil, "", contract); err != nil {
+		t.Fatalf("CreateMapWithContract: %v", err)
+	}
+	got, err := k.ReadMapContract("infra")
+	if err != nil {
+		t.Fatalf("ReadMapContract: %v", err)
+	}
+	want := []string{"/home/nonroot", `C:\Data\App`}
+	sort.Strings(want)
+	if strings.Join(got.MachinePathAllowPrefixes, ",") != strings.Join(want, ",") {
+		t.Fatalf("MachinePathAllowPrefixes = %v, want %v", got.MachinePathAllowPrefixes, want)
+	}
+	if len(got.Malformed) != 0 {
+		t.Fatalf("unexpected malformed entries: %v", got.Malformed)
+	}
+}
+
+func TestReadMapContract_MachinePathAllowPrefixes_ValidForms(t *testing.T) {
+	dir := tempKB(t)
+	k, _ := Init(dir)
+	if err := k.CreateMap("infra", "Infra", "map", nil, ""); err != nil {
+		t.Fatal(err)
+	}
+	descriptor := filepath.Join(k.DataRoot(), "infra", "_map.md")
+	content := "---\ntype: Map\ntitle: Infra\nkind: map\nontology_mode: flexible\n" +
+		`machine_path_allow_prefixes: [/home/ubuntu/.cache/huggingface, C:\Data\App, C:/Other/App/]` + "\n---\n# Infra\n"
+	if err := os.WriteFile(descriptor, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, err := k.ReadMapContract("infra")
+	if err != nil {
+		t.Fatalf("ReadMapContract: %v", err)
+	}
+	if len(got.Malformed) != 0 {
+		t.Fatalf("unexpected malformed entries for valid POSIX/Windows prefixes: %v", got.Malformed)
+	}
+	want := []string{"/home/ubuntu/.cache/huggingface", `C:/Other/App`, `C:\Data\App`}
+	sort.Strings(want)
+	if strings.Join(got.MachinePathAllowPrefixes, ",") != strings.Join(want, ",") {
+		t.Fatalf("MachinePathAllowPrefixes = %v, want %v", got.MachinePathAllowPrefixes, want)
+	}
+}
+
+func TestReadMapContract_MachinePathAllowPrefixes_Malformed(t *testing.T) {
+	tests := []struct {
+		name  string
+		value string
+	}{
+		{"empty entry", "[/home/nonroot, ]"},
+		{"duplicate entry", "[/home/nonroot, /home/nonroot]"},
+		{"relative path", "[relative/path]"},
+		{"windows relative form", `[Users\foo]`},
+		{"windows root-relative form", `[\Users\foo]`},
+		{"wrong type (scalar not list)", "not-a-list"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := tempKB(t)
+			k, _ := Init(dir)
+			if err := k.CreateMap("infra", "Infra", "map", nil, ""); err != nil {
+				t.Fatal(err)
+			}
+			descriptor := filepath.Join(k.DataRoot(), "infra", "_map.md")
+			var raw string
+			if strings.HasPrefix(tt.value, "[") {
+				raw = "machine_path_allow_prefixes: " + tt.value
+			} else {
+				raw = "machine_path_allow_prefixes: " + tt.value
+			}
+			content := "---\ntype: Map\ntitle: Infra\nkind: map\nontology_mode: flexible\n" + raw + "\n---\n# Infra\n"
+			if err := os.WriteFile(descriptor, []byte(content), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			got, err := k.ReadMapContract("infra")
+			if err != nil {
+				t.Fatalf("ReadMapContract: %v", err)
+			}
+			if len(got.Malformed) != 1 || got.Malformed[0].Key != "machine_path_allow_prefixes" {
+				t.Fatalf("%s: expected one contract_malformed finding for machine_path_allow_prefixes, got %#v", tt.name, got.Malformed)
+			}
+		})
 	}
 }
 
