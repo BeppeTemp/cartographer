@@ -4,6 +4,22 @@
 
 KB histories with commits authored as `cartographer <cartographer@localhost>` may need a manual author rewrite before a forge with author push rules accepts the first push.
 
+## [0.5.0](https://github.com/BeppeTemp/cartographer/compare/v0.4.0...v0.5.0) (2026-08-04)
+
+
+### Features
+
+* **control-plane:** curate root and Map indexes safely through MCP ([#111](https://github.com/BeppeTemp/cartographer/issues/111)) ([3dcdfbe](https://github.com/BeppeTemp/cartographer/commit/3dcdfbe107631808f1c20ead238ab16038fae613))
+* **control-plane:** expose read-only governance tools to descriptor-bound agents ([#112](https://github.com/BeppeTemp/cartographer/issues/112)) ([ddb4f88](https://github.com/BeppeTemp/cartographer/commit/ddb4f88b19335945fd03b48f3cab631b12fe6d0b))
+* **data-plane:** add atomic multi-concept mutation batches via concept_batch (D125) ([#114](https://github.com/BeppeTemp/cartographer/issues/114)) ([b4227fe](https://github.com/BeppeTemp/cartographer/commit/b4227fe559bfdb7d0c44246c84f548623b1fb9b2))
+* **data-plane:** distinguish client-local paths from operational paths in machine_path lint (D124) ([#113](https://github.com/BeppeTemp/cartographer/issues/113)) ([1cbfeee](https://github.com/BeppeTemp/cartographer/commit/1cbfeee4eadbee6b34cbceba57e0bf6388db9007))
+
+
+### Bug Fixes
+
+* **configurator:** preserve Codex-owned tables written inside a managed block ([#108](https://github.com/BeppeTemp/cartographer/issues/108)) ([f903daa](https://github.com/BeppeTemp/cartographer/commit/f903daab3df78b5134cf517d4f445b7ed875db3a))
+* **provisioning:** adopt Codex hook registrations with inline commands ([#110](https://github.com/BeppeTemp/cartographer/issues/110)) ([d26f60a](https://github.com/BeppeTemp/cartographer/commit/d26f60aead594bc5881481f6f6e6823f3c0d8378))
+
 ## [0.4.0](https://github.com/BeppeTemp/cartographer/compare/v0.3.1...v0.4.0) (2026-07-31)
 
 
