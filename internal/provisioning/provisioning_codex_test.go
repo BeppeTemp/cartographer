@@ -608,3 +608,141 @@ func TestApply_Codex_Hook_Eviction_PreservesStateWrittenInsideBlock(t *testing.T
 		t.Errorf("nothing left to relocate on re-apply, got warnings %v", res2.Warnings)
 	}
 }
+
+// --- Adoption of hooks whose command is a self-contained inline one-liner (D127) ---
+
+// rewriteCodexInlineCommandsAsMultilineLiteral simulates the shape a real
+// Codex CLI rewrite leaves behind (D127): comments — our markers included —
+// are dropped, like any Codex rewrite (see stripCodexComments), and every
+// `command = "…"` line we wrote as a basic string is re-serialized as a
+// multi-line literal string (opened and closed with three single quotes) on
+// the same physical line — the quoting subtlety the adoption match must see
+// through.
+func rewriteCodexInlineCommandsAsMultilineLiteral(t *testing.T, path string) {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var kept []string
+	for _, line := range strings.Split(string(data), "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		if strings.HasPrefix(trimmed, `command = "`) {
+			value, ok := configurator.CodexTableStringValue(trimmed+"\n", "command")
+			if !ok {
+				t.Fatalf("could not decode command line: %q", line)
+			}
+			line = "command = '''" + value + "'''"
+		}
+		kept = append(kept, line)
+	}
+	if err := os.WriteFile(path, []byte(strings.Join(kept, "\n")), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestApply_Codex_Hook_ReApplyAfterCodexRewrite_InlineCommand_NoDuplicate(t *testing.T) {
+	// The class of hook D99's marker alone could not recognize: env-block and
+	// sops-warn-style hooks whose command is a self-contained "jq ..."
+	// one-liner, with no path fragment into the hook's own materialized
+	// directory. session-init (a script command, same shape as the real
+	// cartographer-bootstrap hook) is registered alongside them to confirm
+	// the legacy path-fragment match still adopts it too, in the same
+	// rewritten file.
+	kbRoot := t.TempDir()
+	writeCodexHookKB(t, kbRoot, "env-block", "PreToolUse", "Edit|Write",
+		`jq -e '.tool_input.file_path | test("\.env$")' >/dev/null 2>&1 && exit 2 || true`)
+	writeCodexHookKB(t, kbRoot, "sops-warn", "PreToolUse", "Bash",
+		`jq -e '.tool_input.command | test("sops ")' >/dev/null 2>&1 && echo warn`)
+	writeCodexHookKB(t, kbRoot, "session-init", "SessionStart", "", "./notify.sh")
+
+	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, provisioning.BuildOptions{})
+	if err != nil {
+		t.Fatalf("BuildManifest: %v", err)
+	}
+
+	baseDir := t.TempDir()
+	opts := provisioning.ApplyOptions{
+		AutoTrust: true,
+		KBRoots:   map[string]string{"kb": kbRoot},
+		Provider:  configurator.ProviderCodex,
+		BaseDir:   baseDir,
+		Lock:      provisioning.Lock{},
+	}
+	if _, err := provisioning.Apply(m, opts); err != nil {
+		t.Fatalf("Apply (1): %v", err)
+	}
+
+	configPath := filepath.Join(baseDir, ".codex", "config.toml")
+	rewriteCodexInlineCommandsAsMultilineLiteral(t, configPath)
+
+	res, err := provisioning.Apply(m, opts)
+	if err != nil {
+		t.Fatalf("Apply (2): %v", err)
+	}
+
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := string(data)
+	if n := strings.Count(got, "[[hooks.PreToolUse]]"); n != 2 {
+		t.Errorf("expected exactly 2 [[hooks.PreToolUse]] (env-block + sops-warn, no duplicate), found %d:\n%s", n, got)
+	}
+	if n := strings.Count(got, "[[hooks.SessionStart]]"); n != 1 {
+		t.Errorf("expected exactly 1 [[hooks.SessionStart]], found %d:\n%s", n, got)
+	}
+	if len(res.Warnings) != 3 {
+		t.Errorf("expected one adoption warning per hook (3), got %v", res.Warnings)
+	}
+}
+
+func TestApply_Codex_Hook_Adoption_UserAuthoredInlineCommand_NotAdopted(t *testing.T) {
+	// A user-authored [[hooks.PreToolUse]] registration with a different
+	// inline command must survive: neither the legacy path-fragment marker
+	// nor the decoded-command match applies to it (D127).
+	kbRoot := t.TempDir()
+	writeCodexHookKB(t, kbRoot, "env-block", "PreToolUse", "Edit|Write",
+		`jq -e '.tool_input.file_path | test("\.env$")' >/dev/null 2>&1 && exit 2 || true`)
+
+	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, provisioning.BuildOptions{})
+	if err != nil {
+		t.Fatalf("BuildManifest: %v", err)
+	}
+
+	baseDir := t.TempDir()
+	configPath := filepath.Join(baseDir, ".codex", "config.toml")
+	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	preexisting := "[[hooks.PreToolUse]]\nmatcher = \"Bash\"\n[[hooks.PreToolUse.hooks]]\ntype = \"command\"\ncommand = \"echo not ours\"\n"
+	if err := os.WriteFile(configPath, []byte(preexisting), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	opts := provisioning.ApplyOptions{
+		AutoTrust: true,
+		KBRoots:   map[string]string{"kb": kbRoot},
+		Provider:  configurator.ProviderCodex,
+		BaseDir:   baseDir,
+		Lock:      provisioning.Lock{},
+	}
+	if _, err := provisioning.Apply(m, opts); err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := string(data)
+	if !strings.Contains(got, `command = "echo not ours"`) {
+		t.Errorf("user-authored registration with a different command must not be adopted:\n%s", got)
+	}
+	if n := strings.Count(got, "[[hooks.PreToolUse]]"); n != 2 {
+		t.Errorf("expected 2 [[hooks.PreToolUse]] (user's + ours), found %d:\n%s", n, got)
+	}
+}

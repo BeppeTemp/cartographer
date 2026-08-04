@@ -289,23 +289,43 @@ func codexHookMarkers(hookName string) (begin, end string) {
 // registration as owned by hookName: the command of a registration Cartographer
 // wrote for this hook always points inside the hook's own materialized
 // directory (D58). Same role as hookOwnershipMarker for Claude's settings.json,
-// and the identity used to recognize the marker-less copies Codex leaves behind
-// when it rewrites config.toml (D99) — the table name cannot serve as identity
-// here, since [[hooks.<event>]] is shared by every hook on that event.
+// and one of the two identities codexHookTableOwner accepts to recognize the
+// marker-less copies Codex leaves behind when it rewrites config.toml (D99) —
+// the table name cannot serve as identity here, since [[hooks.<event>]] is
+// shared by every hook on that event. Only holds for a hook whose command
+// invokes a script inside its own materialized directory; a self-contained
+// inline command (e.g. a "jq ..." one-liner) never contains this fragment and
+// is matched on its decoded value instead (D127).
 func codexHookOwnershipMarker(hookName string) string {
 	return ".codex/hooks/" + hookName + "/"
 }
 
 // codexHookTableOwner returns an owned-predicate (see
 // configurator.AdoptCodexOrphanTables) matching the [[hooks.<event>]]
-// registrations of hookName. The [hooks.state."…"] tables are deliberately left
-// alone: they are Codex's own bookkeeping (per-hook trusted hashes), not a
-// registration — a stale one is inert, since Codex gates it on a hash we do not
-// compute (D99).
-func codexHookTableOwner(hookName string) func(key []string, body string) bool {
+// registrations of hookName: either the legacy path-fragment marker
+// (codexHookOwnershipMarker, kept so a registration written by an older
+// client version is still adopted) or a command that decodes
+// (configurator.CodexTableStringValue) to exactly command — the same string
+// registerHookConfigTOML is about to write for this hook. The second identity
+// covers hooks whose command is a self-contained inline one-liner, which
+// contains no path fragment at all and would otherwise never be recognized
+// once Codex re-serializes it (D127; Codex may spell the same value as a
+// different TOML string form than QuoteTOMLString does — see
+// configurator.CodexTableStringValue). The [hooks.state."…"] tables are
+// deliberately left alone: they are Codex's own bookkeeping (per-hook trusted
+// hashes), not a registration — a stale one is inert, since Codex gates it on
+// a hash we do not compute (D99).
+func codexHookTableOwner(hookName, command string) func(key []string, body string) bool {
 	marker := codexHookOwnershipMarker(hookName)
 	return func(key []string, body string) bool {
-		return len(key) >= 2 && key[0] == "hooks" && key[1] != "state" && strings.Contains(body, marker)
+		if len(key) < 2 || key[0] != "hooks" || key[1] == "state" {
+			return false
+		}
+		if strings.Contains(body, marker) {
+			return true
+		}
+		got, ok := configurator.CodexTableStringValue(body, "command")
+		return ok && got == command
 	}
 }
 
@@ -346,7 +366,7 @@ func registerHookConfigTOML(baseDir, hookName, fullDestDir string) (string, erro
 		return "", fmt.Errorf("provisioning: reconcile %s: %w", path, err)
 	}
 
-	adopted, err := configurator.AdoptCodexOrphanTables(path, codexHookTableOwner(hookName))
+	adopted, err := configurator.AdoptCodexOrphanTables(path, codexHookTableOwner(hookName, command))
 	if err != nil {
 		return "", fmt.Errorf("provisioning: reconcile %s: %w", path, err)
 	}

@@ -645,3 +645,104 @@ func TestEvictForeignTablesFromBlock_MissingFile_NoOp(t *testing.T) {
 		t.Errorf("relocated = %v, want nil when the file does not exist", relocated)
 	}
 }
+
+// --- CodexTableStringValue (D127): decoding a command's value regardless of
+// the TOML string form Codex re-serializes it as ---
+
+func TestCodexTableStringValue_BasicString_RoundTripsQuoteTOMLString(t *testing.T) {
+	value := "jq -e '.tool_input.file_path | test(\"\\.env$\")' >/dev/null 2>&1 && exit 2 || true"
+	body := "[[hooks.PreToolUse.hooks]]\ntype = \"command\"\ncommand = " + configurator.QuoteTOMLString(value) + "\n"
+
+	got, ok := configurator.CodexTableStringValue(body, "command")
+	if !ok {
+		t.Fatalf("expected ok=true")
+	}
+	if got != value {
+		t.Errorf("got %q, want %q", got, value)
+	}
+}
+
+func TestCodexTableStringValue_LiteralString(t *testing.T) {
+	body := "[[hooks.PreToolUse.hooks]]\ncommand = 'jq -e \"literal, no escapes\\here\"'\n"
+
+	got, ok := configurator.CodexTableStringValue(body, "command")
+	if !ok {
+		t.Fatalf("expected ok=true")
+	}
+	want := `jq -e "literal, no escapes\here"`
+	if got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+func TestCodexTableStringValue_MultilineLiteralString_MatchesBasicFormOfSameValue(t *testing.T) {
+	// The shape observed from Codex CLI: it re-serializes a command we wrote as
+	// a basic string ("…") into a multi-line literal string ('''…''') on the
+	// same physical line — the two spellings must decode to the same value.
+	value := `jq -e '.tool_input.file_path | test("\\.env$")' >/dev/null 2>&1 && echo blocked`
+	basicBody := "command = " + configurator.QuoteTOMLString(value) + "\n"
+	multilineBody := "command = '''" + value + "'''\n"
+
+	basicGot, ok := configurator.CodexTableStringValue(basicBody, "command")
+	if !ok {
+		t.Fatalf("basic form: expected ok=true")
+	}
+	multilineGot, ok := configurator.CodexTableStringValue(multilineBody, "command")
+	if !ok {
+		t.Fatalf("multi-line literal form: expected ok=true")
+	}
+	if basicGot != multilineGot {
+		t.Errorf("the two TOML spellings decoded to different values: %q vs %q", basicGot, multilineGot)
+	}
+	if multilineGot != value {
+		t.Errorf("multi-line literal decoded to %q, want %q", multilineGot, value)
+	}
+}
+
+func TestCodexTableStringValue_MultilineLiteralString_OwnLine_DropsLeadingNewline(t *testing.T) {
+	body := "command = '''\njq -e 'x'\n'''\n"
+
+	got, ok := configurator.CodexTableStringValue(body, "command")
+	if !ok {
+		t.Fatalf("expected ok=true")
+	}
+	want := "jq -e 'x'\n"
+	if got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+func TestCodexTableStringValue_MultilineBasicString(t *testing.T) {
+	// Manually escaped, TOML multi-line basic form of value: a lone quote
+	// needs no escaping in this form (unlike single-line basic), only the
+	// backslash does.
+	value := "line one\nline two \"quoted\" and \\backslash"
+	body := "developer_instructions = \"\"\"" + strings.ReplaceAll(value, `\`, `\\`) + "\"\"\"\n"
+
+	got, ok := configurator.CodexTableStringValue(body, "developer_instructions")
+	if !ok {
+		t.Fatalf("expected ok=true")
+	}
+	if got != value {
+		t.Errorf("got %q, want %q", got, value)
+	}
+}
+
+func TestCodexTableStringValue_NonStringValue_ReturnsFalse(t *testing.T) {
+	if _, ok := configurator.CodexTableStringValue("trust_level = true\n", "trust_level"); ok {
+		t.Errorf("expected ok=false for a bool value")
+	}
+	if _, ok := configurator.CodexTableStringValue("count = 42\n", "count"); ok {
+		t.Errorf("expected ok=false for a number value")
+	}
+	if _, ok := configurator.CodexTableStringValue("names = [\"a\", \"b\"]\n", "names"); ok {
+		t.Errorf("expected ok=false for an array value")
+	}
+}
+
+func TestCodexTableStringValue_MissingKey_ReturnsFalse(t *testing.T) {
+	body := "[[hooks.PreToolUse.hooks]]\ntype = \"command\"\n"
+	if _, ok := configurator.CodexTableStringValue(body, "command"); ok {
+		t.Errorf("expected ok=false when the key is absent")
+	}
+}

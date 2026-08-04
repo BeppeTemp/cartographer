@@ -245,6 +245,99 @@ func unquoteTOMLSegment(s string, quote byte) string {
 	return r.Replace(s)
 }
 
+// CodexTableStringValue returns the decoded value of the first top-level
+// `key = <string>` assignment in body — a table's text as produced by
+// codexTableGroups (or any string containing one) — and whether one was
+// found. Handles the four TOML string forms: basic `"…"` (with the escapes
+// QuoteTOMLString produces), literal `'…'`, multi-line literal (opened and
+// closed with three single quotes — what Codex emits when it re-serializes
+// a value we wrote as a basic string) and multi-line basic `"""…"""`
+// (QuoteTOMLMultiline's own form). A
+// multi-line form whose opening delimiter is immediately followed by a
+// newline drops that first newline, per the TOML spec. Returns false — never
+// a guess — for a missing key or a non-string value (bool, number, array,
+// ...); the caller decides what a non-match means (D127).
+func CodexTableStringValue(body, key string) (string, bool) {
+	lines := strings.Split(body, "\n")
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if !strings.HasPrefix(trimmed, key) {
+			continue
+		}
+		rest := strings.TrimSpace(trimmed[len(key):])
+		if !strings.HasPrefix(rest, "=") {
+			continue
+		}
+		return decodeTOMLStringValue(strings.TrimSpace(rest[1:]), lines, i)
+	}
+	return "", false
+}
+
+// decodeTOMLStringValue decodes rest — the text of an assignment's value,
+// starting at the opening delimiter — dispatching on which of the four TOML
+// string forms it opens. lines/lineIdx let a multi-line form keep consuming
+// lines of body past the assignment's own line until its closing delimiter.
+func decodeTOMLStringValue(rest string, lines []string, lineIdx int) (string, bool) {
+	switch {
+	case strings.HasPrefix(rest, `"""`):
+		return decodeMultilineTOMLString(rest[3:], lines, lineIdx, `"""`, true)
+	case strings.HasPrefix(rest, `'''`):
+		return decodeMultilineTOMLString(rest[3:], lines, lineIdx, `'''`, false)
+	case strings.HasPrefix(rest, `"`):
+		return decodeQuotedTOMLValue(rest, '"')
+	case strings.HasPrefix(rest, `'`):
+		return decodeQuotedTOMLValue(rest, '\'')
+	default:
+		return "", false
+	}
+}
+
+// decodeQuotedTOMLValue decodes a single-line basic (`"…"`, quote is `"`) or
+// literal (`'…'`, quote is `'`) string value starting at rest[0]. Basic
+// strings have their backslash escapes undone (unquoteTOMLSegment); literal
+// strings have none.
+func decodeQuotedTOMLValue(rest string, quote byte) (string, bool) {
+	end := -1
+	for i := 1; i < len(rest); i++ {
+		if rest[i] == '\\' && quote == '"' {
+			i++
+			continue
+		}
+		if rest[i] == quote {
+			end = i
+			break
+		}
+	}
+	if end < 0 {
+		return "", false
+	}
+	return unquoteTOMLSegment(rest[1:end], quote), true
+}
+
+// decodeMultilineTOMLString decodes a multi-line string value whose opening
+// delimiter (delim, already stripped from rest) sits on lines[lineIdx];
+// consumes further lines of lines until delim closes it. basic strings get
+// their backslash escapes undone (unquoteTOMLSegment), literal strings none —
+// same distinction as decodeQuotedTOMLValue, just spanning lines. The first
+// newline right after the opening delimiter, if any, is not part of the
+// value (TOML spec).
+func decodeMultilineTOMLString(rest string, lines []string, lineIdx int, delim string, basic bool) (string, bool) {
+	text := rest
+	for i := lineIdx + 1; ; i++ {
+		if idx := strings.Index(text, delim); idx >= 0 {
+			content := strings.TrimPrefix(text[:idx], "\n")
+			if basic {
+				content = unquoteTOMLSegment(content, '"')
+			}
+			return content, true
+		}
+		if i >= len(lines) {
+			return "", false
+		}
+		text += "\n" + lines[i]
+	}
+}
+
 func isBareKeyRune(r rune) bool {
 	return r == '-' || r == '_' ||
 		(r >= '0' && r <= '9') ||

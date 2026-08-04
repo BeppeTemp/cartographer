@@ -356,6 +356,18 @@ file, which would otherwise be duplicate keys and stop Codex from starting, and 
 each removal as a `warning:` line. Everything else in the file — comments, ordering,
 unrelated tables, Codex's own `[hooks.state."…"]` bookkeeping — is left as it is (D99).
 
+Recognizing a hook's own orphaned registration among those copies cannot rely only on a
+path fragment into the hook's materialized directory (D99's original identity): a hook
+whose command is a self-contained inline one-liner (e.g. a `jq ...` command, not a script
+file) never contains one. `connect`/`sync` also match on the registration's `command`
+*value*, decoded regardless of which of the four TOML string forms it is spelled in —
+Codex re-serializes a command Cartographer wrote as a basic string (`"…"`) into a
+multi-line literal string (`'''…'''`) — and compared byte-exact against the command the
+hook currently registers. Both identities are accepted, so an older client's
+path-fragment-only registrations are still adopted (D127). A hook whose command changed
+in the narrow window between a Codex rewrite and the next sync matches neither identity
+and is left duplicated — accepted as a residual, two-fault edge case; see D127.
+
 Codex also places that same `[hooks.state."…"]` bookkeeping positionally after the last
 table it finds in the file — which, once a block has been written, is the one Cartographer
 owns. Before rewriting a block, `connect`/`sync` first relocate any table the block does
