@@ -43,7 +43,11 @@ the KB's managed skills, agents, hooks and instructions. `cartographer status`
 shows drift; `cartographer sync` reconciles it.
 
 Providers differ in what they can represent. See [configurator](configurator.md)
-and [synchronization](sync.md) for the exact mappings and limitations.
+and [synchronization](sync.md) for the exact mappings and limitations. A
+descriptor-bound host such as Codex can only call tools `tools/list`
+advertises; the default `agent` profile's core set (→ `control-plane.md` §MCP
+API) includes `validate`, `lint`, `gate_check`, and `kb_status` for exactly
+this reason (D123).
 
 ## Separate domains into multiple KBs
 

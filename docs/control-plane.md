@@ -32,7 +32,9 @@ Tools marked **[R]** have `Tool.ReadOnly=true` (`internal/mcpserver`): they neve
 
 Beyond that read/write split, every tool is also classified by the **resource** it addresses — exact concept, collection, source/destination, or whole KB — which is what a fine-grained role is evaluated against (D118). Collection tools filter their results per element before applying any limit; exact-resource tools collapse "forbidden" and "missing" into the same generic `not found`. A tool missing from that classification is denied outright, so adding a tool without choosing its resource semantics fails closed rather than granting access. The table and the guarantees are in [`transport-auth.md`](transport-auth.md) §Roles and fine-grained permissions. The same `[R]` tools expose `annotations: {"readOnlyHint": true}` in `tools/list` per the MCP spec (D76): a client can use this to auto-approve reads without a manual allowlist, without having to derive the list by hand.
 
-Tools marked **[A]** (advanced, `advancedToolNames` in `internal/mcpserver/visibility.go`) are **hidden from `tools/list` in the default `agent` tool profile** (D65): governance/maintenance and provisioning plumbing that would bloat the LLM agent's context without being useful in a normal session. They all remain **callable via `tools/call`** by name (CLI client, hooks, operator) in both profiles. Profile: `tools.profile` in YAML / `CARTOGRAPHER_TOOLS_PROFILE` / `--tools-profile`, values `agent` (default) \| `full` → [`deployment.md`](deployment.md).
+Tools marked **[A]** (advanced, `advancedToolNames` in `internal/mcpserver/visibility.go`) are **hidden from `tools/list` in the default `agent` tool profile** (D65): operator maintenance/mutation and provisioning plumbing that would bloat the LLM agent's context without being useful in a normal session. They all remain **callable via `tools/call`** by name (CLI client, hooks, operator) in both profiles. Profile: `tools.profile` in YAML / `CARTOGRAPHER_TOOLS_PROFILE` / `--tools-profile`, values `agent` (default) \| `full` → [`deployment.md`](deployment.md).
+
+**Agent governance vs. operator maintenance (D123).** `validate`, `lint`, `gate_check`, and `kb_status` are read-only governance diagnostics, not operator maintenance: the documented agent loop (`loop.md`, `use-cases.md`) runs them every session, and a descriptor-bound MCP host (one that can only invoke tools `tools/list` advertises, e.g. Codex) cannot call them by name the way a stdio/TUI agent can. They are therefore part of the default `agent` profile's core set, unlike `commit_gate`, `conflict_resolve`, `contradiction_report`, and the rest of `advancedToolNames`, which stay operator-only and advanced.
 
 ### Reading and navigation
 
@@ -80,13 +82,13 @@ Tools marked **[A]** (advanced, `advancedToolNames` in `internal/mcpserver/visib
 
 | Tool | Purpose |
 |---|---|
-| `validate(scope)` **[R]** **[A]** | OKF compliance (frontmatter, `type`, reserved files). |
-| `lint([scope], [scope_neighbors])` **[R]** **[A]** | Runs deterministic broken-link, stale-claim, orphan, contract and structural checks. `scope_neighbors=true` adds one-hop graph neighbors. There is no model-backed/deep mode. |
+| `validate(scope)` **[R]** | OKF compliance (frontmatter, `type`, reserved files). |
+| `lint([scope], [scope_neighbors])` **[R]** | Runs deterministic broken-link, stale-claim, orphan, contract and structural checks. `scope_neighbors=true` adds one-hop graph neighbors. There is no model-backed/deep mode. |
 | `commit_gate()` **[A]** | Blocks when open `Contradiction`s are involved in the diff. |
-| `gate_check()` **[R]** **[A]** | Combines validate + lint + commit_gate in a single tool (lightweight local gate). |
+| `gate_check()` **[R]** | Combines validate + lint + commit_gate in a single tool (lightweight local gate). |
 | `conflict_resolve(contradiction_id, resolution, [reason])` **[A]** | Closes an open `Contradiction`. |
 | `contradiction_report([scope], [status])` **[A]** | Lists contradictions, filterable by scope and status. |
-| `kb_status()` **[R]** **[A]** | Aggregate metrics: total concepts, per type, stale ones, open contradictions. |
+| `kb_status()` **[R]** | Aggregate metrics: total concepts, per type, stale ones, open contradictions. |
 | `conflicts_list()` **[R]** | Lists open git rebase conflicts (read-only). For each entry: `concept_id`, local/remote SHAs, `branch`, files involved, `detected_at`, resolution guidance. See also the `kb-conflict-resolve` skill. |
 | `git_conflict_resolve(concept_id, strategy, [body])` | Resolves a registered conflict (Step 4). `strategy`: `ours` (local version), `theirs` (remote version), `edit` (full content in `body`). Records the per-concept decision; once every open conflict is resolved, it performs a single merge+commit+push and clears the `degraded` markers. See `concurrency.md` §Step 4. |
 

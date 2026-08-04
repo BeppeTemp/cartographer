@@ -35,6 +35,11 @@ Remote synchronization is handled around writes when configured. See
 
 ## Validate and lint
 
+`validate`, `lint`, and `gate_check` are agent governance, not operator
+maintenance: they are part of the default `agent` tool profile precisely so a
+descriptor-bound MCP host advertises them and this loop stays runnable
+end-to-end (D123, → `control-plane.md` §MCP API).
+
 - `validate` checks KB and frontmatter invariants.
 - `lint(scope, scope_neighbors)` runs deterministic checks over a scope and,
   optionally, its graph neighbors, including any declarative map contract for

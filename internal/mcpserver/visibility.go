@@ -5,14 +5,13 @@ package mcpserver
 // registered and callable via tools/call — the CLI client (sync_pull, D57) and
 // the SessionStart hook (sync_check, D48) invoke them by name without going
 // through tools/list — but they are not advertised to the LLM agent, whose
-// working set stays small (search/read/write/log plus content structure and
-// git-conflict self-recovery).
+// working set stays small (search/read/write/log plus content structure,
+// git-conflict self-recovery, and the read-only governance loop below).
 //
 // Classification rationale:
-//   - governance/diagnostics (validate, lint, gate_check, commit_gate,
-//     kb_status, contradiction_report, conflict_resolve, index_rebuild,
-//     reindex):
-//     operator-level maintenance, not part of a normal agent session;
+//   - operator-level mutation/maintenance (commit_gate, contradiction_report,
+//     conflict_resolve, index_rebuild, reindex): not part of a normal agent
+//     session;
 //   - provisioning plumbing (sync_*, skill_*, service_*): consumed by the
 //     client CLI / hooks, or operator-level (skill_install, service_get).
 //
@@ -25,17 +24,18 @@ package mcpserver
 // NOT advanced: concept_expand (D77 WP2) — growing a concept into an
 // expanded concept is a normal, frequent agent action, same tier as
 // concept_move/concept_delete. Also NOT advanced: map_delete (D88 WP2) —
-// same tier as its counterpart map_create, normal Atlas upkeep.
+// same tier as its counterpart map_create, normal Atlas upkeep. Also NOT
+// advanced: validate, lint, gate_check, kb_status (D123) — read-only
+// governance diagnostics that the documented agent loop (docs/loop.md,
+// docs/use-cases.md) requires, and that descriptor-bound MCP hosts (e.g.
+// Codex) can only ever invoke if tools/list advertises them: unlike a
+// stdio/TUI agent, they cannot call a tool by name that tools/list omits.
 //
-// TestToolsProfile (server_test.go) is the golden test: it builds a real
-// registry and asserts the exact agent-visible set, so adding a tool without
-// classifying it here fails the build.
+// TestServer_ToolsProfile (server_test.go) is the golden test: it builds a
+// real registry and asserts the exact agent-visible set, so adding a tool
+// without classifying it here fails the build.
 var advancedToolNames = map[string]bool{
-	"validate":             true,
-	"lint":                 true,
-	"gate_check":           true,
 	"commit_gate":          true,
-	"kb_status":            true,
 	"contradiction_report": true,
 	"conflict_resolve":     true,
 	"index_rebuild":        true,
