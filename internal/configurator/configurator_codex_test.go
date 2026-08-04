@@ -444,3 +444,204 @@ bearer_token_env_var = "CARTOGRAPHER_TOKENS"
 		t.Errorf("nothing left to adopt on re-apply, got warnings %v", warnings)
 	}
 }
+
+// --- EvictForeignTablesFromBlock (D126) ---
+
+const (
+	evictTestBegin = "# cartographer:hook:sops-warn:begin"
+	evictTestEnd   = "# cartographer:hook:sops-warn:end"
+	evictTestBody  = "[[hooks.PreToolUse]]\nmatcher = \"Bash\"\n[[hooks.PreToolUse.hooks]]\ntype = \"command\"\ncommand = \"/Users/me/.codex/hooks/sops-warn/hook.sh\"\n"
+)
+
+func TestEvictForeignTablesFromBlock_RelocatesStateWrittenInsideBlock(t *testing.T) {
+	dir := t.TempDir()
+	path := writeCodexConfig(t, dir, `model = "gpt-5.6"
+
+`+evictTestBegin+`
+[[hooks.PreToolUse]]
+matcher = "Bash"
+[[hooks.PreToolUse.hooks]]
+type = "command"
+command = "/Users/me/.codex/hooks/sops-warn/hook.sh"
+
+[hooks.state."/Users/me/.codex/config.toml:pre_tool_use:0:0"]
+trusted_hash = "sha256:abc123"
+`+evictTestEnd+`
+
+[mcp_servers.other]
+url = "https://example.com/mcp"
+`)
+
+	relocated, err := configurator.EvictForeignTablesFromBlock(path, evictTestBegin, evictTestEnd, evictTestBody)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// The relocated key is dotted, as segments joined (unquoted), same
+	// convention AdoptCodexOrphanTables already uses for its own removed keys.
+	want := `hooks.state./Users/me/.codex/config.toml:pre_tool_use:0:0`
+	if len(relocated) != 1 || relocated[0] != want {
+		t.Fatalf("relocated = %v, want [%s]", relocated, want)
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := string(data)
+
+	stateIdx := strings.Index(got, `[hooks.state."`)
+	beginIdx := strings.Index(got, evictTestBegin)
+	endIdx := strings.Index(got, evictTestEnd)
+	if stateIdx < 0 || beginIdx < 0 || endIdx < 0 {
+		t.Fatalf("missing markers in:\n%s", got)
+	}
+	if !(stateIdx < beginIdx) {
+		t.Errorf("the state table must now sit before the begin marker, got:\n%s", got)
+	}
+	if strings.Contains(got[beginIdx:endIdx], "hooks.state") {
+		t.Errorf("the state table must not remain inside the block, got:\n%s", got)
+	}
+	if !strings.Contains(got, `trusted_hash = "sha256:abc123"`) {
+		t.Errorf("trusted_hash value lost: %s", got)
+	}
+	if !strings.Contains(got, `[mcp_servers.other]`) {
+		t.Errorf("unrelated content lost: %s", got)
+	}
+	if strings.Count(got, `[hooks.state."/Users/me/.codex/config.toml:pre_tool_use:0:0"]`) != 1 {
+		t.Errorf("state table duplicated: %s", got)
+	}
+}
+
+func TestEvictForeignTablesFromBlock_NoForeign_NoOp(t *testing.T) {
+	dir := t.TempDir()
+	content := evictTestBegin + "\n" + evictTestBody + evictTestEnd + "\n"
+	path := writeCodexConfig(t, dir, content)
+
+	relocated, err := configurator.EvictForeignTablesFromBlock(path, evictTestBegin, evictTestEnd, evictTestBody)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if relocated != nil {
+		t.Errorf("relocated = %v, want nil", relocated)
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != content {
+		t.Errorf("file must be byte-identical when nothing is foreign, got:\n%s", data)
+	}
+}
+
+func TestEvictForeignTablesFromBlock_MultipleForeign_OrderPreserved_NoBlankLineAccumulation(t *testing.T) {
+	dir := t.TempDir()
+	path := writeCodexConfig(t, dir, evictTestBegin+`
+[[hooks.PreToolUse]]
+matcher = "Bash"
+[[hooks.PreToolUse.hooks]]
+type = "command"
+command = "/Users/me/.codex/hooks/sops-warn/hook.sh"
+
+[hooks.state."a"]
+trusted_hash = "sha256:aaa"
+
+[hooks.state."b"]
+trusted_hash = "sha256:bbb"
+`+evictTestEnd+`
+`)
+
+	relocated, err := configurator.EvictForeignTablesFromBlock(path, evictTestBegin, evictTestEnd, evictTestBody)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	wantA, wantB := `hooks.state.a`, `hooks.state.b`
+	if len(relocated) != 2 || relocated[0] != wantA || relocated[1] != wantB {
+		t.Fatalf("relocated = %v, want [%s %s] in order", relocated, wantA, wantB)
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := string(data)
+
+	aIdx := strings.Index(got, `[hooks.state."a"]`)
+	bIdx := strings.Index(got, `[hooks.state."b"]`)
+	beginIdx := strings.Index(got, evictTestBegin)
+	if aIdx < 0 || bIdx < 0 || beginIdx < 0 || !(aIdx < bIdx && bIdx < beginIdx) {
+		t.Fatalf("expected [a], then [b], then the begin marker, got:\n%s", got)
+	}
+	if strings.Contains(got, "\n\n\n") {
+		t.Errorf("blank lines accumulated:\n%s", got)
+	}
+}
+
+func TestEvictForeignTablesFromBlock_KeyDeclaredInBody_NotRelocated(t *testing.T) {
+	dir := t.TempDir()
+	path := writeCodexConfig(t, dir, evictTestBegin+`
+[[hooks.PreToolUse]]
+matcher = "Bash"
+[[hooks.PreToolUse.hooks]]
+type = "command"
+command = "/Users/me/.codex/hooks/sops-warn/hook.sh"
+
+[[hooks.PreToolUse]]
+matcher = "Write"
+[[hooks.PreToolUse.hooks]]
+type = "command"
+command = "/Users/me/.codex/hooks/sops-warn/other.sh"
+`+evictTestEnd+`
+`)
+
+	relocated, err := configurator.EvictForeignTablesFromBlock(path, evictTestBegin, evictTestEnd, evictTestBody)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if relocated != nil {
+		t.Errorf("relocated = %v, want nil: a key declared in newBody must never be relocated, even a second copy of it", relocated)
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := string(data)
+	if strings.Index(got, `command = "/Users/me/.codex/hooks/sops-warn/other.sh"`) < strings.Index(got, evictTestBegin) {
+		t.Errorf("the second copy must stay inside the block, not before it:\n%s", got)
+	}
+	if n := strings.Count(got, `command = "/Users/me/.codex/hooks/sops-warn/other.sh"`); n != 1 {
+		t.Errorf("second copy must survive untouched, found %d occurrences:\n%s", n, got)
+	}
+}
+
+func TestEvictForeignTablesFromBlock_BlockAbsent_NoOp(t *testing.T) {
+	dir := t.TempDir()
+	content := "model = \"gpt-5.6\"\n"
+	path := writeCodexConfig(t, dir, content)
+
+	relocated, err := configurator.EvictForeignTablesFromBlock(path, evictTestBegin, evictTestEnd, evictTestBody)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if relocated != nil {
+		t.Errorf("relocated = %v, want nil when the block is absent", relocated)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != content {
+		t.Errorf("file must be untouched when the block is absent, got:\n%s", data)
+	}
+}
+
+func TestEvictForeignTablesFromBlock_MissingFile_NoOp(t *testing.T) {
+	relocated, err := configurator.EvictForeignTablesFromBlock(filepath.Join(t.TempDir(), ".codex", "config.toml"), evictTestBegin, evictTestEnd, evictTestBody)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if relocated != nil {
+		t.Errorf("relocated = %v, want nil when the file does not exist", relocated)
+	}
+}

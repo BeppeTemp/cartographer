@@ -296,8 +296,17 @@ func isSubKey(key, root []string) bool {
 	return true
 }
 
-// span is a byte range [start, end) of a config.toml.
-type span struct{ start, end int }
+// span is a byte range [start, end) of a config.toml, covered by the
+// Cartographer-managed block identified by id — the block id parsed from its
+// marker ("# cartographer:<id>:begin" / ":end"). bodyStart/bodyEnd are the
+// range strictly between the two marker lines (the marker lines themselves
+// excluded): table-group discovery must stay inside it, or the last group in
+// the block would absorb the end marker's own comment line.
+type span struct {
+	start, end         int
+	bodyStart, bodyEnd int
+	id                 string
+}
 
 // codexManagedSpans returns the byte ranges covered by the Cartographer-managed
 // blocks of content, marker lines included — every block, not just the one
@@ -306,6 +315,7 @@ type span struct{ start, end int }
 // be adopted.
 func codexManagedSpans(content string) []span {
 	open := map[string]int{}
+	openBody := map[string]int{}
 	var spans []span
 	for _, l := range codexLines(content) {
 		if !l.comment {
@@ -317,14 +327,43 @@ func codexManagedSpans(content string) []span {
 		}
 		if m[2] == "begin" {
 			open[m[1]] = l.start
+			openBody[m[1]] = l.end
 			continue
 		}
 		if start, ok := open[m[1]]; ok {
-			spans = append(spans, span{start: start, end: l.end})
+			spans = append(spans, span{start: start, end: l.end, bodyStart: openBody[m[1]], bodyEnd: l.start, id: m[1]})
 			delete(open, m[1])
+			delete(openBody, m[1])
 		}
 	}
 	return spans
+}
+
+// codexManagedSpanByID returns content's Cartographer-managed span whose
+// block id matches id, and whether one was found — false if the block is
+// absent, or its begin marker has no matching end (codexManagedSpans only
+// ever emits closed spans).
+func codexManagedSpanByID(content, id string) (span, bool) {
+	for _, s := range codexManagedSpans(content) {
+		if s.id == id {
+			return s, true
+		}
+	}
+	return span{}, false
+}
+
+// codexMarkerBlockID extracts the block id a Cartographer marker line
+// encodes ("# cartographer:<id>:begin" / ":end" — the display text after the
+// begin marker's " — " is not part of it, same as ReplaceBetween's "stable"
+// prefix), and whether marker is a well-formed one. Lets a caller holding
+// just a begin/end marker string, not the whole file, find its own span among
+// codexManagedSpans's.
+func codexMarkerBlockID(marker string) (string, bool) {
+	m := codexManagedMarker.FindStringSubmatch(strings.TrimSpace(marker))
+	if m == nil {
+		return "", false
+	}
+	return m[1], true
 }
 
 // overlapsAny reports whether g overlaps any of the spans.
@@ -335,4 +374,149 @@ func overlapsAny(g codexTableGroup, spans []span) bool {
 		}
 	}
 	return false
+}
+
+// codexTableGroupsInRange is codexTableGroups restricted to r: groups are
+// computed against r's own text, so a group can never spill past r.end into
+// content outside it (the same rule codexTableGroups applies at end-of-file
+// applies here at end-of-span instead) — offsets are then translated back
+// into content's coordinates.
+func codexTableGroupsInRange(content string, r span) []codexTableGroup {
+	groups := codexTableGroups(content[r.start:r.end])
+	for i := range groups {
+		groups[i].start += r.start
+		groups[i].end += r.start
+	}
+	return groups
+}
+
+// codexBodyHeaderKeys returns the key of every table header declared in
+// body, in the order they appear — the tables a managed block's next
+// contents (about to replace the span) declares.
+func codexBodyHeaderKeys(body string) [][]string {
+	var keys [][]string
+	for _, line := range strings.Split(body, "\n") {
+		if key, ok := codexTableHeaderKey(line); ok {
+			keys = append(keys, key)
+		}
+	}
+	return keys
+}
+
+// keyDeclaredIn reports whether key exactly matches one of keys, segment by
+// segment — segments are already unquoted by splitTOMLKey, so a bare and a
+// quoted spelling of the same key compare equal.
+func keyDeclaredIn(key []string, keys [][]string) bool {
+	for _, k := range keys {
+		if keysEqual(key, k) {
+			return true
+		}
+	}
+	return false
+}
+
+func keysEqual(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+// EvictForeignTablesFromBlock moves out of the Cartographer-managed block
+// delimited by begin/end, in the config.toml at path, every top-level table
+// group that newBody — the block's next contents, about to replace the span
+// via blocktext.Write — does not declare. Codex records its own bookkeeping
+// (e.g. [hooks.state."…"] trusted-hash tables) positionally after the last
+// table it finds in the file, which in a Cartographer-managed config.toml can
+// land inside our span; blocktext.Write would otherwise destroy it along with
+// the rest of the block on the next rewrite, silently losing state that is
+// entirely Codex's own (D99's codexHookTableOwner deliberately leaves it
+// alone for the same reason).
+//
+// Foreign groups are cut from the span, verbatim, and re-inserted, in file
+// order, immediately before the begin marker line, separated from their
+// neighbours by at most one blank line — never merged or reformatted (D58:
+// config.toml is never parsed/re-serialized). A key declared both inside the
+// span and in newBody is ours: it is left in the block for blocktext.Write to
+// overwrite, never relocated.
+//
+// Returns the relocated keys (dotted, as segments joined) in file order, so
+// the caller can warn; no-op with no error if the file or the block is
+// absent, or nothing in the span is foreign.
+func EvictForeignTablesFromBlock(path, begin, end, newBody string) ([]string, error) {
+	data, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	content := string(data)
+
+	beginID, ok := codexMarkerBlockID(begin)
+	if !ok {
+		return nil, nil
+	}
+	if endID, ok := codexMarkerBlockID(end); !ok || endID != beginID {
+		return nil, nil
+	}
+	target, ok := codexManagedSpanByID(content, beginID)
+	if !ok {
+		return nil, nil
+	}
+
+	ownKeys := codexBodyHeaderKeys(newBody)
+	var foreign []codexTableGroup
+	for _, g := range codexTableGroupsInRange(content, span{start: target.bodyStart, end: target.bodyEnd}) {
+		if !keyDeclaredIn(g.key, ownKeys) {
+			foreign = append(foreign, g)
+		}
+	}
+	if len(foreign) == 0 {
+		return nil, nil
+	}
+
+	if err := os.WriteFile(path, []byte(evictGroupsFromSpan(content, target, foreign)), 0o644); err != nil {
+		return nil, err
+	}
+
+	relocated := make([]string, len(foreign))
+	for i, g := range foreign {
+		relocated[i] = strings.Join(g.key, ".")
+	}
+	return relocated, nil
+}
+
+// evictGroupsFromSpan cuts foreign (in file order, all within target) out of
+// content and re-inserts their verbatim text, stitched together and onto
+// their neighbours via joinSeam's blank-line accounting, immediately before
+// target's start (the begin marker line).
+func evictGroupsFromSpan(content string, target span, foreign []codexTableGroup) string {
+	spanPieces := make([]string, 0, len(foreign)+1)
+	removed := make([]string, 0, len(foreign))
+	last := target.start
+	for _, g := range foreign {
+		spanPieces = append(spanPieces, content[last:g.start])
+		removed = append(removed, content[g.start:g.end])
+		last = g.end
+	}
+	spanPieces = append(spanPieces, content[last:target.end])
+
+	strippedSpan := spanPieces[0]
+	for _, p := range spanPieces[1:] {
+		strippedSpan = joinSeam(strippedSpan, p)
+	}
+
+	relocated := removed[0]
+	for _, r := range removed[1:] {
+		relocated = joinSeam(relocated, r)
+	}
+
+	before := joinSeam(joinSeam(content[:target.start], relocated), strippedSpan)
+	return before + content[target.end:]
 }

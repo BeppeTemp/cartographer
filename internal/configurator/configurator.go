@@ -197,6 +197,19 @@ func Apply(results []*EmitResult, baseDir string, dryRun bool) ([]string, error)
 		// instead of parsing/re-serializing the user's hand-curated config.toml
 		// (D58) — see EmitResult.Content's doc comment.
 		if filepath.Ext(fullPath) == ".toml" {
+			// Codex may have written its own tables (e.g. [hooks.state.*]
+			// trusted-hash bookkeeping) inside the managed block, positionally
+			// after the last table it found in the file: relocate them out of
+			// the block before rewriting it, or they would be destroyed (D126).
+			evicted, err := EvictForeignTablesFromBlock(fullPath, codexMCPBlockBegin, codexMCPBlockEnd, string(r.Content))
+			if err != nil {
+				return written, fmt.Errorf("reconcile %s: %w", fullPath, err)
+			}
+			for _, key := range evicted {
+				r.Warnings = append(r.Warnings, fmt.Sprintf(
+					"codex: moved a Codex-owned [%s] table out of the managed block so it would not be lost on rewrite", key))
+			}
+
 			// Codex rewrites config.toml behind our back and drops the markers
 			// with every other comment: adopt the tables it left orphaned
 			// before writing the block, or they would become duplicate keys

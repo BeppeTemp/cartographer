@@ -500,3 +500,111 @@ command = "/Users/me/scripts/mine.sh"
 		}
 	}
 }
+
+// injectBeforeEndMarker inserts text into the config.toml at path immediately
+// before endMarker's line — simulating Codex persisting its own bookkeeping
+// (e.g. [hooks.state."…"]) positionally after the last table it finds in the
+// file, which lands inside a Cartographer-managed block once one has been
+// written (D126).
+func injectBeforeEndMarker(t *testing.T, path, endMarker, text string) {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := string(data)
+	idx := strings.Index(content, endMarker)
+	if idx < 0 {
+		t.Fatalf("end marker %q not found in:\n%s", endMarker, content)
+	}
+	if err := os.WriteFile(path, []byte(content[:idx]+text+content[idx:]), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestApply_Codex_Hook_Eviction_PreservesStateWrittenInsideBlock(t *testing.T) {
+	// D126: Codex records its per-hook trusted-hash bookkeeping
+	// ([hooks.state."…"]) positionally after the last [[hooks.*]] table it
+	// finds in the file — which, once the hook is registered, is the one
+	// inside our own managed block. Re-registering the hook must relocate
+	// that table out of the block instead of destroying it with the rewrite.
+	kbRoot := t.TempDir()
+	writeCodexHookKB(t, kbRoot, "notify", "PostToolUse", "concept_write", "./notify.sh")
+	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, provisioning.BuildOptions{})
+	if err != nil {
+		t.Fatalf("BuildManifest: %v", err)
+	}
+
+	baseDir := t.TempDir()
+	opts := provisioning.ApplyOptions{
+		AutoTrust: true,
+		KBRoots:   map[string]string{"kb": kbRoot},
+		Provider:  configurator.ProviderCodex,
+		BaseDir:   baseDir,
+		Lock:      provisioning.Lock{},
+	}
+	if _, err := provisioning.Apply(m, opts); err != nil {
+		t.Fatalf("Apply (1): %v", err)
+	}
+
+	configPath := filepath.Join(baseDir, ".codex", "config.toml")
+	stateTable := "\n[hooks.state.\"/Users/me/.codex/config.toml:post_tool_use:0:0\"]\ntrusted_hash = \"sha256:6a78\"\n"
+	injectBeforeEndMarker(t, configPath, "# cartographer:hook:notify:end", stateTable)
+
+	res, err := provisioning.Apply(m, opts)
+	if err != nil {
+		t.Fatalf("Apply (2): %v", err)
+	}
+
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := string(data)
+	if !strings.Contains(got, `[hooks.state."/Users/me/.codex/config.toml:post_tool_use:0:0"]`) {
+		t.Fatalf("Codex's trusted-hash state table was lost:\n%s", got)
+	}
+	if !strings.Contains(got, `trusted_hash = "sha256:6a78"`) {
+		t.Errorf("state table's own content lost:\n%s", got)
+	}
+
+	stateIdx := strings.Index(got, `[hooks.state."`)
+	beginIdx := strings.Index(got, "# cartographer:hook:notify:begin")
+	endIdx := strings.Index(got, "# cartographer:hook:notify:end")
+	if stateIdx < 0 || beginIdx < 0 || endIdx < 0 {
+		t.Fatalf("missing markers in:\n%s", got)
+	}
+	if !(stateIdx < beginIdx) {
+		t.Errorf("the state table must now sit outside (before) the managed block, got:\n%s", got)
+	}
+	if strings.Contains(got[beginIdx:endIdx], "hooks.state") {
+		t.Errorf("the state table must not remain inside the managed block:\n%s", got)
+	}
+
+	var relocationWarned bool
+	for _, w := range res.Warnings {
+		if strings.Contains(w, "moved") && strings.Contains(w, "notify") {
+			relocationWarned = true
+		}
+	}
+	if !relocationWarned {
+		t.Errorf("expected a warning about the relocated table, got %v", res.Warnings)
+	}
+
+	// A second apply over the repaired file must be a no-op: the state table
+	// is already outside every managed span.
+	res2, err := provisioning.Apply(m, opts)
+	if err != nil {
+		t.Fatalf("Apply (3): %v", err)
+	}
+	data2, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data2) != got {
+		t.Errorf("re-apply over the repaired file must be a no-op:\nbefore:\n%s\nafter:\n%s", got, data2)
+	}
+	if len(res2.Warnings) != 0 {
+		t.Errorf("nothing left to relocate on re-apply, got warnings %v", res2.Warnings)
+	}
+}
