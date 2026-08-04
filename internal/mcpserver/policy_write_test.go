@@ -26,6 +26,7 @@ func TestPolicyWriteClassesDenyOutsideWholeOrBoundary(t *testing.T) {
 		"supersede":        `{"source_id":"manutenzione/test-runbook","target_id":"other/replacement"}`,
 		"concept_write":    `{"id":"manutenzione/new","frontmatter":{"type":"Secret"},"body":"x"}`,
 		"concept_patch":    `{"id":"manutenzione/test-runbook","frontmatter":{"type":"Secret"},"if_match":"x","old_string":"x","new_string":"y"}`,
+		"index_patch":      `{"path":"other","if_match":"x","old_string":"x","new_string":"y"}`,
 	}
 	for tool, args := range cases {
 		if err := authorizeTool(policy, k, "docs", tool, json.RawMessage(args)); err == nil {
@@ -82,6 +83,37 @@ func TestAuthorizationUsesCurrentFrontmatterAfterChange(t *testing.T) {
 	}
 	if err := authorizeTool(policy, k, "docs", "concept_patch", args); err == nil {
 		t.Fatal("authorization used stale frontmatter classification")
+	}
+}
+
+// TestPolicyIndexPatch_ScopedToMapNotWholeKB verifies index_patch's bounded
+// resource authorization (D122 WP3): a policy scoped to one Map can patch
+// that Map's curated index but not another Map's, and — since the root index
+// is not scoped to any single Map/Journal — not the root index either, even
+// though the same policy already grants a write inside that Map.
+func TestPolicyIndexPatch_ScopedToMapNotWholeKB(t *testing.T) {
+	k := setupTestKB(t)
+	k.AuthName = "docs"
+	policy := auth.Policy{Permissions: []auth.Permission{{KB: "docs", Write: true, Maps: []string{"manutenzione"}}}}
+
+	if err := authorizeTool(policy, k, "docs", "index_patch", json.RawMessage(`{"path":"manutenzione","if_match":"x","old_string":"x","new_string":"y"}`)); err != nil {
+		t.Errorf("in-scope map index_patch denied: %v", err)
+	}
+	if err := authorizeTool(policy, k, "docs", "index_patch", json.RawMessage(`{"path":"other","if_match":"x","old_string":"x","new_string":"y"}`)); err == nil {
+		t.Error("out-of-scope map index_patch was authorized")
+	}
+	for _, rootArgs := range []string{
+		`{"if_match":"x","old_string":"x","new_string":"y"}`,            // 'path' omitted
+		`{"path":".","if_match":"x","old_string":"x","new_string":"y"}`, // explicit "."
+	} {
+		if err := authorizeTool(policy, k, "docs", "index_patch", json.RawMessage(rootArgs)); err == nil {
+			t.Errorf("root index_patch (%s) authorized under a Map-scoped (not whole-KB) policy", rootArgs)
+		}
+	}
+
+	wholePolicy := auth.Policy{Permissions: []auth.Permission{{KB: "docs", Write: true}}}
+	if err := authorizeTool(wholePolicy, k, "docs", "index_patch", json.RawMessage(`{"if_match":"x","old_string":"x","new_string":"y"}`)); err != nil {
+		t.Errorf("root index_patch denied under a whole-KB policy: %v", err)
 	}
 }
 

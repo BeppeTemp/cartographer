@@ -143,7 +143,7 @@ func TestServer_ToolsList(t *testing.T) {
 	tools := toolsRaw.([]interface{})
 	expectedTools := []string{
 		"atlas_overview", "index_get", "concept_read", "log_tail",
-		"concept_write", "map_create", "concept_expand", "log_append", "snapshot", "validate",
+		"concept_write", "concept_patch", "index_patch", "map_create", "concept_expand", "log_append", "snapshot", "validate",
 		"map_list", "graph_neighbors", "search", "index_rebuild",
 		"lint", "commit_gate", "gate_check",
 	}
@@ -207,14 +207,14 @@ func TestServer_ToolsList_ReadOnlyHint(t *testing.T) {
 		byName[tool.Name] = tool.Annotations != nil && tool.Annotations.ReadOnlyHint
 	}
 
-	for _, name := range []string{"concept_read", "search"} {
+	for _, name := range []string{"concept_read", "search", "index_get"} {
 		if hint, ok := byName[name]; !ok {
 			t.Errorf("tools/list: tool %q not found", name)
 		} else if !hint {
 			t.Errorf("tools/list: tool %q: expected annotations.readOnlyHint=true", name)
 		}
 	}
-	for _, name := range []string{"concept_write", "concept_patch"} {
+	for _, name := range []string{"concept_write", "concept_patch", "index_patch"} {
 		if hint, ok := byName[name]; !ok {
 			t.Errorf("tools/list: tool %q not found", name)
 		} else if hint {
@@ -2939,7 +2939,7 @@ func TestServer_ToolsProfile(t *testing.T) {
 	s.SetToolsProfile("agent")
 	agentVisible := []string{
 		"atlas_overview", "index_get", "concept_read", "log_tail", "changes_since",
-		"concept_write", "concept_new", "concept_patch", "map_create", "map_delete", "concept_expand", "log_append", "snapshot",
+		"concept_write", "concept_new", "concept_patch", "index_patch", "map_create", "map_delete", "concept_expand", "log_append", "snapshot",
 		"map_list", "concept_list", "graph_neighbors", "search",
 		"supersede", "concept_move", "concept_delete",
 		"conflicts_list", "git_conflict_resolve",
@@ -3686,5 +3686,398 @@ func TestServer_Search_TitleAndSnippet(t *testing.T) {
 	}
 	if len(hit.Snippet) > 260 {
 		t.Errorf("search: snippet too long (%d chars), expected ~200: %q", len(hit.Snippet), hit.Snippet)
+	}
+}
+
+// --- index_get with_hash / index_patch (D122 WP2) ---
+
+// indexGetStructured decodes index_get(with_hash=true)'s {path, content,
+// content_hash} response.
+func indexGetStructured(t *testing.T, tr ToolResult) (content, hash string) {
+	t.Helper()
+	var result struct {
+		Content     string `json:"content"`
+		ContentHash string `json:"content_hash"`
+	}
+	if err := json.Unmarshal([]byte(tr.Content[0].Text), &result); err != nil {
+		t.Fatalf("decode index_get(with_hash) result: %v", err)
+	}
+	if result.ContentHash == "" {
+		t.Fatalf("empty content_hash in response: %s", tr.Content[0].Text)
+	}
+	return result.Content, result.ContentHash
+}
+
+func TestServer_IndexGet_DefaultRawCompat(t *testing.T) {
+	k := setupTestKB(t)
+	s := New("1.0.0")
+	RegisterKBTools(s, k, Deps{})
+
+	resps := runMCPSequence(t, s, []string{
+		initMsg,
+		artifactCallMsg(t, 2, "index_get", map[string]any{}),
+	})
+	tr := decodeToolResult(t, resps[1])
+	if tr.IsError {
+		t.Fatalf("index_get: unexpected error: %v", tr.Content)
+	}
+	raw, err := k.ReadRaw("index.md")
+	if err != nil {
+		t.Fatalf("ReadRaw: %v", err)
+	}
+	if tr.Content[0].Text != raw {
+		t.Errorf("index_get default: expected byte-for-byte raw Markdown, got %q, want %q", tr.Content[0].Text, raw)
+	}
+}
+
+func TestServer_IndexGet_WithHash_Structured(t *testing.T) {
+	k := setupTestKB(t)
+	s := New("1.0.0")
+	RegisterKBTools(s, k, Deps{})
+
+	resps := runMCPSequence(t, s, []string{
+		initMsg,
+		artifactCallMsg(t, 2, "index_get", map[string]any{"with_hash": true}),
+	})
+	tr := decodeToolResult(t, resps[1])
+	if tr.IsError {
+		t.Fatalf("index_get(with_hash): unexpected error: %v", tr.Content)
+	}
+	content, hash := indexGetStructured(t, tr)
+	raw, err := k.ReadRaw("index.md")
+	if err != nil {
+		t.Fatalf("ReadRaw: %v", err)
+	}
+	if content != raw {
+		t.Errorf("index_get(with_hash): content mismatch: got %q, want %q", content, raw)
+	}
+	if hash != okf.ContentHash(raw) {
+		t.Errorf("index_get(with_hash): content_hash mismatch: got %s, want %s", hash, okf.ContentHash(raw))
+	}
+}
+
+func TestServer_IndexPatch_HappyPath_Root(t *testing.T) {
+	k := setupTestKB(t)
+	s := New("1.0.0")
+	RegisterKBTools(s, k, Deps{})
+
+	getResp := decodeToolResult(t, runMCPSequence(t, s, []string{initMsg,
+		artifactCallMsg(t, 2, "index_get", map[string]any{"with_hash": true}),
+	})[1])
+	_, hash := indexGetStructured(t, getResp)
+
+	patchResp := decodeToolResult(t, runMCPSequence(t, s, []string{initMsg,
+		artifactCallMsg(t, 2, "index_patch", map[string]any{
+			"if_match":   hash,
+			"old_string": "KB initialized.",
+			"new_string": "KB initialized. Curated by index_patch.",
+		}),
+	})[1])
+	if patchResp.IsError {
+		t.Fatalf("index_patch: unexpected error: %v", patchResp.Content)
+	}
+	var result struct {
+		Path         string `json:"path"`
+		ContentHash  string `json:"content_hash"`
+		Replacements int    `json:"replacements"`
+	}
+	if err := json.Unmarshal([]byte(patchResp.Content[0].Text), &result); err != nil {
+		t.Fatalf("decode index_patch result: %v", err)
+	}
+	if result.Path != "" {
+		t.Errorf("index_patch(root): expected normalized path \"\", got %q", result.Path)
+	}
+	if result.Replacements != 1 {
+		t.Errorf("index_patch: expected 1 replacement, got %d", result.Replacements)
+	}
+
+	raw, err := k.ReadRaw("index.md")
+	if err != nil {
+		t.Fatalf("ReadRaw: %v", err)
+	}
+	if !strings.Contains(raw, "Curated by index_patch.") {
+		t.Errorf("index_patch: patched line not present: %q", raw)
+	}
+	if result.ContentHash != okf.ContentHash(raw) {
+		t.Errorf("index_patch: returned hash mismatch: got %s, want %s", result.ContentHash, okf.ContentHash(raw))
+	}
+}
+
+func TestServer_IndexPatch_HappyPath_Map(t *testing.T) {
+	k := setupTestKB(t)
+	s := New("1.0.0")
+	RegisterKBTools(s, k, Deps{})
+
+	createResp := decodeToolResult(t, runMCPSequence(t, s, []string{initMsg,
+		artifactCallMsg(t, 2, "map_create", map[string]any{"name": "curated", "title": "Curated"}),
+	})[1])
+	if createResp.IsError {
+		t.Fatalf("map_create: unexpected error: %v", createResp.Content)
+	}
+
+	getResp := decodeToolResult(t, runMCPSequence(t, s, []string{initMsg,
+		artifactCallMsg(t, 2, "index_get", map[string]any{"path": "curated", "with_hash": true}),
+	})[1])
+	_, hash := indexGetStructured(t, getResp)
+
+	patchResp := decodeToolResult(t, runMCPSequence(t, s, []string{initMsg,
+		artifactCallMsg(t, 2, "index_patch", map[string]any{
+			"path":        "curated",
+			"if_match":    hash,
+			"old_string":  "Curated",
+			"new_string":  "Curated Map",
+			"replace_all": true,
+		}),
+	})[1])
+	if patchResp.IsError {
+		t.Fatalf("index_patch(map): unexpected error: %v", patchResp.Content)
+	}
+	var result struct {
+		Path string `json:"path"`
+	}
+	if err := json.Unmarshal([]byte(patchResp.Content[0].Text), &result); err != nil {
+		t.Fatalf("decode index_patch result: %v", err)
+	}
+	if result.Path != "curated" {
+		t.Errorf("index_patch(map): expected normalized path \"curated\", got %q", result.Path)
+	}
+	raw, err := k.ReadRaw("curated/index.md")
+	if err != nil {
+		t.Fatalf("ReadRaw: %v", err)
+	}
+	if !strings.Contains(raw, "Curated Map") {
+		t.Errorf("index_patch(map): patched line not present: %q", raw)
+	}
+}
+
+func TestServer_IndexPatch_StaleWrite(t *testing.T) {
+	k := setupTestKB(t)
+	s := New("1.0.0")
+	RegisterKBTools(s, k, Deps{})
+
+	resp := decodeToolResult(t, runMCPSequence(t, s, []string{initMsg,
+		artifactCallMsg(t, 2, "index_patch", map[string]any{
+			"if_match":   "hash-sbagliato",
+			"old_string": "KB initialized.",
+			"new_string": "x",
+		}),
+	})[1])
+	if !resp.IsError {
+		t.Fatal("index_patch with wrong if_match: expected isError=true")
+	}
+	if !strings.Contains(resp.Content[0].Text, "stale_write") {
+		t.Errorf("index_patch: expected 'stale_write': %s", resp.Content[0].Text)
+	}
+}
+
+func TestServer_IndexPatch_OldStringNotFound(t *testing.T) {
+	k := setupTestKB(t)
+	s := New("1.0.0")
+	RegisterKBTools(s, k, Deps{})
+
+	getResp := decodeToolResult(t, runMCPSequence(t, s, []string{initMsg,
+		artifactCallMsg(t, 2, "index_get", map[string]any{"with_hash": true}),
+	})[1])
+	_, hash := indexGetStructured(t, getResp)
+
+	resp := decodeToolResult(t, runMCPSequence(t, s, []string{initMsg,
+		artifactCallMsg(t, 2, "index_patch", map[string]any{
+			"if_match":   hash,
+			"old_string": "no such text",
+			"new_string": "x",
+		}),
+	})[1])
+	if !resp.IsError {
+		t.Fatal("index_patch with absent old_string: expected isError=true")
+	}
+	if !strings.Contains(resp.Content[0].Text, "old_string_not_found") {
+		t.Errorf("index_patch: expected 'old_string_not_found': %s", resp.Content[0].Text)
+	}
+}
+
+func TestServer_IndexPatch_OldStringAmbiguous(t *testing.T) {
+	k := setupTestKB(t)
+	s := New("1.0.0")
+	RegisterKBTools(s, k, Deps{})
+
+	getResp := decodeToolResult(t, runMCPSequence(t, s, []string{initMsg,
+		artifactCallMsg(t, 2, "index_get", map[string]any{"with_hash": true}),
+	})[1])
+	_, hash := indexGetStructured(t, getResp)
+
+	// "Index" matches twice in the default root index.md: "type: Index" and "# Index".
+	resp := decodeToolResult(t, runMCPSequence(t, s, []string{initMsg,
+		artifactCallMsg(t, 2, "index_patch", map[string]any{
+			"if_match":   hash,
+			"old_string": "Index",
+			"new_string": "Atlas",
+		}),
+	})[1])
+	if !resp.IsError {
+		t.Fatal("index_patch with ambiguous old_string: expected isError=true")
+	}
+	if !strings.Contains(resp.Content[0].Text, "old_string_ambiguous") {
+		t.Errorf("index_patch: expected 'old_string_ambiguous': %s", resp.Content[0].Text)
+	}
+}
+
+func TestServer_IndexPatch_BatchEdits(t *testing.T) {
+	k := setupTestKB(t)
+	s := New("1.0.0")
+	RegisterKBTools(s, k, Deps{})
+
+	getResp := decodeToolResult(t, runMCPSequence(t, s, []string{initMsg,
+		artifactCallMsg(t, 2, "index_get", map[string]any{"with_hash": true}),
+	})[1])
+	_, hash := indexGetStructured(t, getResp)
+
+	patchResp := decodeToolResult(t, runMCPSequence(t, s, []string{initMsg,
+		artifactCallMsg(t, 2, "index_patch", map[string]any{
+			"if_match": hash,
+			"edits": []map[string]any{
+				{"old_string": "# Index", "new_string": "# Atlas"},
+				{"old_string": "KB initialized.", "new_string": "KB initialized, curated."},
+			},
+		}),
+	})[1])
+	if patchResp.IsError {
+		t.Fatalf("index_patch batch: unexpected error: %v", patchResp.Content)
+	}
+
+	raw, err := k.ReadRaw("index.md")
+	if err != nil {
+		t.Fatalf("ReadRaw: %v", err)
+	}
+	if !strings.Contains(raw, "# Atlas") || !strings.Contains(raw, "KB initialized, curated.") {
+		t.Errorf("index_patch batch: expected both edits applied: %q", raw)
+	}
+}
+
+// TestServer_IndexPatch_BatchEditsFailsMidway_NoWrite verifies a batch where
+// the second edit fails leaves the index completely untouched (atomic
+// failure — nothing is written until every edit in the batch succeeds).
+func TestServer_IndexPatch_BatchEditsFailsMidway_NoWrite(t *testing.T) {
+	k := setupTestKB(t)
+	s := New("1.0.0")
+	RegisterKBTools(s, k, Deps{})
+
+	before, err := k.ReadRaw("index.md")
+	if err != nil {
+		t.Fatalf("ReadRaw: %v", err)
+	}
+
+	getResp := decodeToolResult(t, runMCPSequence(t, s, []string{initMsg,
+		artifactCallMsg(t, 2, "index_get", map[string]any{"with_hash": true}),
+	})[1])
+	_, hash := indexGetStructured(t, getResp)
+
+	patchResp := decodeToolResult(t, runMCPSequence(t, s, []string{initMsg,
+		artifactCallMsg(t, 2, "index_patch", map[string]any{
+			"if_match": hash,
+			"edits": []map[string]any{
+				{"old_string": "KB initialized.", "new_string": "KB initialized, curated."},
+				{"old_string": "no such text anywhere", "new_string": "x"},
+			},
+		}),
+	})[1])
+	if !patchResp.IsError {
+		t.Fatal("index_patch batch with a failing edit: expected isError=true")
+	}
+	if !strings.Contains(patchResp.Content[0].Text, "edit 2 of 2") {
+		t.Errorf("index_patch batch: expected failing edit index in error: %s", patchResp.Content[0].Text)
+	}
+
+	after, err := k.ReadRaw("index.md")
+	if err != nil {
+		t.Fatalf("ReadRaw after failure: %v", err)
+	}
+	if before != after {
+		t.Errorf("index_patch batch: index.md changed despite mid-batch failure: before=%q after=%q", before, after)
+	}
+}
+
+func TestServer_IndexPatch_ExpandedOwnerRedirect(t *testing.T) {
+	k := setupTestKB(t)
+	s := New("1.0.0")
+	RegisterKBTools(s, k, Deps{})
+
+	resps := runMCPSequence(t, s, []string{
+		initMsg,
+		artifactCallMsg(t, 2, "concept_expand", map[string]any{"id": "manutenzione/test-runbook"}),
+	})
+	trExpand := decodeToolResult(t, resps[1])
+	if trExpand.IsError {
+		t.Fatalf("concept_expand: unexpected error: %v", trExpand.Content)
+	}
+
+	patchResp := decodeToolResult(t, runMCPSequence(t, s, []string{initMsg,
+		artifactCallMsg(t, 2, "index_patch", map[string]any{
+			"path":       "manutenzione/test-runbook",
+			"if_match":   "any-hash",
+			"old_string": "x",
+			"new_string": "y",
+		}),
+	})[1])
+	if !patchResp.IsError {
+		t.Fatal("index_patch on an expanded concept's own index: expected isError=true")
+	}
+	if !strings.Contains(patchResp.Content[0].Text, "expanded_index") {
+		t.Errorf("index_patch: expected 'expanded_index' redirect: %s", patchResp.Content[0].Text)
+	}
+	if !strings.Contains(patchResp.Content[0].Text, "concept_patch") {
+		t.Errorf("index_patch: expected redirect to mention concept_patch: %s", patchResp.Content[0].Text)
+	}
+}
+
+// TestServer_IndexPatch_NoSearchIndexMutation verifies a successful
+// index_patch never adds the curated index to the live keyword index or the
+// concept inventory: root/Map indexes are curated prose, not concepts.
+func TestServer_IndexPatch_NoSearchIndexMutation(t *testing.T) {
+	k := setupTestKB(t)
+	s := New("1.0.0")
+	RegisterKBTools(s, k, Deps{})
+
+	getResp := decodeToolResult(t, runMCPSequence(t, s, []string{initMsg,
+		artifactCallMsg(t, 2, "index_get", map[string]any{"with_hash": true}),
+	})[1])
+	_, hash := indexGetStructured(t, getResp)
+
+	const needle = "zzyzxindexpatchneedle"
+	patchResp := decodeToolResult(t, runMCPSequence(t, s, []string{initMsg,
+		artifactCallMsg(t, 2, "index_patch", map[string]any{
+			"if_match":   hash,
+			"old_string": "KB initialized.",
+			"new_string": "KB initialized. " + needle + ".",
+		}),
+	})[1])
+	if patchResp.IsError {
+		t.Fatalf("index_patch: unexpected error: %v", patchResp.Content)
+	}
+
+	searchResp := decodeToolResult(t, runMCPSequence(t, s, []string{initMsg,
+		artifactCallMsg(t, 2, "search", map[string]any{"query": needle}),
+	})[1])
+	if searchResp.IsError {
+		t.Fatalf("search: unexpected error: %v", searchResp.Content)
+	}
+	var searchResult struct {
+		Results []struct {
+			ID string `json:"id"`
+		} `json:"results"`
+	}
+	if err := json.Unmarshal([]byte(searchResp.Content[0].Text), &searchResult); err == nil {
+		if len(searchResult.Results) != 0 {
+			t.Errorf("search: curated root index leaked into the search index: %+v", searchResult.Results)
+		}
+	}
+
+	var concepts []okf.ConceptID
+	if err := k.WalkConcepts(func(id okf.ConceptID, _ string) error { concepts = append(concepts, id); return nil }); err != nil {
+		t.Fatalf("WalkConcepts: %v", err)
+	}
+	for _, id := range concepts {
+		if string(id) == "" || string(id) == "index" {
+			t.Errorf("index_patch: root index.md leaked into WalkConcepts: %v", concepts)
+		}
 	}
 }

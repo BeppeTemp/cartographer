@@ -501,6 +501,174 @@ func toolConceptPatch(k *kb.KB, live *liveIndex, sqlIdx *sqlindex.Index) Tool {
 	}
 }
 
+// --- index_patch ---
+
+// normalizeIndexPath mirrors kb.curatedIndexRelPath's path normalization
+// (trim slashes, "." collapses to root) so index_patch's response reports
+// the same canonical path kb.IndexHash/PatchIndex resolved against,
+// regardless of how the caller wrote it ("", ".", "entities/").
+func normalizeIndexPath(path string) string {
+	clean := strings.Trim(filepath.ToSlash(filepath.Clean(strings.ReplaceAll(path, "\\", "/"))), "/")
+	if clean == "." {
+		clean = ""
+	}
+	return clean
+}
+
+// toolIndexPatch patches the root or a Map/Journal's curated index.md
+// (D122 WP2) — the bounded write half of the data plane added in kb.IndexHash/
+// kb.PatchIndex (D122 WP1). It reuses applyPatchEdit's Edit-tool semantics
+// (single or batch 'edits') verbatim from concept_patch, applied to the raw
+// index content instead of a concept body, and never touches the live/SQLite
+// concept search indexes: root/Map indexes are curated prose, not indexed
+// concepts.
+func toolIndexPatch(k *kb.KB) Tool {
+	return Tool{
+		Name: "index_patch",
+		Description: "Patches the root or a Map/Journal's curated index.md with an old_string/new_string " +
+			"replacement (Edit-tool semantics), the same bounded primitive as concept_patch but for a " +
+			"curated index rather than a concept. Accepts either a single top-level " +
+			"old_string/new_string/replace_all triple or an 'edits' array of {old_string, new_string, " +
+			"replace_all?} objects applied atomically and in order (each edit sees the result of the " +
+			"previous one); the two forms are mutually exclusive. if_match is required (read the current " +
+			"content_hash with index_get(with_hash=true) first): fails with stale_write if the index " +
+			"changed since. Fails with old_string_not_found or old_string_ambiguous (pass replace_all to " +
+			"allow multiple matches); for a batch, the error names the failing edit's index and nothing " +
+			"is written. An expanded concept's own index.md (e.g. 'map/concept') is not a curated index " +
+			"and is rejected with expanded_index — use concept_patch(id=<owner>) for that instead. " +
+			"Returns the normalized path, new content_hash, and replacement count.",
+		InputSchema: json.RawMessage(`{
+			"type": "object",
+			"required": ["if_match"],
+			"properties": {
+				"path": {
+					"type": "string",
+					"description": "Path relative to KB root: empty/root, or a Map/Journal name (e.g. 'maintenance')."
+				},
+				"old_string": {
+					"type": "string",
+					"description": "Exact substring to find in the index's current content (single-edit form, mutually exclusive with 'edits')"
+				},
+				"new_string": {
+					"type": "string",
+					"description": "Replacement text (single-edit form, mutually exclusive with 'edits')"
+				},
+				"replace_all": {
+					"type": "boolean",
+					"description": "Replace all occurrences of old_string. Default false: old_string must match exactly once. (single-edit form, mutually exclusive with 'edits')"
+				},
+				"edits": {
+					"type": "array",
+					"description": "Batch form: list of {old_string, new_string, replace_all?} applied atomically and in order. Mutually exclusive with old_string/new_string/replace_all.",
+					"items": {
+						"type": "object",
+						"required": ["old_string", "new_string"],
+						"properties": {
+							"old_string": {"type": "string"},
+							"new_string": {"type": "string"},
+							"replace_all": {"type": "boolean"}
+						}
+					}
+				},
+				"if_match": {
+					"type": "string",
+					"description": "Expected content-hash (required)"
+				}
+			}
+		}`),
+		Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
+			var params struct {
+				Path       string          `json:"path"`
+				OldString  string          `json:"old_string"`
+				NewString  string          `json:"new_string"`
+				ReplaceAll bool            `json:"replace_all"`
+				Edits      []patchEditItem `json:"edits"`
+				IfMatch    string          `json:"if_match"`
+			}
+			if err := json.Unmarshal(args, &params); err != nil {
+				return errorResult("invalid params: " + err.Error()), nil
+			}
+			if params.IfMatch == "" {
+				return errorResult("'if_match' is required"), nil
+			}
+
+			// Same 'edits' vs top-level mutual-exclusion handling as
+			// concept_patch (D76 WP1), applied on the raw JSON so an explicit
+			// "edits": [] is distinguished from an absent 'edits' key.
+			var rawKeys map[string]json.RawMessage
+			_ = json.Unmarshal(args, &rawKeys)
+			_, hasEdits := rawKeys["edits"]
+			hasSingle := params.OldString != "" || params.NewString != "" || params.ReplaceAll
+
+			if hasEdits && hasSingle {
+				return errorResult("'edits' is mutually exclusive with top-level 'old_string'/'new_string'/'replace_all'"), nil
+			}
+			if !hasEdits && !hasSingle {
+				return errorResult("'old_string' is required (or provide 'edits' for a batch of edits)"), nil
+			}
+			if hasEdits && len(params.Edits) == 0 {
+				return errorResult("'edits' cannot be empty"), nil
+			}
+			if !hasEdits && params.OldString == "" {
+				return errorResult("'old_string' is required"), nil
+			}
+
+			content, _, err := k.IndexHash(params.Path)
+			if err != nil {
+				return errorResult(fmt.Sprintf("index_patch %q: %v", params.Path, err)), nil
+			}
+
+			// Apply every edit in memory first (sequentially, each seeing the
+			// previous edit's result): nothing is written until all edits
+			// succeed, so a failure mid-batch leaves the index untouched.
+			replacements := 0
+			if hasEdits {
+				for i, e := range params.Edits {
+					if e.OldString == "" {
+						return errorResult(fmt.Sprintf("edit %d of %d: 'old_string' is required", i+1, len(params.Edits))), nil
+					}
+					newContent, n, err := applyPatchEdit(content, e.OldString, e.NewString, e.ReplaceAll)
+					if err != nil {
+						return errorResult(fmt.Sprintf("edit %d of %d: %v", i+1, len(params.Edits), err)), nil
+					}
+					content = newContent
+					replacements += n
+				}
+			} else {
+				newContent, n, err := applyPatchEdit(content, params.OldString, params.NewString, params.ReplaceAll)
+				if err != nil {
+					return errorResult(fmt.Sprintf("%v in index %q", err, params.Path)), nil
+				}
+				content = newContent
+				replacements = n
+			}
+
+			newHash, err := k.PatchIndex(params.Path, params.IfMatch, content)
+			if err != nil {
+				if errors.Is(err, okf.ErrStaleWrite) {
+					return errorResult("stale_write: " + err.Error()), nil
+				}
+				return errorResult(fmt.Sprintf("index_patch %q: %v", params.Path, err)), nil
+			}
+
+			normalizedPath := normalizeIndexPath(params.Path)
+			logPath := normalizedPath
+			if logPath == "" {
+				logPath = "(root)"
+			}
+			_ = k.AppendLog("index_patch: "+logPath, time.Now())
+
+			result := map[string]interface{}{
+				"path":         normalizedPath,
+				"content_hash": newHash,
+				"replacements": replacements,
+			}
+			out, _ := json.MarshalIndent(result, "", "  ")
+			return textResult(string(out)), nil
+		},
+	}
+}
+
 // --- map_create ---
 
 func toolMapCreate(k *kb.KB) Tool {

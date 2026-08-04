@@ -15,10 +15,11 @@ import (
 const genericNotFound = "not found"
 
 const (
-	resourceCollection = "collection"
-	resourceExact      = "exact-concept"
-	resourceMove       = "source-destination"
-	resourceWhole      = "whole-kb"
+	resourceCollection   = "collection"
+	resourceExact        = "exact-concept"
+	resourceMove         = "source-destination"
+	resourceWhole        = "whole-kb"
+	resourceCuratedIndex = "curated-index"
 )
 
 // resourceClassForTool is an exhaustive registry inventory. Keeping it next
@@ -32,6 +33,8 @@ func resourceClassForTool(name string) string {
 		return resourceExact
 	case "concept_move":
 		return resourceMove
+	case "index_patch":
+		return resourceCuratedIndex
 	case "index_get", "log_tail", "conflicts_list", "skill_list", "artifact_list", "template_list", "map_create", "map_delete", "log_append", "snapshot", "commit_gate", "conflict_resolve", "git_conflict_resolve", "sync_status", "sync_check", "sync_apply", "sync_pull", "index_rebuild", "reindex", "kb_status", "pr_status", "pr_finalize", "secret_resolve", "secret_set", "skill_install", "artifact_read", "artifact_write", "artifact_delete", "validate", "lint", "gate_check":
 		return resourceWhole
 	default:
@@ -155,6 +158,37 @@ func authorizeTool(policy auth.Policy, k *kb.KB, name, tool string, args json.Ra
 			}
 		}
 		return nil
+	}
+	// index_patch addresses a bounded root/Map/Journal resource, not a
+	// concept: it is authorized against that resource directly rather than
+	// falling through to the "id" field logic below, which expects a
+	// ConceptID. The root index has no map/journal of its own — it affects
+	// the whole KB's atlas view — so it requires the same unscoped write
+	// grant as the resourceWhole tools above; a Map/Journal path is checked
+	// against that single collection, same as allowedMove's destination.
+	if tool == "index_patch" {
+		var indexArgs struct {
+			Path string `json:"path"`
+		}
+		if json.Unmarshal(args, &indexArgs) != nil {
+			return errors.New("forbidden")
+		}
+		if normalizeIndexPath(indexArgs.Path) == "" {
+			if policy.AllowsWholeKB(name, true) {
+				return nil
+			}
+			return errors.New("forbidden")
+		}
+		mapName, journalName := normalizeIndexPath(indexArgs.Path), ""
+		if meta, err := k.ReadArchiveMeta(mapName); err == nil {
+			if kind, _ := meta.Get("kind"); kind == "journal" {
+				mapName, journalName = "", mapName
+			}
+		}
+		if policy.Allows(name, mapName, journalName, "", true) {
+			return nil
+		}
+		return errors.New("forbidden")
 	}
 	if tool == "supersede" {
 		var relation struct {
