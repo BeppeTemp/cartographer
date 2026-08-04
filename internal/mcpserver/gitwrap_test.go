@@ -348,6 +348,80 @@ func TestGitWrap_MapDelete_EmptyMap_CreatesCommit(t *testing.T) {
 	}
 }
 
+// TestGitWrap_IndexPatch_CreatesOneCommit verifies a batch index_patch
+// (D122 WP2) produces exactly one git commit, same as concept_patch's batch
+// 'edits' form.
+func TestGitWrap_IndexPatch_CreatesOneCommit(t *testing.T) {
+	k, sha1 := setupGitKB(t)
+	k.AutoCommit = true
+
+	s := New("0.1.0-test")
+	RegisterKBTools(s, k, Deps{})
+
+	getResp := decodeToolResult(t, runMCPSequence(t, s, []string{initMsg,
+		artifactCallMsg(t, 2, "index_get", map[string]any{"with_hash": true}),
+	})[1])
+	if getResp.IsError {
+		t.Fatalf("index_get with_hash: isError=true: %v", getResp.Content)
+	}
+	var getResult struct {
+		Content     string `json:"content"`
+		ContentHash string `json:"content_hash"`
+	}
+	if err := json.Unmarshal([]byte(getResp.Content[0].Text), &getResult); err != nil {
+		t.Fatalf("decode index_get result: %v", err)
+	}
+
+	patchResp := decodeToolResult(t, runMCPSequence(t, s, []string{initMsg,
+		artifactCallMsg(t, 2, "index_patch", map[string]any{
+			"if_match": getResult.ContentHash,
+			"edits": []map[string]any{
+				{"old_string": "KB initialized.", "new_string": "KB initialized (patched)."},
+			},
+		}),
+	})[1])
+	if patchResp.IsError {
+		t.Fatalf("index_patch: isError=true: %v", patchResp.Content)
+	}
+
+	sha2, err := gitx.HeadSHA(k.Root)
+	if err != nil {
+		t.Fatalf("HeadSHA: %v", err)
+	}
+	if sha1 == sha2 {
+		t.Fatal("expected a new commit after index_patch with AutoCommit=true, but HEAD SHA is unchanged")
+	}
+}
+
+// TestGitWrap_IndexPatch_FailedOp_NoCommit verifies a stale_write index_patch
+// does not produce a git commit.
+func TestGitWrap_IndexPatch_FailedOp_NoCommit(t *testing.T) {
+	k, sha1 := setupGitKB(t)
+	k.AutoCommit = true
+
+	s := New("0.1.0-test")
+	RegisterKBTools(s, k, Deps{})
+
+	resp := decodeToolResult(t, runMCPSequence(t, s, []string{initMsg,
+		artifactCallMsg(t, 2, "index_patch", map[string]any{
+			"if_match":   "wrong-hash",
+			"old_string": "x",
+			"new_string": "y",
+		}),
+	})[1])
+	if !resp.IsError {
+		t.Fatal("index_patch with wrong if_match: expected isError=true but got success")
+	}
+
+	sha2, err := gitx.HeadSHA(k.Root)
+	if err != nil {
+		t.Fatalf("HeadSHA: %v", err)
+	}
+	if sha1 != sha2 {
+		t.Fatal("expected no commit after failed index_patch but HEAD SHA changed")
+	}
+}
+
 // setupGitKBWithRemote initialises a temp KB with a bare remote attached as
 // "origin" (D76/WP4: needed to exercise the async push worker end-to-end
 // through gitWrap, not just kb.SchedulePush/FlushPush directly).

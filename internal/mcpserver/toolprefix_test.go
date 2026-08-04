@@ -235,6 +235,15 @@ func TestMountKBWithPrefix_ScopedTokenMatrix(t *testing.T) {
 	if rr.Code != http.StatusOK {
 		t.Fatalf("prefixed write tool with rw scope: status = %d, want 200; body=%s", rr.Code, rr.Body.String())
 	}
+
+	// index_patch (D122 WP3) follows the same prefixed read/write matrix.
+	rr = doMCP(handler, "ai-team", "r-tok", writeToolCallBody("aiteam__index_patch"))
+	assertMCPForbidden(t, rr)
+
+	rr = doMCP(handler, "ai-team", "rw-tok", writeToolCallBody("aiteam__index_patch"))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("prefixed index_patch with rw scope: status = %d, want 200; body=%s", rr.Code, rr.Body.String())
+	}
 }
 
 // TestMountKBWithPrefix_BudgetExceeded verifies a tool_prefix that pushes a

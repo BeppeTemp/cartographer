@@ -1068,3 +1068,258 @@ func TestValidate_StrictOntologiaTypeNonAmmesso(t *testing.T) {
 		t.Fatalf("Validate: expected strict ontology error, found: %v", errs)
 	}
 }
+
+// --- IndexHash / PatchIndex (D122 WP1) ---
+
+func TestIndexHash_Root(t *testing.T) {
+	dir := tempKB(t)
+	kb, _ := Init(dir)
+
+	content, hash, err := kb.IndexHash("")
+	if err != nil {
+		t.Fatalf("IndexHash(root): %v", err)
+	}
+	raw, err := kb.ReadRaw("index.md")
+	if err != nil {
+		t.Fatalf("ReadRaw: %v", err)
+	}
+	if content != raw {
+		t.Errorf("IndexHash content mismatch: got %q, want %q", content, raw)
+	}
+	if hash != okf.ContentHash(raw) {
+		t.Errorf("IndexHash hash mismatch: got %s, want %s", hash, okf.ContentHash(raw))
+	}
+}
+
+func TestIndexHash_Map(t *testing.T) {
+	dir := tempKB(t)
+	kb, _ := Init(dir)
+	if err := kb.CreateMap("entities", "Entities", "map", nil, ""); err != nil {
+		t.Fatalf("CreateMap: %v", err)
+	}
+
+	content, hash, err := kb.IndexHash("entities")
+	if err != nil {
+		t.Fatalf("IndexHash(map): %v", err)
+	}
+	raw, err := kb.ReadRaw("entities/index.md")
+	if err != nil {
+		t.Fatalf("ReadRaw: %v", err)
+	}
+	if content != raw || hash != okf.ContentHash(raw) {
+		t.Errorf("IndexHash(map): content/hash mismatch")
+	}
+}
+
+func TestIndexHash_Journal(t *testing.T) {
+	dir := tempKB(t)
+	kb, _ := Init(dir)
+	if err := kb.CreateMap("incidents", "Incidents", "journal", nil, ""); err != nil {
+		t.Fatalf("CreateMap: %v", err)
+	}
+
+	content, hash, err := kb.IndexHash("incidents")
+	if err != nil {
+		t.Fatalf("IndexHash(journal): %v", err)
+	}
+	raw, err := kb.ReadRaw("incidents/index.md")
+	if err != nil {
+		t.Fatalf("ReadRaw: %v", err)
+	}
+	if content != raw || hash != okf.ContentHash(raw) {
+		t.Errorf("IndexHash(journal): content/hash mismatch")
+	}
+}
+
+func TestPatchIndex_HappyPath_Root(t *testing.T) {
+	dir := tempKB(t)
+	kb, _ := Init(dir)
+
+	_, hash, err := kb.IndexHash("")
+	if err != nil {
+		t.Fatalf("IndexHash: %v", err)
+	}
+	newHash, err := kb.PatchIndex("", hash, "# Root\n\n- [[entities]]\n")
+	if err != nil {
+		t.Fatalf("PatchIndex: %v", err)
+	}
+	raw, err := kb.ReadRaw("index.md")
+	if err != nil {
+		t.Fatalf("ReadRaw: %v", err)
+	}
+	if raw != "# Root\n\n- [[entities]]\n" {
+		t.Errorf("PatchIndex: unexpected content: %q", raw)
+	}
+	if newHash != okf.ContentHash(raw) {
+		t.Errorf("PatchIndex: returned hash mismatch")
+	}
+}
+
+func TestPatchIndex_HappyPath_MapAndJournal(t *testing.T) {
+	dir := tempKB(t)
+	kb, _ := Init(dir)
+	if err := kb.CreateMap("entities", "Entities", "map", nil, ""); err != nil {
+		t.Fatalf("CreateMap(map): %v", err)
+	}
+	if err := kb.CreateMap("incidents", "Incidents", "journal", nil, ""); err != nil {
+		t.Fatalf("CreateMap(journal): %v", err)
+	}
+
+	for _, name := range []string{"entities", "incidents"} {
+		_, hash, err := kb.IndexHash(name)
+		if err != nil {
+			t.Fatalf("IndexHash(%s): %v", name, err)
+		}
+		newContent := "# " + name + "\n\nCurated.\n"
+		if _, err := kb.PatchIndex(name, hash, newContent); err != nil {
+			t.Fatalf("PatchIndex(%s): %v", name, err)
+		}
+		raw, err := kb.ReadRaw(name + "/index.md")
+		if err != nil {
+			t.Fatalf("ReadRaw(%s): %v", name, err)
+		}
+		if raw != newContent {
+			t.Errorf("PatchIndex(%s): unexpected content: %q", name, raw)
+		}
+	}
+}
+
+func TestPatchIndex_StaleHash(t *testing.T) {
+	dir := tempKB(t)
+	kb, _ := Init(dir)
+
+	before, err := kb.ReadRaw("index.md")
+	if err != nil {
+		t.Fatalf("ReadRaw: %v", err)
+	}
+
+	_, err = kb.PatchIndex("", "wrong-hash", "# Nope\n")
+	if !errors.Is(err, okf.ErrStaleWrite) {
+		t.Fatalf("expected ErrStaleWrite, got: %v", err)
+	}
+
+	after, err := kb.ReadRaw("index.md")
+	if err != nil {
+		t.Fatalf("ReadRaw after failure: %v", err)
+	}
+	if before != after {
+		t.Errorf("PatchIndex: file changed after stale_write failure: before=%q after=%q", before, after)
+	}
+}
+
+func TestPatchIndex_Traversal(t *testing.T) {
+	dir := tempKB(t)
+	kb, _ := Init(dir)
+
+	before, err := kb.ReadRaw("index.md")
+	if err != nil {
+		t.Fatalf("ReadRaw: %v", err)
+	}
+
+	for _, path := range []string{"..", "../etc/passwd", "/etc/passwd"} {
+		if _, _, err := kb.IndexHash(path); !errors.Is(err, okf.ErrInvalidPath) {
+			t.Errorf("IndexHash(%q): expected ErrInvalidPath, got: %v", path, err)
+		}
+		if _, err := kb.PatchIndex(path, "any-hash", "x"); !errors.Is(err, okf.ErrInvalidPath) {
+			t.Errorf("PatchIndex(%q): expected ErrInvalidPath, got: %v", path, err)
+		}
+	}
+
+	after, err := kb.ReadRaw("index.md")
+	if err != nil {
+		t.Fatalf("ReadRaw after failures: %v", err)
+	}
+	if before != after {
+		t.Errorf("PatchIndex: root index.md changed after traversal rejection: before=%q after=%q", before, after)
+	}
+}
+
+func TestPatchIndex_NestedPath(t *testing.T) {
+	dir := tempKB(t)
+	kb, _ := Init(dir)
+	if err := kb.CreateMap("entities", "Entities", "map", nil, ""); err != nil {
+		t.Fatalf("CreateMap: %v", err)
+	}
+	os.MkdirAll(filepath.Join(kb.DataRoot(), "entities", "smart-home"), 0o755)
+	os.WriteFile(filepath.Join(kb.DataRoot(), "entities", "smart-home", "index.md"),
+		[]byte("---\ntype: Index\ntitle: Smart Home\n---\n# Smart Home\n"), 0o644)
+
+	if _, _, err := kb.IndexHash("entities/smart-home/extra"); !errors.Is(err, okf.ErrInvalidPath) {
+		t.Errorf("IndexHash(nested): expected ErrInvalidPath, got: %v", err)
+	}
+	if _, err := kb.PatchIndex("entities/smart-home/extra", "any-hash", "x"); !errors.Is(err, okf.ErrInvalidPath) {
+		t.Errorf("PatchIndex(nested): expected ErrInvalidPath, got: %v", err)
+	}
+}
+
+func TestPatchIndex_MissingDescriptor(t *testing.T) {
+	dir := tempKB(t)
+	kb, _ := Init(dir)
+
+	if _, _, err := kb.IndexHash("no-such-map"); !errors.Is(err, okf.ErrNotFound) {
+		t.Errorf("IndexHash(missing): expected ErrNotFound, got: %v", err)
+	}
+	if _, err := kb.PatchIndex("no-such-map", "any-hash", "x"); !errors.Is(err, okf.ErrNotFound) {
+		t.Errorf("PatchIndex(missing): expected ErrNotFound, got: %v", err)
+	}
+}
+
+func TestPatchIndex_ExpandedOwnerRedirect(t *testing.T) {
+	dir := tempKB(t)
+	kb, _ := Init(dir)
+	if err := kb.CreateMap("map", "Map", "map", nil, ""); err != nil {
+		t.Fatalf("CreateMap: %v", err)
+	}
+	os.MkdirAll(filepath.Join(kb.DataRoot(), "map", "owner"), 0o755)
+	os.WriteFile(filepath.Join(kb.DataRoot(), "map", "owner", "index.md"),
+		[]byte("---\ntype: Runbook\ntitle: Owner\n---\n# Owner\n"), 0o644)
+
+	if _, _, err := kb.IndexHash("map/owner"); err == nil || !strings.Contains(err.Error(), "expanded_index") {
+		t.Errorf("IndexHash(expanded owner): expected expanded_index redirect, got: %v", err)
+	}
+	if _, err := kb.PatchIndex("map/owner", "any-hash", "x"); err == nil || !strings.Contains(err.Error(), "expanded_index") {
+		t.Errorf("PatchIndex(expanded owner): expected expanded_index redirect, got: %v", err)
+	}
+
+	raw, err := kb.ReadRaw("map/owner/index.md")
+	if err != nil {
+		t.Fatalf("ReadRaw: %v", err)
+	}
+	if !strings.Contains(raw, "# Owner") {
+		t.Errorf("expanded owner index.md changed unexpectedly: %q", raw)
+	}
+}
+
+func TestPatchIndex_SymlinkEscape(t *testing.T) {
+	dir := tempKB(t)
+	kb, _ := Init(dir)
+	if err := kb.CreateMap("entities", "Entities", "map", nil, ""); err != nil {
+		t.Fatalf("CreateMap: %v", err)
+	}
+	indexPath := filepath.Join(kb.DataRoot(), "entities", "index.md")
+	if err := os.Remove(indexPath); err != nil {
+		t.Fatalf("remove index.md: %v", err)
+	}
+	outside := filepath.Join(dir, "outside.md")
+	if err := os.WriteFile(outside, []byte("# Outside\n"), 0o644); err != nil {
+		t.Fatalf("write outside target: %v", err)
+	}
+	if err := os.Symlink(outside, indexPath); err != nil {
+		t.Fatalf("symlink index.md: %v", err)
+	}
+
+	if _, _, err := kb.IndexHash("entities"); !errors.Is(err, okf.ErrInvalidPath) {
+		t.Errorf("IndexHash(symlinked index): expected ErrInvalidPath, got: %v", err)
+	}
+	if _, err := kb.PatchIndex("entities", "any-hash", "x"); !errors.Is(err, okf.ErrInvalidPath) {
+		t.Errorf("PatchIndex(symlinked index): expected ErrInvalidPath, got: %v", err)
+	}
+
+	info, err := os.Lstat(indexPath)
+	if err != nil {
+		t.Fatalf("Lstat: %v", err)
+	}
+	if info.Mode()&os.ModeSymlink == 0 {
+		t.Error("symlink at entities/index.md was replaced by PatchIndex")
+	}
+}

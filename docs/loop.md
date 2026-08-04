@@ -20,7 +20,11 @@ of truth.
 2. When a suitable template exists, use `template_list` then `concept_new` to
    create its shaped starting point; otherwise use `concept_write` for a
    complete concept, `concept_patch` for bounded body/frontmatter edits, or
-   `log_append` for a Journal entry.
+   `log_append` for a Journal entry. To curate a root or Map/Journal
+   `index.md` — adding, removing or reordering entries — use `index_patch`
+   instead of `concept_patch`: an expanded concept's own `index.md` (e.g.
+   `map/concept`) is a concept and still goes through `concept_patch(id=
+   <owner>)` (D122).
 3. Pass `if_match` when updating existing content. A concurrent change fails
    with `stale_write` instead of being overwritten.
 4. The server validates the write, updates live indexes and—when enabled—
