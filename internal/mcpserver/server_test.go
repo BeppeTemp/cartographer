@@ -815,6 +815,79 @@ func TestServer_MapCreate_RejectsEmptyContractNames(t *testing.T) {
 	}
 }
 
+// TestServer_MapCreate_MachinePathAllowPrefixes verifies map_create writes
+// machine_path_allow_prefixes into the Map descriptor and that ReadMapContract
+// round-trips it, exercising the D124 field end to end via MCP.
+func TestServer_MapCreate_MachinePathAllowPrefixes(t *testing.T) {
+	k := setupTestKB(t)
+	s := New("test")
+	RegisterKBTools(s, k, Deps{})
+	resps := runMCPSequence(t, s, []string{
+		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
+		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"map_create","arguments":{"name":"infra","title":"Infra","machine_path_allow_prefixes":["/home/nonroot","/home/ubuntu/.cache/huggingface"]}}}`,
+	})
+	tr := decodeToolResult(t, resps[1])
+	if tr.IsError {
+		t.Fatalf("map_create: %v", tr.Content)
+	}
+	content, err := k.ReadRaw("infra/_map.md")
+	if err != nil || !strings.Contains(content, "machine_path_allow_prefixes: [/home/nonroot, /home/ubuntu/.cache/huggingface]") {
+		t.Fatalf("contract descriptor = %q, %v", content, err)
+	}
+}
+
+func TestServer_MapCreate_RejectsEmptyMachinePathAllowPrefix(t *testing.T) {
+	k := setupTestKB(t)
+	s := New("test")
+	RegisterKBTools(s, k, Deps{})
+	resps := runMCPSequence(t, s, []string{
+		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
+		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"map_create","arguments":{"name":"bad-prefix","title":"Bad","machine_path_allow_prefixes":[" "]}}}`,
+	})
+	if result := decodeToolResult(t, resps[1]); !result.IsError {
+		t.Fatalf("map_create accepted an empty machine_path_allow_prefixes entry: %#v", result)
+	}
+}
+
+// TestServer_Lint_MachinePath_ContractMalformed verifies that a malformed
+// machine_path_allow_prefixes entry in a Map descriptor surfaces as a
+// contract_malformed finding through the lint tool (D124), the same way
+// other malformed contract keys already do.
+func TestServer_Lint_MachinePath_ContractMalformed(t *testing.T) {
+	k := setupTestKB(t)
+	os.WriteFile(filepath.Join(k.DataRoot(), "manutenzione", "_map.md"),
+		[]byte("---\ntype: Map\nmachine_path_allow_prefixes: [relative/path]\n---\n"), 0o644)
+	s := New("test")
+	RegisterKBTools(s, k, Deps{})
+	resps := runMCPSequence(t, s, []string{
+		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
+		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"lint","arguments":{"scope":"manutenzione"}}}`,
+	})
+	tr := decodeToolResult(t, resps[1])
+	if tr.IsError || !strings.Contains(tr.Content[0].Text, "contract_malformed") || !strings.Contains(tr.Content[0].Text, "machine_path_allow_prefixes") {
+		t.Fatalf("lint contract_malformed result: %#v", tr)
+	}
+}
+
+// TestServer_GateCheck_MachinePath_AllowedOperationalPath verifies gate_check
+// consumes the same Map contract as lint: an operational path covered by
+// machine_path_allow_prefixes must not block the gate (D124).
+func TestServer_GateCheck_MachinePath_AllowedOperationalPath(t *testing.T) {
+	k := setupTestKB(t)
+	s := New("test")
+	RegisterKBTools(s, k, Deps{})
+	resps := runMCPSequence(t, s, []string{
+		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
+		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"map_create","arguments":{"name":"infra","title":"Infra","machine_path_allow_prefixes":["/home/nonroot"]}}}`,
+		`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"infra/image","frontmatter":{"type":"Note","title":"Image"},"body":"Config lives at /home/nonroot/.headroom.\n"}}}`,
+		`{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"gate_check","arguments":{"changed_ids":["infra/image"]}}}`,
+	})
+	tr := decodeToolResult(t, resps[3])
+	if tr.IsError || strings.Contains(tr.Content[0].Text, "machine_path") {
+		t.Fatalf("gate_check should not flag an allowed operational path: %#v", tr)
+	}
+}
+
 // TestServer_MapDelete_NonEmpty verifies that map_delete refuses to remove a
 // map that still holds concepts, and the error lists them (D88 WP2).
 func TestServer_MapDelete_NonEmpty(t *testing.T) {
