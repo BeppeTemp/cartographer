@@ -56,7 +56,9 @@ func TestServer_ToolRequiresWrite_Prefixed(t *testing.T) {
 }
 
 // TestServer_ToolsProfile_Prefixed verifies the "agent" tools-profile filter
-// (ToolAdvanced) still hides advanced tools under their prefixed name.
+// (ToolAdvanced) still hides advanced tools under their prefixed name, and
+// (D123) still exposes the four canonical governance descriptors — with
+// readOnlyHint:true — under their configured prefix.
 func TestServer_ToolsProfile_Prefixed(t *testing.T) {
 	k := setupTestKB(t)
 	s := New("test")
@@ -70,11 +72,23 @@ func TestServer_ToolsProfile_Prefixed(t *testing.T) {
 	}
 	names := toolNamesFromToolsList(t, resps[0])
 
-	if _, ok := names["aiteam__validate"]; ok {
-		t.Error("aiteam__validate is an advanced tool and must be hidden under the agent profile, even prefixed")
+	if _, ok := names["aiteam__index_rebuild"]; ok {
+		t.Error("aiteam__index_rebuild is an advanced tool and must be hidden under the agent profile, even prefixed")
 	}
 	if _, ok := names["aiteam__atlas_overview"]; !ok {
 		t.Error("aiteam__atlas_overview must be visible under the agent profile")
+	}
+
+	readOnlyHints := toolReadOnlyHintsFromToolsList(t, resps[0])
+	for _, name := range []string{"aiteam__validate", "aiteam__lint", "aiteam__gate_check", "aiteam__kb_status"} {
+		hint, ok := readOnlyHints[name]
+		if !ok {
+			t.Errorf("%s must be visible under the agent profile, even prefixed", name)
+			continue
+		}
+		if !hint {
+			t.Errorf("%s must advertise readOnlyHint:true under the agent profile", name)
+		}
 	}
 }
 
@@ -96,6 +110,32 @@ func toolNamesFromToolsList(t *testing.T, resp Response) map[string]bool {
 	out := make(map[string]bool, len(result.Tools))
 	for _, tl := range result.Tools {
 		out[tl.Name] = true
+	}
+	return out
+}
+
+// toolReadOnlyHintsFromToolsList decodes a tools/list Response into a
+// name -> annotations.readOnlyHint map.
+func toolReadOnlyHintsFromToolsList(t *testing.T, resp Response) map[string]bool {
+	t.Helper()
+	resultBytes, err := json.Marshal(resp.Result)
+	if err != nil {
+		t.Fatalf("marshal result: %v", err)
+	}
+	var result struct {
+		Tools []struct {
+			Name        string `json:"name"`
+			Annotations struct {
+				ReadOnlyHint bool `json:"readOnlyHint"`
+			} `json:"annotations"`
+		} `json:"tools"`
+	}
+	if err := json.Unmarshal(resultBytes, &result); err != nil {
+		t.Fatalf("unmarshal tools/list result: %v", err)
+	}
+	out := make(map[string]bool, len(result.Tools))
+	for _, tl := range result.Tools {
+		out[tl.Name] = tl.Annotations.ReadOnlyHint
 	}
 	return out
 }
