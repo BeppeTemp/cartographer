@@ -272,6 +272,125 @@ func TestRun_MachinePath_Placeholder_Clean(t *testing.T) {
 	}
 }
 
+// --- machine_path allowlist (D124) ---
+
+func mapWithAllowPrefixes(t *testing.T, k *kb.KB, name string, prefixes []string) {
+	t.Helper()
+	contract := kb.MapContract{MachinePathAllowPrefixes: prefixes}
+	if err := k.CreateMapWithContract(name, name, "map", nil, "", contract); err != nil {
+		t.Fatalf("CreateMapWithContract(%s): %v", name, err)
+	}
+}
+
+func TestRun_MachinePath_OperationalPathUnderAllowlist_Clean(t *testing.T) {
+	k := tempKB(t)
+	mapWithAllowPrefixes(t, k, "infra", []string{
+		"/home/nonroot", "/home/ubuntu/.cache/huggingface", "/home/agent/agent-runs",
+	})
+
+	cases := map[string]string{
+		"infra/image.md":  "---\ntype: Note\n---\nThe image config lives at /home/nonroot/.headroom.\n",
+		"infra/model.md":  "---\ntype: Note\n---\nCache is at /home/ubuntu/.cache/huggingface/hub.\n",
+		"infra/remote.md": "---\ntype: Note\n---\nRuns land in /home/agent/agent-runs/latest.\n",
+	}
+	for path, content := range cases {
+		writeFile(t, k.DataRoot(), path, content)
+	}
+
+	findings, err := Run(k, "", false)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	for path := range cases {
+		if hasCheck(findings, path, "machine_path") {
+			t.Errorf("unexpected machine_path for allowed operational path in %s: %v", path, findings)
+		}
+	}
+}
+
+func TestRun_MachinePath_TruePositiveStillFlagged_UnderAllowlist(t *testing.T) {
+	k := tempKB(t)
+	mapWithAllowPrefixes(t, k, "infra", []string{"/home/nonroot"})
+	writeFile(t, k.DataRoot(), "infra/laptop.md",
+		"---\ntype: Note\n---\nRepo checked out at /Users/beppetemp/repos/cartographer.\n")
+
+	findings, err := Run(k, "", false)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if !hasCheck(findings, "infra/laptop.md", "machine_path") {
+		t.Errorf("expected machine_path for a genuine client-local path despite an unrelated allowlist: %v", findings)
+	}
+}
+
+func TestRun_MachinePath_InsideURL_Clean(t *testing.T) {
+	k := tempKB(t)
+	writeFile(t, k.DataRoot(), "arch/concept-url.md",
+		"---\ntype: Note\n---\nSee https://example.com/home/bob/profile for details.\n")
+
+	findings, err := Run(k, "", false)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if hasCheck(findings, "arch/concept-url.md", "machine_path") {
+		t.Errorf("unexpected machine_path for a path inside a URL: %v", findings)
+	}
+}
+
+func TestRun_MachinePath_AllowedFirst_DisallowedLater_Flagged(t *testing.T) {
+	k := tempKB(t)
+	mapWithAllowPrefixes(t, k, "infra", []string{"/home/nonroot"})
+	writeFile(t, k.DataRoot(), "infra/mixed.md",
+		"---\ntype: Note\n---\nImage path /home/nonroot/.headroom is fine, but the author's own /home/carol/notes.md is not.\n")
+
+	findings, err := Run(k, "", false)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if countCheck(findings, "infra/mixed.md", "machine_path") != 1 {
+		t.Fatalf("expected exactly one machine_path finding once the disallowed path is reached: %v", findings)
+	}
+	found := false
+	for _, f := range findings {
+		if f.Path == "infra/mixed.md" && f.Check == "machine_path" {
+			found = strings.Contains(f.Message, "/home/carol/notes.md")
+		}
+	}
+	if !found {
+		t.Errorf("expected the disallowed path to be the one reported, got: %v", findings)
+	}
+}
+
+func TestRun_MachinePath_PrefixBoundaryCollision_Flagged(t *testing.T) {
+	k := tempKB(t)
+	mapWithAllowPrefixes(t, k, "infra", []string{"/home/nonroot"})
+	writeFile(t, k.DataRoot(), "infra/collision.md",
+		"---\ntype: Note\n---\nUnrelated user home at /home/nonroot2/data is not covered by the allowlist.\n")
+
+	findings, err := Run(k, "", false)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if !hasCheck(findings, "infra/collision.md", "machine_path") {
+		t.Errorf("expected machine_path: /home/nonroot2 must not match the /home/nonroot allow prefix (segment boundary): %v", findings)
+	}
+}
+
+func TestRun_MachinePath_EmptyContract_BehavesLikeNoAllowlist(t *testing.T) {
+	k := tempKB(t)
+	mapWithAllowPrefixes(t, k, "infra", nil)
+	writeFile(t, k.DataRoot(), "infra/plain.md",
+		"---\ntype: Note\n---\nRepo is at /home/bob/repos/cartographer.\n")
+
+	findings, err := Run(k, "", false)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if !hasCheck(findings, "infra/plain.md", "machine_path") {
+		t.Errorf("expected machine_path with an empty allowlist to preserve current matching: %v", findings)
+	}
+}
+
 // --- orphan ---
 
 func TestRun_Orphan_Detected(t *testing.T) {

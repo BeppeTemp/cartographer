@@ -401,7 +401,10 @@ entry and the release tracking state then in use. Tests:
 <a id="d75"></a>
 ## D75 — Path portability across machines: placeholders auto-resolved via git remote
 
-**Status: implemented (2026-07-10).** WP1–WP6 complete: `internal/repoindex` (Scan/Resolve, cache
+**Status: implemented (2026-07-10); the "never absolute paths" phrasing below is corrected by
+[D124](data-plane.md#d124)** — read "client-local absolute paths"; a Map-level allowlist now
+distinguishes those from operational target paths that are identical on every reader's machine.
+WP1–WP6 complete: `internal/repoindex` (Scan/Resolve, cache
 `~/.config/cartographer/repos.json`), `search_roots`/`paths` in `.cartographer.yaml`, client-side
 expansion in `provisioning.Apply` with hash on the expanded content, "Local paths" table in the
 instructions block, `cartographer resolve`, `machine_path` lint. Details → `docs/sync.md`
@@ -439,7 +442,7 @@ No server-side substitution: it would break `content_hash`/`if_match` (hash on t
 
 **WP5 — `cartographer resolve` subcommand.** `cartographer resolve repo:<...>|path:<...>` prints the resolved path: a runtime fallback for the agent (the binary is already on every connected machine) and a debugging tool.
 
-**WP6 — `machine_path` lint (warning, server-side).** Flags home-anchored paths in concept bodies: `/Users/`, `/home/`, `~/`, `C:\Users\`. Deliberately narrow pattern: absolute container/cluster paths (`/etc/...`, `/var/...`) are legitimate and identical everywhere.
+**WP6 — `machine_path` lint (warning, server-side).** Flags home-anchored paths in concept bodies: `/Users/`, `/home/`, `~/`, `C:\Users\`. Deliberately narrow pattern: absolute container/cluster paths (`/etc/...`, `/var/...`) are legitimate and identical everywhere. Refined by [D124](data-plane.md#d124): a candidate inside a URL, or covered by a Map's `machine_path_allow_prefixes` allowlist, is a target-operational path rather than a client-local one and is not flagged.
 
 **Rationale.** The git remote is the only identifier of a repo that is **already** shared and stable across the team's machines — using it as the key eliminates the one-to-one manual mapping that does not scale. Resolution lives in the client (scan+cache) and in the two channels the agent already has: the materialized imprinting (table) and the local binary (`resolve`). Discarded alternatives: pure manual mapping (does not scale, it was the v0 of this decision); server-side per-user profiles (identity and filesystem on the server side, hash breakage); resolution via env vars (explodes into N envs for N repos).
 
