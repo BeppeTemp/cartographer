@@ -356,6 +356,14 @@ file, which would otherwise be duplicate keys and stop Codex from starting, and 
 each removal as a `warning:` line. Everything else in the file — comments, ordering,
 unrelated tables, Codex's own `[hooks.state."…"]` bookkeeping — is left as it is (D99).
 
+Codex also places that same `[hooks.state."…"]` bookkeeping positionally after the last
+table it finds in the file — which, once a block has been written, is the one Cartographer
+owns. Before rewriting a block, `connect`/`sync` first relocate any table the block does
+not itself declare out of the span, verbatim, to just before the block's begin marker, so
+the next `blocktext.Write` cannot destroy it; each relocation is reported as its own
+`warning:` line (D126). Purely textual, like every other step of this reconciliation:
+`config.toml` is never parsed/re-serialized (D58).
+
 **Kiro**:
 ```json
 {

@@ -335,20 +335,38 @@ func registerHookConfigTOML(baseDir, hookName, fullDestDir string) (string, erro
 	fmt.Fprintf(&sb, "command = %s\n", configurator.QuoteTOMLString(command))
 
 	path := codexConfigTOMLPath(baseDir)
+	begin, end := codexHookMarkers(hookName)
+
+	// Codex may have written its own tables (e.g. [hooks.state.*] trusted-hash
+	// bookkeeping) inside this hook's managed block, positionally after the
+	// last [[hooks.*]] table it found in the file: relocate them out of the
+	// block before rewriting it, or they would be destroyed (D126).
+	evicted, err := configurator.EvictForeignTablesFromBlock(path, begin, end, sb.String())
+	if err != nil {
+		return "", fmt.Errorf("provisioning: reconcile %s: %w", path, err)
+	}
+
 	adopted, err := configurator.AdoptCodexOrphanTables(path, codexHookTableOwner(hookName))
 	if err != nil {
 		return "", fmt.Errorf("provisioning: reconcile %s: %w", path, err)
 	}
 
-	begin, end := codexHookMarkers(hookName)
 	if err := blocktext.Write(path, begin, end, sb.String()); err != nil {
 		return "", err
 	}
-	if len(adopted) == 0 {
-		return "", nil
+
+	var warnings []string
+	for _, key := range evicted {
+		warnings = append(warnings, fmt.Sprintf(
+			"codex: hook %q — moved a Codex-owned table (%s) out of the managed block so it would not be lost on rewrite",
+			hookName, key))
 	}
-	return fmt.Sprintf("codex: hook %q — removed %d stale registration(s) left outside the managed block by Codex's own config.toml rewrite (the hook would have fired twice)",
-		hookName, len(adopted)), nil
+	if len(adopted) > 0 {
+		warnings = append(warnings, fmt.Sprintf(
+			"codex: hook %q — removed %d stale registration(s) left outside the managed block by Codex's own config.toml rewrite (the hook would have fired twice)",
+			hookName, len(adopted)))
+	}
+	return strings.Join(warnings, "\n"), nil
 }
 
 // removeHookConfigTOML strips hookName's marker-delimited block (if present)
