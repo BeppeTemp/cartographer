@@ -448,6 +448,150 @@ func (kb *KB) ReadIndex(folderRelPath string) (string, error) {
 	return kb.ReadRaw(indexRel)
 }
 
+// IndexHash reads the root or a Map/Journal's curated index.md — the same
+// "path" convention as ReadIndex (empty/"." = root) — and returns its
+// content alongside its content-hash. It is the bounded read half of the
+// index-patch data plane (D122 WP1): unlike ReadIndex, which serves any
+// folder including an expanded concept's own index.md, IndexHash accepts
+// only the root and an existing Map/Journal descriptor (see
+// curatedIndexRelPath) and is what index_patch reads before applying an
+// edit.
+func (kb *KB) IndexHash(path string) (content, hash string, err error) {
+	relPath, err := kb.curatedIndexRelPath(path)
+	if err != nil {
+		return "", "", err
+	}
+	content, err = kb.ReadRaw(relPath)
+	if err != nil {
+		return "", "", err
+	}
+	return content, okf.ContentHash(content), nil
+}
+
+// PatchIndex atomically replaces the content of a root or Map/Journal curated
+// index.md — the bounded write half of IndexHash (D122 WP1). ifMatch must
+// equal the index's current content-hash (as returned by IndexHash); a
+// mismatch fails with ErrStaleWrite and leaves the file untouched. newContent
+// is the full, already-materialized replacement text — the MCP layer applies
+// old_string/new_string edits before calling this, the same division of
+// labor WriteConcept/concept_patch use. Returns the new content-hash.
+func (kb *KB) PatchIndex(path, ifMatch, newContent string) (string, error) {
+	relPath, err := kb.curatedIndexRelPath(path)
+	if err != nil {
+		return "", err
+	}
+	absPath, err := kb.ResolvePath(relPath, true)
+	if err != nil {
+		return "", err
+	}
+
+	data, err := os.ReadFile(absPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", fmt.Errorf("%w: %s", okf.ErrNotFound, relPath)
+		}
+		return "", fmt.Errorf("PatchIndex: read %s: %w", relPath, err)
+	}
+	if okf.ContentHash(string(data)) != ifMatch {
+		return "", fmt.Errorf("%w", okf.ErrStaleWrite)
+	}
+
+	if newContent != "" && !strings.HasSuffix(newContent, "\n") {
+		newContent += "\n"
+	}
+	if err := writeFileAtomic(absPath, []byte(newContent)); err != nil {
+		return "", fmt.Errorf("PatchIndex: %w", err)
+	}
+	return okf.ContentHash(newContent), nil
+}
+
+// curatedIndexRelPath resolves an index-patch "path" argument (root when
+// empty, or a Map/Journal name) to its index.md, relative to the data root —
+// the bounded resolution shared by IndexHash and PatchIndex (D122 WP1). It
+// accepts only:
+//   - the root index (""/"."): "index.md";
+//   - an existing Map/Journal's index ("<name>", one segment): "<name>/index.md",
+//     provided "<name>" carries a _map.md/_archive.md descriptor
+//     (mapDescriptorRelPath).
+//
+// Everything else is rejected: a nested/multi-segment path, a Map/Journal
+// name with no descriptor, or a symlink anywhere along the resolved path
+// (rejectIndexSymlinks) — ResolvePath's existing traversal/absolute-path
+// guard applies transitively since every returned path is reconstructed from
+// a validated single segment, never echoed from the caller directly. A path
+// that names an existing expanded concept's own index ("<map>/<concept>",
+// two segments) is redirected with an actionable error instead of silently
+// falling through to "not a Map/Journal": that index belongs to
+// concept_patch, not this primitive.
+func (kb *KB) curatedIndexRelPath(path string) (string, error) {
+	clean := strings.Trim(filepath.ToSlash(filepath.Clean(strings.ReplaceAll(path, "\\", "/"))), "/")
+	if clean == "." {
+		clean = ""
+	}
+
+	if clean == "" {
+		if err := rejectIndexSymlinks(kb.DataRoot(), "index.md"); err != nil {
+			return "", err
+		}
+		return "index.md", nil
+	}
+
+	segments := strings.Split(clean, "/")
+	if len(segments) == 2 {
+		if _, expanded, err := kb.resolveConceptRelPath(okf.ConceptID(clean), false); err == nil && expanded {
+			return "", fmt.Errorf("expanded_index: %s/index.md belongs to expanded concept %q; use concept_patch(id=%q) instead", clean, clean, clean)
+		}
+	}
+	if len(segments) != 1 {
+		return "", fmt.Errorf("%w: %q is not the root or a Map/Journal index", okf.ErrInvalidPath, path)
+	}
+
+	archive := segments[0]
+	if _, err := okf.PathToID(archive + ".md"); err != nil {
+		return "", fmt.Errorf("%w: invalid map/journal name %q", okf.ErrInvalidPath, archive)
+	}
+	descRel, err := kb.mapDescriptorRelPath(archive)
+	if err != nil {
+		return "", err
+	}
+	descAbs, err := kb.ResolvePath(descRel, false)
+	if err != nil {
+		return "", err
+	}
+	if _, statErr := os.Stat(descAbs); statErr != nil {
+		return "", fmt.Errorf("%w: map/journal %q", okf.ErrNotFound, archive)
+	}
+
+	indexRel := filepath.Join(archive, "index.md")
+	if err := rejectIndexSymlinks(kb.DataRoot(), indexRel); err != nil {
+		return "", err
+	}
+	return indexRel, nil
+}
+
+// rejectIndexSymlinks walks each path component from base and fails if any
+// component is a symlink — the same defence used for expanded-concept assets
+// (resolveAsset, asset.go) and provisioning artifacts
+// (mcpserver.rejectArtifactSymlinks), applied here to the root/Map
+// index-patch path.
+func rejectIndexSymlinks(base, relPath string) error {
+	current := base
+	for _, part := range strings.Split(filepath.ToSlash(relPath), "/") {
+		current = filepath.Join(current, part)
+		info, err := os.Lstat(current)
+		if os.IsNotExist(err) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("%w: symlink in path %q", okf.ErrInvalidPath, relPath)
+		}
+	}
+	return nil
+}
+
 // ReadConcept reads a concept by ID and returns it with raw frontmatter, body, and hash.
 func (kb *KB) ReadConcept(id okf.ConceptID) (*ConceptData, error) {
 	relPath, _, err := kb.resolveConceptRelPath(id, false)

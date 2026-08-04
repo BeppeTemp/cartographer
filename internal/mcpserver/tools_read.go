@@ -69,29 +69,51 @@ func toolAtlasOverview(k *kb.KB) Tool {
 
 func toolIndexGet(k *kb.KB) Tool {
 	return Tool{
-		Name:        "index_get",
-		Description: "Reads the index.md of the given folder (root if path is empty).",
-		ReadOnly:    true,
+		Name: "index_get",
+		Description: "Reads the index.md of the given folder (root if path is empty). By default returns " +
+			"the raw Markdown verbatim (byte-for-byte, for backward compatibility). Pass 'with_hash: true' " +
+			"to get a structured {path, content, content_hash} response instead — the content_hash is the " +
+			"'if_match' expected by index_patch when curating the root or a Map/Journal's index.md.",
+		ReadOnly: true,
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"properties": {
 				"path": {
 					"type": "string",
 					"description": "Path relative to KB root (e.g. 'maintenance'). Empty = root."
+				},
+				"with_hash": {
+					"type": "boolean",
+					"description": "If true, returns structured {path, content, content_hash} instead of raw Markdown. Optional, default false."
 				}
 			}
 		}`),
 		Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
 			var params struct {
-				Path string `json:"path"`
+				Path     string `json:"path"`
+				WithHash bool   `json:"with_hash"`
 			}
 			json.Unmarshal(args, &params)
+
+			if !params.WithHash {
+				content, err := k.ReadIndex(params.Path)
+				if err != nil {
+					return errorResult(fmt.Sprintf("index_get %q: %v", params.Path, err)), nil
+				}
+				return textResult(content), nil
+			}
 
 			content, err := k.ReadIndex(params.Path)
 			if err != nil {
 				return errorResult(fmt.Sprintf("index_get %q: %v", params.Path, err)), nil
 			}
-			return textResult(content), nil
+			result := map[string]interface{}{
+				"path":         params.Path,
+				"content":      content,
+				"content_hash": okf.ContentHash(content),
+			}
+			out, _ := json.MarshalIndent(result, "", "  ")
+			return textResult(string(out)), nil
 		},
 	}
 }

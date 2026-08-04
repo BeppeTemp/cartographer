@@ -84,6 +84,27 @@ func TestHTTPGuard_ReadScope_BlocksWrite_AllowsRead(t *testing.T) {
 	}
 }
 
+// TestHTTPGuard_IndexPatch_ReadScope_Denied_RWScope_Allowed verifies
+// index_patch (D122 WP3) follows the same HTTP read/write scope boundary as
+// every other write tool: a read-only ("kb:<name>:r") scope is denied, an rw
+// scope passes dispatch (the handler itself may still fail, e.g. stale_write
+// on an empty-body call, which is not what this guard test is checking).
+func TestHTTPGuard_IndexPatch_ReadScope_Denied_RWScope_Allowed(t *testing.T) {
+	ts := auth.NewScopedTokenStore([]auth.ScopedToken{
+		{Token: "r-tok", Scopes: []auth.KBScope{{KB: "kbx", Write: false}}},
+		{Token: "rw-tok", Scopes: []auth.KBScope{{KB: "kbx", Write: true}}},
+	})
+	handler := newScopedTestHandler(t, ts)
+
+	rr := doMCP(handler, "kbx", "r-tok", writeToolCallBody("index_patch"))
+	assertMCPForbidden(t, rr)
+
+	rr = doMCP(handler, "kbx", "rw-tok", writeToolCallBody("index_patch"))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("index_patch with rw scope: status = %d, want 200; body=%s", rr.Code, rr.Body.String())
+	}
+}
+
 func TestHTTPGuard_RWScope_AllowsWriteAndRead(t *testing.T) {
 	ts := auth.NewScopedTokenStore([]auth.ScopedToken{
 		{Token: "rw-tok", Scopes: []auth.KBScope{{KB: "kbx", Write: true}}},
