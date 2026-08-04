@@ -1361,6 +1361,398 @@ func rewriteBacklinks(k *kb.KB, live *liveIndex, sqlIdx *sqlindex.Index, moveMap
 	return touched, total, nil
 }
 
+// --- concept_batch ---
+
+// conceptBatchMaxOps bounds the number of operations in one concept_batch
+// call; conceptBatchMaxTotalBytes bounds the aggregate decoded size (final
+// frontmatter + body, summed across every operation) — both conservative,
+// named limits so a runaway batch is rejected deterministically during
+// preflight rather than after partially touching the filesystem (D125 WP1).
+const (
+	conceptBatchMaxOps = 50
+	// conceptBatchMaxTotalBytes is kept comfortably under the stdio
+	// transport's 1 MiB max JSON-RPC line (server.go's scanner buffer): the
+	// full request, including this content plus per-operation JSON
+	// structure/escaping, must still fit in one line.
+	conceptBatchMaxTotalBytes = 512 * 1024 // 512 KiB
+)
+
+// batchOperationRequest is one entry of concept_batch's "operations" array:
+// "write" mirrors concept_write's frontmatter/body/if_match triple (if_match
+// absent means create-only; updating an existing concept requires it);
+// "patch" mirrors concept_patch's required if_match, optional frontmatter
+// shallow merge, and single/batch old_string/new_string/edits Edit-tool
+// semantics (D125 WP1).
+type batchOperationRequest struct {
+	Op          string                 `json:"op"`
+	ID          string                 `json:"id"`
+	Frontmatter map[string]interface{} `json:"frontmatter"`
+	Body        string                 `json:"body"`
+	IfMatch     string                 `json:"if_match"`
+	OldString   string                 `json:"old_string"`
+	NewString   string                 `json:"new_string"`
+	ReplaceAll  bool                   `json:"replace_all"`
+	Edits       []patchEditItem        `json:"edits"`
+}
+
+// batchOriginal is one target's pre-batch state, captured during preflight —
+// used only to reconcile the live/SQLite search indexes back to that exact
+// state if a later step in the same call fails (D125 WP2).
+type batchOriginal struct {
+	existed bool
+	content string
+	hash    string
+}
+
+// batchResultEntry is one applied operation's reported outcome, in request order.
+type batchResultEntry struct {
+	ID          string `json:"id"`
+	ContentHash string `json:"content_hash"`
+}
+
+func toolConceptBatch(k *kb.KB, live *liveIndex, sqlIdx *sqlindex.Index) Tool {
+	return Tool{
+		Name: "concept_batch",
+		Description: "Atomically writes or patches several distinct concepts in one logical operation " +
+			"(one git commit, one summary log.md entry): either every operation in 'operations' is applied " +
+			"or none is — a failure at any point (validation, a stale/missing if_match, a write, or an index " +
+			"update) leaves the KB exactly as it was before the call. Intended for large multi-page refactors " +
+			"where separate concept_write/concept_patch calls would leave partially-aligned intermediate " +
+			"commits if interrupted; for edits confined to one concept use concept_patch's own 'edits' batch " +
+			"instead, and for renames use concept_move. Each operation is 'write' (frontmatter, body, optional " +
+			"if_match — absent if_match means create-only; updating an existing concept requires it) or " +
+			"'patch' (required if_match, optional frontmatter shallow merge, and the same single " +
+			"old_string/new_string/replace_all or batch 'edits' semantics as concept_patch). Operations must " +
+			"target distinct concept IDs; delete, move, expand, assets, and Map/root curated indexes are out " +
+			"of scope for this tool. Every operation is validated — including each Map's strict-ontology " +
+			"palette and required-field contract — before anything is written. Returns each operation's id " +
+			"and new content_hash in request order.",
+		InputSchema: json.RawMessage(`{
+			"type": "object",
+			"required": ["operations"],
+			"properties": {
+				"operations": {
+					"type": "array",
+					"description": "Ordered list of operations over distinct concept IDs, applied atomically.",
+					"items": {
+						"type": "object",
+						"required": ["op", "id"],
+						"properties": {
+							"op": {"type": "string", "description": "\"write\" or \"patch\""},
+							"id": {"type": "string", "description": "ConceptID (path relative to KB root without .md)"},
+							"frontmatter": {"type": "object", "description": "Full frontmatter (write) or partial shallow-merge (patch, optional)"},
+							"body": {"type": "string", "description": "Full markdown body (write only)"},
+							"if_match": {"type": "string", "description": "Expected content-hash: optional (create-only) for write, required for patch"},
+							"old_string": {"type": "string", "description": "Patch: exact substring to find (single-edit form, mutually exclusive with 'edits')"},
+							"new_string": {"type": "string", "description": "Patch: replacement text (single-edit form, mutually exclusive with 'edits')"},
+							"replace_all": {"type": "boolean", "description": "Patch: replace all occurrences of old_string (single-edit form)"},
+							"edits": {
+								"type": "array",
+								"description": "Patch: batch form, applied atomically and in order. Mutually exclusive with old_string/new_string/replace_all.",
+								"items": {
+									"type": "object",
+									"required": ["old_string", "new_string"],
+									"properties": {
+										"old_string": {"type": "string"},
+										"new_string": {"type": "string"},
+										"replace_all": {"type": "boolean"}
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+		}`),
+		Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
+			var params struct {
+				Operations []json.RawMessage `json:"operations"`
+			}
+			if err := json.Unmarshal(args, &params); err != nil {
+				return errorResult("invalid params: " + err.Error()), nil
+			}
+			if len(params.Operations) == 0 {
+				return errorResult("'operations' cannot be empty"), nil
+			}
+			if len(params.Operations) > conceptBatchMaxOps {
+				return errorResult(fmt.Sprintf("'operations' has %d entries, exceeding the max of %d", len(params.Operations), conceptBatchMaxOps)), nil
+			}
+
+			ops := make([]kb.BatchWriteOp, 0, len(params.Operations))
+			originals := make(map[string]batchOriginal, len(params.Operations))
+			seen := make(map[string]bool, len(params.Operations))
+			totalBytes := 0
+
+			for i, raw := range params.Operations {
+				label := fmt.Sprintf("operation %d of %d", i+1, len(params.Operations))
+
+				var op batchOperationRequest
+				if err := json.Unmarshal(raw, &op); err != nil {
+					return errorResult(fmt.Sprintf("%s: invalid params: %v", label, err)), nil
+				}
+				if op.ID == "" {
+					return errorResult(fmt.Sprintf("%s: 'id' is required", label)), nil
+				}
+				if id, err := okf.PathToID(op.ID + ".md"); err != nil || string(id) != op.ID {
+					return errorResult(fmt.Sprintf("%s (%s): invalid ConceptID (use kebab-case path segments)", label, op.ID)), nil
+				}
+				if seen[op.ID] {
+					return errorResult(fmt.Sprintf("%s (%s): duplicate id in batch", label, op.ID)), nil
+				}
+				seen[op.ID] = true
+				label = fmt.Sprintf("%s (%s)", label, op.ID)
+
+				var rawFields map[string]json.RawMessage
+				_ = json.Unmarshal(raw, &rawFields)
+				_, hasEdits := rawFields["edits"]
+				hasSingle := op.OldString != "" || op.NewString != "" || op.ReplaceAll
+
+				existing, readErr := k.ReadConcept(okf.ConceptID(op.ID))
+				existed := readErr == nil
+				if readErr != nil && !errors.Is(readErr, okf.ErrNotFound) {
+					return errorResult(fmt.Sprintf("%s: %v", label, readErr)), nil
+				}
+
+				var fm *okf.Frontmatter
+				var body string
+
+				switch op.Op {
+				case "write":
+					if hasEdits || hasSingle {
+						return errorResult(fmt.Sprintf("%s: 'old_string'/'new_string'/'replace_all'/'edits' are patch-only fields", label)), nil
+					}
+					if op.Frontmatter == nil {
+						return errorResult(fmt.Sprintf("%s: 'frontmatter' is required for a write operation", label)), nil
+					}
+					if existed && op.IfMatch == "" {
+						return errorResult(fmt.Sprintf("%s: if_match is required to update an existing concept", label)), nil
+					}
+					if op.IfMatch != "" {
+						if !existed {
+							return errorResult(fmt.Sprintf("stale_write: %s: file not found", label)), nil
+						}
+						if existing.ContentHash != op.IfMatch {
+							return errorResult(fmt.Sprintf("stale_write: %s: content_hash does not match if_match", label)), nil
+						}
+					}
+					var err error
+					fm, err = okf.ParseFrontmatter("")
+					if err != nil {
+						return errorResult(fmt.Sprintf("%s: internal frontmatter error: %v", label, err)), nil
+					}
+					applyFrontmatterMap(fm, op.Frontmatter)
+					body = op.Body
+
+				case "patch":
+					if op.IfMatch == "" {
+						return errorResult(fmt.Sprintf("%s: 'if_match' is required for a patch operation", label)), nil
+					}
+					if !existed {
+						return errorResult(fmt.Sprintf("%s: not found", label)), nil
+					}
+					if existing.ContentHash != op.IfMatch {
+						return errorResult(fmt.Sprintf("stale_write: %s: content_hash does not match if_match", label)), nil
+					}
+					if hasEdits && hasSingle {
+						return errorResult(fmt.Sprintf("%s: 'edits' is mutually exclusive with top-level 'old_string'/'new_string'/'replace_all'", label)), nil
+					}
+					if !hasEdits && !hasSingle {
+						return errorResult(fmt.Sprintf("%s: 'old_string' is required (or provide 'edits' for a batch of edits)", label)), nil
+					}
+					if hasEdits && len(op.Edits) == 0 {
+						return errorResult(fmt.Sprintf("%s: 'edits' cannot be empty", label)), nil
+					}
+					if !hasEdits && op.OldString == "" {
+						return errorResult(fmt.Sprintf("%s: 'old_string' is required", label)), nil
+					}
+
+					body = existing.Body
+					if hasEdits {
+						for ei, e := range op.Edits {
+							if e.OldString == "" {
+								return errorResult(fmt.Sprintf("%s, edit %d of %d: 'old_string' is required", label, ei+1, len(op.Edits))), nil
+							}
+							newBody, _, editErr := applyPatchEdit(body, e.OldString, e.NewString, e.ReplaceAll)
+							if editErr != nil {
+								return errorResult(fmt.Sprintf("%s, edit %d of %d: %v", label, ei+1, len(op.Edits), editErr)), nil
+							}
+							body = newBody
+						}
+					} else {
+						newBody, _, editErr := applyPatchEdit(body, op.OldString, op.NewString, op.ReplaceAll)
+						if editErr != nil {
+							return errorResult(fmt.Sprintf("%s: %v", label, editErr)), nil
+						}
+						body = newBody
+					}
+
+					var err error
+					fm, err = okf.ParseFrontmatter(existing.FrontmatterRaw)
+					if err != nil {
+						return errorResult(fmt.Sprintf("%s: parse frontmatter: %v", label, err)), nil
+					}
+					if op.Frontmatter != nil {
+						applyFrontmatterMap(fm, op.Frontmatter)
+					}
+
+				case "":
+					return errorResult(fmt.Sprintf("%s: 'op' is required (\"write\" or \"patch\")", label)), nil
+				default:
+					return errorResult(fmt.Sprintf("%s: invalid 'op' %q (must be \"write\" or \"patch\")", label, op.Op)), nil
+				}
+
+				if fm.Type() == "" {
+					return errorResult(fmt.Sprintf("%s: type field is required", label)), nil
+				}
+				if err := mapContractViolation(k, op.ID, fm); err != nil {
+					return errorResult(fmt.Sprintf("%s: %v", label, err)), nil
+				}
+
+				totalBytes += len(body) + len(fm.Serialize())
+				if totalBytes > conceptBatchMaxTotalBytes {
+					return errorResult(fmt.Sprintf("%s: aggregate batch content exceeds %d bytes", label, conceptBatchMaxTotalBytes)), nil
+				}
+
+				orig := batchOriginal{existed: existed}
+				if existed {
+					orig.content = existing.Content
+					orig.hash = existing.ContentHash
+				}
+				originals[op.ID] = orig
+				ops = append(ops, kb.BatchWriteOp{ID: okf.ConceptID(op.ID), FM: fm, Body: body, IfMatch: op.IfMatch})
+			}
+
+			logMessage := fmt.Sprintf("concept_batch (%d operation(s)):\n%s", len(ops), strings.Join(batchLogLines(ops), "\n"))
+
+			// Index updates run only after every file and the log entry are
+			// committed (WriteConceptBatch guarantees that ordering). A
+			// failure here reconciles every already-applied index entry back
+			// to its pre-batch state before returning, so by the time
+			// WriteConceptBatch rolls the files back, both indexes already
+			// agree with the tree it is restoring (D125 WP2).
+			afterFiles := func(results []kb.BatchWriteResult) error {
+				applied := make([]string, 0, len(results))
+				for _, r := range results {
+					data, readErr := k.ReadConcept(okf.ConceptID(r.ID))
+					if readErr != nil {
+						reconcileBatchIndex(live, sqlIdx, originals, applied)
+						return fmt.Errorf("reindex %q: %w", r.ID, readErr)
+					}
+					live.add(r.ID, data.Content)
+					applied = append(applied, r.ID)
+					if sqlIdx != nil {
+						if err := sqlIdx.Upsert(r.ID, data.ContentHash, data.Content); err != nil {
+							reconcileBatchIndex(live, sqlIdx, originals, applied)
+							return fmt.Errorf("sqlindex upsert %q: %w", r.ID, err)
+						}
+					}
+				}
+				return nil
+			}
+
+			results, err := k.WriteConceptBatch(ops, logMessage, afterFiles)
+			if err != nil {
+				if errors.Is(err, okf.ErrStaleWrite) {
+					return errorResult("stale_write: " + err.Error()), nil
+				}
+				return errorResult("concept_batch: " + err.Error()), nil
+			}
+
+			entries := make([]batchResultEntry, len(results))
+			for i, r := range results {
+				entries[i] = batchResultEntry{ID: r.ID, ContentHash: r.ContentHash}
+			}
+			out, _ := json.MarshalIndent(map[string]interface{}{"results": entries}, "", "  ")
+			return textResult(string(out)), nil
+		},
+	}
+}
+
+// batchLogLines renders one "- <id>" line per applied operation for the
+// batch's single summary log.md entry (D125 WP2: one entry for the whole
+// call, not one per concept, mirroring concept_move's summary line).
+func batchLogLines(ops []kb.BatchWriteOp) []string {
+	lines := make([]string, len(ops))
+	for i, op := range ops {
+		lines[i] = "- " + string(op.ID)
+	}
+	return lines
+}
+
+// reconcileBatchIndex reverts every already-applied live/SQLite index update
+// for the given ids back to their pre-batch state (originals) — called when
+// a later id in the same afterFiles pass fails, so both indexes end up
+// consistent with the pre-call tree that WriteConceptBatch is about to
+// restore the files to (D125 WP2). Best-effort on the SQLite side, same as
+// every other write path: the persisted index is documented as
+// rebuildable/disposable (control-plane.md §Search index) so `reindex` can
+// always repair it, but the in-memory live index update itself cannot fail.
+func reconcileBatchIndex(live *liveIndex, sqlIdx *sqlindex.Index, originals map[string]batchOriginal, ids []string) {
+	for _, id := range ids {
+		orig := originals[id]
+		if !orig.existed {
+			live.remove(id)
+			if sqlIdx != nil {
+				if err := sqlIdx.Delete(id); err != nil {
+					fmt.Fprintf(os.Stderr, "concept_batch: rollback reindex delete %q: %v\n", id, err)
+				}
+			}
+			continue
+		}
+		live.add(id, orig.content)
+		if sqlIdx != nil {
+			if err := sqlIdx.Upsert(id, orig.hash, orig.content); err != nil {
+				fmt.Fprintf(os.Stderr, "concept_batch: rollback reindex upsert %q: %v\n", id, err)
+			}
+		}
+	}
+}
+
+// mapContractViolation checks a proposed concept id/frontmatter against its
+// Map's strict-ontology palette and required-field contract — the same
+// checks kb.Validate's inline ontology pass and lint's missing_required_field
+// finding perform after a write. concept_batch's preflight (D125 WP1) must
+// catch them before any file changes: v1 offers no per-operation recovery
+// mid-batch beyond an all-or-nothing preflight rejection. A concept outside
+// any map (top-level, or a map with no descriptor) has nothing to enforce.
+func mapContractViolation(k *kb.KB, id string, fm *okf.Frontmatter) error {
+	parts := strings.SplitN(id, "/", 2)
+	if len(parts) < 2 {
+		return nil
+	}
+	archiveName := parts[0]
+	meta, err := k.ReadArchiveMeta(archiveName)
+	if err != nil {
+		return nil
+	}
+	conceptType := fm.Type()
+	if modeVal, ok := meta.Get("ontology_mode"); ok {
+		if modeStr, _ := modeVal.(string); modeStr == "strict" {
+			if ctVal, ok := meta.Get("concept_types"); ok {
+				if ctList, ok := ctVal.([]string); ok {
+					allowed := make(map[string]bool, len(ctList))
+					for _, ct := range ctList {
+						allowed[ct] = true
+					}
+					if !allowed[conceptType] {
+						return fmt.Errorf("type %q not allowed in map %s (strict)", conceptType, archiveName)
+					}
+				}
+			}
+		}
+	}
+	contract, err := k.ReadMapContract(archiveName)
+	if err != nil {
+		return nil
+	}
+	for _, field := range contract.RequiredFor(conceptType) {
+		if _, ok := fm.Get(field); !ok {
+			return fmt.Errorf("missing required field %q for map %s", field, archiveName)
+		}
+	}
+	return nil
+}
+
 // --- concept_delete ---
 
 func toolConceptDelete(k *kb.KB, live *liveIndex, sqlIdx *sqlindex.Index) Tool {

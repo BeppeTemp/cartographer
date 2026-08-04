@@ -27,6 +27,7 @@ func TestPolicyWriteClassesDenyOutsideWholeOrBoundary(t *testing.T) {
 		"concept_write":    `{"id":"manutenzione/new","frontmatter":{"type":"Secret"},"body":"x"}`,
 		"concept_patch":    `{"id":"manutenzione/test-runbook","frontmatter":{"type":"Secret"},"if_match":"x","old_string":"x","new_string":"y"}`,
 		"index_patch":      `{"path":"other","if_match":"x","old_string":"x","new_string":"y"}`,
+		"concept_batch":    `{"operations":[{"op":"write","id":"other/new","frontmatter":{"type":"Runbook"},"body":"x"}]}`,
 	}
 	for tool, args := range cases {
 		if err := authorizeTool(policy, k, "docs", tool, json.RawMessage(args)); err == nil {
@@ -114,6 +115,34 @@ func TestPolicyIndexPatch_ScopedToMapNotWholeKB(t *testing.T) {
 	wholePolicy := auth.Policy{Permissions: []auth.Permission{{KB: "docs", Write: true}}}
 	if err := authorizeTool(wholePolicy, k, "docs", "index_patch", json.RawMessage(`{"if_match":"x","old_string":"x","new_string":"y"}`)); err != nil {
 		t.Errorf("root index_patch denied under a whole-KB policy: %v", err)
+	}
+}
+
+// TestPolicyConceptBatch_MixedAuthorizationDeniesWholeBatch verifies
+// concept_batch's authorization (D125 WP3): every id in "operations" must
+// individually pass allowedID, and one denied id — even the last one —
+// rejects the whole batch, mirroring concept_move's non-disclosure
+// guarantee for its own multi-resource "moves" batch.
+func TestPolicyConceptBatch_MixedAuthorizationDeniesWholeBatch(t *testing.T) {
+	k := setupTestKB(t)
+	k.AuthName = "docs"
+	policy := auth.Policy{Permissions: []auth.Permission{{KB: "docs", Write: true, Maps: []string{"manutenzione"}, Types: []string{"Runbook"}}}}
+
+	inScope := `{"operations":[{"op":"write","id":"manutenzione/a","frontmatter":{"type":"Runbook"},"body":"x"}]}`
+	if err := authorizeTool(policy, k, "docs", "concept_batch", json.RawMessage(inScope)); err != nil {
+		t.Errorf("fully in-scope batch denied: %v", err)
+	}
+
+	mixed := `{"operations":[` +
+		`{"op":"write","id":"manutenzione/a","frontmatter":{"type":"Runbook"},"body":"x"},` +
+		`{"op":"write","id":"other/b","frontmatter":{"type":"Runbook"},"body":"x"}` +
+		`]}`
+	if err := authorizeTool(policy, k, "docs", "concept_batch", json.RawMessage(mixed)); err == nil {
+		t.Error("batch with one out-of-scope id was authorized")
+	}
+
+	if err := authorizeTool(policy, k, "docs", "concept_batch", json.RawMessage(`{"operations":[]}`)); err == nil {
+		t.Error("empty operations batch was authorized")
 	}
 }
 

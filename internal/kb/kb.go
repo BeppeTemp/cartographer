@@ -996,8 +996,34 @@ func (kb *KB) WriteExpandedConcept(id okf.ConceptID, fm *okf.Frontmatter, body s
 }
 
 func (kb *KB) writeConcept(id okf.ConceptID, fm *okf.Frontmatter, body string, ifMatch string, forceExpanded bool) (string, error) {
+	plan, err := kb.prepareWriteConcept(id, fm, body, ifMatch, forceExpanded)
+	if err != nil {
+		return "", err
+	}
+	return kb.commitWriteConceptPlan(plan)
+}
+
+// writeConceptPlan is the fully-validated, disk-untouched result of
+// preparing a single concept write — everything commitWriteConceptPlan
+// needs to actually replace file(s). Kept private: besides writeConcept
+// itself, WriteConceptBatch (batch.go, D125 WP1/WP2) is the only other
+// caller, so it can validate and materialize every operation in a batch
+// before any of them touches disk.
+type writeConceptPlan struct {
+	absPath        string
+	content        []byte
+	newExpandedDir string // absolute path of a new expanded-concept dir to stub, or ""
+}
+
+// prepareWriteConcept performs every WriteConcept validation and content
+// materialization without touching disk beyond os.Stat/os.ReadFile: same
+// invariants (reserved names, required type, depth guard, ifMatch/
+// ErrStaleWrite, expanded-concept resolution) and the same error wrapping,
+// split out of writeConcept so a batch of operations (WriteConceptBatch) can
+// be fully validated in memory before the first byte is written to disk.
+func (kb *KB) prepareWriteConcept(id okf.ConceptID, fm *okf.Frontmatter, body string, ifMatch string, forceExpanded bool) (*writeConceptPlan, error) {
 	if id == "" {
-		return "", fmt.Errorf("%w: empty ConceptID", okf.ErrInvalidConcept)
+		return nil, fmt.Errorf("%w: empty ConceptID", okf.ErrInvalidConcept)
 	}
 
 	inServices := isServicesID(id)
@@ -1009,20 +1035,20 @@ func (kb *KB) writeConcept(id okf.ConceptID, fm *okf.Frontmatter, body string, i
 	)
 	if forceExpanded {
 		if inServices || len(segments) != 2 {
-			return "", fmt.Errorf("%w: expanded concept requires a map/concept id, got %s", okf.ErrInvalidPath, id)
+			return nil, fmt.Errorf("%w: expanded concept requires a map/concept id, got %s", okf.ErrInvalidPath, id)
 		}
 		directAbs, resolveErr := kb.ResolvePath(okf.IDToPath(id), false)
 		if resolveErr != nil {
-			return "", resolveErr
+			return nil, resolveErr
 		}
 		if _, statErr := os.Stat(directAbs); statErr == nil {
-			return "", fmt.Errorf("expanded_ambiguous: direct concept %s already exists", id)
+			return nil, fmt.Errorf("expanded_ambiguous: direct concept %s already exists", id)
 		}
 		relPath, expanded = filepath.Join(string(id), "index.md"), true
 	} else {
 		relPath, expanded, err = kb.resolveConceptRelPath(id, true)
 		if err != nil {
-			return "", err
+			return nil, err
 		}
 	}
 
@@ -1030,21 +1056,21 @@ func (kb *KB) writeConcept(id okf.ConceptID, fm *okf.Frontmatter, body string, i
 	// concept legitimately resolves to "<id>/index.md", whose base name
 	// (index.md) is otherwise reserved (D77 WP2).
 	if !expanded && okf.IsReserved(filepath.Base(relPath)) {
-		return "", fmt.Errorf("%w: %s is a reserved file", okf.ErrInvalidConcept, filepath.Base(relPath))
+		return nil, fmt.Errorf("%w: %s is a reserved file", okf.ErrInvalidConcept, filepath.Base(relPath))
 	}
 
 	if fm.Type() == "" {
-		return "", fmt.Errorf("%w: type field is required", okf.ErrInvalidConcept)
+		return nil, fmt.Errorf("%w: type field is required", okf.ErrInvalidConcept)
 	}
 
 	if !inServices && len(segments) > maxConceptDepth {
-		return "", fmt.Errorf("%w: concept depth (%d segments) exceeds the max of %d (map/concept/child): %s",
+		return nil, fmt.Errorf("%w: concept depth (%d segments) exceeds the max of %d (map/concept/child): %s",
 			okf.ErrInvalidPath, len(segments), maxConceptDepth, id)
 	}
 
 	absPath, err := kb.ResolvePath(relPath, true)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
 	_, statErr := os.Stat(absPath)
@@ -1053,14 +1079,14 @@ func (kb *KB) writeConcept(id okf.ConceptID, fm *okf.Frontmatter, body string, i
 	if fileExists && ifMatch != "" {
 		data, err := os.ReadFile(absPath)
 		if err != nil {
-			return "", fmt.Errorf("WriteConcept: read existing file: %w", err)
+			return nil, fmt.Errorf("WriteConcept: read existing file: %w", err)
 		}
 		currentHash := okf.ContentHash(string(data))
 		if currentHash != ifMatch {
-			return "", fmt.Errorf("%w", okf.ErrStaleWrite)
+			return nil, fmt.Errorf("%w", okf.ErrStaleWrite)
 		}
 	} else if !fileExists && ifMatch != "" {
-		return "", fmt.Errorf("%w: file not found", okf.ErrStaleWrite)
+		return nil, fmt.Errorf("%w: file not found", okf.ErrStaleWrite)
 	}
 
 	// Ensure body ends with \n.
@@ -1079,21 +1105,28 @@ func (kb *KB) writeConcept(id okf.ConceptID, fm *okf.Frontmatter, body string, i
 		}
 	}
 
-	if err := os.MkdirAll(filepath.Dir(absPath), 0o755); err != nil {
+	return &writeConceptPlan{absPath: absPath, content: []byte(content), newExpandedDir: newExpandedDir}, nil
+}
+
+// commitWriteConceptPlan performs the actual disk I/O for an already
+// validated plan: mkdir, atomic write, and expanded-index stub. Mirrors
+// WriteConcept's former commit tail exactly.
+func (kb *KB) commitWriteConceptPlan(plan *writeConceptPlan) (string, error) {
+	if err := os.MkdirAll(filepath.Dir(plan.absPath), 0o755); err != nil {
 		return "", fmt.Errorf("WriteConcept: mkdir: %w", err)
 	}
 
-	if err := writeFileAtomic(absPath, []byte(content)); err != nil {
+	if err := writeFileAtomic(plan.absPath, plan.content); err != nil {
 		return "", fmt.Errorf("WriteConcept: %w", err)
 	}
 
-	if newExpandedDir != "" {
-		if err := stubExpandedIndex(newExpandedDir); err != nil {
+	if plan.newExpandedDir != "" {
+		if err := stubExpandedIndex(plan.newExpandedDir); err != nil {
 			return "", fmt.Errorf("WriteConcept: stub expanded index.md: %w", err)
 		}
 	}
 
-	return okf.ContentHash(content), nil
+	return okf.ContentHash(string(plan.content)), nil
 }
 
 // DeleteConcept permanently removes a concept's file from the KB (its

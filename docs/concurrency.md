@@ -11,6 +11,20 @@ clones can synchronize through the same remote, but high-contention
 multi-writer operation is not a supported scaling model; partition KBs across
 instances instead.
 
+`concept_batch` (D125) runs its whole multi-concept transaction under this
+same single per-KB lock — it does not acquire a second one. Every operation
+is validated and its content materialized in memory before the first byte is
+written; if a write, the summary `log.md` entry, or the caller's index-sync
+step then fails partway, every file the call already wrote (including any
+implicit expanded-index stub a new directory triggered) and `log.md` are
+restored to their exact pre-call bytes and mode before the error is
+returned. Unlike `concept_move` — which documents that a `rewrite_links`
+failure leaves the already-applied moves in place — `concept_batch` never
+leaves a partially-applied batch on disk or in the search indexes: callers
+observe either the complete batch or the exact pre-call KB state. It does
+not open a nested git commit; a rolled-back call also leaves no commit,
+since `gitWrap` only commits after the handler returns success.
+
 ## Git profiles
 
 `git.profile: local` is the default and the historical behavior. When
