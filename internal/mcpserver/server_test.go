@@ -2945,6 +2945,7 @@ func TestServer_ToolsProfile(t *testing.T) {
 		"conflicts_list", "git_conflict_resolve",
 		"artifact_read", "template_list",
 		"asset_read", "asset_list", "asset_write",
+		"validate", "lint", "gate_check", "kb_status",
 	}
 	got := listToolNames(t, s)
 	for _, name := range agentVisible {
@@ -2979,11 +2980,44 @@ func TestServer_ToolsProfile(t *testing.T) {
 	// Hidden tools stay callable via tools/call under the agent profile.
 	callResps := runMCPSequence(t, s, []string{
 		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
-		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"kb_status","arguments":{}}}`,
+		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"index_rebuild","arguments":{}}}`,
 	})
 	tr := decodeToolResult(t, callResps[1])
 	if tr.IsError {
-		t.Errorf("agent profile: hidden tool kb_status must stay callable, got error: %v", tr.Content)
+		t.Errorf("agent profile: hidden tool index_rebuild must stay callable, got error: %v", tr.Content)
+	}
+
+	// D123: the descriptor-bound governance loop must be advertised with the
+	// read-only hint, matching their ReadOnly:true classification.
+	listResp := runMCPSequence(t, s, []string{
+		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
+		`{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}`,
+	})
+	resultBytes, _ := json.Marshal(listResp[1].Result)
+	var listResult struct {
+		Tools []struct {
+			Name        string `json:"name"`
+			Annotations struct {
+				ReadOnlyHint bool `json:"readOnlyHint"`
+			} `json:"annotations"`
+		} `json:"tools"`
+	}
+	if err := json.Unmarshal(resultBytes, &listResult); err != nil {
+		t.Fatalf("tools/list: decode: %v", err)
+	}
+	toolsByName := map[string]bool{}
+	for _, tl := range listResult.Tools {
+		toolsByName[tl.Name] = tl.Annotations.ReadOnlyHint
+	}
+	for _, name := range []string{"validate", "lint", "gate_check", "kb_status"} {
+		readOnlyHint, ok := toolsByName[name]
+		if !ok {
+			t.Errorf("agent profile: governance tool %q not advertised", name)
+			continue
+		}
+		if !readOnlyHint {
+			t.Errorf("agent profile: governance tool %q must advertise readOnlyHint:true", name)
+		}
 	}
 
 	// Full profile: everything advertised again.

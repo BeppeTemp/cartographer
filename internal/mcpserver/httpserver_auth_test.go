@@ -240,6 +240,44 @@ func TestHTTPGuard_ServiceGet_ResolveSecrets_RequiresRW(t *testing.T) {
 	}
 }
 
+// TestHTTPGuard_GovernanceTools_WholeKBAuthorization exercises the resource
+// class shared by the four D123 descriptor-bound governance tools
+// (validate, lint, gate_check, kb_status): all four are resourceWhole, so a
+// whole-KB read grant (a legacy KBScope, Write:false) must allow them, and a
+// fine-grained selector-scoped permission — even one that grants read on the
+// exact map these tools would inspect — must not, since resourceWhole has no
+// safe partial semantics (policy.go). D123 WP1 only changes tools/list
+// visibility; it must not weaken this existing RBAC boundary.
+func TestHTTPGuard_GovernanceTools_WholeKBAuthorization(t *testing.T) {
+	governanceTools := []string{"validate", "lint", "gate_check", "kb_status"}
+
+	ts := auth.NewScopedTokenStore([]auth.ScopedToken{
+		{Token: "r-tok", Scopes: []auth.KBScope{{KB: "kbx", Write: false}}},
+		{Token: "scoped-tok", Policy: auth.Policy{Permissions: []auth.Permission{
+			{KB: "kbx", Maps: []string{"manutenzione"}},
+		}}},
+	})
+	handler := newScopedTestHandler(t, ts)
+
+	for _, name := range governanceTools {
+		// Whole-KB read scope: dispatch guard passes (the handler itself may
+		// still report an application-level result, e.g. gate_check without
+		// changed_ids, which is not what this guard test is checking).
+		rr := doMCP(handler, "kbx", "r-tok", writeToolCallBody(name))
+		if rr.Code != http.StatusOK {
+			t.Fatalf("%s with whole-kb read scope: status = %d, want 200; body=%s", name, rr.Code, rr.Body.String())
+		}
+		if tr := decodeToolResult(t, unmarshalMCPResponse(t, rr)); tr.IsError && strings.Contains(tr.Content[0].Text, "forbidden") {
+			t.Fatalf("%s with whole-kb read scope: unexpected forbidden: %v", name, tr.Content)
+		}
+
+		// Map-scoped (not whole-KB) permission: forbidden, even though it
+		// grants read access to a real map in the KB.
+		rr = doMCP(handler, "kbx", "scoped-tok", writeToolCallBody(name))
+		assertMCPForbidden(t, rr)
+	}
+}
+
 // TestReadOnlyToolsGolden verifies that the set of tools marked ReadOnly:true
 // in the real registry (built via RegisterKBTools, including the BundleFS-gated
 // sync tools) matches exactly the readOnlyToolNames source of truth consulted
