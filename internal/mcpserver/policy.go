@@ -20,6 +20,7 @@ const (
 	resourceMove         = "source-destination"
 	resourceWhole        = "whole-kb"
 	resourceCuratedIndex = "curated-index"
+	resourceBatch        = "multi-concept-batch"
 )
 
 // resourceClassForTool is an exhaustive registry inventory. Keeping it next
@@ -33,6 +34,8 @@ func resourceClassForTool(name string) string {
 		return resourceExact
 	case "concept_move":
 		return resourceMove
+	case "concept_batch":
+		return resourceBatch
 	case "index_patch":
 		return resourceCuratedIndex
 	case "index_get", "log_tail", "conflicts_list", "skill_list", "artifact_list", "template_list", "map_create", "map_delete", "log_append", "snapshot", "commit_gate", "conflict_resolve", "git_conflict_resolve", "sync_status", "sync_check", "sync_apply", "sync_pull", "index_rebuild", "reindex", "kb_status", "pr_status", "pr_finalize", "secret_resolve", "secret_set", "skill_install", "artifact_read", "artifact_write", "artifact_delete", "validate", "lint", "gate_check":
@@ -154,6 +157,31 @@ func authorizeTool(policy auth.Policy, k *kb.KB, name, tool string, args json.Ra
 		}
 		for _, pair := range pairs {
 			if !allowedMove(policy, k, name, pair.SourceID, pair.TargetID) {
+				return errors.New("forbidden")
+			}
+		}
+		return nil
+	}
+	// concept_batch addresses several distinct exact concepts at once
+	// (D125): every id in "operations" must individually pass allowedID
+	// before the batch can proceed, and a denied id rejects the whole call
+	// without disclosing which one — same non-disclosure guarantee as a
+	// single concept_write, just applied to the full explicit set up front.
+	if tool == "concept_batch" {
+		var batchArgs struct {
+			Operations []json.RawMessage `json:"operations"`
+		}
+		if json.Unmarshal(args, &batchArgs) != nil || len(batchArgs.Operations) == 0 {
+			return errors.New("forbidden")
+		}
+		for _, opRaw := range batchArgs.Operations {
+			var opFields map[string]json.RawMessage
+			if json.Unmarshal(opRaw, &opFields) != nil {
+				return errors.New("forbidden")
+			}
+			id := stringField(opFields, "id")
+			proposedType := frontmatterType(opFields["frontmatter"])
+			if !allowedID(policy, k, name, id, true, proposedType) {
 				return errors.New("forbidden")
 			}
 		}

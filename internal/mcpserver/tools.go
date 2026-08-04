@@ -109,6 +109,7 @@ func RegisterKBTools(s *Server, k *kb.KB, deps Deps) {
 	register(toolGateCheck(k))
 	register(gitWrap(k, toolSupersede(k)))
 	register(gitWrap(k, toolConceptMove(k, live, deps.SQLIndex)))
+	register(gitWrap(k, toolConceptBatch(k, live, deps.SQLIndex)))
 	register(gitWrap(k, toolConceptDelete(k, live, deps.SQLIndex)))
 	register(gitWrap(k, toolConflictResolve(k)))
 	register(toolKBStatus(k))

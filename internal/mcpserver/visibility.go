@@ -15,6 +15,12 @@ package mcpserver
 //   - provisioning plumbing (sync_*, skill_*, service_*): consumed by the
 //     client CLI / hooks, or operator-level (skill_install, service_get).
 //
+// Also advanced: concept_batch (D125) — a bounded atomic multi-concept
+// write, deliberately kept operator/large-refactor tooling rather than part
+// of the default agent working set: normal agent sessions reach for
+// concept_write/concept_patch (single concept) or concept_move (renames),
+// and the default profile stays small.
+//
 // NOT advanced (agent-visible) despite being niche: conflicts_list and
 // git_conflict_resolve — an agent whose write fails on a degraded concept must
 // self-recover (kb-conflict-resolve skill, concurrency.md Step 4). Also NOT
@@ -35,6 +41,7 @@ package mcpserver
 // real registry and asserts the exact agent-visible set, so adding a tool
 // without classifying it here fails the build.
 var advancedToolNames = map[string]bool{
+	"concept_batch":        true,
 	"commit_gate":          true,
 	"contradiction_report": true,
 	"conflict_resolve":     true,
