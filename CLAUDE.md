@@ -74,11 +74,10 @@ internal/client/             # minimal MCPClient (JSON-RPC 2.0 over HTTP) for th
 
 ## Code navigation
 
-graphify graph in `graphify-out/` (not versioned). Structural questions about the code (where does X live, who calls Y, what does Z depend on) are answered by querying **the graph first** — `graphify query "<question>" --budget <n>`, `graphify path "<A>" "<B>"`, `graphify explain "<node>"` — then reading only the indicated `file:line` locations. No broad Grep/Explore if the graph can answer (for an exact, already-known symbol a targeted grep is equivalent); the `/graphify` skill is only for building/updating the graph, never for queries. Specific rules:
+Structural questions about the code (where does X live, who calls Y, what does Z depend on) are answered with targeted Grep/Explore, then reading only the indicated `file:line` locations.
 
-- the graph gives the **where/how it connects**; the **why** lives in `docs/decisions/` (search the D/AD entry), current behavior in `docs/` (map in `docs/index.md`);
-- in mandates to `dev`/OpenCode include the `file:line` pointers already derived from the graph: the subagent should not re-explore from scratch;
-- the graph realigns itself via the post-commit hook (`graphify hook status`); it reflects the last build: for just-modified files, trust the disk.
+- the **why** lives in `docs/decisions/` (search the D/AD entry), current behavior in `docs/` (map in `docs/index.md`);
+- in mandates to `dev`/OpenCode include the `file:line` pointers already derived: the subagent should not re-explore from scratch.
 
 ## Adding an MCP tool
 
