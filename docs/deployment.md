@@ -466,6 +466,18 @@ want both signals from one request. `/ready` is the dedicated readiness endpoint
 fresh local install with an empty data dir, §Cold start). Point k8s
 `livenessProbe` at `/health` and `readinessProbe` at `/ready`.
 
+**Connected clients (D129)**: `GET /clients` reports which clients have talked to this process,
+with their self-reported name and version, the protocol version and era, a request count and a
+last-seen timestamp (shape and caveats: `transport-auth.md` §Client roster). Unlike `/health` and
+`/ready` it requires a bearer token when auth is enabled, so it is not a probe target:
+
+```bash
+curl -sH "Authorization: Bearer $TOKEN" https://<host>/clients | jq
+```
+
+The tally lives in memory and resets when the pod restarts — it answers "what is connecting right
+now", not "what connected last week"; that question belongs to the audit log.
+
 ## Backup and disaster recovery
 
 ### RPO/RTO
