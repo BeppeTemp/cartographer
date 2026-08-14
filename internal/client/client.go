@@ -235,6 +235,17 @@ func (c *MCPClient) do(method string, params any) (json.RawMessage, error) {
 			return nil, &RemoteError{State: RemoteUnavailable, Code: CodeUnauthorized,
 				Message: fmt.Sprintf("%s rejected the request", reqURL), Cause: ErrUnauthorized}
 		}
+		// 400 and 404 are the statuses the 2026-07-28 revision uses to carry a
+		// JSON-RPC error (header mismatch, unsupported protocol version,
+		// unknown method). Surfacing the code and message beats "returned HTTP
+		// 400", which tells an operator nothing about which of the three it is.
+		if resp.StatusCode == http.StatusBadRequest || resp.StatusCode == http.StatusNotFound {
+			var rpcResp rpcResponse
+			if err := json.Unmarshal(respBody, &rpcResp); err == nil && rpcResp.Error != nil {
+				return nil, &RemoteError{State: RemoteFailed, Code: CodeMCPFailed,
+					Message: fmt.Sprintf("JSON-RPC error %d: %s", rpcResp.Error.Code, rpcResp.Error.Message)}
+			}
+		}
 		return nil, &RemoteError{State: RemoteUnavailable, Code: CodeHTTPFailed,
 			Message: fmt.Sprintf("%s returned HTTP %d", reqURL, resp.StatusCode),
 			Cause:   fmt.Errorf("%s", respBody)}
@@ -254,18 +265,24 @@ func (c *MCPClient) do(method string, params any) (json.RawMessage, error) {
 
 // Ping performs a minimal round trip against the server to check reachability
 // and, when a token is set, that it's accepted — without invoking any tool.
-// It uses the JSON-RPC "ping" method (see mcpserver.dispatch), the cheapest
-// request the protocol defines: no KB access, no tool lookup. timeout bounds
-// this single call independently of the client's normal HTTP timeout (30s),
-// so a probe before a full connect (D64) fails fast instead of hanging.
-// Returns nil on success, ErrUnauthorized on HTTP 401, or the underlying
-// network/timeout error otherwise.
+// It uses "server/discover": the "ping" method it used before is gone in the
+// 2026-07-28 revision (D128), while server/discover is mandatory on any
+// conformant server and just as cheap — no KB access, no tool lookup. The Go
+// name stays Ping because reachability, not the wire method, is what callers
+// ask for. timeout bounds this single call independently of the client's
+// normal HTTP timeout (30s), so a probe before a full connect (D64) fails fast
+// instead of hanging. Returns nil on success, ErrUnauthorized on HTTP 401, or
+// the underlying network/timeout error otherwise.
+//
+// The request itself stays handshake-era — no _meta, no mirror headers — since
+// the server serves both eras and moving the client only pays off once the
+// handshake era is retired (deferred, see D128).
 func (c *MCPClient) Ping(timeout time.Duration) error {
 	cp := *c
 	hc := *c.HTTP
 	hc.Timeout = timeout
 	cp.HTTP = &hc
-	_, err := cp.do("ping", nil)
+	_, err := cp.do("server/discover", nil)
 	return err
 }
 

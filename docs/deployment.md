@@ -248,6 +248,7 @@ Every startup option has a corresponding environment variable (the CLI flag take
 | `CARTOGRAPHER_AUDIT_KEY` | — | Ed25519 seed (hex, 64 chars) for signing entries. Requires `CARTOGRAPHER_AUDIT_LOG`. |
 | `CARTOGRAPHER_SERVER_URL` | — | **Client** (not server): default server URL for `cartographer connect` on the client machine when no `.cartographer.yaml` exists yet. Precedence: existing yaml > env > `http://localhost:39273/mcp` (D64, `internal/clientconfig.Default`). |
 | `CARTOGRAPHER_MCP_TOOL_PREFIX_MODE` | — | Global default for `mcp.tool_prefix_mode`: `off` (default) \| `kb-name`. Overridden per KB by `kbs[].tool_prefix` (D102, see §MCP tool-name prefix). |
+| `CARTOGRAPHER_MCP_ALLOWED_ORIGINS` | — | Comma-separated browser origins allowed to reach `/mcp`, scheme and port included. Empty (default) accepts only an `Origin` matching the request's own `Host`; `*` accepts any; a request without an `Origin` header is unaffected (D128, → `transport-auth.md` §Origin). |
 
 **`CARTOGRAPHER_AUTH`** — three modes:
 

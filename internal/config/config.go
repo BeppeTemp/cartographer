@@ -42,6 +42,13 @@ type MCPConfig struct {
 	// derives the prefix from the KB's resolved name (sanitised, see
 	// SanitizeToolPrefix — e.g. "ai-team" → "ai_team__concept_read").
 	ToolPrefixMode string
+	// AllowedOrigins lists the browser origins allowed to reach the MCP
+	// endpoint, scheme and port included ("https://app.example.com"). Empty
+	// (the default) accepts only an Origin matching the request's own Host;
+	// "*" accepts any, restoring the pre-D128 behaviour. A request with no
+	// Origin header at all — every non-browser client — is unaffected either
+	// way. See mcpserver.OriginGuard.
+	AllowedOrigins []string
 }
 
 // AuthConfig controls HTTP bearer-token authentication.
@@ -293,7 +300,8 @@ type rawTools struct {
 }
 
 type rawMCP struct {
-	ToolPrefixMode string `yaml:"tool_prefix_mode"`
+	ToolPrefixMode string   `yaml:"tool_prefix_mode"`
+	AllowedOrigins []string `yaml:"allowed_origins"`
 }
 
 type rawAuth struct {
@@ -409,6 +417,9 @@ func Load(path string) (*Config, error) {
 	if raw.MCP.ToolPrefixMode != "" {
 		cfg.MCP.ToolPrefixMode = normalizeToolPrefixMode(raw.MCP.ToolPrefixMode)
 	}
+	if len(raw.MCP.AllowedOrigins) > 0 {
+		cfg.MCP.AllowedOrigins = raw.MCP.AllowedOrigins
+	}
 
 	return cfg, nil
 }
@@ -480,6 +491,9 @@ func FromEnv(cfg *Config) {
 	}
 	if v := os.Getenv("CARTOGRAPHER_MCP_TOOL_PREFIX_MODE"); v != "" {
 		cfg.MCP.ToolPrefixMode = normalizeToolPrefixMode(v)
+	}
+	if v := os.Getenv("CARTOGRAPHER_MCP_ALLOWED_ORIGINS"); v != "" {
+		cfg.MCP.AllowedOrigins = splitCSV(v)
 	}
 }
 

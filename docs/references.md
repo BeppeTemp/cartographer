@@ -10,8 +10,12 @@
 
 ## MCP protocol
 
-- **MCP — Transports & Authorization** (spec 2025-03-26 / 2025-11-25 / draft; RC 2026-07-28).
-  https://modelcontextprotocol.io/specification/draft/basic/transports
+- **MCP — Transports & Authorization** (spec 2025-03-26 / 2025-11-25 / 2026-07-28 final).
+  https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http
+
+- **MCP — 2026-07-28 changelog** (removal of the initialize handshake, sessions
+  and SSE resumability; `server/discover`, mirrored headers, `CacheableResult`).
+  https://modelcontextprotocol.io/specification/2026-07-28/changelog
 
 ## Secrets and skills
 

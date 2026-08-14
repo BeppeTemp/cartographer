@@ -260,6 +260,55 @@ func TestCall_HTTPStatusFailure_ClassifiesAsRemoteUnavailable(t *testing.T) {
 	}
 }
 
+// D128: 400 and 404 are how the 2026-07-28 transport reports a header
+// mismatch, an unsupported protocol version or an unknown method. When the
+// body carries the JSON-RPC error, the operator gets the code and message
+// rather than a bare status.
+func TestCall_JSONRPCErrorBodyOnBadRequest(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]any{
+			"jsonrpc": "2.0", "id": 1,
+			"error": map[string]any{"code": -32020, "message": "Mcp-Method does not match the request method"},
+		})
+	}))
+	defer srv.Close()
+
+	_, err := client.New(srv.URL, "").Call("ok_tool", map[string]any{})
+	var re *client.RemoteError
+	if !errors.As(err, &re) {
+		t.Fatalf("err = %v, want a *client.RemoteError", err)
+	}
+	if re.State != client.RemoteFailed || re.Code != client.CodeMCPFailed {
+		t.Errorf("State/Code = %q/%q, want %q/%q", re.State, re.Code, client.RemoteFailed, client.CodeMCPFailed)
+	}
+	if !strings.Contains(re.Message, "-32020") || !strings.Contains(re.Message, "Mcp-Method") {
+		t.Errorf("Message = %q, want it to carry the JSON-RPC code and message", re.Message)
+	}
+}
+
+// A 404 with no JSON-RPC body (a reverse proxy's own page, say) keeps the
+// status-based error: there is nothing better to report.
+func TestCall_NonRPCBodyOnNotFound(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "no such route", http.StatusNotFound)
+	}))
+	defer srv.Close()
+
+	_, err := client.New(srv.URL, "").Call("ok_tool", map[string]any{})
+	var re *client.RemoteError
+	if !errors.As(err, &re) {
+		t.Fatalf("err = %v, want a *client.RemoteError", err)
+	}
+	if re.State != client.RemoteUnavailable || re.Code != client.CodeHTTPFailed {
+		t.Errorf("State/Code = %q/%q, want %q/%q", re.State, re.Code, client.RemoteUnavailable, client.CodeHTTPFailed)
+	}
+	if !strings.Contains(re.Message, "404") {
+		t.Errorf("Message = %q, want the HTTP status reported", re.Message)
+	}
+}
+
 func TestPing_Success(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
@@ -269,8 +318,8 @@ func TestPing_Success(t *testing.T) {
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			t.Fatalf("decode request: %v", err)
 		}
-		if req.Method != "ping" {
-			t.Errorf("method = %q, want ping", req.Method)
+		if req.Method != "server/discover" {
+			t.Errorf("method = %q, want server/discover", req.Method)
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{"jsonrpc": "2.0", "id": req.ID, "result": map[string]any{}})

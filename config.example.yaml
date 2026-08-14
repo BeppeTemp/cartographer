@@ -54,6 +54,11 @@ mcp:
                                    # applied to every KB above that doesn't set its own
                                    # tool_prefix; kb-name derives the prefix from the
                                    # KB's own name.
+  # allowed_origins:               # (D128) browser origins allowed to reach /mcp, scheme
+  #   - "https://app.example.com"  # and port included. Empty (default) accepts only an
+                                   # Origin matching the request's own Host; "*" accepts
+                                   # any. A request with no Origin header — every
+                                   # non-browser client — is unaffected either way.
 git:
   autocommit: true
   sync: true
