@@ -251,6 +251,44 @@ resumability were all removed from the spec. Nothing is minted, stored or
 echoed per connection — including the protocol era, which is derived from each
 request and discarded with its response.
 
+## Client roster
+
+`GET /clients` reports which clients are talking to this server and on which
+protocol era. It requires a bearer token whenever auth is enabled — unlike
+`/health` and `/ready` it is deliberately **not** on the public-path list
+(`internal/auth`), because client names and versions describe deployment
+topology.
+
+One row per distinct (KB, client name, client version, protocol version, era)
+combination, with a request count and a last-seen timestamp; rows are sorted by
+KB, then client name, then version, so consecutive polls are diffable. A
+multi-KB server answers with one flat array across every mounted KB, each row
+naming its `kb`. An `overflow` counter appears only when it is non-zero.
+
+```json
+{"clients":[{"kb":"homelab-wiki","client_name":"claude-code","client_version":"2.1.0",
+             "protocol_version":"2026-07-28","era":"2026-07-28","count":42,
+             "last_seen":"2026-08-14T21:40:00Z"}]}
+```
+
+Three properties bound what the roster is good for:
+
+- **Identity is self-reported and unverified.** It comes from the client's own
+  `clientInfo` — `_meta.io.modelcontextprotocol/clientInfo` in the
+  `2026-07-28` era, `initialize`'s `params.clientInfo` in the handshake era.
+  It is an operational aid and must never become an authorization input.
+- **It is process-local and lost on restart.** Nothing is written to disk; the
+  audit log remains the durable record. A handshake-era request that is not
+  `initialize` carries no identity at all and is counted under the client name
+  `unknown`, so legacy traffic stays visible instead of disappearing.
+- **It is bounded.** At most 64 distinct keys are tracked and each identity
+  field is truncated to 64 bytes; further distinct keys increment `overflow`
+  rather than growing the map. Recording happens only after authorization
+  succeeds, and never affects the `/mcp` response.
+
+The roster is also the go/no-go evidence for retiring the handshake era: it is
+what tells an operator whether every client of a given deployment has moved.
+
 ## Tool namespace discovery
 
 `GET /health` reports, per mounted KB, the **effective** tool-name prefix under

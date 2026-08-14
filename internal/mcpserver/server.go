@@ -8,6 +8,7 @@ import (
 	"io"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/audit"
 	"github.com/BeppeTemp/cartographer/internal/auth"
@@ -92,7 +93,13 @@ type Server struct {
 	// instance dispatches over, recorded on every audit event. Set via
 	// SetTransport at mount time.
 	transport string
-	mu        sync.Mutex
+	// roster tracks per-client request counts, keyed by (clientName,
+	// clientVersion, protocolVersion, era). Guarded by mu.
+	roster *clientRoster
+	// now returns the current time; defaulted to time.Now in New, overridable
+	// in tests for determinism.
+	now func() time.Time
+	mu  sync.Mutex
 
 	writeMu sync.Mutex    // serializes writes to the shared encoder
 	enc     *json.Encoder // active stdio encoder; nil when not in Run (e.g. HTTP)
@@ -137,6 +144,8 @@ func New(version string) *Server {
 	return &Server{
 		version: version,
 		tools:   make(map[string]*Tool),
+		roster:  newClientRoster(),
+		now:     time.Now,
 	}
 }
 
@@ -207,6 +216,25 @@ func (s *Server) SetTransport(transport string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.transport = transport
+}
+
+// recordRequest increments the client roster for the given request, using the
+// resolved client identity and protocol era. It is a no-op if the roster is
+// nil (defensive — never happens in practice). Guarded by s.mu.
+func (s *Server) recordRequest(req *Request) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.roster.record(req.clientName, req.clientVersion, req.protocolVersion, req.era, s.now())
+}
+
+// ClientStats returns a snapshot of the client roster: a slice of ClientStat
+// rows sorted deterministically by (ClientName, ClientVersion, ProtocolVersion,
+// Era), plus the overflow counter. The returned slice is a copy — callers may
+// inspect it without holding s.mu.
+func (s *Server) ClientStats() ([]ClientStat, int64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.roster.stats()
 }
 
 // stripToolPrefixLocked removes this server's tool-name prefix (see
@@ -395,15 +423,35 @@ func (s *Server) dispatch(ctx context.Context, req *Request) Response {
 // ping, tools/list and server/discover are protocol metadata, not resource
 // access, but a caller with no resolvable principal must still be denied
 // (fail-closed) rather than implicitly treated as full access.
+//
+// Client roster recording: a request denied by the metadata authorize check
+// records nothing; every other request records exactly one increment. For
+// initialize, the legacy-era identity is only available after handleInitialize
+// parses clientInfo, so recording is deferred until after the handler returns.
+// For non-initialize metadata methods, recording happens right after the
+// authorize check succeeds (before routing). For non-metadata methods,
+// recording happens before routing (their handlers perform their own
+// authorization — the invariant only gates on dispatchMethod's metadata
+// authorize check).
 func (s *Server) dispatchMethod(ctx context.Context, req *Request) Response {
 	if isMetadataMethod(req.Method) {
 		if err := s.authorize(ctx, "", json.RawMessage(`{}`)); err != nil {
 			return successResponse(req.ID, errorResult(err.Error()))
 		}
+		// Non-initialize metadata methods: authorize passed, record before
+		// routing (identity is available from resolveEra or is "unknown").
+		if req.Method != "initialize" {
+			s.recordRequest(req)
+		}
 	}
 	switch req.Method {
 	case "initialize":
-		return s.handleInitialize(req)
+		resp := s.handleInitialize(req)
+		// initialize: identity becomes available only after the handler parses
+		// clientInfo (legacy-era) or resolveEra (new-era). Record after the
+		// handler, but only if authorize already passed (above).
+		s.recordRequest(req)
+		return resp
 	case "ping":
 		return successResponse(req.ID, map[string]interface{}{})
 	case "server/discover":
@@ -415,8 +463,10 @@ func (s *Server) dispatchMethod(ctx context.Context, req *Request) Response {
 		// context rather than passed alongside it: since D118 the authenticated
 		// principal already travels there, and a second channel could disagree
 		// with the one authorization actually used.
+		s.recordRequest(req)
 		return s.handleToolsCall(ctx, req)
 	default:
+		s.recordRequest(req)
 		return errorResponse(req.ID, ErrCodeMethodNotFound, "method not found: "+req.Method)
 	}
 }
@@ -460,12 +510,22 @@ func (s *Server) handleDiscover(req *Request) Response {
 
 // handleInitialize handles the initial MCP negotiation.
 func (s *Server) handleInitialize(req *Request) Response {
-	// Extract the protocol version requested by the client.
+	// Extract the protocol version and client identity from the client.
 	var params struct {
-		ProtocolVersion string `json:"protocolVersion"`
+		ProtocolVersion string          `json:"protocolVersion"`
+		ClientInfo      json.RawMessage `json:"clientInfo"`
 	}
 	if len(req.Params) > 0 {
 		json.Unmarshal(req.Params, &params)
+	}
+	// Legacy-era initialize may carry clientInfo in the top-level params.
+	// Store it on the request only if the request does not already have a
+	// new-era identity (resolveEra already populated it).
+	if req.clientName == "" && params.ClientInfo != nil {
+		if name, version := parseClientInfo(params.ClientInfo); name != "" {
+			req.clientName = name
+			req.clientVersion = version
+		}
 	}
 
 	// Negotiation: use the requested version if provided, otherwise ours.
@@ -475,6 +535,10 @@ func (s *Server) handleInitialize(req *Request) Response {
 		// Future: validate the version and downgrade if necessary.
 		negotiated = params.ProtocolVersion
 	}
+	// Store the negotiated protocol version on the request so that
+	// recordRequest (called after handleInitialize returns) can include it
+	// in the client roster entry.
+	req.protocolVersion = negotiated
 
 	result := map[string]interface{}{
 		"protocolVersion": negotiated,

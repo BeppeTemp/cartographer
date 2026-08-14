@@ -1,6 +1,7 @@
 package mcpserver
 
 import (
+	"bytes"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -246,5 +247,182 @@ func TestServer_Ready(t *testing.T) {
 	}
 	if ready, _ := body["ready"].(bool); !ready {
 		t.Fatalf("ready = %v, want true", body["ready"])
+	}
+}
+
+// TestClients_EmptyRoster verifies a fresh server returns {"clients": []} with
+// HTTP 200, never 404 and never a null array.
+func TestClients_EmptyRoster(t *testing.T) {
+	s := New("test")
+	handler := s.HTTPHandler()
+
+	req := httptest.NewRequest(http.MethodGet, "/clients", nil)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("/clients: status = %d, want 200", rr.Code)
+	}
+	var body map[string]interface{}
+	if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
+		t.Fatalf("invalid JSON body: %v", err)
+	}
+	clients, ok := body["clients"]
+	if !ok {
+		t.Fatal("missing 'clients' key")
+	}
+	arr, ok := clients.([]interface{})
+	if !ok {
+		t.Fatalf("clients is not an array: %T", clients)
+	}
+	if len(arr) != 0 {
+		t.Fatalf("clients length = %d, want 0", len(arr))
+	}
+}
+
+// TestClients_MethodNotAllowed verifies POST (and other non-GET methods) return
+// 405 on /clients for every handler constructor.
+func TestClients_MethodNotAllowed(t *testing.T) {
+	s := New("test")
+	// Single-KB handlers.
+	for _, v := range []struct {
+		h    http.Handler
+		desc string
+	}{
+		{s.HTTPHandler(), "HTTPHandler"},
+		{s.FullHTTPHandler(nil, nil), "FullHTTPHandler"},
+	} {
+		for _, method := range []string{http.MethodPost, http.MethodPut, http.MethodDelete} {
+			req := httptest.NewRequest(method, "/clients", nil)
+			rr := httptest.NewRecorder()
+			v.h.ServeHTTP(rr, req)
+			if rr.Code != http.StatusMethodNotAllowed {
+				t.Fatalf("%s %s: status = %d, want 405", v.desc, method, rr.Code)
+			}
+		}
+	}
+	// Multi-KB handler.
+	multi := NewMultiKBServer("test")
+	for _, method := range []string{http.MethodPost, http.MethodPut, http.MethodDelete} {
+		req := httptest.NewRequest(method, "/clients", nil)
+		rr := httptest.NewRecorder()
+		multi.Handler().ServeHTTP(rr, req)
+		if rr.Code != http.StatusMethodNotAllowed {
+			t.Fatalf("MultiKB %s: status = %d, want 405", method, rr.Code)
+		}
+	}
+}
+
+// TestClients_ThreeHandlers verifies /clients answers on all three handler
+// constructors (HTTPHandler, FullHTTPHandler, MultiKBServer.Handler).
+func TestClients_ThreeHandlers(t *testing.T) {
+	// Build a single-KB server and populate the roster by hitting /mcp.
+	k := setupTestKB(t)
+	s := New("test")
+	s.SetPolicyKB("docs")
+	RegisterKBTools(s, k, Deps{})
+
+	// Simulate a few MCP requests so the roster is non-empty.
+	mcpBody := writeToolCallBody("atlas_overview")
+	for i := 0; i < 3; i++ {
+		req := httptest.NewRequest(http.MethodPost, "/mcp", bytes.NewReader([]byte(mcpBody)))
+		req.Header.Set("Content-Type", "application/json")
+		rr := httptest.NewRecorder()
+		s.handleMCPPost(rr, req)
+	}
+
+	for _, v := range []struct {
+		desc string
+		h    http.Handler
+	}{
+		{"HTTPHandler", s.HTTPHandler()},
+		{"FullHTTPHandler", s.FullHTTPHandler(nil, nil)},
+	} {
+		req := httptest.NewRequest(http.MethodGet, "/clients", nil)
+		rr := httptest.NewRecorder()
+		v.h.ServeHTTP(rr, req)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("%s: status = %d, want 200; body=%s", v.desc, rr.Code, rr.Body.String())
+		}
+		var body struct {
+			Clients []struct {
+				KB         string `json:"kb"`
+				ClientName string `json:"client_name"`
+			} `json:"clients"`
+		}
+		if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
+			t.Fatalf("%s: invalid JSON: %v", v.desc, err)
+		}
+		if len(body.Clients) == 0 {
+			t.Fatalf("%s: expected at least 1 client row", v.desc)
+		}
+		if body.Clients[0].KB != "docs" {
+			t.Fatalf("%s: kb = %q, want \"docs\"", v.desc, body.Clients[0].KB)
+		}
+	}
+
+	// Multi-KB handler with two KBs.
+	multi := NewMultiKBServer("test")
+	k1 := setupTestKB(t)
+	k2 := setupTestKB(t)
+	if err := multi.MountKBWithPrefix("alpha", "", func(s *Server) { RegisterKBTools(s, k1, Deps{}) }); err != nil {
+		t.Fatalf("MountKBWithPrefix(alpha): %v", err)
+	}
+	if err := multi.MountKBWithPrefix("beta", "", func(s *Server) { RegisterKBTools(s, k2, Deps{}) }); err != nil {
+		t.Fatalf("MountKBWithPrefix(beta): %v", err)
+	}
+	// Hit /mcp?kb=alpha to populate its roster.
+	for i := 0; i < 2; i++ {
+		req := httptest.NewRequest(http.MethodPost, "/mcp?kb=alpha", bytes.NewReader([]byte(mcpBody)))
+		req.Header.Set("Content-Type", "application/json")
+		rr := httptest.NewRecorder()
+		multi.Handler().ServeHTTP(rr, req)
+	}
+	// Hit /mcp?kb=beta to populate its roster.
+	for i := 0; i < 1; i++ {
+		req := httptest.NewRequest(http.MethodPost, "/mcp?kb=beta", bytes.NewReader([]byte(mcpBody)))
+		req.Header.Set("Content-Type", "application/json")
+		rr := httptest.NewRecorder()
+		multi.Handler().ServeHTTP(rr, req)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/clients", nil)
+	rr := httptest.NewRecorder()
+	multi.Handler().ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("MultiKB /clients: status = %d, want 200; body=%s", rr.Code, rr.Body.String())
+	}
+	var body struct {
+		Clients []struct {
+			KB string `json:"kb"`
+		} `json:"clients"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	// Both KBs must appear, sorted alphabetically: alpha before beta.
+	if len(body.Clients) < 2 {
+		t.Fatalf("expected >= 2 client rows, got %d; body=%s", len(body.Clients), rr.Body.String())
+	}
+	if body.Clients[0].KB != "alpha" {
+		t.Fatalf("first row kb = %q, want \"alpha\" (sorted order)", body.Clients[0].KB)
+	}
+	if body.Clients[1].KB != "beta" {
+		t.Fatalf("second row kb = %q, want \"beta\" (sorted order)", body.Clients[1].KB)
+	}
+}
+
+// TestClients_NoOverflow omits overflow when zero.
+func TestClients_NoOverflow(t *testing.T) {
+	s := New("test")
+	handler := s.HTTPHandler()
+	req := httptest.NewRequest(http.MethodGet, "/clients", nil)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+	var raw map[string]interface{}
+	if err := json.Unmarshal(rr.Body.Bytes(), &raw); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if _, ok := raw["overflow"]; ok {
+		t.Fatalf("'overflow' present in response with 0 overflow")
 	}
 }

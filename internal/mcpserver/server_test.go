@@ -1,6 +1,7 @@
 package mcpserver
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -4186,5 +4187,186 @@ func TestServer_IndexPatch_NoSearchIndexMutation(t *testing.T) {
 		if string(id) == "" || string(id) == "index" {
 			t.Errorf("index_patch: root index.md leaked into WalkConcepts: %v", concepts)
 		}
+	}
+}
+
+// --- client roster tests (WP1) ---
+
+func TestServer_ClientStats_LegacyInitializeWithClientInfo(t *testing.T) {
+	s := New("1.0.0")
+	RegisterKBTools(s, setupTestKB(t), Deps{})
+
+	msgs := []string{
+		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","clientInfo":{"name":"test-client","version":"1.2.3"}}}`,
+	}
+	resps := runMCPSequence(t, s, msgs)
+	if len(resps) != 1 || resps[0].Error != nil {
+		t.Fatalf("initialize: unexpected response: %+v", resps[0])
+	}
+
+	stats, overflow := s.ClientStats()
+	if overflow != 0 {
+		t.Fatalf("expected overflow 0, got %d", overflow)
+	}
+	if len(stats) != 1 {
+		t.Fatalf("expected 1 stat row, got %d", len(stats))
+	}
+	row := stats[0]
+	if row.ClientName != "test-client" || row.ClientVersion != "1.2.3" {
+		t.Errorf("client name/version = %q/%q, want test-client/1.2.3", row.ClientName, row.ClientVersion)
+	}
+	if row.ProtocolVersion != "2024-11-05" {
+		t.Errorf("protocol version = %q, want 2024-11-05", row.ProtocolVersion)
+	}
+	if row.Era != "handshake" {
+		t.Errorf("era = %q, want handshake", row.Era)
+	}
+	if row.Count != 1 {
+		t.Errorf("count = %d, want 1", row.Count)
+	}
+}
+
+func TestServer_ClientStats_NewEraToolsCall(t *testing.T) {
+	s := New("1.0.0")
+	RegisterKBTools(s, setupTestKB(t), Deps{})
+
+	// Send initialize first to establish the session, then a tools/call with new-era _meta.
+	msgs := []string{
+		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
+		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientInfo":{"name":"new-client","version":"3.0"}},"name":"atlas_overview","arguments":{}}}`,
+	}
+	runMCPSequence(t, s, msgs)
+
+	stats, _ := s.ClientStats()
+	if len(stats) != 2 {
+		t.Fatalf("expected 2 stat rows, got %d", len(stats))
+	}
+	// Find the new-era row.
+	var eraRow *ClientStat
+	for i := range stats {
+		if stats[i].Era == "2026-07-28" {
+			eraRow = &stats[i]
+			break
+		}
+	}
+	if eraRow == nil {
+		t.Fatal("no 2026-07-28 era row found")
+	}
+	if eraRow.ClientName != "new-client" || eraRow.ClientVersion != "3.0" {
+		t.Errorf("client = %q/%q, want new-client/3.0", eraRow.ClientName, eraRow.ClientVersion)
+	}
+}
+
+func TestServer_ClientStats_LegacyPingUnknown(t *testing.T) {
+	s := New("1.0.0")
+	RegisterKBTools(s, setupTestKB(t), Deps{})
+
+	msgs := []string{
+		`{"jsonrpc":"2.0","id":1,"method":"ping","params":{}}`,
+	}
+	runMCPSequence(t, s, msgs)
+
+	stats, _ := s.ClientStats()
+	if len(stats) != 1 {
+		t.Fatalf("expected 1 stat row, got %d", len(stats))
+	}
+	if stats[0].ClientName != "unknown" {
+		t.Errorf("client name = %q, want unknown", stats[0].ClientName)
+	}
+	if stats[0].Count != 1 {
+		t.Errorf("count = %d, want 1", stats[0].Count)
+	}
+}
+
+func TestServer_ClientStats_KeyCap(t *testing.T) {
+	k := setupTestKB(t)
+	s := New("1.0.0")
+	RegisterKBTools(s, k, Deps{})
+
+	msgs := make([]string, 70)
+	for i := 0; i < 70; i++ {
+		msgs[i] = fmt.Sprintf(`{"jsonrpc":"2.0","id":%d,"method":"initialize","params":{"protocolVersion":"2024-11-05","clientInfo":{"name":"client-%02d","version":"1.0"}}}`, i+1, i)
+	}
+
+	runMCPSequence(t, s, msgs)
+
+	stats, overflow := s.ClientStats()
+	if len(stats) != 64 {
+		t.Fatalf("expected 64 stat rows, got %d", len(stats))
+	}
+	if overflow != 6 {
+		t.Errorf("overflow = %d, want 6", overflow)
+	}
+}
+
+func TestServer_ClientStats_Truncation(t *testing.T) {
+	s := New("1.0.0")
+	RegisterKBTools(s, setupTestKB(t), Deps{})
+
+	longName := strings.Repeat("x", 100)
+	msgs := []string{
+		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","clientInfo":{"name":"` + longName + `","version":"1.0"}}}`,
+	}
+	runMCPSequence(t, s, msgs)
+
+	stats, _ := s.ClientStats()
+	if len(stats) != 1 {
+		t.Fatalf("expected 1 row, got %d", len(stats))
+	}
+	got := stats[0].ClientName
+	if len(got) != 64 {
+		t.Errorf("client name byte length = %d, want 64", len(got))
+	}
+	if got != longName[:64] {
+		t.Errorf("client name = %q, want first 64 bytes of %q", got, longName)
+	}
+}
+
+func TestServer_ClientStats_AuthorizedOnly(t *testing.T) {
+	k := setupTestKB(t)
+	s := New("1.0.0")
+	RegisterKBTools(s, k, Deps{})
+
+	// Install an authorizer that always denies.
+	s.SetAuthorizer(func(ctx context.Context, name string, args json.RawMessage) error {
+		return fmt.Errorf("always forbidden")
+	})
+
+	msgs := []string{
+		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","clientInfo":{"name":"denied-client","version":"1.0"}}}`,
+	}
+	runMCPSequence(t, s, msgs)
+
+	stats, _ := s.ClientStats()
+	if len(stats) != 0 {
+		t.Errorf("expected 0 rows for denied request, got %d", len(stats))
+	}
+}
+
+func TestServer_ClientStats_Ordering(t *testing.T) {
+	s := New("1.0.0")
+	RegisterKBTools(s, setupTestKB(t), Deps{})
+
+	// Send requests in random order to verify deterministic sorting.
+	msgs := []string{
+		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","clientInfo":{"name":"beta","version":"2.0"}}}`,
+		`{"jsonrpc":"2.0","id":2,"method":"initialize","params":{"protocolVersion":"2024-11-05","clientInfo":{"name":"alpha","version":"1.0"}}}`,
+		`{"jsonrpc":"2.0","id":3,"method":"initialize","params":{"protocolVersion":"2024-11-05","clientInfo":{"name":"alpha","version":"2.0"}}}`,
+	}
+	runMCPSequence(t, s, msgs)
+
+	stats, _ := s.ClientStats()
+	if len(stats) != 3 {
+		t.Fatalf("expected 3 rows, got %d", len(stats))
+	}
+	// Expected order: (alpha,1.0), (alpha,2.0), (beta,2.0) — sorted by name, then version.
+	want := [3]string{"alpha", "alpha", "beta"}
+	for i, st := range stats {
+		if st.ClientName != want[i] {
+			t.Errorf("row[%d] name = %q, want %q", i, st.ClientName, want[i])
+		}
+	}
+	if stats[0].ClientVersion != "1.0" || stats[1].ClientVersion != "2.0" {
+		t.Errorf("alpha rows: versions = %q/%q, want 1.0/2.0", stats[0].ClientVersion, stats[1].ClientVersion)
 	}
 }
