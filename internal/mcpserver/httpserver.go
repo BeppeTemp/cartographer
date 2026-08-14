@@ -2,6 +2,7 @@ package mcpserver
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -30,9 +31,11 @@ func (s *Server) handleMCP(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodPost:
 		s.handleMCPPost(w, r)
-	case http.MethodGet:
-		http.Error(w, "SSE stream not yet implemented", http.StatusNotImplemented)
 	default:
+		// POST is the whole transport (D128). GET used to answer 501 as a
+		// placeholder for the SSE stream, and DELETE would have ended a
+		// session; 2026-07-28 removed both the stream and sessions, and
+		// requires 405 for either.
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 	}
 }
@@ -77,11 +80,114 @@ func (s *Server) handleMCPPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resp := s.dispatch(r.Context(), &req)
+	// Mcp-Session-Id and Last-Event-ID may arrive from a client that still
+	// believes in sessions and resumable streams. Both are ignored, on purpose
+	// and by doing nothing: this server has never had per-connection state and
+	// 2026-07-28 removed the concept, so there is nothing to look up and
+	// nothing to echo back.
 
+	if err := req.resolveEra(r.Header.Get("MCP-Protocol-Version")); err != nil {
+		writeRPC(w, http.StatusBadRequest, errorResponse(req.ID, ErrCodeInvalidParams, err.Error()))
+		return
+	}
+	if req.era == era20260728 {
+		if failure := validateMirrorHeaders(r, &req); failure != "" {
+			writeRPC(w, http.StatusBadRequest, errorResponse(req.ID, ErrCodeHeaderMismatch, failure))
+			return
+		}
+	}
+
+	resp := s.dispatch(r.Context(), &req)
+	writeRPC(w, statusForResponse(req.era, resp), resp)
+}
+
+// writeRPC writes a JSON-RPC response with the given HTTP status.
+func writeRPC(w http.ResponseWriter, status int, resp Response) {
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
+	w.WriteHeader(status)
 	json.NewEncoder(w).Encode(resp)
+}
+
+// statusForResponse maps a JSON-RPC error onto the HTTP status the 2026-07-28
+// revision requires for it. A handshake-era response is always HTTP 200,
+// errors included: that is what the era's clients expect, and
+// internal/client/client.go treats any other status as an opaque transport
+// failure.
+func statusForResponse(era protocolEra, resp Response) int {
+	if era != era20260728 || resp.Error == nil {
+		return http.StatusOK
+	}
+	switch resp.Error.Code {
+	case ErrCodeMethodNotFound:
+		return http.StatusNotFound
+	case ErrCodeUnsupportedProtocolVersion, ErrCodeHeaderMismatch:
+		return http.StatusBadRequest
+	}
+	return http.StatusOK
+}
+
+// validateMirrorHeaders checks the headers 2026-07-28 requires on every POST
+// against the body they mirror, and returns a description of the first
+// disagreement, or "" when they all agree.
+//
+// The point of the check is that the headers exist for intermediaries that
+// route or rate-limit without parsing a JSON-RPC body — which means a client
+// could describe itself one way to the proxy and another way to the server.
+// The body remains the only thing this server acts on (see mcpAccessGuard);
+// the headers are validated against it and then discarded.
+//
+// Header names are matched case-insensitively (net/http canonicalises them);
+// values are compared exactly.
+func validateMirrorHeaders(r *http.Request, req *Request) string {
+	version := r.Header.Get("MCP-Protocol-Version")
+	switch {
+	case version == "":
+		return "missing required header MCP-Protocol-Version"
+	case req.protocolVersion != "" && version != req.protocolVersion:
+		return "MCP-Protocol-Version does not match _meta." + metaKeyProtocolVersion
+	}
+
+	method := r.Header.Get("Mcp-Method")
+	switch {
+	case method == "":
+		return "missing required header Mcp-Method"
+	case method != req.Method:
+		return "Mcp-Method does not match the request method"
+	}
+
+	if req.Method != "tools/call" {
+		return ""
+	}
+	var params struct {
+		Name string `json:"name"`
+	}
+	_ = json.Unmarshal(req.Params, &params)
+	name := r.Header.Get("Mcp-Name")
+	switch {
+	case name == "":
+		return "missing required header Mcp-Name"
+	case decodeMcpName(name) != params.Name:
+		return "Mcp-Name does not match params.name"
+	}
+	return ""
+}
+
+// decodeMcpName unwraps the "=?base64?<payload>?=" form a client uses when the
+// name does not fit in a header field (a non-ASCII tool name, say). Anything
+// else, and anything that fails to decode, is returned unchanged — a mangled
+// value then fails the comparison it was decoded for, which is the right
+// outcome anyway.
+func decodeMcpName(v string) string {
+	const prefix, suffix = "=?base64?", "?="
+	if !strings.HasPrefix(v, prefix) || !strings.HasSuffix(v, suffix) {
+		return v
+	}
+	payload := v[len(prefix) : len(v)-len(suffix)]
+	decoded, err := base64.StdEncoding.DecodeString(payload)
+	if err != nil {
+		return v
+	}
+	return string(decoded)
 }
 
 // mcpAccessGuard wraps next (an /mcp handler for a single KB) with per-KB,
@@ -104,6 +210,13 @@ func (s *Server) handleMCPPost(w http.ResponseWriter, r *http.Request) {
 // least the same privilege as a write. The tool-name classification in
 // ToolRequiresWrite can't see arguments, so this per-argument override lives
 // here, at the one place that already parses the JSON-RPC body.
+//
+// D128: the 2026-07-28 mirror headers (Mcp-Method, Mcp-Name) name the same
+// method and tool this function parses out of the body, and must never become
+// its input. They are client-controlled and exist for intermediaries; reading
+// authorization off them would create exactly the two-sources-of-truth split
+// the spec mandates header validation to close. They are checked against the
+// body downstream, in validateMirrorHeaders.
 //
 // srv is the KB's own *Server: its ToolRequiresWrite method strips this
 // server's tool-name prefix (D102), if any, before classifying — so a
@@ -264,8 +377,10 @@ func WellKnownHandler(metadataJSON []byte) http.HandlerFunc {
 	}
 }
 
-// FullHTTPHandler returns a combined handler with /mcp, /health, and /.well-known endpoints.
-func (s *Server) FullHTTPHandler(oauthMetadata []byte) http.Handler {
+// FullHTTPHandler returns a combined handler with /mcp, /health, and
+// /.well-known endpoints. allowedOrigins is the OriginGuard allow-list applied
+// to the MCP endpoint (nil = same-origin only).
+func (s *Server) FullHTTPHandler(oauthMetadata []byte, allowedOrigins []string) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/mcp", s.handleMCP)
 	mux.HandleFunc("/health", s.handleHealth)
@@ -274,10 +389,12 @@ func (s *Server) FullHTTPHandler(oauthMetadata []byte) http.Handler {
 		mux.HandleFunc("/.well-known/oauth-protected-resource", WellKnownHandler(oauthMetadata))
 	}
 
-	// CORS headers for browser-based clients.
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+	// CORS headers for browser-based clients. The allow-origin header echoes
+	// the origin OriginGuard accepted rather than "*" (D128): a wildcard tells
+	// every browser its page may read the response, which is the other half of
+	// what makes a rebinding attack pay off.
+	cors := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, MCP-Protocol-Version, Mcp-Method, Mcp-Name")
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
@@ -285,6 +402,7 @@ func (s *Server) FullHTTPHandler(oauthMetadata []byte) http.Handler {
 		}
 		mux.ServeHTTP(w, r)
 	})
+	return OriginGuard(allowedOrigins, cors)
 }
 
 // KBInfo holds metadata about a mounted KB for kb_list responses.

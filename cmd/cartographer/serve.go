@@ -372,7 +372,7 @@ func runServe(cfg *config.Config) {
 	}
 
 	if cfg.HTTP != "" {
-		serveHTTP(cfg.HTTP, kbs, kbNames, kbToolPrefixes, kbArtifactSigners, kbMCPAllowlists, cfg.Auth, cfg.ToolsProfile, emb, vecStore, sqlIdxs, auditLog)
+		serveHTTP(cfg.HTTP, kbs, kbNames, kbToolPrefixes, kbArtifactSigners, kbMCPAllowlists, cfg.Auth, cfg.MCP.AllowedOrigins, cfg.ToolsProfile, emb, vecStore, sqlIdxs, auditLog)
 	} else {
 		serveStdio(kbs[0], kbArtifactSigners[0], kbMCPAllowlists[0], cfg.ToolsProfile, emb, vecStore, sqlIdxs, auditLog)
 	}
@@ -403,7 +403,7 @@ func serveStdio(k *kb.KB, artifactSigner ed25519.PrivateKey, allowlist []provisi
 	}
 }
 
-func serveHTTP(addr string, kbs []*kb.KB, names []string, toolPrefixes []string, artifactSigners []ed25519.PrivateKey, allowlists [][]provisioning.MCPAllowlistEntry, authCfg config.AuthConfig, toolsProfile string, emb embed.Embedder, vecStore *embed.Store, sqlIdxs map[string]*sqlindex.Index, auditLog *audit.Log) {
+func serveHTTP(addr string, kbs []*kb.KB, names []string, toolPrefixes []string, artifactSigners []ed25519.PrivateKey, allowlists [][]provisioning.MCPAllowlistEntry, authCfg config.AuthConfig, allowedOrigins []string, toolsProfile string, emb embed.Embedder, vecStore *embed.Store, sqlIdxs map[string]*sqlindex.Index, auditLog *audit.Log) {
 	if auditLog != nil {
 		log.Printf("audit log active")
 	}
@@ -454,7 +454,13 @@ func serveHTTP(addr string, kbs []*kb.KB, names []string, toolPrefixes []string,
 		log.Printf("mounted KB %q at %s (tools profile: %s%s)", name, k.Root, toolsProfile, prefixLog)
 	}
 
-	handler := store.Middleware(multi.Handler())
+	// The origin check sits outside authentication (D128): a page that is not
+	// allowed to talk to this server should be turned away before its token is
+	// looked at.
+	handler := mcpserver.OriginGuard(allowedOrigins, store.Middleware(multi.Handler()))
+	if len(allowedOrigins) > 0 {
+		log.Printf("MCP origin allow-list: %s", strings.Join(allowedOrigins, ", "))
+	}
 	httpSrv := &http.Server{Addr: addr, Handler: handler}
 
 	// Graceful shutdown (D76/WP4): on SIGINT/SIGTERM, stop accepting new

@@ -368,12 +368,35 @@ func (s *Server) Notify(method string, params any) error {
 	return s.enc.Encode(msg)
 }
 
-// dispatch routes the request to the appropriate method. initialize, ping and
-// tools/list are protocol metadata, not resource access, but a caller with no
-// resolvable principal must still be denied (fail-closed) rather than
-// implicitly treated as full access.
+// dispatch resolves the request's protocol era (D128), routes it, and applies
+// the era's result envelope in one place, so no handler has to know which era
+// it is answering. A handshake-era request comes out of here byte-identical to
+// what it produced before 2026-07-28 was served at all.
 func (s *Server) dispatch(ctx context.Context, req *Request) Response {
-	if req.Method == "initialize" || req.Method == "ping" || req.Method == "tools/list" {
+	// The HTTP layer resolves the era itself, from the headers as well as the
+	// body; over stdio the body is all there is.
+	if !req.eraResolved {
+		if err := req.resolveEra(""); err != nil {
+			return errorResponse(req.ID, ErrCodeInvalidParams, err.Error())
+		}
+	}
+	// initialize belongs to the era it defines: a client that decorates it
+	// with 2026-07-28 _meta still gets the handshake answer it can parse.
+	if req.Method == "initialize" {
+		req.era = eraHandshake
+	}
+	if req.era == era20260728 && !IsProtocolVersionSupported(req.protocolVersion) {
+		return unsupportedVersionResponse(req.ID, req.protocolVersion)
+	}
+	return s.dispatchMethod(ctx, req).withEra(req.era, s.serverIdentity())
+}
+
+// dispatchMethod routes the request to the appropriate method. initialize,
+// ping, tools/list and server/discover are protocol metadata, not resource
+// access, but a caller with no resolvable principal must still be denied
+// (fail-closed) rather than implicitly treated as full access.
+func (s *Server) dispatchMethod(ctx context.Context, req *Request) Response {
+	if isMetadataMethod(req.Method) {
 		if err := s.authorize(ctx, "", json.RawMessage(`{}`)); err != nil {
 			return successResponse(req.ID, errorResult(err.Error()))
 		}
@@ -383,6 +406,8 @@ func (s *Server) dispatch(ctx context.Context, req *Request) Response {
 		return s.handleInitialize(req)
 	case "ping":
 		return successResponse(req.ID, map[string]interface{}{})
+	case "server/discover":
+		return s.handleDiscover(req)
 	case "tools/list":
 		return s.handleToolsList(req)
 	case "tools/call":
@@ -394,6 +419,43 @@ func (s *Server) dispatch(ctx context.Context, req *Request) Response {
 	default:
 		return errorResponse(req.ID, ErrCodeMethodNotFound, "method not found: "+req.Method)
 	}
+}
+
+// isMetadataMethod reports whether the method is protocol metadata rather than
+// resource access.
+func isMetadataMethod(m string) bool {
+	switch m {
+	case "initialize", "ping", "tools/list", "server/discover":
+		return true
+	}
+	return false
+}
+
+// serverIdentity is the name/version pair reported as serverInfo, by
+// initialize, by server/discover and in the 2026-07-28 result _meta. The name
+// is the display name when one is set (D102: "cartographer:<kb>" on a
+// multi-KB server), otherwise the historical bare "cartographer".
+func (s *Server) serverIdentity() map[string]interface{} {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	name := "cartographer"
+	if s.displayName != "" {
+		name = s.displayName
+	}
+	return map[string]interface{}{"name": name, "version": s.version}
+}
+
+// handleDiscover answers server/discover, the method the 2026-07-28 revision
+// puts in place of the initialize handshake: it reports what the server can
+// speak instead of agreeing on it, so nothing needs to be remembered between
+// requests. It answers in both eras — for a handshake-era client it is the
+// probe that tells it a newer era is available.
+func (s *Server) handleDiscover(req *Request) Response {
+	return successResponse(req.ID, map[string]interface{}{
+		"protocolVersions": SupportedProtocolVersions,
+		"capabilities":     serverCapabilities(),
+		"serverInfo":       s.serverIdentity(),
+	})
 }
 
 // handleInitialize handles the initial MCP negotiation.
@@ -414,24 +476,10 @@ func (s *Server) handleInitialize(req *Request) Response {
 		negotiated = params.ProtocolVersion
 	}
 
-	s.mu.Lock()
-	name := "cartographer"
-	if s.displayName != "" {
-		name = s.displayName
-	}
-	s.mu.Unlock()
-
 	result := map[string]interface{}{
 		"protocolVersion": negotiated,
-		"capabilities": map[string]interface{}{
-			"tools":     map[string]interface{}{},
-			"resources": map[string]interface{}{},
-			"skills":    map[string]interface{}{"listChanged": true},
-		},
-		"serverInfo": map[string]interface{}{
-			"name":    name,
-			"version": s.version,
-		},
+		"capabilities":    serverCapabilities(),
+		"serverInfo":      s.serverIdentity(),
 	}
 	return successResponse(req.ID, result)
 }
@@ -462,8 +510,25 @@ func (s *Server) handleToolsList(req *Request) Response {
 			Annotations: annotations,
 		})
 	}
-	return successResponse(req.ID, map[string]interface{}{"tools": descriptors})
+	result := map[string]interface{}{"tools": descriptors}
+	if req.era == era20260728 {
+		// CacheableResult (D128). The scope is "private" and not negotiable:
+		// this list already depends on the caller — the agent profile hides
+		// advanced tools (above) and a scoped token sees only its own KB's
+		// tools — so an intermediary that cached one principal's list and
+		// served it to another would be handing out a wrong, possibly wider,
+		// tool set. The TTL is short for the same reason it is not zero: a
+		// skill install or an artifact write can change the list at any time,
+		// and the client is told about that by notification anyway.
+		result["ttlMs"] = toolsListTTLMillis
+		result["cacheScope"] = "private"
+	}
+	return successResponse(req.ID, result)
 }
+
+// toolsListTTLMillis is the cache lifetime advertised for tools/list results
+// in the 2026-07-28 era.
+const toolsListTTLMillis = 60_000
 
 // handleToolsCall routes the call to the correct tool. Authorization runs
 // before the handler for every call — a denial never reaches tool logic — and

@@ -24,8 +24,8 @@ Codex-side glue.
    next number above both maxima. An issue title reserves its number even
    before the entry exists. Use `Plan: <title> (D<n>)`; the D entry is written
    **at the end of implementation**, not now: the plan is its draft.
-3. Derive the real `file:line` pointers before writing (graphify query /
-   targeted symbol grep): the plan contains pointers, not paraphrases.
+3. Derive the real `file:line` pointers before writing (targeted symbol
+   grep/search): the plan contains pointers, not paraphrases.
 4. Write the body (in English) to a scratch file following the template
    structure, then:
    `gh issue create --title "Plan: <title> (D<n>)" --label plan --body-file <file>`.
