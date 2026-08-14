@@ -311,3 +311,30 @@ func TestReadOnlyToolsGolden(t *testing.T) {
 		}
 	}
 }
+
+// TestClients_AuthRequiresToken verifies /clients is NOT in isPublicPath:
+// when auth is enabled and no Authorization header is present, GET /clients
+// must return 401.
+func TestClients_AuthRequiresToken(t *testing.T) {
+	ts := auth.NewScopedTokenStore([]auth.ScopedToken{
+		{Token: "valid-tok", Scopes: []auth.KBScope{{KB: "kbx", Write: true}}},
+	})
+	handler := newScopedTestHandler(t, ts)
+
+	// Without a token: must return 401.
+	req := httptest.NewRequest(http.MethodGet, "/clients", nil)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+	if rr.Code != http.StatusUnauthorized {
+		t.Fatalf("/clients without token: status = %d, want 401; body=%s", rr.Code, rr.Body.String())
+	}
+
+	// With a valid token: must return 200.
+	req = httptest.NewRequest(http.MethodGet, "/clients", nil)
+	req.Header.Set("Authorization", "Bearer valid-tok")
+	rr = httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("/clients with valid token: status = %d, want 200; body=%s", rr.Code, rr.Body.String())
+	}
+}

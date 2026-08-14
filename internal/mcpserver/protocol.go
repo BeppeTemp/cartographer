@@ -37,12 +37,25 @@ const (
 	era20260728
 )
 
+// String returns the human-readable era label: "handshake" for the
+// initialize/ping generation, "2026-07-28" for the 2026-07-28 revision.
+// The zero value (handshake) is the default.
+func (e protocolEra) String() string {
+	switch e {
+	case era20260728:
+		return "2026-07-28"
+	default:
+		return "handshake"
+	}
+}
+
 // metaKeyProtocolVersion and friends are the reserved _meta keys the
 // 2026-07-28 revision defines. They carry a slash, so they can never collide
 // with an application key (the spec forbids the io.modelcontextprotocol
 // prefix to everyone else).
 const (
 	metaKeyProtocolVersion = "io.modelcontextprotocol/protocolVersion"
+	metaKeyClientInfo      = "io.modelcontextprotocol/clientInfo"
 	metaKeyServerInfo      = "io.modelcontextprotocol/serverInfo"
 )
 
@@ -57,9 +70,13 @@ type Request struct {
 	// era and protocolVersion are derived from the request, never read off the
 	// wire as fields — see resolveEra. eraResolved guards against dispatch
 	// re-deriving what the HTTP layer already established from the headers.
+	// clientName and clientVersion carry the identity of the calling client,
+	// parsed from _meta.clientInfo (new-era) or initialize params (legacy).
 	era             protocolEra
 	protocolVersion string
 	eraResolved     bool
+	clientName      string
+	clientVersion   string
 }
 
 // resolveEra decides which era this request belongs to and records the
@@ -67,6 +84,11 @@ type Request struct {
 // 2026-07-28-era iff params._meta carries the protocol version, or the
 // transport reported one (the MCP-Protocol-Version header over HTTP).
 // headerVersion is "" for stdio and for an HTTP request without the header.
+//
+// resolveEra also extracts client identity from _meta.clientInfo (new-era)
+// into r.clientName / r.clientVersion. An absent or unparsable clientInfo
+// is silently ignored: identity is an operational aid, never a protocol
+// contract.
 //
 // A _meta block that is present but unparsable is an error rather than a
 // silent downgrade to the handshake era: a client that gets _meta wrong should
@@ -101,6 +123,13 @@ func (r *Request) resolveEra(headerVersion string) error {
 			r.protocolVersion = headerVersion
 		}
 	}
+	// Parse client identity from _meta.clientInfo (new-era only).
+	if raw, ok := params.Meta[metaKeyClientInfo]; ok {
+		if name, version := parseClientInfo(raw); name != "" {
+			r.clientName = name
+			r.clientVersion = version
+		}
+	}
 	return nil
 }
 
@@ -112,6 +141,29 @@ func bodyHasMetaKey(params json.RawMessage) bool {
 
 func isJSONNull(raw json.RawMessage) bool {
 	return string(bytes.TrimSpace(raw)) == "null"
+}
+
+// parseClientInfo extracts {name, version} from a clientInfo JSON payload.
+// Returns empty strings when the payload is absent, unparsable, or carries an
+// empty name.
+func parseClientInfo(raw json.RawMessage) (name, version string) {
+	type clientInfo struct {
+		Name    *string `json:"name"`
+		Version *string `json:"version"`
+	}
+	var ci clientInfo
+	if err := json.Unmarshal(raw, &ci); err != nil {
+		return "", ""
+	}
+	if ci.Name == nil || *ci.Name == "" {
+		return "", ""
+	}
+	return *ci.Name, func() string {
+		if ci.Version != nil {
+			return *ci.Version
+		}
+		return ""
+	}()
 }
 
 // IsProtocolVersionSupported reports whether v is one of the versions this

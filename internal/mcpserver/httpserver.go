@@ -8,6 +8,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"sort"
 	"strings"
 
 	"github.com/BeppeTemp/cartographer/internal/audit"
@@ -24,6 +25,7 @@ func (s *Server) HTTPHandler() http.Handler {
 	mux.HandleFunc("/mcp", s.handleMCP)
 	mux.HandleFunc("/health", s.handleHealth)
 	mux.HandleFunc("/ready", s.handleReady)
+	mux.HandleFunc("/clients", s.handleClients)
 	return mux
 }
 
@@ -344,6 +346,28 @@ func (s *Server) handleReady(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(body)
 }
 
+func (s *Server) handleClients(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	stats, overflow := s.ClientStats()
+	by := s.PolicyKB()
+	rows := make([]ClientStat, 0, len(stats))
+	for _, st := range stats {
+		st.KB = by
+		rows = append(rows, st)
+	}
+	result := map[string]interface{}{
+		"clients": rows,
+	}
+	if overflow > 0 {
+		result["overflow"] = overflow
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(result)
+}
+
 // ListenAndServe starts the HTTP server on the given address (e.g. ":39273").
 func (s *Server) ListenAndServe(addr string) error {
 	handler := s.HTTPHandler()
@@ -385,6 +409,7 @@ func (s *Server) FullHTTPHandler(oauthMetadata []byte, allowedOrigins []string) 
 	mux.HandleFunc("/mcp", s.handleMCP)
 	mux.HandleFunc("/health", s.handleHealth)
 	mux.HandleFunc("/ready", s.handleReady)
+	mux.HandleFunc("/clients", s.handleClients)
 	if oauthMetadata != nil {
 		mux.HandleFunc("/.well-known/oauth-protected-resource", WellKnownHandler(oauthMetadata))
 	}
@@ -514,6 +539,36 @@ func (m *MultiKBServer) Handler() http.Handler {
 				return
 			}
 			json.NewEncoder(w).Encode(map[string]interface{}{"ready": true})
+			return
+
+		case r.URL.Path == "/clients":
+			if r.Method != http.MethodGet {
+				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			// Collect KB names and sort them for deterministic output.
+			names := make([]string, 0, len(m.servers))
+			for name := range m.servers {
+				names = append(names, name)
+			}
+			sort.Strings(names)
+			var overflow int64
+			allRows := make([]ClientStat, 0)
+			for _, name := range names {
+				srv := m.servers[name]
+				stats, o := srv.ClientStats()
+				overflow += o
+				for _, st := range stats {
+					st.KB = name
+					allRows = append(allRows, st)
+				}
+			}
+			result := map[string]interface{}{"clients": allRows}
+			if overflow > 0 {
+				result["overflow"] = overflow
+			}
+			json.NewEncoder(w).Encode(result)
 			return
 
 		case r.URL.Path == "/mcp":
