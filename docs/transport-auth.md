@@ -16,6 +16,63 @@ Cartographer does **not** implement an OAuth authorization server, dynamic
 client registration or JWT validation; configured tokens are opaque static
 bearer values.
 
+### Protocol versions: two eras at once
+
+The server answers two generations of the protocol simultaneously (D128), and
+decides which one a request belongs to from the request itself — nothing is
+negotiated and nothing is remembered:
+
+| Era | Identified by | Shape |
+|---|---|---|
+| handshake (`2024-11-05`) | neither marker below | `initialize`/`ping` available; results exactly as before |
+| `2026-07-28` | `params._meta.io.modelcontextprotocol/protocolVersion`, **or** the `MCP-Protocol-Version` header | `resultType` + `_meta` server info on every result |
+
+A handshake-era client sees byte-identical responses to the ones it saw before
+`2026-07-28` was served at all. `server/discover` answers in both eras and
+reports the supported versions, the capabilities and the server identity; it is
+the method to probe with, and the one the CLI client's reachability check uses.
+`initialize` and `ping` remain available for the handshake era and will only be
+retired once clients have actually moved off them.
+
+A `2026-07-28` request naming a version the server does not serve is refused
+with `-32022`, whose `data.supported` lists the versions it does.
+
+### What a `2026-07-28` request must carry over HTTP
+
+Three headers mirror the body and are validated against it — a disagreement, or
+a missing one, is HTTP 400 with JSON-RPC `-32020`:
+
+| Header | Must equal |
+|---|---|
+| `MCP-Protocol-Version` | `params._meta.io.modelcontextprotocol/protocolVersion` |
+| `Mcp-Method` | the JSON-RPC `method` |
+| `Mcp-Name` (on `tools/call`) | `params.name`, `=?base64?…?=` form decoded first |
+
+The headers exist for intermediaries that route without parsing a body. They
+never become an input to an authorization decision: the body stays the only
+thing the server acts on, which is the point of validating them at all.
+
+Status codes in the `2026-07-28` era: unknown method → **404**, header mismatch
+or unsupported version → **400**, `GET`/`DELETE` on the MCP endpoint → **405**.
+In the handshake era every JSON-RPC error is still carried inside HTTP **200**.
+
+`Mcp-Session-Id` and `Last-Event-ID` are ignored if sent, and never issued.
+
+### Origin
+
+The MCP endpoint validates the `Origin` header. A request without one — every
+non-browser client — is unaffected. With one, it must appear in
+`mcp.allowed_origins` (`CARTOGRAPHER_MCP_ALLOWED_ORIGINS`); when that list is
+empty, the default, only the request's own `Host` is accepted. `"*"` in the
+list disables the check. A refused origin gets HTTP 403 before authentication
+runs, and the CORS allow-origin response header echoes the accepted origin
+rather than a wildcard.
+
+Operators exposing Cartographer to a browser should list the origins
+explicitly: the same-origin default keeps a local browser working, but a
+rebound DNS name arrives with `Origin` and `Host` both naming the attacker, so
+it matches.
+
 ## Enabling bearer authentication
 
 Tokens can be configured through server YAML or
@@ -187,6 +244,12 @@ the two situations stay distinguishable.
 Authorization and optimistic content hashes do not depend on an MCP session.
 Per-KB conflict and provisioning state is stored outside versioned concept
 content where required.
+
+Since the `2026-07-28` revision this is the protocol's own model, not just a
+local choice: sessions, `Mcp-Session-Id`, the GET stream endpoint and SSE
+resumability were all removed from the spec. Nothing is minted, stored or
+echoed per connection — including the protocol era, which is derived from each
+request and discarded with its response.
 
 ## Tool namespace discovery
 
