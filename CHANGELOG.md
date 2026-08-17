@@ -4,6 +4,13 @@
 
 KB histories with commits authored as `cartographer <cartographer@localhost>` may need a manual author rewrite before a forge with author push rules accepts the first push.
 
+## [0.6.1](https://github.com/BeppeTemp/cartographer/compare/v0.6.0...v0.6.1) (2026-08-17)
+
+
+### Bug Fixes
+
+* **mcpserver:** select the protocol era by header value, not presence ([#127](https://github.com/BeppeTemp/cartographer/issues/127)) ([d295c8e](https://github.com/BeppeTemp/cartographer/commit/d295c8e608db437c999ad7fa33c623bf4c29cffb))
+
 ## [0.6.0](https://github.com/BeppeTemp/cartographer/compare/v0.5.0...v0.6.0) (2026-08-17)
 
 
