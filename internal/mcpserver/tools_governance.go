@@ -398,12 +398,13 @@ func toolConflictResolve(k *kb.KB) Tool {
 func toolKBStatus(k *kb.KB) Tool {
 	return Tool{
 		Name:        "kb_status",
-		Description: "Returns aggregate metrics about the KB: total concepts, per-type counts, stale concepts (review_after in the past), open contradictions.",
+		Description: "Returns aggregate metrics about the KB: total concepts, per-type counts, per-status counts (concepts with no status field are excluded), stale concepts (review_after in the past), open contradictions.",
 		ReadOnly:    true,
 		InputSchema: json.RawMessage(`{"type":"object","properties":{}}`),
 		Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
 			today := time.Now().UTC().Format("2006-01-02")
 			typeCounts := map[string]int{}
+			statusCounts := map[string]int{}
 			total := 0
 			staleCount := 0
 			openContradictions := 0
@@ -418,6 +419,12 @@ func toolKBStatus(k *kb.KB) Tool {
 
 				t := fm.Type()
 				typeCounts[t]++
+
+				if s, ok := fm.Get("status"); ok {
+					if sStr, ok := s.(string); ok && sStr != "" {
+						statusCounts[sStr]++
+					}
+				}
 
 				if ra, ok := fm.Get("review_after"); ok {
 					if raStr, ok := ra.(string); ok && raStr != "" && raStr < today {
@@ -443,6 +450,7 @@ func toolKBStatus(k *kb.KB) Tool {
 			result := map[string]interface{}{
 				"total":               total,
 				"by_type":             typeCounts,
+				"by_status":           statusCounts,
 				"stale_count":         staleCount,
 				"open_contradictions": openContradictions,
 				"git_profile":         server.Profile,
