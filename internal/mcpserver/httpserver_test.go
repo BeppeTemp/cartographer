@@ -7,6 +7,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/BeppeTemp/cartographer/internal/auth"
 )
 
 // newMultiKBTestHandler mounts the given KB names on a fresh MultiKBServer
@@ -78,6 +80,43 @@ func TestMultiKB_PathRouting_AgreeingKBSelection(t *testing.T) {
 	handler.ServeHTTP(rr, req)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("/mcp/kbx?kb=kbx: status = %d, want 200; body=%s", rr.Code, rr.Body.String())
+	}
+}
+
+// TestMultiKB_WellKnownProtectedResource_ServedWithoutAuth is the RFC 9728
+// contract (D132, issue #122): docs/transport-auth.md promises the server
+// publishes Protected Resource Metadata, and auth.go's isPublicPath already
+// exempts this path from authentication — this asserts the production
+// handler (MultiKBServer.Handler, the one cmd/cartographer/serve.go wraps in
+// auth.TokenStore.Middleware) actually answers it, unauthenticated, with the
+// expected JSON, instead of falling through to the "not found" default.
+func TestMultiKB_WellKnownProtectedResource_ServedWithoutAuth(t *testing.T) {
+	multi := newMultiKBTestHandler(t, "kbx")
+	ts := auth.NewScopedTokenStore([]auth.ScopedToken{
+		{Token: "some-tok", Scopes: []auth.KBScope{{KB: "kbx", Write: false}}},
+	})
+	handler := ts.Middleware(multi.Handler())
+
+	req := httptest.NewRequest(http.MethodGet, "/.well-known/oauth-protected-resource", nil)
+	req.Host = "cartographer.example.com"
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req) // no Authorization header: must not be rejected
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rr.Code, rr.Body.String())
+	}
+	var body map[string]interface{}
+	if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
+		t.Fatalf("invalid JSON body: %v", err)
+	}
+	if body["resource"] != "http://cartographer.example.com" {
+		t.Errorf("resource = %v, want %q", body["resource"], "http://cartographer.example.com")
+	}
+	if _, ok := body["authorization_servers"]; !ok {
+		t.Error("missing authorization_servers")
+	}
+	if _, ok := body["bearer_methods_supported"]; !ok {
+		t.Error("missing bearer_methods_supported")
 	}
 }
 
@@ -283,13 +322,12 @@ func TestClients_EmptyRoster(t *testing.T) {
 // 405 on /clients for every handler constructor.
 func TestClients_MethodNotAllowed(t *testing.T) {
 	s := New("test")
-	// Single-KB handlers.
+	// Single-KB handler.
 	for _, v := range []struct {
 		h    http.Handler
 		desc string
 	}{
 		{s.HTTPHandler(), "HTTPHandler"},
-		{s.FullHTTPHandler(nil, nil), "FullHTTPHandler"},
 	} {
 		for _, method := range []string{http.MethodPost, http.MethodPut, http.MethodDelete} {
 			req := httptest.NewRequest(method, "/clients", nil)
@@ -312,9 +350,9 @@ func TestClients_MethodNotAllowed(t *testing.T) {
 	}
 }
 
-// TestClients_ThreeHandlers verifies /clients answers on all three handler
-// constructors (HTTPHandler, FullHTTPHandler, MultiKBServer.Handler).
-func TestClients_ThreeHandlers(t *testing.T) {
+// TestClients_HandlerConstructors verifies /clients answers on both handler
+// constructors (HTTPHandler, MultiKBServer.Handler).
+func TestClients_HandlerConstructors(t *testing.T) {
 	// Build a single-KB server and populate the roster by hitting /mcp.
 	k := setupTestKB(t)
 	s := New("test")
@@ -335,7 +373,6 @@ func TestClients_ThreeHandlers(t *testing.T) {
 		h    http.Handler
 	}{
 		{"HTTPHandler", s.HTTPHandler()},
-		{"FullHTTPHandler", s.FullHTTPHandler(nil, nil)},
 	} {
 		req := httptest.NewRequest(http.MethodGet, "/clients", nil)
 		rr := httptest.NewRecorder()

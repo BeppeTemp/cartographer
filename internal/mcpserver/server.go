@@ -596,8 +596,9 @@ const toolsListTTLMillis = 60_000
 
 // handleToolsCall routes the call to the correct tool. Authorization runs
 // before the handler for every call — a denial never reaches tool logic — and
-// an attempt+completion audit event pair is recorded around the dispatch when
-// an audit sink is attached (SetAuditLog, D119; see audit.go).
+// an attempt+completion audit event pair is recorded around the dispatch (on
+// authorization failure, via auditDenied; on dispatch, via beginAuditCall/end)
+// when an audit sink is attached (SetAuditLog, D119/D132; see audit.go).
 func (s *Server) handleToolsCall(ctx context.Context, req *Request) Response {
 	var params struct {
 		Name      string          `json:"name"`
@@ -624,6 +625,10 @@ func (s *Server) handleToolsCall(ctx context.Context, req *Request) Response {
 	principal := auth.PrincipalFromContext(ctx).ID
 
 	if err := s.authorize(ctx, canonicalName, args); err != nil {
+		// D119/D132: a denial is audited here, at the point the decision
+		// actually happens — before this returned early and the call below
+		// (which records success/failure of the dispatched tool) never ran.
+		s.auditDenied(principal, params.Name, args)
 		return successResponse(req.ID, errorResult(err.Error()))
 	}
 
