@@ -1,7 +1,6 @@
 package mcpserver
 
 import (
-	"bytes"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -135,8 +134,10 @@ func statusForResponse(era protocolEra, resp Response) int {
 // The point of the check is that the headers exist for intermediaries that
 // route or rate-limit without parsing a JSON-RPC body — which means a client
 // could describe itself one way to the proxy and another way to the server.
-// The body remains the only thing this server acts on (see mcpAccessGuard);
-// the headers are validated against it and then discarded.
+// The body remains the only thing this server acts on for authorization,
+// which happens later in dispatch (the authorizer installed by
+// installPolicy, internal/mcpserver/policy.go); the headers are validated
+// against it here and then discarded.
 //
 // Header names are matched case-insensitively (net/http canonicalises them);
 // values are compared exactly.
@@ -190,98 +191,6 @@ func decodeMcpName(v string) string {
 		return v
 	}
 	return string(decoded)
-}
-
-// mcpAccessGuard wraps next (an /mcp handler for a single KB) with per-KB,
-// per-tool r/rw scope enforcement. Scopes come from the request context
-// (auth.ScopesFromContext, populated by TokenStore.Middleware from the
-// token's configured scopes); a nil/empty scope list means full access
-// (admin token) and the guard passes through unconditionally.
-//
-// To decide whether the request needs write access it peeks the JSON-RPC
-// body: any method other than "tools/call" (initialize, tools/list, ping,
-// ...) is treated as read-only; "tools/call" needs write iff
-// ToolRequiresWrite(params.name) — fail-closed, so an unparsable body or an
-// unknown tool name requires write. The body is always restored on r.Body
-// (via io.NopCloser over the buffered bytes) so the wrapped handler, which
-// reads it again from scratch, sees the exact original bytes.
-//
-// Special case (M4, D47): service_get is classified ReadOnly (it only reads
-// frontmatter+body by default), but with arguments.resolve_secrets==true it
-// decrypts and returns the service's secrets — access to secrets requires at
-// least the same privilege as a write. The tool-name classification in
-// ToolRequiresWrite can't see arguments, so this per-argument override lives
-// here, at the one place that already parses the JSON-RPC body.
-//
-// D128: the 2026-07-28 mirror headers (Mcp-Method, Mcp-Name) name the same
-// method and tool this function parses out of the body, and must never become
-// its input. They are client-controlled and exist for intermediaries; reading
-// authorization off them would create exactly the two-sources-of-truth split
-// the spec mandates header validation to close. They are checked against the
-// body downstream, in validateMirrorHeaders.
-//
-// srv is the KB's own *Server: its ToolRequiresWrite method strips this
-// server's tool-name prefix (D102), if any, before classifying — so a
-// prefixed write tool is still correctly rejected for a read-only scope.
-//
-// D119: a denial of an actual "tools/call" request is recorded as one
-// attempt+completion audit event pair (outcome=unauthorized) via
-// srv.auditDenied, since this is the one place that decides the denial —
-// dispatch (and its own audit wrapping in handleToolsCall) never runs for a
-// request rejected here. Denials of any other JSON-RPC method (e.g. a
-// wrong-KB scoped token hitting tools/list) are not tool calls and are not
-// audited, matching handleToolsCall's own scope.
-func mcpAccessGuard(kbName string, srv *Server, next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		scopes := auth.ScopesFromContext(r.Context())
-		if len(scopes) == 0 {
-			next.ServeHTTP(w, r)
-			return
-		}
-
-		body, err := io.ReadAll(io.LimitReader(r.Body, 2<<20))
-		if err != nil {
-			http.Error(w, "read error", http.StatusBadRequest)
-			return
-		}
-		r.Body = io.NopCloser(bytes.NewReader(body))
-
-		needWrite := true // fail-closed: an unparsable request requires write access
-		isToolCall := false
-		var toolName string
-		var toolArgs json.RawMessage
-		var req Request
-		if err := json.Unmarshal(body, &req); err == nil {
-			if req.Method != "tools/call" {
-				needWrite = false
-			} else {
-				isToolCall = true
-				var params struct {
-					Name      string          `json:"name"`
-					Arguments json.RawMessage `json:"arguments"`
-				}
-				_ = json.Unmarshal(req.Params, &params) // ignore errors: ToolRequiresWrite("") is fail-closed too
-				toolName, toolArgs = params.Name, params.Arguments
-				var resolve struct {
-					ResolveSecrets bool `json:"resolve_secrets"`
-				}
-				_ = json.Unmarshal(params.Arguments, &resolve)
-				needWrite = srv.ToolRequiresWrite(toolName)
-				if srv.StripToolPrefix(toolName) == "service_get" && resolve.ResolveSecrets {
-					needWrite = true
-				}
-			}
-		}
-
-		if !auth.HasAccess(scopes, kbName, needWrite) {
-			if isToolCall {
-				srv.auditDenied(r, toolName, toolArgs)
-			}
-			auth.Forbidden(w)
-			return
-		}
-		next.ServeHTTP(w, r)
-	})
 }
 
 // auditState returns this Server's attached audit sink health (D119), or nil
@@ -375,61 +284,6 @@ func (s *Server) ListenAndServe(addr string) error {
 	return http.ListenAndServe(addr, handler)
 }
 
-// ListenAndServeWithHandler starts the HTTP server with a custom handler wrapper
-// (e.g. for adding auth middleware).
-func (s *Server) ListenAndServeWithHandler(addr string, wrap func(http.Handler) http.Handler) error {
-	handler := wrap(s.HTTPHandler())
-	log.Printf("MCP HTTP server listening on %s", addr)
-	return http.ListenAndServe(addr, handler)
-}
-
-// ListenAndServeHandler starts an HTTP server with the given handler.
-func ListenAndServeHandler(addr string, handler http.Handler) error {
-	return http.ListenAndServe(addr, handler)
-}
-
-// WellKnownHandler returns a handler for /.well-known/oauth-protected-resource.
-func WellKnownHandler(metadataJSON []byte) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		w.Write(metadataJSON)
-	}
-}
-
-// FullHTTPHandler returns a combined handler with /mcp, /health, and
-// /.well-known endpoints. allowedOrigins is the OriginGuard allow-list applied
-// to the MCP endpoint (nil = same-origin only).
-func (s *Server) FullHTTPHandler(oauthMetadata []byte, allowedOrigins []string) http.Handler {
-	mux := http.NewServeMux()
-	mux.HandleFunc("/mcp", s.handleMCP)
-	mux.HandleFunc("/health", s.handleHealth)
-	mux.HandleFunc("/ready", s.handleReady)
-	mux.HandleFunc("/clients", s.handleClients)
-	if oauthMetadata != nil {
-		mux.HandleFunc("/.well-known/oauth-protected-resource", WellKnownHandler(oauthMetadata))
-	}
-
-	// CORS headers for browser-based clients. The allow-origin header echoes
-	// the origin OriginGuard accepted rather than "*" (D128): a wildcard tells
-	// every browser its page may read the response, which is the other half of
-	// what makes a rebinding attack pay off.
-	cors := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, MCP-Protocol-Version, Mcp-Method, Mcp-Name")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-		if r.Method == http.MethodOptions {
-			w.WriteHeader(http.StatusNoContent)
-			return
-		}
-		mux.ServeHTTP(w, r)
-	})
-	return OriginGuard(allowedOrigins, cors)
-}
-
 // KBInfo holds metadata about a mounted KB for kb_list responses.
 type KBInfo struct {
 	Name   string `json:"name"`
@@ -507,8 +361,37 @@ func (m *MultiKBServer) MountKBWithPrefix(name, prefix string, setupFn func(s *S
 	return nil
 }
 
+// resourceBaseURL reconstructs this server's own externally-visible base URL
+// (scheme://host, no path) from one request, for RFC 9728's self-describing
+// "resource" and "authorization_servers" fields (D132): cartographer
+// validates its own static bearer tokens rather than delegating to a
+// separate OAuth authorization server (docs/transport-auth.md), so there is
+// no distinct issuer to plumb through config — the server names itself in
+// both fields. scheme is inferred from X-Forwarded-Proto (set by a
+// TLS-terminating reverse proxy) or, failing that, from whether the
+// connection itself is TLS; r.Host already carries the port, if any.
+// X-Forwarded-Proto is client-controlled when no proxy overwrites it, so only
+// the two schemes this server can actually be reached on are honoured, and
+// only the first hop of a proxy chain ("https, http") is read.
+func resourceBaseURL(r *http.Request) string {
+	scheme := "http"
+	if r.TLS != nil {
+		scheme = "https"
+	}
+	if proto := r.Header.Get("X-Forwarded-Proto"); proto != "" {
+		first := strings.TrimSpace(strings.Split(proto, ",")[0])
+		if first == "http" || first == "https" {
+			scheme = first
+		}
+	}
+	return scheme + "://" + r.Host
+}
+
 // Handler returns the HTTP handler that routes MCP requests to the correct
-// KB server. Three ways to select a KB:
+// KB server, plus /health, /ready, /clients and the RFC 9728
+// well-known/oauth-protected-resource metadata endpoint (D132; auth.go's
+// isPublicPath exempts the same path from authentication). Three ways to
+// select a KB:
 //   - bare /mcp: auto-routes when exactly one KB is mounted;
 //   - /mcp?kb=<name>: explicit selection by query parameter;
 //   - /mcp/<name>: explicit selection by path.
@@ -529,6 +412,17 @@ func (m *MultiKBServer) Handler() http.Handler {
 				"ready":   len(m.servers) > 0,
 			}
 			json.NewEncoder(w).Encode(result)
+			return
+
+		case r.URL.Path == auth.WellKnownProtectedResourcePath:
+			if r.Method != http.MethodGet {
+				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			base := resourceBaseURL(r)
+			w.Write(auth.ProtectedResourceMetadata(base, base))
 			return
 
 		case r.URL.Path == "/ready":

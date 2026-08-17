@@ -223,12 +223,18 @@ func (ts *TokenStore) Middleware(next http.Handler) http.Handler {
 	})
 }
 
+// WellKnownProtectedResourcePath is the RFC 9728 discovery path for OAuth
+// Protected Resource Metadata. It is exempted from authentication here (by
+// definition it must be public) and served by mcpserver.MultiKBServer.Handler
+// using ProtectedResourceMetadata.
+const WellKnownProtectedResourcePath = "/.well-known/oauth-protected-resource"
+
 // isPublicPath reports whether a request path must be reachable without auth:
 // the health endpoint (used by k8s liveness/readiness probes) and the OAuth
 // protected-resource metadata (RFC 9728, which by definition must be public).
 func isPublicPath(path string) bool {
 	return path == "/health" ||
-		path == "/.well-known/oauth-protected-resource"
+		path == WellKnownProtectedResourcePath
 }
 
 // ScopesFromToken extracts KB scopes from a bearer token.

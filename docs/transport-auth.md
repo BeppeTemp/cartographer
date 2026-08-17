@@ -10,11 +10,14 @@
 HTTP requests return complete JSON-RPC responses. Cartographer does not expose
 the legacy two-endpoint SSE transport or an HTTP streaming session.
 
-`GET /health` reports service readiness. The server also publishes RFC 9728
-Protected Resource Metadata so clients can discover the protected resource.
-Cartographer does **not** implement an OAuth authorization server, dynamic
-client registration or JWT validation; configured tokens are opaque static
-bearer values.
+`GET /health` reports service readiness. `GET /.well-known/oauth-protected-resource`
+publishes RFC 9728 Protected Resource Metadata, unauthenticated, so clients can
+discover the protected resource; `resource` and `authorization_servers` both
+name this server's own externally-visible base URL (scheme + `Host`, from the
+request itself), since it validates its own static bearer tokens rather than
+delegating to a separate authorization server. Cartographer does **not**
+implement an OAuth authorization server, dynamic client registration or JWT
+validation; configured tokens are opaque static bearer values.
 
 ### Protocol versions: two eras at once
 
@@ -198,15 +201,16 @@ described in [deployment](deployment.md).
 
 ## Operational audit
 
-When `audit.log` is configured, every `tools/call` dispatched over HTTP or
-stdio records **two** events (D119): an *attempt* before the tool runs and a
-*completion* after it, carrying the tool name, the KB, the transport, the
-principal and the outcome (`success`, `application_error`, `internal_error`,
-`unauthorized`, `unknown_tool`, …). An attempt with no matching completion is
-itself evidence: a crash mid-operation becomes visible rather than silent. The
-principal is read from the request context, so it is always the identity
-authorization actually used. Arguments of an unregistered tool are never
-recorded.
+When `audit.log` is configured, every `tools/call` received over HTTP or
+stdio records **two** events (D119), including one an authorization decision
+denies (D132): an *attempt* before the tool would run (or before the denial is
+returned) and a *completion* after it, carrying the tool name, the KB, the
+transport, the principal and the outcome (`success`, `application_error`,
+`internal_error`, `unauthorized`, `unknown_tool`, …). An attempt with no
+matching completion is itself evidence: a crash mid-operation becomes visible
+rather than silent. The principal is read from the request context, so it is
+always the identity authorization actually used. Arguments of an unregistered
+tool are never recorded.
 
 Entries form a JSONL hash chain with optional Ed25519 signatures: altering one
 recorded entry invalidates every entry after it.

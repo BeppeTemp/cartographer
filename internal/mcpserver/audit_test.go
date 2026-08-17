@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/BeppeTemp/cartographer/internal/audit"
+	"github.com/BeppeTemp/cartographer/internal/auth"
 )
 
 func auditServer(t *testing.T, opts audit.Options) (*Server, *audit.Log, string) {
@@ -85,6 +86,57 @@ func TestAuditRecordsAttemptAndCompletionPair(t *testing.T) {
 	for i, e := range entries {
 		if e.Tool != "ok_tool" {
 			t.Errorf("entry %d tool = %q", i, e.Tool)
+		}
+	}
+}
+
+// TestAuditRecordsDenialAttemptAndCompletionPair is the audit-of-denial
+// contract (D132, issue #122): handleToolsCall returns as soon as s.authorize
+// fails, before beginAuditCall would otherwise run — so a scope/permission
+// denial must still leave an attempt+completion pair, with outcome
+// unauthorized, via auditDenied, or a denied call would be invisible in the
+// log.
+func TestAuditRecordsDenialAttemptAndCompletionPair(t *testing.T) {
+	s, _, path := auditServer(t, audit.Options{})
+	called := false
+	s.RegisterTool(Tool{
+		Name: "guarded_tool", ReadOnly: true,
+		InputSchema: json.RawMessage(`{"type":"object"}`),
+		Handler: func(requestContext, json.RawMessage) (ToolResult, error) {
+			called = true
+			return textResult("should never run"), nil
+		},
+	})
+
+	// A non-admin principal with no authorizer installed is fail-closed
+	// (Server.authorize), the same shape a real scope denial takes.
+	ctx := restrictedContext(auth.Policy{})
+	resp := s.dispatch(ctx, &Request{
+		ID:     json.RawMessage(`1`),
+		Method: "tools/call",
+		Params: json.RawMessage(`{"name":"guarded_tool","arguments":{}}`),
+	})
+	tr := decodeToolResult(t, resp)
+	if !tr.IsError {
+		t.Fatalf("denied call did not return an error result: %+v", tr)
+	}
+	if called {
+		t.Fatal("denied call reached the tool handler")
+	}
+
+	entries := auditEntries(t, path)
+	if len(entries) != 2 {
+		t.Fatalf("got %d entries, want a denial attempt+completion pair: %+v", len(entries), entries)
+	}
+	if entries[0].Phase != audit.PhaseAttempt {
+		t.Errorf("first entry phase = %q, want %q", entries[0].Phase, audit.PhaseAttempt)
+	}
+	if entries[1].Phase != audit.PhaseCompletion || entries[1].Outcome != audit.OutcomeUnauthorized {
+		t.Errorf("second entry = %q/%q, want completion/%q", entries[1].Phase, entries[1].Outcome, audit.OutcomeUnauthorized)
+	}
+	for i, e := range entries {
+		if e.Tool != "guarded_tool" {
+			t.Errorf("entry %d tool = %q, want %q", i, e.Tool, "guarded_tool")
 		}
 	}
 }
