@@ -1703,6 +1703,78 @@ func TestServer_CommitGate_Blocked(t *testing.T) {
 	}
 }
 
+func TestServer_KBStatus_ByStatus(t *testing.T) {
+	k := setupTestKB(t)
+	// setupTestKB already creates one Runbook concept with no status.
+	os.WriteFile(filepath.Join(k.DataRoot(), "manutenzione", "open-1.md"),
+		[]byte("---\ntype: Note\nstatus: open\n---\n# Open 1\n"), 0o644)
+	os.WriteFile(filepath.Join(k.DataRoot(), "manutenzione", "open-2.md"),
+		[]byte("---\ntype: Note\nstatus: open\n---\n# Open 2\n"), 0o644)
+	os.WriteFile(filepath.Join(k.DataRoot(), "manutenzione", "done-1.md"),
+		[]byte("---\ntype: Note\nstatus: done\n---\n# Done 1\n"), 0o644)
+	os.WriteFile(filepath.Join(k.DataRoot(), "manutenzione", "no-status.md"),
+		[]byte("---\ntype: Note\n---\n# No Status\n"), 0o644)
+
+	s := New("0.4.0-m4")
+	RegisterKBTools(s, k, Deps{})
+
+	msgs := []string{
+		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
+		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"kb_status","arguments":{}}}`,
+	}
+	resps := runMCPSequence(t, s, msgs)
+
+	tr := decodeToolResult(t, resps[1])
+	if tr.IsError {
+		t.Fatalf("kb_status: isError=true: %v", tr.Content)
+	}
+
+	var result struct {
+		ByStatus map[string]int `json:"by_status"`
+	}
+	if err := json.Unmarshal([]byte(tr.Content[0].Text), &result); err != nil {
+		t.Fatalf("decode kb_status result: %v", err)
+	}
+	want := map[string]int{"open": 2, "done": 1}
+	if len(result.ByStatus) != len(want) {
+		t.Fatalf("by_status = %v, want %v", result.ByStatus, want)
+	}
+	for status, count := range want {
+		if result.ByStatus[status] != count {
+			t.Errorf("by_status[%q] = %d, want %d", status, result.ByStatus[status], count)
+		}
+	}
+}
+
+func TestServer_KBStatus_ByStatus_Empty(t *testing.T) {
+	k := setupTestKB(t)
+	// setupTestKB creates only a concept with no status: by_status must have no entries.
+
+	s := New("0.4.0-m4")
+	RegisterKBTools(s, k, Deps{})
+
+	msgs := []string{
+		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
+		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"kb_status","arguments":{}}}`,
+	}
+	resps := runMCPSequence(t, s, msgs)
+
+	tr := decodeToolResult(t, resps[1])
+	if tr.IsError {
+		t.Fatalf("kb_status: isError=true: %v", tr.Content)
+	}
+
+	var result struct {
+		ByStatus map[string]int `json:"by_status"`
+	}
+	if err := json.Unmarshal([]byte(tr.Content[0].Text), &result); err != nil {
+		t.Fatalf("decode kb_status result: %v", err)
+	}
+	if len(result.ByStatus) != 0 {
+		t.Errorf("by_status = %v, want empty", result.ByStatus)
+	}
+}
+
 func TestServer_GateCheck_Pass(t *testing.T) {
 	k := setupTestKB(t)
 	s := New("0.5.0-m5")
