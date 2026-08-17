@@ -311,6 +311,27 @@ func TestHTTP_HandshakeEraNeedsNoHeaders(t *testing.T) {
 	}
 }
 
+// A version header naming anything other than 2026-07-28 leaves the request in
+// the handshake era (D133). Sending MCP-Protocol-Version is conformant for a
+// client on an earlier revision — the header predates this one — and such a
+// client sends none of the mirror headers. Keying the era off the header's
+// presence rather than its value rejected those clients with -32020.
+func TestHTTP_OldVersionHeaderStaysHandshakeEra(t *testing.T) {
+	for _, version := range []string{SupportedProtocolVersion, "2025-06-18", "2025-11-25"} {
+		t.Run(version, func(t *testing.T) {
+			rr := serveHTTPReq(t, newEraPost(toolsListBody, map[string]string{
+				"MCP-Protocol-Version": version,
+			}))
+			if rr.Code != http.StatusOK {
+				t.Fatalf("status = %d, want 200; body=%s", rr.Code, rr.Body.String())
+			}
+			if result := resultMap(t, decodeRPC(t, rr)); result["resultType"] != nil {
+				t.Errorf("resultType = %v, want the handshake envelope (absent)", result["resultType"])
+			}
+		})
+	}
+}
+
 func TestHTTP_McpNameBase64Sentinel(t *testing.T) {
 	body := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"kb_status","arguments":{},` + metaNewEra + `}}`
 	encoded := "=?base64?" + base64.StdEncoding.EncodeToString([]byte("kb_status")) + "?="

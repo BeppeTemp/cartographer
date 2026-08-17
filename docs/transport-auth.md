@@ -27,8 +27,13 @@ negotiated and nothing is remembered:
 
 | Era | Identified by | Shape |
 |---|---|---|
-| handshake (`2024-11-05`) | neither marker below | `initialize`/`ping` available; results exactly as before |
-| `2026-07-28` | `params._meta.io.modelcontextprotocol/protocolVersion`, **or** the `MCP-Protocol-Version` header | `resultType` + `_meta` server info on every result |
+| handshake (`2024-11-05`) | neither marker below — including an `MCP-Protocol-Version` header naming an *earlier* revision | `initialize`/`ping` available; results exactly as before |
+| `2026-07-28` | `params._meta.io.modelcontextprotocol/protocolVersion`, **or** an `MCP-Protocol-Version` header whose value is exactly `2026-07-28` | `resultType` + `_meta` server info on every result |
+
+The header selects the new era by its **value**, not by being present (D133).
+Clients on earlier revisions send `MCP-Protocol-Version` too — the header
+predates this revision — and they must keep landing in the handshake era, since
+they send none of the mirrored headers that era requires.
 
 A handshake-era client sees byte-identical responses to the ones it saw before
 `2026-07-28` was served at all. `server/discover` answers in both eras and
