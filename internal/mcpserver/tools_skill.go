@@ -59,10 +59,9 @@ func toolServiceGet(k *kb.KB) Tool {
 		// ReadOnly for the default path: it only reads frontmatter+body. With
 		// resolve_secrets=true it decrypts and returns the service's secrets,
 		// which requires write-equivalent privilege — that override is NOT
-		// expressed here (Tool.ReadOnly is a per-tool-name classification
-		// consulted by the HTTP guard before arguments are known) but as a
-		// special case in mcpAccessGuard (httpserver.go, D47) that inspects
-		// arguments.resolve_secrets directly.
+		// expressed here (Tool.ReadOnly is a per-tool-name classification) but
+		// as a special case in the authorizer (policy.go's authorizeTool, D47)
+		// that inspects arguments.resolve_secrets directly.
 		ReadOnly:    true,
 		Description: "Reads a concept of type Service. Returns frontmatter (YAML) and body. With resolve_secrets=true, also decrypts and returns the service's secrets_source (requires rw scope).",
 		InputSchema: json.RawMessage(`{

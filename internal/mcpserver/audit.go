@@ -2,11 +2,8 @@ package mcpserver
 
 import (
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"net/http"
-	"strings"
 	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/audit"
@@ -99,8 +96,9 @@ func extractResources(tool string, args json.RawMessage) map[string]string {
 
 // classifyOutcome maps a tool call's result onto the audit outcome taxonomy
 // (internal/audit.Outcome*). Unauthenticated/unauthorized/cancelled are
-// produced by other callers (mcpAccessGuard for unauthorized; the other two
-// are not reachable from this iteration's call sites — see docs/testing.md).
+// produced by other callers (auditDenied, called from handleToolsCall's
+// authorize-failure path, for unauthorized; the other two are not reachable
+// from this iteration's call sites — see docs/testing.md).
 func classifyOutcome(result ToolResult, err error) string {
 	switch {
 	case err != nil:
@@ -194,13 +192,17 @@ func (c auditCall) end(s *Server, outcome string, result ToolResult) {
 	})
 }
 
-// auditDenied records a scope-based access denial (403, mcpAccessGuard,
-// httpserver.go) as one attempt+completion pair with outcome=unauthorized.
-// The guard runs before dispatch ever sees the request, so this is the only
-// point that can audit that denial; it never blocks or changes the 403
-// response — if the sink itself is unavailable, the denial is simply not
-// recorded (best_effort) rather than failing the already-decided rejection.
-func (s *Server) auditDenied(r *http.Request, toolName string, rawArgs json.RawMessage) {
+// auditDenied records an authorization denial (handleToolsCall's
+// s.authorize failure path, server.go) as one attempt+completion pair with
+// outcome=unauthorized. This is the only point that can audit that denial:
+// dispatch never reaches the tool, so beginAuditCall/end never runs for it.
+// principal is read from the request context by the caller (D118) rather
+// than derived here, so this function has no *http.Request dependency and
+// audits identically over HTTP and stdio. It never blocks or changes the
+// caller's already-decided error response — if the sink itself is
+// unavailable, the denial is simply not recorded (best_effort) rather than
+// failing the already-decided rejection a second time.
+func (s *Server) auditDenied(principal, toolName string, rawArgs json.RawMessage) {
 	s.mu.Lock()
 	log, kbName, transport := s.auditLog, s.kbName, s.transport
 	s.mu.Unlock()
@@ -218,7 +220,6 @@ func (s *Server) auditDenied(r *http.Request, toolName string, rawArgs json.RawM
 		readOnly = t.ReadOnly
 	}
 	resources := extractResources(canonical, rawArgs)
-	principal := principalIDFromRequest(r)
 	requestID := newAuditRequestID()
 	start := time.Now()
 
@@ -230,8 +231,8 @@ func (s *Server) auditDenied(r *http.Request, toolName string, rawArgs json.RawM
 	if err != nil {
 		// Sink unhealthy: nothing safe to record for this denial (a
 		// completion here would pair with an attempt that never landed on
-		// disk). The 403 is unaffected either way — the call was already
-		// going to be denied.
+		// disk). The denial response is unaffected either way — the call was
+		// already going to be denied.
 		return
 	}
 	_, _ = log.AppendEvent(audit.Entry{
@@ -240,25 +241,6 @@ func (s *Server) auditDenied(r *http.Request, toolName string, rawArgs json.RawM
 		Phase: audit.PhaseCompletion, Outcome: audit.OutcomeUnauthorized,
 		DurationMs: time.Since(start).Milliseconds(),
 	})
-}
-
-// principalIDFromRequest derives a stable, opaque principal identifier from
-// the request's bearer token: the hex SHA-256 of the token, truncated to 16
-// characters — never the token itself, never reversible to it. Returns "" if
-// the request carries no bearer token (auth disabled, or an already-rejected
-// request that never reaches this point).
-func principalIDFromRequest(r *http.Request) string {
-	const prefix = "Bearer "
-	v := r.Header.Get("Authorization")
-	if !strings.HasPrefix(v, prefix) {
-		return ""
-	}
-	token := strings.TrimPrefix(v, prefix)
-	if token == "" {
-		return ""
-	}
-	sum := sha256.Sum256([]byte(token))
-	return hex.EncodeToString(sum[:])[:16]
 }
 
 // newAuditRequestID returns a random 32-hex-char correlation ID pairing one
