@@ -4,6 +4,20 @@
 
 KB histories with commits authored as `cartographer <cartographer@localhost>` may need a manual author rewrite before a forge with author push rules accepts the first push.
 
+## [0.6.0](https://github.com/BeppeTemp/cartographer/compare/v0.5.0...v0.6.0) (2026-08-17)
+
+
+### Features
+
+* **kb_status:** roll up concepts by status ([#124](https://github.com/BeppeTemp/cartographer/issues/124)) ([65057e9](https://github.com/BeppeTemp/cartographer/commit/65057e9a8784cc4c80fad43be4c37dbbf1759bfe))
+* **mcp:** report protocol era and client identity of connected clients (D129) ([#123](https://github.com/BeppeTemp/cartographer/issues/123)) ([a59387a](https://github.com/BeppeTemp/cartographer/commit/a59387a24c66cbded66c93079af916cda8640abd))
+* **mcp:** serve the 2026-07-28 revision alongside the handshake era (D128) ([#120](https://github.com/BeppeTemp/cartographer/issues/120)) ([d73e0bf](https://github.com/BeppeTemp/cartographer/commit/d73e0bf8f6f29057495bb70fe25e644a6580ddd7))
+
+
+### Bug Fixes
+
+* **mcpserver:** audit authorization denials and drop the unwired handler layer ([#125](https://github.com/BeppeTemp/cartographer/issues/125)) ([19f8b60](https://github.com/BeppeTemp/cartographer/commit/19f8b6048387414cd000958c0438e9686152b4c5))
+
 ## [0.5.0](https://github.com/BeppeTemp/cartographer/compare/v0.4.0...v0.5.0) (2026-08-04)
 
 
