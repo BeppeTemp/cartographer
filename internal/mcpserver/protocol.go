@@ -117,7 +117,14 @@ func (r *Request) resolveEra(headerVersion string) error {
 		}
 		r.era, r.protocolVersion = era20260728, v
 	}
-	if headerVersion != "" {
+	// Only the new revision's own version selects the new era. Any other value
+	// leaves the request in the handshake era, which is exactly what happened
+	// before D128, when this header was not read at all: sending
+	// MCP-Protocol-Version is conformant for a client on an earlier revision
+	// (the header predates 2026-07-28), and such a client sends none of the
+	// mirror headers validateMirrorHeaders would then demand. Keying off the
+	// header's presence instead of its value rejected those clients (D133).
+	if headerVersion == ProtocolVersion20260728 {
 		r.era = era20260728
 		if r.protocolVersion == "" {
 			r.protocolVersion = headerVersion
