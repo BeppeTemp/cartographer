@@ -65,7 +65,7 @@ func probeServer(opts connectOptions) (probeState, error) {
 // first-KB onboarding case from auth and network failures.
 func probeErrorMessage(state probeState, err error) string {
 	if state == probeNoKB {
-		return "server is up but no KB is mounted — create one with: cartographer kb create <name>, then: cartographer service restart"
+		return "server is up but no KB is mounted — create one with: cartographer kb create <name> --remote <url>, then: cartographer service restart"
 	}
 	if errors.Is(err, client.ErrUnauthorized) {
 		return fmt.Sprintf("server reached but the token was rejected (check Token env var / Auth): %v", err)

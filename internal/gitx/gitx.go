@@ -415,6 +415,19 @@ func Push(dir, remote, branch string, env ...string) error {
 	return nil
 }
 
+// PushSetUpstream pushes branch to remote and sets it as the branch's
+// upstream ("git push -u"). Used once, when a KB's origin is first attached
+// (kb create --remote): the sync paths in internal/kb use Push, which must
+// not touch tracking configuration.
+// env carries extra per-KB variables (e.g. GIT_SSH_COMMAND) — see runGitEnv.
+func PushSetUpstream(dir, remote, branch string, env ...string) error {
+	out, err := runGitEnv(dir, env, "push", "-u", remote, branch)
+	if err != nil {
+		return fmt.Errorf("git push -u %s %s: %w: %s", remote, branch, err, out)
+	}
+	return nil
+}
+
 // Rebase rebases current branch onto target (e.g. "origin/main").
 // Returns ErrConflict if there are unresolved conflicts.
 func Rebase(dir, onto string) error {

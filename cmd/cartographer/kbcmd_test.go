@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/BeppeTemp/cartographer/internal/gitx"
 	"github.com/BeppeTemp/cartographer/internal/kb"
 )
 
@@ -52,7 +53,7 @@ func TestCmdKBCreateScaffold(t *testing.T) {
 	var code int
 	out := withStdout(t, func() {
 		withNoGuidance(t, func() {
-			code = cmdKBCreate([]string{"alpha", "--data", dataDir})
+			code = cmdKBCreate([]string{"alpha", "--data", dataDir, "--no-remote"})
 		})
 	})
 	if code != 0 {
@@ -71,14 +72,14 @@ func TestCmdKBCreateSecondRunError(t *testing.T) {
 	dataDir := t.TempDir()
 
 	withNoGuidance(t, func() {
-		if code := cmdKBCreate([]string{"alpha", "--data", dataDir}); code != 0 {
+		if code := cmdKBCreate([]string{"alpha", "--data", dataDir, "--no-remote"}); code != 0 {
 			t.Fatalf("first cmdKBCreate = %d, want 0", code)
 		}
 	})
 
 	var code int
 	withNoGuidance(t, func() {
-		code = cmdKBCreate([]string{"alpha", "--data", dataDir})
+		code = cmdKBCreate([]string{"alpha", "--data", dataDir, "--no-remote"})
 	})
 	if code == 0 {
 		t.Fatal("second cmdKBCreate = 0, want non-zero (already exists)")
@@ -90,10 +91,117 @@ func TestCmdKBCreateInvalidName(t *testing.T) {
 
 	var code int
 	withNoGuidance(t, func() {
-		code = cmdKBCreate([]string{"not/valid", "--data", dataDir})
+		code = cmdKBCreate([]string{"not/valid", "--data", dataDir, "--no-remote"})
 	})
 	if code == 0 {
 		t.Fatal("cmdKBCreate with invalid name = 0, want non-zero")
+	}
+}
+
+// TestCmdKBCreateRequiresRemoteChoice covers D134's gate: neither flag, and
+// both flags, are usage errors (exit 2) that create nothing.
+func TestCmdKBCreateRequiresRemoteChoice(t *testing.T) {
+	cases := []struct {
+		name string
+		args []string
+	}{
+		{"no choice", nil},
+		{"both", []string{"--remote", "file:///tmp/x.git", "--no-remote"}},
+	}
+	for _, tc := range cases {
+		dataDir := t.TempDir()
+		var code int
+		withNoGuidance(t, func() {
+			code = cmdKBCreate(append([]string{"alpha", "--data", dataDir}, tc.args...))
+		})
+		if code != 2 {
+			t.Errorf("%s: cmdKBCreate = %d, want 2", tc.name, code)
+		}
+		if _, err := os.Stat(filepath.Join(dataDir, "alpha")); !os.IsNotExist(err) {
+			t.Errorf("%s: KB created despite usage error: %v", tc.name, err)
+		}
+	}
+}
+
+// TestCmdKBCreateNoRemoteLeavesNoOrigin pins the opt-out: a KB is scaffolded,
+// and it has no origin configured.
+func TestCmdKBCreateNoRemoteLeavesNoOrigin(t *testing.T) {
+	if !hasGit() {
+		t.Skip("git not in PATH, skipping KB create remote test")
+	}
+
+	dataDir := t.TempDir()
+	var code int
+	withNoGuidance(t, func() {
+		code = cmdKBCreate([]string{"alpha", "--data", dataDir, "--no-remote"})
+	})
+	if code != 0 {
+		t.Fatalf("cmdKBCreate --no-remote = %d, want 0", code)
+	}
+	if _, err := gitx.RemoteURL(filepath.Join(dataDir, "alpha"), "origin"); err == nil {
+		t.Error("--no-remote KB has an origin remote, want none")
+	}
+}
+
+// TestCmdKBCreateWithRemotePushes checks the happy path end to end: origin is
+// attached and the initial commit is reachable from the remote's branch.
+func TestCmdKBCreateWithRemotePushes(t *testing.T) {
+	if !hasGit() {
+		t.Skip("git not in PATH, skipping KB create remote test")
+	}
+
+	tmp := t.TempDir()
+	bare := filepath.Join(tmp, "alpha.git")
+	mustRunGit(t, "", "init", "--bare", bare)
+	remote := "file://" + bare
+
+	dataDir := filepath.Join(tmp, "data")
+	var code int
+	withNoGuidance(t, func() {
+		code = cmdKBCreate([]string{"alpha", "--data", dataDir, "--remote", remote})
+	})
+	if code != 0 {
+		t.Fatalf("cmdKBCreate --remote = %d, want 0", code)
+	}
+
+	kbPath := filepath.Join(dataDir, "alpha")
+	got, err := gitx.RemoteURL(kbPath, "origin")
+	if err != nil {
+		t.Fatalf("origin not configured: %v", err)
+	}
+	if got != remote {
+		t.Errorf("origin = %q, want %q", got, remote)
+	}
+	local, err := gitx.HeadSHA(kbPath)
+	if err != nil {
+		t.Fatalf("HeadSHA: %v", err)
+	}
+	pushed, err := gitx.HeadSHAAt(bare, gitx.DefaultBranch)
+	if err != nil {
+		t.Fatalf("HeadSHAAt(bare, %s): %v", gitx.DefaultBranch, err)
+	}
+	if pushed != local {
+		t.Errorf("remote %s = %s, want local HEAD %s", gitx.DefaultBranch, pushed, local)
+	}
+}
+
+// TestCmdKBCreateRemoteFailureCleansScaffold pins the rollback invariant: an
+// unreachable remote must not leave a mountable KB behind.
+func TestCmdKBCreateRemoteFailureCleansScaffold(t *testing.T) {
+	if !hasGit() {
+		t.Skip("git not in PATH, skipping KB create remote test")
+	}
+
+	dataDir := t.TempDir()
+	var code int
+	withNoGuidance(t, func() {
+		code = cmdKBCreate([]string{"alpha", "--data", dataDir, "--remote", "file:///does-not-exist/missing.git"})
+	})
+	if code == 0 {
+		t.Fatal("cmdKBCreate with unreachable remote = 0, want non-zero")
+	}
+	if _, err := os.Stat(filepath.Join(dataDir, "alpha")); !os.IsNotExist(err) {
+		t.Fatalf("scaffold still exists after failed push: %v", err)
 	}
 }
 

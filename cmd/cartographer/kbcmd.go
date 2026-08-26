@@ -50,7 +50,7 @@ func cmdKB(args []string) int {
 	case "clone":
 		return cmdKBClone(rest)
 	default:
-		fmt.Fprintln(os.Stderr, "Error: usage: cartographer kb create <name> [--data <dir>] [--restart]\n       cartographer kb clone <remote> [name] [--data <dir>] [--restart]")
+		fmt.Fprintln(os.Stderr, "Error: usage: cartographer kb create <name> (--remote <url> | --no-remote) [--data <dir>] [--restart]\n       cartographer kb clone <remote> [name] [--data <dir>] [--restart]")
 		return 2
 	}
 }
@@ -75,32 +75,42 @@ func validateKBName(name string) error {
 	return nil
 }
 
-// cmdKBCreate implements `cartographer kb create <name> [--data <dir>]
-// [--restart]`: scaffolds a new KB at <data>/<name> via the same kb.Init
-// bootstrap used by `serve --kb <path> --init` (git init + OKF layout), then
-// prints guidance on how to get the server to pick it up (WP2, D85). The
-// data dir resolution mirrors `service install`'s: the running service's
-// config YAML `data:` field, falling back to defaultDataDir()
-// (~/cartographer-data); --data overrides both.
+// cmdKBCreate implements `cartographer kb create <name> (--remote <url> |
+// --no-remote) [--data <dir>] [--restart]`: scaffolds a new KB at
+// <data>/<name> via the same kb.Init bootstrap used by `serve --kb <path>
+// --init` (git init + OKF layout), attaches its git remote, then prints
+// guidance on how to get the server to pick it up (WP2, D85). The remote is
+// not optional (D134): a KB without an origin is neither durable nor
+// syncable, and nothing downstream surfaces that state — `--no-remote` is the
+// explicit opt-out for a throwaway local KB. The data dir resolution mirrors
+// `service install`'s: the running service's config YAML `data:` field,
+// falling back to defaultDataDir() (~/cartographer-data); --data overrides
+// both.
 func cmdKBCreate(args []string) int {
 	// <name> is a leading positional argument, before the flags (see usage:
-	// "kb create <name> [--data <dir>] [--restart]") — flag.Parse stops at
+	// "kb create <name> (--remote <url> | --no-remote) …") — flag.Parse stops at
 	// the first non-flag token, so it must be pulled out first (same
 	// splitPositional dance as `service <target>` and `sync <provider>`).
 	name, rest := splitPositional(args, "")
 
 	fs := flag.NewFlagSet("kb create", flag.ExitOnError)
 	dataFlag := fs.String("data", "", "KB data directory (default: the server config's data:, or "+defaultDataDir()+")")
+	remoteFlag := fs.String("remote", "", "Git remote URL of an empty repository: attached as origin and pushed to")
+	noRemoteFlag := fs.Bool("no-remote", false, "Create a local-only KB with no origin (not durable, never synced)")
 	restartFlag := fs.Bool("restart", false, "Restart the local service and wait until healthy after creating the KB")
 	fs.Parse(rest)
 
 	if name == "" || fs.NArg() != 0 {
-		fmt.Fprintln(os.Stderr, "Usage: cartographer kb create <name> [--data <dir>] [--restart]")
+		fmt.Fprintln(os.Stderr, "Usage: cartographer kb create <name> (--remote <url> | --no-remote) [--data <dir>] [--restart]")
 		return 2
 	}
 	if err := validateKBName(name); err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		return 2
+	}
+	remote := strings.TrimSpace(*remoteFlag)
+	if code := checkRemoteChoice(remote, *noRemoteFlag); code != 0 {
+		return code
 	}
 
 	dataDir := *dataFlag
@@ -123,10 +133,73 @@ func cmdKBCreate(args []string) int {
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		return 1
 	}
+	if remote != "" {
+		if code := attachOrigin(path, remote); code != 0 {
+			// Same guarantee as kb clone's cleanup: never leave a
+			// half-provisioned KB where auto-discovery can mount it.
+			_ = os.RemoveAll(path)
+			return code
+		}
+	}
 	fmt.Printf("KB %q created at %s\n", name, path)
+	if remote != "" {
+		fmt.Printf("origin: %s\n", remote)
+	} else {
+		printNoRemoteWarning(path)
+	}
 
 	printPostCreateGuidanceFn(*restartFlag)
 	return 0
+}
+
+// checkRemoteChoice validates the --remote/--no-remote pair, which is a
+// deliberate choice the caller has to make (D134): it returns 0 when exactly
+// one of them is set, and the usage exit code (2) otherwise, after printing
+// the three ways to get a KB.
+func checkRemoteChoice(remote string, noRemote bool) int {
+	if remote != "" && noRemote {
+		fmt.Fprintln(os.Stderr, "Error: --remote and --no-remote are mutually exclusive")
+		return 2
+	}
+	if remote == "" && !noRemote {
+		fmt.Fprintln(os.Stderr, "Error: a KB needs a git remote — that is what makes it durable and syncable.")
+		fmt.Fprintln(os.Stderr, "  cartographer kb create <name> --remote <url>   empty repository, becomes this KB's origin")
+		fmt.Fprintln(os.Stderr, "  cartographer kb clone <remote>                 repository that already holds a KB")
+		fmt.Fprintln(os.Stderr, "  cartographer kb create <name> --no-remote      local-only KB (not durable, never synced)")
+		return 2
+	}
+	return 0
+}
+
+// attachOrigin wires the freshly scaffolded KB at path to remote as "origin"
+// and pushes its initial commit with upstream tracking, so the KB is
+// reconstructible from its repository the moment it exists. Returns the exit
+// code to use (0 on success); on failure the caller removes the scaffold.
+func attachOrigin(path, remote string) int {
+	if err := gitx.AddRemote(path, "origin", remote); err != nil {
+		fmt.Fprintln(os.Stderr, "Error:", err)
+		return 1
+	}
+	branch, err := gitx.Branch(path)
+	if err != nil || branch == "" {
+		branch = gitx.DefaultBranch
+	}
+	if err := gitx.PushSetUpstream(path, "origin", branch); err != nil {
+		fmt.Fprintln(os.Stderr, "Error:", err)
+		fmt.Fprintln(os.Stderr, "Hint: authenticate git with your SSH agent or credential helper, then retry.")
+		fmt.Fprintf(os.Stderr, "Hint: if the remote already holds a KB, mount it instead: cartographer kb clone %s\n", remote)
+		return 1
+	}
+	return 0
+}
+
+// printNoRemoteWarning states what --no-remote costs, on stderr: the KB is a
+// purely local git repository, so it has no backup and every sync path is
+// inert for it (kb.hasRemote, CARTOGRAPHER_GIT_SYNC).
+func printNoRemoteWarning(path string) {
+	fmt.Fprintln(os.Stderr, "Warning: this KB has no origin — it is not backed up and will never sync.")
+	fmt.Fprintf(os.Stderr, "  Attach one later with: git -C %s remote add origin <url> && git -C %s push -u origin %s\n",
+		path, path, gitx.DefaultBranch)
 }
 
 // cmdKBClone implements `cartographer kb clone <remote> [name] [--data <dir>]
