@@ -1,7 +1,7 @@
 ---
 name: cartographer-ops
 description: Configure, operate, troubleshoot, or upgrade a Cartographer server or client; connect agents and manage Knowledge Bases.
-version: "1.0"
+version: "1.1"
 ---
 # Cartographer Operations
 
@@ -18,7 +18,7 @@ around writes.
 |---|---|
 | `cartographer serve` | Starting the server directly, for development or a custom deployment. |
 | `cartographer service install\|status\|restart` | Installing, checking, or restarting the native local service. |
-| `cartographer kb create <name>` | Creating the first local KB in the service data directory. |
+| `cartographer kb create <name> --remote <url>` | Creating the first local KB in the service data directory, pushed to an empty repository that becomes its `origin`. `--no-remote` opts out into a local-only KB that is neither durable nor synced; the choice is mandatory. |
 | `cartographer kb clone <remote> [name]` | Mounting an existing OKF KB remote in the service data directory. |
 | `cartographer connect [provider\|all] [--agents a,b]` | Connecting one or more detected agent clients to a server. |
 | `cartographer status` | Checking client configuration and provisioning drift. |
@@ -28,7 +28,7 @@ around writes.
 
 `--agents claude,codex` selects a comma-separated subset for `connect` or `disconnect`; do not
 combine it with the positional provider. `connect` probes the server before writing: a reachable
-server with no KBs needs `kb create` followed by `service restart`.
+server with no KBs needs `kb create --remote <url>` followed by `service restart`.
 
 ## Configuration
 
@@ -49,8 +49,9 @@ variables or the platform secret store, not in a committed YAML file.
 
 1. Check `GET /health`. Its `status`, `version`, `ready`, and `kbs` fields distinguish a live
    process from a usable server.
-2. If `ready` is false or no KBs are mounted, run `cartographer kb create <name>` and then
-   `cartographer service restart` for a local service.
+2. If `ready` is false or no KBs are mounted, ask for the git remote the KB belongs to, then run
+   `cartographer kb create <name> --remote <url>` (or `cartographer kb clone <url>` if that
+   repository already holds a KB) and `cartographer service restart` for a local service.
 3. If client artifacts are stale or missing, run `cartographer sync`, then restart the affected
    agent session so it reloads MCP configuration and skills.
 4. If concepts are degraded after a git conflict, use the `kb-conflict-resolve` skill; do not

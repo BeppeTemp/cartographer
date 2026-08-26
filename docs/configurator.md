@@ -129,7 +129,7 @@ install and start the local service (`cartographer service install` with default
 `/health` for up to 10s, then an automatic re-probe). In the non-interactive path, a deferred
 materialization to a loopback URL only adds a hint on stderr suggesting
 `cartographer service install` when unreachable; a reachable 0-KB server instead prints
-`cartographer kb create <name>` followed by `cartographer service restart`. A successful connect
+`cartographer kb create <name> --remote <url>` followed by `cartographer service restart`. A successful connect
 prints the absolute paths of generated MCP configs and reminds the user to restart the selected
 agent sessions to load the MCP tools.
 

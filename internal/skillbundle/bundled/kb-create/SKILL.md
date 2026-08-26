@@ -1,7 +1,7 @@
 ---
 name: kb-create
 description: Operator procedure to declare and provision a new Knowledge Base GitOps-style, so it survives pod restarts.
-version: "2.3"
+version: "2.4"
 ---
 # KB Create — Skill
 
@@ -17,6 +17,12 @@ exists as an ad-hoc runtime mount on an emptyDir is **not durable**.
 > rollout the directory is recreated empty and every concept written to it is gone. The
 > ConfigMap + Gitea repo declaration is what makes the KB persistent and reconstructible — the
 > server clones it fresh on every pod start (`docs/deployment.md` §Bootstrap KB da remote git).
+
+> **Local/native-service topology.** On a single machine served by the local service, the
+> equivalent one-liner is `cartographer kb create <name> --remote <url>`: it scaffolds the KB and
+> pushes it to the empty repository that becomes its `origin` (the remote is mandatory there too,
+> D134). This skill remains the procedure for the GitOps/Kubernetes topology below, where the KB
+> also has to be declared in the server's ConfigMap.
 
 ## Steps
 
