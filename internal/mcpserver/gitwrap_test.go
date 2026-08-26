@@ -639,7 +639,7 @@ func TestGitWrap_ReauthorizesAfterSyncInChangesConceptType(t *testing.T) {
 	// The first dispatch sees Runbook. SyncIn below replaces it with Secret;
 	// the lock-time decision must therefore deny before handler/log/commit.
 	pushRemoteFile(t, bare, branch, "data/manutenzione/reauth.md", "---\ntype: Secret\ntitle: after sync\n---\nbody\n", "change type remotely")
-	request := &Request{ID: json.RawMessage(`1`), Method: "tools/call", Params: json.RawMessage(`{"name":"concept_patch","arguments":{"id":"manutenzione/reauth","if_match":"any","old_string":"body","new_string":"changed"}}`)}
+	request := dispatchReady(&Request{ID: json.RawMessage(`1`), Method: "tools/call", Params: json.RawMessage(`{"name":"concept_patch","arguments":{"id":"manutenzione/reauth","if_match":"any","old_string":"body","new_string":"changed"}}`)})
 	result := decodeToolResult(t, s.dispatch(ctx, request))
 	if !result.IsError || result.Content[0].Text != genericNotFound {
 		t.Fatalf("reauthorized write = %+v, want non-disclosing denial", result)

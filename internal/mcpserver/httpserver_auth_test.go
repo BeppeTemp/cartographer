@@ -1,7 +1,6 @@
 package mcpserver
 
 import (
-	"bytes"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -30,8 +29,7 @@ func newScopedTestHandler(t *testing.T, ts *auth.TokenStore) http.Handler {
 // doMCP sends a JSON-RPC body to /mcp?kb=<kbName> with the given bearer token
 // and returns the raw HTTP response recorder.
 func doMCP(handler http.Handler, kbName, token, body string) *httptest.ResponseRecorder {
-	req := httptest.NewRequest(http.MethodPost, "/mcp?kb="+kbName, bytes.NewReader([]byte(body)))
-	req.Header.Set("Content-Type", "application/json")
+	req := newMCPPost("/mcp?kb="+kbName, body)
 	if token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)
 	}

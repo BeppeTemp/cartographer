@@ -313,8 +313,8 @@ func TestServer_DisplayName_ServerInfo(t *testing.T) {
 	s.SetDisplayName("cartographer:ai-team")
 	RegisterKBTools(s, k, Deps{})
 
-	initMsg := `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}`
-	resps := runMCPSequence(t, s, []string{initMsg})
+	msg := `{"jsonrpc":"2.0","id":1,"method":"server/discover","params":{}}`
+	resps := runMCPSequence(t, s, []string{msg})
 	if len(resps) != 1 {
 		t.Fatalf("expected 1 response, got %d", len(resps))
 	}
@@ -323,6 +323,6 @@ func TestServer_DisplayName_ServerInfo(t *testing.T) {
 	json.Unmarshal(resultBytes, &result)
 	info, ok := result["serverInfo"].(map[string]interface{})
 	if !ok || info["name"] != "cartographer:ai-team" {
-		t.Errorf("initialize: unexpected serverInfo: %v", result["serverInfo"])
+		t.Errorf("server/discover: unexpected serverInfo: %v", result["serverInfo"])
 	}
 }

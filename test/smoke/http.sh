@@ -40,10 +40,15 @@ done
 kbs=$(curl -sf "http://127.0.0.1:$PORT/health" | python3 -c "import sys,json; d=json.load(sys.stdin); print([k['name'] for k in d['kbs']])")
 echo "→ mounted KBs: $kbs"
 
+# Every POST carries the mirror headers the protocol requires (D130): the
+# version, the method, and the tool name, each agreeing with the body.
 mcp_call() {
   local kb=$1 method=$2 args=$3 id=$4
   curl -sf -X POST "$MCP?kb=$kb" \
     -H "Content-Type: application/json" \
+    -H "MCP-Protocol-Version: 2026-07-28" \
+    -H "Mcp-Method: tools/call" \
+    -H "Mcp-Name: $method" \
     -d "{\"jsonrpc\":\"2.0\",\"id\":$id,\"method\":\"tools/call\",\"params\":{\"name\":\"$method\",\"arguments\":$args}}" \
     | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['result']['content'][0]['text'])"
 }

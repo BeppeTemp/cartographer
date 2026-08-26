@@ -87,19 +87,21 @@ func (s *Server) handleMCPPost(w http.ResponseWriter, r *http.Request) {
 	// 2026-07-28 removed the concept, so there is nothing to look up and
 	// nothing to echo back.
 
-	if err := req.resolveEra(r.Header.Get("MCP-Protocol-Version")); err != nil {
+	if err := req.resolveProtocol(r.Header.Get("MCP-Protocol-Version")); err != nil {
 		writeRPC(w, http.StatusBadRequest, errorResponse(req.ID, ErrCodeInvalidParams, err.Error()))
 		return
 	}
-	if req.era == era20260728 {
-		if failure := validateMirrorHeaders(r, &req); failure != "" {
-			writeRPC(w, http.StatusBadRequest, errorResponse(req.ID, ErrCodeHeaderMismatch, failure))
-			return
-		}
+	// Every POST is validated: with a single era served (D130) there is no
+	// request shape left that the mirror headers do not apply to, so a client
+	// that sends none of them is told which one it left out rather than being
+	// served an older shape that no longer exists.
+	if failure := validateMirrorHeaders(r, &req); failure != "" {
+		writeRPC(w, http.StatusBadRequest, errorResponse(req.ID, ErrCodeHeaderMismatch, failure))
+		return
 	}
 
 	resp := s.dispatch(r.Context(), &req)
-	writeRPC(w, statusForResponse(req.era, resp), resp)
+	writeRPC(w, statusForResponse(resp), resp)
 }
 
 // writeRPC writes a JSON-RPC response with the given HTTP status.
@@ -110,12 +112,11 @@ func writeRPC(w http.ResponseWriter, status int, resp Response) {
 }
 
 // statusForResponse maps a JSON-RPC error onto the HTTP status the 2026-07-28
-// revision requires for it. A handshake-era response is always HTTP 200,
-// errors included: that is what the era's clients expect, and
-// internal/client/client.go treats any other status as an opaque transport
-// failure.
-func statusForResponse(era protocolEra, resp Response) int {
-	if era != era20260728 || resp.Error == nil {
+// revision requires for it. An unknown method is 404 unconditionally since
+// D130: that is exactly the signal the spec's backward-compatibility section
+// tells a client to read, and it is what an `initialize` now receives.
+func statusForResponse(resp Response) int {
+	if resp.Error == nil {
 		return http.StatusOK
 	}
 	switch resp.Error.Code {

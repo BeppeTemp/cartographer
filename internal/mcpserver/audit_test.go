@@ -48,11 +48,11 @@ func auditEntries(t *testing.T, path string) []audit.Entry {
 
 func callTool(t *testing.T, s *Server, name, args string) ToolResult {
 	t.Helper()
-	resp := s.dispatch(authLocalContext(), &Request{
+	resp := s.dispatch(authLocalContext(), dispatchReady(&Request{
 		ID:     json.RawMessage(`1`),
 		Method: "tools/call",
 		Params: json.RawMessage(`{"name":"` + name + `","arguments":` + args + `}`),
-	})
+	}))
 	return decodeToolResult(t, resp)
 }
 
@@ -111,11 +111,11 @@ func TestAuditRecordsDenialAttemptAndCompletionPair(t *testing.T) {
 	// A non-admin principal with no authorizer installed is fail-closed
 	// (Server.authorize), the same shape a real scope denial takes.
 	ctx := restrictedContext(auth.Policy{})
-	resp := s.dispatch(ctx, &Request{
+	resp := s.dispatch(ctx, dispatchReady(&Request{
 		ID:     json.RawMessage(`1`),
 		Method: "tools/call",
 		Params: json.RawMessage(`{"name":"guarded_tool","arguments":{}}`),
-	})
+	}))
 	tr := decodeToolResult(t, resp)
 	if !tr.IsError {
 		t.Fatalf("denied call did not return an error result: %+v", tr)

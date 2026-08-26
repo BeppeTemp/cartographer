@@ -106,12 +106,36 @@ assert_git_log_nonempty() {
 #   prints the raw HTTP response body. HTTP status is always 200 for a
 #   well-formed JSON-RPC request (D118): authorization outcomes are carried
 #   in the JSON-RPC result (isError + text), not the HTTP status code.
+#
+#   The mirror headers the protocol requires on every POST (D130) are derived
+#   from the body here, so scenarios keep writing plain JSON-RPC bodies. The
+#   protocol version travels in the header alone: the server takes it from
+#   there when the body names none.
 mcp_call() {
     local base="$1" kb="$2" token="$3" body="$4"
+    local headers=()
+    mcp_protocol_headers "$body" headers
     curl -s -X POST "${base}?kb=${kb}" \
         -H "Content-Type: application/json" \
         -H "Authorization: Bearer ${token}" \
-        -d "${body}"
+        "${headers[@]}" -d "${body}"
+}
+
+# mcp_protocol_headers <json_body> <array_name>
+#   Fills the named bash array with the curl -H arguments the protocol
+#   requires on every POST (D130): the version, the method, and — for a
+#   tools/call — the tool name, each mirroring what the body says. The
+#   protocol version travels in the header alone: the server takes it from
+#   there when the body names none, so scenarios keep writing plain
+#   JSON-RPC bodies.
+mcp_protocol_headers() {
+    local body="$1" out="$2" method name
+    method=$(printf '%s' "$body" | grep -o '"method":"[^"]*"' | head -1 | cut -d'"' -f4)
+    eval "${out}=(-H 'MCP-Protocol-Version: 2026-07-28' -H 'Mcp-Method: ${method}')"
+    if [[ "$method" == "tools/call" ]]; then
+        name=$(printf '%s' "$body" | grep -o '"name":"[^"]*"' | head -1 | cut -d'"' -f4)
+        eval "${out}+=(-H 'Mcp-Name: ${name}')"
+    fi
 }
 
 # assert_mcp_ok <desc> <response_body>

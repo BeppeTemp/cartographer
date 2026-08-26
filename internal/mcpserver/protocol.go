@@ -8,46 +8,17 @@ import (
 	"fmt"
 )
 
-// SupportedProtocolVersion is the handshake-era protocol version, the one
-// initialize reports when the client names none. It is no longer the only
-// version served — see SupportedProtocolVersions.
-const SupportedProtocolVersion = "2024-11-05"
-
 // ProtocolVersion20260728 is the revision that removed the initialize
 // handshake, sessions and SSE resumability, and made server/discover and the
-// mirrored HTTP headers mandatory.
+// mirrored HTTP headers mandatory. Since D130 it is the only revision this
+// server speaks: the handshake era it replaced is gone, along with the
+// per-request era branching that served both at once (D128).
 const ProtocolVersion20260728 = "2026-07-28"
 
-// SupportedProtocolVersions lists every version this server answers, newest
-// first. Both eras are served at once (D128): the era is decided per request,
-// so a client that still speaks the handshake gets byte-identical responses to
-// the ones it got before 2026-07-28 existed.
-var SupportedProtocolVersions = []string{ProtocolVersion20260728, SupportedProtocolVersion}
-
-// protocolEra is which of the two protocol generations a single request
-// belongs to. It is never stored: a stateless server decides it from the
-// request in hand and forgets it with the response.
-type protocolEra int
-
-const (
-	// eraHandshake is the initialize/ping generation, everything up to and
-	// including 2025-11-25.
-	eraHandshake protocolEra = iota
-	// era20260728 is the 2026-07-28 revision.
-	era20260728
-)
-
-// String returns the human-readable era label: "handshake" for the
-// initialize/ping generation, "2026-07-28" for the 2026-07-28 revision.
-// The zero value (handshake) is the default.
-func (e protocolEra) String() string {
-	switch e {
-	case era20260728:
-		return "2026-07-28"
-	default:
-		return "handshake"
-	}
-}
+// SupportedProtocolVersions lists every version this server answers. It has a
+// single entry by design — a request naming anything else gets -32022 with
+// this list, which is the whole of the version negotiation that remains.
+var SupportedProtocolVersions = []string{ProtocolVersion20260728}
 
 // metaKeyProtocolVersion and friends are the reserved _meta keys the
 // 2026-07-28 revision defines. They carry a slash, so they can never collide
@@ -67,35 +38,36 @@ type Request struct {
 	Method  string          `json:"method"`
 	Params  json.RawMessage `json:"params,omitempty"`
 
-	// era and protocolVersion are derived from the request, never read off the
-	// wire as fields — see resolveEra. eraResolved guards against dispatch
+	// protocolVersion is derived from the request, never read off the wire as
+	// a field — see resolveProtocol. metaResolved guards against dispatch
 	// re-deriving what the HTTP layer already established from the headers.
 	// clientName and clientVersion carry the identity of the calling client,
-	// parsed from _meta.clientInfo (new-era) or initialize params (legacy).
-	era             protocolEra
+	// parsed from _meta.clientInfo.
 	protocolVersion string
-	eraResolved     bool
+	metaResolved    bool
 	clientName      string
 	clientVersion   string
 }
 
-// resolveEra decides which era this request belongs to and records the
-// protocol version it names, per D128 decision (2): the request is
-// 2026-07-28-era iff params._meta carries the protocol version, or the
-// transport reported one (the MCP-Protocol-Version header over HTTP).
-// headerVersion is "" for stdio and for an HTTP request without the header.
+// resolveProtocol records the protocol version this request names, from
+// params._meta or from the transport (the MCP-Protocol-Version header over
+// HTTP). headerVersion is "" for stdio and for an HTTP request without the
+// header; the body wins when both are present, and the HTTP layer separately
+// rejects a header that contradicts it (validateMirrorHeaders).
 //
-// resolveEra also extracts client identity from _meta.clientInfo (new-era)
-// into r.clientName / r.clientVersion. An absent or unparsable clientInfo
-// is silently ignored: identity is an operational aid, never a protocol
-// contract.
+// It leaves protocolVersion empty when the request names none. That is an
+// error, but which error depends on the transport — a missing header over
+// HTTP, a missing _meta field over stdio — so it is diagnosed by the caller
+// rather than here.
 //
-// A _meta block that is present but unparsable is an error rather than a
-// silent downgrade to the handshake era: a client that gets _meta wrong should
-// hear about it instead of being served a shape it did not ask for.
-func (r *Request) resolveEra(headerVersion string) error {
-	r.eraResolved = true
-	r.era, r.protocolVersion = eraHandshake, ""
+// resolveProtocol also extracts client identity from _meta.clientInfo into
+// r.clientName / r.clientVersion. An absent or unparsable clientInfo is
+// silently ignored: identity is an operational aid, never a protocol
+// contract. A _meta block that is present but unparsable, on the other hand,
+// is an error: a client that gets _meta wrong should hear about it.
+func (r *Request) resolveProtocol(headerVersion string) error {
+	r.metaResolved = true
+	r.protocolVersion = ""
 
 	var params struct {
 		Meta map[string]json.RawMessage `json:"_meta"`
@@ -115,22 +87,15 @@ func (r *Request) resolveEra(headerVersion string) error {
 		if err := json.Unmarshal(raw, &v); err != nil {
 			return fmt.Errorf("malformed _meta.%s: must be a string", metaKeyProtocolVersion)
 		}
-		r.era, r.protocolVersion = era20260728, v
+		r.protocolVersion = v
 	}
-	// Only the new revision's own version selects the new era. Any other value
-	// leaves the request in the handshake era, which is exactly what happened
-	// before D128, when this header was not read at all: sending
-	// MCP-Protocol-Version is conformant for a client on an earlier revision
-	// (the header predates 2026-07-28), and such a client sends none of the
-	// mirror headers validateMirrorHeaders would then demand. Keying off the
-	// header's presence instead of its value rejected those clients (D133).
-	if headerVersion == ProtocolVersion20260728 {
-		r.era = era20260728
-		if r.protocolVersion == "" {
-			r.protocolVersion = headerVersion
-		}
+	// The header stands in for the body only when the body named nothing: a
+	// header that disagrees with _meta is a mismatch, not an override, and
+	// the HTTP layer rejects it as such.
+	if r.protocolVersion == "" {
+		r.protocolVersion = headerVersion
 	}
-	// Parse client identity from _meta.clientInfo (new-era only).
+	// Parse client identity from _meta.clientInfo.
 	if raw, ok := params.Meta[metaKeyClientInfo]; ok {
 		if name, version := parseClientInfo(raw); name != "" {
 			r.clientName = name
@@ -184,12 +149,12 @@ func IsProtocolVersionSupported(v string) bool {
 	return false
 }
 
-// serverCapabilities is the capability map reported by both initialize and
-// server/discover. It lists only what a handler actually backs: tools, and the
+// serverCapabilities is the capability map reported by server/discover. It lists only what a handler actually backs: tools, and the
 // skills list-changed notification that skill_install and artifact_write emit
 // over stdio (notifyWrap/artifactNotifyWrap). "resources" used to be advertised
 // here with no resources/* method behind it — a client acting on it got
-// -32601, so it was removed with D128/WP1.
+// -32601, so it was removed with D128/WP1. Roots, sampling and logging are
+// absent for the same reason: no handler backs them.
 func serverCapabilities() map[string]interface{} {
 	return map[string]interface{}{
 		"tools":  map[string]interface{}{},
@@ -226,8 +191,7 @@ const (
 	ErrCodeInternal       = -32603
 )
 
-// Error codes the 2026-07-28 revision adds (D128). They are only ever produced
-// for a request that identified itself as that era.
+// Error codes the 2026-07-28 revision adds (D128).
 const (
 	// ErrCodeHeaderMismatch reports an HTTP header that contradicts the body it
 	// mirrors, or a required mirror header that is missing.
@@ -263,19 +227,18 @@ func unsupportedVersionResponse(id json.RawMessage, requested string) Response {
 		map[string]interface{}{"supported": SupportedProtocolVersions})
 }
 
-// withEra applies the 2026-07-28 result envelope to a response, and is the one
-// place that does: every successful result of that era carries
-// resultType:"complete" and a _meta block naming the server. A handshake-era
-// response passes through untouched — that byte-identity is the acceptance bar
-// for D128 — and so does an error, which has no result to wrap.
+// withEnvelope applies the result envelope to a response, and is the one place
+// that does: every successful result carries resultType:"complete" and a _meta
+// block naming the server. An error passes through untouched — it has no
+// result to wrap.
 //
 // The result is re-encoded through a generic map, so a handler can return a
-// struct (ToolResult) or a map without knowing about eras. Fields tagged
-// json:"-" (ToolResult.CommitSHA) drop out here exactly as they would at
-// transport time; they are consumed before this point, by the audit pair in
+// struct (ToolResult) or a map without knowing about the envelope. Fields
+// tagged json:"-" (ToolResult.CommitSHA) drop out here exactly as they would
+// at transport time; they are consumed before this point, by the audit pair in
 // handleToolsCall.
-func (r Response) withEra(era protocolEra, serverInfo map[string]interface{}) Response {
-	if era != era20260728 || r.Error != nil || r.Result == nil {
+func (r Response) withEnvelope(serverInfo map[string]interface{}) Response {
+	if r.Error != nil || r.Result == nil {
 		return r
 	}
 	raw, err := json.Marshal(r.Result)

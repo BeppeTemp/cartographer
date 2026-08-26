@@ -85,6 +85,31 @@ func classifyDialErr(err error) string {
 	return CodeUnreachable
 }
 
+// ProtocolVersion is the MCP revision this client speaks. Every request
+// carries it, in the body (_meta) and in the mirrored MCP-Protocol-Version
+// header: the revision removed the initialize handshake, so there is no
+// negotiation step left in which to agree on it (D130).
+const ProtocolVersion = "2026-07-28"
+
+// The reserved _meta keys the 2026-07-28 revision defines. Mirrored from
+// internal/mcpserver (which owns the server side of the same contract); the
+// client deliberately does not import the server package.
+const (
+	metaKeyProtocolVersion    = "io.modelcontextprotocol/protocolVersion"
+	metaKeyClientInfo         = "io.modelcontextprotocol/clientInfo"
+	metaKeyClientCapabilities = "io.modelcontextprotocol/clientCapabilities"
+)
+
+// clientName is the name this client reports as clientInfo.name — the value
+// that shows up in the server's /clients roster (D129).
+const clientName = "cartographer"
+
+// Version is the CLI build version reported as clientInfo.version. main sets
+// it at startup from its own -ldflags value, the same one the version-drift
+// hint compares against /health; "dev" is the default for tests and for any
+// other consumer of this package.
+var Version = "dev"
+
 // MCPClient is a minimal JSON-RPC 2.0 client for the MCP `tools/call` method.
 type MCPClient struct {
 	ServerURL string // e.g. "http://localhost:39273/mcp"
@@ -204,7 +229,11 @@ func (c *MCPClient) do(method string, params any) (json.RawMessage, error) {
 		return nil, err
 	}
 
-	body, err := json.Marshal(rpcRequest{JSONRPC: "2.0", ID: 1, Method: method, Params: params})
+	decorated, err := withProtocolMeta(params)
+	if err != nil {
+		return nil, err
+	}
+	body, err := json.Marshal(rpcRequest{JSONRPC: "2.0", ID: 1, Method: method, Params: decorated})
 	if err != nil {
 		return nil, fmt.Errorf("client: marshal request: %w", err)
 	}
@@ -214,6 +243,25 @@ func (c *MCPClient) do(method string, params any) (json.RawMessage, error) {
 		return nil, fmt.Errorf("client: build request: %w", err)
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
+	// The mirror headers exist for intermediaries that route without parsing
+	// the body, and the server rejects any that contradicts it — so they are
+	// derived from the very values that went into the body above.
+	httpReq.Header.Set("MCP-Protocol-Version", ProtocolVersion)
+	httpReq.Header.Set("Mcp-Method", method)
+	if method == "tools/call" {
+		// Tool names are ASCII by construction (registry names and the
+		// <prefix>__<tool> form), so the plain header form always applies and
+		// the "=?base64?…?=" sentinel is never needed on the send path. A
+		// future non-ASCII tool name would have to encode it here.
+		if name := toolCallName(decorated); name != "" {
+			httpReq.Header.Set("Mcp-Name", name)
+		}
+	}
+	// The revision requires both media types to be acceptable. This client
+	// never parses a stream — Cartographer's server does not return one — so
+	// the header is a conformance statement, not a capability claim. If the
+	// server ever streams, SSE parsing is the first thing to add here.
+	httpReq.Header.Set("Accept", "application/json, text/event-stream")
 	if c.Token != "" {
 		httpReq.Header.Set("Authorization", "Bearer "+c.Token)
 	}
@@ -263,6 +311,70 @@ func (c *MCPClient) do(method string, params any) (json.RawMessage, error) {
 	return rpcResp.Result, nil
 }
 
+// withProtocolMeta returns params with the revision's reserved _meta keys
+// added: the protocol version, this client's identity, and its (empty)
+// capability set. Params that are absent become a bare _meta object; params
+// that are an object are copied and extended, never mutated in place. A
+// caller-supplied _meta is preserved key by key, so an application key on a
+// tool call survives alongside the protocol ones.
+//
+// A non-object params value cannot carry _meta at all: no call site produces
+// one (every method here passes a map or nil), so it is an error rather than
+// a silent drop of the protocol metadata the server now requires.
+func withProtocolMeta(params any) (any, error) {
+	meta := map[string]any{
+		metaKeyProtocolVersion: ProtocolVersion,
+		metaKeyClientInfo:      map[string]any{"name": clientName, "version": Version},
+		// The client implements no optional capability: sampling, roots and
+		// elicitation are all absent. An empty object states that explicitly,
+		// which is what the revision asks for.
+		metaKeyClientCapabilities: map[string]any{},
+	}
+	if params == nil {
+		return map[string]any{"_meta": meta}, nil
+	}
+	raw, err := json.Marshal(params)
+	if err != nil {
+		return nil, fmt.Errorf("client: marshal params: %w", err)
+	}
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &obj); err != nil || obj == nil {
+		return nil, fmt.Errorf("client: params must be a JSON object to carry _meta")
+	}
+	if existing, ok := obj["_meta"]; ok {
+		var caller map[string]json.RawMessage
+		if err := json.Unmarshal(existing, &caller); err == nil {
+			for k, v := range caller {
+				if _, reserved := meta[k]; !reserved {
+					meta[k] = v
+				}
+			}
+		}
+	}
+	out := make(map[string]any, len(obj)+1)
+	for k, v := range obj {
+		out[k] = v
+	}
+	out["_meta"] = meta
+	return out, nil
+}
+
+// toolCallName reads params.name out of a decorated tools/call payload, for
+// the Mcp-Name header that must mirror it exactly.
+func toolCallName(params any) string {
+	raw, err := json.Marshal(params)
+	if err != nil {
+		return ""
+	}
+	var p struct {
+		Name string `json:"name"`
+	}
+	if err := json.Unmarshal(raw, &p); err != nil {
+		return ""
+	}
+	return p.Name
+}
+
 // Ping performs a minimal round trip against the server to check reachability
 // and, when a token is set, that it's accepted — without invoking any tool.
 // It uses "server/discover": the "ping" method it used before is gone in the
@@ -274,17 +386,43 @@ func (c *MCPClient) do(method string, params any) (json.RawMessage, error) {
 // instead of hanging. Returns nil on success, ErrUnauthorized on HTTP 401, or
 // the underlying network/timeout error otherwise.
 //
-// The request itself stays handshake-era — no _meta, no mirror headers — since
-// the server serves both eras and moving the client only pays off once the
-// handshake era is retired (deferred, see D128).
+// server/discover is also the one place where version skew is diagnosable: a
+// server that predates the revision does not implement the method and answers
+// -32601, which on its own reads as "method not found" and tells an operator
+// nothing actionable. explainOldServer rewrites it (D130).
 func (c *MCPClient) Ping(timeout time.Duration) error {
 	cp := *c
 	hc := *c.HTTP
 	hc.Timeout = timeout
 	cp.HTTP = &hc
 	_, err := cp.do("server/discover", nil)
-	return err
+	return explainOldServer(err)
 }
+
+// explainOldServer turns an unknown-method error on server/discover into a
+// message naming the actual problem: the server is older than the protocol
+// revision this client speaks, and the fix is upgrading the server, not the
+// client. Any other error passes through untouched.
+func explainOldServer(err error) error {
+	var re *RemoteError
+	if !errors.As(err, &re) || re.Code != CodeMCPFailed {
+		return err
+	}
+	if !strings.Contains(re.Message, fmt.Sprintf("JSON-RPC error %d", errCodeMethodNotFound)) {
+		return err
+	}
+	return &RemoteError{
+		State: RemoteUnavailable,
+		Code:  CodeHTTPFailed,
+		Message: "server does not implement server/discover: it predates MCP " + ProtocolVersion +
+			" — upgrade the server (this client no longer speaks the older protocol)",
+		Cause: err,
+	}
+}
+
+// errCodeMethodNotFound is JSON-RPC's own "method not found", mirrored from
+// internal/mcpserver for the one message this client has to recognise.
+const errCodeMethodNotFound = -32601
 
 // Health fetches GET /health for the configured MCP endpoint. serverURL
 // normally ends in /mcp; only that terminal path segment is stripped, leaving

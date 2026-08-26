@@ -52,6 +52,58 @@ func setupTestKB(t *testing.T) *kb.KB {
 func runMCPSequence(t *testing.T, s *Server, messages []string) []Response {
 	t.Helper()
 
+	decorated := make([]string, len(messages))
+	for i, m := range messages {
+		decorated[i] = withTestProtocolMeta(m)
+	}
+	return runMCPSequenceRaw(t, s, decorated)
+}
+
+// testProtocolMeta is the _meta block every request must carry since D130,
+// when the handshake era (and with it the request shape that named no
+// protocol version) was removed.
+const testProtocolMeta = `"_meta":{"io.modelcontextprotocol/protocolVersion":"` + ProtocolVersion20260728 + `"}`
+
+// withTestProtocolMeta adds the required protocol metadata to a message that
+// does not already carry it, so that tests written to exercise a tool or a
+// handler keep exercising that, rather than tripping the protocol gate in
+// front of it. Messages that already declare a version are left alone, and so
+// is anything that is not a JSON object (a malformed body a parse-error test
+// wrote on purpose). Tests of the gate itself use runMCPSequenceRaw.
+func withTestProtocolMeta(msg string) string {
+	var envelope map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(msg), &envelope); err != nil {
+		return msg
+	}
+	if _, ok := envelope["method"]; !ok {
+		return msg
+	}
+	params := map[string]json.RawMessage{}
+	if raw, ok := envelope["params"]; ok {
+		if err := json.Unmarshal(raw, &params); err != nil {
+			return msg
+		}
+	}
+	if _, ok := params["_meta"]; ok {
+		return msg
+	}
+	params["_meta"] = json.RawMessage(`{"` + metaKeyProtocolVersion + `":"` + ProtocolVersion20260728 + `"}`)
+	encoded, err := json.Marshal(params)
+	if err != nil {
+		return msg
+	}
+	envelope["params"] = encoded
+	out, err := json.Marshal(envelope)
+	if err != nil {
+		return msg
+	}
+	return string(out)
+}
+
+// runMCPSequenceRaw feeds the messages to the server exactly as written.
+func runMCPSequenceRaw(t *testing.T, s *Server, messages []string) []Response {
+	t.Helper()
+
 	input := strings.Join(messages, "\n") + "\n"
 	reader := strings.NewReader(input)
 
@@ -83,33 +135,33 @@ func runMCPSequence(t *testing.T, s *Server, messages []string) []Response {
 	return responses
 }
 
-func TestServer_Initialize(t *testing.T) {
+func TestServer_Discover(t *testing.T) {
 	k := setupTestKB(t)
 	s := New("0.1.0-m1")
 	RegisterKBTools(s, k, Deps{})
 
-	initMsg := `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{}}}`
-	resps := runMCPSequence(t, s, []string{initMsg})
+	msg := `{"jsonrpc":"2.0","id":1,"method":"server/discover","params":{}}`
+	resps := runMCPSequence(t, s, []string{msg})
 
 	if len(resps) != 1 {
 		t.Fatalf("expected 1 response, received %d", len(resps))
 	}
 	resp := resps[0]
 	if resp.Error != nil {
-		t.Fatalf("initialize: unexpected error: %v", resp.Error)
+		t.Fatalf("server/discover: unexpected error: %v", resp.Error)
 	}
 	if resp.Result == nil {
-		t.Fatal("initialize: result nil")
+		t.Fatal("server/discover: result nil")
 	}
 	resultBytes, _ := json.Marshal(resp.Result)
 	var result map[string]interface{}
 	json.Unmarshal(resultBytes, &result)
 
-	if _, ok := result["protocolVersion"]; !ok {
-		t.Error("initialize: protocolVersion missing in result")
+	if _, ok := result["protocolVersions"]; !ok {
+		t.Error("server/discover: protocolVersions missing in result")
 	}
 	if info, ok := result["serverInfo"].(map[string]interface{}); !ok || info["name"] != "cartographer" {
-		t.Errorf("initialize: unexpected serverInfo: %v", result["serverInfo"])
+		t.Errorf("server/discover: unexpected serverInfo: %v", result["serverInfo"])
 	}
 }
 
@@ -2748,8 +2800,8 @@ func TestServer_Notify(t *testing.T) {
 
 	// Build the stdio sequence.
 	msgs := []string{
-		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
-		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"dummy","arguments":{}}}`,
+		`{"jsonrpc":"2.0","id":1,"method":"server/discover","params":{` + metaNewEra + `}}`,
+		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"dummy","arguments":{},` + metaNewEra + `}}`,
 	}
 	input := strings.Join(msgs, "\n") + "\n"
 
@@ -2773,7 +2825,7 @@ func TestServer_Notify(t *testing.T) {
 	pw.Close()
 	<-done
 
-	// We expect three lines: initialize response, tools/call response, notification.
+	// We expect three lines: discover response, tools/call response, notification.
 	if len(rawLines) < 3 {
 		t.Fatalf("expected at least 3 output lines, got %d: %v", len(rawLines), rawLines)
 	}
@@ -4262,18 +4314,26 @@ func TestServer_IndexPatch_NoSearchIndexMutation(t *testing.T) {
 	}
 }
 
-// --- client roster tests (WP1) ---
+// --- client roster tests (D129) ---
 
-func TestServer_ClientStats_LegacyInitializeWithClientInfo(t *testing.T) {
+// clientMeta builds the _meta block carrying the protocol version and a
+// client identity, which is where the roster reads its rows from since the
+// handshake (and its clientInfo params) were retired (D130).
+func clientMeta(name, version string) string {
+	return `"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28",` +
+		`"io.modelcontextprotocol/clientInfo":{"name":"` + name + `","version":"` + version + `"}}`
+}
+
+func TestServer_ClientStats_ClientInfo(t *testing.T) {
 	s := New("1.0.0")
 	RegisterKBTools(s, setupTestKB(t), Deps{})
 
 	msgs := []string{
-		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","clientInfo":{"name":"test-client","version":"1.2.3"}}}`,
+		`{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{` + clientMeta("test-client", "1.2.3") + `}}`,
 	}
-	resps := runMCPSequence(t, s, msgs)
+	resps := runMCPSequenceRaw(t, s, msgs)
 	if len(resps) != 1 || resps[0].Error != nil {
-		t.Fatalf("initialize: unexpected response: %+v", resps[0])
+		t.Fatalf("tools/list: unexpected response: %+v", resps[0])
 	}
 
 	stats, overflow := s.ClientStats()
@@ -4287,56 +4347,45 @@ func TestServer_ClientStats_LegacyInitializeWithClientInfo(t *testing.T) {
 	if row.ClientName != "test-client" || row.ClientVersion != "1.2.3" {
 		t.Errorf("client name/version = %q/%q, want test-client/1.2.3", row.ClientName, row.ClientVersion)
 	}
-	if row.ProtocolVersion != "2024-11-05" {
-		t.Errorf("protocol version = %q, want 2024-11-05", row.ProtocolVersion)
-	}
-	if row.Era != "handshake" {
-		t.Errorf("era = %q, want handshake", row.Era)
+	if row.ProtocolVersion != ProtocolVersion20260728 {
+		t.Errorf("protocol version = %q, want %q", row.ProtocolVersion, ProtocolVersion20260728)
 	}
 	if row.Count != 1 {
 		t.Errorf("count = %d, want 1", row.Count)
 	}
 }
 
-func TestServer_ClientStats_NewEraToolsCall(t *testing.T) {
+func TestServer_ClientStats_ToolsCall(t *testing.T) {
 	s := New("1.0.0")
 	RegisterKBTools(s, setupTestKB(t), Deps{})
 
-	// Send initialize first to establish the session, then a tools/call with new-era _meta.
 	msgs := []string{
-		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
-		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientInfo":{"name":"new-client","version":"3.0"}},"name":"atlas_overview","arguments":{}}}`,
+		`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{` + clientMeta("new-client", "3.0") + `,"name":"atlas_overview","arguments":{}}}`,
 	}
-	runMCPSequence(t, s, msgs)
+	runMCPSequenceRaw(t, s, msgs)
 
 	stats, _ := s.ClientStats()
-	if len(stats) != 2 {
-		t.Fatalf("expected 2 stat rows, got %d", len(stats))
+	if len(stats) != 1 {
+		t.Fatalf("expected 1 stat row, got %d", len(stats))
 	}
-	// Find the new-era row.
-	var eraRow *ClientStat
-	for i := range stats {
-		if stats[i].Era == "2026-07-28" {
-			eraRow = &stats[i]
-			break
-		}
+	if stats[0].ClientName != "new-client" || stats[0].ClientVersion != "3.0" {
+		t.Errorf("client = %q/%q, want new-client/3.0", stats[0].ClientName, stats[0].ClientVersion)
 	}
-	if eraRow == nil {
-		t.Fatal("no 2026-07-28 era row found")
-	}
-	if eraRow.ClientName != "new-client" || eraRow.ClientVersion != "3.0" {
-		t.Errorf("client = %q/%q, want new-client/3.0", eraRow.ClientName, eraRow.ClientVersion)
+	if stats[0].ProtocolVersion != ProtocolVersion20260728 {
+		t.Errorf("protocol version = %q, want %q", stats[0].ProtocolVersion, ProtocolVersion20260728)
 	}
 }
 
-func TestServer_ClientStats_LegacyPingUnknown(t *testing.T) {
+// A request that carries no clientInfo is still counted, under "unknown":
+// identity is an operational aid, never a requirement.
+func TestServer_ClientStats_UnknownClient(t *testing.T) {
 	s := New("1.0.0")
 	RegisterKBTools(s, setupTestKB(t), Deps{})
 
 	msgs := []string{
-		`{"jsonrpc":"2.0","id":1,"method":"ping","params":{}}`,
+		`{"jsonrpc":"2.0","id":1,"method":"server/discover","params":{` + metaNewEra + `}}`,
 	}
-	runMCPSequence(t, s, msgs)
+	runMCPSequenceRaw(t, s, msgs)
 
 	stats, _ := s.ClientStats()
 	if len(stats) != 1 {
@@ -4357,10 +4406,10 @@ func TestServer_ClientStats_KeyCap(t *testing.T) {
 
 	msgs := make([]string, 70)
 	for i := 0; i < 70; i++ {
-		msgs[i] = fmt.Sprintf(`{"jsonrpc":"2.0","id":%d,"method":"initialize","params":{"protocolVersion":"2024-11-05","clientInfo":{"name":"client-%02d","version":"1.0"}}}`, i+1, i)
+		msgs[i] = fmt.Sprintf(`{"jsonrpc":"2.0","id":%d,"method":"tools/list","params":{%s}}`, i+1, clientMeta(fmt.Sprintf("client-%02d", i), "1.0"))
 	}
 
-	runMCPSequence(t, s, msgs)
+	runMCPSequenceRaw(t, s, msgs)
 
 	stats, overflow := s.ClientStats()
 	if len(stats) != 64 {
@@ -4377,9 +4426,9 @@ func TestServer_ClientStats_Truncation(t *testing.T) {
 
 	longName := strings.Repeat("x", 100)
 	msgs := []string{
-		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","clientInfo":{"name":"` + longName + `","version":"1.0"}}}`,
+		`{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{` + clientMeta(longName, "1.0") + `}}`,
 	}
-	runMCPSequence(t, s, msgs)
+	runMCPSequenceRaw(t, s, msgs)
 
 	stats, _ := s.ClientStats()
 	if len(stats) != 1 {
@@ -4405,9 +4454,9 @@ func TestServer_ClientStats_AuthorizedOnly(t *testing.T) {
 	})
 
 	msgs := []string{
-		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","clientInfo":{"name":"denied-client","version":"1.0"}}}`,
+		`{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{` + clientMeta("denied-client", "1.0") + `}}`,
 	}
-	runMCPSequence(t, s, msgs)
+	runMCPSequenceRaw(t, s, msgs)
 
 	stats, _ := s.ClientStats()
 	if len(stats) != 0 {
@@ -4421,11 +4470,11 @@ func TestServer_ClientStats_Ordering(t *testing.T) {
 
 	// Send requests in random order to verify deterministic sorting.
 	msgs := []string{
-		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","clientInfo":{"name":"beta","version":"2.0"}}}`,
-		`{"jsonrpc":"2.0","id":2,"method":"initialize","params":{"protocolVersion":"2024-11-05","clientInfo":{"name":"alpha","version":"1.0"}}}`,
-		`{"jsonrpc":"2.0","id":3,"method":"initialize","params":{"protocolVersion":"2024-11-05","clientInfo":{"name":"alpha","version":"2.0"}}}`,
+		`{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{` + clientMeta("beta", "2.0") + `}}`,
+		`{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{` + clientMeta("alpha", "1.0") + `}}`,
+		`{"jsonrpc":"2.0","id":3,"method":"tools/list","params":{` + clientMeta("alpha", "2.0") + `}}`,
 	}
-	runMCPSequence(t, s, msgs)
+	runMCPSequenceRaw(t, s, msgs)
 
 	stats, _ := s.ClientStats()
 	if len(stats) != 3 {

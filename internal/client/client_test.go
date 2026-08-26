@@ -477,3 +477,128 @@ func TestHealth_PreservesAbsentVersion(t *testing.T) {
 		t.Errorf("Health.Version = %q, want empty for an older server", health.Version)
 	}
 }
+
+// --- protocol metadata (D130) ---
+
+// captureRequest runs one client call against a server that records the
+// request it received, then returns the recorded body and headers.
+func captureRequest(t *testing.T, call func(c *client.MCPClient) error) (map[string]any, http.Header) {
+	t.Helper()
+	var body map[string]any
+	var headers http.Header
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		headers = r.Header.Clone()
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Errorf("decode request: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"jsonrpc": "2.0", "id": 1,
+			"result": map[string]any{"content": []map[string]any{{"type": "text", "text": "{}"}}},
+		})
+	}))
+	defer srv.Close()
+
+	if err := call(client.New(srv.URL, "")); err != nil {
+		t.Fatalf("call: %v", err)
+	}
+	return body, headers
+}
+
+// Every request carries the protocol version, the client identity and the
+// (empty) client capabilities: with the handshake gone there is no other
+// moment in which to state them.
+func TestRequestCarriesProtocolMeta(t *testing.T) {
+	body, _ := captureRequest(t, func(c *client.MCPClient) error {
+		_, err := c.Call("ok_tool", map[string]any{})
+		return err
+	})
+
+	params, _ := body["params"].(map[string]any)
+	meta, _ := params["_meta"].(map[string]any)
+	if meta == nil {
+		t.Fatalf("params carry no _meta: %v", body)
+	}
+	if got := meta["io.modelcontextprotocol/protocolVersion"]; got != client.ProtocolVersion {
+		t.Errorf("_meta protocolVersion = %v, want %q", got, client.ProtocolVersion)
+	}
+	info, _ := meta["io.modelcontextprotocol/clientInfo"].(map[string]any)
+	if info["name"] != "cartographer" {
+		t.Errorf("clientInfo.name = %v, want cartographer", info["name"])
+	}
+	if _, ok := info["version"]; !ok {
+		t.Errorf("clientInfo carries no version: %v", info)
+	}
+	caps, ok := meta["io.modelcontextprotocol/clientCapabilities"].(map[string]any)
+	if !ok || len(caps) != 0 {
+		t.Errorf("clientCapabilities = %v, want an empty object", meta["io.modelcontextprotocol/clientCapabilities"])
+	}
+	// The call's own arguments survive alongside the protocol metadata.
+	if params["name"] != "ok_tool" {
+		t.Errorf("params.name = %v, want the tool being called", params["name"])
+	}
+}
+
+// The mirror headers exist for intermediaries that never parse the body, and
+// the server rejects any that disagrees with it — so they must match exactly.
+func TestRequestMirrorHeaders(t *testing.T) {
+	body, headers := captureRequest(t, func(c *client.MCPClient) error {
+		_, err := c.Call("ok_tool", map[string]any{})
+		return err
+	})
+
+	if got := headers.Get("MCP-Protocol-Version"); got != client.ProtocolVersion {
+		t.Errorf("MCP-Protocol-Version = %q, want %q", got, client.ProtocolVersion)
+	}
+	if got, want := headers.Get("Mcp-Method"), body["method"]; got != want {
+		t.Errorf("Mcp-Method = %q, want %v", got, want)
+	}
+	if got := headers.Get("Mcp-Name"); got != "ok_tool" {
+		t.Errorf("Mcp-Name = %q, want the tool name from params", got)
+	}
+	accept := headers.Get("Accept")
+	if !strings.Contains(accept, "application/json") || !strings.Contains(accept, "text/event-stream") {
+		t.Errorf("Accept = %q, want both media types the revision requires", accept)
+	}
+}
+
+// Mcp-Name mirrors params.name, which only a tools/call has.
+func TestMcpNameOnlyForToolsCall(t *testing.T) {
+	_, headers := captureRequest(t, func(c *client.MCPClient) error {
+		return c.Ping(2 * time.Second)
+	})
+
+	if got := headers.Get("Mcp-Method"); got != "server/discover" {
+		t.Errorf("Mcp-Method = %q, want server/discover", got)
+	}
+	if got := headers.Get("Mcp-Name"); got != "" {
+		t.Errorf("Mcp-Name = %q, want no name header on a method without params.name", got)
+	}
+}
+
+// A server that predates the revision answers -32601 to server/discover. On
+// its own that reads as "method not found"; the client turns it into the
+// actionable statement that the server is too old.
+func TestPingAgainstPreRevisionServer(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(map[string]any{
+			"jsonrpc": "2.0", "id": 1,
+			"error": map[string]any{"code": -32601, "message": "method not found: server/discover"},
+		})
+	}))
+	defer srv.Close()
+
+	err := client.New(srv.URL, "").Ping(2 * time.Second)
+	if err == nil {
+		t.Fatal("Ping against a pre-revision server = nil, want an error")
+	}
+	if !strings.Contains(err.Error(), "upgrade the server") {
+		t.Errorf("error = %q, want it to name the upgrade as the remedy", err)
+	}
+	var re *client.RemoteError
+	if !errors.As(err, &re) {
+		t.Fatalf("error is not a RemoteError: %T", err)
+	}
+}

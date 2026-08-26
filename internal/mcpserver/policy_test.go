@@ -27,7 +27,7 @@ func TestPolicyExactReadDoesNotDiscloseForbiddenConcept(t *testing.T) {
 	s := New("test")
 	RegisterKBTools(s, k, Deps{})
 	ctx := restrictedContext(auth.Policy{Permissions: []auth.Permission{{KB: "docs", Maps: []string{"other"}}}})
-	req := &Request{ID: json.RawMessage(`1`), Method: "tools/call", Params: json.RawMessage(`{"name":"concept_read","arguments":{"id":"manutenzione/test-runbook"}}`)}
+	req := dispatchReady(&Request{ID: json.RawMessage(`1`), Method: "tools/call", Params: json.RawMessage(`{"name":"concept_read","arguments":{"id":"manutenzione/test-runbook"}}`)})
 	resp := s.dispatch(ctx, req)
 	b, _ := json.Marshal(resp)
 	if strings.Contains(string(b), "manutenzione/test-runbook") || !strings.Contains(string(b), genericNotFound) {
@@ -249,7 +249,7 @@ func TestMissingPrincipalFailsClosedEverywhere(t *testing.T) {
 		WholeVisible(context.Background(), k, false) {
 		t.Fatal("missing principal acquired visibility")
 	}
-	call := &Request{ID: json.RawMessage(`1`), Method: "tools/call", Params: json.RawMessage(`{"name":"concept_read","arguments":{"id":"manutenzione/test-runbook"}}`)}
+	call := dispatchReady(&Request{ID: json.RawMessage(`1`), Method: "tools/call", Params: json.RawMessage(`{"name":"concept_read","arguments":{"id":"manutenzione/test-runbook"}}`)})
 	if result := decodeToolResult(t, s.dispatch(context.Background(), call)); !result.IsError || result.Content[0].Text != genericNotFound {
 		t.Fatalf("missing principal dispatch = %+v, want generic non-disclosure", result)
 	}
@@ -261,13 +261,13 @@ func TestMissingPrincipalFailsClosedEverywhere(t *testing.T) {
 	}
 	// The transport paths must carry the same rule: a bare HTTP/stdin context
 	// has no authority, while Server.Run supplies its explicit local principal.
-	body := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"concept_read","arguments":{"id":"manutenzione/test-runbook"}}}`
+	body := withTestProtocolMeta(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"concept_read","arguments":{"id":"manutenzione/test-runbook"}}}`)
 	for name, handler := range map[string]http.Handler{
 		"bare HTTP":          s.HTTPHandler(),
 		"auth-disabled HTTP": auth.NewTokenStore(nil).Middleware(s.HTTPHandler()),
 	} {
 		rr := httptest.NewRecorder()
-		handler.ServeHTTP(rr, httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(body)))
+		handler.ServeHTTP(rr, newMCPPost("/mcp", body))
 		var httpResp Response
 		if err := json.Unmarshal(rr.Body.Bytes(), &httpResp); err != nil {
 			t.Fatalf("%s: %v", name, err)

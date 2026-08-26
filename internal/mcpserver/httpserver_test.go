@@ -1,7 +1,6 @@
 package mcpserver
 
 import (
-	"bytes"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -35,7 +34,7 @@ func TestMultiKB_PathRouting_KnownName(t *testing.T) {
 		t.Fatalf("?kb=kby: status = %d, want 200; body=%s", rr.Code, rr.Body.String())
 	}
 
-	req := httptest.NewRequest(http.MethodPost, "/mcp/kbx", strings.NewReader(toolsListBody))
+	req := newMCPPost("/mcp/kbx", toolsListBody)
 	req.Header.Set("Content-Type", "application/json")
 	rr = httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
@@ -48,7 +47,7 @@ func TestMultiKB_PathRouting_UnknownName(t *testing.T) {
 	multi := newMultiKBTestHandler(t, "kbx")
 	handler := multi.Handler()
 
-	req := httptest.NewRequest(http.MethodPost, "/mcp/does-not-exist", strings.NewReader(toolsListBody))
+	req := newMCPPost("/mcp/does-not-exist", toolsListBody)
 	req.Header.Set("Content-Type", "application/json")
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
@@ -61,7 +60,7 @@ func TestMultiKB_PathRouting_ConflictingKBSelection(t *testing.T) {
 	multi := newMultiKBTestHandler(t, "kbx", "kby")
 	handler := multi.Handler()
 
-	req := httptest.NewRequest(http.MethodPost, "/mcp/kbx?kb=kby", strings.NewReader(toolsListBody))
+	req := newMCPPost("/mcp/kbx?kb=kby", toolsListBody)
 	req.Header.Set("Content-Type", "application/json")
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
@@ -74,7 +73,7 @@ func TestMultiKB_PathRouting_AgreeingKBSelection(t *testing.T) {
 	multi := newMultiKBTestHandler(t, "kbx", "kby")
 	handler := multi.Handler()
 
-	req := httptest.NewRequest(http.MethodPost, "/mcp/kbx?kb=kbx", strings.NewReader(toolsListBody))
+	req := newMCPPost("/mcp/kbx?kb=kbx", toolsListBody)
 	req.Header.Set("Content-Type", "application/json")
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
@@ -362,8 +361,7 @@ func TestClients_HandlerConstructors(t *testing.T) {
 	// Simulate a few MCP requests so the roster is non-empty.
 	mcpBody := writeToolCallBody("atlas_overview")
 	for i := 0; i < 3; i++ {
-		req := httptest.NewRequest(http.MethodPost, "/mcp", bytes.NewReader([]byte(mcpBody)))
-		req.Header.Set("Content-Type", "application/json")
+		req := newMCPPost("/mcp", mcpBody)
 		rr := httptest.NewRecorder()
 		s.handleMCPPost(rr, req)
 	}
@@ -409,15 +407,13 @@ func TestClients_HandlerConstructors(t *testing.T) {
 	}
 	// Hit /mcp?kb=alpha to populate its roster.
 	for i := 0; i < 2; i++ {
-		req := httptest.NewRequest(http.MethodPost, "/mcp?kb=alpha", bytes.NewReader([]byte(mcpBody)))
-		req.Header.Set("Content-Type", "application/json")
+		req := newMCPPost("/mcp?kb=alpha", mcpBody)
 		rr := httptest.NewRecorder()
 		multi.Handler().ServeHTTP(rr, req)
 	}
 	// Hit /mcp?kb=beta to populate its roster.
 	for i := 0; i < 1; i++ {
-		req := httptest.NewRequest(http.MethodPost, "/mcp?kb=beta", bytes.NewReader([]byte(mcpBody)))
-		req.Header.Set("Content-Type", "application/json")
+		req := newMCPPost("/mcp?kb=beta", mcpBody)
 		rr := httptest.NewRecorder()
 		multi.Handler().ServeHTTP(rr, req)
 	}

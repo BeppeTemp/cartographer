@@ -57,8 +57,10 @@ wait_health() {
 
 mcp() {
     local port="$1" kb="$2" payload="$3"
+    local headers=()
+    mcp_protocol_headers "$payload" headers
     curl -sf -X POST "http://127.0.0.1:${port}/mcp?kb=${kb}" \
-        -H 'content-type: application/json' -d "$payload" >/dev/null
+        -H 'content-type: application/json' "${headers[@]}" -d "$payload" >/dev/null
 }
 
 # --- Setup: bare remote + clone A initialized as KB ---

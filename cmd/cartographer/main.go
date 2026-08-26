@@ -5,6 +5,8 @@ import (
 	"io"
 	"log"
 	"os"
+
+	"github.com/BeppeTemp/cartographer/internal/client"
 )
 
 // version is the build version, normally overridden at link time via
@@ -65,6 +67,9 @@ var (
 func main() {
 	log.SetOutput(os.Stderr)
 	log.SetFlags(log.Ltime | log.Lshortfile)
+	// The MCP client reports this binary's version as clientInfo.version on
+	// every request (D130), which is what the server's /clients roster shows.
+	client.Version = version
 	os.Exit(run(os.Args[1:]))
 }
 

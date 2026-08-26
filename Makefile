@@ -27,9 +27,9 @@ smoke-http: build ## HTTP flow smoke test: creates KB, archives, dossiers via MC
 	@./test/smoke/http.sh
 
 smoke: build ## Build + quick stdio test
-	@echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{}}}' | \
+	@echo '{"jsonrpc":"2.0","id":1,"method":"server/discover","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28"}}}' | \
 		./bin/cartographer serve --kb ./demo-kb --init 2>/dev/null | \
-		grep -q '"protocolVersion"' && echo "smoke: OK" || (echo "smoke: FAIL" && exit 1)
+		grep -q '"protocolVersions"' && echo "smoke: OK" || (echo "smoke: FAIL" && exit 1)
 
 docker: ## Build the Docker image
 	docker build -t cartographer .
