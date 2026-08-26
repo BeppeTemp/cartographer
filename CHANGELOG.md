@@ -4,6 +4,17 @@
 
 KB histories with commits authored as `cartographer <cartographer@localhost>` may need a manual author rewrite before a forge with author push rules accepts the first push.
 
+## [0.7.0](https://github.com/BeppeTemp/cartographer/compare/v0.6.1...v0.7.0) (2026-08-26)
+
+
+### ⚠ BREAKING CHANGES
+
+* **cli:** require a git remote for `kb create` ([#131](https://github.com/BeppeTemp/cartographer/issues/131))
+
+### Features
+
+* **cli:** require a git remote for `kb create` ([#131](https://github.com/BeppeTemp/cartographer/issues/131)) ([69f21cc](https://github.com/BeppeTemp/cartographer/commit/69f21ccc45744845cd0e7c6662043f020ace9aad))
+
 ## [0.6.1](https://github.com/BeppeTemp/cartographer/compare/v0.6.0...v0.6.1) (2026-08-17)
 
 
