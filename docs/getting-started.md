@@ -31,13 +31,18 @@ so the server survives reboots and listens on `127.0.0.1:39273`:
 
 ```bash
 cartographer service install    # generates the config, installs and starts the service
-cartographer kb create my-kb --restart
+cartographer kb create my-kb --remote <git-remote-url> --restart
 ```
 
 `kb create` scaffolds the KB in the service's data dir: a git repository with
 `data/index.md` and `data/log.md`, plus a local search index under
-`.cartographer/` (never committed). `--restart` makes the running server pick
-it up. Every write from now on will be one git commit — the KB is a plain
+`.cartographer/` (never committed). `--remote` must point at an **empty**
+repository (GitHub, Gitea, a bare repo — anything git can push to): it becomes
+the KB's `origin`, which is what makes the KB durable and syncable, and the
+initial commit is pushed to it right away. For a repository that already
+contains a KB use `cartographer kb clone <url>` instead; for a throwaway local
+trial, `--no-remote` skips the remote and warns that the KB is neither backed
+up nor synced (D134). `--restart` makes the running server pick it up. Every write from now on will be one git commit — the KB is a plain
 folder of Markdown you can open in any editor or in Obsidian.
 
 > **Running it by hand instead.** For development you can skip the service and

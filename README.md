@@ -129,13 +129,16 @@ first KB, and connect an agent client to it.
 ```bash
 brew install beppetemp/tap/cartographer   # or curl install.sh, or `go install` (see Install above)
 cartographer service install              # generates config, installs and starts the service
-cartographer kb create <name>             # scaffolds a KB in the service's data dir
+cartographer kb create <name> --remote <url>  # scaffolds a KB in the data dir, pushes it to <url>
 cartographer connect                      # connects an agent client (Claude Code, OpenCode, Codex, Kiro)
 ```
 
-`cartographer kb create <name>` prints how to get the server to pick up the new KB
-(`cartographer service restart`, or `--restart` to do it and wait for it automatically); `service
-install` itself hints at `kb create` if it starts with no KB mounted yet.
+`--remote <url>` is an **empty** git repository that becomes the KB's `origin`: a KB is a git
+repository, and that remote is what makes it durable and syncable (`--no-remote` creates a
+local-only KB that is neither, D134). A repository that already holds a KB is mounted with
+`cartographer kb clone <remote>` instead. `kb create` prints how to get the server to pick up the
+new KB (`cartographer service restart`, or `--restart` to do it and wait for it automatically);
+`service install` itself hints at `kb create` if it starts with no KB mounted yet.
 
 Upgrades of a native local install (`brew upgrade` or `install.sh update`) repair themselves:
 the new binary restarts the running service and re-synchronizes the configured providers in

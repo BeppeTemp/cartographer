@@ -267,7 +267,7 @@ cartographer service install                 # generates config + plist/unit, st
 cartographer service status                  # binary, config, installed/running/healthy
 cartographer service start|stop|restart
 cartographer service uninstall               # removes the service; config and data remain
-cartographer kb create <name>                # scaffolds a KB in the service's data dir (D85)
+cartographer kb create <name> --remote <url> # scaffolds a KB in the data dir, pushes it to <url> (D85, D134)
 cartographer kb clone <remote>               # mounts an existing remote KB in that data dir (D97)
 ```
 
@@ -277,7 +277,7 @@ cartographer kb clone <remote>               # mounts an existing remote KB in t
 - macOS: LaunchAgent `~/Library/LaunchAgents/com.cartographer.serve.plist` (`KeepAlive`, logging to `~/Library/Logs/cartographer/server.log`). The plist's binary path prefers a stable Homebrew symlink (`/opt/homebrew/bin/cartographer` or `/usr/local/bin/cartographer`) over the versioned Caskroom path, so it survives `brew upgrade` without a re-install (D83);
 - Linux: systemd user unit `~/.config/systemd/user/cartographer.service` (log via `journalctl --user -u cartographer`; on a headless host, `loginctl enable-linger <user>` is needed for the service to survive logout).
 
-Binds to **loopback** by default (`127.0.0.1:39273`) → auth stays in auto-off mode without exposing anything on the network. With an empty (or missing — D83: `serve` creates it and treats it as empty rather than failing) data dir the server starts with 0 KBs — `/health` is still up (liveness: `status:"ok"`) but `/ready` reports `503 {"ready":false}` (D84, §Observability): `cartographer kb create <name>` scaffolds a subfolder KB the same way `serve --kb <path> --init` would (D85), while `cartographer kb clone <remote>` mounts an existing OKF remote there (D97; `service install` itself prints a hint pointing at creation if it starts with 0 KBs mounted), or add `kbs:` entries to clone remotes (§Bootstrapping a KB) — either way, `service restart` (or `kb create --restart` / `kb clone --restart`, which do this for you and wait for the server to report healthy again) is what makes the new KB visible.
+Binds to **loopback** by default (`127.0.0.1:39273`) → auth stays in auto-off mode without exposing anything on the network. With an empty (or missing — D83: `serve` creates it and treats it as empty rather than failing) data dir the server starts with 0 KBs — `/health` is still up (liveness: `status:"ok"`) but `/ready` reports `503 {"ready":false}` (D84, §Observability): `cartographer kb create <name> --remote <url>` scaffolds a subfolder KB the same way `serve --kb <path> --init` would (D85) and pushes it to the empty repository at `<url>`, which becomes its `origin` — the remote is mandatory, `--no-remote` being the explicit opt-out for a local-only, non-durable KB (D134) — while `cartographer kb clone <remote>` mounts an existing OKF remote there (D97; `service install` itself prints a hint pointing at creation if it starts with 0 KBs mounted), or add `kbs:` entries to clone remotes (§Bootstrapping a KB) — either way, `service restart` (or `kb create --restart` / `kb clone --restart`, which do this for you and wait for the server to report healthy again) is what makes the new KB visible.
 
 `service status` uses systemctl-like exit codes: `0` running, `3` installed but stopped, `4` not installed — this is what lets `install.sh update` automatically restart only a running service (see §Client installation).
 
