@@ -2,6 +2,8 @@
 
 ### Migration note
 
+`cartographer kb create <name>` now requires an explicit remote decision: pass `--remote <url>` to attach an empty repository as the KB's `origin` and push the initial commit to it, or `--no-remote` to keep the previous behaviour and create a local-only KB. Without either flag the command exits 2. Scripted invocations must be updated; `--no-remote` restores exactly what they did before.
+
 KB histories with commits authored as `cartographer <cartographer@localhost>` may need a manual author rewrite before a forge with author push rules accepts the first push.
 
 ## [0.7.0](https://github.com/BeppeTemp/cartographer/compare/v0.6.1...v0.7.0) (2026-08-26)
