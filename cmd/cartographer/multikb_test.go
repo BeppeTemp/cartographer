@@ -51,9 +51,9 @@ func TestEnumerateKBs_HealthShapes(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			srv := multiKBServer(t, tc.health)
 			defer srv.Close()
-			got, present, err := enumerateKBs(srv.URL+"/mcp", false, "")
-			if err != nil || present != tc.present || strings.Join(got, ",") != strings.Join(tc.want, ",") {
-				t.Fatalf("enumerateKBs = (%v, %v, %v), want (%v, %v, nil)", got, present, err, tc.want, tc.present)
+			facts, err := enumerateKBs(srv.URL+"/mcp", false, "")
+			if err != nil || facts.Listed != tc.present || strings.Join(facts.Names, ",") != strings.Join(tc.want, ",") {
+				t.Fatalf("enumerateKBs = (%v, %v, %v), want (%v, %v, nil)", facts.Names, facts.Listed, err, tc.want, tc.present)
 			}
 		})
 	}

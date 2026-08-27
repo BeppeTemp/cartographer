@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"sort"
 	"strings"
 
 	"github.com/BeppeTemp/cartographer/internal/agents"
@@ -39,6 +40,11 @@ type providerStatus struct {
 	// managed key/block removed from a shared file. `cartographer sync`
 	// restores them.
 	Diverged []statusArtifact `json:"diverged,omitempty"`
+	// ServerVersion is the server version this provider's state was
+	// materialized against, as recorded in the lockfile (D142). Empty when
+	// unknown (a lockfile written before D142). Shown next to the live
+	// version so a server change is inspectable without running a sync.
+	ServerVersion string `json:"materialized_server_version,omitempty"`
 }
 
 type statusArtifact struct {
@@ -174,6 +180,7 @@ func snapshotForConfig(dir string, cfg *clientconfig.Config, includeService bool
 		// nothing about what is actually on disk, so an artifact edited or
 		// deleted locally used to report in-sync.
 		lock := lockFile.ForProvider(p.Name)
+		p.ServerVersion = lock.ServerVersion
 		p.Diverged = snapshotDiverged(provisioning.VerifyManaged(lock, configurator.Provider(p.Name), provisioning.LockBaseDir(lock, dir)))
 		if d.InSync && len(p.Diverged) == 0 {
 			p.State = "in_sync"
@@ -257,4 +264,25 @@ func providerStatuses(cfg *clientconfig.Config) []providerStatus {
 
 func emptySnapshot() statusSnapshot {
 	return statusSnapshot{Schema: statusSchema, Client: version, State: "not_configured", Providers: providerStatuses(nil)}
+}
+
+// snapshotMaterializedVersions returns the distinct recorded server versions
+// of the connected providers that differ from the live one (D142), sorted;
+// empty when there is nothing to report. Unknown and "dev" versions are
+// ignored on either side, the same rule the client/server skew line uses.
+func snapshotMaterializedVersions(s statusSnapshot) []string {
+	if !s.Reachable || !versionIsComparable(s.Server) {
+		return nil
+	}
+	var out []string
+	seen := map[string]bool{}
+	for _, p := range s.Providers {
+		if !p.Connected || !versionIsComparable(p.ServerVersion) || p.ServerVersion == s.Server || seen[p.ServerVersion] {
+			continue
+		}
+		seen[p.ServerVersion] = true
+		out = append(out, p.ServerVersion)
+	}
+	sort.Strings(out)
+	return out
 }

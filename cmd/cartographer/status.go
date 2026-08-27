@@ -82,6 +82,12 @@ func renderStatus(output string, s statusSnapshot, code int) int {
 			fmt.Println("local service may still run the old binary — run: cartographer upgrade-repair")
 		}
 	}
+	// The server this client's state was materialized against, when it is not
+	// the one answering now (D142): inspectable without running a sync.
+	if changed := snapshotMaterializedVersions(s); len(changed) > 0 {
+		fmt.Printf("configured against server %s — now %s: run `cartographer reconnect` to rebuild the client configuration\n",
+			strings.Join(changed, ", "), s.Server)
+	}
 	for _, p := range s.Providers {
 		if !p.Connected {
 			continue

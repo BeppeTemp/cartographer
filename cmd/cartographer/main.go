@@ -28,6 +28,7 @@ var subcommands = []subcommand{
 	{"Client", "disconnect", "Disconnect an agent client"},
 	{"Client", "status", "Show client sync status"},
 	{"Client", "sync", "Synchronize agent clients"},
+	{"Client", "reconnect", "Rebuild an agent client's configuration from scratch"},
 	{"Client", "approve", "Approve or revoke a third-party MCP descriptor"},
 	{"Server", "serve", "Run the MCP server"},
 	{"Server", "service", "Manage the native server service"},
@@ -49,6 +50,7 @@ var (
 	agentsFn        = cmdAgents
 	connectFn       = cmdConnect
 	disconnectFn    = cmdDisconnect
+	reconnectFn     = cmdReconnect
 	statusFn        = cmdStatus
 	syncFn          = cmdSync
 	approveFn       = cmdApprove
@@ -99,6 +101,8 @@ func run(args []string) int {
 		return connectFn(rest)
 	case "disconnect":
 		return disconnectFn(rest)
+	case "reconnect":
+		return reconnectFn(rest)
 	case "status":
 		return statusFn(rest)
 	case "sync":
