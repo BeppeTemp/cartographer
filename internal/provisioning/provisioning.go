@@ -150,6 +150,12 @@ type ApplyOptions struct {
 	ExpandPlaceholders bool
 	SearchRoots        []string
 	Paths              map[string]string
+
+	// NoHeal reports on-disk divergence (AppliedResult.Divergent) instead of
+	// restoring it (D139). The escape hatch for someone deliberately
+	// iterating on a materialized copy; off by default, because the default
+	// must match what the D138 provenance stamp promises the reader.
+	NoHeal bool
 }
 
 // AppliedResult is the result of Apply.
@@ -162,6 +168,14 @@ type AppliedResult struct {
 	// provider (destDir == ""). Distinct from NeedsApproval: no approval
 	// unblocks them — the provider simply doesn't support them.
 	Unsupported []Artifact
+	// Healed: artifacts restored because their files on disk had diverged
+	// from what the lockfile recorded (D139). Reported separately from
+	// Written: a restore means someone's local change was discarded, which
+	// must be visible rather than folded into "3 updated".
+	Healed []ManagedFile
+	// Divergent: on-disk divergence detected but NOT restored, because
+	// opts.NoHeal was set.
+	Divergent []DriftFinding
 	// Warnings: non-fatal messages about individual aspects of materialization
 	// that stay partial without failing Apply — today the only case is an
 	// OpenCode hook whose KB event has no equivalent in OpenCode's plugin
@@ -295,6 +309,13 @@ func VerifiedManifest(m Manifest, pins map[string][]ed25519.PublicKey) (Manifest
 		a.Signed = true
 	}
 	return Manifest{Revision: m.Revision, GeneratedAt: m.GeneratedAt, Artifacts: artifacts}, nil
+}
+
+// ContentHashDirOSForKind is contentHashDirOS exported for callers that must
+// reproduce a materialized artifact's hash — the client's own status check
+// and its tests (D139).
+func ContentHashDirOSForKind(dirPath, kind string) (string, error) {
+	return contentHashDirOS(dirPath, kind)
 }
 
 func contentHashDirOS(dirPath, kind string) (string, error) {
@@ -1050,18 +1071,35 @@ func Apply(m Manifest, opts ApplyOptions) (AppliedResult, error) {
 	for _, a := range toWrite {
 		toWriteKeys[a.Kind+"\x00"+a.Name] = true
 	}
-	// The lock tracks content hashes, so a chmod alone does not make an
-	// artifact Updated. Restore the promised executable modes nevertheless:
-	// scripts arrive over sync_pull with their mode in ArtifactFile and must not
-	// become non-runnable merely because their bytes are unchanged.
-	for _, a := range m.Artifacts {
-		key := a.Kind + "\x00" + a.Name
-		if toWriteKeys[key] || !artifactAuthorized(a, opts) {
+	// On-disk verification (D139): the manifest↔lockfile comparison above says
+	// nothing about what is actually on disk. An artifact whose files were
+	// edited, deleted, or whose managed key/block was removed from a shared
+	// file is rewritten from the server's version — the server is the source
+	// of truth and sync restores, no merge and no backup copy. This also
+	// covers executable-mode drift, which is part of the materialized hash:
+	// a chmod alone is a modified artifact.
+	healed := make(map[string]bool)
+	for _, f := range VerifyManaged(opts.Lock, opts.Provider, opts.BaseDir) {
+		if !f.Healable() {
 			continue
 		}
-		if executableModeDrift(a, opts) {
-			toWrite = append(toWrite, a)
-			toWriteKeys[key] = true
+		if opts.NoHeal {
+			result.Divergent = append(result.Divergent, f)
+			continue
+		}
+		key := f.Kind + "\x00" + f.Name
+		if toWriteKeys[key] {
+			continue
+		}
+		// Authorization is unchanged: an unauthorized artifact is never
+		// healed, it goes to NeedsApproval exactly as it would otherwise.
+		for _, a := range m.Artifacts {
+			if a.Kind == f.Kind && a.Name == f.Name && artifactAuthorized(a, opts) {
+				toWrite = append(toWrite, a)
+				toWriteKeys[key] = true
+				healed[key] = true
+				break
+			}
 		}
 	}
 	unauthorizedMCPKeys := make(map[string]bool)
@@ -1269,6 +1307,9 @@ func Apply(m Manifest, opts ApplyOptions) (AppliedResult, error) {
 			}
 			newManaged = append(newManaged, mf)
 			result.Written = append(result.Written, mf)
+			if healed[a.Kind+"\x00"+a.Name] {
+				result.Healed = append(result.Healed, mf)
+			}
 		}
 	}
 
@@ -1276,7 +1317,13 @@ func Apply(m Manifest, opts ApplyOptions) (AppliedResult, error) {
 	// applied before the generic prune below, which must ignore its
 	// ManagedFile entries (see the genericRemoved filter) — applyInstructionsGroup
 	// already takes care of it internally by rewriting the block wholesale.
-	if err := applyInstructionsGroup(m, diff, opts, tracker, &result, &newManaged); err != nil {
+	forceInstructions := false
+	for key := range healed {
+		if strings.HasPrefix(key, "instructions\x00") {
+			forceInstructions = true
+		}
+	}
+	if err := applyInstructionsGroup(m, diff, opts, tracker, &result, &newManaged, forceInstructions); err != nil {
 		return AppliedResult{}, err
 	}
 
@@ -1323,40 +1370,6 @@ func Apply(m Manifest, opts ApplyOptions) (AppliedResult, error) {
 	return result, nil
 }
 
-// executableModeDrift reports whether an unchanged skill or hook has a file
-// whose executable bits no longer match the manifest. Source-read failures are
-// intentionally ignored: before this best-effort repair Apply could complete
-// an unchanged manifest without reading its source at all.
-func executableModeDrift(a Artifact, opts ApplyOptions) bool {
-	if a.Kind != "skill" && a.Kind != "hook" {
-		return false
-	}
-	destRel := destDir(a.Kind, a.Name, opts.Provider)
-	if destRel == "" {
-		return false
-	}
-	files, err := ReadArtifactFiles(a, opts.BundleFS, opts.KBRoots)
-	if err != nil {
-		return false
-	}
-	for _, f := range files {
-		local := filepath.FromSlash(f.Path)
-		if !filepath.IsLocal(local) {
-			// copyArtifactFiles will surface this when the artifact otherwise
-			// changes; an unchanged malformed artifact is not mode drift.
-			return false
-		}
-		info, err := os.Stat(filepath.Join(opts.BaseDir, destRel, local))
-		if err != nil {
-			continue
-		}
-		if (info.Mode()&0o111 != 0) != effectiveExecutable(a.Kind, local, f.Executable) {
-			return true
-		}
-	}
-	return false
-}
-
 // --- Instructions: managed block (D56) ---
 
 // instructionsBlockBegin/instructionsBlockEnd delimit the block Cartographer
@@ -1390,7 +1403,7 @@ const (
 // keep newManaged consistent with the unchanged state — with Path equal to the
 // provider's shared file, so KindCounts reports "instructions n/n" instead of
 // counting a single physical file.
-func applyInstructionsGroup(m Manifest, diff Diff, opts ApplyOptions, tracker *expansionTracker, result *AppliedResult, newManaged *[]ManagedFile) error {
+func applyInstructionsGroup(m Manifest, diff Diff, opts ApplyOptions, tracker *expansionTracker, result *AppliedResult, newManaged *[]ManagedFile, force bool) error {
 	destRel := destDir("instructions", "", opts.Provider)
 	if destRel == "" {
 		// Provider with no known destination for instructions (none today: all
@@ -1405,8 +1418,9 @@ func applyInstructionsGroup(m Manifest, diff Diff, opts ApplyOptions, tracker *e
 		return nil
 	}
 
-	// Trigger: did something in the instructions kind change in this Apply?
-	triggered := false
+	// Trigger: did something in the instructions kind change in this Apply —
+	// or did the managed block disappear from the provider's file (D139)?
+	triggered := force
 	for _, a := range diff.Added {
 		if a.Kind == "instructions" {
 			triggered = true
@@ -2122,7 +2136,11 @@ func copyArtifactFiles(a Artifact, opts ApplyOptions, fullDestDir string, tracke
 			content = stampArtifact(content, a)
 			stamped = true
 		}
-		expanded = append(expanded, ArtifactFile{Path: f.Path, Content: content, Executable: f.Executable})
+		// The materialized hash must describe what is on disk, so it records
+		// the NORMALIZED mode the write below applies (D139): a hook's
+		// hook.json is forced non-executable and its other files executable,
+		// so hashing the source flag would report drift on the first check.
+		expanded = append(expanded, ArtifactFile{Path: f.Path, Content: content, Executable: effectiveExecutable(a.Kind, local, f.Executable)})
 
 		dstPath := filepath.Join(fullDestDir, local)
 		if err := os.MkdirAll(filepath.Dir(dstPath), 0o755); err != nil {

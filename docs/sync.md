@@ -53,6 +53,9 @@ Hook **`cartographer-bootstrap`** (reserved name, `provisioning.BootstrapHookNam
 | opencode | `session.created` event | generated plugin in `~/.config/opencode/plugins/` |
 | kiro | — (no native hook) | falls back to Layer 2 |
 
+Beyond the revision comparison, every `sync` also verifies the managed files on disk and restores
+what diverged — see §On-disk verification and healing.
+
 ### Layer 2 — On-demand MCP tools
 
 | Tool | What it does |
@@ -98,10 +101,37 @@ that same native service over loopback HTTP; any other endpoint is skipped rathe
 
 ## Pruning
 
-- `Apply`/`PruneManaged` remove **only** the paths in `managed[]` that are no longer in the manifest — never files not created by Cartographer.
+- `Apply`/`PruneManaged` remove **only** the paths in `managed[]` that are no longer in the manifest — never files not created by Cartographer. Healing (D139) obeys the same boundary: it reads and rewrites managed paths only.
 - **Empty directories** (`pruneEmptyDirs`): after every removal, it walks up the parent directories deleting the ones left empty, always stopping at known roots (`.claude`, `.codex`, `.kiro`, `.opencode`, `.config`, `.config/opencode`, or `BaseDir`), which are never removed. `os.Remove` (never `RemoveAll`) is the natural guard against non-empty directories.
 - **MCP configs reduced to empty** (`configurator.Remove`): once the entry is removed, an empty `mcpServers`/`mcp` map is removed too; `.kiro/settings/mcp.json` and `opencode.json` reduced to an empty shell are deleted. **Absolute exception**: `.claude.json` is never deleted (it's a file shared by Claude Code). For `.codex/config.toml`, only the marker-delimited block is removed (the file is deleted if it ends up empty).
 - Round-trip `connect`→`disconnect` leaves no residue, except for the provisioning roots themselves (deliberate boundaries): test `TestRoundTrip_ConnectDisconnect_NessunResiduo`. Details → [D63](decisions/client-configurator.md#d63).
+
+## On-disk verification and healing (D139)
+
+Revision comparison answers "is the lockfile current"; it says nothing about the files. Every
+`sync` therefore also verifies the managed artifacts **against the filesystem** and restores what
+diverged: a skill edited by hand, an agent file deleted, a managed key or block removed from a
+shared file. The server is the source of truth — a restore is a rewrite, never a merge, and no
+backup copy is kept. That is exactly what the provenance stamp promises the reader.
+
+Verification scope per kind, decided by what is verifiable:
+
+| Kind | Check |
+|---|---|
+| `skill`, `hook` | the artifact's own directory is re-hashed with the same helper that produced `materialized_hash` — an extra file left inside counts as modified, and a lost executable bit is part of the hash |
+| `agent` | the single materialized file's bytes |
+| `mcp`, `instructions` | **presence only** of the managed key or marker block: the file is shared with the user, so its other content is never compared and never rewritten |
+
+Findings are `missing`, `modified`, `unregistered`, or `unknown`. `unknown` means the lockfile
+records no `materialized_hash` (written before D138): it is reported, never healed — treating it as
+drift would rewrite every artifact on every client at once on the first upgrade. A read error is a
+finding too, never a fatal: one unreadable artifact must not abort the verification of the others.
+
+`cartographer sync --no-heal` reports divergence and skips the restore, for someone deliberately
+iterating on a local copy. `cartographer status` counts on-disk divergence as drift, so a locally
+modified artifact now exits 1 where it used to exit 0. Healing obeys the pruning guarantee
+unchanged: only paths in `managed[]` are ever read, written or removed, and `--dry-run` writes
+nothing.
 
 ## Provenance stamp (D138)
 

@@ -539,7 +539,7 @@ func doConnect(opts connectOptions) (connectResult, error) {
 		res.Deferred = true
 		res.DeferredErr = err
 	} else {
-		applied, err := materializeForProviders(m, opts.Providers, opts.Dir, opts.Trust || opts.AutoTrust, opts.DryRun, existing.SearchRoots, existing.Paths, existing.ApprovedMCPHashes())
+		applied, err := materializeForProviders(m, opts.Providers, opts.Dir, opts.Trust || opts.AutoTrust, opts.DryRun, false /* noHeal */, existing.SearchRoots, existing.Paths, existing.ApprovedMCPHashes())
 		if err != nil {
 			return connectResult{}, err
 		}

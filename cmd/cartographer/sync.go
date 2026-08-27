@@ -18,6 +18,7 @@ func cmdSync(args []string) int {
 	fs := flag.NewFlagSet("sync", flag.ExitOnError)
 	dryRun := fs.Bool("dry-run", false, "Print what would change without writing")
 	autoTrust := fs.Bool("auto-trust", false, "Trust KB-sourced skills without explicit signature (one-time override; see the persisted `trust` setting in .cartographer.yaml)")
+	noHeal := fs.Bool("no-heal", false, "Report locally modified managed artifacts instead of restoring them from the server")
 	fs.Parse(args)
 
 	dir, err := clientconfig.TargetDir()
@@ -35,7 +36,7 @@ func cmdSync(args []string) int {
 		return 0
 	}
 
-	if _, err := runSync(dir, cfg, syncOptions{DryRun: *dryRun, AutoTrust: *autoTrust}); err != nil {
+	if _, err := runSync(dir, cfg, syncOptions{DryRun: *dryRun, AutoTrust: *autoTrust, NoHeal: *noHeal}); err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		return 2
 	}
@@ -49,6 +50,10 @@ func cmdSync(args []string) int {
 type syncOptions struct {
 	DryRun    bool
 	AutoTrust bool
+	// NoHeal reports artifacts whose files diverged on disk instead of
+	// restoring them (D139). upgrade-repair never sets it: repairing is its
+	// entire purpose.
+	NoHeal bool
 }
 
 // syncResult is the subset of a completed sync a caller may need beyond the
@@ -120,7 +125,7 @@ func runSync(dir string, cfg *clientconfig.Config, opts syncOptions) (syncResult
 		return syncResult{}, err
 	}
 
-	results, err := materializeForProviders(m, cfg.Agents, dir, cfg.Trust || opts.AutoTrust, opts.DryRun, cfg.SearchRoots, cfg.Paths, cfg.ApprovedMCPHashes())
+	results, err := materializeForProviders(m, cfg.Agents, dir, cfg.Trust || opts.AutoTrust, opts.DryRun, opts.NoHeal, cfg.SearchRoots, cfg.Paths, cfg.ApprovedMCPHashes())
 	if err != nil {
 		return syncResult{}, err
 	}
