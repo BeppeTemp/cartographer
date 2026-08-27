@@ -22,9 +22,6 @@ func TestDefault(t *testing.T) {
 	if cfg.Git.SyncOutDebounce != 3*time.Second {
 		t.Errorf("Git.SyncOutDebounce default = %v, want 3s", cfg.Git.SyncOutDebounce)
 	}
-	if cfg.Search.OllamaModel != "nomic-embed-text" {
-		t.Errorf("Search.OllamaModel = %q, want %q", cfg.Search.OllamaModel, "nomic-embed-text")
-	}
 	if cfg.Git.AuthorName != "" || cfg.Git.AuthorEmail != "" {
 		t.Errorf("Git author defaults should be unspecified, got %+v", cfg.Git)
 	}
@@ -85,6 +82,8 @@ git:
   token_dir: /etc/kb-git-tokens
   in_window: 45s
   out_debounce: 5s
+# The removed search block (D135) is deliberately kept in this fixture: a
+# config file carrying it after an upgrade must still load, ignored.
 search:
   ollama_url: http://localhost:11434
   ollama_model: custom-model
@@ -144,10 +143,6 @@ func TestLoadFullYAML(t *testing.T) {
 			SyncInWindow:    45 * time.Second,
 			SyncOutDebounce: 5 * time.Second,
 		},
-		Search: SearchConfig{
-			OllamaURL:   "http://localhost:11434",
-			OllamaModel: "custom-model",
-		},
 		Audit:        AuditConfig{Log: "/data/audit.log", KeySeed: "deadbeef"},
 		Sops:         SopsConfig{AgeKeyFile: "/etc/cartographer/age.key", AgeKeyDir: "/etc/kb-sops-keys"},
 		ToolsProfile: "full",
@@ -162,7 +157,7 @@ func TestLoadFullYAML(t *testing.T) {
 func TestLoadPartialYAMLKeepsDefaults(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.yaml")
-	// Only http set; git.autocommit/sync and search.ollama_model must keep defaults.
+	// Only http set; git.autocommit/sync must keep defaults.
 	if err := os.WriteFile(path, []byte(`http: ":9090"`+"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -176,9 +171,6 @@ func TestLoadPartialYAMLKeepsDefaults(t *testing.T) {
 	}
 	if !cfg.Git.Autocommit || !cfg.Git.Sync {
 		t.Errorf("Git = %+v, want defaults (true, true)", cfg.Git)
-	}
-	if cfg.Search.OllamaModel != "nomic-embed-text" {
-		t.Errorf("Search.OllamaModel = %q, want default", cfg.Search.OllamaModel)
 	}
 	if cfg.Auth.Mode != "auto" {
 		t.Errorf("Auth.Mode = %q, want default auto", cfg.Auth.Mode)
@@ -213,8 +205,6 @@ func TestFromEnv(t *testing.T) {
 	t.Setenv("CARTOGRAPHER_AUTH", "false")
 	t.Setenv("CARTOGRAPHER_GIT_AUTOCOMMIT", "false")
 	t.Setenv("CARTOGRAPHER_GIT_SYNC", "false")
-	t.Setenv("CARTOGRAPHER_OLLAMA", "http://ollama:11434")
-	t.Setenv("CARTOGRAPHER_OLLAMA_MODEL", "env-model")
 	t.Setenv("CARTOGRAPHER_AUDIT_LOG", "/env-audit.log")
 	t.Setenv("CARTOGRAPHER_AUDIT_KEY", "cafef00d")
 	t.Setenv("CARTOGRAPHER_SOPS_AGE_KEY_FILE", "/env-age.key")
@@ -257,9 +247,6 @@ func TestFromEnv(t *testing.T) {
 	if cfg.Git.SyncOutDebounce != 7*time.Second {
 		t.Errorf("Git.SyncOutDebounce = %v, want 7s", cfg.Git.SyncOutDebounce)
 	}
-	if cfg.Search.OllamaURL != "http://ollama:11434" || cfg.Search.OllamaModel != "env-model" {
-		t.Errorf("Search = %+v", cfg.Search)
-	}
 	if cfg.Audit.Log != "/env-audit.log" || cfg.Audit.KeySeed != "cafef00d" {
 		t.Errorf("Audit = %+v", cfg.Audit)
 	}
@@ -273,8 +260,7 @@ func TestFromEnvUnsetLeavesDefaults(t *testing.T) {
 		"CARTOGRAPHER_KB", "CARTOGRAPHER_KB_REMOTES", "CARTOGRAPHER_DATA",
 		"CARTOGRAPHER_HTTP", "CARTOGRAPHER_TOKENS", "CARTOGRAPHER_AUTH",
 		"CARTOGRAPHER_GIT_AUTOCOMMIT", "CARTOGRAPHER_GIT_SYNC",
-		"CARTOGRAPHER_GIT_TOKEN_DIR", "CARTOGRAPHER_SYNC_IN_WINDOW", "CARTOGRAPHER_OLLAMA",
-		"CARTOGRAPHER_OLLAMA_MODEL", "CARTOGRAPHER_AUDIT_LOG",
+		"CARTOGRAPHER_GIT_TOKEN_DIR", "CARTOGRAPHER_SYNC_IN_WINDOW", "CARTOGRAPHER_AUDIT_LOG",
 		"CARTOGRAPHER_AUDIT_KEY", "CARTOGRAPHER_SOPS_AGE_KEY_FILE",
 		"CARTOGRAPHER_SOPS_AGE_KEY_DIR",
 	} {
@@ -362,5 +348,38 @@ func TestLoadServerGitProfile(t *testing.T) {
 	}
 	if cfg.Git.GitHubAPIURL != "https://api.github.test" || cfg.Git.GitHubTokenEnv != "CARTOGRAPHER_GITHUB_TOKEN" {
 		t.Fatalf("server git endpoint/token config = %#v", cfg.Git)
+	}
+}
+
+// D135: the search/Ollama configuration surface is gone. A config file that
+// still carries it — and the removed environment variables — must be ignored,
+// not fatal: an operator's stale config must not take the server down.
+func TestRemovedSearchConfigIsIgnored(t *testing.T) {
+	dir := t.TempDir()
+	withSearch := filepath.Join(dir, "with-search.yaml")
+	without := filepath.Join(dir, "without.yaml")
+	base := "http: \":9090\"\ninit: true\n"
+	if err := os.WriteFile(withSearch, []byte(base+"search:\n  ollama_url: http://localhost:11434\n  ollama_model: custom\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(without, []byte(base), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("CARTOGRAPHER_OLLAMA", "http://ollama:11434")
+	t.Setenv("CARTOGRAPHER_OLLAMA_MODEL", "env-model")
+
+	got, err := Load(withSearch)
+	if err != nil {
+		t.Fatalf("Load with a stale search block: %v", err)
+	}
+	want, err := Load(without)
+	if err != nil {
+		t.Fatalf("Load without it: %v", err)
+	}
+	FromEnv(got)
+	FromEnv(want)
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("a stale search block changed the config:\ngot  %+v\nwant %+v", got, want)
 	}
 }

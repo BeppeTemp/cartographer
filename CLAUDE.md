@@ -62,7 +62,6 @@ internal/mcpserver/          # server.go (Run stdio, HTTPHandler, MultiKB), prot
                              # readonly.go (per-tool r/rw classification)
 internal/audit/              # append-only JSONL hash-chain + Ed25519 signature
 internal/auth/               # TokenStore, Middleware, scopes, RBAC
-internal/embed/              # Embedder interface, OllamaEmbedder, vector Store
 internal/skill/               # LoadSkill, Catalog, Validate (SKILL.md)
 internal/sops/               # Decrypt, ResolveRefs, EnvForSkill
 internal/configurator/       # multi-provider adapter (HTTP only): Claude Code, Codex, Kiro, OpenCode

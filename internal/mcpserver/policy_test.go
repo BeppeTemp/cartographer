@@ -12,7 +12,6 @@ import (
 	"testing"
 
 	"github.com/BeppeTemp/cartographer/internal/auth"
-	"github.com/BeppeTemp/cartographer/internal/embed"
 	"github.com/BeppeTemp/cartographer/internal/okf"
 	"github.com/BeppeTemp/cartographer/internal/sqlindex"
 )
@@ -91,34 +90,6 @@ func TestPolicySQLiteSearchFiltersBeforeLimit(t *testing.T) {
 	b, _ := json.Marshal(result)
 	if strings.Contains(string(b), "hidden/secret") || !strings.Contains(string(b), "manutenzione/test-runbook") || strings.Contains(string(b), `"count": 2`) {
 		t.Fatalf("SQLite visibility/limit/count failure: %s", b)
-	}
-}
-
-func TestPolicySemanticAndHybridSearchFilterBeforeLimit(t *testing.T) {
-	k := setupTestKB(t)
-	k.AuthName = "docs"
-	if err := os.MkdirAll(filepath.Join(k.DataRoot(), "hidden"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(k.DataRoot(), "hidden", "secret.md"), []byte("---\ntype: Secret\ntitle: Hidden title\n---\nneedle\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	idx, meta := buildIndex(k)
-	live := newLiveIndex(idx, meta)
-	store := embed.NewStore()
-	store.Add("hidden/secret", embed.Vector{1, 0})
-	store.Add("manutenzione/test-runbook", embed.Vector{0.8, 0.2})
-	tool := toolSearch(k, live, Deps{Embedder: testEmbedder{}, VecStore: store})
-	ctx := restrictedContext(auth.Policy{Permissions: []auth.Permission{{KB: "docs", Maps: []string{"manutenzione"}}}})
-	for _, mode := range []string{"semantic", "hybrid"} {
-		result, err := tool.Handler(ctx, json.RawMessage(`{"query":"needle","mode":"`+mode+`","limit":1}`))
-		if err != nil {
-			t.Fatal(err)
-		}
-		body, _ := json.Marshal(result)
-		if strings.Contains(string(body), "hidden/secret") || strings.Contains(string(body), "Hidden title") || !strings.Contains(string(body), "manutenzione/test-runbook") || strings.Contains(string(body), `"count": 2`) {
-			t.Fatalf("%s visibility/limit/count failure: %s", mode, body)
-		}
 	}
 }
 
