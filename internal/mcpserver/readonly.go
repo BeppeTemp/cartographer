@@ -5,10 +5,7 @@ package mcpserver
 // scope token. It must be kept in sync with the ReadOnly field set on each
 // tool's Tool{} literal in tools_*.go — TestReadOnlyToolsGolden (server_test.go)
 // builds a real registry via RegisterKBTools and fails if the two diverge.
-//
-// index_rebuild is read-only: it only regenerates the derived, gitignored
-// search index (in-memory and/or SQLite) from the concepts already on disk;
-// it never writes KB content.
+
 var readOnlyToolNames = map[string]bool{
 	"atlas_overview":  true,
 	"index_get":       true,
@@ -30,7 +27,6 @@ var readOnlyToolNames = map[string]bool{
 	"sync_check":      true,
 	"sync_pull":       true,
 	"sync_status":     true,
-	"index_rebuild":   true,
 	"artifact_read":   true,
 	"artifact_list":   true,
 	"template_list":   true,

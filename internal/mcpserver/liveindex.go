@@ -19,7 +19,7 @@ type conceptMeta struct {
 }
 
 // liveIndex is a swappable, concurrency-safe handle to the in-memory keyword
-// index. Multiple tool calls (concept_write, search, index_rebuild) can run
+// index. Multiple tool calls (concept_write, search, reindex) can run
 // concurrently under the HTTP transport; liveIndex synchronizes access to the
 // underlying *search.Index instead of relying on an unsynchronized **search.Index.
 type liveIndex struct {
@@ -61,7 +61,7 @@ func (l *liveIndex) snippet(id, query string, maxChars int) string {
 	return extractSnippet(body, query, maxChars)
 }
 
-// swap atomically replaces the index and metadata map (used by index_rebuild).
+// swap atomically replaces the index and metadata map (used by reindex full=true).
 func (l *liveIndex) swap(idx *search.Index, meta map[string]conceptMeta) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
