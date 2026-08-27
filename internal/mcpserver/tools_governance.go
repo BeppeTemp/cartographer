@@ -3,6 +3,7 @@ package mcpserver
 import (
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -454,6 +455,10 @@ func toolKBStatus(k *kb.KB) Tool {
 			remoteURL, hasRemote := k.RemoteInfo()
 			git := k.GitStatusSnapshot()
 			result := map[string]interface{}{
+				// The KB that served this call (D144): on a client with a flat MCP
+				// tool namespace it is the only protocol-level way to tell which KB
+				// answered. Same derivation the provisioning manifest uses.
+				"kb":                  filepath.Base(k.Root),
 				"total":               total,
 				"by_type":             typeCounts,
 				"by_status":           statusCounts,

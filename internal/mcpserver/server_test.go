@@ -1854,6 +1854,32 @@ func TestServer_KBStatus_RemoteRedacted(t *testing.T) {
 	}
 }
 
+// D144: on a client with a flat MCP tool namespace, kb_status is the only
+// protocol-level way to tell which KB actually answered.
+func TestServer_KBStatus_KBName(t *testing.T) {
+	k := setupTestKB(t)
+	s := New("0.7.0")
+	RegisterKBTools(s, k, Deps{})
+
+	msgs := []string{
+		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
+		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"kb_status","arguments":{}}}`,
+	}
+	tr := decodeToolResult(t, runMCPSequence(t, s, msgs)[1])
+	if tr.IsError {
+		t.Fatalf("kb_status: isError=true: %v", tr.Content)
+	}
+	var result struct {
+		KB string `json:"kb"`
+	}
+	if err := json.Unmarshal([]byte(tr.Content[0].Text), &result); err != nil {
+		t.Fatalf("decode kb_status result: %v", err)
+	}
+	if want := filepath.Base(k.Root); result.KB != want {
+		t.Errorf("kb_status kb = %q, want %q", result.KB, want)
+	}
+}
+
 func TestServer_GateCheck_Pass(t *testing.T) {
 	k := setupTestKB(t)
 	s := New("0.5.0-m5")
@@ -4164,11 +4190,12 @@ func TestServer_IndexPatch_OldStringAmbiguous(t *testing.T) {
 	})[1])
 	_, hash := indexGetStructured(t, getResp)
 
-	// "Index" matches twice in the default root index.md: "type: Index" and "# Index".
+	// The KB name matches twice in the root index written by Init (D144):
+	// the "title:" frontmatter field and the H1.
 	resp := decodeToolResult(t, runMCPSequence(t, s, []string{initMsg,
 		artifactCallMsg(t, 2, "index_patch", map[string]any{
 			"if_match":   hash,
-			"old_string": "Index",
+			"old_string": filepath.Base(k.Root),
 			"new_string": "Atlas",
 		}),
 	})[1])
@@ -4194,7 +4221,7 @@ func TestServer_IndexPatch_BatchEdits(t *testing.T) {
 		artifactCallMsg(t, 2, "index_patch", map[string]any{
 			"if_match": hash,
 			"edits": []map[string]any{
-				{"old_string": "# Index", "new_string": "# Atlas"},
+				{"old_string": "# " + filepath.Base(k.Root), "new_string": "# Atlas"},
 				{"old_string": "KB initialized.", "new_string": "KB initialized, curated."},
 			},
 		}),

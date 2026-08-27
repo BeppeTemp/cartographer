@@ -169,6 +169,14 @@ func (s *Server) SetToolNamePrefix(prefix string) {
 	s.toolPrefix = prefix
 }
 
+// ToolNamePrefix returns the tool-name prefix set by SetToolNamePrefix, or
+// "" when tools are registered unprefixed.
+func (s *Server) ToolNamePrefix() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.toolPrefix
+}
+
 // SetDisplayName overrides the serverInfo.name reported by initialize
 // (D102). Empty (the default) keeps the historical "cartographer".
 func (s *Server) SetDisplayName(name string) {

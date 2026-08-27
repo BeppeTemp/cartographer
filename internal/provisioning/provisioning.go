@@ -58,6 +58,12 @@ type Artifact struct {
 type BuildOptions struct {
 	Signers       map[string]ed25519.PrivateKey
 	MCPAllowlists map[string][]MCPAllowlistEntry
+	// ToolPrefixes is the effective MCP tool-name prefix (D102) of each
+	// mounted KB, keyed by KB name. A missing key or an empty value means
+	// unprefixed. It is what the generated instructions block names the tools
+	// with (D144), so a prefixed KB does not imprint tools the agent cannot
+	// call.
+	ToolPrefixes map[string]string
 	// MCPDiagnostic receives non-fatal denied/stale allow-list diagnostics.
 	// It never contains descriptor headers or environment references.
 	MCPDiagnostic func(string)
@@ -474,7 +480,7 @@ func BuildManifest(bundleFS fs.FS, kbRoots map[string]string, opts BuildOptions)
 		// timestamp) and placed directly in Artifact.Files, so ReadArtifactFiles
 		// doesn't need to read anything from the KB for this kind (see its
 		// "len(a.Files) > 0" check at the top of the function).
-		instrContent := []byte(generateKBInstructions(kbName, kbRoot))
+		instrContent := []byte(generateKBInstructions(kbName, kbRoot, opts.ToolPrefixes[kbName]))
 		artifacts = append(artifacts, Artifact{
 			Kind:        "instructions",
 			Name:        kbName,
@@ -588,8 +594,9 @@ func countMarkdownFiles(dir string) int {
 // on the result of this function, see BuildManifest) changes only when the
 // set of archives/agents or instructions.md changes, not on every page
 // added.
-func generateKBInstructions(kbName, kbRoot string) string {
+func generateKBInstructions(kbName, kbRoot, toolPrefix string) string {
 	var sb strings.Builder
+	tool := func(base string) string { return qualifyToolName(toolPrefix, base) }
 
 	fmt.Fprintf(&sb, "The %q KB is served via MCP by the \"cartographer\" server.", kbName)
 
@@ -605,8 +612,10 @@ func generateKBInstructions(kbName, kbRoot string) string {
 	}
 
 	sb.WriteString("Operational instructions:\n")
-	sb.WriteString("- consult it autonomously when you need historical or architectural context: `search` (keyword + semantic) or `atlas_overview` to orient yourself, `concept_read` to read;\n")
-	sb.WriteString("- write or update a page with `concept_write` when you discover something relevant; close relevant sessions with `log_append`;\n")
+	fmt.Fprintf(&sb, "- consult it autonomously when you need historical or architectural context: `%s` (keyword + semantic) or `%s` to orient yourself, `%s` to read;\n",
+		tool("search"), tool("atlas_overview"), tool("concept_read"))
+	fmt.Fprintf(&sb, "- write or update a page with `%s` when you discover something relevant; close relevant sessions with `%s`;\n",
+		tool("concept_write"), tool("log_append"))
 	sb.WriteString("- every write is a git commit, revertible.\n")
 
 	if agents := kbAgentNames(kbRoot); len(agents) > 0 {
@@ -620,6 +629,18 @@ func generateKBInstructions(kbName, kbRoot string) string {
 	}
 
 	return sb.String()
+}
+
+// qualifyToolName returns the tool name an agent must call for a KB whose
+// effective tool prefix is prefix: the base name unchanged when unprefixed,
+// "<prefix>__<base>" otherwise. Mirrors Server.RegisterTool's renaming (D102)
+// and the client-side qualifyTool (D120). prefix is already sanitised by
+// config.ResolveToolPrefix when it reaches here.
+func qualifyToolName(prefix, base string) string {
+	if prefix == "" {
+		return base
+	}
+	return prefix + "__" + base
 }
 
 // kbAgentNames lists the names of the KB's agents rooted at kbRoot

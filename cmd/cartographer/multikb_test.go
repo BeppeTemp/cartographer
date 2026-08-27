@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -337,5 +338,43 @@ bearer_token_env_var = "CARTOGRAPHER_TOKENS"
 	}
 	if len(res.Warnings) == 0 {
 		t.Error("the adopted duplicates must be reported through connectResult.Warnings")
+	}
+}
+
+// D144: the process that knows the mounted configuration warns about a
+// colliding tool surface, whatever the client was configured by hand with.
+func TestFlatNamespaceMountWarning(t *testing.T) {
+	cases := []struct {
+		name     string
+		names    []string
+		prefixes []string
+		want     bool
+	}{
+		{"two unprefixed KBs", []string{"a", "b"}, []string{"", ""}, true},
+		{"three KBs, two unprefixed", []string{"a", "b", "c"}, []string{"", "cp", ""}, true},
+		{"two prefixed KBs", []string{"a", "b"}, []string{"ap", "bp"}, false},
+		{"one of two prefixed", []string{"a", "b"}, []string{"ap", ""}, false},
+		{"single unprefixed KB", []string{"a"}, []string{""}, false},
+		{"no KB", nil, nil, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			w := flatNamespaceMountWarning(tc.names, tc.prefixes)
+			if (w != "") != tc.want {
+				t.Fatalf("flatNamespaceMountWarning(%v, %v) = %q, want warning=%v", tc.names, tc.prefixes, w, tc.want)
+			}
+			if !tc.want {
+				return
+			}
+			for i, name := range tc.names {
+				quoted := strconv.Quote(name)
+				if unprefixed := tc.prefixes[i] == ""; unprefixed != strings.Contains(w, quoted) {
+					t.Errorf("warning %q: KB %s named=%v, want %v", w, quoted, !unprefixed, unprefixed)
+				}
+			}
+			if !strings.Contains(w, "tool_prefix") {
+				t.Errorf("warning does not point at the fix: %q", w)
+			}
+		})
 	}
 }

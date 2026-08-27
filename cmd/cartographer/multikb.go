@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"strconv"
+	"strings"
 
 	"github.com/BeppeTemp/cartographer/internal/client"
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
@@ -139,9 +141,12 @@ func enumerateKBs(serverURL string, auth bool, tokenEnv string) (names []string,
 // Codex and OpenCode, which namespace tools per server (verified empirically,
 // see the D102 issue thread) — so without a server-side tool_prefix on the
 // extra KBs, only one of them stays reachable in a Kiro session, silently.
-// There is no reliable client-side way to know whether the server has
-// prefixes configured (GET /health does not expose them), so the warning is
-// unconditional on the precondition rather than trying to guess (D102).
+// enumerateKBs returns names only, so the client cannot tell whether the
+// server mounted those KBs with prefixes; making this warning prefix-aware
+// would mean plumbing GET /health's KBInfo.ToolPrefix through it to avoid one
+// stderr line of false positive. It stays unconditional on the precondition:
+// the server itself warns from what it actually mounted (D144,
+// flatNamespaceMountWarning).
 func kiroFlatNamespaceWarning(providers []string, entries []mcpEntry) string {
 	if len(entries) < 2 {
 		return ""
@@ -154,6 +159,43 @@ func kiroFlatNamespaceWarning(providers []string, entries []mcpEntry) string {
 		}
 	}
 	return ""
+}
+
+// flatNamespaceMountWarning returns a non-empty warning when this server
+// mounts 2 or more KBs and 2 or more of them registered their tools
+// unprefixed: those KBs advertise identical tool names, and a client with a
+// flat MCP tool namespace (Kiro) silently keeps only one of them — answering
+// questions about one KB from another (D144). Warning only, never a startup
+// failure and never an implicit prefix: a Claude Code/Codex/OpenCode
+// deployment namespaces per server and must keep working untouched (D102).
+// names and prefixes are positionally paired, as built by the mount loop.
+func flatNamespaceMountWarning(names, prefixes []string) string {
+	if len(names) < 2 {
+		return ""
+	}
+	var unprefixed []string
+	for i, name := range names {
+		if i < len(prefixes) && prefixes[i] != "" {
+			continue
+		}
+		unprefixed = append(unprefixed, name)
+	}
+	if len(unprefixed) < 2 {
+		return ""
+	}
+	return fmt.Sprintf("KBs %s register identical MCP tool names: clients with a flat MCP tool namespace "+
+		"(kiro) silently keep only one of them, and answer from the wrong KB. Set kbs[].tool_prefix or "+
+		"mcp.tool_prefix_mode: kb-name (see docs/deployment.md §MCP tool-name prefix)",
+		strings.Join(quoteAll(unprefixed), ", "))
+}
+
+// quoteAll quotes each name for a log line listing KBs.
+func quoteAll(names []string) []string {
+	out := make([]string, len(names))
+	for i, n := range names {
+		out[i] = strconv.Quote(n)
+	}
+	return out
 }
 
 // entriesForKBs implements D92's compatibility rule: a zero/one-KB server
