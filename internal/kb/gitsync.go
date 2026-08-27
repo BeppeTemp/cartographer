@@ -3,6 +3,7 @@ package kb
 import (
 	"errors"
 	"fmt"
+	neturl "net/url"
 	"strings"
 	"time"
 
@@ -290,6 +291,45 @@ func (k *KB) syncOutServer(remote string) error {
 
 // HasRemote reports whether the KB has a configured origin remote.
 func (k *KB) HasRemote() (string, bool) { return k.hasRemote() }
+
+// RemoteInfo returns the origin remote URL with any embedded credentials
+// redacted, plus whether a remote is configured at all. It is the read-side
+// answer to "does this KB replicate anywhere", exposed by kb_status (D145):
+// the URL reaches an LLM context and the audit output, so it must never carry
+// token material.
+func (k *KB) RemoteInfo() (url string, ok bool) {
+	raw, err := gitx.RemoteURL(k.Root, "origin")
+	if err != nil || strings.TrimSpace(raw) == "" {
+		return "", false
+	}
+	return RedactRemoteURL(strings.TrimSpace(raw)), true
+}
+
+// RedactRemoteURL strips credential material from a remote URL. For http(s)
+// the whole userinfo is dropped: a token can sit in either half
+// (https://token@host/... as well as https://user:token@host/...). For other
+// schemes only the password is dropped — an ssh username is not a secret and
+// identifies the remote. Values git cannot parse as a URL (scp-style
+// git@host:owner/repo.git, local paths) carry no userinfo and are returned
+// unchanged.
+func RedactRemoteURL(raw string) string {
+	if !strings.Contains(raw, "://") {
+		return raw
+	}
+	u, err := neturl.Parse(raw)
+	if err != nil || u.User == nil {
+		return raw
+	}
+	switch strings.ToLower(u.Scheme) {
+	case "http", "https":
+		u.User = nil
+	default:
+		if _, hasPassword := u.User.Password(); hasPassword {
+			u.User = neturl.User(u.User.Username())
+		}
+	}
+	return u.String()
+}
 
 // CommitOp creates a git commit if AutoCommit is enabled, the KB root is a git
 // repository, and the working tree is dirty. It is a no-op in every other case.

@@ -1775,6 +1775,85 @@ func TestServer_KBStatus_ByStatus_Empty(t *testing.T) {
 	}
 }
 
+// kbStatusResult runs kb_status against s and returns the decoded payload.
+func kbStatusResult(t *testing.T, s *Server) map[string]json.RawMessage {
+	t.Helper()
+	msgs := []string{
+		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
+		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"kb_status","arguments":{}}}`,
+	}
+	resps := runMCPSequence(t, s, msgs)
+	tr := decodeToolResult(t, resps[1])
+	if tr.IsError {
+		t.Fatalf("kb_status: isError=true: %v", tr.Content)
+	}
+	var result map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(tr.Content[0].Text), &result); err != nil {
+		t.Fatalf("decode kb_status result: %v", err)
+	}
+	return result
+}
+
+// D145: kb_status is the agent-visible tool, so a reader must never be able to
+// conclude "this KB has no remote" from a workflow field.
+func TestServer_KBStatus_NoRemote(t *testing.T) {
+	k := setupTestKB(t)
+	s := New("0.7.0")
+	RegisterKBTools(s, k, Deps{})
+
+	result := kbStatusResult(t, s)
+	for field, want := range map[string]string{
+		"has_remote":       "false",
+		"remote_url":       `""`,
+		"git_workflow":     `"local"`,
+		"git_profile":      `"local"`,
+		"git_sync":         "false",
+		"unpushed_commits": "null",
+	} {
+		got, ok := result[field]
+		if !ok {
+			t.Fatalf("kb_status: missing field %q", field)
+		}
+		if string(got) != want {
+			t.Errorf("kb_status[%q] = %s, want %s", field, got, want)
+		}
+	}
+	if _, ok := result["push_state"]; !ok {
+		t.Error("kb_status: missing field push_state")
+	}
+}
+
+func TestServer_KBStatus_RemoteRedacted(t *testing.T) {
+	k := setupTestKB(t)
+	if !gitx.IsRepo(k.Root) {
+		t.Skip("KB root is not a git repository")
+	}
+	if err := gitx.AddRemote(k.Root, "origin", "https://user:ghp_secret@gitlab.com/o/wiki.git"); err != nil {
+		t.Fatalf("AddRemote: %v", err)
+	}
+	k.GitSync = true
+	s := New("0.7.0")
+	RegisterKBTools(s, k, Deps{})
+
+	result := kbStatusResult(t, s)
+	if string(result["has_remote"]) != "true" {
+		t.Errorf("has_remote = %s, want true", result["has_remote"])
+	}
+	if string(result["remote_url"]) != `"https://gitlab.com/o/wiki.git"` {
+		t.Errorf("remote_url = %s, want the redacted URL", result["remote_url"])
+	}
+	if string(result["git_sync"]) != "true" {
+		t.Errorf("git_sync = %s, want true", result["git_sync"])
+	}
+	if strings.Contains(string(result["remote_url"]), "ghp_secret") {
+		t.Error("remote_url leaked credential material")
+	}
+	// The deprecated alias keeps reporting the same value for one minor release.
+	if string(result["git_profile"]) != string(result["git_workflow"]) {
+		t.Errorf("git_profile = %s, want it equal to git_workflow = %s", result["git_profile"], result["git_workflow"])
+	}
+}
+
 func TestServer_GateCheck_Pass(t *testing.T) {
 	k := setupTestKB(t)
 	s := New("0.5.0-m5")

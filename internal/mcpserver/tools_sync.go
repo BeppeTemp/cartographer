@@ -30,7 +30,7 @@ func toolSyncStatus(k *kb.KB) Tool {
 			if k.SyncOutDebounce > 0 {
 				mode = "debounced"
 			}
-			out, _ := json.MarshalIndent(map[string]any{"state": s.State, "last_error": s.LastError, "last_attempt_at": s.LastAttemptAt, "head_sha": s.HeadSHA, "unpushed_commits": s.UnpushedCommits, "identity_warning": s.IdentityWarning, "attempts": s.Attempts, "push_mode": mode, "profile": server.Profile, "base_branch": server.BaseBranch, "working_branch": server.WorkingBranch, "pr_number": server.PRNumber, "pr_url": server.PRURL, "pr_head_sha": server.PRHeadSHA, "last_forge_error": server.LastForgeError}, "", "  ")
+			out, _ := json.MarshalIndent(map[string]any{"state": s.State, "last_error": s.LastError, "last_attempt_at": s.LastAttemptAt, "head_sha": s.HeadSHA, "unpushed_commits": s.UnpushedCommits, "identity_warning": s.IdentityWarning, "attempts": s.Attempts, "push_mode": mode, "git_workflow": server.Profile, "profile": server.Profile, "base_branch": server.BaseBranch, "working_branch": server.WorkingBranch, "pr_number": server.PRNumber, "pr_url": server.PRURL, "pr_head_sha": server.PRHeadSHA, "last_forge_error": server.LastForgeError}, "", "  ")
 			return textResult(string(out)), nil
 		},
 	}
