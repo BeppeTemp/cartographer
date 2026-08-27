@@ -398,7 +398,7 @@ func toolConflictResolve(k *kb.KB) Tool {
 func toolKBStatus(k *kb.KB) Tool {
 	return Tool{
 		Name:        "kb_status",
-		Description: "Returns aggregate metrics about the KB: total concepts, per-type counts, per-status counts (concepts with no status field are excluded), stale concepts (review_after in the past), open contradictions.",
+		Description: "Returns aggregate metrics about the KB (total concepts, per-type counts, per-status counts (concepts with no status field are excluded), stale concepts (review_after in the past), open contradictions) plus its git replication state: whether a remote is configured (has_remote/remote_url), the push state and any unpushed commits, and the write workflow (git_workflow: local commit-and-push or server PR boundary). Read-only, never hits the network.",
 		ReadOnly:    true,
 		InputSchema: json.RawMessage(`{"type":"object","properties":{}}`),
 		Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
@@ -447,19 +447,35 @@ func toolKBStatus(k *kb.KB) Tool {
 			}
 
 			server := k.ServerGitStatus()
+			// Replication facts (D145): kb_status is the agent-visible tool, so it
+			// must answer "does this KB have a remote, and is it pushing" without
+			// the agent reaching for the advanced sync_status. Local state plus one
+			// git remote get-url — no fetch, no network.
+			remoteURL, hasRemote := k.RemoteInfo()
+			git := k.GitStatusSnapshot()
 			result := map[string]interface{}{
 				"total":               total,
 				"by_type":             typeCounts,
 				"by_status":           statusCounts,
 				"stale_count":         staleCount,
 				"open_contradictions": openContradictions,
-				"git_profile":         server.Profile,
-				"base_branch":         server.BaseBranch,
-				"working_branch":      server.WorkingBranch,
-				"pr_number":           server.PRNumber,
-				"pr_url":              server.PRURL,
-				"pr_head_sha":         server.PRHeadSHA,
-				"last_forge_error":    server.LastForgeError,
+				// git_workflow describes the write workflow (commit-and-push vs PR
+				// boundary, D117), never remote presence. git_profile is its
+				// deprecated alias, kept for one minor release.
+				"git_workflow":     server.Profile,
+				"git_profile":      server.Profile,
+				"has_remote":       hasRemote,
+				"remote_url":       remoteURL,
+				"git_sync":         k.GitSync,
+				"push_state":       git.State,
+				"push_last_error":  git.LastError,
+				"unpushed_commits": git.UnpushedCommits,
+				"base_branch":      server.BaseBranch,
+				"working_branch":   server.WorkingBranch,
+				"pr_number":        server.PRNumber,
+				"pr_url":           server.PRURL,
+				"pr_head_sha":      server.PRHeadSHA,
+				"last_forge_error": server.LastForgeError,
 			}
 			out, _ := json.MarshalIndent(result, "", "  ")
 			return textResult(string(out)), nil
