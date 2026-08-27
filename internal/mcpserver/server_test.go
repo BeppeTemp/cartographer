@@ -139,7 +139,7 @@ func TestServer_ToolsList(t *testing.T) {
 	expectedTools := []string{
 		"atlas_overview", "index_get", "concept_read", "log_tail",
 		"concept_write", "concept_patch", "index_patch", "map_create", "concept_expand", "log_append", "snapshot", "validate",
-		"map_list", "graph_neighbors", "search", "index_rebuild",
+		"map_list", "graph_neighbors", "search", "reindex",
 		"lint", "commit_gate", "gate_check",
 	}
 	foundTools := map[string]bool{}
@@ -1224,7 +1224,9 @@ func TestServer_SearchScope(t *testing.T) {
 	}
 }
 
-func TestServer_IndexRebuild(t *testing.T) {
+// D136: the full rebuild lives in reindex(full=true) and works with no
+// SQLite index, exactly as index_rebuild did.
+func TestServer_ReindexFull(t *testing.T) {
 	k := setupTestKB(t)
 	s := New("0.3.0-m3")
 	RegisterKBTools(s, k, Deps{})
@@ -1238,7 +1240,7 @@ func TestServer_IndexRebuild(t *testing.T) {
 		// Before rebuild: should NOT find the new concept.
 		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"search","arguments":{"query":"keyword42"}}}`,
 		// Rebuild.
-		`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"index_rebuild","arguments":{}}}`,
+		`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"reindex","arguments":{"full":true}}}`,
 		// After rebuild: should find the new concept.
 		`{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"search","arguments":{"query":"keyword42"}}}`,
 	}
@@ -1260,10 +1262,10 @@ func TestServer_IndexRebuild(t *testing.T) {
 	// Rebuild OK.
 	tr2 := decodeToolResult(t, resps[2])
 	if tr2.IsError {
-		t.Fatalf("index_rebuild: isError=true: %v", tr2.Content)
+		t.Fatalf("reindex full: isError=true: %v", tr2.Content)
 	}
 	if !strings.Contains(tr2.Content[0].Text, "rebuilt") {
-		t.Errorf("index_rebuild: expected 'rebuilt': %s", tr2.Content[0].Text)
+		t.Errorf("reindex full: expected 'rebuilt': %s", tr2.Content[0].Text)
 	}
 
 	// After rebuild: found.
@@ -1963,7 +1965,7 @@ func TestServer_E2E_WriteQueryLint(t *testing.T) {
 		// 5. Write a satellite concept under the expanded "docs/architecture"
 		`{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"docs/architecture/stack","frontmatter":{"type":"Reference","title":"Tech Stack","status":"active"},"body":"# Tech Stack\n\nPostgreSQL for persistence, Redis for caching.\n"}}}`,
 		// 6. Rebuild index to include new concept
-		`{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"index_rebuild","arguments":{}}}`,
+		`{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"reindex","arguments":{"full":true}}}`,
 		// 7. Search for the concept
 		`{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"search","arguments":{"query":"postgresql redis"}}}`,
 		// 8. Lint scoped to changed concept + neighbors
@@ -2129,7 +2131,7 @@ func TestServer_SkillInstall_Unknown(t *testing.T) {
 
 // TestServer_ConceptWrite_UpdatesIndex verifies that after a successful
 // concept_write the keyword index is updated immediately, so search finds
-// the concept without a prior index_rebuild call.
+// the concept without a prior reindex call.
 func TestServer_ConceptWrite_UpdatesIndex(t *testing.T) {
 	k := setupTestKB(t)
 	s := New("1.0.0")
@@ -2142,7 +2144,7 @@ func TestServer_ConceptWrite_UpdatesIndex(t *testing.T) {
 		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
 		// Write a new concept containing the unique keyword.
 		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"notes/kw-test","frontmatter":{"type":"Note","title":"KW Test"},"body":"# Body\n\n` + uniqueKW + `\n"}}}`,
-		// Search immediately — must find the concept without index_rebuild.
+		// Search immediately — must find the concept without reindex.
 		`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"search","arguments":{"query":"` + uniqueKW + `"}}}`,
 	}
 	resps := runMCPSequence(t, s, msgs)
@@ -2157,7 +2159,7 @@ func TestServer_ConceptWrite_UpdatesIndex(t *testing.T) {
 		t.Fatalf("concept_write: unexpected error: %v", trWrite.Content)
 	}
 
-	// Search must return the written concept without any index_rebuild.
+	// Search must return the written concept without any reindex.
 	trSearch := decodeToolResult(t, resps[2])
 	if trSearch.IsError {
 		t.Fatalf("search after concept_write: unexpected error: %v", trSearch.Content)
@@ -2165,6 +2167,133 @@ func TestServer_ConceptWrite_UpdatesIndex(t *testing.T) {
 	if !strings.Contains(trSearch.Content[0].Text, "notes/kw-test") {
 		t.Errorf("search after concept_write: expected 'notes/kw-test' in results (index not auto-updated?): %s", trSearch.Content[0].Text)
 	}
+}
+
+// D136: reindex is one tool with two levels of thoroughness. No arguments
+// keeps the incremental reconciliation (and its SQLite requirement); full=true
+// rebuilds everything and works without a SQLite index.
+func TestServer_Reindex_Modes(t *testing.T) {
+	callReindex := func(t *testing.T, s *Server, args string) ToolResult {
+		t.Helper()
+		msgs := []string{
+			`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
+			`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"reindex","arguments":` + args + `}}`,
+		}
+		return decodeToolResult(t, runMCPSequence(t, s, msgs)[1])
+	}
+
+	t.Run("incremental with sqlite", func(t *testing.T) {
+		k := setupTestKB(t)
+		sqlIdx, err := sqlindex.Open(filepath.Join(t.TempDir(), "index.db"))
+		if err != nil {
+			t.Fatalf("sqlindex.Open: %v", err)
+		}
+		defer sqlIdx.Close()
+		s := New("1.0.0")
+		RegisterKBTools(s, k, Deps{SQLIndex: sqlIdx})
+
+		tr := callReindex(t, s, "{}")
+		if tr.IsError {
+			t.Fatalf("reindex: %v", tr.Content)
+		}
+		var counters map[string]int
+		if err := json.Unmarshal([]byte(tr.Content[0].Text), &counters); err != nil {
+			t.Fatalf("decode reindex result: %v", err)
+		}
+		for _, key := range []string{"indexed", "updated", "removed"} {
+			if _, ok := counters[key]; !ok {
+				t.Errorf("reindex result missing %q: %s", key, tr.Content[0].Text)
+			}
+		}
+		if counters["indexed"] == 0 {
+			t.Errorf("reindex indexed = 0, want the KB's concepts: %s", tr.Content[0].Text)
+		}
+	})
+
+	t.Run("incremental without sqlite", func(t *testing.T) {
+		k := setupTestKB(t)
+		s := New("1.0.0")
+		RegisterKBTools(s, k, Deps{})
+
+		tr := callReindex(t, s, "{}")
+		if !tr.IsError || !strings.Contains(tr.Content[0].Text, "SQLite index is unavailable") {
+			t.Fatalf("reindex without SQLite: expected the unavailable error, got %+v", tr)
+		}
+	})
+
+	t.Run("full with sqlite", func(t *testing.T) {
+		k := setupTestKB(t)
+		sqlIdx, err := sqlindex.Open(filepath.Join(t.TempDir(), "index.db"))
+		if err != nil {
+			t.Fatalf("sqlindex.Open: %v", err)
+		}
+		defer sqlIdx.Close()
+		s := New("1.0.0")
+		RegisterKBTools(s, k, Deps{SQLIndex: sqlIdx})
+
+		tr := callReindex(t, s, `{"full":true}`)
+		if tr.IsError {
+			t.Fatalf("reindex full: %v", tr.Content)
+		}
+		var result struct {
+			Status          string `json:"status"`
+			ConceptsIndexed int    `json:"concepts_indexed"`
+			SQLUpserted     *int   `json:"sql_upserted"`
+		}
+		if err := json.Unmarshal([]byte(tr.Content[0].Text), &result); err != nil {
+			t.Fatalf("decode reindex full result: %v", err)
+		}
+		if result.Status != "rebuilt" {
+			t.Errorf("status = %q, want rebuilt", result.Status)
+		}
+		want, _ := sqlIdx.Count()
+		if result.ConceptsIndexed != want {
+			t.Errorf("concepts_indexed = %d, want the KB's %d concepts", result.ConceptsIndexed, want)
+		}
+		if result.SQLUpserted == nil {
+			t.Error("sql_upserted missing with a SQLite index present")
+		}
+	})
+
+	t.Run("full without sqlite", func(t *testing.T) {
+		k := setupTestKB(t)
+		s := New("1.0.0")
+		RegisterKBTools(s, k, Deps{})
+
+		// A concept added out of band is invisible until a full rebuild.
+		os.WriteFile(filepath.Join(k.DataRoot(), "manutenzione", "outofband.md"),
+			[]byte("---\ntype: Note\n---\n# Out of band\nbanana8821zebra\n"), 0o644)
+
+		tr := callReindex(t, s, `{"full":true}`)
+		if tr.IsError {
+			t.Fatalf("reindex full without SQLite: %v", tr.Content)
+		}
+		if !strings.Contains(tr.Content[0].Text, `"status": "rebuilt"`) {
+			t.Errorf("expected a rebuilt status: %s", tr.Content[0].Text)
+		}
+		if strings.Contains(tr.Content[0].Text, "sql_upserted") {
+			t.Errorf("sql_upserted must be absent without a SQLite index: %s", tr.Content[0].Text)
+		}
+
+		found := decodeToolResult(t, runMCPSequence(t, s, []string{
+			`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
+			`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"search","arguments":{"query":"banana8821zebra"}}}`,
+		})[1])
+		if found.IsError || !strings.Contains(found.Content[0].Text, "outofband") {
+			t.Errorf("search after a full rebuild does not find the out-of-band concept: %+v", found)
+		}
+	})
+
+	t.Run("full must be a boolean", func(t *testing.T) {
+		k := setupTestKB(t)
+		s := New("1.0.0")
+		RegisterKBTools(s, k, Deps{})
+
+		tr := callReindex(t, s, `{"full":"yes"}`)
+		if !tr.IsError || !strings.Contains(tr.Content[0].Text, "invalid params") {
+			t.Fatalf("reindex with a non-boolean full: expected a decode error, got %+v", tr)
+		}
+	})
 }
 
 // TestServer_ConceptWrite_UpdatesSQLIndex verifies that, with an active
@@ -2632,7 +2761,7 @@ func TestServer_ConceptMove_ChainedLinksBetweenMovedConcepts(t *testing.T) {
 // concepts already on disk (as after a fresh git clone) but a brand-new,
 // empty SQLite index (.cartographer/index.db is gitignored). EnsureSQLIndexFresh
 // must rebuild the FTS5 table from disk so keyword search finds the concepts
-// without requiring a manual index_rebuild call.
+// without requiring a manual reindex call.
 func TestEnsureSQLIndexFresh_ColdStart(t *testing.T) {
 	k := setupTestKB(t) // already has manutenzione/test-runbook
 
@@ -3225,11 +3354,11 @@ func TestServer_ToolsProfile(t *testing.T) {
 	// Hidden tools stay callable via tools/call under the agent profile.
 	callResps := runMCPSequence(t, s, []string{
 		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
-		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"index_rebuild","arguments":{}}}`,
+		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"reindex","arguments":{"full":true}}}`,
 	})
 	tr := decodeToolResult(t, callResps[1])
 	if tr.IsError {
-		t.Errorf("agent profile: hidden tool index_rebuild must stay callable, got error: %v", tr.Content)
+		t.Errorf("agent profile: hidden tool reindex must stay callable, got error: %v", tr.Content)
 	}
 
 	// D123: the descriptor-bound governance loop must be advertised with the

@@ -178,58 +178,6 @@ func handleSearch(ctx requestContext, k *kb.KB, live *liveIndex, deps Deps, args
 	return textResult(string(out)), nil
 }
 
-// --- index_rebuild ---
-
-// indexRebuildInputSchema is shared by all index_rebuild variants.
-var indexRebuildInputSchema = json.RawMessage(`{
-	"type": "object",
-	"properties": {
-		"scope": {
-			"type": "string",
-			"description": "Currently unused; always rebuilds the entire index."
-		}
-	}
-}`)
-
-// toolIndexRebuild returns the index_rebuild tool, whose behavior depends on deps:
-//
-//   - deps.SQLIndex != nil: rebuilds the in-memory keyword index and
-//     repopulates SQLite FTS5.
-//   - otherwise: rebuilds only the in-memory keyword index.
-func toolIndexRebuild(k *kb.KB, live *liveIndex, deps Deps) Tool {
-	hasSQL := deps.SQLIndex != nil
-
-	description := "Rebuilds the keyword search index from all KB concepts. The index is derived and disposable; this regenerates it from the .md files."
-	if hasSQL {
-		description = "Rebuilds the keyword search index from all KB concepts. Uses SQLite persistence when available."
-	}
-
-	return Tool{
-		Name:        "index_rebuild",
-		ReadOnly:    true,
-		Description: description,
-		InputSchema: indexRebuildInputSchema,
-		Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
-			newIdx, newMeta := buildIndex(k)
-			live.swap(newIdx, newMeta)
-
-			result := map[string]interface{}{
-				"status":           "rebuilt",
-				"concepts_indexed": newIdx.Count(),
-			}
-
-			// SQLite: populate FTS5.
-			if hasSQL {
-				stats := rebuildSQLIndex(k, deps)
-				result["sql_upserted"] = stats.upserted
-			}
-
-			out, _ := json.MarshalIndent(result, "", "  ")
-			return textResult(string(out)), nil
-		},
-	}
-}
-
 // sqlRebuildStats reports how many concepts were (re)indexed into
 // deps.SQLIndex by rebuildSQLIndex.
 type sqlRebuildStats struct {
@@ -237,7 +185,7 @@ type sqlRebuildStats struct {
 }
 
 // rebuildSQLIndex walks all KB concepts and upserts them into deps.SQLIndex's
-// FTS5 table — the same logic used by the index_rebuild tool.
+// FTS5 table — the same logic used by reindex full=true.
 func rebuildSQLIndex(k *kb.KB, deps Deps) sqlRebuildStats {
 	var stats sqlRebuildStats
 

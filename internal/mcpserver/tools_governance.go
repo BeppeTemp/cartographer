@@ -10,22 +10,58 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/kb"
 	"github.com/BeppeTemp/cartographer/internal/lint"
 	"github.com/BeppeTemp/cartographer/internal/okf"
-	"github.com/BeppeTemp/cartographer/internal/sqlindex"
 )
 
 // toolReindex reconciles the derived search indexes with out-of-band KB
-// changes. It is deliberately a write-scoped administrative action: although
-// it never changes KB content, it writes the server-owned SQLite database.
-func toolReindex(k *kb.KB, live *liveIndex, sqlIdx *sqlindex.Index) Tool {
+// changes, or rebuilds them from scratch with full=true (D136: the former
+// index_rebuild tool). It is deliberately a write-scoped administrative
+// action: although it never changes KB content, it writes the server-owned
+// SQLite database — a read-only client has no business rewriting it.
+func toolReindex(k *kb.KB, live *liveIndex, deps Deps) Tool {
 	return Tool{
-		Name:        "reindex",
-		Description: "Reconciles the derived search index with KB files changed outside MCP, including imports, manual edits, and git pulls. Returns indexed, updated, and removed counts.",
-		InputSchema: json.RawMessage(`{"type":"object","properties":{}}`),
+		Name: "reindex",
+		Description: "Reconciles the derived search index with KB files changed outside MCP, including imports, manual edits, and git pulls. Returns indexed, updated, and removed counts. " +
+			"Set full=true to rebuild the whole index from every concept instead, which also works when no SQLite index is available.",
+		InputSchema: json.RawMessage(`{
+	"type": "object",
+	"properties": {
+		"full": {
+			"type": "boolean",
+			"description": "Rebuild the whole index from every concept instead of reconciling only what changed (default false)"
+		}
+	}
+}`),
 		Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
-			if sqlIdx == nil {
+			var params struct {
+				Full bool `json:"full"`
+			}
+			if len(args) > 0 {
+				if err := json.Unmarshal(args, &params); err != nil {
+					return errorResult("invalid params: " + err.Error()), nil
+				}
+			}
+
+			if params.Full {
+				newIdx, newMeta := buildIndex(k)
+				live.swap(newIdx, newMeta)
+
+				result := map[string]interface{}{
+					"status":           "rebuilt",
+					"concepts_indexed": newIdx.Count(),
+				}
+				if deps.SQLIndex != nil {
+					stats := rebuildSQLIndex(k, deps)
+					result["sql_upserted"] = stats.upserted
+				}
+				out, _ := json.MarshalIndent(result, "", "  ")
+				return textResult(string(out)), nil
+			}
+
+			// Incremental reconciliation needs persisted state to compare against.
+			if deps.SQLIndex == nil {
 				return errorResult("reindex: SQLite index is unavailable"), nil
 			}
-			stats, err := ReconcileIndex(k, live, sqlIdx)
+			stats, err := ReconcileIndex(k, live, deps.SQLIndex)
 			if err != nil {
 				return errorResult("reindex: " + err.Error()), nil
 			}

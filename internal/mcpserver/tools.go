@@ -26,12 +26,12 @@ type Deps struct {
 // RegisterKBTools registers all KB tools on the server, including search,
 // navigation and bundled skills, according to the provided Deps.
 //
-//   - search / index_rebuild: if deps.SQLIndex is set, keyword search runs
+//   - search / reindex: if deps.SQLIndex is set, keyword search runs
 //     against SQLite FTS5, falling back to the in-memory index on failure;
 //     otherwise it runs against the in-memory keyword index. Keyword search is
 //     the only mode (D135).
 //   - concept_write shares the same in-memory keyword index (via a single
-//     liveIndex) with search/index_rebuild, so a successful write is
+//     liveIndex) with search/reindex, so a successful write is
 //     immediately reflected by keyword search. When deps.SQLIndex is set,
 //     concept_write also best-effort-upserts the write into SQLite FTS5.
 //   - skill_list: if deps.BundleFS is set, uses the bundle-aware variant and also
@@ -98,8 +98,7 @@ func RegisterKBTools(s *Server, k *kb.KB, deps Deps) {
 	register(toolConceptList(k))
 	register(toolGraphNeighbors(k))
 	register(toolSearch(k, live, deps))
-	register(toolIndexRebuild(k, live, deps))
-	register(toolReindex(k, live, deps.SQLIndex))
+	register(toolReindex(k, live, deps))
 	register(toolLint(k))
 	register(toolCommitGate(k))
 	register(toolGateCheck(k))

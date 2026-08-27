@@ -72,8 +72,8 @@ func TestServer_ToolsProfile_Prefixed(t *testing.T) {
 	}
 	names := toolNamesFromToolsList(t, resps[0])
 
-	if _, ok := names["engteam__index_rebuild"]; ok {
-		t.Error("engteam__index_rebuild is an advanced tool and must be hidden under the agent profile, even prefixed")
+	if _, ok := names["engteam__reindex"]; ok {
+		t.Error("engteam__reindex is an advanced tool and must be hidden under the agent profile, even prefixed")
 	}
 	if _, ok := names["engteam__atlas_overview"]; !ok {
 		t.Error("engteam__atlas_overview must be visible under the agent profile")

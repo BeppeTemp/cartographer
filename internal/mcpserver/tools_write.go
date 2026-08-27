@@ -281,7 +281,7 @@ func applyFrontmatterMap(fm *okf.Frontmatter, m map[string]interface{}) {
 
 // writeConceptAndIndex writes a concept via k.WriteConcept and keeps the
 // in-memory keyword index and SQLite FTS5 index in sync, so search reflects
-// the new content immediately without requiring an index_rebuild call.
+// the new content immediately without requiring a reindex call.
 // Shared write-path for concept_write and concept_patch (D70). logPrefix
 // labels the resulting log.md entry (e.g. "concept_write", "concept_patch").
 func writeConceptAndIndex(k *kb.KB, live *liveIndex, sqlIdx *sqlindex.Index, logPrefix string, id string, fm *okf.Frontmatter, body string, ifMatch string) (string, error) {
@@ -292,9 +292,7 @@ func writeConceptAndIndex(k *kb.KB, live *liveIndex, sqlIdx *sqlindex.Index, log
 
 	_ = k.AppendLog(logPrefix+": "+id, time.Now())
 
-	// Best-effort: keep both search indexes in sync. Embedding is
-	// intentionally not refreshed here; it stays the responsibility of
-	// index_rebuild (with its content-hash cache).
+	// Best-effort: keep both search indexes in sync.
 	if data, readErr := k.ReadConcept(okf.ConceptID(id)); readErr == nil {
 		live.add(id, data.Content)
 		if sqlIdx != nil {

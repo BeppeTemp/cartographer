@@ -362,6 +362,8 @@ c) **`concept_oversize` lint** (`info` severity, like `map_oversize`): body beyo
 
 **Context.** Incremental index updates previously occurred only through MCP writes. Imports, manual filesystem edits, and concepts pulled by git therefore left a non-empty SQLite index stale; startup only rebuilt when the table was empty, so one service restart did not repair drift.
 
+*(Superseded in part by D136: the `index_rebuild` tool it coexisted with is now `reindex(full: true)`.)*
+
 **Decision.** SQLite stores one content hash per concept, so reconciliation walks the KB, compares its hashes with `AllHashes()`, and incrementally upserts new/changed concepts and deletes vanished ones. The in-memory index follows the same add/remove path as MCP writes. Reconciliation runs at boot, after a successful `SyncIn` that changes HEAD, and through the write-scoped `reindex` MCP tool. `cartographer reindex [--kb <name>]` calls a healthy configured server over HTTP; only while it is down does the local administrative CLI open `<kb>/.cartographer/index.db` directly.
 
 **Rationale.** Hash reconciliation makes the index converge without an always-on watcher, preserves the server's single owner of a live SQLite connection, and avoids needless embedding work: changed hashes naturally miss the existing embedding cache until a semantic rebuild/search refreshes them. A filesystem watcher (`fsnotify`) was rejected for this release: it adds platform-specific lifecycle and event-loss complexity while still requiring reconciliation after imports, git pulls, and restarts.
@@ -531,4 +533,32 @@ contract advertising two modes that error out at call time on every deployment. 
 rather than deprecating it is the right call at 0.x: there is no supported deployment to
 stay compatible with, and rejecting the removed arguments makes a stale client fail loudly
 instead of quietly getting results it did not ask for.
+
+---
+
+<a id="d136"></a>
+## D136 — `index_rebuild` is consolidated into `reindex`
+
+**Decision.** `index_rebuild` is removed and its behaviour becomes `reindex(full: true)`:
+`full: false` (the default, and a call with no arguments) keeps today's incremental
+reconciliation and its `indexed`/`updated`/`removed` counters; `full: true` rebuilds the
+in-memory index from every concept and repopulates SQLite FTS5, returning `status:
+"rebuilt"`, `concepts_indexed`, and `sql_upserted` only when a SQLite index is present. The
+merged tool is **write-scoped**: it writes server-owned state, so a token holding only
+`kb:<name>:r` can no longer trigger a rebuild. `full: true` works without a SQLite index —
+that was `index_rebuild`'s only unique capability — while the incremental mode keeps
+returning "SQLite index is unavailable", since there is no persisted state to reconcile
+against. `cartographer reindex` gains `--full`; in its administrative fallback (server down)
+there is no live in-memory index to rebuild, so the flag reports that it is reconciling the
+persisted index instead, which already covers every file.
+
+**Rationale.** Once embeddings were gone (D135) the two tools differed only in how much they
+rebuilt, while carrying opposite rationales for the same side effect: `index_rebuild` was
+classified read-only because the index is derived and gitignored, `reindex` write-scoped
+because it writes the server's SQLite database. Both statements described the same write.
+Nothing in either name or description told an agent which one to call — and the answer
+depended on a deployment detail (whether SQLite was available) it could not see. One tool
+with a thoroughness switch removes the choice; resolving the classification toward
+write-scoped is the honest reading, and a read-only client rewriting the server's index was
+never intended.
 
