@@ -12,6 +12,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/agents"
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/configurator"
+	"github.com/BeppeTemp/cartographer/internal/provisioning"
 	"github.com/BeppeTemp/cartographer/internal/service"
 )
 
@@ -324,5 +325,41 @@ func TestSortDoctorFindings(t *testing.T) {
 	}
 	if strings.Join(order, "") != "cbda" {
 		t.Errorf("order = %v, want [c b d a]", order)
+	}
+}
+
+// An entry with no materialized hash is DriftUnknown, which is deliberately
+// not healable and which ComputeDiff does not see either — so `sync`
+// re-materializes only what actually changed and leaves the finding standing.
+// The suggested command must therefore be the rebuild, not the sync: a
+// diagnosis that names a command which does not resolve it is exactly the
+// noise D143 forbids.
+func TestRunDoctor_UnknownHashSuggestsRebuild(t *testing.T) {
+	doctorStubs(t, []string{"claude"}, false)
+	dir := doctorFixture(t, "claude")
+
+	// A lockfile as an older client wrote it: managed entries, no hashes.
+	lockFile, err := provisioning.ReadLockFile(lockFilePath(dir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	lock := lockFile.ForProvider("claude")
+	for i := range lock.Managed {
+		lock.Managed[i].MaterializedHash = ""
+	}
+	lockFile.SetProvider("claude", lock)
+	if err := provisioning.WriteLockFile(lockFilePath(dir), lockFile); err != nil {
+		t.Fatal(err)
+	}
+
+	found := findingsFor(runDoctor(dir, ""), "managed-files")
+	if len(found) != 1 {
+		t.Fatalf("expected one aggregate finding, got %+v", found)
+	}
+	if found[0].Severity != doctorInfo {
+		t.Errorf("severity = %q, want %q", found[0].Severity, doctorInfo)
+	}
+	if found[0].Fix != "cartographer reconnect" {
+		t.Errorf("fix = %q, want the rebuild: a sync leaves these entries untouched", found[0].Fix)
 	}
 }

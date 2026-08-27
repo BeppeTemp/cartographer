@@ -292,10 +292,17 @@ func checkManagedFiles(dir string, providers []string, lockFile provisioning.Loc
 		// Reported once, in aggregate: these entries predate materialized
 		// hashes, so nothing about them can be verified — and treating that as
 		// drift would rewrite every artifact on every client at once.
+		//
+		// The fix is `reconnect`, not `sync`: an entry with no materialized
+		// hash is DriftUnknown, which is deliberately not healable, and
+		// ComputeDiff sees no change either, so a sync re-materializes only
+		// the artifacts whose content actually changed and leaves the rest
+		// exactly as they are. Only a rebuild rewrites all of them, and with
+		// them their hashes.
 		out = append(out, doctorFinding{
 			Check: "managed-files", Severity: doctorInfo, Path: lockFilePath(dir),
 			Message: fmt.Sprintf("%d managed artifact(s) recorded before content hashes existed cannot be verified", unknown),
-			Fix:     "cartographer sync",
+			Fix:     "cartographer reconnect",
 		})
 	}
 	return out
