@@ -68,8 +68,12 @@ type Descriptor struct {
 	// Empty means the shared base dir, which is every other provider.
 	BaseDirEnv string
 
-	// Binary is the executable name looked up in PATH by internal/agents.
-	Binary string
+	// Binaries are the executable names looked up in PATH by internal/agents,
+	// probed in this order. More than one because a provider can ship its
+	// surfaces under different names: Kiro's IDE installs `kiro` while its
+	// standalone CLI installs `kiro-cli`, and either is evidence that the
+	// provider is on this machine.
+	Binaries []string
 	// ConfigDirs are directories relative to the user's home, probed in this
 	// order when the binary is absent.
 	ConfigDirs [][]string
@@ -93,7 +97,7 @@ var descriptors = []Descriptor{
 		MCPServerKey:       "mcpServers",
 		DeletableWhenEmpty: false,
 		SupportsMCPHeaders: true,
-		Binary:             "claude",
+		Binaries:           []string{"claude"},
 		ConfigDirs:         [][]string{{".claude"}},
 		emit:               emitClaudeCodeServer,
 	},
@@ -104,7 +108,7 @@ var descriptors = []Descriptor{
 		MCPFormat:          FormatTOMLBlock,
 		DeletableWhenEmpty: true,
 		SupportsMCPHeaders: true,
-		Binary:             "codex",
+		Binaries:           []string{"codex"},
 		ConfigDirs:         [][]string{{".codex"}},
 		emit:               emitCodexServer,
 	},
@@ -116,10 +120,12 @@ var descriptors = []Descriptor{
 		MCPServerKey:       "mcpServers",
 		DeletableWhenEmpty: true,
 		FlatToolNamespace:  true,
-		Binary:             "kiro",
-		ConfigDirs:         [][]string{{".kiro"}},
-		DarwinAppDir:       "/Applications/Kiro.app",
-		emit:               emitKiroServer,
+		// The IDE installs `kiro`, the standalone CLI installs `kiro-cli`
+		// (verified on 2.20.0): both are the same provider.
+		Binaries:     []string{"kiro", "kiro-cli"},
+		ConfigDirs:   [][]string{{".kiro"}},
+		DarwinAppDir: "/Applications/Kiro.app",
+		emit:         emitKiroServer,
 	},
 	{
 		Provider:    ProviderHermes,
@@ -131,7 +137,7 @@ var descriptors = []Descriptor{
 		// for artifact delivery and says so.
 		DeletableWhenEmpty: true,
 		BaseDirEnv:         "HERMES_HOME",
-		Binary:             "hermes",
+		Binaries:           []string{"hermes"},
 	},
 	{
 		Provider:           ProviderOpenCode,
@@ -141,7 +147,7 @@ var descriptors = []Descriptor{
 		MCPServerKey:       "mcp",
 		DeletableWhenEmpty: true,
 		SupportsMCPHeaders: true,
-		Binary:             "opencode",
+		Binaries:           []string{"opencode"},
 		ConfigDirs:         [][]string{{".config", "opencode"}, {".opencode"}},
 		emit:               emitOpenCodeServer,
 	},

@@ -26,7 +26,7 @@ func TestRegistryHasOneDescriptorPerProvider(t *testing.T) {
 		if d.DisplayName == "" {
 			t.Errorf("%q: empty DisplayName", d.Provider)
 		}
-		if d.Binary == "" && len(d.ConfigDirs) == 0 && d.BaseDirEnv == "" {
+		if len(d.Binaries) == 0 && len(d.ConfigDirs) == 0 && d.BaseDirEnv == "" {
 			t.Errorf("%q: no detection evidence at all", d.Provider)
 		}
 		// A provider whose MCP configuration Cartographer does not own (D141)
