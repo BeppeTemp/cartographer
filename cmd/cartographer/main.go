@@ -36,6 +36,7 @@ var subcommands = []subcommand{
 	{"Knowledge base", "kb", "Create or mount local knowledge bases"},
 	{"Knowledge base", "import", "Import an external markdown corpus"},
 	{"Knowledge base", "resolve", "Resolve a configured path placeholder"},
+	{"Diagnostics", "doctor", "Diagnose client configuration and residues"},
 	{"Diagnostics", "reindex", "Reconcile search indexes"},
 	{"Diagnostics", "audit", "Verify or export the compliance audit log"},
 }
@@ -60,6 +61,7 @@ var (
 	importFn        = cmdImport
 	resolveFn       = cmdResolve
 	kbFn            = cmdKB
+	doctorFn        = cmdDoctor
 	reindexFn       = cmdReindex
 	auditFn         = cmdAudit
 )
@@ -119,6 +121,8 @@ func run(args []string) int {
 		return resolveFn(rest)
 	case "audit":
 		return auditFn(rest)
+	case "doctor":
+		return doctorFn(rest)
 	case "reindex":
 		return reindexFn(rest)
 	default:

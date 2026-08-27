@@ -137,13 +137,27 @@ func EnsureBootstrapHook(baseDir string, provider configurator.Provider, lock Lo
 		}
 	}
 
+	// The hash of what is on disk (D138), so on-disk verification (D139) and
+	// `cartographer doctor` (D143) cover the bootstrap hook like any other
+	// managed artifact instead of reporting it as unverifiable forever. It is
+	// computed from the same constants written above, never read back, and a
+	// dry run records nothing: there is nothing on disk to describe.
+	materializedHash := ""
+	if !dryRun {
+		materializedHash = hashArtifactFiles([]ArtifactFile{
+			{Path: "hook.json", Content: bootstrapHookJSON()},
+			{Path: bootstrapScriptName, Content: []byte(bootstrapScriptContent), Executable: true},
+		})
+	}
+
 	managed := make([]ManagedFile, 0, len(relPaths))
 	for _, rp := range relPaths {
 		managed = append(managed, ManagedFile{
-			Kind:        "hook",
-			Name:        BootstrapHookName,
-			Path:        rp,
-			ContentHash: bootstrapContentHash,
+			Kind:             "hook",
+			Name:             BootstrapHookName,
+			Path:             rp,
+			ContentHash:      bootstrapContentHash,
+			MaterializedHash: materializedHash,
 		})
 	}
 
