@@ -1,5 +1,5 @@
 // Package agents detects which LLM agent CLIs/apps are installed on the local
-// machine (Claude Code, OpenCode, Codex CLI, Kiro), so `cartographer agents`
+// machine (Claude Code, OpenCode, Codex CLI, Kiro, Hermes), so `cartographer agents`
 // and `cartographer connect all` know which providers to target.
 package agents
 
@@ -25,6 +25,7 @@ type Agent struct {
 var (
 	lookPath    = exec.LookPath
 	userHomeDir = os.UserHomeDir
+	getenv      = os.Getenv
 	goos        = runtime.GOOS
 )
 
@@ -41,8 +42,8 @@ func dirExists(path string) bool {
 // registry's detection order (D137: identity and detection evidence live in
 // internal/configurator's descriptors, not in per-provider functions here).
 // An agent is Installed if at least one heuristic matches: its binary in PATH,
-// then its config directories in descriptor order, then — on darwin only — its
-// application bundle.
+// then its config directories in descriptor order, then its own root directory
+// if it declares one (D141), then — on darwin only — its application bundle.
 func Detect() []Agent {
 	home, _ := userHomeDir()
 	out := make([]Agent, 0, len(configurator.DetectionOrder()))
@@ -64,6 +65,14 @@ func detect(d configurator.Descriptor, home string) Agent {
 		dir := filepath.Join(append([]string{home}, segments...)...)
 		if dirExists(dir) {
 			a.Installed, a.Evidence = true, dir
+			return a
+		}
+	}
+	// A provider with its own root directory (D141: $HERMES_HOME) is installed
+	// if that root exists — it is the same evidence `connect` needs anyway.
+	if d.BaseDirEnv != "" {
+		if root := getenv(d.BaseDirEnv); dirExists(root) {
+			a.Installed, a.Evidence = true, root
 			return a
 		}
 	}

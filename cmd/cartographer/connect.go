@@ -262,7 +262,7 @@ func cmdConnect(args []string) int {
 		return 2
 	}
 	if len(providers) == 0 {
-		fmt.Fprintln(os.Stderr, "No agent detected on this machine; nothing to connect (pass an explicit provider name to force it: claude|opencode|codex|kiro).")
+		fmt.Fprintf(os.Stderr, "No agent detected on this machine; nothing to connect (pass an explicit provider name to force it: %s).\n", providerNamesJoined())
 		return 1
 	}
 
@@ -501,6 +501,15 @@ type connectResult struct {
 func doConnect(opts connectOptions) (connectResult, error) {
 	if len(opts.Providers) == 0 {
 		return connectResult{}, fmt.Errorf("no providers to connect")
+	}
+
+	// A provider with a root of its own (D141: $HERMES_HOME) cannot be
+	// connected without it. Fail here, naming the variable, rather than
+	// materializing into the home directory where the agent never looks.
+	for _, p := range opts.Providers {
+		if _, err := provisioning.BaseDirFor(configurator.Provider(p), opts.Dir); err != nil {
+			return connectResult{}, err
+		}
 	}
 
 	// 1. Discover mounted KBs before generating MCP entries. A down server

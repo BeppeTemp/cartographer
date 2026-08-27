@@ -147,7 +147,10 @@ func pinnedPublicKeys(cfg *clientconfig.Config) (map[string][]ed25519.PublicKey,
 
 // materializeForProviders applies manifest m for each provider in providers,
 // persisting a single v2 LockFile at <targetDir>/.cartographer-sync.lock.json (one
-// Lock entry per provider). autoTrust is explicit authorization for eligible
+// Lock entry per provider). The lockfile always lives in targetDir, but each
+// provider materializes under its OWN base dir (D141: every provider but
+// hermes shares targetDir; hermes writes under $HERMES_HOME), recorded in that
+// provider's Lock so prune and verification later find the same files. autoTrust is explicit authorization for eligible
 // unsigned KB artifacts, passed to ApplyOptions.AutoTrust; it never changes an
 // artifact's Signed verification result. searchRoots/paths come from the loaded
 // clientconfig.Config (cfg.SearchRoots/cfg.Paths) and drive placeholder expansion
@@ -168,15 +171,21 @@ func materializeForProviders(m provisioning.Manifest, providers []string, target
 	// Validate every authorized local command for every destination before any
 	// provider file or lockfile can change. Provider is carried into errors so
 	// a failed multi-provider sync identifies the configuration it protected.
+	baseDirs := make(map[string]string, len(providers))
 	for _, p := range providers {
-		if err := provisioning.PreflightStdioMCP(m, provisioning.ApplyOptions{Provider: configurator.Provider(p), BaseDir: targetDir, AutoTrust: autoTrust, ApprovedMCP: approvedMCP}); err != nil {
+		baseDir, err := provisioning.BaseDirFor(configurator.Provider(p), targetDir)
+		if err != nil {
+			return nil, err
+		}
+		baseDirs[p] = baseDir
+		if err := provisioning.PreflightStdioMCP(m, provisioning.ApplyOptions{Provider: configurator.Provider(p), BaseDir: baseDir, AutoTrust: autoTrust, ApprovedMCP: approvedMCP}); err != nil {
 			return nil, err
 		}
 	}
 	for _, p := range providers {
 		opts := provisioning.ApplyOptions{
 			Provider:           configurator.Provider(p),
-			BaseDir:            targetDir,
+			BaseDir:            baseDirs[p],
 			DryRun:             dryRun,
 			NoHeal:             noHeal,
 			AutoTrust:          autoTrust,
@@ -194,6 +203,12 @@ func materializeForProviders(m provisioning.Manifest, providers []string, target
 		applied, err := provisioning.Apply(provisioning.FilterForProvider(m, configurator.Provider(p)), opts)
 		if err != nil {
 			return nil, fmt.Errorf("apply %s: %w", p, err)
+		}
+		// Record the base dir only when it is not the lockfile's own
+		// directory: every existing lockfile keeps its current meaning and no
+		// migration runs (D141).
+		if baseDirs[p] != targetDir {
+			applied.NewLock.BaseDir = baseDirs[p]
 		}
 		lockFile.SetProvider(p, applied.NewLock)
 		results[p] = applied
@@ -394,7 +409,7 @@ func resolveProviderCSV(csv string) ([]string, error) {
 	for _, part := range strings.Split(csv, ",") {
 		name := strings.TrimSpace(part)
 		if name == "" {
-			return nil, fmt.Errorf("invalid --agents value %q (want comma-separated claude|opencode|codex|kiro)", csv)
+			return nil, fmt.Errorf("invalid --agents value %q (want comma-separated %s)", csv, providerNamesJoined())
 		}
 		provider, err := resolveProvider(name)
 		if err != nil {
@@ -412,11 +427,18 @@ func resolveProvider(target string) ([]string, error) {
 	if _, ok := configurator.Lookup(configurator.Provider(target)); ok {
 		return []string{target}, nil
 	}
+	return nil, fmt.Errorf("unknown provider %q (want %s)", target, providerNamesJoined())
+}
+
+// providerNamesJoined renders the supported provider identifiers for a usage
+// message, from the registry rather than a hand-kept list (D137/D141: adding a
+// provider must not leave stale help text behind).
+func providerNamesJoined() string {
 	names := make([]string, 0, len(configurator.ProviderList()))
 	for _, p := range configurator.ProviderList() {
 		names = append(names, string(p))
 	}
-	return nil, fmt.Errorf("unknown provider %q (want %s)", target, strings.Join(names, "|"))
+	return strings.Join(names, "|")
 }
 
 // splitPositional extracts a single leading positional argument (one not starting

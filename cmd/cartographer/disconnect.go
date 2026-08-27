@@ -135,7 +135,10 @@ func doDisconnect(opts disconnectOptions) (disconnectResult, error) {
 		pr.ConfigRemoved = removed[p]
 
 		lock := lockFile.ForProvider(p)
-		pruned, err := provisioning.PruneManaged(lock.Managed, opts.Dir, opts.DryRun)
+		// The managed paths are relative to the base dir the provider actually
+		// materialized under, which the Lock records when it is not opts.Dir
+		// (D141) — pruning against the wrong one silently no-ops.
+		pruned, err := provisioning.PruneManaged(lock.Managed, provisioning.LockBaseDir(lock, opts.Dir), opts.DryRun)
 		if err != nil {
 			return disconnectResult{}, fmt.Errorf("prune skills for %s: %w", p, err)
 		}

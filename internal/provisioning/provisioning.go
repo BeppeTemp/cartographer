@@ -110,6 +110,36 @@ type Lock struct {
 	AppliedRevision string        `json:"applied_revision"`
 	Provider        string        `json:"provider"`
 	Managed         []ManagedFile `json:"managed"`
+	// BaseDir is the directory the Path of every ManagedFile above is
+	// relative to, recorded only for a provider that materializes outside the
+	// shared client base dir (D141, hermes under $HERMES_HOME). Empty — every
+	// lockfile written before D141, and every other provider — means "the
+	// lockfile's own directory", so nothing migrates. Read it through
+	// LockBaseDir, never directly: pruning or verifying against the wrong base
+	// dir deletes the wrong files or silently finds nothing.
+	BaseDir string `json:"base_dir,omitempty"`
+}
+
+// LockBaseDir returns the directory lock's managed paths are relative to:
+// lock.BaseDir when the provider has its own root (D141), defaultDir — the
+// directory holding the lockfile — otherwise.
+func LockBaseDir(lock Lock, defaultDir string) string {
+	if lock.BaseDir != "" {
+		return lock.BaseDir
+	}
+	return defaultDir
+}
+
+// BaseDirFor returns the directory provider materializes its artifacts under,
+// given the shared client base dir. It is the registry descriptor's
+// ResolveBaseDir (D141): every provider but hermes returns defaultDir
+// unchanged, and hermes fails naming $HERMES_HOME when it is unset.
+func BaseDirFor(provider configurator.Provider, defaultDir string) (string, error) {
+	d, ok := configurator.Lookup(provider)
+	if !ok {
+		return defaultDir, nil
+	}
+	return d.ResolveBaseDir(defaultDir)
 }
 
 // Diff is the result of comparing Manifest ↔ Lock.
@@ -1713,6 +1743,10 @@ var provisioningRootDirs = map[string]bool{
 	".opencode":                          true,
 	".config":                            true,
 	filepath.Join(".config", "opencode"): true,
+	// The hermes inbox root (D141): pruning the last delivered skill empties
+	// skill-inbox/<name>/cartographer and skill-inbox/<name>, never
+	// skill-inbox itself — other sources deliver there too.
+	hermesInboxRoot: true,
 }
 
 // pruneEmptyDirs removes every directory left empty by the removal of the file at
@@ -1860,6 +1894,11 @@ type destination struct {
 	// path — one shared file for every artifact of that kind.
 	named  bool
 	suffix string
+	// tail are extra segments appended AFTER the artifact name, for a
+	// destination that nests the artifact's files one level deeper (D141:
+	// skill-inbox/<name>/cartographer/, whose last segment names the
+	// proposer so a second source never collides with Cartographer's).
+	tail []string
 	// unsupported marks a combination this provider cannot represent.
 	unsupported bool
 }
@@ -1868,6 +1907,12 @@ func at(segments ...string) destination { return destination{dir: segments} }
 
 func perName(suffix string, segments ...string) destination {
 	return destination{dir: segments, named: true, suffix: suffix}
+}
+
+// perNameIn is perName with extra segments below the artifact's own
+// directory: dir/<name>/tail... .
+func perNameIn(tail []string, segments ...string) destination {
+	return destination{dir: segments, named: true, tail: tail}
 }
 
 var unsupportedDest = destination{unsupported: true}
@@ -1885,24 +1930,35 @@ var unsupportedDest = destination{unsupported: true}
 //     "agent" cells are a single file, written directly by Apply.
 //   - kiro has no known native subagent directory and no native hook
 //     mechanism, hence the two unsupported cells.
+//   - hermes supports exactly one kind, "skill", and delivers it to an inbox
+//     for the agent to adopt rather than installing it (D141). Its four other
+//     cells are unsupported for stated reasons, not by omission.
 var destinationMatrix = map[string]map[configurator.Provider]destination{
 	"mcp": {
 		configurator.ProviderClaudeCode: at(".claude.json"),
 		configurator.ProviderCodex:      at(".codex", "config.toml"),
 		configurator.ProviderOpenCode:   at("opencode.json"),
 		configurator.ProviderKiro:       at(".kiro", "settings", "mcp.json"),
+		// hermes: config.yaml is rendered by its Ansible role and recreated on
+		// the next playbook run (D141).
+		configurator.ProviderHermes: unsupportedDest,
 	},
 	"instructions": {
 		configurator.ProviderClaudeCode: at(".claude", "CLAUDE.md"),
 		configurator.ProviderOpenCode:   at(".config", "opencode", "AGENTS.md"),
 		configurator.ProviderCodex:      at(".codex", "AGENTS.md"),
 		configurator.ProviderKiro:       at(".kiro", "steering", "cartographer.md"),
+		// hermes: SOUL.md, its always-on instruction slot, is operator-owned
+		// and rendered from a template (D141).
+		configurator.ProviderHermes: unsupportedDest,
 	},
 	"agent": {
 		configurator.ProviderClaudeCode: perName(".md", ".claude", "agents"),
 		configurator.ProviderOpenCode:   perName(".md", ".opencode", "agent"),
 		configurator.ProviderCodex:      perName(".toml", ".codex", "agents"),
 		configurator.ProviderKiro:       unsupportedDest,
+		// hermes: no native subagent directory (D141).
+		configurator.ProviderHermes: unsupportedDest,
 	},
 	"hook": {
 		configurator.ProviderClaudeCode: perName("", ".claude", "hooks"),
@@ -1912,14 +1968,36 @@ var destinationMatrix = map[string]map[configurator.Provider]destination{
 		// registerOpenCodePlugin) in .config/opencode/plugins/, not here.
 		configurator.ProviderOpenCode: perName("", ".opencode", "hooks"),
 		configurator.ProviderKiro:     unsupportedDest,
+		// hermes: no hook mechanism at all — nothing fires at conversation
+		// start, so its trigger is the scheduled timer (D140/D141).
+		configurator.ProviderHermes: unsupportedDest,
 	},
 	"skill": {
 		configurator.ProviderClaudeCode: perName("", ".claude", "skills"),
 		configurator.ProviderCodex:      perName("", ".codex", "skills"),
 		configurator.ProviderKiro:       perName("", ".kiro", "skills"),
 		configurator.ProviderOpenCode:   perName("", ".opencode", "skills"),
+		// hermes: DELIVERED, not installed (D141). HERMES_HOME/skills/ belongs
+		// to the agent's own curator, which rewrites what it owns; writing
+		// there would destroy its learning. The proposal lands in the inbox
+		// with a generated SOURCE.md and the agent adopts it via skill_manage.
+		configurator.ProviderHermes: perNameIn([]string{hermesInboxSource}, hermesInboxRoot),
 	},
 }
+
+// The hermes inbox (D141): <HERMES_HOME>/skill-inbox/<name>/cartographer/.
+// The last segment names the proposer, so a proposal from another source never
+// collides with Cartographer's. Deliberately without the timestamp the
+// skill-inbox convention allows: provisioning must be idempotent, and one
+// directory per sync would accumulate a copy every timer tick with no way to
+// tell stale from current. SOURCE.md carries the content hash instead, so the
+// agent can tell an unchanged re-delivery from a new proposal.
+const (
+	hermesInboxRoot   = "skill-inbox"
+	hermesInboxSource = "cartographer"
+	// hermesSourceFile is generated by Cartographer, never taken from the KB.
+	hermesSourceFile = "SOURCE.md"
+)
 
 // artifactKinds are the kinds the matrix must cover. A manifest built by a
 // newer server may carry a kind absent from this list; destDir returns "" for
@@ -1957,7 +2035,8 @@ func destDir(kind, name string, provider configurator.Provider) string {
 	if !cell.named {
 		return filepath.Join(cell.dir...)
 	}
-	return filepath.Join(append(append([]string{}, cell.dir...), name+cell.suffix)...)
+	segments := append(append([]string{}, cell.dir...), name+cell.suffix)
+	return filepath.Join(append(segments, cell.tail...)...)
 }
 
 // translateAgentForProvider adapts an "agent" artifact's content (a Claude Code
@@ -2115,6 +2194,24 @@ func copyArtifactFiles(a Artifact, opts ApplyOptions, fullDestDir string, tracke
 			return nil, "", "", err
 		}
 	}
+
+	// Files Cartographer generates on top of the KB's own (D141, hermes'
+	// SOURCE.md). A collision with a KB file of the same name fails this one
+	// artifact — with a warning, before anything is written — and leaves the
+	// rest of the sync to complete.
+	generated, collision, ok := generatedArtifactFiles(a, opts.Provider, files)
+	if !ok {
+		// The caller created fullDestDir just before this call: remove it
+		// again so a refused delivery leaves no empty directory that looks
+		// like one. os.Remove refuses a non-empty directory, so an earlier
+		// successful delivery survives untouched.
+		_ = os.Remove(fullDestDir)
+		if rel, relErr := filepath.Rel(opts.BaseDir, fullDestDir); relErr == nil {
+			pruneEmptyDirs(opts.BaseDir, rel)
+		}
+		return nil, "", collision, nil
+	}
+	files = append(append([]ArtifactFile{}, files...), generated...)
 
 	expanded := make([]ArtifactFile, 0, len(files))
 	// Only a skill's principal file carries the provenance block; every other

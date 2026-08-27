@@ -9,11 +9,13 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 )
 
-// withStubs temporarily replaces lookPath/userHomeDir/goos and restores them
-// via t.Cleanup, so tests never touch the real PATH/filesystem/OS.
+// withStubs temporarily replaces lookPath/userHomeDir/getenv/goos and restores
+// them via t.Cleanup, so tests never touch the real PATH/filesystem/OS/env.
+// The environment starts empty: a provider detected through its own root
+// directory (D141) is invisible unless a test sets it via withEnv.
 func withStubs(t *testing.T, home string, found map[string]string, os_ string) {
 	t.Helper()
-	origLookPath, origHome, origGOOS := lookPath, userHomeDir, goos
+	origLookPath, origHome, origGetenv, origGOOS := lookPath, userHomeDir, getenv, goos
 	lookPath = func(name string) (string, error) {
 		if p, ok := found[name]; ok {
 			return p, nil
@@ -21,12 +23,21 @@ func withStubs(t *testing.T, home string, found map[string]string, os_ string) {
 		return "", errors.New("not found")
 	}
 	userHomeDir = func() (string, error) { return home, nil }
+	getenv = func(string) string { return "" }
 	if os_ != "" {
 		goos = os_
 	}
 	t.Cleanup(func() {
-		lookPath, userHomeDir, goos = origLookPath, origHome, origGOOS
+		lookPath, userHomeDir, getenv, goos = origLookPath, origHome, origGetenv, origGOOS
 	})
+}
+
+// withEnv stubs the environment lookup with a fixed map, on top of withStubs.
+func withEnv(t *testing.T, env map[string]string) {
+	t.Helper()
+	orig := getenv
+	getenv = func(name string) string { return env[name] }
+	t.Cleanup(func() { getenv = orig })
 }
 
 func TestDetect_NothingInstalled(t *testing.T) {
@@ -34,8 +45,8 @@ func TestDetect_NothingInstalled(t *testing.T) {
 	withStubs(t, home, nil, "linux")
 
 	got := Detect()
-	if len(got) != 4 {
-		t.Fatalf("expected 4 agents, got %d", len(got))
+	if want := len(configurator.DetectionOrder()); len(got) != want {
+		t.Fatalf("expected %d agents, got %d", want, len(got))
 	}
 	for _, a := range got {
 		if a.Installed {
@@ -111,6 +122,36 @@ func TestDetect_OpenCodeXDGConfigDir(t *testing.T) {
 			if !a.Installed || a.Evidence != filepath.Join(home, ".config", "opencode") {
 				t.Errorf("opencode: expected Installed=true evidence=%s, got %+v", filepath.Join(home, ".config", "opencode"), a)
 			}
+		}
+	}
+}
+
+// A provider whose evidence is its own root directory (D141, hermes) is
+// detected from $HERMES_HOME when the binary is absent — and only when that
+// directory actually exists.
+func TestDetect_ProviderRootDir(t *testing.T) {
+	home := t.TempDir()
+	root := filepath.Join(t.TempDir(), "hermes")
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	withStubs(t, home, nil, "linux")
+	withEnv(t, map[string]string{"HERMES_HOME": root})
+	for _, a := range Detect() {
+		if a.Provider != configurator.ProviderHermes {
+			continue
+		}
+		if !a.Installed || a.Evidence != root {
+			t.Fatalf("hermes: expected Installed=true evidence=%q, got %+v", root, a)
+		}
+	}
+
+	// Pointing at a directory that does not exist is not evidence.
+	withEnv(t, map[string]string{"HERMES_HOME": filepath.Join(root, "nope")})
+	for _, a := range Detect() {
+		if a.Provider == configurator.ProviderHermes && a.Installed {
+			t.Fatalf("hermes: expected not installed, got %+v", a)
 		}
 	}
 }

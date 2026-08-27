@@ -256,6 +256,14 @@ func applyMCPEntries(entries []mcpEntry, providers []string, dir string, auth bo
 	written = make([]string, 0, len(providers))
 	seenPaths := map[string]bool{}
 	for _, provider := range providers {
+		if !configurator.ManagesMCPConfig(configurator.Provider(provider)) {
+			// A provider whose MCP endpoints are configured outside
+			// Cartographer (D141, hermes: its config.yaml is rendered by its
+			// Ansible role). Say so — silently writing nothing would look
+			// like a bug the first time someone connects it.
+			warnings = append(warnings, unmanagedMCPConfigNote(configurator.Provider(provider)))
+			continue
+		}
 		results := make([]*configurator.EmitResult, 0, len(entries))
 		for _, entry := range entries {
 			r, err := configurator.Emit(&configurator.ServerConfig{Name: entry.Name, URL: entry.URL, AuthEnabled: auth, TokenEnv: tokenEnv}, configurator.Provider(provider))
@@ -295,6 +303,11 @@ func applyMCPEntries(entries []mcpEntry, providers []string, dir string, auth bo
 func removeMCPEntries(baseName string, kbs []string, providers []string, dir string, auth bool, tokenEnv string, dryRun bool) (map[string]bool, error) {
 	removed := make(map[string]bool, len(providers))
 	for _, provider := range providers {
+		if !configurator.ManagesMCPConfig(configurator.Provider(provider)) {
+			// Nothing was ever written for it (D141), so there is nothing to
+			// remove and no config file to look for.
+			continue
+		}
 		for _, name := range managedEntryNames(baseName, kbs) {
 			ok, err := configurator.Remove(&configurator.ServerConfig{Name: name, AuthEnabled: auth, TokenEnv: tokenEnv}, configurator.Provider(provider), dir, dryRun)
 			if err != nil {
@@ -304,4 +317,16 @@ func removeMCPEntries(baseName string, kbs []string, providers []string, dir str
 		}
 	}
 	return removed, nil
+}
+
+// unmanagedMCPConfigNote is what `connect` reports for a provider whose MCP
+// configuration Cartographer does not own (D141). It names the provider and
+// what stays the operator's job, so the absence of a written config file reads
+// as a decision rather than a failure.
+func unmanagedMCPConfigNote(provider configurator.Provider) string {
+	name := string(provider)
+	if d, ok := configurator.Lookup(provider); ok {
+		name = d.DisplayName
+	}
+	return fmt.Sprintf("%s: registered for artifact delivery; its MCP endpoint is NOT configured by Cartographer (it is rendered by %s' own deployment) — point it at this server yourself", name, provider)
 }

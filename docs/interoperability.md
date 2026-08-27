@@ -58,3 +58,22 @@ Current limitations are documented once in the relevant table/section rather
 than repeated here. In particular, Kiro's flat MCP tool namespace may require
 the server's per-KB tool prefix, and provider translations intentionally drop
 fields that cannot be represented safely.
+
+### Instruction slots Cartographer deliberately does not write
+
+Leveraging a provider to the fullest also means declining to write where the
+write would not survive, or would destroy what another owner maintains. Two
+Hermes slots are unsupported for that reason
+([D141](decisions/client-configurator.md#d141)), not for lack of a mapping:
+
+- **`SOUL.md`**, its always-on instruction slot — operator-owned and rendered
+  from a template by an Ansible role, so a managed block written there is gone
+  on the next playbook run. The imprinting that reaches every other provider as
+  a `kind: instructions` block simply does not reach Hermes;
+- **`config.yaml`**, its MCP endpoint list — rendered by the same role, for the
+  same reason. `connect hermes` therefore configures no MCP entry and says so.
+
+- **`$HERMES_HOME/skills/`** is a third: not an instruction slot but the
+  agent's own curated skill store, rewritten by its curator from its learning
+  loop. Cartographer delivers proposals to `skill-inbox/<name>/cartographer/`
+  and the agent adopts what it chooses — see [`sync.md`](sync.md) §Hermes.

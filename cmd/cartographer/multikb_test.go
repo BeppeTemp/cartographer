@@ -378,3 +378,69 @@ func TestFlatNamespaceMountWarning(t *testing.T) {
 		})
 	}
 }
+
+// D141: connecting hermes registers it for artifact delivery without writing
+// any MCP configuration — its endpoints are rendered by its own deployment —
+// and says so, because silently writing nothing would read as a bug.
+func TestDoConnect_Hermes_NoMCPConfigButSaysSo(t *testing.T) {
+	srv := multiKBServer(t, `{"status":"ok","kbs":[{"name":"alpha"}]}`)
+	defer srv.Close()
+	dir := t.TempDir()
+	hermesHome := t.TempDir()
+	t.Setenv("HERMES_HOME", hermesHome)
+
+	res, err := doConnect(connectOptions{Providers: []string{"hermes"}, Dir: dir, ServerURL: srv.URL + "/mcp", Name: "cartographer", TokenEnv: "TOKEN", Trust: true})
+	if err != nil {
+		t.Fatalf("doConnect: %v", err)
+	}
+	if len(res.ConfigsWritten) != 0 {
+		t.Errorf("connect hermes wrote MCP configs: %v", res.ConfigsWritten)
+	}
+	said := false
+	for _, w := range res.Warnings {
+		if strings.Contains(w, "MCP endpoint is NOT configured") {
+			said = true
+		}
+	}
+	if !said {
+		t.Errorf("connect hermes said nothing about the MCP endpoint: %v", res.Warnings)
+	}
+	for _, root := range []string{dir, hermesHome} {
+		for _, name := range []string{".claude.json", "opencode.json"} {
+			if _, err := os.Stat(filepath.Join(root, name)); !os.IsNotExist(err) {
+				t.Errorf("unexpected %s under %s: %v", name, root, err)
+			}
+		}
+		if _, err := os.Stat(filepath.Join(root, "skills")); !os.IsNotExist(err) {
+			t.Errorf("HERMES_HOME/skills/ must never be created (%s): %v", root, err)
+		}
+	}
+
+	cfg, err := clientconfig.Load(dir)
+	if err != nil || strings.Join(cfg.Agents, ",") != "hermes" {
+		t.Fatalf("persisted agents = %v, err=%v", cfg.Agents, err)
+	}
+
+	// Disconnect touches nothing else and leaves no agent behind.
+	if _, err := doDisconnect(disconnectOptions{Providers: []string{"hermes"}, Dir: dir}); err != nil {
+		t.Fatalf("doDisconnect: %v", err)
+	}
+	cfg, err = clientconfig.Load(dir)
+	if err != nil || len(cfg.Agents) != 0 {
+		t.Fatalf("agents after disconnect = %v, err=%v", cfg.Agents, err)
+	}
+}
+
+// Connecting a provider whose root directory is not configured fails naming
+// the variable, before anything is written (D141).
+func TestDoConnect_Hermes_MissingHome(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HERMES_HOME", "")
+	_, err := doConnect(connectOptions{Providers: []string{"hermes"}, Dir: dir, ServerURL: "http://127.0.0.1:1/mcp", Name: "cartographer"})
+	if err == nil || !strings.Contains(err.Error(), "HERMES_HOME") {
+		t.Fatalf("doConnect error = %v, want one naming HERMES_HOME", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".cartographer.yaml")); !os.IsNotExist(err) {
+		t.Errorf("a failed connect persisted config anyway: %v", err)
+	}
+}
