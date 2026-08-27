@@ -78,10 +78,16 @@ func TestDestDirPaths(t *testing.T) {
 		{"skill", configurator.ProviderCodex, filepath.Join(".codex", "skills", "demo")},
 		{"skill", configurator.ProviderKiro, filepath.Join(".kiro", "skills", "demo")},
 		{"skill", configurator.ProviderOpenCode, filepath.Join(".opencode", "skills", "demo")},
+		// hermes delivers skills to its inbox and supports nothing else (D141).
+		{"skill", configurator.ProviderHermes, filepath.Join("skill-inbox", "demo", "cartographer")},
+		{"agent", configurator.ProviderHermes, ""},
+		{"hook", configurator.ProviderHermes, ""},
+		{"mcp", configurator.ProviderHermes, ""},
+		{"instructions", configurator.ProviderHermes, ""},
 		// A kind or provider this binary does not know is not materializable:
 		// a manifest from a newer server must not land somewhere arbitrary.
 		{"newkind", configurator.ProviderClaudeCode, ""},
-		{"skill", configurator.Provider("hermes"), ""},
+		{"skill", configurator.Provider("nope"), ""},
 	}
 	for _, tc := range cases {
 		if got := destDir(tc.kind, "demo", tc.provider); got != tc.want {

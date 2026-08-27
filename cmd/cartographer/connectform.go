@@ -36,6 +36,11 @@ const (
 	fieldSubmit
 )
 
+// formProviders are the providers the interactive connect form offers: the
+// ones whose MCP configuration `connect` actually writes. hermes is
+// deliberately absent (D141) — it has no MCP config to write and needs
+// $HERMES_HOME set in the environment, so it is connected from the CLI
+// (`cartographer connect hermes`), where that failure can be stated plainly.
 var formProviders = []string{"claude", "opencode", "codex", "kiro"}
 
 func providerForField(f connectField) (string, bool) {

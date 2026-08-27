@@ -34,9 +34,10 @@ errors. `service status` retains 0 running, 3 stopped and 4 not installed.
 
 ### `cartographer agents`
 
-Lists the four supported providers, whether they are installed on the machine (`internal/agents.Detect`:
-binary in PATH or a known config directory) and whether they are connected (present in the
-machine-wide `.cartographer.yaml`, `~/.cartographer.yaml`).
+Lists the supported providers, whether they are installed on the machine (`internal/agents.Detect`:
+binary in PATH, a known config directory, or — for a provider with a root of its own — that root,
+`$HERMES_HOME`) and whether they are connected (present in the machine-wide `.cartographer.yaml`,
+`~/.cartographer.yaml`).
 
 ```bash
 cartographer agents
@@ -91,7 +92,7 @@ cartographer connect all --auto-trust --dry-run
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| (positional) | `all` | `claude` \| `opencode` \| `codex` \| `kiro` \| `all` (all detected agents) |
+| (positional) | `all` | `claude` \| `opencode` \| `codex` \| `kiro` \| `hermes` \| `all` (all detected agents) |
 | `--agents` | *(unset)* | Comma-separated subset (`claude,codex`); cannot be combined with the positional provider |
 | `--server-url` | `http://localhost:39273/mcp` | Cartographer server URL |
 | `--auth` | `false` | Enables the Bearer header in generated configs |
@@ -156,7 +157,7 @@ cartographer disconnect all --dry-run  # preview without writing
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| (positional) | `all` | `claude` \| `opencode` \| `codex` \| `kiro` \| `all` (every connected provider) |
+| (positional) | `all` | `claude` \| `opencode` \| `codex` \| `kiro` \| `hermes` \| `all` (every connected provider) |
 | `--agents` | *(unset)* | Comma-separated subset (`claude,codex`); cannot be combined with the positional provider |
 | `--dry-run` | `false` | Prints without removing |
 
@@ -358,6 +359,29 @@ Adding a provider therefore means: one descriptor, one emitter (the four output 
 differ, so that stays code), its cells in the kind × provider matrix (`internal/provisioning`, see
 [`sync.md`](sync.md) §Kind × provider matrix), and — if it has a native hook mechanism — one entry
 in `hookMechanisms`. A missing matrix cell fails a completeness test; nothing else needs editing.
+A provider whose MCP configuration Cartographer does not own declares neither a config file nor an
+emitter and is skipped by `connect`/`disconnect` (`ManagesMCPConfig`); one that materializes outside
+the shared base dir declares `BaseDirEnv` instead ([D141](decisions/client-configurator.md#d141)).
+
+### Hermes Agent
+
+`cartographer connect hermes` registers Hermes for **artifact delivery only**. It writes no MCP
+configuration: Hermes' endpoint list lives in a `config.yaml` rendered by its Ansible role and
+recreated on the next playbook run, so anything written there would be lost — `connect` says so
+explicitly rather than silently doing nothing, and pointing Hermes at the server stays the
+operator's job. For the same reason Hermes is absent from the interactive connect form, which offers
+the providers whose MCP configuration `connect` writes.
+
+- **`$HERMES_HOME` is required**: it is the base dir artifacts are materialized under, recorded as
+  `base_dir` in that provider's lockfile entry. Unset, `connect hermes` fails naming the variable
+  instead of writing into the home directory, where the agent would never look.
+- **Only `skill` is supported**, and it is *delivered* to `skill-inbox/<name>/cartographer/` rather
+  than installed — adoption is the agent's own decision, via `skill_manage`. Nothing is ever written
+  under `$HERMES_HOME/skills/`. See [`sync.md`](sync.md) §Hermes.
+- **The trigger is the scheduled timer** (`cartographer service sync-timer install`): Hermes has no
+  session hook, so nothing fires at conversation start.
+- `disconnect hermes` prunes the delivered inbox directories and drops the provider from
+  `.cartographer.yaml`; it touches nothing else.
 
 ## Files generated per provider (HTTP transport)
 
@@ -367,6 +391,7 @@ in `hookMechanisms`. A missing matrix cell fails a completeness test; nothing el
 | Codex CLI | `.codex/config.toml` | managed block `[mcp_servers.cartographer]` (TOML, marker `cartographer:mcp:*`) |
 | Kiro | `.kiro/settings/mcp.json` | `mcpServers` (JSON) |
 | OpenCode | `opencode.json` | `mcp` (JSON) |
+| Hermes Agent | none — see below | — |
 
 KB-provided stdio descriptors (D116) share these same files with per-name ownership. Claude Code,
 Codex and Kiro receive native `command`, `args` and `env` fields (Kiro also keeps `autoApprove: []`);

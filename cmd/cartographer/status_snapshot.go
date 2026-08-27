@@ -173,7 +173,8 @@ func snapshotForConfig(dir string, cfg *clientconfig.Config, includeService bool
 		// On-disk verification (D139): the manifest↔lockfile comparison says
 		// nothing about what is actually on disk, so an artifact edited or
 		// deleted locally used to report in-sync.
-		p.Diverged = snapshotDiverged(provisioning.VerifyManaged(lockFile.ForProvider(p.Name), configurator.Provider(p.Name), dir))
+		lock := lockFile.ForProvider(p.Name)
+		p.Diverged = snapshotDiverged(provisioning.VerifyManaged(lock, configurator.Provider(p.Name), provisioning.LockBaseDir(lock, dir)))
 		if d.InSync && len(p.Diverged) == 0 {
 			p.State = "in_sync"
 			continue

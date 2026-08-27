@@ -69,7 +69,8 @@ Cartographer offers **two complementary profiles**:
 - 🧩 **Domain skills** (`SKILL.md` / agentskills.io format) with provisioning and client↔server sync, including executable scripts and binary assets
 - 🔑 **Secrets via SOPS** — JSON Pointer references, scoped resolution and safe rotation; plaintext values never stored
 - ⚙️ **Multi-provider configurator** — generates MCP config for Claude Code, Codex CLI, Kiro,
-  OpenCode
+  OpenCode; Hermes Agent is supported for artifact delivery (skills are *delivered* to its inbox for
+  the agent to adopt, never installed over the ones it curates itself)
 - 📦 **OKF-compliant** — each KB is an OKF bundle and a standalone git repo, zero lock-in (just git +
   Markdown)
 
@@ -130,7 +131,7 @@ first KB, and connect an agent client to it.
 brew install beppetemp/tap/cartographer   # or curl install.sh, or `go install` (see Install above)
 cartographer service install              # generates config, installs and starts the service
 cartographer kb create <name> --remote <url>  # scaffolds a KB in the data dir, pushes it to <url>
-cartographer connect                      # connects an agent client (Claude Code, OpenCode, Codex, Kiro)
+cartographer connect                      # connects an agent client (Claude Code, OpenCode, Codex, Kiro, Hermes)
 ```
 
 `--remote <url>` is an **empty** git repository that becomes the KB's `origin`: a KB is a git
