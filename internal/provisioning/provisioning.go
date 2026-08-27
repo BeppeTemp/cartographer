@@ -1934,8 +1934,9 @@ var unsupportedDest = destination{unsupported: true}
 //     (applyInstructionsGroup).
 //   - "skill"/"hook" cells are directories materialized by copyArtifactFiles;
 //     "agent" cells are a single file, written directly by Apply.
-//   - kiro has no known native subagent directory and no native hook
-//     mechanism, hence the two unsupported cells.
+//   - kiro has no known native subagent directory, and its hooks are declared
+//     per agent rather than per machine (D140), so neither cell is
+//     materializable — hence the two unsupported ones.
 //   - hermes supports exactly one kind, "skill", and delivers it to an inbox
 //     for the agent to adopt rather than installing it (D141). Its four other
 //     cells are unsupported for stated reasons, not by omission.
@@ -1973,7 +1974,12 @@ var destinationMatrix = map[string]map[configurator.Provider]destination{
 		// the JS plugin that invokes them (D59) is generated elsewhere (Apply,
 		// registerOpenCodePlugin) in .config/opencode/plugins/, not here.
 		configurator.ProviderOpenCode: perName("", ".opencode", "hooks"),
-		configurator.ProviderKiro:     unsupportedDest,
+		// kiro: hooks are a `hooks` map inside an AGENT config
+		// (~/.kiro/agents/<name>.json), not files in a directory of their own,
+		// and they fire only for the agent that declares them — so no hook
+		// Cartographer owns can fire for the agent the user actually runs
+		// (D140). Its trigger is the scheduled timer.
+		configurator.ProviderKiro: unsupportedDest,
 		// hermes: no hook mechanism at all — nothing fires at conversation
 		// start, so its trigger is the scheduled timer (D140/D141).
 		configurator.ProviderHermes: unsupportedDest,
