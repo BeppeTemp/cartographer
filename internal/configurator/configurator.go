@@ -119,18 +119,11 @@ func EmitServer(name string, spec ServerSpec, provider Provider) (*EmitResult, e
 	if err := validateServerSpec(name, spec); err != nil {
 		return nil, err
 	}
-	switch provider {
-	case ProviderClaudeCode:
-		return emitClaudeCodeServer(name, spec)
-	case ProviderCodex:
-		return emitCodexServer(name, spec)
-	case ProviderKiro:
-		return emitKiroServer(name, spec)
-	case ProviderOpenCode:
-		return emitOpenCodeServer(name, spec)
-	default:
+	d, ok := Lookup(provider)
+	if !ok {
 		return nil, fmt.Errorf("unknown provider: %s", provider)
 	}
+	return d.emit(name, spec)
 }
 
 // validateServerSpec keeps direct EmitServer callers from silently dropping
@@ -157,7 +150,7 @@ func validateServerSpec(name string, spec ServerSpec) error {
 
 // EmitAll generates the configuration for all providers.
 func EmitAll(cfg *ServerConfig) ([]*EmitResult, error) {
-	providers := []Provider{ProviderClaudeCode, ProviderCodex, ProviderKiro, ProviderOpenCode}
+	providers := ProviderList()
 	results := make([]*EmitResult, 0, len(providers))
 	for _, p := range providers {
 		r, err := Emit(cfg, p)
@@ -341,7 +334,7 @@ func Remove(cfg *ServerConfig, provider Provider, baseDir string, dryRun bool) (
 	// leaves nothing behind but that (now-deleted) key and, for opencode, the
 	// "$schema" hint, there is nothing worth keeping — delete the file outright
 	// instead of leaving an empty shell nobody reads.
-	if provider != ProviderClaudeCode && isEmptyProviderShell(root) {
+	if d, ok := Lookup(provider); ok && d.DeletableWhenEmpty && isEmptyProviderShell(root) {
 		if err := os.Remove(fullPath); err != nil {
 			return false, fmt.Errorf("remove %s: %w", fullPath, err)
 		}

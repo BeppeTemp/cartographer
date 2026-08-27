@@ -65,6 +65,7 @@ internal/auth/               # TokenStore, Middleware, scopes, RBAC
 internal/skill/               # LoadSkill, Catalog, Validate (SKILL.md)
 internal/sops/               # Decrypt, ResolveRefs, EnvForSkill
 internal/configurator/       # multi-provider adapter (HTTP only): Claude Code, Codex, Kiro, OpenCode
+                             # registry.go: one descriptor per provider (identity, config file, detection)
 internal/provisioning/       # Manifest, Lock/LockFile, Diff, Apply, MergeArtifacts
 internal/agents/             # Detect() agents installed on the machine (claude/opencode/codex/kiro)
 internal/clientconfig/       # .cartographer.yaml (server_url, connected agents, etc.)

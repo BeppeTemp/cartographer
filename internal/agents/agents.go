@@ -37,71 +37,38 @@ func dirExists(path string) bool {
 	return err == nil && fi.IsDir()
 }
 
-// Detect probes the local machine for the four supported agent providers.
-// An agent is Installed if at least one heuristic matches (binary in PATH or
-// a well-known config directory present).
+// Detect probes the local machine for every supported provider, in the
+// registry's detection order (D137: identity and detection evidence live in
+// internal/configurator's descriptors, not in per-provider functions here).
+// An agent is Installed if at least one heuristic matches: its binary in PATH,
+// then its config directories in descriptor order, then — on darwin only — its
+// application bundle.
 func Detect() []Agent {
 	home, _ := userHomeDir()
-	return []Agent{
-		detectClaude(home),
-		detectOpenCode(home),
-		detectCodex(home),
-		detectKiro(home),
+	out := make([]Agent, 0, len(configurator.DetectionOrder()))
+	for _, d := range configurator.DetectionOrder() {
+		out = append(out, detect(d, home))
 	}
+	return out
 }
 
-func detectClaude(home string) Agent {
-	a := Agent{Provider: configurator.ProviderClaudeCode, Name: "Claude Code"}
-	if path, err := lookPath("claude"); err == nil {
-		a.Installed, a.Evidence = true, path
-		return a
+func detect(d configurator.Descriptor, home string) Agent {
+	a := Agent{Provider: d.Provider, Name: d.DisplayName}
+	if d.Binary != "" {
+		if path, err := lookPath(d.Binary); err == nil {
+			a.Installed, a.Evidence = true, path
+			return a
+		}
 	}
-	if dir := filepath.Join(home, ".claude"); dirExists(dir) {
-		a.Installed, a.Evidence = true, dir
+	for _, segments := range d.ConfigDirs {
+		dir := filepath.Join(append([]string{home}, segments...)...)
+		if dirExists(dir) {
+			a.Installed, a.Evidence = true, dir
+			return a
+		}
 	}
-	return a
-}
-
-func detectOpenCode(home string) Agent {
-	a := Agent{Provider: configurator.ProviderOpenCode, Name: "OpenCode"}
-	if path, err := lookPath("opencode"); err == nil {
-		a.Installed, a.Evidence = true, path
-		return a
-	}
-	if dir := filepath.Join(home, ".config", "opencode"); dirExists(dir) {
-		a.Installed, a.Evidence = true, dir
-		return a
-	}
-	if dir := filepath.Join(home, ".opencode"); dirExists(dir) {
-		a.Installed, a.Evidence = true, dir
-	}
-	return a
-}
-
-func detectCodex(home string) Agent {
-	a := Agent{Provider: configurator.ProviderCodex, Name: "Codex CLI"}
-	if path, err := lookPath("codex"); err == nil {
-		a.Installed, a.Evidence = true, path
-		return a
-	}
-	if dir := filepath.Join(home, ".codex"); dirExists(dir) {
-		a.Installed, a.Evidence = true, dir
-	}
-	return a
-}
-
-func detectKiro(home string) Agent {
-	a := Agent{Provider: configurator.ProviderKiro, Name: "Kiro"}
-	if path, err := lookPath("kiro"); err == nil {
-		a.Installed, a.Evidence = true, path
-		return a
-	}
-	if dir := filepath.Join(home, ".kiro"); dirExists(dir) {
-		a.Installed, a.Evidence = true, dir
-		return a
-	}
-	if goos == "darwin" && dirExists("/Applications/Kiro.app") {
-		a.Installed, a.Evidence = true, "/Applications/Kiro.app"
+	if d.DarwinAppDir != "" && goos == "darwin" && dirExists(d.DarwinAppDir) {
+		a.Installed, a.Evidence = true, d.DarwinAppDir
 	}
 	return a
 }

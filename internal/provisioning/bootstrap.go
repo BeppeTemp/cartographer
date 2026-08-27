@@ -93,8 +93,8 @@ func EnsureBootstrapHook(baseDir string, provider configurator.Provider, lock Lo
 			filepath.Join(destRel, "hook.json"),
 			filepath.Join(destRel, bootstrapScriptName),
 		}
-		if provider == configurator.ProviderOpenCode {
-			relPaths = append(relPaths, openCodePluginRelPath(BootstrapHookName))
+		if pluginRel := HookPluginRelPath(provider, BootstrapHookName); pluginRel != "" {
+			relPaths = append(relPaths, pluginRel)
 		}
 	} else {
 		fullDestDir := filepath.Join(baseDir, destRel)
@@ -123,37 +123,12 @@ func EnsureBootstrapHook(baseDir string, provider configurator.Provider, lock Lo
 		// Register in the provider's native mechanism, reusing exactly the
 		// D57/D58/D59 primitives — the very same code Apply uses for KB
 		// hooks, with the hook.json just written above acting as the bridge.
-		switch provider {
-		case configurator.ProviderClaudeCode:
-			if err := registerHookSettings(baseDir, BootstrapHookName, fullDestDir); err != nil {
-				return Lock{}, fmt.Errorf("provisioning: register bootstrap hook in settings.json: %w", err)
-			}
-		case configurator.ProviderCodex:
-			// The repair warning (D99) is dropped here: EnsureBootstrapHook has
-			// no warnings channel, and connect/sync already surface the same
-			// repair on the MCP entry, which is what makes the file visibly
-			// change.
-			if _, err := registerHookConfigTOML(baseDir, BootstrapHookName, fullDestDir); err != nil {
-				return Lock{}, fmt.Errorf("provisioning: register bootstrap hook in config.toml: %w", err)
-			}
-		case configurator.ProviderOpenCode:
-			// openCodePluginRelPath prefixes with "cartographer-" unconditionally
-			// (same helper every KB hook uses) — for BootstrapHookName
-			// ("cartographer-bootstrap") that yields a double-prefixed file name
-			// (cartographer-cartographer-bootstrap.js). Documented, deliberate
-			// (D60): reusing the shared helper verbatim keeps registration and
-			// removal (removeOpenCodePlugin, driven by PruneManaged/mf.Name) on
-			// the exact same path-derivation logic, with zero risk of the two
-			// drifting apart — a cosmetic double-prefix is a small price for
-			// that guarantee.
-			pluginRel, warning, err := registerOpenCodePlugin(baseDir, BootstrapHookName, fullDestDir)
+		if mechanism, ok := hookMechanisms[provider]; ok {
+			pluginRel, warning, err := mechanism.register(baseDir, BootstrapHookName, fullDestDir)
 			if err != nil {
-				return Lock{}, fmt.Errorf("provisioning: register bootstrap hook as opencode plugin: %w", err)
+				return Lock{}, err
 			}
-			if warning != "" {
-				// SessionStart is always mapped (openCodeHookEvents) — a warning
-				// here would mean the mapping regressed; treat as a hard error
-				// rather than silently leaving the bootstrap hook unregistered.
+			if warning != "" && mechanism.warningBlocksBootstrap {
 				return Lock{}, fmt.Errorf("provisioning: bootstrap hook: %s", warning)
 			}
 			if pluginRel != "" {
@@ -181,4 +156,100 @@ func EnsureBootstrapHook(baseDir string, provider configurator.Provider, lock Lo
 	}
 	lock.Managed = append(newManaged, managed...)
 	return lock, nil
+}
+
+// hookMechanism describes how a provider registers a materialized hook in its
+// own configuration (D137): claude patches settings.json (D57), codex a
+// marker-delimited block in config.toml (D58), opencode generates a plugin JS
+// file that *is* the registration (D59). A provider absent from
+// hookMechanisms has no hook mechanism at all — kiro, whose "hook" cell in
+// destinationMatrix is unsupported, so nothing reaches here for it.
+type hookMechanism struct {
+	// settingsFile is the provider-native file the registration is written
+	// into, relative to the base dir. Empty when the registration is a
+	// generated artifact of its own (opencode).
+	settingsFile []string
+	// pluginPath derives that generated artifact's path, relative to the base
+	// dir. Nil when the provider has none.
+	pluginPath func(name string) string
+	// warningBlocksBootstrap makes a non-fatal warning fatal for the
+	// bootstrap hook specifically. True only for opencode: its warning means
+	// the hook's event has no OpenCode equivalent, and SessionStart is always
+	// mapped (openCodeHookEvents) — a warning there would mean the mapping
+	// regressed, and silently leaving the bootstrap hook unregistered is
+	// worse than failing. Codex's warning is a D99 repair notice, informational.
+	warningBlocksBootstrap bool
+	// register performs the registration, returning the relative path of any
+	// generated artifact (so it is tracked as a managed file) plus any
+	// non-fatal warning for the caller to surface.
+	register func(baseDir, name, fullDestDir string) (relPath, warning string, err error)
+}
+
+var hookMechanisms = map[configurator.Provider]hookMechanism{
+	configurator.ProviderClaudeCode: {
+		settingsFile: []string{".claude", "settings.json"},
+		register: func(baseDir, name, fullDestDir string) (string, string, error) {
+			if err := registerHookSettings(baseDir, name, fullDestDir); err != nil {
+				return "", "", fmt.Errorf("provisioning: register hook %s in settings.json: %w", name, err)
+			}
+			return "", "", nil
+		},
+	},
+	configurator.ProviderCodex: {
+		settingsFile: []string{".codex", "config.toml"},
+		register: func(baseDir, name, fullDestDir string) (string, string, error) {
+			warning, err := registerHookConfigTOML(baseDir, name, fullDestDir)
+			if err != nil {
+				return "", "", fmt.Errorf("provisioning: register hook %s in config.toml: %w", name, err)
+			}
+			return "", warning, nil
+		},
+	},
+	configurator.ProviderOpenCode: {
+		pluginPath:             openCodePluginRelPath,
+		warningBlocksBootstrap: true,
+		register: func(baseDir, name, fullDestDir string) (string, string, error) {
+			// Unlike claude/codex (patching an existing shared file), here the
+			// registration produces a NEW dedicated file (the generated
+			// plugin, D59) — the caller appends it to the managed files so it
+			// is pruned like any other, not left as a silent side effect.
+			//
+			// openCodePluginRelPath prefixes with "cartographer-"
+			// unconditionally (same helper every KB hook uses) — for
+			// BootstrapHookName ("cartographer-bootstrap") that yields a
+			// double-prefixed file name. Documented, deliberate (D60):
+			// reusing the shared helper verbatim keeps registration and
+			// removal (removeOpenCodePlugin, driven by PruneManaged/mf.Name)
+			// on the exact same path-derivation logic.
+			pluginRel, warning, err := registerOpenCodePlugin(baseDir, name, fullDestDir)
+			if err != nil {
+				return "", "", fmt.Errorf("provisioning: register hook %s as opencode plugin: %w", name, err)
+			}
+			return pluginRel, warning, nil
+		},
+	},
+}
+
+// HookRegistrationFile returns the provider-native file a hook registration is
+// written into, relative to the client base dir, or "" when the provider
+// registers through a generated artifact instead (or has no hook mechanism).
+// Exported for the client's own output: `cartographer sync` reports where a
+// hook was registered.
+func HookRegistrationFile(provider configurator.Provider) string {
+	m, ok := hookMechanisms[provider]
+	if !ok || len(m.settingsFile) == 0 {
+		return ""
+	}
+	return filepath.Join(m.settingsFile...)
+}
+
+// HookPluginRelPath returns the path, relative to the client base dir, of the
+// dedicated registration artifact this provider generates for hook name — or
+// "" when it registers into a shared settings file instead.
+func HookPluginRelPath(provider configurator.Provider, name string) string {
+	m, ok := hookMechanisms[provider]
+	if !ok || m.pluginPath == nil {
+		return ""
+	}
+	return m.pluginPath(name)
 }
