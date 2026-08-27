@@ -299,14 +299,14 @@ func hookRegistrationManagedFile(provider string, w provisioning.ManagedFile) bo
 	if w.Kind != "hook" {
 		return false
 	}
-	switch configurator.Provider(provider) {
-	case configurator.ProviderClaudeCode, configurator.ProviderCodex:
-		return filepath.Base(w.Path) == "hook.json"
-	case configurator.ProviderOpenCode:
-		return filepath.Base(w.Path) == "cartographer-"+w.Name+".js"
-	default:
-		return false
+	p := configurator.Provider(provider)
+	if plugin := provisioning.HookPluginRelPath(p, w.Name); plugin != "" {
+		return filepath.Base(w.Path) == filepath.Base(plugin)
 	}
+	if provisioning.HookRegistrationFile(p) != "" {
+		return filepath.Base(w.Path) == "hook.json"
+	}
+	return false
 }
 
 // printHookRegistered prints the one-line confirmation that a materialized
@@ -315,14 +315,14 @@ func hookRegistrationManagedFile(provider string, w provisioning.ManagedFile) bo
 // the registration, so its own path is printed instead of a separate shared
 // file).
 func printHookRegistered(provider, dir string, w provisioning.ManagedFile) {
+	p := configurator.Provider(provider)
 	var registeredIn string
-	switch configurator.Provider(provider) {
-	case configurator.ProviderClaudeCode:
-		registeredIn = filepath.Join(dir, ".claude", "settings.json")
-	case configurator.ProviderCodex:
-		registeredIn = filepath.Join(dir, ".codex", "config.toml")
-	case configurator.ProviderOpenCode:
+	switch {
+	case provisioning.HookPluginRelPath(p, w.Name) != "":
+		// The generated plugin *is* the registration (D59): print its own path.
 		registeredIn = filepath.Join(dir, w.Path)
+	case provisioning.HookRegistrationFile(p) != "":
+		registeredIn = filepath.Join(dir, provisioning.HookRegistrationFile(p))
 	default:
 		return
 	}
@@ -394,12 +394,14 @@ func resolveProviderCSV(csv string) ([]string, error) {
 }
 
 func resolveProvider(target string) ([]string, error) {
-	switch configurator.Provider(target) {
-	case configurator.ProviderClaudeCode, configurator.ProviderOpenCode, configurator.ProviderCodex, configurator.ProviderKiro:
+	if _, ok := configurator.Lookup(configurator.Provider(target)); ok {
 		return []string{target}, nil
-	default:
-		return nil, fmt.Errorf("unknown provider %q (want claude|opencode|codex|kiro)", target)
 	}
+	names := make([]string, 0, len(configurator.ProviderList()))
+	for _, p := range configurator.ProviderList() {
+		names = append(names, string(p))
+	}
+	return nil, fmt.Errorf("unknown provider %q (want %s)", target, strings.Join(names, "|"))
 }
 
 // splitPositional extracts a single leading positional argument (one not starting

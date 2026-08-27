@@ -109,7 +109,7 @@ that same native service over loopback HTTP; any other endpoint is skipped rathe
 
 ## Kind × provider matrix
 
-Resolved by `destDir(kind, name, provider)`; an unmapped combination is `unsupported` (≠ `needs_approval`: no approval would unblock it) and clients filter it out upstream with `FilterForProvider` — it counts as neither drift nor pending ([D50](decisions/sync-provisioning.md#d50)).
+The matrix below is data in the code: `destinationMatrix` in `internal/provisioning/provisioning.go`, resolved by `destDir(kind, name, provider)` ([D137](decisions/client-configurator.md#d137)). Every cell either names a destination or is explicitly `unsupported` — a cell *missing* from the table fails a completeness test instead of degrading silently. `unsupported` is not `needs_approval` (no approval would unblock it): clients filter such artifacts out upstream with `FilterForProvider`, and they count as neither drift nor pending ([D50](decisions/sync-provisioning.md#d50)).
 
 | Kind | claude | opencode | codex | kiro |
 |---|---|---|---|---|

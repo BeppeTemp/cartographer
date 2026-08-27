@@ -152,10 +152,11 @@ func kiroFlatNamespaceWarning(providers []string, entries []mcpEntry) string {
 		return ""
 	}
 	for _, p := range providers {
-		if configurator.Provider(p) == configurator.ProviderKiro {
-			return fmt.Sprintf("kiro has a flat MCP tool namespace across servers: writing %d MCP entries "+
-				"means only one KB's tools will be reachable in a Kiro session unless the server mounts the "+
-				"others with a tool_prefix (see docs/deployment.md §MCP tool-name prefix)", len(entries))
+		if d, ok := configurator.Lookup(configurator.Provider(p)); ok && d.FlatToolNamespace {
+			return fmt.Sprintf("%s has a flat MCP tool namespace across servers: writing %d MCP entries "+
+				"means only one KB's tools will be reachable in a %s session unless the server mounts the "+
+				"others with a tool_prefix (see docs/deployment.md §MCP tool-name prefix)",
+				d.Provider, len(entries), d.DisplayName)
 		}
 	}
 	return ""
@@ -263,7 +264,9 @@ func applyMCPEntries(entries []mcpEntry, providers []string, dir string, auth bo
 			}
 			results = append(results, r)
 		}
-		if configurator.Provider(provider) == configurator.ProviderCodex && len(results) > 1 {
+		// TOML providers merge one marker-delimited block per file, so several
+		// entries are concatenated into a single EmitResult.
+		if d, ok := configurator.Lookup(configurator.Provider(provider)); ok && d.MCPFormat == configurator.FormatTOMLBlock && len(results) > 1 {
 			joined := *results[0]
 			for _, r := range results[1:] {
 				joined.Content = append(joined.Content, '\n')

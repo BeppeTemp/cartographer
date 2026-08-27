@@ -22,15 +22,14 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 )
 
-// mcpServerKey is the top-level JSON key each provider uses to hold its map of
-// MCP server entries — "mcp" for OpenCode, "mcpServers" for claude/kiro (see
-// internal/configurator's own mcpServerKeys, duplicated here since it is
-// unexported in that package).
+// mcpServerKey is the top-level JSON key the provider uses to hold its map of
+// MCP server entries, read from the provider descriptor (D137).
 func mcpServerKey(provider configurator.Provider) string {
-	if provider == configurator.ProviderOpenCode {
-		return "mcp"
+	d, ok := configurator.Lookup(provider)
+	if !ok {
+		return "mcpServers"
 	}
-	return "mcpServers"
+	return d.MCPServerKey
 }
 
 // mcpServerMarkers returns the begin/end comment markers that delimit name's
@@ -146,7 +145,7 @@ func removeMCPServer(baseDir, name string, provider configurator.Provider) error
 		settings[key] = servers
 	}
 
-	if provider != configurator.ProviderClaudeCode && isEmptyMCPProviderShell(settings) {
+	if d, ok := configurator.Lookup(provider); ok && d.DeletableWhenEmpty && isEmptyMCPProviderShell(settings) {
 		if err := os.Remove(fullPath); err != nil {
 			return fmt.Errorf("provisioning: remove %s: %w", fullPath, err)
 		}
@@ -178,16 +177,10 @@ func isEmptyMCPProviderShell(settings map[string]interface{}) bool {
 // (same pattern as hookProviderFromPath).
 func mcpProviderFromPath(path string) configurator.Provider {
 	slash := filepath.ToSlash(path)
-	switch slash {
-	case ".claude.json":
-		return configurator.ProviderClaudeCode
-	case filepath.ToSlash(filepath.Join(".codex", "config.toml")):
-		return configurator.ProviderCodex
-	case "opencode.json":
-		return configurator.ProviderOpenCode
-	case filepath.ToSlash(filepath.Join(".kiro", "settings", "mcp.json")):
-		return configurator.ProviderKiro
-	default:
-		return ""
+	for _, d := range configurator.Providers() {
+		if slash == d.MCPConfigPath {
+			return d.Provider
+		}
 	}
+	return ""
 }
