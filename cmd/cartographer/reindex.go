@@ -32,9 +32,10 @@ type reindexTarget struct {
 func cmdReindex(args []string) int {
 	fs := flag.NewFlagSet("reindex", flag.ExitOnError)
 	kbFlag := fs.String("kb", "", "Reindex only this configured KB name")
+	fullFlag := fs.Bool("full", false, "Rebuild the whole index from every concept instead of reconciling only what changed")
 	fs.Parse(args)
 	if fs.NArg() != 0 {
-		fmt.Fprintln(os.Stderr, "Usage: cartographer reindex [--kb <name>]")
+		fmt.Fprintln(os.Stderr, "Usage: cartographer reindex [--kb <name>] [--full]")
 		return 2
 	}
 
@@ -57,7 +58,7 @@ func cmdReindex(args []string) int {
 			return 1
 		}
 		for _, target := range targets {
-			raw, err := callTool(client.New(cfg.ServerURL, token).WithKB(target.Name), target, "reindex", map[string]any{})
+			raw, err := callTool(client.New(cfg.ServerURL, token).WithKB(target.Name), target, "reindex", map[string]any{"full": *fullFlag})
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "reindex %s: %v\n", displayKBName(target.Name), err)
 				return 1
@@ -67,6 +68,12 @@ func cmdReindex(args []string) int {
 		return 0
 	}
 
+	// Administrative fallback: no server process, so there is no live in-memory
+	// index to rebuild — reconciling the persisted index against the files is
+	// already the complete job (D136).
+	if *fullFlag {
+		fmt.Fprintln(os.Stderr, "reindex: --full needs a running server; reconciling the local index instead, which covers every file")
+	}
 	targets, err := localReindexTargets(*kbFlag)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "reindex:", err)

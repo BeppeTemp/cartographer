@@ -10,7 +10,7 @@ package mcpserver
 //
 // Classification rationale:
 //   - operator-level mutation/maintenance (commit_gate, contradiction_report,
-//     conflict_resolve, index_rebuild, reindex): not part of a normal agent
+//     conflict_resolve, reindex): not part of a normal agent
 //     session;
 //   - provisioning plumbing (sync_*, skill_*, service_*): consumed by the
 //     client CLI / hooks, or operator-level (skill_install, service_get).
@@ -45,7 +45,6 @@ var advancedToolNames = map[string]bool{
 	"commit_gate":          true,
 	"contradiction_report": true,
 	"conflict_resolve":     true,
-	"index_rebuild":        true,
 	"reindex":              true,
 	"sync_check":           true,
 	"sync_apply":           true,
