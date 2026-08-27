@@ -47,14 +47,8 @@ func TestApply_Codex_MaterializzaAgent_ConFrontmatter(t *testing.T) {
 		t.Fatalf("agent not materialized at %s: %v", agentPath, err)
 	}
 
-	want := "name = \"reviewer\"\n" +
-		"description = \"Reviews the code\"\n" +
-		"developer_instructions = \"\"\"\n" +
-		"Reviewer system prompt.\n" +
-		"\"\"\"\n"
-	if string(data) != want {
-		t.Errorf("unexpected translated content:\n%q\nexpected:\n%q", data, want)
-	}
+	// The provenance block (D138) travels inside developer_instructions.
+	assertCodexAgent(t, string(data), "name = \"reviewer\"\ndescription = \"Reviews the code\"\n", "Reviewer system prompt.\n")
 	// Non-mappable Claude-only fields must not appear.
 	for _, unwanted := range []string{"tools", "model"} {
 		if strings.Contains(string(data), unwanted) {
@@ -88,14 +82,7 @@ func TestApply_Codex_MaterializzaAgent_SenzaFrontmatter(t *testing.T) {
 	if err != nil {
 		t.Fatalf("agent not materialized at %s: %v", agentPath, err)
 	}
-	want := "name = \"plain\"\n" +
-		"description = \"plain\"\n" +
-		"developer_instructions = \"\"\"\n" +
-		"Body only, no frontmatter.\n" +
-		"\"\"\"\n"
-	if string(data) != want {
-		t.Errorf("unexpected translated content (fallback with no frontmatter):\n%q\nexpected:\n%q", data, want)
-	}
+	assertCodexAgent(t, string(data), "name = \"plain\"\ndescription = \"plain\"\n", "Body only, no frontmatter.\n")
 }
 
 // --- Hook → registration in config.toml (D58) ---
@@ -745,4 +732,21 @@ func TestApply_Codex_Hook_Adoption_UserAuthoredInlineCommand_NotAdopted(t *testi
 	if n := strings.Count(got, "[[hooks.PreToolUse]]"); n != 2 {
 		t.Errorf("expected 2 [[hooks.PreToolUse]] (user's + ours), found %d:\n%s", n, got)
 	}
+}
+
+// assertCodexAgent checks a translated Codex agent: the TOML header verbatim,
+// then developer_instructions holding the body plus exactly one provenance
+// block (D138).
+func assertCodexAgent(t *testing.T, got, wantHeader, wantBody string) {
+	t.Helper()
+	const open = "developer_instructions = \"\"\"\n"
+	idx := strings.Index(got, open)
+	if idx == -1 {
+		t.Fatalf("no developer_instructions block:\n%s", got)
+	}
+	if header := got[:idx]; header != wantHeader {
+		t.Errorf("unexpected TOML header:\n%q\nexpected:\n%q", header, wantHeader)
+	}
+	instructions := strings.TrimSuffix(got[idx+len(open):], "\"\"\"\n")
+	assertStampedOnce(t, instructions, wantBody)
 }

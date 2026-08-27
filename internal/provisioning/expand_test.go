@@ -237,8 +237,17 @@ func TestApply_ExpandPlaceholders_AgentPathPlaceholder(t *testing.T) {
 			agentWritten = w
 		}
 	}
-	if agentWritten.ContentHash == agentArtifact.ContentHash {
-		t.Error("expected a hash different from the manifest's (expanded content), got the same")
+	// D138: ContentHash stays the manifest's source hash — ComputeDiff compares
+	// it against the manifest, so an expanded hash there reported permanent
+	// drift on every sync. The expanded/stamped bytes go in MaterializedHash.
+	if agentWritten.ContentHash != agentArtifact.ContentHash {
+		t.Errorf("ContentHash = %q, want the manifest's %q", agentWritten.ContentHash, agentArtifact.ContentHash)
+	}
+	if agentWritten.MaterializedHash == "" {
+		t.Error("MaterializedHash not recorded for a materialized agent")
+	}
+	if agentWritten.MaterializedHash == agentArtifact.ContentHash {
+		t.Error("MaterializedHash equals the source hash: the expanded content was not hashed")
 	}
 }
 

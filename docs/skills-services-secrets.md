@@ -17,6 +17,12 @@ Client provisioning materializes KB skills into each provider's native
 directory. See [synchronization](sync.md) for the manifest, trust and pruning
 rules.
 
+A materialized `SKILL.md` carries a provenance block naming the KB it came
+from, its path there, and its content hash ([D138](decisions/sync-provisioning.md#d138)).
+Editing that copy is **not** a supported channel: the next sync replaces it. The supported
+channels are `artifact_write` on the owning KB (or a git push to the KB repo) — the block
+states which, with the exact path.
+
 Skills and hooks can execute with the agent's privileges. The current `signed`
 manifest field is a trust-policy result, not a cryptographic signature:
 

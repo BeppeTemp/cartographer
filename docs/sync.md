@@ -103,6 +103,32 @@ that same native service over loopback HTTP; any other endpoint is skipped rathe
 - **MCP configs reduced to empty** (`configurator.Remove`): once the entry is removed, an empty `mcpServers`/`mcp` map is removed too; `.kiro/settings/mcp.json` and `opencode.json` reduced to an empty shell are deleted. **Absolute exception**: `.claude.json` is never deleted (it's a file shared by Claude Code). For `.codex/config.toml`, only the marker-delimited block is removed (the file is deleted if it ends up empty).
 - Round-trip `connect`→`disconnect` leaves no residue, except for the provisioning roots themselves (deliberate boundaries): test `TestRoundTrip_ConnectDisconnect_NessunResiduo`. Details → [D63](decisions/client-configurator.md#d63).
 
+## Provenance stamp (D138)
+
+A materialized `skill` (its `SKILL.md` only) and `agent` carry a
+marker-delimited block appended to the file — `<!-- cartographer:provenance:begin … -->` /
+`<!-- cartographer:provenance:end -->`, the same convention as the instructions block, invisible in
+rendered Markdown. It states the source KB, the artifact's path inside that KB, the artifact's
+content hash, and one instruction: local edits are replaced on the next `cartographer sync`, and the
+supported way to change the file is `artifact_write` on that KB at that path. A bundled artifact
+says so instead, with no `artifact_write` line — changing it means changing the Cartographer
+release. Other kinds are never stamped: a hook's script and `hook.json` would change program
+semantics, `mcp` descriptors are JSON, and `instructions` already announces itself.
+
+The block carries **no timestamp and no manifest revision**: both would change on every sync (the
+revision on any *other* artifact's change), rewriting every file and defeating hash comparison. It
+is rebuilt from the source content on every materialization, so re-stamping is a fixed point and an
+older version's block is replaced, never nested. Stamping is client-side only, like placeholder
+expansion: the KB's own copy is never modified.
+
+Because the stamp changes the bytes on disk, the lockfile records **two** hashes per managed file:
+`content_hash` — the manifest artifact's hash, the one `ComputeDiff` compares — and
+`materialized_hash`, the hash of what was actually written (after expansion, stamping and any
+per-provider translation). An empty `materialized_hash` means "unknown" (a lockfile written before
+D138). Keeping them separate is also a fix: previously the expanded hash was stored in
+`content_hash`, so any artifact containing a placeholder compared unequal against the manifest on
+every sync and was reported as permanent drift.
+
 ## Idempotence
 
 `sync_apply`/`provisioning.Apply` applied twice on the same revision are no-ops; `dry_run` shows the diff without writing (`sync_apply(dry_run=true)`, `--dry-run` on the client). The provider JSON config merge remains the non-destructive deep-merge of `configurator.mergeJSON`.

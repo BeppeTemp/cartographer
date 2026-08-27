@@ -92,7 +92,16 @@ type ManagedFile struct {
 	Kind        string `json:"kind"`
 	Name        string `json:"name"`
 	Path        string `json:"path"`         // relative to base-dir
-	ContentHash string `json:"content_hash"` // hash of the containing artifact
+	ContentHash string `json:"content_hash"` // hash of the manifest artifact this came from
+	// MaterializedHash is the hash of what was actually written to disk:
+	// after placeholder expansion, provenance stamping and any per-provider
+	// translation (D138). ContentHash is what ComputeDiff compares against the
+	// manifest, so the two must not be conflated — before D138 the expanded
+	// hash was stored in ContentHash, and any artifact carrying a placeholder
+	// compared unequal on every sync, reporting permanent drift.
+	// Empty means "unknown": lockfiles written before D138, and entries with
+	// no materialized file of their own (kind "mcp", dry runs).
+	MaterializedHash string `json:"materialized_hash,omitempty"`
 }
 
 // Lock is the client's lockfile: applied revision + managed files.
@@ -1140,7 +1149,9 @@ func Apply(m Manifest, opts ApplyOptions) (AppliedResult, error) {
 		}
 
 		var relPaths []string
-		contentHash := a.ContentHash
+		// materializedHash is the hash of the bytes written to disk (D138);
+		// a.ContentHash stays the source hash ComputeDiff compares.
+		var materializedHash string
 
 		if a.Kind == "mcp" {
 			// Third-party MCP server (D69, WP3): no file materialized in its own
@@ -1194,13 +1205,13 @@ func Apply(m Manifest, opts ApplyOptions) (AppliedResult, error) {
 				// KB content and local resolution, never on the destination
 				// provider.
 				content = expandPlaceholders(content, opts, tracker)
-				if opts.ExpandPlaceholders {
-					contentHash = hashArtifactFiles([]ArtifactFile{{Path: a.Name + ".md", Content: content}})
-				}
+				content = stampArtifact(content, a)
 				content, err = translateAgentForProvider(opts.Provider, a.Name, content)
 				if err != nil {
 					return AppliedResult{}, fmt.Errorf("provisioning: translate agent %s for %s: %w", a.Name, opts.Provider, err)
 				}
+				// After the translation: this is the byte sequence on disk.
+				materializedHash = hashArtifactFiles([]ArtifactFile{{Path: a.Name + ".md", Content: content}})
 				if err := os.WriteFile(fullDestPath, content, 0o644); err != nil {
 					return AppliedResult{}, fmt.Errorf("provisioning: write agent %s: %w", a.Name, err)
 				}
@@ -1214,7 +1225,11 @@ func Apply(m Manifest, opts ApplyOptions) (AppliedResult, error) {
 					return AppliedResult{}, fmt.Errorf("provisioning: mkdir %s: %w", fullDestDir, err)
 				}
 				var err error
-				relPaths, contentHash, err = copyArtifactFiles(a, opts, fullDestDir, tracker)
+				var stampWarning string
+				relPaths, materializedHash, stampWarning, err = copyArtifactFiles(a, opts, fullDestDir, tracker)
+				if stampWarning != "" {
+					result.Warnings = append(result.Warnings, stampWarning)
+				}
 				if err != nil {
 					return AppliedResult{}, fmt.Errorf("provisioning: copy %s %s: %w", a.Kind, a.Name, err)
 				}
@@ -1246,10 +1261,11 @@ func Apply(m Manifest, opts ApplyOptions) (AppliedResult, error) {
 
 		for _, rp := range relPaths {
 			mf := ManagedFile{
-				Kind:        a.Kind,
-				Name:        a.Name,
-				Path:        rp,
-				ContentHash: contentHash,
+				Kind:             a.Kind,
+				Name:             a.Name,
+				Path:             rp,
+				ContentHash:      a.ContentHash,
+				MaterializedHash: materializedHash,
 			}
 			newManaged = append(newManaged, mf)
 			result.Written = append(result.Written, mf)
@@ -1632,15 +1648,23 @@ func removeInstructionsBlock(path string) error {
 // order; otherwise content unchanged and false. replacement == "" is equivalent
 // to removing the block.
 func replaceBetweenMarkers(content, replacement string) (string, bool) {
-	beginIdx := strings.Index(content, instructionsBlockBeginPrefix)
+	return replaceBlock(content, instructionsBlockBeginPrefix, instructionsBlockEnd, replacement)
+}
+
+// replaceBlock is replaceBetweenMarkers over an arbitrary marker pair: the
+// begin marker is matched by PREFIX (its tail is display text, not identity),
+// the end marker in full. Used for the instructions block and for the
+// provenance block (D138, stamp.go).
+func replaceBlock(content, beginPrefix, end, replacement string) (string, bool) {
+	beginIdx := strings.Index(content, beginPrefix)
 	if beginIdx == -1 {
 		return content, false
 	}
-	endMarkerIdx := strings.Index(content[beginIdx:], instructionsBlockEnd)
+	endMarkerIdx := strings.Index(content[beginIdx:], end)
 	if endMarkerIdx == -1 {
 		return content, false
 	}
-	endIdx := beginIdx + endMarkerIdx + len(instructionsBlockEnd)
+	endIdx := beginIdx + endMarkerIdx + len(end)
 	// Consume a single newline after the end marker, if present, so
 	// subsequent rewrites/removals don't accumulate blank lines.
 	if endIdx < len(content) && content[endIdx] == '\n' {
@@ -2060,37 +2084,49 @@ func singleArtifactContent(a Artifact, opts ApplyOptions) ([]byte, error) {
 }
 
 // copyArtifactFiles writes the artifact's files (skill or hook: one or more
-// files inside a directory) into the absolute fullDestDir folder and returns the
-// paths relative to opts.BaseDir and the artifact's hash (D75 WP3: hash
-// on the expanded content when opts.ExpandPlaceholders, otherwise a.ContentHash
-// unchanged). The content source is a.Files if populated (remote client via
-// sync_pull, no filesystem shared with the server), otherwise BundleFS/KBRoots
-// (local stdio deployment, same filesystem).
-func copyArtifactFiles(a Artifact, opts ApplyOptions, fullDestDir string, tracker *expansionTracker) ([]string, string, error) {
+// files inside a directory) into the absolute fullDestDir folder. It returns
+// the paths relative to opts.BaseDir, the hash of what was actually written
+// (after placeholder expansion, D75 WP3, and provenance stamping, D138 — this
+// is the materialized hash, never the source hash ComputeDiff compares), and a
+// non-fatal warning when the artifact could not be stamped. The content source
+// is a.Files if populated (remote client via sync_pull, no filesystem shared
+// with the server), otherwise BundleFS/KBRoots (local stdio deployment, same
+// filesystem).
+func copyArtifactFiles(a Artifact, opts ApplyOptions, fullDestDir string, tracker *expansionTracker) (relPaths []string, materializedHash, warning string, err error) {
 	files := a.Files
 	if len(files) == 0 {
 		var err error
 		files, err = ReadArtifactFiles(a, opts.BundleFS, opts.KBRoots)
 		if err != nil {
-			return nil, "", err
+			return nil, "", "", err
 		}
 	}
 
-	var relPaths []string
 	expanded := make([]ArtifactFile, 0, len(files))
+	// Only a skill's principal file carries the provenance block; every other
+	// file in the folder is copied untouched (D138).
+	stampTarget := ""
+	if stampedKinds[a.Kind] {
+		stampTarget = principalFile(a.Kind)
+	}
+	stamped := false
 	for _, f := range files {
 		// Paths can arrive from a remote server via sync_pull: reject
 		// absolute paths and traversal outside the artifact's directory.
 		local := filepath.FromSlash(f.Path)
 		if !filepath.IsLocal(local) {
-			return nil, "", fmt.Errorf("provisioning: invalid file path %q in %s", f.Path, a.Name)
+			return nil, "", "", fmt.Errorf("provisioning: invalid file path %q in %s", f.Path, a.Name)
 		}
 		content := expandPlaceholders(f.Content, opts, tracker)
+		if stampTarget != "" && filepath.ToSlash(f.Path) == stampTarget {
+			content = stampArtifact(content, a)
+			stamped = true
+		}
 		expanded = append(expanded, ArtifactFile{Path: f.Path, Content: content, Executable: f.Executable})
 
 		dstPath := filepath.Join(fullDestDir, local)
 		if err := os.MkdirAll(filepath.Dir(dstPath), 0o755); err != nil {
-			return nil, "", err
+			return nil, "", "", err
 		}
 		// A hook's scripts are invoked by path from the registered entry
 		// (e.g. ./bootstrap.sh → absolute path in settings.json): without the
@@ -2102,23 +2138,27 @@ func copyArtifactFiles(a Artifact, opts ApplyOptions, fullDestDir string, tracke
 			mode = 0o755
 		}
 		if err := os.WriteFile(dstPath, content, mode); err != nil {
-			return nil, "", err
+			return nil, "", "", err
 		}
 		if err := os.Chmod(dstPath, mode); err != nil {
-			return nil, "", err
+			return nil, "", "", err
 		}
 		rel, err := filepath.Rel(opts.BaseDir, dstPath)
 		if err != nil {
-			return nil, "", err
+			return nil, "", "", err
 		}
 		relPaths = append(relPaths, rel)
 	}
 
-	contentHash := a.ContentHash
-	if opts.ExpandPlaceholders {
-		contentHash = hashArtifactFiles(expanded)
+	// A malformed KB artifact must not fail the whole sync: BuildManifest does
+	// not require the principal file either.
+	if stampTarget != "" && !stamped {
+		warning = fmt.Sprintf("%s %q has no %s: materialized without a provenance block", a.Kind, a.Name, stampTarget)
 	}
-	return relPaths, contentHash, nil
+
+	// The hash of what actually landed on disk (D138), always computed: the
+	// caller keeps a.ContentHash as the source hash for ComputeDiff.
+	return relPaths, hashArtifactFiles(expanded), warning, nil
 }
 
 // ReadArtifactFiles reads all of an artifact's files from BundleFS (source "bundle",
