@@ -61,6 +61,22 @@ func AdoptCodexOrphanTables(path string, owned func(key []string, body string) b
 	return removed, nil
 }
 
+// CodexOrphanTables is the read-only half of AdoptCodexOrphanTables: it
+// reports the keys of the tables outside Cartographer's managed blocks that
+// owned claims, without touching the file. `cartographer doctor` (D143) is
+// diagnosis only, so it can never call the adopting variant.
+func CodexOrphanTables(path string, owned func(key []string, body string) bool) ([]string, error) {
+	data, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	_, orphans := stripCodexOrphanTables(string(data), owned)
+	return orphans, nil
+}
+
 // CodexMCPTableOwner returns an owned-predicate (see AdoptCodexOrphanTables)
 // matching the [mcp_servers.<name>] tables declared in blockBody, the body of a
 // managed block about to be written: those, and only those, are the tables that

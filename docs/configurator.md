@@ -276,6 +276,57 @@ After a successful rebuild the summary ends with the reminder that **already-ope
 must be restarted** to pick up the rewritten MCP configuration: the one step no client-side command
 can perform.
 
+### `cartographer doctor`
+
+Read-only diagnosis of this machine's client configuration
+([D143](decisions/client-configurator.md#d143)). `status` answers "is the applied revision current";
+`doctor` answers the question an operator actually has after an upgrade or a half-finished
+migration: *is there anything left over here that should not be, or missing that should?*
+
+```bash
+cartographer doctor [--json] [--provider claude]
+```
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--json` | `false` | Emit the report as JSON (`cartographer.doctor/v1`) instead of text |
+| `--provider` | *(unset)* | Narrow the run to one provider — inspected even if it is not connected |
+
+**It never repairs, and never writes** — no lockfile migration, no directory creation, no cache
+refresh. Every finding names a real path on this machine and the command that fixes it (`sync`,
+`reconnect`, `connect`, `service sync-timer install`), because a diagnosis nobody can act on is
+noise and a doctor that silently fixes things is a doctor nobody can predict.
+
+The eight checks:
+
+| Check | What it looks at |
+|---|---|
+| `client-config` | `.cartographer.yaml` exists and parses; an agent is connected; every configured provider is still installed |
+| `lockfile` | present, readable, and in the v2 format — a v1 file on disk is migrated *in memory* by every read, but stays v1 until something rewrites it |
+| `managed-files` | the on-disk verification of D139, per provider: `missing`, `modified`, `unregistered` |
+| `mcp-entries` | the Cartographer entries in the provider's native config match the KBs recorded in `.cartographer.yaml` — an entry for a KB the server no longer mounts, or a missing one |
+| `instructions` | exactly one well-formed managed block per provider that has instructions materialized (begin recognized by prefix, so a block written by an older version still counts) |
+| `hooks` | one native registration per managed hook — the D99 double-fire is a registration left outside the managed block by Codex's own rewrite |
+| `server` | `/health` reachable; the recorded `server_version` (D142) against the live one; client binary against server |
+| `trigger` | every connected provider has a session hook, or the scheduled trigger is installed (D140) |
+
+**Severities.** `error` — something is broken now (a managed file missing, a hook firing twice);
+`warning` — something is stale or suboptimal (v1 lockfile, no trigger for a hook-less provider, a
+version difference); `info` — context that cannot be acted on by itself and never changes the exit
+code (managed entries recorded before content hashes existed, which nothing can verify). Findings
+are printed errors first.
+
+**Exit codes**: `0` clean, `1` findings (error or warning), `2` an error running the command — the
+same convention `status` uses. An unreachable server is one `warning` finding, not a failure:
+`doctor` stays useful offline.
+
+**JSON shape**: `{schema_version, error_count, warning_count, info_count, findings[]}`, each finding
+`{check, severity, message, path, fix}`. Flat and stable — it ends up in someone's monitoring.
+
+The bootstrap hook and the scheduled timer deliberately do **not** run it: it is an operator command,
+and eight checks on every session start is exactly the background cost D60 avoided by keeping
+`bootstrap.sh` silent and deterministic.
+
 ### `cartographer service sync-timer <action>`
 
 The scheduled sync trigger for clients with no session-start hook (D140) — distinct from the
