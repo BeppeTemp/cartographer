@@ -210,10 +210,22 @@ tools profile behave identically with or without a prefix. When 2+ KBs are mount
 also becomes `cartographer:<kb>` (a single-KB deployment keeps the bare `cartographer` it has
 always reported).
 
+The managed instructions block Cartographer materializes into the client's memory file is
+generated with each KB's **effective** tool names (D144): with a prefix configured it tells the
+agent to call `<prefix>__search`, `<prefix>__concept_read`, … Turning a prefix on or off is
+therefore a content change for that KB's instructions artifact, re-materialized on the next
+`cartographer sync` — once, since the prefix is a stable config value.
+
+The server prints one warning line on stderr at startup when it mounts 2+ KBs of which 2+ resolved
+to no prefix, naming them (D144): those KBs register identical tool names and a flat-namespace
+client keeps only one. It is a warning only — never a startup failure and never an implicit
+prefix, so a Claude Code/Codex/OpenCode deployment is untouched.
+
 `cartographer connect`/`cartographer sync` print a warning on stderr whenever the provider being
 configured is `kiro` and 2+ MCP entries (i.e. 2+ KBs) are about to be written, regardless of
-whether the server actually has prefixes configured (the client has no way to probe that): the
-operator adds `tool_prefix`/`tool_prefix_mode` to the server config as the fix.
+whether the server actually has prefixes configured (the client does not plumb `/health`'s
+`tool_prefix` through that path): the operator adds `tool_prefix`/`tool_prefix_mode` to the server
+config as the fix.
 
 `GET /health`'s `kbs[]` items carry the KB's *effective* prefix as `tool_prefix` (omitted when
 unprefixed) — the exact sanitised value the server registered its tools under, whether it came

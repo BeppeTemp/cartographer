@@ -141,9 +141,10 @@ func RegisterKBTools(s *Server, k *kb.KB, deps Deps) {
 	if deps.BundleFS != nil {
 		register(toolSkillListWithBundle(k, deps.BundleFS))
 		register(notifyWrap(s, gitWrap(k, toolSkillInstall(k, deps.BundleFS)), "notifications/skills/list_changed"))
-		register(toolSyncCheck(k, deps.BundleFS, deps.ArtifactSigner, deps.MCPAllowlist))
-		register(toolSyncApply(k, deps.BundleFS, deps.ArtifactSigner, deps.MCPAllowlist))
-		register(toolSyncPull(k, deps.BundleFS, deps.ArtifactSigner, deps.MCPAllowlist))
+		toolPrefix := s.ToolNamePrefix()
+		register(toolSyncCheck(k, deps.BundleFS, toolPrefix, deps.ArtifactSigner, deps.MCPAllowlist))
+		register(toolSyncApply(k, deps.BundleFS, toolPrefix, deps.ArtifactSigner, deps.MCPAllowlist))
+		register(toolSyncPull(k, deps.BundleFS, toolPrefix, deps.ArtifactSigner, deps.MCPAllowlist))
 	} else {
 		register(toolSkillList(k))
 	}

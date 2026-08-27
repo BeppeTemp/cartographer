@@ -139,6 +139,40 @@ assert_file_not_contains "$REINDEX_OUT" "unreachable"
 assert_file_not_contains "$REINDEX_OUT" "tool not found"
 
 echo ""
+echo "--- Phase 5: the server warns only when 2+ KBs collide (D144) ---"
+
+SERVER_LOG="${E2E_TMP_DIR}/cartographer_e2e.log"
+COLLISION_MARKER="register identical MCP tool names"
+
+# One prefixed + one unprefixed KB is unambiguous: no warning.
+assert_file_not_contains "$SERVER_LOG" "$COLLISION_MARKER"
+
+# Same two KBs, both mounted unprefixed: the server names them.
+server_stop
+CONFIG_PLAIN="${DIR}/config-plain.yaml"
+cat > "$CONFIG_PLAIN" <<YAML
+http: ":${E2E_HTTP_PORT}"
+init: true
+kbs:
+  - path: ${KB_PLAIN_DIR}
+    name: ${KB_PLAIN}
+  - path: ${KB_PREFIXED_DIR}
+    name: ${KB_PREFIXED}
+YAML
+E2E_CONFIG="$CONFIG_PLAIN" server_start "${KB_PLAIN_DIR},${KB_PREFIXED_DIR}"
+server_wait_health 20
+
+assert_file_contains "$SERVER_LOG" "$COLLISION_MARKER"
+assert_file_contains "$SERVER_LOG" "\"${KB_PLAIN}\""
+assert_file_contains "$SERVER_LOG" "\"${KB_PREFIXED}\""
+
+# The warning changes nothing: both KBs still answer on the bare tool names.
+assert_mcp_ok "unprefixed mount: ${KB_PLAIN} answers on the bare tool name" \
+    "$(mcp_call "$BASE" "$KB_PLAIN" "" "$(call_body atlas_overview)")"
+assert_mcp_ok "unprefixed mount: ${KB_PREFIXED} answers on the bare tool name" \
+    "$(mcp_call "$BASE" "$KB_PREFIXED" "" "$(call_body atlas_overview)")"
+
+echo ""
 if [[ "${E2E_FAILURES}" -eq 0 ]]; then
     echo "[SCENARIO ${SCENARIO_NAME}] PASS"
     exit 0

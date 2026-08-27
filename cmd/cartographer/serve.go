@@ -454,6 +454,10 @@ func serveHTTP(addr string, kbs []*kb.KB, names []string, toolPrefixes []string,
 		log.Printf("mounted KB %q at %s (tools profile: %s%s)", name, k.Root, toolsProfile, prefixLog)
 	}
 
+	if w := flatNamespaceMountWarning(names, toolPrefixes); w != "" {
+		log.Printf("warning: %s", w)
+	}
+
 	// The origin check sits outside authentication (D128): a page that is not
 	// allowed to talk to this server should be turned away before its token is
 	// looked at.
