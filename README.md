@@ -143,16 +143,18 @@ new KB (`cartographer service restart`, or `--restart` to do it and wait for it 
 
 Upgrades of a native local install (`brew upgrade` or `install.sh update`) repair themselves:
 the new binary restarts the running service and re-synchronizes the configured providers in
-place — `disconnect`/`connect` is never an upgrade step. Only already-open agent sessions need
-restarting. See `docs/deployment.md` §Upgrades, schema migration, and repo growth.
+place — repair in place is the default, and `cartographer reconnect` is the explicit rebuild for
+what an incremental sync cannot see. Only already-open agent sessions need restarting. See `docs/deployment.md` §Upgrades, schema migration, and repo growth.
 
 `connect` with no flags in a TTY opens an interactive form (server URL, server
 name, token env var, auth) instead of the flag defaults; pass `--no-input` to
 force the non-interactive behavior. Once connected:
 
 ```bash
-cartographer status   # drift check and client/server version check after upgrades; exit 0 in-sync / 1 drift / 2 error
-cartographer sync     # re-apply after drift
+cartographer status    # drift check and client/server version check after upgrades; exit 0 in-sync / 1 drift / 2 error
+cartographer sync      # re-apply after drift
+cartographer doctor    # read-only diagnosis of the client configuration: residues, drift, missing triggers
+cartographer reconnect # rebuild a client configuration from scratch, preserving every setting
 ```
 
 For local stdio use (a single KB, no service, typically for development) or a manually-configured
