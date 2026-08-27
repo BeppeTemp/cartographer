@@ -34,6 +34,11 @@ type providerStatus struct {
 	Added        []statusArtifact `json:"added,omitempty"`
 	Updated      []statusArtifact `json:"updated,omitempty"`
 	Removed      []statusArtifact `json:"removed,omitempty"`
+	// Diverged lists managed artifacts whose files on disk no longer match
+	// what was materialized (D139): edited by hand, deleted, or with their
+	// managed key/block removed from a shared file. `cartographer sync`
+	// restores them.
+	Diverged []statusArtifact `json:"diverged,omitempty"`
 }
 
 type statusArtifact struct {
@@ -165,7 +170,11 @@ func snapshotForConfig(dir string, cfg *clientconfig.Config, includeService bool
 		p.Revision = pm.Revision
 		p.LockRevision = lockFile.ForProvider(p.Name).AppliedRevision
 		p.Kinds = formatKindStatus(pm, lockFile.ForProvider(p.Name))
-		if d.InSync {
+		// On-disk verification (D139): the manifest↔lockfile comparison says
+		// nothing about what is actually on disk, so an artifact edited or
+		// deleted locally used to report in-sync.
+		p.Diverged = snapshotDiverged(provisioning.VerifyManaged(lockFile.ForProvider(p.Name), configurator.Provider(p.Name), dir))
+		if d.InSync && len(p.Diverged) == 0 {
 			p.State = "in_sync"
 			continue
 		}
@@ -177,6 +186,20 @@ func snapshotForConfig(dir string, cfg *clientconfig.Config, includeService bool
 		s.State = "version_skew"
 	}
 	return s
+}
+
+// snapshotDiverged renders the healable on-disk findings (D139). "unknown"
+// findings — a lockfile written before materialized hashes existed — are not
+// drift and are left out.
+func snapshotDiverged(findings []provisioning.DriftFinding) []statusArtifact {
+	var out []statusArtifact
+	for _, f := range findings {
+		if !f.Healable() {
+			continue
+		}
+		out = append(out, statusArtifact{Kind: f.Kind, Name: f.Name, Path: f.Path, Trust: f.Reason})
+	}
+	return out
 }
 
 func snapshotArtifacts(artifacts []provisioning.Artifact, cfg *clientconfig.Config) []statusArtifact {

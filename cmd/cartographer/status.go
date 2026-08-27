@@ -101,6 +101,9 @@ func renderStatus(output string, s statusSnapshot, code int) int {
 		if p.Kinds != "" {
 			fmt.Printf("  %s\n", p.Kinds)
 		}
+		for _, d := range p.Diverged {
+			fmt.Printf("  diverged on disk (%s): %s/%s at %s\n", d.Trust, d.Kind, d.Name, d.Path)
+		}
 		unsigned, mcpPending := false, false
 		for _, a := range p.Added {
 			trust := statusArtifactTrust(a)

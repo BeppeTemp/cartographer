@@ -208,8 +208,18 @@ Re-runs `sync_pull` and reapplies the manifest for every connected provider: mat
 add/update, prunes obsolete artifacts, updates the lockfile. Idempotent.
 
 ```bash
-cartographer sync [--auto-trust] [--dry-run]
+cartographer sync [--auto-trust] [--dry-run] [--no-heal]
 ```
+
+| Flag | Default | Effect |
+|---|---|---|
+| `--dry-run` | `false` | Prints without writing |
+| `--auto-trust` | `false` | Also treats KB skills as trusted (unsigned) |
+| `--no-heal` | `false` | Reports managed artifacts that diverged on disk instead of restoring them from the server (D139) |
+
+Every sync verifies the managed files on disk, not just the manifest revision, and restores what
+was edited or deleted locally — the restore is reported on its own line, because it discards
+someone's local change. See [`sync.md`](sync.md) §On-disk verification and healing.
 
 This is also how a configured provider is repaired **in place** after a local upgrade: the same
 in-process runner is what `cartographer upgrade-repair` calls (D121). `disconnect` followed by

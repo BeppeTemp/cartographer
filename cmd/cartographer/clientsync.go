@@ -153,7 +153,7 @@ func pinnedPublicKeys(cfg *clientconfig.Config) (map[string][]ed25519.PublicKey,
 // clientconfig.Config (cfg.SearchRoots/cfg.Paths) and drive placeholder expansion
 // (D75 WP3) — this is the one place cmd/cartographer turns
 // ApplyOptions.ExpandPlaceholders on; internal/mcpserver never does.
-func materializeForProviders(m provisioning.Manifest, providers []string, targetDir string, autoTrust, dryRun bool, searchRoots []string, paths map[string]string, approvalHashes ...map[string]string) (map[string]provisioning.AppliedResult, error) {
+func materializeForProviders(m provisioning.Manifest, providers []string, targetDir string, autoTrust, dryRun, noHeal bool, searchRoots []string, paths map[string]string, approvalHashes ...map[string]string) (map[string]provisioning.AppliedResult, error) {
 	lockPath := lockFilePath(targetDir)
 	lockFile, err := provisioning.ReadLockFile(lockPath)
 	if err != nil {
@@ -178,6 +178,7 @@ func materializeForProviders(m provisioning.Manifest, providers []string, target
 			Provider:           configurator.Provider(p),
 			BaseDir:            targetDir,
 			DryRun:             dryRun,
+			NoHeal:             noHeal,
 			AutoTrust:          autoTrust,
 			ApprovedMCP:        approvedMCP,
 			Lock:               lockFile.ForProvider(p),
@@ -254,6 +255,20 @@ func printApplySummary(dir string, results map[string]provisioning.AppliedResult
 		}
 		for _, pr := range r.Pruned {
 			fmt.Printf("[%s] pruned %s\n", p, pr.Path)
+		}
+		// A heal means a local change was discarded (D139): say so on its own
+		// line instead of folding it into the ordinary writes above.
+		healedArtifacts := map[string]bool{}
+		for _, h := range r.Healed {
+			key := h.Kind + "/" + h.Name
+			if healedArtifacts[key] {
+				continue
+			}
+			healedArtifacts[key] = true
+			fmt.Printf("[%s] restored %s from the server (local changes discarded)\n", p, key)
+		}
+		for _, d := range r.Divergent {
+			fmt.Printf("[%s] diverged locally (%s): %s/%s at %s — `cartographer sync` restores it\n", p, d.Reason, d.Kind, d.Name, d.Path)
 		}
 		for _, na := range r.NeedsApproval {
 			if na.Kind == "mcp" {
