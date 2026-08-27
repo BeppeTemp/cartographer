@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/config"
 	"github.com/BeppeTemp/cartographer/internal/defaults"
@@ -54,6 +55,8 @@ func cmdService(args []string) int {
 		return cmdServiceRestart(rest)
 	case "status":
 		return cmdServiceStatus(rest)
+	case "sync-timer":
+		return cmdServiceSyncTimer(rest)
 	default:
 		fmt.Fprintln(os.Stderr, "Error: service action required")
 		printServiceUsage(os.Stderr)
@@ -63,6 +66,76 @@ func cmdService(args []string) int {
 
 func printServiceUsage(w io.Writer) {
 	fmt.Fprintln(w, "Usage: cartographer service <install|uninstall|start|stop|restart|status> [flags]")
+	fmt.Fprintln(w, "       cartographer service sync-timer <install|uninstall|status> [--interval <duration>]")
+}
+
+// syncTimerFns are indirected so the dispatch is testable without a real
+// launchctl/systemctl.
+var (
+	syncTimerInstallFn   = func(interval time.Duration) error { return service.NewManager().InstallSyncTimer(interval) }
+	syncTimerUninstallFn = func() error { return service.NewManager().UninstallSyncTimer() }
+	syncTimerStatusFn    = func() (service.SyncTimerStatus, error) { return service.NewManager().SyncTimerStatus() }
+)
+
+// cmdServiceSyncTimer manages the scheduled client sync (D140): the supported
+// trigger for providers with no session hook. Opt-in and explicit —
+// installing a launchd agent or a systemd user unit behind the user's back on
+// `connect` would be out of proportion.
+func cmdServiceSyncTimer(args []string) int {
+	action, rest := splitPositional(args, "")
+	switch action {
+	case "install":
+		fs := flag.NewFlagSet("service sync-timer install", flag.ExitOnError)
+		interval := fs.Duration("interval", service.DefaultSyncInterval, "How often to run `cartographer sync`")
+		fs.Parse(rest)
+		if *interval <= 0 {
+			fmt.Fprintln(os.Stderr, "Error: --interval must be positive")
+			return exitStatusError
+		}
+		if err := syncTimerInstallFn(*interval); err != nil {
+			fmt.Fprintln(os.Stderr, "Error:", err)
+			return exitStatusError
+		}
+		fmt.Printf("sync timer installed (every %s)\n", *interval)
+		// The timer never passes --auto-trust: an unattended job must not
+		// grant a trust the user never gave (D54).
+		fmt.Println("it runs `cartographer sync` without --auto-trust; the persisted `trust` setting still applies")
+		return 0
+	case "uninstall":
+		if err := syncTimerUninstallFn(); err != nil {
+			fmt.Fprintln(os.Stderr, "Error:", err)
+			return exitStatusError
+		}
+		fmt.Println("sync timer uninstalled")
+		return 0
+	case "status":
+		st, err := syncTimerStatusFn()
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "Error:", err)
+			return exitStatusError
+		}
+		if !st.Installed {
+			fmt.Println("sync timer not installed (cartographer service sync-timer install)")
+			return exitStatusNotInstalled
+		}
+		state := "installed"
+		if st.Active {
+			state = "active"
+		}
+		if st.Interval > 0 {
+			fmt.Printf("sync timer %s, every %s (%s)\n", state, st.Interval, st.Path)
+		} else {
+			fmt.Printf("sync timer %s (%s)\n", state, st.Path)
+		}
+		if !st.Active {
+			return exitStatusStopped
+		}
+		return exitStatusRunning
+	default:
+		fmt.Fprintln(os.Stderr, "Error: sync-timer action required")
+		printServiceUsage(os.Stderr)
+		return exitStatusError
+	}
 }
 
 func cmdServiceInstall(args []string) int {

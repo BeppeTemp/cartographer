@@ -226,6 +226,28 @@ in-process runner is what `cartographer upgrade-repair` calls (D121). `disconnec
 `connect` is never an upgrade step — it would delete user-owned configuration to rebuild it.
 Already-open provider sessions still need to be restarted to reopen the MCP connection.
 
+### `cartographer service sync-timer <action>`
+
+The scheduled sync trigger for clients with no session-start hook (D140) — distinct from the
+**server** service below, with its own unit files:
+
+```bash
+cartographer service sync-timer install [--interval 30m]
+cartographer service sync-timer uninstall
+cartographer service sync-timer status   # exit: 0 active, 3 installed but inactive, 4 not installed
+```
+
+| Platform | Files | Logs |
+|---|---|---|
+| macOS | `~/Library/LaunchAgents/com.cartographer.sync.plist` | `~/Library/Logs/cartographer/sync.log` |
+| Linux | `~/.config/systemd/user/cartographer-sync.{service,timer}` | journal (`journalctl --user -u cartographer-sync`) |
+
+`install` is idempotent (it overwrites and re-registers); uninstalling a timer that is not
+installed is a success. The timer runs `cartographer sync` **without** `--auto-trust`: an
+unattended job must not grant a trust the user never gave, while the persisted `trust` setting
+still applies. `connect` and `status` name this command once per invocation when a connected
+provider has no session hook — they never install it.
+
 ### `cartographer service <action>`
 
 Manages the **server** as a native user service on the machine (local mode, D73):

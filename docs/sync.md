@@ -51,7 +51,16 @@ Hook **`cartographer-bootstrap`** (reserved name, `provisioning.BootstrapHookNam
 | claude | `SessionStart` | entry in `~/.claude/settings.json` |
 | codex | `[[hooks.SessionStart]]` | managed block in `~/.codex/config.toml` |
 | opencode | `session.created` event | generated plugin in `~/.config/opencode/plugins/` |
-| kiro | — (no native hook) | falls back to Layer 2 |
+| kiro | — (not registrable from a user-level install, see [D140](decisions/sync-provisioning.md#d140)) | falls back to the scheduled trigger below, or Layer 2 |
+
+**Scheduled trigger (D140).** For a client with no session hook, `cartographer service sync-timer
+install [--interval 30m]` registers a launchd agent (macOS) or a systemd user timer (Linux) that
+runs `cartographer sync` on an interval. It is **opt-in**: installing a background job on the
+user's machine during `connect` would be out of proportion, so `connect` and `status` only name the
+command when a connected provider has no session hook. The timer runs sync **without**
+`--auto-trust` — an unattended job must not grant a trust the user never gave; the persisted
+`trust` setting in `.cartographer.yaml` still applies (D54). Logs: `~/Library/Logs/cartographer/sync.log`
+on macOS, the journal on Linux.
 
 Beyond the revision comparison, every `sync` also verifies the managed files on disk and restores
 what diverged — see §On-disk verification and healing.

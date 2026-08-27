@@ -230,6 +230,19 @@ var hookMechanisms = map[configurator.Provider]hookMechanism{
 	},
 }
 
+// SupportsSessionHook reports whether the bootstrap hook (D60) can run at
+// session start for this provider: it needs both a destination for the hook's
+// files and a native registration mechanism. A provider without one syncs
+// only on demand, or on the scheduled trigger (D140,
+// `cartographer service sync-timer install`).
+func SupportsSessionHook(provider configurator.Provider) bool {
+	if destDir("hook", BootstrapHookName, provider) == "" {
+		return false
+	}
+	_, ok := hookMechanisms[provider]
+	return ok
+}
+
 // HookRegistrationFile returns the provider-native file a hook registration is
 // written into, relative to the client base dir, or "" when the provider
 // registers through a generated artifact instead (or has no hook mechanism).

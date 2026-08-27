@@ -232,6 +232,13 @@ this value from a live `/health` snapshot before qualifying the tool name; they 
 it from the server's own YAML. A stale client selection (a configured KB no longer among the
 KBs the server currently advertises) is reported as an explicit error rather than guessed.
 
+> **Two different units.** `cartographer service install` manages the **server** as a per-user
+> service (`com.cartographer.serve` / `cartographer.service`). `cartographer service sync-timer
+> install` manages a **client-side** scheduled `cartographer sync`
+> (`com.cartographer.sync` / `cartographer-sync.timer`, D140). Both live under
+> `~/Library/LaunchAgents` and `~/.config/systemd/user`, with distinct names and separate logs;
+> installing or removing one never touches the other.
+
 ### Environment variables
 
 Every startup option has a corresponding environment variable (the CLI flag takes precedence):

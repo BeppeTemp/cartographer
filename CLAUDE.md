@@ -70,6 +70,7 @@ internal/provisioning/       # Manifest, Lock/LockFile, Diff, Apply, MergeArtifa
 internal/agents/             # Detect() agents installed on the machine (claude/opencode/codex/kiro)
 internal/clientconfig/       # .cartographer.yaml (server_url, connected agents, etc.)
 internal/client/             # minimal MCPClient (JSON-RPC 2.0 over HTTP) for the client subcommands
+internal/service/            # native per-user units: server (launchd/systemd) + synctimer.go (scheduled client sync)
 ```
 
 ## Code navigation

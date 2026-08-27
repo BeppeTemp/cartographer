@@ -606,3 +606,49 @@ what keeps the pruning guarantee intact: those blocks live in files the user als
 comparing their whole content would either produce permanent false drift or license rewriting
 someone else's file.
 
+---
+
+<a id="d140"></a>
+## D140 — A scheduled sync trigger for clients with no session hook; Kiro's hook deferred
+
+**WP1 finding (checked 2026-08-27, no Kiro installation available on the machine).** Three facts,
+from Kiro's own documentation:
+
+1. **User-level hooks exist.** The CLI 2.13 changelog (<https://kiro.dev/changelog/cli/2-13/>)
+   states: "Hooks placed in `~/.kiro/hooks/` now fire in every workspace automatically". The
+   feature page (<https://kiro.dev/docs/hooks/>) still documents only `.kiro/hooks/` in the project
+   root, so the two sources disagree on scope.
+2. **A spawn trigger exists and is CLI-only.** The trigger table
+   (<https://kiro.dev/docs/hooks/types/>) lists `agentSpawn` as available on the CLI and not in the
+   IDE, described as firing when the agent is first activated.
+3. **The literal trigger values in a hook file do not match that table.** The only complete JSON
+   examples on the feature page use `"trigger": "PostFileSave"` and `"trigger": "Stop"` — while the
+   table names those same triggers `fileSave` and `agentStop`. The exact string a spawn hook must
+   carry is therefore **not determinable from the documentation**, and no installation was
+   available to confirm it empirically.
+
+**Decision.** WP2 (the Kiro session-start hook) is **not implemented**. `hook` × `kiro` stays
+`unsupported` in the destination matrix. Writing a file into another tool's configuration
+directory with a guessed trigger value produces a hook that is silently ignored — the exact
+failure WP1 exists to prevent — and "silently ignored" is indistinguishable from "working" until a
+user notices their KB skills are months stale. Implementing it needs one confirmation: the literal
+`trigger` value a spawn hook carries, and that `~/.kiro/hooks/` is honoured by the CLI surface
+where that trigger fires.
+
+**Decision.** The scheduled trigger is implemented and is a first-class Layer 1 alternative:
+`cartographer service sync-timer install|uninstall|status`, with `--interval` (default 30 minutes),
+reusing the launchd/systemd machinery of the server service under its own label
+(`com.cartographer.sync`, `cartographer-sync.timer`) and its own log destination. It is opt-in and
+explicit: `connect` and `status` name the command once per invocation when a connected provider has
+no session-hook mechanism, and never install it — putting a background job on someone's machine as
+a side effect of connecting is out of proportion. It runs `cartographer sync` **without**
+`--auto-trust`: an unattended job must not grant a trust the user never gave, while the persisted
+`trust` setting still applies (D54). Install is idempotent; uninstalling what is not installed
+succeeds.
+
+**Rationale.** Kiro was the one supported provider syncing only when a human remembered to, and
+D141's Hermes will be a second by design — its configuration is owned by an Ansible role, with no
+place to register a hook. Both need the same thing: a trigger that does not depend on the client
+having hooks. The timer serves them today and keeps serving Kiro's IDE surface even after the CLI
+hook lands, since `agentSpawn` is CLI-only.
+
