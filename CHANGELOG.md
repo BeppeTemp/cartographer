@@ -6,6 +6,27 @@
 
 KB histories with commits authored as `cartographer <cartographer@localhost>` may need a manual author rewrite before a forge with author push rules accepts the first push.
 
+## [0.8.0](https://github.com/BeppeTemp/cartographer/compare/v0.7.0...v0.8.0) (2026-08-27)
+
+
+### ⚠ BREAKING CHANGES
+
+* **search:** consolidate index_rebuild into reindex (D136) ([#148](https://github.com/BeppeTemp/cartographer/issues/148))
+* **search:** remove semantic search and the Ollama embedding backend (D135) ([#147](https://github.com/BeppeTemp/cartographer/issues/147))
+
+### Features
+
+* **client:** doctor diagnoses client residues and drift (D143) ([#156](https://github.com/BeppeTemp/cartographer/issues/156)) ([cb5c13e](https://github.com/BeppeTemp/cartographer/commit/cb5c13e6e705656b0a27eb2c2063afe2e3efbfe4)), closes [#141](https://github.com/BeppeTemp/cartographer/issues/141)
+* **client:** hermes as a supported provider with inbox skill delivery (D141) ([#154](https://github.com/BeppeTemp/cartographer/issues/154)) ([69d0cab](https://github.com/BeppeTemp/cartographer/commit/69d0cabf9d77c29171de9a223b3d70663255615a)), closes [#139](https://github.com/BeppeTemp/cartographer/issues/139)
+* **client:** reconnect rebuilds a client configuration after a server upgrade (D142) ([#155](https://github.com/BeppeTemp/cartographer/issues/155)) ([1d79535](https://github.com/BeppeTemp/cartographer/commit/1d7953520d936c7d7bddc9b45d3ac6bf98384d68)), closes [#140](https://github.com/BeppeTemp/cartographer/issues/140)
+* **client:** scheduled sync trigger for clients with no session hook (D140) ([#152](https://github.com/BeppeTemp/cartographer/issues/152)) ([56f8bad](https://github.com/BeppeTemp/cartographer/commit/56f8bad0075755de2cecbc14db9beaf6ea292e77))
+* **mcp:** kb_status reports the KB's replication state (D145) ([#144](https://github.com/BeppeTemp/cartographer/issues/144)) ([e01a08c](https://github.com/BeppeTemp/cartographer/commit/e01a08ca46b2cdcee0aed0ab200a0b264b392976))
+* **mcp:** make the D102 tool-prefix mitigation reach the agent (D144) ([#146](https://github.com/BeppeTemp/cartographer/issues/146)) ([b6ed6fd](https://github.com/BeppeTemp/cartographer/commit/b6ed6fd2f163eb888ff9efb980020d913d057b1c))
+* **search:** consolidate index_rebuild into reindex (D136) ([#148](https://github.com/BeppeTemp/cartographer/issues/148)) ([cb9b0ef](https://github.com/BeppeTemp/cartographer/commit/cb9b0ef8a44d4756d354e96444f4f7497a49251c))
+* **search:** remove semantic search and the Ollama embedding backend (D135) ([#147](https://github.com/BeppeTemp/cartographer/issues/147)) ([499f8aa](https://github.com/BeppeTemp/cartographer/commit/499f8aa03385ae713118673a292a3b03e2373bbf))
+* **sync:** stamp provenance on materialized skills and agents (D138) ([#150](https://github.com/BeppeTemp/cartographer/issues/150)) ([54bce3f](https://github.com/BeppeTemp/cartographer/commit/54bce3f77d34706b5d100d6abb02739d23555bd9))
+* **sync:** verify managed artifacts on disk and restore what diverged (D139) ([#151](https://github.com/BeppeTemp/cartographer/issues/151)) ([39f067f](https://github.com/BeppeTemp/cartographer/commit/39f067f4035aaf52df26ff2abd0d7985da21a45a))
+
 ## [0.7.0](https://github.com/BeppeTemp/cartographer/compare/v0.6.1...v0.7.0) (2026-08-26)
 
 
