@@ -1,6 +1,8 @@
 package main
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -99,5 +101,72 @@ func TestCmdStatus_VersionReport(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// D139: a managed artifact edited or deleted locally is drift, even when the
+// manifest and the lockfile agree. status exits 1 where it used to exit 0.
+func TestStatus_OnDiskDriftExitsOne(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	if err := clientconfig.Save(home, &clientconfig.Config{ServerURL: "https://cartographer.example/mcp", Agents: []string{"claude"}, Trust: true}); err != nil {
+		t.Fatalf("save config: %v", err)
+	}
+
+	// A materialized skill, recorded in the lockfile with its materialized hash.
+	skillDir := filepath.Join(home, ".claude", "skills", "runbooks")
+	if err := os.MkdirAll(skillDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body := []byte("---\nname: runbooks\ndescription: d\n---\nBody.\n")
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), body, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	onDisk, err := provisioning.ContentHashDirOSForKind(skillDir, "skill")
+	if err != nil {
+		t.Fatalf("hash skill dir: %v", err)
+	}
+	lock := provisioning.Lock{Provider: "claude", AppliedRevision: "rev1", Managed: []provisioning.ManagedFile{{
+		Kind: "skill", Name: "runbooks", Path: filepath.Join(".claude", "skills", "runbooks", "SKILL.md"),
+		ContentHash: "source-hash", MaterializedHash: onDisk,
+	}}}
+	if err := provisioning.WriteLockFile(lockFilePath(home), provisioning.LockFile{Providers: map[string]provisioning.Lock{"claude": lock}}); err != nil {
+		t.Fatalf("write lockfile: %v", err)
+	}
+
+	oldVersion, oldHealth, oldManifest, oldService := version, statusHealthFn, statusManifestFn, statusServiceFn
+	version = "v1.0.0"
+	statusHealthFn = func(*clientconfig.Config) (*client.Health, error) { return &client.Health{Version: "v1.0.0"}, nil }
+	statusManifestFn = func(*clientconfig.Config) (provisioning.Manifest, error) {
+		return provisioning.Manifest{Revision: "rev1", Artifacts: []provisioning.Artifact{
+			{Kind: "skill", Name: "runbooks", Source: "kb:wiki", ContentHash: "source-hash", Signed: true},
+		}}, nil
+	}
+	statusServiceFn = func() (service.Status, error) { return service.Status{}, nil }
+	t.Cleanup(func() {
+		version, statusHealthFn, statusManifestFn, statusServiceFn = oldVersion, oldHealth, oldManifest, oldService
+	})
+
+	// Untouched: in-sync.
+	out := withStdout(t, func() {
+		if code := cmdStatus(nil); code != 0 {
+			t.Errorf("cmdStatus on a clean tree = %d, want 0", code)
+		}
+	})
+	if !strings.Contains(out, "in-sync") {
+		t.Errorf("output = %q, want in-sync", out)
+	}
+
+	// Edited by hand: drift, exit 1, and the finding is named.
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), append(body, []byte("local edit\n")...), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out = withStdout(t, func() {
+		if code := cmdStatus(nil); code != 1 {
+			t.Errorf("cmdStatus on a locally modified artifact = %d, want 1", code)
+		}
+	})
+	if !strings.Contains(out, "diverged on disk (modified)") || !strings.Contains(out, "skill/runbooks") {
+		t.Errorf("output = %q, want the divergence reported", out)
 	}
 }
