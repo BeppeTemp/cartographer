@@ -139,6 +139,17 @@ func renderStatus(output string, s statusSnapshot, code int) int {
 			fmt.Println("  MCP requires point approval: cartographer approve mcp <name> --kb <kb>")
 		}
 	}
+
+	// D140: a connected provider with no session hook syncs only on demand.
+	// Once per invocation, not once per provider.
+	var connected []string
+	for _, p := range s.Providers {
+		if p.Connected {
+			connected = append(connected, p.Name)
+		}
+	}
+	printSyncTimerHint(connected)
+
 	return code
 }
 

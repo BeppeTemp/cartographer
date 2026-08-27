@@ -14,6 +14,7 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/client"
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
+	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/defaults"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
 	"github.com/BeppeTemp/cartographer/internal/service"
@@ -433,6 +434,25 @@ func printConnectResult(dir string, providers []string, opts connectOptions, res
 	if res.Deferred {
 		fmt.Println("warning: skill sync deferred (server unreachable); run `cartographer sync` once the server is up")
 	}
+	printSyncTimerHint(providers)
+}
+
+// printSyncTimerHint names the scheduled trigger once per invocation when a
+// provider being configured has no session hook (D140): without it, that
+// client only syncs when a human remembers to. The timer is never installed
+// automatically — see cmdServiceSyncTimer.
+func printSyncTimerHint(providers []string) {
+	var hookless []string
+	for _, p := range providers {
+		if !provisioning.SupportsSessionHook(configurator.Provider(p)) {
+			hookless = append(hookless, p)
+		}
+	}
+	if len(hookless) == 0 {
+		return
+	}
+	fmt.Printf("%s has no session-start hook: it syncs only on demand — install the scheduled trigger with `cartographer service sync-timer install`\n",
+		strings.Join(hookless, ", "))
 }
 
 // connectOptions bundles the parameters of a connect operation, shared by the
