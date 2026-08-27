@@ -348,9 +348,7 @@ func TestApply_MaterializzaAgent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Apply: agent not materialized at %s: %v", agentPath, err)
 	}
-	if string(data) != "---\nname: reviewer\n---\nBody.\n" {
-		t.Errorf("Apply: unexpected agent content: %s", data)
-	}
+	assertStampedOnce(t, string(data), "---\nname: reviewer\n---\nBody.\n")
 	// .claude/agents/reviewer.md must be a file, not a directory.
 	fi, err := os.Stat(agentPath)
 	if err != nil || fi.IsDir() {
@@ -396,10 +394,7 @@ func TestApply_OpenCode_MaterializzaAgent_ConFrontmatter(t *testing.T) {
 		t.Fatalf("agent not materialized at %s: %v", agentPath, err)
 	}
 
-	want := "---\ndescription: Reviews the code\nmode: subagent\n---\nReviewer system prompt.\n"
-	if string(data) != want {
-		t.Errorf("unexpected translated content:\n%q\nexpected:\n%q", data, want)
-	}
+	assertStampedOnce(t, string(data), "---\ndescription: Reviews the code\nmode: subagent\n---\nReviewer system prompt.\n")
 	// Non-mappable Claude-only fields must not appear.
 	for _, unwanted := range []string{"tools:", "model:", "name:"} {
 		if strings.Contains(string(data), unwanted) {
@@ -434,10 +429,7 @@ func TestApply_OpenCode_MaterializzaAgent_SenzaFrontmatter(t *testing.T) {
 		t.Fatalf("agent not materialized at %s: %v", agentPath, err)
 	}
 
-	want := "---\ndescription: plain\nmode: subagent\n---\n" + src
-	if string(data) != want {
-		t.Errorf("unexpected translated content (fallback with no frontmatter):\n%q\nexpected:\n%q", data, want)
-	}
+	assertStampedOnce(t, string(data), "---\ndescription: plain\nmode: subagent\n---\n"+src)
 }
 
 func TestApply_OpenCode_MaterializzaAgent_DescriptionQuotataConDuePunti(t *testing.T) {
@@ -490,9 +482,7 @@ func TestApply_OpenCode_MaterializzaAgent_DescriptionQuotataConDuePunti(t *testi
 	if mode != "subagent" {
 		t.Errorf("mode: expected subagent, got %q", mode)
 	}
-	if body != "Line one.\nLine two.\n" {
-		t.Errorf("unexpected multi-line body: %q", body)
-	}
+	assertStampedOnce(t, body, "Line one.\nLine two.\n")
 }
 
 func TestApply_MaterializzaHook(t *testing.T) {
@@ -735,5 +725,23 @@ func TestComputeDiff_InSyncRequiresNoChanges(t *testing.T) {
 	}
 	if len(d.Added) != 1 {
 		t.Errorf("expected 1 Added, got %d", len(d.Added))
+	}
+}
+
+// assertStampedOnce checks that a materialized skill/agent file is its
+// expected content plus exactly one provenance block (D138).
+func assertStampedOnce(t *testing.T, got, wantBody string) {
+	t.Helper()
+	const begin = "<!-- cartographer:provenance:begin"
+	const end = "<!-- cartographer:provenance:end -->"
+	if n := strings.Count(got, begin); n != 1 {
+		t.Fatalf("expected exactly 1 provenance block, found %d:\n%s", n, got)
+	}
+	if !strings.Contains(got, end) {
+		t.Fatalf("provenance block is not terminated:\n%s", got)
+	}
+	body := got[:strings.Index(got, begin)]
+	if strings.TrimRight(body, "\n") != strings.TrimRight(wantBody, "\n") {
+		t.Errorf("unexpected content before the provenance block:\n%q\nexpected:\n%q", body, wantBody)
 	}
 }
