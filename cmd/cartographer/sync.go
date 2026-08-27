@@ -74,12 +74,18 @@ func runSync(dir string, cfg *clientconfig.Config, opts syncOptions) (syncResult
 	// Reconcile the provider MCP entries from the mounted KB list before
 	// sync_pull. On an unreachable server no local entry or persisted KB list
 	// changes; fetchMergedManifest below then reports the ordinary sync error.
-	kbs, listed, healthErr := enumerateKBs(cfg.ServerURL, cfg.Auth, cfg.TokenEnv)
+	facts, healthErr := enumerateKBs(cfg.ServerURL, cfg.Auth, cfg.TokenEnv)
+	kbs := facts.Names
 	if healthErr != nil {
 		fmt.Fprintf(os.Stderr, "Warning: MCP entry reconciliation skipped, server unreachable: %v\n", healthErr)
 	} else {
+		// The server that answers now may not be the one this client's state
+		// was materialized against (D142): say so once, then sync normally.
+		if notice := serverChangeNotice(dir, cfg.Agents, facts.Version); notice != "" {
+			fmt.Println(notice)
+		}
 		entryKBs := kbs
-		if !listed {
+		if !facts.Listed {
 			entryKBs = nil
 		}
 		entries, err := entriesForKBs(cfg.ServerName, cfg.ServerURL, entryKBs)
@@ -125,7 +131,7 @@ func runSync(dir string, cfg *clientconfig.Config, opts syncOptions) (syncResult
 		return syncResult{}, err
 	}
 
-	results, err := materializeForProviders(m, cfg.Agents, dir, cfg.Trust || opts.AutoTrust, opts.DryRun, opts.NoHeal, cfg.SearchRoots, cfg.Paths, cfg.ApprovedMCPHashes())
+	results, err := materializeForProviders(m, cfg.Agents, dir, facts.Version, cfg.Trust || opts.AutoTrust, opts.DryRun, opts.NoHeal, cfg.SearchRoots, cfg.Paths, cfg.ApprovedMCPHashes())
 	if err != nil {
 		return syncResult{}, err
 	}

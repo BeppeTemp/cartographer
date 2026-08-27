@@ -393,7 +393,11 @@ func syncCmd(provider, dir string) tea.Cmd {
 		if err != nil {
 			return syncDoneMsg{provider: provider, err: err}
 		}
-		applied, err := materializeForProviders(m, []string{provider}, dir, cfg.Trust, false, false /* noHeal */, cfg.SearchRoots, cfg.Paths, cfg.ApprovedMCPHashes())
+		// The server version recorded in the lockfile (D142). A failed probe
+		// leaves it empty, which preserves the previously recorded value
+		// instead of erasing it.
+		facts, _ := enumerateKBs(cfg.ServerURL, cfg.Auth, cfg.TokenEnv)
+		applied, err := materializeForProviders(m, []string{provider}, dir, facts.Version, cfg.Trust, false, false /* noHeal */, cfg.SearchRoots, cfg.Paths, cfg.ApprovedMCPHashes())
 		if err != nil {
 			return syncDoneMsg{provider: provider, err: err}
 		}
