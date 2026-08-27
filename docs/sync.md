@@ -53,7 +53,7 @@ Hook **`cartographer-bootstrap`** (reserved name, `provisioning.BootstrapHookNam
 | claude | `SessionStart` | entry in `~/.claude/settings.json` |
 | codex | `[[hooks.SessionStart]]` | managed block in `~/.codex/config.toml` |
 | opencode | `session.created` event | generated plugin in `~/.config/opencode/plugins/` |
-| kiro | — (not registrable from a user-level install, see [D140](decisions/sync-provisioning.md#d140)) | falls back to the scheduled trigger below, or Layer 2 |
+| kiro | — (its hooks are declared per agent, not per machine, so none fires for the agent the user runs — see [D140](decisions/sync-provisioning.md#d140)) | the scheduled trigger below, or Layer 2 |
 
 **Scheduled trigger (D140).** For a client with no session hook, `cartographer service sync-timer
 install [--interval 30m]` registers a launchd agent (macOS) or a systemd user timer (Linux) that
