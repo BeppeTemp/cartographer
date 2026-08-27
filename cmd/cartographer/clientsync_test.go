@@ -485,3 +485,71 @@ func TestMaterializeForProviders_StdioPreflightIsAtomic(t *testing.T) {
 		}
 	}
 }
+
+// A provider with a base dir of its own (D141) materializes into its own tree,
+// while the single v2 lockfile stays in the shared target dir and records that
+// base dir — so a later prune finds the same files. The provider that shares
+// the target dir keeps a lockfile entry with no base_dir at all: no migration,
+// no change of meaning for anything written before D141.
+func TestMaterializeForProviders_PerProviderBaseDir(t *testing.T) {
+	dir := t.TempDir()
+	hermesHome := t.TempDir()
+	t.Setenv("HERMES_HOME", hermesHome)
+
+	m := kbSkillManifest()
+	if _, err := materializeForProviders(m, []string{"claude", "hermes"}, dir, true, false /* dryRun */, false, nil, nil); err != nil {
+		t.Fatalf("materializeForProviders: %v", err)
+	}
+
+	if _, err := os.Stat(filepath.Join(dir, ".claude", "skills", "example", "SKILL.md")); err != nil {
+		t.Errorf("claude materialized under the shared dir: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(hermesHome, "skill-inbox", "example", "cartographer", "SKILL.md")); err != nil {
+		t.Errorf("hermes materialized under $HERMES_HOME: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "skill-inbox")); !os.IsNotExist(err) {
+		t.Errorf("hermes wrote into the shared dir too: %v", err)
+	}
+
+	lockFile, err := provisioning.ReadLockFile(lockFilePath(dir))
+	if err != nil {
+		t.Fatalf("read lockfile: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(hermesHome, provisioning.LockFileName)); !os.IsNotExist(err) {
+		t.Errorf("a second lockfile was written under $HERMES_HOME: %v", err)
+	}
+	if got := lockFile.ForProvider("hermes").BaseDir; got != hermesHome {
+		t.Errorf("hermes lock base_dir = %q, want %q", got, hermesHome)
+	}
+	if got := lockFile.ForProvider("claude").BaseDir; got != "" {
+		t.Errorf("claude lock base_dir = %q, want empty (the lockfile's own directory)", got)
+	}
+
+	// Prune resolved through LockBaseDir removes each provider's files inside
+	// its own tree only.
+	for _, p := range []string{"claude", "hermes"} {
+		lock := lockFile.ForProvider(p)
+		if _, err := provisioning.PruneManaged(lock.Managed, provisioning.LockBaseDir(lock, dir), false); err != nil {
+			t.Fatalf("prune %s: %v", p, err)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(hermesHome, "skill-inbox", "example")); !os.IsNotExist(err) {
+		t.Errorf("hermes delivery survived the prune: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".claude", "skills", "example")); !os.IsNotExist(err) {
+		t.Errorf("claude skill survived the prune: %v", err)
+	}
+}
+
+// $HERMES_HOME unset is a failure that names the variable, not a silent
+// fallback to the home directory (D141).
+func TestMaterializeForProviders_MissingProviderBaseDir(t *testing.T) {
+	t.Setenv("HERMES_HOME", "")
+	_, err := materializeForProviders(kbSkillManifest(), []string{"hermes"}, t.TempDir(), true, false, false, nil, nil)
+	if err == nil {
+		t.Fatal("materializeForProviders succeeded with $HERMES_HOME unset")
+	}
+	if !strings.Contains(err.Error(), "HERMES_HOME") {
+		t.Errorf("error %q does not name the variable", err)
+	}
+}

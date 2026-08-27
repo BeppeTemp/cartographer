@@ -176,13 +176,43 @@ every sync and was reported as permanent drift.
 
 The matrix below is data in the code: `destinationMatrix` in `internal/provisioning/provisioning.go`, resolved by `destDir(kind, name, provider)` ([D137](decisions/client-configurator.md#d137)). Every cell either names a destination or is explicitly `unsupported` — a cell *missing* from the table fails a completeness test instead of degrading silently. `unsupported` is not `needs_approval` (no approval would unblock it): clients filter such artifacts out upstream with `FilterForProvider`, and they count as neither drift nor pending ([D50](decisions/sync-provisioning.md#d50)).
 
-| Kind | claude | opencode | codex | kiro |
-|---|---|---|---|---|
-| `skill` | `.claude/skills/<name>/` | `.opencode/skills/<name>/` | `.codex/skills/<name>/` | `.kiro/skills/<name>/` |
-| `agent` | `.claude/agents/<name>.md` (verbatim) | `.opencode/agent/<name>.md` (translated) | `.codex/agents/<name>.toml` (translated) | unsupported |
-| `hook` | `.claude/hooks/<name>/` + registration in `settings.json` | `.opencode/hooks/<name>/` + generated JS plugin | `.codex/hooks/<name>/` + block in `config.toml` | unsupported |
-| `instructions` | managed block in `.claude/CLAUDE.md` | block in `.config/opencode/AGENTS.md` | block in `.codex/AGENTS.md` | file `.kiro/steering/cartographer.md` |
-| `mcp` | key `mcpServers.<name>` in `.claude.json` | key `mcp.<name>` in `opencode.json` | block `[mcp_servers.<name>]` in `config.toml` | key `mcpServers.<name>` in `.kiro/settings/mcp.json` |
+| Kind | claude | opencode | codex | kiro | hermes |
+|---|---|---|---|---|---|
+| `skill` | `.claude/skills/<name>/` | `.opencode/skills/<name>/` | `.codex/skills/<name>/` | `.kiro/skills/<name>/` | `skill-inbox/<name>/cartographer/` (delivered, see below) |
+| `agent` | `.claude/agents/<name>.md` (verbatim) | `.opencode/agent/<name>.md` (translated) | `.codex/agents/<name>.toml` (translated) | unsupported | unsupported — no native subagent directory |
+| `hook` | `.claude/hooks/<name>/` + registration in `settings.json` | `.opencode/hooks/<name>/` + generated JS plugin | `.codex/hooks/<name>/` + block in `config.toml` | unsupported | unsupported — no hook mechanism at all |
+| `instructions` | managed block in `.claude/CLAUDE.md` | block in `.config/opencode/AGENTS.md` | block in `.codex/AGENTS.md` | file `.kiro/steering/cartographer.md` | unsupported — `SOUL.md` is operator-owned, rendered from a template |
+| `mcp` | key `mcpServers.<name>` in `.claude.json` | key `mcp.<name>` in `opencode.json` | block `[mcp_servers.<name>]` in `config.toml` | key `mcpServers.<name>` in `.kiro/settings/mcp.json` | unsupported — `config.yaml` is rendered by an Ansible role |
+
+Paths are relative to the client **base dir**, which is the user's home for every provider but
+`hermes`: that one materializes under `$HERMES_HOME`, recorded as `base_dir` in its entry of the
+single lockfile ([D141](decisions/client-configurator.md#d141)). An entry with no `base_dir` — every
+lockfile written before that, and every other provider — means the lockfile's own directory, so
+nothing migrated.
+
+### Hermes: delivery, not installation
+
+Hermes' skills live in `$HERMES_HOME/skills/` and are **owned by the agent itself**: a curator
+archives unused ones, keeps telemetry and honours pins, rewriting what it owns from its own learning
+loop. Cartographer therefore **never writes there**. A KB skill is instead delivered to
+`$HERMES_HOME/skill-inbox/<name>/cartographer/` as a **proposal**: the skill's files (provenance
+block included, D138) plus a generated `SOURCE.md` naming the source KB, the artifact path, its
+content hash, and the fact that adopting it is the agent's own `skill_manage` decision. Cartographer
+delivers; Hermes adopts.
+
+The delivery path deliberately carries **no timestamp**, departing from the
+`skill-inbox/<skill>/<timestamp>/` convention: provisioning must be idempotent, and one directory
+per sync would accumulate a copy on every timer tick with no way to tell stale from current. One
+stable directory per (skill, source), updated in place — the last segment names the proposer, so
+another source never collides — with the content hash in `SOURCE.md` distinguishing an unchanged
+re-delivery from a new proposal; the proposal's history lives in the KB's git log. Pruning removes
+exactly `skill-inbox/<name>/cartographer/` (and `skill-inbox/<name>/` if that empties it), never an
+adopted copy under `skills/` and never the shared `skill-inbox/` root. A KB skill that ships its own
+`SOURCE.md` is a collision: that one artifact is not delivered and produces a warning naming it,
+while the rest of the sync completes.
+
+Hermes has no session hook, so its trigger is the scheduled timer (`cartographer service sync-timer
+install`, D140).
 
 ## Agents and hooks
 
