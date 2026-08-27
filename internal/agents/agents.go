@@ -41,7 +41,7 @@ func dirExists(path string) bool {
 // Detect probes the local machine for every supported provider, in the
 // registry's detection order (D137: identity and detection evidence live in
 // internal/configurator's descriptors, not in per-provider functions here).
-// An agent is Installed if at least one heuristic matches: its binary in PATH,
+// An agent is Installed if at least one heuristic matches: any of its binaries in PATH,
 // then its config directories in descriptor order, then its own root directory
 // if it declares one (D141), then — on darwin only — its application bundle.
 func Detect() []Agent {
@@ -55,8 +55,8 @@ func Detect() []Agent {
 
 func detect(d configurator.Descriptor, home string) Agent {
 	a := Agent{Provider: d.Provider, Name: d.DisplayName}
-	if d.Binary != "" {
-		if path, err := lookPath(d.Binary); err == nil {
+	for _, binary := range d.Binaries {
+		if path, err := lookPath(binary); err == nil {
 			a.Installed, a.Evidence = true, path
 			return a
 		}

@@ -358,8 +358,9 @@ pending an actual reproduction.
 `Descriptor` per provider with its constant and wire value, display name, native MCP config file
 and format (JSON with its server key, or a marker-delimited TOML block), whether that file may be
 deleted once emptied, whether it can carry MCP auth headers, whether its tool namespace is flat
-across servers, its detection evidence (binary, config directories in probe order, optional macOS
-app bundle), and its emitter. `internal/provisioning` owns the **kind × provider destination
+across servers, its detection evidence (executable names in probe order — a provider may ship its
+IDE and CLI surfaces under different ones, as Kiro does with `kiro` and `kiro-cli` — config
+directories in probe order, optional macOS app bundle), and its emitter. `internal/provisioning` owns the **kind × provider destination
 matrix** plus the `hookMechanisms` table describing how each provider registers a hook natively.
 Two orders are exported and both preserved because both are user-visible: `Providers()` (emission
 and client iteration) and `DetectionOrder()` (`cartographer agents` and the TUI).

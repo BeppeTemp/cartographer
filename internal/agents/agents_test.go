@@ -155,3 +155,24 @@ func TestDetect_ProviderRootDir(t *testing.T) {
 		}
 	}
 }
+
+// A provider whose surfaces ship under different executable names is detected
+// from any of them: Kiro's IDE installs `kiro`, its standalone CLI installs
+// `kiro-cli`, and either is the same provider.
+func TestDetect_AlternateBinaryName(t *testing.T) {
+	home := t.TempDir()
+	withStubs(t, home, map[string]string{"kiro-cli": "/opt/homebrew/bin/kiro-cli"}, "linux")
+
+	for _, a := range Detect() {
+		switch a.Provider {
+		case configurator.ProviderKiro:
+			if !a.Installed || a.Evidence != "/opt/homebrew/bin/kiro-cli" {
+				t.Errorf("kiro: expected detection from kiro-cli, got %+v", a)
+			}
+		default:
+			if a.Installed {
+				t.Errorf("%s: expected not installed, got %+v", a.Name, a)
+			}
+		}
+	}
+}
