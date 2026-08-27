@@ -227,7 +227,7 @@ func TestBuildManifest_Instructions_NessunaSezioneSenzaAgentNeCurato(t *testing.
 	// operational instructions, no other section.
 	want := "The \"homelab\" KB is served via MCP by the \"cartographer\" server. Archives: entities/.\n\n" +
 		"Operational instructions:\n" +
-		"- consult it autonomously when you need historical or architectural context: `search` (keyword + semantic) or `atlas_overview` to orient yourself, `concept_read` to read;\n" +
+		"- consult it autonomously when you need historical or architectural context: `search` (keyword) or `atlas_overview` to orient yourself, `concept_read` to read;\n" +
 		"- write or update a page with `concept_write` when you discover something relevant; close relevant sessions with `log_append`;\n" +
 		"- every write is a git commit, revertible.\n"
 	if content != want {
@@ -818,7 +818,7 @@ func TestBuildManifest_Instructions_ToolPrefix(t *testing.T) {
 
 	// Golden: the operational lines of an unprefixed block, verbatim.
 	for _, want := range []string{
-		"- consult it autonomously when you need historical or architectural context: `search` (keyword + semantic) or `atlas_overview` to orient yourself, `concept_read` to read;\n",
+		"- consult it autonomously when you need historical or architectural context: `search` (keyword) or `atlas_overview` to orient yourself, `concept_read` to read;\n",
 		"- write or update a page with `concept_write` when you discover something relevant; close relevant sessions with `log_append`;\n",
 	} {
 		if !strings.Contains(plainContent, want) {

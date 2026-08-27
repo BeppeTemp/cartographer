@@ -43,7 +43,6 @@ variables or the platform secret store, not in a committed YAML file.
 | `CARTOGRAPHER_AUTH` | Explicit auth mode: on, off, or automatic when unset. |
 | `CARTOGRAPHER_TOKENS` | Bearer tokens, including optional per-KB scopes. |
 | `CARTOGRAPHER_GIT_SYNC` | Set `false` only when remote git synchronization around writes is intentionally disabled. |
-| `CARTOGRAPHER_OLLAMA` | Ollama base URL that enables semantic search. |
 
 ## Diagnosis playbook
 

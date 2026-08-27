@@ -1,18 +1,17 @@
-// Package sqlindex implements a persistent SQLite-backed keyword and embedding
-// index with per-content-hash embedding caching.
+// Package sqlindex implements a persistent SQLite-backed keyword index.
 //
 // The schema:
 //
 //	concepts(id TEXT PRIMARY KEY, content_hash TEXT NOT NULL, body TEXT NOT NULL)
 //	concepts_fts — FTS5 virtual table with trigram tokenizer
-//	embeddings(id TEXT PRIMARY KEY, content_hash TEXT NOT NULL, model TEXT NOT NULL, vec BLOB NOT NULL)
+//
+// A database created before D135 may still carry an embeddings table: it is
+// never read nor written, and opening such a file is not an error.
 package sqlindex
 
 import (
 	"database/sql"
-	"encoding/binary"
 	"fmt"
-	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -88,18 +87,6 @@ func createSchema(db *sql.DB) error {
 		return fmt.Errorf("sqlindex: fts5 not available (fallback to in-memory): %w", err)
 	}
 
-	_, err = db.Exec(`
-		CREATE TABLE IF NOT EXISTS embeddings (
-			id TEXT PRIMARY KEY,
-			content_hash TEXT NOT NULL,
-			model TEXT NOT NULL,
-			vec BLOB NOT NULL
-		)
-	`)
-	if err != nil {
-		return fmt.Errorf("sqlindex: create embeddings: %w", err)
-	}
-
 	return nil
 }
 
@@ -136,9 +123,7 @@ func (ix *Index) Upsert(id, contentHash, body string) error {
 }
 
 // Delete removes a concept's content from both the concepts table and the
-// FTS5 index (used by concept_delete). It does not touch the embeddings
-// table: a stale cached embedding for a removed id is harmless, since it is
-// only ever looked up by content-hash match on a live concept.
+// FTS5 index (used by concept_delete).
 func (ix *Index) Delete(id string) error {
 	if _, err := ix.db.Exec(`DELETE FROM concepts_fts WHERE id = ?`, id); err != nil {
 		return fmt.Errorf("sqlindex: delete fts: %w", err)
@@ -312,73 +297,6 @@ func (ix *Index) searchFTSPage(query, scope string, limit, offset int) ([]Hit, e
 	return hits, nil
 }
 
-// EmbeddingFresh returns true if an embedding exists for the given id with a
-// matching content hash (i.e. the cached embedding is still valid).
-func (ix *Index) EmbeddingFresh(id, contentHash string) (bool, error) {
-	var storedHash string
-	err := ix.db.QueryRow(
-		`SELECT content_hash FROM embeddings WHERE id = ?`, id,
-	).Scan(&storedHash)
-	if err == sql.ErrNoRows {
-		return false, nil
-	}
-	if err != nil {
-		return false, fmt.Errorf("sqlindex: check embedding: %w", err)
-	}
-	return storedHash == contentHash, nil
-}
-
-// UpsertEmbedding stores (or replaces) an embedding vector for a concept.
-// vec is serialized as a blob of float64 values in little-endian order.
-func (ix *Index) UpsertEmbedding(id, contentHash, model string, vec []float64) error {
-	blob := encodeVec(vec)
-	_, err := ix.db.Exec(
-		`INSERT INTO embeddings(id, content_hash, model, vec) VALUES(?, ?, ?, ?)
-		 ON CONFLICT(id) DO UPDATE SET content_hash=excluded.content_hash, model=excluded.model, vec=excluded.vec`,
-		id, contentHash, model, blob,
-	)
-	if err != nil {
-		return fmt.Errorf("sqlindex: upsert embedding: %w", err)
-	}
-	return nil
-}
-
-// AllEmbeddings reads all stored embedding vectors.
-// Returns parallel slices of ids and vectors, plus the model identifier.
-// If no embeddings are stored, returns nil slices and empty model.
-func (ix *Index) AllEmbeddings() (ids []string, vecs [][]float64, model string, err error) {
-	return ix.AllEmbeddingsFiltered(nil)
-}
-
-// AllEmbeddingsFiltered reads only vectors accepted by allow. It is used by
-// semantic search so authorization is applied before candidates enter score
-// fusion. A nil predicate preserves AllEmbeddings behavior.
-func (ix *Index) AllEmbeddingsFiltered(allow func(id string) bool) (ids []string, vecs [][]float64, model string, err error) {
-	rows, err := ix.db.Query(`SELECT id, model, vec FROM embeddings`)
-	if err != nil {
-		return nil, nil, "", fmt.Errorf("sqlindex: all embeddings: %w", err)
-	}
-	defer rows.Close()
-
-	for rows.Next() {
-		var id, m string
-		var blob []byte
-		if err := rows.Scan(&id, &m, &blob); err != nil {
-			return nil, nil, "", fmt.Errorf("sqlindex: scan embedding: %w", err)
-		}
-		if allow != nil && !allow(id) {
-			continue
-		}
-		ids = append(ids, id)
-		model = m // last model wins; caller should ensure consistency
-		vecs = append(vecs, decodeVec(blob))
-	}
-	if err := rows.Err(); err != nil {
-		return nil, nil, "", fmt.Errorf("sqlindex: rows iteration: %w", err)
-	}
-	return ids, vecs, model, nil
-}
-
 // Count returns the number of indexed concepts.
 func (ix *Index) Count() (int, error) {
 	var n int
@@ -387,23 +305,4 @@ func (ix *Index) Count() (int, error) {
 		return 0, fmt.Errorf("sqlindex: count: %w", err)
 	}
 	return n, nil
-}
-
-// encodeVec serializes a float64 slice to a little-endian byte blob.
-func encodeVec(v []float64) []byte {
-	buf := make([]byte, len(v)*8)
-	for i, f := range v {
-		binary.LittleEndian.PutUint64(buf[i*8:], math.Float64bits(f))
-	}
-	return buf
-}
-
-// decodeVec deserializes a byte blob back to a float64 slice.
-func decodeVec(b []byte) []float64 {
-	n := len(b) / 8
-	v := make([]float64, n)
-	for i := 0; i < n; i++ {
-		v[i] = math.Float64frombits(binary.LittleEndian.Uint64(b[i*8:]))
-	}
-	return v
 }

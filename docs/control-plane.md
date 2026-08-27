@@ -53,8 +53,8 @@ Tools marked **[A]** (advanced, `advancedToolNames` in `internal/mcpserver/visib
 
 | Tool | Purpose |
 |---|---|
-| `search(query, [scope], [mode])` **[R]** | Keyword, semantic, or hybrid (keyword + vector) search. `mode` is `keyword` (default), `semantic`, or `hybrid`; semantic/hybrid require Ollama to be configured. `use_semantic=true` remains a deprecated alias for `mode=hybrid`. Keyword matching first requires all query terms, then retries with any term if that returns no hits. Every hit includes `title` (from the frontmatter) and `snippet` (an excerpt of ~200 chars around the match; FTS5 uses its native `snippet()`, otherwise it's extracted in-memory) — avoids a `concept_read` just to judge a hit's relevance (D70). |
-| `index_rebuild()` **[R]** **[A]** | Rebuilds the keyword index (in-memory and FTS5 if present) and the embeddings if Ollama is active (with a content-hash cache). Read-only: it mutates only the derived/gitignored index, never KB content (D45). |
+| `search(query, [scope], [limit])` **[R]** | Keyword search — the only mode (D135): `mode` and `use_semantic` are no longer accepted and a call passing either is rejected. Keyword matching first requires all query terms, then retries with any term if that returns no hits. Every hit includes `title` (from the frontmatter) and `snippet` (an excerpt of ~200 chars around the match; FTS5 uses its native `snippet()`, otherwise it's extracted in-memory) — avoids a `concept_read` just to judge a hit's relevance (D70). |
+| `index_rebuild()` **[R]** **[A]** | Rebuilds the keyword index (in-memory and FTS5 if present). Read-only: it mutates only the derived/gitignored index, never KB content (D45). |
 | `reindex()` | Reconciles the derived FTS5 and in-memory search indexes with concepts changed outside MCP. Use after imports or manual edits; returns `indexed`, `updated`, and `removed`. It requires write scope because it writes the server-owned SQLite index (D90). |
 
 ### Writing and ingest
@@ -68,7 +68,7 @@ Tools marked **[A]** (advanced, `advancedToolNames` in `internal/mcpserver/visib
 | `asset_list(concept_id)` **[R]** | Lists an expanded concept's non-Markdown regular assets with path, size, raw-byte `sha256`, and executable mode. |
 | `asset_write(concept_id, path, content, [encoding], [executable], [if_match])` | Creates or updates an expanded concept asset. 1 MiB decoded limit; `.md`, hidden, escaping and symlink paths are rejected. `if_match` is forbidden on create and mandatory on overwrite; omitted `executable` defaults false on create and preserves mode on overwrite. |
 | `asset_delete(concept_id, path, if_match)` **[A]** | Deletes an asset with mandatory raw-byte `if_match`, pruning empty asset-only directories but never the owner directory. |
-| `concept_write(id, frontmatter, body, [mode], if_match)` | Creates/updates with validation. `if_match` = expected content-hash; fails with `stale_write` if changed. Automatically updates the in-memory keyword index and, if present, the persisted FTS5 index (no `index_rebuild` needed; embeddings remain `index_rebuild`'s job). |
+| `concept_write(id, frontmatter, body, [mode], if_match)` | Creates/updates with validation. `if_match` = expected content-hash; fails with `stale_write` if changed. Automatically updates the in-memory keyword index and, if present, the persisted FTS5 index (no `index_rebuild` needed). |
 | `concept_new(template, id, [vars])` | Creates a new concept from `templates/<slug>.md`, with literal single-pass `{{identifier}}` substitution in frontmatter values and body. Refuses existing IDs and missing/extra variables; updates indexes and makes one commit. It creates only the concept (no curated index entry) and does not pre-check a strict-map ontology because templates can serve multiple maps. |
 | `concept_patch(id, old_string, new_string, [replace_all], if_match, [frontmatter])` | String-replace patch on the body only (Edit-like semantics), without rewriting the entire concept. `if_match` is **mandatory**: fails with `stale_write` if changed. Fails with `old_string_not_found` or `old_string_ambiguous` (use `replace_all` for multiple matches). `frontmatter`, if present, is shallow-merged onto the existing frontmatter; a key set to `null` is removed rather than set to a literal null (fails if the key is required, e.g. `type`, D88). Same write path (indices, commit) as `concept_write` (D70). As an alternative to the `old_string`/`new_string`/`replace_all` triple, it accepts an `edits: [{old_string, new_string, replace_all?}]` field to apply several patches in a single call (one commit): the two forms are mutually exclusive; edits are applied **in order, atomically** (edit i+1 sees the result of edit i) — if one fails, nothing is written and the error reports the index of the failed edit (D76). |
 | `index_patch(path, old_string, new_string, [replace_all], if_match)` | The same bounded Edit-like patch as `concept_patch`, applied to the root or a Map/Journal's curated `index.md` instead of a concept (D122). Accepts only the root (`path` empty) or an existing Map/Journal's index — never an arbitrary nested path, never a reserved file other than `index.md`; a two-segment `path` naming an **expanded concept**'s own index (e.g. `map/concept`) is rejected with `expanded_index`, pointing at `concept_patch(id=<owner>)` instead, since that index is a concept, not a curated collection index. `if_match` is **mandatory** (read it with `index_get(with_hash: true)` first): fails with `stale_write` if changed. Same `old_string`/`edits` batch semantics as `concept_patch`, one commit per call, one root `log.md` entry. Never touches the live/SQLite concept search indexes — root/Map indexes are curated prose, not indexed concepts. |
@@ -131,25 +131,14 @@ See `docs/sync.md` for the full model (Manifest, Lock, Diff, layered triggers).
 
 > Multi-KB: which KB a tool call reaches is decided per-connection, not per-call — `?kb=<name>` (query param) or `/mcp/<name>` (path) select one KB's isolated `Server` for the whole session; no tool takes a `kb` argument. Every KB exposes the same tool names by default, which flat-namespace MCP clients (e.g. Kiro) cannot disambiguate across servers — see `tool_prefix` in [`deployment.md`](deployment.md) §MCP tool-name prefix.
 
-## Semantic search
-
-Semantic search is available when the server is started with `--ollama <url>` (or `CARTOGRAPHER_OLLAMA=<url>`). In that case:
-
-- The `search` tool accepts `mode=semantic` or `mode=hybrid` to use vector similarity; `use_semantic=true` remains a deprecated alias for `mode=hybrid`.
-- The `index_rebuild` tool rebuilds the keyword index and per-concept embeddings.
-- The model is configurable via `CARTOGRAPHER_OLLAMA_MODEL` (default: `nomic-embed-text`).
-- If Ollama is unreachable or embedding fails, keyword search is always available as a fallback.
-
 ## Search index
 
 **Rebuildable index** (*vault = truth, index = disposable*), with two persistence levels:
 
-- **In-memory (default/Core)**: a pure-Go keyword inverted index (`internal/search`) + an in-memory vector store (`internal/embed`). Rebuilt on every startup by walking the concepts.
-- **Persisted SQLite (`internal/sqlindex`, D32)**: when the KB has an openable `.cartographer/index.db`, keyword search uses **FTS5 with a trigram tokenizer** (supports substrings, not just whole words). Multi-term matching tries all terms first, then any term only if the all-terms search is empty; terms shorter than three characters are omitted from the FTS match. Embeddings are persisted in SQLite with a **content-hash cache** — `index_rebuild` recomputes Ollama embeddings only for concepts whose hash changed. At boot, after a git pull that moves HEAD, and on `reindex`, content hashes reconcile external additions, changes, and removals without a restart. On this path, the `search` response's `mode` field is `keyword_fts5`/`hybrid_fts5`. Best-effort: if the DB can't be opened or FTS5 is unavailable, it degrades to the in-memory path.
-- **Semantic**: embedding vectors (e.g. Ollama), cosine similarity outside SQL. Independent commit: if the embedder is down, keyword search still moves forward. Embedder-identity guard: full re-embedding if the model changes (content-hash invalidates the cache).
-
-At small scale `index.md` and keyword search can be enough. Semantic search is
-opt-in and active only when an Ollama endpoint is configured.
+- **In-memory (default/Core)**: a pure-Go keyword inverted index (`internal/search`). Rebuilt on every startup by walking the concepts.
+- **Persisted SQLite (`internal/sqlindex`, D32)**: when the KB has an openable `.cartographer/index.db`, keyword search uses **FTS5 with a trigram tokenizer** (supports substrings, not just whole words). Multi-term matching tries all terms first, then any term only if the all-terms search is empty; terms shorter than three characters are omitted from the FTS match. At boot, after a git pull that moves HEAD, and on `reindex`, content hashes reconcile external additions, changes, and removals without a restart. On this path, the `search` response's `mode` field is `keyword_fts5`. A database created before D135 may still carry an `embeddings` table: it is never read nor written, and needs no migration. Best-effort: if the DB can't be opened or FTS5 is unavailable, it degrades to the in-memory path.
+At small scale `index.md` and keyword search can be enough: keyword search is
+the only search mode the server offers (D135).
 
 ## Validation and invariants
 
