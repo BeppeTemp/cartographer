@@ -8,6 +8,14 @@
 
 KB histories with commits authored as `cartographer <cartographer@localhost>` may need a manual author rewrite before a forge with author push rules accepts the first push.
 
+## [0.8.1](https://github.com/BeppeTemp/cartographer/compare/v0.8.0...v0.8.1) (2026-08-27)
+
+
+### Bug Fixes
+
+* **agents:** detect Kiro from its standalone CLI binary ([#158](https://github.com/BeppeTemp/cartographer/issues/158)) ([237a086](https://github.com/BeppeTemp/cartographer/commit/237a086155067a17cd996722a7c15cbe5c3b0d01))
+* **doctor:** name the command that actually clears an unverifiable entry ([#160](https://github.com/BeppeTemp/cartographer/issues/160)) ([9c5f8ad](https://github.com/BeppeTemp/cartographer/commit/9c5f8ad25ee67aaacf0963f4999e56d4f3530244))
+
 ## [0.8.0](https://github.com/BeppeTemp/cartographer/compare/v0.7.0...v0.8.0) (2026-08-27)
 
 
