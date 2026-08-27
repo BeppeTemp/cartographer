@@ -301,9 +301,14 @@ func Init(root string) (*KB, error) {
 		}
 	}
 
+	// The root index carries the KB's name (D144): on a client that flattens
+	// the MCP tool namespace, atlas_overview's first line is what lets an
+	// agent notice it is reading the wrong KB. Only on creation — an existing
+	// index.md is never rewritten.
 	indexPath := filepath.Join(dataDir, "index.md")
 	if _, err := os.Stat(indexPath); os.IsNotExist(err) {
-		indexContent := "---\ntype: Index\ntitle: Knowledge Base\n---\n# Index\n\nKB initialized.\n"
+		name := filepath.Base(abs)
+		indexContent := "---\ntype: Index\ntitle: " + name + "\n---\n# " + name + "\n\nKB initialized.\n"
 		if err := writeFileAtomic(indexPath, []byte(indexContent)); err != nil {
 			return nil, fmt.Errorf("Init: write data/index.md: %w", err)
 		}

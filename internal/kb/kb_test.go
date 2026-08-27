@@ -1416,3 +1416,41 @@ func TestPatchIndex_SymlinkEscape(t *testing.T) {
 		t.Error("symlink at entities/index.md was replaced by PatchIndex")
 	}
 }
+
+// D144: a freshly initialized KB's root index carries the KB name, so
+// atlas_overview identifies the KB that answered even before an operator
+// curates the index. An existing index.md is never rewritten.
+func TestInit_IndexTitleFromDirectory(t *testing.T) {
+	parent := t.TempDir()
+	root := filepath.Join(parent, "homelab-wiki")
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	k, err := Init(root)
+	if err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+	raw, err := os.ReadFile(filepath.Join(k.DataRoot(), "index.md"))
+	if err != nil {
+		t.Fatalf("read index.md: %v", err)
+	}
+	got := string(raw)
+	for _, want := range []string{"title: homelab-wiki\n", "# homelab-wiki\n", "KB initialized.\n"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("index.md missing %q:\n%s", want, got)
+		}
+	}
+
+	// A second Init leaves the existing index untouched.
+	custom := "---\ntype: Index\ntitle: Curated\n---\n# Curated\n"
+	if err := os.WriteFile(filepath.Join(k.DataRoot(), "index.md"), []byte(custom), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	if _, err := Init(root); err != nil {
+		t.Fatalf("Init again: %v", err)
+	}
+	raw, _ = os.ReadFile(filepath.Join(k.DataRoot(), "index.md"))
+	if string(raw) != custom {
+		t.Errorf("existing index.md was rewritten:\n%s", raw)
+	}
+}

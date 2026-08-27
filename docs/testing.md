@@ -95,7 +95,10 @@ sets `tool_prefix` to a string unrelated to the KB name, precisely so a client
 that re-derived the prefix from the KB name instead of discovering it from
 `/health` fails the scenario. It also asserts the negative — the bare tool name
 must *not* resolve on the prefixed KB — because the D102 promise is that
-prefixing is exact, not additive.
+prefixing is exact, not additive. Its last phase restarts the same two KBs with
+both mounted unprefixed and asserts the D144 startup warning names them, while
+`tools/list` stays unchanged on both endpoints: the warning is a diagnostic,
+never an implicit prefix.
 
 ### Packaging (`install.sh` and the generated Cask)
 
