@@ -809,3 +809,130 @@ func TestRestart_Linux_UsesSystemctlRestart(t *testing.T) {
 		t.Errorf("plain Restart calls = %v, want systemctl --user restart", stub.calls)
 	}
 }
+
+// --- Scheduled sync trigger (D140) ---
+
+func TestRenderSyncUnits(t *testing.T) {
+	plist := RenderSyncLaunchdPlist("/opt/homebrew/bin/cartographer", "/home/u/Library/Logs/cartographer/sync.log", 30*time.Minute)
+	for _, want := range []string{
+		"<string>com.cartographer.sync</string>",
+		"<string>/opt/homebrew/bin/cartographer</string>",
+		"<string>sync</string>",
+		"<key>StartInterval</key>\n\t<integer>1800</integer>",
+		"sync.log",
+	} {
+		if !strings.Contains(plist, want) {
+			t.Errorf("plist missing %q:\n%s", want, plist)
+		}
+	}
+	// The unattended job must never grant a trust the user did not give.
+	if strings.Contains(plist, "auto-trust") {
+		t.Errorf("the sync timer must not pass --auto-trust:\n%s", plist)
+	}
+	if got := intervalFromPlist(plist); got != 30*time.Minute {
+		t.Errorf("intervalFromPlist = %v, want 30m", got)
+	}
+
+	unit := RenderSyncSystemdService("/usr/local/bin/cartographer")
+	if !strings.Contains(unit, "ExecStart=/usr/local/bin/cartographer sync\n") || !strings.Contains(unit, "Type=oneshot") {
+		t.Errorf("unexpected sync unit:\n%s", unit)
+	}
+	if strings.Contains(unit, "auto-trust") {
+		t.Errorf("the sync unit must not pass --auto-trust:\n%s", unit)
+	}
+
+	timer := RenderSyncSystemdTimer(15 * time.Minute)
+	for _, want := range []string{"OnUnitActiveSec=900s", "Persistent=true", "WantedBy=timers.target"} {
+		if !strings.Contains(timer, want) {
+			t.Errorf("timer missing %q:\n%s", want, timer)
+		}
+	}
+	if got := intervalFromTimerUnit(timer); got != 15*time.Minute {
+		t.Errorf("intervalFromTimerUnit = %v, want 15m", got)
+	}
+}
+
+func TestSyncTimerInstallIsIdempotentAndUninstallable(t *testing.T) {
+	home := t.TempDir()
+	oldHome, oldGoos, oldExec := userHomeDir, goos, osExecutable
+	userHomeDir = func() (string, error) { return home, nil }
+	osExecutable = func() (string, error) { return "/usr/local/bin/cartographer", nil }
+	t.Cleanup(func() { userHomeDir, goos, osExecutable = oldHome, oldGoos, oldExec })
+
+	for _, platform := range []string{"darwin", "linux"} {
+		t.Run(platform, func(t *testing.T) {
+			goos = platform
+			var calls []string
+			m := &Manager{run: func(name string, args ...string) (string, error) {
+				calls = append(calls, name+" "+strings.Join(args, " "))
+				return "active", nil
+			}}
+
+			paths := func() []string {
+				if platform == "darwin" {
+					p, _ := SyncLaunchdPlistPath()
+					return []string{p}
+				}
+				svc, _ := SyncSystemdServicePath()
+				timer, _ := SyncSystemdTimerPath()
+				return []string{svc, timer}
+			}()
+
+			if err := m.InstallSyncTimer(20 * time.Minute); err != nil {
+				t.Fatalf("InstallSyncTimer: %v", err)
+			}
+			for _, p := range paths {
+				if _, err := os.Stat(p); err != nil {
+					t.Fatalf("expected %s to exist: %v", p, err)
+				}
+			}
+			st, err := m.SyncTimerStatus()
+			if err != nil {
+				t.Fatalf("SyncTimerStatus: %v", err)
+			}
+			if !st.Installed || st.Interval != 20*time.Minute {
+				t.Errorf("status = %+v, want installed with a 20m interval", st)
+			}
+
+			// Installing again overwrites and re-registers, never errors.
+			if err := m.InstallSyncTimer(20 * time.Minute); err != nil {
+				t.Fatalf("second InstallSyncTimer: %v", err)
+			}
+
+			if err := m.UninstallSyncTimer(); err != nil {
+				t.Fatalf("UninstallSyncTimer: %v", err)
+			}
+			for _, p := range paths {
+				if _, err := os.Stat(p); !os.IsNotExist(err) {
+					t.Errorf("%s survived uninstall", p)
+				}
+			}
+			// Uninstalling what is not installed is a success.
+			if err := m.UninstallSyncTimer(); err != nil {
+				t.Errorf("second UninstallSyncTimer: %v", err)
+			}
+			if len(calls) == 0 {
+				t.Error("no platform command was run")
+			}
+		})
+	}
+}
+
+// The client-side timer must never collide with the server unit's files.
+func TestSyncTimerFilesAreDistinctFromServerService(t *testing.T) {
+	home := t.TempDir()
+	oldHome := userHomeDir
+	userHomeDir = func() (string, error) { return home, nil }
+	t.Cleanup(func() { userHomeDir = oldHome })
+
+	serverPlist, _ := LaunchdPlistPath()
+	syncPlist, _ := SyncLaunchdPlistPath()
+	serverUnit, _ := SystemdUnitPath()
+	syncTimer, _ := SyncSystemdTimerPath()
+	syncService, _ := SyncSystemdServicePath()
+	for _, pair := range [][2]string{{serverPlist, syncPlist}, {serverUnit, syncTimer}, {serverUnit, syncService}} {
+		if pair[0] == pair[1] {
+			t.Errorf("the sync timer reuses the server's file: %s", pair[0])
+		}
+	}
+}
