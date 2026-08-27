@@ -16,15 +16,14 @@ import (
 
 // Config is the fully resolved server configuration.
 type Config struct {
-	HTTP   string       // listen address; empty = stdio transport
-	Init   bool         // initialize missing KBs
-	Auth   AuthConfig   // HTTP bearer-token auth
-	Data   string       // directory whose direct subdirs are auto-discovered KBs
-	KBs    []KBSpec     // explicit KBs (local path or git remote)
-	Git    GitConfig    // per-KB git autocommit/sync + SSH identity for remotes
-	Search SearchConfig // Ollama-backed semantic search
-	Audit  AuditConfig  // append-only audit log
-	Sops   SopsConfig   // default SOPS age key for secret refs
+	HTTP  string      // listen address; empty = stdio transport
+	Init  bool        // initialize missing KBs
+	Auth  AuthConfig  // HTTP bearer-token auth
+	Data  string      // directory whose direct subdirs are auto-discovered KBs
+	KBs   []KBSpec    // explicit KBs (local path or git remote)
+	Git   GitConfig   // per-KB git autocommit/sync + SSH identity for remotes
+	Audit AuditConfig // append-only audit log
+	Sops  SopsConfig  // default SOPS age key for secret refs
 	// ToolsProfile selects which tools tools/list advertises: "agent"
 	// (default) hides the advanced/operator tools, "full" advertises all.
 	// Hidden tools stay callable via tools/call (D65).
@@ -234,12 +233,6 @@ type SopsConfig struct {
 	AgeKeyDir string `yaml:"age_key_dir"`
 }
 
-// SearchConfig controls the Ollama-backed semantic search.
-type SearchConfig struct {
-	OllamaURL   string
-	OllamaModel string
-}
-
 // AuditConfig controls the append-only audit log.
 type AuditConfig struct {
 	Log     string `yaml:"log"`
@@ -270,9 +263,6 @@ func Default() *Config {
 			SyncInWindow:    30 * time.Second,
 			SyncOutDebounce: 3 * time.Second,
 		},
-		Search: SearchConfig{
-			OllamaModel: "nomic-embed-text",
-		},
 		ToolsProfile: "agent",
 		MCP:          MCPConfig{ToolPrefixMode: "off"},
 	}
@@ -282,17 +272,16 @@ func Default() *Config {
 // clobber a non-zero default (git.autocommit, git.sync) are pointers, so
 // Load can distinguish "absent from YAML" from "explicitly false".
 type rawConfig struct {
-	HTTP   string      `yaml:"http"`
-	Init   bool        `yaml:"init"`
-	Auth   rawAuth     `yaml:"auth"`
-	Data   string      `yaml:"data"`
-	KBs    []KBSpec    `yaml:"kbs"`
-	Git    rawGit      `yaml:"git"`
-	Search rawSearch   `yaml:"search"`
-	Audit  AuditConfig `yaml:"audit"`
-	Sops   SopsConfig  `yaml:"sops"`
-	Tools  rawTools    `yaml:"tools"`
-	MCP    rawMCP      `yaml:"mcp"`
+	HTTP  string      `yaml:"http"`
+	Init  bool        `yaml:"init"`
+	Auth  rawAuth     `yaml:"auth"`
+	Data  string      `yaml:"data"`
+	KBs   []KBSpec    `yaml:"kbs"`
+	Git   rawGit      `yaml:"git"`
+	Audit AuditConfig `yaml:"audit"`
+	Sops  SopsConfig  `yaml:"sops"`
+	Tools rawTools    `yaml:"tools"`
+	MCP   rawMCP      `yaml:"mcp"`
 }
 
 type rawTools struct {
@@ -330,11 +319,6 @@ type rawGit struct {
 	GitHubRepository string `yaml:"github_repository"`
 	GitHubAPIURL     string `yaml:"github_api_url"`
 	GitHubTokenEnv   string `yaml:"github_token_env"`
-}
-
-type rawSearch struct {
-	OllamaURL   string `yaml:"ollama_url"`
-	OllamaModel string `yaml:"ollama_model"`
 }
 
 // Load parses a YAML config file, layering it on top of Default().
@@ -403,11 +387,6 @@ func Load(path string) (*Config, error) {
 		cfg.Git.SyncOutDebounce = parseDuration(raw.Git.OutDebounce, cfg.Git.SyncOutDebounce)
 	}
 
-	cfg.Search.OllamaURL = raw.Search.OllamaURL
-	if raw.Search.OllamaModel != "" {
-		cfg.Search.OllamaModel = raw.Search.OllamaModel
-	}
-
 	cfg.Sops = raw.Sops
 
 	if raw.Tools.Profile != "" {
@@ -468,12 +447,6 @@ func FromEnv(cfg *Config) {
 	if v := os.Getenv("CARTOGRAPHER_SYNC_OUT_DEBOUNCE"); v != "" {
 		cfg.Git.SyncOutDebounce = parseDuration(v, cfg.Git.SyncOutDebounce)
 	}
-	if v := os.Getenv("CARTOGRAPHER_OLLAMA"); v != "" {
-		cfg.Search.OllamaURL = v
-	}
-	if v := os.Getenv("CARTOGRAPHER_OLLAMA_MODEL"); v != "" {
-		cfg.Search.OllamaModel = v
-	}
 	if v := os.Getenv("CARTOGRAPHER_AUDIT_LOG"); v != "" {
 		cfg.Audit.Log = v
 	}
@@ -506,7 +479,6 @@ type FlagOverrides struct {
 	KB            *string // comma-separated paths, appended as KBSpec{Path: ...}
 	Data          *string
 	Tokens        *string // comma-separated, replaces Auth.Tokens
-	Ollama        *string
 	GitAutocommit *bool
 	GitSync       *bool
 	ToolsProfile  *string // "agent" | "full"
@@ -535,9 +507,6 @@ func ApplyFlags(cfg *Config, o FlagOverrides) {
 	}
 	if o.Tokens != nil {
 		cfg.Auth.Tokens = parseTokenSpecs(*o.Tokens)
-	}
-	if o.Ollama != nil {
-		cfg.Search.OllamaURL = *o.Ollama
 	}
 	if o.GitAutocommit != nil {
 		cfg.Git.Autocommit = *o.GitAutocommit

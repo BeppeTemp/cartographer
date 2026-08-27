@@ -97,9 +97,6 @@ sops:
   # age_key_dir (D53): directory with one age key per KB, <age_key_dir>/<name>.age
   # — e.g. /etc/kb-sops-keys/wiki-kb.age for the "wiki-kb" KB above.
   # age_key_dir: /etc/kb-sops-keys
-search:
-  ollama_url: ""
-  ollama_model: nomic-embed-text
 audit:
   log: ""               # e.g. /data/audit.log
 tools:

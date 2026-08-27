@@ -13,8 +13,8 @@ It combines two ideas:
 - Google's Open Knowledge Format (OKF): concepts are portable Markdown files
   with YAML frontmatter, identified by their path.
 
-The filesystem and git history are the source of truth. Search databases,
-embedding caches and in-memory graphs are derived state and can be rebuilt.
+The filesystem and git history are the source of truth. Search databases and
+in-memory graphs are derived state and can be rebuilt.
 
 ## Runtime shapes
 

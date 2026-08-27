@@ -90,7 +90,7 @@ agent made can be reviewed or reverted with ordinary git.
 
 ## Where to go next
 
-- Multiple KBs, token auth, semantic search, running in k8s →
+- Multiple KBs, token auth, running in k8s →
   [`deployment.md`](deployment.md)
 - The full MCP tool API → [`control-plane.md`](control-plane.md)
 - How the KB is structured (atlas / map / journal, OKF) →

@@ -2,7 +2,6 @@ package sqlindex
 
 import (
 	"fmt"
-	"math"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -219,101 +218,6 @@ func TestAllHashes(t *testing.T) {
 	}
 }
 
-func TestEmbeddingRoundTrip(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "test.db")
-	ix, err := Open(path)
-	if err != nil {
-		t.Fatalf("Open: %v", err)
-	}
-	defer ix.Close()
-
-	id := "concept/emb"
-	hash := "hash-emb"
-	model := "nomic-embed-text"
-	vec := []float64{0.1, 0.2, 0.3, -0.5}
-
-	if err := ix.UpsertEmbedding(id, hash, model, vec); err != nil {
-		t.Fatalf("UpsertEmbedding: %v", err)
-	}
-
-	// EmbeddingFresh should return true.
-	fresh, err := ix.EmbeddingFresh(id, hash)
-	if err != nil {
-		t.Fatalf("EmbeddingFresh: %v", err)
-	}
-	if !fresh {
-		t.Fatal("expected EmbeddingFresh=true")
-	}
-
-	// Different hash should return false.
-	fresh, err = ix.EmbeddingFresh(id, "different-hash")
-	if err != nil {
-		t.Fatalf("EmbeddingFresh diff hash: %v", err)
-	}
-	if fresh {
-		t.Fatal("expected EmbeddingFresh=false for different hash")
-	}
-
-	// Non-existent id should return false.
-	fresh, err = ix.EmbeddingFresh("nonexistent", "any-hash")
-	if err != nil {
-		t.Fatalf("EmbeddingFresh nonexistent: %v", err)
-	}
-	if fresh {
-		t.Fatal("expected EmbeddingFresh=false for nonexistent")
-	}
-}
-
-func TestAllEmbeddings(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "test.db")
-	ix, err := Open(path)
-	if err != nil {
-		t.Fatalf("Open: %v", err)
-	}
-	defer ix.Close()
-
-	vec1 := []float64{1.0, 2.0, 3.0}
-	vec2 := []float64{4.0, 5.0, 6.0}
-	model := "test-model"
-
-	if err := ix.UpsertEmbedding("a", "h1", model, vec1); err != nil {
-		t.Fatalf("UpsertEmbedding a: %v", err)
-	}
-	if err := ix.UpsertEmbedding("b", "h2", model, vec2); err != nil {
-		t.Fatalf("UpsertEmbedding b: %v", err)
-	}
-
-	ids, vecs, m, err := ix.AllEmbeddings()
-	if err != nil {
-		t.Fatalf("AllEmbeddings: %v", err)
-	}
-	if m != model {
-		t.Fatalf("expected model=%q, got %q", model, m)
-	}
-	if len(ids) != 2 {
-		t.Fatalf("expected 2 ids, got %d", len(ids))
-	}
-	if len(vecs) != 2 {
-		t.Fatalf("expected 2 vecs, got %d", len(vecs))
-	}
-
-	// Verify vector values round-tripped.
-	found := map[string][]float64{}
-	for i, id := range ids {
-		found[id] = vecs[i]
-	}
-	for i, v := range found["a"] {
-		if math.Abs(v-vec1[i]) > 1e-9 {
-			t.Fatalf("vec1 mismatch at %d: %f != %f", i, v, vec1[i])
-		}
-	}
-	for i, v := range found["b"] {
-		if math.Abs(v-vec2[i]) > 1e-9 {
-			t.Fatalf("vec2 mismatch at %d: %f != %f", i, v, vec2[i])
-		}
-	}
-}
-
 func TestEmptySearch(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "test.db")
 	ix, err := Open(path)
@@ -337,20 +241,6 @@ func TestEmptySearch(t *testing.T) {
 	}
 	if hits != nil {
 		t.Fatal("expected nil for whitespace query")
-	}
-}
-
-func TestEncodeDecodeVec(t *testing.T) {
-	original := []float64{0.0, -1.5, math.Pi, 1e10, -1e-10}
-	encoded := encodeVec(original)
-	decoded := decodeVec(encoded)
-	if len(decoded) != len(original) {
-		t.Fatalf("length mismatch: %d != %d", len(decoded), len(original))
-	}
-	for i := range original {
-		if math.Abs(decoded[i]-original[i]) > 1e-12 {
-			t.Fatalf("mismatch at %d: %f != %f", i, decoded[i], original[i])
-		}
 	}
 }
 
@@ -406,5 +296,49 @@ func TestSearchFTS_Snippet(t *testing.T) {
 	}
 	if len(hits[0].Snippet) >= len(body) {
 		t.Errorf("expected snippet shorter than full body (%d chars), got %d: %q", len(body), len(hits[0].Snippet), hits[0].Snippet)
+	}
+}
+
+// D135 invariant 3: a database created before the removal still carries an
+// embeddings table. Opening it must not be an error, and ordinary keyword
+// indexing and search must keep working against it — no operator migration.
+func TestOpenDatabaseWithLegacyEmbeddingsTable(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "legacy.db")
+
+	ix, err := Open(path)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	// Recreate the pre-D135 table with a row in it, as an old server left it.
+	if _, err := ix.db.Exec(`CREATE TABLE IF NOT EXISTS embeddings (
+		id TEXT PRIMARY KEY, content_hash TEXT NOT NULL, model TEXT NOT NULL, vec BLOB NOT NULL)`); err != nil {
+		t.Fatalf("create legacy embeddings table: %v", err)
+	}
+	if _, err := ix.db.Exec(`INSERT INTO embeddings(id, content_hash, model, vec) VALUES(?,?,?,?)`,
+		"notes/legacy", "hash-legacy", "nomic-embed-text", []byte{1, 2, 3, 4, 5, 6, 7, 8}); err != nil {
+		t.Fatalf("insert legacy embedding: %v", err)
+	}
+	if err := ix.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	reopened, err := Open(path)
+	if err != nil {
+		t.Fatalf("reopen a database with an embeddings table: %v", err)
+	}
+	defer reopened.Close()
+
+	if err := reopened.Upsert("notes/legacy", "hash-legacy", "the legacy concept body"); err != nil {
+		t.Fatalf("Upsert: %v", err)
+	}
+	hits, err := reopened.SearchFTS("legacy", "", 10)
+	if err != nil {
+		t.Fatalf("SearchFTS: %v", err)
+	}
+	if len(hits) != 1 || hits[0].ID != "notes/legacy" {
+		t.Fatalf("SearchFTS = %+v, want the single legacy concept", hits)
+	}
+	if err := reopened.Delete("notes/legacy"); err != nil {
+		t.Fatalf("Delete: %v", err)
 	}
 }

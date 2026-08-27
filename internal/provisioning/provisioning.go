@@ -612,7 +612,7 @@ func generateKBInstructions(kbName, kbRoot, toolPrefix string) string {
 	}
 
 	sb.WriteString("Operational instructions:\n")
-	fmt.Fprintf(&sb, "- consult it autonomously when you need historical or architectural context: `%s` (keyword + semantic) or `%s` to orient yourself, `%s` to read;\n",
+	fmt.Fprintf(&sb, "- consult it autonomously when you need historical or architectural context: `%s` (keyword) or `%s` to orient yourself, `%s` to read;\n",
 		tool("search"), tool("atlas_overview"), tool("concept_read"))
 	fmt.Fprintf(&sb, "- write or update a page with `%s` when you discover something relevant; close relevant sessions with `%s`;\n",
 		tool("concept_write"), tool("log_append"))

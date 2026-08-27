@@ -47,7 +47,7 @@ any text editor.
 Cartographer offers **two complementary profiles**:
 - **Local Core** — single agent, stdio transport, local git. Captures the value of the pattern with
   minimal complexity.
-- **Server** — multi-KB, HTTP + token auth, optional semantic embeddings. For shared and remote
+- **Server** — multi-KB, HTTP + token auth. For shared and remote
   deployments.
 
 ## Key features
@@ -55,7 +55,7 @@ Cartographer offers **two complementary profiles**:
 - 🔧 **Full MCP tool suite** — complete list in [`docs/control-plane.md`](docs/control-plane.md)
 - 📖 **Read & navigation** — `atlas_overview`, `index_get`, `concept_read`, `map_list`,
   `graph_neighbors` (outbound links or backlinks) and `concept_list` (scoped frontmatter facets)
-- 🔍 **Search** — keyword (pure-Go inverted index) plus optional hybrid semantic search via Ollama
+- 🔍 **Search** — keyword: a pure-Go inverted index, or SQLite FTS5 with a trigram tokenizer when the KB has a persisted index
 - ✍️ **Validated writes** with optimistic concurrency (`if_match` / content-hash), including `concept_new` from KB-owned templates discovered through `template_list`, `index_patch` for curating root/Map/Journal `index.md` entries with the same bounded `concept_patch` semantics, and `concept_batch` for atomic multi-concept writes/patches across a large refactor (one commit, full rollback on any failure)
 - 📎 **Concept assets** — read, write, list, and delete binary or text dossier files inside expanded concepts
 - 🛡️ **Governance** — deterministic `lint` (broken link, stale claim, orphan, map contracts), `commit_gate`,
@@ -169,8 +169,6 @@ covers everyday use.
 | `CARTOGRAPHER_TOKENS` | — | Comma-separated bearer tokens |
 | `CARTOGRAPHER_GIT_AUTOCOMMIT` | `true` | One git commit per write operation |
 | `CARTOGRAPHER_GIT_SYNC` | `true` | fetch/pull-rebase + push on `origin` around each write |
-| `CARTOGRAPHER_OLLAMA` | — | Ollama server URL for semantic search |
-| `CARTOGRAPHER_OLLAMA_MODEL` | `nomic-embed-text` | Ollama embedding model |
 | `CARTOGRAPHER_AUDIT_LOG` | — | Audit log file path |
 | `CARTOGRAPHER_AUDIT_KEY` | — | Ed25519 key for audit signing |
 

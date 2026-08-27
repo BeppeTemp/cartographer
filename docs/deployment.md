@@ -114,9 +114,6 @@ git:
   # github_repository: wiki
   # github_api_url: https://api.github.com
   # github_token_env: CARTOGRAPHER_GITHUB_TOKEN  # the value stays in this process environment only
-search:
-  ollama_url: ""               # (search.ollama_url) enables semantic search
-  ollama_model: nomic-embed-text
 audit:
   log: ""                      # (audit.log) path to the audit log's JSONL file
   key_seed: ""                 # (audit.key_seed) Ed25519 hex seed for signing
@@ -379,7 +376,7 @@ key (`git.ssh_key`): mount or configure it outside committed YAML.
 
 `clone`/`pull` of the KBs (including bootstrapping the remotes in `kbs:`, §Bootstrapping a KB from a git remote) + rebuilding missing indices. **Per-KB incremental** startup (a KB is served as soon as it's ready); with many KBs, the first startup is not instant.
 
-The persisted SQLite index (`<kb>/.cartographer/index.db`) is excluded from git via `.git/info/exclude` (D62, never versioned): after a fresh clone (e.g. pod restart) it starts empty even if the concepts are already on disk. At startup, for every mounted KB, the server reconciles content hashes from the `.md` files against the persisted index, adding new concepts, refreshing changed ones, and removing vanished ones — keyword/FTS5 only (no embeddings: Ollama may be unreachable at boot). The same reconciliation runs after a `SyncIn` pull that moves HEAD. Best-effort: an error doesn't block startup, it is logged to stderr.
+The persisted SQLite index (`<kb>/.cartographer/index.db`) is excluded from git via `.git/info/exclude` (D62, never versioned): after a fresh clone (e.g. pod restart) it starts empty even if the concepts are already on disk. At startup, for every mounted KB, the server reconciles content hashes from the `.md` files against the persisted index, adding new concepts, refreshing changed ones, and removing vanished ones — keyword/FTS5 only. The same reconciliation runs after a `SyncIn` pull that moves HEAD. Best-effort: an error doesn't block startup, it is logged to stderr.
 
 Imports and manual filesystem edits no longer require a service restart: call the MCP `reindex` tool, or run `cartographer reindex [--kb <name>]`. The CLI calls a healthy configured server over HTTP so it never opens that server's SQLite database; only when the server is down does it reconcile the configured local KB databases directly.
 

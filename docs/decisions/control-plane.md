@@ -31,6 +31,7 @@ Only `broken_link`, `stale_claim`, `orphan`. Reasoning checks (cross-model deep 
 
 <a id="d20"></a>
 ## D20 — Embedding: interface + Ollama adapter, wired
+*(Superseded by D135: the embedder and semantic search were removed.)*
 `internal/embed`: `Embedder` interface with `Embed(text) → Vector`. `OllamaEmbedder` adapter (HTTP POST `/api/embed`). In-memory `Store` with cosine similarity. Activated with `--ollama <url>` (or `CARTOGRAPHER_OLLAMA`): the `search` tool supports `use_semantic=true` for hybrid mode (keyword + vector); `index_rebuild` also rebuilds the vector store.
 
 ---
@@ -56,7 +57,7 @@ that is not updated by `concept_write` — `index_rebuild` remains necessary in 
 
 **Decision.** Introduced the `internal/sqlindex` package with the `modernc.org/sqlite` dependency (pure-Go driver, no cgo — resolves D3). Persists in `<root>/.cartographer/index.db` (gitignored via `.cartographer/`):
 - `concepts(id, content_hash, body)` + FTS5 virtual table `concepts_fts` with `tokenize='trigram'` → **substring** keyword search (overcomes the "whole words only" limit of the in-memory inverted index, D12).
-- `embeddings(id, content_hash, model, vec BLOB)` with the vector serialized as little-endian `float64`. `EmbeddingFresh(id, hash)` enables the **per-content-hash cache**: `index_rebuild` recomputes the Ollama embedding only for concepts whose hash changed (previously everything was re-embedded at every rebuild/startup).
+- `embeddings(id, content_hash, model, vec BLOB)` with the vector serialized as little-endian `float64`. *(This half is superseded by D135: the table is no longer created, read or written.)* `EmbeddingFresh(id, hash)` enables the **per-content-hash cache**: `index_rebuild` recomputes the Ollama embedding only for concepts whose hash changed (previously everything was re-embedded at every rebuild/startup).
 
 Wiring: `RegisterKBToolsWithSQLIndex` (called by `main.go` when the embedder is active) registers `search`/`index_rebuild` variants that use `sqlIdx` if non-nil. `main.go` opens the per-KB DB **best-effort**: if `Open` fails (or FTS5 is unavailable) it logs to stderr and proceeds with the existing in-memory path. The previous in-memory functions and tools (`RegisterKBToolsWithEmbed`, `toolSearchWithEmbed`) remain for backward compatibility and for the `sqlIdx == nil` case. *(D36 update: unified registration in `RegisterKBTools(s, k, Deps)`; FTS5 is now active even without an embedder.)*
 
@@ -503,3 +504,31 @@ concepts track status — the aggregate should answer "how much of this KB
 is in each declared state", not restate `total`. No new predicate grammar,
 task/workflow semantics, or status-value validation is introduced: values
 stay owned by each KB, exactly as scoped by issue #119.
+
+---
+
+<a id="d135"></a>
+## D135 — Remove semantic search and the Ollama embedding backend
+
+**Decision.** Semantic and hybrid search are removed, along with `internal/embed`, the
+`embeddings` half of the persisted index, the `search.ollama_*` configuration, the
+`--ollama` flag and the `CARTOGRAPHER_OLLAMA*` environment variables. `search` accepts
+`query`, `scope` and `limit`; `mode` and `use_semantic` are gone from the input schema and a
+call passing either is rejected with an error naming the removal, rather than silently
+downgraded to keyword results. Three invariants hold: keyword behaviour is unchanged (the
+FTS5 trigram path, the all-terms-then-any-term retry, the `title`/`snippet` enrichment of
+D70, and the reported `keyword_fts5`/`keyword` mode values); `search` keeps its `query` and
+`scope` semantics; and a database that still carries an `embeddings` table opens and works
+untouched — the table is simply never read or written again, and `CREATE TABLE` is dropped
+from schema init so new databases never get one.
+
+**Rationale.** The capability was opt-in from the start and the only deployment that ever
+enabled it removed the backend the same day: a full rebuild against a GPU-backed Ollama
+OOM-killed the container at both 2 and 3 GiB and persisted 0 of 142 embeddings. It was not
+free while disabled either — a whole package, a second input schema, a duplicated handler,
+four accessor methods on the persisted index, four configuration knobs, and a `search`
+contract advertising two modes that error out at call time on every deployment. Removing it
+rather than deprecating it is the right call at 0.x: there is no supported deployment to
+stay compatible with, and rejecting the removed arguments makes a stale client fail loudly
+instead of quietly getting results it did not ask for.
+

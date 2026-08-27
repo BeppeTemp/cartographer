@@ -7,7 +7,6 @@ import (
 	"io/fs"
 	"os"
 
-	"github.com/BeppeTemp/cartographer/internal/embed"
 	"github.com/BeppeTemp/cartographer/internal/gitx"
 	"github.com/BeppeTemp/cartographer/internal/kb"
 	"github.com/BeppeTemp/cartographer/internal/okf"
@@ -18,22 +17,19 @@ import (
 
 // Deps holds the optional dependencies for tool registration.
 type Deps struct {
-	Embedder       embed.Embedder     // nil → keyword-only search
-	VecStore       *embed.Store       // required if Embedder is set
 	SQLIndex       *sqlindex.Index    // nil → in-memory index
 	BundleFS       fs.FS              // nil → no bundled skills
 	ArtifactSigner ed25519.PrivateKey // nil → KB artifacts remain unsigned
 	MCPAllowlist   []provisioning.MCPAllowlistEntry
 }
 
-// RegisterKBTools registers all KB tools on the server, including search, navigation,
-// bundled skills and semantic search, according to the provided Deps.
+// RegisterKBTools registers all KB tools on the server, including search,
+// navigation and bundled skills, according to the provided Deps.
 //
-//   - search / index_rebuild: if deps.SQLIndex is set, keyword search runs against
-//     SQLite FTS5 (falling back to the in-memory index on failure) and semantic
-//     search uses the SQLite embedding cache; otherwise, if deps.Embedder and
-//     deps.VecStore are both set, hybrid in-memory search is used; otherwise
-//     search falls back to the keyword-only in-memory index.
+//   - search / index_rebuild: if deps.SQLIndex is set, keyword search runs
+//     against SQLite FTS5, falling back to the in-memory index on failure;
+//     otherwise it runs against the in-memory keyword index. Keyword search is
+//     the only mode (D135).
 //   - concept_write shares the same in-memory keyword index (via a single
 //     liveIndex) with search/index_rebuild, so a successful write is
 //     immediately reflected by keyword search. When deps.SQLIndex is set,

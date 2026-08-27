@@ -20,7 +20,6 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/audit"
 	"github.com/BeppeTemp/cartographer/internal/auth"
 	"github.com/BeppeTemp/cartographer/internal/config"
-	"github.com/BeppeTemp/cartographer/internal/embed"
 	"github.com/BeppeTemp/cartographer/internal/gitx"
 	"github.com/BeppeTemp/cartographer/internal/kb"
 	"github.com/BeppeTemp/cartographer/internal/mcpserver"
@@ -49,7 +48,6 @@ func cmdServe(args []string) int {
 	initFlag := fs.Bool("init", false, "Initialize KB(s) if they do not exist")
 	httpFlag := fs.String("http", "", "HTTP listen address, e.g. :39273 (or CARTOGRAPHER_HTTP)")
 	tokensFlag := fs.String("tokens", "", "Comma-separated bearer tokens (or CARTOGRAPHER_TOKENS)")
-	ollamaFlag := fs.String("ollama", "", "Ollama base URL for semantic search, e.g. http://localhost:11434 (or CARTOGRAPHER_OLLAMA)")
 	gitAutoCommitFlag := fs.Bool("git-autocommit", true, "Create a git commit after each successful write operation (default true; or CARTOGRAPHER_GIT_AUTOCOMMIT=false to disable)")
 	gitSyncFlag := fs.Bool("git-sync", true, "Fetch+pull before and push after each write when a remote is configured (default true; or CARTOGRAPHER_GIT_SYNC=false to disable)")
 	configFlag := fs.String("config", "", "Path to a YAML config file (or CARTOGRAPHER_CONFIG)")
@@ -62,7 +60,6 @@ func cmdServe(args []string) int {
 		KB:            kbFlag,
 		Data:          dataFlag,
 		Tokens:        tokensFlag,
-		Ollama:        ollamaFlag,
 		GitAutocommit: gitAutoCommitFlag,
 		GitSync:       gitSyncFlag,
 		ToolsProfile:  toolsProfileFlag,
@@ -108,8 +105,6 @@ func loadServeConfig(fs *flag.FlagSet, overrides config.FlagOverrides, configFla
 			explicit.Data = overrides.Data
 		case "tokens":
 			explicit.Tokens = overrides.Tokens
-		case "ollama":
-			explicit.Ollama = overrides.Ollama
 		case "git-autocommit":
 			explicit.GitAutocommit = overrides.GitAutocommit
 		case "git-sync":
@@ -342,14 +337,6 @@ func runServe(cfg *config.Config) {
 
 	log.Printf("cartographer %s — %d KB(s) mounted (git-autocommit=%v git-sync=%v)", version, len(kbs), cfg.Git.Autocommit, cfg.Git.Sync)
 
-	var emb embed.Embedder
-	var vecStore *embed.Store
-	if cfg.Search.OllamaURL != "" {
-		emb = embed.NewOllama(cfg.Search.OllamaURL, cfg.Search.OllamaModel)
-		vecStore = embed.NewStore()
-		log.Printf("semantic search enabled: Ollama %s model=%s", cfg.Search.OllamaURL, cfg.Search.OllamaModel)
-	}
-
 	// Open per-KB SQLite search index (best-effort; falls back to in-memory).
 	sqlIdxs := make(map[string]*sqlindex.Index, len(kbs))
 	for _, k := range kbs {
@@ -362,8 +349,7 @@ func runServe(cfg *config.Config) {
 		sqlIdxs[filepath.Clean(k.Root)] = ix
 		log.Printf("sqlindex: opened %s", sqlPath)
 
-		// Best-effort, keyword-only reconciliation with out-of-band changes.
-		// Embeddings remain lazy because Ollama may not be reachable at boot.
+		// Best-effort reconciliation with out-of-band changes.
 		if stats, err := mcpserver.EnsureSQLIndexFresh(k, ix); err != nil {
 			log.Printf("sqlindex: reconcile %s: %v", sqlPath, err)
 		} else if stats.Indexed > 0 || stats.Updated > 0 || stats.Removed > 0 {
@@ -372,19 +358,19 @@ func runServe(cfg *config.Config) {
 	}
 
 	if cfg.HTTP != "" {
-		serveHTTP(cfg.HTTP, kbs, kbNames, kbToolPrefixes, kbArtifactSigners, kbMCPAllowlists, cfg.Auth, cfg.MCP.AllowedOrigins, cfg.ToolsProfile, emb, vecStore, sqlIdxs, auditLog)
+		serveHTTP(cfg.HTTP, kbs, kbNames, kbToolPrefixes, kbArtifactSigners, kbMCPAllowlists, cfg.Auth, cfg.MCP.AllowedOrigins, cfg.ToolsProfile, sqlIdxs, auditLog)
 	} else {
-		serveStdio(kbs[0], kbArtifactSigners[0], kbMCPAllowlists[0], cfg.ToolsProfile, emb, vecStore, sqlIdxs, auditLog)
+		serveStdio(kbs[0], kbArtifactSigners[0], kbMCPAllowlists[0], cfg.ToolsProfile, sqlIdxs, auditLog)
 	}
 }
 
-func serveStdio(k *kb.KB, artifactSigner ed25519.PrivateKey, allowlist []provisioning.MCPAllowlistEntry, toolsProfile string, emb embed.Embedder, store *embed.Store, sqlIdxs map[string]*sqlindex.Index, auditLog *audit.Log) {
+func serveStdio(k *kb.KB, artifactSigner ed25519.PrivateKey, allowlist []provisioning.MCPAllowlistEntry, toolsProfile string, sqlIdxs map[string]*sqlindex.Index, auditLog *audit.Log) {
 	if auditLog != nil {
 		log.Printf("audit log active")
 	}
 	sqlIdx := sqlIdxs[filepath.Clean(k.Root)]
 	s := mcpserver.New(version)
-	mcpserver.RegisterKBTools(s, k, mcpserver.Deps{Embedder: emb, VecStore: store, SQLIndex: sqlIdx, BundleFS: skillbundle.FS, ArtifactSigner: artifactSigner, MCPAllowlist: allowlist})
+	mcpserver.RegisterKBTools(s, k, mcpserver.Deps{SQLIndex: sqlIdx, BundleFS: skillbundle.FS, ArtifactSigner: artifactSigner, MCPAllowlist: allowlist})
 	s.SetToolsProfile(toolsProfile)
 	s.SetAuditLog(auditLog)
 	s.SetKBName(k.AuthName)
@@ -403,7 +389,7 @@ func serveStdio(k *kb.KB, artifactSigner ed25519.PrivateKey, allowlist []provisi
 	}
 }
 
-func serveHTTP(addr string, kbs []*kb.KB, names []string, toolPrefixes []string, artifactSigners []ed25519.PrivateKey, allowlists [][]provisioning.MCPAllowlistEntry, authCfg config.AuthConfig, allowedOrigins []string, toolsProfile string, emb embed.Embedder, vecStore *embed.Store, sqlIdxs map[string]*sqlindex.Index, auditLog *audit.Log) {
+func serveHTTP(addr string, kbs []*kb.KB, names []string, toolPrefixes []string, artifactSigners []ed25519.PrivateKey, allowlists [][]provisioning.MCPAllowlistEntry, authCfg config.AuthConfig, allowedOrigins []string, toolsProfile string, sqlIdxs map[string]*sqlindex.Index, auditLog *audit.Log) {
 	if auditLog != nil {
 		log.Printf("audit log active")
 	}
@@ -436,7 +422,7 @@ func serveHTTP(addr string, kbs []*kb.KB, names []string, toolPrefixes []string,
 				s.SetDisplayName("cartographer:" + name)
 			}
 			sqlIdx := sqlIdxs[filepath.Clean(k.Root)]
-			mcpserver.RegisterKBTools(s, k, mcpserver.Deps{Embedder: emb, VecStore: vecStore, SQLIndex: sqlIdx, BundleFS: skillbundle.FS, ArtifactSigner: artifactSigners[i], MCPAllowlist: allowlists[i]})
+			mcpserver.RegisterKBTools(s, k, mcpserver.Deps{SQLIndex: sqlIdx, BundleFS: skillbundle.FS, ArtifactSigner: artifactSigners[i], MCPAllowlist: allowlists[i]})
 			s.SetToolsProfile(toolsProfile)
 			s.SetAuditLog(auditLog)
 			s.SetKBName(name)

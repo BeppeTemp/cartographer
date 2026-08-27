@@ -13,17 +13,11 @@ import (
 	"testing/fstest"
 	"time"
 
-	"github.com/BeppeTemp/cartographer/internal/embed"
 	"github.com/BeppeTemp/cartographer/internal/gitx"
 	"github.com/BeppeTemp/cartographer/internal/kb"
 	"github.com/BeppeTemp/cartographer/internal/okf"
 	"github.com/BeppeTemp/cartographer/internal/sqlindex"
 )
-
-type testEmbedder struct{}
-
-func (testEmbedder) Embed(string) (embed.Vector, error) { return embed.Vector{1, 0}, nil }
-func (testEmbedder) Model() string                      { return "test" }
 
 // setupTestKB creates a temporary KB with minimal content for tests.
 func setupTestKB(t *testing.T) *kb.KB {
@@ -1120,41 +1114,41 @@ func TestServer_Validate(t *testing.T) {
 	}
 }
 
-func TestSearch_ModeProfiles(t *testing.T) {
+// D135: semantic and hybrid search are gone. The schema no longer offers a
+// mode, and a stale caller that still passes one gets an error instead of
+// keyword results it did not ask for.
+func TestSearch_RemovedModeArgumentsRejected(t *testing.T) {
 	k := setupTestKB(t)
 	idx, meta := buildIndex(k)
 	live := newLiveIndex(idx, meta)
 
-	core := toolSearch(k, live, Deps{})
-	if !strings.Contains(string(core.InputSchema), `"mode"`) {
-		t.Fatal("Core search schema does not expose mode")
-	}
-	result, err := core.Handler(authLocalContext(), json.RawMessage(`{"query":"runbook","mode":"semantic"}`))
-	if err != nil {
-		t.Fatalf("Core semantic mode: %v", err)
-	}
-	if !result.IsError || !strings.Contains(result.Content[0].Text, "semantic/hybrid require a server started with --ollama") {
-		t.Fatalf("Core semantic mode got %+v", result)
+	search := toolSearch(k, live, Deps{})
+	if strings.Contains(string(search.InputSchema), `"mode"`) || strings.Contains(string(search.InputSchema), "use_semantic") {
+		t.Fatalf("search schema still offers the removed arguments: %s", search.InputSchema)
 	}
 
-	store := embed.NewStore()
-	store.Add("manutenzione/test-runbook", embed.Vector{1, 0})
-	hybrid := toolSearch(k, live, Deps{Embedder: testEmbedder{}, VecStore: store})
-	if !strings.Contains(string(hybrid.InputSchema), `"mode"`) {
-		t.Fatal("hybrid search schema does not expose mode")
-	}
 	for _, args := range []string{
 		`{"query":"runbook","mode":"semantic"}`,
 		`{"query":"runbook","mode":"hybrid"}`,
+		`{"query":"runbook","mode":"keyword"}`,
 		`{"query":"runbook","use_semantic":true}`,
 	} {
-		result, err := hybrid.Handler(authLocalContext(), json.RawMessage(args))
+		result, err := search.Handler(authLocalContext(), json.RawMessage(args))
 		if err != nil {
-			t.Fatalf("hybrid mode %s: %v", args, err)
+			t.Fatalf("search %s: %v", args, err)
 		}
-		if result.IsError || !strings.Contains(result.Content[0].Text, `"mode": "hybrid"`) {
-			t.Fatalf("hybrid mode %s got %+v", args, result)
+		if !result.IsError || !strings.Contains(result.Content[0].Text, "have been removed") {
+			t.Fatalf("search %s: expected a rejection, got %+v", args, result)
 		}
+	}
+
+	// Only query/scope: still the ordinary keyword search.
+	result, err := search.Handler(authLocalContext(), json.RawMessage(`{"query":"runbook"}`))
+	if err != nil {
+		t.Fatalf("search: %v", err)
+	}
+	if result.IsError || !strings.Contains(result.Content[0].Text, `"mode": "keyword"`) {
+		t.Fatalf("plain keyword search got %+v", result)
 	}
 }
 
