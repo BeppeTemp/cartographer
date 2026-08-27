@@ -308,6 +308,25 @@ found under `search_roots`, or an ambiguous key across several distinct remotes 
 stderr with the full form to use), `2` usage error (missing argument or not in the
 `repo:...`/`path:...` form).
 
+## Adding a provider
+
+Every supported provider is one descriptor in `internal/configurator/registry.go`
+([D137](decisions/client-configurator.md#d137)): its `Provider` constant and wire value, display
+name, native MCP config file and format (`FormatJSON` with its server key, or `FormatTOMLBlock`),
+whether that file may be deleted once emptied (never for Claude Code — `.claude.json` is Claude's
+own shared state), whether it can carry MCP auth headers, whether its MCP tool namespace is flat
+across servers, the detection evidence (binary name, config directories in probe order, optional
+macOS app bundle), and its emitter function.
+
+Two orders are exposed and both are user-visible: `Providers()` — the order `EmitAll` and the
+client subcommands iterate — and `DetectionOrder()`, the order `cartographer agents` and the TUI
+list agents in.
+
+Adding a provider therefore means: one descriptor, one emitter (the four output formats genuinely
+differ, so that stays code), its cells in the kind × provider matrix (`internal/provisioning`, see
+[`sync.md`](sync.md) §Kind × provider matrix), and — if it has a native hook mechanism — one entry
+in `hookMechanisms`. A missing matrix cell fails a completeness test; nothing else needs editing.
+
 ## Files generated per provider (HTTP transport)
 
 | Provider | Generated file | Key |

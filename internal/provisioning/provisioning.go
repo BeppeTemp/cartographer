@@ -1159,13 +1159,13 @@ func Apply(m Manifest, opts ApplyOptions) (AppliedResult, error) {
 					return AppliedResult{}, fmt.Errorf("provisioning: mcp %s: %w", a.Name, specErr)
 				}
 				spec := configurator.ServerSpec{Type: kbSpec.Type, URL: kbSpec.URL, Command: kbSpec.Command, Args: kbSpec.Args, Headers: kbSpec.Headers, Env: kbSpec.Env}
-				if opts.Provider == configurator.ProviderKiro && len(kbSpec.Headers) > 0 {
-					// Kiro has never supported auth headers for MCP servers
-					// (pre-existing limit of the emitter, unchanged since D69) —
-					// warn instead of silently failing the authentication
-					// of the server distributed by the KB.
+				if d, ok := configurator.Lookup(opts.Provider); ok && !d.SupportsMCPHeaders && len(kbSpec.Headers) > 0 {
+					// A provider whose emitter cannot represent auth headers
+					// (kiro, unchanged since D69) — warn instead of silently
+					// failing the authentication of the server distributed by
+					// the KB.
 					result.Warnings = append(result.Warnings, fmt.Sprintf(
-						"mcp %q: kiro does not support headers for MCP servers, ignored", a.Name))
+						"mcp %q: %s does not support headers for MCP servers, ignored", a.Name, d.Provider))
 				}
 				rp, warnings, regErr := registerMCPServer(opts.BaseDir, a.Name, spec, opts.Provider)
 				if regErr != nil {
@@ -1219,33 +1219,16 @@ func Apply(m Manifest, opts ApplyOptions) (AppliedResult, error) {
 					return AppliedResult{}, fmt.Errorf("provisioning: copy %s %s: %w", a.Kind, a.Name, err)
 				}
 				if a.Kind == "hook" {
-					// destDir maps kind "hook" only for claude and codex (D57/D58) —
-					// register/update the entry in the provider's native file
-					// starting from the hook.json just materialized. Best-effort
-					// on a malformed hook.json (see registerHookSettings/
+					// Register the hook in the provider's native mechanism
+					// (D137's hookMechanisms table: settings.json D57,
+					// config.toml D58, generated plugin D59), starting from
+					// the hook.json just materialized. Best-effort on a
+					// malformed hook.json (see registerHookSettings/
 					// registerHookConfigTOML): doesn't fail materialization.
-					switch opts.Provider {
-					case configurator.ProviderClaudeCode:
-						if err := registerHookSettings(opts.BaseDir, a.Name, fullDestDir); err != nil {
-							return AppliedResult{}, fmt.Errorf("provisioning: register hook %s in settings.json: %w", a.Name, err)
-						}
-					case configurator.ProviderCodex:
-						warning, err := registerHookConfigTOML(opts.BaseDir, a.Name, fullDestDir)
-						if err != nil {
-							return AppliedResult{}, fmt.Errorf("provisioning: register hook %s in config.toml: %w", a.Name, err)
-						}
-						if warning != "" {
-							result.Warnings = append(result.Warnings, warning)
-						}
-					case configurator.ProviderOpenCode:
-						// Unlike claude/codex (patching an existing shared
-						// file), here the registration produces a NEW dedicated
-						// file (the generated plugin, D59) — it's appended to
-						// relPaths so it becomes a ManagedFile of its own, not just a
-						// silent side effect.
-						pluginRel, warning, err := registerOpenCodePlugin(opts.BaseDir, a.Name, fullDestDir)
-						if err != nil {
-							return AppliedResult{}, fmt.Errorf("provisioning: register hook %s as opencode plugin: %w", a.Name, err)
+					if mechanism, ok := hookMechanisms[opts.Provider]; ok {
+						pluginRel, warning, regErr := mechanism.register(opts.BaseDir, a.Name, fullDestDir)
+						if regErr != nil {
+							return AppliedResult{}, regErr
 						}
 						if warning != "" {
 							result.Warnings = append(result.Warnings, warning)
@@ -1826,6 +1809,85 @@ func principalFile(kind string) string {
 	}
 }
 
+// destination is one cell of the kind × provider matrix below: where an
+// artifact of that kind materializes for that provider. A cell either names a
+// destination or is explicitly unsupported — a *missing* cell is a
+// programming error, caught by TestDestinationMatrixIsComplete, not silently
+// degraded to Unsupported at apply time (D137).
+type destination struct {
+	// dir are the path segments, relative to the client base dir.
+	dir []string
+	// named marks a per-artifact destination: the artifact name is appended
+	// to dir, with suffix (e.g. ".md") if any. When false, dir is the whole
+	// path — one shared file for every artifact of that kind.
+	named  bool
+	suffix string
+	// unsupported marks a combination this provider cannot represent.
+	unsupported bool
+}
+
+func at(segments ...string) destination { return destination{dir: segments} }
+
+func perName(suffix string, segments ...string) destination {
+	return destination{dir: segments, named: true, suffix: suffix}
+}
+
+var unsupportedDest = destination{unsupported: true}
+
+// destinationMatrix is the kind × provider matrix documented in docs/sync.md,
+// as data (D137). Every kind in artifactKinds must have a cell for every
+// provider in configurator.Providers().
+//
+//   - "mcp"/"instructions" cells are one shared file per provider, the same
+//     for every artifact of that kind (the name is not part of the path): each
+//     MCP server occupies its own key/block inside that file (see
+//     mcpsettings.go), and the instructions block concatenates all KBs
+//     (applyInstructionsGroup).
+//   - "skill"/"hook" cells are directories materialized by copyArtifactFiles;
+//     "agent" cells are a single file, written directly by Apply.
+//   - kiro has no known native subagent directory and no native hook
+//     mechanism, hence the two unsupported cells.
+var destinationMatrix = map[string]map[configurator.Provider]destination{
+	"mcp": {
+		configurator.ProviderClaudeCode: at(".claude.json"),
+		configurator.ProviderCodex:      at(".codex", "config.toml"),
+		configurator.ProviderOpenCode:   at("opencode.json"),
+		configurator.ProviderKiro:       at(".kiro", "settings", "mcp.json"),
+	},
+	"instructions": {
+		configurator.ProviderClaudeCode: at(".claude", "CLAUDE.md"),
+		configurator.ProviderOpenCode:   at(".config", "opencode", "AGENTS.md"),
+		configurator.ProviderCodex:      at(".codex", "AGENTS.md"),
+		configurator.ProviderKiro:       at(".kiro", "steering", "cartographer.md"),
+	},
+	"agent": {
+		configurator.ProviderClaudeCode: perName(".md", ".claude", "agents"),
+		configurator.ProviderOpenCode:   perName(".md", ".opencode", "agent"),
+		configurator.ProviderCodex:      perName(".toml", ".codex", "agents"),
+		configurator.ProviderKiro:       unsupportedDest,
+	},
+	"hook": {
+		configurator.ProviderClaudeCode: perName("", ".claude", "hooks"),
+		configurator.ProviderCodex:      perName("", ".codex", "hooks"),
+		// Hook files (script + hook.json), same as for the other providers —
+		// the JS plugin that invokes them (D59) is generated elsewhere (Apply,
+		// registerOpenCodePlugin) in .config/opencode/plugins/, not here.
+		configurator.ProviderOpenCode: perName("", ".opencode", "hooks"),
+		configurator.ProviderKiro:     unsupportedDest,
+	},
+	"skill": {
+		configurator.ProviderClaudeCode: perName("", ".claude", "skills"),
+		configurator.ProviderCodex:      perName("", ".codex", "skills"),
+		configurator.ProviderKiro:       perName("", ".kiro", "skills"),
+		configurator.ProviderOpenCode:   perName("", ".opencode", "skills"),
+	},
+}
+
+// artifactKinds are the kinds the matrix must cover. A manifest built by a
+// newer server may carry a kind absent from this list; destDir returns "" for
+// it, exactly as it does for an unsupported cell.
+var artifactKinds = []string{"mcp", "instructions", "agent", "hook", "skill"}
+
 // destDir returns the destination path for an artifact, relative to the base-dir.
 //
 //   - kind "skill"/"hook": a directory, materialized by copyArtifactFiles with one
@@ -1834,104 +1896,30 @@ func principalFile(kind string) string {
 //     subagent .md), materialized by writing its sole file's content directly to
 //     that path (see Apply).
 //
-// Supported providers per kind:
-//   - skill: claude → .claude/skills/<name>/, codex → .codex/skills/<name>/,
-//     kiro → .kiro/skills/<name>/, opencode → .opencode/skills/<name>/.
-//   - agent: claude → .claude/agents/<name>.md (verbatim); opencode →
-//     .opencode/agent/<name>.md (D55 — note the singular "agent" dir, per
-//     OpenCode's own layout; content translated, see
-//     translateAgentForProvider). Not materializable on codex/kiro (no native
-//     subagent directory known).
-//   - hook: claude → .claude/hooks/<name>/, codex → .codex/hooks/<name>/,
-//     opencode → .opencode/hooks/<name>/. Not materializable on kiro (no
-//     native hook mechanism known). On claude/codex, Apply also registers the
-//     hook in the provider's own file (D57 settings.json, D58 config.toml —
-//     registerHookSettings/registerHookConfigTOML in hooksettings.go); on
-//     opencode it generates a whole plugin JS file instead (D59,
-//     registerOpenCodePlugin) when the hook's event has an OpenCode
-//     equivalent. All three are idempotent (re-apply never duplicates/drifts)
-//     and prunable (removed on diff.Removed/PruneManaged); see docs/sync.md
-//     §Hook.
+// Supported providers per kind are the destinationMatrix above; docs/sync.md
+// §Kind × provider renders the same matrix for the reader. On claude/codex,
+// Apply also registers a hook in the provider's own file (D57 settings.json,
+// D58 config.toml — registerHookSettings/registerHookConfigTOML in
+// hooksettings.go); on opencode it generates a whole plugin JS file instead
+// (D59, registerOpenCodePlugin) when the hook's event has an OpenCode
+// equivalent. All three are idempotent (re-apply never duplicates/drifts) and
+// prunable (removed on diff.Removed/PruneManaged); see docs/sync.md §Hook.
+// Agent content is translated per provider (D55/D58, see
+// translateAgentForProvider); kiro never reaches that function because its
+// "agent" cell is unsupported.
 //
-// Returns "" for unsupported kind×provider combos, which causes Apply to place the
+// Returns "" for an unsupported kind×provider combo — and likewise for a kind
+// or provider this binary does not know — which causes Apply to place the
 // artifact in Unsupported instead of materializing it.
 func destDir(kind, name string, provider configurator.Provider) string {
-	switch kind {
-	case "mcp":
-		// One shared file per provider (name ignored, as for "instructions"
-		// below) — but unlike "instructions" (a GROUP block concatenating all
-		// KBs) each MCP server occupies its own per-name key/block inside the
-		// same shared file (see internal/provisioning/mcpsettings.go,
-		// registerMCPServer/removeMCPServer) — the same file that
-		// `cartographer connect` writes for Cartographer's own "cartographer"
-		// entry via internal/configurator.
-		switch provider {
-		case configurator.ProviderClaudeCode:
-			return ".claude.json"
-		case configurator.ProviderCodex:
-			return filepath.Join(".codex", "config.toml")
-		case configurator.ProviderOpenCode:
-			return "opencode.json"
-		case configurator.ProviderKiro:
-			return filepath.Join(".kiro", "settings", "mcp.json")
-		default:
-			return ""
-		}
-	case "instructions":
-		// One shared file per provider, the same for every instructions
-		// artifact (name ignored): the managed block (§applyInstructionsGroup)
-		// concatenates ALL KBs into that single file, not one per KB.
-		switch provider {
-		case configurator.ProviderClaudeCode:
-			return filepath.Join(".claude", "CLAUDE.md")
-		case configurator.ProviderOpenCode:
-			return filepath.Join(".config", "opencode", "AGENTS.md")
-		case configurator.ProviderCodex:
-			return filepath.Join(".codex", "AGENTS.md")
-		case configurator.ProviderKiro:
-			return filepath.Join(".kiro", "steering", "cartographer.md")
-		default:
-			return ""
-		}
-	case "agent":
-		switch provider {
-		case configurator.ProviderClaudeCode:
-			return filepath.Join(".claude", "agents", name+".md")
-		case configurator.ProviderOpenCode:
-			return filepath.Join(".opencode", "agent", name+".md")
-		case configurator.ProviderCodex:
-			return filepath.Join(".codex", "agents", name+".toml")
-		default:
-			return ""
-		}
-	case "hook":
-		switch provider {
-		case configurator.ProviderClaudeCode:
-			return filepath.Join(".claude", "hooks", name)
-		case configurator.ProviderCodex:
-			return filepath.Join(".codex", "hooks", name)
-		case configurator.ProviderOpenCode:
-			// Hook files (script + hook.json), same as for the other providers —
-			// the JS plugin that invokes them (D59) is generated elsewhere (Apply,
-			// registerOpenCodePlugin) in .config/opencode/plugins/, not here.
-			return filepath.Join(".opencode", "hooks", name)
-		default:
-			return ""
-		}
-	default: // "skill"
-		switch provider {
-		case configurator.ProviderClaudeCode:
-			return filepath.Join(".claude", "skills", name)
-		case configurator.ProviderCodex:
-			return filepath.Join(".codex", "skills", name)
-		case configurator.ProviderKiro:
-			return filepath.Join(".kiro", "skills", name)
-		case configurator.ProviderOpenCode:
-			return filepath.Join(".opencode", "skills", name)
-		default:
-			return ""
-		}
+	cell, ok := destinationMatrix[kind][provider]
+	if !ok || cell.unsupported {
+		return ""
 	}
+	if !cell.named {
+		return filepath.Join(cell.dir...)
+	}
+	return filepath.Join(append(append([]string{}, cell.dir...), name+cell.suffix)...)
 }
 
 // translateAgentForProvider adapts an "agent" artifact's content (a Claude Code
