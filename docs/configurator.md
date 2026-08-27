@@ -35,7 +35,8 @@ errors. `service status` retains 0 running, 3 stopped and 4 not installed.
 ### `cartographer agents`
 
 Lists the supported providers, whether they are installed on the machine (`internal/agents.Detect`:
-binary in PATH, a known config directory, or — for a provider with a root of its own — that root,
+any of its binaries in PATH (Kiro ships as `kiro` from the IDE and `kiro-cli` standalone), a known
+config directory, or — for a provider with a root of its own — that root,
 `$HERMES_HOME`) and whether they are connected (present in the machine-wide `.cartographer.yaml`,
 `~/.cartographer.yaml`).
 
