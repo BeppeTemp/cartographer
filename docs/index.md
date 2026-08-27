@@ -10,7 +10,7 @@ only the pages relevant to your task.
 | [getting-started.md](getting-started.md) | Zero-to-wiki tutorial: install, first KB, connect an agent, first session |
 | [agent-install.md](agent-install.md) | Command-by-command runbook for an agent to install Cartographer, mount a first KB, connect, and verify |
 | [deployment.md](deployment.md) | Native/k8s topologies, server configuration, health, backup/DR, upgrades and CI/CD |
-| [configurator.md](configurator.md) | Multi-provider client (`cartographer agents/connect/disconnect/status/sync` + TUI): flags, generated files per provider, `.cartographer.yaml`, lockfile v2, installation |
+| [configurator.md](configurator.md) | Multi-provider client (`cartographer agents/connect/disconnect/reconnect/status/sync` + TUI): flags, generated files per provider, `.cartographer.yaml`, lockfile v2, installation |
 | [control-plane.md](control-plane.md) | Go server, complete MCP tool API (source of truth for the list), search index and validation |
 | [data-plane.md](data-plane.md) | KB model: Atlas/Map/Journal hierarchy, filesystem layout, expanded concepts, OKF concepts, naming, extended type schema |
 | [skills-services-secrets.md](skills-services-secrets.md) | Skill packaging (`SKILL.md`), `type: Service` descriptors, SOPS secrets |
@@ -51,7 +51,7 @@ Mutable state does not live in narrative documentation:
 | Deploy / production operations | `deployment.md` |
 | Understand an architectural choice | `decisions.md` → the owning topic register; search `docs/decisions/` for `## D<n>` or a keyword |
 | Configure an LLM provider | `interoperability.md` |
-| Connect/disconnect an agent (`connect`/`disconnect`/`status`/`sync`/TUI) | `configurator.md` |
+| Connect/disconnect an agent (`connect`/`disconnect`/`reconnect`/`status`/`sync`/TUI) | `configurator.md` |
 | Keep a client aligned with the KB skills | `sync.md` |
 | Write or understand a test (unit/smoke/agent) | `testing.md` |
 
@@ -70,7 +70,7 @@ matching file **in the same session/PR** as the change:
 | Change to concurrency / git-sync logic | `concurrency.md` |
 | New skill, service or secret handling | `skills-services-secrets.md` |
 | Client provisioning/sync logic | `sync.md` |
-| Client subcommands (`agents`/`connect`/`disconnect`/`status`/`sync`/TUI) or server YAML config | `configurator.md` (client) / `deployment.md` (server config) |
+| Client subcommands (`agents`/`connect`/`disconnect`/`reconnect`/`status`/`sync`/TUI) or server YAML config | `configurator.md` (client) / `deployment.md` (server config) |
 | Token/scope format or enforcement (`kb:<name>:r\|rw`), per-KB git identity or SOPS | `transport-auth.md` (auth/scopes) + `deployment.md` (server config, `KBSpec`) |
 | New provisioning `kind` (beyond skill/agent/hook) or per-provider destination | `configurator.md` (client) + `sync.md` (manifest/diff) |
 | A feature is **not** implemented (deferred, planned, "future work") | A GitHub issue labelled `enhancement` — never prose in `docs/`. The page keeps only the current limit, with a link to the issue |

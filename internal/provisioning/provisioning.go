@@ -118,6 +118,12 @@ type Lock struct {
 	// LockBaseDir, never directly: pruning or verifying against the wrong base
 	// dir deletes the wrong files or silently finds nothing.
 	BaseDir string `json:"base_dir,omitempty"`
+	// ServerVersion is the version of the Cartographer server this state was
+	// materialized against (D142). Empty means "unknown" — every lockfile
+	// written before D142, and any sync that could not reach /health — and
+	// never triggers the "the server changed" report: the first sync after an
+	// upgrade must not tell every user something it cannot actually know.
+	ServerVersion string `json:"server_version,omitempty"`
 }
 
 // LockBaseDir returns the directory lock's managed paths are relative to:

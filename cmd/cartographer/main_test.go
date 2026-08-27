@@ -195,9 +195,9 @@ func TestRunServeDispatch(t *testing.T) {
 }
 
 func TestRunClientCommandsDispatch(t *testing.T) {
-	origAgents, origConnect, origDisconnect, origStatus, origSync, origService, origReindex := agentsFn, connectFn, disconnectFn, statusFn, syncFn, serviceFn, reindexFn
+	origAgents, origConnect, origDisconnect, origReconnect, origStatus, origSync, origService, origReindex := agentsFn, connectFn, disconnectFn, reconnectFn, statusFn, syncFn, serviceFn, reindexFn
 	defer func() {
-		agentsFn, connectFn, disconnectFn, statusFn, syncFn, serviceFn, reindexFn = origAgents, origConnect, origDisconnect, origStatus, origSync, origService, origReindex
+		agentsFn, connectFn, disconnectFn, reconnectFn, statusFn, syncFn, serviceFn, reindexFn = origAgents, origConnect, origDisconnect, origReconnect, origStatus, origSync, origService, origReindex
 	}()
 
 	cases := []struct {
@@ -207,6 +207,7 @@ func TestRunClientCommandsDispatch(t *testing.T) {
 		{"agents", func(fn func([]string) int) { agentsFn = fn }},
 		{"connect", func(fn func([]string) int) { connectFn = fn }},
 		{"disconnect", func(fn func([]string) int) { disconnectFn = fn }},
+		{"reconnect", func(fn func([]string) int) { reconnectFn = fn }},
 		{"status", func(fn func([]string) int) { statusFn = fn }},
 		{"sync", func(fn func([]string) int) { syncFn = fn }},
 		{"service", func(fn func([]string) int) { serviceFn = fn }},

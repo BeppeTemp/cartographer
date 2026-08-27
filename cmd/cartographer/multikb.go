@@ -110,29 +110,43 @@ func resolveKBTargets(health *client.Health, selectedNames []string) ([]kbTarget
 	return []kbTarget{{}}, nil
 }
 
-// enumerateKBs obtains the mounted KB names from /health. present is false
-// when a healthy single-KB (or pre-multi-KB) server omits kbs; callers retain
-// the old bare-entry behaviour in that case.
-func enumerateKBs(serverURL string, auth bool, tokenEnv string) (names []string, present bool, err error) {
+// serverFacts is what a single /health request tells the client: the mounted
+// KB names, whether the server listed them at all, and the server's own
+// version. One request answers both questions — the version is recorded in the
+// lockfile (D142) and a second round trip on every sync would buy nothing.
+type serverFacts struct {
+	// Names are the mounted KB names; Listed is false when a healthy
+	// single-KB (or pre-multi-KB) server omits kbs, in which case callers
+	// retain the old bare-entry behaviour.
+	Names   []string
+	Listed  bool
+	Version string
+}
+
+// enumerateKBs obtains the mounted KB names and the server version from
+// /health.
+func enumerateKBs(serverURL string, auth bool, tokenEnv string) (serverFacts, error) {
 	token := ""
 	if auth && tokenEnv != "" {
 		token = resolveToken(&clientconfig.Config{Auth: auth, TokenEnv: tokenEnv})
 	}
 	health, err := client.New(serverURL, token).Health(probeTimeout)
 	if err != nil {
-		return nil, false, err
+		return serverFacts{}, err
 	}
+	facts := serverFacts{Version: health.Version}
 	if health.KBs == nil {
-		return nil, false, nil
+		return facts, nil
 	}
-	names = make([]string, 0, len(*health.KBs))
+	facts.Listed = true
+	facts.Names = make([]string, 0, len(*health.KBs))
 	for _, kb := range *health.KBs {
 		if kb.Name == "" {
-			return nil, true, fmt.Errorf("health response contains a KB without a name")
+			return facts, fmt.Errorf("health response contains a KB without a name")
 		}
-		names = append(names, kb.Name)
+		facts.Names = append(facts.Names, kb.Name)
 	}
-	return names, true, nil
+	return facts, nil
 }
 
 // kiroFlatNamespaceWarning returns a non-empty warning when providers

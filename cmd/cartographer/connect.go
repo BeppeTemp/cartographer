@@ -528,9 +528,10 @@ func doConnect(opts connectOptions) (connectResult, error) {
 			return connectResult{}, fmt.Errorf("invalid --pin-key %q: %w", pin, err)
 		}
 	}
-	kbs, healthListed, healthErr := enumerateKBs(opts.ServerURL, opts.Auth, opts.TokenEnv)
+	facts, healthErr := enumerateKBs(opts.ServerURL, opts.Auth, opts.TokenEnv)
+	kbs := facts.Names
 	entryKBs := kbs
-	if healthErr != nil || !healthListed {
+	if healthErr != nil || !facts.Listed {
 		entryKBs = nil
 	}
 	entries, err := entriesForKBs(opts.Name, opts.ServerURL, entryKBs)
@@ -568,7 +569,7 @@ func doConnect(opts connectOptions) (connectResult, error) {
 		res.Deferred = true
 		res.DeferredErr = err
 	} else {
-		applied, err := materializeForProviders(m, opts.Providers, opts.Dir, opts.Trust || opts.AutoTrust, opts.DryRun, false /* noHeal */, existing.SearchRoots, existing.Paths, existing.ApprovedMCPHashes())
+		applied, err := materializeForProviders(m, opts.Providers, opts.Dir, facts.Version, opts.Trust || opts.AutoTrust, opts.DryRun, false /* noHeal */, existing.SearchRoots, existing.Paths, existing.ApprovedMCPHashes())
 		if err != nil {
 			return connectResult{}, err
 		}

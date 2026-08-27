@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/BeppeTemp/cartographer/internal/agents"
@@ -147,7 +148,11 @@ func pinnedPublicKeys(cfg *clientconfig.Config) (map[string][]ed25519.PublicKey,
 
 // materializeForProviders applies manifest m for each provider in providers,
 // persisting a single v2 LockFile at <targetDir>/.cartographer-sync.lock.json (one
-// Lock entry per provider). The lockfile always lives in targetDir, but each
+// Lock entry per provider), stamped with serverVersion — the version of the
+// server this state was materialized against (D142). An empty serverVersion
+// means the server could not be asked, and leaves the recorded value
+// unchanged: an offline sync must not erase what the client knew. The lockfile
+// always lives in targetDir, but each
 // provider materializes under its OWN base dir (D141: every provider but
 // hermes shares targetDir; hermes writes under $HERMES_HOME), recorded in that
 // provider's Lock so prune and verification later find the same files. autoTrust is explicit authorization for eligible
@@ -156,7 +161,7 @@ func pinnedPublicKeys(cfg *clientconfig.Config) (map[string][]ed25519.PublicKey,
 // clientconfig.Config (cfg.SearchRoots/cfg.Paths) and drive placeholder expansion
 // (D75 WP3) — this is the one place cmd/cartographer turns
 // ApplyOptions.ExpandPlaceholders on; internal/mcpserver never does.
-func materializeForProviders(m provisioning.Manifest, providers []string, targetDir string, autoTrust, dryRun, noHeal bool, searchRoots []string, paths map[string]string, approvalHashes ...map[string]string) (map[string]provisioning.AppliedResult, error) {
+func materializeForProviders(m provisioning.Manifest, providers []string, targetDir, serverVersion string, autoTrust, dryRun, noHeal bool, searchRoots []string, paths map[string]string, approvalHashes ...map[string]string) (map[string]provisioning.AppliedResult, error) {
 	lockPath := lockFilePath(targetDir)
 	lockFile, err := provisioning.ReadLockFile(lockPath)
 	if err != nil {
@@ -183,6 +188,7 @@ func materializeForProviders(m provisioning.Manifest, providers []string, target
 		}
 	}
 	for _, p := range providers {
+		previous := lockFile.ForProvider(p)
 		opts := provisioning.ApplyOptions{
 			Provider:           configurator.Provider(p),
 			BaseDir:            baseDirs[p],
@@ -190,7 +196,7 @@ func materializeForProviders(m provisioning.Manifest, providers []string, target
 			NoHeal:             noHeal,
 			AutoTrust:          autoTrust,
 			ApprovedMCP:        approvedMCP,
-			Lock:               lockFile.ForProvider(p),
+			Lock:               previous,
 			SkipLockWrite:      true,
 			ExpandPlaceholders: true,
 			SearchRoots:        searchRoots,
@@ -209,6 +215,12 @@ func materializeForProviders(m provisioning.Manifest, providers []string, target
 		// migration runs (D141).
 		if baseDirs[p] != targetDir {
 			applied.NewLock.BaseDir = baseDirs[p]
+		}
+		// An unknown live version preserves the recorded one rather than
+		// blanking it (D142).
+		applied.NewLock.ServerVersion = previous.ServerVersion
+		if serverVersion != "" {
+			applied.NewLock.ServerVersion = serverVersion
 		}
 		lockFile.SetProvider(p, applied.NewLock)
 		results[p] = applied
@@ -451,4 +463,45 @@ func splitPositional(args []string, def string) (string, []string) {
 		return args[0], args[1:]
 	}
 	return def, args
+}
+
+// versionIsComparable rejects the two cases where a version difference means
+// nothing: an unknown version (a lockfile from before D142, or a sync that
+// could not reach /health) and a local "dev" build, which changes with every
+// `go build`. Same rule the advisory client/server skew line already applies
+// in `status`.
+func versionIsComparable(v string) bool { return v != "" && v != "dev" }
+
+// serverChangeNotice returns the one line `sync` prints when the server that
+// answers now is not the one this client's provider state was materialized
+// against (D142) — or "" when there is nothing to say. It reports; it never
+// escalates: the ordinary sync runs either way, and rebuilding the
+// configuration stays the user's explicit `cartographer reconnect`.
+//
+// Once per invocation, not once per provider: several providers recording
+// different versions is one fact about the server, not three.
+func serverChangeNotice(dir string, providers []string, liveVersion string) string {
+	if !versionIsComparable(liveVersion) {
+		return ""
+	}
+	lockFile, err := provisioning.ReadLockFile(lockFilePath(dir))
+	if err != nil {
+		return ""
+	}
+	var recorded []string
+	seen := map[string]bool{}
+	for _, p := range providers {
+		v := lockFile.ForProvider(p).ServerVersion
+		if !versionIsComparable(v) || v == liveVersion || seen[v] {
+			continue
+		}
+		seen[v] = true
+		recorded = append(recorded, v)
+	}
+	if len(recorded) == 0 {
+		return ""
+	}
+	sort.Strings(recorded)
+	return fmt.Sprintf("the server changed since this client was configured (was %s, now %s) — run `cartographer reconnect` to rebuild the client configuration",
+		strings.Join(recorded, ", "), liveVersion)
 }

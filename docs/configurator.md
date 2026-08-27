@@ -223,9 +223,58 @@ was edited or deleted locally — the restore is reported on its own line, becau
 someone's local change. See [`sync.md`](sync.md) §On-disk verification and healing.
 
 This is also how a configured provider is repaired **in place** after a local upgrade: the same
-in-process runner is what `cartographer upgrade-repair` calls (D121). `disconnect` followed by
-`connect` is never an upgrade step — it would delete user-owned configuration to rebuild it.
-Already-open provider sessions still need to be restarted to reopen the MCP connection.
+in-process runner is what `cartographer upgrade-repair` calls (D121). Repair in place is the
+default; a full rebuild is `cartographer reconnect` (below), for the residues no incremental sync
+can see. Already-open provider sessions still need to be restarted to reopen the MCP connection.
+
+When the server that answers is not the one this client's state was materialized against, `sync`
+prints one line saying so and recommending `reconnect` — once per invocation, whatever the provider
+count — and then syncs normally ([D142](decisions/client-configurator.md#d142)). It reports; it
+never escalates on its own. An unknown version on either side (a lockfile written before D142, an
+unreachable server) and a local `dev` build say nothing.
+
+### `cartographer reconnect [provider|all]`
+
+Rebuilds a provider's configuration from scratch: a full `disconnect` followed by a full `connect`,
+in one invocation, reusing both rather than being a third implementation of either
+([D142](decisions/client-configurator.md#d142)).
+
+```bash
+cartographer reconnect                 # every connected provider
+cartographer reconnect claude          # Claude Code only
+cartographer reconnect --agents claude,codex
+cartographer reconnect --dry-run       # preview both halves, write nothing
+```
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| (positional) | `all` | `claude` \| `opencode` \| `codex` \| `kiro` \| `hermes` \| `all` (every connected provider) |
+| `--agents` | *(unset)* | Comma-separated subset; cannot be combined with the positional provider |
+| `--dry-run` | `false` | Both halves simulate, nothing is written |
+
+**When to prefer it over `sync`.** Pruning is managed-only, so anything an *older Cartographer
+version* wrote under a different name — a generated plugin whose filename changed, a managed block
+whose marker spelling changed, a hook registered outside the block — is not in the current managed
+set and survives every sync. The connect half writes the current shape from nothing, which is what
+removes them. For everything else, `sync` is the right tool and stays incremental.
+
+**What it preserves.** Everything in `.cartographer.yaml`: server URL and name, auth mode and token
+env, trust, pinned signing keys, MCP approvals, search roots and paths. It is a rebuild, not a
+reset — a user who had to re-approve every MCP descriptor after an upgrade would simply stop running
+it. A provider that was not previously connected is rebuilt all the same, stating that it was not.
+
+**It is never automatic.** No upgrade path invokes it: the reasoning is D121's ("automatic repair
+never invents an approval, never broadens trust"), and removing and rewriting provider configuration
+is a bigger hammer than a repair.
+
+**Partial failure.** If the connect half fails after the disconnect half succeeded, the command
+exits 2, names the providers now left disconnected, and prints the exact `cartographer connect`
+invocation — with the same settings — that finishes the job. Silence there would leave an agent
+without its MCP endpoint. A `--dry-run` failure leaves nothing disconnected, so it says nothing.
+
+After a successful rebuild the summary ends with the reminder that **already-open agent sessions
+must be restarted** to pick up the rewritten MCP configuration: the one step no client-side command
+can perform.
 
 ### `cartographer service sync-timer <action>`
 
@@ -547,8 +596,8 @@ been materialized:
 ```jsonc
 {
   "providers": {
-    "claude": { "applied_revision": "sha256:…", "managed": [ /* ManagedFile[] */ ] },
-    "opencode": { "applied_revision": "sha256:…", "managed": [ /* ManagedFile[] */ ] }
+    "claude": { "applied_revision": "sha256:…", "server_version": "1.4.0", "managed": [ /* ManagedFile[] */ ] },
+    "opencode": { "applied_revision": "sha256:…", "server_version": "1.4.0", "managed": [ /* ManagedFile[] */ ] }
   }
 }
 ```
