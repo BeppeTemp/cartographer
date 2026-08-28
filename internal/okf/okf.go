@@ -73,6 +73,14 @@ func PathToID(relPath string) (ConceptID, error) {
 }
 
 // IDToPath converts a ConceptID to the relative path of the corresponding .md file.
+// ConceptReadSizeGuard is the body size (bytes) above which concept_read returns
+// an outline instead of the whole body. It lives here because two packages need
+// it: mcpserver enforces it, and lint derives its own "too big" threshold from it
+// (D159) — before that they were unrelated numbers, so a concept between them was
+// simultaneously "too big, split it" and "fine, here it is whole", with nothing
+// explaining the relationship.
+const ConceptReadSizeGuard = 60000
+
 func IDToPath(id ConceptID) string {
 	return string(id) + ".md"
 }

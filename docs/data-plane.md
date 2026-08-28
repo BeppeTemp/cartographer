@@ -138,6 +138,34 @@ Concept ID = path relative to the bundle without `.md`. File names are `kebab-ca
 
 **In a curated index, both forms are accepted** for an expanded concept: `[c](c.md)` and `[c](c/index.md)` both satisfy `require_index_entry`. The two used to be inverses of each other — one valid between concepts, the other in an index — with nothing to tell them apart.
 
+### Silencing a lint finding on one concept
+
+`lint_ignore: [check, …]` in a concept's frontmatter drops the named findings **for that concept
+only** (D159). It exists because a concept documenting a false positive — a `~/.ssh/config` in prose,
+a deliberately-broken example link — could not be written without generating the findings it
+describes, so a KB's own "known false positives" page was impossible.
+
+Suppressible: `broken_link`, `machine_path`, `concept_oversize`, `stale_claim`, `imported_draft`,
+`secrets_on_non_service`, `orphan`. **Not** suppressible: every `error`-severity check
+(`missing_required_field`, `expanded_ambiguous`) — those are contract violations, not judgements, and
+letting a concept declare its own contract void would be a hole rather than an escape hatch — and the
+directory-level checks (`map_oversize`, `index_incomplete`, `expanded_*`, `orphan_asset`), which
+belong to a map or an expanded concept and have no single concept frontmatter that owns them. Naming
+an unsuppressible or unknown check is itself reported as `lint_ignore_invalid`: a typo that silently
+suppresses nothing is worse than no opt-out.
+
+`machine_path_allow_prefixes` accepts **`~/`-anchored** prefixes as well as POSIX- and
+Windows-absolute ones: `~/.ssh/config` means "your ssh config" on every machine, exactly as `/etc/…`
+does. Matching is literal and at segment boundaries — `~/.ssh` covers `~/.ssh/config` but not
+`~/.sshx` — with no home expansion anywhere, so the contract's meaning does not depend on the
+reader's home directory. `~user/…` is rejected, since the detector never produces that form.
+
+The two "too big" numbers are now related: `concept_oversize` fires at **half** the size at which
+`concept_read` degrades to an outline, so an author gets warning before reads change shape, and the
+message names both bounds. For a satellite the message does not advise `concept_expand` — the write
+path caps depth at three segments, so that remedy is structurally unavailable — and names splitting
+into sibling satellites instead.
+
 ## Extended concept types
 
 `Service` and `Contradiction` are conventional types used by dedicated tools.
