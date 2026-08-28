@@ -56,10 +56,17 @@ func TestServiceAndSecretResolveScopeDeclaredRefs(t *testing.T) {
 		t.Fatalf("unexpected refs output: %s", text)
 	}
 	writeSecretConcept(t, k.Root, "dossier", "type: Dossier\nsecret_refs:\n  - TOKEN=secrets/test.sops.yaml#/allowed\n")
+	// Redacted by default (D158): the scoping is still observable through the
+	// key names, which is what verifying resolution actually needs.
 	args, _ := json.Marshal(map[string]any{"concept_id": "dossier", "names": []string{"TOKEN"}})
 	got, _ := toolSecretResolve(k).Handler(authLocalContext(), args)
-	if got.IsError || got.Content[0].Text != "TOKEN=only-this" {
+	if got.IsError || got.Content[0].Text != "TOKEN=<redacted>" {
 		t.Fatalf("resolve=%#v", got)
+	}
+	args, _ = json.Marshal(map[string]any{"concept_id": "dossier", "names": []string{"TOKEN"}, "reveal": true})
+	got, _ = toolSecretResolve(k).Handler(authLocalContext(), args)
+	if got.IsError || got.Content[0].Text != "TOKEN=only-this" {
+		t.Fatalf("resolve with reveal=%#v", got)
 	}
 	args, _ = json.Marshal(map[string]any{"concept_id": "dossier", "names": []string{"UNKNOWN"}})
 	got, _ = toolSecretResolve(k).Handler(authLocalContext(), args)
@@ -109,5 +116,70 @@ func TestSecretSetSafetyAndRegistration(t *testing.T) {
 	}
 	if !advancedToolNames["secret_resolve"] || !advancedToolNames["secret_set"] || !ToolRequiresWrite("secret_resolve") || !ToolRequiresWrite("secret_set") {
 		t.Fatal("secret tool profile incorrect")
+	}
+}
+
+// --- D158 ---
+
+// "Service" is reserved and was compared exactly, so a KB whose type vocabulary
+// is lowercase — a likely outcome of an import, or of a non-English domain
+// vocabulary — got zero services and unusable secret resolution, with no error
+// anywhere.
+func TestServiceTools_MatchTypeCaseInsensitively(t *testing.T) {
+	for _, typ := range []string{"Service", "service", "SERVICE"} {
+		t.Run(typ, func(t *testing.T) {
+			k := setupServiceTestKB(t, "")
+			writeSecretConcept(t, k.Root, "svc", "type: "+typ+"\ntitle: Svc\n")
+			res := callServiceGet(t, k, "svc", false)
+			if res.IsError {
+				t.Fatalf("service_get with type %q = %+v, want success", typ, res.Content)
+			}
+		})
+	}
+
+	t.Run("a near-miss type is still not a service", func(t *testing.T) {
+		k := setupServiceTestKB(t, "")
+		writeSecretConcept(t, k.Root, "svc", "type: services\ntitle: Svc\n")
+		if res := callServiceGet(t, k, "svc", false); !res.IsError {
+			t.Errorf("service_get with type \"services\" = %+v, want an error", res.Content)
+		}
+	})
+}
+
+// Verifying that resolution works must not require printing a credential into
+// the transcript, so the values are redacted unless explicitly revealed.
+func TestSecretResolve_RedactsByDefault(t *testing.T) {
+	fakeSecretSOPS(t)
+	k := setupServiceTestKB(t, "/age/key")
+	writeSecretConcept(t, k.Root, "dossier", "type: Dossier\nsecret_refs:\n  - TOKEN=secrets/test.sops.yaml#/allowed\n")
+
+	args, _ := json.Marshal(map[string]any{"concept_id": "dossier"})
+	got, _ := toolSecretResolve(k).Handler(authLocalContext(), args)
+	if got.IsError {
+		t.Fatalf("secret_resolve = %+v", got.Content)
+	}
+	text := got.Content[0].Text
+	// The absence assertion is the one that makes a future regression fail the
+	// build instead of leaking.
+	if strings.Contains(text, "only-this") {
+		t.Errorf("the plaintext value leaked into the default output: %q", text)
+	}
+	if !strings.Contains(text, "TOKEN=<redacted>") {
+		t.Errorf("output = %q, want the key name with a redacted value", text)
+	}
+
+	args, _ = json.Marshal(map[string]any{"concept_id": "dossier", "reveal": true})
+	got, _ = toolSecretResolve(k).Handler(authLocalContext(), args)
+	if got.IsError || !strings.Contains(got.Content[0].Text, "TOKEN=only-this") {
+		t.Errorf("reveal:true = %+v, want the value", got.Content)
+	}
+}
+
+func TestSecretResolve_DescriptionNamesTheRedaction(t *testing.T) {
+	desc := toolSecretResolve(nil).Description
+	for _, want := range []string{"redacted", "reveal"} {
+		if !strings.Contains(desc, want) {
+			t.Errorf("description does not mention %q: %s", want, desc)
+		}
 	}
 }

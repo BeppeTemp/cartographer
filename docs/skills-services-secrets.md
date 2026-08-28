@@ -37,7 +37,16 @@ where appropriate and never store plaintext credentials in skill files.
 ## Service concepts
 
 Service descriptors are regular concepts under `services/` with
-`type: Service`. Frontmatter supports Cartographer's scalar/list subset, so a
+`type: Service`. **`Service` is a reserved type**, and `service_list`/`service_get`
+match it **case-insensitively** (D158): a KB whose type vocabulary is lowercase —
+a likely outcome of an import, or of a non-English domain vocabulary — used to
+get zero services and unusable secret resolution with no error anywhere. A
+near-miss such as `services` is still not a service. Lint reports
+`secrets_on_non_service` when a concept declares `secrets_source` or
+`secret_refs` under any other type, so the mistake surfaces from the KB instead
+of from a source read.
+
+Frontmatter supports Cartographer's scalar/list subset, so a
 descriptor intended for `service_get` should stay flat:
 
 ```yaml
@@ -57,7 +66,13 @@ schema beyond the normal concept and strict-map type rules.
 `service_list` inventories Service concepts. `service_get` returns one
 descriptor; with `resolve_secrets: true` it resolves declared `secret_refs`.
 Any concept may own secret references and `secret_resolve` exposes them for
-task- and dossier-scoped credentials.
+task- and dossier-scoped credentials. **It redacts by default** (D158): the
+output is the sorted key names with `<redacted>` values, which is what verifying
+that resolution works actually needs. `reveal: true` returns the values, and is
+recorded in the audit trail — printing a credential is a decision, and the
+transcript (and any log that captures it) keeps it. `names` filters the keys and
+composes with redaction, so a caller can confirm *which* of several keys resolve
+without printing any of them.
 
 ## SOPS files
 

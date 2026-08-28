@@ -1039,3 +1039,40 @@ func TestLint_CuratedIndexAcceptsBothExpandedForms(t *testing.T) {
 		}
 	}
 }
+
+// --- D158: secrets on a concept the service tools cannot see ---
+
+func TestLint_SecretsOnNonServiceConcept(t *testing.T) {
+	cases := []struct {
+		name      string
+		frontmat  string
+		wantCheck bool
+	}{
+		{"lowercase service type is fine", "type: service\ntitle: S\nsecrets_source: secrets/x.sops.yaml\n", false},
+		{"canonical Service type is fine", "type: Service\ntitle: S\nsecrets_source: secrets/x.sops.yaml\n", false},
+		{"other type with secrets_source is flagged", "type: functional\ntitle: F\nsecrets_source: secrets/x.sops.yaml\n", true},
+		{"other type with secret_refs is flagged", "type: functional\ntitle: F\nsecret_refs: [TOKEN=secrets/x.sops.yaml#/t]\n", true},
+		{"other type with no secrets is fine", "type: functional\ntitle: F\n", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			k := tempKB(t)
+			writeFile(t, k.DataRoot(), "m/_map.md", "---\ntype: Map\nkind: map\ntitle: M\n---\n# M\n")
+			writeFile(t, k.DataRoot(), "m/c.md", "---\n"+tc.frontmat+"---\n# C\n")
+
+			findings, err := Run(k, "", false)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var got bool
+			for _, f := range findings {
+				if f.Check == "secrets_on_non_service" {
+					got = true
+				}
+			}
+			if got != tc.wantCheck {
+				t.Errorf("secrets_on_non_service = %v, want %v (findings %+v)", got, tc.wantCheck, findings)
+			}
+		})
+	}
+}
