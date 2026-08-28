@@ -98,15 +98,15 @@ func EnsureBootstrapHook(baseDir string, provider configurator.Provider, lock Lo
 		}
 	} else {
 		fullDestDir := filepath.Join(baseDir, destRel)
-		if err := os.MkdirAll(fullDestDir, 0o755); err != nil {
+		if err := mkdirAllNoFollow(baseDir, fullDestDir, 0o755); err != nil {
 			return Lock{}, fmt.Errorf("provisioning: mkdir %s: %w", fullDestDir, err)
 		}
 		hookJSONPath := filepath.Join(fullDestDir, "hook.json")
-		if err := os.WriteFile(hookJSONPath, bootstrapHookJSON(), 0o644); err != nil {
+		if err := writeFileNoFollow(hookJSONPath, bootstrapHookJSON(), 0o644); err != nil {
 			return Lock{}, fmt.Errorf("provisioning: write %s: %w", hookJSONPath, err)
 		}
 		scriptPath := filepath.Join(fullDestDir, bootstrapScriptName)
-		if err := os.WriteFile(scriptPath, []byte(bootstrapScriptContent), 0o755); err != nil {
+		if err := writeFileNoFollow(scriptPath, []byte(bootstrapScriptContent), 0o755); err != nil {
 			return Lock{}, fmt.Errorf("provisioning: write %s: %w", scriptPath, err)
 		}
 		// WriteFile applies the mode only on creation: a pre-existing

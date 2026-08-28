@@ -523,7 +523,7 @@ func registerOpenCodePlugin(baseDir, hookName, fullDestDir string) (relPath, war
 	if err := os.MkdirAll(filepath.Dir(fullPath), 0o755); err != nil {
 		return "", "", fmt.Errorf("provisioning: mkdir %s: %w", filepath.Dir(fullPath), err)
 	}
-	if err := os.WriteFile(fullPath, []byte(content), 0o644); err != nil {
+	if err := writeFileNoFollow(fullPath, []byte(content), 0o644); err != nil {
 		return "", "", fmt.Errorf("provisioning: write opencode plugin %s: %w", fullPath, err)
 	}
 	return openCodePluginRelPath(hookName), "", nil
@@ -707,7 +707,7 @@ func saveJSONObject(path string, m map[string]interface{}) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return fmt.Errorf("provisioning: mkdir %s: %w", filepath.Dir(path), err)
 	}
-	if err := os.WriteFile(path, data, 0o644); err != nil {
+	if err := writeFileNoFollow(path, data, 0o644); err != nil {
 		return fmt.Errorf("provisioning: write %s: %w", path, err)
 	}
 	return nil
