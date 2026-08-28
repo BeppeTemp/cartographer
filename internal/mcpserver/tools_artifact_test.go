@@ -634,3 +634,100 @@ func containsText(tr ToolResult, substr string) bool {
 	}
 	return false
 }
+
+// --- D151: a KB's capabilities are visible from a session ---
+
+func TestKBStatus_ReportsCapabilities(t *testing.T) {
+	k := setupTestKB(t)
+	s := New("test")
+	RegisterKBTools(s, k, Deps{})
+
+	read := func() map[string]map[string]string {
+		t.Helper()
+		res, err := s.Tools()["kb_status"].Handler(authLocalContext(), json.RawMessage(`{}`))
+		if err != nil || res.IsError {
+			t.Fatalf("kb_status = %+v, err=%v", res, err)
+		}
+		var out struct {
+			Capabilities map[string]map[string]string `json:"capabilities"`
+		}
+		if err := json.Unmarshal([]byte(res.Content[0].Text), &out); err != nil {
+			t.Fatal(err)
+		}
+		if out.Capabilities == nil {
+			t.Fatalf("kb_status returned no capabilities section: %s", res.Content[0].Text)
+		}
+		return out.Capabilities
+	}
+
+	caps := read()
+	if got := caps["artifact_write"]["state"]; got != "disabled" {
+		t.Errorf("artifact_write state = %q, want disabled", got)
+	}
+	// A state without the name of the switch is only half an answer.
+	if got := caps["artifact_write"]["setting"]; got != "kbs[].allow_artifact_write" {
+		t.Errorf("artifact_write setting = %q", got)
+	}
+	if got := caps["mount"]["state"]; got != "configured" {
+		t.Errorf("mount state = %q, want configured", got)
+	}
+	if got := caps["tool_prefix"]["state"]; got != "none" {
+		t.Errorf("tool_prefix state = %q, want none", got)
+	}
+
+	k.AllowArtifactWrite = true
+	k.Discovered = true
+	k.ToolPrefix = "ai_team"
+	caps = read()
+	if got := caps["artifact_write"]["state"]; got != "enabled" {
+		t.Errorf("after enabling, artifact_write state = %q", got)
+	}
+	if got := caps["mount"]["state"]; got != "discovered" {
+		t.Errorf("mount state = %q, want discovered", got)
+	}
+	if got := caps["tool_prefix"]["state"]; got != "ai_team" {
+		t.Errorf("tool_prefix state = %q, want ai_team", got)
+	}
+}
+
+// The three cases a client cannot distinguish, and the one the server can.
+func TestToolsCall_UnknownToolMessages(t *testing.T) {
+	t.Run("a gated tool names its setting", func(t *testing.T) {
+		got := unknownToolMessage("artifact_write")
+		for _, want := range []string{"artifact_write", "allow_artifact_write"} {
+			if !strings.Contains(got, want) {
+				t.Errorf("message %q does not mention %q", got, want)
+			}
+		}
+	})
+
+	t.Run("a genuinely unknown tool keeps the plain message", func(t *testing.T) {
+		if got := unknownToolMessage("nonsense_tool"); got != "tool not found: nonsense_tool" {
+			t.Errorf("message = %q, want the plain form", got)
+		}
+	})
+
+	// An advanced tool is registered and callable, merely absent from
+	// tools/list — the distinction a client cannot see.
+	t.Run("an advanced tool is still callable", func(t *testing.T) {
+		k := setupTestKB(t)
+		s := New("test")
+		RegisterKBTools(s, k, Deps{})
+		if _, ok := s.Tools()["reindex"]; !ok {
+			t.Fatal("reindex is not registered, so the advanced/gated distinction is untestable")
+		}
+		if !advancedToolNames["reindex"] {
+			t.Error("reindex is expected to be advanced")
+		}
+	})
+}
+
+func TestArtifactRead_DescriptionNamesTheGate(t *testing.T) {
+	k := setupTestKB(t)
+	s := New("test")
+	RegisterKBTools(s, k, Deps{})
+	desc := s.Tools()["artifact_read"].Description
+	if !strings.Contains(desc, "allow_artifact_write") {
+		t.Errorf("artifact_read's description does not name the gate: %s", desc)
+	}
+}

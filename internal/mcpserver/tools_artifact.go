@@ -176,7 +176,8 @@ func toolArtifactRead(k *kb.KB, allowlist []provisioning.MCPAllowlistEntry) Tool
 		ReadOnly: true,
 		Description: "Reads a KB-root artifact file (provisioning artifacts under skills/, agents/, hooks/, mcp/, " +
 			"or instructions.md; KB-only templates/<slug>.md). Returns content and " +
-			"sha256 — use the sha256 as if_match for a subsequent artifact_write/artifact_delete.",
+			"sha256 — use the sha256 as if_match for a subsequent artifact_write/artifact_delete, which are " +
+			"registered only when this KB sets kbs[].allow_artifact_write: true (see kb_status capabilities).",
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"required": ["path"],

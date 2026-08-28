@@ -121,6 +121,10 @@ type serverFacts struct {
 	Names   []string
 	Listed  bool
 	Version string
+	// KBs carries the full per-KB health payload, including each KB's effective
+	// tool prefix and capability map (D151): reading a value /health already
+	// serves beats re-deriving it client-side.
+	KBs []client.HealthKB
 }
 
 // enumerateKBs obtains the mounted KB names and the server version from
@@ -145,6 +149,7 @@ func enumerateKBs(serverURL string, auth bool, tokenEnv string) (serverFacts, er
 			return facts, fmt.Errorf("health response contains a KB without a name")
 		}
 		facts.Names = append(facts.Names, kb.Name)
+		facts.KBs = append(facts.KBs, kb)
 	}
 	return facts, nil
 }

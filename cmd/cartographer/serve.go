@@ -130,6 +130,13 @@ type kbMount struct {
 	Path string
 	Name string
 	Spec config.KBSpec
+	// Discovered marks a KB found by scanning Data rather than declared in a
+	// kbs[] entry: it has no KBSpec, so every per-KB setting is at its zero
+	// value and nothing but adding the entry can change that (D151). Carried
+	// explicitly rather than inferred from an empty Spec, because an operator
+	// who writes kbs: [{path: ...}] with no options also has a zero Spec, and
+	// that KB is configured — it chose the defaults.
+	Discovered bool
 }
 
 // firstNonEmpty returns the first non-empty string among vs, or "" if all are empty.
@@ -231,7 +238,7 @@ func runServe(cfg *config.Config) {
 			if mounted[filepath.Clean(p)] {
 				continue
 			}
-			mounts = append(mounts, kbMount{Path: p, Name: filepath.Base(p)})
+			mounts = append(mounts, kbMount{Path: p, Name: filepath.Base(p), Discovered: true})
 		}
 	}
 
@@ -297,6 +304,7 @@ func runServe(cfg *config.Config) {
 		}
 		k.SopsAgeKeyFile = resolveSopsAgeKeyFile(m.Spec, cfg.Sops, m.Name)
 		k.AllowArtifactWrite = m.Spec.AllowArtifactWrite
+		k.Discovered = m.Discovered
 		name := m.Name
 		if prev, ok := seenNames[name]; ok {
 			log.Printf("warning: KB name collision %q (first: %s, duplicate: %s) — skipping duplicate", name, prev, m.Path)
@@ -306,6 +314,7 @@ func runServe(cfg *config.Config) {
 		if err != nil {
 			log.Fatal(err)
 		}
+		k.ToolPrefix = toolPrefix
 		seenNames[name] = m.Path
 		var artifactSigner ed25519.PrivateKey
 		if m.Spec.ArtifactSigningSeed != "" {
@@ -326,6 +335,13 @@ func runServe(cfg *config.Config) {
 		kbToolPrefixes = append(kbToolPrefixes, toolPrefix)
 		kbArtifactSigners = append(kbArtifactSigners, artifactSigner)
 		kbMCPAllowlists = append(kbMCPAllowlists, m.Spec.MCPAllowlist)
+		if m.Discovered {
+			// A discovered KB works — it serves tools, answers reads, commits
+			// writes — and looks identical to a configured one from every client
+			// surface, which is how one deployment ran for a whole migration with
+			// artifact writes and tool prefixes silently off (D151).
+			log.Printf("warning: KB %q was discovered under data:, so no kbs[] entry governs it — tool_prefix, allow_artifact_write, sops_age_key_file and machine_path allow-prefixes are all at their defaults", name)
+		}
 		if _, ok := k.HasRemote(); kb.ShouldWarnGitIdentity(k.GitSync, ok, k.GitAuthorEmail) {
 			log.Printf("WARNING: KB %q commits will be authored as cartographer@localhost; forges with author push rules will reject the push", name)
 		}
@@ -431,6 +447,7 @@ func serveHTTP(addr string, kbs []*kb.KB, names []string, toolPrefixes []string,
 		if err != nil {
 			log.Fatal(err)
 		}
+		multi.SetKBCapabilities(name, mcpserver.KBCapabilitiesFor(k))
 		// The unprefixed line stays exactly as it was pre-D102: the prefix is
 		// only mentioned when there is one.
 		prefixLog := ""

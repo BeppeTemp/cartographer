@@ -297,6 +297,17 @@ type KBInfo struct {
 	// Server.SetToolNamePrefix (D120): clients discover it here rather than
 	// re-deriving config.ResolveToolPrefix themselves.
 	ToolPrefix string `json:"tool_prefix,omitempty"`
+	// Capabilities is what this KB is allowed to do, keyed by gate name, with
+	// the configuration key that controls each one (D151). Advertised here so
+	// `cartographer doctor` can report a capability that is off without a
+	// session: a client otherwise has no way to ask.
+	Capabilities map[string]KBCapability `json:"capabilities,omitempty"`
+}
+
+// KBCapability is one gate's state plus the configuration key controlling it.
+type KBCapability struct {
+	State   string `json:"state"`
+	Setting string `json:"setting"`
 }
 
 // MultiKBServer wraps multiple KB instances served by a single HTTP server.
@@ -359,6 +370,18 @@ func (m *MultiKBServer) MountKBWithPrefix(name, prefix string, setupFn func(s *S
 	m.servers[name] = srv
 	m.kbs = append(m.kbs, KBInfo{Name: name, Status: "normal", ToolPrefix: prefix})
 	return nil
+}
+
+// SetKBCapabilities records a mounted KB's capability map for /health. Called
+// after MountKBWithPrefix by the caller that owns the *kb.KB, so the mount
+// signature stays unchanged (D151).
+func (m *MultiKBServer) SetKBCapabilities(name string, caps map[string]KBCapability) {
+	for i := range m.kbs {
+		if m.kbs[i].Name == name {
+			m.kbs[i].Capabilities = caps
+			return
+		}
+	}
 }
 
 // resourceBaseURL reconstructs this server's own externally-visible base URL

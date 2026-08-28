@@ -40,6 +40,30 @@ package mcpserver
 // TestServer_ToolsProfile (server_test.go) is the golden test: it builds a
 // real registry and asserts the exact agent-visible set, so adding a tool
 // without classifying it here fails the build.
+// gatedToolSettings maps a tool name this build implements but may not register
+// to the configuration key that registers it. Consulted only on the
+// unknown-tool path, so the hot path is untouched.
+//
+// It sits next to advancedToolNames on purpose: the two mechanisms are
+// indistinguishable from a client and are not the same thing. An advanced tool is
+// **registered and callable by name**, merely absent from tools/list. A gated one
+// is **not registered at all**, and tools/call on it fails as unknown. Keeping
+// them in one file is how that difference stays documented (D151).
+var gatedToolSettings = map[string]string{
+	"artifact_write":  "kbs[].allow_artifact_write",
+	"artifact_delete": "kbs[].allow_artifact_write",
+}
+
+// unknownToolMessage names the setting that would register a known-but-gated
+// tool, and falls back to the plain message for a genuinely unknown name.
+func unknownToolMessage(name string) string {
+	if setting, ok := gatedToolSettings[name]; ok {
+		return "tool not found: " + name + " — this build implements it but this KB has it disabled; set " +
+			setting + ": true for this KB (see docs/deployment.md)"
+	}
+	return "tool not found: " + name
+}
+
 var advancedToolNames = map[string]bool{
 	"concept_batch":        true,
 	"commit_gate":          true,

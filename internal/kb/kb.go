@@ -69,6 +69,18 @@ type KB struct {
 	// alone. Default false. artifact_read/artifact_list are unaffected.
 	AllowArtifactWrite bool
 
+	// ToolPrefix is the effective MCP tool-name prefix this KB was mounted
+	// with (D102), or empty when unprefixed. Discovered is true when the KB was
+	// found by scanning the data directory rather than declared in a kbs[]
+	// entry, in which case every per-KB setting sits at its zero value and no
+	// configuration can change that without adding the entry.
+	//
+	// Both exist so kb_status can answer "what am I allowed to do in this KB,
+	// and what is switched off" — a question an agent could not previously ask
+	// from any client surface (D151).
+	ToolPrefix string
+	Discovered bool
+
 	// SyncOutDebounce is the debounce window for the async push worker
 	// (D76/WP4): when > 0, gitWrap calls SchedulePush instead of SyncOut
 	// inline, taking the push off the critical path of a write response.
