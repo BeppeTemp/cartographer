@@ -47,11 +47,14 @@ var auditResourceFields = map[string][]string{
 	"asset_list":           {"concept_id"},
 	"asset_write":          {"concept_id", "path"},
 	"asset_delete":         {"concept_id", "path"},
-	"artifact_read":        {"kind", "name"},
-	"artifact_list":        {"kind"},
-	"artifact_write":       {"kind", "name"},
-	"artifact_delete":      {"kind", "name"},
-	"service_get":          {"service_id"},
+	// The artifact tools address their target by path only (see
+	// tools_artifact.go: "required": ["path", ...]); "kind"/"name" were never
+	// arguments of theirs, so those entries recorded nothing. artifact_list
+	// takes no arguments at all, so it has no entry (silence is safe here).
+	"artifact_read":   {"path"},
+	"artifact_write":  {"path"},
+	"artifact_delete": {"path"},
+	"service_get":     {"service_id"},
 	// secret_resolve's "names" and secret_set's "key" are secret field
 	// names, not resource identifiers — deliberately excluded.
 	"secret_resolve":       {"concept_id"},
