@@ -327,3 +327,99 @@ func checkString(t *testing.T, fm *Frontmatter, key, want string) {
 		t.Fatalf("key %q: expected %q, got %q", key, want, got)
 	}
 }
+
+// --- D162 WP1: multi-line flow lists ---
+
+// Valid YAML that any editor produces for a long list used to be rejected: 63
+// files in one corpus used the multi-line form and one of them aborted an import.
+func TestParseFrontmatter_MultiLineFlowList(t *testing.T) {
+	cases := []struct {
+		name string
+		raw  string
+		want []string
+	}{
+		{
+			"the reported example",
+			"type: Note\nprovenance: [\n  first/source.md,\n  second/source.md,\n]\ntitle: T",
+			[]string{"first/source.md", "second/source.md"},
+		},
+		{
+			"single line still parses identically",
+			"type: Note\nprovenance: [a, b]",
+			[]string{"a", "b"},
+		},
+		{
+			"a trailing comma yields no empty element",
+			"type: Note\nprovenance: [\n  a,\n  b,\n]",
+			[]string{"a", "b"},
+		},
+		{
+			"a bracket inside a quoted element is not a terminator",
+			"type: Note\nprovenance: [\n  \"x]y\",\n  b,\n]",
+			[]string{"x]y", "b"},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			fm, err := ParseFrontmatter(tc.raw)
+			if err != nil {
+				t.Fatalf("ParseFrontmatter: %v", err)
+			}
+			v, ok := fm.Get("provenance")
+			if !ok {
+				t.Fatal("provenance missing")
+			}
+			got, ok := v.([]string)
+			if !ok {
+				t.Fatalf("provenance = %#v, want []string", v)
+			}
+			if len(got) != len(tc.want) {
+				t.Fatalf("provenance = %#v, want %#v", got, tc.want)
+			}
+			for i := range got {
+				if got[i] != tc.want[i] {
+					t.Errorf("element %d = %q, want %q", i, got[i], tc.want[i])
+				}
+			}
+			// Keys after the list must still parse: the scan has to stop at the
+			// closing bracket, not swallow the rest.
+			if tc.name == "the reported example" && fm.Type() != "Note" {
+				t.Errorf("type = %q, want Note — the scan consumed too much", fm.Type())
+			}
+		})
+	}
+}
+
+// An unclosed list is still an error, and now names the line so it can be found
+// in a corpus of a thousand pages.
+func TestParseFrontmatter_UnclosedFlowListNamesTheLine(t *testing.T) {
+	_, err := ParseFrontmatter("type: Note\nprovenance: [\n  a,\n")
+	if err == nil {
+		t.Fatal("an unclosed flow list must remain an error")
+	}
+	for _, want := range []string{"provenance", "line 2"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q does not mention %q", err, want)
+		}
+	}
+}
+
+// The serializer is not required to preserve the wrapping: a multi-line source
+// round-trips into the single-line form, which is not a bug.
+func TestParseFrontmatter_MultiLineFlowListRoundTripsToOneLine(t *testing.T) {
+	fm, err := ParseFrontmatter("type: Note\nprovenance: [\n  a,\n  b,\n]")
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := fm.Serialize()
+	if !strings.Contains(out, "provenance: [a, b]") {
+		t.Errorf("serialized form = %q, want the single-line list", out)
+	}
+	again, err := ParseFrontmatter(out)
+	if err != nil {
+		t.Fatalf("reparse: %v", err)
+	}
+	if v, _ := again.Get("provenance"); len(v.([]string)) != 2 {
+		t.Errorf("round trip lost elements: %#v", v)
+	}
+}

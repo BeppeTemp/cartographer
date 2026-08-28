@@ -23,8 +23,20 @@ import (
 // internal/agents and internal/service.
 var userHomeDir = os.UserHomeDir
 
-// depthCap bounds how many directory levels Scan descends from each root.
-const depthCap = 4
+// DefaultDepth and MaxDepth bound how many directory levels Scan descends from
+// each root (D162). The old fixed cap of 4 made a workspace organised as
+// <root>/<program>/<area>/<repo> invisible — ~160 repositories unreachable in one
+// deployment, so every {{repo:<name>}} citing one was unusable — and the failure
+// message never mentioned a depth, so the limit had to be guessed.
+//
+// The default stays 4: raising it for everyone would slow every resolution to
+// accommodate one layout. MaxDepth exists because Scan walks the filesystem on
+// every unresolved placeholder, and an unbounded depth on a large home directory
+// is a multi-second stall in the middle of a sync.
+const (
+	DefaultDepth = 4
+	MaxDepth     = 8
+)
 
 // heavyDirs are non-hidden directories Scan never descends into: they are
 // large, never contain a repo of interest themselves, and walking them would
@@ -116,16 +128,31 @@ func SaveCache(idx *Index) error {
 // that canonical key. Scan does not descend into a repo's own working tree
 // once found. A directory with no readable/parseable origin remote is
 // silently skipped — not every clone has one, and that is not a scan error.
-func Scan(roots []string) (*Index, error) {
+func Scan(roots []string, maxDepth int) (*Index, error) {
 	idx := &Index{Roots: roots, Repos: map[RemoteKey][]string{}}
 	for _, root := range roots {
-		walkDir(expandHome(root), 0, idx)
+		walkDir(expandHome(root), 0, EffectiveDepth(maxDepth), idx)
 	}
 	return idx, nil
 }
 
-func walkDir(dir string, depth int, idx *Index) {
-	if depth > depthCap {
+// EffectiveDepth normalises a configured depth: zero or negative means the
+// default, and a value above MaxDepth is clamped rather than rejected — a config
+// value that stops a sync is worse than one adjusted loudly, and the caller
+// reports the clamp.
+func EffectiveDepth(configured int) int {
+	switch {
+	case configured <= 0:
+		return DefaultDepth
+	case configured > MaxDepth:
+		return MaxDepth
+	default:
+		return configured
+	}
+}
+
+func walkDir(dir string, depth, maxDepth int, idx *Index) {
+	if depth > maxDepth {
 		return
 	}
 	if fi, err := os.Stat(dir); err != nil || !fi.IsDir() {
@@ -149,7 +176,7 @@ func walkDir(dir string, depth int, idx *Index) {
 		if strings.HasPrefix(name, ".") || heavyDirs[name] {
 			continue
 		}
-		walkDir(filepath.Join(dir, name), depth+1, idx)
+		walkDir(filepath.Join(dir, name), depth+1, maxDepth, idx)
 	}
 }
 
@@ -276,7 +303,7 @@ func lookupIndex(idx *Index, key string) (string, []string, error) {
 // roots on a cache miss (refreshing the cache for next time). Returns an
 // error — including any ambiguity error from lookupIndex — if key cannot be
 // resolved.
-func Resolve(key string, manualPaths map[string]string, roots []string) (string, []string, error) {
+func Resolve(key string, manualPaths map[string]string, roots []string, maxDepth int) (string, []string, error) {
 	if p, ok := manualPaths[key]; ok {
 		return expandHome(p), nil, nil
 	}
@@ -291,7 +318,7 @@ func Resolve(key string, manualPaths map[string]string, roots []string) (string,
 		}
 	}
 
-	idx, err := Scan(roots)
+	idx, err := Scan(roots, maxDepth)
 	if err != nil {
 		return "", nil, err
 	}
@@ -300,7 +327,7 @@ func Resolve(key string, manualPaths map[string]string, roots []string) (string,
 	path, warnings, err := lookupIndex(idx, key)
 	if err != nil {
 		if errors.Is(err, errNotIndexed) {
-			return "", nil, fmt.Errorf("repoindex: repo %q not found under search roots %v", key, roots)
+			return "", nil, fmt.Errorf("repoindex: repo %q not found within %d directory levels of search roots %v — raise search_depth (max %d) or add a closer root in .cartographer.yaml", key, EffectiveDepth(maxDepth), roots, MaxDepth)
 		}
 		return "", nil, err
 	}

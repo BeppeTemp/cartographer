@@ -15,7 +15,16 @@ import (
 
 // placeholderRe matches a {{repo:<key>}} or {{path:<name>}} placeholder
 // (D75): a literal "repo" or "path" kind, a colon, then anything but braces.
-var placeholderRe = regexp.MustCompile(`\{\{(repo|path):([^{}]+)\}\}`)
+var placeholderRe = regexp.MustCompile(`\{\{(\\?)(repo|path):([^{}]+)\}\}`)
+
+// isPlaceholderMetasyntax reports whether a key is obviously a documentation
+// placeholder rather than a real one: <name> or "...". It silences the WARNING
+// only — the text is still left verbatim, which is what a documentation example
+// wants (D162). No lookup is needed to be sure: repoindex keys are git remote
+// names or path keys, and "<" ">" are legal in neither.
+func isPlaceholderMetasyntax(key string) bool {
+	return key == "..." || (strings.HasPrefix(key, "<") && strings.HasSuffix(key, ">"))
+}
 
 // expansionTracker accumulates state across one whole Apply invocation:
 // every warning raised while expanding placeholders (surfaced once, at the
@@ -45,14 +54,29 @@ func expandPlaceholders(content []byte, opts ApplyOptions, tracker *expansionTra
 
 	return placeholderRe.ReplaceAllFunc(content, func(match []byte) []byte {
 		sub := placeholderRe.FindSubmatch(match)
-		kind, key := string(sub[1]), string(sub[2])
+		escaped, kind, key := string(sub[1]) != "", string(sub[2]), string(sub[3])
+
+		// {{\repo:...}} is the authoritative way to write the syntax down: the
+		// backslash is removed and nothing is resolved. Chosen over doubling the
+		// braces, which is unreadable in a document that is *about* the syntax,
+		// and over an HTML-comment wrapper, since skills are also read as plain
+		// markdown (D162).
+		if escaped {
+			return []byte(strings.Replace(string(match), "{{\\", "{{", 1))
+		}
+		// Documentation metasyntax: verbatim and silent. Before this, describing
+		// the generic form inside a skill produced eleven warnings per sync, which
+		// trains people to ignore warnings.
+		if isPlaceholderMetasyntax(key) {
+			return match
+		}
 
 		var resolved string
 		var err error
 		switch kind {
 		case "repo":
 			var warnings []string
-			resolved, warnings, err = repoindex.Resolve(key, opts.Paths, opts.SearchRoots)
+			resolved, warnings, err = repoindex.Resolve(key, opts.Paths, opts.SearchRoots, opts.SearchDepth)
 			tracker.warnings = append(tracker.warnings, warnings...)
 		case "path":
 			if p, ok := opts.Paths[key]; ok {

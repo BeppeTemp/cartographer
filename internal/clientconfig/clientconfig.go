@@ -45,6 +45,13 @@ type Config struct {
 	// field existed (see Load).
 	SearchRoots []string `yaml:"search_roots,omitempty"`
 
+	// SearchDepth bounds how many directory levels repoindex descends from each
+	// root (D162). Zero means the default of 4; values above the maximum of 8 are
+	// clamped with a warning rather than rejected, since a config value that stops
+	// a sync is worse than one adjusted loudly. A workspace organised as
+	// <root>/<program>/<area>/<repo> needs 5.
+	SearchDepth int `yaml:"search_depth,omitempty"`
+
 	// Paths is the manual `{{path:<nome>}}` mapping (D75 WP1/WP3): a
 	// fallback for directories that aren't git repos, and an override for
 	// `{{repo:<key>}}` resolution (checked before repoindex's scan/cache,
@@ -80,6 +87,7 @@ type yamlConfig struct {
 	KBs          []string                          `yaml:"kbs,omitempty"`
 	Trust        *bool                             `yaml:"trust,omitempty"`
 	SearchRoots  []string                          `yaml:"search_roots,omitempty"`
+	SearchDepth  int                               `yaml:"search_depth,omitempty"`
 	Paths        map[string]string                 `yaml:"paths,omitempty"`
 	SigningKeys  map[string][]string               `yaml:"signing_keys,omitempty"`
 	MCPApprovals map[string]map[string]MCPApproval `yaml:"mcp_approvals,omitempty"`
@@ -147,6 +155,7 @@ func Load(dir string) (*Config, error) {
 		KBs:          y.KBs,
 		Trust:        true, // absent `trust` key defaults to true, see yamlConfig doc
 		SearchRoots:  y.SearchRoots,
+		SearchDepth:  y.SearchDepth,
 		Paths:        y.Paths,
 		SigningKeys:  y.SigningKeys,
 		MCPApprovals: y.MCPApprovals,

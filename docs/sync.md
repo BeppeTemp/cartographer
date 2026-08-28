@@ -106,6 +106,27 @@ repair never implies `--auto-trust`, never invents an approval and never broaden
 never disconnects or reconnects a provider. It only runs when the client is configured against
 that same native service over loopback HTTP; any other endpoint is skipped rather than contacted.
 
+## Writing a placeholder literally, and how deep the repo scan goes
+
+Documenting the generic form of a placeholder used to trigger it: eleven warnings per sync in one
+deployment, which trains people to ignore warnings. Two ways out (D162):
+
+- **the escape**, authoritative: `{{\repo:<key>}}` emits the literal `{{repo:<key>}}` with the
+  backslash removed and resolves nothing. Chosen over doubling the braces, unreadable in a document
+  that is *about* the syntax, and over an HTML-comment wrapper, since skills are also read as plain
+  markdown;
+- **metasyntax**, a convenience needing no edit to existing KBs: a key of the form `<name>`, or `...`,
+  is left verbatim **and silent**. A real key cannot look like that — `repoindex` keys are git remote
+  names or path keys, and `<` `>` are legal in neither.
+
+`search_depth` in `.cartographer.yaml` bounds how many directory levels the repo scan descends from
+each root: default **4**, maximum **8**, a value above it clamped with a warning rather than rejected.
+A workspace organised as `<root>/<program>/<area>/<repo>` puts the repository directory at the fourth
+level and its contents at the fifth, so it needs `search_depth: 5` — with the old fixed cap ~160
+repositories were invisible and every `{{repo:<key>}}` citing one was unusable. The not-found message
+now names the depth it searched, the maximum, and the setting. Keying stays on the **normalised git
+remote**, never on a directory name: that is what makes a `repo:` key identical for every operator.
+
 ## The generated instructions block
 
 The client steering file carries one managed block per mounted KB: a generated routing sentence (KB

@@ -173,9 +173,40 @@ func parseImportMap(raw []string) ([]importMapEntry, error) {
 		}
 		from := path.Clean(filepath.ToSlash(fromRaw))
 		to := strings.Trim(filepath.ToSlash(toRaw), "/")
+		// With prefix semantics a duplicate is ambiguous, and it used to be
+		// silently overwritten by the later entry — which mis-files documents
+		// (D162).
+		for _, prev := range out {
+			if prev.from == from {
+				return nil, fmt.Errorf("invalid --map %q: duplicate source directory %q (already mapped to %q)", r, from, prev.to)
+			}
+		}
 		out = append(out, importMapEntry{from: from, to: to})
 	}
 	return out, nil
+}
+
+// mapDepth is a --map source path's segment count, "." counting as zero so the
+// source root sorts last and acts as the catch-all.
+func mapDepth(from string) int {
+	if from == "." || from == "" {
+		return 0
+	}
+	return len(strings.Split(from, "/"))
+}
+
+// mapPrefixCovers reports whether a --map entry covers a source directory,
+// comparing at SEGMENT boundaries so "a/b" covers "a/b/c" but not "a/bc". Same
+// rule internal/lint's pathHasPrefix applies to the machine_path allow-list; the
+// two live in different packages for good reason and are kept consistent by hand.
+func mapPrefixCovers(from, dir string) bool {
+	if from == "." || from == "" {
+		return true
+	}
+	if dir == from {
+		return true
+	}
+	return strings.HasPrefix(dir, from+"/")
 }
 
 // importFile is one planned import: the source path (relative to --source,
@@ -191,9 +222,12 @@ type importFile struct {
 // destination-map mapping, before any write happens — the same plan is
 // printed by --dry-run and executed by applyImportPlan.
 type importPlan struct {
-	files   []importFile
-	skipped []string // non-.md files found under --source, for the summary count
-	maps    []string // destination map names, one per map touched by the plan
+	files []importFile
+	// attribution records which flag produced each destination, so --dry-run can
+	// answer "why did this file go there" (D162).
+	attribution map[string]string
+	skipped     []string // non-.md files found under --source, for the summary count
+	maps        []string // destination map names, one per map touched by the plan
 }
 
 // buildImportPlan walks source for .md files (skipping hidden directories),
@@ -245,25 +279,63 @@ func buildImportPlanWithOptions(source string, mapping []importMapEntry, default
 	}
 	sort.Strings(mdFiles)
 
-	mapIndex := map[string]string{}
-	for _, m := range mapping {
-		mapIndex[m.from] = m.to
-	}
+	// Longest-prefix matching, with exact match as its degenerate case (D162): a
+	// corpus with 58 source directories needed 58 flags, because the lookup was
+	// keyed on the exact path.Dir(rel) with no prefix semantics — leaving only the
+	// choice between one map for everything (--default-map) and one flag per
+	// directory, with nothing in between, which is exactly where a real corpus
+	// lives.
+	ordered := append([]importMapEntry(nil), mapping...)
+	sort.Slice(ordered, func(i, j int) bool {
+		li, lj := mapDepth(ordered[i].from), mapDepth(ordered[j].from)
+		if li != lj {
+			return li > lj
+		}
+		if len(ordered[i].from) != len(ordered[j].from) {
+			return len(ordered[i].from) > len(ordered[j].from)
+		}
+		return ordered[i].from < ordered[j].from
+	})
 
 	destDirFor := map[string]string{}
 	unmapped := map[string]bool{}
+	usedMap := map[string]bool{}
+	attribution := map[string]string{}
 	for _, rel := range mdFiles {
 		srcDir := path.Dir(rel)
 		if _, done := destDirFor[srcDir]; done {
 			continue
 		}
-		if dest, ok := mapIndex[srcDir]; ok {
-			destDirFor[srcDir] = dest
-		} else if defaultMap != "" {
-			destDirFor[srcDir] = defaultMap
-		} else {
-			unmapped[srcDir] = true
+		matched := false
+		for _, m := range ordered {
+			if mapPrefixCovers(m.from, srcDir) {
+				destDirFor[srcDir] = m.to
+				attribution[srcDir] = "--map " + m.from + "=" + m.to
+				usedMap[m.from] = true
+				matched = true
+				break
+			}
 		}
+		if matched {
+			continue
+		}
+		if defaultMap != "" {
+			destDirFor[srcDir] = defaultMap
+			attribution[srcDir] = "--default-map " + defaultMap
+			usedMap["\x00default"] = true
+			continue
+		}
+		unmapped[srcDir] = true
+	}
+	// A --map that matched nothing is a typo that would otherwise fall through to
+	// --default-map silently.
+	for _, m := range mapping {
+		if !usedMap[m.from] {
+			fmt.Fprintf(os.Stderr, "warning: --map %s=%s matched no source directory\n", m.from, m.to)
+		}
+	}
+	if defaultMap != "" && !usedMap["\x00default"] {
+		fmt.Fprintf(os.Stderr, "warning: --default-map %s matched no source directory\n", defaultMap)
 	}
 	if len(unmapped) > 0 {
 		var dirs []string
@@ -290,7 +362,7 @@ func buildImportPlanWithOptions(source string, mapping []importMapEntry, default
 		}
 	}
 
-	plan := &importPlan{skipped: skipped}
+	plan := &importPlan{skipped: skipped, attribution: attribution}
 	mapNames := map[string]bool{}
 	used := map[string]int{}
 	for _, rel := range mdFiles {
@@ -346,6 +418,19 @@ func printImportPlan(plan *importPlan) {
 			fmt.Printf("[dry-run] promote %s -> %s\n", f.srcRel, f.destPath)
 		} else {
 			fmt.Printf("[dry-run] %s -> %s\n", f.srcRel, f.destPath)
+		}
+	}
+	// Which flag produced each destination, so a dry run answers "why did this
+	// file go there" — the check an operator needs now that a --map covers a whole
+	// subtree (D162).
+	if len(plan.attribution) > 0 {
+		dirs := make([]string, 0, len(plan.attribution))
+		for d := range plan.attribution {
+			dirs = append(dirs, d)
+		}
+		sort.Strings(dirs)
+		for _, d := range dirs {
+			fmt.Printf("[dry-run] %s/ ← %s\n", d, plan.attribution[d])
 		}
 	}
 	fmt.Printf("would import: %d, skipped: %d\n", len(plan.files), len(plan.skipped))
