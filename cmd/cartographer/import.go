@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/kb"
 	"github.com/BeppeTemp/cartographer/internal/okf"
 )
@@ -62,6 +63,19 @@ func cmdImport(args []string) int {
 		return 2
 	}
 
+	// The server writes into this same directory, and the two interleaving
+	// corrupted the git index (D155). Fail fast rather than wait: an import is an
+	// operator action at a keyboard, and a silent ten-minute block is worse than
+	// an error naming what to stop. --dry-run returns above, before the KB is
+	// opened, so it never takes the lock.
+	release, lockErr := k.AcquireProcessLock(0, "cartographer import")
+	if lockErr != nil {
+		fmt.Fprintln(os.Stderr, "Error:", lockErr)
+		fmt.Fprintln(os.Stderr, "  Stop it first: cartographer service stop && cartographer import … && cartographer service start")
+		return 2
+	}
+	defer release()
+
 	scaffoldPaths, err := createImportMaps(k, plan)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)
@@ -87,10 +101,45 @@ func cmdImport(args []string) int {
 		}
 	}
 	fmt.Printf("imported: %d, skipped: %d, errors: %d\n", imported, len(plan.skipped), errored)
+	if imported > 0 {
+		// This process writes through the KB write path but from outside the
+		// server, so the server's FTS index knows nothing about it: search
+		// returned zero results while concept_list saw everything, and the natural
+		// conclusion was that the import had failed (D155). reindex is in the
+		// advanced visibility profile, so an agent session does not see it either.
+		printReindexHint(imported)
+	}
 	if errored > 0 {
 		return 1
 	}
 	return 0
+}
+
+// printReindexHint tells the operator that the search index is stale, and
+// rebuilds it first when a server is reachable (D155). The instruction is the
+// mandatory half; the automatic call is convenience and degrades to the
+// instruction on any failure — the import itself succeeded, so it never changes
+// the exit code.
+func printReindexHint(imported int) {
+	if reindexAfterImportFn() {
+		fmt.Println("search index rebuilt")
+		return
+	}
+	fmt.Printf("search index not updated by this process — run `cartographer reindex` so search sees the %d imported concept(s)\n", imported)
+}
+
+// reindexAfterImportFn is indirected so tests can describe the outcome instead of
+// needing a live server.
+var reindexAfterImportFn = func() bool {
+	dir, err := clientconfig.TargetDir()
+	if err != nil {
+		return false
+	}
+	cfg, err := clientconfig.Load(dir)
+	if err != nil || cfg == nil || cfg.ServerURL == "" {
+		return false
+	}
+	return cmdReindex(nil) == 0
 }
 
 // stringSliceFlag implements flag.Value, accumulating one entry per

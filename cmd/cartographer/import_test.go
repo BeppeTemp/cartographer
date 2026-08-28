@@ -4,8 +4,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/kb"
 )
@@ -402,5 +404,107 @@ func TestSlugify(t *testing.T) {
 		if got := slugify(in); got != want {
 			t.Errorf("slugify(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+// --- D155 ---
+
+// `cartographer import` writes into the same directory the server's sync loop
+// manages, and the two interleaving corrupted the git index. It fails fast rather
+// than waiting: an import is an operator action at a keyboard, and a silent block
+// is worse than an error naming what to stop.
+func TestCmdImport_RefusesWhileTheKBIsLocked(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("flock semantics differ on Windows")
+	}
+	src := t.TempDir()
+	if err := os.WriteFile(filepath.Join(src, "a.md"), []byte("# A\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	kbDir := t.TempDir()
+	k, err := kb.Init(kbDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	release, err := k.AcquireProcessLock(time.Second, "cartographer serve")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer release()
+
+	out := withStderr(t, func() {
+		if code := cmdImport([]string{"--source", src, "--kb", kbDir, "--default-map", "notes"}); code != 2 {
+			t.Errorf("cmdImport with the KB locked = %d, want 2", code)
+		}
+	})
+	for _, want := range []string{"locked by", "cartographer serve", "service stop"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output %q does not mention %q", out, want)
+		}
+	}
+}
+
+// A dry run writes nothing, so it must not contend for the lock either.
+func TestCmdImport_DryRunDoesNotTakeTheLock(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("flock semantics differ on Windows")
+	}
+	src := t.TempDir()
+	if err := os.WriteFile(filepath.Join(src, "a.md"), []byte("# A\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	kbDir := t.TempDir()
+	k, err := kb.Init(kbDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	release, err := k.AcquireProcessLock(time.Second, "cartographer serve")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer release()
+
+	withStdout(t, func() {
+		if code := cmdImport([]string{"--source", src, "--kb", kbDir, "--default-map", "notes", "--dry-run"}); code != 0 {
+			t.Errorf("dry run with the KB locked = %d, want 0", code)
+		}
+	})
+}
+
+// The import writes through the KB write path but from outside the server, so its
+// FTS index knows nothing: search returned zero while concept_list saw
+// everything, and the natural conclusion was that the import had failed.
+func TestCmdImport_TellsTheOperatorToReindex(t *testing.T) {
+	orig := reindexAfterImportFn
+	t.Cleanup(func() { reindexAfterImportFn = orig })
+
+	run := func() string {
+		src := t.TempDir()
+		if err := os.WriteFile(filepath.Join(src, "a.md"), []byte("# A\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		kbDir := t.TempDir()
+		if _, err := kb.Init(kbDir); err != nil {
+			t.Fatal(err)
+		}
+		return withStdout(t, func() {
+			if code := cmdImport([]string{"--source", src, "--kb", kbDir, "--default-map", "notes"}); code != 0 {
+				t.Errorf("cmdImport = %d, want 0", code)
+			}
+		})
+	}
+
+	reindexAfterImportFn = func() bool { return false }
+	if out := run(); !strings.Contains(out, "cartographer reindex") {
+		t.Errorf("with no reachable server the instruction must be printed: %q", out)
+	}
+
+	reindexAfterImportFn = func() bool { return true }
+	out := run()
+	if !strings.Contains(out, "search index rebuilt") {
+		t.Errorf("with a reachable server the index should be rebuilt: %q", out)
+	}
+	if strings.Contains(out, "cartographer reindex") {
+		t.Errorf("the instruction is redundant once the index was rebuilt: %q", out)
 	}
 }
