@@ -254,6 +254,23 @@ func Run(k *kb.KB, scope string, scopeNeighbors bool) ([]Finding, error) {
 						})
 					}
 				}
+
+				// --- secrets_on_non_service (warning, D158) ---
+				// service_list/service_get match type Service (case-insensitively
+				// since D158): a concept declaring secrets under any other type has
+				// them unresolvable, and nothing else reported why.
+				if !strings.EqualFold(parsed.Type(), "Service") {
+					for _, field := range []string{"secrets_source", "secret_refs"} {
+						if v, ok := parsed.Get(field); ok && !emptyFrontmatterValue(v) {
+							findings = append(findings, Finding{
+								Path:     relPath,
+								Check:    "secrets_on_non_service",
+								Severity: SevWarning,
+								Message:  fmt.Sprintf("declares %s but type is %q — service_list/service_get only match type Service, so these secrets are unresolvable", field, parsed.Type()),
+							})
+						}
+					}
+				}
 			}
 		}
 		if len(parts) > 1 && archiveSet[parts[0]] {
