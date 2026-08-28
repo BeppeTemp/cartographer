@@ -161,7 +161,16 @@ func pinnedPublicKeys(cfg *clientconfig.Config) (map[string][]ed25519.PublicKey,
 // clientconfig.Config (cfg.SearchRoots/cfg.Paths) and drive placeholder expansion
 // (D75 WP3) — this is the one place cmd/cartographer turns
 // ApplyOptions.ExpandPlaceholders on; internal/mcpserver never does.
-func materializeForProviders(m provisioning.Manifest, providers []string, targetDir, serverVersion string, autoTrust, dryRun, noHeal bool, searchRoots []string, paths map[string]string, approvalHashes ...map[string]string) (map[string]provisioning.AppliedResult, error) {
+// portabilityOptions bundles the path-portability inputs (D75, D162): they travel
+// together and a fourth positional argument in an eight-argument call is how the
+// next bug gets written.
+type portabilityOptions struct {
+	SearchRoots []string
+	SearchDepth int
+	Paths       map[string]string
+}
+
+func materializeForProviders(m provisioning.Manifest, providers []string, targetDir, serverVersion string, autoTrust, dryRun, noHeal bool, portability portabilityOptions, approvalHashes ...map[string]string) (map[string]provisioning.AppliedResult, error) {
 	lockPath := lockFilePath(targetDir)
 	lockFile, err := provisioning.ReadLockFile(lockPath)
 	if err != nil {
@@ -199,8 +208,9 @@ func materializeForProviders(m provisioning.Manifest, providers []string, target
 			Lock:               previous,
 			SkipLockWrite:      true,
 			ExpandPlaceholders: true,
-			SearchRoots:        searchRoots,
-			Paths:              paths,
+			SearchRoots:        portability.SearchRoots,
+			SearchDepth:        portability.SearchDepth,
+			Paths:              portability.Paths,
 		}
 		// Apply only the artifacts the provider knows how to materialize:
 		// unsupported kinds (e.g. hook outside Claude Code, or agent outside

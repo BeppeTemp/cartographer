@@ -406,6 +406,21 @@ cartographer import --source ./docs --kb ./kb-clone \
 | `--message` | `import: <source> -> <kb>` | Commit message; implies `--commit` |
 | `--dir-as-concept` | `false` | Promotes a source directory with `index.md` (or `README.md`) into an expanded concept and keeps its satellites together |
 
+**`--map` covers a subtree.** Resolution is longest matching prefix, then `--default-map`, then the
+unmapped error (D162): `--map a/b=m` covers `a/b`, `a/b/c` and below, a more specific `--map a/b/c=n`
+wins for its own subtree, and matching is at **segment boundaries**, so `a/b` never covers `a/bc`. `.`
+is a legal source and covers everything. Before this the lookup was keyed on the exact directory, so a
+corpus with 58 source directories needed 58 flags — the only choices were one map for everything or one
+flag per directory, with nothing in between.
+
+**The matched prefix is replaced, not appended to**: `--map a/b=m` sends `a/b/c/page.md` to `m`, not to
+`m/c`. The destination is a *map* (or `map/expanded-concept`) and the write path caps concept depth at
+three segments, so mirroring an arbitrarily deep source tree cannot work; preserving hierarchy is what
+`--dir-as-concept` is for. Two `--map` flags with the same source are an error rather than the later
+one silently winning, and a `--map` that matches nothing warns — otherwise a typo falls through to
+`--default-map` unnoticed. `--dry-run` names the flag behind every destination, which is how you check
+all of this.
+
 **`import` takes the KB's advisory lock** and fails fast when the server holds it (D155), naming the
 holder and the `service stop … && service start` sequence: it writes into the same directory the
 server's sync loop manages, and the two interleaving corrupted the git index. `--dry-run` writes

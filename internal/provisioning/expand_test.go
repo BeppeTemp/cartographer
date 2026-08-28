@@ -641,3 +641,63 @@ func TestApply_ExpandPlaceholders_NoPathsTableServerSide(t *testing.T) {
 		t.Errorf("the server must never add the Local paths table:\n%s", data)
 	}
 }
+
+// --- D162 WP3: writing the placeholder syntax down ---
+
+// Documenting the generic form inside a skill produced eleven warnings per sync,
+// which trains people to ignore warnings, and the only workaround was to describe
+// the syntax in prose without braces — in the one place where showing it verbatim
+// is the point.
+func TestExpandPlaceholders_LiteralAndMetasyntax(t *testing.T) {
+	opts := ApplyOptions{ExpandPlaceholders: true, Paths: map[string]string{"kubeconfig": "/tmp/kube"}}
+
+	t.Run("an escaped placeholder is emitted literally and silently", func(t *testing.T) {
+		tr := newExpansionTracker()
+		out := expandPlaceholders([]byte(`use {{\path:kubeconfig}} for the generic form`), opts, tr)
+		if !strings.Contains(string(out), "{{path:kubeconfig}}") {
+			t.Errorf("output = %q, want the literal form without the backslash", out)
+		}
+		if len(tr.warnings) != 0 {
+			t.Errorf("warnings = %v, want none", tr.warnings)
+		}
+		if len(tr.resolved) != 0 {
+			t.Errorf("an escaped placeholder must not be recorded as resolved: %v", tr.resolved)
+		}
+	})
+
+	t.Run("the same key unescaped still resolves", func(t *testing.T) {
+		tr := newExpansionTracker()
+		out := expandPlaceholders([]byte(`{{path:kubeconfig}}`), opts, tr)
+		if string(out) != "/tmp/kube" {
+			t.Errorf("output = %q, want the resolved path", out)
+		}
+	})
+
+	t.Run("metasyntax is verbatim and silent", func(t *testing.T) {
+		tr := newExpansionTracker()
+		out := expandPlaceholders([]byte(`the form is {{repo:<name>}} or {{path:<name>}}`), opts, tr)
+		if !strings.Contains(string(out), "{{repo:<name>}}") {
+			t.Errorf("output = %q, want the metasyntax verbatim", out)
+		}
+		// The complaint was a count, so the assertion is a count.
+		if len(tr.warnings) != 0 {
+			t.Errorf("warnings = %v, want none", tr.warnings)
+		}
+	})
+
+	t.Run("a genuinely missing key still warns exactly once", func(t *testing.T) {
+		tr := newExpansionTracker()
+		expandPlaceholders([]byte(`{{path:missing}} and {{repo:<name>}}`), opts, tr)
+		if len(tr.warnings) != 1 {
+			t.Errorf("warnings = %v, want exactly one (the real one)", tr.warnings)
+		}
+	})
+
+	t.Run("content with no placeholder is returned byte-identical", func(t *testing.T) {
+		tr := newExpansionTracker()
+		in := []byte("nothing to expand here")
+		if out := expandPlaceholders(in, opts, tr); string(out) != string(in) {
+			t.Errorf("output = %q, want it unchanged", out)
+		}
+	})
+}

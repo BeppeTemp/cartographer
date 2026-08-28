@@ -138,6 +138,25 @@ Concept ID = path relative to the bundle without `.md`. File names are `kebab-ca
 
 **In a curated index, both forms are accepted** for an expanded concept: `[c](c.md)` and `[c](c/index.md)` both satisfy `require_index_entry`. The two used to be inverses of each other — one valid between concepts, the other in an index — with nothing to tell them apart.
 
+### Frontmatter value forms
+
+A value may be a scalar, a block list (`- item` on following lines), or a flow list `[a, b]` — the
+flow form **on one line or across several** (D162), which is what any editor produces when a list gets
+long:
+
+```yaml
+provenance: [
+  first/source.md,
+  second/source.md,
+]
+```
+
+A trailing comma before `]` is accepted and yields no empty element. A `]` inside a quoted element is
+not a terminator. An unclosed flow list is still an error and names the key **and the line**;
+`validate` wraps that with the concept's path, so a malformed value is locatable in a corpus of a
+thousand pages. The serializer always emits the single-line form: a multi-line source round-trips into
+one line, which is reflow, not data loss.
+
 ### What a move touches
 
 `concept_move` is complete as of D160: it rewrites **inbound** links across the KB, **the moved

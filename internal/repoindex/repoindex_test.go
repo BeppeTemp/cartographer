@@ -79,7 +79,7 @@ func TestScanFindsRepos(t *testing.T) {
 	os.MkdirAll(skipped, 0o755)
 	writeGitRepo(t, skipped, "git@github.com:acme/should-not-be-found.git")
 
-	idx, err := Scan([]string{root})
+	idx, err := Scan([]string{root}, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -104,7 +104,7 @@ func TestScanDepthCap(t *testing.T) {
 	os.MkdirAll(deep, 0o755)
 	writeGitRepo(t, deep, "git@github.com:acme/too-deep.git")
 
-	idx, err := Scan([]string{root})
+	idx, err := Scan([]string{root}, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -169,7 +169,7 @@ func TestResolveManualPathsOverride(t *testing.T) {
 	userHomeDir = func() (string, error) { return home, nil }
 	defer func() { userHomeDir = os.UserHomeDir }()
 
-	path, warnings, err := Resolve("mine", map[string]string{"mine": dir}, nil)
+	path, warnings, err := Resolve("mine", map[string]string{"mine": dir}, nil, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -192,7 +192,7 @@ func TestResolveRescanOnMiss(t *testing.T) {
 	writeGitRepo(t, repo, "git@github.com:acme/myrepo.git")
 
 	// No cache exists yet: Resolve must fall through to Scan and find it.
-	path, _, err := Resolve("myrepo", nil, []string{root})
+	path, _, err := Resolve("myrepo", nil, []string{root}, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -201,7 +201,7 @@ func TestResolveRescanOnMiss(t *testing.T) {
 	}
 
 	// The cache should now be populated, resolving from cache without roots.
-	path2, _, err := Resolve("myrepo", nil, nil)
+	path2, _, err := Resolve("myrepo", nil, nil, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -216,7 +216,7 @@ func TestResolveNotFound(t *testing.T) {
 	defer func() { userHomeDir = os.UserHomeDir }()
 
 	root := t.TempDir()
-	_, _, err := Resolve("nope", nil, []string{root})
+	_, _, err := Resolve("nope", nil, []string{root}, 0)
 	if err == nil {
 		t.Fatal("expected not-found error")
 	}

@@ -92,14 +92,17 @@ func ParseFrontmatter(raw string) (*Frontmatter, error) {
 			}
 
 		case strings.HasPrefix(valueRaw, "["):
-			// Flow list: [a, b, c]
-			closing := strings.LastIndex(valueRaw, "]")
-			if closing < 0 {
-				return nil, fmt.Errorf("frontmatter: unclosed flow list at key %q", key)
+			// Flow list, on one line or several (D162): the multi-line form is
+			// valid YAML and is what any editor produces for a long list, but the
+			// parser only ever looked at the current line — 63 files in one corpus
+			// used it and one of them aborted an import. The block-list branch
+			// above already had the lookahead; this branch simply did not use it.
+			inner, consumed, closed := collectFlowList(lines[i:], colonIdx+1)
+			if !closed {
+				return nil, fmt.Errorf("frontmatter: unclosed flow list at key %q (line %d)", key, i+1)
 			}
-			inner := valueRaw[1:closing]
 			value = parseFlowList(inner)
-			i++
+			i += consumed
 
 		default:
 			// scalar
@@ -119,6 +122,55 @@ func ParseFrontmatter(raw string) (*Frontmatter, error) {
 	return fm, nil
 }
 
+// collectFlowList accumulates the inner text of a flow list starting on
+// lines[0] at byte offset start, across as many lines as needed, and reports how
+// many lines it consumed and whether the closing bracket was found.
+//
+// Depth is tracked over [ and ], and bracket characters inside quoted scalars are
+// skipped, so a "]" in a quoted element is not a terminator. Scanning stops at the
+// end of the frontmatter block: a "[" with no "]" before it is unclosed, not a
+// licence to consume the body.
+func collectFlowList(lines []string, start int) (inner string, consumed int, closed bool) {
+	var sb strings.Builder
+	depth := 0
+	var quote byte
+	for n, line := range lines {
+		segment := line
+		if n == 0 {
+			segment = line[start:]
+		} else {
+			sb.WriteByte(' ')
+		}
+		for i := 0; i < len(segment); i++ {
+			c := segment[i]
+			if quote != 0 {
+				if c == quote {
+					quote = 0
+				}
+				sb.WriteByte(c)
+				continue
+			}
+			switch c {
+			case '\'', '"':
+				quote = c
+			case '[':
+				depth++
+				if depth == 1 {
+					// The opening bracket itself is not part of the inner text.
+					continue
+				}
+			case ']':
+				depth--
+				if depth == 0 {
+					return sb.String(), n + 1, true
+				}
+			}
+			sb.WriteByte(c)
+		}
+	}
+	return sb.String(), len(lines), false
+}
+
 // parseFlowList parses the inner part of a YAML flow list (without the square brackets).
 func parseFlowList(inner string) []string {
 	if strings.TrimSpace(inner) == "" {
@@ -126,7 +178,13 @@ func parseFlowList(inner string) []string {
 	}
 	parts := splitFlowList(inner)
 	result := make([]string, 0, len(parts))
-	for _, p := range parts {
+	for n, p := range parts {
+		// A trailing comma before "]" is valid YAML and is what every editor
+		// emits when it wraps a list, so the empty final segment it leaves is
+		// dropped rather than becoming an empty element (D162).
+		if n == len(parts)-1 && strings.TrimSpace(p) == "" {
+			continue
+		}
 		result = append(result, unquoteScalar(strings.TrimSpace(p)))
 	}
 	return result
