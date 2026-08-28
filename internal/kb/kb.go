@@ -153,6 +153,12 @@ type GitStatus struct {
 const (
 	defaultGitAuthorName  = "cartographer"
 	defaultGitAuthorEmail = "cartographer@localhost"
+
+	// DefaultGitAuthorName/DefaultGitAuthorEmail are the same values, exported
+	// so a caller resolving an identity can tell whether it fell back to the
+	// product default and warn before a forge rejects the push (D156).
+	DefaultGitAuthorName  = defaultGitAuthorName
+	DefaultGitAuthorEmail = defaultGitAuthorEmail
 )
 
 // gitAuthor returns k.GitAuthorName/GitAuthorEmail, falling back to the
@@ -282,6 +288,25 @@ func Open(root string) (*KB, error) {
 // an agent, so the soft agent-contract file was pure noise. Local-only state
 // (.cartographer/) is excluded via .git/info/exclude instead (see
 // ensureInfoExclude), never via a versioned .gitignore.
+// initAuthorName/initAuthorEmail carry the identity InitWithIdentity supplies
+// to the KB's initial commit, for the duration of that call. Init leaves them
+// empty and the package defaults apply, which is the pre-D156 behaviour.
+var (
+	initAuthorName  string
+	initAuthorEmail string
+)
+
+// InitWithIdentity is Init with an explicit author for the KB's initial commit.
+// `cartographer kb create` uses it: the initial commit is the one a forge with
+// an author-membership push rule rejects, and by then the scaffold already
+// exists, so the identity has to be right the first time (D156).
+// An empty name or email falls back to the package defaults.
+func InitWithIdentity(root, authorName, authorEmail string) (*KB, error) {
+	initAuthorName, initAuthorEmail = authorName, authorEmail
+	defer func() { initAuthorName, initAuthorEmail = "", "" }()
+	return Init(root)
+}
+
 func Init(root string) (*KB, error) {
 	abs, err := filepath.Abs(root)
 	if err != nil {
@@ -327,9 +352,14 @@ func Init(root string) (*KB, error) {
 	if !gitx.IsRepo(abs) {
 		if initErr := gitx.Init(abs); initErr == nil {
 			// Initial commit: ignore ErrNothingToCommit and any other non-fatal error.
-			// Init has no KB identity/env to draw on yet (the caller sets those on the
-			// returned *KB after Init returns) — use the package defaults.
-			_ = gitx.Commit(abs, "init: KB inizializzata", defaultGitAuthorName, defaultGitAuthorEmail)
+			// The author is the caller's (InitWithIdentity) when it supplied one:
+			// a forge with an author push rule rejects the product default, and
+			// the rejection lands on the very first push (D156).
+			name, email := initAuthorName, initAuthorEmail
+			if name == "" || email == "" {
+				name, email = defaultGitAuthorName, defaultGitAuthorEmail
+			}
+			_ = gitx.Commit(abs, "init: KB initialized", name, email)
 		}
 	}
 
