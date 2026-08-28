@@ -1306,7 +1306,8 @@ func (kb *KB) mapDescriptorRelPath(archive string) (string, error) {
 
 // MapContract declares the optional deterministic lint contract of a map.
 // RequiredFields apply to every concept; RequiredFieldsByType are additive.
-// MachinePathAllowPrefixes lists absolute path prefixes that the machine_path
+// MachinePathAllowPrefixes lists path prefixes — POSIX-absolute, Windows
+// drive-absolute, or "~/"-anchored (D159) — that the machine_path
 // lint (D124) must treat as this map's operational target paths rather than
 // client-local paths — e.g. a container image's home directory or a remote
 // node's runtime path, which are identical across every reader's machine and
@@ -1439,13 +1440,27 @@ func normalizeAllowPrefix(raw string) (string, bool) {
 
 	isPOSIX := strings.HasPrefix(trimmed, "/")
 	isWindows := isWindowsDriveAbsolute(trimmed)
-	if !isPOSIX && !isWindows {
+	// A "~/"-anchored prefix is accepted (D159): ~/.ssh/config means "your ssh
+	// config" on every machine, exactly as /etc/... does, and machinePathRe
+	// already matches that form — so a literal comparison works with no home
+	// expansion anywhere. Expanding ~ would make the contract's meaning depend on
+	// the reader's home directory, which is the opposite of what an allow-list
+	// for portable paths is for. "~user/..." is deliberately rejected: the regex
+	// never produces that form, so such a prefix could never match.
+	isTilde := trimmed == "~" || strings.HasPrefix(trimmed, "~/")
+	if !isPOSIX && !isWindows && !isTilde {
 		return "", false
+	}
+	if trimmed == "~" {
+		trimmed = "~/"
 	}
 
 	minLen := 1 // bare POSIX root "/"
 	if isWindows {
 		minLen = 3 // bare Windows drive root "C:\" or "C:/"
+	}
+	if isTilde {
+		minLen = 2 // bare "~/"
 	}
 	normalized := trimmed
 	for len(normalized) > minLen {

@@ -125,7 +125,7 @@ func toolIndexGet(k *kb.KB) Tool {
 // 'outline' was requested — a 92 KB concept blew past a client's token
 // budget and forced a workaround outside the MCP surface (D78). 'full: true'
 // overrides the guard.
-const conceptReadSizeGuard = 60000
+const conceptReadSizeGuard = okf.ConceptReadSizeGuard
 
 // maxSectionNotFoundHeadings caps the heading list surfaced in a "section
 // not found" error, so the agent sees the real outline instead of guessing.
