@@ -47,8 +47,84 @@ any text editor.
 Cartographer offers **two complementary profiles**:
 - **Local Core** — single agent, stdio transport, local git. Captures the value of the pattern with
   minimal complexity.
-- **Server** — multi-KB, HTTP + token auth. For shared and remote
-  deployments.
+- **Server** — multi-KB, HTTP + token auth. One server holds several knowledge bases, hands each
+  client the artifacts its KBs define, and lets a team share some KBs while keeping others private.
+
+Two consequences are worth stating on their own, because they are what most of the design is for:
+the KB **configures the agents that read it** across every client you use, and it does that for a
+whole team rather than a single laptop.
+
+## One KB, every agent
+
+A knowledge base is not only what an agent reads — it is also **how that agent is set up to work**.
+Cartographer treats skills, subagents, hooks and standing instructions as content of the KB, and
+materializes them into each client's native format.
+
+The manual alternative is what most setups do today: the same skill hand-copied into
+`.claude/skills/`, `.opencode/skills/` and `.codex/skills/`, each drifting on its own, each config
+file edited by hand for every MCP endpoint. Change one thing and you change it in five places, on
+every machine, forever.
+
+```bash
+cartographer connect        # detects installed clients and configures all of them
+```
+
+That single command writes, per client and in the format that client expects:
+
+| | claude | opencode | codex | kiro | hermes |
+|---|---|---|---|---|---|
+| **MCP endpoint** | `.claude.json` | `opencode.json` | `config.toml` block | `.kiro/settings/mcp.json` | *rendered by its own deploy* |
+| **Skills** | `.claude/skills/` | `.opencode/skills/` | `.codex/skills/` | `.kiro/skills/` | delivered to its inbox |
+| **Subagents** | `.claude/agents/*.md` | `.opencode/agent/*.md` | `.codex/agents/*.toml` | — | — |
+| **Hooks** | `settings.json` | generated JS plugin | `config.toml` block | — | — |
+| **Instructions** | block in `CLAUDE.md` | block in `AGENTS.md` | block in `AGENTS.md` | `.kiro/steering/` | — |
+
+Subagents and hooks are **translated**, not copied: the same KB artifact becomes a Markdown agent
+for Claude Code, a TOML one for Codex, and a generated JavaScript plugin where a hook has no native
+equivalent. Cells that cannot exist are `unsupported` by explicit declaration, never by silent
+omission — and a cell missing from the table fails a test.
+
+What keeps it true after the first run:
+
+- **it re-syncs by itself** — a `SessionStart` hook on every client that has one, a scheduled timer
+  for those that don't;
+- **it verifies the files on disk**, not just its own bookkeeping: an artifact edited by hand or
+  deleted is restored from the server;
+- **every materialized file carries a provenance stamp** saying which KB it came from and where to
+  edit it for real;
+- **it only ever touches what it created** — pruning is limited to its own tracked paths, and
+  `--dry-run` shows the plan without writing;
+- **`doctor`** diagnoses residues and drift read-only; **`reconnect`** rebuilds a client from
+  scratch while preserving every setting.
+
+Edit a skill once in the KB, and every client of every machine converges on it.
+
+## Teams
+
+The same mechanism is what makes Cartographer work for more than one person. A server mounts
+several KBs and routes by `?kb=<name>`, so colleagues can each keep a private knowledge base while
+sharing others.
+
+- **Per-KB authorization** — bearer tokens carry `kb:<name>:r` or `kb:<name>:rw` scopes. **Roles**
+  ([`docs/transport-auth.md`](docs/transport-auth.md)) narrow that further to specific maps, journals
+  and concept types, so a teammate can be an editor of the runbooks and a reader of everything else.
+  Rules are unioned: adding a role can only widen access, never silently revoke it.
+- **Git is the sync layer** — every write is a commit, with fetch/pull-rebase before and push after,
+  so teammates running their own server against **separate clones of the same remote** converge
+  without a coordination protocol. A conflict is then not an error page but a workflow: the affected
+  concepts are flagged `degraded`, `conflicts_list` enumerates them, and a bundled skill walks an
+  agent through resolving them. (One process is the sole writer of a given working copy; pointing
+  two writers at one checkout is not a supported model — partition KBs across instances instead, see
+  [`docs/concurrency.md`](docs/concurrency.md).)
+- **Shared content stays portable** — a skill that mentions a local repository uses a
+  `{{repo:<name>}}` placeholder resolved **on each client** from its own git remotes, so the same
+  artifact works on every teammate's machine without machine-specific paths leaking into the KB. A
+  server-side lint flags the ones that do.
+- **Provenance you can verify** — a KB can sign its provisioning artifacts with Ed25519; clients pin
+  the public key out of band and refuse anything that fails verification. Distributing a skill to a
+  team is then a checkable act, not a matter of trust.
+- **Per-KB identity** — commit author and an optional tool-name prefix are configured per KB, so
+  history attributes correctly and an agent mounting several KBs never confuses their tools.
 
 ## Key features
 
@@ -61,16 +137,12 @@ Cartographer offers **two complementary profiles**:
 - 🛡️ **Governance** — deterministic `lint` (broken link, stale claim, orphan, map contracts), `commit_gate`,
   `gate_check`, `supersede`, contradiction tracking
 - 🧬 **Transactional git** — one commit per write operation; optional synchronization to a remote
-  (fetch/pull-rebase before and push after every write) — git as a sync layer across multiple
-  instances; agentic conflict handling (concepts flagged `degraded` + `conflicts_list` tool +
-  guided skill)
-- 🗂️ **Multi-KB** with `?kb=<name>` routing; bearer-token auth with scopes / RBAC
+  (fetch/pull-rebase before and push after every write), which is also what lets several instances
+  serve one KB — see [Teams](#teams)
 - 🔐 **Audit log** — append-only with hash-chain and Ed25519 signature
-- 🧩 **Domain skills** (`SKILL.md` / agentskills.io format) with provisioning and client↔server sync, including executable scripts and binary assets
+- 🧩 **Domain skills** (`SKILL.md` / agentskills.io format), including executable scripts and binary
+  assets — see [One KB, every agent](#one-kb-every-agent) for how they reach each client
 - 🔑 **Secrets via SOPS** — JSON Pointer references, scoped resolution and safe rotation; plaintext values never stored
-- ⚙️ **Multi-provider configurator** — generates MCP config for Claude Code, Codex CLI, Kiro,
-  OpenCode; Hermes Agent is supported for artifact delivery (skills are *delivered* to its inbox for
-  the agent to adopt, never installed over the ones it curates itself)
 - 📦 **OKF-compliant** — each KB is an OKF bundle and a standalone git repo, zero lock-in (just git +
   Markdown)
 
@@ -131,7 +203,7 @@ first KB, and connect an agent client to it.
 brew install beppetemp/tap/cartographer   # or curl install.sh, or `go install` (see Install above)
 cartographer service install              # generates config, installs and starts the service
 cartographer kb create <name> --remote <url>  # scaffolds a KB in the data dir, pushes it to <url>
-cartographer connect                      # connects an agent client (Claude Code, OpenCode, Codex, Kiro, Hermes)
+cartographer connect                      # configures every detected client — see One KB, every agent
 ```
 
 `--remote <url>` is an **empty** git repository that becomes the KB's `origin`: a KB is a git
