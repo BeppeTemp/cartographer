@@ -944,7 +944,9 @@ func TestReadMapContract_MachinePathAllowPrefixes_Malformed(t *testing.T) {
 		name  string
 		value string
 	}{
-		{"empty entry", "[/home/nonroot, ]"},
+		// A TRAILING comma is valid YAML and no longer yields an empty element
+		// (D162), so the malformed case is an empty entry in the middle.
+		{"empty entry", "[/home/nonroot, , /home/other]"},
 		{"duplicate entry", "[/home/nonroot, /home/nonroot]"},
 		{"relative path", "[relative/path]"},
 		{"windows relative form", `[Users\foo]`},
@@ -1452,5 +1454,47 @@ func TestInit_IndexTitleFromDirectory(t *testing.T) {
 	raw, _ = os.ReadFile(filepath.Join(k.DataRoot(), "index.md"))
 	if string(raw) != custom {
 		t.Errorf("existing index.md was rewritten:\n%s", raw)
+	}
+}
+
+// The field report asked for the file and line alongside the key. validate
+// already wrapped the parser error with the concept's path, and D162 added the
+// line to the parser message, so the three together need no new check — a lint
+// duplicate would only double-report (D162).
+func TestValidate_UnparseableFrontmatterNamesPathKeyAndLine(t *testing.T) {
+	dir := tempKB(t)
+	k, err := Init(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := k.CreateMap("notes", "Notes", "map", nil, ""); err != nil {
+		t.Fatal(err)
+	}
+	rel := filepath.Join("notes", "broken.md")
+	abs := filepath.Join(k.DataRoot(), rel)
+	if err := os.WriteFile(abs, []byte("---\ntype: Note\nprovenance: [\n  a,\n---\n# Broken\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	errs, err := k.Validate("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var found *ValidationError
+	for i := range errs {
+		if strings.Contains(errs[i].Message, "unparseable frontmatter") {
+			found = &errs[i]
+		}
+	}
+	if found == nil {
+		t.Fatalf("no unparseable-frontmatter error reported: %+v", errs)
+	}
+	if !strings.Contains(found.Path, "broken.md") {
+		t.Errorf("error path = %q, want it to name the file", found.Path)
+	}
+	for _, want := range []string{"provenance", "line"} {
+		if !strings.Contains(found.Message, want) {
+			t.Errorf("message %q does not mention %q", found.Message, want)
+		}
 	}
 }

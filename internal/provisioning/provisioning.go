@@ -192,7 +192,10 @@ type ApplyOptions struct {
 	// its own local filesystem.
 	ExpandPlaceholders bool
 	SearchRoots        []string
-	Paths              map[string]string
+	// SearchDepth bounds how deep repoindex descends from each search root when
+	// resolving a {{repo:<key>}} placeholder (D162). Zero means the default.
+	SearchDepth int
+	Paths       map[string]string
 
 	// NoHeal reports on-disk divergence (AppliedResult.Divergent) instead of
 	// restoring it (D139). The escape hatch for someone deliberately

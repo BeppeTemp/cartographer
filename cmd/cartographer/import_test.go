@@ -508,3 +508,115 @@ func TestCmdImport_TellsTheOperatorToReindex(t *testing.T) {
 		t.Errorf("the instruction is redundant once the index was rebuilt: %q", out)
 	}
 }
+
+// --- D162 WP5: --map covers a subtree ---
+
+// A corpus with 58 source directories needed 58 flags, because the lookup was
+// keyed on the exact path.Dir(rel): the only choices were one map for everything
+// or one flag per directory, with nothing in between.
+func TestBuildImportPlan_MapPrefixMatching(t *testing.T) {
+	src := t.TempDir()
+	for _, rel := range []string{"a/one.md", "a/b/two.md", "a/b/c/three.md", "ab/four.md", "z/five.md"} {
+		abs := filepath.Join(src, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(abs, []byte("# X\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	destOf := func(plan *importPlan, srcRel string) string {
+		for _, f := range plan.files {
+			if f.srcRel == srcRel {
+				return string(f.destID)
+			}
+		}
+		return ""
+	}
+
+	t.Run("one flag covers a whole subtree", func(t *testing.T) {
+		mapping, err := parseImportMap([]string{"a=deep", "ab=flat", "z=other"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		plan, err := buildImportPlan(src, mapping, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, rel := range []string{"a/one.md", "a/b/two.md", "a/b/c/three.md"} {
+			if got := destOf(plan, rel); !strings.HasPrefix(got, "deep/") {
+				t.Errorf("%s -> %q, want it under deep/", rel, got)
+			}
+		}
+		// Segment boundary: "a" must not cover "ab".
+		if got := destOf(plan, "ab/four.md"); !strings.HasPrefix(got, "flat/") {
+			t.Errorf("ab/four.md -> %q, want it under flat/ — \"a\" wrongly covered \"ab\"", got)
+		}
+	})
+
+	t.Run("the longest prefix wins", func(t *testing.T) {
+		mapping, err := parseImportMap([]string{"a=outer", "a/b=inner", "ab=flat", "z=other"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		plan, err := buildImportPlan(src, mapping, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := destOf(plan, "a/one.md"); !strings.HasPrefix(got, "outer/") {
+			t.Errorf("a/one.md -> %q, want outer/", got)
+		}
+		for _, rel := range []string{"a/b/two.md", "a/b/c/three.md"} {
+			if got := destOf(plan, rel); !strings.HasPrefix(got, "inner/") {
+				t.Errorf("%s -> %q, want inner/", rel, got)
+			}
+		}
+	})
+
+	t.Run("the source root is a legal catch-all", func(t *testing.T) {
+		mapping, err := parseImportMap([]string{".=everything"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		plan, err := buildImportPlan(src, mapping, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, f := range plan.files {
+			if !strings.HasPrefix(string(f.destID), "everything/") {
+				t.Errorf("%s -> %q, want it under everything/", f.srcRel, f.destID)
+			}
+		}
+	})
+
+	t.Run("an exact mapping still works", func(t *testing.T) {
+		mapping, err := parseImportMap([]string{"a=one", "a/b=two", "a/b/c=three", "ab=four", "z=five"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		plan, err := buildImportPlan(src, mapping, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := destOf(plan, "a/b/c/three.md"); !strings.HasPrefix(got, "three/") {
+			t.Errorf("a/b/c/three.md -> %q, want three/", got)
+		}
+	})
+
+	t.Run("a duplicate source directory is an error", func(t *testing.T) {
+		_, err := parseImportMap([]string{"a=one", "a=two"})
+		if err == nil || !strings.Contains(err.Error(), "duplicate source directory") {
+			t.Errorf("parseImportMap = %v, want a duplicate error", err)
+		}
+	})
+
+	t.Run("an unmapped directory is still an error", func(t *testing.T) {
+		mapping, err := parseImportMap([]string{"a=one"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := buildImportPlan(src, mapping, ""); err == nil {
+			t.Error("an unmapped directory with no --default-map must remain an error")
+		}
+	})
+}
