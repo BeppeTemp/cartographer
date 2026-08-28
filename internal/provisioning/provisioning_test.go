@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -1040,5 +1041,87 @@ func TestReadLockFile_MigrazioneV1(t *testing.T) {
 	}
 	if len(claude.Managed) != 1 {
 		t.Errorf("ReadLockFile: v1 migration did not preserve Managed: %+v", claude.Managed)
+	}
+}
+
+// The reported incident: a client's skills directory was a symlink into an
+// unrelated git checkout, and one sync modified 23 files there, each stamped
+// with a provenance footer declaring a false origin (D148). The refusal must
+// leave the target untouched, report the artifact, and not stop the rest of the
+// pass.
+func TestApply_RefusesSymlinkedSkillDirAndKeepsGoing(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink semantics differ on Windows")
+	}
+	m := provisioning.Manifest{
+		Revision: "symlink",
+		Artifacts: []provisioning.Artifact{
+			{
+				Kind: "skill", Name: "linked", Source: "kb:test", ContentHash: "h1", Signed: true,
+				Files: []provisioning.ArtifactFile{{Path: "SKILL.md", Content: []byte("---\nname: linked\ndescription: test\n---\n")}},
+			},
+			{
+				Kind: "skill", Name: "real", Source: "kb:test", ContentHash: "h2", Signed: true,
+				Files: []provisioning.ArtifactFile{{Path: "SKILL.md", Content: []byte("---\nname: real\ndescription: test\n---\n")}},
+			},
+		},
+	}
+	base := t.TempDir()
+	foreign := t.TempDir()
+	// Stand in for the unrelated repository: the skill's own destination
+	// directory is a link into it.
+	skillsDir := filepath.Join(base, ".claude", "skills")
+	if err := os.MkdirAll(skillsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(foreign, filepath.Join(skillsDir, "linked")); err != nil {
+		t.Fatal(err)
+	}
+
+	res, err := provisioning.Apply(m, provisioning.ApplyOptions{
+		Provider: configurator.ProviderClaudeCode,
+		BaseDir:  base,
+		Lock:     provisioning.Lock{},
+	})
+	if err != nil {
+		t.Fatalf("Apply must not fail the whole pass: %v", err)
+	}
+
+	// Nothing landed in the foreign directory.
+	entries, err := os.ReadDir(foreign)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Errorf("the write followed the symlink: %d entries in the target", len(entries))
+	}
+
+	if len(res.Refused) != 1 || res.Refused[0].Name != "linked" {
+		t.Errorf("Refused = %+v, want exactly the linked skill", res.Refused)
+	}
+	var warned bool
+	for _, w := range res.Warnings {
+		if strings.Contains(w, "linked") && strings.Contains(w, "symlink") {
+			warned = true
+		}
+	}
+	if !warned {
+		t.Errorf("Warnings = %v, want one naming the refused skill and the symlink", res.Warnings)
+	}
+
+	// The sibling on a real path is installed, and the refused one is not
+	// recorded as managed — so the next sync retries and reports again.
+	if _, err := os.Stat(filepath.Join(skillsDir, "real", "SKILL.md")); err != nil {
+		t.Errorf("the sibling skill was not installed: %v", err)
+	}
+	for _, w := range res.Written {
+		if w.Name == "linked" {
+			t.Errorf("a refused artifact must not be recorded as written: %+v", w)
+		}
+	}
+	for _, e := range res.NewLock.Managed {
+		if e.Name == "linked" {
+			t.Errorf("a refused artifact must not enter the lockfile: %+v", e)
+		}
 	}
 }

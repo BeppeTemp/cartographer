@@ -310,6 +310,7 @@ The eight checks:
 | `hooks` | one native registration per managed hook — the D99 double-fire is a registration left outside the managed block by Codex's own rewrite |
 | `server` | `/health` reachable; the recorded `server_version` (D142) against the live one; client binary against server |
 | `trigger` | every connected provider has a session hook, or the scheduled trigger is installed (D140) |
+| `symlink` | no managed destination directory is a symlink — provisioning refuses to write through one, so the artifacts it would hold are not installed (D148) |
 
 **Severities.** `error` — something is broken now (a managed file missing, a hook firing twice);
 `warning` — something is stale or suboptimal (v1 lockfile, no trigger for a hook-less provider, a
