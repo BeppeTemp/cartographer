@@ -59,7 +59,10 @@ Hook **`cartographer-bootstrap`** (reserved name, `provisioning.BootstrapHookNam
 install [--interval 30m]` registers a launchd agent (macOS) or a systemd user timer (Linux) that
 runs `cartographer sync` on an interval. It is **opt-in**: installing a background job on the
 user's machine during `connect` would be out of proportion, so `connect` and `status` only name the
-command when a connected provider has no session hook. The timer runs sync **without**
+command when a connected provider has no session hook **and** the timer is not already installed —
+the same predicate `doctor`'s `trigger` check uses, so the three commands cannot disagree about
+whether a trigger covers the client. A timer status that cannot be read is not evidence of coverage,
+so the hint is still printed. The timer runs sync **without**
 `--auto-trust` — an unattended job must not grant a trust the user never gave; the persisted
 `trust` setting in `.cartographer.yaml` still applies (D54). Logs: `~/Library/Logs/cartographer/sync.log`
 on macOS, the journal on Linux.

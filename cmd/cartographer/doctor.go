@@ -528,19 +528,11 @@ func checkServer(dir string, cfg *clientconfig.Config, providers []string) []doc
 }
 
 // checkTriggerCoverage: a provider with no session hook syncs only when a human
-// remembers to, unless the scheduled trigger is installed (D140).
+// remembers to, unless the scheduled trigger is installed (D140). Shares its
+// predicate with printSyncTimerHint (connect.go) so the two cannot disagree.
 func checkTriggerCoverage(dir string, providers []string) []doctorFinding {
-	var hookless []string
-	for _, p := range providers {
-		if !provisioning.SupportsSessionHook(configurator.Provider(p)) {
-			hookless = append(hookless, p)
-		}
-	}
+	hookless, st := providersNeedingSyncTimer(providers)
 	if len(hookless) == 0 {
-		return nil
-	}
-	st, err := syncTimerStatusFn()
-	if err == nil && st.Installed {
 		return nil
 	}
 	path := st.Path

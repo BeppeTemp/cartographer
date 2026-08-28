@@ -438,17 +438,43 @@ func printConnectResult(dir string, providers []string, opts connectOptions, res
 	printSyncTimerHint(providers)
 }
 
-// printSyncTimerHint names the scheduled trigger once per invocation when a
-// provider being configured has no session hook (D140): without it, that
-// client only syncs when a human remembers to. The timer is never installed
-// automatically — see cmdServiceSyncTimer.
-func printSyncTimerHint(providers []string) {
+// providersNeedingSyncTimer returns the providers among those given that have
+// no session-start hook and are therefore covered by no trigger at all: nil
+// when every provider has a hook, and also nil when the scheduled timer is
+// installed, since that is what covers the hook-less ones (D140). The timer
+// status is returned alongside so a caller can name its path.
+//
+// One predicate, two callers — printSyncTimerHint below (connect, reconnect and
+// status) and doctor's checkTriggerCoverage — because two copies of it
+// disagreed: the hint never consulted the timer, so it advised installing a
+// trigger that was already installed and running, on the command an operator
+// reads last.
+func providersNeedingSyncTimer(providers []string) ([]string, service.SyncTimerStatus) {
 	var hookless []string
 	for _, p := range providers {
 		if !provisioning.SupportsSessionHook(configurator.Provider(p)) {
 			hookless = append(hookless, p)
 		}
 	}
+	if len(hookless) == 0 {
+		return nil, service.SyncTimerStatus{}
+	}
+	// A status that cannot be read is not evidence the timer is there, so the
+	// caller still warns.
+	st, err := syncTimerStatusFn()
+	if err == nil && st.Installed {
+		return nil, st
+	}
+	return hookless, st
+}
+
+// printSyncTimerHint names the scheduled trigger once per invocation when a
+// provider being configured has no session hook and the trigger is not already
+// installed (D140): without either, that client only syncs when a human
+// remembers to. The timer is never installed automatically — see
+// cmdServiceSyncTimer.
+func printSyncTimerHint(providers []string) {
+	hookless, _ := providersNeedingSyncTimer(providers)
 	if len(hookless) == 0 {
 		return
 	}
