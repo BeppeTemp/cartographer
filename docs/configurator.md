@@ -319,6 +319,8 @@ version difference); `info` — context that cannot be acted on by itself and ne
 code (managed entries recorded before content hashes existed, which nothing can verify). Findings
 are printed errors first.
 
+**`doctor --repair-hashes`** re-records the materialized hash of every managed entry that has none, computing it from the bytes already on disk (D157). It exists because the previous remedy for that narrow gap was `reconnect`, which prunes and rewrites **every** managed artifact on every client — in the field ~150 file operations to backfill six hashes, with a partial failure leaving both clients without skills. A backfilled entry is marked `adopted_at` in the lockfile: it is **adopted, not verified** — nothing was compared against the server, so drift is detectable only from the next server-side change onward. An entry whose file is *missing* is left alone: that is real drift for `sync` to fix, not something to paper over.
+
 **Exit codes**: `0` clean, `1` findings (error or warning), `2` an error running the command — the
 same convention `status` uses. An unreachable server is one `warning` finding, not a failure:
 `doctor` stays useful offline.

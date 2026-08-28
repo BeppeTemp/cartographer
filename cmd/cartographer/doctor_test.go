@@ -338,7 +338,10 @@ func TestSortDoctorFindings(t *testing.T) {
 // The suggested command must therefore be the rebuild, not the sync: a
 // diagnosis that names a command which does not resolve it is exactly the
 // noise D143 forbids.
-func TestRunDoctor_UnknownHashSuggestsRebuild(t *testing.T) {
+// The remedy is now the narrow one: the content is on disk and the hash is
+// computable without refetching anything, so rewriting every managed artifact on
+// every client is three orders of magnitude more work than the problem (D157).
+func TestRunDoctor_UnknownHashSuggestsRepairHashes(t *testing.T) {
 	doctorStubs(t, []string{"claude"}, false)
 	dir := doctorFixture(t, "claude")
 
@@ -363,8 +366,48 @@ func TestRunDoctor_UnknownHashSuggestsRebuild(t *testing.T) {
 	if found[0].Severity != doctorInfo {
 		t.Errorf("severity = %q, want %q", found[0].Severity, doctorInfo)
 	}
-	if found[0].Fix != "cartographer reconnect" {
-		t.Errorf("fix = %q, want the rebuild: a sync leaves these entries untouched", found[0].Fix)
+	if !strings.Contains(found[0].Fix, "--repair-hashes") {
+		t.Errorf("fix = %q, want the narrow remedy", found[0].Fix)
+	}
+
+	// The round trip: repairing clears the finding, and the entries are marked
+	// adopted rather than silently passing as verified.
+	out := withStdout(t, func() {
+		if code := repairManagedHashes(dir, ""); code != 0 {
+			t.Errorf("repairManagedHashes = %d, want 0", code)
+		}
+	})
+	if !strings.Contains(out, "adopted, not verified") {
+		t.Errorf("output %q does not say the entries are adopted", out)
+	}
+	if again := findingsFor(runDoctor(dir, ""), "managed-files"); len(again) != 0 {
+		t.Errorf("finding survived the repair: %+v", again)
+	}
+	repaired, err := provisioning.ReadLockFile(lockFilePath(dir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, mf := range repaired.ForProvider("claude").Managed {
+		if mf.MaterializedHash == "" {
+			t.Errorf("entry %s/%s still has no hash", mf.Kind, mf.Name)
+		}
+		if mf.AdoptedAt == "" {
+			t.Errorf("entry %s/%s is not marked adopted", mf.Kind, mf.Name)
+		}
+	}
+}
+
+// Nothing to repair is a clean, explicit outcome rather than silence.
+func TestRepairManagedHashes_NothingToDo(t *testing.T) {
+	doctorStubs(t, []string{"claude"}, false)
+	dir := doctorFixture(t, "claude")
+	out := withStdout(t, func() {
+		if code := repairManagedHashes(dir, ""); code != 0 {
+			t.Errorf("repairManagedHashes = %d, want 0", code)
+		}
+	})
+	if !strings.Contains(out, "no unverifiable managed artifacts") {
+		t.Errorf("output = %q", out)
 	}
 }
 
