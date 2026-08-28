@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -285,5 +286,64 @@ func TestInstallServiceAndWaitHealthy_UsesDefaultListenAddress(t *testing.T) {
 	}
 	if got.HTTPAddr != defaults.DefaultListenAddress {
 		t.Errorf("automatic service HTTPAddr = %q, want %q", got.HTTPAddr, defaults.DefaultListenAddress)
+	}
+}
+
+// A provider whose MCP configuration Cartographer does not write (D141, hermes)
+// must not be told an MCP entry was written for it, nor to restart its sessions
+// to load tools it never received — both contradict the warning printed
+// alongside them (D147).
+func TestPrintConnectResult_NoMCPClaimsForProvidersWithoutAnEmitter(t *testing.T) {
+	hermes := []string{"hermes"}
+	out := withStdout(t, func() {
+		printConnectResult(t.TempDir(), hermes, connectOptions{}, connectResult{Providers: hermes})
+	})
+	if strings.Contains(out, "MCP entry") {
+		t.Errorf("output = %q, must not announce an MCP entry for a provider with no emitter", out)
+	}
+	if strings.Contains(out, "load the MCP tools") {
+		t.Errorf("output = %q, must not ask to restart sessions for MCP tools never delivered", out)
+	}
+	if !strings.Contains(out, "connected: hermes") {
+		t.Errorf("output = %q, want the provider still reported as connected", out)
+	}
+
+	// A provider that does have an emitter keeps both lines.
+	claude := []string{"claude"}
+	out = withStdout(t, func() {
+		printConnectResult(t.TempDir(), claude, connectOptions{}, connectResult{Providers: claude, MCPEntries: []string{"cartographer"}})
+	})
+	if !strings.Contains(out, "wrote MCP entry cartographer") {
+		t.Errorf("output = %q, want the MCP entry reported", out)
+	}
+	if !strings.Contains(out, "restart the claude sessions") {
+		t.Errorf("output = %q, want the restart hint", out)
+	}
+}
+
+// With a mixed selection the restart hint names only the providers that
+// actually received MCP configuration.
+func TestPrintConnectResult_RestartHintNamesOnlyMCPProviders(t *testing.T) {
+	providers := []string{"claude", "hermes"}
+	out := withStdout(t, func() {
+		printConnectResult(t.TempDir(), providers, connectOptions{}, connectResult{Providers: providers, MCPEntries: []string{"cartographer"}})
+	})
+	if !strings.Contains(out, "restart the claude sessions") {
+		t.Errorf("output = %q, want only claude named in the restart hint", out)
+	}
+	if strings.Contains(out, "hermes sessions") {
+		t.Errorf("output = %q, must not tell hermes to restart for MCP tools", out)
+	}
+}
+
+// The predicate both the MCP-entry lines and the restart hint are scoped by.
+func TestProvidersManagingMCP(t *testing.T) {
+	got := providersManagingMCP([]string{"claude", "hermes", "codex"})
+	want := []string{"claude", "codex"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("providersManagingMCP() = %v, want %v", got, want)
+	}
+	if got := providersManagingMCP([]string{"hermes"}); len(got) != 0 {
+		t.Errorf("providersManagingMCP([hermes]) = %v, want empty — it has no MCP emitter", got)
 	}
 }

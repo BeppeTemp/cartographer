@@ -98,7 +98,7 @@ cartographer connect all --auto-trust --dry-run
 | `--server-url` | `http://localhost:39273/mcp` | Cartographer server URL |
 | `--auth` | `false` | Enables the Bearer header in generated configs |
 | `--token-env` | `CARTOGRAPHER_TOKENS` | Env var holding the Bearer token |
-| `--dry-run` | `false` | Prints without writing |
+| `--dry-run` | `false` | Prints what would be written, in the conditional (`would write`, `would connect`), and writes nothing ([D147](decisions/client-configurator.md#d147)) |
 | `--auto-trust` | `false` | Also treats KB skills as trusted (unsigned) |
 | `--pin-key` | *(repeatable)* | Pins `KB=PUBLIC_KEY` for Ed25519-verified provisioning artifacts; existing pins are preserved |
 
@@ -470,7 +470,9 @@ the shared base dir declares `BaseDirEnv` instead ([D141](decisions/client-confi
 configuration: Hermes' endpoint list lives in a `config.yaml` rendered by its Ansible role and
 recreated on the next playbook run, so anything written there would be lost — `connect` says so
 explicitly rather than silently doing nothing, and pointing Hermes at the server stays the
-operator's job. For the same reason Hermes is absent from the interactive connect form, which offers
+operator's job. The output is scoped to match: no MCP-entry line is printed, and the closing
+"restart the … sessions to load the MCP tools" hint names only the providers that received one
+([D147](decisions/client-configurator.md#d147)). For the same reason Hermes is absent from the interactive connect form, which offers
 the providers whose MCP configuration `connect` writes.
 
 - **`$HERMES_HOME` is required**: it is the base dir artifacts are materialized under, recorded as

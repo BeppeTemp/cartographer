@@ -269,19 +269,33 @@ func ensureBootstrapForProviders(providers []string, targetDir string, dryRun bo
 // printApplySummary prints a one-line-per-file summary of a materialization pass.
 // dir is the base-dir the artifacts were materialized into — used to print the
 // resolved settings.json path in printHookRegistered (D57).
-func printApplySummary(dir string, results map[string]provisioning.AppliedResult) {
+//
+// dryRun is not cosmetic: Apply fills AppliedResult with what it *would* write
+// when it changes nothing, so reporting those lines in the past tense describes
+// a pass that never happened — precisely when the reader asked to see the plan
+// before committing to it (D147).
+func printApplySummary(dir string, results map[string]provisioning.AppliedResult, dryRun bool) {
 	needsApproval := false
 	needsMCPApproval := false
+	// "wrote" / "would write", chosen once so every line of the pass agrees.
+	verb := func(done, planned string) string {
+		if dryRun {
+			return planned
+		}
+		return done
+	}
 	for _, p := range sortedKeys(results) {
 		r := results[p]
 		for _, w := range r.Written {
-			fmt.Printf("[%s] wrote %s\n", p, w.Path)
-			if hookRegistrationManagedFile(p, w) {
+			fmt.Printf("[%s] %s %s\n", p, verb("wrote", "would write"), w.Path)
+			// The registration line reports a side effect on a shared file
+			// that a dry run does not perform either.
+			if !dryRun && hookRegistrationManagedFile(p, w) {
 				printHookRegistered(p, dir, w)
 			}
 		}
 		for _, pr := range r.Pruned {
-			fmt.Printf("[%s] pruned %s\n", p, pr.Path)
+			fmt.Printf("[%s] %s %s\n", p, verb("pruned", "would prune"), pr.Path)
 		}
 		// A heal means a local change was discarded (D139): say so on its own
 		// line instead of folding it into the ordinary writes above.
@@ -292,7 +306,7 @@ func printApplySummary(dir string, results map[string]provisioning.AppliedResult
 				continue
 			}
 			healedArtifacts[key] = true
-			fmt.Printf("[%s] restored %s from the server (local changes discarded)\n", p, key)
+			fmt.Printf("[%s] %s %s from the server (local changes discarded)\n", p, verb("restored", "would restore"), key)
 		}
 		for _, d := range r.Divergent {
 			fmt.Printf("[%s] diverged locally (%s): %s/%s at %s — `cartographer sync` restores it\n", p, d.Reason, d.Kind, d.Name, d.Path)
