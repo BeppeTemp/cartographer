@@ -297,7 +297,7 @@ Binds to **loopback** by default (`127.0.0.1:39273`) → auth stays in auto-off 
 
 `service status` uses systemctl-like exit codes: `0` running, `3` installed but stopped, `4` not installed — this is what lets `install.sh update` automatically restart only a running service (see §Client installation).
 
-**Data/code separation**: the cartographer repo contains no data. KBs live in the data dir (default `~/cartographer-data`); every subdirectory of it is a separate KB. For multiple users on shared KBs, see the k8s topology below — the server configuration is identical, only where it runs changes; for multiple instances on the same KB, see §Topologies (Multi-server).
+**Data/code separation**: the cartographer repo contains no data. KBs live in the data dir (default `~/cartographer-data`); every subdirectory of it is a separate KB. For multiple users on shared KBs, see the k8s topology below — the server configuration is identical, only where it runs changes; one server process is the sole writer of a given working copy, so several instances mean separate clones synchronizing through the same remote, never two writers on one checkout (`concurrency.md` §Writer boundary).
 
 Client-side convenience: if `cartographer connect` targets a loopback URL and the probe fails because the service isn't running, it directly offers to install+start the service (in the interactive flow) or suggests `cartographer service install` (in the non-interactive one).
 
