@@ -52,12 +52,63 @@ const (
 	// mapOversizeThreshold is the concept count above which a map should
 	// probably be split thematically (into a new map, not a subfolder).
 	mapOversizeThreshold = 50
-	// conceptOversizeThreshold is the body size (bytes) above which a
-	// concept is flagged for splitting via concept_expand — mirrors the
-	// concept_read size guard (D78): a concept this large risks blowing
-	// past a client's token budget on a plain read.
-	conceptOversizeThreshold = 30000
+	// conceptOversizeThreshold is the body size (bytes) above which a concept is
+	// flagged for splitting. Derived from the read guard rather than an
+	// independent number (D159): lint advises a split at half the size at which
+	// a plain concept_read degrades to an outline, so an author gets warning
+	// before reads change shape. The two used to be unrelated constants, and the
+	// claim that this one "mirrors" the guard was simply false — 30000 does not
+	// mirror 60000.
+	conceptOversizeThreshold = okf.ConceptReadSizeGuard / 2
 )
+
+// perConceptChecks are the checks a concept may silence with lint_ignore, i.e.
+// the warning/info ones driven by that concept's own body or frontmatter. Kept in
+// one place so an unknown name in lint_ignore can be reported rather than
+// silently suppressing nothing.
+//
+// Deliberately excluded: every SevError check. missing_required_field and
+// expanded_ambiguous are contract violations, not judgements — letting a concept
+// declare its own contract void is not an escape hatch, it is a hole. Also
+// excluded: the directory-based checks (map_oversize, index_incomplete,
+// expanded_*), which belong to a map or a directory and have no concept
+// frontmatter to read.
+var perConceptChecks = map[string]bool{
+	"broken_link":            true,
+	"machine_path":           true,
+	"concept_oversize":       true,
+	"stale_claim":            true,
+	"imported_draft":         true,
+	"secrets_on_non_service": true,
+	"orphan":                 true,
+}
+
+// lintIgnoreSet reads a concept's lint_ignore frontmatter key (D159). A bare
+// string is accepted as a one-element list: the frontmatter parser distinguishes
+// the two and a bare string is the obvious authoring mistake.
+func lintIgnoreSet(fm *okf.Frontmatter) map[string]bool {
+	if fm == nil {
+		return nil
+	}
+	v, ok := fm.Get("lint_ignore")
+	if !ok {
+		return nil
+	}
+	out := map[string]bool{}
+	switch value := v.(type) {
+	case string:
+		if strings.TrimSpace(value) != "" {
+			out[strings.TrimSpace(value)] = true
+		}
+	case []string:
+		for _, item := range value {
+			if strings.TrimSpace(item) != "" {
+				out[strings.TrimSpace(item)] = true
+			}
+		}
+	}
+	return out
+}
 
 // Finding represents a single lint finding.
 type Finding struct {
@@ -176,6 +227,44 @@ func Run(k *kb.KB, scope string, scopeNeighbors bool) ([]Finding, error) {
 		// sort on. The two coincide for a plain concept.
 		linkBase, _ := k.ConceptRelPath(id)
 		fmRaw, body, hasFM := okf.SplitFrontmatter(content)
+		// lint_ignore (D159): a concept that documents a false positive — a
+		// ~/.ssh/config in prose, a deliberately-broken example link — could not
+		// be written without generating the findings it describes. One closure
+		// rather than a condition at each site, and errors are never suppressible:
+		// they route around emit on purpose.
+		var conceptIgnores map[string]bool
+		if hasFM {
+			if parsedForIgnore, _ := okf.ParseFrontmatter(fmRaw); parsedForIgnore != nil {
+				conceptIgnores = lintIgnoreSet(parsedForIgnore)
+			}
+		}
+		emit := func(f Finding) {
+			if f.Severity != SevError && conceptIgnores[f.Check] {
+				return
+			}
+			findings = append(findings, f)
+		}
+		for name := range conceptIgnores {
+			if perConceptChecks[name] {
+				continue
+			}
+			reason := "not a known lint check"
+			if name == "missing_required_field" || name == "expanded_ambiguous" {
+				reason = "an error-severity contract violation, which lint_ignore cannot silence"
+			} else if name == "map_oversize" || name == "index_incomplete" || name == "orphan_asset" || strings.HasPrefix(name, "expanded_") {
+				// orphan_asset belongs to an expanded concept's asset set, reported
+				// in the directory pass: there is no single concept frontmatter that
+				// owns it, so listing it as suppressible would be a promise the
+				// implementation does not keep.
+				reason = "a directory-level check, not a per-concept one"
+			}
+			findings = append(findings, Finding{
+				Path:     relPath,
+				Check:    "lint_ignore_invalid",
+				Severity: SevWarning,
+				Message:  fmt.Sprintf("lint_ignore names %q: %s, so nothing is suppressed", name, reason),
+			})
+		}
 		parts := strings.Split(string(id), "/")
 		var allowPrefixes []string
 		if len(parts) > 1 && archiveSet[parts[0]] {
@@ -190,7 +279,7 @@ func Run(k *kb.KB, scope string, scopeNeighbors bool) ([]Finding, error) {
 			// concept_read now agree on what a valid target is (D149).
 			_, readErr := k.ReadConcept(target)
 			if readErr != nil && errors.Is(readErr, okf.ErrNotFound) {
-				findings = append(findings, Finding{
+				emit(Finding{
 					Path:     relPath,
 					Check:    "broken_link",
 					Severity: SevWarning,
@@ -201,7 +290,7 @@ func Run(k *kb.KB, scope string, scopeNeighbors bool) ([]Finding, error) {
 
 		// --- machine_path (warning, D75 WP6 / D124) ---
 		if disallowed := firstDisallowedMachinePath(body, allowPrefixes); disallowed != "" {
-			findings = append(findings, Finding{
+			emit(Finding{
 				Path:     relPath,
 				Check:    "machine_path",
 				Severity: SevWarning,
@@ -211,11 +300,19 @@ func Run(k *kb.KB, scope string, scopeNeighbors bool) ([]Finding, error) {
 
 		// --- concept_oversize (info) ---
 		if len(body) > conceptOversizeThreshold {
-			findings = append(findings, Finding{
+			// concept_expand requires exactly two segments and the write path caps
+			// depth at three, so for a satellite the remedy this check used to
+			// advise is structurally unavailable — and the two largest concepts in
+			// the reporting KB were satellites (D159).
+			remedy := "consider concept_expand to split it into a dossier"
+			if len(parts) > 2 {
+				remedy = "this is a satellite, so concept_expand does not apply: split it into sibling satellites of the same expanded concept and link them from its index"
+			}
+			emit(Finding{
 				Path:     string(id),
 				Check:    "concept_oversize",
 				Severity: SevInfo,
-				Message:  fmt.Sprintf("%d bytes in one concept (threshold %d) — consider concept_expand to split it into a dossier", len(body), conceptOversizeThreshold),
+				Message:  fmt.Sprintf("%d bytes in one concept (threshold %d; concept_read returns an outline instead of the body above %d) — %s", len(body), conceptOversizeThreshold, okf.ConceptReadSizeGuard, remedy),
 			})
 		}
 
@@ -230,7 +327,7 @@ func Run(k *kb.KB, scope string, scopeNeighbors bool) ([]Finding, error) {
 					if dateStr, ok := raVal.(string); ok {
 						t, parseErr := time.Parse("2006-01-02", dateStr)
 						if parseErr == nil && t.Before(Now()) {
-							findings = append(findings, Finding{
+							emit(Finding{
 								Path:     relPath,
 								Check:    "stale_claim",
 								Severity: SevWarning,
@@ -246,7 +343,7 @@ func Run(k *kb.KB, scope string, scopeNeighbors bool) ([]Finding, error) {
 				// across sessions instead of a big-bang rewrite.
 				if statusVal, ok := parsed.Get("status"); ok {
 					if statusStr, ok := statusVal.(string); ok && statusStr == "imported" {
-						findings = append(findings, Finding{
+						emit(Finding{
 							Path:     relPath,
 							Check:    "imported_draft",
 							Severity: SevWarning,
@@ -262,7 +359,7 @@ func Run(k *kb.KB, scope string, scopeNeighbors bool) ([]Finding, error) {
 				if !strings.EqualFold(parsed.Type(), "Service") {
 					for _, field := range []string{"secrets_source", "secret_refs"} {
 						if v, ok := parsed.Get(field); ok && !emptyFrontmatterValue(v) {
-							findings = append(findings, Finding{
+							emit(Finding{
 								Path:     relPath,
 								Check:    "secrets_on_non_service",
 								Severity: SevWarning,
@@ -303,7 +400,7 @@ func Run(k *kb.KB, scope string, scopeNeighbors bool) ([]Finding, error) {
 			// Skip concepts at depth=1 inside a known archive (expected entry points).
 			atArchiveTop := len(parts) == 2 && archiveSet[parts[0]]
 			if !atArchiveTop {
-				findings = append(findings, Finding{
+				emit(Finding{
 					Path:     relPath,
 					Check:    "orphan",
 					Severity: SevWarning,

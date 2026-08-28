@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/kb"
+	"github.com/BeppeTemp/cartographer/internal/okf"
 )
 
 // helpers
@@ -1121,5 +1122,197 @@ func TestLint_DocumentingCodeExamplesRaisesNoBrokenLink(t *testing.T) {
 		if f.Check == "broken_link" {
 			t.Errorf("unexpected broken_link: %s — %s", f.Path, f.Message)
 		}
+	}
+}
+
+// --- D159 ---
+
+// A concept documenting a false positive could not be written without generating
+// the findings it describes: a KB's own "known false positives" page was
+// impossible.
+func TestLint_LintIgnoreSuppressesNamedChecks(t *testing.T) {
+	k := tempKB(t)
+	writeFile(t, k.DataRoot(), "m/_map.md", "---\ntype: Map\nkind: map\ntitle: M\n---\n# M\n")
+	writeFile(t, k.DataRoot(), "m/index.md", "---\ntype: Index\ntitle: M\n---\n- [fp](fp.md)\n")
+	writeFile(t, k.DataRoot(), "m/fp.md",
+		"---\ntype: Note\ntitle: FP\nlint_ignore: [machine_path]\n---\nThe path ~/.ssh/config is conventional.\n- [missing](missing.md)\n")
+
+	findings, err := Run(k, "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var machinePath, brokenLink bool
+	for _, f := range findings {
+		switch f.Check {
+		case "machine_path":
+			machinePath = true
+		case "broken_link":
+			brokenLink = true
+		}
+	}
+	if machinePath {
+		t.Error("lint_ignore did not suppress machine_path")
+	}
+	// Only the named check is silenced: the others still fire.
+	if !brokenLink {
+		t.Error("lint_ignore silenced a check it does not name")
+	}
+}
+
+func TestLint_LintIgnoreAcceptsABareString(t *testing.T) {
+	k := tempKB(t)
+	writeFile(t, k.DataRoot(), "m/_map.md", "---\ntype: Map\nkind: map\ntitle: M\n---\n# M\n")
+	writeFile(t, k.DataRoot(), "m/index.md", "---\ntype: Index\ntitle: M\n---\n- [fp](fp.md)\n")
+	writeFile(t, k.DataRoot(), "m/fp.md", "---\ntype: Note\ntitle: FP\nlint_ignore: machine_path\n---\n~/.ssh/config\n")
+
+	findings, err := Run(k, "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range findings {
+		if f.Check == "machine_path" {
+			t.Error("a bare-string lint_ignore was not honoured")
+		}
+	}
+}
+
+// An error is a contract violation, not a judgement: letting a concept declare
+// its own contract void would be a hole, not an escape hatch.
+func TestLint_LintIgnoreCannotSilenceAnError(t *testing.T) {
+	k := tempKB(t)
+	writeFile(t, k.DataRoot(), "m/_map.md", "---\ntype: Map\nkind: map\ntitle: M\nrequired_fields: [status]\n---\n# M\n")
+	writeFile(t, k.DataRoot(), "m/index.md", "---\ntype: Index\ntitle: M\n---\n- [c](c.md)\n")
+	writeFile(t, k.DataRoot(), "m/c.md", "---\ntype: Note\ntitle: C\nlint_ignore: [missing_required_field]\n---\n# C\n")
+
+	findings, err := Run(k, "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var stillErrors, invalid bool
+	for _, f := range findings {
+		if f.Check == "missing_required_field" {
+			stillErrors = true
+		}
+		if f.Check == "lint_ignore_invalid" {
+			invalid = true
+		}
+	}
+	if !stillErrors {
+		t.Error("lint_ignore silenced an error-severity contract violation")
+	}
+	if !invalid {
+		t.Error("naming an unsuppressible check must be reported, not ignored")
+	}
+}
+
+// A typo that silently suppresses nothing is worse than no opt-out at all.
+func TestLint_LintIgnoreUnknownCheckIsReported(t *testing.T) {
+	k := tempKB(t)
+	writeFile(t, k.DataRoot(), "m/_map.md", "---\ntype: Map\nkind: map\ntitle: M\n---\n# M\n")
+	writeFile(t, k.DataRoot(), "m/index.md", "---\ntype: Index\ntitle: M\n---\n- [c](c.md)\n")
+	writeFile(t, k.DataRoot(), "m/c.md", "---\ntype: Note\ntitle: C\nlint_ignore: [nonsense]\n---\n# C\n")
+
+	findings, err := Run(k, "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var found bool
+	for _, f := range findings {
+		if f.Check == "lint_ignore_invalid" && strings.Contains(f.Message, "nonsense") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("want a lint_ignore_invalid naming the unknown check, got %+v", findings)
+	}
+}
+
+// ~/.ssh/config means "your ssh config" on every machine, exactly as /etc/... does,
+// and there was no way to declare it legitimate.
+func TestLint_MachinePathAllowsTildePrefixes(t *testing.T) {
+	k := tempKB(t)
+	writeFile(t, k.DataRoot(), "m/_map.md", "---\ntype: Map\nkind: map\ntitle: M\nmachine_path_allow_prefixes: [~/.ssh]\n---\n# M\n")
+	writeFile(t, k.DataRoot(), "m/index.md", "---\ntype: Index\ntitle: M\n---\n- [c](c.md)\n- [d](d.md)\n")
+	writeFile(t, k.DataRoot(), "m/c.md", "---\ntype: Note\ntitle: C\n---\nSee ~/.ssh/config for the host list.\n")
+	writeFile(t, k.DataRoot(), "m/d.md", "---\ntype: Note\ntitle: D\n---\nSee ~/.sshx/other for something else.\n")
+
+	findings, err := Run(k, "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var covered, boundary, malformed bool
+	for _, f := range findings {
+		if f.Check == "machine_path" && strings.Contains(f.Path, "m/c.md") {
+			covered = true
+		}
+		if f.Check == "machine_path" && strings.Contains(f.Path, "m/d.md") {
+			boundary = true
+		}
+		if f.Check == "contract_malformed" {
+			malformed = true
+		}
+	}
+	if malformed {
+		t.Error("a ~/-anchored allow prefix was rejected as malformed")
+	}
+	if covered {
+		t.Error("~/.ssh did not cover ~/.ssh/config")
+	}
+	// Segment-boundary matching: ~/.ssh must not cover ~/.sshx.
+	if !boundary {
+		t.Error("~/.ssh wrongly covered ~/.sshx/other")
+	}
+}
+
+// concept_expand requires two segments, so for a satellite the old advice named
+// an operation the product refuses.
+func TestLint_OversizeRemedyIsDepthAware(t *testing.T) {
+	big := strings.Repeat("x", 30001)
+	k := tempKB(t)
+	writeFile(t, k.DataRoot(), "m/_map.md", "---\ntype: Map\nkind: map\ntitle: M\n---\n# M\n")
+	writeFile(t, k.DataRoot(), "m/index.md", "---\ntype: Index\ntitle: M\n---\n- [c](c.md)\n")
+	writeFile(t, k.DataRoot(), "m/c/index.md", "---\ntype: Note\ntitle: C\n---\n"+big+"\n- [s](s.md)\n")
+	writeFile(t, k.DataRoot(), "m/c/s.md", "---\ntype: Note\ntitle: S\n---\n"+big+"\n")
+
+	findings, err := Run(k, "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var forConcept, forSatellite string
+	for _, f := range findings {
+		if f.Check != "concept_oversize" {
+			continue
+		}
+		switch f.Path {
+		case "m/c":
+			forConcept = f.Message
+		case "m/c/s":
+			forSatellite = f.Message
+		}
+	}
+	if !strings.Contains(forConcept, "concept_expand") {
+		t.Errorf("an expandable concept should still be told to expand: %q", forConcept)
+	}
+	// It may mention concept_expand only to say it does not apply.
+	if strings.Contains(forSatellite, "consider concept_expand") {
+		t.Errorf("a satellite must not be advised to concept_expand: %q", forSatellite)
+	}
+	if !strings.Contains(forSatellite, "concept_expand does not apply") {
+		t.Errorf("a satellite should be told why the usual remedy is unavailable: %q", forSatellite)
+	}
+	if !strings.Contains(forSatellite, "sibling satellites") {
+		t.Errorf("a satellite should be told what is actually available: %q", forSatellite)
+	}
+	// Both messages name the read bound as well as the split threshold.
+	if !strings.Contains(forConcept, "60000") {
+		t.Errorf("the message should name the read guard too: %q", forConcept)
+	}
+}
+
+// The two thresholds are now related rather than independent numbers.
+func TestOversizeThresholdIsDerivedFromTheReadGuard(t *testing.T) {
+	if conceptOversizeThreshold*2 != okf.ConceptReadSizeGuard {
+		t.Errorf("conceptOversizeThreshold=%d, ConceptReadSizeGuard=%d: the two have drifted apart",
+			conceptOversizeThreshold, okf.ConceptReadSizeGuard)
 	}
 }
