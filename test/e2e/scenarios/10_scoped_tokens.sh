@@ -54,7 +54,10 @@ kb_make "$KB_B_DIR"
 # admin (no scope) + rw on kbA + r on kbA. Nobody has scope on kbB except admin.
 TOKENS="${ADMIN_TOKEN}, ${RW_TOKEN}|kb:${KB_A_NAME}:rw, ${R_TOKEN}|kb:${KB_A_NAME}:r"
 
-E2E_AUTH=true E2E_TOKENS="$TOKENS" \
+# This scenario asserts on RBAC, not on tool naming: pin the pre-D153 bare names
+# so a denial reads as "forbidden" rather than "tool not found". Prefixing has its
+# own coverage in 16_prefixed_multikb.sh.
+E2E_AUTH=true E2E_TOKENS="$TOKENS" E2E_TOOL_PREFIX_MODE=off \
     server_start "${KB_A_DIR},${KB_B_DIR}"
 server_wait_health 20
 

@@ -39,8 +39,12 @@ server_start() {
 		args=(serve --config "$E2E_CONFIG")
 	fi
 
+	# E2E_TOOL_PREFIX_MODE lets a scenario pin tool naming: since D153 the default
+	# is kb-name, so a multi-KB scenario asserting on bare tool names must opt out
+	# explicitly — which is also the migration path a real deployment takes.
 	CARTOGRAPHER_AUTH="${auth}" \
 	CARTOGRAPHER_TOKENS="${tokens}" \
+	CARTOGRAPHER_MCP_TOOL_PREFIX_MODE="${E2E_TOOL_PREFIX_MODE:-}" \
 		"$bin" "${args[@]}" \
         >"${E2E_TMP_DIR:-/tmp}/cartographer_e2e.log" 2>&1 &
 

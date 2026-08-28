@@ -146,7 +146,8 @@ func TestLoadFullYAML(t *testing.T) {
 		Audit:        AuditConfig{Log: "/data/audit.log", KeySeed: "deadbeef"},
 		Sops:         SopsConfig{AgeKeyFile: "/etc/cartographer/age.key", AgeKeyDir: "/etc/kb-sops-keys"},
 		ToolsProfile: "full",
-		MCP:          MCPConfig{ToolPrefixMode: "off"},
+		// The YAML sets no mcp.tool_prefix_mode, so the default applies (kb-name since D153).
+		MCP: MCPConfig{ToolPrefixMode: "kb-name"},
 	}
 
 	if !reflect.DeepEqual(cfg, want) {

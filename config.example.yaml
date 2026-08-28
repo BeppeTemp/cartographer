@@ -50,10 +50,17 @@ kbs:
                                    # mcp.tool_prefix_mode below. See docs/deployment.md
                                    # §MCP tool-name prefix.
 mcp:
-  # tool_prefix_mode: "off"        # (D102) off (default) | kb-name — global default
-                                   # applied to every KB above that doesn't set its own
-                                   # tool_prefix; kb-name derives the prefix from the
-                                   # KB's own name.
+  # tool_prefix_mode: "kb-name"    # (D102, default flipped in D153) kb-name (default) | off
+                                   # global default applied to every KB above that doesn't
+                                   # set its own tool_prefix; kb-name derives the prefix
+                                   # from the KB's own name. With one KB mounted no prefix
+                                   # is derived — it would be pure noise — so tools keep
+                                   # their bare names until a second KB appears, and that
+                                   # rename is announced at startup.
+                                   # off keeps bare names on every KB: the documented
+                                   # opt-out for a deployment that cannot absorb the
+                                   # rename, at the cost of silent wrong answers on a
+                                   # client with a flat tool namespace.
   # allowed_origins:               # (D128) browser origins allowed to reach /mcp, scheme
   #   - "https://app.example.com"  # and port included. Empty (default) accepts only an
                                    # Origin matching the request's own Host; "*" accepts
