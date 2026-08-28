@@ -761,3 +761,109 @@ func TestFormatTiming(t *testing.T) {
 		})
 	}
 }
+
+// headSubject returns the subject line of HEAD in dir. The commit subject is
+// the audit trail of a git-backed KB, so the tests below assert on what landed
+// in the history rather than only on commitMessage's return value.
+func headSubject(t *testing.T, dir string) string {
+	t.Helper()
+	out, err := exec.Command("git", "-C", dir, "log", "-1", "--format=%s").Output()
+	if err != nil {
+		t.Fatalf("git log: %v", err)
+	}
+	return strings.TrimSpace(string(out))
+}
+
+func TestCommitMessage_IdentifiesTheResourceForEveryWriteTool(t *testing.T) {
+	cases := []struct {
+		name string
+		tool string
+		args string
+		want string
+	}{
+		// Per-tool fields: these are the ones that used to commit as the bare
+		// tool name, leaving consecutive writes indistinguishable in the log.
+		{"artifact_write by path", "artifact_write", `{"path":"skills/kb-import/SKILL.md","content":"x"}`, "artifact_write: skills/kb-import/SKILL.md"},
+		{"artifact_delete by path", "artifact_delete", `{"path":"agents/dev.md","if_match":"abc"}`, "artifact_delete: agents/dev.md"},
+		{"asset_write by concept and path", "asset_write", `{"concept_id":"assets/owner","path":"evidence/check.txt","content":"x"}`, "asset_write: assets/owner/evidence/check.txt"},
+		{"asset_delete by concept and path", "asset_delete", `{"concept_id":"assets/owner","path":"evidence/check.txt"}`, "asset_delete: assets/owner/evidence/check.txt"},
+		{"asset_write with only concept_id", "asset_write", `{"concept_id":"assets/owner"}`, "asset_write: assets/owner"},
+		// Fallback vocabulary: unchanged behaviour.
+		{"concept_patch by id", "concept_patch", `{"id":"manutenzione/runbook","if_match":"abc"}`, "concept_patch: manutenzione/runbook"},
+		{"map_create by name", "map_create", `{"name":"notes","title":"Notes"}`, "map_create: notes"},
+		{"supersede by source_id", "supersede", `{"source_id":"a/b","target_id":"c/d"}`, "supersede: a/b"},
+		{"conflict_resolve by contradiction_id", "conflict_resolve", `{"contradiction_id":"x1"}`, "conflict_resolve: x1"},
+		// No identifying argument, and unparseable arguments.
+		{"no identifier", "snapshot", `{"message":"m"}`, "snapshot"},
+		{"empty identifier", "concept_patch", `{"id":""}`, "concept_patch"},
+		{"invalid json", "concept_patch", `not json`, "concept_patch"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := commitMessage(tc.tool, json.RawMessage(tc.args)); got != tc.want {
+				t.Errorf("commitMessage(%q, %s) = %q, want %q", tc.tool, tc.args, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestGitWrap_ArtifactWriteCommitSubjectNamesThePath(t *testing.T) {
+	k, _ := setupGitKB(t)
+	k.AutoCommit = true
+	k.AllowArtifactWrite = true
+	s := New("test")
+	RegisterKBTools(s, k, Deps{})
+
+	write := s.Tools()["artifact_write"]
+	for _, slug := range []string{"one", "two"} {
+		path := "skills/" + slug + "/SKILL.md"
+		body := fmt.Sprintf("---\nname: %s\ndescription: Test skill %s.\n---\n# %s\n", slug, slug, slug)
+		args, err := json.Marshal(map[string]string{"path": path, "content": body})
+		if err != nil {
+			t.Fatal(err)
+		}
+		result, err := write.Handler(authLocalContext(), json.RawMessage(args))
+		if err != nil || result.IsError {
+			t.Fatalf("artifact_write %s: result=%+v err=%v", path, result, err)
+		}
+		if got, want := headSubject(t, k.Root), "artifact_write: "+path; got != want {
+			t.Fatalf("commit subject = %q, want %q", got, want)
+		}
+	}
+	// The regression this guards: two consecutive artifact writes used to
+	// produce two identical subjects.
+	out, err := exec.Command("git", "-C", k.Root, "log", "-2", "--format=%s").Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	subjects := strings.Split(strings.TrimSpace(string(out)), "\n")
+	if len(subjects) != 2 || subjects[0] == subjects[1] {
+		t.Fatalf("last two subjects are not distinguishable: %q", subjects)
+	}
+}
+
+func TestGitWrap_AssetWriteCommitSubjectNamesConceptAndPath(t *testing.T) {
+	k, _ := setupGitKB(t)
+	fm, _ := okf.ParseFrontmatter("type: Note\ntitle: Asset owner")
+	if _, err := k.WriteConcept("assets/owner", fm, "# Owner\n", ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := k.ExpandConcept("assets/owner"); err != nil {
+		t.Fatal(err)
+	}
+	k.AutoCommit = true
+	if _, err := k.CommitOp("test: set up asset owner"); err != nil {
+		t.Fatal(err)
+	}
+	s := New("test")
+	RegisterKBTools(s, k, Deps{})
+
+	write := s.Tools()["asset_write"]
+	result, err := write.Handler(authLocalContext(), json.RawMessage(`{"concept_id":"assets/owner","path":"evidence/check.txt","content":"check"}`))
+	if err != nil || result.IsError {
+		t.Fatalf("asset_write: result=%+v err=%v", result, err)
+	}
+	if got, want := headSubject(t, k.Root), "asset_write: assets/owner/evidence/check.txt"; got != want {
+		t.Fatalf("commit subject = %q, want %q", got, want)
+	}
+}

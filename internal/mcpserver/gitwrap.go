@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/gitx"
@@ -243,20 +244,57 @@ func handleConflictError(k *kb.KB, rce *gitx.RebaseConflictError) int {
 	return n
 }
 
+// commitSubjectFields names, per tool, the argument fields that identify the
+// resource a write touched, in the order they appear in the commit subject
+// (joined with "/"). It exists because the fallback list below is keyed on the
+// concept tools' vocabulary: the artifact tools identify their target with
+// "path" and the asset tools with "concept_id" plus "path", so without an entry
+// here every one of those writes committed as the bare tool name and the git
+// history could not distinguish them.
+//
+// Deliberately not shared with audit.go's auditResourceFields: that list is a
+// leakage allow-list answering "which arguments may be recorded at all", and
+// its artifact entries name fields those tools do not accept.
+var commitSubjectFields = map[string][]string{
+	"artifact_write":  {"path"},
+	"artifact_delete": {"path"},
+	"asset_write":     {"concept_id", "path"},
+	"asset_delete":    {"concept_id", "path"},
+}
+
+// commitSubjectFallback is the priority order used for any tool with no
+// commitSubjectFields entry: the first non-empty string field wins.
+var commitSubjectFallback = []string{"id", "name", "source_id", "contradiction_id"}
+
 // commitMessage builds a human-readable commit message from the tool name and
-// the first recognisable identifier found in the args map.
-// Priority: "id" > "name" > "source_id" > "contradiction_id".
-// Falls back to the tool name alone if none are present.
+// the arguments that identify what the write touched: the per-tool fields in
+// commitSubjectFields when the tool has an entry, otherwise the first
+// recognisable identifier in commitSubjectFallback.
+// Falls back to the tool name alone when no identifying argument is present.
 func commitMessage(toolName string, args json.RawMessage) string {
 	var m map[string]any
 	if err := json.Unmarshal(args, &m); err != nil {
 		return toolName
 	}
-	for _, key := range []string{"id", "name", "source_id", "contradiction_id"} {
-		if v, ok := m[key]; ok {
-			if s, ok := v.(string); ok && s != "" {
-				return fmt.Sprintf("%s: %s", toolName, s)
+	stringArg := func(key string) string {
+		s, _ := m[key].(string)
+		return s
+	}
+	if fields, ok := commitSubjectFields[toolName]; ok {
+		var parts []string
+		for _, key := range fields {
+			if s := stringArg(key); s != "" {
+				parts = append(parts, s)
 			}
+		}
+		if len(parts) > 0 {
+			return fmt.Sprintf("%s: %s", toolName, strings.Join(parts, "/"))
+		}
+		return toolName
+	}
+	for _, key := range commitSubjectFallback {
+		if s := stringArg(key); s != "" {
+			return fmt.Sprintf("%s: %s", toolName, s)
 		}
 	}
 	return toolName
