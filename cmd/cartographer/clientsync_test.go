@@ -553,3 +553,38 @@ func TestMaterializeForProviders_MissingProviderBaseDir(t *testing.T) {
 		t.Errorf("error %q does not name the variable", err)
 	}
 }
+
+// A dry run must not describe its plan in the past tense: Apply fills
+// AppliedResult with what it would write, and printing that as "wrote" reports
+// a pass that never happened (D147).
+func TestPrintApplySummary_DryRunSpeaksInTheConditional(t *testing.T) {
+	results := map[string]provisioning.AppliedResult{
+		"claude": {
+			Written: []provisioning.ManagedFile{{Kind: "skill", Name: "runbooks", Path: ".claude/skills/runbooks/SKILL.md"}},
+			Pruned:  []provisioning.ManagedFile{{Kind: "skill", Name: "old", Path: ".claude/skills/old/SKILL.md"}},
+			Healed:  []provisioning.ManagedFile{{Kind: "agent", Name: "reviewer", Path: ".claude/agents/reviewer.md"}},
+		},
+	}
+
+	dry := withStdout(t, func() { printApplySummary(t.TempDir(), results, true) })
+	for _, want := range []string{"would write", "would prune", "would restore"} {
+		if !strings.Contains(dry, want) {
+			t.Errorf("dry run output = %q, want it to contain %q", dry, want)
+		}
+	}
+	for _, unwanted := range []string{"] wrote ", "] pruned ", "] restored "} {
+		if strings.Contains(dry, unwanted) {
+			t.Errorf("dry run output = %q, must not claim %q", dry, unwanted)
+		}
+	}
+
+	real := withStdout(t, func() { printApplySummary(t.TempDir(), results, false) })
+	for _, want := range []string{"] wrote ", "] pruned ", "] restored "} {
+		if !strings.Contains(real, want) {
+			t.Errorf("real run output = %q, want it to contain %q", real, want)
+		}
+	}
+	if strings.Contains(real, "would ") {
+		t.Errorf("real run output = %q, must not be conditional", real)
+	}
+}
