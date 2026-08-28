@@ -133,6 +133,7 @@ func runDoctor(dir, only string) doctorReport {
 		findings = append(findings, checkServer(dir, cfg, providers)...)
 		findings = append(findings, checkTriggerCoverage(dir, providers)...)
 		findings = append(findings, checkSymlinkedDestinations(dir, providers)...)
+		findings = append(findings, checkCapabilities(dir, cfg)...)
 	}
 
 	sortDoctorFindings(findings)
@@ -524,6 +525,45 @@ func checkServer(dir string, cfg *clientconfig.Config, providers []string) []doc
 			Message: fmt.Sprintf("version skew: client %s ≠ server %s", version, facts.Version),
 			Fix:     fix,
 		})
+	}
+	return out
+}
+
+// checkCapabilities: a per-KB gate that is off changes what an agent can do, and
+// nothing in the running system said so — a documented capability stayed unfound
+// for a whole migration (D151). Silent when the server is unreachable or does
+// not advertise capabilities: a missing signal is not evidence that everything is
+// on.
+func checkCapabilities(dir string, cfg *clientconfig.Config) []doctorFinding {
+	facts, err := enumerateKBs(cfg.ServerURL, cfg.Auth, cfg.TokenEnv)
+	if err != nil {
+		return nil
+	}
+	configPath := filepath.Join(dir, clientconfig.FileName)
+	var out []doctorFinding
+	for _, kbInfo := range facts.KBs {
+		names := make([]string, 0, len(kbInfo.Capabilities))
+		for name := range kbInfo.Capabilities {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+		for _, name := range names {
+			c := kbInfo.Capabilities[name]
+			switch {
+			case c.State == "disabled":
+				out = append(out, doctorFinding{
+					Check: "capability", Severity: doctorInfo, Path: configPath,
+					Message: fmt.Sprintf("KB %q has %s disabled", kbInfo.Name, name),
+					Fix:     "set " + c.Setting + " for that KB in the server config",
+				})
+			case name == "mount" && c.State == "discovered":
+				out = append(out, doctorFinding{
+					Check: "capability", Severity: doctorInfo, Path: configPath,
+					Message: fmt.Sprintf("KB %q was discovered under data:, so no kbs[] entry governs it and every per-KB setting is at its default", kbInfo.Name),
+					Fix:     "add a kbs[] entry for it in the server config",
+				})
+			}
+		}
 	}
 	return out
 }

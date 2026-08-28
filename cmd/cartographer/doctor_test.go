@@ -4,6 +4,9 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -403,6 +406,61 @@ func TestCheckSymlinkedDestinations(t *testing.T) {
 
 	t.Run("silent when nothing exists yet", func(t *testing.T) {
 		if findings := checkSymlinkedDestinations(t.TempDir(), []string{"claude", "kiro"}); len(findings) != 0 {
+			t.Errorf("findings = %+v, want none", findings)
+		}
+	})
+}
+
+// A gate that is off changes what an agent can do, and nothing in the running
+// system said so (D151). A missing signal must stay silent rather than be read
+// as "everything is on".
+func TestCheckCapabilities(t *testing.T) {
+	newServer := func(body string) *httptest.Server {
+		return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprint(w, body)
+		}))
+	}
+
+	t.Run("reports a disabled gate with its setting", func(t *testing.T) {
+		srv := newServer(`{"status":"ok","version":"0.8.3","kbs":[{"name":"kb","capabilities":{"artifact_write":{"state":"disabled","setting":"kbs[].allow_artifact_write"},"git_sync":{"state":"enabled","setting":"git.sync"}}}]}`)
+		defer srv.Close()
+		findings := checkCapabilities(t.TempDir(), &clientconfig.Config{ServerURL: srv.URL})
+		if len(findings) != 1 {
+			t.Fatalf("findings = %+v, want exactly one", findings)
+		}
+		if !strings.Contains(findings[0].Message, "artifact_write") || !strings.Contains(findings[0].Fix, "allow_artifact_write") {
+			t.Errorf("finding = %+v, want it to name the gate and its setting", findings[0])
+		}
+	})
+
+	t.Run("reports a discovered mount", func(t *testing.T) {
+		srv := newServer(`{"status":"ok","version":"0.8.3","kbs":[{"name":"kb","capabilities":{"mount":{"state":"discovered","setting":"kbs[]"}}}]}`)
+		defer srv.Close()
+		findings := checkCapabilities(t.TempDir(), &clientconfig.Config{ServerURL: srv.URL})
+		if len(findings) != 1 || !strings.Contains(findings[0].Message, "discovered") {
+			t.Fatalf("findings = %+v, want one naming the discovered mount", findings)
+		}
+	})
+
+	t.Run("silent when everything is on", func(t *testing.T) {
+		srv := newServer(`{"status":"ok","version":"0.8.3","kbs":[{"name":"kb","capabilities":{"artifact_write":{"state":"enabled","setting":"kbs[].allow_artifact_write"},"mount":{"state":"configured","setting":"kbs[]"}}}]}`)
+		defer srv.Close()
+		if findings := checkCapabilities(t.TempDir(), &clientconfig.Config{ServerURL: srv.URL}); len(findings) != 0 {
+			t.Errorf("findings = %+v, want none", findings)
+		}
+	})
+
+	t.Run("silent when the server is unreachable", func(t *testing.T) {
+		if findings := checkCapabilities(t.TempDir(), &clientconfig.Config{ServerURL: "http://127.0.0.1:1"}); len(findings) != 0 {
+			t.Errorf("findings = %+v, want none", findings)
+		}
+	})
+
+	t.Run("silent when the server advertises no capabilities", func(t *testing.T) {
+		srv := newServer(`{"status":"ok","version":"0.8.3","kbs":[{"name":"kb"}]}`)
+		defer srv.Close()
+		if findings := checkCapabilities(t.TempDir(), &clientconfig.Config{ServerURL: srv.URL}); len(findings) != 0 {
 			t.Errorf("findings = %+v, want none", findings)
 		}
 	})

@@ -432,10 +432,63 @@ func toolConflictResolve(k *kb.KB) Tool {
 
 // --- kb_status ---
 
+// capability is one gate's state plus the configuration key that controls it.
+type capability struct {
+	State   string `json:"state"`
+	Setting string `json:"setting"`
+}
+
+// KBCapabilitiesFor exposes the same capability map in the /health shape, so the
+// MCP tool and the HTTP endpoint answer the identical question from one
+// derivation (D151).
+func KBCapabilitiesFor(k *kb.KB) map[string]KBCapability {
+	out := make(map[string]KBCapability)
+	for name, c := range kbCapabilities(k) {
+		out[name] = KBCapability{State: c.State, Setting: c.Setting}
+	}
+	return out
+}
+
+// kbCapabilities reports what this KB is allowed to do, from in-process state
+// only — kb_status promises never to hit the network and that must keep holding
+// (D151). No path and no secret material appears: the SOPS key is reported as
+// configured or not, plus the name of the key, so the host's layout does not leak
+// into an agent transcript.
+func kbCapabilities(k *kb.KB) map[string]capability {
+	onOff := func(enabled bool) string {
+		if enabled {
+			return "enabled"
+		}
+		return "disabled"
+	}
+	prefix := k.ToolPrefix
+	if prefix == "" {
+		prefix = "none"
+	}
+	mount := "configured"
+	if k.Discovered {
+		mount = "discovered"
+	}
+	workflow := "local"
+	if k.ServerGit != nil {
+		workflow = "pr"
+	}
+	return map[string]capability{
+		"artifact_write": {State: onOff(k.AllowArtifactWrite), Setting: "kbs[].allow_artifact_write"},
+		"secrets":        {State: onOff(k.SopsAgeKeyFile != ""), Setting: "kbs[].sops_age_key_file or sops.age_key_file"},
+		"git_sync":       {State: onOff(k.GitSync), Setting: "git.sync"},
+		"git_workflow":   {State: workflow, Setting: "kbs[].server_git"},
+		"tool_prefix":    {State: prefix, Setting: "kbs[].tool_prefix or mcp.tool_prefix_mode"},
+		// A discovered KB cannot carry any of the settings above, which is the
+		// single invisible cause behind several of them being off at once.
+		"mount": {State: mount, Setting: "kbs[]"},
+	}
+}
+
 func toolKBStatus(k *kb.KB) Tool {
 	return Tool{
 		Name:        "kb_status",
-		Description: "Returns aggregate metrics about the KB (total concepts, per-type counts, per-status counts (concepts with no status field are excluded), stale concepts (review_after in the past), open contradictions) plus its git replication state: whether a remote is configured (has_remote/remote_url), the push state and any unpushed commits, and the write workflow (git_workflow: local commit-and-push or server PR boundary). Read-only, never hits the network.",
+		Description: "Returns aggregate metrics about the KB (total concepts, per-type counts, per-status counts (concepts with no status field are excluded), stale concepts (review_after in the past), open contradictions) plus its git replication state: whether a remote is configured (has_remote/remote_url), the push state and any unpushed commits, and the write workflow (git_workflow: local commit-and-push or server PR boundary), plus a capabilities section naming each per-KB gate (artifact_write, secrets, git_sync, git_workflow, tool_prefix, mount), its state, and the configuration key that controls it. Read-only, never hits the network.",
 		ReadOnly:    true,
 		InputSchema: json.RawMessage(`{"type":"object","properties":{}}`),
 		Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
@@ -517,6 +570,14 @@ func toolKBStatus(k *kb.KB) Tool {
 				"pr_url":           server.PRURL,
 				"pr_head_sha":      server.PRHeadSHA,
 				"last_forge_error": server.LastForgeError,
+				// capabilities (D151): what this KB is allowed to do, and the
+				// YAML key that controls each gate. kb_status is where an agent
+				// already looks to learn the state of a KB, and it was
+				// exhaustive about git and silent about permissions — so a
+				// documented capability could stay unfound for a whole
+				// migration. A state without the name of the switch is only half
+				// an answer, hence the setting alongside it.
+				"capabilities": kbCapabilities(k),
 			}
 			out, _ := json.MarshalIndent(result, "", "  ")
 			return textResult(string(out)), nil

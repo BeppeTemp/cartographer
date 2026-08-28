@@ -116,6 +116,16 @@ type Health struct {
 type HealthKB struct {
 	Name       string `json:"name"`
 	ToolPrefix string `json:"tool_prefix,omitempty"`
+	// Capabilities is each per-KB gate's state and the configuration key that
+	// controls it (D151). Optional and additive, like ToolPrefix: an older
+	// server simply omits it and a client must stay silent rather than infer.
+	Capabilities map[string]HealthCapability `json:"capabilities,omitempty"`
+}
+
+// HealthCapability is one gate's state plus the setting controlling it.
+type HealthCapability struct {
+	State   string `json:"state"`
+	Setting string `json:"setting"`
 }
 
 // UnmarshalJSON accepts the current {"name":"..."} health shape and the

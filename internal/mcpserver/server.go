@@ -643,7 +643,11 @@ func (s *Server) handleToolsCall(ctx context.Context, req *Request) Response {
 	if !ok {
 		// Unknown tool: never resolve/record arguments for a tool this server
 		// has no allow-list entry for; the outcome itself names the case.
-		result := errorResult("tool not found: " + params.Name)
+		// A name this build knows but did not register is a different case, and
+		// only the server can tell them apart — a client sees one message for
+		// "not registered", "hidden by profile" and "absent from this build"
+		// (D151), which is how a documented capability stayed unfound.
+		result := errorResult(unknownToolMessage(canonicalName))
 		call, rejected, ok := s.beginAuditCall(principal, canonicalName, externalName, false, nil)
 		if !ok {
 			return successResponse(req.ID, rejected)
