@@ -311,7 +311,15 @@ func runServe(cfg *config.Config) {
 			log.Printf("warning: KB name collision %q (first: %s, duplicate: %s) — skipping duplicate", name, prev, m.Path)
 			continue
 		}
-		toolPrefix, err := config.ResolveToolPrefix(m.Spec, cfg.MCP.ToolPrefixMode, name)
+		// With one KB mounted a prefix is pure noise, so derivation is reserved
+		// for the second mount onward (D153). An explicit kbs[].tool_prefix still
+		// applies: only derivation is suppressed, which ResolveToolPrefix's own
+		// precedence gives for free once the mode is the thing we override.
+		prefixMode := cfg.MCP.ToolPrefixMode
+		if len(mounts) == 1 {
+			prefixMode = "off"
+		}
+		toolPrefix, err := config.ResolveToolPrefix(m.Spec, prefixMode, name)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -351,6 +359,11 @@ func runServe(cfg *config.Config) {
 		kbToolPrefixes = append(kbToolPrefixes, toolPrefix)
 		kbArtifactSigners = append(kbArtifactSigners, artifactSigner)
 		kbMCPAllowlists = append(kbMCPAllowlists, m.Spec.MCPAllowlist)
+		if toolPrefix != "" && m.Spec.ToolPrefix == "" {
+			// Derived, not written down by the operator: adding a second KB renames
+			// the first one's tools, and that must be loud rather than silent (D153).
+			log.Printf("KB %q mounts its tools as %s__<tool> (derived from the KB name; set mcp.tool_prefix_mode: off to keep bare names)", name, toolPrefix)
+		}
 		if m.Discovered {
 			// A discovered KB works — it serves tools, answers reads, commits
 			// writes — and looks identical to a configured one from every client
