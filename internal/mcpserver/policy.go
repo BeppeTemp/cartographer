@@ -30,7 +30,7 @@ func resourceClassForTool(name string) string {
 	switch name {
 	case "atlas_overview", "changes_since", "map_list", "concept_list", "graph_neighbors", "search", "contradiction_report", "service_list":
 		return resourceCollection
-	case "concept_read", "concept_write", "concept_new", "concept_patch", "concept_expand", "concept_delete", "supersede", "asset_read", "asset_list", "asset_write", "asset_delete", "service_get":
+	case "concept_read", "concept_write", "concept_new", "concept_patch", "concept_expand", "concept_collapse", "concept_merge", "concept_delete", "supersede", "asset_read", "asset_list", "asset_write", "asset_delete", "service_get":
 		return resourceExact
 	case "concept_move":
 		return resourceMove

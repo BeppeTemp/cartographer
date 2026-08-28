@@ -62,8 +62,6 @@ var docsNonTools = map[string]bool{
 	// deliberately leaves to it (D141: Hermes adopts a delivered skill with
 	// its own skill_manage)
 	"skill_manage": true,
-	// intentionally absent, documented as not implemented (D77, YAGNI)
-	"concept_collapse": true,
 }
 
 // docsFiles are the markdown files whose tool citations must resolve. The

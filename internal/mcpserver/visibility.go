@@ -65,7 +65,13 @@ func unknownToolMessage(name string) string {
 }
 
 var advancedToolNames = map[string]bool{
-	"concept_batch":        true,
+	"concept_batch": true,
+	// concept_merge/concept_collapse (D160): large-refactor tooling, same tier as
+	// concept_batch — consolidating a dossier or undoing an expansion is not part
+	// of a normal agent session, and the default working set stays small. Both
+	// stay callable by name.
+	"concept_merge":        true,
+	"concept_collapse":     true,
 	"commit_gate":          true,
 	"contradiction_report": true,
 	"conflict_resolve":     true,

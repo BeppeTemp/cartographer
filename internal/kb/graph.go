@@ -266,6 +266,68 @@ func RewriteLinks(body string, basePath string, moveMap map[string]string) (stri
 	return body, count
 }
 
+// RewriteOutboundLinks rebases every relative markdown link in body from oldBase
+// to newBase, both being the linking concept's own path relative to the KB root
+// (the same meaning as ExtractLinks' basePath). Returns the updated body and the
+// number of replacements.
+//
+// concept_move rewrote inbound links only, so the moved concept's own relative
+// links broke whenever the directory depth changed — documented, and still a
+// half-move (D160). The delta is known at move time, so this is arithmetic, not
+// guesswork.
+//
+// moveMap, when non-empty, is consulted first so a batch of moves composes: a
+// link whose target is itself being moved resolves to the target's new location
+// rather than to where it used to sit. Wiki-links are root-relative and
+// deliberately untouched; absolute URLs, anchors and mailto: are skipped, and a
+// link resolving outside the KB is left alone.
+func RewriteOutboundLinks(body, oldBase, newBase string, moveMap map[string]string) (string, int) {
+	oldDir, newDir := path.Dir(oldBase), path.Dir(newBase)
+	if oldDir == newDir && len(moveMap) == 0 {
+		return body, 0
+	}
+	count := 0
+	out := mdLinkRe.ReplaceAllStringFunc(body, func(match string) string {
+		sub := mdLinkRe.FindStringSubmatch(match)
+		text, href := sub[1], sub[2]
+		if strings.Contains(href, "://") || strings.HasPrefix(href, "#") || strings.HasPrefix(href, "mailto:") || strings.HasPrefix(href, "/") {
+			return match
+		}
+		pathPart, frag := href, ""
+		if idx := strings.Index(href, "#"); idx >= 0 {
+			pathPart, frag = href[:idx], href[idx:]
+		}
+		if pathPart == "" {
+			return match
+		}
+		resolved := path.Clean(path.Join(oldDir, pathPart))
+		if strings.HasPrefix(resolved, "..") {
+			return match
+		}
+		// A target moved in the same batch lands at its new path.
+		target := resolved
+		if moved, ok := moveMap[strings.TrimSuffix(resolved, ".md")]; ok {
+			target = moved + ".md"
+		}
+		newHref := RelLink(newDir, target)
+		if !strings.EqualFold(path.Ext(pathPart), ".md") {
+			newHref = strings.TrimSuffix(newHref, ".md")
+		}
+		if newHref+frag == href {
+			return match
+		}
+		count++
+		return "[" + text + "](" + newHref + frag + ")"
+	})
+	return out, count
+}
+
+// RelLink is relLink exported (D160): concept_move needs it to rewrite the moved
+// concept's own outbound links, and cmd/cartographer/import.go had a private copy
+// whose comment said it existed "to avoid exporting KB-internal move machinery for
+// a single caller". There are now two callers, so the copy is gone.
+func RelLink(baseDir, targetPath string) string { return relLink(baseDir, targetPath) }
+
 // relLink returns the relative path (forward-slash, markdown-link style)
 // from directory baseDir to file targetPath, both expressed as clean
 // forward-slash paths relative to the KB root (baseDir "." means the root).

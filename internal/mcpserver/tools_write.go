@@ -1278,6 +1278,53 @@ func toolConceptMove(k *kb.KB, live *liveIndex, sqlIdx *sqlindex.Index) Tool {
 				"moves": applied,
 			}
 
+			// The moved concept's OWN relative links break when the directory
+			// depth changes: concept_move rewrote inbound links only, which is a
+			// half-move (D160). No flag: a move that leaves the moved body's links
+			// broken is simply incomplete, and a flag would preserve that as a
+			// supported mode.
+			outboundFixed := 0
+			for _, mv := range applied {
+				oldBase, newBase := okf.IDToPath(okf.ConceptID(mv.SourceID)), okf.IDToPath(okf.ConceptID(mv.TargetID))
+				if relPath, expanded := k.ConceptRelPath(okf.ConceptID(mv.TargetID)); expanded {
+					newBase = relPath
+					oldBase = filepath.ToSlash(filepath.Join(mv.SourceID, "index.md"))
+				}
+				data, readErr := k.ReadConcept(okf.ConceptID(mv.TargetID))
+				if readErr != nil {
+					continue
+				}
+				newBody, n := kb.RewriteOutboundLinks(data.Body, oldBase, newBase, moveMap)
+				if n == 0 {
+					continue
+				}
+				fm, parseErr := okf.ParseFrontmatter(data.FrontmatterRaw)
+				if parseErr != nil {
+					continue
+				}
+				if _, err := k.WriteConcept(okf.ConceptID(mv.TargetID), fm, newBody, data.ContentHash); err != nil {
+					return errorResult(fmt.Sprintf("concept_move: applied the move but could not rewrite %q's own links: %v", mv.TargetID, err)), nil
+				}
+				outboundFixed += n
+			}
+			if outboundFixed > 0 {
+				result["outbound_rewritten"] = outboundFixed
+				logLines = append(logLines, fmt.Sprintf("outbound_links: %d replacement(s) in the moved concept(s)", outboundFixed))
+			}
+
+			if rewriteLinks {
+				// Curated indexes are not links between concepts, so the backlink
+				// pass below never touched them: the source map's index kept
+				// listing the moved concept (broken_link) and the destination's did
+				// not mention it (index_incomplete). Only maps that asked for a
+				// curated index are edited — rewriting prose nobody declared as
+				// curated would be an assumption, not a fix (D160).
+				if notes := maintainCuratedIndexes(k, applied); len(notes) > 0 {
+					result["curated_indexes"] = notes
+					logLines = append(logLines, notes...)
+				}
+			}
+
 			if rewriteLinks {
 				touched, totalReplacements, err := rewriteBacklinks(k, live, sqlIdx, moveMap)
 				if err != nil {
@@ -1304,6 +1351,345 @@ func toolConceptMove(k *kb.KB, live *liveIndex, sqlIdx *sqlindex.Index) Tool {
 			return textResult(string(out)), nil
 		},
 	}
+}
+
+// toolConceptMerge folds a satellite into its expanded parent (D160). Consolidating
+// a dossier is a routine refactor with no primitive: done by hand it breaks links
+// three ways — the merged body's own relative links were relative to the
+// satellite's directory, links TO the deleted satellite remain, and so do links
+// from sibling satellites. All three are mechanical once the link rule is settled
+// (D149), and all three are what rewriteBacklinks already does for a move.
+func toolConceptMerge(k *kb.KB, live *liveIndex, sqlIdx *sqlindex.Index) Tool {
+	return Tool{
+		Name: "concept_merge",
+		Description: "Folds a satellite concept into its own expanded parent, in one commit: the satellite's " +
+			"body is appended to the parent's index.md under a heading, its own relative links are rebased " +
+			"to the parent's directory, every inbound link (markdown and wiki-link, including from sibling " +
+			"satellites) is redirected to the parent, and the satellite is deleted. Only a satellite into " +
+			"its own parent: arbitrary concept-into-concept merging is out of scope.",
+		InputSchema: json.RawMessage(`{
+			"type": "object",
+			"required": ["satellite_id", "if_match"],
+			"properties": {
+				"satellite_id": {"type": "string", "description": "ConceptID of the satellite (3 segments: map/concept/child)"},
+				"if_match": {"type": "string", "description": "Expected content-hash of the satellite"},
+				"heading": {"type": "string", "description": "Heading the merged body is appended under; defaults to the satellite's title"}
+			}
+		}`),
+		Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
+			var params struct {
+				SatelliteID string `json:"satellite_id"`
+				IfMatch     string `json:"if_match"`
+				Heading     string `json:"heading"`
+			}
+			if err := json.Unmarshal(args, &params); err != nil {
+				return errorResult("invalid params: " + err.Error()), nil
+			}
+			parts := strings.Split(params.SatelliteID, "/")
+			if len(parts) != 3 {
+				return errorResult(fmt.Sprintf("concept_merge %q: not a satellite — expected 3 segments (map/concept/child)", params.SatelliteID)), nil
+			}
+			parentID := okf.ConceptID(strings.Join(parts[:2], "/"))
+			parentRel, expanded := k.ConceptRelPath(parentID)
+			if !expanded {
+				return errorResult(fmt.Sprintf("concept_merge %q: %q is not an expanded concept", params.SatelliteID, parentID)), nil
+			}
+
+			satellite, err := k.ReadConcept(okf.ConceptID(params.SatelliteID))
+			if err != nil {
+				return errorResult(fmt.Sprintf("concept_merge %q: %v", params.SatelliteID, err)), nil
+			}
+			if satellite.ContentHash != params.IfMatch {
+				return errorResult(fmt.Sprintf("stale_write: concept_merge %q: if_match %q does not match %q", params.SatelliteID, params.IfMatch, satellite.ContentHash)), nil
+			}
+			parent, err := k.ReadConcept(parentID)
+			if err != nil {
+				return errorResult(fmt.Sprintf("concept_merge: read parent %q: %v", parentID, err)), nil
+			}
+
+			heading := params.Heading
+			if heading == "" {
+				heading = string(parentID)
+				if parsed, parseErr := okf.ParseFrontmatter(satellite.FrontmatterRaw); parseErr == nil && parsed != nil {
+					if t, ok := parsed.Get("title"); ok {
+						if ts, ok := t.(string); ok && strings.TrimSpace(ts) != "" {
+							heading = ts
+						}
+					}
+				}
+			}
+
+			// The satellite's own relative links move up one level.
+			mergedBody, _ := kb.RewriteOutboundLinks(satellite.Body, okf.IDToPath(okf.ConceptID(params.SatelliteID)), parentRel, nil)
+			parentFM, err := okf.ParseFrontmatter(parent.FrontmatterRaw)
+			if err != nil {
+				return errorResult(fmt.Sprintf("concept_merge: parse parent frontmatter: %v", err)), nil
+			}
+			newParentBody := strings.TrimRight(parent.Body, "\n") + "\n\n## " + heading + "\n\n" + strings.TrimSpace(mergedBody) + "\n"
+			if _, err := k.WriteConcept(parentID, parentFM, newParentBody, parent.ContentHash); err != nil {
+				return errorResult(fmt.Sprintf("concept_merge: write parent %q: %v", parentID, err)), nil
+			}
+			if err := k.DeleteConcept(okf.ConceptID(params.SatelliteID)); err != nil {
+				return errorResult(fmt.Sprintf("concept_merge: delete satellite %q: %v", params.SatelliteID, err)), nil
+			}
+			live.remove(params.SatelliteID)
+			if sqlIdx != nil {
+				_ = sqlIdx.Delete(params.SatelliteID)
+			}
+
+			// Inbound links — including from sibling satellites, which the
+			// whole-KB pass covers with no special case.
+			moveMap := map[string]string{params.SatelliteID: string(parentID)}
+			touched, replacements, err := rewriteBacklinks(k, live, sqlIdx, moveMap)
+			if err != nil {
+				return errorResult(fmt.Sprintf("concept_merge: merged %q but redirecting inbound links failed: %v", params.SatelliteID, err)), nil
+			}
+			_ = k.AppendLog(fmt.Sprintf("concept_merge: %s → %s", params.SatelliteID, parentID), time.Now())
+
+			out, _ := json.MarshalIndent(map[string]interface{}{
+				"merged_into":  string(parentID),
+				"heading":      heading,
+				"rewritten":    touched,
+				"replacements": replacements,
+			}, "", "  ")
+			return textResult(string(out)), nil
+		},
+	}
+}
+
+// toolConceptCollapse is the inverse of concept_expand (D160). concept_expand's
+// description said there was none, while expanded_as_category actively advises
+// going back above 8 children — so the only route was a batch concept_move by
+// hand.
+//
+// Expansion never changes an ID, so neither does this: "<id>/index.md" becomes
+// "<id>.md" under the same ID, and no inbound link needs rewriting.
+func toolConceptCollapse(k *kb.KB, live *liveIndex, sqlIdx *sqlindex.Index) Tool {
+	return Tool{
+		Name: "concept_collapse",
+		Description: "Turns an expanded concept back into a plain one: \"<id>/index.md\" becomes \"<id>.md\" " +
+			"under the SAME ConceptID, so no inbound link changes. The inverse of concept_expand. Refuses " +
+			"when the directory still holds satellites or assets — both would have no home after the " +
+			"collapse — and names them.",
+		InputSchema: json.RawMessage(`{
+			"type": "object",
+			"required": ["id", "if_match"],
+			"properties": {
+				"id": {"type": "string", "description": "ConceptID to collapse (2 segments: map/concept)"},
+				"if_match": {"type": "string", "description": "Expected content-hash of the expanded concept"}
+			}
+		}`),
+		Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
+			var params struct {
+				ID      string `json:"id"`
+				IfMatch string `json:"if_match"`
+			}
+			if err := json.Unmarshal(args, &params); err != nil {
+				return errorResult("invalid params: " + err.Error()), nil
+			}
+			id := okf.ConceptID(params.ID)
+			if len(strings.Split(params.ID, "/")) != 2 {
+				return errorResult(fmt.Sprintf("concept_collapse %q: expected exactly 2 segments (map/concept)", params.ID)), nil
+			}
+			if _, expanded := k.ConceptRelPath(id); !expanded {
+				return errorResult(fmt.Sprintf("concept_collapse %q: not an expanded concept", params.ID)), nil
+			}
+			data, err := k.ReadConcept(id)
+			if err != nil {
+				return errorResult(fmt.Sprintf("concept_collapse %q: %v", params.ID, err)), nil
+			}
+			if data.ContentHash != params.IfMatch {
+				return errorResult(fmt.Sprintf("stale_write: concept_collapse %q: if_match %q does not match %q", params.ID, params.IfMatch, data.ContentHash)), nil
+			}
+
+			// Satellites and assets live in the directory and would have no home.
+			var satellites []string
+			if err := k.WalkConcepts(func(other okf.ConceptID, _ string) error {
+				if strings.HasPrefix(string(other), params.ID+"/") {
+					satellites = append(satellites, string(other))
+				}
+				return nil
+			}); err != nil {
+				return errorResult(fmt.Sprintf("concept_collapse: walk: %v", err)), nil
+			}
+			if len(satellites) > 0 {
+				sort.Strings(satellites)
+				return errorResult(fmt.Sprintf("concept_collapse %q: still holds %d satellite(s) — merge or move them first: %s",
+					params.ID, len(satellites), strings.Join(satellites, ", "))), nil
+			}
+			assets, assetErr := k.ListAssets(id)
+			if assetErr == nil && len(assets) > 0 {
+				names := make([]string, 0, len(assets))
+				for _, a := range assets {
+					names = append(names, a.Path)
+				}
+				sort.Strings(names)
+				return errorResult(fmt.Sprintf("concept_collapse %q: still owns %d asset(s), which only an expanded concept can hold — remove them with asset_delete first: %s",
+					params.ID, len(assets), strings.Join(names, ", "))), nil
+			}
+
+			dirAbs, err := k.ResolvePath(params.ID, true)
+			if err != nil {
+				return errorResult(fmt.Sprintf("concept_collapse %q: %v", params.ID, err)), nil
+			}
+			flatAbs, err := k.ResolvePath(okf.IDToPath(id), true)
+			if err != nil {
+				return errorResult(fmt.Sprintf("concept_collapse %q: %v", params.ID, err)), nil
+			}
+			if _, statErr := os.Stat(flatAbs); statErr == nil {
+				return errorResult(fmt.Sprintf("concept_collapse %q: %s.md already exists (expanded_ambiguous) — remove one form first", params.ID, params.ID)), nil
+			}
+			if err := os.Rename(filepath.Join(dirAbs, "index.md"), flatAbs); err != nil {
+				return errorResult(fmt.Sprintf("concept_collapse %q: move index.md: %v", params.ID, err)), nil
+			}
+			if err := os.Remove(dirAbs); err != nil {
+				return errorResult(fmt.Sprintf("concept_collapse %q: remove the now-empty directory: %v", params.ID, err)), nil
+			}
+			if fresh, readErr := k.ReadConcept(id); readErr == nil {
+				live.add(params.ID, fresh.Content)
+				if sqlIdx != nil {
+					_ = sqlIdx.Upsert(params.ID, fresh.ContentHash, fresh.Content)
+				}
+			}
+			_ = k.AppendLog("concept_collapse: "+params.ID, time.Now())
+
+			out, _ := json.MarshalIndent(map[string]interface{}{
+				"id":   params.ID,
+				"path": okf.IDToPath(id),
+			}, "", "  ")
+			return textResult(string(out)), nil
+		},
+	}
+}
+
+// maintainCuratedIndexes removes the moved concept's entry from the source map's
+// curated index and appends one to the destination's, for maps that opted in with
+// require_index_entry (D160). Returns one human-readable note per action.
+//
+// Both edits are conservative. A source line is removed only when the moved
+// concept is its ONLY link: a line citing two concepts is prose the operator
+// wrote, so it is kept and reported instead. The destination entry is appended
+// under a "## Moved here" heading created if absent — Cartographer cannot know the
+// right thematic section, and a wrong placement in a curated document is worse
+// than an obvious one at the end. Only maps that declared require_index_entry are
+// touched: editing an index nobody called curated would be an assumption.
+func maintainCuratedIndexes(k *kb.KB, applied []conceptMoveEntry) []string {
+	var notes []string
+	requiresIndex := func(mapName string) bool {
+		contract, err := k.ReadMapContract(mapName)
+		return err == nil && contract.RequireIndexEntry
+	}
+	for _, mv := range applied {
+		srcMap, srcOK := conceptMapName(mv.SourceID)
+		dstMap, dstOK := conceptMapName(mv.TargetID)
+		if !srcOK || !dstOK || srcMap == dstMap {
+			continue
+		}
+		if requiresIndex(srcMap) {
+			removed, kept, err := removeCuratedEntry(k, srcMap, okf.ConceptID(mv.SourceID))
+			switch {
+			case err != nil:
+				notes = append(notes, fmt.Sprintf("curated index %s/index.md: %v", srcMap, err))
+			case removed:
+				notes = append(notes, fmt.Sprintf("curated index %s/index.md: removed the entry for %s", srcMap, mv.SourceID))
+			case kept != "":
+				notes = append(notes, fmt.Sprintf("curated index %s/index.md: kept a line citing %s alongside other concepts, edit it by hand: %q", srcMap, mv.SourceID, kept))
+			}
+		}
+		if requiresIndex(dstMap) {
+			if err := appendCuratedEntry(k, dstMap, okf.ConceptID(mv.TargetID), mv.SourceID); err != nil {
+				notes = append(notes, fmt.Sprintf("curated index %s/index.md: %v", dstMap, err))
+			} else {
+				notes = append(notes, fmt.Sprintf("curated index %s/index.md: added an entry for %s", dstMap, mv.TargetID))
+			}
+		}
+	}
+	return notes
+}
+
+// conceptMapName returns a concept's map name, and false when the ID has none.
+func conceptMapName(id string) (string, bool) {
+	parts := strings.Split(id, "/")
+	if len(parts) < 2 {
+		return "", false
+	}
+	return parts[0], true
+}
+
+// removeCuratedEntry drops the line whose only link is id, reporting kept when a
+// line cites id alongside other concepts.
+func removeCuratedEntry(k *kb.KB, mapName string, id okf.ConceptID) (removed bool, kept string, err error) {
+	content, hash, err := k.IndexHash(mapName)
+	if err != nil {
+		return false, "", fmt.Errorf("unreadable: %w", err)
+	}
+	fmRaw, body, hasFM := okf.SplitFrontmatter(content)
+	indexPath := mapName + "/index.md"
+	var out []string
+	for _, line := range strings.Split(body, "\n") {
+		targets := kb.ExtractLinks(line, indexPath, k.AssetExists)
+		hit := false
+		for _, t := range targets {
+			if t == id || strings.TrimSuffix(string(t), "/index") == string(id) {
+				hit = true
+			}
+		}
+		if !hit {
+			out = append(out, line)
+			continue
+		}
+		if len(targets) > 1 {
+			kept = strings.TrimSpace(line)
+			out = append(out, line)
+			continue
+		}
+		removed = true
+	}
+	if !removed {
+		return false, kept, nil
+	}
+	_, err = k.PatchIndex(mapName, hash, joinIndex(fmRaw, hasFM, strings.Join(out, "\n")))
+	return err == nil, kept, err
+}
+
+// appendCuratedEntry adds an entry for id under a "## Moved here" heading.
+func appendCuratedEntry(k *kb.KB, mapName string, id okf.ConceptID, from string) error {
+	content, hash, err := k.IndexHash(mapName)
+	if err != nil {
+		return fmt.Errorf("unreadable: %w", err)
+	}
+	fmRaw, body, hasFM := okf.SplitFrontmatter(content)
+	title := string(id)
+	if data, readErr := k.ReadConcept(id); readErr == nil {
+		if parsed, parseErr := okf.ParseFrontmatter(data.FrontmatterRaw); parseErr == nil && parsed != nil {
+			if t, ok := parsed.Get("title"); ok {
+				if ts, ok := t.(string); ok && strings.TrimSpace(ts) != "" {
+					title = ts
+				}
+			}
+		}
+	}
+	// From a map index an expanded concept is "<concept>.md" — the form D149 WP3
+	// settled, and the one require_index_entry accepts.
+	rel := strings.TrimPrefix(string(id), mapName+"/") + ".md"
+	entry := fmt.Sprintf("- [%s](%s): moved from %s", title, rel, from)
+
+	const heading = "## Moved here"
+	if strings.Contains(body, heading) {
+		body = strings.TrimRight(body, "\n") + "\n" + entry + "\n"
+	} else {
+		body = strings.TrimRight(body, "\n") + "\n\n" + heading + "\n\n" + entry + "\n"
+	}
+	_, err = k.PatchIndex(mapName, hash, joinIndex(fmRaw, hasFM, body))
+	return err
+}
+
+// joinIndex reassembles an index file from its frontmatter and body.
+func joinIndex(fmRaw string, hasFM bool, body string) string {
+	if !hasFM {
+		return body
+	}
+	return "---\n" + strings.TrimSuffix(fmRaw, "\n") + "\n---\n" + body
 }
 
 // rewriteBacklinks performs a single WalkConcepts pass over the whole KB
