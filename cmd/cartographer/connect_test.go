@@ -295,8 +295,10 @@ func TestInstallServiceAndWaitHealthy_UsesDefaultListenAddress(t *testing.T) {
 // alongside them (D147).
 func TestPrintConnectResult_NoMCPClaimsForProvidersWithoutAnEmitter(t *testing.T) {
 	hermes := []string{"hermes"}
+	// MCPEntries deliberately non-empty: the guard must hold even if a caller
+	// hands over entries derived from the client config (sync does exactly that).
 	out := withStdout(t, func() {
-		printConnectResult(t.TempDir(), hermes, connectOptions{}, connectResult{Providers: hermes})
+		printConnectResult(t.TempDir(), hermes, connectOptions{}, connectResult{Providers: hermes, MCPEntries: []string{"cartographer"}})
 	})
 	if strings.Contains(out, "MCP entry") {
 		t.Errorf("output = %q, must not announce an MCP entry for a provider with no emitter", out)
