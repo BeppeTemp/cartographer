@@ -97,6 +97,26 @@ func withStdout(t *testing.T, f func()) string {
 	return string(buf[:n])
 }
 
+// withStderr redirects os.Stderr for the duration of f and returns what was
+// written. Operator guidance and warnings go to stderr, so a test asserting on
+// them cannot use withStdout.
+func withStderr(t *testing.T, f func()) string {
+	t.Helper()
+	old := os.Stderr
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("os.Pipe: %v", err)
+	}
+	os.Stderr = w
+	f()
+	w.Close()
+	os.Stderr = old
+
+	buf := make([]byte, 64*1024)
+	n, _ := r.Read(buf)
+	return string(buf[:n])
+}
+
 func TestRunNoArgsPrintsUsage(t *testing.T) {
 	out := withStdout(t, func() {
 		if code := run(nil); code != 0 {

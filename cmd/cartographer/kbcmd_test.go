@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/BeppeTemp/cartographer/internal/gitx"
@@ -187,21 +188,36 @@ func TestCmdKBCreateWithRemotePushes(t *testing.T) {
 
 // TestCmdKBCreateRemoteFailureCleansScaffold pins the rollback invariant: an
 // unreachable remote must not leave a mountable KB behind.
-func TestCmdKBCreateRemoteFailureCleansScaffold(t *testing.T) {
+// A failed push must not delete the scaffold: the local KB is complete and
+// valid, only the push failed, and re-doing it by hand was the reported cost
+// (D156). The command still exits non-zero and prints how to finish.
+func TestCmdKBCreateRemoteFailureKeepsScaffold(t *testing.T) {
 	if !hasGit() {
 		t.Skip("git not in PATH, skipping KB create remote test")
 	}
 
 	dataDir := t.TempDir()
 	var code int
-	withNoGuidance(t, func() {
-		code = cmdKBCreate([]string{"alpha", "--data", dataDir, "--remote", "file:///does-not-exist/missing.git"})
+	out := withStderr(t, func() {
+		withNoGuidance(t, func() {
+			code = cmdKBCreate([]string{"alpha", "--data", dataDir, "--remote", "file:///does-not-exist/missing.git"})
+		})
 	})
 	if code == 0 {
 		t.Fatal("cmdKBCreate with unreachable remote = 0, want non-zero")
 	}
-	if _, err := os.Stat(filepath.Join(dataDir, "alpha")); !os.IsNotExist(err) {
-		t.Fatalf("scaffold still exists after failed push: %v", err)
+	scaffold := filepath.Join(dataDir, "alpha")
+	if _, err := os.Stat(scaffold); err != nil {
+		t.Fatalf("scaffold was removed after a failed push: %v", err)
+	}
+	// It must be a real KB, not a half-written directory.
+	if _, err := kb.Open(scaffold); err != nil {
+		t.Fatalf("kept scaffold is not a valid KB: %v", err)
+	}
+	for _, want := range []string{"only the push failed", "push -u origin", "Or remove it"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("guidance missing %q\n---\n%s", want, out)
+		}
 	}
 }
 

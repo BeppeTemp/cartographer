@@ -230,7 +230,8 @@ func (m *Manager) Uninstall() error {
 	}
 }
 
-// Start starts the service.
+// Start starts the service. On darwin it bootstraps the job into the GUI
+// domain and re-enables it, because Stop disables it to defeat KeepAlive.
 func (m *Manager) Start() error {
 	switch goos {
 	case "darwin":
@@ -238,7 +239,14 @@ func (m *Manager) Start() error {
 		if err != nil {
 			return fmt.Errorf("service: resolve plist path: %w", err)
 		}
+		target := fmt.Sprintf("gui/%d/%s", os.Getuid(), launchdLabel)
+		// Best-effort: fails harmlessly when the job was never disabled.
+		m.run("launchctl", "enable", target)
 		_, err = m.run("launchctl", "bootstrap", fmt.Sprintf("gui/%d", os.Getuid()), plistPath)
+		if err != nil && m.launchdJobLoaded() {
+			// Already bootstrapped: enable + kickstart is the equivalent path.
+			_, err = m.run("launchctl", "kickstart", target)
+		}
 		return err
 	case "linux":
 		_, err := m.run("systemctl", "--user", "start", systemdUnit)
@@ -248,11 +256,20 @@ func (m *Manager) Start() error {
 	}
 }
 
-// Stop stops the service.
+// Stop stops the service, leaving the job registered so Restart can find it.
+// It used to `bootout`, which unregisters: `stop` then `restart` failed with
+// "Could not find service ... in domain", and with the server down the natural
+// reading was a broken installation. Disable comes first because the plist sets
+// KeepAlive, so launchd would otherwise restart the process immediately;
+// Uninstall keeps using bootout, which is what removing the definition means.
 func (m *Manager) Stop() error {
 	switch goos {
 	case "darwin":
-		_, err := m.run("launchctl", "bootout", fmt.Sprintf("gui/%d/%s", os.Getuid(), launchdLabel))
+		target := fmt.Sprintf("gui/%d/%s", os.Getuid(), launchdLabel)
+		if _, err := m.run("launchctl", "disable", target); err != nil {
+			return err
+		}
+		_, err := m.run("launchctl", "kill", "SIGTERM", target)
 		return err
 	case "linux":
 		_, err := m.run("systemctl", "--user", "stop", systemdUnit)
@@ -262,11 +279,19 @@ func (m *Manager) Stop() error {
 	}
 }
 
-// Restart restarts the service.
+// Restart restarts the service. On darwin it falls back to Start when the job
+// is not registered: a job booted out by an older version's Stop must still be
+// restartable after the upgrade, and kickstart cannot revive one.
 func (m *Manager) Restart() error {
 	switch goos {
 	case "darwin":
-		_, err := m.run("launchctl", "kickstart", "-k", fmt.Sprintf("gui/%d/%s", os.Getuid(), launchdLabel))
+		if !m.launchdJobLoaded() {
+			return m.Start()
+		}
+		target := fmt.Sprintf("gui/%d/%s", os.Getuid(), launchdLabel)
+		// Stop disables the job; a restart must undo that or kickstart is a no-op.
+		m.run("launchctl", "enable", target)
+		_, err := m.run("launchctl", "kickstart", "-k", target)
 		return err
 	case "linux":
 		_, err := m.run("systemctl", "--user", "restart", systemdUnit)
@@ -274,6 +299,14 @@ func (m *Manager) Restart() error {
 	default:
 		return fmt.Errorf("service: unsupported platform %q", goos)
 	}
+}
+
+// launchdJobLoaded reports whether the job is registered in the user's GUI
+// domain. It branches on launchctl's exit status rather than parsing its prose,
+// which is localized.
+func (m *Manager) launchdJobLoaded() bool {
+	_, err := m.run("launchctl", "print", fmt.Sprintf("gui/%d/%s", os.Getuid(), launchdLabel))
+	return err == nil
 }
 
 // EffectiveConfigPath resolves the server config path that governs the

@@ -127,17 +127,25 @@ func cmdKBCreate(args []string) int {
 		return 1
 	}
 
+	// The identity has to be right before the initial commit exists: it is the
+	// commit a forge with an author-membership push rule rejects (D156).
+	authorName, authorEmail := resolveCreateIdentity(path)
+	if remote != "" && authorEmail == kb.DefaultGitAuthorEmail {
+		fmt.Fprintf(os.Stderr, "Warning: commits will be authored as %s; forges with author push rules will reject the push.\n", authorEmail)
+		fmt.Fprintln(os.Stderr, "  Set git.author_name/git.author_email in the server config, or git config --global user.email, then retry.")
+	}
+
 	// kb.Init creates <path> (and its parents, i.e. dataDir too) itself —
 	// no separate MkdirAll(dataDir) needed.
-	if _, err := kb.Init(path); err != nil {
+	if _, err := kb.InitWithIdentity(path, authorName, authorEmail); err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		return 1
 	}
 	if remote != "" {
 		if code := attachOrigin(path, remote); code != 0 {
-			// Same guarantee as kb clone's cleanup: never leave a
-			// half-provisioned KB where auto-discovery can mount it.
-			_ = os.RemoveAll(path)
+			// The scaffold is complete and valid; only the push failed, so
+			// deleting it turns a recoverable state into no KB at all (D156).
+			printUnpushedScaffoldGuidance(path, authorName, authorEmail, dataDir)
 			return code
 		}
 	}
@@ -150,6 +158,37 @@ func cmdKBCreate(args []string) int {
 
 	printPostCreateGuidanceFn(*restartFlag)
 	return 0
+}
+
+// resolveCreateIdentity resolves the author of a new KB's initial commit, in
+// the same order the server uses when it mounts one (serve.go): the server
+// config's git.author_name/git.author_email, then git's own resolution for that
+// path, then the product default. Before D156 the CLI path ignored the first two
+// and always committed as the product default, which a forge with an
+// author-membership push rule rejects.
+func resolveCreateIdentity(path string) (name, email string) {
+	if cfgPath, err := service.NewManager().EffectiveConfigPath(""); err == nil {
+		if cfg, cfgErr := config.Load(cfgPath); cfgErr == nil {
+			if cfg.Git.AuthorName != "" && cfg.Git.AuthorEmail != "" {
+				return cfg.Git.AuthorName, cfg.Git.AuthorEmail
+			}
+		}
+	}
+	if n, e, err := gitx.AuthorIdent(path); err == nil && n != "" && e != "" {
+		return n, e
+	}
+	return kb.DefaultGitAuthorName, kb.DefaultGitAuthorEmail
+}
+
+// printUnpushedScaffoldGuidance explains what to do with a KB whose scaffold is
+// valid but whose first push failed. The scaffold is deliberately kept (D156):
+// the local work is correct and re-doing it by hand was the reported cost.
+func printUnpushedScaffoldGuidance(path, authorName, authorEmail, dataDir string) {
+	fmt.Fprintf(os.Stderr, "\nThe KB at %s is complete and valid; only the push failed. Finish it with:\n", path)
+	fmt.Fprintf(os.Stderr, "  git -C %s commit --amend --author %q   # if the forge rejected the author\n",
+		path, fmt.Sprintf("%s <%s>", authorName, authorEmail))
+	fmt.Fprintf(os.Stderr, "  git -C %s push -u origin %s\n", path, gitx.DefaultBranch)
+	fmt.Fprintf(os.Stderr, "Or remove it: rm -rf %s   (a server started with data: %s would otherwise mount it)\n", path, dataDir)
 }
 
 // checkRemoteChoice validates the --remote/--no-remote pair, which is a

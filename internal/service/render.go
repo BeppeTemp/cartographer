@@ -9,7 +9,52 @@
 // stubbed runner.
 package service
 
-import "fmt"
+import (
+	"fmt"
+	"path/filepath"
+	"strings"
+)
+
+// packageManagerPrefixes are the directories a service's PATH must include
+// beyond the platform default, in this order: the package managers that install
+// the external binaries Cartographer shells out to (sops for secret
+// resolution, git). Curated and fixed rather than copied from the installing
+// user's shell, which would bake that user's whole environment into a service
+// definition.
+var packageManagerPrefixes = []string{"/opt/homebrew/bin", "/usr/local/bin", "/opt/local/bin"}
+
+// platformDefaultPath is the minimal PATH a launchd job or a systemd user unit
+// gets when the definition sets none.
+var platformDefaultPath = []string{"/usr/bin", "/bin", "/usr/sbin", "/sbin"}
+
+// servicePATH is the PATH written into the generated service definitions. A
+// launchd job inherits a minimal PATH and a systemd user unit an equally short
+// one, so a Homebrew-installed sops sits outside both and every secret
+// resolution fails with "sops binary not found in PATH" — from the definition
+// `service install` itself generated. The binary's own directory comes first:
+// whatever installed Cartographer is the most likely place to hold its
+// companions.
+func servicePATH(binPath string) string {
+	var dirs []string
+	seen := map[string]bool{}
+	add := func(d string) {
+		if d == "" || d == "." || seen[d] {
+			return
+		}
+		seen[d] = true
+		dirs = append(dirs, d)
+	}
+	if binPath != "" {
+		add(filepath.Dir(binPath))
+	}
+	for _, d := range packageManagerPrefixes {
+		add(d)
+	}
+	for _, d := range platformDefaultPath {
+		add(d)
+	}
+	return strings.Join(dirs, ":")
+}
 
 // RenderLaunchdPlist renders the launchd agent plist that runs
 // `<binPath> serve --config <configPath>`, logging stdout/stderr to logPath.
@@ -27,6 +72,11 @@ func RenderLaunchdPlist(binPath, configPath, logPath string) string {
 		<string>--config</string>
 		<string>%s</string>
 	</array>
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>PATH</key>
+		<string>%s</string>
+	</dict>
 	<key>RunAtLoad</key>
 	<true/>
 	<key>KeepAlive</key>
@@ -37,23 +87,25 @@ func RenderLaunchdPlist(binPath, configPath, logPath string) string {
 	<string>%s</string>
 </dict>
 </plist>
-`, binPath, configPath, logPath, logPath)
+`, binPath, configPath, servicePATH(binPath), logPath, logPath)
 }
 
 // RenderSystemdUnit renders the systemd user unit that runs
 // `<binPath> serve --config <configPath>`, restarting on failure. Logs go to
-// journald (the systemd default), no explicit log path.
+// journald (the systemd default), no explicit log path. PATH is set from the
+// same servicePATH the launchd plist uses, so the two definitions cannot drift.
 func RenderSystemdUnit(binPath, configPath string) string {
 	return fmt.Sprintf(`[Unit]
 Description=Cartographer MCP server
 
 [Service]
+Environment=PATH=%s
 ExecStart=%s serve --config %s
 Restart=on-failure
 
 [Install]
 WantedBy=default.target
-`, binPath, configPath)
+`, servicePATH(binPath), binPath, configPath)
 }
 
 // DefaultServerYAML renders the minimal `cartographer serve --config` YAML
