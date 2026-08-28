@@ -147,6 +147,30 @@ func TestVerifyManaged_NoMaterializedHashIsUnknown(t *testing.T) {
 	}
 }
 
+// Existence needs no recorded hash: a pre-D138 entry whose files are gone is
+// missing, not unknown, and is healable — otherwise `status` reports in-sync
+// on a skill that is not on disk and `sync` never restores it.
+func TestVerifyManaged_NoMaterializedHashStillDetectsMissing(t *testing.T) {
+	baseDir, _, applied, _ := driftKB(t)
+	lock := applied.NewLock
+	for i := range lock.Managed {
+		lock.Managed[i].MaterializedHash = ""
+	}
+	os.RemoveAll(filepath.Join(baseDir, ".claude", "skills", "runbooks"))
+	os.Remove(filepath.Join(baseDir, ".claude", "agents", "reviewer.md"))
+
+	findings := VerifyManaged(lock, configurator.ProviderClaudeCode, baseDir)
+	for _, want := range []struct{ kind, name string }{{"skill", "runbooks"}, {"agent", "reviewer"}} {
+		f, ok := findingFor(findings, want.kind, want.name)
+		if !ok || f.Reason != DriftMissing {
+			t.Errorf("%s %q: expected missing without a hash, got %+v", want.kind, want.name, f)
+		}
+		if !f.Healable() {
+			t.Errorf("%s %q: a missing artifact must be healable, got %+v", want.kind, want.name, f)
+		}
+	}
+}
+
 // mcp/instructions live inside a file shared with the user: presence only.
 func TestVerifyManaged_SharedFileEntriesArePresenceChecked(t *testing.T) {
 	kbRoot := t.TempDir()

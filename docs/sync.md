@@ -133,10 +133,15 @@ Verification scope per kind, decided by what is verifiable:
 | `agent` | the single materialized file's bytes |
 | `mcp`, `instructions` | **presence only** of the managed key or marker block: the file is shared with the user, so its other content is never compared and never rewritten |
 
-Findings are `missing`, `modified`, `unregistered`, or `unknown`. `unknown` means the lockfile
-records no `materialized_hash` (written before D138): it is reported, never healed — treating it as
-drift would rewrite every artifact on every client at once on the first upgrade. A read error is a
-finding too, never a fatal: one unreadable artifact must not abort the verification of the others.
+Findings are `missing`, `modified`, `unregistered`, or `unknown`. **Existence and content are
+verified separately** ([D146](decisions/client-configurator.md#d146)), because they need different
+evidence: whether a path is still on disk needs no hash, whether its bytes changed does. So the
+destination is stat'd first, and `unknown` — the lockfile records no `materialized_hash`, having
+been written before D138 — applies only to an artifact that **is** on disk and whose content
+therefore cannot be compared. It is reported, never healed: treating it as drift would rewrite every
+artifact on every client at once on the first upgrade. A pre-D138 entry whose files are gone is
+`missing` like any other, and is healed. A read error is a finding too, never a fatal: one
+unreadable artifact must not abort the verification of the others.
 
 `cartographer sync --no-heal` reports divergence and skips the restore, for someone deliberately
 iterating on a local copy. `cartographer status` counts on-disk divergence as drift, so a locally

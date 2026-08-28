@@ -6,6 +6,12 @@ package provisioning
 // edited by hand stayed edited forever and a deleted file was never restored
 // — while `cartographer status` reported in-sync. This is the mechanical half
 // of what D138's provenance stamp promises editorially.
+//
+// Existence and content are verified separately, because they need different
+// evidence: a recorded hash is required to tell whether bytes changed, but not
+// to tell whether a path is still there. Collapsing the two behind one gate is
+// what let entries predating D138 keep reporting in-sync after their files had
+// been deleted.
 
 import (
 	"fmt"
@@ -25,9 +31,12 @@ const (
 	// DriftUnregistered: a managed key or marker block inside a file shared
 	// with the user (mcp, instructions) is no longer there.
 	DriftUnregistered = "unregistered"
-	// DriftUnknown: no materialized hash was recorded — a lockfile written
-	// before D138. Reported but never healed: treating it as drift would
-	// rewrite every artifact on every client at once on the first upgrade.
+	// DriftUnknown: the artifact is on disk but no materialized hash was
+	// recorded — a lockfile written before D138 — so its content cannot be
+	// compared. Reported but never healed: treating it as drift would rewrite
+	// every artifact on every client at once on the first upgrade. Scoped to
+	// content: whether the path exists is checked without any hash, so a
+	// pre-D138 entry that vanished is DriftMissing, not unknown.
 	DriftUnknown = "unknown"
 	// DriftError: the artifact could not be verified (permissions, a path
 	// that became a directory). Reported, never fatal: one unreadable
@@ -98,6 +107,29 @@ func verifyArtifact(mf ManagedFile, provider configurator.Provider, baseDir stri
 		return finding, true
 	}
 
+	destRel, full, ok := managedDest(mf, provider, baseDir)
+	if !ok {
+		return DriftFinding{}, false
+	}
+	finding.Path = destRel
+
+	// Existence before content. Whether the path is on disk needs no recorded
+	// hash, so it is checked ahead of the MaterializedHash gate below: an
+	// artifact that is gone is missing whatever the lockfile knows about its
+	// bytes. Stat also comes first because the walk helper wraps a missing
+	// directory in a formatted error, and "gone" must not be reported as
+	// "unreadable".
+	if _, statErr := os.Stat(full); statErr != nil {
+		if os.IsNotExist(statErr) {
+			finding.Reason = DriftMissing
+		} else {
+			finding.Reason, finding.Detail = DriftError, statErr.Error()
+		}
+		return finding, true
+	}
+
+	// Only the content comparison needs a hash: a pre-D138 entry whose files
+	// are present stays unknown and is never rewritten.
 	if mf.MaterializedHash == "" {
 		finding.Reason = DriftUnknown
 		return finding, true
@@ -107,7 +139,6 @@ func verifyArtifact(mf ManagedFile, provider configurator.Provider, baseDir stri
 	var err error
 	switch mf.Kind {
 	case "agent":
-		full := filepath.Join(baseDir, mf.Path)
 		var data []byte
 		data, err = os.ReadFile(full)
 		if err == nil {
@@ -115,22 +146,6 @@ func verifyArtifact(mf ManagedFile, provider configurator.Provider, baseDir stri
 		}
 	default:
 		// skill/hook: a directory of its own.
-		destRel := destDir(mf.Kind, mf.Name, provider)
-		if destRel == "" {
-			return DriftFinding{}, false
-		}
-		finding.Path = destRel
-		full := filepath.Join(baseDir, destRel)
-		// Stat first: the walk helper wraps a missing directory in a formatted
-		// error, and "gone" must not be reported as "unreadable".
-		if _, statErr := os.Stat(full); statErr != nil {
-			if os.IsNotExist(statErr) {
-				finding.Reason = DriftMissing
-			} else {
-				finding.Reason, finding.Detail = DriftError, statErr.Error()
-			}
-			return finding, true
-		}
 		onDisk, err = contentHashDirOS(full, mf.Kind)
 	}
 
@@ -146,6 +161,21 @@ func verifyArtifact(mf ManagedFile, provider configurator.Provider, baseDir stri
 		return finding, true
 	}
 	return DriftFinding{}, false
+}
+
+// managedDest resolves where an artifact of this kind lives on disk, returning
+// the path relative to baseDir and the absolute one. ok is false when the
+// artifact has no destination for this provider: an unsupported kind is not
+// drift, it simply does not concern it.
+func managedDest(mf ManagedFile, provider configurator.Provider, baseDir string) (rel, full string, ok bool) {
+	rel = mf.Path
+	if mf.Kind != "agent" {
+		// skill/hook: a directory of its own.
+		if rel = destDir(mf.Kind, mf.Name, provider); rel == "" {
+			return "", "", false
+		}
+	}
+	return rel, filepath.Join(baseDir, rel), true
 }
 
 // managedEntryPresent reports whether the managed key (mcp) or marker block
