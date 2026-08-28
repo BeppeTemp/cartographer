@@ -794,8 +794,76 @@ func TestRestart_Darwin_UsesKickstartK(t *testing.T) {
 	if err := m.Restart(); err != nil {
 		t.Fatalf("Restart: %v", err)
 	}
-	if len(stub.calls) != 1 || stub.calls[0][0] != "launchctl" || stub.calls[0][1] != "kickstart" || stub.calls[0][2] != "-k" {
-		t.Errorf("plain Restart calls = %v, want launchctl kickstart -k", stub.calls)
+	// print (is it loaded?) → enable (Stop disables) → kickstart -k.
+	if len(stub.calls) != 3 {
+		t.Fatalf("Restart calls = %v, want 3", stub.calls)
+	}
+	if stub.calls[0][1] != "print" {
+		t.Errorf("first call = %v, want launchctl print", stub.calls[0])
+	}
+	last := stub.calls[2]
+	if last[0] != "launchctl" || last[1] != "kickstart" || last[2] != "-k" {
+		t.Errorf("last call = %v, want launchctl kickstart -k", last)
+	}
+}
+
+// stop must not unregister the job: bootout made `stop` then `restart` fail
+// with "Could not find service ... in domain" (D156).
+func TestStop_Darwin_KeepsTheJobRegistered(t *testing.T) {
+	withTestHome(t, "darwin")
+	m, stub := newTestManager()
+	if err := m.Stop(); err != nil {
+		t.Fatalf("Stop: %v", err)
+	}
+	var names []string
+	for _, c := range stub.calls {
+		names = append(names, strings.Join(c[:2], " "))
+		if c[1] == "bootout" {
+			t.Errorf("Stop must not bootout: %v", stub.calls)
+		}
+	}
+	// disable defeats KeepAlive, then SIGTERM stops the process.
+	if len(stub.calls) != 2 || stub.calls[0][1] != "disable" || stub.calls[1][1] != "kill" {
+		t.Errorf("Stop calls = %v, want launchctl disable then launchctl kill (%v)", stub.calls, names)
+	}
+}
+
+// A job booted out by an older version's Stop is not registered, and kickstart
+// cannot revive one: restart must fall back to start.
+func TestRestart_Darwin_FallsBackToStartWhenNotLoaded(t *testing.T) {
+	withTestHome(t, "darwin")
+	m, stub := newTestManager()
+	stub.fail = map[string]bool{"launchctl print": true}
+	if err := m.Restart(); err != nil {
+		t.Fatalf("Restart: %v", err)
+	}
+	var bootstrapped bool
+	for _, c := range stub.calls {
+		if c[1] == "bootstrap" {
+			bootstrapped = true
+		}
+		if c[1] == "kickstart" && len(c) > 2 && c[2] == "-k" {
+			t.Errorf("must not kickstart an unregistered job: %v", stub.calls)
+		}
+	}
+	if !bootstrapped {
+		t.Errorf("Restart calls = %v, want a launchctl bootstrap fallback", stub.calls)
+	}
+}
+
+// Removing the definition is what uninstall means, so bootout stays there.
+func TestUninstall_Darwin_StillBootsOut(t *testing.T) {
+	withTestHome(t, "darwin")
+	m, stub := newTestManager()
+	_ = m.Uninstall()
+	var found bool
+	for _, c := range stub.calls {
+		if c[1] == "bootout" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("Uninstall calls = %v, want a launchctl bootout", stub.calls)
 	}
 }
 
@@ -934,5 +1002,57 @@ func TestSyncTimerFilesAreDistinctFromServerService(t *testing.T) {
 		if pair[0] == pair[1] {
 			t.Errorf("the sync timer reuses the server's file: %s", pair[0])
 		}
+	}
+}
+
+// A launchd job and a systemd user unit inherit a minimal PATH, so a
+// Homebrew-installed sops is invisible to them and every secret resolution
+// fails from the definition `service install` itself generated (D156).
+func TestServicePATH(t *testing.T) {
+	t.Run("binary directory comes first", func(t *testing.T) {
+		got := servicePATH("/opt/mytools/bin/cartographer")
+		if !strings.HasPrefix(got, "/opt/mytools/bin:") {
+			t.Errorf("PATH = %q, want it to start with the binary's own directory", got)
+		}
+	})
+
+	t.Run("includes package manager and platform prefixes", func(t *testing.T) {
+		got := servicePATH("/usr/local/bin/cartographer")
+		for _, want := range []string{"/opt/homebrew/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin"} {
+			if !strings.Contains(got, want) {
+				t.Errorf("PATH = %q, want it to contain %q", got, want)
+			}
+		}
+	})
+
+	t.Run("no duplicate when the binary sits in a known prefix", func(t *testing.T) {
+		got := servicePATH("/opt/homebrew/bin/cartographer")
+		if n := strings.Count(got, "/opt/homebrew/bin"); n != 1 {
+			t.Errorf("PATH = %q, want /opt/homebrew/bin exactly once, got %d", got, n)
+		}
+	})
+
+	t.Run("no empty element without a binary path", func(t *testing.T) {
+		got := servicePATH("")
+		if got == "" || strings.Contains(got, "::") || strings.HasPrefix(got, ":") {
+			t.Errorf("PATH = %q, want a non-empty list with no empty element", got)
+		}
+	})
+}
+
+func TestRenderedDefinitionsCarryTheSamePATH(t *testing.T) {
+	bin := "/opt/homebrew/bin/cartographer"
+	want := servicePATH(bin)
+
+	plist := RenderLaunchdPlist(bin, "/tmp/server.yaml", "/tmp/server.log")
+	for _, frag := range []string{"<key>EnvironmentVariables</key>", "<key>PATH</key>", "<string>" + want + "</string>"} {
+		if !strings.Contains(plist, frag) {
+			t.Errorf("plist missing %q\n---\n%s", frag, plist)
+		}
+	}
+
+	unit := RenderSystemdUnit(bin, "/tmp/server.yaml")
+	if !strings.Contains(unit, "Environment=PATH="+want) {
+		t.Errorf("unit missing Environment=PATH=%s\n---\n%s", want, unit)
 	}
 }
