@@ -130,6 +130,25 @@ See `docs/sync.md` for the full model (Manifest, Lock, Diff, layered triggers).
 
 > Multi-KB: which KB a tool call reaches is decided per-connection, not per-call — `?kb=<name>` (query param) or `/mcp/<name>` (path) select one KB's isolated `Server` for the whole session; no tool takes a `kb` argument. Every KB exposes the same tool names by default, which flat-namespace MCP clients (e.g. Kiro) cannot disambiguate across servers — see `tool_prefix` in [`deployment.md`](deployment.md) §MCP tool-name prefix.
 
+### Enforced limits
+
+Each of these is a hard limit a caller hits as a failure unless it reads it first, so every one is
+stated in the description of the tool that enforces it, **interpolated from the constant the handler
+checks** — a figure and its documentation cannot drift apart.
+
+| Limit | Constant | Enforced by |
+|---|---|---|
+| 1 MiB per asset | `kb.AssetMaxFileSize` (`internal/kb/asset.go`) | `asset_write`, `asset_read` |
+| 50 operations per batch | `conceptBatchMaxOps` (`internal/mcpserver/tools_write.go`) | `concept_batch` |
+| 512 KiB aggregate per batch | `conceptBatchMaxTotalBytes` (same file) | `concept_batch` |
+| 500 lines per skill body | `maxSkillBodyLines` (`internal/skill/skill.go`) | skill lint (warning) |
+
+`required_fields`, `required_fields_by_type` and `require_index_entry` are **lint contracts, not
+write gates**: a violation is a `lint`/`validate` finding and does not fail `concept_write`. The one
+map contract that *does* fail a write is `ontology_mode: strict`, which makes `validate` reject an
+out-of-vocabulary type. That asymmetry is what made the whole area confusing, so each description
+now says which kind it is.
+
 ## Search index
 
 **Rebuildable index** (*vault = truth, index = disposable*), with two persistence levels:
