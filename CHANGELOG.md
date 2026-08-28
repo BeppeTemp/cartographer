@@ -8,6 +8,14 @@
 
 KB histories with commits authored as `cartographer <cartographer@localhost>` may need a manual author rewrite before a forge with author push rules accepts the first push.
 
+## [0.8.2](https://github.com/BeppeTemp/cartographer/compare/v0.8.1...v0.8.2) (2026-08-28)
+
+
+### Bug Fixes
+
+* **client:** report writes that happened, not writes intended (D147) ([#164](https://github.com/BeppeTemp/cartographer/issues/164)) ([2e62a07](https://github.com/BeppeTemp/cartographer/commit/2e62a072d5cf210c026101774acdf978bdcc2305))
+* **sync:** verify artifact existence without a recorded hash (D146) ([#163](https://github.com/BeppeTemp/cartographer/issues/163)) ([2132571](https://github.com/BeppeTemp/cartographer/commit/2132571b14f085a0fefa724bfb94e56c24ba9814))
+
 ## [0.8.1](https://github.com/BeppeTemp/cartographer/compare/v0.8.0...v0.8.1) (2026-08-27)
 
 
