@@ -244,6 +244,21 @@ func handleConflictError(k *kb.KB, rce *gitx.RebaseConflictError) int {
 	return n
 }
 
+// byteBudget renders a byte limit the way an operator reads it, so a tool
+// description and the constant it documents can never disagree: the figures in
+// every description are interpolated from the constants the handlers check
+// (D161).
+func byteBudget(n int) string {
+	switch {
+	case n%(1024*1024) == 0:
+		return fmt.Sprintf("%d MiB", n/(1024*1024))
+	case n%1024 == 0:
+		return fmt.Sprintf("%d KiB", n/1024)
+	default:
+		return fmt.Sprintf("%d bytes", n)
+	}
+}
+
 // commitSubjectFields names, per tool, the argument fields that identify the
 // resource a write touched, in the order they appear in the commit subject
 // (joined with "/"). It exists because the fallback list below is keyed on the

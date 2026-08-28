@@ -867,3 +867,56 @@ func TestGitWrap_AssetWriteCommitSubjectNamesConceptAndPath(t *testing.T) {
 		t.Fatalf("commit subject = %q, want %q", got, want)
 	}
 }
+
+// --- D161: every enforced limit stated in its own tool description ---
+
+// A tool description is the only documentation an agent reads, and each figure
+// is interpolated from the constant the handler checks, so the two cannot
+// disagree. These tests read the constants, so bumping one cannot leave the text
+// stale.
+func TestToolDescriptions_StateTheirEnforcedLimits(t *testing.T) {
+	k := setupTestKB(t)
+	s := New("test")
+	RegisterKBTools(s, k, Deps{})
+	tools := s.Tools()
+
+	cases := []struct {
+		tool string
+		want []string
+	}{
+		{"concept_batch", []string{fmt.Sprintf("%d operations", conceptBatchMaxOps), byteBudget(conceptBatchMaxTotalBytes)}},
+		{"asset_write", []string{byteBudget(kb.AssetMaxFileSize)}},
+		// The signpost: an agent that cannot see concept_batch in tools/list has
+		// no other way to learn it exists.
+		{"concept_patch", []string{"concept_batch", fmt.Sprintf("%d operations", conceptBatchMaxOps), "callable by name"}},
+		// required_fields reads as a write gate and is not one.
+		{"map_create", []string{"not a write gate"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.tool, func(t *testing.T) {
+			tool, ok := tools[tc.tool]
+			if !ok {
+				t.Fatalf("%s is not registered", tc.tool)
+			}
+			desc := tool.Description + string(tool.InputSchema)
+			for _, w := range tc.want {
+				if !strings.Contains(desc, w) {
+					t.Errorf("%s does not state %q", tc.tool, w)
+				}
+			}
+		})
+	}
+}
+
+func TestByteBudget(t *testing.T) {
+	cases := map[int]string{
+		1024 * 1024: "1 MiB",
+		512 * 1024:  "512 KiB",
+		1500:        "1500 bytes",
+	}
+	for n, want := range cases {
+		if got := byteBudget(n); got != want {
+			t.Errorf("byteBudget(%d) = %q, want %q", n, got, want)
+		}
+	}
+}

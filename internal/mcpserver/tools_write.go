@@ -352,7 +352,10 @@ func toolConceptPatch(k *kb.KB, live *liveIndex, sqlIdx *sqlindex.Index) Tool {
 			"(pass replace_all to allow multiple matches); for a batch, the error names the failing " +
 			"edit's index and nothing is written. frontmatter, if given, is shallow-merged onto the " +
 			"existing frontmatter; set a key to null to remove it (fails if the key is required, e.g. " +
-			"'type'). Returns the new content_hash.",
+			"'type'). Returns the new content_hash. " +
+			fmt.Sprintf("For a change spanning several concepts prefer concept_batch: one atomic commit for up "+
+				"to %d operations, against one commit per concept_patch call. It is operator-level tooling and "+
+				"is not advertised in tools/list, but it is callable by name.", conceptBatchMaxOps),
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"required": ["id", "if_match"],
@@ -701,16 +704,16 @@ func toolMapCreate(k *kb.KB) Tool {
 				"required_fields": {
 					"type": "array",
 					"items": {"type": "string"},
-					"description": "Frontmatter fields required for every concept in this map"
+					"description": "Frontmatter fields every concept in this map must carry. Lint contract, not a write gate: a missing field is reported as missing_required_field (error severity) by lint/validate and does not fail concept_write."
 				},
 				"required_fields_by_type": {
 					"type": "object",
 					"additionalProperties": {"type": "array", "items": {"type": "string"}},
-					"description": "Additional required fields keyed by exact concept type"
+					"description": "Additional required fields keyed by exact concept type. Lint contract, not a write gate."
 				},
 				"require_index_entry": {
 					"type": "boolean",
-					"description": "Require each concept to be linked from its curated index"
+					"description": "Require each concept to be linked from its curated index. Lint contract, not a write gate. An expanded concept may be linked either <c>.md or <c>/index.md; both satisfy the check."
 				},
 				"machine_path_allow_prefixes": {
 					"type": "array",
@@ -1417,7 +1420,9 @@ func toolConceptBatch(k *kb.KB, live *liveIndex, sqlIdx *sqlindex.Index) Tool {
 			"update) leaves the KB exactly as it was before the call. Intended for large multi-page refactors " +
 			"where separate concept_write/concept_patch calls would leave partially-aligned intermediate " +
 			"commits if interrupted; for edits confined to one concept use concept_patch's own 'edits' batch " +
-			"instead, and for renames use concept_move. Each operation is 'write' (frontmatter, body, optional " +
+			fmt.Sprintf("instead, and for renames use concept_move. At most %d operations and %s of aggregate "+
+				"decoded content per call, so plan a larger refactor in chunks. ", conceptBatchMaxOps, byteBudget(conceptBatchMaxTotalBytes)) +
+			"Each operation is 'write' (frontmatter, body, optional " +
 			"if_match — absent if_match means create-only; updating an existing concept requires it) or " +
 			"'patch' (required if_match, optional frontmatter shallow merge, and the same single " +
 			"old_string/new_string/replace_all or batch 'edits' semantics as concept_patch). Operations must " +

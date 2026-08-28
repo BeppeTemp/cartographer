@@ -40,6 +40,10 @@ type Issue struct {
 
 // LoadSkill reads and parses a SKILL.md file from the given directory path.
 // dirPath is the full absolute path to the skill directory.
+// maxSkillBodyLines bounds a SKILL.md body: a skill is instructions an agent
+// loads into context, so its length is a budget rather than a style choice.
+const maxSkillBodyLines = 500
+
 func LoadSkill(dirPath string) (*Skill, error) {
 	skillPath := filepath.Join(dirPath, "SKILL.md")
 	data, err := os.ReadFile(skillPath)
@@ -206,10 +210,13 @@ func Validate(s *Skill) []Issue {
 	}
 
 	lineCount := len(strings.Split(s.Body, "\n"))
-	if lineCount > 500 {
+	if lineCount > maxSkillBodyLines {
 		issues = append(issues, Issue{
-			Path:    s.DirPath,
-			Message: fmt.Sprintf("body exceeds 500 lines (%d lines); keep under 5000 tokens", lineCount),
+			Path: s.DirPath,
+			// Lines only: the check counts lines, and a token count depends on
+			// the tokenizer, so reporting the overage in one unit and the budget
+			// in another was not actionable (D161).
+			Message: fmt.Sprintf("body exceeds the %d-line limit (%d lines)", maxSkillBodyLines, lineCount),
 			Warning: true,
 		})
 	}
