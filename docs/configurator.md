@@ -403,6 +403,14 @@ cartographer import --source ./docs --kb ./kb-clone \
 | `--message` | `import: <source> -> <kb>` | Commit message; implies `--commit` |
 | `--dir-as-concept` | `false` | Promotes a source directory with `index.md` (or `README.md`) into an expanded concept and keeps its satellites together |
 
+**`import` rewrites markdown links.** Every `[text](path.md)` whose target is part of the same
+import is rewritten to the destination's relative form, computed from the file it lands in — the
+base lint uses since D149, so the importer's output no longer generates findings against itself.
+Worth knowing before building a preprocessing step in front of it: if the caller has already
+rewritten links into ID space, this pass either undoes that or leaves them unmapped. The workable
+arrangement is to stage the corpus with its final map names and run `import` with identity
+mappings, so the rewriting is a no-op. Wiki-links `[[id]]` are never touched.
+
 For every file: if it already has YAML frontmatter it's preserved, only adding missing fields;
 otherwise it synthesizes the minimum — `title` from the body's first H1 (fallback: file name), `type: Note` if absent
 (`WriteConcept` always requires it — a deviation from the original spec, see
