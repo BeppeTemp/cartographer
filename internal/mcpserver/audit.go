@@ -57,7 +57,9 @@ var auditResourceFields = map[string][]string{
 	"service_get":     {"service_id"},
 	// secret_resolve's "names" and secret_set's "key" are secret field
 	// names, not resource identifiers — deliberately excluded.
-	"secret_resolve":       {"concept_id"},
+	// "reveal" is recorded: the argument name is not secret, and the decision
+	// to print a credential is exactly what an audit trail is for (D158).
+	"secret_resolve":       {"concept_id", "reveal"},
 	"secret_set":           {"path"},
 	"skill_install":        {"name"},
 	"conflict_resolve":     {"contradiction_id"},

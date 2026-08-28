@@ -100,7 +100,12 @@ func toolServiceGet(k *kb.KB) Tool {
 				return errorResult(fmt.Sprintf("service_get: parse frontmatter: %v", err)), nil
 			}
 
-			if fm.Type() != "Service" {
+			// "Service" is a reserved type, matched case-insensitively: a KB whose
+			// type vocabulary is lowercase (a very likely outcome of an import, or
+			// of a non-English domain vocabulary) declared "service" and the
+			// service tools silently returned nothing, leaving secret resolution
+			// unusable with no error anywhere (D158).
+			if !strings.EqualFold(fm.Type(), "Service") {
 				return errorResult(fmt.Sprintf("service_get: %q has type %q, expected Service", params.ServiceID, fm.Type())), nil
 			}
 
@@ -200,10 +205,11 @@ func resolveFrontmatterSecrets(k *kb.KB, fm *okf.Frontmatter) (map[string]string
 }
 
 func toolSecretResolve(k *kb.KB) Tool {
-	return Tool{Name: "secret_resolve", Description: "Resolves declared SOPS secret_refs for any concept (requires rw scope).", InputSchema: json.RawMessage(`{"type":"object","required":["concept_id"],"properties":{"concept_id":{"type":"string"},"names":{"type":"array","items":{"type":"string"}}}}`), Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
+	return Tool{Name: "secret_resolve", Description: "Resolves declared SOPS secret_refs for any concept (requires rw scope). Returns the key names with values redacted; pass reveal: true to return the values, which then appear in the transcript and in any log that captures it.", InputSchema: json.RawMessage(`{"type":"object","required":["concept_id"],"properties":{"concept_id":{"type":"string"},"names":{"type":"array","items":{"type":"string"}},"reveal":{"type":"boolean","description":"Return the secret values instead of <redacted>; they will appear in the transcript"}}}`), Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
 		var p struct {
 			ConceptID string   `json:"concept_id"`
 			Names     []string `json:"names"`
+			Reveal    bool     `json:"reveal"`
 		}
 		if err := json.Unmarshal(args, &p); err != nil {
 			return errorResult("invalid params: " + err.Error()), nil
@@ -232,8 +238,15 @@ func toolSecretResolve(k *kb.KB) Tool {
 			}
 		}
 		sort.Strings(keys)
+		// Redacted by default (D158): verifying that resolution works must not
+		// require printing a credential into an agent transcript, and a safe
+		// behaviour that has to be opted into is not the safe default.
 		for _, n := range keys {
-			sb.WriteString(n + "=" + values[n] + "\n")
+			if p.Reveal {
+				sb.WriteString(n + "=" + values[n] + "\n")
+				continue
+			}
+			sb.WriteString(n + "=<redacted>\n")
 		}
 		return textResult(strings.TrimSuffix(sb.String(), "\n")), nil
 	}}
@@ -287,7 +300,7 @@ func toolServiceList(k *kb.KB) Tool {
 				if err != nil {
 					return nil
 				}
-				if fm.Type() != "Service" {
+				if !strings.EqualFold(fm.Type(), "Service") {
 					return nil
 				}
 				e := svcEntry{ID: string(id)}
