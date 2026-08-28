@@ -135,7 +135,11 @@ func runSync(dir string, cfg *clientconfig.Config, opts syncOptions) (syncResult
 	if err != nil {
 		return syncResult{}, err
 	}
-	printApplySummary(dir, results)
+	printApplySummary(dir, results, opts.DryRun)
+	if opts.DryRun {
+		fmt.Printf("would sync to revision %s\n", m.Revision)
+		return syncResult{Revision: m.Revision}, nil
+	}
 	fmt.Printf("synced to revision %s\n", m.Revision)
 	return syncResult{Revision: m.Revision}, nil
 }

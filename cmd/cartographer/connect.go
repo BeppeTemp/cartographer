@@ -422,14 +422,21 @@ func printConnectResult(dir string, providers []string, opts connectOptions, res
 	if res.Deferred {
 		fmt.Fprintf(os.Stderr, "Warning: skill sync deferred, server unreachable: %v\n", res.DeferredErr)
 	} else {
-		printApplySummary(dir, res.Applied)
+		printApplySummary(dir, res.Applied, opts.DryRun)
 	}
 
 	for _, p := range providers {
+		if opts.DryRun {
+			fmt.Printf("[dry-run] would connect: %s\n", p)
+			continue
+		}
 		fmt.Printf("connected: %s\n", p)
 	}
-	if !opts.DryRun {
-		fmt.Printf("restart the %s sessions to load the MCP tools\n", strings.Join(providers, ", "))
+	// Only providers whose MCP configuration Cartographer writes have tools to
+	// load: telling someone to restart Hermes for MCP tools it never received
+	// contradicts the warning printed above (D147).
+	if mcpProviders := providersManagingMCP(providers); !opts.DryRun && len(mcpProviders) > 0 {
+		fmt.Printf("restart the %s sessions to load the MCP tools\n", strings.Join(mcpProviders, ", "))
 	}
 	if res.Deferred {
 		fmt.Println("warning: skill sync deferred (server unreachable); run `cartographer sync` once the server is up")
@@ -564,7 +571,15 @@ func doConnect(opts connectOptions) (connectResult, error) {
 	}
 	pullCfg := &clientconfig.Config{ServerURL: opts.ServerURL, ServerName: opts.Name, Auth: opts.Auth, TokenEnv: opts.TokenEnv, KBs: pullKBs, SigningKeys: existing.SigningKeys}
 
-	res := connectResult{Providers: opts.Providers, ConfigsWritten: configsWritten, MCPEntries: entryNames(entries), Warnings: configWarnings}
+	// The MCP-entry lines report what was emitted, not what was asked for:
+	// entries is built from the client config alone, so keeping it when no
+	// selected provider has an MCP emitter announces a write into a file the
+	// output cannot even name (D147).
+	mcpEntries := entryNames(entries)
+	if len(providersManagingMCP(opts.Providers)) == 0 {
+		mcpEntries = nil
+	}
+	res := connectResult{Providers: opts.Providers, ConfigsWritten: configsWritten, MCPEntries: mcpEntries, Warnings: configWarnings}
 	if m, err := fetchMergedManifest(pullCfg); err != nil {
 		res.Deferred = true
 		res.DeferredErr = err
@@ -591,4 +606,18 @@ func doConnect(opts connectOptions) (connectResult, error) {
 	}
 
 	return res, nil
+}
+
+// providersManagingMCP filters providers down to those whose MCP configuration
+// Cartographer actually writes. A provider configured outside Cartographer
+// (D141, hermes) receives artifacts but no MCP entry, so every line that talks
+// about MCP must be scoped to this subset rather than to the whole selection.
+func providersManagingMCP(providers []string) []string {
+	out := make([]string, 0, len(providers))
+	for _, p := range providers {
+		if configurator.ManagesMCPConfig(configurator.Provider(p)) {
+			out = append(out, p)
+		}
+	}
+	return out
 }
