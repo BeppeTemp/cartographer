@@ -511,35 +511,9 @@ func rewriteMarkdownLinks(body, srcRel, destPath string, moveMap map[string]stri
 			return match
 		}
 
-		newHref := relLinkPath(newBaseDir, newTarget) + frag
+		newHref := kb.RelLink(newBaseDir, newTarget) + frag
 		return "[" + text + "](" + newHref + ")"
 	})
-}
-
-// relLinkPath returns the relative forward-slash path from directory baseDir
-// to file targetPath (both clean forward-slash paths from the same root,
-// baseDir "." meaning that root) — a local copy of kb's unexported relLink,
-// scoped here to avoid exporting KB-internal move machinery for a single
-// caller.
-func relLinkPath(baseDir, targetPath string) string {
-	baseDir = path.Clean(baseDir)
-	var baseParts []string
-	if baseDir != "." {
-		baseParts = strings.Split(baseDir, "/")
-	}
-	targetParts := strings.Split(path.Clean(targetPath), "/")
-
-	i := 0
-	for i < len(baseParts) && i < len(targetParts)-1 && baseParts[i] == targetParts[i] {
-		i++
-	}
-
-	var relParts []string
-	for j := i; j < len(baseParts); j++ {
-		relParts = append(relParts, "..")
-	}
-	relParts = append(relParts, targetParts[i:]...)
-	return strings.Join(relParts, "/")
 }
 
 // slugify converts an arbitrary source filename (without extension) into a

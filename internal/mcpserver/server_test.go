@@ -15,6 +15,7 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/gitx"
 	"github.com/BeppeTemp/cartographer/internal/kb"
+	"github.com/BeppeTemp/cartographer/internal/lint"
 	"github.com/BeppeTemp/cartographer/internal/okf"
 	"github.com/BeppeTemp/cartographer/internal/sqlindex"
 )
@@ -4669,5 +4670,301 @@ func TestServer_ClientStats_Ordering(t *testing.T) {
 	}
 	if stats[0].ClientVersion != "1.0" || stats[1].ClientVersion != "2.0" {
 		t.Errorf("alpha rows: versions = %q/%q, want 1.0/2.0", stats[0].ClientVersion, stats[1].ClientVersion)
+	}
+}
+
+// --- D160 WP1/WP2: a move is complete ---
+
+// concept_move rewrote inbound links only, so the moved concept's own relative
+// links broke when the directory depth changed, and the two curated indexes were
+// left inconsistent. The strongest available assertion is that a follow-up lint
+// reports neither broken_link nor index_incomplete.
+func TestConceptMove_IsCompleteAcrossMaps(t *testing.T) {
+	k := setupTestKB(t)
+	s := New("test")
+	RegisterKBTools(s, k, Deps{})
+
+	write := func(rel, content string) {
+		t.Helper()
+		abs := filepath.Join(k.DataRoot(), rel)
+		if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(abs, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Two maps, both with a curated-index contract. The moved concept links a
+	// sibling relatively, which is what breaks on a depth change.
+	write("src/_map.md", "---\ntype: Map\nkind: map\ntitle: Src\nrequire_index_entry: true\n---\n# Src\n")
+	write("src/index.md", "---\ntype: Index\ntitle: Src\n---\n- [mover](mover.md)\n- [friend](friend.md)\n")
+	write("src/friend.md", "---\ntype: Note\ntitle: Friend\n---\n# Friend\n")
+	write("src/mover.md", "---\ntype: Note\ntitle: Mover\n---\nSee [friend](friend.md).\n")
+	write("dst/_map.md", "---\ntype: Map\nkind: map\ntitle: Dst\nrequire_index_entry: true\n---\n# Dst\n")
+	write("dst/index.md", "---\ntype: Index\ntitle: Dst\n---\n# Dst\n")
+
+	move := s.Tools()["concept_move"]
+	res, err := move.Handler(authLocalContext(), json.RawMessage(`{"source_id":"src/mover","target_id":"dst/mover"}`))
+	if err != nil || res.IsError {
+		t.Fatalf("concept_move: %+v err=%v", res, err)
+	}
+
+	// The moved body's own link now points back at the sibling it left behind.
+	moved, err := k.ReadConcept("dst/mover")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(moved.Body, "../src/friend.md") {
+		t.Errorf("the moved concept's own outbound link was not rebased:\n%s", moved.Body)
+	}
+
+	// Both curated indexes were maintained.
+	srcIndex, err := k.ReadIndex("src")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(srcIndex, "mover.md") {
+		t.Errorf("the source index still lists the moved concept:\n%s", srcIndex)
+	}
+	dstIndex, err := k.ReadIndex("dst")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(dstIndex, "mover.md") {
+		t.Errorf("the destination index does not list the moved concept:\n%s", dstIndex)
+	}
+
+	// The end-to-end property, not just the text.
+	findings, err := lint.Run(k, "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range findings {
+		if f.Check == "broken_link" || f.Check == "index_incomplete" {
+			t.Errorf("lint after the move: %s %s — %s", f.Check, f.Path, f.Message)
+		}
+	}
+}
+
+// A line citing two concepts is prose the operator wrote: it is kept and
+// reported, not silently edited.
+func TestConceptMove_KeepsAMultiLinkIndexLine(t *testing.T) {
+	k := setupTestKB(t)
+	s := New("test")
+	RegisterKBTools(s, k, Deps{})
+	write := func(rel, content string) {
+		t.Helper()
+		abs := filepath.Join(k.DataRoot(), rel)
+		if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(abs, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("src/_map.md", "---\ntype: Map\nkind: map\ntitle: Src\nrequire_index_entry: true\n---\n# Src\n")
+	write("src/index.md", "---\ntype: Index\ntitle: Src\n---\n- see [mover](mover.md) and [friend](friend.md)\n")
+	write("src/friend.md", "---\ntype: Note\ntitle: Friend\n---\n# Friend\n")
+	write("src/mover.md", "---\ntype: Note\ntitle: Mover\n---\n# Mover\n")
+	write("dst/_map.md", "---\ntype: Map\nkind: map\ntitle: Dst\n---\n# Dst\n")
+	write("dst/index.md", "---\ntype: Index\ntitle: Dst\n---\n# Dst\n")
+
+	res, err := s.Tools()["concept_move"].Handler(authLocalContext(), json.RawMessage(`{"source_id":"src/mover","target_id":"dst/mover"}`))
+	if err != nil || res.IsError {
+		t.Fatalf("concept_move: %+v err=%v", res, err)
+	}
+	srcIndex, err := k.ReadIndex("src")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(srcIndex, "friend.md") {
+		t.Errorf("a line citing another concept must not be removed:\n%s", srcIndex)
+	}
+	if !strings.Contains(res.Content[0].Text, "edit it by hand") {
+		t.Errorf("the result should say the line was kept: %s", res.Content[0].Text)
+	}
+}
+
+// --- D160 WP3: concept_merge and concept_collapse ---
+
+func d160Fixture(t *testing.T) (*kb.KB, *Server) {
+	t.Helper()
+	k := setupTestKB(t)
+	s := New("test")
+	RegisterKBTools(s, k, Deps{})
+	return k, s
+}
+
+func d160Write(t *testing.T, k *kb.KB, rel, content string) {
+	t.Helper()
+	abs := filepath.Join(k.DataRoot(), rel)
+	if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(abs, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// Consolidating a dossier broke links three ways when done by hand: the merged
+// body's own relative links, links TO the satellite, and links from sibling
+// satellites. The strongest assertion is a clean lint afterwards.
+func TestConceptMerge_FoldsASatelliteAndRepairsEveryLink(t *testing.T) {
+	k, s := d160Fixture(t)
+	d160Write(t, k, "m/_map.md", "---\ntype: Map\nkind: map\ntitle: M\n---\n# M\n")
+	d160Write(t, k, "m/index.md", "---\ntype: Index\ntitle: M\n---\n- [c](c.md)\n- [other](other.md)\n")
+	d160Write(t, k, "m/other.md", "---\ntype: Note\ntitle: Other\n---\nSee [[m/c/child]] and [child](c/child.md).\n")
+	d160Write(t, k, "m/c/index.md", "---\ntype: Note\ntitle: C\n---\n# C\n- [child](child.md)\n- [sib](sib.md)\n")
+	d160Write(t, k, "m/c/child.md", "---\ntype: Note\ntitle: Child\n---\nBody. See [sib](sib.md).\n")
+	d160Write(t, k, "m/c/sib.md", "---\ntype: Note\ntitle: Sib\n---\nSee [child](child.md).\n")
+
+	child, err := k.ReadConcept("m/c/child")
+	if err != nil {
+		t.Fatal(err)
+	}
+	args, _ := json.Marshal(map[string]string{"satellite_id": "m/c/child", "if_match": child.ContentHash})
+	res, err := s.Tools()["concept_merge"].Handler(authLocalContext(), args)
+	if err != nil || res.IsError {
+		t.Fatalf("concept_merge: %+v err=%v", res, err)
+	}
+
+	parent, err := k.ReadConcept("m/c")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(parent.Body, "## Child") || !strings.Contains(parent.Body, "Body.") {
+		t.Errorf("the satellite's body was not folded in:\n%s", parent.Body)
+	}
+	// Its own link to a sibling moved up one level: from m/c/ the sibling is
+	// still sib.md, so the merged text must keep resolving.
+	if !strings.Contains(parent.Body, "sib.md") {
+		t.Errorf("the merged body's own link was lost:\n%s", parent.Body)
+	}
+	if _, err := k.ReadConcept("m/c/child"); err == nil {
+		t.Error("the satellite still exists after the merge")
+	}
+	// Inbound links, both syntaxes, including from a sibling satellite.
+	other, err := k.ReadConcept("m/other")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(other.Body, "m/c/child") {
+		t.Errorf("an inbound wiki-link was not redirected:\n%s", other.Body)
+	}
+	sib, err := k.ReadConcept("m/c/sib")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(sib.Body, "child.md") {
+		t.Errorf("a sibling satellite's link was not redirected:\n%s", sib.Body)
+	}
+	findings, err := lint.Run(k, "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range findings {
+		if f.Check == "broken_link" {
+			t.Errorf("lint after the merge: %s — %s", f.Path, f.Message)
+		}
+	}
+}
+
+func TestConceptMerge_RefusesANonSatellite(t *testing.T) {
+	k, s := d160Fixture(t)
+	d160Write(t, k, "m/_map.md", "---\ntype: Map\nkind: map\ntitle: M\n---\n# M\n")
+	d160Write(t, k, "m/c.md", "---\ntype: Note\ntitle: C\n---\n# C\n")
+	c, err := k.ReadConcept("m/c")
+	if err != nil {
+		t.Fatal(err)
+	}
+	args, _ := json.Marshal(map[string]string{"satellite_id": "m/c", "if_match": c.ContentHash})
+	res, _ := s.Tools()["concept_merge"].Handler(authLocalContext(), args)
+	if !res.IsError || !strings.Contains(res.Content[0].Text, "3 segments") {
+		t.Errorf("concept_merge on a non-satellite = %+v, want a refusal", res.Content)
+	}
+}
+
+// Expansion never changes an ID, so its inverse must not either: the round trip
+// is the strongest available assertion that this really is an inverse.
+func TestConceptCollapse_RoundTripsExpand(t *testing.T) {
+	k, s := d160Fixture(t)
+	d160Write(t, k, "m/_map.md", "---\ntype: Map\nkind: map\ntitle: M\n---\n# M\n")
+	d160Write(t, k, "m/c.md", "---\ntype: Note\ntitle: C\n---\n# C\nBody stays.\n")
+
+	before, err := k.ReadConcept("m/c")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := k.ExpandConcept("m/c"); err != nil {
+		t.Fatal(err)
+	}
+	expanded, err := k.ReadConcept("m/c")
+	if err != nil {
+		t.Fatal(err)
+	}
+	args, _ := json.Marshal(map[string]string{"id": "m/c", "if_match": expanded.ContentHash})
+	res, err := s.Tools()["concept_collapse"].Handler(authLocalContext(), args)
+	if err != nil || res.IsError {
+		t.Fatalf("concept_collapse: %+v err=%v", res, err)
+	}
+	after, err := k.ReadConcept("m/c")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.ContentHash != before.ContentHash {
+		t.Errorf("the round trip changed the content:\nbefore=%q\nafter=%q", before.Content, after.Content)
+	}
+	if _, statErr := os.Stat(filepath.Join(k.DataRoot(), "m", "c")); statErr == nil {
+		t.Error("the expansion directory survived the collapse")
+	}
+}
+
+func TestConceptCollapse_RefusesSatellitesAndAssets(t *testing.T) {
+	t.Run("satellites", func(t *testing.T) {
+		k, s := d160Fixture(t)
+		d160Write(t, k, "m/_map.md", "---\ntype: Map\nkind: map\ntitle: M\n---\n# M\n")
+		d160Write(t, k, "m/c/index.md", "---\ntype: Note\ntitle: C\n---\n# C\n")
+		d160Write(t, k, "m/c/s.md", "---\ntype: Note\ntitle: S\n---\n# S\n")
+		data, err := k.ReadConcept("m/c")
+		if err != nil {
+			t.Fatal(err)
+		}
+		args, _ := json.Marshal(map[string]string{"id": "m/c", "if_match": data.ContentHash})
+		res, _ := s.Tools()["concept_collapse"].Handler(authLocalContext(), args)
+		if !res.IsError || !strings.Contains(res.Content[0].Text, "m/c/s") {
+			t.Errorf("collapse with a satellite = %+v, want a refusal naming it", res.Content)
+		}
+	})
+
+	t.Run("assets", func(t *testing.T) {
+		k, s := d160Fixture(t)
+		d160Write(t, k, "m/_map.md", "---\ntype: Map\nkind: map\ntitle: M\n---\n# M\n")
+		d160Write(t, k, "m/c/index.md", "---\ntype: Note\ntitle: C\n---\n# C\n")
+		d160Write(t, k, "m/c/evidence.csv", "a,b\n")
+		data, err := k.ReadConcept("m/c")
+		if err != nil {
+			t.Fatal(err)
+		}
+		args, _ := json.Marshal(map[string]string{"id": "m/c", "if_match": data.ContentHash})
+		res, _ := s.Tools()["concept_collapse"].Handler(authLocalContext(), args)
+		if !res.IsError || !strings.Contains(res.Content[0].Text, "evidence.csv") {
+			t.Errorf("collapse with an asset = %+v, want a refusal naming it", res.Content)
+		}
+	})
+}
+
+func TestConceptMergeAndCollapse_AreAdvancedButCallable(t *testing.T) {
+	for _, name := range []string{"concept_merge", "concept_collapse"} {
+		if !advancedToolNames[name] {
+			t.Errorf("%s must be classified as advanced", name)
+		}
+	}
+	k, s := d160Fixture(t)
+	_ = k
+	for _, name := range []string{"concept_merge", "concept_collapse"} {
+		if _, ok := s.Tools()[name]; !ok {
+			t.Errorf("%s is not registered, so it is not callable by name", name)
+		}
 	}
 }
