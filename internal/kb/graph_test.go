@@ -3,6 +3,7 @@ package kb
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/BeppeTemp/cartographer/internal/okf"
@@ -110,12 +111,25 @@ func TestExtractLinks_DedupMarkdownAndWiki(t *testing.T) {
 	}
 }
 
-func TestExtractLinks_WikiLinkAliasNotExtracted(t *testing.T) {
-	body := `[[entities/infra/otbr|OTBR gateway]]`
-	links := ExtractLinks(body, "topics/x.md")
+// The alias form is now extracted, with the label discarded (D150): a wiki-link
+// is the only base-independent form (D149), and choosing it used to cost the
+// human-readable label.
+func TestExtractLinks_WikiLinkAliasIsExtracted(t *testing.T) {
+	cases := map[string]string{
+		"[[entities/infra/otbr|OTBR gateway]]":        "entities/infra/otbr",
+		"[[entities/infra/otbr#Schema|OTBR gateway]]": "entities/infra/otbr",
+		"[[entities/infra/otbr|a|b]]":                 "entities/infra/otbr",
+	}
+	for body, want := range cases {
+		links := ExtractLinks(body, "topics/x.md")
+		if len(links) != 1 || string(links[0]) != want {
+			t.Errorf("ExtractLinks(%q) = %v, want [%s]", body, links, want)
+		}
+	}
 
-	if len(links) != 0 {
-		t.Errorf("alias form should not be extracted, got %v", links)
+	// An empty ID is not a link.
+	if links := ExtractLinks(`[[|just a label]]`, "topics/x.md"); len(links) != 0 {
+		t.Errorf("empty-ID alias should not be extracted, got %v", links)
 	}
 }
 
@@ -299,5 +313,86 @@ func TestWalkConcepts(t *testing.T) {
 	}
 	if !found["services/keycloak"] {
 		t.Errorf("expected 'services/keycloak' in %v", ids)
+	}
+}
+
+// --- D150: what counts as a link ---
+
+// Two constructs that are normal in any KB documenting commands or drawing
+// diagrams used to become link targets, and in the field every surviving
+// broken_link finding had this root cause.
+func TestExtractLinks_SkipsCodeSpans(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+		want int
+	}{
+		{"mermaid subroutine node", "```mermaid\nflowchart LR\n  N1[[\"a label\"]]\n```\n", 0},
+		{"posix character class", "```sh\ngrep -nE \"listen[[:space:]]\"\n```\n", 0},
+		{"markdown link inside a fence", "```md\n[label](path.md)\n```\n", 0},
+		{"inline code span", "See `[x](y.md)` for the syntax.\n", 0},
+		{"tilde fence", "~~~\n[x](y.md)\n~~~\n", 0},
+		{"longer fence", "````\n[x](y.md)\n````\n", 0},
+		{"unclosed fence masks the rest", "```\n[x](y.md)\n[z](w.md)\n", 0},
+		{"link after a closed fence survives", "```\n[x](y.md)\n```\n[real](real.md)\n", 1},
+		{"indented block is not code", "    [x](y.md)\n", 1},
+		{"wiki-link inside a fence", "```\n[[m/c]]\n```\n", 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := ExtractLinks(tc.body, "m/a.md"); len(got) != tc.want {
+				t.Errorf("ExtractLinks = %v (%d), want %d links", got, len(got), tc.want)
+			}
+		})
+	}
+}
+
+// maskCodeSpans must not change offsets or line count: lint's machine_path
+// check already reasons about spans over the same body.
+func TestMaskCodeSpans_PreservesLengthAndLines(t *testing.T) {
+	body := "before\n```sh\ngrep x\n```\nafter `code` end\n"
+	masked := maskCodeSpans(body)
+	if len(masked) != len(body) {
+		t.Errorf("length %d, want %d", len(masked), len(body))
+	}
+	if strings.Count(masked, "\n") != strings.Count(body, "\n") {
+		t.Errorf("line count changed")
+	}
+	if !strings.Contains(masked, "before") || !strings.Contains(masked, "after") {
+		t.Errorf("prose outside code spans was masked: %q", masked)
+	}
+	if strings.Contains(masked, "grep") || strings.Contains(masked, "code") {
+		t.Errorf("code was not masked: %q", masked)
+	}
+}
+
+// Citing an extensionless asset — a Dockerfile, a Makefile, a LICENSE — used to
+// produce a link to a nonexistent concept and leave the asset orphan forever.
+func TestExtractLinks_ExtensionlessAssetIsNotAConcept(t *testing.T) {
+	dir, err := os.MkdirTemp("", "graph-asset-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(dir) })
+	k, err := Init(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(k.DataRoot(), "m", "c"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(k.DataRoot(), "m", "c", "Dockerfile"), []byte("FROM scratch\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	body := "- [Dockerfile](Dockerfile)\n- [sibling](sibling)\n"
+	got := ExtractLinks(body, "m/c/index.md", k.AssetExists)
+	if len(got) != 1 || string(got[0]) != "m/c/sibling" {
+		t.Errorf("ExtractLinks = %v, want only the concept shorthand m/c/sibling", got)
+	}
+
+	// Without a resolver the shorthand behaviour is unchanged.
+	if got := ExtractLinks(body, "m/c/index.md"); len(got) != 2 {
+		t.Errorf("without a resolver ExtractLinks = %v, want both treated as concepts", got)
 	}
 }

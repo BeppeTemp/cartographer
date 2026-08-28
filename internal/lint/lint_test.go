@@ -1076,3 +1076,50 @@ func TestLint_SecretsOnNonServiceConcept(t *testing.T) {
 		})
 	}
 }
+
+// --- D150: an extensionless asset can be cited ---
+
+// Citing a Dockerfile produced a link to a nonexistent concept and left the
+// asset orphan_asset forever, and renaming the file to satisfy the linter would
+// have been worse than the finding.
+func TestLint_ExtensionlessAssetCitationClearsOrphanAsset(t *testing.T) {
+	k := tempKB(t)
+	writeFile(t, k.DataRoot(), "m/_map.md", "---\ntype: Map\nkind: map\ntitle: M\n---\n# M\n")
+	writeFile(t, k.DataRoot(), "m/index.md", "---\ntype: Index\ntitle: M\n---\n- [c](c.md)\n")
+	writeFile(t, k.DataRoot(), "m/c/index.md", "---\ntype: Note\ntitle: C\n---\n- [Dockerfile](Dockerfile)\n")
+	writeFile(t, k.DataRoot(), "m/c/Dockerfile", "FROM scratch\n")
+
+	findings, err := Run(k, "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range findings {
+		if f.Check == "orphan_asset" && strings.Contains(f.Path, "Dockerfile") {
+			t.Errorf("the cited asset is still reported orphan: %s — %s", f.Path, f.Message)
+		}
+		if f.Check == "broken_link" {
+			t.Errorf("unexpected broken_link: %s — %s", f.Path, f.Message)
+		}
+	}
+}
+
+// A concept documenting the Mermaid/POSIX collision must be writable without
+// generating the findings it describes.
+func TestLint_DocumentingCodeExamplesRaisesNoBrokenLink(t *testing.T) {
+	k := tempKB(t)
+	writeFile(t, k.DataRoot(), "m/_map.md", "---\ntype: Map\nkind: map\ntitle: M\n---\n# M\n")
+	body := "---\ntype: Note\ntitle: FP\n---\n" +
+		"```mermaid\nflowchart LR\n  N1[[\"a label\"]]\n```\n" +
+		"```sh\ngrep -nE \"listen[[:space:]]\"\n```\n"
+	writeFile(t, k.DataRoot(), "m/fp.md", body)
+
+	findings, err := Run(k, "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range findings {
+		if f.Check == "broken_link" {
+			t.Errorf("unexpected broken_link: %s — %s", f.Path, f.Message)
+		}
+	}
+}
