@@ -280,6 +280,9 @@ func Open(root string) (*KB, error) {
 		return nil, fmt.Errorf("%w: %s is not a valid KB (missing data/index.md)", okf.ErrNotFound, abs)
 	}
 	_ = ensureInfoExclude(abs, ".cartographer/")
+	// The advisory process lock is local state too (D155): never versioned, and
+	// excluded the same way rather than through a tracked .gitignore.
+	_ = ensureInfoExclude(abs, LockFileName)
 	return &KB{Root: abs}, nil
 }
 
@@ -380,6 +383,10 @@ func Init(root string) (*KB, error) {
 	// (D62): unlike a tracked .gitignore, this needs no commit and leaves no trace
 	// for a remote clone.
 	_ = ensureInfoExclude(abs, ".cartographer/")
+	// The advisory process lock is local state too (D155): never versioned, and
+	// excluded here as well as in Open so it can never show up as a dirty working
+	// tree — which is what blocks a server-profile PR reconciliation.
+	_ = ensureInfoExclude(abs, LockFileName)
 
 	return &KB{Root: abs}, nil
 }

@@ -406,6 +406,18 @@ cartographer import --source ./docs --kb ./kb-clone \
 | `--message` | `import: <source> -> <kb>` | Commit message; implies `--commit` |
 | `--dir-as-concept` | `false` | Promotes a source directory with `index.md` (or `README.md`) into an expanded concept and keeps its satellites together |
 
+**`import` takes the KB's advisory lock** and fails fast when the server holds it (D155), naming the
+holder and the `service stop … && service start` sequence: it writes into the same directory the
+server's sync loop manages, and the two interleaving corrupted the git index. `--dry-run` writes
+nothing and never contends for it.
+
+**The search index is not updated by this process.** `import` writes through the KB write path but
+from outside the server, so the server's FTS index knows nothing about it — `search` returned zero
+results while `concept_list` saw everything, and the natural conclusion was that the import had
+failed. On completion the command rebuilds the index when a configured server is reachable, and
+otherwise prints the `cartographer reindex` instruction. It never changes the exit code: the import
+itself succeeded.
+
 **`import` rewrites markdown links.** Every `[text](path.md)` whose target is part of the same
 import is rewritten to the destination's relative form, computed from the file it lands in — the
 base lint uses since D149, so the importer's output no longer generates findings against itself.
