@@ -204,6 +204,14 @@ type AppliedResult struct {
 	// provider (destDir == ""). Distinct from NeedsApproval: no approval
 	// unblocks them — the provider simply doesn't support them.
 	Unsupported []Artifact
+	// Refused: artifacts not materialized because their destination, or a
+	// directory component of it, is a symlink (D148). Distinct from
+	// Unsupported and NeedsApproval: the provider supports the kind and the
+	// artifact is authorized, but writing would land outside the client — see
+	// safepath.go. They are not recorded in the lockfile, so the next sync
+	// retries and reports again, which is right for a condition only the
+	// operator can clear.
+	Refused []Artifact
 	// Healed: artifacts restored because their files on disk had diverged
 	// from what the lockfile recorded (D139). Reported separately from
 	// Written: a restore means someone's local change was discarded, which
@@ -866,7 +874,7 @@ func WriteLock(path string, lock Lock) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return fmt.Errorf("provisioning: mkdir lock dir: %w", err)
 	}
-	if err := os.WriteFile(path, data, 0o644); err != nil {
+	if err := writeFileNoFollow(path, data, 0o644); err != nil {
 		return fmt.Errorf("provisioning: write lock %s: %w", path, err)
 	}
 	return nil
@@ -929,7 +937,7 @@ func WriteLockFile(path string, lf LockFile) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return fmt.Errorf("provisioning: mkdir lockfile dir: %w", err)
 	}
-	if err := os.WriteFile(path, data, 0o644); err != nil {
+	if err := writeFileNoFollow(path, data, 0o644); err != nil {
 		return fmt.Errorf("provisioning: write lockfile %s: %w", path, err)
 	}
 	return nil
@@ -1266,7 +1274,10 @@ func Apply(m Manifest, opts ApplyOptions) (AppliedResult, error) {
 			// directory) — e.g. .claude/agents/<name>.md.
 			fullDestPath := filepath.Join(opts.BaseDir, destRel)
 			if !opts.DryRun {
-				if err := os.MkdirAll(filepath.Dir(fullDestPath), 0o755); err != nil {
+				if err := mkdirAllNoFollow(opts.BaseDir, filepath.Dir(fullDestPath), 0o755); err != nil {
+					if refuse(&result, a, err) {
+						continue
+					}
 					return AppliedResult{}, fmt.Errorf("provisioning: mkdir %s: %w", filepath.Dir(fullDestPath), err)
 				}
 				content, err := singleArtifactContent(a, opts)
@@ -1286,7 +1297,10 @@ func Apply(m Manifest, opts ApplyOptions) (AppliedResult, error) {
 				}
 				// After the translation: this is the byte sequence on disk.
 				materializedHash = hashArtifactFiles([]ArtifactFile{{Path: a.Name + ".md", Content: content}})
-				if err := os.WriteFile(fullDestPath, content, 0o644); err != nil {
+				if err := writeFileNoFollow(fullDestPath, content, 0o644); err != nil {
+					if refuse(&result, a, err) {
+						continue
+					}
 					return AppliedResult{}, fmt.Errorf("provisioning: write agent %s: %w", a.Name, err)
 				}
 			}
@@ -1295,7 +1309,10 @@ func Apply(m Manifest, opts ApplyOptions) (AppliedResult, error) {
 			// skill/hook: destRel is a directory, one or more files inside it.
 			fullDestDir := filepath.Join(opts.BaseDir, destRel)
 			if !opts.DryRun {
-				if err := os.MkdirAll(fullDestDir, 0o755); err != nil {
+				if err := mkdirAllNoFollow(opts.BaseDir, fullDestDir, 0o755); err != nil {
+					if refuse(&result, a, err) {
+						continue
+					}
 					return AppliedResult{}, fmt.Errorf("provisioning: mkdir %s: %w", fullDestDir, err)
 				}
 				var err error
@@ -1305,6 +1322,9 @@ func Apply(m Manifest, opts ApplyOptions) (AppliedResult, error) {
 					result.Warnings = append(result.Warnings, stampWarning)
 				}
 				if err != nil {
+					if refuse(&result, a, err) {
+						continue
+					}
 					return AppliedResult{}, fmt.Errorf("provisioning: copy %s %s: %w", a.Kind, a.Name, err)
 				}
 				if a.Kind == "hook" {
@@ -1652,7 +1672,7 @@ func writeInstructionsBlock(path, body string) error {
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 			return err
 		}
-		return os.WriteFile(path, []byte(block), 0o644)
+		return writeFileNoFollow(path, []byte(block), 0o644)
 	}
 	if err != nil {
 		return err
@@ -1660,10 +1680,10 @@ func writeInstructionsBlock(path, body string) error {
 
 	content := string(data)
 	if replaced, ok := replaceBetweenMarkers(content, block); ok {
-		return os.WriteFile(path, []byte(replaced), 0o644)
+		return writeFileNoFollow(path, []byte(replaced), 0o644)
 	}
 
-	return os.WriteFile(path, []byte(appendBlock(content, block)), 0o644)
+	return writeFileNoFollow(path, []byte(appendBlock(content, block)), 0o644)
 }
 
 // removeInstructionsBlock removes the managed block (markers included) from
@@ -1689,7 +1709,7 @@ func removeInstructionsBlock(path string) error {
 	if strings.TrimSpace(stripped) == "" {
 		return os.Remove(path)
 	}
-	return os.WriteFile(path, []byte(stripped), 0o644)
+	return writeFileNoFollow(path, []byte(stripped), 0o644)
 }
 
 // replaceBetweenMarkers returns content with the text between instructionsBlockBegin
@@ -2016,6 +2036,35 @@ const (
 // it, exactly as it does for an unsupported cell.
 var artifactKinds = []string{"mcp", "instructions", "agent", "hook", "skill"}
 
+// ManagedDestinationRoots returns the absolute paths, under baseDir, that
+// provisioning writes into for this provider: one per artifact kind it
+// supports, as destinationMatrix declares them, with the per-artifact name
+// segment left off — the directory above it is what an operator links (e.g.
+// ~/.claude/skills) and what a symlink would divert. Exported for
+// `cartographer doctor`, which checks them without materializing anything (D148).
+func ManagedDestinationRoots(provider configurator.Provider, baseDir string) []string {
+	seen := map[string]bool{}
+	var out []string
+	for kind := range destinationMatrix {
+		cell, ok := destinationMatrix[kind][provider]
+		if !ok || cell.unsupported {
+			continue
+		}
+		rel := filepath.Join(cell.dir...)
+		if rel == "" || rel == "." {
+			continue
+		}
+		abs := filepath.Join(baseDir, rel)
+		if seen[abs] {
+			continue
+		}
+		seen[abs] = true
+		out = append(out, abs)
+	}
+	sort.Strings(out)
+	return out
+}
+
 // destDir returns the destination path for an artifact, relative to the base-dir.
 //
 //   - kind "skill"/"hook": a directory, materialized by copyArtifactFiles with one
@@ -2252,7 +2301,7 @@ func copyArtifactFiles(a Artifact, opts ApplyOptions, fullDestDir string, tracke
 		expanded = append(expanded, ArtifactFile{Path: f.Path, Content: content, Executable: effectiveExecutable(a.Kind, local, f.Executable)})
 
 		dstPath := filepath.Join(fullDestDir, local)
-		if err := os.MkdirAll(filepath.Dir(dstPath), 0o755); err != nil {
+		if err := mkdirAllNoFollow(opts.BaseDir, filepath.Dir(dstPath), 0o755); err != nil {
 			return nil, "", "", err
 		}
 		// A hook's scripts are invoked by path from the registered entry
@@ -2264,7 +2313,7 @@ func copyArtifactFiles(a Artifact, opts ApplyOptions, fullDestDir string, tracke
 		if effectiveExecutable(a.Kind, local, f.Executable) {
 			mode = 0o755
 		}
-		if err := os.WriteFile(dstPath, content, mode); err != nil {
+		if err := writeFileNoFollow(dstPath, content, mode); err != nil {
 			return nil, "", "", err
 		}
 		if err := os.Chmod(dstPath, mode); err != nil {

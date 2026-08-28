@@ -132,6 +132,7 @@ func runDoctor(dir, only string) doctorReport {
 		findings = append(findings, checkMCPEntries(dir, cfg, providers)...)
 		findings = append(findings, checkServer(dir, cfg, providers)...)
 		findings = append(findings, checkTriggerCoverage(dir, providers)...)
+		findings = append(findings, checkSymlinkedDestinations(dir, providers)...)
 	}
 
 	sortDoctorFindings(findings)
@@ -523,6 +524,33 @@ func checkServer(dir string, cfg *clientconfig.Config, providers []string) []doc
 			Message: fmt.Sprintf("version skew: client %s ≠ server %s", version, facts.Version),
 			Fix:     fix,
 		})
+	}
+	return out
+}
+
+// checkSymlinkedDestinations: a managed destination that is a symlink makes
+// provisioning write wherever it points — into an unrelated git repository, in
+// the case that produced D148. Apply refuses such an artifact, but only on a run
+// where it is in the diff, so the condition is otherwise invisible. Answerable
+// with no server, like the rest of doctor.
+func checkSymlinkedDestinations(dir string, providers []string) []doctorFinding {
+	var out []doctorFinding
+	for _, p := range providers {
+		for _, path := range provisioning.ManagedDestinationRoots(configurator.Provider(p), dir) {
+			info, err := os.Lstat(path)
+			if err != nil || info.Mode()&os.ModeSymlink == 0 {
+				continue
+			}
+			target, readErr := os.Readlink(path)
+			if readErr != nil {
+				target = "(unreadable)"
+			}
+			out = append(out, doctorFinding{
+				Check: "symlink", Severity: doctorWarning, Path: path,
+				Message: fmt.Sprintf("[%s] %s is a symlink: provisioning writes would land in %s, so Cartographer refuses them", p, path, target),
+				Fix:     "replace the symlink with a real directory, or point the client base dir at the real location",
+			})
+		}
 	}
 	return out
 }

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -362,4 +363,47 @@ func TestRunDoctor_UnknownHashSuggestsRebuild(t *testing.T) {
 	if found[0].Fix != "cartographer reconnect" {
 		t.Errorf("fix = %q, want the rebuild: a sync leaves these entries untouched", found[0].Fix)
 	}
+}
+
+// A symlinked managed destination makes provisioning write outside the client,
+// and the condition is invisible on any sync where the artifact is not in the
+// diff — so doctor must be able to answer it on demand (D148).
+func TestCheckSymlinkedDestinations(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink semantics differ on Windows")
+	}
+
+	t.Run("reports a symlinked skills directory", func(t *testing.T) {
+		dir := t.TempDir()
+		foreign := t.TempDir()
+		if err := os.MkdirAll(filepath.Join(dir, ".claude"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(foreign, filepath.Join(dir, ".claude", "skills")); err != nil {
+			t.Fatal(err)
+		}
+		findings := checkSymlinkedDestinations(dir, []string{"claude"})
+		if len(findings) != 1 {
+			t.Fatalf("findings = %+v, want exactly one", findings)
+		}
+		if findings[0].Check != "symlink" || !strings.Contains(findings[0].Message, foreign) {
+			t.Errorf("finding = %+v, want a symlink check naming %q", findings[0], foreign)
+		}
+	})
+
+	t.Run("silent on real directories", func(t *testing.T) {
+		dir := t.TempDir()
+		if err := os.MkdirAll(filepath.Join(dir, ".claude", "skills"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if findings := checkSymlinkedDestinations(dir, []string{"claude"}); len(findings) != 0 {
+			t.Errorf("findings = %+v, want none", findings)
+		}
+	})
+
+	t.Run("silent when nothing exists yet", func(t *testing.T) {
+		if findings := checkSymlinkedDestinations(t.TempDir(), []string{"claude", "kiro"}); len(findings) != 0 {
+			t.Errorf("findings = %+v, want none", findings)
+		}
+	})
 }

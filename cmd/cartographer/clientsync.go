@@ -322,6 +322,12 @@ func printApplySummary(dir string, results map[string]provisioning.AppliedResult
 		for _, ua := range r.Unsupported {
 			fmt.Printf("[%s] unsupported: %s/%s [%s] (kind has no destination for this provider)\n", p, ua.Kind, ua.Name, ua.Source)
 		}
+		// A refusal is not one warning among others: the artifact is not
+		// installed, and only the operator can clear the condition (D148).
+		for _, rf := range r.Refused {
+			fmt.Printf("[%s] %s: %s/%s [%s] — its destination is a symlink, so the write would land outside the client\n",
+				p, verb("refused", "would refuse"), rf.Kind, rf.Name, rf.Source)
+		}
 		for _, w := range r.Warnings {
 			fmt.Printf("[%s] warning: %s\n", p, w)
 		}
