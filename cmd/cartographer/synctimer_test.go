@@ -4,6 +4,7 @@ package main
 // (D140).
 
 import (
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -80,21 +81,34 @@ func TestCmdServiceSyncTimer_Dispatch(t *testing.T) {
 	})
 }
 
-// The hint names the scheduled trigger once per invocation, and only for
-// providers that genuinely have no session hook.
+// The hint names the scheduled trigger once per invocation, only for providers
+// that genuinely have no session hook, and only when the trigger is not already
+// installed (a status the hint used to ignore, advising the installation of
+// something already running).
 func TestPrintSyncTimerHint(t *testing.T) {
+	installed := service.SyncTimerStatus{Installed: true, Path: "/tmp/com.cartographer.sync.plist"}
 	cases := []struct {
 		name      string
 		providers []string
+		status    func() (service.SyncTimerStatus, error)
 		want      bool
 		mentions  string
 	}{
-		{"hook-less provider", []string{"kiro"}, true, "kiro"},
-		{"hooked providers only", []string{"claude", "codex", "opencode"}, false, ""},
-		{"mixed", []string{"claude", "kiro"}, true, "kiro"},
+		{"hook-less provider", []string{"kiro"}, func() (service.SyncTimerStatus, error) { return service.SyncTimerStatus{}, nil }, true, "kiro"},
+		{"hooked providers only", []string{"claude", "codex", "opencode"}, func() (service.SyncTimerStatus, error) { return service.SyncTimerStatus{}, nil }, false, ""},
+		{"mixed", []string{"claude", "kiro"}, func() (service.SyncTimerStatus, error) { return service.SyncTimerStatus{}, nil }, true, "kiro"},
+		{"hook-less provider but timer installed", []string{"kiro"}, func() (service.SyncTimerStatus, error) { return installed, nil }, false, ""},
+		{"mixed and timer installed", []string{"claude", "kiro"}, func() (service.SyncTimerStatus, error) { return installed, nil }, false, ""},
+		{"timer status unreadable still warns", []string{"kiro"}, func() (service.SyncTimerStatus, error) {
+			return service.SyncTimerStatus{}, errors.New("launchctl unavailable")
+		}, true, "kiro"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			old := syncTimerStatusFn
+			t.Cleanup(func() { syncTimerStatusFn = old })
+			syncTimerStatusFn = tc.status
+
 			out := withStdout(t, func() { printSyncTimerHint(tc.providers) })
 			printed := strings.Contains(out, "sync-timer install")
 			if printed != tc.want {
