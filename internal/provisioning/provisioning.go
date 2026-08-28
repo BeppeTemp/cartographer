@@ -102,6 +102,12 @@ type ManagedFile struct {
 	// Empty means "unknown": lockfiles written before D138, and entries with
 	// no materialized file of their own (kind "mcp", dry runs).
 	MaterializedHash string `json:"materialized_hash,omitempty"`
+	// AdoptedAt marks an entry whose MaterializedHash was backfilled from the
+	// bytes on disk by `doctor --repair-hashes` (D157) rather than recorded when
+	// the file was written. It is *adopted*, not *verified*: nothing was compared
+	// against the server, so drift is detectable only from the next server-side
+	// change onward. RFC3339, empty for a normally-recorded entry.
+	AdoptedAt string `json:"adopted_at,omitempty"`
 }
 
 // Lock is the client's lockfile: applied revision + managed files.

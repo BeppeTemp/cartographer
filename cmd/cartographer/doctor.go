@@ -70,6 +70,7 @@ func cmdDoctor(args []string) int {
 	fs := flag.NewFlagSet("doctor", flag.ExitOnError)
 	asJSON := fs.Bool("json", false, "Emit the findings as JSON")
 	provider := fs.String("provider", "", "Narrow the run to one provider")
+	repairHashes := fs.Bool("repair-hashes", false, "Re-record the content hash of managed artifacts that have none, from the bytes already on disk (D157)")
 	fs.Parse(args)
 
 	dir, err := clientconfig.TargetDir()
@@ -84,6 +85,10 @@ func cmdDoctor(args []string) int {
 		}
 	}
 
+	if *repairHashes {
+		return repairManagedHashes(dir, *provider)
+	}
+
 	report := runDoctor(dir, *provider)
 	code := doctorExitCode(report)
 	if *asJSON {
@@ -95,6 +100,50 @@ func cmdDoctor(args []string) int {
 		printDoctorReport(report)
 	}
 	return code
+}
+
+// repairManagedHashes backfills the materialized hash of every managed entry that
+// has none, from the bytes on disk, and persists the lockfile (D157). Narrow on
+// purpose: the alternative on offer was `reconnect`, which prunes and rewrites
+// every managed artifact on every client — in the field ~150 file operations to
+// backfill six hashes, with a partial failure leaving both clients without skills.
+func repairManagedHashes(dir, only string) int {
+	lf, err := provisioning.ReadLockFile(lockFilePath(dir))
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "Error: read lockfile:", err)
+		return 2
+	}
+	total := 0
+	for providerName, lock := range lf.Providers {
+		if only != "" && providerName != only {
+			continue
+		}
+		repaired, skipped, repairErr := provisioning.RepairManagedHashes(lock, configurator.Provider(providerName), dir, false)
+		if repairErr != nil {
+			fmt.Fprintf(os.Stderr, "Error: repair %s: %v\n", providerName, repairErr)
+			return 2
+		}
+		for _, mf := range repaired {
+			fmt.Printf("[%s] re-recorded %s/%s from disk\n", providerName, mf.Kind, mf.Name)
+		}
+		for _, sk := range skipped {
+			// A missing file is real drift for `sync` to fix, not something to
+			// paper over with a hash of nothing.
+			fmt.Printf("[%s] skipped %s/%s: %s\n", providerName, sk.Kind, sk.Name, sk.Reason)
+		}
+		total += len(repaired)
+		lf.Providers[providerName] = lock
+	}
+	if total == 0 {
+		fmt.Println("no unverifiable managed artifacts")
+		return 0
+	}
+	if err := provisioning.WriteLockFile(lockFilePath(dir), lf); err != nil {
+		fmt.Fprintln(os.Stderr, "Error: write lockfile:", err)
+		return 2
+	}
+	fmt.Printf("re-recorded %d managed artifact(s); they are adopted, not verified against the server\n", total)
+	return 0
 }
 
 // doctorExitCode maps a report to the exit code: 0 clean, 1 findings. Purely
@@ -304,7 +353,11 @@ func checkManagedFiles(dir string, providers []string, lockFile provisioning.Loc
 		out = append(out, doctorFinding{
 			Check: "managed-files", Severity: doctorInfo, Path: lockFilePath(dir),
 			Message: fmt.Sprintf("%d managed artifact(s) recorded before content hashes existed cannot be verified", unknown),
-			Fix:     "cartographer reconnect",
+			// The content is already on disk and the hash is computable without
+			// refetching anything, so the proportionate remedy is to re-record
+			// it — `reconnect` rewrites every managed artifact on every client,
+			// three orders of magnitude more work than the problem (D157).
+			Fix: "cartographer doctor --repair-hashes (rebuild everything only if you actually want to: cartographer reconnect)",
 		})
 	}
 	return out
