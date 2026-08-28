@@ -14,10 +14,65 @@ import (
 
 var mdLinkRe = regexp.MustCompile(`\[([^\]]*)\]\(([^)]+)\)`)
 
-// wikiLinkRe matches wiki-links [[id]] and [[id#section]]. Alias form
-// [[id|text]] is deliberately not matched here (the "|text" part would fail
-// the character class below, so it falls through unrecognized).
-var wikiLinkRe = regexp.MustCompile(`\[\[([^\[\]|#]+)(#[^\[\]]*)?\]\]`)
+// wikiLinkRe matches wiki-links [[id]], [[id#section]] and the alias forms
+// [[id|text]] / [[id#section|text]] (D150). The ID is capture group 1: whatever
+// precedes the first "|" or "#". The label is deliberately not returned —
+// ExtractLinks yields ConceptIDs and no caller needs the text — but it must be
+// matched, because the alias form is the only way to keep a readable label on a
+// wiki-link, and a wiki-link is the only base-independent form (D149).
+var wikiLinkRe = regexp.MustCompile(`\[\[([^\[\]|#]+)(#[^\[\]|]*)?(\|[^\[\]]*)?\]\]`)
+
+// fenceRe matches an opening or closing code fence: three or more backticks or
+// tildes at the start of a line, after optional indentation.
+var fenceRe = regexp.MustCompile("^[ \t]*(`{3,}|~{3,})")
+
+// inlineCodeRe matches an inline code span delimited by matched runs of
+// backticks on one line.
+var inlineCodeRe = regexp.MustCompile("(`+)[^`\n]*?(`+)")
+
+// maskCodeSpans blanks every byte inside a fenced block or an inline code span,
+// keeping newlines and total length identical so byte offsets stay valid for
+// any other span-based reasoning over the same body (lint's machine_path check
+// already works that way).
+//
+// Without this, two constructs that are normal in any KB documenting commands or
+// drawing diagrams became link targets: a Mermaid subroutine node
+// (N1[["a label"]] inside a mermaid block) and a POSIX character class
+// (grep -E "x[[:alpha:]]"), plus any markdown link shown as an example. In the
+// field, every surviving broken_link finding had this root cause (D150).
+//
+// Indented (four-space) code blocks are deliberately NOT treated as code: they
+// are indistinguishable from a continuation line inside a list, which is how
+// most KB bodies indent, so masking them would hide real links.
+func maskCodeSpans(body string) string {
+	lines := strings.Split(body, "\n")
+	var fence string // the open fence's delimiter run, empty when outside
+	blank := func(i int) { lines[i] = strings.Repeat(" ", len(lines[i])) }
+
+	for i, line := range lines {
+		m := fenceRe.FindStringSubmatch(line)
+		if fence == "" {
+			if m != nil {
+				fence = m[1]
+				blank(i) // a fence line carries no link
+				continue
+			}
+			// Outside a fence: mask inline spans only.
+			lines[i] = inlineCodeRe.ReplaceAllStringFunc(line, func(s string) string {
+				return strings.Repeat(" ", len(s))
+			})
+			continue
+		}
+		// Inside a fence: everything is masked, and a closing fence of the same
+		// character and at least the same length ends the block.
+		closes := m != nil && m[1][0] == fence[0] && len(m[1]) >= len(fence)
+		blank(i)
+		if closes {
+			fence = ""
+		}
+	}
+	return strings.Join(lines, "\n")
+}
 
 // ExtractLinks parses markdown links and wiki-links from the body of a
 // concept and returns the referenced concept IDs. Absolute URLs and anchors
@@ -25,11 +80,20 @@ var wikiLinkRe = regexp.MustCompile(`\[\[([^\[\]|#]+)(#[^\[\]]*)?\]\]`)
 // (e.g. "arch/dossier/concept.md").
 //
 // Markdown links [text](path.md) are resolved relative to basePath. Wiki-
-// links [[id]] and [[id#section]] are root-relative: the ID is taken as-is
-// (path from the KB root, without .md). The alias form [[id|text]] is not
-// supported and is not extracted. Both syntaxes dedup against the same seen
-// set.
-func ExtractLinks(body string, basePath string) []okf.ConceptID {
+// links [[id]], [[id#section]] and their alias forms [[id|text]] are
+// root-relative: the ID is taken as-is (path from the KB root, without .md).
+// Fenced blocks and inline code spans are not scanned (D150). Both syntaxes
+// dedup against the same seen set.
+// assetResolver, when supplied, reports whether a data-root-relative path is an
+// existing asset. Variadic so every existing caller and test keeps compiling and
+// keeps today's behaviour: with no resolver, an extensionless href stays a
+// ConceptID shorthand.
+func ExtractLinks(body string, basePath string, assetResolver ...func(relPath string) bool) []okf.ConceptID {
+	var isAsset func(string) bool
+	if len(assetResolver) > 0 {
+		isAsset = assetResolver[0]
+	}
+	body = maskCodeSpans(body)
 	baseDir := path.Dir(basePath)
 	seen := map[string]bool{}
 	var ids []okf.ConceptID
@@ -60,6 +124,16 @@ func ExtractLinks(body string, basePath string) []okf.ConceptID {
 			continue
 		}
 		if !strings.EqualFold(path.Ext(href), ".md") {
+			// An extensionless href may cite an extensionless ASSET of the
+			// citing concept — a Dockerfile, a Makefile, a LICENSE (D150).
+			// Appending .md unconditionally turned those into links to
+			// nonexistent concepts and left the asset orphan_asset forever,
+			// while renaming the file to satisfy the linter would be worse than
+			// the finding. Scoped to the concept's own asset set, so a stray
+			// file elsewhere in the KB cannot absorb a shorthand ConceptID.
+			if isAsset != nil && isAsset(path.Clean(path.Join(baseDir, href))) {
+				continue
+			}
 			href += ".md"
 		}
 
@@ -86,7 +160,11 @@ func ExtractLinks(body string, basePath string) []okf.ConceptID {
 // links that name a non-Markdown file. It deliberately does not turn those
 // paths into ConceptIDs. basePath is the actual source file path, so links in
 // an expanded owner's index.md resolve from the owner directory.
-func ExtractAssetLinks(body string, basePath string) []string {
+func ExtractAssetLinks(body string, basePath string, assetResolver ...func(relPath string) bool) []string {
+	var isAsset func(string) bool
+	if len(assetResolver) > 0 {
+		isAsset = assetResolver[0]
+	}
 	baseDir := path.Dir(basePath)
 	seen := map[string]bool{}
 	var links []string
@@ -98,10 +176,16 @@ func ExtractAssetLinks(body string, basePath string) []string {
 		if idx := strings.IndexAny(href, "?#"); idx >= 0 {
 			href = href[:idx]
 		}
-		if href == "" || path.Ext(href) == "" || strings.EqualFold(path.Ext(href), ".md") {
+		if href == "" || strings.EqualFold(path.Ext(href), ".md") {
 			continue
 		}
 		resolved := path.Clean(path.Join(baseDir, href))
+		// An extensionless href counts as an asset citation only when it really
+		// resolves to one — a Dockerfile, a Makefile, a LICENSE (D150).
+		// Otherwise it is a ConceptID shorthand and not this function's business.
+		if path.Ext(href) == "" && (isAsset == nil || !isAsset(resolved)) {
+			continue
+		}
 		if strings.HasPrefix(resolved, "..") || seen[resolved] {
 			continue
 		}
@@ -168,13 +252,15 @@ func RewriteLinks(body string, basePath string, moveMap map[string]string) (stri
 
 	body = wikiLinkRe.ReplaceAllStringFunc(body, func(match string) string {
 		sub := wikiLinkRe.FindStringSubmatch(match)
-		id, frag := sub[1], sub[2]
+		// sub[3] is the "|label" segment (D150): it is preserved verbatim, so a
+		// rename never costs the human-readable label.
+		id, frag, label := sub[1], sub[2], sub[3]
 		newID, ok := moveMap[id]
 		if !ok {
 			return match
 		}
 		count++
-		return "[[" + newID + frag + "]]"
+		return "[[" + newID + frag + label + "]]"
 	})
 
 	return body, count
@@ -212,6 +298,22 @@ type linkAdjacency struct {
 	in  map[okf.ConceptID]map[okf.ConceptID]struct{}
 }
 
+// AssetExists reports whether relPath (from the data root) is an existing
+// regular file that is not a concept — i.e. an asset. Used as ExtractLinks'
+// asset resolver (D150); os.Lstat, never os.Stat, so a symlinked path is not an
+// asset (same rule as asset.go).
+func (kb *KB) AssetExists(relPath string) bool {
+	if strings.EqualFold(path.Ext(relPath), ".md") {
+		return false
+	}
+	abs, err := kb.ResolvePath(relPath, false)
+	if err != nil {
+		return false
+	}
+	info, err := os.Lstat(abs)
+	return err == nil && info.Mode().IsRegular()
+}
+
 // buildLinkAdjacency derives the link graph from the files on every call.
 // physicalPath, rather than IDToPath(id), is essential for an expanded
 // concept: its ID is map/concept but its body lives in map/concept/index.md.
@@ -225,7 +327,7 @@ func (kb *KB) buildLinkAdjacency() (linkAdjacency, error) {
 		if graph.out[id] == nil {
 			graph.out[id] = make(map[okf.ConceptID]struct{})
 		}
-		for _, target := range ExtractLinks(body, physicalPath) {
+		for _, target := range ExtractLinks(body, physicalPath, kb.AssetExists) {
 			graph.out[id][target] = struct{}{}
 			if graph.in[target] == nil {
 				graph.in[target] = make(map[okf.ConceptID]struct{})
