@@ -8,6 +8,13 @@
 
 KB histories with commits authored as `cartographer <cartographer@localhost>` may need a manual author rewrite before a forge with author push rules accepts the first push.
 
+## [0.8.3](https://github.com/BeppeTemp/cartographer/compare/v0.8.2...v0.8.3) (2026-08-28)
+
+
+### Bug Fixes
+
+* **sync:** scope sync's MCP-entry line like connect's (D147) ([#167](https://github.com/BeppeTemp/cartographer/issues/167)) ([5688873](https://github.com/BeppeTemp/cartographer/commit/5688873c7f526e7423be9e633492e15a7ae26700))
+
 ## [0.8.2](https://github.com/BeppeTemp/cartographer/compare/v0.8.1...v0.8.2) (2026-08-28)
 
 
