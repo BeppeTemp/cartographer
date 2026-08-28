@@ -183,7 +183,7 @@ func Run(k *kb.KB, scope string, scopeNeighbors bool) ([]Finding, error) {
 		}
 
 		// --- broken_link (warning) ---
-		for _, target := range kb.ExtractLinks(body, linkBase) {
+		for _, target := range kb.ExtractLinks(body, linkBase, k.AssetExists) {
 			targetPath := okf.IDToPath(target)
 			// ReadConcept honours the expanded-concept fallback, so a link to
 			// the canonical ID of an expanded concept is not broken — lint and
@@ -433,7 +433,7 @@ func Run(k *kb.KB, scope string, scopeNeighbors bool) ([]Finding, error) {
 				indexTargets := map[okf.ConceptID]bool{}
 				if indexContent, ok := allConcepts[expandedID]; ok {
 					_, indexBody, _ := okf.SplitFrontmatter(indexContent)
-					for _, tgt := range kb.ExtractLinks(indexBody, string(expandedID)+"/index.md") {
+					for _, tgt := range kb.ExtractLinks(indexBody, string(expandedID)+"/index.md", k.AssetExists) {
 						indexTargets[tgt] = true
 					}
 				}
@@ -484,7 +484,7 @@ func Run(k *kb.KB, scope string, scopeNeighbors bool) ([]Finding, error) {
 					if id == expandedID {
 						basePath = string(expandedID) + "/index.md"
 					}
-					for _, target := range kb.ExtractAssetLinks(body, basePath) {
+					for _, target := range kb.ExtractAssetLinks(body, basePath, k.AssetExists) {
 						referenced[target] = true
 					}
 				}
@@ -611,7 +611,7 @@ func checkCuratedIndex(k *kb.KB, folder, indexPath string, candidates []okf.Conc
 	}
 	_, body, _ := okf.SplitFrontmatter(content)
 	targets := map[okf.ConceptID]bool{}
-	for _, target := range kb.ExtractLinks(body, indexPath) {
+	for _, target := range kb.ExtractLinks(body, indexPath, k.AssetExists) {
 		targets[target] = true
 		// An expanded concept can be linked as "<c>/index.md", which extracts
 		// as "<map>/<c>/index" — resolvable and correct, but not the candidate
