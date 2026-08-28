@@ -14,10 +14,13 @@ package provisioning
 // been deleted.
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 )
@@ -73,6 +76,111 @@ func (f DriftFinding) Healable() bool {
 //     the surrounding file is never rewritten on a content difference.
 //
 // Nothing outside lock.Managed is ever read.
+// RepairManagedHashes re-records the content hash of every managed entry that has
+// none, computing it from the bytes already on disk (D157).
+//
+// The gap it closes is narrow: entries written before materialized hashes existed
+// are DriftUnknown, deliberately not healable, and ComputeDiff sees no change
+// either — so `sync` leaves them alone and the only remedy on offer was
+// `reconnect`, which prunes and rewrites **every** managed artifact on every
+// client. In the field that was ~150 file operations to backfill six hashes, with
+// a partial failure leaving both clients without skills.
+//
+// Backfilling is **not healing**: it records what is on disk as the baseline, and
+// does not claim the file matches the server. An adopted entry is marked with
+// AdoptedAt so a later genuine drift is still detectable from the next
+// server-side change onward, and so an operator can tell a verified entry from an
+// adopted one.
+//
+// Entries whose file is missing are left alone: that is DriftMissing, a real
+// finding for `sync` to fix, not something to paper over.
+func RepairManagedHashes(lock Lock, provider configurator.Provider, baseDir string, dryRun bool) (repaired []ManagedFile, skipped []DriftFinding, err error) {
+	now := time.Now().UTC().Format(time.RFC3339)
+	for i := range lock.Managed {
+		mf := lock.Managed[i]
+		// MaterializedHash is the field verifyArtifact needs for the content
+		// comparison; ContentHash is what ComputeDiff compares against the
+		// manifest and is not this function's business.
+		if mf.MaterializedHash != "" {
+			continue
+		}
+		rel, full, ok := managedDest(mf, provider, baseDir)
+		if !ok {
+			// The provider does not support this kind: nothing to hash, and not
+			// an error.
+			continue
+		}
+		if isSymlink(full) {
+			skipped = append(skipped, DriftFinding{Kind: mf.Kind, Name: mf.Name, Path: rel, Reason: "destination is a symlink"})
+			continue
+		}
+		files, readErr := readManagedFiles(mf, full)
+		switch {
+		case errors.Is(readErr, fs.ErrNotExist):
+			skipped = append(skipped, DriftFinding{Kind: mf.Kind, Name: mf.Name, Path: rel, Reason: DriftMissing})
+			continue
+		case readErr != nil:
+			skipped = append(skipped, DriftFinding{Kind: mf.Kind, Name: mf.Name, Path: rel, Reason: readErr.Error()})
+			continue
+		}
+		// Hashed exactly the way Apply records materializedHash, over the same
+		// ordered set of files: a value computed any other way would never match
+		// a future Apply, turning an unverifiable entry into a permanently
+		// drifted one — worse than the gap.
+		lock.Managed[i].MaterializedHash = hashArtifactFiles(files)
+		lock.Managed[i].AdoptedAt = now
+		repaired = append(repaired, lock.Managed[i])
+	}
+	if dryRun {
+		return repaired, skipped, nil
+	}
+	return repaired, skipped, nil
+}
+
+// readManagedFiles reads the on-disk bytes of one managed artifact in the shape
+// hashArtifactFiles expects: one entry for a single-file kind, every file under
+// the directory for a skill or hook.
+func readManagedFiles(mf ManagedFile, full string) ([]ArtifactFile, error) {
+	info, err := os.Lstat(full)
+	if err != nil {
+		return nil, err
+	}
+	if !info.IsDir() {
+		data, readErr := os.ReadFile(full)
+		if readErr != nil {
+			return nil, readErr
+		}
+		return []ArtifactFile{{Path: filepath.Base(full), Content: data, Executable: info.Mode()&0o111 != 0}}, nil
+	}
+	var files []ArtifactFile
+	walkErr := filepath.WalkDir(full, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			return nil
+		}
+		rel, relErr := filepath.Rel(full, p)
+		if relErr != nil {
+			return relErr
+		}
+		data, readErr := os.ReadFile(p)
+		if readErr != nil {
+			return readErr
+		}
+		fi, infoErr := d.Info()
+		if infoErr != nil {
+			return infoErr
+		}
+		files = append(files, ArtifactFile{Path: filepath.ToSlash(rel), Content: data, Executable: fi.Mode()&0o111 != 0})
+		return nil
+	})
+	if walkErr != nil {
+		return nil, walkErr
+	}
+	return files, nil
+}
+
 func VerifyManaged(lock Lock, provider configurator.Provider, baseDir string) []DriftFinding {
 	var findings []DriftFinding
 	seen := make(map[string]bool, len(lock.Managed))
