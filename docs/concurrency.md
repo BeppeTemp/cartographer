@@ -35,6 +35,13 @@ replacement is atomic, and Cartographer creates no working branch, opens no pull
 request and never merges into `main`: repository review policy belongs to the
 remote hosting workflow.
 
+Each commit subject is `<tool_name>: <resource>`, so the history of a KB is
+readable as an audit trail. The resource is built from the arguments that
+identify what the write touched: `path` for the artifact tools, `concept_id/path`
+for the asset tools, and otherwise the first of `id`, `name`, `source_id`,
+`contradiction_id` present in the call. A tool invoked with none of them commits
+as the bare tool name.
+
 `git.profile: server` (D117) is an opt-in GitHub review boundary. It requires a
 base branch, a dedicated working branch, GitHub owner/repository/API URL and the
 name of an environment variable holding a token. On mount Cartographer fetches

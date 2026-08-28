@@ -48,6 +48,9 @@ var docsNonTools = map[string]bool{
 	"index_incomplete": true,
 	// frontmatter fields and schema keys
 	"concept_id": true, "concept_types": true, "archive_type": true,
+	// tool argument names, cited where the docs explain which argument
+	// identifies the resource a write touched (commit subjects)
+	"contradiction_id": true, "source_id": true,
 	"contradiction_kind": true, "service_ref": true, "secret_refs": true,
 	"secrets_source": true, "review_after": true, "asserted_by": true,
 	"last_indexed_commit": true, "content_hash": true, "applied_revision": true,
