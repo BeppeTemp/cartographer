@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -93,26 +94,69 @@ func TestDoConnect_PerKBEntries_AllProviders(t *testing.T) {
 	}
 }
 
-// TestKiroFlatNamespaceWarning covers the D102 client-side follow-up: a
-// warning fires unconditionally whenever kiro is among the target providers
-// and >=2 MCP entries are about to be written (multi-KB), and stays silent
-// otherwise (single entry, or no kiro provider).
+// TestKiroFlatNamespaceWarning covers the D152 rework: the warning fires only
+// when a flat-namespace provider would receive >=2 KBs that register their tools
+// **unprefixed**, reading the effective prefixes /health advertises (D120). The
+// pre-D152 version was unconditional on >=2 entries and fired on every sync of a
+// deployment where nothing was wrong.
 func TestKiroFlatNamespaceWarning(t *testing.T) {
-	twoEntries := []mcpEntry{{Name: "cartographer-alpha"}, {Name: "cartographer-beta"}}
-	oneEntry := []mcpEntry{{Name: "cartographer"}}
+	twoEntries := []mcpEntry{{Name: "cartographer-alpha", KBName: "alpha"}, {Name: "cartographer-beta", KBName: "beta"}}
+	threeEntries := append(append([]mcpEntry{}, twoEntries...), mcpEntry{Name: "cartographer-gamma", KBName: "gamma"})
+	oneEntry := []mcpEntry{{Name: "cartographer", KBName: "alpha"}}
+	bothUnprefixed := map[string]string{"alpha": "", "beta": ""}
+	bothPrefixed := map[string]string{"alpha": "a", "beta": "b"}
+	// Three KBs, only one unprefixed: safe, and the case that produced the
+	// reported false positive on every sync.
+	oneUnprefixed := map[string]string{"alpha": "", "beta": "b", "gamma": "g"}
 
-	if w := kiroFlatNamespaceWarning([]string{"kiro"}, twoEntries); w == "" {
-		t.Error("expected a warning: kiro provider + 2 entries")
-	}
-	if w := kiroFlatNamespaceWarning([]string{"claude", "kiro", "codex"}, twoEntries); w == "" {
-		t.Error("expected a warning: kiro among several providers + 2 entries")
-	}
-	if w := kiroFlatNamespaceWarning([]string{"kiro"}, oneEntry); w != "" {
-		t.Errorf("expected no warning for a single entry, got %q", w)
-	}
-	if w := kiroFlatNamespaceWarning([]string{"claude", "codex", "opencode"}, twoEntries); w != "" {
-		t.Errorf("expected no warning without kiro among the providers, got %q", w)
-	}
+	t.Run("two unprefixed KBs warn and are named", func(t *testing.T) {
+		w := kiroFlatNamespaceWarning([]string{"kiro"}, twoEntries, bothUnprefixed, nil)
+		if w == "" {
+			t.Fatal("expected a warning")
+		}
+		for _, name := range []string{"alpha", "beta"} {
+			if !strings.Contains(w, name) {
+				t.Errorf("warning %q does not name %q", w, name)
+			}
+		}
+		if !strings.Contains(w, "tool_prefix_mode: kb-name") {
+			t.Errorf("warning %q does not offer the global remedy", w)
+		}
+	})
+
+	t.Run("a single unprefixed KB is safe", func(t *testing.T) {
+		if w := kiroFlatNamespaceWarning([]string{"kiro"}, threeEntries, oneUnprefixed, nil); w != "" {
+			t.Errorf("expected silence with one unprefixed KB, got %q", w)
+		}
+	})
+
+	t.Run("all prefixed is silent", func(t *testing.T) {
+		if w := kiroFlatNamespaceWarning([]string{"kiro"}, twoEntries, bothPrefixed, nil); w != "" {
+			t.Errorf("expected silence, got %q", w)
+		}
+	})
+
+	t.Run("unverifiable prefixes still warn, and say why", func(t *testing.T) {
+		w := kiroFlatNamespaceWarning([]string{"kiro"}, twoEntries, nil, errors.New("connection refused"))
+		if w == "" {
+			t.Fatal("expected a warning when the prefixes cannot be read")
+		}
+		if !strings.Contains(w, "connection refused") {
+			t.Errorf("warning %q does not say why the prefixes are unknown", w)
+		}
+	})
+
+	t.Run("a single entry is silent", func(t *testing.T) {
+		if w := kiroFlatNamespaceWarning([]string{"kiro"}, oneEntry, bothUnprefixed, nil); w != "" {
+			t.Errorf("expected no warning for a single entry, got %q", w)
+		}
+	})
+
+	t.Run("no flat-namespace provider is silent", func(t *testing.T) {
+		if w := kiroFlatNamespaceWarning([]string{"claude", "codex", "opencode"}, twoEntries, bothUnprefixed, nil); w != "" {
+			t.Errorf("expected no warning without a flat-namespace provider, got %q", w)
+		}
+	})
 }
 
 // TestDoConnect_Kiro_MultiKB_WarnsFlatNamespace exercises the warning through

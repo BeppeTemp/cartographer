@@ -99,7 +99,7 @@ func runSync(dir string, cfg *clientconfig.Config, opts syncOptions) (syncResult
 		if err != nil {
 			return syncResult{}, err
 		}
-		if w := kiroFlatNamespaceWarning(cfg.Agents, entries); w != "" {
+		if w := kiroFlatNamespaceWarning(cfg.Agents, entries, effectiveToolPrefixes(facts, healthErr), healthErr); w != "" {
 			warnings = append(warnings, w)
 		}
 		for _, w := range warnings {

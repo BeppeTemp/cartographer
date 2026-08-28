@@ -45,6 +45,34 @@ func ValidateToolPrefixShape(sanitized string) error {
 	return nil
 }
 
+// ValidateToolPrefixUniqueness reports an error when prefix is already taken by
+// another mounted KB. Unprefixed KBs are skipped: an empty prefix is the absence
+// of one, and two unprefixed KBs are the case flatNamespaceMountWarning covers
+// deliberately as a warning, because a per-server-namespaced client must keep
+// working untouched (D102).
+//
+// The comparison is on the **sanitised** result, because sanitisation is what
+// creates the collisions: SanitizeToolPrefix is lossy by design, so "my-kb",
+// "my_kb" and "My KB" all derive the same prefix, and two explicit
+// kbs[].tool_prefix values were never compared against each other at all. There
+// was no uniqueness check anywhere in the resolution path, so a deployment that
+// had done everything right could still be silently ambiguous (D152).
+func ValidateToolPrefixUniqueness(takenBy map[string]string, kbName, prefix, rawPrefix string) error {
+	if prefix == "" {
+		return nil
+	}
+	other, taken := takenBy[prefix]
+	if !taken {
+		return nil
+	}
+	detail := ""
+	if rawPrefix != prefix {
+		detail = fmt.Sprintf(" (derived from %q)", rawPrefix)
+	}
+	return fmt.Errorf("KB %q and KB %q resolve to the same MCP tool prefix %q%s: their tools would be indistinguishable — set a different kbs[].tool_prefix on one of them",
+		other, kbName, prefix, detail)
+}
+
 // ResolveToolPrefix determines the tool-name prefix for one KB:
 // spec.ToolPrefix (explicit, per-KB) wins over mode; mode == "kb-name"
 // derives the prefix from kbName; anything else ("off" or unset) leaves the
