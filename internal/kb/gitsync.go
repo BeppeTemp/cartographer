@@ -4,11 +4,16 @@ import (
 	"errors"
 	"fmt"
 	neturl "net/url"
+	"os"
 	"strings"
 	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/gitx"
 )
+
+// processLockTimeout bounds how long a server write waits for the advisory KB
+// lock before proceeding without it (D155).
+var processLockTimeout = 30 * time.Second
 
 var (
 	syncOutMaxAttempts    = 5
@@ -16,12 +21,58 @@ var (
 	syncOutSleep          = time.Sleep
 )
 
+// ErrRebaseStatePresent reports a rebase state directory in the KB clone. Sync
+// refuses rather than letting git fail with a message that names no way out: an
+// aborted rebase left a .git/rebase-merge containing only an autostash, and from
+// then on every MCP write failed with "there is already a rebase-merge
+// directory" until it was removed by hand (D155).
+type ErrRebaseStatePresent struct {
+	Root string
+	Kind string
+	Dir  string
+}
+
+func (e *ErrRebaseStatePresent) Error() string {
+	if e.Kind == gitx.RebaseStateOrphanAutostash {
+		return fmt.Sprintf("%s exists but holds no rebase (only an autostash): the KB cannot sync until it is cleared. "+
+			"Inspect it with `git -C %s stash list` and `git -C %s log -1 --stat refs/stash`, then remove the directory once you are sure nothing in it is needed",
+			e.Dir, e.Root, e.Root)
+	}
+	return fmt.Sprintf("a git rebase is in progress in %s: finish it with `git -C %s rebase --continue` or abort it with `git -C %s rebase --abort`, then retry",
+		e.Root, e.Root, e.Root)
+}
+
+// checkRebaseState refuses to touch git while a rebase state directory exists.
+// Deliberately detection plus instruction, never automatic deletion: the
+// directory may hold a real operator rebase, or an autostash holding the only
+// copy of uncommitted work, and deleting another writer's state is the class of
+// action that caused the incident in the first place.
+func (k *KB) checkRebaseState() error {
+	kind, present := gitx.RebaseInProgress(k.Root)
+	if !present {
+		return nil
+	}
+	return &ErrRebaseStatePresent{Root: k.Root, Kind: kind, Dir: gitx.RebaseStateDir(k.Root)}
+}
+
 // WithGitLock acquires the per-KB mutex, executes fn, then releases it.
 // This serialises git operations so that concurrent tool calls do not interleave
 // their working-tree changes and commits.
 func (k *KB) WithGitLock(fn func() error) error {
 	k.mu.Lock()
 	defer k.mu.Unlock()
+	// The mutex serialises this process; the advisory lock file serialises
+	// against another one — `cartographer import` writes into the same directory
+	// the sync loop manages, and the two interleaving corrupted the git index
+	// (D155). Best-effort by design: a KB on a filesystem without flock, or a
+	// lock held past the window, must not make the server stop writing, so the
+	// condition is reported and the write proceeds under the mutex alone.
+	release, err := k.AcquireProcessLock(processLockTimeout, "cartographer serve")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "cartographer: proceeding without the KB lock: %v\n", err)
+	} else {
+		defer release()
+	}
 	return fn()
 }
 
@@ -91,6 +142,9 @@ func (k *KB) lastSyncInAt() time.Time {
 // is. lastSyncIn is only updated after a fetch+pull that actually succeeds.
 // Callers must hold the git lock.
 func (k *KB) SyncIn() (bool, error) {
+	if err := k.checkRebaseState(); err != nil {
+		return false, err
+	}
 	if err := k.ServerWritesBlocked(); err != nil {
 		return false, err
 	}
@@ -139,6 +193,9 @@ func (k *KB) SyncIn() (bool, error) {
 // If PullRebaseAutostash returns ErrRebaseConflict, SyncOut returns immediately.
 // After 5 failed attempts it returns an error.
 func (k *KB) SyncOut() error {
+	if err := k.checkRebaseState(); err != nil {
+		return err
+	}
 	if !k.GitSync || !gitx.IsRepo(k.Root) {
 		k.setGitStatus("disabled", nil, 0)
 		return nil

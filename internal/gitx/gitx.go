@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -439,6 +440,51 @@ func Rebase(dir, onto string) error {
 		return fmt.Errorf("git rebase %s: %w: %s", onto, err, out)
 	}
 	return nil
+}
+
+// Rebase state kinds returned by RebaseInProgress.
+const (
+	// RebaseStateNormal: a real rebase is in progress (a head-name or todo is
+	// present), so someone is mid-operation and git owns the worktree.
+	RebaseStateNormal = "rebase"
+	// RebaseStateOrphanAutostash: the rebase directory exists but holds no
+	// rebase — only an autostash. Observed after a process was killed mid
+	// `pull --rebase --autostash`: from then on every write failed with "there is
+	// already a rebase-merge directory", and the KB was frozen until the
+	// directory was removed by hand (D155).
+	RebaseStateOrphanAutostash = "orphan-autostash"
+)
+
+// RebaseInProgress reports whether dir has a rebase state directory and what kind
+// it is. A caller must not run git in the worktree while this returns true: the
+// point is to refuse with an actionable message instead of letting git fail with
+// one that names no way out.
+func RebaseInProgress(dir string) (kind string, ok bool) {
+	for _, name := range []string{"rebase-merge", "rebase-apply"} {
+		d := filepath.Join(dir, ".git", name)
+		if _, err := os.Stat(d); err != nil {
+			continue
+		}
+		for _, marker := range []string{"head-name", "git-rebase-todo", "onto", "next"} {
+			if _, err := os.Stat(filepath.Join(d, marker)); err == nil {
+				return RebaseStateNormal, true
+			}
+		}
+		return RebaseStateOrphanAutostash, true
+	}
+	return "", false
+}
+
+// RebaseStateDir returns the path of the rebase state directory in dir, or "".
+// Named in the operator-facing message so the remedy points at a real path.
+func RebaseStateDir(dir string) string {
+	for _, name := range []string{"rebase-merge", "rebase-apply"} {
+		d := filepath.Join(dir, ".git", name)
+		if _, err := os.Stat(d); err == nil {
+			return d
+		}
+	}
+	return ""
 }
 
 // RebaseAbort aborts an in-progress rebase.

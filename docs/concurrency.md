@@ -25,6 +25,36 @@ observe either the complete batch or the exact pre-call KB state. It does
 not open a nested git commit; a rolled-back call also leaves no commit,
 since `gitWrap` only commits after the handler returns success.
 
+## The advisory KB lock
+
+Inside one server process, git operations are serialised by a per-KB mutex. That mutex is blind to
+any **other** process, and `cartographer import` is exactly that: a separate process writing into the
+same directory the sync loop manages. The two interleaving corrupted the git index — 617 staged
+deletions and 224 untracked entries for the same paths, with `HEAD` and the working tree verified
+byte-identical — so since D155 both take an **advisory lock file**, `.cartographer.lock` in the KB
+root (dot-prefixed, so every walker already skips it, and excluded via `.git/info/exclude` so it can
+never dirty the working tree).
+
+Advisory, not mandatory, on purpose:
+
+- a lock whose recorded pid no longer exists is **reclaimed** with a note on stderr — a crash must
+  not block a KB forever;
+- the **server waits** for a bounded window and then proceeds under its mutex alone, reporting the
+  condition: a lock held by something else must not stop the server from writing;
+- **`import` fails fast**, naming the holder and how to stop it. An import is an operator action at a
+  keyboard, and a silent ten-minute block is worse than an error. `--dry-run` writes nothing and never
+  takes the lock.
+
+**An in-progress rebase makes sync refuse.** An aborted `pull --rebase --autostash` left a
+`.git/rebase-merge` containing only an autostash, and from then on every MCP write failed with git's
+own *"there is already a rebase-merge directory"* — a message that names no way out — until the
+directory was removed by hand. `SyncIn`/`SyncOut` now detect the state first and return an error that
+names the remedy: `rebase --continue`/`--abort` for a real rebase, or the `stash list` inspection
+followed by removing the directory for an orphan autostash. **Detection plus instruction, never
+automatic deletion**: the directory may hold a real operator rebase, or an autostash holding the only
+copy of uncommitted work, and deleting another writer's state is the class of action that caused the
+incident in the first place.
+
 ## Git profiles
 
 `git.profile: local` is the default and the historical behavior. When
