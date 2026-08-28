@@ -201,10 +201,13 @@ func TestBuildManifest_Instructions_SezioneAgent(t *testing.T) {
 	}
 	content := string(findInstructionsArtifact(t, m, "homelab").Files[0].Content)
 
-	// Names only, alphabetically sorted, no description (already in the
-	// client's agent registry, D65).
-	if !strings.Contains(content, "Subagents installed by this KB: anonimo, zorro —") {
-		t.Errorf("agent section missing or not sorted by name:\n%s", content)
+	// Since D154 the server-generated block carries NO subagent sentence: it
+	// cannot know which provider will receive the block, and a provider whose
+	// "agent" cell is unsupported receives none of them. The sentence is emitted
+	// per provider by Apply, from what that client can actually install — see
+	// TestApply_InstructionsSubagentSentence*.
+	if strings.Contains(content, "Subagents installed") {
+		t.Errorf("the server-generated block must not claim installed subagents (D154):\n%s", content)
 	}
 	if strings.Contains(content, "Defends the KB from intruders") {
 		t.Errorf("agent descriptions must not be duplicated in the instructions (D65):\n%s", content)
@@ -310,8 +313,13 @@ func TestBuildManifest_Instructions_HashStabileConDescriptionAgent(t *testing.T)
 		t.Fatalf("BuildManifest 3: %v", err)
 	}
 	h3 := findInstructionsArtifact(t, m3, "homelab").ContentHash
-	if h3 == h1 {
-		t.Error("the instructions ContentHash must change when an agent is added")
+	// Since D154 the block no longer names agents, so its hash is independent of
+	// the agent set — deliberately: the sentence naming installed subagents is
+	// per-provider and emitted client-side. What guarantees the block is rewritten
+	// when the agent set changes is Apply's trigger, which now fires on an "agent"
+	// artifact too (see TestApply_InstructionsRewrittenWhenAgentSetChanges).
+	if h3 != h1 {
+		t.Error("the instructions ContentHash must not depend on the agent set (D154)")
 	}
 }
 
@@ -845,5 +853,171 @@ func TestBuildManifest_Instructions_ToolPrefix(t *testing.T) {
 		if strings.Contains(prefixedContent, "`"+base+"`") {
 			t.Errorf("prefixed block still names the bare tool `%s`:\n%s", base, prefixedContent)
 		}
+	}
+}
+
+// --- D154: the block describes what THIS client received ---
+
+func agentManifest(t *testing.T, kbRoot string, names ...string) provisioning.Manifest {
+	t.Helper()
+	agentsDir := filepath.Join(kbRoot, "agents")
+	if err := os.MkdirAll(agentsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, n := range names {
+		writeFile(t, filepath.Join(agentsDir, n+".md"), "---\nname: "+n+"\ndescription: Agent "+n+".\n---\nPrompt.\n")
+	}
+	m, err := provisioning.BuildManifest(nil, map[string]string{"homelab": kbRoot}, provisioning.BuildOptions{})
+	if err != nil {
+		t.Fatalf("BuildManifest: %v", err)
+	}
+	for i := range m.Artifacts {
+		m.Artifacts[i].Signed = true
+	}
+	return m
+}
+
+func instructionsBody(t *testing.T, base string, provider configurator.Provider) string {
+	t.Helper()
+	rel := map[configurator.Provider]string{
+		configurator.ProviderClaudeCode: filepath.Join(".claude", "CLAUDE.md"),
+		configurator.ProviderKiro:       filepath.Join(".kiro", "steering", "cartographer.md"),
+	}[provider]
+	data, err := os.ReadFile(filepath.Join(base, rel))
+	if err != nil {
+		t.Fatalf("read instructions for %s: %v", provider, err)
+	}
+	return string(data)
+}
+
+// An agent reading its own steering was told to delegate to subagents that did
+// not exist on that client: kiro's "agent" cell is unsupportedDest, so it
+// receives none of them.
+func TestApply_InstructionsSubagentSentenceReflectsThisClient(t *testing.T) {
+	for _, tc := range []struct {
+		provider  configurator.Provider
+		wantNames bool
+	}{
+		{configurator.ProviderClaudeCode, true},
+		{configurator.ProviderKiro, false},
+	} {
+		t.Run(string(tc.provider), func(t *testing.T) {
+			kbRoot := makeKBWithArchives(t, map[string][]string{"entities": {"a.md"}})
+			m := agentManifest(t, kbRoot, "zorro", "anonimo")
+			base := t.TempDir()
+			if _, err := provisioning.Apply(m, provisioning.ApplyOptions{Provider: tc.provider, BaseDir: base, Lock: provisioning.Lock{}, KBRoots: map[string]string{"homelab": kbRoot}}); err != nil {
+				t.Fatal(err)
+			}
+			body := instructionsBody(t, base, tc.provider)
+			has := strings.Contains(body, "Subagents installed")
+			if has != tc.wantNames {
+				t.Errorf("%s: subagent sentence present = %v, want %v\n%s", tc.provider, has, tc.wantNames, body)
+			}
+			if tc.wantNames && !strings.Contains(body, "anonimo, zorro") {
+				t.Errorf("%s: sentence does not name the installed agents in order:\n%s", tc.provider, body)
+			}
+		})
+	}
+}
+
+// The per-artifact "unsupported" line only appears on a run where the artifact
+// enters the diff; afterwards the condition is invisible while the KB keeps
+// declaring artifacts that are silently not installed.
+func TestApply_WarnsEveryRunAboutUnsupportedKinds(t *testing.T) {
+	kbRoot := makeKBWithArchives(t, map[string][]string{"entities": {"a.md"}})
+	m := agentManifest(t, kbRoot, "zorro")
+	base := t.TempDir()
+
+	first, err := provisioning.Apply(m, provisioning.ApplyOptions{Provider: configurator.ProviderKiro, BaseDir: base, Lock: provisioning.Lock{}, KBRoots: map[string]string{"homelab": kbRoot}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	warned := func(r provisioning.AppliedResult) bool {
+		for _, w := range r.Warnings {
+			if strings.Contains(w, "cannot receive") && strings.Contains(w, "agent") {
+				return true
+			}
+		}
+		return false
+	}
+	if !warned(first) {
+		t.Fatalf("first run did not warn: %v", first.Warnings)
+	}
+	// Second run: nothing in the diff, and the warning must still be there.
+	second, err := provisioning.Apply(m, provisioning.ApplyOptions{Provider: configurator.ProviderKiro, BaseDir: base, Lock: first.NewLock, KBRoots: map[string]string{"homelab": kbRoot}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !warned(second) {
+		t.Errorf("the condition became invisible on the second run: %v", second.Warnings)
+	}
+}
+
+// The block's content now depends on the agent set even though its hash does
+// not, so the trigger has to reflect that dependency or the sentence goes stale.
+func TestApply_InstructionsRewrittenWhenAgentSetChanges(t *testing.T) {
+	kbRoot := makeKBWithArchives(t, map[string][]string{"entities": {"a.md"}})
+	m1 := agentManifest(t, kbRoot, "zorro")
+	base := t.TempDir()
+	first, err := provisioning.Apply(m1, provisioning.ApplyOptions{Provider: configurator.ProviderClaudeCode, BaseDir: base, Lock: provisioning.Lock{}, KBRoots: map[string]string{"homelab": kbRoot}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if body := instructionsBody(t, base, configurator.ProviderClaudeCode); strings.Contains(body, "nuovo") {
+		t.Fatalf("unexpected agent in the first block:\n%s", body)
+	}
+
+	m2 := agentManifest(t, kbRoot, "zorro", "nuovo")
+	if _, err := provisioning.Apply(m2, provisioning.ApplyOptions{Provider: configurator.ProviderClaudeCode, BaseDir: base, Lock: first.NewLock, KBRoots: map[string]string{"homelab": kbRoot}}); err != nil {
+		t.Fatal(err)
+	}
+	body := instructionsBody(t, base, configurator.ProviderClaudeCode)
+	if !strings.Contains(body, "nuovo") {
+		t.Errorf("adding an agent did not rewrite the block, so the sentence is stale:\n%s", body)
+	}
+}
+
+// A KB whose instructions.md is written in the team's working language yielded a
+// steering file that switched language twice, with the generated English first —
+// the worst position, since it sets the expected output language.
+func TestGenerateKBInstructions_PreambleNoneDirective(t *testing.T) {
+	kbRoot := makeKBWithArchives(t, map[string][]string{"entities": {"a.md"}})
+	writeFile(t, filepath.Join(kbRoot, "instructions.md"),
+		"<!-- cartographer: preamble: none -->\nRegola: leggi prima l'indice.\n")
+
+	m, err := provisioning.BuildManifest(nil, map[string]string{"homelab": kbRoot}, provisioning.BuildOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := string(findInstructionsArtifact(t, m, "homelab").Files[0].Content)
+
+	if strings.Contains(content, "Operational instructions:") {
+		t.Errorf("preamble: none did not suppress the generated bullets:\n%s", content)
+	}
+	if strings.Contains(content, "cartographer: preamble: none") {
+		t.Errorf("the directive itself leaked into the block:\n%s", content)
+	}
+	// The routing sentence is generated state, not prose: it always stays.
+	if !strings.Contains(content, `The "homelab" KB is served via MCP`) {
+		t.Errorf("the routing sentence must stay:\n%s", content)
+	}
+	if !strings.Contains(content, "Regola: leggi prima l'indice.") {
+		t.Errorf("the curated content is missing:\n%s", content)
+	}
+}
+
+// A KB must be able to document the directive without triggering it.
+func TestGenerateKBInstructions_DirectiveNotOnFirstLineIsContent(t *testing.T) {
+	kbRoot := makeKBWithArchives(t, map[string][]string{"entities": {"a.md"}})
+	writeFile(t, filepath.Join(kbRoot, "instructions.md"),
+		"How to opt out of the preamble:\n<!-- cartographer: preamble: none -->\n")
+
+	m, err := provisioning.BuildManifest(nil, map[string]string{"homelab": kbRoot}, provisioning.BuildOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := string(findInstructionsArtifact(t, m, "homelab").Files[0].Content)
+	if !strings.Contains(content, "Operational instructions:") {
+		t.Errorf("a directive that is not on the first line must be content:\n%s", content)
 	}
 }

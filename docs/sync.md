@@ -106,6 +106,32 @@ repair never implies `--auto-trust`, never invents an approval and never broaden
 never disconnects or reconnects a provider. It only runs when the client is configured against
 that same native service over loopback HTTP; any other endpoint is skipped rather than contacted.
 
+## The generated instructions block
+
+The client steering file carries one managed block per mounted KB: a generated routing sentence (KB
+name, server, archives), the generated "Operational instructions" bullets, the KB's own
+`instructions.md` verbatim, and — client-side — the D75 WP4 local-paths table.
+
+**The subagent sentence describes what THIS client received** (D154). It is emitted per provider at
+`Apply` time, not baked into the artifact, and names only agents whose kind has a destination for
+that provider: `kiro` and `hermes` have no native subagent directory, so they get no sentence rather
+than being told to delegate to subagents they never received. The block's content therefore depends
+on the KB's agent set even though its artifact hash does not, so the rewrite trigger fires on an
+`agent` artifact too — otherwise the sentence would go stale the moment an agent was added.
+
+**A KB may opt out of the generated bullets** by putting `<!-- cartographer: preamble: none -->` on
+the **first line** of its `instructions.md`. The generated wrapper is hardcoded English, so a KB
+written in another language produced a steering file that switched language twice, with the English
+first — the position that sets the model's expected output language. This is deliberately *not* a
+localisation mechanism: the KB owns the prose instead. The one-line routing sentence always stays,
+being generated state rather than prose, so the residual is one English line. The directive is
+recognised on the first line only, so a KB can document it in its own text without triggering it.
+
+**A kind the provider cannot receive is warned about on every run**, computed from the manifest
+rather than from the diff: the per-artifact `unsupported:` line appears only on the run where that
+artifact enters the diff, after which the condition is invisible while the KB keeps declaring
+artifacts that are silently not installed.
+
 ## Security
 
 - **Cryptographic signature gate.** A configured KB signer creates a canonical Ed25519 envelope over domain, format version, source KB, kind, name, version and content hash. The remote client recomputes the content hash and verifies against out-of-band `signing_keys` pins before writing any provider file or lockfile. `signed:true` is verification output only; malformed, invalid, source-mismatched, unknown-key or tampered content fails the whole sync. Bundled artifacts use the separate `built_in:true` origin.

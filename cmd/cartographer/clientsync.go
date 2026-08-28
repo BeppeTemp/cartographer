@@ -286,7 +286,19 @@ func printApplySummary(dir string, results map[string]provisioning.AppliedResult
 	}
 	for _, p := range sortedKeys(results) {
 		r := results[p]
+		// One line per file written, not per artifact: the instructions block is
+		// one physical write shared by every mounted KB, so reporting it once per
+		// KB printed three identical lines for one file, which reads like a loop
+		// (D154). Only the instructions kind is collapsed — elsewhere two
+		// artifacts never share a path, and a blanket dedup would hide a real bug.
+		reportedInstructions := map[string]bool{}
 		for _, w := range r.Written {
+			if w.Kind == "instructions" {
+				if reportedInstructions[w.Path] {
+					continue
+				}
+				reportedInstructions[w.Path] = true
+			}
 			fmt.Printf("[%s] %s %s\n", p, verb("wrote", "would write"), w.Path)
 			// The registration line reports a side effect on a shared file
 			// that a dry run does not perform either.

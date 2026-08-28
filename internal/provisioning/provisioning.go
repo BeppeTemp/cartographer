@@ -21,6 +21,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -691,18 +692,25 @@ func generateKBInstructions(kbName, kbRoot, toolPrefix string) string {
 		fmt.Fprintf(&sb, " Archives: %s.\n\n", strings.Join(names, ", "))
 	}
 
-	sb.WriteString("Operational instructions:\n")
-	fmt.Fprintf(&sb, "- consult it autonomously when you need historical or architectural context: `%s` (keyword) or `%s` to orient yourself, `%s` to read;\n",
-		tool("search"), tool("atlas_overview"), tool("concept_read"))
-	fmt.Fprintf(&sb, "- write or update a page with `%s` when you discover something relevant; close relevant sessions with `%s`;\n",
-		tool("concept_write"), tool("log_append"))
-	sb.WriteString("- every write is a git commit, revertible.\n")
+	curated, skipPreamble := kbCuratedInstructionsWithPreamble(kbRoot)
 
-	if agents := kbAgentNames(kbRoot); len(agents) > 0 {
-		fmt.Fprintf(&sb, "\nSubagents installed by this KB: %s — their descriptions are in the client's agent registry: delegate to them the tasks they cover.\n", strings.Join(agents, ", "))
+	if !skipPreamble {
+		sb.WriteString("Operational instructions:\n")
+		fmt.Fprintf(&sb, "- consult it autonomously when you need historical or architectural context: `%s` (keyword) or `%s` to orient yourself, `%s` to read;\n",
+			tool("search"), tool("atlas_overview"), tool("concept_read"))
+		fmt.Fprintf(&sb, "- write or update a page with `%s` when you discover something relevant; close relevant sessions with `%s`;\n",
+			tool("concept_write"), tool("log_append"))
+		sb.WriteString("- every write is a git commit, revertible.\n")
 	}
 
-	if curated := kbCuratedInstructions(kbRoot); curated != "" {
+	// The subagent sentence is NOT emitted here (D154). This function has no
+	// provider argument and BuildManifest only ever runs server-side, so the
+	// list could only be what the KB *declares* — and a provider whose "agent"
+	// cell is unsupported receives none of them, while being told to delegate to
+	// them. applyInstructionsGroup appends the sentence per provider instead,
+	// the same way the D75 WP4 paths table is appended client-side.
+
+	if curated != "" {
 		sb.WriteString("\n")
 		sb.WriteString(curated)
 		sb.WriteString("\n")
@@ -755,15 +763,54 @@ func kbAgentNames(kbRoot string) []string {
 // free-form markdown) it is discarded and only the body is used. Missing file →
 // empty string (no section).
 func kbCuratedInstructions(kbRoot string) string {
+	body, _ := kbCuratedInstructionsWithPreamble(kbRoot)
+	return body
+}
+
+// preambleNoneRe matches the opt-out directive on the FIRST line of
+// instructions.md. First line only, and an exact spelling, so a KB can document
+// the directive in its own prose without triggering it — the same trap as the
+// placeholder syntax (D163).
+var preambleNoneRe = regexp.MustCompile(`(?i)^<!--\s*cartographer:\s*preamble:\s*none\s*-->\s*$`)
+
+// kbCuratedInstructionsWithPreamble returns the KB's curated instructions and
+// whether it opted out of the generated "Operational instructions" bullets
+// (D154).
+//
+// The generated wrapper is hardcoded English, so a KB written in the team's
+// working language yielded a steering file that switched language twice — 1765
+// bytes of English around 6559 of another language, and the *first* thing the
+// model reads, which is the worst position for an inconsistency because it sets
+// the expected output language. It is also partly redundant with any
+// instructions.md that already explains how to consult the KB.
+//
+// Deliberately NOT a localisation mechanism: a language key would make
+// Cartographer carry translations of its own prose forever. The KB owns the
+// prose instead. The one-line routing sentence (KB name, server, archives) stays
+// generated in every case — it is state, not prose, and no KB can write it for
+// itself — so the residual is one English line rather than none.
+func kbCuratedInstructionsWithPreamble(kbRoot string) (body string, skipPreamble bool) {
 	data, err := os.ReadFile(filepath.Join(kbRoot, "instructions.md"))
 	if err != nil {
-		return ""
+		return "", false
 	}
-	_, body, hasFM := okf.SplitFrontmatter(string(data))
+	_, content, hasFM := okf.SplitFrontmatter(string(data))
 	if !hasFM {
-		body = string(data)
+		content = string(data)
 	}
-	return strings.TrimSpace(body)
+	lines := strings.Split(content, "\n")
+	for i, l := range lines {
+		if strings.TrimSpace(l) == "" {
+			continue
+		}
+		if preambleNoneRe.MatchString(strings.TrimSpace(l)) {
+			skipPreamble = true
+			lines = append(lines[:i], lines[i+1:]...)
+			content = strings.Join(lines, "\n")
+		}
+		break
+	}
+	return strings.TrimSpace(content), skipPreamble
 }
 
 // contentHashFile computes the versioned artifact hash of a single,
@@ -1390,6 +1437,7 @@ func Apply(m Manifest, opts ApplyOptions) (AppliedResult, error) {
 	}
 
 	result.Warnings = append(result.Warnings, tracker.warnings...)
+	result.Warnings = append(result.Warnings, unsupportedKindWarnings(m, opts.Provider)...)
 
 	// Prune: remove stale managed entries from BaseDir. The "instructions" kind
 	// is excluded: removing it with the generic logic (one file per
@@ -1482,16 +1530,24 @@ func applyInstructionsGroup(m Manifest, diff Diff, opts ApplyOptions, tracker *e
 
 	// Trigger: did something in the instructions kind change in this Apply —
 	// or did the managed block disappear from the provider's file (D139)?
+	// The block is rewritten when the instructions artifact itself changed, and
+	// also when the KB's agent set changed: since D154 the block's rendered
+	// content includes a per-provider sentence naming the subagents THIS client
+	// can install, so it depends on the agent artifacts even though their content
+	// is not part of the instructions artifact's hash. Without this the sentence
+	// would go stale the moment an agent was added or removed.
+	triggersRewrite := func(kind string) bool { return kind == "instructions" || kind == "agent" }
+
 	triggered := force
 	for _, a := range diff.Added {
-		if a.Kind == "instructions" {
+		if triggersRewrite(a.Kind) {
 			triggered = true
 			break
 		}
 	}
 	if !triggered {
 		for _, a := range diff.Updated {
-			if a.Kind == "instructions" {
+			if triggersRewrite(a.Kind) {
 				triggered = true
 				break
 			}
@@ -1499,7 +1555,7 @@ func applyInstructionsGroup(m Manifest, diff Diff, opts ApplyOptions, tracker *e
 	}
 	if !triggered {
 		for _, mf := range diff.Removed {
-			if mf.Kind == "instructions" {
+			if triggersRewrite(mf.Kind) {
 				triggered = true
 				break
 			}
@@ -1589,6 +1645,15 @@ func applyInstructionsGroup(m Manifest, diff Diff, opts ApplyOptions, tracker *e
 		}
 	}
 
+	// The subagent sentence, per provider and per KB (D154): it must describe
+	// what THIS client received, not what the KB declares. Kiro and Hermes have
+	// no native subagent directory, so their "agent" cell is unsupportedDest and
+	// they receive none — while the old, server-generated sentence told them to
+	// delegate to subagents that were not there.
+	if sentence := installedSubagentSentence(m, opts); sentence != "" {
+		body += "\n\n" + sentence
+	}
+
 	if !opts.DryRun {
 		if err := writeInstructionsBlock(fullPath, body); err != nil {
 			return fmt.Errorf("provisioning: write instructions block %s: %w", destRel, err)
@@ -1601,6 +1666,85 @@ func applyInstructionsGroup(m Manifest, diff Diff, opts ApplyOptions, tracker *e
 		})
 	}
 	return nil
+}
+
+// unsupportedKindWarnings reports, per KB and per artifact kind, what this
+// provider cannot receive at all (D154). Computed from the manifest rather than
+// from the diff, so it is emitted on **every** run: the per-artifact
+// "unsupported" line only appears on a run where the artifact enters the diff,
+// after which the condition is invisible — while the KB keeps declaring
+// artifacts that are silently not installed.
+func unsupportedKindWarnings(m Manifest, provider configurator.Provider) []string {
+	type key struct{ kb, kind string }
+	counts := map[key]int{}
+	for _, a := range m.Artifacts {
+		if !strings.HasPrefix(a.Source, "kb:") || a.Kind == "instructions" {
+			continue
+		}
+		if destDir(a.Kind, a.Name, provider) != "" {
+			continue
+		}
+		counts[key{strings.TrimPrefix(a.Source, "kb:"), a.Kind}]++
+	}
+	if len(counts) == 0 {
+		return nil
+	}
+	keys := make([]key, 0, len(counts))
+	for k := range counts {
+		keys = append(keys, k)
+	}
+	sort.Slice(keys, func(i, j int) bool {
+		if keys[i].kb != keys[j].kb {
+			return keys[i].kb < keys[j].kb
+		}
+		return keys[i].kind < keys[j].kind
+	})
+	out := make([]string, 0, len(keys))
+	for _, k := range keys {
+		out = append(out, fmt.Sprintf("KB %q declares %d %s artifact(s) that %s cannot receive (no destination for this kind) — they are not installed on this client",
+			k.kb, counts[k], k.kind, provider))
+	}
+	return out
+}
+
+// installedSubagentSentence names the KB agents this provider can actually
+// receive, grouped per KB, or returns "" when none qualifies (D154). Emitted
+// client-side, like the paths table: it is a statement about this client, not
+// about the KB, so it deliberately does not enter the artifact hash.
+//
+// An artifact awaiting approval is excluded: it was not installed, and the whole
+// point is that the sentence describes what happened.
+func installedSubagentSentence(m Manifest, opts ApplyOptions) string {
+	byKB := map[string][]string{}
+	for _, a := range m.Artifacts {
+		if a.Kind != "agent" || !strings.HasPrefix(a.Source, "kb:") {
+			continue
+		}
+		if destDir("agent", a.Name, opts.Provider) == "" {
+			continue
+		}
+		if !artifactAuthorized(a, opts) {
+			continue
+		}
+		kbName := strings.TrimPrefix(a.Source, "kb:")
+		byKB[kbName] = append(byKB[kbName], a.Name)
+	}
+	if len(byKB) == 0 {
+		return ""
+	}
+	kbNames := make([]string, 0, len(byKB))
+	for k := range byKB {
+		kbNames = append(kbNames, k)
+	}
+	sort.Strings(kbNames)
+	var lines []string
+	for _, kbName := range kbNames {
+		names := byKB[kbName]
+		sort.Strings(names)
+		lines = append(lines, fmt.Sprintf("Subagents installed by the %q KB: %s — their descriptions are in the client's agent registry: delegate to them the tasks they cover.",
+			kbName, strings.Join(names, ", ")))
+	}
+	return strings.Join(lines, "\n")
 }
 
 func artifactAuthorized(a Artifact, opts ApplyOptions) bool {
