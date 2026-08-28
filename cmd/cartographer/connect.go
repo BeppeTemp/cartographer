@@ -572,7 +572,7 @@ func doConnect(opts connectOptions) (connectResult, error) {
 	if err != nil {
 		return connectResult{}, err
 	}
-	if w := kiroFlatNamespaceWarning(opts.Providers, entries); w != "" {
+	if w := kiroFlatNamespaceWarning(opts.Providers, entries, effectiveToolPrefixes(facts, healthErr), healthErr); w != "" {
 		configWarnings = append(configWarnings, w)
 	}
 

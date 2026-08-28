@@ -1,6 +1,9 @@
 package config
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestSanitizeToolPrefix(t *testing.T) {
 	cases := map[string]string{
@@ -62,4 +65,65 @@ func TestResolveToolPrefix(t *testing.T) {
 			}
 		})
 	}
+}
+
+// A deployment that had done everything right could still be silently
+// ambiguous: SanitizeToolPrefix is lossy, so distinct valid KB names derive one
+// prefix, and two explicit tool_prefix values were never compared at all (D152).
+func TestValidateToolPrefixUniqueness(t *testing.T) {
+	t.Run("distinct names that sanitise to one prefix collide", func(t *testing.T) {
+		taken := map[string]string{}
+		first, err := ResolveToolPrefix(KBSpec{}, "kb-name", "ai-team")
+		if err != nil {
+			t.Fatal(err)
+		}
+		taken[first] = "ai-team"
+		second, err := ResolveToolPrefix(KBSpec{}, "kb-name", "AI Team")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if first != second {
+			t.Fatalf("expected both to sanitise to the same prefix, got %q and %q", first, second)
+		}
+		err = ValidateToolPrefixUniqueness(taken, "AI Team", second, "AI Team")
+		if err == nil {
+			t.Fatal("expected a collision error")
+		}
+		for _, want := range []string{"ai-team", "AI Team", second} {
+			if !strings.Contains(err.Error(), want) {
+				t.Errorf("error %q does not name %q", err, want)
+			}
+		}
+	})
+
+	t.Run("two identical explicit prefixes collide", func(t *testing.T) {
+		taken := map[string]string{"shared": "alpha"}
+		if err := ValidateToolPrefixUniqueness(taken, "beta", "shared", "shared"); err == nil {
+			t.Error("expected a collision error for two identical explicit prefixes")
+		}
+	})
+
+	t.Run("prefixed and unprefixed do not collide", func(t *testing.T) {
+		taken := map[string]string{"alpha": "alpha"}
+		if err := ValidateToolPrefixUniqueness(taken, "beta", "", ""); err != nil {
+			t.Errorf("unprefixed KB reported a collision: %v", err)
+		}
+	})
+
+	t.Run("two unprefixed KBs do not collide", func(t *testing.T) {
+		taken := map[string]string{}
+		if err := ValidateToolPrefixUniqueness(taken, "alpha", "", ""); err != nil {
+			t.Fatal(err)
+		}
+		if err := ValidateToolPrefixUniqueness(taken, "beta", "", ""); err != nil {
+			t.Errorf("two unprefixed KBs reported a collision: %v", err)
+		}
+	})
+
+	t.Run("distinct prefixes are accepted", func(t *testing.T) {
+		taken := map[string]string{"alpha": "alpha"}
+		if err := ValidateToolPrefixUniqueness(taken, "beta", "beta", "beta"); err != nil {
+			t.Errorf("distinct prefixes reported a collision: %v", err)
+		}
+	})
 }
