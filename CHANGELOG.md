@@ -8,6 +8,36 @@
 
 KB histories with commits authored as `cartographer <cartographer@localhost>` may need a manual author rewrite before a forge with author push rules accepts the first push.
 
+## [0.9.0](https://github.com/BeppeTemp/cartographer/compare/v0.8.3...v0.9.0) (2026-08-28)
+
+
+### ⚠ BREAKING CHANGES
+
+* **mcp:** derive a tool prefix for every mounted KB by default ([#197](https://github.com/BeppeTemp/cartographer/issues/197))
+
+### Features
+
+* **doctor:** backfill managed-file hashes in place with --repair-hashes ([#198](https://github.com/BeppeTemp/cartographer/issues/198)) ([2f98233](https://github.com/BeppeTemp/cartographer/commit/2f98233d2a54c1891c9d6c0bc5f4e2a019f82b6d)), closes [#178](https://github.com/BeppeTemp/cartographer/issues/178)
+* **git:** advisory KB lock, rebase-state refusal and a reindex hint after import ([#201](https://github.com/BeppeTemp/cartographer/issues/201)) ([eff9aea](https://github.com/BeppeTemp/cartographer/commit/eff9aea2dccc253ecb7288df77374ccb9eddb451)), closes [#176](https://github.com/BeppeTemp/cartographer/issues/176)
+* **kb:** complete the concept refactor primitives with merge, collapse and a complete move ([#202](https://github.com/BeppeTemp/cartographer/issues/202)) ([22fe09c](https://github.com/BeppeTemp/cartographer/commit/22fe09c5d8276dff1e6a9ee1c27367a9fdf7ece3)), closes [#181](https://github.com/BeppeTemp/cartographer/issues/181)
+* **lint:** per-concept lint_ignore, home-anchored allow prefixes and related size thresholds ([#200](https://github.com/BeppeTemp/cartographer/issues/200)) ([640f521](https://github.com/BeppeTemp/cartographer/commit/640f5215dc4ae839b086143f9e2df0dfb9ce4930)), closes [#180](https://github.com/BeppeTemp/cartographer/issues/180)
+* **mcp:** derive a tool prefix for every mounted KB by default ([#197](https://github.com/BeppeTemp/cartographer/issues/197)) ([18db936](https://github.com/BeppeTemp/cartographer/commit/18db9361437c752a84681079d85564e146fc1fe9)), closes [#174](https://github.com/BeppeTemp/cartographer/issues/174)
+* **mcp:** report each KB's capabilities and mount provenance ([#195](https://github.com/BeppeTemp/cartographer/issues/195)) ([3a18aa1](https://github.com/BeppeTemp/cartographer/commit/3a18aa105454a7987ef312b290fa1fb409a2312f)), closes [#172](https://github.com/BeppeTemp/cartographer/issues/172)
+* **okf:** multi-line flow lists, literal placeholders, configurable repo depth and --map prefixes ([#203](https://github.com/BeppeTemp/cartographer/issues/203)) ([1342ce5](https://github.com/BeppeTemp/cartographer/commit/1342ce5447ebec55e2a4ce694e412464a199a6e7)), closes [#183](https://github.com/BeppeTemp/cartographer/issues/183)
+
+
+### Bug Fixes
+
+* **client:** share the sync-timer check between doctor and the connect/status hint ([#188](https://github.com/BeppeTemp/cartographer/issues/188)) ([6592bc2](https://github.com/BeppeTemp/cartographer/commit/6592bc208a1dff4d28811de92b87b9922d4f9174)), closes [#184](https://github.com/BeppeTemp/cartographer/issues/184)
+* **kb:** skip code spans when extracting links, support labelled wiki-links and extensionless assets ([#193](https://github.com/BeppeTemp/cartographer/issues/193)) ([e95787f](https://github.com/BeppeTemp/cartographer/commit/e95787f25dd8ab52927d10f3640872cc87a89c6a)), closes [#171](https://github.com/BeppeTemp/cartographer/issues/171)
+* **lint:** resolve relative links against the file, and targets through the concept resolver ([#191](https://github.com/BeppeTemp/cartographer/issues/191)) ([3ede428](https://github.com/BeppeTemp/cartographer/commit/3ede4282a6ef6eded9edf26880a8d238c9637d64)), closes [#170](https://github.com/BeppeTemp/cartographer/issues/170)
+* **mcp:** enforce tool-prefix uniqueness and align the client warning with the server ([#196](https://github.com/BeppeTemp/cartographer/issues/196)) ([8b858f5](https://github.com/BeppeTemp/cartographer/commit/8b858f558499cf6fe844afae40123a638cdd7d4d)), closes [#173](https://github.com/BeppeTemp/cartographer/issues/173)
+* **mcp:** name the resource in artifact and asset commit subjects ([#186](https://github.com/BeppeTemp/cartographer/issues/186)) ([b7c5f99](https://github.com/BeppeTemp/cartographer/commit/b7c5f999bb0312383bdbe28598194fcdf242ee27)), closes [#185](https://github.com/BeppeTemp/cartographer/issues/185)
+* **provisioning:** refuse a symlinked destination instead of writing through it ([#190](https://github.com/BeppeTemp/cartographer/issues/190)) ([2170fe4](https://github.com/BeppeTemp/cartographer/commit/2170fe4d3be8407e0d03b1df74783bc815fc5c51)), closes [#169](https://github.com/BeppeTemp/cartographer/issues/169)
+* **secrets:** match type Service case-insensitively and redact secret_resolve by default ([#192](https://github.com/BeppeTemp/cartographer/issues/192)) ([11d67ec](https://github.com/BeppeTemp/cartographer/commit/11d67ecaedeef38d6d4c556b5f0c4a62686068a3)), closes [#179](https://github.com/BeppeTemp/cartographer/issues/179)
+* **service:** set PATH, keep the job registered on stop, keep the scaffold when kb create cannot push ([#189](https://github.com/BeppeTemp/cartographer/issues/189)) ([d6f274a](https://github.com/BeppeTemp/cartographer/commit/d6f274a2adb8c65881b842dff92bd404b9ee580b)), closes [#177](https://github.com/BeppeTemp/cartographer/issues/177)
+* **sync:** the steering block names the subagents this client actually received ([#199](https://github.com/BeppeTemp/cartographer/issues/199)) ([eadc34e](https://github.com/BeppeTemp/cartographer/commit/eadc34ef2457b85a9644944b6a027ce3ff0772ec)), closes [#175](https://github.com/BeppeTemp/cartographer/issues/175)
+
 ## [0.8.3](https://github.com/BeppeTemp/cartographer/compare/v0.8.2...v0.8.3) (2026-08-28)
 
 
