@@ -264,7 +264,12 @@ func Default() *Config {
 			SyncOutDebounce: 3 * time.Second,
 		},
 		ToolsProfile: "agent",
-		MCP:          MCPConfig{ToolPrefixMode: "off"},
+		// kb-name since D153: with prefixing opt-in and its absence silent, two
+		// unprefixed KBs on a flat-namespace client answered for each other with
+		// no error at call time — silent wrong answers from a plausible source,
+		// as the default configuration's behaviour. "off" is retained as an
+		// explicit, documented opt-out.
+		MCP: MCPConfig{ToolPrefixMode: "kb-name"},
 	}
 }
 

@@ -60,7 +60,11 @@ kbs:
     tool_prefix: "${PREFIX}"
 YAML
 
-E2E_CONFIG="$CONFIG" server_start "${KB_PLAIN_DIR},${KB_PREFIXED_DIR}"
+# Phases 1-3 assert on the mixed prefixed/unprefixed shape, so they pin the
+# pre-D153 mode: with the kb-name default both KBs would be prefixed and there
+# would be no bare name and no collision to observe. The new default has its own
+# phase at the end.
+E2E_TOOL_PREFIX_MODE=off E2E_CONFIG="$CONFIG" server_start "${KB_PLAIN_DIR},${KB_PREFIXED_DIR}"
 server_wait_health 20
 trap 'server_stop' EXIT
 
@@ -159,7 +163,7 @@ kbs:
   - path: ${KB_PREFIXED_DIR}
     name: ${KB_PREFIXED}
 YAML
-E2E_CONFIG="$CONFIG_PLAIN" server_start "${KB_PLAIN_DIR},${KB_PREFIXED_DIR}"
+E2E_TOOL_PREFIX_MODE=off E2E_CONFIG="$CONFIG_PLAIN" server_start "${KB_PLAIN_DIR},${KB_PREFIXED_DIR}"
 server_wait_health 20
 
 assert_file_contains "$SERVER_LOG" "$COLLISION_MARKER"
@@ -171,6 +175,38 @@ assert_mcp_ok "unprefixed mount: ${KB_PLAIN} answers on the bare tool name" \
     "$(mcp_call "$BASE" "$KB_PLAIN" "" "$(call_body atlas_overview)")"
 assert_mcp_ok "unprefixed mount: ${KB_PREFIXED} answers on the bare tool name" \
     "$(mcp_call "$BASE" "$KB_PREFIXED" "" "$(call_body atlas_overview)")"
+
+echo ""
+echo "--- Phase 4: the kb-name default prefixes every KB, and says so (D153) ---"
+
+# Same two KBs, no mcp.tool_prefix_mode anywhere: the default applies.
+server_stop
+E2E_CONFIG="$CONFIG_PLAIN" server_start "${KB_PLAIN_DIR},${KB_PREFIXED_DIR}"
+server_wait_health 20
+
+DERIVED_PLAIN="$(printf '%s' "$KB_PLAIN" | tr 'A-Z' 'a-z' | tr -c 'a-z0-9_' '_' | sed 's/__*/_/g; s/^_//; s/_$//')"
+DERIVED_PREFIXED="$(printf '%s' "$KB_PREFIXED" | tr 'A-Z' 'a-z' | tr -c 'a-z0-9_' '_' | sed 's/__*/_/g; s/^_//; s/_$//')"
+
+# No collision to warn about any more: both KBs are prefixed.
+assert_file_not_contains "$SERVER_LOG" "$COLLISION_MARKER"
+# A derived prefix is announced, because adding a KB renames the others' tools.
+assert_file_contains "$SERVER_LOG" "derived from the KB name"
+
+HEALTH_DEFAULT="${DIR}/health-default.json"
+curl -s "http://127.0.0.1:${E2E_HTTP_PORT}/health" -o "$HEALTH_DEFAULT"
+assert_file_contains "$HEALTH_DEFAULT" '"tool_prefix":"'"${DERIVED_PLAIN}"'"'
+
+assert_mcp_ok "kb-name default: ${KB_PLAIN} answers on its derived prefixed name" \
+    "$(mcp_call "$BASE" "$KB_PLAIN" "" "$(call_body "${DERIVED_PLAIN}__atlas_overview")")"
+assert_mcp_ok "kb-name default: ${KB_PREFIXED} answers on its derived prefixed name" \
+    "$(mcp_call "$BASE" "$KB_PREFIXED" "" "$(call_body "${DERIVED_PREFIXED}__atlas_overview")")"
+
+BARE_UNDER_DEFAULT="$(mcp_call "$BASE" "$KB_PLAIN" "" "$(call_body atlas_overview)")"
+if grep -q "tool not found" <<< "$BARE_UNDER_DEFAULT"; then
+    _assert_pass "kb-name default: the bare tool name no longer resolves"
+else
+    _assert_fail "kb-name default: bare tool name unexpectedly resolved: ${BARE_UNDER_DEFAULT}"
+fi
 
 echo ""
 if [[ "${E2E_FAILURES}" -eq 0 ]]; then

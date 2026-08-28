@@ -190,12 +190,26 @@ server — Claude Code, Codex, OpenCode — are unaffected by the collision. Kir
 flat tool namespace across every configured MCP server: mounting two KBs there means only one of
 them keeps its tools reachable, silently.
 
-The fix is an **opt-in, default-off** per-KB tool-name prefix: `kbs[].tool_prefix` (or the global
+Since D153 a prefix is the **default**, not an opt-in: `mcp.tool_prefix_mode` defaults to
+`kb-name`, so every KB registers its tools as `<prefix>__<tool>` derived from its own name unless
+it sets an explicit `kbs[].tool_prefix`. **With one KB mounted no prefix is derived** — it would be
+pure noise — so a single-KB deployment keeps bare tool names; adding a second KB then renames the
+first one's tools, and that rename is announced at startup rather than happening silently.
+`mcp.tool_prefix_mode: off` is retained as the documented opt-out.
+
+*Upgrading from 0.8.x:* a multi-KB deployment will see tool names change on first start. The
+generated steering block follows automatically (it is rendered with each KB's effective prefix), but
+**hand-written tool citations inside skill bodies are not rewritten** and must be updated — the
+concrete cost measured in the field was 25 citations across two KBs. Set
+`mcp.tool_prefix_mode: off` to defer the rename.
+
+The mechanism is a per-KB tool-name prefix: `kbs[].tool_prefix` (or the global
 `mcp.tool_prefix_mode: kb-name`/`CARTOGRAPHER_MCP_TOOL_PREFIX_MODE=kb-name`, which derives the
 prefix from the KB's own name for every KB that doesn't set its own `tool_prefix`) registers that
 KB's tools as `<prefix>__<tool>` instead of `<tool>`. Precedence: `kbs[].tool_prefix` (explicit) >
-`mcp.tool_prefix_mode`/env (global default) > off. It is off by default so that Claude
-Code/Codex/OpenCode deployments, unaffected by the problem, never see a tool rename.
+`mcp.tool_prefix_mode`/env (global default) > off. Before D153 it was off by default, so that Claude Code/Codex/OpenCode deployments — unaffected by
+the collision — would never see a tool rename; that optimised for not renaming tools at the price of
+making correctness depend on which client happened to connect.
 
 **Uniqueness is enforced at startup** (D152). Two mounted KBs whose **resolved, sanitised**
 prefixes are equal make the server fail fast, naming both KBs and the colliding prefix. The check
