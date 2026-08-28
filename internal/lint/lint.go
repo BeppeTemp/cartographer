@@ -170,6 +170,11 @@ func Run(k *kb.KB, scope string, scopeNeighbors bool) ([]Finding, error) {
 
 	for id, content := range toCheck {
 		relPath := okf.IDToPath(id)
+		// Relative links resolve against the file that contains them, which for
+		// an expanded concept is "<id>/index.md", not "<id>.md" (D149). relPath
+		// stays ID-derived: it is what Finding.Path reports and what callers
+		// sort on. The two coincide for a plain concept.
+		linkBase, _ := k.ConceptRelPath(id)
 		fmRaw, body, hasFM := okf.SplitFrontmatter(content)
 		parts := strings.Split(string(id), "/")
 		var allowPrefixes []string
@@ -178,9 +183,12 @@ func Run(k *kb.KB, scope string, scopeNeighbors bool) ([]Finding, error) {
 		}
 
 		// --- broken_link (warning) ---
-		for _, target := range kb.ExtractLinks(body, relPath) {
+		for _, target := range kb.ExtractLinks(body, linkBase) {
 			targetPath := okf.IDToPath(target)
-			_, readErr := k.ReadRaw(targetPath)
+			// ReadConcept honours the expanded-concept fallback, so a link to
+			// the canonical ID of an expanded concept is not broken — lint and
+			// concept_read now agree on what a valid target is (D149).
+			_, readErr := k.ReadConcept(target)
 			if readErr != nil && errors.Is(readErr, okf.ErrNotFound) {
 				findings = append(findings, Finding{
 					Path:     relPath,
@@ -588,6 +596,14 @@ func checkCuratedIndex(k *kb.KB, folder, indexPath string, candidates []okf.Conc
 	targets := map[okf.ConceptID]bool{}
 	for _, target := range kb.ExtractLinks(body, indexPath) {
 		targets[target] = true
+		// An expanded concept can be linked as "<c>/index.md", which extracts
+		// as "<map>/<c>/index" — resolvable and correct, but not the candidate
+		// ID "<map>/<c>", so the entry counted as missing. Accept both forms
+		// here rather than canonicalising in ExtractLinks, which would silently
+		// rewrite graph edges and break expanded_ambiguous (D149).
+		if parent, ok := strings.CutSuffix(string(target), "/index"); ok && parent != "" {
+			targets[okf.ConceptID(parent)] = true
+		}
 		if validateLinks {
 			if _, readErr := k.ReadConcept(target); errors.Is(readErr, okf.ErrNotFound) {
 				*findings = append(*findings, Finding{

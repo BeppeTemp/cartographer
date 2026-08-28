@@ -647,6 +647,23 @@ func (kb *KB) ReadConcept(id okf.ConceptID) (*ConceptData, error) {
 	}, nil
 }
 
+// ConceptRelPath returns the data-root-relative path of the file that actually
+// holds id, honouring the expanded-concept fallback, plus whether that concept
+// is expanded. A concept whose path cannot be resolved yields the direct form
+// okf.IDToPath(id) and false, so a caller never has to branch on an error.
+//
+// It exists for lint (D149), which must resolve a body's relative links against
+// the file that contains them: for an expanded concept the ID is "map/concept"
+// but the body lives in "map/concept/index.md", and those two bases differ by
+// one level.
+func (kb *KB) ConceptRelPath(id okf.ConceptID) (relPath string, expanded bool) {
+	rel, exp, err := kb.resolveConceptRelPath(id, false)
+	if err != nil {
+		return okf.IDToPath(id), false
+	}
+	return rel, exp
+}
+
 // resolveConceptRelPath resolves id to the relative path (from the data root)
 // of the file that actually holds it, honouring the expanded-concept
 // fallback (D77 WP2): a concept born as "<id>.md" can be expanded (see

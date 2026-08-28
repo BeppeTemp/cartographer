@@ -923,3 +923,119 @@ func TestRun_ScopeNeighbors(t *testing.T) {
 		t.Errorf("expected broken_link for concept-b with scopeNeighbors, got: %v", findings)
 	}
 }
+
+// --- D149: one link base, one concept resolver ---
+
+// The natural form inside an expanded concept's index.md is a bare sibling
+// filename, and it is the form that resolves correctly on disk and in any
+// markdown viewer. lint used to resolve it against the ID's base and report a
+// broken link; the graph resolved it against the file and was right. This test
+// pins the direction of the alignment: making the graph use the ID base instead
+// would make this KB stop rendering, and the satellite would go orphan.
+func TestLint_ExpandedIndexRelativeLinkToSatellite(t *testing.T) {
+	k := tempKB(t)
+	writeFile(t, k.DataRoot(), "m/_map.md", "---\ntype: Map\nkind: map\ntitle: M\n---\n# M\n")
+	writeFile(t, k.DataRoot(), "m/index.md", "---\ntype: Index\ntitle: M\n---\n- [c](c.md)\n")
+	writeFile(t, k.DataRoot(), "m/c/index.md", "---\ntype: Note\ntitle: C\n---\n- [s](s.md)\n")
+	writeFile(t, k.DataRoot(), "m/c/s.md", "---\ntype: Note\ntitle: S\n---\n# S\n")
+
+	findings, err := Run(k, "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range findings {
+		if f.Check == "broken_link" {
+			t.Errorf("unexpected broken_link: %s — %s", f.Path, f.Message)
+		}
+		if f.Check == "orphan" && strings.Contains(f.Path, "m/c/s") {
+			t.Errorf("satellite falsely orphaned: %s — %s", f.Path, f.Message)
+		}
+	}
+}
+
+// The mirror image, kept as an explicit test so the behaviour change cannot be
+// reverted by accident: the previously-accepted form now resolves one level too
+// deep, which is what it always did on disk.
+func TestLint_ExpandedIndexPrefixedLinkIsNowBroken(t *testing.T) {
+	k := tempKB(t)
+	writeFile(t, k.DataRoot(), "m/_map.md", "---\ntype: Map\nkind: map\ntitle: M\n---\n# M\n")
+	writeFile(t, k.DataRoot(), "m/index.md", "---\ntype: Index\ntitle: M\n---\n- [c](c.md)\n")
+	writeFile(t, k.DataRoot(), "m/c/index.md", "---\ntype: Note\ntitle: C\n---\n- [s](c/s.md)\n")
+	writeFile(t, k.DataRoot(), "m/c/s.md", "---\ntype: Note\ntitle: S\n---\n# S\n")
+
+	findings, err := Run(k, "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var found bool
+	for _, f := range findings {
+		if f.Check == "broken_link" && strings.Contains(f.Message, "m/c/c/s.md") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("want a broken_link naming m/c/c/s.md, got %+v", findings)
+	}
+}
+
+// lint's existence check now goes through the same resolver concept_read uses,
+// so a link to the canonical ID of an expanded concept is not broken.
+func TestLint_LinkToExpandedConceptCanonicalIDIsNotBroken(t *testing.T) {
+	k := tempKB(t)
+	writeFile(t, k.DataRoot(), "m/_map.md", "---\ntype: Map\nkind: map\ntitle: M\n---\n# M\n")
+	writeFile(t, k.DataRoot(), "m/index.md", "---\ntype: Index\ntitle: M\n---\n- [a](a.md)\n- [c](c.md)\n")
+	writeFile(t, k.DataRoot(), "m/a.md", "---\ntype: Note\ntitle: A\n---\n- [c](c.md)\n")
+	writeFile(t, k.DataRoot(), "m/c/index.md", "---\ntype: Note\ntitle: C\n---\n# C\n")
+
+	findings, err := Run(k, "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range findings {
+		if f.Check == "broken_link" {
+			t.Errorf("unexpected broken_link: %s — %s", f.Path, f.Message)
+		}
+	}
+}
+
+func TestLint_LinkToMissingConceptStillBroken(t *testing.T) {
+	k := tempKB(t)
+	writeFile(t, k.DataRoot(), "m/_map.md", "---\ntype: Map\nkind: map\ntitle: M\n---\n# M\n")
+	writeFile(t, k.DataRoot(), "m/a.md", "---\ntype: Note\ntitle: A\n---\n- [gone](gone.md)\n")
+
+	findings, err := Run(k, "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var found bool
+	for _, f := range findings {
+		if f.Check == "broken_link" && strings.Contains(f.Message, "m/gone.md") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("want broken_link to m/gone.md, got %+v", findings)
+	}
+}
+
+// In a curated index an expanded concept may be linked either way. The
+// index.md form is the inverse of the inter-concept one, and requiring exactly
+// one of them produced 58 false index_incomplete findings in the field.
+func TestLint_CuratedIndexAcceptsBothExpandedForms(t *testing.T) {
+	for _, link := range []string{"- [c](c.md)\n", "- [c](c/index.md)\n"} {
+		k := tempKB(t)
+		writeFile(t, k.DataRoot(), "m/_map.md", "---\ntype: Map\nkind: map\ntitle: M\nrequire_index_entry: true\n---\n# M\n")
+		writeFile(t, k.DataRoot(), "m/index.md", "---\ntype: Index\ntitle: M\n---\n"+link)
+		writeFile(t, k.DataRoot(), "m/c/index.md", "---\ntype: Note\ntitle: C\n---\n# C\n")
+
+		findings, err := Run(k, "", false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, f := range findings {
+			if f.Check == "index_incomplete" {
+				t.Errorf("link %q: unexpected index_incomplete: %s — %s", strings.TrimSpace(link), f.Path, f.Message)
+			}
+		}
+	}
+}
