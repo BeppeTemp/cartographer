@@ -580,6 +580,10 @@ reports a side effect on a shared file that a dry run does not perform either; `
 with `would sync to revision`; and both the MCP-entry lines and the restart hint are scoped by
 `providersManagingMCP`, so a mixed `connect claude,hermes` names only claude in the hint.
 
+`connect` and `sync` both build those entries from the client config, so the scoping lives in one
+`printMCPEntryLines` they share — the first cut fixed only `connect` and left `sync` announcing the
+entry on a Hermes-only client, which is the duplication that caused the defect reasserting itself.
+
 Rejected: dropping the MCP-entry line whenever `ConfigsWritten` is empty. It reads as equivalent but
 couples an MCP claim to an unrelated emptiness — a provider that writes its entry into a file
 already containing it would lose the line for the wrong reason. The predicate is "does this provider

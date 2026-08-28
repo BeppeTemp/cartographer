@@ -401,13 +401,7 @@ func cmdConnect(args []string) int {
 // factored out so both the non-interactive path and the interactive retry
 // loop in cmdConnect (D64) share exactly one rendering of a successful result.
 func printConnectResult(dir string, providers []string, opts connectOptions, res connectResult) {
-	for _, entry := range res.MCPEntries {
-		if opts.DryRun {
-			fmt.Printf("[dry-run] would write MCP entry %s\n", entry)
-		} else {
-			fmt.Printf("wrote MCP entry %s\n", entry)
-		}
-	}
+	printMCPEntryLines(providers, res.MCPEntries, opts.DryRun)
 	for _, p := range res.ConfigsWritten {
 		if opts.DryRun {
 			fmt.Printf("[dry-run] would write %s\n", p)
@@ -606,6 +600,24 @@ func doConnect(opts connectOptions) (connectResult, error) {
 	}
 
 	return res, nil
+}
+
+// printMCPEntryLines reports the MCP entries emitted for providers, in the
+// conditional under dryRun. Shared by connect and sync because both derive
+// entries from the client config alone: without scoping to the providers that
+// actually have an emitter, either would announce a write into a file it does
+// not name and cannot have touched (D147).
+func printMCPEntryLines(providers, entries []string, dryRun bool) {
+	if len(providersManagingMCP(providers)) == 0 {
+		return
+	}
+	for _, entry := range entries {
+		if dryRun {
+			fmt.Printf("[dry-run] would write MCP entry %s\n", entry)
+		} else {
+			fmt.Printf("wrote MCP entry %s\n", entry)
+		}
+	}
 }
 
 // providersManagingMCP filters providers down to those whose MCP configuration

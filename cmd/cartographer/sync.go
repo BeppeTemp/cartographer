@@ -105,13 +105,7 @@ func runSync(dir string, cfg *clientconfig.Config, opts syncOptions) (syncResult
 		for _, w := range warnings {
 			fmt.Fprintf(os.Stderr, "warning: %s\n", w)
 		}
-		for _, name := range entryNames(entries) {
-			if opts.DryRun {
-				fmt.Printf("[dry-run] would write MCP entry %s\n", name)
-			} else {
-				fmt.Printf("wrote MCP entry %s\n", name)
-			}
-		}
+		printMCPEntryLines(cfg.Agents, entryNames(entries), opts.DryRun)
 		if !opts.DryRun {
 			cfg.KBs = kbs
 			if err := clientconfig.Save(dir, cfg); err != nil {
