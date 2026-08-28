@@ -256,6 +256,7 @@ func runServe(cfg *config.Config) {
 	}
 
 	seenNames := make(map[string]string) // name → first path seen
+	seenPrefixes := map[string]string{}  // resolved tool prefix -> KB name (D152)
 	var kbs []*kb.KB
 	var kbNames []string                                   // index-aligned with kbs
 	var kbToolPrefixes []string                            // index-aligned with kbs (D102, "" = unprefixed)
@@ -313,6 +314,21 @@ func runServe(cfg *config.Config) {
 		toolPrefix, err := config.ResolveToolPrefix(m.Spec, cfg.MCP.ToolPrefixMode, name)
 		if err != nil {
 			log.Fatal(err)
+		}
+		// Fail fast on a duplicate, before anything is appended: two KBs whose
+		// prefixes collide advertise identical tool names, and on a flat-namespace
+		// client one silently answers for the other (D152). Same shape as the KB
+		// name collision above, but fatal: a name clash has a safe fallback
+		// (skip the duplicate), an ambiguous prefix does not.
+		rawPrefix := m.Spec.ToolPrefix
+		if rawPrefix == "" {
+			rawPrefix = name
+		}
+		if err := config.ValidateToolPrefixUniqueness(seenPrefixes, name, toolPrefix, rawPrefix); err != nil {
+			log.Fatal(err)
+		}
+		if toolPrefix != "" {
+			seenPrefixes[toolPrefix] = name
 		}
 		k.ToolPrefix = toolPrefix
 		seenNames[name] = m.Path

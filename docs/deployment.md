@@ -197,6 +197,21 @@ KB's tools as `<prefix>__<tool>` instead of `<tool>`. Precedence: `kbs[].tool_pr
 `mcp.tool_prefix_mode`/env (global default) > off. It is off by default so that Claude
 Code/Codex/OpenCode deployments, unaffected by the problem, never see a tool rename.
 
+**Uniqueness is enforced at startup** (D152). Two mounted KBs whose **resolved, sanitised**
+prefixes are equal make the server fail fast, naming both KBs and the colliding prefix. The check
+is on the sanitised result because sanitisation is what creates collisions: `SanitizeToolPrefix` is
+lossy by design, so `my-kb`, `my_kb` and `My KB` all derive `my_kb`, and two explicit
+`kbs[].tool_prefix` values were previously never compared against each other at all. Unprefixed
+KBs are exempt — an empty prefix is the absence of one, and two unprefixed KBs remain the warning
+case below, not a failure, so a per-server-namespaced deployment keeps working untouched.
+
+The client-side warning printed by `connect`/`sync` uses the same predicate as the server's:
+it fires only when a flat-namespace provider would receive **two or more** KBs that are actually
+unprefixed, reading each KB's effective prefix from `/health` (which advertises it since D120)
+rather than guessing. When those prefixes cannot be read — an unreachable server, or one too old
+to advertise them — it still warns and says why: a missing signal is not evidence that everything
+is fine.
+
 The raw prefix is sanitized before use: lowercased, every run of characters outside `[a-z0-9_]`
 collapsed to a single `_`, leading/trailing `_` stripped. The server fails fast at startup (not at
 first tool call) if, after sanitisation, the result is empty, starts with a digit, or the resulting

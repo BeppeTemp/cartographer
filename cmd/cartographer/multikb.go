@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -17,6 +18,10 @@ import (
 type mcpEntry struct {
 	Name string
 	URL  string
+	// KBName is the KB this entry selects, empty for the single-KB entry that
+	// reaches the server's default endpoint. Carried so a client-side check can
+	// pair an entry with the KB facts /health reports for it (D152).
+	KBName string
 }
 
 // kbTarget is one resolved remote-KB target for a top-level administrative
@@ -154,31 +159,81 @@ func enumerateKBs(serverURL string, auth bool, tokenEnv string) (serverFacts, er
 	return facts, nil
 }
 
-// kiroFlatNamespaceWarning returns a non-empty warning when providers
-// includes kiro and entries has 2 or more entries (a multi-KB connection):
-// Kiro's MCP tool namespace is flat across servers — unlike Claude Code,
-// Codex and OpenCode, which namespace tools per server (verified empirically,
-// see the D102 issue thread) — so without a server-side tool_prefix on the
-// extra KBs, only one of them stays reachable in a Kiro session, silently.
-// enumerateKBs returns names only, so the client cannot tell whether the
-// server mounted those KBs with prefixes; making this warning prefix-aware
-// would mean plumbing GET /health's KBInfo.ToolPrefix through it to avoid one
-// stderr line of false positive. It stays unconditional on the precondition:
-// the server itself warns from what it actually mounted (D144,
-// flatNamespaceMountWarning).
-func kiroFlatNamespaceWarning(providers []string, entries []mcpEntry) string {
+// effectiveToolPrefixes turns the /health facts a caller already fetched into a
+// KB name -> effective prefix map (D120). Returns nil when the server was
+// unreachable or advertises no KB list, so a caller can tell "verified" from
+// "unknown" instead of assuming (D152). Pure: no extra round trip.
+func effectiveToolPrefixes(facts serverFacts, healthErr error) map[string]string {
+	if healthErr != nil || !facts.Listed {
+		return nil
+	}
+	out := make(map[string]string, len(facts.KBs))
+	for _, kb := range facts.KBs {
+		out[kb.Name] = kb.ToolPrefix
+	}
+	return out
+}
+
+// kiroFlatNamespaceWarning returns a non-empty warning when a provider with a
+// flat MCP tool namespace would receive two or more KBs that register their tools
+// **unprefixed**. Kiro's namespace is flat across servers — unlike Claude Code,
+// Codex and OpenCode, which namespace per server (verified empirically, see the
+// D102 issue thread) — so unprefixed KBs collide there and only one stays
+// reachable, silently.
+//
+// It adopts the server-side predicate (>= 2 unprefixed) and reads the effective
+// prefixes from GET /health, which advertises them per KB since D120. The old
+// comment here recorded that the client "cannot tell whether the server mounted
+// those KBs with prefixes" and that plumbing them through would cost "one stderr
+// line of false positive": the reasoning was sound but the premise no longer
+// holds, and the unconditional version fired on every sync of a deployment where
+// nothing was wrong — sending a maintenance session after a non-problem, on the
+// warning an operator actually reads (D152).
+//
+// prefixes maps KB name -> effective prefix. When it is nil — an unreachable
+// server, or one too old to advertise them — the warning stays unconditional and
+// says the prefixes could not be verified: a missing signal is not evidence that
+// everything is fine.
+func kiroFlatNamespaceWarning(providers []string, entries []mcpEntry, prefixes map[string]string, prefixErr error) string {
 	if len(entries) < 2 {
 		return ""
 	}
+	var flat *configurator.Descriptor
 	for _, p := range providers {
 		if d, ok := configurator.Lookup(configurator.Provider(p)); ok && d.FlatToolNamespace {
-			return fmt.Sprintf("%s has a flat MCP tool namespace across servers: writing %d MCP entries "+
-				"means only one KB's tools will be reachable in a %s session unless the server mounts the "+
-				"others with a tool_prefix (see docs/deployment.md §MCP tool-name prefix)",
-				d.Provider, len(entries), d.DisplayName)
+			flat = &d
+			break
 		}
 	}
-	return ""
+	if flat == nil {
+		return ""
+	}
+	remedies := "set kbs[].tool_prefix on them or mcp.tool_prefix_mode: kb-name (see docs/deployment.md §MCP tool-name prefix)"
+
+	if prefixes == nil {
+		reason := "the server did not advertise them"
+		if prefixErr != nil {
+			reason = prefixErr.Error()
+		}
+		return fmt.Sprintf("%s has a flat MCP tool namespace across servers: writing %d MCP entries "+
+			"means only one KB's tools will be reachable in a %s session unless the server mounts the "+
+			"others with a tool_prefix — could not read the server's effective prefixes (%s), so "+
+			"%s", flat.Provider, len(entries), flat.DisplayName, reason, remedies)
+	}
+
+	var unprefixed []string
+	for _, e := range entries {
+		if prefixes[e.KBName] == "" {
+			unprefixed = append(unprefixed, e.KBName)
+		}
+	}
+	if len(unprefixed) < 2 {
+		return ""
+	}
+	sort.Strings(unprefixed)
+	return fmt.Sprintf("%s has a flat MCP tool namespace across servers and KBs %s register identical tool "+
+		"names: only one of them stays reachable in a %s session, answering from the wrong KB — %s",
+		flat.Provider, strings.Join(quoteAll(unprefixed), ", "), flat.DisplayName, remedies)
 }
 
 // flatNamespaceMountWarning returns a non-empty warning when this server
@@ -235,7 +290,7 @@ func entriesForKBs(baseName, serverURL string, kbs []string) ([]mcpEntry, error)
 		q := entryURL.Query()
 		q.Set("kb", kb)
 		entryURL.RawQuery = q.Encode()
-		entries = append(entries, mcpEntry{Name: baseName + "-" + kb, URL: entryURL.String()})
+		entries = append(entries, mcpEntry{Name: baseName + "-" + kb, URL: entryURL.String(), KBName: kb})
 	}
 	return entries, nil
 }
