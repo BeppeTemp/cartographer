@@ -679,6 +679,7 @@ discovered at all.
 descriptions grow by a clause or two, which is the cost of an agent not having to fail to learn
 a limit. No behaviour changes.
 
+<a id="d151"></a>
 ## D151 — A KB's capabilities and mount provenance are visible from a session
 
 **Status: implemented (2026-08-28).** Closes #172.

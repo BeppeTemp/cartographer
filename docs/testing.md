@@ -47,6 +47,11 @@ disconnect confirmation states.
 `make smoke` builds the binary, starts a temporary stdio server and verifies
 the MCP initialize handshake.
 
+It holds stdin open past the request rather than piping a bare `echo`: over
+stdio the client owns the pipe's lifetime and the server tears the session down
+on EOF, so closing it immediately races the response out of existence
+([D168](decisions/transport-auth.md#d168)).
+
 This is a fast local check and is not currently a separate CI step; the Go
 server tests cover the same protocol path more precisely.
 

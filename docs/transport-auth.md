@@ -4,11 +4,20 @@
 
 | Transport | Interface | Authorization |
 |---|---|---|
-| stdio | Newline-delimited JSON-RPC 2.0 | Process/user boundary; no bearer token |
+| stdio | Newline-delimited JSON-RPC 2.0, one session per process | Process/user boundary; no bearer token |
 | HTTP | `POST /mcp`, `/mcp?kb=<name>` or `/mcp/<name>` | Optional static bearer token |
 
 HTTP requests return complete JSON-RPC responses. Cartographer does not expose
-the legacy two-endpoint SSE transport or an HTTP streaming session.
+the legacy two-endpoint SSE transport or an HTTP streaming session, and issues
+no session id: over HTTP every POST stands alone.
+
+Over stdio the connection *is* the session. The client owns the pipe's
+lifetime and the server tears the session down when stdin closes, so a request
+written to a pipe that closes immediately — `echo '…' | cartographer serve` —
+races its own response. A script driving the stdio server must hold stdin open
+until it has read the reply. Requests on one stdio session are served
+concurrently; a client that needs ordering waits for each response, as the
+JSON-RPC id is there to allow.
 
 The HTTP listener sets its own connection timeouts: a 15s header deadline, a
 60s request-read deadline and a 120s keep-alive idle deadline. There is
@@ -28,9 +37,13 @@ validation; configured tokens are opaque static bearer values.
 
 ### Protocol versions: two eras at once
 
-The server answers two generations of the protocol simultaneously (D128), and
-decides which one a request belongs to from the request itself — nothing is
-negotiated and nothing is remembered:
+The wire format is implemented by the official
+[MCP Go SDK](https://github.com/modelcontextprotocol/go-sdk)
+([D168](decisions/transport-auth.md#d168)), not by Cartographer. The server
+answers every revision the SDK serves — `2024-11-05` through `2026-07-28` —
+and decides which one a request belongs to from the request itself; nothing is
+negotiated up front and, over HTTP, nothing is remembered between requests.
+The two that matter here:
 
 | Era | Identified by | Shape |
 |---|---|---|
@@ -42,15 +55,23 @@ Clients on earlier revisions send `MCP-Protocol-Version` too — the header
 predates this revision — and they must keep landing in the handshake era, since
 they send none of the mirrored headers that era requires.
 
-A handshake-era client sees byte-identical responses to the ones it saw before
-`2026-07-28` was served at all. `server/discover` answers in both eras and
-reports the supported versions, the capabilities and the server identity; it is
-the method to probe with, and the one the CLI client's reachability check uses.
-`initialize` and `ping` remain available for the handshake era and will only be
-retired once clients have actually moved off them.
+`initialize` and `ping` remain available to the handshake era, and stay
+available as long as the SDK serves that revision — retiring it is no longer
+Cartographer's decision to implement.
 
-A `2026-07-28` request naming a version the server does not serve is refused
-with `-32022`, whose `data.supported` lists the versions it does.
+`server/discover` reports the supported versions, the capabilities and the
+server identity, and is the method the CLI client's reachability check uses.
+It exists **only in `2026-07-28`**: a handshake-era request naming it gets
+`-32601`. That is the one place where the older era is visibly poorer, and the
+reason the CLI client sends the newer era's metadata on every request.
+
+A request naming a version the server does not serve is refused with `-32022`,
+whose data lists the versions it does.
+
+Every POST must send `Accept: application/json, text/event-stream` — both
+media types, as the Streamable HTTP transport requires. A request missing
+either is refused with 400 before it reaches a handler, even though this
+server never returns an event stream.
 
 ### What a `2026-07-28` request must carry over HTTP
 
@@ -293,10 +314,14 @@ Three properties bound what the roster is good for:
   `clientInfo` — `_meta.io.modelcontextprotocol/clientInfo` in the
   `2026-07-28` era, `initialize`'s `params.clientInfo` in the handshake era.
   It is an operational aid and must never become an authorization input.
+- **Identity belongs to a session, not to a request.** A session agrees it once
+  and every later request inherits it; a client that names itself differently
+  mid-session does not get a second row. Two clients are two sessions.
 - **It is process-local and lost on restart.** Nothing is written to disk; the
-  audit log remains the durable record. A handshake-era request that is not
-  `initialize` carries no identity at all and is counted under the client name
-  `unknown`, so legacy traffic stays visible instead of disappearing.
+  audit log remains the durable record. A client that sends no `clientInfo` is
+  counted under the name `unknown`, so anonymous traffic stays visible instead
+  of disappearing. Notifications are not counted: the roster counts what
+  clients ask of this server.
 - **It is bounded.** At most 64 distinct keys are tracked and each identity
   field is truncated to 64 bytes; further distinct keys increment `overflow`
   rather than growing the map. Recording happens only after authorization
