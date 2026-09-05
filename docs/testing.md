@@ -58,6 +58,13 @@ It starts
 the real binary with two temporary KBs, calls MCP through HTTP and exercises
 Map creation, concept writes/expansion and Atlas overview.
 
+Tool names are qualified with the prefix `/health` reports for each KB, rather
+than assumed bare: since [D153](decisions/transport-auth.md#d153) a KB-name
+prefix is the default, so a bare name resolves to nothing. Each call asserts on
+`isError` — an unresolvable tool comes back as a JSON-RPC *result* whose text
+says "tool not found", which the script would otherwise print and count as a
+pass.
+
 It runs in CI.
 
 ### Deterministic end-to-end

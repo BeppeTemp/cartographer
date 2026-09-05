@@ -10,6 +10,13 @@
 HTTP requests return complete JSON-RPC responses. Cartographer does not expose
 the legacy two-endpoint SSE transport or an HTTP streaming session.
 
+The HTTP listener sets its own connection timeouts: a 15s header deadline, a
+60s request-read deadline and a 120s keep-alive idle deadline. There is
+deliberately **no** write deadline — it would also cap a legitimately slow tool
+call, such as a full reindex or a git sync, and those are bounded per operation
+instead. Read them as protection against connections that never complete, not
+as a request budget.
+
 `GET /health` reports service readiness. `GET /.well-known/oauth-protected-resource`
 publishes RFC 9728 Protected Resource Metadata, unauthenticated, so clients can
 discover the protected resource; `resource` and `authorization_servers` both
