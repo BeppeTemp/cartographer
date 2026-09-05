@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/audit"
 	"github.com/BeppeTemp/cartographer/internal/auth"
@@ -278,10 +279,20 @@ func (s *Server) handleClients(w http.ResponseWriter, r *http.Request) {
 }
 
 // ListenAndServe starts the HTTP server on the given address (e.g. ":39273").
+// Not the production path — serveHTTP always mounts through MultiKBServer,
+// even for a single KB — but retained for direct single-KB embedding, so it
+// carries the same timeouts serveHTTP sets rather than http.Server's
+// timeout-free zero value.
 func (s *Server) ListenAndServe(addr string) error {
-	handler := s.HTTPHandler()
+	srv := &http.Server{
+		Addr:              addr,
+		Handler:           s.HTTPHandler(),
+		ReadHeaderTimeout: 15 * time.Second,
+		ReadTimeout:       60 * time.Second,
+		IdleTimeout:       120 * time.Second,
+	}
 	log.Printf("MCP HTTP server listening on %s", addr)
-	return http.ListenAndServe(addr, handler)
+	return srv.ListenAndServe()
 }
 
 // KBInfo holds metadata about a mounted KB for kb_list responses.

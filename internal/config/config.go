@@ -80,7 +80,8 @@ type RuleSpec struct {
 // TokenStrings returns the bare token values, discarding scopes. Kept for
 // callers that only need the flat token list (e.g. tests, or an
 // auth.NewTokenStore full-access setup); `serve` itself now uses the scopes
-// via auth.NewScopedTokenStore (see cmd/cartographer/serve.go scopedTokens).
+// via auth.NewScopedTokenStore (see cmd/cartographer/serve.go
+// scopedTokensWithRoles).
 func (a AuthConfig) TokenStrings() []string {
 	if len(a.Tokens) == 0 {
 		return nil
@@ -524,11 +525,9 @@ func ApplyFlags(cfg *Config, o FlagOverrides) {
 	}
 }
 
-// NormalizeGitProfile canonicalizes the profile spelling. It intentionally
+// normalizeGitProfile canonicalizes the profile spelling. It intentionally
 // leaves invalid values visible so server startup can fail fast rather than
 // silently turn a requested review boundary into direct pushes.
-func NormalizeGitProfile(v string) string { return normalizeGitProfile(v) }
-
 func normalizeGitProfile(v string) string {
 	return strings.ToLower(strings.TrimSpace(v))
 }

@@ -40,7 +40,11 @@ func toolPRFinalize(k *kb.KB) Tool {
 			if err := json.Unmarshal(args, &p); err != nil {
 				return errorResult("invalid params: " + err.Error()), nil
 			}
-			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+			// Derived from the request context, not context.Background(): the
+			// handler's ctx carries the caller's principal and cancellation, and
+			// discarding it left the forge calls below running against a detached
+			// context after the client had already gone away.
+			ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 			defer cancel()
 			if err := k.FinalizeServerPR(ctx, p.HeadSHA); err != nil {
 				return errorResult(fmt.Sprintf("pr_finalize: %v", err)), nil

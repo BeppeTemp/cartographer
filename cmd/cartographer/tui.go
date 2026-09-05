@@ -33,7 +33,6 @@ var (
 	styleSubtitle     = lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
 	styleBorder       = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("62")).Padding(0, 1)
 	styleSelected     = lipgloss.NewStyle().Foreground(lipgloss.Color("212")).Bold(true)
-	styleInstalled    = lipgloss.NewStyle().Foreground(lipgloss.Color("2"))
 	styleNotInstalled = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
 	styleConnected    = lipgloss.NewStyle().Foreground(lipgloss.Color("2"))
 	styleNotConnected = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))

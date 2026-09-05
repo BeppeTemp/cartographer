@@ -664,17 +664,18 @@ func countMarkdownFiles(dir string) int {
 // imprinting artifact for the KB kbName rooted at kbRoot (D56): tells the LLM
 // agent that this KB exists, lists the names of its top-level archives
 // (§kbArchives) and gives three lines of operational instructions
-// (search/atlas_overview/concept_read/concept_write/log_append). Extended in D61 with
-// two optional sections, in this order, each omitted if it has no content:
-//   - the names of the KB's agents (agents/<name>.md, §kbAgentNames) — names
-//     only: the full descriptions already reach the agent via the client's
-//     agent registry (the agent is installed natively), duplicating them here
-//     would cost the same context twice (D65);
-//   - the optional curated file <kbRoot>/instructions.md (§kbCuratedInstructions)
-//     — orchestration directives hand-written by the operator.
+// (search/atlas_overview/concept_read/concept_write/log_append), then appends
+// the optional curated file <kbRoot>/instructions.md
+// (§kbCuratedInstructionsWithPreamble) — orchestration directives hand-written
+// by the operator, omitted when absent (D61). That file may also suppress the
+// generated bullets entirely (D154).
+//
+// Agent names are NOT listed here: D61 emitted them, D154 moved the subagent
+// sentence to applyInstructionsGroup so it can be written per provider (see the
+// note in the body).
 //
 // The block is stable imprinting, not state: no page counts (D65) or
-// timestamps, agents and archives sorted by name — so the ContentHash (computed
+// timestamps, archives sorted by name — so the ContentHash (computed
 // on the result of this function, see BuildManifest) changes only when the
 // set of archives/agents or instructions.md changes, not on every page
 // added.
@@ -734,51 +735,24 @@ func qualifyToolName(prefix, base string) string {
 	return prefix + "__" + base
 }
 
-// kbAgentNames lists the names of the KB's agents rooted at kbRoot
-// (agents/<name>.md), sorted by name for determinism. No agents/ folder
-// (or empty) → nil, no error (same best-effort spirit as
-// kbArchives). Names only: the descriptions stay in the agent file, which
-// provisioning translates and installs natively for each provider (D65).
-func kbAgentNames(kbRoot string) []string {
-	entries, err := os.ReadDir(filepath.Join(kbRoot, "agents"))
-	if err != nil {
-		return nil
-	}
-
-	var agents []string
-	for _, e := range entries {
-		if e.IsDir() || !strings.HasSuffix(e.Name(), ".md") {
-			continue
-		}
-		agents = append(agents, strings.TrimSuffix(e.Name(), ".md"))
-	}
-	sort.Strings(agents)
-	return agents
-}
-
-// kbCuratedInstructions reads the optional curated file <kbRoot>/instructions.md
-// (D61): free-form markdown orchestration directives hand-written by the
-// operator, included in the block AFTER the auto-generated part. Lives in the
-// ROOT of the KB, alongside data/, skills/, agents/ — never inside data/, so it
-// isn't scanned by kb.Walk/the indexes (it doesn't become a concept) and isn't
-// materialized as a file of its own: only its content flows into the generated
-// text. If it has frontmatter (tolerated but not required for a file meant as
-// free-form markdown) it is discarded and only the body is used. Missing file →
-// empty string (no section).
-func kbCuratedInstructions(kbRoot string) string {
-	body, _ := kbCuratedInstructionsWithPreamble(kbRoot)
-	return body
-}
-
 // preambleNoneRe matches the opt-out directive on the FIRST line of
 // instructions.md. First line only, and an exact spelling, so a KB can document
 // the directive in its own prose without triggering it — the same trap as the
 // placeholder syntax (D163).
 var preambleNoneRe = regexp.MustCompile(`(?i)^<!--\s*cartographer:\s*preamble:\s*none\s*-->\s*$`)
 
-// kbCuratedInstructionsWithPreamble returns the KB's curated instructions and
-// whether it opted out of the generated "Operational instructions" bullets
-// (D154).
+// kbCuratedInstructionsWithPreamble reads the optional curated file
+// <kbRoot>/instructions.md (D61) and reports whether it opted out of the
+// generated "Operational instructions" bullets (D154).
+//
+// The file holds free-form markdown orchestration directives hand-written by
+// the operator, included in the block AFTER the auto-generated part. It lives
+// in the ROOT of the KB, alongside data/, skills/, agents/ — never inside
+// data/, so it isn't scanned by kb.Walk/the indexes (it doesn't become a
+// concept) and isn't materialized as a file of its own: only its content flows
+// into the generated text. If it has frontmatter (tolerated but not required
+// for a file meant as free-form markdown) it is discarded and only the body is
+// used. Missing file → empty string (no section).
 //
 // The generated wrapper is hardcoded English, so a KB written in the team's
 // working language yielded a steering file that switched language twice — 1765

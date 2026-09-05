@@ -23,14 +23,6 @@ type SecretFile struct {
 
 func Available() bool { _, err := exec.LookPath("sops"); return err == nil }
 
-func Version() (string, error) {
-	out, err := exec.Command("sops", "--version").CombinedOutput()
-	if err != nil {
-		return "", fmt.Errorf("sops --version: %w", err)
-	}
-	return strings.TrimSpace(string(out)), nil
-}
-
 // Decrypt decrypts relativePath from kbRoot. SOPS always runs from kbRoot so
 // repository-relative creation rules have deterministic semantics.
 func Decrypt(kbRoot, relativePath string, env ...string) (*SecretFile, error) {

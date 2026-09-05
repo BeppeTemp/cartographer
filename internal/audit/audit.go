@@ -1042,9 +1042,6 @@ func (l *Log) State() State {
 // Required reports whether the log is configured in fail-closed mode.
 func (l *Log) Required() bool { l.mu.Lock(); defer l.mu.Unlock(); return l.opts.Mode == "required" }
 
-// Path returns the active segment's file path.
-func (l *Log) Path() string { return l.path }
-
 // Close is the graceful-shutdown flush point. Every append is already
 // synchronously durable (fsync'd before returning), so there is never a
 // pending write to flush; Close only guards the invariant that the bounded

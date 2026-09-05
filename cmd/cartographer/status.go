@@ -168,28 +168,3 @@ func statusArtifactTrust(a statusArtifact) string {
 	}
 	return "needs_approval"
 }
-
-// printVersionStatus reports the binary versions before the artifact status.
-// A failed health request is intentionally non-fatal here: the following
-// sync_pull still performs the existing artifact check and preserves its exit
-// code/error behaviour. Version skew is advisory, never provisioning drift.
-func printVersionStatus(cfg *clientconfig.Config) {
-	health, err := statusHealthFn(cfg)
-	if err != nil {
-		fmt.Printf("client %s — server unreachable (%s)\n", version, cfg.ServerURL)
-		return
-	}
-
-	fmt.Printf("client %s — server %s (%s)\n", version, health.Version, cfg.ServerURL)
-	if version == "" || health.Version == "" || version == "dev" || health.Version == "dev" || version == health.Version {
-		return
-	}
-
-	fmt.Printf("version skew: client %s ≠ server %s\n", version, health.Version)
-	if !isLoopbackURL(cfg.ServerURL) {
-		return
-	}
-	if st, err := statusServiceFn(); err == nil && st.Installed {
-		fmt.Println("local service may still run the old binary — run: cartographer upgrade-repair")
-	}
-}

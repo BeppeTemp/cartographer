@@ -497,7 +497,21 @@ func serveHTTP(addr string, kbs []*kb.KB, names []string, toolPrefixes []string,
 	if len(allowedOrigins) > 0 {
 		log.Printf("MCP origin allow-list: %s", strings.Join(allowedOrigins, ", "))
 	}
-	httpSrv := &http.Server{Addr: addr, Handler: handler}
+	// Timeouts are set explicitly: http.Server's zero value has none, so a
+	// client that opens a connection and never finishes its request headers
+	// holds a goroutine and a file descriptor indefinitely (the classic
+	// Slowloris exhaustion). ReadHeaderTimeout bounds that handshake;
+	// ReadTimeout and IdleTimeout bound the slow-body and keep-alive variants.
+	// There is deliberately no WriteTimeout: it would also cap the duration of
+	// a legitimately slow tool call (a large reindex, a git sync), and those
+	// are already bounded per-operation.
+	httpSrv := &http.Server{
+		Addr:              addr,
+		Handler:           handler,
+		ReadHeaderTimeout: 15 * time.Second,
+		ReadTimeout:       60 * time.Second,
+		IdleTimeout:       120 * time.Second,
+	}
 
 	// Graceful shutdown (D76/WP4): on SIGINT/SIGTERM, stop accepting new
 	// connections, let in-flight requests finish, then flush any pending
@@ -532,15 +546,6 @@ func serveHTTP(addr string, kbs []*kb.KB, names []string, toolPrefixes []string,
 			log.Printf("flush pending push for KB %s: %v", k.Root, err)
 		}
 	}
-}
-
-// scopedTokens converts []config.TokenSpec into []auth.ScopedToken, parsing
-// each TokenSpec's Scopes (each entry already an atomic "kb:<name>:r|rw"
-// string, or possibly a combined space/";"-separated group) via
-// auth.ParseScopes. An empty Scopes list yields nil KBScopes, i.e. full
-// (admin) access — the same semantics as before scoped tokens existed.
-func scopedTokens(specs []config.TokenSpec) []auth.ScopedToken {
-	return scopedTokensWithRoles(specs, nil)
 }
 
 // scopedTokensWithRoles additionally compiles the named roles of D118 into an

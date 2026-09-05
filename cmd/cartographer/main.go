@@ -142,11 +142,6 @@ func cmdVersion() int {
 	return 0
 }
 
-func cmdNotImplemented(name string) int {
-	fmt.Fprintf(os.Stderr, "%s: not yet implemented\n", name)
-	return 1
-}
-
 func printUsage(w io.Writer) {
 	fmt.Fprintln(w, "cartographer — MCP server for the Agentic Wiki")
 	fmt.Fprintln(w, "")
