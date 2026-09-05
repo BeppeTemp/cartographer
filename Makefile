@@ -27,7 +27,10 @@ smoke-http: build ## HTTP flow smoke test: creates KB, archives, dossiers via MC
 	@./test/smoke/http.sh
 
 smoke: build ## Build + quick stdio test
-	@echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{}}}' | \
+	@# stdin is held open past the request: in MCP stdio the client owns the
+	@# pipe's lifetime, and the server tears the session down on EOF. Closing
+	@# it immediately (a bare `echo |`) races the response out of existence.
+	@{ echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"smoke","version":"0"}}}'; sleep 1; } | \
 		./bin/cartographer serve --kb ./demo-kb --init 2>/dev/null | \
 		grep -q '"protocolVersion"' && echo "smoke: OK" || (echo "smoke: FAIL" && exit 1)
 

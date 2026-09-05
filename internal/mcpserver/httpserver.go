@@ -1,10 +1,8 @@
 package mcpserver
 
 import (
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"sort"
 	"strings"
@@ -27,169 +25,12 @@ func (s *Server) HTTPHandler() http.Handler {
 	return mux
 }
 
+// handleMCP serves one KB's MCP endpoint through the official SDK (D168).
+// POST remains the whole transport: the SDK's stateless mode answers GET and
+// DELETE with 405, which is what 2026-07-28 requires now that neither the
+// event stream nor sessions exist.
 func (s *Server) handleMCP(w http.ResponseWriter, r *http.Request) {
-	switch r.Method {
-	case http.MethodPost:
-		s.handleMCPPost(w, r)
-	default:
-		// POST is the whole transport (D128). GET used to answer 501 as a
-		// placeholder for the SSE stream, and DELETE would have ended a
-		// session; 2026-07-28 removed both the stream and sessions, and
-		// requires 405 for either.
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-	}
-}
-
-func (s *Server) handleMCPPost(w http.ResponseWriter, r *http.Request) {
-	ct := r.Header.Get("Content-Type")
-	if ct != "" && ct != "application/json" {
-		http.Error(w, "content-type must be application/json", http.StatusUnsupportedMediaType)
-		return
-	}
-
-	body, err := io.ReadAll(io.LimitReader(r.Body, 2*1024*1024))
-	if err != nil {
-		http.Error(w, "read error", http.StatusBadRequest)
-		return
-	}
-
-	var req Request
-	if err := json.Unmarshal(body, &req); err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		resp := errorResponse(nil, ErrCodeParseError, "parse error: "+err.Error())
-		json.NewEncoder(w).Encode(resp)
-		return
-	}
-
-	if req.JSONRPC != "2.0" {
-		if req.isNotification() {
-			w.WriteHeader(http.StatusAccepted)
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		resp := errorResponse(req.ID, ErrCodeInvalidRequest, "jsonrpc must be '2.0'")
-		json.NewEncoder(w).Encode(resp)
-		return
-	}
-
-	if req.isNotification() {
-		s.handleNotification(r.Context(), &req)
-		w.WriteHeader(http.StatusAccepted)
-		return
-	}
-
-	// Mcp-Session-Id and Last-Event-ID may arrive from a client that still
-	// believes in sessions and resumable streams. Both are ignored, on purpose
-	// and by doing nothing: this server has never had per-connection state and
-	// 2026-07-28 removed the concept, so there is nothing to look up and
-	// nothing to echo back.
-
-	if err := req.resolveEra(r.Header.Get("MCP-Protocol-Version")); err != nil {
-		writeRPC(w, http.StatusBadRequest, errorResponse(req.ID, ErrCodeInvalidParams, err.Error()))
-		return
-	}
-	if req.era == era20260728 {
-		if failure := validateMirrorHeaders(r, &req); failure != "" {
-			writeRPC(w, http.StatusBadRequest, errorResponse(req.ID, ErrCodeHeaderMismatch, failure))
-			return
-		}
-	}
-
-	resp := s.dispatch(r.Context(), &req)
-	writeRPC(w, statusForResponse(req.era, resp), resp)
-}
-
-// writeRPC writes a JSON-RPC response with the given HTTP status.
-func writeRPC(w http.ResponseWriter, status int, resp Response) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(resp)
-}
-
-// statusForResponse maps a JSON-RPC error onto the HTTP status the 2026-07-28
-// revision requires for it. A handshake-era response is always HTTP 200,
-// errors included: that is what the era's clients expect, and
-// internal/client/client.go treats any other status as an opaque transport
-// failure.
-func statusForResponse(era protocolEra, resp Response) int {
-	if era != era20260728 || resp.Error == nil {
-		return http.StatusOK
-	}
-	switch resp.Error.Code {
-	case ErrCodeMethodNotFound:
-		return http.StatusNotFound
-	case ErrCodeUnsupportedProtocolVersion, ErrCodeHeaderMismatch:
-		return http.StatusBadRequest
-	}
-	return http.StatusOK
-}
-
-// validateMirrorHeaders checks the headers 2026-07-28 requires on every POST
-// against the body they mirror, and returns a description of the first
-// disagreement, or "" when they all agree.
-//
-// The point of the check is that the headers exist for intermediaries that
-// route or rate-limit without parsing a JSON-RPC body — which means a client
-// could describe itself one way to the proxy and another way to the server.
-// The body remains the only thing this server acts on for authorization,
-// which happens later in dispatch (the authorizer installed by
-// installPolicy, internal/mcpserver/policy.go); the headers are validated
-// against it here and then discarded.
-//
-// Header names are matched case-insensitively (net/http canonicalises them);
-// values are compared exactly.
-func validateMirrorHeaders(r *http.Request, req *Request) string {
-	version := r.Header.Get("MCP-Protocol-Version")
-	switch {
-	case version == "":
-		return "missing required header MCP-Protocol-Version"
-	case req.protocolVersion != "" && version != req.protocolVersion:
-		return "MCP-Protocol-Version does not match _meta." + metaKeyProtocolVersion
-	}
-
-	method := r.Header.Get("Mcp-Method")
-	switch {
-	case method == "":
-		return "missing required header Mcp-Method"
-	case method != req.Method:
-		return "Mcp-Method does not match the request method"
-	}
-
-	if req.Method != "tools/call" {
-		return ""
-	}
-	var params struct {
-		Name string `json:"name"`
-	}
-	_ = json.Unmarshal(req.Params, &params)
-	name := r.Header.Get("Mcp-Name")
-	switch {
-	case name == "":
-		return "missing required header Mcp-Name"
-	case decodeMcpName(name) != params.Name:
-		return "Mcp-Name does not match params.name"
-	}
-	return ""
-}
-
-// decodeMcpName unwraps the "=?base64?<payload>?=" form a client uses when the
-// name does not fit in a header field (a non-ASCII tool name, say). Anything
-// else, and anything that fails to decode, is returned unchanged — a mangled
-// value then fails the comparison it was decoded for, which is the right
-// outcome anyway.
-func decodeMcpName(v string) string {
-	const prefix, suffix = "=?base64?", "?="
-	if !strings.HasPrefix(v, prefix) || !strings.HasSuffix(v, suffix) {
-		return v
-	}
-	payload := v[len(prefix) : len(v)-len(suffix)]
-	decoded, err := base64.StdEncoding.DecodeString(payload)
-	if err != nil {
-		return v
-	}
-	return string(decoded)
+	s.sdkHTTPHandler().ServeHTTP(w, r)
 }
 
 // auditState returns this Server's attached audit sink health (D119), or nil

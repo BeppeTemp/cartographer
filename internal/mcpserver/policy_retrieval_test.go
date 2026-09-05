@@ -72,8 +72,7 @@ func TestPolicyRetrievalFiltersMixedVisibility(t *testing.T) {
 func TestPolicyExactMissingAndForbiddenAreIndistinguishable(t *testing.T) {
 	s, ctx := policyFixture(t)
 	for _, id := range []string{"hidden/secret", "visible/missing"} {
-		resp := s.dispatch(ctx, &Request{ID: json.RawMessage(`1`), Method: "tools/call", Params: json.RawMessage(`{"name":"concept_read","arguments":{"id":"` + id + `"}}`)})
-		result := decodeToolResult(t, resp)
+		result := s.callTool(ctx, "concept_read", json.RawMessage(`{"id":"`+id+`"}`))
 		if !result.IsError || len(result.Content) == 0 || result.Content[0].Text != genericNotFound {
 			t.Fatalf("%s = %+v; want generic not found", id, result)
 		}

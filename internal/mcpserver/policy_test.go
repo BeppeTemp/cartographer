@@ -1,9 +1,9 @@
 package mcpserver
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -26,9 +26,8 @@ func TestPolicyExactReadDoesNotDiscloseForbiddenConcept(t *testing.T) {
 	s := New("test")
 	RegisterKBTools(s, k, Deps{})
 	ctx := restrictedContext(auth.Policy{Permissions: []auth.Permission{{KB: "docs", Maps: []string{"other"}}}})
-	req := &Request{ID: json.RawMessage(`1`), Method: "tools/call", Params: json.RawMessage(`{"name":"concept_read","arguments":{"id":"manutenzione/test-runbook"}}`)}
-	resp := s.dispatch(ctx, req)
-	b, _ := json.Marshal(resp)
+	result := s.callTool(ctx, "concept_read", json.RawMessage(`{"id":"manutenzione/test-runbook"}`))
+	b, _ := json.Marshal(result)
 	if strings.Contains(string(b), "manutenzione/test-runbook") || !strings.Contains(string(b), genericNotFound) {
 		t.Fatalf("forbidden exact read disclosed resource: %s", b)
 	}
@@ -220,8 +219,7 @@ func TestMissingPrincipalFailsClosedEverywhere(t *testing.T) {
 		WholeVisible(context.Background(), k, false) {
 		t.Fatal("missing principal acquired visibility")
 	}
-	call := &Request{ID: json.RawMessage(`1`), Method: "tools/call", Params: json.RawMessage(`{"name":"concept_read","arguments":{"id":"manutenzione/test-runbook"}}`)}
-	if result := decodeToolResult(t, s.dispatch(context.Background(), call)); !result.IsError || result.Content[0].Text != genericNotFound {
+	if result := s.callTool(context.Background(), "concept_read", json.RawMessage(`{"id":"manutenzione/test-runbook"}`)); !result.IsError || result.Content[0].Text != genericNotFound {
 		t.Fatalf("missing principal dispatch = %+v, want generic non-disclosure", result)
 	}
 	if err := New("test").authorize(context.Background(), "anything", json.RawMessage(`{}`)); err == nil {
@@ -238,7 +236,10 @@ func TestMissingPrincipalFailsClosedEverywhere(t *testing.T) {
 		"auth-disabled HTTP": auth.NewTokenStore(nil).Middleware(s.HTTPHandler()),
 	} {
 		rr := httptest.NewRecorder()
-		handler.ServeHTTP(rr, httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(body)))
+		req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Accept", "application/json, text/event-stream")
+		handler.ServeHTTP(rr, req)
 		var httpResp Response
 		if err := json.Unmarshal(rr.Body.Bytes(), &httpResp); err != nil {
 			t.Fatalf("%s: %v", name, err)
@@ -248,25 +249,35 @@ func TestMissingPrincipalFailsClosedEverywhere(t *testing.T) {
 			t.Fatalf("%s = %+v", name, result)
 		}
 	}
-	var out bytes.Buffer
-	if err := s.RunContext(context.Background(), strings.NewReader(body+"\n"), &out); err != nil {
-		t.Fatal(err)
+	// Same rule over stdio. A session has to be opened before any method is
+	// served, so the tool call is preceded by a handshake; what is under test
+	// is the principal the transport supplies, not the framing.
+	session := []string{
+		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"t","version":"0"}}}`,
+		initializedNotification,
+		body,
 	}
-	var stdio Response
-	if err := json.Unmarshal(out.Bytes(), &stdio); err != nil {
-		t.Fatal(err)
+
+	// RunContext with a bare context: no authority. The refusal now lands on
+	// the handshake rather than on the tool call — a caller that cannot be
+	// resolved to a principal never opens a session at all, which is the same
+	// fail-closed rule applied one step earlier.
+	resps := runStdioSession(t, func(r io.Reader, w io.Writer) error {
+		return s.RunContext(context.Background(), r, w)
+	}, session[:1])
+	if len(resps) != 1 {
+		t.Fatalf("missing stdio context: expected 1 response, got %d", len(resps))
 	}
-	if result := decodeToolResult(t, stdio); !result.IsError || result.Content[0].Text != genericNotFound {
-		t.Fatalf("missing stdio context = %+v", result)
+	if resps[0].Error == nil || !strings.Contains(resps[0].Error.Message, "forbidden") {
+		t.Fatalf("missing stdio context: want a forbidden handshake, got %+v", resps[0])
 	}
-	out.Reset()
-	if err := s.Run(strings.NewReader(body+"\n"), &out); err != nil {
-		t.Fatal(err)
+
+	// Run supplies the explicit local-admin principal, so the same call passes.
+	resps = runStdioSession(t, s.Run, session)
+	if len(resps) != 2 {
+		t.Fatalf("explicit local stdio principal: expected 2 responses, got %d", len(resps))
 	}
-	if err := json.Unmarshal(out.Bytes(), &stdio); err != nil {
-		t.Fatal(err)
-	}
-	if result := decodeToolResult(t, stdio); result.IsError {
+	if result := decodeToolResult(t, resps[1]); result.IsError {
 		t.Fatalf("explicit local stdio principal = %+v", result)
 	}
 }
