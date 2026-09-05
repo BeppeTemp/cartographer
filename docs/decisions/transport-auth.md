@@ -346,6 +346,9 @@ path continues to live in `OriginGuard`, unaffected by this change. `Server.HTTP
 no `.well-known` route) and the plain `Server.ListenAndServe` are unaffected: neither is on the
 production path (`serveHTTP` always mounts through `MultiKBServer`, even for one KB) but both remain
 for direct single-KB embedding and their own tests, which this issue did not ask to remove.
+*(Superseded in part by [D166](#d166): `Server.ListenAndServe` was deleted. The "and their own
+tests" half was already untrue when written — nothing called it, in production or in tests — so the
+embedding case it was kept for had no exercised path and no user.)*
 
 ---
 
@@ -545,7 +548,7 @@ path a real deployment takes, so the suite documents it.
 ---
 
 <a id="d166"></a>
-## D166 — HTTP connection timeouts, and deleting the scope seam that granted admin
+## D166 — HTTP connection timeouts, and deleting three unreachable entry points
 
 **Status: implemented (2026-09-05).** Amends [D118](#d118).
 
@@ -573,11 +576,16 @@ a decision of its own and both are about the HTTP boundary being narrower than i
   full reindex, a git sync against a remote — and those are already bounded per operation, where the
   budget can be set from what the operation actually does. A write deadline here would convert a slow
   success into a truncated response, which is a worse failure than the one it prevents.
-  `Server.ListenAndServe` gets the same three: [D153](#d153) retained it for direct single-KB
-  embedding, and a retained entry point that quietly lacks the hardening of the real one is a trap.
 - **Both scope functions are deleted, as a pair.** `ScopesFromToken` alone is inert; `ContextWithScopes`
   alone is defensible. It is the pair that is dangerous, so removing one and keeping the other would
   leave the next caller to rebuild the same composition.
+- **`Server.ListenAndServe` and `sops.DecryptAll` are deleted too.** [D132](#d132) kept the first
+  "for direct single-KB embedding and their own tests", and [D47](skills-services-secrets.md#d47)
+  named the second in the API it was extending; neither has ever had a caller in production or in a
+  test. The first was hardened with the three timeouts above before being reconsidered — which is
+  what made the argument concrete: an entry point nothing reaches still has to be kept correct on
+  every future change to the thing it wraps, and it had already drifted once by silently lacking the
+  hardening the real listener had.
 
 **Rationale.** Enforcement has lived in `TokenStore.ScopesOf` and the D118 authorizer since D118; the
 JWT seam described a design that was never built and could not be built this way — scopes extracted
@@ -588,6 +596,9 @@ survives: it reads the principal that `ContextWithPrincipal` actually stores, an
 covers it.
 
 **Consequences.** A stalled or idle connection is now reaped instead of pinned for the process
-lifetime. `auth`'s exported surface loses two functions that no code called. Long-running tool calls
-are unaffected, since no write deadline was added — an operator who needs one should bound the
-operation, not the connection.
+lifetime. Long-running tool calls are unaffected, since no write deadline was added — an operator who
+needs one should bound the operation, not the connection. `auth`, `mcpserver` and `sops` lose four
+exported functions in total, none of which had a caller; with them gone, `staticcheck` and
+`deadcode` both report nothing across the module. Re-embedding a single KB over HTTP now means
+building an `http.Server` at the call site, which is a handful of lines and makes the timeouts
+visible to whoever is embedding it.

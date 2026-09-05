@@ -177,3 +177,69 @@ func TestFlushPush_AfterSchedule_WaitsForPush(t *testing.T) {
 		t.Fatalf("remote did not receive the push forced by FlushPush (count=%q)", count)
 	}
 }
+
+// TestFlushPushDuringRunDoesNotLeakForce pins the debounce against a flag
+// leak. FlushPush arriving while a push is already executing sets pushForce
+// and has its waiter satisfied by that in-flight push — so the flag is never
+// consumed by a push start, and the next unrelated SchedulePush would skip
+// its debounce window entirely.
+//
+// The git lock is held by the test to park the worker inside doAsyncPush,
+// which is what makes "flush arrives mid-push" deterministic rather than a
+// timing gamble.
+func TestFlushPushDuringRunDoesNotLeakForce(t *testing.T) {
+	k, _ := initGitKB(t)
+	k.GitSync = true
+	k.SyncOutDebounce = time.Millisecond
+
+	// Block the git lock: the worker will enter doAsyncPush and park there.
+	k.mu.Lock()
+
+	k.SchedulePush()
+
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		k.pushMu.Lock()
+		running := k.pushRunning
+		k.pushMu.Unlock()
+		if running {
+			break
+		}
+		if time.Now().After(deadline) {
+			k.mu.Unlock()
+			t.Fatal("worker never reached doAsyncPush")
+		}
+		time.Sleep(time.Millisecond)
+	}
+
+	flushed := make(chan error, 1)
+	go func() { flushed <- k.FlushPush(10 * time.Second) }()
+
+	// Let FlushPush register its force+waiter against the running push.
+	deadline = time.Now().Add(5 * time.Second)
+	for {
+		k.pushMu.Lock()
+		queued := len(k.pushWaiters) > 0
+		k.pushMu.Unlock()
+		if queued {
+			break
+		}
+		if time.Now().After(deadline) {
+			k.mu.Unlock()
+			t.Fatal("FlushPush never registered a waiter")
+		}
+		time.Sleep(time.Millisecond)
+	}
+
+	k.mu.Unlock() // release the push
+	if err := <-flushed; err != nil {
+		t.Fatalf("FlushPush: %v", err)
+	}
+
+	k.pushMu.Lock()
+	force := k.pushForce
+	k.pushMu.Unlock()
+	if force {
+		t.Fatal("pushForce still set after the flush was satisfied: the next unrelated SchedulePush would skip its debounce window")
+	}
+}

@@ -27,6 +27,9 @@ gains the `resolve_secrets` parameter (default `false`): if `true`, it reads `se
 the `Service`'s frontmatter and calls `sops.Decrypt` with the per-KB age key. OKF frontmatter
 supports only `string`/`[]string`, so structured per-ref `secret_refs` remain out of scope:
 `resolve_secrets` always decrypts the entire `secrets_source`.
+*(Superseded in part by [D166](transport-auth.md#d166): `DecryptAll` was deleted. It never gained a
+caller — `service_get` resolves one `secrets_source` at a time through `Decrypt` — so the variadic
+`env` this entry gave it was only ever exercised on the other two.)*
 `service_get` stays classified `ReadOnly` (D45) for the default path; with `resolve_secrets:
 true` the HTTP guard (`mcpAccessGuard`) forces `needWrite=true` as a special case, without touching the
 per-tool-name classification. Defense in depth: `filepath.IsLocal(secretsSource)` rejects
