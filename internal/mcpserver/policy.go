@@ -320,7 +320,10 @@ func templateType(k *kb.KB, slug string) (string, bool) {
 	if err != nil {
 		return "", false
 	}
-	t, ok := fm.Get("type")
+	t, present := fm.Get("type")
+	if !present {
+		return "", false
+	}
 	typeName, ok := t.(string)
 	return typeName, ok && typeName != "" && !strings.Contains(typeName, "{{")
 }

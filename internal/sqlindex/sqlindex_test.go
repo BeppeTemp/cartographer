@@ -342,3 +342,45 @@ func TestOpenDatabaseWithLegacyEmbeddingsTable(t *testing.T) {
 		t.Fatalf("Delete: %v", err)
 	}
 }
+
+// TestSearchFTSScopeTreatsLikeMetacharactersLiterally pins the SQL backend to
+// the same prefix semantics the in-memory index documents ("only concepts
+// whose id starts with scope"). Concept IDs are file paths, so "_" is ordinary
+// and "%" is legal; before likePrefixPattern both were LIKE wildcards, so a
+// scope like "maps_a/" also matched "mapsXa/" and those stray rows ate the
+// caller's LIMIT.
+func TestSearchFTSScopeTreatsLikeMetacharactersLiterally(t *testing.T) {
+	cases := []struct {
+		name    string
+		scope   string
+		inScope string
+		outside string
+	}{
+		{"underscore", "maps_a/", "maps_a/one", "mapsXa/two"},
+		{"percent", "maps%b/", "maps%b/one", "mapsZZb/two"},
+		{"backslash", `maps\c/`, `maps\c/one`, "mapsQc/two"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ix, err := Open(filepath.Join(t.TempDir(), "index.db"))
+			if err != nil {
+				t.Fatalf("Open: %v", err)
+			}
+			defer ix.Close()
+			if err := ix.Upsert(tc.inScope, "h1", "alpha bravo charlie"); err != nil {
+				t.Fatalf("Upsert: %v", err)
+			}
+			if err := ix.Upsert(tc.outside, "h2", "alpha bravo charlie"); err != nil {
+				t.Fatalf("Upsert: %v", err)
+			}
+
+			hits, err := ix.SearchFTS("alpha", tc.scope, 10)
+			if err != nil {
+				t.Fatalf("SearchFTS: %v", err)
+			}
+			if len(hits) != 1 || hits[0].ID != tc.inScope {
+				t.Fatalf("scope %q: want exactly [%s], got %v", tc.scope, tc.inScope, hits)
+			}
+		})
+	}
+}

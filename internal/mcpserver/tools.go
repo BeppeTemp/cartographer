@@ -2,7 +2,6 @@ package mcpserver
 
 import (
 	"crypto/ed25519"
-	"encoding/json"
 	"fmt"
 	"io/fs"
 	"os"
@@ -131,13 +130,13 @@ func RegisterKBTools(s *Server, k *kb.KB, deps Deps) {
 	register(gitWrap(k, toolAssetWrite(k)))
 	register(gitWrap(k, toolAssetDelete(k)))
 	if k.AllowArtifactWrite {
-		register(artifactNotifyWrap(s, gitWrap(k, toolArtifactWrite(k))))
-		register(artifactNotifyWrap(s, gitWrap(k, toolArtifactDelete(k))))
+		register(gitWrap(k, toolArtifactWrite(k)))
+		register(gitWrap(k, toolArtifactDelete(k)))
 	}
 
 	if deps.BundleFS != nil {
 		register(toolSkillListWithBundle(k, deps.BundleFS))
-		register(notifyWrap(s, gitWrap(k, toolSkillInstall(k, deps.BundleFS)), "notifications/skills/list_changed"))
+		register(gitWrap(k, toolSkillInstall(k, deps.BundleFS)))
 		toolPrefix := s.ToolNamePrefix()
 		register(toolSyncCheck(k, deps.BundleFS, toolPrefix, deps.ArtifactSigner, deps.MCPAllowlist))
 		register(toolSyncApply(k, deps.BundleFS, toolPrefix, deps.ArtifactSigner, deps.MCPAllowlist))
@@ -145,20 +144,6 @@ func RegisterKBTools(s *Server, k *kb.KB, deps Deps) {
 	} else {
 		register(toolSkillList(k))
 	}
-}
-
-// notifyWrap fires an MCP notification after the wrapped tool completes successfully
-// (no Go error and res.IsError==false).
-func notifyWrap(s *Server, t Tool, method string) Tool {
-	orig := t
-	t.Handler = func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
-		res, err := orig.Handler(ctx, args)
-		if err == nil && !res.IsError {
-			_ = s.Notify(method, map[string]any{})
-		}
-		return res, err
-	}
-	return t
 }
 
 // buildIndex builds the in-memory keyword index and its parallel per-concept

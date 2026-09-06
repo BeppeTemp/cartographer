@@ -23,14 +23,6 @@ type SecretFile struct {
 
 func Available() bool { _, err := exec.LookPath("sops"); return err == nil }
 
-func Version() (string, error) {
-	out, err := exec.Command("sops", "--version").CombinedOutput()
-	if err != nil {
-		return "", fmt.Errorf("sops --version: %w", err)
-	}
-	return strings.TrimSpace(string(out)), nil
-}
-
 // Decrypt decrypts relativePath from kbRoot. SOPS always runs from kbRoot so
 // repository-relative creation rules have deterministic semantics.
 func Decrypt(kbRoot, relativePath string, env ...string) (*SecretFile, error) {
@@ -54,29 +46,6 @@ func Decrypt(kbRoot, relativePath string, env ...string) (*SecretFile, error) {
 		return nil, fmt.Errorf("parse decrypted %s: %w", relativePath, err)
 	}
 	return &SecretFile{Path: relativePath, Values: values}, nil
-}
-
-// DecryptAll decrypts all *.sops.yaml files in a relative directory.
-func DecryptAll(kbRoot, dir string, env ...string) ([]SecretFile, []error) {
-	if err := validatePath(kbRoot, dir, false); err != nil {
-		return nil, []error{err}
-	}
-	matches, err := filepath.Glob(filepath.Join(kbRoot, dir, "*.sops.yaml"))
-	if err != nil {
-		return nil, []error{err}
-	}
-	var files []SecretFile
-	var errs []error
-	for _, m := range matches {
-		rel, _ := filepath.Rel(kbRoot, m)
-		sf, err := Decrypt(kbRoot, rel, env...)
-		if err != nil {
-			errs = append(errs, err)
-		} else {
-			files = append(files, *sf)
-		}
-	}
-	return files, errs
 }
 
 func AgeKeyEnv(path string) []string {

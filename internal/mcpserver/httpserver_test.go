@@ -37,6 +37,7 @@ func TestMultiKB_PathRouting_KnownName(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodPost, "/mcp/kbx", strings.NewReader(toolsListBody))
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json, text/event-stream")
 	rr = httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
 	if rr.Code != http.StatusOK {
@@ -50,6 +51,7 @@ func TestMultiKB_PathRouting_UnknownName(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodPost, "/mcp/does-not-exist", strings.NewReader(toolsListBody))
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json, text/event-stream")
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
 	if rr.Code != http.StatusNotFound {
@@ -63,6 +65,7 @@ func TestMultiKB_PathRouting_ConflictingKBSelection(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodPost, "/mcp/kbx?kb=kby", strings.NewReader(toolsListBody))
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json, text/event-stream")
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
 	if rr.Code != http.StatusBadRequest {
@@ -76,6 +79,7 @@ func TestMultiKB_PathRouting_AgreeingKBSelection(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodPost, "/mcp/kbx?kb=kbx", strings.NewReader(toolsListBody))
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json, text/event-stream")
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
 	if rr.Code != http.StatusOK {
@@ -364,8 +368,9 @@ func TestClients_HandlerConstructors(t *testing.T) {
 	for i := 0; i < 3; i++ {
 		req := httptest.NewRequest(http.MethodPost, "/mcp", bytes.NewReader([]byte(mcpBody)))
 		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Accept", "application/json, text/event-stream")
 		rr := httptest.NewRecorder()
-		s.handleMCPPost(rr, req)
+		s.handleMCP(rr, req)
 	}
 
 	for _, v := range []struct {
@@ -411,6 +416,7 @@ func TestClients_HandlerConstructors(t *testing.T) {
 	for i := 0; i < 2; i++ {
 		req := httptest.NewRequest(http.MethodPost, "/mcp?kb=alpha", bytes.NewReader([]byte(mcpBody)))
 		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Accept", "application/json, text/event-stream")
 		rr := httptest.NewRecorder()
 		multi.Handler().ServeHTTP(rr, req)
 	}
@@ -418,6 +424,7 @@ func TestClients_HandlerConstructors(t *testing.T) {
 	for i := 0; i < 1; i++ {
 		req := httptest.NewRequest(http.MethodPost, "/mcp?kb=beta", bytes.NewReader([]byte(mcpBody)))
 		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Accept", "application/json, text/event-stream")
 		rr := httptest.NewRecorder()
 		multi.Handler().ServeHTTP(rr, req)
 	}

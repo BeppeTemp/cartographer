@@ -237,31 +237,10 @@ func isPublicPath(path string) bool {
 		path == WellKnownProtectedResourcePath
 }
 
-// ScopesFromToken extracts KB scopes from a bearer token.
-// For static tokens (no JWT payload) it returns empty scopes — the seam for future OAuth JWT support.
-// Deprecated as an enforcement path: Middleware now uses TokenStore.ScopesOf, which returns the
-// scopes configured for the token at startup. This seam remains for a future OAuth JWT integration
-// where scopes are extracted from the token itself rather than looked up in the store.
-func ScopesFromToken(_ string) []KBScope {
-	return nil
-}
-
-// ContextWithScopes is retained for compatibility with callers/tests. It
-// compiles legacy scopes to a principal policy.
-func ContextWithScopes(ctx context.Context, scopes []KBScope) context.Context {
-	policy := Policy{}
-	if len(scopes) == 0 {
-		policy.Admin = true
-	} else {
-		for _, s := range scopes {
-			policy.Permissions = append(policy.Permissions, Permission{KB: s.KB, Write: s.Write})
-		}
-	}
-	return ContextWithPrincipal(ctx, Principal{ID: "legacy-context", Policy: policy})
-}
-
-// ScopesFromContext retrieves scopes previously stored by ContextWithScopes.
-// Returns nil if no scopes were set.
+// ScopesFromContext reports the plain per-KB scopes of the principal stored
+// by ContextWithPrincipal. Returns nil for an admin principal (unrestricted,
+// so no scope list describes it) and for rules narrowed to specific
+// maps/journals/types, which a flat KBScope cannot express.
 func ScopesFromContext(ctx context.Context) []KBScope {
 	p := PrincipalFromContext(ctx)
 	if p.Policy.Admin {
@@ -302,12 +281,6 @@ func clonePolicy(p Policy) Policy {
 		p.Permissions[i] = rule
 	}
 	return p
-}
-
-// Forbidden writes a 403 response in the standard format used across the HTTP
-// transport for access-denied cases (auth scope checks, per-tool RBAC).
-func Forbidden(w http.ResponseWriter) {
-	http.Error(w, "forbidden", http.StatusForbidden)
 }
 
 // GenerateToken creates a cryptographically random bearer token (32 bytes, hex encoded).
@@ -374,13 +347,6 @@ func HasAccess(scopes []KBScope, kbName string, write bool) bool {
 func hashToken(token string) string {
 	sum := sha256.Sum256([]byte(token))
 	return hex.EncodeToString(sum[:])
-}
-
-func truncate(s string, n int) string {
-	if len(s) <= n {
-		return s
-	}
-	return s[:n]
 }
 
 func extractBearer(r *http.Request) (string, bool) {

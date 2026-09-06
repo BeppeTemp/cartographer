@@ -40,12 +40,38 @@ done
 kbs=$(curl -sf "http://127.0.0.1:$PORT/health" | python3 -c "import sys,json; d=json.load(sys.stdin); print([k['name'] for k in d['kbs']])")
 echo "→ mounted KBs: $kbs"
 
+# tool_prefix() reports the effective tool-name prefix the server derived for a
+# KB. Since D153 that defaults to the KB name, so the bare tool name does not
+# resolve and every call in this script silently came back "tool not found"
+# while the script still reported success. /health advertises the prefix each
+# KB was actually mounted with, which is more honest than re-deriving the
+# sanitisation rules here.
+tool_prefix() {
+  curl -sf "http://127.0.0.1:$PORT/health" \
+    | python3 -c "import sys,json; kb=sys.argv[1]; d=json.load(sys.stdin); print(next((k.get('tool_prefix','') for k in d['kbs'] if k['name']==kb), ''))" "$1"
+}
+
+# mcp_call fails the script on a tool error. Without this an unresolvable tool
+# name is just a JSON-RPC *result* whose text says so, which curl -sf and the
+# pipeline below both treat as success.
 mcp_call() {
-  local kb=$1 method=$2 args=$3 id=$4
+  local kb=$1 method=$2 args=$3 id=$4 prefix
+  prefix=$(tool_prefix "$kb")
+  [ -n "$prefix" ] && method="${prefix}__${method}"
   curl -sf -X POST "$MCP?kb=$kb" \
     -H "Content-Type: application/json" \
     -d "{\"jsonrpc\":\"2.0\",\"id\":$id,\"method\":\"tools/call\",\"params\":{\"name\":\"$method\",\"arguments\":$args}}" \
-    | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['result']['content'][0]['text'])"
+    | python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+if 'error' in d:
+    sys.exit('MCP error calling $method: %s' % d['error'])
+r = d['result']
+text = r['content'][0]['text']
+print(text)
+if r.get('isError'):
+    sys.exit('tool $method returned an error for KB $kb: %s' % text)
+"
 }
 
 echo "→ maps $KB1"

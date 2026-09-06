@@ -138,6 +138,14 @@ func (k *KB) pushWorkerLoop() {
 
 		k.pushMu.Lock()
 		k.pushRunning = false
+		// Clear pushForce here as well as at the start of a push. A FlushPush
+		// that arrives *while* the push above is running sets the flag and then
+		// has its waiter satisfied by that same push, so the flag is never
+		// consumed by a push start — and a stale one makes the next, unrelated
+		// SchedulePush skip its debounce window. Any pending write left behind
+		// by that window is a later signal than the flush, so debouncing it is
+		// the correct behavior, not a lost force.
+		k.pushForce = false
 		waiters := k.pushWaiters
 		k.pushWaiters = nil
 		k.pushMu.Unlock()

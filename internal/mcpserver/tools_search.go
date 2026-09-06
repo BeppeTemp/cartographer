@@ -99,7 +99,7 @@ func handleSearch(ctx requestContext, k *kb.KB, live *liveIndex, deps Deps, args
 	}
 
 	if deps.SQLIndex == nil {
-		hits := live.get().SearchFiltered(params.Query, params.Scope, limit, func(id string) bool {
+		hits := live.searchFiltered(params.Query, params.Scope, limit, func(id string) bool {
 			return Visible(ctx, k, id)
 		})
 
@@ -143,7 +143,7 @@ func handleSearch(ctx requestContext, k *kb.KB, live *liveIndex, deps Deps, args
 		}
 	}
 	if !useSQL {
-		memHits := live.get().SearchFiltered(params.Query, params.Scope, limit, func(id string) bool {
+		memHits := live.searchFiltered(params.Query, params.Scope, limit, func(id string) bool {
 			return Visible(ctx, k, id)
 		})
 		for _, h := range memHits {

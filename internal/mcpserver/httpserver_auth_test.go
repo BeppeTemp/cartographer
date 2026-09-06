@@ -32,6 +32,7 @@ func newScopedTestHandler(t *testing.T, ts *auth.TokenStore) http.Handler {
 func doMCP(handler http.Handler, kbName, token, body string) *httptest.ResponseRecorder {
 	req := httptest.NewRequest(http.MethodPost, "/mcp?kb="+kbName, bytes.NewReader([]byte(body)))
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json, text/event-stream")
 	if token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)
 	}
@@ -60,6 +61,18 @@ func assertMCPForbidden(t *testing.T, rr *httptest.ResponseRecorder) {
 	var resp Response
 	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
 		t.Fatal(err)
+	}
+	// A denial takes one of two shapes since D168. A tools/call refusal stays
+	// an application error (isError), because that is what every other
+	// tool-level failure is. A refusal of protocol metadata — tools/list,
+	// server/discover — is a JSON-RPC error: those result types have nowhere
+	// to put isError, and dressing a refusal as a successful empty tool list
+	// is how a denial went unnoticed.
+	if resp.Error != nil {
+		if !strings.Contains(resp.Error.Message, "forbidden") {
+			t.Fatalf("want forbidden, got RPC error: %+v", resp.Error)
+		}
+		return
 	}
 	tr := decodeToolResult(t, resp)
 	if !tr.IsError || len(tr.Content) == 0 || !strings.Contains(tr.Content[0].Text, "forbidden") {
