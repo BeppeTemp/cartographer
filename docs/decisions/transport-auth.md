@@ -687,7 +687,7 @@ specification we do not control. Six modules actually enter the server build.
 - **Client identity is per session**, agreed once at `initialize`, where it used to be
   readable per request.
 
-`protocol.go` goes from 342 lines to 109 and `server.go` from 604 to 314; the 415-line
+`protocol.go` goes from 342 lines to 109 and `server.go` from 674 to 314; the 414-line
 suite that pinned the era machinery byte for byte is replaced by a much smaller one
 asserting only what Cartographer still owns. Issue #118 can be closed as overtaken:
 the cost it existed to remove is gone, and the removal it proposed — which would have
