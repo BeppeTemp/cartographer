@@ -36,11 +36,23 @@ func newLiveIndex(idx *search.Index, meta map[string]conceptMeta) *liveIndex {
 	return &liveIndex{idx: idx, meta: meta}
 }
 
-// get returns the current index for read-only use (e.g. Search).
-func (l *liveIndex) get() *search.Index {
+// searchFiltered runs a keyword search while holding the read lock for the
+// whole query. The lock must span the search itself, not just the pointer
+// load: search.Index is a pair of plain maps with no synchronization of its
+// own, so returning the *search.Index and ranking outside the lock let a
+// concurrent add/remove mutate those maps mid-query — a real data race under
+// the HTTP transport, where search and concept_write run on different
+// goroutines, whose usual symptom is a "concurrent map read and map write"
+// panic rather than a stale result.
+//
+// allow is called while the read lock is held, so it must not call back into
+// this liveIndex: a re-entrant RLock deadlocks whenever a writer is queued
+// between the two acquisitions. The search tool passes Visible, which only
+// touches the auth policy and the KB.
+func (l *liveIndex) searchFiltered(query, scope string, limit int, allow func(id string) bool) []search.Hit {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
-	return l.idx
+	return l.idx.SearchFiltered(query, scope, limit, allow)
 }
 
 // title returns the frontmatter title for id, or "" if id is unknown or has

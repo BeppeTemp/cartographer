@@ -921,28 +921,3 @@ func removeEmptyDirsUpTo(leafDir, boundary string) {
 		dir = parent
 	}
 }
-
-// artifactNotifyWrap wraps a write/delete artifact Tool so that, after a
-// successful call whose "path" argument falls under skills/, the server
-// fires "notifications/skills/list_changed" — the same signal skill_install
-// sends (D71 WP2), so a client whose skills catalog is stale (e.g. a skill
-// self-edited via artifact_write) gets a chance to refresh it.
-func artifactNotifyWrap(s *Server, t Tool) Tool {
-	orig := t
-	t.Handler = func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
-		res, err := orig.Handler(ctx, args)
-		if err == nil && !res.IsError {
-			var params struct {
-				Path string `json:"path"`
-			}
-			if jsonErr := json.Unmarshal(args, &params); jsonErr == nil {
-				clean := filepath.ToSlash(filepath.Clean(params.Path))
-				if strings.HasPrefix(clean, "skills/") {
-					_ = s.Notify("notifications/skills/list_changed", map[string]any{})
-				}
-			}
-		}
-		return res, err
-	}
-	return t
-}

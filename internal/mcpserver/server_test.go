@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,6 +15,7 @@ import (
 	"testing/fstest"
 	"time"
 
+	"github.com/BeppeTemp/cartographer/internal/auth"
 	"github.com/BeppeTemp/cartographer/internal/gitx"
 	"github.com/BeppeTemp/cartographer/internal/kb"
 	"github.com/BeppeTemp/cartographer/internal/lint"
@@ -42,40 +45,142 @@ func setupTestKB(t *testing.T) *kb.KB {
 	return k
 }
 
-// runMCPSequence feeds the server a sequence of JSON-RPC messages and collects the responses.
-// Notifications (messages without an "id" field) are skipped.
+const initializedNotification = `{"jsonrpc":"2.0","method":"notifications/initialized"}`
+
+// asMCPSession turns a bare message list into a valid MCP session: the SDK
+// refuses every method until a client has initialized and confirmed with
+// notifications/initialized, which these sequences predate — the hand-written
+// dispatch had no session state to confirm.
+//
+// A sequence that never sends initialize gets a handshake prepended; prepended
+// is reported so the caller can drop its response and keep the returned slice
+// positionally aligned with the messages the test actually wrote.
+func asMCPSession(messages []string) (out []string, prepended bool) {
+	hasInit := false
+	for _, m := range messages {
+		if strings.Contains(m, `"method":"initialize"`) {
+			hasInit = true
+			break
+		}
+	}
+	if !hasInit {
+		out = append(out, `{"jsonrpc":"2.0","id":-1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"0"}}}`, initializedNotification)
+		prepended = true
+	}
+	for i, m := range messages {
+		out = append(out, m)
+		if !strings.Contains(m, `"method":"initialize"`) {
+			continue
+		}
+		if i+1 < len(messages) && strings.Contains(messages[i+1], "notifications/initialized") {
+			continue
+		}
+		out = append(out, initializedNotification)
+	}
+	return out, prepended
+}
+
+// runMCPSequence feeds the server a sequence of JSON-RPC messages and collects
+// the responses, in order. Notifications (messages without an "id" field) get
+// no response and are not counted.
+//
+// Requests are sent one at a time, each awaited before the next is written —
+// which is what a real MCP client does, and what makes the returned slice
+// positionally aligned with the requests. The SDK serves requests
+// concurrently, so firing the whole batch and collecting afterwards (which the
+// hand-written synchronous loop made safe) returns them interleaved.
+//
+// The pipe is also held open until the last response has arrived: in MCP stdio
+// the client owns the pipe's lifetime and the server tears the session down on
+// EOF.
 func runMCPSequence(t *testing.T, s *Server, messages []string) []Response {
 	t.Helper()
 
-	input := strings.Join(messages, "\n") + "\n"
-	reader := strings.NewReader(input)
+	// The SDK refuses every other method until the client has confirmed the
+	// handshake with notifications/initialized, which most of these sequences
+	// predate — the hand-written dispatch had no session state to confirm. It
+	// is inserted here rather than in ~20 call sites because it says nothing
+	// about what any individual test is checking.
+	messages, prependedHandshake := asMCPSession(messages)
 
-	pr, pw := io.Pipe()
-	done := make(chan struct{})
+	inR, inW := io.Pipe()
+	outR, outW := io.Pipe()
+
+	runDone := make(chan error, 1)
+	go func() { runDone <- s.Run(inR, outW) }()
+
+	dec := json.NewDecoder(outR)
 	var responses []Response
 
-	go func() {
-		defer close(done)
-		dec := json.NewDecoder(pr)
-		for {
-			var resp Response
-			if err := dec.Decode(&resp); err != nil {
-				pr.Close()
-				return
-			}
-			// Skip notifications (no id field).
-			if len(resp.ID) == 0 {
-				continue
-			}
-			responses = append(responses, resp)
+	for _, m := range messages {
+		if _, err := io.WriteString(inW, m+"\n"); err != nil {
+			t.Fatalf("write request: %v", err)
 		}
-	}()
+		var probe struct {
+			ID json.RawMessage `json:"id"`
+		}
+		if err := json.Unmarshal([]byte(m), &probe); err == nil && len(probe.ID) == 0 {
+			continue // notification: no response to wait for
+		}
 
-	s.Run(reader, pw)
-	pw.Close()
-	<-done
+		type decoded struct {
+			resp Response
+			err  error
+		}
+		ch := make(chan decoded, 1)
+		go func() {
+			var resp Response
+			err := dec.Decode(&resp)
+			ch <- decoded{resp, err}
+		}()
 
+		for waiting := true; waiting; {
+			select {
+			case d := <-ch:
+				if d.err != nil {
+					t.Fatalf("decode response: %v", d.err)
+				}
+				if len(d.resp.ID) == 0 {
+					// Server-initiated notification: keep reading.
+					go func() {
+						var resp Response
+						err := dec.Decode(&resp)
+						ch <- decoded{resp, err}
+					}()
+					continue
+				}
+				responses = append(responses, d.resp)
+				waiting = false
+			case <-time.After(20 * time.Second):
+				t.Fatalf("timed out waiting for a response to %s", m)
+			}
+		}
+	}
+
+	inW.Close()
+	<-runDone
+	outW.Close()
+	outR.Close()
+	inR.Close()
+
+	if prependedHandshake && len(responses) > 0 {
+		responses = responses[1:]
+	}
 	return responses
+}
+
+// runMCPClient runs one complete stdio session as a named client: initialize,
+// the initialized notification, then extra. Each call is a *distinct* client
+// from the roster's point of view, which is what a separate connection is in
+// MCP — a single session carries one client identity, agreed once at
+// initialize, so several identities can no longer be pushed down one stream.
+func runMCPClient(t *testing.T, s *Server, name, version string, extra ...string) []Response {
+	t.Helper()
+	msgs := []string{
+		fmt.Sprintf(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":%q,"version":%q}}}`, name, version),
+		`{"jsonrpc":"2.0","method":"notifications/initialized"}`,
+	}
+	return runMCPSequence(t, s, append(msgs, extra...))
 }
 
 func TestServer_Initialize(t *testing.T) {
@@ -2957,120 +3062,6 @@ func TestServer_SyncCheck(t *testing.T) {
 	}
 }
 
-// TestServer_SyncApply verifies that sync_apply writes the skill into base_dir
-// and returns the lock with the updated revision.
-// TestServer_Notify verifies that a tool wrapped with notifyWrap emits a
-// JSON-RPC notification line on the stdio stream after successful completion.
-func TestServer_Notify(t *testing.T) {
-	s := New("1.0.0")
-
-	// Register a dummy tool wrapped with notifyWrap.
-	dummy := Tool{
-		Name:        "dummy",
-		Description: "A test tool that triggers a notification.",
-		InputSchema: json.RawMessage(`{"type":"object","properties":{}}`),
-		Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
-			return textResult("done"), nil
-		},
-	}
-	s.RegisterTool(notifyWrap(s, dummy, "notifications/skills/list_changed"))
-
-	// Build the stdio sequence.
-	msgs := []string{
-		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
-		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"dummy","arguments":{}}}`,
-	}
-	input := strings.Join(msgs, "\n") + "\n"
-
-	pr, pw := io.Pipe()
-	done := make(chan struct{})
-	var rawLines []string
-
-	go func() {
-		defer close(done)
-		dec := json.NewDecoder(pr)
-		for {
-			var raw json.RawMessage
-			if err := dec.Decode(&raw); err != nil {
-				return
-			}
-			rawLines = append(rawLines, string(raw))
-		}
-	}()
-
-	s.Run(strings.NewReader(input), pw)
-	pw.Close()
-	<-done
-
-	// We expect three lines: initialize response, tools/call response, notification.
-	if len(rawLines) < 3 {
-		t.Fatalf("expected at least 3 output lines, got %d: %v", len(rawLines), rawLines)
-	}
-
-	var found bool
-	for _, line := range rawLines {
-		if strings.Contains(line, `"method":"notifications/skills/list_changed"`) {
-			found = true
-			break
-		}
-	}
-	if !found {
-		t.Errorf("notification line not found in output; lines: %s", strings.Join(rawLines, "\n"))
-	}
-}
-
-func TestServer_Notify_NoNotificationOnError(t *testing.T) {
-	s := New("1.0.0")
-
-	// Register a dummy tool that returns an application error.
-	dummy := Tool{
-		Name:        "dummy_err",
-		Description: "A test tool that returns an error.",
-		InputSchema: json.RawMessage(`{"type":"object","properties":{}}`),
-		Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
-			return errorResult("failure"), nil
-		},
-	}
-	s.RegisterTool(notifyWrap(s, dummy, "notifications/skills/list_changed"))
-
-	msgs := []string{
-		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
-		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"dummy_err","arguments":{}}}`,
-	}
-	input := strings.Join(msgs, "\n") + "\n"
-
-	pr, pw := io.Pipe()
-	done := make(chan struct{})
-	var rawLines []string
-
-	go func() {
-		defer close(done)
-		dec := json.NewDecoder(pr)
-		for {
-			var raw json.RawMessage
-			if err := dec.Decode(&raw); err != nil {
-				return
-			}
-			rawLines = append(rawLines, string(raw))
-		}
-	}()
-
-	s.Run(strings.NewReader(input), pw)
-	pw.Close()
-	<-done
-
-	// Expect exactly 2 lines (initialize + tools/call), no notification.
-	if len(rawLines) != 2 {
-		t.Fatalf("expected 2 output lines (no notification), got %d: %v", len(rawLines), rawLines)
-	}
-
-	for _, line := range rawLines {
-		if strings.Contains(line, `"method":"notifications/skills/list_changed"`) {
-			t.Errorf("unexpected notification on error result: %s", line)
-		}
-	}
-}
-
 func TestServer_SyncApply(t *testing.T) {
 	k := setupTestKB(t)
 	baseDir := t.TempDir()
@@ -4532,18 +4523,32 @@ func TestServer_ClientStats_NewEraToolsCall(t *testing.T) {
 	s := New("1.0.0")
 	RegisterKBTools(s, setupTestKB(t), Deps{})
 
-	// Send initialize first to establish the session, then a tools/call with new-era _meta.
-	msgs := []string{
-		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
-		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientInfo":{"name":"new-client","version":"3.0"}},"name":"atlas_overview","arguments":{}}}`,
+	// A 2026-07-28 client carries its identity in _meta instead of a
+	// handshake. Identity is per *session*, not per request: before the SDK
+	// carried the protocol, each request could name a different client on one
+	// stream, and the roster keyed on that. A session agrees its identity once,
+	// so two clients are two sessions — which is what a roster of connected
+	// clients meant in the first place.
+	runMCPClient(t, s, "legacy-client", "1.0")
+
+	h := auth.NewTokenStore(nil).Middleware(s.HTTPHandler())
+	req := httptest.NewRequest(http.MethodPost, "/mcp",
+		strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientInfo":{"name":"new-client","version":"3.0"},"io.modelcontextprotocol/clientCapabilities":{}},"name":"atlas_overview","arguments":{}}}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json, text/event-stream")
+	req.Header.Set("MCP-Protocol-Version", "2026-07-28")
+	req.Header.Set("Mcp-Method", "tools/call")
+	req.Header.Set("Mcp-Name", "atlas_overview")
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("new-era tools/call: status %d, body %s", rr.Code, rr.Body.String())
 	}
-	runMCPSequence(t, s, msgs)
 
 	stats, _ := s.ClientStats()
 	if len(stats) != 2 {
-		t.Fatalf("expected 2 stat rows, got %d", len(stats))
+		t.Fatalf("expected 2 stat rows, got %d: %+v", len(stats), stats)
 	}
-	// Find the new-era row.
 	var eraRow *ClientStat
 	for i := range stats {
 		if stats[i].Era == "2026-07-28" {
@@ -4552,10 +4557,10 @@ func TestServer_ClientStats_NewEraToolsCall(t *testing.T) {
 		}
 	}
 	if eraRow == nil {
-		t.Fatal("no 2026-07-28 era row found")
+		t.Fatalf("no 2026-07-28 row in %+v", stats)
 	}
 	if eraRow.ClientName != "new-client" || eraRow.ClientVersion != "3.0" {
-		t.Errorf("client = %q/%q, want new-client/3.0", eraRow.ClientName, eraRow.ClientVersion)
+		t.Errorf("new-era row = %q/%q, want new-client/3.0", eraRow.ClientName, eraRow.ClientVersion)
 	}
 }
 
@@ -4563,8 +4568,12 @@ func TestServer_ClientStats_LegacyPingUnknown(t *testing.T) {
 	s := New("1.0.0")
 	RegisterKBTools(s, setupTestKB(t), Deps{})
 
+	// A client that does not identify itself: the handshake carries no
+	// clientInfo. It can no longer simply omit the handshake — a session has
+	// to be opened before any method is served — but "connected and anonymous"
+	// is still the case this row exists to show.
 	msgs := []string{
-		`{"jsonrpc":"2.0","id":1,"method":"ping","params":{}}`,
+		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{}}}`,
 	}
 	runMCPSequence(t, s, msgs)
 
@@ -4585,12 +4594,10 @@ func TestServer_ClientStats_KeyCap(t *testing.T) {
 	s := New("1.0.0")
 	RegisterKBTools(s, k, Deps{})
 
-	msgs := make([]string, 70)
+	// 70 distinct clients — one session each — against a 64-key cap.
 	for i := 0; i < 70; i++ {
-		msgs[i] = fmt.Sprintf(`{"jsonrpc":"2.0","id":%d,"method":"initialize","params":{"protocolVersion":"2024-11-05","clientInfo":{"name":"client-%02d","version":"1.0"}}}`, i+1, i)
+		runMCPClient(t, s, fmt.Sprintf("client-%02d", i), "1.0")
 	}
-
-	runMCPSequence(t, s, msgs)
 
 	stats, overflow := s.ClientStats()
 	if len(stats) != 64 {
@@ -4606,10 +4613,7 @@ func TestServer_ClientStats_Truncation(t *testing.T) {
 	RegisterKBTools(s, setupTestKB(t), Deps{})
 
 	longName := strings.Repeat("x", 100)
-	msgs := []string{
-		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","clientInfo":{"name":"` + longName + `","version":"1.0"}}}`,
-	}
-	runMCPSequence(t, s, msgs)
+	runMCPClient(t, s, longName, "1.0")
 
 	stats, _ := s.ClientStats()
 	if len(stats) != 1 {
@@ -4649,13 +4653,11 @@ func TestServer_ClientStats_Ordering(t *testing.T) {
 	s := New("1.0.0")
 	RegisterKBTools(s, setupTestKB(t), Deps{})
 
-	// Send requests in random order to verify deterministic sorting.
-	msgs := []string{
-		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","clientInfo":{"name":"beta","version":"2.0"}}}`,
-		`{"jsonrpc":"2.0","id":2,"method":"initialize","params":{"protocolVersion":"2024-11-05","clientInfo":{"name":"alpha","version":"1.0"}}}`,
-		`{"jsonrpc":"2.0","id":3,"method":"initialize","params":{"protocolVersion":"2024-11-05","clientInfo":{"name":"alpha","version":"2.0"}}}`,
-	}
-	runMCPSequence(t, s, msgs)
+	// Three separate sessions, connecting out of order, to verify the roster
+	// sorts deterministically rather than by arrival.
+	runMCPClient(t, s, "beta", "2.0")
+	runMCPClient(t, s, "alpha", "1.0")
+	runMCPClient(t, s, "alpha", "2.0")
 
 	stats, _ := s.ClientStats()
 	if len(stats) != 3 {
@@ -4967,4 +4969,58 @@ func TestConceptMergeAndCollapse_AreAdvancedButCallable(t *testing.T) {
 			t.Errorf("%s is not registered, so it is not callable by name", name)
 		}
 	}
+}
+
+// runStdioSession drives one stdio session through run, writing each message
+// and awaiting its response, and returns the responses in order. It exists so
+// a test can choose which entry point supplies the principal (Run, which
+// installs the local admin, versus RunContext with a caller's context) while
+// sharing the session bookkeeping the SDK transport requires.
+func runStdioSession(t *testing.T, run func(io.Reader, io.Writer) error, messages []string) []Response {
+	t.Helper()
+
+	inR, inW := io.Pipe()
+	outR, outW := io.Pipe()
+	runDone := make(chan error, 1)
+	go func() { runDone <- run(inR, outW) }()
+
+	dec := json.NewDecoder(outR)
+	var responses []Response
+	for _, m := range messages {
+		if _, err := io.WriteString(inW, m+"\n"); err != nil {
+			t.Fatalf("write: %v", err)
+		}
+		var probe struct {
+			ID json.RawMessage `json:"id"`
+		}
+		if err := json.Unmarshal([]byte(m), &probe); err == nil && len(probe.ID) == 0 {
+			continue
+		}
+		type decoded struct {
+			resp Response
+			err  error
+		}
+		ch := make(chan decoded, 1)
+		go func() {
+			var resp Response
+			err := dec.Decode(&resp)
+			ch <- decoded{resp, err}
+		}()
+		select {
+		case d := <-ch:
+			if d.err != nil {
+				t.Fatalf("decode: %v", d.err)
+			}
+			responses = append(responses, d.resp)
+		case <-time.After(20 * time.Second):
+			t.Fatalf("timed out on %s", m)
+		}
+	}
+
+	inW.Close()
+	<-runDone
+	outW.Close()
+	outR.Close()
+	inR.Close()
+	return responses
 }

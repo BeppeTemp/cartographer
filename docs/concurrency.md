@@ -150,6 +150,22 @@ stored content no longer matches.
 There are no advisory per-concept leases or session locks. Concurrency safety
 comes from the KB mutex, content hashes and git conflict handling.
 
+## Search index concurrency
+
+The derived indexes are read and written by concurrent requests — under HTTP a
+`search` and a `concept_write` land on different goroutines — and they sit
+outside the writer boundary above: the KB mutex serialises the filesystem and
+git work, not the in-memory index.
+
+`search.Index` is a pair of plain maps with no synchronization of its own, so
+the `liveIndex` wrapper in `internal/mcpserver` owns that discipline. Its read
+lock is held for **the whole query**, not just long enough to load the index
+pointer: ranking walks the same maps an incremental `add`/`remove` mutates, so
+a search that ranks after releasing the lock races every concurrent write, and
+the usual symptom is a `concurrent map read and map write` panic rather than a
+stale result. The `allow` predicate a caller passes is invoked while that lock
+is held and must not call back into the same `liveIndex`.
+
 ## Operator recovery
 
 Cartographer does not promise automatic repair of arbitrary interrupted git

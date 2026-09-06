@@ -1,8 +1,12 @@
 package mcpserver
 
 import (
+	"fmt"
 	"strings"
+	"sync"
 	"testing"
+
+	"github.com/BeppeTemp/cartographer/internal/search"
 )
 
 // TestExtractSnippet_AroundMatch verifies the in-memory snippet extraction
@@ -57,4 +61,39 @@ func TestParseConceptMeta_Title(t *testing.T) {
 	if !strings.Contains(meta.Body, "Testo.") {
 		t.Errorf("expected body content preserved, got %q", meta.Body)
 	}
+}
+
+// TestLiveIndexConcurrentSearchAndWrite guards the lock discipline that keeps
+// the in-memory index safe under the HTTP transport, where search and
+// concept_write run on different goroutines. search.Index is a pair of plain
+// maps with no synchronization of its own, so a search that ranks outside
+// liveIndex's read lock races every concurrent add/remove. Run with -race:
+// before searchFiltered held the lock for the whole query, this failed with a
+// write/read race on search.Index's inverted map.
+func TestLiveIndexConcurrentSearchAndWrite(t *testing.T) {
+	live := newLiveIndex(search.New(), nil)
+	for i := 0; i < 50; i++ {
+		live.add(fmt.Sprintf("maps/seed%d", i), "---\ntitle: t\n---\nalpha beta gamma")
+	}
+
+	var wg sync.WaitGroup
+	for w := 0; w < 4; w++ {
+		wg.Add(1)
+		go func(w int) {
+			defer wg.Done()
+			for i := 0; i < 200; i++ {
+				live.add(fmt.Sprintf("maps/w%d-%d", w, i), "---\ntitle: t\n---\nalpha delta")
+			}
+		}(w)
+	}
+	for r := 0; r < 4; r++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for i := 0; i < 200; i++ {
+				live.searchFiltered("alpha", "", 10, nil)
+			}
+		}()
+	}
+	wg.Wait()
 }

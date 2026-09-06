@@ -197,9 +197,6 @@ func runGitEnv(dir string, env []string, args ...string) (string, error) {
 	return string(out), err
 }
 
-// ErrConflict signals a merge/rebase conflict.
-var ErrConflict = errors.New("merge conflict")
-
 // ErrRebaseConflict signals that a pull --rebase hit a conflict and was aborted.
 var ErrRebaseConflict = errors.New("gitx: rebase conflict")
 
@@ -286,15 +283,6 @@ func Branch(dir string) (string, error) {
 		return "", nil
 	}
 	return strings.TrimSpace(out), nil
-}
-
-// CreateBranch creates and checks out a new branch from the current HEAD.
-func CreateBranch(dir, name string) error {
-	out, err := runGit(dir, "checkout", "-b", name)
-	if err != nil {
-		return fmt.Errorf("git checkout -b %s: %w: %s", name, err, out)
-	}
-	return nil
 }
 
 // Checkout checks out an existing branch.
@@ -429,19 +417,6 @@ func PushSetUpstream(dir, remote, branch string, env ...string) error {
 	return nil
 }
 
-// Rebase rebases current branch onto target (e.g. "origin/main").
-// Returns ErrConflict if there are unresolved conflicts.
-func Rebase(dir, onto string) error {
-	out, err := runGit(dir, "rebase", onto)
-	if err != nil {
-		if strings.Contains(out, "CONFLICT") {
-			return ErrConflict
-		}
-		return fmt.Errorf("git rebase %s: %w: %s", onto, err, out)
-	}
-	return nil
-}
-
 // Rebase state kinds returned by RebaseInProgress.
 const (
 	// RebaseStateNormal: a real rebase is in progress (a head-name or todo is
@@ -485,15 +460,6 @@ func RebaseStateDir(dir string) string {
 		}
 	}
 	return ""
-}
-
-// RebaseAbort aborts an in-progress rebase.
-func RebaseAbort(dir string) error {
-	out, err := runGit(dir, "rebase", "--abort")
-	if err != nil {
-		return fmt.Errorf("git rebase --abort: %w: %s", err, out)
-	}
-	return nil
 }
 
 // ShowFile returns the contents of path at the given git ref ("git show <ref>:<path>").
@@ -692,16 +658,6 @@ func AddRemote(dir, name, url string) error {
 func BranchExists(dir, branch string) bool {
 	_, err := runGit(dir, "rev-parse", "--verify", "refs/heads/"+branch)
 	return err == nil
-}
-
-// FastForwardMerge fast-forwards the current branch to include the given branch.
-// Returns error if not a fast-forward.
-func FastForwardMerge(dir, branch string) error {
-	out, err := runGit(dir, "merge", "--ff-only", branch)
-	if err != nil {
-		return fmt.Errorf("git merge --ff-only %s: %w: %s", branch, err, out)
-	}
-	return nil
 }
 
 // StashPush stashes uncommitted changes.

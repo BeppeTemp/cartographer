@@ -432,21 +432,13 @@ func toolConflictResolve(k *kb.KB) Tool {
 
 // --- kb_status ---
 
-// capability is one gate's state plus the configuration key that controls it.
-type capability struct {
-	State   string `json:"state"`
-	Setting string `json:"setting"`
-}
-
-// KBCapabilitiesFor exposes the same capability map in the /health shape, so the
-// MCP tool and the HTTP endpoint answer the identical question from one
-// derivation (D151).
+// KBCapabilitiesFor exposes the capability map in the /health shape, so the MCP
+// tool and the HTTP endpoint answer the identical question from one derivation
+// (D151). kbCapabilities already builds KBCapability values, so this is a plain
+// alias rather than a re-copy: the two used to be distinct structs with
+// identical fields, and the copy loop between them could only ever drift.
 func KBCapabilitiesFor(k *kb.KB) map[string]KBCapability {
-	out := make(map[string]KBCapability)
-	for name, c := range kbCapabilities(k) {
-		out[name] = KBCapability{State: c.State, Setting: c.Setting}
-	}
-	return out
+	return kbCapabilities(k)
 }
 
 // kbCapabilities reports what this KB is allowed to do, from in-process state
@@ -454,7 +446,7 @@ func KBCapabilitiesFor(k *kb.KB) map[string]KBCapability {
 // (D151). No path and no secret material appears: the SOPS key is reported as
 // configured or not, plus the name of the key, so the host's layout does not leak
 // into an agent transcript.
-func kbCapabilities(k *kb.KB) map[string]capability {
+func kbCapabilities(k *kb.KB) map[string]KBCapability {
 	onOff := func(enabled bool) string {
 		if enabled {
 			return "enabled"
@@ -473,7 +465,7 @@ func kbCapabilities(k *kb.KB) map[string]capability {
 	if k.ServerGit != nil {
 		workflow = "pr"
 	}
-	return map[string]capability{
+	return map[string]KBCapability{
 		"artifact_write": {State: onOff(k.AllowArtifactWrite), Setting: "kbs[].allow_artifact_write"},
 		"secrets":        {State: onOff(k.SopsAgeKeyFile != ""), Setting: "kbs[].sops_age_key_file or sops.age_key_file"},
 		"git_sync":       {State: onOff(k.GitSync), Setting: "git.sync"},

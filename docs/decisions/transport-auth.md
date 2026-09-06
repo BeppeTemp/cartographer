@@ -103,6 +103,7 @@ the server already mitigated the issue (`GET /health` doesn't expose tool prefix
 the precondition alone (kiro + 2+ entries) — a false positive (server already prefixed) is a
 one-line stderr note, not a wrong outcome.
 
+<a id="d118"></a>
 ## D118 — Fine-grained RBAC and permission-aware retrieval
 
 **Decision.** Authorization moves from a per-KB read/write scope to a per-principal *policy*
@@ -143,6 +144,7 @@ not set explicitly, replacing an earlier warning path that logged an 8-character
 prefix. Legacy behavior is preserved end to end: a token with neither scopes nor roles is still an
 admin, and `Policy.Admin` bypasses the resolver entirely.
 
+<a id="d119"></a>
 ## D119 — Operational audit: attempt/completion pairs, checkpointed retention, offline verification
 
 **Decision.** Every `tools/call` dispatched over HTTP or stdio now appends two audit events when
@@ -208,7 +210,12 @@ provisioned multi-KB setup now reads `partial`: same underlying state, but it no
 nothing was written. `server_url` in the client config is still expected to include the `/mcp` path
 segment; `/health` is derived from it by stripping that segment, unchanged from before.
 
+<a id="d128"></a>
 ## D128 — Serve the 2026-07-28 revision alongside the handshake era
+
+*(Superseded in part by [D168](#d168): the decision to serve both eras stands, but it is
+the official SDK that implements it — the era resolution, envelope and header rules
+described below are no longer Cartographer code.)*
 
 **Decision.** The server answers both protocol generations at once and decides which one applies per
 request: a request is `2026-07-28`-era iff `params._meta.io.modelcontextprotocol/protocolVersion` is
@@ -345,6 +352,9 @@ path continues to live in `OriginGuard`, unaffected by this change. `Server.HTTP
 no `.well-known` route) and the plain `Server.ListenAndServe` are unaffected: neither is on the
 production path (`serveHTTP` always mounts through `MultiKBServer`, even for one KB) but both remain
 for direct single-KB embedding and their own tests, which this issue did not ask to remove.
+*(Superseded in part by [D166](#d166): `Server.ListenAndServe` was deleted. The "and their own
+tests" half was already untrue when written — nothing called it, in production or in tests — so the
+embedding case it was kept for had no exercised path and no user.)*
 
 ---
 
@@ -480,6 +490,7 @@ resolve to the same prefix — which was already broken, silently. `mcpEntry` ga
 so an entry can be paired with the KB facts `/health` reports for it. The client warning becomes
 quieter on correct deployments, which is the point.
 
+<a id="d153"></a>
 ## D153 — A tool prefix is the default for every mounted KB
 
 **Status: implemented (2026-08-28).** Supersedes [D102](#d102)'s default; requires
@@ -539,3 +550,145 @@ for its mixed prefixed/unprefixed phases, then gains a fourth phase that exercis
 end to end — derived prefixes on both KBs, the announcement in the log, `/health` advertising them,
 and the bare name no longer resolving. Pinning the old mode in a test is also exactly the migration
 path a real deployment takes, so the suite documents it.
+
+---
+
+<a id="d166"></a>
+## D166 — HTTP connection timeouts, and deleting three unreachable entry points
+
+**Status: implemented (2026-09-05).** Amends [D118](#d118).
+
+**Context.** Two unrelated findings from an audit of the transport, grouped because neither justifies
+a decision of its own and both are about the HTTP boundary being narrower than it looked.
+
+1. **The server had no timeouts at all.** `serveHTTP` built `&http.Server{Addr, Handler}`, whose zero
+   value leaves `ReadHeaderTimeout`, `ReadTimeout`, `WriteTimeout` and `IdleTimeout` unset — meaning
+   no deadline of any kind. A client that opens a connection and never finishes sending its request
+   headers holds a goroutine and a file descriptor until the process exits. That is the classic
+   Slowloris exhaustion, and it needs no authentication: the handshake never gets far enough to
+   present a token.
+2. **A dead pair of functions composed into a privilege escalation.** `auth.ScopesFromToken` was a
+   seam for future OAuth JWT support that unconditionally returned `nil`. `auth.ContextWithScopes`
+   turned an empty scope list into `Policy{Admin: true}` — reasonable in isolation, since "no scopes
+   configured" has always meant full access for a static token. Composed in the shape their own
+   comments invited (`ContextWithScopes(ctx, ScopesFromToken(tok))`) they authorise **any** token,
+   including an invalid one, as an admin. Neither had a caller in production or in tests.
+
+**Decision.**
+
+- **Three timeouts, not four.** `ReadHeaderTimeout: 15s` bounds the handshake, `ReadTimeout: 60s` the
+  slow-body variant, `IdleTimeout: 120s` a parked keep-alive connection. There is deliberately **no**
+  `WriteTimeout`: it bounds the whole handler, so it would also cap a legitimately slow tool call — a
+  full reindex, a git sync against a remote — and those are already bounded per operation, where the
+  budget can be set from what the operation actually does. A write deadline here would convert a slow
+  success into a truncated response, which is a worse failure than the one it prevents.
+- **Both scope functions are deleted, as a pair.** `ScopesFromToken` alone is inert; `ContextWithScopes`
+  alone is defensible. It is the pair that is dangerous, so removing one and keeping the other would
+  leave the next caller to rebuild the same composition.
+- **`Server.ListenAndServe` and `sops.DecryptAll` are deleted too.** [D132](#d132) kept the first
+  "for direct single-KB embedding and their own tests", and [D47](skills-services-secrets.md#d47)
+  named the second in the API it was extending; neither has ever had a caller in production or in a
+  test. The first was hardened with the three timeouts above before being reconsidered — which is
+  what made the argument concrete: an entry point nothing reaches still has to be kept correct on
+  every future change to the thing it wraps, and it had already drifted once by silently lacking the
+  hardening the real listener had.
+
+**Rationale.** Enforcement has lived in `TokenStore.ScopesOf` and the D118 authorizer since D118; the
+JWT seam described a design that was never built and could not be built this way — scopes extracted
+from a token are only trustworthy once the token's signature is verified, and a function taking a
+bare `string` has nothing to verify against. Keeping a stub whose failure mode is "grants admin"
+against a future that would not use it is a bad trade at any discount rate. `ScopesFromContext`
+survives: it reads the principal that `ContextWithPrincipal` actually stores, and the middleware test
+covers it.
+
+**Consequences.** A stalled or idle connection is now reaped instead of pinned for the process
+lifetime. Long-running tool calls are unaffected, since no write deadline was added — an operator who
+needs one should bound the operation, not the connection. `auth`, `mcpserver` and `sops` lose four
+exported functions in total, none of which had a caller; with them gone, `staticcheck` and
+`deadcode` both report nothing across the module. Re-embedding a single KB over HTTP now means
+building an `http.Server` at the call site, which is a handful of lines and makes the timeouts
+visible to whoever is embedding it.
+
+---
+
+<a id="d168"></a>
+## D168 — The MCP wire format comes from the official SDK
+
+**Status: implemented (2026-09-05).** Supersedes the implementation half of
+[D128](#d128) and [D133](#d133); closes the need for the plan in issue #118.
+
+**Context.** Cartographer implemented the MCP wire format itself: the JSON-RPC
+envelope, both protocol eras and the rules for telling them apart, header mirroring
+and its validation, version negotiation, the cacheable-result fields, the stdio
+read/write loop. That was defensible when it was ~340 lines against one revision. It
+stopped being defensible for two reasons at once.
+
+The first is maintenance. The specification moves, and every revision arrived as a
+diff in our code plus a diff in the byte-for-byte tests that pinned it. The second is
+that the cost had become **unpayable rather than merely high**: [D128](#d128) made the
+server answer two eras so no client would be stranded, and issue #118 — the plan to
+retire the old one — was written, implemented on a branch, and then blocked, because
+its entry condition requires every supported provider to have migrated and three of
+the four had not. The duality was ours to carry indefinitely, on someone else's
+schedule.
+
+The official [Go SDK](https://github.com/modelcontextprotocol/go-sdk) serves
+`2024-11-05` through `2026-07-28` and decides the era **per request**, from `_meta` or
+the mirror headers — which is D128's design, arrived at independently. Adopting it
+ends the duality without retiring anything and without waiting for any provider.
+
+**Decision.** The SDK carries the protocol; `internal/mcpserver/sdkbridge.go` is the
+seam. The tool registry stays the source of truth and tools are wrapped onto the SDK
+rather than defined against it, because what sits above the wire is not protocol:
+per-tool authorization ([D118](#d118)), the audit pair ([D119](#d119)), the client
+roster, the agent profile hiding advanced tools from `tools/list` while leaving them
+callable, tool-name prefixes ([D102](#d102)), and [D151](control-plane.md#d151)'s
+informative unknown-tool message. `callTool` is the single path a tool call takes,
+shared by the SDK handler, the unknown-tool middleware and the tests.
+
+Transport options are not tuning knobs: `Stateless` and `JSONResponse` reproduce the
+contract this server has always documented — every POST self-contained, no session id,
+one complete JSON response.
+
+**Rationale.** Writing the bridge over the registry rather than registering tools
+directly on an `sdk.Server` was the whole design question. Registering directly would
+have been shorter and would have put the SDK in charge of things it has no opinion
+about — a tool hidden from a listing but still callable, a canonical name distinct
+from the registered one, an unknown tool that must explain *which kind* of unknown it
+is. Those are Cartographer's rules, and a seam is what keeps a future SDK release from
+being able to change them.
+
+The dependency was the case against, and it is real: eight modules in a project whose
+convention is stdlib-first, one of which hand-writes a YAML parser to avoid a
+dependency. It is taken anyway because this is the inverse of a normal dependency —
+it is not new capability, it is the removal of an obligation to keep re-implementing a
+specification we do not control. Six modules actually enter the server build.
+
+**Consequences.** Five behaviour changes, each deliberate:
+
+- **A refusal of protocol metadata is a JSON-RPC error**, where it used to be a success
+  envelope carrying `isError`. `isError` is a `tools/call` concept and the result types
+  of `tools/list` and `server/discover` have nowhere to put it; dressing a refusal as a
+  successful *empty tool list* is precisely how one went unnoticed — an old test
+  asserted only HTTP 200 and passed while being refused. A `tools/call` refusal is
+  unchanged.
+- **stdio is a session.** The client owns the pipe and the server tears down on EOF, so
+  `echo … | cartographer serve` now races its own response; `make smoke` holds stdin
+  open. The old synchronous loop made that shortcut work by accident. Requests on one
+  session are also served concurrently now.
+- **`server/discover` is `2026-07-28`-only**, and every POST must send `Accept` naming
+  both `application/json` and `text/event-stream`. The released CLI sent neither, so
+  the client moved to the new era in the same change — issue #118's WP1, which turns
+  out to be required rather than optional.
+- **`notifications/skills/list_changed` is removed.** It was non-standard, reached only
+  stdio clients, and the SDK exposes no API for arbitrary notifications — stateless
+  HTTP has no server→client channel at all. A `Notify` that silently did nothing would
+  be worse than its absence.
+- **Client identity is per session**, agreed once at `initialize`, where it used to be
+  readable per request.
+
+`protocol.go` goes from 342 lines to 109 and `server.go` from 674 to 314; the 414-line
+suite that pinned the era machinery byte for byte is replaced by a much smaller one
+asserting only what Cartographer still owns. Issue #118 can be closed as overtaken:
+the cost it existed to remove is gone, and the removal it proposed — which would have
+stranded every un-migrated provider — is no longer necessary.

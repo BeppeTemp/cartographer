@@ -1,11 +1,11 @@
 package mcpserver
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/http"
 	"strings"
 	"sync"
 	"time"
@@ -35,22 +35,6 @@ type Tool struct {
 	// and returns a result and application error. Application errors go in
 	// the ToolResult (isError:true), not as Go errors.
 	Handler func(context.Context, json.RawMessage) (ToolResult, error)
-}
-
-// toolDescriptor is the representation exported to the client for tools/list.
-type toolDescriptor struct {
-	Name        string           `json:"name"`
-	Description string           `json:"description"`
-	InputSchema json.RawMessage  `json:"inputSchema"`
-	Annotations *toolAnnotations `json:"annotations,omitempty"`
-}
-
-// toolAnnotations carries the MCP tool annotations exposed in tools/list
-// (spec: https://modelcontextprotocol.io/ — "annotations"). Only ReadOnlyHint
-// is populated today, derived from Tool.ReadOnly (kept in sync with
-// readOnlyToolNames by TestReadOnlyToolsGolden).
-type toolAnnotations struct {
-	ReadOnlyHint bool `json:"readOnlyHint"`
 }
 
 // Server is the MCP stdio server.
@@ -101,8 +85,13 @@ type Server struct {
 	now func() time.Time
 	mu  sync.Mutex
 
-	writeMu sync.Mutex    // serializes writes to the shared encoder
-	enc     *json.Encoder // active stdio encoder; nil when not in Run (e.g. HTTP)
+	// sdkOnce/sdkSrv memoise the official-SDK server this Server is served
+	// through (D168). Built on first use, from the tools registered at mount.
+	sdkOnce sync.Once
+	sdkSrv  *sdkServerHandle
+
+	sdkHTTPOnce sync.Once
+	sdkHTTP     http.Handler
 }
 
 // authLocalContext returns a context carrying an explicit local-admin
@@ -226,15 +215,6 @@ func (s *Server) SetTransport(transport string) {
 	s.transport = transport
 }
 
-// recordRequest increments the client roster for the given request, using the
-// resolved client identity and protocol era. It is a no-op if the roster is
-// nil (defensive — never happens in practice). Guarded by s.mu.
-func (s *Server) recordRequest(req *Request) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.roster.record(req.clientName, req.clientVersion, req.protocolVersion, req.era, s.now())
-}
-
 // ClientStats returns a snapshot of the client roster: a slice of ClientStat
 // rows sorted deterministically by (ClientName, ClientVersion, ProtocolVersion,
 // Era), plus the overflow counter. The returned slice is a copy — callers may
@@ -320,163 +300,7 @@ func (s *Server) Run(reader io.Reader, writer io.Writer) error {
 // given request context (which must carry the caller's principal —
 // PrincipalFromContext returns the zero value, fail-closed, otherwise).
 func (s *Server) RunContext(ctx context.Context, reader io.Reader, writer io.Writer) error {
-	scanner := bufio.NewScanner(reader)
-	// Increase buffer for large messages.
-	scanner.Buffer(make([]byte, 1024*1024), 1024*1024)
-
-	enc := json.NewEncoder(writer)
-	enc.SetEscapeHTML(false)
-
-	// Store the encoder so Notify can push notifications on the same stream.
-	s.writeMu.Lock()
-	s.enc = enc
-	s.writeMu.Unlock()
-	defer func() {
-		s.writeMu.Lock()
-		s.enc = nil
-		s.writeMu.Unlock()
-	}()
-
-	for scanner.Scan() {
-		line := scanner.Bytes()
-		if len(strings.TrimSpace(string(line))) == 0 {
-			continue
-		}
-
-		var req Request
-		if err := json.Unmarshal(line, &req); err != nil {
-			resp := errorResponse(nil, ErrCodeParseError, "parse error: "+err.Error())
-			s.writeMu.Lock()
-			enc.Encode(resp)
-			s.writeMu.Unlock()
-			continue
-		}
-
-		if req.JSONRPC != "2.0" {
-			if !req.isNotification() {
-				resp := errorResponse(req.ID, ErrCodeInvalidRequest, "jsonrpc must be '2.0'")
-				s.writeMu.Lock()
-				enc.Encode(resp)
-				s.writeMu.Unlock()
-			}
-			continue
-		}
-
-		// Notifications do not receive a response.
-		if req.isNotification() {
-			s.handleNotification(ctx, &req)
-			continue
-		}
-
-		// IMPORTANT: do not hold writeMu across dispatch — Notify is called
-		// within the dispatch goroutine and acquires writeMu itself.
-		// Stdio is a single, already-trusted local caller: the context carries
-		// the local-admin principal, which is what audit events are attributed
-		// to (see docs/transport-auth.md).
-		resp := s.dispatch(ctx, &req)
-		s.writeMu.Lock()
-		enc.Encode(resp)
-		s.writeMu.Unlock()
-	}
-
-	if err := scanner.Err(); err != nil {
-		return fmt.Errorf("scanner: %w", err)
-	}
-	return nil
-}
-
-// handleNotification handles messages without an id (no response expected).
-func (s *Server) handleNotification(_ context.Context, req *Request) {
-	// notifications/initialized: no-op
-	// other notification methods: silently ignored
-}
-
-// Notify writes a JSON-RPC notification to the active stdio encoder. It is a no-op
-// when no stdio encoder is set (e.g. the HTTP transport), which gracefully degrades
-// push (Layer 3) to the pull-based Layers 1-2.
-func (s *Server) Notify(method string, params any) error {
-	s.writeMu.Lock()
-	defer s.writeMu.Unlock()
-	if s.enc == nil {
-		return nil
-	}
-	msg := map[string]any{"jsonrpc": "2.0", "method": method, "params": params}
-	return s.enc.Encode(msg)
-}
-
-// dispatch resolves the request's protocol era (D128), routes it, and applies
-// the era's result envelope in one place, so no handler has to know which era
-// it is answering. A handshake-era request comes out of here byte-identical to
-// what it produced before 2026-07-28 was served at all.
-func (s *Server) dispatch(ctx context.Context, req *Request) Response {
-	// The HTTP layer resolves the era itself, from the headers as well as the
-	// body; over stdio the body is all there is.
-	if !req.eraResolved {
-		if err := req.resolveEra(""); err != nil {
-			return errorResponse(req.ID, ErrCodeInvalidParams, err.Error())
-		}
-	}
-	// initialize belongs to the era it defines: a client that decorates it
-	// with 2026-07-28 _meta still gets the handshake answer it can parse.
-	if req.Method == "initialize" {
-		req.era = eraHandshake
-	}
-	if req.era == era20260728 && !IsProtocolVersionSupported(req.protocolVersion) {
-		return unsupportedVersionResponse(req.ID, req.protocolVersion)
-	}
-	return s.dispatchMethod(ctx, req).withEra(req.era, s.serverIdentity())
-}
-
-// dispatchMethod routes the request to the appropriate method. initialize,
-// ping, tools/list and server/discover are protocol metadata, not resource
-// access, but a caller with no resolvable principal must still be denied
-// (fail-closed) rather than implicitly treated as full access.
-//
-// Client roster recording: a request denied by the metadata authorize check
-// records nothing; every other request records exactly one increment. For
-// initialize, the legacy-era identity is only available after handleInitialize
-// parses clientInfo, so recording is deferred until after the handler returns.
-// For non-initialize metadata methods, recording happens right after the
-// authorize check succeeds (before routing). For non-metadata methods,
-// recording happens before routing (their handlers perform their own
-// authorization — the invariant only gates on dispatchMethod's metadata
-// authorize check).
-func (s *Server) dispatchMethod(ctx context.Context, req *Request) Response {
-	if isMetadataMethod(req.Method) {
-		if err := s.authorize(ctx, "", json.RawMessage(`{}`)); err != nil {
-			return successResponse(req.ID, errorResult(err.Error()))
-		}
-		// Non-initialize metadata methods: authorize passed, record before
-		// routing (identity is available from resolveEra or is "unknown").
-		if req.Method != "initialize" {
-			s.recordRequest(req)
-		}
-	}
-	switch req.Method {
-	case "initialize":
-		resp := s.handleInitialize(req)
-		// initialize: identity becomes available only after the handler parses
-		// clientInfo (legacy-era) or resolveEra (new-era). Record after the
-		// handler, but only if authorize already passed (above).
-		s.recordRequest(req)
-		return resp
-	case "ping":
-		return successResponse(req.ID, map[string]interface{}{})
-	case "server/discover":
-		return s.handleDiscover(req)
-	case "tools/list":
-		return s.handleToolsList(req)
-	case "tools/call":
-		// The principal attributed to an audit event (D119) is read from the
-		// context rather than passed alongside it: since D118 the authenticated
-		// principal already travels there, and a second channel could disagree
-		// with the one authorization actually used.
-		s.recordRequest(req)
-		return s.handleToolsCall(ctx, req)
-	default:
-		s.recordRequest(req)
-		return errorResponse(req.ID, ErrCodeMethodNotFound, "method not found: "+req.Method)
-	}
+	return s.sdkStdioRun(ctx, reader, writer)
 }
 
 // isMetadataMethod reports whether the method is protocol metadata rather than
@@ -487,188 +311,4 @@ func isMetadataMethod(m string) bool {
 		return true
 	}
 	return false
-}
-
-// serverIdentity is the name/version pair reported as serverInfo, by
-// initialize, by server/discover and in the 2026-07-28 result _meta. The name
-// is the display name when one is set (D102: "cartographer:<kb>" on a
-// multi-KB server), otherwise the historical bare "cartographer".
-func (s *Server) serverIdentity() map[string]interface{} {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	name := "cartographer"
-	if s.displayName != "" {
-		name = s.displayName
-	}
-	return map[string]interface{}{"name": name, "version": s.version}
-}
-
-// handleDiscover answers server/discover, the method the 2026-07-28 revision
-// puts in place of the initialize handshake: it reports what the server can
-// speak instead of agreeing on it, so nothing needs to be remembered between
-// requests. It answers in both eras — for a handshake-era client it is the
-// probe that tells it a newer era is available.
-func (s *Server) handleDiscover(req *Request) Response {
-	return successResponse(req.ID, map[string]interface{}{
-		"protocolVersions": SupportedProtocolVersions,
-		"capabilities":     serverCapabilities(),
-		"serverInfo":       s.serverIdentity(),
-	})
-}
-
-// handleInitialize handles the initial MCP negotiation.
-func (s *Server) handleInitialize(req *Request) Response {
-	// Extract the protocol version and client identity from the client.
-	var params struct {
-		ProtocolVersion string          `json:"protocolVersion"`
-		ClientInfo      json.RawMessage `json:"clientInfo"`
-	}
-	if len(req.Params) > 0 {
-		json.Unmarshal(req.Params, &params)
-	}
-	// Legacy-era initialize may carry clientInfo in the top-level params.
-	// Store it on the request only if the request does not already have a
-	// new-era identity (resolveEra already populated it).
-	if req.clientName == "" && params.ClientInfo != nil {
-		if name, version := parseClientInfo(params.ClientInfo); name != "" {
-			req.clientName = name
-			req.clientVersion = version
-		}
-	}
-
-	// Negotiation: use the requested version if provided, otherwise ours.
-	negotiated := SupportedProtocolVersion
-	if params.ProtocolVersion != "" {
-		// In M1 we accept any version provided by the client (echo).
-		// Future: validate the version and downgrade if necessary.
-		negotiated = params.ProtocolVersion
-	}
-	// Store the negotiated protocol version on the request so that
-	// recordRequest (called after handleInitialize returns) can include it
-	// in the client roster entry.
-	req.protocolVersion = negotiated
-
-	result := map[string]interface{}{
-		"protocolVersion": negotiated,
-		"capabilities":    serverCapabilities(),
-		"serverInfo":      s.serverIdentity(),
-	}
-	return successResponse(req.ID, result)
-}
-
-// handleToolsList responds with the list of registered tools.
-func (s *Server) handleToolsList(req *Request) Response {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	descriptors := make([]toolDescriptor, 0, len(s.toolsOrd))
-	for _, name := range s.toolsOrd {
-		if s.agentProfile && ToolAdvanced(s.stripToolPrefixLocked(name)) {
-			continue
-		}
-		t := s.tools[name]
-		schema := t.InputSchema
-		if schema == nil {
-			schema = json.RawMessage(`{"type":"object","properties":{}}`)
-		}
-		var annotations *toolAnnotations
-		if t.ReadOnly {
-			annotations = &toolAnnotations{ReadOnlyHint: true}
-		}
-		descriptors = append(descriptors, toolDescriptor{
-			Name:        t.Name,
-			Description: t.Description,
-			InputSchema: schema,
-			Annotations: annotations,
-		})
-	}
-	result := map[string]interface{}{"tools": descriptors}
-	if req.era == era20260728 {
-		// CacheableResult (D128). The scope is "private" and not negotiable:
-		// this list already depends on the caller — the agent profile hides
-		// advanced tools (above) and a scoped token sees only its own KB's
-		// tools — so an intermediary that cached one principal's list and
-		// served it to another would be handing out a wrong, possibly wider,
-		// tool set. The TTL is short for the same reason it is not zero: a
-		// skill install or an artifact write can change the list at any time,
-		// and the client is told about that by notification anyway.
-		result["ttlMs"] = toolsListTTLMillis
-		result["cacheScope"] = "private"
-	}
-	return successResponse(req.ID, result)
-}
-
-// toolsListTTLMillis is the cache lifetime advertised for tools/list results
-// in the 2026-07-28 era.
-const toolsListTTLMillis = 60_000
-
-// handleToolsCall routes the call to the correct tool. Authorization runs
-// before the handler for every call — a denial never reaches tool logic — and
-// an attempt+completion audit event pair is recorded around the dispatch (on
-// authorization failure, via auditDenied; on dispatch, via beginAuditCall/end)
-// when an audit sink is attached (SetAuditLog, D119/D132; see audit.go).
-func (s *Server) handleToolsCall(ctx context.Context, req *Request) Response {
-	var params struct {
-		Name      string          `json:"name"`
-		Arguments json.RawMessage `json:"arguments"`
-	}
-	if err := json.Unmarshal(req.Params, &params); err != nil {
-		return errorResponse(req.ID, ErrCodeInvalidParams, "invalid params: "+err.Error())
-	}
-
-	s.mu.Lock()
-	tool, ok := s.tools[params.Name]
-	s.mu.Unlock()
-
-	args := params.Arguments
-	if args == nil {
-		args = json.RawMessage(`{}`)
-	}
-
-	canonicalName := s.StripToolPrefix(params.Name)
-	externalName := ""
-	if canonicalName != params.Name {
-		externalName = params.Name
-	}
-	principal := auth.PrincipalFromContext(ctx).ID
-
-	if err := s.authorize(ctx, canonicalName, args); err != nil {
-		// D119/D132: a denial is audited here, at the point the decision
-		// actually happens — before this returned early and the call below
-		// (which records success/failure of the dispatched tool) never ran.
-		s.auditDenied(principal, params.Name, args)
-		return successResponse(req.ID, errorResult(err.Error()))
-	}
-
-	if !ok {
-		// Unknown tool: never resolve/record arguments for a tool this server
-		// has no allow-list entry for; the outcome itself names the case.
-		// A name this build knows but did not register is a different case, and
-		// only the server can tell them apart — a client sees one message for
-		// "not registered", "hidden by profile" and "absent from this build"
-		// (D151), which is how a documented capability stayed unfound.
-		result := errorResult(unknownToolMessage(canonicalName))
-		call, rejected, ok := s.beginAuditCall(principal, canonicalName, externalName, false, nil)
-		if !ok {
-			return successResponse(req.ID, rejected)
-		}
-		call.end(s, audit.OutcomeUnknownTool, result)
-		return successResponse(req.ID, result)
-	}
-
-	resources := extractResources(canonicalName, args)
-	call, rejected, ok := s.beginAuditCall(principal, canonicalName, externalName, tool.ReadOnly, resources)
-	if !ok {
-		// Required mode, attempt-phase append failed: reject before the tool
-		// ever runs — see beginAuditCall.
-		return successResponse(req.ID, rejected)
-	}
-
-	result, err := tool.Handler(ctx, args)
-	call.end(s, classifyOutcome(result, err), result)
-	if err != nil {
-		// Internal server error (not an application error): return isError in the result.
-		return successResponse(req.ID, errorResult("internal error: "+err.Error()))
-	}
-	return successResponse(req.ID, result)
 }

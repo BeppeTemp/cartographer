@@ -95,11 +95,6 @@ func (ix *Index) Close() error {
 	return ix.db.Close()
 }
 
-// Path returns the filesystem path of the SQLite database.
-func (ix *Index) Path() string {
-	return ix.path
-}
-
 // Upsert inserts or updates a concept's content in both the concepts table and
 // the FTS5 index.
 func (ix *Index) Upsert(id, contentHash, body string) error {
@@ -167,6 +162,20 @@ func sanitizeFTSQuery(q string) string {
 		return `"` + clean + `"`
 	}
 	return `"` + strings.Join(tokens, `" AND "`) + `"`
+}
+
+// likePrefixPattern builds the LIKE pattern matching exactly the IDs that
+// start with scope. SQL LIKE treats "%" and "_" as wildcards, and concept IDs
+// are file paths, where "_" is ordinary and common ("maps/cert_rotation"): an
+// unescaped scope of "maps_a/" also matches "mapsXa/", so the SQL backend
+// disagreed with the in-memory index, which uses strings.HasPrefix. The
+// mismatch does not leak data — the search tool re-filters by prefix — but the
+// stray rows are counted against the caller's LIMIT before that filter runs,
+// silently shortening the result page. The pattern is paired with an explicit
+// ESCAPE clause at every call site.
+func likePrefixPattern(scope string) string {
+	r := strings.NewReplacer(`\`, `\\`, "%", `\%`, "_", `\_`)
+	return r.Replace(scope) + "%"
 }
 
 // ftsTokens returns query terms accepted by FTS5's trigram tokenizer.
@@ -261,10 +270,10 @@ func (ix *Index) searchFTSPage(query, scope string, limit, offset int) ([]Hit, e
 			        snippet(concepts_fts, 1, '', '', '…', ?) AS snip
 			 FROM concepts_fts
 			 JOIN concepts c ON c.id = concepts_fts.id
-			 WHERE concepts_fts MATCH ? AND c.id LIKE ?
+			 WHERE concepts_fts MATCH ? AND c.id LIKE ? ESCAPE '\'
 			 ORDER BY score DESC, c.id
 			 LIMIT ? OFFSET ?`,
-			ftsSnippetTokens, query, scope+"%", limit, offset,
+			ftsSnippetTokens, query, likePrefixPattern(scope), limit, offset,
 		)
 	} else {
 		rows, err = ix.db.Query(

@@ -91,6 +91,10 @@ type MCPClient struct {
 	Token     string // bearer token, empty = no Authorization header
 	KB        string // optional KB name; appended as ?kb=<KB> (multi-KB server routing, see httpserver.go)
 	HTTP      *http.Client
+	// Version identifies this client build in the server's roster. Empty is
+	// reported as "unknown" rather than refused: a roster row with no version
+	// is still useful, and a missing build stamp must not stop a sync.
+	Version string
 }
 
 // Health is the additive subset of the server's /health response that clients
@@ -207,6 +211,52 @@ type toolResult struct {
 	IsError bool `json:"isError"`
 }
 
+// ProtocolVersion is the MCP revision this client speaks. It is sent on every
+// request, in the body's _meta and mirrored in the headers, rather than agreed
+// once in a handshake: 2026-07-28 removed initialize, and a stateless server
+// decides per request.
+const ProtocolVersion = "2026-07-28"
+
+// Reserved _meta keys defined by the revision. They carry a slash, so they can
+// never collide with an application key.
+const (
+	metaProtocolVersion    = "io.modelcontextprotocol/protocolVersion"
+	metaClientInfo         = "io.modelcontextprotocol/clientInfo"
+	metaClientCapabilities = "io.modelcontextprotocol/clientCapabilities"
+)
+
+// clientName identifies this client in the server's roster.
+const clientName = "cartographer"
+
+// clientVersion is the build stamp reported to the server, or "unknown".
+func (c *MCPClient) clientVersion() string {
+	if c.Version == "" {
+		return "unknown"
+	}
+	return c.Version
+}
+
+// withProtocolMeta returns params with the revision's reserved _meta keys
+// merged in. params is left untouched: callers build plain maps and should not
+// have to know the protocol decorates them.
+func (c *MCPClient) withProtocolMeta(params any) any {
+	meta := map[string]any{
+		metaProtocolVersion: ProtocolVersion,
+		metaClientInfo:      map[string]any{"name": clientName, "version": c.clientVersion()},
+		// This client implements no optional capability.
+		metaClientCapabilities: map[string]any{},
+	}
+	merged := map[string]any{"_meta": meta}
+	if m, ok := params.(map[string]any); ok {
+		for k, v := range m {
+			if k != "_meta" {
+				merged[k] = v
+			}
+		}
+	}
+	return merged
+}
+
 // do sends a single JSON-RPC 2.0 request and returns the raw "result" field.
 func (c *MCPClient) do(method string, params any) (json.RawMessage, error) {
 	reqURL, err := c.requestURL()
@@ -214,7 +264,7 @@ func (c *MCPClient) do(method string, params any) (json.RawMessage, error) {
 		return nil, err
 	}
 
-	body, err := json.Marshal(rpcRequest{JSONRPC: "2.0", ID: 1, Method: method, Params: params})
+	body, err := json.Marshal(rpcRequest{JSONRPC: "2.0", ID: 1, Method: method, Params: c.withProtocolMeta(params)})
 	if err != nil {
 		return nil, fmt.Errorf("client: marshal request: %w", err)
 	}
@@ -224,6 +274,27 @@ func (c *MCPClient) do(method string, params any) (json.RawMessage, error) {
 		return nil, fmt.Errorf("client: build request: %w", err)
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
+	// Both media types are required by the Streamable HTTP transport, and a
+	// request missing either is refused before it reaches a handler. This
+	// client never parses an event stream — Cartographer's server always
+	// answers with a complete JSON response — but it must still declare that
+	// it would accept one.
+	httpReq.Header.Set("Accept", "application/json, text/event-stream")
+	// The revision mirrors these fields in headers so an intermediary can route
+	// without parsing the body; the server validates them against it.
+	httpReq.Header.Set("MCP-Protocol-Version", ProtocolVersion)
+	httpReq.Header.Set("Mcp-Method", method)
+	if method == "tools/call" {
+		if m, ok := params.(map[string]any); ok {
+			if name, ok := m["name"].(string); ok {
+				// Tool names are ASCII by construction (registry names and the
+				// "<prefix>__<tool>" form), so the plain header form always
+				// applies and the RFC 2047 "=?base64?…?=" sentinel is never
+				// needed. A future non-ASCII name would have to encode here.
+				httpReq.Header.Set("Mcp-Name", name)
+			}
+		}
+	}
 	if c.Token != "" {
 		httpReq.Header.Set("Authorization", "Bearer "+c.Token)
 	}
@@ -284,9 +355,9 @@ func (c *MCPClient) do(method string, params any) (json.RawMessage, error) {
 // instead of hanging. Returns nil on success, ErrUnauthorized on HTTP 401, or
 // the underlying network/timeout error otherwise.
 //
-// The request itself stays handshake-era — no _meta, no mirror headers — since
-// the server serves both eras and moving the client only pays off once the
-// handshake era is retired (deferred, see D128).
+// The request carries the 2026-07-28 metadata like every other: server/discover
+// only exists in that revision, so a handshake-era request naming it is an
+// unknown method.
 func (c *MCPClient) Ping(timeout time.Duration) error {
 	cp := *c
 	hc := *c.HTTP
