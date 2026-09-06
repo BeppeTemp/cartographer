@@ -8,6 +8,17 @@
 
 KB histories with commits authored as `cartographer <cartographer@localhost>` may need a manual author rewrite before a forge with author push rules accepts the first push.
 
+## [0.10.0](https://github.com/BeppeTemp/cartographer/compare/v0.9.0...v0.10.0) (2026-09-06)
+
+
+### ⚠ BREAKING CHANGES
+
+* clients must be upgraded before the server. The released v0.9.0 CLI stops working against this server for two independent reasons: the SDK's Streamable HTTP transport rejects a POST whose Accept header does not name both application/json and text/event-stream (the old client sends no Accept at all), and server/discover — which the client's control plane uses for status and sync — exists only in the 2026-07-28 era and answers -32601 to a handshake-era request. The new client against a v0.9.0 server was verified working, so upgrading clients first is safe; the reverse order is not. Also removed: the non-standard notifications/skills/list_changed. stdio is now a session and the server tears down on EOF, so `echo … | cartographer serve` races its own response; hold stdin open instead.
+
+### Features
+
+* serve MCP through the official Go SDK, after a full-repository audit ([#204](https://github.com/BeppeTemp/cartographer/issues/204)) ([bf9ce31](https://github.com/BeppeTemp/cartographer/commit/bf9ce317b6d2a3fcde15113dbef05452ebc872b4))
+
 ## [0.9.0](https://github.com/BeppeTemp/cartographer/compare/v0.8.3...v0.9.0) (2026-08-28)
 
 
