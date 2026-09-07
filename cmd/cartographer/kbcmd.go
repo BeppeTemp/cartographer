@@ -58,8 +58,10 @@ func cmdKB(args []string) int {
 		return cmdKBClone(rest)
 	case "list":
 		return cmdKBList(rest)
+	case "rename":
+		return cmdKBRename(rest)
 	default:
-		fmt.Fprintln(os.Stderr, "Error: usage: cartographer kb create <name> (--remote <url> | --no-remote) [--data <dir>] [--restart]\n       cartographer kb clone <remote> [name] [--data <dir>] [--timeout <d>] [--restart]\n       cartographer kb list [--data <dir>] [--config <path>]")
+		fmt.Fprintln(os.Stderr, "Error: usage: cartographer kb create <name> (--remote <url> | --no-remote) [--data <dir>] [--restart]\n       cartographer kb clone <remote> [name] [--data <dir>] [--timeout <d>] [--restart]\n       cartographer kb list [--data <dir>] [--config <path>]\n       cartographer kb rename <old> <new> [--data <dir>] [--config <path>] [--restart]")
 		return 2
 	}
 }
