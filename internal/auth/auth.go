@@ -107,9 +107,14 @@ func matchesSelector(values []string, value string) bool {
 }
 
 // TokenStore manages valid bearer tokens stored as SHA-256 hashes, each mapped
-// to its per-KB scopes. A nil or empty scope list means full access (admin):
-// the token is not restricted to any KB.
-type TokenStore struct{ hashes map[string]Principal }
+// to the immutable policy it grants. Unrestricted access is declared by the
+// caller (Policy.Admin), never inferred from an empty policy (D179).
+type TokenStore struct {
+	hashes map[string]Principal
+	// required is set by RequireAuth for a deployment that configured
+	// authentication: such a store enforces even when empty (D179).
+	required bool
+}
 
 // ScopedToken pairs a plaintext bearer token with the KB scopes it grants.
 type ScopedToken struct {
@@ -119,19 +124,27 @@ type ScopedToken struct {
 	Policy    Policy
 }
 
-// NewTokenStore creates a token store from plain token strings, each granted full
-// access (nil scopes). If tokens is nil or empty, auth is disabled.
+// NewTokenStore creates a token store from plain token strings, each granted
+// full access. If tokens is nil or empty, auth is disabled.
+//
+// Admin is set explicitly rather than inferred from an empty permission set
+// (D179): a bare token string IS the declaration of an unrestricted token, and
+// stating it here is what lets the store refuse to invent that intent for
+// anyone else.
 func NewTokenStore(tokens []string) *TokenStore {
 	scoped := make([]ScopedToken, 0, len(tokens))
 	for _, t := range tokens {
-		scoped = append(scoped, ScopedToken{Token: t})
+		scoped = append(scoped, ScopedToken{Token: t, Policy: Policy{Admin: true}})
 	}
 	return NewScopedTokenStore(scoped)
 }
 
 // NewScopedTokenStore creates a token store where each token carries its own
-// per-KB scopes. A token with nil/empty Scopes has full access. If tokens is
-// nil or empty, auth is disabled.
+// policy: role-derived permissions, legacy per-KB scopes, or an explicit
+// Policy.Admin. A token whose policy ends up empty grants NOTHING — see the
+// comment inside. Entries with an empty token value are skipped; a caller that
+// requires authentication must mark the store with RequireAuth so an empty
+// result fails closed rather than disabling enforcement.
 func NewScopedTokenStore(tokens []ScopedToken) *TokenStore {
 	ts := &TokenStore{hashes: make(map[string]Principal)}
 	for _, st := range tokens {
@@ -145,11 +158,13 @@ func NewScopedTokenStore(tokens []ScopedToken) *TokenStore {
 				for _, scope := range st.Scopes {
 					policy.Permissions = append(policy.Permissions, Permission{KB: scope.KB, Write: scope.Write})
 				}
-				// A token that carries neither scopes nor permissions is the
-				// pre-scopes admin token: preserve its historical full access.
-				if len(policy.Permissions) == 0 {
-					policy.Admin = true
-				}
+				// Deliberately NOT promoted to admin when the result is empty
+				// (D179). "The operator declared no restriction" and "every
+				// restriction the operator declared failed to parse" both
+				// arrive here as an empty permission set, and inferring admin
+				// from that turned a scope typo into unrestricted access.
+				// The legacy pre-scopes admin token is now declared by its
+				// caller setting Policy.Admin explicitly.
 			}
 			id := st.Principal
 			if id == "" {
@@ -161,9 +176,29 @@ func NewScopedTokenStore(tokens []ScopedToken) *TokenStore {
 	return ts
 }
 
-// IsEnabled returns true if authentication is required.
+// IsEnabled returns true if authentication is enforced for requests.
+//
+// A store built by RequireAuth enforces even when it holds no token, so that a
+// configuration which asked for authentication and produced no usable
+// credential fails closed instead of serving every request as a local admin
+// (D179).
 func (ts *TokenStore) IsEnabled() bool {
-	return len(ts.hashes) > 0
+	return ts.required || len(ts.hashes) > 0
+}
+
+// TokenCount reports how many usable tokens the store holds — the count AFTER
+// unusable entries were dropped, which is the number a caller must check
+// against its own expectations rather than the number of configured records.
+func (ts *TokenStore) TokenCount() int { return len(ts.hashes) }
+
+// RequireAuth marks the store as enforcing regardless of how many tokens it
+// holds. serve calls it whenever auth resolved to "on", so the decision to
+// enforce is carried explicitly instead of being re-derived from the token
+// count — the two disagreed, because the count that gated the decision was of
+// configured records while the store had already dropped the unusable ones.
+func (ts *TokenStore) RequireAuth() *TokenStore {
+	ts.required = true
+	return ts
 }
 
 // Validate checks if the given token is valid. The returned ID is never
@@ -311,23 +346,57 @@ type KBScope struct {
 
 // ParseScopes parses a scope string like "kb:docs:rw kb:notes:r" (or
 // ";"-separated, e.g. "kb:docs:rw;kb:notes:r") into KBScope entries.
+//
+// Malformed components are skipped. That is tolerable ONLY because every
+// configuration path validates with ParseScopesStrict first (D179): on its own,
+// silently dropping a component makes a typo indistinguishable from an absent
+// restriction, and a token whose every restriction vanished used to be read as
+// an unrestricted legacy admin.
 func ParseScopes(scope string) []KBScope {
-	var out []KBScope
+	out, _ := parseScopes(scope)
+	return out
+}
+
+// ParseScopesStrict parses scope and rejects anything ParseScopes would have
+// discarded, naming the offending component. It never includes the whole input
+// in the error: a scope field is a place credentials get pasted by mistake, and
+// a startup error is a place they must not appear.
+func ParseScopesStrict(scope string) ([]KBScope, error) {
+	out, bad := parseScopes(scope)
+	if len(bad) > 0 {
+		return nil, fmt.Errorf("invalid scope %q: want kb:<name>:r|rw", bad[0])
+	}
+	if len(out) == 0 {
+		return nil, fmt.Errorf("no scope declared: want kb:<name>:r|rw")
+	}
+	return out, nil
+}
+
+// parseScopes splits scope and reports both the components it understood and
+// the ones it did not, so the tolerant and strict entry points cannot disagree
+// about the grammar.
+func parseScopes(scope string) (parsed []KBScope, malformed []string) {
 	for _, part := range strings.FieldsFunc(scope, func(r rune) bool {
 		return unicode.IsSpace(r) || r == ';'
 	}) {
 		// expected format: kb:<name>:<r|rw>
 		segs := strings.SplitN(part, ":", 3)
 		if len(segs) != 3 || segs[0] != "kb" || segs[1] == "" {
+			malformed = append(malformed, part)
 			continue
 		}
-		ks := KBScope{KB: segs[1]}
-		if segs[2] == "rw" {
-			ks.Write = true
+		switch segs[2] {
+		case "r":
+			parsed = append(parsed, KBScope{KB: segs[1]})
+		case "rw":
+			parsed = append(parsed, KBScope{KB: segs[1], Write: true})
+		default:
+			// An unknown access value ("write", "*", "") is not read access:
+			// reading it as one grants something nobody wrote.
+			malformed = append(malformed, part)
 		}
-		out = append(out, ks)
 	}
-	return out
+	return parsed, malformed
 }
 
 // HasAccess checks if the scopes include at least read (or write) access to the given KB.

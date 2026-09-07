@@ -351,3 +351,117 @@ func TestPolicyAndPrincipalCopiesCannotBeMutated(t *testing.T) {
 		t.Fatal("PrincipalFromContext returned mutable context state")
 	}
 }
+
+// --- D179: invalid auth configuration must not widen access ---
+
+func TestParseScopesStrictRejectsWhatParseScopesDiscards(t *testing.T) {
+	cases := []struct {
+		name  string
+		scope string
+		ok    bool
+	}{
+		{"read", "kb:finance:r", true},
+		{"write", "kb:finance:rw", true},
+		{"several", "kb:a:r kb:b:rw", true},
+		{"missing access segment", "kb:finance", false},
+		{"unknown access value", "kb:finance:write", false},
+		{"empty access value", "kb:finance:", false},
+		{"empty kb name", "kb::r", false},
+		{"wrong prefix", "db:finance:r", false},
+		{"empty string", "", false},
+		{"one valid one not", "kb:a:r kb:b", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := ParseScopesStrict(tc.scope)
+			if (err == nil) != tc.ok {
+				t.Errorf("ParseScopesStrict(%q) err = %v, want ok=%v", tc.scope, err, tc.ok)
+			}
+		})
+	}
+}
+
+// TestParseScopesUnknownAccessIsNotRead: "kb:x:write" used to be read access.
+// Granting something nobody wrote is the same class of bug as granting
+// everything.
+func TestParseScopesUnknownAccessIsNotRead(t *testing.T) {
+	if got := ParseScopes("kb:finance:write"); len(got) != 0 {
+		t.Errorf("ParseScopes = %+v, want nothing for an unknown access value", got)
+	}
+}
+
+// TestEmptyPolicyIsNotAdmin is the core regression: a token whose declared
+// restrictions produced no permission grants NOTHING. Before D179 it was
+// promoted to a legacy admin, so `scopes: ["kb:finance"]` — a typo — meant full
+// access to every KB.
+func TestEmptyPolicyIsNotAdmin(t *testing.T) {
+	ts := NewScopedTokenStore([]ScopedToken{{
+		Token:  "secret-token",
+		Scopes: ParseScopes("kb:finance"), // malformed: yields nothing
+	}})
+	p, ok := ts.PrincipalOf("secret-token")
+	if !ok {
+		t.Fatal("token not found")
+	}
+	if p.Policy.Admin {
+		t.Fatal("a token whose scopes all failed to parse was promoted to admin")
+	}
+	if p.Policy.Allows("finance", "", "", "", false) {
+		t.Error("the empty policy granted read access")
+	}
+}
+
+// TestDeclaredAdminStillWorks: the legacy pre-scopes token keeps full access —
+// it is now declared by the caller rather than inferred from emptiness.
+func TestDeclaredAdminStillWorks(t *testing.T) {
+	ts := NewTokenStore([]string{"legacy-token"})
+	p, ok := ts.PrincipalOf("legacy-token")
+	if !ok {
+		t.Fatal("token not found")
+	}
+	if !p.Policy.Admin {
+		t.Error("a bare token string must remain an unrestricted admin token")
+	}
+}
+
+// TestRequireAuthFailsClosedOnEmptyStore: a deployment that asked for
+// authentication and ended up with no usable token must reject requests, not
+// serve them as a local admin.
+func TestRequireAuthFailsClosedOnEmptyStore(t *testing.T) {
+	ts := NewScopedTokenStore(nil).RequireAuth()
+	if !ts.IsEnabled() {
+		t.Fatal("a required store must report itself enabled even when empty")
+	}
+
+	var reached bool
+	h := ts.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		reached = true
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/mcp", nil))
+	if reached {
+		t.Error("an unauthenticated request reached the handler")
+	}
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("status = %d, want 401", rec.Code)
+	}
+
+	// Liveness must stay reachable: a probe is not a bypass.
+	reached = false
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/health", nil))
+	if !reached {
+		t.Error("/health must stay public so probes keep working")
+	}
+}
+
+// TestUnrequiredEmptyStoreStillDisablesAuth: the auth-off path is unchanged —
+// enforcement is only forced when a caller explicitly required it.
+func TestUnrequiredEmptyStoreStillDisablesAuth(t *testing.T) {
+	ts := NewTokenStore(nil)
+	if ts.IsEnabled() {
+		t.Error("an empty store with no requirement must leave auth disabled")
+	}
+}
