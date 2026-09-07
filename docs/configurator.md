@@ -211,14 +211,22 @@ Re-runs `sync_pull` and reapplies the manifest for every connected provider: mat
 add/update, prunes obsolete artifacts, updates the lockfile. Idempotent.
 
 ```bash
-cartographer sync [--auto-trust] [--dry-run] [--no-heal]
+cartographer sync [--client <provider>]... [--auto-trust] [--dry-run] [--no-heal]
 ```
 
 | Flag | Default | Effect |
 |---|---|---|
+| `--client` | *(all)* | Syncs only this provider (repeatable). A provider left out is not touched at all: not its MCP entries, not its artifacts, not its lockfile entry |
 | `--dry-run` | `false` | Prints without writing |
 | `--auto-trust` | `false` | Also treats KB skills as trusted (unsigned) |
 | `--no-heal` | `false` | Reports managed artifacts that diverged on disk instead of restoring them from the server (D139) |
+
+Each provider receives only the KBs bound to it (§`cartographer client`), so the
+manifest — and therefore the revision — differs per provider. When every targeted
+provider agrees, `sync` prints one `synced to revision <r>` line as before;
+when bindings made them diverge it prints one line per provider instead, rather
+than implying an agreement that does not exist. See [`sync.md`](sync.md)
+§Per-provider projection.
 
 Every sync verifies the managed files on disk, not just the manifest revision, and restores what
 was edited or deleted locally — the restore is reported on its own line, because it discards
@@ -314,6 +322,7 @@ The checks:
 | `capability` | every per-KB gate the server advertises on `/health` is on, and no KB was mounted by discovery rather than by a `kbs[]` entry (D151). Info severity: it names the setting that would change it |
 | `symlink` | no managed destination directory is a symlink — provisioning refuses to write through one, so the artifacts it would hold are not installed (D148) |
 | `kb-collisions` | no two KBs bound to the same provider claim one `kind`+`name` (D171). `sync` refuses outright when they do, so a machine that has not synced since the binding changed would otherwise show no symptom. Silent when the server is unreachable |
+| `unbound-residue` | no managed file comes from a KB no longer bound to the provider holding it (D170) — a projection predating an unbind, or a hand-edited lockfile. Only for providers with an explicit binding; a file with no recorded source (a lockfile written before D170) is unknown, not wrong, and never reported |
 
 **Severities.** `error` — something is broken now (a managed file missing, a hook firing twice);
 `warning` — something is stale or suboptimal (v1 lockfile, no trigger for a hook-less provider, a
@@ -712,7 +721,22 @@ global mode — an operator who wants it everywhere declares a binding per
 provider.
 
 `bind`, `unbind` and `reset` save the configuration and stop: they never
-trigger a sync, and print `run cartographer sync to apply`.
+trigger a sync, and print `run cartographer sync to apply`. `bind` also warns,
+best-effort, when the new binding creates a cross-KB collision (D171); an
+unreachable server makes that check skipped, never a failed command.
+
+The binding governs the whole projection, not just artifacts: a provider's MCP
+entries are emitted for its bound KBs only. Two rules there are easy to get
+wrong and are pinned by tests — the entry **shape** comes from what the server
+mounts (a bare `/mcp` auto-routes only when the server mounts exactly one KB, so
+a client bound to one of four still needs `?kb=`), while the entry **set** comes
+from the binding; and entry *removal* is driven by the union of every known KB,
+never by a provider's filtered list, or an unbound KB's entry would be orphaned
+forever.
+
+`cartographer status` shows each provider's bound KBs and the origin of that
+answer, plus a per-KB breakdown of what it currently holds, read from the
+lockfile's recorded source.
 
 `status` and `sync` read this file (via `internal/clientconfig`): without `.cartographer.yaml` they
 fail with exit 2, suggesting `connect` first (`cartographer resolve` is the exception:
