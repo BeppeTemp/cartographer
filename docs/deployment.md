@@ -510,13 +510,25 @@ to stderr. It does not expose Prometheus metrics or derive token/queue/search
 SLIs from the audit file; the audit log is evidence for compliance review
 (`cartographer audit verify|export`), not a metrics source.
 
-**Liveness vs readiness (D84)**: `/health` is liveness — `status:"ok"` unconditionally (a probe that
-restarted the process on `status != "ok"` must never fire from a KB-mounting issue); it also carries
-a `ready: <bool>` field (single-KB server: always `true`; MultiKB: `len(kbs) > 0`) for callers that
-want both signals from one request. `/ready` is the dedicated readiness endpoint: `200
-{"ready":true}` once at least one KB is mounted, `503 {"ready":false,"kbs":0}` otherwise (e.g. a
-fresh local install with an empty data dir, §Cold start). Point k8s
+**Liveness vs readiness (D84, D119, D176)**: `/health` is liveness — `status:"ok"` unconditionally (a
+probe that restarted the process on `status != "ok"` must never fire from a KB-mounting issue); it
+also carries a `ready: <bool>` field for callers that want both signals from one request. `/ready`
+is the dedicated readiness endpoint: `200 {"ready":true}`, or `503` otherwise. Point k8s
 `livenessProbe` at `/health` and `readinessProbe` at `/ready`.
+
+Two things make a server not ready, and both are reported by either endpoint:
+
+- **no KB mounted** — e.g. a fresh local install with an empty data dir (§Cold start):
+  `503 {"ready":false,"kbs":0}`;
+- **a required-mode audit sink that is unhealthy** (D119) — the server will reject every
+  required-mode call, so readiness fails *before* the next one is refused rather than after.
+  The response names the affected KBs (`"degraded":["<kb>",…]`), and `/health` carries each KB's
+  audit state under `kbs[].audit`, because a single boolean says something is wrong and nothing
+  about where to look.
+
+The audit gate applies on the HTTP path whatever the KB count: `serve` builds a multi-KB server even
+for one mounted KB, so a single-KB HTTP deployment is gated exactly like a multi-KB one (D176). A
+deployment with no audit sink, or one in `best_effort` mode, is unaffected.
 
 **Connected clients (D129)**: `GET /clients` reports which clients have talked to this process,
 with their self-reported name and version, the protocol version and era, a request count and a

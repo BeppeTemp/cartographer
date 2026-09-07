@@ -46,6 +46,12 @@ func (s *Server) auditState() *audit.State {
 	return &st
 }
 
+// auditGate is the one rule both the single-KB and multi-KB readiness paths
+// apply (D119/D176): no sink contributes nothing, an unhealthy required-mode
+// sink makes the server not ready. Shared because two implementations of one
+// readiness rule is how they drifted apart in the first place.
+func auditGate(st *audit.State) bool { return st == nil || st.Ready }
+
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -53,16 +59,17 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	ready := true // a single-KB server always has its one KB mounted
+	// A single-KB server always has its one KB mounted; only the audit gate
+	// can make it not ready.
+	st := s.auditState()
 	result := map[string]interface{}{
 		"status":  "ok",
 		"version": s.version,
 	}
-	if st := s.auditState(); st != nil {
+	if st != nil {
 		result["audit"] = st
-		ready = ready && st.Ready
 	}
-	result["ready"] = ready
+	result["ready"] = auditGate(st)
 	json.NewEncoder(w).Encode(result)
 }
 
@@ -76,10 +83,10 @@ func (s *Server) handleReady(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	ready := true
+	st := s.auditState()
+	ready := auditGate(st)
 	var auditInfo interface{}
-	if st := s.auditState(); st != nil {
-		ready = st.Ready
+	if st != nil {
 		auditInfo = st
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -135,6 +142,10 @@ type KBInfo struct {
 	// `cartographer doctor` can report a capability that is off without a
 	// session: a client otherwise has no way to ask.
 	Capabilities map[string]KBCapability `json:"capabilities,omitempty"`
+	// Audit is this KB's audit-sink state when one is attached (D119/D176).
+	// Omitted when there is no sink. Reported per KB rather than folded into a
+	// single boolean so an operator knows where to look.
+	Audit interface{} `json:"audit,omitempty"`
 }
 
 // KBCapability is one gate's state plus the configuration key controlling it.
@@ -148,6 +159,39 @@ type MultiKBServer struct {
 	servers map[string]*Server // one MCP server per KB
 	kbs     []KBInfo
 	version string
+}
+
+// readiness folds every mounted KB's audit state into one verdict, and returns
+// the per-KB view alongside it (D176).
+//
+// Readiness gates on a required-mode audit sink (D119) so an operator — or a
+// readinessProbe — notices before the next required-mode call is rejected. The
+// single-KB handlers did that; this one did not, and serveHTTP builds a
+// MultiKBServer unconditionally, so on the HTTP path the audit-aware code was
+// unreachable and a server that would refuse every write reported itself ready.
+//
+// Any degraded KB makes the process not ready: a probe must pick one answer,
+// and the conservative one is the only safe choice.
+func (m *MultiKBServer) readiness() (ready bool, kbs []KBInfo, degraded []string) {
+	ready = len(m.servers) > 0
+	kbs = make([]KBInfo, len(m.kbs))
+	copy(kbs, m.kbs)
+	for i := range kbs {
+		srv, ok := m.servers[kbs[i].Name]
+		if !ok {
+			continue
+		}
+		st := srv.auditState()
+		if st == nil {
+			continue
+		}
+		kbs[i].Audit = st
+		if !auditGate(st) {
+			ready = false
+			degraded = append(degraded, kbs[i].Name)
+		}
+	}
+	return ready, kbs, degraded
 }
 
 // NewMultiKBServer creates a multi-KB server.
@@ -260,12 +304,16 @@ func (m *MultiKBServer) Handler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.URL.Path == "/health":
+			// Liveness: always 200 with status "ok", even when not ready.
+			// auth.isPublicPath exempts this path, and probes depend on the
+			// shape. Only `ready` reflects the audit gate (D176).
 			w.Header().Set("Content-Type", "application/json")
+			ready, kbs, _ := m.readiness()
 			result := map[string]interface{}{
 				"status":  "ok",
 				"version": m.version,
-				"kbs":     m.kbs,
-				"ready":   len(m.servers) > 0,
+				"kbs":     kbs,
+				"ready":   ready,
 			}
 			json.NewEncoder(w).Encode(result)
 			return
@@ -283,9 +331,16 @@ func (m *MultiKBServer) Handler() http.Handler {
 
 		case r.URL.Path == "/ready":
 			w.Header().Set("Content-Type", "application/json")
-			if len(m.servers) == 0 {
+			ready, _, degraded := m.readiness()
+			if !ready {
 				w.WriteHeader(http.StatusServiceUnavailable)
-				json.NewEncoder(w).Encode(map[string]interface{}{"ready": false, "kbs": 0})
+				body := map[string]interface{}{"ready": false, "kbs": len(m.servers)}
+				if len(degraded) > 0 {
+					// Name them: a single boolean tells an operator that
+					// something is wrong and nothing about where to look.
+					body["degraded"] = degraded
+				}
+				json.NewEncoder(w).Encode(body)
 				return
 			}
 			json.NewEncoder(w).Encode(map[string]interface{}{"ready": true})
