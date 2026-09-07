@@ -560,21 +560,66 @@ func displayVersion(expected string) string {
 	return expected
 }
 
+// Lifecycle names the three observable states of the native service, which
+// two booleans cannot express without one of the four combinations being
+// meaningless. A caller that reads Lifecycle never has to decide what
+// Running means when Installed is false.
+type Lifecycle string
+
+const (
+	// LifecycleNotInstalled: no plist/unit on disk. Nothing else is a fault.
+	LifecycleNotInstalled Lifecycle = "not_installed"
+	// LifecycleNotLoaded: installed, but the init system does not know it.
+	LifecycleNotLoaded Lifecycle = "not_loaded"
+	// LifecycleLoaded: registered with launchd/systemd — see Status.Running
+	// for exactly how much that proves.
+	LifecycleLoaded Lifecycle = "loaded"
+)
+
+// HealthSkip* are the reasons Status did not perform the /health probe. When
+// one is set, Healthy is not a verdict: nothing was measured.
+const (
+	// HealthSkipNoConfig: the server config does not exist yet.
+	HealthSkipNoConfig = "config_missing"
+	// HealthSkipUnreadableConfig: the config exists but could not be parsed.
+	HealthSkipUnreadableConfig = "config_unreadable"
+	// HealthSkipStdio: the server is configured for stdio transport (empty
+	// http:), so there is no endpoint to probe. Substituting the default
+	// listen address here would probe an address nothing listens on.
+	HealthSkipStdio = "stdio_transport"
+)
+
 // Status reports the current state of the service.
+//
+// Healthy is meaningful ONLY when HealthChecked is true. When it is false,
+// HealthSkipReason says why nothing was measured, and Healthy is the zero
+// value rather than a verdict — a single boolean that conflates "unhealthy"
+// with "not checked" is how an absent service came to read as an outage
+// (D174).
+//
+// Running reports that the service is registered with the init system: on
+// darwin `launchctl print` on the label succeeded, on linux `systemctl
+// --user is-active`. On darwin that proves the job is loaded and known to
+// launchd, NOT that a process is currently alive. Callers must not present
+// it as a liveness probe.
 type Status struct {
-	BinPath    string
-	ConfigPath string
-	HTTPAddr   string
-	Installed  bool
-	Running    bool
-	Healthy    bool
+	BinPath          string
+	ConfigPath       string
+	HTTPAddr         string
+	Installed        bool
+	Running          bool
+	Healthy          bool
+	HealthChecked    bool
+	HealthSkipReason string
+	Lifecycle        Lifecycle
 }
 
 // Status inspects the service: whether its plist/unit is installed, whether
-// it's currently running (launchctl print / systemctl is-active), and
+// the init system knows it (launchctl print / systemctl is-active), and
 // whether its /health endpoint responds (read from the config YAML's http
-// address, best-effort — absent/unreadable config just leaves Healthy false
-// and HTTPAddr empty).
+// address). The probe is best-effort and reports whether it ran: an absent,
+// unreadable or stdio-transport config leaves HealthChecked false with a
+// reason, never a bare Healthy: false.
 func (m *Manager) Status(configPath string) (Status, error) {
 	var st Status
 	st.ConfigPath = configPath
@@ -616,8 +661,28 @@ func (m *Manager) Status(configPath string) (Status, error) {
 		return st, fmt.Errorf("service: unsupported platform %q", goos)
 	}
 
-	if cfg, err := config.Load(st.ConfigPath); err == nil {
+	switch st.Installed {
+	case false:
+		st.Lifecycle = LifecycleNotInstalled
+	default:
+		st.Lifecycle = LifecycleNotLoaded
+		if st.Running {
+			st.Lifecycle = LifecycleLoaded
+		}
+	}
+
+	cfg, err := config.Load(st.ConfigPath)
+	switch {
+	case err != nil:
+		st.HealthSkipReason = HealthSkipUnreadableConfig
+		if _, statErr := os.Stat(st.ConfigPath); errors.Is(statErr, os.ErrNotExist) {
+			st.HealthSkipReason = HealthSkipNoConfig
+		}
+	case cfg.HTTP == "":
+		st.HealthSkipReason = HealthSkipStdio
+	default:
 		st.HTTPAddr = cfg.HTTP
+		st.HealthChecked = true
 		st.Healthy = checkHealth(cfg.HTTP)
 	}
 
