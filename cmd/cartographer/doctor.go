@@ -108,6 +108,15 @@ func cmdDoctor(args []string) int {
 // every managed artifact on every client — in the field ~150 file operations to
 // backfill six hashes, with a partial failure leaving both clients without skills.
 func repairManagedHashes(dir, only string) int {
+	// Rewrites the lockfile, so it takes the client-state lock like every
+	// other mutating path (D172). Read-only `doctor` does not.
+	release, err := provisioning.LockClientState(dir, provisioning.DefaultClientLockTimeout)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "Error:", err)
+		return 2
+	}
+	defer release()
+
 	lf, err := provisioning.ReadLockFile(lockFilePath(dir))
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "Error: read lockfile:", err)
