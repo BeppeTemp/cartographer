@@ -462,3 +462,113 @@ func TestSyncStyleSaveKeepsBindings(t *testing.T) {
 		t.Errorf("binding = %v explicit=%v, want [alpha] explicit=true — the sync overwrote it", kbs, explicit)
 	}
 }
+
+// --- D180: every typed field must survive a write ---
+
+// TestSearchDepthRoundTrips asserts on the BYTES, not on the reloaded struct.
+// SearchDepth was read but omitted from Save's marshalled struct, and the raw
+// value survived through Extra — so a reload looked correct while every
+// programmatic change to the typed field was silently discarded.
+func TestSearchDepthRoundTrips(t *testing.T) {
+	dir := t.TempDir()
+	cfg := clientconfig.Default()
+	cfg.SearchDepth = 6
+	if err := clientconfig.Save(dir, cfg); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	data, err := os.ReadFile(clientconfig.Path(dir))
+	if err != nil {
+		t.Fatalf("read back: %v", err)
+	}
+	if !strings.Contains(string(data), "search_depth: 6") {
+		t.Errorf("search_depth missing from the written file:\n%s", data)
+	}
+
+	reloaded, err := clientconfig.Load(dir)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if reloaded.SearchDepth != 6 {
+		t.Errorf("SearchDepth = %d, want 6", reloaded.SearchDepth)
+	}
+}
+
+// TestSearchDepthChangeIsPersisted is the case Extra used to mask: the file
+// already carries a value and the typed field is changed.
+func TestSearchDepthChangeIsPersisted(t *testing.T) {
+	dir := t.TempDir()
+	writeConfigFile(t, dir, "server_url: http://localhost:39273/mcp\nsearch_depth: 4\n")
+
+	cfg, err := clientconfig.Load(dir)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.SearchDepth != 4 {
+		t.Fatalf("SearchDepth = %d, want the value from the file", cfg.SearchDepth)
+	}
+	cfg.SearchDepth = 8
+	if err := clientconfig.Save(dir, cfg); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	reloaded, err := clientconfig.Load(dir)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if reloaded.SearchDepth != 8 {
+		t.Errorf("SearchDepth = %d, want 8 — the change was discarded", reloaded.SearchDepth)
+	}
+}
+
+// TestZeroSearchDepthWritesNoKey: zero means "use the default", so an existing
+// file is not churned with a redundant key.
+func TestZeroSearchDepthWritesNoKey(t *testing.T) {
+	dir := t.TempDir()
+	if err := clientconfig.Save(dir, clientconfig.Default()); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	data, err := os.ReadFile(clientconfig.Path(dir))
+	if err != nil {
+		t.Fatalf("read back: %v", err)
+	}
+	if strings.Contains(string(data), "search_depth") {
+		t.Errorf("a zero SearchDepth wrote a key:\n%s", data)
+	}
+}
+
+// TestEveryYamlFieldIsWrittenBySave is the guard against the next omission: a
+// field present in the YAML struct but absent from Save's literal round-trips
+// through Extra and looks fine until someone changes it in code.
+func TestEveryYamlFieldIsWrittenBySave(t *testing.T) {
+	dir := t.TempDir()
+	cfg := &clientconfig.Config{
+		ServerURL: "http://example.test/mcp", ServerName: "srv", Auth: true,
+		TokenEnv: "TOK", Agents: []string{"claude"}, KnownKBs: []string{"kb"},
+		Clients:     map[string]clientconfig.ClientBinding{"claude": {KBs: []string{"kb"}}},
+		Trust:       true,
+		SearchRoots: []string{"~/x"}, SearchDepth: 5,
+		Paths:       map[string]string{"n": "/p"},
+		SigningKeys: map[string][]string{"kb": {strings.Repeat("ab", 32)}},
+	}
+	if err := cfg.ApproveMCP("kb", "srv", "hash", time.Now()); err != nil {
+		t.Fatalf("ApproveMCP: %v", err)
+	}
+	if err := clientconfig.Save(dir, cfg); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	data, err := os.ReadFile(clientconfig.Path(dir))
+	if err != nil {
+		t.Fatalf("read back: %v", err)
+	}
+	raw := string(data)
+	for _, key := range []string{
+		"server_url", "server_name", "auth", "token_env", "agents",
+		"known_kbs", "clients", "trust", "search_roots", "search_depth",
+		"paths", "signing_keys", "mcp_approvals",
+	} {
+		if !strings.Contains(raw, key+":") {
+			t.Errorf("Save omitted %q:\n%s", key, raw)
+		}
+	}
+}
