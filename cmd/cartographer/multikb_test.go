@@ -222,7 +222,7 @@ func TestRemoveMCPEntries_RemovesEveryManagedEntry(t *testing.T) {
 	if _, _, err := applyMCPEntries(sameEntriesFor([]string{"claude", "codex", "kiro", "opencode"}, entries), []string{"claude", "codex", "kiro", "opencode"}, dir, false, "", false); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := removeMCPEntries("wiki", []string{"a", "b"}, []string{"claude", "codex", "kiro", "opencode"}, dir, false, "", false); err != nil {
+	if _, _, err := removeMCPEntries("wiki", []string{"a", "b"}, []string{"claude", "codex", "kiro", "opencode"}, dir, false, "", false); err != nil {
 		t.Fatal(err)
 	}
 	for _, provider := range []string{"claude", "codex", "kiro", "opencode"} {

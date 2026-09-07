@@ -155,6 +155,17 @@ type probeDoneMsg struct {
 	err      error
 }
 
+// syncAllDoneMsg carries the result of one sequential sync-all run: the
+// providers that completed, and the one that failed if any. A partial result
+// is reported as such — the providers already synced keep their lockfile
+// entries (D172).
+type syncAllDoneMsg struct {
+	done    []string
+	applied map[string]provisioning.AppliedResult
+	failed  string
+	err     error
+}
+
 // syncDoneMsg carries the result of a syncCmd run.
 type syncDoneMsg struct {
 	provider string
@@ -391,24 +402,63 @@ func connectCmd(provider, dir, serverURL, name, tokenEnv string, auth, trust boo
 // honor the persisted cfg.Trust (D54), same as `cartographer sync`.
 func syncCmd(provider, dir string) tea.Cmd {
 	return func() tea.Msg {
-		cfg, err := clientconfig.Load(dir)
+		release, err := provisioning.LockClientState(dir, provisioning.DefaultClientLockTimeout)
 		if err != nil {
 			return syncDoneMsg{provider: provider, err: err}
 		}
-		manifests, err := manifestsForProviders(cfg, []string{provider})
-		if err != nil {
-			return syncDoneMsg{provider: provider, err: err}
-		}
-		// The server version recorded in the lockfile (D142). A failed probe
-		// leaves it empty, which preserves the previously recorded value
-		// instead of erasing it.
-		facts, _ := enumerateKBs(cfg.ServerURL, cfg.Auth, cfg.TokenEnv)
-		applied, err := materializeForProviders(manifests, []string{provider}, dir, facts.Version, cfg.Trust, false, false /* noHeal */, portabilityOptions{SearchRoots: cfg.SearchRoots, SearchDepth: cfg.SearchDepth, Paths: cfg.Paths}, cfg.ApprovedMCPHashes())
-		if err != nil {
-			return syncDoneMsg{provider: provider, err: err}
-		}
-		return syncDoneMsg{provider: provider, applied: applied[provider]}
+		defer release()
+		return syncOneProvider(provider, dir)
 	}
+}
+
+// syncAllCmd syncs every connected provider SEQUENTIALLY under one client
+// lock (D172). It used to fan out one syncCmd per provider through tea.Batch;
+// with the lock in place each goroutine would only queue behind the others,
+// buying nothing and making the progress message incoherent — and before the
+// lock existed, those concurrent writers lost one another's lockfile entries.
+func syncAllCmd(providers []string, dir string) tea.Cmd {
+	return func() tea.Msg {
+		release, err := provisioning.LockClientState(dir, provisioning.DefaultClientLockTimeout)
+		if err != nil {
+			return syncAllDoneMsg{err: err}
+		}
+		defer release()
+
+		out := syncAllDoneMsg{applied: make(map[string]provisioning.AppliedResult, len(providers))}
+		for _, p := range providers {
+			res := syncOneProvider(p, dir)
+			if res.err != nil {
+				out.failed, out.err = p, res.err
+				return out
+			}
+			out.done = append(out.done, p)
+			out.applied[p] = res.applied
+		}
+		return out
+	}
+}
+
+// syncOneProvider is the body of a single-provider sync. The caller holds the
+// client lock: taking it here would deadlock syncAllCmd, since flock is held
+// per file description and this process would block on itself.
+func syncOneProvider(provider, dir string) syncDoneMsg {
+	cfg, err := clientconfig.Load(dir)
+	if err != nil {
+		return syncDoneMsg{provider: provider, err: err}
+	}
+	manifests, err := manifestsForProviders(cfg, []string{provider})
+	if err != nil {
+		return syncDoneMsg{provider: provider, err: err}
+	}
+	// The server version recorded in the lockfile (D142). A failed probe
+	// leaves it empty, which preserves the previously recorded value
+	// instead of erasing it.
+	facts, _ := enumerateKBs(cfg.ServerURL, cfg.Auth, cfg.TokenEnv)
+	applied, err := materializeForProviders(manifests, []string{provider}, dir, facts.Version, cfg.Trust, false, false /* noHeal */, portabilityOptions{SearchRoots: cfg.SearchRoots, SearchDepth: cfg.SearchDepth, Paths: cfg.Paths}, cfg.ApprovedMCPHashes())
+	if err != nil {
+		return syncDoneMsg{provider: provider, err: err}
+	}
+	return syncDoneMsg{provider: provider, applied: applied[provider]}
 }
 
 // disconnectCmd runs doDisconnect for a single provider (the shared logic
@@ -626,6 +676,23 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.loading = true
 		return m, loadRemoteStatusCmd(m.dir)
 
+	case syncAllDoneMsg:
+		m.loading = false
+		m.rows = buildRows(m.dir)
+		if msg.err != nil {
+			m.err = msg.err
+			if len(msg.done) > 0 {
+				m.message = fmt.Sprintf("sync %s failed after syncing %s: %v", msg.failed, strings.Join(msg.done, ", "), msg.err)
+			} else {
+				m.message = fmt.Sprintf("sync %s failed: %v", msg.failed, msg.err)
+			}
+			return m, nil
+		}
+		m.err = nil
+		m.message = fmt.Sprintf("synced %s", strings.Join(msg.done, ", "))
+		m.loading = true
+		return m, loadRemoteStatusCmd(m.dir)
+
 	case disconnectDoneMsg:
 		m.disconnecting = false
 		m.screen = screenList
@@ -675,19 +742,19 @@ func (m Model) updateList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "S":
-		var cmds []tea.Cmd
+		var providers []string
 		for _, row := range m.rows {
 			if row.Connected {
-				cmds = append(cmds, syncCmd(string(row.Provider), m.dir))
+				providers = append(providers, string(row.Provider))
 			}
 		}
-		if len(cmds) == 0 {
+		if len(providers) == 0 {
 			return m, nil
 		}
 		m.loading = true
 		m.message = "syncing all connected providers…"
 		m.err = nil
-		return m, tea.Batch(cmds...)
+		return m, syncAllCmd(providers, m.dir)
 
 	case "enter", "s":
 		if len(m.rows) == 0 {

@@ -227,9 +227,31 @@ D138). Keeping them separate is also a fix: previously the expanded hash was sto
 `content_hash`, so any artifact containing a placeholder compared unequal against the manifest on
 every sync and was reported as permanent drift.
 
+## Order of operations, and what a failure leaves behind (D172)
+
+`runSync` writes nothing before the manifest is fetched and verified:
+
+1. `enumerateKBs` (`/health`);
+2. compute the MCP entries per provider — no writes;
+3. `fetchMergedManifest` → signature verification and cross-KB collision detection ([D171](decisions/sync-provisioning.md#d171));
+4. `removeMCPEntries` + `applyMCPEntries`;
+5. `ensureBootstrapForProviders` — never before the manifest passed its checks;
+6. `clientconfig.Save` of `known_kbs`;
+7. `materializeForProviders`, which **checkpoints the lockfile after every provider**.
+
+A failed `sync_pull`, an unverifiable signature or a refused merge therefore leaves the machine exactly as it was, and the error says so. An unreachable server (`/health` itself failing) skips entry reconciliation entirely, as before.
+
+**The guarantee, stated honestly.** A failure *between* steps leaves a consistent state, and a provider that completed is always recorded in the lockfile — before D172 a failure on provider N left providers 1..N−1 with files on disk and no lock entry, so nothing pruned them and `doctor` could not see them. It does **not** make a single `Apply` atomic: a provider whose `Apply` fails midway can still have partial files on disk. The cost is N atomic lockfile renames instead of one, which with at most five providers is a deliberate trade of I/O for safety.
+
+## The client lock (D172)
+
+Every path that read-modify-writes the lockfile or `.cartographer.yaml` — `sync`, `disconnect`, `doctor --repair-hashes`, and the TUI's sync actions — first takes an **advisory OS file lock** on `.cartographer-client.lock` beside the lockfile. The race is between *processes*, not goroutines: the session-start bootstrap hook runs `cartographer sync` per agent session, so several are routinely in flight, and the loser of that race silently dropped another provider's entry. A blocked acquisition waits up to 30s and then fails naming the file — a sync that quietly loses an entry is worse than one that asks to be rerun. A dry run takes no lock, since it writes nothing.
+
+The TUI's `S` (sync all) runs its providers **sequentially** under one lock rather than fanning out through `tea.Batch`: with the lock in place, concurrent goroutines would only queue behind each other while making the progress reporting incoherent. A partial failure reports which providers completed.
+
 ## Idempotence
 
-`sync_apply`/`provisioning.Apply` applied twice on the same revision are no-ops; `dry_run` shows the diff without writing (`sync_apply(dry_run=true)`, `--dry-run` on the client). The provider JSON config merge remains the non-destructive deep-merge of `configurator.mergeJSON`.
+`sync_apply`/`provisioning.Apply` applied twice on the same revision are no-ops; `dry_run` shows the diff without writing (`sync_apply(dry_run=true)`, `--dry-run` on the client). The client plan covers everything the run would write: per-artifact files, the MCP entries it would add **and the ones it would remove**, and the `known_kbs` rewrite when the set changes; with `--client` it says in its header that the plan is restricted to those providers (D172). The provider JSON config merge remains the non-destructive deep-merge of `configurator.mergeJSON`.
 
 ## Kind × provider matrix
 

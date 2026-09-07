@@ -434,8 +434,9 @@ func applyMCPEntries(entriesByProvider map[string][]mcpEntry, providers []string
 	return written, warnings, nil
 }
 
-func removeMCPEntries(baseName string, kbs []string, providers []string, dir string, auth bool, tokenEnv string, dryRun bool) (map[string]bool, error) {
+func removeMCPEntries(baseName string, kbs []string, providers []string, dir string, auth bool, tokenEnv string, dryRun bool) (map[string][]string, map[string]bool, error) {
 	removed := make(map[string]bool, len(providers))
+	names := make(map[string][]string, len(providers))
 	for _, provider := range providers {
 		if !configurator.ManagesMCPConfig(configurator.Provider(provider)) {
 			// Nothing was ever written for it (D141), so there is nothing to
@@ -445,12 +446,18 @@ func removeMCPEntries(baseName string, kbs []string, providers []string, dir str
 		for _, name := range managedEntryNames(baseName, kbs) {
 			ok, err := configurator.Remove(&configurator.ServerConfig{Name: name, AuthEnabled: auth, TokenEnv: tokenEnv}, configurator.Provider(provider), dir, dryRun)
 			if err != nil {
-				return nil, fmt.Errorf("remove config for %s: %w", provider, err)
+				return nil, nil, fmt.Errorf("remove config for %s: %w", provider, err)
+			}
+			if ok {
+				// Under dryRun configurator.Remove reports what it WOULD
+				// remove without touching the file, which is what makes the
+				// removals visible in a --dry-run plan (D172 WP4).
+				names[provider] = append(names[provider], name)
 			}
 			removed[provider] = removed[provider] || ok
 		}
 	}
-	return removed, nil
+	return names, removed, nil
 }
 
 // unmanagedMCPConfigNote is what `connect` reports for a provider whose MCP

@@ -115,6 +115,17 @@ func doDisconnect(opts disconnectOptions) (disconnectResult, error) {
 		return res, nil
 	}
 
+	// Same client-state lock every other mutating path takes (D172): a
+	// disconnect racing a sync would otherwise resurrect the provider entry
+	// it just dropped, or lose the one the sync recorded.
+	if !opts.DryRun {
+		release, err := provisioning.LockClientState(opts.Dir, provisioning.DefaultClientLockTimeout)
+		if err != nil {
+			return res, err
+		}
+		defer release()
+	}
+
 	cfg, err := clientconfig.Load(opts.Dir)
 	if err != nil {
 		cfg = clientconfig.Default()
@@ -128,7 +139,7 @@ func doDisconnect(opts disconnectOptions) (disconnectResult, error) {
 	for _, p := range opts.Providers {
 		pr := disconnectProviderResult{Provider: p}
 
-		removed, err := removeMCPEntries(cfg.ServerName, cfg.KnownKBs, []string{p}, opts.Dir, cfg.Auth, cfg.TokenEnv, opts.DryRun)
+		_, removed, err := removeMCPEntries(cfg.ServerName, cfg.KnownKBs, []string{p}, opts.Dir, cfg.Auth, cfg.TokenEnv, opts.DryRun)
 		if err != nil {
 			return disconnectResult{}, fmt.Errorf("remove config for %s: %w", p, err)
 		}

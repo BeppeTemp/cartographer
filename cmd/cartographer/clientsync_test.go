@@ -690,14 +690,12 @@ func TestSyncFailsBeforeMaterializing(t *testing.T) {
 		t.Error("the colliding skill was materialized despite the refused merge")
 	}
 
-	// Known limitation, pinned deliberately: runSync writes the providers' MCP
-	// entries BEFORE fetching the manifest (sync.go, removeMCPEntries/
-	// applyMCPEntries ahead of fetchMergedManifest), so a refused merge still
-	// leaves them rewritten. Reordering that is D172's subject, not this one.
-	// When D172 lands this assertion flips, and it should — it is here so the
-	// change is deliberate rather than silent.
-	if _, err := os.Stat(filepath.Join(dir, ".claude.json")); os.IsNotExist(err) {
-		t.Error("MCP entries were not written: D172 reordered runSync — update this assertion and the D171 note")
+	// D172 reordered runSync: nothing is written before the manifest is
+	// fetched and verified, so a refused merge no longer leaves the
+	// providers' MCP entries rewritten either. This assertion is the
+	// inversion of the limitation D171 pinned here deliberately.
+	if _, err := os.Stat(filepath.Join(dir, ".claude.json")); !os.IsNotExist(err) {
+		t.Errorf("MCP entries were written despite the refused merge (err=%v)", err)
 	}
 }
 
@@ -899,5 +897,197 @@ func TestCommonRevision(t *testing.T) {
 	diff := map[string]provisioning.Manifest{"a": {Revision: "r1"}, "b": {Revision: "r2"}}
 	if got := commonRevision(diff, []string{"a", "b"}); got != "" {
 		t.Errorf("commonRevision = %q, want empty when providers diverge", got)
+	}
+}
+
+// healthOnlyServer answers /health with the given KBs and fails every tool
+// call: the shape of a reachable server whose sync_pull does not work.
+func healthOnlyServer(t *testing.T, kbs ...string) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/health" {
+			entries := make([]map[string]any, 0, len(kbs))
+			for _, name := range kbs {
+				entries = append(entries, map[string]any{"name": name})
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"status": "ok", "kbs": entries})
+			return
+		}
+		var req struct {
+			ID int `json:"id"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		_ = json.NewEncoder(w).Encode(map[string]any{"jsonrpc": "2.0", "id": req.ID, "result": map[string]any{
+			"content": []map[string]string{{"type": "text", "text": "sync_pull is unavailable"}},
+			"isError": true,
+		}})
+	}))
+}
+
+// TestSyncWritesNothingWhenPullFails is WP1's assertion: /health answers, so
+// the old runSync had already rewritten the providers' MCP entries and
+// .cartographer.yaml by the time sync_pull failed. Nothing may change now,
+// and the error must say so (D172).
+func TestSyncWritesNothingWhenPullFails(t *testing.T) {
+	srv := healthOnlyServer(t, "one", "two")
+	defer srv.Close()
+
+	dir := t.TempDir()
+	cfg := &clientconfig.Config{
+		ServerURL: srv.URL + "/mcp", ServerName: "cartographer",
+		Agents: []string{"claude"}, KnownKBs: []string{"gone"}, Trust: true,
+	}
+	if err := clientconfig.Save(dir, cfg); err != nil {
+		t.Fatal(err)
+	}
+	before := treeSnapshot(t, dir)
+
+	_, err := runSync(dir, cfg, syncOptions{})
+	if err == nil {
+		t.Fatal("runSync succeeded despite a failing sync_pull")
+	}
+	if !strings.Contains(err.Error(), "no configuration was modified") {
+		t.Errorf("the error must state that nothing changed: %v", err)
+	}
+
+	after := treeSnapshot(t, dir)
+	if len(before) != len(after) {
+		t.Fatalf("file set changed: %d before, %d after", len(before), len(after))
+	}
+	for name, content := range before {
+		if after[name] != content {
+			t.Errorf("%s changed despite the failed sync:\n--- before\n%s\n--- after\n%s", name, content, after[name])
+		}
+	}
+	// The persisted KB list in particular: it is what the next run
+	// reconciles MCP entries against.
+	reloaded, err := clientconfig.Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(reloaded.KnownKBs, ",") != "gone" {
+		t.Errorf("known_kbs = %v, want the pre-sync value", reloaded.KnownKBs)
+	}
+}
+
+// TestMaterializeCheckpointsPerProvider is WP2's assertion: a failure on the
+// second provider leaves the first one RECORDED. With a single trailing
+// lockfile write, its files were on disk with no lock entry — unmanaged,
+// never pruned, invisible to doctor (D172).
+func TestMaterializeCheckpointsPerProvider(t *testing.T) {
+	manifest := provisioning.Manifest{
+		Revision: "rev-1",
+		Artifacts: []provisioning.Artifact{{
+			Kind: "skill", Name: "alpha", ContentHash: "hash-alpha", Source: "bundle", BuiltIn: true,
+			Files: []provisioning.ArtifactFile{{Path: "SKILL.md", Content: []byte("# alpha\n")}},
+		}},
+	}
+	// opencode materializes agents, not skills (D55): give it a kind it
+	// actually supports, or nothing is applied and nothing can fail.
+	agentManifest := provisioning.Manifest{
+		Revision: "rev-1",
+		Artifacts: []provisioning.Artifact{{
+			Kind: "agent", Name: "beta", ContentHash: "hash-beta", Source: "bundle", BuiltIn: true,
+			Files: []provisioning.ArtifactFile{{Path: "beta.md", Content: []byte("# beta\n")}},
+		}},
+	}
+	manifests := map[string]provisioning.Manifest{"claude": manifest, "opencode": agentManifest}
+	providers := []string{"claude", "opencode"}
+
+	// Learn where opencode materializes, by letting it succeed once in a
+	// throwaway directory, then sabotage that exact path in the real one.
+	probe := t.TempDir()
+	if _, err := materializeForProviders(map[string]provisioning.Manifest{"opencode": agentManifest}, []string{"opencode"}, probe, "", true, false, false, portabilityOptions{}); err != nil {
+		t.Fatalf("probe run: %v", err)
+	}
+	probeLock, err := provisioning.ReadLockFile(lockFilePath(probe))
+	if err != nil {
+		t.Fatal(err)
+	}
+	managed := probeLock.ForProvider("opencode").Managed
+	if len(managed) == 0 {
+		t.Fatal("the probe run recorded no managed file")
+	}
+
+	dir := t.TempDir()
+	sabotage := filepath.Join(provisioning.LockBaseDir(probeLock.ForProvider("opencode"), dir), managed[0].Path)
+	if err := os.MkdirAll(sabotage, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = materializeForProviders(manifests, providers, dir, "", true, false, false, portabilityOptions{})
+	if err == nil {
+		t.Fatal("materialize should fail: opencode's destination file is a directory")
+	}
+	if !strings.Contains(err.Error(), "already applied and recorded") || !strings.Contains(err.Error(), "claude") {
+		t.Errorf("the error must name what was already recorded: %v", err)
+	}
+
+	lockFile, err := provisioning.ReadLockFile(lockFilePath(dir))
+	if err != nil {
+		t.Fatalf("read lockfile after the failure: %v", err)
+	}
+	if got := lockFile.ForProvider("claude").Managed; len(got) == 0 {
+		t.Error("the completed provider was not recorded: its files are unmanaged")
+	}
+	if got := lockFile.ForProvider("opencode").Managed; len(got) != 0 {
+		t.Errorf("the failed provider should not be recorded: %v", got)
+	}
+}
+
+// TestDryRunPlanCoversRemovalsAndKnownKBs is WP4: the preview must cover
+// everything the sync would write. It used to show artifacts and the MCP
+// entries it would add, but neither the entries it would REMOVE nor the
+// rewrite of known_kbs — so a KB that disappeared server-side produced a plan
+// that hid the only destructive part of the run (D172).
+func TestDryRunPlanCoversRemovalsAndKnownKBs(t *testing.T) {
+	srv := prefixAwareMCPServer(t, map[string]string{"one": ""}, "sync_pull", func(kb string) string {
+		return syncPullPayload(t, kb, "solo")
+	})
+	defer srv.Close()
+
+	dir := t.TempDir()
+	cfg := &clientconfig.Config{
+		ServerURL: srv.URL + "/mcp", ServerName: "cartographer",
+		Agents: []string{"claude"}, KnownKBs: []string{"one", "gone"}, Trust: true,
+	}
+	if err := clientconfig.Save(dir, cfg); err != nil {
+		t.Fatal(err)
+	}
+	// An MCP entry for the KB that disappeared, so there is something real to
+	// report as removed.
+	if _, _, err := removeMCPEntries(cfg.ServerName, cfg.KnownKBs, []string{"claude"}, dir, false, "", false); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := entriesByProviderForKBs(cfg, []string{"claude"}, cfg.ServerName, cfg.ServerURL, []string{"one", "gone"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := applyMCPEntries(entries, []string{"claude"}, dir, false, "", false); err != nil {
+		t.Fatal(err)
+	}
+	before := treeSnapshot(t, dir)
+
+	out := withStdout(t, func() {
+		if _, err := runSync(dir, cfg, syncOptions{DryRun: true}); err != nil {
+			t.Fatalf("dry-run sync: %v", err)
+		}
+	})
+
+	if !strings.Contains(out, "would remove MCP entry") {
+		t.Errorf("the plan hides the entries it would remove:\n%s", out)
+	}
+	if !strings.Contains(out, "would update known_kbs") {
+		t.Errorf("the plan hides the known_kbs rewrite:\n%s", out)
+	}
+
+	after := treeSnapshot(t, dir)
+	if len(before) != len(after) {
+		t.Fatalf("a dry run changed the file set: %d before, %d after", len(before), len(after))
+	}
+	for name, content := range before {
+		if after[name] != content {
+			t.Errorf("a dry run modified %s", name)
+		}
 	}
 }

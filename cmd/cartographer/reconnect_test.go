@@ -28,6 +28,12 @@ func treeSnapshot(t *testing.T, root string) map[string]string {
 		if relErr != nil {
 			return relErr
 		}
+		// The client-state lock file (D172) is created by any mutating path
+		// and is empty by construction: it is infrastructure, not part of
+		// what a rebuild reproduces.
+		if rel == provisioning.ClientLockFileName {
+			return nil
+		}
 		data, readErr := os.ReadFile(path)
 		if readErr != nil {
 			return readErr

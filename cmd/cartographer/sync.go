@@ -85,11 +85,38 @@ func runSync(dir string, cfg *clientconfig.Config, opts syncOptions) (syncResult
 		return syncResult{}, err
 	}
 
-	// Reconcile the provider MCP entries from the mounted KB list before
-	// sync_pull. On an unreachable server no local entry or persisted KB list
-	// changes; fetchMergedManifest below then reports the ordinary sync error.
+	// One writer at a time across PROCESSES: the session-start bootstrap hook
+	// runs `cartographer sync` per agent session, so several are routinely in
+	// flight at once and the loser of that race silently drops another
+	// provider's lock entry (D172). A dry run writes nothing and needs none.
+	if !opts.DryRun {
+		release, err := provisioning.LockClientState(dir, provisioning.DefaultClientLockTimeout)
+		if err != nil {
+			return syncResult{}, err
+		}
+		defer release()
+	}
+
+	// A plan restricted to some providers must say so: read without the
+	// command line that produced it, a partial plan looks like a complete one
+	// (D170 WP2, D172 WP4).
+	if opts.DryRun && len(opts.Clients) > 0 {
+		fmt.Printf("[dry-run] plan for %s only; other connected providers are untouched\n", strings.Join(targets, ", "))
+	}
+
+	// The KB list as it was persisted: what this client may own MCP entries
+	// for. Reconciliation compares it against what the server mounts now, so
+	// it must be read before cfg.KnownKBs is refreshed in memory.
+	previousKnownKBs := cfg.KnownKBs
+
+	// Nothing is written before the manifest is fetched and verified (D172).
+	// The previous order rewrote the providers' MCP entries and
+	// .cartographer.yaml first, so a failed sync_pull, an unverifiable
+	// signature or a cross-KB collision (D171) left a machine reconfigured for
+	// a sync that never happened — and the error said nothing about it.
 	facts, healthErr := enumerateKBs(cfg.ServerURL, cfg.Auth, cfg.TokenEnv)
 	kbs := facts.Names
+	var entriesByProvider map[string][]mcpEntry
 	if healthErr != nil {
 		fmt.Fprintf(os.Stderr, "Warning: MCP entry reconciliation skipped, server unreachable: %v\n", healthErr)
 	} else {
@@ -102,17 +129,31 @@ func runSync(dir string, cfg *clientconfig.Config, opts syncOptions) (syncResult
 		if !facts.Listed {
 			entryKBs = nil
 		}
-		entriesByProvider, err := entriesByProviderForKBs(cfg, targets, cfg.ServerName, cfg.ServerURL, entryKBs)
+		var err error
+		entriesByProvider, err = entriesByProviderForKBs(cfg, targets, cfg.ServerName, cfg.ServerURL, entryKBs)
 		if err != nil {
 			return syncResult{}, err
 		}
+		// Refresh the in-memory cache so the manifest pull below resolves
+		// default bindings against what the server mounts now. Persisting it
+		// is step 6: until the manifest is in hand, nothing on disk changes.
+		cfg.KnownKBs = kbs
+	}
+
+	manifests, err := manifestsForProviders(cfg, targets)
+	if err != nil {
+		return syncResult{}, fmt.Errorf("%w (no configuration was modified)", err)
+	}
+
+	if healthErr == nil {
 		// removeMCPEntries is fed the UNION of every known KB, never a
 		// provider's filtered binding (D170): managedEntryNames derives the
 		// names this client may own from the list it is given, so passing the
 		// filtered one would orphan an unbound KB's entry forever. Only the
 		// targeted providers are touched — a provider skipped by --client keeps
 		// its entries untouched.
-		if _, err := removeMCPEntries(cfg.ServerName, cfg.KnownKBs, targets, dir, cfg.Auth, cfg.TokenEnv, opts.DryRun); err != nil {
+		removedNames, _, err := removeMCPEntries(cfg.ServerName, previousKnownKBs, targets, dir, cfg.Auth, cfg.TokenEnv, opts.DryRun)
+		if err != nil {
 			return syncResult{}, err
 		}
 		_, warnings, err := applyMCPEntries(entriesByProvider, targets, dir, cfg.Auth, cfg.TokenEnv, opts.DryRun)
@@ -125,27 +166,23 @@ func runSync(dir string, cfg *clientconfig.Config, opts syncOptions) (syncResult
 		for _, w := range warnings {
 			fmt.Fprintf(os.Stderr, "warning: %s\n", w)
 		}
+		printMCPEntryRemovals(targets, removedNames, allEntryNames(entriesByProvider), opts.DryRun)
 		printMCPEntryLines(targets, allEntryNames(entriesByProvider), opts.DryRun)
-		// Refresh the in-memory cache unconditionally so the manifest pull
-		// below resolves default bindings against what the server mounts now;
-		// only the persistence is skipped on a dry run.
-		cfg.KnownKBs = kbs
-		if !opts.DryRun {
-			if err := clientconfig.Save(dir, cfg); err != nil {
-				return syncResult{}, err
-			}
-		}
-	}
-
-	manifests, err := manifestsForProviders(cfg, targets)
-	if err != nil {
-		return syncResult{}, err
 	}
 
 	// Do not write even the local bootstrap hook until the complete remote
 	// manifest has passed its content and signature checks.
 	if err := ensureBootstrapForProviders(targets, dir, opts.DryRun); err != nil {
 		return syncResult{}, err
+	}
+
+	if healthErr == nil {
+		printKnownKBsChange(previousKnownKBs, kbs, opts.DryRun)
+		if !opts.DryRun {
+			if err := clientconfig.Save(dir, cfg); err != nil {
+				return syncResult{}, err
+			}
+		}
 	}
 
 	results, err := materializeForProviders(manifests, targets, dir, facts.Version, cfg.Trust || opts.AutoTrust, opts.DryRun, opts.NoHeal, portabilityOptions{SearchRoots: cfg.SearchRoots, SearchDepth: cfg.SearchDepth, Paths: cfg.Paths}, cfg.ApprovedMCPHashes())

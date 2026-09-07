@@ -424,6 +424,7 @@ func materializeForProviders(manifests map[string]provisioning.Manifest, provide
 			return nil, err
 		}
 	}
+	var appliedSoFar []string
 	for _, p := range providers {
 		previous := lockFile.ForProvider(p)
 		opts := provisioning.ApplyOptions{
@@ -446,6 +447,11 @@ func materializeForProviders(manifests map[string]provisioning.Manifest, provide
 		// simply don't concern it.
 		applied, err := provisioning.Apply(provisioning.FilterForProvider(manifests[p], configurator.Provider(p)), opts)
 		if err != nil {
+			// Name what is already recorded, so a rerun is informed rather
+			// than a guess about how far the previous one got.
+			if len(appliedSoFar) > 0 {
+				return nil, fmt.Errorf("apply %s: %w (already applied and recorded: %s)", p, err, strings.Join(appliedSoFar, ", "))
+			}
 			return nil, fmt.Errorf("apply %s: %w", p, err)
 		}
 		// Record the base dir only when it is not the lockfile's own
@@ -462,11 +468,18 @@ func materializeForProviders(manifests map[string]provisioning.Manifest, provide
 		}
 		lockFile.SetProvider(p, applied.NewLock)
 		results[p] = applied
-	}
 
-	if !dryRun {
-		if err := provisioning.WriteLockFile(lockPath, lockFile); err != nil {
-			return nil, fmt.Errorf("write lockfile: %w", err)
+		// Checkpoint after every provider, not once at the end (D172). With a
+		// single trailing write, a failure on provider N left providers
+		// 1..N-1 with files on disk and NO lock entry: unmanaged files that
+		// nothing prunes and doctor cannot see. This protects COMPLETED
+		// providers; it does not make one Apply atomic, so the failed
+		// provider's own partial files are still possible (D178).
+		if !dryRun {
+			if err := provisioning.WriteLockFile(lockPath, lockFile); err != nil {
+				return nil, fmt.Errorf("write lockfile after %s: %w", p, err)
+			}
+			appliedSoFar = append(appliedSoFar, p)
 		}
 	}
 	return results, nil
