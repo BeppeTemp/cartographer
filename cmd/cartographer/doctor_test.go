@@ -576,3 +576,44 @@ func TestNoLocalServiceFor(t *testing.T) {
 		})
 	}
 }
+
+// TestCheckOrphanedFiles: a file inside a managed directory that no lock entry
+// accounts for is reported, never deleted — doctor cannot prove Cartographer
+// wrote it, and a user may legitimately have added it (D178).
+func TestCheckOrphanedFiles(t *testing.T) {
+	dir := t.TempDir()
+	skillDir := filepath.Join(dir, ".claude", "skills", "alpha")
+	if err := os.MkdirAll(skillDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"SKILL.md", "leftover.md"} {
+		if err := os.WriteFile(filepath.Join(skillDir, name), []byte("x\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	lockFile := provisioning.LockFile{Providers: map[string]provisioning.Lock{
+		"claude": {Provider: "claude", Managed: []provisioning.ManagedFile{
+			{Kind: "skill", Name: "alpha", Path: filepath.Join(".claude", "skills", "alpha", "SKILL.md")},
+		}},
+	}}
+
+	findings := checkOrphanedFiles(dir, []string{"claude"}, lockFile)
+	if len(findings) != 1 {
+		t.Fatalf("findings = %d, want 1: %+v", len(findings), findings)
+	}
+	if !strings.Contains(findings[0].Message, "leftover.md") || !strings.Contains(findings[0].Message, "alpha") {
+		t.Errorf("the finding must name the artifact and the path: %q", findings[0].Message)
+	}
+	if _, err := os.Stat(filepath.Join(skillDir, "leftover.md")); err != nil {
+		t.Errorf("doctor deleted the file it was only supposed to report: %v", err)
+	}
+
+	// Everything accounted for: no finding.
+	lockFile.Providers["claude"] = provisioning.Lock{Provider: "claude", Managed: []provisioning.ManagedFile{
+		{Kind: "skill", Name: "alpha", Path: filepath.Join(".claude", "skills", "alpha", "SKILL.md")},
+		{Kind: "skill", Name: "alpha", Path: filepath.Join(".claude", "skills", "alpha", "leftover.md")},
+	}}
+	if got := checkOrphanedFiles(dir, []string{"claude"}, lockFile); len(got) != 0 {
+		t.Errorf("a fully accounted directory produced findings: %+v", got)
+	}
+}
