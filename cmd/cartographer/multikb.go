@@ -194,10 +194,7 @@ func effectiveToolPrefixes(facts serverFacts, healthErr error) map[string]string
 // server, or one too old to advertise them — the warning stays unconditional and
 // says the prefixes could not be verified: a missing signal is not evidence that
 // everything is fine.
-func kiroFlatNamespaceWarning(providers []string, entries []mcpEntry, prefixes map[string]string, prefixErr error) string {
-	if len(entries) < 2 {
-		return ""
-	}
+func kiroFlatNamespaceWarning(providers []string, entriesByProvider map[string][]mcpEntry, prefixes map[string]string, prefixErr error) string {
 	var flat *configurator.Descriptor
 	for _, p := range providers {
 		if d, ok := configurator.Lookup(configurator.Provider(p)); ok && d.FlatToolNamespace {
@@ -206,6 +203,13 @@ func kiroFlatNamespaceWarning(providers []string, entries []mcpEntry, prefixes m
 		}
 	}
 	if flat == nil {
+		return ""
+	}
+	// Evaluated on that provider's own entries (D170): binding it to a single
+	// KB removes the flat-namespace conflict, and the warning must stop firing
+	// rather than describe entries it no longer holds.
+	entries := entriesByProvider[string(flat.Provider)]
+	if len(entries) < 2 {
 		return ""
 	}
 	remedies := "set kbs[].tool_prefix on them or mcp.tool_prefix_mode: kb-name (see docs/deployment.md §MCP tool-name prefix)"
@@ -273,19 +277,29 @@ func quoteAll(names []string) []string {
 	return out
 }
 
-// entriesForKBs implements D92's compatibility rule: a zero/one-KB server
-// keeps one bare entry; a multi-KB server gets one explicitly-scoped entry per
-// KB. url.URL is used rather than concatenation so an existing query survives.
-func entriesForKBs(baseName, serverURL string, kbs []string) ([]mcpEntry, error) {
-	if len(kbs) <= 1 {
+// entriesForKBs implements D92's compatibility rule, split across two inputs
+// since D170: the entry SHAPE comes from what the server mounts, the entry SET
+// from what the provider is bound to.
+//
+// Conflating them breaks the client. A bare /mcp auto-routes only when the
+// server mounts exactly one KB (mcpserver.MultiKBServer.Handler); with zero or
+// two or more it answers "kb parameter required". So a server with four KBs and
+// a client bound to one still needs an explicitly-scoped ?kb= entry, even
+// though that client's list has a single name.
+//
+// url.URL is used rather than concatenation so an existing query survives.
+func entriesForKBs(baseName, serverURL string, mounted, bound []string) ([]mcpEntry, error) {
+	if len(mounted) <= 1 {
+		// Nothing to select against: the server routes the bare endpoint, and
+		// no binding can name a KB the server does not identify.
 		return []mcpEntry{{Name: baseName, URL: serverURL}}, nil
 	}
 	u, err := url.Parse(serverURL)
 	if err != nil {
 		return nil, fmt.Errorf("parse server URL %q: %w", serverURL, err)
 	}
-	entries := make([]mcpEntry, 0, len(kbs))
-	for _, kb := range kbs {
+	entries := make([]mcpEntry, 0, len(bound))
+	for _, kb := range bound {
 		entryURL := *u
 		q := entryURL.Query()
 		q.Set("kb", kb)
@@ -312,6 +326,50 @@ func managedEntryNames(baseName string, kbs []string) []string {
 	return names
 }
 
+// entriesByProviderForKBs builds each provider's own entry set from its binding
+// (D170). A provider explicitly bound to NO KBs gets no entry at all — that is
+// the one case where an empty list is a declaration rather than an absence.
+func entriesByProviderForKBs(cfg *clientconfig.Config, providers []string, baseName, serverURL string, mounted []string) (map[string][]mcpEntry, error) {
+	out := make(map[string][]mcpEntry, len(providers))
+	for _, p := range providers {
+		bound, explicit := cfg.BoundKBs(p)
+		if !explicit {
+			// The default is "every KB the server currently mounts", so it
+			// resolves against the live discovery rather than the persisted
+			// cache: connect runs before that cache is refreshed, and a dry run
+			// never refreshes it at all.
+			bound = mounted
+		}
+		if explicit && len(bound) == 0 && len(mounted) > 1 {
+			out[p] = nil
+			continue
+		}
+		entries, err := entriesForKBs(baseName, serverURL, mounted, bound)
+		if err != nil {
+			return nil, err
+		}
+		out[p] = entries
+	}
+	return out, nil
+}
+
+// allEntryNames is the union of every provider's entry names, deduplicated and
+// sorted — what the summary lines report when they are not per provider.
+func allEntryNames(entriesByProvider map[string][]mcpEntry) []string {
+	seen := map[string]bool{}
+	var names []string
+	for _, entries := range entriesByProvider {
+		for _, e := range entries {
+			if !seen[e.Name] {
+				seen[e.Name] = true
+				names = append(names, e.Name)
+			}
+		}
+	}
+	sort.Strings(names)
+	return names
+}
+
 func entryNames(entries []mcpEntry) []string {
 	names := make([]string, 0, len(entries))
 	for _, entry := range entries {
@@ -320,16 +378,18 @@ func entryNames(entries []mcpEntry) []string {
 	return names
 }
 
-// applyMCPEntries emits all entries for each provider. Codex represents all
+// applyMCPEntries emits each provider's OWN entries (D170: a provider must not
+// hold an entry toward a KB it is not bound to). Codex represents all
 // Cartographer MCP entries in one marker-delimited TOML block, so its emitted
 // bodies are joined before Apply replaces that block. Returns the config paths
 // written plus the non-fatal warnings Apply collected (a header the provider
 // cannot represent, D69; a duplicate table adopted from a Codex rewrite, D99),
 // for the caller to render.
-func applyMCPEntries(entries []mcpEntry, providers []string, dir string, auth bool, tokenEnv string, dryRun bool) (written []string, warnings []string, err error) {
+func applyMCPEntries(entriesByProvider map[string][]mcpEntry, providers []string, dir string, auth bool, tokenEnv string, dryRun bool) (written []string, warnings []string, err error) {
 	written = make([]string, 0, len(providers))
 	seenPaths := map[string]bool{}
 	for _, provider := range providers {
+		entries := entriesByProvider[provider]
 		if !configurator.ManagesMCPConfig(configurator.Provider(provider)) {
 			// A provider whose MCP endpoints are configured outside
 			// Cartographer (D141, hermes: its config.yaml is rendered by its

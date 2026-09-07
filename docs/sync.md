@@ -86,10 +86,11 @@ On the stdio transport, the server emits `notifications/skills/list_changed` aft
 
 When client and server don't share a filesystem (`internal/client`, `internal/clientconfig`, `cmd/cartographer/clientsync.go`):
 
-1. the client calls `sync_pull` (once per KB in `known_kbs`) and merges the manifests with `provisioning.MergeArtifactsStrict`, which refuses a `kind`+`name` claimed by two KBs (§Dedup and collisions);
-2. it reconstructs each artifact hash from received paths, bytes and executable modes, then verifies any detached signature against the local KB pin;
-3. `Apply` materializes/prunes and writes the v2 lockfile;
-4. pruning remains managed-only.
+1. the client calls `sync_pull` once per KB in the **union of every connected provider's binding** (§Per-provider projection) and keeps the responses unmerged;
+2. for each provider it selects its bound KBs' responses (`SelectForSources`), merges them with `provisioning.MergeArtifactsStrict` — which refuses a `kind`+`name` claimed by two of *that provider's* KBs — and verifies signatures;
+3. it reconstructs each artifact hash from received paths, bytes and executable modes, then verifies any detached signature against the local KB pin;
+4. `Apply` materializes/prunes and writes the v2 lockfile, one entry per provider;
+5. pruning remains managed-only.
 
 Each `sync_pull` call (and the equivalent `cartographer reindex` remote call) is qualified with
 that KB's tool-name prefix (D102), discovered from a live `/health` snapshot rather than
@@ -370,6 +371,11 @@ silently dropped, so no provider ever runs a command different from the approved
 ## Implementation choices
 
 - **Dedup by `kind`+`name`**: a skill present both in the bundle and in a KB is materialized only once, with the KB winning. The manifest holds exactly one artifact per `kind`+`name`.
+- **Per-provider projection** (D170): each provider receives only the KBs bound to it in `.cartographer.yaml` (`clients.<provider>.kbs`, see `configurator.md` §`cartographer client`). Three rules make it work:
+  - **selection happens before the merge**, on the per-KB `sync_pull` responses. Filtering the merged manifest is wrong: `MergeArtifacts` has already discarded candidates, so if `kb-A` overrides a bundled skill and a provider is bound only to `kb-B`, the merge keeps `kb-A`'s copy and a source filter then deletes it — the provider loses the skill instead of receiving the bundled one. The server performs the same KB-over-bundle merge inside each single-KB pull, so a candidate the client never received cannot be reconstructed;
+  - **the revision is recomputed per provider**, after selection and after `FilterForProvider`. Two providers holding different KB sets under one revision string would make `ComputeDiff.InSync` lie, and changing a binding would produce no drift at all;
+  - **unbinding removes the artifacts for free**: they leave the provider's manifest, so `ComputeDiff` marks them `Removed` and `PruneManaged` deletes them. Only files listed in the lock are touched, so user-owned files survive.
+  A server that does not identify its KBs by name (no `kbs` in `/health`, or a first sync before any name is known) cannot express a binding: every client receives everything, exactly as before D170, with a warning saying so. `ManagedFile.Source` records each file's origin KB; empty means "unknown" (a lockfile written before D170) and is never treated as wrong.
 - **Cross-KB collisions are refused, not resolved** (D171). Two KBs claiming the same `kind`+`name` is an error: `MergeArtifactsStrict` — what the client uses — fails with a report naming the kind, the name and the claiming KBs, before anything is materialized. `MergeArtifacts` stays tolerant and keeps the alphabetical `source` tie-break; the server builds a manifest from one KB plus the bundle, where the case cannot arise. `cartographer client bind` warns when a new binding creates one, and `doctor`'s `kb-collisions` check reports it per provider.
 - Lockfile: `<base-dir>/.cartographer-sync.lock.json` (v2 multi-provider).
 - Pruning is per tracked file, not per whole directory.

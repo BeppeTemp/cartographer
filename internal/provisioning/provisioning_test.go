@@ -1263,3 +1263,104 @@ func TestMergeArtifactsStaysTolerant(t *testing.T) {
 		t.Errorf("source = %q, want the alphabetically first kb:one", m.Artifacts[0].Source)
 	}
 }
+
+// --- D170: per-provider projection ---
+
+// TestSelectForSourcesKeepsBundleOverriddenElsewhere is the reason selection
+// happens BEFORE the merge. kb-one overrides a bundled skill; a provider bound
+// only to kb-two must receive the BUNDLED copy — filtering the merged manifest
+// would leave it with nothing, because the merge already discarded the bundle.
+func TestSelectForSourcesKeepsBundleOverriddenElsewhere(t *testing.T) {
+	// What kb-two's own sync_pull returns: the server merged bundle+KB for
+	// kb-two only, so the bundled copy is still there.
+	kbTwoResponse := []provisioning.Artifact{
+		{Kind: "skill", Name: "shared", Source: "bundle", ContentHash: "bundled"},
+		{Kind: "skill", Name: "other", Source: "kb:two", ContentHash: "two"},
+	}
+	selected := provisioning.SelectForSources(kbTwoResponse, []string{"two"})
+	m, err := provisioning.MergeArtifactsStrict(selected)
+	if err != nil {
+		t.Fatalf("MergeArtifactsStrict: %v", err)
+	}
+	var got string
+	for _, a := range m.Artifacts {
+		if a.Name == "shared" {
+			got = a.Source
+		}
+	}
+	if got != "bundle" {
+		t.Errorf("shared came from %q, want the bundled copy", got)
+	}
+}
+
+func TestSelectForSources(t *testing.T) {
+	candidates := []provisioning.Artifact{
+		{Kind: "skill", Name: "a", Source: "kb:one"},
+		{Kind: "skill", Name: "b", Source: "kb:two"},
+		{Kind: "skill", Name: "c", Source: "bundle"},
+	}
+	cases := []struct {
+		name    string
+		allowed []string
+		want    int
+	}{
+		{"one KB plus the bundle", []string{"one"}, 2},
+		{"both KBs plus the bundle", []string{"one", "two"}, 3},
+		{"nil is no KBs, not a wildcard", nil, 1},
+		{"an unknown KB selects only the bundle", []string{"three"}, 1},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := provisioning.SelectForSources(candidates, tc.allowed); len(got) != tc.want {
+				t.Errorf("SelectForSources(%v) = %+v, want %d artifacts", tc.allowed, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestFilterForProviderRecomputesRevision: without this, two providers holding
+// different KB sets would sit at the same revision string, ComputeDiff.InSync
+// would lie, and changing a binding would produce no drift at all.
+func TestFilterForProviderRecomputesRevision(t *testing.T) {
+	full := provisioning.MergeArtifacts([]provisioning.Artifact{
+		{Kind: "skill", Name: "a", Source: "kb:one", ContentHash: "h1"},
+		{Kind: "agent", Name: "b", Source: "kb:one", ContentHash: "h2"},
+	})
+	// kiro supports skills but not agents (destinationMatrix), so its view is
+	// a strict subset and must carry a different revision.
+	kiro := provisioning.FilterForProvider(full, configurator.ProviderKiro)
+	claude := provisioning.FilterForProvider(full, configurator.ProviderClaudeCode)
+
+	if kiro.Revision == full.Revision {
+		t.Error("a filtered manifest kept the unfiltered revision")
+	}
+	if claude.Revision != full.Revision {
+		t.Errorf("claude receives every artifact, so its revision must equal the full one: %q vs %q", claude.Revision, full.Revision)
+	}
+	if kiro.Revision == claude.Revision {
+		t.Error("two providers with different views share a revision")
+	}
+}
+
+// TestManagedFileRecordsSource: provenance in the lockfile is what lets status
+// attribute a file to a KB and doctor spot one from a KB no longer bound.
+func TestManagedFileRecordsSource(t *testing.T) {
+	m := provisioning.Manifest{Revision: "r", Artifacts: []provisioning.Artifact{{
+		Kind: "skill", Name: "example", Source: "kb:homelab", ContentHash: "h",
+		Files: []provisioning.ArtifactFile{{Path: "SKILL.md", Content: []byte("# example")}},
+	}}}
+	applied, err := provisioning.Apply(m, provisioning.ApplyOptions{
+		Provider: configurator.ProviderClaudeCode, BaseDir: t.TempDir(), AutoTrust: true, SkipLockWrite: true,
+	})
+	if err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	if len(applied.NewLock.Managed) == 0 {
+		t.Fatal("nothing was managed")
+	}
+	for _, mf := range applied.NewLock.Managed {
+		if mf.Source != "kb:homelab" {
+			t.Errorf("ManagedFile %s Source = %q, want kb:homelab", mf.Path, mf.Source)
+		}
+	}
+}

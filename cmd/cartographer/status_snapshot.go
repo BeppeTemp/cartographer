@@ -45,6 +45,15 @@ type providerStatus struct {
 	// unknown (a lockfile written before D142). Shown next to the live
 	// version so a server change is inspectable without running a sync.
 	ServerVersion string `json:"materialized_server_version,omitempty"`
+	// BoundKBs and BindingOrigin describe which KBs this provider may receive
+	// and whether that was declared or defaulted (D170). Without them the same
+	// list of names means two different things and the reader cannot tell.
+	BoundKBs      []string `json:"bound_kbs,omitempty"`
+	BindingOrigin string   `json:"binding_origin,omitempty"`
+	// KBCounts breaks the materialized artifacts down by source KB, read from
+	// the lockfile's per-file Source (D170). Empty for a lockfile written
+	// before that field existed: unknown, not zero.
+	KBCounts map[string]int `json:"kb_counts,omitempty"`
 }
 
 type statusArtifact struct {
@@ -147,7 +156,13 @@ func snapshotForConfig(dir string, cfg *clientconfig.Config, includeService bool
 			s.KBs = append(s.KBs, kb.Name)
 		}
 	}
-	m, err := statusManifestFn(cfg)
+	connectedProviders := make([]string, 0, len(s.Providers))
+	for i := range s.Providers {
+		if s.Providers[i].Connected {
+			connectedProviders = append(connectedProviders, s.Providers[i].Name)
+		}
+	}
+	manifests, err := statusManifestsFn(cfg, connectedProviders)
 	if err != nil {
 		s.State = "unavailable"
 		e := classifyNetworkError(cfg.ServerURL, err)
@@ -159,7 +174,9 @@ func snapshotForConfig(dir string, cfg *clientconfig.Config, includeService bool
 		}
 		return s
 	}
-	s.Artifacts = len(m.Artifacts)
+	for _, p := range connectedProviders {
+		s.Artifacts += len(manifests[p].Artifacts)
+	}
 	lockFile, err := provisioning.ReadLockFile(lockFilePath(dir))
 	if err != nil {
 		s.State = "error"
@@ -170,7 +187,7 @@ func snapshotForConfig(dir string, cfg *clientconfig.Config, includeService bool
 		if !s.Providers[i].Connected {
 			continue
 		}
-		pm := provisioning.FilterForProvider(m, configurator.Provider(s.Providers[i].Name))
+		pm := provisioning.FilterForProvider(manifests[s.Providers[i].Name], configurator.Provider(s.Providers[i].Name))
 		d := provisioning.ComputeDiff(pm, lockFile.ForProvider(s.Providers[i].Name))
 		p := &s.Providers[i]
 		p.Revision = pm.Revision
@@ -181,6 +198,13 @@ func snapshotForConfig(dir string, cfg *clientconfig.Config, includeService bool
 		// deleted locally used to report in-sync.
 		lock := lockFile.ForProvider(p.Name)
 		p.ServerVersion = lock.ServerVersion
+		bound, explicit := cfg.BoundKBs(p.Name)
+		p.BoundKBs = bound
+		p.BindingOrigin = "default"
+		if explicit {
+			p.BindingOrigin = "explicit"
+		}
+		p.KBCounts = countBySource(lock)
 		p.Diverged = snapshotDiverged(provisioning.VerifyManaged(lock, configurator.Provider(p.Name), provisioning.LockBaseDir(lock, dir)))
 		if d.InSync && len(p.Diverged) == 0 {
 			p.State = "in_sync"
@@ -284,5 +308,30 @@ func snapshotMaterializedVersions(s statusSnapshot) []string {
 		out = append(out, p.ServerVersion)
 	}
 	sort.Strings(out)
+	return out
+}
+
+// countBySource groups a provider's managed files by the KB they came from
+// (D170). Entries with no Source — every lockfile written before it existed —
+// are omitted rather than bucketed under a made-up name: unknown provenance is
+// not the same as none, and inventing a bucket would misreport a whole machine
+// until its next sync.
+func countBySource(lock provisioning.Lock) map[string]int {
+	counted := make(map[string]bool)
+	out := make(map[string]int)
+	for _, mf := range lock.Managed {
+		if mf.Source == "" {
+			continue
+		}
+		key := mf.Kind + "\x00" + mf.Name
+		if counted[key] {
+			continue // one artifact, however many files it materialized
+		}
+		counted[key] = true
+		out[mf.Source]++
+	}
+	if len(out) == 0 {
+		return nil
+	}
 	return out
 }

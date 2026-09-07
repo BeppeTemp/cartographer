@@ -109,6 +109,13 @@ type ManagedFile struct {
 	// against the server, so drift is detectable only from the next server-side
 	// change onward. RFC3339, empty for a normally-recorded entry.
 	AdoptedAt string `json:"adopted_at,omitempty"`
+	// Source is the artifact's provenance ("kb:<name>" or "bundle"), recorded so
+	// `status` can attribute a materialized file to the KB it came from and
+	// `doctor` can spot one left behind by a KB that is no longer bound (D170).
+	// Empty means "unknown": every lockfile written before D170. That is not
+	// drift and never triggers re-materialization — ComputeDiff still compares
+	// ContentHash only — so no migration runs.
+	Source string `json:"source,omitempty"`
 }
 
 // Lock is the client's lockfile: applied revision + managed files.
@@ -1144,10 +1151,51 @@ func ComputeDiff(m Manifest, lock Lock) Diff {
 // materialize isn't "missing", it simply doesn't apply (e.g. hook
 // exists only for Claude Code — D48; agent for Claude Code and OpenCode — D55).
 func FilterForProvider(m Manifest, provider configurator.Provider) Manifest {
-	out := Manifest{Revision: m.Revision}
+	var out Manifest
 	for _, a := range m.Artifacts {
 		if destDir(a.Kind, a.Name, provider) != "" {
 			out.Artifacts = append(out.Artifacts, a)
+		}
+	}
+	// The revision describes the artifacts, so it must be recomputed rather
+	// than inherited (D170). Two providers receiving different sets under one
+	// revision string make ComputeDiff.InSync lie, and — once bindings decide
+	// those sets — changing a binding would not change the revision, so no
+	// drift would ever be detected. Filtering preserves relative order, and m
+	// arrives sorted from MergeArtifacts, so computeRevision's precondition
+	// still holds.
+	out.Revision = computeRevision(out.Artifacts)
+	return out
+}
+
+// SelectForSources keeps the artifacts a provider bound to `allowed` may
+// receive (D170).
+//
+// It must be applied to the per-KB sync_pull responses, BEFORE the merge, and
+// callers must pass only the responses of the allowed KBs. Filtering the merged
+// manifest instead is wrong: MergeArtifacts has already discarded candidates,
+// so if `kb-A` overrides a bundled skill and the provider is bound only to
+// `kb-B`, the merge keeps `kb-A`'s copy and a source filter then deletes it —
+// the provider loses the skill instead of receiving the bundled one. The server
+// performs the same KB-over-bundle merge inside each single-KB pull, so a
+// candidate the client never received cannot be reconstructed.
+//
+// Given that, the check here is a local guarantee rather than the load-bearing
+// one: a bundled artifact reaching this function arrived in an allowed KB's
+// response by construction, and a `kb:` artifact from outside `allowed` would
+// mean the server answered for a KB that was not asked for.
+//
+// `allowed` is always explicit — nil is "no KBs", never a wildcard. Callers
+// resolve the default through clientconfig.Config.BoundKBs.
+func SelectForSources(candidates []Artifact, allowed []string) []Artifact {
+	permitted := make(map[string]bool, len(allowed))
+	for _, kb := range allowed {
+		permitted["kb:"+kb] = true
+	}
+	out := make([]Artifact, 0, len(candidates))
+	for _, a := range candidates {
+		if a.Source == "bundle" || permitted[a.Source] {
+			out = append(out, a)
 		}
 	}
 	return out
@@ -1479,6 +1527,7 @@ func Apply(m Manifest, opts ApplyOptions) (AppliedResult, error) {
 				Path:             rp,
 				ContentHash:      a.ContentHash,
 				MaterializedHash: materializedHash,
+				Source:           a.Source,
 			}
 			newManaged = append(newManaged, mf)
 			result.Written = append(result.Written, mf)
@@ -1673,7 +1722,7 @@ func applyInstructionsGroup(m Manifest, diff Diff, opts ApplyOptions, tracker *e
 		}
 		contentHashes[a.Name] = contentHash
 		*newManaged = append(*newManaged, ManagedFile{
-			Kind: a.Kind, Name: a.Name, Path: destRel, ContentHash: contentHash,
+			Kind: a.Kind, Name: a.Name, Path: destRel, ContentHash: contentHash, Source: a.Source,
 		})
 	}
 
@@ -1728,7 +1777,7 @@ func applyInstructionsGroup(m Manifest, diff Diff, opts ApplyOptions, tracker *e
 
 	for _, a := range signed {
 		result.Written = append(result.Written, ManagedFile{
-			Kind: a.Kind, Name: a.Name, Path: destRel, ContentHash: contentHashes[a.Name],
+			Kind: a.Kind, Name: a.Name, Path: destRel, ContentHash: contentHashes[a.Name], Source: a.Source,
 		})
 	}
 	return nil

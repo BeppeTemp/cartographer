@@ -8,6 +8,7 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/client"
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
+	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
 	"github.com/BeppeTemp/cartographer/internal/service"
 )
@@ -66,23 +67,28 @@ func TestCmdStatus_VersionReport(t *testing.T) {
 			if err := clientconfig.Save(home, &clientconfig.Config{ServerURL: tc.serverURL, Agents: []string{"claude"}, Trust: true}); err != nil {
 				t.Fatalf("save config: %v", err)
 			}
+			// Since D170 the lock records the revision of the manifest a
+			// provider actually receives, so the fixture derives it from the
+			// same manifest it serves rather than hardcoding a matching pair.
+			served := provisioning.Manifest{Revision: "rev1"}
+			appliedRev := provisioning.FilterForProvider(served, configurator.ProviderClaudeCode).Revision
 			if err := provisioning.WriteLockFile(lockFilePath(home), provisioning.LockFile{Providers: map[string]provisioning.Lock{
-				"claude": {Provider: "claude", AppliedRevision: "rev1"},
+				"claude": {Provider: "claude", AppliedRevision: appliedRev},
 			}}); err != nil {
 				t.Fatalf("write lockfile: %v", err)
 			}
 
-			oldVersion, oldHealth, oldManifest, oldService := version, statusHealthFn, statusManifestFn, statusServiceFn
+			oldVersion, oldHealth, oldManifest, oldService := version, statusHealthFn, statusManifestsFn, statusServiceFn
 			version = tc.clientVersion
 			statusHealthFn = func(*clientconfig.Config) (*client.Health, error) {
 				return &client.Health{Version: tc.serverVersion}, nil
 			}
-			statusManifestFn = func(*clientconfig.Config) (provisioning.Manifest, error) {
-				return provisioning.Manifest{Revision: "rev1"}, nil
+			statusManifestsFn = func(_ *clientconfig.Config, providers []string) (map[string]provisioning.Manifest, error) {
+				return uniformManifests(served, providers), nil
 			}
 			statusServiceFn = func() (service.Status, error) { return service.Status{Installed: tc.serviceInstalled}, nil }
 			t.Cleanup(func() {
-				version, statusHealthFn, statusManifestFn, statusServiceFn = oldVersion, oldHealth, oldManifest, oldService
+				version, statusHealthFn, statusManifestsFn, statusServiceFn = oldVersion, oldHealth, oldManifest, oldService
 			})
 
 			out := withStdout(t, func() {
@@ -126,7 +132,12 @@ func TestStatus_OnDiskDriftExitsOne(t *testing.T) {
 	if err != nil {
 		t.Fatalf("hash skill dir: %v", err)
 	}
-	lock := provisioning.Lock{Provider: "claude", AppliedRevision: "rev1", Managed: []provisioning.ManagedFile{{
+	served := provisioning.Manifest{Revision: "rev1", Artifacts: []provisioning.Artifact{
+		{Kind: "skill", Name: "runbooks", Source: "kb:wiki", ContentHash: "source-hash", Signed: true},
+	}}
+	// D170: the lock carries the revision of the provider's own view.
+	appliedRev := provisioning.FilterForProvider(served, configurator.ProviderClaudeCode).Revision
+	lock := provisioning.Lock{Provider: "claude", AppliedRevision: appliedRev, Managed: []provisioning.ManagedFile{{
 		Kind: "skill", Name: "runbooks", Path: filepath.Join(".claude", "skills", "runbooks", "SKILL.md"),
 		ContentHash: "source-hash", MaterializedHash: onDisk,
 	}}}
@@ -134,17 +145,15 @@ func TestStatus_OnDiskDriftExitsOne(t *testing.T) {
 		t.Fatalf("write lockfile: %v", err)
 	}
 
-	oldVersion, oldHealth, oldManifest, oldService := version, statusHealthFn, statusManifestFn, statusServiceFn
+	oldVersion, oldHealth, oldManifest, oldService := version, statusHealthFn, statusManifestsFn, statusServiceFn
 	version = "v1.0.0"
 	statusHealthFn = func(*clientconfig.Config) (*client.Health, error) { return &client.Health{Version: "v1.0.0"}, nil }
-	statusManifestFn = func(*clientconfig.Config) (provisioning.Manifest, error) {
-		return provisioning.Manifest{Revision: "rev1", Artifacts: []provisioning.Artifact{
-			{Kind: "skill", Name: "runbooks", Source: "kb:wiki", ContentHash: "source-hash", Signed: true},
-		}}, nil
+	statusManifestsFn = func(_ *clientconfig.Config, providers []string) (map[string]provisioning.Manifest, error) {
+		return uniformManifests(served, providers), nil
 	}
 	statusServiceFn = func() (service.Status, error) { return service.Status{}, nil }
 	t.Cleanup(func() {
-		version, statusHealthFn, statusManifestFn, statusServiceFn = oldVersion, oldHealth, oldManifest, oldService
+		version, statusHealthFn, statusManifestsFn, statusServiceFn = oldVersion, oldHealth, oldManifest, oldService
 	})
 
 	// Untouched: in-sync.
