@@ -317,7 +317,7 @@ The checks:
 | `mcp-entries` | the Cartographer entries in the provider's native config match the KBs recorded in `.cartographer.yaml` — an entry for a KB the server no longer mounts, or a missing one |
 | `instructions` | exactly one well-formed managed block per provider that has instructions materialized (begin recognized by prefix, so a block written by an older version still counts) |
 | `hooks` | one native registration per managed hook — the D99 double-fire is a registration left outside the managed block by Codex's own rewrite |
-| `server` | `/health` reachable; the recorded `server_version` (D142) against the live one; client binary against server |
+| `server` | `/health` reachable; the recorded `server_version` (D142) against the live one; client binary against server. When an unreachable server is loopback **and** no local native service is installed, the finding names that cause and the two remedies instead of pointing at `service status`, which would only repeat `installed: false` (D174) |
 | `trigger` | every connected provider has a session hook, or the scheduled trigger is installed (D140) |
 | `capability` | every per-KB gate the server advertises on `/health` is on, and no KB was mounted by discovery rather than by a `kbs[]` entry (D151). Info severity: it names the setting that would change it |
 | `symlink` | no managed destination directory is a symlink — provisioning refuses to write through one, so the artifacts it would hold are not installed (D148) |

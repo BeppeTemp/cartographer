@@ -4,6 +4,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -544,4 +545,34 @@ func TestCheckUnboundResidues(t *testing.T) {
 			t.Errorf("findings = %+v, want none for a default binding", findings)
 		}
 	})
+}
+
+// TestNoLocalServiceFor pins the single combination that is actually broken
+// (D174): the client points at this machine and no local service exists to
+// answer. The three neighbouring combinations are legitimate.
+func TestNoLocalServiceFor(t *testing.T) {
+	cases := []struct {
+		name      string
+		url       string
+		installed bool
+		statusErr error
+		want      bool
+	}{
+		{"loopback with no local service", "http://127.0.0.1:39273/mcp", false, nil, true},
+		{"loopback with a local service", "http://127.0.0.1:39273/mcp", true, nil, false},
+		{"remote server, no local service", "https://cartographer.example.com/mcp", false, nil, false},
+		{"service state unknown", "http://localhost:39273/mcp", false, errors.New("unsupported platform"), false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			orig := statusServiceFn
+			statusServiceFn = func() (service.Status, error) {
+				return service.Status{Installed: tc.installed}, tc.statusErr
+			}
+			t.Cleanup(func() { statusServiceFn = orig })
+			if got := noLocalServiceFor(tc.url); got != tc.want {
+				t.Errorf("noLocalServiceFor(%q) = %v, want %v", tc.url, got, tc.want)
+			}
+		})
+	}
 }

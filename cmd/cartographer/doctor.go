@@ -559,11 +559,21 @@ func checkServer(dir string, cfg *clientconfig.Config, providers []string) []doc
 	configPath := filepath.Join(dir, clientconfig.FileName)
 	facts, err := enumerateKBs(cfg.ServerURL, cfg.Auth, cfg.TokenEnv)
 	if err != nil {
-		return []doctorFinding{{
+		f := doctorFinding{
 			Check: "server", Severity: doctorWarning, Path: configPath,
 			Message: fmt.Sprintf("server %s is unreachable: %s", cfg.ServerURL, err),
 			Fix:     "cartographer service status",
-		}}
+		}
+		// The one configuration that cannot work rather than merely looking
+		// unusual: the client points at this machine, nothing answers, and
+		// there is no local service that ever could (D174). Sending the
+		// operator to `service status` here would only report `installed:
+		// false` — name the cause instead.
+		if noLocalServiceFor(cfg.ServerURL) {
+			f.Message = fmt.Sprintf("server %s is unreachable and no local cartographer service is installed to serve it", cfg.ServerURL)
+			f.Fix = "cartographer service install, or point server_url at a running server"
+		}
+		return []doctorFinding{f}
 	}
 
 	var out []doctorFinding
@@ -585,6 +595,24 @@ func checkServer(dir string, cfg *clientconfig.Config, providers []string) []doc
 		})
 	}
 	return out
+}
+
+// noLocalServiceFor reports whether rawURL names this machine and no native
+// service is installed to answer it.
+//
+// A local service installed while the client points at a REMOTE server is
+// deliberately not a finding: that coexistence is normal (a local test server
+// plus a shared one), and its one real consequence — `kb` commands acting on
+// the wrong data dir — belongs to its own check.
+func noLocalServiceFor(rawURL string) bool {
+	if !isLoopbackURL(rawURL) {
+		return false
+	}
+	st, err := statusServiceFn()
+	if err != nil {
+		return false
+	}
+	return !st.Installed
 }
 
 // checkUnboundResidues: a managed file whose source KB is no longer bound to
