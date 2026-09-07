@@ -115,6 +115,13 @@ func loadServeConfig(fs *flag.FlagSet, overrides config.FlagOverrides, configFla
 	})
 	config.ApplyFlags(cfg, explicit)
 
+	// Validate the configuration that will actually be served, not just the
+	// YAML: environment- and flag-supplied tokens reach the listener too, and
+	// an invalid one used to widen access rather than stop startup (D179).
+	if err := config.ValidateAuth(cfg.Auth); err != nil {
+		return nil, fmt.Errorf("config: auth: %w", err)
+	}
+
 	return cfg, nil
 }
 
@@ -446,8 +453,16 @@ func serveHTTP(addr string, kbs []*kb.KB, names []string, toolPrefixes []string,
 
 	var store *auth.TokenStore
 	if authOn {
-		store = auth.NewScopedTokenStore(scopedTokensWithRoles(authCfg.Tokens, authCfg.Roles))
-		log.Printf("HTTP auth enabled (%d token(s))", len(authCfg.Tokens))
+		// RequireAuth carries the decision explicitly (D179). Without it the
+		// middleware re-derived enforcement from the token count, which is not
+		// the count resolveAuth decided on: the store drops unusable entries,
+		// so a configuration that asked for authentication could produce an
+		// empty store and serve every request as a local admin.
+		store = auth.NewScopedTokenStore(scopedTokensWithRoles(authCfg.Tokens, authCfg.Roles)).RequireAuth()
+		if store.TokenCount() == 0 {
+			log.Fatal("auth is enabled but no usable token was configured (see auth.tokens, CARTOGRAPHER_TOKENS or --tokens)")
+		}
+		log.Printf("HTTP auth enabled (%d token(s))", store.TokenCount())
 	} else {
 		store = auth.NewTokenStore(nil)
 		log.Print("HTTP auth disabled")
@@ -562,13 +577,11 @@ func scopedTokensWithRoles(specs []config.TokenSpec, roles []config.RoleSpec) []
 		for _, s := range spec.Scopes {
 			scopes = append(scopes, auth.ParseScopes(s)...)
 		}
-		// Fail loud on operator typos: a token that declared scopes but whose
-		// entries all failed to parse would otherwise silently degrade to nil
-		// scopes = full admin access. Warn so the misconfiguration is visible.
-		// A token carrying roles is already bounded, so it is not a typo case.
-		if len(spec.Scopes) > 0 && len(scopes) == 0 && len(spec.Roles) == 0 {
-			log.Printf("WARNING: token %s declares scopes %v but none parsed as kb:<name>:r|rw — this token has FULL ADMIN access; fix the scope syntax", principalID(spec), spec.Scopes)
-		}
+		// The warning this replaces (D118) named the right hazard — a token
+		// whose scopes all failed to parse ended up with full admin access —
+		// but a warning cannot stop a listener from starting. config.ValidateAuth
+		// now refuses the configuration outright (D179), so reaching this point
+		// with unparsed scopes is impossible.
 		var policy auth.Policy
 		for _, name := range spec.Roles {
 			for _, rule := range byName[name].Rules {
@@ -580,6 +593,12 @@ func scopedTokensWithRoles(specs []config.TokenSpec, roles []config.RoleSpec) []
 					Types:    rule.Types,
 				})
 			}
+		}
+		// The pre-scopes admin token is DECLARED here, not inferred downstream
+		// (D179): only this layer can tell "the operator wrote no restriction"
+		// apart from "the restrictions the operator wrote produced nothing".
+		if len(spec.Scopes) == 0 && len(spec.Roles) == 0 {
+			policy.Admin = true
 		}
 		out[i] = auth.ScopedToken{
 			Token:     spec.Token,

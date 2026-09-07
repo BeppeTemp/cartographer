@@ -120,6 +120,31 @@ Tokens can be configured through server YAML or
 
 Send a token only in `Authorization: Bearer <token>`, never in a URL.
 
+### Validation is strict, on the effective configuration
+
+The auth configuration is validated **after** YAML, environment and flags are
+merged — the shape that will actually be served — and an invalid declaration
+stops startup rather than being reinterpreted (D179). Refused:
+
+- an empty or whitespace-only token value;
+- any scope that is not exactly `kb:<name>:r` or `kb:<name>:rw`, including an
+  unknown access value (`kb:docs:write`) and a missing access segment
+  (`kb:docs`) — a partially valid list is refused as a whole, and valid roles on
+  the same token do not excuse a malformed scope;
+- an environment/flag entry with a scope separator but no token (`|kb:docs:r`);
+- a reference to an undeclared role, a duplicate principal id, an unknown auth
+  mode.
+
+Validation runs for every mode, `off` included, so a latent typo does not become
+an exposure the day authentication is enabled. Diagnostics name the offending
+token by index or `id` and never contain a token value or a raw scope string.
+
+When authentication is required, enforcement is carried explicitly: a
+configuration that asked for it and produced no usable credential fails startup,
+and a store that somehow reached the middleware empty refuses every request
+instead of serving them as a local admin. `/health` and the RFC 9728 metadata
+path stay public either way, so probes keep working.
+
 ## Per-KB scopes
 
 A token may carry `kb:<name>:r` or `kb:<name>:rw` scopes. The KB name is its
@@ -137,8 +162,10 @@ auth:
 ```
 
 The environment/flag form is
-`token|kb:homelab:rw;kb:reference:r`. A legacy token with no scopes has full
-access to every mounted KB.
+`token|kb:homelab:rw;kb:reference:r`. A legacy token that declares **neither**
+scopes nor roles has full access to every mounted KB — that absence is the
+declaration. A token that declares restrictions and ends up with none grants
+nothing: unrestricted access is never inferred from an empty policy (D179).
 
 For HTTP requests:
 

@@ -612,9 +612,13 @@ func parseTokenSpecs(v string) []TokenSpec {
 			continue
 		}
 		tok, scopeStr, hasScopes := strings.Cut(e, "|")
-		if tok == "" {
+		if tok == "" && !hasScopes {
 			continue
 		}
+		// A "|scopes" entry with no token half is NOT skipped (D179): the
+		// operator wrote something, and dropping it silently changes the token
+		// count that gates enforcement. It is carried through with an empty
+		// value so ValidateAuth refuses it by name.
 		spec := TokenSpec{Token: tok}
 		if hasScopes {
 			for _, s := range strings.Split(scopeStr, ";") {

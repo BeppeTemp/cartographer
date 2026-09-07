@@ -384,3 +384,24 @@ func TestRemovedSearchConfigIsIgnored(t *testing.T) {
 		t.Errorf("a stale search block changed the config:\ngot  %+v\nwant %+v", got, want)
 	}
 }
+
+// TestParseTokenSpecsKeepsTokenlessEntry: "|kb:a:r" is an operator writing
+// something, not an absence. Skipping it silently changed the token count that
+// gates enforcement; it is carried through so ValidateAuth can refuse it (D179).
+func TestParseTokenSpecsKeepsTokenlessEntry(t *testing.T) {
+	specs := parseTokenSpecs("|kb:a:r")
+	if len(specs) != 1 {
+		t.Fatalf("parseTokenSpecs = %+v, want the malformed entry retained", specs)
+	}
+	if err := ValidateAuth(AuthConfig{Mode: "on", Tokens: specs}); err == nil {
+		t.Error("ValidateAuth accepted a token-less entry")
+	}
+}
+
+// TestParseTokenSpecsIgnoresPureSeparators: an empty entry from ",," is still
+// nothing at all, and must not become a rejected record.
+func TestParseTokenSpecsIgnoresPureSeparators(t *testing.T) {
+	if specs := parseTokenSpecs("a,,b"); len(specs) != 2 {
+		t.Errorf("parseTokenSpecs = %+v, want two tokens", specs)
+	}
+}
