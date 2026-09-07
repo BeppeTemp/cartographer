@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -565,7 +566,7 @@ func doConnect(opts connectOptions) (connectResult, error) {
 	if err != nil {
 		return connectResult{}, err
 	}
-	if _, err := removeMCPEntries(opts.Name, existing.KnownKBs, opts.Providers, opts.Dir, opts.Auth, opts.TokenEnv, opts.DryRun); err != nil {
+	if _, _, err := removeMCPEntries(opts.Name, existing.KnownKBs, opts.Providers, opts.Dir, opts.Auth, opts.TokenEnv, opts.DryRun); err != nil {
 		return connectResult{}, err
 	}
 	configsWritten, configWarnings, err := applyMCPEntries(entriesByProvider, opts.Providers, opts.Dir, opts.Auth, opts.TokenEnv, opts.DryRun)
@@ -646,6 +647,86 @@ func printMCPEntryLines(providers, entries []string, dryRun bool) {
 			fmt.Printf("wrote MCP entry %s\n", entry)
 		}
 	}
+}
+
+// printMCPEntryRemovals reports the MCP entries reconciliation removes.
+// Only the ones NOT being rewritten are worth a line: an entry that is
+// removed and immediately re-applied is an implementation detail of the
+// rewrite, and printing it as a removal would make a no-op sync look
+// destructive. Under --dry-run this is the half of the plan that was missing
+// entirely (D172 WP4).
+func printMCPEntryRemovals(providers []string, removed map[string][]string, applied []string, dryRun bool) {
+	if len(providersManagingMCP(providers)) == 0 {
+		return
+	}
+	keep := make(map[string]bool, len(applied))
+	for _, name := range applied {
+		keep[name] = true
+	}
+	seen := map[string]bool{}
+	var gone []string
+	for _, p := range providers {
+		for _, name := range removed[p] {
+			if keep[name] || seen[name] {
+				continue
+			}
+			seen[name] = true
+			gone = append(gone, name)
+		}
+	}
+	sort.Strings(gone)
+	for _, name := range gone {
+		if dryRun {
+			fmt.Printf("[dry-run] would remove MCP entry %s\n", name)
+		} else {
+			fmt.Printf("removed MCP entry %s\n", name)
+		}
+	}
+}
+
+// printKnownKBsChange reports the rewrite of .cartographer.yaml's known_kbs.
+// A dry run that showed every artifact and every MCP entry but not this was
+// an incomplete plan: the persisted KB list is what the next run reconciles
+// against (D172 WP4).
+func printKnownKBsChange(previous, current []string, dryRun bool) {
+	if sameStringSet(previous, current) {
+		return
+	}
+	verb := "updated"
+	if dryRun {
+		verb = "[dry-run] would update"
+	}
+	fmt.Printf("%s known_kbs: %s → %s\n", verb, kbListLabel(previous), kbListLabel(current))
+}
+
+// kbListLabel renders a KB list for a one-line diff, sorted so the two sides
+// are comparable at a glance.
+func kbListLabel(kbs []string) string {
+	if len(kbs) == 0 {
+		return "(none)"
+	}
+	out := append([]string(nil), kbs...)
+	sort.Strings(out)
+	return strings.Join(out, ", ")
+}
+
+// sameStringSet compares two lists as sets: known_kbs order is not meaningful
+// and reordering it is not a change worth reporting.
+func sameStringSet(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	seen := make(map[string]int, len(a))
+	for _, s := range a {
+		seen[s]++
+	}
+	for _, s := range b {
+		seen[s]--
+		if seen[s] < 0 {
+			return false
+		}
+	}
+	return true
 }
 
 // providersManagingMCP filters providers down to those whose MCP configuration

@@ -55,6 +55,17 @@ automatic deletion**: the directory may hold a real operator rebase, or an autos
 copy of uncommitted work, and deleting another writer's state is the class of action that caused the
 incident in the first place.
 
+## The advisory client lock
+
+The client side has its own advisory lock, for the same reason and with a different scope:
+`.cartographer-client.lock` in the client's target directory, taken by every path that
+read-modify-writes the lockfile or `.cartographer.yaml` (`sync`, `disconnect`,
+`doctor --repair-hashes`, the TUI's sync actions). The concurrent writers are separate
+`cartographer sync` **processes** — the session-start bootstrap hook starts one per agent session —
+and before D172 the loser of that race silently dropped another provider's lockfile entry. It is an
+`flock`, released on every exit path, with a bounded 30s wait that fails naming the file rather than
+proceeding. Details and the surrounding order of operations: `sync.md` §The client lock.
+
 ## Git profiles
 
 `git.profile: local` is the default and the historical behavior. When

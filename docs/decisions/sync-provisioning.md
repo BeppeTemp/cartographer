@@ -825,11 +825,12 @@ binding creates a collision, and `doctor` gains a `kb-collisions` check.
   Configuring a machine must not require the network, and the sync-time refusal
   is the backstop.
 
-**Known limitation, deliberately not fixed here.** `runSync` writes the
-providers' MCP entries *before* fetching the manifest, so a refused merge still
-leaves those rewritten. Only artifacts and the lockfile are protected. Reordering
-the sync is a separate change; a test pins the current behaviour so that when the
-reorder lands it fails loudly instead of changing silently.
+**Known limitation, since closed by [D172](#d172).** As written here, `runSync`
+rewrote the providers' MCP entries *before* fetching the manifest, so a refused
+merge still left those rewritten; only artifacts and the lockfile were protected.
+A test pinned that behaviour so the reorder could not land silently. D172
+reordered `runSync` and inverted the assertion: a refused merge now leaves the
+MCP entries untouched as well.
 
 **Consequences.** A deployment with two colliding KBs — working today, silently
 and arbitrarily — starts failing its sync with a report and a remedy. That is the
@@ -902,3 +903,61 @@ unchanged for anyone who declares no binding. `statusManifestFn` became
 `statusManifestsFn` (per provider); `materializeForProviders` takes a
 per-provider manifest map, with `uniformManifests` for the callers that
 legitimately have one.
+
+---
+
+<a id="d172"></a>
+## D172 — Sync ordering, per-provider checkpoints, and a client lock
+
+**Decision.** `runSync` writes nothing before the manifest is fetched and
+verified; `materializeForProviders` checkpoints the lockfile after every
+provider; every path that mutates client state takes an advisory OS file lock;
+and `--dry-run` covers the removals and the `known_kbs` rewrite it used to hide.
+
+**Context.** Three distinct defects, none of which is "the sync is not atomic" in
+general — that framing hides which write is actually unprotected.
+
+- **Order.** `runSync` removed and rewrote the providers' MCP entries and saved
+  `.cartographer.yaml` *before* `fetchMergedManifest`. A failed `sync_pull`, an
+  unverifiable signature or a cross-KB collision ([D171](#d171)) left those
+  writes in place, and the error said nothing about it. The artifact writes were
+  already correctly ordered — `ensureBootstrapForProviders` sits after the
+  manifest check deliberately, and stays there. The fix moves the configuration
+  writes to the same side of that line and makes the failure message say that
+  nothing changed, because a user who cannot tell what state the machine is in
+  will re-run blind.
+- **Checkpoints.** `Apply` ran per provider while the lockfile was written once
+  at the end, so a failure on provider N left providers 1..N−1 with files on disk
+  and **no lock entry**: unmanaged files that pruning never removes and `doctor`
+  cannot see. The lockfile is now written after each provider, and the error
+  names the ones already recorded so a rerun is informed. N atomic renames
+  instead of one, with at most five providers: a deliberate trade of I/O for
+  safety.
+- **The guarantee, stated rather than implied.** A failure *between* steps leaves
+  a consistent state and a completed provider is always recorded. This does
+  **not** make a single `Apply` atomic — the failed provider's own partial files
+  are still possible, which is [D178](#d178)'s subject. Saying so is the point:
+  the alternative was a generalized snapshot-and-rollback, and rolling back the
+  native configs of four providers is more dangerous code than it removes.
+- **The lock is at OS level.** Nothing serialized concurrent syncs, and every
+  path did a read-modify-write of the lockfile, so two of them lost each other's
+  provider entries, last writer wins. This is not hypothetical: the bootstrap
+  hook runs `cartographer sync` at session start, so several agent sessions
+  opening at once produce concurrent *processes* — which an in-process mutex
+  would not see. `.cartographer-client.lock`, `flock`, released on every exit
+  path, with a bounded wait that fails naming the file: a sync that silently
+  loses an entry is worse than one that asks to be rerun. A dry run writes
+  nothing and takes none.
+- **The TUI stops fanning out.** `S` ran one `syncCmd` per provider through
+  `tea.Batch`. With the lock in place each goroutine would only queue behind the
+  others, buying nothing while making the progress reporting incoherent, so it
+  runs them sequentially under one lock and reports a partial failure as such.
+- **A plan that hides its removals is not a plan.** `--dry-run` showed the files
+  and the MCP entries it would add, but not the ones it would remove nor the
+  `known_kbs` rewrite — exactly the destructive half. Both are now printed, and a
+  `--client`-restricted plan says so in its header, since read without the
+  command line that produced it a partial plan looks complete.
+
+**Consequences.** No interface change. Failure behaviour is more conservative,
+and there is one new failure mode: two overlapping syncs, where the second now
+reports the lock instead of silently corrupting the first one's state.
