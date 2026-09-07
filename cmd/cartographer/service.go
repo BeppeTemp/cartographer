@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/config"
 	"github.com/BeppeTemp/cartographer/internal/defaults"
 	"github.com/BeppeTemp/cartographer/internal/service"
@@ -250,7 +251,7 @@ func cmdServiceStatus(args []string) int {
 		return exitStatusError
 	}
 
-	s := statusSnapshot{Schema: statusSchema, Client: version, State: "running", Service: &serviceSnapshot{st.Installed, st.Running, st.Healthy, st.HTTPAddr}}
+	s := statusSnapshot{Schema: statusSchema, Client: version, State: "running", Service: newServiceSnapshot(st), ServerURL: clientServerURL()}
 	if !st.Installed {
 		s.State = "not_installed"
 	} else if !st.Running {
@@ -259,11 +260,7 @@ func cmdServiceStatus(args []string) int {
 	if output == "json" {
 		_ = json.NewEncoder(os.Stdout).Encode(s)
 	} else {
-		fmt.Printf("binary:  %s\n", st.BinPath)
-		fmt.Printf("config:  %s\n", st.ConfigPath)
-		fmt.Printf("installed: %v\n", st.Installed)
-		fmt.Printf("running:   %v\n", st.Running)
-		fmt.Printf("healthy:   %v (http %s)\n", st.Healthy, st.HTTPAddr)
+		printServiceStatus(os.Stdout, st, s.ServerURL)
 	}
 
 	if !st.Installed {
@@ -273,6 +270,71 @@ func cmdServiceStatus(args []string) int {
 		return exitStatusStopped
 	}
 	return exitStatusRunning
+}
+
+// printServiceStatus renders the human view of the local native service.
+//
+// It prints a health verdict only for a service that exists: `healthy: false`
+// next to `installed: false` describes the absence of a service, and reads as
+// an outage (D174). serverURL is what the client on this machine points at,
+// printed as context only when it is not this local service — a legitimate
+// configuration (a local test server plus a shared one), never a warning.
+func printServiceStatus(w io.Writer, st service.Status, serverURL string) {
+	fmt.Fprintf(w, "binary:  %s\n", st.BinPath)
+	fmt.Fprintf(w, "config:  %s\n", st.ConfigPath)
+	fmt.Fprintf(w, "installed: %v\n", st.Installed)
+	if st.Installed {
+		fmt.Fprintf(w, "loaded:    %v (known to the init system; not a liveness check)\n", st.Running)
+		fmt.Fprintln(w, serviceHealthLine(st))
+	} else {
+		fmt.Fprintln(w, "no local cartographer service is installed on this machine")
+		fmt.Fprintf(w, "  install one with: cartographer service install --data %s\n", defaultDataDir())
+	}
+	if serverURL != "" && !isLoopbackURL(serverURL) {
+		fmt.Fprintf(w, "client:  configured against %s, which is not this local service\n", serverURL)
+	}
+}
+
+// serviceHealthLine states whether the probe ran. A skipped check is never
+// rendered as `healthy: false`: nothing was measured.
+func serviceHealthLine(st service.Status) string {
+	if st.HealthChecked {
+		return fmt.Sprintf("healthy:   %v (http %s)", st.Healthy, st.HTTPAddr)
+	}
+	return fmt.Sprintf("health:    not checked (%s)", healthSkipExplanation(st.HealthSkipReason))
+}
+
+// healthSkipExplanation turns a machine-readable skip reason into the phrase
+// printed to an operator. An unknown reason is passed through rather than
+// swallowed.
+func healthSkipExplanation(reason string) string {
+	switch reason {
+	case service.HealthSkipStdio:
+		return "server configured for stdio transport: no endpoint to probe"
+	case service.HealthSkipNoConfig:
+		return "no server config at the path above"
+	case service.HealthSkipUnreadableConfig:
+		return "server config could not be read"
+	default:
+		return reason
+	}
+}
+
+// clientServerURL reports what the client config on this machine points at,
+// or "" when there is none to read. `service status` inspects the local
+// service only (widening it would make it ambiguous); this is the context
+// that explains why a working client can coexist with an absent local
+// service.
+func clientServerURL() string {
+	dir, err := clientconfig.TargetDir()
+	if err != nil {
+		return ""
+	}
+	cfg, err := clientconfig.Load(dir)
+	if err != nil {
+		return ""
+	}
+	return cfg.ServerURL
 }
 
 // defaultDataDir returns ~/cartographer-data, the default --data for

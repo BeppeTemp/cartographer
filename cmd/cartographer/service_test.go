@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -105,5 +106,106 @@ func TestCmdServiceRestart_WaitPrintsSuccessOnlyAfterProof(t *testing.T) {
 
 	if code := cmdServiceRestart([]string{"--wait"}); code != exitStatusError {
 		t.Errorf("exit = %d, want %d", code, exitStatusError)
+	}
+}
+
+// TestPrintServiceStatus covers what the D174 rework is about: never a health
+// verdict on a service that does not exist, never a claim of a live process,
+// and the one context line that explains a remote client.
+func TestPrintServiceStatus(t *testing.T) {
+	cases := []struct {
+		name      string
+		st        service.Status
+		serverURL string
+		want      []string
+		absent    []string
+	}{
+		{
+			name:   "not installed",
+			st:     service.Status{Lifecycle: service.LifecycleNotInstalled, HealthSkipReason: service.HealthSkipNoConfig},
+			want:   []string{"installed: false", "no local cartographer service is installed", "cartographer service install"},
+			absent: []string{"healthy:", "health:", "loaded:"},
+		},
+		{
+			name:   "installed with an http address",
+			st:     service.Status{Installed: true, Running: true, Lifecycle: service.LifecycleLoaded, HealthChecked: true, Healthy: true, HTTPAddr: "127.0.0.1:39273"},
+			want:   []string{"installed: true", "loaded:    true", "healthy:   true (http 127.0.0.1:39273)"},
+			absent: []string{"running:", "not checked"},
+		},
+		{
+			name:   "installed, stdio transport",
+			st:     service.Status{Installed: true, Running: true, Lifecycle: service.LifecycleLoaded, HealthSkipReason: service.HealthSkipStdio},
+			want:   []string{"health:    not checked", "stdio transport"},
+			absent: []string{"healthy:"},
+		},
+		{
+			name:   "installed, config unreadable",
+			st:     service.Status{Installed: true, Lifecycle: service.LifecycleNotLoaded, HealthSkipReason: service.HealthSkipUnreadableConfig},
+			want:   []string{"loaded:    false", "health:    not checked", "could not be read"},
+			absent: []string{"healthy:"},
+		},
+		{
+			name:      "remote client is context, not a warning",
+			st:        service.Status{Installed: true, Running: true, Lifecycle: service.LifecycleLoaded, HealthChecked: true},
+			serverURL: "https://cartographer.example.com/mcp",
+			want:      []string{"client:  configured against https://cartographer.example.com/mcp"},
+			absent:    []string{"warning", "Error"},
+		},
+		{
+			name:      "loopback client gets no context line",
+			st:        service.Status{Installed: true, Running: true, Lifecycle: service.LifecycleLoaded, HealthChecked: true},
+			serverURL: "http://127.0.0.1:39273/mcp",
+			absent:    []string{"client:"},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var sb strings.Builder
+			printServiceStatus(&sb, tc.st, tc.serverURL)
+			got := sb.String()
+			for _, w := range tc.want {
+				if !strings.Contains(got, w) {
+					t.Errorf("output missing %q:\n%s", w, got)
+				}
+			}
+			for _, a := range tc.absent {
+				if strings.Contains(got, a) {
+					t.Errorf("output should not contain %q:\n%s", a, got)
+				}
+			}
+		})
+	}
+}
+
+// TestServiceSnapshotContract: `service status --output json` is consumed by
+// scripts. New fields are fine, renamed or re-meaning ones are not.
+func TestServiceSnapshotContract(t *testing.T) {
+	st := service.Status{Installed: true, Running: true, Healthy: true, HTTPAddr: ":39273", Lifecycle: service.LifecycleLoaded, HealthChecked: true}
+	b, err := json.Marshal(newServiceSnapshot(st))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(b, &got); err != nil {
+		t.Fatal(err)
+	}
+	for k, want := range map[string]any{
+		"installed":      true,
+		"running":        true,
+		"healthy":        true,
+		"http_addr":      ":39273",
+		"lifecycle":      "loaded",
+		"health_checked": true,
+	} {
+		if got[k] != want {
+			t.Errorf("%s = %v, want %v", k, got[k], want)
+		}
+	}
+	// A skipped check must be visible next to the bool it invalidates.
+	b, _ = json.Marshal(newServiceSnapshot(service.Status{Lifecycle: service.LifecycleNotInstalled, HealthSkipReason: service.HealthSkipStdio}))
+	got = map[string]any{}
+	json.Unmarshal(b, &got)
+	if got["health_checked"] != false || got["health_skip_reason"] != "stdio_transport" {
+		t.Errorf("skipped check snapshot = %s", b)
 	}
 }

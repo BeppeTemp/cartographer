@@ -309,7 +309,7 @@ The local mode (D73) uses the binary already installed by `install.sh` as a **us
 
 ```bash
 cartographer service install                 # generates config + plist/unit, starts the server
-cartographer service status                  # binary, config, installed/running/healthy
+cartographer service status                  # binary, config, and the observable state of the local service
 cartographer service start|stop|restart
 cartographer service uninstall               # removes the service; config and data remain
 cartographer kb create <name> --remote <url> # scaffolds a KB in the data dir, pushes it to <url> (D85, D134)
@@ -332,6 +332,15 @@ cartographer kb clone <remote>               # mounts an existing remote KB in t
 Binds to **loopback** by default (`127.0.0.1:39273`) → auth stays in auto-off mode without exposing anything on the network. With an empty (or missing — D83: `serve` creates it and treats it as empty rather than failing) data dir the server starts with 0 KBs — `/health` is still up (liveness: `status:"ok"`) but `/ready` reports `503 {"ready":false}` (D84, §Observability): `cartographer kb create <name> --remote <url>` scaffolds a subfolder KB the same way `serve --kb <path> --init` would (D85) and pushes it to the empty repository at `<url>`, which becomes its `origin` — the remote is mandatory, `--no-remote` being the explicit opt-out for a local-only, non-durable KB (D134) — while `cartographer kb clone <remote>` mounts an existing OKF remote there (D97; `service install` itself prints a hint pointing at creation if it starts with 0 KBs mounted), or add `kbs:` entries to clone remotes (§Bootstrapping a KB) — either way, `service restart` (or `kb create --restart` / `kb clone --restart`, which do this for you and wait for the server to report healthy again) is what makes the new KB visible.
 
 `service status` uses systemctl-like exit codes: `0` running, `3` installed but stopped, `4` not installed — this is what lets `install.sh update` automatically restart only a running service (see §Client installation).
+
+**What `service status` reports** (D174). It inspects the **local native service** and nothing else: the remote server a client points at is a different question, answered by `cartographer status` and `cartographer doctor`. It reports what it observed, never a verdict on what does not exist:
+
+- `installed` — the plist/unit is on disk. When it is `false` the output says there is no local service and how to install one, and prints **no health line**: `healthy: false` next to `installed: false` describes an absence, and reads as an outage.
+- `loaded` — `launchctl print` / `systemctl --user is-active` succeeded. On macOS that proves the job is registered with launchd, **not** that a process is alive. The JSON field keeps its name, `running`, and `lifecycle` (`not_installed` / `not_loaded` / `loaded`) is the field to read.
+- `healthy` — the result of `GET /health` on the address in the server config. It is a verdict only when the probe **ran**: `health_checked` says whether it did, and `health_skip_reason` why not (`config_missing`, `config_unreadable`, `stdio_transport`). An empty `http:` means the server is configured for **stdio**, so there is no endpoint to probe — the default listen address is never substituted, since that would probe an address nothing listens on.
+- `client` — one context line when the `.cartographer.yaml` on this machine points at a server that is not this local service. A local service alongside a client pointed at a shared remote one is a legitimate configuration, reported as context and never as a warning.
+
+The `--output json` shape is a contract: fields are added, existing fields and the exit codes keep their meaning.
 
 **Data/code separation**: the cartographer repo contains no data. KBs live in the data dir (default `~/cartographer-data`); every subdirectory of it is a separate KB. For multiple users on shared KBs, see the k8s topology below — the server configuration is identical, only where it runs changes; one server process is the sole writer of a given working copy, so several instances mean separate clones synchronizing through the same remote, never two writers on one checkout (`concurrency.md` §Writer boundary).
 

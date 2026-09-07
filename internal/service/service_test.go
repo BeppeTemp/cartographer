@@ -1056,3 +1056,114 @@ func TestRenderedDefinitionsCarryTheSamePATH(t *testing.T) {
 		t.Errorf("unit missing Environment=PATH=%s\n---\n%s", want, unit)
 	}
 }
+
+// TestStatus_Lifecycle pins the three observable states. Two booleans admit
+// a fourth combination (not installed but "running") that means nothing;
+// Lifecycle is what callers should read.
+func TestStatus_Lifecycle(t *testing.T) {
+	cases := []struct {
+		name      string
+		installed bool
+		loaded    bool
+		want      Lifecycle
+	}{
+		{"absent", false, false, LifecycleNotInstalled},
+		{"installed but unknown to launchd", true, false, LifecycleNotLoaded},
+		{"loaded", true, true, LifecycleLoaded},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			home := withTestHome(t, "darwin")
+			if tc.installed {
+				plistPath := filepath.Join(home, "Library", "LaunchAgents", "com.cartographer.serve.plist")
+				os.MkdirAll(filepath.Dir(plistPath), 0o755)
+				os.WriteFile(plistPath, []byte("<plist/>"), 0o644)
+			}
+			m, stub := newTestManager()
+			if !tc.loaded {
+				stub.fail = map[string]bool{"launchctl print": true}
+			}
+			st, err := m.Status(filepath.Join(home, "absent.yaml"))
+			if err != nil {
+				t.Fatalf("Status: %v", err)
+			}
+			if st.Lifecycle != tc.want {
+				t.Errorf("Lifecycle = %q, want %q", st.Lifecycle, tc.want)
+			}
+		})
+	}
+}
+
+// TestStatus_HealthCheckSkipped: every path that cannot probe reports that it
+// did not, instead of leaving a bare Healthy: false that reads as an outage.
+func TestStatus_HealthCheckSkipped(t *testing.T) {
+	cases := []struct {
+		name       string
+		writeConf  bool
+		conf       string
+		wantReason string
+	}{
+		{"no config", false, "", HealthSkipNoConfig},
+		{"unreadable config", true, "http: \"unterminated\n", HealthSkipUnreadableConfig},
+		{"stdio transport", true, "kb: /tmp/kb\n", HealthSkipStdio},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			home := withTestHome(t, "darwin")
+			configPath := filepath.Join(home, "server.yaml")
+			if tc.writeConf {
+				if err := os.WriteFile(configPath, []byte(tc.conf), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			m, _ := newTestManager()
+			st, err := m.Status(configPath)
+			if err != nil {
+				t.Fatalf("Status: %v", err)
+			}
+			if st.HealthChecked {
+				t.Error("HealthChecked should be false: there was nothing to probe")
+			}
+			if st.HealthSkipReason != tc.wantReason {
+				t.Errorf("HealthSkipReason = %q, want %q", st.HealthSkipReason, tc.wantReason)
+			}
+			// An empty http: means stdio, not "apply the default": reporting
+			// the default listen address would probe an address nothing
+			// listens on.
+			if st.HTTPAddr != "" {
+				t.Errorf("HTTPAddr = %q, want empty", st.HTTPAddr)
+			}
+			if st.Healthy {
+				t.Error("Healthy must stay false when no probe ran")
+			}
+		})
+	}
+}
+
+// TestStatus_HealthChecked: with an address configured the probe runs, and
+// says so, even when the server is not up.
+func TestStatus_HealthChecked(t *testing.T) {
+	home := withTestHome(t, "darwin")
+	configPath := filepath.Join(home, "server.yaml")
+	// Port 1 on loopback: nothing listens, the probe runs and fails fast.
+	if err := os.WriteFile(configPath, []byte("http: \"127.0.0.1:1\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m, _ := newTestManager()
+	st, err := m.Status(configPath)
+	if err != nil {
+		t.Fatalf("Status: %v", err)
+	}
+	if !st.HealthChecked {
+		t.Error("HealthChecked should be true: an address was configured")
+	}
+	if st.HealthSkipReason != "" {
+		t.Errorf("HealthSkipReason = %q, want empty", st.HealthSkipReason)
+	}
+	if st.Healthy {
+		t.Error("Healthy should be false: nothing listens on 127.0.0.1:1")
+	}
+	if st.HTTPAddr != "127.0.0.1:1" {
+		t.Errorf("HTTPAddr = %q", st.HTTPAddr)
+	}
+}

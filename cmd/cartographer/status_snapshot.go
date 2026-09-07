@@ -12,6 +12,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/service"
 )
 
 // statusSchema is deliberately versioned: scripts can reject incompatible
@@ -65,11 +66,35 @@ type statusArtifact struct {
 	Trust  string `json:"trust,omitempty"`
 }
 
+// serviceSnapshot is part of the `service status --output json` contract:
+// fields may be added, existing ones may not change meaning (D174).
+//
+// Healthy is a verdict only when HealthChecked is true; otherwise
+// HealthSkipReason says why nothing was measured. Running means the init
+// system knows the job, which on darwin is not proof of a live process —
+// Lifecycle is the field to read for the observable state.
 type serviceSnapshot struct {
-	Installed bool   `json:"installed"`
-	Running   bool   `json:"running"`
-	Healthy   bool   `json:"healthy"`
-	HTTPAddr  string `json:"http_addr,omitempty"`
+	Installed        bool   `json:"installed"`
+	Running          bool   `json:"running"`
+	Healthy          bool   `json:"healthy"`
+	HTTPAddr         string `json:"http_addr,omitempty"`
+	Lifecycle        string `json:"lifecycle,omitempty"`
+	HealthChecked    bool   `json:"health_checked"`
+	HealthSkipReason string `json:"health_skip_reason,omitempty"`
+}
+
+// newServiceSnapshot projects a service.Status onto the JSON contract. One
+// constructor, so the two call sites cannot drift on a newly added field.
+func newServiceSnapshot(st service.Status) *serviceSnapshot {
+	return &serviceSnapshot{
+		Installed:        st.Installed,
+		Running:          st.Running,
+		Healthy:          st.Healthy,
+		HTTPAddr:         st.HTTPAddr,
+		Lifecycle:        string(st.Lifecycle),
+		HealthChecked:    st.HealthChecked,
+		HealthSkipReason: st.HealthSkipReason,
+	}
 }
 
 // statusSnapshot has no renderer-specific fields and is the single remote
@@ -135,7 +160,7 @@ func snapshotForConfig(dir string, cfg *clientconfig.Config, includeService bool
 	s := statusSnapshot{Schema: statusSchema, Client: version, State: "in_sync", Providers: providerStatuses(cfg), ServerURL: cfg.ServerURL}
 	if includeService && isLoopbackURL(cfg.ServerURL) {
 		if st, err := statusServiceFn(); err == nil {
-			s.Service = &serviceSnapshot{st.Installed, st.Running, st.Healthy, st.HTTPAddr}
+			s.Service = newServiceSnapshot(st)
 		}
 	}
 	health, err := statusHealthFn(cfg)
