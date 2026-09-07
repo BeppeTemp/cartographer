@@ -688,6 +688,7 @@ clients:         # per-provider KB binding (D169); absent provider = every known
   claude:
     kbs: [homelab]
 search_roots: ["~/Documents"]   # where repoindex.Scan looks for git clones for {{repo:<key>}} (D75)
+search_depth: 4                 # how many levels repoindex descends from each root (D162); omitted when 0 = the default
 paths: {}                       # manual name -> path mapping for {{path:<name>}} (and an override for {{repo:<key>}}, D75)
 ```
 
