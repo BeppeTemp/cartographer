@@ -128,7 +128,7 @@ func doDisconnect(opts disconnectOptions) (disconnectResult, error) {
 	for _, p := range opts.Providers {
 		pr := disconnectProviderResult{Provider: p}
 
-		removed, err := removeMCPEntries(cfg.ServerName, cfg.KBs, []string{p}, opts.Dir, cfg.Auth, cfg.TokenEnv, opts.DryRun)
+		removed, err := removeMCPEntries(cfg.ServerName, cfg.KnownKBs, []string{p}, opts.Dir, cfg.Auth, cfg.TokenEnv, opts.DryRun)
 		if err != nil {
 			return disconnectResult{}, fmt.Errorf("remove config for %s: %w", p, err)
 		}

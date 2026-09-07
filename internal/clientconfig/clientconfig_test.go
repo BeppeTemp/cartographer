@@ -58,7 +58,7 @@ func TestSaveAndLoad_RoundTrip(t *testing.T) {
 	cfg.AddAgent("claude")
 	cfg.AddAgent("opencode")
 	cfg.Auth = true
-	cfg.KBs = []string{"homelab"}
+	cfg.KnownKBs = []string{"homelab"}
 
 	if err := clientconfig.Save(dir, cfg); err != nil {
 		t.Fatalf("Save: %v", err)
@@ -81,8 +81,8 @@ func TestSaveAndLoad_RoundTrip(t *testing.T) {
 	if len(loaded.Agents) != 2 || !loaded.HasAgent("claude") || !loaded.HasAgent("opencode") {
 		t.Errorf("Agents round-trip mismatch: %v", loaded.Agents)
 	}
-	if len(loaded.KBs) != 1 || loaded.KBs[0] != "homelab" {
-		t.Errorf("KBs round-trip mismatch: %v", loaded.KBs)
+	if len(loaded.KnownKBs) != 1 || loaded.KnownKBs[0] != "homelab" {
+		t.Errorf("KBs round-trip mismatch: %v", loaded.KnownKBs)
 	}
 }
 
@@ -249,5 +249,216 @@ func TestTargetDir(t *testing.T) {
 	realHome, _ := os.UserHomeDir()
 	if home != realHome {
 		t.Errorf("TargetDir() = %q, want home %q", home, realHome)
+	}
+}
+
+// --- D169: per-provider KB binding ---
+
+// TestBoundKBsThreeStates pins the rule no caller may re-derive: an absent
+// entry, an entry holding an empty list and an entry holding names are three
+// distinct states, and only the first one means "every known KB".
+func TestBoundKBsThreeStates(t *testing.T) {
+	cfg := clientconfig.Default()
+	cfg.KnownKBs = []string{"alpha", "beta"}
+	cfg.Clients = map[string]clientconfig.ClientBinding{
+		"codex":    {KBs: []string{"beta"}},
+		"opencode": {KBs: nil},
+	}
+
+	if kbs, explicit := cfg.BoundKBs("claude"); explicit || strings.Join(kbs, ",") != "alpha,beta" {
+		t.Errorf("no entry: got %v explicit=%v, want [alpha beta] explicit=false", kbs, explicit)
+	}
+	if kbs, explicit := cfg.BoundKBs("codex"); !explicit || strings.Join(kbs, ",") != "beta" {
+		t.Errorf("named entry: got %v explicit=%v, want [beta] explicit=true", kbs, explicit)
+	}
+	if kbs, explicit := cfg.BoundKBs("opencode"); !explicit || len(kbs) != 0 {
+		t.Errorf("empty entry: got %v explicit=%v, want [] explicit=true", kbs, explicit)
+	}
+}
+
+// TestBoundKBsReturnsCopy: a caller mutating the result must not corrupt the
+// config it was resolved from.
+func TestBoundKBsReturnsCopy(t *testing.T) {
+	cfg := clientconfig.Default()
+	cfg.KnownKBs = []string{"alpha"}
+	kbs, _ := cfg.BoundKBs("claude")
+	kbs[0] = "mutated"
+	if cfg.KnownKBs[0] != "alpha" {
+		t.Errorf("KnownKBs = %v, want the original [alpha]", cfg.KnownKBs)
+	}
+}
+
+func TestBindUnbindReset(t *testing.T) {
+	cfg := clientconfig.Default()
+	cfg.KnownKBs = []string{"alpha", "beta"}
+
+	if err := cfg.Bind("claude", "alpha"); err != nil {
+		t.Fatalf("Bind: %v", err)
+	}
+	// Binding the first KB converts the provider from "all known" to "only this".
+	if kbs, explicit := cfg.BoundKBs("claude"); !explicit || strings.Join(kbs, ",") != "alpha" {
+		t.Fatalf("after Bind: %v explicit=%v", kbs, explicit)
+	}
+	if err := cfg.Bind("claude", "alpha"); err != nil {
+		t.Fatalf("Bind (repeat): %v", err)
+	}
+	if kbs, _ := cfg.BoundKBs("claude"); len(kbs) != 1 {
+		t.Errorf("re-binding the same KB duplicated it: %v", kbs)
+	}
+
+	// Unbinding the last KB must leave the entry, not restore the default.
+	if err := cfg.Unbind("claude", "alpha"); err != nil {
+		t.Fatalf("Unbind: %v", err)
+	}
+	if kbs, explicit := cfg.BoundKBs("claude"); !explicit || len(kbs) != 0 {
+		t.Fatalf("after Unbind of the last KB: %v explicit=%v, want [] explicit=true", kbs, explicit)
+	}
+
+	// Reset is the only way back to the default.
+	cfg.ResetBinding("claude")
+	if kbs, explicit := cfg.BoundKBs("claude"); explicit || strings.Join(kbs, ",") != "alpha,beta" {
+		t.Fatalf("after ResetBinding: %v explicit=%v", kbs, explicit)
+	}
+}
+
+func TestUnbindUnknownPairIsNoOp(t *testing.T) {
+	cfg := clientconfig.Default()
+	if err := cfg.Unbind("claude", "missing"); err != nil {
+		t.Fatalf("Unbind of an unbound pair: %v", err)
+	}
+	if _, explicit := cfg.BoundKBs("claude"); explicit {
+		t.Error("Unbind created an entry for a provider that had none")
+	}
+}
+
+func TestBindRejectsEmptyNames(t *testing.T) {
+	cfg := clientconfig.Default()
+	if err := cfg.Bind("", "alpha"); err == nil {
+		t.Error("Bind with an empty provider should fail")
+	}
+	if err := cfg.Bind("claude", " "); err == nil {
+		t.Error("Bind with a blank KB name should fail")
+	}
+}
+
+// TestLoadMigratesLegacyKBsKey: a config written before D169 keeps its cached
+// KB list, now under the typed KnownKBs field.
+func TestLoadMigratesLegacyKBsKey(t *testing.T) {
+	dir := t.TempDir()
+	writeConfigFile(t, dir, "server_url: http://localhost:39273/mcp\nkbs:\n  - alpha\n  - beta\n")
+
+	cfg, err := clientconfig.Load(dir)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if strings.Join(cfg.KnownKBs, ",") != "alpha,beta" {
+		t.Errorf("KnownKBs = %v, want [alpha beta]", cfg.KnownKBs)
+	}
+}
+
+// TestLoadKnownKBsWinsOverLegacyAlias: `known_kbs: []` is a deliberately empty
+// cache and must beat a stale `kbs` left by a pre-D169 client. Testing the
+// empty case specifically is the point — a non-empty one would also pass with
+// a plain "prefer non-empty" implementation.
+func TestLoadKnownKBsWinsOverLegacyAlias(t *testing.T) {
+	dir := t.TempDir()
+	writeConfigFile(t, dir, "server_url: http://localhost:39273/mcp\nkbs:\n  - stale\nknown_kbs: []\n")
+
+	cfg, err := clientconfig.Load(dir)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(cfg.KnownKBs) != 0 {
+		t.Errorf("KnownKBs = %v, want empty (known_kbs: [] must win over kbs)", cfg.KnownKBs)
+	}
+}
+
+// TestSaveWritesKnownKBsNotLegacyAlias asserts on the BYTES on disk, not on a
+// reloaded struct: a field omitted from Save's marshalled struct round-trips
+// correctly through Extra while every programmatic change to it is silently
+// lost, so only the file proves persistence.
+func TestSaveWritesKnownKBsNotLegacyAlias(t *testing.T) {
+	dir := t.TempDir()
+	writeConfigFile(t, dir, "server_url: http://localhost:39273/mcp\nkbs:\n  - alpha\ncustom_key: keep-me\n")
+
+	cfg, err := clientconfig.Load(dir)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if err := cfg.Bind("claude", "alpha"); err != nil {
+		t.Fatalf("Bind: %v", err)
+	}
+	if err := clientconfig.Save(dir, cfg); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	data, err := os.ReadFile(clientconfig.Path(dir))
+	if err != nil {
+		t.Fatalf("read back: %v", err)
+	}
+	raw := string(data)
+	if !strings.Contains(raw, "known_kbs:") {
+		t.Errorf("known_kbs missing from the written file:\n%s", raw)
+	}
+	if strings.Contains(raw, "\nkbs:") {
+		t.Errorf("the legacy kbs key was written again:\n%s", raw)
+	}
+	if !strings.Contains(raw, "clients:") {
+		t.Errorf("clients missing from the written file:\n%s", raw)
+	}
+	if !strings.Contains(raw, "custom_key: keep-me") {
+		t.Errorf("unknown key lost across the write:\n%s", raw)
+	}
+
+	reloaded, err := clientconfig.Load(dir)
+	if err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+	if kbs, explicit := reloaded.BoundKBs("claude"); !explicit || strings.Join(kbs, ",") != "alpha" {
+		t.Errorf("binding did not survive the round trip: %v explicit=%v", kbs, explicit)
+	}
+}
+
+func writeConfigFile(t *testing.T, dir, body string) {
+	t.Helper()
+	if err := os.WriteFile(clientconfig.Path(dir), []byte(body), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+}
+
+// TestSyncStyleSaveKeepsBindings simulates what runSync does after reconciling
+// with /health — overwrite the server-owned cache, then Save — and asserts the
+// user-owned bindings survive it. This is the regression the whole split of
+// known_kbs from clients exists to prevent.
+func TestSyncStyleSaveKeepsBindings(t *testing.T) {
+	dir := t.TempDir()
+	cfg := clientconfig.Default()
+	cfg.Agents = []string{"claude"}
+	cfg.KnownKBs = []string{"alpha"}
+	if err := cfg.Bind("claude", "alpha"); err != nil {
+		t.Fatalf("Bind: %v", err)
+	}
+	if err := clientconfig.Save(dir, cfg); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	reloaded, err := clientconfig.Load(dir)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	reloaded.KnownKBs = []string{"alpha", "beta", "gamma"} // what runSync assigns
+	if err := clientconfig.Save(dir, reloaded); err != nil {
+		t.Fatalf("Save after sync: %v", err)
+	}
+
+	final, err := clientconfig.Load(dir)
+	if err != nil {
+		t.Fatalf("Load after sync: %v", err)
+	}
+	if strings.Join(final.KnownKBs, ",") != "alpha,beta,gamma" {
+		t.Errorf("KnownKBs = %v, want the refreshed cache", final.KnownKBs)
+	}
+	if kbs, explicit := final.BoundKBs("claude"); !explicit || strings.Join(kbs, ",") != "alpha" {
+		t.Errorf("binding = %v explicit=%v, want [alpha] explicit=true — the sync overwrote it", kbs, explicit)
 	}
 }

@@ -203,7 +203,7 @@ func buildRows(dir string) []dashboardAgent {
 	var kbs []string
 	if cfg, err := clientconfig.Load(dir); err == nil {
 		serverName = cfg.ServerName
-		kbs = cfg.KBs
+		kbs = cfg.KnownKBs
 		for _, a := range cfg.Agents {
 			connected[a] = true
 		}

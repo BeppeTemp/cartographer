@@ -160,7 +160,7 @@ func TestFetchMergedManifest_QualifiesSyncPullPerKB(t *testing.T) {
 	})
 	defer srv.Close()
 
-	cfg := &clientconfig.Config{ServerURL: srv.URL + "/mcp", KBs: []string{"alpha", "beta"}}
+	cfg := &clientconfig.Config{ServerURL: srv.URL + "/mcp", KnownKBs: []string{"alpha", "beta"}}
 	if _, err := fetchMergedManifest(cfg); err != nil {
 		t.Fatalf("fetchMergedManifest: %v", err)
 	}
@@ -177,7 +177,7 @@ func TestCmdReindex_QualifiesReindexPerKB(t *testing.T) {
 
 	dir := t.TempDir()
 	t.Setenv("HOME", dir)
-	cfg := &clientconfig.Config{ServerURL: srv.URL + "/mcp", KBs: []string{"alpha", "beta"}}
+	cfg := &clientconfig.Config{ServerURL: srv.URL + "/mcp", KnownKBs: []string{"alpha", "beta"}}
 	if err := clientconfig.Save(dir, cfg); err != nil {
 		t.Fatal(err)
 	}

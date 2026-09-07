@@ -565,7 +565,7 @@ func doConnect(opts connectOptions) (connectResult, error) {
 	if err != nil {
 		return connectResult{}, err
 	}
-	if _, err := removeMCPEntries(opts.Name, existing.KBs, opts.Providers, opts.Dir, opts.Auth, opts.TokenEnv, opts.DryRun); err != nil {
+	if _, err := removeMCPEntries(opts.Name, existing.KnownKBs, opts.Providers, opts.Dir, opts.Auth, opts.TokenEnv, opts.DryRun); err != nil {
 		return connectResult{}, err
 	}
 	configsWritten, configWarnings, err := applyMCPEntries(entries, opts.Providers, opts.Dir, opts.Auth, opts.TokenEnv, opts.DryRun)
@@ -585,11 +585,11 @@ func doConnect(opts connectOptions) (connectResult, error) {
 	}
 
 	// 2. Materialize skills via sync_pull (best-effort: a deferred sync is not fatal).
-	pullKBs := existing.KBs
+	pullKBs := existing.KnownKBs
 	if healthErr == nil {
 		pullKBs = kbs
 	}
-	pullCfg := &clientconfig.Config{ServerURL: opts.ServerURL, ServerName: opts.Name, Auth: opts.Auth, TokenEnv: opts.TokenEnv, KBs: pullKBs, SigningKeys: existing.SigningKeys}
+	pullCfg := &clientconfig.Config{ServerURL: opts.ServerURL, ServerName: opts.Name, Auth: opts.Auth, TokenEnv: opts.TokenEnv, KnownKBs: pullKBs, SigningKeys: existing.SigningKeys}
 
 	// The MCP-entry lines report what was emitted, not what was asked for:
 	// entries is built from the client config alone, so keeping it when no
@@ -614,7 +614,7 @@ func doConnect(opts connectOptions) (connectResult, error) {
 	// 3. Persist .cartographer.yaml.
 	existing.ServerURL, existing.ServerName, existing.Auth, existing.TokenEnv, existing.Trust = opts.ServerURL, opts.Name, opts.Auth, opts.TokenEnv, opts.Trust
 	if healthErr == nil {
-		existing.KBs = kbs
+		existing.KnownKBs = kbs
 	}
 	for _, p := range opts.Providers {
 		existing.AddAgent(p)

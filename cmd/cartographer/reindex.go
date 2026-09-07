@@ -45,7 +45,7 @@ func cmdReindex(args []string) int {
 			cfg = loaded
 		}
 	}
-	selected := cfg.KBs
+	selected := cfg.KnownKBs
 	if *kbFlag != "" {
 		selected = []string{*kbFlag}
 	}

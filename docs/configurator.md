@@ -60,10 +60,11 @@ configuration. With one mounted KB (or an older single-KB server that omits
 `kbs`) it keeps the compatible single entry, `<server_name>`, pointed at the
 bare `/mcp` URL. With two or more KBs it writes one entry per KB, named
 `<server_name>-<kb>` and pointed at `/mcp?kb=<kb>`, and records that KB list in
-`.cartographer.yaml`. `sync` repeats the enumeration: it adds new entries,
-removes entries for disappeared KBs, and performs the bare↔suffixed rename on
-one-to-many transitions. If the server cannot be reached, it leaves the MCP
-entries and `kbs` list untouched and warns; run `sync` again once it is up.
+`.cartographer.yaml` (`known_kbs`). `sync` repeats the enumeration: it adds new
+entries, removes entries for disappeared KBs, and performs the bare↔suffixed
+rename on one-to-many transitions. If the server cannot be reached, it leaves
+the MCP entries and `known_kbs` untouched and warns; run `sync` again once it is
+up.
 
 **Kiro and flat tool namespaces (D102).** Kiro's MCP tool namespace is flat across servers, unlike
 Claude Code/Codex/OpenCode which namespace per server: writing 2+ MCP entries for `kiro` (i.e.
@@ -146,7 +147,7 @@ managed artifacts registered for that provider in the lockfile (`provisioning.Pr
 managed files, never untracked ones), then removes the provider from the lockfile and from
 `.cartographer.yaml`. If the lockfile ends up with no providers it is removed; `.cartographer.yaml`,
 on the other hand, is **never deleted** (D64): with zero agents it stays on disk with `agents: []`,
-preserving `server_url`/`server_name`/`auth`/`token_env`/`trust`/`kbs` as defaults for the next
+preserving `server_url`/`server_name`/`auth`/`token_env`/`trust`/`known_kbs`/`clients` as defaults for the next
 `connect` (a disconnect→connect restarts from the previous server, not from `http://localhost:39273/mcp`).
 
 ```bash
@@ -672,10 +673,45 @@ server_name: cartographer  # name under which the server is registered in the MC
 auth: false
 token_env: CARTOGRAPHER_TOKENS
 agents: [claude, opencode]
-kbs: []          # mounted KB names discovered by connect/sync; empty = bare single-KB endpoint
+known_kbs: []    # mounted KB names discovered by connect/sync; empty = bare single-KB endpoint
+clients:         # per-provider KB binding (D169); absent provider = every known KB
+  claude:
+    kbs: [homelab]
 search_roots: ["~/Documents"]   # where repoindex.Scan looks for git clones for {{repo:<key>}} (D75)
 paths: {}                       # manual name -> path mapping for {{path:<name>}} (and an override for {{repo:<key>}}, D75)
 ```
+
+`known_kbs` is server-owned: `connect` and `sync` overwrite it wholesale with
+what `/health` advertises. `clients` is user-owned and is never written by them
+— it is maintained with `cartographer client` (below). The legacy `kbs` key
+written before D169 is still read and is migrated to `known_kbs` on the next
+write.
+
+### `cartographer client`
+
+Declares which Knowledge Bases each connected provider may receive. Every
+subcommand works offline: it reads and writes `.cartographer.yaml` only and
+never contacts the server, so a KB name that is not currently advertised is a
+warning, not a failure.
+
+| Command | Effect |
+|---|---|
+| `client list` | one row per connected provider: resolved KBs and the origin of the answer (`explicit` / `default (all known)`) |
+| `client show <provider>` | that provider's bound KBs, its origin, and the known KBs it is **not** bound to |
+| `client bind <provider> <kb>[,<kb>...]` | adds; creating the first binding narrows the provider from "every known KB" to only those listed, and the output says so |
+| `client unbind <provider> <kb>[,<kb>...]` | removes; removing the last KB leaves the provider bound to **no** KBs |
+| `client reset <provider>` | deletes the binding, returning the provider to the default |
+
+Three states, resolved only through `clientconfig.Config.BoundKBs` and never by
+testing a list for emptiness: **no entry** means every known KB (today's
+behaviour, so an upgrade never strips artifacts from an already connected
+client); **an entry holding an empty list** means no KBs; **an entry holding
+names** means those. `default-deny` is what declaring an entry buys, not a
+global mode — an operator who wants it everywhere declares a binding per
+provider.
+
+`bind`, `unbind` and `reset` save the configuration and stop: they never
+trigger a sync, and print `run cartographer sync to apply`.
 
 `status` and `sync` read this file (via `internal/clientconfig`): without `.cartographer.yaml` they
 fail with exit 2, suggesting `connect` first (`cartographer resolve` is the exception:
