@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"os"
@@ -165,7 +166,10 @@ func ensureClonedKB(remote, name, dataDir string, env ...string) (string, error)
 
 	if !isGitRepoDir(dest) {
 		log.Printf("cloning KB %q from %s to %s", name, remote, dest)
-		if err := gitx.Clone(remote, dest, env...); err != nil {
+		// No deadline here: a server bootstrapping a large KB must not have
+		// its clone killed mid-way. Clone's non-interactive environment is
+		// what keeps this from hanging on a prompt (D173).
+		if err := gitx.Clone(context.Background(), remote, dest, env...); err != nil {
 			return "", fmt.Errorf("clone %s: %w", remote, err)
 		}
 	}

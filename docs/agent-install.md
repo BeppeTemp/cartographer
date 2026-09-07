@@ -117,6 +117,9 @@ operations, diagnosis, upgrades, and synchronization after installation.
 | `command -v brew` has no output | Run the `install.sh` command in step 1. |
 | The service reports that port 39273 is busy | Stop or reconfigure the process using the port, then rerun `cartographer service install`. |
 | `kb clone` reports a git authentication failure | Configure ambient credentials (an SSH agent for SSH remotes or a git credential helper for HTTPS), then rerun the same `kb clone` command. |
+| `kb clone` reports a host key that is not in `known_hosts` | Connect once with `ssh <host>` to review and accept the key yourself, then rerun. The clone never accepts a host key on your behalf (D173). |
+| `kb clone` times out | The forge did not answer within the budget: check the remote is reachable, then rerun with `--timeout <duration>` if the repository is simply large. |
+| `kb clone`/`kb create` refuse because the client points at a remote server | These commands act on the local server's data dir. Mount the KB on the remote deployment instead, or pass `--local` (act locally anyway) or `--data <dir>` (name the target). |
 | `kb clone` says `not an OKF KB` | Use the `kb-import` skill to import the remote into an OKF KB, push it, then rerun `kb clone`. |
 | `kb create` says a KB needs a git remote | Ask the user for an empty repository URL and rerun with `--remote <url>`; use `--no-remote` only if they explicitly accept a local-only KB. |
 | `kb create --remote` fails to push (non-fast-forward, or the remote is not empty) | The repository already has content: mount it with `cartographer kb clone <git-remote-url> --restart` instead. |
