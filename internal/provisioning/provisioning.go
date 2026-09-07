@@ -1359,6 +1359,10 @@ func Apply(m Manifest, opts ApplyOptions) (AppliedResult, error) {
 		}
 	}
 
+	// Files a rewritten artifact no longer declares, collected as the writes
+	// happen and pruned through the same path as any other removal (D178).
+	var orphaned []ManagedFile
+
 	// Materialize the authorized artifacts.
 	for _, a := range toWrite {
 		if a.Kind == "instructions" {
@@ -1520,6 +1524,19 @@ func Apply(m Manifest, opts ApplyOptions) (AppliedResult, error) {
 			}
 		}
 
+		// A file this artifact used to own and no longer writes must go with
+		// it (D178). Without this it stayed on disk AND left the lock — an
+		// orphan nothing prunes, nothing reports, and that an agent keeps
+		// reading, since it still sits inside a live skill/hook directory.
+		// Under DryRun relPaths carries only the simulated principal file, so
+		// the comparison uses the artifact's own declared files: a plan must
+		// not report every other file of the artifact as removed.
+		written := relPaths
+		if opts.DryRun {
+			written = declaredRelPaths(a, destRel)
+		}
+		orphaned = append(orphaned, droppedArtifactFiles(opts.Lock.Managed, a, destRel, written)...)
+
 		for _, rp := range relPaths {
 			mf := ManagedFile{
 				Kind:             a.Kind,
@@ -1569,6 +1586,7 @@ func Apply(m Manifest, opts ApplyOptions) (AppliedResult, error) {
 			genericRemoved = append(genericRemoved, mf)
 		}
 	}
+	genericRemoved = append(genericRemoved, orphaned...)
 	pruned, err := PruneManaged(genericRemoved, opts.BaseDir, opts.DryRun)
 	if err != nil {
 		return AppliedResult{}, err
@@ -1593,6 +1611,53 @@ func Apply(m Manifest, opts ApplyOptions) (AppliedResult, error) {
 	}
 
 	return result, nil
+}
+
+// declaredRelPaths is where the artifact's files would land under destDirRel,
+// used to compute a dry run's removals without writing anything.
+func declaredRelPaths(a Artifact, destDirRel string) []string {
+	out := make([]string, 0, len(a.Files))
+	for _, f := range a.Files {
+		out = append(out, filepath.Join(destDirRel, f.Path))
+	}
+	return out
+}
+
+// droppedArtifactFiles returns the entries a's previous lock owned inside its
+// own destination directory that the write just performed no longer produces.
+//
+// The removal set comes from the PREVIOUS LOCK, never from a directory
+// listing: a user may legitimately have put a file inside a managed directory,
+// and deleting by listing would take it — the same guarantee the instructions
+// prune is careful to keep. Only paths under destDirRel are considered, so a
+// registration written elsewhere (a hook's generated plugin file) is never
+// mistaken for a dropped file.
+//
+// destDirRel must be the artifact's destination DIRECTORY; a kind whose
+// destination is a single file (agent, mcp) has no per-file ownership to lose
+// and is skipped by the caller passing its file path, which is then always in
+// `written`.
+func droppedArtifactFiles(previous []ManagedFile, a Artifact, destDirRel string, written []string) []ManagedFile {
+	if destDirRel == "" {
+		return nil
+	}
+	keep := make(map[string]bool, len(written))
+	for _, rp := range written {
+		keep[filepath.Clean(rp)] = true
+	}
+	prefix := filepath.Clean(destDirRel) + string(filepath.Separator)
+	var out []ManagedFile
+	for _, mf := range previous {
+		if mf.Kind != a.Kind || mf.Name != a.Name {
+			continue
+		}
+		clean := filepath.Clean(mf.Path)
+		if keep[clean] || !strings.HasPrefix(clean, prefix) {
+			continue
+		}
+		out = append(out, mf)
+	}
+	return out
 }
 
 // --- Instructions: managed block (D56) ---
