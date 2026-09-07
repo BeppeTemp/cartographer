@@ -5,9 +5,12 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/BeppeTemp/cartographer/internal/audit"
 	"github.com/BeppeTemp/cartographer/internal/auth"
 )
 
@@ -468,5 +471,147 @@ func TestClients_NoOverflow(t *testing.T) {
 	}
 	if _, ok := raw["overflow"]; ok {
 		t.Fatalf("'overflow' present in response with 0 overflow")
+	}
+}
+
+// --- D176: readiness accounts for a required-mode audit sink ---
+
+// unhealthyRequiredLog returns an audit log in required mode whose next append
+// fails, which is what makes it report not-ready. The file is opened per append
+// (audit.appendDurable), so making it read-only is enough.
+func unhealthyRequiredLog(t *testing.T) *audit.Log {
+	t.Helper()
+	if os.Geteuid() == 0 {
+		t.Skip("root ignores file permissions, so the append cannot be made to fail")
+	}
+	path := filepath.Join(t.TempDir(), "audit.jsonl")
+	l, err := audit.OpenWithOptions(path, audit.Options{Mode: "required"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { l.Close() })
+	if err := os.Chmod(path, 0o400); err != nil {
+		t.Fatal(err)
+	}
+	if err := l.Append(audit.Entry{Tool: "x"}); err == nil {
+		t.Fatal("expected the append to fail against a read-only file")
+	}
+	if st := l.State(); st.Ready {
+		t.Fatal("expected the sink to report not-ready")
+	}
+	return l
+}
+
+func TestAuditGate(t *testing.T) {
+	if !auditGate(nil) {
+		t.Error("no sink must not make a server not ready")
+	}
+	if !auditGate(&audit.State{Ready: true}) {
+		t.Error("a healthy sink must not make a server not ready")
+	}
+	if auditGate(&audit.State{Ready: false}) {
+		t.Error("an unhealthy required-mode sink must make a server not ready")
+	}
+}
+
+// TestMultiKB_Ready_GatesOnAuditSink is the defect: the HTTP path always builds
+// a MultiKBServer (serveHTTP), so before D176 a server whose required-mode sink
+// was unhealthy — and which therefore rejects every write — answered ready.
+func TestMultiKB_Ready_GatesOnAuditSink(t *testing.T) {
+	m := NewMultiKBServer("test")
+	healthy := New("test")
+	degraded := New("test")
+	degraded.SetAuditLog(unhealthyRequiredLog(t))
+	m.servers["ok"] = healthy
+	m.servers["broken"] = degraded
+	m.kbs = []KBInfo{{Name: "ok", Status: "normal"}, {Name: "broken", Status: "normal"}}
+
+	rec := httptest.NewRecorder()
+	m.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/ready", nil))
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Errorf("/ready status = %d, want 503", rec.Code)
+	}
+	var ready struct {
+		Ready    bool     `json:"ready"`
+		Degraded []string `json:"degraded"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &ready); err != nil {
+		t.Fatal(err)
+	}
+	if ready.Ready {
+		t.Error("ready = true despite a degraded audit sink")
+	}
+	// Naming the KB is the difference between a diagnosis and a mystery.
+	if len(ready.Degraded) != 1 || ready.Degraded[0] != "broken" {
+		t.Errorf("degraded = %v, want [broken]", ready.Degraded)
+	}
+}
+
+// TestMultiKB_Health_StaysLiveWhenNotReady: /health is liveness and is exempt
+// from authentication, so it must keep answering 200 with status "ok" — only
+// `ready` reflects the gate.
+func TestMultiKB_Health_StaysLiveWhenNotReady(t *testing.T) {
+	m := NewMultiKBServer("test")
+	degraded := New("test")
+	degraded.SetAuditLog(unhealthyRequiredLog(t))
+	m.servers["broken"] = degraded
+	m.kbs = []KBInfo{{Name: "broken", Status: "normal"}}
+
+	rec := httptest.NewRecorder()
+	m.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/health", nil))
+	if rec.Code != http.StatusOK {
+		t.Errorf("/health status = %d, want 200 (liveness)", rec.Code)
+	}
+	var body struct {
+		Status string `json:"status"`
+		Ready  bool   `json:"ready"`
+		KBs    []struct {
+			Name  string `json:"name"`
+			Audit *struct {
+				Ready bool `json:"ready"`
+			} `json:"audit"`
+		} `json:"kbs"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Status != "ok" {
+		t.Errorf("status = %q, want ok", body.Status)
+	}
+	if body.Ready {
+		t.Error("ready = true despite a degraded audit sink")
+	}
+	if len(body.KBs) != 1 || body.KBs[0].Audit == nil || body.KBs[0].Audit.Ready {
+		t.Errorf("per-KB audit state missing or wrong: %+v", body.KBs)
+	}
+}
+
+// TestMultiKB_Ready_SingleKBMountedStillGates: the deployment shape the defect
+// hid in — one KB mounted, served by MultiKBServer all the same.
+func TestMultiKB_Ready_SingleKBMountedStillGates(t *testing.T) {
+	m := NewMultiKBServer("test")
+	only := New("test")
+	only.SetAuditLog(unhealthyRequiredLog(t))
+	m.servers["only"] = only
+	m.kbs = []KBInfo{{Name: "only", Status: "normal"}}
+
+	rec := httptest.NewRecorder()
+	m.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/ready", nil))
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Errorf("/ready status = %d, want 503 with a single mounted KB", rec.Code)
+	}
+}
+
+// TestMultiKB_Ready_NoSinkUnaffected: a deployment without an audit sink, or
+// with one in best-effort mode, keeps reporting ready exactly as before.
+func TestMultiKB_Ready_NoSinkUnaffected(t *testing.T) {
+	m := NewMultiKBServer("test")
+	m.servers["ok"] = New("test")
+	m.kbs = []KBInfo{{Name: "ok", Status: "normal"}}
+
+	rec := httptest.NewRecorder()
+	m.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/ready", nil))
+	if rec.Code != http.StatusOK {
+		t.Errorf("/ready status = %d, want 200", rec.Code)
 	}
 }
