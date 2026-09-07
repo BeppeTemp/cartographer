@@ -313,7 +313,7 @@ The checks:
 |---|---|
 | `client-config` | `.cartographer.yaml` exists and parses; an agent is connected; every configured provider is still installed |
 | `lockfile` | present, readable, and in the v2 format — a v1 file on disk is migrated *in memory* by every read, but stays v1 until something rewrites it |
-| `managed-files` | the on-disk verification of D139, per provider: `missing`, `modified`, `unregistered` |
+| `managed-files` | the on-disk verification of D139, per provider: `missing`, `modified`, `unregistered`; plus files sitting inside a managed skill/hook directory that no lock entry accounts for (D178) — reported only, since doctor cannot prove Cartographer wrote them |
 | `mcp-entries` | the Cartographer entries in the provider's native config match the KBs recorded in `.cartographer.yaml` — an entry for a KB the server no longer mounts, or a missing one |
 | `instructions` | exactly one well-formed managed block per provider that has instructions materialized (begin recognized by prefix, so a block written by an older version still counts) |
 | `hooks` | one native registration per managed hook — the D99 double-fire is a registration left outside the managed block by Codex's own rewrite |

@@ -22,6 +22,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/BeppeTemp/cartographer/internal/agents"
@@ -326,9 +327,11 @@ func checkLockfile(dir string, providers []string, readErr error) []doctorFindin
 	return nil
 }
 
-// checkManagedFiles: D139's on-disk verification, per provider.
+// checkManagedFiles: D139's on-disk verification, per provider, plus the
+// orphan report of D178.
 func checkManagedFiles(dir string, providers []string, lockFile provisioning.LockFile) []doctorFinding {
 	var out []doctorFinding
+	out = append(out, checkOrphanedFiles(dir, providers, lockFile)...)
 	unknown := 0
 	for _, p := range providers {
 		lock := lockFile.ForProvider(p)
@@ -544,6 +547,67 @@ func checkHookRegistrations(dir string, providers []string, lockFile provisionin
 			}
 		}
 	}
+	return out
+}
+
+// checkOrphanedFiles reports files sitting inside a managed artifact
+// directory that no lock entry accounts for (D178).
+//
+// D178 stops NEW orphans at the source, but a file stranded by an earlier
+// version is absent from every lock and therefore invisible to pruning, to
+// ComputeDiff and to the on-disk verification above — while an agent keeps
+// reading it, since it is still inside a live skill or hook directory.
+//
+// It only REPORTS. doctor must not delete a file it cannot prove Cartographer
+// wrote: a user may legitimately have added one. Removal is the operator's
+// decision, or happens at the next sync once the artifact owns the file again.
+func checkOrphanedFiles(dir string, providers []string, lockFile provisioning.LockFile) []doctorFinding {
+	var out []doctorFinding
+	for _, p := range providers {
+		lock := lockFile.ForProvider(p)
+		baseDir := provisioning.LockBaseDir(lock, dir)
+
+		// The managed directories, and everything the lock accounts for in
+		// them. A single-file kind (agent, mcp) has no directory of its own
+		// and cannot strand anything.
+		known := make(map[string]bool, len(lock.Managed))
+		dirs := map[string]string{}
+		for _, mf := range lock.Managed {
+			known[filepath.Clean(mf.Path)] = true
+			if mf.Kind != "skill" && mf.Kind != "hook" {
+				continue
+			}
+			d := filepath.Dir(filepath.Clean(mf.Path))
+			if d == "." || d == string(filepath.Separator) {
+				continue
+			}
+			dirs[d] = mf.Kind + " " + strconv.Quote(mf.Name)
+		}
+
+		for rel, owner := range dirs {
+			entries, err := os.ReadDir(filepath.Join(baseDir, rel))
+			if err != nil {
+				// A missing directory is real drift, already reported by the
+				// on-disk verification: not this check's business.
+				continue
+			}
+			for _, e := range entries {
+				if e.IsDir() {
+					continue
+				}
+				path := filepath.Join(rel, e.Name())
+				if known[path] {
+					continue
+				}
+				out = append(out, doctorFinding{
+					Check: "managed-files", Severity: doctorWarning, Path: filepath.Join(baseDir, path),
+					Message: fmt.Sprintf("[%s] %s: %s is inside a managed directory but no lock entry accounts for it", p, owner, path),
+					Fix:     "remove it if it is a leftover from an older sync; it is kept if you added it yourself",
+				})
+			}
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Path < out[j].Path })
 	return out
 }
 
