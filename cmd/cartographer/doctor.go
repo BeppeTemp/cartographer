@@ -183,6 +183,7 @@ func runDoctor(dir, only string) doctorReport {
 		findings = append(findings, checkTriggerCoverage(dir, providers)...)
 		findings = append(findings, checkSymlinkedDestinations(dir, providers)...)
 		findings = append(findings, checkCapabilities(dir, cfg)...)
+		findings = append(findings, checkKBCollisions(dir, cfg, providers)...)
 	}
 
 	sortDoctorFindings(findings)
@@ -578,6 +579,35 @@ func checkServer(dir string, cfg *clientconfig.Config, providers []string) []doc
 			Message: fmt.Sprintf("version skew: client %s ≠ server %s", version, facts.Version),
 			Fix:     fix,
 		})
+	}
+	return out
+}
+
+// checkKBCollisions: two KBs bound to the same provider claiming one kind+name
+// (D171). `sync` refuses outright when this happens, so finding it here is the
+// difference between a diagnosis and a mystery — the sync error names the
+// collision but a machine that has not synced since the binding changed shows
+// no symptom at all.
+//
+// Silent when the server is unreachable: a missing signal is not evidence that
+// nothing collides. Reported per provider, because two colliding KBs bound to
+// different providers are not a conflict.
+func checkKBCollisions(dir string, cfg *clientconfig.Config, providers []string) []doctorFinding {
+	candidates, err := fetchCandidates(cfg)
+	if err != nil {
+		return nil
+	}
+	configPath := filepath.Join(dir, clientconfig.FileName)
+	var out []doctorFinding
+	for _, p := range providers {
+		bound, _ := cfg.BoundKBs(p)
+		for _, c := range collisionsForProvider(candidates, bound) {
+			out = append(out, doctorFinding{
+				Check: "kb-collisions", Severity: doctorError, Path: configPath,
+				Message: fmt.Sprintf("%s: %s/%s is claimed by %s — sync refuses to run", p, c.Kind, c.Name, strings.Join(c.Sources, ", ")),
+				Fix:     fmt.Sprintf("rename the artifact in all but one of those KBs, or cartographer client unbind %s <kb>", p),
+			})
+		}
 	}
 	return out
 }

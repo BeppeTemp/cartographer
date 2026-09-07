@@ -169,9 +169,32 @@ func clientBind(dir string, cfg *clientconfig.Config, args []string) int {
 
 	bound, _ := cfg.BoundKBs(provider)
 	fmt.Printf("%s bound to %s\n", provider, formatKBList(bound))
+	warnProviderCollisions(cfg, provider, bound)
 	fmt.Println("run `cartographer sync` to apply")
 	fmt.Println(bindingNotYetEnforcedNote)
 	return 0
+}
+
+// warnProviderCollisions reports, best-effort, a cross-KB collision the new
+// binding just created (D171). Discovering it here is worth a round trip: the
+// alternative is finding out at the next sync, which refuses to run.
+//
+// An unreachable server is not a failure. Configuring a machine must not
+// require the network, so the command says the check was skipped and why, and
+// the sync-time refusal remains the backstop.
+func warnProviderCollisions(cfg *clientconfig.Config, provider string, bound []string) {
+	if len(bound) < 2 {
+		return // one KB cannot collide with itself
+	}
+	candidates, err := fetchCandidates(cfg)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "note: could not check for cross-KB collisions (%v); `cartographer sync` will check again\n", err)
+		return
+	}
+	for _, c := range collisionsForProvider(candidates, bound) {
+		fmt.Fprintf(os.Stderr, "warning: %s/%s is claimed by %s — `cartographer sync` will refuse until one of them renames it\n",
+			c.Kind, c.Name, strings.Join(c.Sources, ", "))
+	}
 }
 
 func clientUnbind(dir string, cfg *clientconfig.Config, args []string) int {

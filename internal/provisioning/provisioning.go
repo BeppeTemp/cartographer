@@ -847,9 +847,98 @@ func MergeArtifacts(artifacts []Artifact) Manifest {
 	}
 }
 
+// Collision is one kind+name claimed by two or more KBs (D171). Sources are the
+// full source strings ("kb:<name>"), sorted, so a report is deterministic.
+type Collision struct {
+	Kind    string
+	Name    string
+	Sources []string
+}
+
+// DetectCollisions reports every kind+name claimed by two or more distinct KBs.
+//
+// The bundle never participates: a kind+name held by one KB and by the bundle is
+// the deliberate override MergeArtifacts resolves in the KB's favour, and the
+// bundle is single, so that choice is unambiguous. Two KBs are a different
+// matter — preferArtifact picks the alphabetically first source, silently, and
+// nothing downstream records that the other copy ever existed. Worse, the choice
+// is unstable: unmounting the winning KB makes the losing one appear, changing
+// what an agent reads with nothing announcing it.
+//
+// The same source appearing twice is not a collision. That is the ordinary
+// shape of the client's merge, where every per-KB sync_pull response carries the
+// same bundled artifacts.
+func DetectCollisions(artifacts []Artifact) []Collision {
+	sourcesByKey := make(map[string]map[string]bool)
+	for _, a := range artifacts {
+		if !strings.HasPrefix(a.Source, "kb:") {
+			continue
+		}
+		k := a.Kind + "\x00" + a.Name
+		if sourcesByKey[k] == nil {
+			sourcesByKey[k] = make(map[string]bool)
+		}
+		sourcesByKey[k][a.Source] = true
+	}
+
+	var out []Collision
+	for key, sources := range sourcesByKey {
+		if len(sources) < 2 {
+			continue
+		}
+		kind, name, _ := strings.Cut(key, "\x00")
+		names := make([]string, 0, len(sources))
+		for source := range sources {
+			names = append(names, source)
+		}
+		sort.Strings(names)
+		out = append(out, Collision{Kind: kind, Name: name, Sources: names})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Kind != out[j].Kind {
+			return out[i].Kind < out[j].Kind
+		}
+		return out[i].Name < out[j].Name
+	})
+	return out
+}
+
+// CollisionError reports the collisions that stopped a merge. It renders as a
+// multi-line report rather than one line: a caller printing "Error: <err>" must
+// still produce something an operator can act on without a second command.
+type CollisionError struct {
+	Collisions []Collision
+}
+
+func (e *CollisionError) Error() string {
+	var sb strings.Builder
+	sb.WriteString("the same artifact is claimed by more than one KB:\n")
+	for _, c := range e.Collisions {
+		fmt.Fprintf(&sb, "  %s/%s: claimed by %s\n", c.Kind, c.Name, strings.Join(c.Sources, ", "))
+	}
+	sb.WriteString("rename the artifact in all but one of those KBs, or stop binding them to the same client")
+	return sb.String()
+}
+
+// MergeArtifactsStrict is MergeArtifacts with the KB↔KB collision turned into
+// an error instead of an alphabetical coin flip. It is what the client uses:
+// a warning about an artifact the agent then actually loads is worse than a
+// failed sync, because at that point the wrong answer is silent.
+//
+// BuildManifest keeps using MergeArtifacts: server-side a manifest is built for
+// one KB plus the bundle, where a KB↔KB collision cannot arise by construction.
+func MergeArtifactsStrict(artifacts []Artifact) (Manifest, error) {
+	if collisions := DetectCollisions(artifacts); len(collisions) > 0 {
+		return Manifest{}, &CollisionError{Collisions: collisions}
+	}
+	return MergeArtifacts(artifacts), nil
+}
+
 // preferArtifact chooses, between two artifacts with the same kind+name, the one
 // that wins in materialization. The KB ("kb:*") beats the bundle; for the same
-// source type, the choice is deterministic by alphabetical source.
+// source type, the choice is deterministic by alphabetical source. Between two
+// KBs this is a silent, unstable choice, which is why the client merges through
+// MergeArtifactsStrict and never reaches this branch (D171).
 func preferArtifact(a, b Artifact) Artifact {
 	aKB := strings.HasPrefix(a.Source, "kb:")
 	bKB := strings.HasPrefix(b.Source, "kb:")
