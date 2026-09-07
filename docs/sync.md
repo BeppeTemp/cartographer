@@ -86,7 +86,7 @@ On the stdio transport, the server emits `notifications/skills/list_changed` aft
 
 When client and server don't share a filesystem (`internal/client`, `internal/clientconfig`, `cmd/cartographer/clientsync.go`):
 
-1. the client calls `sync_pull` (once per KB configured in `.cartographer.yaml`) and merges the manifests with `provisioning.MergeArtifacts`;
+1. the client calls `sync_pull` (once per KB in `known_kbs`) and merges the manifests with `provisioning.MergeArtifactsStrict`, which refuses a `kind`+`name` claimed by two KBs (§Dedup and collisions);
 2. it reconstructs each artifact hash from received paths, bytes and executable modes, then verifies any detached signature against the local KB pin;
 3. `Apply` materializes/prunes and writes the v2 lockfile;
 4. pruning remains managed-only.
@@ -369,7 +369,8 @@ silently dropped, so no provider ever runs a command different from the approved
 
 ## Implementation choices
 
-- **Dedup by `kind`+`name`**: a skill present both in the bundle and in a KB is materialized only once; precedence KB > bundle, and among multiple KBs by alphabetical `source`. The manifest holds exactly one artifact per `kind`+`name`.
+- **Dedup by `kind`+`name`**: a skill present both in the bundle and in a KB is materialized only once, with the KB winning. The manifest holds exactly one artifact per `kind`+`name`.
+- **Cross-KB collisions are refused, not resolved** (D171). Two KBs claiming the same `kind`+`name` is an error: `MergeArtifactsStrict` — what the client uses — fails with a report naming the kind, the name and the claiming KBs, before anything is materialized. `MergeArtifacts` stays tolerant and keeps the alphabetical `source` tie-break; the server builds a manifest from one KB plus the bundle, where the case cannot arise. `cartographer client bind` warns when a new binding creates one, and `doctor`'s `kb-collisions` check reports it per provider.
 - Lockfile: `<base-dir>/.cartographer-sync.lock.json` (v2 multi-provider).
 - Pruning is per tracked file, not per whole directory.
 

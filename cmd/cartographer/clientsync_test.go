@@ -5,6 +5,7 @@ import (
 	"crypto/ed25519"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -586,5 +587,143 @@ func TestPrintApplySummary_DryRunSpeaksInTheConditional(t *testing.T) {
 	}
 	if strings.Contains(real, "would ") {
 		t.Errorf("real run output = %q, must not be conditional", real)
+	}
+}
+
+// --- D171: cross-KB collisions ---
+
+// syncPullPayload renders the sync_pull response for one KB exposing a single
+// skill of the given name, with the content hash the client recomputes and
+// verifies (fetchCandidates).
+func syncPullPayload(t *testing.T, kb, skillName string) string {
+	t.Helper()
+	files := []provisioning.ArtifactFile{{Path: "SKILL.md", Content: []byte("# " + skillName + " from " + kb)}}
+	body, err := json.Marshal(map[string]any{
+		"revision": "rev-" + kb,
+		"artifacts": []map[string]any{{
+			"kind": "skill", "name": skillName, "source": "kb:" + kb,
+			"content_hash": provisioning.ContentHashFiles(files),
+			"files": []map[string]any{{
+				"path":        "SKILL.md",
+				"content_b64": base64.StdEncoding.EncodeToString(files[0].Content),
+			}},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("marshal payload: %v", err)
+	}
+	return string(body)
+}
+
+// TestFetchMergedManifestRefusesCrossKBCollision: two KBs claiming one skill
+// must stop the sync, not be resolved by alphabetical source.
+func TestFetchMergedManifestRefusesCrossKBCollision(t *testing.T) {
+	srv := prefixAwareMCPServer(t, map[string]string{"one": "", "two": ""}, "sync_pull", func(kb string) string {
+		return syncPullPayload(t, kb, "shared")
+	})
+	defer srv.Close()
+
+	cfg := &clientconfig.Config{ServerURL: srv.URL + "/mcp", KnownKBs: []string{"one", "two"}}
+	_, err := fetchMergedManifest(cfg)
+	if err == nil {
+		t.Fatal("fetchMergedManifest accepted a cross-KB collision")
+	}
+	var ce *provisioning.CollisionError
+	if !errors.As(err, &ce) {
+		t.Fatalf("error = %T (%v), want *provisioning.CollisionError", err, err)
+	}
+	for _, want := range []string{"skill/shared", "kb:one", "kb:two"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("report missing %q:\n%s", want, err)
+		}
+	}
+}
+
+// TestFetchMergedManifestAcceptsDistinctNames guards the negative: the strict
+// merge must not reject an ordinary two-KB deployment.
+func TestFetchMergedManifestAcceptsDistinctNames(t *testing.T) {
+	srv := prefixAwareMCPServer(t, map[string]string{"one": "", "two": ""}, "sync_pull", func(kb string) string {
+		return syncPullPayload(t, kb, "skill-"+kb)
+	})
+	defer srv.Close()
+
+	cfg := &clientconfig.Config{ServerURL: srv.URL + "/mcp", KnownKBs: []string{"one", "two"}}
+	m, err := fetchMergedManifest(cfg)
+	if err != nil {
+		t.Fatalf("fetchMergedManifest: %v", err)
+	}
+	if len(m.Artifacts) != 2 {
+		t.Errorf("artifacts = %d, want 2", len(m.Artifacts))
+	}
+}
+
+// TestSyncFailsBeforeMaterializing: after a refused merge, nothing on disk
+// changed. The lockfile is the load-bearing assertion — a partially applied
+// provider is exactly what the refusal exists to prevent.
+func TestSyncFailsBeforeMaterializing(t *testing.T) {
+	srv := prefixAwareMCPServer(t, map[string]string{"one": "", "two": ""}, "sync_pull", func(kb string) string {
+		return syncPullPayload(t, kb, "shared")
+	})
+	defer srv.Close()
+
+	dir := t.TempDir()
+	cfg := &clientconfig.Config{
+		ServerURL: srv.URL + "/mcp", ServerName: "cartographer",
+		Agents: []string{"claude"}, KnownKBs: []string{"one", "two"}, Trust: true,
+	}
+	if err := clientconfig.Save(dir, cfg); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	if _, err := runSync(dir, cfg, syncOptions{}); err == nil {
+		t.Fatal("runSync succeeded despite a cross-KB collision")
+	}
+
+	// What D171 guarantees: no artifact is materialized and no lockfile is
+	// written, so no provider ends up holding one KB's copy of a name two KBs
+	// claim.
+	if _, err := os.Stat(lockFilePath(dir)); !os.IsNotExist(err) {
+		t.Errorf("a lockfile was written despite the refused merge (err=%v)", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".claude", "skills", "shared")); !os.IsNotExist(err) {
+		t.Error("the colliding skill was materialized despite the refused merge")
+	}
+
+	// Known limitation, pinned deliberately: runSync writes the providers' MCP
+	// entries BEFORE fetching the manifest (sync.go, removeMCPEntries/
+	// applyMCPEntries ahead of fetchMergedManifest), so a refused merge still
+	// leaves them rewritten. Reordering that is D172's subject, not this one.
+	// When D172 lands this assertion flips, and it should — it is here so the
+	// change is deliberate rather than silent.
+	if _, err := os.Stat(filepath.Join(dir, ".claude.json")); os.IsNotExist(err) {
+		t.Error("MCP entries were not written: D172 reordered runSync — update this assertion and the D171 note")
+	}
+}
+
+func TestCollisionsForProvider(t *testing.T) {
+	candidates := []provisioning.Artifact{
+		{Kind: "skill", Name: "shared", Source: "kb:one"},
+		{Kind: "skill", Name: "shared", Source: "kb:two"},
+		{Kind: "skill", Name: "solo", Source: "kb:three"},
+	}
+
+	cases := []struct {
+		name  string
+		bound []string
+		want  int
+	}{
+		{"both colliding KBs bound", []string{"one", "two"}, 1},
+		{"only one of them bound", []string{"one", "three"}, 0},
+		{"neither bound", []string{"three"}, 0},
+		{"no KB bound", nil, 0},
+		{"a superset still reports it once", []string{"one", "two", "three"}, 1},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := collisionsForProvider(candidates, tc.bound)
+			if len(got) != tc.want {
+				t.Errorf("collisionsForProvider(%v) = %+v, want %d", tc.bound, got, tc.want)
+			}
+		})
 	}
 }

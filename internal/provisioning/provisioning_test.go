@@ -2,6 +2,7 @@ package provisioning_test
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -1123,5 +1124,142 @@ func TestApply_RefusesSymlinkedSkillDirAndKeepsGoing(t *testing.T) {
 		if e.Name == "linked" {
 			t.Errorf("a refused artifact must not enter the lockfile: %+v", e)
 		}
+	}
+}
+
+// --- D171: cross-KB collisions ---
+
+func TestDetectCollisions(t *testing.T) {
+	cases := []struct {
+		name      string
+		artifacts []provisioning.Artifact
+		want      []provisioning.Collision
+	}{
+		{
+			name: "no collision",
+			artifacts: []provisioning.Artifact{
+				{Kind: "skill", Name: "alpha", Source: "kb:one"},
+				{Kind: "skill", Name: "beta", Source: "kb:two"},
+			},
+		},
+		{
+			name: "kb versus bundle is a deliberate override, not a collision",
+			artifacts: []provisioning.Artifact{
+				{Kind: "skill", Name: "alpha", Source: "bundle"},
+				{Kind: "skill", Name: "alpha", Source: "kb:one"},
+			},
+		},
+		{
+			name: "the same bundled artifact repeated across per-KB pulls",
+			artifacts: []provisioning.Artifact{
+				{Kind: "skill", Name: "alpha", Source: "bundle"},
+				{Kind: "skill", Name: "alpha", Source: "bundle"},
+			},
+		},
+		{
+			name: "the same artifact twice from one KB",
+			artifacts: []provisioning.Artifact{
+				{Kind: "skill", Name: "alpha", Source: "kb:one"},
+				{Kind: "skill", Name: "alpha", Source: "kb:one"},
+			},
+		},
+		{
+			name: "two KBs claim one skill",
+			artifacts: []provisioning.Artifact{
+				{Kind: "skill", Name: "alpha", Source: "kb:two"},
+				{Kind: "skill", Name: "alpha", Source: "kb:one"},
+			},
+			want: []provisioning.Collision{{Kind: "skill", Name: "alpha", Sources: []string{"kb:one", "kb:two"}}},
+		},
+		{
+			name: "collisions on several kinds are all reported, in order",
+			artifacts: []provisioning.Artifact{
+				{Kind: "hook", Name: "h", Source: "kb:one"},
+				{Kind: "hook", Name: "h", Source: "kb:two"},
+				{Kind: "agent", Name: "a", Source: "kb:one"},
+				{Kind: "agent", Name: "a", Source: "kb:two"},
+			},
+			want: []provisioning.Collision{
+				{Kind: "agent", Name: "a", Sources: []string{"kb:one", "kb:two"}},
+				{Kind: "hook", Name: "h", Sources: []string{"kb:one", "kb:two"}},
+			},
+		},
+		{
+			name: "three KBs claim one name",
+			artifacts: []provisioning.Artifact{
+				{Kind: "skill", Name: "alpha", Source: "kb:c"},
+				{Kind: "skill", Name: "alpha", Source: "kb:a"},
+				{Kind: "skill", Name: "alpha", Source: "kb:b"},
+				{Kind: "skill", Name: "alpha", Source: "bundle"},
+			},
+			want: []provisioning.Collision{{Kind: "skill", Name: "alpha", Sources: []string{"kb:a", "kb:b", "kb:c"}}},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := provisioning.DetectCollisions(tc.artifacts)
+			if len(got) != len(tc.want) {
+				t.Fatalf("DetectCollisions = %+v, want %+v", got, tc.want)
+			}
+			for i := range got {
+				if got[i].Kind != tc.want[i].Kind || got[i].Name != tc.want[i].Name ||
+					strings.Join(got[i].Sources, ",") != strings.Join(tc.want[i].Sources, ",") {
+					t.Errorf("collision %d = %+v, want %+v", i, got[i], tc.want[i])
+				}
+			}
+		})
+	}
+}
+
+func TestMergeArtifactsStrict(t *testing.T) {
+	clean := []provisioning.Artifact{
+		{Kind: "skill", Name: "alpha", Source: "bundle", ContentHash: "h1"},
+		{Kind: "skill", Name: "alpha", Source: "kb:one", ContentHash: "h2"},
+	}
+	m, err := provisioning.MergeArtifactsStrict(clean)
+	if err != nil {
+		t.Fatalf("MergeArtifactsStrict on a KB/bundle override: %v", err)
+	}
+	// The KB must still win: strictness targets KB↔KB only.
+	if len(m.Artifacts) != 1 || m.Artifacts[0].Source != "kb:one" {
+		t.Errorf("merged = %+v, want the single kb:one artifact", m.Artifacts)
+	}
+	if m.Revision != provisioning.MergeArtifacts(clean).Revision {
+		t.Error("strict merge produced a different revision than the tolerant one")
+	}
+
+	colliding := []provisioning.Artifact{
+		{Kind: "skill", Name: "alpha", Source: "kb:one", ContentHash: "h1"},
+		{Kind: "skill", Name: "alpha", Source: "kb:two", ContentHash: "h2"},
+	}
+	if _, err := provisioning.MergeArtifactsStrict(colliding); err == nil {
+		t.Fatal("MergeArtifactsStrict accepted a KB↔KB collision")
+	} else {
+		var ce *provisioning.CollisionError
+		if !errors.As(err, &ce) {
+			t.Fatalf("error = %T, want *CollisionError", err)
+		}
+		msg := ce.Error()
+		for _, want := range []string{"skill/alpha", "kb:one", "kb:two", "rename"} {
+			if !strings.Contains(msg, want) {
+				t.Errorf("collision report missing %q:\n%s", want, msg)
+			}
+		}
+	}
+}
+
+// TestMergeArtifactsStaysTolerant: BuildManifest merges one KB plus the bundle,
+// where a KB↔KB collision cannot arise, and must keep its existing behaviour.
+func TestMergeArtifactsStaysTolerant(t *testing.T) {
+	m := provisioning.MergeArtifacts([]provisioning.Artifact{
+		{Kind: "skill", Name: "alpha", Source: "kb:two", ContentHash: "h2"},
+		{Kind: "skill", Name: "alpha", Source: "kb:one", ContentHash: "h1"},
+	})
+	if len(m.Artifacts) != 1 {
+		t.Fatalf("MergeArtifacts = %+v, want one artifact", m.Artifacts)
+	}
+	if m.Artifacts[0].Source != "kb:one" {
+		t.Errorf("source = %q, want the alphabetically first kb:one", m.Artifacts[0].Source)
 	}
 }
