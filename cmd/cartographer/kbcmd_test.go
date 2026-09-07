@@ -1,14 +1,25 @@
 package main
 
 import (
+	"errors"
+	"fmt"
+	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/gitx"
 	"github.com/BeppeTemp/cartographer/internal/kb"
 )
+
+// hasGitBinary skips the tests that shell out to git where it is absent.
+func hasGitBinary() bool {
+	_, err := exec.LookPath("git")
+	return err == nil
+}
 
 func TestValidateKBName(t *testing.T) {
 	cases := []struct {
@@ -43,7 +54,7 @@ func TestValidateKBName(t *testing.T) {
 func withNoGuidance(t *testing.T, f func()) {
 	t.Helper()
 	orig := printPostCreateGuidanceFn
-	printPostCreateGuidanceFn = func(bool) {}
+	printPostCreateGuidanceFn = func(string, bool) {}
 	defer func() { printPostCreateGuidanceFn = orig }()
 	f()
 }
@@ -363,5 +374,247 @@ func TestRunKBDispatch(t *testing.T) {
 		if gotArgs[i] != want[i] {
 			t.Errorf("kbFn args[%d] = %q, want %q", i, gotArgs[i], want[i])
 		}
+	}
+}
+
+// withClientServerURL puts a .cartographer.yaml with the given server_url in
+// a temporary HOME, which is what clientconfig.TargetDir resolves to. An
+// empty serverURL means "no client config on this machine".
+func withClientServerURL(t *testing.T, serverURL string) {
+	t.Helper()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	if serverURL == "" {
+		return
+	}
+	body := "schema_version: 1\nserver_url: " + serverURL + "\n"
+	if err := os.WriteFile(filepath.Join(home, clientconfig.FileName), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestCheckLocalTarget: `kb create`/`kb clone` act on the LOCAL server's data
+// dir. On a machine whose client points elsewhere, reporting "mounted" about a
+// directory nothing reads is worse than failing, so it fails (D173).
+func TestCheckLocalTarget(t *testing.T) {
+	cases := []struct {
+		name      string
+		serverURL string
+		dataFlag  string
+		local     bool
+		want      int
+	}{
+		{"client points at a remote server", "https://cartographer.example.com/mcp", "", false, 2},
+		{"remote server with the explicit opt-out", "https://cartographer.example.com/mcp", "", true, 0},
+		{"remote server but --data names the target", "https://cartographer.example.com/mcp", "/tmp/kbs", false, 0},
+		{"loopback client", "http://127.0.0.1:39273/mcp", "", false, 0},
+		{"no client config at all", "", "", false, 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			withClientServerURL(t, tc.serverURL)
+			var code int
+			out := withStderr(t, func() { code = checkLocalTarget(tc.dataFlag, tc.local) })
+			if code != tc.want {
+				t.Fatalf("checkLocalTarget = %d, want %d (stderr: %s)", code, tc.want, out)
+			}
+			if tc.want != 0 && !strings.Contains(out, "--local") {
+				t.Errorf("the error must name its opt-out: %s", out)
+			}
+		})
+	}
+}
+
+// TestResolveServerDataDir_CustomConfig: a service installed with `--config
+// <path>` was invisible to the resolver, which read the standard path only —
+// so `kb create` silently used ~/cartographer-data instead of the directory
+// the running server serves.
+func TestResolveServerDataDir_CustomConfig(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "custom.yaml")
+	dataDir := filepath.Join(dir, "kbs")
+	if err := os.WriteFile(cfgPath, []byte("data: "+dataDir+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := resolveServerDataDir(cfgPath); got != dataDir {
+		t.Errorf("resolveServerDataDir(%q) = %q, want %q", cfgPath, got, dataDir)
+	}
+	// An unreadable path falls back to the default rather than failing: the
+	// caller can still pass --data.
+	if got := resolveServerDataDir(filepath.Join(dir, "absent.yaml")); got != defaultDataDir() {
+		t.Errorf("missing config = %q, want the default data dir", got)
+	}
+}
+
+// seedKBListDir builds a data dir with one valid KB, one git repo that is not
+// a KB, and one plain directory.
+func seedKBListDir(t *testing.T) string {
+	t.Helper()
+	dataDir := t.TempDir()
+	if _, err := kb.Init(filepath.Join(dataDir, "wiki")); err != nil {
+		t.Fatal(err)
+	}
+	plainRepo := filepath.Join(dataDir, "notes")
+	if err := os.MkdirAll(plainRepo, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := gitx.Init(plainRepo); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dataDir, "scratch"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return dataDir
+}
+
+func TestScanDataDir(t *testing.T) {
+	if !hasGitBinary() {
+		t.Skip("git not available")
+	}
+	dataDir := seedKBListDir(t)
+	rows, err := scanDataDir(dataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]kbRow{}
+	for _, r := range rows {
+		got[r.Name] = r
+	}
+	if len(rows) != 3 {
+		t.Fatalf("rows = %d, want 3: %+v", len(rows), rows)
+	}
+	if !got["wiki"].IsKB || !got["wiki"].IsRepo {
+		t.Errorf("wiki should be a git repo and an OKF KB: %+v", got["wiki"])
+	}
+	if got["notes"].IsKB || !got["notes"].IsRepo {
+		t.Errorf("notes is a repo but not a KB: %+v", got["notes"])
+	}
+	if got["scratch"].IsKB || got["scratch"].IsRepo {
+		t.Errorf("scratch is neither: %+v", got["scratch"])
+	}
+
+	// A missing data dir is reported, never created: `kb list` writes nothing.
+	absent := filepath.Join(t.TempDir(), "nope")
+	if _, err := scanDataDir(absent); err == nil {
+		t.Error("a missing data dir should be an error")
+	}
+	if _, err := os.Stat(absent); err == nil {
+		t.Error("kb list must not create the data dir")
+	}
+}
+
+// TestCmdKBList_IsReadOnly is the point of the command's design: kb.Open
+// self-migrates the local git-exclude entry, so a listing that used it would
+// write into every repository it scanned.
+func TestCmdKBList_IsReadOnly(t *testing.T) {
+	if !hasGitBinary() {
+		t.Skip("git not available")
+	}
+	dataDir := seedKBListDir(t)
+	before := treeFingerprint(t, dataDir)
+
+	var code int
+	out := withStdout(t, func() { code = cmdKBList([]string{"--data", dataDir}) })
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0", code)
+	}
+	for _, want := range []string{"wiki", "notes", "scratch", "data dir:"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("listing is missing %q:\n%s", want, out)
+		}
+	}
+	if after := treeFingerprint(t, dataDir); after != before {
+		t.Errorf("kb list modified the scanned tree:\nbefore:\n%s\nafter:\n%s", before, after)
+	}
+}
+
+// treeFingerprint records every file path, size and mtime under root,
+// including .git internals: the point is to catch a write nobody intended.
+func treeFingerprint(t *testing.T, root string) string {
+	t.Helper()
+	var sb strings.Builder
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		info, err := d.Info()
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(&sb, "%s %d %v\n", path, info.Size(), info.ModTime().UnixNano())
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return sb.String()
+}
+
+// TestPrintKBRows_UnreachableServer: absence of the signal is not evidence
+// that nothing is mounted, so the column disappears and the reason is stated.
+func TestPrintKBRows_UnreachableServer(t *testing.T) {
+	var sb strings.Builder
+	rows := []kbRow{{Name: "wiki", IsRepo: true, IsKB: true, Origin: "git@forge:team/wiki.git"}}
+	printKBRows(&sb, "/data", rows, errors.New("connection refused"))
+	out := sb.String()
+	if strings.Contains(out, "MOUNTED") {
+		t.Errorf("no MOUNTED column when the server could not be asked:\n%s", out)
+	}
+	if !strings.Contains(out, "could not be asked") {
+		t.Errorf("the reason must be stated:\n%s", out)
+	}
+
+	sb.Reset()
+	yes := true
+	rows[0].Mounted = &yes
+	printKBRows(&sb, "/data", rows, nil)
+	if out := sb.String(); !strings.Contains(out, "MOUNTED") {
+		t.Errorf("MOUNTED column expected when the server answered:\n%s", out)
+	}
+}
+
+// TestCmdKBClone_Cleanup: a failed clone leaves nothing behind, and a
+// pre-existing directory is never removed — the cleanup targets only what
+// this command created.
+func TestCmdKBClone_Cleanup(t *testing.T) {
+	if !hasGitBinary() {
+		t.Skip("git not available")
+	}
+	withClientServerURL(t, "")
+	dataDir := t.TempDir()
+
+	// A clone that fails: the partial directory must not survive.
+	var code int
+	withStderr(t, func() {
+		withNoGuidance(t, func() {
+			code = cmdKBClone([]string{filepath.Join(dataDir, "no-such-repo.git"), "alpha", "--data", dataDir, "--timeout", "30s"})
+		})
+	})
+	if code == 0 {
+		t.Fatal("cloning a non-existent remote should fail")
+	}
+	if _, err := os.Stat(filepath.Join(dataDir, "alpha")); !os.IsNotExist(err) {
+		t.Errorf("a failed clone left %s behind", filepath.Join(dataDir, "alpha"))
+	}
+
+	// A pre-existing directory is refused, and left exactly as it was.
+	existing := filepath.Join(dataDir, "beta")
+	if err := os.MkdirAll(existing, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	marker := filepath.Join(existing, "keep.txt")
+	if err := os.WriteFile(marker, []byte("mine\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	withStderr(t, func() {
+		withNoGuidance(t, func() {
+			code = cmdKBClone([]string{"https://forge.invalid/team/beta.git", "beta", "--data", dataDir})
+		})
+	})
+	if code != 1 {
+		t.Errorf("exit = %d, want 1 for an existing destination", code)
+	}
+	if _, err := os.Stat(marker); err != nil {
+		t.Errorf("a pre-existing directory was removed: %v", err)
 	}
 }

@@ -1,6 +1,8 @@
 package gitx
 
 import (
+	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -255,5 +257,133 @@ func TestIsRepo_False(t *testing.T) {
 
 	if IsRepo(dir) {
 		t.Fatal("IsRepo: must return false for non-git directory")
+	}
+}
+
+// TestCloneEnv: the non-interactive defaults are always added, and an
+// operator's own GIT_SSH_COMMAND is never overwritten — they have said how to
+// reach their forge, and replacing that breaks a working setup to prevent a
+// hypothetical one.
+func TestCloneEnv(t *testing.T) {
+	const sshRemote = "git@forge.example.com:team/kb.git"
+	env := cloneEnv(sshRemote, nil)
+	if !hasEnv(env, "GIT_TERMINAL_PROMPT") {
+		t.Error("GIT_TERMINAL_PROMPT must always be set: git must fail rather than prompt")
+	}
+	if !strings.Contains(strings.Join(env, "\n"), "BatchMode=yes") {
+		t.Error("an ssh remote should get BatchMode + ConnectTimeout")
+	}
+	if strings.Contains(strings.Join(env, "\n"), "StrictHostKeyChecking") {
+		t.Error("host-key policy must be left to the operator's ssh config")
+	}
+
+	caller := "GIT_SSH_COMMAND=ssh -i /keys/id_ed25519"
+	env = cloneEnv(sshRemote, []string{caller})
+	var got []string
+	for _, kv := range env {
+		if strings.HasPrefix(kv, "GIT_SSH_COMMAND=") {
+			got = append(got, kv)
+		}
+	}
+	if len(got) != 1 || got[0] != caller {
+		t.Errorf("caller's GIT_SSH_COMMAND was not preserved: %v", got)
+	}
+
+	// An https remote needs no ssh wrapper at all.
+	env = cloneEnv("https://forge.example.com/team/kb.git", nil)
+	if hasEnv(env, "GIT_SSH_COMMAND") && !hasEnv(os.Environ(), "GIT_SSH_COMMAND") {
+		t.Error("an https remote should not get GIT_SSH_COMMAND")
+	}
+}
+
+func TestIsSSHRemote(t *testing.T) {
+	cases := map[string]bool{
+		"git@forge.example.com:team/kb.git":     true,
+		"ssh://git@forge.example.com/team/kb":   true,
+		"https://forge.example.com/team/kb.git": false,
+		"/srv/git/kb.git":                       false,
+		"../local/kb":                           false,
+	}
+	for remote, want := range cases {
+		if got := isSSHRemote(remote); got != want {
+			t.Errorf("isSSHRemote(%q) = %v, want %v", remote, got, want)
+		}
+	}
+}
+
+// TestClone_ContextCancelled: a clone stopped by its deadline reports
+// ErrCloneTimeout, so the caller can name the flag that raises the budget
+// instead of showing git's own wording for a killed process.
+func TestClone_ContextCancelled(t *testing.T) {
+	if !hasGit() {
+		t.Skip("git not available")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	err := Clone(ctx, "https://forge.invalid/team/kb.git", filepath.Join(t.TempDir(), "dest"))
+	if !errors.Is(err, ErrCloneTimeout) {
+		t.Fatalf("err = %v, want ErrCloneTimeout", err)
+	}
+}
+
+// TestClone_UnresolvableHost: the failure is translated into something with a
+// remedy, and it happens within the deadline rather than hanging on a prompt.
+func TestClone_UnresolvableHost(t *testing.T) {
+	if !hasGit() {
+		t.Skip("git not available")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	dest := filepath.Join(t.TempDir(), "dest")
+	start := time.Now()
+	err := Clone(ctx, "https://cartographer-nonexistent.invalid/team/kb.git", dest)
+	if err == nil {
+		t.Fatal("clone from an unresolvable host should fail")
+	}
+	if errors.Is(err, ErrCloneTimeout) {
+		t.Fatalf("should have failed on its own, not on the deadline: %v", err)
+	}
+	if time.Since(start) > 20*time.Second {
+		t.Error("clone outlived its context")
+	}
+	// The raw git output is always kept; the remedy is added when recognised.
+	if !strings.Contains(err.Error(), "git clone") {
+		t.Errorf("error does not name the operation: %v", err)
+	}
+}
+
+// TestClone_LocalBareRepo is the success path, and pins that --progress and
+// the captured stderr do not break a working clone.
+func TestClone_LocalBareRepo(t *testing.T) {
+	if !hasGit() {
+		t.Skip("git not available")
+	}
+	origin := filepath.Join(t.TempDir(), "origin.git")
+	if out, err := exec.Command("git", "init", "--bare", "-b", DefaultBranch, origin).CombinedOutput(); err != nil {
+		t.Fatalf("git init --bare: %v: %s", err, out)
+	}
+	work := t.TempDir()
+	if err := Init(work); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(work, "README.md"), []byte("hi\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := Commit(work, "seed", "T", "t@example.com"); err != nil {
+		t.Fatal(err)
+	}
+	if err := AddRemote(work, "origin", origin); err != nil {
+		t.Fatal(err)
+	}
+	if err := PushSetUpstream(work, "origin", DefaultBranch); err != nil {
+		t.Fatal(err)
+	}
+
+	dest := filepath.Join(t.TempDir(), "clone")
+	if err := Clone(context.Background(), origin, dest); err != nil {
+		t.Fatalf("Clone: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dest, "README.md")); err != nil {
+		t.Errorf("cloned tree is missing the committed file: %v", err)
 	}
 }

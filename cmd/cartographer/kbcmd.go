@@ -1,15 +1,22 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
+	"syscall"
+	"text/tabwriter"
 	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
@@ -49,8 +56,10 @@ func cmdKB(args []string) int {
 		return cmdKBCreate(rest)
 	case "clone":
 		return cmdKBClone(rest)
+	case "list":
+		return cmdKBList(rest)
 	default:
-		fmt.Fprintln(os.Stderr, "Error: usage: cartographer kb create <name> (--remote <url> | --no-remote) [--data <dir>] [--restart]\n       cartographer kb clone <remote> [name] [--data <dir>] [--restart]")
+		fmt.Fprintln(os.Stderr, "Error: usage: cartographer kb create <name> (--remote <url> | --no-remote) [--data <dir>] [--restart]\n       cartographer kb clone <remote> [name] [--data <dir>] [--timeout <d>] [--restart]\n       cartographer kb list [--data <dir>] [--config <path>]")
 		return 2
 	}
 }
@@ -95,6 +104,8 @@ func cmdKBCreate(args []string) int {
 
 	fs := flag.NewFlagSet("kb create", flag.ExitOnError)
 	dataFlag := fs.String("data", "", "KB data directory (default: the server config's data:, or "+defaultDataDir()+")")
+	configFlag := fs.String("config", "", "Server config YAML to read data: from (default: the standard path)")
+	localFlag := fs.Bool("local", false, "Act on the local data dir even though the client points at a remote server")
 	remoteFlag := fs.String("remote", "", "Git remote URL of an empty repository: attached as origin and pushed to")
 	noRemoteFlag := fs.Bool("no-remote", false, "Create a local-only KB with no origin (not durable, never synced)")
 	restartFlag := fs.Bool("restart", false, "Restart the local service and wait until healthy after creating the KB")
@@ -113,9 +124,12 @@ func cmdKBCreate(args []string) int {
 		return code
 	}
 
+	if code := checkLocalTarget(*dataFlag, *localFlag); code != 0 {
+		return code
+	}
 	dataDir := *dataFlag
 	if dataDir == "" {
-		dataDir = resolveServerDataDir()
+		dataDir = resolveServerDataDir(*configFlag)
 	}
 
 	path := filepath.Join(dataDir, name)
@@ -156,7 +170,7 @@ func cmdKBCreate(args []string) int {
 		printNoRemoteWarning(path)
 	}
 
-	printPostCreateGuidanceFn(*restartFlag)
+	printPostCreateGuidanceFn(*configFlag, *restartFlag)
 	return 0
 }
 
@@ -251,6 +265,9 @@ func cmdKBClone(args []string) int {
 
 	fs := flag.NewFlagSet("kb clone", flag.ExitOnError)
 	dataFlag := fs.String("data", "", "KB data directory (default: the server config's data:, or "+defaultDataDir()+")")
+	configFlag := fs.String("config", "", "Server config YAML to read data: from (default: the standard path)")
+	localFlag := fs.Bool("local", false, "Act on the local data dir even though the client points at a remote server")
+	timeoutFlag := fs.Duration("timeout", defaultCloneTimeout, "Time budget for the whole clone")
 	restartFlag := fs.Bool("restart", false, "Restart the local service and wait until healthy after mounting the KB")
 	fs.Parse(rest)
 
@@ -266,9 +283,12 @@ func cmdKBClone(args []string) int {
 		return 2
 	}
 
+	if code := checkLocalTarget(*dataFlag, *localFlag); code != 0 {
+		return code
+	}
 	dataDir := *dataFlag
 	if dataDir == "" {
-		dataDir = resolveServerDataDir()
+		dataDir = resolveServerDataDir(*configFlag)
 	}
 	path := filepath.Join(dataDir, name)
 	if _, err := os.Stat(path); err == nil {
@@ -283,15 +303,30 @@ func cmdKBClone(args []string) int {
 		return 1
 	}
 
+	// path did not exist a moment ago (checked above), so anything under it
+	// now is this command's doing: the cleanup below removes only what we
+	// created, never a directory that was already there.
 	cloned := false
 	defer func() {
 		if !cloned {
 			_ = os.RemoveAll(path)
 		}
 	}()
-	if err := gitx.Clone(remote, path); err != nil {
+
+	// An interrupt must reach git, not just this process: cancelling the
+	// context kills the child, and Clone returns only once it has exited —
+	// removing a tree a running git is still writing produces a second,
+	// more confusing failure.
+	ctx, cancel := context.WithTimeout(context.Background(), *timeoutFlag)
+	defer cancel()
+	stop := onInterrupt(cancel)
+	defer stop()
+
+	if err := gitx.Clone(ctx, remote, path); err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)
-		fmt.Fprintln(os.Stderr, "Hint: authenticate git with your SSH agent or credential helper, then retry.")
+		if errors.Is(err, gitx.ErrCloneTimeout) {
+			fmt.Fprintf(os.Stderr, "Hint: the clone exceeded %s — raise the budget with --timeout, or check the remote is reachable.\n", *timeoutFlag)
+		}
 		return 1
 	}
 	if _, err := kb.Open(path); err != nil {
@@ -301,21 +336,210 @@ func cmdKBClone(args []string) int {
 
 	cloned = true
 	fmt.Printf("KB %q mounted at %s\n", name, path)
-	printPostCreateGuidanceFn(*restartFlag)
+	printPostCreateGuidanceFn(*configFlag, *restartFlag)
 	return 0
+}
+
+// kbRow is one direct subdirectory of the data dir, as `kb list` sees it.
+// Mounted is a pointer because "the server said no" and "the server could not
+// be asked" are different answers, and printing the second as the first would
+// be a lie about what is running.
+type kbRow struct {
+	Name    string
+	IsRepo  bool
+	IsKB    bool
+	Origin  string
+	Mounted *bool
+}
+
+// cmdKBList implements `cartographer kb list [--data <dir>] [--config
+// <path>]`: what is on disk, and which of it the server actually serves.
+// Those are different questions and nothing else on the CLI answers either.
+//
+// The command writes NOTHING — no directory creation (unlike `serve`, a
+// missing data dir is reported, not created) and no kb.Open, which
+// self-migrates the git-exclude entry of every repository it touches. A
+// listing command that mutates what it lists is not a listing command (D173).
+func cmdKBList(args []string) int {
+	fs := flag.NewFlagSet("kb list", flag.ExitOnError)
+	dataFlag := fs.String("data", "", "KB data directory (default: the server config's data:, or "+defaultDataDir()+")")
+	configFlag := fs.String("config", "", "Server config YAML to read data: and http: from (default: the standard path)")
+	fs.Parse(args)
+	if fs.NArg() != 0 {
+		fmt.Fprintln(os.Stderr, "Usage: cartographer kb list [--data <dir>] [--config <path>]")
+		return 2
+	}
+
+	dataDir := *dataFlag
+	if dataDir == "" {
+		dataDir = resolveServerDataDir(*configFlag)
+	}
+	rows, err := scanDataDir(dataDir)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "Error:", err)
+		return 1
+	}
+
+	mounted, mountErr := mountedKBNames(serverBaseURL(*configFlag))
+	if mountErr == nil {
+		for i := range rows {
+			m := mounted[rows[i].Name]
+			rows[i].Mounted = &m
+		}
+	}
+
+	printKBRows(os.Stdout, dataDir, rows, mountErr)
+	return 0
+}
+
+// scanDataDir reads one level of dataDir, describing each subdirectory
+// without touching it. A KB is recognised by data/index.md, which is exactly
+// what kb.Open checks — read directly here so the listing stays read-only.
+func scanDataDir(dataDir string) ([]kbRow, error) {
+	entries, err := os.ReadDir(dataDir)
+	if err != nil {
+		return nil, fmt.Errorf("read data dir %q: %w", dataDir, err)
+	}
+	var rows []kbRow
+	for _, e := range entries {
+		if !e.IsDir() || strings.HasPrefix(e.Name(), ".") {
+			continue
+		}
+		path := filepath.Join(dataDir, e.Name())
+		row := kbRow{Name: e.Name(), IsRepo: gitx.IsRepo(path)}
+		if _, err := os.Stat(filepath.Join(path, "data", "index.md")); err == nil {
+			row.IsKB = true
+		}
+		if row.IsRepo {
+			if url, err := gitx.RemoteURL(path, "origin"); err == nil {
+				row.Origin = strings.TrimSpace(url)
+			}
+		}
+		rows = append(rows, row)
+	}
+	sort.Slice(rows, func(i, j int) bool { return rows[i].Name < rows[j].Name })
+	return rows, nil
+}
+
+// mountedKBNames asks the server which KBs it serves. An unreachable server
+// is an error the caller reports as "could not ask", never as "nothing is
+// mounted": absence of the signal is not evidence.
+func mountedKBNames(baseURL string) (map[string]bool, error) {
+	h, err := fetchHealth(baseURL)
+	if err != nil {
+		return nil, err
+	}
+	if h.KBs == nil {
+		return nil, fmt.Errorf("server at %s does not report mounted KBs (single-KB server)", baseURL)
+	}
+	names := map[string]bool{}
+	for _, kb := range *h.KBs {
+		names[kb.Name] = true
+	}
+	return names, nil
+}
+
+// printKBRows renders the listing. The MOUNTED column exists only when the
+// server answered.
+func printKBRows(w io.Writer, dataDir string, rows []kbRow, mountErr error) {
+	fmt.Fprintf(w, "data dir: %s\n", dataDir)
+	if len(rows) == 0 {
+		fmt.Fprintln(w, "(no KB directories)")
+		return
+	}
+	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+	if mountErr == nil {
+		fmt.Fprintln(tw, "NAME\tOKF\tGIT\tMOUNTED\tORIGIN")
+	} else {
+		fmt.Fprintln(tw, "NAME\tOKF\tGIT\tORIGIN")
+	}
+	for _, r := range rows {
+		origin := r.Origin
+		if origin == "" {
+			origin = "-"
+		}
+		if mountErr == nil {
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", r.Name, yesNo(r.IsKB), yesNo(r.IsRepo), yesNo(r.Mounted != nil && *r.Mounted), origin)
+			continue
+		}
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", r.Name, yesNo(r.IsKB), yesNo(r.IsRepo), origin)
+	}
+	tw.Flush()
+	if mountErr != nil {
+		fmt.Fprintf(w, "\nthe server could not be asked which of these are mounted: %v\n", mountErr)
+	}
 }
 
 // resolveServerDataDir mirrors the data-dir precedence of `service install`
 // (service.go:defaultDataDir, config.Load's Data field): the local service's
 // config YAML `data:` field if the config exists and sets one, otherwise
 // defaultDataDir() (~/cartographer-data).
-func resolveServerDataDir() string {
-	if cfgPath, err := service.ConfigPath(); err == nil {
-		if cfg, err := config.Load(cfgPath); err == nil && cfg.Data != "" {
-			return cfg.Data
+//
+// configPath selects which server config to read, mirroring `service
+// install --config` / `service status --config`; empty means the standard
+// path. Without it, a service installed at a custom config path was
+// invisible here, and `kb create`/`kb clone` reported "mounted" about a
+// directory no running server reads (D173).
+func resolveServerDataDir(configPath string) string {
+	if configPath == "" {
+		p, err := service.ConfigPath()
+		if err != nil {
+			return defaultDataDir()
 		}
+		configPath = p
+	}
+	if cfg, err := config.Load(configPath); err == nil && cfg.Data != "" {
+		return cfg.Data
 	}
 	return defaultDataDir()
+}
+
+// defaultCloneTimeout bounds `kb clone` end to end. Generous for a KB-sized
+// repository over a slow link, short enough that an unreachable forge fails
+// while the operator is still watching. --timeout overrides it; unbounded is
+// not an option, since the failure it produces is a silent hang (D173).
+const defaultCloneTimeout = 120 * time.Second
+
+// checkLocalTarget refuses a `kb create`/`kb clone` that would act on the
+// local data dir while this machine's client points at a remote server.
+//
+// These commands mount a KB on the LOCAL server, which on such a machine is
+// not the server anyone is talking to: the command would report `KB "x"
+// mounted at ...` about a directory nothing reads. That is worse than an
+// error, so it is an error — with --local as the explicit opt-out, and no
+// opinion at all when --data was passed (the caller named the target) or when
+// there is no client config to contradict.
+func checkLocalTarget(dataFlag string, local bool) int {
+	if local || dataFlag != "" {
+		return 0
+	}
+	dir, err := clientconfig.TargetDir()
+	if err != nil {
+		return 0
+	}
+	cfg, err := clientconfig.Load(dir)
+	if err != nil || cfg.ServerURL == "" || isLoopbackURL(cfg.ServerURL) {
+		return 0
+	}
+	fmt.Fprintf(os.Stderr, "Error: `kb create`/`kb clone` act on the LOCAL server's data dir, but this machine's client points at %s\n", cfg.ServerURL)
+	fmt.Fprintln(os.Stderr, "  Mounting a KB on that server is an operation on its deployment, not something this command can do.")
+	fmt.Fprintln(os.Stderr, "  Use --local to act on the local data dir anyway, or --data <dir> to name the target explicitly.")
+	return 2
+}
+
+// onInterrupt runs fn on SIGINT/SIGTERM and returns a stop function that
+// releases the handler. Registering it replaces Go's default of exiting
+// immediately, which is what left a half-written clone on disk: the deferred
+// cleanup never ran.
+func onInterrupt(fn func()) func() {
+	ch := make(chan os.Signal, 1)
+	signal.Notify(ch, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		if _, ok := <-ch; ok {
+			fn()
+		}
+	}()
+	return func() { signal.Stop(ch); close(ch) }
 }
 
 // healthInfo is the subset of the /health JSON body kb create's guidance
@@ -327,7 +551,13 @@ func resolveServerDataDir() string {
 // post-D84 server answer this struct correctly, since a missing field just
 // leaves KBs nil.
 type healthInfo struct {
-	KBs *[]json.RawMessage `json:"kbs"`
+	KBs *[]healthKB `json:"kbs"`
+}
+
+// healthKB is one entry of /health's kbs array. Only the name is decoded:
+// `kb list` needs it to say which directories the server actually serves.
+type healthKB struct {
+	Name string `json:"name"`
 }
 
 // hasNoKBs reports whether the health response indicates zero KBs mounted.
@@ -374,9 +604,14 @@ func fetchHealth(baseURL string) (*healthInfo, error) {
 // does: .cartographer.yaml server_url, defaulting to
 // the local client default (clientconfig.Default), with the /mcp path
 // stripped.
-func serverBaseURL() string {
-	if cfgPath, err := service.ConfigPath(); err == nil {
-		if cfg, err := config.Load(cfgPath); err == nil && cfg.HTTP != "" {
+func serverBaseURL(configPath string) string {
+	if configPath == "" {
+		if p, err := service.ConfigPath(); err == nil {
+			configPath = p
+		}
+	}
+	if configPath != "" {
+		if cfg, err := config.Load(configPath); err == nil && cfg.HTTP != "" {
 			if url := httpAddrToBaseURL(cfg.HTTP); url != "" {
 				return url
 			}
@@ -414,8 +649,8 @@ func httpAddrToBaseURL(addr string) string {
 // If no server answers at all, stay silent: there is nothing running to
 // restart, and the user is presumably still mid-setup (e.g. using the KB
 // with `serve --kb <path>` directly, no service involved).
-func printPostCreateGuidance(restart bool) {
-	base := serverBaseURL()
+func printPostCreateGuidance(configPath string, restart bool) {
+	base := serverBaseURL(configPath)
 	if _, err := fetchHealth(base); err != nil {
 		return
 	}
@@ -461,8 +696,8 @@ func waitHealthy(baseURL string) bool {
 // or the pre-existing config's data:) — used by hasNoKBs's fallback when
 // the kbs field itself is absent. Best-effort throughout: never returns an
 // error, never affects service install's own exit code.
-func printNoKBHintIfEmpty(dataDir string) {
-	base := serverBaseURL()
+func printNoKBHintIfEmpty(configPath, dataDir string) {
+	base := serverBaseURL(configPath)
 	deadline := time.Now().Add(noKBHintWaitTimeout)
 	var h *healthInfo
 	var err error

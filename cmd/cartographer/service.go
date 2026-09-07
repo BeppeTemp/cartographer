@@ -171,7 +171,7 @@ func cmdServiceInstall(args []string) int {
 	if cfg, cfgErr := config.Load(*configFlag); cfgErr == nil && cfg.Data != "" {
 		dataDir = cfg.Data
 	}
-	printNoKBHintIfEmpty(dataDir)
+	printNoKBHintIfEmpty(*configFlag, dataDir)
 
 	return exitStatusRunning
 }
