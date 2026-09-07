@@ -367,7 +367,7 @@ func checkManagedFiles(dir string, providers []string, lockFile provisioning.Loc
 // match the KBs recorded in .cartographer.yaml. An entry for a KB no longer
 // mounted keeps pointing an agent at something that is gone.
 func checkMCPEntries(dir string, cfg *clientconfig.Config, providers []string) []doctorFinding {
-	entries, err := entriesForKBs(cfg.ServerName, cfg.ServerURL, cfg.KBs)
+	entries, err := entriesForKBs(cfg.ServerName, cfg.ServerURL, cfg.KnownKBs)
 	if err != nil {
 		return []doctorFinding{{
 			Check: "mcp-entries", Severity: doctorError, Path: filepath.Join(dir, clientconfig.FileName),

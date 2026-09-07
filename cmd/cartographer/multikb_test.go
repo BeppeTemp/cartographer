@@ -73,8 +73,8 @@ func TestDoConnect_PerKBEntries_AllProviders(t *testing.T) {
 		t.Fatalf("MCPEntries = %q, want %q", got, want)
 	}
 	cfg, err := clientconfig.Load(dir)
-	if err != nil || strings.Join(cfg.KBs, ",") != "alpha,beta,gamma" {
-		t.Fatalf("persisted KBs = %v, err=%v", cfg.KBs, err)
+	if err != nil || strings.Join(cfg.KnownKBs, ",") != "alpha,beta,gamma" {
+		t.Fatalf("persisted KBs = %v, err=%v", cfg.KnownKBs, err)
 	}
 	for _, provider := range providers {
 		r, err := configurator.Emit(&configurator.ServerConfig{Name: "placeholder"}, configurator.Provider(provider))
@@ -244,11 +244,11 @@ func TestCmdSync_ReconcilesOneToManyAndBack(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("HOME", dir)
 
-	cfg := &clientconfig.Config{ServerURL: srv.URL + "/mcp", ServerName: "wiki", TokenEnv: "TOKEN", Agents: []string{"claude"}, KBs: []string{"alpha"}, Trust: true}
+	cfg := &clientconfig.Config{ServerURL: srv.URL + "/mcp", ServerName: "wiki", TokenEnv: "TOKEN", Agents: []string{"claude"}, KnownKBs: []string{"alpha"}, Trust: true}
 	if err := clientconfig.Save(dir, cfg); err != nil {
 		t.Fatal(err)
 	}
-	bare, _ := entriesForKBs("wiki", cfg.ServerURL, cfg.KBs)
+	bare, _ := entriesForKBs("wiki", cfg.ServerURL, cfg.KnownKBs)
 	if _, _, err := applyMCPEntries(bare, cfg.Agents, dir, false, "", false); err != nil {
 		t.Fatal(err)
 	}
@@ -261,8 +261,8 @@ func TestCmdSync_ReconcilesOneToManyAndBack(t *testing.T) {
 		t.Fatalf("1→2 entries = %s, err=%v", data, err)
 	}
 	updated, err := clientconfig.Load(dir)
-	if err != nil || strings.Join(updated.KBs, ",") != "alpha,beta" {
-		t.Fatalf("1→2 persisted KBs = %v, err=%v", updated.KBs, err)
+	if err != nil || strings.Join(updated.KnownKBs, ",") != "alpha,beta" {
+		t.Fatalf("1→2 persisted KBs = %v, err=%v", updated.KnownKBs, err)
 	}
 
 	// A fresh server instance is enough to model a KB disappearing while
@@ -284,11 +284,11 @@ func TestCmdSync_ReconcilesOneToManyAndBack(t *testing.T) {
 
 func TestDoDisconnect_RemovesPersistedPerKBEntries(t *testing.T) {
 	dir := t.TempDir()
-	cfg := &clientconfig.Config{ServerURL: "https://example.test/mcp", ServerName: "wiki", Agents: []string{"claude"}, KBs: []string{"alpha", "beta"}, Trust: true}
+	cfg := &clientconfig.Config{ServerURL: "https://example.test/mcp", ServerName: "wiki", Agents: []string{"claude"}, KnownKBs: []string{"alpha", "beta"}, Trust: true}
 	if err := clientconfig.Save(dir, cfg); err != nil {
 		t.Fatal(err)
 	}
-	entries, _ := entriesForKBs("wiki", cfg.ServerURL, cfg.KBs)
+	entries, _ := entriesForKBs("wiki", cfg.ServerURL, cfg.KnownKBs)
 	if _, _, err := applyMCPEntries(entries, cfg.Agents, dir, false, "", false); err != nil {
 		t.Fatal(err)
 	}
@@ -307,11 +307,11 @@ func TestDoDisconnect_RemovesPersistedPerKBEntries(t *testing.T) {
 func TestCmdSync_ServerDownKeepsMCPEntriesAndKBs(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("HOME", dir)
-	cfg := &clientconfig.Config{ServerURL: "http://127.0.0.1:1/mcp", ServerName: "wiki", Agents: []string{"claude"}, KBs: []string{"alpha", "beta"}, Trust: true}
+	cfg := &clientconfig.Config{ServerURL: "http://127.0.0.1:1/mcp", ServerName: "wiki", Agents: []string{"claude"}, KnownKBs: []string{"alpha", "beta"}, Trust: true}
 	if err := clientconfig.Save(dir, cfg); err != nil {
 		t.Fatal(err)
 	}
-	entries, _ := entriesForKBs("wiki", cfg.ServerURL, cfg.KBs)
+	entries, _ := entriesForKBs("wiki", cfg.ServerURL, cfg.KnownKBs)
 	if _, _, err := applyMCPEntries(entries, cfg.Agents, dir, false, "", false); err != nil {
 		t.Fatal(err)
 	}

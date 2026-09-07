@@ -26,8 +26,22 @@ type Config struct {
 	ServerName string   `yaml:"server_name"`
 	Auth       bool     `yaml:"auth"`
 	TokenEnv   string   `yaml:"token_env"`
-	Agents     []string `yaml:"agents"`        // connected provider names, e.g. ["claude", "opencode"]
-	KBs        []string `yaml:"kbs,omitempty"` // optional: KB names to sync (empty = server default single-KB endpoint)
+	Agents     []string `yaml:"agents"` // connected provider names, e.g. ["claude", "opencode"]
+
+	// KnownKBs caches the KB names the server advertised at the last
+	// successful connect/sync. It is SERVER-owned: every sync overwrites it
+	// wholesale (see cmd/cartographer's runSync). It is not a user
+	// preference — that is Clients below. Persisted as `known_kbs`; the
+	// legacy `kbs` key written before D169 is still read by Load, and is no
+	// longer written by Save.
+	KnownKBs []string `yaml:"known_kbs,omitempty"`
+
+	// Clients is the per-provider KB binding (D169): which KBs each connected
+	// provider may receive. USER-owned — never written by connect/sync.
+	// Always resolve it through BoundKBs, never by reading the map directly:
+	// an absent entry, an entry holding an empty list, and an entry holding
+	// names are three distinct states, and a nil slice never means "every KB".
+	Clients map[string]ClientBinding `yaml:"clients,omitempty"`
 
 	// Trust records the persistent, per-server decision made at connect time:
 	// when true, kb:-sourced provisioning artifacts (skill/agent/hook/instructions)
@@ -74,10 +88,24 @@ type MCPApproval struct {
 	ApprovedAt  time.Time `yaml:"approved_at"`
 }
 
+// ClientBinding is one provider's declared KB set (D169). An entry that exists
+// carrying an empty KBs list means "no KBs", not "every KB": returning a
+// provider to the default requires deleting the entry (ResetBinding), which is
+// why Unbind of the last name leaves the entry in place.
+type ClientBinding struct {
+	KBs []string `yaml:"kbs"`
+}
+
 // yamlConfig mirrors Config for YAML (de)serialization. Trust is a *bool here
 // (unlike Config.Trust, a plain bool) so Load can tell an absent `trust` key
 // (nil, defaults to true) apart from an explicit `trust: false` written by a
 // user who revoked it.
+//
+// KnownKBs is a *[]string for the same reason (D169): an absent `known_kbs`
+// key falls back to the legacy `kbs` alias, while `known_kbs: []` is a
+// deliberately empty cache and must win over a stale `kbs` left behind by a
+// pre-D169 client. KBs itself is read-only — Save never emits it again, so the
+// first write after the upgrade completes the migration.
 type yamlConfig struct {
 	ServerURL    string                            `yaml:"server_url"`
 	ServerName   string                            `yaml:"server_name"`
@@ -85,6 +113,8 @@ type yamlConfig struct {
 	TokenEnv     string                            `yaml:"token_env"`
 	Agents       []string                          `yaml:"agents"`
 	KBs          []string                          `yaml:"kbs,omitempty"`
+	KnownKBs     *[]string                         `yaml:"known_kbs,omitempty"`
+	Clients      map[string]ClientBinding          `yaml:"clients,omitempty"`
 	Trust        *bool                             `yaml:"trust,omitempty"`
 	SearchRoots  []string                          `yaml:"search_roots,omitempty"`
 	SearchDepth  int                               `yaml:"search_depth,omitempty"`
@@ -143,7 +173,7 @@ func Load(dir string) (*Config, error) {
 	if err := yaml.Unmarshal(data, &extra); err != nil {
 		return nil, fmt.Errorf("clientconfig: parse extras %s: %w", Path(dir), err)
 	}
-	for _, key := range []string{"server_url", "server_name", "auth", "token_env", "agents", "kbs", "trust", "search_roots", "paths", "signing_keys", "mcp_approvals"} {
+	for _, key := range []string{"server_url", "server_name", "auth", "token_env", "agents", "kbs", "known_kbs", "clients", "trust", "search_roots", "paths", "signing_keys", "mcp_approvals"} {
 		delete(extra, key)
 	}
 	cfg := Config{
@@ -152,7 +182,8 @@ func Load(dir string) (*Config, error) {
 		Auth:         y.Auth,
 		TokenEnv:     y.TokenEnv,
 		Agents:       y.Agents,
-		KBs:          y.KBs,
+		KnownKBs:     y.KBs, // legacy alias; overridden below when known_kbs is present
+		Clients:      y.Clients,
 		Trust:        true, // absent `trust` key defaults to true, see yamlConfig doc
 		SearchRoots:  y.SearchRoots,
 		SearchDepth:  y.SearchDepth,
@@ -160,6 +191,11 @@ func Load(dir string) (*Config, error) {
 		SigningKeys:  y.SigningKeys,
 		MCPApprovals: y.MCPApprovals,
 		Extra:        extra,
+	}
+	if y.KnownKBs != nil {
+		// Present — including present and empty — always wins over the legacy
+		// `kbs` alias (D169).
+		cfg.KnownKBs = *y.KnownKBs
 	}
 	if y.Trust != nil {
 		cfg.Trust = *y.Trust
@@ -183,7 +219,8 @@ func Save(dir string, cfg *Config) error {
 		Auth:         cfg.Auth,
 		TokenEnv:     cfg.TokenEnv,
 		Agents:       cfg.Agents,
-		KBs:          cfg.KBs,
+		KnownKBs:     &cfg.KnownKBs, // always emitted; the legacy `kbs` key is not written again (D169)
+		Clients:      cfg.Clients,
 		Trust:        &cfg.Trust,
 		SearchRoots:  cfg.SearchRoots,
 		Paths:        cfg.Paths,
@@ -301,6 +338,86 @@ func (c *Config) HasAgent(name string) bool {
 func (c *Config) AddAgent(name string) {
 	if !c.HasAgent(name) {
 		c.Agents = append(c.Agents, name)
+	}
+}
+
+// BoundKBs resolves which KBs a provider may receive (D169), and reports
+// whether that answer comes from an explicit binding or from the default.
+//
+// This is the ONLY place the default is resolved: no caller may re-derive it
+// by testing Clients or a returned slice for emptiness, because an explicit
+// binding holding no KBs and an absent binding return the same empty slice and
+// mean opposite things. A provider with no entry receives every known KB —
+// today's behaviour, so an upgrade never strips artifacts from an already
+// connected client; default-deny is what declaring an entry buys.
+//
+// The returned slice is a copy: mutating it cannot corrupt the config.
+func (c *Config) BoundKBs(provider string) (kbs []string, explicit bool) {
+	if binding, ok := c.Clients[provider]; ok {
+		return append([]string(nil), binding.KBs...), true
+	}
+	return append([]string(nil), c.KnownKBs...), false
+}
+
+// Bind adds kb to provider's binding, creating the binding if the provider had
+// none — which converts it from "receives every known KB" to "receives only
+// this one". Callers must say so in their output. Adding a KB that is already
+// bound is a no-op.
+//
+// A kb absent from KnownKBs is deliberately NOT an error: the KB may be mounted
+// later, and configuring must not require a reachable server. Callers that can
+// check report it as a warning.
+func (c *Config) Bind(provider, kb string) error {
+	if provider == "" || provider != strings.TrimSpace(provider) {
+		return fmt.Errorf("clientconfig: invalid provider name %q", provider)
+	}
+	if kb == "" || kb != strings.TrimSpace(kb) {
+		return fmt.Errorf("clientconfig: invalid KB name %q", kb)
+	}
+	if c.Clients == nil {
+		c.Clients = make(map[string]ClientBinding)
+	}
+	binding := c.Clients[provider]
+	for _, existing := range binding.KBs {
+		if existing == kb {
+			return nil
+		}
+	}
+	binding.KBs = append(binding.KBs, kb)
+	c.Clients[provider] = binding
+	return nil
+}
+
+// Unbind removes kb from provider's binding. Removing the last name leaves the
+// entry in place holding an empty list — "no KBs" — because deleting it would
+// silently restore "receives every known KB". ResetBinding is the explicit way
+// back. Unbinding a pair that is not bound is a silent no-op, matching
+// RevokeMCP.
+func (c *Config) Unbind(provider, kb string) error {
+	if provider == "" || kb == "" {
+		return fmt.Errorf("clientconfig: invalid unbind (provider %q, kb %q)", provider, kb)
+	}
+	binding, ok := c.Clients[provider]
+	if !ok {
+		return nil
+	}
+	kept := make([]string, 0, len(binding.KBs))
+	for _, existing := range binding.KBs {
+		if existing != kb {
+			kept = append(kept, existing)
+		}
+	}
+	binding.KBs = kept
+	c.Clients[provider] = binding
+	return nil
+}
+
+// ResetBinding deletes provider's binding, returning it to the default (every
+// known KB). Missing entries are a no-op.
+func (c *Config) ResetBinding(provider string) {
+	delete(c.Clients, provider)
+	if len(c.Clients) == 0 {
+		c.Clients = nil
 	}
 }
 
