@@ -561,18 +561,18 @@ func doConnect(opts connectOptions) (connectResult, error) {
 	if healthErr != nil || !facts.Listed {
 		entryKBs = nil
 	}
-	entries, err := entriesForKBs(opts.Name, opts.ServerURL, entryKBs)
+	entriesByProvider, err := entriesByProviderForKBs(existing, opts.Providers, opts.Name, opts.ServerURL, entryKBs)
 	if err != nil {
 		return connectResult{}, err
 	}
 	if _, err := removeMCPEntries(opts.Name, existing.KnownKBs, opts.Providers, opts.Dir, opts.Auth, opts.TokenEnv, opts.DryRun); err != nil {
 		return connectResult{}, err
 	}
-	configsWritten, configWarnings, err := applyMCPEntries(entries, opts.Providers, opts.Dir, opts.Auth, opts.TokenEnv, opts.DryRun)
+	configsWritten, configWarnings, err := applyMCPEntries(entriesByProvider, opts.Providers, opts.Dir, opts.Auth, opts.TokenEnv, opts.DryRun)
 	if err != nil {
 		return connectResult{}, err
 	}
-	if w := kiroFlatNamespaceWarning(opts.Providers, entries, effectiveToolPrefixes(facts, healthErr), healthErr); w != "" {
+	if w := kiroFlatNamespaceWarning(opts.Providers, entriesByProvider, effectiveToolPrefixes(facts, healthErr), healthErr); w != "" {
 		configWarnings = append(configWarnings, w)
 	}
 
@@ -589,22 +589,24 @@ func doConnect(opts connectOptions) (connectResult, error) {
 	if healthErr == nil {
 		pullKBs = kbs
 	}
-	pullCfg := &clientconfig.Config{ServerURL: opts.ServerURL, ServerName: opts.Name, Auth: opts.Auth, TokenEnv: opts.TokenEnv, KnownKBs: pullKBs, SigningKeys: existing.SigningKeys}
+	// Clients travels with it: connecting a provider must not pull or
+	// materialize a KB it is not bound to (D170).
+	pullCfg := &clientconfig.Config{ServerURL: opts.ServerURL, ServerName: opts.Name, Auth: opts.Auth, TokenEnv: opts.TokenEnv, KnownKBs: pullKBs, Clients: existing.Clients, SigningKeys: existing.SigningKeys}
 
 	// The MCP-entry lines report what was emitted, not what was asked for:
 	// entries is built from the client config alone, so keeping it when no
 	// selected provider has an MCP emitter announces a write into a file the
 	// output cannot even name (D147).
-	mcpEntries := entryNames(entries)
+	mcpEntries := allEntryNames(entriesByProvider)
 	if len(providersManagingMCP(opts.Providers)) == 0 {
 		mcpEntries = nil
 	}
 	res := connectResult{Providers: opts.Providers, ConfigsWritten: configsWritten, MCPEntries: mcpEntries, Warnings: configWarnings}
-	if m, err := fetchMergedManifest(pullCfg); err != nil {
+	if manifests, err := manifestsForProviders(pullCfg, opts.Providers); err != nil {
 		res.Deferred = true
 		res.DeferredErr = err
 	} else {
-		applied, err := materializeForProviders(m, opts.Providers, opts.Dir, facts.Version, opts.Trust || opts.AutoTrust, opts.DryRun, false /* noHeal */, portabilityOptions{SearchRoots: existing.SearchRoots, SearchDepth: existing.SearchDepth, Paths: existing.Paths}, existing.ApprovedMCPHashes())
+		applied, err := materializeForProviders(manifests, opts.Providers, opts.Dir, facts.Version, opts.Trust || opts.AutoTrust, opts.DryRun, false /* noHeal */, portabilityOptions{SearchRoots: existing.SearchRoots, SearchDepth: existing.SearchDepth, Paths: existing.Paths}, existing.ApprovedMCPHashes())
 		if err != nil {
 			return connectResult{}, err
 		}

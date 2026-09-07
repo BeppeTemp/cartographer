@@ -4,8 +4,10 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
+	"github.com/BeppeTemp/cartographer/internal/provisioning"
 )
 
 // cmdSync re-fetches the manifest from the configured server (sync_pull) and
@@ -17,6 +19,8 @@ import (
 func cmdSync(args []string) int {
 	fs := flag.NewFlagSet("sync", flag.ExitOnError)
 	dryRun := fs.Bool("dry-run", false, "Print what would change without writing")
+	var clients repeatedString
+	fs.Var(&clients, "client", "Sync only this provider (repeatable); other providers are left untouched")
 	autoTrust := fs.Bool("auto-trust", false, "Trust KB-sourced skills without explicit signature (one-time override; see the persisted `trust` setting in .cartographer.yaml)")
 	noHeal := fs.Bool("no-heal", false, "Report locally modified managed artifacts instead of restoring them from the server")
 	fs.Parse(args)
@@ -36,7 +40,7 @@ func cmdSync(args []string) int {
 		return 0
 	}
 
-	if _, err := runSync(dir, cfg, syncOptions{DryRun: *dryRun, AutoTrust: *autoTrust, NoHeal: *noHeal}); err != nil {
+	if _, err := runSync(dir, cfg, syncOptions{DryRun: *dryRun, AutoTrust: *autoTrust, NoHeal: *noHeal, Clients: clients}); err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		return 2
 	}
@@ -50,6 +54,11 @@ func cmdSync(args []string) int {
 type syncOptions struct {
 	DryRun    bool
 	AutoTrust bool
+	// Clients restricts the run to these providers (--client, repeatable).
+	// Empty means every connected provider. A provider left out is not
+	// touched at all: not its MCP entries, not its artifacts, not its entry in
+	// the lockfile (D170).
+	Clients []string
 	// NoHeal reports artifacts whose files diverged on disk instead of
 	// restoring them (D139). upgrade-repair never sets it: repairing is its
 	// entire purpose.
@@ -71,6 +80,11 @@ type syncResult struct {
 // nested cartographer process or duplicating configurator/approval/
 // signature/provisioning logic.
 func runSync(dir string, cfg *clientconfig.Config, opts syncOptions) (syncResult, error) {
+	targets, err := selectProviders(cfg.Agents, opts.Clients)
+	if err != nil {
+		return syncResult{}, err
+	}
+
 	// Reconcile the provider MCP entries from the mounted KB list before
 	// sync_pull. On an unreachable server no local entry or persisted KB list
 	// changes; fetchMergedManifest below then reports the ordinary sync error.
@@ -81,59 +95,125 @@ func runSync(dir string, cfg *clientconfig.Config, opts syncOptions) (syncResult
 	} else {
 		// The server that answers now may not be the one this client's state
 		// was materialized against (D142): say so once, then sync normally.
-		if notice := serverChangeNotice(dir, cfg.Agents, facts.Version); notice != "" {
+		if notice := serverChangeNotice(dir, targets, facts.Version); notice != "" {
 			fmt.Println(notice)
 		}
 		entryKBs := kbs
 		if !facts.Listed {
 			entryKBs = nil
 		}
-		entries, err := entriesForKBs(cfg.ServerName, cfg.ServerURL, entryKBs)
+		entriesByProvider, err := entriesByProviderForKBs(cfg, targets, cfg.ServerName, cfg.ServerURL, entryKBs)
 		if err != nil {
 			return syncResult{}, err
 		}
-		if _, err := removeMCPEntries(cfg.ServerName, cfg.KnownKBs, cfg.Agents, dir, cfg.Auth, cfg.TokenEnv, opts.DryRun); err != nil {
+		// removeMCPEntries is fed the UNION of every known KB, never a
+		// provider's filtered binding (D170): managedEntryNames derives the
+		// names this client may own from the list it is given, so passing the
+		// filtered one would orphan an unbound KB's entry forever. Only the
+		// targeted providers are touched — a provider skipped by --client keeps
+		// its entries untouched.
+		if _, err := removeMCPEntries(cfg.ServerName, cfg.KnownKBs, targets, dir, cfg.Auth, cfg.TokenEnv, opts.DryRun); err != nil {
 			return syncResult{}, err
 		}
-		_, warnings, err := applyMCPEntries(entries, cfg.Agents, dir, cfg.Auth, cfg.TokenEnv, opts.DryRun)
+		_, warnings, err := applyMCPEntries(entriesByProvider, targets, dir, cfg.Auth, cfg.TokenEnv, opts.DryRun)
 		if err != nil {
 			return syncResult{}, err
 		}
-		if w := kiroFlatNamespaceWarning(cfg.Agents, entries, effectiveToolPrefixes(facts, healthErr), healthErr); w != "" {
+		if w := kiroFlatNamespaceWarning(targets, entriesByProvider, effectiveToolPrefixes(facts, healthErr), healthErr); w != "" {
 			warnings = append(warnings, w)
 		}
 		for _, w := range warnings {
 			fmt.Fprintf(os.Stderr, "warning: %s\n", w)
 		}
-		printMCPEntryLines(cfg.Agents, entryNames(entries), opts.DryRun)
+		printMCPEntryLines(targets, allEntryNames(entriesByProvider), opts.DryRun)
+		// Refresh the in-memory cache unconditionally so the manifest pull
+		// below resolves default bindings against what the server mounts now;
+		// only the persistence is skipped on a dry run.
+		cfg.KnownKBs = kbs
 		if !opts.DryRun {
-			cfg.KnownKBs = kbs
 			if err := clientconfig.Save(dir, cfg); err != nil {
 				return syncResult{}, err
 			}
 		}
 	}
 
-	m, err := fetchMergedManifest(cfg)
+	manifests, err := manifestsForProviders(cfg, targets)
 	if err != nil {
 		return syncResult{}, err
 	}
 
 	// Do not write even the local bootstrap hook until the complete remote
 	// manifest has passed its content and signature checks.
-	if err := ensureBootstrapForProviders(cfg.Agents, dir, opts.DryRun); err != nil {
+	if err := ensureBootstrapForProviders(targets, dir, opts.DryRun); err != nil {
 		return syncResult{}, err
 	}
 
-	results, err := materializeForProviders(m, cfg.Agents, dir, facts.Version, cfg.Trust || opts.AutoTrust, opts.DryRun, opts.NoHeal, portabilityOptions{SearchRoots: cfg.SearchRoots, SearchDepth: cfg.SearchDepth, Paths: cfg.Paths}, cfg.ApprovedMCPHashes())
+	results, err := materializeForProviders(manifests, targets, dir, facts.Version, cfg.Trust || opts.AutoTrust, opts.DryRun, opts.NoHeal, portabilityOptions{SearchRoots: cfg.SearchRoots, SearchDepth: cfg.SearchDepth, Paths: cfg.Paths}, cfg.ApprovedMCPHashes())
 	if err != nil {
 		return syncResult{}, err
 	}
 	printApplySummary(dir, results, opts.DryRun)
-	if opts.DryRun {
-		fmt.Printf("would sync to revision %s\n", m.Revision)
-		return syncResult{Revision: m.Revision}, nil
+	printSyncRevisions(manifests, targets, opts.DryRun)
+	return syncResult{Revision: commonRevision(manifests, targets)}, nil
+}
+
+// selectProviders narrows cfg.Agents to the ones --client named, preserving
+// cfg.Agents' order so the output is stable. An empty selection means all.
+func selectProviders(agents []string, selected []string) ([]string, error) {
+	if len(selected) == 0 {
+		return agents, nil
 	}
-	fmt.Printf("synced to revision %s\n", m.Revision)
-	return syncResult{Revision: m.Revision}, nil
+	connected := make(map[string]bool, len(agents))
+	for _, a := range agents {
+		connected[a] = true
+	}
+	want := make(map[string]bool, len(selected))
+	for _, s := range selected {
+		if !connected[s] {
+			return nil, fmt.Errorf("provider %q is not connected (connected: %s)", s, strings.Join(agents, ", "))
+		}
+		want[s] = true
+	}
+	out := make([]string, 0, len(want))
+	for _, a := range agents {
+		if want[a] {
+			out = append(out, a)
+		}
+	}
+	return out, nil
+}
+
+// commonRevision returns the revision every targeted provider shares, or "" when
+// they differ. Bindings make a single machine-wide revision meaningless: two
+// providers receiving different KBs legitimately sit at different revisions.
+func commonRevision(manifests map[string]provisioning.Manifest, providers []string) string {
+	common := ""
+	for i, p := range providers {
+		rev := manifests[p].Revision
+		if i == 0 {
+			common = rev
+			continue
+		}
+		if rev != common {
+			return ""
+		}
+	}
+	return common
+}
+
+// printSyncRevisions reports one line when every provider agrees — the ordinary
+// case — and one line per provider when bindings made them diverge, so the
+// output never implies an agreement that does not exist.
+func printSyncRevisions(manifests map[string]provisioning.Manifest, providers []string, dryRun bool) {
+	verb := "synced to"
+	if dryRun {
+		verb = "would sync to"
+	}
+	if rev := commonRevision(manifests, providers); rev != "" || len(providers) <= 1 {
+		fmt.Printf("%s revision %s\n", verb, rev)
+		return
+	}
+	for _, p := range providers {
+		fmt.Printf("[%s] %s revision %s\n", p, verb, manifests[p].Revision)
+	}
 }

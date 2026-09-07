@@ -184,6 +184,9 @@ func runDoctor(dir, only string) doctorReport {
 		findings = append(findings, checkSymlinkedDestinations(dir, providers)...)
 		findings = append(findings, checkCapabilities(dir, cfg)...)
 		findings = append(findings, checkKBCollisions(dir, cfg, providers)...)
+		if lockErr == nil {
+			findings = append(findings, checkUnboundResidues(dir, cfg, providers, lockFile)...)
+		}
 	}
 
 	sortDoctorFindings(findings)
@@ -368,7 +371,7 @@ func checkManagedFiles(dir string, providers []string, lockFile provisioning.Loc
 // match the KBs recorded in .cartographer.yaml. An entry for a KB no longer
 // mounted keeps pointing an agent at something that is gone.
 func checkMCPEntries(dir string, cfg *clientconfig.Config, providers []string) []doctorFinding {
-	entries, err := entriesForKBs(cfg.ServerName, cfg.ServerURL, cfg.KnownKBs)
+	entriesByProvider, err := entriesByProviderForKBs(cfg, providers, cfg.ServerName, cfg.ServerURL, cfg.KnownKBs)
 	if err != nil {
 		return []doctorFinding{{
 			Check: "mcp-entries", Severity: doctorError, Path: filepath.Join(dir, clientconfig.FileName),
@@ -376,13 +379,14 @@ func checkMCPEntries(dir string, cfg *clientconfig.Config, providers []string) [
 			Fix:     "cartographer reconnect",
 		}}
 	}
-	expected := map[string]bool{}
-	for _, name := range entryNames(entries) {
-		expected[name] = true
-	}
-
 	var out []doctorFinding
 	for _, p := range providers {
+		// Expected entries are per provider since D170: a provider bound to a
+		// subset must not be reported as missing the rest.
+		expected := map[string]bool{}
+		for _, name := range entryNames(entriesByProvider[p]) {
+			expected[name] = true
+		}
 		provider := configurator.Provider(p)
 		d, ok := configurator.Lookup(provider)
 		if !ok || !d.ManagesMCPConfig() {
@@ -583,6 +587,50 @@ func checkServer(dir string, cfg *clientconfig.Config, providers []string) []doc
 	return out
 }
 
+// checkUnboundResidues: a managed file whose source KB is no longer bound to
+// the provider holding it (D170). It survives a projection that predates an
+// unbind, or a hand-edited lockfile, and nothing else reports it: the prune only
+// removes what left the manifest, and after an unbind that provider's manifest
+// is not even fetched for that KB.
+//
+// An empty Source is NOT a finding: every lockfile written before D170 has one,
+// and unknown provenance is not wrong provenance. Reporting those would flag
+// every existing machine on upgrade.
+func checkUnboundResidues(dir string, cfg *clientconfig.Config, providers []string, lockFile provisioning.LockFile) []doctorFinding {
+	var out []doctorFinding
+	for _, p := range providers {
+		bound, explicit := cfg.BoundKBs(p)
+		if !explicit {
+			// Bound to every known KB: a residue can only come from a KB the
+			// server dropped, which checkMCPEntries already covers.
+			continue
+		}
+		allowed := make(map[string]bool, len(bound))
+		for _, kb := range bound {
+			allowed["kb:"+kb] = true
+		}
+		lock := lockFile.ForProvider(p)
+		baseDir := provisioning.LockBaseDir(lock, dir)
+		reported := make(map[string]bool)
+		for _, mf := range lock.Managed {
+			if mf.Source == "" || mf.Source == "bundle" || allowed[mf.Source] {
+				continue
+			}
+			key := mf.Kind + "\x00" + mf.Name
+			if reported[key] {
+				continue
+			}
+			reported[key] = true
+			out = append(out, doctorFinding{
+				Check: "unbound-residue", Severity: doctorError, Path: filepath.Join(baseDir, mf.Path),
+				Message: fmt.Sprintf("[%s] %s/%s comes from %s, which is not bound to this provider", p, mf.Kind, mf.Name, mf.Source),
+				Fix:     fmt.Sprintf("cartographer sync --client %s", p),
+			})
+		}
+	}
+	return out
+}
+
 // checkKBCollisions: two KBs bound to the same provider claiming one kind+name
 // (D171). `sync` refuses outright when this happens, so finding it here is the
 // difference between a diagnosis and a mystery — the sync error names the
@@ -593,7 +641,8 @@ func checkServer(dir string, cfg *clientconfig.Config, providers []string) []doc
 // nothing collides. Reported per provider, because two colliding KBs bound to
 // different providers are not a conflict.
 func checkKBCollisions(dir string, cfg *clientconfig.Config, providers []string) []doctorFinding {
-	candidates, err := fetchCandidates(cfg)
+	union, _, _ := boundKBUnion(cfg, providers)
+	candidates, err := fetchCandidates(cfg, union)
 	if err != nil {
 		return nil
 	}
@@ -601,7 +650,7 @@ func checkKBCollisions(dir string, cfg *clientconfig.Config, providers []string)
 	var out []doctorFinding
 	for _, p := range providers {
 		bound, _ := cfg.BoundKBs(p)
-		for _, c := range collisionsForProvider(candidates, bound) {
+		for _, c := range collisionsForProvider(candidates.forKBs(bound), bound) {
 			out = append(out, doctorFinding{
 				Check: "kb-collisions", Severity: doctorError, Path: configPath,
 				Message: fmt.Sprintf("%s: %s/%s is claimed by %s — sync refuses to run", p, c.Kind, c.Name, strings.Join(c.Sources, ", ")),

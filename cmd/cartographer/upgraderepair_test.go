@@ -150,9 +150,10 @@ func TestCmdUpgradeRepair_RunningAlreadyCurrent_NoRestart(t *testing.T) {
 	if gotDir != dir {
 		t.Errorf("runSync dir = %q, want %q", gotDir, dir)
 	}
-	// Policy options must be passed unchanged: AutoTrust=false, DryRun=false.
-	if gotOpts != (syncOptions{}) {
-		t.Errorf("runSync opts = %+v, want zero value (AutoTrust=false, DryRun=false)", gotOpts)
+	// Policy options must be passed unchanged: AutoTrust=false, DryRun=false,
+	// and no --client narrowing (upgrade-repair always repairs every provider).
+	if gotOpts.AutoTrust || gotOpts.DryRun || gotOpts.NoHeal || len(gotOpts.Clients) != 0 {
+		t.Errorf("runSync opts = %+v, want zero value (AutoTrust=false, DryRun=false, no client filter)", gotOpts)
 	}
 	if !strings.Contains(out, "restart already-open provider sessions") {
 		t.Errorf("output = %q, want the provider-session restart reminder", out)

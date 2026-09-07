@@ -201,10 +201,11 @@ func buildRows(dir string) []dashboardAgent {
 	connected := map[string]bool{}
 	serverName := "cartographer"
 	var kbs []string
-	if cfg, err := clientconfig.Load(dir); err == nil {
-		serverName = cfg.ServerName
-		kbs = cfg.KnownKBs
-		for _, a := range cfg.Agents {
+	loaded, _ := clientconfig.Load(dir)
+	if loaded != nil {
+		serverName = loaded.ServerName
+		kbs = loaded.KnownKBs
+		for _, a := range loaded.Agents {
 			connected[a] = true
 		}
 	}
@@ -214,7 +215,11 @@ func buildRows(dir string) []dashboardAgent {
 		row := dashboardAgent{Agent: a}
 		if connected[string(a.Provider)] {
 			row.Connected = true
-			row.MCPConfigState = mcpConfigStatus(dir, a.Provider, serverName, kbs)
+			bound := kbs
+			if loaded != nil {
+				bound, _ = loaded.BoundKBs(string(a.Provider))
+			}
+			row.MCPConfigState = mcpConfigStatus(dir, a.Provider, serverName, kbs, bound)
 			row.SkillStatus = "checking…"
 		} else {
 			row.SkillStatus = "not connected"
@@ -245,8 +250,10 @@ func hasConnectedAgent(rows []dashboardAgent) bool {
 // name this client may have *ever* owned (for safe removal across KB set
 // changes), which is not the same set as "currently expected" — a KB removed
 // from .cartographer.yaml should not keep counting toward in-sync/partial.
-func mcpConfigStatus(dir string, provider configurator.Provider, serverName string, kbs []string) mcpConfigState {
-	entries, err := entriesForKBs(serverName, "http://placeholder", kbs)
+// bound is the provider's own KB binding (D170): the expected entry set is its
+// own, not the machine's. mounted decides the entry shape.
+func mcpConfigStatus(dir string, provider configurator.Provider, serverName string, mounted, bound []string) mcpConfigState {
+	entries, err := entriesForKBs(serverName, "http://placeholder", mounted, bound)
 	if err != nil || len(entries) == 0 {
 		return mcpConfigMissing
 	}
@@ -388,7 +395,7 @@ func syncCmd(provider, dir string) tea.Cmd {
 		if err != nil {
 			return syncDoneMsg{provider: provider, err: err}
 		}
-		m, err := fetchMergedManifest(cfg)
+		manifests, err := manifestsForProviders(cfg, []string{provider})
 		if err != nil {
 			return syncDoneMsg{provider: provider, err: err}
 		}
@@ -396,7 +403,7 @@ func syncCmd(provider, dir string) tea.Cmd {
 		// leaves it empty, which preserves the previously recorded value
 		// instead of erasing it.
 		facts, _ := enumerateKBs(cfg.ServerURL, cfg.Auth, cfg.TokenEnv)
-		applied, err := materializeForProviders(m, []string{provider}, dir, facts.Version, cfg.Trust, false, false /* noHeal */, portabilityOptions{SearchRoots: cfg.SearchRoots, SearchDepth: cfg.SearchDepth, Paths: cfg.Paths}, cfg.ApprovedMCPHashes())
+		applied, err := materializeForProviders(manifests, []string{provider}, dir, facts.Version, cfg.Trust, false, false /* noHeal */, portabilityOptions{SearchRoots: cfg.SearchRoots, SearchDepth: cfg.SearchDepth, Paths: cfg.Paths}, cfg.ApprovedMCPHashes())
 		if err != nil {
 			return syncDoneMsg{provider: provider, err: err}
 		}

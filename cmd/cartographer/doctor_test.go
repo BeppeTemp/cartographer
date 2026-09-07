@@ -508,3 +508,40 @@ func TestCheckCapabilities(t *testing.T) {
 		}
 	})
 }
+
+// --- D170: residues from an unbound KB ---
+
+func TestCheckUnboundResidues(t *testing.T) {
+	dir := t.TempDir()
+	managed := []provisioning.ManagedFile{
+		{Kind: "skill", Name: "kept", Path: "a", ContentHash: "h", Source: "kb:bound"},
+		{Kind: "skill", Name: "stale", Path: "b", ContentHash: "h", Source: "kb:gone"},
+		{Kind: "skill", Name: "bundled", Path: "c", ContentHash: "h", Source: "bundle"},
+		{Kind: "skill", Name: "legacy", Path: "d", ContentHash: "h"}, // pre-D170 lockfile
+	}
+	lockFile := provisioning.LockFile{Providers: map[string]provisioning.Lock{
+		"claude": {Provider: "claude", Managed: managed},
+	}}
+
+	t.Run("explicit binding reports only the unbound source", func(t *testing.T) {
+		cfg := &clientconfig.Config{Agents: []string{"claude"}, KnownKBs: []string{"bound"},
+			Clients: map[string]clientconfig.ClientBinding{"claude": {KBs: []string{"bound"}}}}
+		findings := checkUnboundResidues(dir, cfg, []string{"claude"}, lockFile)
+		if len(findings) != 1 {
+			t.Fatalf("findings = %+v, want exactly the kb:gone one", findings)
+		}
+		if !strings.Contains(findings[0].Message, "kb:gone") {
+			t.Errorf("finding = %q, want it to name kb:gone", findings[0].Message)
+		}
+		if !strings.Contains(findings[0].Fix, "--client claude") {
+			t.Errorf("fix = %q, want the per-client sync", findings[0].Fix)
+		}
+	})
+
+	t.Run("a provider on the default binding is never a residue", func(t *testing.T) {
+		cfg := &clientconfig.Config{Agents: []string{"claude"}, KnownKBs: []string{"bound"}}
+		if findings := checkUnboundResidues(dir, cfg, []string{"claude"}, lockFile); len(findings) != 0 {
+			t.Errorf("findings = %+v, want none for a default binding", findings)
+		}
+	})
+}

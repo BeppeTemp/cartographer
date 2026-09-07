@@ -128,7 +128,12 @@ func TestApply_HermesDeliveryIsIdempotent(t *testing.T) {
 		t.Fatalf("BuildManifest: %v", err)
 	}
 	baseDir := t.TempDir()
-	first, err := Apply(m, hermesApplyOptions(kbRoot, baseDir, Lock{}))
+	// Apply the provider's own view, as the client does (materializeForProviders):
+	// since D170 the lock records the revision of the manifest actually applied,
+	// so applying the unfiltered manifest and then diffing the filtered one would
+	// compare two different revisions.
+	hm := FilterForProvider(m, configurator.ProviderHermes)
+	first, err := Apply(hm, hermesApplyOptions(kbRoot, baseDir, Lock{}))
 	if err != nil {
 		t.Fatalf("Apply 1: %v", err)
 	}
@@ -140,10 +145,10 @@ func TestApply_HermesDeliveryIsIdempotent(t *testing.T) {
 
 	// Compare only what hermes can materialize: an unsupported kind is not
 	// drift, it simply does not concern the provider.
-	if d := ComputeDiff(FilterForProvider(m, configurator.ProviderHermes), first.NewLock); !d.InSync {
+	if d := ComputeDiff(hm, first.NewLock); !d.InSync {
 		t.Errorf("re-sync of an unchanged manifest is not in sync: %+v", d)
 	}
-	second, err := Apply(m, hermesApplyOptions(kbRoot, baseDir, first.NewLock))
+	second, err := Apply(hm, hermesApplyOptions(kbRoot, baseDir, first.NewLock))
 	if err != nil {
 		t.Fatalf("Apply 2: %v", err)
 	}

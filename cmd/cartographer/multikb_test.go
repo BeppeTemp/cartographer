@@ -110,7 +110,7 @@ func TestKiroFlatNamespaceWarning(t *testing.T) {
 	oneUnprefixed := map[string]string{"alpha": "", "beta": "b", "gamma": "g"}
 
 	t.Run("two unprefixed KBs warn and are named", func(t *testing.T) {
-		w := kiroFlatNamespaceWarning([]string{"kiro"}, twoEntries, bothUnprefixed, nil)
+		w := kiroFlatNamespaceWarning([]string{"kiro"}, map[string][]mcpEntry{"kiro": twoEntries}, bothUnprefixed, nil)
 		if w == "" {
 			t.Fatal("expected a warning")
 		}
@@ -125,19 +125,19 @@ func TestKiroFlatNamespaceWarning(t *testing.T) {
 	})
 
 	t.Run("a single unprefixed KB is safe", func(t *testing.T) {
-		if w := kiroFlatNamespaceWarning([]string{"kiro"}, threeEntries, oneUnprefixed, nil); w != "" {
+		if w := kiroFlatNamespaceWarning([]string{"kiro"}, map[string][]mcpEntry{"kiro": threeEntries}, oneUnprefixed, nil); w != "" {
 			t.Errorf("expected silence with one unprefixed KB, got %q", w)
 		}
 	})
 
 	t.Run("all prefixed is silent", func(t *testing.T) {
-		if w := kiroFlatNamespaceWarning([]string{"kiro"}, twoEntries, bothPrefixed, nil); w != "" {
+		if w := kiroFlatNamespaceWarning([]string{"kiro"}, map[string][]mcpEntry{"kiro": twoEntries}, bothPrefixed, nil); w != "" {
 			t.Errorf("expected silence, got %q", w)
 		}
 	})
 
 	t.Run("unverifiable prefixes still warn, and say why", func(t *testing.T) {
-		w := kiroFlatNamespaceWarning([]string{"kiro"}, twoEntries, nil, errors.New("connection refused"))
+		w := kiroFlatNamespaceWarning([]string{"kiro"}, map[string][]mcpEntry{"kiro": twoEntries}, nil, errors.New("connection refused"))
 		if w == "" {
 			t.Fatal("expected a warning when the prefixes cannot be read")
 		}
@@ -147,13 +147,13 @@ func TestKiroFlatNamespaceWarning(t *testing.T) {
 	})
 
 	t.Run("a single entry is silent", func(t *testing.T) {
-		if w := kiroFlatNamespaceWarning([]string{"kiro"}, oneEntry, bothUnprefixed, nil); w != "" {
+		if w := kiroFlatNamespaceWarning([]string{"kiro"}, map[string][]mcpEntry{"kiro": oneEntry}, bothUnprefixed, nil); w != "" {
 			t.Errorf("expected no warning for a single entry, got %q", w)
 		}
 	})
 
 	t.Run("no flat-namespace provider is silent", func(t *testing.T) {
-		if w := kiroFlatNamespaceWarning([]string{"claude", "codex", "opencode"}, twoEntries, bothUnprefixed, nil); w != "" {
+		if w := kiroFlatNamespaceWarning([]string{"claude", "codex", "opencode"}, map[string][]mcpEntry{"kiro": twoEntries}, bothUnprefixed, nil); w != "" {
 			t.Errorf("expected no warning without a flat-namespace provider, got %q", w)
 		}
 	})
@@ -183,7 +183,7 @@ func TestDoConnect_Kiro_MultiKB_WarnsFlatNamespace(t *testing.T) {
 }
 
 func TestEntriesForKBs_SingleStaysBare(t *testing.T) {
-	entries, err := entriesForKBs("wiki", "https://example.test/mcp", []string{"only"})
+	entries, err := entriesForKBs("wiki", "https://example.test/mcp", []string{"only"}, []string{"only"})
 	if err != nil || len(entries) != 1 || entries[0].Name != "wiki" || entries[0].URL != "https://example.test/mcp" {
 		t.Fatalf("entriesForKBs = %+v, %v; want one bare entry", entries, err)
 	}
@@ -215,11 +215,11 @@ func TestDoConnect_SingleKB_BareEntry_AllProviders(t *testing.T) {
 
 func TestRemoveMCPEntries_RemovesEveryManagedEntry(t *testing.T) {
 	dir := t.TempDir()
-	entries, err := entriesForKBs("wiki", "https://example.test/mcp", []string{"a", "b"})
+	entries, err := entriesForKBs("wiki", "https://example.test/mcp", []string{"a", "b"}, []string{"a", "b"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := applyMCPEntries(entries, []string{"claude", "codex", "kiro", "opencode"}, dir, false, "", false); err != nil {
+	if _, _, err := applyMCPEntries(sameEntriesFor([]string{"claude", "codex", "kiro", "opencode"}, entries), []string{"claude", "codex", "kiro", "opencode"}, dir, false, "", false); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := removeMCPEntries("wiki", []string{"a", "b"}, []string{"claude", "codex", "kiro", "opencode"}, dir, false, "", false); err != nil {
@@ -248,8 +248,8 @@ func TestCmdSync_ReconcilesOneToManyAndBack(t *testing.T) {
 	if err := clientconfig.Save(dir, cfg); err != nil {
 		t.Fatal(err)
 	}
-	bare, _ := entriesForKBs("wiki", cfg.ServerURL, cfg.KnownKBs)
-	if _, _, err := applyMCPEntries(bare, cfg.Agents, dir, false, "", false); err != nil {
+	bare, _ := entriesForKBs("wiki", cfg.ServerURL, cfg.KnownKBs, cfg.KnownKBs)
+	if _, _, err := applyMCPEntries(sameEntriesFor(cfg.Agents, bare), cfg.Agents, dir, false, "", false); err != nil {
 		t.Fatal(err)
 	}
 
@@ -288,8 +288,8 @@ func TestDoDisconnect_RemovesPersistedPerKBEntries(t *testing.T) {
 	if err := clientconfig.Save(dir, cfg); err != nil {
 		t.Fatal(err)
 	}
-	entries, _ := entriesForKBs("wiki", cfg.ServerURL, cfg.KnownKBs)
-	if _, _, err := applyMCPEntries(entries, cfg.Agents, dir, false, "", false); err != nil {
+	entries, _ := entriesForKBs("wiki", cfg.ServerURL, cfg.KnownKBs, cfg.KnownKBs)
+	if _, _, err := applyMCPEntries(sameEntriesFor(cfg.Agents, entries), cfg.Agents, dir, false, "", false); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := doDisconnect(disconnectOptions{Providers: []string{"claude"}, Dir: dir}); err != nil {
@@ -311,8 +311,8 @@ func TestCmdSync_ServerDownKeepsMCPEntriesAndKBs(t *testing.T) {
 	if err := clientconfig.Save(dir, cfg); err != nil {
 		t.Fatal(err)
 	}
-	entries, _ := entriesForKBs("wiki", cfg.ServerURL, cfg.KnownKBs)
-	if _, _, err := applyMCPEntries(entries, cfg.Agents, dir, false, "", false); err != nil {
+	entries, _ := entriesForKBs("wiki", cfg.ServerURL, cfg.KnownKBs, cfg.KnownKBs)
+	if _, _, err := applyMCPEntries(sameEntriesFor(cfg.Agents, entries), cfg.Agents, dir, false, "", false); err != nil {
 		t.Fatal(err)
 	}
 	beforeConfig, err := os.ReadFile(clientconfig.Path(dir))
@@ -486,5 +486,109 @@ func TestDoConnect_Hermes_MissingHome(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(dir, ".cartographer.yaml")); !os.IsNotExist(err) {
 		t.Errorf("a failed connect persisted config anyway: %v", err)
+	}
+}
+
+// sameEntriesFor is the pre-D170 shape — every provider receiving the same MCP
+// entry set — for tests that do not exercise bindings.
+func sameEntriesFor(providers []string, entries []mcpEntry) map[string][]mcpEntry {
+	out := make(map[string][]mcpEntry, len(providers))
+	for _, p := range providers {
+		out[p] = entries
+	}
+	return out
+}
+
+// --- D170: entry shape vs entry set ---
+
+// TestEntriesForKBs_ShapeFromServerSetFromBinding pins the trap: bare /mcp
+// auto-routes only when the SERVER mounts one KB, so a client bound to one of
+// four still needs ?kb=. Deriving the shape from the binding's length would
+// hand that client a bare entry the server answers with 400.
+func TestEntriesForKBs_ShapeFromServerSetFromBinding(t *testing.T) {
+	cases := []struct {
+		name      string
+		mounted   []string
+		bound     []string
+		wantNames []string
+		wantQuery bool
+	}{
+		{
+			name:      "single-KB server: bare entry, whatever the binding says",
+			mounted:   []string{"only"},
+			bound:     []string{"only"},
+			wantNames: []string{"wiki"},
+		},
+		{
+			name:      "multi-KB server, bound to all: one entry per KB",
+			mounted:   []string{"a", "b"},
+			bound:     []string{"a", "b"},
+			wantNames: []string{"wiki-a", "wiki-b"},
+			wantQuery: true,
+		},
+		{
+			name:      "multi-KB server, bound to one: still a scoped entry",
+			mounted:   []string{"a", "b", "c", "d"},
+			bound:     []string{"b"},
+			wantNames: []string{"wiki-b"},
+			wantQuery: true,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			entries, err := entriesForKBs("wiki", "https://example.test/mcp", tc.mounted, tc.bound)
+			if err != nil {
+				t.Fatalf("entriesForKBs: %v", err)
+			}
+			if got := strings.Join(entryNames(entries), ","); got != strings.Join(tc.wantNames, ",") {
+				t.Errorf("names = %q, want %q", got, strings.Join(tc.wantNames, ","))
+			}
+			for _, e := range entries {
+				if strings.Contains(e.URL, "kb=") != tc.wantQuery {
+					t.Errorf("URL %q: kb= present = %v, want %v", e.URL, !tc.wantQuery, tc.wantQuery)
+				}
+			}
+		})
+	}
+}
+
+// TestEntriesByProviderForKBs_EmptyBindingGetsNoEntry: a provider explicitly
+// bound to nothing must not be handed a way in.
+func TestEntriesByProviderForKBs_EmptyBindingGetsNoEntry(t *testing.T) {
+	cfg := &clientconfig.Config{
+		ServerName: "wiki", Agents: []string{"claude", "codex"},
+		KnownKBs: []string{"a", "b"},
+		Clients: map[string]clientconfig.ClientBinding{
+			"claude": {KBs: nil},
+			"codex":  {KBs: []string{"a"}},
+		},
+	}
+	byProvider, err := entriesByProviderForKBs(cfg, cfg.Agents, "wiki", "https://example.test/mcp", cfg.KnownKBs)
+	if err != nil {
+		t.Fatalf("entriesByProviderForKBs: %v", err)
+	}
+	if len(byProvider["claude"]) != 0 {
+		t.Errorf("claude got %+v, want no entry", byProvider["claude"])
+	}
+	if got := strings.Join(entryNames(byProvider["codex"]), ","); got != "wiki-a" {
+		t.Errorf("codex got %q, want wiki-a", got)
+	}
+}
+
+// TestManagedEntryNamesCoversEveryKnownKB pins the second trap: removal must be
+// driven by the union of known KBs, never by a provider's filtered binding, or
+// an unbound KB's entry is orphaned forever.
+func TestManagedEntryNamesCoversEveryKnownKB(t *testing.T) {
+	names := managedEntryNames("wiki", []string{"a", "b", "c"})
+	for _, want := range []string{"wiki", "wiki-a", "wiki-b", "wiki-c"} {
+		found := false
+		for _, n := range names {
+			if n == want {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("managedEntryNames missing %q: %v", want, names)
+		}
 	}
 }

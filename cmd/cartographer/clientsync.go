@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/BeppeTemp/cartographer/internal/agents"
@@ -57,6 +58,155 @@ func resolveToken(cfg *clientconfig.Config) string {
 	return os.Getenv(cfg.TokenEnv)
 }
 
+// candidateSet holds the sync_pull responses UNMERGED, one entry per KB, which
+// is what makes a per-provider projection possible (D170): the selection has to
+// happen on these responses, before any client-side merge, because
+// MergeArtifacts discards candidates and the server has already merged
+// KB-over-bundle inside each single-KB pull.
+//
+// Bare holds the response of a nameless endpoint — a server that advertises no
+// KB metadata, or one asked before any KB name was known. No binding can name
+// it, so it is handled separately rather than filed under an invented key.
+type candidateSet struct {
+	Named   map[string][]provisioning.Artifact
+	Bare    []provisioning.Artifact
+	HasBare bool
+}
+
+// all returns every candidate, in a deterministic order.
+func (cs candidateSet) all() []provisioning.Artifact {
+	out := append([]provisioning.Artifact(nil), cs.Bare...)
+	names := make([]string, 0, len(cs.Named))
+	for name := range cs.Named {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		out = append(out, cs.Named[name]...)
+	}
+	return out
+}
+
+// forKBs concatenates the responses of the named KBs, in a deterministic order.
+// A name with no response contributes nothing — it is not an error here: the
+// caller validated the binding against /health before pulling.
+func (cs candidateSet) forKBs(names []string) []provisioning.Artifact {
+	sorted := append([]string(nil), names...)
+	sort.Strings(sorted)
+	var out []provisioning.Artifact
+	for _, name := range sorted {
+		out = append(out, cs.Named[name]...)
+	}
+	return out
+}
+
+// forProvider returns the candidates one provider may receive.
+//
+// The bare endpoint is the one case bindings cannot express: there is no KB
+// name to match, so every provider receives it, exactly as before D170 — a
+// missing signal is not a reason to starve a client on a legacy or first-run
+// server. The single exception is a provider explicitly bound to NO KBs, where
+// the operator's declaration is unambiguous and is honoured.
+func (cs candidateSet) forProvider(cfg *clientconfig.Config, provider string) []provisioning.Artifact {
+	bound, explicit := cfg.BoundKBs(provider)
+	if cs.HasBare {
+		if explicit && len(bound) == 0 {
+			return nil
+		}
+		return cs.Bare
+	}
+	return provisioning.SelectForSources(cs.forKBs(bound), bound)
+}
+
+// boundKBUnion is the set of KBs that must actually be pulled: the union of
+// every connected provider's binding. A known KB nobody is bound to is not
+// fetched at all.
+//
+// requiredBy maps each name to the providers that ask for it, so a stale
+// binding can be reported with the provider that holds it rather than as an
+// anonymous configuration error. anyDefault reports whether at least one
+// provider has no explicit binding, which is what distinguishes "nothing is
+// bound" from "nothing is known yet".
+func boundKBUnion(cfg *clientconfig.Config, providers []string) (names []string, requiredBy map[string][]string, anyDefault bool) {
+	requiredBy = make(map[string][]string)
+	for _, p := range providers {
+		bound, explicit := cfg.BoundKBs(p)
+		if !explicit {
+			anyDefault = true
+		}
+		for _, kb := range bound {
+			if _, seen := requiredBy[kb]; !seen {
+				names = append(names, kb)
+			}
+			requiredBy[kb] = append(requiredBy[kb], p)
+		}
+	}
+	sort.Strings(names)
+	return names, requiredBy, anyDefault
+}
+
+// manifestsForProviders returns, per provider, the manifest it may receive:
+// the candidates of its bound KBs, selected by source, merged strictly (so a
+// cross-KB collision inside THAT provider's set stops the sync, D171) and
+// signature-verified.
+//
+// Every KB is pulled once for all providers; the split happens afterwards.
+// Verification pins are applied per provider only because VerifiedManifest
+// takes a manifest — the work is over the same artifacts either way, and an
+// artifact's verification result cannot differ between providers.
+func manifestsForProviders(cfg *clientconfig.Config, providers []string) (map[string]provisioning.Manifest, error) {
+	out := make(map[string]provisioning.Manifest, len(providers))
+
+	union, requiredBy, anyDefault := boundKBUnion(cfg, providers)
+	if len(union) == 0 && !anyDefault {
+		// Every provider is explicitly bound to no KBs: there is nothing to
+		// pull, and asking the server would only invite an error about a
+		// selection nobody made.
+		for _, p := range providers {
+			out[p] = provisioning.MergeArtifacts(nil)
+		}
+		return out, nil
+	}
+
+	cs, err := fetchCandidates(cfg, union)
+	if err != nil {
+		return nil, annotateStaleBinding(err, requiredBy)
+	}
+	if cs.HasBare {
+		fmt.Fprintln(os.Stderr, "warning: the server does not identify its KBs by name, so per-client KB bindings cannot be applied; every connected client receives everything it serves")
+	}
+
+	pins, err := pinnedPublicKeys(cfg)
+	if err != nil {
+		return nil, err
+	}
+	for _, p := range providers {
+		merged, err := provisioning.MergeArtifactsStrict(cs.forProvider(cfg, p))
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", p, err)
+		}
+		verified, err := provisioning.VerifiedManifest(merged, pins)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", p, err)
+		}
+		out[p] = verified
+	}
+	return out, nil
+}
+
+// annotateStaleBinding appends the providers that require a KB the server no
+// longer advertises. resolveKBTargets already names the KB; without this the
+// operator still has to guess which client's binding to fix.
+func annotateStaleBinding(err error, requiredBy map[string][]string) error {
+	for kb, providers := range requiredBy {
+		if strings.Contains(err.Error(), strconv.Quote(kb)) {
+			sort.Strings(providers)
+			return fmt.Errorf("%w (required by: %s)", err, strings.Join(providers, ", "))
+		}
+	}
+	return err
+}
+
 // fetchMergedManifest fetches every KB's artifacts and merges them into one
 // verified provisioning.Manifest, applying the same precedence rule (KB source
 // wins over bundle) BuildManifest applies server-side for one KB.
@@ -66,11 +216,11 @@ func resolveToken(cfg *clientconfig.Config) string {
 // deliberately evaluated here, before anything is materialized, so a collision
 // stops the sync instead of silently deciding which KB an agent reads.
 func fetchMergedManifest(cfg *clientconfig.Config) (provisioning.Manifest, error) {
-	all, err := fetchCandidates(cfg)
+	cs, err := fetchCandidates(cfg, cfg.KnownKBs)
 	if err != nil {
 		return provisioning.Manifest{}, err
 	}
-	merged, err := provisioning.MergeArtifactsStrict(all)
+	merged, err := provisioning.MergeArtifactsStrict(cs.all())
 	if err != nil {
 		return provisioning.Manifest{}, err
 	}
@@ -91,18 +241,18 @@ func fetchMergedManifest(cfg *clientconfig.Config) (provisioning.Manifest, error
 // from, so a caller can decide what to do with a kind+name several KBs claim
 // (fetchMergedManifest refuses it; collisionsForProvider reports only the ones
 // a given provider would actually be exposed to).
-func fetchCandidates(cfg *clientconfig.Config) ([]provisioning.Artifact, error) {
+func fetchCandidates(cfg *clientconfig.Config, kbNames []string) (candidateSet, error) {
+	cs := candidateSet{Named: make(map[string][]provisioning.Artifact)}
 	token := resolveToken(cfg)
 	health, err := client.New(cfg.ServerURL, token).Health(probeTimeout)
 	if err != nil {
-		return nil, fmt.Errorf("health: %w", err)
+		return cs, fmt.Errorf("health: %w", err)
 	}
-	targets, err := resolveKBTargets(health, cfg.KnownKBs)
+	targets, err := resolveKBTargets(health, kbNames)
 	if err != nil {
-		return nil, err
+		return cs, err
 	}
 
-	var all []provisioning.Artifact
 	seen := make(map[string]provisioning.Artifact)
 
 	for _, target := range targets {
@@ -110,26 +260,26 @@ func fetchCandidates(cfg *clientconfig.Config) ([]provisioning.Artifact, error) 
 		raw, err := callTool(c, target, "sync_pull", map[string]any{})
 		if err != nil {
 			if target.Name == "" {
-				return nil, fmt.Errorf("sync_pull: %w", err)
+				return cs, fmt.Errorf("sync_pull: %w", err)
 			}
-			return nil, fmt.Errorf("sync_pull (kb=%s): %w", target.Name, err)
+			return cs, fmt.Errorf("sync_pull (kb=%s): %w", target.Name, err)
 		}
 
 		var pm pulledManifestJSON
 		if err := json.Unmarshal(raw, &pm); err != nil {
-			return nil, fmt.Errorf("sync_pull: decode response: %w", err)
+			return cs, fmt.Errorf("sync_pull: decode response: %w", err)
 		}
 		for _, pa := range pm.Artifacts {
 			files := make([]provisioning.ArtifactFile, len(pa.Files))
 			for i, pf := range pa.Files {
 				data, err := base64.StdEncoding.DecodeString(pf.ContentB64)
 				if err != nil {
-					return nil, fmt.Errorf("sync_pull: decode file %s/%s/%s: %w", pa.Kind, pa.Name, pf.Path, err)
+					return cs, fmt.Errorf("sync_pull: decode file %s/%s/%s: %w", pa.Kind, pa.Name, pf.Path, err)
 				}
 				files[i] = provisioning.ArtifactFile{Path: pf.Path, Content: data, Executable: pf.Executable}
 			}
 			if got := provisioning.ContentHashFiles(files); got != pa.ContentHash {
-				return nil, fmt.Errorf("sync_pull: content hash mismatch for %s/%s", pa.Kind, pa.Name)
+				return cs, fmt.Errorf("sync_pull: content hash mismatch for %s/%s", pa.Kind, pa.Name)
 			}
 			a := provisioning.Artifact{
 				Kind: pa.Kind, Name: pa.Name, Source: pa.Source, Version: pa.Version,
@@ -137,14 +287,29 @@ func fetchCandidates(cfg *clientconfig.Config) ([]provisioning.Artifact, error) 
 			}
 			key := a.Kind + "\x00" + a.Name + "\x00" + a.Source
 			if previous, exists := seen[key]; exists && !sameSignature(previous.Signature, a.Signature) {
-				return nil, fmt.Errorf("sync_pull: conflicting signatures for %s/%s", a.Kind, a.Name)
+				return cs, fmt.Errorf("sync_pull: conflicting signatures for %s/%s", a.Kind, a.Name)
 			}
 			seen[key] = a
-			all = append(all, a)
+			if target.Name == "" {
+				cs.Bare = append(cs.Bare, a)
+				cs.HasBare = true
+			} else {
+				cs.Named[target.Name] = append(cs.Named[target.Name], a)
+			}
+		}
+		// A KB that answered with no artifacts at all still counts as answered:
+		// without this, a provider bound only to it would fall through the
+		// "nothing was pulled" branch instead of correctly receiving nothing.
+		if target.Name != "" {
+			if _, ok := cs.Named[target.Name]; !ok {
+				cs.Named[target.Name] = nil
+			}
+		} else {
+			cs.HasBare = true
 		}
 	}
 
-	return all, nil
+	return cs, nil
 }
 
 // collisionsForProvider narrows DetectCollisions to the ones a single provider
@@ -193,7 +358,20 @@ func pinnedPublicKeys(cfg *clientconfig.Config) (map[string][]ed25519.PublicKey,
 	return pins, nil
 }
 
-// materializeForProviders applies manifest m for each provider in providers,
+// uniformManifests is the pre-D170 shape — every provider receiving the same
+// manifest — kept for callers that legitimately have one: `reconnect`, which
+// rebuilds from what the client already holds, and tests that do not exercise
+// bindings. Production sync/connect paths build the map from the bindings via
+// manifestsForProviders instead.
+func uniformManifests(m provisioning.Manifest, providers []string) map[string]provisioning.Manifest {
+	out := make(map[string]provisioning.Manifest, len(providers))
+	for _, p := range providers {
+		out[p] = m
+	}
+	return out
+}
+
+// materializeForProviders applies each provider's own manifest (D170),
 // persisting a single v2 LockFile at <targetDir>/.cartographer-sync.lock.json (one
 // Lock entry per provider), stamped with serverVersion — the version of the
 // server this state was materialized against (D142). An empty serverVersion
@@ -217,7 +395,7 @@ type portabilityOptions struct {
 	Paths       map[string]string
 }
 
-func materializeForProviders(m provisioning.Manifest, providers []string, targetDir, serverVersion string, autoTrust, dryRun, noHeal bool, portability portabilityOptions, approvalHashes ...map[string]string) (map[string]provisioning.AppliedResult, error) {
+func materializeForProviders(manifests map[string]provisioning.Manifest, providers []string, targetDir, serverVersion string, autoTrust, dryRun, noHeal bool, portability portabilityOptions, approvalHashes ...map[string]string) (map[string]provisioning.AppliedResult, error) {
 	lockPath := lockFilePath(targetDir)
 	lockFile, err := provisioning.ReadLockFile(lockPath)
 	if err != nil {
@@ -239,7 +417,10 @@ func materializeForProviders(m provisioning.Manifest, providers []string, target
 			return nil, err
 		}
 		baseDirs[p] = baseDir
-		if err := provisioning.PreflightStdioMCP(m, provisioning.ApplyOptions{Provider: configurator.Provider(p), BaseDir: baseDir, AutoTrust: autoTrust, ApprovedMCP: approvedMCP}); err != nil {
+		// Preflight the provider's OWN view: validating the whole candidate set
+		// would fail a sync over a local command belonging to a KB this
+		// provider is not even bound to (D170).
+		if err := provisioning.PreflightStdioMCP(manifests[p], provisioning.ApplyOptions{Provider: configurator.Provider(p), BaseDir: baseDir, AutoTrust: autoTrust, ApprovedMCP: approvedMCP}); err != nil {
 			return nil, err
 		}
 	}
@@ -263,7 +444,7 @@ func materializeForProviders(m provisioning.Manifest, providers []string, target
 		// unsupported kinds (e.g. hook outside Claude Code, or agent outside
 		// Claude Code/OpenCode — D55) are neither drift nor pending, they
 		// simply don't concern it.
-		applied, err := provisioning.Apply(provisioning.FilterForProvider(m, configurator.Provider(p)), opts)
+		applied, err := provisioning.Apply(provisioning.FilterForProvider(manifests[p], configurator.Provider(p)), opts)
 		if err != nil {
 			return nil, fmt.Errorf("apply %s: %w", p, err)
 		}

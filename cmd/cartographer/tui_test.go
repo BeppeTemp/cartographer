@@ -778,7 +778,7 @@ func TestMCPConfigStatus_CodexTOML(t *testing.T) {
 	if err := os.WriteFile(tomlPath, []byte("model = \"gpt-5.5\"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if got := mcpConfigStatus(dir, configurator.ProviderCodex, "cartographer", nil); got != mcpConfigMissing {
+	if got := mcpConfigStatus(dir, configurator.ProviderCodex, "cartographer", nil, nil); got != mcpConfigMissing {
 		t.Errorf("state = %v, want mcpConfigMissing: config.toml has no [mcp_servers.cartographer] table", got)
 	}
 
@@ -787,7 +787,7 @@ func TestMCPConfigStatus_CodexTOML(t *testing.T) {
 	if err := os.WriteFile(tomlPath, []byte(body), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if got := mcpConfigStatus(dir, configurator.ProviderCodex, "cartographer", nil); got != mcpConfigInSync {
+	if got := mcpConfigStatus(dir, configurator.ProviderCodex, "cartographer", nil, nil); got != mcpConfigInSync {
 		t.Errorf("state = %v, want mcpConfigInSync: config.toml declares [mcp_servers.cartographer]", got)
 	}
 }
@@ -806,14 +806,14 @@ func TestMCPConfigStatus_CodexTOML_MultiKB(t *testing.T) {
 	if err := os.WriteFile(tomlPath, []byte("model = \"gpt-5.5\"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if got := mcpConfigStatus(dir, configurator.ProviderCodex, "cartographer", kbs); got != mcpConfigMissing {
+	if got := mcpConfigStatus(dir, configurator.ProviderCodex, "cartographer", kbs, kbs); got != mcpConfigMissing {
 		t.Errorf("none present: state = %v, want mcpConfigMissing", got)
 	}
 
 	if err := os.WriteFile(tomlPath, []byte("[mcp_servers.cartographer-alpha]\nurl = \"http://x\"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if got := mcpConfigStatus(dir, configurator.ProviderCodex, "cartographer", kbs); got != mcpConfigPartial {
+	if got := mcpConfigStatus(dir, configurator.ProviderCodex, "cartographer", kbs, kbs); got != mcpConfigPartial {
 		t.Errorf("one of two present: state = %v, want mcpConfigPartial", got)
 	}
 
@@ -821,7 +821,7 @@ func TestMCPConfigStatus_CodexTOML_MultiKB(t *testing.T) {
 	if err := os.WriteFile(tomlPath, []byte(body), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if got := mcpConfigStatus(dir, configurator.ProviderCodex, "cartographer", kbs); got != mcpConfigInSync {
+	if got := mcpConfigStatus(dir, configurator.ProviderCodex, "cartographer", kbs, kbs); got != mcpConfigInSync {
 		t.Errorf("both present: state = %v, want mcpConfigInSync", got)
 	}
 }
@@ -842,10 +842,10 @@ func TestMCPConfigStatus_JSONProviders(t *testing.T) {
 	if err := os.WriteFile(full, []byte(`{"mcp":{"cartographer":{"type":"remote"}}}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if got := mcpConfigStatus(dir, configurator.ProviderOpenCode, "cartographer", nil); got != mcpConfigInSync {
+	if got := mcpConfigStatus(dir, configurator.ProviderOpenCode, "cartographer", nil, nil); got != mcpConfigInSync {
 		t.Errorf("state = %v, want mcpConfigInSync: opencode config declares the server under \"mcp\"", got)
 	}
-	if got := mcpConfigStatus(dir, configurator.ProviderOpenCode, "other", nil); got != mcpConfigMissing {
+	if got := mcpConfigStatus(dir, configurator.ProviderOpenCode, "other", nil, nil); got != mcpConfigMissing {
 		t.Errorf("state = %v, want mcpConfigMissing: server name not present", got)
 	}
 }
@@ -868,14 +868,14 @@ func TestMCPConfigStatus_JSONProviders_MultiKB(t *testing.T) {
 	if err := os.WriteFile(full, []byte(`{"mcp":{}}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if got := mcpConfigStatus(dir, configurator.ProviderOpenCode, "cartographer", kbs); got != mcpConfigMissing {
+	if got := mcpConfigStatus(dir, configurator.ProviderOpenCode, "cartographer", kbs, kbs); got != mcpConfigMissing {
 		t.Errorf("none present: state = %v, want mcpConfigMissing", got)
 	}
 
 	if err := os.WriteFile(full, []byte(`{"mcp":{"cartographer-alpha":{"type":"remote"}}}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if got := mcpConfigStatus(dir, configurator.ProviderOpenCode, "cartographer", kbs); got != mcpConfigPartial {
+	if got := mcpConfigStatus(dir, configurator.ProviderOpenCode, "cartographer", kbs, kbs); got != mcpConfigPartial {
 		t.Errorf("one of two present: state = %v, want mcpConfigPartial", got)
 	}
 
@@ -883,7 +883,7 @@ func TestMCPConfigStatus_JSONProviders_MultiKB(t *testing.T) {
 	if err := os.WriteFile(full, []byte(body), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if got := mcpConfigStatus(dir, configurator.ProviderOpenCode, "cartographer", kbs); got != mcpConfigInSync {
+	if got := mcpConfigStatus(dir, configurator.ProviderOpenCode, "cartographer", kbs, kbs); got != mcpConfigInSync {
 		t.Errorf("both present: state = %v, want mcpConfigInSync", got)
 	}
 }

@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"sort"
 	"strings"
 	"testing"
 
@@ -156,7 +157,7 @@ func TestFetchMergedManifestVerifiesPinnedSignatureAndRejectsTampering(t *testin
 	}
 
 	target := t.TempDir()
-	if _, err := materializeForProviders(m, []string{"claude"}, target, "", false, false, false, portabilityOptions{}); err != nil {
+	if _, err := materializeForProviders(uniformManifests(m, []string{"claude"}), []string{"claude"}, target, "", false, false, false, portabilityOptions{}); err != nil {
 		t.Fatalf("materialize valid manifest: %v", err)
 	}
 	lockPath := filepath.Join(target, provisioning.LockFileName)
@@ -192,7 +193,7 @@ func TestFetchMergedManifestVerifiesPinnedSignatureAndRejectsTampering(t *testin
 			fetched, fetchErr := fetchMergedManifest(cfg)
 			srv.Close()
 			if fetchErr == nil {
-				_, fetchErr = materializeForProviders(fetched, []string{"claude"}, target, "", false, false, false, portabilityOptions{})
+				_, fetchErr = materializeForProviders(uniformManifests(fetched, []string{"claude"}), []string{"claude"}, target, "", false, false, false, portabilityOptions{})
 			}
 			if fetchErr == nil {
 				t.Fatal("tampered sync unexpectedly succeeded")
@@ -283,7 +284,7 @@ func TestAuthorizationDoesNotSetSigned(t *testing.T) {
 	if m.Artifacts[0].Signed {
 		t.Fatal("test fixture must be unsigned")
 	}
-	if _, err := materializeForProviders(m, []string{"claude"}, t.TempDir(), "", true, true, false, portabilityOptions{}); err != nil {
+	if _, err := materializeForProviders(uniformManifests(m, []string{"claude"}), []string{"claude"}, t.TempDir(), "", true, true, false, portabilityOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	if m.Artifacts[0].Signed {
@@ -295,7 +296,7 @@ func TestMaterializeForProviders_TrustAvoidsNeedsApproval(t *testing.T) {
 	dir := t.TempDir()
 	m := kbSkillManifest()
 
-	results, err := materializeForProviders(m, []string{"claude"}, dir, "", true, true /* dryRun */, false, portabilityOptions{})
+	results, err := materializeForProviders(uniformManifests(m, []string{"claude"}), []string{"claude"}, dir, "", true, true /* dryRun */, false, portabilityOptions{})
 	if err != nil {
 		t.Fatalf("materializeForProviders: %v", err)
 	}
@@ -312,7 +313,7 @@ func TestMaterializeForProviders_NoTrustNeedsApproval(t *testing.T) {
 	dir := t.TempDir()
 	m := kbSkillManifest()
 
-	results, err := materializeForProviders(m, []string{"claude"}, dir, "", false, true /* dryRun */, false, portabilityOptions{})
+	results, err := materializeForProviders(uniformManifests(m, []string{"claude"}), []string{"claude"}, dir, "", false, true /* dryRun */, false, portabilityOptions{})
 	if err != nil {
 		t.Fatalf("materializeForProviders: %v", err)
 	}
@@ -353,7 +354,7 @@ func TestMaterializeForProviders_Instructions_ClaudeEKiro(t *testing.T) {
 	dir := t.TempDir()
 	m := instructionsManifest("homelab", "Contenuto di imprinting per homelab.\n")
 
-	results, err := materializeForProviders(m, []string{"claude", "kiro"}, dir, "", true, false /* dryRun */, false, portabilityOptions{})
+	results, err := materializeForProviders(uniformManifests(m, []string{"claude", "kiro"}), []string{"claude", "kiro"}, dir, "", true, false /* dryRun */, false, portabilityOptions{})
 	if err != nil {
 		t.Fatalf("materializeForProviders: %v", err)
 	}
@@ -476,7 +477,7 @@ func TestMaterializeForProviders_StdioPreflightIsAtomic(t *testing.T) {
 		Kind: "mcp", Name: "missing", Source: "kb:kb", Signed: true,
 		ContentHash: provisioning.ContentHashFiles([]provisioning.ArtifactFile{file}), Files: []provisioning.ArtifactFile{file},
 	}}}
-	_, err := materializeForProviders(m, []string{"claude", "codex"}, dir, "", false, false, false, portabilityOptions{})
+	_, err := materializeForProviders(uniformManifests(m, []string{"claude", "codex"}), []string{"claude", "codex"}, dir, "", false, false, false, portabilityOptions{})
 	if err == nil || !strings.Contains(err.Error(), "not found on PATH") || !strings.Contains(err.Error(), "for claude") {
 		t.Fatalf("preflight error = %v", err)
 	}
@@ -498,7 +499,7 @@ func TestMaterializeForProviders_PerProviderBaseDir(t *testing.T) {
 	t.Setenv("HERMES_HOME", hermesHome)
 
 	m := kbSkillManifest()
-	if _, err := materializeForProviders(m, []string{"claude", "hermes"}, dir, "", true, false /* dryRun */, false, portabilityOptions{}); err != nil {
+	if _, err := materializeForProviders(uniformManifests(m, []string{"claude", "hermes"}), []string{"claude", "hermes"}, dir, "", true, false /* dryRun */, false, portabilityOptions{}); err != nil {
 		t.Fatalf("materializeForProviders: %v", err)
 	}
 
@@ -546,7 +547,7 @@ func TestMaterializeForProviders_PerProviderBaseDir(t *testing.T) {
 // fallback to the home directory (D141).
 func TestMaterializeForProviders_MissingProviderBaseDir(t *testing.T) {
 	t.Setenv("HERMES_HOME", "")
-	_, err := materializeForProviders(kbSkillManifest(), []string{"hermes"}, t.TempDir(), "", true, false, false, portabilityOptions{})
+	_, err := materializeForProviders(uniformManifests(kbSkillManifest(), []string{"hermes"}), []string{"hermes"}, t.TempDir(), "", true, false, false, portabilityOptions{})
 	if err == nil {
 		t.Fatal("materializeForProviders succeeded with $HERMES_HOME unset")
 	}
@@ -725,5 +726,178 @@ func TestCollisionsForProvider(t *testing.T) {
 				t.Errorf("collisionsForProvider(%v) = %+v, want %d", tc.bound, got, tc.want)
 			}
 		})
+	}
+}
+
+// --- D170: per-provider projection ---
+
+// TestManifestsForProvidersIsolatesBoundKBs is the acceptance test of the whole
+// feature: two providers bound to different KBs receive different artifacts and
+// different revisions, and neither sees the other's KB.
+func TestManifestsForProvidersIsolatesBoundKBs(t *testing.T) {
+	srv := prefixAwareMCPServer(t, map[string]string{"one": "", "two": ""}, "sync_pull", func(kb string) string {
+		return syncPullPayload(t, kb, "skill-"+kb)
+	})
+	defer srv.Close()
+
+	cfg := &clientconfig.Config{
+		ServerURL: srv.URL + "/mcp", KnownKBs: []string{"one", "two"},
+		Agents: []string{"claude", "codex"},
+		Clients: map[string]clientconfig.ClientBinding{
+			"claude": {KBs: []string{"one"}},
+			"codex":  {KBs: []string{"two"}},
+		},
+	}
+	manifests, err := manifestsForProviders(cfg, cfg.Agents)
+	if err != nil {
+		t.Fatalf("manifestsForProviders: %v", err)
+	}
+
+	names := func(p string) []string {
+		var out []string
+		for _, a := range manifests[p].Artifacts {
+			out = append(out, a.Name+"@"+a.Source)
+		}
+		sort.Strings(out)
+		return out
+	}
+	if got := strings.Join(names("claude"), ","); got != "skill-one@kb:one" {
+		t.Errorf("claude received %q, want only skill-one@kb:one", got)
+	}
+	if got := strings.Join(names("codex"), ","); got != "skill-two@kb:two" {
+		t.Errorf("codex received %q, want only skill-two@kb:two", got)
+	}
+	if manifests["claude"].Revision == manifests["codex"].Revision {
+		t.Error("providers with different bindings share a revision")
+	}
+}
+
+// TestManifestsForProvidersDefaultIsEveryKnownKB: a provider with no binding
+// keeps today's behaviour, so an upgrade strips nothing.
+func TestManifestsForProvidersDefaultIsEveryKnownKB(t *testing.T) {
+	srv := prefixAwareMCPServer(t, map[string]string{"one": "", "two": ""}, "sync_pull", func(kb string) string {
+		return syncPullPayload(t, kb, "skill-"+kb)
+	})
+	defer srv.Close()
+
+	cfg := &clientconfig.Config{
+		ServerURL: srv.URL + "/mcp", KnownKBs: []string{"one", "two"}, Agents: []string{"claude"},
+	}
+	manifests, err := manifestsForProviders(cfg, cfg.Agents)
+	if err != nil {
+		t.Fatalf("manifestsForProviders: %v", err)
+	}
+	if len(manifests["claude"].Artifacts) != 2 {
+		t.Errorf("claude received %d artifacts, want both KBs", len(manifests["claude"].Artifacts))
+	}
+}
+
+// TestManifestsForProvidersEmptyBindingPullsNothing: an explicit empty binding
+// is a configured state, and it must not even reach the server.
+func TestManifestsForProvidersEmptyBindingPullsNothing(t *testing.T) {
+	cfg := &clientconfig.Config{
+		ServerURL: "http://127.0.0.1:1/mcp", // would fail if contacted
+		KnownKBs:  []string{"one"}, Agents: []string{"claude"},
+		Clients: map[string]clientconfig.ClientBinding{"claude": {KBs: nil}},
+	}
+	manifests, err := manifestsForProviders(cfg, cfg.Agents)
+	if err != nil {
+		t.Fatalf("manifestsForProviders: %v", err)
+	}
+	if len(manifests["claude"].Artifacts) != 0 {
+		t.Errorf("claude received %d artifacts, want none", len(manifests["claude"].Artifacts))
+	}
+}
+
+// TestManifestsForProvidersNamesTheStaleBinding: the error must say which
+// client holds the binding, not only which KB disappeared.
+func TestManifestsForProvidersNamesTheStaleBinding(t *testing.T) {
+	srv := prefixAwareMCPServer(t, map[string]string{"one": ""}, "sync_pull", func(kb string) string {
+		return syncPullPayload(t, kb, "skill-one")
+	})
+	defer srv.Close()
+
+	cfg := &clientconfig.Config{
+		ServerURL: srv.URL + "/mcp", KnownKBs: []string{"one"}, Agents: []string{"claude"},
+		Clients: map[string]clientconfig.ClientBinding{"claude": {KBs: []string{"gone"}}},
+	}
+	_, err := manifestsForProviders(cfg, cfg.Agents)
+	if err == nil {
+		t.Fatal("a binding to an unadvertised KB was accepted")
+	}
+	for _, want := range []string{`"gone"`, "claude"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error missing %q: %v", want, err)
+		}
+	}
+}
+
+// TestUnbindingRemovesItsArtifacts: the prune does the work, provided the
+// manifest shrank. This is the "dissociate and the files go" acceptance case.
+func TestUnbindingRemovesItsArtifacts(t *testing.T) {
+	srv := prefixAwareMCPServer(t, map[string]string{"one": "", "two": ""}, "sync_pull", func(kb string) string {
+		return syncPullPayload(t, kb, "skill-"+kb)
+	})
+	defer srv.Close()
+
+	dir := t.TempDir()
+	cfg := &clientconfig.Config{
+		ServerURL: srv.URL + "/mcp", KnownKBs: []string{"one", "two"},
+		Agents: []string{"claude"}, Trust: true,
+	}
+
+	both, err := manifestsForProviders(cfg, cfg.Agents)
+	if err != nil {
+		t.Fatalf("manifestsForProviders: %v", err)
+	}
+	if _, err := materializeForProviders(both, cfg.Agents, dir, "", true, false, false, portabilityOptions{}); err != nil {
+		t.Fatalf("materialize: %v", err)
+	}
+	twoPath := filepath.Join(dir, ".claude", "skills", "skill-two", "SKILL.md")
+	if _, err := os.Stat(twoPath); err != nil {
+		t.Fatalf("skill-two was not materialized: %v", err)
+	}
+
+	// Bind claude to kb "one" only, then sync again.
+	if err := cfg.Bind("claude", "one"); err != nil {
+		t.Fatalf("Bind: %v", err)
+	}
+	narrowed, err := manifestsForProviders(cfg, cfg.Agents)
+	if err != nil {
+		t.Fatalf("manifestsForProviders (narrowed): %v", err)
+	}
+	if _, err := materializeForProviders(narrowed, cfg.Agents, dir, "", true, false, false, portabilityOptions{}); err != nil {
+		t.Fatalf("materialize (narrowed): %v", err)
+	}
+	if _, err := os.Stat(twoPath); !os.IsNotExist(err) {
+		t.Errorf("skill-two survived the unbind (err=%v)", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".claude", "skills", "skill-one", "SKILL.md")); err != nil {
+		t.Errorf("skill-one was removed too: %v", err)
+	}
+}
+
+func TestSelectProviders(t *testing.T) {
+	agents := []string{"claude", "codex", "kiro"}
+	if got, err := selectProviders(agents, nil); err != nil || strings.Join(got, ",") != "claude,codex,kiro" {
+		t.Errorf("empty selection = %v (%v), want every agent", got, err)
+	}
+	// Order follows cfg.Agents, not the flag order, so output is stable.
+	if got, err := selectProviders(agents, []string{"kiro", "claude"}); err != nil || strings.Join(got, ",") != "claude,kiro" {
+		t.Errorf("selection = %v (%v), want claude,kiro", got, err)
+	}
+	if _, err := selectProviders(agents, []string{"opencode"}); err == nil {
+		t.Error("an unconnected provider was accepted")
+	}
+}
+
+func TestCommonRevision(t *testing.T) {
+	same := map[string]provisioning.Manifest{"a": {Revision: "r"}, "b": {Revision: "r"}}
+	if got := commonRevision(same, []string{"a", "b"}); got != "r" {
+		t.Errorf("commonRevision = %q, want r", got)
+	}
+	diff := map[string]provisioning.Manifest{"a": {Revision: "r1"}, "b": {Revision: "r2"}}
+	if got := commonRevision(diff, []string{"a", "b"}); got != "" {
+		t.Errorf("commonRevision = %q, want empty when providers diverge", got)
 	}
 }
