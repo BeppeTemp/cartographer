@@ -173,7 +173,7 @@ func Load(dir string) (*Config, error) {
 	if err := yaml.Unmarshal(data, &extra); err != nil {
 		return nil, fmt.Errorf("clientconfig: parse extras %s: %w", Path(dir), err)
 	}
-	for _, key := range []string{"server_url", "server_name", "auth", "token_env", "agents", "kbs", "known_kbs", "clients", "trust", "search_roots", "paths", "signing_keys", "mcp_approvals"} {
+	for _, key := range []string{"server_url", "server_name", "auth", "token_env", "agents", "kbs", "known_kbs", "clients", "trust", "search_roots", "search_depth", "paths", "signing_keys", "mcp_approvals"} {
 		delete(extra, key)
 	}
 	cfg := Config{
@@ -223,6 +223,7 @@ func Save(dir string, cfg *Config) error {
 		Clients:      cfg.Clients,
 		Trust:        &cfg.Trust,
 		SearchRoots:  cfg.SearchRoots,
+		SearchDepth:  cfg.SearchDepth,
 		Paths:        cfg.Paths,
 		SigningKeys:  cfg.SigningKeys,
 		MCPApprovals: cfg.MCPApprovals,
