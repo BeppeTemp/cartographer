@@ -197,6 +197,8 @@ pure noise — so a single-KB deployment keeps bare tool names; adding a second 
 first one's tools, and that rename is announced at startup rather than happening silently.
 `mcp.tool_prefix_mode: off` is retained as the documented opt-out.
 
+**Renaming a KB renames its derived prefix.** With `tool_prefix_mode: kb-name`, `cartographer kb rename` changes every tool name the agents see, in exactly the way adding a second KB does. The command prints the old and new prefix before acting (D177); an explicit `kbs[].tool_prefix` is immune, since it does not follow the name.
+
 *Upgrading from 0.8.x:* a multi-KB deployment will see tool names change on first start. The
 generated steering block follows automatically (it is rendered with each KB's effective prefix), but
 **hand-written tool citations inside skill bodies are not rewritten** and must be updated — the
@@ -315,6 +317,7 @@ cartographer service uninstall               # removes the service; config and d
 cartographer kb create <name> --remote <url> # scaffolds a KB in the data dir, pushes it to <url> (D85, D134)
 cartographer kb clone <remote>               # mounts an existing remote KB in that data dir (D97)
 cartographer kb list                         # what is on disk, and what the server actually serves (D173)
+cartographer kb rename <old> <new>           # renames the mount point: directory + kbs[] entry (D177)
 ```
 
 `service install` (idempotent: re-running it rewrites the plist/unit and restarts):
@@ -335,6 +338,12 @@ Binds to **loopback** by default (`127.0.0.1:39273`) → auth stays in auto-off 
 **The `kb` commands act on the LOCAL server's data dir** (D173). They take `--config <path>` to name the server config to read `data:` from, mirroring `service install`/`service status`: without it a service installed at a custom config path is invisible, and the command reports `KB "x" mounted at …` about a directory no running server reads. On a machine whose `.cartographer.yaml` points at a **remote** server they refuse to run, since mounting a KB on that server is an operation on its deployment — `--local` is the explicit opt-out, and `--data <dir>` (naming the target outright) bypasses the question.
 
 `kb clone` is bounded: `--timeout` (default 120s) caps the whole operation, `GIT_TERMINAL_PROMPT=0` and, for ssh remotes, `BatchMode=yes -o ConnectTimeout=10` make git fail instead of blocking on a credential or host-key prompt, and progress is streamed as it happens. Host-key *policy* is left to the operator's ssh config: `accept-new` would trade a hang for a silent trust-on-first-use decision. Recognised failures (DNS, SSH key, host key, repository not found, authentication) are reported with a remedy, and an interrupt removes the partial clone it created — never a directory that was already there. A pre-existing `GIT_SSH_COMMAND` is never overwritten.
+
+`kb rename <old> <new> [--data <dir>] [--config <path>] [--restart]` renames a KB's **mount point**: the directory and the matching `kbs[]` entry, together or neither (D177). It is offline and local — it never contacts a server, a client or a git remote, and the git `origin` is untouched: renaming a mount point is not renaming a repository. A cross-filesystem move fails explicitly rather than falling back to a recursive copy, which would silently change the ownership and timestamps of a git repository.
+
+Before moving anything it reports what else the name is an identity for. An explicit `kbs[].tool_prefix` is preserved verbatim; a **derived** one (`mcp.tool_prefix_mode: kb-name`) changes with the name, so every tool the agents see is renamed and the command says so with both prefixes. Auth scopes (`kb:<old>:r|rw`), role rules, client `signing_keys` pins and `mcp_approvals` entries are **listed, never rewritten**: they are configured out of band, and silently editing an operator's auth configuration would be worse than telling them what to change. Clients' MCP entries need no orchestration — they reconcile on the next `cartographer sync`.
+
+Two entries that could both be the KB is a refusal, naming them: guessing there silently detaches a KB from its configuration. **No** entry is not a refusal — a KB created by `kb create` or found by discovery legitimately has none, and renaming its directory is then the whole job.
 
 `kb list [--data <dir>] [--config <path>]` prints one row per subdirectory of the data dir — name, whether it is an OKF KB (`data/index.md`), whether it is a git repository, its `origin` — and a `MOUNTED` column when the server answers `/health`. When it does not, the column disappears and the reason is printed: absence of the signal is not evidence that nothing is mounted. The command writes **nothing**: a missing data dir is reported rather than created, and no repository is opened (which would migrate its git-exclude entry as a side effect).
 
