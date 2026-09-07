@@ -3,8 +3,10 @@
 package gitx
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -21,18 +23,102 @@ func IsRepo(dir string) bool {
 	return cmd.Run() == nil
 }
 
-// Clone clones remote into dest ("git clone <remote> <dest>"). dest must not
-// yet exist (or must be empty); git creates it. env carries extra
-// per-KB variables (e.g. GIT_SSH_COMMAND) layered on top of the process
+// ErrCloneTimeout reports that a clone was stopped by its context deadline
+// rather than failing on its own. The caller owns the remedy, since only it
+// knows the flag that changes the bound.
+var ErrCloneTimeout = errors.New("git clone timed out")
+
+// Clone clones remote into dest ("git clone <remote> <dest>"), bounded by ctx.
+// dest must not yet exist (or must be empty); git creates it. env carries
+// extra per-KB variables (e.g. GIT_SSH_COMMAND) layered on top of the process
 // environment — see runGitEnv.
-func Clone(remote, dest string, env ...string) error {
-	cmd := exec.Command("git", "clone", remote, dest)
-	cmd.Env = append(os.Environ(), env...)
-	out, err := cmd.CombinedOutput()
+//
+// The child never prompts: GIT_TERMINAL_PROMPT=0, plus an SSH batch mode and
+// connect timeout for ssh remotes. Without those, git blocks indefinitely on a
+// credential or host-key prompt when stdin is not a usable terminal, and the
+// caller shows nothing while it does. Host-key POLICY is left alone:
+// StrictHostKeyChecking=accept-new would trade a hang for a silent
+// trust-on-first-use decision on an operator's machine (D173).
+//
+// Progress goes to stderr as it happens — a clone with no output is
+// indistinguishable from a hang — while a copy is kept to translate a failure
+// into something actionable.
+func Clone(ctx context.Context, remote, dest string, env ...string) error {
+	cmd := exec.CommandContext(ctx, "git", "clone", "--progress", remote, dest)
+	cmd.Env = cloneEnv(remote, env)
+	var stderr strings.Builder
+	cmd.Stderr = io.MultiWriter(os.Stderr, &stderr)
+	out, err := cmd.Output()
 	if err != nil {
-		return fmt.Errorf("git clone %s %s: %w: %s", remote, dest, err, out)
+		return cloneError(ctx, remote, dest, err, stderr.String()+string(out))
 	}
 	return nil
+}
+
+// cloneEnv layers the non-interactive defaults on top of the process
+// environment and the caller's own variables.
+//
+// GIT_SSH_COMMAND is set only for an ssh remote and only when nobody else
+// provided one: an operator who configured a proxy command, an identity file
+// or a jump host has said how to reach their forge, and overwriting that
+// breaks a working setup to prevent a hypothetical one.
+func cloneEnv(remote string, extra []string) []string {
+	env := append(os.Environ(), extra...)
+	env = append(env, "GIT_TERMINAL_PROMPT=0")
+	if !isSSHRemote(remote) || hasEnv(env, "GIT_SSH_COMMAND") {
+		return env
+	}
+	return append(env, "GIT_SSH_COMMAND=ssh -o BatchMode=yes -o ConnectTimeout=10")
+}
+
+// hasEnv reports whether key is assigned anywhere in env.
+func hasEnv(env []string, key string) bool {
+	for _, kv := range env {
+		if strings.HasPrefix(kv, key+"=") {
+			return true
+		}
+	}
+	return false
+}
+
+// isSSHRemote covers both remote spellings git accepts: URL-style
+// (ssh://host/path) and scp-style (git@host:path). A local path or an
+// https URL is neither.
+func isSSHRemote(remote string) bool {
+	if strings.HasPrefix(remote, "ssh://") {
+		return true
+	}
+	if strings.Contains(remote, "://") {
+		return false
+	}
+	host, _, found := strings.Cut(remote, ":")
+	return found && !strings.Contains(host, "/") && !filepath.IsAbs(remote)
+}
+
+// cloneError turns a failed clone into a message an operator can act on. The
+// raw git output is kept in every case: the recognised phrases below are a
+// convenience, not a filter, and an unrecognised failure must not be reduced
+// to "git clone failed".
+func cloneError(ctx context.Context, remote, dest string, err error, output string) error {
+	if ctx.Err() != nil {
+		return fmt.Errorf("%w while cloning %s: %v", ErrCloneTimeout, remote, ctx.Err())
+	}
+	remedies := []struct{ match, remedy string }{
+		{"could not resolve host", "the host name does not resolve: check the remote URL and this machine's DNS"},
+		{"permission denied (publickey", "the forge rejected this machine's SSH key: check the key loaded in your agent has access to the repository"},
+		{"host key verification failed", "the forge's host key is not in known_hosts: connect once with ssh to review and accept it, then retry"},
+		{"repository not found", "the remote repository does not exist or this account cannot see it"},
+		{"not found in the known hosts", "the forge's host key is not in known_hosts: connect once with ssh to review and accept it, then retry"},
+		{"authentication failed", "the credentials were rejected: check the token or credential helper for this forge"},
+		{"terminal prompts disabled", "git needed credentials and could not ask: configure a credential helper or use an ssh remote"},
+	}
+	lower := strings.ToLower(output)
+	for _, r := range remedies {
+		if strings.Contains(lower, r.match) {
+			return fmt.Errorf("git clone %s: %s\n%s", remote, r.remedy, strings.TrimSpace(output))
+		}
+	}
+	return fmt.Errorf("git clone %s %s: %w: %s", remote, dest, err, strings.TrimSpace(output))
 }
 
 // DefaultBranch is the branch a freshly initialized KB is created on. The
