@@ -92,7 +92,7 @@ func runSync(dir string, cfg *clientconfig.Config, opts syncOptions) (syncResult
 		if err != nil {
 			return syncResult{}, err
 		}
-		if _, err := removeMCPEntries(cfg.ServerName, cfg.KBs, cfg.Agents, dir, cfg.Auth, cfg.TokenEnv, opts.DryRun); err != nil {
+		if _, err := removeMCPEntries(cfg.ServerName, cfg.KnownKBs, cfg.Agents, dir, cfg.Auth, cfg.TokenEnv, opts.DryRun); err != nil {
 			return syncResult{}, err
 		}
 		_, warnings, err := applyMCPEntries(entries, cfg.Agents, dir, cfg.Auth, cfg.TokenEnv, opts.DryRun)
@@ -107,7 +107,7 @@ func runSync(dir string, cfg *clientconfig.Config, opts syncOptions) (syncResult
 		}
 		printMCPEntryLines(cfg.Agents, entryNames(entries), opts.DryRun)
 		if !opts.DryRun {
-			cfg.KBs = kbs
+			cfg.KnownKBs = kbs
 			if err := clientconfig.Save(dir, cfg); err != nil {
 				return syncResult{}, err
 			}

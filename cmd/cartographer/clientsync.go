@@ -71,7 +71,7 @@ func fetchMergedManifest(cfg *clientconfig.Config) (provisioning.Manifest, error
 	if err != nil {
 		return provisioning.Manifest{}, fmt.Errorf("health: %w", err)
 	}
-	targets, err := resolveKBTargets(health, cfg.KBs)
+	targets, err := resolveKBTargets(health, cfg.KnownKBs)
 	if err != nil {
 		return provisioning.Manifest{}, err
 	}
