@@ -57,23 +57,49 @@ func resolveToken(cfg *clientconfig.Config) string {
 	return os.Getenv(cfg.TokenEnv)
 }
 
-// fetchMergedManifest connects to cfg.ServerURL, discovers the live per-KB
+// fetchMergedManifest fetches every KB's artifacts and merges them into one
+// verified provisioning.Manifest, applying the same precedence rule (KB source
+// wins over bundle) BuildManifest applies server-side for one KB.
+//
+// The merge is strict (D171): two KBs claiming the same kind+name is an error,
+// not the alphabetical coin flip preferArtifact would otherwise perform. It is
+// deliberately evaluated here, before anything is materialized, so a collision
+// stops the sync instead of silently deciding which KB an agent reads.
+func fetchMergedManifest(cfg *clientconfig.Config) (provisioning.Manifest, error) {
+	all, err := fetchCandidates(cfg)
+	if err != nil {
+		return provisioning.Manifest{}, err
+	}
+	merged, err := provisioning.MergeArtifactsStrict(all)
+	if err != nil {
+		return provisioning.Manifest{}, err
+	}
+	pins, err := pinnedPublicKeys(cfg)
+	if err != nil {
+		return provisioning.Manifest{}, err
+	}
+	return provisioning.VerifiedManifest(merged, pins)
+}
+
+// fetchCandidates connects to cfg.ServerURL, discovers the live per-KB
 // tool-name prefixes from /health (D120: resolveKBTargets), and calls
 // sync_pull — qualified with each target's advertised prefix — once per KB
-// target (cfg.KBs, or the server's default single-KB endpoint when empty),
-// decoding each artifact's in-memory file contents (base64) and merging
-// everything into a single provisioning.Manifest via
-// provisioning.MergeArtifacts — the same precedence rule (KB source wins over
-// bundle) BuildManifest applies server-side for one KB.
-func fetchMergedManifest(cfg *clientconfig.Config) (provisioning.Manifest, error) {
+// target (cfg.KnownKBs, or the server's default single-KB endpoint when empty),
+// decoding each artifact's in-memory file contents (base64).
+//
+// It returns the artifacts UNMERGED, each still carrying the source it came
+// from, so a caller can decide what to do with a kind+name several KBs claim
+// (fetchMergedManifest refuses it; collisionsForProvider reports only the ones
+// a given provider would actually be exposed to).
+func fetchCandidates(cfg *clientconfig.Config) ([]provisioning.Artifact, error) {
 	token := resolveToken(cfg)
 	health, err := client.New(cfg.ServerURL, token).Health(probeTimeout)
 	if err != nil {
-		return provisioning.Manifest{}, fmt.Errorf("health: %w", err)
+		return nil, fmt.Errorf("health: %w", err)
 	}
 	targets, err := resolveKBTargets(health, cfg.KnownKBs)
 	if err != nil {
-		return provisioning.Manifest{}, err
+		return nil, err
 	}
 
 	var all []provisioning.Artifact
@@ -84,26 +110,26 @@ func fetchMergedManifest(cfg *clientconfig.Config) (provisioning.Manifest, error
 		raw, err := callTool(c, target, "sync_pull", map[string]any{})
 		if err != nil {
 			if target.Name == "" {
-				return provisioning.Manifest{}, fmt.Errorf("sync_pull: %w", err)
+				return nil, fmt.Errorf("sync_pull: %w", err)
 			}
-			return provisioning.Manifest{}, fmt.Errorf("sync_pull (kb=%s): %w", target.Name, err)
+			return nil, fmt.Errorf("sync_pull (kb=%s): %w", target.Name, err)
 		}
 
 		var pm pulledManifestJSON
 		if err := json.Unmarshal(raw, &pm); err != nil {
-			return provisioning.Manifest{}, fmt.Errorf("sync_pull: decode response: %w", err)
+			return nil, fmt.Errorf("sync_pull: decode response: %w", err)
 		}
 		for _, pa := range pm.Artifacts {
 			files := make([]provisioning.ArtifactFile, len(pa.Files))
 			for i, pf := range pa.Files {
 				data, err := base64.StdEncoding.DecodeString(pf.ContentB64)
 				if err != nil {
-					return provisioning.Manifest{}, fmt.Errorf("sync_pull: decode file %s/%s/%s: %w", pa.Kind, pa.Name, pf.Path, err)
+					return nil, fmt.Errorf("sync_pull: decode file %s/%s/%s: %w", pa.Kind, pa.Name, pf.Path, err)
 				}
 				files[i] = provisioning.ArtifactFile{Path: pf.Path, Content: data, Executable: pf.Executable}
 			}
 			if got := provisioning.ContentHashFiles(files); got != pa.ContentHash {
-				return provisioning.Manifest{}, fmt.Errorf("sync_pull: content hash mismatch for %s/%s", pa.Kind, pa.Name)
+				return nil, fmt.Errorf("sync_pull: content hash mismatch for %s/%s", pa.Kind, pa.Name)
 			}
 			a := provisioning.Artifact{
 				Kind: pa.Kind, Name: pa.Name, Source: pa.Source, Version: pa.Version,
@@ -111,18 +137,39 @@ func fetchMergedManifest(cfg *clientconfig.Config) (provisioning.Manifest, error
 			}
 			key := a.Kind + "\x00" + a.Name + "\x00" + a.Source
 			if previous, exists := seen[key]; exists && !sameSignature(previous.Signature, a.Signature) {
-				return provisioning.Manifest{}, fmt.Errorf("sync_pull: conflicting signatures for %s/%s", a.Kind, a.Name)
+				return nil, fmt.Errorf("sync_pull: conflicting signatures for %s/%s", a.Kind, a.Name)
 			}
 			seen[key] = a
 			all = append(all, a)
 		}
 	}
 
-	pins, err := pinnedPublicKeys(cfg)
-	if err != nil {
-		return provisioning.Manifest{}, err
+	return all, nil
+}
+
+// collisionsForProvider narrows DetectCollisions to the ones a single provider
+// would actually be exposed to: a kind+name is only a problem for it when two
+// or more of the KBs bound to *it* claim the name. Two colliding KBs bound to
+// two different providers are not a conflict, and reporting them as one would
+// train an operator to ignore the warning.
+func collisionsForProvider(candidates []provisioning.Artifact, boundKBs []string) []provisioning.Collision {
+	bound := make(map[string]bool, len(boundKBs))
+	for _, kb := range boundKBs {
+		bound["kb:"+kb] = true
 	}
-	return provisioning.VerifiedManifest(provisioning.MergeArtifacts(all), pins)
+	var out []provisioning.Collision
+	for _, c := range provisioning.DetectCollisions(candidates) {
+		var claiming []string
+		for _, source := range c.Sources {
+			if bound[source] {
+				claiming = append(claiming, source)
+			}
+		}
+		if len(claiming) >= 2 {
+			out = append(out, provisioning.Collision{Kind: c.Kind, Name: c.Name, Sources: claiming})
+		}
+	}
+	return out
 }
 
 func sameSignature(a, b *artifactsig.Signature) bool {

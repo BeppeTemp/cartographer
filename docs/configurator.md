@@ -299,7 +299,7 @@ refresh. Every finding names a real path on this machine and the command that fi
 `reconnect`, `connect`, `service sync-timer install`), because a diagnosis nobody can act on is
 noise and a doctor that silently fixes things is a doctor nobody can predict.
 
-The eight checks:
+The checks:
 
 | Check | What it looks at |
 |---|---|
@@ -313,6 +313,7 @@ The eight checks:
 | `trigger` | every connected provider has a session hook, or the scheduled trigger is installed (D140) |
 | `capability` | every per-KB gate the server advertises on `/health` is on, and no KB was mounted by discovery rather than by a `kbs[]` entry (D151). Info severity: it names the setting that would change it |
 | `symlink` | no managed destination directory is a symlink — provisioning refuses to write through one, so the artifacts it would hold are not installed (D148) |
+| `kb-collisions` | no two KBs bound to the same provider claim one `kind`+`name` (D171). `sync` refuses outright when they do, so a machine that has not synced since the binding changed would otherwise show no symptom. Silent when the server is unreachable |
 
 **Severities.** `error` — something is broken now (a managed file missing, a hook firing twice);
 `warning` — something is stale or suboptimal (v1 lockfile, no trigger for a hook-less provider, a
