@@ -816,6 +816,92 @@ func kbCuratedInstructionsWithPreamble(kbRoot string) (body string, skipPreamble
 	return strings.TrimSpace(content), skipPreamble
 }
 
+// directiveRe matches a session-global directive declaration line (D183):
+// "<!-- cartographer:directive:<key>:<value> -->", matched as a full line
+// (after trimming) so a KB can document the syntax in its own prose without
+// declaring anything — the same defensive shape as preambleNoneRe and D182's
+// "cartographer:kb:<name>:begin/end" markers, and the same D163 metasyntax
+// trap both of those had to account for. Unlike preambleNoneRe, a directive
+// may appear anywhere in the curated body, not only the first line.
+//
+// <key> and <value> are each required to be non-empty and to contain no ':',
+// so the split stays unambiguous — a line with an extra ':' inside either
+// part, or an empty key/value, is simply not recognised: strict rather than
+// clever. <key> additionally excludes whitespace (it names a machine token,
+// like "language" or "timezone"); <value> may contain internal spaces.
+var directiveRe = regexp.MustCompile(`(?i)^<!--\s*cartographer:\s*directive:\s*([^:\s]+):([^:]+?)\s*-->\s*$`)
+
+// directiveFenceMarkers are the code-fence delimiters extractDirectives
+// recognises (pragmatic CommonMark subset) — the same pair
+// okf.headingEligibleLines uses for the identical "documenting the syntax"
+// concern with markdown headings. Kept local rather than exported from okf:
+// this is the only caller, and the two scanners have no other reason to
+// share code.
+var directiveFenceMarkers = [...]string{"```", "~~~"}
+
+// directiveFenceOpenMarker returns the fence marker ("```" or "~~~") if the
+// trimmed line opens a code fence, or "" otherwise.
+func directiveFenceOpenMarker(trimmed string) string {
+	for _, m := range directiveFenceMarkers {
+		if strings.HasPrefix(trimmed, m) {
+			return m
+		}
+	}
+	return ""
+}
+
+// extractDirectives scans every line of content — the generated content of a
+// KB's "instructions" artifact, curated body included — for directive
+// declarations and returns the key→value pairs found. Only the curated body
+// can ever match: the generated wrapper text around it (the routing
+// sentence, the operational bullets, the D182 scope sentence) is fixed,
+// hardcoded English prose that never takes the "<!-- cartographer:...-->"
+// shape, so scanning the whole artifact content is equivalent to scanning
+// only the curated section.
+//
+// Lines inside a fenced code block are never eligible: an operator
+// documenting the marker's syntax with a worked example — the marker alone
+// on its own line inside a ``` fence, the natural way to show it — must not
+// declare anything either. Full-line matching alone only protects a marker
+// embedded mid-paragraph (D163's metasyntax trap); a standalone example line
+// inside a fence needs this additional check.
+//
+// A key declared twice within the SAME content keeps its LAST value,
+// silently: there is only one author to ask, so there is nothing to
+// adjudicate the way there is between two KBs (DetectDirectiveCollisions).
+func extractDirectives(content string) map[string]string {
+	var out map[string]string
+	inFence := false
+	fenceMarker := ""
+	for _, l := range strings.Split(content, "\n") {
+		trimmed := strings.TrimSpace(l)
+		if inFence {
+			if strings.HasPrefix(trimmed, fenceMarker) {
+				inFence = false
+			}
+			continue
+		}
+		if marker := directiveFenceOpenMarker(trimmed); marker != "" {
+			inFence = true
+			fenceMarker = marker
+			continue
+		}
+		m := directiveRe.FindStringSubmatch(trimmed)
+		if m == nil {
+			continue
+		}
+		key, value := m[1], strings.TrimSpace(m[2])
+		if key == "" || value == "" {
+			continue
+		}
+		if out == nil {
+			out = make(map[string]string)
+		}
+		out[key] = value
+	}
+	return out
+}
+
 // contentHashFile computes the versioned artifact hash of a single,
 // non-executable file (agents and MCP descriptors).
 func contentHashFile(path string) (string, error) {
@@ -929,33 +1015,117 @@ func DetectCollisions(artifacts []Artifact) []Collision {
 	return out
 }
 
-// CollisionError reports the collisions that stopped a merge. It renders as a
+// DirectiveValue pairs one declared value of a session-global directive with
+// the KB source that declared it ("kb:<name>").
+type DirectiveValue struct {
+	Value  string
+	Source string
+}
+
+// DirectiveCollision is one session-global directive key (D183, the
+// "<!-- cartographer:directive:<key>:<value> -->" marker recognised by
+// directiveRe) declared with two or more different values among the KBs
+// compared. Values are sorted by Source, so a report is deterministic.
+type DirectiveCollision struct {
+	Key    string
+	Values []DirectiveValue
+}
+
+// DetectDirectiveCollisions reports every session-global directive key
+// declared with two or more different values among the given artifacts'
+// kind "instructions" entries.
+//
+// Scoped the same way DetectCollisions is: it inspects exactly the artifacts
+// it is given, and every caller already narrows that slice to one provider's
+// bound KBs before calling MergeArtifactsStrict (D170/D171) — two KBs that
+// never reach the same client cannot collide on a directive either, for the
+// same reason they cannot collide on kind+name.
+//
+// Same key + same value across two (or more) KBs is not reported: they
+// agree, there is nothing to adjudicate. Same key + different value is —
+// consistent with D171's "error, not warning" stance for the structural
+// kind+name collision.
+func DetectDirectiveCollisions(artifacts []Artifact) []DirectiveCollision {
+	// key -> source -> value
+	bySource := make(map[string]map[string]string)
+	for _, a := range artifacts {
+		if a.Kind != "instructions" || !strings.HasPrefix(a.Source, "kb:") || len(a.Files) == 0 {
+			continue
+		}
+		for key, value := range extractDirectives(string(a.Files[0].Content)) {
+			if bySource[key] == nil {
+				bySource[key] = make(map[string]string)
+			}
+			bySource[key][a.Source] = value
+		}
+	}
+
+	var out []DirectiveCollision
+	for key, bySrc := range bySource {
+		values := make(map[string]bool, len(bySrc))
+		for _, v := range bySrc {
+			values[v] = true
+		}
+		if len(values) < 2 {
+			continue
+		}
+		dvs := make([]DirectiveValue, 0, len(bySrc))
+		for source, value := range bySrc {
+			dvs = append(dvs, DirectiveValue{Value: value, Source: source})
+		}
+		sort.Slice(dvs, func(i, j int) bool { return dvs[i].Source < dvs[j].Source })
+		out = append(out, DirectiveCollision{Key: key, Values: dvs})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Key < out[j].Key })
+	return out
+}
+
+// CollisionError reports the collisions that stopped a merge — structural
+// (kind+name, D171) and/or directive (key+value, D183). It renders as a
 // multi-line report rather than one line: a caller printing "Error: <err>" must
 // still produce something an operator can act on without a second command.
 type CollisionError struct {
 	Collisions []Collision
+	Directives []DirectiveCollision
 }
 
 func (e *CollisionError) Error() string {
 	var sb strings.Builder
-	sb.WriteString("the same artifact is claimed by more than one KB:\n")
-	for _, c := range e.Collisions {
-		fmt.Fprintf(&sb, "  %s/%s: claimed by %s\n", c.Kind, c.Name, strings.Join(c.Sources, ", "))
+	if len(e.Collisions) > 0 {
+		sb.WriteString("the same artifact is claimed by more than one KB:\n")
+		for _, c := range e.Collisions {
+			fmt.Fprintf(&sb, "  %s/%s: claimed by %s\n", c.Kind, c.Name, strings.Join(c.Sources, ", "))
+		}
+		sb.WriteString("rename the artifact in all but one of those KBs, or stop binding them to the same client\n")
 	}
-	sb.WriteString("rename the artifact in all but one of those KBs, or stop binding them to the same client")
-	return sb.String()
+	if len(e.Directives) > 0 {
+		sb.WriteString("the same session-global directive key is declared with different values by more than one KB:\n")
+		for _, d := range e.Directives {
+			parts := make([]string, len(d.Values))
+			for i, v := range d.Values {
+				parts[i] = fmt.Sprintf("%s=%q by %s", d.Key, v.Value, v.Source)
+			}
+			fmt.Fprintf(&sb, "  %s: %s\n", d.Key, strings.Join(parts, ", "))
+		}
+		sb.WriteString("change the directive's value to agree in all but one of those KBs, or stop binding them to the same client\n")
+	}
+	return strings.TrimRight(sb.String(), "\n")
 }
 
-// MergeArtifactsStrict is MergeArtifacts with the KB↔KB collision turned into
-// an error instead of an alphabetical coin flip. It is what the client uses:
-// a warning about an artifact the agent then actually loads is worse than a
-// failed sync, because at that point the wrong answer is silent.
+// MergeArtifactsStrict is MergeArtifacts with the KB↔KB collision — structural
+// (kind+name, D171) or directive (key+value, D183) — turned into an error
+// instead of an alphabetical coin flip or a silently unresolved disagreement.
+// It is what the client uses: a warning about an artifact or a directive the
+// agent then actually reads is worse than a failed sync, because at that
+// point the wrong answer is silent.
 //
 // BuildManifest keeps using MergeArtifacts: server-side a manifest is built for
 // one KB plus the bundle, where a KB↔KB collision cannot arise by construction.
 func MergeArtifactsStrict(artifacts []Artifact) (Manifest, error) {
-	if collisions := DetectCollisions(artifacts); len(collisions) > 0 {
-		return Manifest{}, &CollisionError{Collisions: collisions}
+	collisions := DetectCollisions(artifacts)
+	directives := DetectDirectiveCollisions(artifacts)
+	if len(collisions) > 0 || len(directives) > 0 {
+		return Manifest{}, &CollisionError{Collisions: collisions, Directives: directives}
 	}
 	return MergeArtifacts(artifacts), nil
 }

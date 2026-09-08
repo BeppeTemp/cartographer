@@ -8,6 +8,7 @@ package provisioning_test
 
 import (
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -1019,6 +1020,93 @@ func TestGenerateKBInstructions_DirectiveNotOnFirstLineIsContent(t *testing.T) {
 	content := string(findInstructionsArtifact(t, m, "homelab").Files[0].Content)
 	if !strings.Contains(content, "Operational instructions:") {
 		t.Errorf("a directive that is not on the first line must be content:\n%s", content)
+	}
+}
+
+// --- D183: keyed session-global directives ---
+
+// A directive may appear anywhere in the curated body, not only the first
+// line (unlike preamble:none), and — this implementation's choice — stays
+// VISIBLE in the rendered block: Cartographer recognises and extracts the
+// key/value, but never rewrites the KB's prose.
+func TestGenerateKBInstructions_DirectiveDeclaredAndVisible(t *testing.T) {
+	kbRoot := makeKBWithArchives(t, map[string][]string{"entities": {"a.md"}})
+	writeFile(t, filepath.Join(kbRoot, "instructions.md"),
+		"Some notes first.\n\n<!-- cartographer:directive:timezone:UTC+2 -->\n\nMore notes after.\n")
+
+	m, err := provisioning.BuildManifest(nil, map[string]string{"homelab": kbRoot}, provisioning.BuildOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := findInstructionsArtifact(t, m, "homelab")
+	content := string(a.Files[0].Content)
+
+	if !strings.Contains(content, "<!-- cartographer:directive:timezone:UTC+2 -->") {
+		t.Errorf("the directive line must stay visible in the rendered block:\n%s", content)
+	}
+	if !strings.Contains(content, "Some notes first.") || !strings.Contains(content, "More notes after.") {
+		t.Errorf("the surrounding curated prose is missing:\n%s", content)
+	}
+
+	got := provisioning.DetectDirectiveCollisions([]provisioning.Artifact{a})
+	if len(got) != 0 {
+		t.Errorf("a single KB's own directive is never a collision: %+v", got)
+	}
+}
+
+// End-to-end: two KBs built through BuildManifest (not hand-built fixtures)
+// declaring the same key with different values collide when merged strictly
+// — the exact path cmd/cartographer/clientsync.go exercises per provider.
+func TestBuildManifest_DirectiveCollision_EndToEnd(t *testing.T) {
+	oneRoot := makeKBWithArchives(t, map[string][]string{"entities": {"a.md"}})
+	writeFile(t, filepath.Join(oneRoot, "instructions.md"), "<!-- cartographer:directive:timezone:UTC+2 -->\n")
+	twoRoot := makeKBWithArchives(t, map[string][]string{"entities": {"a.md"}})
+	writeFile(t, filepath.Join(twoRoot, "instructions.md"), "<!-- cartographer:directive:timezone:UTC-5 -->\n")
+
+	mOne, err := provisioning.BuildManifest(nil, map[string]string{"one": oneRoot}, provisioning.BuildOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mTwo, err := provisioning.BuildManifest(nil, map[string]string{"two": twoRoot}, provisioning.BuildOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	candidates := append(append([]provisioning.Artifact{}, mOne.Artifacts...), mTwo.Artifacts...)
+	_, err = provisioning.MergeArtifactsStrict(candidates)
+	if err == nil {
+		t.Fatal("MergeArtifactsStrict accepted two KBs disagreeing on a directive")
+	}
+	var ce *provisioning.CollisionError
+	if !errors.As(err, &ce) {
+		t.Fatalf("error = %T, want *CollisionError", err)
+	}
+	if len(ce.Directives) != 1 || ce.Directives[0].Key != "timezone" {
+		t.Fatalf("directives = %+v, want one collision on %q", ce.Directives, "timezone")
+	}
+}
+
+// A directive's syntax documented in a KB's own prose — mid-paragraph or
+// inside a fenced code block — must never declare anything (D163's
+// metasyntax trap).
+func TestGenerateKBInstructions_DirectiveDocumentedInProseIsNotDeclared(t *testing.T) {
+	kbRoot := makeKBWithArchives(t, map[string][]string{"entities": {"a.md"}})
+	writeFile(t, filepath.Join(kbRoot, "instructions.md"),
+		"To declare a directive, write a line like:\n```\n<!-- cartographer:directive:timezone:UTC+2 -->\n```\n"+
+			"or inline: `<!-- cartographer:directive:timezone:UTC+2 -->`.\n")
+
+	m, err := provisioning.BuildManifest(nil, map[string]string{"homelab": kbRoot}, provisioning.BuildOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := findInstructionsArtifact(t, m, "homelab")
+
+	got := provisioning.DetectDirectiveCollisions([]provisioning.Artifact{
+		a,
+		instructionsArtifact("other", "<!-- cartographer:directive:timezone:UTC-5 -->\n"),
+	})
+	if len(got) != 0 {
+		t.Errorf("documenting the syntax must not declare the directive: %+v", got)
 	}
 }
 

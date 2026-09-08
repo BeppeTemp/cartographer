@@ -155,7 +155,28 @@ directives or with a repository's own instruction file. Before this, a directive
 perimeter reached the agent as an unqualified, session-wide rule, with nothing marking where one KB's
 voice ended and the next began, and nothing to prefer when two KBs disagreed. `DetectCollisions`
 (D171) cannot catch this: for kind `instructions`, `Name` *is* the KB name, unique by construction, so
-two KBs can never collide on it — the strict merge is structurally blind to this class of conflict.
+two KBs can never collide on it — the strict merge is structurally blind to this class of conflict. A
+KB can still opt a specific fact into structured comparison by giving it a key (D183, below).
+
+**A KB may declare a session-global directive with a key** to make a conflict with another KB
+*detectable*, not just attributable (D183): a line of the shape
+`<!-- cartographer:directive:<key>:<value> -->`, matched as a full line (after trimming) anywhere in
+the curated body — not only the first line — asserts a session-wide fact the KB stands behind, such as
+a working timezone or environment name. `<key>` and `<value>` must each be non-empty and contain no
+`:`, the same strict-not-clever shape as every other Cartographer marker; a malformed or partial line
+(an extra `:`, an empty key or value) is left as ordinary prose, and a KB documenting the syntax itself
+never triggers it, the same D163 metasyntax trap `preambleNoneRe` and the `cartographer:kb:` markers
+already account for — including the marker shown alone on its own line inside a fenced code block, the
+natural way to document a syntax: `extractDirectives` tracks fence state (` ``` `/`~~~`) and never
+matches inside one. Unlike `preamble: none`, the recognised line is **not** stripped — it stays in the
+rendered block exactly as authored, since it is the KB's own content, not a control signal aimed at the
+generator. `DetectDirectiveCollisions` scans every `kind: instructions` artifact in the same
+provider-scoped set `MergeArtifactsStrict` already compares (D170/D171) for declared `(key, value)`
+pairs: two KBs agreeing on a key's value are not reported, two KBs declaring different values for the
+same key fail the sync with a `*CollisionError` naming the key, every declared value, and which KB
+declared each — the same "error, not warning" stance D171 takes for a structural `kind`+`name`
+collision. Two KBs bound to two different providers cannot collide on a directive, for the same reason
+they cannot collide on `kind`+`name`.
 
 **Section order follows the provider's KB binding, with an alphabetical fallback** (D182 WP2):
 a provider with an explicit binding (`clientconfig.ClientBinding.KBs`, D170) gets its sections in that
