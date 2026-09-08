@@ -528,7 +528,7 @@ func syncOneProvider(provider, dir string) syncDoneMsg {
 	// leaves it empty, which preserves the previously recorded value
 	// instead of erasing it.
 	facts, _ := enumerateKBs(cfg.ServerURL, cfg.Auth, cfg.TokenEnv)
-	applied, err := materializeForProviders(manifests, []string{provider}, dir, facts.Version, cfg.Trust, false, false /* noHeal */, portabilityOptions{SearchRoots: cfg.SearchRoots, SearchDepth: cfg.SearchDepth, Paths: cfg.Paths}, cfg.ApprovedMCPHashes())
+	applied, err := materializeForProviders(manifests, []string{provider}, dir, facts.Version, cfg.Trust, false, false /* noHeal */, portabilityOptions{SearchRoots: cfg.SearchRoots, SearchDepth: cfg.SearchDepth, Paths: cfg.Paths}, kbOrderForProviders(cfg, []string{provider}), cfg.ApprovedMCPHashes())
 	if err != nil {
 		return syncDoneMsg{provider: provider, err: err}
 	}

@@ -195,7 +195,7 @@ func TestMaterializeForProviders_RecordsServerVersion(t *testing.T) {
 	dir := t.TempDir()
 	m := kbSkillManifest()
 
-	if _, err := materializeForProviders(uniformManifests(m, []string{"claude"}), []string{"claude"}, dir, "1.4.0", true, false, false, portabilityOptions{}); err != nil {
+	if _, err := materializeForProviders(uniformManifests(m, []string{"claude"}), []string{"claude"}, dir, "1.4.0", true, false, false, portabilityOptions{}, nil); err != nil {
 		t.Fatalf("materializeForProviders: %v", err)
 	}
 	lockFile, err := provisioning.ReadLockFile(lockFilePath(dir))
@@ -207,7 +207,7 @@ func TestMaterializeForProviders_RecordsServerVersion(t *testing.T) {
 	}
 
 	// An offline sync (empty version) must not erase the knowledge.
-	if _, err := materializeForProviders(uniformManifests(m, []string{"claude"}), []string{"claude"}, dir, "", true, false, false, portabilityOptions{}); err != nil {
+	if _, err := materializeForProviders(uniformManifests(m, []string{"claude"}), []string{"claude"}, dir, "", true, false, false, portabilityOptions{}, nil); err != nil {
 		t.Fatalf("materializeForProviders offline: %v", err)
 	}
 	lockFile, err = provisioning.ReadLockFile(lockFilePath(dir))

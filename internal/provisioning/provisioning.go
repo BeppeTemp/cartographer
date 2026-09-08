@@ -209,6 +209,15 @@ type ApplyOptions struct {
 	// iterating on a materialized copy; off by default, because the default
 	// must match what the D138 provenance stamp promises the reader.
 	NoHeal bool
+
+	// KBOrder, when non-empty, is the KB names in the order this provider's
+	// explicit binding declares them (clientconfig.ClientBinding.KBs, D170) —
+	// D182: the "instructions" block's per-KB sections follow this order
+	// instead of alphabetical. A KB present in the manifest but absent from
+	// KBOrder sorts alphabetically after the declared ones, so a section is
+	// never dropped by an ordering change. Empty (no explicit binding, the
+	// default meaning "every known KB") keeps the alphabetical fallback.
+	KBOrder []string
 }
 
 // AppliedResult is the result of Apply.
@@ -723,6 +732,16 @@ func generateKBInstructions(kbName, kbRoot, toolPrefix string) string {
 
 	if curated != "" {
 		sb.WriteString("\n")
+		// Scope sentence (D182 WP1): the curated body that follows is one KB's
+		// own prose, not a session-wide law, and it's what lets a model apply
+		// the ordinary "more specific source wins" rule when two KBs' curated
+		// directives (or a repository's own instruction file) disagree — D171
+		// cannot catch that class of conflict (unique by construction), so this
+		// makes provenance and precedence declared instead of accidental.
+		// Emitted only when there IS curated content to scope; the opt-out
+		// marker (preambleNoneRe) only suppresses the operational bullets, not
+		// this sentence.
+		fmt.Fprintf(&sb, "The following directives are the %q KB's own and govern work in its perimeter; where they conflict with another KB's directives or with a repository's own instruction file, the more specific source wins.\n\n", kbName)
 		sb.WriteString(curated)
 		sb.WriteString("\n")
 	}
@@ -1675,6 +1694,38 @@ const (
 	instructionsBlockEnd         = "<!-- cartographer:instructions:end -->"
 )
 
+// kbSectionBegin/kbSectionEnd delimit ONE KB's snippet inside the
+// instructions block (D182 WP1): the agent can tell which KB a directive
+// comes from, and that it is that KB's perimeter rather than a session-wide
+// law. Deliberately a different marker family from
+// instructionsBlockBeginPrefix/instructionsBlockEnd — "cartographer:kb:"
+// rather than "cartographer:instructions:" — so diagnose.go's malformed-block
+// detection, which counts occurrences of THOSE two markers, keeps counting
+// exactly one of each no matter how many KBs contribute sections.
+//
+// name is the KB name, already sanitised by config before it ever reaches
+// BuildManifest, and each marker occupies one full line by construction —
+// the same class of trap as D163's metasyntax: a curated instructions.md line
+// that merely LOOKS like "cartographer:kb:<name>:begin" text embedded
+// mid-paragraph is not, itself, a marker line, and nothing in this package
+// re-parses the body to look for one, so it can never forge a section
+// boundary.
+func kbSectionBegin(name string) string {
+	return fmt.Sprintf("<!-- cartographer:kb:%s:begin -->", name)
+}
+func kbSectionEnd(name string) string { return fmt.Sprintf("<!-- cartographer:kb:%s:end -->", name) }
+
+// wrapKBSection wraps content — one KB's fully rendered instructions
+// snippet — in its named begin/end markers. Wrapping only: the KB's markdown
+// inside is never rewritten, reflowed or re-levelled (D154's principle,
+// restated by D182 for the multi-KB case) — Cartographer owns the envelope,
+// the KB owns the prose. No markdown heading is introduced either: a curated
+// instructions.md may open with its own "#" heading, and nesting it under a
+// generated "##" would force Cartographer to demote it.
+func wrapKBSection(name, content string) string {
+	return kbSectionBegin(name) + "\n" + content + "\n" + kbSectionEnd(name)
+}
+
 // applyInstructionsGroup materializes the "instructions" kind (D56) as a
 // GROUP — unlike every other kind, which is materialized per-artifact.
 // Each provider has a single shared file (destDir("instructions", _, provider));
@@ -1750,14 +1801,33 @@ func applyInstructionsGroup(m Manifest, diff Diff, opts ApplyOptions, tracker *e
 	}
 
 	// Full current set (not just toWrite): the block is always rebuilt
-	// from the whole manifest, sorted by Name for deterministic output.
+	// from the whole manifest. Ordered by opts.KBOrder when the provider has
+	// an explicit binding (D182 WP2) — Name is the KB name for this kind
+	// (:577) — falling back to alphabetical, the deterministic default for a
+	// provider bound to every known KB.
 	var current []Artifact
 	for _, a := range m.Artifacts {
 		if a.Kind == "instructions" {
 			current = append(current, a)
 		}
 	}
-	sort.Slice(current, func(i, j int) bool { return current[i].Name < current[j].Name })
+	rank := make(map[string]int, len(opts.KBOrder))
+	for i, name := range opts.KBOrder {
+		rank[name] = i
+	}
+	sort.Slice(current, func(i, j int) bool {
+		ri, oki := rank[current[i].Name]
+		rj, okj := rank[current[j].Name]
+		if oki && okj {
+			return ri < rj
+		}
+		if oki != okj {
+			// Declared KBs sort before ones absent from the binding order,
+			// so an ordering change can never drop a section.
+			return oki
+		}
+		return current[i].Name < current[j].Name
+	})
 
 	// Expanded content and hash computed here, once per authorized artifact,
 	// regardless of triggered: newManaged (below) must stay consistent with the
@@ -1791,6 +1861,13 @@ func applyInstructionsGroup(m Manifest, diff Diff, opts ApplyOptions, tracker *e
 		})
 	}
 
+	// A pure reorder — same KB set, different sequence (D182 WP2) — changes
+	// no ContentHash and enters neither Added, Updated nor Removed, so the
+	// checks above never see it; without this it would never rewrite the file.
+	if !triggered {
+		triggered = instructionsOrderChanged(opts.Lock.Managed, signed)
+	}
+
 	if !triggered {
 		return nil
 	}
@@ -1807,9 +1884,14 @@ func applyInstructionsGroup(m Manifest, diff Diff, opts ApplyOptions, tracker *e
 		return nil
 	}
 
+	// Each KB's snippet is individually attributed (D182 WP1): current is
+	// already in the order applyInstructionsGroup will render (WP2's
+	// opts.KBOrder-aware sort above), so signed — a filtered copy of current —
+	// carries that same order through to the wrap.
 	snippets := make([]string, 0, len(signed))
 	for _, a := range signed {
-		snippets = append(snippets, strings.TrimRight(string(expandedContent[a.Name]), "\n"))
+		content := strings.TrimRight(string(expandedContent[a.Name]), "\n")
+		snippets = append(snippets, wrapKBSection(a.Name, content))
 	}
 	body := strings.Join(snippets, "\n\n")
 
@@ -1846,6 +1928,36 @@ func applyInstructionsGroup(m Manifest, diff Diff, opts ApplyOptions, tracker *e
 		})
 	}
 	return nil
+}
+
+// instructionsOrderChanged reports whether newOrder (this run's authorized
+// "instructions" artifacts, already sorted for rendering) names the same KBs
+// as previous's "instructions" entries but in a different sequence (D182
+// WP2). previous is opts.Lock.Managed: each prior applyInstructionsGroup run
+// appended its ManagedFile entries in the order it rendered them, so a JSON
+// round-trip through the lockfile preserves that order as a record of "what
+// was rendered last time" with no new field.
+//
+// A changed SET (a KB added or removed) is already caught by
+// diff.Added/diff.Removed, so this only needs to fire on the one case those
+// miss: same names, different positions. A length mismatch is therefore
+// always a set change and is left to that existing path.
+func instructionsOrderChanged(previous []ManagedFile, newOrder []Artifact) bool {
+	var prevNames []string
+	for _, mf := range previous {
+		if mf.Kind == "instructions" {
+			prevNames = append(prevNames, mf.Name)
+		}
+	}
+	if len(prevNames) != len(newOrder) {
+		return false
+	}
+	for i, a := range newOrder {
+		if prevNames[i] != a.Name {
+			return true
+		}
+	}
+	return false
 }
 
 // unsupportedKindWarnings reports, per KB and per artifact kind, what this

@@ -138,9 +138,37 @@ than one exists.
 
 ## The generated instructions block
 
-The client steering file carries one managed block per mounted KB: a generated routing sentence (KB
-name, server, archives), the generated "Operational instructions" bullets, the KB's own
-`instructions.md` verbatim, and — client-side — the D75 WP4 local-paths table.
+The client steering file carries **one** managed block, shared by every mounted KB, delimited by
+`<!-- cartographer:instructions:begin … -->` / `<!-- cartographer:instructions:end -->`. Inside it,
+each KB gets its own named, delimited region: `<!-- cartographer:kb:<name>:begin -->` … a generated
+routing sentence (KB name, server, archives), the generated "Operational instructions" bullets, a
+one-line scope sentence, the KB's own `instructions.md` verbatim … `<!-- cartographer:kb:<name>:end
+-->` (D182). Cartographer only wraps the curated markdown — it never rewrites, reflows or re-levels
+it, and never nests it under a generated heading, so a curated `instructions.md` may open with its own
+`#` without Cartographer demoting it. Client-wide trailers — the D75 WP4 local-paths table and the
+subagent sentence below — are appended **after** the last KB's region, never inside one.
+
+**The scope sentence attributes and bounds each KB's directives** (D182): emitted immediately before
+the curated body, only when curated content exists, it says that what follows is that KB's own and
+governs work in its perimeter, and that the more specific source wins on a conflict with another KB's
+directives or with a repository's own instruction file. Before this, a directive written for one KB's
+perimeter reached the agent as an unqualified, session-wide rule, with nothing marking where one KB's
+voice ended and the next began, and nothing to prefer when two KBs disagreed. `DetectCollisions`
+(D171) cannot catch this: for kind `instructions`, `Name` *is* the KB name, unique by construction, so
+two KBs can never collide on it — the strict merge is structurally blind to this class of conflict.
+
+**Section order follows the provider's KB binding, with an alphabetical fallback** (D182 WP2):
+a provider with an explicit binding (`clientconfig.ClientBinding.KBs`, D170) gets its sections in that
+declared order — the operator's own choice, not an accident of directory naming; a provider with no
+binding (the default, every known KB) keeps the alphabetical order as its documented, deterministic
+default. A KB present in the manifest but absent from the binding list sorts alphabetically after the
+declared ones, so an ordering change never drops a section. Position was already known to matter
+(D154, the English-preamble-first case below): with several KBs, whichever one sorted first
+alphabetically occupied that position by accident of naming rather than by anyone's choice. A pure
+reorder of a binding — same KB set, different sequence — still rewrites the block even though no
+artifact's `ContentHash` changed: `applyInstructionsGroup` compares the previous run's recorded
+section order (carried in the lockfile's `instructions` entries) against the newly computed one and
+treats a mismatch as its own rewrite trigger.
 
 **The subagent sentence describes what THIS client received** (D154). It is emitted per provider at
 `Apply` time, not baked into the artifact, and names only agents whose kind has a destination for
@@ -325,6 +353,8 @@ Materialization: a **managed block** delimited by markers (`<!-- cartographer:in
 
 - rewrite = replacement between the markers; missing markers → block appended at the end; missing file → created with only the block;
 - managed as a **group**: the block is the ordered concatenation of the snippets of *all* currently signed instructions — a removed KB disappears on the next rewrite; zero artifacts → block removed;
+- **each snippet is individually wrapped and attributed** (D182): `wrapKBSection` delimits it with `<!-- cartographer:kb:<name>:begin -->` / `:end -->` — a marker family distinct from the outer `cartographer:instructions:` one, so the malformed-block check (which counts occurrences of the outer pair) still counts exactly one of each no matter how many KBs contribute. `generateKBInstructions` additionally emits a one-line scope sentence right before the curated body, when curated content exists, naming the KB and stating that the more specific source wins on a conflict — the sentence is generated content, so it is part of `ContentHash` like the rest of the block;
+- **order follows `ApplyOptions.KBOrder`** (D182 WP2), set by the client from the provider's explicit binding (`clientconfig.ClientBinding.KBs`) when there is one, alphabetical by KB name otherwise; a KB outside the declared order sorts alphabetically after the declared ones. A pure reorder — same KB set, only the sequence changed — is invisible to `ComputeDiff` (no `ContentHash` differs), so `applyInstructionsGroup` separately compares the previous run's recorded order (the sequence of `instructions` entries in the incoming `Lock`) against the newly computed one and treats a mismatch as its own trigger;
 - the signature gate applies as usual; lockfile: one `ManagedFile` per artifact (not per physical file);
 - pruning: removes only the block, never the file — except when the file is left empty (this covers kiro's dedicated file).
 
