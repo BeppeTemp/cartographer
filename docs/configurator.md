@@ -196,14 +196,19 @@ failure for each provider.
 ### Dashboard
 
 With no subcommand in a TTY, the dashboard renders the same status snapshot as
-`status`. Its server panel shows the effective URL, reachability/readiness,
-versions, selected KBs and loopback native-service state. `Enter` connects a
-disconnected provider or syncs a connected one; `s` syncs the selected provider,
-`S` syncs all connected providers, `d` opens the disconnect confirmation and
-`r` refreshes. Unavailable actions are omitted from the contextual key map.
-At 60 columns it uses compact labels and shortened endpoints; 80 is the normal
-layout and 120 retains full endpoint and artifact detail. Failures keep the
-current selection and entered connect-form values.
+`status`. Its server panel is a labelled block — endpoint with state and
+readiness, client/server versions, the local native service when one is
+installed, and the KB inventory with, per KB, how many connected providers are
+**bound** to it (a count of bindings: not sessions, and not a confirmation that
+a sync has run, so `kb-tre (0)` means the server serves it and nothing consumes
+it). `Enter` connects a disconnected provider or syncs a connected one; `s`
+syncs the selected provider, `S` syncs every connected provider one at a time
+and names the one in flight, `d` opens the disconnect confirmation — which
+names the KBs whose artifacts will be removed — and `r` refreshes. Unavailable
+actions are omitted from the contextual key map. At 60 columns it uses compact
+labels and shortened endpoints; 80 is the normal layout and 120 retains full
+endpoint and artifact detail. Failures keep the current selection and entered
+connect-form values.
 
 ### `cartographer sync`
 
@@ -764,17 +769,44 @@ automatically migrated on read (`provisioning.ReadLockFile`) into `{"providers":
 ## TUI mode (interactive dashboard)
 
 Running `cartographer` with no arguments in a terminal opens an interactive dashboard
-(`cmd/cartographer/tui.go`, `bubbletea`): it lists the four providers vertically, one card per
-provider with an explicit status (`connected` / `not connected` / `not installed`) and indented
-details below — binary path, MCP config, provisioning artifacts with per-kind counts
-(`formatKindStatus`) — loaded asynchronously against the configured server.
+(`cmd/cartographer/tui.go`, `bubbletea`): a server block, then one card per provider with an
+explicit status (`connected` / `not connected` / `not installed`) and indented details below,
+laid out on a two-column grid:
+
+```
+server     http://localhost:39273/mcp  in-sync · ready
+version    client v0.10.0 · server v0.10.0
+service    local: installed · loaded
+KBs        kb-uno (2 bound) · kb-due (1) · kb-tre (0) · kb-quattro (0)
+
+> Claude Code    connected
+      binary      /opt/homebrew/bin/claude
+      mcp-config  in-sync
+      kbs         kb-uno, kb-due  (explicit)
+      artifacts   in-sync
+      kinds       skill 5/5 · agent 4/4 · hook 2/2 · instructions 1/1
+```
+
+`binary` and `kbs` are local data and are in the first frame; `artifacts` and `kinds` are
+fetched asynchronously against the configured server.
+
+- **`kbs`** is the provider's own binding (D169): the declared names with `(explicit)`,
+  `all known (default)` when nothing was declared, and `none (explicit)` for a binding
+  deliberately emptied. A list too long for the row is truncated with a counter
+  (`kb-uno, kb-due +2`) and never wrapped.
+- **`kinds`** is the per-kind breakdown `formatKindStatus` produces, the same one
+  `cartographer status` prints — both read it off the shared snapshot. It says `unknown`
+  before the first fetch resolves and after one that failed: a breakdown computed against a
+  manifest that was never fetched is not a clean bill of health. `no artifacts` is the
+  distinct case of a manifest that *was* read and holds nothing.
 
 Main keys:
 
 | Key | Action |
 |---|---|
-| `enter` / `s` | Connect (if not connected) or resync |
-| `d` | Disconnect (if connected) — opens an inline `y`/`n` confirmation |
+| `enter` / `s` | Connect (if not connected) or resync the **selected** provider |
+| `S` | Sync every connected provider, one at a time under a single client lock (D172) |
+| `d` | Disconnect (if connected) — opens an inline `y`/`n` confirmation naming its KBs |
 | `r` | Refresh status |
 | `q` / `Esc` | Quit |
 
