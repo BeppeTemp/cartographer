@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"testing"
 )
 
@@ -125,15 +126,23 @@ func TestLookupIndexAmbiguousShortName(t *testing.T) {
 }
 
 func TestLookupIndexMultipleClonesWarns(t *testing.T) {
+	root := t.TempDir()
+	first := filepath.Join(root, "first")
+	second := filepath.Join(root, "second")
+	os.MkdirAll(first, 0o755)
+	os.MkdirAll(second, 0o755)
+	writeGitRepo(t, first, "git@github.com:acme/tools.git")
+	writeGitRepo(t, second, "git@github.com:acme/tools.git")
+
 	idx := &Index{Repos: map[RemoteKey][]string{
-		"github.com/acme/tools": {"/first", "/second"},
+		"github.com/acme/tools": {first, second},
 	}}
 	path, warnings, err := lookupIndex(idx, "tools")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if path != "/first" {
-		t.Errorf("path = %q, want /first", path)
+	if path != first {
+		t.Errorf("path = %q, want %q", path, first)
 	}
 	if len(warnings) != 1 {
 		t.Errorf("expected 1 warning, got %v", warnings)
@@ -141,16 +150,24 @@ func TestLookupIndexMultipleClonesWarns(t *testing.T) {
 }
 
 func TestLookupIndexFullKey(t *testing.T) {
+	root := t.TempDir()
+	a := filepath.Join(root, "a")
+	b := filepath.Join(root, "b")
+	os.MkdirAll(a, 0o755)
+	os.MkdirAll(b, 0o755)
+	writeGitRepo(t, a, "git@github.com:acme/tools.git")
+	writeGitRepo(t, b, "git@gitlab.com:other/tools.git")
+
 	idx := &Index{Repos: map[RemoteKey][]string{
-		"github.com/acme/tools":  {"/a"},
-		"gitlab.com/other/tools": {"/b"},
+		"github.com/acme/tools":  {a},
+		"gitlab.com/other/tools": {b},
 	}}
 	path, _, err := lookupIndex(idx, "gitlab.com/other/tools")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if path != "/b" {
-		t.Errorf("path = %q, want /b", path)
+	if path != b {
+		t.Errorf("path = %q, want %q", path, b)
 	}
 }
 
@@ -200,8 +217,10 @@ func TestResolveRescanOnMiss(t *testing.T) {
 		t.Errorf("path = %q, want %q", path, repo)
 	}
 
-	// The cache should now be populated, resolving from cache without roots.
-	path2, _, err := Resolve("myrepo", nil, nil, 0)
+	// The cache should now be populated: resolving again with the same roots
+	// (D181: matching roots is what makes the cache eligible at all) must hit
+	// the cache rather than rescan, and still return repo.
+	path2, _, err := Resolve("myrepo", nil, []string{root}, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -219,6 +238,179 @@ func TestResolveNotFound(t *testing.T) {
 	_, _, err := Resolve("nope", nil, []string{root}, 0)
 	if err == nil {
 		t.Fatal("expected not-found error")
+	}
+}
+
+// TestResolveStaleHitRescans covers D181: a cache entry whose path no longer
+// holds a clone must behave as a miss, so a moved repo resolves to its new
+// location and the cache is rewritten to match.
+func TestResolveStaleHitRescans(t *testing.T) {
+	home := t.TempDir()
+	userHomeDir = func() (string, error) { return home, nil }
+	defer func() { userHomeDir = os.UserHomeDir }()
+
+	root := t.TempDir()
+	oldPath := filepath.Join(root, "myrepo")
+	os.MkdirAll(oldPath, 0o755)
+	writeGitRepo(t, oldPath, "git@github.com:acme/myrepo.git")
+
+	// Populate the cache at oldPath.
+	if _, _, err := Resolve("myrepo", nil, []string{root}, 0); err != nil {
+		t.Fatal(err)
+	}
+
+	// Move the clone within the same roots: the cache still points at oldPath.
+	newPath := filepath.Join(root, "moved", "myrepo")
+	os.MkdirAll(filepath.Join(root, "moved"), 0o755)
+	if err := os.Rename(oldPath, newPath); err != nil {
+		t.Fatal(err)
+	}
+
+	path, _, err := Resolve("myrepo", nil, []string{root}, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if path != newPath {
+		t.Errorf("path = %q, want %q (new location)", path, newPath)
+	}
+
+	got, err := LoadCache()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if paths := got.Repos["github.com/acme/myrepo"]; len(paths) != 1 || paths[0] != newPath {
+		t.Errorf("cache not rewritten to new location: %v", paths)
+	}
+}
+
+// TestLookupIndexFirstCloneGoneSecondAliveNoWarning covers D181: when the
+// first clone in root order is gone, the surviving one resolves cleanly with
+// no multiple-clones warning — there is, in fact, only one clone left.
+func TestLookupIndexFirstCloneGoneSecondAliveNoWarning(t *testing.T) {
+	root := t.TempDir()
+	gone := filepath.Join(root, "gone")
+	alive := filepath.Join(root, "alive")
+	os.MkdirAll(alive, 0o755)
+	writeGitRepo(t, alive, "git@github.com:acme/tools.git")
+	// gone is never created: it never existed at this path, or was removed.
+
+	idx := &Index{Repos: map[RemoteKey][]string{
+		"github.com/acme/tools": {gone, alive},
+	}}
+	path, warnings, err := lookupIndex(idx, "tools")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if path != alive {
+		t.Errorf("path = %q, want %q", path, alive)
+	}
+	if len(warnings) != 0 {
+		t.Errorf("expected no multiple-clones warning, got %v", warnings)
+	}
+}
+
+// TestLookupIndexAmbiguousOnlyOnPaper covers D181: two remotes share a short
+// name in the cache, but only one still has a live clone — resolution
+// succeeds instead of raising the ambiguity error.
+func TestLookupIndexAmbiguousOnlyOnPaper(t *testing.T) {
+	root := t.TempDir()
+	alive := filepath.Join(root, "alive")
+	os.MkdirAll(alive, 0o755)
+	writeGitRepo(t, alive, "git@github.com:acme/tools.git")
+	missing := filepath.Join(root, "missing")
+	// missing is never created.
+
+	idx := &Index{Repos: map[RemoteKey][]string{
+		"github.com/acme/tools":  {alive},
+		"gitlab.com/other/tools": {missing},
+	}}
+	path, _, err := lookupIndex(idx, "tools")
+	if err != nil {
+		t.Fatalf("expected successful resolution, got error: %v", err)
+	}
+	if path != alive {
+		t.Errorf("path = %q, want %q", path, alive)
+	}
+}
+
+// TestResolveEveryCloneGoneNotFound covers D181: a cache entry whose every
+// path is dead falls through to a rescan same as an ordinary miss, and — when
+// the rescan finds nothing either — the not-found error keeps its
+// search_depth guidance.
+func TestResolveEveryCloneGoneNotFound(t *testing.T) {
+	home := t.TempDir()
+	userHomeDir = func() (string, error) { return home, nil }
+	defer func() { userHomeDir = os.UserHomeDir }()
+
+	root := t.TempDir()
+	idx := &Index{Roots: []string{root}, Repos: map[RemoteKey][]string{
+		"github.com/acme/myrepo": {filepath.Join(root, "myrepo")}, // never created
+	}}
+	if err := SaveCache(idx); err != nil {
+		t.Fatal(err)
+	}
+
+	_, _, err := Resolve("myrepo", nil, []string{root}, 0)
+	if err == nil {
+		t.Fatal("expected not-found error")
+	}
+	if !strings.Contains(err.Error(), "search_depth") {
+		t.Errorf("error missing search_depth guidance: %v", err)
+	}
+}
+
+// TestLookupIndexLivePathNotARepo covers D181: a cached path that still
+// exists as a directory but no longer contains a .git entry is treated as
+// dead, the same outcome as a path that vanished entirely.
+func TestLookupIndexLivePathNotARepo(t *testing.T) {
+	root := t.TempDir()
+	emptied := filepath.Join(root, "emptied")
+	os.MkdirAll(emptied, 0o755) // directory present, but no .git subdirectory
+
+	idx := &Index{Repos: map[RemoteKey][]string{
+		"github.com/acme/myrepo": {emptied},
+	}}
+	_, _, err := lookupIndex(idx, "myrepo")
+	if err != errNotIndexed {
+		t.Errorf("err = %v, want errNotIndexed", err)
+	}
+}
+
+// TestResolveRootsChangedInvalidatesCache covers D181: a change of
+// search_roots invalidates the cache even for a key present under the old
+// roots at a path that is still perfectly live — root order decides the
+// winner among clones, so a reorder or replacement of roots is a semantic
+// change, not a cosmetic one.
+func TestResolveRootsChangedInvalidatesCache(t *testing.T) {
+	home := t.TempDir()
+	userHomeDir = func() (string, error) { return home, nil }
+	defer func() { userHomeDir = os.UserHomeDir }()
+
+	rootA := t.TempDir()
+	pathA := filepath.Join(rootA, "myrepo")
+	os.MkdirAll(pathA, 0o755)
+	writeGitRepo(t, pathA, "git@github.com:acme/myrepo.git")
+
+	// Populate the cache scanning rootA: Roots == [rootA], key -> pathA.
+	if _, _, err := Resolve("myrepo", nil, []string{rootA}, 0); err != nil {
+		t.Fatal(err)
+	}
+
+	// A second, distinct root also carries a clone of the same remote, at a
+	// different path. pathA is untouched and still perfectly live.
+	rootB := t.TempDir()
+	pathB := filepath.Join(rootB, "myrepo")
+	os.MkdirAll(pathB, 0o755)
+	writeGitRepo(t, pathB, "git@github.com:acme/myrepo.git")
+
+	// search_roots now points only at rootB: the cached entry (Roots=[rootA],
+	// path=pathA) must not be trusted even though pathA is still live.
+	path, _, err := Resolve("myrepo", nil, []string{rootB}, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if path != pathB {
+		t.Errorf("path = %q, want %q (roots change must force a rescan)", path, pathB)
 	}
 }
 

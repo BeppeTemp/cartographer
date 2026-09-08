@@ -151,14 +151,28 @@ func EffectiveDepth(configured int) int {
 	}
 }
 
+// isLiveClone reports whether path currently holds a git clone: a directory
+// containing a .git entry, checked with the stat that follows symlinks (so a
+// symlinked clone keeps working). It defines "is a clone" in one place, used
+// both by walkDir when discovering repos during a Scan and by lookupIndex
+// when validating a cached path before serving it (D181) — a cache hit must
+// not paper over a clone that moved or was removed.
+func isLiveClone(path string) bool {
+	fi, err := os.Stat(path)
+	if err != nil || !fi.IsDir() {
+		return false
+	}
+	if _, err := os.Stat(filepath.Join(path, ".git")); err != nil {
+		return false
+	}
+	return true
+}
+
 func walkDir(dir string, depth, maxDepth int, idx *Index) {
 	if depth > maxDepth {
 		return
 	}
-	if fi, err := os.Stat(dir); err != nil || !fi.IsDir() {
-		return
-	}
-	if _, err := os.Stat(filepath.Join(dir, ".git")); err == nil {
+	if isLiveClone(dir) {
 		if key, ok := readOriginRemote(dir); ok {
 			idx.Repos[key] = append(idx.Repos[key], dir)
 		}
@@ -257,10 +271,14 @@ var errNotIndexed = errors.New("repoindex: not indexed")
 
 // lookupIndex resolves key against idx alone: key containing "/" is treated
 // as a full canonical RemoteKey, otherwise as a short name matched against
-// every indexed key's ShortName(). Multiple distinct repos matching a short
-// name is an ambiguity error (spec: ask for the full form). Multiple local
-// clones of the same repo resolve to the first root-order match, with a
-// warning.
+// every indexed key's ShortName(). A candidate whose every local path has
+// moved or vanished is dropped before ambiguity or emptiness is evaluated
+// (D181): a cached entry pointing at a dead clone behaves as a miss, not as
+// an answer, so Resolve's caller falls through to a rescan. Among the
+// candidates with at least one live clone, multiple distinct repos matching
+// a short name is an ambiguity error (spec: ask for the full form), and
+// multiple live local clones of the same repo resolve to the first
+// root-order match, with a warning.
 func lookupIndex(idx *Index, key string) (string, []string, error) {
 	var candidates []RemoteKey
 	if strings.Contains(key, "/") {
@@ -274,25 +292,38 @@ func lookupIndex(idx *Index, key string) (string, []string, error) {
 			}
 		}
 	}
-	if len(candidates) == 0 {
+
+	livePaths := map[RemoteKey][]string{}
+	var survivors []RemoteKey
+	for _, c := range candidates {
+		var paths []string
+		for _, p := range idx.Repos[c] {
+			if isLiveClone(p) {
+				paths = append(paths, p)
+			}
+		}
+		if len(paths) > 0 {
+			livePaths[c] = paths
+			survivors = append(survivors, c)
+		}
+	}
+
+	if len(survivors) == 0 {
 		return "", nil, errNotIndexed
 	}
-	if len(candidates) > 1 {
-		sort.Slice(candidates, func(i, j int) bool { return candidates[i] < candidates[j] })
-		names := make([]string, len(candidates))
-		for i, c := range candidates {
+	if len(survivors) > 1 {
+		sort.Slice(survivors, func(i, j int) bool { return survivors[i] < survivors[j] })
+		names := make([]string, len(survivors))
+		for i, c := range survivors {
 			names[i] = string(c)
 		}
 		return "", nil, fmt.Errorf("repoindex: %q is ambiguous between %s — use the full host/owner/name form", key, strings.Join(names, ", "))
 	}
 
-	paths := idx.Repos[candidates[0]]
-	if len(paths) == 0 {
-		return "", nil, errNotIndexed
-	}
+	paths := livePaths[survivors[0]]
 	var warnings []string
 	if len(paths) > 1 {
-		warnings = append(warnings, fmt.Sprintf("repoindex: multiple local clones of %s, using %s", candidates[0], paths[0]))
+		warnings = append(warnings, fmt.Sprintf("repoindex: multiple local clones of %s, using %s", survivors[0], paths[0]))
 	}
 	return paths[0], warnings, nil
 }
@@ -308,7 +339,7 @@ func Resolve(key string, manualPaths map[string]string, roots []string, maxDepth
 		return expandHome(p), nil, nil
 	}
 
-	if idx, err := LoadCache(); err == nil {
+	if idx, err := LoadCache(); err == nil && rootsMatch(idx.Roots, roots) {
 		path, warnings, lookupErr := lookupIndex(idx, key)
 		if lookupErr == nil {
 			return path, warnings, nil
@@ -332,6 +363,27 @@ func Resolve(key string, manualPaths map[string]string, roots []string, maxDepth
 		return "", nil, err
 	}
 	return path, warnings, nil
+}
+
+// rootsMatch reports whether the cached search roots are still the ones
+// Resolve was called with, once each element is normalized with expandHome
+// so that "~/Documents" and its expanded form compare equal (D181). The
+// comparison is ordered: root order is what decides the winner among
+// multiple live clones in lookupIndex, so a reorder is a semantic change and
+// must invalidate the cache exactly like an addition or removal. A cache
+// written before Roots was compared this way carries an empty slice, which
+// differs from any nonempty configured roots — costing exactly one rescan on
+// first use after upgrade.
+func rootsMatch(cached, configured []string) bool {
+	if len(cached) != len(configured) {
+		return false
+	}
+	for i := range cached {
+		if expandHome(cached[i]) != expandHome(configured[i]) {
+			return false
+		}
+	}
+	return true
 }
 
 // expandHome expands a leading "~" (alone or as "~/...") to the user's home

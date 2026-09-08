@@ -128,6 +128,14 @@ repositories were invisible and every `{{repo:<key>}}` citing one was unusable. 
 now names the depth it searched, the maximum, and the setting. Keying stays on the **normalised git
 remote**, never on a directory name: that is what makes a `repo:` key identical for every operator.
 
+A cache hit is not trusted blindly (D181): before a cached path is returned, `repoindex` checks
+that it still holds a live clone (a directory with a `.git` entry) — a moved or removed clone
+behaves as a cache miss and triggers a rescan, instead of resolving to a location that no longer
+exists (or, worse, to a leftover clone left behind at the old path). Editing `search_roots` in
+`.cartographer.yaml` also invalidates the cache — a changed root set is a rescan even for a key
+that is still present under the old roots, since root order decides which clone wins when more
+than one exists.
+
 ## The generated instructions block
 
 The client steering file carries one managed block per mounted KB: a generated routing sentence (KB
@@ -330,7 +338,10 @@ Shared content (concepts and provisioning artifacts) must never contain machine-
   handles ssh scp-like, `ssh://`, `https://`, `.git` suffix), identical on every machine of
   the team. `repoindex.Scan` walks `search_roots` (client config, default `~/Documents`) up to
   depth 4, reads each repo's `.git/config` (no `git` exec) and caches the result in
-  `~/.config/cartographer/repos.json`, refreshed on-miss.
+  `~/.config/cartographer/repos.json`, refreshed on-miss. A cache hit is validated before use
+  (D181): the candidate path must still be a directory containing a `.git` entry, or it is
+  treated as a miss and a rescan follows; a change of `search_roots` also invalidates the
+  cache, even for a key whose old path is still perfectly live.
 - `{{path:<name>}}` — manual `paths:` mapping in `.cartographer.yaml`, a fallback for directories that
   aren't git repos (and an override for `{{repo:<key>}}` too: `repoindex.Resolve` checks `paths:`
   before cache/scan).
