@@ -145,6 +145,22 @@ func boundKBUnion(cfg *clientconfig.Config, providers []string) (names []string,
 	return names, requiredBy, anyDefault
 }
 
+// kbOrderForProviders returns, for each provider in providers that has an
+// EXPLICIT KB binding (D169/D170), that binding's declared KB order —
+// clientconfig.ClientBinding.KBs is already an ordered YAML sequence. A
+// provider with no explicit binding (bound to every known KB by default) is
+// omitted, so materializeForProviders leaves its instructions block on the
+// alphabetical fallback (D182 WP2).
+func kbOrderForProviders(cfg *clientconfig.Config, providers []string) map[string][]string {
+	out := make(map[string][]string, len(providers))
+	for _, p := range providers {
+		if kbs, explicit := cfg.BoundKBs(p); explicit {
+			out[p] = kbs
+		}
+	}
+	return out
+}
+
 // manifestsForProviders returns, per provider, the manifest it may receive:
 // the candidates of its bound KBs, selected by source, merged strictly (so a
 // cross-KB collision inside THAT provider's set stops the sync, D171) and
@@ -395,7 +411,11 @@ type portabilityOptions struct {
 	Paths       map[string]string
 }
 
-func materializeForProviders(manifests map[string]provisioning.Manifest, providers []string, targetDir, serverVersion string, autoTrust, dryRun, noHeal bool, portability portabilityOptions, approvalHashes ...map[string]string) (map[string]provisioning.AppliedResult, error) {
+// kbOrder, keyed by provider, is the KB names in that provider's explicit
+// binding order (D182 WP2) — omitted or nil for a provider entry means no
+// explicit binding, so its instructions block keeps the alphabetical
+// fallback. See kbOrderForProviders.
+func materializeForProviders(manifests map[string]provisioning.Manifest, providers []string, targetDir, serverVersion string, autoTrust, dryRun, noHeal bool, portability portabilityOptions, kbOrder map[string][]string, approvalHashes ...map[string]string) (map[string]provisioning.AppliedResult, error) {
 	lockPath := lockFilePath(targetDir)
 	lockFile, err := provisioning.ReadLockFile(lockPath)
 	if err != nil {
@@ -440,6 +460,7 @@ func materializeForProviders(manifests map[string]provisioning.Manifest, provide
 			SearchRoots:        portability.SearchRoots,
 			SearchDepth:        portability.SearchDepth,
 			Paths:              portability.Paths,
+			KBOrder:            kbOrder[p],
 		}
 		// Apply only the artifacts the provider knows how to materialize:
 		// unsupported kinds (e.g. hook outside Claude Code, or agent outside
