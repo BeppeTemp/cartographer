@@ -8,6 +8,30 @@
 
 KB histories with commits authored as `cartographer <cartographer@localhost>` may need a manual author rewrite before a forge with author push rules accepts the first push.
 
+## [0.11.0](https://github.com/BeppeTemp/cartographer/compare/v0.10.0...v0.11.0) (2026-09-08)
+
+
+### Features
+
+* **cli:** add `kb rename` — offline, bounded, with an identity preflight (D177) ([#226](https://github.com/BeppeTemp/cartographer/issues/226)) ([3d05b04](https://github.com/BeppeTemp/cartographer/commit/3d05b04065b7aaf99b786b57fcd76a938031b3e5))
+* **cli:** bounded kb clone, correct local target, and a read-only kb list (D173) ([#225](https://github.com/BeppeTemp/cartographer/issues/225)) ([2a1ab07](https://github.com/BeppeTemp/cartographer/commit/2a1ab078bf6e85fc2acc6eb10da314d2b3319ee2))
+* **client:** per-provider KB binding model and `cartographer client` (D169) ([#217](https://github.com/BeppeTemp/cartographer/issues/217)) ([928ffea](https://github.com/BeppeTemp/cartographer/commit/928ffea905d61b3b86b6be0820088ff839106523)), closes [#206](https://github.com/BeppeTemp/cartographer/issues/206)
+* **sync:** project only a provider's bound KBs, selecting before the merge (D170) ([#220](https://github.com/BeppeTemp/cartographer/issues/220)) ([33fb185](https://github.com/BeppeTemp/cartographer/commit/33fb1859cd365ab357964f2589a95325633d8dca))
+* **sync:** refuse a cross-KB artifact collision instead of resolving it silently (D171) ([#219](https://github.com/BeppeTemp/cartographer/issues/219)) ([a18d05e](https://github.com/BeppeTemp/cartographer/commit/a18d05ef28e79dc7e425bfc33f94206bc15864a5)), closes [#208](https://github.com/BeppeTemp/cartographer/issues/208)
+* **tui:** binding-aware dashboard that says when it does not know (D175) ([#229](https://github.com/BeppeTemp/cartographer/issues/229)) ([157b5f7](https://github.com/BeppeTemp/cartographer/commit/157b5f70ac20950ecc1223d8d5cdaaef43a7efe9))
+
+
+### Bug Fixes
+
+* **auth:** strict validation of the effective authentication configuration (D179) ([#221](https://github.com/BeppeTemp/cartographer/issues/221)) ([5a0b934](https://github.com/BeppeTemp/cartographer/commit/5a0b934eefe8046e313b8c1bcae489a7f90c1af8))
+* **client:** persist search_depth instead of round-tripping it through Extra (D180) ([#222](https://github.com/BeppeTemp/cartographer/issues/222)) ([f3ab127](https://github.com/BeppeTemp/cartographer/commit/f3ab1273b1cd0fa544a3fd0e5c583c7844a5a408))
+* **cli:** report the local service's observable state, not a verdict on nothing (D174) ([#224](https://github.com/BeppeTemp/cartographer/issues/224)) ([91cac27](https://github.com/BeppeTemp/cartographer/commit/91cac27e69fbda05d33bc8bbbda17580d3cc5141))
+* **provisioning:** attribute and order the per-KB instruction sections (D182) ([#234](https://github.com/BeppeTemp/cartographer/issues/234)) ([112b1f0](https://github.com/BeppeTemp/cartographer/commit/112b1f011e4c9875d3ff579f7f4ec0fa7e09ccef))
+* **provisioning:** remove the files an artifact no longer owns (D178) ([#228](https://github.com/BeppeTemp/cartographer/issues/228)) ([125be98](https://github.com/BeppeTemp/cartographer/commit/125be98625dc0b6fa0af97639db6f11cec0c9a06))
+* **repoindex:** validate cached clone paths and invalidate on roots change (D181) ([#232](https://github.com/BeppeTemp/cartographer/issues/232)) ([03c25e5](https://github.com/BeppeTemp/cartographer/commit/03c25e5bca1f8b2e025c7fac8edf490df8281815))
+* **server:** gate multi-KB readiness on the audit sink (D176) ([#223](https://github.com/BeppeTemp/cartographer/issues/223)) ([722d06f](https://github.com/BeppeTemp/cartographer/commit/722d06f5520a59e7d3c9ec4c7b1eccd2c3bec34a))
+* **sync:** order the writes, checkpoint per provider, and serialize client state (D172) ([#227](https://github.com/BeppeTemp/cartographer/issues/227)) ([ae4ce52](https://github.com/BeppeTemp/cartographer/commit/ae4ce528ffa7a70a4355eea8d6221982149f400c))
+
 ## [0.10.0](https://github.com/BeppeTemp/cartographer/compare/v0.9.0...v0.10.0) (2026-09-06)
 
 
