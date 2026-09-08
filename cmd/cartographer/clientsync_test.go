@@ -890,13 +890,123 @@ func TestSelectProviders(t *testing.T) {
 }
 
 func TestCommonRevision(t *testing.T) {
-	same := map[string]provisioning.Manifest{"a": {Revision: "r"}, "b": {Revision: "r"}}
+	same := map[string]provisioning.AppliedResult{
+		"a": {NewLock: provisioning.Lock{AppliedRevision: "r"}},
+		"b": {NewLock: provisioning.Lock{AppliedRevision: "r"}},
+	}
 	if got := commonRevision(same, []string{"a", "b"}); got != "r" {
 		t.Errorf("commonRevision = %q, want r", got)
 	}
-	diff := map[string]provisioning.Manifest{"a": {Revision: "r1"}, "b": {Revision: "r2"}}
+	diff := map[string]provisioning.AppliedResult{
+		"a": {NewLock: provisioning.Lock{AppliedRevision: "r1"}},
+		"b": {NewLock: provisioning.Lock{AppliedRevision: "r2"}},
+	}
 	if got := commonRevision(diff, []string{"a", "b"}); got != "" {
 		t.Errorf("commonRevision = %q, want empty when providers diverge", got)
+	}
+}
+
+// skillAndAgentManifest builds a two-artifact manifest: a "skill" (every
+// provider in these tests supports it) and an "agent" (hermes does not —
+// D55/D141). Its raw Revision covers both artifacts, so it differs from
+// what FilterForProvider computes for hermes once the agent is dropped.
+func skillAndAgentManifest() provisioning.Manifest {
+	m := provisioning.Manifest{
+		Artifacts: []provisioning.Artifact{
+			{
+				Kind: "skill", Name: "example", Source: "bundle", BuiltIn: true,
+				ContentHash: "hash-skill",
+				Files:       []provisioning.ArtifactFile{{Path: "SKILL.md", Content: []byte("# example\n")}},
+			},
+			{
+				Kind: "agent", Name: "reviewer", Source: "bundle", BuiltIn: true,
+				ContentHash: "hash-agent",
+				Files:       []provisioning.ArtifactFile{{Path: "reviewer.md", Content: []byte("# reviewer\n")}},
+			},
+		},
+	}
+	m.Revision = provisioning.FilterForProvider(m, configurator.ProviderClaudeCode).Revision
+	return m
+}
+
+// TestPrintSyncRevisions_UnsupportedKindReportsRecordedRevision is the
+// assertion the issue names (#235/D184): a provider with unsupported kinds
+// must print the revision it actually recorded — the post-FilterForProvider
+// one `status` also reports for it — not the pre-projection manifest
+// revision, which no other command will ever echo back.
+func TestPrintSyncRevisions_UnsupportedKindReportsRecordedRevision(t *testing.T) {
+	t.Setenv("HERMES_HOME", t.TempDir())
+	m := skillAndAgentManifest()
+	filtered := provisioning.FilterForProvider(m, configurator.ProviderHermes)
+	if filtered.Revision == m.Revision {
+		t.Fatal("test fixture is broken: filtering the agent out must change the revision")
+	}
+
+	results, err := materializeForProviders(uniformManifests(m, []string{"hermes"}), []string{"hermes"}, t.TempDir(), "", true, false, false, portabilityOptions{}, nil)
+	if err != nil {
+		t.Fatalf("materializeForProviders: %v", err)
+	}
+	if got := results["hermes"].NewLock.AppliedRevision; got != filtered.Revision {
+		t.Fatalf("recorded revision = %q, want the post-filter revision %q", got, filtered.Revision)
+	}
+
+	out := withStdout(t, func() { printSyncRevisions(results, []string{"hermes"}, false) })
+	want := "synced to revision " + filtered.Revision + "\n"
+	if out != want {
+		t.Errorf("printSyncRevisions output = %q, want %q", out, want)
+	}
+	if strings.Contains(out, m.Revision) {
+		t.Errorf("output echoes the pre-projection revision: %q", out)
+	}
+}
+
+// TestPrintSyncRevisions_DryRunMatchesReal pins the D147/D184 invariant that
+// a dry run must name the same revision a real sync would record: Apply
+// fills AppliedResult.NewLock.AppliedRevision from the post-filter manifest
+// even under DryRun, so "would sync to" and "synced to" must agree.
+func TestPrintSyncRevisions_DryRunMatchesReal(t *testing.T) {
+	t.Setenv("HERMES_HOME", t.TempDir())
+	m := skillAndAgentManifest()
+	filtered := provisioning.FilterForProvider(m, configurator.ProviderHermes)
+
+	results, err := materializeForProviders(uniformManifests(m, []string{"hermes"}), []string{"hermes"}, t.TempDir(), "", true, true /* dryRun */, false, portabilityOptions{}, nil)
+	if err != nil {
+		t.Fatalf("materializeForProviders (dry-run): %v", err)
+	}
+
+	out := withStdout(t, func() { printSyncRevisions(results, []string{"hermes"}, true) })
+	want := "would sync to revision " + filtered.Revision + "\n"
+	if out != want {
+		t.Errorf("printSyncRevisions (dry-run) output = %q, want %q", out, want)
+	}
+}
+
+// TestPrintSyncRevisions_MultiProviderDivergence exercises the per-provider
+// branch: claude materializes both kinds while hermes drops the agent
+// (D55/D141), so even from the SAME raw manifest their recorded revisions
+// genuinely diverge and printSyncRevisions must report one line each.
+func TestPrintSyncRevisions_MultiProviderDivergence(t *testing.T) {
+	t.Setenv("HERMES_HOME", t.TempDir())
+	m := skillAndAgentManifest()
+	claudeRev := provisioning.FilterForProvider(m, configurator.ProviderClaudeCode).Revision
+	hermesRev := provisioning.FilterForProvider(m, configurator.ProviderHermes).Revision
+	if claudeRev == hermesRev {
+		t.Fatal("test fixture is broken: claude and hermes must diverge")
+	}
+
+	results, err := materializeForProviders(uniformManifests(m, []string{"claude", "hermes"}), []string{"claude", "hermes"}, t.TempDir(), "", true, false, false, portabilityOptions{}, nil)
+	if err != nil {
+		t.Fatalf("materializeForProviders: %v", err)
+	}
+	if got := commonRevision(results, []string{"claude", "hermes"}); got != "" {
+		t.Errorf("commonRevision = %q, want empty: claude and hermes diverge", got)
+	}
+
+	out := withStdout(t, func() { printSyncRevisions(results, []string{"claude", "hermes"}, false) })
+	wantClaude := "[claude] synced to revision " + claudeRev + "\n"
+	wantHermes := "[hermes] synced to revision " + hermesRev + "\n"
+	if !strings.Contains(out, wantClaude) || !strings.Contains(out, wantHermes) {
+		t.Errorf("printSyncRevisions output = %q, want lines %q and %q", out, wantClaude, wantHermes)
 	}
 }
 
