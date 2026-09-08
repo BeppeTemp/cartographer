@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
@@ -66,6 +67,19 @@ type dashboardAgent struct {
 	// SkillStatus is one of: "not connected", "checking…", "in-sync",
 	// "drift ..." (see formatDiffStatus), "server unreachable", or "error: ...".
 	SkillStatus string
+	// BoundKBs is the set of KBs this provider receives and BindingExplicit
+	// whether the user declared it or it was defaulted (D169/D175 WP1).
+	// Resolved from .cartographer.yaml in buildRows: local data, so the
+	// binding is part of the first frame and never waits on the network.
+	BoundKBs        []string
+	BindingExplicit bool
+	// KindStatus is the per-kind breakdown (formatKindStatus) and KindsKnown
+	// whether it was actually measured (D175 WP2). KindsKnown false means
+	// "not known" — before the first fetch resolves, and after one that
+	// failed — never "nothing to install": a successfully read but empty
+	// manifest is KindsKnown with an empty KindStatus.
+	KindStatus string
+	KindsKnown bool
 }
 
 // mcpConfigState is the three-state mcp-config badge (D120): a connected
@@ -108,6 +122,14 @@ type Model struct {
 	// dashboard one server-level explanation instead of repeating it per row.
 	snapshot *statusSnapshot
 
+	// syncingAll is true between the S keypress and syncAllDoneMsg, and
+	// syncProgress is the channel the sequential run announces each provider
+	// on (D175 WP4). The flag exists so a progress message that arrives after
+	// the outcome — the two travel on different goroutines — cannot overwrite
+	// the result the user needs to read.
+	syncingAll   bool
+	syncProgress chan string
+
 	formProvider string
 	connectForm  connectFormModel
 	// probing is true while the pre-connect reachability probe (D64) is in
@@ -125,14 +147,25 @@ type Model struct {
 	confirmProvider string
 	confirmYes      bool
 	disconnecting   bool
+	// confirmKBs is the confirmed provider's binding, captured when the
+	// screen opens so the prompt can name what is about to be removed
+	// (D175 WP4).
+	confirmKBs []string
 }
 
 // --- messages ---
 
 // remoteStatusMsg carries the result of an async fetchMergedManifest + diff pass,
 // keyed by provider name. Missing keys mean "leave SkillStatus unchanged".
+//
+// kinds is the per-kind breakdown (D175 WP2) and is keyed separately on
+// purpose: a provider is present only when its manifest was actually read, so
+// an absent key is "not known" while a present-but-empty value is a manifest
+// that was read and holds nothing. Collapsing the two would let the dashboard
+// show a breakdown computed against a manifest it never fetched.
 type remoteStatusMsg struct {
 	statuses map[string]string
+	kinds    map[string]string
 	snapshot statusSnapshot
 }
 
@@ -164,6 +197,13 @@ type syncAllDoneMsg struct {
 	applied map[string]provisioning.AppliedResult
 	failed  string
 	err     error
+}
+
+// syncProgressMsg names the provider whose sync is starting, emitted by a
+// sequential sync-all run before each provider (D175 WP4). It is progress
+// only: syncAllDoneMsg remains the single source of the outcome.
+type syncProgressMsg struct {
+	provider string
 }
 
 // syncDoneMsg carries the result of a syncCmd run.
@@ -226,10 +266,11 @@ func buildRows(dir string) []dashboardAgent {
 		row := dashboardAgent{Agent: a}
 		if connected[string(a.Provider)] {
 			row.Connected = true
-			bound := kbs
+			bound, explicit := kbs, false
 			if loaded != nil {
-				bound, _ = loaded.BoundKBs(string(a.Provider))
+				bound, explicit = loaded.BoundKBs(string(a.Provider))
 			}
+			row.BoundKBs, row.BindingExplicit = bound, explicit
 			row.MCPConfigState = mcpConfigStatus(dir, a.Provider, serverName, kbs, bound)
 			row.SkillStatus = "checking…"
 		} else {
@@ -338,12 +379,21 @@ func loadRemoteStatusCmd(dir string) tea.Cmd {
 		}
 		s := snapshotForConfig(dir, cfg, true)
 		statuses := make(map[string]string, len(cfg.Agents))
+		kinds := make(map[string]string, len(cfg.Agents))
 		for _, p := range s.Providers {
-			if p.Connected {
-				statuses[p.Name] = formatTUIProviderStatus(p)
+			if !p.Connected {
+				continue
+			}
+			statuses[p.Name] = formatTUIProviderStatus(p)
+			// "unknown" is the state snapshotForConfig assigns when the
+			// health check or the manifest fetch failed: there is no
+			// manifest to break down, so the provider is left out of the
+			// map rather than recorded as having nothing.
+			if p.State != "unknown" {
+				kinds[p.Name] = p.Kinds
 			}
 		}
-		return remoteStatusMsg{statuses: statuses, snapshot: s}
+		return remoteStatusMsg{statuses: statuses, kinds: kinds, snapshot: s}
 	}
 }
 
@@ -416,8 +466,16 @@ func syncCmd(provider, dir string) tea.Cmd {
 // with the lock in place each goroutine would only queue behind the others,
 // buying nothing and making the progress message incoherent — and before the
 // lock existed, those concurrent writers lost one another's lockfile entries.
-func syncAllCmd(providers []string, dir string) tea.Cmd {
+// progress, when non-nil, receives the name of each provider just before its
+// sync starts (D175 WP4) and is closed when the run ends. It must be buffered
+// for at least len(providers): a send that blocked would stall the run while
+// it holds the client lock, so progress reporting can never be a reason a sync
+// does not finish.
+func syncAllCmd(providers []string, dir string, progress chan<- string) tea.Cmd {
 	return func() tea.Msg {
+		if progress != nil {
+			defer close(progress)
+		}
 		release, err := provisioning.LockClientState(dir, provisioning.DefaultClientLockTimeout)
 		if err != nil {
 			return syncAllDoneMsg{err: err}
@@ -426,6 +484,9 @@ func syncAllCmd(providers []string, dir string) tea.Cmd {
 
 		out := syncAllDoneMsg{applied: make(map[string]provisioning.AppliedResult, len(providers))}
 		for _, p := range providers {
+			if progress != nil {
+				progress <- p
+			}
 			res := syncOneProvider(p, dir)
 			if res.err != nil {
 				out.failed, out.err = p, res.err
@@ -435,6 +496,19 @@ func syncAllCmd(providers []string, dir string) tea.Cmd {
 			out.applied[p] = res.applied
 		}
 		return out
+	}
+}
+
+// waitForSyncProgressCmd blocks on one syncAllCmd announcement and re-arms
+// itself from the handler. A closed channel ends the chain: returning a nil
+// Msg leaves the model untouched, which is what the end of the run means here.
+func waitForSyncProgressCmd(progress <-chan string) tea.Cmd {
+	return func() tea.Msg {
+		provider, ok := <-progress
+		if !ok {
+			return nil
+		}
+		return syncProgressMsg{provider: provider}
 	}
 }
 
@@ -504,8 +578,13 @@ var knownProvisioningKinds = []string{"skill", "agent", "hook", "instructions", 
 // formatKindStatus renders provisioning.KindCounts(m, lock) as a compact per-kind
 // summary string, e.g. "skill 4/5 · agent 2/2 · hook 1/1". Kinds with zero
 // artifacts in the manifest are omitted. Returns "" if there is nothing to show
-// (empty manifest). Used by both `cartographer status` and the TUI dashboard
-// (loadRemoteStatusCmd), alongside — not in place of — formatDiffStatus.
+// (empty manifest) — which is not the same as "not measured", the distinction
+// the dashboard keeps in dashboardAgent.KindsKnown.
+//
+// The single caller is snapshotForConfig (status_snapshot.go): both
+// `cartographer status` and the dashboard read the result off the snapshot, so
+// the two cannot report different breakdowns for the same provider. It stands
+// alongside — not in place of — formatDiffStatus.
 func formatKindStatus(m provisioning.Manifest, lock provisioning.Lock) string {
 	counts := provisioning.KindCounts(m, lock)
 
@@ -617,6 +696,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if s, ok := msg.statuses[string(m.rows[i].Provider)]; ok {
 				m.rows[i].SkillStatus = s
 			}
+			// Assigned unconditionally: a fetch that could not read this
+			// provider's manifest must clear a breakdown left over from an
+			// earlier poll, not leave it standing as if it still held.
+			m.rows[i].KindStatus, m.rows[i].KindsKnown = msg.kinds[string(m.rows[i].Provider)]
 		}
 		return m, nil
 
@@ -663,6 +746,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.loading = true
 		return m, loadRemoteStatusCmd(m.dir)
 
+	case syncProgressMsg:
+		// Ignored once the run is over: the outcome message must survive a
+		// progress message still in flight behind it.
+		if !m.syncingAll {
+			return m, nil
+		}
+		m.message = fmt.Sprintf("syncing %s…", msg.provider)
+		return m, waitForSyncProgressCmd(m.syncProgress)
+
 	case syncDoneMsg:
 		m.loading = false
 		if msg.err != nil {
@@ -678,6 +770,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case syncAllDoneMsg:
 		m.loading = false
+		m.syncingAll = false
 		m.rows = buildRows(m.dir)
 		if msg.err != nil {
 			m.err = msg.err
@@ -752,9 +845,12 @@ func (m Model) updateList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.loading = true
-		m.message = "syncing all connected providers…"
+		m.syncingAll = true
+		m.message = fmt.Sprintf("syncing %d providers one at a time: %s", len(providers), strings.Join(providers, ", "))
 		m.err = nil
-		return m, syncAllCmd(providers, m.dir)
+		// Buffered for the whole run so the sync never blocks on the UI.
+		m.syncProgress = make(chan string, len(providers))
+		return m, tea.Batch(syncAllCmd(providers, m.dir, m.syncProgress), waitForSyncProgressCmd(m.syncProgress))
 
 	case "enter", "s":
 		if len(m.rows) == 0 {
@@ -789,6 +885,7 @@ func (m Model) updateList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m Model) openConfirmDisconnect(row dashboardAgent) Model {
 	m.screen = screenConfirmDisconnect
 	m.confirmProvider = string(row.Provider)
+	m.confirmKBs = row.BoundKBs
 	m.confirmYes = false // default to the safe option
 	m.disconnecting = false
 	m.message = ""
@@ -946,7 +1043,7 @@ func (m Model) View() string {
 		b.WriteString(styleFooter.Render(wrapForWidth("←/→ select · enter confirm · y/n shortcut · esc cancel · ctrl+c quit", m.width-6)))
 	default:
 		if len(m.rows) > 0 && m.rows[m.cursor].Connected {
-			b.WriteString(styleFooter.Render(wrapForWidth("↑/↓ move · enter/s sync · S sync all · d disconnect · r refresh · q quit", m.width-6)))
+			b.WriteString(styleFooter.Render(wrapForWidth("↑/↓ move · enter/s sync selected · S sync all, one at a time · d disconnect · r refresh · q quit", m.width-6)))
 		} else {
 			b.WriteString(styleFooter.Render(wrapForWidth("↑/↓ move · enter connect · r refresh · q quit", m.width-6)))
 		}
@@ -996,7 +1093,7 @@ func (m Model) viewList() string {
 
 		// Details stacked vertically under each provider.
 		if row.Installed && row.Evidence != "" {
-			lines = append(lines, "      "+styleSubtitle.Render("binary      ")+styleEvidence.Render(row.Evidence))
+			lines = append(lines, m.rowDetail("binary", styleEvidence.Render(row.Evidence)))
 		}
 		if row.Connected {
 			var mcpBadge string
@@ -1012,9 +1109,21 @@ func (m Model) viewList() string {
 			if skill == "checking…" && m.loading {
 				skill = m.spinner.View() + " checking…"
 			}
+			// "unknown" and an empty breakdown are different answers: the
+			// first is a manifest that was never read, the second one that
+			// was read and holds nothing. Reporting the first as the second
+			// would show a clean bill of health computed against nothing.
+			kinds := "unknown"
+			if row.KindsKnown {
+				if kinds = row.KindStatus; kinds == "" {
+					kinds = "no artifacts"
+				}
+			}
 			lines = append(lines,
-				"      "+styleSubtitle.Render("mcp-config  ")+mcpBadge,
-				"      "+styleSubtitle.Render("artifacts   ")+skill)
+				m.rowDetail("mcp-config", mcpBadge),
+				m.rowDetail("kbs", formatBoundKBs(row.BoundKBs, row.BindingExplicit, m.detailWidth())),
+				m.rowDetail("artifacts", skill),
+				m.rowDetail("kinds", truncateForWidth(kinds, m.detailWidth())))
 		}
 		if i < len(m.rows)-1 {
 			lines = append(lines, "")
@@ -1026,26 +1135,176 @@ func (m Model) viewList() string {
 	return strings.Join(lines, "\n")
 }
 
+// rowIndentWidth and rowLabelWidth define the two-column grid of a provider
+// card: every detail line is indented and labelled identically, which is what
+// lets the eye scan down a column instead of reading each line.
+const (
+	rowIndentWidth   = 6
+	rowLabelWidth    = 12
+	serverLabelWidth = 11
+	// boxChromeWidth is the border plus the horizontal padding of styleBorder:
+	// what the frame takes from the terminal before any content is drawn.
+	boxChromeWidth = 4
+)
+
+// rowDetail renders one label/value line of a provider card on the grid.
+func (m Model) rowDetail(label, value string) string {
+	return strings.Repeat(" ", rowIndentWidth) + styleSubtitle.Render(fmt.Sprintf("%-*s", rowLabelWidth, label)) + value
+}
+
+// detailWidth is how many columns a detail value has before it would run past
+// the frame. Zero means the terminal size is not known yet (no WindowSizeMsg):
+// nothing is truncated, because guessing a width would cut text that fits.
+func (m Model) detailWidth() int {
+	if m.width <= 0 {
+		return 0
+	}
+	return m.width - boxChromeWidth - rowIndentWidth - rowLabelWidth
+}
+
+// viewServerPanel renders the server block as a labelled column rather than
+// one long line: with four mounted KBs the single line exceeded any usable
+// width, and a line nobody can scan reports nothing (D175 WP3).
 func (m Model) viewServerPanel() string {
 	s := m.snapshot
 	if s == nil {
 		return ""
 	}
-	state := strings.ReplaceAll(s.State, "_", "-")
-	line := fmt.Sprintf("Server  %s  %s", compactForWidth(s.ServerURL, m.width), state)
+	valueWidth := 0
+	if m.width > 0 {
+		valueWidth = m.width - boxChromeWidth - serverLabelWidth
+	}
+	line := func(label, value string) string {
+		return styleSubtitle.Render(fmt.Sprintf("%-*s", serverLabelWidth, label)) + value
+	}
+
+	head := compactForWidth(s.ServerURL, m.width) + "  " + strings.ReplaceAll(s.State, "_", "-")
 	if s.Reachable {
-		line += fmt.Sprintf("  ready=%s  client %s · server %s", readinessLabel(s.Ready), s.Client, s.Server)
+		head += " · " + readinessLabel(s.Ready)
+	}
+	lines := []string{line("server", head)}
+
+	versions := "client " + s.Client
+	if s.Server != "" {
+		versions += " · server " + s.Server
+	}
+	if s.State == "version_skew" {
+		versions = styleDrift.Render(versions)
+	}
+	lines = append(lines, line("version", versions))
+
+	if svc := serviceLine(s.Service); svc != "" {
+		lines = append(lines, line("service", svc))
 	}
 	if len(s.KBs) > 0 {
-		line += "  KBs " + strings.Join(s.KBs, ", ")
+		lines = append(lines, line("KBs", truncateForWidth(kbBindingSummary(s), valueWidth)))
 	}
 	if s.Error != nil {
-		line += "\n  " + wrapForWidth(s.Error.Message, m.width-8)
+		lines = append(lines, "  "+wrapForWidth(s.Error.Message, m.width-8))
 	}
-	if s.Service != nil {
-		line += fmt.Sprintf("\n  local service: installed=%t running=%t", s.Service.Installed, s.Service.Running)
+	return strings.Join(lines, "\n")
+}
+
+// serviceLine describes the local native service, and only when there is one
+// to describe (D174): with nothing installed the panel says nothing rather
+// than rendering an absence as a failure. "loaded" is what the init system
+// knows about the job, never a claim that a process is alive.
+func serviceLine(svc *serviceSnapshot) string {
+	if svc == nil || !svc.Installed {
+		return ""
 	}
-	return line
+	lifecycle := svc.Lifecycle
+	if lifecycle == "" {
+		// A snapshot from before Lifecycle existed: Running carries the same
+		// (equally weak) claim, so say the same thing rather than nothing.
+		if lifecycle = "not_loaded"; svc.Running {
+			lifecycle = "loaded"
+		}
+	}
+	return "local: installed · " + strings.ReplaceAll(lifecycle, "_", " ")
+}
+
+// kbBindingSummary lists the KBs the server mounts with how many connected
+// providers are bound to each. The number counts BINDINGS: not live sessions,
+// and not a confirmation that a sync has run. A KB the server serves and
+// nobody consumes is the most useful fact this line can carry, and it only
+// carries it if the count means exactly one thing — hence the explicit
+// "bound" on the first entry.
+func kbBindingSummary(s *statusSnapshot) string {
+	bound := map[string]int{}
+	for _, p := range s.Providers {
+		if !p.Connected {
+			continue
+		}
+		for _, kb := range p.BoundKBs {
+			bound[kb]++
+		}
+	}
+	parts := make([]string, 0, len(s.KBs))
+	for i, kb := range s.KBs {
+		if i == 0 {
+			parts = append(parts, fmt.Sprintf("%s (%d bound)", kb, bound[kb]))
+			continue
+		}
+		parts = append(parts, fmt.Sprintf("%s (%d)", kb, bound[kb]))
+	}
+	return strings.Join(parts, " · ")
+}
+
+// formatBoundKBs renders a provider's KB binding: the names it receives and
+// where that answer came from. The three states BoundKBs distinguishes get
+// three different sentences on purpose — an explicit empty binding and an
+// absent one are opposite instructions, and both would render as an empty
+// list.
+func formatBoundKBs(kbs []string, explicit bool, width int) string {
+	origin := "  (default)"
+	if explicit {
+		origin = "  (explicit)"
+	}
+	var names string
+	switch {
+	case !explicit:
+		names = "all known"
+	case len(kbs) == 0:
+		names = "none"
+	default:
+		names = joinWithCounter(kbs, width-utf8.RuneCountInString(origin))
+	}
+	return names + origin
+}
+
+// joinWithCounter joins names within width columns, replacing those that do
+// not fit with a "+N" counter. It never wraps: the grid is what makes the card
+// readable, and it never cuts a name in half, which would name a KB that does
+// not exist.
+func joinWithCounter(names []string, width int) string {
+	joined := strings.Join(names, ", ")
+	if width <= 0 || utf8.RuneCountInString(joined) <= width {
+		return joined
+	}
+	for i := len(names) - 1; i > 0; i-- {
+		candidate := fmt.Sprintf("%s +%d", strings.Join(names[:i], ", "), len(names)-i)
+		if utf8.RuneCountInString(candidate) <= width {
+			return candidate
+		}
+	}
+	if len(names) == 1 {
+		return "1 KB"
+	}
+	return fmt.Sprintf("%d KBs", len(names))
+}
+
+// truncateForWidth shortens s to width columns with an ellipsis, for values
+// that must stay on one line. Width 0 (terminal size not yet known) means no
+// truncation.
+func truncateForWidth(s string, width int) string {
+	if width <= 0 || utf8.RuneCountInString(s) <= width {
+		return s
+	}
+	if width == 1 {
+		return "…"
+	}
+	return string([]rune(s)[:width-1]) + "…"
 }
 
 func compactForWidth(s string, width int) string {
@@ -1061,7 +1320,7 @@ func compactForWidth(s string, width int) string {
 
 func readinessLabel(ready *bool) string {
 	if ready == nil {
-		return "unknown"
+		return "readiness unknown"
 	}
 	if *ready {
 		return "ready"
@@ -1095,7 +1354,17 @@ func (m Model) viewConfirmDisconnect() string {
 	} else {
 		no = styleSelected.Render("> no <")
 	}
-	return fmt.Sprintf("%s\n\n   %s   %s", wrapForWidth(fmt.Sprintf("Disconnect %s? This removes its MCP config entry and managed artifacts.", m.confirmProvider), m.width-6), yes, no)
+	return fmt.Sprintf("%s\n\n   %s   %s", wrapForWidth(disconnectPrompt(m.confirmProvider, m.confirmKBs), m.width-6), yes, no)
+}
+
+// disconnectPrompt names the KBs whose artifacts the disconnect removes
+// (D175 WP4). "managed artifacts" alone does not tell the user what leaves
+// this machine, which is the one thing the confirmation exists to say.
+func disconnectPrompt(provider string, kbs []string) string {
+	if len(kbs) == 0 {
+		return fmt.Sprintf("Disconnect %s? This removes its MCP config entry and any managed artifacts (it is bound to no KB).", provider)
+	}
+	return fmt.Sprintf("Disconnect %s? This removes its MCP config entry and the artifacts it received from %s.", provider, strings.Join(kbs, ", "))
 }
 
 // displayVersion normalizes the build version for the title bar: the

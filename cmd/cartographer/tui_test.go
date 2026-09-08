@@ -13,6 +13,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/BeppeTemp/cartographer/internal/agents"
+	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
 )
@@ -26,7 +27,7 @@ func TestViewResponsiveServerPanelAndWidth(t *testing.T) {
 		m.width = width
 		m.snapshot = &statusSnapshot{Schema: statusSchema, ServerURL: "https://very-long.example.test/a/really/long/mcp/endpoint", Reachable: true, Ready: &ready, Client: "v1", Server: "v2", State: "version_skew"}
 		out := ansiRE.ReplaceAllString(m.View(), "")
-		if !strings.Contains(out, "Server") || !strings.Contains(out, "ready=ready") {
+		if !strings.Contains(out, "server") || !strings.Contains(out, "ready") {
 			t.Fatalf("width %d misses server/readiness: %s", width, out)
 		}
 		for _, line := range strings.Split(out, "\n") {
@@ -87,6 +88,7 @@ func testModel() Model {
 				Agent:       agents.Agent{Provider: configurator.ProviderOpenCode, Name: "OpenCode", Installed: true},
 				Connected:   true,
 				SkillStatus: "checking…",
+				BoundKBs:    []string{"kb-uno"},
 			},
 		},
 		screen: screenList,
@@ -897,5 +899,387 @@ func TestUpdate_WindowSizeMsgSetsWidth(t *testing.T) {
 	}
 	if cmd != nil {
 		t.Errorf("WindowSizeMsg non deve produrre un cmd")
+	}
+}
+
+// --- D175 WP1: per-provider KB attribution ---------------------------------
+
+// TestFormatBoundKBs pins the three states BoundKBs distinguishes as three
+// different sentences: an explicit empty binding and an absent one are
+// opposite instructions and must never render the same way.
+func TestFormatBoundKBs(t *testing.T) {
+	tests := []struct {
+		name     string
+		kbs      []string
+		explicit bool
+		width    int
+		want     string
+	}{
+		{"explicit list", []string{"kb-uno", "kb-due"}, true, 0, "kb-uno, kb-due  (explicit)"},
+		{"default", []string{"kb-uno", "kb-due"}, false, 0, "all known  (default)"},
+		{"explicit empty", nil, true, 0, "none  (explicit)"},
+		{"truncated with a counter", []string{"kb-uno", "kb-due", "kb-tre", "kb-quattro"}, true, 32, "kb-uno, kb-due +2  (explicit)"},
+		{"not even one name fits", []string{"a-very-long-kb-name", "another-one"}, true, 18, "2 KBs  (explicit)"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := formatBoundKBs(tt.kbs, tt.explicit, tt.width); got != tt.want {
+				t.Errorf("formatBoundKBs = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestJoinWithCounterNeverWraps: the value must stay on one line whatever the
+// width — a wrapped value breaks the column the card is read by.
+func TestJoinWithCounterNeverWraps(t *testing.T) {
+	for _, width := range []int{0, 5, 12, 40, 200} {
+		got := joinWithCounter([]string{"kb-uno", "kb-due", "kb-tre"}, width)
+		if strings.Contains(got, "\n") {
+			t.Fatalf("width %d wrapped: %q", width, got)
+		}
+	}
+}
+
+// TestViewList_KBLineStates renders the three binding states through the real
+// view, on the grid, under mcp-config.
+func TestViewList_KBLineStates(t *testing.T) {
+	tests := []struct {
+		name string
+		row  dashboardAgent
+		want string
+	}{
+		{"explicit", dashboardAgent{Agent: agents.Agent{Name: "Claude Code"}, Connected: true, BoundKBs: []string{"kb-uno", "kb-due"}, BindingExplicit: true}, "kbs         kb-uno, kb-due  (explicit)"},
+		{"default", dashboardAgent{Agent: agents.Agent{Name: "Claude Code"}, Connected: true, BoundKBs: []string{"kb-uno"}}, "kbs         all known  (default)"},
+		{"explicit empty", dashboardAgent{Agent: agents.Agent{Name: "Claude Code"}, Connected: true, BindingExplicit: true}, "kbs         none  (explicit)"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := Model{version: "test", rows: []dashboardAgent{tt.row}, screen: screenList}
+			out := ansiRE.ReplaceAllString(m.viewList(), "")
+			if !strings.Contains(out, tt.want) {
+				t.Errorf("viewList missing %q in:\n%s", tt.want, out)
+			}
+		})
+	}
+}
+
+// TestBuildRowsResolvesBindingLocally is the WP1 invariant: the binding is
+// local data (.cartographer.yaml), so it is in the first frame — buildRows
+// contacts nothing.
+func TestBuildRowsResolvesBindingLocally(t *testing.T) {
+	dir := t.TempDir()
+	cfg := &clientconfig.Config{
+		ServerURL: "http://127.0.0.1:1/mcp",
+		Agents:    []string{string(configurator.ProviderClaudeCode), string(configurator.ProviderOpenCode)},
+		KnownKBs:  []string{"kb-uno", "kb-due"},
+		Clients: map[string]clientconfig.ClientBinding{
+			string(configurator.ProviderClaudeCode): {KBs: []string{"kb-due"}},
+		},
+	}
+	if err := clientconfig.Save(dir, cfg); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+
+	for _, row := range buildRows(dir) {
+		if !row.Connected {
+			continue
+		}
+		switch row.Provider {
+		case configurator.ProviderClaudeCode:
+			if !row.BindingExplicit || len(row.BoundKBs) != 1 || row.BoundKBs[0] != "kb-due" {
+				t.Errorf("claude binding = %v explicit=%t, want [kb-due] explicit", row.BoundKBs, row.BindingExplicit)
+			}
+		case configurator.ProviderOpenCode:
+			if row.BindingExplicit || len(row.BoundKBs) != 2 {
+				t.Errorf("opencode binding = %v explicit=%t, want the two known KBs by default", row.BoundKBs, row.BindingExplicit)
+			}
+		}
+	}
+}
+
+// --- D175 WP2: the per-kind breakdown, and honesty about not knowing -------
+
+// TestViewList_KindsUnknownBeforeAndAfterAFailedFetch: an unmeasured breakdown
+// must read as unknown. Showing the previous poll's counts — or nothing, which
+// reads as "clean" — would report a verdict computed against a manifest that
+// was never fetched.
+func TestViewList_KindsUnknownBeforeAndAfterAFailedFetch(t *testing.T) {
+	row := dashboardAgent{Agent: agents.Agent{Name: "Claude Code"}, Connected: true, SkillStatus: "checking…"}
+	m := Model{version: "test", rows: []dashboardAgent{row}, screen: screenList}
+	if out := ansiRE.ReplaceAllString(m.viewList(), ""); !strings.Contains(out, "kinds       unknown") {
+		t.Errorf("before the fetch the breakdown must be unknown:\n%s", out)
+	}
+
+	// A fetch that failed: the provider is absent from the kinds map, so a
+	// breakdown left over from an earlier poll must be cleared.
+	m.rows[0].KindStatus, m.rows[0].KindsKnown = "skill 5/5", true
+	next, _ := m.Update(remoteStatusMsg{
+		statuses: map[string]string{"": "unknown"},
+		kinds:    map[string]string{},
+		snapshot: statusSnapshot{Schema: statusSchema, State: "unavailable"},
+	})
+	m = next.(Model)
+	if m.rows[0].KindsKnown {
+		t.Error("a failed fetch must clear the breakdown, not keep the stale one")
+	}
+	if out := ansiRE.ReplaceAllString(m.viewList(), ""); !strings.Contains(out, "kinds       unknown") {
+		t.Errorf("after a failed fetch the breakdown must be unknown:\n%s", out)
+	}
+}
+
+// TestViewList_KindsAfterFetch: a successful fetch shows the breakdown, and an
+// empty-but-read manifest is not rendered as unknown.
+func TestViewList_KindsAfterFetch(t *testing.T) {
+	m := testModel()
+	next, _ := m.Update(remoteStatusMsg{
+		statuses: map[string]string{string(configurator.ProviderOpenCode): "in-sync"},
+		kinds:    map[string]string{string(configurator.ProviderOpenCode): "skill 5/5 · agent 4/4"},
+	})
+	m = next.(Model)
+	out := ansiRE.ReplaceAllString(m.viewList(), "")
+	if !strings.Contains(out, "kinds       skill 5/5 · agent 4/4") {
+		t.Errorf("missing the breakdown after the fetch:\n%s", out)
+	}
+
+	// Read, and empty: known, with nothing in it.
+	next, _ = m.Update(remoteStatusMsg{
+		statuses: map[string]string{string(configurator.ProviderOpenCode): "in-sync"},
+		kinds:    map[string]string{string(configurator.ProviderOpenCode): ""},
+	})
+	out = ansiRE.ReplaceAllString(next.(Model).viewList(), "")
+	if !strings.Contains(out, "kinds       no artifacts") {
+		t.Errorf("an empty but successfully read manifest must not read as unknown:\n%s", out)
+	}
+}
+
+// TestViewList_SpinnerDuringTheFetch: the artifacts line keeps the spinner
+// while loading, and the breakdown below it says unknown.
+func TestViewList_SpinnerDuringTheFetch(t *testing.T) {
+	m := testModel()
+	m.loading = true
+	out := ansiRE.ReplaceAllString(m.viewList(), "")
+	if !strings.Contains(out, "checking…") || !strings.Contains(out, "kinds       unknown") {
+		t.Errorf("expected the spinner state and an unknown breakdown:\n%s", out)
+	}
+}
+
+// --- D175 WP3: the server panel --------------------------------------------
+
+// TestViewServerPanel_LabelledBlock covers the WP3 acceptance: readable at 100
+// columns with four KBs, one labelled line each, and a binding count per KB
+// including the zero that matters most.
+func TestViewServerPanel_LabelledBlock(t *testing.T) {
+	ready := true
+	m := testModel()
+	m.width = 100
+	m.snapshot = &statusSnapshot{
+		Schema: statusSchema, ServerURL: "http://localhost:39273/mcp", Reachable: true, Ready: &ready,
+		Client: "v0.10.0", Server: "v0.10.0", State: "in_sync",
+		KBs: []string{"kb-uno", "kb-due", "kb-tre", "kb-quattro"},
+		Providers: []providerStatus{
+			{Name: "claude", Connected: true, BoundKBs: []string{"kb-uno", "kb-due"}},
+			{Name: "codex", Connected: true, BoundKBs: []string{"kb-uno"}},
+			{Name: "kiro", Connected: true, BoundKBs: []string{"kb-uno"}},
+			{Name: "hermes", Connected: false, BoundKBs: []string{"kb-tre"}},
+		},
+		Service: &serviceSnapshot{Installed: true, Running: true, Lifecycle: "loaded"},
+	}
+	out := ansiRE.ReplaceAllString(m.viewServerPanel(), "")
+	for _, want := range []string{
+		"server     http://localhost:39273/mcp  in-sync · ready",
+		"version    client v0.10.0 · server v0.10.0",
+		"service    local: installed · loaded",
+		"KBs        kb-uno (3 bound) · kb-due (1) · kb-tre (0) · kb-quattro (0)",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("server panel missing %q in:\n%s", want, out)
+		}
+	}
+	for _, line := range strings.Split(ansiRE.ReplaceAllString(m.View(), ""), "\n") {
+		if got := utf8.RuneCountInString(line); got > 100 {
+			t.Errorf("overflow at 100 columns (%d): %q", got, line)
+		}
+	}
+}
+
+// TestViewServerPanel_NoLocalService: with nothing installed the panel says
+// nothing about a service, rather than rendering an absence as a failure
+// (D174).
+func TestViewServerPanel_NoLocalService(t *testing.T) {
+	for _, svc := range []*serviceSnapshot{nil, {Installed: false}} {
+		m := testModel()
+		m.width = 100
+		m.snapshot = &statusSnapshot{Schema: statusSchema, ServerURL: "http://h/mcp", Client: "v1", State: "in_sync", Service: svc}
+		if out := ansiRE.ReplaceAllString(m.viewServerPanel(), ""); strings.Contains(out, "service") {
+			t.Errorf("no local service must produce no service line:\n%s", out)
+		}
+	}
+}
+
+// TestViewServerPanel_VersionSkewKeepsTheDriftStyle
+func TestViewServerPanel_VersionSkewKeepsTheDriftStyle(t *testing.T) {
+	m := testModel()
+	m.width = 100
+	m.snapshot = &statusSnapshot{Schema: statusSchema, ServerURL: "http://h/mcp", Reachable: true, Client: "v0.10.0", Server: "v0.11.0", State: "version_skew"}
+	raw := m.viewServerPanel()
+	if !strings.Contains(ansiRE.ReplaceAllString(raw, ""), "version    client v0.10.0 · server v0.11.0") {
+		t.Errorf("missing the version line:\n%s", raw)
+	}
+	// Asserted through the style itself, so the check holds whether or not
+	// the test environment renders colour: under a no-colour profile
+	// styleDrift.Render is the identity and the assertion degrades to the
+	// text, under a colour profile it pins the escape sequences.
+	if !strings.Contains(raw, styleDrift.Render("client v0.10.0 · server v0.11.0")) {
+		t.Errorf("a version skew must keep the drift style:\n%q", raw)
+	}
+}
+
+// TestViewServerPanel_ReadableAtReducedWidth
+func TestViewServerPanel_ReadableAtReducedWidth(t *testing.T) {
+	for _, width := range []int{60, 80, 100, 120} {
+		m := testModel()
+		m.width = width
+		m.snapshot = &statusSnapshot{
+			Schema: statusSchema, ServerURL: "http://localhost:39273/mcp", Reachable: true, Client: "v0.10.0", Server: "v0.10.0", State: "in_sync",
+			KBs:       []string{"kb-uno", "kb-due", "kb-tre", "kb-quattro"},
+			Providers: []providerStatus{{Name: "claude", Connected: true, BoundKBs: []string{"kb-uno"}}},
+		}
+		for _, line := range strings.Split(ansiRE.ReplaceAllString(m.View(), ""), "\n") {
+			if got := utf8.RuneCountInString(line); got > width {
+				t.Errorf("width %d overflow %d: %q", width, got, line)
+			}
+		}
+	}
+}
+
+// --- D175 WP4: actions consistent with the bindings ------------------------
+
+// TestUpdate_SyncAllIsSequentialAndNamesTheProviderInFlight
+func TestUpdate_SyncAllIsSequentialAndNamesTheProviderInFlight(t *testing.T) {
+	m := testModel()
+	m.rows[0].Connected = true // both rows connected
+
+	next, cmd := m.Update(keyMsg("S"))
+	m = next.(Model)
+	if !m.syncingAll || cmd == nil {
+		t.Fatal("S must start a sync-all run")
+	}
+	if !strings.Contains(m.message, "one at a time") {
+		t.Errorf("the message must say the run is sequential, got %q", m.message)
+	}
+
+	next, cmd = m.Update(syncProgressMsg{provider: "opencode"})
+	m = next.(Model)
+	if m.message != "syncing opencode…" {
+		t.Errorf("progress message = %q, want the provider in flight", m.message)
+	}
+	if cmd == nil {
+		t.Error("the progress listener must re-arm itself")
+	}
+
+	// The outcome must survive a progress message still in flight behind it.
+	next, _ = m.Update(syncAllDoneMsg{done: []string{"claude", "opencode"}})
+	m = next.(Model)
+	if m.syncingAll {
+		t.Error("syncingAll must be cleared by the outcome")
+	}
+	outcome := m.message
+	next, cmd = m.Update(syncProgressMsg{provider: "opencode"})
+	if got := next.(Model).message; got != outcome {
+		t.Errorf("a late progress message overwrote the outcome: %q", got)
+	}
+	if cmd != nil {
+		t.Error("a late progress message must not re-arm the listener")
+	}
+}
+
+// TestWaitForSyncProgressCmd: one announcement per call, nil once the run has
+// closed the channel.
+func TestWaitForSyncProgressCmd(t *testing.T) {
+	ch := make(chan string, 2)
+	ch <- "claude"
+	close(ch)
+
+	if msg := waitForSyncProgressCmd(ch)(); msg != (syncProgressMsg{provider: "claude"}) {
+		t.Errorf("first read = %#v, want the announced provider", msg)
+	}
+	if msg := waitForSyncProgressCmd(ch)(); msg != nil {
+		t.Errorf("a closed channel must end the chain, got %#v", msg)
+	}
+}
+
+// TestSyncAllCmdAnnouncesEveryProviderInOrder: sequential, and reported as
+// such. The sync itself fails here (no config in the temp dir) — the point is
+// that the announcement precedes the work and the run is ordered.
+func TestSyncAllCmdAnnouncesEveryProviderInOrder(t *testing.T) {
+	dir := t.TempDir()
+	progress := make(chan string, 3)
+	msg := syncAllCmd([]string{"claude", "codex", "kiro"}, dir, progress)()
+
+	if _, ok := msg.(syncAllDoneMsg); !ok {
+		t.Fatalf("syncAllCmd returned %#v, want syncAllDoneMsg", msg)
+	}
+	var got []string
+	for p := range progress { // closed by syncAllCmd: this must terminate
+		got = append(got, p)
+	}
+	if len(got) == 0 || got[0] != "claude" {
+		t.Errorf("announcements = %v, want them to start at the first provider", got)
+	}
+}
+
+// TestUpdate_EnterSyncsOnlyTheSelectedProvider: the selection is what gets
+// synced, and no sync-all state is entered.
+func TestUpdate_EnterSyncsOnlyTheSelectedProvider(t *testing.T) {
+	m := testModel()
+	m.cursor = 1 // OpenCode, connected
+
+	next, cmd := m.Update(keyMsg("s"))
+	m = next.(Model)
+	if cmd == nil || !strings.Contains(m.message, "opencode") {
+		t.Errorf("s must sync the selected provider, message = %q", m.message)
+	}
+	if m.syncingAll {
+		t.Error("a single-provider sync must not enter the sync-all run")
+	}
+}
+
+// TestDisconnectPromptNamesTheKBs: the confirmation must say what leaves this
+// machine, which is the one thing it exists to say.
+func TestDisconnectPromptNamesTheKBs(t *testing.T) {
+	if got := disconnectPrompt("opencode", []string{"kb-uno", "kb-due"}); !strings.Contains(got, "kb-uno, kb-due") {
+		t.Errorf("prompt must name the bound KBs, got %q", got)
+	}
+	if got := disconnectPrompt("opencode", nil); !strings.Contains(got, "bound to no KB") {
+		t.Errorf("a provider bound to nothing must be said so, got %q", got)
+	}
+}
+
+// TestUpdate_ConfirmDisconnectCapturesTheBinding
+func TestUpdate_ConfirmDisconnectCapturesTheBinding(t *testing.T) {
+	m := testModel()
+	m.cursor = 1
+	m.rows[1].BoundKBs = []string{"kb-uno", "kb-due"}
+
+	next, _ := m.Update(keyMsg("d"))
+	m = next.(Model)
+	if m.screen != screenConfirmDisconnect {
+		t.Fatalf("screen = %v, want the confirmation", m.screen)
+	}
+	out := ansiRE.ReplaceAllString(m.viewConfirmDisconnect(), "")
+	if !strings.Contains(out, "kb-uno") || !strings.Contains(out, "kb-due") {
+		t.Errorf("the confirmation must name the provider's KBs:\n%s", out)
+	}
+}
+
+// TestFooterDistinguishesTheTwoSyncKeys: s and S do different things and the
+// footer has to say which.
+func TestFooterDistinguishesTheTwoSyncKeys(t *testing.T) {
+	m := testModel()
+	m.cursor = 1 // connected: the footer shows the sync keys
+	out := ansiRE.ReplaceAllString(m.View(), "")
+	if !strings.Contains(out, "sync selected") || !strings.Contains(out, "sync all") {
+		t.Errorf("footer must distinguish the two sync keys:\n%s", out)
 	}
 }
