@@ -185,7 +185,7 @@ func runSync(dir string, cfg *clientconfig.Config, opts syncOptions) (syncResult
 		}
 	}
 
-	results, err := materializeForProviders(manifests, targets, dir, facts.Version, cfg.Trust || opts.AutoTrust, opts.DryRun, opts.NoHeal, portabilityOptions{SearchRoots: cfg.SearchRoots, SearchDepth: cfg.SearchDepth, Paths: cfg.Paths}, cfg.ApprovedMCPHashes())
+	results, err := materializeForProviders(manifests, targets, dir, facts.Version, cfg.Trust || opts.AutoTrust, opts.DryRun, opts.NoHeal, portabilityOptions{SearchRoots: cfg.SearchRoots, SearchDepth: cfg.SearchDepth, Paths: cfg.Paths}, kbOrderForProviders(cfg, targets), cfg.ApprovedMCPHashes())
 	if err != nil {
 		return syncResult{}, err
 	}
