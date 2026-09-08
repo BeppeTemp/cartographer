@@ -1249,6 +1249,221 @@ func TestMergeArtifactsStrict(t *testing.T) {
 	}
 }
 
+// --- D183: keyed session-global directives ---
+
+func TestDetectDirectiveCollisions(t *testing.T) {
+	cases := []struct {
+		name      string
+		artifacts []provisioning.Artifact
+		wantKeys  []string // Key of each expected collision, in order
+	}{
+		{
+			name: "no directives declared",
+			artifacts: []provisioning.Artifact{
+				instructionsArtifact("one", "Plain prose, no directive.\n"),
+				instructionsArtifact("two", "More prose.\n"),
+			},
+		},
+		{
+			name: "same key, same value: no collision",
+			artifacts: []provisioning.Artifact{
+				instructionsArtifact("one", "<!-- cartographer:directive:timezone:UTC+2 -->\n"),
+				instructionsArtifact("two", "<!-- cartographer:directive:timezone:UTC+2 -->\n"),
+			},
+		},
+		{
+			name: "same key, different value: collision",
+			artifacts: []provisioning.Artifact{
+				instructionsArtifact("one", "<!-- cartographer:directive:timezone:UTC+2 -->\n"),
+				instructionsArtifact("two", "<!-- cartographer:directive:timezone:UTC-5 -->\n"),
+			},
+			wantKeys: []string{"timezone"},
+		},
+		{
+			name: "different keys: no collision",
+			artifacts: []provisioning.Artifact{
+				instructionsArtifact("one", "<!-- cartographer:directive:timezone:UTC+2 -->\n"),
+				instructionsArtifact("two", "<!-- cartographer:directive:language:it -->\n"),
+			},
+		},
+		{
+			name: "one KB silent on the key: no collision",
+			artifacts: []provisioning.Artifact{
+				instructionsArtifact("one", "<!-- cartographer:directive:timezone:UTC+2 -->\n"),
+				instructionsArtifact("two", "No directive here.\n"),
+			},
+		},
+		{
+			name: "several keys per KB, only the disagreement is reported",
+			artifacts: []provisioning.Artifact{
+				instructionsArtifact("one", "<!-- cartographer:directive:timezone:UTC+2 -->\n<!-- cartographer:directive:language:it -->\n"),
+				instructionsArtifact("two", "<!-- cartographer:directive:timezone:UTC+2 -->\n<!-- cartographer:directive:language:en -->\n"),
+			},
+			wantKeys: []string{"language"},
+		},
+		{
+			name: "three KBs, three values, one collision naming all three",
+			artifacts: []provisioning.Artifact{
+				instructionsArtifact("a", "<!-- cartographer:directive:env:staging -->\n"),
+				instructionsArtifact("b", "<!-- cartographer:directive:env:prod -->\n"),
+				instructionsArtifact("c", "<!-- cartographer:directive:env:dev -->\n"),
+			},
+			wantKeys: []string{"env"},
+		},
+		{
+			name: "documenting the syntax mid-paragraph does not trigger it",
+			artifacts: []provisioning.Artifact{
+				instructionsArtifact("one", "See the marker syntax, `<!-- cartographer:directive:timezone:UTC+2 -->`, for details.\n"),
+				instructionsArtifact("two", "<!-- cartographer:directive:timezone:UTC-5 -->\n"),
+			},
+		},
+		{
+			name: "documenting the syntax inside a fenced code block does not trigger it",
+			artifacts: []provisioning.Artifact{
+				instructionsArtifact("one", "Example:\n```\n<!-- cartographer:directive:timezone:UTC+2 -->\n```\n"),
+				instructionsArtifact("two", "<!-- cartographer:directive:timezone:UTC-5 -->\n"),
+			},
+		},
+		{
+			name: "malformed marker: empty value is not recognised",
+			artifacts: []provisioning.Artifact{
+				instructionsArtifact("one", "<!-- cartographer:directive:timezone: -->\n"),
+				instructionsArtifact("two", "<!-- cartographer:directive:timezone:UTC-5 -->\n"),
+			},
+		},
+		{
+			name: "malformed marker: extra colon in the value is not recognised",
+			artifacts: []provisioning.Artifact{
+				instructionsArtifact("one", "<!-- cartographer:directive:time:10:30 -->\n"),
+				instructionsArtifact("two", "<!-- cartographer:directive:time:UTC-5 -->\n"),
+			},
+		},
+		{
+			name: "a KB that opted out of the preamble may still declare a directive",
+			artifacts: []provisioning.Artifact{
+				instructionsArtifact("one", "<!-- cartographer: preamble: none -->\n<!-- cartographer:directive:timezone:UTC+2 -->\n"),
+				instructionsArtifact("two", "<!-- cartographer:directive:timezone:UTC-5 -->\n"),
+			},
+			wantKeys: []string{"timezone"},
+		},
+		{
+			name: "non-instructions artifacts are ignored even if their content matches",
+			artifacts: []provisioning.Artifact{
+				{Kind: "skill", Name: "one", Source: "kb:one", Files: []provisioning.ArtifactFile{
+					{Path: "SKILL.md", Content: []byte("<!-- cartographer:directive:timezone:UTC+2 -->\n")},
+				}},
+				{Kind: "skill", Name: "two", Source: "kb:two", Files: []provisioning.ArtifactFile{
+					{Path: "SKILL.md", Content: []byte("<!-- cartographer:directive:timezone:UTC-5 -->\n")},
+				}},
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := provisioning.DetectDirectiveCollisions(tc.artifacts)
+			if len(got) != len(tc.wantKeys) {
+				t.Fatalf("DetectDirectiveCollisions = %+v, want keys %v", got, tc.wantKeys)
+			}
+			for i, wantKey := range tc.wantKeys {
+				if got[i].Key != wantKey {
+					t.Errorf("collision %d key = %q, want %q", i, got[i].Key, wantKey)
+				}
+				if len(got[i].Values) < 2 {
+					t.Errorf("collision %d has %d values, want at least 2: %+v", i, len(got[i].Values), got[i])
+				}
+			}
+		})
+	}
+}
+
+// TestMergeArtifactsStrict_DirectiveCollision covers the acceptance path: a
+// directive collision alone fails the merge with a *CollisionError naming the
+// key, both values and both KBs, without a kind+name collision in the mix.
+func TestMergeArtifactsStrict_DirectiveCollision(t *testing.T) {
+	colliding := []provisioning.Artifact{
+		instructionsArtifact("one", "<!-- cartographer:directive:timezone:UTC+2 -->\n"),
+		instructionsArtifact("two", "<!-- cartographer:directive:timezone:UTC-5 -->\n"),
+	}
+	_, err := provisioning.MergeArtifactsStrict(colliding)
+	if err == nil {
+		t.Fatal("MergeArtifactsStrict accepted a directive collision")
+	}
+	var ce *provisioning.CollisionError
+	if !errors.As(err, &ce) {
+		t.Fatalf("error = %T, want *CollisionError", err)
+	}
+	if len(ce.Collisions) != 0 {
+		t.Errorf("unexpected structural collisions: %+v", ce.Collisions)
+	}
+	msg := ce.Error()
+	for _, want := range []string{"timezone", "UTC+2", "UTC-5", "kb:one", "kb:two"} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("collision report missing %q:\n%s", want, msg)
+		}
+	}
+
+	// Agreeing on the value must still merge cleanly.
+	agreeing := []provisioning.Artifact{
+		instructionsArtifact("one", "<!-- cartographer:directive:timezone:UTC+2 -->\n"),
+		instructionsArtifact("two", "<!-- cartographer:directive:timezone:UTC+2 -->\n"),
+	}
+	if _, err := provisioning.MergeArtifactsStrict(agreeing); err != nil {
+		t.Fatalf("MergeArtifactsStrict on agreeing directives: %v", err)
+	}
+}
+
+// TestMergeArtifactsStrict_BothCollisionKinds: a structural collision and a
+// directive collision in the same merge are both reported in one error.
+func TestMergeArtifactsStrict_BothCollisionKinds(t *testing.T) {
+	artifacts := []provisioning.Artifact{
+		{Kind: "skill", Name: "alpha", Source: "kb:one", ContentHash: "h1"},
+		{Kind: "skill", Name: "alpha", Source: "kb:two", ContentHash: "h2"},
+		instructionsArtifact("one", "<!-- cartographer:directive:timezone:UTC+2 -->\n"),
+		instructionsArtifact("two", "<!-- cartographer:directive:timezone:UTC-5 -->\n"),
+	}
+	_, err := provisioning.MergeArtifactsStrict(artifacts)
+	if err == nil {
+		t.Fatal("MergeArtifactsStrict accepted a mixed collision")
+	}
+	var ce *provisioning.CollisionError
+	if !errors.As(err, &ce) {
+		t.Fatalf("error = %T, want *CollisionError", err)
+	}
+	if len(ce.Collisions) != 1 || len(ce.Directives) != 1 {
+		t.Fatalf("ce = %+v, want one of each kind", ce)
+	}
+	msg := ce.Error()
+	for _, want := range []string{"skill/alpha", "timezone"} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("mixed collision report missing %q:\n%s", want, msg)
+		}
+	}
+}
+
+// TestDetectDirectiveCollisions_ScopedToWhatItIsGiven demonstrates D183's
+// provider scoping: DetectDirectiveCollisions (like DetectCollisions before
+// it) only ever compares the artifacts it is handed. Two KBs bound to two
+// different providers never appear in the same MergeArtifactsStrict call —
+// cmd/cartographer/clientsync.go already narrows the candidate slice to one
+// provider's bound KBs before calling it (D170/D171) — so they cannot
+// collide on a directive either, without any extra plumbing here.
+func TestDetectDirectiveCollisions_ScopedToWhatItIsGiven(t *testing.T) {
+	one := instructionsArtifact("one", "<!-- cartographer:directive:timezone:UTC+2 -->\n")
+	two := instructionsArtifact("two", "<!-- cartographer:directive:timezone:UTC-5 -->\n")
+
+	// Provider A is bound only to "one": no other KB's directive is ever in
+	// the slice it merges, so there is nothing to collide with.
+	if got := provisioning.DetectDirectiveCollisions([]provisioning.Artifact{one}); len(got) != 0 {
+		t.Errorf("provider bound only to kb:one reported a collision: %+v", got)
+	}
+
+	// Provider B is bound to both: the same two artifacts now collide.
+	if got := provisioning.DetectDirectiveCollisions([]provisioning.Artifact{one, two}); len(got) != 1 {
+		t.Errorf("provider bound to both KBs did not report the collision: %+v", got)
+	}
+}
+
 // TestMergeArtifactsStaysTolerant: BuildManifest merges one KB plus the bundle,
 // where a KB↔KB collision cannot arise, and must keep its existing behaviour.
 func TestMergeArtifactsStaysTolerant(t *testing.T) {
