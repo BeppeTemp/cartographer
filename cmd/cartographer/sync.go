@@ -190,8 +190,8 @@ func runSync(dir string, cfg *clientconfig.Config, opts syncOptions) (syncResult
 		return syncResult{}, err
 	}
 	printApplySummary(dir, results, opts.DryRun)
-	printSyncRevisions(manifests, targets, opts.DryRun)
-	return syncResult{Revision: commonRevision(manifests, targets)}, nil
+	printSyncRevisions(results, targets, opts.DryRun)
+	return syncResult{Revision: commonRevision(results, targets)}, nil
 }
 
 // selectProviders narrows cfg.Agents to the ones --client named, preserving
@@ -223,10 +223,14 @@ func selectProviders(agents []string, selected []string) ([]string, error) {
 // commonRevision returns the revision every targeted provider shares, or "" when
 // they differ. Bindings make a single machine-wide revision meaningless: two
 // providers receiving different KBs legitimately sit at different revisions.
-func commonRevision(manifests map[string]provisioning.Manifest, providers []string) string {
+// Unsupported-kind filtering (D184) is a second source of the same divergence:
+// results carries each provider's post-FilterForProvider recorded revision
+// (AppliedResult.NewLock.AppliedRevision), the same value `status` compares
+// against, not the pre-projection manifest revision.
+func commonRevision(results map[string]provisioning.AppliedResult, providers []string) string {
 	common := ""
 	for i, p := range providers {
-		rev := manifests[p].Revision
+		rev := results[p].NewLock.AppliedRevision
 		if i == 0 {
 			common = rev
 			continue
@@ -239,18 +243,19 @@ func commonRevision(manifests map[string]provisioning.Manifest, providers []stri
 }
 
 // printSyncRevisions reports one line when every provider agrees — the ordinary
-// case — and one line per provider when bindings made them diverge, so the
-// output never implies an agreement that does not exist.
-func printSyncRevisions(manifests map[string]provisioning.Manifest, providers []string, dryRun bool) {
+// case — and one line per provider when bindings, or unsupported-kind
+// filtering (D184), made them diverge, so the output never implies an
+// agreement that does not exist.
+func printSyncRevisions(results map[string]provisioning.AppliedResult, providers []string, dryRun bool) {
 	verb := "synced to"
 	if dryRun {
 		verb = "would sync to"
 	}
-	if rev := commonRevision(manifests, providers); rev != "" || len(providers) <= 1 {
+	if rev := commonRevision(results, providers); rev != "" || len(providers) <= 1 {
 		fmt.Printf("%s revision %s\n", verb, rev)
 		return
 	}
 	for _, p := range providers {
-		fmt.Printf("[%s] %s revision %s\n", p, verb, manifests[p].Revision)
+		fmt.Printf("[%s] %s revision %s\n", p, verb, results[p].NewLock.AppliedRevision)
 	}
 }
