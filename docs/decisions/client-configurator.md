@@ -806,8 +806,8 @@ in the release notes.
 ## D185 — Support Google Antigravity in multi-provider client and provisioning
 
 `antigravity` is added as a supported provider in the client configurator and provisioning
-engine (D137). It configures Google Antigravity (`agy` / `gemini`) across client discovery,
-MCP server emission, standing instructions, and skill materialization.
+engine (D137). It configures Google Antigravity (`agy`) across client discovery, MCP server
+emission, standing instructions, skills, subagents, and native hooks.
 
 **Context.** Antigravity is an agentic coding assistant that communicates with MCP servers
 and loads project/global instructions and skills. It was previously unsupported by
@@ -816,28 +816,37 @@ standing instructions in `.gemini/GEMINI.md`, and skills under `.gemini/config/s
 
 **Decision.**
 - **Registry and Detection (D137).** Registered `ProviderAntigravity Provider = "antigravity"`
-  with `DisplayName: "Antigravity"`. Agent detection probes executables `agy` and `gemini` in PATH,
-  falling back to `.gemini` in the user's home directory.
+  with `DisplayName: "Antigravity"`. Detection probes the Antigravity CLI executable `agy`, the
+  Antigravity app bundle on macOS, and Antigravity-specific configuration directories. The legacy
+  Gemini CLI executable `gemini` and a generic leftover `.gemini/` directory are deliberately not
+  evidence: they would produce false positives after the two products diverged.
 - **MCP Configuration Emission.** Emits `.gemini/config/mcp_config.json` with top-level key
   `mcpServers`. HTTP transport emits `serverUrl` and optional `headers`. Header values (such as
   `Bearer ${CARTOGRAPHER_TOKENS}`) are passed through verbatim: Antigravity natively resolves
   `${VAR}` environment variables. Stdio transport emits `command`, `args`, and `env`.
+  Existing Antigravity JSONC (line/block comments and trailing commas) is accepted and normalized
+  to semantic-equivalent JSON when Cartographer rewrites it; unknown keys and foreign servers survive.
   `DeletableWhenEmpty: true` allows pruning the configuration file and its parent directory
   if removing Cartographer leaves no foreign servers behind.
 - **Provisioning Destination Matrix.**
   - `mcp`: `.gemini/config/mcp_config.json` (shared JSON configuration, per-server entries)
   - `instructions`: `.gemini/GEMINI.md` (managed marker-delimited instructions block)
   - `skill`: `.gemini/config/skills/<name>/` (directory materialized with `SKILL.md` and assets)
-  - `agent`: explicitly `unsupported` (Antigravity has no standalone global agent definition directory)
-  - `hook`: explicitly `unsupported` (Antigravity has no unmanaged session hook file; triggers via on-demand sync or scheduled timer, like Kiro)
+  - `agent`: `.gemini/config/agents/<name>.md`, translated to Antigravity frontmatter (`name`,
+    `description`, `mainAgent: false`, `subagent: true`) while preserving the prompt body
+  - `hook`: files in `.gemini/config/hooks/<name>/`, registered as an owned
+    `cartographer-<name>` definition in `.gemini/config/hooks.json`; supported native events are
+    `PreToolUse`, `PostToolUse`, `PreInvocation`, `PostInvocation`, and `Stop`
+- **Trigger semantics.** Antigravity has native hooks but no `SessionStart` event. KB hooks are
+  installed normally; the generated bootstrap hook is intentionally not installed and automatic
+  synchronization uses the scheduled timer/on-demand trigger instead of mapping it to a different event.
 - **Mount Point Preservation.** `.gemini` is registered in `provisioningRootDirs` so
   `pruneEmptyDirs` never deletes the user's root Antigravity configuration directory on disconnect
   or skill pruning.
 
 **Consequences.**
 - `cartographer agents` detects installed Antigravity instances.
-- `cartographer connect antigravity` (and `connect all`) seamlessly configures Antigravity.
+- `cartographer connect antigravity`, `connect all`, and the interactive connect form configure Antigravity.
 - `cartographer disconnect antigravity` prunes managed artifacts and removes MCP entries without
   residue, leaving the root `.gemini/` directory intact.
-- `cartographer status` and `sync` track drift and synchronize skills, MCP endpoints, and instructions.
-
+- `cartographer status` and `sync` track drift and synchronize skills, subagents, hooks, MCP endpoints, and instructions.

@@ -1,7 +1,7 @@
 # Client ↔ provisioning synchronization
 
 How artifacts served by the server (skills, agents, hooks, instructions, mcp)
-reach client providers (claude, opencode, codex, kiro) and stay in sync.
+reach client providers (claude, opencode, codex, kiro, hermes, antigravity) and stay in sync.
 Package `internal/provisioning`; MCP tools `sync_check`/`sync_apply`/`sync_pull`;
 CLI `cartographer status`/`sync`/`resolve`. Rationale:
 [synchronization/provisioning decisions](decisions/sync-provisioning.md) and
@@ -54,6 +54,8 @@ Hook **`cartographer-bootstrap`** (reserved name, `provisioning.BootstrapHookNam
 | codex | `[[hooks.SessionStart]]` | managed block in `~/.codex/config.toml` |
 | opencode | `session.created` event | generated plugin in `~/.config/opencode/plugins/` |
 | kiro | — (its hooks are declared per agent, not per machine, so none fires for the agent the user runs — see [D140](decisions/sync-provisioning.md#d140)) | the scheduled trigger below, or Layer 2 |
+| hermes | — | the scheduled trigger below, or Layer 2 |
+| antigravity | — (native hooks exist, but there is no `SessionStart` event) | the scheduled trigger below, or Layer 2 |
 
 **Scheduled trigger (D140).** For a client with no session hook, `cartographer service sync-timer
 install [--interval 30m]` registers a launchd agent (macOS) or a systemd user timer (Linux) that
@@ -299,7 +301,7 @@ every sync and was reported as permanent drift.
 
 A failed `sync_pull`, an unverifiable signature or a refused merge therefore leaves the machine exactly as it was, and the error says so. An unreachable server (`/health` itself failing) skips entry reconciliation entirely, as before.
 
-**The guarantee, stated honestly.** A failure *between* steps leaves a consistent state, and a provider that completed is always recorded in the lockfile — before D172 a failure on provider N left providers 1..N−1 with files on disk and no lock entry, so nothing pruned them and `doctor` could not see them. It does **not** make a single `Apply` atomic: a provider whose `Apply` fails midway can still have partial files on disk. The cost is N atomic lockfile renames instead of one, which with at most five providers is a deliberate trade of I/O for safety.
+**The guarantee, stated honestly.** A failure *between* steps leaves a consistent state, and a provider that completed is always recorded in the lockfile — before D172 a failure on provider N left providers 1..N−1 with files on disk and no lock entry, so nothing pruned them and `doctor` could not see them. It does **not** make a single `Apply` atomic: a provider whose `Apply` fails midway can still have partial files on disk. The cost is N atomic lockfile renames instead of one, which with at most six providers is a deliberate trade of I/O for safety.
 
 ## The client lock (D172)
 
@@ -318,8 +320,8 @@ The matrix below is data in the code: `destinationMatrix` in `internal/provision
 | Kind | claude | opencode | codex | kiro | hermes | antigravity |
 |---|---|---|---|---|---|---|
 | `skill` | `.claude/skills/<name>/` | `.opencode/skills/<name>/` | `.codex/skills/<name>/` | `.kiro/skills/<name>/` | `skill-inbox/<name>/cartographer/` (delivered, see below) | `.gemini/config/skills/<name>/` |
-| `agent` | `.claude/agents/<name>.md` (verbatim) | `.opencode/agent/<name>.md` (translated) | `.codex/agents/<name>.toml` (translated) | unsupported | unsupported — no native subagent directory | unsupported — no native subagent directory |
-| `hook` | `.claude/hooks/<name>/` + registration in `settings.json` | `.opencode/hooks/<name>/` + generated JS plugin | `.codex/hooks/<name>/` + block in `config.toml` | unsupported | unsupported — no hook mechanism at all | unsupported — no hook mechanism at all |
+| `agent` | `.claude/agents/<name>.md` (verbatim) | `.opencode/agent/<name>.md` (translated) | `.codex/agents/<name>.toml` (translated) | unsupported | unsupported — no native subagent directory | `.gemini/config/agents/<name>.md` (translated) |
+| `hook` | `.claude/hooks/<name>/` + registration in `settings.json` | `.opencode/hooks/<name>/` + generated JS plugin | `.codex/hooks/<name>/` + block in `config.toml` | unsupported | unsupported — no hook mechanism at all | `.gemini/config/hooks/<name>/` + registration in `hooks.json` |
 | `instructions` | managed block in `.claude/CLAUDE.md` | block in `.config/opencode/AGENTS.md` | block in `.codex/AGENTS.md` | file `.kiro/steering/cartographer.md` | unsupported — `SOUL.md` is operator-owned, rendered from a template | block in `.gemini/GEMINI.md` |
 | `mcp` | key `mcpServers.<name>` in `.claude.json` | key `mcp.<name>` in `opencode.json` | block `[mcp_servers.<name>]` in `config.toml` | key `mcpServers.<name>` in `.kiro/settings/mcp.json` | unsupported — `config.yaml` is rendered by an Ansible role | key `mcpServers.<name>` in `.gemini/config/mcp_config.json` |
 
@@ -357,11 +359,12 @@ install`, D140).
 
 - **KB layout** (optional/backward-compatible): `agents/<name>.md` (Claude subagent: frontmatter + body) and `hooks/<name>/` (script + `hook.json` with `event`/`matcher`/`command`). `BuildManifest` scans these (KB only, the bundle remains skill-only).
 - **ContentHash**: agent → sha256 of the file; hook/skill → an aggregate hash of the directory (`ContentHashDirOS`); always computed on the **source**, never on the translated form — so the manifest↔lock comparison doesn't depend on the provider.
-- **Agent translation** (`translateAgentForProvider`, a pure function): the source is always a Claude subagent. Claude = passthrough; OpenCode = minimal frontmatter `description` + `mode: subagent` + verbatim body; Codex = TOML `name`/`description`/`developer_instructions` (verbatim body). Fields that can't be mapped reliably (`tools`, `model`) are dropped, not guessed. Details → [D55/D58](decisions/sync-provisioning.md#d55).
+- **Agent translation** (`translateAgentForProvider`, a pure function): the source is always a Claude subagent. Claude = passthrough; OpenCode = minimal frontmatter `description` + `mode: subagent` + verbatim body; Codex = TOML `name`/`description`/`developer_instructions`; Antigravity = Markdown frontmatter with `name`, `description`, `mainAgent: false`, `subagent: true`. The body stays verbatim; fields that can't be mapped reliably (`tools`, `model`) are dropped, not guessed. Details → [D55/D58](decisions/sync-provisioning.md#d55).
 - **Hook registration**: besides materializing the files, `Apply` registers the hook in the provider's native mechanism (`internal/provisioning/hooksettings.go`), idempotently and prunably:
   - *claude*: merges the entry into `hooks.<Event>[]` of `settings.json` (ownership = the `.claude/hooks/<name>/` marker in the `command`: the materialized path, or — for commands that don't reference the hook's dir, e.g. a one-liner `jq ...` — an inert shell comment `# cartographer-hook: ...` appended at the end); the file is treated as generic JSON, unknown keys survive (D57);
   - *codex*: marker-delimited block `# cartographer:hook:<name>:begin/end` in `.codex/config.toml` via `internal/blocktext` — the TOML is never parsed/re-serialized (D58). Codex rewrites the file and drops the markers with every other comment, so before writing the block `Apply` removes any registration of that hook left outside it — identified by the `.codex/hooks/<name>/` path in its `command` — which would otherwise make the hook fire twice, and reports the repair in `AppliedResult.Warnings` (D99);
   - *opencode*: a deterministic JS plugin `cartographer-<name>.js` in `~/.config/opencode/plugins/`, generated only if the event is mappable (`openCodeHookEvents`); an unmappable event → files are still materialized + a warning in `AppliedResult.Warnings` (D59);
+  - *antigravity*: an owned top-level `cartographer-<name>` definition in `~/.gemini/config/hooks.json`. `PreToolUse`/`PostToolUse` preserve matcher groups; `PreInvocation`, `PostInvocation`, and `Stop` use direct handlers. Other events remain materialized and produce a warning because Antigravity has no native equivalent;
   - a missing/malformed `hook.json` skips registration without failing `Apply`; a `command` whose first token is a relative path (contains `/`, e.g. `./notify.sh`) is resolved to the materialized absolute path; bare names (e.g. `jq`) are left verbatim, resolved via PATH.
 - A file's executable bit comes from the KB and is preserved on materialization (including skill scripts); hooks retain an unconditional executable floor for every file other than `hook.json`, which is always non-executable. The effective mode is part of the versioned artifact hash, so `chmod` alone changes the revision and realigns existing installs.
 - **Per-kind counts**: `provisioning.KindCounts` → a `skill 4/5 · agent 2/2 · hook 1/1` line in `cartographer status` and the TUI.

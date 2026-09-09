@@ -511,7 +511,7 @@ Two orders are exposed and both are user-visible: `Providers()` — the order `E
 client subcommands iterate — and `DetectionOrder()`, the order `cartographer agents` and the TUI
 list agents in.
 
-Adding a provider therefore means: one descriptor, one emitter (the four output formats genuinely
+Adding a provider therefore means: one descriptor, one emitter (provider output formats genuinely
 differ, so that stays code), its cells in the kind × provider matrix (`internal/provisioning`, see
 [`sync.md`](sync.md) §Kind × provider matrix), and — if it has a native hook mechanism — one entry
 in `hookMechanisms`. A missing matrix cell fails a completeness test; nothing else needs editing.

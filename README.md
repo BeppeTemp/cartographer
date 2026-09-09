@@ -62,7 +62,7 @@ materializes them into each client's native format.
 
 The manual alternative is what most setups do today: the same skill hand-copied into
 `.claude/skills/`, `.opencode/skills/` and `.codex/skills/`, each drifting on its own, each config
-file edited by hand for every MCP endpoint. Change one thing and you change it in five places, on
+file edited by hand for every MCP endpoint. Change one thing and you change it in six places, on
 every machine, forever.
 
 ```bash
@@ -75,12 +75,12 @@ That single command writes, per client and in the format that client expects:
 |---|---|---|---|---|---|---|
 | **MCP endpoint** | `.claude.json` | `opencode.json` | `config.toml` block | `.kiro/settings/mcp.json` | *rendered by its own deploy* | `.gemini/config/mcp_config.json` |
 | **Skills** | `.claude/skills/` | `.opencode/skills/` | `.codex/skills/` | `.kiro/skills/` | delivered to its inbox | `.gemini/config/skills/` |
-| **Subagents** | `.claude/agents/*.md` | `.opencode/agent/*.md` | `.codex/agents/*.toml` | — | — | — |
-| **Hooks** | `settings.json` | generated JS plugin | `config.toml` block | — | — | — |
+| **Subagents** | `.claude/agents/*.md` | `.opencode/agent/*.md` | `.codex/agents/*.toml` | — | — | `.gemini/config/agents/*.md` |
+| **Hooks** | `settings.json` | generated JS plugin | `config.toml` block | — | — | `.gemini/config/hooks.json` |
 | **Instructions** | block in `CLAUDE.md` | block in `AGENTS.md` | block in `AGENTS.md` | `.kiro/steering/` | — | block in `GEMINI.md` |
 
 Subagents and hooks are **translated**, not copied: the same KB artifact becomes a Markdown agent
-for Claude Code, a TOML one for Codex, and a generated JavaScript plugin where a hook has no native
+for Claude Code, a TOML one for Codex, Antigravity-native Markdown, and a generated JavaScript plugin where a hook has no declarative
 equivalent. Cells that cannot exist are `unsupported` by explicit declaration, never by silent
 omission — and a cell missing from the table fails a test.
 

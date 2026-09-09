@@ -82,6 +82,12 @@ var bootstrapContentHash = contentHashBytes(append(bootstrapHookJSON(), []byte(b
 // reserved name is protected from being flagged as a server-driven orphan in the
 // meantime).
 func EnsureBootstrapHook(baseDir string, provider configurator.Provider, lock Lock, dryRun bool) (Lock, error) {
+	// Antigravity supports native hooks, but exposes no SessionStart event.
+	// KB hooks are registered normally; bootstrap sync uses the scheduled
+	// trigger instead of inventing a semantically different event mapping.
+	if provider == configurator.ProviderAntigravity {
+		return lock, nil
+	}
 	destRel := destDir("hook", BootstrapHookName, provider)
 	if destRel == "" {
 		return lock, nil
@@ -242,6 +248,16 @@ var hookMechanisms = map[configurator.Provider]hookMechanism{
 			return pluginRel, warning, nil
 		},
 	},
+	configurator.ProviderAntigravity: {
+		settingsFile: []string{".gemini", "config", "hooks.json"},
+		register: func(baseDir, name, fullDestDir string) (string, string, error) {
+			warning, err := registerAntigravityHook(baseDir, name, fullDestDir)
+			if err != nil {
+				return "", "", fmt.Errorf("provisioning: register hook %s in Antigravity hooks.json: %w", name, err)
+			}
+			return "", warning, nil
+		},
+	},
 }
 
 // SupportsSessionHook reports whether the bootstrap hook (D60) can run at
@@ -250,6 +266,9 @@ var hookMechanisms = map[configurator.Provider]hookMechanism{
 // only on demand, or on the scheduled trigger (D140,
 // `cartographer service sync-timer install`).
 func SupportsSessionHook(provider configurator.Provider) bool {
+	if provider == configurator.ProviderAntigravity {
+		return false
+	}
 	if destDir("hook", BootstrapHookName, provider) == "" {
 		return false
 	}

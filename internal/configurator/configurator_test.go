@@ -259,6 +259,58 @@ func TestApplyDryRun(t *testing.T) {
 	}
 }
 
+func TestApplyAndRemoveAntigravityJSONC(t *testing.T) {
+	baseDir := t.TempDir()
+	path := filepath.Join(baseDir, ".gemini", "config", "mcp_config.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	existing := `{
+  // User-managed server.
+  "mcpServers": {
+    "foreign": {"serverUrl": "https://foreign.example/mcp"},
+  },
+}`
+	if err := os.WriteFile(path, []byte(existing), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg := &configurator.ServerConfig{Name: "cartographer", URL: "https://cartographer.example/mcp"}
+	r, err := configurator.Emit(cfg, configurator.ProviderAntigravity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := configurator.Apply([]*configurator.EmitResult{r}, baseDir, false); err != nil {
+		t.Fatalf("Apply JSONC: %v", err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var root map[string]any
+	if err := json.Unmarshal(data, &root); err != nil {
+		t.Fatalf("rewritten config must be valid JSON: %v", err)
+	}
+	servers := root["mcpServers"].(map[string]any)
+	if servers["foreign"] == nil || servers["cartographer"] == nil {
+		t.Fatalf("semantic merge lost a server: %#v", servers)
+	}
+	removed, err := configurator.Remove(cfg, configurator.ProviderAntigravity, baseDir, false)
+	if err != nil || !removed {
+		t.Fatalf("Remove: removed=%v err=%v", removed, err)
+	}
+	data, err = os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(data, &root); err != nil {
+		t.Fatal(err)
+	}
+	servers = root["mcpServers"].(map[string]any)
+	if servers["foreign"] == nil || servers["cartographer"] != nil {
+		t.Fatalf("Remove changed the wrong server: %#v", servers)
+	}
+}
+
 func TestApply_ReturnsAbsolutePaths(t *testing.T) {
 	r, err := configurator.Emit(&configurator.ServerConfig{Name: "wiki", URL: "https://mcp.example.test/mcp"}, configurator.ProviderClaudeCode)
 	if err != nil {

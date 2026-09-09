@@ -64,10 +64,10 @@ internal/audit/              # append-only JSONL hash-chain + Ed25519 signature
 internal/auth/               # TokenStore, Middleware, scopes, RBAC
 internal/skill/               # LoadSkill, Catalog, Validate (SKILL.md)
 internal/sops/               # Decrypt, ResolveRefs, EnvForSkill
-internal/configurator/       # multi-provider adapter (HTTP only): Claude Code, Codex, Kiro, OpenCode
+internal/configurator/       # multi-provider adapter (HTTP only): Claude Code, Codex, Kiro, OpenCode, Hermes, Antigravity
                              # registry.go: one descriptor per provider (identity, config file, detection)
 internal/provisioning/       # Manifest, Lock/LockFile, Diff, Apply, MergeArtifacts
-internal/agents/             # Detect() agents installed on the machine (claude/opencode/codex/kiro)
+internal/agents/             # Detect() agents installed on the machine (claude/opencode/codex/kiro/hermes/antigravity)
 internal/clientconfig/       # .cartographer.yaml (server_url, connected agents, etc.)
 internal/client/             # minimal MCPClient (JSON-RPC 2.0 over HTTP) for the client subcommands
 internal/service/            # native per-user units: server (launchd/systemd) + synctimer.go (scheduled client sync)

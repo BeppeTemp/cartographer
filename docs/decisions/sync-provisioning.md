@@ -931,14 +931,14 @@ general — that framing hides which write is actually unprotected.
   and **no lock entry**: unmanaged files that pruning never removes and `doctor`
   cannot see. The lockfile is now written after each provider, and the error
   names the ones already recorded so a rerun is informed. N atomic renames
-  instead of one, with at most five providers: a deliberate trade of I/O for
+  instead of one, with at most six providers: a deliberate trade of I/O for
   safety.
 - **The guarantee, stated rather than implied.** A failure *between* steps leaves
   a consistent state and a completed provider is always recorded. This does
   **not** make a single `Apply` atomic — the failed provider's own partial files
   are still possible, which is [D178](#d178)'s subject. Saying so is the point:
   the alternative was a generalized snapshot-and-rollback, and rolling back the
-  native configs of four providers is more dangerous code than it removes.
+  native configs of five providers is more dangerous code than it removes.
 - **The lock is at OS level.** Nothing serialized concurrent syncs, and every
   path did a read-modify-write of the lockfile, so two of them lost each other's
   provider entries, last writer wins. This is not hypothetical: the bootstrap

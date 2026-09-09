@@ -903,7 +903,7 @@ func TestApply_InstructionsSubagentSentenceReflectsThisClient(t *testing.T) {
 	}{
 		{configurator.ProviderClaudeCode, true},
 		{configurator.ProviderKiro, false},
-		{configurator.ProviderAntigravity, false},
+		{configurator.ProviderAntigravity, true},
 	} {
 		t.Run(string(tc.provider), func(t *testing.T) {
 			kbRoot := makeKBWithArchives(t, map[string][]string{"entities": {"a.md"}})

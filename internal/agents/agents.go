@@ -1,5 +1,5 @@
 // Package agents detects which LLM agent CLIs/apps are installed on the local
-// machine (Claude Code, OpenCode, Codex CLI, Kiro, Hermes), so `cartographer agents`
+// machine (Claude Code, OpenCode, Codex CLI, Kiro, Hermes, Antigravity), so `cartographer agents`
 // and `cartographer connect all` know which providers to target.
 package agents
 

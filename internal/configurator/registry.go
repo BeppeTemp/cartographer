@@ -81,7 +81,7 @@ type Descriptor struct {
 	// last on darwin only.
 	DarwinAppDir string
 
-	// emit renders one MCP server entry for this provider. The four output
+	// emit renders one MCP server entry for this provider. The provider output
 	// formats genuinely differ, so this stays a function, not data.
 	emit func(name string, spec ServerSpec) (*EmitResult, error)
 }
@@ -159,8 +159,9 @@ var descriptors = []Descriptor{
 		MCPServerKey:       "mcpServers",
 		DeletableWhenEmpty: true,
 		SupportsMCPHeaders: true,
-		Binaries:           []string{"agy", "gemini"},
-		ConfigDirs:         [][]string{{".gemini"}},
+		Binaries:           []string{"agy"},
+		ConfigDirs:         [][]string{{".gemini", "config"}, {".gemini", "antigravity"}, {".gemini", "antigravity-cli"}},
+		DarwinAppDir:       "/Applications/Antigravity.app",
 		emit:               emitAntigravityServer,
 	},
 }

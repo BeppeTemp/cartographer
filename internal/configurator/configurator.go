@@ -1,5 +1,5 @@
 // Package configurator generates MCP configuration files for multiple LLM providers
-// (Claude Code, Codex CLI, Kiro, OpenCode).
+// (Claude Code, Codex CLI, Kiro, OpenCode, Hermes, Antigravity).
 package configurator
 
 import (
@@ -243,7 +243,7 @@ func Apply(results []*EmitResult, baseDir string, dryRun bool) ([]string, error)
 		// Non-JSON files (e.g. SKILL.md) are always overwritten.
 		if filepath.Ext(fullPath) == ".json" {
 			if existing, err := os.ReadFile(fullPath); err == nil {
-				merged, mergeErr := mergeJSON(existing, r.Content)
+				merged, mergeErr := mergeProviderJSON(r.Provider, existing, r.Content)
 				if mergeErr != nil {
 					return written, fmt.Errorf("existing file %s is not valid JSON: %w — fix or delete it manually", fullPath, mergeErr)
 				}
@@ -310,7 +310,7 @@ func Remove(cfg *ServerConfig, provider Provider, baseDir string, dryRun bool) (
 	}
 
 	var root map[string]any
-	if err := json.Unmarshal(data, &root); err != nil {
+	if err := UnmarshalProviderJSON(provider, data, &root); err != nil {
 		return false, fmt.Errorf("existing file %s is not valid JSON: %w — fix or delete it manually", fullPath, err)
 	}
 
@@ -447,9 +447,9 @@ func removeLegacyCodexJSON(name, baseDir string, dryRun bool) (bool, error) {
 // mergeJSON deep-merges incoming JSON into existing JSON at the top map level.
 // Returns an error if existing is malformed JSON (user must fix or delete the file).
 // If incoming cannot be parsed, incoming bytes are returned as-is.
-func mergeJSON(existing, incoming []byte) ([]byte, error) {
+func mergeProviderJSON(provider Provider, existing, incoming []byte) ([]byte, error) {
 	var existMap map[string]any
-	if err := json.Unmarshal(existing, &existMap); err != nil {
+	if err := UnmarshalProviderJSON(provider, existing, &existMap); err != nil {
 		return nil, err
 	}
 	var incomMap map[string]any
