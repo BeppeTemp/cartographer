@@ -2381,6 +2381,7 @@ var provisioningRootDirs = map[string]bool{
 	".opencode":                          true,
 	".config":                            true,
 	filepath.Join(".config", "opencode"): true,
+	".gemini":                            true,
 	// The hermes inbox root (D141): pruning the last delivered skill empties
 	// skill-inbox/<name>/cartographer and skill-inbox/<name>, never
 	// skill-inbox itself — other sources deliver there too.
@@ -2580,7 +2581,8 @@ var destinationMatrix = map[string]map[configurator.Provider]destination{
 		configurator.ProviderKiro:       at(".kiro", "settings", "mcp.json"),
 		// hermes: config.yaml is rendered by its Ansible role and recreated on
 		// the next playbook run (D141).
-		configurator.ProviderHermes: unsupportedDest,
+		configurator.ProviderHermes:      unsupportedDest,
+		configurator.ProviderAntigravity: at(".gemini", "config", "mcp_config.json"),
 	},
 	"instructions": {
 		configurator.ProviderClaudeCode: at(".claude", "CLAUDE.md"),
@@ -2589,7 +2591,8 @@ var destinationMatrix = map[string]map[configurator.Provider]destination{
 		configurator.ProviderKiro:       at(".kiro", "steering", "cartographer.md"),
 		// hermes: SOUL.md, its always-on instruction slot, is operator-owned
 		// and rendered from a template (D141).
-		configurator.ProviderHermes: unsupportedDest,
+		configurator.ProviderHermes:      unsupportedDest,
+		configurator.ProviderAntigravity: at(".gemini", "GEMINI.md"),
 	},
 	"agent": {
 		configurator.ProviderClaudeCode: perName(".md", ".claude", "agents"),
@@ -2597,7 +2600,8 @@ var destinationMatrix = map[string]map[configurator.Provider]destination{
 		configurator.ProviderCodex:      perName(".toml", ".codex", "agents"),
 		configurator.ProviderKiro:       unsupportedDest,
 		// hermes: no native subagent directory (D141).
-		configurator.ProviderHermes: unsupportedDest,
+		configurator.ProviderHermes:      unsupportedDest,
+		configurator.ProviderAntigravity: unsupportedDest,
 	},
 	"hook": {
 		configurator.ProviderClaudeCode: perName("", ".claude", "hooks"),
@@ -2614,7 +2618,8 @@ var destinationMatrix = map[string]map[configurator.Provider]destination{
 		configurator.ProviderKiro: unsupportedDest,
 		// hermes: no hook mechanism at all — nothing fires at conversation
 		// start, so its trigger is the scheduled timer (D140/D141).
-		configurator.ProviderHermes: unsupportedDest,
+		configurator.ProviderHermes:      unsupportedDest,
+		configurator.ProviderAntigravity: unsupportedDest,
 	},
 	"skill": {
 		configurator.ProviderClaudeCode: perName("", ".claude", "skills"),
@@ -2625,7 +2630,8 @@ var destinationMatrix = map[string]map[configurator.Provider]destination{
 		// to the agent's own curator, which rewrites what it owns; writing
 		// there would destroy its learning. The proposal lands in the inbox
 		// with a generated SOURCE.md and the agent adopts it via skill_manage.
-		configurator.ProviderHermes: perNameIn([]string{hermesInboxSource}, hermesInboxRoot),
+		configurator.ProviderHermes:      perNameIn([]string{hermesInboxSource}, hermesInboxRoot),
+		configurator.ProviderAntigravity: perName("", ".gemini", "config", "skills"),
 	},
 }
 

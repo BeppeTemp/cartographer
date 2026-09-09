@@ -76,8 +76,8 @@ func TestEmitAll(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(results) != 4 {
-		t.Fatalf("expected 4 results, got %d", len(results))
+	if len(results) != 5 {
+		t.Fatalf("expected 5 results, got %d", len(results))
 	}
 	seen := map[string]bool{}
 	for _, r := range results {
@@ -168,6 +168,70 @@ func TestEmitOpenCode_HTTP_Auth(t *testing.T) {
 	// OpenCode usa {env:VAR} — non ${VAR}.
 	if authHeader != "Bearer {env:CARTOGRAPHER_TOKENS}" {
 		t.Errorf("Authorization header = %q, want Bearer {env:CARTOGRAPHER_TOKENS}", authHeader)
+	}
+}
+
+func TestEmitAntigravity_HTTP_NoAuth(t *testing.T) {
+	cfg := &configurator.ServerConfig{
+		Name:        "wiki",
+		URL:         "https://mcp.example.test/mcp",
+		AuthEnabled: false,
+		TokenEnv:    "CARTOGRAPHER_TOKENS",
+	}
+	r, err := configurator.Emit(cfg, configurator.ProviderAntigravity)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	wantPath := filepath.Join(".gemini", "config", "mcp_config.json")
+	if r.FilePath != wantPath {
+		t.Errorf("FilePath = %q, want %q", r.FilePath, wantPath)
+	}
+
+	var root map[string]any
+	if err := json.Unmarshal(r.Content, &root); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	servers, ok := root["mcpServers"].(map[string]any)
+	if !ok {
+		t.Fatalf("missing or wrong type for mcpServers")
+	}
+	entry, ok := servers["wiki"].(map[string]any)
+	if !ok {
+		t.Fatalf("missing wiki entry in mcpServers")
+	}
+	if entry["serverUrl"] != "https://mcp.example.test/mcp" {
+		t.Errorf("serverUrl = %v, want https://mcp.example.test/mcp", entry["serverUrl"])
+	}
+	if _, hasHeaders := entry["headers"]; hasHeaders {
+		t.Error("headers should not be present when auth is disabled")
+	}
+}
+
+func TestEmitAntigravity_HTTP_Auth(t *testing.T) {
+	cfg := &configurator.ServerConfig{
+		Name:        "wiki",
+		URL:         "https://mcp.example.test/mcp",
+		AuthEnabled: true,
+		TokenEnv:    "CARTOGRAPHER_TOKENS",
+	}
+	r, err := configurator.Emit(cfg, configurator.ProviderAntigravity)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var root map[string]any
+	if err := json.Unmarshal(r.Content, &root); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	servers := root["mcpServers"].(map[string]any)
+	entry := servers["wiki"].(map[string]any)
+	headers, ok := entry["headers"].(map[string]any)
+	if !ok {
+		t.Fatalf("headers missing or wrong type when auth enabled")
+	}
+	authHeader, _ := headers["Authorization"].(string)
+	if authHeader != "Bearer ${CARTOGRAPHER_TOKENS}" {
+		t.Errorf("Authorization header = %q, want Bearer ${CARTOGRAPHER_TOKENS}", authHeader)
 	}
 }
 

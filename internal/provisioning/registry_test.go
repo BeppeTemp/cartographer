@@ -84,6 +84,12 @@ func TestDestDirPaths(t *testing.T) {
 		{"hook", configurator.ProviderHermes, ""},
 		{"mcp", configurator.ProviderHermes, ""},
 		{"instructions", configurator.ProviderHermes, ""},
+		// antigravity supports mcp, instructions, skill; agent and hook are unsupported.
+		{"mcp", configurator.ProviderAntigravity, filepath.Join(".gemini", "config", "mcp_config.json")},
+		{"instructions", configurator.ProviderAntigravity, filepath.Join(".gemini", "GEMINI.md")},
+		{"skill", configurator.ProviderAntigravity, filepath.Join(".gemini", "config", "skills", "demo")},
+		{"agent", configurator.ProviderAntigravity, ""},
+		{"hook", configurator.ProviderAntigravity, ""},
 		// A kind or provider this binary does not know is not materializable:
 		// a manifest from a newer server must not land somewhere arbitrary.
 		{"newkind", configurator.ProviderClaudeCode, ""},

@@ -802,3 +802,42 @@ changes. The server panel's single line became four, and `ready=ready` became
 `· ready` — cosmetic, but visible to anyone reading a screenshot. The `S`
 behaviour change is the one inherited from D172 and should be described as such
 in the release notes.
+
+## D185 — Support Google Antigravity in multi-provider client and provisioning
+
+`antigravity` is added as a supported provider in the client configurator and provisioning
+engine (D137). It configures Google Antigravity (`agy` / `gemini`) across client discovery,
+MCP server emission, standing instructions, and skill materialization.
+
+**Context.** Antigravity is an agentic coding assistant that communicates with MCP servers
+and loads project/global instructions and skills. It was previously unsupported by
+Cartographer, requiring manual configuration of `.gemini/config/mcp_config.json`,
+standing instructions in `.gemini/GEMINI.md`, and skills under `.gemini/config/skills/`.
+
+**Decision.**
+- **Registry and Detection (D137).** Registered `ProviderAntigravity Provider = "antigravity"`
+  with `DisplayName: "Antigravity"`. Agent detection probes executables `agy` and `gemini` in PATH,
+  falling back to `.gemini` in the user's home directory.
+- **MCP Configuration Emission.** Emits `.gemini/config/mcp_config.json` with top-level key
+  `mcpServers`. HTTP transport emits `serverUrl` and optional `headers`. Header values (such as
+  `Bearer ${CARTOGRAPHER_TOKENS}`) are passed through verbatim: Antigravity natively resolves
+  `${VAR}` environment variables. Stdio transport emits `command`, `args`, and `env`.
+  `DeletableWhenEmpty: true` allows pruning the configuration file and its parent directory
+  if removing Cartographer leaves no foreign servers behind.
+- **Provisioning Destination Matrix.**
+  - `mcp`: `.gemini/config/mcp_config.json` (shared JSON configuration, per-server entries)
+  - `instructions`: `.gemini/GEMINI.md` (managed marker-delimited instructions block)
+  - `skill`: `.gemini/config/skills/<name>/` (directory materialized with `SKILL.md` and assets)
+  - `agent`: explicitly `unsupported` (Antigravity has no standalone global agent definition directory)
+  - `hook`: explicitly `unsupported` (Antigravity has no unmanaged session hook file; triggers via on-demand sync or scheduled timer, like Kiro)
+- **Mount Point Preservation.** `.gemini` is registered in `provisioningRootDirs` so
+  `pruneEmptyDirs` never deletes the user's root Antigravity configuration directory on disconnect
+  or skill pruning.
+
+**Consequences.**
+- `cartographer agents` detects installed Antigravity instances.
+- `cartographer connect antigravity` (and `connect all`) seamlessly configures Antigravity.
+- `cartographer disconnect antigravity` prunes managed artifacts and removes MCP entries without
+  residue, leaving the root `.gemini/` directory intact.
+- `cartographer status` and `sync` track drift and synchronize skills, MCP endpoints, and instructions.
+

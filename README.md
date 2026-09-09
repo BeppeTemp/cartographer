@@ -71,13 +71,13 @@ cartographer connect        # detects installed clients and configures all of th
 
 That single command writes, per client and in the format that client expects:
 
-| | claude | opencode | codex | kiro | hermes |
-|---|---|---|---|---|---|
-| **MCP endpoint** | `.claude.json` | `opencode.json` | `config.toml` block | `.kiro/settings/mcp.json` | *rendered by its own deploy* |
-| **Skills** | `.claude/skills/` | `.opencode/skills/` | `.codex/skills/` | `.kiro/skills/` | delivered to its inbox |
-| **Subagents** | `.claude/agents/*.md` | `.opencode/agent/*.md` | `.codex/agents/*.toml` | — | — |
-| **Hooks** | `settings.json` | generated JS plugin | `config.toml` block | — | — |
-| **Instructions** | block in `CLAUDE.md` | block in `AGENTS.md` | block in `AGENTS.md` | `.kiro/steering/` | — |
+| | claude | opencode | codex | kiro | hermes | antigravity |
+|---|---|---|---|---|---|---|
+| **MCP endpoint** | `.claude.json` | `opencode.json` | `config.toml` block | `.kiro/settings/mcp.json` | *rendered by its own deploy* | `.gemini/config/mcp_config.json` |
+| **Skills** | `.claude/skills/` | `.opencode/skills/` | `.codex/skills/` | `.kiro/skills/` | delivered to its inbox | `.gemini/config/skills/` |
+| **Subagents** | `.claude/agents/*.md` | `.opencode/agent/*.md` | `.codex/agents/*.toml` | — | — | — |
+| **Hooks** | `settings.json` | generated JS plugin | `config.toml` block | — | — | — |
+| **Instructions** | block in `CLAUDE.md` | block in `AGENTS.md` | block in `AGENTS.md` | `.kiro/steering/` | — | block in `GEMINI.md` |
 
 Subagents and hooks are **translated**, not copied: the same KB artifact becomes a Markdown agent
 for Claude Code, a TOML one for Codex, and a generated JavaScript plugin where a hook has no native

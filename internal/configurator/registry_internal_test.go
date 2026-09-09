@@ -11,7 +11,7 @@ import (
 )
 
 func TestRegistryHasOneDescriptorPerProvider(t *testing.T) {
-	want := []Provider{ProviderClaudeCode, ProviderCodex, ProviderKiro, ProviderOpenCode, ProviderHermes}
+	want := []Provider{ProviderClaudeCode, ProviderCodex, ProviderKiro, ProviderOpenCode, ProviderHermes, ProviderAntigravity}
 
 	if got := len(Providers()); got != len(want) {
 		t.Fatalf("Providers() has %d descriptors, want %d", got, len(want))

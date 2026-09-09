@@ -404,6 +404,7 @@ func TestApply_Instructions_TuttiIQuattroProvider(t *testing.T) {
 		{configurator.ProviderOpenCode, filepath.Join(".config", "opencode", "AGENTS.md")},
 		{configurator.ProviderCodex, filepath.Join(".codex", "AGENTS.md")},
 		{configurator.ProviderKiro, filepath.Join(".kiro", "steering", "cartographer.md")},
+		{configurator.ProviderAntigravity, filepath.Join(".gemini", "GEMINI.md")},
 	}
 	for _, c := range cases {
 		baseDir := t.TempDir()
@@ -881,8 +882,9 @@ func agentManifest(t *testing.T, kbRoot string, names ...string) provisioning.Ma
 func instructionsBody(t *testing.T, base string, provider configurator.Provider) string {
 	t.Helper()
 	rel := map[configurator.Provider]string{
-		configurator.ProviderClaudeCode: filepath.Join(".claude", "CLAUDE.md"),
-		configurator.ProviderKiro:       filepath.Join(".kiro", "steering", "cartographer.md"),
+		configurator.ProviderClaudeCode:  filepath.Join(".claude", "CLAUDE.md"),
+		configurator.ProviderKiro:        filepath.Join(".kiro", "steering", "cartographer.md"),
+		configurator.ProviderAntigravity: filepath.Join(".gemini", "GEMINI.md"),
 	}[provider]
 	data, err := os.ReadFile(filepath.Join(base, rel))
 	if err != nil {
@@ -901,6 +903,7 @@ func TestApply_InstructionsSubagentSentenceReflectsThisClient(t *testing.T) {
 	}{
 		{configurator.ProviderClaudeCode, true},
 		{configurator.ProviderKiro, false},
+		{configurator.ProviderAntigravity, false},
 	} {
 		t.Run(string(tc.provider), func(t *testing.T) {
 			kbRoot := makeKBWithArchives(t, map[string][]string{"entities": {"a.md"}})

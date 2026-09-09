@@ -176,3 +176,43 @@ func TestDetect_AlternateBinaryName(t *testing.T) {
 		}
 	}
 }
+
+func TestDetect_AntigravityBinary(t *testing.T) {
+	for _, bin := range []string{"agy", "gemini"} {
+		t.Run(bin, func(t *testing.T) {
+			home := t.TempDir()
+			binPath := "/usr/local/bin/" + bin
+			withStubs(t, home, map[string]string{bin: binPath}, "linux")
+
+			got := Detect()
+			for _, a := range got {
+				if a.Provider == configurator.ProviderAntigravity {
+					if !a.Installed || a.Evidence != binPath {
+						t.Errorf("antigravity (%s): expected Installed=true evidence=%s, got %+v", bin, binPath, a)
+					}
+				} else if a.Installed {
+					t.Errorf("%s: expected not installed", a.Name)
+				}
+			}
+		})
+	}
+}
+
+func TestDetect_AntigravityConfigDirFallback(t *testing.T) {
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, ".gemini"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	withStubs(t, home, nil, "linux")
+
+	got := Detect()
+	for _, a := range got {
+		if a.Provider == configurator.ProviderAntigravity {
+			if !a.Installed || a.Evidence != filepath.Join(home, ".gemini") {
+				t.Errorf("antigravity: expected Installed=true evidence=%s, got %+v", filepath.Join(home, ".gemini"), a)
+			}
+		} else if a.Installed {
+			t.Errorf("%s: expected not installed", a.Name)
+		}
+	}
+}

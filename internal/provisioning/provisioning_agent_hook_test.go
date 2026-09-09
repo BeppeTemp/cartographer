@@ -252,14 +252,17 @@ func TestApply_DestDir_Matrix(t *testing.T) {
 		{"skill", configurator.ProviderOpenCode, true, filepath.Join(".opencode", "skills", "art", "SKILL.md")},
 		{"skill", configurator.ProviderCodex, true, filepath.Join(".codex", "skills", "art", "SKILL.md")},
 		{"skill", configurator.ProviderKiro, true, filepath.Join(".kiro", "skills", "art", "SKILL.md")},
+		{"skill", configurator.ProviderAntigravity, true, filepath.Join(".gemini", "config", "skills", "art", "SKILL.md")},
 		{"agent", configurator.ProviderClaudeCode, true, filepath.Join(".claude", "agents", "art.md")},
 		{"agent", configurator.ProviderOpenCode, true, filepath.Join(".opencode", "agent", "art.md")},
 		{"agent", configurator.ProviderCodex, true, filepath.Join(".codex", "agents", "art.toml")},
 		{"agent", configurator.ProviderKiro, false, ""},
+		{"agent", configurator.ProviderAntigravity, false, ""},
 		{"hook", configurator.ProviderClaudeCode, true, filepath.Join(".claude", "hooks", "art", "hook.json")},
 		{"hook", configurator.ProviderOpenCode, true, filepath.Join(".opencode", "hooks", "art", "hook.json")},
 		{"hook", configurator.ProviderCodex, true, filepath.Join(".codex", "hooks", "art", "hook.json")},
 		{"hook", configurator.ProviderKiro, false, ""},
+		{"hook", configurator.ProviderAntigravity, false, ""},
 	}
 
 	for _, c := range cases {

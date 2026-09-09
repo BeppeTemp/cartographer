@@ -229,6 +229,20 @@ func TestEnsureBootstrapHook_Kiro_NoOp(t *testing.T) {
 	}
 }
 
+func TestEnsureBootstrapHook_Antigravity_NoOp(t *testing.T) {
+	baseDir := t.TempDir()
+	lock, err := provisioning.EnsureBootstrapHook(baseDir, configurator.ProviderAntigravity, provisioning.Lock{}, false)
+	if err != nil {
+		t.Fatalf("EnsureBootstrapHook: %v", err)
+	}
+	if len(lock.Managed) != 0 {
+		t.Fatalf("antigravity: expected no ManagedFile, got %+v", lock.Managed)
+	}
+	if _, err := os.Stat(filepath.Join(baseDir, ".gemini")); err == nil {
+		t.Errorf("antigravity: no .gemini directory was expected to be created")
+	}
+}
+
 // TestPruneManaged_BootstrapHook_RimuoveTutto verifies that PruneManaged (the same
 // generic mechanism `cartographer disconnect` uses for every KB hook, D57/
 // D58/D59) also removes the bootstrap hook — materialized files + native

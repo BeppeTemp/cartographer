@@ -151,12 +151,24 @@ var descriptors = []Descriptor{
 		ConfigDirs:         [][]string{{".config", "opencode"}, {".opencode"}},
 		emit:               emitOpenCodeServer,
 	},
+	{
+		Provider:           ProviderAntigravity,
+		DisplayName:        "Antigravity",
+		MCPConfigPath:      ".gemini/config/mcp_config.json",
+		MCPFormat:          FormatJSON,
+		MCPServerKey:       "mcpServers",
+		DeletableWhenEmpty: true,
+		SupportsMCPHeaders: true,
+		Binaries:           []string{"agy", "gemini"},
+		ConfigDirs:         [][]string{{".gemini"}},
+		emit:               emitAntigravityServer,
+	},
 }
 
 // detectionOrder is the order `cartographer agents` and the TUI list agents
 // in. It differs from the registry order above and is equally user-visible:
 // both are preserved deliberately rather than unified (D137).
-var detectionOrder = []Provider{ProviderClaudeCode, ProviderOpenCode, ProviderCodex, ProviderKiro, ProviderHermes}
+var detectionOrder = []Provider{ProviderClaudeCode, ProviderOpenCode, ProviderCodex, ProviderKiro, ProviderHermes, ProviderAntigravity}
 
 // Providers returns every supported provider's descriptor, in registry order.
 func Providers() []Descriptor {
