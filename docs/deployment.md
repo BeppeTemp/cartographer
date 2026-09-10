@@ -635,6 +635,5 @@ No package-manager dependency: pure POSIX `sh`, verifies the checksum via `sha25
 
 After replacing the binary the script runs `cartographer upgrade-repair` (D121, §Upgrades, schema migration, and repo growth) instead of a bare `service restart`: a running service is gracefully replaced and version-verified, a stopped or absent one is left alone, and the configured providers are re-synchronized. A pending provider sync (exit `1`) is logged without failing the update; an unverifiable running service (exit `2`) fails the `update` command **after** the new binary is in place. The generated Homebrew Cask runs the same command from its post-install hook, non-fatally: its source of truth is `.goreleaser.yaml` in this repository, never a hand edit in the tap.
 
-After an `update`, if the local service (§Example: native local service) is found **running** (`service status` → exit 0) the script restarts it automatically, so the daemonized server switches to the new binary right away; a service stopped on purpose (exit 3) stays stopped.
 
 > The repo is public on GitHub: a plain `curl` works with no authentication. The script supports an optional `GITHUB_TOKEN` to avoid API rate limits on frequent runs (e.g. CI).

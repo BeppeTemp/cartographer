@@ -2636,9 +2636,16 @@ var destinationMatrix = map[string]map[configurator.Provider]destination{
 	},
 	"agent": {
 		configurator.ProviderClaudeCode: perName(".md", ".claude", "agents"),
-		configurator.ProviderOpenCode:   perName(".md", ".opencode", "agent"),
-		configurator.ProviderCodex:      perName(".toml", ".codex", "agents"),
-		configurator.ProviderKiro:       unsupportedDest,
+		// Divergence from the documented path, working and deliberate (D192):
+		// OpenCode's current documentation prefers `.opencode/agents` (plural,
+		// https://opencode.ai/docs/agents), while `opencode agent list` and
+		// `opencode debug config` detect all four here with client 1.18.20.
+		// Moving it is a migration (prune the old files, re-key the lockfile),
+		// not an edit — see TestClientDiscoversDeclaredDestinations, which
+		// fails from CI if a client release stops recognizing this path.
+		configurator.ProviderOpenCode: perName(".md", ".opencode", "agent"),
+		configurator.ProviderCodex:    perName(".toml", ".codex", "agents"),
+		configurator.ProviderKiro:     unsupportedDest,
 		// hermes: no native subagent directory (D141).
 		configurator.ProviderHermes:      unsupportedDest,
 		configurator.ProviderAntigravity: perName(".md", ".gemini", "config", "agents"),
@@ -2663,9 +2670,16 @@ var destinationMatrix = map[string]map[configurator.Provider]destination{
 	},
 	"skill": {
 		configurator.ProviderClaudeCode: perName("", ".claude", "skills"),
-		configurator.ProviderCodex:      perName("", ".codex", "skills"),
-		configurator.ProviderKiro:       perName("", ".kiro", "skills"),
-		configurator.ProviderOpenCode:   perName("", ".opencode", "skills"),
+		// Divergence from the documented path, working and deliberate (D192):
+		// Codex's public documentation names `$HOME/.agents/skills` for the user
+		// scope (https://developers.openai.com/codex/skills), while
+		// `codex debug prompt-input` confirms client 0.153.4 catalogues them
+		// here. The right target is the *repository* path, which only exists
+		// once a workspace scope does (D193), so moving it now would mean doing
+		// the migration twice.
+		configurator.ProviderCodex:    perName("", ".codex", "skills"),
+		configurator.ProviderKiro:     perName("", ".kiro", "skills"),
+		configurator.ProviderOpenCode: perName("", ".opencode", "skills"),
 		// hermes: DELIVERED, not installed (D141). HERMES_HOME/skills/ belongs
 		// to the agent's own curator, which rewrites what it owns; writing
 		// there would destroy its learning. The proposal lands in the inbox
