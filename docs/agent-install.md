@@ -93,7 +93,21 @@ cartographer connect --agents codex
 ```
 
 Expected output: the generated MCP configuration paths and a reminder to restart the agent session.
-With two or more mounted KBs, Cartographer automatically creates one MCP entry per KB.
+With two or more mounted KBs, Cartographer creates one MCP entry per KB the client is bound to.
+
+**Ask which KBs this client should receive.** On a first connect against a server mounting two or
+more KBs, `connect` requires the choice — it will not deliver all of them by default (D190), because
+everything a KB carries (skills, subagents, hooks, instructions, MCP descriptors) is delivered with
+it:
+
+```bash
+cartographer connect --agents codex --kb <name>          # repeatable, or comma-separated
+cartographer connect --agents codex --kb all             # every mounted KB, recorded explicitly
+```
+
+In an interactive terminal the same choice is offered as a list after the connect form. Prefer the
+narrowest selection that does the job, and verify the result with `cartographer status`: the bound
+KBs are printed per provider, with `explicit` next to them.
 
 ## 5. Verify the installation
 
