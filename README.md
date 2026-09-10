@@ -71,18 +71,36 @@ cartographer connect        # detects installed clients and configures all of th
 
 That single command writes, per client and in the format that client expects:
 
-| | claude | opencode | codex | kiro | hermes | antigravity |
+| | claude | opencode | codex | kiro | antigravity | hermes |
 |---|---|---|---|---|---|---|
-| **MCP endpoint** | `.claude.json` | `opencode.json` | `config.toml` block | `.kiro/settings/mcp.json` | *rendered by its own deploy* | `.gemini/config/mcp_config.json` |
-| **Skills** | `.claude/skills/` | `.opencode/skills/` | `.codex/skills/` | `.kiro/skills/` | delivered to its inbox | `.gemini/config/skills/` |
-| **Subagents** | `.claude/agents/*.md` | `.opencode/agent/*.md` | `.codex/agents/*.toml` | — | — | `.gemini/config/agents/*.md` |
-| **Hooks** | `settings.json` | generated JS plugin | `config.toml` block | — | — | `.gemini/config/hooks.json` |
-| **Instructions** | block in `CLAUDE.md` | block in `AGENTS.md` | block in `AGENTS.md` | `.kiro/steering/` | — | block in `GEMINI.md` |
+| **MCP endpoint** | `~/.claude.json` | `~/opencode.json` | block in `~/.codex/config.toml` | `~/.kiro/settings/mcp.json` | `~/.gemini/config/mcp_config.json` | — |
+| **Instructions** | block in `~/.claude/CLAUDE.md` | block in `~/.config/opencode/AGENTS.md` | block in `~/.codex/AGENTS.md` | `~/.kiro/steering/cartographer.md` | block in `~/.gemini/GEMINI.md` | — |
+| **Skills** | `~/.claude/skills/` | `~/.opencode/skills/` | `~/.codex/skills/` | `~/.kiro/skills/` | `~/.gemini/config/skills/` | delivered to its inbox |
+| **Subagents** | `~/.claude/agents/*.md` | `~/.opencode/agent/*.md` | `~/.codex/agents/*.toml` | — | `~/.gemini/config/agents/*.md` | — |
+| **Hooks** | `~/.claude/hooks/`, registered in `settings.json` | `~/.opencode/hooks/`, run by a generated JS plugin | `~/.codex/hooks/`, registered in `config.toml` | — | `~/.gemini/config/hooks/`, registered in `hooks.json` | — |
+| **Re-sync trigger** | `SessionStart` hook | `SessionStart` hook | `SessionStart` hook | scheduled timer | scheduled timer | scheduled timer |
 
 Subagents and hooks are **translated**, not copied: the same KB artifact becomes a Markdown agent
-for Claude Code, a TOML one for Codex, Antigravity-native Markdown, and a generated JavaScript plugin where a hook has no declarative
-equivalent. Cells that cannot exist are `unsupported` by explicit declaration, never by silent
-omission — and a cell missing from the table fails a test.
+for Claude Code, a TOML one for Codex, Antigravity-native Markdown, and a generated JavaScript
+plugin where a hook has no declarative equivalent.
+
+Every `—` is an `unsupported` cell **declared for a stated reason**, never a silent omission — and a
+cell missing from the table fails a test:
+
+- **kiro** — its hooks live inside an *agent* configuration and fire only for the agent that
+  declares them, so no hook Cartographer owns can fire for the agent the user actually runs; and its
+  agents are top-level personas you select yourself, not delegates a main agent can invoke. Kiro 3.0
+  changes both facts — standalone machine-wide hooks, and any custom agent invocable as a sub-agent
+  — and [#248](https://github.com/BeppeTemp/cartographer/issues/248) tracks the work.
+- **hermes** — its MCP endpoints and its always-on instruction slot are rendered by its own Ansible
+  role and recreated on the next playbook run, and it has no subagent directory and no hook engine.
+  Skills are *delivered*, not installed: they land in an inbox with a generated `SOURCE.md` and the
+  agent's own curator adopts them, because overwriting what that curator owns would destroy its
+  learning.
+
+Where there is no session hook, the **scheduled trigger** takes over
+(`cartographer service sync-timer install`): opt-in, explicit, and never installed as a side effect
+of connecting.
 
 What keeps it true after the first run:
 
