@@ -648,7 +648,7 @@ func TestFormatKindStatus(t *testing.T) {
 		},
 	}
 
-	got := formatKindStatus(m, lock)
+	got := formatKindStatus(m, lock, false)
 	want := "skill 1/2 · agent 2/2 · hook 0/1"
 	if got != want {
 		t.Errorf("formatKindStatus: got %q, want %q", got, want)
@@ -656,7 +656,7 @@ func TestFormatKindStatus(t *testing.T) {
 }
 
 func TestFormatKindStatus_Empty(t *testing.T) {
-	if got := formatKindStatus(provisioning.Manifest{}, provisioning.Lock{}); got != "" {
+	if got := formatKindStatus(provisioning.Manifest{}, provisioning.Lock{}, false); got != "" {
 		t.Errorf("formatKindStatus on empty manifest: got %q, want \"\"", got)
 	}
 }
@@ -668,7 +668,7 @@ func TestFormatKindStatus_UnknownKindAppendedAlphabetically(t *testing.T) {
 			{Kind: "zzz-future-kind", Name: "f1", ContentHash: "h2"},
 		},
 	}
-	got := formatKindStatus(m, provisioning.Lock{})
+	got := formatKindStatus(m, provisioning.Lock{}, false)
 	want := "skill 0/1 · zzz-future-kind 0/1"
 	if got != want {
 		t.Errorf("formatKindStatus: got %q, want %q", got, want)

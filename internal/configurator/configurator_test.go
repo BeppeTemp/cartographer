@@ -536,3 +536,66 @@ func TestApplyWrite(t *testing.T) {
 		}
 	}
 }
+
+// --- instructions precedence (D189) ---
+
+// Only providers with a documented shadowing rule declare a chain. An invented
+// one produces a false "not active" finding, which is the same class of defect
+// the check exists to remove.
+func TestInstructionsPrecedence_DeclaredOnlyWhereDocumented(t *testing.T) {
+	want := map[configurator.Provider]bool{configurator.ProviderCodex: true}
+	for _, d := range configurator.Providers() {
+		declared := len(d.InstructionsPrecedence) > 0
+		if declared != want[d.Provider] {
+			t.Errorf("%s: declares a precedence chain = %v; want %v", d.Provider, declared, want[d.Provider])
+		}
+	}
+}
+
+func TestShadowedInstructions(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		provider      configurator.Provider
+		files         []string
+		wantShadowing string
+	}{
+		{"override present shadows the managed file", configurator.ProviderCodex,
+			[]string{".codex/AGENTS.override.md", ".codex/AGENTS.md"}, ".codex/AGENTS.override.md"},
+		{"override present, managed file absent", configurator.ProviderCodex,
+			[]string{".codex/AGENTS.override.md"}, ".codex/AGENTS.override.md"},
+		{"only the managed file", configurator.ProviderCodex,
+			[]string{".codex/AGENTS.md"}, ""},
+		{"nothing on disk", configurator.ProviderCodex, nil, ""},
+		{"provider without a chain", configurator.ProviderClaudeCode,
+			[]string{".claude/CLAUDE.override.md", ".claude/CLAUDE.md"}, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			for _, rel := range tc.files {
+				path := filepath.Join(dir, filepath.FromSlash(rel))
+				if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(path, []byte("x\n"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			shadowing, shadowed, ok := configurator.ShadowedInstructions(tc.provider, dir)
+			if tc.wantShadowing == "" {
+				if ok {
+					t.Fatalf("expected no shadowing, got %q over %q", shadowing, shadowed)
+				}
+				return
+			}
+			if !ok {
+				t.Fatal("expected shadowing")
+			}
+			if shadowing != filepath.FromSlash(tc.wantShadowing) {
+				t.Errorf("shadowing = %q; want %q", shadowing, tc.wantShadowing)
+			}
+			if shadowed == "" {
+				t.Error("the shadowed file must be named too: the finding has to state both")
+			}
+		})
+	}
+}
