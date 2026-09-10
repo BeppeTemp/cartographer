@@ -126,7 +126,7 @@ func removeMCPServer(baseDir, name string, provider configurator.Provider) error
 		return fmt.Errorf("provisioning: read %s: %w", fullPath, err)
 	}
 	var settings map[string]interface{}
-	if err := configurator.UnmarshalProviderJSON(provider, data, &settings); err != nil {
+	if err := json.Unmarshal(data, &settings); err != nil {
 		return fmt.Errorf("provisioning: parse %s: %w", fullPath, err)
 	}
 

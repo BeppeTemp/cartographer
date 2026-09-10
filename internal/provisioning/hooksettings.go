@@ -753,11 +753,7 @@ func loadJSONObject(path string) (map[string]interface{}, error) {
 		return nil, fmt.Errorf("provisioning: read %s: %w", path, err)
 	}
 	var m map[string]interface{}
-	provider := configurator.Provider("")
-	if strings.Contains(filepath.ToSlash(path), "/.gemini/config/") {
-		provider = configurator.ProviderAntigravity
-	}
-	if err := configurator.UnmarshalProviderJSON(provider, data, &m); err != nil {
+	if err := json.Unmarshal(data, &m); err != nil {
 		return nil, fmt.Errorf("provisioning: parse %s: %w", path, err)
 	}
 	if m == nil {

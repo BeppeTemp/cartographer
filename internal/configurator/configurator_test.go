@@ -259,17 +259,16 @@ func TestApplyDryRun(t *testing.T) {
 	}
 }
 
-func TestApplyAndRemoveAntigravityJSONC(t *testing.T) {
+func TestApplyAndRemoveAntigravityPreservesForeignServers(t *testing.T) {
 	baseDir := t.TempDir()
 	path := filepath.Join(baseDir, ".gemini", "config", "mcp_config.json")
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	existing := `{
-  // User-managed server.
   "mcpServers": {
-    "foreign": {"serverUrl": "https://foreign.example/mcp"},
-  },
+    "foreign": {"serverUrl": "https://foreign.example/mcp"}
+  }
 }`
 	if err := os.WriteFile(path, []byte(existing), 0o644); err != nil {
 		t.Fatal(err)
@@ -280,7 +279,7 @@ func TestApplyAndRemoveAntigravityJSONC(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := configurator.Apply([]*configurator.EmitResult{r}, baseDir, false); err != nil {
-		t.Fatalf("Apply JSONC: %v", err)
+		t.Fatalf("Apply: %v", err)
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -308,6 +307,41 @@ func TestApplyAndRemoveAntigravityJSONC(t *testing.T) {
 	servers = root["mcpServers"].(map[string]any)
 	if servers["foreign"] == nil || servers["cartographer"] != nil {
 		t.Fatalf("Remove changed the wrong server: %#v", servers)
+	}
+}
+
+// A config carrying comments or trailing commas is not silently normalized: it
+// is refused, and the file on disk is left byte-for-byte as the user wrote it.
+// Rewriting it as plain JSON would drop the comments without asking (D194).
+func TestApplyAntigravityRefusesNonJSONConfig(t *testing.T) {
+	baseDir := t.TempDir()
+	path := filepath.Join(baseDir, ".gemini", "config", "mcp_config.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	existing := `{
+  // User-managed server.
+  "mcpServers": {
+    "foreign": {"serverUrl": "https://foreign.example/mcp"},
+  },
+}`
+	if err := os.WriteFile(path, []byte(existing), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg := &configurator.ServerConfig{Name: "cartographer", URL: "https://cartographer.example/mcp"}
+	r, err := configurator.Emit(cfg, configurator.ProviderAntigravity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := configurator.Apply([]*configurator.EmitResult{r}, baseDir, false); err == nil {
+		t.Fatal("Apply must refuse a config it cannot parse")
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != existing {
+		t.Fatalf("refused config was rewritten:\n%s", data)
 	}
 }
 

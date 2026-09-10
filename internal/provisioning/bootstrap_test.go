@@ -229,6 +229,28 @@ func TestEnsureBootstrapHook_Kiro_NoOp(t *testing.T) {
 	}
 }
 
+// SupportsSessionHook is the single answer both EnsureBootstrapHook and the
+// client's "install the sync timer" advice derive from, and it has two distinct
+// negative cases that must not collapse into one: kiro has no hook mechanism at
+// all, antigravity has one whose engine exposes no session-start event (D194).
+func TestSupportsSessionHook(t *testing.T) {
+	for _, tc := range []struct {
+		provider configurator.Provider
+		want     bool
+	}{
+		{configurator.ProviderClaudeCode, true},
+		{configurator.ProviderCodex, true},
+		{configurator.ProviderOpenCode, true},
+		{configurator.ProviderKiro, false},
+		{configurator.ProviderHermes, false},
+		{configurator.ProviderAntigravity, false},
+	} {
+		if got := provisioning.SupportsSessionHook(tc.provider); got != tc.want {
+			t.Errorf("SupportsSessionHook(%s) = %v; want %v", tc.provider, got, tc.want)
+		}
+	}
+}
+
 func TestEnsureBootstrapHook_Antigravity_NoOp(t *testing.T) {
 	baseDir := t.TempDir()
 	lock, err := provisioning.EnsureBootstrapHook(baseDir, configurator.ProviderAntigravity, provisioning.Lock{}, false)
