@@ -2112,6 +2112,242 @@ func TestServer_GateCheck_Pass(t *testing.T) {
 	}
 }
 
+// --- gate_check / lint: severity floor, counts, scope (D186) ---
+
+// setupThreeSeverityKB adds one finding of each severity to the test KB:
+// concept_oversize (info), broken_link (warning) and expanded_ambiguous
+// (error, from a concept that exists both as a file and as a directory).
+func setupThreeSeverityKB(t *testing.T, k *kb.KB) {
+	t.Helper()
+	root := k.DataRoot()
+	big := "---\ntype: Note\ntitle: Big\n---\n# Grande\n\n" + strings.Repeat("a", 40000) + "\n"
+	if err := os.WriteFile(filepath.Join(root, "manutenzione", "big.md"), []byte(big), 0o644); err != nil {
+		t.Fatalf("write big: %v", err)
+	}
+	broken := "---\ntype: Note\ntitle: Broken\n---\nSee [missing](nonexistent.md).\n"
+	if err := os.WriteFile(filepath.Join(root, "manutenzione", "broken.md"), []byte(broken), 0o644); err != nil {
+		t.Fatalf("write broken: %v", err)
+	}
+	ambiguous := "---\ntype: Note\ntitle: Ambiguous\n---\nBoth forms exist.\n"
+	if err := os.WriteFile(filepath.Join(root, "manutenzione", "dossier.md"), []byte(ambiguous), 0o644); err != nil {
+		t.Fatalf("write dossier: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "manutenzione", "dossier"), 0o755); err != nil {
+		t.Fatalf("mkdir dossier: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "manutenzione", "dossier", "index.md"), []byte(ambiguous), 0o644); err != nil {
+		t.Fatalf("write dossier index: %v", err)
+	}
+}
+
+// gateResponse is the subset of gate_check's payload these tests assert on.
+type gateResponse struct {
+	Pass         bool `json:"pass"`
+	LintFindings []struct {
+		Path     string `json:"path"`
+		Check    string `json:"check"`
+		Severity string `json:"severity"`
+	} `json:"lint_findings"`
+	LintCount        int            `json:"lint_count"`
+	FindingsOmitted  int            `json:"findings_omitted"`
+	CountsByCheck    map[string]int `json:"counts_by_check"`
+	CountsBySeverity map[string]int `json:"counts_by_severity"`
+}
+
+func decodeGate(t *testing.T, tr ToolResult) gateResponse {
+	t.Helper()
+	if tr.IsError {
+		t.Fatalf("gate_check: isError=true: %v", tr.Content)
+	}
+	var g gateResponse
+	if err := json.Unmarshal([]byte(tr.Content[0].Text), &g); err != nil {
+		t.Fatalf("decode gate_check: %v", err)
+	}
+	return g
+}
+
+func TestServer_GateCheck_SeverityFloor_DefaultDropsInfo(t *testing.T) {
+	k := setupTestKB(t)
+	setupThreeSeverityKB(t, k)
+	s := New("1.0.0")
+	RegisterKBTools(s, k, Deps{})
+
+	resps := runMCPSequence(t, s, []string{
+		initMsg,
+		artifactCallMsg(t, 2, "gate_check", map[string]any{"changed_ids": []string{"manutenzione/test-runbook"}}),
+		artifactCallMsg(t, 3, "gate_check", map[string]any{"changed_ids": []string{"manutenzione/test-runbook"}, "severity_min": "info"}),
+		artifactCallMsg(t, 4, "gate_check", map[string]any{"changed_ids": []string{"manutenzione/test-runbook"}, "severity_min": "error"}),
+	})
+
+	byDefault := decodeGate(t, decodeToolResult(t, resps[1]))
+	withInfo := decodeGate(t, decodeToolResult(t, resps[2]))
+	withError := decodeGate(t, decodeToolResult(t, resps[3]))
+
+	// The fixture must actually exercise all three levels, or the rest proves
+	// nothing.
+	for _, sev := range []string{"info", "warning", "error"} {
+		if withInfo.CountsBySeverity[sev] == 0 {
+			t.Fatalf("fixture produced no %s finding: %v", sev, withInfo.CountsBySeverity)
+		}
+	}
+
+	for _, f := range byDefault.LintFindings {
+		if f.Severity == "info" {
+			t.Errorf("default gate_check must not carry info findings, got %s on %s", f.Check, f.Path)
+		}
+	}
+	if len(byDefault.LintFindings) >= len(withInfo.LintFindings) {
+		t.Errorf("default floor should return fewer findings than severity_min=info: %d vs %d",
+			len(byDefault.LintFindings), len(withInfo.LintFindings))
+	}
+
+	// The counts are computed before filtering, so they are identical whatever
+	// the floor, and they total the unfiltered count.
+	total := 0
+	for _, n := range byDefault.CountsByCheck {
+		total += n
+	}
+	if total != byDefault.LintCount {
+		t.Errorf("counts_by_check totals %d, lint_count says %d", total, byDefault.LintCount)
+	}
+	if byDefault.FindingsOmitted != byDefault.LintCount-len(byDefault.LintFindings) {
+		t.Errorf("findings_omitted=%d does not match %d-%d", byDefault.FindingsOmitted,
+			byDefault.LintCount, len(byDefault.LintFindings))
+	}
+	if withInfo.FindingsOmitted != 0 {
+		t.Errorf("severity_min=info omits nothing, got findings_omitted=%d", withInfo.FindingsOmitted)
+	}
+
+	// A response budget must never change a verdict.
+	if withInfo.Pass != withError.Pass || byDefault.Pass != withInfo.Pass {
+		t.Errorf("pass must not depend on severity_min: default=%v info=%v error=%v",
+			byDefault.Pass, withInfo.Pass, withError.Pass)
+	}
+	if withError.Pass {
+		t.Error("fixture has an error-severity finding: pass must be false")
+	}
+}
+
+func TestServer_GateCheck_InvalidSeverityMin(t *testing.T) {
+	k := setupTestKB(t)
+	s := New("1.0.0")
+	RegisterKBTools(s, k, Deps{})
+
+	resps := runMCPSequence(t, s, []string{
+		initMsg,
+		artifactCallMsg(t, 2, "gate_check", map[string]any{"changed_ids": []string{"manutenzione/test-runbook"}, "severity_min": "critical"}),
+	})
+	tr := decodeToolResult(t, resps[1])
+	if !tr.IsError {
+		t.Fatal("gate_check: an invalid severity_min must be an error, not a silent fallback")
+	}
+	for _, want := range []string{"info", "warning", "error"} {
+		if !strings.Contains(tr.Content[0].Text, want) {
+			t.Errorf("error must name the accepted value %q: %s", want, tr.Content[0].Text)
+		}
+	}
+}
+
+func TestServer_GateCheck_Scope(t *testing.T) {
+	k := setupTestKB(t)
+	setupThreeSeverityKB(t, k)
+	if err := os.MkdirAll(filepath.Join(k.DataRoot(), "altrove"), 0o755); err != nil {
+		t.Fatalf("mkdir altrove: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(k.DataRoot(), "altrove", "pulito.md"),
+		[]byte("---\ntype: Note\ntitle: Pulito\n---\nNiente da segnalare.\n"), 0o644); err != nil {
+		t.Fatalf("write pulito: %v", err)
+	}
+	s := New("1.0.0")
+	RegisterKBTools(s, k, Deps{})
+
+	resps := runMCPSequence(t, s, []string{
+		initMsg,
+		artifactCallMsg(t, 2, "gate_check", map[string]any{"changed_ids": []string{"manutenzione/test-runbook"}, "scope": "manutenzione", "severity_min": "info"}),
+		artifactCallMsg(t, 3, "gate_check", map[string]any{"changed_ids": []string{"manutenzione/test-runbook"}, "scope": "altrove", "severity_min": "info"}),
+	})
+
+	inScope := decodeGate(t, decodeToolResult(t, resps[1]))
+	if len(inScope.LintFindings) == 0 {
+		t.Fatal("scope=manutenzione: expected the fixture's findings")
+	}
+	for _, f := range inScope.LintFindings {
+		if !strings.HasPrefix(f.Path, "manutenzione") {
+			t.Errorf("scope=manutenzione returned a finding outside it: %s", f.Path)
+		}
+	}
+
+	outOfScope := decodeGate(t, decodeToolResult(t, resps[2]))
+	if len(outOfScope.LintFindings) != 0 {
+		t.Errorf("scope=altrove: expected no findings, got %v", outOfScope.LintFindings)
+	}
+}
+
+func TestServer_Lint_SeverityFloor_CountsSurvive(t *testing.T) {
+	k := setupTestKB(t)
+	setupThreeSeverityKB(t, k)
+	s := New("1.0.0")
+	RegisterKBTools(s, k, Deps{})
+
+	resps := runMCPSequence(t, s, []string{
+		initMsg,
+		artifactCallMsg(t, 2, "lint", map[string]any{}),
+		artifactCallMsg(t, 3, "lint", map[string]any{"severity_min": "error"}),
+	})
+
+	decode := func(tr ToolResult) gateResponse {
+		t.Helper()
+		if tr.IsError {
+			t.Fatalf("lint: isError=true: %v", tr.Content)
+		}
+		var r struct {
+			Count            int            `json:"count"`
+			FindingsOmitted  int            `json:"findings_omitted"`
+			CountsByCheck    map[string]int `json:"counts_by_check"`
+			CountsBySeverity map[string]int `json:"counts_by_severity"`
+			Findings         []struct {
+				Path     string `json:"path"`
+				Check    string `json:"check"`
+				Severity string `json:"severity"`
+			} `json:"findings"`
+		}
+		if err := json.Unmarshal([]byte(tr.Content[0].Text), &r); err != nil {
+			t.Fatalf("decode lint: %v", err)
+		}
+		return gateResponse{
+			LintFindings:     r.Findings,
+			LintCount:        r.Count,
+			FindingsOmitted:  r.FindingsOmitted,
+			CountsByCheck:    r.CountsByCheck,
+			CountsBySeverity: r.CountsBySeverity,
+		}
+	}
+
+	// lint's default stays exhaustive: it is the tool you call to see findings.
+	byDefault := decode(decodeToolResult(t, resps[1]))
+	if byDefault.FindingsOmitted != 0 {
+		t.Errorf("lint default must omit nothing, got findings_omitted=%d", byDefault.FindingsOmitted)
+	}
+	if byDefault.CountsBySeverity["info"] == 0 {
+		t.Errorf("lint default must still carry info findings: %v", byDefault.CountsBySeverity)
+	}
+
+	onlyErrors := decode(decodeToolResult(t, resps[2]))
+	for _, f := range onlyErrors.LintFindings {
+		if f.Severity != "error" {
+			t.Errorf("severity_min=error returned a %s finding: %s", f.Severity, f.Check)
+		}
+	}
+	// count keeps meaning the unfiltered total, and the counts still describe
+	// everything that was found.
+	if onlyErrors.LintCount != byDefault.LintCount {
+		t.Errorf("count must stay the unfiltered total: %d vs %d", onlyErrors.LintCount, byDefault.LintCount)
+	}
+	if onlyErrors.CountsBySeverity["warning"] == 0 {
+		t.Errorf("counts must survive the filter: %v", onlyErrors.CountsBySeverity)
+	}
+}
+
 func TestServer_GateCheck_Blocked(t *testing.T) {
 	k := setupTestKB(t)
 	os.MkdirAll(filepath.Join(k.DataRoot(), "conflicts"), 0o755)

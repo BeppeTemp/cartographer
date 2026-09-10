@@ -124,7 +124,10 @@ func toolLint(k *kb.KB) Tool {
 		Name:     "lint",
 		ReadOnly: true,
 		Description: "Runs deterministic lint checks: broken links, stale claims (review_after in the past), " +
-			"orphan concepts (no incoming links). Returns findings with severity.",
+			"orphan concepts (no incoming links). Returns findings with severity. 'severity_min' sets the " +
+			"floor (info/warning/error, default info: lint is the tool you call to *see* findings, so its " +
+			"default stays exhaustive). Every response also carries counts_by_check and counts_by_severity " +
+			"computed before filtering, and 'count' is always the unfiltered total (D186).",
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"properties": {
@@ -135,6 +138,11 @@ func toolLint(k *kb.KB) Tool {
 				"scope_neighbors": {
 					"type": "boolean",
 					"description": "Also lint 1-hop graph neighbors of concepts in scope (default false)."
+				},
+				"severity_min": {
+					"type": "string",
+					"enum": ["info", "warning", "error"],
+					"description": "Lowest severity to return. Optional, default 'info' (everything)."
 				}
 			}
 		}`),
@@ -142,8 +150,17 @@ func toolLint(k *kb.KB) Tool {
 			var params struct {
 				Scope          string `json:"scope"`
 				ScopeNeighbors bool   `json:"scope_neighbors"`
+				SeverityMin    string `json:"severity_min"`
 			}
 			json.Unmarshal(args, &params)
+
+			if params.SeverityMin == "" {
+				params.SeverityMin = lint.SevInfo
+			}
+			if !lint.ValidSeverity(params.SeverityMin) {
+				return errorResult(fmt.Sprintf("lint: 'severity_min' must be one of %s, got %q",
+					strings.Join(lint.Severities, ", "), params.SeverityMin)), nil
+			}
 
 			findings, err := lint.Run(k, params.Scope, params.ScopeNeighbors)
 			if err != nil {
@@ -154,13 +171,16 @@ func toolLint(k *kb.KB) Tool {
 				return textResult("Lint OK: no findings."), nil
 			}
 
+			total := len(findings)
+			findings, countsByCheck, countsBySeverity := lint.Filter(findings, params.SeverityMin)
+
 			type findingJSON struct {
 				Path     string `json:"path"`
 				Check    string `json:"check"`
 				Severity string `json:"severity"`
 				Message  string `json:"message"`
 			}
-			var results []findingJSON
+			results := make([]findingJSON, 0, len(findings))
 			for _, f := range findings {
 				results = append(results, findingJSON{
 					Path:     f.Path,
@@ -170,9 +190,14 @@ func toolLint(k *kb.KB) Tool {
 				})
 			}
 
+			// 'count' keeps meaning the unfiltered total, which is what it has
+			// always meant; findings_omitted says how much of it is not below.
 			result := map[string]interface{}{
-				"count":    len(results),
-				"findings": results,
+				"count":              total,
+				"findings":           results,
+				"findings_omitted":   total - len(results),
+				"counts_by_check":    countsByCheck,
+				"counts_by_severity": countsBySeverity,
 			}
 			out, _ := json.MarshalIndent(result, "", "  ")
 			return textResult(string(out)), nil
@@ -253,7 +278,12 @@ func toolGateCheck(k *kb.KB) Tool {
 		Name:     "gate_check",
 		ReadOnly: true,
 		Description: "Lightweight local gate: runs validate + lint + commit_gate in one call. " +
-			"Returns pass/fail with details. Use before fast-forwarding to main.",
+			"Returns pass/fail with details. Use before fast-forwarding to main. " +
+			"'severity_min' sets the lint floor (info/warning/error, default 'warning': the info checks " +
+			"cannot fail the gate, so an agent that wants them asks). 'scope' gates only that path prefix " +
+			"— empty, the default, gates the whole KB; the caller owns that choice and the tool never " +
+			"infers it from changed_ids. 'pass' is always computed on the unfiltered, whole-scope results, " +
+			"so a floor can never turn a failing gate into a passing one (D186).",
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"required": ["changed_ids"],
@@ -262,18 +292,41 @@ func toolGateCheck(k *kb.KB) Tool {
 					"type": "array",
 					"items": {"type": "string"},
 					"description": "List of concept IDs that were modified"
+				},
+				"severity_min": {
+					"type": "string",
+					"enum": ["info", "warning", "error"],
+					"description": "Lowest lint severity to return. Optional, default 'warning'. Never affects 'pass'."
+				},
+				"scope": {
+					"type": "string",
+					"description": "Path prefix to validate and lint (e.g. 'maintenance'). Optional, empty = the whole KB."
+				},
+				"scope_neighbors": {
+					"type": "boolean",
+					"description": "Also lint 1-hop graph neighbors of concepts in scope (default false)."
 				}
 			}
 		}`),
 		Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
 			var params struct {
-				ChangedIDs []string `json:"changed_ids"`
+				ChangedIDs     []string `json:"changed_ids"`
+				SeverityMin    string   `json:"severity_min"`
+				Scope          string   `json:"scope"`
+				ScopeNeighbors bool     `json:"scope_neighbors"`
 			}
 			if err := json.Unmarshal(args, &params); err != nil {
 				return errorResult("invalid params: " + err.Error()), nil
 			}
 			if len(params.ChangedIDs) == 0 {
 				return errorResult("'changed_ids' is required and must not be empty"), nil
+			}
+			if params.SeverityMin == "" {
+				params.SeverityMin = lint.SevWarning
+			}
+			if !lint.ValidSeverity(params.SeverityMin) {
+				return errorResult(fmt.Sprintf("gate_check: 'severity_min' must be one of %s, got %q",
+					strings.Join(lint.Severities, ", "), params.SeverityMin)), nil
 			}
 
 			ids := make([]okf.ConceptID, len(params.ChangedIDs))
@@ -284,7 +337,7 @@ func toolGateCheck(k *kb.KB) Tool {
 			pass := true
 
 			// 1. Validate
-			valErrs, err := k.Validate("")
+			valErrs, err := k.Validate(params.Scope)
 			if err != nil {
 				return errorResult(fmt.Sprintf("gate_check: validate: %v", err)), nil
 			}
@@ -293,16 +346,21 @@ func toolGateCheck(k *kb.KB) Tool {
 			}
 
 			// 2. Lint
-			lintFindings, err := lint.Run(k, "", false)
+			lintFindings, err := lint.Run(k, params.Scope, params.ScopeNeighbors)
 			if err != nil {
 				return errorResult(fmt.Sprintf("gate_check: lint: %v", err)), nil
 			}
+			// pass is decided on the unfiltered findings, before severity_min is
+			// applied below: a response budget must never be able to change a
+			// verdict.
 			for _, f := range lintFindings {
 				if f.Severity == lint.SevError {
 					pass = false
 					break
 				}
 			}
+			lintTotal := len(lintFindings)
+			lintFindings, countsByCheck, countsBySeverity := lint.Filter(lintFindings, params.SeverityMin)
 
 			// 3. Commit gate
 			gate, err := k.CommitGate(ids)
@@ -334,7 +392,7 @@ func toolGateCheck(k *kb.KB) Tool {
 			for _, e := range valErrs {
 				valErrsJSON = append(valErrsJSON, valErrJSON{Path: e.Path, Message: e.Message})
 			}
-			var lintJSON2 []lintJSON
+			lintJSON2 := make([]lintJSON, 0, len(lintFindings))
 			for _, f := range lintFindings {
 				lintJSON2 = append(lintJSON2, lintJSON{
 					Path: f.Path, Check: f.Check, Severity: f.Severity, Message: f.Message,
@@ -347,11 +405,17 @@ func toolGateCheck(k *kb.KB) Tool {
 				})
 			}
 
+			// validation_errors and gate_blockers are never filtered: they are
+			// already error-level and small.
 			result := map[string]interface{}{
-				"pass":              pass,
-				"validation_errors": valErrsJSON,
-				"lint_findings":     lintJSON2,
-				"gate_blockers":     blockers,
+				"pass":               pass,
+				"validation_errors":  valErrsJSON,
+				"lint_findings":      lintJSON2,
+				"gate_blockers":      blockers,
+				"lint_count":         lintTotal,
+				"findings_omitted":   lintTotal - len(lintJSON2),
+				"counts_by_check":    countsByCheck,
+				"counts_by_severity": countsBySeverity,
 			}
 			out, _ := json.MarshalIndent(result, "", "  ")
 			return textResult(string(out)), nil
