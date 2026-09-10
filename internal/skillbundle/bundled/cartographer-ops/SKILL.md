@@ -55,12 +55,22 @@ variables or the platform secret store, not in a committed YAML file.
    agent session so it reloads MCP configuration and skills.
 4. If concepts are degraded after a git conflict, use the `kb-conflict-resolve` skill; do not
    repair their files outside Cartographer.
-5. If the binary and running service differ, run `cartographer service restart` after upgrading.
+5. If the binary and the running service differ, run `cartographer upgrade-repair` (D121): it
+   gracefully replaces a running server, proves the new version is serving, and reconciles the
+   configured providers. A bare `service restart` does none of that and can leave a client
+   configured against the previous version.
 
 ## Upgrade
 
-- macOS: `brew upgrade --cask beppetemp/tap/cartographer`, then `cartographer service restart`.
+- macOS: `brew upgrade --cask beppetemp/tap/cartographer`. The Cask's post-install hook runs
+  `cartographer upgrade-repair` on its own, so **no follow-up command is needed**; run it by hand
+  only if the hook reported a problem.
+- POSIX installer: `install.sh update`, which runs `upgrade-repair` the same way.
 - Kubernetes: update the Cartographer image tag in the deployment manifest and wait for rollout.
+
+Only already-open agent sessions need restarting after an upgrade, so they reload the MCP
+configuration and the provisioned skills. Tell the user to do that — the agent cannot restart its
+own session.
 
 ## Never do
 

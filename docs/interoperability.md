@@ -54,6 +54,25 @@ duplicate a dated market-wide capability matrix. The maintained sources are:
 - tests under `internal/configurator` and `internal/provisioning` — executable
   compatibility contract.
 
+### Known divergences from the documented path (D192)
+
+Two destinations differ from the path the provider's own documentation
+currently presents as canonical. Both were proven working against the real
+client, so neither is a fault today — but both can break on a client release,
+which is why `internal/provisioning/clientcompat_test.go` asserts the declared
+destination against the client's own discovery output on a machine that has the
+client installed (and skips where it does not).
+
+| Kind × provider | Cartographer writes | Provider documents | Last verified |
+|---|---|---|---|
+| `skill` × codex | `~/.codex/skills/<name>/` | `$HOME/.agents/skills` ([source](https://developers.openai.com/codex/skills)) | client 0.153.4 |
+| `agent` × opencode | `~/.opencode/agent/<name>.md` | `.opencode/agents` ([source](https://opencode.ai/docs/agents)) | client 1.18.20 |
+
+Neither is moved here: a destination change is a migration (prune the old
+files, re-key the lockfile), and for Codex the right target is the *repository*
+path, which only exists once a workspace scope does (D193). Moving it now would
+mean doing the migration twice. What was missing was the alarm, not the move.
+
 Current limitations are documented once in the relevant table/section rather
 than repeated here. In particular, Kiro's flat MCP tool namespace may require
 the server's per-KB tool prefix, and provider translations intentionally drop

@@ -97,9 +97,15 @@ Apply the updated ConfigMap/Secret and roll out the Deployment so the server pic
 ### 6. Verify and connect
 - Verify the KB is mounted and healthy: call the MCP tool `atlas_overview` with `?kb=<nome>` (HTTP
   multi-KB) or `kb=<nome>` argument, confirm `data/index.md` exists.
-- Add the KB to clients: `cartographer connect` (interactive form or flags) with the scoped token,
-  or edit `.cartographer.yaml` directly (`server_url`, token env var pointing at the token from
-  step 4).
+- Add the KB to clients with `cartographer connect` (interactive form or flags) and the scoped
+  token. Do **not** hand-edit `.cartographer.yaml`: `connect` owns it, and a manual edit is not
+  tracked in the lockfile, so nothing prunes what it produced.
+- On a server mounting two or more KBs, `connect` requires the choice explicitly (D190):
+  `cartographer connect --agents <provider> --kb <name>` (repeatable, or `--kb all`). Pick the
+  narrowest set that does the job — every skill, subagent, hook and instructions block of a bound
+  KB is delivered to that client.
+- To change which KBs an already-connected client receives, use `cartographer client bind` /
+  `unbind` / `reset`, then `cartographer sync`. Bindings are enforced during sync (D170).
 
 ## Optional: Maps and Journals
 Once the KB is live, use the standard MCP tools to shape its content — this part is unchanged from
@@ -118,8 +124,9 @@ v1.x and can be driven by the agent, not just the operator:
 
 - Tools: `atlas_overview`, `map_create`, `concept_expand`, `concept_write`, `skill_list`, `skill_install`.
 - Layout: `data/` is the conceptual root; concept IDs are relative to it.
-- Multi-KB HTTP: endpoint is `/mcp?kb=<name>` when more than one KB is mounted; `<name>` is always
-  the KB's basename (see step 1).
+- Multi-KB HTTP: endpoint is `/mcp?kb=<name>` when more than one KB is mounted. `<name>` is the
+  `name:` field of the KB's `kbs:` entry, which falls back to the repository basename only when it
+  is omitted (see step 1) — not "always the basename".
 - Config reference: `config.example.yaml`, `docs/deployment.md` §Bootstrap KB da remote git e
   §Configurazione, `docs/transport-auth.md` §Autorizzazione per-KB,
   `docs/decisions/deployment-release.md` D39,

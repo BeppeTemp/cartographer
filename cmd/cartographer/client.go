@@ -10,12 +10,6 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 )
 
-// bindingNotYetEnforcedNote is printed by every command in this group that
-// changes a binding. The binding model (D169) is persisted here, but nothing
-// projects artifacts through it until the filtered projection lands: saying so
-// once per mutation is cheaper than a user concluding the feature is broken.
-const bindingNotYetEnforcedNote = "note: bindings are recorded but not yet enforced during sync"
-
 // cmdClient manages the per-provider KB binding (D169): which Knowledge Bases
 // each connected agent client may receive. Every subcommand here works
 // offline — it reads and writes .cartographer.yaml only and never contacts the
@@ -171,7 +165,6 @@ func clientBind(dir string, cfg *clientconfig.Config, args []string) int {
 	fmt.Printf("%s bound to %s\n", provider, formatKBList(bound))
 	warnProviderCollisions(cfg, provider, bound)
 	fmt.Println("run `cartographer sync` to apply")
-	fmt.Println(bindingNotYetEnforcedNote)
 	return 0
 }
 
@@ -221,7 +214,6 @@ func clientUnbind(dir string, cfg *clientconfig.Config, args []string) int {
 		fmt.Printf("%s is now bound to no KBs; run `cartographer client reset %s` to return it to the default\n", provider, provider)
 	}
 	fmt.Println("run `cartographer sync` to apply")
-	fmt.Println(bindingNotYetEnforcedNote)
 	return 0
 }
 
@@ -241,7 +233,6 @@ func clientReset(dir string, cfg *clientconfig.Config, args []string) int {
 	}
 	fmt.Printf("%s returned to the default: every known KB\n", provider)
 	fmt.Println("run `cartographer sync` to apply")
-	fmt.Println(bindingNotYetEnforcedNote)
 	return 0
 }
 

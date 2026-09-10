@@ -4,7 +4,7 @@
 # Usage:
 #   curl -fsSL https://raw.githubusercontent.com/BeppeTemp/cartographer/main/install.sh | sh
 #   curl -fsSL .../install.sh | sh -s -- update
-#   curl -fsSL .../install.sh | sh -s -- uninstall
+#   curl -fsSL .../install.sh | sh -s -- uninstall [--binary-only]
 #
 # On macOS, Homebrew is the preferred install method:
 #   brew install beppetemp/tap/cartographer
@@ -88,14 +88,16 @@ do_install() {
     trap 'rm -f "$tmp" "$tmp.sha"' EXIT
     auth_curl -o "$tmp" "$url" || fail "download failed: $url"
 
-    # Verify checksum when the release ships sha256sums.txt.
+    # Verify checksum when the release ships sha256sums.txt. A release with no
+    # such file is still installable (older tags have none); a file that exists
+    # but does not cover this asset is an error, not a skip — it is the shape a
+    # tampered or truncated manifest has.
     if auth_curl -o "$tmp.sha" "${DOWNLOAD_URL}/${tag}/sha256sums.txt" 2>/dev/null; then
         expected=$(grep " ${asset}\$" "$tmp.sha" | cut -d' ' -f1)
-        if [ -n "$expected" ]; then
-            actual=$( (sha256sum "$tmp" 2>/dev/null || shasum -a 256 "$tmp") | cut -d' ' -f1)
-            [ "$actual" = "$expected" ] || fail "checksum mismatch for ${asset}"
-            log "checksum OK"
-        fi
+        [ -n "$expected" ] || fail "sha256sums.txt has no entry for ${asset}: refusing to install unverified"
+        actual=$( (sha256sum "$tmp" 2>/dev/null || shasum -a 256 "$tmp") | cut -d' ' -f1)
+        [ "$actual" = "$expected" ] || fail "checksum mismatch for ${asset}"
+        log "checksum OK"
     fi
 
     chmod +x "$tmp"
@@ -104,7 +106,12 @@ do_install() {
     log "installed: $("$dest" version) -> ${dest}"
     case ":$PATH:" in
         *":${dir}:"*) ;;
-        *) log "note: ${dir} is not in your PATH" ;;
+        *)
+            log "note: ${dir} is not in your PATH — either invoke it by path:"
+            log "        ${dest} version"
+            log "      or add it to your PATH, e.g.:"
+            log "        echo 'export PATH=\"${dir}:\$PATH\"' >> ~/.profile && . ~/.profile"
+            ;;
     esac
 
     # Repair any native service in place (D121): upgrade-repair gracefully
@@ -128,20 +135,56 @@ do_install() {
     esac
 }
 
+# leftover_units lists the native units this machine still has installed, one
+# per line. A coordinated teardown that removes a user's KB data is not
+# something an installer should do implicitly, so uninstall names them instead.
+leftover_units() {
+    for unit in \
+        "${HOME}/Library/LaunchAgents/com.cartographer.serve.plist" \
+        "${HOME}/Library/LaunchAgents/com.cartographer.sync.plist" \
+        "${HOME}/.config/systemd/user/cartographer.service" \
+        "${HOME}/.config/systemd/user/cartographer-sync.timer"
+    do
+        [ -f "$unit" ] && echo "$unit"
+    done
+    return 0
+}
+
 do_uninstall() {
     dir=$(install_dir)
     dest="${dir}/${BIN_NAME}"
+
+    units=$(leftover_units)
+    if [ -n "$units" ] && [ "$BINARY_ONLY" != "1" ]; then
+        log "this machine still has Cartographer units installed:"
+        echo "$units" | while IFS= read -r unit; do log "  ${unit}"; done
+        log ""
+        log "removing only the binary would leave them pointing at a missing executable."
+        log "Remove them first, with the binary still in place:"
+        log "  cartographer service sync-timer uninstall"
+        log "  cartographer service uninstall"
+        log "  cartographer disconnect            # removes the artifacts materialized into your agents"
+        log ""
+        log "then rerun: $0 uninstall"
+        log "Or, to delete the binary anyway and clean up by hand later:"
+        log "  $0 uninstall --binary-only"
+        exit 1
+    fi
+
     if [ -x "$dest" ]; then
         rm -f "$dest"
         log "removed ${dest}"
     else
         log "cartographer not found in ${dir}, nothing to do"
     fi
+    log "note: this removes the binary only — materialized agent artifacts and your KB data are untouched."
 }
 
 cmd="${1:-install}"
+BINARY_ONLY=0
+[ "${2:-}" = "--binary-only" ] && BINARY_ONLY=1
 case "$cmd" in
     install|update) do_install ;;
     uninstall) do_uninstall ;;
-    *) fail "unknown command: $cmd (want install|update|uninstall)" ;;
+    *) fail "unknown command: $cmd (want install|update|uninstall [--binary-only])" ;;
 esac

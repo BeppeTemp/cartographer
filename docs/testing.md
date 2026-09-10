@@ -124,6 +124,25 @@ invokes `upgrade-repair`, a stopped or absent service is never started, exit
 `1` still leaves the binary update successful, and exit `2` (or an unexpected
 code) fails visibly but only *after* the new binary is in place.
 
+Since D192 the suite also covers the checksum path — a matching digest installs
+and says `checksum OK`, a mismatch fails without leaving a binary behind, a
+`sha256sums.txt` that exists but does not cover the asset is an **error** rather
+than a silent skip, and a release shipping no checksum file at all still
+installs — and the `uninstall` branches: nothing installed, a binary with no
+units, a unit present (refused, non-zero, nothing removed), `--binary-only`
+(proceeds and states what it left behind), and a partial state such as a timer
+without a service.
+
+A separate, non-deterministic check lives in
+`internal/provisioning/clientcompat_test.go`: it runs the *client's own*
+discovery command and asserts it recognizes the destination Cartographer
+declares, for the two paths that diverge from the vendor documentation
+(see [interoperability](interoperability.md) §Known divergences). It skips when
+the client is not installed, and also when the client cannot answer — it errors,
+times out, or prints nothing — because an unrelated client problem must not turn
+this into a red suite that everyone learns to ignore. Only a successful run
+whose output does not mention the declared directory is a signal.
+
 The Cask hook is checked as a **repository template**, never as the generated
 file in `BeppeTemp/homebrew-tap`: the guard asserts that
 `.goreleaser.yaml` keeps the quarantine removal, invokes the stable linked

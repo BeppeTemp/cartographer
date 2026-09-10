@@ -51,6 +51,15 @@ homebrew_casks:
     directory: Casks
     homepage: https://github.com/BeppeTemp/cartographer
     description: "MCP governance server for the Agentic Wiki — persistent, git-backed knowledge bases for LLM agents"
+    # Upstream deprecation, verified and not fixable here (D192, 2026-09-10,
+    # GoReleaser 2.18.1). Homebrew prints "Calling postflight is deprecated!
+    # Use postflight_steps instead" on every install of the generated Cask.
+    # This block is `homebrew_casks[].hooks.post.install`, GoReleaser's current
+    # API (since v2.13); the deprecated `postflight do` stanza is what
+    # GoReleaser *emits* from it, and no setting here changes that. Re-check
+    # with `goreleaser release --snapshot --clean` after a GoReleaser bump: if
+    # it starts emitting `postflight_steps`, this comment goes away with no
+    # other change.
     hooks:
       post:
         install: |
