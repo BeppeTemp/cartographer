@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -25,6 +26,79 @@ type repeatedString []string
 
 func (r *repeatedString) String() string         { return strings.Join(*r, ",") }
 func (r *repeatedString) Set(value string) error { *r = append(*r, value); return nil }
+
+// splitCommaList flattens a repeatable flag that also accepts comma-separated
+// values, so --kb a --kb b and --kb a,b are the same selection. An empty
+// element is preserved rather than dropped: `--kb ""` asked for something and
+// the caller must be able to reject it, not silently receive "nothing given".
+func splitCommaList(values []string) []string {
+	var out []string
+	for _, v := range values {
+		for _, part := range strings.Split(v, ",") {
+			out = append(out, strings.TrimSpace(part))
+		}
+	}
+	return out
+}
+
+// kbSelectionAll is the sentinel that selects every mounted KB. It is recorded
+// as an explicit binding to their names, never as the implicit default: that
+// difference is what keeps a KB mounted later from widening a client that
+// already exists.
+const kbSelectionAll = "all"
+
+// resolveKBSelection turns the operator's --kb (or form) choice into the list
+// of KBs this connect may deliver, validated against what the server actually
+// mounts (D190).
+//
+// selection empty is "not chosen", which is an error with two or more KBs
+// mounted: defaulting to all of them is the over-exposure this exists to close,
+// and it is sticky, because "all known" silently grows with the server.
+func resolveKBSelection(selection, mounted []string, listed bool) ([]string, error) {
+	if len(selection) == 0 {
+		switch {
+		case !listed || len(mounted) == 0:
+			// The server did not answer, or mounts nothing: there is no
+			// catalogue to narrow and nothing to materialize either.
+			return nil, nil
+		case len(mounted) == 1:
+			return append([]string(nil), mounted...), nil
+		default:
+			return nil, fmt.Errorf("this server mounts %d KBs (%s): choose which ones this client receives with --kb <name> (repeatable, or comma-separated), or --kb all",
+				len(mounted), strings.Join(mounted, ", "))
+		}
+	}
+
+	if len(selection) == 1 && selection[0] == kbSelectionAll {
+		if !listed {
+			return nil, fmt.Errorf("--kb all needs the server's KB list, which could not be read: name the KBs explicitly")
+		}
+		return append([]string(nil), mounted...), nil
+	}
+
+	seen := map[string]bool{}
+	var out []string
+	for _, name := range selection {
+		if name == "" {
+			return nil, fmt.Errorf("--kb was given an empty name: pass a KB name, or --kb all")
+		}
+		if name == kbSelectionAll {
+			return nil, fmt.Errorf("--kb all cannot be combined with a KB name: it already means every mounted KB")
+		}
+		if listed && !slices.Contains(mounted, name) {
+			if len(mounted) == 0 {
+				return nil, fmt.Errorf("--kb %q: this server mounts no KB", name)
+			}
+			return nil, fmt.Errorf("--kb %q: this server mounts %s", name, strings.Join(mounted, ", "))
+		}
+		if seen[name] {
+			continue
+		}
+		seen[name] = true
+		out = append(out, name)
+	}
+	return out, nil
+}
 
 // probeTimeout bounds probeServer's reachability check (D64): short enough
 // that a down server fails fast in the interactive form/CLI, well under the
@@ -253,6 +327,8 @@ func cmdConnect(args []string) int {
 	fs.Var(&pinKeys, "pin-key", "Pin a KB Ed25519 public key as KB=PUBLIC_KEY (repeatable)")
 	noInput := fs.Bool("no-input", false, "Never open the interactive form, even in a TTY")
 	agentsCSV := fs.String("agents", "", "Comma-separated agent subset: claude,codex")
+	var kbSel repeatedString
+	fs.Var(&kbSel, "kb", "KB this client may receive (repeatable, or comma-separated; 'all' for every mounted KB)")
 	fs.Parse(rest)
 
 	interactive := wantsConnectForm(fs, *noInput)
@@ -296,6 +372,7 @@ func cmdConnect(args []string) int {
 		AutoTrust: *autoTrust,
 		Trust:     settings.Trust,
 		PinKeys:   pinKeys,
+		KBs:       splitCommaList(kbSel),
 	}
 
 	if interactive {
@@ -363,6 +440,26 @@ func cmdConnect(args []string) int {
 			providers = formOpts.Providers
 			opts.Providers, opts.ServerURL, opts.Name, opts.Auth, opts.TokenEnv, opts.Trust =
 				providers, formOpts.ServerURL, formOpts.Name, formOpts.Auth, formOpts.TokenEnv, formOpts.Trust
+
+			// The KB choice (D190) comes after the probe, because that is when
+			// the names exist, and before doConnect, because that is when the
+			// first artifact would be written. Only asked when there is a
+			// choice to make and the operator has not already made it.
+			if len(opts.KBs) == 0 {
+				facts, ferr := enumerateKBs(opts.ServerURL, opts.Auth, opts.TokenEnv)
+				if ferr == nil && facts.Listed && len(facts.Names) > 1 && !allProvidersBound(existingOrDefault(dir), providers) {
+					selection, ok, err := runKBSelectForm(facts.Names)
+					if err != nil {
+						fmt.Fprintln(os.Stderr, "Error:", err)
+						return 2
+					}
+					if !ok {
+						fmt.Println("cancelled")
+						return 1
+					}
+					opts.KBs = selection
+				}
+			}
 
 			res, err := doConnect(opts)
 			if err != nil {
@@ -502,6 +599,13 @@ type connectOptions struct {
 	// Trust applies to every future sync until changed again.
 	Trust   bool
 	PinKeys []string
+	// KBs is the operator's explicit KB selection for this connect (D190),
+	// from --kb or the form. Empty means "not chosen": with two or more KBs
+	// mounted and no existing binding that is an error, not a silent
+	// fall-back to all of them. The single sentinel "all" selects every
+	// mounted KB and is recorded as an explicit binding to their names, which
+	// is what stops a KB mounted later from widening this client.
+	KBs []string
 }
 
 // connectResult is the outcome of doConnect: which providers were connected, the
@@ -558,6 +662,36 @@ func doConnect(opts connectOptions) (connectResult, error) {
 	}
 	facts, healthErr := enumerateKBs(opts.ServerURL, opts.Auth, opts.TokenEnv)
 	kbs := facts.Names
+
+	// 1a. Resolve and persist the KB selection BEFORE the first MCP entry or
+	// artifact is written (D190). `client bind` can only narrow a provider
+	// after it is connected, so any ordering of the old commands delivered
+	// every skill, agent, hook, instructions block and MCP descriptor of every
+	// known KB first. The window is closed by making the choice part of
+	// connect, not by moving bind earlier.
+	selected, err := resolveConnectKBs(existing, opts, facts, healthErr)
+	if err != nil {
+		return connectResult{}, err
+	}
+	if selected != nil {
+		// In memory in every mode, including --dry-run: the projection the run
+		// reports must be the one the selection produces. The write itself is
+		// already guarded at step 3.
+		for _, provider := range opts.Providers {
+			existing.ResetBinding(provider)
+			for _, kb := range selected {
+				if err := existing.Bind(provider, kb); err != nil {
+					return connectResult{}, err
+				}
+			}
+		}
+	}
+
+	// entryKBs stays the server's full mount list: it tells entriesForKBs that
+	// the endpoint must be scoped with ?kb= at all. Which of them this provider
+	// receives comes from the binding persisted just above — passing the
+	// selection here instead would collapse a single-KB choice to the bare,
+	// unscoped entry, which reaches every KB on the server.
 	entryKBs := kbs
 	if healthErr != nil || !facts.Listed {
 		entryKBs = nil
@@ -741,4 +875,43 @@ func providersManagingMCP(providers []string) []string {
 		}
 	}
 	return out
+}
+
+// resolveConnectKBs decides which KBs this connect binds the target providers
+// to (D190).
+//
+// A provider that already carries an explicit binding is not a first connect:
+// its recorded choice stands, and a `reconnect` or a re-run never silently
+// re-opens a catalogue the operator narrowed. Only a provider with no binding
+// yet must choose, and only when there is something to choose between.
+func resolveConnectKBs(cfg *clientconfig.Config, opts connectOptions, facts serverFacts, healthErr error) ([]string, error) {
+	if len(opts.KBs) == 0 && allProvidersBound(cfg, opts.Providers) {
+		// Every target already declared its own binding: preserve it verbatim.
+		return nil, nil
+	}
+	mounted := facts.Names
+	listed := healthErr == nil && facts.Listed
+	return resolveKBSelection(opts.KBs, mounted, listed)
+}
+
+// allProvidersBound reports whether every provider already has an explicit
+// binding recorded — the difference between "these KBs" and "whatever is
+// known", which BoundKBs is the only place allowed to resolve.
+func allProvidersBound(cfg *clientconfig.Config, providers []string) bool {
+	for _, p := range providers {
+		if _, explicit := cfg.BoundKBs(p); !explicit {
+			return false
+		}
+	}
+	return true
+}
+
+// existingOrDefault loads the client config for dir, falling back to the
+// defaults when there is none yet — a first connect has no file, and that is
+// exactly the case the KB selection exists for.
+func existingOrDefault(dir string) *clientconfig.Config {
+	if c, err := clientconfig.Load(dir); err == nil {
+		return c
+	}
+	return clientconfig.Default()
 }

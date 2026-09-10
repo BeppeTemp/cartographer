@@ -65,7 +65,9 @@ func TestDoConnect_PerKBEntries_AllProviders(t *testing.T) {
 	defer srv.Close()
 	dir := t.TempDir()
 	providers := []string{"claude", "codex", "kiro", "opencode"}
-	res, err := doConnect(connectOptions{Providers: providers, Dir: dir, ServerURL: srv.URL + "/mcp", Name: "cartographer", TokenEnv: "TOKEN", Trust: true})
+	// D190: a first multi-KB connect must name its KBs; "all" is the explicit
+	// way to say "every mounted one", which is what this case is about.
+	res, err := doConnect(connectOptions{Providers: providers, Dir: dir, ServerURL: srv.URL + "/mcp", Name: "cartographer", TokenEnv: "TOKEN", Trust: true, KBs: []string{"all"}})
 	if err != nil {
 		t.Fatalf("doConnect: %v", err)
 	}
@@ -167,7 +169,7 @@ func TestDoConnect_Kiro_MultiKB_WarnsFlatNamespace(t *testing.T) {
 	srv := multiKBServer(t, `{"status":"ok","kbs":[{"name":"alpha"},{"name":"beta"}]}`)
 	defer srv.Close()
 	dir := t.TempDir()
-	res, err := doConnect(connectOptions{Providers: []string{"kiro"}, Dir: dir, ServerURL: srv.URL + "/mcp", Name: "cartographer", TokenEnv: "TOKEN", Trust: true})
+	res, err := doConnect(connectOptions{Providers: []string{"kiro"}, Dir: dir, ServerURL: srv.URL + "/mcp", Name: "cartographer", TokenEnv: "TOKEN", Trust: true, KBs: []string{"all"}})
 	if err != nil {
 		t.Fatalf("doConnect: %v", err)
 	}
@@ -590,5 +592,194 @@ func TestManagedEntryNamesCoversEveryKnownKB(t *testing.T) {
 		if !found {
 			t.Errorf("managedEntryNames missing %q: %v", want, names)
 		}
+	}
+}
+
+// --- least-privilege first connect (D190) ---
+
+func TestResolveKBSelection(t *testing.T) {
+	mounted := []string{"alpha", "beta", "gamma"}
+	for _, tc := range []struct {
+		name      string
+		selection []string
+		mounted   []string
+		listed    bool
+		want      []string
+		wantErr   string
+	}{
+		{name: "one KB needs no choice", mounted: []string{"alpha"}, listed: true, want: []string{"alpha"}},
+		{name: "several KBs and no choice is an error", mounted: mounted, listed: true,
+			wantErr: "choose which ones this client receives"},
+		{name: "all is explicit and expands to the mounted names", selection: []string{"all"},
+			mounted: mounted, listed: true, want: mounted},
+		{name: "named KBs", selection: []string{"alpha", "gamma"}, mounted: mounted, listed: true,
+			want: []string{"alpha", "gamma"}},
+		{name: "duplicates collapse", selection: []string{"alpha", "alpha"}, mounted: mounted, listed: true,
+			want: []string{"alpha"}},
+		{name: "unknown KB names the mounted ones", selection: []string{"delta"}, mounted: mounted, listed: true,
+			wantErr: "this server mounts alpha, beta, gamma"},
+		{name: "empty value is an error, not none", selection: []string{""}, mounted: mounted, listed: true,
+			wantErr: "empty name"},
+		{name: "all cannot be combined", selection: []string{"all", "alpha"}, mounted: mounted, listed: true,
+			wantErr: "cannot be combined"},
+		{name: "all needs a KB list", selection: []string{"all"}, mounted: nil, listed: false,
+			wantErr: "could not be read"},
+		{name: "unreachable server with no selection is not an error", mounted: nil, listed: false},
+		{name: "an unlisted server does not validate names", selection: []string{"alpha"}, listed: false,
+			want: []string{"alpha"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := resolveKBSelection(tc.selection, tc.mounted, tc.listed)
+			if tc.wantErr != "" {
+				if err == nil {
+					t.Fatalf("expected an error containing %q, got %v", tc.wantErr, got)
+				}
+				if !strings.Contains(err.Error(), tc.wantErr) {
+					t.Fatalf("error = %v; want it to contain %q", err, tc.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if strings.Join(got, ",") != strings.Join(tc.want, ",") {
+				t.Errorf("selection = %v; want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+// The core guarantee: no ordering of commands can materialize an artifact from
+// a KB the operator did not name. A scripted first connect against a multi-KB
+// server fails, and writes nothing at all.
+func TestDoConnect_MultiKB_WithoutSelection_FailsAndWritesNothing(t *testing.T) {
+	srv := multiKBServer(t, `{"status":"ok","kbs":[{"name":"alpha"},{"name":"beta"},{"name":"gamma"}]}`)
+	defer srv.Close()
+	dir := t.TempDir()
+
+	_, err := doConnect(connectOptions{Providers: []string{"claude"}, Dir: dir, ServerURL: srv.URL + "/mcp", Name: "cartographer", TokenEnv: "TOKEN", Trust: true})
+	if err == nil {
+		t.Fatal("a first multi-KB connect with no --kb must fail")
+	}
+	for _, want := range []string{"alpha", "beta", "gamma", "--kb"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error must name %q: %v", want, err)
+		}
+	}
+
+	entries, rerr := os.ReadDir(dir)
+	if rerr != nil {
+		t.Fatalf("read dir: %v", rerr)
+	}
+	if len(entries) != 0 {
+		var names []string
+		for _, e := range entries {
+			names = append(names, e.Name())
+		}
+		t.Errorf("nothing may be written before the choice is made, found: %v", names)
+	}
+}
+
+func TestDoConnect_KBSelection_BindsOnlyWhatWasNamed(t *testing.T) {
+	srv := multiKBServer(t, `{"status":"ok","kbs":[{"name":"alpha"},{"name":"beta"},{"name":"gamma"}]}`)
+	defer srv.Close()
+	dir := t.TempDir()
+
+	res, err := doConnect(connectOptions{Providers: []string{"claude"}, Dir: dir, ServerURL: srv.URL + "/mcp", Name: "cartographer", TokenEnv: "TOKEN", Trust: true, KBs: []string{"beta"}})
+	if err != nil {
+		t.Fatalf("doConnect: %v", err)
+	}
+	if got, want := strings.Join(res.MCPEntries, ","), "cartographer-beta"; got != want {
+		t.Errorf("MCPEntries = %q, want %q", got, want)
+	}
+
+	cfg, err := clientconfig.Load(dir)
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	bound, explicit := cfg.BoundKBs("claude")
+	if !explicit {
+		t.Fatal("the binding must be explicit, not the implicit 'all known' default")
+	}
+	if strings.Join(bound, ",") != "beta" {
+		t.Errorf("bound = %v; want [beta]", bound)
+	}
+}
+
+// --kb all records the names, not the implicit default: that is what stops a
+// KB mounted later from widening a client that already exists.
+func TestDoConnect_KBSelectionAll_IsExplicit(t *testing.T) {
+	srv := multiKBServer(t, `{"status":"ok","kbs":[{"name":"alpha"},{"name":"beta"}]}`)
+	defer srv.Close()
+	dir := t.TempDir()
+
+	if _, err := doConnect(connectOptions{Providers: []string{"claude"}, Dir: dir, ServerURL: srv.URL + "/mcp", Name: "cartographer", TokenEnv: "TOKEN", Trust: true, KBs: []string{"all"}}); err != nil {
+		t.Fatalf("doConnect: %v", err)
+	}
+	cfg, err := clientconfig.Load(dir)
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	bound, explicit := cfg.BoundKBs("claude")
+	if !explicit || strings.Join(bound, ",") != "alpha,beta" {
+		t.Errorf("bound = %v (explicit=%v); want an explicit [alpha beta]", bound, explicit)
+	}
+}
+
+// A single-KB server needs no flag: there is nothing to choose.
+func TestDoConnect_SingleKB_NeedsNoSelection(t *testing.T) {
+	srv := multiKBServer(t, `{"status":"ok","kbs":[{"name":"alpha"}]}`)
+	defer srv.Close()
+	dir := t.TempDir()
+
+	if _, err := doConnect(connectOptions{Providers: []string{"claude"}, Dir: dir, ServerURL: srv.URL + "/mcp", Name: "cartographer", TokenEnv: "TOKEN", Trust: true}); err != nil {
+		t.Fatalf("doConnect on a single-KB server: %v", err)
+	}
+	cfg, err := clientconfig.Load(dir)
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if bound, explicit := cfg.BoundKBs("claude"); !explicit || strings.Join(bound, ",") != "alpha" {
+		t.Errorf("bound = %v (explicit=%v); want an explicit [alpha]", bound, explicit)
+	}
+}
+
+// An already-bound provider is not a first connect: its recorded choice stands
+// and a re-run never re-opens a catalogue the operator narrowed.
+func TestDoConnect_ExistingBinding_IsPreserved(t *testing.T) {
+	srv := multiKBServer(t, `{"status":"ok","kbs":[{"name":"alpha"},{"name":"beta"},{"name":"gamma"}]}`)
+	defer srv.Close()
+	dir := t.TempDir()
+
+	if _, err := doConnect(connectOptions{Providers: []string{"claude"}, Dir: dir, ServerURL: srv.URL + "/mcp", Name: "cartographer", TokenEnv: "TOKEN", Trust: true, KBs: []string{"beta"}}); err != nil {
+		t.Fatalf("first doConnect: %v", err)
+	}
+	// The same command again, with no --kb: it must neither fail nor widen.
+	if _, err := doConnect(connectOptions{Providers: []string{"claude"}, Dir: dir, ServerURL: srv.URL + "/mcp", Name: "cartographer", TokenEnv: "TOKEN", Trust: true}); err != nil {
+		t.Fatalf("second doConnect: %v", err)
+	}
+	cfg, err := clientconfig.Load(dir)
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if bound, _ := cfg.BoundKBs("claude"); strings.Join(bound, ",") != "beta" {
+		t.Errorf("bound = %v; want it unchanged at [beta]", bound)
+	}
+}
+
+func TestDoConnect_UnknownKB_FailsBeforeAnyWrite(t *testing.T) {
+	srv := multiKBServer(t, `{"status":"ok","kbs":[{"name":"alpha"},{"name":"beta"}]}`)
+	defer srv.Close()
+	dir := t.TempDir()
+
+	if _, err := doConnect(connectOptions{Providers: []string{"claude"}, Dir: dir, ServerURL: srv.URL + "/mcp", Name: "cartographer", TokenEnv: "TOKEN", Trust: true, KBs: []string{"delta"}}); err == nil {
+		t.Fatal("an unmounted KB name must fail")
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("read dir: %v", err)
+	}
+	if len(entries) != 0 {
+		t.Errorf("a rejected selection must write nothing, found %d entries", len(entries))
 	}
 }

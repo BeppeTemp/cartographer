@@ -96,6 +96,7 @@ cartographer connect all --auto-trust --dry-run
 |------|---------|-------------|
 | (positional) | `all` | `claude` \| `opencode` \| `codex` \| `kiro` \| `hermes` \| `antigravity` \| `all` (all detected agents) |
 | `--agents` | *(unset)* | Comma-separated subset (`claude,codex`); cannot be combined with the positional provider |
+| `--kb` | *(unset)* | Which KBs this client may receive (repeatable, or comma-separated; `all` for every mounted KB). Required on a **first** connect against a server mounting two or more KBs — see below (D190) |
 | `--server-url` | `http://localhost:39273/mcp` | Cartographer server URL |
 | `--auth` | `false` | Enables the Bearer header in generated configs |
 | `--token-env` | `CARTOGRAPHER_TOKENS` | Env var holding the Bearer token |
