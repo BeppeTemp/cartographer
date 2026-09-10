@@ -29,6 +29,12 @@ imperative [agent-driven installation runbook](agent-install.md) instead of this
 Install it as a native service (launchd on macOS, systemd user unit on Linux),
 so the server survives reboots and listens on `127.0.0.1:39273`:
 
+> On Linux the unit is a **user** unit, so it stops when you log out and does not
+> come back on boot unless lingering is enabled for your account:
+> `loginctl enable-linger <user>`. On a desktop that logs in automatically this
+> rarely shows; on a headless host it is the difference between the promise above
+> and a server that is simply not there.
+
 ```bash
 cartographer service install    # generates the config, installs and starts the service
 cartographer kb create my-kb --remote <git-remote-url> --restart

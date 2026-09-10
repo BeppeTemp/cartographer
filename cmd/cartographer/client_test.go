@@ -93,8 +93,11 @@ func TestCmdClientBindAnnouncesTheReduction(t *testing.T) {
 	if !strings.Contains(out, "run `cartographer sync` to apply") {
 		t.Errorf("bind did not tell the user to sync:\n%s", out)
 	}
-	if !strings.Contains(out, bindingNotYetEnforcedNote) {
-		t.Errorf("bind did not state that bindings are not yet enforced:\n%s", out)
+	// D170 made the filtered projection real: the note saying bindings are
+	// recorded but not enforced belonged to D169 and was false from D170 on.
+	// Asserting its absence is what keeps it from coming back.
+	if strings.Contains(out, "not yet enforced") {
+		t.Errorf("bind still claims bindings are not enforced:\n%s", out)
 	}
 
 	cfg := loadClientCfg(t, dir)

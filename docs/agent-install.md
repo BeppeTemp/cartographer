@@ -14,7 +14,8 @@ Detect the platform:
 uname -s
 ```
 
-Expected output: `Darwin` on macOS, or the name of another supported Unix-like platform. On macOS,
+Expected output: `Darwin` on macOS or `Linux`. The installer supports those two and no others; on any
+other platform, stop and report it. On macOS,
 first check for Homebrew:
 
 ```bash
@@ -148,4 +149,4 @@ operations, diagnosis, upgrades, and synchronization after installation.
 | `kb clone` says `not an OKF KB` | Use the `kb-import` skill to import the remote into an OKF KB, push it, then rerun `kb clone`. |
 | `kb create` says a KB needs a git remote | Ask the user for an empty repository URL and rerun with `--remote <url>`; use `--no-remote` only if they explicitly accept a local-only KB. |
 | `kb create --remote` fails to push (non-fast-forward, or the remote is not empty) | The repository already has content: mount it with `cartographer kb clone <git-remote-url> --restart` instead. |
-| `kb create --remote` reports a git authentication failure | Configure ambient credentials (an SSH agent for SSH remotes or a git credential helper for HTTPS), then rerun the same command — the failed scaffold was already removed. |
+| `kb create --remote` reports a git authentication failure | Configure ambient credentials (an SSH agent for SSH remotes or a git credential helper for HTTPS), then rerun the same command. The scaffold is deliberately kept (D156): the command prints how to fix the author/push, or how to remove it. |
