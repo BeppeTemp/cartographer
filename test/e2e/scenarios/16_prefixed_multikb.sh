@@ -101,7 +101,10 @@ fi
 echo ""
 echo "--- Phase 3: client connect writes one entry per KB ---"
 
-(cd "$SANDBOX" && HOME="$SANDBOX" "$BIN" connect opencode --server-url "$SERVER_URL" --auto-trust) >"${DIR}/connect.log" 2>&1 || true
+# --kb all: this scenario is about a client that receives both KBs, and since
+# D190 a first connect against a multi-KB server must say so explicitly rather
+# than defaulting to every mounted KB.
+(cd "$SANDBOX" && HOME="$SANDBOX" "$BIN" connect opencode --server-url "$SERVER_URL" --kb all --auto-trust) >"${DIR}/connect.log" 2>&1 || true
 
 OPENCODE_CFG="${SANDBOX}/.config/opencode/opencode.json"
 if [[ ! -f "$OPENCODE_CFG" ]]; then
