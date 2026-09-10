@@ -11,7 +11,7 @@ Every KB is a **conformant OKF v0.1 bundle** *and* a git repository in its own r
 - **Hard rules → server**: path/layout validation, strict-map type palettes,
   optimistic writes and git serialization. Agents use MCP tools instead of
   editing KB files directly.
-- **Soft guidance → `instructions` provisioning** (D56/D61, no longer an `AGENTS.md` in the KB — removed by D62): a generated block injected into each provider's global instructions file (`.claude/CLAUDE.md`, `.config/opencode/AGENTS.md`, `.codex/AGENTS.md`, Kiro steering), plus the optional curated `instructions.md` in the KB root (D61) and the auto-generated agent section — see `sync.md` §Instructions.
+- **Soft guidance → `instructions` provisioning** (D56/D61, no longer an `AGENTS.md` in the KB — removed by D62): a generated block injected into each provider's global instructions file (`.claude/CLAUDE.md`, `.config/opencode/AGENTS.md`, `.codex/AGENTS.md`, Kiro steering, `.gemini/GEMINI.md`), plus the optional curated `instructions.md` in the KB root (D61) and the auto-generated agent section — see `sync.md` §Instructions.
 
 ## The MCP + skill + hook triad
 

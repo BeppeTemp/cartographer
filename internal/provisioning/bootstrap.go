@@ -69,8 +69,10 @@ var bootstrapContentHash = contentHashBytes(append(bootstrapHookJSON(), []byte(b
 // the hook install even when the server is unreachable at connect time, and what
 // lets a later session self-heal once it comes back.
 //
-// kiro has no hook mechanism (destDir("hook", _, kiro) == ""): no-op, lock
-// returned unchanged.
+// A provider that cannot run a hook at session start is a no-op here, lock
+// returned unchanged: kiro has no hook mechanism at all
+// (destDir("hook", _, kiro) == ""), antigravity has one but no session-start
+// event (noSessionStartEvent). Both sync on the scheduled trigger instead (D140).
 //
 // dryRun performs no I/O and simulates the resulting paths (mirrors Apply's own
 // DryRun contract) — used by `connect --dry-run`/`sync --dry-run`.
@@ -82,10 +84,10 @@ var bootstrapContentHash = contentHashBytes(append(bootstrapHookJSON(), []byte(b
 // reserved name is protected from being flagged as a server-driven orphan in the
 // meantime).
 func EnsureBootstrapHook(baseDir string, provider configurator.Provider, lock Lock, dryRun bool) (Lock, error) {
-	destRel := destDir("hook", BootstrapHookName, provider)
-	if destRel == "" {
+	if !SupportsSessionHook(provider) {
 		return lock, nil
 	}
+	destRel := destDir("hook", BootstrapHookName, provider)
 
 	var relPaths []string
 	if dryRun {
@@ -186,6 +188,15 @@ type hookMechanism struct {
 	// pluginPath derives that generated artifact's path, relative to the base
 	// dir. Nil when the provider has none.
 	pluginPath func(name string) string
+	// noSessionStartEvent marks a provider whose hook engine has no event
+	// firing once at session start. It registers KB hooks normally, but the
+	// bootstrap hook (D60) cannot exist for it: its trigger is the scheduled
+	// timer instead (D140). True for antigravity, whose five events
+	// (PreToolUse, PostToolUse, PreInvocation, PostInvocation, Stop) all fire
+	// per tool call or per model invocation — mapping SessionStart onto one of
+	// them would run `sync` on every turn, which is a different behaviour
+	// wearing the same name. https://antigravity.google/docs/hooks/
+	noSessionStartEvent bool
 	// warningBlocksBootstrap makes a non-fatal warning fatal for the
 	// bootstrap hook specifically. True only for opencode: its warning means
 	// the hook's event has no OpenCode equivalent, and SessionStart is always
@@ -242,6 +253,17 @@ var hookMechanisms = map[configurator.Provider]hookMechanism{
 			return pluginRel, warning, nil
 		},
 	},
+	configurator.ProviderAntigravity: {
+		settingsFile:        []string{".gemini", "config", "hooks.json"},
+		noSessionStartEvent: true,
+		register: func(baseDir, name, fullDestDir string) (string, string, error) {
+			warning, err := registerAntigravityHook(baseDir, name, fullDestDir)
+			if err != nil {
+				return "", "", fmt.Errorf("provisioning: register hook %s in Antigravity hooks.json: %w", name, err)
+			}
+			return "", warning, nil
+		},
+	},
 }
 
 // SupportsSessionHook reports whether the bootstrap hook (D60) can run at
@@ -253,8 +275,8 @@ func SupportsSessionHook(provider configurator.Provider) bool {
 	if destDir("hook", BootstrapHookName, provider) == "" {
 		return false
 	}
-	_, ok := hookMechanisms[provider]
-	return ok
+	m, ok := hookMechanisms[provider]
+	return ok && !m.noSessionStartEvent
 }
 
 // HookRegistrationFile returns the provider-native file a hook registration is

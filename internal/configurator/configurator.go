@@ -1,5 +1,5 @@
 // Package configurator generates MCP configuration files for multiple LLM providers
-// (Claude Code, Codex CLI, Kiro, OpenCode).
+// (Claude Code, Codex CLI, Kiro, OpenCode, Hermes, Antigravity).
 package configurator
 
 import (
@@ -77,7 +77,8 @@ const (
 	// ProviderHermes is Hermes Agent (D141). It is a supported destination
 	// for artifact delivery only: its MCP endpoints are rendered by its own
 	// deployment role, so it has no emitter and no MCP config file here.
-	ProviderHermes Provider = "hermes"
+	ProviderHermes      Provider = "hermes"
+	ProviderAntigravity Provider = "antigravity"
 )
 
 // EmitResult contains the generated config for a provider.
@@ -764,6 +765,45 @@ func emitOpenCodeServer(name string, spec ServerSpec) (*EmitResult, error) {
 	return &EmitResult{
 		Provider: ProviderOpenCode,
 		FilePath: "opencode.json",
+		Content:  content,
+	}, nil
+}
+
+// emitAntigravityServer generates the .gemini/config/mcp_config.json entry for
+// name/spec (Google Antigravity format). Header values are passed through
+// verbatim: Antigravity natively resolves "${VAR}" against its own environment.
+func emitAntigravityServer(name string, spec ServerSpec) (*EmitResult, error) {
+	entry := map[string]any{}
+	switch spec.Type {
+	case "http":
+		entry["serverUrl"] = spec.URL
+		if len(spec.Headers) > 0 {
+			entry["headers"] = spec.Headers
+		}
+	case "stdio":
+		entry["command"] = spec.Command
+		if len(spec.Args) > 0 {
+			entry["args"] = spec.Args
+		}
+		if len(spec.Env) > 0 {
+			entry["env"] = spec.Env
+		}
+	default:
+		return nil, fmt.Errorf("mcp %q: unsupported transport %q", name, spec.Type)
+	}
+
+	root := map[string]any{
+		"mcpServers": map[string]any{
+			name: entry,
+		},
+	}
+	content, err := json.MarshalIndent(root, "", "  ")
+	if err != nil {
+		return nil, err
+	}
+	return &EmitResult{
+		Provider: ProviderAntigravity,
+		FilePath: filepath.Join(".gemini", "config", "mcp_config.json"),
 		Content:  content,
 	}, nil
 }

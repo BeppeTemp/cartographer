@@ -47,7 +47,7 @@ model and MCP tools are the same.
 
 ```mermaid
 flowchart TB
-    A["Agents: Claude Code, Codex, Kiro, OpenCode"]
+    A["Agents: Claude Code, Codex, Kiro, OpenCode, Hermes, Antigravity"]
     C["Cartographer client: connect / status / sync"]
 
     subgraph S["Cartographer server"]

@@ -143,6 +143,7 @@ func TestRoundTrip_ConnectDisconnect_NessunResiduo(t *testing.T) {
 		configurator.ProviderCodex,
 		configurator.ProviderKiro,
 		configurator.ProviderOpenCode,
+		configurator.ProviderAntigravity,
 	}
 	scfg := &configurator.ServerConfig{Name: "cartographer", URL: "https://mcp.example.test/mcp"}
 
@@ -216,13 +217,14 @@ func TestRoundTrip_ConnectDisconnect_NessunResiduo(t *testing.T) {
 	finalSnapshot := walkAll(t, targetDir)
 
 	allowedExtra := map[string]bool{
-		// Roots freshly created by this run (kiro/opencode didn't exist
+		// Roots freshly created by this run (kiro/opencode/antigravity didn't exist
 		// before): pruneEmptyDirs boundaries, never removed even if they end up
 		// empty — see provisioningRootDirs.
 		".kiro":            true,
 		".opencode":        true,
 		".config":          true,
 		".config/opencode": true,
+		".gemini":          true,
 		// .claude.json: never deleted by construction (absolute rule), even
 		// if reduced to "{}" once just the cartographer entry is removed.
 		".claude.json": true,
@@ -246,7 +248,7 @@ func TestRoundTrip_ConnectDisconnect_NessunResiduo(t *testing.T) {
 
 	// The allowed exceptions must be genuinely empty (no files inside
 	// them), otherwise the prune failed to clean up something it should have.
-	for _, dir := range []string{".kiro", ".opencode", ".config/opencode"} {
+	for _, dir := range []string{".kiro", ".opencode", ".config/opencode", ".gemini"} {
 		full := filepath.Join(targetDir, dir)
 		entries, err := os.ReadDir(full)
 		if err != nil {

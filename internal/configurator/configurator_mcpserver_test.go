@@ -154,11 +154,41 @@ func TestEmitServer_Codex_NonBearerAuthorizationWarns(t *testing.T) {
 	}
 }
 
+func TestEmitServer_Antigravity(t *testing.T) {
+	spec := configurator.ServerSpec{
+		Type:    "http",
+		URL:     "https://kb-server.example.com/mcp",
+		Headers: map[string]string{"Authorization": "Bearer ${KB_TOKEN}"},
+	}
+	r, err := configurator.EmitServer("kb-server", spec, configurator.ProviderAntigravity)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if r.FilePath != filepath.Join(".gemini", "config", "mcp_config.json") {
+		t.Errorf("FilePath = %q, want .gemini/config/mcp_config.json", r.FilePath)
+	}
+	var root map[string]any
+	if err := json.Unmarshal(r.Content, &root); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	entry := root["mcpServers"].(map[string]any)["kb-server"].(map[string]any)
+	if entry["serverUrl"] != spec.URL {
+		t.Errorf("unexpected entry: %+v", entry)
+	}
+	headers := entry["headers"].(map[string]any)
+	if headers["Authorization"] != "Bearer ${KB_TOKEN}" {
+		t.Errorf("Authorization header = %v, want verbatim ${VAR}", headers["Authorization"])
+	}
+	if len(r.Warnings) != 0 {
+		t.Errorf("unexpected warnings: %v", r.Warnings)
+	}
+}
+
 func TestEmitServer_NoHeaders(t *testing.T) {
 	spec := configurator.ServerSpec{Type: "http", URL: "https://kb-server.example.com/mcp"}
 	for _, provider := range []configurator.Provider{
-		configurator.ProviderClaudeCode, configurator.ProviderCodex,
-		configurator.ProviderKiro, configurator.ProviderOpenCode,
+		configurator.ProviderAntigravity, configurator.ProviderClaudeCode,
+		configurator.ProviderCodex, configurator.ProviderKiro, configurator.ProviderOpenCode,
 	} {
 		r, err := configurator.EmitServer("kb-server", spec, provider)
 		if err != nil {
@@ -178,12 +208,13 @@ func TestEmitServer_Stdio(t *testing.T) {
 		Env:     map[string]string{"TOKEN": "${LOCAL_TOKEN}"},
 	}
 	want := map[configurator.Provider]string{
-		configurator.ProviderClaudeCode: "{\n  \"mcpServers\": {\n    \"local\": {\n      \"args\": [\n        \"serve\",\n        \"--port\",\n        \"39273\"\n      ],\n      \"command\": \"local-tool\",\n      \"env\": {\n        \"TOKEN\": \"${LOCAL_TOKEN}\"\n      }\n    }\n  }\n}",
-		configurator.ProviderCodex:      "[mcp_servers.local]\ncommand = \"local-tool\"\nargs = [\"serve\", \"--port\", \"39273\"]\n[mcp_servers.local.env]\n\"TOKEN\" = \"${LOCAL_TOKEN}\"\n",
-		configurator.ProviderKiro:       "{\n  \"mcpServers\": {\n    \"local\": {\n      \"args\": [\n        \"serve\",\n        \"--port\",\n        \"39273\"\n      ],\n      \"autoApprove\": [],\n      \"command\": \"local-tool\",\n      \"env\": {\n        \"TOKEN\": \"${LOCAL_TOKEN}\"\n      }\n    }\n  }\n}",
-		configurator.ProviderOpenCode:   "{\n  \"$schema\": \"https://opencode.ai/config.json\",\n  \"mcp\": {\n    \"local\": {\n      \"command\": [\n        \"local-tool\",\n        \"serve\",\n        \"--port\",\n        \"39273\"\n      ],\n      \"enabled\": true,\n      \"environment\": {\n        \"TOKEN\": \"{env:LOCAL_TOKEN}\"\n      },\n      \"type\": \"local\"\n    }\n  }\n}",
+		configurator.ProviderAntigravity: "{\n  \"mcpServers\": {\n    \"local\": {\n      \"args\": [\n        \"serve\",\n        \"--port\",\n        \"39273\"\n      ],\n      \"command\": \"local-tool\",\n      \"env\": {\n        \"TOKEN\": \"${LOCAL_TOKEN}\"\n      }\n    }\n  }\n}",
+		configurator.ProviderClaudeCode:  "{\n  \"mcpServers\": {\n    \"local\": {\n      \"args\": [\n        \"serve\",\n        \"--port\",\n        \"39273\"\n      ],\n      \"command\": \"local-tool\",\n      \"env\": {\n        \"TOKEN\": \"${LOCAL_TOKEN}\"\n      }\n    }\n  }\n}",
+		configurator.ProviderCodex:       "[mcp_servers.local]\ncommand = \"local-tool\"\nargs = [\"serve\", \"--port\", \"39273\"]\n[mcp_servers.local.env]\n\"TOKEN\" = \"${LOCAL_TOKEN}\"\n",
+		configurator.ProviderKiro:        "{\n  \"mcpServers\": {\n    \"local\": {\n      \"args\": [\n        \"serve\",\n        \"--port\",\n        \"39273\"\n      ],\n      \"autoApprove\": [],\n      \"command\": \"local-tool\",\n      \"env\": {\n        \"TOKEN\": \"${LOCAL_TOKEN}\"\n      }\n    }\n  }\n}",
+		configurator.ProviderOpenCode:    "{\n  \"$schema\": \"https://opencode.ai/config.json\",\n  \"mcp\": {\n    \"local\": {\n      \"command\": [\n        \"local-tool\",\n        \"serve\",\n        \"--port\",\n        \"39273\"\n      ],\n      \"enabled\": true,\n      \"environment\": {\n        \"TOKEN\": \"{env:LOCAL_TOKEN}\"\n      },\n      \"type\": \"local\"\n    }\n  }\n}",
 	}
-	for _, provider := range []configurator.Provider{configurator.ProviderClaudeCode, configurator.ProviderCodex, configurator.ProviderKiro, configurator.ProviderOpenCode} {
+	for _, provider := range []configurator.Provider{configurator.ProviderAntigravity, configurator.ProviderClaudeCode, configurator.ProviderCodex, configurator.ProviderKiro, configurator.ProviderOpenCode} {
 		t.Run(string(provider), func(t *testing.T) {
 			r, err := configurator.EmitServer("local", spec, provider)
 			if err != nil {
@@ -197,7 +228,7 @@ func TestEmitServer_Stdio(t *testing.T) {
 }
 
 func TestEmitServer_RejectsMixedTransportFieldsForEveryProvider(t *testing.T) {
-	providers := []configurator.Provider{configurator.ProviderClaudeCode, configurator.ProviderCodex, configurator.ProviderKiro, configurator.ProviderOpenCode}
+	providers := []configurator.Provider{configurator.ProviderAntigravity, configurator.ProviderClaudeCode, configurator.ProviderCodex, configurator.ProviderKiro, configurator.ProviderOpenCode}
 	for _, spec := range []configurator.ServerSpec{
 		{Type: "stdio", Command: "tool", URL: "https://example.test/mcp"},
 		{Type: "stdio", Command: "tool", Headers: map[string]string{"X": "${TOKEN}"}},

@@ -76,8 +76,8 @@ func TestEmitAll(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(results) != 4 {
-		t.Fatalf("expected 4 results, got %d", len(results))
+	if len(results) != 5 {
+		t.Fatalf("expected 5 results, got %d", len(results))
 	}
 	seen := map[string]bool{}
 	for _, r := range results {
@@ -171,6 +171,70 @@ func TestEmitOpenCode_HTTP_Auth(t *testing.T) {
 	}
 }
 
+func TestEmitAntigravity_HTTP_NoAuth(t *testing.T) {
+	cfg := &configurator.ServerConfig{
+		Name:        "wiki",
+		URL:         "https://mcp.example.test/mcp",
+		AuthEnabled: false,
+		TokenEnv:    "CARTOGRAPHER_TOKENS",
+	}
+	r, err := configurator.Emit(cfg, configurator.ProviderAntigravity)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	wantPath := filepath.Join(".gemini", "config", "mcp_config.json")
+	if r.FilePath != wantPath {
+		t.Errorf("FilePath = %q, want %q", r.FilePath, wantPath)
+	}
+
+	var root map[string]any
+	if err := json.Unmarshal(r.Content, &root); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	servers, ok := root["mcpServers"].(map[string]any)
+	if !ok {
+		t.Fatalf("missing or wrong type for mcpServers")
+	}
+	entry, ok := servers["wiki"].(map[string]any)
+	if !ok {
+		t.Fatalf("missing wiki entry in mcpServers")
+	}
+	if entry["serverUrl"] != "https://mcp.example.test/mcp" {
+		t.Errorf("serverUrl = %v, want https://mcp.example.test/mcp", entry["serverUrl"])
+	}
+	if _, hasHeaders := entry["headers"]; hasHeaders {
+		t.Error("headers should not be present when auth is disabled")
+	}
+}
+
+func TestEmitAntigravity_HTTP_Auth(t *testing.T) {
+	cfg := &configurator.ServerConfig{
+		Name:        "wiki",
+		URL:         "https://mcp.example.test/mcp",
+		AuthEnabled: true,
+		TokenEnv:    "CARTOGRAPHER_TOKENS",
+	}
+	r, err := configurator.Emit(cfg, configurator.ProviderAntigravity)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var root map[string]any
+	if err := json.Unmarshal(r.Content, &root); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	servers := root["mcpServers"].(map[string]any)
+	entry := servers["wiki"].(map[string]any)
+	headers, ok := entry["headers"].(map[string]any)
+	if !ok {
+		t.Fatalf("headers missing or wrong type when auth enabled")
+	}
+	authHeader, _ := headers["Authorization"].(string)
+	if authHeader != "Bearer ${CARTOGRAPHER_TOKENS}" {
+		t.Errorf("Authorization header = %q, want Bearer ${CARTOGRAPHER_TOKENS}", authHeader)
+	}
+}
+
 func TestApplyDryRun(t *testing.T) {
 	cfg := &configurator.ServerConfig{
 		Name: "wiki",
@@ -192,6 +256,92 @@ func TestApplyDryRun(t *testing.T) {
 		if _, err := os.Stat(fullPath); !os.IsNotExist(err) {
 			t.Errorf("file %s should not exist after dry-run", r.FilePath)
 		}
+	}
+}
+
+func TestApplyAndRemoveAntigravityPreservesForeignServers(t *testing.T) {
+	baseDir := t.TempDir()
+	path := filepath.Join(baseDir, ".gemini", "config", "mcp_config.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	existing := `{
+  "mcpServers": {
+    "foreign": {"serverUrl": "https://foreign.example/mcp"}
+  }
+}`
+	if err := os.WriteFile(path, []byte(existing), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg := &configurator.ServerConfig{Name: "cartographer", URL: "https://cartographer.example/mcp"}
+	r, err := configurator.Emit(cfg, configurator.ProviderAntigravity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := configurator.Apply([]*configurator.EmitResult{r}, baseDir, false); err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var root map[string]any
+	if err := json.Unmarshal(data, &root); err != nil {
+		t.Fatalf("rewritten config must be valid JSON: %v", err)
+	}
+	servers := root["mcpServers"].(map[string]any)
+	if servers["foreign"] == nil || servers["cartographer"] == nil {
+		t.Fatalf("semantic merge lost a server: %#v", servers)
+	}
+	removed, err := configurator.Remove(cfg, configurator.ProviderAntigravity, baseDir, false)
+	if err != nil || !removed {
+		t.Fatalf("Remove: removed=%v err=%v", removed, err)
+	}
+	data, err = os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(data, &root); err != nil {
+		t.Fatal(err)
+	}
+	servers = root["mcpServers"].(map[string]any)
+	if servers["foreign"] == nil || servers["cartographer"] != nil {
+		t.Fatalf("Remove changed the wrong server: %#v", servers)
+	}
+}
+
+// A config carrying comments or trailing commas is not silently normalized: it
+// is refused, and the file on disk is left byte-for-byte as the user wrote it.
+// Rewriting it as plain JSON would drop the comments without asking (D194).
+func TestApplyAntigravityRefusesNonJSONConfig(t *testing.T) {
+	baseDir := t.TempDir()
+	path := filepath.Join(baseDir, ".gemini", "config", "mcp_config.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	existing := `{
+  // User-managed server.
+  "mcpServers": {
+    "foreign": {"serverUrl": "https://foreign.example/mcp"},
+  },
+}`
+	if err := os.WriteFile(path, []byte(existing), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg := &configurator.ServerConfig{Name: "cartographer", URL: "https://cartographer.example/mcp"}
+	r, err := configurator.Emit(cfg, configurator.ProviderAntigravity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := configurator.Apply([]*configurator.EmitResult{r}, baseDir, false); err == nil {
+		t.Fatal("Apply must refuse a config it cannot parse")
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != existing {
+		t.Fatalf("refused config was rewritten:\n%s", data)
 	}
 }
 

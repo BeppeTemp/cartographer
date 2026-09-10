@@ -457,3 +457,76 @@ func TestPruneManaged_Hook_SettingsAssente_NoOp(t *testing.T) {
 		t.Error("PruneManaged must not create settings.json when it didn't exist")
 	}
 }
+
+func TestApplyAndPrune_AntigravityHook(t *testing.T) {
+	kbRoot := t.TempDir()
+	writeHookKB(t, kbRoot, "notify", "PostToolUse", "run_command", "./notify.sh")
+	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, provisioning.BuildOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	baseDir := t.TempDir()
+	settingsPath := filepath.Join(baseDir, ".gemini", "config", "hooks.json")
+	if err := os.MkdirAll(filepath.Dir(settingsPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(settingsPath, []byte(`{"user-hook":{"enabled":true,"Stop":[{"type":"command","command":"echo user"}]}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	opts := provisioning.ApplyOptions{
+		AutoTrust: true, KBRoots: map[string]string{"kb": kbRoot},
+		Provider: configurator.ProviderAntigravity, BaseDir: baseDir, Lock: provisioning.Lock{},
+	}
+	res, err := provisioning.Apply(m, opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A second application must replace the owned definition, not duplicate it.
+	if _, err := provisioning.Apply(m, opts); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(settingsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var root map[string]any
+	if err := json.Unmarshal(data, &root); err != nil {
+		t.Fatal(err)
+	}
+	if root["user-hook"] == nil || root["cartographer-notify"] == nil || len(root) != 2 {
+		t.Fatalf("unexpected hooks.json: %s", data)
+	}
+	owned := root["cartographer-notify"].(map[string]any)
+	groups := owned["PostToolUse"].([]any)
+	group := groups[0].(map[string]any)
+	if group["matcher"] != "run_command" {
+		t.Errorf("matcher = %#v", group["matcher"])
+	}
+	entries := group["hooks"].([]any)
+	command := entries[0].(map[string]any)["command"].(string)
+	wantCommand := filepath.Join(baseDir, ".gemini", "config", "hooks", "notify", "notify.sh")
+	if command != wantCommand {
+		t.Errorf("command = %q, want %q", command, wantCommand)
+	}
+
+	var hookManaged []provisioning.ManagedFile
+	for _, mf := range res.NewLock.Managed {
+		if mf.Kind == "hook" && mf.Name == "notify" {
+			hookManaged = append(hookManaged, mf)
+		}
+	}
+	if _, err := provisioning.PruneManaged(hookManaged, baseDir, false); err != nil {
+		t.Fatal(err)
+	}
+	data, err = os.ReadFile(settingsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	root = nil
+	if err := json.Unmarshal(data, &root); err != nil {
+		t.Fatal(err)
+	}
+	if root["user-hook"] == nil || root["cartographer-notify"] != nil {
+		t.Fatalf("prune changed the wrong hook: %s", data)
+	}
+}

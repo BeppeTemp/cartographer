@@ -463,8 +463,7 @@ func materializeForProviders(manifests map[string]provisioning.Manifest, provide
 			KBOrder:            kbOrder[p],
 		}
 		// Apply only the artifacts the provider knows how to materialize:
-		// unsupported kinds (e.g. hook outside Claude Code, or agent outside
-		// Claude Code/OpenCode — D55) are neither drift nor pending, they
+		// Unsupported kinds are neither drift nor pending; they
 		// simply don't concern it.
 		applied, err := provisioning.Apply(provisioning.FilterForProvider(manifests[p], configurator.Provider(p)), opts)
 		if err != nil {
