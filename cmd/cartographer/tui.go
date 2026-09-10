@@ -585,8 +585,18 @@ var knownProvisioningKinds = []string{"skill", "agent", "hook", "instructions", 
 // `cartographer status` and the dashboard read the result off the snapshot, so
 // the two cannot report different breakdowns for the same provider. It stands
 // alongside — not in place of — formatDiffStatus.
-func formatKindStatus(m provisioning.Manifest, lock provisioning.Lock) string {
+func formatKindStatus(m provisioning.Manifest, lock provisioning.Lock, instructionsShadowed bool) string {
 	counts := provisioning.KindCounts(m, lock)
+
+	// A block written into a file the provider does not read is not installed
+	// (D189). Counting it would make the figure the operator trusts the most
+	// the one that lies.
+	if instructionsShadowed {
+		if c, ok := counts["instructions"]; ok {
+			c.Installed = 0
+			counts["instructions"] = c
+		}
+	}
 
 	seen := make(map[string]bool, len(counts))
 	var parts []string

@@ -99,6 +99,7 @@ func renderStatus(output string, s statusSnapshot, code int) int {
 			if p.Kinds != "" {
 				fmt.Printf("  %s\n", p.Kinds)
 			}
+			printShadowedInstructionsLine(p)
 			continue
 		}
 		if p.State != "drift" {
@@ -110,6 +111,7 @@ func renderStatus(output string, s statusSnapshot, code int) int {
 		if p.Kinds != "" {
 			fmt.Printf("  %s\n", p.Kinds)
 		}
+		printShadowedInstructionsLine(p)
 		for _, d := range p.Diverged {
 			fmt.Printf("  diverged on disk (%s): %s/%s at %s\n", d.Trust, d.Kind, d.Name, d.Path)
 		}
@@ -198,4 +200,17 @@ func printBindingLine(p providerStatus) {
 		parts = append(parts, fmt.Sprintf("%s %d", source, p.KBCounts[source]))
 	}
 	fmt.Printf("  from %s\n", strings.Join(parts, " · "))
+}
+
+// printShadowedInstructionsLine reports an instructions block that was written
+// correctly into a file the provider does not read (D189). It reads as a fact
+// about the provider's own precedence, not as a Cartographer failure, because
+// that is what it is — and it says what is in force instead, since "not active"
+// on its own leaves the operator without a next step.
+func printShadowedInstructionsLine(p providerStatus) {
+	if p.ShadowedInstructions == "" {
+		return
+	}
+	fmt.Printf("  instructions not active: %s takes precedence and is not merged — run `cartographer doctor` for the two ways out\n",
+		p.ShadowedInstructions)
 }

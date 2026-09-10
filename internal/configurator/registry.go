@@ -81,6 +81,22 @@ type Descriptor struct {
 	// last on darwin only.
 	DarwinAppDir string
 
+	// InstructionsPrecedence lists the provider's global instructions files in
+	// the order the provider itself resolves them, relative to the client base
+	// dir, when a file earlier in the list **replaces** the one Cartographer
+	// manages rather than being concatenated with it (D189). Cartographer
+	// writing its block correctly is not the same as the provider reading it:
+	// a file earlier in this chain that exists means the managed block never
+	// reaches the model.
+	//
+	// Empty for a provider with no documented shadowing rule — including one
+	// whose several instructions files are all read, or where the managed file
+	// wins. Do not guess a chain: an invented precedence produces a false
+	// finding, which is the same class of defect this field exists to remove.
+	// Cite the vendor source next to each declaration; these are external
+	// contracts that change outside this project's release cycle.
+	InstructionsPrecedence [][]string
+
 	// emit renders one MCP server entry for this provider. The provider output
 	// formats genuinely differ, so this stays a function, not data.
 	emit func(name string, spec ServerSpec) (*EmitResult, error)
@@ -110,7 +126,12 @@ var descriptors = []Descriptor{
 		SupportsMCPHeaders: true,
 		Binaries:           []string{"codex"},
 		ConfigDirs:         [][]string{{".codex"}},
-		emit:               emitCodexServer,
+		// Codex resolves the global scope to AGENTS.override.md when it exists,
+		// and does **not** concatenate it with AGENTS.md — so an override on the
+		// machine makes the block Cartographer writes to AGENTS.md unreachable.
+		// https://developers.openai.com/codex/guides/agents-md
+		InstructionsPrecedence: [][]string{{".codex", "AGENTS.override.md"}, {".codex", "AGENTS.md"}},
+		emit:                   emitCodexServer,
 	},
 	{
 		Provider:           ProviderKiro,
@@ -162,7 +183,11 @@ var descriptors = []Descriptor{
 		Binaries:           []string{"agy"},
 		ConfigDirs:         [][]string{{".gemini", "config"}, {".gemini", "antigravity"}, {".gemini", "antigravity-cli"}},
 		DarwinAppDir:       "/Applications/Antigravity.app",
-		emit:               emitAntigravityServer,
+		// No InstructionsPrecedence: Antigravity reads both ~/.gemini/GEMINI.md
+		// and the cross-tool ~/.gemini/AGENTS.md, and GEMINI.md — the file
+		// Cartographer manages — wins where they conflict. Nothing shadows it.
+		// https://antigravity.google/docs/rules-workflows/
+		emit: emitAntigravityServer,
 	},
 }
 
@@ -244,4 +269,35 @@ func ProviderList() []Provider {
 		out = append(out, d.Provider)
 	}
 	return out
+}
+
+// ShadowedInstructions reports whether the instructions file Cartographer
+// manages for provider is shadowed under baseDir: a file earlier in the
+// provider's declared precedence chain exists, and the provider reads that one
+// instead (D189).
+//
+// It returns the shadowing file and the shadowed (managed) one, both relative
+// to baseDir. ok is false when the provider declares no chain, when the managed
+// file is the first existing entry, or when nothing in the chain exists at all
+// — the last case is the provider's own problem, not a shadowing one, and the
+// absence of the managed file is already reported by its own check.
+func ShadowedInstructions(provider Provider, baseDir string) (shadowing, shadowed string, ok bool) {
+	d, found := Lookup(provider)
+	if !found || len(d.InstructionsPrecedence) == 0 {
+		return "", "", false
+	}
+	// The managed file is the last entry of the chain by construction: the
+	// chain lists what takes precedence over it, then it.
+	managedRel := filepath.Join(d.InstructionsPrecedence[len(d.InstructionsPrecedence)-1]...)
+	for _, segments := range d.InstructionsPrecedence {
+		rel := filepath.Join(segments...)
+		if _, err := os.Lstat(filepath.Join(baseDir, rel)); err != nil {
+			continue
+		}
+		if rel == managedRel {
+			return "", "", false
+		}
+		return rel, managedRel, true
+	}
+	return "", "", false
 }

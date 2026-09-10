@@ -502,6 +502,25 @@ func checkInstructionsBlock(dir string, providers []string, lockFile provisionin
 				Message: fmt.Sprintf("[%s] the managed instructions block is not terminated", p),
 				Fix:     "cartographer reconnect",
 			})
+		case managed:
+			// The block is well-formed. That says Cartographer wrote what it
+			// meant to write; it does not say the provider reads that file
+			// (D189). A file earlier in the provider's own precedence chain
+			// replaces it, and then the operator is told the KB directives are
+			// in force while the agent has never seen them.
+			baseDir := provisioning.LockBaseDir(lock, dir)
+			shadowing, shadowed, ok := configurator.ShadowedInstructions(provider, baseDir)
+			if !ok {
+				break
+			}
+			out = append(out, doctorFinding{
+				Check: "instructions", Severity: doctorError,
+				Path: filepath.Join(baseDir, shadowing),
+				Message: fmt.Sprintf("[%s] %s takes precedence over %s and is not merged with it, so the managed instructions block never reaches the model",
+					p, shadowing, shadowed),
+				Fix: fmt.Sprintf("move your own content into a section of %s and let Cartographer own %s, or keep the override and scope Cartographer's instructions to a project instead",
+					shadowing, shadowed),
+			})
 		}
 	}
 	return out
