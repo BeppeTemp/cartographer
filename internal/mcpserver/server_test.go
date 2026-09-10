@@ -691,6 +691,116 @@ func TestServer_ConceptRead_SizeGuard_OutlineThenFull(t *testing.T) {
 	}
 }
 
+// --- concept_read: the full response carries the concept once (D185) ---
+
+func TestServer_ConceptRead_FullResponse_ContentIsOptIn(t *testing.T) {
+	k := setupTestKB(t)
+	s := New("0.1.0-m1")
+	RegisterKBTools(s, k, Deps{})
+
+	body := "# Uno\n\nContenuto uno.\n"
+	msgs := []string{
+		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
+		fmt.Sprintf(`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"note/once","frontmatter":{"type":"Note","title":"Once"},"body":%q}}}`, body),
+		`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"concept_read","arguments":{"id":"note/once"}}}`,
+		`{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"concept_read","arguments":{"id":"note/once","with_content":true}}}`,
+	}
+	resps := runMCPSequence(t, s, msgs)
+	if len(resps) != 4 {
+		t.Fatalf("expected 4 responses, received %d", len(resps))
+	}
+	if tr := decodeToolResult(t, resps[1]); tr.IsError {
+		t.Fatalf("concept_write: isError=true: %v", tr.Content)
+	}
+
+	decode := func(tr ToolResult) map[string]any {
+		t.Helper()
+		if tr.IsError {
+			t.Fatalf("concept_read: isError=true: %v", tr.Content)
+		}
+		var m map[string]any
+		if err := json.Unmarshal([]byte(tr.Content[0].Text), &m); err != nil {
+			t.Fatalf("decode concept_read result: %v", err)
+		}
+		return m
+	}
+
+	byDefault := decode(decodeToolResult(t, resps[2]))
+	if _, ok := byDefault["content"]; ok {
+		t.Errorf("concept_read: 'content' must be opt-in, got it by default: %v", byDefault)
+	}
+	for _, want := range []string{"body", "content_hash", "frontmatter_raw"} {
+		if _, ok := byDefault[want]; !ok {
+			t.Errorf("concept_read: missing %q in default response: %v", want, byDefault)
+		}
+	}
+
+	withContent := decode(decodeToolResult(t, resps[3]))
+	content, ok := withContent["content"].(string)
+	if !ok {
+		t.Fatalf("concept_read with_content: missing 'content': %v", withContent)
+	}
+	// content is the exact bytes on disk — that is the only reason to ask for
+	// it, and the reason it stays available at all.
+	raw, err := k.ReadRaw("note/once.md")
+	if err != nil {
+		t.Fatalf("ReadRaw: %v", err)
+	}
+	if content != raw {
+		t.Errorf("concept_read with_content: content is not the file's bytes\ngot:  %q\nwant: %q", content, raw)
+	}
+	if body := withContent["body"].(string); !strings.HasSuffix(content, body) {
+		t.Errorf("concept_read with_content: content must end with body\ncontent: %q\nbody: %q", content, body)
+	}
+}
+
+func TestServer_ConceptRead_WithContent_IgnoredByOtherBranches(t *testing.T) {
+	k := setupTestKB(t)
+	s := New("0.1.0-m1")
+	RegisterKBTools(s, k, Deps{})
+
+	body := "# Uno\n\nContenuto uno.\n"
+	msgs := []string{
+		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
+		fmt.Sprintf(`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"note/branches","frontmatter":{"type":"Note","title":"Branches"},"body":%q}}}`, body),
+		`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"concept_read","arguments":{"id":"note/branches","outline":true,"with_content":true}}}`,
+		`{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"concept_read","arguments":{"id":"note/branches","section":"# Uno","with_content":true}}}`,
+	}
+	resps := runMCPSequence(t, s, msgs)
+	if len(resps) != 4 {
+		t.Fatalf("expected 4 responses, received %d", len(resps))
+	}
+
+	trOutline := decodeToolResult(t, resps[2])
+	if trOutline.IsError {
+		t.Fatalf("concept_read outline: isError=true: %v", trOutline.Content)
+	}
+	var outline map[string]any
+	if err := json.Unmarshal([]byte(trOutline.Content[0].Text), &outline); err != nil {
+		t.Fatalf("decode outline: %v", err)
+	}
+	if _, ok := outline["content"]; ok {
+		t.Errorf("outline response must not gain 'content' from with_content: %v", outline)
+	}
+
+	// The section branch has always carried its own 'content' (the extracted
+	// section, not the whole concept) — with_content must not change it.
+	trSection := decodeToolResult(t, resps[3])
+	if trSection.IsError {
+		t.Fatalf("concept_read section: isError=true: %v", trSection.Content)
+	}
+	var section map[string]any
+	if err := json.Unmarshal([]byte(trSection.Content[0].Text), &section); err != nil {
+		t.Fatalf("decode section: %v", err)
+	}
+	if got := section["content"].(string); strings.Contains(got, "---") {
+		t.Errorf("section response must stay the section, not the whole concept: %q", got)
+	}
+	if _, ok := section["body"]; ok {
+		t.Errorf("section response must not gain 'body': %v", section)
+	}
+}
+
 func TestServer_ConceptWrite_StaleWrite(t *testing.T) {
 	k := setupTestKB(t)
 	s := New("0.1.0-m1")
@@ -4127,6 +4237,92 @@ func TestServer_IndexGet_DefaultRawCompat(t *testing.T) {
 	}
 	if tr.Content[0].Text != raw {
 		t.Errorf("index_get default: expected byte-for-byte raw Markdown, got %q, want %q", tr.Content[0].Text, raw)
+	}
+}
+
+// --- index_get: size guard and outline (D185) ---
+
+// writeBigIndex overwrites the root index.md with a heading plus enough filler
+// to cross the read guard, and returns the filler so a test can assert it is
+// absent from a guarded response.
+func writeBigIndex(t *testing.T, k *kb.KB) string {
+	t.Helper()
+	filler := strings.Repeat("a", conceptReadSizeGuard+1)
+	content := "# Indice\n\n" + filler + "\n\n## Sezione\n\ncoda\n"
+	if err := os.WriteFile(filepath.Join(k.DataRoot(), "index.md"), []byte(content), 0o644); err != nil {
+		t.Fatalf("write big index: %v", err)
+	}
+	return filler
+}
+
+func TestServer_IndexGet_SizeGuard_OutlineThenFull(t *testing.T) {
+	k := setupTestKB(t)
+	filler := writeBigIndex(t, k)
+	s := New("1.0.0")
+	RegisterKBTools(s, k, Deps{})
+
+	resps := runMCPSequence(t, s, []string{
+		initMsg,
+		artifactCallMsg(t, 2, "index_get", map[string]any{}),
+		artifactCallMsg(t, 3, "index_get", map[string]any{"full": true}),
+	})
+
+	trGuarded := decodeToolResult(t, resps[1])
+	if trGuarded.IsError {
+		t.Fatalf("index_get (guarded): unexpected error: %v", trGuarded.Content)
+	}
+	guarded := trGuarded.Content[0].Text
+	for _, want := range []string{`"outline"`, `"note"`, `"content_bytes"`, `"Indice"`, `"Sezione"`} {
+		if !strings.Contains(guarded, want) {
+			t.Errorf("index_get over the guard: expected %s in response: %s", want, guarded)
+		}
+	}
+	if strings.Contains(guarded, filler[:100]) {
+		t.Error("index_get over the guard: must not include the content")
+	}
+
+	trFull := decodeToolResult(t, resps[2])
+	if trFull.IsError {
+		t.Fatalf("index_get(full): unexpected error: %v", trFull.Content)
+	}
+	raw, err := k.ReadRaw("index.md")
+	if err != nil {
+		t.Fatalf("ReadRaw: %v", err)
+	}
+	if trFull.Content[0].Text != raw {
+		t.Error("index_get(full): expected the whole index, byte-for-byte")
+	}
+}
+
+func TestServer_IndexGet_Outline_AtAnySize(t *testing.T) {
+	k := setupTestKB(t)
+	s := New("1.0.0")
+	RegisterKBTools(s, k, Deps{})
+
+	// A small index: the guard does not fire, so this proves outline is an
+	// explicit request and not a side effect of the size.
+	resps := runMCPSequence(t, s, []string{
+		initMsg,
+		artifactCallMsg(t, 2, "index_get", map[string]any{"outline": true}),
+	})
+	tr := decodeToolResult(t, resps[1])
+	if tr.IsError {
+		t.Fatalf("index_get(outline): unexpected error: %v", tr.Content)
+	}
+	var result map[string]any
+	if err := json.Unmarshal([]byte(tr.Content[0].Text), &result); err != nil {
+		t.Fatalf("decode index_get(outline): %v", err)
+	}
+	if _, ok := result["content"]; ok {
+		t.Errorf("index_get(outline): must not return content: %v", result)
+	}
+	for _, want := range []string{"outline", "content_hash", "content_bytes"} {
+		if _, ok := result[want]; !ok {
+			t.Errorf("index_get(outline): missing %q: %v", want, result)
+		}
+	}
+	if _, ok := result["note"]; ok {
+		t.Errorf("index_get(outline) under the guard: no note expected: %v", result)
 	}
 }
 
