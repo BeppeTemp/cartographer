@@ -39,6 +39,48 @@ const (
 	SevError   = "error"
 )
 
+// Severities lists the accepted severity names, ordered from least to most
+// severe. Exposed so a caller rejecting an invalid input can name the valid
+// ones instead of hardcoding a list that drifts from this one.
+var Severities = []string{SevInfo, SevWarning, SevError}
+
+// severityRank orders the three levels. -1 marks a string that is not a
+// severity at all, which is how callers tell "below the floor" from "not a
+// severity" without a second lookup.
+func severityRank(severity string) int {
+	switch severity {
+	case SevInfo:
+		return 0
+	case SevWarning:
+		return 1
+	case SevError:
+		return 2
+	}
+	return -1
+}
+
+// ValidSeverity reports whether severity names one of the three levels.
+func ValidSeverity(severity string) bool { return severityRank(severity) >= 0 }
+
+// Filter returns the findings at or above floor, together with the counts by
+// check and by severity computed on the **input** slice — deliberately before
+// filtering. Omitting findings silently would make a response lie about the
+// state of the KB: a caller always gets to know the shape of what it is not
+// being shown. A finding whose severity is unrecognized is kept, since dropping
+// it would hide a check whose severity was mistyped.
+func Filter(findings []Finding, floor string) (kept []Finding, byCheck, bySeverity map[string]int) {
+	byCheck, bySeverity = map[string]int{}, map[string]int{}
+	min := severityRank(floor)
+	for _, f := range findings {
+		byCheck[f.Check]++
+		bySeverity[f.Severity]++
+		if rank := severityRank(f.Severity); rank < 0 || rank >= min {
+			kept = append(kept, f)
+		}
+	}
+	return kept, byCheck, bySeverity
+}
+
 // Thresholds for the D77 WP4 structural guardrails. Deterministic by design
 // (lint never calls an LLM): they defend the hierarchy's semantics — an
 // expanded concept is one concept grown into a directory, not a taxonomy

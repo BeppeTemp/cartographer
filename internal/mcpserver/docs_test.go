@@ -46,6 +46,8 @@ var docsNonTools = map[string]bool{
 	"imported_draft": true, "broken_link": true, "stale_claim": true,
 	"orphan_asset":     true,
 	"index_incomplete": true,
+	// gate_check response field (D186), not a tool
+	"gate_blockers": true,
 	// frontmatter fields and schema keys
 	"concept_id": true, "concept_types": true, "archive_type": true,
 	// tool argument names, cited where the docs explain which argument
