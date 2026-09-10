@@ -1579,3 +1579,94 @@ func TestManagedFileRecordsSource(t *testing.T) {
 		}
 	}
 }
+
+// --- one validator for both channels (D191) ---
+
+// writeSkill materializes skills/<dir>/SKILL.md under kbRoot with the given
+// frontmatter name.
+func writeSkill(t *testing.T, kbRoot, dir, name string) {
+	t.Helper()
+	path := filepath.Join(kbRoot, "skills", dir)
+	if err := os.MkdirAll(path, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body := "---\nname: " + name + "\ndescription: A skill.\n---\nBody.\n"
+	if err := os.WriteFile(filepath.Join(path, "SKILL.md"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// The concrete failure D191 fixes: skills/foo with `name: bar` used to reach
+// the manifest registered as "bar" but hashed from "foo", so ReadArtifactFiles
+// looked for skills/bar and could take sync_pull down for the entire KB. Now it
+// is excluded, named, and the KB's other skills still ship.
+func TestBuildManifest_InvalidSkillExcludedAndAttributed(t *testing.T) {
+	kbRoot := t.TempDir()
+	writeSkill(t, kbRoot, "foo", "bar")
+	writeSkill(t, kbRoot, "good-one", "good-one")
+	writeSkill(t, kbRoot, "good-two", "good-two")
+
+	var diagnostics []string
+	m, err := provisioning.BuildManifest(nil, map[string]string{"wiki": kbRoot}, provisioning.BuildOptions{
+		SkillDiagnostic: func(msg string) { diagnostics = append(diagnostics, msg) },
+	})
+	if err != nil {
+		t.Fatalf("one invalid skill must not fail the whole KB: %v", err)
+	}
+
+	var names []string
+	for _, a := range m.Artifacts {
+		if a.Kind == "skill" {
+			names = append(names, a.Name)
+		}
+	}
+	if strings.Join(names, ",") != "good-one,good-two" {
+		t.Errorf("skills = %v; want the two valid ones only", names)
+	}
+
+	if len(m.Issues) != 1 {
+		t.Fatalf("expected exactly one issue, got %v", m.Issues)
+	}
+	for _, want := range []string{"wiki", "foo", "name_directory_mismatch"} {
+		if !strings.Contains(m.Issues[0], want) {
+			t.Errorf("issue must name %q: %s", want, m.Issues[0])
+		}
+	}
+	if len(diagnostics) != 1 || diagnostics[0] != m.Issues[0] {
+		t.Errorf("the diagnostic and the recorded issue must be the same message: %v vs %v", diagnostics, m.Issues)
+	}
+}
+
+// The two channels share one authority, so they must agree over the same cases.
+func TestBuildManifest_AgreesWithTheMCPChannel(t *testing.T) {
+	for _, tc := range []struct {
+		dir, name string
+		valid     bool
+	}{
+		{"query-rete", "query-rete", true},
+		{"foo", "bar", false},
+		{"Bad-Name", "Bad-Name", false},
+		{"kbinfra--query-rete", "kbinfra--query-rete", false},
+	} {
+		t.Run(tc.dir, func(t *testing.T) {
+			kbRoot := t.TempDir()
+			writeSkill(t, kbRoot, tc.dir, tc.name)
+			m, err := provisioning.BuildManifest(nil, map[string]string{"wiki": kbRoot}, provisioning.BuildOptions{})
+			if err != nil {
+				t.Fatalf("BuildManifest: %v", err)
+			}
+			shipped := 0
+			for _, a := range m.Artifacts {
+				if a.Kind == "skill" {
+					shipped++
+				}
+			}
+			if tc.valid && shipped != 1 {
+				t.Errorf("%s should ship, issues: %v", tc.dir, m.Issues)
+			}
+			if !tc.valid && shipped != 0 {
+				t.Errorf("%s should be excluded, but reached the manifest", tc.dir)
+			}
+		})
+	}
+}

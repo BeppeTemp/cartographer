@@ -10,6 +10,35 @@ the Agent Skills frontmatter (`name` and `description`) and exposes installed
 and binary-bundled skills through `skill_list`. `skill_install` copies a
 bundled skill into the KB.
 
+**Naming rules** (D191). One validator answers for both channels — a write over
+`artifact_write` and a skill that arrived through git are held to the same rules,
+because a skill only one of them accepts breaks the other later:
+
+| Rule | Severity |
+|---|---|
+| `name` is required | error |
+| `name` matches `[a-z0-9]` segments joined by single `-` — no uppercase, no `_`, no leading/trailing `-`, no `--` | error |
+| `name` is at most 64 characters | error |
+| `name` equals the directory name | error |
+| `description` is required | error |
+| `description` is at most 1024 characters | warning |
+| body is at most 500 lines | warning |
+
+The rule set is the **intersection of what the supported clients accept**, not
+the most permissive union: a skill Cartographer accepts and a client silently
+ignores is a no-op in the agent's catalogue, and that failure is invisible from
+here. The name/directory equality is the one with teeth — the manifest registers
+the artifact under the frontmatter name but hashes and reads the directory, so a
+mismatch sends the read to a path that does not exist.
+
+An error excludes that skill from the manifest and nothing else: the KB's other
+artifacts still sync, and the reason is reported with the KB, the skill and the
+rule named. Warnings never exclude anything.
+
+The historical `<namespace>--<skill-name>` directory convention is **retired**
+(D191): it was unreachable from production code and incompatible with the `--`
+rule above.
+
 Skills may include executable `scripts/` files and binary `assets/`; provisioning
 preserves each source file's executable bit and transports auxiliary files as raw bytes.
 
@@ -23,13 +52,17 @@ Editing that copy is **not** a supported channel: the next sync replaces it. The
 channels are `artifact_write` on the owning KB (or a git push to the KB repo) — the block
 states which, with the exact path.
 
-Skills and hooks can execute with the agent's privileges. The current `signed`
-manifest field is a trust-policy result, not a cryptographic signature:
+Skills and hooks can execute with the agent's privileges. Two distinct things
+decide whether one is materialized, and they are not the same:
 
-- bundled artifacts are trusted;
-- KB artifacts require the user's persisted trust choice or an explicit
-  one-shot override;
-- Cartographer does not verify signed commits or Sigstore attestations.
+- **Signature.** Artifacts from a KB with a configured signing key carry an
+  Ed25519 signature, verified client-side against the pinned public key
+  (`VerifiedManifest`, local key pins) — see [sync](sync.md) for the trust chain.
+  Cartographer does **not** verify signed git commits or Sigstore attestations;
+  the signature covers the artifact's identity and content hash.
+- **Trust policy**, which the `signed` manifest field feeds into: bundled
+  artifacts are trusted by construction, and KB artifacts require the user's
+  persisted trust choice or an explicit one-shot override.
 
 Keep executable content reviewable, pin external dependencies inside the skill
 where appropriate and never store plaintext credentials in skill files.

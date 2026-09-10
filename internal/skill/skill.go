@@ -1,5 +1,6 @@
 // Package skill implements loading and validation of SKILL.md files (agentskills.io format).
-// Skills live under skills/ in the KB root, one per directory named <namespace>--<skill-name>.
+// Skills live under skills/ in the KB root, one directory per skill, named
+// exactly as the skill's frontmatter `name` (D191).
 package skill
 
 import (
@@ -7,6 +8,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/BeppeTemp/cartographer/internal/okf"
@@ -31,12 +33,32 @@ type CatalogEntry struct {
 	Path        string `json:"path"`
 }
 
-// Issue represents a validation issue for a skill.
+// Issue represents a validation issue for a skill. Rule names the check that
+// failed, so a caller can attribute a refusal without parsing the message.
 type Issue struct {
 	Path    string
+	Rule    string
 	Message string
 	Warning bool // true = warning, false = error
 }
+
+// skillNameRe is the intersection of what the supported clients accept:
+// lowercase [a-z0-9] segments separated by single "-", no leading or trailing
+// "-", and no "--" (OpenCode rejects it outright). Adopting the strictest
+// client rule rather than the most permissive is the point of D191 — a skill we
+// accept and a client silently ignores is a no-op in the agent's catalogue, and
+// that failure is invisible from here.
+var skillNameRe = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
+
+// maxSkillNameLen and maxSkillDescriptionLen are the client-side limits a skill
+// must respect to be catalogued. The name limit is an error (the client refuses
+// the skill); the description limit is a warning, because a long description
+// degrades selection without breaking anything, and turning an existing KB's
+// descriptions into hard failures would block syncs that work today.
+const (
+	maxSkillNameLen        = 64
+	maxSkillDescriptionLen = 1024
+)
 
 // LoadSkill reads and parses a SKILL.md file from the given directory path.
 // dirPath is the full absolute path to the skill directory.
@@ -185,34 +207,73 @@ func Catalog(skills []Skill) []CatalogEntry {
 	return entries
 }
 
-// Validate checks a skill for common issues:
-// - name is required
-// - description is required
-// - body exceeds 500 lines is a warning
-// Returns a list of issues (empty = valid).
+// Validate is the single authority on whether a skill is well-formed (D191).
+// Both channels that can introduce one call it: artifact_write over MCP, and
+// BuildManifest for a skill that arrived through git. They used to disagree,
+// and the git side was the weaker one — a malformed artifact it accepted broke
+// the sync of the whole KB later, far from its cause.
+//
+// Errors (they break a channel or a client):
+//   - name required, matching skillNameRe, at most maxSkillNameLen
+//   - frontmatter name equal to the directory basename
+//   - description required
+//
+// Warnings (they degrade quality, they break nothing):
+//   - body over maxSkillBodyLines
+//   - description over maxSkillDescriptionLen
 func Validate(s *Skill) []Issue {
 	var issues []Issue
 
-	if strings.TrimSpace(s.Name) == "" {
+	name := strings.TrimSpace(s.Name)
+	switch {
+	case name == "":
 		issues = append(issues, Issue{
-			Path:    s.DirPath,
+			Path: s.DirPath, Rule: "name_required",
 			Message: "name is required",
-			Warning: false,
 		})
+	default:
+		if len(name) > maxSkillNameLen {
+			issues = append(issues, Issue{
+				Path: s.DirPath, Rule: "name_too_long",
+				Message: fmt.Sprintf("name is %d characters, over the %d-character limit the clients enforce", len(name), maxSkillNameLen),
+			})
+		}
+		if !skillNameRe.MatchString(name) {
+			issues = append(issues, Issue{
+				Path: s.DirPath, Rule: "name_invalid",
+				Message: fmt.Sprintf("name %q must be lowercase alphanumeric segments joined by single hyphens (no uppercase, underscore, leading/trailing hyphen or \"--\")", name),
+			})
+		}
+		// The manifest registers the artifact under the frontmatter name but
+		// hashes and reads the directory: when they disagree, ReadArtifactFiles
+		// looks for a path that does not exist and can take sync_pull down for
+		// the entire KB.
+		if base := filepath.Base(s.DirPath); base != "." && base != "/" && base != name {
+			issues = append(issues, Issue{
+				Path: s.DirPath, Rule: "name_directory_mismatch",
+				Message: fmt.Sprintf("frontmatter name %q must match the directory name %q", name, base),
+			})
+		}
 	}
 
-	if strings.TrimSpace(s.Description) == "" {
+	description := strings.TrimSpace(s.Description)
+	if description == "" {
 		issues = append(issues, Issue{
-			Path:    s.DirPath,
+			Path: s.DirPath, Rule: "description_required",
 			Message: "description is required",
-			Warning: false,
+		})
+	} else if len(description) > maxSkillDescriptionLen {
+		issues = append(issues, Issue{
+			Path: s.DirPath, Rule: "description_too_long",
+			Message: fmt.Sprintf("description is %d characters, over the %d-character guideline", len(description), maxSkillDescriptionLen),
+			Warning: true,
 		})
 	}
 
 	lineCount := len(strings.Split(s.Body, "\n"))
 	if lineCount > maxSkillBodyLines {
 		issues = append(issues, Issue{
-			Path: s.DirPath,
+			Path: s.DirPath, Rule: "body_too_long",
 			// Lines only: the check counts lines, and a token count depends on
 			// the tokenizer, so reporting the overage in one unit and the budget
 			// in another was not actionable (D161).
@@ -222,4 +283,15 @@ func Validate(s *Skill) []Issue {
 	}
 
 	return issues
+}
+
+// FirstError returns the first error-severity issue in issues, or nil when they
+// are all warnings — the shape both channels need to decide whether to refuse.
+func FirstError(issues []Issue) *Issue {
+	for i := range issues {
+		if !issues[i].Warning {
+			return &issues[i]
+		}
+	}
+	return nil
 }

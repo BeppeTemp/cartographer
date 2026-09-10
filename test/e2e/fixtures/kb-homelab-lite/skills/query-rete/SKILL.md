@@ -1,5 +1,5 @@
 ---
-name: kbinfra--query-rete
+name: query-rete
 description: Guide for querying the infra map (rete expanded concept) of the homelab KB.
 version: "1.0"
 ---

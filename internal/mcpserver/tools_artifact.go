@@ -40,7 +40,7 @@ const artifactMaxPathLen = 400
 
 // artifactSlugPattern matches lowercase-hyphenated artifact names (D71: "slug
 // minuscolo-trattinato"), including the "--" namespace separator used by
-// KB skills (e.g. "kbinfra--query-rete", see internal/skill doc comment).
+// KB skills (e.g. "query-rete", see internal/skill doc comment).
 var artifactSlugPattern = regexp.MustCompile(`^[a-z0-9]+(-{1,2}[a-z0-9]+)*$`)
 
 // artifactManifestKBKey is the placeholder KB name passed to
@@ -770,13 +770,13 @@ func validateSkillArtifact(slug string, data []byte) error {
 			}
 		}
 	}
-	if s.Name != slug {
-		return fmt.Errorf("SKILL.md frontmatter name %q must match the directory name %q", s.Name, slug)
-	}
-	for _, issue := range skill.Validate(s) {
-		if !issue.Warning {
-			return fmt.Errorf("%s", issue.Message)
-		}
+	// skill.Validate is the single authority (D191): the name rules, the
+	// name/directory equality and the description requirement all live there,
+	// so this channel and the git one cannot drift apart. What stays here is
+	// the MCP-specific part — the path shape of the incoming write, already
+	// checked by the caller, which is where `slug` comes from.
+	if err := skill.FirstError(skill.Validate(s)); err != nil {
+		return fmt.Errorf("%s", err.Message)
 	}
 	return nil
 }
