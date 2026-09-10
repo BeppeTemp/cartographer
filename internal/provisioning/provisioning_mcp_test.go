@@ -327,6 +327,20 @@ func TestApply_MCP_AllProviders(t *testing.T) {
 				t.Error("kiro should not receive headers")
 			}
 		}},
+		{configurator.ProviderAntigravity, filepath.Join(".gemini", "config", "mcp_config.json"), func(t *testing.T, data []byte) {
+			var root map[string]any
+			if err := json.Unmarshal(data, &root); err != nil {
+				t.Fatalf("invalid JSON: %v", err)
+			}
+			entry := root["mcpServers"].(map[string]any)["wiki-tools"].(map[string]any)
+			if entry["serverUrl"] != "https://tools.example.com/mcp" {
+				t.Errorf("unexpected entry: %+v", entry)
+			}
+			headers := entry["headers"].(map[string]any)
+			if headers["Authorization"] != "Bearer ${WIKI_TOOLS_TOKEN}" {
+				t.Errorf("Authorization = %v, want verbatim ${WIKI_TOOLS_TOKEN}", headers["Authorization"])
+			}
+		}},
 	}
 
 	for _, tc := range cases {
@@ -413,6 +427,16 @@ func TestApply_MCP_Stdio_AllProviders(t *testing.T) {
 			}
 		}},
 		{configurator.ProviderKiro, filepath.Join(".kiro", "settings", "mcp.json"), func(t *testing.T, data []byte) {
+			var root map[string]any
+			if err := json.Unmarshal(data, &root); err != nil {
+				t.Fatalf("invalid JSON: %v", err)
+			}
+			entry := root["mcpServers"].(map[string]any)["local-tools"].(map[string]any)
+			if entry["command"] != script {
+				t.Errorf("unexpected entry: %+v", entry)
+			}
+		}},
+		{configurator.ProviderAntigravity, filepath.Join(".gemini", "config", "mcp_config.json"), func(t *testing.T, data []byte) {
 			var root map[string]any
 			if err := json.Unmarshal(data, &root); err != nil {
 				t.Fatalf("invalid JSON: %v", err)

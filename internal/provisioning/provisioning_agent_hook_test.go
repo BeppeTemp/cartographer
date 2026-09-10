@@ -252,14 +252,17 @@ func TestApply_DestDir_Matrix(t *testing.T) {
 		{"skill", configurator.ProviderOpenCode, true, filepath.Join(".opencode", "skills", "art", "SKILL.md")},
 		{"skill", configurator.ProviderCodex, true, filepath.Join(".codex", "skills", "art", "SKILL.md")},
 		{"skill", configurator.ProviderKiro, true, filepath.Join(".kiro", "skills", "art", "SKILL.md")},
+		{"skill", configurator.ProviderAntigravity, true, filepath.Join(".gemini", "config", "skills", "art", "SKILL.md")},
 		{"agent", configurator.ProviderClaudeCode, true, filepath.Join(".claude", "agents", "art.md")},
 		{"agent", configurator.ProviderOpenCode, true, filepath.Join(".opencode", "agent", "art.md")},
 		{"agent", configurator.ProviderCodex, true, filepath.Join(".codex", "agents", "art.toml")},
 		{"agent", configurator.ProviderKiro, false, ""},
+		{"agent", configurator.ProviderAntigravity, true, filepath.Join(".gemini", "config", "agents", "art.md")},
 		{"hook", configurator.ProviderClaudeCode, true, filepath.Join(".claude", "hooks", "art", "hook.json")},
 		{"hook", configurator.ProviderOpenCode, true, filepath.Join(".opencode", "hooks", "art", "hook.json")},
 		{"hook", configurator.ProviderCodex, true, filepath.Join(".codex", "hooks", "art", "hook.json")},
 		{"hook", configurator.ProviderKiro, false, ""},
+		{"hook", configurator.ProviderAntigravity, true, filepath.Join(".gemini", "config", "hooks", "art", "hook.json")},
 	}
 
 	for _, c := range cases {
@@ -401,6 +404,45 @@ func TestApply_OpenCode_MaterializzaAgent_ConFrontmatter(t *testing.T) {
 			t.Errorf("the translated frontmatter must not contain %q: %s", unwanted, data)
 		}
 	}
+}
+
+func TestApply_Antigravity_MaterializzaAgentNativo(t *testing.T) {
+	baseDir := t.TempDir()
+	src := "---\nname: reviewer\ndescription: \"Reviews: code safely\"\ntools: Read, Grep\nmodel: sonnet\n---\nReviewer system prompt.\n"
+	a := provisioning.Artifact{
+		Kind: "agent", Name: "reviewer", Source: "kb:x", ContentHash: "h1", Signed: true,
+		Files: []provisioning.ArtifactFile{{Path: "reviewer.md", Content: []byte(src)}},
+	}
+	m := provisioning.MergeArtifacts([]provisioning.Artifact{a})
+	if _, err := provisioning.Apply(m, provisioning.ApplyOptions{
+		AutoTrust: true, Provider: configurator.ProviderAntigravity, BaseDir: baseDir, Lock: provisioning.Lock{},
+	}); err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(baseDir, ".gemini", "config", "agents", "reviewer.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	fmRaw, body, has := okf.SplitFrontmatter(string(data))
+	if !has {
+		t.Fatalf("output has no frontmatter: %s", data)
+	}
+	fm, err := okf.ParseFrontmatter(fmRaw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for key, want := range map[string]interface{}{"name": "reviewer", "description": "Reviews: code safely", "mainAgent": "false", "subagent": "true"} {
+		got, _ := fm.Get(key)
+		if got != want {
+			t.Errorf("%s = %#v, want %#v", key, got, want)
+		}
+	}
+	for _, unwanted := range []string{"tools:", "model:"} {
+		if strings.Contains(fmRaw, unwanted) {
+			t.Errorf("translated frontmatter contains %q: %s", unwanted, fmRaw)
+		}
+	}
+	assertStampedOnce(t, body, "Reviewer system prompt.\n")
 }
 
 func TestApply_OpenCode_MaterializzaAgent_SenzaFrontmatter(t *testing.T) {

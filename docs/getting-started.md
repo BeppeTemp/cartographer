@@ -2,7 +2,7 @@
 
 From zero to a working agentic wiki in about ten minutes, using the **Local
 Core** profile: one server, one KB, one agent (Claude Code in this walkthrough
-— OpenCode, Codex CLI and Kiro work the same way via `cartographer connect`).
+— OpenCode, Codex CLI, Kiro and Antigravity work the same way via `cartographer connect`).
 
 ## 1. Install the client/server binary
 

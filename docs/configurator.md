@@ -94,7 +94,7 @@ cartographer connect all --auto-trust --dry-run
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| (positional) | `all` | `claude` \| `opencode` \| `codex` \| `kiro` \| `hermes` \| `all` (all detected agents) |
+| (positional) | `all` | `claude` \| `opencode` \| `codex` \| `kiro` \| `hermes` \| `antigravity` \| `all` (all detected agents) |
 | `--agents` | *(unset)* | Comma-separated subset (`claude,codex`); cannot be combined with the positional provider |
 | `--server-url` | `http://localhost:39273/mcp` | Cartographer server URL |
 | `--auth` | `false` | Enables the Bearer header in generated configs |
@@ -159,7 +159,7 @@ cartographer disconnect all --dry-run  # preview without writing
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| (positional) | `all` | `claude` \| `opencode` \| `codex` \| `kiro` \| `hermes` \| `all` (every connected provider) |
+| (positional) | `all` | `claude` \| `opencode` \| `codex` \| `kiro` \| `hermes` \| `antigravity` \| `all` (every connected provider) |
 | `--agents` | *(unset)* | Comma-separated subset (`claude,codex`); cannot be combined with the positional provider |
 | `--dry-run` | `false` | Prints without removing |
 
@@ -263,7 +263,7 @@ cartographer reconnect --dry-run       # preview both halves, write nothing
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| (positional) | `all` | `claude` \| `opencode` \| `codex` \| `kiro` \| `hermes` \| `all` (every connected provider) |
+| (positional) | `all` | `claude` \| `opencode` \| `codex` \| `kiro` \| `hermes` \| `antigravity` \| `all` (every connected provider) |
 | `--agents` | *(unset)* | Comma-separated subset; cannot be combined with the positional provider |
 | `--dry-run` | `false` | Both halves simulate, nothing is written |
 
@@ -511,7 +511,7 @@ Two orders are exposed and both are user-visible: `Providers()` — the order `E
 client subcommands iterate — and `DetectionOrder()`, the order `cartographer agents` and the TUI
 list agents in.
 
-Adding a provider therefore means: one descriptor, one emitter (the four output formats genuinely
+Adding a provider therefore means: one descriptor, one emitter (provider output formats genuinely
 differ, so that stays code), its cells in the kind × provider matrix (`internal/provisioning`, see
 [`sync.md`](sync.md) §Kind × provider matrix), and — if it has a native hook mechanism — one entry
 in `hookMechanisms`. A missing matrix cell fails a completeness test; nothing else needs editing.
@@ -549,6 +549,7 @@ the providers whose MCP configuration `connect` writes.
 | Codex CLI | `.codex/config.toml` | managed block `[mcp_servers.cartographer]` (TOML, marker `cartographer:mcp:*`) |
 | Kiro | `.kiro/settings/mcp.json` | `mcpServers` (JSON) |
 | OpenCode | `opencode.json` | `mcp` (JSON) |
+| Google Antigravity | `.gemini/config/mcp_config.json` | `mcpServers` (JSON) |
 | Hermes Agent | none — see below | — |
 
 KB-provided stdio descriptors (D116) share these same files with per-name ownership. Claude Code,
@@ -655,7 +656,21 @@ the next `blocktext.Write` cannot destroy it; each relocation is reported as its
 > **Known risk**: OpenCode is SSE-first and support for custom headers on a remote MCP
 > may require `mcp-remote`/`mcp-auth.json`; see `docs/interoperability.md` §Known risks.
 
-The four formats above are generated from the same provider-neutral core,
+**Google Antigravity** — with auth (Antigravity natively resolves `${VAR}` in headers):
+```json
+{
+  "mcpServers": {
+    "cartographer": {
+      "serverUrl": "http://localhost:39273/mcp",
+      "headers": {
+        "Authorization": "Bearer ${CARTOGRAPHER_TOKENS}"
+      }
+    }
+  }
+}
+```
+
+The five formats above are generated from the same provider-neutral core,
 `configurator.EmitServer(name, spec ServerSpec, provider)` (D69): `Emit(cfg, provider)` is a
 thin wrapper around `EmitServer(cfg.Name, cfg.toSpec(), provider)`. The same `EmitServer` is
 reused by `internal/provisioning` to materialize the third-party MCP servers a KB

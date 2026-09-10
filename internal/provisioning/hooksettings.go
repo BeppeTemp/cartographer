@@ -417,9 +417,74 @@ func hookProviderFromPath(path string) string {
 		return "codex"
 	case strings.HasPrefix(slash, ".opencode/hooks/"):
 		return "opencode"
+	case strings.HasPrefix(slash, ".gemini/config/hooks/"):
+		return "antigravity"
 	default:
 		return ""
 	}
+}
+
+// registerAntigravityHook registers a materialized hook in Antigravity's
+// shared ~/.gemini/config/hooks.json. Tool events use matcher groups; lifecycle
+// events use the direct command-handler list required by Antigravity.
+func registerAntigravityHook(baseDir, hookName, fullDestDir string) (string, error) {
+	spec, ok := readHookSpec(fullDestDir)
+	if !ok {
+		return "", nil
+	}
+	if !antigravityHookEvents[spec.Event] {
+		return fmt.Sprintf("antigravity: hook %q — event %q has no native equivalent; files were installed but the hook was not registered", hookName, spec.Event), nil
+	}
+
+	path := antigravityHooksPath(baseDir)
+	settings, err := loadJSONObject(path)
+	if err != nil {
+		return "", err
+	}
+	handler := map[string]interface{}{
+		"type":    "command",
+		"command": resolveHookCommand(spec.Command, fullDestDir),
+	}
+	definition := map[string]interface{}{"enabled": true}
+	if spec.Event == "PreToolUse" || spec.Event == "PostToolUse" {
+		group := map[string]interface{}{"hooks": []interface{}{handler}}
+		if spec.Matcher != "" {
+			group["matcher"] = spec.Matcher
+		}
+		definition[spec.Event] = []interface{}{group}
+	} else {
+		definition[spec.Event] = []interface{}{handler}
+	}
+	settings[antigravityHookKey(hookName)] = definition
+	return "", saveJSONObject(path, settings)
+}
+
+var antigravityHookEvents = map[string]bool{
+	"PreToolUse":     true,
+	"PostToolUse":    true,
+	"PreInvocation":  true,
+	"PostInvocation": true,
+	"Stop":           true,
+}
+
+func antigravityHookKey(hookName string) string { return "cartographer-" + hookName }
+
+func antigravityHooksPath(baseDir string) string {
+	return filepath.Join(baseDir, ".gemini", "config", "hooks.json")
+}
+
+func removeAntigravityHook(baseDir, hookName string) error {
+	path := antigravityHooksPath(baseDir)
+	settings, err := loadJSONObject(path)
+	if err != nil {
+		return err
+	}
+	key := antigravityHookKey(hookName)
+	if _, ok := settings[key]; !ok {
+		return nil
+	}
+	delete(settings, key)
+	return saveJSONObject(path, settings)
 }
 
 // --- OpenCode (D59) ---

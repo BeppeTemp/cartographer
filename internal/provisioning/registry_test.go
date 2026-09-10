@@ -84,6 +84,12 @@ func TestDestDirPaths(t *testing.T) {
 		{"hook", configurator.ProviderHermes, ""},
 		{"mcp", configurator.ProviderHermes, ""},
 		{"instructions", configurator.ProviderHermes, ""},
+		// Antigravity supports every artifact kind; SessionStart bootstrap remains timer-based.
+		{"mcp", configurator.ProviderAntigravity, filepath.Join(".gemini", "config", "mcp_config.json")},
+		{"instructions", configurator.ProviderAntigravity, filepath.Join(".gemini", "GEMINI.md")},
+		{"skill", configurator.ProviderAntigravity, filepath.Join(".gemini", "config", "skills", "demo")},
+		{"agent", configurator.ProviderAntigravity, filepath.Join(".gemini", "config", "agents", "demo.md")},
+		{"hook", configurator.ProviderAntigravity, filepath.Join(".gemini", "config", "hooks", "demo")},
 		// A kind or provider this binary does not know is not materializable:
 		// a manifest from a newer server must not land somewhere arbitrary.
 		{"newkind", configurator.ProviderClaudeCode, ""},

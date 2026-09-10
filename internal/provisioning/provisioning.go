@@ -1917,9 +1917,8 @@ func wrapKBSection(name, content string) string {
 func applyInstructionsGroup(m Manifest, diff Diff, opts ApplyOptions, tracker *expansionTracker, result *AppliedResult, newManaged *[]ManagedFile, force bool) error {
 	destRel := destDir("instructions", "", opts.Provider)
 	if destRel == "" {
-		// Provider with no known destination for instructions (none today: all
-		// four providers support it — see destDir — but the case stays handled
-		// for consistency with the other kinds' unsupported/needs_approval schema,
+		// Provider with no known destination for instructions: keep this handled
+		// consistently with the other kinds' unsupported/needs_approval schema,
 		// in case a future provider didn't implement it).
 		for _, a := range m.Artifacts {
 			if a.Kind == "instructions" {
@@ -2381,6 +2380,7 @@ var provisioningRootDirs = map[string]bool{
 	".opencode":                          true,
 	".config":                            true,
 	filepath.Join(".config", "opencode"): true,
+	".gemini":                            true,
 	// The hermes inbox root (D141): pruning the last delivered skill empties
 	// skill-inbox/<name>/cartographer and skill-inbox/<name>, never
 	// skill-inbox itself — other sources deliver there too.
@@ -2495,6 +2495,10 @@ func PruneManaged(managed []ManagedFile, baseDir string, dryRun bool) ([]Managed
 					if err := removeOpenCodePlugin(baseDir, mf.Name); err != nil {
 						return nil, fmt.Errorf("provisioning: prune plugin opencode hook %s: %w", mf.Name, err)
 					}
+				case "antigravity":
+					if err := removeAntigravityHook(baseDir, mf.Name); err != nil {
+						return nil, fmt.Errorf("provisioning: prune entry Antigravity hooks.json hook %s: %w", mf.Name, err)
+					}
 				}
 				hookSettingsDone[mf.Name] = true
 			}
@@ -2580,7 +2584,8 @@ var destinationMatrix = map[string]map[configurator.Provider]destination{
 		configurator.ProviderKiro:       at(".kiro", "settings", "mcp.json"),
 		// hermes: config.yaml is rendered by its Ansible role and recreated on
 		// the next playbook run (D141).
-		configurator.ProviderHermes: unsupportedDest,
+		configurator.ProviderHermes:      unsupportedDest,
+		configurator.ProviderAntigravity: at(".gemini", "config", "mcp_config.json"),
 	},
 	"instructions": {
 		configurator.ProviderClaudeCode: at(".claude", "CLAUDE.md"),
@@ -2589,7 +2594,8 @@ var destinationMatrix = map[string]map[configurator.Provider]destination{
 		configurator.ProviderKiro:       at(".kiro", "steering", "cartographer.md"),
 		// hermes: SOUL.md, its always-on instruction slot, is operator-owned
 		// and rendered from a template (D141).
-		configurator.ProviderHermes: unsupportedDest,
+		configurator.ProviderHermes:      unsupportedDest,
+		configurator.ProviderAntigravity: at(".gemini", "GEMINI.md"),
 	},
 	"agent": {
 		configurator.ProviderClaudeCode: perName(".md", ".claude", "agents"),
@@ -2597,7 +2603,8 @@ var destinationMatrix = map[string]map[configurator.Provider]destination{
 		configurator.ProviderCodex:      perName(".toml", ".codex", "agents"),
 		configurator.ProviderKiro:       unsupportedDest,
 		// hermes: no native subagent directory (D141).
-		configurator.ProviderHermes: unsupportedDest,
+		configurator.ProviderHermes:      unsupportedDest,
+		configurator.ProviderAntigravity: perName(".md", ".gemini", "config", "agents"),
 	},
 	"hook": {
 		configurator.ProviderClaudeCode: perName("", ".claude", "hooks"),
@@ -2614,7 +2621,8 @@ var destinationMatrix = map[string]map[configurator.Provider]destination{
 		configurator.ProviderKiro: unsupportedDest,
 		// hermes: no hook mechanism at all — nothing fires at conversation
 		// start, so its trigger is the scheduled timer (D140/D141).
-		configurator.ProviderHermes: unsupportedDest,
+		configurator.ProviderHermes:      unsupportedDest,
+		configurator.ProviderAntigravity: perName("", ".gemini", "config", "hooks"),
 	},
 	"skill": {
 		configurator.ProviderClaudeCode: perName("", ".claude", "skills"),
@@ -2625,7 +2633,8 @@ var destinationMatrix = map[string]map[configurator.Provider]destination{
 		// to the agent's own curator, which rewrites what it owns; writing
 		// there would destroy its learning. The proposal lands in the inbox
 		// with a generated SOURCE.md and the agent adopts it via skill_manage.
-		configurator.ProviderHermes: perNameIn([]string{hermesInboxSource}, hermesInboxRoot),
+		configurator.ProviderHermes:      perNameIn([]string{hermesInboxSource}, hermesInboxRoot),
+		configurator.ProviderAntigravity: perName("", ".gemini", "config", "skills"),
 	},
 }
 
@@ -2737,6 +2746,8 @@ func translateAgentForProvider(provider configurator.Provider, name string, cont
 		// falls through to the OpenCode translation below
 	case configurator.ProviderCodex:
 		return translateAgentForCodex(name, content)
+	case configurator.ProviderAntigravity:
+		return translateAgentForAntigravity(name, content)
 	default:
 		return content, nil
 	}
@@ -2766,6 +2777,36 @@ func translateAgentForProvider(provider configurator.Provider, name string, cont
 	sb.WriteString("---\n")
 	sb.WriteString(body)
 
+	return []byte(sb.String()), nil
+}
+
+// translateAgentForAntigravity emits the global Antigravity subagent format.
+// The source prompt body and description are preserved; Claude-specific tool
+// and model declarations are dropped because their names are not portable.
+func translateAgentForAntigravity(name string, content []byte) ([]byte, error) {
+	fmRaw, body, hasFM := okf.SplitFrontmatter(string(content))
+	description := name
+	if hasFM {
+		fm, err := okf.ParseFrontmatter(fmRaw)
+		if err != nil {
+			return nil, fmt.Errorf("provisioning: parse frontmatter agent %s: %w", name, err)
+		}
+		if v, ok := fm.Get("description"); ok {
+			if s, ok := v.(string); ok && strings.TrimSpace(s) != "" {
+				description = s
+			}
+		}
+	} else {
+		body = string(content)
+	}
+
+	var sb strings.Builder
+	sb.WriteString("---\nname: ")
+	sb.WriteString(yamlQuoteScalar(name))
+	sb.WriteString("\ndescription: ")
+	sb.WriteString(yamlQuoteScalar(description))
+	sb.WriteString("\nmainAgent: false\nsubagent: true\n---\n")
+	sb.WriteString(body)
 	return []byte(sb.String()), nil
 }
 

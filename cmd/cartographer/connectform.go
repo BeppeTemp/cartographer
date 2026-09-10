@@ -30,6 +30,7 @@ const (
 	fieldAgentOpenCode
 	fieldAgentCodex
 	fieldAgentKiro
+	fieldAgentAntigravity
 	fieldTokenEnv
 	fieldAuth
 	fieldTrust
@@ -41,7 +42,7 @@ const (
 // deliberately absent (D141) — it has no MCP config to write and needs
 // $HERMES_HOME set in the environment, so it is connected from the CLI
 // (`cartographer connect hermes`), where that failure can be stated plainly.
-var formProviders = []string{"claude", "opencode", "codex", "kiro"}
+var formProviders = []string{"claude", "opencode", "codex", "kiro", "antigravity"}
 
 func providerForField(f connectField) (string, bool) {
 	idx := int(f - fieldAgentClaude)
@@ -153,7 +154,7 @@ func newConnectFormModel(title string, prefill connectOptions, standalone bool) 
 func (m connectFormModel) focusOrder() []connectField {
 	fields := []connectField{fieldServerURL}
 	if m.selectAgents {
-		fields = append(fields, fieldAgentClaude, fieldAgentOpenCode, fieldAgentCodex, fieldAgentKiro)
+		fields = append(fields, fieldAgentClaude, fieldAgentOpenCode, fieldAgentCodex, fieldAgentKiro, fieldAgentAntigravity)
 	}
 	return append(fields, fieldTokenEnv, fieldAuth, fieldTrust, fieldSubmit)
 }
@@ -257,7 +258,7 @@ func (m connectFormModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case " ":
 		switch m.focus {
-		case fieldAgentClaude, fieldAgentOpenCode, fieldAgentCodex, fieldAgentKiro:
+		case fieldAgentClaude, fieldAgentOpenCode, fieldAgentCodex, fieldAgentKiro, fieldAgentAntigravity:
 			if !m.selectAgents {
 				break
 			}
@@ -277,7 +278,7 @@ func (m connectFormModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case "enter":
 		switch m.focus {
-		case fieldAgentClaude, fieldAgentOpenCode, fieldAgentCodex, fieldAgentKiro:
+		case fieldAgentClaude, fieldAgentOpenCode, fieldAgentCodex, fieldAgentKiro, fieldAgentAntigravity:
 			if !m.selectAgents {
 				break
 			}
@@ -375,6 +376,7 @@ func (m connectFormModel) View() string {
 			formProviderLine("opencode", m.providers["opencode"], m.focus == fieldAgentOpenCode),
 			formProviderLine("codex", m.providers["codex"], m.focus == fieldAgentCodex),
 			formProviderLine("kiro", m.providers["kiro"], m.focus == fieldAgentKiro),
+			formProviderLine("antigravity", m.providers["antigravity"], m.focus == fieldAgentAntigravity),
 		)
 	}
 	trustLabel := "Trust KB artifacts"
@@ -435,7 +437,7 @@ func fieldHint(f connectField, authEnabled bool) string {
 	switch f {
 	case fieldServerURL:
 		return "MCP endpoint of the server, e.g. https://host/mcp"
-	case fieldAgentClaude, fieldAgentOpenCode, fieldAgentCodex, fieldAgentKiro:
+	case fieldAgentClaude, fieldAgentOpenCode, fieldAgentCodex, fieldAgentKiro, fieldAgentAntigravity:
 		return "space or enter toggles this agent; select one or more agents to connect"
 	case fieldTokenEnv:
 		if !authEnabled {
