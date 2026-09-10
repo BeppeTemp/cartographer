@@ -107,6 +107,17 @@ Expected output: a version, then health JSON containing `"ready":true`, then in-
 exit code 0. Restart the connected agent session after this check so it loads the MCP tools and
 provisioned skills.
 
+Confirm the instructions actually reach the model, not just the disk. `cartographer status` and
+`cartographer doctor` now check the provider's own precedence chain (D189), but the provider's own
+tooling is the ground truth — for Codex:
+
+```bash
+codex debug prompt-input
+```
+
+Expected output: a `cartographer:kb:*` section. If it is absent while `status` reports the
+instructions installed, report it: a provider precedence rule Cartographer does not model yet.
+
 `connect` provisioned the bundled skills, including `cartographer-ops`. Use that skill for ongoing
 operations, diagnosis, upgrades, and synchronization after installation.
 

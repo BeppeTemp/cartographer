@@ -617,3 +617,130 @@ func TestCheckOrphanedFiles(t *testing.T) {
 		t.Errorf("a fully accounted directory produced findings: %+v", got)
 	}
 }
+
+// --- shadowed instructions (D189) ---
+
+// withManagedInstructions puts the fixture in the state the shadowing check
+// cares about: a well-formed managed block in the provider's instructions file,
+// recorded in the lockfile. doctorFixture's stub server serves an empty
+// manifest, so connect materializes no instructions on its own.
+func withManagedInstructions(t *testing.T, dir, provider string) string {
+	t.Helper()
+	rel := provisioning.InstructionsFile(configurator.Provider(provider))
+	if rel == "" {
+		t.Fatalf("%s has no instructions destination", provider)
+	}
+	path := filepath.Join(dir, rel)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	block := "<!-- cartographer:instructions:begin -->\nx\n<!-- cartographer:instructions:end -->\n"
+	if err := os.WriteFile(path, []byte(block), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	lf, err := provisioning.ReadLockFile(lockFilePath(dir))
+	if err != nil {
+		t.Fatalf("ReadLockFile: %v", err)
+	}
+	lock := lf.ForProvider(provider)
+	lock.Managed = append(lock.Managed, provisioning.ManagedFile{
+		Kind: "instructions", Name: "alpha", Path: rel, ContentHash: "h1",
+	})
+	if lf.Providers == nil {
+		lf.Providers = map[string]provisioning.Lock{}
+	}
+	lf.Providers[provider] = lock
+	if err := provisioning.WriteLockFile(lockFilePath(dir), lf); err != nil {
+		t.Fatalf("WriteLockFile: %v", err)
+	}
+	return path
+}
+
+// An instructions block written correctly into a file the provider does not
+// read is not installed. Codex resolves the global scope to AGENTS.override.md
+// when it exists and does not merge it with AGENTS.md, so the managed block
+// never reaches the model — while every other check reports a healthy tree.
+func TestRunDoctor_ShadowedInstructions(t *testing.T) {
+	doctorStubs(t, []string{"codex"}, false)
+	dir := doctorFixture(t, "codex")
+	withManagedInstructions(t, dir, "codex")
+
+	if f := findingsFor(runDoctor(dir, ""), "instructions"); len(f) != 0 {
+		t.Fatalf("fixture must start clean, got %d instructions finding(s): %+v", len(f), f)
+	}
+
+	override := filepath.Join(dir, ".codex", "AGENTS.override.md")
+	if err := os.WriteFile(override, []byte("# My own rules\n"), 0o644); err != nil {
+		t.Fatalf("write override: %v", err)
+	}
+
+	report := runDoctor(dir, "")
+	findings := findingsFor(report, "instructions")
+	if len(findings) != 1 {
+		t.Fatalf("expected exactly one instructions finding, got %d: %+v", len(findings), findings)
+	}
+	f := findings[0]
+	if f.Severity != doctorError {
+		t.Errorf("severity = %v; want error: the operator's stated intent is not met", f.Severity)
+	}
+	if !strings.Contains(f.Message, "AGENTS.override.md") || !strings.Contains(f.Message, "AGENTS.md") {
+		t.Errorf("message must name both files, got: %s", f.Message)
+	}
+	if f.Fix == "" {
+		t.Error("finding must name a way out")
+	}
+	if doctorExitCode(report) == 0 {
+		t.Error("an error-severity finding must produce a non-zero exit code")
+	}
+}
+
+// An empty override still shadows: Codex reads it and finds nothing.
+func TestRunDoctor_ShadowedInstructions_EmptyOverride(t *testing.T) {
+	doctorStubs(t, []string{"codex"}, false)
+	dir := doctorFixture(t, "codex")
+	withManagedInstructions(t, dir, "codex")
+
+	if err := os.WriteFile(filepath.Join(dir, ".codex", "AGENTS.override.md"), nil, 0o644); err != nil {
+		t.Fatalf("write override: %v", err)
+	}
+	if f := findingsFor(runDoctor(dir, ""), "instructions"); len(f) != 1 {
+		t.Fatalf("an empty override still shadows, got %d finding(s): %+v", len(f), f)
+	}
+}
+
+// The managed file absent *and* shadowed is one finding, not two: the absence
+// wins, because that is the one the operator must fix first.
+func TestRunDoctor_ShadowedInstructions_AbsentManagedFileWins(t *testing.T) {
+	doctorStubs(t, []string{"codex"}, false)
+	dir := doctorFixture(t, "codex")
+	managed := withManagedInstructions(t, dir, "codex")
+
+	if err := os.WriteFile(filepath.Join(dir, ".codex", "AGENTS.override.md"), []byte("x\n"), 0o644); err != nil {
+		t.Fatalf("write override: %v", err)
+	}
+	if err := os.Remove(managed); err != nil {
+		t.Fatalf("remove managed file: %v", err)
+	}
+	findings := findingsFor(runDoctor(dir, ""), "instructions")
+	if len(findings) != 1 {
+		t.Fatalf("expected exactly one finding, got %d: %+v", len(findings), findings)
+	}
+	if strings.Contains(findings[0].Message, "takes precedence") {
+		t.Errorf("the absence must win over the shadowing: %s", findings[0].Message)
+	}
+}
+
+// A provider with no declared precedence chain is unaffected, even with a
+// same-named file sitting next to its instructions.
+func TestRunDoctor_NoPrecedenceChain_NoFinding(t *testing.T) {
+	doctorStubs(t, []string{"claude"}, false)
+	dir := doctorFixture(t, "claude")
+	withManagedInstructions(t, dir, "claude")
+
+	if err := os.WriteFile(filepath.Join(dir, ".claude", "CLAUDE.override.md"), []byte("x\n"), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+	if f := findingsFor(runDoctor(dir, ""), "instructions"); len(f) != 0 {
+		t.Fatalf("claude declares no chain: expected no finding, got %+v", f)
+	}
+}

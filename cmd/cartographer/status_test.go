@@ -179,3 +179,69 @@ func TestStatus_OnDiskDriftExitsOne(t *testing.T) {
 		t.Errorf("output = %q, want the divergence reported", out)
 	}
 }
+
+// D189: a managed instructions block written into a file the provider does not
+// read is not installed. `instructions n/n` must not count it, and status must
+// say so — the previous behaviour printed `instructions 1/1` while the agent had
+// never seen the directives.
+func TestStatus_ShadowedInstructionsNotCountedAsInstalled(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	if err := clientconfig.Save(home, &clientconfig.Config{ServerURL: "https://cartographer.example/mcp", Agents: []string{"codex"}, Trust: true}); err != nil {
+		t.Fatalf("save config: %v", err)
+	}
+
+	rel := provisioning.InstructionsFile(configurator.ProviderCodex)
+	path := filepath.Join(home, rel)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	block := []byte("<!-- cartographer:instructions:begin -->\nx\n<!-- cartographer:instructions:end -->\n")
+	if err := os.WriteFile(path, block, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	served := provisioning.Manifest{Revision: "rev1", Artifacts: []provisioning.Artifact{
+		{Kind: "instructions", Name: "wiki", Source: "kb:wiki", ContentHash: "source-hash", Signed: true},
+	}}
+	appliedRev := provisioning.FilterForProvider(served, configurator.ProviderCodex).Revision
+	lock := provisioning.Lock{Provider: "codex", AppliedRevision: appliedRev, Managed: []provisioning.ManagedFile{{
+		Kind: "instructions", Name: "wiki", Path: rel, ContentHash: "source-hash",
+	}}}
+	if err := provisioning.WriteLockFile(lockFilePath(home), provisioning.LockFile{Providers: map[string]provisioning.Lock{"codex": lock}}); err != nil {
+		t.Fatalf("write lockfile: %v", err)
+	}
+
+	oldVersion, oldHealth, oldManifest, oldService := version, statusHealthFn, statusManifestsFn, statusServiceFn
+	version = "v1.0.0"
+	statusHealthFn = func(*clientconfig.Config) (*client.Health, error) { return &client.Health{Version: "v1.0.0"}, nil }
+	statusManifestsFn = func(_ *clientconfig.Config, providers []string) (map[string]provisioning.Manifest, error) {
+		return uniformManifests(served, providers), nil
+	}
+	statusServiceFn = func() (service.Status, error) { return service.Status{}, nil }
+	t.Cleanup(func() {
+		version, statusHealthFn, statusManifestsFn, statusServiceFn = oldVersion, oldHealth, oldManifest, oldService
+	})
+
+	out := withStdout(t, func() { cmdStatus(nil) })
+	if !strings.Contains(out, "instructions 1/1") {
+		t.Fatalf("without an override the block is installed; output = %q", out)
+	}
+	if strings.Contains(out, "not active") {
+		t.Errorf("nothing shadows it yet: %q", out)
+	}
+
+	// The user's own override appears. Codex reads it *instead of* AGENTS.md.
+	if err := os.WriteFile(filepath.Join(home, ".codex", "AGENTS.override.md"), []byte("# mine\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out = withStdout(t, func() { cmdStatus(nil) })
+	if strings.Contains(out, "instructions 1/1") {
+		t.Errorf("a shadowed block must not count as installed: %q", out)
+	}
+	if !strings.Contains(out, "instructions 0/1") {
+		t.Errorf("expected instructions 0/1: %q", out)
+	}
+	if !strings.Contains(out, "not active") || !strings.Contains(out, "AGENTS.override.md") {
+		t.Errorf("status must name the shadowing file: %q", out)
+	}
+}

@@ -26,16 +26,21 @@ type statusError struct {
 }
 
 type providerStatus struct {
-	Name         string           `json:"name"`
-	Installed    bool             `json:"installed"`
-	Connected    bool             `json:"connected"`
-	State        string           `json:"state"`
-	Revision     string           `json:"revision,omitempty"`
-	LockRevision string           `json:"lock_revision,omitempty"`
-	Kinds        string           `json:"kind_status,omitempty"`
-	Added        []statusArtifact `json:"added,omitempty"`
-	Updated      []statusArtifact `json:"updated,omitempty"`
-	Removed      []statusArtifact `json:"removed,omitempty"`
+	Name         string `json:"name"`
+	Installed    bool   `json:"installed"`
+	Connected    bool   `json:"connected"`
+	State        string `json:"state"`
+	Revision     string `json:"revision,omitempty"`
+	LockRevision string `json:"lock_revision,omitempty"`
+	Kinds        string `json:"kind_status,omitempty"`
+	// ShadowedInstructions names the provider-owned file that takes precedence
+	// over the instructions file Cartographer manages, when one exists (D189).
+	// A block written correctly into a file the provider does not read is not
+	// installed, so it is excluded from the Kinds count and reported here.
+	ShadowedInstructions string           `json:"shadowed_instructions,omitempty"`
+	Added                []statusArtifact `json:"added,omitempty"`
+	Updated              []statusArtifact `json:"updated,omitempty"`
+	Removed              []statusArtifact `json:"removed,omitempty"`
 	// Diverged lists managed artifacts whose files on disk no longer match
 	// what was materialized (D139): edited by hand, deleted, or with their
 	// managed key/block removed from a shared file. `cartographer sync`
@@ -217,7 +222,14 @@ func snapshotForConfig(dir string, cfg *clientconfig.Config, includeService bool
 		p := &s.Providers[i]
 		p.Revision = pm.Revision
 		p.LockRevision = lockFile.ForProvider(p.Name).AppliedRevision
-		p.Kinds = formatKindStatus(pm, lockFile.ForProvider(p.Name))
+		if shadowing, _, ok := configurator.ShadowedInstructions(
+			configurator.Provider(p.Name),
+			provisioning.LockBaseDir(lockFile.ForProvider(p.Name), dir),
+		); ok {
+			p.ShadowedInstructions = shadowing
+		}
+		p.Kinds = formatKindStatus(pm, lockFile.ForProvider(p.Name), p.ShadowedInstructions != "")
+
 		// On-disk verification (D139): the manifest↔lockfile comparison says
 		// nothing about what is actually on disk, so an artifact edited or
 		// deleted locally used to report in-sync.

@@ -320,7 +320,7 @@ The checks:
 | `lockfile` | present, readable, and in the v2 format — a v1 file on disk is migrated *in memory* by every read, but stays v1 until something rewrites it |
 | `managed-files` | the on-disk verification of D139, per provider: `missing`, `modified`, `unregistered`; plus files sitting inside a managed skill/hook directory that no lock entry accounts for (D178) — reported only, since doctor cannot prove Cartographer wrote them |
 | `mcp-entries` | the Cartographer entries in the provider's native config match the KBs recorded in `.cartographer.yaml` — an entry for a KB the server no longer mounts, or a missing one |
-| `instructions` | exactly one well-formed managed block per provider that has instructions materialized (begin recognized by prefix, so a block written by an older version still counts) |
+| `instructions` | exactly one well-formed managed block per provider that has instructions materialized (begin recognized by prefix, so a block written by an older version still counts), **and** that the provider actually reads the file it was written into (D189) |
 | `hooks` | one native registration per managed hook — the D99 double-fire is a registration left outside the managed block by Codex's own rewrite |
 | `server` | `/health` reachable; the recorded `server_version` (D142) against the live one; client binary against server. When an unreachable server is loopback **and** no local native service is installed, the finding names that cause and the two remedies instead of pointing at `service status`, which would only repeat `installed: false` (D174) |
 | `trigger` | every connected provider has a session hook, or the scheduled trigger is installed (D140) |

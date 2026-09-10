@@ -101,3 +101,19 @@ func TestDestDirPaths(t *testing.T) {
 		}
 	}
 }
+
+// The precedence chain's last entry is the file Cartographer manages, by
+// construction: the chain lists what takes precedence over it, then it. Drift
+// between the two declarations would make the shadowing check compare a file
+// against itself, or against one nobody writes (D189).
+func TestInstructionsPrecedenceEndsAtTheManagedFile(t *testing.T) {
+	for _, d := range configurator.Providers() {
+		if len(d.InstructionsPrecedence) == 0 {
+			continue
+		}
+		last := filepath.Join(d.InstructionsPrecedence[len(d.InstructionsPrecedence)-1]...)
+		if got := InstructionsFile(d.Provider); got != last {
+			t.Errorf("%s: precedence chain ends at %q but InstructionsFile says %q", d.Provider, last, got)
+		}
+	}
+}
