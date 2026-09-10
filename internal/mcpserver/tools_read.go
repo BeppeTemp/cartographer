@@ -73,7 +73,9 @@ func toolIndexGet(k *kb.KB) Tool {
 		Description: "Reads the index.md of the given folder (root if path is empty). By default returns " +
 			"the raw Markdown verbatim (byte-for-byte, for backward compatibility). Pass 'with_hash: true' " +
 			"to get a structured {path, content, content_hash} response instead — the content_hash is the " +
-			"'if_match' expected by index_patch when curating the root or a Map/Journal's index.md.",
+			"'if_match' expected by index_patch when curating the root or a Map/Journal's index.md. " +
+			"Indexes over 60 KB are returned as a heading outline by default (note explains why); pass " +
+			"'full: true' to force the whole content, or 'outline: true' to ask for the outline at any size.",
 		ReadOnly: true,
 		InputSchema: json.RawMessage(`{
 			"type": "object",
@@ -85,6 +87,14 @@ func toolIndexGet(k *kb.KB) Tool {
 				"with_hash": {
 					"type": "boolean",
 					"description": "If true, returns structured {path, content, content_hash} instead of raw Markdown. Optional, default false."
+				},
+				"outline": {
+					"type": "boolean",
+					"description": "If true, returns only the heading outline ({level, title, bytes}), no content, whatever the size. Optional."
+				},
+				"full": {
+					"type": "boolean",
+					"description": "If true, forces the whole content even if it exceeds the 60 KB size guard. Optional."
 				}
 			}
 		}`),
@@ -92,21 +102,48 @@ func toolIndexGet(k *kb.KB) Tool {
 			var params struct {
 				Path     string `json:"path"`
 				WithHash bool   `json:"with_hash"`
+				Outline  bool   `json:"outline"`
+				Full     bool   `json:"full"`
 			}
 			json.Unmarshal(args, &params)
-
-			if !params.WithHash {
-				content, err := k.ReadIndex(params.Path)
-				if err != nil {
-					return errorResult(fmt.Sprintf("index_get %q: %v", params.Path, err)), nil
-				}
-				return textResult(content), nil
-			}
 
 			content, err := k.ReadIndex(params.Path)
 			if err != nil {
 				return errorResult(fmt.Sprintf("index_get %q: %v", params.Path, err)), nil
 			}
+
+			if params.Outline {
+				result := map[string]interface{}{
+					"path":          params.Path,
+					"content_hash":  okf.ContentHash(content),
+					"outline":       headingsToOutline(okf.ListHeadings(content)),
+					"content_bytes": len(content),
+				}
+				out, _ := json.MarshalIndent(result, "", "  ")
+				return textResult(string(out)), nil
+			}
+
+			// The guard measures the whole file, frontmatter included: a curated
+			// index's frontmatter is three lines, and splitting it off would only
+			// add a code path. Same threshold concept_read has used since D78 —
+			// a third number would have to be reconciled with the lint one too.
+			if !params.Full && len(content) > conceptReadSizeGuard {
+				result := map[string]interface{}{
+					"path":          params.Path,
+					"content_hash":  okf.ContentHash(content),
+					"outline":       headingsToOutline(okf.ListHeadings(content)),
+					"content_bytes": len(content),
+					"note": fmt.Sprintf("index is %d bytes (over the %d byte guard) — use the outline to "+
+						"navigate, or 'full: true' to force the whole content", len(content), conceptReadSizeGuard),
+				}
+				out, _ := json.MarshalIndent(result, "", "  ")
+				return textResult(string(out)), nil
+			}
+
+			if !params.WithHash {
+				return textResult(content), nil
+			}
+
 			result := map[string]interface{}{
 				"path":         params.Path,
 				"content":      content,
@@ -148,7 +185,10 @@ func headingsToOutline(headings []okf.Heading) []map[string]interface{} {
 func toolConceptRead(k *kb.KB) Tool {
 	return Tool{
 		Name: "concept_read",
-		Description: "Reads a concept by ID. Returns content, content_hash, frontmatter_raw, body. " +
+		Description: "Reads a concept by ID. Returns content_hash, frontmatter_raw and body — the body " +
+			"is the concept's text, and it is returned once. Pass 'with_content: true' to also get " +
+			"'content' (frontmatter + body, the exact bytes on disk), which is what a caller that will " +
+			"re-write the file verbatim needs; without it the response does not carry the concept twice. " +
 			"If 'section' is specified, returns only that section (error lists the available headings " +
 			"if the section is not found). If 'outline' is true, returns the heading structure " +
 			"({level, title, bytes} per heading) without content. Bodies over 60 KB are returned as an " +
@@ -173,15 +213,20 @@ func toolConceptRead(k *kb.KB) Tool {
 				"full": {
 					"type": "boolean",
 					"description": "If true, forces the full content even if the body exceeds the 60 KB size guard. Optional."
+				},
+				"with_content": {
+					"type": "boolean",
+					"description": "If true, the full response also carries 'content' (frontmatter + body, the exact bytes). Optional, default false. Ignored by the 'section', 'outline' and size-guard responses, which never carried it."
 				}
 			}
 		}`),
 		Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
 			var params struct {
-				ID      string `json:"id"`
-				Section string `json:"section"`
-				Outline bool   `json:"outline"`
-				Full    bool   `json:"full"`
+				ID          string `json:"id"`
+				Section     string `json:"section"`
+				Outline     bool   `json:"outline"`
+				Full        bool   `json:"full"`
+				WithContent bool   `json:"with_content"`
 			}
 			if err := json.Unmarshal(args, &params); err != nil {
 				return errorResult("invalid params: " + err.Error()), nil
@@ -248,12 +293,19 @@ func toolConceptRead(k *kb.KB) Tool {
 				return textResult(string(out)), nil
 			}
 
+			// 'body' is what every caller consumes and what the size guard above
+			// measures; 'content' is frontmatter+body, so returning both put the
+			// concept in the response twice (measured 2.06x on a real read).
+			// It stays available, opt-in, for a caller that must re-write the
+			// exact bytes.
 			result := map[string]interface{}{
 				"id":              params.ID,
-				"content":         data.Content,
 				"content_hash":    data.ContentHash,
 				"frontmatter_raw": data.FrontmatterRaw,
 				"body":            data.Body,
+			}
+			if params.WithContent {
+				result["content"] = data.Content
 			}
 			out, _ := json.MarshalIndent(result, "", "  ")
 			return textResult(string(out)), nil
