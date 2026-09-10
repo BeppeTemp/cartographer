@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # scenarios/04_skill_lifecycle.sh — OPERATOR scenario: skill lifecycle (materialization + prune).
 #
-# Uses the kb-homelab-lite fixture, which contains the domain skill kbinfra--query-rete.
+# Uses the kb-homelab-lite fixture, which contains the domain skill query-rete.
 # Verifies that:
 #   (a) `cartographer connect opencode --auto-trust` materializes the skill in
 #       .opencode/skills/<name>/SKILL.md (via sync_pull) and writes the v2 lockfile.
@@ -49,7 +49,7 @@ server_wait_health 20
 trap 'server_stop' EXIT
 
 SERVER_URL="http://127.0.0.1:${E2E_HTTP_PORT}/mcp"
-SKILL_NAME="kbinfra--query-rete"
+SKILL_NAME="query-rete"
 SKILL_SRC="${KB_DIR}/skills/${SKILL_NAME}"
 SKILL_DEST="${SANDBOX_DIR}/.opencode/skills/${SKILL_NAME}/SKILL.md"
 LOCK_FILE="${SANDBOX_DIR}/.cartographer-sync.lock.json"

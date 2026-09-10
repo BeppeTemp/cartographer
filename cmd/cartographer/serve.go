@@ -356,8 +356,9 @@ func runServe(cfg *config.Config) {
 			log.Printf("KB %q provisioning artifact signing enabled (key ID %s)", name, artifactsig.KeyID(artifactSigner.Public().(ed25519.PublicKey)))
 		}
 		if _, scanErr := provisioning.BuildManifest(nil, map[string]string{name: k.Root}, provisioning.BuildOptions{
-			MCPAllowlists: map[string][]provisioning.MCPAllowlistEntry{name: m.Spec.MCPAllowlist},
-			MCPDiagnostic: func(message string) { log.Printf("warning: %s", message) },
+			MCPAllowlists:   map[string][]provisioning.MCPAllowlistEntry{name: m.Spec.MCPAllowlist},
+			MCPDiagnostic:   func(message string) { log.Printf("warning: %s", message) },
+			SkillDiagnostic: func(message string) { log.Printf("warning: %s", message) },
 		}); scanErr != nil {
 			log.Printf("warning: KB %q MCP descriptor scan: %v", name, scanErr)
 		}

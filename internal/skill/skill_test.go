@@ -101,7 +101,7 @@ func TestLoadAllSkills(t *testing.T) {
 	}
 
 	// Create two skill directories.
-	for _, name := range []string{"myns--skill-one", "myns--skill-two"} {
+	for _, name := range []string{"skill-one", "skill-two"} {
 		d := filepath.Join(skillsDir, name)
 		if err := os.MkdirAll(d, 0755); err != nil {
 			t.Fatal(err)
@@ -134,13 +134,13 @@ func TestLoadAllSkillsPartialError(t *testing.T) {
 	}
 
 	// One valid skill, one directory without SKILL.md.
-	good := filepath.Join(skillsDir, "ns--good")
+	good := filepath.Join(skillsDir, "good")
 	if err := os.MkdirAll(good, 0755); err != nil {
 		t.Fatal(err)
 	}
 	writeSkillMD(t, good, "---\nname: good\ndescription: Good skill\n---\nBody.\n")
 
-	bad := filepath.Join(skillsDir, "ns--bad")
+	bad := filepath.Join(skillsDir, "bad")
 	if err := os.MkdirAll(bad, 0755); err != nil {
 		t.Fatal(err)
 	}
@@ -157,8 +157,8 @@ func TestLoadAllSkillsPartialError(t *testing.T) {
 
 func TestCatalog(t *testing.T) {
 	skills := []Skill{
-		{Name: "alpha", Description: "First skill", Version: "1.0.0", DirPath: "skills/ns--alpha"},
-		{Name: "beta", Description: "Second skill", DirPath: "skills/ns--beta"},
+		{Name: "alpha", Description: "First skill", Version: "1.0.0", DirPath: "skills/alpha"},
+		{Name: "beta", Description: "Second skill", DirPath: "skills/beta"},
 	}
 
 	entries := Catalog(skills)
@@ -174,14 +174,14 @@ func TestCatalog(t *testing.T) {
 	if entries[1].Version != "" {
 		t.Errorf("entries[1].Version = %q; want empty", entries[1].Version)
 	}
-	if entries[0].Path != "skills/ns--alpha" {
-		t.Errorf("entries[0].Path = %q; want %q", entries[0].Path, "skills/ns--alpha")
+	if entries[0].Path != "skills/alpha" {
+		t.Errorf("entries[0].Path = %q; want %q", entries[0].Path, "skills/alpha")
 	}
 }
 
 func TestValidate(t *testing.T) {
 	t.Run("valid skill", func(t *testing.T) {
-		s := &Skill{Name: "ok", Description: "Good desc", DirPath: "skills/ns--ok"}
+		s := &Skill{Name: "ok", Description: "Good desc", DirPath: "skills/ok"}
 		issues := Validate(s)
 		if len(issues) != 0 {
 			t.Errorf("expected no issues, got %v", issues)
@@ -189,7 +189,7 @@ func TestValidate(t *testing.T) {
 	})
 
 	t.Run("missing name", func(t *testing.T) {
-		s := &Skill{Name: "", Description: "desc", DirPath: "skills/ns--x"}
+		s := &Skill{Name: "", Description: "desc", DirPath: "skills/x"}
 		issues := Validate(s)
 		if len(issues) != 1 {
 			t.Fatalf("expected 1 issue, got %d", len(issues))
@@ -200,7 +200,7 @@ func TestValidate(t *testing.T) {
 	})
 
 	t.Run("missing description", func(t *testing.T) {
-		s := &Skill{Name: "x", Description: "", DirPath: "skills/ns--x"}
+		s := &Skill{Name: "x", Description: "", DirPath: "skills/x"}
 		issues := Validate(s)
 		if len(issues) != 1 {
 			t.Fatalf("expected 1 issue, got %d", len(issues))
@@ -215,7 +215,7 @@ func TestValidate(t *testing.T) {
 		for i := range lines {
 			lines[i] = "line"
 		}
-		s := &Skill{Name: "x", Description: "desc", Body: strings.Join(lines, "\n"), DirPath: "skills/ns--x"}
+		s := &Skill{Name: "x", Description: "desc", Body: strings.Join(lines, "\n"), DirPath: "skills/x"}
 		issues := Validate(s)
 		if len(issues) != 1 {
 			t.Fatalf("expected 1 issue, got %d", len(issues))
@@ -226,7 +226,7 @@ func TestValidate(t *testing.T) {
 	})
 
 	t.Run("missing name and description", func(t *testing.T) {
-		s := &Skill{DirPath: "skills/ns--x"}
+		s := &Skill{DirPath: "skills/x"}
 		issues := Validate(s)
 		if len(issues) != 2 {
 			t.Fatalf("expected 2 issues, got %d", len(issues))
@@ -305,36 +305,71 @@ func TestLoadAllFromFSPartialError(t *testing.T) {
 	}
 }
 
-func TestNamespaceExtraction(t *testing.T) {
-	// Verify the <namespace>--<skill-name> convention parses correctly.
-	cases := []struct {
-		dirName   string
-		wantNS    string
-		wantSkill string
-	}{
-		{"myns--myskill", "myns", "myskill"},
-		{"foo--bar-baz", "foo", "bar-baz"},
-		{"noskill", "", ""},
-	}
+// --- one rule set, the intersection of what the clients accept (D191) ---
 
-	for _, tc := range cases {
-		parts := strings.SplitN(tc.dirName, "--", 2)
-		if tc.wantNS == "" {
-			// No separator expected.
-			if len(parts) == 2 {
-				t.Errorf("%q: unexpected split into %v", tc.dirName, parts)
+func TestValidate_NameRules(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		skill    string
+		wantRule string
+	}{
+		{"lowercase kebab is valid", "query-rete", ""},
+		{"digits are valid", "kb2-sync", ""},
+		{"single segment is valid", "runbooks", ""},
+		{"uppercase", "Query-Rete", "name_invalid"},
+		{"underscore", "query_rete", "name_invalid"},
+		{"leading dash", "-query", "name_invalid"},
+		{"trailing dash", "query-", "name_invalid"},
+		{"double dash is the retired namespace convention", "kbinfra--query-rete", "name_invalid"},
+		{"space", "query rete", "name_invalid"},
+		{"65 characters", strings.Repeat("a", 65), "name_too_long"},
+		{"64 characters is the limit, not over it", strings.Repeat("a", 64), ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := &Skill{Name: tc.skill, Description: "desc", DirPath: "skills/" + tc.skill}
+			bad := FirstError(Validate(s))
+			if tc.wantRule == "" {
+				if bad != nil {
+					t.Fatalf("%q should be valid, got %s: %s", tc.skill, bad.Rule, bad.Message)
+				}
+				return
 			}
-			continue
-		}
-		if len(parts) != 2 {
-			t.Errorf("%q: expected split, got %v", tc.dirName, parts)
-			continue
-		}
-		if parts[0] != tc.wantNS {
-			t.Errorf("%q: namespace = %q; want %q", tc.dirName, parts[0], tc.wantNS)
-		}
-		if parts[1] != tc.wantSkill {
-			t.Errorf("%q: skill = %q; want %q", tc.dirName, parts[1], tc.wantSkill)
-		}
+			if bad == nil {
+				t.Fatalf("%q should be refused with %s", tc.skill, tc.wantRule)
+			}
+			if bad.Rule != tc.wantRule {
+				t.Errorf("%q: rule = %q; want %q (%s)", tc.skill, bad.Rule, tc.wantRule, bad.Message)
+			}
+		})
+	}
+}
+
+// The failure this rule exists for: the manifest registers the artifact under
+// the frontmatter name but hashes and reads the directory, so a mismatch sends
+// ReadArtifactFiles to a path that does not exist.
+func TestValidate_NameMustMatchDirectory(t *testing.T) {
+	s := &Skill{Name: "bar", Description: "desc", DirPath: "skills/foo"}
+	bad := FirstError(Validate(s))
+	if bad == nil {
+		t.Fatal("skills/foo with name: bar must be refused")
+	}
+	if bad.Rule != "name_directory_mismatch" {
+		t.Errorf("rule = %q; want name_directory_mismatch", bad.Rule)
+	}
+	if !strings.Contains(bad.Message, "foo") || !strings.Contains(bad.Message, "bar") {
+		t.Errorf("message must name both: %s", bad.Message)
+	}
+}
+
+func TestValidate_SeveritySplit(t *testing.T) {
+	// Warnings degrade quality; they must never exclude a skill, or an
+	// existing KB's long descriptions would start blocking syncs that work.
+	long := &Skill{Name: "ok", Description: strings.Repeat("d", maxSkillDescriptionLen+1), DirPath: "skills/ok"}
+	issues := Validate(long)
+	if len(issues) != 1 || !issues[0].Warning {
+		t.Fatalf("a long description must be exactly one warning, got %+v", issues)
+	}
+	if FirstError(issues) != nil {
+		t.Error("a warning-only skill must not be excluded")
 	}
 }
