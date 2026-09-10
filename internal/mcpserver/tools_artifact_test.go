@@ -291,7 +291,7 @@ func TestClassifyArtifactPath(t *testing.T) {
 		wantNm  string
 	}{
 		{"skills/my-skill/SKILL.md", true, "skill", "my-skill"},
-		{"skills/kbinfra--query-rete/SKILL.md", true, "skill", "kbinfra--query-rete"},
+		{"skills/query-rete/SKILL.md", true, "skill", "query-rete"},
 		{"skills/my-skill/scripts/run.sh", true, "skill", "my-skill"},
 		{"agents/my-agent.md", true, "agent", "my-agent"},
 		{"hooks/my-hook/hook.json", true, "hook", "my-hook"},

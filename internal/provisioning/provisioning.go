@@ -68,6 +68,11 @@ type BuildOptions struct {
 	// MCPDiagnostic receives non-fatal denied/stale allow-list diagnostics.
 	// It never contains descriptor headers or environment references.
 	MCPDiagnostic func(string)
+	// SkillDiagnostic receives one message per skill excluded from the
+	// manifest because it failed validation (D191). Excluding it is what keeps
+	// the rest of the KB syncing; saying so is what keeps the exclusion from
+	// being silent.
+	SkillDiagnostic func(string)
 }
 
 // ArtifactFile is a single file of an Artifact, with content in memory.
@@ -85,6 +90,12 @@ type Manifest struct {
 	Revision    string     `json:"revision"`
 	GeneratedAt string     `json:"generated_at,omitempty"`
 	Artifacts   []Artifact `json:"artifacts"`
+	// Issues carries the attributed reasons artifacts were left out of this
+	// manifest (D191) — named KB, named artifact, named rule. It is not part of
+	// the revision: excluding an artifact already changes that, and an issue
+	// list that fed the hash would make a message edit look like a catalogue
+	// change.
+	Issues []string `json:"issues,omitempty"`
 }
 
 // ManagedFile records a single file materialized by provisioning in the client's base-dir.
@@ -406,6 +417,7 @@ func contentHashDirOS(dirPath, kind string) (string, error) {
 // forged Ed25519 signature.
 func BuildManifest(bundleFS fs.FS, kbRoots map[string]string, opts BuildOptions) (Manifest, error) {
 	var artifacts []Artifact
+	var issues []string
 
 	// 1. Skill dal bundle.
 	if bundleFS != nil {
@@ -455,8 +467,31 @@ func BuildManifest(bundleFS fs.FS, kbRoots map[string]string, opts BuildOptions)
 		// 2. Skill (skills/<name>/SKILL.md, several files per artifact). A KB with
 		// no skills/ folder or an unreadable directory: kbSkills is empty,
 		// silent skip (no fatal error).
-		kbSkills, _ := skill.LoadAllSkills(kbRoot)
+		kbSkills, loadErrs := skill.LoadAllSkills(kbRoot)
+		for _, loadErr := range loadErrs {
+			// Previously discarded. An unreadable SKILL.md is not fatal — the
+			// rest of the KB must still sync — but it must not be invisible
+			// either (D191).
+			issue := fmt.Sprintf("KB %q: skill not loaded: %v", kbName, loadErr)
+			issues = append(issues, issue)
+			if opts.SkillDiagnostic != nil {
+				opts.SkillDiagnostic(issue)
+			}
+		}
 		for _, s := range kbSkills {
+			// One validator for both channels (D191). An error-severity issue
+			// excludes this skill from the manifest and nothing else: a KB with
+			// one malformed skill still syncs its valid artifacts, where before
+			// the mismatch reached ReadArtifactFiles and could take sync_pull
+			// down for the whole KB.
+			if bad := skill.FirstError(skill.Validate(&s)); bad != nil {
+				issue := fmt.Sprintf("KB %q: skill %q excluded (%s): %s", kbName, s.DirPath, bad.Rule, bad.Message)
+				issues = append(issues, issue)
+				if opts.SkillDiagnostic != nil {
+					opts.SkillDiagnostic(issue)
+				}
+				continue
+			}
 			skillDir := filepath.Join(kbRoot, s.DirPath)
 			hash, err := contentHashDirOS(skillDir, "skill")
 			if err != nil {
@@ -606,7 +641,9 @@ func BuildManifest(bundleFS fs.FS, kbRoots map[string]string, opts BuildOptions)
 		}
 		a.Signature = sig
 	}
-	return MergeArtifacts(artifacts), nil
+	m := MergeArtifacts(artifacts)
+	m.Issues = issues
+	return m, nil
 }
 
 // contentHashBytes computes a deterministic sha256 hex of raw data, with no
