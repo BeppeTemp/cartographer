@@ -1169,7 +1169,7 @@ func TestDryRunPlanCoversRemovalsAndKnownKBs(t *testing.T) {
 	if _, _, err := removeMCPEntries(cfg.ServerName, cfg.KnownKBs, []string{"claude"}, dir, false, "", false); err != nil {
 		t.Fatal(err)
 	}
-	entries, err := entriesByProviderForKBs(cfg, []string{"claude"}, cfg.ServerName, cfg.ServerURL, []string{"one", "gone"})
+	entries, err := entriesByProviderForKBs(cfg, []string{"claude"}, cfg.ServerName, cfg.ServerURL, []string{"one", "gone"}, "")
 	if err != nil {
 		t.Fatal(err)
 	}

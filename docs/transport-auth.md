@@ -5,7 +5,7 @@
 | Transport | Interface | Authorization |
 |---|---|---|
 | stdio | Newline-delimited JSON-RPC 2.0, one session per process | Process/user boundary; no bearer token |
-| HTTP | `POST /mcp`, `/mcp?kb=<name>` or `/mcp/<name>` | Optional static bearer token |
+| HTTP | `POST /mcp`, `/mcp?kb=<name>`, `/mcp/<name>` or `/mcp/routed` | Optional static bearer token |
 
 HTTP requests return complete JSON-RPC responses. Cartographer does not expose
 the legacy two-endpoint SSE transport or an HTTP streaming session, and issues
@@ -34,6 +34,65 @@ request itself), since it validates its own static bearer tokens rather than
 delegating to a separate authorization server. Cartographer does **not**
 implement an OAuth authorization server, dynamic client registration or JWT
 validation; configured tokens are opaque static bearer values.
+
+### Mount modes
+
+A multi-KB HTTP server can expose its tools two ways. `mcp.mount_mode`
+(`CARTOGRAPHER_MCP_MOUNT_MODE`, `--mount-mode`) selects which, and the two
+**coexist**: enabling routing adds an endpoint, it never removes or alters the
+per-KB ones.
+
+| Mode | Endpoints | `tools/list` | Selecting the KB |
+|---|---|---|---|
+| `per-kb` (default) | `/mcp?kb=<name>`, `/mcp/<name>` | one full copy per KB | in the URL |
+| `routed` | the above, **plus** `/mcp/routed` | one copy of the union, on the routed endpoint | a `kb` tool argument |
+
+**Why routing exists.** A client using N KBs writes N MCP server entries and
+carries N copies of the same tool schemas in its fixed context, on every model
+round-trip. Measured against a running server with three KBs, `tools/list`
+returned 82,341 bytes across the three mounts — more than twice the whole rest
+of that session's fixed context — and the two KBs never called still paid for
+themselves on all 204 round-trips. The tool-name prefix
+([D102](decisions/transport-auth.md#d102)) makes multi-KB *work* on a
+flat-namespace client and the `agent` profile (D65/D123) shrinks the set *per
+mount*; neither removes the duplication, because the duplication is the
+topology.
+
+**The KB is an argument, never inferred.** On the routed endpoint every tool's
+input schema carries a `kb` property, **required** whenever two or more KBs are
+routed; a call without it is refused with an error naming the mounted KBs.
+With exactly one KB routed there is nothing to disambiguate, so `kb` is
+optional. A default KB would land a write in the wrong archive on a model slip,
+which is precisely what D102's flat-namespace warning exists to prevent.
+
+**The advertised set is the union.** A tool one KB gates off — `artifact_write`
+under `kbs[].allow_artifact_write` — is still registered once, and refused at
+dispatch for the KB that gates it, with an error naming the tool, the KB and the
+setting. The alternative, an intersection, would silently hide a tool from a KB
+that allows it because a sibling does not.
+
+**Everything per-KB is resolved after `kb`**: the read/write classification, the
+per-KB authorization policy, the git lock and commit wrapper, and the audit
+record's KB. The routed endpoint dispatches into the target KB's own server, so
+it cannot drift from the per-KB path.
+
+**Prefixes and routing do not combine.** A routed mount has no flat namespace
+left to disambiguate, so the `kb-name` *derived* default (D153) is **not applied**
+when routing: the operator never asked for it, and it would only re-inflate the
+names routing exists to shrink. An **explicit** `kbs[].tool_prefix` is a different
+matter — that one was asked for, and it contradicts the request to route, so it is
+refused at startup naming the KB and the key. A KB named `routed` is refused too:
+it would A `?kb=` on the routed URL is refused with
+400: the KB travels in the tool arguments there, and two channels for one choice
+are how they get to disagree.
+
+`GET /health` reports `mount_mode: "routed"` and `routed_path` when routing is
+on, and omits both otherwise — which is what an older client and a `per-kb`
+server both see. `cartographer connect`/`sync` read it and write **one** MCP
+entry for a routed server. Switching an existing deployment between modes
+changes the *shape* of every entry, which an incremental sync cannot see:
+`cartographer status` reports the mismatch and tells you to run
+`cartographer reconnect`. It does not heal it.
 
 ### Protocol versions: two eras at once
 

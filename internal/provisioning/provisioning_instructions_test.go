@@ -1456,3 +1456,40 @@ func TestApply_Instructions_IdempotenteMultiKB(t *testing.T) {
 		t.Errorf("second Apply (in-sync, multi-KB): expected no Written, got %+v", res2.Written)
 	}
 }
+
+// TestBuildManifest_Instructions_RoutedMount: the generated block is the part
+// the model actually reads, so on a routed server it must name the bare tool
+// names — a routed mount refuses tool_prefix — and say which `kb` value to
+// pass. A wrong name here is worse than the duplication routing removes (D187).
+func TestBuildManifest_Instructions_RoutedMount(t *testing.T) {
+	kbRoot := makeKBWithArchives(t, map[string][]string{"entities": {"router.md"}})
+
+	plain, err := provisioning.BuildManifest(nil, map[string]string{"homelab": kbRoot}, provisioning.BuildOptions{})
+	if err != nil {
+		t.Fatalf("BuildManifest plain: %v", err)
+	}
+	plainContent := instructionsContent(t, plain, "homelab")
+
+	routed, err := provisioning.BuildManifest(nil, map[string]string{"homelab": kbRoot}, provisioning.BuildOptions{RoutedMount: true})
+	if err != nil {
+		t.Fatalf("BuildManifest routed: %v", err)
+	}
+	got := instructionsContent(t, routed, "homelab")
+
+	if got == plainContent {
+		t.Fatal("routed instructions are identical to the per-KB ones: the kb argument is never stated")
+	}
+	if !strings.Contains(got, "`kb: \"homelab\"`") {
+		t.Errorf("routed instructions do not name the kb value to pass:\n%s", got)
+	}
+	// The tool names stay bare: a routed mount refuses a prefix, so imprinting
+	// a prefixed name would name a tool that does not exist.
+	for _, want := range []string{"`search`", "`atlas_overview`", "`concept_read`", "`concept_write`", "`log_append`"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("routed instructions do not name %s:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "__") {
+		t.Errorf("routed instructions contain a prefixed tool name:\n%s", got)
+	}
+}

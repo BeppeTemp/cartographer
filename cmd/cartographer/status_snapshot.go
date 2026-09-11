@@ -118,6 +118,14 @@ type statusSnapshot struct {
 	State     string           `json:"state"`
 	Error     *statusError     `json:"error,omitempty"`
 	Service   *serviceSnapshot `json:"service,omitempty"`
+	// MountMode is the topology the server is serving right now, and
+	// ConfiguredMountMode the one this client's MCP entries were written
+	// against (D187). When they differ the entries are for the wrong endpoint
+	// shape: status reports it, and does not heal it — the fix is an explicit
+	// `cartographer reconnect`, the same answer D142 gives to a server-version
+	// change.
+	MountMode           string `json:"mount_mode,omitempty"`
+	ConfiguredMountMode string `json:"configured_mount_mode,omitempty"`
 }
 
 func classifyNetworkError(endpoint string, err error) statusError {
@@ -181,6 +189,10 @@ func snapshotForConfig(dir string, cfg *clientconfig.Config, includeService bool
 		return s
 	}
 	s.Reachable, s.Server, s.Ready = true, health.Version, health.Ready
+	if health.Routed() {
+		s.MountMode = "routed"
+	}
+	s.ConfiguredMountMode = cfg.ServerMountMode
 	if health.KBs != nil {
 		for _, kb := range *health.KBs {
 			s.KBs = append(s.KBs, kb.Name)

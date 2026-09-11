@@ -35,6 +35,14 @@ type Config struct {
 
 // MCPConfig controls MCP-protocol-level server behaviour.
 type MCPConfig struct {
+	// MountMode selects how a multi-KB HTTP server exposes its tools:
+	// "per-kb" (default) mounts one MCP server per KB, each advertising its
+	// own full copy of the tool schemas — byte-identical to pre-D187
+	// behaviour; "routed" additionally serves /mcp/routed, one endpoint
+	// advertising the union of the tools exactly once with the KB travelling
+	// as a required `kb` tool argument. The per-KB endpoints keep working in
+	// both modes: routing is an addition, never a replacement.
+	MountMode string
 	// ToolPrefixMode is the default per-KB tool-name prefix policy for KBs
 	// that don't set an explicit KBSpec.ToolPrefix: "off" (default) leaves
 	// tool names unprefixed, byte-identical to pre-D102 behaviour; "kb-name"
@@ -270,7 +278,7 @@ func Default() *Config {
 		// no error at call time — silent wrong answers from a plausible source,
 		// as the default configuration's behaviour. "off" is retained as an
 		// explicit, documented opt-out.
-		MCP: MCPConfig{ToolPrefixMode: "kb-name"},
+		MCP: MCPConfig{ToolPrefixMode: "kb-name", MountMode: MountModePerKB},
 	}
 }
 
@@ -295,6 +303,7 @@ type rawTools struct {
 }
 
 type rawMCP struct {
+	MountMode      string   `yaml:"mount_mode"`
 	ToolPrefixMode string   `yaml:"tool_prefix_mode"`
 	AllowedOrigins []string `yaml:"allowed_origins"`
 }
@@ -399,6 +408,9 @@ func Load(path string) (*Config, error) {
 		cfg.ToolsProfile = normalizeToolsProfile(raw.Tools.Profile)
 	}
 
+	if raw.MCP.MountMode != "" {
+		cfg.MCP.MountMode = normalizeMountMode(raw.MCP.MountMode)
+	}
 	if raw.MCP.ToolPrefixMode != "" {
 		cfg.MCP.ToolPrefixMode = normalizeToolPrefixMode(raw.MCP.ToolPrefixMode)
 	}
@@ -468,6 +480,9 @@ func FromEnv(cfg *Config) {
 	if v := os.Getenv("CARTOGRAPHER_TOOLS_PROFILE"); v != "" {
 		cfg.ToolsProfile = normalizeToolsProfile(v)
 	}
+	if v := os.Getenv("CARTOGRAPHER_MCP_MOUNT_MODE"); v != "" {
+		cfg.MCP.MountMode = normalizeMountMode(v)
+	}
 	if v := os.Getenv("CARTOGRAPHER_MCP_TOOL_PREFIX_MODE"); v != "" {
 		cfg.MCP.ToolPrefixMode = normalizeToolPrefixMode(v)
 	}
@@ -488,6 +503,7 @@ type FlagOverrides struct {
 	GitAutocommit *bool
 	GitSync       *bool
 	ToolsProfile  *string // "agent" | "full"
+	MountMode     *string // "per-kb" | "routed"
 }
 
 // ApplyFlags layers the explicitly-passed serve flags on top of cfg.
@@ -523,6 +539,9 @@ func ApplyFlags(cfg *Config, o FlagOverrides) {
 	if o.ToolsProfile != nil {
 		cfg.ToolsProfile = normalizeToolsProfile(*o.ToolsProfile)
 	}
+	if o.MountMode != nil {
+		cfg.MCP.MountMode = normalizeMountMode(*o.MountMode)
+	}
 }
 
 // normalizeGitProfile canonicalizes the profile spelling. It intentionally
@@ -540,6 +559,26 @@ func normalizeToolsProfile(v string) string {
 		return "full"
 	}
 	return "agent"
+}
+
+// Mount modes for a multi-KB HTTP server (D187).
+const (
+	// MountModePerKB is the historical behaviour: one MCP server per KB, each
+	// advertising its own copy of every tool schema.
+	MountModePerKB = "per-kb"
+	// MountModeRouted additionally serves one endpoint advertising the union
+	// of the tools once, with the KB as a required tool argument.
+	MountModeRouted = "routed"
+)
+
+// normalizeMountMode maps a mount_mode spelling onto the canonical
+// "per-kb"/"routed". Anything unrecognized falls back to "per-kb"
+// (fail-closed: no behavioural change for existing deployments/clients).
+func normalizeMountMode(v string) string {
+	if strings.ToLower(strings.TrimSpace(v)) == MountModeRouted {
+		return MountModeRouted
+	}
+	return MountModePerKB
 }
 
 // normalizeToolPrefixMode maps a tool_prefix_mode spelling onto the

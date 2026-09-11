@@ -130,6 +130,10 @@ type serverFacts struct {
 	// tool prefix and capability map (D151): reading a value /health already
 	// serves beats re-deriving it client-side.
 	KBs []client.HealthKB
+	// RoutedPath is the routed mount's path when the server serves one (D187),
+	// empty otherwise. A client that sees it writes ONE MCP entry pointing at
+	// that endpoint instead of one per KB.
+	RoutedPath string
 }
 
 // enumerateKBs obtains the mounted KB names and the server version from
@@ -144,6 +148,9 @@ func enumerateKBs(serverURL string, auth bool, tokenEnv string) (serverFacts, er
 		return serverFacts{}, err
 	}
 	facts := serverFacts{Version: health.Version}
+	if health.Routed() {
+		facts.RoutedPath = health.RoutedPath
+	}
 	if health.KBs == nil {
 		return facts, nil
 	}
@@ -288,7 +295,20 @@ func quoteAll(names []string) []string {
 // though that client's list has a single name.
 //
 // url.URL is used rather than concatenation so an existing query survives.
-func entriesForKBs(baseName, serverURL string, mounted, bound []string) ([]mcpEntry, error) {
+func entriesForKBs(baseName, serverURL string, mounted, bound []string, routedPath string) ([]mcpEntry, error) {
+	if routedPath != "" {
+		// D187: a routed server exposes one endpoint for every KB, so one entry
+		// is the whole configuration. The binding still decides which KBs this
+		// provider may use — routing changes the transport, not the
+		// authorization — but it no longer shapes the entry set, because the
+		// KB now travels in each tool call rather than in the URL.
+		u, err := url.Parse(serverURL)
+		if err != nil {
+			return nil, fmt.Errorf("parse server URL %q: %w", serverURL, err)
+		}
+		u.Path = routedPath
+		return []mcpEntry{{Name: baseName, URL: u.String()}}, nil
+	}
 	if len(mounted) <= 1 {
 		// Nothing to select against: the server routes the bare endpoint, and
 		// no binding can name a KB the server does not identify.
@@ -329,7 +349,7 @@ func managedEntryNames(baseName string, kbs []string) []string {
 // entriesByProviderForKBs builds each provider's own entry set from its binding
 // (D170). A provider explicitly bound to NO KBs gets no entry at all — that is
 // the one case where an empty list is a declaration rather than an absence.
-func entriesByProviderForKBs(cfg *clientconfig.Config, providers []string, baseName, serverURL string, mounted []string) (map[string][]mcpEntry, error) {
+func entriesByProviderForKBs(cfg *clientconfig.Config, providers []string, baseName, serverURL string, mounted []string, routedPath string) (map[string][]mcpEntry, error) {
 	out := make(map[string][]mcpEntry, len(providers))
 	for _, p := range providers {
 		bound, explicit := cfg.BoundKBs(p)
@@ -344,7 +364,7 @@ func entriesByProviderForKBs(cfg *clientconfig.Config, providers []string, baseN
 			out[p] = nil
 			continue
 		}
-		entries, err := entriesForKBs(baseName, serverURL, mounted, bound)
+		entries, err := entriesForKBs(baseName, serverURL, mounted, bound, routedPath)
 		if err != nil {
 			return nil, err
 		}

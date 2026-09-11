@@ -65,6 +65,13 @@ type BuildOptions struct {
 	// with (D144), so a prefixed KB does not imprint tools the agent cannot
 	// call.
 	ToolPrefixes map[string]string
+	// RoutedMount reports that this server serves its KBs through a single
+	// routed endpoint (D187): the tools are advertised once, unprefixed, and
+	// every call carries the KB as a `kb` argument. The generated instructions
+	// block is the part the model actually reads, so it must name the tools as
+	// the agent will see them and say which `kb` value to pass — a wrong name
+	// there is worse than the duplication routing removes.
+	RoutedMount bool
 	// MCPDiagnostic receives non-fatal denied/stale allow-list diagnostics.
 	// It never contains descriptor headers or environment references.
 	MCPDiagnostic func(string)
@@ -615,7 +622,7 @@ func BuildManifest(bundleFS fs.FS, kbRoots map[string]string, opts BuildOptions)
 		// timestamp) and placed directly in Artifact.Files, so ReadArtifactFiles
 		// doesn't need to read anything from the KB for this kind (see its
 		// "len(a.Files) > 0" check at the top of the function).
-		instrContent := []byte(generateKBInstructions(kbName, kbRoot, opts.ToolPrefixes[kbName]))
+		instrContent := []byte(generateKBInstructions(kbName, kbRoot, opts.ToolPrefixes[kbName], opts.RoutedMount))
 		artifacts = append(artifacts, Artifact{
 			Kind:        "instructions",
 			Name:        kbName,
@@ -732,11 +739,17 @@ func countMarkdownFiles(dir string) int {
 // on the result of this function, see BuildManifest) changes only when the
 // set of archives/agents or instructions.md changes, not on every page
 // added.
-func generateKBInstructions(kbName, kbRoot, toolPrefix string) string {
+func generateKBInstructions(kbName, kbRoot, toolPrefix string, routed bool) string {
 	var sb strings.Builder
 	tool := func(base string) string { return qualifyToolName(toolPrefix, base) }
 
 	fmt.Fprintf(&sb, "The %q KB is served via MCP by the \"cartographer\" server.", kbName)
+	if routed {
+		// D187: one endpoint, one copy of the tools, the KB as an argument.
+		// The tool names are bare (a routed mount refuses tool_prefix), so the
+		// only thing the model must be told is the value to pass.
+		fmt.Fprintf(&sb, " Every tool call to it must carry `kb: %q` — that server serves several KBs through one set of tools and never infers which one you mean.", kbName)
+	}
 
 	archives := kbArchives(kbRoot)
 	if len(archives) == 0 {
