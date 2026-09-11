@@ -84,12 +84,10 @@ var projectDestinationMatrix = map[string]map[configurator.Provider]destination{
 		configurator.ProviderClaudeCode: perName(".md", ".claude", "agents"),
 		configurator.ProviderCodex:      perName(".toml", ".codex", "agents"),
 		configurator.ProviderOpenCode:   perName(".md", ".opencode", "agent"),
-		// kiro: unchanged from the global cell, and for the same reason (D140):
-		// its agents are top-level personas the user selects, not delegates a
-		// main agent invokes. Kiro 3.0 may change that — #248 tracks the work
-		// and is blocked on an empirical verification. Giving it a cell here
-		// would be shipping that finding without its evidence.
-		configurator.ProviderKiro:        unsupportedDest,
+		// kiro: the same JSON agent config as the global cell, in the
+		// workspace's own agent directory, which `kiro-cli agent list` reports
+		// as "Workspace" and which wins over the global one (D195).
+		configurator.ProviderKiro:        perName(".json", ".kiro", "agents"),
 		configurator.ProviderHermes:      unsupportedDest,
 		configurator.ProviderAntigravity: unsupportedDest,
 	},
@@ -97,7 +95,11 @@ var projectDestinationMatrix = map[string]map[configurator.Provider]destination{
 		configurator.ProviderClaudeCode: perName("", ".claude", "hooks"),
 		configurator.ProviderCodex:      perName("", ".codex", "hooks"),
 		configurator.ProviderOpenCode:   perName("", ".opencode", "hooks"),
-		// kiro: see the "agent" cell above — same D140 reasoning, same #248.
+		// kiro: no hook mechanism at all in the shipped client — neither the
+		// per-agent `hooks` map D140 found in 2.20.0 nor the standalone
+		// ~/.kiro/hooks/ the vendor documents for v3. Verified empirically
+		// against 2.21.3 (D195): a SessionStart hook placed in either location
+		// never fires. Its trigger stays the scheduled timer.
 		configurator.ProviderKiro:        unsupportedDest,
 		configurator.ProviderHermes:      unsupportedDest,
 		configurator.ProviderAntigravity: unsupportedDest,
