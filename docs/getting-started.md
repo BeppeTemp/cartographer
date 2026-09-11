@@ -4,6 +4,12 @@ From zero to a working agentic wiki in about ten minutes, using the **Local
 Core** profile: one server, one KB, one agent (Claude Code in this walkthrough
 — OpenCode, Codex CLI, Kiro and Antigravity work the same way via `cartographer connect`).
 
+You need **git**, and an empty git repository you own to be the first KB's
+remote — a KB is a git repository, and that remote is what makes it durable and
+syncable (D134). `sops` is needed only if the KB will hold encrypted values, and
+Go 1.26+ only for the from-source install. What each installation method puts on
+the machine, and how to remove it, is in the README under §Install.
+
 ## 1. Install the client/server binary
 
 ```bash
@@ -21,8 +27,10 @@ go install github.com/BeppeTemp/cartographer/cmd/cartographer@latest
 multi-provider client (`connect` / `status` / `sync`), and a TUI dashboard
 (run it with no arguments in a terminal).
 
-If an agent is performing the installation from a repository link and a first KB remote, use the
-imperative [agent-driven installation runbook](agent-install.md) instead of this human walkthrough.
+If an **agent** is performing the installation on your behalf, it follows the
+imperative [agent-driven installation runbook](agent-install.md) instead of this
+human walkthrough — a repository link is all it needs to start, and it will ask
+you for the KB remote itself.
 
 ## 2. Run the server and create your first KB
 
@@ -71,8 +79,11 @@ arguments for an interactive form, `cartographer status` to check for drift,
 
 ## 4. First session
 
-Open a new Claude Code session and ask something that produces knowledge
-worth keeping, for example:
+**Restart Claude Code first.** The MCP tools and the provisioned skills are
+loaded at session start, so a session that was already open when you ran
+`connect` sees none of them — the same closing step the agent runbook makes
+explicit. In the new session, ask something that produces knowledge worth
+keeping, for example:
 
 > Explore this repository and write a concept page about its architecture
 > in the wiki. Close the session with a log entry.
@@ -103,3 +114,5 @@ agent made can be reviewed or reverted with ordinary git.
   [`data-plane.md`](data-plane.md)
 - Connecting other agents and keeping them in sync →
   [`configurator.md`](configurator.md) and [`sync.md`](sync.md)
+- Authoring the KB's own content, skills, subagents and secrets → the bundled
+  `kb-create` and `kb-import` skills, which `connect` just installed
