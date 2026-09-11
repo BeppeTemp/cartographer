@@ -69,7 +69,7 @@ func TestDestDirPaths(t *testing.T) {
 		{"agent", configurator.ProviderClaudeCode, filepath.Join(".claude", "agents", "demo.md")},
 		{"agent", configurator.ProviderOpenCode, filepath.Join(".opencode", "agent", "demo.md")},
 		{"agent", configurator.ProviderCodex, filepath.Join(".codex", "agents", "demo.toml")},
-		{"agent", configurator.ProviderKiro, ""},
+		{"agent", configurator.ProviderKiro, filepath.Join(".kiro", "agents", "demo.json")},
 		{"hook", configurator.ProviderClaudeCode, filepath.Join(".claude", "hooks", "demo")},
 		{"hook", configurator.ProviderCodex, filepath.Join(".codex", "hooks", "demo")},
 		{"hook", configurator.ProviderOpenCode, filepath.Join(".opencode", "hooks", "demo")},

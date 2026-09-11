@@ -4,6 +4,7 @@ package provisioning_test
 // provisioning_test.go for the pre-existing tests on kind "skill".
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -256,11 +257,13 @@ func TestApply_DestDir_Matrix(t *testing.T) {
 		{"agent", configurator.ProviderClaudeCode, true, filepath.Join(".claude", "agents", "art.md")},
 		{"agent", configurator.ProviderOpenCode, true, filepath.Join(".opencode", "agent", "art.md")},
 		{"agent", configurator.ProviderCodex, true, filepath.Join(".codex", "agents", "art.toml")},
-		{"agent", configurator.ProviderKiro, false, ""},
+		{"agent", configurator.ProviderKiro, true, filepath.Join(".kiro", "agents", "art.json")},
 		{"agent", configurator.ProviderAntigravity, true, filepath.Join(".gemini", "config", "agents", "art.md")},
 		{"hook", configurator.ProviderClaudeCode, true, filepath.Join(".claude", "hooks", "art", "hook.json")},
 		{"hook", configurator.ProviderOpenCode, true, filepath.Join(".opencode", "hooks", "art", "hook.json")},
 		{"hook", configurator.ProviderCodex, true, filepath.Join(".codex", "hooks", "art", "hook.json")},
+		// kiro keeps no hook cell: the shipped client has no hook mechanism at
+		// all, verified empirically against 2.21.3 (D195).
 		{"hook", configurator.ProviderKiro, false, ""},
 		{"hook", configurator.ProviderAntigravity, true, filepath.Join(".gemini", "config", "hooks", "art", "hook.json")},
 	}
@@ -785,5 +788,117 @@ func assertStampedOnce(t *testing.T, got, wantBody string) {
 	body := got[:strings.Index(got, begin)]
 	if strings.TrimRight(body, "\n") != strings.TrimRight(wantBody, "\n") {
 		t.Errorf("unexpected content before the provenance block:\n%q\nexpected:\n%q", body, wantBody)
+	}
+}
+
+// TestTranslateAgentForKiro pins the format the *client* actually reads, which
+// is JSON — established by generating a config with `kiro-cli agent create -f
+// kiro_default` on 2.21.3 and by `kiro-cli agent list` reporting a config
+// dropped in ~/.kiro/agents as "Global". The vendor documentation describes a
+// Markdown form the shipped client does not discover (D195).
+func TestTranslateAgentForKiro(t *testing.T) {
+	kbRoot := t.TempDir()
+	agentsDir := filepath.Join(kbRoot, "agents")
+	if err := os.MkdirAll(agentsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body := "You are the reviewer.\nBe brief.\n"
+	src := "---\nname: reviewer\ndescription: Reviews a diff: carefully, and \"thoroughly\".\ntools: [fs_read]\nmodel: opus\n---\n" + body
+	if err := os.WriteFile(filepath.Join(agentsDir, "reviewer.md"), []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m, err := provisioning.BuildManifest(nil, map[string]string{"homelab": kbRoot}, provisioning.BuildOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := range m.Artifacts {
+		m.Artifacts[i].Signed = true
+	}
+	base := t.TempDir()
+	if _, err := provisioning.Apply(m, provisioning.ApplyOptions{
+		Provider: configurator.ProviderKiro, BaseDir: base,
+		Lock: provisioning.Lock{}, KBRoots: map[string]string{"homelab": kbRoot},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	raw, err := os.ReadFile(filepath.Join(base, ".kiro", "agents", "reviewer.json"))
+	if err != nil {
+		t.Fatalf("kiro agent not materialized as JSON: %v", err)
+	}
+	var cfg map[string]any
+	if err := json.Unmarshal(raw, &cfg); err != nil {
+		t.Fatalf("the materialized agent is not valid JSON — the client would ignore it: %v\n%s", err, raw)
+	}
+	if cfg["name"] != "reviewer" {
+		t.Errorf("name = %v", cfg["name"])
+	}
+	// A description carrying a colon and quotes survives JSON encoding, where
+	// hand-concatenated YAML would have produced an unparseable file.
+	if cfg["description"] != `Reviews a diff: carefully, and "thoroughly".` {
+		t.Errorf("description = %q", cfg["description"])
+	}
+	// The provenance block (D138) travels inside `prompt`, exactly as it does
+	// inside Codex's developer_instructions: the agent's prompt is the only
+	// field that carries free text, and a JSON file has no comment syntax.
+	prompt, _ := cfg["prompt"].(string)
+	if !strings.HasPrefix(prompt, body) {
+		t.Errorf("prompt does not start with the body verbatim:\n%q", prompt)
+	}
+	if n := strings.Count(prompt, "cartographer:provenance:begin"); n != 1 {
+		t.Errorf("prompt carries %d provenance blocks, want exactly 1", n)
+	}
+	if !strings.Contains(prompt, `Source: KB "homelab", path agents/reviewer.md`) {
+		t.Errorf("the provenance block does not name the source:\n%q", prompt)
+	}
+	// tools/model are dropped, as they are for Codex and Antigravity: their
+	// names are not portable, and inventing a mapping would hand the agent
+	// capabilities its author never granted.
+	for _, dropped := range []string{"tools", "model"} {
+		if _, present := cfg[dropped]; present {
+			t.Errorf("%q was carried over into the Kiro config", dropped)
+		}
+	}
+}
+
+// TestTranslateAgentForKiro_NoFrontmatter: the whole file is the prompt and the
+// artifact name stands in for the description, the same fallback every other
+// translation uses.
+func TestTranslateAgentForKiro_NoFrontmatter(t *testing.T) {
+	kbRoot := t.TempDir()
+	agentsDir := filepath.Join(kbRoot, "agents")
+	if err := os.MkdirAll(agentsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(agentsDir, "bare.md"), []byte("Just a prompt.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m, err := provisioning.BuildManifest(nil, map[string]string{"homelab": kbRoot}, provisioning.BuildOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := range m.Artifacts {
+		m.Artifacts[i].Signed = true
+	}
+	base := t.TempDir()
+	if _, err := provisioning.Apply(m, provisioning.ApplyOptions{
+		Provider: configurator.ProviderKiro, BaseDir: base,
+		Lock: provisioning.Lock{}, KBRoots: map[string]string{"homelab": kbRoot},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(filepath.Join(base, ".kiro", "agents", "bare.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cfg map[string]any
+	if err := json.Unmarshal(raw, &cfg); err != nil {
+		t.Fatal(err)
+	}
+	if cfg["description"] != "bare" {
+		t.Errorf("description = %v, want the artifact name as the fallback", cfg["description"])
+	}
+	if prompt, _ := cfg["prompt"].(string); !strings.HasPrefix(prompt, "Just a prompt.\n") {
+		t.Errorf("prompt = %q", prompt)
 	}
 }

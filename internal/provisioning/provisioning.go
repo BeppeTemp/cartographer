@@ -2160,10 +2160,12 @@ func applyInstructionsGroup(m Manifest, diff Diff, opts ApplyOptions, tracker *e
 	}
 
 	// The subagent sentence, per provider and per KB (D154): it must describe
-	// what THIS client received, not what the KB declares. Kiro and Hermes have
-	// no native subagent directory, so their "agent" cell is unsupportedDest and
-	// they receive none — while the old, server-generated sentence told them to
-	// delegate to subagents that were not there.
+	// what THIS client received, not what the KB declares. Hermes has no native
+	// subagent directory, so its "agent" cell is unsupportedDest and it receives
+	// none — while the old, server-generated sentence told it to delegate to
+	// subagents that were not there. Kiro was in the same position until D195
+	// gave it a cell; the sentence appears for it on its own, because
+	// installedSubagentSentence derives it from destDir.
 	if sentence := installedSubagentSentence(m, opts); sentence != "" {
 		body += "\n\n" + sentence
 	}
@@ -2691,7 +2693,15 @@ var destinationMatrix = map[string]map[configurator.Provider]destination{
 		// fails from CI if a client release stops recognizing this path.
 		configurator.ProviderOpenCode: perName(".md", ".opencode", "agent"),
 		configurator.ProviderCodex:    perName(".toml", ".codex", "agents"),
-		configurator.ProviderKiro:     unsupportedDest,
+		// kiro: a JSON agent config in the global agent directory (D195).
+		// D140 read this cell as unsupported because Kiro's agents were
+		// top-level personas the user selects, not delegates a main agent can
+		// invoke. That is no longer true: the shipped default agent documents a
+		// subagent system and a `use_subagent` tool that selects by
+		// description, and `kiro-cli agent list` reports a config dropped here
+		// as "Global". Verified against Kiro CLI 2.21.3 — the format is JSON,
+		// not the Markdown the vendor documentation describes.
+		configurator.ProviderKiro: perName(".json", ".kiro", "agents"),
 		// hermes: no native subagent directory (D141).
 		configurator.ProviderHermes:      unsupportedDest,
 		configurator.ProviderAntigravity: perName(".md", ".gemini", "config", "agents"),
@@ -2845,6 +2855,8 @@ func translateAgentForProvider(provider configurator.Provider, name string, cont
 		return translateAgentForCodex(name, content)
 	case configurator.ProviderAntigravity:
 		return translateAgentForAntigravity(name, content)
+	case configurator.ProviderKiro:
+		return translateAgentForKiro(name, content)
 	default:
 		return content, nil
 	}
@@ -2905,6 +2917,53 @@ func translateAgentForAntigravity(name string, content []byte) ([]byte, error) {
 	sb.WriteString("\nmainAgent: false\nsubagent: true\n---\n")
 	sb.WriteString(body)
 	return []byte(sb.String()), nil
+}
+
+// translateAgentForKiro adapts an "agent" artifact's content (a Claude Code
+// subagent .md) into Kiro's agent config (D195 — ~/.kiro/agents/<name>.json).
+//
+// The format is **JSON**, established by generating a config with
+// `kiro-cli agent create -f kiro_default` on 2.21.3 and reading what the client
+// itself writes: `name`, `description` and `prompt` are the fields that carry
+// an agent, and a config holding only those is listed by `kiro-cli agent list`.
+// The vendor documentation describes a Markdown form; the shipped client does
+// not discover one, which is why this is derived from the client rather than
+// from the docs.
+//
+// `tools` and `model` are dropped, as they are for Codex and Antigravity: their
+// names are not portable across clients, and inventing a mapping would hand the
+// agent capabilities its author never granted. Omitting `tools` leaves Kiro's
+// own default in force.
+func translateAgentForKiro(name string, content []byte) ([]byte, error) {
+	fmRaw, body, hasFM := okf.SplitFrontmatter(string(content))
+	description := name
+	if hasFM {
+		fm, err := okf.ParseFrontmatter(fmRaw)
+		if err != nil {
+			return nil, fmt.Errorf("provisioning: parse frontmatter agent %s: %w", name, err)
+		}
+		if v, ok := fm.Get("description"); ok {
+			if s, ok := v.(string); ok && strings.TrimSpace(s) != "" {
+				description = s
+			}
+		}
+	} else {
+		// No frontmatter: the whole file is the prompt and the name stands in
+		// for the description, the same fallback the other translations use.
+		body = string(content)
+	}
+
+	cfg := struct {
+		Name        string `json:"name"`
+		Description string `json:"description"`
+		Prompt      string `json:"prompt"`
+	}{Name: name, Description: description, Prompt: body}
+
+	out, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return nil, fmt.Errorf("provisioning: encode agent %s for kiro: %w", name, err)
+	}
+	return append(out, '\n'), nil
 }
 
 // translateAgentForCodex adapts an "agent" artifact's content (a Claude Code
