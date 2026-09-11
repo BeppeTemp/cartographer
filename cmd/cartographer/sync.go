@@ -148,7 +148,15 @@ func runSync(dir string, cfg *clientconfig.Config, opts syncOptions) (syncResult
 		cfg.KnownKBs = kbs
 	}
 
-	manifests, err := manifestsForProviders(cfg, targets)
+	// D193: one applied state per projection. A provider in the default scope
+	// has exactly one — the global catalogue, byte-identical to before — and a
+	// workspace-scoped one has a bundle-only global projection plus one per
+	// bound workspace.
+	projections, err := allProjections(cfg, targets, dir)
+	if err != nil {
+		return syncResult{}, fmt.Errorf("%w (no configuration was modified)", err)
+	}
+	manifests, err := manifestsForProjections(cfg, projections)
 	if err != nil {
 		return syncResult{}, fmt.Errorf("%w (no configuration was modified)", err)
 	}
@@ -193,7 +201,7 @@ func runSync(dir string, cfg *clientconfig.Config, opts syncOptions) (syncResult
 		}
 	}
 
-	results, err := materializeForProviders(manifests, targets, dir, facts.Version, cfg.Trust || opts.AutoTrust, opts.DryRun, opts.NoHeal, portabilityOptions{SearchRoots: cfg.SearchRoots, SearchDepth: cfg.SearchDepth, Paths: cfg.Paths}, kbOrderForProviders(cfg, targets), cfg.ApprovedMCPHashes())
+	results, err := materializeForProviders(manifests, projections, dir, facts.Version, cfg.Trust || opts.AutoTrust, opts.DryRun, opts.NoHeal, portabilityOptions{SearchRoots: cfg.SearchRoots, SearchDepth: cfg.SearchDepth, Paths: cfg.Paths}, kbOrderForProviders(cfg, targets), cfg.ApprovedMCPHashes())
 	if err != nil {
 		return syncResult{}, err
 	}

@@ -115,6 +115,18 @@ In an interactive terminal the same choice is offered as a list after the connec
 narrowest selection that does the job, and verify the result with `cartographer status`: the bound
 KBs are printed per provider, with `explicit` next to them.
 
+A KB bound this way is readable from **every** directory on the machine. If the user works in two
+separate perimeters with the same client, offer the alternative before the first sync, because it
+is free only now (D193):
+
+```bash
+cartographer connect --agents codex --kb <name> --workspace <repository path>
+```
+
+That confines those KBs to one repository instead — their skills, subagents and hooks are
+materialized into that repository's own configuration and nowhere else. `cartographer workspace
+bind/unbind/list` manages it afterwards.
+
 ## 5. Verify the installation
 
 ```bash

@@ -355,6 +355,83 @@ while the rest of the sync completes.
 Hermes has no session hook, so its trigger is the scheduled timer (`cartographer service sync-timer
 install`, D140).
 
+## Workspace scope (D193)
+
+By default a provider has **one** catalogue, under the user's home, shared by every session of
+that provider on the machine. A provider that works in two perimeters therefore sees both
+perimeters' skills everywhere, and chooses between them from name and description alone — the
+provenance footer is in the body, read only *after* activation. That is how a DANTE skill got
+activated in a HomeLab session.
+
+`cartographer workspace bind <provider> <path> --kb <name>…` switches that provider to **workspace
+scope**: each bound directory receives its own KBs, in that directory's own project-local
+configuration, and **nothing KB-sourced is written globally** any more.
+
+| | provider scope (default) | workspace scope |
+|---|---|---|
+| Where KB artifacts land | the client base dir (`$HOME`) | each bound workspace |
+| Who sees them | every session of that provider | only sessions in that workspace |
+| The binding | one per provider (D169/D170) | one per provider **and** workspace |
+| Lockfile key | provider | provider + workspace, in its own namespace |
+
+**Cartographer's own bundled skills stay global.** `cartographer-ops`, `kb-create` and their
+siblings belong to no perimeter, and a session outside every bound workspace still needs them. They
+are the only thing the global catalogue of a workspace-scoped provider holds.
+
+**An unbound workspace is fail-closed.** It receives the transversal bundle and no KB artifact at
+all. "No KBs" and "several KBs" are distinct explicit states; neither is ever "every KB", and a
+bound path that is gone or whose git remote has changed is an **error**, never a fall-back — falling
+back is the exposure the scope exists to close.
+
+**A projection is not an authorization boundary.** A process running as the same user can read any
+file on the machine ([D169](decisions/sync-provisioning.md#d169)). What this prevents is accidental
+exposure and activation, and that is all it claims.
+
+### Project-local destinations
+
+| Kind | claude | opencode | codex | kiro | hermes | antigravity |
+|---|---|---|---|---|---|---|
+| `skill` | `.claude/skills/<name>/` | `.opencode/skills/<name>/` | `.agents/skills/<name>/` | `.kiro/skills/<name>/` | unsupported | unsupported |
+| `agent` | `.claude/agents/<name>.md` | `.opencode/agent/<name>.md` | `.codex/agents/<name>.toml` | unsupported | unsupported | unsupported |
+| `hook` | `.claude/hooks/<name>/` | `.opencode/hooks/<name>/` | `.codex/hooks/<name>/` | unsupported | unsupported | unsupported |
+| `instructions` | block in `./CLAUDE.md` | block in `./AGENTS.md` | block in `./AGENTS.md` | `.kiro/steering/cartographer.md` | unsupported | unsupported |
+| `mcp` | `.mcp.json` | `opencode.json` | `.codex/config.toml` | `.kiro/settings/mcp.json` | unsupported | unsupported |
+
+Paths are relative to the **workspace**. The matrix is data, like the global one, and is held to the
+same completeness rule: every kind × provider cell either names a destination or is explicitly
+unsupported. `hermes` and `antigravity` have no project-local scope at all — the first renders its
+configuration from an Ansible role and delivers skills to one inbox, the second documents only a
+global configuration root — so they **cannot be bound to a workspace**, and `workspace bind` refuses
+them with that reason rather than degrading to the global catalogue.
+
+Codex is the one provider where correct files are not the whole story: it ignores a project's
+`.codex/` layer unless the project is **trusted**. `status` and `doctor` report such a projection as
+`inactive` and name the fix, because reporting it as installed is the false-positive class
+[D189](decisions/client-configurator.md#d189) exists to eliminate.
+
+### Repository hygiene
+
+A projection writes into a directory the user version-controls, so two rules hold:
+
+- Cartographer excludes **only its own untracked paths**, and only in `.git/info/exclude`, inside a
+  marker-delimited block. It **never** edits `.gitignore`: that file is the repository's, shared
+  with everyone who clones it. A shared file the repository already tracks — a `CLAUDE.md` the team
+  wrote — is the user's: Cartographer writes its block inside it and does not exclude it.
+- A path Cartographer would own **entirely** that git already tracks is a **refusal**, before
+  anything is written. Overwriting a versioned file destroys work under version control, and there
+  is no safe silent answer.
+
+`git status` is clean after a sync. That is asserted end-to-end by the `18_workspace_projection`
+E2E scenario, along with the rest of this section.
+
+### Unbinding
+
+`cartographer workspace unbind <provider> <path>` removes the declaration; the next `sync` prunes
+what was projected there and removes the exclusion block. Unbinding the last workspace returns the
+provider to the global scope — the only other state there is. Neither ever touches another
+workspace's files: the lockfile keys workspace projections in a separate namespace, so a prune
+cannot reach past its own projection.
+
 ## Agents and hooks
 
 - **KB layout** (optional/backward-compatible): `agents/<name>.md` (Claude subagent: frontmatter + body) and `hooks/<name>/` (script + `hook.json` with `event`/`matcher`/`command`). `BuildManifest` scans these (KB only, the bundle remains skill-only).

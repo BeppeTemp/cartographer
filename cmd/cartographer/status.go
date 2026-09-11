@@ -103,6 +103,7 @@ func renderStatus(output string, s statusSnapshot, code int) int {
 		if p.State == "in_sync" {
 			fmt.Printf("[%s] in-sync (revision %s)\n", p.Name, p.Revision)
 			printBindingLine(p)
+			printWorkspaceLines(p.Workspaces)
 			if p.Kinds != "" {
 				fmt.Printf("  %s\n", p.Kinds)
 			}
@@ -115,6 +116,7 @@ func renderStatus(output string, s statusSnapshot, code int) int {
 		}
 		fmt.Printf("[%s] drift (manifest %s, lock %s)\n", p.Name, p.Revision, p.LockRevision)
 		printBindingLine(p)
+		printWorkspaceLines(p.Workspaces)
 		if p.Kinds != "" {
 			fmt.Printf("  %s\n", p.Kinds)
 		}

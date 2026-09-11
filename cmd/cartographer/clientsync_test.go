@@ -157,7 +157,7 @@ func TestFetchMergedManifestVerifiesPinnedSignatureAndRejectsTampering(t *testin
 	}
 
 	target := t.TempDir()
-	if _, err := materializeForProviders(uniformManifests(m, []string{"claude"}), []string{"claude"}, target, "", false, false, false, portabilityOptions{}, nil); err != nil {
+	if _, err := materializeForProviders(uniformManifests(m, []string{"claude"}), globalProjections([]string{"claude"}, target), target, "", false, false, false, portabilityOptions{}, nil); err != nil {
 		t.Fatalf("materialize valid manifest: %v", err)
 	}
 	lockPath := filepath.Join(target, provisioning.LockFileName)
@@ -193,7 +193,7 @@ func TestFetchMergedManifestVerifiesPinnedSignatureAndRejectsTampering(t *testin
 			fetched, fetchErr := fetchMergedManifest(cfg)
 			srv.Close()
 			if fetchErr == nil {
-				_, fetchErr = materializeForProviders(uniformManifests(fetched, []string{"claude"}), []string{"claude"}, target, "", false, false, false, portabilityOptions{}, nil)
+				_, fetchErr = materializeForProviders(uniformManifests(fetched, []string{"claude"}), globalProjections([]string{"claude"}, target), target, "", false, false, false, portabilityOptions{}, nil)
 			}
 			if fetchErr == nil {
 				t.Fatal("tampered sync unexpectedly succeeded")
@@ -284,7 +284,7 @@ func TestAuthorizationDoesNotSetSigned(t *testing.T) {
 	if m.Artifacts[0].Signed {
 		t.Fatal("test fixture must be unsigned")
 	}
-	if _, err := materializeForProviders(uniformManifests(m, []string{"claude"}), []string{"claude"}, t.TempDir(), "", true, true, false, portabilityOptions{}, nil); err != nil {
+	if _, err := materializeForProviders(uniformManifests(m, []string{"claude"}), globalProjections([]string{"claude"}, t.TempDir()), t.TempDir(), "", true, true, false, portabilityOptions{}, nil); err != nil {
 		t.Fatal(err)
 	}
 	if m.Artifacts[0].Signed {
@@ -296,7 +296,7 @@ func TestMaterializeForProviders_TrustAvoidsNeedsApproval(t *testing.T) {
 	dir := t.TempDir()
 	m := kbSkillManifest()
 
-	results, err := materializeForProviders(uniformManifests(m, []string{"claude"}), []string{"claude"}, dir, "", true, true /* dryRun */, false, portabilityOptions{}, nil)
+	results, err := materializeForProviders(uniformManifests(m, []string{"claude"}), globalProjections([]string{"claude"}, dir), dir, "", true, true /* dryRun */, false, portabilityOptions{}, nil)
 	if err != nil {
 		t.Fatalf("materializeForProviders: %v", err)
 	}
@@ -313,7 +313,7 @@ func TestMaterializeForProviders_NoTrustNeedsApproval(t *testing.T) {
 	dir := t.TempDir()
 	m := kbSkillManifest()
 
-	results, err := materializeForProviders(uniformManifests(m, []string{"claude"}), []string{"claude"}, dir, "", false, true /* dryRun */, false, portabilityOptions{}, nil)
+	results, err := materializeForProviders(uniformManifests(m, []string{"claude"}), globalProjections([]string{"claude"}, dir), dir, "", false, true /* dryRun */, false, portabilityOptions{}, nil)
 	if err != nil {
 		t.Fatalf("materializeForProviders: %v", err)
 	}
@@ -354,7 +354,7 @@ func TestMaterializeForProviders_Instructions_ClaudeEKiro(t *testing.T) {
 	dir := t.TempDir()
 	m := instructionsManifest("homelab", "Contenuto di imprinting per homelab.\n")
 
-	results, err := materializeForProviders(uniformManifests(m, []string{"claude", "kiro"}), []string{"claude", "kiro"}, dir, "", true, false /* dryRun */, false, portabilityOptions{}, nil)
+	results, err := materializeForProviders(uniformManifests(m, []string{"claude", "kiro"}), globalProjections([]string{"claude", "kiro"}, dir), dir, "", true, false /* dryRun */, false, portabilityOptions{}, nil)
 	if err != nil {
 		t.Fatalf("materializeForProviders: %v", err)
 	}
@@ -477,7 +477,7 @@ func TestMaterializeForProviders_StdioPreflightIsAtomic(t *testing.T) {
 		Kind: "mcp", Name: "missing", Source: "kb:kb", Signed: true,
 		ContentHash: provisioning.ContentHashFiles([]provisioning.ArtifactFile{file}), Files: []provisioning.ArtifactFile{file},
 	}}}
-	_, err := materializeForProviders(uniformManifests(m, []string{"claude", "codex"}), []string{"claude", "codex"}, dir, "", false, false, false, portabilityOptions{}, nil)
+	_, err := materializeForProviders(uniformManifests(m, []string{"claude", "codex"}), globalProjections([]string{"claude", "codex"}, dir), dir, "", false, false, false, portabilityOptions{}, nil)
 	if err == nil || !strings.Contains(err.Error(), "not found on PATH") || !strings.Contains(err.Error(), "for claude") {
 		t.Fatalf("preflight error = %v", err)
 	}
@@ -499,7 +499,7 @@ func TestMaterializeForProviders_PerProviderBaseDir(t *testing.T) {
 	t.Setenv("HERMES_HOME", hermesHome)
 
 	m := kbSkillManifest()
-	if _, err := materializeForProviders(uniformManifests(m, []string{"claude", "hermes"}), []string{"claude", "hermes"}, dir, "", true, false /* dryRun */, false, portabilityOptions{}, nil); err != nil {
+	if _, err := materializeForProviders(uniformManifests(m, []string{"claude", "hermes"}), globalProjections([]string{"claude", "hermes"}, dir), dir, "", true, false /* dryRun */, false, portabilityOptions{}, nil); err != nil {
 		t.Fatalf("materializeForProviders: %v", err)
 	}
 
@@ -545,11 +545,15 @@ func TestMaterializeForProviders_PerProviderBaseDir(t *testing.T) {
 
 // $HERMES_HOME unset is a failure that names the variable, not a silent
 // fallback to the home directory (D141).
+// A provider whose base dir cannot be resolved fails before anything is
+// written, naming the variable that would fix it. Since D193 the resolution
+// happens while the projections are built — one per provider in the default
+// scope — which is the first thing both `sync` and `connect` do.
 func TestMaterializeForProviders_MissingProviderBaseDir(t *testing.T) {
 	t.Setenv("HERMES_HOME", "")
-	_, err := materializeForProviders(uniformManifests(kbSkillManifest(), []string{"hermes"}), []string{"hermes"}, t.TempDir(), "", true, false, false, portabilityOptions{}, nil)
+	_, err := allProjections(&clientconfig.Config{}, []string{"hermes"}, t.TempDir())
 	if err == nil {
-		t.Fatal("materializeForProviders succeeded with $HERMES_HOME unset")
+		t.Fatal("projections resolved with $HERMES_HOME unset")
 	}
 	if !strings.Contains(err.Error(), "HERMES_HOME") {
 		t.Errorf("error %q does not name the variable", err)
@@ -848,7 +852,7 @@ func TestUnbindingRemovesItsArtifacts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("manifestsForProviders: %v", err)
 	}
-	if _, err := materializeForProviders(both, cfg.Agents, dir, "", true, false, false, portabilityOptions{}, nil); err != nil {
+	if _, err := materializeForProviders(both, globalProjections(cfg.Agents, dir), dir, "", true, false, false, portabilityOptions{}, nil); err != nil {
 		t.Fatalf("materialize: %v", err)
 	}
 	twoPath := filepath.Join(dir, ".claude", "skills", "skill-two", "SKILL.md")
@@ -864,7 +868,7 @@ func TestUnbindingRemovesItsArtifacts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("manifestsForProviders (narrowed): %v", err)
 	}
-	if _, err := materializeForProviders(narrowed, cfg.Agents, dir, "", true, false, false, portabilityOptions{}, nil); err != nil {
+	if _, err := materializeForProviders(narrowed, globalProjections(cfg.Agents, dir), dir, "", true, false, false, portabilityOptions{}, nil); err != nil {
 		t.Fatalf("materialize (narrowed): %v", err)
 	}
 	if _, err := os.Stat(twoPath); !os.IsNotExist(err) {
@@ -942,7 +946,7 @@ func TestPrintSyncRevisions_UnsupportedKindReportsRecordedRevision(t *testing.T)
 		t.Fatal("test fixture is broken: filtering the agent out must change the revision")
 	}
 
-	results, err := materializeForProviders(uniformManifests(m, []string{"hermes"}), []string{"hermes"}, t.TempDir(), "", true, false, false, portabilityOptions{}, nil)
+	results, err := materializeForProviders(uniformManifests(m, []string{"hermes"}), globalProjections([]string{"hermes"}, t.TempDir()), t.TempDir(), "", true, false, false, portabilityOptions{}, nil)
 	if err != nil {
 		t.Fatalf("materializeForProviders: %v", err)
 	}
@@ -969,7 +973,7 @@ func TestPrintSyncRevisions_DryRunMatchesReal(t *testing.T) {
 	m := skillAndAgentManifest()
 	filtered := provisioning.FilterForProvider(m, configurator.ProviderHermes)
 
-	results, err := materializeForProviders(uniformManifests(m, []string{"hermes"}), []string{"hermes"}, t.TempDir(), "", true, true /* dryRun */, false, portabilityOptions{}, nil)
+	results, err := materializeForProviders(uniformManifests(m, []string{"hermes"}), globalProjections([]string{"hermes"}, t.TempDir()), t.TempDir(), "", true, true /* dryRun */, false, portabilityOptions{}, nil)
 	if err != nil {
 		t.Fatalf("materializeForProviders (dry-run): %v", err)
 	}
@@ -994,7 +998,7 @@ func TestPrintSyncRevisions_MultiProviderDivergence(t *testing.T) {
 		t.Fatal("test fixture is broken: claude and hermes must diverge")
 	}
 
-	results, err := materializeForProviders(uniformManifests(m, []string{"claude", "hermes"}), []string{"claude", "hermes"}, t.TempDir(), "", true, false, false, portabilityOptions{}, nil)
+	results, err := materializeForProviders(uniformManifests(m, []string{"claude", "hermes"}), globalProjections([]string{"claude", "hermes"}, t.TempDir()), t.TempDir(), "", true, false, false, portabilityOptions{}, nil)
 	if err != nil {
 		t.Fatalf("materializeForProviders: %v", err)
 	}
@@ -1107,7 +1111,7 @@ func TestMaterializeCheckpointsPerProvider(t *testing.T) {
 	// Learn where opencode materializes, by letting it succeed once in a
 	// throwaway directory, then sabotage that exact path in the real one.
 	probe := t.TempDir()
-	if _, err := materializeForProviders(map[string]provisioning.Manifest{"opencode": agentManifest}, []string{"opencode"}, probe, "", true, false, false, portabilityOptions{}, nil); err != nil {
+	if _, err := materializeForProviders(map[string]provisioning.Manifest{"opencode": agentManifest}, globalProjections([]string{"opencode"}, probe), probe, "", true, false, false, portabilityOptions{}, nil); err != nil {
 		t.Fatalf("probe run: %v", err)
 	}
 	probeLock, err := provisioning.ReadLockFile(lockFilePath(probe))
@@ -1125,7 +1129,7 @@ func TestMaterializeCheckpointsPerProvider(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err = materializeForProviders(manifests, providers, dir, "", true, false, false, portabilityOptions{}, nil)
+	_, err = materializeForProviders(manifests, globalProjections(providers, dir), dir, "", true, false, false, portabilityOptions{}, nil)
 	if err == nil {
 		t.Fatal("materialize should fail: opencode's destination file is a directory")
 	}
@@ -1200,4 +1204,21 @@ func TestDryRunPlanCoversRemovalsAndKnownKBs(t *testing.T) {
 			t.Errorf("a dry run modified %s", name)
 		}
 	}
+}
+
+// globalProjections is the test helper for the shape every caller had before
+// D193: one global projection per provider, materializing into baseDir.
+// It resolves each provider's own base dir exactly as allProjections does, so
+// a provider that materializes outside the shared client dir (hermes under
+// $HERMES_HOME, D141) is not silently redirected into it by the helper.
+func globalProjections(providers []string, baseDir string) []syncProjection {
+	out := make([]syncProjection, 0, len(providers))
+	for _, p := range providers {
+		resolved, err := provisioning.BaseDirFor(configurator.Provider(p), baseDir)
+		if err != nil {
+			resolved = baseDir
+		}
+		out = append(out, globalProjection(p, resolved, nil))
+	}
+	return out
 }

@@ -104,7 +104,7 @@ func RepairManagedHashes(lock Lock, provider configurator.Provider, baseDir stri
 		if mf.MaterializedHash != "" {
 			continue
 		}
-		rel, full, ok := managedDest(mf, provider, baseDir)
+		rel, full, ok := managedDest(mf, provider, baseDir, lock.ScopeOf())
 		if !ok {
 			// The provider does not support this kind: nothing to hash, and not
 			// an error.
@@ -191,14 +191,14 @@ func VerifyManaged(lock Lock, provider configurator.Provider, baseDir string) []
 			continue
 		}
 		seen[key] = true
-		if f, ok := verifyArtifact(mf, provider, baseDir); ok {
+		if f, ok := verifyArtifact(mf, provider, baseDir, lock.ScopeOf()); ok {
 			findings = append(findings, f)
 		}
 	}
 	return findings
 }
 
-func verifyArtifact(mf ManagedFile, provider configurator.Provider, baseDir string) (DriftFinding, bool) {
+func verifyArtifact(mf ManagedFile, provider configurator.Provider, baseDir string, scope Scope) (DriftFinding, bool) {
 	finding := DriftFinding{Kind: mf.Kind, Name: mf.Name, Path: mf.Path}
 
 	switch mf.Kind {
@@ -215,7 +215,7 @@ func verifyArtifact(mf ManagedFile, provider configurator.Provider, baseDir stri
 		return finding, true
 	}
 
-	destRel, full, ok := managedDest(mf, provider, baseDir)
+	destRel, full, ok := managedDest(mf, provider, baseDir, scope)
 	if !ok {
 		return DriftFinding{}, false
 	}
@@ -275,11 +275,11 @@ func verifyArtifact(mf ManagedFile, provider configurator.Provider, baseDir stri
 // the path relative to baseDir and the absolute one. ok is false when the
 // artifact has no destination for this provider: an unsupported kind is not
 // drift, it simply does not concern it.
-func managedDest(mf ManagedFile, provider configurator.Provider, baseDir string) (rel, full string, ok bool) {
+func managedDest(mf ManagedFile, provider configurator.Provider, baseDir string, scope Scope) (rel, full string, ok bool) {
 	rel = mf.Path
 	if mf.Kind != "agent" {
 		// skill/hook: a directory of its own.
-		if rel = destDir(mf.Kind, mf.Name, provider); rel == "" {
+		if rel = destDirScoped(mf.Kind, mf.Name, provider, scope); rel == "" {
 			return "", "", false
 		}
 	}

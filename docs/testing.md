@@ -127,6 +127,24 @@ prefix, which nobody configures explicitly, was making the routed mode fail at
 startup out of the box. No Go test could see it, because the defect lived in the
 wiring between the config default and the mount, not in either.
 
+**The workspace scope is asserted on real repositories.** `18_workspace_projection`
+is D193's mandatory acceptance criterion, and it is a scenario that **cannot
+pass** before the scope exists: two KBs holding a skill with the *same name*,
+two git repositories, one provider bound to a different KB in each. It asserts
+that each workspace receives its own perimeter — comparing the *bodies*, not
+just the paths, because reaching the wrong KB also produces a readable file —
+that no KB artifact is left in the global catalogue while Cartographer's own
+transversal bundled skills stay there, that an unbound workspace receives
+nothing, that `git status` is clean and `.gitignore` untouched, that unbinding
+one workspace prunes only its files, and that one workspace bound to *both* KBs
+is still refused as a collision.
+
+It earned its keep on the first run, finding three defects no unit test could
+see: the bundled skills were being copied into every workspace, a `CLAUDE.md`
+Cartographer created itself was left untracked and dirtying the repository, and
+unbinding a workspace left its projected files behind forever because every
+later sync only iterates the *declared* projections.
+
 ### Packaging (`install.sh` and the generated Cask)
 
 `make test-install` runs the network-free suite under `test/install/` plus

@@ -66,6 +66,20 @@ rename on one-to-many transitions. If the server cannot be reached, it leaves
 the MCP entries and `known_kbs` untouched and warns; run `sync` again once it is
 up.
 
+**Workspace scope (D193).** `cartographer workspace bind <provider> <path> --kb <name>…` moves a
+provider from one machine-wide catalogue to one projection per bound repository: the KBs land in
+that repository's own project-local directories and nothing KB-sourced is written under `$HOME` any
+more. `connect --workspace <repo>` makes the same choice at connect time, which is the only moment
+it is free — a provider-global connect materializes every selected KB into `$HOME` first, and moving
+them afterwards is a migration. `workspace unbind` removes the declaration and the next `sync`
+prunes what was projected there. `workspace list` shows the bindings, with `[gone]` next to a
+directory that is not there any more.
+
+Existing configurations are untouched: the scope is per provider, absent means the historical global
+catalogue, and no upgrade changes it. Full rules, the project-local destination matrix, the
+repository-hygiene guarantees and the providers that cannot be scoped at all → `sync.md`
+§Workspace scope.
+
 **Routed servers (D187).** When `/health` reports `mount_mode: routed`, the KB is no longer part of
 the URL: the client writes **one** entry, `<server_name>`, pointed at the path the server names in
 `routed_path` (`/mcp/routed`), whatever the provider is bound to. The binding still decides which
