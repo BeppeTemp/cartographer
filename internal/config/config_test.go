@@ -147,7 +147,7 @@ func TestLoadFullYAML(t *testing.T) {
 		Sops:         SopsConfig{AgeKeyFile: "/etc/cartographer/age.key", AgeKeyDir: "/etc/kb-sops-keys"},
 		ToolsProfile: "full",
 		// The YAML sets no mcp.tool_prefix_mode, so the default applies (kb-name since D153).
-		MCP: MCPConfig{ToolPrefixMode: "kb-name"},
+		MCP: MCPConfig{ToolPrefixMode: "kb-name", MountMode: MountModePerKB},
 	}
 
 	if !reflect.DeepEqual(cfg, want) {
@@ -403,5 +403,53 @@ func TestParseTokenSpecsKeepsTokenlessEntry(t *testing.T) {
 func TestParseTokenSpecsIgnoresPureSeparators(t *testing.T) {
 	if specs := parseTokenSpecs("a,,b"); len(specs) != 2 {
 		t.Errorf("parseTokenSpecs = %+v, want two tokens", specs)
+	}
+}
+
+// TestMountModeDefaultIsPerKB pins D187's opt-in guarantee: an existing
+// configuration keeps the per-KB mount topology, byte-identical to before.
+func TestMountModeDefaultIsPerKB(t *testing.T) {
+	cfg := Default()
+	if cfg.MCP.MountMode != MountModePerKB {
+		t.Errorf("default MountMode = %q, want %q", cfg.MCP.MountMode, MountModePerKB)
+	}
+}
+
+// TestMountModePrecedence walks flag > env > YAML > default for mcp.mount_mode.
+func TestMountModePrecedence(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(path, []byte("mcp:\n  mount_mode: routed\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.MCP.MountMode != MountModeRouted {
+		t.Fatalf("YAML MountMode = %q, want %q", cfg.MCP.MountMode, MountModeRouted)
+	}
+
+	// env beats YAML
+	t.Setenv("CARTOGRAPHER_MCP_MOUNT_MODE", "per-kb")
+	FromEnv(cfg)
+	if cfg.MCP.MountMode != MountModePerKB {
+		t.Fatalf("env MountMode = %q, want %q", cfg.MCP.MountMode, MountModePerKB)
+	}
+
+	// flag beats env
+	routed := MountModeRouted
+	ApplyFlags(cfg, FlagOverrides{MountMode: &routed})
+	if cfg.MCP.MountMode != MountModeRouted {
+		t.Fatalf("flag MountMode = %q, want %q", cfg.MCP.MountMode, MountModeRouted)
+	}
+
+	// an unrecognized spelling falls back to the historical topology rather
+	// than enabling a mode nobody asked for
+	bogus := "sideways"
+	ApplyFlags(cfg, FlagOverrides{MountMode: &bogus})
+	if cfg.MCP.MountMode != MountModePerKB {
+		t.Errorf("unrecognized MountMode = %q, want %q", cfg.MCP.MountMode, MountModePerKB)
 	}
 }

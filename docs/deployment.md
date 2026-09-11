@@ -89,6 +89,11 @@ kbs:                          # (kbs[]) explicit KBs, local path or remote git (
                                                       # `team__<tool>` instead of `<tool>`. Wins over
                                                       # `mcp.tool_prefix_mode` below. See §MCP tool-name prefix.
 mcp:
+  mount_mode: "per-kb"          # (mcp.mount_mode) per-kb (default) | routed: how a multi-KB HTTP server
+                                # exposes its tools. routed adds /mcp/routed, one endpoint advertising
+                                # the union once with the KB as a `kb` tool argument. The per-KB
+                                # endpoints keep working unchanged. See docs/transport-auth.md
+                                # §Mount modes.
   tool_prefix_mode: "off"       # (mcp.tool_prefix_mode) off (default) | kb-name: global default for
                                 # every mounted KB that doesn't set its own kbs[].tool_prefix — kb-name
                                 # derives the prefix from the KB's own name. See §MCP tool-name prefix.
@@ -294,6 +299,7 @@ Every startup option has a corresponding environment variable (the CLI flag take
 | `CARTOGRAPHER_AUDIT_LOG` | — | Path to the audit log's JSONL file (e.g. `/data/audit.log`). If empty, audit is disabled. |
 | `CARTOGRAPHER_AUDIT_KEY` | — | Ed25519 seed (hex, 64 chars) for signing entries. Requires `CARTOGRAPHER_AUDIT_LOG`. |
 | `CARTOGRAPHER_SERVER_URL` | — | **Client** (not server): default server URL for `cartographer connect` on the client machine when no `.cartographer.yaml` exists yet. Precedence: existing yaml > env > `http://localhost:39273/mcp` (D64, `internal/clientconfig.Default`). |
+| `CARTOGRAPHER_MCP_MOUNT_MODE` | `--mount-mode` | Multi-KB HTTP mount topology: `per-kb` (default) \| `routed`. `routed` adds `/mcp/routed`, one endpoint advertising the union of the tools once with the KB as a `kb` tool argument; the per-KB endpoints are unchanged. A KB with `tool_prefix` cannot be routed (fatal at startup). D187, see `transport-auth.md` §Mount modes. |
 | `CARTOGRAPHER_MCP_TOOL_PREFIX_MODE` | — | Global default for `mcp.tool_prefix_mode`: `off` (default) \| `kb-name`. Overridden per KB by `kbs[].tool_prefix` (D102, see §MCP tool-name prefix). |
 | `CARTOGRAPHER_MCP_ALLOWED_ORIGINS` | — | Comma-separated browser origins allowed to reach `/mcp`, scheme and port included. Empty (default) accepts only an `Origin` matching the request's own `Host`; `*` accepts any; a request without an `Origin` header is unaffected (D128, → `transport-auth.md` §Origin). |
 
@@ -428,11 +434,20 @@ If both `/mcp/<name>` and `?kb=` are present and disagree, the request is reject
 conflicting kb selection` rather than silently picking one; an unknown `<name>` (either form) is
 `404 unknown kb`.
 
-For a client connected to a multi-KB server, `cartographer connect` and `cartographer sync` use
-the query form deliberately: they create one provider MCP entry per mounted KB,
-`<server_name>-<kb> → /mcp?kb=<kb>`. This makes the selected KB explicit to every current client
-without requiring a client to understand path routing. A one-KB server remains a single bare
-`<server_name> → /mcp` entry for backwards compatibility.
+A fourth route exists when `mcp.mount_mode: routed` is set (D187): `/mcp/routed` serves every
+mounted KB through one endpoint, advertising the union of the tools exactly once, with the KB
+carried as a `kb` tool argument. It is **additive** — the three routes above keep their exact
+behaviour, `tools/list` output included. A `?kb=` on `/mcp/routed` is `400 conflicting kb
+selection`: there the KB travels in the tool arguments. See `docs/transport-auth.md` §Mount modes.
+
+For a client connected to a multi-KB server in the default `per-kb` mode, `cartographer connect`
+and `cartographer sync` use the query form deliberately: they create one provider MCP entry per
+mounted KB, `<server_name>-<kb> → /mcp?kb=<kb>`. This makes the selected KB explicit to every
+current client without requiring a client to understand path routing. A one-KB server remains a
+single bare `<server_name> → /mcp` entry for backwards compatibility. Against a **routed** server
+they write one entry instead, `<server_name> → /mcp/routed`, discovered from `/health`'s
+`mount_mode`/`routed_path` — the per-provider KB binding still decides which KBs that client may
+use, because routing changes the transport, not the authorization.
 
 ### Runtime secrets
 

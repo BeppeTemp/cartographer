@@ -107,7 +107,18 @@ type Health struct {
 	Version string      `json:"version"`
 	Ready   *bool       `json:"ready"`
 	KBs     *[]HealthKB `json:"kbs"`
+	// MountMode is "routed" when the server serves every KB through a single
+	// endpoint with the KB as a tool argument (D187). Empty — which is what a
+	// per-KB server and every pre-D187 server decode to — means the historical
+	// one-endpoint-per-KB topology. Additive and byte-compatible.
+	MountMode string `json:"mount_mode,omitempty"`
+	// RoutedPath is that endpoint's path, named by the server rather than
+	// assumed by the client, so the two cannot drift.
+	RoutedPath string `json:"routed_path,omitempty"`
 }
+
+// Routed reports whether this server serves a routed mount (D187).
+func (h *Health) Routed() bool { return h != nil && h.MountMode == "routed" && h.RoutedPath != "" }
 
 // HealthKB is the additive per-KB item returned by a MultiKB server's
 // /health endpoint. A single-KB (and older) server omits the kbs field
