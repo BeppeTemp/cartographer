@@ -20,9 +20,11 @@ DEMO_HOME="${DEMO_DIR}/home"
 rm -rf "$DEMO_DIR"
 mkdir -p "$DEMO_HOME" docs/assets
 
-# Throwaway server: demo KB, HTTP on :8080, no auth.
+# Throwaway server: TWO demo KBs, HTTP on :8080, no auth. Two is the minimum
+# that exercises what the dashboard actually learned to say — the server panel's
+# KB line and the per-provider binding line have nothing to show with one.
 CARTOGRAPHER_AUTH=false ./bin/cartographer serve \
-    --kb "${DEMO_DIR}/demo-kb" --init --http :8080 &
+    --kb "${DEMO_DIR}/homelab-kb,${DEMO_DIR}/projects-kb" --init --http :8080 &
 SERVER_PID=$!
 cleanup() {
     kill "$SERVER_PID" 2>/dev/null || true
@@ -40,4 +42,19 @@ curl -fsS http://127.0.0.1:8080/health >/dev/null || { echo "error: demo server 
 # touch the real configuration. PATH gets the freshly built binary.
 HOME="$DEMO_HOME" PATH="${REPO_ROOT}/bin:${PATH}" vhs .github/vhs/demo.tape
 
-echo "recorded: docs/assets/demo.gif"
+# Size pass. The GIF loads at the top of the README on every visit, so it is
+# worth a third of its bytes. A terminal recording uses a handful of colours, so
+# quantising to 64 is visually lossless here — verified frame by frame against
+# the unoptimised recording. Optional on purpose: vhs alone still produces a
+# correct GIF, just a larger one, and the warning says so rather than letting
+# the next person wonder why their diff is 100 KB bigger.
+if command -v ffmpeg >/dev/null; then
+    ffmpeg -v error -i docs/assets/demo.gif \
+        -vf "fps=20,split[s0][s1];[s0]palettegen=max_colors=64[p];[s1][p]paletteuse=dither=bayer:bayer_scale=5" \
+        -y "${DEMO_DIR}/demo-optimised.gif"
+    mv "${DEMO_DIR}/demo-optimised.gif" docs/assets/demo.gif
+else
+    echo "warning: ffmpeg not found — the GIF is unoptimised and noticeably larger than the committed one" >&2
+fi
+
+echo "recorded: docs/assets/demo.gif ($(wc -c < docs/assets/demo.gif | tr -d ' ') bytes)"
