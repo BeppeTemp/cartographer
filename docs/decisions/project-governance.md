@@ -68,7 +68,7 @@ c) `CHANGELOG.md` reset with a pointer to this entry; beta disclaimer added to t
 
 a) **`AGENTS.md` is the canonical agent-instructions file** (the cross-agent convention read natively by Codex, OpenCode, Kiro and others); `CLAUDE.md` remains as a symlink to it, so Claude Code keeps working unchanged.
 
-b) **Plans move from `docs/plans/` files to GitHub issues** (label `plan`, template `.github/ISSUE_TEMPLATE/plan.md`). The agent-neutral procedure — self-sufficiency test included — lives in `CONTRIBUTING.md` §Plan issues; `.claude/skills/plan` shrinks to Claude-side glue (D-number reservation, graphify pointers, `gh issue create`/`view`). The implementation PR closes the issue (`Closes #<n>`); a consumed plan survives as a closed issue instead of a deleted file.
+b) **Plans move from `docs/plans/` files to GitHub issues** (label `plan`, template `.github/ISSUE_TEMPLATE/plan.md`). The agent-neutral procedure — self-sufficiency test included — lives in `CONTRIBUTING.md` §Plan issues; `.claude/skills/plan-issue` shrinks to Claude-side glue (D-number reservation, graphify pointers, `gh issue create`/`view`). The implementation PR closes the issue (`Closes #<n>`); a consumed plan survives as a closed issue instead of a deleted file.
 
 **Rationale.** Issues give the handoff artifact first-class linkage to the PR, an archive that survives consumption, zero service commits in the public history, and readability from any agent with `gh` — the file-based flow had none of these once `main` became protected.
 

@@ -1,15 +1,14 @@
 ---
-name: implement-plan
-description: Orchestrate implementation of one or more approved plan issues (label `plan`) into merged PRs — wave planning from cross-plan execution order, delegation to `dev` subagents in isolated worktrees, coordinator review, and ordered squash-merge with topic-owned documentation conflict resolution. Use when the user asks to implement/ship/land open plan issues (one or many). Sibling of the `plan` skill: `plan` writes issues (design → handoff), `implement-plan` consumes them (issue → merged PR).
+name: implement-issue
+description: Orchestrate implementation of one or more approved plan issues (label `plan`) into merged PRs — wave planning from cross-plan execution order, delegation to coding subagents in isolated worktrees, coordinator review, and ordered squash-merge with topic-owned documentation conflict resolution. Use when the user asks to implement/ship/land open plan issues (one or many). Sibling of the `plan-issue` skill: `plan-issue` writes issues (design → handoff), `implement-issue` consumes them (issue → merged PR).
 ---
 
-# implement-plan — plan issues → merged PRs
+# implement-issue — plan issues → merged PRs
 
 Source of truth is `CONTRIBUTING.md` §Plan issues + §Pull requests, `AGENTS.md`/`CLAUDE.md` (workflow, delegation rules), `docs/index.md` §Maintenance rules. The `plan` skill covers writing/consuming a **single** plan. This skill adds only the **multi-plan orchestration** and the **PR/merge cycle** — read those first, don't duplicate them here.
 
 ## Preconditions
 
-- **Never push in working hours** (Mon–Fri 09–18): no `git push`/`gh pr create`/`gh pr merge` toward `github.com/BeppeTemp/cartographer` in that window — implement locally, ship outside it. Check `date` first.
 - `main` is protected: every plan lands via its own PR, squash-merge, CI `test` green. No direct pushes.
 - Merging a self-authored PR and `git push --force-with-lease` are gated by the auto-mode classifier. They require an explicit user decision or allow rules (`Bash(gh pr merge *)`, `Bash(git push --force-with-lease *)` in `.claude/settings.local.json`). **Never work around the gate** — surface it and let the user choose.
 
@@ -23,13 +22,13 @@ Source of truth is `CONTRIBUTING.md` §Plan issues + §Pull requests, `AGENTS.md
      decision topic can conflict at merge. A D entry only touches its owning
      `docs/decisions/<topic>.md`; unrelated topics are not a shared file.
 4. Emit **waves**: independent roots with disjoint code file-sets run in parallel; dependency chains run internally sequential but in parallel with each other when their file-sets are disjoint. One plan = one PR.
-5. State the wave plan to the user before spawning (spawning N dev agents + opening N public PRs is outward-facing).
+5. State the wave plan to the user before spawning (spawning N subagents + opening N public PRs is outward-facing).
 
-## 2 — Delegate each plan to a `dev` subagent
+## 2 — Delegate each plan to a coding subagent
 
-One plan → one `dev` (Sonnet default; `model: opus` only on explicit user request for hard algorithm/architecture/subtle-debug work), `isolation: "worktree"`, `run_in_background: true`. Never two agents on the same working copy. Worktrees branch from `origin/main` (fresh), so each dev sees the merged predecessors — only start a chain's next plan after the previous PR is merged.
+One plan → one coding subagent (Sonnet default; `model: opus` only on explicit user request for hard algorithm/architecture/subtle-debug work), `isolation: "worktree"`, `run_in_background: true`. Never two agents on the same working copy. Worktrees branch from `origin/main` (fresh), so each subagent sees the merged predecessors — only start a chain's next plan after the previous PR is merged.
 
-Canonical mandate (self-contained — the dev never sees this conversation):
+Canonical mandate (self-contained — the subagent never sees this conversation):
 
 - Read the plan: `gh issue view <n>` (add `--comments` — later amendments live there).
 - Implement **all** WPs exactly, starting from the `file:line` pointers in the plan (don't re-explore from scratch).
@@ -42,7 +41,7 @@ Canonical mandate (self-contained — the dev never sees this conversation):
 
 ## 3 — Review (coordinator GATE — never skip)
 
-For each finished PR: `gh pr diff <pr>` and read it. Trust the disk, not the dev's report (report text can be garbled/compressed). Confirm CI: `gh pr view <pr> --json statusCheckRollup`. This gate is not automatable — a self-authored PR without an independent look defeats two-party review.
+For each finished PR: `gh pr diff <pr>` and read it. Trust the disk, not the subagent’s report (report text can be garbled/compressed). Confirm CI: `gh pr view <pr> --json statusCheckRollup`. This gate is not automatable — a self-authored PR without an independent look defeats two-party review.
 
 ## 4 — Ordered merge with documentation-conflict resolution
 
@@ -55,7 +54,7 @@ file-sets overlap; decision entries in different topic files do not:
    code/current-state prose divergence) → **STOP**, surface to the user.
 3. `git rebase --continue`; run the plan's affected package tests (`go test ./internal/<pkg>/...`); `git push --force-with-lease`.
 4. Wait for CI `test` = SUCCESS and `mergeable == MERGEABLE`, then `gh pr merge <pr> --squash --delete-branch`.
-5. `git checkout main && git pull --ff-only`. Cleanup the dev's worktree: `git worktree remove --force .claude/worktrees/agent-<id>`, delete stale local `feat/*` + `worktree-agent-*` branches.
+5. `git checkout main && git pull --ff-only`. Cleanup the subagent’s worktree: `git worktree remove --force .claude/worktrees/agent-<id>`, delete stale local `feat/*` + `worktree-agent-*` branches.
 
 ## 5 — Close-out
 

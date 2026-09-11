@@ -1,14 +1,14 @@
 ---
-name: plan
+name: plan-issue
 description: Packages the outcome of an analysis/design discussion into a self-contained GitHub plan issue (design → implementation handoff). Use when the user asks to "write the plan" following a discussion, or when a session needs to implement an existing plan issue.
 ---
 
-# Plan — analysis → implementation handoff
+# plan-issue — analysis → implementation handoff
 
 The agent-neutral source of truth is `CONTRIBUTING.md` §Plan issues (procedure
 + self-sufficiency test) and the issue structure in
 `.github/ISSUE_TEMPLATE/plan.md`. Read both; this skill only adds the
-Claude-side glue.
+Codex-side glue.
 
 ## Writing a plan
 
@@ -19,8 +19,8 @@ Claude-side glue.
    means extending/amending the existing issue or stating the relationship
    (execution order, shared files) in the new one.
 2. Reserve the next free D number. Inspect both implemented records
-   (`rtk proxy rg -o '^## D[0-9]+' docs/decisions/`) and every plan issue title
-   (`rtk gh issue list --label plan --state all --limit 1000`), then choose the
+   (`rg -o '^## D[0-9]+' docs/decisions/`) and every plan issue title
+   (`gh issue list --label plan --state all --limit 1000`), then choose the
    next number above both maxima. An issue title reserves its number even
    before the entry exists. Use `Plan: <title> (D<n>)`; the D entry is written
    **at the end of implementation**, not now: the plan is its draft.

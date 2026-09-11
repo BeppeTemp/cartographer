@@ -276,7 +276,7 @@ func TestSearchFTS_Snippet(t *testing.T) {
 	}
 	defer ix.Close()
 
-	body := "Testo di riempimento prima del termine, poi arriva kubernetes proprio qui in mezzo, e poi ancora altro testo di riempimento dopo per allungare il corpo del concetto oltre i duecento caratteri previsti dal budget dello snippet."
+	body := "Filler text before the term, then kubernetes shows up right here in the middle, and then more filler text after it, so that the body of the concept runs well past the two hundred characters the snippet budget allows."
 	if err := ix.Upsert("archive/container", "hash1", body); err != nil {
 		t.Fatalf("Upsert: %v", err)
 	}
