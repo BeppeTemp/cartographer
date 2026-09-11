@@ -46,6 +46,11 @@ Client provisioning materializes KB skills into each provider's native
 directory. See [synchronization](sync.md) for the manifest, trust and pruning
 rules.
 
+Authoring a KB's artifacts — the six accepted `artifact_write` paths, the minimum
+shape of each kind, the `if_match` protocol, and the manifest → trust →
+projection → materialization chain — is written out in the bundled `kb-create`
+skill's `references/artifacts.md` (D196).
+
 A materialized `SKILL.md` carries a provenance block naming the KB it came
 from, its path there, and its content hash ([D138](decisions/sync-provisioning.md#d138)).
 Editing that copy is **not** a supported channel: the next sync replaces it. The supported
@@ -135,12 +140,31 @@ Use `secret_refs` for least privilege: each list item is
 declared `NAME` values. Existing descriptors without `secret_refs` retain the
 legacy `secrets_source` whole-file behavior.
 
+### The operator/Cartographer boundary
+
+The encryption flow is split, and the split is where onboarding actually fails
+(D196). Cartographer does **not** bootstrap encryption: it operates what an
+operator has already set up.
+
+| Step | Performed by |
+|---|---|
+| Generate the age key | operator (`age-keygen`) |
+| Write the root `.sops.yaml` creation rules | operator — Cartographer never writes this file |
+| Create the **first** encrypted file and choose its recipients | operator (`sops` CLI) |
+| Rotate or add a pointer in an **existing** encrypted file | Cartographer (`secret_set`) |
+| Declare which values a concept uses | Cartographer (`concept_write`, `secret_refs`) |
+| Resolve declared values | Cartographer (`secret_resolve`, `service_get`) |
+
 `secret_set(path, key, value)` rotates or adds a pointer in an existing
 encrypted `secrets/*.sops.yaml` file. It uses `sops set --value-stdin`, checks
 that the result remains encrypted, and commits through the normal KB write
-flow. Creating the encrypted file and choosing its recipients remain an
-operator action; Cartographer never writes the root `.sops.yaml` creation-rules
-file, but it does update existing encrypted `*.sops.yaml` secret files.
+flow. It **refuses** any path that is not a local `secrets/*.sops.yaml` and any
+file that does not yet exist — bootstrapping one is an operator action, not a
+tool call.
+
+The operator-side half is written out step by step in the bundled `kb-create`
+skill's `references/secrets.md`, which is where an agent is sent when it has to
+perform it.
 
 ## Operational guidance
 

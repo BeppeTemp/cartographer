@@ -114,5 +114,8 @@ agent made can be reviewed or reverted with ordinary git.
   [`data-plane.md`](data-plane.md)
 - Connecting other agents and keeping them in sync →
   [`configurator.md`](configurator.md) and [`sync.md`](sync.md)
-- Authoring the KB's own content, skills, subagents and secrets → the bundled
-  `kb-create` and `kb-import` skills, which `connect` just installed
+- Authoring the KB's own skills, subagents, hooks and MCP descriptors → the
+  bundled `kb-create` skill's `references/artifacts.md`
+- Keeping encrypted values the KB can resolve → the same skill's
+  `references/secrets.md`
+- Importing an existing wiki or docs folder → the bundled `kb-import` skill
