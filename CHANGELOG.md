@@ -8,6 +8,35 @@
 
 KB histories with commits authored as `cartographer <cartographer@localhost>` may need a manual author rewrite before a forge with author push rules accepts the first push.
 
+## [0.12.0](https://github.com/BeppeTemp/cartographer/compare/v0.11.0...v0.12.0) (2026-09-11)
+
+
+### ⚠ BREAKING CHANGES
+
+* **skill:** one validator for the MCP channel and the git one (D191) ([#257](https://github.com/BeppeTemp/cartographer/issues/257))
+* **client:** choose the KBs before the first connect writes anything (D190) ([#256](https://github.com/BeppeTemp/cartographer/issues/256))
+* **control-plane:** gate_check and lint report what can act on the verdict (D186) ([#254](https://github.com/BeppeTemp/cartographer/issues/254))
+* **control-plane:** the read path stops sending the same bytes twice (D185) ([#253](https://github.com/BeppeTemp/cartographer/issues/253))
+
+### Features
+
+* **client:** choose the KBs before the first connect writes anything (D190) ([#256](https://github.com/BeppeTemp/cartographer/issues/256)) ([45258c1](https://github.com/BeppeTemp/cartographer/commit/45258c1a92422e505379958c3f8f4866b9d8c644))
+* **configurator:** add Antigravity provider (D194) ([#239](https://github.com/BeppeTemp/cartographer/issues/239)) ([513cee7](https://github.com/BeppeTemp/cartographer/commit/513cee7f073e80ae2c588d10fc60f87b1f3f0b66))
+* **control-plane:** gate_check and lint report what can act on the verdict (D186) ([#254](https://github.com/BeppeTemp/cartographer/issues/254)) ([3e2e683](https://github.com/BeppeTemp/cartographer/commit/3e2e683e755106a4ed1abd24acf3249f1a4b591c))
+* **control-plane:** the read path stops sending the same bytes twice (D185) ([#253](https://github.com/BeppeTemp/cartographer/issues/253)) ([9558c8a](https://github.com/BeppeTemp/cartographer/commit/9558c8a1cfcf23602c0816125679443968dddf0c))
+* **provisioning:** detect conflicting session-global directives declared by two KBs (D183) ([#238](https://github.com/BeppeTemp/cartographer/issues/238)) ([d24d587](https://github.com/BeppeTemp/cartographer/commit/d24d587b28e9d30da9b7a250aece9bdc00c03000))
+* **skill:** one validator for the MCP channel and the git one (D191) ([#257](https://github.com/BeppeTemp/cartographer/issues/257)) ([cdcc1f6](https://github.com/BeppeTemp/cartographer/commit/cdcc1f615d62eba0dc81d0cb9b204a895be28973))
+* **sync:** Kiro receives subagents; its hooks are documented but not shipped (D195) ([#264](https://github.com/BeppeTemp/cartographer/issues/264)) ([5faa87f](https://github.com/BeppeTemp/cartographer/commit/5faa87fbe564a4cbad2e6fc2f7e70a3191475962))
+* **sync:** workspace-scoped artifact projection (D193) ([#263](https://github.com/BeppeTemp/cartographer/issues/263)) ([8c86c66](https://github.com/BeppeTemp/cartographer/commit/8c86c66d039d0409b56257535d39acd54a0981f1))
+* **transport:** one tool surface for a multi-KB server (D187) ([#261](https://github.com/BeppeTemp/cartographer/issues/261)) ([28f7a33](https://github.com/BeppeTemp/cartographer/commit/28f7a33dcf6e0787f49aa3035275852e7a9e46c5))
+
+
+### Bug Fixes
+
+* **cli:** report the revision each provider recorded, not the one sync fetched (D184) ([#236](https://github.com/BeppeTemp/cartographer/issues/236)) ([fbdfc8b](https://github.com/BeppeTemp/cartographer/commit/fbdfc8b91c9335bd9bf2234b4ad9b27ea1f0df2b))
+* **configurator:** stop reporting shadowed instructions as installed (D189) ([#255](https://github.com/BeppeTemp/cartographer/issues/255)) ([e69f0d8](https://github.com/BeppeTemp/cartographer/commit/e69f0d8dfa8cff8e50f03e83d6b6e5e885606d52))
+* **release:** onboarding and release hygiene, and retire D188 (D192) ([#258](https://github.com/BeppeTemp/cartographer/issues/258)) ([c25051b](https://github.com/BeppeTemp/cartographer/commit/c25051b7b934edfeba3f00bd6e33832ee9e5a41b))
+
 ## [0.11.0](https://github.com/BeppeTemp/cartographer/compare/v0.10.0...v0.11.0) (2026-09-08)
 
 
