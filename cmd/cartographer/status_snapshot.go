@@ -60,6 +60,25 @@ type providerStatus struct {
 	// the lockfile's per-file Source (D170). Empty for a lockfile written
 	// before that field existed: unknown, not zero.
 	KBCounts map[string]int `json:"kb_counts,omitempty"`
+	// Workspaces reports this provider's workspace projections (D193), empty
+	// for a provider in the default scope. A workspace-scoped provider's own
+	// counts above describe its bundle-only global projection, which is
+	// deliberately not the interesting part: the KB artifacts live here.
+	Workspaces []workspaceStatus `json:"workspaces,omitempty"`
+}
+
+// workspaceStatus is one workspace projection's state, as `status` reports it.
+type workspaceStatus struct {
+	Path string   `json:"path"`
+	KBs  []string `json:"kbs,omitempty"`
+	// State is "ok", "gone" (the bound directory is not there any more),
+	// "moved" (its git remote is not the one it was bound to) or "inactive"
+	// (the files are correct but the client will not read them — a Codex
+	// project that is not trusted). Each is reported, none is healed: a
+	// projection that silently fell back to the global catalogue is the
+	// exposure this whole scope exists to prevent.
+	State  string `json:"state"`
+	Detail string `json:"detail,omitempty"`
 }
 
 type statusArtifact struct {
@@ -331,6 +350,12 @@ func providerStatuses(cfg *clientconfig.Config) []providerStatus {
 			state = "unknown"
 		}
 		out[i] = providerStatus{Name: string(a.Provider), Installed: a.Installed, Connected: connected[string(a.Provider)], State: state}
+		if cfg != nil && connected[string(a.Provider)] {
+			base, err := clientconfig.TargetDir()
+			if err == nil {
+				out[i].Workspaces = workspaceStatuses(cfg, string(a.Provider), base)
+			}
+		}
 	}
 	return out
 }

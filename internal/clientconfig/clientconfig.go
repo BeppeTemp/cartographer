@@ -54,6 +54,22 @@ type Config struct {
 	// names are three distinct states, and a nil slice never means "every KB".
 	Clients map[string]ClientBinding `yaml:"clients,omitempty"`
 
+	// Scopes is the per-provider projection scope (D193): absent or "provider"
+	// means the historical global catalogue under $HOME, "workspace" means each
+	// bound workspace receives its own KBs in its own project-local
+	// directories and nothing KB-sourced is written globally. USER-owned.
+	// Always read it through WorkspaceScope: an absent entry is the default,
+	// and the default must never change under an existing installation.
+	Scopes map[string]string `yaml:"scopes,omitempty"`
+
+	// Workspaces is the per-provider workspace↔KB binding (D193): which KBs a
+	// provider receives while working in a given directory. USER-owned. Read it
+	// through WorkspaceBindings/ResolveWorkspace, never directly: an unbound
+	// workspace is fail-closed (it gets only the transversal bundle) and a
+	// bound one holding no KBs is an explicit declaration — two states an
+	// emptiness test cannot tell apart.
+	Workspaces map[string][]WorkspaceBinding `yaml:"workspaces,omitempty"`
+
 	// Trust records the persistent, per-server decision made at connect time:
 	// when true, kb:-sourced provisioning artifacts (skill/agent/hook/instructions)
 	// are treated as trusted at every sync, without needing the one-time
@@ -128,6 +144,8 @@ type yamlConfig struct {
 	ServerMountMode  string                            `yaml:"server_mount_mode,omitempty"`
 	ServerRoutedPath string                            `yaml:"server_routed_path,omitempty"`
 	Clients          map[string]ClientBinding          `yaml:"clients,omitempty"`
+	Scopes           map[string]string                 `yaml:"scopes,omitempty"`
+	Workspaces       map[string][]WorkspaceBinding     `yaml:"workspaces,omitempty"`
 	Trust            *bool                             `yaml:"trust,omitempty"`
 	SearchRoots      []string                          `yaml:"search_roots,omitempty"`
 	SearchDepth      int                               `yaml:"search_depth,omitempty"`
@@ -199,6 +217,8 @@ func Load(dir string) (*Config, error) {
 		ServerMountMode:  y.ServerMountMode,
 		ServerRoutedPath: y.ServerRoutedPath,
 		Clients:          y.Clients,
+		Scopes:           y.Scopes,
+		Workspaces:       y.Workspaces,
 		Trust:            true, // absent `trust` key defaults to true, see yamlConfig doc
 		SearchRoots:      y.SearchRoots,
 		SearchDepth:      y.SearchDepth,
@@ -238,6 +258,8 @@ func Save(dir string, cfg *Config) error {
 		ServerMountMode:  cfg.ServerMountMode,
 		ServerRoutedPath: cfg.ServerRoutedPath,
 		Clients:          cfg.Clients,
+		Scopes:           cfg.Scopes,
+		Workspaces:       cfg.Workspaces,
 		Trust:            &cfg.Trust,
 		SearchRoots:      cfg.SearchRoots,
 		SearchDepth:      cfg.SearchDepth,
