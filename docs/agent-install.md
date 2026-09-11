@@ -1,10 +1,15 @@
 # Agent-driven installation
 
-Use this runbook when the user supplies the Cartographer repository link and the git remote for
-their first Knowledge Base (KB). A KB is a git repository and its remote is what makes it durable
-and syncable, so the remote is required: if the user did not supply one, **ask for it before step
-3** — an empty repository they own (GitHub, Gitea, or any git host). Execute every command in
-order; report the expected result before continuing.
+Use this runbook whenever the user asks you to install Cartographer — a repository link and a
+conversation is the normal starting point, and it is enough. Execute every command in order; report
+the expected result before continuing.
+
+**Establish one input first: the git remote for the user's first Knowledge Base (KB).** A KB is a
+git repository and its remote is what makes it durable and syncable, so the remote is required, and
+on this path it is almost always the thing nobody supplied. Ask for it now — an empty repository
+they own (GitHub, Gitea, or any git host) — rather than discovering at step 3 that you need a URL
+you do not have. Only if the user explicitly accepts a throwaway, local-only KB do you proceed
+without one.
 
 ## 1. Install Cartographer
 
@@ -119,8 +124,7 @@ cartographer status
 ```
 
 Expected output: a version, then health JSON containing `"ready":true`, then in-sync status with
-exit code 0. Restart the connected agent session after this check so it loads the MCP tools and
-provisioned skills.
+exit code 0.
 
 Confirm the instructions actually reach the model, not just the disk. `cartographer status` and
 `cartographer doctor` now check the provider's own precedence chain (D189), but the provider's own
@@ -134,13 +138,26 @@ Expected output: a `cartographer:kb:*` section. If it is absent while `status` r
 instructions installed, report it: a provider precedence rule Cartographer does not model yet.
 
 `connect` provisioned the bundled skills, including `cartographer-ops`. Use that skill for ongoing
-operations, diagnosis, upgrades, and synchronization after installation.
+operations, diagnosis, upgrades, and synchronization after installation. From there the bundled
+`kb-create` and `kb-import` skills cover authoring the KB's own content and artifacts.
+
+## 6. Tell the user to restart their agent session
+
+This is a step you cannot perform: the session that must restart is the one you are running in.
+State it to the user explicitly, as the last thing you say:
+
+> Restart your agent session now. The MCP tools and the provisioned skills are loaded at session
+> start, so until you do, Cartographer is installed but invisible to me.
+
+Omitting this is the single most common way a correct installation is reported as broken.
 
 ## Failures
 
 | Observed symptom | Next action |
 |---|---|
 | `command -v brew` has no output | Run the `install.sh` command in step 1. |
+| The user's agent shows no Cartographer MCP tools after a successful `connect` | The session was not restarted. Repeat step 6 — this is not a failed install. |
+| `cartographer status` exits non-zero immediately after install | The service may still be starting: wait a few seconds and retry once before diagnosing. |
 | The service reports that port 39273 is busy | Stop or reconfigure the process using the port, then rerun `cartographer service install`. |
 | `kb clone` reports a git authentication failure | Configure ambient credentials (an SSH agent for SSH remotes or a git credential helper for HTTPS), then rerun the same `kb clone` command. |
 | `kb clone` reports a host key that is not in `known_hosts` | Connect once with `ssh <host>` to review and accept the key yourself, then rerun. The clone never accepts a host key on your behalf (D173). |

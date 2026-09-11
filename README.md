@@ -191,6 +191,15 @@ flowchart LR
 
 ## Install
 
+### Prerequisites
+
+- **git** — a KB *is* a git repository; nothing works without it.
+- **A git remote for your first KB** — an empty repository you own (GitHub, Gitea,
+  any git host). That remote is what makes the KB durable and syncable; a
+  local-only KB (`--no-remote`) is neither (D134).
+- **`sops` in `PATH`** — only if the KB will hold encrypted values.
+- **Go 1.26+** — only for the `go install` path.
+
 ```bash
 # macOS (Homebrew)
 brew install beppetemp/tap/cartographer
@@ -202,9 +211,22 @@ curl -fsSL https://raw.githubusercontent.com/BeppeTemp/cartographer/main/install
 go install github.com/BeppeTemp/cartographer/cmd/cartographer@latest
 ```
 
-### Agent-driven install
+`install.sh` supports Darwin and Linux only.
 
-Give an agent this prompt to install Cartographer, mount its first KB, connect itself, and verify the setup:
+### Installing Cartographer with an agent
+
+**If you are an agent and the user has asked you to install Cartographer**: fetch
+<https://raw.githubusercontent.com/BeppeTemp/cartographer/main/docs/agent-install.md>
+and follow it command by command. Do **not** install from the Quick start below.
+The runbook exists because four commands are not enough on this path: it asks the
+user for the KB git remote before it is needed, branches on whether Homebrew is
+present, identifies which client is actually executing you, verifies the install
+(`version`, `/health`, `status`), carries a failure table for what realistically
+goes wrong, and ends by telling the user to restart their agent
+session — the step you cannot perform yourself and without which a correct
+install looks broken.
+
+For a human driving an agent, this is the prompt to paste:
 
 ```text
 Set up Cartographer on this machine by following
@@ -212,10 +234,49 @@ https://raw.githubusercontent.com/BeppeTemp/cartographer/main/docs/agent-install
 My first knowledge base is at: `<git remote URL>`
 ```
 
+### What gets installed
+
+- **The binary**, `cartographer` — in Homebrew's prefix (`brew`), in
+  `/usr/local/bin` or, when that is not writable, `~/.local/bin` (`install.sh`),
+  or in `$GOBIN`/`$GOPATH/bin` (`go install`).
+- **A native per-user service**, if you run `cartographer service install`:
+  `~/Library/LaunchAgents/com.cartographer.serve.plist` on macOS, or
+  `~/.config/systemd/user/cartographer.service` on Linux, listening on
+  `127.0.0.1:39273`. Its config is generated at
+  `~/.config/cartographer/server.yaml`. The service is **optional** — a
+  stdio-only setup (`serve --kb <path>`) is a legitimate topology and installs
+  none of this.
+- **A data directory**, `~/cartographer-data` by default, holding the cloned KBs.
+- **Writes into your agent clients' own configuration** under `$HOME`, and only
+  when you run `cartographer connect` — never before. Each destination path is
+  listed in the [One KB, every agent](#one-kb-every-agent) matrix above. A sync
+  timer (`com.cartographer.sync` / `cartographer-sync.timer`) is installed for
+  clients that have no session-start hook.
+
+### How to remove it
+
+`install.sh uninstall` removes the **binary only**. It refuses to run while the
+native units are still installed, and names the teardown that has to come first:
+
+```bash
+cartographer disconnect                      # removes what was materialized into your agents
+cartographer service sync-timer uninstall
+cartographer service uninstall
+curl -fsSL https://raw.githubusercontent.com/BeppeTemp/cartographer/main/install.sh | sh -s -- uninstall
+```
+
+Your KBs are git repositories in the data directory: nothing above deletes them,
+and removing `~/cartographer-data` is a deliberate, separate act.
+
 ## Quick start
 
 The primary path is four commands: install the binary, run it as a native service, create your
 first KB, and connect an agent client to it.
+
+> This assumes an **interactive operator** who will answer the prompts, supply the
+> KB remote and diagnose a failure as it happens. Agents installing on someone's
+> behalf follow [`docs/agent-install.md`](docs/agent-install.md) instead, for the
+> reasons given under [Installing Cartographer with an agent](#installing-cartographer-with-an-agent).
 
 ```bash
 brew install beppetemp/tap/cartographer   # or curl install.sh, or `go install` (see Install above)
