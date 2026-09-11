@@ -156,6 +156,23 @@ type Lock struct {
 	// never triggers the "the server changed" report: the first sync after an
 	// upgrade must not tell every user something it cannot actually know.
 	ServerVersion string `json:"server_version,omitempty"`
+	// ProjectScope marks a lock whose managed paths were resolved through the
+	// project-local half of the destination matrix (D193). Absent — every
+	// lockfile written before D193, and every global projection — means the
+	// global half. It is persisted rather than derived, because verifying or
+	// pruning through the wrong matrix looks for the wrong paths: it would
+	// report a correctly materialized workspace as missing, and leave real
+	// files behind on a prune.
+	ProjectScope bool `json:"project_scope,omitempty"`
+}
+
+// Scope returns the destination-matrix half this lock's paths were resolved
+// through.
+func (l Lock) ScopeOf() Scope {
+	if l.ProjectScope {
+		return ScopeProject
+	}
+	return ScopeGlobal
 }
 
 // LockBaseDir returns the directory lock's managed paths are relative to:
@@ -202,6 +219,14 @@ type ApplyOptions struct {
 	// It is authorization, not verification; Signed is never mutated by it.
 	ApprovedMCP map[string]string
 	Lock        Lock // current lockfile
+
+	// Scope selects which half of the destination matrix this apply writes
+	// through (D193). The zero value is ScopeGlobal, so every existing caller
+	// keeps the destinations it had; ScopeProject materializes into a bound
+	// workspace's own project-local directories, with BaseDir set to that
+	// workspace. Nothing else about Apply changes: the diff, the trust chain,
+	// the placeholder expansion and the safepath refusals are the same.
+	Scope Scope
 
 	// SkipLockWrite, if true, computes AppliedResult.NewLock but does not persist
 	// it to <BaseDir>/LockFileName. Used by the multi-provider clients
@@ -1256,6 +1281,14 @@ func WriteLock(path string, lock Lock) error {
 // field) are automatically migrated on read by ReadLockFile.
 type LockFile struct {
 	Providers map[string]Lock `json:"providers"`
+	// Workspaces holds the per-workspace applied state (D193), keyed by the
+	// workspace's canonical path. It is a SEPARATE namespace from Providers on
+	// purpose: prune deletes every managed file its lock names, so a key that
+	// could resolve to the wrong projection would delete another workspace's
+	// files. Two maps make that mistake unrepresentable rather than unlikely.
+	// Absent — every lockfile written before D193 — means "no workspace
+	// projection", and the global one is untouched.
+	Workspaces map[string]WorkspaceLocks `json:"workspaces,omitempty"`
 }
 
 // ReadLockFile reads the multi-provider lockfile at the given path. If the file
@@ -1634,7 +1667,7 @@ func Apply(m Manifest, opts ApplyOptions) (AppliedResult, error) {
 		// doesn't support this kind — no approval unblocks it, so it goes to
 		// Unsupported (not NeedsApproval). Support is determined by destDir:
 		// add a case there for a new kind×provider.
-		destRel := destDir(a.Kind, a.Name, opts.Provider)
+		destRel := destDirScoped(a.Kind, a.Name, opts.Provider, opts.Scope)
 		if destRel == "" {
 			result.Unsupported = append(result.Unsupported, a)
 			continue
@@ -1965,7 +1998,7 @@ func wrapKBSection(name, content string) string {
 // provider's shared file, so KindCounts reports "instructions n/n" instead of
 // counting a single physical file.
 func applyInstructionsGroup(m Manifest, diff Diff, opts ApplyOptions, tracker *expansionTracker, result *AppliedResult, newManaged *[]ManagedFile, force bool) error {
-	destRel := destDir("instructions", "", opts.Provider)
+	destRel := destDirScoped("instructions", "", opts.Provider, opts.Scope)
 	if destRel == "" {
 		// Provider with no known destination for instructions: keep this handled
 		// consistently with the other kinds' unsupported/needs_approval schema,
@@ -2231,7 +2264,7 @@ func installedSubagentSentence(m Manifest, opts ApplyOptions) string {
 		if a.Kind != "agent" || !strings.HasPrefix(a.Source, "kb:") {
 			continue
 		}
-		if destDir("agent", a.Name, opts.Provider) == "" {
+		if destDirScoped("agent", a.Name, opts.Provider, opts.Scope) == "" {
 			continue
 		}
 		if !artifactAuthorized(a, opts) {

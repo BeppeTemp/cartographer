@@ -194,6 +194,7 @@ func runDoctor(dir, only string) doctorReport {
 		findings = append(findings, checkSymlinkedDestinations(dir, providers)...)
 		findings = append(findings, checkCapabilities(dir, cfg)...)
 		findings = append(findings, checkKBCollisions(dir, cfg, providers)...)
+		findings = append(findings, checkWorkspaceProjections(dir, cfg, providers)...)
 		if lockErr == nil {
 			findings = append(findings, checkUnboundResidues(dir, cfg, providers, lockFile)...)
 		}

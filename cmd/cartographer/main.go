@@ -31,6 +31,7 @@ var subcommands = []subcommand{
 	{"Client", "reconnect", "Rebuild an agent client's configuration from scratch"},
 	{"Client", "approve", "Approve or revoke a third-party MCP descriptor"},
 	{"Client", "client", "Manage which KBs each agent client receives"},
+	{"Client", "workspace", "Bind a repository to the KBs a client receives there"},
 	{"Server", "serve", "Run the MCP server"},
 	{"Server", "service", "Manage the native server service"},
 	{"Server", "upgrade-repair", "Repair the native service and provider sync after an upgrade"},
@@ -66,6 +67,7 @@ var (
 	reindexFn       = cmdReindex
 	auditFn         = cmdAudit
 	clientFn        = cmdClient
+	workspaceFn     = cmdWorkspace
 )
 
 func main() {
@@ -129,6 +131,8 @@ func run(args []string) int {
 		return reindexFn(rest)
 	case "client":
 		return clientFn(rest)
+	case "workspace":
+		return workspaceFn(rest)
 	default:
 		fmt.Fprintf(os.Stderr, "Error: unknown command %q", cmd)
 		if suggestion := commandSuggestion(cmd); suggestion != "" {

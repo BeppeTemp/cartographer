@@ -170,6 +170,12 @@ func kbOrderForProviders(cfg *clientconfig.Config, providers []string) map[strin
 // Verification pins are applied per provider only because VerifiedManifest
 // takes a manifest — the work is over the same artifacts either way, and an
 // artifact's verification result cannot differ between providers.
+//
+// It returns the GLOBAL projection of each provider, keyed by provider name —
+// the view `status` and the TUI have always shown. A workspace-scoped provider
+// has more projections than this one; `status` reports them separately (D193),
+// and the sync path goes through manifestsForProjections instead, which is the
+// only caller that materializes.
 func manifestsForProviders(cfg *clientconfig.Config, providers []string) (map[string]provisioning.Manifest, error) {
 	out := make(map[string]provisioning.Manifest, len(providers))
 
@@ -415,41 +421,61 @@ type portabilityOptions struct {
 // binding order (D182 WP2) — omitted or nil for a provider entry means no
 // explicit binding, so its instructions block keeps the alphabetical
 // fallback. See kbOrderForProviders.
-func materializeForProviders(manifests map[string]provisioning.Manifest, providers []string, targetDir, serverVersion string, autoTrust, dryRun, noHeal bool, portability portabilityOptions, kbOrder map[string][]string, approvalHashes ...map[string]string) (map[string]provisioning.AppliedResult, error) {
+func materializeForProviders(manifests map[string]provisioning.Manifest, projections []syncProjection, targetDir, serverVersion string, autoTrust, dryRun, noHeal bool, portability portabilityOptions, kbOrder map[string][]string, approvalHashes ...map[string]string) (map[string]provisioning.AppliedResult, error) {
 	lockPath := lockFilePath(targetDir)
 	lockFile, err := provisioning.ReadLockFile(lockPath)
 	if err != nil {
 		return nil, fmt.Errorf("read lockfile: %w", err)
 	}
 
-	results := make(map[string]provisioning.AppliedResult, len(providers))
+	results := make(map[string]provisioning.AppliedResult, len(projections))
 	var approvedMCP map[string]string
 	if len(approvalHashes) > 0 {
 		approvedMCP = approvalHashes[0]
 	}
 	// Validate every authorized local command for every destination before any
-	// provider file or lockfile can change. Provider is carried into errors so
-	// a failed multi-provider sync identifies the configuration it protected.
-	baseDirs := make(map[string]string, len(providers))
-	for _, p := range providers {
-		baseDir, err := provisioning.BaseDirFor(configurator.Provider(p), targetDir)
-		if err != nil {
+	// provider file or lockfile can change, and — for a workspace projection —
+	// check the repository hygiene rules too (D193 WP5). Both refusals are free
+	// here: nothing has been written yet. The projection is carried into errors
+	// so a failed multi-projection sync identifies the configuration it
+	// protected.
+	for _, p := range projections {
+		// Preflight the projection's OWN view: validating the whole candidate
+		// set would fail a sync over a local command belonging to a KB this
+		// projection is not even bound to (D170).
+		if err := provisioning.PreflightStdioMCP(manifests[projectionKey(p)], provisioning.ApplyOptions{Provider: configurator.Provider(p.Provider), BaseDir: p.BaseDir, Scope: p.Scope, AutoTrust: autoTrust, ApprovedMCP: approvedMCP}); err != nil {
 			return nil, err
 		}
-		baseDirs[p] = baseDir
-		// Preflight the provider's OWN view: validating the whole candidate set
-		// would fail a sync over a local command belonging to a KB this
-		// provider is not even bound to (D170).
-		if err := provisioning.PreflightStdioMCP(manifests[p], provisioning.ApplyOptions{Provider: configurator.Provider(p), BaseDir: baseDir, AutoTrust: autoTrust, ApprovedMCP: approvedMCP}); err != nil {
+		if err := prepareWorkspace(p, dryRun); err != nil {
 			return nil, err
 		}
 	}
+	// A projection the lockfile still records but the configuration no longer
+	// declares — a workspace that was unbound, or a provider that left
+	// workspace scope — must have its files removed. Nothing else would ever
+	// touch them: they are outside every remaining projection, so a later sync
+	// would not see them and `doctor` would report them as residue forever.
+	// This runs before the projections are applied, so the files are gone
+	// before anything is written in their place.
+	if !dryRun {
+		orphans, err := pruneOrphanProjections(&lockFile, projections, targetDir)
+		if err != nil {
+			return nil, err
+		}
+		if len(orphans) > 0 {
+			if err := provisioning.WriteLockFile(lockPath, lockFile); err != nil {
+				return nil, fmt.Errorf("write lockfile after pruning %s: %w", strings.Join(orphans, ", "), err)
+			}
+		}
+	}
+
 	var appliedSoFar []string
-	for _, p := range providers {
-		previous := lockFile.ForProvider(p)
+	for _, p := range projections {
+		previous := lockFile.ForProjection(p.Key())
 		opts := provisioning.ApplyOptions{
-			Provider:           configurator.Provider(p),
-			BaseDir:            baseDirs[p],
+			Provider:           configurator.Provider(p.Provider),
+			BaseDir:            p.BaseDir,
+			Scope:              p.Scope,
 			DryRun:             dryRun,
 			NoHeal:             noHeal,
 			AutoTrust:          autoTrust,
@@ -460,25 +486,25 @@ func materializeForProviders(manifests map[string]provisioning.Manifest, provide
 			SearchRoots:        portability.SearchRoots,
 			SearchDepth:        portability.SearchDepth,
 			Paths:              portability.Paths,
-			KBOrder:            kbOrder[p],
+			KBOrder:            kbOrder[p.Provider],
 		}
-		// Apply only the artifacts the provider knows how to materialize:
-		// Unsupported kinds are neither drift nor pending; they
+		// Apply only the artifacts the provider knows how to materialize in
+		// this scope: unsupported kinds are neither drift nor pending, they
 		// simply don't concern it.
-		applied, err := provisioning.Apply(provisioning.FilterForProvider(manifests[p], configurator.Provider(p)), opts)
+		applied, err := provisioning.Apply(provisioning.FilterForProviderScoped(manifests[projectionKey(p)], configurator.Provider(p.Provider), p.Scope), opts)
 		if err != nil {
 			// Name what is already recorded, so a rerun is informed rather
 			// than a guess about how far the previous one got.
 			if len(appliedSoFar) > 0 {
-				return nil, fmt.Errorf("apply %s: %w (already applied and recorded: %s)", p, err, strings.Join(appliedSoFar, ", "))
+				return nil, fmt.Errorf("apply %s: %w (already applied and recorded: %s)", p.Label(), err, strings.Join(appliedSoFar, ", "))
 			}
-			return nil, fmt.Errorf("apply %s: %w", p, err)
+			return nil, fmt.Errorf("apply %s: %w", p.Label(), err)
 		}
 		// Record the base dir only when it is not the lockfile's own
 		// directory: every existing lockfile keeps its current meaning and no
-		// migration runs (D141).
-		if baseDirs[p] != targetDir {
-			applied.NewLock.BaseDir = baseDirs[p]
+		// migration runs (D141). SetProjection records it for a workspace.
+		if p.BaseDir != targetDir {
+			applied.NewLock.BaseDir = p.BaseDir
 		}
 		// An unknown live version preserves the recorded one rather than
 		// blanking it (D142).
@@ -486,8 +512,8 @@ func materializeForProviders(manifests map[string]provisioning.Manifest, provide
 		if serverVersion != "" {
 			applied.NewLock.ServerVersion = serverVersion
 		}
-		lockFile.SetProvider(p, applied.NewLock)
-		results[p] = applied
+		lockFile.SetProjection(p.Key(), applied.NewLock, p.Remote)
+		results[projectionKey(p)] = applied
 
 		// Checkpoint after every provider, not once at the end (D172). With a
 		// single trailing write, a failure on provider N left providers
@@ -497,9 +523,9 @@ func materializeForProviders(manifests map[string]provisioning.Manifest, provide
 		// provider's own partial files are still possible (D178).
 		if !dryRun {
 			if err := provisioning.WriteLockFile(lockPath, lockFile); err != nil {
-				return nil, fmt.Errorf("write lockfile after %s: %w", p, err)
+				return nil, fmt.Errorf("write lockfile after %s: %w", p.Label(), err)
 			}
-			appliedSoFar = append(appliedSoFar, p)
+			appliedSoFar = append(appliedSoFar, p.Label())
 		}
 	}
 	return results, nil

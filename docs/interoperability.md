@@ -69,14 +69,41 @@ client installed (and skips where it does not).
 | `agent` × opencode | `~/.opencode/agent/<name>.md` | `.opencode/agents` ([source](https://opencode.ai/docs/agents)) | client 1.18.20 |
 
 Neither is moved here: a destination change is a migration (prune the old
-files, re-key the lockfile), and for Codex the right target is the *repository*
-path, which only exists once a workspace scope does (D193). Moving it now would
-mean doing the migration twice. What was missing was the alarm, not the move.
+files, re-key the lockfile), and what was missing was the alarm, not the move.
+The Codex case is now half-resolved: the workspace scope (D193) does use the
+repository path the vendor documents, `.agents/skills/<name>/`, because that
+scope is new and has no installed base to migrate. The **global** cell stays at
+`~/.codex/skills/` for the reason above.
 
 Current limitations are documented once in the relevant table/section rather
 than repeated here. In particular, Kiro's flat MCP tool namespace may require
 the server's per-KB tool prefix, and provider translations intentionally drop
 fields that cannot be represented safely.
+
+### Project-local scopes as an external contract (D193)
+
+The workspace scope writes into each provider's **project-local** configuration,
+which is a second set of external contracts, verified during the D193 audit and
+changing outside this project's release cycle. Re-verify before changing a cell;
+the citation lives next to it in `internal/provisioning/workspacescope.go`.
+
+| Provider | Project-local scope | Source |
+|---|---|---|
+| Claude Code | `.claude/skills/`, `.claude/agents/`, `.claude/hooks/`, `.mcp.json`, `./CLAUDE.md` | [skills](https://code.claude.com/docs/en/skills), [memory](https://code.claude.com/docs/en/memory), [sub-agents](https://code.claude.com/docs/en/sub-agents), [hooks](https://code.claude.com/docs/en/hooks), [mcp](https://code.claude.com/docs/en/mcp) |
+| Codex | `.agents/skills`, `.codex/agents`, `.codex/hooks`, `.codex/config.toml`, `AGENTS.md` | [skills](https://developers.openai.com/codex/skills), [subagents](https://developers.openai.com/codex/subagents), [hooks](https://developers.openai.com/codex/hooks), [mcp](https://developers.openai.com/codex/mcp) |
+| Kiro | `.kiro/skills/`, `.kiro/steering/`, `.kiro/settings/mcp.json` | [skills](https://kiro.dev/docs/skills/) |
+| OpenCode | `.opencode/skills`, `.opencode/agent`, `.opencode/hooks`, `opencode.json`, `AGENTS.md` | [skills](https://opencode.ai/docs/skills), [rules](https://opencode.ai/docs/rules), [agents](https://opencode.ai/docs/agents), [plugins](https://opencode.ai/docs/plugins) |
+| Hermes | **none** | its configuration is rendered by its own Ansible role and skills go to one inbox (D141) |
+| Antigravity | **none** | only a global configuration root is documented (D194) |
+
+Two consequences are worth stating plainly. Kiro keeps `unsupported` agent and
+hook cells in the project scope too, for the same D140 reason as globally —
+[#248](https://github.com/BeppeTemp/cartographer/issues/248) tracks whether Kiro
+3.0 changes it and is blocked on an empirical verification, so giving it a cell
+here would be shipping that finding without its evidence. And Codex ignores a
+project's `.codex/` layer unless the project is **trusted**, which is the one
+case where writing the files correctly is not the same as the projection being
+active: `status` and `doctor` report it as `inactive` rather than installed.
 
 ### Instruction slots Cartographer deliberately does not write
 

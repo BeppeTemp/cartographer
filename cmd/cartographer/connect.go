@@ -330,6 +330,7 @@ func cmdConnect(args []string) int {
 	agentsCSV := fs.String("agents", "", "Comma-separated agent subset: claude,codex")
 	var kbSel repeatedString
 	fs.Var(&kbSel, "kb", "KB this client may receive (repeatable, or comma-separated; 'all' for every mounted KB)")
+	workspaceFlag := fs.String("workspace", "", "Project the selected KBs into this repository instead of the global catalogue (D193)")
 	fs.Parse(rest)
 
 	interactive := wantsConnectForm(fs, *noInput)
@@ -374,6 +375,7 @@ func cmdConnect(args []string) int {
 		Trust:     settings.Trust,
 		PinKeys:   pinKeys,
 		KBs:       splitCommaList(kbSel),
+		Workspace: *workspaceFlag,
 	}
 
 	if interactive {
@@ -607,6 +609,14 @@ type connectOptions struct {
 	// mounted KB and is recorded as an explicit binding to their names, which
 	// is what stops a KB mounted later from widening this client.
 	KBs []string
+	// Workspace, when set, makes this connect a WORKSPACE binding rather than
+	// a provider-global one (D193): the selected KBs are projected into that
+	// repository's own project-local directories and nothing KB-sourced is
+	// written to the global catalogue. It is offered at connect because the
+	// choice between the two has to be made *before the first write*: a
+	// provider-global connect materializes every selected KB's artifacts into
+	// $HOME, and moving them afterwards is a migration rather than a choice.
+	Workspace string
 }
 
 // connectResult is the outcome of doConnect: which providers were connected, the
@@ -687,6 +697,30 @@ func doConnect(opts connectOptions) (connectResult, error) {
 			}
 		}
 	}
+	// D193: --workspace turns the selection into a workspace binding instead of
+	// a global one. It is decided here, before step 3 writes anything, because
+	// a provider-global connect materializes every selected KB into $HOME and
+	// undoing that afterwards is a migration, not a choice.
+	if opts.Workspace != "" {
+		for _, provider := range opts.Providers {
+			p := configurator.Provider(provider)
+			if !provisioning.SupportsProjectScope(p) {
+				return connectResult{}, fmt.Errorf("%s cannot be scoped to a workspace: %s",
+					provider, provisioning.ProjectScopeUnsupportedReason(p))
+			}
+			if err := existing.BindWorkspace(provider, opts.Workspace, selected); err != nil {
+				return connectResult{}, err
+			}
+			if err := existing.SetWorkspaceScope(provider, clientconfig.ScopeWorkspace); err != nil {
+				return connectResult{}, err
+			}
+		}
+	} else if len(selected) > 0 && len(kbs) > 1 && !opts.DryRun {
+		// Name the alternative once, where the operator is deciding. Silence
+		// here is how a machine-wide catalogue becomes the default nobody chose.
+		fmt.Println("note: these KBs will be readable from every directory on this machine.")
+		fmt.Println("      pass --workspace <repo> to confine them to one repository instead (docs/sync.md §Workspace scope).")
+	}
 
 	// entryKBs stays the server's full mount list: it tells entriesForKBs that
 	// the endpoint must be scoped with ?kb= at all. Which of them this provider
@@ -756,11 +790,15 @@ func doConnect(opts connectOptions) (connectResult, error) {
 		mcpEntries = nil
 	}
 	res := connectResult{Providers: opts.Providers, ConfigsWritten: configsWritten, MCPEntries: mcpEntries, Warnings: configWarnings}
-	if manifests, err := manifestsForProviders(pullCfg, opts.Providers); err != nil {
+	projections, projErr := allProjections(pullCfg, opts.Providers, opts.Dir)
+	if projErr != nil {
+		return connectResult{}, projErr
+	}
+	if manifests, err := manifestsForProjections(pullCfg, projections); err != nil {
 		res.Deferred = true
 		res.DeferredErr = err
 	} else {
-		applied, err := materializeForProviders(manifests, opts.Providers, opts.Dir, facts.Version, opts.Trust || opts.AutoTrust, opts.DryRun, false /* noHeal */, portabilityOptions{SearchRoots: existing.SearchRoots, SearchDepth: existing.SearchDepth, Paths: existing.Paths}, kbOrderForProviders(pullCfg, opts.Providers), existing.ApprovedMCPHashes())
+		applied, err := materializeForProviders(manifests, projections, opts.Dir, facts.Version, opts.Trust || opts.AutoTrust, opts.DryRun, false /* noHeal */, portabilityOptions{SearchRoots: existing.SearchRoots, SearchDepth: existing.SearchDepth, Paths: existing.Paths}, kbOrderForProviders(pullCfg, opts.Providers), existing.ApprovedMCPHashes())
 		if err != nil {
 			return connectResult{}, err
 		}
