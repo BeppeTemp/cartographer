@@ -1,16 +1,16 @@
 ---
-name: implement-plan
+name: implement-issue
 description: >-
   Orchestrates implementation of one or more approved plan issues (label
-  `plan`) into merged PRs through wave planning, delegation to `dev` subagents
+  `plan`) into merged PRs through wave planning, delegation to coding subagents
   in isolated worktrees, coordinator review, and ordered squash-merge with
   topic-owned documentation conflict resolution. Use when the user asks to implement, ship,
-  or land open plan issues (one or many). Sibling of the `plan` skill: `plan`
-  writes issues (design → handoff), while `implement-plan` consumes them
-  (issue → merged PR).
+  or land open plan issues (one or many). Sibling of the `plan-issue` skill:
+  `plan-issue` writes issues (design → handoff), while `implement-issue`
+  consumes them (issue → merged PR).
 ---
 
-# implement-plan — plan issues → merged PRs
+# implement-issue — plan issues → merged PRs
 
 Source of truth is `CONTRIBUTING.md` §Plan issues + §Pull requests,
 `CLAUDE.md` (workflow and delegation rules), and `docs/index.md` §Maintenance
@@ -20,7 +20,6 @@ those first; do not duplicate them here.
 
 ## Preconditions
 
-- **Never push in working hours** (Mon–Fri 09–18): no `git push`/`gh pr create`/`gh pr merge` toward `github.com/BeppeTemp/cartographer` in that window — implement locally, ship outside it. Check `date` first.
 - `main` is protected: every plan lands via its own PR, squash-merge, CI `test` green. No direct pushes.
 - Merging a self-authored PR and `git push --force-with-lease` require explicit user authorization or a standing approval. **Never work around the approval gate** — surface it and let the user choose.
 
@@ -34,11 +33,11 @@ those first; do not duplicate them here.
      decision topic can conflict at merge. A D entry only touches its owning
      `docs/decisions/<topic>.md`; unrelated topics are not a shared file.
 4. Emit **waves**: independent roots with disjoint code file-sets run in parallel; dependency chains run internally sequential but in parallel with each other when their file-sets are disjoint. One plan = one PR.
-5. State the wave plan to the user before spawning (spawning N dev agents + opening N public PRs is outward-facing).
+5. State the wave plan to the user before spawning (spawning N subagents + opening N public PRs is outward-facing).
 
-## 2 — Delegate each plan to a `dev` subagent
+## 2 — Delegate each plan to a coding subagent
 
-One plan → one `dev` agent in a dedicated Git worktree. Codex agents share the
+One plan → one coding subagent in a dedicated Git worktree. Codex agents share the
 filesystem and do not receive an isolated worktree automatically: create each
 worktree before spawning, then include its absolute path in the mandate and
 require every command to run there. Never run two agents in the same working
@@ -46,7 +45,7 @@ copy. Branch worktrees from fresh `origin/main`, so each agent sees merged
 predecessors; start the next plan in a dependency chain only after the previous
 PR is merged.
 
-Spawn with `collaboration.spawn_agent`, `agent_type: "dev"`, and a complete,
+Spawn with `collaboration.spawn_agent` and a complete,
 self-contained mandate. Use the default model unless the user explicitly asks
 for another one. Independent worktrees may run concurrently within the
 available agent-slot limit.
