@@ -902,7 +902,8 @@ func TestApply_InstructionsSubagentSentenceReflectsThisClient(t *testing.T) {
 		wantNames bool
 	}{
 		{configurator.ProviderClaudeCode, true},
-		{configurator.ProviderKiro, false},
+		// kiro receives subagents since D195, so it gets the sentence too.
+		{configurator.ProviderKiro, true},
 		{configurator.ProviderAntigravity, true},
 	} {
 		t.Run(string(tc.provider), func(t *testing.T) {
@@ -924,6 +925,26 @@ func TestApply_InstructionsSubagentSentenceReflectsThisClient(t *testing.T) {
 	}
 }
 
+// TestApply_InstructionsSubagentSentenceAbsentWithoutAgents keeps D154's
+// invariant testable now that every provider with an instructions file also has
+// an agent destination (D195 gave Kiro one, which was the last exception): the
+// sentence describes what THIS client actually received, so a run that
+// installed no subagent must not tell the agent to delegate to any.
+func TestApply_InstructionsSubagentSentenceAbsentWithoutAgents(t *testing.T) {
+	kbRoot := makeKBWithArchives(t, map[string][]string{"entities": {"a.md"}})
+	m := agentManifest(t, kbRoot) // an agents/ directory with nothing in it
+	base := t.TempDir()
+	if _, err := provisioning.Apply(m, provisioning.ApplyOptions{
+		Provider: configurator.ProviderKiro, BaseDir: base,
+		Lock: provisioning.Lock{}, KBRoots: map[string]string{"homelab": kbRoot},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if body := instructionsBody(t, base, configurator.ProviderKiro); strings.Contains(body, "Subagents installed") {
+		t.Errorf("a KB with no agents produced a subagent sentence:\n%s", body)
+	}
+}
+
 // The per-artifact "unsupported" line only appears on a run where the artifact
 // enters the diff; afterwards the condition is invisible while the KB keeps
 // declaring artifacts that are silently not installed.
@@ -932,7 +953,7 @@ func TestApply_WarnsEveryRunAboutUnsupportedKinds(t *testing.T) {
 	m := agentManifest(t, kbRoot, "zorro")
 	base := t.TempDir()
 
-	first, err := provisioning.Apply(m, provisioning.ApplyOptions{Provider: configurator.ProviderKiro, BaseDir: base, Lock: provisioning.Lock{}, KBRoots: map[string]string{"homelab": kbRoot}})
+	first, err := provisioning.Apply(m, provisioning.ApplyOptions{Provider: configurator.ProviderHermes, BaseDir: base, Lock: provisioning.Lock{}, KBRoots: map[string]string{"homelab": kbRoot}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -948,7 +969,7 @@ func TestApply_WarnsEveryRunAboutUnsupportedKinds(t *testing.T) {
 		t.Fatalf("first run did not warn: %v", first.Warnings)
 	}
 	// Second run: nothing in the diff, and the warning must still be there.
-	second, err := provisioning.Apply(m, provisioning.ApplyOptions{Provider: configurator.ProviderKiro, BaseDir: base, Lock: first.NewLock, KBRoots: map[string]string{"homelab": kbRoot}})
+	second, err := provisioning.Apply(m, provisioning.ApplyOptions{Provider: configurator.ProviderHermes, BaseDir: base, Lock: first.NewLock, KBRoots: map[string]string{"homelab": kbRoot}})
 	if err != nil {
 		t.Fatal(err)
 	}

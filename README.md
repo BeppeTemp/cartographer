@@ -76,7 +76,7 @@ That single command writes, per client and in the format that client expects:
 | **MCP endpoint** | `~/.claude.json` | `~/opencode.json` | block in `~/.codex/config.toml` | `~/.kiro/settings/mcp.json` | `~/.gemini/config/mcp_config.json` | — |
 | **Instructions** | block in `~/.claude/CLAUDE.md` | block in `~/.config/opencode/AGENTS.md` | block in `~/.codex/AGENTS.md` | `~/.kiro/steering/cartographer.md` | block in `~/.gemini/GEMINI.md` | — |
 | **Skills** | `~/.claude/skills/` | `~/.opencode/skills/` | `~/.codex/skills/` | `~/.kiro/skills/` | `~/.gemini/config/skills/` | delivered to its inbox |
-| **Subagents** | `~/.claude/agents/*.md` | `~/.opencode/agent/*.md` | `~/.codex/agents/*.toml` | — | `~/.gemini/config/agents/*.md` | — |
+| **Subagents** | `~/.claude/agents/*.md` | `~/.opencode/agent/*.md` | `~/.codex/agents/*.toml` | `~/.kiro/agents/*.json` | `~/.gemini/config/agents/*.md` | — |
 | **Hooks** | `~/.claude/hooks/`, registered in `settings.json` | `~/.opencode/hooks/`, run by a generated JS plugin | `~/.codex/hooks/`, registered in `config.toml` | — | `~/.gemini/config/hooks/`, registered in `hooks.json` | — |
 | **Re-sync trigger** | `SessionStart` hook | `SessionStart` hook | `SessionStart` hook | scheduled timer | scheduled timer | scheduled timer |
 
@@ -87,11 +87,12 @@ plugin where a hook has no declarative equivalent.
 Every `—` is an `unsupported` cell **declared for a stated reason**, never a silent omission — and a
 cell missing from the table fails a test:
 
-- **kiro** — its hooks live inside an *agent* configuration and fire only for the agent that
-  declares them, so no hook Cartographer owns can fire for the agent the user actually runs; and its
-  agents are top-level personas you select yourself, not delegates a main agent can invoke. Kiro 3.0
-  changes both facts — standalone machine-wide hooks, and any custom agent invocable as a sub-agent
-  — and [#248](https://github.com/BeppeTemp/cartographer/issues/248) tracks the work.
+- **kiro** — it has **no hook mechanism at all** in the shipped client: neither the per-agent
+  `hooks` map of 2.20.0 nor the standalone `.kiro/hooks/*.json` the vendor documents, which requires
+  CLI 3.0 — still early access, with 2.21.x on the release channel. Verified empirically against
+  2.21.3: a hook in either location, with any documented trigger, never fires. Its re-sync trigger
+  stays the scheduled timer. Subagents, by contrast, work today: `~/.kiro/agents/<name>.json` is
+  discovered globally and the built-in agent delegates to it by description.
 - **hermes** — its MCP endpoints and its always-on instruction slot are rendered by its own Ansible
   role and recreated on the next playbook run, and it has no subagent directory and no hook engine.
   Skills are *delivered*, not installed: they land in an inbox with a generated `SOURCE.md` and the

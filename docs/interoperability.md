@@ -91,19 +91,46 @@ the citation lives next to it in `internal/provisioning/workspacescope.go`.
 |---|---|---|
 | Claude Code | `.claude/skills/`, `.claude/agents/`, `.claude/hooks/`, `.mcp.json`, `./CLAUDE.md` | [skills](https://code.claude.com/docs/en/skills), [memory](https://code.claude.com/docs/en/memory), [sub-agents](https://code.claude.com/docs/en/sub-agents), [hooks](https://code.claude.com/docs/en/hooks), [mcp](https://code.claude.com/docs/en/mcp) |
 | Codex | `.agents/skills`, `.codex/agents`, `.codex/hooks`, `.codex/config.toml`, `AGENTS.md` | [skills](https://developers.openai.com/codex/skills), [subagents](https://developers.openai.com/codex/subagents), [hooks](https://developers.openai.com/codex/hooks), [mcp](https://developers.openai.com/codex/mcp) |
-| Kiro | `.kiro/skills/`, `.kiro/steering/`, `.kiro/settings/mcp.json` | [skills](https://kiro.dev/docs/skills/) |
+| Kiro | `.kiro/skills/`, `.kiro/agents/`, `.kiro/steering/`, `.kiro/settings/mcp.json` | [skills](https://kiro.dev/docs/skills/), [custom agents](https://kiro.dev/docs/custom-agents/) |
 | OpenCode | `.opencode/skills`, `.opencode/agent`, `.opencode/hooks`, `opencode.json`, `AGENTS.md` | [skills](https://opencode.ai/docs/skills), [rules](https://opencode.ai/docs/rules), [agents](https://opencode.ai/docs/agents), [plugins](https://opencode.ai/docs/plugins) |
 | Hermes | **none** | its configuration is rendered by its own Ansible role and skills go to one inbox (D141) |
 | Antigravity | **none** | only a global configuration root is documented (D194) |
 
-Two consequences are worth stating plainly. Kiro keeps `unsupported` agent and
-hook cells in the project scope too, for the same D140 reason as globally —
-[#248](https://github.com/BeppeTemp/cartographer/issues/248) tracks whether Kiro
-3.0 changes it and is blocked on an empirical verification, so giving it a cell
-here would be shipping that finding without its evidence. And Codex ignores a
+Two consequences are worth stating plainly. Kiro receives subagents in both
+scopes since [D195](decisions/sync-provisioning.md#d195) but keeps an
+`unsupported` hook cell, because the shipped client has no hook mechanism at
+all. And Codex ignores a
 project's `.codex/` layer unless the project is **trusted**, which is the one
 case where writing the files correctly is not the same as the projection being
 active: `status` and `doctor` report it as `inactive` rather than installed.
+
+### Kiro hooks: documented, not shipped (D195)
+
+Kiro's documentation describes standalone hooks — `.kiro/hooks/*.json` with a
+`"version": "v1"` schema, and `~/.kiro/hooks/` firing in every workspace. The
+shipped client does not implement them. Verified on **Kiro CLI 2.21.3**,
+2026-09-11:
+
+- a hook in `~/.kiro/hooks/` **and** in the workspace's `.kiro/hooks/`, with
+  each of `AgentSpawn`, `SessionStart`, `PromptSubmit`, `UserPromptSubmit` and
+  `PreToolUse`, never fires — in a session that completes normally, with `--v3`;
+- the agent log never mentions hooks, the config `kiro-cli agent create` writes
+  has **no** `hooks` key, and the shipped agent binary contains no `.kiro/hooks`
+  path (it does contain `.kiro/agents`, `.kiro/skills`, `.kiro/steering`).
+
+The reason is in the vendor's own text: the v1 hook format was *"introduced in
+IDE 1.0 and **CLI 3.0**"*, and the [CLI changelog](https://kiro.dev/changelog/cli/)
+puts **3.0 in early access** with 2.21.x on the release channel. `kiro-cli --v3`
+launches the next-generation *agent*, which is not the same thing as CLI 3.0.
+
+The documentation also contradicts itself on the trigger names: the
+[migration page](https://kiro.dev/docs/cli/v3/hooks-migration/) lists
+`SessionStart` among the CLI triggers, while the
+[feature page](https://kiro.dev/docs/hooks/) marks `SessionStart` as IDE-only and
+`AgentSpawn` as CLI-only. D140 recorded the same pattern against 2.20.0.
+
+So Kiro's `hook` cell stays `unsupported` and its re-sync trigger stays the
+scheduled timer. Re-check when CLI 3.0 reaches the release channel.
 
 ### Instruction slots Cartographer deliberately does not write
 

@@ -1541,18 +1541,19 @@ func TestFilterForProviderRecomputesRevision(t *testing.T) {
 		{Kind: "skill", Name: "a", Source: "kb:one", ContentHash: "h1"},
 		{Kind: "agent", Name: "b", Source: "kb:one", ContentHash: "h2"},
 	})
-	// kiro supports skills but not agents (destinationMatrix), so its view is
-	// a strict subset and must carry a different revision.
-	kiro := provisioning.FilterForProvider(full, configurator.ProviderKiro)
+	// hermes supports skills but not agents (destinationMatrix), so its view is
+	// a strict subset and must carry a different revision. Kiro used to be the
+	// example here and stopped being one when D195 gave it an agent cell.
+	hermes := provisioning.FilterForProvider(full, configurator.ProviderHermes)
 	claude := provisioning.FilterForProvider(full, configurator.ProviderClaudeCode)
 
-	if kiro.Revision == full.Revision {
+	if hermes.Revision == full.Revision {
 		t.Error("a filtered manifest kept the unfiltered revision")
 	}
 	if claude.Revision != full.Revision {
 		t.Errorf("claude receives every artifact, so its revision must equal the full one: %q vs %q", claude.Revision, full.Revision)
 	}
-	if kiro.Revision == claude.Revision {
+	if hermes.Revision == claude.Revision {
 		t.Error("two providers with different views share a revision")
 	}
 }

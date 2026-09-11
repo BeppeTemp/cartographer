@@ -66,6 +66,13 @@ rename on one-to-many transitions. If the server cannot be reached, it leaves
 the MCP entries and `known_kbs` untouched and warns; run `sync` again once it is
 up.
 
+**Kiro subagents (D195).** Kiro receives KB subagents as JSON configs in
+`~/.kiro/agents/` (and `.kiro/agents/` in workspace scope), which `kiro-cli agent
+list` reports as Global/Workspace and the built-in agent delegates to through its
+`use_subagent` tool, selecting by `description`. Its `hook` cell stays
+unsupported — the shipped client has no hook mechanism, so its re-sync trigger
+remains the scheduled timer (`interoperability.md` §Kiro hooks).
+
 **Workspace scope (D193).** `cartographer workspace bind <provider> <path> --kb <name>…` moves a
 provider from one machine-wide catalogue to one projection per bound repository: the KBs land in
 that repository's own project-local directories and nothing KB-sourced is written under `$HOME` any
