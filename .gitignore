@@ -7,11 +7,12 @@
 migrated-kb/
 .claude/*
 !.claude/skills/
+.kiro/*
+!.kiro/skills/
 /data/kb/
 !/data/kb/.gitkeep
 .env
 age-key.txt
 .vscode/
 graphify-out/
-.claude/skills/deploy/
 dist/

@@ -78,7 +78,7 @@ internal/service/            # native per-user units: server (launchd/systemd) +
 Structural questions about the code (where does X live, who calls Y, what does Z depend on) are answered with targeted Grep/Explore, then reading only the indicated `file:line` locations.
 
 - the **why** lives in `docs/decisions/` (search the D/AD entry), current behavior in `docs/` (map in `docs/index.md`);
-- in mandates to `dev`/OpenCode include the `file:line` pointers already derived: the subagent should not re-explore from scratch.
+- in mandates to a coding subagent include the `file:line` pointers already derived: the subagent should not re-explore from scratch.
 
 ## Adding an MCP tool
 
@@ -92,7 +92,7 @@ Structural questions about the code (where does X live, who calls Y, what does Z
 ## Workflow and documentation
 
 - All changes land via PR: `main` is protected (required `test` check, squash-merge only, no direct pushes). Branch `feat/<slug>` → `gh pr create` → merge on green CI. PR titles are conventional commits (linted in CI): release-please computes the semver bump from them.
-- Isolable code may be delegated to a coding subagent (maintainer setup: `dev` agent, or OpenCode for mechanical work); the coordinator verifies `make vet && make test`.
+- Isolable code may be delegated to a coding subagent; the coordinator verifies `make vet && make test`.
 - Analysis/design and implementation often happen in separate sessions: the handoff is a **plan issue** — a self-contained GitHub issue from the `Plan` template, label `plan` (procedure and self-sufficiency test in `CONTRIBUTING.md` §Plan issues). The implementing session reads it with `gh issue view <n>` and the implementation PR closes it (`Closes #<n>`).
 - Server and client releases (release-please PR merge, pipeline, rollout, local client update) → maintainer-local tooling, not versioned here.
 - **Documentation is updated in the same session in which the code is changed — never afterward.** The "what changes → which file to update" table is in `docs/index.md` §Maintenance rules: use it for every change.

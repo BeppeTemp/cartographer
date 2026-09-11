@@ -686,8 +686,8 @@ func contentHashBytes(data []byte) string {
 	return fmt.Sprintf("%x", h)
 }
 
-// kbArchive is a top-level archive of a KB (a subdirectory of
-// <kbRoot>/data/ che contiene pagine concept .md), con il conteggio delle pagine.
+// kbArchive is a top-level archive of a KB (a subdirectory of <kbRoot>/data/
+// holding concept .md pages), with the count of those pages.
 type kbArchive struct {
 	name  string
 	pages int
