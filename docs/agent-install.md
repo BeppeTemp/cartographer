@@ -139,7 +139,9 @@ instructions installed, report it: a provider precedence rule Cartographer does 
 
 `connect` provisioned the bundled skills, including `cartographer-ops`. Use that skill for ongoing
 operations, diagnosis, upgrades, and synchronization after installation. From there the bundled
-`kb-create` and `kb-import` skills cover authoring the KB's own content and artifacts.
+`kb-create` and `kb-import` skills take over: `kb-create/references/artifacts.md` for authoring the
+KB's skills, subagents, hooks and MCP descriptors, and `kb-create/references/secrets.md` for the
+SOPS encryption flow.
 
 ## 6. Tell the user to restart their agent session
 

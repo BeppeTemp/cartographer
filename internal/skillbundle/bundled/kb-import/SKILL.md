@@ -1,7 +1,7 @@
 ---
 name: kb-import
 description: Agent-guided procedure to import an existing non-OKF wiki or knowledge base (Obsidian vault, markdown folder, wiki export) into a Cartographer KB, incrementally and without big-bang LLM rewriting.
-version: "1.0"
+version: "1.1"
 ---
 # KB Import — Skill
 
@@ -26,8 +26,20 @@ style (`[[wiki]]` vs `[text](path.md)`), presence/shape of existing frontmatter,
 non-content (assets, templates, daily notes, trash). Produce a short summary for the operator.
 
 > **Secrets check.** Grep the source for credentials/PII (`password`, `token`, `BEGIN.*KEY`,
-> etc.) **before** anything is written to a KB that will be pushed. Anything found is excluded
-> or moved to the SOPS flow — git history is forever.
+> etc.) **before** anything is written to a KB that will be pushed — git history is forever, so
+> this check comes before any write and stays first. For each finding, decide explicitly between
+> two outcomes and record the choice with the operator:
+>
+> 1. **Exclude** the file (or strip the value) from the import — the default for anything that is
+>    not a credential the KB needs to resolve;
+> 2. **Move the value into an encrypted file** and leave the concept referencing it via
+>    `secret_refs`. The full procedure — age key, root `.sops.yaml` creation rules, the first
+>    encrypted file, the `Service` concept — is the `kb-create` skill's
+>    `references/secrets.md`. Cartographer performs none of the operator-side steps.
+>
+> If the corpus carries a `.sops.yaml` or `*.sops.yaml` of its own, do **not** merge it blindly
+> into the target KB's rules: the recipients must be reconciled deliberately, because a wrong
+> merge silently produces files nobody on the team can decrypt.
 
 ### 2. Mapping plan — human checkpoint
 Propose, and get the operator's explicit approval on:
@@ -79,10 +91,18 @@ backlog resumable by any future session — resist finishing it in one go.
 When `lint` reports no `imported_draft` in the imported scope, the import is complete: final
 full `lint`, `log_append` with the closing summary.
 
+An imported corpus usually needs **artifacts** of its own — the skills, subagents and hooks that
+configure the agents reading it, which no import scaffold can synthesize. Once the curation queue is
+drained, `references/artifacts.md` in the `kb-create` skill is the procedure. For the operational
+aftermath — connecting clients, syncing, diagnosing drift, upgrades — use the `cartographer-ops`
+skill.
+
 ## Reference
 
 - Tools: `atlas_overview`, `map_create`, `concept_expand`, `concept_read`, `concept_write`,
   `concept_patch`, `concept_move`, `concept_list`, `supersede`, `lint`, `search`, `log_append`.
-- CLI: `cartographer import` (see D74 WP2), `kb-create` skill for a brand-new target KB.
+- CLI: `cartographer import` (see D74 WP2), `kb-create` skill for a brand-new target KB,
+  for authoring artifacts (`references/artifacts.md`) and for the SOPS flow
+  (`references/secrets.md`); `cartographer-ops` for operations after the import.
 - Rationale and scope: `docs/decisions/data-plane.md` D74 (import), D28 (why no server-side ingest), D72
   (wiki-links, `concept_move` batch).
