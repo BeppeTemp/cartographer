@@ -66,12 +66,27 @@ rename on one-to-many transitions. If the server cannot be reached, it leaves
 the MCP entries and `known_kbs` untouched and warns; run `sync` again once it is
 up.
 
+**Routed servers (D187).** When `/health` reports `mount_mode: routed`, the KB is no longer part of
+the URL: the client writes **one** entry, `<server_name>`, pointed at the path the server names in
+`routed_path` (`/mcp/routed`), whatever the provider is bound to. The binding still decides which
+KBs that provider may use — routing changes the transport, not the authorization — and the
+generated instructions block names the `kb` value each KB's tools must be called with. Both facts
+are persisted in `.cartographer.yaml` (`server_mount_mode`, `server_routed_path`) so `doctor` and
+`status` can derive the expected entries offline.
+
+Switching an existing deployment between the two modes is a **reconnect**, not a silent rewrite: it
+changes the *shape* of every entry, which an incremental sync cannot see. `cartographer status`
+reports `mount mode changed: …` and names `cartographer reconnect`, the same answer D142 gives to a
+server-version change. The removal set covers both shapes, so a reconnect leaves no orphan entry
+from the previous mode.
+
 **Kiro and flat tool namespaces (D102).** Kiro's MCP tool namespace is flat across servers, unlike
 Claude Code/Codex/OpenCode which namespace per server: writing 2+ MCP entries for `kiro` (i.e.
 connecting to a 2+-KB server) leaves only one KB's tools reachable in a Kiro session unless the
 *server* mounts the others with a `tool_prefix` (`docs/deployment.md` §MCP tool-name prefix, D102).
 `connect`/`sync` warn on stderr in that case; the operator is expected to add
-`tool_prefix`/`tool_prefix_mode` server-side. Since D120 `/health` advertises each KB's effective
+`tool_prefix`/`tool_prefix_mode` server-side. The warning stays **silent against a routed server**:
+one entry cannot collide with itself, and routing is the other answer to the same problem. Since D120 `/health` advertises each KB's effective
 `tool_prefix`, so the client can see which KBs are already namespaced instead of reasoning from the
 precondition alone.
 

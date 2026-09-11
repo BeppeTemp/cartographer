@@ -129,8 +129,16 @@ func runSync(dir string, cfg *clientconfig.Config, opts syncOptions) (syncResult
 		if !facts.Listed {
 			entryKBs = nil
 		}
+		// D187: the live topology wins over the persisted one, and is persisted
+		// with the rest of the server-owned cache below.
+		routedPath := facts.RoutedPath
+		cfg.ServerRoutedPath = routedPath
+		cfg.ServerMountMode = ""
+		if routedPath != "" {
+			cfg.ServerMountMode = "routed"
+		}
 		var err error
-		entriesByProvider, err = entriesByProviderForKBs(cfg, targets, cfg.ServerName, cfg.ServerURL, entryKBs)
+		entriesByProvider, err = entriesByProviderForKBs(cfg, targets, cfg.ServerName, cfg.ServerURL, entryKBs, routedPath)
 		if err != nil {
 			return syncResult{}, err
 		}

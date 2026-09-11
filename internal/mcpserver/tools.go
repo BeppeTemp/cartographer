@@ -20,6 +20,12 @@ type Deps struct {
 	BundleFS       fs.FS              // nil → no bundled skills
 	ArtifactSigner ed25519.PrivateKey // nil → KB artifacts remain unsigned
 	MCPAllowlist   []provisioning.MCPAllowlistEntry
+	// RoutedMount says this server's KBs are reachable through the single
+	// routed endpoint (D187). It reaches the generated instructions block, the
+	// part the model actually reads, so the imprinting names the bare tools and
+	// the `kb` value to pass — a wrong name there is worse than the duplication
+	// routing removes.
+	RoutedMount bool
 }
 
 // RegisterKBTools registers all KB tools on the server, including search,
@@ -138,9 +144,9 @@ func RegisterKBTools(s *Server, k *kb.KB, deps Deps) {
 		register(toolSkillListWithBundle(k, deps.BundleFS))
 		register(gitWrap(k, toolSkillInstall(k, deps.BundleFS)))
 		toolPrefix := s.ToolNamePrefix()
-		register(toolSyncCheck(k, deps.BundleFS, toolPrefix, deps.ArtifactSigner, deps.MCPAllowlist))
-		register(toolSyncApply(k, deps.BundleFS, toolPrefix, deps.ArtifactSigner, deps.MCPAllowlist))
-		register(toolSyncPull(k, deps.BundleFS, toolPrefix, deps.ArtifactSigner, deps.MCPAllowlist))
+		register(toolSyncCheck(k, deps.BundleFS, toolPrefix, deps.RoutedMount, deps.ArtifactSigner, deps.MCPAllowlist))
+		register(toolSyncApply(k, deps.BundleFS, toolPrefix, deps.RoutedMount, deps.ArtifactSigner, deps.MCPAllowlist))
+		register(toolSyncPull(k, deps.BundleFS, toolPrefix, deps.RoutedMount, deps.ArtifactSigner, deps.MCPAllowlist))
 	} else {
 		register(toolSkillList(k))
 	}

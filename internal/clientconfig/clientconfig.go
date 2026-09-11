@@ -36,6 +36,17 @@ type Config struct {
 	// longer written by Save.
 	KnownKBs []string `yaml:"known_kbs,omitempty"`
 
+	// ServerMountMode records the mount topology the server advertised at the
+	// last successful connect/sync (D187): "routed" when it serves every KB
+	// through one endpoint with the KB as a tool argument, empty for the
+	// historical one-endpoint-per-KB topology. SERVER-owned, like KnownKBs.
+	// ServerRoutedPath is that endpoint's path as the *server* named it, so the
+	// client never assumes it. Both are what lets `doctor` and `status` derive
+	// the expected MCP entries without reaching the network, and what lets
+	// `status` report a mode change rather than silently healing it.
+	ServerMountMode  string `yaml:"server_mount_mode,omitempty"`
+	ServerRoutedPath string `yaml:"server_routed_path,omitempty"`
+
 	// Clients is the per-provider KB binding (D169): which KBs each connected
 	// provider may receive. USER-owned — never written by connect/sync.
 	// Always resolve it through BoundKBs, never by reading the map directly:
@@ -107,20 +118,22 @@ type ClientBinding struct {
 // pre-D169 client. KBs itself is read-only — Save never emits it again, so the
 // first write after the upgrade completes the migration.
 type yamlConfig struct {
-	ServerURL    string                            `yaml:"server_url"`
-	ServerName   string                            `yaml:"server_name"`
-	Auth         bool                              `yaml:"auth"`
-	TokenEnv     string                            `yaml:"token_env"`
-	Agents       []string                          `yaml:"agents"`
-	KBs          []string                          `yaml:"kbs,omitempty"`
-	KnownKBs     *[]string                         `yaml:"known_kbs,omitempty"`
-	Clients      map[string]ClientBinding          `yaml:"clients,omitempty"`
-	Trust        *bool                             `yaml:"trust,omitempty"`
-	SearchRoots  []string                          `yaml:"search_roots,omitempty"`
-	SearchDepth  int                               `yaml:"search_depth,omitempty"`
-	Paths        map[string]string                 `yaml:"paths,omitempty"`
-	SigningKeys  map[string][]string               `yaml:"signing_keys,omitempty"`
-	MCPApprovals map[string]map[string]MCPApproval `yaml:"mcp_approvals,omitempty"`
+	ServerURL        string                            `yaml:"server_url"`
+	ServerName       string                            `yaml:"server_name"`
+	Auth             bool                              `yaml:"auth"`
+	TokenEnv         string                            `yaml:"token_env"`
+	Agents           []string                          `yaml:"agents"`
+	KBs              []string                          `yaml:"kbs,omitempty"`
+	KnownKBs         *[]string                         `yaml:"known_kbs,omitempty"`
+	ServerMountMode  string                            `yaml:"server_mount_mode,omitempty"`
+	ServerRoutedPath string                            `yaml:"server_routed_path,omitempty"`
+	Clients          map[string]ClientBinding          `yaml:"clients,omitempty"`
+	Trust            *bool                             `yaml:"trust,omitempty"`
+	SearchRoots      []string                          `yaml:"search_roots,omitempty"`
+	SearchDepth      int                               `yaml:"search_depth,omitempty"`
+	Paths            map[string]string                 `yaml:"paths,omitempty"`
+	SigningKeys      map[string][]string               `yaml:"signing_keys,omitempty"`
+	MCPApprovals     map[string]map[string]MCPApproval `yaml:"mcp_approvals,omitempty"`
 }
 
 // Default returns a Config with the same defaults as configurator.DefaultConfig.
@@ -177,20 +190,22 @@ func Load(dir string) (*Config, error) {
 		delete(extra, key)
 	}
 	cfg := Config{
-		ServerURL:    y.ServerURL,
-		ServerName:   y.ServerName,
-		Auth:         y.Auth,
-		TokenEnv:     y.TokenEnv,
-		Agents:       y.Agents,
-		KnownKBs:     y.KBs, // legacy alias; overridden below when known_kbs is present
-		Clients:      y.Clients,
-		Trust:        true, // absent `trust` key defaults to true, see yamlConfig doc
-		SearchRoots:  y.SearchRoots,
-		SearchDepth:  y.SearchDepth,
-		Paths:        y.Paths,
-		SigningKeys:  y.SigningKeys,
-		MCPApprovals: y.MCPApprovals,
-		Extra:        extra,
+		ServerURL:        y.ServerURL,
+		ServerName:       y.ServerName,
+		Auth:             y.Auth,
+		TokenEnv:         y.TokenEnv,
+		Agents:           y.Agents,
+		KnownKBs:         y.KBs, // legacy alias; overridden below when known_kbs is present
+		ServerMountMode:  y.ServerMountMode,
+		ServerRoutedPath: y.ServerRoutedPath,
+		Clients:          y.Clients,
+		Trust:            true, // absent `trust` key defaults to true, see yamlConfig doc
+		SearchRoots:      y.SearchRoots,
+		SearchDepth:      y.SearchDepth,
+		Paths:            y.Paths,
+		SigningKeys:      y.SigningKeys,
+		MCPApprovals:     y.MCPApprovals,
+		Extra:            extra,
 	}
 	if y.KnownKBs != nil {
 		// Present — including present and empty — always wins over the legacy
@@ -214,19 +229,21 @@ func Save(dir string, cfg *Config) error {
 		return fmt.Errorf("clientconfig: mkdir %s: %w", dir, err)
 	}
 	y := yamlConfig{
-		ServerURL:    cfg.ServerURL,
-		ServerName:   cfg.ServerName,
-		Auth:         cfg.Auth,
-		TokenEnv:     cfg.TokenEnv,
-		Agents:       cfg.Agents,
-		KnownKBs:     &cfg.KnownKBs, // always emitted; the legacy `kbs` key is not written again (D169)
-		Clients:      cfg.Clients,
-		Trust:        &cfg.Trust,
-		SearchRoots:  cfg.SearchRoots,
-		SearchDepth:  cfg.SearchDepth,
-		Paths:        cfg.Paths,
-		SigningKeys:  cfg.SigningKeys,
-		MCPApprovals: cfg.MCPApprovals,
+		ServerURL:        cfg.ServerURL,
+		ServerName:       cfg.ServerName,
+		Auth:             cfg.Auth,
+		TokenEnv:         cfg.TokenEnv,
+		Agents:           cfg.Agents,
+		KnownKBs:         &cfg.KnownKBs, // always emitted; the legacy `kbs` key is not written again (D169)
+		ServerMountMode:  cfg.ServerMountMode,
+		ServerRoutedPath: cfg.ServerRoutedPath,
+		Clients:          cfg.Clients,
+		Trust:            &cfg.Trust,
+		SearchRoots:      cfg.SearchRoots,
+		SearchDepth:      cfg.SearchDepth,
+		Paths:            cfg.Paths,
+		SigningKeys:      cfg.SigningKeys,
+		MCPApprovals:     cfg.MCPApprovals,
 	}
 	data, err := yaml.Marshal(&y)
 	if err != nil {

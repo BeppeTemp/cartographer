@@ -305,7 +305,7 @@ func hasConnectedAgent(rows []dashboardAgent) bool {
 // bound is the provider's own KB binding (D170): the expected entry set is its
 // own, not the machine's. mounted decides the entry shape.
 func mcpConfigStatus(dir string, provider configurator.Provider, serverName string, mounted, bound []string) mcpConfigState {
-	entries, err := entriesForKBs(serverName, "http://placeholder", mounted, bound)
+	entries, err := entriesForKBs(serverName, "http://placeholder", mounted, bound, "")
 	if err != nil || len(entries) == 0 {
 		return mcpConfigMissing
 	}

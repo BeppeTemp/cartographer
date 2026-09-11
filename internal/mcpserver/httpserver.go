@@ -159,6 +159,15 @@ type MultiKBServer struct {
 	servers map[string]*Server // one MCP server per KB
 	kbs     []KBInfo
 	version string
+	// routed is the optional single endpoint advertising the union of the
+	// mounted KBs' tools once, with the KB as a tool argument (D187). Nil —
+	// the default — means only the per-KB endpoints are served. See
+	// routedmount.go.
+	routed *Server
+	// routedNames are the KB names the routed mount serves, in deterministic
+	// order, used to decide whether `kb` may be omitted and to name them in
+	// the error when it may not.
+	routedNames []string
 }
 
 // readiness folds every mounted KB's audit state into one verdict, and returns
@@ -315,6 +324,14 @@ func (m *MultiKBServer) Handler() http.Handler {
 				"kbs":     kbs,
 				"ready":   ready,
 			}
+			// D187: the client needs to know the mount topology before it
+			// writes a single MCP entry, and /health is the probe it already
+			// performs first. Emitted only when routing is on, so an older
+			// client and a per-KB server stay byte-identical.
+			if m.routed != nil {
+				result["mount_mode"] = "routed"
+				result["routed_path"] = RoutedMountPath
+			}
 			json.NewEncoder(w).Encode(result)
 			return
 
@@ -374,6 +391,21 @@ func (m *MultiKBServer) Handler() http.Handler {
 				result["overflow"] = overflow
 			}
 			json.NewEncoder(w).Encode(result)
+			return
+
+		// D187: the routed mount. The KB travels in the tool arguments here, so
+		// a ?kb= on this URL is a second channel for the same choice — refused
+		// rather than silently preferred, the same rule /mcp/<name> already
+		// applies to a conflicting ?kb=. The guard is on m.routed, not on the
+		// path alone: with no routed mount enabled the path falls through to
+		// /mcp/<name>, so a KB that happens to be named "routed" keeps its own
+		// endpoint instead of being shadowed by a mode nobody turned on.
+		case r.URL.Path == RoutedMountPath && m.routed != nil:
+			if r.URL.Query().Get("kb") != "" {
+				http.Error(w, "conflicting kb selection: the routed mount takes the KB as a tool argument, not as a query parameter", http.StatusBadRequest)
+				return
+			}
+			m.routed.handleMCP(w, r)
 			return
 
 		case r.URL.Path == "/mcp":

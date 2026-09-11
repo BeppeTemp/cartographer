@@ -697,7 +697,20 @@ func doConnect(opts connectOptions) (connectResult, error) {
 	if healthErr != nil || !facts.Listed {
 		entryKBs = nil
 	}
-	entriesByProvider, err := entriesByProviderForKBs(existing, opts.Providers, opts.Name, opts.ServerURL, entryKBs)
+	// D187: a routed server collapses the entry set to one, whatever the
+	// binding says — the KB travels in each tool call now, not in the URL. A
+	// server that is unreachable keeps the historical shape: routing is only
+	// ever asserted from evidence.
+	routedPath := ""
+	if healthErr == nil {
+		routedPath = facts.RoutedPath
+	}
+	existing.ServerRoutedPath = routedPath
+	existing.ServerMountMode = ""
+	if routedPath != "" {
+		existing.ServerMountMode = "routed"
+	}
+	entriesByProvider, err := entriesByProviderForKBs(existing, opts.Providers, opts.Name, opts.ServerURL, entryKBs, routedPath)
 	if err != nil {
 		return connectResult{}, err
 	}
@@ -708,8 +721,13 @@ func doConnect(opts connectOptions) (connectResult, error) {
 	if err != nil {
 		return connectResult{}, err
 	}
-	if w := kiroFlatNamespaceWarning(opts.Providers, entriesByProvider, effectiveToolPrefixes(facts, healthErr), healthErr); w != "" {
-		configWarnings = append(configWarnings, w)
+	// A routed server writes one entry per provider, and one entry cannot
+	// collide with itself: the flat-namespace warning (D102) has nothing to
+	// warn about and firing it would be noise.
+	if routedPath == "" {
+		if w := kiroFlatNamespaceWarning(opts.Providers, entriesByProvider, effectiveToolPrefixes(facts, healthErr), healthErr); w != "" {
+			configWarnings = append(configWarnings, w)
+		}
 	}
 
 	// 1b. Ensure the bootstrap hook (D60): purely local, independent of the

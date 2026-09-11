@@ -112,6 +112,21 @@ both mounted unprefixed and asserts the D144 startup warning names them, while
 `tools/list` stays unchanged on both endpoints: the warning is a diagnostic,
 never an implicit prefix.
 
+**The routed mount is asserted on the wire, not only in Go.** `17_routed_multikb`
+starts a real three-KB server with `mcp.mount_mode: routed` and drives it with
+`curl`: `/health` must advertise `mount_mode` and `routed_path`, `/mcp/routed`
+must list each tool exactly once with a `kb` argument and in far fewer bytes than
+the per-KB mounts summed, a call must reach the KB it names, a call without `kb`
+must be refused **naming the mounted KBs**, and `?kb=` on that URL must be `400`.
+It then asserts the additive promise from the other side — the per-KB endpoints
+still answer and their `tools/list` has gained no `kb` argument — and that
+`connect` writes exactly **one** MCP entry, pointed at `/mcp/routed`.
+
+The scenario earns its keep: it is what caught that D153's derived `kb-name`
+prefix, which nobody configures explicitly, was making the routed mode fail at
+startup out of the box. No Go test could see it, because the defect lived in the
+wiring between the config default and the mount, not in either.
+
 ### Packaging (`install.sh` and the generated Cask)
 
 `make test-install` runs the network-free suite under `test/install/` plus

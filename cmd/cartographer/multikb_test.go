@@ -185,7 +185,7 @@ func TestDoConnect_Kiro_MultiKB_WarnsFlatNamespace(t *testing.T) {
 }
 
 func TestEntriesForKBs_SingleStaysBare(t *testing.T) {
-	entries, err := entriesForKBs("wiki", "https://example.test/mcp", []string{"only"}, []string{"only"})
+	entries, err := entriesForKBs("wiki", "https://example.test/mcp", []string{"only"}, []string{"only"}, "")
 	if err != nil || len(entries) != 1 || entries[0].Name != "wiki" || entries[0].URL != "https://example.test/mcp" {
 		t.Fatalf("entriesForKBs = %+v, %v; want one bare entry", entries, err)
 	}
@@ -217,7 +217,7 @@ func TestDoConnect_SingleKB_BareEntry_AllProviders(t *testing.T) {
 
 func TestRemoveMCPEntries_RemovesEveryManagedEntry(t *testing.T) {
 	dir := t.TempDir()
-	entries, err := entriesForKBs("wiki", "https://example.test/mcp", []string{"a", "b"}, []string{"a", "b"})
+	entries, err := entriesForKBs("wiki", "https://example.test/mcp", []string{"a", "b"}, []string{"a", "b"}, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -250,7 +250,7 @@ func TestCmdSync_ReconcilesOneToManyAndBack(t *testing.T) {
 	if err := clientconfig.Save(dir, cfg); err != nil {
 		t.Fatal(err)
 	}
-	bare, _ := entriesForKBs("wiki", cfg.ServerURL, cfg.KnownKBs, cfg.KnownKBs)
+	bare, _ := entriesForKBs("wiki", cfg.ServerURL, cfg.KnownKBs, cfg.KnownKBs, "")
 	if _, _, err := applyMCPEntries(sameEntriesFor(cfg.Agents, bare), cfg.Agents, dir, false, "", false); err != nil {
 		t.Fatal(err)
 	}
@@ -290,7 +290,7 @@ func TestDoDisconnect_RemovesPersistedPerKBEntries(t *testing.T) {
 	if err := clientconfig.Save(dir, cfg); err != nil {
 		t.Fatal(err)
 	}
-	entries, _ := entriesForKBs("wiki", cfg.ServerURL, cfg.KnownKBs, cfg.KnownKBs)
+	entries, _ := entriesForKBs("wiki", cfg.ServerURL, cfg.KnownKBs, cfg.KnownKBs, "")
 	if _, _, err := applyMCPEntries(sameEntriesFor(cfg.Agents, entries), cfg.Agents, dir, false, "", false); err != nil {
 		t.Fatal(err)
 	}
@@ -313,7 +313,7 @@ func TestCmdSync_ServerDownKeepsMCPEntriesAndKBs(t *testing.T) {
 	if err := clientconfig.Save(dir, cfg); err != nil {
 		t.Fatal(err)
 	}
-	entries, _ := entriesForKBs("wiki", cfg.ServerURL, cfg.KnownKBs, cfg.KnownKBs)
+	entries, _ := entriesForKBs("wiki", cfg.ServerURL, cfg.KnownKBs, cfg.KnownKBs, "")
 	if _, _, err := applyMCPEntries(sameEntriesFor(cfg.Agents, entries), cfg.Agents, dir, false, "", false); err != nil {
 		t.Fatal(err)
 	}
@@ -538,7 +538,7 @@ func TestEntriesForKBs_ShapeFromServerSetFromBinding(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			entries, err := entriesForKBs("wiki", "https://example.test/mcp", tc.mounted, tc.bound)
+			entries, err := entriesForKBs("wiki", "https://example.test/mcp", tc.mounted, tc.bound, "")
 			if err != nil {
 				t.Fatalf("entriesForKBs: %v", err)
 			}
@@ -565,7 +565,7 @@ func TestEntriesByProviderForKBs_EmptyBindingGetsNoEntry(t *testing.T) {
 			"codex":  {KBs: []string{"a"}},
 		},
 	}
-	byProvider, err := entriesByProviderForKBs(cfg, cfg.Agents, "wiki", "https://example.test/mcp", cfg.KnownKBs)
+	byProvider, err := entriesByProviderForKBs(cfg, cfg.Agents, "wiki", "https://example.test/mcp", cfg.KnownKBs, "")
 	if err != nil {
 		t.Fatalf("entriesByProviderForKBs: %v", err)
 	}
@@ -781,5 +781,60 @@ func TestDoConnect_UnknownKB_FailsBeforeAnyWrite(t *testing.T) {
 	}
 	if len(entries) != 0 {
 		t.Errorf("a rejected selection must write nothing, found %d entries", len(entries))
+	}
+}
+
+// TestEntriesForKBs_Routed_OneEntry is D187's client-side acceptance: a server
+// with three KBs produces ONE MCP entry, pointing at the routed endpoint, with
+// no ?kb= in the URL — the KB now travels in each tool call.
+func TestEntriesForKBs_Routed_OneEntry(t *testing.T) {
+	entries, err := entriesForKBs("wiki", "https://example.test/mcp", []string{"a", "b", "c"}, []string{"a", "b", "c"}, "/mcp/routed")
+	if err != nil {
+		t.Fatalf("entriesForKBs: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("routed server produced %d entries, want 1: %+v", len(entries), entries)
+	}
+	if entries[0].Name != "wiki" {
+		t.Errorf("entry name = %q, want the bare server name", entries[0].Name)
+	}
+	if !strings.HasSuffix(entries[0].URL, "/mcp/routed") {
+		t.Errorf("entry URL = %q, want the routed path", entries[0].URL)
+	}
+	if strings.Contains(entries[0].URL, "kb=") {
+		t.Errorf("entry URL carries a kb selector: %q", entries[0].URL)
+	}
+}
+
+// TestEntriesForKBs_Routed_NarrowBindingStillOneEntry: routing changes the
+// transport, not the authorization. A provider bound to one of three KBs still
+// gets the single routed entry — what it may *use* is the binding's business,
+// enforced during sync, not the entry set's.
+func TestEntriesForKBs_Routed_NarrowBindingStillOneEntry(t *testing.T) {
+	entries, err := entriesForKBs("wiki", "https://example.test/mcp", []string{"a", "b", "c"}, []string{"b"}, "/mcp/routed")
+	if err != nil {
+		t.Fatalf("entriesForKBs: %v", err)
+	}
+	if len(entries) != 1 || entries[0].Name != "wiki" {
+		t.Fatalf("entries = %+v, want the single routed entry", entries)
+	}
+}
+
+// TestManagedEntryNames_CoversModeSwitch: switching a deployment between the
+// two topologies must not leave orphan entries behind. The removal set has to
+// name both shapes, because a reconnect removes what the client owned before
+// it writes what it owns now.
+func TestManagedEntryNames_CoversModeSwitch(t *testing.T) {
+	names := managedEntryNames("wiki", []string{"a", "b"})
+	want := map[string]bool{"wiki": false, "wiki-a": false, "wiki-b": false}
+	for _, n := range names {
+		if _, ok := want[n]; ok {
+			want[n] = true
+		}
+	}
+	for n, seen := range want {
+		if !seen {
+			t.Errorf("managedEntryNames does not cover %q: a %s entry would survive a mode switch", n, n)
+		}
 	}
 }

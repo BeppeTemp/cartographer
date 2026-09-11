@@ -50,6 +50,25 @@ kbs:
                                    # mcp.tool_prefix_mode below. See docs/deployment.md
                                    # §MCP tool-name prefix.
 mcp:
+  # mount_mode: "per-kb"           # (D187) per-kb (default) | routed — how a multi-KB HTTP
+                                   # server exposes its tools. per-kb mounts one MCP server
+                                   # per KB, each advertising its own full copy of the tool
+                                   # schemas: a client using N KBs writes N server entries
+                                   # and pays N copies of the schemas in its fixed context,
+                                   # on every model round-trip (measured: 82,341 bytes for
+                                   # three KBs, two thirds of it duplicate).
+                                   # routed additionally serves /mcp/routed: one endpoint
+                                   # advertising the union of the tools exactly once, with
+                                   # the target KB travelling as a `kb` tool argument —
+                                   # required whenever 2+ KBs are routed, and never
+                                   # inferred. The per-KB endpoints (?kb= and /mcp/<name>)
+                                   # keep working unchanged in both modes: routing is an
+                                   # addition, not a replacement, so nothing changes for an
+                                   # existing deployment until this key is set.
+                                   # A KB that sets tool_prefix cannot be routed — the two
+                                   # are alternative answers to the same problem, and the
+                                   # combination is a fatal config error at startup.
+                                   # See docs/transport-auth.md §Mount modes.
   # tool_prefix_mode: "kb-name"    # (D102, default flipped in D153) kb-name (default) | off
                                    # global default applied to every KB above that doesn't
                                    # set its own tool_prefix; kb-name derives the prefix

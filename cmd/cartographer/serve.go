@@ -52,6 +52,7 @@ func cmdServe(args []string) int {
 	gitSyncFlag := fs.Bool("git-sync", true, "Fetch+pull before and push after each write when a remote is configured (default true; or CARTOGRAPHER_GIT_SYNC=false to disable)")
 	configFlag := fs.String("config", "", "Path to a YAML config file (or CARTOGRAPHER_CONFIG)")
 	toolsProfileFlag := fs.String("tools-profile", "", "Tools advertised by tools/list: 'agent' (default, core set) or 'full' (or CARTOGRAPHER_TOOLS_PROFILE)")
+	mountModeFlag := fs.String("mount-mode", "", "Multi-KB HTTP mount topology: 'per-kb' (default, one endpoint per KB) or 'routed' (one endpoint, kb as a tool argument) (or CARTOGRAPHER_MCP_MOUNT_MODE)")
 	fs.Parse(args)
 
 	cfg, err := loadServeConfig(fs, config.FlagOverrides{
@@ -63,6 +64,7 @@ func cmdServe(args []string) int {
 		GitAutocommit: gitAutoCommitFlag,
 		GitSync:       gitSyncFlag,
 		ToolsProfile:  toolsProfileFlag,
+		MountMode:     mountModeFlag,
 	}, *configFlag)
 	if err != nil {
 		log.Fatal(err)
@@ -111,6 +113,8 @@ func loadServeConfig(fs *flag.FlagSet, overrides config.FlagOverrides, configFla
 			explicit.GitSync = overrides.GitSync
 		case "tools-profile":
 			explicit.ToolsProfile = overrides.ToolsProfile
+		case "mount-mode":
+			explicit.MountMode = overrides.MountMode
 		}
 	})
 	config.ApplyFlags(cfg, explicit)
@@ -326,6 +330,16 @@ func runServe(cfg *config.Config) {
 		if len(mounts) == 1 {
 			prefixMode = "off"
 		}
+		// A routed mount (D187) exposes one copy of the tools on one endpoint,
+		// so there is no flat namespace left to disambiguate and a *derived*
+		// prefix would only re-inflate the names routing exists to shrink. The
+		// D153 default is therefore not applied here — the operator never asked
+		// for it. An explicit kbs[].tool_prefix survives this override and is
+		// refused by EnableRoutedMount, because that one the operator did ask
+		// for and the two requests contradict each other.
+		if cfg.MCP.MountMode == config.MountModeRouted {
+			prefixMode = "off"
+		}
 		toolPrefix, err := config.ResolveToolPrefix(m.Spec, prefixMode, name)
 		if err != nil {
 			log.Fatal(err)
@@ -411,7 +425,7 @@ func runServe(cfg *config.Config) {
 	}
 
 	if cfg.HTTP != "" {
-		serveHTTP(cfg.HTTP, kbs, kbNames, kbToolPrefixes, kbArtifactSigners, kbMCPAllowlists, cfg.Auth, cfg.MCP.AllowedOrigins, cfg.ToolsProfile, sqlIdxs, auditLog)
+		serveHTTP(cfg.HTTP, kbs, kbNames, kbToolPrefixes, kbArtifactSigners, kbMCPAllowlists, cfg.Auth, cfg.MCP.AllowedOrigins, cfg.ToolsProfile, cfg.MCP.MountMode, sqlIdxs, auditLog)
 	} else {
 		serveStdio(kbs[0], kbArtifactSigners[0], kbMCPAllowlists[0], cfg.ToolsProfile, sqlIdxs, auditLog)
 	}
@@ -442,7 +456,7 @@ func serveStdio(k *kb.KB, artifactSigner ed25519.PrivateKey, allowlist []provisi
 	}
 }
 
-func serveHTTP(addr string, kbs []*kb.KB, names []string, toolPrefixes []string, artifactSigners []ed25519.PrivateKey, allowlists [][]provisioning.MCPAllowlistEntry, authCfg config.AuthConfig, allowedOrigins []string, toolsProfile string, sqlIdxs map[string]*sqlindex.Index, auditLog *audit.Log) {
+func serveHTTP(addr string, kbs []*kb.KB, names []string, toolPrefixes []string, artifactSigners []ed25519.PrivateKey, allowlists [][]provisioning.MCPAllowlistEntry, authCfg config.AuthConfig, allowedOrigins []string, toolsProfile, mountMode string, sqlIdxs map[string]*sqlindex.Index, auditLog *audit.Log) {
 	if auditLog != nil {
 		log.Printf("audit log active")
 	}
@@ -483,7 +497,7 @@ func serveHTTP(addr string, kbs []*kb.KB, names []string, toolPrefixes []string,
 				s.SetDisplayName("cartographer:" + name)
 			}
 			sqlIdx := sqlIdxs[filepath.Clean(k.Root)]
-			mcpserver.RegisterKBTools(s, k, mcpserver.Deps{SQLIndex: sqlIdx, BundleFS: skillbundle.FS, ArtifactSigner: artifactSigners[i], MCPAllowlist: allowlists[i]})
+			mcpserver.RegisterKBTools(s, k, mcpserver.Deps{SQLIndex: sqlIdx, BundleFS: skillbundle.FS, ArtifactSigner: artifactSigners[i], MCPAllowlist: allowlists[i], RoutedMount: mountMode == config.MountModeRouted})
 			s.SetToolsProfile(toolsProfile)
 			s.SetAuditLog(auditLog)
 			s.SetKBName(name)
@@ -500,6 +514,22 @@ func serveHTTP(addr string, kbs []*kb.KB, names []string, toolPrefixes []string,
 			prefixLog = fmt.Sprintf(", tool prefix: %s__", prefix)
 		}
 		log.Printf("mounted KB %q at %s (tools profile: %s%s)", name, k.Root, toolsProfile, prefixLog)
+	}
+
+	// D187: the routed mount is additive — the per-KB endpoints above keep
+	// their exact behaviour, tools/list output included. It is enabled after
+	// every KB is mounted because it registers the union of what they
+	// registered.
+	if mountMode == config.MountModeRouted {
+		err := multi.EnableRoutedMount(version, func(s *mcpserver.Server) {
+			s.SetToolsProfile(toolsProfile)
+			s.SetTransport("http")
+		})
+		if err != nil {
+			log.Fatal(err)
+		}
+		log.Printf("routed mount enabled at %s (%d KB(s), one copy of the tools, kb as a tool argument)",
+			mcpserver.RoutedMountPath, len(names))
 	}
 
 	if w := flatNamespaceMountWarning(names, toolPrefixes); w != "" {
