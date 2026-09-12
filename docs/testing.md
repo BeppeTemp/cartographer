@@ -176,11 +176,12 @@ times out, or prints nothing — because an unrelated client problem must not tu
 this into a red suite that everyone learns to ignore. Only a successful run
 whose output does not mention the declared directory is a signal.
 
-The Cask hook is checked as a **repository template**, never as the generated
-file in `BeppeTemp/homebrew-tap`: the guard asserts that
-`.goreleaser.yaml` keeps the quarantine removal, invokes the stable linked
-binary rather than a versioned Caskroom path, and runs `upgrade-repair`
-non-fatally. Its Ruby is not executed — that would need a real Homebrew and
+The Cask install steps are checked as a **repository template**, never as the
+generated file in `BeppeTemp/homebrew-tap`: on the YAML of `.goreleaser.yaml`
+(comments excluded) the guard asserts a `postflight_steps` stanza that removes
+quarantine from the staged path, and the absence of `hooks`, of the deprecated
+`postflight do` and of `upgrade-repair`, which cannot work inside Homebrew's
+sandbox (D199). Its Ruby is not executed — that would need a real Homebrew and
 GoReleaser environment, which is out of the deterministic gate (see below).
 
 ## What is deliberately not in CI

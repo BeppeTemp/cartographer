@@ -42,6 +42,7 @@ var (
 	repairTargetDirFn        = clientconfig.TargetDir
 	repairLoadClientConfigFn = clientconfig.Load
 	repairRunSyncFn          = runSync
+	repairSameBinaryFn       = sameExecutable
 )
 
 // cmdUpgradeRepair implements `cartographer upgrade-repair` (D121): a
@@ -98,6 +99,71 @@ func ensureServiceCurrent(configPath, httpAddr string) error {
 		return fmt.Errorf("native service could not be verified: %w", err)
 	}
 	return nil
+}
+
+// repairStaleServiceBeforeSync is the lazy half of D121 (D199). The Homebrew
+// Cask can no longer run upgrade-repair — `postflight_steps` execute in
+// Homebrew's sandbox, with a temporary HOME, the real one unreadable and the
+// network denied — so the next ordinary `cartographer sync` (session-start
+// hook, scheduled timer or by hand) replaces a native service still running
+// the previous binary. It acts only on unambiguous evidence: an installed,
+// running service whose program is this very binary, reached over the
+// loopback endpoint this client syncs against, answering /health with a
+// different version. Anything else — an unreachable or unhealthy service
+// included — is left to sync's own diagnostics, and a failed replacement is a
+// warning: the sync proceeds either way.
+func repairStaleServiceBeforeSync(serverURL string) {
+	if version == "" || version == "dev" {
+		return
+	}
+	configPath, err := repairEffectiveConfigFn("")
+	if err != nil {
+		return
+	}
+	st, err := repairServiceStatusFn(configPath)
+	if err != nil || !st.Installed || !st.Running {
+		return
+	}
+	if ok, _ := upgradeRepairSyncEligible(serverURL, st.HTTPAddr); !ok {
+		return
+	}
+	// A service running another binary (an install.sh copy next to a Cask,
+	// a dev build) would never report this version: replacing it would
+	// restart it on every sync without ever converging.
+	if !repairSameBinaryFn(st.BinPath) {
+		return
+	}
+	hs, err := repairProbeHealthFn(st.HTTPAddr, repairHealthProbeTimeout)
+	if err != nil || hs.Status != "ok" || hs.Version == "" || hs.Version == version {
+		return
+	}
+	fmt.Printf("native service runs %s, this binary is %s — replacing it gracefully\n", hs.Version, version)
+	if err := repairReplaceFn(service.ReplaceOptions{ConfigPath: configPath, ExpectedVersion: version}); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: native service could not be verified after replacement: %v — retry with: cartographer upgrade-repair\n", err)
+		return
+	}
+	fmt.Printf("native service now serves %s\n", version)
+}
+
+// sameExecutable reports whether binPath (the native service's program,
+// Homebrew's stable symlink) resolves to the same file as this process.
+func sameExecutable(binPath string) bool {
+	if binPath == "" {
+		return false
+	}
+	self, err := os.Executable()
+	if err != nil {
+		return false
+	}
+	selfInfo, err := os.Stat(self)
+	if err != nil {
+		return false
+	}
+	binInfo, err := os.Stat(binPath)
+	if err != nil {
+		return false
+	}
+	return os.SameFile(selfInfo, binInfo)
 }
 
 // versionAlreadyCurrent mirrors service.Replace's own equality rule: an
