@@ -161,6 +161,91 @@ func TestKiroFlatNamespaceWarning(t *testing.T) {
 	})
 }
 
+// TestAntigravityToolBudgetWarning verifies that the warning fires when per-KB
+// MCP entries would produce tool identifiers exceeding Antigravity's
+// 64-character limit (issue #273, problem 2).
+func TestAntigravityToolBudgetWarning(t *testing.T) {
+	longKB := []mcpEntry{
+		{Name: "cartographer-morbos-agentic-wiki", KBName: "morbos-agentic-wiki"},
+		{Name: "cartographer-server-casa-kb", KBName: "server-casa-kb"},
+	}
+	shortKB := []mcpEntry{
+		{Name: "short-a", KBName: "a"},
+		{Name: "short-b", KBName: "b"},
+	}
+	singleEntry := []mcpEntry{{Name: "cartographer", KBName: ""}}
+	bothPrefixed := map[string]string{"morbos-agentic-wiki": "morbos_agentic_wiki", "server-casa-kb": "server_casa_kb"}
+	bothUnprefixed := map[string]string{"a": "", "b": ""}
+	shortPrefixed := map[string]string{"a": "a", "b": "b"}
+
+	t.Run("long entry names with prefixes warn", func(t *testing.T) {
+		w := antigravityToolBudgetWarning(
+			[]string{"antigravity"},
+			map[string][]mcpEntry{"antigravity": longKB},
+			bothPrefixed,
+		)
+		if w == "" {
+			t.Fatal("expected a warning for long entry names with prefixed tools")
+		}
+		if !strings.Contains(w, "mount_mode: routed") {
+			t.Errorf("warning %q does not mention the remedy", w)
+		}
+		if !strings.Contains(w, "cartographer-morbos-agentic-wiki") {
+			t.Errorf("warning %q does not name the offending entry", w)
+		}
+	})
+
+	t.Run("short entry names without prefix are silent", func(t *testing.T) {
+		if w := antigravityToolBudgetWarning(
+			[]string{"antigravity"},
+			map[string][]mcpEntry{"antigravity": shortKB},
+			bothUnprefixed,
+		); w != "" {
+			t.Errorf("expected silence for short unprefixed entries, got %q", w)
+		}
+	})
+
+	t.Run("short entry names with short prefix are silent", func(t *testing.T) {
+		if w := antigravityToolBudgetWarning(
+			[]string{"antigravity"},
+			map[string][]mcpEntry{"antigravity": shortKB},
+			shortPrefixed,
+		); w != "" {
+			t.Errorf("expected silence for short prefixed entries, got %q", w)
+		}
+	})
+
+	t.Run("single entry is silent", func(t *testing.T) {
+		if w := antigravityToolBudgetWarning(
+			[]string{"antigravity"},
+			map[string][]mcpEntry{"antigravity": singleEntry},
+			bothPrefixed,
+		); w != "" {
+			t.Errorf("expected no warning for a single entry, got %q", w)
+		}
+	})
+
+	t.Run("no antigravity provider is silent", func(t *testing.T) {
+		if w := antigravityToolBudgetWarning(
+			[]string{"claude", "codex"},
+			map[string][]mcpEntry{"antigravity": longKB},
+			bothPrefixed,
+		); w != "" {
+			t.Errorf("expected no warning without antigravity provider, got %q", w)
+		}
+	})
+
+	t.Run("nil prefixes suppress warning", func(t *testing.T) {
+		if w := antigravityToolBudgetWarning(
+			[]string{"antigravity"},
+			map[string][]mcpEntry{"antigravity": longKB},
+			nil,
+		); w != "" {
+			t.Errorf("expected silence when prefixes are nil (server unreachable), got %q", w)
+		}
+	})
+}
+
 // TestDoConnect_Kiro_MultiKB_WarnsFlatNamespace exercises the warning through
 // doConnect end-to-end: connecting kiro to a 2-KB server surfaces the
 // warning in connectResult.Warnings (rendered on stderr by

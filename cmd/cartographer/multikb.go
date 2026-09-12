@@ -247,6 +247,69 @@ func kiroFlatNamespaceWarning(providers []string, entriesByProvider map[string][
 		flat.Provider, strings.Join(quoteAll(unprefixed), ", "), flat.DisplayName, remedies)
 }
 
+// antigravityToolBudgetWarning returns a non-empty warning when per-KB MCP
+// entries would produce tool identifiers exceeding Antigravity's 64-character
+// limit.  Antigravity prefixes every tool with "mcp_<serverKey>_", so the
+// composite name is  len("mcp_") + len(entryName) + len("_") + len(toolName).
+// With the server's maxToolNameLen budget of 48 for prefixed tools, an entry
+// name longer than 11 characters will always overflow.  The remedy is
+// mount_mode: routed (D187), which collapses the entry set to a single
+// "cartographer" key with unprefixed tool names.
+//
+// prefixes maps KB name → effective tool prefix (from /health).  When it is
+// nil the server was unreachable and the budget cannot be verified — in that
+// case the warning is suppressed (consistent with the "evidence only"
+// principle kiroFlatNamespaceWarning already follows).
+func antigravityToolBudgetWarning(providers []string, entriesByProvider map[string][]mcpEntry, prefixes map[string]string) string {
+	hasAntigravity := false
+	for _, p := range providers {
+		if configurator.Provider(p) == configurator.ProviderAntigravity {
+			hasAntigravity = true
+			break
+		}
+	}
+	if !hasAntigravity {
+		return ""
+	}
+	entries := entriesByProvider[string(configurator.ProviderAntigravity)]
+	if len(entries) < 2 {
+		return ""
+	}
+	if prefixes == nil {
+		// Cannot verify: the server was unreachable and we do not want to
+		// fire a warning based on speculation.
+		return ""
+	}
+
+	const (
+		antigravityLimit    = 64 // ^[a-zA-Z0-9_-]{1,64}$
+		antigravityOverhead = 5  // len("mcp_") + len("_")
+		serverMaxToolName   = 48 // maxToolNameLen from httpserver.go, for prefixed tools
+		bareMaxToolName     = 21 // longest registered bare tool (git_conflict_resolve / contradiction_report)
+	)
+
+	var overBudget []string
+	for _, e := range entries {
+		maxTool := bareMaxToolName
+		if e.KBName != "" && prefixes[e.KBName] != "" {
+			maxTool = serverMaxToolName
+		}
+		if antigravityOverhead+len(e.Name)+maxTool > antigravityLimit {
+			overBudget = append(overBudget, e.Name)
+		}
+	}
+	if len(overBudget) == 0 {
+		return ""
+	}
+	sort.Strings(overBudget)
+	return fmt.Sprintf(
+		"Antigravity enforces a 64-character limit on tool identifiers ("+
+			"mcp_<server>_<tool>): entries %s exceed the budget and their tools will be "+
+			"silently dropped — set mcp.mount_mode: routed in the server config to "+
+			"collapse entries to a single \"cartographer\" key with unprefixed tools (D187)",
+		strings.Join(quoteAll(overBudget), ", "))
+}
+
 // flatNamespaceMountWarning returns a non-empty warning when this server
 // mounts 2 or more KBs and 2 or more of them registered their tools
 // unprefixed: those KBs advertise identical tool names, and a client with a

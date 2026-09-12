@@ -881,6 +881,15 @@ recorded here so that work covers Antigravity from the start rather than discove
 - `cartographer status` and `sync` track drift and synchronize skills, subagents, hooks, MCP endpoints, and instructions.
 - An Antigravity config carrying comments now fails `connect`/`sync` with a named error instead of
   being rewritten. This is the intended behaviour, and the message says what to do.
+- **Streamable HTTP notification Accept header (#273).** Antigravity client notifications
+  (e.g. `notifications/roots/list_changed`) send only `Accept: application/json`. Since Cartographer operates
+  with `JSONResponse: true` (stateless, zero SSE streams on POST), incoming POST requests normalize `Accept`
+  to include `text/event-stream` before reaching the Go MCP SDK's streamable handler, preventing 400 Bad Request.
+- **64-character tool identifier budget (#273).** Antigravity prefixes tool names as `mcp_<serverKey>_<toolName>`
+  with a strict regex `^[a-zA-Z0-9_-]{1,64}$`. In multi-KB setups under per-KB mount mode, composite names
+  exceed 64 characters and are dropped silently by Antigravity. `connect` and `sync` proactively check the budget
+  and emit a diagnostic warning advising `mcp.mount_mode: routed` (D187), which collapses the entry to `cartographer`
+  with unprefixed tools.
 
 
 ## D189 — Instructions written correctly are not reported as installed until the provider reads them

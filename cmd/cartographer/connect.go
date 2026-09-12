@@ -762,6 +762,9 @@ func doConnect(opts connectOptions) (connectResult, error) {
 		if w := kiroFlatNamespaceWarning(opts.Providers, entriesByProvider, effectiveToolPrefixes(facts, healthErr), healthErr); w != "" {
 			configWarnings = append(configWarnings, w)
 		}
+		if w := antigravityToolBudgetWarning(opts.Providers, entriesByProvider, effectiveToolPrefixes(facts, healthErr)); w != "" {
+			configWarnings = append(configWarnings, w)
+		}
 	}
 
 	// 1b. Ensure the bootstrap hook (D60): purely local, independent of the
