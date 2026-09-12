@@ -53,7 +53,7 @@ internal/okf/                # ConceptID, frontmatter (stdlib-only YAML parser),
 internal/kb/                 # kb.go (Open/Init/Read/Write/Validate/Walk), graph.go, gate.go,
                              # gitsync.go (per-KB lock, CommitOp, SyncIn/SyncOut), conflicts.go (conflict registry)
 internal/search/             # in-memory inverted index
-internal/sqlindex/           # persisted SQLite index: FTS5 trigram + embedding cache
+internal/sqlindex/           # persisted SQLite keyword index: FTS5 trigram
 internal/lint/               # Run(kb, scope, scopeNeighbors)
 internal/gitx/               # git wrapper (commit, rebase, push, stash, conflicts)
 internal/mcpserver/          # server.go (Run stdio, HTTPHandler, MultiKB), protocol.go, httpserver.go,
@@ -67,10 +67,15 @@ internal/sops/               # Decrypt, ResolveRefs, EnvForSkill
 internal/configurator/       # multi-provider adapter (HTTP only): Claude Code, Codex, Kiro, OpenCode, Hermes, Antigravity
                              # registry.go: one descriptor per provider (identity, config file, detection)
 internal/provisioning/       # Manifest, Lock/LockFile, Diff, Apply, MergeArtifacts
+internal/artifactsig/        # Ed25519 signing/verification of provisioning artifact envelopes
+internal/skillbundle/        # skills embedded in the binary (bundled/), passed to the tools as Deps.BundleFS
+internal/blocktext/          # marker-delimited "managed block" inside hand-curated user files
+internal/repoindex/          # resolves {{repo:<key>}} placeholders to local clones via their origin remote
 internal/agents/             # Detect() agents installed on the machine (claude/opencode/codex/kiro/hermes/antigravity)
 internal/clientconfig/       # .cartographer.yaml (server_url, connected agents, etc.)
 internal/client/             # minimal MCPClient (JSON-RPC 2.0 over HTTP) for the client subcommands
 internal/service/            # native per-user units: server (launchd/systemd) + synctimer.go (scheduled client sync)
+internal/defaults/           # local endpoint defaults shared by the service and client first-run paths
 ```
 
 ## Code navigation
