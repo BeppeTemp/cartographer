@@ -8,6 +8,13 @@
 
 KB histories with commits authored as `cartographer <cartographer@localhost>` may need a manual author rewrite before a forge with author push rules accepts the first push.
 
+## [0.12.1](https://github.com/BeppeTemp/cartographer/compare/v0.12.0...v0.12.1) (2026-09-12)
+
+
+### Bug Fixes
+
+* **release:** the Cask uses postflight_steps; sync repairs a stale local service (D199) ([#272](https://github.com/BeppeTemp/cartographer/issues/272)) ([f23d5ce](https://github.com/BeppeTemp/cartographer/commit/f23d5ceac0df3665aaddac22b58bc78036049056))
+
 ## [0.12.0](https://github.com/BeppeTemp/cartographer/compare/v0.11.0...v0.12.0) (2026-09-11)
 
 
