@@ -615,3 +615,59 @@ func TestMultiKB_Ready_NoSinkUnaffected(t *testing.T) {
 		t.Errorf("/ready status = %d, want 200", rec.Code)
 	}
 }
+
+// TestStreamableAccept_Normalization verifies that POST requests are normalized
+// to include both application/json and text/event-stream so that non-TypeScript
+// clients like Antigravity (which omit text/event-stream on notifications) do
+// not get an unnecessary 400 Bad Request.
+func TestStreamableAccept_Normalization(t *testing.T) {
+	multi := newMultiKBTestHandler(t, "kbx")
+	handler := multi.Handler()
+
+	tests := []struct {
+		name       string
+		accept     string
+		setAccept  bool
+		wantStatus int
+	}{
+		{
+			name:       "both json and sse",
+			accept:     "application/json, text/event-stream",
+			setAccept:  true,
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "json only (Antigravity notification format)",
+			accept:     "application/json",
+			setAccept:  true,
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "no accept header",
+			setAccept:  false,
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "sse only",
+			accept:     "text/event-stream",
+			setAccept:  true,
+			wantStatus: http.StatusOK,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPost, "/mcp/kbx", strings.NewReader(toolsListBody))
+			req.Header.Set("Content-Type", "application/json")
+			if tc.setAccept {
+				req.Header.Set("Accept", tc.accept)
+			}
+			rr := httptest.NewRecorder()
+			handler.ServeHTTP(rr, req)
+			if rr.Code != tc.wantStatus {
+				t.Fatalf("Accept=%q: status = %d, want %d; body=%s", tc.accept, rr.Code, tc.wantStatus, rr.Body.String())
+			}
+		})
+	}
+}
+

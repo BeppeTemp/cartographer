@@ -30,7 +30,47 @@ func (s *Server) HTTPHandler() http.Handler {
 // DELETE with 405, which is what 2026-07-28 requires now that neither the
 // event stream nor sessions exist.
 func (s *Server) handleMCP(w http.ResponseWriter, r *http.Request) {
+	normalizeStreamableAccept(r)
 	s.sdkHTTPHandler().ServeHTTP(w, r)
+}
+
+// normalizeStreamableAccept ensures POST requests carry an Accept header that
+// satisfies the Go MCP SDK's streamable HTTP validator (streamableAccepts).
+// Cartographer operates with JSONResponse: true (stateless, zero SSE streams on
+// POST), but the SDK strictly requires both application/json and text/event-stream.
+// Real-world clients (such as Google Antigravity) omit text/event-stream on client
+// notifications (notifications/roots/list_changed), which would otherwise cause
+// an unnecessary 400 Bad Request.
+func normalizeStreamableAccept(r *http.Request) {
+	if r.Method != http.MethodPost {
+		return
+	}
+	accepts := r.Header.Values("Accept")
+	if len(accepts) == 0 {
+		r.Header.Set("Accept", "application/json, text/event-stream")
+		return
+	}
+	hasJSON, hasStream := false, false
+	for _, val := range accepts {
+		for _, part := range strings.Split(val, ",") {
+			base, _, _ := strings.Cut(strings.TrimSpace(part), ";")
+			switch strings.ToLower(strings.TrimSpace(base)) {
+			case "application/json", "application/*":
+				hasJSON = true
+			case "text/event-stream", "text/*":
+				hasStream = true
+			case "*/*":
+				hasJSON = true
+				hasStream = true
+			}
+		}
+	}
+	if !hasJSON {
+		r.Header.Add("Accept", "application/json")
+	}
+	if !hasStream {
+		r.Header.Add("Accept", "text/event-stream")
+	}
 }
 
 // auditState returns this Server's attached audit sink health (D119), or nil
