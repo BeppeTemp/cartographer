@@ -1,7 +1,7 @@
 # Getting started
 
-From zero to a working agentic wiki in about ten minutes, using the **Local
-Core** profile: one server, one KB, one agent (Claude Code in this walkthrough
+From zero to a working agentic wiki in about ten minutes: one local server
+running as a native service, one KB, one agent (Claude Code in this walkthrough
 — OpenCode, Codex CLI, Kiro and Antigravity work the same way via `cartographer connect`).
 
 You need **git**, and an empty git repository you own to be the first KB's
