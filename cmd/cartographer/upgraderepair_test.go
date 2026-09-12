@@ -649,3 +649,115 @@ func TestCmdUpgradeRepair_ClientConfigNeverDeleted(t *testing.T) {
 		})
 	}
 }
+
+// --- D199: lazy repair from `cartographer sync` ---
+
+// staleServiceFixture wires a running native service on loopback that runs
+// this same binary and answers /health with healthVersion, and records
+// whether Replace was called.
+func staleServiceFixture(t *testing.T, healthVersion string) *bool {
+	t.Helper()
+	saveRepairFns(t)
+	origSame := repairSameBinaryFn
+	t.Cleanup(func() { repairSameBinaryFn = origSame })
+	version = "v1.3.0"
+	repairEffectiveConfigFn = func(explicit string) (string, error) { return "/cfg.yaml", nil }
+	repairServiceStatusFn = func(configPath string) (service.Status, error) {
+		return service.Status{Installed: true, Running: true, HTTPAddr: "127.0.0.1:39273", BinPath: "/opt/homebrew/bin/cartographer"}, nil
+	}
+	repairSameBinaryFn = func(string) bool { return true }
+	repairProbeHealthFn = func(addr string, timeout time.Duration) (service.HealthStatus, error) {
+		return service.HealthStatus{Status: "ok", Version: healthVersion}, nil
+	}
+	replaced := false
+	repairReplaceFn = func(opts service.ReplaceOptions) error {
+		replaced = true
+		if opts.ConfigPath != "/cfg.yaml" || opts.ExpectedVersion != "v1.3.0" {
+			t.Fatalf("unexpected ReplaceOptions %+v", opts)
+		}
+		return nil
+	}
+	return &replaced
+}
+
+func TestRepairStaleServiceBeforeSync_OldVersionIsReplaced(t *testing.T) {
+	replaced := staleServiceFixture(t, "v1.2.0")
+	repairStaleServiceBeforeSync("http://127.0.0.1:39273/mcp")
+	if !*replaced {
+		t.Fatal("a running service on the previous version must be replaced")
+	}
+}
+
+func TestRepairStaleServiceBeforeSync_LeavesServiceAlone(t *testing.T) {
+	cases := []struct {
+		name  string
+		setup func()
+		url   string
+	}{
+		{"already current", func() {}, "http://127.0.0.1:39273/mcp"},
+		{"dev build", func() { version = "dev" }, "http://127.0.0.1:39273/mcp"},
+		{"not installed", func() {
+			repairServiceStatusFn = func(string) (service.Status, error) { return service.Status{}, nil }
+		}, "http://127.0.0.1:39273/mcp"},
+		{"stopped", func() {
+			repairServiceStatusFn = func(string) (service.Status, error) {
+				return service.Status{Installed: true, HTTPAddr: "127.0.0.1:39273"}, nil
+			}
+		}, "http://127.0.0.1:39273/mcp"},
+		{"client syncs against a remote server", func() {}, "https://wiki.example.com/mcp"},
+		{"client syncs against another local port", func() {}, "http://127.0.0.1:40000/mcp"},
+		{"service runs another binary", func() { repairSameBinaryFn = func(string) bool { return false } }, "http://127.0.0.1:39273/mcp"},
+		{"health unreachable", func() {
+			repairProbeHealthFn = func(string, time.Duration) (service.HealthStatus, error) {
+				return service.HealthStatus{}, errors.New("connection refused")
+			}
+		}, "http://127.0.0.1:39273/mcp"},
+		{"health not ok", func() {
+			repairProbeHealthFn = func(string, time.Duration) (service.HealthStatus, error) {
+				return service.HealthStatus{Status: "degraded", Version: "v1.2.0"}, nil
+			}
+		}, "http://127.0.0.1:39273/mcp"},
+		{"status error", func() {
+			repairServiceStatusFn = func(string) (service.Status, error) { return service.Status{}, errors.New("launchctl failed") }
+		}, "http://127.0.0.1:39273/mcp"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			healthVersion := "v1.2.0"
+			if tc.name == "already current" {
+				healthVersion = "v1.3.0"
+			}
+			staleServiceFixture(t, healthVersion)
+			failIfReplaceCalled(t)
+			tc.setup()
+			repairStaleServiceBeforeSync(tc.url)
+		})
+	}
+}
+
+func TestRepairStaleServiceBeforeSync_ReplaceFailureIsNotFatal(t *testing.T) {
+	staleServiceFixture(t, "v1.2.0")
+	repairReplaceFn = func(service.ReplaceOptions) error { return errors.New("timeout waiting for v1.3.0") }
+	repairStaleServiceBeforeSync("http://127.0.0.1:39273/mcp") // must return, not exit or panic
+}
+
+func TestSameExecutable(t *testing.T) {
+	self, err := os.Executable()
+	if err != nil {
+		t.Skipf("os.Executable: %v", err)
+	}
+	link := filepath.Join(t.TempDir(), "cartographer")
+	if err := os.Symlink(self, link); err != nil {
+		t.Fatalf("symlink: %v", err)
+	}
+	if !sameExecutable(link) {
+		t.Error("a symlink to this binary must resolve to the same executable")
+	}
+	other := filepath.Join(t.TempDir(), "other")
+	if err := os.WriteFile(other, []byte("x"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if sameExecutable(other) || sameExecutable("") || sameExecutable(filepath.Join(t.TempDir(), "missing")) {
+		t.Error("a different, empty or missing path must not match")
+	}
+}

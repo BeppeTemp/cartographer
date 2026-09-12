@@ -40,7 +40,7 @@ func cmdSync(args []string) int {
 		return 0
 	}
 
-	if _, err := runSync(dir, cfg, syncOptions{DryRun: *dryRun, AutoTrust: *autoTrust, NoHeal: *noHeal, Clients: clients}); err != nil {
+	if _, err := runSync(dir, cfg, syncOptions{DryRun: *dryRun, AutoTrust: *autoTrust, NoHeal: *noHeal, Clients: clients, RepairService: true}); err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		return 2
 	}
@@ -63,6 +63,10 @@ type syncOptions struct {
 	// restoring them (D139). upgrade-repair never sets it: repairing is its
 	// entire purpose.
 	NoHeal bool
+	// RepairService replaces a native local service still running the
+	// previous binary before syncing (D199). Only cmdSync sets it:
+	// upgrade-repair has already verified the service itself.
+	RepairService bool
 }
 
 // syncResult is the subset of a completed sync a caller may need beyond the
@@ -95,6 +99,11 @@ func runSync(dir string, cfg *clientconfig.Config, opts syncOptions) (syncResult
 			return syncResult{}, err
 		}
 		defer release()
+		// Under the lock, so concurrent session-start syncs replace a stale
+		// service once: the next one in line finds it already current.
+		if opts.RepairService {
+			repairStaleServiceBeforeSync(cfg.ServerURL)
+		}
 	}
 
 	// A plan restricted to some providers must say so: read without the

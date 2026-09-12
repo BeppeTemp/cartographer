@@ -1,8 +1,8 @@
 #!/bin/sh
 # goreleaser_guard.sh — static guard for .goreleaser.yaml's generated Cask
-# postflight hook (D121 / WP3). It tests the repository template checked
-# into this repo — the only repository-side Cask source of truth — not the
-# file GoReleaser publishes to BeppeTemp/homebrew-tap.
+# install steps (D121, D199). It tests the repository template checked into
+# this repo — the only repository-side Cask source of truth — not the file
+# GoReleaser publishes to BeppeTemp/homebrew-tap.
 
 GUARD_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 REPO_ROOT=$(CDPATH= cd -- "${GUARD_DIR}/../.." && pwd)
@@ -13,38 +13,29 @@ INSTALL_LIB_DIR="${GUARD_DIR}/lib"
 
 GORELEASER_FILE="${REPO_ROOT}/.goreleaser.yaml"
 
-echo "=== Guard: .goreleaser.yaml Cask postflight ==="
+echo "=== Guard: .goreleaser.yaml Cask postflight_steps ==="
 
 if [ ! -f "$GORELEASER_FILE" ]; then
     _assert_fail "goreleaser template not found: ${GORELEASER_FILE}"
 else
-    assert_file_contains "$GORELEASER_FILE" 'com.apple.quarantine' \
-        "keeps the macOS quarantine removal"
-    assert_file_contains "$GORELEASER_FILE" '#{HOMEBREW_PREFIX}/bin/cartographer' \
-        "invokes the stable linked binary, never a versioned Caskroom path"
-    assert_file_contains "$GORELEASER_FILE" 'upgrade-repair' \
-        "invokes upgrade-repair"
-    assert_file_contains "$GORELEASER_FILE" 'must_succeed: false' \
-        "runs upgrade-repair with non-fatal system_command semantics"
+    # Comments legitimately name what the template no longer does; only the
+    # YAML itself is checked.
+    CODE_FILE=$(mktemp)
+    trap 'rm -f "$CODE_FILE"' EXIT
+    grep -v '^[[:space:]]*#' "$GORELEASER_FILE" > "$CODE_FILE"
 
-    # The upgrade-repair system_command spans two lines (path, then args):
-    # check the path line immediately preceding `args: ["upgrade-repair"]`
-    # rather than the whole file, so an unrelated mention of "Caskroom" (e.g.
-    # in a comment) does not produce a false failure.
-    args_line=$(grep -n 'args: \["upgrade-repair"\]' "$GORELEASER_FILE" | head -1 | cut -d: -f1)
-    if [ -n "$args_line" ]; then
-        command_line=$(sed -n "$((args_line - 1))p" "$GORELEASER_FILE")
-        case "$command_line" in
-            *'#{HOMEBREW_PREFIX}/bin/cartographer'*)
-                _assert_pass "upgrade-repair runs the stable linked binary, not a versioned Caskroom path"
-                ;;
-            *)
-                _assert_fail "upgrade-repair invocation does not use the stable linked binary: ${command_line}"
-                ;;
-        esac
-    else
-        _assert_fail "could not locate the upgrade-repair system_command invocation"
-    fi
+    assert_file_contains "$CODE_FILE" 'postflight_steps do' \
+        "declares the Cask install steps as postflight_steps"
+    assert_file_contains "$CODE_FILE" 'com.apple.quarantine' \
+        "keeps the macOS quarantine removal"
+    assert_file_contains "$CODE_FILE" 'staged_path' \
+        "removes quarantine from the staged path"
+    assert_file_not_contains "$CODE_FILE" 'hooks:' \
+        "sets no GoReleaser hooks (rendered as the deprecated postflight block)"
+    assert_file_not_contains "$CODE_FILE" 'postflight do' \
+        "writes no deprecated postflight block"
+    assert_file_not_contains "$CODE_FILE" 'upgrade-repair' \
+        "does not run upgrade-repair inside Homebrew's sandbox (the next sync repairs, D199)"
 fi
 
 echo ""

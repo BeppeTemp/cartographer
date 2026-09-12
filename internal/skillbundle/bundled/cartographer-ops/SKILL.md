@@ -62,9 +62,9 @@ variables or the platform secret store, not in a committed YAML file.
 
 ## Upgrade
 
-- macOS: `brew upgrade --cask beppetemp/tap/cartographer`. The Cask's post-install hook runs
-  `cartographer upgrade-repair` on its own, so **no follow-up command is needed**; run it by hand
-  only if the hook reported a problem.
+- macOS: `brew upgrade --cask beppetemp/tap/cartographer`. The next `cartographer sync` (every
+  agent session start runs one) replaces the running service with the new binary and re-syncs,
+  so **no follow-up command is needed**; run `cartographer upgrade-repair` to do it immediately.
 - POSIX installer: `install.sh update`, which runs `upgrade-repair` the same way.
 - Kubernetes: update the Cartographer image tag in the deployment manifest and wait for rollout.
 
