@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/BeppeTemp/cartographer/internal/client"
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 )
@@ -161,87 +162,69 @@ func TestKiroFlatNamespaceWarning(t *testing.T) {
 	})
 }
 
-// TestAntigravityToolBudgetWarning verifies that the warning fires when per-KB
-// MCP entries would produce tool identifiers exceeding Antigravity's
-// 64-character limit (issue #273, problem 2).
-func TestAntigravityToolBudgetWarning(t *testing.T) {
-	longKB := []mcpEntry{
+// TestToolIdentifierBudgetWarning pins D201 against issue #273: Antigravity
+// drops a tool whose "mcp_<server>_<tool>" identifier exceeds 64 characters.
+func TestToolIdentifierBudgetWarning(t *testing.T) {
+	listed := func(kbs ...client.HealthKB) serverFacts { return serverFacts{Listed: true, KBs: kbs} }
+	issueFacts := listed(
+		client.HealthKB{Name: "morbos-agentic-wiki", ToolPrefix: "morbos_agentic_wiki"},
+		client.HealthKB{Name: "server-casa-kb", ToolPrefix: "server_casa_kb"},
+	)
+	issueEntries := []mcpEntry{
 		{Name: "cartographer-morbos-agentic-wiki", KBName: "morbos-agentic-wiki"},
 		{Name: "cartographer-server-casa-kb", KBName: "server-casa-kb"},
 	}
-	shortKB := []mcpEntry{
-		{Name: "short-a", KBName: "a"},
-		{Name: "short-b", KBName: "b"},
-	}
-	singleEntry := []mcpEntry{{Name: "cartographer", KBName: ""}}
-	bothPrefixed := map[string]string{"morbos-agentic-wiki": "morbos_agentic_wiki", "server-casa-kb": "server_casa_kb"}
-	bothUnprefixed := map[string]string{"a": "", "b": ""}
-	shortPrefixed := map[string]string{"a": "a", "b": "b"}
+	// The longest prefix the server's 48-char budget admits (48 - "__" - 20).
+	longPrefix := strings.Repeat("p", 26)
 
-	t.Run("long entry names with prefixes warn", func(t *testing.T) {
-		w := antigravityToolBudgetWarning(
-			[]string{"antigravity"},
-			map[string][]mcpEntry{"antigravity": longKB},
-			bothPrefixed,
-		)
-		if w == "" {
-			t.Fatal("expected a warning for long entry names with prefixed tools")
-		}
-		if !strings.Contains(w, "mount_mode: routed") {
-			t.Errorf("warning %q does not mention the remedy", w)
-		}
-		if !strings.Contains(w, "cartographer-morbos-agentic-wiki") {
-			t.Errorf("warning %q does not name the offending entry", w)
+	t.Run("issue #273 entries warn with the computed length", func(t *testing.T) {
+		w := toolIdentifierBudgetWarning([]string{"antigravity"}, map[string][]mcpEntry{"antigravity": issueEntries}, issueFacts, nil)
+		// 4 + 32 + 1 + len("morbos_agentic_wiki__git_conflict_resolve") = 78, as the issue measured.
+		for _, want := range []string{`"cartographer-morbos-agentic-wiki" (up to 78)`, `"cartographer-server-casa-kb" (up to 68)`, "mount_mode: routed", "tool_prefix"} {
+			if !strings.Contains(w, want) {
+				t.Errorf("warning %q does not contain %q", w, want)
+			}
 		}
 	})
 
-	t.Run("short entry names without prefix are silent", func(t *testing.T) {
-		if w := antigravityToolBudgetWarning(
-			[]string{"antigravity"},
-			map[string][]mcpEntry{"antigravity": shortKB},
-			bothUnprefixed,
-		); w != "" {
-			t.Errorf("expected silence for short unprefixed entries, got %q", w)
+	t.Run("short prefixes fit and are silent", func(t *testing.T) {
+		facts := listed(client.HealthKB{Name: "a", ToolPrefix: "a"}, client.HealthKB{Name: "b", ToolPrefix: "b"})
+		entries := []mcpEntry{{Name: "cartographer-a", KBName: "a"}, {Name: "cartographer-b", KBName: "b"}}
+		if w := toolIdentifierBudgetWarning([]string{"antigravity"}, map[string][]mcpEntry{"antigravity": entries}, facts, nil); w != "" {
+			t.Errorf("expected silence, got %q", w)
 		}
 	})
 
-	t.Run("short entry names with short prefix are silent", func(t *testing.T) {
-		if w := antigravityToolBudgetWarning(
-			[]string{"antigravity"},
-			map[string][]mcpEntry{"antigravity": shortKB},
-			shortPrefixed,
-		); w != "" {
-			t.Errorf("expected silence for short prefixed entries, got %q", w)
+	t.Run("a single-KB bare entry carries that KB's prefix", func(t *testing.T) {
+		facts := listed(client.HealthKB{Name: "kb", ToolPrefix: longPrefix})
+		entries := []mcpEntry{{Name: "cartographer"}}
+		if w := toolIdentifierBudgetWarning([]string{"antigravity"}, map[string][]mcpEntry{"antigravity": entries}, facts, nil); !strings.Contains(w, "(up to 65)") {
+			t.Errorf("expected a 65-char overflow warning, got %q", w)
 		}
 	})
 
-	t.Run("single entry is silent", func(t *testing.T) {
-		if w := antigravityToolBudgetWarning(
-			[]string{"antigravity"},
-			map[string][]mcpEntry{"antigravity": singleEntry},
-			bothPrefixed,
-		); w != "" {
-			t.Errorf("expected no warning for a single entry, got %q", w)
+	t.Run("a routed entry carries unprefixed tools and is silent", func(t *testing.T) {
+		facts := issueFacts
+		facts.RoutedPath = "/mcp/routed"
+		entries := []mcpEntry{{Name: "cartographer"}}
+		if w := toolIdentifierBudgetWarning([]string{"antigravity"}, map[string][]mcpEntry{"antigravity": entries}, facts, nil); w != "" {
+			t.Errorf("expected silence for a routed entry, got %q", w)
 		}
 	})
 
-	t.Run("no antigravity provider is silent", func(t *testing.T) {
-		if w := antigravityToolBudgetWarning(
-			[]string{"claude", "codex"},
-			map[string][]mcpEntry{"antigravity": longKB},
-			bothPrefixed,
-		); w != "" {
-			t.Errorf("expected no warning without antigravity provider, got %q", w)
+	t.Run("a provider without a limit is silent", func(t *testing.T) {
+		if w := toolIdentifierBudgetWarning([]string{"claude", "kiro"}, map[string][]mcpEntry{"claude": issueEntries, "kiro": issueEntries}, issueFacts, nil); w != "" {
+			t.Errorf("expected silence without a limited provider, got %q", w)
 		}
 	})
 
-	t.Run("nil prefixes suppress warning", func(t *testing.T) {
-		if w := antigravityToolBudgetWarning(
-			[]string{"antigravity"},
-			map[string][]mcpEntry{"antigravity": longKB},
-			nil,
-		); w != "" {
-			t.Errorf("expected silence when prefixes are nil (server unreachable), got %q", w)
+	t.Run("unknown prefixes are silent", func(t *testing.T) {
+		byProvider := map[string][]mcpEntry{"antigravity": issueEntries}
+		if w := toolIdentifierBudgetWarning([]string{"antigravity"}, byProvider, issueFacts, errors.New("unreachable")); w != "" {
+			t.Errorf("expected silence on a health error, got %q", w)
+		}
+		if w := toolIdentifierBudgetWarning([]string{"antigravity"}, byProvider, serverFacts{}, nil); w != "" {
+			t.Errorf("expected silence when /health lists no KBs, got %q", w)
 		}
 	})
 }

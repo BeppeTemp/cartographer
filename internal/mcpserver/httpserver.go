@@ -29,48 +29,19 @@ func (s *Server) HTTPHandler() http.Handler {
 // POST remains the whole transport: the SDK's stateless mode answers GET and
 // DELETE with 405, which is what 2026-07-28 requires now that neither the
 // event stream nor sessions exist.
+//
+// A POST's Accept header is not enforced (D200): the SDK refuses one that
+// does not name both application/json and text/event-stream, but this server
+// only ever answers with JSON, and Antigravity omits text/event-stream on its
+// notifications. Appending both media types satisfies the SDK's presence
+// check without changing what is returned; the request is cloned so the
+// caller's headers are left untouched.
 func (s *Server) handleMCP(w http.ResponseWriter, r *http.Request) {
-	normalizeStreamableAccept(r)
+	if r.Method == http.MethodPost {
+		r = r.Clone(r.Context())
+		r.Header.Add("Accept", "application/json, text/event-stream")
+	}
 	s.sdkHTTPHandler().ServeHTTP(w, r)
-}
-
-// normalizeStreamableAccept ensures POST requests carry an Accept header that
-// satisfies the Go MCP SDK's streamable HTTP validator (streamableAccepts).
-// Cartographer operates with JSONResponse: true (stateless, zero SSE streams on
-// POST), but the SDK strictly requires both application/json and text/event-stream.
-// Real-world clients (such as Google Antigravity) omit text/event-stream on client
-// notifications (notifications/roots/list_changed), which would otherwise cause
-// an unnecessary 400 Bad Request.
-func normalizeStreamableAccept(r *http.Request) {
-	if r.Method != http.MethodPost {
-		return
-	}
-	accepts := r.Header.Values("Accept")
-	if len(accepts) == 0 {
-		r.Header.Set("Accept", "application/json, text/event-stream")
-		return
-	}
-	hasJSON, hasStream := false, false
-	for _, val := range accepts {
-		for _, part := range strings.Split(val, ",") {
-			base, _, _ := strings.Cut(strings.TrimSpace(part), ";")
-			switch strings.ToLower(strings.TrimSpace(base)) {
-			case "application/json", "application/*":
-				hasJSON = true
-			case "text/event-stream", "text/*":
-				hasStream = true
-			case "*/*":
-				hasJSON = true
-				hasStream = true
-			}
-		}
-	}
-	if !hasJSON {
-		r.Header.Add("Accept", "application/json")
-	}
-	if !hasStream {
-		r.Header.Add("Accept", "text/event-stream")
-	}
 }
 
 // auditState returns this Server's attached audit sink health (D119), or nil
@@ -264,6 +235,12 @@ func (m *MultiKBServer) MountKB(name string, setupFn func(s *Server)) {
 // reject or exclude a tool whose name is too long, and some clients add
 // their own "@server/" prefix on top — 48 leaves room for that.
 const maxToolNameLen = 48
+
+// MaxBareToolNameLen is the length of the longest tool name the registry
+// registers, before any tool_prefix. The client uses it to compute a tool
+// identifier budget without listing tools (D201); TestMaxBareToolNameLen
+// fails when a longer tool is added without raising it.
+const MaxBareToolNameLen = 20
 
 // MountKBWithPrefix mounts a KB whose tool names are all rewritten to
 // "<prefix>__<tool>" (D102: opt-in per-KB tool-name namespacing for MCP

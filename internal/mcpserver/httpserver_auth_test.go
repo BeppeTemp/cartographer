@@ -325,6 +325,26 @@ func TestReadOnlyToolsGolden(t *testing.T) {
 	}
 }
 
+// TestMaxBareToolNameLen pins MaxBareToolNameLen to the real registry
+// (including the BundleFS-gated tools): the client's tool identifier budget
+// (D201) is only as good as this constant.
+func TestMaxBareToolNameLen(t *testing.T) {
+	s := New("test")
+	bundleFS := fstest.MapFS{
+		"bundled/kb-create/SKILL.md": &fstest.MapFile{
+			Data: []byte("---\nname: kb-create\ndescription: Guide KB creation\nversion: \"1.0\"\n---\nBody here.\n"),
+		},
+	}
+	RegisterKBTools(s, setupTestKB(t), Deps{BundleFS: bundleFS})
+	longest := 0
+	for name := range s.Tools() {
+		longest = max(longest, len(name))
+	}
+	if longest != MaxBareToolNameLen {
+		t.Errorf("longest registered tool name is %d chars, MaxBareToolNameLen = %d: update the constant", longest, MaxBareToolNameLen)
+	}
+}
+
 // TestClients_AuthRequiresToken verifies /clients is NOT in isPublicPath:
 // when auth is enabled and no Authorization header is present, GET /clients
 // must return 401.

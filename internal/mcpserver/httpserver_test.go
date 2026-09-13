@@ -616,50 +616,31 @@ func TestMultiKB_Ready_NoSinkUnaffected(t *testing.T) {
 	}
 }
 
-// TestStreamableAccept_Normalization verifies that POST requests are normalized
-// to include both application/json and text/event-stream so that non-TypeScript
-// clients like Antigravity (which omit text/event-stream on notifications) do
-// not get an unnecessary 400 Bad Request.
+// TestStreamableAccept_Normalization pins D200: a POST is served whatever its
+// Accept header names, since the server only ever answers with JSON. The
+// notification case is Antigravity's own request (issue #273), which the SDK
+// refused with 400 when Accept lacked text/event-stream.
 func TestStreamableAccept_Normalization(t *testing.T) {
-	multi := newMultiKBTestHandler(t, "kbx")
-	handler := multi.Handler()
+	handler := newMultiKBTestHandler(t, "kbx").Handler()
+	notification := `{"jsonrpc":"2.0","method":"notifications/roots/list_changed","params":{}}`
 
 	tests := []struct {
 		name       string
-		accept     string
-		setAccept  bool
+		body       string
+		accept     string // empty: no Accept header at all
 		wantStatus int
 	}{
-		{
-			name:       "both json and sse",
-			accept:     "application/json, text/event-stream",
-			setAccept:  true,
-			wantStatus: http.StatusOK,
-		},
-		{
-			name:       "json only (Antigravity notification format)",
-			accept:     "application/json",
-			setAccept:  true,
-			wantStatus: http.StatusOK,
-		},
-		{
-			name:       "no accept header",
-			setAccept:  false,
-			wantStatus: http.StatusOK,
-		},
-		{
-			name:       "sse only",
-			accept:     "text/event-stream",
-			setAccept:  true,
-			wantStatus: http.StatusOK,
-		},
+		{"both json and sse", toolsListBody, "application/json, text/event-stream", http.StatusOK},
+		{"json only", toolsListBody, "application/json", http.StatusOK},
+		{"sse only", toolsListBody, "text/event-stream", http.StatusOK},
+		{"no accept header", toolsListBody, "", http.StatusOK},
+		{"json-only notification (Antigravity)", notification, "application/json", http.StatusAccepted},
 	}
-
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			req := httptest.NewRequest(http.MethodPost, "/mcp/kbx", strings.NewReader(toolsListBody))
+			req := httptest.NewRequest(http.MethodPost, "/mcp/kbx", strings.NewReader(tc.body))
 			req.Header.Set("Content-Type", "application/json")
-			if tc.setAccept {
+			if tc.accept != "" {
 				req.Header.Set("Accept", tc.accept)
 			}
 			rr := httptest.NewRecorder()
@@ -667,7 +648,9 @@ func TestStreamableAccept_Normalization(t *testing.T) {
 			if rr.Code != tc.wantStatus {
 				t.Fatalf("Accept=%q: status = %d, want %d; body=%s", tc.accept, rr.Code, tc.wantStatus, rr.Body.String())
 			}
+			if got := req.Header.Get("Accept"); got != tc.accept {
+				t.Errorf("caller's Accept header mutated to %q, want %q", got, tc.accept)
+			}
 		})
 	}
 }
-

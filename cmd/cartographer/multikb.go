@@ -12,6 +12,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/config"
 	"github.com/BeppeTemp/cartographer/internal/configurator"
+	"github.com/BeppeTemp/cartographer/internal/mcpserver"
 )
 
 // mcpEntry is one Cartographer-owned MCP entry emitted for a provider.
@@ -247,67 +248,58 @@ func kiroFlatNamespaceWarning(providers []string, entriesByProvider map[string][
 		flat.Provider, strings.Join(quoteAll(unprefixed), ", "), flat.DisplayName, remedies)
 }
 
-// antigravityToolBudgetWarning returns a non-empty warning when per-KB MCP
-// entries would produce tool identifiers exceeding Antigravity's 64-character
-// limit.  Antigravity prefixes every tool with "mcp_<serverKey>_", so the
-// composite name is  len("mcp_") + len(entryName) + len("_") + len(toolName).
-// With the server's maxToolNameLen budget of 48 for prefixed tools, an entry
-// name longer than 11 characters will always overflow.  The remedy is
-// mount_mode: routed (D187), which collapses the entry set to a single
-// "cartographer" key with unprefixed tool names.
+// toolIdentifierBudgetWarning returns a non-empty warning when a provider
+// with a tool identifier limit (Descriptor.ToolIdentifierLimit: Antigravity
+// shows each tool as "mcp_<server>_<tool>" and drops any over 64 characters)
+// would receive an MCP entry whose longest tool identifier exceeds it (D201).
+// Nothing fails on the wire: the tools are simply missing from the session.
 //
-// prefixes maps KB name → effective tool prefix (from /health).  When it is
-// nil the server was unreachable and the budget cannot be verified — in that
-// case the warning is suppressed (consistent with the "evidence only"
-// principle kiroFlatNamespaceWarning already follows).
-func antigravityToolBudgetWarning(providers []string, entriesByProvider map[string][]mcpEntry, prefixes map[string]string) string {
-	hasAntigravity := false
+// The longest identifier is computed, not listed: the entry name, the KB's
+// effective tool_prefix as /health advertises it (D120), and the longest
+// registered tool name (mcpserver.MaxBareToolNameLen). A routed entry carries
+// unprefixed tools (D187); a bare entry on a one-KB server reaches that KB, so
+// it carries that KB's prefix. Without /health facts the prefixes are unknown
+// and the warning stays silent: it is evidence-only, like the rest of D152.
+func toolIdentifierBudgetWarning(providers []string, entriesByProvider map[string][]mcpEntry, facts serverFacts, healthErr error) string {
+	if healthErr != nil || !facts.Listed {
+		return ""
+	}
+	prefixes := effectiveToolPrefixes(facts, healthErr)
+	var parts []string
 	for _, p := range providers {
-		if configurator.Provider(p) == configurator.ProviderAntigravity {
-			hasAntigravity = true
-			break
+		d, ok := configurator.Lookup(configurator.Provider(p))
+		if !ok || d.ToolIdentifierLimit == 0 {
+			continue
 		}
-	}
-	if !hasAntigravity {
-		return ""
-	}
-	entries := entriesByProvider[string(configurator.ProviderAntigravity)]
-	if len(entries) < 2 {
-		return ""
-	}
-	if prefixes == nil {
-		// Cannot verify: the server was unreachable and we do not want to
-		// fire a warning based on speculation.
-		return ""
-	}
-
-	const (
-		antigravityLimit    = 64 // ^[a-zA-Z0-9_-]{1,64}$
-		antigravityOverhead = 5  // len("mcp_") + len("_")
-		serverMaxToolName   = 48 // maxToolNameLen from httpserver.go, for prefixed tools
-		bareMaxToolName     = 21 // longest registered bare tool (git_conflict_resolve / contradiction_report)
-	)
-
-	var overBudget []string
-	for _, e := range entries {
-		maxTool := bareMaxToolName
-		if e.KBName != "" && prefixes[e.KBName] != "" {
-			maxTool = serverMaxToolName
+		var over []string
+		for _, e := range entriesByProvider[p] {
+			prefix := prefixes[e.KBName]
+			switch {
+			case facts.RoutedPath != "":
+				prefix = ""
+			case e.KBName == "" && len(facts.KBs) == 1:
+				prefix = facts.KBs[0].ToolPrefix
+			}
+			tool := mcpserver.MaxBareToolNameLen
+			if prefix != "" {
+				tool += len(prefix) + len("__")
+			}
+			id := len("mcp_") + len(e.Name) + len("_") + tool
+			if id > d.ToolIdentifierLimit {
+				over = append(over, fmt.Sprintf("%q (up to %d)", e.Name, id))
+			}
 		}
-		if antigravityOverhead+len(e.Name)+maxTool > antigravityLimit {
-			overBudget = append(overBudget, e.Name)
+		if len(over) == 0 {
+			continue
 		}
+		sort.Strings(over)
+		parts = append(parts, fmt.Sprintf("%s drops MCP tools whose identifier (mcp_<server>_<tool>) exceeds %d "+
+			"characters, and entries %s would exceed it: their longest tools will be missing from a %s session "+
+			"— shorten the KB's tool_prefix (kbs[].tool_prefix) or set mcp.mount_mode: routed, whose single entry "+
+			"carries unprefixed tools (see docs/deployment.md §MCP tool-name prefix)",
+			d.Provider, d.ToolIdentifierLimit, strings.Join(over, ", "), d.DisplayName))
 	}
-	if len(overBudget) == 0 {
-		return ""
-	}
-	sort.Strings(overBudget)
-	return fmt.Sprintf(
-		"Antigravity enforces a 64-character limit on tool identifiers ("+
-			"mcp_<server>_<tool>): entries %s exceed the budget and their tools will be "+
-			"silently dropped — set mcp.mount_mode: routed in the server config to "+
-			"collapse entries to a single \"cartographer\" key with unprefixed tools (D187)",
-		strings.Join(quoteAll(overBudget), ", "))
+	return strings.Join(parts, "; ")
 }
 
 // flatNamespaceMountWarning returns a non-empty warning when this server

@@ -188,7 +188,7 @@ func runSync(dir string, cfg *clientconfig.Config, opts syncOptions) (syncResult
 		if w := kiroFlatNamespaceWarning(targets, entriesByProvider, effectiveToolPrefixes(facts, healthErr), healthErr); w != "" {
 			warnings = append(warnings, w)
 		}
-		if w := antigravityToolBudgetWarning(targets, entriesByProvider, effectiveToolPrefixes(facts, healthErr)); w != "" {
+		if w := toolIdentifierBudgetWarning(targets, entriesByProvider, facts, healthErr); w != "" {
 			warnings = append(warnings, w)
 		}
 		for _, w := range warnings {
