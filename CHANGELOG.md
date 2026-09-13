@@ -8,6 +8,13 @@
 
 KB histories with commits authored as `cartographer <cartographer@localhost>` may need a manual author rewrite before a forge with author push rules accepts the first push.
 
+## [0.12.2](https://github.com/BeppeTemp/cartographer/compare/v0.12.1...v0.12.2) (2026-09-13)
+
+
+### Bug Fixes
+
+* **mcpserver:** Antigravity Streamable HTTP Accept header and tool budget ([#273](https://github.com/BeppeTemp/cartographer/issues/273)) ([#274](https://github.com/BeppeTemp/cartographer/issues/274)) ([8b137b3](https://github.com/BeppeTemp/cartographer/commit/8b137b3c0b7938b5d1aad6214a102f1725cc42d5))
+
 ## [0.12.1](https://github.com/BeppeTemp/cartographer/compare/v0.12.0...v0.12.1) (2026-09-12)
 
 
