@@ -134,6 +134,14 @@ so it supplies both media types itself before the SDK checks them. A client
 that sends only `application/json` — Antigravity does on its notifications —
 or no `Accept` at all is served normally.
 
+`Mcp-Protocol-Version` is stripped on JSON-RPC notifications (D210). The
+`2026-07-28` SDK enforces that a body carrying this header must also contain
+`_meta.io.modelcontextprotocol/protocolVersion`, but notifications have no
+`_meta`. Some clients (Antigravity / go-sdk v1.7.0) set the header on every
+POST, including notifications; the server removes it before the SDK sees the
+request so the notification is served as 202 Accepted. Regular requests with
+`_meta` are unaffected.
+
 ### What a `2026-07-28` request must carry over HTTP
 
 Three headers mirror the body and are validated against it — a disagreement, or
