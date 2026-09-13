@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/BeppeTemp/cartographer/internal/client"
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 )
@@ -157,6 +158,73 @@ func TestKiroFlatNamespaceWarning(t *testing.T) {
 	t.Run("no flat-namespace provider is silent", func(t *testing.T) {
 		if w := kiroFlatNamespaceWarning([]string{"claude", "codex", "opencode"}, map[string][]mcpEntry{"kiro": twoEntries}, bothUnprefixed, nil); w != "" {
 			t.Errorf("expected no warning without a flat-namespace provider, got %q", w)
+		}
+	})
+}
+
+// TestToolIdentifierBudgetWarning pins D201 against issue #273: Antigravity
+// drops a tool whose "mcp_<server>_<tool>" identifier exceeds 64 characters.
+func TestToolIdentifierBudgetWarning(t *testing.T) {
+	listed := func(kbs ...client.HealthKB) serverFacts { return serverFacts{Listed: true, KBs: kbs} }
+	issueFacts := listed(
+		client.HealthKB{Name: "morbos-agentic-wiki", ToolPrefix: "morbos_agentic_wiki"},
+		client.HealthKB{Name: "server-casa-kb", ToolPrefix: "server_casa_kb"},
+	)
+	issueEntries := []mcpEntry{
+		{Name: "cartographer-morbos-agentic-wiki", KBName: "morbos-agentic-wiki"},
+		{Name: "cartographer-server-casa-kb", KBName: "server-casa-kb"},
+	}
+	// The longest prefix the server's 48-char budget admits (48 - "__" - 20).
+	longPrefix := strings.Repeat("p", 26)
+
+	t.Run("issue #273 entries warn with the computed length", func(t *testing.T) {
+		w := toolIdentifierBudgetWarning([]string{"antigravity"}, map[string][]mcpEntry{"antigravity": issueEntries}, issueFacts, nil)
+		// 4 + 32 + 1 + len("morbos_agentic_wiki__git_conflict_resolve") = 78, as the issue measured.
+		for _, want := range []string{`"cartographer-morbos-agentic-wiki" (up to 78)`, `"cartographer-server-casa-kb" (up to 68)`, "mount_mode: routed", "tool_prefix"} {
+			if !strings.Contains(w, want) {
+				t.Errorf("warning %q does not contain %q", w, want)
+			}
+		}
+	})
+
+	t.Run("short prefixes fit and are silent", func(t *testing.T) {
+		facts := listed(client.HealthKB{Name: "a", ToolPrefix: "a"}, client.HealthKB{Name: "b", ToolPrefix: "b"})
+		entries := []mcpEntry{{Name: "cartographer-a", KBName: "a"}, {Name: "cartographer-b", KBName: "b"}}
+		if w := toolIdentifierBudgetWarning([]string{"antigravity"}, map[string][]mcpEntry{"antigravity": entries}, facts, nil); w != "" {
+			t.Errorf("expected silence, got %q", w)
+		}
+	})
+
+	t.Run("a single-KB bare entry carries that KB's prefix", func(t *testing.T) {
+		facts := listed(client.HealthKB{Name: "kb", ToolPrefix: longPrefix})
+		entries := []mcpEntry{{Name: "cartographer"}}
+		if w := toolIdentifierBudgetWarning([]string{"antigravity"}, map[string][]mcpEntry{"antigravity": entries}, facts, nil); !strings.Contains(w, "(up to 65)") {
+			t.Errorf("expected a 65-char overflow warning, got %q", w)
+		}
+	})
+
+	t.Run("a routed entry carries unprefixed tools and is silent", func(t *testing.T) {
+		facts := issueFacts
+		facts.RoutedPath = "/mcp/routed"
+		entries := []mcpEntry{{Name: "cartographer"}}
+		if w := toolIdentifierBudgetWarning([]string{"antigravity"}, map[string][]mcpEntry{"antigravity": entries}, facts, nil); w != "" {
+			t.Errorf("expected silence for a routed entry, got %q", w)
+		}
+	})
+
+	t.Run("a provider without a limit is silent", func(t *testing.T) {
+		if w := toolIdentifierBudgetWarning([]string{"claude", "kiro"}, map[string][]mcpEntry{"claude": issueEntries, "kiro": issueEntries}, issueFacts, nil); w != "" {
+			t.Errorf("expected silence without a limited provider, got %q", w)
+		}
+	})
+
+	t.Run("unknown prefixes are silent", func(t *testing.T) {
+		byProvider := map[string][]mcpEntry{"antigravity": issueEntries}
+		if w := toolIdentifierBudgetWarning([]string{"antigravity"}, byProvider, issueFacts, errors.New("unreachable")); w != "" {
+			t.Errorf("expected silence on a health error, got %q", w)
+		}
+		if w := toolIdentifierBudgetWarning([]string{"antigravity"}, byProvider, serverFacts{}, nil); w != "" {
+			t.Errorf("expected silence when /health lists no KBs, got %q", w)
 		}
 	})
 }

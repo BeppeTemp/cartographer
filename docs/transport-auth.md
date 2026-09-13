@@ -127,10 +127,12 @@ reason the CLI client sends the newer era's metadata on every request.
 A request naming a version the server does not serve is refused with `-32022`,
 whose data lists the versions it does.
 
-Every POST must send `Accept: application/json, text/event-stream` — both
-media types, as the Streamable HTTP transport requires. A request missing
-either is refused with 400 before it reaches a handler, even though this
-server never returns an event stream.
+A POST's `Accept` header is not enforced (D200). Streamable HTTP asks a
+client to send `Accept: application/json, text/event-stream`, and the SDK
+refuses a request missing either; this server only ever answers with JSON,
+so it supplies both media types itself before the SDK checks them. A client
+that sends only `application/json` — Antigravity does on its notifications —
+or no `Accept` at all is served normally.
 
 ### What a `2026-07-28` request must carry over HTTP
 

@@ -61,6 +61,12 @@ type Descriptor struct {
 	// only one stays reachable (D102/D144).
 	FlatToolNamespace bool
 
+	// ToolIdentifierLimit, when non-zero, is the longest tool identifier the
+	// provider accepts, where it shows each MCP tool to the model as
+	// "mcp_<server>_<tool>" and silently drops any longer one (Antigravity:
+	// 64, D201). Zero means no such limit is known.
+	ToolIdentifierLimit int
+
 	// BaseDirEnv, when set, names the environment variable holding this
 	// provider's own root directory: artifacts are materialized there
 	// instead of under the shared client base dir (D141 — Hermes' root is
@@ -173,16 +179,17 @@ var descriptors = []Descriptor{
 		emit:               emitOpenCodeServer,
 	},
 	{
-		Provider:           ProviderAntigravity,
-		DisplayName:        "Antigravity",
-		MCPConfigPath:      ".gemini/config/mcp_config.json",
-		MCPFormat:          FormatJSON,
-		MCPServerKey:       "mcpServers",
-		DeletableWhenEmpty: true,
-		SupportsMCPHeaders: true,
-		Binaries:           []string{"agy"},
-		ConfigDirs:         [][]string{{".gemini", "config"}, {".gemini", "antigravity"}, {".gemini", "antigravity-cli"}},
-		DarwinAppDir:       "/Applications/Antigravity.app",
+		Provider:            ProviderAntigravity,
+		DisplayName:         "Antigravity",
+		MCPConfigPath:       ".gemini/config/mcp_config.json",
+		MCPFormat:           FormatJSON,
+		MCPServerKey:        "mcpServers",
+		DeletableWhenEmpty:  true,
+		SupportsMCPHeaders:  true,
+		ToolIdentifierLimit: 64,
+		Binaries:            []string{"agy"},
+		ConfigDirs:          [][]string{{".gemini", "config"}, {".gemini", "antigravity"}, {".gemini", "antigravity-cli"}},
+		DarwinAppDir:        "/Applications/Antigravity.app",
 		// No InstructionsPrecedence: Antigravity reads both ~/.gemini/GEMINI.md
 		// and the cross-tool ~/.gemini/AGENTS.md, and GEMINI.md — the file
 		// Cartographer manages — wins where they conflict. Nothing shadows it.
