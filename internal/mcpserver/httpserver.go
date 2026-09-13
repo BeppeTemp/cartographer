@@ -29,7 +29,18 @@ func (s *Server) HTTPHandler() http.Handler {
 // POST remains the whole transport: the SDK's stateless mode answers GET and
 // DELETE with 405, which is what 2026-07-28 requires now that neither the
 // event stream nor sessions exist.
+//
+// A POST's Accept header is not enforced (D200): the SDK refuses one that
+// does not name both application/json and text/event-stream, but this server
+// only ever answers with JSON, and Antigravity omits text/event-stream on its
+// notifications. Appending both media types satisfies the SDK's presence
+// check without changing what is returned; the request is cloned so the
+// caller's headers are left untouched.
 func (s *Server) handleMCP(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodPost {
+		r = r.Clone(r.Context())
+		r.Header.Add("Accept", "application/json, text/event-stream")
+	}
 	s.sdkHTTPHandler().ServeHTTP(w, r)
 }
 
@@ -224,6 +235,12 @@ func (m *MultiKBServer) MountKB(name string, setupFn func(s *Server)) {
 // reject or exclude a tool whose name is too long, and some clients add
 // their own "@server/" prefix on top — 48 leaves room for that.
 const maxToolNameLen = 48
+
+// MaxBareToolNameLen is the length of the longest tool name the registry
+// registers, before any tool_prefix. The client uses it to compute a tool
+// identifier budget without listing tools (D201); TestMaxBareToolNameLen
+// fails when a longer tool is added without raising it.
+const MaxBareToolNameLen = 20
 
 // MountKBWithPrefix mounts a KB whose tool names are all rewritten to
 // "<prefix>__<tool>" (D102: opt-in per-KB tool-name namespacing for MCP

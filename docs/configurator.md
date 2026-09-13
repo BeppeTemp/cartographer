@@ -111,6 +111,14 @@ one entry cannot collide with itself, and routing is the other answer to the sam
 `tool_prefix`, so the client can see which KBs are already namespaced instead of reasoning from the
 precondition alone.
 
+**Antigravity and the 64-character tool identifier (D201).** Antigravity shows each tool as
+`mcp_<server>_<tool>` and drops any identifier over 64 characters, silently. `connect`/`sync`
+compute the longest identifier each Antigravity entry would produce — entry name, the KB's effective
+`tool_prefix` from `/health`, the longest tool name — and warn on stderr when it exceeds the limit,
+naming the entry. The remedies are server-side: a shorter `kbs[].tool_prefix`, or
+`mcp.mount_mode: routed`, whose single entry carries unprefixed tools. Without `/health` facts the
+check stays silent.
+
 **Prefix discovery (D120).** Every client-owned direct tool call — manifest pull during `sync`,
 remote `reindex`, the TUI's status probes — qualifies the tool name with the prefix the server
 advertises for that KB in `/health`, never with one re-derived locally from the KB name. A locally

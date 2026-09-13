@@ -763,6 +763,9 @@ func doConnect(opts connectOptions) (connectResult, error) {
 			configWarnings = append(configWarnings, w)
 		}
 	}
+	if w := toolIdentifierBudgetWarning(opts.Providers, entriesByProvider, facts, healthErr); w != "" {
+		configWarnings = append(configWarnings, w)
+	}
 
 	// 1b. Ensure the bootstrap hook (D60): purely local, independent of the
 	// server manifest fetched in step 2 below — must be in place even when that
