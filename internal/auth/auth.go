@@ -1,3 +1,7 @@
+// Package auth implements bearer-token authorization for the HTTP transport:
+// the token store, the middleware that resolves a request to a set of scopes,
+// and the per-KB RBAC check (`kb:<name>:r` / `kb:<name>:rw`) the tools are
+// gated on. Disabled by default; stdio is trusted and never passes through it.
 package auth
 
 import (

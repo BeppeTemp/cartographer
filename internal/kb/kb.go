@@ -1249,7 +1249,7 @@ func (kb *KB) DeleteConcept(id okf.ConceptID) error {
 //   - "<id>/" does not already exist (the concept is not already expanded).
 //
 // The inverse (concept_collapse) is intentionally not implemented (YAGNI —
-// see docs/decisions/data-plane.md D77).
+// see D77).
 func (kb *KB) ExpandConcept(id okf.ConceptID) error {
 	segments := strings.Split(string(id), "/")
 	if len(segments) != 2 {
@@ -1289,8 +1289,7 @@ func (kb *KB) ExpandConcept(id okf.ConceptID) error {
 // mapDescriptorCandidates are the filenames a Map/Journal descriptor can
 // have, in precedence order (D77 WP1): "_map.md" is the current shape;
 // "_archive.md" is read-compat for KBs predating the Atlas/Map/Journal
-// rename (never migrated automatically — see docs/plans/atlas-hierarchy.md
-// WP6).
+// rename (never migrated automatically — D77 WP6).
 var mapDescriptorCandidates = []string{"_map.md", "_archive.md"}
 
 // mapDescriptorRelPath returns the relative path (from the data root) of the

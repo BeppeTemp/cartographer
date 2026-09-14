@@ -52,7 +52,7 @@ projection → materialization chain — is written out in the bundled `kb-creat
 skill's `references/artifacts.md` (D196).
 
 A materialized `SKILL.md` carries a provenance block naming the KB it came
-from, its path there, and its content hash ([D138](decisions/sync-provisioning.md#d138)).
+from, its path there, and its content hash ([D138](decisions/D138-provenance-stamp-on-materialized-skills-and-agents-and.md)).
 Editing that copy is **not** a supported channel: the next sync replaces it. The supported
 channels are `artifact_write` on the owning KB (or a git push to the KB repo) — the block
 states which, with the exact path.

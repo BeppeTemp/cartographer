@@ -260,7 +260,7 @@ func TestServer_ToolsList(t *testing.T) {
 	}
 
 	// D77 WP3: the pre-rename tool names must be gone, with no retrocompat
-	// alias (see docs/plans/atlas-hierarchy.md).
+	// alias.
 	for _, removed := range []string{"kb_overview", "archive_create", "dossier_create", "archive_list", "dossier_list"} {
 		if foundTools[removed] {
 			t.Errorf("tools/list: legacy tool %q must not be registered (D77 rename, no alias)", removed)
@@ -269,7 +269,7 @@ func TestServer_ToolsList(t *testing.T) {
 }
 
 // TestServer_ToolsList_ReadOnlyHint verifies that tools/list annotates
-// read-only tools (WP2, docs/plans/write-path-latency.md) with
+// read-only tools (D76 WP2) with
 // annotations.readOnlyHint=true, and omits it (or leaves it false) for
 // write tools.
 func TestServer_ToolsList_ReadOnlyHint(t *testing.T) {

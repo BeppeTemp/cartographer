@@ -53,7 +53,7 @@ round-trip. Measured against a running server with three KBs, `tools/list`
 returned 82,341 bytes across the three mounts — more than twice the whole rest
 of that session's fixed context — and the two KBs never called still paid for
 themselves on all 204 round-trips. The tool-name prefix
-([D102](decisions/transport-auth.md#d102)) makes multi-KB *work* on a
+([D102](decisions/D102-opt-in-per-kb-mcp-tool-name-prefix.md)) makes multi-KB *work* on a
 flat-namespace client and the `agent` profile (D65/D123) shrinks the set *per
 mount*; neither removes the duplication, because the duplication is the
 topology.
@@ -98,7 +98,7 @@ changes the *shape* of every entry, which an incremental sync cannot see:
 
 The wire format is implemented by the official
 [MCP Go SDK](https://github.com/modelcontextprotocol/go-sdk)
-([D168](decisions/transport-auth.md#d168)), not by Cartographer. The server
+([D168](decisions/D168-the-mcp-wire-format-comes-from-the-official-sdk.md)), not by Cartographer. The server
 answers every revision the SDK serves — `2024-11-05` through `2026-07-28` —
 and decides which one a request belongs to from the request itself; nothing is
 negotiated up front and, over HTTP, nothing is remembered between requests.

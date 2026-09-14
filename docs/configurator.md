@@ -9,7 +9,7 @@ a **TUI dashboard** when invoked with no arguments in a terminal.
 
 The client **always talks to the server over HTTP** (the `sync_pull` tool): there is no
 stdio transport on the client side, nor a separate binary — see
-[the client decision records](decisions/client-configurator.md) for the
+[the client decision records](decisions.md#client-configurator) for the
 rationale. Generating the MCP config files (`internal/configurator`) and the
 materialization logic (`internal/provisioning`) are the same used server-side by
 `sync_check`/`sync_apply` (`docs/sync.md`).
@@ -144,7 +144,7 @@ cartographer connect all --auto-trust --dry-run
 | `--server-url` | `http://localhost:39273/mcp` | Cartographer server URL |
 | `--auth` | `false` | Enables the Bearer header in generated configs |
 | `--token-env` | `CARTOGRAPHER_TOKENS` | Env var holding the Bearer token |
-| `--dry-run` | `false` | Prints what would be written, in the conditional (`would write`, `would connect`), and writes nothing ([D147](decisions/client-configurator.md#d147)) |
+| `--dry-run` | `false` | Prints what would be written, in the conditional (`would write`, `would connect`), and writes nothing ([D147](decisions/D147-every-reported-write-is-observed-never-intended.md)) |
 | `--auto-trust` | `false` | Also treats KB skills as trusted (unsigned) |
 | `--pin-key` | *(repeatable)* | Pins `KB=PUBLIC_KEY` for Ed25519-verified provisioning artifacts; existing pins are preserved |
 
@@ -225,7 +225,7 @@ Exit code: `0` all providers in sync, `1` at least one provider in drift, `2` er
 `.cartographer.yaml`, server unreachable, ...). For every provider it also prints per-kind
 counts (`provisioning.KindCounts`), e.g. `skill 4/5 · agent 2/2 · hook 1/1`. On drift it
 prints the diff (added/updated/removed, with a `trust` state: `built_in`, `verified`, `trusted`,
-`approved`, `approval_stale` or `needs_approval` — see [D115](decisions/sync-provisioning.md#d115--mcp-allow-list-and-hash-bound-local-approval)
+`approved`, `approval_stale` or `needs_approval` — see [D115](decisions/D115-mcp-allow-list-and-hash-bound-local-approval.md)
 for the MCP-specific approval states). MCP artifacts in `needs_approval`/`approval_stale` get their own
 `cartographer approve mcp <name> --kb <kb>` hint, separate from the `--auto-trust` suggestion for
 the other kinds. Before the artifact report it prints the
@@ -289,7 +289,7 @@ can see. Already-open provider sessions still need to be restarted to reopen the
 
 When the server that answers is not the one this client's state was materialized against, `sync`
 prints one line saying so and recommending `reconnect` — once per invocation, whatever the provider
-count — and then syncs normally ([D142](decisions/client-configurator.md#d142)). It reports; it
+count — and then syncs normally ([D142](decisions/D142-reconnect-rebuild-a-client-configuration-never.md)). It reports; it
 never escalates on its own. An unknown version on either side (a lockfile written before D142, an
 unreachable server) and a local `dev` build say nothing.
 
@@ -297,7 +297,7 @@ unreachable server) and a local `dev` build say nothing.
 
 Rebuilds a provider's configuration from scratch: a full `disconnect` followed by a full `connect`,
 in one invocation, reusing both rather than being a third implementation of either
-([D142](decisions/client-configurator.md#d142)).
+([D142](decisions/D142-reconnect-rebuild-a-client-configuration-never.md)).
 
 ```bash
 cartographer reconnect                 # every connected provider
@@ -339,7 +339,7 @@ can perform.
 ### `cartographer doctor`
 
 Read-only diagnosis of this machine's client configuration
-([D143](decisions/client-configurator.md#d143)). `status` answers "is the applied revision current";
+([D143](decisions/D143-doctor-a-separate-command-that-diagnoses-and-never.md)). `status` answers "is the applied revision current";
 `doctor` answers the question an operator actually has after an upgrade or a half-finished
 migration: *is there anything left over here that should not be, or missing that should?*
 
@@ -505,7 +505,7 @@ mappings, so the rewriting is a no-op. Wiki-links `[[id]]` are never touched.
 For every file: if it already has YAML frontmatter it's preserved, only adding missing fields;
 otherwise it synthesizes the minimum — `title` from the body's first H1 (fallback: file name), `type: Note` if absent
 (`WriteConcept` always requires it — a deviation from the original spec, see
-[D74](decisions/data-plane.md#d74)) — and
+[D74](decisions/D74-import-of-external-non-okf-wikis-kbs-kb-import-skill.md)) — and
 in both cases it ensures `status: imported`, hooking into the `imported_draft` lint (warning) that
 keeps the curation backlog visible across sessions. Relative markdown links `[text](path.md)`
 are rewritten best-effort against the new layout; wiki-links `[[...]]` are left as-is
@@ -545,7 +545,7 @@ stderr with the full form to use), `2` usage error (missing argument or not in t
 ## Adding a provider
 
 Every supported provider is one descriptor in `internal/configurator/registry.go`
-([D137](decisions/client-configurator.md#d137)): its `Provider` constant and wire value, display
+([D137](decisions/D137-declarative-provider-registry-two-tables-owned-by-the.md)): its `Provider` constant and wire value, display
 name, native MCP config file and format (`FormatJSON` with its server key, or `FormatTOMLBlock`),
 whether that file may be deleted once emptied (never for Claude Code — `.claude.json` is Claude's
 own shared state), whether it can carry MCP auth headers, whether its MCP tool namespace is flat
@@ -562,7 +562,7 @@ differ, so that stays code), its cells in the kind × provider matrix (`internal
 in `hookMechanisms`. A missing matrix cell fails a completeness test; nothing else needs editing.
 A provider whose MCP configuration Cartographer does not own declares neither a config file nor an
 emitter and is skipped by `connect`/`disconnect` (`ManagesMCPConfig`); one that materializes outside
-the shared base dir declares `BaseDirEnv` instead ([D141](decisions/client-configurator.md#d141)).
+the shared base dir declares `BaseDirEnv` instead ([D141](decisions/D141-hermes-is-a-supported-provider-that-receives.md)).
 
 ### Hermes Agent
 
@@ -572,7 +572,7 @@ recreated on the next playbook run, so anything written there would be lost — 
 explicitly rather than silently doing nothing, and pointing Hermes at the server stays the
 operator's job. The output is scoped to match: no MCP-entry line is printed, and the closing
 "restart the … sessions to load the MCP tools" hint names only the providers that received one
-([D147](decisions/client-configurator.md#d147)). For the same reason Hermes is absent from the interactive connect form, which offers
+([D147](decisions/D147-every-reported-write-is-observed-never-intended.md)). For the same reason Hermes is absent from the interactive connect form, which offers
 the providers whose MCP configuration `connect` writes.
 
 - **`$HERMES_HOME` is required**: it is the base dir artifacts are materialized under, recorded as

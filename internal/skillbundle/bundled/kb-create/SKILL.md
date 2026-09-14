@@ -165,8 +165,6 @@ binary into the KB. That is installation, not authoring.
   `name:` field of the KB's `kbs:` entry, which falls back to the repository basename only when it
   is omitted (see step 1) — not "always the basename".
 - Config reference: `config.example.yaml`, `docs/deployment.md` §Bootstrap KB da remote git e
-  §Configurazione, `docs/transport-auth.md` §Autorizzazione per-KB,
-  `docs/decisions/deployment-release.md` D39,
-  `docs/decisions/transport-auth.md` D44,
-  `docs/decisions/concurrency-git.md` D46,
-  `docs/decisions/skills-services-secrets.md` D47.
+  §Configurazione, `docs/transport-auth.md` §Autorizzazione per-KB, and the decisions
+  D39, D44, D46, D47 — one file each under `docs/decisions/`, found with
+  `ls docs/decisions/D39-*`.

@@ -5,10 +5,11 @@ title: 'Plan: <title> (D<n>)'
 labels: plan
 ---
 
-> **Status**: approved, not implemented. On completion: add the final `D<n>`
-> entry to the owning topic under `docs/decisions/`, update the affected
-> current-state docs (`docs/index.md` §Maintenance rules), then close this
-> issue from the implementation PR (`Closes #<n>`).
+> **Status**: approved, not implemented. On completion: add the decision file
+> `docs/decisions/D<n>-<slug>.md` (`make decisions-new`, then
+> `make decisions-index`), update the affected current-state docs
+> (`docs/index.md` §Documentation maintenance rules), then close this issue from
+> the implementation PR (`Closes #<n>`).
 
 ## Context and diagnosis
 
@@ -19,12 +20,12 @@ their rationale; invariants to preserve, in bold. -->
 
 <!-- One WP section per work package: one-line goal; file:line to touch; exact
 semantics and error cases; tests to add; acceptance criterion.
-`make vet && make test` green at the end of each WP. -->
+`make gate` green at the end of each WP. -->
 
 ## Closing
 
 <!-- Replace every placeholder. -->
 
 - [ ] Current-state docs: `docs/<page>.md`
-- [ ] Decision record owner: `docs/decisions/<topic>.md`
+- [ ] Decision file: `docs/decisions/D<n>-<slug>.md`, `topic: <topic>`
 - [ ] Release impact: `<none | describe>`

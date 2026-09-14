@@ -1,6 +1,7 @@
 // Package kb — conflict registry and degraded-marker support (Step 3).
 // State is persisted in <root>/.cartographer/conflicts.json, which is local-only
 // (gitignored) so it never enters the versioned history.
+
 package kb
 
 import (

@@ -26,7 +26,7 @@ only the pages relevant to your task.
 | [transport-auth.md](transport-auth.md) | stdio / HTTP transport, static bearer tokens, per-KB scopes and statelessness |
 | [loop.md](loop.md) | Current read, write, validate and lint workflow |
 | [interoperability.md](interoperability.md) | OKF boundaries and ownership of provider-specific compatibility documentation |
-| [decisions.md](decisions.md) | Short router to topic-based decision records under `docs/decisions/`; decisions explain why, while topic docs define current behavior |
+| [decisions.md](decisions.md) | How to refer to and add a decision, plus the generated list of every record under `docs/decisions/` (one file each); decisions explain why, while topic docs define current behavior |
 | [conventions.md](conventions.md) | Go conventions (language, style, errors, data-plane safety, tests, dependencies) |
 | [testing.md](testing.md) | Deterministic unit, smoke and end-to-end strategy plus release checks |
 | [references.md](references.md) | Bibliography (Karpathy, OKF, MCP spec, SOPS, agentskills.io) |
@@ -45,11 +45,11 @@ Mutable state does not live in narrative documentation:
 |---|---|
 | New user | `getting-started.md` → `deployment.md` (for an always-on or shared server) |
 | New to the codebase | `overview.md` → `data-plane.md` → `control-plane.md` |
-| Add an MCP tool | `control-plane.md` §tools → `conventions.md` → `AGENTS.md` (recipe) |
+| Add an MCP tool | `control-plane.md` §tools → `conventions.md` → `internal/mcpserver/AGENTS.md` (recipe and invariants) |
 | Debug concurrency / git conflicts | `concurrency.md` |
 | Add a skill or external service | `skills-services-secrets.md` |
 | Deploy / production operations | `deployment.md` |
-| Understand an architectural choice | `decisions.md` → the owning topic register; search `docs/decisions/` for `## D<n>` or a keyword |
+| Understand an architectural choice | `decisions.md` for the generated list, or `ls docs/decisions/D<n>-*` if you already have the number |
 | Configure an LLM provider | `interoperability.md` |
 | Connect/disconnect an agent (`connect`/`disconnect`/`reconnect`/`status`/`sync`/`doctor`/TUI) | `configurator.md` |
 | Keep a client aligned with the KB skills | `sync.md` |
@@ -75,9 +75,10 @@ matching file **in the same session/PR** as the change:
 | New provisioning `kind` (beyond skill/agent/hook) or per-provider destination | `configurator.md` (client) + `sync.md` (manifest/diff) |
 | A feature is **not** implemented (deferred, planned, "future work") | A GitHub issue labelled `enhancement` — never prose in `docs/`. The page keeps only the current limit, with a link to the issue |
 | Project status, milestone, task or bug changes | GitHub issue / pull request / release; update `CHANGELOG.md` only through the release workflow |
-| Any non-obvious choice (why X and not Y) | One owning topic file under `docs/decisions/` (new D entry); do not duplicate it in other registers |
-| New external dependency | Owning topic under `docs/decisions/` (D entry) + `conventions.md` §dependencies |
+| Any non-obvious choice (why X and not Y) | One new file `docs/decisions/D<n>-<slug>.md` (`make decisions-new`, then `make decisions-index`); never a second entry for the same choice |
+| New external dependency | A decision file under `docs/decisions/` + `conventions.md` §dependencies |
 | New test level or pre-release checklist change | `testing.md` |
 | Contributor workflow (PR flow, plan issues, build loop) | `CONTRIBUTING.md` |
+| What an agent client reads (instruction file, skill/agent/hook/MCP paths) | The provider matrix in `internal/provisioning` **first** (`registry.go`, `workspacescope.go`), then `CONTRIBUTING.md` §Working with an agent client — a test fails if the two disagree |
 | User-facing install/onboarding flow | `getting-started.md` + README |
 | Agent-driven install/onboarding flow | `agent-install.md` + README |

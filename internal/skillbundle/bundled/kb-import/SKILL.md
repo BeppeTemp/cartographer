@@ -104,5 +104,6 @@ skill.
 - CLI: `cartographer import` (see D74 WP2), `kb-create` skill for a brand-new target KB,
   for authoring artifacts (`references/artifacts.md`) and for the SOPS flow
   (`references/secrets.md`); `cartographer-ops` for operations after the import.
-- Rationale and scope: `docs/decisions/data-plane.md` D74 (import), D28 (why no server-side ingest), D72
-  (wiki-links, `concept_move` batch).
+- Rationale and scope: decisions D74 (import), D28 (why no server-side ingest), D72
+  (wiki-links, `concept_move` batch) — one file each under `docs/decisions/`,
+  found with `ls docs/decisions/D74-*`.

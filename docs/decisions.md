@@ -1,48 +1,338 @@
 # Decision records
 
-This directory records the *why* behind non-obvious choices. It is historical
-context, not the product contract or a backlog:
+This is where the *why* behind non-obvious choices lives. It is historical
+context, not the product contract and not a backlog:
 
-- current behavior lives in the topic pages linked from [the documentation index](index.md);
+- current behaviour lives in the topic pages linked from
+  [the documentation index](index.md);
 - planned work, bugs and delivery status live in GitHub issues;
-- completed user-visible work is summarized by releases and `CHANGELOG.md`.
+- completed user-visible work is summarised by releases and `CHANGELOG.md`.
 
-## Topics
+**One decision is one file**, `docs/decisions/D<n>-<slug>.md`, and the list below
+is generated from those files. Reading one costs the one file, not the register it
+used to live in — the ten thematic registers this replaced held 197 records in
+483 KB, so answering "why is it like this?" meant loading up to 101 KB to reach a
+single paragraph.
 
-| Topic | Decision records | Current-state documentation |
-|---|---|---|
-| Cross-cutting architecture | [Architecture](decisions/architecture.md) | [Overview](overview.md) |
-| KB model and imports | [Data plane](decisions/data-plane.md) | [Data plane](data-plane.md) |
-| MCP tools, search and lint | [Control plane](decisions/control-plane.md) | [Control plane](control-plane.md) |
-| HTTP, stdio and authorization | [Transport and authorization](decisions/transport-auth.md) | [Transport and authorization](transport-auth.md) |
-| Commits, synchronization and conflicts | [Concurrency and git](decisions/concurrency-git.md) | [Concurrency](concurrency.md) |
-| Skills, services and secrets | [Skills, services and secrets](decisions/skills-services-secrets.md) | [Skills, services and secrets](skills-services-secrets.md) |
-| Provisioned artifacts | [Synchronization and provisioning](decisions/sync-provisioning.md) | [Synchronization](sync.md) |
-| CLI, TUI and providers | [Client and configurator](decisions/client-configurator.md) | [Configurator](configurator.md) |
-| Configuration, deployment and releases | [Deployment and release](decisions/deployment-release.md) | [Deployment](deployment.md) |
-| Repository and documentation policy | [Project governance](decisions/project-governance.md) | [Contributing](https://github.com/BeppeTemp/cartographer/blob/main/CONTRIBUTING.md) |
+## Referring to a decision
 
-## Finding a decision
-
-Search the directory instead of maintaining a second title/status index:
+In code comments and in prose the reference is the **bare `D<n>`**, with no path:
 
 ```bash
-rg '^## (AD|D)[0-9]+|keyword' docs/decisions/
+ls docs/decisions/D47-*          # resolve it
+rg -l 'D47' --type go            # who mentions it
 ```
 
-Every implementation decision has one canonical topic file and a stable
-`<a id="dNN"></a>` anchor. Link directly to
-`docs/decisions/<topic>.md#dNN`.
+It costs fewer tokens than a path, and it does not break when a title is
+reworded. In markdown, use a real link — the test suite checks that every one of
+them resolves.
 
 ## Adding a decision
 
-1. Survey open `plan` issues before choosing an ID. A plan title reserves its
-   D number until it is implemented or explicitly abandoned.
-2. Choose the next number above both the decision files and existing plan issue
-   titles. Never infer it from a single topic file.
-3. The plan issue is the design handoff. Add the final D entry only in the
-   implementation PR, in the one topic file that owns the choice.
-4. Record the decision, rationale and consequences. Put current behavior in the
-   corresponding topic page and future work in a GitHub issue.
-5. Do not add status tables, milestone lists or duplicate entries. Cross-topic
-   decisions have one owner and are linked from other pages when useful.
+1. **Reserve the number.** Survey open `plan` issues as well as the files: a
+   plan title reserves its `D<n>` until it is implemented or abandoned.
+
+   ```bash
+   make decisions-next                                   # highest on disk + 1
+   gh issue list --label plan --state all --limit 1000    # and reserved by a plan
+   ```
+
+2. **Write it at the end of implementation, not before.** The plan issue is the
+   draft; the decision file records what was actually built, including any
+   deviation from the plan.
+
+   ```bash
+   make decisions-new N=202 SLUG=my-choice TOPIC=control-plane
+   ```
+
+3. **Record the decision, the rationale, and the consequences** — including the
+   uncomfortable ones. Alternatives that were considered and rejected are the
+   part a reader six months from now actually needs. Current behaviour goes in
+   the corresponding topic page, future work in a GitHub issue.
+
+4. **Regenerate the index and commit it**: `make decisions-index`. CI fails if it
+   is stale, so this is not optional. It also fails if the file still carries a
+   placeholder from the template — a half-written record indexes as a blank
+   entry, because `<title>` renders as an HTML tag.
+
+Do not add status tables, milestone lists or duplicate entries. A decision has
+exactly one file; other pages link to it.
+
+## Numbers that have no file
+
+Every `D<n>` written anywhere in the repository has to resolve, and `make test`
+checks it (D208). Three states are legitimate, and only the first is a file:
+
+| State | Where it is declared | Meaning |
+|---|---|---|
+| implemented | `docs/decisions/D<n>-<slug>.md` | the record |
+| **gap** | `repodocs.GapDecisions`, with a reason | deliberately never written; the number **must not be reused**, and a file claiming it fails the build |
+| **reserved** | `repodocs.ReservedDecisions`, with the plan issue | an open plan holds it; the record arrives with the implementation, and the entry is then removed |
+
+A plan abandoned without implementing does not stay reserved: either it gets a
+record saying it was not done — [D130](decisions/D130-the-handshake-era-is-not-retired-overtaken-by-d168.md)
+is the worked example — or, if nothing depends on the number, it becomes a gap.
+
+<!-- decisions:index:begin — generated by `make decisions-index`, do not edit by hand -->
+## All decisions
+
+205 records, one file each, grouped by the topic they belong to.
+In code and in prose the reference is the bare `D<n>`, with no path: resolve it
+with `ls docs/decisions/D<n>-*`. Add one with `make decisions-new`, then
+regenerate this list with `make decisions-index`.
+
+<a id="architecture"></a>
+
+### Cross-cutting architecture
+
+- [AD1–AD13 — Original architecture](decisions/AD1-AD13-original-architecture.md)
+
+<a id="data-plane"></a>
+
+### KB model and imports
+
+- [D5 — Normalized content-hash](decisions/D5-normalized-content-hash.md)
+- [D8 — Frontmatter: stdlib-only YAML parser](decisions/D8-frontmatter-stdlib-only-yaml-parser.md)
+- [D9 — Canonical ordering + SectionHashes](decisions/D9-canonical-ordering-sectionhashes.md)
+- [D13 — Graph neighbors: standard markdown links](decisions/D13-graph-neighbors-standard-markdown-links.md)
+- [D15 — Secret scrubbing: blocking regex, 6 patterns ✅ Removed](decisions/D15-secret-scrubbing-blocking-regex-6-patterns-removed.md)
+- [D19 — Agent contract: AGENTS.md generated by Init](decisions/D19-agent-contract-agents-md-generated-by-init.md)
+- [D22 — Event-driven exporter: HTTP webhook + Go worker pool ✅ Removed](decisions/D22-event-driven-exporter-http-webhook-go-worker-pool.md)
+- [D25 — KB layout: `data/` conceptual root, `services/` carve-out in `ResolvePath`](decisions/D25-kb-layout-data-conceptual-root-services-carve-out-in.md)
+- [D28 — Removal of `raw/`, `mcp/`, `source_ingest`, `scrub`, `exporter` (June 2026)](decisions/D28-removal-of-raw-mcp-source-ingest-scrub-exporter-june.md)
+- [D62 — KB repo cleanup: no generated AGENTS.md/.gitignore, exclude via .git/info/exclude (WP6)](decisions/D62-kb-repo-cleanup-no-generated-agents-md-gitignore.md)
+- [D72 — KB refactoring ergonomics: backlink rewrite and batch in `concept_move`, consistent index, inventory, explicit dossiers](decisions/D72-kb-refactoring-ergonomics-backlink-rewrite-and-batch.md)
+- [D74 — Import of external non-OKF wikis/KBs: `kb-import` skill + CLI scaffold + lint-driven curation](decisions/D74-import-of-external-non-okf-wikis-kbs-kb-import-skill.md)
+- [D77 — Atlas/Map/Journal hierarchy: the dossier becomes a state of the concept](decisions/D77-atlas-map-journal-hierarchy-the-dossier-becomes-a.md)
+- [D87 — Fence-aware heading detection: shared line iterator for `ListHeadings`/`ExtractSection`/`SectionHashes`](decisions/D87-fence-aware-heading-detection-shared-line-iterator-for.md)
+- [D91 — Import convenience without widening the default write surface](decisions/D91-import-convenience-without-widening-the-default-write.md)
+- [D106 — Concept-owned non-Markdown assets](decisions/D106-concept-owned-non-markdown-assets.md)
+- [D107 — Declarative lint contracts in map descriptors](decisions/D107-declarative-lint-contracts-in-map-descriptors.md)
+- [D109 — KB-owned concept templates and one-shot scaffolding](decisions/D109-kb-owned-concept-templates-and-one-shot-scaffolding.md)
+- [D124 — `machine_path` distinguishes client-local paths from a Map's operational target paths](decisions/D124-machine-path-distinguishes-client-local-paths-from-a.md)
+- [D125 — Atomic multi-concept mutation batches: `concept_batch`](decisions/D125-atomic-multi-concept-mutation-batches-concept-batch.md)
+- [D150 — What counts as a link: code fences, labelled wiki-links, extensionless assets](decisions/D150-what-counts-as-a-link-code-fences-labelled-wiki-links.md)
+- [D159 — Per-concept lint opt-out, home-anchored allow prefixes, related size thresholds](decisions/D159-per-concept-lint-opt-out-home-anchored-allow-prefixes.md)
+- [D160 — Complete the concept refactor primitives: move, merge, collapse](decisions/D160-complete-the-concept-refactor-primitives-move-merge.md)
+- [D162 — Authoring and ingestion papercuts: frontmatter, placeholders, repo scan, import mapping](decisions/D162-authoring-and-ingestion-papercuts-frontmatter.md)
+
+<a id="control-plane"></a>
+
+### MCP tools, search and lint
+
+- [D3 — SQLite: `modernc.org/sqlite` planned, not yet introduced](decisions/D3-sqlite-modernc-org-sqlite-planned-not-yet-introduced.md)
+- [D10 — `concept_write`: frontmatter from JSON map](decisions/D10-concept-write-frontmatter-from-json-map.md)
+- [D12 — Keyword search: pure-Go inverted index](decisions/D12-keyword-search-pure-go-inverted-index.md)
+- [D14 — Lint: deterministic checks only in the Core](decisions/D14-lint-deterministic-checks-only-in-the-core.md)
+- [D20 — Embedding: interface + Ollama adapter, wired](decisions/D20-embedding-interface-ollama-adapter-wired.md)
+- [D24 — Automatic keyword index update after `concept_write`](decisions/D24-automatic-keyword-index-update-after-concept-write.md)
+- [D32 — Search index persisted on SQLite (`internal/sqlindex`)](decisions/D32-search-index-persisted-on-sqlite-internal-sqlindex.md)
+- [D36 — mcpserver: unified `Deps` registration, split per domain, shared index](decisions/D36-mcpserver-unified-deps-registration-split-per-domain.md)
+- [D43 — Automatic SQLite index rebuild at startup if empty, without embedding](decisions/D43-automatic-sqlite-index-rebuild-at-startup-if-empty.md)
+- [D65 — "agent" tool profile and compact instructions: less fixed context per session](decisions/D65-agent-tool-profile-and-compact-instructions-less-fixed.md)
+- [D66 — `kb_overview` counts concepts, not subdirectories](decisions/D66-kb-overview-counts-concepts-not-subdirectories.md)
+- [D67 — `concept_delete` MCP tool](decisions/D67-concept-delete-mcp-tool.md)
+- [D70 — Incremental update ergonomics: `concept_patch` + snippets in `search` results](decisions/D70-incremental-update-ergonomics-concept-patch-snippets.md)
+- [D71 — MCP tools for provisioning artifacts: `artifact_read`/`artifact_write`/`artifact_list`/`artifact_delete`](decisions/D71-mcp-tools-for-provisioning-artifacts-artifact-read.md)
+- [D78 — Readable per-path log, `concept_read` with size guard and outline, `concept_oversize` lint](decisions/D78-readable-per-path-log-concept-read-with-size-guard-and.md)
+- [D88 — Frontmatter unset in `concept_patch`, `map_delete` tool](decisions/D88-frontmatter-unset-in-concept-patch-map-delete-tool.md)
+- [D89 — Multi-term search fallback and coherent search modes](decisions/D89-multi-term-search-fallback-and-coherent-search-modes.md)
+- [D90 — Content-hash reconciliation for derived search indexes](decisions/D90-content-hash-reconciliation-for-derived-search-indexes.md)
+- [D108 — On-demand backlinks and frontmatter facets](decisions/D108-on-demand-backlinks-and-frontmatter-facets.md)
+- [D122 — Bounded curated-index read/patch: `index_get(with_hash)` + `index_patch`](decisions/D122-bounded-curated-index-read-patch-index-get-with-hash.md)
+- [D123 — Expose read-only governance tools to descriptor-bound agents](decisions/D123-expose-read-only-governance-tools-to-descriptor-bound.md)
+- [D131 — `kb_status`: `by_status` roll-up excludes unset status](decisions/D131-kb-status-by-status-roll-up-excludes-unset-status.md)
+- [D135 — Remove semantic search and the Ollama embedding backend](decisions/D135-remove-semantic-search-and-the-ollama-embedding-backend.md)
+- [D136 — `index_rebuild` is consolidated into `reindex`](decisions/D136-index-rebuild-is-consolidated-into-reindex.md)
+- [D149 — One link base and one concept resolver for lint](decisions/D149-one-link-base-and-one-concept-resolver-for-lint.md)
+- [D151 — A KB's capabilities and mount provenance are visible from a session](decisions/D151-a-kb-s-capabilities-and-mount-provenance-are-visible.md)
+- [D161 — Every enforced limit and contract stated in its own tool description](decisions/D161-every-enforced-limit-and-contract-stated-in-its-own.md)
+- [D165 — `search` scope is a literal prefix on both backends](decisions/D165-search-scope-is-a-literal-prefix-on-both-backends.md)
+- [D185 — The read path stops sending the same bytes twice](decisions/D185-the-read-path-stops-sending-the-same-bytes-twice.md)
+- [D186 — A gate reports what can act on the verdict, not the whole archive](decisions/D186-a-gate-reports-what-can-act-on-the-verdict-not-the.md)
+
+<a id="transport-auth"></a>
+
+### HTTP, stdio and authorization
+
+- [D2 — Hand-rolled MCP stdio transport (no SDK)](decisions/D2-hand-rolled-mcp-stdio-transport-no-sdk.md)
+- [D16 — HTTP transport: hand-rolled Streamable HTTP](decisions/D16-http-transport-hand-rolled-streamable-http.md)
+- [D17 — Multi-KB: routing via query parameter](decisions/D17-multi-kb-routing-via-query-parameter.md)
+- [D18 — Audit log: JSONL hash-chain with opt-in Ed25519 signature (compliance-grade)](decisions/D18-audit-log-jsonl-hash-chain-with-opt-in-ed25519.md)
+- [D44 — Structured tokens with per-KB scopes + per-KB identity/SOPS fields](decisions/D44-structured-tokens-with-per-kb-scopes-per-kb-identity.md)
+- [D45 — Per-KB r/rw scope enforcement: scoped `TokenStore` + body-peek HTTP guard + fail-closed read-only classification](decisions/D45-per-kb-r-rw-scope-enforcement-scoped-tokenstore-body.md)
+- [D102 — Opt-in per-KB MCP tool-name prefix](decisions/D102-opt-in-per-kb-mcp-tool-name-prefix.md)
+- [D118 — Fine-grained RBAC and permission-aware retrieval](decisions/D118-fine-grained-rbac-and-permission-aware-retrieval.md)
+- [D119 — Operational audit: attempt/completion pairs, checkpointed retention, offline verification](decisions/D119-operational-audit-attempt-completion-pairs.md)
+- [D120 — Tool-prefix discovery for client-owned multi-KB operations](decisions/D120-tool-prefix-discovery-for-client-owned-multi-kb.md)
+- [D128 — Serve the 2026-07-28 revision alongside the handshake era](decisions/D128-serve-the-2026-07-28-revision-alongside-the-handshake.md)
+- [D129 — Report the protocol era and client identity of connected clients](decisions/D129-report-the-protocol-era-and-client-identity-of.md)
+- [D130 — The handshake era is not retired: the plan was overtaken by D168](decisions/D130-the-handshake-era-is-not-retired-overtaken-by-d168.md)
+- [D132 — Audit authorization denials; serve RFC 9728 metadata; drop the unwired HTTP handler layer](decisions/D132-audit-authorization-denials-serve-rfc-9728-metadata.md)
+- [D133 — The version header selects the era by value, not by presence](decisions/D133-the-version-header-selects-the-era-by-value-not-by.md)
+- [D144 — The D102 tool-prefix mitigation reaches the agent](decisions/D144-the-d102-tool-prefix-mitigation-reaches-the-agent.md)
+- [D152 — Tool-prefix uniqueness is enforced, and the client warning reads the prefixes](decisions/D152-tool-prefix-uniqueness-is-enforced-and-the-client.md)
+- [D153 — A tool prefix is the default for every mounted KB](decisions/D153-a-tool-prefix-is-the-default-for-every-mounted-kb.md)
+- [D166 — HTTP connection timeouts, and deleting three unreachable entry points](decisions/D166-http-connection-timeouts-and-deleting-three.md)
+- [D168 — The MCP wire format comes from the official SDK](decisions/D168-the-mcp-wire-format-comes-from-the-official-sdk.md)
+- [D179 — Invalid auth configuration fails startup instead of widening access](decisions/D179-invalid-auth-configuration-fails-startup-instead-of.md)
+- [D187 — One tool surface for a multi-KB server: a routed mount with the KB as an argument](decisions/D187-one-tool-surface-for-a-multi-kb-server-a-routed-mount.md)
+- [D200 — A POST's `Accept` header is supplied, not enforced](decisions/D200-a-post-s-accept-header-is-supplied-not-enforced.md)
+
+<a id="concurrency-git"></a>
+
+### Commits, synchronization and conflicts
+
+- [D30 — Git commit per logical operation (Step 1: local commit)](decisions/D30-git-commit-per-logical-operation-step-1-local-commit.md)
+- [D31 — Rebase conflict handling: unversioned side registry + `degraded` marker + guided skill](decisions/D31-rebase-conflict-handling-unversioned-side-registry.md)
+- [D33 — Git Step 4: record→finalize conflict resolution, per-content merge](decisions/D33-git-step-4-record-finalize-conflict-resolution-per.md)
+- [D46 — Per-KB git identity (author/committer + SSH): per-KB env wins over the process, default committer = author](decisions/D46-per-kb-git-identity-author-committer-ssh-per-kb-env.md)
+- [D76 — Write-path latency: batch patch, sync coalescing, asynchronous push](decisions/D76-write-path-latency-batch-patch-sync-coalescing.md)
+- [D93 — Read-path Git freshness](decisions/D93-read-path-git-freshness.md)
+- [D94 — Git-history changes digest](decisions/D94-git-history-changes-digest.md)
+- [D103 — Observable replication failures and native Git identity fallback](decisions/D103-observable-replication-failures-and-native-git.md)
+- [D117 — Server Git profile uses a dedicated working branch and GitHub PR boundary](decisions/D117-server-git-profile-uses-a-dedicated-working-branch-and.md)
+- [D145 — `kb_status` states the replication facts; the workflow field is named for what it means](decisions/D145-kb-status-states-the-replication-facts-the-workflow.md)
+- [D155 — Surviving an external process writing into a synced KB](decisions/D155-surviving-an-external-process-writing-into-a-synced-kb.md)
+- [D164 — The search read lock spans the query, not the pointer load](decisions/D164-the-search-read-lock-spans-the-query-not-the-pointer.md)
+- [D167 — The push force flag is cleared when a push ends, not only when one starts](decisions/D167-the-push-force-flag-is-cleared-when-a-push-ends-not.md)
+
+<a id="skills-services-secrets"></a>
+
+### Skills, services and secrets
+
+- [D26 — Bundled skills embedded in the binary](decisions/D26-bundled-skills-embedded-in-the-binary.md)
+- [D47 — Per-KB SOPS: `AgeKeyEnv` (env wins), flat `service_get(resolve_secrets)`, resolve requires rw](decisions/D47-per-kb-sops-agekeyenv-env-wins-flat-service-get.md)
+- [D96 — Operations knowledge ships as a bundled skill](decisions/D96-operations-knowledge-ships-as-a-bundled-skill.md)
+- [D104 — Structured SOPS pointers, scoped refs and encrypted-only writes](decisions/D104-structured-sops-pointers-scoped-refs-and-encrypted.md)
+- [D158 — `Service` is matched case-insensitively, and `secret_resolve` redacts by default](decisions/D158-service-is-matched-case-insensitively-and-secret.md)
+- [D191 — One skill validator, for the MCP channel and the git one](decisions/D191-one-skill-validator-for-the-mcp-channel-and-the-git-one.md)
+- [D196 — The onboarding skills route to references for artifact authoring and the encryption flow](decisions/D196-the-onboarding-skills-route-to-references-for-artifact.md)
+
+<a id="sync-provisioning"></a>
+
+### Provisioned artifacts
+
+- [D27 — Client synchronization: manifest+revision, lockfile, layered triggers](decisions/D27-client-synchronization-manifest-revision-lockfile.md)
+- [D34 — Synchronization: Layer 3 push over stdio + codex/kiro materialization](decisions/D34-synchronization-layer-3-push-over-stdio-codex-kiro.md)
+- [D40 — `sync_pull` and client-side trust; anti path-traversal guard in `provisioning.Apply`](decisions/D40-sync-pull-and-client-side-trust-anti-path-traversal.md)
+- [D48 — Provisioning extended to `kind: agent`/`hook`; hooks without auto-merge into `settings.json`; per-kind counts](decisions/D48-provisioning-extended-to-kind-agent-hook-hooks-without.md)
+- [D50 — Honest per-provider sync state: `unsupported` ≠ `needs_approval`, `InSync` requires zero differences](decisions/D50-honest-per-provider-sync-state-unsupported-needs.md)
+- [D54 — Per-server trust persisted at `connect` (replaces the recurring `--auto-trust` gate)](decisions/D54-per-server-trust-persisted-at-connect-replaces-the.md)
+- [D55 — Agents also materialized on OpenCode, via frontmatter translation](decisions/D55-agents-also-materialized-on-opencode-via-frontmatter.md)
+- [D56 — `instructions` kind: KB imprinting via managed block in the global instruction files](decisions/D56-instructions-kind-kb-imprinting-via-managed-block-in.md)
+- [D57 — Claude Code hooks: automatic registration in `settings.json`](decisions/D57-claude-code-hooks-automatic-registration-in-settings.md)
+- [D58 — Real Codex CLI integration: managed-block `config.toml`, TOML agents, hook engine](decisions/D58-real-codex-cli-integration-managed-block-config-toml.md)
+- [D59 — OpenCode hooks: generated JS plugin](decisions/D59-opencode-hooks-generated-js-plugin.md)
+- [D60 — Client-side bootstrap hook: auto-sync at session start (WP4)](decisions/D60-client-side-bootstrap-hook-auto-sync-at-session-start.md)
+- [D61 — Instructions: auto-generated agents section + curated `instructions.md` (WP5)](decisions/D61-instructions-auto-generated-agents-section-curated.md)
+- [D69 — `kind: mcp` provisioning: third-party MCP servers distributed by the KBs](decisions/D69-kind-mcp-provisioning-third-party-mcp-servers.md)
+- [D75 — Path portability across machines: placeholders auto-resolved via git remote](decisions/D75-path-portability-across-machines-placeholders-auto.md)
+- [D105 — Binary-safe provisioning artifacts and executable KB scripts](decisions/D105-binary-safe-provisioning-artifacts-and-executable-kb.md)
+- [D114 — Verify provisioning artifacts cryptographically](decisions/D114-verify-provisioning-artifacts-cryptographically.md)
+- [D115 — MCP allow-list and hash-bound local approval](decisions/D115-mcp-allow-list-and-hash-bound-local-approval.md)
+- [D116 — Trusted stdio MCP descriptors with environment references](decisions/D116-trusted-stdio-mcp-descriptors-with-environment.md)
+- [D138 — Provenance stamp on materialized skills and agents, and two hashes per managed file](decisions/D138-provenance-stamp-on-materialized-skills-and-agents-and.md)
+- [D139 — On-disk verification: sync restores what diverged locally](decisions/D139-on-disk-verification-sync-restores-what-diverged.md)
+- [D140 — A scheduled sync trigger for clients with no session hook; Kiro has no registrable one](decisions/D140-a-scheduled-sync-trigger-for-clients-with-no-session.md)
+- [D148 — Provisioning refuses a symlinked destination](decisions/D148-provisioning-refuses-a-symlinked-destination.md)
+- [D154 — The generated steering block describes what this client received](decisions/D154-the-generated-steering-block-describes-what-this.md)
+- [D170 — Selection before the merge: each provider is projected only its bound KBs](decisions/D170-selection-before-the-merge-each-provider-is-projected.md)
+- [D171 — A cross-KB collision is an error, not an alphabetical tie-break](decisions/D171-a-cross-kb-collision-is-an-error-not-an-alphabetical.md)
+- [D172 — Sync ordering, per-provider checkpoints, and a client lock](decisions/D172-sync-ordering-per-provider-checkpoints-and-a-client.md)
+- [D178 — A file dropped from an artifact is removed with it, not stranded](decisions/D178-a-file-dropped-from-an-artifact-is-removed-with-it-not.md)
+- [D181 — A cached repo path is validated before use, and a change of roots invalidates the cache](decisions/D181-a-cached-repo-path-is-validated-before-use-and-a.md)
+- [D182 — Attribute and order the per-KB instruction sections](decisions/D182-attribute-and-order-the-per-kb-instruction-sections.md)
+- [D183 — Keyed session-global directives make a cross-KB prose conflict detectable](decisions/D183-keyed-session-global-directives-make-a-cross-kb-prose.md)
+- [D184 — `sync` reports the revision each provider recorded, not the one it fetched](decisions/D184-sync-reports-the-revision-each-provider-recorded-not.md)
+- [D193 — Workspace-scoped artifact projection: one provider, different KBs per repository](decisions/D193-workspace-scoped-artifact-projection-one-provider.md)
+- [D195 — Kiro receives subagents; its hooks are documented but not shipped](decisions/D195-kiro-receives-subagents-its-hooks-are-documented-but.md)
+
+<a id="client-configurator"></a>
+
+### CLI, TUI and providers
+
+- [D23 — Multi-provider configurator: CLI flags + per-provider JSON adapters, non-destructive merge](decisions/D23-multi-provider-configurator-cli-flags-per-provider.md)
+- [D29 — OpenCode format aligned to the official schema + `kb.Init` creates the git repo](decisions/D29-opencode-format-aligned-to-the-official-schema-kb-init.md)
+- [D35 — Configurator: opt-in interactive TUI (`--tui`)](decisions/D35-configurator-opt-in-interactive-tui-tui.md)
+- [D37 — Single binary with subcommands; client always HTTP (no stdio/`--check`/`--base-dir`)](decisions/D37-single-binary-with-subcommands-client-always-http-no.md)
+- [D42 — `cartographer disconnect`: inverse of `connect`, inverse JSON merge, full provider prune](decisions/D42-cartographer-disconnect-inverse-of-connect-inverse.md)
+- [D49 — Interactive `cartographer connect`: bubbletea form shared TUI/CLI](decisions/D49-interactive-cartographer-connect-bubbletea-form-shared.md)
+- [D51 — MCP server name fixed to "cartographer"; auto-trust hint with the exact command](decisions/D51-mcp-server-name-fixed-to-cartographer-auto-trust-hint.md)
+- [D52 — `.cartographer.yaml` always machine-wide (home): project/global scope removed](decisions/D52-cartographer-yaml-always-machine-wide-home-project.md)
+- [D63 — Complete prune: empty directories with boundaries, MCP configs reduced to empty (WP7)](decisions/D63-complete-prune-empty-directories-with-boundaries-mcp.md)
+- [D64 — Connect UX: per-field hints, retry with populated form, persistent default, pre-connect probe (WP8)](decisions/D64-connect-ux-per-field-hints-retry-with-populated-form.md)
+- [D86 — Connect UX: agent subsets, 0-KB diagnostics, absolute paths](decisions/D86-connect-ux-agent-subsets-0-kb-diagnostics-absolute.md)
+- [D92 — Per-KB MCP entries for multi-KB servers](decisions/D92-per-kb-mcp-entries-for-multi-kb-servers.md)
+- [D99 — Codex's `config.toml`: comment markers are not enough, orphaned tables are adopted](decisions/D99-codex-s-config-toml-comment-markers-are-not-enough.md)
+- [D113 — One client status snapshot across CLI and dashboard](decisions/D113-one-client-status-snapshot-across-cli-and-dashboard.md)
+- [D126 — Codex's `config.toml`: foreign tables written inside a managed block are relocated, not lost](decisions/D126-codex-s-config-toml-foreign-tables-written-inside-a.md)
+- [D127 — Codex hook adoption also matches on the decoded command value](decisions/D127-codex-hook-adoption-also-matches-on-the-decoded.md)
+- [D137 — Declarative provider registry: two tables, owned by the packages that own the concepts](decisions/D137-declarative-provider-registry-two-tables-owned-by-the.md)
+- [D141 — Hermes is a supported provider that receives deliveries, not installations](decisions/D141-hermes-is-a-supported-provider-that-receives.md)
+- [D142 — `reconnect`: rebuild a client configuration, never automatically](decisions/D142-reconnect-rebuild-a-client-configuration-never.md)
+- [D143 — `doctor`: a separate command that diagnoses and never repairs](decisions/D143-doctor-a-separate-command-that-diagnoses-and-never.md)
+- [D146 — Existence and content are verified with different evidence](decisions/D146-existence-and-content-are-verified-with-different.md)
+- [D147 — Every reported write is observed, never intended](decisions/D147-every-reported-write-is-observed-never-intended.md)
+- [D157 — Backfill managed-file hashes in place instead of rebuilding every client](decisions/D157-backfill-managed-file-hashes-in-place-instead-of.md)
+- [D169 — Per-provider KB binding: a user-owned preference beside a server-owned cache](decisions/D169-per-provider-kb-binding-a-user-owned-preference-beside.md)
+- [D175 — The dashboard is binding-aware, and says when it does not know](decisions/D175-the-dashboard-is-binding-aware-and-says-when-it-does.md)
+- [D180 — Every typed client-config field is written by `Save`](decisions/D180-every-typed-client-config-field-is-written-by-save.md)
+- [D189 — Instructions written correctly are not reported as installed until the provider reads them](decisions/D189-instructions-written-correctly-are-not-reported-as.md)
+- [D190 — The KBs are chosen before the first write, not narrowed after it](decisions/D190-the-kbs-are-chosen-before-the-first-write-not-narrowed.md)
+- [D194 — Support Google Antigravity in multi-provider client and provisioning](decisions/D194-support-google-antigravity-in-multi-provider-client.md)
+- [D201 — A provider's tool identifier limit is checked at connect and sync](decisions/D201-a-provider-s-tool-identifier-limit-is-checked-at.md)
+
+<a id="deployment-release"></a>
+
+### Configuration, deployment and releases
+
+- [D21 — Configuration via environment variables](decisions/D21-configuration-via-environment-variables.md)
+- [D38 — Server configuration via YAML (`internal/config`, `gopkg.in/yaml.v3`)](decisions/D38-server-configuration-via-yaml-internal-config-gopkg-in.md)
+- [D39 — Server-side KB bootstrap from git remote (replaces the k8s init container)](decisions/D39-server-side-kb-bootstrap-from-git-remote-replaces-the.md)
+- [D41 — Direct release+deploy pipeline (least-privilege SA) + `install.sh` without Homebrew](decisions/D41-direct-release-deploy-pipeline-least-privilege-sa.md)
+- [D53 — Explicit KB name (`kbs[].name`) + per-KB conventions for the git token (`git.token_dir`) and SOPS key (`sops.age_key_dir`)](decisions/D53-explicit-kb-name-kbs-name-per-kb-conventions-for-the.md)
+- [D68 — Deploy via Flux GitOps, `kubectl apply` removed from CI](decisions/D68-deploy-via-flux-gitops-kubectl-apply-removed-from-ci.md)
+- [D73 — Local mode as a native service (`cartographer service`), Docker out of the local deploy](decisions/D73-local-mode-as-a-native-service-cartographer-service.md)
+- [D83 — Service install robustness: create the data dir, tolerate its absence, stable plist binary path](decisions/D83-service-install-robustness-create-the-data-dir.md)
+- [D84 — Readiness signal and per-KB path routing](decisions/D84-readiness-signal-and-per-kb-path-routing.md)
+- [D85 — `kb create` and first-KB onboarding: a CLI command, not only the agentic skill](decisions/D85-kb-create-and-first-kb-onboarding-a-cli-command-not.md)
+- [D95 — Upgrade transparency through version-skew hints](decisions/D95-upgrade-transparency-through-version-skew-hints.md)
+- [D97 — Agent-driven onboarding mounts remotes through `kb clone`](decisions/D97-agent-driven-onboarding-mounts-remotes-through-kb-clone.md)
+- [D112 — Reserved local endpoint defaults](decisions/D112-reserved-local-endpoint-defaults.md)
+- [D121 — Native local upgrades repair themselves](decisions/D121-native-local-upgrades-repair-themselves.md)
+- [D134 — `kb create` requires a git remote](decisions/D134-kb-create-requires-a-git-remote.md)
+- [D156 — Service `PATH`, `restart` after `stop`, and a `kb create` that keeps its scaffold](decisions/D156-service-path-restart-after-stop-and-a-kb-create-that.md)
+- [D173 — `kb` commands: bounded clone, correct local target, read-only list](decisions/D173-kb-commands-bounded-clone-correct-local-target-read.md)
+- [D174 — `service status` reports observable state, not a verdict on nothing](decisions/D174-service-status-reports-observable-state-not-a-verdict.md)
+- [D176 — The multi-KB readiness path gates on the audit sink too](decisions/D176-the-multi-kb-readiness-path-gates-on-the-audit-sink-too.md)
+- [D177 — `kb rename` is offline, bounded, and says what it does not migrate](decisions/D177-kb-rename-is-offline-bounded-and-says-what-it-does-not.md)
+- [D192 — Onboarding and release hygiene: text that lied, hints that could not be run, paths that ended half-done](decisions/D192-onboarding-and-release-hygiene-text-that-lied-hints.md)
+- [D197 — The evaluate-then-install path: steer the agent that is actually reading](decisions/D197-the-evaluate-then-install-path-steer-the-agent-that-is.md)
+- [D199 — The Cask's install steps are `postflight_steps`; the next sync repairs the service](decisions/D199-the-cask-s-install-steps-are-postflight-steps-the-next.md)
+
+<a id="project-governance"></a>
+
+### Repository and documentation policy
+
+- [D1 — Stdlib-only constraint ✅ removed](decisions/D1-stdlib-only-constraint-removed.md)
+- [D79 — Open source release: Apache-2.0, GitHub, release-please, GoReleaser, ghcr, Homebrew tap](decisions/D79-open-source-release-apache-2-0-github-release-please.md)
+- [D80 — Versioning reset to 0.x: the public line starts at v0.1.0](decisions/D80-versioning-reset-to-0-x-the-public-line-starts-at-v0-1.md)
+- [D81 — Agent-neutral workflow: AGENTS.md canonical, plans as GitHub issues](decisions/D81-agent-neutral-workflow-agents-md-canonical-plans-as.md)
+- [D82 — Beta marking via GitHub pre-release flag, not `-beta` version suffix](decisions/D82-beta-marking-via-github-pre-release-flag-not-beta.md)
+- [D98 — Planned work lives in GitHub issues, not in the docs](decisions/D98-planned-work-lives-in-github-issues-not-in-the-docs.md)
+- [D100 — Community surfaces: Pages from `docs/`, Discussions on, Wiki off](decisions/D100-community-surfaces-pages-from-docs-discussions-on-wiki.md)
+- [D101 — Tool names in the docs are CI-enforced](decisions/D101-tool-names-in-the-docs-are-ci-enforced.md)
+- [D110 — Topic-owned decision records and GitHub-owned project state](decisions/D110-topic-owned-decision-records-and-github-owned-project.md)
+- [D111 — Repository E2E tests are deterministic and model-free](decisions/D111-repository-e2e-tests-are-deterministic-and-model-free.md)
+- [D188 — Retired without ever being written](decisions/D188-retired-without-ever-being-written.md)
+- [D198 — No recorded demo in the README](decisions/D198-no-recorded-demo-in-the-readme.md)
+- [D202 — One file per decision, with a generated flat index](decisions/D202-one-file-per-decision-with-a-generated-index.md)
+- [D203 — AGENTS.md is the canonical instruction file, and a skill exists once](decisions/D203-agents-md-is-canonical-and-a-skill-exists-once.md)
+- [D204 — The documentation gates are Go tests inside `make test`](decisions/D204-the-documentation-gates-live-inside-make-test.md)
+- [D205 — The code map is generated from the package doc comments](decisions/D205-the-code-map-is-generated-from-package-doc-comments.md)
+- [D206 — D163 was a copied off-by-one, not a missing record](decisions/D206-d163-was-a-copied-off-by-one-not-a-missing-record.md)
+- [D207 — A claim about a client comes from the provider matrix, and a skill is parsed the way a client parses it](decisions/D207-a-client-claim-comes-from-the-provider-matrix.md)
+- [D208 — A reference is checked wherever it can live, and a decision number has three states](decisions/D208-a-reference-is-checked-wherever-it-can-live.md)
+- [D209 — The gate is one command, CI runs that command, and a budget measures what the author controls](decisions/D209-the-gate-is-one-command-and-it-measures-what-the-author-controls.md)
+<!-- decisions:index:end -->
