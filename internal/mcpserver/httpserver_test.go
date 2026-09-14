@@ -3,6 +3,7 @@ package mcpserver
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -652,5 +653,160 @@ func TestStreamableAccept_Normalization(t *testing.T) {
 				t.Errorf("caller's Accept header mutated to %q, want %q", got, tc.accept)
 			}
 		})
+	}
+}
+
+// TestProtocolVersion_NotificationLeniency pins D210: a notification with
+// Mcp-Protocol-Version: 2026-07-28 must return 202, not 400 — the SDK's
+// SEP-2575 enforcement demands _meta.protocolVersion in the body, but
+// notifications carry no _meta. Stripping the header on notifications makes
+// the SDK treat them as legacy (202 Accepted). Regular requests with _meta
+// remain unaffected: they must still be served as 2026-07-28 era.
+func TestProtocolVersion_NotificationLeniency(t *testing.T) {
+	handler := newMultiKBTestHandler(t, "kbx").Handler()
+
+	tests := []struct {
+		name       string
+		body       string
+		version    string // Mcp-Protocol-Version header value
+		method     string // Mcp-Method header (required for 2026-07-28 requests)
+		wantStatus int
+	}{
+		// D210: Antigravity's exact notification — the bug.
+		{
+			"2026-07-28 notification (Antigravity)",
+			`{"jsonrpc":"2.0","method":"notifications/roots/list_changed","params":{}}`,
+			"2026-07-28",
+			"",
+			http.StatusAccepted,
+		},
+		// Legacy notification: no protocol version header, already worked.
+		{
+			"legacy notification",
+			`{"jsonrpc":"2.0","method":"notifications/roots/list_changed","params":{}}`,
+			"",
+			"",
+			http.StatusAccepted,
+		},
+		// 2025-11-25 notification: legacy era, must still work.
+		{
+			"2025-11-25 notification",
+			`{"jsonrpc":"2.0","method":"notifications/roots/list_changed","params":{}}`,
+			"2025-11-25",
+			"",
+			http.StatusAccepted,
+		},
+		// A regular 2026-07-28 request WITH _meta must still succeed.
+		{
+			"2026-07-28 request with _meta",
+			`{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientInfo":{"name":"test","version":"1"},"io.modelcontextprotocol/clientCapabilities":{}}}}`,
+			"2026-07-28",
+			"tools/list",
+			http.StatusOK,
+		},
+		// A regular request without protocol version header — legacy, works.
+		{
+			"legacy request",
+			toolsListBody,
+			"",
+			"",
+			http.StatusOK,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPost, "/mcp/kbx", strings.NewReader(tc.body))
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("Accept", "application/json, text/event-stream")
+			if tc.version != "" {
+				req.Header.Set("Mcp-Protocol-Version", tc.version)
+			}
+			if tc.method != "" {
+				req.Header.Set("Mcp-Method", tc.method)
+			}
+			rr := httptest.NewRecorder()
+			handler.ServeHTTP(rr, req)
+			if rr.Code != tc.wantStatus {
+				t.Fatalf("Mcp-Protocol-Version=%q: status = %d, want %d; body=%s",
+					tc.version, rr.Code, tc.wantStatus, rr.Body.String())
+			}
+			// The caller's header must not be mutated (same invariant as D200).
+			if tc.version != "" {
+				if got := req.Header.Get("Mcp-Protocol-Version"); got != tc.version {
+					t.Errorf("caller's Mcp-Protocol-Version mutated to %q, want %q", got, tc.version)
+				}
+			}
+		})
+	}
+}
+
+// TestIsJSONRPCNotification verifies the helper used by D210's body sniffing.
+func TestIsJSONRPCNotification(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+		want bool
+	}{
+		{"notification", `{"jsonrpc":"2.0","method":"notifications/roots/list_changed","params":{}}`, true},
+		{"request with id", `{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}`, false},
+		{"request with null id", `{"jsonrpc":"2.0","id":null,"method":"tools/list","params":{}}`, false},
+		{"request with string id", `{"jsonrpc":"2.0","id":"abc","method":"tools/list","params":{}}`, false},
+		{"empty object", `{}`, false},
+		{"invalid json", `not json`, false},
+		{"method only", `{"method":"foo"}`, true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := isJSONRPCNotification([]byte(tc.body)); got != tc.want {
+				t.Errorf("isJSONRPCNotification(%s) = %v, want %v", tc.body, got, tc.want)
+			}
+		})
+	}
+}
+
+// The sniff is bounded (D210), so a body larger than notificationSniffLimit
+// must still reach the SDK byte-for-byte: the prefix that was read is put back
+// in front of the unread remainder, not substituted for it. This is the
+// regression test for the whole reason the read is bounded — an io.ReadAll
+// would pass this while holding every request body in memory.
+func TestStripHeaderIfNotification_OversizedBodyIsForwardedIntact(t *testing.T) {
+	body := []byte(`{"jsonrpc":"2.0","method":"notifications/roots/list_changed","params":{"pad":"`)
+	body = append(body, bytes.Repeat([]byte("a"), notificationSniffLimit*2)...)
+	body = append(body, []byte(`"}}`)...)
+
+	req := httptest.NewRequest(http.MethodPost, "/mcp", bytes.NewReader(body))
+	req.Header.Set("Mcp-Protocol-Version", ProtocolVersion20260728)
+	stripHeaderIfNotification(req)
+
+	got, err := io.ReadAll(req.Body)
+	if err != nil {
+		t.Fatalf("reading the forwarded body: %v", err)
+	}
+	if !bytes.Equal(got, body) {
+		t.Errorf("the forwarded body differs from the original: %d bytes, want %d", len(got), len(body))
+	}
+	if v := req.Header.Get("Mcp-Protocol-Version"); v != ProtocolVersion20260728 {
+		t.Errorf("Mcp-Protocol-Version = %q, want it left alone: a body that does not fit the "+
+			"sniff prefix cannot be recognised as a notification", v)
+	}
+}
+
+// The ordinary case, at the unit level: the header goes and the body survives.
+func TestStripHeaderIfNotification_NotificationLosesTheHeaderAndKeepsItsBody(t *testing.T) {
+	body := []byte(`{"jsonrpc":"2.0","method":"notifications/roots/list_changed","params":{}}`)
+
+	req := httptest.NewRequest(http.MethodPost, "/mcp", bytes.NewReader(body))
+	req.Header.Set("Mcp-Protocol-Version", ProtocolVersion20260728)
+	stripHeaderIfNotification(req)
+
+	if v := req.Header.Get("Mcp-Protocol-Version"); v != "" {
+		t.Errorf("Mcp-Protocol-Version = %q, want it stripped on a notification", v)
+	}
+	got, err := io.ReadAll(req.Body)
+	if err != nil {
+		t.Fatalf("reading the forwarded body: %v", err)
+	}
+	if !bytes.Equal(got, body) {
+		t.Errorf("the forwarded body differs from the original:\n got %s\nwant %s", got, body)
 	}
 }
