@@ -28,6 +28,39 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
 
+  # The beta marker on the release itself (D82), which nothing was actually
+  # setting: `"prerelease": true` in release-please-config.json does not put the
+  # flag on the GitHub release, and had not since v0.2.0 — the only two releases
+  # carrying it, v0.1.0 and v0.1.1, were marked by hand. See D211.
+  #
+  # This job owns the flag and then *verifies* it, so the mechanism cannot fail
+  # silently a second time: an unset flag on a 0.x tag fails the release.
+  # At 1.0.0 the condition stops matching on its own, and a stable tag is
+  # asserted the other way round rather than left unchecked.
+  prerelease-flag:
+    runs-on: ubuntu-latest
+    needs: goreleaser
+    steps:
+      - name: Mark a 0.x release as a pre-release, and verify it
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          case "$TAG" in
+            v0.*) want=true ;;
+            *)    want=false ;;
+          esac
+          if [ "$want" = true ]; then
+            gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --prerelease
+          fi
+          got=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json isPrerelease --jq .isPrerelease)
+          if [ "$got" != "$want" ]; then
+            echo "::error::$TAG is isPrerelease=$got, want $want (D82/D211)" >&2
+            exit 1
+          fi
+          echo "$TAG: isPrerelease=$got"
+
   # Multi-arch server image on ghcr.io.
   docker:
     runs-on: ubuntu-latest
