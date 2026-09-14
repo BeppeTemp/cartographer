@@ -1,4 +1,4 @@
-.PHONY: help build test vet fmt run run-http smoke smoke-http docker clean e2e test-install worktree-add worktree-rm gate decisions-index decisions-next decisions-new codemap
+.PHONY: help build test vet fmt fmt-check run run-http smoke smoke-http docker clean e2e test-install worktree-add worktree-rm gate decisions-index decisions-next decisions-new codemap
 
 VERSION ?= $(shell git describe --tags --always 2>/dev/null || echo dev)
 
@@ -16,6 +16,15 @@ vet: ## Run go vet
 
 fmt: ## Format the code with gofmt
 	gofmt -w .
+
+fmt-check: ## Fail if anything is not gofmt-clean (part of the gate)
+	@out=$$(gofmt -l .); \
+	if [ -n "$$out" ]; then \
+		echo "gofmt: these files are not formatted — run 'make fmt':"; \
+		echo "$$out"; \
+		exit 1; \
+	fi
+	@echo "gofmt: clean"
 
 run: build ## Start the stdio server with a demo KB
 	./bin/cartographer serve --kb ./demo-kb --init
@@ -65,7 +74,7 @@ worktree-rm: ## Remove a plan worktree and its stale local branch: make worktree
 	@git branch -D "feat/$(SLUG)" 2>/dev/null || true
 	@echo "worktree removed: .worktrees/$(SLUG)"
 
-gate: vet test ## Everything that must be green before a PR is opened
+gate: fmt-check vet test ## Everything that must be green before a PR is opened
 	@echo "gate: OK"
 
 # One decision is one file under docs/decisions/, and the index in
