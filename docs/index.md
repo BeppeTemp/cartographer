@@ -49,7 +49,7 @@ Mutable state does not live in narrative documentation:
 | Debug concurrency / git conflicts | `concurrency.md` |
 | Add a skill or external service | `skills-services-secrets.md` |
 | Deploy / production operations | `deployment.md` |
-| Understand an architectural choice | `decisions.md` → the owning topic register; search `docs/decisions/` for `## D<n>` or a keyword |
+| Understand an architectural choice | `decisions.md` for the generated list, or `ls docs/decisions/D<n>-*` if you already have the number |
 | Configure an LLM provider | `interoperability.md` |
 | Connect/disconnect an agent (`connect`/`disconnect`/`reconnect`/`status`/`sync`/`doctor`/TUI) | `configurator.md` |
 | Keep a client aligned with the KB skills | `sync.md` |
@@ -75,8 +75,8 @@ matching file **in the same session/PR** as the change:
 | New provisioning `kind` (beyond skill/agent/hook) or per-provider destination | `configurator.md` (client) + `sync.md` (manifest/diff) |
 | A feature is **not** implemented (deferred, planned, "future work") | A GitHub issue labelled `enhancement` — never prose in `docs/`. The page keeps only the current limit, with a link to the issue |
 | Project status, milestone, task or bug changes | GitHub issue / pull request / release; update `CHANGELOG.md` only through the release workflow |
-| Any non-obvious choice (why X and not Y) | One owning topic file under `docs/decisions/` (new D entry); do not duplicate it in other registers |
-| New external dependency | Owning topic under `docs/decisions/` (D entry) + `conventions.md` §dependencies |
+| Any non-obvious choice (why X and not Y) | One new file `docs/decisions/D<n>-<slug>.md` (`make decisions-new`, then `make decisions-index`); never a second entry for the same choice |
+| New external dependency | A decision file under `docs/decisions/` + `conventions.md` §dependencies |
 | New test level or pre-release checklist change | `testing.md` |
 | Contributor workflow (PR flow, plan issues, build loop) | `CONTRIBUTING.md` |
 | User-facing install/onboarding flow | `getting-started.md` + README |
