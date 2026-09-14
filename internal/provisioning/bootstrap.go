@@ -10,6 +10,7 @@
 // idempotence. The only difference is that here the directory is not populated
 // by reading files from the KB (copyArtifactFiles) but by writing the two
 // generated files directly (bootstrapHookJSON, bootstrapScriptContent).
+
 package provisioning
 
 import (

@@ -1,3 +1,10 @@
+// Package mcpserver implements the control plane: the MCP protocol over stdio
+// and Streamable HTTP, and the tool registry that exposes a KB to an agent.
+//
+// The tools are split by domain across tools_*.go and registered by
+// RegisterKBTools; readonly.go classifies each one read or read-write, and
+// gitwrap.go wraps every write in the per-KB lock, the commit and the git sync,
+// so a tool handler never does any of that itself.
 package mcpserver
 
 import (

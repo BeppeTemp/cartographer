@@ -9,6 +9,13 @@ migrated-kb/
 !.claude/skills/
 .kiro/*
 !.kiro/skills/
+# .agents/ is the canonical, versioned source for skills; everything else under
+# it is machine-local client state (Antigravity writes its MCP config, rules and
+# hooks there) and must not be committed.
+.agents/*
+!.agents/skills/
+# Isolated worktrees for plan branches (see `make worktree-add`): never tracked.
+/.worktrees/
 /data/kb/
 !/data/kb/.gitkeep
 .env

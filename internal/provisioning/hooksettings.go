@@ -6,6 +6,7 @@
 // idempotently (no duplicates on re-apply) and prunably (the entry disappears
 // when the hook is removed). See docs/decisions/sync-provisioning.md D57, docs/sync.md
 // §Agents and hooks.
+
 package provisioning
 
 import (

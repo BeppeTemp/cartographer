@@ -1,3 +1,8 @@
+// Command cartographer is the single binary for both sides of the Agentic Wiki:
+// the MCP server (`serve`) and the multi-provider client that connects agent
+// clients to it (`agents`, `connect`, `disconnect`, `reconnect`, `status`, `sync`).
+// Run with no arguments on a TTY it opens the TUI dashboard; without one it
+// prints usage. Subcommand dispatch lives here, one file per subcommand.
 package main
 
 import (

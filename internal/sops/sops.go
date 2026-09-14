@@ -1,3 +1,6 @@
+// Package sops decrypts sops-encrypted KB secrets and resolves the references a
+// concept declares, turning them into the environment a skill runs with. It
+// shells out to the sops binary: no key material is ever handled in process.
 package sops
 
 import (

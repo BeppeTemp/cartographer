@@ -5,6 +5,7 @@
 // D116 adds the local "stdio" transport alongside D69 HTTP. The descriptor is
 // still provider-neutral; client-side preflight verifies the local executable
 // before a provider receives it.
+
 package provisioning
 
 import (

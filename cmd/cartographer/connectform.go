@@ -9,6 +9,7 @@
 //     reports Submitted();
 //   - run standalone via runConnectForm, used by `cmdConnect` (connect.go)
 //     when invoked interactively (TTY, no flags passed).
+
 package main
 
 import (
