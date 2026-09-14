@@ -60,7 +60,13 @@ install_dir() {
 }
 
 latest_tag() {
-    auth_curl "${API_URL}/releases/latest" \
+    # /releases?per_page=1, not /releases/latest: the latter is documented to
+    # skip pre-releases, and every 0.x release of this project is one (D82,
+    # D211). Against /releases/latest this installer would 404 while no stable
+    # release exists, and — worse — quietly keep installing the last stable one
+    # once one does. The list endpoint is ordered newest-first and includes
+    # pre-releases; drafts are not published here.
+    auth_curl "${API_URL}/releases?per_page=1" \
         | sed -n 's/.*"tag_name":[[:space:]]*"\([^"]*\)".*/\1/p' | head -1
 }
 
