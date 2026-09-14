@@ -2,11 +2,11 @@
 # lib/fake-curl.sh — network-free curl stand-in for the test/install/ suite.
 # Installed as `curl` at the front of PATH so install.sh's auth_curl() calls
 # land here instead of the network. Recognizes exactly the three requests
-# install.sh makes: the latest-release API call, the asset download, and the
+# install.sh makes: the release-list API call, the asset download, and the
 # optional sha256sums.txt (see FAKE_SHA_MODE).
 #
 # Driven by env vars set by lib/harness.sh:
-#   FAKE_TAG          tag_name returned for the "latest release" API call
+#   FAKE_TAG          tag_name returned for the release-list API call
 #   FAKE_NEW_BINARY   path to the fixture copied in as the "downloaded" asset
 #   FAKE_SHA_MODE     how to answer the sha256sums.txt request (D192):
 #                       absent   — 404, as before: a release that ships none
@@ -28,8 +28,12 @@ for arg in "$@"; do
 done
 
 case "$url" in
-    *"/releases/latest")
-        printf '{"tag_name": "%s"}\n' "${FAKE_TAG:?FAKE_TAG not set}"
+    # A JSON array, matching the endpoint install.sh actually calls: /releases
+    # lists pre-releases, /releases/latest does not, and every 0.x release of
+    # this project is one (D211). Answering the old path here would let the
+    # installer regress back to it without a test noticing.
+    *"/releases?per_page=1")
+        printf '[{"tag_name": "%s", "prerelease": true}]\n' "${FAKE_TAG:?FAKE_TAG not set}"
         ;;
     *"sha256sums.txt")
         # The asset request always precedes this one, and it recorded the

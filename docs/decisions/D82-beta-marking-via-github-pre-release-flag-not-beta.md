@@ -4,7 +4,7 @@ topic: project-governance
 
 # D82 — Beta marking via GitHub pre-release flag, not `-beta` version suffix
 
-**Status: implemented (2026-07-20).**
+**Status: the choice stands, the implementation did not — corrected by [D211](D211-the-pre-release-flag-is-set-by-the-release-job-and-verified.md) (2026-09-14).** The config key named below never set the flag on a release the pipeline produced: only `v0.1.0` and `v0.1.1`, marked by hand, ever carried it. D211 moves the mechanism into `release.yml`, verifies it there, retro-marks the twenty-one releases in between, and fixes the `install.sh` lookup that the flag would otherwise have broken.
 
 **Context.** Until 1.0 the beta phase should be visible on the releases themselves, not only in the README disclaimer. Candidate mechanisms: a `-beta` semver suffix in the tags, or the GitHub pre-release flag on the releases.
 
