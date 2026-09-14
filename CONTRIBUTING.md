@@ -12,7 +12,7 @@ response-time SLA.
 ## Building and testing
 
 ```bash
-make gate     # vet + test — everything that must be green before a PR
+make gate     # gofmt + vet + test — everything that must be green before a PR
 make build    # → bin/cartographer
 make test     # go test ./...
 make vet      # go vet ./...
@@ -22,7 +22,8 @@ make smoke    # quick stdio smoke test
 
 The deterministic E2E suite (`make e2e`) exercises the built HTTP server, CLI
 client and temporary git remotes without model credentials; see
-[`test/e2e/README.md`](test/e2e/README.md). CI runs `make vet`, `make test`,
+[`test/e2e/README.md`](test/e2e/README.md). CI runs `make gate` — the same
+command, so there is one answer to "what must be green" — followed by
 `make smoke-http`, `make e2e` and `make test-install`.
 
 `make test` also runs the repository's own documentation gates
@@ -48,21 +49,29 @@ run is not a gate.
 ## Working with an agent client
 
 This repository is developed with coding agents and is set up so that **the
-instructions exist once**. `AGENTS.md` is the only real instruction file; it is
-read natively by Codex, Kiro and Antigravity. Claude Code is the only client
-that will not read that filename, so `CLAUDE.md` is a one-line `@AGENTS.md`
-import — an import rather than a symlink because git does not materialise
-symlinks on a Windows checkout without Developer Mode, and a public repository
-does not get to choose the operating system of the people who clone it.
+instructions exist once**. `AGENTS.md` is the only real instruction file; Codex
+and Kiro read it natively, and Antigravity is documented to (see the table, and
+read the caveat under it). Claude Code is the only client that will not read that
+filename, so `CLAUDE.md` is a one-line `@AGENTS.md` import — an import rather than
+a symlink because git does not materialise symlinks on a Windows checkout without
+Developer Mode, and a public repository does not get to choose the operating
+system of the people who clone it.
 
 Nothing else is needed to start. Concretely:
 
 | Client | Instructions | Skills | Notes |
 |---|---|---|---|
 | **Codex** | `AGENTS.md`, natively | `.agents/skills/`, natively | Do not add an `AGENTS.override.md`: it *replaces* `AGENTS.md` in the same directory rather than adding to it |
-| **Kiro** | `AGENTS.md`, natively | `.kiro/skills/` → symlinks | Do not add anything under `.kiro/steering/`: `AGENTS.md` is already always included, and a steering file that re-includes it would load it twice |
+| **Kiro** | `AGENTS.md`, natively | `.kiro/skills/` → symlinks | Do not put a copy of `AGENTS.md` under `.kiro/steering/`: it is already always included, and a steering file that re-includes it would load it twice. A steering file with *other* content is fine — `cartographer sync` legitimately owns `.kiro/steering/cartographer.md` when this workspace is bound to a KB |
 | **Claude Code** | `CLAUDE.md` → `@AGENTS.md` | `.claude/skills/` → symlinks | — |
-| **Antigravity** | `AGENTS.md`, natively | `.agents/skills/`, natively | Do not add anything under `.agents/rules/`, for the same reason as Kiro |
+| **Antigravity** | `AGENTS.md`, per its own documentation — not audited here | **global only**: `~/.gemini/config/skills/`; no project-local directory | Its whole configuration root is global (`~/.gemini/GEMINI.md`, `~/.gemini/config/{skills,agents,hooks,mcp_config.json}`), so the two skills below are *not* reachable from a clone and no repo-local path would make them so |
+
+The Antigravity row is the one to be careful with. Where a client reads its
+instructions and its skills is a fact this repository already owns, audited, in
+`internal/provisioning/workspacescope.go` and `internal/configurator/registry.go`
+(D193) — and that matrix records **no project-local cell of any kind** for
+Antigravity. `TestClientSkillSurfacesMatchTheProviderRegistry` checks this table
+against the matrix, so if you re-audit a client, change both together (D207).
 
 The two skills, `plan-issue` and `implement-issue`, exist **once** in
 `.agents/skills/`; `.claude/skills/<name>` and `.kiro/skills/<name>` are
@@ -85,11 +94,18 @@ characters with the use case and the trigger words **first** — and it will be
 valid on all four. Every client shortens or drops the descriptions that do not
 fit its listing budget, starting from the end.
 
+**Keep the frontmatter valid YAML, and mind `": "` in particular.** An unquoted
+value containing a colon followed by a space is a YAML syntax error, and what a
+client does with it is drop the skill and list the others — no message, nothing
+in a log. `implement-issue` shipped that way and was invisible to Kiro until a
+gate caught it; `make test` now parses every `SKILL.md` with the same
+spec-compliant parser a client uses (D207).
+
 MCP configuration is **not** in the repository: each client keeps it in its own
-format and location (`.mcp.json`, `~/.codex/config.toml`,
-`.kiro/settings/mcp.json`, `.agents/mcp_config.json`), all of them
-machine-local and git-ignored. If you are pointing a client at a Cartographer
-server, use `cartographer connect`, not a hand-written file.
+format and location — project-local for `.mcp.json`, `.codex/config.toml` and
+`.kiro/settings/mcp.json`, global-only for `~/.gemini/config/mcp_config.json` —
+all of them machine-local and git-ignored. If you are pointing a client at a
+Cartographer server, use `cartographer connect`, not a hand-written file.
 
 Working on more than one plan at a time? No client isolates its own subagents
 from your working copy, so use a worktree per plan:
@@ -119,8 +135,9 @@ make worktree-rm  SLUG=my-change    # after the PR is merged; --force, so check 
   §Documentation maintenance rules). Non-obvious choices get **one** decision
   file: `make decisions-new N=<n> SLUG=<slug> TOPIC=<topic>`, write it, then
   `make decisions-index`. CI fails if the index is stale.
-- New MCP tools follow the checklist in `AGENTS.md` §Adding an MCP tool and
-  come with tests in `internal/mcpserver/server_test.go`.
+- New MCP tools follow the checklist in
+  [`internal/mcpserver/AGENTS.md`](internal/mcpserver/AGENTS.md) §Adding a tool
+  and come with tests in `internal/mcpserver/server_test.go`.
 - Coding conventions: [`docs/conventions.md`](docs/conventions.md).
 
 ## Plan issues (design → implementation handoff)

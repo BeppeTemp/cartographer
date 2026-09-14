@@ -19,7 +19,7 @@ Go MCP server for the *Agentic Wiki* (Karpathy pattern + OKF). The agent never t
 ## Commands
 
 ```
-make gate            # vet + test: everything that must be green before a PR
+make gate            # gofmt + vet + test: everything green before a PR (and what CI runs)
 make build           # → bin/cartographer
 make test            # go test ./...
 make vet             # go vet ./...
@@ -111,4 +111,4 @@ it was launched at or below that directory:
 - **Documentation is updated in the same session in which the code is changed — never afterward.** The "what changes → which file to update" table is in `docs/index.md` §Documentation maintenance rules: use it for every change.
 - Conventions → `docs/conventions.md`. Every non-obvious choice → one file `docs/decisions/D<n>-<slug>.md`, and the index is regenerated with `make decisions-index`.
 - Project status and backlog live in GitHub issues, pull requests and releases; user-visible completed work lives in `CHANGELOG.md`.
-- **This file is stable imprinting**: no mutable state, versions, counts or changelog here. Topic docs describe the **current state**; "how we got here" lives in `docs/decisions/` and the git log. Its size is a gate — `internal/repodocs` fails the build past 120 lines or 12.000 characters, because past that a client starts dropping instructions without saying so.
+- **This file is stable imprinting**: no mutable state, versions, counts or changelog here. Topic docs describe the **current state**; "how we got here" lives in `docs/decisions/` and the git log. Its size is a gate — `internal/repodocs` fails the build past 120 lines of hand-written text (generated blocks excluded) or 12.000 characters in total, because past that a client starts dropping instructions without saying so.

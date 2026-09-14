@@ -1,6 +1,6 @@
 ---
 name: implement-issue
-description: Orchestrate implementation of one or more approved plan issues (label `plan`) into merged PRs — wave planning from cross-plan execution order, delegation to coding subagents in isolated worktrees, coordinator review, and ordered squash-merge. Use when the user asks to implement, ship or land open plan issues (one or many). Sibling of the `plan-issue` skill: `plan-issue` writes issues (design → handoff), `implement-issue` consumes them (issue → merged PR).
+description: Orchestrate implementation of one or more approved plan issues (label `plan`) into merged PRs — wave planning from cross-plan execution order, delegation to coding subagents in isolated worktrees, coordinator review, and ordered squash-merge. Use when the user asks to implement, ship or land open plan issues (one or many). Sibling of the `plan-issue` skill — `plan-issue` writes issues (design → handoff), `implement-issue` consumes them (issue → merged PR).
 ---
 
 # implement-issue — plan issues → merged PRs
@@ -75,10 +75,11 @@ file-sets overlap:
 
 1. `git fetch origin`, then rebase **in the plan's own worktree**:
    `git -C .worktrees/<slug> rebase origin/main`.
-2. A conflict on `docs/decisions/README.md` is **never resolved by hand**: it is
-   generated. Take either side, then `make decisions-index` and stage the
-   result. Any other conflict that is not a clean append — real code or
-   current-state prose divergence — → **STOP** and surface it to the user.
+2. A conflict inside the **generated block** of `docs/decisions.md` is never
+   resolved by hand: it is regenerated. Take either side, then
+   `make decisions-index` and stage the result. Any other conflict that is not a
+   clean append — real code or current-state prose divergence — → **STOP** and
+   surface it to the user.
 3. `git rebase --continue`; run the plan's affected package tests (`go test ./internal/<pkg>/...`); `git push --force-with-lease`.
 4. Wait for CI green and `mergeable == MERGEABLE`, then `gh pr merge <pr> --squash --delete-branch`.
 5. `git checkout main && git pull --ff-only` in the main working copy, then

@@ -20,7 +20,7 @@ their rationale; invariants to preserve, in bold. -->
 
 <!-- One WP section per work package: one-line goal; file:line to touch; exact
 semantics and error cases; tests to add; acceptance criterion.
-`make vet && make test` green at the end of each WP. -->
+`make gate` green at the end of each WP. -->
 
 ## Closing
 

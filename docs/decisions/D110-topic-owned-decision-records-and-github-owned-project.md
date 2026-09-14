@@ -7,7 +7,7 @@ topic: project-governance
 **Decision.** The monolithic `docs/decisions.md` becomes a short router to
 topic-owned registers under `docs/decisions/`. Each D entry has one owner and a
 stable `dNN` anchor; there is no duplicated global title/status table. The
-obsolete `docs/roadmap.md` is removed. Issues own bugs, enhancements and plan
+obsolete roadmap page is removed. Issues own bugs, enhancements and plan
 status; pull requests and releases own delivery; `CHANGELOG.md` summarizes
 completed user-visible changes.
 

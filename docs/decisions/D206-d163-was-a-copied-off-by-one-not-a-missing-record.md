@@ -16,8 +16,11 @@ an established decision and always for the same idea — "D163's metasyntax trap
 that a syntax Cartographer recognises inside a file the operator is also expected
 to *document* must not fire on text that merely looks like it.
 
-`163` is a gap in the numbering, alongside 4, 6, 7, 11 and 130. Nothing was ever
-filed there.
+`163` is a gap in the numbering, alongside 4, 6, 7 and 11. Nothing was ever
+filed there. (This paragraph originally counted `130` among them, which was
+wrong: three records depend on that number, so it got a record of its own —
+see [D130](D130-the-handshake-era-is-not-retired-overtaken-by-d168.md) and
+[D208](D208-a-reference-is-checked-wherever-it-can-live.md).)
 
 **Decision.** The eight references are renumbered to **D162**, whose second
 defect and matching alternative *are* that decision: `{{repo:<name>}}` written to
@@ -46,11 +49,14 @@ stays a gap.
 
 **Consequences.** `KnownDanglingDecisions` is now empty, and it is checked in both
 directions: a stale entry whose record exists fails the test, because an
-allow-list nobody prunes is how a gate quietly stops meaning anything. `D163`
-must not be reused — the same reasoning as D188, weaker only in degree: released
-`CHANGELOG.md` entries and the git history contain comments that discussed "D163"
-as the metasyntax decision, and a future `D163` about something else would make
-them read as a description of it.
+allow-list nobody prunes is how a gate quietly stops meaning anything.
+([D208](D208-a-reference-is-checked-wherever-it-can-live.md) replaces that map
+with two typed ones, `GapDecisions` and `ReservedDecisions`, for the reason this
+paragraph gives: an untyped allow-list cannot distinguish "never existed" from
+"not yet".) `D163` must not be reused — the same reasoning as D188, weaker only in
+degree: released `CHANGELOG.md` entries and the git history contain comments that
+discussed "D163" as the metasyntax decision, and a future `D163` about something
+else would make them read as a description of it.
 
 This is also the first thing the new gates caught, and it is the argument for
 them in one line: the reference had been wrong for weeks, was copied seven more

@@ -2,6 +2,15 @@
 
 VERSION ?= $(shell git describe --tags --always 2>/dev/null || echo dev)
 
+# gofmt takes paths, and `gofmt -l .` walks every hidden directory — including
+# .worktrees/, where a sibling plan's subagent is working. That made `make gate`
+# fail on someone else's unfinished code and `make fmt` rewrite it, which is
+# exactly what the implement-issue mandate forbids. Naming the two directories
+# that hold this module's Go code scopes both targets correctly, and unlike
+# `git ls-files` it still sees a file that has been written but not yet staged —
+# a gate that passes locally and fails in CI is worse than no gate (D209).
+GO_DIRS = cmd internal
+
 help: ## Show this message
 	@grep -E '^[a-zA-Z_-]+:.*##' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*##"}; {printf "  %-12s %s\n", $$1, $$2}'
 
@@ -15,10 +24,10 @@ vet: ## Run go vet
 	go vet ./...
 
 fmt: ## Format the code with gofmt
-	gofmt -w .
+	@gofmt -w $(GO_DIRS)
 
 fmt-check: ## Fail if anything is not gofmt-clean (part of the gate)
-	@out=$$(gofmt -l .); \
+	@out=$$(gofmt -l $(GO_DIRS)); \
 	if [ -n "$$out" ]; then \
 		echo "gofmt: these files are not formatted — run 'make fmt':"; \
 		echo "$$out"; \

@@ -54,4 +54,7 @@ markdown link *examples* describing the KB's own format and they are
 illustrations, not links — the same distinction D150 draws for the KB linter.
 Scope is the documentation surface (root pages, `docs/`, and the skills), not
 `test/` fixtures or the KB skills bundled into the binary, whose links point
-outside this repository.
+outside this repository. **D208 widens that scope**: the reference gates now read
+every tracked text file, because the dangling reference this gate was written for
+also had copies in `docs/` and in the decision records themselves, where nothing
+was looking.
