@@ -11,6 +11,8 @@ import (
 	"regexp"
 	"strings"
 
+	"gopkg.in/yaml.v3"
+
 	"github.com/BeppeTemp/cartographer/internal/okf"
 )
 
@@ -23,6 +25,18 @@ type Skill struct {
 	Body        string // markdown body (< 500 lines / < 5000 tokens guideline)
 	DirPath     string // directory path relative to KB root (e.g. "skills/myns--myskill")
 	ServiceRef  string // optional link to a Service concept
+
+	// Frontmatter is the raw YAML block between the --- delimiters, and
+	// FrontmatterErr is why the OKF reader could not parse it (empty when it
+	// could). Both are carried so Validate can judge the frontmatter itself
+	// rather than only its extracted fields: the OKF reader is lenient by
+	// design and accepts blocks that no client can load, and the field values
+	// it produces in that case look perfectly ordinary (D212).
+	//
+	// A caller that leaves them empty gets no frontmatter check, which is the
+	// right default for a Skill assembled in memory rather than parsed.
+	Frontmatter    string
+	FrontmatterErr string
 }
 
 // CatalogEntry is a compact representation for progressive disclosure (~100 tokens).
@@ -80,9 +94,17 @@ func LoadSkill(dirPath string) (*Skill, error) {
 		DirPath: dirPath,
 	}
 
+	s.Frontmatter = fmRaw
 	if fmRaw != "" {
 		fm, err := okf.ParseFrontmatter(fmRaw)
-		if err == nil {
+		if err != nil {
+			// Recorded, not discarded. Swallowing it produced a Skill with an
+			// empty Name and Description and no error to the caller, so the
+			// reason surfaced later as "name is required" — a true statement
+			// about a file whose real problem was that nothing could read it
+			// (D212).
+			s.FrontmatterErr = err.Error()
+		} else {
 			s.Name = getString(fm, "name")
 			s.Description = getString(fm, "description")
 			s.License = getString(fm, "license")
@@ -171,12 +193,15 @@ func LoadAllFromFS(fsys fs.FS, root string) ([]Skill, []error) {
 
 		fmRaw, body, _ := okf.SplitFrontmatter(string(data))
 		s := &Skill{
-			Body:    body,
-			DirPath: dirPath,
+			Body:        body,
+			DirPath:     dirPath,
+			Frontmatter: fmRaw,
 		}
 		if fmRaw != "" {
 			fm, parseErr := okf.ParseFrontmatter(fmRaw)
-			if parseErr == nil {
+			if parseErr != nil {
+				s.FrontmatterErr = parseErr.Error()
+			} else {
 				s.Name = getString(fm, "name")
 				s.Description = getString(fm, "description")
 				s.License = getString(fm, "license")
@@ -214,6 +239,8 @@ func Catalog(skills []Skill) []CatalogEntry {
 // the sync of the whole KB later, far from its cause.
 //
 // Errors (they break a channel or a client):
+//   - the frontmatter is readable at all, and is valid YAML by the strict
+//     rules a client applies (see strictFrontmatterYAML)
 //   - name required, matching skillNameRe, at most maxSkillNameLen
 //   - frontmatter name equal to the directory basename
 //   - description required
@@ -223,6 +250,27 @@ func Catalog(skills []Skill) []CatalogEntry {
 //   - description over maxSkillDescriptionLen
 func Validate(s *Skill) []Issue {
 	var issues []Issue
+
+	// First, because it explains the rest: a frontmatter nothing can read
+	// produces an empty name and description, and reporting those instead is a
+	// true answer to the wrong question.
+	switch {
+	case s.FrontmatterErr != "":
+		issues = append(issues, Issue{
+			Path: s.DirPath, Rule: "frontmatter_unparseable",
+			Message: fmt.Sprintf("the frontmatter could not be read: %s", s.FrontmatterErr),
+		})
+	case s.Frontmatter != "":
+		if err := strictFrontmatterYAML(s.Frontmatter); err != nil {
+			issues = append(issues, Issue{
+				Path: s.DirPath, Rule: "frontmatter_invalid_yaml",
+				Message: fmt.Sprintf("the frontmatter is not valid YAML, so a client will skip this "+
+					"skill without reporting anything: %s (line numbers are relative to the "+
+					"frontmatter block). The usual cause is an unquoted value containing \": \" — "+
+					"quote the value, or replace the colon with an em dash", err),
+			})
+		}
+	}
 
 	name := strings.TrimSpace(s.Name)
 	switch {
@@ -283,6 +331,26 @@ func Validate(s *Skill) []Issue {
 	}
 
 	return issues
+}
+
+// strictFrontmatterYAML reports why a spec-compliant YAML parser would reject
+// the frontmatter block, or nil if it would accept it.
+//
+// This is not a second opinion for its own sake. internal/okf is a lenient,
+// stdlib-only reader (D8) and it accepts blocks that are not YAML — most
+// commonly an unquoted plain scalar containing ": ", which it splits on the
+// first colon and reads as the author intended. Every agent client parses the
+// same file with gopkg.in/yaml.v3 or an equivalent, gets a syntax error, and
+// drops the skill from its catalogue with no message anywhere. So the lenient
+// reader is the *more* useful one for extracting fields, and the strict one is
+// the only one that answers the question that matters: will a client load this
+// (D212).
+//
+// The target is a mapping: frontmatter that parses as a list or a scalar has no
+// fields to read and is rejected here rather than further down.
+func strictFrontmatterYAML(raw string) error {
+	var doc map[string]any
+	return yaml.Unmarshal([]byte(raw), &doc)
 }
 
 // FirstError returns the first error-severity issue in issues, or nil when they

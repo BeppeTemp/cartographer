@@ -16,6 +16,8 @@ because a skill only one of them accepts breaks the other later:
 
 | Rule | Severity |
 |---|---|
+| the frontmatter can be read at all | error |
+| the frontmatter is **valid YAML by the strict rules a client applies** (D212) | error |
 | `name` is required | error |
 | `name` matches `[a-z0-9]` segments joined by single `-` — no uppercase, no `_`, no leading/trailing `-`, no `--` | error |
 | `name` is at most 64 characters | error |
@@ -30,6 +32,19 @@ ignores is a no-op in the agent's catalogue, and that failure is invisible from
 here. The name/directory equality is the one with teeth — the manifest registers
 the artifact under the frontmatter name but hashes and reads the directory, so a
 mismatch sends the read to a path that does not exist.
+
+**Mind `": "` in a `description`** (D212). An unquoted value containing a colon
+followed by a space is a YAML syntax error, and what a client does with one is
+drop the skill and list the others — no message, nothing in a log. Cartographer's
+own frontmatter reader is lenient by design (D8) and reads such a value exactly as
+the author intended, which is why the file looks fine from here, so the validator
+re-reads the block with a strict parser and refuses it. Quote the value, or use an
+em dash:
+
+```yaml
+description: "Sibling of the plan-issue skill: it writes the issues"
+description: Sibling of the plan-issue skill — it writes the issues
+```
 
 An error excludes that skill from the manifest and nothing else: the KB's other
 artifacts still sync, and the reason is reported with the KB, the skill and the

@@ -756,18 +756,23 @@ func validateSkillArtifact(slug string, data []byte) error {
 	fmRaw, body, hasFM := okf.SplitFrontmatter(string(data))
 	s := &skill.Skill{Body: body, DirPath: "skills/" + slug}
 	if hasFM {
+		// The raw block travels with the Skill: skill.Validate re-reads it with
+		// a strict parser, because the OKF reader accepts frontmatter that no
+		// client can load and its extracted fields look ordinary (D212).
+		s.Frontmatter = fmRaw
 		fm, err := okf.ParseFrontmatter(fmRaw)
 		if err != nil {
-			return fmt.Errorf("parse frontmatter: %w", err)
-		}
-		if v, ok := fm.Get("name"); ok {
-			if str, ok := v.(string); ok {
-				s.Name = str
+			s.FrontmatterErr = err.Error()
+		} else {
+			if v, ok := fm.Get("name"); ok {
+				if str, ok := v.(string); ok {
+					s.Name = str
+				}
 			}
-		}
-		if v, ok := fm.Get("description"); ok {
-			if str, ok := v.(string); ok {
-				s.Description = str
+			if v, ok := fm.Get("description"); ok {
+				if str, ok := v.(string); ok {
+					s.Description = str
+				}
 			}
 		}
 	}
