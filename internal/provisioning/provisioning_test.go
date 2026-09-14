@@ -1671,3 +1671,53 @@ func TestBuildManifest_AgreesWithTheMCPChannel(t *testing.T) {
 		})
 	}
 }
+
+// The defect D212 fixes, on the git channel: a SKILL.md whose frontmatter is not
+// valid YAML used to reach the manifest, be synced to every client, and be
+// dropped there in silence. Now it is excluded and named, and the KB's other
+// skills still ship — the same treatment D191 gave the name mismatch.
+func TestBuildManifest_SkillWithUnparseableFrontmatterExcludedAndAttributed(t *testing.T) {
+	kbRoot := t.TempDir()
+	writeSkill(t, kbRoot, "good-one", "good-one")
+
+	// A colon followed by a space in an unquoted plain scalar: what a human
+	// writes, and a YAML syntax error.
+	bad := filepath.Join(kbRoot, "skills", "broken")
+	if err := os.MkdirAll(bad, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body := "---\nname: broken\ndescription: Sibling of the other skill: it does the rest\n---\nBody.\n"
+	if err := os.WriteFile(filepath.Join(bad, "SKILL.md"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var diagnostics []string
+	m, err := provisioning.BuildManifest(nil, map[string]string{"wiki": kbRoot}, provisioning.BuildOptions{
+		SkillDiagnostic: func(msg string) { diagnostics = append(diagnostics, msg) },
+	})
+	if err != nil {
+		t.Fatalf("one unloadable skill must not fail the whole KB: %v", err)
+	}
+
+	var names []string
+	for _, a := range m.Artifacts {
+		if a.Kind == "skill" {
+			names = append(names, a.Name)
+		}
+	}
+	if strings.Join(names, ",") != "good-one" {
+		t.Errorf("skills = %v; want the valid one only", names)
+	}
+	if len(m.Issues) != 1 {
+		t.Fatalf("expected exactly one issue, got %v", m.Issues)
+	}
+	for _, want := range []string{"wiki", "broken", "frontmatter_invalid_yaml"} {
+		if !strings.Contains(m.Issues[0], want) {
+			t.Errorf("issue must name %q: %s", want, m.Issues[0])
+		}
+	}
+	if len(diagnostics) != 1 || diagnostics[0] != m.Issues[0] {
+		t.Errorf("the diagnostic and the recorded issue must be the same message: %v vs %v",
+			diagnostics, m.Issues)
+	}
+}

@@ -731,3 +731,46 @@ func TestArtifactRead_DescriptionNamesTheGate(t *testing.T) {
 		t.Errorf("artifact_read's description does not name the gate: %s", desc)
 	}
 }
+
+// The defect D212 fixes, on the MCP channel: a SKILL.md whose frontmatter is not
+// valid YAML must be refused at the write, not accepted here and dropped in
+// silence by whichever client receives it. The value below is what a human
+// writes — a colon followed by a space in an unquoted plain scalar — and every
+// reader in this repository used to accept it.
+func TestArtifactTools_SkillWriteRefusesFrontmatterAClientCannotParse(t *testing.T) {
+	k := setupTestKB(t)
+	k.AllowArtifactWrite = true
+	s := New("test")
+	RegisterKBTools(s, k, Deps{})
+
+	broken := "---\nname: my-test-skill\n" +
+		"description: Sibling of the other skill: it does the rest\n---\nBody.\n"
+
+	resps := runMCPSequence(t, s, []string{
+		initMsg,
+		artifactCallMsg(t, 2, "artifact_write", map[string]any{
+			"path": "skills/my-test-skill/SKILL.md", "content": broken,
+		}),
+	})
+	tr := decodeToolResult(t, resps[1])
+	if !tr.IsError {
+		t.Fatalf("artifact_write accepted frontmatter no client can parse: %+v", tr)
+	}
+	if !containsText(tr, "not valid YAML") {
+		t.Errorf("the refusal must say what is wrong: %+v", tr.Content)
+	}
+
+	// And the same description, quoted, is accepted: the rule rejects the
+	// syntax error, not the colon.
+	fixed := "---\nname: my-test-skill\n" +
+		"description: \"Sibling of the other skill: it does the rest\"\n---\nBody.\n"
+	resps = runMCPSequence(t, s, []string{
+		initMsg,
+		artifactCallMsg(t, 3, "artifact_write", map[string]any{
+			"path": "skills/my-test-skill/SKILL.md", "content": fixed,
+		}),
+	})
+	if tr := decodeToolResult(t, resps[1]); tr.IsError {
+		t.Fatalf("the quoted form must be accepted: %v", tr.Content)
+	}
+}

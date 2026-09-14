@@ -373,3 +373,175 @@ func TestValidate_SeveritySplit(t *testing.T) {
 		t.Error("a warning-only skill must not be excluded")
 	}
 }
+
+// --- the frontmatter a client cannot parse (D212) ---
+
+// The defect this rule exists for, verbatim: a description containing ": " is
+// not valid YAML, every reader in this repository accepted it, and the client
+// dropped the skill from its catalogue with no message anywhere.
+func TestValidate_FrontmatterInvalidYAML(t *testing.T) {
+	tests := []struct {
+		name        string
+		frontmatter string
+		wantRule    string // "" = accepted
+	}{
+		{
+			"colon-space in an unquoted scalar",
+			"name: my-skill\ndescription: Sibling of the plan-issue skill: it writes issues\n",
+			"frontmatter_invalid_yaml",
+		},
+		{
+			"the same value, quoted",
+			"name: my-skill\ndescription: \"Sibling of the plan-issue skill: it writes issues\"\n",
+			"",
+		},
+		{
+			"the same value, colon replaced",
+			"name: my-skill\ndescription: Sibling of the plan-issue skill — it writes issues\n",
+			"",
+		},
+		{
+			"a colon with no space is legal in a plain scalar",
+			"name: my-skill\ndescription: see http://example.test/x and a:b\n",
+			"",
+		},
+		{
+			"tab indentation, which YAML forbids",
+			"name: my-skill\ndescription: ok\nmetadata:\n\tversion: 1\n",
+			"frontmatter_invalid_yaml",
+		},
+		{
+			"a list where a mapping is required",
+			"- name: my-skill\n- description: ok\n",
+			"frontmatter_invalid_yaml",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			s := &Skill{
+				Name:        "my-skill",
+				Description: "desc",
+				DirPath:     "skills/my-skill",
+				Frontmatter: tc.frontmatter,
+			}
+			var got string
+			for _, iss := range Validate(s) {
+				if iss.Rule == "frontmatter_invalid_yaml" {
+					if iss.Warning {
+						t.Error("an unloadable skill is an error, not a warning")
+					}
+					got = iss.Rule
+				}
+			}
+			if got != tc.wantRule {
+				t.Errorf("rule = %q; want %q", got, tc.wantRule)
+			}
+		})
+	}
+}
+
+// The message has to be actionable: it names the consequence (the client says
+// nothing) and the usual cause, because the author's file looks fine to them.
+func TestValidate_FrontmatterInvalidYAMLMessageIsActionable(t *testing.T) {
+	s := &Skill{
+		Name: "my-skill", Description: "desc", DirPath: "skills/my-skill",
+		Frontmatter: "name: my-skill\ndescription: a: b\n",
+	}
+	bad := FirstError(Validate(s))
+	if bad == nil {
+		t.Fatal("invalid YAML frontmatter must be refused")
+	}
+	if bad.Rule != "frontmatter_invalid_yaml" {
+		t.Fatalf("rule = %q; want frontmatter_invalid_yaml", bad.Rule)
+	}
+	for _, want := range []string{"without reporting anything", `": "`, "quote the value"} {
+		if !strings.Contains(bad.Message, want) {
+			t.Errorf("message must contain %q: %s", want, bad.Message)
+		}
+	}
+}
+
+// A Skill assembled in memory carries no frontmatter, and must not be judged on
+// one it does not have.
+func TestValidate_NoFrontmatterMeansNoFrontmatterCheck(t *testing.T) {
+	s := &Skill{Name: "my-skill", Description: "desc", DirPath: "skills/my-skill"}
+	for _, iss := range Validate(s) {
+		if strings.HasPrefix(iss.Rule, "frontmatter_") {
+			t.Errorf("unexpected %s: %s", iss.Rule, iss.Message)
+		}
+	}
+}
+
+// An unreadable frontmatter used to yield a nameless Skill and no error, so the
+// reason surfaced as "name is required" — true, and about the wrong thing.
+func TestValidate_FrontmatterUnparseableIsReportedAsItself(t *testing.T) {
+	s := &Skill{DirPath: "skills/my-skill", FrontmatterErr: "line 2: could not read"}
+	bad := FirstError(Validate(s))
+	if bad == nil {
+		t.Fatal("an unreadable frontmatter must be refused")
+	}
+	if bad.Rule != "frontmatter_unparseable" {
+		t.Errorf("rule = %q; want frontmatter_unparseable (got %s)", bad.Rule, bad.Message)
+	}
+	if !strings.Contains(bad.Message, "could not read") {
+		t.Errorf("message must carry the parser's reason: %s", bad.Message)
+	}
+}
+
+// LoadSkill and LoadAllFromFS have to carry the raw block through, or Validate
+// has nothing to check.
+func TestLoadSkill_CarriesTheRawFrontmatter(t *testing.T) {
+	dir := t.TempDir()
+	writeSkillMD(t, dir, "---\nname: my-skill\ndescription: A skill: with a colon\n---\nBody.\n")
+
+	s, err := LoadSkill(dir)
+	if err != nil {
+		t.Fatalf("LoadSkill: %v", err)
+	}
+	if !strings.Contains(s.Frontmatter, "description:") {
+		t.Errorf("Frontmatter was not carried through: %q", s.Frontmatter)
+	}
+	if bad := FirstError(Validate(s)); bad == nil || bad.Rule != "frontmatter_invalid_yaml" {
+		t.Errorf("a loaded skill with invalid YAML must be refused, got %+v", bad)
+	}
+}
+
+func TestLoadAllFromFS_CarriesTheRawFrontmatter(t *testing.T) {
+	fsys := fstest.MapFS{
+		"skills/my-skill/SKILL.md": &fstest.MapFile{
+			Data: []byte("---\nname: my-skill\ndescription: A skill: with a colon\n---\nBody.\n"),
+		},
+	}
+	skills, errs := LoadAllFromFS(fsys, "skills")
+	if len(errs) != 0 {
+		t.Fatalf("unexpected errors: %v", errs)
+	}
+	if len(skills) != 1 {
+		t.Fatalf("skills = %d; want 1", len(skills))
+	}
+	if bad := FirstError(Validate(&skills[0])); bad == nil || bad.Rule != "frontmatter_invalid_yaml" {
+		t.Errorf("a skill loaded from an FS with invalid YAML must be refused, got %+v", bad)
+	}
+}
+
+// The whole point of the strict check: every skill this binary ships has to pass
+// it, since they are the ones handed to a client on a fresh install.
+func TestBundledSkillsHaveClientParseableFrontmatter(t *testing.T) {
+	skills, errs := LoadAllFromFS(skillbundle.FS, "bundled")
+	if len(errs) != 0 {
+		t.Fatalf("loading the bundled skills: %v", errs)
+	}
+	if len(skills) == 0 {
+		t.Fatal("no bundled skill found: the check is not doing anything")
+	}
+	for _, s := range skills {
+		if s.Frontmatter == "" {
+			t.Errorf("%s: no frontmatter carried, so it was not checked", s.DirPath)
+			continue
+		}
+		if err := strictFrontmatterYAML(s.Frontmatter); err != nil {
+			t.Errorf("%s: a client will drop this skill — %v", s.DirPath, err)
+		}
+	}
+}
