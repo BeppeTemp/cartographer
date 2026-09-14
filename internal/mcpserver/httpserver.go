@@ -1,8 +1,10 @@
 package mcpserver
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"sort"
 	"strings"
@@ -36,12 +38,86 @@ func (s *Server) HTTPHandler() http.Handler {
 // notifications. Appending both media types satisfies the SDK's presence
 // check without changing what is returned; the request is cloned so the
 // caller's headers are left untouched.
+//
+// Mcp-Protocol-Version is stripped on notifications (D210): a 2026-07-28
+// client sets the header on every POST, but JSON-RPC notifications carry no
+// _meta — the SDK's SEP-2575 validation rejects a body that names 2026-07-28
+// in the header but omits it in _meta. Removing the header on notifications
+// makes the SDK treat them as legacy (202 Accepted), which is the correct
+// answer for a fire-and-forget message.
 func (s *Server) handleMCP(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodPost {
 		r = r.Clone(r.Context())
 		r.Header.Add("Accept", "application/json, text/event-stream")
+
+		// D210: strip the protocol version header on notifications so the
+		// SDK's SEP-2575 _meta enforcement does not reject them.
+		if isNewProtocol(r) {
+			stripHeaderIfNotification(r)
+		}
 	}
 	s.sdkHTTPHandler().ServeHTTP(w, r)
+}
+
+// notificationSniffLimit bounds how much of a body the notification sniff
+// reads. A notification is tiny — Antigravity's is 74 bytes — and this server
+// sets no MaxBytesReader anywhere, so reading the whole body to inspect two
+// top-level keys would make every POST from a modern client hold its entire
+// body in memory (D210).
+const notificationSniffLimit = 8 << 10
+
+// stripHeaderIfNotification removes Mcp-Protocol-Version from r when r's body
+// is a JSON-RPC notification, and leaves r's body readable in full either way.
+//
+// The prefix that was consumed is put back in front of the unread remainder
+// with io.MultiReader, so the SDK downstream sees the same byte stream and a
+// body larger than the sniff limit still streams rather than being buffered.
+// A body that does not fit in the prefix is left alone: it cannot be the
+// message this exists for.
+func stripHeaderIfNotification(r *http.Request) {
+	prefix, err := io.ReadAll(io.LimitReader(r.Body, notificationSniffLimit))
+	rest := r.Body
+	r.Body = struct {
+		io.Reader
+		io.Closer
+	}{io.MultiReader(bytes.NewReader(prefix), rest), rest}
+	if err != nil {
+		return
+	}
+	if isJSONRPCNotification(prefix) {
+		r.Header.Del("Mcp-Protocol-Version")
+	}
+}
+
+// isNewProtocol reports whether r carries a Mcp-Protocol-Version header naming
+// 2026-07-28 or a later revision — the revisions that enforce the SEP-2575
+// _meta agreement. The comparison is lexicographic on a YYYY-MM-DD value, so a
+// malformed value sorting above 2026-07-28 also qualifies; that only ever
+// loosens a check on a body with no id, which the SDK rejects on its own terms
+// anyway (D210).
+func isNewProtocol(r *http.Request) bool {
+	return r.Header.Get("Mcp-Protocol-Version") >= ProtocolVersion20260728
+}
+
+// isJSONRPCNotification reports whether body is a JSON-RPC 2.0 notification:
+// it has a "method" field but no "id" field. A notification carries no _meta
+// in the 2026-07-28 protocol, yet some clients (Antigravity/go-sdk v1.7.0)
+// set the Mcp-Protocol-Version header on all POSTs, triggering the SDK's
+// SEP-2575 validation.
+//
+// Only the top-level keys are inspected: the full body is not unmarshalled.
+// A truncated body — one longer than notificationSniffLimit — fails to
+// unmarshal and is therefore not treated as a notification, which is the
+// intended answer.
+func isJSONRPCNotification(body []byte) bool {
+	var envelope struct {
+		ID     json.RawMessage `json:"id"`
+		Method string          `json:"method"`
+	}
+	if err := json.Unmarshal(body, &envelope); err != nil {
+		return false
+	}
+	return envelope.Method != "" && len(envelope.ID) == 0
 }
 
 // auditState returns this Server's attached audit sink health (D119), or nil
