@@ -8,6 +8,13 @@
 
 KB histories with commits authored as `cartographer <cartographer@localhost>` may need a manual author rewrite before a forge with author push rules accepts the first push.
 
+## [0.12.4](https://github.com/BeppeTemp/cartographer/compare/v0.12.3...v0.12.4) (2026-09-14)
+
+
+### Bug Fixes
+
+* **skill:** validate a skill's frontmatter with the parser a client uses (D212) ([#282](https://github.com/BeppeTemp/cartographer/issues/282)) ([4d2e1f4](https://github.com/BeppeTemp/cartographer/commit/4d2e1f411821e503207fbec37e88a5d9582bf102))
+
 ## [0.12.3](https://github.com/BeppeTemp/cartographer/compare/v0.12.2...v0.12.3) (2026-09-14)
 
 
