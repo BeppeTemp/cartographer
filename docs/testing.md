@@ -50,7 +50,7 @@ the MCP initialize handshake.
 It holds stdin open past the request rather than piping a bare `echo`: over
 stdio the client owns the pipe's lifetime and the server tears the session down
 on EOF, so closing it immediately races the response out of existence
-([D168](decisions/transport-auth.md#d168)).
+([D168](decisions/D168-the-mcp-wire-format-comes-from-the-official-sdk.md)).
 
 This is a fast local check and is not currently a separate CI step; the Go
 server tests cover the same protocol path more precisely.
@@ -64,7 +64,7 @@ the real binary with two temporary KBs, calls MCP through HTTP and exercises
 Map creation, concept writes/expansion and Atlas overview.
 
 Tool names are qualified with the prefix `/health` reports for each KB, rather
-than assumed bare: since [D153](decisions/transport-auth.md#d153) a KB-name
+than assumed bare: since [D153](decisions/D153-a-tool-prefix-is-the-default-for-every-mounted-kb.md) a KB-name
 prefix is the default, so a bare name resolves to nothing. Each call asserts on
 `isError` — an unresolvable tool comes back as a JSON-RPC *result* whose text
 says "tool not found", which the script would otherwise print and count as a
