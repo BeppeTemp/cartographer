@@ -169,7 +169,7 @@ the curated body — not only the first line — asserts a session-wide fact the
 a working timezone or environment name. `<key>` and `<value>` must each be non-empty and contain no
 `:`, the same strict-not-clever shape as every other Cartographer marker; a malformed or partial line
 (an extra `:`, an empty key or value) is left as ordinary prose, and a KB documenting the syntax itself
-never triggers it, the same D163 metasyntax trap `preambleNoneRe` and the `cartographer:kb:` markers
+never triggers it, the same D162 metasyntax trap `preambleNoneRe` and the `cartographer:kb:` markers
 already account for — including the marker shown alone on its own line inside a fenced code block, the
 natural way to document a syntax: `extractDirectives` tracks fence state (` ``` `/`~~~`) and never
 matches inside one. Unlike `preamble: none`, the recognised line is **not** stripped — it stays in the

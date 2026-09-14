@@ -839,7 +839,7 @@ func qualifyToolName(prefix, base string) string {
 // preambleNoneRe matches the opt-out directive on the FIRST line of
 // instructions.md. First line only, and an exact spelling, so a KB can document
 // the directive in its own prose without triggering it — the same trap as the
-// placeholder syntax (D163).
+// placeholder syntax (D162).
 var preambleNoneRe = regexp.MustCompile(`(?i)^<!--\s*cartographer:\s*preamble:\s*none\s*-->\s*$`)
 
 // kbCuratedInstructionsWithPreamble reads the optional curated file
@@ -895,7 +895,7 @@ func kbCuratedInstructionsWithPreamble(kbRoot string) (body string, skipPreamble
 // "<!-- cartographer:directive:<key>:<value> -->", matched as a full line
 // (after trimming) so a KB can document the syntax in its own prose without
 // declaring anything — the same defensive shape as preambleNoneRe and D182's
-// "cartographer:kb:<name>:begin/end" markers, and the same D163 metasyntax
+// "cartographer:kb:<name>:begin/end" markers, and the same D162 metasyntax
 // trap both of those had to account for. Unlike preambleNoneRe, a directive
 // may appear anywhere in the curated body, not only the first line.
 //
@@ -938,7 +938,7 @@ func directiveFenceOpenMarker(trimmed string) string {
 // documenting the marker's syntax with a worked example — the marker alone
 // on its own line inside a ``` fence, the natural way to show it — must not
 // declare anything either. Full-line matching alone only protects a marker
-// embedded mid-paragraph (D163's metasyntax trap); a standalone example line
+// embedded mid-paragraph (D162's metasyntax trap); a standalone example line
 // inside a fence needs this additional check.
 //
 // A key declared twice within the SAME content keeps its LAST value,
@@ -1958,7 +1958,7 @@ const (
 //
 // name is the KB name, already sanitised by config before it ever reaches
 // BuildManifest, and each marker occupies one full line by construction —
-// the same class of trap as D163's metasyntax: a curated instructions.md line
+// the same class of trap as D162's metasyntax: a curated instructions.md line
 // that merely LOOKS like "cartographer:kb:<name>:begin" text embedded
 // mid-paragraph is not, itself, a marker line, and nothing in this package
 // re-parses the body to look for one, so it can never forge a section

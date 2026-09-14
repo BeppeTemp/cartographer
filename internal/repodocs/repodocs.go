@@ -395,8 +395,13 @@ func RenderCodeMap(pkgs []Package) string {
 // longer resolves can be named. The bare `D<n>` is the reference convention in
 // this repository — no path, so a reworded title does not break it — and the only
 // thing that keeps it honest is checking that the number exists.
+//
+// A number followed by "(retired)" or "(gap)" is skipped: that is how this
+// repository names a number that deliberately has no record (D188 is retired,
+// 163 is a gap — D206), and saying so must not be mistaken for claiming the
+// record exists.
 func CitedDecisions(root string) (map[int]string, error) {
-	ref := regexp.MustCompile(`\bD([0-9]{1,3})\b`)
+	ref := regexp.MustCompile(`\bD([0-9]{1,3})\b(\s*\((?:retired|gap)\))?`)
 	found := map[int]string{}
 
 	record := func(path string) error {
@@ -406,6 +411,9 @@ func CitedDecisions(root string) (map[int]string, error) {
 		}
 		rel, _ := filepath.Rel(root, path)
 		for _, m := range ref.FindAllStringSubmatch(string(data), -1) {
+			if m[2] != "" {
+				continue // explicitly declared as having no record
+			}
 			n, err := strconv.Atoi(m[1])
 			if err != nil {
 				continue
@@ -446,16 +454,9 @@ func CitedDecisions(root string) (map[int]string, error) {
 // guessing. Each one needs a reason and a way out, or the list becomes the place
 // where the gate goes to die.
 //
-//	D163 — cited eight times across internal/provisioning and docs/sync.md as an
-//	       established decision ("D163's metasyntax trap"), with no record
-//	       anywhere. It predates the split of the thematic registers: the number
-//	       is a gap in the sequence, so it was never written, and the eight
-//	       citations describe its content consistently enough that a reader
-//	       follows them and finds nothing. It is not D188's case — that number
-//	       was retired *because* nothing depended on it, while this one carries
-//	       load. Resolving it means either writing the record from the citations
-//	       or renumbering them, and both are decisions for the maintainer, not
-//	       for whoever added this gate.
-var KnownDanglingDecisions = map[int]string{
-	163: "cited as an established decision but never written — see the comment on KnownDanglingDecisions",
-}
+// Empty, and worth keeping empty: the first thing this check found was
+// D163 (gap), cited eight times as an established decision with no record
+// anywhere. It turned out not to be a missing record but a copied off-by-one —
+// the trap those eight comments describe is D162 — and the fix was to renumber
+// them, not to write the record. See D206.
+var KnownDanglingDecisions = map[int]string{}

@@ -9,7 +9,7 @@ directive with a key anywhere in its body: `<!-- cartographer:directive:<key>:<v
 -->`, recognised as a full line (after trimming) so a KB can document the
 syntax itself without triggering it — the same defensive shape as
 `preambleNoneRe` and D182's `cartographer:kb:<name>:begin/end` markers, and
-the same D163 metasyntax trap both had to account for. `<key>` and `<value>`
+the same D162 metasyntax trap both had to account for. `<key>` and `<value>`
 are each required to be non-empty and to contain no `:`, so the split stays
 unambiguous; a malformed line (empty key or value, an extra `:` inside either
 part) is not recognised and is left as ordinary prose. Lines inside a fenced
@@ -85,7 +85,7 @@ fact into structured comparison by giving it a key.
 **Consequences.** `feat:` — new authoring convention, and no existing curated
 body matches it by accident (the marker's tight `<key>:<value>` shape, no
 extra `:` or empty part tolerated, keeps a KB's own prose about markers from
-tripping it, same as D163/D182). A deployment with two KBs bound to the same
+tripping it, same as D162/D182). A deployment with two KBs bound to the same
 provider that declare the same directive key with different values — working
 today, silently, left to a human to notice and resolve via "the more specific
 source wins" — starts failing its sync with a report naming the key, both
