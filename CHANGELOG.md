@@ -8,6 +8,13 @@
 
 KB histories with commits authored as `cartographer <cartographer@localhost>` may need a manual author rewrite before a forge with author push rules accepts the first push.
 
+## [0.12.3](https://github.com/BeppeTemp/cartographer/compare/v0.12.2...v0.12.3) (2026-09-14)
+
+
+### Bug Fixes
+
+* **mcp:** strip Mcp-Protocol-Version on notifications (D210) ([#277](https://github.com/BeppeTemp/cartographer/issues/277)) ([8547bba](https://github.com/BeppeTemp/cartographer/commit/8547bba5db479b8366a778074b22ab1b39a39316)), closes [#276](https://github.com/BeppeTemp/cartographer/issues/276)
+
 ## [0.12.2](https://github.com/BeppeTemp/cartographer/compare/v0.12.1...v0.12.2) (2026-09-13)
 
 
