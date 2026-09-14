@@ -7,6 +7,7 @@
 // Only artifact_read/artifact_list are always registered (read-only, see
 // RegisterKBTools); artifact_write/artifact_delete require the per-KB
 // KBSpec.AllowArtifactWrite flag (default false, see kb.KB.AllowArtifactWrite).
+
 package mcpserver
 
 import (

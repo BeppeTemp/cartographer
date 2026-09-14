@@ -1111,7 +1111,7 @@ func TestBuildManifest_DirectiveCollision_EndToEnd(t *testing.T) {
 }
 
 // A directive's syntax documented in a KB's own prose — mid-paragraph or
-// inside a fenced code block — must never declare anything (D163's
+// inside a fenced code block — must never declare anything (D162's
 // metasyntax trap).
 func TestGenerateKBInstructions_DirectiveDocumentedInProseIsNotDeclared(t *testing.T) {
 	kbRoot := makeKBWithArchives(t, map[string][]string{"entities": {"a.md"}})

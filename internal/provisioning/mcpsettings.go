@@ -10,6 +10,7 @@
 // the un-named "cartographer:mcp:begin/end" block internal/configurator
 // writes for the Cartographer server itself via `cartographer connect` — no
 // collision, different text.
+
 package provisioning
 
 import (

@@ -2,7 +2,7 @@
 // generated entirely by the client (not by the server/KB manifest), that at
 // session start silently runs `cartographer sync --auto-trust` so the LLM agent
 // always starts aligned with the server, without the user having to run `sync`
-// by hand. See docs/decisions/sync-provisioning.md D60, docs/sync.md §Layer 1.
+// by hand. See D60, docs/sync.md §Layer 1.
 //
 // EnsureBootstrapHook reuses exactly the D57 (Claude settings.json), D58 (Codex
 // config.toml) and D59 (OpenCode plugin) registration primitives used by Apply
@@ -10,6 +10,7 @@
 // idempotence. The only difference is that here the directory is not populated
 // by reading files from the KB (copyArtifactFiles) but by writing the two
 // generated files directly (bootstrapHookJSON, bootstrapScriptContent).
+
 package provisioning
 
 import (

@@ -9,6 +9,14 @@ migrated-kb/
 !.claude/skills/
 .kiro/*
 !.kiro/skills/
+# Everything under .agents/ other than skills/ is machine-local client state,
+# not ours to track: .agents/skills is the canonical, versioned source for the
+# repository's own skills (the path Codex documents for repository-local
+# skills), and nothing else in there belongs in a commit.
+.agents/*
+!.agents/skills/
+# Isolated worktrees for plan branches (see `make worktree-add`): never tracked.
+/.worktrees/
 /data/kb/
 !/data/kb/.gitkeep
 .env

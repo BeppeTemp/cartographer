@@ -271,7 +271,7 @@ func runGit(dir string, args ...string) (string, error) {
 // (cmd.Env = append(os.Environ(), env...)): entries in env take precedence
 // over the process environment (later entries win on duplicate keys), the
 // inverse of setupGitSSH's "process environment wins" rule for the global
-// GIT_SSH_COMMAND fallback — see docs/decisions/concurrency-git.md D46. A nil/empty env
+// GIT_SSH_COMMAND fallback — see D46. A nil/empty env
 // behaves exactly like runGit.
 func runGitEnv(dir string, env []string, args ...string) (string, error) {
 	fullArgs := append([]string{"-C", dir}, args...)
@@ -686,7 +686,7 @@ func LogNameStatus(dir string, since time.Time) ([]CommitChanges, error) {
 }
 
 // DiffNameStatus returns changed files between two refs as a list of FileChange.
-// Example: DiffNameStatus(dir, "HEAD~1", "HEAD") → [{"M", "docs/foo.md"}, {"A", "new.md"}]
+// Example: DiffNameStatus(dir, "HEAD~1", "HEAD") → [{"M", "a/foo.md"}, {"A", "new.md"}]
 func DiffNameStatus(dir, from, to string) ([]FileChange, error) {
 	out, err := runGit(dir, "diff", "--name-status", from, to)
 	if err != nil {

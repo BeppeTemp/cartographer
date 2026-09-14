@@ -8,6 +8,16 @@ copyright: Apache-2.0 — the docs are the files in docs/, published as-is
 
 docs_dir: docs
 
+# The decision records are one file each and are reached through the generated
+# index in decisions.md, never from the sidebar: listing ~200 entries in the nav
+# would mean maintaining the index twice, which is exactly how an index stops
+# being accurate.
+not_in_nav: |
+  decisions/*.md
+
+exclude_docs: |
+  decisions/TEMPLATE.md
+
 theme:
   name: material
   icon:
@@ -66,18 +76,7 @@ nav:
       - Transport and auth: transport-auth.md
       - Operating loop: loop.md
       - Interoperability: interoperability.md
-      - Decisions:
-          - Guide: decisions.md
-          - Architecture: decisions/architecture.md
-          - Data plane: decisions/data-plane.md
-          - Control plane, search and lint: decisions/control-plane.md
-          - Transport and authorization: decisions/transport-auth.md
-          - Concurrency and git: decisions/concurrency-git.md
-          - Skills, services and secrets: decisions/skills-services-secrets.md
-          - Synchronization and provisioning: decisions/sync-provisioning.md
-          - Client and configurator: decisions/client-configurator.md
-          - Deployment and release: decisions/deployment-release.md
-          - Project governance: decisions/project-governance.md
+      - Decisions: decisions.md
       - Go conventions: conventions.md
       - Testing: testing.md
       - References: references.md

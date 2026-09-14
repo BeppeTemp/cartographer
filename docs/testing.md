@@ -20,7 +20,8 @@ is non-deterministic, costly and dependent on external providers.
 parsing, KB invariants, tools, authorization, git behavior, provisioning and
 client configuration.
 
-`make vet` runs `go vet ./...`. Both are required in CI.
+`make vet` runs `go vet ./...` and `make fmt-check` fails on anything not
+gofmt-clean. All three are `make gate`, which is the single command CI runs.
 
 Provisioning signature coverage includes deterministic Ed25519 envelopes, strict
 key parsing and identity separation, plus remote `sync_pull` verification and
@@ -42,6 +43,37 @@ stderr. Golden help is limited to 80 columns. Bubble Tea view/update tests use
 line width, and cover healthy, unavailable, drift, connect retry, sync-all and
 disconnect confirmation states.
 
+### Documentation gates
+
+`internal/repodocs` holds the deterministic checks on the repository's own
+documentation and agent-facing layout, and they are ordinary Go tests so
+`make test` runs them (D204). They exist because each of these failures is
+otherwise silent — no client, compiler or linter reports any of them:
+
+- the `AGENTS.md` budgets: 120 lines of hand-written text, 12.000 characters for
+  the whole file, and every Codex `AGENTS.md` chain under 32 KiB;
+- the generated blocks are up to date — the decision index in `docs/decisions.md`
+  and the code map in `AGENTS.md`. The generator **is** this test run with
+  `-update`, which is all `make decisions-index` and `make codemap` do, so the
+  writer and the checker cannot disagree about the format;
+- every decision file is well formed, carries a known `topic`, holds no leftover
+  template placeholder, and claims a number no other file claims;
+- every `D<n>` cited anywhere in the repository resolves to a record, is a
+  declared gap, or is reserved by an open plan (D208);
+- every `docs/…` path cited anywhere exists — including in Go and shell comments,
+  which no other check reads;
+- every relative link in every tracked markdown file resolves, and none uses the
+  retired `#d<n>` anchor form;
+- each skill's frontmatter parses with the same spec-compliant YAML parser a
+  client uses, and satisfies the strictest client's rules (D207);
+- the skill bridges are symlinks **in the git index**, so the answer is the same
+  on a Windows checkout as on CI;
+- `CONTRIBUTING.md`'s per-client table agrees with the provider matrix in
+  `internal/provisioning` (D207);
+- `CLAUDE.md` is exactly `@AGENTS.md` and nothing else, and the corpus these
+  checks read actually contains the files they exist to read — a corpus definition
+  fails by matching nothing and passing.
+
 ### Stdio smoke
 
 `make smoke` builds the binary, starts a temporary stdio server and verifies
@@ -50,7 +82,7 @@ the MCP initialize handshake.
 It holds stdin open past the request rather than piping a bare `echo`: over
 stdio the client owns the pipe's lifetime and the server tears the session down
 on EOF, so closing it immediately races the response out of existence
-([D168](decisions/transport-auth.md#d168)).
+([D168](decisions/D168-the-mcp-wire-format-comes-from-the-official-sdk.md)).
 
 This is a fast local check and is not currently a separate CI step; the Go
 server tests cover the same protocol path more precisely.
@@ -64,7 +96,7 @@ the real binary with two temporary KBs, calls MCP through HTTP and exercises
 Map creation, concept writes/expansion and Atlas overview.
 
 Tool names are qualified with the prefix `/health` reports for each KB, rather
-than assumed bare: since [D153](decisions/transport-auth.md#d153) a KB-name
+than assumed bare: since [D153](decisions/D153-a-tool-prefix-is-the-default-for-every-mounted-kb.md) a KB-name
 prefix is the default, so a bare name resolves to nothing. Each call asserts on
 `isError` — an unresolvable tool comes back as a JSON-RPC *result* whose text
 says "tool not found", which the script would otherwise print and count as a
@@ -197,12 +229,15 @@ the deterministic repository gate.
 ## Before a pull request
 
 ```bash
-make vet
-make test
+make gate          # gofmt + vet + test, documentation gates included
 make smoke-http
 make e2e
 make test-install
 ```
+
+Exactly what CI runs, in the same order: `make gate` is the one place that
+defines "green", so a step added here has to be added to `gate` or to
+`ci.yml`, not to a list that only lives in prose.
 
 ## Before a release
 

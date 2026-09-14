@@ -301,8 +301,8 @@ func resolveConnectSettings(passed map[string]bool, flagURL string, flagAuth boo
 	return s
 }
 
-// cmdConnect generates the MCP client config (HTTP transport only, see
-// docs/decisions/client-configurator.md) for the requested agent provider(s) — default "all" = every agent
+// cmdConnect generates the MCP client config (HTTP transport only, D37) for
+// the requested agent provider(s) — default "all" = every agent
 // detected on this machine (internal/agents.Detect) — materializes skills via
 // sync_pull, and records the connection in .cartographer.yaml.
 //
