@@ -28,4 +28,5 @@ semantics and error cases; tests to add; acceptance criterion.
 
 - [ ] Current-state docs: `docs/<page>.md`
 - [ ] Decision file: `docs/decisions/D<n>-<slug>.md`, `topic: <topic>`
+- [ ] Traps: fixed with a test or a comment next to the code, or `none`
 - [ ] Release impact: `<none | describe>`
