@@ -94,8 +94,9 @@ Structural questions about the code (where does X live, who calls Y, what does Z
 ## Area rules
 
 Two areas carry invariants you cannot derive from the code, so they have their own
-`AGENTS.md` — read it before editing there, and note that Codex only loads it if
-it was launched at or below that directory:
+`AGENTS.md`, with a one-line `CLAUDE.md` import beside it (D213). Read it before
+editing there: Claude Code loads it on its first read of a file in that directory,
+Codex only if it was launched at or below that directory:
 
 - `internal/mcpserver/AGENTS.md` — how to add a tool, and the three things about
   scopes, locking and commits that a handler must not do itself.

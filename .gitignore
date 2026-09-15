@@ -7,8 +7,14 @@
 migrated-kb/
 .claude/*
 !.claude/skills/
+!.claude/rules/
 .kiro/*
 !.kiro/skills/
+# Per-client MCP configuration is machine-local, as CONTRIBUTING.md says: written
+# by `cartographer connect`, never committed.
+.mcp.json
+.codex/config.toml
+opencode.json
 # Everything under .agents/ other than skills/ is machine-local client state,
 # not ours to track: .agents/skills is the canonical, versioned source for the
 # repository's own skills (the path Codex documents for repository-local
