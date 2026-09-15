@@ -452,15 +452,44 @@ func capped(items []string, n int) []string {
 	return append(append([]string{}, items[:n]...), fmt.Sprintf("… and %d more", len(items)-n))
 }
 
-// Claude Code is the only client that will not read AGENTS.md. It gets a
-// one-line import rather than a symlink, because a public repository does not
-// choose the operating system of the people who clone it and git does not
-// materialize symlinks on a Windows checkout without Developer Mode.
-func TestClaudeMdOnlyImportsAgentsMd(t *testing.T) {
+// Claude Code is the only client that will not read AGENTS.md, at any depth: it
+// loads a nested CLAUDE.md when it first reads a file in that directory, so every
+// directory with an AGENTS.md needs one (D213). It is a one-line import rather
+// than a symlink, because a public repository does not choose the operating
+// system of the people who clone it and git does not materialize symlinks on a
+// Windows checkout without Developer Mode. An AGENTS.override.md is refused: Codex
+// reads it instead of the AGENTS.md beside it, not in addition to it.
+func TestEveryAgentsMdHasAClaudeImport(t *testing.T) {
 	root := repoRoot(t)
-	if got := strings.TrimSpace(readFile(t, root, "CLAUDE.md")); got != "@AGENTS.md" {
-		t.Errorf("CLAUDE.md should contain exactly `@AGENTS.md` and nothing else, got %q.\n"+
-			"Instructions live in AGENTS.md, which Codex, Kiro and Antigravity read natively.", got)
+	dirs, err := InstructionDirs(root)
+	if err != nil {
+		t.Fatalf("listing the instruction directories: %v", err)
+	}
+	if len(dirs) == 0 {
+		t.Fatal("no AGENTS.md found: the check is not doing anything")
+	}
+	for _, dir := range dirs {
+		if _, err := os.Lstat(filepath.Join(root, dir, "AGENTS.override.md")); err == nil {
+			t.Errorf("%s: Codex reads AGENTS.override.md instead of AGENTS.md, hiding that "+
+				"directory's rules from one client only; put the content in AGENTS.md", filepath.Join(dir, "AGENTS.override.md"))
+		}
+		rel := filepath.Join(dir, "CLAUDE.md")
+		fi, err := os.Lstat(filepath.Join(root, rel))
+		switch {
+		case err != nil:
+			t.Errorf("%s is missing: Claude Code does not read AGENTS.md, so without it the "+
+				"rules in %s never reach Claude — add a file containing exactly `@AGENTS.md`",
+				rel, filepath.Join(dir, "AGENTS.md"))
+			continue
+		case fi.Mode()&os.ModeSymlink != 0:
+			t.Errorf("%s is a symlink: a Windows checkout without Developer Mode turns it into "+
+				"a text file and Claude loads nothing — make it a file containing `@AGENTS.md`", rel)
+			continue
+		}
+		if got := strings.TrimSpace(readFile(t, root, rel)); got != "@AGENTS.md" {
+			t.Errorf("%s should contain exactly `@AGENTS.md` and nothing else, got %q.\n"+
+				"Instructions live in AGENTS.md, which Codex, Kiro and Antigravity read natively.", rel, got)
+		}
 	}
 }
 

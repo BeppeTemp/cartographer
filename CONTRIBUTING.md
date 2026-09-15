@@ -63,7 +63,7 @@ Nothing else is needed to start. Concretely:
 |---|---|---|---|
 | **Codex** | `AGENTS.md`, natively | `.agents/skills/`, natively | Do not add an `AGENTS.override.md`: it *replaces* `AGENTS.md` in the same directory rather than adding to it |
 | **Kiro** | `AGENTS.md`, natively | `.kiro/skills/` → symlinks | Do not put a copy of `AGENTS.md` under `.kiro/steering/`: it is already always included, and a steering file that re-includes it would load it twice. A steering file with *other* content is fine — `cartographer sync` legitimately owns `.kiro/steering/cartographer.md` when this workspace is bound to a KB |
-| **Claude Code** | `CLAUDE.md` → `@AGENTS.md` | `.claude/skills/` → symlinks | — |
+| **Claude Code** | `CLAUDE.md` → `@AGENTS.md` | `.claude/skills/` → symlinks | Every directory with an `AGENTS.md` has its own one-line `CLAUDE.md` import, which Claude loads on its first read of a file there (D213) |
 | **Antigravity** | `AGENTS.md`, per its own documentation — not audited here | **global only**: `~/.gemini/config/skills/`; no project-local directory | Its whole configuration root is global (`~/.gemini/GEMINI.md`, `~/.gemini/config/{skills,agents,hooks,mcp_config.json}`), so the two skills below are *not* reachable from a clone and no repo-local path would make them so |
 
 The Antigravity row is the one to be careful with. Where a client reads its
