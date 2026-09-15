@@ -2,20 +2,6 @@
 
 Go MCP server for the *Agentic Wiki* (Karpathy pattern + OKF). The agent never touches files directly: it operates via MCP tools; the server enforces the invariants. → `docs/overview.md`
 
-**Where to look for what** (not duplicated here):
-
-| Need | Source of truth |
-|---|---|
-| Full doc map + reading paths | `docs/index.md` (read that first, then only the relevant pages) |
-| Project status and planned work | GitHub issues, pull requests and releases (links in `docs/index.md`) |
-| Why behind a choice (`D<n>`) | One file per decision: `ls docs/decisions/D<n>-*`. The generated list is `docs/decisions.md` |
-| Working with an agent client (Kiro, Claude, Codex, Antigravity) | `CONTRIBUTING.md` §Working with an agent client |
-| List of MCP tools | `docs/control-plane.md` §API MCP |
-| `CARTOGRAPHER_*` env vars, YAML config, deploy | `docs/deployment.md` |
-| Client subcommands / TUI | `docs/configurator.md` |
-| Test strategy and pre-release checklist | `docs/testing.md` |
-| Go conventions | `docs/conventions.md` |
-
 ## Commands
 
 ```
@@ -48,6 +34,25 @@ make worktree-rm  SLUG=my-change   # remove it (force: discards uncommitted work
 ```
 
 Protocol: JSON-RPC 2.0. Stdio = newline-delimited. HTTP = POST /mcp. Logs on stderr.
+
+## Rules that apply everywhere
+
+Structural questions about the code (where does X live, who calls Y, what does Z depend on) are answered with targeted Grep/Explore, then reading only the indicated `file:line` locations.
+
+- the **why** lives in `docs/decisions/`, one file per decision (`ls docs/decisions/D47-*`), current behavior in `docs/` (map in `docs/index.md`);
+- in mandates to a coding subagent include the `file:line` pointers already derived: the subagent should not re-explore from scratch.
+
+## Areas
+
+Two areas carry invariants you cannot derive from the code, so they have their own
+`AGENTS.md`, with a one-line `CLAUDE.md` import beside it (D213). Read it before
+editing there: Claude Code loads it on its first read of a file in that directory,
+Codex only if it was launched at or below that directory:
+
+- `internal/mcpserver/AGENTS.md` — how to add a tool, and the three things about
+  scopes, locking and commits that a handler must not do itself.
+- `internal/provisioning/AGENTS.md` — this package writes into other people's home
+  directories; a defect there does not fail a test, it modifies files silently.
 
 ## Code map
 
@@ -84,29 +89,27 @@ internal/sqlindex      implements a persistent SQLite-backed keyword index
 ```
 <!-- codemap:end -->
 
-## Code navigation
+## Where things are
 
-Structural questions about the code (where does X live, who calls Y, what does Z depend on) are answered with targeted Grep/Explore, then reading only the indicated `file:line` locations.
+Not duplicated here:
 
-- the **why** lives in `docs/decisions/`, one file per decision (`ls docs/decisions/D47-*`), current behavior in `docs/` (map in `docs/index.md`);
-- in mandates to a coding subagent include the `file:line` pointers already derived: the subagent should not re-explore from scratch.
+| Need | Source of truth |
+|---|---|
+| Full doc map + reading paths | `docs/index.md` (read that first, then only the relevant pages) |
+| Project status and planned work | GitHub issues, pull requests and releases (links in `docs/index.md`) |
+| Why behind a choice (`D<n>`) | One file per decision: `ls docs/decisions/D<n>-*`. The generated list is `docs/decisions.md` |
+| Working with an agent client (Kiro, Claude, Codex, Antigravity) | `CONTRIBUTING.md` §Working with an agent client |
+| List of MCP tools | `docs/control-plane.md` §API MCP |
+| `CARTOGRAPHER_*` env vars, YAML config, deploy | `docs/deployment.md` |
+| Client subcommands / TUI | `docs/configurator.md` |
+| Test strategy and pre-release checklist | `docs/testing.md` |
+| Go conventions | `docs/conventions.md` |
 
-## Area rules
-
-Two areas carry invariants you cannot derive from the code, so they have their own
-`AGENTS.md`, with a one-line `CLAUDE.md` import beside it (D213). Read it before
-editing there: Claude Code loads it on its first read of a file in that directory,
-Codex only if it was launched at or below that directory:
-
-- `internal/mcpserver/AGENTS.md` — how to add a tool, and the three things about
-  scopes, locking and commits that a handler must not do itself.
-- `internal/provisioning/AGENTS.md` — this package writes into other people's home
-  directories; a defect there does not fail a test, it modifies files silently.
-
-## Workflow and documentation
+## Working rules
 
 - All changes land via PR: `main` is protected (required `test` check, squash-merge only, no direct pushes). Branch `feat/<slug>` → `gh pr create` → merge on green CI. PR titles are conventional commits (linted in CI): release-please computes the semver bump from them.
 - Isolable code may be delegated to a coding subagent; the coordinator verifies `make gate`.
+- **Done** means: `make gate` green; the docs named in `docs/index.md` §Documentation maintenance rules updated in the same session; every trap you hit fixed where it bites — a test if it can be checked, a comment next to the code if it is about that code, otherwise one line in the area `AGENTS.md` or in the skill of the procedure (D214); one decision file per non-obvious choice.
 - Analysis/design and implementation often happen in separate sessions: the handoff is a **plan issue** — a self-contained GitHub issue from the `Plan` template, label `plan` (procedure and self-sufficiency test in `CONTRIBUTING.md` §Plan issues). The implementing session reads it with `gh issue view <n>` and the implementation PR closes it (`Closes #<n>`).
 - Server and client releases (release-please PR merge, pipeline, rollout, local client update) → maintainer-local tooling, not versioned here.
 - **Documentation is updated in the same session in which the code is changed — never afterward.** The "what changes → which file to update" table is in `docs/index.md` §Documentation maintenance rules: use it for every change.
