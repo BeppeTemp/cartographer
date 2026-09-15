@@ -358,32 +358,13 @@ func UnknownTopics(decisions []Decision) []string {
 // *content under test*: it is never part of this repository's instruction chain,
 // and counting it would measure the wrong thing.
 func ChainBytes(root string) (map[string]int, error) {
-	dirs := map[string]bool{}
-	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		rel, relErr := filepath.Rel(root, path)
-		if relErr != nil {
-			return relErr
-		}
-		if d.IsDir() {
-			if skipDir(rel, d.Name()) {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		if d.Name() == "AGENTS.md" || d.Name() == "AGENTS.override.md" {
-			dirs[filepath.Dir(rel)] = true
-		}
-		return nil
-	})
+	dirs, err := InstructionDirs(root)
 	if err != nil {
 		return nil, err
 	}
 
 	out := map[string]int{}
-	for dir := range dirs {
+	for _, dir := range dirs {
 		total := 0
 		for d := dir; ; d = filepath.Dir(d) {
 			for _, name := range []string{"AGENTS.override.md", "AGENTS.md"} {
@@ -400,6 +381,41 @@ func ChainBytes(root string) (map[string]int, error) {
 		out[dir] = total
 	}
 	return out, nil
+}
+
+// InstructionDirs returns, sorted and relative to root, every directory holding
+// an AGENTS.md or an AGENTS.override.md, with the same exclusions as the
+// reference gates (skipDir).
+func InstructionDirs(root string) ([]string, error) {
+	seen := map[string]bool{}
+	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, relErr := filepath.Rel(root, path)
+		if relErr != nil {
+			return relErr
+		}
+		if d.IsDir() {
+			if skipDir(rel, d.Name()) {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if d.Name() == "AGENTS.md" || d.Name() == "AGENTS.override.md" {
+			seen[filepath.Dir(rel)] = true
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	dirs := make([]string, 0, len(seen))
+	for dir := range seen {
+		dirs = append(dirs, dir)
+	}
+	sort.Strings(dirs)
+	return dirs, nil
 }
 
 // referenceFileExts are the file types whose text can carry a reference this
