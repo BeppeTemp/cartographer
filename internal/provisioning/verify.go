@@ -151,7 +151,8 @@ func readManagedFiles(mf ManagedFile, full string) ([]ArtifactFile, error) {
 		if readErr != nil {
 			return nil, readErr
 		}
-		return []ArtifactFile{{Path: filepath.Base(full), Content: data, Executable: execbit.IsExecutable(info.Mode())}}, nil
+		base := filepath.Base(full)
+		return []ArtifactFile{{Path: base, Content: data, Executable: effectiveExecutable(mf.Kind, base, execbit.IsExecutable(info.Mode()))}}, nil
 	}
 	var files []ArtifactFile
 	walkErr := filepath.WalkDir(full, func(p string, d fs.DirEntry, err error) error {
@@ -173,7 +174,12 @@ func readManagedFiles(mf ManagedFile, full string) ([]ArtifactFile, error) {
 		if infoErr != nil {
 			return infoErr
 		}
-		files = append(files, ArtifactFile{Path: filepath.ToSlash(rel), Content: data, Executable: execbit.IsExecutable(fi.Mode())})
+		// The same floor contentHashDirOS applies when the hash is *verified*:
+		// a hook's files are executable by definition, so reading the bit off
+		// the disk here would record a different hash from the one the check
+		// recomputes — permanently, where the filesystem has no such bit.
+		slashRel := filepath.ToSlash(rel)
+		files = append(files, ArtifactFile{Path: slashRel, Content: data, Executable: effectiveExecutable(mf.Kind, slashRel, execbit.IsExecutable(fi.Mode()))})
 		return nil
 	})
 	if walkErr != nil {

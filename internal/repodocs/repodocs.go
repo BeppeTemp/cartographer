@@ -481,7 +481,10 @@ func TextFiles(root string) ([]string, error) {
 		if !referenceFileExts[filepath.Ext(rel)] || skipFile(rel) {
 			return nil
 		}
-		out = append(out, rel)
+		// A slash path: this list is compared against literals, printed in gate
+		// failures and matched against documentation, none of which is about
+		// where the file sits on this particular host.
+		out = append(out, filepath.ToSlash(rel))
 		return nil
 	})
 	if err != nil {

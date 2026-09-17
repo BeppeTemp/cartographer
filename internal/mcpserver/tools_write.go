@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -1710,8 +1711,8 @@ func rewriteBacklinks(k *kb.KB, live *liveIndex, sqlIdx *sqlindex.Index, moveMap
 	err := k.WalkConcepts(func(id okf.ConceptID, content string) error {
 		fmRaw, body, _ := okf.SplitFrontmatter(content)
 		basePath := okf.IDToPath(id)
-		if _, err := k.ReadRaw(filepath.Join(string(id), "index.md")); err == nil {
-			basePath = filepath.Join(string(id), "index.md")
+		if _, err := k.ReadRaw(path.Join(string(id), "index.md")); err == nil {
+			basePath = path.Join(string(id), "index.md")
 		}
 		newBody, count := kb.RewriteLinks(body, basePath, moveMap)
 		if count == 0 {

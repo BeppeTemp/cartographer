@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -40,7 +41,7 @@ func (kb *KB) resolveAsset(id okf.ConceptID, assetPath string, writeMode bool) (
 	if err != nil {
 		return "", "", err
 	}
-	if !expanded || conceptRel != filepath.Join(string(id), "index.md") {
+	if !expanded || conceptRel != path.Join(string(id), "index.md") {
 		conceptAbs, resolveErr := kb.ResolvePath(conceptRel, false)
 		if resolveErr == nil {
 			if _, statErr := os.Stat(conceptAbs); os.IsNotExist(statErr) {
@@ -68,7 +69,7 @@ func (kb *KB) resolveAsset(id okf.ConceptID, assetPath string, writeMode bool) (
 
 	// ResolvePath keeps the lexical guard anchored at data/. Lstat every
 	// existing segment so a repository-controlled symlink cannot bypass it.
-	rel := filepath.Join(conceptDir, clean)
+	rel := path.Join(conceptDir, clean)
 	abs, err := kb.ResolvePath(rel, writeMode)
 	if err != nil {
 		return "", "", err

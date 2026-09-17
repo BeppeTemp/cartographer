@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/BeppeTemp/cartographer/internal/configurator"
+	"github.com/BeppeTemp/cartographer/internal/execbit"
 )
 
 // driftKB builds a KB with one skill (script included), one agent and one hook,
@@ -116,6 +117,9 @@ func TestVerifyManaged_DetectsModifiedAndMissing(t *testing.T) {
 
 // A chmod alone is drift: the executable bit is part of the materialized hash.
 func TestVerifyManaged_DetectsModeDrift(t *testing.T) {
+	if !execbit.Supported {
+		t.Skip("the assertion is that a chmod alone is drift; this filesystem has no execute bit to remove, so the artifact on disk is unchanged")
+	}
 	baseDir, _, applied, _ := driftKB(t)
 	script := filepath.Join(baseDir, ".claude", "skills", "runbooks", "scripts", "run.sh")
 	if err := os.Chmod(script, 0o644); err != nil {

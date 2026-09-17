@@ -537,6 +537,15 @@ func treeFingerprint(t *testing.T, root string) string {
 		if err != nil {
 			return err
 		}
+		// Directories contribute their name only. What the caller asserts is
+		// that no file was created, removed or rewritten, and a directory whose
+		// entries are all unchanged is unchanged — while its own mtime is not a
+		// reliable witness of that: NTFS updates a directory's timestamp lazily,
+		// so it can still be settling a millisecond after the tree was built.
+		if d.IsDir() {
+			fmt.Fprintf(&sb, "%s/\n", path)
+			return nil
+		}
 		info, err := d.Info()
 		if err != nil {
 			return err

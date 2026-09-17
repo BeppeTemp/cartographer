@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	gopath "path"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -517,7 +518,7 @@ func (kb *KB) ReadIndex(folderRelPath string) (string, error) {
 	if folderRelPath == "" || folderRelPath == "." {
 		indexRel = "index.md"
 	} else {
-		indexRel = filepath.Join(folderRelPath, "index.md")
+		indexRel = gopath.Join(folderRelPath, "index.md")
 	}
 	return kb.ReadRaw(indexRel)
 }
@@ -636,7 +637,7 @@ func (kb *KB) curatedIndexRelPath(path string) (string, error) {
 		return "", fmt.Errorf("%w: map/journal %q", okf.ErrNotFound, archive)
 	}
 
-	indexRel := filepath.Join(archive, "index.md")
+	indexRel := gopath.Join(archive, "index.md")
 	if err := rejectIndexSymlinks(kb.DataRoot(), indexRel); err != nil {
 		return "", err
 	}
@@ -729,7 +730,7 @@ func (kb *KB) resolveConceptRelPath(id okf.ConceptID, writeMode bool) (relPath s
 	_, statErr := os.Stat(directAbs)
 	directExists := statErr == nil
 
-	expandedRel := filepath.Join(string(id), "index.md")
+	expandedRel := gopath.Join(string(id), "index.md")
 	expandedAbs, err := kb.ResolvePath(expandedRel, false)
 	if err != nil {
 		return "", false, err
@@ -886,7 +887,7 @@ func (kb *KB) LogTail(relPath string, n int) (string, error) {
 
 	var entries [][]string
 
-	dirLogRel := filepath.Join(relPath, "log.md")
+	dirLogRel := gopath.Join(relPath, "log.md")
 	if dirContent, err := kb.ReadRaw(dirLogRel); err == nil {
 		entries = append(entries, parseLogEntries(dirContent)...)
 	} else if !errors.Is(err, okf.ErrNotFound) {
@@ -1135,7 +1136,7 @@ func (kb *KB) prepareWriteConcept(id okf.ConceptID, fm *okf.Frontmatter, body st
 		if _, statErr := os.Stat(directAbs); statErr == nil {
 			return nil, fmt.Errorf("expanded_ambiguous: direct concept %s already exists", id)
 		}
-		relPath, expanded = filepath.Join(string(id), "index.md"), true
+		relPath, expanded = gopath.Join(string(id), "index.md"), true
 	} else {
 		relPath, expanded, err = kb.resolveConceptRelPath(id, true)
 		if err != nil {
@@ -1318,7 +1319,7 @@ var mapDescriptorCandidates = []string{"_map.md", "_archive.md"}
 // current form's path so the caller's own read surfaces ErrNotFound.
 func (kb *KB) mapDescriptorRelPath(archive string) (string, error) {
 	for _, name := range mapDescriptorCandidates {
-		rel := filepath.Join(archive, name)
+		rel := gopath.Join(archive, name)
 		abs, err := kb.ResolvePath(rel, false)
 		if err != nil {
 			return "", err
@@ -1327,7 +1328,7 @@ func (kb *KB) mapDescriptorRelPath(archive string) (string, error) {
 			return rel, nil
 		}
 	}
-	return filepath.Join(archive, mapDescriptorCandidates[0]), nil
+	return gopath.Join(archive, mapDescriptorCandidates[0]), nil
 }
 
 // MapContract declares the optional deterministic lint contract of a map.
@@ -1794,9 +1795,11 @@ func (kb *KB) Validate(scope string) ([]ValidationError, error) {
 			continue
 		}
 
-		// Check strict ontology for concepts inside an archive.
-		sep := string(filepath.Separator)
-		parts := strings.SplitN(rel, sep, 2)
+		// Check strict ontology for concepts inside an archive. rel is a KB
+		// path, so its separator is a slash on every host — never
+		// filepath.Separator, which would make this check silently do nothing
+		// on Windows.
+		parts := strings.SplitN(rel, "/", 2)
 		if len(parts) < 2 {
 			continue // top-level file: no archive to check
 		}

@@ -20,6 +20,7 @@ import (
 	"io/fs"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -2825,11 +2826,13 @@ func destDir(kind, name string, provider configurator.Provider) string {
 	if !ok || cell.unsupported {
 		return ""
 	}
+	// Slash, like destDirScoped's: a destination is written into provider
+	// configuration and into the lockfile, both read on every platform.
 	if !cell.named {
-		return filepath.Join(cell.dir...)
+		return path.Join(cell.dir...)
 	}
 	segments := append(append([]string{}, cell.dir...), name+cell.suffix)
-	return filepath.Join(append(segments, cell.tail...)...)
+	return path.Join(append(segments, cell.tail...)...)
 }
 
 // translateAgentForProvider adapts an "agent" artifact's content (a Claude Code
