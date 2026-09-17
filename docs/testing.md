@@ -34,9 +34,18 @@ legs (`.gitattributes`): gofmt is line-ending-sensitive, so a CRLF checkout fail
 `fmt-check` on every file at once.
 
 The platform-specific code is the per-KB lock and the process-liveness check
-(`internal/kb/lockfile_unix.go`, `internal/kb/lockfile_windows.go`), and the tests
+(`internal/kb/lockfile_unix.go`, `internal/kb/lockfile_windows.go`) and the
+client-state lock beside it (`internal/provisioning/clientlock_*.go`); the tests
 that assert their contract — the holder stays nameable, a dead pid is reclaimed,
-a non-contention error fails fast — run on both legs.
+a non-contention error fails fast, a second acquirer is refused — run on both
+legs. So does the rest of the suite: the Windows leg is the whole of `make gate`,
+not a subset.
+
+A test that asserts on a POSIX file mode is written `execbit.Supported && ...`,
+because the Windows filesystem has no execute bit (D219). The two skips that
+remain on that leg say what they are about — there is no bit to remove, so a
+`chmod` is not drift; a file that is readable but not executable cannot exist —
+and a skip whose reason is a platform name is not accepted.
 
 Provisioning signature coverage includes deterministic Ed25519 envelopes, strict
 key parsing and identity separation, plus remote `sync_pull` verification and
