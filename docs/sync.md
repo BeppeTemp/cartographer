@@ -445,7 +445,7 @@ cannot reach past its own projection.
   - *opencode*: a deterministic JS plugin `cartographer-<name>.js` in `~/.config/opencode/plugins/`, generated only if the event is mappable (`openCodeHookEvents`); an unmappable event → files are still materialized + a warning in `AppliedResult.Warnings` (D59);
   - *antigravity*: an owned top-level `cartographer-<name>` definition in `~/.gemini/config/hooks.json`. `PreToolUse`/`PostToolUse` preserve matcher groups; `PreInvocation`, `PostInvocation`, and `Stop` use direct handlers. Other events remain materialized and produce a warning because Antigravity has no native equivalent;
   - a missing/malformed `hook.json` skips registration without failing `Apply`; a `command` whose first token is a relative path (contains `/`, e.g. `./notify.sh`) is resolved to the materialized absolute path; bare names (e.g. `jq`) are left verbatim, resolved via PATH.
-- A file's executable bit comes from the KB and is preserved on materialization (including skill scripts); hooks retain an unconditional executable floor for every file other than `hook.json`, which is always non-executable. The effective mode is part of the versioned artifact hash, so `chmod` alone changes the revision and realigns existing installs.
+- A file's executable bit comes from the KB and is preserved on materialization (including skill scripts); hooks retain an unconditional executable floor for every file other than `hook.json`, which is always non-executable. The effective mode is part of the versioned artifact hash, so `chmod` alone changes the revision and realigns existing installs. On Windows the filesystem has no execute permission (`internal/execbit`): the flag still travels in the manifest and is still stored in the KB, but a file read back from disk there never reports it, and a mode difference there is not drift — a KB script that round-trips through a Windows client's disk loses its bit (D219).
 - **Per-kind counts**: `provisioning.KindCounts` → a `skill 4/5 · agent 2/2 · hook 1/1` line in `cartographer status` and the TUI.
 
 ## Instructions (imprinting)
@@ -523,13 +523,16 @@ A KB can distribute third-party MCP servers (endpoints that connected agents mus
 
 **Stdio descriptors (D116).** A descriptor may use `{"type":"stdio","command","args"?,"env"?}`,
 which rejects `url` and `headers`. The command is a bare executable name resolved through `PATH` or a
-clean absolute path — never a shell expression: Cartographer passes command and arguments separately
+clean absolute path, in either platform's spelling (a descriptor lives in the KB and is validated by
+every client, whichever wrote it) — never a shell expression: Cartographer passes command and arguments separately
 and never starts a shell. Arguments keep their order and `env` values are `${VAR}` references only, so
 no secret value ever reaches the server or a provider file. The allow-list binds the exact command,
 while the artifact content hash binds every argument and reference: changing any field invalidates a
 D115 approval. Before any provider config or lockfile is written, `PreflightStdioMCP` resolves the
 command locally for **every** target provider (PATH lookup for bare names, executable regular-file
-check for absolute paths) and fails the whole sync naming the provider it protected; the resolved path
+check for absolute paths — on Windows the extension is what makes a file executable, so `PATHEXT`
+decides and the permission check does not apply) and fails the whole sync naming the provider it
+protected; the resolved path
 is not persisted and the executable is never launched. Claude Code, Codex and Kiro receive native
 `command`/`args`/`env`; OpenCode receives `type: "local"`, an ordered command array and `environment`
 with `${VAR}` translated to `{env:VAR}`. A field a provider cannot represent fails instead of being

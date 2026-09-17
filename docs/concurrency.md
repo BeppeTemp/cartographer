@@ -74,8 +74,8 @@ read-modify-writes the lockfile or `.cartographer.yaml` (`sync`, `disconnect`,
 `doctor --repair-hashes`, the TUI's sync actions). The concurrent writers are separate
 `cartographer sync` **processes** — the session-start bootstrap hook starts one per agent session —
 and before D172 the loser of that race silently dropped another provider's lockfile entry. It is an
-`flock`, released on every exit path, with a bounded 30s wait that fails naming the file rather than
-proceeding. Details and the surrounding order of operations: `sync.md` §The client lock.
+`flock` on unix and a `LockFileEx` byte-range lock on Windows, released on every exit path, with a
+bounded 30s wait that fails naming the file rather than proceeding. Details and the surrounding order of operations: `sync.md` §The client lock.
 
 ## Git profiles
 
