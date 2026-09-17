@@ -20,6 +20,7 @@ import (
 	"io/fs"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -27,6 +28,7 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/artifactsig"
 	"github.com/BeppeTemp/cartographer/internal/configurator"
+	"github.com/BeppeTemp/cartographer/internal/execbit"
 	"github.com/BeppeTemp/cartographer/internal/okf"
 	"github.com/BeppeTemp/cartographer/internal/skill"
 )
@@ -348,7 +350,7 @@ func contentHashDir(fsys fs.FS, dir string, executable func(string, bool) bool) 
 		if statErr != nil {
 			return "", fmt.Errorf("provisioning: stat %s: %w", p, statErr)
 		}
-		exec := info.Mode()&0o111 != 0
+		exec := execbit.IsExecutable(info.Mode())
 		if executable != nil {
 			exec = executable(rel, exec)
 		}
@@ -2336,7 +2338,10 @@ func PreflightStdioMCP(m Manifest, opts ApplyOptions) error {
 		if err != nil {
 			return fmt.Errorf("provisioning: mcp %q for %s: command %q unavailable: %w", a.Name, opts.Provider, spec.Command, err)
 		}
-		if !info.Mode().IsRegular() || info.Mode().Perm()&0o111 == 0 {
+		// Where the filesystem has no execute bit, being executable is decided
+		// by the extension (PATHEXT) and exec.LookPath above already applied
+		// it; asking the permissions would reject every command on Windows.
+		if !info.Mode().IsRegular() || (execbit.Supported && !execbit.IsExecutable(info.Mode())) {
 			return fmt.Errorf("provisioning: mcp %q for %s: command %q is not an executable regular file", a.Name, opts.Provider, spec.Command)
 		}
 	}
@@ -2821,11 +2826,13 @@ func destDir(kind, name string, provider configurator.Provider) string {
 	if !ok || cell.unsupported {
 		return ""
 	}
+	// Slash, like destDirScoped's: a destination is written into provider
+	// configuration and into the lockfile, both read on every platform.
 	if !cell.named {
-		return filepath.Join(cell.dir...)
+		return path.Join(cell.dir...)
 	}
 	segments := append(append([]string{}, cell.dir...), name+cell.suffix)
-	return filepath.Join(append(segments, cell.tail...)...)
+	return path.Join(append(segments, cell.tail...)...)
 }
 
 // translateAgentForProvider adapts an "agent" artifact's content (a Claude Code
@@ -3132,7 +3139,9 @@ func copyArtifactFiles(a Artifact, opts ApplyOptions, fullDestDir string, tracke
 		if err != nil {
 			return nil, "", "", err
 		}
-		relPaths = append(relPaths, rel)
+		// A written path is reported and recorded, not walked: slash, like the
+		// destination it was joined from.
+		relPaths = append(relPaths, filepath.ToSlash(rel))
 	}
 
 	// A malformed KB artifact must not fail the whole sync: BuildManifest does
@@ -3181,7 +3190,7 @@ func ReadArtifactFiles(a Artifact, bundleFS fs.FS, kbRoots map[string]string) ([
 			if infoErr != nil {
 				return infoErr
 			}
-			files = append(files, ArtifactFile{Path: rel, Content: data, Executable: fileInfo.Mode()&0o111 != 0})
+			files = append(files, ArtifactFile{Path: rel, Content: data, Executable: execbit.IsExecutable(fileInfo.Mode())})
 			return nil
 		})
 		if err != nil {
@@ -3251,7 +3260,7 @@ func readDirFiles(srcDir string) ([]ArtifactFile, error) {
 		if infoErr != nil {
 			return infoErr
 		}
-		files = append(files, ArtifactFile{Path: filepath.ToSlash(rel), Content: data, Executable: fileInfo.Mode()&0o111 != 0})
+		files = append(files, ArtifactFile{Path: filepath.ToSlash(rel), Content: data, Executable: execbit.IsExecutable(fileInfo.Mode())})
 		return nil
 	})
 	if err != nil {

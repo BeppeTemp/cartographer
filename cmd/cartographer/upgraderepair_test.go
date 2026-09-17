@@ -570,7 +570,7 @@ func TestUpgradeRepairSyncEligible(t *testing.T) {
 // runner) that a call to any connect/disconnect/removal machinery would be
 // a mandate violation regardless of which state-matrix row exercises it.
 func TestCmdUpgradeRepair_SourceDoesNotReferenceConnectDisconnect(t *testing.T) {
-	src, err := os.ReadFile(filepath.Join(".", "upgraderepair.go"))
+	src, err := os.ReadFile("./upgraderepair.go")
 	if err != nil {
 		t.Fatalf("read upgraderepair.go: %v", err)
 	}

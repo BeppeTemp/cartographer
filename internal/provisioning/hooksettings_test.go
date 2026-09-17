@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/BeppeTemp/cartographer/internal/configurator"
+	"github.com/BeppeTemp/cartographer/internal/execbit"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
 )
 
@@ -182,7 +183,7 @@ func TestApply_Hook_ScriptMaterializzatoEseguibile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("stat notify.sh: %v", err)
 	}
-	if script.Mode()&0o111 == 0 {
+	if execbit.Supported && script.Mode()&0o111 == 0 {
 		t.Errorf("notify.sh: expected executable bit, mode %v", script.Mode())
 	}
 	spec, err := os.Stat(filepath.Join(hookDir, "hook.json"))
@@ -385,12 +386,18 @@ func TestPruneManaged_Hook_RimuoveEntrySettings(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(settingsPath), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	// The command is a host path and this is JSON: quoted, not concatenated —
+	// a Windows path pasted raw makes the file unparseable at the first \U.
+	ownCommand, err := json.Marshal(filepath.Join(baseDir, ".claude", "hooks", "notify", "notify.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
 	preexisting := `{
   "model": "sonnet",
   "hooks": {
     "PostToolUse": [
       {"matcher": "other_tool", "hooks": [{"type": "command", "command": "/usr/local/bin/user-hook.sh"}]},
-      {"matcher": "concept_write", "hooks": [{"type": "command", "command": "` + filepath.Join(baseDir, ".claude", "hooks", "notify", "notify.sh") + `"}]}
+      {"matcher": "concept_write", "hooks": [{"type": "command", "command": ` + string(ownCommand) + `}]}
     ]
   }
 }`
@@ -407,7 +414,7 @@ func TestPruneManaged_Hook_RimuoveEntrySettings(t *testing.T) {
 	}
 
 	managed := []provisioning.ManagedFile{
-		{Kind: "hook", Name: "notify", Path: filepath.Join(".claude", "hooks", "notify", "hook.json"), ContentHash: "h"},
+		{Kind: "hook", Name: "notify", Path: ".claude/hooks/notify/hook.json", ContentHash: "h"},
 	}
 	pruned, err := provisioning.PruneManaged(managed, baseDir, false)
 	if err != nil {
@@ -446,7 +453,7 @@ func TestPruneManaged_Hook_SettingsAssente_NoOp(t *testing.T) {
 	}
 
 	managed := []provisioning.ManagedFile{
-		{Kind: "hook", Name: "notify", Path: filepath.Join(".claude", "hooks", "notify", "hook.json"), ContentHash: "h"},
+		{Kind: "hook", Name: "notify", Path: ".claude/hooks/notify/hook.json", ContentHash: "h"},
 	}
 	if _, err := provisioning.PruneManaged(managed, baseDir, false); err != nil {
 		t.Fatalf("PruneManaged: %v", err)

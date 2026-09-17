@@ -44,6 +44,17 @@ Advisory, not mandatory, on purpose:
 - **`import` fails fast**, naming the holder and how to stop it. An import is an operator action at a
   keyboard, and a silent ten-minute block is worse than an error. `--dry-run` writes nothing and never
   takes the lock.
+- **contention waits, a failure does not.** Only "someone else holds it" is polled until the timeout;
+  any other error from the lock call comes back immediately, naming itself, instead of costing a full
+  wait and then reporting a holder that does not exist.
+
+The exclusive lock is `flock(2)` on Unix and `LockFileEx` on Windows
+(`internal/kb/lockfile_unix.go`, `internal/kb/lockfile_windows.go`). Windows byte-range locks are
+mandatory rather than advisory, so the Windows side locks a **single byte far past the end of the
+metadata**: the contending process must still be able to read the pid, timestamp and command line to
+name the holder. `processAlive` follows the same asymmetry — on Windows a pid that exists but cannot
+be opened counts as **alive**, because honouring a stale lock only costs a message while reclaiming a
+live one is the corruption this section exists to prevent.
 
 **An in-progress rebase makes sync refuse.** An aborted `pull --rebase --autostash` left a
 `.git/rebase-merge` containing only an autostash, and from then on every MCP write failed with git's
@@ -63,8 +74,8 @@ read-modify-writes the lockfile or `.cartographer.yaml` (`sync`, `disconnect`,
 `doctor --repair-hashes`, the TUI's sync actions). The concurrent writers are separate
 `cartographer sync` **processes** — the session-start bootstrap hook starts one per agent session —
 and before D172 the loser of that race silently dropped another provider's lockfile entry. It is an
-`flock`, released on every exit path, with a bounded 30s wait that fails naming the file rather than
-proceeding. Details and the surrounding order of operations: `sync.md` §The client lock.
+`flock` on unix and a `LockFileEx` byte-range lock on Windows, released on every exit path, with a
+bounded 30s wait that fails naming the file rather than proceeding. Details and the surrounding order of operations: `sync.md` §The client lock.
 
 ## Git profiles
 

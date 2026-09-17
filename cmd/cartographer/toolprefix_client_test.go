@@ -176,7 +176,7 @@ func TestCmdReindex_QualifiesReindexPerKB(t *testing.T) {
 	defer srv.Close()
 
 	dir := t.TempDir()
-	t.Setenv("HOME", dir)
+	setHome(t, dir)
 	cfg := &clientconfig.Config{ServerURL: srv.URL + "/mcp", KnownKBs: []string{"alpha", "beta"}}
 	if err := clientconfig.Save(dir, cfg); err != nil {
 		t.Fatal(err)

@@ -430,7 +430,10 @@ var referenceFileExts = map[string]bool{
 // state carry no references, and a fixture KB's references belong to that
 // fixture, not to this repository.
 func skipDir(rel, name string) bool {
-	switch rel {
+	// The corpus is addressed with slash paths, but a filepath.Walk on Windows
+	// yields backslashes: compared raw, these two cases matched nothing there and
+	// the fixture KBs silently entered the corpus.
+	switch filepath.ToSlash(rel) {
 	case "test/e2e/fixtures", "test/install/fixtures":
 		return true
 	}
@@ -478,7 +481,10 @@ func TextFiles(root string) ([]string, error) {
 		if !referenceFileExts[filepath.Ext(rel)] || skipFile(rel) {
 			return nil
 		}
-		out = append(out, rel)
+		// A slash path: this list is compared against literals, printed in gate
+		// failures and matched against documentation, none of which is about
+		// where the file sits on this particular host.
+		out = append(out, filepath.ToSlash(rel))
 		return nil
 	})
 	if err != nil {

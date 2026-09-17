@@ -180,8 +180,12 @@ func ensureClonedKB(remote, name, dataDir string, env ...string) (string, error)
 // URL, stripping a trailing ".git" suffix. Handles both URL-style
 // (ssh://host/path/name.git) and scp-style (git@host:path/name.git) remotes.
 func remoteKBName(remote string) string {
-	r := strings.TrimSuffix(strings.TrimRight(remote, "/"), ".git")
-	if idx := strings.LastIndexAny(r, "/:"); idx >= 0 {
+	r := strings.TrimSuffix(strings.TrimRight(remote, "/\\"), ".git")
+	// Backslash is a separator too: a local Windows path used as a remote
+	// (file:///C:/... or C:\repos\kb.git) would otherwise yield a name that
+	// still contains separators, and the caller joins it onto the data
+	// directory — a name with a separator in it escapes that directory.
+	if idx := strings.LastIndexAny(r, "/:\\"); idx >= 0 {
 		r = r[idx+1:]
 	}
 	return r

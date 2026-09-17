@@ -24,7 +24,7 @@ func TestEmitCodex_TOML(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if r.FilePath != filepath.Join(".codex", "config.toml") {
+	if r.FilePath != ".codex/config.toml" {
 		t.Errorf("FilePath = %q, want .codex/config.toml", r.FilePath)
 	}
 	content := string(r.Content)

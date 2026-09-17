@@ -5,7 +5,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -13,13 +12,6 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/gitx"
 )
-
-func skipWindows(t *testing.T) {
-	t.Helper()
-	if runtime.GOOS == "windows" {
-		t.Skip("flock semantics differ on Windows")
-	}
-}
 
 func mustInitKB(t *testing.T) *KB {
 	t.Helper()
@@ -44,8 +36,6 @@ func gitStatusPorcelain(dir string) (string, error) {
 // process: `cartographer import` wrote into the same directory the sync loop
 // managed, and the two interleaving corrupted the git index.
 func TestAcquireProcessLock(t *testing.T) {
-	skipWindows(t)
-
 	t.Run("serialises two acquirers", func(t *testing.T) {
 		k := mustInitKB(t)
 		release, err := k.AcquireProcessLock(time.Second, "first")
@@ -53,6 +43,12 @@ func TestAcquireProcessLock(t *testing.T) {
 			t.Fatal(err)
 		}
 		// A second acquirer with no patience gets a typed error naming the holder.
+		// The contender opens its own handle on the same file from this same
+		// process, which is contention on both platforms — flock(2) locks an open
+		// file description, LockFileEx a handle — so this is deliberate coverage,
+		// not an accident of running single-process. On Windows it is also what
+		// catches a lock taken over the metadata bytes: the range is mandatory
+		// there, so readLockOwner would fail and PID would come back 0.
 		_, err = k.AcquireProcessLock(0, "second")
 		var held *LockHeldError
 		if !errors.As(err, &held) {
@@ -72,7 +68,7 @@ func TestAcquireProcessLock(t *testing.T) {
 
 	t.Run("a lock whose pid is dead is reclaimed", func(t *testing.T) {
 		k := mustInitKB(t)
-		// pid 0 is never a live process for Kill(pid, 0).
+		// pid 0 is never a live process.
 		lockPath := filepath.Join(k.Root, LockFileName)
 		if err := os.WriteFile(lockPath, []byte("0\n2020-01-01T00:00:00Z\nghost\n"), 0o644); err != nil {
 			t.Fatal(err)
@@ -134,11 +130,52 @@ func TestAcquireProcessLock(t *testing.T) {
 	})
 }
 
+// Every error from the lock helper used to mean "wait", so an I/O failure cost a
+// full timeout and then reported a LockHeldError naming a holder that never
+// existed. Only contention is worth polling for.
+func TestAcquireProcessLockFailsFastOnANonContentionError(t *testing.T) {
+	if isLockBusy(errors.New("boom")) {
+		t.Fatal("a generic error must not count as contention")
+	}
+	k := mustInitKB(t)
+	orig := tryLockFileFn
+	t.Cleanup(func() { tryLockFileFn = orig })
+	tryLockFileFn = func(*os.File) error { return errors.New("boom") }
+
+	start := time.Now()
+	_, err := k.AcquireProcessLock(30*time.Second, "writer")
+	if err == nil {
+		t.Fatal("a failing lock must not report success")
+	}
+	var held *LockHeldError
+	if errors.As(err, &held) {
+		t.Errorf("an I/O failure reported as contention: %v", err)
+	}
+	if !strings.Contains(err.Error(), "boom") {
+		t.Errorf("the error hides its cause: %v", err)
+	}
+	if elapsed := time.Since(start); elapsed > 5*time.Second {
+		t.Errorf("waited %s before failing, which means the poll loop was entered", elapsed)
+	}
+}
+
+// processAlive decides whether a lock is stale and may be reclaimed, so it is
+// asserted on every platform: it must recognise this very process, and must not
+// claim a pid no process can have. The reason it gives is platform-specific and
+// deliberately not asserted.
+func TestProcessAlive(t *testing.T) {
+	if !processAlive(os.Getpid()) {
+		t.Error("this process is running, so its own pid must be alive")
+	}
+	// Far above any pid either kernel hands out.
+	if processAlive(1 << 30) {
+		t.Error("a pid that cannot exist must not hold a KB locked forever")
+	}
+}
+
 // An aborted rebase left a .git/rebase-merge holding only an autostash, and from
 // then on every write failed with a message that named no way out.
 func TestSyncRefusesWhileARebaseStateExists(t *testing.T) {
-	skipWindows(t)
-
 	t.Run("orphan autostash", func(t *testing.T) {
 		k := mustInitKB(t)
 		dir := filepath.Join(k.Root, ".git", "rebase-merge")

@@ -260,3 +260,24 @@ func TestRunUnknownFlagAtRoot(t *testing.T) {
 		t.Errorf("run([--kb ...]) = %d, want 2", code)
 	}
 }
+
+// setHome points os.UserHomeDir at dir on every platform: Go reads $HOME on
+// unix and %USERPROFILE% on Windows, so a test that sets only one of the two
+// silently keeps the real home directory on the other platform.
+func setHome(t *testing.T, dir string) {
+	t.Helper()
+	t.Setenv("HOME", dir)
+	t.Setenv("USERPROFILE", dir)
+}
+
+// fileURL turns a local directory into a file:// remote git accepts on every
+// platform. On Windows the path starts with a drive letter (C:\...), which
+// needs forward slashes and a third slash before the drive, or git reads the
+// drive letter as a hostname.
+func fileURL(dir string) string {
+	s := filepath.ToSlash(dir)
+	if !strings.HasPrefix(s, "/") {
+		s = "/" + s
+	}
+	return "file://" + s
+}

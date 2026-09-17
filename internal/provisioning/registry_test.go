@@ -5,7 +5,7 @@ package provisioning
 // time.
 
 import (
-	"path/filepath"
+	"path"
 	"testing"
 
 	"github.com/BeppeTemp/cartographer/internal/configurator"
@@ -59,37 +59,37 @@ func TestDestDirPaths(t *testing.T) {
 		want     string
 	}{
 		{"mcp", configurator.ProviderClaudeCode, ".claude.json"},
-		{"mcp", configurator.ProviderCodex, filepath.Join(".codex", "config.toml")},
+		{"mcp", configurator.ProviderCodex, ".codex/config.toml"},
 		{"mcp", configurator.ProviderOpenCode, "opencode.json"},
-		{"mcp", configurator.ProviderKiro, filepath.Join(".kiro", "settings", "mcp.json")},
-		{"instructions", configurator.ProviderClaudeCode, filepath.Join(".claude", "CLAUDE.md")},
-		{"instructions", configurator.ProviderOpenCode, filepath.Join(".config", "opencode", "AGENTS.md")},
-		{"instructions", configurator.ProviderCodex, filepath.Join(".codex", "AGENTS.md")},
-		{"instructions", configurator.ProviderKiro, filepath.Join(".kiro", "steering", "cartographer.md")},
-		{"agent", configurator.ProviderClaudeCode, filepath.Join(".claude", "agents", "demo.md")},
-		{"agent", configurator.ProviderOpenCode, filepath.Join(".opencode", "agent", "demo.md")},
-		{"agent", configurator.ProviderCodex, filepath.Join(".codex", "agents", "demo.toml")},
-		{"agent", configurator.ProviderKiro, filepath.Join(".kiro", "agents", "demo.json")},
-		{"hook", configurator.ProviderClaudeCode, filepath.Join(".claude", "hooks", "demo")},
-		{"hook", configurator.ProviderCodex, filepath.Join(".codex", "hooks", "demo")},
-		{"hook", configurator.ProviderOpenCode, filepath.Join(".opencode", "hooks", "demo")},
+		{"mcp", configurator.ProviderKiro, ".kiro/settings/mcp.json"},
+		{"instructions", configurator.ProviderClaudeCode, ".claude/CLAUDE.md"},
+		{"instructions", configurator.ProviderOpenCode, ".config/opencode/AGENTS.md"},
+		{"instructions", configurator.ProviderCodex, ".codex/AGENTS.md"},
+		{"instructions", configurator.ProviderKiro, ".kiro/steering/cartographer.md"},
+		{"agent", configurator.ProviderClaudeCode, ".claude/agents/demo.md"},
+		{"agent", configurator.ProviderOpenCode, ".opencode/agent/demo.md"},
+		{"agent", configurator.ProviderCodex, ".codex/agents/demo.toml"},
+		{"agent", configurator.ProviderKiro, ".kiro/agents/demo.json"},
+		{"hook", configurator.ProviderClaudeCode, ".claude/hooks/demo"},
+		{"hook", configurator.ProviderCodex, ".codex/hooks/demo"},
+		{"hook", configurator.ProviderOpenCode, ".opencode/hooks/demo"},
 		{"hook", configurator.ProviderKiro, ""},
-		{"skill", configurator.ProviderClaudeCode, filepath.Join(".claude", "skills", "demo")},
-		{"skill", configurator.ProviderCodex, filepath.Join(".codex", "skills", "demo")},
-		{"skill", configurator.ProviderKiro, filepath.Join(".kiro", "skills", "demo")},
-		{"skill", configurator.ProviderOpenCode, filepath.Join(".opencode", "skills", "demo")},
+		{"skill", configurator.ProviderClaudeCode, ".claude/skills/demo"},
+		{"skill", configurator.ProviderCodex, ".codex/skills/demo"},
+		{"skill", configurator.ProviderKiro, ".kiro/skills/demo"},
+		{"skill", configurator.ProviderOpenCode, ".opencode/skills/demo"},
 		// hermes delivers skills to its inbox and supports nothing else (D141).
-		{"skill", configurator.ProviderHermes, filepath.Join("skill-inbox", "demo", "cartographer")},
+		{"skill", configurator.ProviderHermes, "skill-inbox/demo/cartographer"},
 		{"agent", configurator.ProviderHermes, ""},
 		{"hook", configurator.ProviderHermes, ""},
 		{"mcp", configurator.ProviderHermes, ""},
 		{"instructions", configurator.ProviderHermes, ""},
 		// Antigravity supports every artifact kind; SessionStart bootstrap remains timer-based.
-		{"mcp", configurator.ProviderAntigravity, filepath.Join(".gemini", "config", "mcp_config.json")},
-		{"instructions", configurator.ProviderAntigravity, filepath.Join(".gemini", "GEMINI.md")},
-		{"skill", configurator.ProviderAntigravity, filepath.Join(".gemini", "config", "skills", "demo")},
-		{"agent", configurator.ProviderAntigravity, filepath.Join(".gemini", "config", "agents", "demo.md")},
-		{"hook", configurator.ProviderAntigravity, filepath.Join(".gemini", "config", "hooks", "demo")},
+		{"mcp", configurator.ProviderAntigravity, ".gemini/config/mcp_config.json"},
+		{"instructions", configurator.ProviderAntigravity, ".gemini/GEMINI.md"},
+		{"skill", configurator.ProviderAntigravity, ".gemini/config/skills/demo"},
+		{"agent", configurator.ProviderAntigravity, ".gemini/config/agents/demo.md"},
+		{"hook", configurator.ProviderAntigravity, ".gemini/config/hooks/demo"},
 		// A kind or provider this binary does not know is not materializable:
 		// a manifest from a newer server must not land somewhere arbitrary.
 		{"newkind", configurator.ProviderClaudeCode, ""},
@@ -111,7 +111,7 @@ func TestInstructionsPrecedenceEndsAtTheManagedFile(t *testing.T) {
 		if len(d.InstructionsPrecedence) == 0 {
 			continue
 		}
-		last := filepath.Join(d.InstructionsPrecedence[len(d.InstructionsPrecedence)-1]...)
+		last := path.Join(d.InstructionsPrecedence[len(d.InstructionsPrecedence)-1]...)
 		if got := InstructionsFile(d.Provider); got != last {
 			t.Errorf("%s: precedence chain ends at %q but InstructionsFile says %q", d.Provider, last, got)
 		}

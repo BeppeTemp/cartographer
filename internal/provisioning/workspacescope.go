@@ -2,6 +2,7 @@ package provisioning
 
 import (
 	"fmt"
+	"path"
 	"path/filepath"
 	"sort"
 
@@ -133,11 +134,14 @@ func destDirScoped(kind, name string, provider configurator.Provider, scope Scop
 	if !ok || cell.unsupported {
 		return ""
 	}
+	// A destination is a slash path, not a host path: it is written into
+	// provider configuration and into .git/info/exclude, both of which are
+	// read on every platform and both of which want forward slashes.
 	if !cell.named {
-		return filepath.Join(cell.dir...)
+		return path.Join(cell.dir...)
 	}
 	segments := append(append([]string{}, cell.dir...), name+cell.suffix)
-	return filepath.Join(append(segments, cell.tail...)...)
+	return path.Join(append(segments, cell.tail...)...)
 }
 
 // SupportsProjectScope reports whether provider can project any artifact kind
@@ -180,11 +184,11 @@ func ManagedProjectRoots(provider configurator.Provider, workspaceDir string) []
 		if !ok || cell.unsupported {
 			continue
 		}
-		rel := filepath.Join(cell.dir...)
+		rel := path.Join(cell.dir...)
 		if rel == "" || rel == "." {
 			continue
 		}
-		abs := filepath.Join(workspaceDir, rel)
+		abs := filepath.Join(workspaceDir, filepath.FromSlash(rel))
 		if seen[abs] {
 			continue
 		}
@@ -208,7 +212,7 @@ func ProjectOwnedPaths(provider configurator.Provider) []string {
 		if !ok || cell.unsupported {
 			continue
 		}
-		rel := filepath.Join(cell.dir...)
+		rel := path.Join(cell.dir...)
 		if rel == "" || rel == "." || seen[rel] {
 			continue
 		}

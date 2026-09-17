@@ -18,6 +18,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/artifactsig"
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/configurator"
+	"github.com/BeppeTemp/cartographer/internal/execbit"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
 )
 
@@ -86,10 +87,10 @@ func TestFetchMergedManifest_PreservesBinaryExecutableFilesThroughApply(t *testi
 	}
 
 	for provider, rel := range map[string]string{
-		"claude":   filepath.Join(".claude", "skills", "wire", "run.bin"),
-		"codex":    filepath.Join(".codex", "skills", "wire", "run.bin"),
-		"kiro":     filepath.Join(".kiro", "skills", "wire", "run.bin"),
-		"opencode": filepath.Join(".opencode", "skills", "wire", "run.bin"),
+		"claude":   ".claude/skills/wire/run.bin",
+		"codex":    ".codex/skills/wire/run.bin",
+		"kiro":     ".kiro/skills/wire/run.bin",
+		"opencode": ".opencode/skills/wire/run.bin",
 	} {
 		base := t.TempDir()
 		res, err := provisioning.Apply(m, provisioning.ApplyOptions{
@@ -108,7 +109,7 @@ func TestFetchMergedManifest_PreservesBinaryExecutableFilesThroughApply(t *testi
 			t.Fatalf("Apply(%s) binary = %x, err=%v", provider, data, err)
 		}
 		info, err := os.Stat(filepath.Join(base, rel))
-		if err != nil || info.Mode()&0o111 == 0 {
+		if err != nil || (execbit.Supported && info.Mode()&0o111 == 0) {
 			t.Fatalf("Apply(%s) mode = %v, err=%v", provider, info.Mode(), err)
 		}
 	}

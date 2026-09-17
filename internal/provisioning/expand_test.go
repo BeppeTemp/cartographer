@@ -15,6 +15,7 @@ import (
 	"testing"
 
 	"github.com/BeppeTemp/cartographer/internal/configurator"
+	"github.com/BeppeTemp/cartographer/internal/execbit"
 )
 
 // --- expandPlaceholders (unit) ---
@@ -424,7 +425,7 @@ func TestApply_ExpandPlaceholders_SkillMultiFilePlaceholder(t *testing.T) {
 		t.Errorf("notes.md should not have changed: %s", notes)
 	}
 	info, err := os.Stat(filepath.Join(baseDir, ".claude", "skills", "kb-skill", "run.sh"))
-	if err != nil || info.Mode()&0o111 == 0 {
+	if err != nil || (execbit.Supported && info.Mode()&0o111 == 0) {
 		t.Fatalf("placeholder-expanded script lost executable mode: %v %v", info.Mode(), err)
 	}
 	var managed string

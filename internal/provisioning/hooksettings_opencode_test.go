@@ -8,6 +8,7 @@ package provisioning_test
 // in the other providers.
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -68,7 +69,13 @@ func TestApply_OpenCode_Hook_GeneraPluginToolBefore(t *testing.T) {
 		t.Errorf("expected tool.execute.before mapping: %s", content)
 	}
 	scriptPath := filepath.Join(baseDir, ".opencode", "hooks", "notify", "notify.sh")
-	if !strings.Contains(content, scriptPath) {
+	// The plugin embeds the command as a JS string literal, so on Windows the
+	// path's separators are escaped in it; compare against that encoding.
+	scriptLit, err := json.Marshal(scriptPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(content, strings.Trim(string(scriptLit), `"`)) {
 		t.Errorf("expected resolved script path %q in the plugin: %s", scriptPath, content)
 	}
 	if !strings.Contains(content, `"Bash"`) {

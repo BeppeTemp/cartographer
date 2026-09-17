@@ -12,7 +12,7 @@ import (
 func writeClientCfg(t *testing.T, agents, knownKBs []string, clients map[string]clientconfig.ClientBinding) string {
 	t.Helper()
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setHome(t, home)
 
 	cfg := clientconfig.Default()
 	cfg.ServerURL = "http://localhost:39273/mcp"

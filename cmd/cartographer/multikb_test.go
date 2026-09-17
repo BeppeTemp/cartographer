@@ -312,7 +312,7 @@ func TestCmdSync_ReconcilesOneToManyAndBack(t *testing.T) {
 	srv := multiKBServer(t, health)
 	defer srv.Close()
 	dir := t.TempDir()
-	t.Setenv("HOME", dir)
+	setHome(t, dir)
 
 	cfg := &clientconfig.Config{ServerURL: srv.URL + "/mcp", ServerName: "wiki", TokenEnv: "TOKEN", Agents: []string{"claude"}, KnownKBs: []string{"alpha"}, Trust: true}
 	if err := clientconfig.Save(dir, cfg); err != nil {
@@ -376,7 +376,7 @@ func TestDoDisconnect_RemovesPersistedPerKBEntries(t *testing.T) {
 
 func TestCmdSync_ServerDownKeepsMCPEntriesAndKBs(t *testing.T) {
 	dir := t.TempDir()
-	t.Setenv("HOME", dir)
+	setHome(t, dir)
 	cfg := &clientconfig.Config{ServerURL: "http://127.0.0.1:1/mcp", ServerName: "wiki", Agents: []string{"claude"}, KnownKBs: []string{"alpha", "beta"}, Trust: true}
 	if err := clientconfig.Save(dir, cfg); err != nil {
 		t.Fatal(err)

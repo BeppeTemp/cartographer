@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -85,7 +86,7 @@ func TestDecisionIndexIsUpToDate(t *testing.T) {
 			unknown)
 	}
 
-	checkGeneratedBlock(t, root, filepath.Join("docs", "decisions.md"),
+	checkGeneratedBlock(t, root, "docs/decisions.md",
 		IndexBegin, IndexEnd, RenderIndex(decisions), "make decisions-index")
 }
 
@@ -270,7 +271,7 @@ func TestClientSkillSurfacesMatchTheProviderRegistry(t *testing.T) {
 		got := provisioning.ProjectDestination("skill", probe, c.Provider)
 		want := ""
 		if c.SkillDir != "" {
-			want = filepath.Join(c.SkillDir, probe)
+			want = path.Join(c.SkillDir, probe)
 		}
 		if got != want {
 			t.Errorf("%s: ClientSurfaces says a project-local skill goes to %q, but "+
@@ -679,13 +680,13 @@ func TestReferenceCorpusIsSane(t *testing.T) {
 	for _, want := range []string{
 		"AGENTS.md",
 		"CONTRIBUTING.md",
-		filepath.Join("docs", "index.md"),
-		filepath.Join("docs", "decisions", "D206-d163-was-a-copied-off-by-one-not-a-missing-record.md"),
-		filepath.Join("internal", "mcpserver", "AGENTS.md"),
-		filepath.Join("internal", "provisioning", "provisioning.go"),
-		filepath.Join(".agents", "skills", "implement-issue", "SKILL.md"),
-		filepath.Join(".github", "ISSUE_TEMPLATE", "plan.md"),
-		filepath.Join("test", "e2e", "scenarios", "03_config_opencode.sh"),
+		"docs/index.md",
+		"docs/decisions/D206-d163-was-a-copied-off-by-one-not-a-missing-record.md",
+		"internal/mcpserver/AGENTS.md",
+		"internal/provisioning/provisioning.go",
+		".agents/skills/implement-issue/SKILL.md",
+		".github/ISSUE_TEMPLATE/plan.md",
+		"test/e2e/scenarios/03_config_opencode.sh",
 		"config.example.yaml",
 	} {
 		if !index[want] {
@@ -695,7 +696,7 @@ func TestReferenceCorpusIsSane(t *testing.T) {
 	}
 	for _, unwanted := range []string{
 		"CHANGELOG.md",
-		filepath.Join("test", "e2e", "fixtures", "kb-homelab-lite", "AGENTS.md"),
+		"test/e2e/fixtures/kb-homelab-lite/AGENTS.md",
 	} {
 		if index[unwanted] {
 			t.Errorf("%s is in the reference corpus but must not be: see skipFile/skipDir for why",
