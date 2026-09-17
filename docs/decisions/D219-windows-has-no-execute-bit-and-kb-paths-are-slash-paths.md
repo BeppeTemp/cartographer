@@ -34,6 +34,16 @@ handle and, with its error dropped, left exactly the malformed tail it exists to
 prevent; a `C:\Users\RUNNER~1\...` path was rejected as containing "shell
 metacharacters", because of the tilde in an 8.3 short name.
 
+A second pass sharpened rule 2. An expanded concept's body path was built with
+`filepath.Join` while its reader takes `path.Dir` of it: the two disagreed by one
+directory level on Windows, and lint called every relative link inside an
+expanded concept broken. `Validate` split a KB path on `filepath.Separator`, so
+its strict-ontology check silently examined nothing there. `--repair-hashes`
+read the execute bit off the disk while verification recomputes it through the
+hook floor, so a repaired hash could never match and the finding could not be
+cleared. None of these is a difference in spelling; each is a check that stops
+working.
+
 The execute bit is the one of the three that is a real loss and not a bug: NTFS
 cannot represent it. Pretending otherwise — storing the intended mode and
 reporting it back — would have made `WriteAsset` claim a bit that the next read
