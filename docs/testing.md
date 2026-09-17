@@ -23,6 +23,18 @@ client configuration.
 `make vet` runs `go vet ./...` and `make fmt-check` fails on anything not
 gofmt-clean. All three are `make gate`, which is the single command CI runs.
 
+`make gate` runs on **two operating systems**: the `test` job on `ubuntu-latest`
+and a separate `test-windows` job on `windows-latest`
+([`ci.yml`](https://github.com/BeppeTemp/cartographer/blob/main/.github/workflows/ci.yml)).
+The Windows job is separate rather than a matrix leg on `test` because the
+required check on `main` is named literally `test`, which a matrix would rename.
+It sets `shell: bash` for every step — the Makefile recipes are POSIX shell — and
+installs `make`, which is not on the runner image. Compiling for Windows is part
+of the gate for the same reason: the per-KB lock and the process-liveness check
+are the only platform-specific code in the module (`internal/kb/lockfile_unix.go`,
+`internal/kb/lockfile_windows.go`), and both are covered by tests that run on
+both legs.
+
 Provisioning signature coverage includes deterministic Ed25519 envelopes, strict
 key parsing and identity separation, plus remote `sync_pull` verification and
 tampering rejection before `Apply`.
@@ -222,6 +234,10 @@ GoReleaser environment, which is out of the deterministic gate (see below).
 - Provider/model quality comparisons.
 - Tests requiring production credentials or external private infrastructure.
 - Manual UI appearance checks.
+- The shell harnesses on Windows: `make smoke-http`, `make e2e` and
+  `make test-install` are POSIX `sh` scripts (`test/smoke/`, `test/e2e/`,
+  `test/install/`) driving a launchd/systemd install path, so they run on the
+  ubuntu leg only. The Windows leg gates the Go code — compilation included.
 
 These belong to production validation or an explicit release exercise, not to
 the deterministic repository gate.
@@ -238,6 +254,14 @@ make test-install
 Exactly what CI runs, in the same order: `make gate` is the one place that
 defines "green", so a step added here has to be added to `gate` or to
 `ci.yml`, not to a list that only lives in prose.
+
+The Windows leg runs the same `make gate`. From a POSIX host the part of it that
+can be reproduced is the compilation:
+
+```bash
+GOOS=windows GOARCH=amd64 go build ./...
+GOOS=windows GOARCH=amd64 go vet ./...
+```
 
 ## Before a release
 
