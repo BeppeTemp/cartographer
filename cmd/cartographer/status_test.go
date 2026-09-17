@@ -63,7 +63,7 @@ func TestCmdStatus_VersionReport(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			home := t.TempDir()
-			t.Setenv("HOME", home)
+			setHome(t, home)
 			if err := clientconfig.Save(home, &clientconfig.Config{ServerURL: tc.serverURL, Agents: []string{"claude"}, Trust: true}); err != nil {
 				t.Fatalf("save config: %v", err)
 			}
@@ -114,7 +114,7 @@ func TestCmdStatus_VersionReport(t *testing.T) {
 // manifest and the lockfile agree. status exits 1 where it used to exit 0.
 func TestStatus_OnDiskDriftExitsOne(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setHome(t, home)
 	if err := clientconfig.Save(home, &clientconfig.Config{ServerURL: "https://cartographer.example/mcp", Agents: []string{"claude"}, Trust: true}); err != nil {
 		t.Fatalf("save config: %v", err)
 	}
@@ -138,7 +138,7 @@ func TestStatus_OnDiskDriftExitsOne(t *testing.T) {
 	// D170: the lock carries the revision of the provider's own view.
 	appliedRev := provisioning.FilterForProvider(served, configurator.ProviderClaudeCode).Revision
 	lock := provisioning.Lock{Provider: "claude", AppliedRevision: appliedRev, Managed: []provisioning.ManagedFile{{
-		Kind: "skill", Name: "runbooks", Path: filepath.Join(".claude", "skills", "runbooks", "SKILL.md"),
+		Kind: "skill", Name: "runbooks", Path: ".claude/skills/runbooks/SKILL.md",
 		ContentHash: "source-hash", MaterializedHash: onDisk,
 	}}}
 	if err := provisioning.WriteLockFile(lockFilePath(home), provisioning.LockFile{Providers: map[string]provisioning.Lock{"claude": lock}}); err != nil {
@@ -186,7 +186,7 @@ func TestStatus_OnDiskDriftExitsOne(t *testing.T) {
 // never seen the directives.
 func TestStatus_ShadowedInstructionsNotCountedAsInstalled(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setHome(t, home)
 	if err := clientconfig.Save(home, &clientconfig.Config{ServerURL: "https://cartographer.example/mcp", Agents: []string{"codex"}, Trust: true}); err != nil {
 		t.Fatalf("save config: %v", err)
 	}

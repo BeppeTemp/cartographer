@@ -34,6 +34,35 @@ jobs:
       - run: make e2e
       - run: make test-install
 
+  # A separate job, deliberately not a matrix leg on `test`: main's branch
+  # protection requires a check named literally `test`, and a matrix renames it
+  # to `test (ubuntu-latest)` — which silently un-protects the branch.
+  test-windows:
+    name: test-windows
+    runs-on: windows-latest
+    defaults:
+      run:
+        # The Makefile recipes are POSIX shell — fmt-check pipes `gofmt -l` — and
+        # the runner's default shell is PowerShell. Git for Windows ships bash.
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      # make is not in the windows-latest image (MSYS2 ships one but is off
+      # PATH), and the gate has to stay the same single command on both legs.
+      - name: Install make
+        run: choco install make --no-progress
+      - name: Configure git for tests
+        run: |
+          git config --global user.name ci
+          git config --global user.email ci@local
+          git config --global init.defaultBranch master
+      # `make gate` only: smoke-http, e2e and test-install are POSIX sh harnesses
+      # (test/smoke, test/e2e, test/install) and stay on ubuntu.
+      - run: make gate
+
   # With squash-merge the PR title becomes the commit on main that
   # release-please reads: it must be a valid conventional commit.
   pr-title:

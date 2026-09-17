@@ -68,7 +68,7 @@ func TestEnsureClonedKBFromLocalRemote(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	remoteURL := "file://" + bareDir
+	remoteURL := fileURL(bareDir)
 	name := remoteKBName(remoteURL)
 	dest, err := ensureClonedKB(remoteURL, name, dataDir)
 	if err != nil {
@@ -128,7 +128,7 @@ func TestEnsureClonedKBUsesExplicitName(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	remoteURL := "file://" + bareDir
+	remoteURL := fileURL(bareDir)
 	dest, err := ensureClonedKB(remoteURL, "custom-name", dataDir)
 	if err != nil {
 		t.Fatalf("ensureClonedKB: %v", err)

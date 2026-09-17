@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/auth"
+	"github.com/BeppeTemp/cartographer/internal/execbit"
 	"github.com/BeppeTemp/cartographer/internal/gitx"
 	"github.com/BeppeTemp/cartographer/internal/kb"
 	"github.com/BeppeTemp/cartographer/internal/lint"
@@ -2760,6 +2761,9 @@ func TestServer_ConceptWrite_UpdatesSQLIndex(t *testing.T) {
 	if err != nil {
 		t.Fatalf("sqlindex.Open: %v", err)
 	}
+	// An open SQLite handle keeps the file locked: on Windows the TempDir
+	// cleanup then fails to remove it and the test fails after it has passed.
+	defer sqlIdx.Close()
 
 	uniqueKW := "marmalade7723quokka"
 
@@ -2886,6 +2890,7 @@ func TestServer_ConceptMove_UpdatesIndexes(t *testing.T) {
 		if err != nil {
 			t.Fatalf("sqlindex.Open: %v", err)
 		}
+		defer sqlIdx.Close()
 		s := New("1.0.0")
 		RegisterKBTools(s, k, Deps{SQLIndex: sqlIdx})
 
@@ -3585,7 +3590,7 @@ func TestServer_SyncPull(t *testing.T) {
 				assetB64, assetExec = a.Files[i].ContentB64, a.Files[i].Executable
 			}
 		}
-		if assetB64 == "" || !assetExec {
+		if assetB64 == "" || (execbit.Supported && !assetExec) {
 			t.Fatalf("sync_pull: binary skill mode missing: %+v", a.Files)
 		}
 		got, err := base64.StdEncoding.DecodeString(assetB64)
@@ -3781,7 +3786,7 @@ func TestServer_AssetToolsRoundTripAndClassification(t *testing.T) {
 	if err := json.Unmarshal([]byte(decodeToolResult(t, resps[2]).Content[0].Text), &read); err != nil {
 		t.Fatal(err)
 	}
-	if read.Encoding != "base64" || read.Content != "/wA=" || !read.Executable || read.SHA256 == "" {
+	if read.Encoding != "base64" || read.Content != "/wA=" || (execbit.Supported && !read.Executable) || read.SHA256 == "" {
 		t.Fatalf("asset_read lost binary data: %+v", read)
 	}
 	if _, err := k.WriteAsset("manutenzione/test-runbook", "evidence/search.txt", []byte("asset-only-keyword"), "", nil); err != nil {
@@ -3827,7 +3832,7 @@ func TestServer_ExpandedMoveAndDeleteProtectAssets(t *testing.T) {
 	if tr := decodeToolResult(t, resps[0]); tr.IsError {
 		t.Fatalf("concept_move: %v", tr.Content)
 	}
-	if info, err := os.Stat(filepath.Join(k.DataRoot(), "manutenzione", "moved", "scripts", "check.sh")); err != nil || info.Mode()&0o111 == 0 {
+	if info, err := os.Stat(filepath.Join(k.DataRoot(), "manutenzione", "moved", "scripts", "check.sh")); err != nil || (execbit.Supported && info.Mode()&0o111 == 0) {
 		t.Fatalf("moved executable asset: info=%v err=%v", info, err)
 	}
 	if _, err := os.Stat(filepath.Join(k.DataRoot(), "manutenzione", "moved", "reports", "one.csv")); err != nil {

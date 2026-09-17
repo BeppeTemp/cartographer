@@ -152,7 +152,10 @@ func TestApply_Codex_Hook_RegistraConfigTOML(t *testing.T) {
 		t.Errorf("missing matcher: %s", content)
 	}
 	wantCmd := filepath.Join(baseDir, ".codex", "hooks", "notify", "notify.sh")
-	if !strings.Contains(content, `command = "`+wantCmd+`"`) {
+	// The command is a host path, and config.toml stores it as a quoted TOML
+	// string: on Windows every separator in it is escaped, so the expectation
+	// has to be quoted the same way the writer quotes it.
+	if !strings.Contains(content, "command = "+configurator.QuoteTOMLString(wantCmd)) {
 		t.Errorf("missing resolved command %q: %s", wantCmd, content)
 	}
 	if !strings.Contains(content, "# cartographer:hook:notify:begin") {
@@ -306,7 +309,7 @@ func TestPruneManaged_Codex_Hook_RimuoveEntryConfigTOML(t *testing.T) {
 		"[[hooks.PostToolUse]]\n" +
 		"[[hooks.PostToolUse.hooks]]\n" +
 		"type = \"command\"\n" +
-		"command = \"" + filepath.Join(baseDir, ".codex", "hooks", "notify", "notify.sh") + "\"\n" +
+		"command = " + configurator.QuoteTOMLString(filepath.Join(baseDir, ".codex", "hooks", "notify", "notify.sh")) + "\n" +
 		"# cartographer:hook:notify:end\n"
 	if err := os.WriteFile(configPath, []byte(preexisting), 0o644); err != nil {
 		t.Fatal(err)
@@ -321,7 +324,7 @@ func TestPruneManaged_Codex_Hook_RimuoveEntryConfigTOML(t *testing.T) {
 	}
 
 	managed := []provisioning.ManagedFile{
-		{Kind: "hook", Name: "notify", Path: filepath.Join(".codex", "hooks", "notify", "hook.json"), ContentHash: "h"},
+		{Kind: "hook", Name: "notify", Path: ".codex/hooks/notify/hook.json", ContentHash: "h"},
 	}
 	pruned, err := provisioning.PruneManaged(managed, baseDir, false)
 	if err != nil {
@@ -415,7 +418,8 @@ func TestApply_Codex_Hook_ReApplyAfterCodexRewrite_NoDuplicate(t *testing.T) {
 		if !strings.Contains(got, marker) {
 			t.Errorf("missing %s: %s", marker, got)
 		}
-		if n := strings.Count(got, filepath.Join(".codex", "hooks", name, "notify.sh")); n != 1 {
+		relCmd := strings.Trim(configurator.QuoteTOMLString(filepath.Join(".codex", "hooks", name, "notify.sh")), `"`)
+		if n := strings.Count(got, relCmd); n != 1 {
 			t.Errorf("hook %q registered %d times:\n%s", name, n, got)
 		}
 	}

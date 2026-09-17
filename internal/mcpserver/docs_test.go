@@ -71,7 +71,7 @@ var docsNonTools = map[string]bool{
 // tool names. Walk recursively so a new nested current-state page is covered.
 func docsFiles(t *testing.T) []string {
 	t.Helper()
-	root := filepath.Join("..", "..")
+	root := "../.."
 	var files []string
 	for _, p := range []string{"README.md", "AGENTS.md", "CONTRIBUTING.md"} {
 		files = append(files, filepath.Join(root, p))

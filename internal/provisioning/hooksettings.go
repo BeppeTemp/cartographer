@@ -50,7 +50,7 @@ func registerHookSettings(baseDir, hookName, fullDestDir string) error {
 	// resolved via PATH) would never contain it: without the marker the entry
 	// would be neither idempotent nor prunable. Append it as an inert trailing
 	// shell comment.
-	if marker := hookOwnershipMarker(hookName); !strings.Contains(command, marker) {
+	if marker := hookOwnershipMarker(hookName); !commandOwnedBy(command, marker) {
 		command += " # cartographer-hook: " + marker
 	}
 
@@ -134,6 +134,16 @@ func hookOwnershipMarker(hookName string) string {
 	return ".claude/hooks/" + hookName + "/"
 }
 
+// commandOwnedBy reports whether a settings.json command belongs to the hook
+// the marker names. The marker is a slash path, while a resolved command
+// carries the host's separators: on Windows the very hook Cartographer just
+// materialized reads as ...\.claude\hooks\notify\notify.sh, so comparing the
+// two verbatim makes every entry look like somebody else's — registration
+// stops being idempotent and prune stops finding what to remove.
+func commandOwnedBy(command, marker string) bool {
+	return strings.Contains(filepath.ToSlash(command), marker)
+}
+
 // upsertHookEntry inserts spec's entry (matcher + command, type "command") into
 // settings["hooks"][spec.Event], after first stripping any existing entry owned by
 // hookName — idempotent: re-applying the same hook N times yields exactly one entry.
@@ -202,7 +212,7 @@ func stripHookEntries(settings map[string]interface{}, hookName string) bool {
 					continue
 				}
 				cmd, _ := entry["command"].(string)
-				if strings.Contains(cmd, marker) {
+				if commandOwnedBy(cmd, marker) {
 					changed = true
 					continue
 				}
@@ -554,7 +564,9 @@ var openCodeHookEvents = map[string]openCodeMapping{
 // always the user's home for OpenCode, same as the "instructions" destDir
 // case, ".config/opencode/AGENTS.md").
 func openCodePluginRelPath(hookName string) string {
-	return filepath.Join(".config", "opencode", "plugins", "cartographer-"+hookName+".js")
+	// Slash: this is reported in AppliedResult.Written and recorded in the
+	// lockfile beside every other destination, not walked on this host.
+	return ".config/opencode/plugins/cartographer-" + hookName + ".js"
 }
 
 // registerOpenCodePlugin reads hook.json from fullDestDir and, if its event

@@ -4,7 +4,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -414,9 +413,6 @@ func TestSlugify(t *testing.T) {
 // than waiting: an import is an operator action at a keyboard, and a silent block
 // is worse than an error naming what to stop.
 func TestCmdImport_RefusesWhileTheKBIsLocked(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("flock semantics differ on Windows")
-	}
 	src := t.TempDir()
 	if err := os.WriteFile(filepath.Join(src, "a.md"), []byte("# A\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -446,9 +442,6 @@ func TestCmdImport_RefusesWhileTheKBIsLocked(t *testing.T) {
 
 // A dry run writes nothing, so it must not contend for the lock either.
 func TestCmdImport_DryRunDoesNotTakeTheLock(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("flock semantics differ on Windows")
-	}
 	src := t.TempDir()
 	if err := os.WriteFile(filepath.Join(src, "a.md"), []byte("# A\n"), 0o644); err != nil {
 		t.Fatal(err)

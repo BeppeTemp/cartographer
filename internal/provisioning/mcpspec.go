@@ -14,7 +14,7 @@ import (
 	"fmt"
 	"io"
 	"net/url"
-	"path/filepath"
+	"path"
 	"regexp"
 	"strings"
 )
@@ -99,11 +99,16 @@ func ValidateMCPStdioCommand(command string) error {
 	if command == "" || command != strings.TrimSpace(command) || strings.IndexByte(command, 0) >= 0 {
 		return fmt.Errorf("command is empty or invalid")
 	}
-	if strings.ContainsAny(command, "|&;<>()$`*?[]{}!~'\"") {
+	// Defence in depth only: providers get command and args separately and
+	// Cartographer never starts a shell. The set is therefore the characters a
+	// shell acts on, and not every character that is merely unusual — `~`,
+	// brackets, braces, `!` and quotes are legal in file names, and a Windows
+	// 8.3 short path (C:\Users\RUNNER~1\AppData\...) contains a tilde.
+	if strings.ContainsAny(command, "|&;<>()$`*?\"\n\r") {
 		return fmt.Errorf("command contains shell metacharacters")
 	}
-	if filepath.IsAbs(command) {
-		if filepath.Clean(command) != command {
+	if isAbsCommandPath(command) {
+		if cleanCommandPath(command) != command {
 			return fmt.Errorf("command absolute path must be clean")
 		}
 		return nil
@@ -112,6 +117,49 @@ func ValidateMCPStdioCommand(command string) error {
 		return fmt.Errorf("command must be a bare executable name or absolute path")
 	}
 	return nil
+}
+
+// isAbsCommandPath recognises an absolute path in either platform's spelling.
+// A descriptor lives in the KB and is read by every client: a unix command
+// (/usr/local/bin/tool) must stay a valid absolute path when the file is
+// validated on Windows, and a Windows one (C:\tools\mcp.exe, \\host\share\x)
+// when it is validated on unix. Whether the command exists *here* is the
+// preflight's question, not this one's.
+func isAbsCommandPath(s string) bool {
+	if strings.HasPrefix(s, "/") || strings.HasPrefix(s, `\\`) {
+		return true
+	}
+	return len(s) >= 3 && s[1] == ':' && (s[2] == '\\' || s[2] == '/') && isDriveLetter(s[0])
+}
+
+func isDriveLetter(c byte) bool {
+	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+}
+
+// cleanCommandPath normalises with the syntax the path is written in, so the
+// cleanliness check does not depend on the host: path.Clean would mangle a
+// Windows path's separators, filepath.Clean on unix would leave a Windows path
+// untouched and call every one of them clean.
+func cleanCommandPath(s string) string {
+	if strings.ContainsRune(s, '\\') {
+		return windowsCleanPath(s)
+	}
+	return path.Clean(s)
+}
+
+// windowsCleanPath is filepath.Clean's Windows behaviour, spelled out so it
+// runs the same way on a unix host.
+func windowsCleanPath(s string) string {
+	prefix := ""
+	rest := s
+	switch {
+	case strings.HasPrefix(s, `\\`):
+		prefix, rest = `\\`, s[2:]
+	case len(s) >= 2 && s[1] == ':' && isDriveLetter(s[0]):
+		prefix, rest = s[:2], s[2:]
+	}
+	cleaned := path.Clean(strings.ReplaceAll(rest, `\\`, "/"))
+	return prefix + strings.ReplaceAll(cleaned, "/", `\\`)
 }
 
 // validateEnvRefs rejects, in values, every entry whose value does not

@@ -9,7 +9,7 @@ import (
 
 // writeClientConfig writes a minimal .cartographer.yaml into home so
 // clientconfig.Load(home) succeeds — home must already be $HOME for the
-// test (see t.Setenv("HOME", home) in each test below), since cmdResolve
+// test (see setHome(t, home) in each test below), since cmdResolve
 // resolves the config dir via clientconfig.TargetDir() (os.UserHomeDir()).
 func writeClientConfig(t *testing.T, home, extra string) {
 	t.Helper()
@@ -21,7 +21,7 @@ func writeClientConfig(t *testing.T, home, extra string) {
 
 func TestCmdResolve_UsageErrors(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setHome(t, home)
 
 	cases := [][]string{
 		{},
@@ -39,7 +39,7 @@ func TestCmdResolve_UsageErrors(t *testing.T) {
 
 func TestCmdResolve_PathResolved(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setHome(t, home)
 	writeClientConfig(t, home, "paths:\n  design: /mnt/design\n")
 
 	out := withStdout(t, func() {
@@ -54,7 +54,7 @@ func TestCmdResolve_PathResolved(t *testing.T) {
 
 func TestCmdResolve_PathNotFound(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setHome(t, home)
 	writeClientConfig(t, home, "")
 
 	if code := cmdResolve([]string{"path:missing"}); code != 1 {
@@ -64,7 +64,7 @@ func TestCmdResolve_PathNotFound(t *testing.T) {
 
 func TestCmdResolve_RepoViaManualPathsOverride(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setHome(t, home)
 	writeClientConfig(t, home, "paths:\n  cartographer: /home/x/repos/cartographer\n")
 
 	out := withStdout(t, func() {
@@ -79,7 +79,7 @@ func TestCmdResolve_RepoViaManualPathsOverride(t *testing.T) {
 
 func TestCmdResolve_RepoNotFound(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setHome(t, home)
 	// search_roots defaults to ~/Documents, which doesn't exist in this temp
 	// home: Scan finds nothing, Resolve must report a clean not-found error.
 	writeClientConfig(t, home, "")
@@ -91,7 +91,7 @@ func TestCmdResolve_RepoNotFound(t *testing.T) {
 
 func TestCmdResolve_NoConfigFileStillWorks(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setHome(t, home)
 	// No .cartographer.yaml at all: cmdResolve must fall back to
 	// clientconfig.Default() rather than requiring `connect` first.
 	if code := cmdResolve([]string{"path:missing"}); code != 1 {
@@ -101,7 +101,7 @@ func TestCmdResolve_NoConfigFileStillWorks(t *testing.T) {
 
 func TestCmdResolve_PathExpandsHome(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setHome(t, home)
 	writeClientConfig(t, home, "paths:\n  mine: \"~/design\"\n")
 
 	out := withStdout(t, func() {

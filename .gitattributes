@@ -1,0 +1,9 @@
+# Everything in this repository is LF in the working tree, on every platform.
+#
+# gofmt is line-ending-sensitive: with git's default Windows checkout every .go
+# file comes out CRLF, `gofmt -l` lists all of them and `make gate` fails on the
+# windows-latest leg before it runs a single test — with a diff nobody can find,
+# because the files are byte-identical on the developer's machine. The same holds
+# for the markdown this module parses as data: a skill's YAML frontmatter and the
+# documentation gates in internal/repodocs read tracked files directly.
+* text=auto eol=lf

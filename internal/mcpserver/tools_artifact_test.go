@@ -3,6 +3,7 @@ package mcpserver
 import (
 	"encoding/base64"
 	"encoding/json"
+	"github.com/BeppeTemp/cartographer/internal/execbit"
 	"os"
 	"path/filepath"
 	"strings"
@@ -35,7 +36,7 @@ func TestArtifactTools_BinaryAndExecutableRoundTrip(t *testing.T) {
 		t.Fatalf("binary read = %#v", read)
 	}
 	info, err := os.Stat(filepath.Join(k.Root, filepath.FromSlash(path)))
-	if err != nil || info.Mode()&0o111 == 0 {
+	if err != nil || (execbit.Supported && info.Mode()&0o111 == 0) {
 		t.Fatalf("executable mode = %v, %v", info.Mode(), err)
 	}
 }
@@ -67,11 +68,11 @@ func TestArtifactTools_ExecutableTriState(t *testing.T) {
 		}
 		return info.Mode()
 	}
-	if mode()&0o111 == 0 {
+	if execbit.Supported && mode()&0o111 == 0 {
 		t.Fatal("explicit true did not set executable")
 	}
 	tr = call(map[string]any{"path": path, "content": "two", "if_match": first.SHA256})
-	if tr.IsError || mode()&0o111 == 0 {
+	if tr.IsError || (execbit.Supported && mode()&0o111 == 0) {
 		t.Fatalf("omitted executable did not preserve mode: %+v", tr.Content)
 	}
 	var second struct {
@@ -207,7 +208,7 @@ func TestArtifactTools_ListReportsExecutableAuxiliarySkillFile(t *testing.T) {
 		}
 		for _, file := range entry.Files {
 			if file.Path == "skills/aux/run.sh" {
-				if !file.Executable {
+				if execbit.Supported && !file.Executable {
 					t.Fatal("artifact_list marked executable auxiliary file as non-executable")
 				}
 				return

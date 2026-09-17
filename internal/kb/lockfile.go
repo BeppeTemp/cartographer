@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 )
 
@@ -17,6 +16,12 @@ const LockFileName = ".cartographer.lock"
 
 // lockPollInterval is how often AcquireProcessLock retries while waiting.
 const lockPollInterval = 100 * time.Millisecond
+
+// tryLockFileFn indirects the platform helper (lockfile_unix.go,
+// lockfile_windows.go) so a test can inject a failure that is not contention: on
+// a POSIX host there is no way to make flock(2) fail on purpose, and the
+// fail-fast branch below is exactly what must not regress.
+var tryLockFileFn = tryLockFile
 
 // LockHeldError reports that another process holds the KB lock, naming the
 // holder so the operator knows what to stop.
@@ -45,8 +50,9 @@ func (e *LockHeldError) Error() string {
 //
 // Advisory, not mandatory: a stale lock from a killed process must never
 // permanently block a KB, so a lock whose recorded pid is gone is reclaimed with
-// a note on stderr. flock(2) where the filesystem supports it; the pid file alone
-// is the fallback, which is weaker but still catches the common case.
+// a note on stderr. An exclusive file lock where the platform provides one —
+// flock(2) on Unix, LockFileEx on Windows — with the pid file alone as the
+// fallback, which is weaker but still catches the common case.
 func (k *KB) AcquireProcessLock(timeout time.Duration, command string) (release func(), err error) {
 	path := filepath.Join(k.Root, LockFileName)
 	deadline := time.Now().Add(timeout)
@@ -56,17 +62,25 @@ func (k *KB) AcquireProcessLock(timeout time.Duration, command string) (release 
 		if openErr != nil {
 			return nil, fmt.Errorf("kb: open lock %s: %w", path, openErr)
 		}
-		if flockErr := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); flockErr == nil {
+		lockErr := tryLockFileFn(f)
+		if lockErr == nil {
 			if err := writeLockOwner(f, command); err != nil {
-				_ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+				_ = unlockFile(f)
 				f.Close()
 				return nil, err
 			}
 			return func() {
 				_ = f.Truncate(0)
-				_ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+				_ = unlockFile(f)
 				f.Close()
 			}, nil
+		}
+		// Contention is worth waiting for; an I/O failure is not. Polling one for
+		// the whole timeout and then returning a LockHeldError names a holder
+		// that does not exist and hides the real cause.
+		if !isLockBusy(lockErr) {
+			f.Close()
+			return nil, fmt.Errorf("kb: lock %s: %w", path, lockErr)
 		}
 
 		pid, cmd, since := readLockOwner(f)
@@ -116,10 +130,4 @@ func readLockOwner(f *os.File) (pid int, command, since string) {
 		since = "an unknown time"
 	}
 	return pid, command, since
-}
-
-// processAlive reports whether pid exists. Signal 0 performs the existence and
-// permission check without delivering anything.
-func processAlive(pid int) bool {
-	return syscall.Kill(pid, 0) == nil
 }

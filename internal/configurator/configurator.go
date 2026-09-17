@@ -597,7 +597,7 @@ func emitCodexServer(name string, spec ServerSpec) (*EmitResult, error) {
 				fmt.Fprintf(&sb, "%s = %s\n", QuoteTOMLString(key), QuoteTOMLString(spec.Env[key]))
 			}
 		}
-		return &EmitResult{Provider: ProviderCodex, FilePath: filepath.Join(".codex", "config.toml"), Content: []byte(sb.String())}, nil
+		return &EmitResult{Provider: ProviderCodex, FilePath: ".codex/config.toml", Content: []byte(sb.String())}, nil
 	}
 	if spec.Type != "http" {
 		return nil, fmt.Errorf("mcp %q: unsupported transport %q", name, spec.Type)
@@ -622,7 +622,7 @@ func emitCodexServer(name string, spec ServerSpec) (*EmitResult, error) {
 
 	return &EmitResult{
 		Provider: ProviderCodex,
-		FilePath: filepath.Join(".codex", "config.toml"),
+		FilePath: ".codex/config.toml",
 		Content:  []byte(sb.String()),
 		Warnings: warnings,
 	}, nil
@@ -802,7 +802,7 @@ func emitAntigravityServer(name string, spec ServerSpec) (*EmitResult, error) {
 	}
 	return &EmitResult{
 		Provider: ProviderAntigravity,
-		FilePath: filepath.Join(".gemini", "config", "mcp_config.json"),
+		FilePath: ".gemini/config/mcp_config.json",
 		Content:  content,
 	}, nil
 }

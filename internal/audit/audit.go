@@ -540,9 +540,16 @@ func appendDurable(path string, data []byte) error {
 	}
 	if err := writeAllFunc(f, data); err != nil {
 		// Roll back a partial write: never leave a truncated, unparseable
-		// trailing line for the next Append/read to trip over.
-		_ = f.Truncate(offset)
+		// trailing line for the next Append/read to trip over. The truncate
+		// goes through the path rather than this handle: an O_APPEND handle on
+		// Windows carries FILE_APPEND_DATA without FILE_WRITE_DATA, and
+		// SetEndOfFile on it is refused — which, with the error dropped, left
+		// behind exactly the broken tail this rollback exists to prevent. The
+		// rollback's own failure is now part of the error for the same reason.
 		_ = f.Sync()
+		if truncErr := os.Truncate(path, offset); truncErr != nil {
+			return fmt.Errorf("%w (rolling the partial write back failed: %v)", err, truncErr)
+		}
 		return err
 	}
 	return f.Sync()

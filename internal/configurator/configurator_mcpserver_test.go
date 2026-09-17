@@ -9,7 +9,6 @@ package configurator_test
 
 import (
 	"encoding/json"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -100,7 +99,7 @@ func TestEmitServer_Codex_BearerAuth(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if r.FilePath != filepath.Join(".codex", "config.toml") {
+	if r.FilePath != ".codex/config.toml" {
 		t.Errorf("FilePath = %q, want .codex/config.toml", r.FilePath)
 	}
 	content := string(r.Content)
@@ -164,7 +163,7 @@ func TestEmitServer_Antigravity(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if r.FilePath != filepath.Join(".gemini", "config", "mcp_config.json") {
+	if r.FilePath != ".gemini/config/mcp_config.json" {
 		t.Errorf("FilePath = %q, want .gemini/config/mcp_config.json", r.FilePath)
 	}
 	var root map[string]any

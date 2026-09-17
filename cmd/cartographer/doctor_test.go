@@ -39,7 +39,7 @@ func doctorStubs(t *testing.T, installed []string, timerInstalled bool) {
 		return out
 	}
 	syncTimerStatusFn = func() (service.SyncTimerStatus, error) {
-		return service.SyncTimerStatus{Installed: timerInstalled, Path: "/tmp/cartographer-sync.timer"}, nil
+		return service.SyncTimerStatus{Installed: timerInstalled, Path: filepath.Join(os.TempDir(), "cartographer-sync.timer")}, nil
 	}
 	t.Cleanup(func() { doctorDetectFn, syncTimerStatusFn = origDetect, origTimer })
 }
@@ -593,7 +593,7 @@ func TestCheckOrphanedFiles(t *testing.T) {
 	}
 	lockFile := provisioning.LockFile{Providers: map[string]provisioning.Lock{
 		"claude": {Provider: "claude", Managed: []provisioning.ManagedFile{
-			{Kind: "skill", Name: "alpha", Path: filepath.Join(".claude", "skills", "alpha", "SKILL.md")},
+			{Kind: "skill", Name: "alpha", Path: ".claude/skills/alpha/SKILL.md"},
 		}},
 	}}
 
@@ -610,8 +610,8 @@ func TestCheckOrphanedFiles(t *testing.T) {
 
 	// Everything accounted for: no finding.
 	lockFile.Providers["claude"] = provisioning.Lock{Provider: "claude", Managed: []provisioning.ManagedFile{
-		{Kind: "skill", Name: "alpha", Path: filepath.Join(".claude", "skills", "alpha", "SKILL.md")},
-		{Kind: "skill", Name: "alpha", Path: filepath.Join(".claude", "skills", "alpha", "leftover.md")},
+		{Kind: "skill", Name: "alpha", Path: ".claude/skills/alpha/SKILL.md"},
+		{Kind: "skill", Name: "alpha", Path: ".claude/skills/alpha/leftover.md"},
 	}}
 	if got := checkOrphanedFiles(dir, []string{"claude"}, lockFile); len(got) != 0 {
 		t.Errorf("a fully accounted directory produced findings: %+v", got)

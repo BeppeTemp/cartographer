@@ -23,6 +23,30 @@ client configuration.
 `make vet` runs `go vet ./...` and `make fmt-check` fails on anything not
 gofmt-clean. All three are `make gate`, which is the single command CI runs.
 
+`make gate` runs on **two operating systems**: the `test` job on `ubuntu-latest`
+and a separate `test-windows` job on `windows-latest`
+([`ci.yml`](https://github.com/BeppeTemp/cartographer/blob/main/.github/workflows/ci.yml)).
+The Windows job is separate rather than a matrix leg on `test` because the
+required check on `main` is named literally `test`, which a matrix would rename.
+It sets `shell: bash` for every step — the Makefile recipes are POSIX shell — and
+installs `make`, which is not on the runner image. The working tree is LF on both
+legs (`.gitattributes`): gofmt is line-ending-sensitive, so a CRLF checkout fails
+`fmt-check` on every file at once.
+
+The platform-specific code is the per-KB lock and the process-liveness check
+(`internal/kb/lockfile_unix.go`, `internal/kb/lockfile_windows.go`) and the
+client-state lock beside it (`internal/provisioning/clientlock_*.go`); the tests
+that assert their contract — the holder stays nameable, a dead pid is reclaimed,
+a non-contention error fails fast, a second acquirer is refused — run on both
+legs. So does the rest of the suite: the Windows leg is the whole of `make gate`,
+not a subset.
+
+A test that asserts on a POSIX file mode is written `execbit.Supported && ...`,
+because the Windows filesystem has no execute bit (D219). A skip on that leg
+states what it is about — there is no bit to set or remove, so a `chmod` changes
+nothing and a file that is readable but not executable cannot exist — and a skip
+whose reason is a platform name is not accepted.
+
 Provisioning signature coverage includes deterministic Ed25519 envelopes, strict
 key parsing and identity separation, plus remote `sync_pull` verification and
 tampering rejection before `Apply`.
@@ -222,6 +246,10 @@ GoReleaser environment, which is out of the deterministic gate (see below).
 - Provider/model quality comparisons.
 - Tests requiring production credentials or external private infrastructure.
 - Manual UI appearance checks.
+- The shell harnesses on Windows: `make smoke-http`, `make e2e` and
+  `make test-install` are POSIX `sh` scripts (`test/smoke/`, `test/e2e/`,
+  `test/install/`) driving a launchd/systemd install path, so they run on the
+  ubuntu leg only.
 
 These belong to production validation or an explicit release exercise, not to
 the deterministic repository gate.
@@ -238,6 +266,14 @@ make test-install
 Exactly what CI runs, in the same order: `make gate` is the one place that
 defines "green", so a step added here has to be added to `gate` or to
 `ci.yml`, not to a list that only lives in prose.
+
+The Windows leg runs the same `make gate`. From a POSIX host the part of it that
+can be reproduced is the compilation:
+
+```bash
+GOOS=windows GOARCH=amd64 go build ./...
+GOOS=windows GOARCH=amd64 go vet ./...
+```
 
 ## Before a release
 
