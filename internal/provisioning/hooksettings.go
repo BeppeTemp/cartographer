@@ -564,7 +564,9 @@ var openCodeHookEvents = map[string]openCodeMapping{
 // always the user's home for OpenCode, same as the "instructions" destDir
 // case, ".config/opencode/AGENTS.md").
 func openCodePluginRelPath(hookName string) string {
-	return filepath.Join(".config", "opencode", "plugins", "cartographer-"+hookName+".js")
+	// Slash: this is reported in AppliedResult.Written and recorded in the
+	// lockfile beside every other destination, not walked on this host.
+	return ".config/opencode/plugins/cartographer-" + hookName + ".js"
 }
 
 // registerOpenCodePlugin reads hook.json from fullDestDir and, if its event

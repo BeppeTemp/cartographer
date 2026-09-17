@@ -2761,6 +2761,9 @@ func TestServer_ConceptWrite_UpdatesSQLIndex(t *testing.T) {
 	if err != nil {
 		t.Fatalf("sqlindex.Open: %v", err)
 	}
+	// An open SQLite handle keeps the file locked: on Windows the TempDir
+	// cleanup then fails to remove it and the test fails after it has passed.
+	defer sqlIdx.Close()
 
 	uniqueKW := "marmalade7723quokka"
 
@@ -2887,6 +2890,7 @@ func TestServer_ConceptMove_UpdatesIndexes(t *testing.T) {
 		if err != nil {
 			t.Fatalf("sqlindex.Open: %v", err)
 		}
+		defer sqlIdx.Close()
 		s := New("1.0.0")
 		RegisterKBTools(s, k, Deps{SQLIndex: sqlIdx})
 

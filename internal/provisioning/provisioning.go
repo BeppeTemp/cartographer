@@ -3139,7 +3139,9 @@ func copyArtifactFiles(a Artifact, opts ApplyOptions, fullDestDir string, tracke
 		if err != nil {
 			return nil, "", "", err
 		}
-		relPaths = append(relPaths, rel)
+		// A written path is reported and recorded, not walked: slash, like the
+		// destination it was joined from.
+		relPaths = append(relPaths, filepath.ToSlash(rel))
 	}
 
 	// A malformed KB artifact must not fail the whole sync: BuildManifest does

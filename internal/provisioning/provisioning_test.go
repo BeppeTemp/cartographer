@@ -218,7 +218,7 @@ func TestBuildManifest_ExecutableSkillChangesHashAndApplyMode(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !files[1].Executable {
+	if execbit.Supported && !files[1].Executable {
 		t.Fatal("script executable bit was not read")
 	}
 	base := t.TempDir()

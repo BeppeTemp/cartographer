@@ -5,7 +5,7 @@ package provisioning
 // time.
 
 import (
-	"path/filepath"
+	"path"
 	"testing"
 
 	"github.com/BeppeTemp/cartographer/internal/configurator"
@@ -79,7 +79,7 @@ func TestDestDirPaths(t *testing.T) {
 		{"skill", configurator.ProviderKiro, ".kiro/skills/demo"},
 		{"skill", configurator.ProviderOpenCode, ".opencode/skills/demo"},
 		// hermes delivers skills to its inbox and supports nothing else (D141).
-		{"skill", configurator.ProviderHermes, filepath.Join("skill-inbox", "demo", "cartographer")},
+		{"skill", configurator.ProviderHermes, "skill-inbox/demo/cartographer"},
 		{"agent", configurator.ProviderHermes, ""},
 		{"hook", configurator.ProviderHermes, ""},
 		{"mcp", configurator.ProviderHermes, ""},
@@ -111,7 +111,7 @@ func TestInstructionsPrecedenceEndsAtTheManagedFile(t *testing.T) {
 		if len(d.InstructionsPrecedence) == 0 {
 			continue
 		}
-		last := filepath.Join(d.InstructionsPrecedence[len(d.InstructionsPrecedence)-1]...)
+		last := path.Join(d.InstructionsPrecedence[len(d.InstructionsPrecedence)-1]...)
 		if got := InstructionsFile(d.Provider); got != last {
 			t.Errorf("%s: precedence chain ends at %q but InstructionsFile says %q", d.Provider, last, got)
 		}
