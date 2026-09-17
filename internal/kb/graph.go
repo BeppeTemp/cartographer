@@ -548,7 +548,7 @@ func (kb *KB) listServiceFiles() ([]string, error) {
 		}
 		if !d.IsDir() && strings.HasSuffix(p, ".md") {
 			rel, _ := filepath.Rel(kb.Root, p)
-			files = append(files, rel)
+			files = append(files, filepath.ToSlash(rel))
 		}
 		return nil
 	})

@@ -27,6 +27,7 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/artifactsig"
 	"github.com/BeppeTemp/cartographer/internal/configurator"
+	"github.com/BeppeTemp/cartographer/internal/execbit"
 	"github.com/BeppeTemp/cartographer/internal/okf"
 	"github.com/BeppeTemp/cartographer/internal/skill"
 )
@@ -348,7 +349,7 @@ func contentHashDir(fsys fs.FS, dir string, executable func(string, bool) bool) 
 		if statErr != nil {
 			return "", fmt.Errorf("provisioning: stat %s: %w", p, statErr)
 		}
-		exec := info.Mode()&0o111 != 0
+		exec := execbit.IsExecutable(info.Mode())
 		if executable != nil {
 			exec = executable(rel, exec)
 		}
@@ -2336,7 +2337,10 @@ func PreflightStdioMCP(m Manifest, opts ApplyOptions) error {
 		if err != nil {
 			return fmt.Errorf("provisioning: mcp %q for %s: command %q unavailable: %w", a.Name, opts.Provider, spec.Command, err)
 		}
-		if !info.Mode().IsRegular() || info.Mode().Perm()&0o111 == 0 {
+		// Where the filesystem has no execute bit, being executable is decided
+		// by the extension (PATHEXT) and exec.LookPath above already applied
+		// it; asking the permissions would reject every command on Windows.
+		if !info.Mode().IsRegular() || (execbit.Supported && !execbit.IsExecutable(info.Mode())) {
 			return fmt.Errorf("provisioning: mcp %q for %s: command %q is not an executable regular file", a.Name, opts.Provider, spec.Command)
 		}
 	}
@@ -3181,7 +3185,7 @@ func ReadArtifactFiles(a Artifact, bundleFS fs.FS, kbRoots map[string]string) ([
 			if infoErr != nil {
 				return infoErr
 			}
-			files = append(files, ArtifactFile{Path: rel, Content: data, Executable: fileInfo.Mode()&0o111 != 0})
+			files = append(files, ArtifactFile{Path: rel, Content: data, Executable: execbit.IsExecutable(fileInfo.Mode())})
 			return nil
 		})
 		if err != nil {
@@ -3251,7 +3255,7 @@ func readDirFiles(srcDir string) ([]ArtifactFile, error) {
 		if infoErr != nil {
 			return infoErr
 		}
-		files = append(files, ArtifactFile{Path: filepath.ToSlash(rel), Content: data, Executable: fileInfo.Mode()&0o111 != 0})
+		files = append(files, ArtifactFile{Path: filepath.ToSlash(rel), Content: data, Executable: execbit.IsExecutable(fileInfo.Mode())})
 		return nil
 	})
 	if err != nil {

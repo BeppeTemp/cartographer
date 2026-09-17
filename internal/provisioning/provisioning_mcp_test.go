@@ -11,10 +11,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
 	"github.com/BeppeTemp/cartographer/internal/configurator"
+	"github.com/BeppeTemp/cartographer/internal/execbit"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
 )
 
@@ -51,6 +53,16 @@ func writeFakeExecutable(t *testing.T, path, markerPath string) {
 		t.Fatal(err)
 	}
 }
+
+// fakeExecName is the file name the preflight's PATH lookup can resolve. On
+// Windows what makes a file executable is its extension (PATHEXT), not a
+// permission bit, so a bare "fake-mcp" is invisible to exec.LookPath there.
+var fakeExecName = func() string {
+	if runtime.GOOS == "windows" {
+		return "fake-mcp.bat"
+	}
+	return "fake-mcp"
+}()
 
 func findMCPArtifact(t *testing.T, m provisioning.Manifest, name string) provisioning.Artifact {
 	t.Helper()
@@ -297,7 +309,7 @@ func TestApply_MCP_AllProviders(t *testing.T) {
 				t.Errorf("unexpected entry: %+v", entry)
 			}
 		}},
-		{configurator.ProviderCodex, filepath.Join(".codex", "config.toml"), func(t *testing.T, data []byte) {
+		{configurator.ProviderCodex, ".codex/config.toml", func(t *testing.T, data []byte) {
 			content := string(data)
 			if !strings.Contains(content, "[mcp_servers.wiki-tools]") {
 				t.Errorf("missing section header: %s", content)
@@ -317,7 +329,7 @@ func TestApply_MCP_AllProviders(t *testing.T) {
 				t.Errorf("Authorization = %v, want opencode {env:VAR} syntax", headers["Authorization"])
 			}
 		}},
-		{configurator.ProviderKiro, filepath.Join(".kiro", "settings", "mcp.json"), func(t *testing.T, data []byte) {
+		{configurator.ProviderKiro, ".kiro/settings/mcp.json", func(t *testing.T, data []byte) {
 			var root map[string]any
 			if err := json.Unmarshal(data, &root); err != nil {
 				t.Fatalf("invalid JSON: %v", err)
@@ -327,7 +339,7 @@ func TestApply_MCP_AllProviders(t *testing.T) {
 				t.Error("kiro should not receive headers")
 			}
 		}},
-		{configurator.ProviderAntigravity, filepath.Join(".gemini", "config", "mcp_config.json"), func(t *testing.T, data []byte) {
+		{configurator.ProviderAntigravity, ".gemini/config/mcp_config.json", func(t *testing.T, data []byte) {
 			var root map[string]any
 			if err := json.Unmarshal(data, &root); err != nil {
 				t.Fatalf("invalid JSON: %v", err)
@@ -391,7 +403,7 @@ func TestApply_MCP_Stdio_AllProviders(t *testing.T) {
 	kbRoot := t.TempDir()
 	binDir := t.TempDir()
 	marker := filepath.Join(binDir, "executed")
-	script := filepath.Join(binDir, "fake-mcp")
+	script := filepath.Join(binDir, fakeExecName)
 	writeFakeExecutable(t, script, marker)
 	writeMCPFixture(t, kbRoot, "local-tools", fmt.Sprintf(`{"type":"stdio","command":%q,"args":["serve","--flag"],"env":{"TOKEN":"${LOCAL_TOKEN}"}}`, script))
 
@@ -410,7 +422,7 @@ func TestApply_MCP_Stdio_AllProviders(t *testing.T) {
 				t.Errorf("unexpected command: %+v", entry)
 			}
 		}},
-		{configurator.ProviderCodex, filepath.Join(".codex", "config.toml"), func(t *testing.T, data []byte) {
+		{configurator.ProviderCodex, ".codex/config.toml", func(t *testing.T, data []byte) {
 			content := string(data)
 			if !strings.Contains(content, "[mcp_servers.local-tools]") || !strings.Contains(content, "command =") {
 				t.Errorf("missing stdio section: %s", content)
@@ -426,7 +438,7 @@ func TestApply_MCP_Stdio_AllProviders(t *testing.T) {
 				t.Errorf("unexpected entry: %+v", entry)
 			}
 		}},
-		{configurator.ProviderKiro, filepath.Join(".kiro", "settings", "mcp.json"), func(t *testing.T, data []byte) {
+		{configurator.ProviderKiro, ".kiro/settings/mcp.json", func(t *testing.T, data []byte) {
 			var root map[string]any
 			if err := json.Unmarshal(data, &root); err != nil {
 				t.Fatalf("invalid JSON: %v", err)
@@ -436,7 +448,7 @@ func TestApply_MCP_Stdio_AllProviders(t *testing.T) {
 				t.Errorf("unexpected entry: %+v", entry)
 			}
 		}},
-		{configurator.ProviderAntigravity, filepath.Join(".gemini", "config", "mcp_config.json"), func(t *testing.T, data []byte) {
+		{configurator.ProviderAntigravity, ".gemini/config/mcp_config.json", func(t *testing.T, data []byte) {
 			var root map[string]any
 			if err := json.Unmarshal(data, &root); err != nil {
 				t.Fatalf("invalid JSON: %v", err)
@@ -497,13 +509,13 @@ func TestApply_MCP_StdioPreflight_CommandResolution(t *testing.T) {
 	t.Run("bare command resolved via PATH", func(t *testing.T) {
 		binDir := t.TempDir()
 		marker := filepath.Join(binDir, "executed")
-		script := filepath.Join(binDir, "fake-mcp")
+		script := filepath.Join(binDir, fakeExecName)
 		writeFakeExecutable(t, script, marker)
 		t.Setenv("PATH", binDir)
 
 		kbRoot := t.TempDir()
-		writeMCPFixture(t, kbRoot, "local-tools", `{"type":"stdio","command":"fake-mcp"}`)
-		m := signedMCPManifestStdio(t, kbRoot, "local-tools", "fake-mcp")
+		writeMCPFixture(t, kbRoot, "local-tools", fmt.Sprintf(`{"type":"stdio","command":%q}`, fakeExecName))
+		m := signedMCPManifestStdio(t, kbRoot, "local-tools", fakeExecName)
 		dir := t.TempDir()
 		if _, err := provisioning.Apply(m, provisioning.ApplyOptions{KBRoots: map[string]string{"kb": kbRoot}, Provider: configurator.ProviderClaudeCode, BaseDir: dir}); err != nil {
 			t.Fatalf("Apply: %v", err)
@@ -515,7 +527,7 @@ func TestApply_MCP_StdioPreflight_CommandResolution(t *testing.T) {
 		if strings.Contains(string(data), script) {
 			t.Errorf("bare command was persisted as its resolved absolute path: %s", data)
 		}
-		if !strings.Contains(string(data), `"fake-mcp"`) {
+		if !strings.Contains(string(data), fmt.Sprintf("%q", fakeExecName)) {
 			t.Errorf("bare command not preserved verbatim: %s", data)
 		}
 	})
@@ -523,7 +535,7 @@ func TestApply_MCP_StdioPreflight_CommandResolution(t *testing.T) {
 	t.Run("absolute path", func(t *testing.T) {
 		binDir := t.TempDir()
 		marker := filepath.Join(binDir, "executed")
-		script := filepath.Join(binDir, "fake-mcp")
+		script := filepath.Join(binDir, fakeExecName)
 		writeFakeExecutable(t, script, marker)
 
 		kbRoot := t.TempDir()
@@ -551,6 +563,9 @@ func TestApply_MCP_StdioPreflight_CommandResolution(t *testing.T) {
 	})
 
 	t.Run("non-executable file fails closed", func(t *testing.T) {
+		if !execbit.Supported {
+			t.Skip("the assertion is about a file that is readable but carries no execute bit; this filesystem has no such bit, and there executability is the extension's business")
+		}
 		kbRoot := t.TempDir()
 		notExec := filepath.Join(t.TempDir(), "not-executable")
 		if err := os.WriteFile(notExec, []byte("x"), 0o644); err != nil {
@@ -574,7 +589,7 @@ func TestApply_MCP_StdioPreflight_CommandResolution(t *testing.T) {
 func TestApply_MCP_StdioDryRun(t *testing.T) {
 	kbRoot := t.TempDir()
 	binDir := t.TempDir()
-	script := filepath.Join(binDir, "fake-mcp")
+	script := filepath.Join(binDir, fakeExecName)
 	writeFakeExecutable(t, script, filepath.Join(binDir, "executed"))
 	writeMCPFixture(t, kbRoot, "local-tools", fmt.Sprintf(`{"type":"stdio","command":%q}`, script))
 	m := signedMCPManifestStdio(t, kbRoot, "local-tools", script)
@@ -634,7 +649,7 @@ func TestBuildManifest_MCPAllowlistMatchesStdioCommandExactly(t *testing.T) {
 func TestApply_MCP_StdioContentHashCoversEveryDescriptorField(t *testing.T) {
 	kbRoot := t.TempDir()
 	binDir := t.TempDir()
-	script := filepath.Join(binDir, "fake-mcp")
+	script := filepath.Join(binDir, fakeExecName)
 	writeFakeExecutable(t, script, filepath.Join(binDir, "executed"))
 
 	baseline := fmt.Sprintf(`{"type":"stdio","command":%q,"args":["serve"],"env":{"TOKEN":"${TOKEN}"}}`, script)

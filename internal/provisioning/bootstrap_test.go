@@ -18,6 +18,7 @@ import (
 	"testing"
 
 	"github.com/BeppeTemp/cartographer/internal/configurator"
+	"github.com/BeppeTemp/cartographer/internal/execbit"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
 )
 
@@ -125,7 +126,7 @@ func TestEnsureBootstrapHook_Claude_ScriptPreesistenteNonEseguibile(t *testing.T
 	if err != nil {
 		t.Fatalf("stat bootstrap.sh: %v", err)
 	}
-	if info.Mode()&0o111 == 0 {
+	if execbit.Supported && info.Mode()&0o111 == 0 {
 		t.Errorf("bootstrap.sh: expected executable bit after EnsureBootstrapHook, mode %v", info.Mode())
 	}
 }

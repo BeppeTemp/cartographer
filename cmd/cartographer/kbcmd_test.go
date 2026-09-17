@@ -165,7 +165,7 @@ func TestCmdKBCreateWithRemotePushes(t *testing.T) {
 	tmp := t.TempDir()
 	bare := filepath.Join(tmp, "alpha.git")
 	mustRunGit(t, "", "init", "--bare", bare)
-	remote := "file://" + bare
+	remote := fileURL(bare)
 
 	dataDir := filepath.Join(tmp, "data")
 	var code int
@@ -256,7 +256,7 @@ func TestCmdKBClone(t *testing.T) {
 	mustRunGit(t, bare, "symbolic-ref", "HEAD", "refs/heads/"+branch)
 
 	data := filepath.Join(tmp, "data")
-	remote := "file://" + bare
+	remote := fileURL(bare)
 	withNoGuidance(t, func() {
 		if code := cmdKBClone([]string{remote, "--data", data}); code != 0 {
 			t.Fatalf("cmdKBClone = %d, want 0", code)
@@ -323,7 +323,7 @@ func TestCmdKBCloneRejectsNonOKFRemoteAndCleansDestination(t *testing.T) {
 
 	data := filepath.Join(tmp, "data")
 	withNoGuidance(t, func() {
-		if code := cmdKBClone([]string{"file://" + bare, "--data", data}); code == 0 {
+		if code := cmdKBClone([]string{fileURL(bare), "--data", data}); code == 0 {
 			t.Fatal("cmdKBClone(non-OKF) = 0, want error")
 		}
 	})
@@ -383,7 +383,7 @@ func TestRunKBDispatch(t *testing.T) {
 func withClientServerURL(t *testing.T, serverURL string) {
 	t.Helper()
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setHome(t, home)
 	if serverURL == "" {
 		return
 	}

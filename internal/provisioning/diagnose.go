@@ -218,7 +218,7 @@ func countClaudeHookEntries(settings map[string]interface{}, marker string) int 
 				if !ok {
 					continue
 				}
-				if command, ok := entry["command"].(string); ok && strings.Contains(command, marker) {
+				if command, ok := entry["command"].(string); ok && commandOwnedBy(command, marker) {
 					count++
 				}
 			}

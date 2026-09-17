@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/configurator"
+	"github.com/BeppeTemp/cartographer/internal/execbit"
 )
 
 // Drift reasons reported by VerifyManaged.
@@ -150,7 +151,7 @@ func readManagedFiles(mf ManagedFile, full string) ([]ArtifactFile, error) {
 		if readErr != nil {
 			return nil, readErr
 		}
-		return []ArtifactFile{{Path: filepath.Base(full), Content: data, Executable: info.Mode()&0o111 != 0}}, nil
+		return []ArtifactFile{{Path: filepath.Base(full), Content: data, Executable: execbit.IsExecutable(info.Mode())}}, nil
 	}
 	var files []ArtifactFile
 	walkErr := filepath.WalkDir(full, func(p string, d fs.DirEntry, err error) error {
@@ -172,7 +173,7 @@ func readManagedFiles(mf ManagedFile, full string) ([]ArtifactFile, error) {
 		if infoErr != nil {
 			return infoErr
 		}
-		files = append(files, ArtifactFile{Path: filepath.ToSlash(rel), Content: data, Executable: fi.Mode()&0o111 != 0})
+		files = append(files, ArtifactFile{Path: filepath.ToSlash(rel), Content: data, Executable: execbit.IsExecutable(fi.Mode())})
 		return nil
 	})
 	if walkErr != nil {

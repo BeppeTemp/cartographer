@@ -387,7 +387,7 @@ func TestApply_Instructions_CreaFileNuovo(t *testing.T) {
 	if !strings.Contains(content, "Test content for homelab.") {
 		t.Errorf("instructions content missing from the block: %s", content)
 	}
-	if len(res.Written) != 1 || res.Written[0].Kind != "instructions" || res.Written[0].Path != filepath.Join(".claude", "CLAUDE.md") {
+	if len(res.Written) != 1 || res.Written[0].Kind != "instructions" || res.Written[0].Path != ".claude/CLAUDE.md" {
 		t.Errorf("unexpected Written: %+v", res.Written)
 	}
 	if len(res.NewLock.Managed) != 1 || res.NewLock.Managed[0].Kind != "instructions" {
@@ -400,11 +400,11 @@ func TestApply_Instructions_TuttiIQuattroProvider(t *testing.T) {
 		provider configurator.Provider
 		wantPath string
 	}{
-		{configurator.ProviderClaudeCode, filepath.Join(".claude", "CLAUDE.md")},
-		{configurator.ProviderOpenCode, filepath.Join(".config", "opencode", "AGENTS.md")},
-		{configurator.ProviderCodex, filepath.Join(".codex", "AGENTS.md")},
-		{configurator.ProviderKiro, filepath.Join(".kiro", "steering", "cartographer.md")},
-		{configurator.ProviderAntigravity, filepath.Join(".gemini", "GEMINI.md")},
+		{configurator.ProviderClaudeCode, ".claude/CLAUDE.md"},
+		{configurator.ProviderOpenCode, ".config/opencode/AGENTS.md"},
+		{configurator.ProviderCodex, ".codex/AGENTS.md"},
+		{configurator.ProviderKiro, ".kiro/steering/cartographer.md"},
+		{configurator.ProviderAntigravity, ".gemini/GEMINI.md"},
 	}
 	for _, c := range cases {
 		baseDir := t.TempDir()
@@ -733,7 +733,7 @@ func TestKindCounts_Instructions(t *testing.T) {
 	}
 	lock := provisioning.Lock{
 		Managed: []provisioning.ManagedFile{
-			{Kind: "instructions", Name: "alfa", Path: filepath.Join(".claude", "CLAUDE.md"), ContentHash: "h1"},
+			{Kind: "instructions", Name: "alfa", Path: ".claude/CLAUDE.md", ContentHash: "h1"},
 		},
 	}
 	counts := provisioning.KindCounts(m, lock)
@@ -882,9 +882,9 @@ func agentManifest(t *testing.T, kbRoot string, names ...string) provisioning.Ma
 func instructionsBody(t *testing.T, base string, provider configurator.Provider) string {
 	t.Helper()
 	rel := map[configurator.Provider]string{
-		configurator.ProviderClaudeCode:  filepath.Join(".claude", "CLAUDE.md"),
-		configurator.ProviderKiro:        filepath.Join(".kiro", "steering", "cartographer.md"),
-		configurator.ProviderAntigravity: filepath.Join(".gemini", "GEMINI.md"),
+		configurator.ProviderClaudeCode:  ".claude/CLAUDE.md",
+		configurator.ProviderKiro:        ".kiro/steering/cartographer.md",
+		configurator.ProviderAntigravity: ".gemini/GEMINI.md",
 	}[provider]
 	data, err := os.ReadFile(filepath.Join(base, rel))
 	if err != nil {

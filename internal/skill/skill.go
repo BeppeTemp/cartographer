@@ -156,10 +156,12 @@ func LoadAllSkills(kbRoot string) ([]Skill, []error) {
 			errs = append(errs, err)
 			continue
 		}
-		// Store DirPath relative to kbRoot.
+		// Store DirPath relative to kbRoot, always slash-separated: it is a KB
+		// path that travels to clients and appears in findings, not a path on
+		// this host, and LoadAllFromFS below spells it the same way.
 		rel, relErr := filepath.Rel(kbRoot, dirPath)
 		if relErr == nil {
-			s.DirPath = rel
+			s.DirPath = filepath.ToSlash(rel)
 		}
 		skills = append(skills, *s)
 	}

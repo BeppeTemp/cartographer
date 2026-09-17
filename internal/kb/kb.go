@@ -463,7 +463,7 @@ func (kb *KB) ResolveRootPath(relPath string) (string, error) {
 // Factored out of ResolvePath so ResolveRootPath (D71) shares the exact same
 // guard instead of duplicating it.
 func safeJoin(base, relPath string) (string, error) {
-	if filepath.IsAbs(relPath) {
+	if isAbsAnyPlatform(relPath) {
 		return "", fmt.Errorf("%w: absolute path not allowed: %s", okf.ErrInvalidPath, relPath)
 	}
 	abs := filepath.Join(base, relPath)
@@ -472,6 +472,26 @@ func safeJoin(base, relPath string) (string, error) {
 		return "", fmt.Errorf("%w: path escapes root: %s", okf.ErrInvalidPath, relPath)
 	}
 	return abs, nil
+}
+
+// isAbsAnyPlatform reports whether relPath is absolute in *either* platform's
+// spelling. filepath.IsAbs alone answers only for the host, and a KB path is
+// not a host path: "/etc/passwd" is a leading-slash escape that a Windows host
+// would call relative and happily join onto the KB root, and `C:\Windows\...`
+// the same on unix. A KB path is always relative and slash-separated, so
+// anything that looks absolute anywhere is rejected everywhere.
+func isAbsAnyPlatform(relPath string) bool {
+	if relPath == "" {
+		return false
+	}
+	if relPath[0] == '/' || relPath[0] == '\\' {
+		return true
+	}
+	if len(relPath) >= 3 && relPath[1] == ':' && (relPath[2] == '/' || relPath[2] == '\\') {
+		c := relPath[0]
+		return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+	}
+	return filepath.IsAbs(relPath)
 }
 
 // ReadRaw reads the text of a file by its path relative to the KB root.
@@ -1836,7 +1856,7 @@ func (kb *KB) listMDFiles(relDir string) ([]string, error) {
 		}
 		if !d.IsDir() && strings.HasSuffix(p, ".md") {
 			rel, _ := filepath.Rel(kb.DataRoot(), p)
-			files = append(files, rel)
+			files = append(files, filepath.ToSlash(rel))
 		}
 		return nil
 	})

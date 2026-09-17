@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/BeppeTemp/cartographer/internal/configurator"
+	"github.com/BeppeTemp/cartographer/internal/execbit"
 	"github.com/BeppeTemp/cartographer/internal/okf"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
 )
@@ -191,7 +192,7 @@ func TestHookEffectiveModes_HardFloorAndHashStability(t *testing.T) {
 	}
 	for name, wantExec := range map[string]bool{"hook.json": false, "run.sh": true} {
 		info, err := os.Stat(filepath.Join(base, ".claude", "hooks", "floor", name))
-		if err != nil || (info.Mode()&0o111 != 0) != wantExec {
+		if err != nil || (execbit.Supported && (info.Mode()&0o111 != 0) != wantExec) {
 			t.Fatalf("%s mode=%v err=%v", name, info.Mode(), err)
 		}
 	}
@@ -249,23 +250,23 @@ func TestApply_DestDir_Matrix(t *testing.T) {
 		materializes bool
 		wantSuffix   string // expected suffix of the written path (only if materializes)
 	}{
-		{"skill", configurator.ProviderClaudeCode, true, filepath.Join(".claude", "skills", "art", "SKILL.md")},
-		{"skill", configurator.ProviderOpenCode, true, filepath.Join(".opencode", "skills", "art", "SKILL.md")},
-		{"skill", configurator.ProviderCodex, true, filepath.Join(".codex", "skills", "art", "SKILL.md")},
-		{"skill", configurator.ProviderKiro, true, filepath.Join(".kiro", "skills", "art", "SKILL.md")},
-		{"skill", configurator.ProviderAntigravity, true, filepath.Join(".gemini", "config", "skills", "art", "SKILL.md")},
-		{"agent", configurator.ProviderClaudeCode, true, filepath.Join(".claude", "agents", "art.md")},
-		{"agent", configurator.ProviderOpenCode, true, filepath.Join(".opencode", "agent", "art.md")},
-		{"agent", configurator.ProviderCodex, true, filepath.Join(".codex", "agents", "art.toml")},
-		{"agent", configurator.ProviderKiro, true, filepath.Join(".kiro", "agents", "art.json")},
-		{"agent", configurator.ProviderAntigravity, true, filepath.Join(".gemini", "config", "agents", "art.md")},
-		{"hook", configurator.ProviderClaudeCode, true, filepath.Join(".claude", "hooks", "art", "hook.json")},
-		{"hook", configurator.ProviderOpenCode, true, filepath.Join(".opencode", "hooks", "art", "hook.json")},
-		{"hook", configurator.ProviderCodex, true, filepath.Join(".codex", "hooks", "art", "hook.json")},
+		{"skill", configurator.ProviderClaudeCode, true, ".claude/skills/art/SKILL.md"},
+		{"skill", configurator.ProviderOpenCode, true, ".opencode/skills/art/SKILL.md"},
+		{"skill", configurator.ProviderCodex, true, ".codex/skills/art/SKILL.md"},
+		{"skill", configurator.ProviderKiro, true, ".kiro/skills/art/SKILL.md"},
+		{"skill", configurator.ProviderAntigravity, true, ".gemini/config/skills/art/SKILL.md"},
+		{"agent", configurator.ProviderClaudeCode, true, ".claude/agents/art.md"},
+		{"agent", configurator.ProviderOpenCode, true, ".opencode/agent/art.md"},
+		{"agent", configurator.ProviderCodex, true, ".codex/agents/art.toml"},
+		{"agent", configurator.ProviderKiro, true, ".kiro/agents/art.json"},
+		{"agent", configurator.ProviderAntigravity, true, ".gemini/config/agents/art.md"},
+		{"hook", configurator.ProviderClaudeCode, true, ".claude/hooks/art/hook.json"},
+		{"hook", configurator.ProviderOpenCode, true, ".opencode/hooks/art/hook.json"},
+		{"hook", configurator.ProviderCodex, true, ".codex/hooks/art/hook.json"},
 		// kiro keeps no hook cell: the shipped client has no hook mechanism at
 		// all, verified empirically against 2.21.3 (D195).
 		{"hook", configurator.ProviderKiro, false, ""},
-		{"hook", configurator.ProviderAntigravity, true, filepath.Join(".gemini", "config", "hooks", "art", "hook.json")},
+		{"hook", configurator.ProviderAntigravity, true, ".gemini/config/hooks/art/hook.json"},
 	}
 
 	for _, c := range cases {
@@ -604,8 +605,8 @@ func TestApply_Prune_AgentHook(t *testing.T) {
 		AppliedRevision: "rev-old",
 		Provider:        "claude",
 		Managed: []provisioning.ManagedFile{
-			{Kind: "agent", Name: "old", Path: filepath.Join(".claude", "agents", "old.md"), ContentHash: "h1"},
-			{Kind: "hook", Name: "old-hook", Path: filepath.Join(".claude", "hooks", "old-hook", "hook.json"), ContentHash: "h2"},
+			{Kind: "agent", Name: "old", Path: ".claude/agents/old.md", ContentHash: "h1"},
+			{Kind: "hook", Name: "old-hook", Path: ".claude/hooks/old-hook/hook.json", ContentHash: "h2"},
 		},
 	}
 

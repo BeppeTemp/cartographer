@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/BeppeTemp/cartographer/internal/execbit"
 	"github.com/BeppeTemp/cartographer/internal/okf"
 )
 
@@ -144,7 +145,7 @@ func (kb *KB) ReadAsset(id okf.ConceptID, assetPath string) ([]byte, AssetEntry,
 	if err != nil {
 		return nil, AssetEntry{}, fmt.Errorf("ReadAsset %s: %w", assetPath, err)
 	}
-	return data, AssetEntry{Path: filepath.ToSlash(assetPath), Size: info.Size(), SHA256: assetHash(data), Executable: info.Mode()&0o111 != 0}, nil
+	return data, AssetEntry{Path: filepath.ToSlash(assetPath), Size: info.Size(), SHA256: assetHash(data), Executable: execbit.IsExecutable(info.Mode())}, nil
 }
 
 // WriteAsset creates or overwrites an owned asset using the raw-byte sha256
@@ -196,7 +197,7 @@ func (kb *KB) WriteAsset(id okf.ConceptID, assetPath string, data []byte, ifMatc
 	if err := os.Chmod(abs, mode); err != nil {
 		return AssetEntry{}, fmt.Errorf("WriteAsset %s: chmod: %w", assetPath, err)
 	}
-	return AssetEntry{Path: filepath.ToSlash(assetPath), Size: int64(len(data)), SHA256: assetHash(data), Executable: mode&0o111 != 0}, nil
+	return AssetEntry{Path: filepath.ToSlash(assetPath), Size: int64(len(data)), SHA256: assetHash(data), Executable: execbit.IsExecutable(mode)}, nil
 }
 
 // ListAssets returns all regular, non-Markdown files below an expanded concept.
@@ -245,7 +246,7 @@ func (kb *KB) ListAssets(id okf.ConceptID) ([]AssetEntry, error) {
 		if err != nil {
 			return err
 		}
-		entries = append(entries, AssetEntry{Path: filepath.ToSlash(rel), Size: info.Size(), SHA256: assetHash(data), Executable: info.Mode()&0o111 != 0})
+		entries = append(entries, AssetEntry{Path: filepath.ToSlash(rel), Size: info.Size(), SHA256: assetHash(data), Executable: execbit.IsExecutable(info.Mode())})
 		return nil
 	})
 	if err != nil {

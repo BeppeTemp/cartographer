@@ -683,8 +683,8 @@ func TestReferenceCorpusIsSane(t *testing.T) {
 		filepath.Join("docs", "decisions", "D206-d163-was-a-copied-off-by-one-not-a-missing-record.md"),
 		filepath.Join("internal", "mcpserver", "AGENTS.md"),
 		filepath.Join("internal", "provisioning", "provisioning.go"),
-		filepath.Join(".agents", "skills", "implement-issue", "SKILL.md"),
-		filepath.Join(".github", "ISSUE_TEMPLATE", "plan.md"),
+		".agents/skills/implement-issue/SKILL.md",
+		".github/ISSUE_TEMPLATE/plan.md",
 		filepath.Join("test", "e2e", "scenarios", "03_config_opencode.sh"),
 		"config.example.yaml",
 	} {

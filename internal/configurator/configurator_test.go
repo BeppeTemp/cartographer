@@ -182,7 +182,7 @@ func TestEmitAntigravity_HTTP_NoAuth(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	wantPath := filepath.Join(".gemini", "config", "mcp_config.json")
+	wantPath := ".gemini/config/mcp_config.json"
 	if r.FilePath != wantPath {
 		t.Errorf("FilePath = %q, want %q", r.FilePath, wantPath)
 	}

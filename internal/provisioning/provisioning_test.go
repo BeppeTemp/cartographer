@@ -11,6 +11,7 @@ import (
 	"testing/fstest"
 
 	"github.com/BeppeTemp/cartographer/internal/configurator"
+	"github.com/BeppeTemp/cartographer/internal/execbit"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
 	"github.com/BeppeTemp/cartographer/internal/skillbundle"
 )
@@ -225,7 +226,7 @@ func TestBuildManifest_ExecutableSkillChangesHashAndApplyMode(t *testing.T) {
 		t.Fatal(err)
 	}
 	info, err := os.Stat(filepath.Join(base, ".claude", "skills", "run", "run.sh"))
-	if err != nil || info.Mode()&0o111 == 0 {
+	if err != nil || (execbit.Supported && info.Mode()&0o111 == 0) {
 		t.Fatalf("materialized script mode = %v, %v", info.Mode(), err)
 	}
 	if err := os.Chmod(script, 0o644); err != nil {
@@ -281,7 +282,7 @@ func TestApply_CorrectsExecutableModeDriftWithoutDryRunMutation(t *testing.T) {
 		t.Fatalf("Apply correcting mode drift: %v", err)
 	}
 	info, err := os.Stat(script)
-	if err != nil || info.Mode()&0o111 == 0 {
+	if err != nil || (execbit.Supported && info.Mode()&0o111 == 0) {
 		t.Fatalf("Apply did not restore executable mode: %v, %v", info.Mode(), err)
 	}
 

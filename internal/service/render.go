@@ -11,6 +11,7 @@ package service
 
 import (
 	"fmt"
+	"path"
 	"path/filepath"
 	"strings"
 )
@@ -45,7 +46,11 @@ func servicePATH(binPath string) string {
 		dirs = append(dirs, d)
 	}
 	if binPath != "" {
-		add(filepath.Dir(binPath))
+		// The result is the PATH of a launchd job or a systemd user unit, so it
+		// is a unix path list whatever host renders it: splitting the binary's
+		// directory off with the host's separator would spell it with
+		// backslashes when the definition is generated from Windows.
+		add(path.Dir(filepath.ToSlash(binPath)))
 	}
 	for _, d := range packageManagerPrefixes {
 		add(d)

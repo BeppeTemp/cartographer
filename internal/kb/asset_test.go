@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/BeppeTemp/cartographer/internal/execbit"
 	"github.com/BeppeTemp/cartographer/internal/okf"
 )
 
@@ -76,14 +77,14 @@ func TestAssetOverwriteModesDeleteAndWalk(t *testing.T) {
 	k := expandedAssetKB(t)
 	trueValue, falseValue := true, false
 	first, err := k.WriteAsset("map/owner", "nested/tool.sh", []byte("#!/bin/sh\n"), "", &trueValue)
-	if err != nil || !first.Executable {
+	if err != nil || (execbit.Supported && !first.Executable) {
 		t.Fatalf("create executable: %+v %v", first, err)
 	}
 	if _, err := k.WriteAsset("map/owner", "nested/tool.sh", []byte("new"), "wrong", nil); !errors.Is(err, okf.ErrStaleWrite) {
 		t.Fatalf("mismatch: expected ErrStaleWrite, got %v", err)
 	}
 	second, err := k.WriteAsset("map/owner", "nested/tool.sh", []byte("new"), first.SHA256, nil)
-	if err != nil || !second.Executable {
+	if err != nil || (execbit.Supported && !second.Executable) {
 		t.Fatalf("preserve mode: %+v %v", second, err)
 	}
 	third, err := k.WriteAsset("map/owner", "nested/tool.sh", []byte("newer"), second.SHA256, &falseValue)
