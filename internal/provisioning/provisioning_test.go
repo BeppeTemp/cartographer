@@ -192,6 +192,9 @@ func TestBuildManifest_KBSkillUnsignedWithoutSigner(t *testing.T) {
 }
 
 func TestBuildManifest_ExecutableSkillChangesHashAndApplyMode(t *testing.T) {
+	if !execbit.Supported {
+		t.Skip("the whole test is the effect of a chmod on the artifact hash; this filesystem carries no execute bit, so a chmod changes nothing to hash")
+	}
 	kbRoot := t.TempDir()
 	skillDir := filepath.Join(kbRoot, "skills", "run")
 	if err := os.MkdirAll(skillDir, 0o755); err != nil {
@@ -218,7 +221,7 @@ func TestBuildManifest_ExecutableSkillChangesHashAndApplyMode(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if execbit.Supported && !files[1].Executable {
+	if !files[1].Executable {
 		t.Fatal("script executable bit was not read")
 	}
 	base := t.TempDir()

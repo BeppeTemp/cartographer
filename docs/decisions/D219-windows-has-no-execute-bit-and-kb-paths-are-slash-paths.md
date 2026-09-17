@@ -55,8 +55,9 @@ rather than to hide.
 
 - *Skip the failing tests on Windows.* The plan allows a skip whose reason is
   specific to what is asserted; it does not allow one whose reason is "Windows".
-  Only two skips are left: a file that is readable but not executable cannot
-  exist where there is no execute bit.
+  What is skipped there is skipped for what it asserts: a file that is readable
+  but not executable cannot exist where there is no execute bit, and a `chmod`
+  there changes nothing an artifact hash could see.
 - *Emulate the execute bit out of band* (an attribute, a sidecar file). A second
   source of truth for a permission, to be kept in sync with the KB, with nothing
   on Windows that would consume it.

@@ -42,10 +42,10 @@ legs. So does the rest of the suite: the Windows leg is the whole of `make gate`
 not a subset.
 
 A test that asserts on a POSIX file mode is written `execbit.Supported && ...`,
-because the Windows filesystem has no execute bit (D219). The two skips that
-remain on that leg say what they are about — there is no bit to remove, so a
-`chmod` is not drift; a file that is readable but not executable cannot exist —
-and a skip whose reason is a platform name is not accepted.
+because the Windows filesystem has no execute bit (D219). A skip on that leg
+states what it is about — there is no bit to set or remove, so a `chmod` changes
+nothing and a file that is readable but not executable cannot exist — and a skip
+whose reason is a platform name is not accepted.
 
 Provisioning signature coverage includes deterministic Ed25519 envelopes, strict
 key parsing and identity separation, plus remote `sync_pull` verification and
