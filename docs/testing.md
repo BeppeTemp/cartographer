@@ -29,11 +29,14 @@ and a separate `test-windows` job on `windows-latest`
 The Windows job is separate rather than a matrix leg on `test` because the
 required check on `main` is named literally `test`, which a matrix would rename.
 It sets `shell: bash` for every step — the Makefile recipes are POSIX shell — and
-installs `make`, which is not on the runner image. Compiling for Windows is part
-of the gate for the same reason: the per-KB lock and the process-liveness check
-are the only platform-specific code in the module (`internal/kb/lockfile_unix.go`,
-`internal/kb/lockfile_windows.go`), and both are covered by tests that run on
-both legs.
+installs `make`, which is not on the runner image. The working tree is LF on both
+legs (`.gitattributes`): gofmt is line-ending-sensitive, so a CRLF checkout fails
+`fmt-check` on every file at once.
+
+The platform-specific code is the per-KB lock and the process-liveness check
+(`internal/kb/lockfile_unix.go`, `internal/kb/lockfile_windows.go`), and the tests
+that assert their contract — the holder stays nameable, a dead pid is reclaimed,
+a non-contention error fails fast — run on both legs.
 
 Provisioning signature coverage includes deterministic Ed25519 envelopes, strict
 key parsing and identity separation, plus remote `sync_pull` verification and
@@ -237,7 +240,7 @@ GoReleaser environment, which is out of the deterministic gate (see below).
 - The shell harnesses on Windows: `make smoke-http`, `make e2e` and
   `make test-install` are POSIX `sh` scripts (`test/smoke/`, `test/e2e/`,
   `test/install/`) driving a launchd/systemd install path, so they run on the
-  ubuntu leg only. The Windows leg gates the Go code — compilation included.
+  ubuntu leg only.
 
 These belong to production validation or an explicit release exercise, not to
 the deterministic repository gate.
