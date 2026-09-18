@@ -74,7 +74,17 @@ Cartographers end up on `PATH`.
   the previous binary.
 - POSIX installer (Linux, macOS without Homebrew): `install.sh update`, which runs
   `upgrade-repair` the same way.
-- Kubernetes: update the Cartographer image tag in the deployment manifest and wait for rollout.
+- Kubernetes: update the Cartographer image tag in the deployment manifest and push it, then
+  end on a **verified image**, not on a rollout:
+  1. Wait for the manifest to be applied to the cluster — immediately if you apply it yourself,
+     otherwise by the GitOps controller that owns the manifests repo, if there is one, which may
+     lag by its reconcile interval.
+  2. Verify the Deployment carries the new tag —
+     `kubectl get deploy/cartographer -o jsonpath='{.spec.template.spec.containers[0].image}'` —
+     **before** waiting for rollout. Until it does, `kubectl rollout status` returns success in
+     under a second, truthfully, about the old ReplicaSet that has nothing left to roll out.
+  3. Then wait for rollout, and confirm with the version the server reports: `cartographer status`
+     prints it as `server vX`.
 
 **Removing it on Windows has an order that nothing enforces.** `winget uninstall` runs no
 Cartographer code, so a registered Scheduled Task survives it and is left pointing at an
