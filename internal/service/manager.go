@@ -40,7 +40,8 @@ type runFunc func(name string, args ...string) (string, error)
 var osExecutable = os.Executable
 
 // Manager installs, starts, stops, and reports on the cartographer server
-// native service (launchd on macOS, systemd user unit on Linux).
+// native service (launchd on macOS, systemd user unit on Linux, a per-user
+// Scheduled Task on Windows).
 type Manager struct {
 	run runFunc
 }
@@ -140,6 +141,10 @@ func (m *Manager) Install(opts InstallOptions) ([]string, error) {
 		if err := m.installLinux(binPath, configPath); err != nil {
 			return warnings, err
 		}
+	case "windows":
+		if err := m.installWindows(binPath, configPath); err != nil {
+			return warnings, err
+		}
 	default:
 		return warnings, fmt.Errorf("service: unsupported platform %q", goos)
 	}
@@ -225,6 +230,16 @@ func (m *Manager) Uninstall() error {
 		}
 		_, err = m.run("systemctl", "--user", "daemon-reload")
 		return err
+	case "windows":
+		taskPath, err := WindowsTaskPath()
+		if err != nil {
+			return fmt.Errorf("service: resolve task path: %w", err)
+		}
+		m.unregisterWindowsTask(windowsServeTaskName)
+		if err := os.Remove(taskPath); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("service: remove task definition: %w", err)
+		}
+		return nil
 	default:
 		return fmt.Errorf("service: unsupported platform %q", goos)
 	}
@@ -251,6 +266,24 @@ func (m *Manager) Start() error {
 	case "linux":
 		_, err := m.run("systemctl", "--user", "start", systemdUnit)
 		return err
+	case "windows":
+		// Registering first when the scheduler does not know the task is the
+		// analogue of the bootstrap-then-kickstart fallback above: a task
+		// unregistered by an older uninstall, or by hand, must still be
+		// startable from the definition on disk.
+		if !m.windowsTaskRegistered(windowsServeTaskName) {
+			taskPath, err := WindowsTaskPath()
+			if err != nil {
+				return fmt.Errorf("service: resolve task path: %w", err)
+			}
+			if _, err := os.Stat(taskPath); err != nil {
+				return fmt.Errorf("service: no task definition at %s (run `cartographer service install`)", taskPath)
+			}
+			if err := m.registerWindowsTask(windowsServeTaskName, taskPath); err != nil {
+				return err
+			}
+		}
+		return m.startWindowsTask(windowsServeTaskName)
 	default:
 		return fmt.Errorf("service: unsupported platform %q", goos)
 	}
@@ -274,6 +307,8 @@ func (m *Manager) Stop() error {
 	case "linux":
 		_, err := m.run("systemctl", "--user", "stop", systemdUnit)
 		return err
+	case "windows":
+		return m.stopWindowsTask(windowsServeTaskName)
 	default:
 		return fmt.Errorf("service: unsupported platform %q", goos)
 	}
@@ -296,6 +331,17 @@ func (m *Manager) Restart() error {
 	case "linux":
 		_, err := m.run("systemctl", "--user", "restart", systemdUnit)
 		return err
+	case "windows":
+		// Stop disables the task, so a restart that did not re-enable it would
+		// stop the server and leave it stopped — the D156 regression in the
+		// shape this platform takes it. startWindowsTask enables first, so the
+		// pair below is enough. The stop is best-effort: stopping a task that is
+		// not running is not a failure to restart it.
+		if !m.windowsTaskRegistered(windowsServeTaskName) {
+			return m.Start()
+		}
+		m.powershell(fmt.Sprintf("Stop-ScheduledTask %s", taskSelector(windowsServeTaskName)))
+		return m.startWindowsTask(windowsServeTaskName)
 	default:
 		return fmt.Errorf("service: unsupported platform %q", goos)
 	}
@@ -353,6 +399,23 @@ func (m *Manager) EffectiveConfigPath(explicit string) (string, error) {
 		cfgPath, err := extractUnitConfigPath(data)
 		if err != nil {
 			return "", fmt.Errorf("service: installed unit %s does not declare a usable config: %w", unitPath, err)
+		}
+		return cfgPath, nil
+	case "windows":
+		taskPath, err := WindowsTaskPath()
+		if err != nil {
+			return "", fmt.Errorf("service: resolve task path: %w", err)
+		}
+		data, err := os.ReadFile(taskPath)
+		if err != nil {
+			if os.IsNotExist(err) {
+				return ConfigPath()
+			}
+			return "", fmt.Errorf("service: read installed task definition %s: %w", taskPath, err)
+		}
+		cfgPath, err := extractTaskConfigPath(data)
+		if err != nil {
+			return "", fmt.Errorf("service: installed task definition %s does not declare a usable config: %w", taskPath, err)
 		}
 		return cfgPath, nil
 	default:
@@ -467,6 +530,9 @@ func versionSatisfies(observed, expected string) bool {
 // manager's supervisor (launchd KeepAlive / systemd Restart=on-failure)
 // relaunches it: SIGTERM lets serve.go drain in-flight HTTP requests before
 // exiting, unlike Restart's launchctl kickstart -k.
+//
+// Windows has neither the signal nor the supervisor, so its branch does both
+// halves itself — see drainWindowsTask.
 func (m *Manager) signalGraceful() error {
 	switch goos {
 	case "darwin":
@@ -475,6 +541,8 @@ func (m *Manager) signalGraceful() error {
 	case "linux":
 		_, err := m.run("systemctl", "--user", "restart", systemdUnit)
 		return err
+	case "windows":
+		return m.drainWindowsTask()
 	default:
 		return fmt.Errorf("service: unsupported platform %q", goos)
 	}
@@ -599,9 +667,9 @@ const (
 //
 // Running reports that the service is registered with the init system: on
 // darwin `launchctl print` on the label succeeded, on linux `systemctl
-// --user is-active`. On darwin that proves the job is loaded and known to
-// launchd, NOT that a process is currently alive. Callers must not present
-// it as a liveness probe.
+// --user is-active`, on Windows `Get-ScheduledTask` on the task. On darwin and
+// on Windows that proves the job is known to the scheduler, NOT that a process
+// is currently alive. Callers must not present it as a liveness probe.
 type Status struct {
 	BinPath          string
 	ConfigPath       string
@@ -614,12 +682,12 @@ type Status struct {
 	Lifecycle        Lifecycle
 }
 
-// Status inspects the service: whether its plist/unit is installed, whether
-// the init system knows it (launchctl print / systemctl is-active), and
-// whether its /health endpoint responds (read from the config YAML's http
-// address). The probe is best-effort and reports whether it ran: an absent,
-// unreadable or stdio-transport config leaves HealthChecked false with a
-// reason, never a bare Healthy: false.
+// Status inspects the service: whether its plist/unit/task definition is
+// installed, whether the scheduler knows it (launchctl print / systemctl
+// is-active / Get-ScheduledTask), and whether its /health endpoint responds
+// (read from the config YAML's http address). The probe is best-effort and
+// reports whether it ran: an absent, unreadable or stdio-transport config
+// leaves HealthChecked false with a reason, never a bare Healthy: false.
 func (m *Manager) Status(configPath string) (Status, error) {
 	var st Status
 	st.ConfigPath = configPath
@@ -657,6 +725,19 @@ func (m *Manager) Status(configPath string) (Status, error) {
 		if _, err := m.run("systemctl", "--user", "is-active", systemdUnit); err == nil {
 			st.Running = true
 		}
+	case "windows":
+		taskPath, err := WindowsTaskPath()
+		if err != nil {
+			return st, fmt.Errorf("service: resolve task path: %w", err)
+		}
+		if _, err := os.Stat(taskPath); err == nil {
+			st.Installed = true
+		}
+		// Registered, not alive — the same thing `launchctl print` proves. A
+		// task's State would even distinguish Ready from Running, which is more
+		// than launchd reports; conflating the two here would make Running mean
+		// something different on this platform than on the other two.
+		st.Running = m.windowsTaskRegistered(windowsServeTaskName)
 	default:
 		return st, fmt.Errorf("service: unsupported platform %q", goos)
 	}

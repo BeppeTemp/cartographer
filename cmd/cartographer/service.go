@@ -27,15 +27,16 @@ const (
 
 // serviceRestartFn/serviceReplaceFn are indirected through package-level vars
 // so cmdServiceRestart's dispatch (plain restart vs --wait's graceful,
-// version-gated replacement) is testable without a real launchctl/systemctl
-// or a live /health endpoint.
+// version-gated replacement) is testable without a real launchctl/systemctl/task
+// scheduler or a live /health endpoint.
 var (
 	serviceRestartFn = func() error { return service.NewManager().Restart() }
 	serviceReplaceFn = func(opts service.ReplaceOptions) error { return service.NewManager().Replace(opts) }
 )
 
 // cmdService manages the cartographer MCP server as a native per-user
-// service: launchd on macOS, a systemd user unit on Linux.
+// service: launchd on macOS, a systemd user unit on Linux, a Scheduled Task on
+// Windows (D217).
 func cmdService(args []string) int {
 	if len(args) == 1 && (args[0] == "-h" || args[0] == "--help") {
 		printServiceUsage(os.Stdout)
@@ -68,10 +69,16 @@ func cmdService(args []string) int {
 func printServiceUsage(w io.Writer) {
 	fmt.Fprintln(w, "Usage: cartographer service <install|uninstall|start|stop|restart|status> [flags]")
 	fmt.Fprintln(w, "       cartographer service sync-timer <install|uninstall|status> [--interval <duration>]")
+	// Naming the three implementations is not trivia: it is what tells an
+	// operator which tool to look with when they want to see the service
+	// outside Cartographer — launchctl, systemctl, or the Task Scheduler.
+	fmt.Fprintln(w, "")
+	fmt.Fprintln(w, "The service is per-user and native: a launchd agent on macOS, a systemd user unit")
+	fmt.Fprintln(w, "on Linux, a Scheduled Task on Windows. None of them needs administrator rights.")
 }
 
 // syncTimerFns are indirected so the dispatch is testable without a real
-// launchctl/systemctl.
+// launchctl/systemctl/PowerShell.
 var (
 	syncTimerInstallFn   = func(interval time.Duration) error { return service.NewManager().InstallSyncTimer(interval) }
 	syncTimerUninstallFn = func() error { return service.NewManager().UninstallSyncTimer() }
@@ -80,8 +87,8 @@ var (
 
 // cmdServiceSyncTimer manages the scheduled client sync (D140): the supported
 // trigger for providers with no session hook. Opt-in and explicit —
-// installing a launchd agent or a systemd user unit behind the user's back on
-// `connect` would be out of proportion.
+// installing a launchd agent, a systemd user unit or a Scheduled Task behind the
+// user's back on `connect` would be out of proportion.
 func cmdServiceSyncTimer(args []string) int {
 	action, rest := splitPositional(args, "")
 	switch action {
