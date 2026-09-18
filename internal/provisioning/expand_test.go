@@ -110,6 +110,11 @@ func TestExpandHomePath(t *testing.T) {
 	if got := expandHomePath("~/design"); got != filepath.Join(home, "design") {
 		t.Errorf("expandHomePath(~/design) = %q, want %q", got, filepath.Join(home, "design"))
 	}
+	// Either separator, on every platform (D216 WP5): before this, a Windows-
+	// spelled paths: entry became a literal non-existent path with no message.
+	if got := expandHomePath(`~\design`); got != filepath.Join(home, "design") {
+		t.Errorf(`expandHomePath(~\design) = %q, want %q`, got, filepath.Join(home, "design"))
+	}
 	if got := expandHomePath("/mnt/design"); got != "/mnt/design" {
 		t.Errorf("expandHomePath(/mnt/design) = %q, want unchanged", got)
 	}

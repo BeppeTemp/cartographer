@@ -80,7 +80,7 @@ func TestScanFindsRepos(t *testing.T) {
 	os.MkdirAll(skipped, 0o755)
 	writeGitRepo(t, skipped, "git@github.com:acme/should-not-be-found.git")
 
-	idx, err := Scan([]string{root}, 0)
+	idx, _, err := Scan([]string{root}, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -105,7 +105,7 @@ func TestScanDepthCap(t *testing.T) {
 	os.MkdirAll(deep, 0o755)
 	writeGitRepo(t, deep, "git@github.com:acme/too-deep.git")
 
-	idx, err := Scan([]string{root}, 0)
+	idx, _, err := Scan([]string{root}, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -419,15 +419,65 @@ func TestExpandHome(t *testing.T) {
 	userHomeDir = func() (string, error) { return home, nil }
 	defer func() { userHomeDir = os.UserHomeDir }()
 
-	if got := expandHome("~"); got != home {
-		t.Errorf("expandHome(~) = %q, want %q", got, home)
+	cases := []struct {
+		in, want string
+	}{
+		{"~", home},
+		{"~/Documents", filepath.Join(home, "Documents")},
+		// Either separator, on every platform: the same .cartographer.yaml is
+		// read wherever the client runs, and before this a Windows-spelled root
+		// became a literal non-existent path with no message to say so (D216).
+		{`~\Documents`, filepath.Join(home, "Documents")},
+		{"/etc/foo", "/etc/foo"},
+		{"x", "x"},
+		// "~name" is another user's home, which a config entry never means.
+		{"~other", "~other"},
 	}
-	want := filepath.Join(home, "Documents")
-	if got := expandHome("~/Documents"); got != want {
-		t.Errorf("expandHome(~/Documents) = %q, want %q", got, want)
+	for _, c := range cases {
+		if got := ExpandHome(c.in); got != c.want {
+			t.Errorf("ExpandHome(%q) = %q, want %q", c.in, got, c.want)
+		}
 	}
-	if got := expandHome("/etc/foo"); got != "/etc/foo" {
-		t.Errorf("expandHome(/etc/foo) = %q, want unchanged", got)
+}
+
+// A configured search root that is not there must say so by name: the only
+// message the user used to get came from Resolve and talked about directory
+// depth, which sends them to raise search_depth for a typo in a root (D216).
+func TestScanWarnsOnAnUnusableRootAndScansTheRest(t *testing.T) {
+	good := t.TempDir()
+	repo := filepath.Join(good, "live")
+	if err := os.MkdirAll(repo, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeGitRepo(t, repo, "git@github.com:owner/live.git")
+	missing := filepath.Join(t.TempDir(), "does-not-exist")
+
+	idx, warnings, err := Scan([]string{missing, good}, 0)
+	if err != nil {
+		t.Fatalf("Scan: %v", err)
+	}
+	if len(warnings) != 1 || !strings.Contains(warnings[0], missing) {
+		t.Fatalf("warnings = %v, want exactly one naming %q", warnings, missing)
+	}
+	if _, ok := idx.Repos["github.com/owner/live"]; !ok {
+		t.Errorf("Repos = %v, want the good root still scanned", idx.Repos)
+	}
+}
+
+// A root that exists but is a file, not a directory, is the same class of
+// configuration mistake and must be named the same way.
+func TestScanWarnsOnARootThatIsNotADirectory(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, "roots.txt")
+	if err := os.WriteFile(file, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, warnings, err := Scan([]string{file}, 0)
+	if err != nil {
+		t.Fatalf("Scan: %v", err)
+	}
+	if len(warnings) != 1 || !strings.Contains(warnings[0], file) {
+		t.Fatalf("warnings = %v, want exactly one naming %q", warnings, file)
 	}
 }
 

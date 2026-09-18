@@ -221,3 +221,139 @@ func TestDetect_AntigravityConfigDirFallback(t *testing.T) {
 		}
 	}
 }
+
+// D216 WP8. %APPDATA%\opencode is where a Windows install keeps OpenCode's
+// configuration, and neither home-relative entry (.config/opencode, .opencode)
+// can name it: ConfigDirs are joined against the home directory, full stop. The
+// env-anchored candidate is the only way to express it.
+func TestDetect_EnvAnchoredConfigDirOnWindows(t *testing.T) {
+	home := t.TempDir()
+	appData := t.TempDir()
+	dir := filepath.Join(appData, "opencode")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	withStubs(t, home, nil, "windows")
+	withEnv(t, map[string]string{"APPDATA": appData})
+
+	for _, a := range Detect() {
+		if a.Provider != configurator.ProviderOpenCode {
+			continue
+		}
+		if !a.Installed || a.Evidence != dir {
+			t.Fatalf("opencode: expected Installed=true evidence=%q, got %+v", dir, a)
+		}
+		return
+	}
+	t.Fatal("opencode missing from Detect() results")
+}
+
+// An env-anchored candidate whose variable is unset is skipped: that is what
+// makes declaring a Windows location free everywhere else, and it is what keeps
+// this change purely additive.
+func TestDetect_EnvAnchoredConfigDirIsSkippedWhenUnset(t *testing.T) {
+	home := t.TempDir()
+	withStubs(t, home, nil, "linux")
+	for _, a := range Detect() {
+		if a.Provider == configurator.ProviderOpenCode && a.Installed {
+			t.Fatalf("opencode: expected not installed with APPDATA unset, got %+v", a)
+		}
+	}
+}
+
+// The application directory is now per-GOOS instead of darwin-only. The
+// invariant is that it stays a *bonus*: a GOOS the registry says nothing about
+// simply has no such probe, and none of the darwin answers changed.
+func TestDetect_AppDirIsPerGOOS(t *testing.T) {
+	home := t.TempDir()
+	appDir := t.TempDir()
+
+	// A descriptor that declares an app dir only for one GOOS is detected there
+	// and not elsewhere. Driven through detect() with a synthetic descriptor, so
+	// the assertion does not depend on /Applications existing on the test host.
+	d := configurator.Descriptor{
+		Provider:    configurator.ProviderKiro,
+		DisplayName: "Kiro",
+		AppDirs:     map[string]string{"darwin": appDir},
+	}
+
+	withStubs(t, home, nil, "darwin")
+	if a := detect(d, home); !a.Installed || a.Evidence != appDir {
+		t.Errorf("darwin: expected detection from the app dir %q, got %+v", appDir, a)
+	}
+
+	withStubs(t, home, nil, "windows")
+	if a := detect(d, home); a.Installed {
+		t.Errorf("windows: a darwin-only app dir must not be evidence, got %+v", a)
+	}
+}
+
+// The additive invariant, stated as a test rather than as a promise: every
+// descriptor that ships a darwin application directory must still ship exactly
+// the same path, and no descriptor may have lost a binary or a config dir.
+// Detection may only gain true positives (D216 WP8).
+func TestDescriptorsKeepTheirUnixDetection(t *testing.T) {
+	wantAppDirs := map[configurator.Provider]string{
+		configurator.ProviderKiro:        "/Applications/Kiro.app",
+		configurator.ProviderAntigravity: "/Applications/Antigravity.app",
+	}
+	wantConfigDirs := map[configurator.Provider][][]string{
+		configurator.ProviderClaudeCode:  {{".claude"}},
+		configurator.ProviderCodex:       {{".codex"}},
+		configurator.ProviderKiro:        {{".kiro"}},
+		configurator.ProviderOpenCode:    {{".config", "opencode"}, {".opencode"}},
+		configurator.ProviderAntigravity: {{".gemini", "config"}, {".gemini", "antigravity"}, {".gemini", "antigravity-cli"}},
+	}
+	wantBinaries := map[configurator.Provider][]string{
+		configurator.ProviderClaudeCode:  {"claude"},
+		configurator.ProviderCodex:       {"codex"},
+		configurator.ProviderKiro:        {"kiro", "kiro-cli"},
+		configurator.ProviderHermes:      {"hermes"},
+		configurator.ProviderOpenCode:    {"opencode"},
+		configurator.ProviderAntigravity: {"agy"},
+	}
+
+	for _, d := range configurator.Providers() {
+		if want, ok := wantAppDirs[d.Provider]; ok {
+			if got := d.AppDirs["darwin"]; got != want {
+				t.Errorf("%s: AppDirs[darwin] = %q, want %q", d.Provider, got, want)
+			}
+		} else if len(d.AppDirs) != 0 {
+			t.Errorf("%s: gained AppDirs %v — an unconfirmed location is a false positive", d.Provider, d.AppDirs)
+		}
+		if want, ok := wantConfigDirs[d.Provider]; ok {
+			if !sameSegments(d.ConfigDirs, want) {
+				t.Errorf("%s: ConfigDirs = %v, want %v", d.Provider, d.ConfigDirs, want)
+			}
+		} else if len(d.ConfigDirs) != 0 {
+			t.Errorf("%s: unexpected ConfigDirs %v", d.Provider, d.ConfigDirs)
+		}
+		if want := wantBinaries[d.Provider]; !sameStrings(d.Binaries, want) {
+			t.Errorf("%s: Binaries = %v, want %v", d.Provider, d.Binaries, want)
+		}
+	}
+}
+
+func sameStrings(got, want []string) bool {
+	if len(got) != len(want) {
+		return false
+	}
+	for i := range got {
+		if got[i] != want[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func sameSegments(got, want [][]string) bool {
+	if len(got) != len(want) {
+		return false
+	}
+	for i := range got {
+		if !sameStrings(got[i], want[i]) {
+			return false
+		}
+	}
+	return true
+}

@@ -121,19 +121,55 @@ func SaveCache(idx *Index) error {
 	return nil
 }
 
-// Scan walks roots (each expanded for a leading "~", see expandHome) up to
+// Scan walks roots (each expanded for a leading "~", see ExpandHome) up to
 // depthCap levels deep, skipping hidden directories and heavyDirs. Every
 // directory containing a .git entry is treated as a repo root: its origin
 // remote (if any) is read and normalized, and the directory recorded under
 // that canonical key. Scan does not descend into a repo's own working tree
 // once found. A directory with no readable/parseable origin remote is
 // silently skipped — not every clone has one, and that is not a scan error.
-func Scan(roots []string, maxDepth int) (*Index, error) {
+//
+// A configured root that does not exist, or that cannot be read, is reported as
+// a warning naming the root and the OS error, and the remaining roots are still
+// scanned. A warning and not an error on purpose: a machine-local config may
+// legitimately list a root that only exists on another machine, and failing the
+// whole sync for it would be worse than the silence this replaces — while the
+// silence itself was the actual defect, because the only message the user ever
+// saw was Resolve's, which talks about directory depth.
+func Scan(roots []string, maxDepth int) (*Index, []string, error) {
 	idx := &Index{Roots: roots, Repos: map[RemoteKey][]string{}}
+	var warnings []string
 	for _, root := range roots {
-		walkDir(expandHome(root), 0, EffectiveDepth(maxDepth), idx)
+		expanded := ExpandHome(root)
+		if err := checkSearchRoot(expanded); err != nil {
+			// %s, not %q: Go's quoted form escapes every separator, so a Windows
+			// root is printed back at the operator as C:\\Users\\… — a path they
+			// never wrote and cannot paste.
+			warnings = append(warnings, fmt.Sprintf("repoindex: search root %s is not usable: %v", root, err))
+			continue
+		}
+		walkDir(expanded, 0, EffectiveDepth(maxDepth), idx)
 	}
-	return idx, nil
+	return idx, warnings, nil
+}
+
+// checkSearchRoot reports why a configured search root cannot be walked: it does
+// not exist, is not a directory, or its entries cannot be listed. Only the root
+// is checked this way — walkDir keeps discarding the error of a directory it
+// meets *inside* the walk, where an unreadable subdirectory is ordinary and
+// naming every one of them would drown the one message that matters.
+func checkSearchRoot(dir string) error {
+	fi, err := os.Stat(dir)
+	if err != nil {
+		return err
+	}
+	if !fi.IsDir() {
+		return fmt.Errorf("not a directory")
+	}
+	if _, err := os.ReadDir(dir); err != nil {
+		return err
+	}
+	return nil
 }
 
 // EffectiveDepth normalises a configured depth: zero or negative means the
@@ -336,7 +372,7 @@ func lookupIndex(idx *Index, key string) (string, []string, error) {
 // resolved.
 func Resolve(key string, manualPaths map[string]string, roots []string, maxDepth int) (string, []string, error) {
 	if p, ok := manualPaths[key]; ok {
-		return expandHome(p), nil, nil
+		return ExpandHome(p), nil, nil
 	}
 
 	if idx, err := LoadCache(); err == nil && rootsMatch(idx.Roots, roots) {
@@ -349,24 +385,27 @@ func Resolve(key string, manualPaths map[string]string, roots []string, maxDepth
 		}
 	}
 
-	idx, err := Scan(roots, maxDepth)
+	idx, rootWarnings, err := Scan(roots, maxDepth)
 	if err != nil {
 		return "", nil, err
 	}
 	_ = SaveCache(idx) // best-effort: resolution proceeds even if the cache can't be persisted
 
 	path, warnings, err := lookupIndex(idx, key)
+	// A bad root is surfaced even when the resolution failed: it is usually the
+	// reason it failed, and the error below can only talk about depth.
+	warnings = append(rootWarnings, warnings...)
 	if err != nil {
 		if errors.Is(err, errNotIndexed) {
-			return "", nil, fmt.Errorf("repoindex: repo %q not found within %d directory levels of search roots %v — raise search_depth (max %d) or add a closer root in .cartographer.yaml", key, EffectiveDepth(maxDepth), roots, MaxDepth)
+			return "", warnings, fmt.Errorf("repoindex: repo %q not found within %d directory levels of search roots %v — raise search_depth (max %d) or add a closer root in .cartographer.yaml", key, EffectiveDepth(maxDepth), roots, MaxDepth)
 		}
-		return "", nil, err
+		return "", warnings, err
 	}
 	return path, warnings, nil
 }
 
 // rootsMatch reports whether the cached search roots are still the ones
-// Resolve was called with, once each element is normalized with expandHome
+// Resolve was called with, once each element is normalized with ExpandHome
 // so that "~/Documents" and its expanded form compare equal (D181). The
 // comparison is ordered: root order is what decides the winner among
 // multiple live clones in lookupIndex, so a reorder is a semantic change and
@@ -379,25 +418,40 @@ func rootsMatch(cached, configured []string) bool {
 		return false
 	}
 	for i := range cached {
-		if expandHome(cached[i]) != expandHome(configured[i]) {
+		if ExpandHome(cached[i]) != ExpandHome(configured[i]) {
 			return false
 		}
 	}
 	return true
 }
 
-// expandHome expands a leading "~" (alone or as "~/...") to the user's home
-// directory. Paths without a leading "~" are returned unchanged.
-func expandHome(p string) string {
-	if p != "~" && !strings.HasPrefix(p, "~/") {
+// ExpandHome expands a leading "~" — alone, or followed by either separator —
+// to the user's home directory. A path without that prefix is returned
+// unchanged, "~name" included: expanding another user's home is not something a
+// .cartographer.yaml entry means.
+//
+// `~\x` is accepted on every platform, not only Windows, so the two spellings
+// agree wherever the config is read; a literal directory named `~\x` on unix is
+// pathological. What follows the separator is left in the spelling it was
+// written in — a search_roots or paths entry names this machine's filesystem, so
+// there is nothing to translate, and a wrong one is now reported by name (Scan).
+//
+// It is exported because internal/provisioning needs exactly this function and
+// already imports this package (D75 WP3): one implementation, not two that drift.
+func ExpandHome(p string) string {
+	if p == "~" {
+		home, err := userHomeDir()
+		if err != nil {
+			return p
+		}
+		return home
+	}
+	if len(p) < 2 || p[0] != '~' || (p[1] != '/' && p[1] != '\\') {
 		return p
 	}
 	home, err := userHomeDir()
 	if err != nil {
 		return p
-	}
-	if p == "~" {
-		return home
 	}
 	return filepath.Join(home, p[2:])
 }

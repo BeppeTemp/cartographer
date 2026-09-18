@@ -34,11 +34,23 @@ errors. `service status` retains 0 running, 3 stopped and 4 not installed.
 
 ### `cartographer agents`
 
-Lists the supported providers, whether they are installed on the machine (`internal/agents.Detect`:
-any of its binaries in PATH (Kiro ships as `kiro` from the IDE and `kiro-cli` standalone), a known
-config directory, or — for a provider with a root of its own — that root,
-`$HERMES_HOME`) and whether they are connected (present in the machine-wide `.cartographer.yaml`,
-`~/.cartographer.yaml`).
+Lists the supported providers, whether they are installed on the machine and whether they are
+connected (present in the machine-wide `.cartographer.yaml`, `~/.cartographer.yaml`).
+
+`internal/agents.Detect` probes, in this order, and stops at the first match:
+
+1. any of the provider's binaries in `PATH` (Kiro ships as `kiro` from the IDE and `kiro-cli`
+   standalone). On Windows `exec.LookPath` honours `PATHEXT`, so this is where a client installed
+   normally is found;
+2. a known configuration directory under the home directory;
+3. a configuration directory anchored at an environment variable, for a location no home-relative
+   path can express — today `%APPDATA%\opencode`. An entry whose variable is unset is skipped, so
+   declaring one costs nothing on a platform that does not define it;
+4. for a provider with a root of its own, that root (`$HERMES_HOME`);
+5. an application-installation directory declared for this GOOS. Only a confirmed location is
+   declared: `/Applications/Kiro.app` and `/Applications/Antigravity.app` on darwin, nothing on
+   Windows, where the CLI on `PATH` is the detection that matters and an unverified install path
+   would only invent evidence ([D216](decisions/D216-the-client-half-reaches-parity-on-windows.md)).
 
 ```bash
 cartographer agents
@@ -370,7 +382,7 @@ The checks:
 | `server` | `/health` reachable; the recorded `server_version` (D142) against the live one; client binary against server. When an unreachable server is loopback **and** no local native service is installed, the finding names that cause and the two remedies instead of pointing at `service status`, which would only repeat `installed: false` (D174) |
 | `trigger` | every connected provider has a session hook, or the scheduled trigger is installed (D140) |
 | `capability` | every per-KB gate the server advertises on `/health` is on, and no KB was mounted by discovery rather than by a `kbs[]` entry (D151). Info severity: it names the setting that would change it |
-| `symlink` | no managed destination directory is a symlink — provisioning refuses to write through one, so the artifacts it would hold are not installed (D148) |
+| `symlink` | no managed destination directory is a symlink, or anything else that is not a plain directory — provisioning refuses to write through one, so the artifacts it would hold are not installed (D148, widened in D216) |
 | `kb-collisions` | no two KBs bound to the same provider claim one `kind`+`name` (D171). `sync` refuses outright when they do, so a machine that has not synced since the binding changed would otherwise show no symptom. Silent when the server is unreachable |
 | `unbound-residue` | no managed file comes from a KB no longer bound to the provider holding it (D170) — a projection predating an unbind, or a hand-edited lockfile. Only for providers with an explicit binding; a file with no recorded source (a lockfile written before D170) is unknown, not wrong, and never reported |
 
@@ -391,7 +403,7 @@ same convention `status` uses. An unreachable server is one `warning` finding, n
 
 The bootstrap hook and the scheduled timer deliberately do **not** run it: it is an operator command,
 and eight checks on every session start is exactly the background cost D60 avoided by keeping
-`bootstrap.sh` silent and deterministic.
+the bootstrap script silent and deterministic.
 
 ### `cartographer service sync-timer <action>`
 
@@ -537,6 +549,18 @@ cartographer resolve repo:github.com/org/nome   # full form: host/owner/name
 cartographer resolve path:design-assets         # manual paths: mapping
 ```
 
+A leading `~` is expanded in both `search_roots` and `paths` entries, followed by either
+separator: `~/repos` and `~\repos` mean the same directory wherever the config is read. `~name` is
+not expanded — another user's home is not something a config entry means.
+
+A configured search root that does not exist, is not a directory, or cannot be listed produces a
+**warning on stderr naming it and the OS error**, and the remaining roots are still scanned. It is a
+warning, not a failure: a machine-local config may legitimately name a root that only exists on
+another machine. Before this the root was silently skipped and the only message on offer was the
+one below, which talks about directory depth — so a typo in a root looked like a `search_depth`
+problem ([D216](decisions/D216-the-client-half-reaches-parity-on-windows.md)). The same warnings
+surface in `AppliedResult.Warnings` when a `{{repo:…}}` placeholder is resolved during `sync`.
+
 Exit code: `0` resolved (path on stdout), `1` not resolved (no `paths:` entry, no clone
 found under `search_roots`, or an ambiguous key across several distinct remotes — error message on
 stderr with the full form to use), `2` usage error (missing argument or not in the
@@ -549,8 +573,9 @@ Every supported provider is one descriptor in `internal/configurator/registry.go
 name, native MCP config file and format (`FormatJSON` with its server key, or `FormatTOMLBlock`),
 whether that file may be deleted once emptied (never for Claude Code — `.claude.json` is Claude's
 own shared state), whether it can carry MCP auth headers, whether its MCP tool namespace is flat
-across servers, the detection evidence (binary name, config directories in probe order, optional
-macOS app bundle), and its emitter function.
+across servers, the detection evidence (binary names, config directories in probe order, optional
+env-anchored config directories, optional per-GOOS application directories), and its emitter
+function.
 
 Two orders are exposed and both are user-visible: `Providers()` — the order `EmitAll` and the
 client subcommands iterate — and `DetectionOrder()`, the order `cartographer agents` and the TUI

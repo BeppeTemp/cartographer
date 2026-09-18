@@ -136,6 +136,22 @@ type ManagedFile struct {
 	// drift and never triggers re-materialization — ComputeDiff still compares
 	// ContentHash only — so no migration runs.
 	Source string `json:"source,omitempty"`
+	// ExecutablePaths are the artifact-relative, slash-normalised paths this
+	// artifact's files were written executable at — the writer's *declared*
+	// intent, recorded because on a filesystem with no execute bit
+	// (internal/execbit) it cannot be read back. It is the only state that
+	// makes MaterializedHash reproducible there for a kind whose flag comes
+	// from the KB rather than from the kind itself (a skill shipping a helper
+	// script); for a hook the flag is a pure function of kind and path, so the
+	// entry is redundant but recorded anyway rather than special-cased.
+	//
+	// Empty means "nothing was executable" and is indistinguishable from a
+	// lockfile written before this field existed — deliberately, because both
+	// answer the same way: readManagedFiles falls back to
+	// effectiveExecutable(kind, path, false), which is exact for a hook and is
+	// what every pre-existing lockfile already meant for every other kind. No
+	// migration runs.
+	ExecutablePaths []string `json:"executable_paths,omitempty"`
 }
 
 // Lock is the client's lockfile: applied revision + managed files.
@@ -428,7 +444,10 @@ func VerifiedManifest(m Manifest, pins map[string][]ed25519.PublicKey) (Manifest
 
 // ContentHashDirOSForKind is contentHashDirOS exported for callers that must
 // reproduce a materialized artifact's hash — the client's own status check
-// and its tests (D139).
+// and its tests (D139). It derives the executable flag from the kind and the
+// filesystem alone: on a filesystem with no execute bit that is exact for a
+// hook and blind for every other kind, so a caller verifying a *lockfile* entry
+// there wants contentHashDirManaged instead, which reads the recorded intent.
 func ContentHashDirOSForKind(dirPath, kind string) (string, error) {
 	return contentHashDirOS(dirPath, kind)
 }
@@ -436,6 +455,15 @@ func ContentHashDirOSForKind(dirPath, kind string) (string, error) {
 func contentHashDirOS(dirPath, kind string) (string, error) {
 	return contentHashDir(os.DirFS(dirPath), ".", func(path string, executable bool) bool {
 		return effectiveExecutable(kind, path, executable)
+	})
+}
+
+// contentHashDirManaged is contentHashDirOS for a directory that a lockfile
+// entry describes: the executable flag is resolved through mf, so it survives a
+// filesystem that cannot report one (see ManagedFile.executableOnDisk).
+func contentHashDirManaged(mf ManagedFile, dirPath string) (string, error) {
+	return contentHashDir(os.DirFS(dirPath), ".", func(path string, executable bool) bool {
+		return mf.executableOnDisk(path, executable)
 	})
 }
 
@@ -1679,6 +1707,10 @@ func Apply(m Manifest, opts ApplyOptions) (AppliedResult, error) {
 		// materializedHash is the hash of the bytes written to disk (D138);
 		// a.ContentHash stays the source hash ComputeDiff compares.
 		var materializedHash string
+		// execPaths is the subset of this artifact's own files written
+		// executable, recorded so the hash above stays reproducible where the
+		// filesystem cannot report the bit (ManagedFile.ExecutablePaths).
+		var execPaths []string
 
 		if a.Kind == "mcp" {
 			// Third-party MCP server (D69, WP3): no file materialized in its own
@@ -1762,7 +1794,7 @@ func Apply(m Manifest, opts ApplyOptions) (AppliedResult, error) {
 				}
 				var err error
 				var stampWarning string
-				relPaths, materializedHash, stampWarning, err = copyArtifactFiles(a, opts, fullDestDir, tracker)
+				relPaths, execPaths, materializedHash, stampWarning, err = copyArtifactFiles(a, opts, fullDestDir, tracker)
 				if stampWarning != "" {
 					result.Warnings = append(result.Warnings, stampWarning)
 				}
@@ -1819,6 +1851,7 @@ func Apply(m Manifest, opts ApplyOptions) (AppliedResult, error) {
 				ContentHash:      a.ContentHash,
 				MaterializedHash: materializedHash,
 				Source:           a.Source,
+				ExecutablePaths:  execPaths,
 			}
 			newManaged = append(newManaged, mf)
 			result.Written = append(result.Written, mf)
@@ -3055,20 +3088,21 @@ func singleArtifactContent(a Artifact, opts ApplyOptions) ([]byte, error) {
 
 // copyArtifactFiles writes the artifact's files (skill or hook: one or more
 // files inside a directory) into the absolute fullDestDir folder. It returns
-// the paths relative to opts.BaseDir, the hash of what was actually written
-// (after placeholder expansion, D75 WP3, and provenance stamping, D138 — this
-// is the materialized hash, never the source hash ComputeDiff compares), and a
-// non-fatal warning when the artifact could not be stamped. The content source
-// is a.Files if populated (remote client via sync_pull, no filesystem shared
-// with the server), otherwise BundleFS/KBRoots (local stdio deployment, same
-// filesystem).
-func copyArtifactFiles(a Artifact, opts ApplyOptions, fullDestDir string, tracker *expansionTracker) (relPaths []string, materializedHash, warning string, err error) {
+// the paths relative to opts.BaseDir, the artifact-relative paths written
+// executable (recorded in the lockfile, see ManagedFile.ExecutablePaths), the
+// hash of what was actually written (after placeholder expansion, D75 WP3, and
+// provenance stamping, D138 — this is the materialized hash, never the source
+// hash ComputeDiff compares), and a non-fatal warning when the artifact could
+// not be stamped. The content source is a.Files if populated (remote client via
+// sync_pull, no filesystem shared with the server), otherwise BundleFS/KBRoots
+// (local stdio deployment, same filesystem).
+func copyArtifactFiles(a Artifact, opts ApplyOptions, fullDestDir string, tracker *expansionTracker) (relPaths, execPaths []string, materializedHash, warning string, err error) {
 	files := a.Files
 	if len(files) == 0 {
 		var err error
 		files, err = ReadArtifactFiles(a, opts.BundleFS, opts.KBRoots)
 		if err != nil {
-			return nil, "", "", err
+			return nil, nil, "", "", err
 		}
 	}
 
@@ -3086,7 +3120,7 @@ func copyArtifactFiles(a Artifact, opts ApplyOptions, fullDestDir string, tracke
 		if rel, relErr := filepath.Rel(opts.BaseDir, fullDestDir); relErr == nil {
 			pruneEmptyDirs(opts.BaseDir, rel)
 		}
-		return nil, "", collision, nil
+		return nil, nil, "", collision, nil
 	}
 	files = append(append([]ArtifactFile{}, files...), generated...)
 
@@ -3103,7 +3137,7 @@ func copyArtifactFiles(a Artifact, opts ApplyOptions, fullDestDir string, tracke
 		// absolute paths and traversal outside the artifact's directory.
 		local := filepath.FromSlash(f.Path)
 		if !filepath.IsLocal(local) {
-			return nil, "", "", fmt.Errorf("provisioning: invalid file path %q in %s", f.Path, a.Name)
+			return nil, nil, "", "", fmt.Errorf("provisioning: invalid file path %q in %s", f.Path, a.Name)
 		}
 		content := expandPlaceholders(f.Content, opts, tracker)
 		if stampTarget != "" && filepath.ToSlash(f.Path) == stampTarget {
@@ -3114,11 +3148,18 @@ func copyArtifactFiles(a Artifact, opts ApplyOptions, fullDestDir string, tracke
 		// the NORMALIZED mode the write below applies (D139): a hook's
 		// hook.json is forced non-executable and its other files executable,
 		// so hashing the source flag would report drift on the first check.
-		expanded = append(expanded, ArtifactFile{Path: f.Path, Content: content, Executable: effectiveExecutable(a.Kind, local, f.Executable)})
+		executable := effectiveExecutable(a.Kind, local, f.Executable)
+		expanded = append(expanded, ArtifactFile{Path: f.Path, Content: content, Executable: executable})
+		// The same flag, recorded in the lockfile: it is the only way a client
+		// whose filesystem has no execute bit can reproduce this hash on the
+		// next check (ManagedFile.ExecutablePaths).
+		if executable {
+			execPaths = append(execPaths, filepath.ToSlash(f.Path))
+		}
 
 		dstPath := filepath.Join(fullDestDir, local)
 		if err := mkdirAllNoFollow(opts.BaseDir, filepath.Dir(dstPath), 0o755); err != nil {
-			return nil, "", "", err
+			return nil, nil, "", "", err
 		}
 		// A hook's scripts are invoked by path from the registered entry
 		// (e.g. ./bootstrap.sh → absolute path in settings.json): without the
@@ -3126,18 +3167,18 @@ func copyArtifactFiles(a Artifact, opts ApplyOptions, fullDestDir string, tracke
 		// The explicit Chmod is needed for files that already exist: WriteFile only
 		// applies mode on creation.
 		mode := os.FileMode(0o644)
-		if effectiveExecutable(a.Kind, local, f.Executable) {
+		if executable {
 			mode = 0o755
 		}
 		if err := writeFileNoFollow(dstPath, content, mode); err != nil {
-			return nil, "", "", err
+			return nil, nil, "", "", err
 		}
 		if err := os.Chmod(dstPath, mode); err != nil {
-			return nil, "", "", err
+			return nil, nil, "", "", err
 		}
 		rel, err := filepath.Rel(opts.BaseDir, dstPath)
 		if err != nil {
-			return nil, "", "", err
+			return nil, nil, "", "", err
 		}
 		// A written path is reported and recorded, not walked: slash, like the
 		// destination it was joined from.
@@ -3152,7 +3193,7 @@ func copyArtifactFiles(a Artifact, opts ApplyOptions, fullDestDir string, tracke
 
 	// The hash of what actually landed on disk (D138), always computed: the
 	// caller keeps a.ContentHash as the source hash for ComputeDiff.
-	return relPaths, hashArtifactFiles(expanded), warning, nil
+	return relPaths, execPaths, hashArtifactFiles(expanded), warning, nil
 }
 
 // ReadArtifactFiles reads all of an artifact's files from BundleFS (source "bundle",

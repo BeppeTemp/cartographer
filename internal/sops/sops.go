@@ -195,6 +195,16 @@ func EnvForSkill(resolved map[string]string) []string {
 	return env
 }
 
+// validatePath refuses a path that is not relative and inside root, and any
+// component of it that is not a plain regular file or a plain directory.
+//
+// The refusal is deliberately wider than "symlink", in line with
+// internal/provisioning's isUnsafeDestination (D148 and D216): this function has
+// exactly the same shape and exactly the same exposure — a component swapped for
+// a link or, on Windows, for a reparse point Go may only describe as
+// os.ModeIrregular, and a secret is read from or written to somewhere else. There
+// is no reason for the two guards to disagree, and a divergence would be found
+// the hard way.
 func validatePath(root, rel string, allowMissing bool) error {
 	if !filepath.IsLocal(rel) || rel == "." {
 		return fmt.Errorf("path %q must be relative and inside the KB", rel)
@@ -210,8 +220,8 @@ func validatePath(root, rel string, allowMissing bool) error {
 			}
 			return fmt.Errorf("path %q: %w", rel, err)
 		}
-		if info.Mode()&os.ModeSymlink != 0 {
-			return fmt.Errorf("path %q must not contain symlinks", rel)
+		if mode := info.Mode(); !mode.IsRegular() && !mode.IsDir() {
+			return fmt.Errorf("path %q must not contain symlinks or other non-plain files", rel)
 		}
 	}
 	return nil

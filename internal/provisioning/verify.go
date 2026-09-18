@@ -111,8 +111,8 @@ func RepairManagedHashes(lock Lock, provider configurator.Provider, baseDir stri
 			// an error.
 			continue
 		}
-		if isSymlink(full) {
-			skipped = append(skipped, DriftFinding{Kind: mf.Kind, Name: mf.Name, Path: rel, Reason: "destination is a symlink"})
+		if isUnsafeDestination(full) {
+			skipped = append(skipped, DriftFinding{Kind: mf.Kind, Name: mf.Name, Path: rel, Reason: "destination is not a plain file or directory"})
 			continue
 		}
 		files, readErr := readManagedFiles(mf, full)
@@ -138,6 +138,43 @@ func RepairManagedHashes(lock Lock, provider configurator.Provider, baseDir stri
 	return repaired, skipped, nil
 }
 
+// execBitSupported is execbit.Supported behind a test seam. The Windows
+// read-back branch in executableOnDisk cannot otherwise be exercised from a
+// unix host, and it is the branch a wrong answer makes *permanently* wrong:
+// a hash that never matches again reports drift no repair can clear.
+// internal/execbit stays the one place that decides the value; this only lets a
+// test pretend to be on the other platform, the way internal/agents indirects
+// runtime.GOOS.
+var execBitSupported = execbit.Supported
+
+// executableOnDisk reports the Executable flag the on-disk re-hash must record
+// for one artifact-relative file of this managed artifact. onDisk is what the
+// filesystem said (execbit.IsExecutable over the file's mode).
+//
+// This is where the hash's two sides are deliberately asymmetric, and the
+// asymmetry is the non-obvious part. The writer records MaterializedHash from
+// its *declared intent* — effectiveExecutable over the flag the KB shipped
+// (copyArtifactFiles) — while this side observes the filesystem. On unix the two
+// agree and the filesystem stays the authority, because there an external chmod
+// is real drift and reporting it is the point. Where the filesystem carries no
+// execute bit (internal/execbit) the mode is not evidence of anything: reading
+// it back yields false for a file the writer hashed as executable, so a skill
+// shipping an executable helper would report drift on every check forever. There
+// the intent is reconstructed from the lockfile instead — ExecutablePaths, with
+// effectiveExecutable(kind, path, false) as the fallback, which is exact for a
+// hook and is what a lockfile written before that field already meant.
+func (mf ManagedFile) executableOnDisk(rel string, onDisk bool) bool {
+	if execBitSupported {
+		return effectiveExecutable(mf.Kind, rel, onDisk)
+	}
+	for _, p := range mf.ExecutablePaths {
+		if p == rel {
+			return true
+		}
+	}
+	return effectiveExecutable(mf.Kind, rel, false)
+}
+
 // readManagedFiles reads the on-disk bytes of one managed artifact in the shape
 // hashArtifactFiles expects: one entry for a single-file kind, every file under
 // the directory for a skill or hook.
@@ -152,7 +189,7 @@ func readManagedFiles(mf ManagedFile, full string) ([]ArtifactFile, error) {
 			return nil, readErr
 		}
 		base := filepath.Base(full)
-		return []ArtifactFile{{Path: base, Content: data, Executable: effectiveExecutable(mf.Kind, base, execbit.IsExecutable(info.Mode()))}}, nil
+		return []ArtifactFile{{Path: base, Content: data, Executable: mf.executableOnDisk(base, execbit.IsExecutable(info.Mode()))}}, nil
 	}
 	var files []ArtifactFile
 	walkErr := filepath.WalkDir(full, func(p string, d fs.DirEntry, err error) error {
@@ -177,9 +214,10 @@ func readManagedFiles(mf ManagedFile, full string) ([]ArtifactFile, error) {
 		// The same floor contentHashDirOS applies when the hash is *verified*:
 		// a hook's files are executable by definition, so reading the bit off
 		// the disk here would record a different hash from the one the check
-		// recomputes — permanently, where the filesystem has no such bit.
+		// recomputes — permanently, where the filesystem has no such bit. See
+		// executableOnDisk for the rest of that asymmetry.
 		slashRel := filepath.ToSlash(rel)
-		files = append(files, ArtifactFile{Path: slashRel, Content: data, Executable: effectiveExecutable(mf.Kind, slashRel, execbit.IsExecutable(fi.Mode()))})
+		files = append(files, ArtifactFile{Path: slashRel, Content: data, Executable: mf.executableOnDisk(slashRel, execbit.IsExecutable(fi.Mode()))})
 		return nil
 	})
 	if walkErr != nil {
@@ -260,8 +298,12 @@ func verifyArtifact(mf ManagedFile, provider configurator.Provider, baseDir stri
 			onDisk = hashArtifactFiles([]ArtifactFile{{Path: mf.Name + ".md", Content: data}})
 		}
 	default:
-		// skill/hook: a directory of its own.
-		onDisk, err = contentHashDirOS(full, mf.Kind)
+		// skill/hook: a directory of its own. Hashed through the lockfile
+		// entry, not through the kind alone: where the filesystem has no
+		// execute bit, only ManagedFile.ExecutablePaths can tell an executable
+		// skill helper from a plain one, and getting it wrong reports drift no
+		// repair clears (see executableOnDisk).
+		onDisk, err = contentHashDirManaged(mf, full)
 	}
 
 	switch {
