@@ -102,8 +102,9 @@ KB is called unchanged, exactly as before D120.
 
 A **native local upgrade** is another trigger for the same path: after `install.sh` replaces the
 binary, `cartographer upgrade-repair` reconciles the configured providers in place (D121, →
-[deployment](deployment.md) §Upgrades, schema migration, and repo growth). After a Homebrew
-upgrade the next plain `cartographer sync` does it instead (D199): before syncing it replaces a
+[deployment](deployment.md) §Upgrades, schema migration, and repo growth). After a Homebrew or a
+winget upgrade — neither of which runs Cartographer code — the next plain `cartographer sync` does
+it instead (D199): before syncing it replaces a
 native service still running the previous binary, under the client-state lock so concurrent
 session-start syncs replace it once. It runs the very same in-process sync as plain `cartographer sync` — same
 authorization, same persisted trust, pinned keys, point approvals and allow-lists. Automatic
