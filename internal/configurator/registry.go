@@ -41,10 +41,14 @@ type Descriptor struct {
 	// file KB-provided "mcp" artifacts are merged into
 	// (internal/provisioning/mcpsettings.go).
 	//
-	// Read it through ConfigPath(), which applies the local separator: the field
+	// Read it through ConfigPath(), which applies the local separator. The field
 	// is exported only because this registry is data, and its raw slash form has
-	// exactly one legitimate reader — this package's own consistency test,
-	// which compares it against nothing but emptiness.
+	// exactly two legitimate readers, both audited: this package's own
+	// consistency test, which compares it against nothing but emptiness, and
+	// provisioning's mcpProviderFromPath, which infers a provider from a managed
+	// path and therefore has to compare slash against slash — it converts the
+	// path, not the field. Anything else that joins this onto a directory is a
+	// bug on Windows.
 	MCPConfigPath string
 	MCPFormat     ConfigFormat
 	// MCPServerKey is the top-level JSON key holding the map of MCP server

@@ -116,7 +116,9 @@ than about bytes, which is a kind this lockfile did not carry before.
 - **Agent detection may only gain true positives.** A test pins every descriptor's
   binaries, config directories and darwin application directory, so a future edit
   that would stop detecting a client fails instead.
-- **`Descriptor.MCPConfigPath` has exactly one legitimate reader of its raw slash
-  form**, this package's own consistency test; every other caller already goes
-  through `ConfigPath()`. That was audited, not assumed, and the field's comment now
-  says so.
+- **`Descriptor.MCPConfigPath` has exactly two legitimate readers of its raw slash
+  form**, and they were audited rather than assumed: this package's own consistency
+  test, and `provisioning.mcpProviderFromPath`, which infers a provider from a managed
+  path and so must compare slash against slash — it converts the path, not the field.
+  Every other caller already goes through `ConfigPath()`. The field's comment now names
+  both, because the next caller to join this onto a directory is a Windows bug.
