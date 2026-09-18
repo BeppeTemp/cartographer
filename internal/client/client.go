@@ -23,6 +23,18 @@ import (
 // token/env" apart from "server unreachable" and word their error accordingly.
 var ErrUnauthorized = errors.New("unauthorized (401): check the bearer token/env var")
 
+// unauthorizedCause is the Cause a 401 carries when the client knows which
+// environment variable it read the bearer token from. Its message replaces
+// ErrUnauthorized's generic "check the bearer token/env var" — the env var is
+// precisely what the user does not know — and separates the two cases that need
+// different fixes: nothing was sent at all, or what was sent was refused.
+// It unwraps to ErrUnauthorized so the errors.Is checks in cmd/cartographer
+// (connect, status, sync) keep matching whatever the wording becomes (D222).
+type unauthorizedCause struct{ msg string }
+
+func (e *unauthorizedCause) Error() string { return e.msg }
+func (e *unauthorizedCause) Unwrap() error { return ErrUnauthorized }
+
 // RemoteState classifies a RemoteError as either the server being completely
 // unreachable/unusable (RemoteUnavailable: DNS/connection failure, HTTP
 // non-2xx, 401) or reached-but-this-call-failed (RemoteFailed: a malformed
@@ -89,8 +101,12 @@ func classifyDialErr(err error) string {
 type MCPClient struct {
 	ServerURL string // e.g. "http://localhost:39273/mcp"
 	Token     string // bearer token, empty = no Authorization header
-	KB        string // optional KB name; appended as ?kb=<KB> (multi-KB server routing, see httpserver.go)
-	HTTP      *http.Client
+	// TokenEnv names the environment variable Token was read from, so a 401
+	// can say which variable to look at (D222). Empty when the caller has no
+	// such variable, and the 401 message is then exactly what it was before.
+	TokenEnv string
+	KB       string // optional KB name; appended as ?kb=<KB> (multi-KB server routing, see httpserver.go)
+	HTTP     *http.Client
 	// Version identifies this client build in the server's roster. Empty is
 	// reported as "unknown" rather than refused: a roster row with no version
 	// is still useful, and a missing build stamp must not stop a sync.
@@ -177,6 +193,27 @@ func (c *MCPClient) WithKB(name string) *MCPClient {
 	cp := *c
 	cp.KB = name
 	return &cp
+}
+
+// WithTokenEnv returns a copy of the client that knows which environment
+// variable its token came from. Only the message of a 401 changes; nothing is
+// read from the environment here, and an empty name is the legacy behaviour.
+func (c *MCPClient) WithTokenEnv(name string) *MCPClient {
+	cp := *c
+	cp.TokenEnv = name
+	return &cp
+}
+
+// unauthorizedCauseFor builds the Cause of a 401 for this client's credential.
+func (c *MCPClient) unauthorizedCauseFor() error {
+	switch {
+	case c.TokenEnv == "":
+		return ErrUnauthorized
+	case c.Token == "":
+		return &unauthorizedCause{fmt.Sprintf("unauthorized (401): $%s is unset or empty, so no bearer token was sent", c.TokenEnv)}
+	default:
+		return &unauthorizedCause{fmt.Sprintf("unauthorized (401): the bearer token from $%s was rejected", c.TokenEnv)}
+	}
 }
 
 // requestURL builds the effective request URL, appending ?kb=<KB> when set.
@@ -325,7 +362,7 @@ func (c *MCPClient) do(method string, params any) (json.RawMessage, error) {
 	if resp.StatusCode != http.StatusOK {
 		if resp.StatusCode == http.StatusUnauthorized {
 			return nil, &RemoteError{State: RemoteUnavailable, Code: CodeUnauthorized,
-				Message: fmt.Sprintf("%s rejected the request", reqURL), Cause: ErrUnauthorized}
+				Message: fmt.Sprintf("%s rejected the request", reqURL), Cause: c.unauthorizedCauseFor()}
 		}
 		// 400 and 404 are the statuses the 2026-07-28 revision uses to carry a
 		// JSON-RPC error (header mismatch, unsupported protocol version,
@@ -412,7 +449,7 @@ func (c *MCPClient) Health(timeout time.Duration) (*Health, error) {
 	if resp.StatusCode != http.StatusOK {
 		if resp.StatusCode == http.StatusUnauthorized {
 			return nil, &RemoteError{State: RemoteUnavailable, Code: CodeUnauthorized,
-				Message: fmt.Sprintf("%s rejected the request", u), Cause: ErrUnauthorized}
+				Message: fmt.Sprintf("%s rejected the request", u), Cause: c.unauthorizedCauseFor()}
 		}
 		body, readErr := io.ReadAll(io.LimitReader(resp.Body, 8*1024*1024))
 		if readErr != nil {

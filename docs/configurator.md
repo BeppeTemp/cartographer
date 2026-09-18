@@ -305,6 +305,17 @@ when bindings made them diverge it prints one line per provider instead, rather
 than implying an agreement that does not exist. See [`sync.md`](sync.md)
 §Per-provider projection.
 
+Before anything else — before the client-state lock and before the first network call, `--dry-run`
+included — `sync` checks the environment variables the targeted providers need: each provider's own
+base-directory variable (§Hermes Agent, `$HERMES_HOME`) and, when `.cartographer.yaml` has `auth: true` with a
+`token_env`, that variable. Missing ones are reported **together, in one error naming each**, so an
+unattended run (session-start hook, sync timer, CI — none of which inherit a login shell's exports)
+diagnoses its whole misconfiguration in a single run
+([D222](decisions/D222-sync-checks-the-environment-once-and-the-401-names.md)). The check is
+read-only and never contacts the server: it verifies a token *exists*, not that the server accepts
+it — a token that is set but wrong is still a 401 from `sync_pull`. When nothing is missing it
+prints nothing. A provider left out by `--client` is not checked.
+
 Every sync verifies the managed files on disk, not just the manifest revision, and restores what
 was edited or deleted locally — the restore is reported on its own line, because it discards
 someone's local change. See [`sync.md`](sync.md) §On-disk verification and healing.

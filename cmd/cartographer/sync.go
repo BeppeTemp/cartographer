@@ -1,12 +1,15 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
+	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
 )
 
@@ -100,6 +103,12 @@ type syncResult struct {
 func runSync(dir string, cfg *clientconfig.Config, opts syncOptions) (syncResult, error) {
 	targets, err := selectProviders(cfg.Agents, opts.Clients)
 	if err != nil {
+		return syncResult{}, err
+	}
+
+	// Before the lock, so a run that cannot succeed takes none, and before the
+	// first network call, so --dry-run is diagnosed exactly like a real sync.
+	if err := preflightEnvironment(cfg, targets, dir); err != nil {
 		return syncResult{}, err
 	}
 
@@ -236,6 +245,53 @@ func runSync(dir string, cfg *clientconfig.Config, opts syncOptions) (syncResult
 	printApplySummary(dir, results, opts.DryRun)
 	printSyncRevisions(results, targets, opts.DryRun)
 	return syncResult{Revision: commonRevision(results, targets)}, nil
+}
+
+// preflightEnvironment reports, in ONE error, every environment variable the
+// selected providers need and do not have. Without it the same misconfigured
+// shell fails once per variable, at three different depths of runSync: a
+// missing provider base directory surfaces in allProjections, a missing bearer
+// token only as a 401 from sync_pull, and /health's own failure is downgraded
+// to a warning — so learning two prerequisites costs two full runs (D222).
+// Whoever hits this is normally not at a console: the session-start bootstrap
+// hook and the sync timer start from an environment that never inherited a
+// login shell's exports.
+//
+// It is read-only and never contacts the server: it checks that a token
+// EXISTS, not that it is accepted — only the server can judge that, and a wrong
+// token is still a 401 further down. Nothing downstream is removed; this only
+// moves the diagnosis earlier.
+func preflightEnvironment(cfg *clientconfig.Config, targets []string, clientBaseDir string) error {
+	var missing []string
+
+	sorted := append([]string(nil), targets...)
+	sort.Strings(sorted)
+	for _, provider := range sorted {
+		d, ok := configurator.Lookup(configurator.Provider(provider))
+		if !ok || d.BaseDirEnv == "" {
+			// No BaseDirEnv means the provider shares the client base dir:
+			// there is nothing about the environment to check.
+			continue
+		}
+		// The same call allProjections makes, so what counts as "unset" (which
+		// includes whitespace-only) is defined in one place only.
+		if _, err := provisioning.BaseDirFor(d.Provider, clientBaseDir); errors.Is(err, configurator.ErrBaseDirUnset) {
+			missing = append(missing, fmt.Sprintf("  $%s — base directory for provider %s", d.BaseDirEnv, provider))
+		}
+	}
+
+	// The same condition resolveToken applies: auth off, or no token_env
+	// declared, means no credential is sent and none is required here. An
+	// exported-but-empty variable is a missing one — it sends nothing.
+	if cfg.Auth && cfg.TokenEnv != "" && resolveToken(cfg) == "" {
+		missing = append(missing, fmt.Sprintf("  $%s — bearer token for %s", cfg.TokenEnv, cfg.ServerURL))
+	}
+
+	if len(missing) == 0 {
+		return nil
+	}
+	return fmt.Errorf("sync needs environment variables that are not set (an unattended sync — session-start hook, timer, CI — does not inherit a login shell's exports):\n%s\n(no configuration was modified)",
+		strings.Join(missing, "\n"))
 }
 
 // selectProviders narrows cfg.Agents to the ones --client named, preserving

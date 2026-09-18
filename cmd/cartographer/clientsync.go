@@ -58,6 +58,16 @@ func resolveToken(cfg *clientconfig.Config) string {
 	return os.Getenv(cfg.TokenEnv)
 }
 
+// tokenEnvName returns the environment variable resolveToken reads for cfg, or
+// empty when this config sends no credential at all. Passed to the client so a
+// 401 names the variable instead of "the env var" (D222).
+func tokenEnvName(cfg *clientconfig.Config) string {
+	if !cfg.Auth {
+		return ""
+	}
+	return cfg.TokenEnv
+}
+
 // candidateSet holds the sync_pull responses UNMERGED, one entry per KB, which
 // is what makes a per-provider projection possible (D170): the selection has to
 // happen on these responses, before any client-side merge, because
@@ -266,7 +276,8 @@ func fetchMergedManifest(cfg *clientconfig.Config) (provisioning.Manifest, error
 func fetchCandidates(cfg *clientconfig.Config, kbNames []string) (candidateSet, error) {
 	cs := candidateSet{Named: make(map[string][]provisioning.Artifact)}
 	token := resolveToken(cfg)
-	health, err := client.New(cfg.ServerURL, token).Health(probeTimeout)
+	tokenEnv := tokenEnvName(cfg)
+	health, err := client.New(cfg.ServerURL, token).WithTokenEnv(tokenEnv).Health(probeTimeout)
 	if err != nil {
 		return cs, fmt.Errorf("health: %w", err)
 	}
@@ -278,7 +289,7 @@ func fetchCandidates(cfg *clientconfig.Config, kbNames []string) (candidateSet, 
 	seen := make(map[string]provisioning.Artifact)
 
 	for _, target := range targets {
-		c := client.New(cfg.ServerURL, token).WithKB(target.Name)
+		c := client.New(cfg.ServerURL, token).WithTokenEnv(tokenEnv).WithKB(target.Name)
 		raw, err := callTool(c, target, "sync_pull", map[string]any{})
 		if err != nil {
 			if target.Name == "" {

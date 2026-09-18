@@ -189,6 +189,24 @@ Tokens can be configured through server YAML or
 
 Send a token only in `Authorization: Bearer <token>`, never in a URL.
 
+### What a 401 tells the client
+
+The client reads its token from the variable `.cartographer.yaml` names in
+`token_env`, so it names that variable back when the server answers 401, and
+distinguishes the two cases that need different fixes
+([D222](decisions/D222-sync-checks-the-environment-once-and-the-401-names.md)):
+
+- `$<TOKEN_ENV> is unset or empty, so no bearer token was sent` — nothing was
+  sent; the variable is missing from the environment this command ran in;
+- `the bearer token from $<TOKEN_ENV> was rejected` — a token was sent and the
+  server refused it; the value, its scopes or the server's token list is wrong.
+
+A caller with no variable to name (a probe before any configuration exists) gets
+the generic `unauthorized (401): check the bearer token/env var`. All three keep
+classifying as `unauthorized` in `cartographer status --output json` and keep
+matching the client-side unauthorized check, so the wording can change without
+breaking a caller.
+
 ### Validation is strict, on the effective configuration
 
 The auth configuration is validated **after** YAML, environment and flags are
