@@ -286,8 +286,35 @@ func TestServerChangeNotice(t *testing.T) {
 			if tc.want && !strings.Contains(notice, "cartographer reconnect") {
 				t.Errorf("notice does not recommend reconnect: %q", notice)
 			}
+			// D220: `sync` phrases the same fact differently, but the two
+			// wordings share one detection — they report on exactly the same
+			// inputs.
+			syncNotice := syncServerChangeNotice(dir, []string{"claude"}, tc.live)
+			if (syncNotice != "") != tc.want {
+				t.Fatalf("sync notice = %q, want reported=%v", syncNotice, tc.want)
+			}
 		})
 	}
+
+	// D220: the two wordings must not drift back into one. `status` and
+	// `doctor` only observe, so they name the repairing command; `sync` is
+	// already running the repair, so an imperative printed ahead of its output
+	// reads as a prerequisite it is not.
+	t.Run("sync wording carries no imperative", func(t *testing.T) {
+		dir := write(t, map[string]string{"claude": "1.3.0"})
+		notice := syncServerChangeNotice(dir, []string{"claude"}, "1.4.0")
+		if strings.Contains(notice, "run `cartographer reconnect`") {
+			t.Errorf("sync notice tells the user to reconnect: %q", notice)
+		}
+		for _, want := range []string{"the server changed", "1.3.0", "1.4.0", "this sync re-applies the current manifest", "cartographer reconnect"} {
+			if !strings.Contains(notice, want) {
+				t.Errorf("sync notice %q does not mention %q", notice, want)
+			}
+		}
+		if notice == serverChangeNotice(dir, []string{"claude"}, "1.4.0") {
+			t.Errorf("sync and status/doctor print the same sentence: %q", notice)
+		}
+	})
 
 	// Several providers recording different old versions are one fact about
 	// the server, so still exactly one line — naming both.
@@ -299,6 +326,16 @@ func TestServerChangeNotice(t *testing.T) {
 	for _, want := range []string{"1.3.0", "1.2.0", "1.4.0"} {
 		if !strings.Contains(notice, want) {
 			t.Errorf("notice %q does not mention %s", notice, want)
+		}
+	}
+	// The same property holds for the `sync` wording: one line, both versions.
+	syncNotice := syncServerChangeNotice(dir, []string{"claude", "codex"}, "1.4.0")
+	if strings.Count(syncNotice, "\n") != 0 {
+		t.Errorf("sync notice is not a single line: %q", syncNotice)
+	}
+	for _, want := range []string{"1.3.0", "1.2.0", "1.4.0"} {
+		if !strings.Contains(syncNotice, want) {
+			t.Errorf("sync notice %q does not mention %s", syncNotice, want)
 		}
 	}
 }
