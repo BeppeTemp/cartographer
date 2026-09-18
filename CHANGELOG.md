@@ -8,6 +8,22 @@
 
 KB histories with commits authored as `cartographer <cartographer@localhost>` may need a manual author rewrite before a forge with author push rules accepts the first push.
 
+## [0.14.0](https://github.com/BeppeTemp/cartographer/compare/v0.13.0...v0.14.0) (2026-09-18)
+
+
+### Features
+
+* **agents:** record which heuristic detected a provider ([#309](https://github.com/BeppeTemp/cartographer/issues/309)) ([cadd954](https://github.com/BeppeTemp/cartographer/commit/cadd954f267b1f9a4dbe5c35e3927f481e11aed1))
+* **configurator:** Crush as a supported provider (D225) ([#314](https://github.com/BeppeTemp/cartographer/issues/314)) ([4dc73bb](https://github.com/BeppeTemp/cartographer/commit/4dc73bbcd5c194f0d20c73d17838b45d7b1ee846))
+* **sync:** preflight the environment prerequisites and name the token variable (D222) ([#311](https://github.com/BeppeTemp/cartographer/issues/311)) ([cce1e70](https://github.com/BeppeTemp/cartographer/commit/cce1e70460584ba6641ef37923c363b2ed245973))
+
+
+### Bug Fixes
+
+* **agents:** size the provider column to the widest provider name ([#306](https://github.com/BeppeTemp/cartographer/issues/306)) ([586036c](https://github.com/BeppeTemp/cartographer/commit/586036c0001eb4597d560478044478d77f91d13e))
+* **skill:** the ops skill and the agent install path know Windows ([#295](https://github.com/BeppeTemp/cartographer/issues/295)) ([84dcd30](https://github.com/BeppeTemp/cartographer/commit/84dcd30baa9191428e3183344f5bd61d538a98c9))
+* **sync:** state the server change without recommending reconnect (D220) ([#307](https://github.com/BeppeTemp/cartographer/issues/307)) ([74b5c97](https://github.com/BeppeTemp/cartographer/commit/74b5c97db5b33276e4752f50cec715869d7b2379))
+
 ## [0.13.0](https://github.com/BeppeTemp/cartographer/compare/v0.12.4...v0.13.0) (2026-09-18)
 
 
