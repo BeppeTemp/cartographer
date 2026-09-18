@@ -477,3 +477,89 @@ func TestHealth_PreservesAbsentVersion(t *testing.T) {
 		t.Errorf("Health.Version = %q, want empty for an older server", health.Version)
 	}
 }
+
+// TestCall_Unauthorized_NamesTokenEnvWhenEmpty: the client knows which
+// variable it read the token from and the variable was empty, so the 401 says
+// no credential was sent rather than "check the bearer token/env var" (D222).
+func TestCall_Unauthorized_NamesTokenEnvWhenEmpty(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+	}))
+	defer srv.Close()
+
+	_, err := client.New(srv.URL, "").WithTokenEnv("CARTOGRAPHER_TOKEN").Call("ok_tool", map[string]any{})
+	if err == nil {
+		t.Fatal("expected a 401 error")
+	}
+	if !strings.Contains(err.Error(), "$CARTOGRAPHER_TOKEN is unset or empty") {
+		t.Errorf("error %q does not say the named variable is unset or empty", err)
+	}
+	// The sentinel is what connect/status/sync match on: a message-only change
+	// must never break errors.Is.
+	if !errors.Is(err, client.ErrUnauthorized) {
+		t.Fatalf("expected errors.Is(err, client.ErrUnauthorized), got %v", err)
+	}
+}
+
+// TestCall_Unauthorized_NamesTokenEnvWhenRejected: a token was sent and
+// refused, which needs a different fix from an unset variable.
+func TestCall_Unauthorized_NamesTokenEnvWhenRejected(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+	}))
+	defer srv.Close()
+
+	_, err := client.New(srv.URL, "wrong-token").WithTokenEnv("CARTOGRAPHER_TOKEN").Call("ok_tool", map[string]any{})
+	if err == nil {
+		t.Fatal("expected a 401 error")
+	}
+	if !strings.Contains(err.Error(), "the bearer token from $CARTOGRAPHER_TOKEN was rejected") {
+		t.Errorf("error %q does not say the token from the named variable was rejected", err)
+	}
+	if strings.Contains(err.Error(), "unset or empty") {
+		t.Errorf("error %q confuses a rejected token with a missing one", err)
+	}
+	if !errors.Is(err, client.ErrUnauthorized) {
+		t.Fatalf("expected errors.Is(err, client.ErrUnauthorized), got %v", err)
+	}
+}
+
+// TestCall_Unauthorized_NoTokenEnv_KeepsLegacyText: a caller with no variable
+// name to offer gets exactly the message it got before D222.
+func TestCall_Unauthorized_NoTokenEnv_KeepsLegacyText(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+	}))
+	defer srv.Close()
+
+	_, err := client.New(srv.URL, "wrong-token").Call("ok_tool", map[string]any{})
+	if err == nil {
+		t.Fatal("expected a 401 error")
+	}
+	if !strings.Contains(err.Error(), client.ErrUnauthorized.Error()) {
+		t.Errorf("error %q is not the legacy unauthorized text", err)
+	}
+	if !errors.Is(err, client.ErrUnauthorized) {
+		t.Fatalf("expected errors.Is(err, client.ErrUnauthorized), got %v", err)
+	}
+}
+
+// TestHealth_Unauthorized_NamesTokenEnv: the /health path builds its own 401
+// and must carry the same diagnosis — it is the first call a sync makes.
+func TestHealth_Unauthorized_NamesTokenEnv(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+	}))
+	defer srv.Close()
+
+	_, err := client.New(srv.URL, "").WithTokenEnv("CARTOGRAPHER_TOKEN").Health(2 * time.Second)
+	if err == nil {
+		t.Fatal("expected a 401 error")
+	}
+	if !strings.Contains(err.Error(), "$CARTOGRAPHER_TOKEN is unset or empty") {
+		t.Errorf("error %q does not say the named variable is unset or empty", err)
+	}
+	if !errors.Is(err, client.ErrUnauthorized) {
+		t.Fatalf("expected errors.Is(err, client.ErrUnauthorized), got %v", err)
+	}
+}

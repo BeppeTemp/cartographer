@@ -140,11 +140,12 @@ type serverFacts struct {
 // enumerateKBs obtains the mounted KB names and the server version from
 // /health.
 func enumerateKBs(serverURL string, auth bool, tokenEnv string) (serverFacts, error) {
-	token := ""
+	token, name := "", ""
 	if auth && tokenEnv != "" {
 		token = resolveToken(&clientconfig.Config{Auth: auth, TokenEnv: tokenEnv})
+		name = tokenEnv
 	}
-	health, err := client.New(serverURL, token).Health(probeTimeout)
+	health, err := client.New(serverURL, token).WithTokenEnv(name).Health(probeTimeout)
 	if err != nil {
 		return serverFacts{}, err
 	}
