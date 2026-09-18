@@ -240,6 +240,13 @@ units, a unit present (refused, non-zero, nothing removed), `--binary-only`
 (proceeds and states what it left behind), and a partial state such as a timer
 without a service.
 
+One scenario covers a platform the script deliberately does not support: with a
+stub `uname` reporting `MINGW64_NT-…` on `PATH`, `install.sh` must exit non-zero
+naming `winget install BeppeTemp.Cartographer` and the `cartographer service
+uninstall` that has to precede a removal there, **without** falling through to the
+generic "unsupported OS" and without requesting an asset or writing a binary
+(D218). The refusal itself is old; that it is actionable is what is asserted.
+
 A separate, non-deterministic check lives in
 `internal/provisioning/clientcompat_test.go`: it runs the *client's own*
 discovery command and asserts it recognizes the destination Cartographer
@@ -255,7 +262,18 @@ generated file in `BeppeTemp/homebrew-tap`: on the YAML of `.goreleaser.yaml`
 (comments excluded) the guard asserts a `postflight_steps` stanza that removes
 quarantine from the staged path, and the absence of `hooks`, of the deprecated
 `postflight do` and of `upgrade-repair`, which cannot work inside Homebrew's
-sandbox (D199). Its Ruby is not executed — that would need a real Homebrew and
+sandbox (D199).
+
+The same guard covers the Windows packaging shape, where every failure mode is
+either silent or only visible on a real Windows machine: `windows` among the build
+targets, a `format_overrides` entry making its archive a **zip** and no override
+producing a raw binary (the pipe refuses an archive set with both, and a binary
+would register the command as `cartographer.exe` instead of `cartographer`), the
+`BeppeTemp.Cartographer` identifier, a `winget-pkgs` repository whose pull request
+base owner is `microsoft` — so a submission cannot be quietly retargeted at a
+private manifest repo — and the absence of `use:`, a GoReleaser Pro field that is
+silently ignored in OSS and would read as configuration. Each assertion was
+verified to fail when its target line is removed. Its Ruby is not executed — that would need a real Homebrew and
 GoReleaser environment, which is out of the deterministic gate (see below).
 
 ## What is deliberately not in CI

@@ -19,9 +19,23 @@ Detect the platform:
 uname -s
 ```
 
-Expected output: `Darwin` on macOS or `Linux`. The installer supports those two and no others; on any
-other platform, stop and report it. On macOS,
-first check for Homebrew:
+Expected output: `Darwin` on macOS, `Linux`, or one of the Windows forms a POSIX shell reports
+there (`MINGW64_NT-…`, `MSYS_NT-…`, `CYGWIN_NT-…`). On any other platform, stop and report it.
+
+**On Windows the channel is winget, and it is the only one** — there is no `install.ps1`, no Scoop
+bucket and no Chocolatey package, and `install.sh` refuses there on purpose (D218):
+
+```powershell
+winget install BeppeTemp.Cartographer
+```
+
+Expected output: winget reports the package was installed and that a `cartographer` command was
+added. Then continue from *Confirm the binary is available* below; everything after step 1 is
+platform-neutral. Before ever removing Cartographer from a Windows machine, run
+`cartographer service uninstall` first: `winget uninstall` runs no Cartographer code, so a
+registered Scheduled Task would outlive the binary it points at.
+
+On macOS, first check for Homebrew:
 
 ```bash
 command -v brew
@@ -169,7 +183,8 @@ Omitting this is the single most common way a correct installation is reported a
 
 | Observed symptom | Next action |
 |---|---|
-| `command -v brew` has no output | Run the `install.sh` command in step 1. |
+| `command -v brew` has no output | Run the `install.sh` command in step 1 (on Windows, the `winget` command instead). |
+| `install.sh` says Windows is not installed through it | Correct, and it names the remedy: `winget install BeppeTemp.Cartographer`. Do not look for an `install.ps1` — there is none (D218). |
 | The user's agent shows no Cartographer MCP tools after a successful `connect` | The session was not restarted. Repeat step 6 — this is not a failed install. |
 | `cartographer status` exits non-zero immediately after install | The service may still be starting: wait a few seconds and retry once before diagnosing. |
 | The service reports that port 39273 is busy | Stop or reconfigure the process using the port, then rerun `cartographer service install`. |

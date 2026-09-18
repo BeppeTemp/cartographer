@@ -175,9 +175,7 @@ var GapDecisions = map[int]string{
 // number that already has a file fails the test. A plan abandoned without
 // implementing gets a "retired" record of its own (D130) or moves to
 // GapDecisions — it does not stay here.
-var ReservedDecisions = map[int]string{
-	218: "held by open plan issue #289 (Windows artifacts and winget distribution): D217's paths cite it for why the winget shim is the stable binary path, and the record arrives with that implementation",
-}
+var ReservedDecisions = map[int]string{}
 
 // Decision is one record: exactly one file under docs/decisions.
 type Decision struct {

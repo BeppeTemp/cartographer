@@ -1,8 +1,15 @@
 #!/bin/sh
-# goreleaser_guard.sh — static guard for .goreleaser.yaml's generated Cask
-# install steps (D121, D199). It tests the repository template checked into
-# this repo — the only repository-side Cask source of truth — not the file
-# GoReleaser publishes to BeppeTemp/homebrew-tap.
+# goreleaser_guard.sh — static guard for .goreleaser.yaml's packaging blocks:
+# the generated Cask install steps (D121, D199) and the Windows/winget shape
+# (D218). It tests the repository template checked into this repo — the only
+# repository-side source of truth for both — not the files GoReleaser publishes to
+# BeppeTemp/homebrew-tap and BeppeTemp/winget-pkgs.
+#
+# Everything asserted here is something whose breakage is either silent or only
+# visible on a real Windows machine: an archive format that turns the winget
+# command into `cartographer.exe`, a submission quietly retargeted away from the
+# community repository, or a Pro-only field that reads as configuration and is
+# ignored.
 
 GUARD_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 REPO_ROOT=$(CDPATH= cd -- "${GUARD_DIR}/../.." && pwd)
@@ -13,7 +20,7 @@ INSTALL_LIB_DIR="${GUARD_DIR}/lib"
 
 GORELEASER_FILE="${REPO_ROOT}/.goreleaser.yaml"
 
-echo "=== Guard: .goreleaser.yaml Cask postflight_steps ==="
+echo "=== Guard: .goreleaser.yaml packaging (Cask + Windows/winget) ==="
 
 if [ ! -f "$GORELEASER_FILE" ]; then
     _assert_fail "goreleaser template not found: ${GORELEASER_FILE}"
@@ -36,6 +43,41 @@ else
         "writes no deprecated postflight block"
     assert_file_not_contains "$CODE_FILE" 'upgrade-repair' \
         "does not run upgrade-repair inside Homebrew's sandbox (the next sync repairs, D199)"
+
+    # --- Windows targets and the winget channel (D218) ---------------------
+    assert_file_contains "$CODE_FILE" '      - windows' \
+        "builds for windows"
+    assert_file_contains "$CODE_FILE" 'format_overrides:' \
+        "overrides the archive format per platform"
+    # The zip is what gives winget a portable nested installer with a clean
+    # `cartographer` alias; a raw binary would register `cartographer.exe` as the
+    # command name, and mixing the two for one platform is refused outright by the
+    # pipe (errMixedFormats).
+    if grep -A2 'format_overrides:' "$CODE_FILE" | grep -q 'goos: windows' \
+        && grep -A3 'format_overrides:' "$CODE_FILE" | grep -q 'formats: \[zip\]'; then
+        _assert_pass "the windows archive is a zip"
+    else
+        _assert_fail "the windows archive is a zip — no 'goos: windows' override with 'formats: [zip]' found"
+    fi
+    if grep -A3 'format_overrides:' "$CODE_FILE" | grep -q 'formats: \[binary\]'; then
+        _assert_fail "no windows override produces a raw binary (would give InstallerType portable and a cartographer.exe command)"
+    else
+        _assert_pass "no windows override produces a raw binary"
+    fi
+
+    assert_file_contains "$CODE_FILE" 'package_identifier: BeppeTemp.Cartographer' \
+        "publishes the agreed winget package identifier"
+    assert_file_contains "$CODE_FILE" 'name: winget-pkgs' \
+        "pushes the manifests to a winget-pkgs fork"
+    # A submission retargeted at a private manifest repository still succeeds, and
+    # silently stops being installable with `winget install BeppeTemp.Cartographer`.
+    if grep -A4 'pull_request:' "$CODE_FILE" | grep -q 'owner: microsoft'; then
+        _assert_pass "the pull request targets microsoft/winget-pkgs"
+    else
+        _assert_fail "the pull request targets microsoft/winget-pkgs — base owner is not microsoft"
+    fi
+    assert_file_not_contains "$CODE_FILE" 'use:' \
+        "sets no 'use:' (GoReleaser Pro field, silently ignored in OSS)"
 fi
 
 echo ""
