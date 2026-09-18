@@ -1,12 +1,12 @@
 // Package service manages the cartographer MCP server as a native per-user
-// service: a launchd agent on macOS, a systemd user unit on Linux. It
-// replaces local Docker deployment (D73).
+// service: a launchd agent on macOS, a systemd user unit on Linux, a per-user
+// Scheduled Task on Windows (D217). It replaces local Docker deployment (D73).
 //
 // The package separates pure file generation (Render*, DefaultServerYAML,
 // the path functions) from platform command execution (Manager, which runs
-// launchctl/systemctl through an injectable runner) so the generation half
-// is trivially unit-testable and the execution half is testable via a
-// stubbed runner.
+// launchctl/systemctl/PowerShell through an injectable runner) so the
+// generation half is trivially unit-testable and the execution half is
+// testable via a stubbed runner.
 package service
 
 import (
@@ -111,6 +111,126 @@ Restart=on-failure
 [Install]
 WantedBy=default.target
 `, servicePATH(binPath), binPath, configPath)
+}
+
+// xmlEscape escapes the three characters that are not legal in XML element
+// text. A path is user data — `C:\R&D\bin\cartographer.exe` is a legal path —
+// and an unescaped ampersand makes the whole definition unparseable, which
+// Register-ScheduledTask reports as a malformed task rather than as a bad path.
+//
+// Quotes are deliberately left alone. They need no escaping in element text, and
+// every value rendered here goes into element text, never into an attribute. A
+// `&quot;` in <Arguments> would be valid XML and would still be the opposite of
+// what Task Scheduler's own export writes, which is what an operator compares
+// against when a task misbehaves.
+func xmlEscape(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		switch r {
+		case '&':
+			b.WriteString("&amp;")
+		case '<':
+			b.WriteString("&lt;")
+		case '>':
+			b.WriteString("&gt;")
+		default:
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
+// quotePath wraps a path in double quotes so a path containing a space survives
+// as one argument. It is unconditional rather than conditional on whitespace:
+// the value goes into <Arguments>, which Task Scheduler hands to the process as
+// a single command line, and a quoted path is correct whether or not it needs to
+// be — while a conditionally quoted one makes the reader (EffectiveConfigPath)
+// carry two cases instead of one.
+func quotePath(p string) string { return `"` + p + `"` }
+
+// RenderWindowsTaskXML renders the Task Scheduler definition of the server
+// task: `<binPath> serve --config <configPath> --log-file <logPath>`, started
+// at the user's logon and restarted on failure. Sibling of RenderLaunchdPlist
+// and RenderSystemdUnit (D217).
+//
+// Four Task Scheduler defaults would each break a long-running server, so each
+// is overridden explicitly and pinned by a test:
+//
+//   - ExecutionTimeLimit defaults to 3 days, after which the task is killed;
+//     PT0S means no limit.
+//   - StopIfGoingOnBatteries and DisallowStartIfOnBatteries default to true on
+//     a laptop, which would stop the MCP server the moment the charger comes
+//     out.
+//   - IdleSettings/StopOnIdleEnd defaults to stopping the task when the machine
+//     stops being idle.
+//   - MultipleInstancesPolicy defaults to IgnoreNew only in recent exports; it
+//     is declared so a second Start-ScheduledTask can never produce two servers
+//     competing for the same port and the same KB lock.
+//
+// There is deliberately **no PATH**: the format cannot express one (an Exec
+// action has Command, Arguments and WorkingDirectory, and nothing else), and it
+// does not need to. The D156 fix exists because a launchd job inherits a minimal
+// PATH that excludes Homebrew, so a Homebrew `sops` was invisible; a Scheduled
+// Task registered with an interactive token inherits the user's environment,
+// where the machine and user PATH from the registry — which is where winget,
+// Scoop and Chocolatey put their shims — is already present.
+//
+// The encoding declaration says UTF-8 and the bytes are UTF-8. Task Scheduler's
+// own export writes UTF-16, and `schtasks /Create /XML` demands it with a BOM,
+// which is exactly why this file is registered through
+// Register-ScheduledTask -Xml with the definition as a string instead: the
+// declaration then describes the file honestly for whoever opens it, and
+// EffectiveConfigPath can read it back with an ordinary UTF-8 read.
+func RenderWindowsTaskXML(binPath, configPath, logPath string) string {
+	args := fmt.Sprintf("serve --config %s --log-file %s", quotePath(configPath), quotePath(logPath))
+	return fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>
+<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+  <RegistrationInfo>
+    <Description>Cartographer MCP server</Description>
+    <URI>\%s\%s</URI>
+  </RegistrationInfo>
+  <Triggers>
+    <LogonTrigger>
+      <Enabled>true</Enabled>
+    </LogonTrigger>
+  </Triggers>
+  <Principals>
+    <Principal id="Author">
+      <LogonType>InteractiveToken</LogonType>
+      <RunLevel>LeastPrivilege</RunLevel>
+    </Principal>
+  </Principals>
+  <Settings>
+    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
+    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
+    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
+    <AllowHardTerminate>true</AllowHardTerminate>
+    <StartWhenAvailable>true</StartWhenAvailable>
+    <RunOnlyIfNetworkAvailable>false</RunOnlyIfNetworkAvailable>
+    <IdleSettings>
+      <StopOnIdleEnd>false</StopOnIdleEnd>
+      <RestartOnIdle>false</RestartOnIdle>
+    </IdleSettings>
+    <AllowStartOnDemand>true</AllowStartOnDemand>
+    <Enabled>true</Enabled>
+    <Hidden>false</Hidden>
+    <RunOnlyIfIdle>false</RunOnlyIfIdle>
+    <WakeToRun>false</WakeToRun>
+    <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>
+    <Priority>7</Priority>
+    <RestartOnFailure>
+      <Interval>PT1M</Interval>
+      <Count>3</Count>
+    </RestartOnFailure>
+  </Settings>
+  <Actions Context="Author">
+    <Exec>
+      <Command>%s</Command>
+      <Arguments>%s</Arguments>
+    </Exec>
+  </Actions>
+</Task>
+`, xmlEscape(windowsTaskFolder), xmlEscape(windowsServeTaskName), xmlEscape(binPath), xmlEscape(args))
 }
 
 // DefaultServerYAML renders the minimal `cartographer serve --config` YAML

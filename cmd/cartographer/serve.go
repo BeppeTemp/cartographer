@@ -53,7 +53,18 @@ func cmdServe(args []string) int {
 	configFlag := fs.String("config", "", "Path to a YAML config file (or CARTOGRAPHER_CONFIG)")
 	toolsProfileFlag := fs.String("tools-profile", "", "Tools advertised by tools/list: 'agent' (default, core set) or 'full' (or CARTOGRAPHER_TOOLS_PROFILE)")
 	mountModeFlag := fs.String("mount-mode", "", "Multi-KB HTTP mount topology: 'per-kb' (default, one endpoint per KB) or 'routed' (one endpoint, kb as a tool argument) (or CARTOGRAPHER_MCP_MOUNT_MODE)")
+	logFileFlag := fs.String("log-file", "", "Append the server log to this file instead of stderr (created if absent; never rotated)")
 	fs.Parse(args)
+
+	// Before anything else can log: a service definition that names a log file
+	// expects everything in it, the startup lines included.
+	if *logFileFlag != "" {
+		f, err := redirectServerLog(*logFileFlag)
+		if err != nil {
+			log.Fatal(err)
+		}
+		defer f.Close()
+	}
 
 	cfg, err := loadServeConfig(fs, config.FlagOverrides{
 		HTTP:          httpFlag,
@@ -567,11 +578,25 @@ func serveHTTP(addr string, kbs []*kb.KB, names []string, toolPrefixes []string,
 	// with no signal handling); this is the minimal addition needed.
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
+	// On Windows there is no CLI-deliverable SIGTERM, so the same shutdown is
+	// also reachable through a named event (D217). Off Windows the channel is
+	// nil and its select arm can never fire.
+	eventCh := watchShutdownEvent()
 	serveErrCh := make(chan error, 1)
 	go func() {
 		log.Printf("HTTP server listening on %s", addr)
 		serveErrCh <- httpSrv.ListenAndServe()
 	}()
+
+	// One shutdown path, whatever asked for it: a second copy is how the drain
+	// and the push flush come to differ between a signal and an event.
+	shutdown := func() {
+		ctx, cancel := context.WithTimeout(context.Background(), shutdownHTTPTimeout)
+		defer cancel()
+		if err := httpSrv.Shutdown(ctx); err != nil {
+			log.Printf("HTTP server shutdown: %v", err)
+		}
+	}
 
 	select {
 	case err := <-serveErrCh:
@@ -580,11 +605,10 @@ func serveHTTP(addr string, kbs []*kb.KB, names []string, toolPrefixes []string,
 		}
 	case sig := <-sigCh:
 		log.Printf("received %s, shutting down gracefully", sig)
-		ctx, cancel := context.WithTimeout(context.Background(), shutdownHTTPTimeout)
-		defer cancel()
-		if err := httpSrv.Shutdown(ctx); err != nil {
-			log.Printf("HTTP server shutdown: %v", err)
-		}
+		shutdown()
+	case <-eventCh:
+		log.Printf("received shutdown event, shutting down gracefully")
+		shutdown()
 	}
 
 	for _, k := range kbs {

@@ -34,12 +34,30 @@ legs (`.gitattributes`): gofmt is line-ending-sensitive, so a CRLF checkout fail
 `fmt-check` on every file at once.
 
 The platform-specific code is the per-KB lock and the process-liveness check
-(`internal/kb/lockfile_unix.go`, `internal/kb/lockfile_windows.go`) and the
-client-state lock beside it (`internal/provisioning/clientlock_*.go`); the tests
-that assert their contract — the holder stays nameable, a dead pid is reclaimed,
-a non-contention error fails fast, a second acquirer is refused — run on both
-legs. So does the rest of the suite: the Windows leg is the whole of `make gate`,
-not a subset.
+(`internal/kb/lockfile_unix.go`, `internal/kb/lockfile_windows.go`), the
+client-state lock beside it (`internal/provisioning/clientlock_*.go`), and the
+native service's shutdown event (`internal/service/shutdownevent_*.go`,
+`cmd/cartographer/shutdownevent_*.go`); the tests that assert their contract —
+the holder stays nameable, a dead pid is reclaimed, a non-contention error fails
+fast, a second acquirer is refused — run on both legs. So does the rest of the
+suite: the Windows leg is the whole of `make gate`, not a subset.
+
+`internal/service` covers **three** platforms from whichever host runs the suite,
+because `goos` is a package var: the launchd, systemd and Scheduled Task branches
+are all asserted on their exact command sequences, and the Windows-only calls that
+cannot run from a POSIX host sit behind two package-level seams
+(`setShutdownEvent`, and `lstat` in `internal/provisioning`). Two rules there are
+load-bearing rather than stylistic. A test must stub **`getenv` as well as
+`userHomeDir`**: the Windows paths derive from `%APPDATA%`/`%LOCALAPPDATA%`, so a
+test that stubs only the home directory writes task definitions into the
+`test-windows` runner's real user profile — `withTestHome` neutralises both. And
+the recorded commands are asserted, not merely the absence of an error: no test
+stubs `os.Getuid`, which returns `-1` on Windows, so a branch that built
+`gui/-1/com.cartographer.serve` would otherwise pass. What the gate cannot check
+is the *schema validity* of the two generated task XML documents — nothing
+registers a task, since `make gate` stays side-effect-free — so their element
+order follows Task Scheduler's own export, and the first real
+`cartographer service install` on Windows is the check.
 
 A test that asserts on a POSIX file mode is written `execbit.Supported && ...`,
 because the Windows filesystem has no execute bit (D219). A skip on that leg
@@ -250,6 +268,10 @@ GoReleaser environment, which is out of the deterministic gate (see below).
   `make test-install` are POSIX `sh` scripts (`test/smoke/`, `test/e2e/`,
   `test/install/`) driving a launchd/systemd install path, so they run on the
   ubuntu leg only.
+- Registering a real Scheduled Task, or setting the real named shutdown event: both
+  change state outside the test's temp directory. The command sequences and the XML
+  are asserted; that Task Scheduler accepts the document is verified by an actual
+  install on Windows.
 
 These belong to production validation or an explicit release exercise, not to
 the deterministic repository gate.

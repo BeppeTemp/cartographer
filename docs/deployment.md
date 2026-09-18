@@ -8,7 +8,7 @@ The server is distributed as a native **Go binary** (via `install.sh`, see §Cli
 
 | Topology | Description |
 |---|---|
-| **Local** | The binary runs as a native user service (`cartographer service`, launchd/systemd); the client on the same machine points to `127.0.0.1`. |
+| **Local** | The binary runs as a native user service (`cartographer service`: launchd, systemd, or a Windows Scheduled Task); the client on the same machine points to `127.0.0.1`. |
 | **Shared server** | HTTP with optional static bearer tokens for multiple agents, on a trusted network or behind a reverse proxy (for example Kubernetes). |
 
 ### Provisioning artifact signing
@@ -52,8 +52,21 @@ pair per call, so the file is a complete operational request log (D119). See
 defaults + env + flags apply, as in earlier versions.
 
 Full annotated example: [`config.example.yaml`](https://github.com/BeppeTemp/cartographer/blob/main/config.example.yaml) (repo root).
-Schema (`internal/config.Config`, YAML tags in parentheses):
 
+One startup option is deliberately **flag-only**, with no YAML key and no environment variable:
+`serve --log-file <path>` appends the server log to a file instead of writing it to stderr,
+creating the parent directory and never rotating (neither does launchd). It exists because a
+Windows Scheduled Task's action cannot declare a log destination the way a launchd plist does, and
+Windows has no journald — so the process takes the path itself and the task's argv stays flat
+enough for `EffectiveConfigPath` to read `--config` back out of it
+([D217](decisions/D217-the-native-service-on-windows-is-a-per-user-scheduled-task.md)). It applies
+on every platform; a path that cannot be opened is a startup error, because a service that silently
+logs nowhere is the failure the flag exists to prevent. `cartographer sync --log-file` is the
+client-side counterpart, used by the scheduled sync task. It is not in the YAML because it belongs
+to *this invocation*, not to the served configuration: two services sharing one config file must
+still be able to log to two files.
+
+Schema (`internal/config.Config`, YAML tags in parentheses):
 ```yaml
 http: ":39273"                # (http) listen address; absent = stdio
 init: true                    # (init) initialize missing KBs
@@ -269,11 +282,12 @@ it from the server's own YAML. A stale client selection (a configured KB no long
 KBs the server currently advertises) is reported as an explicit error rather than guessed.
 
 > **Two different units.** `cartographer service install` manages the **server** as a per-user
-> service (`com.cartographer.serve` / `cartographer.service`). `cartographer service sync-timer
-> install` manages a **client-side** scheduled `cartographer sync`
-> (`com.cartographer.sync` / `cartographer-sync.timer`, D140). Both live under
-> `~/Library/LaunchAgents` and `~/.config/systemd/user`, with distinct names and separate logs;
-> installing or removing one never touches the other.
+> service (`com.cartographer.serve` / `cartographer.service` / the `\Cartographer\Serve` task).
+> `cartographer service sync-timer install` manages a **client-side** scheduled
+> `cartographer sync` (`com.cartographer.sync` / `cartographer-sync.timer` /
+> `\Cartographer\Sync`, D140). Both live under `~/Library/LaunchAgents`,
+> `~/.config/systemd/user` or `%LOCALAPPDATA%\cartographer\tasks`, with distinct names and
+> separate logs; installing or removing one never touches the other.
 
 ### Environment variables
 
@@ -311,7 +325,7 @@ Every startup option has a corresponding environment variable (the CLI flag take
 | `true` / `1` / `yes` / `on` | Auth mandatory — fatal error at startup if no token is configured |
 | unset | Auto: enabled if tokens are present, disabled otherwise |
 
-#### Example: native local service (launchd/systemd, auth off, single client)
+#### Example: native local service (launchd/systemd/Scheduled Task, auth off, single client)
 
 The local mode (D73) uses the binary already installed by `install.sh` as a **user service**:
 
@@ -327,13 +341,17 @@ cartographer kb rename <old> <new>           # renames the mount point: director
 ```
 
 `service install` (idempotent: re-running it rewrites the plist/unit and restarts):
-- generates `~/.config/cartographer/server.yaml` **only if it doesn't exist** (`--config` for a different path; `--data`, default `~/cartographer-data`, and `--http`, default `127.0.0.1:39273`, are only used at generation time — if the config already exists they are ignored with a warning: edit the file and run `service restart`);
+- generates `~/.config/cartographer/server.yaml` — on Windows `%APPDATA%\cartographer\server.yaml` — **only if it doesn't exist** (`--config` for a different path; `--data`, default `~/cartographer-data`, and `--http`, default `127.0.0.1:39273`, are only used at generation time — if the config already exists they are ignored with a warning: edit the file and run `service restart`);
 - creates the configured data dir if it doesn't exist yet (D83), so a fresh install never leaves `serve` pointed at a missing directory;
 - macOS: LaunchAgent `~/Library/LaunchAgents/com.cartographer.serve.plist` (`KeepAlive`, logging to `~/Library/Logs/cartographer/server.log`). The plist's binary path prefers a stable Homebrew symlink (`/opt/homebrew/bin/cartographer` or `/usr/local/bin/cartographer`) over the versioned Caskroom path, so it survives `brew upgrade` without a re-install (D83);
-- Linux: systemd user unit `~/.config/systemd/user/cartographer.service` (log via `journalctl --user -u cartographer`; on a headless host, `loginctl enable-linger <user>` is needed for the service to survive logout).
-- sets a `PATH` in both definitions (`EnvironmentVariables` in the plist, `Environment=PATH=` in the unit): the directory of the installed binary first, then `/opt/homebrew/bin`, `/usr/local/bin`, `/opt/local/bin`, then the platform default. A service manager does not pass the interactive shell's `PATH`, so without this a Homebrew-installed `sops` is invisible to the server and every secret resolution fails with `sops binary not found in PATH` — from the definition `service install` itself generated (D156). **An already-installed service keeps its old definition: re-run `service install` to pick this up.**
+- Linux: systemd user unit `~/.config/systemd/user/cartographer.service` (log via `journalctl --user -u cartographer`; on a headless host, `loginctl enable-linger <user>` is needed for the service to survive logout);
+- Windows: a **per-user Scheduled Task** `\Cartographer\Serve`, defined by `%LOCALAPPDATA%\cartographer\tasks\serve.xml` and registered with the PowerShell `ScheduledTasks` cmdlets — never `schtasks.exe`, whose printed state is localised. It starts at logon, restarts on failure (3 attempts, one minute apart), and logs to `%LOCALAPPDATA%\cartographer\Logs\server.log` through `serve --log-file`, because a task action has no equivalent of the plist's `StandardOutPath` and Windows has no journald. Not an SCM service: that would be per-machine and would need administrator rights, while this needs none ([D217](decisions/D217-the-native-service-on-windows-is-a-per-user-scheduled-task.md), amending D73). The task's binary path prefers the winget shim `%LOCALAPPDATA%\Microsoft\WinGet\Links\cartographer.exe` when it exists, so it survives an upgrade to a new package version — the same reason macOS prefers the Homebrew symlink. The definition overrides four Task Scheduler defaults that would each stop a long-running server: the 3-day execution time limit, the two battery settings, and stop-when-no-longer-idle.
+  Read fallback for the config: if `%APPDATA%\cartographer\server.yaml` does not exist and `<home>\.config\cartographer\server.yaml` does, that one is used, so a machine configured before Windows was supported keeps working — the existing file keeps governing the service and nothing is moved or copied. A **new** config is generated at the `%APPDATA%` location.
+- sets a `PATH` in the plist (`EnvironmentVariables`) and the unit (`Environment=PATH=`), but **not** in the task definition, whose format has no environment block — a Scheduled Task inherits the user's own environment, where the machine and user `PATH` already contains the winget, Scoop and Chocolatey shims, so the gap this closes on unix does not exist there: the directory of the installed binary first, then `/opt/homebrew/bin`, `/usr/local/bin`, `/opt/local/bin`, then the platform default. A service manager does not pass the interactive shell's `PATH`, so without this a Homebrew-installed `sops` is invisible to the server and every secret resolution fails with `sops binary not found in PATH` — from the definition `service install` itself generated (D156). **An already-installed service keeps its old definition: re-run `service install` to pick this up.**
 
-`stop` leaves the job registered and `restart` works after it. On macOS `stop` disables the job (to defeat `KeepAlive`) and sends `SIGTERM` rather than `bootout`, which unregisters: with `bootout`, `stop` followed by `restart` failed with `Could not find service … in domain` and only `start` worked, which reads like a broken installation. `restart` falls back to `start` when the job is not registered, so a job booted out by an older version stays restartable after the upgrade; `uninstall` still uses `bootout`, because removing the definition is what uninstalling means (D156).
+`stop` leaves the job registered and `restart` works after it. On macOS `stop` disables the job (to defeat `KeepAlive`) and sends `SIGTERM` rather than `bootout`, which unregisters: with `bootout`, `stop` followed by `restart` failed with `Could not find service … in domain` and only `start` worked, which reads like a broken installation. `restart` falls back to `start` when the job is not registered, so a job booted out by an older version stays restartable after the upgrade; `uninstall` still uses `bootout`, because removing the definition is what uninstalling means (D156). Windows follows the same contract with its own verbs: `stop` stops **and disables** the task (the logon trigger and restart-on-failure would otherwise bring it straight back), `start` and `restart` re-enable it first, `restart` re-registers from the XML when the scheduler no longer knows the task, and `uninstall` unregisters and deletes the definition.
+
+`service restart --wait` (D121) is a **graceful** replacement everywhere, and on Windows that took a mechanism of its own: there is no CLI-deliverable `SIGTERM`, `Stop-ScheduledTask` is a kill, and `GenerateConsoleCtrlEvent` cannot reach a process with no console. `serve` therefore also waits on a named event in the user's session (`Local\cartographer-serve-shutdown`) and triggers the same drain a `SIGTERM` does; the Manager sets it, waits for the action to exit, and then **starts the task again** — a Scheduled Task is not a supervisor, so nothing else would bring back a server that exited cleanly. If the event cannot be opened, the restart fails loudly instead of reporting a drain that did not happen.
 
 **Configured versus discovered mounts.** A KB listed in `kbs[]` is *configured*; a KB found by scanning `data:` is *discovered* and has **no `KBSpec`**, so every per-KB setting sits at its zero value — no `tool_prefix`, `allow_artifact_write` false, no `sops_age_key_file`, no `machine_path_allow_prefixes` — and nothing but adding the entry can change that. A discovered KB otherwise works and looks identical from every client surface, which is how one deployment ran a whole migration with artifact writes and tool prefixes silently off. Startup now warns once per discovered KB, `kb_status` reports `capabilities.mount: discovered`, and `cartographer doctor` raises a `capability` finding (D151).
 
@@ -357,8 +375,8 @@ Two entries that could both be the KB is a refusal, naming them: guessing there 
 
 **What `service status` reports** (D174). It inspects the **local native service** and nothing else: the remote server a client points at is a different question, answered by `cartographer status` and `cartographer doctor`. It reports what it observed, never a verdict on what does not exist:
 
-- `installed` — the plist/unit is on disk. When it is `false` the output says there is no local service and how to install one, and prints **no health line**: `healthy: false` next to `installed: false` describes an absence, and reads as an outage.
-- `loaded` — `launchctl print` / `systemctl --user is-active` succeeded. On macOS that proves the job is registered with launchd, **not** that a process is alive. The JSON field keeps its name, `running`, and `lifecycle` (`not_installed` / `not_loaded` / `loaded`) is the field to read.
+- `installed` — the plist, the unit or the task definition is on disk. It is a **file**, on every platform, and never a query to the scheduler: `EffectiveConfigPath` reads that same file to recover the `--config` the service was installed with. When it is `false` the output says there is no local service and how to install one, and prints **no health line**: `healthy: false` next to `installed: false` describes an absence, and reads as an outage.
+- `loaded` — `launchctl print` / `systemctl --user is-active` / `Get-ScheduledTask` succeeded. On macOS and on Windows that proves the job is registered with the scheduler, **not** that a process is alive — a task's state would even distinguish `Ready` from `Running`, and conflating the two would make the field mean something different there. The JSON field keeps its name, `running`, and `lifecycle` (`not_installed` / `not_loaded` / `loaded`) is the field to read.
 - `healthy` — the result of `GET /health` on the address in the server config. It is a verdict only when the probe **ran**: `health_checked` says whether it did, and `health_skip_reason` why not (`config_missing`, `config_unreadable`, `stdio_transport`). An empty `http:` means the server is configured for **stdio**, so there is no endpoint to probe — the default listen address is never substituted, since that would probe an address nothing listens on.
 - `client` — one context line when the `.cartographer.yaml` on this machine points at a server that is not this local service. A local service alongside a client pointed at a shared remote one is a legitimate configuration, reported as context and never as a warning.
 
@@ -612,7 +630,7 @@ backup before discarding any state.
 
 - **Server upgrade** with mounted KBs: graceful HTTP shutdown flushes pending
   pushes before the process exits.
-- **Native local upgrade** (Homebrew Cask or `install.sh update`): self-repairing since D121. Either path replaces the binary behind a stable path, but cannot replace the image of a process already running it. `install.sh update` calls `cartographer upgrade-repair` on the new binary right away. The Cask cannot: its install steps run in Homebrew's sandbox (temporary `HOME`, no network), so after `brew upgrade` the old process keeps serving until the next `cartographer sync` — the session-start hook, the scheduled timer or a manual run — performs the same replacement before syncing (D199). It acts only on a running service whose program is that same binary, on the loopback endpoint the client syncs against, reporting a different version; a failed replacement is a warning and the sync proceeds. `upgrade-repair` stays available to do it immediately. It gracefully replaces a **running** service (`SIGTERM`, so in-flight requests drain and pending pushes flush), waits until `/health` reports `status:"ok"` **and** the installed version, then reconciles the configured providers in place with the ordinary `cartographer sync` policy. It is idempotent: if `/health` already advertises the installed version it skips the restart and only syncs. A deliberately stopped or uninstalled service stays that way, and a client pointed at a non-loopback (or different local) endpoint has its provider sync skipped rather than run against a possibly remote server. **Still needed afterwards:** restart already-open provider sessions, which is what reopens the MCP connection and reloads the repaired configuration.
+- **Native local upgrade** (Homebrew Cask or `install.sh update`): self-repairing since D121. Either path replaces the binary behind a stable path, but cannot replace the image of a process already running it. `install.sh update` calls `cartographer upgrade-repair` on the new binary right away. The Cask cannot: its install steps run in Homebrew's sandbox (temporary `HOME`, no network), so after `brew upgrade` the old process keeps serving until the next `cartographer sync` — the session-start hook, the scheduled timer or a manual run — performs the same replacement before syncing (D199). It acts only on a running service whose program is that same binary, on the loopback endpoint the client syncs against, reporting a different version; a failed replacement is a warning and the sync proceeds. `upgrade-repair` stays available to do it immediately. It gracefully replaces a **running** service (`SIGTERM` — on Windows the named shutdown event plus an explicit relaunch of the task, since a Scheduled Task supervises nothing, D217 — so in-flight requests drain and pending pushes flush), waits until `/health` reports `status:"ok"` **and** the installed version, then reconciles the configured providers in place with the ordinary `cartographer sync` policy. It is idempotent: if `/health` already advertises the installed version it skips the restart and only syncs. A deliberately stopped or uninstalled service stays that way, and a client pointed at a non-loopback (or different local) endpoint has its provider sync skipped rather than run against a possibly remote server. **Still needed afterwards:** restart already-open provider sessions, which is what reopens the MCP connection and reloads the repaired configuration.
 - **When the repair does not complete**: exit `1` means the binary and the service are fine but provider sync is pending — the underlying error is printed and `cartographer sync` is the retry. Exit `2` means a running native service could not be replaced and verified; no provider sync was attempted, and `install.sh update` fails visibly. Investigate with `cartographer service status` and the server log, then retry `cartographer upgrade-repair`. `cartographer status` reports any residual skew and points at the same command.
 - **Kubernetes and remote servers**: unchanged. Bump the image tag; connected clients surface the version skew (D95) while the rollout catches up. `upgrade-repair` is for native local installations only — it is the loopback case by construction. The client-side counterpart is [D142](decisions/D142-reconnect-rebuild-a-client-configuration-never.md): each provider's lockfile entry records the `server_version` its state was materialized against, so the next `cartographer sync` prints one line saying the server changed and recommending `cartographer reconnect`, then syncs normally. `sync` repairs in place and is the right tool for almost everything; `reconnect` (a full disconnect + connect, preserving every setting) is for what an incremental sync structurally cannot see — files and registrations an *older Cartographer version* wrote under names that are not in the current managed set. It is never automatic, and after it, already-open provider sessions still have to be restarted. The verification step that closes the loop is `cartographer doctor` ([D143](decisions/D143-doctor-a-separate-command-that-diagnoses-and-never.md)): read-only, exit 0/1/2, it reports what is left over or missing on the client — residual MCP entries for unmounted KBs, a duplicated instructions block, a hook registered twice, a v1 lockfile — and names the command that fixes each one.
 - **KB format changes**: follow the release notes and back up the git remote
