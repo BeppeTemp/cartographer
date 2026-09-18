@@ -16,7 +16,8 @@ the machine, and how to remove it, is in the README under §Install.
 # macOS (Homebrew)
 brew install beppetemp/tap/cartographer
 
-# Windows (winget — the only Windows channel; install.sh refuses there and says so)
+# Windows (winget — the only Windows channel; install.sh refuses there and says so.
+#          No usable winget? see the zip fallback below)
 winget install BeppeTemp.Cartographer
 
 # Linux / macOS without Homebrew
@@ -34,6 +35,109 @@ If an **agent** is performing the installation on your behalf, it follows the
 imperative [agent-driven installation runbook](agent-install.md) instead of this
 human walkthrough — a repository link is all it needs to start, and it will ask
 you for the KB remote itself.
+
+### Windows without winget: the published zip
+
+winget stays the only supported Windows channel
+([D218](decisions/D218-winget-is-the-only-windows-channel-and-the-archive-is-a-zip.md)).
+When it cannot serve the package — winget is missing or blocked by policy, or
+the manifest for the version you want is not published yet — install by hand
+from the release assets the pipeline already publishes
+([D223](decisions/D223-the-published-windows-zip-is-a-documented-fallback.md)).
+This is a fallback, not a second channel: nothing extra is built or signed for
+it, and a machine that can use winget should.
+
+Each release carries `cartographer-windows-amd64.zip`,
+`cartographer-windows-arm64.zip` and `sha256sums.txt`; the zip holds
+`cartographer.exe` next to `CHANGELOG.md`, `LICENSE` and `README.md`. In
+PowerShell, with `<tag>` the release you want (the newest is on the [releases page](https://github.com/BeppeTemp/cartographer/releases)):
+
+```powershell
+# 1. The architecture of this machine picks the asset
+$arch = if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { 'arm64' } else { 'amd64' }
+$zip  = "cartographer-windows-$arch.zip"
+$base = "https://github.com/BeppeTemp/cartographer/releases/download/<tag>"
+
+# 2. Download the asset and the checksums.
+#    PowerShell 5.1 defaults to TLS 1.0 on some hosts, which GitHub refuses:
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+Invoke-WebRequest "$base/$zip" -OutFile $zip
+Invoke-WebRequest "$base/sha256sums.txt" -OutFile sha256sums.txt
+
+# 3. Verify, and compare the two lines yourself
+(Get-FileHash -Algorithm SHA256 $zip).Hash
+Select-String -Path sha256sums.txt -Pattern $zip
+
+# 4. Extract into a per-user directory
+$dir = "$env:LOCALAPPDATA\Cartographer\bin"
+Expand-Archive -Path $zip -DestinationPath $dir -Force
+
+# 5. Put that directory on the *user* PATH — no administrator rights,
+#    nothing written outside your profile
+$u = [Environment]::GetEnvironmentVariable("PATH", "User")
+if ($u -notlike "*$dir*") { [Environment]::SetEnvironmentVariable("PATH", "$u;$dir", "User") }
+
+# 6. Open a NEW PowerShell window, then:
+cartographer --version
+```
+
+- **A hash that does not match is a stop, not a warning.** Delete the download
+  and start again; do not extract it. `install.sh` treats a missing or wrong
+  checksum the same way, and a hand procedure must not be weaker than the
+  scripted one.
+- **A `PATH` change is invisible to already-open shells.** Step 6 opens a new
+  window for that reason: run `cartographer --version` in the shell that set the
+  variable and it appears to have failed when it has not.
+- From here the walkthrough continues unchanged: the service and KB in step 2,
+  `cartographer connect` in step 3.
+- **Do not layer channels.** If winget later gains the package, remove the manual
+  install first (below), then `winget install BeppeTemp.Cartographer` — otherwise
+  two `cartographer.exe` compete on `PATH`.
+
+#### Upgrading a manual install
+
+The upgrade is the install repeated against the newer tag: same asset, same
+checksum verification, same destination, overwriting the previous
+`cartographer.exe`. Two things around it:
+
+```powershell
+cartographer service stop     # only if the native service is installed
+# …steps 1-4 above, against the newer <tag>…
+cartographer service start
+cartographer upgrade-repair   # or wait for the next cartographer sync
+```
+
+- **Windows locks a running executable.** If the native service (the
+  `\Cartographer\Serve` Scheduled Task) is installed, `Expand-Archive` fails
+  with a sharing violation instead of replacing `cartographer.exe`: stop the
+  service before the extract and start it after. A client-only install has
+  nothing running and needs neither command. This is the way this upgrade
+  usually fails.
+- **Nothing repairs itself during the swap**, because no Cartographer code runs:
+  the next `cartographer sync` — session-start hook, scheduled task, or a manual
+  run — replaces a service still on the previous binary, and
+  `cartographer upgrade-repair` does it immediately. Already-open agent sessions
+  still have to be restarted.
+- **Downgrading, or pinning a version, is the same procedure** with a different
+  tag: nothing here reads "latest".
+
+#### Removing a manual install
+
+`cartographer service uninstall` comes **before** the binary goes away: it is
+Cartographer code that unregisters the Scheduled Task, and a task left pointing
+at a deleted executable is what the ordering avoids.
+
+```powershell
+cartographer disconnect
+cartographer service sync-timer uninstall
+cartographer service uninstall
+$dir = "$env:LOCALAPPDATA\Cartographer\bin"
+Remove-Item -Recurse -Force $dir
+$u = [Environment]::GetEnvironmentVariable("PATH", "User")
+[Environment]::SetEnvironmentVariable("PATH", (($u -split ';' | Where-Object { $_ -ne $dir }) -join ';'), "User")
+```
+
+Your KBs are git repositories in the data directory: nothing above deletes them.
 
 ## 2. Run the server and create your first KB
 

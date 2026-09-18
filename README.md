@@ -253,7 +253,8 @@ flowchart LR
 # macOS (Homebrew)
 brew install beppetemp/tap/cartographer
 
-# Windows (winget — the only Windows channel)
+# Windows (winget — the only Windows channel; no usable winget? getting-started.md
+# documents installing, upgrading and removing from the published zip)
 winget install BeppeTemp.Cartographer
 
 # Linux / macOS without Homebrew (Darwin and Linux only — the script refuses on
@@ -271,6 +272,10 @@ go install github.com/BeppeTemp/cartographer/cmd/cartographer@latest
   (`winget`, a portable install: no installer runs, nothing is written outside
   your user profile), in `/usr/local/bin` or, when that is not writable,
   `~/.local/bin` (`install.sh`), or in `$GOBIN`/`$GOPATH/bin` (`go install`).
+  A Windows machine winget cannot serve installs the published zip by hand into
+  `%LOCALAPPDATA%\Cartographer\bin`, on the user `PATH` — the fallback
+  procedure is in [`docs/getting-started.md`](docs/getting-started.md)
+  §Windows without winget ([D223](docs/decisions/D223-the-published-windows-zip-is-a-documented-fallback.md)).
 - **A native per-user service**, if you run `cartographer service install`:
   `~/Library/LaunchAgents/com.cartographer.serve.plist` on macOS,
   `~/.config/systemd/user/cartographer.service` on Linux, or the Scheduled Task
@@ -295,6 +300,9 @@ new binary restarts the running service and re-synchronizes the configured provi
 so the repair is the lazy one the Homebrew Cask also relies on: the next `cartographer sync` — the
 session-start hook, the scheduled task, or a manual run — replaces a service still running the
 previous binary.
+A Windows install that came from the zip rather than from winget upgrades by repeating that
+procedure against the newer release — stopping the service first, since Windows locks a running
+executable: [`docs/getting-started.md`](docs/getting-started.md) §Windows without winget.
 `cartographer reconnect` is the explicit rebuild for what an incremental sync cannot see. Only
 already-open agent sessions need restarting. Details →
 [`docs/deployment.md`](docs/deployment.md) §Upgrades, schema migration, and repo growth.
@@ -322,6 +330,10 @@ cartographer service sync-timer uninstall
 cartographer service uninstall
 winget uninstall BeppeTemp.Cartographer
 ```
+
+An install that came from the published zip instead of winget ends on deleting the directory and
+its `PATH` entry, after the same three commands:
+[`docs/getting-started.md`](docs/getting-started.md) §Windows without winget.
 
 Your KBs are git repositories in the data directory: nothing above deletes them,
 and removing `~/cartographer-data` is a deliberate, separate act.
