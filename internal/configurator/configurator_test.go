@@ -76,8 +76,8 @@ func TestEmitAll(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(results) != 5 {
-		t.Fatalf("expected 5 results, got %d", len(results))
+	if len(results) != 6 {
+		t.Fatalf("expected 6 results, got %d", len(results))
 	}
 	seen := map[string]bool{}
 	for _, r := range results {

@@ -90,6 +90,13 @@ func TestDestDirPaths(t *testing.T) {
 		{"skill", configurator.ProviderAntigravity, ".gemini/config/skills/demo"},
 		{"agent", configurator.ProviderAntigravity, ".gemini/config/agents/demo.md"},
 		{"hook", configurator.ProviderAntigravity, ".gemini/config/hooks/demo"},
+		// crush: MCP, instructions and skills are documented; a user-level
+		// subagent directory and a hook mechanism are not (D225).
+		{"mcp", configurator.ProviderCrush, ".config/crush/crush.json"},
+		{"instructions", configurator.ProviderCrush, ".config/crush/CRUSH.md"},
+		{"skill", configurator.ProviderCrush, ".config/crush/skills/demo"},
+		{"agent", configurator.ProviderCrush, ""},
+		{"hook", configurator.ProviderCrush, ""},
 		// A kind or provider this binary does not know is not materializable:
 		// a manifest from a newer server must not land somewhere arbitrary.
 		{"newkind", configurator.ProviderClaudeCode, ""},

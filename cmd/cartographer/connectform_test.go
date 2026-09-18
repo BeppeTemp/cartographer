@@ -38,7 +38,7 @@ func TestConnectFormModel_Prefill(t *testing.T) {
 func TestConnectFormModel_TabCyclesFocus(t *testing.T) {
 	m := newConnectFormModel("Connect claude", connectOptions{}, false)
 
-	order := []connectField{fieldAgentClaude, fieldAgentOpenCode, fieldAgentCodex, fieldAgentKiro, fieldAgentAntigravity, fieldTokenEnv, fieldAuth, fieldTrust, fieldSubmit, fieldServerURL}
+	order := []connectField{fieldAgentClaude, fieldAgentOpenCode, fieldAgentCodex, fieldAgentKiro, fieldAgentAntigravity, fieldAgentCrush, fieldTokenEnv, fieldAuth, fieldTrust, fieldSubmit, fieldServerURL}
 	for i, want := range order {
 		tm, _ := m.Update(tea.KeyMsg{Type: tea.KeyTab})
 		m = tm.(connectFormModel)

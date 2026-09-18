@@ -666,11 +666,13 @@ the providers whose MCP configuration `connect` writes.
 | Kiro | `.kiro/settings/mcp.json` | `mcpServers` (JSON) |
 | OpenCode | `opencode.json` | `mcp` (JSON) |
 | Google Antigravity | `.gemini/config/mcp_config.json` | `mcpServers` (JSON) |
+| Crush | `.config/crush/crush.json` | `mcp` (JSON) |
 | Hermes Agent | none — see below | — |
 
 KB-provided stdio descriptors (D116) share these same files with per-name ownership. Claude Code,
 Codex and Kiro receive native `command`, `args` and `env` fields (Kiro also keeps `autoApprove: []`);
-OpenCode uses `type: "local"`, an ordered command array and `environment` with `{env:VAR}` references.
+OpenCode uses `type: "local"`, an ordered command array and `environment` with `{env:VAR}` references;
+Crush uses `type: "stdio"` with a string `command` plus a separate `args` array.
 Cartographer only preflights the local executable before writing: it never runs it, and never resolves
 an environment reference into its value.
 
@@ -786,7 +788,32 @@ the next `blocktext.Write` cannot destroy it; each relocation is reported as its
 }
 ```
 
-The five formats above are generated from the same provider-neutral core,
+**Crush** — with auth (schema: https://charm.land/crush.json; Crush expands `$VAR` in config
+values, so the `${VAR}` of the other providers is rewritten into its documented unbraced form):
+```json
+{
+  "$schema": "https://charm.land/crush.json",
+  "mcp": {
+    "cartographer": {
+      "type": "http",
+      "url": "http://localhost:39273/mcp",
+      "headers": { "Authorization": "Bearer $CARTOGRAPHER_TOKENS" }
+    }
+  }
+}
+```
+
+Crush's current configuration format is Bash (`~/.config/crush/crushrc`, executed at startup) and
+the JSON above is the one it documents as deprecated — written deliberately: merging into a client's
+config must be non-destructive, which a JSON object allows and a script does not, and an entry in
+`crushrc` would *run* in the user's session rather than be read
+([D225](decisions/D225-crush-is-a-provider-and-its-config-is-the-json.md)). Because Crush evaluates
+config values, a header or `env` value carrying a `$(command)` substitution is **refused** with an
+error naming the server and the key, instead of being written for Crush to execute on its next start.
+Crush also has no documented user-level subagent directory and no hook mechanism, so those two
+artifact kinds are unsupported for it and its bootstrap trigger is the scheduled timer.
+
+The six formats above are generated from the same provider-neutral core,
 `configurator.EmitServer(name, spec ServerSpec, provider)` (D69): `Emit(cfg, provider)` is a
 thin wrapper around `EmitServer(cfg.Name, cfg.toSpec(), provider)`. The same `EmitServer` is
 reused by `internal/provisioning` to materialize the third-party MCP servers a KB

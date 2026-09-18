@@ -1,5 +1,5 @@
 // Package configurator generates MCP configuration files for multiple LLM providers
-// (Claude Code, Codex CLI, Kiro, OpenCode, Hermes, Antigravity).
+// (Claude Code, Codex CLI, Kiro, OpenCode, Hermes, Antigravity, Crush).
 package configurator
 
 import (
@@ -79,6 +79,7 @@ const (
 	// deployment role, so it has no emitter and no MCP config file here.
 	ProviderHermes      Provider = "hermes"
 	ProviderAntigravity Provider = "antigravity"
+	ProviderCrush       Provider = "crush"
 )
 
 // EmitResult contains the generated config for a provider.
@@ -709,11 +710,12 @@ func emitKiroServer(name string, spec ServerSpec) (*EmitResult, error) {
 	}, nil
 }
 
-// openCodeEnvRefPattern matches a "${VAR_NAME}" placeholder (the provider-
-// neutral syntax used everywhere else — see ServerSpec's doc comment and
-// internal/provisioning/mcpspec.go), so it can be translated to OpenCode's own
-// "{env:VAR_NAME}" syntax (see emitOpenCodeServer below).
-var openCodeEnvRefPattern = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)\}`)
+// envRefPattern matches a "${VAR_NAME}" placeholder (the provider-neutral
+// syntax used everywhere else — see ServerSpec's doc comment and
+// internal/provisioning/mcpspec.go), so each emitter can translate it into the
+// syntax its own provider understands: OpenCode's "{env:VAR_NAME}"
+// (emitOpenCodeServer below) and Crush's "$VAR_NAME" (crushjson.go).
+var envRefPattern = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)\}`)
 
 // emitOpenCodeServer generates the opencode.json entry for name/spec (OpenCode
 // v1.17.10 format, schema: https://opencode.ai/config.json).
@@ -736,7 +738,7 @@ func emitOpenCodeServer(name string, spec ServerSpec) (*EmitResult, error) {
 		if len(spec.Env) > 0 {
 			env := make(map[string]string, len(spec.Env))
 			for k, v := range spec.Env {
-				env[k] = openCodeEnvRefPattern.ReplaceAllString(v, "{env:$1}")
+				env[k] = envRefPattern.ReplaceAllString(v, "{env:$1}")
 			}
 			entry["environment"] = env
 		}
@@ -746,7 +748,7 @@ func emitOpenCodeServer(name string, spec ServerSpec) (*EmitResult, error) {
 	if spec.Type == "http" && len(spec.Headers) > 0 {
 		headers := make(map[string]string, len(spec.Headers))
 		for k, v := range spec.Headers {
-			headers[k] = openCodeEnvRefPattern.ReplaceAllString(v, "{env:$1}")
+			headers[k] = envRefPattern.ReplaceAllString(v, "{env:$1}")
 		}
 		entry["headers"] = headers
 	}
