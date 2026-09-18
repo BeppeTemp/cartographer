@@ -206,6 +206,40 @@ func TestDetect_LegacyGeminiBinaryIsNotAntigravity(t *testing.T) {
 	}
 }
 
+func TestDetect_CrushBinary(t *testing.T) {
+	home := t.TempDir()
+	binPath := "/usr/local/bin/crush"
+	withStubs(t, home, map[string]string{"crush": binPath}, "linux")
+
+	for _, a := range Detect() {
+		if a.Provider == configurator.ProviderCrush {
+			if !a.Installed || a.Evidence != binPath {
+				t.Errorf("crush: expected Installed=true evidence=%s, got %+v", binPath, a)
+			}
+		} else if a.Installed {
+			t.Errorf("%s: expected not installed", a.Name)
+		}
+	}
+}
+
+func TestDetect_CrushConfigDirFallback(t *testing.T) {
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, ".config", "crush"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	withStubs(t, home, nil, "linux")
+
+	for _, a := range Detect() {
+		if a.Provider == configurator.ProviderCrush {
+			if !a.Installed || a.Evidence != filepath.Join(home, ".config", "crush") {
+				t.Errorf("crush: expected Installed=true evidence=%s, got %+v", filepath.Join(home, ".config", "crush"), a)
+			}
+		} else if a.Installed {
+			t.Errorf("%s: expected not installed", a.Name)
+		}
+	}
+}
+
 func TestDetect_AntigravityConfigDirFallback(t *testing.T) {
 	home := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(home, ".gemini", "config"), 0o755); err != nil {
@@ -306,6 +340,7 @@ func TestDescriptorsKeepTheirUnixDetection(t *testing.T) {
 		configurator.ProviderKiro:        {{".kiro"}},
 		configurator.ProviderOpenCode:    {{".config", "opencode"}, {".opencode"}},
 		configurator.ProviderAntigravity: {{".gemini", "config"}, {".gemini", "antigravity"}, {".gemini", "antigravity-cli"}},
+		configurator.ProviderCrush:       {{".config", "crush"}},
 	}
 	wantBinaries := map[configurator.Provider][]string{
 		configurator.ProviderClaudeCode:  {"claude"},
@@ -314,6 +349,7 @@ func TestDescriptorsKeepTheirUnixDetection(t *testing.T) {
 		configurator.ProviderHermes:      {"hermes"},
 		configurator.ProviderOpenCode:    {"opencode"},
 		configurator.ProviderAntigravity: {"agy"},
+		configurator.ProviderCrush:       {"crush"},
 	}
 
 	for _, d := range configurator.Providers() {

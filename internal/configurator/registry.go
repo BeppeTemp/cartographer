@@ -234,12 +234,42 @@ var descriptors = []Descriptor{
 		// https://antigravity.google/docs/rules-workflows/
 		emit: emitAntigravityServer,
 	},
+	{
+		Provider:    ProviderCrush,
+		DisplayName: "Crush",
+		// The legacy JSON format, deliberately and not for lack of a newer one:
+		// see crushjson.go for why the Bash `crushrc` is the wrong file for
+		// Cartographer to write into. Also the correct relative path on Windows,
+		// where Crush keeps user configuration under %USERPROFILE%\.config\crush
+		// rather than %APPDATA% — hence no EnvConfigDirs entry.
+		// https://github.com/charmbracelet/crush#configuration
+		MCPConfigPath:      CrushConfigPath,
+		MCPFormat:          FormatJSON,
+		MCPServerKey:       "mcp",
+		DeletableWhenEmpty: true,
+		SupportsMCPHeaders: true,
+		// Not a flat tool namespace: Crush shows each MCP tool to the model as
+		// mcp_<server>_<tool>, so two KBs mounted without a tool_prefix stay
+		// distinguishable. https://github.com/charmbracelet/crush#allowing-tools
+		FlatToolNamespace: false,
+		Binaries:          []string{"crush"},
+		ConfigDirs:        [][]string{{".config", "crush"}},
+		// No AppDirs: Crush is a terminal program installed by a package
+		// manager, so `crush` on PATH is the detection, and an invented
+		// application directory would only be a false positive.
+		//
+		// No InstructionsPrecedence: Crush loads both ~/.config/crush/CRUSH.md —
+		// the file Cartographer manages — and the cross-tool ~/.config/AGENTS.md,
+		// and neither replaces the other, so nothing shadows the managed block.
+		// https://github.com/charmbracelet/crush#global-context-files
+		emit: emitCrushServer,
+	},
 }
 
 // detectionOrder is the order `cartographer agents` and the TUI list agents
 // in. It differs from the registry order above and is equally user-visible:
 // both are preserved deliberately rather than unified (D137).
-var detectionOrder = []Provider{ProviderClaudeCode, ProviderOpenCode, ProviderCodex, ProviderKiro, ProviderHermes, ProviderAntigravity}
+var detectionOrder = []Provider{ProviderClaudeCode, ProviderOpenCode, ProviderCodex, ProviderKiro, ProviderHermes, ProviderAntigravity, ProviderCrush}
 
 // Providers returns every supported provider's descriptor, in registry order.
 func Providers() []Descriptor {

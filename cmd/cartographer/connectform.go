@@ -32,6 +32,7 @@ const (
 	fieldAgentCodex
 	fieldAgentKiro
 	fieldAgentAntigravity
+	fieldAgentCrush
 	fieldTokenEnv
 	fieldAuth
 	fieldTrust
@@ -155,7 +156,7 @@ func newConnectFormModel(title string, prefill connectOptions, standalone bool) 
 func (m connectFormModel) focusOrder() []connectField {
 	fields := []connectField{fieldServerURL}
 	if m.selectAgents {
-		fields = append(fields, fieldAgentClaude, fieldAgentOpenCode, fieldAgentCodex, fieldAgentKiro, fieldAgentAntigravity)
+		fields = append(fields, fieldAgentClaude, fieldAgentOpenCode, fieldAgentCodex, fieldAgentKiro, fieldAgentAntigravity, fieldAgentCrush)
 	}
 	return append(fields, fieldTokenEnv, fieldAuth, fieldTrust, fieldSubmit)
 }
@@ -259,7 +260,7 @@ func (m connectFormModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case " ":
 		switch m.focus {
-		case fieldAgentClaude, fieldAgentOpenCode, fieldAgentCodex, fieldAgentKiro, fieldAgentAntigravity:
+		case fieldAgentClaude, fieldAgentOpenCode, fieldAgentCodex, fieldAgentKiro, fieldAgentAntigravity, fieldAgentCrush:
 			if !m.selectAgents {
 				break
 			}
@@ -279,7 +280,7 @@ func (m connectFormModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case "enter":
 		switch m.focus {
-		case fieldAgentClaude, fieldAgentOpenCode, fieldAgentCodex, fieldAgentKiro, fieldAgentAntigravity:
+		case fieldAgentClaude, fieldAgentOpenCode, fieldAgentCodex, fieldAgentKiro, fieldAgentAntigravity, fieldAgentCrush:
 			if !m.selectAgents {
 				break
 			}
@@ -378,6 +379,7 @@ func (m connectFormModel) View() string {
 			formProviderLine("codex", m.providers["codex"], m.focus == fieldAgentCodex),
 			formProviderLine("kiro", m.providers["kiro"], m.focus == fieldAgentKiro),
 			formProviderLine("antigravity", m.providers["antigravity"], m.focus == fieldAgentAntigravity),
+			formProviderLine("crush", m.providers["crush"], m.focus == fieldAgentCrush),
 		)
 	}
 	trustLabel := "Trust KB artifacts"
@@ -438,7 +440,7 @@ func fieldHint(f connectField, authEnabled bool) string {
 	switch f {
 	case fieldServerURL:
 		return "MCP endpoint of the server, e.g. https://host/mcp"
-	case fieldAgentClaude, fieldAgentOpenCode, fieldAgentCodex, fieldAgentKiro, fieldAgentAntigravity:
+	case fieldAgentClaude, fieldAgentOpenCode, fieldAgentCodex, fieldAgentKiro, fieldAgentAntigravity, fieldAgentCrush:
 		return "space or enter toggles this agent; select one or more agents to connect"
 	case fieldTokenEnv:
 		if !authEnabled {

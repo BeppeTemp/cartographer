@@ -49,6 +49,11 @@ const (
 //   - OpenCode: .opencode/skills, .opencode/agent, .opencode/plugins, project
 //     opencode.json and AGENTS.md — https://opencode.ai/docs/skills, /rules,
 //     /agents, /plugins.
+//   - Crush: .crush/skills, one of the project skill directories it scans by
+//     default — https://github.com/charmbracelet/crush/tree/main/docs/config.
+//     Its project *configuration*, on the other hand, is documented only in
+//     `crushrc` form, so the four other cells fail closed rather than guessing
+//     a JSON filename Crush may not read (D225).
 //
 // Two providers have **no** project-local cells at all, and say so rather than
 // pretending (decision 11): hermes renders its configuration from an Ansible
@@ -68,6 +73,7 @@ var projectDestinationMatrix = map[string]map[configurator.Provider]destination{
 		// (~/.gemini/config); no project-local equivalent was found in the
 		// D193 audit, so the cell fails closed rather than inventing a path.
 		configurator.ProviderAntigravity: unsupportedDest,
+		configurator.ProviderCrush:       unsupportedDest,
 	},
 	"instructions": {
 		// The project root's own CLAUDE.md is the file Claude Code reads for a
@@ -80,6 +86,7 @@ var projectDestinationMatrix = map[string]map[configurator.Provider]destination{
 		configurator.ProviderKiro:        at(".kiro", "steering", "cartographer.md"),
 		configurator.ProviderHermes:      unsupportedDest,
 		configurator.ProviderAntigravity: unsupportedDest,
+		configurator.ProviderCrush:       unsupportedDest,
 	},
 	"agent": {
 		configurator.ProviderClaudeCode: perName(".md", ".claude", "agents"),
@@ -91,6 +98,7 @@ var projectDestinationMatrix = map[string]map[configurator.Provider]destination{
 		configurator.ProviderKiro:        perName(".json", ".kiro", "agents"),
 		configurator.ProviderHermes:      unsupportedDest,
 		configurator.ProviderAntigravity: unsupportedDest,
+		configurator.ProviderCrush:       unsupportedDest,
 	},
 	"hook": {
 		configurator.ProviderClaudeCode: perName("", ".claude", "hooks"),
@@ -104,6 +112,7 @@ var projectDestinationMatrix = map[string]map[configurator.Provider]destination{
 		configurator.ProviderKiro:        unsupportedDest,
 		configurator.ProviderHermes:      unsupportedDest,
 		configurator.ProviderAntigravity: unsupportedDest,
+		configurator.ProviderCrush:       unsupportedDest,
 	},
 	"skill": {
 		configurator.ProviderClaudeCode: perName("", ".claude", "skills"),
@@ -115,6 +124,7 @@ var projectDestinationMatrix = map[string]map[configurator.Provider]destination{
 		configurator.ProviderOpenCode:    perName("", ".opencode", "skills"),
 		configurator.ProviderHermes:      unsupportedDest,
 		configurator.ProviderAntigravity: unsupportedDest,
+		configurator.ProviderCrush:       perName("", ".crush", "skills"),
 	},
 }
 

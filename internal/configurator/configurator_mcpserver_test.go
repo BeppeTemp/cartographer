@@ -183,11 +183,65 @@ func TestEmitServer_Antigravity(t *testing.T) {
 	}
 }
 
+func TestEmitServer_Crush_TranslatesEnvSyntax(t *testing.T) {
+	spec := configurator.ServerSpec{
+		Type:    "http",
+		URL:     "https://kb-server.example.com/mcp",
+		Headers: map[string]string{"Authorization": "Bearer ${KB_TOKEN}"},
+	}
+	r, err := configurator.EmitServer("kb-server", spec, configurator.ProviderCrush)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if r.FilePath != ".config/crush/crush.json" {
+		t.Errorf("FilePath = %q, want .config/crush/crush.json", r.FilePath)
+	}
+	var root map[string]any
+	if err := json.Unmarshal(r.Content, &root); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if root["$schema"] != "https://charm.land/crush.json" {
+		t.Errorf("$schema = %v, want the published crush schema", root["$schema"])
+	}
+	entry := root["mcp"].(map[string]any)["kb-server"].(map[string]any)
+	if entry["type"] != "http" || entry["url"] != spec.URL {
+		t.Errorf("unexpected entry: %+v", entry)
+	}
+	headers := entry["headers"].(map[string]any)
+	// Crush documents "$VAR" expansion in config values; the braced form is
+	// not documented, so the emitter must rewrite it.
+	if headers["Authorization"] != "Bearer $KB_TOKEN" {
+		t.Errorf("Authorization header = %v, want the unbraced $VAR form", headers["Authorization"])
+	}
+	if len(r.Warnings) != 0 {
+		t.Errorf("unexpected warnings: %v", r.Warnings)
+	}
+}
+
+// A crush.json value is evaluated when Crush loads it, so a command
+// substitution that reached the file would run on the next start. The emitter
+// refuses the spec instead of writing it.
+func TestEmitServer_Crush_RejectsCommandSubstitution(t *testing.T) {
+	for _, spec := range []configurator.ServerSpec{
+		{Type: "http", URL: "https://kb.example.test/mcp", Headers: map[string]string{"Authorization": "Bearer $(cat /tmp/token)"}},
+		{Type: "stdio", Command: "tool", Env: map[string]string{"TOKEN": "$(cat /tmp/token)"}},
+	} {
+		r, err := configurator.EmitServer("kb-server", spec, configurator.ProviderCrush)
+		if err == nil {
+			t.Fatalf("%s: accepted a command substitution: %s", spec.Type, r.Content)
+		}
+		if r != nil {
+			t.Errorf("%s: returned a partial result alongside the error", spec.Type)
+		}
+	}
+}
+
 func TestEmitServer_NoHeaders(t *testing.T) {
 	spec := configurator.ServerSpec{Type: "http", URL: "https://kb-server.example.com/mcp"}
 	for _, provider := range []configurator.Provider{
 		configurator.ProviderAntigravity, configurator.ProviderClaudeCode,
 		configurator.ProviderCodex, configurator.ProviderKiro, configurator.ProviderOpenCode,
+		configurator.ProviderCrush,
 	} {
 		r, err := configurator.EmitServer("kb-server", spec, provider)
 		if err != nil {
@@ -212,8 +266,9 @@ func TestEmitServer_Stdio(t *testing.T) {
 		configurator.ProviderCodex:       "[mcp_servers.local]\ncommand = \"local-tool\"\nargs = [\"serve\", \"--port\", \"39273\"]\n[mcp_servers.local.env]\n\"TOKEN\" = \"${LOCAL_TOKEN}\"\n",
 		configurator.ProviderKiro:        "{\n  \"mcpServers\": {\n    \"local\": {\n      \"args\": [\n        \"serve\",\n        \"--port\",\n        \"39273\"\n      ],\n      \"autoApprove\": [],\n      \"command\": \"local-tool\",\n      \"env\": {\n        \"TOKEN\": \"${LOCAL_TOKEN}\"\n      }\n    }\n  }\n}",
 		configurator.ProviderOpenCode:    "{\n  \"$schema\": \"https://opencode.ai/config.json\",\n  \"mcp\": {\n    \"local\": {\n      \"command\": [\n        \"local-tool\",\n        \"serve\",\n        \"--port\",\n        \"39273\"\n      ],\n      \"enabled\": true,\n      \"environment\": {\n        \"TOKEN\": \"{env:LOCAL_TOKEN}\"\n      },\n      \"type\": \"local\"\n    }\n  }\n}",
+		configurator.ProviderCrush:       "{\n  \"$schema\": \"https://charm.land/crush.json\",\n  \"mcp\": {\n    \"local\": {\n      \"args\": [\n        \"serve\",\n        \"--port\",\n        \"39273\"\n      ],\n      \"command\": \"local-tool\",\n      \"env\": {\n        \"TOKEN\": \"$LOCAL_TOKEN\"\n      },\n      \"type\": \"stdio\"\n    }\n  }\n}",
 	}
-	for _, provider := range []configurator.Provider{configurator.ProviderAntigravity, configurator.ProviderClaudeCode, configurator.ProviderCodex, configurator.ProviderKiro, configurator.ProviderOpenCode} {
+	for _, provider := range []configurator.Provider{configurator.ProviderAntigravity, configurator.ProviderClaudeCode, configurator.ProviderCodex, configurator.ProviderKiro, configurator.ProviderOpenCode, configurator.ProviderCrush} {
 		t.Run(string(provider), func(t *testing.T) {
 			r, err := configurator.EmitServer("local", spec, provider)
 			if err != nil {
@@ -227,7 +282,7 @@ func TestEmitServer_Stdio(t *testing.T) {
 }
 
 func TestEmitServer_RejectsMixedTransportFieldsForEveryProvider(t *testing.T) {
-	providers := []configurator.Provider{configurator.ProviderAntigravity, configurator.ProviderClaudeCode, configurator.ProviderCodex, configurator.ProviderKiro, configurator.ProviderOpenCode}
+	providers := []configurator.Provider{configurator.ProviderAntigravity, configurator.ProviderClaudeCode, configurator.ProviderCodex, configurator.ProviderKiro, configurator.ProviderOpenCode, configurator.ProviderCrush}
 	for _, spec := range []configurator.ServerSpec{
 		{Type: "stdio", Command: "tool", URL: "https://example.test/mcp"},
 		{Type: "stdio", Command: "tool", Headers: map[string]string{"X": "${TOKEN}"}},
