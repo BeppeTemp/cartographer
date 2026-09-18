@@ -69,3 +69,34 @@ func TestBundledSkillReferencesAreRouted(t *testing.T) {
 		}
 	}
 }
+
+// TestOpsKubernetesUpgradeEndsOnAVerifiedImage guards the one step in the
+// upgrade list whose success condition is not the command's own exit code
+// (D221). Where the manifest is applied by a GitOps controller rather than by
+// the operator, `kubectl rollout status` returns success in under a second
+// about the old ReplicaSet, so a bullet ending on the rollout lets an agent
+// report success while the previous version is still serving. The step must
+// name reading the Deployment's image back as the check. Matched on the
+// durable substance, not on a sentence any rewording would break.
+func TestOpsKubernetesUpgradeEndsOnAVerifiedImage(t *testing.T) {
+	body, err := fs.ReadFile(FS, "bundled/cartographer-ops/SKILL.md")
+	if err != nil {
+		t.Fatalf("read cartographer-ops SKILL.md: %v", err)
+	}
+	text := string(body)
+	for _, want := range []string{
+		"kubectl get deploy",
+		"containers[0].image",
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("the Kubernetes upgrade step no longer verifies the running image: %q missing", want)
+		}
+	}
+	// The skill ships to every user; only docs/deployment.md describes the
+	// maintainer's cluster, so no controller product name belongs here.
+	for _, banned := range []string{"Flux", "Argo CD", "ArgoCD"} {
+		if strings.Contains(text, banned) {
+			t.Errorf("the ops skill names a specific GitOps controller (%q): keep it controller-agnostic", banned)
+		}
+	}
+}
