@@ -36,9 +36,15 @@ type Descriptor struct {
 	DisplayName string // human-readable, e.g. "Claude Code"
 
 	// MCPConfigPath is the provider's native MCP configuration file, relative
-	// to the client base dir. It is the file `cartographer connect` writes
-	// Cartographer's own entry into, and the same file KB-provided "mcp"
-	// artifacts are merged into (internal/provisioning/mcpsettings.go).
+	// to the client base dir, in slash form. It is the file
+	// `cartographer connect` writes Cartographer's own entry into, and the same
+	// file KB-provided "mcp" artifacts are merged into
+	// (internal/provisioning/mcpsettings.go).
+	//
+	// Read it through ConfigPath(), which applies the local separator: the field
+	// is exported only because this registry is data, and its raw slash form has
+	// exactly one legitimate reader — this package's own consistency test,
+	// which compares it against nothing but emptiness.
 	MCPConfigPath string
 	MCPFormat     ConfigFormat
 	// MCPServerKey is the top-level JSON key holding the map of MCP server
@@ -83,9 +89,22 @@ type Descriptor struct {
 	// ConfigDirs are directories relative to the user's home, probed in this
 	// order when the binary is absent.
 	ConfigDirs [][]string
-	// DarwinAppDir, when set, is an absolute application bundle path probed
-	// last on darwin only.
-	DarwinAppDir string
+	// EnvConfigDirs are further configuration directories anchored at an
+	// environment variable instead of at the home directory, probed after
+	// ConfigDirs. Windows keeps per-user configuration under %APPDATA% and
+	// %LOCALAPPDATA%, which no home-relative segment list can express. An entry
+	// whose variable is unset or empty is skipped, so declaring one costs
+	// nothing where the platform does not define it — which is what keeps this
+	// purely additive.
+	EnvConfigDirs []EnvAnchoredDir
+	// AppDirs are absolute application-installation directories keyed by GOOS,
+	// probed last — after PATH, the config directories and the provider's own
+	// root. A GOOS with no entry simply has none: exec.LookPath already covers a
+	// CLI on PATH (and honours PATHEXT on Windows), so an application directory
+	// is extra evidence, never the mechanism. Only a location that could be
+	// confirmed is listed here, because an invented one is a false positive,
+	// which is worse than the miss it was meant to fix.
+	AppDirs map[string]string
 
 	// InstructionsPrecedence lists the provider's global instructions files in
 	// the order the provider itself resolves them, relative to the client base
@@ -106,6 +125,13 @@ type Descriptor struct {
 	// emit renders one MCP server entry for this provider. The provider output
 	// formats genuinely differ, so this stays a function, not data.
 	emit func(name string, spec ServerSpec) (*EmitResult, error)
+}
+
+// EnvAnchoredDir is one configuration directory expressed as an environment
+// variable plus the segments joined under its value, e.g. %APPDATA%\opencode.
+type EnvAnchoredDir struct {
+	Env      string
+	Segments []string
 }
 
 // descriptors is the registry, in the order EmitAll and the client
@@ -149,10 +175,13 @@ var descriptors = []Descriptor{
 		FlatToolNamespace:  true,
 		// The IDE installs `kiro`, the standalone CLI installs `kiro-cli`
 		// (verified on 2.20.0): both are the same provider.
-		Binaries:     []string{"kiro", "kiro-cli"},
-		ConfigDirs:   [][]string{{".kiro"}},
-		DarwinAppDir: "/Applications/Kiro.app",
-		emit:         emitKiroServer,
+		Binaries:   []string{"kiro", "kiro-cli"},
+		ConfigDirs: [][]string{{".kiro"}},
+		// No windows entry: the IDE's installation directory there could not be
+		// confirmed, and `kiro`/`kiro-cli` on PATH is the detection that
+		// matters anyway.
+		AppDirs: map[string]string{"darwin": "/Applications/Kiro.app"},
+		emit:    emitKiroServer,
 	},
 	{
 		Provider:    ProviderHermes,
@@ -176,7 +205,10 @@ var descriptors = []Descriptor{
 		SupportsMCPHeaders: true,
 		Binaries:           []string{"opencode"},
 		ConfigDirs:         [][]string{{".config", "opencode"}, {".opencode"}},
-		emit:               emitOpenCodeServer,
+		// %APPDATA%\opencode is where a Windows install keeps this, and neither
+		// of the two home-relative entries above can name it.
+		EnvConfigDirs: []EnvAnchoredDir{{Env: "APPDATA", Segments: []string{"opencode"}}},
+		emit:          emitOpenCodeServer,
 	},
 	{
 		Provider:            ProviderAntigravity,
@@ -189,7 +221,9 @@ var descriptors = []Descriptor{
 		ToolIdentifierLimit: 64,
 		Binaries:            []string{"agy"},
 		ConfigDirs:          [][]string{{".gemini", "config"}, {".gemini", "antigravity"}, {".gemini", "antigravity-cli"}},
-		DarwinAppDir:        "/Applications/Antigravity.app",
+		// No windows entry, for the same reason as Kiro: `agy` on PATH is the
+		// detection, and an unconfirmed install path would only invent evidence.
+		AppDirs: map[string]string{"darwin": "/Applications/Antigravity.app"},
 		// No InstructionsPrecedence: Antigravity reads both ~/.gemini/GEMINI.md
 		// and the cross-tool ~/.gemini/AGENTS.md, and GEMINI.md — the file
 		// Cartographer manages — wins where they conflict. Nothing shadows it.

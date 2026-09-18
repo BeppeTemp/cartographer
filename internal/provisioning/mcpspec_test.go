@@ -97,3 +97,80 @@ func TestParseMCPServerSpec_RejectsMalformedJSON(t *testing.T) {
 		t.Fatal("expected error for malformed json")
 	}
 }
+
+// D216 WP4. The property being fixed is that the verdict is the same on every
+// host for the same declared command: a descriptor lives in the KB and is
+// validated wherever it is read, so a table that passed here and failed on the
+// windows leg would mean the rule is the host's, not the KB's. Nothing in this
+// table branches on GOOS, and that is the assertion.
+func TestValidateMCPStdioCommand_SameVerdictOnEveryHost(t *testing.T) {
+	accepted := []string{
+		"srv.exe",
+		"tool",
+		"/usr/local/bin/tool",
+		`C:\srv\srv.exe`,
+		"C:/srv/srv.exe",
+		// Parentheses, allowed for an absolute command only: this is the most
+		// common absolute path on Windows and the whole reason for the
+		// relaxation. An absolute command reaches exec.Command with a separate
+		// argv and never a shell, so the ban bought nothing.
+		`C:\Program Files (x86)\srv\srv.exe`,
+		`\\host\share\srv.exe`,
+		// A tilde is legal in a file name and appears in every 8.3 short path.
+		`C:\Users\RUNNER~1\AppData\srv.exe`,
+	}
+	rejected := []string{
+		"",
+		" srv.exe",
+		"bin/tool",
+		`bin\tool`,
+		".",
+		"..",
+		"srv.exe --flag",
+		// Parentheses stay rejected for a bare name: the string is short, has no
+		// reason to carry one, and something other than this package decides
+		// what it resolves to.
+		"srv(x).exe",
+		// Every other metacharacter stays rejected, absolute or not.
+		"/usr/local/bin/tool;echo",
+		"/usr/local/bin/too|l",
+		"/usr/local/bin/to$ol",
+		"C:\\srv\\srv.exe&whoami",
+		"/usr/local/bin/\x00tool",
+		// Unclean, in either spelling. The backslash form used to pass: the
+		// separator swap in windowsCleanPath was written `\\` in a Go raw string,
+		// so it matched a doubled backslash, which no path contains — nothing was
+		// normalised and every backslash path was called clean.
+		"/usr/local/../bin/tool",
+		`C:\srv\..\srv.exe`,
+		"C:/srv/../srv.exe",
+	}
+
+	for _, command := range accepted {
+		if err := ValidateMCPStdioCommand(command); err != nil {
+			t.Errorf("ValidateMCPStdioCommand(%q) = %v, want accepted", command, err)
+		}
+	}
+	for _, command := range rejected {
+		if err := ValidateMCPStdioCommand(command); err == nil {
+			t.Errorf("ValidateMCPStdioCommand(%q) = nil, want rejected", command)
+		}
+	}
+}
+
+// cleanCommandPath must normalise in the syntax the path is written in, on any
+// host: this is what the cleanliness check above rests on.
+func TestCleanCommandPathIsHostIndependent(t *testing.T) {
+	for _, c := range []struct{ in, want string }{
+		{`C:\srv\srv.exe`, `C:\srv\srv.exe`},
+		{`C:\srv\..\srv.exe`, `C:\srv.exe`},
+		{`\\host\share\..\x`, `\\host\x`},
+		{"/usr/bin/tool", "/usr/bin/tool"},
+		{"/usr/../bin/tool", "/bin/tool"},
+		{"C:/srv/../srv.exe", "C:/srv.exe"},
+	} {
+		if got := cleanCommandPath(c.in); got != c.want {
+			t.Errorf("cleanCommandPath(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}

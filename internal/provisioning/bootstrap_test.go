@@ -14,6 +14,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -31,17 +32,17 @@ func TestEnsureBootstrapHook_Claude_MaterializzaERegistra(t *testing.T) {
 	}
 
 	hookDir := filepath.Join(baseDir, ".claude", "hooks", provisioning.BootstrapHookName)
-	for _, f := range []string{"hook.json", "bootstrap.sh"} {
+	for _, f := range []string{"hook.json", provisioning.BootstrapScriptNameForTest} {
 		if _, err := os.Stat(filepath.Join(hookDir, f)); err != nil {
 			t.Errorf("expected file %s: %v", f, err)
 		}
 	}
-	scriptData, err := os.ReadFile(filepath.Join(hookDir, "bootstrap.sh"))
+	scriptData, err := os.ReadFile(filepath.Join(hookDir, provisioning.BootstrapScriptNameForTest))
 	if err != nil {
-		t.Fatalf("read bootstrap.sh: %v", err)
+		t.Fatalf("read %s: %v", provisioning.BootstrapScriptNameForTest, err)
 	}
 	if !strings.Contains(string(scriptData), "cartographer sync --auto-trust") {
-		t.Errorf("bootstrap.sh does not call `cartographer sync --auto-trust`: %s", scriptData)
+		t.Errorf("%s does not call `cartographer sync --auto-trust`: %s", provisioning.BootstrapScriptNameForTest, scriptData)
 	}
 
 	settingsPath := filepath.Join(baseDir, ".claude", "settings.json")
@@ -63,14 +64,14 @@ func TestEnsureBootstrapHook_Claude_MaterializzaERegistra(t *testing.T) {
 	if len(groups) != 1 || len(groups[0].Hooks) != 1 {
 		t.Fatalf("expected 1 SessionStart entry, got: %+v", settings.Hooks)
 	}
-	wantCmd := filepath.Join(hookDir, "bootstrap.sh")
+	wantCmd := filepath.Join(hookDir, provisioning.BootstrapScriptNameForTest)
 	if groups[0].Hooks[0].Command != wantCmd {
 		t.Errorf("command: expected %q, got %q", wantCmd, groups[0].Hooks[0].Command)
 	}
 
 	// ManagedFile entries recorded in the returned Lock, for future pruning.
 	if len(lock.Managed) != 2 {
-		t.Fatalf("expected 2 ManagedFile (hook.json+bootstrap.sh), got %d: %+v", len(lock.Managed), lock.Managed)
+		t.Fatalf("expected 2 ManagedFile (hook.json+script), got %d: %+v", len(lock.Managed), lock.Managed)
 	}
 	for _, mf := range lock.Managed {
 		if mf.Kind != "hook" || mf.Name != provisioning.BootstrapHookName {
@@ -111,10 +112,10 @@ func TestEnsureBootstrapHook_Claude_ScriptPreesistenteNonEseguibile(t *testing.T
 	if err := os.MkdirAll(hookDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	// Pre-existing bootstrap.sh without the executable bit (written 0600 by
+	// Pre-existing script without the executable bit (written 0600 by
 	// an earlier version): WriteFile does not update its permissions, the
 	// explicit Chmod does — regression "Permission denied on every SessionStart".
-	if err := os.WriteFile(filepath.Join(hookDir, "bootstrap.sh"), []byte("#!/bin/sh\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(hookDir, provisioning.BootstrapScriptNameForTest), []byte("#!/bin/sh\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -122,12 +123,12 @@ func TestEnsureBootstrapHook_Claude_ScriptPreesistenteNonEseguibile(t *testing.T
 		t.Fatalf("EnsureBootstrapHook: %v", err)
 	}
 
-	info, err := os.Stat(filepath.Join(hookDir, "bootstrap.sh"))
+	info, err := os.Stat(filepath.Join(hookDir, provisioning.BootstrapScriptNameForTest))
 	if err != nil {
-		t.Fatalf("stat bootstrap.sh: %v", err)
+		t.Fatalf("stat %s: %v", provisioning.BootstrapScriptNameForTest, err)
 	}
 	if execbit.Supported && info.Mode()&0o111 == 0 {
-		t.Errorf("bootstrap.sh: expected executable bit after EnsureBootstrapHook, mode %v", info.Mode())
+		t.Errorf("%s: expected executable bit after EnsureBootstrapHook, mode %v", provisioning.BootstrapScriptNameForTest, info.Mode())
 	}
 }
 
@@ -140,7 +141,7 @@ func TestEnsureBootstrapHook_Codex_MaterializzaERegistra(t *testing.T) {
 	}
 
 	hookDir := filepath.Join(baseDir, ".codex", "hooks", provisioning.BootstrapHookName)
-	for _, f := range []string{"hook.json", "bootstrap.sh"} {
+	for _, f := range []string{"hook.json", provisioning.BootstrapScriptNameForTest} {
 		if _, err := os.Stat(filepath.Join(hookDir, f)); err != nil {
 			t.Errorf("expected file %s: %v", f, err)
 		}
@@ -182,7 +183,7 @@ func TestEnsureBootstrapHook_OpenCode_MaterializzaERegistra(t *testing.T) {
 	}
 
 	hookDir := filepath.Join(baseDir, ".opencode", "hooks", provisioning.BootstrapHookName)
-	for _, f := range []string{"hook.json", "bootstrap.sh"} {
+	for _, f := range []string{"hook.json", provisioning.BootstrapScriptNameForTest} {
 		if _, err := os.Stat(filepath.Join(hookDir, f)); err != nil {
 			t.Errorf("expected file %s: %v", f, err)
 		}
@@ -200,7 +201,7 @@ func TestEnsureBootstrapHook_OpenCode_MaterializzaERegistra(t *testing.T) {
 	}
 
 	if len(lock.Managed) != 3 {
-		t.Fatalf("expected 3 ManagedFile (hook.json+bootstrap.sh+plugin), got %d: %+v", len(lock.Managed), lock.Managed)
+		t.Fatalf("expected 3 ManagedFile (hook.json+script+plugin), got %d: %+v", len(lock.Managed), lock.Managed)
 	}
 
 	// Idempotent re-run: the plugin duplicates nothing (file rewritten whole, always identical).
@@ -287,7 +288,7 @@ func TestPruneManaged_BootstrapHook_RimuoveTutto(t *testing.T) {
 	}
 
 	hookDir := filepath.Join(baseDir, ".claude", "hooks", provisioning.BootstrapHookName)
-	for _, f := range []string{"hook.json", "bootstrap.sh"} {
+	for _, f := range []string{"hook.json", provisioning.BootstrapScriptNameForTest} {
 		p := filepath.Join(hookDir, f)
 		if _, err := os.Stat(p); !os.IsNotExist(err) {
 			t.Errorf("%s should have disappeared, err=%v", p, err)
@@ -316,7 +317,7 @@ func TestComputeDiff_BootstrapHook_NonOrfano(t *testing.T) {
 		AppliedRevision: "rev1",
 		Managed: []provisioning.ManagedFile{
 			{Kind: "hook", Name: provisioning.BootstrapHookName, Path: ".claude/hooks/cartographer-bootstrap/hook.json", ContentHash: "x"},
-			{Kind: "hook", Name: provisioning.BootstrapHookName, Path: ".claude/hooks/cartographer-bootstrap/bootstrap.sh", ContentHash: "x"},
+			{Kind: "hook", Name: provisioning.BootstrapHookName, Path: ".claude/hooks/cartographer-bootstrap/" + provisioning.BootstrapScriptNameForTest, ContentHash: "x"},
 		},
 	}
 	m := provisioning.Manifest{Revision: "rev1"} // no artifacts: as if the server did not know the bootstrap (it never could)
@@ -365,9 +366,9 @@ func TestApply_ManifestVuoto_NonRimuoveBootstrap(t *testing.T) {
 		t.Errorf("expected the bootstrap hook still managed (2 files) in the new Lock, found %d", stillManaged)
 	}
 
-	scriptPath := filepath.Join(baseDir, ".claude", "hooks", provisioning.BootstrapHookName, "bootstrap.sh")
+	scriptPath := filepath.Join(baseDir, ".claude", "hooks", provisioning.BootstrapHookName, provisioning.BootstrapScriptNameForTest)
 	if _, err := os.Stat(scriptPath); err != nil {
-		t.Errorf("bootstrap.sh should not have disappeared from disk: %v", err)
+		t.Errorf("the bootstrap script should not have disappeared from disk: %v", err)
 	}
 }
 
@@ -412,5 +413,94 @@ func TestApply_NomeRiservatoInKB_Warning(t *testing.T) {
 		if mf.Name == provisioning.BootstrapHookName {
 			t.Errorf("the reserved KB hook should not have ended up in the Lock: %+v", mf)
 		}
+	}
+}
+
+// D216 WP2: the generated script must be one this platform can actually run.
+// Asserted by property, not by exact text — the batch spelling is an
+// implementation detail, the three guarantees are the contract (D60): silent,
+// always exit 0, and an immediate exit when `cartographer` is not resolvable.
+func TestBootstrapScriptIsRunnableOnThisPlatform(t *testing.T) {
+	script := provisioning.BootstrapScriptContentForTest
+	name := provisioning.BootstrapScriptNameForTest
+
+	if runtime.GOOS == "windows" {
+		if !strings.HasSuffix(name, ".cmd") {
+			t.Errorf("script name %q: Windows has no shebang, so the extension is what makes a file executable", name)
+		}
+		if !strings.Contains(script, "where cartographer") {
+			t.Error("the script does not check that cartographer is resolvable: `where` is the batch `command -v`")
+		}
+		if !strings.Contains(script, ">nul") {
+			t.Error("the script is not silent: >nul is the batch >/dev/null")
+		}
+		if !strings.Contains(script, "exit /b 0") {
+			t.Error("the script cannot guarantee exit 0")
+		}
+		if !strings.Contains(script, "\r\n") {
+			t.Error("a batch file is read by cmd.exe: CRLF, not LF")
+		}
+		if strings.Contains(script, "#!/bin/sh") {
+			t.Error("the POSIX script leaked onto Windows: it is not executable there in any sense")
+		}
+	} else {
+		if !strings.HasPrefix(script, "#!/bin/sh") {
+			t.Errorf("script %q does not start with a shebang", script)
+		}
+		if !strings.Contains(script, "command -v cartographer") {
+			t.Error("the script does not check that cartographer is resolvable")
+		}
+		if !strings.Contains(script, ">/dev/null") {
+			t.Error("the script is not silent")
+		}
+		if !strings.Contains(script, "|| exit 0") && !strings.Contains(script, "|| true") {
+			t.Error("the script cannot guarantee exit 0")
+		}
+	}
+
+	if !strings.Contains(script, "cartographer sync --auto-trust") {
+		t.Error("the script does not run the sync it exists for")
+	}
+	// The session hook keeps --auto-trust, unlike the scheduled timer of D140.
+	if strings.Contains(script, "service sync-timer") {
+		t.Error("the bootstrap script is layer 1, not the scheduled trigger")
+	}
+}
+
+// The hook JSON must name this platform's script, and the relative form it uses
+// must be one resolveHookCommand resolves — it contains a separator, so it does
+// (D216 WP3).
+func TestBootstrapHookJSONReferencesThePlatformScript(t *testing.T) {
+	baseDir := t.TempDir()
+	if _, err := provisioning.EnsureBootstrapHook(baseDir, configurator.ProviderClaudeCode, provisioning.Lock{}, false); err != nil {
+		t.Fatalf("EnsureBootstrapHook: %v", err)
+	}
+	hookDir := filepath.Join(baseDir, ".claude", "hooks", provisioning.BootstrapHookName)
+	data, err := os.ReadFile(filepath.Join(hookDir, "hook.json"))
+	if err != nil {
+		t.Fatalf("read hook.json: %v", err)
+	}
+	var spec struct {
+		Event   string `json:"event"`
+		Command string `json:"command"`
+	}
+	if err := json.Unmarshal(data, &spec); err != nil {
+		t.Fatalf("parse hook.json: %v", err)
+	}
+	if want := "./" + provisioning.BootstrapScriptNameForTest; spec.Command != want {
+		t.Errorf("hook.json command = %q, want %q", spec.Command, want)
+	}
+	if spec.Event != "SessionStart" {
+		t.Errorf("hook.json event = %q, want SessionStart", spec.Event)
+	}
+
+	// And the command actually registered is the resolved absolute path of that
+	// script, not the relative form: that is what the provider runs.
+	settings, err := os.ReadFile(filepath.Join(baseDir, ".claude", "settings.json"))
+	if err != nil {
+		t.Fatalf("read settings.json: %v", err)
+	}
+	if !strings.Contains(string(settings), provisioning.BootstrapScriptNameForTest) {
+		t.Errorf("settings.json does not reference %s:\n%s", provisioning.BootstrapScriptNameForTest, settings)
 	}
 }

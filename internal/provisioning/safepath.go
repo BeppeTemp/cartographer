@@ -24,7 +24,11 @@ func refuse(result *AppliedResult, a Artifact, err error) bool {
 }
 
 // ErrSymlinkDestination is returned when a provisioning destination — the file
-// itself or any directory component under the client base dir — is a symlink.
+// itself or any directory component under the client base dir — is a symlink, or
+// anything else that is not a plain file or a plain directory (see
+// isUnsafeDestination). The sentinel keeps its symlink name because that is what
+// every caller matches with errors.Is and what the incident below was about; the
+// refusal it carries is broader than its name.
 //
 // os.WriteFile on a symlinked path opens the *target* with O_WRONLY|O_TRUNC: it
 // does not replace the link. Symlinked client-config directories are ordinary
@@ -39,25 +43,51 @@ func refuse(result *AppliedResult, a Artifact, err error) bool {
 var ErrSymlinkDestination = errors.New("provisioning: destination is a symlink")
 
 // symlinkError builds the operator-facing refusal, naming the target so it is
-// obvious where the write would have landed.
+// obvious where the write would have landed. A destination that is refused
+// without being a symlink (see isUnsafeDestination) has no target to name, so it
+// gets the shape of the refusal instead of a "-> (unreadable)" that reads like a
+// broken link.
 func symlinkError(path string) error {
-	target, err := os.Readlink(path)
-	if err != nil {
-		target = "(unreadable)"
+	if target, err := os.Readlink(path); err == nil {
+		return fmt.Errorf("%w: refusing to write through symlink %s -> %s (destination must be a real path; a dotfile manager or an earlier bootstrap may have linked it)",
+			ErrSymlinkDestination, path, target)
 	}
-	return fmt.Errorf("%w: refusing to write through symlink %s -> %s (destination must be a real path; a dotfile manager or an earlier bootstrap may have linked it)",
-		ErrSymlinkDestination, path, target)
+	return fmt.Errorf("%w: refusing to write through %s, which is neither a plain file nor a plain directory (destination must be a real path; a reparse point, junction, device or socket may be standing in for it)",
+		ErrSymlinkDestination, path)
 }
 
-// isSymlink reports whether path exists and is a symlink. A path that does not
-// exist yet is not one: provisioning creates it.
-func isSymlink(path string) bool {
-	info, err := os.Lstat(path)
-	return err == nil && info.Mode()&os.ModeSymlink != 0
+// isUnsafeDestination reports whether path exists and is something provisioning
+// must not write through: anything that is not a plain regular file or a plain
+// directory. A path that does not exist yet is not one — provisioning creates it.
+//
+// It is deliberately broader than the symlink D148 was written against, and only
+// ever broader: no path refused before is accepted now. The reason is that a
+// Windows directory *junction* is a reparse point, and whether Go reports one as
+// os.ModeSymlink or only as os.ModeIrregular **was never verified on a Windows
+// host** — not while the plan was written and not while this was implemented.
+// Refusing both, plus devices, sockets and named pipes, makes the guard correct
+// either way instead of correct only if the guess was right. The cost is that a
+// deliberate FIFO destination is now refused too, which no provisioning
+// destination has any business being.
+//
+// A regular file where a directory is expected stays *accepted* here on purpose:
+// MkdirAll already fails on it with an accurate error, and reporting it as a
+// hostile destination would be a false accusation.
+func isUnsafeDestination(path string) bool {
+	info, err := lstat(path)
+	if err != nil {
+		return false
+	}
+	mode := info.Mode()
+	return !mode.IsRegular() && !mode.IsDir()
 }
+
+// lstat is os.Lstat behind a test seam: os.ModeIrregular is the mode this guard
+// exists for and the one no test host can create on demand.
+var lstat = os.Lstat
 
 // ensureSafeDir walks relDir's components under baseDir and refuses the first
-// one that is a symlink. baseDir itself is deliberately exempt: it may
+// one isUnsafeDestination rejects. baseDir itself is deliberately exempt: it may
 // legitimately be a link (a symlinked $HOME, or a provider root resolved from
 // BaseDirEnv), so the walk starts below it. A component that does not exist yet
 // is fine.
@@ -72,16 +102,17 @@ func ensureSafeDir(baseDir, relDir string) error {
 			continue
 		}
 		current = filepath.Join(current, part)
-		if isSymlink(current) {
+		if isUnsafeDestination(current) {
 			return symlinkError(current)
 		}
 	}
 	return nil
 }
 
-// writeFileNoFollow is os.WriteFile that refuses to follow a symlinked target.
+// writeFileNoFollow is os.WriteFile that refuses to follow a symlinked — or
+// otherwise non-plain — target.
 func writeFileNoFollow(path string, data []byte, perm os.FileMode) error {
-	if isSymlink(path) {
+	if isUnsafeDestination(path) {
 		return symlinkError(path)
 	}
 	return os.WriteFile(path, data, perm)

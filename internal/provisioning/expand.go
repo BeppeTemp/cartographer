@@ -4,8 +4,6 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"fmt"
-	"os"
-	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
@@ -94,22 +92,13 @@ func expandPlaceholders(content []byte, opts ApplyOptions, tracker *expansionTra
 	})
 }
 
-// expandHomePath expands a leading "~" to the user's home directory —
-// mirrors repoindex's unexported expandHome, duplicated here (a few lines)
-// rather than exported purely for this one cross-package call.
-func expandHomePath(p string) string {
-	if p != "~" && !strings.HasPrefix(p, "~/") {
-		return p
-	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return p
-	}
-	if p == "~" {
-		return home
-	}
-	return filepath.Join(home, p[2:])
-}
+// expandHomePath expands a leading "~" (alone, or followed by either separator)
+// to the user's home directory. It is repoindex.ExpandHome, not a copy of it:
+// the two were near-duplicates that had already drifted — this one accepted only
+// "~/" — and a `paths:` entry must mean the same thing whether it is read here or
+// when a {{repo:…}} placeholder is resolved. This package already imports
+// repoindex, so sharing costs no new dependency edge.
+func expandHomePath(p string) string { return repoindex.ExpandHome(p) }
 
 // buildPathsTable renders the "Local paths" table appended to the
 // instructions block whenever at least one {{repo:<key>}}/{{path:<name>}}
