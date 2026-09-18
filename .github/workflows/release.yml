@@ -10,7 +10,8 @@ permissions:
 
 jobs:
   # Binaries + checksums attached to the release-please release, plus the
-  # Homebrew formula pushed to BeppeTemp/homebrew-tap.
+  # Homebrew formula pushed to BeppeTemp/homebrew-tap and the winget manifest
+  # pull request opened against microsoft/winget-pkgs (D218).
   goreleaser:
     runs-on: ubuntu-latest
     steps:
@@ -27,6 +28,11 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          # A missing token does not fail the release: the winget pipe continues
+          # on error and simply publishes no manifest (D218). Its absence is
+          # therefore silent — the check is that a winget-pkgs pull request
+          # appeared, not that this job was green.
+          WINGET_PKGS_TOKEN: ${{ secrets.WINGET_PKGS_TOKEN }}
 
   # The beta marker on the release itself (D82), which nothing was actually
   # setting: `"prerelease": true` in release-please-config.json does not put the

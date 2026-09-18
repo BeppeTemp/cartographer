@@ -16,6 +16,9 @@ the machine, and how to remove it, is in the README under §Install.
 # macOS (Homebrew)
 brew install beppetemp/tap/cartographer
 
+# Windows (winget — the only Windows channel; install.sh refuses there and says so)
+winget install BeppeTemp.Cartographer
+
 # Linux / macOS without Homebrew
 curl -fsSL https://raw.githubusercontent.com/BeppeTemp/cartographer/main/install.sh | sh
 

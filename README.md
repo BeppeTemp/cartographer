@@ -60,7 +60,7 @@ first KB's remote: a KB *is* a git repository, and that remote is what makes it 
 syncable. `sops` in `PATH` is needed only if the KB will hold encrypted values.
 
 ```bash
-brew install beppetemp/tap/cartographer                  # or install.sh / go install — see Install
+brew install beppetemp/tap/cartographer                  # macOS; winget / install.sh / go install — see Install
 cartographer service install                             # generates the config, installs and starts the service
 cartographer kb create <name> --remote <url> --restart   # scaffolds a KB, pushes it to <url>, restarts the service
 cartographer connect                                     # configures every detected agent client
@@ -253,7 +253,11 @@ flowchart LR
 # macOS (Homebrew)
 brew install beppetemp/tap/cartographer
 
-# Linux / macOS without Homebrew (Darwin and Linux only)
+# Windows (winget — the only Windows channel)
+winget install BeppeTemp.Cartographer
+
+# Linux / macOS without Homebrew (Darwin and Linux only — the script refuses on
+# Windows and points at winget)
 curl -fsSL https://raw.githubusercontent.com/BeppeTemp/cartographer/main/install.sh | sh
 
 # From source (Go 1.26+)
@@ -262,16 +266,20 @@ go install github.com/BeppeTemp/cartographer/cmd/cartographer@latest
 
 ### What gets installed
 
-- **The binary**, `cartographer` — in Homebrew's prefix (`brew`), in
-  `/usr/local/bin` or, when that is not writable, `~/.local/bin` (`install.sh`),
-  or in `$GOBIN`/`$GOPATH/bin` (`go install`).
+- **The binary**, `cartographer` — in Homebrew's prefix (`brew`), under
+  `%LOCALAPPDATA%\Microsoft\WinGet\` with a `cartographer` shim on `PATH`
+  (`winget`, a portable install: no installer runs, nothing is written outside
+  your user profile), in `/usr/local/bin` or, when that is not writable,
+  `~/.local/bin` (`install.sh`), or in `$GOBIN`/`$GOPATH/bin` (`go install`).
 - **A native per-user service**, if you run `cartographer service install`:
-  `~/Library/LaunchAgents/com.cartographer.serve.plist` on macOS, or
-  `~/.config/systemd/user/cartographer.service` on Linux, listening on
-  `127.0.0.1:39273`. Its config is generated at
-  `~/.config/cartographer/server.yaml`. The service is **optional** — a
-  stdio-only setup (`serve --kb <path>`) is a legitimate topology and installs
-  none of this.
+  `~/Library/LaunchAgents/com.cartographer.serve.plist` on macOS,
+  `~/.config/systemd/user/cartographer.service` on Linux, or the Scheduled Task
+  `\Cartographer\Serve` on Windows, listening on `127.0.0.1:39273`. Its config is
+  generated at `~/.config/cartographer/server.yaml` — on Windows
+  `%APPDATA%\cartographer\server.yaml`, with the log at
+  `%LOCALAPPDATA%\cartographer\Logs\server.log`. None of the three needs
+  administrator rights. The service is **optional** — a stdio-only setup
+  (`serve --kb <path>`) is a legitimate topology and installs none of this.
 - **A data directory**, `~/cartographer-data` by default, holding the cloned KBs.
 - **Writes into your agent clients' own configuration** under `$HOME`, and only
   when you run `cartographer connect` — never before. Each destination path is
@@ -283,6 +291,10 @@ go install github.com/BeppeTemp/cartographer/cmd/cartographer@latest
 
 Upgrades of a native local install (`brew upgrade` or `install.sh update`) repair themselves: the
 new binary restarts the running service and re-synchronizes the configured providers in place.
+`winget upgrade BeppeTemp.Cartographer` replaces the binary without running any Cartographer code,
+so the repair is the lazy one the Homebrew Cask also relies on: the next `cartographer sync` — the
+session-start hook, the scheduled task, or a manual run — replaces a service still running the
+previous binary.
 `cartographer reconnect` is the explicit rebuild for what an incremental sync cannot see. Only
 already-open agent sessions need restarting. Details →
 [`docs/deployment.md`](docs/deployment.md) §Upgrades, schema migration, and repo growth.
@@ -297,6 +309,18 @@ cartographer disconnect                      # removes what was materialized int
 cartographer service sync-timer uninstall
 cartographer service uninstall
 curl -fsSL https://raw.githubusercontent.com/BeppeTemp/cartographer/main/install.sh | sh -s -- uninstall
+```
+
+On Windows the order is the same but nothing enforces it: `winget uninstall
+BeppeTemp.Cartographer` removes the binary **without running any Cartographer code**, so a
+registered Scheduled Task survives it and is left pointing at an executable that is gone. Tear the
+service down first, while the binary is still there:
+
+```powershell
+cartographer disconnect
+cartographer service sync-timer uninstall
+cartographer service uninstall
+winget uninstall BeppeTemp.Cartographer
 ```
 
 Your KBs are git repositories in the data directory: nothing above deletes them,

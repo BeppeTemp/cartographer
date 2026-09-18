@@ -18,13 +18,25 @@ RUN git config --global user.name ci && git config --global user.email ci@local 
 RUN go vet ./... && go test ./...
 
 # Dist stage: cross-compiles the client for the supported platforms.
+#
+# This list is a SECOND copy of the one in .goreleaser.yaml (goos x goarch), and
+# that file is the authority: the release artifacts come from GoReleaser, not from
+# here. When a platform is added there, add it here too — nothing detects the
+# divergence, and the symptom is an artifacts export that silently lacks a
+# platform the release has.
+#
+# The .exe suffix is not cosmetic: without it this stage exports two
+# extensionless Windows binaries, which is neither what a Windows user can run by
+# name nor what the winget zip expects to contain.
 FROM builder AS dist
 ARG VERSION=dev
 RUN set -e; \
-    for target in darwin/arm64 darwin/amd64 linux/amd64 linux/arm64; do \
-        GOOS=${target%/*} GOARCH=${target#*/} CGO_ENABLED=0 \
+    for target in darwin/arm64 darwin/amd64 linux/amd64 linux/arm64 windows/amd64 windows/arm64; do \
+        os=${target%/*}; arch=${target#*/}; ext=""; \
+        if [ "$os" = windows ]; then ext=".exe"; fi; \
+        GOOS=$os GOARCH=$arch CGO_ENABLED=0 \
         go build -ldflags="-s -w -X main.version=${VERSION}" \
-        -o /dist/cartographer-${target%/*}-${target#*/} ./cmd/cartographer; \
+        -o /dist/cartographer-$os-$arch$ext ./cmd/cartographer; \
     done
 
 # Artifacts stage: binaries only, exportable with `docker build --target artifacts -o dist .`
