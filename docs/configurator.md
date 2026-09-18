@@ -300,8 +300,11 @@ default; a full rebuild is `cartographer reconnect` (below), for the residues no
 can see. Already-open provider sessions still need to be restarted to reopen the MCP connection.
 
 When the server that answers is not the one this client's state was materialized against, `sync`
-prints one line saying so and recommending `reconnect` — once per invocation, whatever the provider
-count — and then syncs normally ([D142](decisions/D142-reconnect-rebuild-a-client-configuration-never.md)). It reports; it
+prints one line saying so — once per invocation, whatever the provider count — and then syncs
+normally ([D142](decisions/D142-reconnect-rebuild-a-client-configuration-never.md)). The line states
+the fact and that this run re-applies the current manifest; it carries no imperative, because the
+run it precedes is the repair ([D220](decisions/D220-sync-states-the-server-change-without-recommending.md)).
+`status` and `doctor` report the same fact and do name `reconnect`: they only observe. It reports; it
 never escalates on its own. An unknown version on either side (a lockfile written before D142, an
 unreachable server) and a local `dev` build say nothing.
 

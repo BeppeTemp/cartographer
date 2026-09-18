@@ -801,21 +801,22 @@ func splitPositional(args []string, def string) (string, []string) {
 // in `status`.
 func versionIsComparable(v string) bool { return v != "" && v != "dev" }
 
-// serverChangeNotice returns the one line `sync` prints when the server that
-// answers now is not the one this client's provider state was materialized
-// against (D142) — or "" when there is nothing to say. It reports; it never
-// escalates: the ordinary sync runs either way, and rebuilding the
-// configuration stays the user's explicit `cartographer reconnect`.
+// serverChangeVersions returns the server versions this client's provider
+// state was materialized against (D142) when they are not the version
+// answering now — sorted, or nil when there is nothing to say. It is the one
+// place that decides whether a server change is worth a word; the two callers
+// below only phrase it.
 //
 // Once per invocation, not once per provider: several providers recording
-// different versions is one fact about the server, not three.
-func serverChangeNotice(dir string, providers []string, liveVersion string) string {
+// different versions is one fact about the server, not three, so the versions
+// come back as one deduplicated set rather than one answer per provider.
+func serverChangeVersions(dir string, providers []string, liveVersion string) []string {
 	if !versionIsComparable(liveVersion) {
-		return ""
+		return nil
 	}
 	lockFile, err := provisioning.ReadLockFile(lockFilePath(dir))
 	if err != nil {
-		return ""
+		return nil
 	}
 	var recorded []string
 	seen := map[string]bool{}
@@ -828,9 +829,40 @@ func serverChangeNotice(dir string, providers []string, liveVersion string) stri
 		recorded = append(recorded, v)
 	}
 	if len(recorded) == 0 {
-		return ""
+		return nil
 	}
 	sort.Strings(recorded)
+	return recorded
+}
+
+// serverChangeNotice is the wording for `status` and `doctor`: both only
+// observe, so naming the repairing command is the single actionable thing they
+// can offer (D143). Returns "" when there is nothing to say.
+//
+// `sync` does not use it — it repairs as it reports, so it has its own wording
+// below (D220). The two must not collapse back into one.
+func serverChangeNotice(dir string, providers []string, liveVersion string) string {
+	recorded := serverChangeVersions(dir, providers, liveVersion)
+	if len(recorded) == 0 {
+		return ""
+	}
 	return fmt.Sprintf("the server changed since this client was configured (was %s, now %s) — run `cartographer reconnect` to rebuild the client configuration",
+		strings.Join(recorded, ", "), liveVersion)
+}
+
+// syncServerChangeNotice is the wording for `sync`, printed before the sync
+// runs — or "" when there is nothing to say. It states the fact and what this
+// run does about it, and carries no imperative: the run under way already
+// re-applies the current manifest, so telling the reader to reconnect ahead of
+// output they have not seen reads as a prerequisite it is not (D220). It
+// reports; it never escalates: the ordinary sync runs either way, and
+// `reconnect` stays the user's explicit call for the residue an incremental
+// sync structurally cannot see.
+func syncServerChangeNotice(dir string, providers []string, liveVersion string) string {
+	recorded := serverChangeVersions(dir, providers, liveVersion)
+	if len(recorded) == 0 {
+		return ""
+	}
+	return fmt.Sprintf("the server changed since this client was configured (was %s, now %s); this sync re-applies the current manifest — `cartographer reconnect` is needed only for files an older version wrote under names no longer in the managed set",
 		strings.Join(recorded, ", "), liveVersion)
 }

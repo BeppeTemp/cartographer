@@ -145,7 +145,9 @@ func runSync(dir string, cfg *clientconfig.Config, opts syncOptions) (syncResult
 	} else {
 		// The server that answers now may not be the one this client's state
 		// was materialized against (D142): say so once, then sync normally.
-		if notice := serverChangeNotice(dir, targets, facts.Version); notice != "" {
+		// The sync wording, not the status/doctor one: this run is the repair
+		// (D220).
+		if notice := syncServerChangeNotice(dir, targets, facts.Version); notice != "" {
 			fmt.Println(notice)
 		}
 		entryKBs := kbs
