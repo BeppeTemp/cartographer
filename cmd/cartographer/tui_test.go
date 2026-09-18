@@ -694,14 +694,16 @@ func TestViewList_ExplicitStates(t *testing.T) {
 		version: "test",
 		dir:     "/tmp/does-not-matter",
 		rows: []dashboardAgent{
-			{Agent: agents.Agent{Name: "Claude Code", Installed: true, Evidence: "/bin/claude"}, Connected: true, MCPConfigState: mcpConfigInSync, SkillStatus: "in-sync"},
-			{Agent: agents.Agent{Name: "OpenCode", Installed: true, Evidence: "/bin/opencode"}},
+			{Agent: agents.Agent{Name: "Claude Code", Installed: true, Evidence: "/bin/claude", DetectedBy: agents.HeuristicBinary}, Connected: true, MCPConfigState: mcpConfigInSync, SkillStatus: "in-sync"},
+			{Agent: agents.Agent{Name: "OpenCode", Installed: true, Evidence: "/home/u/.config/opencode", DetectedBy: agents.HeuristicConfigDir}},
 			{Agent: agents.Agent{Name: "Kiro"}},
 		},
 		screen: screenList,
 	}
 	out := m.viewList()
-	for _, want := range []string{"connected", "not connected", "not installed", "binary", "mcp-config", "artifacts"} {
+	// The evidence line is labelled with the heuristic that produced it, so a
+	// config directory is not shown as if a binary had been found (#305).
+	for _, want := range []string{"connected", "not connected", "not installed", "binary", "config-dir", "mcp-config", "artifacts"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("viewList: missing %q in:\n%s", want, out)
 		}

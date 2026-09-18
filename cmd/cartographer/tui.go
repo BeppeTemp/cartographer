@@ -1110,7 +1110,7 @@ func (m Model) viewList() string {
 
 		// Details stacked vertically under each provider.
 		if row.Installed && row.Evidence != "" {
-			lines = append(lines, m.rowDetail("binary", styleEvidence.Render(row.Evidence)))
+			lines = append(lines, m.rowDetail(detectionLabel(row.DetectedBy), styleEvidence.Render(row.Evidence)))
 		}
 		if row.Connected {
 			var mcpBadge string
@@ -1163,6 +1163,16 @@ const (
 	// what the frame takes from the terminal before any content is drawn.
 	boxChromeWidth = 4
 )
+
+// detectionLabel labels the evidence line with the heuristic that produced it.
+// The label used to read "binary" whatever had matched, which is the confusion
+// #305 reports: a leftover config directory was presented as an executable.
+func detectionLabel(h agents.Heuristic) string {
+	if h == "" {
+		return "evidence"
+	}
+	return string(h)
+}
 
 // rowDetail renders one label/value line of a provider card on the grid.
 func (m Model) rowDetail(label, value string) string {

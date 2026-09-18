@@ -52,6 +52,9 @@ func TestDetect_NothingInstalled(t *testing.T) {
 		if a.Installed {
 			t.Errorf("%s: expected not installed, got Installed=true evidence=%q", a.Name, a.Evidence)
 		}
+		if a.DetectedBy != "" {
+			t.Errorf("%s: expected no heuristic recorded, got %q", a.Name, a.DetectedBy)
+		}
 	}
 }
 
@@ -62,8 +65,8 @@ func TestDetect_BinaryInPath(t *testing.T) {
 	got := Detect()
 	for _, a := range got {
 		if a.Provider == configurator.ProviderClaudeCode {
-			if !a.Installed || a.Evidence != "/usr/local/bin/claude" {
-				t.Errorf("claude: expected Installed=true evidence=/usr/local/bin/claude, got %+v", a)
+			if !a.Installed || a.Evidence != "/usr/local/bin/claude" || a.DetectedBy != HeuristicBinary {
+				t.Errorf("claude: expected Installed=true evidence=/usr/local/bin/claude detected-by=%s, got %+v", HeuristicBinary, a)
 			}
 		} else if a.Installed {
 			t.Errorf("%s: expected not installed", a.Name)
@@ -81,8 +84,8 @@ func TestDetect_ConfigDirFallback(t *testing.T) {
 	got := Detect()
 	for _, a := range got {
 		if a.Provider == configurator.ProviderCodex {
-			if !a.Installed || a.Evidence != filepath.Join(home, ".codex") {
-				t.Errorf("codex: expected Installed=true evidence=%s, got %+v", filepath.Join(home, ".codex"), a)
+			if !a.Installed || a.Evidence != filepath.Join(home, ".codex") || a.DetectedBy != HeuristicConfigDir {
+				t.Errorf("codex: expected Installed=true evidence=%s detected-by=%s, got %+v", filepath.Join(home, ".codex"), HeuristicConfigDir, a)
 			}
 		} else if a.Installed {
 			t.Errorf("%s: expected not installed", a.Name)
@@ -119,8 +122,8 @@ func TestDetect_OpenCodeXDGConfigDir(t *testing.T) {
 	got := Detect()
 	for _, a := range got {
 		if a.Provider == configurator.ProviderOpenCode {
-			if !a.Installed || a.Evidence != filepath.Join(home, ".config", "opencode") {
-				t.Errorf("opencode: expected Installed=true evidence=%s, got %+v", filepath.Join(home, ".config", "opencode"), a)
+			if !a.Installed || a.Evidence != filepath.Join(home, ".config", "opencode") || a.DetectedBy != HeuristicConfigDir {
+				t.Errorf("opencode: expected Installed=true evidence=%s detected-by=%s, got %+v", filepath.Join(home, ".config", "opencode"), HeuristicConfigDir, a)
 			}
 		}
 	}
@@ -142,8 +145,8 @@ func TestDetect_ProviderRootDir(t *testing.T) {
 		if a.Provider != configurator.ProviderHermes {
 			continue
 		}
-		if !a.Installed || a.Evidence != root {
-			t.Fatalf("hermes: expected Installed=true evidence=%q, got %+v", root, a)
+		if !a.Installed || a.Evidence != root || a.DetectedBy != HeuristicProviderRoot {
+			t.Fatalf("hermes: expected Installed=true evidence=%q detected-by=%s, got %+v", root, HeuristicProviderRoot, a)
 		}
 	}
 
@@ -240,8 +243,8 @@ func TestDetect_EnvAnchoredConfigDirOnWindows(t *testing.T) {
 		if a.Provider != configurator.ProviderOpenCode {
 			continue
 		}
-		if !a.Installed || a.Evidence != dir {
-			t.Fatalf("opencode: expected Installed=true evidence=%q, got %+v", dir, a)
+		if !a.Installed || a.Evidence != dir || a.DetectedBy != HeuristicEnvConfigDir {
+			t.Fatalf("opencode: expected Installed=true evidence=%q detected-by=%s, got %+v", dir, HeuristicEnvConfigDir, a)
 		}
 		return
 	}
@@ -278,8 +281,8 @@ func TestDetect_AppDirIsPerGOOS(t *testing.T) {
 	}
 
 	withStubs(t, home, nil, "darwin")
-	if a := detect(d, home); !a.Installed || a.Evidence != appDir {
-		t.Errorf("darwin: expected detection from the app dir %q, got %+v", appDir, a)
+	if a := detect(d, home); !a.Installed || a.Evidence != appDir || a.DetectedBy != HeuristicAppDir {
+		t.Errorf("darwin: expected detection from the app dir %q via %s, got %+v", appDir, HeuristicAppDir, a)
 	}
 
 	withStubs(t, home, nil, "windows")
@@ -356,4 +359,43 @@ func sameSegments(got, want [][]string) bool {
 		}
 	}
 	return true
+}
+
+// The point of DetectedBy (#305, D224) is that a live client and a directory
+// left behind by a removed one stop looking alike: same Installed, different
+// heuristic. This is the Windows report that opened the issue, minus Windows —
+// no `claude` binary anywhere, ~/.claude still on disk.
+func TestDetect_LeftoverConfigDirIsNotReportedAsABinary(t *testing.T) {
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, ".claude"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	withStubs(t, home, nil, "linux")
+
+	for _, a := range Detect() {
+		if a.Provider != configurator.ProviderClaudeCode {
+			continue
+		}
+		if !a.Installed || a.DetectedBy != HeuristicConfigDir {
+			t.Fatalf("claude: expected Installed=true detected-by=%s, got %+v", HeuristicConfigDir, a)
+		}
+		return
+	}
+	t.Fatal("claude missing from Detect() results")
+}
+
+// Every heuristic reports itself under its own name: two probes sharing a value
+// would be worse than no value at all, since the field exists to tell them
+// apart.
+func TestHeuristicsAreDistinct(t *testing.T) {
+	seen := map[Heuristic]bool{}
+	for _, h := range []Heuristic{HeuristicBinary, HeuristicConfigDir, HeuristicEnvConfigDir, HeuristicProviderRoot, HeuristicAppDir} {
+		if h == "" {
+			t.Error("a heuristic must not be empty: empty means \"not detected\"")
+		}
+		if seen[h] {
+			t.Errorf("duplicate heuristic value %q", h)
+		}
+		seen[h] = true
+	}
 }
