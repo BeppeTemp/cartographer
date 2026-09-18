@@ -71,7 +71,11 @@ Cartographers end up on `PATH`.
 - Windows: `winget upgrade BeppeTemp.Cartographer`. winget is the only Windows channel — there is
   no `install.ps1`, and `install.sh` refuses there. Like Homebrew it runs no Cartographer code, so
   the repair is the same lazy one: the next `cartographer sync` replaces a service still running
-  the previous binary.
+  the previous binary. Where winget cannot serve the package, installing and upgrading from the
+  published zip by hand is the documented fallback (`docs/getting-started.md` §Windows without
+  winget, D223) — do not invent a procedure; and if the native service is installed, run
+  `cartographer service stop` before extracting over `cartographer.exe`, because Windows locks a
+  running executable and the extract fails with a sharing violation.
 - POSIX installer (Linux, macOS without Homebrew): `install.sh update`, which runs
   `upgrade-repair` the same way.
 - Kubernetes: update the Cartographer image tag in the deployment manifest and push it, then
