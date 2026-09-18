@@ -86,15 +86,27 @@ func TestDefaultServerYAML(t *testing.T) {
 	}
 }
 
-// withTestHome redirects userHomeDir/goos for the duration of the test.
+// withTestHome redirects userHomeDir/goos for the duration of the test, and
+// neutralises getenv so the Windows paths resolve through their documented
+// fallback instead of through whatever %APPDATA% the host happens to have. A
+// test that wants the environment reads it back with withTestEnv.
 func withTestHome(t *testing.T, os_ string) string {
 	t.Helper()
 	home := t.TempDir()
-	origHome, origGOOS := userHomeDir, goos
+	origHome, origGOOS, origGetenv := userHomeDir, goos, getenv
 	userHomeDir = func() (string, error) { return home, nil }
 	goos = os_
-	t.Cleanup(func() { userHomeDir, goos = origHome, origGOOS })
+	getenv = func(string) string { return "" }
+	t.Cleanup(func() { userHomeDir, goos, getenv = origHome, origGOOS, origGetenv })
 	return home
+}
+
+// withTestEnv makes getenv answer from a map for the duration of the test.
+func withTestEnv(t *testing.T, env map[string]string) {
+	t.Helper()
+	orig := getenv
+	getenv = func(k string) string { return env[k] }
+	t.Cleanup(func() { getenv = orig })
 }
 
 func TestConfigPath(t *testing.T) {
@@ -428,8 +440,13 @@ func TestHealthURL(t *testing.T) {
 	}
 }
 
+// TestUnsupportedPlatform is the canary for a GOOS this package has no branch
+// for: every method must refuse it outright rather than half-work. It used to
+// use "windows", which is now a supported platform (D217) — the guarantee is
+// about the *default* case, so it needs a GOOS that is genuinely unhandled.
+// Go builds for plan9, so it is a real value rather than a made-up one.
 func TestUnsupportedPlatform(t *testing.T) {
-	withTestHome(t, "windows")
+	withTestHome(t, "plan9")
 	m, _ := newTestManager()
 	if _, err := m.Install(InstallOptions{}); err == nil {
 		t.Error("Install on unsupported platform should error")
@@ -448,6 +465,21 @@ func TestUnsupportedPlatform(t *testing.T) {
 	}
 	if _, err := m.Status(""); err == nil {
 		t.Error("Status on unsupported platform should error")
+	}
+	if _, err := m.EffectiveConfigPath(""); err == nil {
+		t.Error("EffectiveConfigPath on unsupported platform should error")
+	}
+	if err := m.signalGraceful(); err == nil {
+		t.Error("signalGraceful on unsupported platform should error")
+	}
+	if err := m.InstallSyncTimer(0); err == nil {
+		t.Error("InstallSyncTimer on unsupported platform should error")
+	}
+	if err := m.UninstallSyncTimer(); err == nil {
+		t.Error("UninstallSyncTimer on unsupported platform should error")
+	}
+	if _, err := m.SyncTimerStatus(); err == nil {
+		t.Error("SyncTimerStatus on unsupported platform should error")
 	}
 }
 
@@ -922,12 +954,17 @@ func TestRenderSyncUnits(t *testing.T) {
 
 func TestSyncTimerInstallIsIdempotentAndUninstallable(t *testing.T) {
 	home := t.TempDir()
-	oldHome, oldGoos, oldExec := userHomeDir, goos, osExecutable
+	oldHome, oldGoos, oldExec, oldGetenv := userHomeDir, goos, osExecutable, getenv
 	userHomeDir = func() (string, error) { return home, nil }
 	osExecutable = func() (string, error) { return "/usr/local/bin/cartographer", nil }
-	t.Cleanup(func() { userHomeDir, goos, osExecutable = oldHome, oldGoos, oldExec })
+	// getenv too, and not only for determinism: on the Windows runner the real
+	// %LOCALAPPDATA% is set, so leaving it live would make this test write the
+	// task definition into the runner's actual user profile instead of into the
+	// temp home it just created.
+	getenv = func(string) string { return "" }
+	t.Cleanup(func() { userHomeDir, goos, osExecutable, getenv = oldHome, oldGoos, oldExec, oldGetenv })
 
-	for _, platform := range []string{"darwin", "linux"} {
+	for _, platform := range []string{"darwin", "linux", "windows"} {
 		t.Run(platform, func(t *testing.T) {
 			goos = platform
 			var calls []string
@@ -937,8 +974,12 @@ func TestSyncTimerInstallIsIdempotentAndUninstallable(t *testing.T) {
 			}}
 
 			paths := func() []string {
-				if platform == "darwin" {
+				switch platform {
+				case "darwin":
 					p, _ := SyncLaunchdPlistPath()
+					return []string{p}
+				case "windows":
+					p, _ := SyncWindowsTaskPath()
 					return []string{p}
 				}
 				svc, _ := SyncSystemdServicePath()
@@ -989,16 +1030,27 @@ func TestSyncTimerInstallIsIdempotentAndUninstallable(t *testing.T) {
 // The client-side timer must never collide with the server unit's files.
 func TestSyncTimerFilesAreDistinctFromServerService(t *testing.T) {
 	home := t.TempDir()
-	oldHome := userHomeDir
+	oldHome, oldGetenv := userHomeDir, getenv
 	userHomeDir = func() (string, error) { return home, nil }
-	t.Cleanup(func() { userHomeDir = oldHome })
+	getenv = func(string) string { return "" }
+	t.Cleanup(func() { userHomeDir, getenv = oldHome, oldGetenv })
 
 	serverPlist, _ := LaunchdPlistPath()
 	syncPlist, _ := SyncLaunchdPlistPath()
 	serverUnit, _ := SystemdUnitPath()
 	syncTimer, _ := SyncSystemdTimerPath()
 	syncService, _ := SyncSystemdServicePath()
-	for _, pair := range [][2]string{{serverPlist, syncPlist}, {serverUnit, syncTimer}, {serverUnit, syncService}} {
+	serverTask, _ := WindowsTaskPath()
+	syncTask, _ := SyncWindowsTaskPath()
+	serverLog, _ := WindowsLogPath()
+	syncLog, _ := SyncWindowsLogPath()
+	for _, pair := range [][2]string{
+		{serverPlist, syncPlist},
+		{serverUnit, syncTimer},
+		{serverUnit, syncService},
+		{serverTask, syncTask},
+		{serverLog, syncLog},
+	} {
 		if pair[0] == pair[1] {
 			t.Errorf("the sync timer reuses the server's file: %s", pair[0])
 		}

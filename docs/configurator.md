@@ -420,6 +420,7 @@ cartographer service sync-timer status   # exit: 0 active, 3 installed but inact
 |---|---|---|
 | macOS | `~/Library/LaunchAgents/com.cartographer.sync.plist` | `~/Library/Logs/cartographer/sync.log` |
 | Linux | `~/.config/systemd/user/cartographer-sync.{service,timer}` | journal (`journalctl --user -u cartographer-sync`) |
+| Windows | `%LOCALAPPDATA%\cartographer\tasks\sync.xml` → Scheduled Task `\Cartographer\Sync` | `%LOCALAPPDATA%\cartographer\Logs\sync.log` (via `sync --log-file`) |
 
 `install` is idempotent (it overwrites and re-registers); uninstalling a timer that is not
 installed is a success. The timer runs `cartographer sync` **without** `--auto-trust`: an
@@ -427,11 +428,20 @@ unattended job must not grant a trust the user never gave, while the persisted `
 still applies. `connect` and `status` name this command once per invocation when a connected
 provider has no session hook — they never install it.
 
+On Windows the trigger is a repetition at the configured interval with *start-when-available*
+(systemd's `Persistent=true` analogue: a run missed while the machine was off happens as soon as it
+is on), and the interval reported by `status` is read back out of the definition on disk, so there
+is no second source of truth. The log file is what makes a failing background sync diagnosable
+there: a task's own history records exit codes only, and is disabled by default on many machines
+([D217](decisions/D217-the-native-service-on-windows-is-a-per-user-scheduled-task.md)).
+
 ### `cartographer service <action>`
 
 Manages the **server** as a native user service on the machine (local mode, D73):
-launchd on macOS, systemd user unit on Linux. Client and server are the same binary: the
-client subcommands talk to the daemonized server over loopback.
+launchd on macOS, systemd user unit on Linux, a per-user Scheduled Task on Windows
+([D217](decisions/D217-the-native-service-on-windows-is-a-per-user-scheduled-task.md)). None of the
+three needs administrator rights. Client and server are the same binary: the client subcommands
+talk to the daemonized server over loopback.
 
 ```bash
 cartographer service install [--config <path>] [--data <dir>] [--http <addr>]
@@ -444,6 +454,13 @@ Plain `restart` keeps its previous behavior. `restart --wait` gracefully replace
 (`SIGTERM`, so in-flight requests drain) and only prints success once `/health` proves the
 installed binary version is serving; `--config` selects the config used for that verification,
 and is otherwise unnecessary because the installed service definition is discoverable.
+
+Windows takes the same three verbs to a different scheduler, so two behaviours are worth naming.
+`stop` also **disables** the task, because its logon trigger and its restart-on-failure would
+otherwise bring the server straight back; `start` and `restart` re-enable it first, which is why a
+service stopped on purpose stays stopped and a restart after a stop still works. And the graceful
+replacement is not a signal but a named event in the user's session, followed by an explicit
+relaunch of the task — nothing else would restart a process that drained and exited cleanly.
 
 Operational details (generated paths, defaults, behavior with an existing config, automatic
 repair on `install.sh update` and Cask upgrade) in `deployment.md` §Example: native local service

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"strings"
@@ -207,5 +208,20 @@ func TestServiceSnapshotContract(t *testing.T) {
 	json.Unmarshal(b, &got)
 	if got["health_checked"] != false || got["health_skip_reason"] != "stdio_transport" {
 		t.Errorf("skipped check snapshot = %s", b)
+	}
+}
+
+// The usage text is where an operator learns which tool to look with when they
+// want to see the service outside Cartographer. All three implementations must
+// be named — a Windows user told only about launchd and systemd concludes the
+// command does not apply to them (D217).
+func TestPrintServiceUsage_NamesEveryPlatform(t *testing.T) {
+	var buf bytes.Buffer
+	printServiceUsage(&buf)
+	out := buf.String()
+	for _, want := range []string{"launchd", "systemd", "Scheduled Task", "sync-timer", "administrator rights"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("service usage missing %q:\n%s", want, out)
+		}
 	}
 }

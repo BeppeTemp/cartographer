@@ -15,4 +15,17 @@ const (
 	// DefaultMCPURL is the HTTP MCP endpoint used for a first-run client when
 	// no persisted configuration or CARTOGRAPHER_SERVER_URL is available.
 	DefaultMCPURL = "http://localhost:39273/mcp"
+
+	// WindowsShutdownEventName is the Windows named event `serve` waits on and
+	// `internal/service` sets to ask for a graceful shutdown (D217). It lives
+	// here for the same reason every other value in this package does: the two
+	// sides must not be able to drift, and neither of them can import the other.
+	//
+	// The Local\ prefix scopes it to the user's own terminal-services session,
+	// which is what makes it the equivalent of a SIGTERM on unix: reachable by
+	// another process of the same user in the same session, and by nobody else.
+	// Two servers running as one user in one session would share it — an
+	// arrangement that already shares the listen port, so it is not a case this
+	// name has to distinguish.
+	WindowsShutdownEventName = `Local\cartographer-serve-shutdown`
 )

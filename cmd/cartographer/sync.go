@@ -23,7 +23,21 @@ func cmdSync(args []string) int {
 	fs.Var(&clients, "client", "Sync only this provider (repeatable); other providers are left untouched")
 	autoTrust := fs.Bool("auto-trust", false, "Trust KB-sourced skills without explicit signature (one-time override; see the persisted `trust` setting in .cartographer.yaml)")
 	noHeal := fs.Bool("no-heal", false, "Report locally modified managed artifacts instead of restoring them from the server")
+	logFile := fs.String("log-file", "", "Append this run's output to this file instead of stdout/stderr (created if absent; never rotated)")
 	fs.Parse(args)
+
+	// A scheduled sync has no console to report to: on Windows the task's own
+	// history records exit codes only, and is disabled by default on many
+	// machines, so without this a failing background sync leaves nothing to read
+	// (D217). Redirected before the first line is printed.
+	if *logFile != "" {
+		f, err := redirectClientOutput(*logFile)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "Error:", err)
+			return 2
+		}
+		defer f.Close()
+	}
 
 	dir, err := clientconfig.TargetDir()
 	if err != nil {
