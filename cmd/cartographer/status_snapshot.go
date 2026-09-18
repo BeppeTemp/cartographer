@@ -26,8 +26,12 @@ type statusError struct {
 }
 
 type providerStatus struct {
-	Name         string `json:"name"`
-	Installed    bool   `json:"installed"`
+	Name      string `json:"name"`
+	Installed bool   `json:"installed"`
+	// DetectedBy names the heuristic behind Installed (#305): a binary on PATH
+	// and a leftover config directory both set Installed, and only this field
+	// tells them apart. Empty when the provider was not detected.
+	DetectedBy   string `json:"detected_by,omitempty"`
 	Connected    bool   `json:"connected"`
 	State        string `json:"state"`
 	Revision     string `json:"revision,omitempty"`
@@ -349,7 +353,7 @@ func providerStatuses(cfg *clientconfig.Config) []providerStatus {
 		if connected[string(a.Provider)] {
 			state = "unknown"
 		}
-		out[i] = providerStatus{Name: string(a.Provider), Installed: a.Installed, Connected: connected[string(a.Provider)], State: state}
+		out[i] = providerStatus{Name: string(a.Provider), Installed: a.Installed, DetectedBy: string(a.DetectedBy), Connected: connected[string(a.Provider)], State: state}
 		if cfg != nil && connected[string(a.Provider)] {
 			base, err := clientconfig.TargetDir()
 			if err == nil {

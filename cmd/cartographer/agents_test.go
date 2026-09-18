@@ -14,9 +14,9 @@ import (
 // seen today must still leave its own column and a separating space (#303).
 func TestWriteAgentsTable_AlignsColumnsWhateverTheProviderNameLength(t *testing.T) {
 	detected := []agents.Agent{
-		{Provider: configurator.Provider("claude"), Installed: true, Evidence: "/opt/homebrew/bin/claude"},
+		{Provider: configurator.Provider("claude"), Installed: true, Evidence: "/opt/homebrew/bin/claude", DetectedBy: agents.HeuristicBinary},
 		{Provider: configurator.Provider("antigravity")},
-		{Provider: configurator.Provider("a-very-long-future-provider"), Installed: true, Evidence: "/usr/local/bin/future"},
+		{Provider: configurator.Provider("a-very-long-future-provider"), Installed: true, Evidence: "/usr/local/bin/future", DetectedBy: agents.HeuristicEnvConfigDir},
 	}
 	connected := map[string]bool{"claude": true}
 
@@ -60,8 +60,8 @@ func columnOffsets(t *testing.T, line string) []int {
 			inColumn = false
 		}
 	}
-	if len(offsets) != 4 {
-		t.Fatalf("row %q has %d columns, want 4", line, len(offsets))
+	if len(offsets) != 5 {
+		t.Fatalf("row %q has %d columns, want 5", line, len(offsets))
 	}
 	return offsets
 }
@@ -76,4 +76,28 @@ func equalInts(a, b []int) bool {
 		}
 	}
 	return true
+}
+
+// The evidence must be readable as what it is: a config directory left behind
+// by a removed client is reported as a directory, not as an installed binary
+// (#305). Not installed means no heuristic at all.
+func TestWriteAgentsTable_NamesTheHeuristicNextToTheEvidence(t *testing.T) {
+	detected := []agents.Agent{
+		{Provider: configurator.Provider("claude"), Installed: true, Evidence: "/home/u/.claude", DetectedBy: agents.HeuristicConfigDir},
+		{Provider: configurator.Provider("codex"), Installed: true, Evidence: "/usr/bin/codex", DetectedBy: agents.HeuristicBinary},
+		{Provider: configurator.Provider("kiro")},
+	}
+
+	var buf bytes.Buffer
+	writeAgentsTable(&buf, detected, nil)
+
+	lines := strings.Split(strings.TrimRight(buf.String(), "\n"), "\n")
+	if !strings.Contains(lines[0], "DETECTION") {
+		t.Errorf("header %q does not name the detection column", lines[0])
+	}
+	for i, want := range []string{"config-dir /home/u/.claude", "binary     /usr/bin/codex", "-          -"} {
+		if !strings.Contains(lines[i+1], want) {
+			t.Errorf("row %q does not contain %q\n%s", lines[i+1], want, buf.String())
+		}
+	}
 }
