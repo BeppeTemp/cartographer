@@ -37,17 +37,19 @@ errors. `service status` retains 0 running, 3 stopped and 4 not installed.
 Lists the supported providers, whether they are installed on the machine and whether they are
 connected (present in the machine-wide `.cartographer.yaml`, `~/.cartographer.yaml`).
 
-`internal/agents.Detect` probes, in this order, and stops at the first match:
+`internal/agents.Detect` probes, in this order, and stops at the first match; the heuristic that
+matched is reported in the DETECTION column, and as `detected_by` in JSON
+([D224](decisions/D224-detection-records-which-heuristic-matched.md)):
 
-1. any of the provider's binaries in `PATH` (Kiro ships as `kiro` from the IDE and `kiro-cli`
+1. `binary` — any of the provider's binaries in `PATH` (Kiro ships as `kiro` from the IDE and `kiro-cli`
    standalone). On Windows `exec.LookPath` honours `PATHEXT`, so this is where a client installed
    normally is found;
-2. a known configuration directory under the home directory;
-3. a configuration directory anchored at an environment variable, for a location no home-relative
+2. `config-dir` — a known configuration directory under the home directory;
+3. `env-config-dir` — a configuration directory anchored at an environment variable, for a location no home-relative
    path can express — today `%APPDATA%\opencode`. An entry whose variable is unset is skipped, so
    declaring one costs nothing on a platform that does not define it;
-4. for a provider with a root of its own, that root (`$HERMES_HOME`);
-5. an application-installation directory declared for this GOOS. Only a confirmed location is
+4. `provider-root` — for a provider with a root of its own, that root (`$HERMES_HOME`);
+5. `app-dir` — an application-installation directory declared for this GOOS. Only a confirmed location is
    declared: `/Applications/Kiro.app` and `/Applications/Antigravity.app` on darwin, nothing on
    Windows, where the CLI on `PATH` is the detection that matters and an unverified install path
    would only invent evidence ([D216](decisions/D216-the-client-half-reaches-parity-on-windows.md)).
@@ -55,6 +57,19 @@ connected (present in the machine-wide `.cartographer.yaml`, `~/.cartographer.ya
 ```bash
 cartographer agents
 ```
+
+```
+PROVIDER   INSTALLED  CONNECTED  DETECTION   EVIDENCE
+claude     yes        no         config-dir  /Users/u/.claude
+codex      yes        yes        binary      /opt/homebrew/bin/codex
+kiro       no         no         -           -
+```
+
+The distinction the column carries is the one `INSTALLED` cannot: `binary` is a client that is
+on the machine now, while `config-dir`, `env-config-dir`, `provider-root` and `app-dir` are
+directories, which a client that was removed leaves behind. `INSTALLED` — and therefore which
+providers a bare `connect` or `connect all` targets — is unchanged: it is still true for any
+match ([#305](https://github.com/BeppeTemp/cartographer/issues/305)).
 
 ### `cartographer connect [provider|all]`
 

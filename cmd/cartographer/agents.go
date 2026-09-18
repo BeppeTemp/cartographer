@@ -52,21 +52,30 @@ func cmdAgents(args []string) int {
 	return 0
 }
 
-// writeAgentsTable prints the agents table with the PROVIDER column sized on the
-// widest name it actually prints, header included: a fixed width silently loses
-// the alignment of every following column as soon as a provider name reaches it
-// (#303). INSTALLED and CONNECTED hold the fixed yes/no vocabulary, so their
-// widths are constant.
+// writeAgentsTable prints the agents table with the PROVIDER and DETECTION
+// columns sized on the widest value they actually print, header included: a
+// fixed width silently loses the alignment of every following column as soon as
+// a value reaches it (#303). INSTALLED and CONNECTED hold the fixed yes/no
+// vocabulary, so their widths are constant.
+//
+// DETECTION qualifies EVIDENCE rather than replacing it (#305): a home
+// directory left behind by an uninstalled client reads as a config directory,
+// not as proof that the client is there. Both columns collapse to their header
+// width on the common machine, which is why neither is fixed at its longest
+// possible value.
 func writeAgentsTable(w io.Writer, detected []agents.Agent, connected map[string]bool) {
-	provider := len("PROVIDER")
+	provider, detectedBy := len("PROVIDER"), len("DETECTION")
 	for _, a := range detected {
 		if n := len(a.Provider); n > provider {
 			provider = n
 		}
+		if n := len(a.DetectedBy); n > detectedBy {
+			detectedBy = n
+		}
 	}
-	fmt.Fprintf(w, "%-*s %-10s %-10s %s\n", provider, "PROVIDER", "INSTALLED", "CONNECTED", "EVIDENCE")
+	fmt.Fprintf(w, "%-*s %-10s %-10s %-*s %s\n", provider, "PROVIDER", "INSTALLED", "CONNECTED", detectedBy, "DETECTION", "EVIDENCE")
 	for _, a := range detected {
-		fmt.Fprintf(w, "%-*s %-10s %-10s %s\n", provider, a.Provider, yesNo(a.Installed), yesNo(connected[string(a.Provider)]), dashIfEmpty(a.Evidence))
+		fmt.Fprintf(w, "%-*s %-10s %-10s %-*s %s\n", provider, a.Provider, yesNo(a.Installed), yesNo(connected[string(a.Provider)]), detectedBy, dashIfEmpty(string(a.DetectedBy)), dashIfEmpty(a.Evidence))
 	}
 }
 
