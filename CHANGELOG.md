@@ -8,6 +8,16 @@
 
 KB histories with commits authored as `cartographer <cartographer@localhost>` may need a manual author rewrite before a forge with author push rules accepts the first push.
 
+## [0.13.0](https://github.com/BeppeTemp/cartographer/compare/v0.12.4...v0.13.0) (2026-09-18)
+
+
+### Features
+
+* compile and gate Cartographer on Windows ([#290](https://github.com/BeppeTemp/cartographer/issues/290)) ([d07fbab](https://github.com/BeppeTemp/cartographer/commit/d07fbab4e307e18959cc0b47db7612615849bfdf))
+* publish Windows artifacts and a winget manifest ([#294](https://github.com/BeppeTemp/cartographer/issues/294)) ([b9af16d](https://github.com/BeppeTemp/cartographer/commit/b9af16d9bdab1162a88bc3f1f02ac5e013136540)), closes [#289](https://github.com/BeppeTemp/cartographer/issues/289)
+* reach client parity on Windows ([#292](https://github.com/BeppeTemp/cartographer/issues/292)) ([8a61672](https://github.com/BeppeTemp/cartographer/commit/8a61672bb54ebded9ff750f525cd499bddd03005))
+* run the native service on Windows as a Scheduled Task ([#293](https://github.com/BeppeTemp/cartographer/issues/293)) ([de4a56f](https://github.com/BeppeTemp/cartographer/commit/de4a56f4faf15cbef4a0942d94fd0842340b86bf)), closes [#288](https://github.com/BeppeTemp/cartographer/issues/288)
+
 ## [0.12.4](https://github.com/BeppeTemp/cartographer/compare/v0.12.3...v0.12.4) (2026-09-14)
 
 
