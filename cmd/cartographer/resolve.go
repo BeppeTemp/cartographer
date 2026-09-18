@@ -4,7 +4,6 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
@@ -62,7 +61,7 @@ func cmdResolve(args []string) int {
 		if !found {
 			err = fmt.Errorf("no entry %q in paths: (.cartographer.yaml)", key)
 		} else {
-			resolved = resolveExpandHome(p)
+			resolved = repoindex.ExpandHome(p)
 		}
 	}
 	if err != nil {
@@ -74,19 +73,7 @@ func cmdResolve(args []string) int {
 	return 0
 }
 
-// resolveExpandHome expands a leading "~" to the user's home directory —
-// mirrors repoindex's/provisioning's unexported equivalents, duplicated here
-// (a few lines) rather than exported purely for this one cross-package call.
-func resolveExpandHome(p string) string {
-	if p != "~" && !strings.HasPrefix(p, "~/") {
-		return p
-	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return p
-	}
-	if p == "~" {
-		return home
-	}
-	return filepath.Join(home, p[2:])
-}
+// There is no local tilde expansion here any more: this was the *third* copy of
+// it — repoindex, internal/provisioning and this file — and each had to be found
+// separately to learn that `~\` was never expanded (D216 WP5). They are one
+// function now, repoindex.ExpandHome.

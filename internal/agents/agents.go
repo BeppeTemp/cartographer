@@ -42,8 +42,10 @@ func dirExists(path string) bool {
 // registry's detection order (D137: identity and detection evidence live in
 // internal/configurator's descriptors, not in per-provider functions here).
 // An agent is Installed if at least one heuristic matches: any of its binaries in PATH,
-// then its config directories in descriptor order, then its own root directory
-// if it declares one (D141), then — on darwin only — its application bundle.
+// then its config directories in descriptor order, then any directory it anchors at an
+// environment variable (%APPDATA% and friends, which no home-relative path can name),
+// then its own root directory if it declares one (D141), then its application
+// directory for this GOOS if the registry knows one.
 func Detect() []Agent {
 	home, _ := userHomeDir()
 	out := make([]Agent, 0, len(configurator.DetectionOrder()))
@@ -68,6 +70,19 @@ func detect(d configurator.Descriptor, home string) Agent {
 			return a
 		}
 	}
+	// An env-anchored config dir is skipped when the variable is unset, which is
+	// what makes declaring a Windows location free on every other platform.
+	for _, ed := range d.EnvConfigDirs {
+		base := getenv(ed.Env)
+		if base == "" {
+			continue
+		}
+		dir := filepath.Join(append([]string{base}, ed.Segments...)...)
+		if dirExists(dir) {
+			a.Installed, a.Evidence = true, dir
+			return a
+		}
+	}
 	// A provider with its own root directory (D141: $HERMES_HOME) is installed
 	// if that root exists — it is the same evidence `connect` needs anyway.
 	if d.BaseDirEnv != "" {
@@ -76,8 +91,12 @@ func detect(d configurator.Descriptor, home string) Agent {
 			return a
 		}
 	}
-	if d.DarwinAppDir != "" && goos == "darwin" && dirExists(d.DarwinAppDir) {
-		a.Installed, a.Evidence = true, d.DarwinAppDir
+	// Per-GOOS rather than a darwin-only field: the descriptor should be able to
+	// name an application directory for any platform, and a GOOS the registry
+	// says nothing about simply has no such probe. Nothing that was detected on
+	// darwin stops being detected — the darwin entries are the same paths.
+	if dir := d.AppDirs[goos]; dir != "" && dirExists(dir) {
+		a.Installed, a.Evidence = true, dir
 	}
 	return a
 }

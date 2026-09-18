@@ -104,10 +104,22 @@ func ValidateMCPStdioCommand(command string) error {
 	// shell acts on, and not every character that is merely unusual — `~`,
 	// brackets, braces, `!` and quotes are legal in file names, and a Windows
 	// 8.3 short path (C:\Users\RUNNER~1\AppData\...) contains a tilde.
-	if strings.ContainsAny(command, "|&;<>()$`*?\"\n\r") {
+	forbidden := "|&;<>()$`*?\"\n\r"
+	absolute := isAbsCommandPath(command)
+	if absolute {
+		// Parentheses are allowed for an absolute command, and only there.
+		// C:\Program Files (x86)\... is the most common absolute path on
+		// Windows, so the ban rejected the platform's normal case; and it bought
+		// nothing, because an absolute command is handed to exec.Command with a
+		// separate argv and is never handed to a shell. It stays in force for a
+		// bare name, where the string is short, has no reason to contain one,
+		// and a resolver — not this package — decides what it means.
+		forbidden = "|&;<>$`*?\"\n\r"
+	}
+	if strings.ContainsAny(command, forbidden) {
 		return fmt.Errorf("command contains shell metacharacters")
 	}
-	if isAbsCommandPath(command) {
+	if absolute {
 		if cleanCommandPath(command) != command {
 			return fmt.Errorf("command absolute path must be clean")
 		}
@@ -149,6 +161,12 @@ func cleanCommandPath(s string) string {
 
 // windowsCleanPath is filepath.Clean's Windows behaviour, spelled out so it
 // runs the same way on a unix host.
+//
+// The separator swap works on a single backslash, deliberately: written `\\` in
+// a Go raw string it matches only a *doubled* backslash, which never appears
+// inside a path, so nothing was normalised and `C:\srv\..\srv.exe` came back
+// unchanged — i.e. reported clean. The UNC prefix above is the one place a
+// doubled backslash is genuinely meant.
 func windowsCleanPath(s string) string {
 	prefix := ""
 	rest := s
@@ -158,8 +176,8 @@ func windowsCleanPath(s string) string {
 	case len(s) >= 2 && s[1] == ':' && isDriveLetter(s[0]):
 		prefix, rest = s[:2], s[2:]
 	}
-	cleaned := path.Clean(strings.ReplaceAll(rest, `\\`, "/"))
-	return prefix + strings.ReplaceAll(cleaned, "/", `\\`)
+	cleaned := path.Clean(strings.ReplaceAll(rest, `\`, "/"))
+	return prefix + strings.ReplaceAll(cleaned, "/", `\`)
 }
 
 // validateEnvRefs rejects, in values, every entry whose value does not

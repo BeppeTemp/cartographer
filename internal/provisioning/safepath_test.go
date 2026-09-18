@@ -7,6 +7,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 )
 
 func skipOnWindows(t *testing.T) {
@@ -97,3 +98,84 @@ func TestWriteFileNoFollow(t *testing.T) {
 		}
 	})
 }
+
+// D216 WP7: the D148 guard refuses every destination that is not a plain
+// regular file or a plain directory, not only a symlink. os.ModeIrregular is
+// the mode a Windows reparse point may be reported as — unverified on a Windows
+// host, which is exactly why it is refused rather than reasoned about — and no
+// test host can create one on demand, so the stat is stubbed. The widening must
+// stay a widening: nothing accepted before may be refused now and nothing
+// refused before may be accepted.
+func TestIsUnsafeDestinationRefusesEveryNonPlainMode(t *testing.T) {
+	refused := map[string]os.FileMode{
+		"symlink":     os.ModeSymlink,
+		"irregular":   os.ModeIrregular,
+		"device":      os.ModeDevice,
+		"char device": os.ModeDevice | os.ModeCharDevice,
+		"named pipe":  os.ModeNamedPipe,
+		"socket":      os.ModeSocket,
+	}
+	accepted := map[string]os.FileMode{
+		"regular file": 0o644,
+		"directory":    os.ModeDir | 0o755,
+		// A regular file where a directory is expected stays accepted: MkdirAll
+		// reports that accurately, and calling it a hostile destination would be
+		// a false accusation.
+		"executable file": 0o755,
+	}
+
+	restore := lstat
+	defer func() { lstat = restore }()
+
+	for name, mode := range refused {
+		lstat = func(string) (os.FileInfo, error) { return stubFileInfo{mode: mode}, nil }
+		if !isUnsafeDestination("/anything") {
+			t.Errorf("%s (mode %v): accepted, want refused", name, mode)
+		}
+	}
+	for name, mode := range accepted {
+		lstat = func(string) (os.FileInfo, error) { return stubFileInfo{mode: mode}, nil }
+		if isUnsafeDestination("/anything") {
+			t.Errorf("%s (mode %v): refused, want accepted", name, mode)
+		}
+	}
+
+	// A path that does not exist is not refused: provisioning creates it.
+	lstat = func(string) (os.FileInfo, error) { return nil, os.ErrNotExist }
+	if isUnsafeDestination("/not/there") {
+		t.Error("a non-existent path was refused, want accepted")
+	}
+}
+
+// The refusal message must not claim a symlink target it does not have: an
+// irregular destination has none to read, and "-> (unreadable)" reads like a
+// broken link instead of like the reparse point it may be.
+func TestSymlinkErrorDescribesANonSymlinkRefusal(t *testing.T) {
+	dir := t.TempDir()
+	plain := filepath.Join(dir, "f.txt")
+	if err := os.WriteFile(plain, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	err := symlinkError(plain)
+	if !errors.Is(err, ErrSymlinkDestination) {
+		t.Fatalf("symlinkError = %v, want ErrSymlinkDestination", err)
+	}
+	if strings.Contains(err.Error(), "unreadable") || strings.Contains(err.Error(), "->") {
+		t.Errorf("error %q describes a link target it does not have", err)
+	}
+	if !strings.Contains(err.Error(), plain) {
+		t.Errorf("error %q does not name the path", err)
+	}
+}
+
+// stubFileInfo is the minimum os.FileInfo a mode-only assertion needs.
+type stubFileInfo struct {
+	mode os.FileMode
+}
+
+func (s stubFileInfo) Name() string       { return "stub" }
+func (s stubFileInfo) Size() int64        { return 0 }
+func (s stubFileInfo) Mode() os.FileMode  { return s.mode }
+func (s stubFileInfo) ModTime() time.Time { return time.Time{} }
+func (s stubFileInfo) IsDir() bool        { return s.mode.IsDir() }
+func (s stubFileInfo) Sys() interface{}   { return nil }

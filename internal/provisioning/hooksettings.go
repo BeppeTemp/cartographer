@@ -105,24 +105,75 @@ func readHookSpec(hookDir string) (hookSpec, bool) {
 }
 
 // resolveHookCommand resolves the leading token of command (the executable) against
-// hookDirAbs when it is a relative path (e.g. "./notify.sh" or "scripts/run.sh" —
-// anything containing a "/"), leaving absolute paths, $VAR-style references (e.g.
-// "$HOME/...") and bare command names (e.g. "jq", resolved via PATH like in any
-// shell) untouched. Any trailing arguments (separated by the first space) are passed
-// through verbatim. hookDirAbs is the absolute materialized hook directory
-// (<baseDir>/.claude/hooks/<nome>) — Claude Code runs hook commands as a shell
-// command line, not necessarily from that directory, so a relative path in hook.json
-// only makes sense resolved against it.
+// hookDirAbs when it is a relative path (e.g. "./notify.sh", "scripts\run.sh" —
+// anything containing a separator), leaving absolute paths, $VAR-style references
+// (e.g. "$HOME/...") and bare command names (e.g. "jq", resolved via PATH like in any
+// shell) untouched. Any trailing arguments are passed through verbatim. hookDirAbs is
+// the absolute materialized hook directory (<baseDir>/.claude/hooks/<nome>) — Claude
+// Code runs hook commands as a shell command line, not necessarily from that
+// directory, so a relative path in hook.json only makes sense resolved against it.
+//
+// Two things it must get right, both learned from Windows and both true everywhere:
+//
+//   - the resolved path can contain a space (C:\Users\Nome Cognome\.claude\hooks\…),
+//     so the leading token is not "everything before the first space": it is quoted
+//     on the way out and un-quoted on the way in, which also makes the function
+//     idempotent — registerHookSettings runs on every connect/sync, and quoting an
+//     already-quoted command would corrupt it;
+//   - "relative" means "contains a separator", either separator: a command declared
+//     as "scripts\run.sh" is as relative as "scripts/run.sh", and absoluteness is
+//     judged with isAbsCommandPath (mcpspec.go) rather than filepath.IsAbs, which
+//     calls a Windows path relative when it runs on unix.
+//
+// The quotes do not disturb the ownership marker: commandOwnedBy matches a substring
+// of the slash form of the whole command, and the marker sits in the middle of the
+// path, so registration stays idempotent and stripHookEntries keeps finding what to
+// prune.
+//
+// One case has no answer here and belongs to whoever writes hook.json: an *absolute*
+// command whose own path contains a space must arrive already quoted. Unquoted,
+// `C:\Program Files\x.exe --flag` is indistinguishable from the command `C:\Program`
+// with arguments — both are a plausible reading of the same bytes — so it is left as
+// declared rather than guessed at. A *relative* command has no such problem: the
+// space comes from the hook directory, which this function knows.
+//
+// Idempotence has one hole, and it is unreachable rather than fixed: a hook dir that
+// is rooted but carries no volume (`\hooks\notify`, which only Windows can produce)
+// is not absolute to filepath.IsAbs or to isAbsCommandPath, so a second pass joins it
+// again. A real base dir is derived from the home directory and always carries a
+// drive. Widening the absoluteness test to "starts with a separator" would fix it and
+// would also silently stop resolving a `\scripts\run.sh` declared in hook.json —
+// a semantic change this is not the place to make.
 func resolveHookCommand(command, hookDirAbs string) string {
-	fields := strings.SplitN(strings.TrimSpace(command), " ", 2)
-	bin := fields[0]
-	if !filepath.IsAbs(bin) && !strings.HasPrefix(bin, "$") && strings.ContainsRune(bin, '/') {
+	bin, rest, hasRest := splitHookCommand(strings.TrimSpace(command))
+	if len(bin) >= 2 && strings.HasPrefix(bin, `"`) && strings.HasSuffix(bin, `"`) {
+		bin = bin[1 : len(bin)-1]
+	}
+	if !isAbsCommandPath(bin) && !strings.HasPrefix(bin, "$") && strings.ContainsAny(bin, `/\`) {
 		bin = filepath.Join(hookDirAbs, bin)
 	}
-	if len(fields) == 2 {
-		return bin + " " + fields[1]
+	if strings.ContainsAny(bin, " \t") {
+		bin = `"` + bin + `"`
+	}
+	if hasRest {
+		return bin + " " + rest
 	}
 	return bin
+}
+
+// splitHookCommand splits a hook command line into its leading executable token
+// and the rest, verbatim. The token ends at the first space, unless it opens with
+// a double quote, in which case it ends at the closing quote — that is the case
+// resolveHookCommand's own previous output falls into.
+func splitHookCommand(command string) (bin, rest string, hasRest bool) {
+	if strings.HasPrefix(command, `"`) {
+		if end := strings.Index(command[1:], `"`); end >= 0 {
+			bin, rest = command[:end+2], strings.TrimPrefix(command[end+2:], " ")
+			return bin, rest, rest != ""
+		}
+	}
+	bin, rest, hasRest = strings.Cut(command, " ")
+	return bin, rest, hasRest
 }
 
 // hookOwnershipMarker is the substring that marks a settings.json hook entry's
