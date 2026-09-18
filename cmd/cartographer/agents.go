@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 
 	"github.com/BeppeTemp/cartographer/internal/agents"
@@ -41,17 +42,32 @@ func cmdAgents(args []string) int {
 		return 0
 	}
 
-	fmt.Printf("%-10s %-10s %-10s %s\n", "PROVIDER", "INSTALLED", "CONNECTED", "EVIDENCE")
 	connected := map[string]bool{}
 	if cfg != nil {
 		for _, a := range cfg.Agents {
 			connected[a] = true
 		}
 	}
-	for _, a := range agents.Detect() {
-		fmt.Printf("%-10s %-10s %-10s %s\n", a.Provider, yesNo(a.Installed), yesNo(connected[string(a.Provider)]), dashIfEmpty(a.Evidence))
-	}
+	writeAgentsTable(os.Stdout, agents.Detect(), connected)
 	return 0
+}
+
+// writeAgentsTable prints the agents table with the PROVIDER column sized on the
+// widest name it actually prints, header included: a fixed width silently loses
+// the alignment of every following column as soon as a provider name reaches it
+// (#303). INSTALLED and CONNECTED hold the fixed yes/no vocabulary, so their
+// widths are constant.
+func writeAgentsTable(w io.Writer, detected []agents.Agent, connected map[string]bool) {
+	provider := len("PROVIDER")
+	for _, a := range detected {
+		if n := len(a.Provider); n > provider {
+			provider = n
+		}
+	}
+	fmt.Fprintf(w, "%-*s %-10s %-10s %s\n", provider, "PROVIDER", "INSTALLED", "CONNECTED", "EVIDENCE")
+	for _, a := range detected {
+		fmt.Fprintf(w, "%-*s %-10s %-10s %s\n", provider, a.Provider, yesNo(a.Installed), yesNo(connected[string(a.Provider)]), dashIfEmpty(a.Evidence))
+	}
 }
 
 func yesNo(b bool) string {
