@@ -95,6 +95,12 @@ func TestProjectScopeDivergesWhereItMust(t *testing.T) {
 		{"instructions", configurator.ProviderOpenCode, "AGENTS.md"},
 		{"skill", configurator.ProviderClaudeCode, ".claude/skills/demo"},
 		{"skill", configurator.ProviderKiro, ".kiro/skills/demo"},
+		// crush scans .crush/skills in a project by default; its project
+		// *configuration* is documented only in crushrc form, so the mcp cell
+		// fails closed rather than guessing a JSON filename (D225).
+		{"skill", configurator.ProviderCrush, ".crush/skills/demo"},
+		{"mcp", configurator.ProviderCrush, ""},
+		{"instructions", configurator.ProviderCrush, ""},
 	}
 	for _, tc := range cases {
 		if got := destDirScoped(tc.kind, "demo", tc.provider, ScopeProject); got != tc.want {
@@ -110,6 +116,7 @@ func TestSupportsProjectScope_FailsClosed(t *testing.T) {
 	for _, p := range []configurator.Provider{
 		configurator.ProviderClaudeCode, configurator.ProviderCodex,
 		configurator.ProviderOpenCode, configurator.ProviderKiro,
+		configurator.ProviderCrush,
 	} {
 		if !SupportsProjectScope(p) {
 			t.Errorf("%s should support a project scope", p)

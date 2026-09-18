@@ -2699,6 +2699,8 @@ var unsupportedDest = destination{unsupported: true}
 //   - hermes supports exactly one kind, "skill", and delivers it to an inbox
 //     for the agent to adopt rather than installing it (D141). Its four other
 //     cells are unsupported for stated reasons, not by omission.
+//   - crush documents neither a user-level subagent directory nor a hook
+//     mechanism, so those two cells are unsupported (D225).
 var destinationMatrix = map[string]map[configurator.Provider]destination{
 	"mcp": {
 		configurator.ProviderClaudeCode: at(".claude.json"),
@@ -2709,6 +2711,7 @@ var destinationMatrix = map[string]map[configurator.Provider]destination{
 		// the next playbook run (D141).
 		configurator.ProviderHermes:      unsupportedDest,
 		configurator.ProviderAntigravity: at(".gemini", "config", "mcp_config.json"),
+		configurator.ProviderCrush:       at(".config", "crush", "crush.json"),
 	},
 	"instructions": {
 		configurator.ProviderClaudeCode: at(".claude", "CLAUDE.md"),
@@ -2719,6 +2722,12 @@ var destinationMatrix = map[string]map[configurator.Provider]destination{
 		// and rendered from a template (D141).
 		configurator.ProviderHermes:      unsupportedDest,
 		configurator.ProviderAntigravity: at(".gemini", "GEMINI.md"),
+		// The Crush-specific global context file, chosen over the cross-tool
+		// ~/.config/AGENTS.md it also loads for the same reason the codex and
+		// opencode cells point at their own file: the shared one belongs to
+		// whatever else the user runs.
+		// https://github.com/charmbracelet/crush#global-context-files
+		configurator.ProviderCrush: at(".config", "crush", "CRUSH.md"),
 	},
 	"agent": {
 		configurator.ProviderClaudeCode: perName(".md", ".claude", "agents"),
@@ -2743,6 +2752,10 @@ var destinationMatrix = map[string]map[configurator.Provider]destination{
 		// hermes: no native subagent directory (D141).
 		configurator.ProviderHermes:      unsupportedDest,
 		configurator.ProviderAntigravity: perName(".md", ".gemini", "config", "agents"),
+		// crush: neither its README nor its docs/config page describes a
+		// user-level subagent directory, and a destination is declared, never
+		// invented.
+		configurator.ProviderCrush: unsupportedDest,
 	},
 	"hook": {
 		configurator.ProviderClaudeCode: perName("", ".claude", "hooks"),
@@ -2761,6 +2774,10 @@ var destinationMatrix = map[string]map[configurator.Provider]destination{
 		// start, so its trigger is the scheduled timer (D140/D141).
 		configurator.ProviderHermes:      unsupportedDest,
 		configurator.ProviderAntigravity: perName("", ".gemini", "config", "hooks"),
+		// crush: no hook mechanism is documented at all, so nothing fires at
+		// conversation start and its trigger is the scheduled timer, as for
+		// kiro and hermes.
+		configurator.ProviderCrush: unsupportedDest,
 	},
 	"skill": {
 		configurator.ProviderClaudeCode: perName("", ".claude", "skills"),
@@ -2780,6 +2797,11 @@ var destinationMatrix = map[string]map[configurator.Provider]destination{
 		// with a generated SOURCE.md and the agent adopts it via skill_manage.
 		configurator.ProviderHermes:      perNameIn([]string{hermesInboxSource}, hermesInboxRoot),
 		configurator.ProviderAntigravity: perName("", ".gemini", "config", "skills"),
+		// crush implements the Agent Skills standard and scans this directory
+		// globally, among others it shares with Claude Code and the .agents
+		// convention; its own is the one Cartographer owns.
+		// https://github.com/charmbracelet/crush#agent-skills
+		configurator.ProviderCrush: perName("", ".config", "crush", "skills"),
 	},
 }
 

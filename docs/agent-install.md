@@ -116,7 +116,7 @@ First identify the installed provider name:
 cartographer agents
 ```
 
-Expected output: a table listing `claude`, `opencode`, `codex`, `kiro`, `hermes`, and `antigravity` with installation state.
+Expected output: a table listing `claude`, `opencode`, `codex`, `kiro`, `hermes`, `antigravity` and `crush` with installation state.
 Connect the executing provider with `--agents`; for example, for Codex:
 
 ```bash
