@@ -8,6 +8,13 @@
 
 KB histories with commits authored as `cartographer <cartographer@localhost>` may need a manual author rewrite before a forge with author push rules accepts the first push.
 
+## [0.15.0](https://github.com/BeppeTemp/cartographer/compare/v0.14.0...v0.15.0) (2026-09-18)
+
+
+### Features
+
+* **http:** typed graph projections and a read-only UI API (D226) ([#317](https://github.com/BeppeTemp/cartographer/issues/317)) ([a5da129](https://github.com/BeppeTemp/cartographer/commit/a5da12926d1f4d8e6d76cf6fbc5c5cd997324318))
+
 ## [0.14.0](https://github.com/BeppeTemp/cartographer/compare/v0.13.0...v0.14.0) (2026-09-18)
 
 
