@@ -34,14 +34,30 @@ auth_curl() {
 detect_target() {
     os=$(uname -s | tr '[:upper:]' '[:lower:]')
     arch=$(uname -m)
+    # The OS is decided before the architecture, so a Windows shell gets the
+    # winget instruction whatever `uname -m` says there.
+    case "$os" in
+        darwin|linux) ;;
+        # Git Bash, MSYS2 and Cygwin report mingw64_nt-10.0, msys_nt-10.0 and
+        # cygwin_nt-10.0, so a Windows user piping this script lands here rather
+        # than on the generic refusal below. Naming the channel is the whole
+        # answer: winget is the only one (D218), so there is nothing to choose.
+        mingw*|msys*|cygwin*|windows*)
+            log "Windows is not installed through this script."
+            log ""
+            log "  winget install BeppeTemp.Cartographer"
+            log ""
+            log "Then, before removing it: cartographer service uninstall"
+            log "(winget uninstall does not run Cartographer code, so a registered"
+            log "Scheduled Task would survive it — see the README)."
+            exit 1
+            ;;
+        *) fail "unsupported OS: $os" ;;
+    esac
     case "$arch" in
         x86_64|amd64) arch=amd64 ;;
         arm64|aarch64) arch=arm64 ;;
         *) fail "unsupported architecture: $arch" ;;
-    esac
-    case "$os" in
-        darwin|linux) ;;
-        *) fail "unsupported OS: $os" ;;
     esac
     printf '%s-%s' "$os" "$arch"
 }
