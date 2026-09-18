@@ -6,6 +6,7 @@
 |---|---|---|
 | stdio | Newline-delimited JSON-RPC 2.0, one session per process | Process/user boundary; no bearer token |
 | HTTP | `POST /mcp`, `/mcp?kb=<name>`, `/mcp/<name>` or `/mcp/routed` | Optional static bearer token |
+| HTTP (read-only UI API) | `GET /api/ui/v1/…` | Same bearer token; never public |
 
 HTTP requests return complete JSON-RPC responses. Cartographer does not expose
 the legacy two-endpoint SSE transport or an HTTP streaming session, and issues
@@ -34,6 +35,14 @@ request itself), since it validates its own static bearer tokens rather than
 delegating to a separate authorization server. Cartographer does **not**
 implement an OAuth authorization server, dynamic client registration or JWT
 validation; configured tokens are opaque static bearer values.
+
+`/api/ui/v1` is the read-only JSON surface the web UI consumes
+(→ [`control-plane.md`](control-plane.md) §Read-only UI API). It is **not** a
+public path: it passes through the same origin check and token middleware as
+`/mcp`, is filtered with the same principal, and answers `404` — never `403` —
+for a KB or concept the principal cannot see, so it cannot be used to probe for
+existence. Only `/health` and the RFC 9728 metadata are exempt from
+authentication.
 
 ### Mount modes
 

@@ -529,6 +529,14 @@ func (m *MultiKBServer) Handler() http.Handler {
 			m.serveKB(w, r, pathName)
 			return
 
+		// The read-only UI API (D226). It sits inside the same auth chain as
+		// /mcp and below every endpoint above, so a KB named "api" keeps its
+		// own /mcp/<name> route and nothing here shadows /health or the OAuth
+		// metadata.
+		case r.URL.Path == UIAPIPrefix || strings.HasPrefix(r.URL.Path, UIAPIPrefix+"/"):
+			m.handleUIAPI(w, r)
+			return
+
 		default:
 			http.Error(w, "not found", http.StatusNotFound)
 		}
