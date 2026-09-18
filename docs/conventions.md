@@ -47,4 +47,14 @@ Rules to keep the code consistent. New code should resemble the existing code.
   in the topic that owns it.
 - Current default: stdlib preferred; external dependencies allowed when the benefit is clear.
 - Active external dependencies: `modernc.org/sqlite` (persisted search index, D32 — pure-Go, no cgo); `charmbracelet/bubbletea`+`bubbles`+`lipgloss`+`x/term` (client TUI dashboard, D35/D37 — `cmd/cartographer`, TTY detection); `gopkg.in/yaml.v3` (server YAML config and client `.cartographer.yaml`, D38); `github.com/modelcontextprotocol/go-sdk` (the MCP wire format itself, [D168](decisions/D168-the-mcp-wire-format-comes-from-the-official-sdk.md) — the one dependency taken *to stop* maintaining an implementation of someone else's moving specification); `golang.org/x/sys` (direct since [D215](decisions/D215-the-kb-lock-splits-by-platform-and-windows-is-a-gate.md) — `windows.LockFileEx` and `windows.OpenProcess` for the per-KB lock in `internal/kb`, which `syscall` does not expose on Windows; it was already in the module graph as an indirect dependency).
+- **Frontend dependencies** (`web/`, D227), pinned by `web/package-lock.json` and
+  built only by the `web` CI job: `react`+`react-dom` (UI runtime), `vite`+
+  `@vitejs/plugin-react`+`typescript` (build), `sigma`+`graphology`+
+  `graphology-layout-forceatlas2` (the WebGL graph and its force layout —
+  chosen over Cytoscape/vis-network for WebGL rendering at two thousand nodes,
+  and over bare d3-force for not owning the render loop), `react-markdown`+
+  `remark-gfm`+`rehype-sanitize` (concept bodies, with raw HTML disabled),
+  `vitest`+`@testing-library/*`+`jsdom` (tests). The shipped bundle vendors
+  every asset: no CDN, no remote font, no runtime network call outside the
+  Cartographer origin.
 - Platform-specific code is a build-tagged file pair with an identical helper surface (`internal/kb/lockfile_unix.go` and `lockfile_windows.go`), never a `runtime.GOOS` branch inside shared code: the compiler then checks both platforms and `GOOS=windows go vet ./...` is a real gate.

@@ -276,6 +276,30 @@ silently ignored in OSS and would read as configuration. Each assertion was
 verified to fail when its target line is removed. Its Ruby is not executed — that would need a real Homebrew and
 GoReleaser environment, which is out of the deterministic gate (see below).
 
+### Frontend (`make web-test`, `make web-check`)
+
+The Atlas UI's own tests: Vitest with Testing Library, under `web/`. They run in
+the `web` CI job, not in `make gate`, so a pure-Go change needs no Node
+toolchain (D227). What they hold:
+
+- the token contract — no literal colour or duration outside
+  `web/src/styles/tokens.css`, and every dark-theme colour has a light-theme
+  value;
+- the graph's appearance functions never emit a node or edge type stock Sigma
+  has no program for (an unknown type throws inside the renderer and blanks the
+  page);
+- the shell boots, and degrades to a named state rather than a blank page on a
+  401, an unreachable server, an empty KB or a missing layout worker;
+- Markdown from a concept body renders inert — a raw `<script>` and an
+  `onerror` attribute must not survive;
+- the bearer token reaches neither `localStorage` nor a URL;
+- the graph layout is deterministic for identical input.
+
+`make web` rebuilds the committed bundle; `make web-check` does a clean locked
+build and verifies `internal/webui/dist/provenance.json` still matches the
+sources. The staleness of the *committed* bundle is checked by a pure-Go test in
+`internal/webui`, which is why `make gate` catches it without Node.
+
 ## What is deliberately not in CI
 
 - Whether a particular model interprets an instruction well.

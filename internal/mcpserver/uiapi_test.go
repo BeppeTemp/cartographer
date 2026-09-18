@@ -50,6 +50,9 @@ func newUIHandler(t *testing.T, ts *auth.TokenStore, authName string) http.Handl
 	multi := NewMultiKBServer("test")
 	k := uiFixtureKB(t, authName)
 	multi.MountKB(authName, func(s *Server) { RegisterKBTools(s, k, Deps{}) })
+	// No static bundle: these tests are about the JSON API, which is useful
+	// and testable without one.
+	multi.EnableWeb(nil)
 	return ts.Middleware(multi.Handler())
 }
 
@@ -324,6 +327,7 @@ func TestUIAPI_NarrowedTokenSeesOnlyItsKB(t *testing.T) {
 		k := uiFixtureKB(t, name)
 		multi.MountKB(name, func(s *Server) { RegisterKBTools(s, k, Deps{}) })
 	}
+	multi.EnableWeb(nil)
 	handler := ts.Middleware(multi.Handler())
 
 	body := decodeUI(t, getUI(t, handler, UIAPIPrefix+"/kbs", "only-x"))
@@ -397,5 +401,25 @@ func TestUIAPI_DoesNotShadowExistingRoutes(t *testing.T) {
 	handler.ServeHTTP(rr, req)
 	if rr.Code != http.StatusOK {
 		t.Errorf("/mcp/docs: status %d, want 200: %s", rr.Code, rr.Body.String())
+	}
+}
+
+// With the UI off, its paths are indistinguishable from any other unknown
+// path: web.enabled: false has to restore the previous HTTP surface exactly.
+func TestUIAPI_AbsentWhenTheWebSurfaceIsDisabled(t *testing.T) {
+	multi := NewMultiKBServer("test")
+	k := uiFixtureKB(t, "docs")
+	multi.MountKB("docs", func(s *Server) { RegisterKBTools(s, k, Deps{}) })
+	handler := auth.NewTokenStore(nil).Middleware(multi.Handler())
+
+	for _, path := range []string{UIAPIPrefix + "/kbs", UIAPIPrefix + "/kbs/docs/overview", "/ui/", "/ui", "/"} {
+		rr := getUI(t, handler, path, "")
+		if rr.Code != http.StatusNotFound {
+			t.Errorf("%s with the UI disabled: status %d, want 404", path, rr.Code)
+		}
+	}
+	// Everything that existed before still answers.
+	if rr := getUI(t, handler, "/health", ""); rr.Code != http.StatusOK {
+		t.Errorf("/health: status %d, want 200", rr.Code)
 	}
 }

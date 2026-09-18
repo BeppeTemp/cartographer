@@ -49,10 +49,12 @@ model and MCP tools are the same.
 flowchart TB
     A["Agents: Claude Code, Codex, Kiro, OpenCode, Hermes, Antigravity"]
     C["Cartographer client: connect / status / sync"]
+    B["Browser: the read-only Atlas at /ui/"]
 
     subgraph S["Cartographer server"]
         T["stdio or HTTP + optional static bearer auth"]
         M["MCP tools"]
+        W["Embedded Atlas UI + /api/ui/v1 (read-only)"]
         V["OKF validation + write serialization"]
         I["Derived search indexes"]
         G["git commit + optional remote sync"]
@@ -66,6 +68,7 @@ flowchart TB
 
     A -->|MCP| T --> M
     C -->|HTTP MCP| T
+    B -->|HTTP JSON| T --> W
     M --> V --> K
     M --> I
     V --> G
