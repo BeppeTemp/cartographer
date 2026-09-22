@@ -1,4 +1,4 @@
-import { defineConfig } from "vitest/config";
+import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
 // The UI is served from /ui/ inside the Cartographer binary, so every asset
