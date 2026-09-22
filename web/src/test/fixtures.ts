@@ -138,3 +138,11 @@ export function generateSnapshot(nodes: number, maps = 12, seed = 1): GraphSnaps
     limit: 2000,
   };
 }
+
+/** Opens the navigation rail and the node list, which the atlas starts with
+ *  folded away: tests that walk those panels set the remembered preference
+ *  the way a returning viewer would have it. */
+export function openPanels(): void {
+  localStorage.setItem("cartographer.panel.rail", "0");
+  localStorage.setItem("cartographer.panel.list", "1");
+}

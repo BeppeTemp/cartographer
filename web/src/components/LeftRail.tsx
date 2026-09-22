@@ -58,6 +58,8 @@ export function LeftRail({
           <button
             type="button"
             className="rail__panel"
+            aria-label="Atlas"
+            title={collapsed ? "Atlas" : undefined}
             aria-current={panel === "atlas" ? "page" : undefined}
             onClick={() => onPanel("atlas")}
           >
@@ -71,6 +73,8 @@ export function LeftRail({
           <button
             type="button"
             className="rail__panel"
+            aria-label={lintTotal > 0 ? `Observatory, ${lintTotal} findings` : "Observatory"}
+            title={collapsed ? "Observatory" : undefined}
             aria-current={panel === "observatory" ? "page" : undefined}
             onClick={() => onPanel("observatory")}
           >

@@ -1,9 +1,10 @@
-import { LOCAL_URL, conceptRow, expect, listedConcepts, test, waitForAtlas } from "./support";
+import { LOCAL_URL, conceptRow, expect, listedConcepts, test, waitForAtlas, withPanelsOpen } from "./support";
 
 // The flows a sighted mouse user takes, against the auth-off server. Motion is
 // reduced for the whole file: the assertions are about state, and a camera
 // mid-tween or a node mid-settle is a source of timing, not of coverage.
 test.use({ reducedMotion: "reduce" });
+test.beforeEach(({ page }) => withPanelsOpen(page));
 
 const ATLAS = `${LOCAL_URL}/ui/?kb=atlas`;
 const INFRA = ["infra/cluster", "infra/cluster/nodes", "infra/dns", "infra/firewall", "infra/gateway", "infra/legacy-vpn"];
@@ -93,7 +94,7 @@ test("URL state and Back/Forward restore KB, scope and selection", async ({ page
 
   await page.goBack();
   await expect(page).toHaveURL(/scope=infra$/);
-  await expect(page.getByRole("complementary", { name: "Concept inspector" })).toBeVisible();
+  await expect(page.getByRole("complementary")).toHaveCount(0);
 
   await page.goBack();
   await expect(page).not.toHaveURL(/scope=/);
@@ -168,7 +169,7 @@ test("a 500 stays inside the graph panel", async ({ page }) => {
   await expect(main.getByRole("alert")).toContainText("Server error");
   await expect(page.getByRole("navigation", { name: "Atlas navigation" })).toBeVisible();
   await expect(page.getByRole("button", { name: /Infrastructure/ })).toBeVisible();
-  await expect(page.getByRole("complementary", { name: "Concept inspector" })).toBeVisible();
+  await expect(page.getByRole("complementary")).toHaveCount(0);
 });
 
 test("an unreachable server is named, not blank", async ({ page }) => {

@@ -186,13 +186,14 @@ func TestHandlerSetsAStrictContentSecurityPolicy(t *testing.T) {
 		"connect-src 'self'",
 		"object-src 'none'",
 		"frame-ancestors 'none'",
-		// The graph's force layout runs in a blob worker; without this the
-		// browser blocks it and the graph quietly stops moving.
-		"worker-src 'self' blob:",
 	} {
 		if !strings.Contains(csp, directive) {
 			t.Errorf("CSP is missing %q: %s", directive, csp)
 		}
+	}
+	// The UI runs no worker: nothing justifies admitting blob: code.
+	if strings.Contains(csp, "blob:") {
+		t.Errorf("CSP admits blob: code, which no part of the UI needs: %s", csp)
 	}
 	// The UI ships everything it uses, so nothing justifies either of these.
 	if strings.Contains(csp, "unsafe-eval") {

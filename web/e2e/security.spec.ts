@@ -1,10 +1,11 @@
 import { HIDDEN_OUT_OF_MAP } from "./fixture.mjs";
-import { LOCAL_URL, expect, test, waitForAtlas } from "./support";
+import { LOCAL_URL, expect, test, waitForAtlas, withPanelsOpen } from "./support";
 
 // Every test in this suite also fails if the page contacts any origin other
 // than the server under test (support.ts): the assertions below add the ones
 // that need a page of their own.
 test.use({ reducedMotion: "reduce" });
+test.beforeEach(({ page }) => withPanelsOpen(page));
 
 test("the shell carries the CSP, and the CSP blocks inline and evaluated script", async ({ page }) => {
   const response = await page.goto(`${LOCAL_URL}/ui/?kb=atlas`);

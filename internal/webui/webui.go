@@ -212,12 +212,9 @@ func writeSecurityHeaders(w http.ResponseWriter) {
 	h.Set("Content-Security-Policy", strings.Join([]string{
 		"default-src 'self'",
 		"script-src 'self'",
-		// The force-layout worker is built from a blob URL, which is how
-		// graphology's supervisor ships a worker without a second asset.
-		// script-src stays 'self', so the code inside that blob still comes
-		// from this bundle; without this directive the worker is blocked and
-		// the graph silently stops re-settling.
-		"worker-src 'self' blob:",
+		// No worker-src: the UI runs no worker since the live force layout
+		// was removed, so default-src 'self' governs workers and a blob:
+		// worker is refused.
 		"style-src 'self' 'unsafe-inline'",
 		"img-src 'self' data:",
 		"font-src 'self'",

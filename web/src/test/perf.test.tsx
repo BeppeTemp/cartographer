@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "../App";
 import { detectCommunities } from "../lib/communities";
 import { applyLayout, buildGraph } from "../lib/layout";
-import { generateSnapshot, json, stubApi } from "./fixtures";
+import { generateSnapshot, json, stubApi, openPanels } from "./fixtures";
 
 vi.mock("sigma", () => import("./sigmaStub"));
 
@@ -43,6 +43,7 @@ describe("2,000-node budget fixture", () => {
     beforeEach(() => {
       window.history.replaceState(null, "", "/ui/");
       localStorage.clear();
+    openPanels();
     });
     afterEach(() => vi.unstubAllGlobals());
 

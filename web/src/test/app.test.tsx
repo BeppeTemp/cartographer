@@ -1,7 +1,7 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "../App";
-import { graph, json, stubApi } from "./fixtures";
+import { graph, json, stubApi, openPanels } from "./fixtures";
 
 /**
  * Boot tests for the whole shell.
@@ -13,12 +13,6 @@ import { graph, json, stubApi } from "./fixtures";
  *
  * Sigma is stubbed: jsdom has no WebGL, and what is under test here is the
  * shell, the data flow and the states, not the renderer.
- *
- * The force-layout worker is deliberately NOT stubbed. jsdom has no
- * URL.createObjectURL, so the supervisor genuinely fails to spawn here -- which
- * is the same thing that happens in a browser whose CSP forbids blob workers.
- * These tests therefore prove the graph degrades to a still picture instead of
- * taking the page down with it.
  */
 vi.mock("sigma", () => import("./sigmaStub"));
 
@@ -26,6 +20,7 @@ describe("the shell boots", () => {
   beforeEach(() => {
     window.history.replaceState(null, "", "/ui/");
     localStorage.clear();
+    openPanels();
     sessionStorage.clear();
   });
   afterEach(() => vi.unstubAllGlobals());

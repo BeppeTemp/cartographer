@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-import { driftOffset } from "../lib/simulation";
 import {
   DIM_ALPHA,
   NEIGHBOUR_LABEL_LIMIT,
@@ -211,19 +210,12 @@ describe("edge tint by colour group", () => {
   });
 });
 
-describe("resting drift", () => {
-  it("moves a community together: members share most of their motion", () => {
-    const t = 4321;
-    const a = driftOffset("infra/a", t, 1, "0");
-    const b = driftOffset("infra/b", t, 1, "0");
-    const loneA = driftOffset("infra/a", t, 1);
-    const loneB = driftOffset("infra/b", t, 1);
-    const together = Math.hypot(a.dx - b.dx, a.dy - b.dy);
-    const apart = Math.hypot(loneA.dx - loneB.dx, loneA.dy - loneB.dy);
-    expect(together).toBeLessThan(apart);
-  });
-
-  it("is a pure function of id, clock and group", () => {
-    expect(driftOffset("x", 1000, 2, "3")).toEqual(driftOffset("x", 1000, 2, "3"));
+describe("edges at rest", () => {
+  it("are plain lines; only the focused node's edges carry arrowheads", () => {
+    const base = { source: "a", target: "b", hiddenByFilter: false, edgesVisible: true, focus: null };
+    expect(edgeAppearance(base, palette).type).toBe("line");
+    expect(edgeAppearance({ ...base, groupColor: "#a78bfa" }, palette).type).toBe("line");
+    expect(edgeAppearance({ ...base, focus: "a" }, palette).type).toBe("arrow");
+    expect(edgeAppearance({ ...base, focus: "z" }, palette).type).toBe("line");
   });
 });
