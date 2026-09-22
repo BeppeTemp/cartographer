@@ -219,9 +219,6 @@ carries one copy of the tool schemas instead of one per KB.
   assets — see [One KB, every agent](#one-kb-every-agent) for how they reach each client
 - 🔑 **Secrets via SOPS** — JSON Pointer references, scoped resolution and safe rotation; plaintext
   values never stored
-- 🗺️ **Embedded Atlas UI** — a read-only web view of each KB (graph coloured by community or
-  by Map, inspector, lint findings) served by the same binary at `/ui/` in HTTP mode; no extra
-  service, no CDN. Disable with `web.enabled: false` — see [`docs/deployment.md`](docs/deployment.md)
 - 📦 **OKF-compliant** — each KB is an OKF bundle and a standalone git repo, zero lock-in (just git +
   Markdown)
 
@@ -370,8 +367,6 @@ make test          # Unit tests (go test ./...)
 make smoke         # stdio smoke test
 make smoke-http    # operator-level HTTP smoke test (creates temp KBs via curl)
 make e2e           # deterministic HTTP/CLI end-to-end scenarios
-make web-test      # Atlas UI frontend tests (needs Node; `make gate` does not)
-make web           # rebuild the committed UI bundle after changing web/
 ```
 
 The E2E suite drives the compiled binary through HTTP, CLI, filesystem and real

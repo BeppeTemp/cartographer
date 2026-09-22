@@ -440,62 +440,6 @@ func TestHealthURL(t *testing.T) {
 	}
 }
 
-func TestUIURL(t *testing.T) {
-	cases := map[string]string{
-		"":                  "",
-		":39273":            "http://127.0.0.1:39273/ui/",
-		"127.0.0.1:39273":   "http://127.0.0.1:39273/ui/",
-		"0.0.0.0:9090":      "http://127.0.0.1:9090/ui/",
-		"[::]:9090":         "http://127.0.0.1:9090/ui/",
-		"10.0.0.5:9090":     "http://10.0.0.5:9090/ui/",
-		"not-a-valid-value": "",
-	}
-	for addr, want := range cases {
-		if got := uiURL(addr); got != want {
-			t.Errorf("uiURL(%q) = %q, want %q", addr, got, want)
-		}
-	}
-}
-
-// TestStatus_UIURL: the UI address is reported only for an installed service
-// in HTTP mode with web.enabled on (D227). An empty value must mean "there is
-// no UI", never "the UI is down".
-func TestStatus_UIURL(t *testing.T) {
-	cases := []struct {
-		name      string
-		installed bool
-		config    string
-		want      string
-	}{
-		{"installed, web on by default", true, "http: \"127.0.0.1:39273\"\n", "http://127.0.0.1:39273/ui/"},
-		{"installed, web disabled", true, "http: \"127.0.0.1:39273\"\nweb:\n  enabled: false\n", ""},
-		{"installed, stdio transport", true, "kb: /tmp/kb\n", ""},
-		{"not installed", false, "http: \"127.0.0.1:39273\"\n", ""},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			home := withTestHome(t, "darwin")
-			if tc.installed {
-				plistPath := filepath.Join(home, "Library", "LaunchAgents", "com.cartographer.serve.plist")
-				os.MkdirAll(filepath.Dir(plistPath), 0o755)
-				os.WriteFile(plistPath, []byte("<plist/>"), 0o644)
-			}
-			configPath := filepath.Join(home, "server.yaml")
-			if err := os.WriteFile(configPath, []byte(tc.config), 0o644); err != nil {
-				t.Fatal(err)
-			}
-			m, _ := newTestManager()
-			st, err := m.Status(configPath)
-			if err != nil {
-				t.Fatalf("Status: %v", err)
-			}
-			if st.UIURL != tc.want {
-				t.Errorf("UIURL = %q, want %q", st.UIURL, tc.want)
-			}
-		})
-	}
-}
-
 // TestUnsupportedPlatform is the canary for a GOOS this package has no branch
 // for: every method must refuse it outright rather than half-work. It used to
 // use "windows", which is now a supported platform (D217) — the guarantee is

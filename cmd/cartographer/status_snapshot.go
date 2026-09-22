@@ -109,9 +109,6 @@ type serviceSnapshot struct {
 	Lifecycle        string `json:"lifecycle,omitempty"`
 	HealthChecked    bool   `json:"health_checked"`
 	HealthSkipReason string `json:"health_skip_reason,omitempty"`
-	// UIURL is additive (D227): present only when the service is installed
-	// in HTTP mode with the embedded UI enabled.
-	UIURL string `json:"ui_url,omitempty"`
 }
 
 // newServiceSnapshot projects a service.Status onto the JSON contract. One
@@ -125,7 +122,6 @@ func newServiceSnapshot(st service.Status) *serviceSnapshot {
 		Lifecycle:        string(st.Lifecycle),
 		HealthChecked:    st.HealthChecked,
 		HealthSkipReason: st.HealthSkipReason,
-		UIURL:            st.UIURL,
 	}
 }
 

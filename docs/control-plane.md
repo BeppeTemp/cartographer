@@ -160,34 +160,6 @@ map contract that *does* fail a write is `ontology_mode: strict`, which makes `v
 out-of-vocabulary type. That asymmetry is what made the whole area confusing, so each description
 now says which kind it is.
 
-## Read-only UI API
-
-Beside the MCP surface the HTTP server serves `/api/ui/v1`, a versioned
-read-only JSON API for a human client (D226). It is not MCP: the browser does
-not speak JSON-RPC and no tool is added to the agent surface for it. It is not
-public either — it sits inside the same `OriginGuard` → bearer-token chain as
-`/mcp`, and `isPublicPath` does not exempt it.
-
-| Route | Returns |
-|---|---|
-| `GET /api/ui/v1/kbs` | The mounted KBs the principal can see something in, with status, readiness, tool prefix and capabilities. |
-| `GET /api/ui/v1/kbs/{kb}/overview` | Visible collections with their concept and expanded counts, concept totals by type and by status, lint counts by severity and by check, and — only for a caller that can see the whole KB — the replication facts. |
-| `GET /api/ui/v1/kbs/{kb}/graph?scope=&limit=` | A bounded graph snapshot: sorted nodes with their collection, `type`, `status` and both degrees, directed deduplicated edges, and broken link targets kept apart from the nodes. `scope` is one top-level collection; `limit` defaults to 2,000 nodes and is clamped to 5,000, with the effective value echoed back. |
-| `GET /api/ui/v1/kbs/{kb}/concept?id=` | Title, parsed frontmatter, body, outline, content hash, visible inbound/outbound neighbours and this concept's broken link targets. |
-| `GET /api/ui/v1/kbs/{kb}/lint?scope=&severity_min=` | Findings at or above the floor, plus the unfiltered totals by severity and by check — the same "counts describe what you are not being shown" contract `lint` has. |
-
-Every route is `GET`/`HEAD` only; anything else is `405` with `Allow`. A
-malformed parameter is `400` with `{"error": {code, message, field}}`; an
-unknown *or invisible* KB or concept is `404` with the same envelope, never
-`403`. Responses carry `Cache-Control: no-store`,
-`X-Content-Type-Options: nosniff` and `Referrer-Policy: no-referrer`.
-
-Filtering uses the same `Visible` / `VisibleCollection` / `WholeVisible`
-predicates as the MCP read path, so the API cannot return a node, edge, count,
-finding or concept body that the same principal is refused through a tool. A
-concept that is hidden but exists is dropped silently rather than reported as a
-broken target, which would disclose its id.
-
 ## Search index
 
 **Rebuildable index** (*vault = truth, index = disposable*), with two persistence levels:
