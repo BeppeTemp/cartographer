@@ -111,12 +111,3 @@ export function planBursts<L extends BurstLink>(
   }
   return signals;
 }
-
-/**
- * particleSpeed is 3d-force-graph's particle speed -- the share of a link a
- * particle covers per frame -- for a pass of SIGNAL_PASS_MS at the measured
- * frame rate, so a long link and a short one take the same time.
- */
-export function particleSpeed(fps = 60): number {
-  return 1 / Math.max(1, (SIGNAL_PASS_MS / 1000) * fps);
-}

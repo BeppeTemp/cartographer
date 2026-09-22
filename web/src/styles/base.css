@@ -88,34 +88,31 @@ a {
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-control);
   cursor: pointer;
-  /* transform is in the transition because a control that only changes colour
-     reads as a picture of a button; one that lifts reads as a surface you can
-     press. The lift is 1px -- enough to feel, too small to shift a layout. */
+  /* Flat, like the rest of the page (brand kit Studio 01): a control answers
+     with its colour and its border, never by lifting or casting a shadow. */
   transition: background-color var(--motion-fast) var(--ease-out),
     color var(--motion-fast) var(--ease-out),
-    border-color var(--motion-fast) var(--ease-out),
-    box-shadow var(--motion-fast) var(--ease-out),
-    transform var(--motion-fast) var(--ease-spring);
+    border-color var(--motion-fast) var(--ease-out);
 }
 
 .button:hover {
-  background: var(--surface-3);
+  background: var(--surface-2);
   color: var(--text-primary);
   border-color: var(--border-strong);
-  transform: translateY(-1px);
-  box-shadow: var(--elevation-1);
 }
 
 .button:active {
-  transform: translateY(0) scale(0.98);
-  box-shadow: none;
+  background: var(--surface-3);
   transition-duration: var(--motion-instant);
 }
 
+/* A pressed toggle is a quiet surface with full-strength text -- not a block
+   of brand green. Pine is kept for focus, links and the selection, which is
+   what keeps it meaningful (and what kept the dark theme from reading green). */
 .button[aria-pressed="true"] {
-  color: var(--text-on-primary);
-  background: var(--primary);
-  border-color: var(--primary);
+  color: var(--text-primary);
+  background: var(--surface-3);
+  border-color: var(--border-strong);
 }
 
 .button--primary {

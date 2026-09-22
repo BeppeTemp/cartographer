@@ -14,6 +14,15 @@ together. Neither theme is the default any more: the system decides until the
 viewer picks one, and the resolved theme is applied before first paint by a
 same-origin `theme-init.js`.
 
+**Amended after review: flat, and green only where it means something.** The
+first pass kept the old shell's floating cards, hover lifts and shadows, and
+filled every pressed toggle with brand green; in the dark theme the page read
+green. Now controls answer with colour and border only, a pressed toggle is a
+quiet surface with full-strength text, overlays are flat with a hairline edge,
+the reading panel docks to the right edge full height, and the navigation
+starts open above 1,200 px — the composition of the kit's Studio 01. Pine is
+kept for focus, links and the selection.
+
 **Why.** The earlier "nautical" direction (navy, teal, amber, dark as the
 signature) predates the brand and shared nothing with the README or the slides.
 Keeping the token names made the change a values-only edit that

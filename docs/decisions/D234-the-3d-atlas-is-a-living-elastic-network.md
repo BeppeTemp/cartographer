@@ -5,8 +5,11 @@ topic: architecture
 # D234 — The 3D atlas is a living elastic network
 
 **Decision.** On a wide screen the Atlas opens in 3D. The 3D view is a
-force-directed network in three dimensions with one writer of coordinates, the
-`d3-force-3d` simulation inside `3d-force-graph`: springs on the links,
+force-directed network in three dimensions, drawn with three.js directly
+(`web/src/lib/graph3d/scene.ts`) the way the brand kit's Studio 03 draws it —
+small unlit nodes in one instanced mesh, hairline links in one line set, a
+wireframe ring on the selection, signals as points. One writer of coordinates,
+the `d3-force-3d` simulation the scene runs: springs on the links,
 Barnes–Hut repulsion, weak per-axis gravity in place of d3's centring force,
 damping, and a small deterministic drift. Dragging a node pins it on the camera
 plane and reheats the simulation, so its neighbours follow and the motion
@@ -26,24 +29,27 @@ Here every motion is a force in one simulation, so there is nothing to fight.
 d3's `forceCenter` was replaced because it translates every node by the same
 offset: a drag in one component slid every other component with it. The drift
 is a force, not a tween, and a headless test bounds its per-frame motion so it
-never reads as jitter. `3d-force-graph` hides `d3AlphaTarget` and
-`resetCountdown` (it drives them for drags); the live alpha floor reaches them
-on the inner `three-forcegraph` object, and degrades to "settles and stops" if
-a future version moves it.
+never reads as jitter.
+
+The first version drew with `3d-force-graph`. It was replaced after review:
+its lit, full-size spheres made the graph read as a toy next to the kit's
+prototype, it draws one mesh per node and one line per link (2,000 nodes
+dragged at 30 fps), it applies data asynchronously (framing and labels had to
+wait for its first engine tick), and it hides `d3AlphaTarget`, which live mode
+needs. Owning the scene removed all four: one draw call per kind of thing,
+60 fps at 2,000 nodes while dragging, and the bundle lost ~225 KiB.
 
 **Alternatives rejected.**
 - Keeping 2D as the default and 3D as an extra — the brand asks for the 3D
   navigator; 2D stays one click away and takes over on a lost WebGL context.
-- A bespoke simulation (as the kit's Studio 03 prototype) — O(n²) repulsion,
-  and a second physics engine next to the one `3d-force-graph` already runs.
+- `3d-force-graph` (the first implementation) — see above.
+- The prototype's own simulation — O(n²) repulsion; `d3-force-3d`'s Barnes–Hut
+  scales and is what the physics tests measure.
 - A layout worker — the CSP refuses `blob:` workers (D227), the main-thread
   simulation meets the budget at the sizes the API serves, and a worker would
   bring back two writers of coordinates.
 - Idle rotation of a rigid group, or a per-node tween, as "life" — rejected by
   the brief and by D227.
-- `zoomToFit` for framing — it runs before `graphData()` is applied (the data
-  is applied asynchronously), so framing and focus are computed from settled
-  positions, on the first engine tick after each data change.
 
 **Consequences.** Physics constants live in `web/src/lib/graph3d/physics.ts`
 and are held by `src/test/physics.test.ts` (hub drag propagates and fades with

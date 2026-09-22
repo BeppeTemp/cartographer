@@ -305,7 +305,7 @@ toolchain (D227). What they hold:
   return focus;
 - the 2,000-node budget fixture (§Atlas UI budgets);
 - the 3D physics, on a headless `d3-force-3d` simulation configured exactly as
-  the view configures `3d-force-graph` (`src/test/physics.test.ts`, D234): a
+  the scene configures its own (`src/test/physics.test.ts`, D234): a
   hub drag moves its neighbours more than their neighbours; a leaf drag moves
   the graph less than a hub drag; a component with no link to the dragged node
   is nudged by repulsion (<3% of the drag) but never towed; a release far out
@@ -368,17 +368,18 @@ of a relationship — the inspector lists every link.
 
   Reference run — Apple M5 (8-core GPU), 16 GB, macOS 27.0, Playwright
   Chromium 1.63, ANGLE Metal, 1,440×900 viewport at device pixel ratio 2
-  (the view caps it at 2, or 1.5 above 1,000 nodes):
+  (the view caps it at 2):
 
   | Concepts | Cold / warm load | Rest p50 / p95 | Drag p50 / p95 | Heap |
   |---|---|---|---|---|
-  | 1,000 | 1.8 s / 1.3 s | 16.7 / 16.8 ms | 16.7 / 16.8 ms | 80 MB |
-  | 2,000 | 3.1 s / 2.9 s | 16.8 / 33.4 ms | 32.9 / 33.4 ms | 171 MB |
+  | 1,000 | 2.3 s / 1.2 s | 16.7 / 17.0 ms | 16.7 / 16.8 ms | 29 MB |
+  | 2,000 | 3.0 s / 2.6 s | 16.7 / 16.8 ms | 16.7 / 16.8 ms | 15 MB |
 
-  At 2,000 the drag runs at 30 fps and p95 sits at the 33 ms line: the cost is
-  draw calls — `3d-force-graph` draws one mesh per node and one line per link,
-  with no instancing — not the physics. 5,000 is not reported; the view
-  accepts it (the API's ceiling) without a measured budget.
+  Both sizes hold 60 fps while a node is dragged. The scene draws every node
+  in one instanced mesh and every link in one line set, so the frame cost
+  barely moves with size; the load time is the synchronous warm-up of the
+  simulation. 5,000 is not reported; the view accepts it (the API's ceiling)
+  without a measured budget.
 
 ### Browser (`make e2e-web`)
 

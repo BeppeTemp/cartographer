@@ -67,7 +67,7 @@ async function frameTimes(page, ms, during) {
   });
 }
 
-/** Finds a node on screen by hovering until 3d-force-graph shows a tooltip. */
+/** Finds a node on screen by hovering until the view shows its tooltip. */
 async function findNode(page) {
   const box = await page.locator("[data-testid=graph-3d] canvas").first().boundingBox();
   const cx = box.x + box.width / 2;
@@ -79,7 +79,7 @@ async function findNode(page) {
       await page.mouse.move(x, y);
       await page.waitForTimeout(60);
       const text = await page.evaluate(
-        () => [...document.querySelectorAll(".float-tooltip-kap")].map((e) => e.textContent).join(""),
+        () => [...document.querySelectorAll(".graph3d__tooltip:not([hidden])")].map((e) => e.textContent).join(""),
       );
       if (text.trim()) return { x, y };
     }

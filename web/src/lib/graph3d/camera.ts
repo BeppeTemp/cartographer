@@ -49,7 +49,7 @@ const cross = (a: Vec3, b: Vec3): Vec3 => ({
  *  never closer than a few node diameters. */
 export function focusDistance(radius: number, fov = 50): number {
   const half = ((fov / 2) * Math.PI) / 180;
-  return Math.max(200, (radius * 1.15) / Math.sin(half));
+  return Math.max(200, (radius * 1.5) / Math.sin(half));
 }
 
 /**

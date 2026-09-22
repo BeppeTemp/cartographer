@@ -47,7 +47,7 @@ const NO_COMMUNITIES: Communities = { rankOf: new Map(), list: [] };
 const NARROW_QUERY = "(max-width: 1023px)";
 /** The inspector card's width plus its margin (--inspector-width + gutter):
  *  the strip of canvas a selection must not be centred under. */
-const INSPECTOR_OCCLUSION = 420 + 32;
+const INSPECTOR_OCCLUSION = 420;
 
 export function App() {
   const [phase, setPhase] = useState<Phase>("booting");
@@ -76,7 +76,12 @@ export function App() {
   const [statusFilter, setStatusFilter] = useState<Set<string>>(new Set());
   // The graph is the page: navigation and the node list start folded away
   // and open on demand, and the choice is remembered (lib/panels).
-  const [railCollapsed, setRailCollapsed] = useState(() => readPanel("rail", true));
+  // Above 1200px the page has room for three areas -- navigation, graph,
+  // reading (brand kit layout) -- so the rail starts open there; below, the
+  // graph keeps the width. A remembered choice wins either way.
+  const [railCollapsed, setRailCollapsed] = useState(() =>
+    readPanel("rail", !(window.matchMedia?.("(min-width: 1200px)").matches ?? false)),
+  );
   const [listOpen, setListOpen] = useState(() => readPanel("list", false));
   // 3D is the first view on a wide screen (D234); the 2D atlas stays one click
   // away, and takes over when WebGL is missing or lost.

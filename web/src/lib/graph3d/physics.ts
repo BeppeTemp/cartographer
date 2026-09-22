@@ -3,8 +3,8 @@ import { forceX, forceY, forceZ, type Force, type SimNode } from "d3-force-3d";
 /**
  * The physics of the living 3D atlas (D234).
  *
- * One writer of node coordinates: the d3-force-3d simulation inside
- * 3d-force-graph. Everything that moves a node -- the settle, the drag, the
+ * One writer of node coordinates: the d3-force-3d simulation the scene runs
+ * (scene.ts). Everything that moves a node -- the settle, the drag, the
  * residual drift -- is a force in that simulation, never a tween or a second
  * loop writing positions. That is the lesson of D227: a per-node animation and
  * a layout worker writing the same coordinates made the 2D graph shiver at
@@ -29,12 +29,12 @@ export interface PhysicsNode extends SimNode {
 }
 
 /** Rest length of a link, in scene units. Node radii are ~2-8 units. */
-export const LINK_DISTANCE = 28;
+export const LINK_DISTANCE = 22;
 /** Many-body strength (negative repels). */
-export const CHARGE_STRENGTH = -46;
+export const CHARGE_STRENGTH = -70;
 /** Repulsion ignores pairs farther apart than this: far-apart components do
  *  not push each other around, and the octree walk stays short. */
-export const CHARGE_DISTANCE_MAX = 260;
+export const CHARGE_DISTANCE_MAX = 420;
 /** Per-axis pull towards the origin: enough to hold disconnected components
  *  and orphans in view, too weak to compete with a spring. */
 export const GRAVITY = 0.035;
@@ -124,7 +124,7 @@ export function drift<N extends PhysicsNode>(): DriftForce<N> {
   return force;
 }
 
-/** Where 3d-force-graph (or a bare simulation, in tests) takes its forces. */
+/** Where the scene's simulation (or a bare one, in tests) takes its forces. */
 export type ForceHost = (name: string, force?: unknown) => unknown;
 
 interface Configurable {
@@ -134,9 +134,9 @@ interface Configurable {
 }
 
 /**
- * configureForces replaces the default force set of a 3d-force-graph d3
- * engine with the atlas's. The link force is tuned in place rather than
- * replaced: three-forcegraph hands it the link list on every data update.
+ * configureForces turns a simulation with d3's link and many-body forces into
+ * the atlas's: it removes any centring force, adds per-axis gravity and the
+ * drift, and tunes the link and many-body forces in place.
  */
 export function configureForces<N extends PhysicsNode>(host: ForceHost, driftForce: DriftForce<N>): void {
   host("center", null);

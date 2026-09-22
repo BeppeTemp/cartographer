@@ -8,7 +8,6 @@ import {
   SIGNAL_SPAN_MS,
   SIGNAL_WAVES,
   initialMotion,
-  particleSpeed,
   planBursts,
 } from "../lib/graph3d/motion";
 
@@ -77,10 +76,6 @@ describe("signals", () => {
     expect(planBursts(null, links, degree, true)).toEqual([]);
   });
 
-  it("take the same time on any link", () => {
-    // 3d-force-graph's speed is the share of the link covered per frame.
-    expect(particleSpeed(60) * 60 * (SIGNAL_PASS_MS / 1000)).toBeCloseTo(1, 5);
-  });
 });
 
 describe("camera focus", () => {

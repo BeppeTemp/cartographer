@@ -19,10 +19,10 @@ interface Link {
 }
 
 /**
- * A bare d3-force-3d simulation set up the way three-forcegraph sets up its d3
- * engine (link + many-body + centre, three dimensions), then handed to
- * configureForces exactly as Graph3D hands over 3d-force-graph. The physics
- * can be measured here without WebGL.
+ * A bare d3-force-3d simulation with d3's stock forces (link + many-body +
+ * centre, three dimensions), then handed to configureForces exactly as the
+ * scene (lib/graph3d/scene) does. The physics can be measured here without
+ * WebGL.
  */
 function world(nodeCount = 240) {
   const snapshot = generateSnapshot(nodeCount, 8, 3);

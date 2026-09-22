@@ -39,8 +39,22 @@
 }
 
 
+/* The KB reads as a breadcrumb beside the name (Studio 01), and shows it is a
+   control only on hover and focus. */
+.topbar__kb {
+  padding-inline-start: var(--space-4);
+  border-inline-start: 1px solid var(--border-subtle);
+}
+
 .topbar__kb select {
   min-width: 140px;
+  color: var(--text-secondary);
+  background-color: transparent;
+  border-color: transparent;
+}
+
+.topbar__kb select:hover {
+  border-color: var(--border-subtle);
 }
 
 .topbar__search {
@@ -54,7 +68,7 @@
   font-size: var(--text-sm);
   color: var(--text-muted);
   text-align: start;
-  background: var(--surface-2);
+  background: transparent;
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-control);
   cursor: pointer;
@@ -152,7 +166,6 @@
 .rail__panel:hover {
   background: var(--surface-2);
   color: var(--text-primary);
-  transform: translateX(2px);
 }
 
 /* Clay marks "you are here": a thin rule, the one place it is a signal
@@ -195,8 +208,8 @@
   margin-inline-start: auto;
   padding: 0 var(--space-2);
   font-size: var(--text-xs);
-  color: var(--text-on-accent);
-  background: var(--accent);
+  color: var(--text-secondary);
+  background: var(--surface-3);
   border-radius: var(--radius-pill);
 }
 
@@ -323,35 +336,37 @@
 }
 
 /* --- Panels over the graph ---
-   The graph owns the whole main area. The node list and the inspector float
-   over it as cards, opened on demand, so nothing is taken from the canvas
-   until the user asks for it. */
+   The graph owns the whole main area. The node list and the reading panel
+   open over it on demand. They are flat surfaces with a hairline edge, not
+   floating cards (brand kit Studio 01): the reading panel docks to the right
+   edge, full height, the way a page's margin would. */
 
 .overlay {
   position: absolute;
   z-index: 3;
-  inset-block: var(--space-4);
   display: flex;
   flex-direction: column;
   min-height: 0;
   overflow: hidden;
-  background: color-mix(in srgb, var(--surface-1) 94%, transparent);
-  backdrop-filter: blur(14px);
+  background: var(--surface-1);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-panel);
-  box-shadow: var(--elevation-3);
 }
 
 .overlay--list {
   inset-inline-start: var(--space-4);
-  inset-block-start: calc(var(--space-4) + 44px);
+  inset-block: calc(var(--space-4) + 44px) var(--space-4);
   width: min(300px, 40%);
   animation: rise-in var(--motion-base) var(--ease-out);
 }
 
 .overlay--inspector {
-  inset-inline-end: var(--space-4);
+  inset-block: 0;
+  inset-inline-end: 0;
   width: min(var(--inspector-width), 46%);
+  border-block: 0;
+  border-inline-end: 0;
+  border-radius: 0;
 }
 
 .overlay .nodelist,
@@ -375,15 +390,7 @@
   display: inline-flex;
   align-items: center;
   gap: var(--space-2);
-  background: color-mix(in srgb, var(--surface-1) 86%, transparent);
-  backdrop-filter: blur(12px);
-  box-shadow: var(--elevation-2);
-}
-
-.button.graph-toolbar__toggle[aria-pressed="true"] {
-  color: var(--text-primary);
-  background: color-mix(in srgb, var(--surface-2) 92%, transparent);
-  border-color: var(--primary);
+  background: var(--surface-1);
 }
 
 .graph-toolbar__count {
@@ -526,7 +533,6 @@
 .nodelist__item:hover {
   background: var(--surface-2);
   color: var(--text-primary);
-  transform: translateX(2px);
 }
 
 .nodelist__item[aria-current="true"] {
@@ -592,15 +598,15 @@
 .inspector__eyebrow {
   margin: 0;
   font-size: var(--text-xs);
-  font-weight: 600;
-  letter-spacing: 0.1em;
+  font-weight: 500;
+  letter-spacing: 0.14em;
   text-transform: uppercase;
-  color: var(--primary);
+  color: var(--text-muted);
 }
 
 .inspector__title {
   font-family: var(--font-editorial);
-  font-size: var(--text-xl);
+  font-size: var(--text-2xl);
   font-weight: 400;
   line-height: var(--leading-tight);
   letter-spacing: -0.01em;
@@ -1224,11 +1230,9 @@
   padding: var(--space-2);
   font-size: var(--text-xs);
   color: var(--text-secondary);
-  background: color-mix(in srgb, var(--surface-1) 82%, transparent);
-  backdrop-filter: blur(12px);
+  background: var(--surface-1);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-card);
-  box-shadow: var(--elevation-2);
 }
 
 .legend__switch {
@@ -1258,8 +1262,8 @@
 }
 
 .legend__option[aria-pressed="true"] {
-  color: var(--text-on-primary);
-  background: var(--primary);
+  color: var(--text-primary);
+  background: var(--surface-3);
 }
 
 .legend__option:focus-visible {
@@ -1434,6 +1438,24 @@
 .graph--3d .graph3d {
   position: absolute;
   inset: 0;
+  overflow: hidden;
+}
+
+.graph3d__labels {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.graph3d__labels .graph3d__label,
+.graph3d__tooltip {
+  position: absolute;
+  top: 0;
+  left: 0;
+}
+
+.graph3d__tooltip {
+  pointer-events: none;
 }
 
 /* Gestures belong to the scene on the canvas only (orbit, drag, pinch); the
@@ -1442,39 +1464,41 @@
   touch-action: none;
 }
 
+/* Names in the 3D view are plain text on a halo of the canvas colour
+   (Studio 03), not pills: a dozen boxed labels turn the graph into a form. */
 .graph3d__label {
-  padding: 2px 8px;
-  font: 600 12px var(--font-sans);
-  color: var(--text-primary);
-  background: var(--surface-1);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-pill);
+  font: 500 12px var(--font-sans);
+  color: var(--text-secondary);
+  text-shadow:
+    0 0 3px var(--surface-0),
+    0 0 6px var(--surface-0),
+    0 0 10px var(--surface-0);
   pointer-events: none;
   white-space: nowrap;
 }
 
-/* 3d-force-graph wraps the hover label in its own dark box; the label is
-   already a pill, so the box is only a position. */
-.graph3d .float-tooltip-kap {
-  padding: 0;
-  background: transparent;
-}
-
 .graph3d__label--selected {
   font-family: var(--font-editorial);
-  font-size: var(--text-sm);
+  font-size: var(--text-md);
   font-weight: 400;
-  border-color: var(--clay);
+  color: var(--text-primary);
+}
+
+.graph3d__tooltip {
+  padding: 2px 8px;
+  color: var(--text-primary);
+  text-shadow: none;
+  background: var(--surface-1);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-control);
 }
 
 .graph-toolbar__segmented {
   display: inline-flex;
   padding: 2px;
-  background: color-mix(in srgb, var(--surface-1) 86%, transparent);
-  backdrop-filter: blur(12px);
+  background: var(--surface-1);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-control);
-  box-shadow: var(--elevation-2);
 }
 
 .graph-toolbar__segmented button {

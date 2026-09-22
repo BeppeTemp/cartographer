@@ -53,7 +53,12 @@
      hash of the collection name, so a Map keeps its colour between sessions
      and between machines. */
   --graph-edge: #3b473e;
-  --graph-edge-3d: #56655a;
+  /* The 3D view (brand kit Studio 03): hairline links at 0.28 opacity, the
+     selection's links, its signals and its ring. */
+  --graph-edge-3d: #9dafa0;
+  --graph-edge-3d-active: #cfdbc9;
+  --graph-signal: #f0d0ac;
+  --graph-ring: #eeede5;
   --graph-edge-active: #91b9a0;
   --graph-node-stroke: #191f1c;
   /* Community colouring (lib/communities): the twelve largest communities
@@ -177,7 +182,10 @@
   --sev-ok: #2f6b63;
 
   --graph-edge: #d3d3c8;
-  --graph-edge-3d: #b4b6aa;
+  --graph-edge-3d: #8a988a;
+  --graph-edge-3d-active: #365d50;
+  --graph-signal: #8c5237;
+  --graph-ring: #365d50;
   --graph-edge-active: #365d50;
   --graph-node-stroke: #fcfaf6;
   --graph-community-other: #7d8078;
