@@ -662,3 +662,61 @@ func TestPSQuote(t *testing.T) {
 		}
 	}
 }
+
+// A re-install over a running serve task must end that process first: the
+// start that follows is a no-op on a running task (IgnoreNew), so the old
+// process would keep serving the old config while install reported success.
+func TestInstall_Windows_StopsARunningTaskBeforeStarting(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		running  bool
+		wantStop bool
+	}{
+		{"running", true, true},
+		{"not running", false, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			home := withTestHome(t, "windows")
+			binPath := filepath.Join(t.TempDir(), "cartographer.exe")
+			if err := os.WriteFile(binPath, []byte("bin"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			origExecutable := osExecutable
+			osExecutable = func() (string, error) { return binPath, nil }
+			t.Cleanup(func() { osExecutable = origExecutable })
+			// The event cannot be set (no server listening for it): the task
+			// is stopped outright rather than waited on.
+			origEvent := setShutdownEvent
+			setShutdownEvent = func() error { return os.ErrNotExist }
+			t.Cleanup(func() { setShutdownEvent = origEvent })
+
+			s := &stubRunner{fail: map[string]bool{}}
+			if !tc.running {
+				s.fail["State -eq 'Running'"] = true
+			}
+			m := &Manager{run: s.run}
+			if _, err := m.Install(InstallOptions{DataDir: filepath.Join(home, "data"), HTTPAddr: "127.0.0.1:39273"}); err != nil {
+				t.Fatalf("Install: %v", err)
+			}
+			stop, start := -1, -1
+			for i, c := range s.calls {
+				joined := strings.Join(c, " ")
+				if strings.Contains(joined, "Stop-ScheduledTask") && stop < 0 {
+					stop = i
+				}
+				if strings.Contains(joined, "Start-ScheduledTask") {
+					start = i
+				}
+			}
+			if start < 0 {
+				t.Fatalf("the task was never started: %v", s.calls)
+			}
+			if tc.wantStop && (stop < 0 || stop > start) {
+				t.Errorf("a running task must be stopped before the start: %v", s.calls)
+			}
+			if !tc.wantStop && stop >= 0 {
+				t.Errorf("a task that is not running was stopped: %v", s.calls)
+			}
+		})
+	}
+}
