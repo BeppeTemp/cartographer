@@ -1358,3 +1358,40 @@ func TestOversizeThresholdIsDerivedFromTheReadGuard(t *testing.T) {
 			conceptOversizeThreshold, okf.ConceptReadSizeGuard)
 	}
 }
+
+// TestLint_MapIndexBrokenLinkWithoutContract: a dead link in a map's index.md
+// is reported even when the map never opted in to require_index_entry, while
+// completeness stays opt-in and a missing index is not a finding (#320).
+func TestLint_MapIndexBrokenLinkWithoutContract(t *testing.T) {
+	k := tempKB(t)
+	writeFile(t, k.DataRoot(), "m/_map.md", "---\ntype: Map\nkind: map\ntitle: M\n---\n# M\n")
+	writeFile(t, k.DataRoot(), "m/index.md", "---\ntype: Index\ntitle: M\n---\n- [[m/live]]\n- [[m/moved-away]]\n")
+	writeFile(t, k.DataRoot(), "m/live.md", "---\ntype: Note\ntitle: Live\n---\n# Live\n")
+	writeFile(t, k.DataRoot(), "m/unlisted.md", "---\ntype: Note\ntitle: Unlisted\n---\n# Unlisted\n")
+	writeFile(t, k.DataRoot(), "bare/_map.md", "---\ntype: Map\nkind: map\ntitle: Bare\n---\n# Bare\n")
+
+	for _, scope := range []string{"", "m"} {
+		findings, err := Run(k, scope, false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !hasCheck(findings, "m/index.md", "broken_link") {
+			t.Errorf("scope %q: expected broken_link on m/index.md, got %v", scope, findings)
+		}
+		for _, f := range findings {
+			if f.Check == "broken_link" && f.Path == "m/index.md" && !strings.Contains(f.Message, "m/moved-away") {
+				t.Errorf("scope %q: broken_link names the wrong target: %s", scope, f.Message)
+			}
+			if f.Check == "index_incomplete" {
+				t.Errorf("scope %q: completeness is opt-in, got index_incomplete: %s — %s", scope, f.Path, f.Message)
+			}
+		}
+	}
+	findings, err := Run(k, "m/live", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hasCheck(findings, "m/index.md", "broken_link") {
+		t.Errorf("a concept scope must not surface map-index findings: %v", findings)
+	}
+}

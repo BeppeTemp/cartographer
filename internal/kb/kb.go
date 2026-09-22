@@ -1451,6 +1451,96 @@ func (kb *KB) CreateMapWithContract(name, title, kind string, conceptTypes []str
 	return nil
 }
 
+// MapContractUpdate is a partial change to an existing map's lint contract:
+// a nil field is left as it is. An empty list (or false) removes the key, so
+// the descriptor ends up exactly as CreateMapWithContract would have written
+// it for the resulting contract. A non-nil RequiredFieldsByType replaces every
+// per-type key, not only the types it names.
+type MapContractUpdate struct {
+	RequiredFields           *[]string
+	RequiredFieldsByType     map[string][]string
+	RequireIndexEntry        *bool
+	MachinePathAllowPrefixes *[]string
+}
+
+// UpdateMapContract rewrites the contract keys of an existing map's _map.md,
+// leaving every other key, its comments and the descriptor body untouched,
+// and returns the contract as read back from disk. Before it existed the
+// contract could only be set at creation, so a map created without
+// require_index_entry could never opt in to curated-index maintenance (#320).
+// A legacy _archive.md descriptor is refused rather than rewritten: that form
+// is read-compat only and is never written (D77).
+func (kb *KB) UpdateMapContract(name string, upd MapContractUpdate) (MapContract, error) {
+	if _, err := okf.PathToID(name + ".md"); err != nil {
+		return MapContract{}, fmt.Errorf("%w: invalid map name %q", okf.ErrInvalidPath, name)
+	}
+	relPath, err := kb.mapDescriptorRelPath(name)
+	if err != nil {
+		return MapContract{}, fmt.Errorf("UpdateMapContract %s: %w", name, err)
+	}
+	if gopath.Base(relPath) != "_map.md" {
+		return MapContract{}, fmt.Errorf("UpdateMapContract %s: legacy _archive.md descriptor — rewrite it as _map.md with a kind first (D77)", name)
+	}
+	content, err := kb.ReadRaw(relPath)
+	if err != nil {
+		return MapContract{}, fmt.Errorf("UpdateMapContract %s: %w", name, err)
+	}
+	fmRaw, body, ok := okf.SplitFrontmatter(content)
+	if !ok {
+		return MapContract{}, fmt.Errorf("UpdateMapContract %s: missing frontmatter in _map.md", name)
+	}
+	fm, err := okf.ParseFrontmatter(fmRaw)
+	if err != nil {
+		return MapContract{}, fmt.Errorf("UpdateMapContract %s: %w", name, err)
+	}
+
+	setList := func(key string, values []string) {
+		if v := sortedUnique(values); len(v) > 0 {
+			fm.Set(key, v)
+		} else {
+			fm.Delete(key)
+		}
+	}
+	if upd.RequiredFields != nil {
+		setList("required_fields", *upd.RequiredFields)
+	}
+	if upd.RequiredFieldsByType != nil {
+		for _, key := range fm.Keys() {
+			if strings.HasPrefix(key, "required_fields.") {
+				fm.Delete(key)
+			}
+		}
+		types := make([]string, 0, len(upd.RequiredFieldsByType))
+		for typ := range upd.RequiredFieldsByType {
+			types = append(types, typ)
+		}
+		sort.Strings(types)
+		for _, typ := range types {
+			setList("required_fields."+typ, upd.RequiredFieldsByType[typ])
+		}
+	}
+	if upd.RequireIndexEntry != nil {
+		if *upd.RequireIndexEntry {
+			fm.Set("require_index_entry", "true")
+		} else {
+			fm.Delete("require_index_entry")
+		}
+	}
+	if upd.MachinePathAllowPrefixes != nil {
+		setList("machine_path_allow_prefixes", *upd.MachinePathAllowPrefixes)
+	}
+
+	abs, err := kb.ResolvePath(relPath, false)
+	if err != nil {
+		return MapContract{}, fmt.Errorf("UpdateMapContract %s: %w", name, err)
+	}
+	out := "---\n" + fm.Serialize() + "\n---\n" + body
+	if err := writeFileAtomic(abs, []byte(out)); err != nil {
+		return MapContract{}, fmt.Errorf("UpdateMapContract %s: write _map.md: %w", name, err)
+	}
+	return kb.ReadMapContract(name)
+}
+
 // normalizeAllowPrefix validates and normalizes one
 // machine_path_allow_prefixes entry (D124). Only an absolute path is
 // accepted: POSIX ("/...") or Windows drive-absolute ("C:\..." or "C:/...").

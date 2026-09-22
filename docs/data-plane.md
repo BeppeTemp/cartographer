@@ -170,6 +170,10 @@ Cartographer does not attempt to place the destination entry in the right themat
 know, and a wrong placement in a curated document is worse than an obvious one at the end.
 `rewrite_links: false` still means "touch no other concept", so it skips the index maintenance too.
 
+A map created without `require_index_entry` opts in later with `map_update` (D229). Until it does, a
+move out of it leaves its index entry behind — which `lint` reports as a `broken_link` on the map's
+`index.md`, since dead index links are checked for every map.
+
 ### Silencing a lint finding on one concept
 
 `lint_ignore: [check, …]` in a concept's frontmatter drops the named findings **for that concept
