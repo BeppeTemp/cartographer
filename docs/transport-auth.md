@@ -340,6 +340,12 @@ Two properties are load-bearing:
   (which reads further ranked pages when hidden candidates would leave a page
   short) and in the vector store. A caller therefore cannot infer hidden
   concepts from short pages or shifted pagination.
+- **Collections have no type.** Whether a map or journal is listed at all
+  (`map_list`, `atlas_overview`, the UI's KB list and overview) is decided by
+  the `maps`/`journals` selectors alone; the `types` selector applies to the
+  concepts inside it, and the counts shown are counts of visible concepts. A
+  role narrowed to a map and a type therefore sees that map, holding only its
+  concepts of that type (D228).
 
 Writes are re-authorized under the git lock immediately before mutating, so a
 concept whose type changes between dispatch and commit cannot be written on the
