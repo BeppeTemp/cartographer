@@ -182,6 +182,29 @@
   display: none;
 }
 
+.rail--collapsed .rail__panel {
+  position: relative;
+  justify-content: center;
+  padding-inline: 0;
+}
+
+.rail--collapsed .rail__panel:hover {
+  transform: none;
+}
+
+/* Folded, the finding count becomes a dot on the icon rather than a pill
+   the narrow rail would clip. */
+.rail--collapsed .rail__badge {
+  position: absolute;
+  inset-block-start: 2px;
+  inset-inline-end: 6px;
+  min-width: 16px;
+  padding: 0 4px;
+  font-size: 10px;
+  line-height: 16px;
+  text-align: center;
+}
+
 .rail__badge {
   margin-inline-start: auto;
   padding: 0 var(--space-2);
@@ -313,8 +336,76 @@
   overflow: hidden;
 }
 
-.main:has(.graph):has(.nodelist) {
-  grid-template-columns: minmax(0, 1fr) 260px;
+/* --- Panels over the graph ---
+   The graph owns the whole main area. The node list and the inspector float
+   over it as cards, opened on demand, so nothing is taken from the canvas
+   until the user asks for it. */
+
+.overlay {
+  position: absolute;
+  z-index: 3;
+  inset-block: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--surface-1) 94%, transparent);
+  backdrop-filter: blur(14px);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-panel);
+  box-shadow: var(--elevation-3);
+}
+
+.overlay--list {
+  inset-inline-start: var(--space-4);
+  inset-block-start: calc(var(--space-4) + 44px);
+  width: min(300px, 40%);
+  animation: rise-in var(--motion-base) var(--ease-out);
+}
+
+.overlay--inspector {
+  inset-inline-end: var(--space-4);
+  width: min(var(--inspector-width), 46%);
+}
+
+.overlay .nodelist,
+.overlay .inspector {
+  flex: 1;
+  min-height: 0;
+  background: transparent;
+  border: 0;
+}
+
+.graph-toolbar {
+  position: absolute;
+  z-index: 3;
+  inset-block-start: var(--space-4);
+  inset-inline-start: var(--space-4);
+  display: flex;
+  gap: var(--space-2);
+}
+
+.graph-toolbar__toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  background: color-mix(in srgb, var(--surface-1) 86%, transparent);
+  backdrop-filter: blur(12px);
+  box-shadow: var(--elevation-2);
+}
+
+.button.graph-toolbar__toggle[aria-pressed="true"] {
+  color: var(--text-primary);
+  background: color-mix(in srgb, var(--surface-2) 92%, transparent);
+  border-color: var(--primary);
+}
+
+.graph-toolbar__count {
+  padding: 0 var(--space-2);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  background: var(--surface-2);
+  border-radius: var(--radius-pill);
 }
 
 .graph {
@@ -1307,10 +1398,6 @@
 }
 
 @media (max-width: 1023px) {
-  .main:has(.graph):has(.nodelist) {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
   .graph__banner {
     inset-inline: var(--space-2);
   }
@@ -1332,4 +1419,14 @@
   background: var(--surface-2);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-card);
+}
+
+.markdown__wikilink {
+  color: var(--primary);
+  text-decoration: none;
+  border-block-end: 1px dashed color-mix(in srgb, var(--primary) 55%, transparent);
+}
+
+.markdown__wikilink:hover {
+  border-block-end-style: solid;
 }

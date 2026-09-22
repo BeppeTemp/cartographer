@@ -145,18 +145,21 @@ export function edgeAppearance(edge: EdgeInput, palette: Palette): EdgeAppearanc
     return { type: "arrow", hidden: false, color: palette.edgeActive, size: 2, zIndex: 1 };
   }
   if (edge.focus) {
-    return { type: "arrow", hidden: false, color: withAlpha(palette.edge, DIM_ALPHA), size: 1, zIndex: 0 };
+    return { type: "line", hidden: false, color: withAlpha(palette.edge, DIM_ALPHA), size: 0.6, zIndex: 0 };
   }
+  // At rest an edge is a plain hairline: a few hundred arrowheads are what
+  // made the resting graph read as a tangle. Direction is shown where it is
+  // asked for -- on the focused node's own edges, above.
   if (edge.groupColor) {
     return {
-      type: "arrow",
+      type: "line",
       hidden: false,
       color: withAlpha(edge.groupColor, GROUP_EDGE_ALPHA),
-      size: 1.2,
+      size: 0.8,
       zIndex: 0,
     };
   }
-  return { type: "arrow", hidden: false, color: palette.edge, size: 1, zIndex: 0 };
+  return { type: "line", hidden: false, color: palette.edge, size: 0.6, zIndex: 0 };
 }
 
 export function shortLabel(id: string): string {

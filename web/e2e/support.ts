@@ -72,3 +72,15 @@ export async function signIn(page: Page, token: string, remember = false, path =
   if (remember) await page.getByLabel("Remember for this tab").check();
   await page.getByRole("button", { name: "Open the atlas" }).click();
 }
+
+/**
+ * The atlas starts graph-only: navigation folded, node list closed. Flows that
+ * walk those panels open them the way a returning viewer has them -- through
+ * the remembered preference -- so each test does not re-click its way there.
+ */
+export async function withPanelsOpen(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    localStorage.setItem("cartographer.panel.rail", "0");
+    localStorage.setItem("cartographer.panel.list", "1");
+  });
+}

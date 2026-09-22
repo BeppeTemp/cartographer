@@ -117,7 +117,7 @@ export function Inspector({
                 </nav>
               )}
               {concept.body.trim() ? (
-                <Markdown>{concept.body}</Markdown>
+                <Markdown onNavigate={onNavigate}>{concept.body}</Markdown>
               ) : (
                 <p className="inspector__hint">This concept has no body.</p>
               )}

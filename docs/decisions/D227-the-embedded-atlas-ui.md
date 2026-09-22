@@ -36,17 +36,27 @@ that asks for the token.
 `/ui/` and for nothing outside it; a route-boundary test asserts that `/mcp`,
 `/health`, `/ready`, `/clients`, the RFC 9728 metadata and `/api/` all still
 reach their own handlers with the UI mounted. The CSP is `default-src 'self'`
-with no inline script and no eval, plus `worker-src 'self' blob:` — without
-that one directive the force-layout worker is blocked and the graph silently
-stops moving. Two failures found while building this are now design rules with
+with no inline script and no eval. Two failures found while building this are now design rules with
 tests behind them: the appearance functions may never emit a node type stock
 Sigma has no program for, because an unknown type throws inside the renderer
-and takes the page down to a blank background; and a missing layout worker must
-degrade to a still graph, never to a dead page. Graph layout stays
-deterministic — the same KB state seeds the same coordinates — while the
-resting "breath" is written on the graph's coordinates around that base, which
-is kept aside so the cache never bakes one frame of the animation into the
-layout.
+and takes the page down to a blank background. Graph layout stays
+deterministic — the same KB state seeds the same coordinates.
+
+**Amended: the graph is still, and the graph is the page.** The first version
+animated the resting graph (a per-node "breath") and re-ran ForceAtlas2 in a
+blob worker while a node was dragged. The two wrote the same coordinates: the
+graph shivered at rest and flew apart on a drag, because the simulation
+re-settled around a node pinned far from its neighbours. Both are gone, and
+with them the worker and the CSP's `worker-src 'self' blob:`. The
+deterministic layout is the picture; the entry stagger is its only motion;
+a drag moves the one node held, and *Reset layout* restores the computed
+positions. Nodes with no link sit on a ring just outside the connected body,
+so a few orphans no longer decide the zoom. The layout is graph-first: the
+canvas takes the whole main area, the navigation rail and the node list start
+folded and open on demand (the choice is remembered per viewer), and the
+inspector exists only while a concept is selected, floating over the canvas
+with the selection centred in the strip it leaves visible. `[[wiki-links]]`
+in a concept body render as in-atlas links.
 
 **Encoding.** Node colour has two channels the viewer switches between, and
 the choice is remembered: by Map (which collection a concept is filed in) and,

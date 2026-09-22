@@ -13,13 +13,6 @@ import { edgeAppearance, nodeAppearance, type Palette } from "../lib/encoding";
 import { collectionHue, cssVar, resolveSlots, type ColorBy } from "../lib/palette";
 import { OTHER_SLOT, communitySlot, type Communities } from "../lib/communities";
 import { makeHoverDrawer } from "../lib/halo";
-import {
-  DRIFT_NODE_LIMIT,
-  createSimulation,
-  startDrift,
-  type DriftController,
-  type Simulation,
-} from "../lib/simulation";
 import { prefersReducedMotion } from "../lib/theme";
 
 interface Props {
@@ -35,6 +28,9 @@ interface Props {
   themeKey: string;
   onSelect(id: string | null): void;
   onExpand(id: string): void;
+  /** Pixels at the right edge hidden behind a panel (the inspector): a
+   *  selection is centred in what remains visible, not under the panel. */
+  occludedRight?: number;
   /** Overlays drawn over the canvas, such as the legend. */
   children?: ReactNode;
 }
@@ -54,7 +50,7 @@ const CAMERA_MS = 360;
  *  "positions"-referenced size was tried and rejected: Sigma normalises the
  *  graph to its own frame, so those units are not the layout's, and a zoom
  *  onto a selection filled the canvas with overlapping discs. */
-const DRAWN_SIZE = 0.6;
+const DRAWN_SIZE = 0.5;
 
 export function GraphCanvas({
   kb,
@@ -69,13 +65,15 @@ export function GraphCanvas({
   themeKey,
   onSelect,
   onExpand,
+  occludedRight = 0,
   children,
 }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const sigmaRef = useRef<Sigma | null>(null);
   const graphRef = useRef<Graph | null>(null);
-  const simulationRef = useRef<Simulation | null>(null);
-  const driftRef = useRef<DriftController | null>(null);
+  /** The deterministic coordinates of the current graph, kept aside so a
+   *  dragged-apart picture can be put back exactly (Reset layout). */
+  const basePositionsRef = useRef<Record<string, { x: number; y: number }>>({});
   const draggedRef = useRef<string | null>(null);
   const [hovered, setHovered] = useState<string | null>(null);
   const [dragging, setDragging] = useState<string | null>(null);
@@ -144,7 +142,7 @@ export function GraphCanvas({
     return map;
   }, [snapshot]);
 
-  // --- Renderer, simulation and interaction ---
+  // --- Renderer and interaction ---
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
@@ -152,19 +150,24 @@ export function GraphCanvas({
     const fingerprint = snapshotFingerprint(kb, scope, snapshot);
     const cached = readCachedPositions(fingerprint);
     const graph = buildGraph(snapshot, cached ?? undefined, communities);
-    if (!cached) writeCachedPositions(fingerprint, applyLayout(graph));
+    const positions = cached ?? applyLayout(graph);
+    if (!cached) writeCachedPositions(fingerprint, positions);
+    basePositionsRef.current = positions;
     graphRef.current = graph;
 
     const renderer = new Sigma(graph, container, {
       allowInvalidContainer: true,
       renderEdgeLabels: false,
-      defaultEdgeType: "arrow",
+      defaultEdgeType: "line",
       labelFont: cssVar("--font-sans") || "sans-serif",
       labelSize: 12,
       labelWeight: "600",
-      labelDensity: 0.7,
-      labelGridCellSize: 64,
-      labelRenderedSizeThreshold: 6,
+      // Labels only where they can be read: the larger nodes at rest, more
+      // as the user zooms in. The focused node's neighbourhood is labelled
+      // regardless (encoding.ts, forceLabel).
+      labelDensity: 0.5,
+      labelGridCellSize: 90,
+      labelRenderedSizeThreshold: 9,
       zIndex: true,
       // Tighter than the stock zoom, so the wheel moves in steps the eye can
       // follow instead of jumps.
@@ -172,17 +175,12 @@ export function GraphCanvas({
     });
     sigmaRef.current = renderer;
 
-    const simulation = reducedMotion ? null : createSimulation(graph);
-    simulationRef.current = simulation;
-    // A freshly laid-out graph gets one settle; a cached one is already where
-    // it belongs and only needs the drift.
-    // Bounded by the entry settle (ENTRY_MS): the motion spec allows one
-    // settle of at most 900ms on first load, not a graph that keeps moving.
-    if (!cached) simulation?.nudge(ENTRY_MS);
-
-    const drift =
-      !reducedMotion && snapshot.nodes.length <= DRIFT_NODE_LIMIT ? startDrift(graph) : null;
-    driftRef.current = drift;
+    // The picture is still. There is no live force simulation and no idle
+    // motion: both were tried, and together they fought over the same
+    // coordinates -- the graph shivered at rest and flew apart when a node was
+    // dragged, because the simulation re-ran around a node pinned far from
+    // its neighbours. The deterministic layout is the picture; the entry
+    // settle below is the only motion it makes on its own.
 
     renderer.on("clickNode", ({ node }) => onSelect(node));
     renderer.on("doubleClickNode", ({ node, event }) => {
@@ -193,16 +191,12 @@ export function GraphCanvas({
     renderer.on("enterNode", ({ node }) => setHovered(node));
     renderer.on("leaveNode", () => setHovered(null));
 
-    // Pinching the web: pressing a node pins it under the cursor and keeps the
-    // force layout running, so its neighbourhood reorganises around the hand
-    // instead of the node tearing free of the graph.
+    // Dragging moves the one node under the cursor and nothing else: its
+    // edges follow it, its neighbours stay where the layout put them. The
+    // move lasts for the session; Reset layout puts every node back.
     renderer.on("downNode", ({ node }) => {
       draggedRef.current = node;
       setDragging(node);
-      graph.setNodeAttribute(node, "fixed", true);
-      // A held node must not also breathe, or it fights the cursor.
-      drift?.exclude(node);
-      simulation?.hold();
     });
 
     const mouse = renderer.getMouseCaptor();
@@ -219,39 +213,23 @@ export function GraphCanvas({
     });
 
     const endDrag = () => {
-      const node = draggedRef.current;
-      if (!node) return;
+      if (!draggedRef.current) return;
       draggedRef.current = null;
       setDragging(null);
-      if (graph.hasNode(node)) graph.removeNodeAttribute(node, "fixed");
-      drift?.exclude(null);
-      simulation?.release();
-      // The graph genuinely moved, so the drift gets a new resting place and
-      // the cache is updated -- with the base coordinates, never the drifted
-      // ones, or every reload would bake one frame of the breath into the
-      // layout.
-      window.setTimeout(() => {
-        drift?.rebase();
-        writeCachedPositions(fingerprint, drift ? drift.basePositions() : readGraphPositions(graph));
-      }, 1000);
     };
     mouse.on("mouseup", endDrag);
     mouse.on("mouseleave", endDrag);
 
     return () => {
-      drift?.stop();
-      simulation?.kill();
       renderer.kill();
-      driftRef.current = null;
-      simulationRef.current = null;
       sigmaRef.current = null;
       graphRef.current = null;
     };
   }, [kb, scope, snapshot, communities, onSelect, onExpand, reducedMotion]);
 
-  // The entry stagger. The resting drift is a separate loop that writes
-  // coordinates on the graph (see lib/simulation), so it needs no React state
-  // and causes no re-render.
+  // The entry stagger: nodes grow in by degree rank, once per graph. It is
+  // an appearance change only (size and opacity in the reducers), never a
+  // coordinate change, so the layout under it is already final.
   useEffect(() => {
     if (reducedMotion || snapshot.nodes.length === 0) {
       setEntry(1);
@@ -354,11 +332,21 @@ export function GraphCanvas({
     const position = renderer.getNodeDisplayData(target);
     if (!position) return;
     const camera = renderer.getCamera();
-    const to = { x: position.x, y: position.y, ratio: Math.min(camera.ratio, 0.55) };
+    // Centre on the node, zooming in only a little: the neighbourhood is the
+    // point of a selection, and a close-up hides it.
+    const ratio = Math.min(camera.ratio, 0.8);
+    // Shift the camera right by half the occluded strip, measured in the
+    // framed-graph units the camera uses at the target zoom, so the node lands
+    // in the middle of the visible area.
+    const { width } = renderer.getDimensions();
+    const a = renderer.viewportToFramedGraph({ x: width / 2, y: 0 });
+    const b = renderer.viewportToFramedGraph({ x: width / 2 + occludedRight / 2, y: 0 });
+    const shift = (b.x - a.x) * (ratio / camera.ratio);
+    const to = { x: position.x + shift, y: position.y, ratio };
     markCamera(containerRef.current, reducedMotion);
     if (reducedMotion) camera.setState(to);
     else camera.animate(to, { duration: CAMERA_MS, easing: "cubicInOut" });
-  }, [selected, highlighted, reducedMotion]);
+  }, [selected, highlighted, reducedMotion, occludedRight]);
 
   const moveCamera = useCallback(
     (to: Record<string, number>, duration: number) => {
@@ -418,11 +406,15 @@ export function GraphCanvas({
           type="button"
           className="button button--icon"
           onClick={() => {
-            simulationRef.current?.nudge(2200);
-            window.setTimeout(() => driftRef.current?.rebase(), 2400);
+            const graph = graphRef.current;
+            if (!graph) return;
+            for (const [id, p] of Object.entries(basePositionsRef.current)) {
+              if (graph.hasNode(id)) graph.mergeNodeAttributes(id, { x: p.x, y: p.y });
+            }
+            moveCamera({ x: 0.5, y: 0.5, ratio: 1, angle: 0 }, CAMERA_MS);
           }}
-          aria-label="Re-settle the layout"
-          title="Re-settle the layout"
+          aria-label="Reset layout"
+          title="Reset layout"
         >
           &#8635;
         </button>
@@ -450,10 +442,3 @@ function markCamera(container: HTMLElement | null, reducedMotion: boolean): void
   if (container) container.dataset.camera = reducedMotion ? "jump" : "tween";
 }
 
-function readGraphPositions(graph: Graph): Record<string, { x: number; y: number }> {
-  const positions: Record<string, { x: number; y: number }> = {};
-  graph.forEachNode((id, attrs) => {
-    positions[id] = { x: attrs.x as number, y: attrs.y as number };
-  });
-  return positions;
-}

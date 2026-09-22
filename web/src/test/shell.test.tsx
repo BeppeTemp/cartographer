@@ -2,7 +2,7 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "../App";
-import { stubApi } from "./fixtures";
+import { stubApi, openPanels } from "./fixtures";
 
 vi.mock("sigma", () => import("./sigmaStub"));
 
@@ -30,6 +30,7 @@ function viewport(narrow: boolean) {
 beforeEach(() => {
   window.history.replaceState(null, "", "/ui/");
   localStorage.clear();
+  openPanels();
   sessionStorage.clear();
 });
 

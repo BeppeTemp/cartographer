@@ -10,9 +10,11 @@ import {
   signIn,
   test,
   waitForAtlas,
+  withPanelsOpen,
 } from "./support";
 
 test.use({ reducedMotion: "reduce" });
+test.beforeEach(({ page }) => withPanelsOpen(page));
 
 /** Every API body the page receives, for the leak and non-disclosure checks. */
 function recordApi(page: Page): { url: string; status: number; body: string }[] {

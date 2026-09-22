@@ -1,8 +1,12 @@
 import AxeBuilder from "@axe-core/playwright";
 import type { Page } from "@playwright/test";
-import { AUTH_URL, LOCAL_URL, conceptRow, expect, test, waitForAtlas } from "./support";
+import { AUTH_URL, LOCAL_URL, conceptRow, expect, test, waitForAtlas, withPanelsOpen } from "./support";
 
 const ATLAS = `${LOCAL_URL}/ui/?kb=atlas`;
+
+// Panels open, so axe and the keyboard walk cover the rail and the node list
+// too; the graph-only default is covered by the component tests.
+test.beforeEach(({ page }) => withPanelsOpen(page));
 
 /** Serious and critical axe violations, WCAG 2.2 A/AA rules. */
 async function seriousViolations(page: Page): Promise<string[]> {
@@ -117,6 +121,7 @@ test.describe("reduced motion", () => {
   };
 
   async function run(page: Page) {
+    await withPanelsOpen(page);
     await page.addInitScript(recordEntry);
     await page.goto(`${ATLAS}&scope=infra`);
     await waitForAtlas(page);

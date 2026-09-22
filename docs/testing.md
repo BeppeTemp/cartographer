@@ -289,7 +289,10 @@ toolchain (D227). What they hold:
   has no program for (an unknown type throws inside the renderer and blanks the
   page);
 - the shell boots, and degrades to a named state rather than a blank page on a
-  401, an unreachable server, an empty KB or a missing layout worker;
+  401, an unreachable server or an empty KB;
+- the atlas starts graph-only — rail folded, node list closed, no inspector
+  until a selection — and each panel opens on demand; `[[wiki-links]]` in a
+  concept body become in-atlas links, code spans left alone;
 - Markdown from a concept body renders inert — a raw `<script>` and an
   `onerror` attribute must not survive;
 - the bearer token reaches neither `localStorage` nor a URL;

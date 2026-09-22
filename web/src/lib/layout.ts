@@ -146,7 +146,7 @@ const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
  * clamped: linear scaling turns one node into the whole canvas.
  */
 export function nodeSize(degree: number): number {
-  return Math.min(3 + Math.sqrt(degree) * 2.8, 18);
+  return Math.min(3 + Math.sqrt(degree) * 2.2, 14);
 }
 
 /**
@@ -167,8 +167,8 @@ export function layoutSettings(graph: Graph, slowDown = 6) {
     ...forceAtlas2.inferSettings(graph),
     linLogMode: true,
     strongGravityMode: true,
-    gravity: 0.3,
-    scalingRatio: 4,
+    gravity: 0.08,
+    scalingRatio: 14,
     edgeWeightInfluence: 1,
     barnesHutOptimize: graph.order > 300,
     // Anti-collision: LinLog packs a community tightly, and without this its
@@ -185,6 +185,7 @@ export function applyLayout(graph: Graph): Positions {
       iterations: layoutIterations(graph.order),
       settings: layoutSettings(graph),
     });
+    ringIsolates(graph);
   }
   const positions: Positions = {};
   graph.forEachNode((id, attrs) => {
@@ -194,11 +195,50 @@ export function applyLayout(graph: Graph): Positions {
 }
 
 /**
+ * ringIsolates puts every node with no link on a ring just outside the
+ * connected body, evenly spaced in id order. Repulsion alone flings them far
+ * out, and since the renderer fits the whole bounding box to the screen, a
+ * handful of stray orphans shrank the part of the graph that has structure to
+ * a small blob in the middle. On the ring they stay visible -- an orphan is a
+ * finding, not noise -- without deciding the zoom. Deterministic: ids sort the
+ * same way everywhere.
+ */
+export function ringIsolates(graph: Graph): void {
+  const isolates: string[] = [];
+  let cx = 0;
+  let cy = 0;
+  let linked = 0;
+  graph.forEachNode((id, attrs) => {
+    if (graph.degree(id) === 0) {
+      isolates.push(id);
+      return;
+    }
+    cx += attrs.x as number;
+    cy += attrs.y as number;
+    linked++;
+  });
+  if (isolates.length === 0 || linked === 0) return;
+  cx /= linked;
+  cy /= linked;
+  let radius = 0;
+  graph.forEachNode((id, attrs) => {
+    if (graph.degree(id) === 0) return;
+    radius = Math.max(radius, Math.hypot((attrs.x as number) - cx, (attrs.y as number) - cy));
+  });
+  radius *= 1.12;
+  isolates.sort();
+  isolates.forEach((id, i) => {
+    const angle = (i / isolates.length) * Math.PI * 2 - Math.PI / 2;
+    graph.mergeNodeAttributes(id, { x: cx + Math.cos(angle) * radius, y: cy + Math.sin(angle) * radius });
+  });
+}
+
+/**
  * Bumped whenever layoutSettings, the seed or the edge weights change: the
  * cache is keyed by node set, not by physics, so without the version a
  * returning viewer would keep the old picture forever.
  */
-export const LAYOUT_VERSION = 2;
+export const LAYOUT_VERSION = 4;
 const CACHE_PREFIX = `cartographer.layout.v${LAYOUT_VERSION}.`;
 
 /**

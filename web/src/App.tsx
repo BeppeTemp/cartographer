@@ -32,6 +32,7 @@ import {
   type ColorBy,
 } from "./lib/palette";
 import { pushView, readViewState, replaceView, type ViewState } from "./lib/viewstate";
+import { readPanel, writePanel } from "./lib/panels";
 
 type Phase = "booting" | "auth" | "ready";
 type SheetName = "nav" | "inspector" | null;
@@ -41,6 +42,9 @@ const NO_COMMUNITIES: Communities = { rankOf: new Map(), list: [] };
 /** Below this width the rail and the inspector become modal sheets. Kept in
  *  step with the max-width: 1023px media queries in the stylesheets. */
 const NARROW_QUERY = "(max-width: 1023px)";
+/** The inspector card's width plus its margin (--inspector-width + gutter):
+ *  the strip of canvas a selection must not be centred under. */
+const INSPECTOR_OCCLUSION = 420 + 32;
 
 export function App() {
   const [phase, setPhase] = useState<Phase>("booting");
@@ -67,7 +71,10 @@ export function App() {
 
   const [typeFilter, setTypeFilter] = useState<Set<string>>(new Set());
   const [statusFilter, setStatusFilter] = useState<Set<string>>(new Set());
-  const [railCollapsed, setRailCollapsed] = useState(false);
+  // The graph is the page: navigation and the node list start folded away
+  // and open on demand, and the choice is remembered (lib/panels).
+  const [railCollapsed, setRailCollapsed] = useState(() => readPanel("rail", true));
+  const [listOpen, setListOpen] = useState(() => readPanel("list", false));
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [preview, setPreview] = useState<string | null>(null);
   const [notice, setNotice] = useState<string>("");
@@ -79,6 +86,8 @@ export function App() {
 
   useEffect(() => applyTheme(theme), [theme]);
   useEffect(() => writeColorBy(colorBy), [colorBy]);
+  useEffect(() => writePanel("rail", railCollapsed), [railCollapsed]);
+  useEffect(() => writePanel("list", listOpen), [listOpen]);
   // Leaving the narrow layout closes any sheet: on a wide screen the panels
   // are simply there, and a leftover modal would trap focus over them.
   useEffect(() => {
@@ -428,7 +437,6 @@ export function App() {
     "shell__body",
     railCollapsed ? "shell__body--rail-collapsed" : "",
     narrow ? "shell__body--narrow" : "",
-    view.panel === "observatory" ? "shell__body--no-inspector" : "",
   ]
     .filter(Boolean)
     .join(" ");
@@ -507,6 +515,7 @@ export function App() {
                 themeKey={theme}
                 onSelect={selectConcept}
                 onExpand={expandConcept}
+                occludedRight={!narrow && view.concept ? INSPECTOR_OCCLUSION : 0}
               >
                 <Legend
                   snapshot={snapshot}
@@ -515,12 +524,29 @@ export function App() {
                   onColorBy={setColorBy}
                 />
               </GraphCanvas>
-              {!narrow && nodeList}
+              {!narrow && (
+                <div className="graph-toolbar">
+                  <button
+                    type="button"
+                    className="button graph-toolbar__toggle"
+                    aria-pressed={listOpen}
+                    aria-controls="concept-list"
+                    onClick={() => setListOpen((open) => !open)}
+                  >
+                    <span aria-hidden="true">&#9776;</span>
+                    Concepts
+                    <span className="graph-toolbar__count">{visibleNodes.length}</span>
+                  </button>
+                </div>
+              )}
+              {!narrow && listOpen && <div id="concept-list" className="overlay overlay--list">{nodeList}</div>}
             </>
           )}
         </main>
 
-        {view.panel === "atlas" && !narrow && inspector}
+        {view.panel === "atlas" && !narrow && view.concept && (
+          <div className="overlay overlay--inspector">{inspector}</div>
+        )}
       </div>
 
       {narrow && sheet === "nav" && (
