@@ -100,7 +100,7 @@ func RenderWindowsSyncTaskXML(binPath, logPath string, interval time.Duration) s
 		interval = DefaultSyncInterval
 	}
 	args := fmt.Sprintf("sync --log-file %s", quotePath(logPath))
-	return fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>
+	return fmt.Sprintf(windowsTaskXMLDeclaration+`
 <Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
   <RegistrationInfo>
     <Description>Cartographer client sync</Description>

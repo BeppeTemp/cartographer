@@ -12,6 +12,7 @@ package service
 // that runs the wrong command successfully is the failure this package is for.
 
 import (
+	"encoding/xml"
 	"os"
 	"path/filepath"
 	"strings"
@@ -207,10 +208,21 @@ func TestRenderWindowsTaskXML(t *testing.T) {
 	if strings.Contains(out, "PATH") {
 		t.Errorf("task XML declares a PATH, which the schema cannot express:\n%s", out)
 	}
-	// The declaration must describe the bytes: this file is read back as UTF-8
-	// by EffectiveConfigPath.
-	if !strings.HasPrefix(out, `<?xml version="1.0" encoding="UTF-8"?>`) {
-		t.Errorf("task XML does not declare UTF-8:\n%s", out)
+	assertTaskXMLDeclaresNoEncoding(t, out)
+}
+
+// assertTaskXMLDeclaresNoEncoding: the definition reaches Task Scheduler as a
+// PowerShell string, UTF-16 in memory, so a declared encoding contradicts the
+// buffer and the task is refused (#328). None may be named, and the document
+// must still parse.
+func assertTaskXMLDeclaresNoEncoding(t *testing.T, out string) {
+	t.Helper()
+	decl, _, _ := strings.Cut(out, "\n")
+	if !strings.HasPrefix(decl, "<?xml") || strings.Contains(strings.ToLower(decl), "encoding") {
+		t.Errorf("task XML declaration %q must name no encoding", decl)
+	}
+	if err := xml.Unmarshal([]byte(out), new(struct{ XMLName xml.Name })); err != nil {
+		t.Errorf("task XML does not parse: %v", err)
 	}
 }
 
@@ -231,6 +243,7 @@ func TestRenderWindowsTaskXML_EscapesTheBinaryPath(t *testing.T) {
 
 func TestRenderWindowsSyncTaskXML(t *testing.T) {
 	out := RenderWindowsSyncTaskXML(`C:\bin\cartographer.exe`, `C:\logs\sync.log`, 20*time.Minute)
+	assertTaskXMLDeclaresNoEncoding(t, out)
 
 	for _, want := range []string{
 		`<URI>\Cartographer\Sync</URI>`,

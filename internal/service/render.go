@@ -175,15 +175,20 @@ func quotePath(p string) string { return `"` + p + `"` }
 // where the machine and user PATH from the registry — which is where winget,
 // Scoop and Chocolatey put their shims — is already present.
 //
-// The encoding declaration says UTF-8 and the bytes are UTF-8. Task Scheduler's
-// own export writes UTF-16, and `schtasks /Create /XML` demands it with a BOM,
-// which is exactly why this file is registered through
-// Register-ScheduledTask -Xml with the definition as a string instead: the
-// declaration then describes the file honestly for whoever opens it, and
-// EffectiveConfigPath can read it back with an ordinary UTF-8 read.
+// The file is UTF-8 and its XML declaration names no encoding (#328). It is
+// registered through Register-ScheduledTask -Xml with the definition as a
+// *string*, and a .NET string is UTF-16 in memory: a declaration claiming
+// encoding="UTF-8" then contradicts the buffer Task Scheduler parses, which
+// rejects it ("switch from current encoding to specified encoding not
+// supported") and leaves the service unregistered. With no encoding named, the
+// string parses as what it is, and EffectiveConfigPath still reads the file back
+// with an ordinary UTF-8 read. windowsTaskXMLDeclaration is the one place both
+// task templates take it from.
+const windowsTaskXMLDeclaration = `<?xml version="1.0"?>`
+
 func RenderWindowsTaskXML(binPath, configPath, logPath string) string {
 	args := fmt.Sprintf("serve --config %s --log-file %s", quotePath(configPath), quotePath(logPath))
-	return fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>
+	return fmt.Sprintf(windowsTaskXMLDeclaration+`
 <Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
   <RegistrationInfo>
     <Description>Cartographer MCP server</Description>
