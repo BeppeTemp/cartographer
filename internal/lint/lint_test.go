@@ -187,6 +187,48 @@ func TestRun_ImportedDraft_NoStatusField_Clean(t *testing.T) {
 	}
 }
 
+// --- missing_title (#322) ---
+
+func TestRun_MissingTitle(t *testing.T) {
+	k := tempKB(t)
+	writeFile(t, k.DataRoot(), "arch/untitled.md",
+		"---\ntype: Note\n---\n# Backup of the laptop\n\nBody.\n")
+	writeFile(t, k.DataRoot(), "arch/blank-title.md",
+		"---\ntype: Note\ntitle: \"  \"\n---\nNo heading at all.\n")
+	writeFile(t, k.DataRoot(), "arch/titled.md",
+		"---\ntype: Note\ntitle: Titled\n---\n# Titled\n")
+	writeFile(t, k.DataRoot(), "arch/ignored.md",
+		"---\ntype: Note\nlint_ignore: [missing_title]\n---\nDeliberately untitled.\n")
+
+	findings, err := Run(k, "", false)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	var untitled *Finding
+	for i := range findings {
+		if findings[i].Path == "arch/untitled.md" && findings[i].Check == "missing_title" {
+			untitled = &findings[i]
+		}
+	}
+	if untitled == nil {
+		t.Fatalf("expected missing_title for arch/untitled.md, got: %v", findings)
+	}
+	if untitled.Severity != SevWarning || !strings.Contains(untitled.Message, `title: "Backup of the laptop"`) {
+		t.Errorf("missing_title should be a warning suggesting the first H1, got %+v", *untitled)
+	}
+	if !hasCheck(findings, "arch/blank-title.md", "missing_title") {
+		t.Errorf("a blank title is a missing title: %v", findings)
+	}
+	for _, path := range []string{"arch/titled.md", "arch/ignored.md"} {
+		if hasCheck(findings, path, "missing_title") {
+			t.Errorf("unexpected missing_title for %s: %v", path, findings)
+		}
+	}
+	if hasCheck(findings, "arch/ignored.md", "lint_ignore_invalid") {
+		t.Errorf("missing_title must be suppressible with lint_ignore: %v", findings)
+	}
+}
+
 // --- machine_path (D75 WP6) ---
 
 func TestRun_MachinePath_MacHome_Detected(t *testing.T) {

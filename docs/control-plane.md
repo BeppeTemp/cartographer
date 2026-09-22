@@ -209,6 +209,9 @@ the only search mode the server offers (D135).
   `resolution_status: open` and blocks a supplied set of changed concept IDs
   when they are involved.
 - Broken links are tolerated on write and surfaced by lint.
+- A concept with no (or a blank) `title` is `missing_title` (warning): the
+  title is the label `concept_list`, search results and indexes show, while
+  `validate` only requires `type`. The message suggests the first H1.
 
 ## Provenance, history and audit
 
