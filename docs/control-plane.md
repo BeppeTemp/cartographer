@@ -172,7 +172,7 @@ public either — it sits inside the same `OriginGuard` → bearer-token chain a
 |---|---|
 | `GET /api/ui/v1/kbs` | The mounted KBs the principal can see something in, with status, readiness, tool prefix and capabilities. |
 | `GET /api/ui/v1/kbs/{kb}/overview` | Visible collections with their concept and expanded counts, concept totals by type and by status, lint counts by severity and by check, and — only for a caller that can see the whole KB — the replication facts. |
-| `GET /api/ui/v1/kbs/{kb}/graph?scope=&limit=` | A bounded graph snapshot: sorted nodes with their collection, `type`, `status` and both degrees, directed deduplicated edges, and broken link targets kept apart from the nodes. `scope` is one top-level collection; `limit` defaults to 2,000 nodes and is clamped to 5,000, with the effective value echoed back. |
+| `GET /api/ui/v1/kbs/{kb}/graph?scope=&limit=` | A bounded graph snapshot: sorted nodes with both degrees, directed deduplicated edges, and broken link targets kept apart from the nodes. `scope` is one top-level collection; `limit` defaults to 2,000 nodes and is clamped to 5,000, with the effective value echoed back. |
 | `GET /api/ui/v1/kbs/{kb}/concept?id=` | Title, parsed frontmatter, body, outline, content hash, visible inbound/outbound neighbours and this concept's broken link targets. |
 | `GET /api/ui/v1/kbs/{kb}/lint?scope=&severity_min=` | Findings at or above the floor, plus the unfiltered totals by severity and by check — the same "counts describe what you are not being shown" contract `lint` has. |
 

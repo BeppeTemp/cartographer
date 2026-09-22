@@ -29,7 +29,7 @@ func snapshotKB(t *testing.T) *KB {
 		}
 	}
 	write("infra/a.md", "---\ntype: Note\n---\n[b](b.md), [[infra/owner]] and [gone](missing.md)\n")
-	write("infra/b.md", "---\ntype: Note\nstatus: active\n---\n[self](b.md) and [a](a.md)\n")
+	write("infra/b.md", "---\ntype: Note\n---\n[self](b.md) and [a](a.md)\n")
 	write("infra/owner/index.md", "---\ntype: Note\n---\n[child](child.md)\n")
 	write("infra/owner/child.md", "---\ntype: Note\n---\n[cross](../../notes/n.md)\n")
 	write("infra/orphan.md", "---\ntype: Note\n---\nNothing here.\n")
@@ -115,14 +115,6 @@ func TestGraphSnapshot_NodesEdgesAndClassification(t *testing.T) {
 		if n.ID == "infra/missing" {
 			t.Error("a missing target was promoted to a node")
 		}
-	}
-
-	// The facets a client filters on travel with the node.
-	if a := findNode(t, snap, "infra/a"); a.Type != "Note" {
-		t.Errorf("node type: got %q, want Note", a.Type)
-	}
-	if b := findNode(t, snap, "infra/b"); b.Status != "active" {
-		t.Errorf("node status: got %q, want active", b.Status)
 	}
 
 	// Degrees come from the same traversal.

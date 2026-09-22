@@ -26,7 +26,6 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
 	"github.com/BeppeTemp/cartographer/internal/skillbundle"
 	"github.com/BeppeTemp/cartographer/internal/sqlindex"
-	"github.com/BeppeTemp/cartographer/internal/webui"
 )
 
 // shutdownPushFlushTimeout bounds how long serve waits, at shutdown, for a
@@ -53,7 +52,6 @@ func cmdServe(args []string) int {
 	gitSyncFlag := fs.Bool("git-sync", true, "Fetch+pull before and push after each write when a remote is configured (default true; or CARTOGRAPHER_GIT_SYNC=false to disable)")
 	configFlag := fs.String("config", "", "Path to a YAML config file (or CARTOGRAPHER_CONFIG)")
 	toolsProfileFlag := fs.String("tools-profile", "", "Tools advertised by tools/list: 'agent' (default, core set) or 'full' (or CARTOGRAPHER_TOOLS_PROFILE)")
-	webEnabledFlag := fs.Bool("web-enabled", true, "Serve the embedded read-only Atlas UI at /ui/ and its API at /api/ui/v1 in HTTP mode (or CARTOGRAPHER_WEB_ENABLED)")
 	mountModeFlag := fs.String("mount-mode", "", "Multi-KB HTTP mount topology: 'per-kb' (default, one endpoint per KB) or 'routed' (one endpoint, kb as a tool argument) (or CARTOGRAPHER_MCP_MOUNT_MODE)")
 	logFileFlag := fs.String("log-file", "", "Append the server log to this file instead of stderr (created if absent; never rotated)")
 	fs.Parse(args)
@@ -78,7 +76,6 @@ func cmdServe(args []string) int {
 		GitSync:       gitSyncFlag,
 		ToolsProfile:  toolsProfileFlag,
 		MountMode:     mountModeFlag,
-		WebEnabled:    webEnabledFlag,
 	}, *configFlag)
 	if err != nil {
 		log.Fatal(err)
@@ -129,8 +126,6 @@ func loadServeConfig(fs *flag.FlagSet, overrides config.FlagOverrides, configFla
 			explicit.ToolsProfile = overrides.ToolsProfile
 		case "mount-mode":
 			explicit.MountMode = overrides.MountMode
-		case "web-enabled":
-			explicit.WebEnabled = overrides.WebEnabled
 		}
 	})
 	config.ApplyFlags(cfg, explicit)
@@ -441,7 +436,7 @@ func runServe(cfg *config.Config) {
 	}
 
 	if cfg.HTTP != "" {
-		serveHTTP(cfg.HTTP, kbs, kbNames, kbToolPrefixes, kbArtifactSigners, kbMCPAllowlists, cfg.Auth, cfg.MCP.AllowedOrigins, cfg.ToolsProfile, cfg.MCP.MountMode, cfg.Web.Enabled, sqlIdxs, auditLog)
+		serveHTTP(cfg.HTTP, kbs, kbNames, kbToolPrefixes, kbArtifactSigners, kbMCPAllowlists, cfg.Auth, cfg.MCP.AllowedOrigins, cfg.ToolsProfile, cfg.MCP.MountMode, sqlIdxs, auditLog)
 	} else {
 		serveStdio(kbs[0], kbArtifactSigners[0], kbMCPAllowlists[0], cfg.ToolsProfile, sqlIdxs, auditLog)
 	}
@@ -472,7 +467,7 @@ func serveStdio(k *kb.KB, artifactSigner ed25519.PrivateKey, allowlist []provisi
 	}
 }
 
-func serveHTTP(addr string, kbs []*kb.KB, names []string, toolPrefixes []string, artifactSigners []ed25519.PrivateKey, allowlists [][]provisioning.MCPAllowlistEntry, authCfg config.AuthConfig, allowedOrigins []string, toolsProfile, mountMode string, webEnabled bool, sqlIdxs map[string]*sqlindex.Index, auditLog *audit.Log) {
+func serveHTTP(addr string, kbs []*kb.KB, names []string, toolPrefixes []string, artifactSigners []ed25519.PrivateKey, allowlists [][]provisioning.MCPAllowlistEntry, authCfg config.AuthConfig, allowedOrigins []string, toolsProfile, mountMode string, sqlIdxs map[string]*sqlindex.Index, auditLog *audit.Log) {
 	if auditLog != nil {
 		log.Printf("audit log active")
 	}
@@ -552,33 +547,10 @@ func serveHTTP(addr string, kbs []*kb.KB, names []string, toolPrefixes []string,
 		log.Printf("warning: %s", w)
 	}
 
-	// The read-only Atlas UI (D227). Mounted only in HTTP mode and only when
-	// enabled: with web.enabled off, /ui/ and /api/ui/v1 are not routed at all
-	// and the HTTP surface is byte-identical to what it was before the UI.
-	webMounted := false
-	if webEnabled {
-		static, err := webui.Handler()
-		if err != nil {
-			// The bundle is embedded at build time, so a failure here means a
-			// broken binary rather than a misconfiguration: serving the rest
-			// without the UI is better than refusing to start.
-			log.Printf("warning: the embedded web UI is unusable, serving without it: %v", err)
-		} else {
-			multi.EnableWeb(static)
-			webMounted = true
-			log.Printf("Atlas UI on http://%s%s", displayAddr(addr), webui.MountPath)
-		}
-	}
-
 	// The origin check sits outside authentication (D128): a page that is not
 	// allowed to talk to this server should be turned away before its token is
 	// looked at.
 	handler := mcpserver.OriginGuard(allowedOrigins, store.Middleware(multi.Handler()))
-	if webMounted {
-		// Outside the auth chain: the browser that types the bare address has
-		// no token yet (webui.RedirectRoot).
-		handler = mcpserver.OriginGuard(allowedOrigins, webui.RedirectRoot(store.Middleware(multi.Handler())))
-	}
 	if len(allowedOrigins) > 0 {
 		log.Printf("MCP origin allow-list: %s", strings.Join(allowedOrigins, ", "))
 	}
@@ -759,18 +731,4 @@ func auditOptions(c config.AuditConfig) audit.Options {
 		RetentionDays: c.RetentionDays,
 		ArchiveDir:    c.ArchiveDir,
 	}
-}
-
-// displayAddr turns a listen address into something a person can paste into a
-// browser: a bare ":39273" means "every interface", which is not a hostname.
-// It never prints a token, because the log is the one place a credential must
-// not end up.
-func displayAddr(addr string) string {
-	if strings.HasPrefix(addr, ":") {
-		return "localhost" + addr
-	}
-	if strings.HasPrefix(addr, "0.0.0.0:") {
-		return "localhost" + strings.TrimPrefix(addr, "0.0.0.0")
-	}
-	return addr
 }

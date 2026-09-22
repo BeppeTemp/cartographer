@@ -25,15 +25,10 @@ const (
 type GraphNode struct {
 	ID         okf.ConceptID `json:"id"`
 	Collection string        `json:"collection,omitempty"`
-	// Type and Status come from the frontmatter and are what a client filters
-	// and encodes on: without them a graph can only be filtered by collection,
-	// which is the one facet its colours already show.
-	Type      string `json:"type,omitempty"`
-	Status    string `json:"status,omitempty"`
-	Expanded  bool   `json:"expanded,omitempty"`
-	SelfLink  bool   `json:"self_link,omitempty"`
-	InDegree  int    `json:"in_degree"`
-	OutDegree int    `json:"out_degree"`
+	Expanded   bool          `json:"expanded,omitempty"`
+	SelfLink   bool          `json:"self_link,omitempty"`
+	InDegree   int           `json:"in_degree"`
+	OutDegree  int           `json:"out_degree"`
 }
 
 // GraphEdge is a directed link between two concepts both present in the
@@ -122,8 +117,6 @@ func (kb *KB) GraphSnapshot(opts GraphSnapshotOptions) (GraphSnapshot, error) {
 
 	type conceptMeta struct {
 		collection string
-		typ        string
-		status     string
 		expanded   bool
 		targets    []okf.ConceptID
 	}
@@ -139,22 +132,13 @@ func (kb *KB) GraphSnapshot(opts GraphSnapshotOptions) (GraphSnapshot, error) {
 		if !visible(string(id)) {
 			return nil
 		}
-		fmRaw, body, _ := okf.SplitFrontmatter(content)
-		meta := &conceptMeta{
+		_, body, _ := okf.SplitFrontmatter(content)
+		ids = append(ids, id)
+		metas[id] = &conceptMeta{
 			collection: conceptCollection(id),
 			expanded:   physicalPath == path.Join(string(id), "index.md"),
 			targets:    ExtractLinks(body, physicalPath, kb.AssetExists),
 		}
-		// Malformed frontmatter leaves the facets empty rather than failing the
-		// walk: one unparseable file must not blank the whole graph.
-		if fm, err := okf.ParseFrontmatter(fmRaw); err == nil {
-			meta.typ = fm.Type()
-			if v, ok := fm.Get("status"); ok {
-				meta.status, _ = v.(string)
-			}
-		}
-		ids = append(ids, id)
-		metas[id] = meta
 		return nil
 	})
 	if err != nil {
@@ -235,8 +219,6 @@ func (kb *KB) GraphSnapshot(opts GraphSnapshotOptions) (GraphSnapshot, error) {
 		snap.Nodes = append(snap.Nodes, GraphNode{
 			ID:         id,
 			Collection: metas[id].collection,
-			Type:       metas[id].typ,
-			Status:     metas[id].status,
 			Expanded:   metas[id].expanded,
 			SelfLink:   selfLink[id],
 			InDegree:   inDegree[id],
