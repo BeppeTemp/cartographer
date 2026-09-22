@@ -16,6 +16,7 @@ package service
 import (
 	"fmt"
 	"os"
+	"os/user"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -146,6 +147,17 @@ func (m *Manager) windowsTaskRunning(name string) bool {
 	return err == nil
 }
 
+// windowsTaskUser is the account the serve task's logon trigger is scoped to:
+// the user running install ("HOST\\name" or "DOMAIN\\name"). A test seam, and ""
+// when the name cannot be resolved (see RenderWindowsTaskXML).
+var windowsTaskUser = func() string {
+	u, err := user.Current()
+	if err != nil {
+		return ""
+	}
+	return u.Username
+}
+
 // installWindows writes the task definition and registers it, mirroring
 // installDarwin/installLinux.
 func (m *Manager) installWindows(binPath, configPath string) error {
@@ -163,7 +175,7 @@ func (m *Manager) installWindows(binPath, configPath string) error {
 	if err := os.MkdirAll(filepath.Dir(taskPath), 0o755); err != nil {
 		return fmt.Errorf("service: create tasks dir: %w", err)
 	}
-	if err := os.WriteFile(taskPath, []byte(RenderWindowsTaskXML(binPath, configPath, logPath)), 0o644); err != nil {
+	if err := os.WriteFile(taskPath, []byte(RenderWindowsTaskXML(binPath, configPath, logPath, windowsTaskUser())), 0o644); err != nil {
 		return fmt.Errorf("service: write task definition: %w", err)
 	}
 	m.stopServeForReinstall()
