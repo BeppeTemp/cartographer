@@ -189,7 +189,7 @@ func HookRegistrations(baseDir string, provider configurator.Provider, hookName 
 			if len(key) < 2 || key[0] != "hooks" || key[1] == "state" {
 				return false
 			}
-			return strings.Contains(body, marker)
+			return codexTableOwnedBy(body, marker)
 		})
 		if err != nil {
 			return managed, stray, err

@@ -376,12 +376,25 @@ func codexHookTableOwner(hookName, command string) func(key []string, body strin
 		if len(key) < 2 || key[0] != "hooks" || key[1] == "state" {
 			return false
 		}
-		if strings.Contains(body, marker) {
+		if codexTableOwnedBy(body, marker) {
 			return true
 		}
 		got, ok := configurator.CodexTableStringValue(body, "command")
 		return ok && command != "" && got == command
 	}
+}
+
+// codexTableOwnedBy reports whether a [[hooks.*]] table's command carries
+// marker. The command is decoded first: on Windows it is a backslash path,
+// which TOML stores with every separator escaped, so the raw table text never
+// contains the slash-form marker and a Windows registration would never be
+// recognized as ours. The raw substring check is kept for a table whose command
+// does not decode.
+func codexTableOwnedBy(body, marker string) bool {
+	if cmd, ok := configurator.CodexTableStringValue(body, "command"); ok && commandOwnedBy(cmd, marker) {
+		return true
+	}
+	return strings.Contains(body, marker)
 }
 
 // codexHooksPath returns the path to Codex's hooks.json under baseDir — the
