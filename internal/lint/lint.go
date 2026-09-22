@@ -123,6 +123,7 @@ var perConceptChecks = map[string]bool{
 	"imported_draft":         true,
 	"secrets_on_non_service": true,
 	"orphan":                 true,
+	"missing_title":          true,
 }
 
 // lintIgnoreSet reads a concept's lint_ignore frontmatter key (D159). A bare
@@ -412,6 +413,24 @@ func Run(k *kb.KB, scope string, scopeNeighbors bool) ([]Finding, error) {
 				}
 			}
 		}
+		// --- missing_title (warning) ---
+		// validate only requires a type, yet the title is the label concept_list,
+		// search results and curated indexes show: an untitled concept is listed
+		// with an empty one. The first H1 is the value an author almost always
+		// meant, so the message offers it.
+		if parsed == nil || emptyFrontmatterValue(frontmatterValue(parsed, "title")) {
+			msg := "no title in frontmatter: concept_list and search show it with an empty label"
+			if h1 := firstH1(body); h1 != "" {
+				msg += fmt.Sprintf(" — suggested: title: %q (its first heading)", h1)
+			}
+			emit(Finding{
+				Path:     relPath,
+				Check:    "missing_title",
+				Severity: SevWarning,
+				Message:  msg,
+			})
+		}
+
 		if len(parts) > 1 && archiveSet[parts[0]] {
 			contract := contracts[parts[0]]
 			for _, field := range contract.RequiredFor(func() string {
@@ -732,6 +751,22 @@ func emptyFrontmatterValue(value interface{}) bool {
 	default:
 		return false
 	}
+}
+
+// frontmatterValue returns fm[key], or nil when the key is absent.
+func frontmatterValue(fm *okf.Frontmatter, key string) interface{} {
+	v, _ := fm.Get(key)
+	return v
+}
+
+// firstH1 returns the title of the body's first level-1 heading, or "".
+func firstH1(body string) string {
+	for _, h := range okf.ListHeadings(body) {
+		if h.Level == 1 {
+			return strings.TrimSpace(h.Title)
+		}
+	}
+	return ""
 }
 
 // checkCuratedIndex verifies both directions of an opted-in curated index.
