@@ -168,7 +168,7 @@ cartographer connect all --auto-trust --dry-run
 | (positional) | `all` | `claude` \| `opencode` \| `codex` \| `kiro` \| `hermes` \| `antigravity` \| `all` (all detected agents) |
 | `--agents` | *(unset)* | Comma-separated subset (`claude,codex`); cannot be combined with the positional provider |
 | `--kb` | *(unset)* | Which KBs this client may receive (repeatable, or comma-separated; `all` for every mounted KB). Required on a **first** connect against a server mounting two or more KBs — see below (D190) |
-| `--server-url` | `http://localhost:39273/mcp` | Cartographer server URL |
+| `--server-url` | `http://127.0.0.1:39273/mcp` | Cartographer server URL |
 | `--auth` | `false` | Enables the Bearer header in generated configs |
 | `--token-env` | `CARTOGRAPHER_TOKENS` | Env var holding the Bearer token |
 | `--dry-run` | `false` | Prints what would be written, in the conditional (`would write`, `would connect`), and writes nothing ([D147](decisions/D147-every-reported-write-is-observed-never-intended.md)) |
@@ -189,7 +189,7 @@ TUI opens (`connectform.go`): each field shows a contextual hint below it when f
 itself is never written to disk; with Auth off the field is rendered secondary and the hint says it is
 ignored). In the standalone `connect` form, the four provider checkboxes are pre-selected from the
 installed-agent set; select one or more with Space or Enter. The Server URL prefill follows the precedence existing `.cartographer.yaml` >
-`CARTOGRAPHER_SERVER_URL` (client env) > `http://localhost:39273/mcp`. On submit a **probe** runs
+`CARTOGRAPHER_SERVER_URL` (client env) > `http://127.0.0.1:39273/mcp` — the loopback literal the local service listens on, never `localhost`, which Windows resolves to `::1` first, where nothing listens (D231). A `.cartographer.yaml` still carrying the old default `http://localhost:39273/...` is read back on `127.0.0.1` (path kept), so the next `connect` or `sync` rewrites every client's MCP entry; any other URL is left as written. On submit a **probe** runs
 (`client.Health`, `GET /health`, 5s timeout, token from env only if Auth is enabled) before writing
 any file: a reachable server with no mounted KB explains the `kb create` then service-restart path;
 otherwise on failure the form is re-shown with the entered values and an inline error
@@ -220,7 +220,7 @@ managed files, never untracked ones), then removes the provider from the lockfil
 `.cartographer.yaml`. If the lockfile ends up with no providers it is removed; `.cartographer.yaml`,
 on the other hand, is **never deleted** (D64): with zero agents it stays on disk with `agents: []`,
 preserving `server_url`/`server_name`/`auth`/`token_env`/`trust`/`known_kbs`/`clients` as defaults for the next
-`connect` (a disconnect→connect restarts from the previous server, not from `http://localhost:39273/mcp`).
+`connect` (a disconnect→connect restarts from the previous server, not from `http://127.0.0.1:39273/mcp`).
 
 ```bash
 cartographer disconnect                # every connected provider
@@ -683,7 +683,7 @@ an environment reference into its value.
 {
   "mcpServers": {
     "cartographer": {
-      "url": "http://localhost:39273/mcp",
+      "url": "http://127.0.0.1:39273/mcp",
       "type": "http",
       "headers": { "Authorization": "Bearer ${CARTOGRAPHER_TOKENS}" }
     }
@@ -696,7 +696,7 @@ only the text between the markers is touched, via `internal/blocktext`):
 ```toml
 # cartographer:mcp:begin
 [mcp_servers.cartographer]
-url = "http://localhost:39273/mcp"
+url = "http://127.0.0.1:39273/mcp"
 bearer_token_env_var = "CARTOGRAPHER_TOKENS"
 # cartographer:mcp:end
 ```
@@ -734,7 +734,7 @@ the next `blocktext.Write` cannot destroy it; each relocation is reported as its
 {
   "mcpServers": {
     "cartographer": {
-      "url": "http://localhost:39273/mcp",
+      "url": "http://127.0.0.1:39273/mcp",
       "type": "http",
       "autoApprove": []
     }
@@ -749,7 +749,7 @@ the next `blocktext.Write` cannot destroy it; each relocation is reported as its
   "mcp": {
     "cartographer": {
       "type": "remote",
-      "url": "http://localhost:39273/mcp",
+      "url": "http://127.0.0.1:39273/mcp",
       "enabled": true
     }
   }
@@ -763,7 +763,7 @@ the next `blocktext.Write` cannot destroy it; each relocation is reported as its
   "mcp": {
     "cartographer": {
       "type": "remote",
-      "url": "http://localhost:39273/mcp",
+      "url": "http://127.0.0.1:39273/mcp",
       "enabled": true,
       "headers": { "Authorization": "Bearer {env:CARTOGRAPHER_TOKENS}" }
     }
@@ -779,7 +779,7 @@ the next `blocktext.Write` cannot destroy it; each relocation is reported as its
 {
   "mcpServers": {
     "cartographer": {
-      "serverUrl": "http://localhost:39273/mcp",
+      "serverUrl": "http://127.0.0.1:39273/mcp",
       "headers": {
         "Authorization": "Bearer ${CARTOGRAPHER_TOKENS}"
       }
@@ -796,7 +796,7 @@ values, so the `${VAR}` of the other providers is rewritten into its documented 
   "mcp": {
     "cartographer": {
       "type": "http",
-      "url": "http://localhost:39273/mcp",
+      "url": "http://127.0.0.1:39273/mcp",
       "headers": { "Authorization": "Bearer $CARTOGRAPHER_TOKENS" }
     }
   }
@@ -841,7 +841,7 @@ providers are connected. One file per machine, not per project: this avoids drif
 connected in one repo but not another.
 
 ```yaml
-server_url: http://localhost:39273/mcp
+server_url: http://127.0.0.1:39273/mcp
 server_name: cartographer  # name under which the server is registered in the MCP configs (no longer a flag: always "cartographer", override only by editing this file)
 auth: false
 token_env: CARTOGRAPHER_TOKENS
@@ -932,7 +932,7 @@ explicit status (`connected` / `not connected` / `not installed`) and indented d
 laid out on a two-column grid:
 
 ```
-server     http://localhost:39273/mcp  in-sync · ready
+server     http://127.0.0.1:39273/mcp  in-sync · ready
 version    client v0.10.0 · server v0.10.0
 service    local: installed · loaded
 KBs        kb-uno (2 bound) · kb-due (1) · kb-tre (0) · kb-quattro (0)

@@ -645,6 +645,10 @@ func doConnect(opts connectOptions) (connectResult, error) {
 	if len(opts.Providers) == 0 {
 		return connectResult{}, fmt.Errorf("no providers to connect")
 	}
+	// The pre-#329 default is migrated when passed explicitly too: it reaches
+	// here from old scripts and docs, and on Windows it points at ::1, where
+	// the local service does not listen (D231).
+	opts.ServerURL = defaults.MigrateLegacyMCPURL(opts.ServerURL)
 
 	// A provider with a root of its own (D141: $HERMES_HOME) cannot be
 	// connected without it. Fail here, naming the variable, rather than
