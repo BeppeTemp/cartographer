@@ -1,0 +1,65 @@
+/* v0.1 — semantic tokens. Set data-theme on the root before paint. */
+:root, [data-theme="light"] {
+  --carto-background: #F5F2EB;
+  --carto-surface: #FCFAF6;
+  --carto-text: #252824;
+  --carto-text-muted: #646960;
+  --carto-border: #DCDDD5;
+  --carto-control-border: #858A80;
+  --carto-accent: #365D50;
+  --carto-on-accent: #FCFAF6;
+  --carto-accent-soft: #E3EAE1;
+  --carto-focus: #365D50;
+  --carto-success: #365D50;
+  --carto-warning: #805B18;
+  --carto-danger: #A13F3B;
+  --carto-info: #496B87;
+}
+[data-theme="dark"] {
+  --carto-background: #191F1C;
+  --carto-surface: #222B25;
+  --carto-text: #EEEDE5;
+  --carto-text-muted: #AFB9AE;
+  --carto-border: #3B473E;
+  --carto-control-border: #7D8C7D;
+  --carto-accent: #91B9A0;
+  --carto-on-accent: #191F1C;
+  --carto-accent-soft: #303F34;
+  --carto-focus: #B5D6BD;
+  --carto-success: #91B9A0;
+  --carto-warning: #DDB56F;
+  --carto-danger: #E9A199;
+  --carto-info: #A3BCD4;
+}
+@media (prefers-color-scheme: dark) {
+:root:not([data-theme="light"]):not([data-theme="dark"]) {
+  --carto-background: #191F1C;
+  --carto-surface: #222B25;
+  --carto-text: #EEEDE5;
+  --carto-text-muted: #AFB9AE;
+  --carto-border: #3B473E;
+  --carto-control-border: #7D8C7D;
+  --carto-accent: #91B9A0;
+  --carto-on-accent: #191F1C;
+  --carto-accent-soft: #303F34;
+  --carto-focus: #B5D6BD;
+  --carto-success: #91B9A0;
+  --carto-warning: #DDB56F;
+  --carto-danger: #E9A199;
+  --carto-info: #A3BCD4;
+}
+}
+:root {
+  --carto-font-ui: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --carto-font-editorial: Georgia, serif;
+  --carto-font-code: ui-monospace, SFMono-Regular, Consolas, monospace;
+  --carto-radius-control: 6px;
+  --carto-radius-panel: 10px;
+}
+[data-theme="light"] { color-scheme: light; }
+[data-theme="dark"] { color-scheme: dark; }
+
+/* Expressive presentation/editorial surfaces, v0.2 */
+:root { --carto-sand: #E9E8DE; --carto-clay-text: #8C5237; }
+[data-theme="dark"] { --carto-sand: #2B352D; --carto-clay-text: #D6A68D; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]):not([data-theme="dark"]) { --carto-sand: #2B352D; --carto-clay-text: #D6A68D; } }
