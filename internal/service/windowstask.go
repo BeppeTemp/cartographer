@@ -166,10 +166,35 @@ func (m *Manager) installWindows(binPath, configPath string) error {
 	if err := os.WriteFile(taskPath, []byte(RenderWindowsTaskXML(binPath, configPath, logPath)), 0o644); err != nil {
 		return fmt.Errorf("service: write task definition: %w", err)
 	}
+	m.stopServeForReinstall()
 	if err := m.registerWindowsTask(windowsServeTaskName, taskPath); err != nil {
 		return err
 	}
 	return m.startWindowsTask(windowsServeTaskName)
+}
+
+// stopServeForReinstall ends a serve task that is already running, so the start
+// that follows runs the definition just written. MultipleInstancesPolicy
+// IgnoreNew makes Start-ScheduledTask a silent no-op on a running task, so
+// without this a re-install reported "installed and started" while the old
+// process kept serving the old config — the counterpart of the launchctl bootout
+// installDarwin does before bootstrap. The shutdown event drains it gracefully;
+// if the event cannot be set or the process outlives the drain, the task is
+// stopped outright. Best-effort by contract, like bootout: a task that is not
+// running is already in the state wanted.
+func (m *Manager) stopServeForReinstall() {
+	if !m.windowsTaskRunning(windowsServeTaskName) {
+		return
+	}
+	if setShutdownEvent() == nil {
+		deadline := time.Now().Add(windowsDrainTimeout)
+		for m.windowsTaskRunning(windowsServeTaskName) && time.Now().Before(deadline) {
+			time.Sleep(windowsDrainPoll)
+		}
+	}
+	if m.windowsTaskRunning(windowsServeTaskName) {
+		m.powershell(fmt.Sprintf("Stop-ScheduledTask %s", taskSelector(windowsServeTaskName)))
+	}
 }
 
 // drainWindowsTask sets the shutdown event, waits for the action to exit, and

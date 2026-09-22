@@ -12,6 +12,7 @@ package service
 // that runs the wrong command successfully is the failure this package is for.
 
 import (
+	"encoding/xml"
 	"os"
 	"path/filepath"
 	"strings"
@@ -207,10 +208,21 @@ func TestRenderWindowsTaskXML(t *testing.T) {
 	if strings.Contains(out, "PATH") {
 		t.Errorf("task XML declares a PATH, which the schema cannot express:\n%s", out)
 	}
-	// The declaration must describe the bytes: this file is read back as UTF-8
-	// by EffectiveConfigPath.
-	if !strings.HasPrefix(out, `<?xml version="1.0" encoding="UTF-8"?>`) {
-		t.Errorf("task XML does not declare UTF-8:\n%s", out)
+	assertTaskXMLDeclaresNoEncoding(t, out)
+}
+
+// assertTaskXMLDeclaresNoEncoding: the definition reaches Task Scheduler as a
+// PowerShell string, UTF-16 in memory, so a declared encoding contradicts the
+// buffer and the task is refused (#328). None may be named, and the document
+// must still parse.
+func assertTaskXMLDeclaresNoEncoding(t *testing.T, out string) {
+	t.Helper()
+	decl, _, _ := strings.Cut(out, "\n")
+	if !strings.HasPrefix(decl, "<?xml") || strings.Contains(strings.ToLower(decl), "encoding") {
+		t.Errorf("task XML declaration %q must name no encoding", decl)
+	}
+	if err := xml.Unmarshal([]byte(out), new(struct{ XMLName xml.Name })); err != nil {
+		t.Errorf("task XML does not parse: %v", err)
 	}
 }
 
@@ -231,6 +243,7 @@ func TestRenderWindowsTaskXML_EscapesTheBinaryPath(t *testing.T) {
 
 func TestRenderWindowsSyncTaskXML(t *testing.T) {
 	out := RenderWindowsSyncTaskXML(`C:\bin\cartographer.exe`, `C:\logs\sync.log`, 20*time.Minute)
+	assertTaskXMLDeclaresNoEncoding(t, out)
 
 	for _, want := range []string{
 		`<URI>\Cartographer\Sync</URI>`,
@@ -647,5 +660,63 @@ func TestPSQuote(t *testing.T) {
 		if got := psQuote(in); got != want {
 			t.Errorf("psQuote(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+// A re-install over a running serve task must end that process first: the
+// start that follows is a no-op on a running task (IgnoreNew), so the old
+// process would keep serving the old config while install reported success.
+func TestInstall_Windows_StopsARunningTaskBeforeStarting(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		running  bool
+		wantStop bool
+	}{
+		{"running", true, true},
+		{"not running", false, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			home := withTestHome(t, "windows")
+			binPath := filepath.Join(t.TempDir(), "cartographer.exe")
+			if err := os.WriteFile(binPath, []byte("bin"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			origExecutable := osExecutable
+			osExecutable = func() (string, error) { return binPath, nil }
+			t.Cleanup(func() { osExecutable = origExecutable })
+			// The event cannot be set (no server listening for it): the task
+			// is stopped outright rather than waited on.
+			origEvent := setShutdownEvent
+			setShutdownEvent = func() error { return os.ErrNotExist }
+			t.Cleanup(func() { setShutdownEvent = origEvent })
+
+			s := &stubRunner{fail: map[string]bool{}}
+			if !tc.running {
+				s.fail["State -eq 'Running'"] = true
+			}
+			m := &Manager{run: s.run}
+			if _, err := m.Install(InstallOptions{DataDir: filepath.Join(home, "data"), HTTPAddr: "127.0.0.1:39273"}); err != nil {
+				t.Fatalf("Install: %v", err)
+			}
+			stop, start := -1, -1
+			for i, c := range s.calls {
+				joined := strings.Join(c, " ")
+				if strings.Contains(joined, "Stop-ScheduledTask") && stop < 0 {
+					stop = i
+				}
+				if strings.Contains(joined, "Start-ScheduledTask") {
+					start = i
+				}
+			}
+			if start < 0 {
+				t.Fatalf("the task was never started: %v", s.calls)
+			}
+			if tc.wantStop && (stop < 0 || stop > start) {
+				t.Errorf("a running task must be stopped before the start: %v", s.calls)
+			}
+			if !tc.wantStop && stop >= 0 {
+				t.Errorf("a task that is not running was stopped: %v", s.calls)
+			}
+		})
 	}
 }

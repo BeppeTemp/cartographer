@@ -90,10 +90,14 @@ that has no counterpart to copy from.
   `StopOnIdleEnd` — every one of them would kill a long-running server, and the
   battery pair only on a laptop, which is the machine least likely to be the one
   it was tested on.
-- **The task XML is UTF-8 and declares UTF-8.** `schtasks /Create /XML` demands
-  UTF-16LE with a BOM; `Register-ScheduledTask -Xml` takes the document as a
-  string, so the file can stay a plain UTF-8 document that
-  `EffectiveConfigPath` reads with an ordinary read.
+- **The task XML is UTF-8 and its declaration names no encoding.**
+  `schtasks /Create /XML` demands UTF-16LE with a BOM; `Register-ScheduledTask
+  -Xml` takes the document as a string, so the file can stay a plain UTF-8
+  document that `EffectiveConfigPath` reads with an ordinary read. *(Corrected
+  by #328: the first version declared `encoding="UTF-8"`, and a PowerShell
+  string is UTF-16 in memory, so Task Scheduler refused the declaration that
+  contradicted its buffer and the task was never registered. The declaration
+  now names no encoding.)*
 - **The `<Arguments>` splitter is quote-aware, unlike the systemd one.**
   `extractUnitConfigPath` can use `strings.Fields` because a unit's `ExecStart` is
   a unix command line; here `C:\Program Files\cartographer\server.yaml` is an
