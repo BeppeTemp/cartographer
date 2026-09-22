@@ -469,3 +469,53 @@ func TestConceptPatch_FrontmatterOnly(t *testing.T) {
 		})
 	}
 }
+
+// TestMapUpdate_OptInEnablesMoveIndexMaintenance: a map created without
+// require_index_entry opts in through map_update, and from then on
+// concept_move keeps its curated index.md in step instead of leaving the old
+// ID behind when a concept leaves the map (#320).
+func TestMapUpdate_OptInEnablesMoveIndexMaintenance(t *testing.T) {
+	k := setupTestKB(t)
+	if err := k.CreateMap("legacy", "Legacy", "map", nil, ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := k.CreateMap("other", "Other", "map", nil, ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(k.DataRoot(), "legacy", "old-name.md"), []byte("---\ntype: Note\ntitle: Old\n---\n# Old\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(k.DataRoot(), "legacy", "index.md"), []byte("---\ntype: Index\ntitle: Legacy\n---\n# Legacy\n\n- [[legacy/old-name]]\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s := New("test")
+	RegisterKBTools(s, k, Deps{})
+
+	resps := runMCPSequence(t, s, []string{
+		initMsg,
+		artifactCallMsg(t, 2, "map_update", map[string]any{"map": "legacy"}),
+		artifactCallMsg(t, 3, "map_update", map[string]any{"map": "ghost", "require_index_entry": true}),
+		artifactCallMsg(t, 4, "map_update", map[string]any{"map": "legacy", "require_index_entry": true}),
+		artifactCallMsg(t, 5, "concept_move", map[string]any{"source_id": "legacy/old-name", "target_id": "other/new-name"}),
+	})
+	if tr := decodeToolResult(t, resps[1]); !tr.IsError || !strings.Contains(tr.Content[0].Text, "nothing to change") {
+		t.Errorf("map_update with no key: want a refusal, got %+v", tr.Content)
+	}
+	if tr := decodeToolResult(t, resps[2]); !tr.IsError || !strings.Contains(tr.Content[0].Text, "not found") {
+		t.Errorf("map_update on a missing map: want not found, got %+v", tr.Content)
+	}
+	tr := decodeToolResult(t, resps[3])
+	if tr.IsError || !strings.Contains(tr.Content[0].Text, `"require_index_entry": true`) {
+		t.Fatalf("map_update opt-in: %+v", tr.Content)
+	}
+	if tr := decodeToolResult(t, resps[4]); tr.IsError {
+		t.Fatalf("concept_move: %s", tr.Content[0].Text)
+	}
+	index, err := k.ReadIndex("legacy")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(index, "legacy/old-name") {
+		t.Errorf("source index.md not maintained after opt-in:\n%s", index)
+	}
+}

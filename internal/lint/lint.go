@@ -524,6 +524,16 @@ func Run(k *kb.KB, scope string, scopeNeighbors bool) ([]Finding, error) {
 			if len(direct) > 0 || scopeNorm == "" || scopeNorm == archiveName {
 				checkCuratedIndex(k, archiveName, archiveName+"/index.md", direct, true, &findings)
 			}
+		} else if scopeNorm == "" || scopeNorm == archiveName {
+			// A dead link is dead whether or not the map promised completeness:
+			// without this, a map created before its contract kept every stale
+			// [[id]] a concept_move left behind and lint reported none (#320).
+			// Completeness stays opt-in; only the links are checked here. A
+			// missing index is not reported: nothing required one.
+			if content, err := k.ReadIndex(archiveName); err == nil {
+				_, body, _ := okf.SplitFrontmatter(content)
+				checkIndexLinks(k, archiveName+"/index.md", body, &findings)
+			}
 		}
 
 		expandedDirs, err := k.ListExpanded(archiveName)
@@ -795,16 +805,9 @@ func checkCuratedIndex(k *kb.KB, folder, indexPath string, candidates []okf.Conc
 		if parent, ok := strings.CutSuffix(string(target), "/index"); ok && parent != "" {
 			targets[okf.ConceptID(parent)] = true
 		}
-		if validateLinks {
-			if _, readErr := k.ReadConcept(target); errors.Is(readErr, okf.ErrNotFound) {
-				*findings = append(*findings, Finding{
-					Path:     indexPath,
-					Check:    "broken_link",
-					Severity: SevWarning,
-					Message:  fmt.Sprintf("broken link to %s", okf.IDToPath(target)),
-				})
-			}
-		}
+	}
+	if validateLinks {
+		checkIndexLinks(k, indexPath, body, findings)
 	}
 	sort.Slice(candidates, func(i, j int) bool { return candidates[i] < candidates[j] })
 	for _, candidate := range candidates {
@@ -814,6 +817,21 @@ func checkCuratedIndex(k *kb.KB, folder, indexPath string, candidates []okf.Conc
 				Check:    "index_incomplete",
 				Severity: SevWarning,
 				Message:  fmt.Sprintf("missing curated index entry for %s", candidate),
+			})
+		}
+	}
+}
+
+// checkIndexLinks reports every link in an index body whose target does not
+// resolve, as broken_link on the index itself.
+func checkIndexLinks(k *kb.KB, indexPath, body string, findings *[]Finding) {
+	for _, target := range kb.ExtractLinks(body, indexPath, k.AssetExists) {
+		if _, readErr := k.ReadConcept(target); errors.Is(readErr, okf.ErrNotFound) {
+			*findings = append(*findings, Finding{
+				Path:     indexPath,
+				Check:    "broken_link",
+				Severity: SevWarning,
+				Message:  fmt.Sprintf("broken link to %s", okf.IDToPath(target)),
 			})
 		}
 	}
