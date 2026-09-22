@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -347,5 +349,30 @@ func TestProvidersManagingMCP(t *testing.T) {
 	}
 	if got := providersManagingMCP([]string{"hermes"}); len(got) != 0 {
 		t.Errorf("providersManagingMCP([hermes]) = %v, want empty — it has no MCP emitter", got)
+	}
+}
+
+// TestDoConnect_MigratesLegacyDefaultURL: the pre-#329 default reaches connect
+// from old scripts and docs; it is recorded, and written to the client, on the
+// loopback literal the service listens on (D231). Whether a local server
+// answers does not matter: a down server still records the connection.
+func TestDoConnect_MigratesLegacyDefaultURL(t *testing.T) {
+	dir := t.TempDir()
+	if _, err := doConnect(connectOptions{Providers: []string{"claude"}, Dir: dir, ServerURL: "http://localhost:39273/mcp", Name: "cartographer", Trust: true}); err != nil {
+		t.Fatalf("doConnect: %v", err)
+	}
+	cfg, err := clientconfig.Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.ServerURL != defaults.DefaultMCPURL {
+		t.Errorf("recorded server_url = %q, want %q", cfg.ServerURL, defaults.DefaultMCPURL)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, ".claude.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "localhost:39273") {
+		t.Errorf("the client's MCP entry still points at localhost:\n%s", data)
 	}
 }

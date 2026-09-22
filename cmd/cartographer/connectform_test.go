@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/BeppeTemp/cartographer/internal/defaults"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -145,7 +146,7 @@ func TestConnectFormModel_ValuesDefaultsBlankFields(t *testing.T) {
 	m := newConnectFormModel("Connect claude", connectOptions{}, false)
 
 	got := m.Values()
-	want := connectOptions{ServerURL: "http://localhost:39273/mcp", Name: "cartographer", TokenEnv: "CARTOGRAPHER_TOKENS"}
+	want := connectOptions{ServerURL: defaults.DefaultMCPURL, Name: "cartographer", TokenEnv: "CARTOGRAPHER_TOKENS"}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("Values() = %+v, want %+v", got, want)
 	}
