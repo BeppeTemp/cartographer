@@ -12,7 +12,6 @@ import {
   MeshBasicMaterial,
   Object3D,
   PerspectiveCamera,
-  Plane,
   Points,
   PointsMaterial,
   Raycaster,
@@ -48,10 +47,8 @@ import {
  * the selection, signals as points running along its links. Depth comes from
  * perspective and a faint fog towards the canvas colour, not from lighting.
  *
- * Gestures: a pointer down on a node drags it on the camera plane (pinned in the
- * simulation, so its links pull the rest); anywhere else OrbitControls orbits,
- * wheels and pinches. The two never run together: the drag claims the pointer
- * in the capture phase, before the controls see it.
+ * Gestures: nodes are selected, not grabbed (a product choice -- see D234);
+ * every drag orbits, the wheel and a pinch zoom.
  */
 
 export interface SceneNode extends PhysicsNode {
@@ -427,7 +424,9 @@ export class LivingScene {
   private readonly tick = (now: number): void => {
     this.frame = requestAnimationFrame(this.tick);
     const sim = this.sim;
-    if (sim && (this.live || this.dragging || sim.alpha() > 0.002)) {
+    // Still mode lets the simulation cool and then stops ticking it: at rest
+    // the frame costs only the draw.
+    if (sim && (this.live || sim.alpha() > 0.002)) {
       sim.tick();
       if (++this.ticks % 30 === 0) sanitize(this.nodes, this.neighbours);
     }
@@ -530,11 +529,8 @@ export class LivingScene {
 
   // --- gestures -----------------------------------------------------------
 
-  private dragging: SceneNode | null = null;
   private readonly raycaster = new Raycaster();
   private readonly ndc = new Vector2();
-  private readonly plane = new Plane();
-  private readonly hit = new Vector3();
 
   /** The node under a screen point: the ray first, then the nearest node
    *  within HIT_RADIUS_PX, so a small or distant node is still easy to take. */
@@ -563,68 +559,34 @@ export class LivingScene {
     return best;
   }
 
+  /**
+   * Nodes are selected, never grabbed: every drag orbits, the wheel and a
+   * pinch zoom (OrbitControls), and a press that does not travel is a click
+   * -- on a node it selects it, on the background it clears the selection.
+   * Picking runs on the click and on a throttled hover, never per frame.
+   */
   private bindGestures(): void {
     const canvas = this.canvas;
-    const pointers = new Map<number, { x: number; y: number }>();
-    let press: { x: number; y: number; node: SceneNode | null; moved: boolean } | null = null;
+    const pointers = new Set<number>();
+    let press: { x: number; y: number; moved: boolean } | null = null;
     let lastHover = 0;
-
-    const release = () => {
-      const node = this.dragging;
-      if (!node) return;
-      node.fx = node.fy = node.fz = undefined;
-      this.dragging = null;
-      this.sim?.alphaTarget(this.live ? LIVE_ALPHA : 0);
-      this.controls.enabled = true;
-      canvas.style.cursor = "";
-    };
 
     const onDown = (e: PointerEvent) => {
       this.touched = true;
       this.idle.input();
       this.cancelTween();
-      pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
-      if (pointers.size >= 2) {
-        // A second contact ends a node drag in place and hands over to the
-        // pinch; no stale deltas cross over.
-        release();
-        press = null;
-        return;
-      }
-      const node = this.pick(e.clientX, e.clientY);
-      press = { x: e.clientX, y: e.clientY, node, moved: false };
-      if (node) {
-        // Claim the gesture before OrbitControls sees it (capture phase).
-        this.controls.enabled = false;
-        this.dragging = node;
-        this.follow = null;
-        const normal = new Vector3();
-        this.camera.getWorldDirection(normal);
-        this.plane.setFromNormalAndCoplanarPoint(normal, new Vector3(node.x, node.y, node.z));
-        canvas.setPointerCapture(e.pointerId);
-        canvas.style.cursor = "grabbing";
-      }
+      pointers.add(e.pointerId);
+      // A second contact is a pinch, never a click.
+      press = pointers.size === 1 ? { x: e.clientX, y: e.clientY, moved: false } : null;
     };
 
     const onMove = (e: PointerEvent) => {
-      if (pointers.has(e.pointerId)) pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
       if (press && Math.hypot(e.clientX - press.x, e.clientY - press.y) > CLICK_SLOP_PX) press.moved = true;
-      const node = this.dragging;
-      if (node && press?.moved) {
-        const r = canvas.getBoundingClientRect();
-        this.ndc.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
-        this.raycaster.setFromCamera(this.ndc, this.camera);
-        if (this.raycaster.ray.intersectPlane(this.plane, this.hit) && Number.isFinite(this.hit.x)) {
-          node.fx = node.x = this.hit.x;
-          node.fy = node.y = this.hit.y;
-          node.fz = node.z = this.hit.z;
-          this.sim?.alphaTarget(0.3);
-          if (this.sim && this.sim.alpha() < 0.1) this.sim.alpha(0.1);
-        }
+      if (pointers.size > 0) {
         this.idle.input();
         return;
       }
-      if (pointers.size === 0 && e.timeStamp - lastHover > 50) {
+      if (e.timeStamp - lastHover > 50) {
         lastHover = e.timeStamp;
         const hover = this.pick(e.clientX, e.clientY);
         canvas.style.cursor = hover ? "pointer" : "";
@@ -637,13 +599,11 @@ export class LivingScene {
       pointers.delete(e.pointerId);
       const p = press;
       press = null;
-      release();
-      if (p && !p.moved && pointers.size === 0) this.callbacks.onSelect(p.node?.id ?? null);
+      if (p && !p.moved && pointers.size === 0) this.callbacks.onSelect(this.pick(p.x, p.y)?.id ?? null);
     };
     const onCancel = (e: PointerEvent) => {
       pointers.delete(e.pointerId);
       press = null;
-      release();
     };
     const onWheel = () => {
       this.touched = true;

@@ -305,13 +305,11 @@ toolchain (D227). What they hold:
   return focus;
 - the 2,000-node budget fixture (§Atlas UI budgets);
 - the 3D physics, on a headless `d3-force-3d` simulation configured exactly as
-  the scene configures its own (`src/test/physics.test.ts`, D234): a
-  hub drag moves its neighbours more than their neighbours; a leaf drag moves
-  the graph less than a hub drag; a component with no link to the dragged node
-  is nudged by repulsion (<3% of the drag) but never towed; a release far out
-  settles without a jump or a non-finite coordinate; at rest the drift moves
-  nodes by less than 0.5% of the graph's radius per tick at p95, and paused
-  motion dies out; seeding is deterministic;
+  the scene configures its own (`src/test/physics.test.ts`, D234): seeding is
+  deterministic; d3's centring force is replaced by per-axis gravity; at rest
+  the drift moves nodes by less than 0.5% of the graph's radius per tick at
+  p95, and paused motion dies out; a non-finite node is repaired at its
+  neighbours' centroid;
 - the 3D motion and camera policy (`src/test/motion.test.ts`): the panorama
   turns only after quiet time with nothing selected; signals run only on the
   selection's links, in their data direction, within 48 and a finite span;
@@ -358,8 +356,8 @@ of a relationship — the inspector lists every link.
 - **3D view** (D234): `web/scripts/bench3d.mjs`, not in CI. It generates a
   demo KB (`web/scripts/demo-kb.mjs`: clustered Maps, hubs, orphans, an
   unlinked component), serves it, opens the 3D view and reports cold and warm
-  load to the first 3D frame, frame time at rest in live mode and while a node
-  is dragged in circles (5 s each, rAF intervals), the JS heap and the GL
+  load to the first 3D frame, frame time at rest in live mode and while the
+  view is orbited by a pointer drag (5 s each, rAF intervals), the JS heap and the GL
   renderer string. Run it headed on the GPU (`cd web && node
   scripts/bench3d.mjs 1000,2000 --gpu`); a headless run falls back to
   SwiftShader and measures software rendering, not the Atlas. Sizes are the
@@ -370,12 +368,14 @@ of a relationship — the inspector lists every link.
   Chromium 1.63, ANGLE Metal, 1,440×900 viewport at device pixel ratio 2
   (the view caps it at 2):
 
-  | Concepts | Cold / warm load | Rest p50 / p95 | Drag p50 / p95 | Heap |
+  | Concepts | Cold / warm load | Rest p50 / p95 | Orbit p50 / p95 | Heap |
   |---|---|---|---|---|
-  | 1,000 | 2.3 s / 1.2 s | 16.7 / 17.0 ms | 16.7 / 16.8 ms | 29 MB |
-  | 2,000 | 3.0 s / 2.6 s | 16.7 / 16.8 ms | 16.7 / 16.8 ms | 15 MB |
+  | 1,000 | 1.5 s / 1.4 s | 16.7 / 17.3 ms | 16.7 / 17.2 ms | 57 MB |
+  | 2,000 | 3.2 s / 2.6 s | 16.7 / 16.8 ms | 16.7 / 17.1 ms | 35 MB |
 
-  Both sizes hold 60 fps while a node is dragged. The scene draws every node
+  Both sizes hold 60 fps at rest and while orbiting. The heap figure is
+  `performance.memory` after load and moves with garbage collection timing
+  more than with size. The scene draws every node
   in one instanced mesh and every link in one line set, so the frame cost
   barely moves with size; the load time is the synchronous warm-up of the
   simulation. 5,000 is not reported; the view accepts it (the API's ceiling)

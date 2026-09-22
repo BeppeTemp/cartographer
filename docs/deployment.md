@@ -489,8 +489,8 @@ script and no eval. `web.enabled: false` registers neither route.
 Stdio mode never serves the UI, whatever the setting says.
 
 On a wide screen the Atlas opens in its 3D view, a live force-directed network
-(D234): drag a node and its neighbourhood follows, orbit on the background,
-zoom with the wheel or a pinch. A *Motion* toggle, remembered per browser,
+(D234): it breathes and turns slowly on its own; drag to orbit, zoom with the
+wheel or a pinch, click a concept to select it (nodes are not dragged). A *Motion* toggle, remembered per browser,
 pauses the drift, the slow panorama and the signals a selection sends along its
 links; `prefers-reduced-motion` starts it paused. The 2D view is one click
 away, is still, and takes over when the WebGL context is lost. The 3D view

@@ -5,7 +5,7 @@
 //   - cold load: navigation to the first rendered 3D frame;
 //   - warm load: the same, on a reload with the cache primed;
 //   - frame time at rest, live mode, p50/p95 over 5 s;
-//   - frame time while a node is dragged in circles for 5 s, p50/p95;
+//   - frame time while the view is orbited by a pointer drag for 5 s, p50/p95;
 //   - JS heap after load (Chromium's performance.memory).
 // It prints the GL renderer string, so a software (SwiftShader) run is never
 // mistaken for a GPU one. Report the numbers with the hardware in
@@ -67,26 +67,6 @@ async function frameTimes(page, ms, during) {
   });
 }
 
-/** Finds a node on screen by hovering until the view shows its tooltip. */
-async function findNode(page) {
-  const box = await page.locator("[data-testid=graph-3d] canvas").first().boundingBox();
-  const cx = box.x + box.width / 2;
-  const cy = box.y + box.height / 2;
-  for (let r = 0; r < 260; r += 12) {
-    for (let a = 0; a < 360; a += r === 0 ? 360 : 30) {
-      const x = cx + r * Math.cos((a * Math.PI) / 180);
-      const y = cy + r * Math.sin((a * Math.PI) / 180);
-      await page.mouse.move(x, y);
-      await page.waitForTimeout(60);
-      const text = await page.evaluate(
-        () => [...document.querySelectorAll(".graph3d__tooltip:not([hidden])")].map((e) => e.textContent).join(""),
-      );
-      if (text.trim()) return { x, y };
-    }
-  }
-  return null;
-}
-
 async function run(size) {
   const dir = mkdtempSync(join(tmpdir(), "cartographer-bench3d-"));
   execFileSync("node", [join(WEB, "scripts", "demo-kb.mjs"), dir, String(size)], { stdio: "ignore" });
@@ -145,22 +125,22 @@ async function run(size) {
   const rest = await frameTimes(page, 5000);
   log(size, "rest frames", rest.length);
 
-  let drag = [];
-  const node = await findNode(page);
-  log(size, "node", node);
-  if (node) {
-    await page.mouse.move(node.x, node.y);
-    await page.mouse.down();
-    drag = await frameTimes(page, 0, async () => {
-      const start = Date.now();
-      while (Date.now() - start < 5000) {
-        const t = (Date.now() - start) / 1000;
-        await page.mouse.move(node.x + 140 * Math.cos(t * 2), node.y + 90 * Math.sin(t * 2));
-        await page.waitForTimeout(16);
-      }
-    });
-    await page.mouse.up();
-  }
+  // Orbit: a pointer drag in circles from the canvas centre (nodes are
+  // selected, not dragged -- D234).
+  const box = await page.locator("[data-testid=graph-3d] canvas").first().boundingBox();
+  const cx = box.x + box.width / 2;
+  const cy = box.y + box.height / 2;
+  await page.mouse.move(cx, cy);
+  await page.mouse.down();
+  const orbit = await frameTimes(page, 0, async () => {
+    const start = Date.now();
+    while (Date.now() - start < 5000) {
+      const t = (Date.now() - start) / 1000;
+      await page.mouse.move(cx + 140 * Math.cos(t * 2), cy + 90 * Math.sin(t * 2));
+      await page.waitForTimeout(16);
+    }
+  });
+  await page.mouse.up();
   const finite = await page.evaluate(() => !document.querySelector(".state__title"));
 
   await browser.close();
@@ -174,8 +154,8 @@ async function run(size) {
     heapMB: round(heap / 2 ** 20),
     restP50: round(pct(rest, 0.5)),
     restP95: round(pct(rest, 0.95)),
-    dragP50: node ? round(pct(drag, 0.5)) : "no node found",
-    dragP95: node ? round(pct(drag, 0.95)) : "no node found",
+    orbitP50: round(pct(orbit, 0.5)),
+    orbitP95: round(pct(orbit, 0.95)),
     viewAlive: finite,
   };
 }

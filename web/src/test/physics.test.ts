@@ -26,7 +26,8 @@ interface Link {
  */
 function world(nodeCount = 240) {
   const snapshot = generateSnapshot(nodeCount, 8, 3);
-  // A small component with no link to the rest: a ring of six.
+  // A small component with no link to the rest: a ring of six, so gravity
+  // and the drift are measured on a disconnected graph too.
   const island = Array.from({ length: 6 }, (_, i) => `island/n${i}`);
   const ids = [...snapshot.nodes.map((n) => n.id), ...island];
   const edges: { source: string; target: string }[] = [
@@ -56,36 +57,12 @@ function world(nodeCount = 240) {
     neighbours.get(e.source)!.add(e.target);
     neighbours.get(e.target)!.add(e.source);
   }
-  const degree = (id: string) => neighbours.get(id)!.size;
-  return { sim, nodes, byId, neighbours, degree, island, driftForce };
+  return { sim, nodes, byId, neighbours, island, driftForce };
 }
 
 type Vec = { x: number; y: number; z: number };
 const at = (n: PhysicsNode): Vec => ({ x: n.x!, y: n.y!, z: n.z! });
 const dist = (a: Vec, b: Vec) => Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
-const centroid = (ns: PhysicsNode[]): Vec => ({
-  x: ns.reduce((s, n) => s + n.x!, 0) / ns.length,
-  y: ns.reduce((s, n) => s + n.y!, 0) / ns.length,
-  z: ns.reduce((s, n) => s + n.z!, 0) / ns.length,
-});
-
-/** Pins `node` and drags it by `offset` over `ticks`, as DragControls does
- *  (fx/fy/fz follow the pointer, alpha target raised), then releases it. */
-function drag(w: ReturnType<typeof world>, node: PhysicsNode, offset: Vec, ticks = 40) {
-  const from = at(node);
-  w.sim.alphaTarget(0.3);
-  for (let i = 1; i <= ticks; i++) {
-    node.fx = node.x = from.x + (offset.x * i) / ticks;
-    node.fy = node.y = from.y + (offset.y * i) / ticks;
-    node.fz = node.z = from.z + (offset.z * i) / ticks;
-    w.sim.tick();
-  }
-}
-
-function release(w: ReturnType<typeof world>, node: PhysicsNode) {
-  node.fx = node.fy = node.fz = undefined;
-  w.sim.alphaTarget(LIVE_ALPHA);
-}
 
 /** Mean displacement of `ids` between two position snapshots. */
 function moved(before: Map<string, Vec>, w: ReturnType<typeof world>, ids: Iterable<string>) {
@@ -108,78 +85,6 @@ describe("the living 3D physics", () => {
     const w = world(60);
     expect(w.sim.force("center")).toBeUndefined();
     for (const axis of ["x", "y", "z", "drift"]) expect(w.sim.force(axis)).toBeDefined();
-  });
-
-  it("propagates a hub drag through the springs, fading with distance", () => {
-    const w = world();
-    w.driftForce.enabled(false);
-    const hub = [...w.nodes].sort((a, b) => w.degree(b.id) - w.degree(a.id))[0]!;
-    const oneHop = new Set(w.neighbours.get(hub.id));
-    const twoHop = new Set<string>();
-    for (const id of oneHop) for (const next of w.neighbours.get(id)!) if (next !== hub.id && !oneHop.has(next)) twoHop.add(next);
-    const before = snapshotOf(w);
-    const D = boundingRadius(w.nodes) * 0.6;
-    drag(w, hub, { x: D, y: 0, z: 0 });
-
-    const near = moved(before, w, oneHop);
-    const far = moved(before, w, twoHop);
-    // The island's control: the same reheat, with no drag. Whatever the island
-    // does in both worlds is settling, not propagation.
-    const twin = world();
-    twin.driftForce.enabled(false);
-    twin.sim.alphaTarget(0.3);
-    twin.sim.tick(40);
-    const islandShift = dist(
-      centroid(twin.island.map((id) => twin.byId.get(id)!)),
-      centroid(w.island.map((id) => w.byId.get(id)!)),
-    );
-    expect(near).toBeGreaterThan(D * 0.25);
-    expect(far).toBeGreaterThan(D * 0.05);
-    expect(near).toBeGreaterThan(far);
-    // The island shares no link with the hub: only gravity and distant
-    // repulsion reach it, never the springs. What is left is the component
-    // it is repelled by moving away -- a nudge, not a tow (~1.4% measured).
-    expect(islandShift).toBeLessThan(D * 0.03);
-    expect(islandShift).toBeLessThan(far);
-  });
-
-  it("moves a leaf's neighbourhood less than a hub's for the same drag", () => {
-    const measure = (pickHub: boolean) => {
-      const w = world();
-      w.driftForce.enabled(false);
-      const ranked = w.nodes
-        .filter((n) => !n.id.startsWith("island/") && w.degree(n.id) > 0)
-        .sort((a, b) => w.degree(b.id) - w.degree(a.id));
-      const node = pickHub ? ranked[0]! : ranked[ranked.length - 1]!;
-      const before = snapshotOf(w);
-      const D = boundingRadius(w.nodes) * 0.6;
-      drag(w, node, { x: 0, y: D, z: 0 });
-      const others = w.nodes.filter((n) => n !== node && !n.id.startsWith("island/")).map((n) => n.id);
-      return moved(before, w, others);
-    };
-    expect(measure(false)).toBeLessThan(measure(true));
-  });
-
-  it("settles softly after a release, with no teleport and no NaN", () => {
-    const w = world();
-    const hub = [...w.nodes].sort((a, b) => w.degree(b.id) - w.degree(a.id))[0]!;
-    const D = boundingRadius(w.nodes) * 3;
-    drag(w, hub, { x: D, y: -D, z: D });
-    const pinned = at(hub);
-    release(w, hub);
-    let previous = at(hub);
-    let maxStep = 0;
-    for (let i = 0; i < 400; i++) {
-      w.sim.tick();
-      maxStep = Math.max(maxStep, dist(previous, at(hub)));
-      previous = at(hub);
-    }
-    for (const n of w.nodes) {
-      expect(Number.isFinite(n.x) && Number.isFinite(n.y) && Number.isFinite(n.z), n.id).toBe(true);
-    }
-    // It returns towards its neighbours, but never in one jump.
-    expect(dist(pinned, at(hub))).toBeGreaterThan(D * 0.2);
-    expect(maxStep).toBeLessThan(dist(pinned, at(hub)) * 0.25);
   });
 
   it("breathes at rest without jitter, and stops when drift is off", () => {
