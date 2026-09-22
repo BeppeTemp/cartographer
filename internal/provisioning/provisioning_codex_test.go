@@ -1,8 +1,8 @@
 package provisioning_test
 
 // Tests for the real Codex integration (D58): agent translated into Codex's
-// TOML subagent schema, hook materialized and registered in the managed block of
-// .codex/config.toml. See provisioning_agent_hook_test.go for the
+// TOML subagent schema, hook materialized and registered in .codex/hooks.json
+// (D230). See provisioning_agent_hook_test.go for the
 // pre-existing tests (D48) and hooksettings_test.go for the Claude equivalent (D57).
 
 import (
@@ -85,7 +85,7 @@ func TestApply_Codex_MaterializzaAgent_SenzaFrontmatter(t *testing.T) {
 	assertCodexAgent(t, string(data), "name = \"plain\"\ndescription = \"plain\"\n", "Body only, no frontmatter.\n")
 }
 
-// --- Hook → registration in config.toml (D58) ---
+// --- Hook → registration in hooks.json (D230) ---
 
 func writeCodexHookKB(t *testing.T, kbRoot, name, event, matcher, command string) {
 	t.Helper()
@@ -109,28 +109,65 @@ func writeCodexHookKB(t *testing.T, kbRoot, name, event, matcher, command string
 	}
 }
 
-func TestApply_Codex_Hook_RegistraConfigTOML(t *testing.T) {
-	kbRoot := t.TempDir()
-	writeCodexHookKB(t, kbRoot, "notify", "PostToolUse", "concept_write", "./notify.sh")
-
+// applyCodexHookKB builds the manifest of kbRoot and applies it for Codex.
+func applyCodexHookKB(t *testing.T, kbRoot, baseDir string, lock provisioning.Lock) provisioning.AppliedResult {
+	t.Helper()
 	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, provisioning.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest: %v", err)
 	}
-
-	baseDir := t.TempDir()
 	res, err := provisioning.Apply(m, provisioning.ApplyOptions{
 		AutoTrust: true,
 		KBRoots:   map[string]string{"kb": kbRoot},
 		Provider:  configurator.ProviderCodex,
 		BaseDir:   baseDir,
-		Lock:      provisioning.Lock{},
+		Lock:      lock,
 	})
 	if err != nil {
 		t.Fatalf("Apply: %v", err)
 	}
-	if len(res.Written) == 0 {
-		t.Fatalf("Apply: expected Written not empty")
+	return res
+}
+
+// codexHookCommands returns every command registered for event in
+// <baseDir>/.codex/hooks.json, with its group's matcher.
+func codexHookCommands(t *testing.T, baseDir, event string) (commands, matchers []string) {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(baseDir, ".codex", "hooks.json"))
+	if err != nil {
+		t.Fatalf("hooks.json: %v", err)
+	}
+	var doc struct {
+		Hooks map[string][]struct {
+			Matcher string `json:"matcher"`
+			Hooks   []struct {
+				Type    string `json:"type"`
+				Command string `json:"command"`
+			} `json:"hooks"`
+		} `json:"hooks"`
+	}
+	if err := json.Unmarshal(data, &doc); err != nil {
+		t.Fatalf("hooks.json is not the Codex shape: %v\n%s", err, data)
+	}
+	for _, group := range doc.Hooks[event] {
+		for _, h := range group.Hooks {
+			if h.Type != "command" {
+				t.Errorf("hook type = %q, want command", h.Type)
+			}
+			commands = append(commands, h.Command)
+			matchers = append(matchers, group.Matcher)
+		}
+	}
+	return commands, matchers
+}
+
+func TestApply_Codex_Hook_RegistersInHooksJSON(t *testing.T) {
+	kbRoot := t.TempDir()
+	writeCodexHookKB(t, kbRoot, "notify", "PostToolUse", "concept_write", "./notify.sh")
+	baseDir := t.TempDir()
+
+	for i := 0; i < 3; i++ {
+		applyCodexHookKB(t, kbRoot, baseDir, provisioning.Lock{})
 	}
 
 	for _, rel := range []string{"hook.json", "notify.sh"} {
@@ -138,609 +175,256 @@ func TestApply_Codex_Hook_RegistraConfigTOML(t *testing.T) {
 			t.Errorf("%s not materialized: %v", rel, err)
 		}
 	}
-
-	configPath := filepath.Join(baseDir, ".codex", "config.toml")
-	data, err := os.ReadFile(configPath)
-	if err != nil {
-		t.Fatalf("config.toml not written: %v", err)
-	}
-	content := string(data)
-	if !strings.Contains(content, "[[hooks.PostToolUse]]") {
-		t.Errorf("missing [[hooks.PostToolUse]]: %s", content)
-	}
-	if !strings.Contains(content, `matcher = "concept_write"`) {
-		t.Errorf("missing matcher: %s", content)
-	}
+	commands, matchers := codexHookCommands(t, baseDir, "PostToolUse")
 	wantCmd := filepath.Join(baseDir, ".codex", "hooks", "notify", "notify.sh")
-	// The command is a host path, and config.toml stores it as a quoted TOML
-	// string: on Windows every separator in it is escaped, so the expectation
-	// has to be quoted the same way the writer quotes it.
-	if !strings.Contains(content, "command = "+configurator.QuoteTOMLString(wantCmd)) {
-		t.Errorf("missing resolved command %q: %s", wantCmd, content)
+	if len(commands) != 1 || commands[0] != wantCmd || matchers[0] != "concept_write" {
+		t.Errorf("after 3 applies want exactly [%q] with matcher concept_write, got %q %q", wantCmd, commands, matchers)
 	}
-	if !strings.Contains(content, "# cartographer:hook:notify:begin") {
-		t.Errorf("missing begin marker: %s", content)
+	if _, err := os.Stat(filepath.Join(baseDir, ".codex", "config.toml")); !os.IsNotExist(err) {
+		t.Errorf("a hook must no longer touch config.toml (D230): %v", err)
 	}
 }
 
-func TestApply_Codex_Hook_ReApply_NessunDuplicato(t *testing.T) {
+// TestApply_Codex_Hook_PreservesForeignEntries is the acceptance case of #327:
+// another integration's hook in hooks.json (Herdr registers its SessionStart
+// hook there) survives registration, re-application and prune.
+func TestApply_Codex_Hook_PreservesForeignEntries(t *testing.T) {
 	kbRoot := t.TempDir()
-	writeCodexHookKB(t, kbRoot, "notify", "PostToolUse", "concept_write", "./notify.sh")
-
-	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, provisioning.BuildOptions{})
-	if err != nil {
-		t.Fatalf("BuildManifest: %v", err)
-	}
-
+	writeCodexHookKB(t, kbRoot, "notify", "SessionStart", "", "./notify.sh")
 	baseDir := t.TempDir()
-	opts := provisioning.ApplyOptions{
-		AutoTrust: true,
-		KBRoots:   map[string]string{"kb": kbRoot},
-		Provider:  configurator.ProviderCodex,
-		BaseDir:   baseDir,
-		Lock:      provisioning.Lock{},
-	}
-	for i := 0; i < 3; i++ {
-		if _, err := provisioning.Apply(m, opts); err != nil {
-			t.Fatalf("Apply (%d): %v", i, err)
-		}
-	}
-
-	data, err := os.ReadFile(filepath.Join(baseDir, ".codex", "config.toml"))
-	if err != nil {
+	hooksPath := filepath.Join(baseDir, ".codex", "hooks.json")
+	if err := os.MkdirAll(filepath.Dir(hooksPath), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if n := strings.Count(string(data), "[[hooks.PostToolUse]]"); n != 1 {
-		t.Errorf("expected 1 occurrence of [[hooks.PostToolUse]] after 3 applies, found %d:\n%s", n, data)
+	foreign := `{"description":"herdr","hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"herdr agent-state","timeout":5}]}]}}`
+	if err := os.WriteFile(hooksPath, []byte(foreign), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	res := applyCodexHookKB(t, kbRoot, baseDir, provisioning.Lock{})
+	applyCodexHookKB(t, kbRoot, baseDir, res.NewLock)
+	commands, _ := codexHookCommands(t, baseDir, "SessionStart")
+	if len(commands) != 2 || commands[0] != "herdr agent-state" {
+		t.Fatalf("want herdr's hook then ours, got %q", commands)
+	}
+
+	if _, err := provisioning.PruneManaged(res.NewLock.Managed, baseDir, false); err != nil {
+		t.Fatalf("PruneManaged: %v", err)
+	}
+	data, err := os.ReadFile(hooksPath)
+	if err != nil {
+		t.Fatalf("hooks.json with a foreign entry must survive prune: %v", err)
+	}
+	var got map[string]interface{}
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatal(err)
+	}
+	var want map[string]interface{}
+	if err := json.Unmarshal([]byte(foreign), &want); err != nil {
+		t.Fatal(err)
+	}
+	if gotJSON, _ := json.Marshal(got); string(gotJSON) != mustMarshal(t, want) {
+		t.Errorf("foreign content altered by prune:\ngot  %s\nwant %s", gotJSON, mustMarshal(t, want))
 	}
 }
 
-func TestApply_Codex_Hook_MCPBlock_CoesisteConHook(t *testing.T) {
-	// The [mcp_servers.cartographer] block (configurator) and the hook's
-	// block (provisioning) live in the same file: neither must
-	// erase the other.
-	kbRoot := t.TempDir()
-	writeCodexHookKB(t, kbRoot, "notify", "PostToolUse", "concept_write", "./notify.sh")
-	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, provisioning.BuildOptions{})
-	if err != nil {
-		t.Fatalf("BuildManifest: %v", err)
-	}
-	baseDir := t.TempDir()
-
-	cfg := &configurator.ServerConfig{Name: "cartographer", URL: "https://mcp.example.test/mcp"}
-	r, err := configurator.Emit(cfg, configurator.ProviderCodex)
+func mustMarshal(t *testing.T, v interface{}) string {
+	t.Helper()
+	b, err := json.Marshal(v)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := configurator.Apply([]*configurator.EmitResult{r}, baseDir, false); err != nil {
-		t.Fatalf("configurator.Apply: %v", err)
-	}
-
-	if _, err := provisioning.Apply(m, provisioning.ApplyOptions{
-		AutoTrust: true,
-		KBRoots:   map[string]string{"kb": kbRoot},
-		Provider:  configurator.ProviderCodex,
-		BaseDir:   baseDir,
-		Lock:      provisioning.Lock{},
-	}); err != nil {
-		t.Fatalf("provisioning.Apply: %v", err)
-	}
-
-	data, err := os.ReadFile(filepath.Join(baseDir, ".codex", "config.toml"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	content := string(data)
-	if !strings.Contains(content, "[mcp_servers.cartographer]") {
-		t.Errorf("mcp_servers block missing: %s", content)
-	}
-	if !strings.Contains(content, "[[hooks.PostToolUse]]") {
-		t.Errorf("hook block missing: %s", content)
-	}
+	return string(b)
 }
 
-func TestApply_Codex_Hook_Removed_RipulisceConfigTOML(t *testing.T) {
+func TestApply_Codex_Hook_Removed_EmptiesHooksJSON(t *testing.T) {
 	kbRoot := t.TempDir()
 	writeCodexHookKB(t, kbRoot, "notify", "PostToolUse", "concept_write", "./notify.sh")
-	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, provisioning.BuildOptions{})
-	if err != nil {
-		t.Fatalf("BuildManifest: %v", err)
-	}
 	baseDir := t.TempDir()
-
-	res, err := provisioning.Apply(m, provisioning.ApplyOptions{
-		AutoTrust: true,
-		KBRoots:   map[string]string{"kb": kbRoot},
-		Provider:  configurator.ProviderCodex,
-		BaseDir:   baseDir,
-		Lock:      provisioning.Lock{},
-	})
-	if err != nil {
-		t.Fatalf("Apply (materialize): %v", err)
-	}
+	res := applyCodexHookKB(t, kbRoot, baseDir, provisioning.Lock{})
 
 	if err := os.RemoveAll(filepath.Join(kbRoot, "hooks", "notify")); err != nil {
 		t.Fatal(err)
 	}
-	m2, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, provisioning.BuildOptions{})
-	if err != nil {
-		t.Fatalf("BuildManifest (2): %v", err)
-	}
-
-	res2, err := provisioning.Apply(m2, provisioning.ApplyOptions{
-		AutoTrust: true,
-		KBRoots:   map[string]string{"kb": kbRoot},
-		Provider:  configurator.ProviderCodex,
-		BaseDir:   baseDir,
-		Lock:      res.NewLock,
-	})
-	if err != nil {
-		t.Fatalf("Apply (removal): %v", err)
-	}
+	res2 := applyCodexHookKB(t, kbRoot, baseDir, res.NewLock)
 	if len(res2.Pruned) == 0 {
 		t.Fatalf("Apply (removal): expected Pruned not empty")
 	}
-
-	configPath := filepath.Join(baseDir, ".codex", "config.toml")
-	if data, err := os.ReadFile(configPath); err == nil {
-		if strings.Contains(string(data), "hooks.PostToolUse") {
-			t.Errorf("hook entry not removed from config.toml: %s", data)
-		}
+	// Nothing but our entry was in it, so nothing is left: no `{}` residue.
+	if _, err := os.Stat(filepath.Join(baseDir, ".codex", "hooks.json")); !os.IsNotExist(err) {
+		t.Errorf("an emptied hooks.json must be removed: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(baseDir, ".codex", "hooks", "notify", "hook.json")); !os.IsNotExist(err) {
 		t.Error("hook.json not removed")
 	}
 }
 
-func TestPruneManaged_Codex_Hook_RimuoveEntryConfigTOML(t *testing.T) {
-	baseDir := t.TempDir()
-	configPath := filepath.Join(baseDir, ".codex", "config.toml")
-	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	// The begin marker deliberately carries the LEGACY Italian tail: blocktext
-	// must recognize blocks written by older versions via the stable prefix
-	// (everything before the em dash), or the block would be duplicated.
-	preexisting := "# cartographer:mcp:begin — blocco gestito da Cartographer, non modificare a mano\n" +
+// --- Migration of a D58 config.toml registration (D230) ---
+
+// legacyCodexConfig is a config.toml as a pre-D230 client left it after Codex
+// rewrote it once: the MCP block, the hook's managed block, a marker-less copy
+// of that registration outside it (D99), a user's own hook and Codex's trust
+// bookkeeping.
+func legacyCodexConfig(command string) string {
+	quoted := configurator.QuoteTOMLString(command)
+	return "# cartographer:mcp:begin — block managed by Cartographer, do not edit by hand\n" +
 		"[mcp_servers.cartographer]\n" +
 		"url = \"https://mcp.example.test/mcp\"\n" +
 		"# cartographer:mcp:end\n\n" +
 		"# cartographer:hook:notify:begin\n" +
 		"[[hooks.PostToolUse]]\n" +
+		"matcher = \"concept_write\"\n" +
 		"[[hooks.PostToolUse.hooks]]\n" +
 		"type = \"command\"\n" +
-		"command = " + configurator.QuoteTOMLString(filepath.Join(baseDir, ".codex", "hooks", "notify", "notify.sh")) + "\n" +
-		"# cartographer:hook:notify:end\n"
-	if err := os.WriteFile(configPath, []byte(preexisting), 0o644); err != nil {
+		"command = " + quoted + "\n" +
+		"# cartographer:hook:notify:end\n\n" +
+		"[[hooks.PostToolUse]]\n" +
+		"matcher = \"concept_write\"\n" +
+		"[[hooks.PostToolUse.hooks]]\n" +
+		"type = \"command\"\n" +
+		"command = " + quoted + "\n\n" +
+		"[[hooks.Stop]]\n" +
+		"[[hooks.Stop.hooks]]\n" +
+		"type = \"command\"\n" +
+		"command = \"say done\"\n\n" +
+		"[hooks.state.\"/home/u/.codex/config.toml:post_tool_use:0:0\"]\n" +
+		"trusted_hash = \"abc\"\n"
+}
+
+func TestApply_Codex_Hook_MigratesLegacyConfigTOML(t *testing.T) {
+	kbRoot := t.TempDir()
+	writeCodexHookKB(t, kbRoot, "notify", "PostToolUse", "concept_write", "./notify.sh")
+	baseDir := t.TempDir()
+	configPath := filepath.Join(baseDir, ".codex", "config.toml")
+	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	command := filepath.Join(baseDir, ".codex", "hooks", "notify", "notify.sh")
+	if err := os.WriteFile(configPath, []byte(legacyCodexConfig(command)), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
+	res := applyCodexHookKB(t, kbRoot, baseDir, provisioning.Lock{})
+
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := string(data)
+	if strings.Contains(content, "hooks.PostToolUse") || strings.Contains(content, "cartographer:hook:notify") {
+		t.Errorf("the D58 registration (block and orphan) must be gone from config.toml:\n%s", content)
+	}
+	for _, keep := range []string{"[mcp_servers.cartographer]", "[[hooks.Stop]]", `command = "say done"`, `trusted_hash = "abc"`} {
+		if !strings.Contains(content, keep) {
+			t.Errorf("config.toml lost %q:\n%s", keep, content)
+		}
+	}
+	commands, _ := codexHookCommands(t, baseDir, "PostToolUse")
+	if len(commands) != 1 || commands[0] != command {
+		t.Errorf("hooks.json registrations = %q, want exactly [%q]", commands, command)
+	}
+	if !strings.Contains(strings.Join(res.Warnings, "\n"), "trust it again") {
+		t.Errorf("the migration must tell the user Codex re-prompts for trust, warnings: %q", res.Warnings)
+	}
+
+	managed, stray, err := provisioning.HookRegistrations(baseDir, configurator.ProviderCodex, "notify")
+	if err != nil || managed != 1 || stray != 0 {
+		t.Errorf("HookRegistrations after migration = %d managed, %d stray, %v; want 1, 0", managed, stray, err)
+	}
+}
+
+// An inline one-liner carries no path marker: its D58 orphan is recognized by
+// its command alone (D127), and a user's identical-looking hook elsewhere with
+// a different command is not taken.
+func TestApply_Codex_Hook_MigratesLegacyInlineCommand(t *testing.T) {
+	kbRoot := t.TempDir()
+	writeCodexHookKB(t, kbRoot, "notify", "PreToolUse", "", "jq -c . >/dev/null")
+	baseDir := t.TempDir()
+	configPath := filepath.Join(baseDir, ".codex", "config.toml")
+	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	legacy := "[[hooks.PreToolUse]]\n[[hooks.PreToolUse.hooks]]\ntype = \"command\"\ncommand = \"jq -c . >/dev/null\"\n\n" +
+		"[[hooks.PreToolUse]]\n[[hooks.PreToolUse.hooks]]\ntype = \"command\"\ncommand = \"jq -r .tool >/dev/null\"\n"
+	if err := os.WriteFile(configPath, []byte(legacy), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	applyCodexHookKB(t, kbRoot, baseDir, provisioning.Lock{})
+
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "jq -c .") {
+		t.Errorf("the legacy inline registration must be migrated out:\n%s", data)
+	}
+	if !strings.Contains(string(data), "jq -r .tool") {
+		t.Errorf("the user's own inline hook must stay:\n%s", data)
+	}
+	commands, _ := codexHookCommands(t, baseDir, "PreToolUse")
+	if len(commands) != 1 || !strings.HasPrefix(commands[0], "jq -c . >/dev/null # cartographer-hook: .codex/hooks/notify/") {
+		t.Errorf("hooks.json registrations = %q, want the inline command carrying its ownership marker", commands)
+	}
+}
+
+// Prune strips a registration wherever it is: hooks.json, and a D58 block a
+// client that never re-synced still has in config.toml.
+func TestPruneManaged_Codex_Hook_RemovesBothRepresentations(t *testing.T) {
+	baseDir := t.TempDir()
+	command := filepath.Join(baseDir, ".codex", "hooks", "notify", "notify.sh")
+	configPath := filepath.Join(baseDir, ".codex", "config.toml")
 	hookPath := filepath.Join(baseDir, ".codex", "hooks", "notify", "hook.json")
 	if err := os.MkdirAll(filepath.Dir(hookPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(configPath, []byte(legacyCodexConfig(command)), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(hookPath, []byte(`{"event":"PostToolUse"}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-
-	managed := []provisioning.ManagedFile{
-		{Kind: "hook", Name: "notify", Path: ".codex/hooks/notify/hook.json", ContentHash: "h"},
+	hooksJSON := `{"hooks":{"PostToolUse":[{"matcher":"concept_write","hooks":[{"type":"command","command":` + mustMarshal(t, command) + `}]}]}}`
+	if err := os.WriteFile(filepath.Join(baseDir, ".codex", "hooks.json"), []byte(hooksJSON), 0o644); err != nil {
+		t.Fatal(err)
 	}
-	pruned, err := provisioning.PruneManaged(managed, baseDir, false)
-	if err != nil {
+
+	managed := []provisioning.ManagedFile{{Kind: "hook", Name: "notify", Path: ".codex/hooks/notify/hook.json", ContentHash: "h"}}
+	if _, err := provisioning.PruneManaged(managed, baseDir, false); err != nil {
 		t.Fatalf("PruneManaged: %v", err)
 	}
-	if len(pruned) != 1 {
-		t.Errorf("expected 1 pruned file, got %d", len(pruned))
+	if _, err := os.Stat(filepath.Join(baseDir, ".codex", "hooks.json")); !os.IsNotExist(err) {
+		t.Errorf("hooks.json emptied by prune must be removed: %v", err)
 	}
-	if _, err := os.Stat(hookPath); !os.IsNotExist(err) {
-		t.Error("hook.json not removed")
-	}
-
 	data, err := os.ReadFile(configPath)
 	if err != nil {
-		t.Fatalf("config.toml must not be removed (mcp_servers residue): %v", err)
+		t.Fatalf("config.toml must survive (it holds the MCP block): %v", err)
 	}
-	content := string(data)
-	if strings.Contains(content, "hooks.PostToolUse") {
-		t.Errorf("hook entry not removed: %s", content)
+	if strings.Contains(string(data), "hooks.PostToolUse") {
+		t.Errorf("legacy registration left in config.toml:\n%s", data)
 	}
-	if !strings.Contains(content, "[mcp_servers.cartographer]") {
-		t.Errorf("mcp_servers block must not be touched: %s", content)
-	}
-}
-
-// --- Adoption of the registrations Codex leaves orphaned when it rewrites config.toml (D99) ---
-
-// stripCodexComments simulates Codex CLI re-serializing config.toml when it
-// persists its own settings: the tables survive, every comment line — the
-// Cartographer markers included — is dropped.
-func stripCodexComments(t *testing.T, path string) {
-	t.Helper()
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var kept []string
-	for _, line := range strings.Split(string(data), "\n") {
-		if strings.HasPrefix(strings.TrimSpace(line), "#") {
-			continue
-		}
-		kept = append(kept, line)
-	}
-	if err := os.WriteFile(path, []byte(strings.Join(kept, "\n")), 0o644); err != nil {
-		t.Fatal(err)
+	if !strings.Contains(string(data), "[mcp_servers.cartographer]") || !strings.Contains(string(data), "[[hooks.Stop]]") {
+		t.Errorf("prune touched what is not ours:\n%s", data)
 	}
 }
 
-func TestApply_Codex_Hook_ReApplyAfterCodexRewrite_NoDuplicate(t *testing.T) {
-	kbRoot := t.TempDir()
-	writeCodexHookKB(t, kbRoot, "notify", "PostToolUse", "concept_write", "./notify.sh")
-	writeCodexHookKB(t, kbRoot, "other", "SessionStart", "", "./notify.sh")
-
-	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, provisioning.BuildOptions{})
-	if err != nil {
-		t.Fatalf("BuildManifest: %v", err)
-	}
-
+// A registration still in config.toml next to the hooks.json one fires twice:
+// doctor reports it as a stray until the next sync migrates it.
+func TestHookRegistrations_Codex_LegacyIsStray(t *testing.T) {
 	baseDir := t.TempDir()
-	opts := provisioning.ApplyOptions{
-		AutoTrust: true,
-		KBRoots:   map[string]string{"kb": kbRoot},
-		Provider:  configurator.ProviderCodex,
-		BaseDir:   baseDir,
-		Lock:      provisioning.Lock{},
-	}
-	if _, err := provisioning.Apply(m, opts); err != nil {
-		t.Fatalf("Apply (1): %v", err)
-	}
-
-	configPath := filepath.Join(baseDir, ".codex", "config.toml")
-	stripCodexComments(t, configPath)
-
-	res, err := provisioning.Apply(m, opts)
-	if err != nil {
-		t.Fatalf("Apply (2): %v", err)
-	}
-
-	data, err := os.ReadFile(configPath)
-	if err != nil {
+	command := filepath.Join(baseDir, ".codex", "hooks", "notify", "notify.sh")
+	if err := os.MkdirAll(filepath.Join(baseDir, ".codex"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	got := string(data)
-	for _, header := range []string{"[[hooks.PostToolUse]]", "[[hooks.SessionStart]]"} {
-		if n := strings.Count(got, header); n != 1 {
-			t.Errorf("expected 1 occurrence of %s after Codex's rewrite, found %d:\n%s", header, n, got)
-		}
+	if err := os.WriteFile(filepath.Join(baseDir, ".codex", "config.toml"), []byte(legacyCodexConfig(command)), 0o644); err != nil {
+		t.Fatal(err)
 	}
-	for _, name := range []string{"notify", "other"} {
-		marker := "# cartographer:hook:" + name + ":begin"
-		if !strings.Contains(got, marker) {
-			t.Errorf("missing %s: %s", marker, got)
-		}
-		relCmd := strings.Trim(configurator.QuoteTOMLString(filepath.Join(".codex", "hooks", name, "notify.sh")), `"`)
-		if n := strings.Count(got, relCmd); n != 1 {
-			t.Errorf("hook %q registered %d times:\n%s", name, n, got)
-		}
-	}
-	if len(res.Warnings) != 2 {
-		t.Errorf("expected one repair warning per hook, got %v", res.Warnings)
+	managed, stray, err := provisioning.HookRegistrations(baseDir, configurator.ProviderCodex, "notify")
+	if err != nil || managed != 0 || stray != 2 {
+		t.Errorf("HookRegistrations = %d managed, %d stray, %v; want 0 managed, 2 stray (block + orphan)", managed, stray, err)
 	}
 }
 
-func TestApply_Codex_Hook_Adoption_PreservesUserHookAndState(t *testing.T) {
-	kbRoot := t.TempDir()
-	writeCodexHookKB(t, kbRoot, "notify", "PostToolUse", "concept_write", "./notify.sh")
-	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, provisioning.BuildOptions{})
-	if err != nil {
-		t.Fatalf("BuildManifest: %v", err)
-	}
-
-	baseDir := t.TempDir()
-	configPath := filepath.Join(baseDir, ".codex", "config.toml")
-	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	preexisting := `model = "gpt-5.6"
-
-[hooks.state."/Users/me/.codex/config.toml:post_tool_use:0:0"]
-trusted_hash = "sha256:abc"
-
-[[hooks.PostToolUse]]
-matcher = "Bash"
-[[hooks.PostToolUse.hooks]]
-type = "command"
-command = "/Users/me/scripts/mine.sh"
-`
-	if err := os.WriteFile(configPath, []byte(preexisting), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	opts := provisioning.ApplyOptions{
-		AutoTrust: true,
-		KBRoots:   map[string]string{"kb": kbRoot},
-		Provider:  configurator.ProviderCodex,
-		BaseDir:   baseDir,
-		Lock:      provisioning.Lock{},
-	}
-	if _, err := provisioning.Apply(m, opts); err != nil {
-		t.Fatalf("Apply (1): %v", err)
-	}
-	stripCodexComments(t, configPath)
-	if _, err := provisioning.Apply(m, opts); err != nil {
-		t.Fatalf("Apply (2): %v", err)
-	}
-
-	data, err := os.ReadFile(configPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	got := string(data)
-	if n := strings.Count(got, "[[hooks.PostToolUse]]"); n != 2 {
-		t.Errorf("expected the user's registration plus ours, found %d:\n%s", n, got)
-	}
-	for _, want := range []string{
-		`command = "/Users/me/scripts/mine.sh"`,
-		`matcher = "Bash"`,
-		`[hooks.state."/Users/me/.codex/config.toml:post_tool_use:0:0"]`,
-		`trusted_hash = "sha256:abc"`,
-		`model = "gpt-5.6"`,
-	} {
-		if !strings.Contains(got, want) {
-			t.Errorf("%q must not be touched:\n%s", want, got)
-		}
-	}
-}
-
-// injectBeforeEndMarker inserts text into the config.toml at path immediately
-// before endMarker's line — simulating Codex persisting its own bookkeeping
-// (e.g. [hooks.state."…"]) positionally after the last table it finds in the
-// file, which lands inside a Cartographer-managed block once one has been
-// written (D126).
-func injectBeforeEndMarker(t *testing.T, path, endMarker, text string) {
-	t.Helper()
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	content := string(data)
-	idx := strings.Index(content, endMarker)
-	if idx < 0 {
-		t.Fatalf("end marker %q not found in:\n%s", endMarker, content)
-	}
-	if err := os.WriteFile(path, []byte(content[:idx]+text+content[idx:]), 0o644); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func TestApply_Codex_Hook_Eviction_PreservesStateWrittenInsideBlock(t *testing.T) {
-	// D126: Codex records its per-hook trusted-hash bookkeeping
-	// ([hooks.state."…"]) positionally after the last [[hooks.*]] table it
-	// finds in the file — which, once the hook is registered, is the one
-	// inside our own managed block. Re-registering the hook must relocate
-	// that table out of the block instead of destroying it with the rewrite.
-	kbRoot := t.TempDir()
-	writeCodexHookKB(t, kbRoot, "notify", "PostToolUse", "concept_write", "./notify.sh")
-	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, provisioning.BuildOptions{})
-	if err != nil {
-		t.Fatalf("BuildManifest: %v", err)
-	}
-
-	baseDir := t.TempDir()
-	opts := provisioning.ApplyOptions{
-		AutoTrust: true,
-		KBRoots:   map[string]string{"kb": kbRoot},
-		Provider:  configurator.ProviderCodex,
-		BaseDir:   baseDir,
-		Lock:      provisioning.Lock{},
-	}
-	if _, err := provisioning.Apply(m, opts); err != nil {
-		t.Fatalf("Apply (1): %v", err)
-	}
-
-	configPath := filepath.Join(baseDir, ".codex", "config.toml")
-	stateTable := "\n[hooks.state.\"/Users/me/.codex/config.toml:post_tool_use:0:0\"]\ntrusted_hash = \"sha256:6a78\"\n"
-	injectBeforeEndMarker(t, configPath, "# cartographer:hook:notify:end", stateTable)
-
-	res, err := provisioning.Apply(m, opts)
-	if err != nil {
-		t.Fatalf("Apply (2): %v", err)
-	}
-
-	data, err := os.ReadFile(configPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	got := string(data)
-	if !strings.Contains(got, `[hooks.state."/Users/me/.codex/config.toml:post_tool_use:0:0"]`) {
-		t.Fatalf("Codex's trusted-hash state table was lost:\n%s", got)
-	}
-	if !strings.Contains(got, `trusted_hash = "sha256:6a78"`) {
-		t.Errorf("state table's own content lost:\n%s", got)
-	}
-
-	stateIdx := strings.Index(got, `[hooks.state."`)
-	beginIdx := strings.Index(got, "# cartographer:hook:notify:begin")
-	endIdx := strings.Index(got, "# cartographer:hook:notify:end")
-	if stateIdx < 0 || beginIdx < 0 || endIdx < 0 {
-		t.Fatalf("missing markers in:\n%s", got)
-	}
-	if !(stateIdx < beginIdx) {
-		t.Errorf("the state table must now sit outside (before) the managed block, got:\n%s", got)
-	}
-	if strings.Contains(got[beginIdx:endIdx], "hooks.state") {
-		t.Errorf("the state table must not remain inside the managed block:\n%s", got)
-	}
-
-	var relocationWarned bool
-	for _, w := range res.Warnings {
-		if strings.Contains(w, "moved") && strings.Contains(w, "notify") {
-			relocationWarned = true
-		}
-	}
-	if !relocationWarned {
-		t.Errorf("expected a warning about the relocated table, got %v", res.Warnings)
-	}
-
-	// A second apply over the repaired file must be a no-op: the state table
-	// is already outside every managed span.
-	res2, err := provisioning.Apply(m, opts)
-	if err != nil {
-		t.Fatalf("Apply (3): %v", err)
-	}
-	data2, err := os.ReadFile(configPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(data2) != got {
-		t.Errorf("re-apply over the repaired file must be a no-op:\nbefore:\n%s\nafter:\n%s", got, data2)
-	}
-	if len(res2.Warnings) != 0 {
-		t.Errorf("nothing left to relocate on re-apply, got warnings %v", res2.Warnings)
-	}
-}
-
-// --- Adoption of hooks whose command is a self-contained inline one-liner (D127) ---
-
-// rewriteCodexInlineCommandsAsMultilineLiteral simulates the shape a real
-// Codex CLI rewrite leaves behind (D127): comments — our markers included —
-// are dropped, like any Codex rewrite (see stripCodexComments), and every
-// `command = "…"` line we wrote as a basic string is re-serialized as a
-// multi-line literal string (opened and closed with three single quotes) on
-// the same physical line — the quoting subtlety the adoption match must see
-// through.
-func rewriteCodexInlineCommandsAsMultilineLiteral(t *testing.T, path string) {
-	t.Helper()
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var kept []string
-	for _, line := range strings.Split(string(data), "\n") {
-		trimmed := strings.TrimSpace(line)
-		if strings.HasPrefix(trimmed, "#") {
-			continue
-		}
-		if strings.HasPrefix(trimmed, `command = "`) {
-			value, ok := configurator.CodexTableStringValue(trimmed+"\n", "command")
-			if !ok {
-				t.Fatalf("could not decode command line: %q", line)
-			}
-			line = "command = '''" + value + "'''"
-		}
-		kept = append(kept, line)
-	}
-	if err := os.WriteFile(path, []byte(strings.Join(kept, "\n")), 0o644); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func TestApply_Codex_Hook_ReApplyAfterCodexRewrite_InlineCommand_NoDuplicate(t *testing.T) {
-	// The class of hook D99's marker alone could not recognize: env-block and
-	// sops-warn-style hooks whose command is a self-contained "jq ..."
-	// one-liner, with no path fragment into the hook's own materialized
-	// directory. session-init (a script command, same shape as the real
-	// cartographer-bootstrap hook) is registered alongside them to confirm
-	// the legacy path-fragment match still adopts it too, in the same
-	// rewritten file.
-	kbRoot := t.TempDir()
-	writeCodexHookKB(t, kbRoot, "env-block", "PreToolUse", "Edit|Write",
-		`jq -e '.tool_input.file_path | test("\.env$")' >/dev/null 2>&1 && exit 2 || true`)
-	writeCodexHookKB(t, kbRoot, "sops-warn", "PreToolUse", "Bash",
-		`jq -e '.tool_input.command | test("sops ")' >/dev/null 2>&1 && echo warn`)
-	writeCodexHookKB(t, kbRoot, "session-init", "SessionStart", "", "./notify.sh")
-
-	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, provisioning.BuildOptions{})
-	if err != nil {
-		t.Fatalf("BuildManifest: %v", err)
-	}
-
-	baseDir := t.TempDir()
-	opts := provisioning.ApplyOptions{
-		AutoTrust: true,
-		KBRoots:   map[string]string{"kb": kbRoot},
-		Provider:  configurator.ProviderCodex,
-		BaseDir:   baseDir,
-		Lock:      provisioning.Lock{},
-	}
-	if _, err := provisioning.Apply(m, opts); err != nil {
-		t.Fatalf("Apply (1): %v", err)
-	}
-
-	configPath := filepath.Join(baseDir, ".codex", "config.toml")
-	rewriteCodexInlineCommandsAsMultilineLiteral(t, configPath)
-
-	res, err := provisioning.Apply(m, opts)
-	if err != nil {
-		t.Fatalf("Apply (2): %v", err)
-	}
-
-	data, err := os.ReadFile(configPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	got := string(data)
-	if n := strings.Count(got, "[[hooks.PreToolUse]]"); n != 2 {
-		t.Errorf("expected exactly 2 [[hooks.PreToolUse]] (env-block + sops-warn, no duplicate), found %d:\n%s", n, got)
-	}
-	if n := strings.Count(got, "[[hooks.SessionStart]]"); n != 1 {
-		t.Errorf("expected exactly 1 [[hooks.SessionStart]], found %d:\n%s", n, got)
-	}
-	if len(res.Warnings) != 3 {
-		t.Errorf("expected one adoption warning per hook (3), got %v", res.Warnings)
-	}
-}
-
-func TestApply_Codex_Hook_Adoption_UserAuthoredInlineCommand_NotAdopted(t *testing.T) {
-	// A user-authored [[hooks.PreToolUse]] registration with a different
-	// inline command must survive: neither the legacy path-fragment marker
-	// nor the decoded-command match applies to it (D127).
-	kbRoot := t.TempDir()
-	writeCodexHookKB(t, kbRoot, "env-block", "PreToolUse", "Edit|Write",
-		`jq -e '.tool_input.file_path | test("\.env$")' >/dev/null 2>&1 && exit 2 || true`)
-
-	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, provisioning.BuildOptions{})
-	if err != nil {
-		t.Fatalf("BuildManifest: %v", err)
-	}
-
-	baseDir := t.TempDir()
-	configPath := filepath.Join(baseDir, ".codex", "config.toml")
-	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	preexisting := "[[hooks.PreToolUse]]\nmatcher = \"Bash\"\n[[hooks.PreToolUse.hooks]]\ntype = \"command\"\ncommand = \"echo not ours\"\n"
-	if err := os.WriteFile(configPath, []byte(preexisting), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	opts := provisioning.ApplyOptions{
-		AutoTrust: true,
-		KBRoots:   map[string]string{"kb": kbRoot},
-		Provider:  configurator.ProviderCodex,
-		BaseDir:   baseDir,
-		Lock:      provisioning.Lock{},
-	}
-	if _, err := provisioning.Apply(m, opts); err != nil {
-		t.Fatalf("Apply: %v", err)
-	}
-
-	data, err := os.ReadFile(configPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	got := string(data)
-	if !strings.Contains(got, `command = "echo not ours"`) {
-		t.Errorf("user-authored registration with a different command must not be adopted:\n%s", got)
-	}
-	if n := strings.Count(got, "[[hooks.PreToolUse]]"); n != 2 {
-		t.Errorf("expected 2 [[hooks.PreToolUse]] (user's + ours), found %d:\n%s", n, got)
-	}
-}
-
-// assertCodexAgent checks a translated Codex agent: the TOML header verbatim,
-// then developer_instructions holding the body plus exactly one provenance
-// block (D138).
 func assertCodexAgent(t *testing.T, got, wantHeader, wantBody string) {
 	t.Helper()
 	const open = "developer_instructions = \"\"\"\n"

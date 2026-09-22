@@ -4,6 +4,8 @@ topic: sync-provisioning
 
 # D58 — Real Codex CLI integration: managed-block `config.toml`, TOML agents, hook engine
 
+*(The hook registration part is superseded by [D230](D230-codex-hooks-register-in-hooks-json.md): Codex hooks now register in `hooks.json`; the MCP block and TOML agents are unchanged.)*
+
 **The bug.** Since D23, `emitCodex` wrote `.codex/config.json` Claude Code-style — but Codex CLI
 never reads that file: the only configuration it consults is `~/.codex/config.toml`, section
 `[mcp_servers.<id>]`. The MCP integration with Codex never worked in practice.

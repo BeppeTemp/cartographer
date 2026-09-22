@@ -59,7 +59,7 @@ func registerHookSettings(baseDir, hookName, fullDestDir string) error {
 	if err != nil {
 		return err
 	}
-	upsertHookEntry(settings, hookName, spec, command)
+	upsertHookEntry(settings, hookOwnershipMarker(hookName), spec.Event, spec.Matcher, command)
 	return saveJSONObject(settingsPath, settings)
 }
 
@@ -75,7 +75,7 @@ func removeHookEntries(baseDir, hookName string) error {
 	if err != nil {
 		return err
 	}
-	if !stripHookEntries(settings, hookName) {
+	if !stripHookEntries(settings, hookOwnershipMarker(hookName)) {
 		return nil
 	}
 	return saveJSONObject(settingsPath, settings)
@@ -195,46 +195,47 @@ func commandOwnedBy(command, marker string) bool {
 	return strings.Contains(filepath.ToSlash(command), marker)
 }
 
-// upsertHookEntry inserts spec's entry (matcher + command, type "command") into
-// settings["hooks"][spec.Event], after first stripping any existing entry owned by
-// hookName — idempotent: re-applying the same hook N times yields exactly one entry.
-func upsertHookEntry(settings map[string]interface{}, hookName string, spec hookSpec, command string) {
-	stripHookEntries(settings, hookName)
+// upsertHookEntry inserts an entry (matcher + command, type "command") into
+// settings["hooks"][event], after first stripping any existing entry whose command
+// carries marker — idempotent: re-applying the same hook N times yields exactly one
+// entry. Shared by Claude Code's settings.json and Codex's hooks.json, which use
+// the same shape; each passes its own provider's ownership marker.
+func upsertHookEntry(settings map[string]interface{}, marker, event, matcher, command string) {
+	stripHookEntries(settings, marker)
 
 	hooksMap, _ := settings["hooks"].(map[string]interface{})
 	if hooksMap == nil {
 		hooksMap = map[string]interface{}{}
 	}
 
-	groups, _ := hooksMap[spec.Event].([]interface{})
+	groups, _ := hooksMap[event].([]interface{})
 
 	entry := map[string]interface{}{
 		"hooks": []interface{}{
 			map[string]interface{}{"type": "command", "command": command},
 		},
 	}
-	if spec.Matcher != "" {
-		entry["matcher"] = spec.Matcher
+	if matcher != "" {
+		entry["matcher"] = matcher
 	}
 
-	hooksMap[spec.Event] = append(groups, entry)
+	hooksMap[event] = append(groups, entry)
 	settings["hooks"] = hooksMap
 }
 
 // stripHookEntries removes, from settings["hooks"], every hook entry whose command
-// contains hookName's ownership marker (§hookOwnershipMarker): dropped from its
+// contains marker (a provider's ownership marker for one hook): dropped from its
 // hooks[] list, the enclosing group entry dropped if that leaves it empty, the event
 // key dropped if that empties the event's group list, and the "hooks" key itself
 // dropped if that empties it. Returns whether anything changed. Anything that isn't
 // ours — user-added hooks, hooks owned by a differently-named Cartographer hook,
 // entries with an unexpected shape — is left untouched verbatim.
-func stripHookEntries(settings map[string]interface{}, hookName string) bool {
+func stripHookEntries(settings map[string]interface{}, marker string) bool {
 	hooksMap, ok := settings["hooks"].(map[string]interface{})
 	if !ok {
 		return false
 	}
 
-	marker := hookOwnershipMarker(hookName)
 	changed := false
 
 	for event, groupsRaw := range hooksMap {
@@ -294,28 +295,20 @@ func stripHookEntries(settings map[string]interface{}, hookName string) bool {
 	return changed
 }
 
-// --- Codex (D58) ---
+// --- Codex (D230, formerly D58) ---
 //
 // Codex CLI has a stable hooks engine (since v0.124.0) whose event names largely
-// mirror Claude Code's, and registers hooks as TOML array-of-tables inline in
-// config.toml (see https://developers.openai.com/codex/hooks):
+// mirror Claude Code's. It reads hooks from two representations per layer:
+// ~/.codex/hooks.json, whose shape is Claude Code's settings.json hooks, and
+// inline [[hooks.<Event>]] tables in config.toml
+// (https://learn.chatgpt.com/docs/hooks). A layer holding both is merged, with a
+// warning at every start.
 //
-//	[[hooks.<Event>]]
-//	matcher = "..."
-//	[[hooks.<Event>.hooks]]
-//	type = "command"
-//	command = "..."
-//
-// Unlike Claude's settings.json (a single JSON object patched in place),
-// config.toml is hand-curated and never parsed/re-serialized (D58): each hook
-// gets its own marker-delimited block (codexHookMarkers), written via
-// internal/blocktext into the same file configurator.emitCodex writes
-// [mcp_servers.cartographer] into (under its own "cartographer:mcp:*"
-// markers — distinct text, no collision). TOML array-of-tables don't need to
-// be contiguous: several "[[hooks.X]]" headers for the same event, scattered
-// across independently-managed blocks anywhere in the file, still merge into
-// one array in file order — so per-hook blocks are safe even when multiple
-// hooks share an event.
+// Cartographer registers in hooks.json (D230): it is the file other
+// integrations converge on and it holds nothing but hooks, while config.toml is
+// also rewritten by Codex itself. Registration patches the JSON object by the
+// hook's ownership marker, exactly as for Claude's settings.json. The D58
+// config.toml blocks (codexHookMarkers) are read only to migrate them out.
 
 // codexHookEventNames maps Claude Code hook event names (as authored in a KB's
 // hook.json) to Codex's own event names, for the rare case they diverge.
@@ -367,8 +360,8 @@ func codexHookOwnershipMarker(hookName string) string {
 // registrations of hookName: either the legacy path-fragment marker
 // (codexHookOwnershipMarker, kept so a registration written by an older
 // client version is still adopted) or a command that decodes
-// (configurator.CodexTableStringValue) to exactly command — the same string
-// registerHookConfigTOML is about to write for this hook. The second identity
+// (configurator.CodexTableStringValue) to exactly command — the string a D58
+// registration of this hook carried. The second identity
 // covers hooks whose command is a self-contained inline one-liner, which
 // contains no path fragment at all and would otherwise never be recognized
 // once Codex re-serializes it (D127; Codex may spell the same value as a
@@ -383,83 +376,133 @@ func codexHookTableOwner(hookName, command string) func(key []string, body strin
 		if len(key) < 2 || key[0] != "hooks" || key[1] == "state" {
 			return false
 		}
-		if strings.Contains(body, marker) {
+		if codexTableOwnedBy(body, marker) {
 			return true
 		}
 		got, ok := configurator.CodexTableStringValue(body, "command")
-		return ok && got == command
+		return ok && command != "" && got == command
 	}
 }
 
-// registerHookConfigTOML mirrors registerHookSettings but for Codex (D58):
-// reads hook.json from fullDestDir and upserts its registration as a
-// marker-delimited TOML block in <baseDir>/.codex/config.toml, after adopting
-// any marker-less copy of that registration Codex's own rewrite of the file
-// left outside the block (D99) — otherwise the hook would be registered, and
-// fire, twice. Returns a warning describing that repair, if any. Best-effort on
-// a missing/malformed hook.json (via readHookSpec) — Apply's materialization
-// of the hook's files never fails because of it.
-func registerHookConfigTOML(baseDir, hookName, fullDestDir string) (string, error) {
+// codexTableOwnedBy reports whether a [[hooks.*]] table's command carries
+// marker. The command is decoded first: on Windows it is a backslash path,
+// which TOML stores with every separator escaped, so the raw table text never
+// contains the slash-form marker and a Windows registration would never be
+// recognized as ours. The raw substring check is kept for a table whose command
+// does not decode.
+func codexTableOwnedBy(body, marker string) bool {
+	if cmd, ok := configurator.CodexTableStringValue(body, "command"); ok && commandOwnedBy(cmd, marker) {
+		return true
+	}
+	return strings.Contains(body, marker)
+}
+
+// codexHooksPath returns the path to Codex's hooks.json under baseDir — the
+// dedicated hooks file Codex reads alongside config.toml, in the user layer
+// (~/.codex) and in a trusted project's .codex/ layer alike.
+func codexHooksPath(baseDir string) string {
+	return filepath.Join(baseDir, ".codex", "hooks.json")
+}
+
+// registerCodexHook registers a materialized hook in <baseDir>/.codex/hooks.json
+// (D230), whose shape is Claude Code's settings.json hooks: the entry is patched in
+// by its ownership marker and every foreign entry (another integration's, the
+// user's) survives. It used to be a marker-delimited [[hooks.<Event>]] block in
+// config.toml (D58); a layer holding both files makes Codex warn at every start,
+// and hooks.json is where third-party integrations register, so a config.toml
+// registration left over from an earlier provisioning is migrated out here — the
+// block and any marker-less copy Codex's own rewrite left behind (D99) — or the
+// hook would fire twice. Returns a warning describing that migration, if any.
+// Best-effort on a missing/malformed hook.json (via readHookSpec).
+func registerCodexHook(baseDir, hookName, fullDestDir string) (string, error) {
 	spec, ok := readHookSpec(fullDestDir)
 	if !ok {
 		return "", nil
 	}
-	command := resolveHookCommand(spec.Command, fullDestDir)
-	event := codexHookEvent(spec.Event)
-
-	var sb strings.Builder
-	fmt.Fprintf(&sb, "[[hooks.%s]]\n", event)
-	if spec.Matcher != "" {
-		fmt.Fprintf(&sb, "matcher = %s\n", configurator.QuoteTOMLString(spec.Matcher))
+	resolved := resolveHookCommand(spec.Command, fullDestDir)
+	// Same reason as registerHookSettings: an inline command that does not
+	// reference the hook's directory would carry no ownership marker, so the
+	// entry would be neither idempotent nor prunable.
+	marker := codexHookOwnershipMarker(hookName)
+	command := resolved
+	if !commandOwnedBy(command, marker) {
+		command += " # cartographer-hook: " + marker
 	}
-	fmt.Fprintf(&sb, "[[hooks.%s.hooks]]\n", event)
-	sb.WriteString("type = \"command\"\n")
-	fmt.Fprintf(&sb, "command = %s\n", configurator.QuoteTOMLString(command))
 
-	path := codexConfigTOMLPath(baseDir)
-	begin, end := codexHookMarkers(hookName)
-
-	// Codex may have written its own tables (e.g. [hooks.state.*] trusted-hash
-	// bookkeeping) inside this hook's managed block, positionally after the
-	// last [[hooks.*]] table it found in the file: relocate them out of the
-	// block before rewriting it, or they would be destroyed (D126).
-	evicted, err := configurator.EvictForeignTablesFromBlock(path, begin, end, sb.String())
+	// The D58 registration carried the command without the trailing marker.
+	migrated, err := removeLegacyCodexHookTOML(baseDir, hookName, resolved)
 	if err != nil {
-		return "", fmt.Errorf("provisioning: reconcile %s: %w", path, err)
-	}
-
-	adopted, err := configurator.AdoptCodexOrphanTables(path, codexHookTableOwner(hookName, command))
-	if err != nil {
-		return "", fmt.Errorf("provisioning: reconcile %s: %w", path, err)
-	}
-
-	if err := blocktext.Write(path, begin, end, sb.String()); err != nil {
 		return "", err
 	}
 
-	var warnings []string
-	for _, key := range evicted {
-		warnings = append(warnings, fmt.Sprintf(
-			"codex: hook %q — moved a Codex-owned table (%s) out of the managed block so it would not be lost on rewrite",
-			hookName, key))
+	path := codexHooksPath(baseDir)
+	settings, err := loadJSONObject(path)
+	if err != nil {
+		return "", err
 	}
-	if len(adopted) > 0 {
-		warnings = append(warnings, fmt.Sprintf(
-			"codex: hook %q — removed %d stale registration(s) left outside the managed block by Codex's own config.toml rewrite (the hook would have fired twice)",
-			hookName, len(adopted)))
+	upsertHookEntry(settings, marker, codexHookEvent(spec.Event), spec.Matcher, command)
+	if err := saveJSONObject(path, settings); err != nil {
+		return "", err
 	}
-	return strings.Join(warnings, "\n"), nil
+	if migrated == 0 {
+		return "", nil
+	}
+	return fmt.Sprintf(
+		"codex: hook %q — moved its registration from config.toml to hooks.json; Codex will ask to trust it again once",
+		hookName), nil
 }
 
-// removeHookConfigTOML strips hookName's marker-delimited block (if present)
-// from <baseDir>/.codex/config.toml — the inverse of registerHookConfigTOML,
-// called from PruneManaged's prune path. No-op if the file or the block is
-// absent (e.g. a malformed hook.json that registerHookConfigTOML had silently
-// skipped registering in the first place).
-func removeHookConfigTOML(baseDir, hookName string) error {
+// removeCodexHook strips hookName's entry from <baseDir>/.codex/hooks.json and any
+// legacy config.toml registration of it — the inverse of registerCodexHook, called
+// from PruneManaged's prune path. No-op, with no write, when neither holds one.
+func removeCodexHook(baseDir, hookName string) error {
+	if _, err := removeLegacyCodexHookTOML(baseDir, hookName, ""); err != nil {
+		return err
+	}
+	path := codexHooksPath(baseDir)
+	settings, err := loadJSONObject(path)
+	if err != nil {
+		return err
+	}
+	if !stripHookEntries(settings, codexHookOwnershipMarker(hookName)) {
+		return nil
+	}
+	// hooks.json holds hooks and nothing else: once the last entry is gone an
+	// empty object is no configuration at all, so the file goes rather than
+	// staying behind as `{}` after a disconnect. Any other key keeps it.
+	if len(settings) == 0 {
+		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("provisioning: remove %s: %w", path, err)
+		}
+		return nil
+	}
+	return saveJSONObject(path, settings)
+}
+
+// removeLegacyCodexHookTOML removes a D58 registration of hookName from
+// <baseDir>/.codex/config.toml: its marker-delimited block, and any marker-less copy
+// of it Codex's own rewrite of the file left outside the block (D99). command, when
+// known, widens the orphan match to an inline hook whose command carries no path
+// (D127). Returns how many registrations were removed; no-op, with no write, when
+// the file or the registration is absent. Codex's [hooks.state."…"] trust tables are
+// left alone: they are Codex's bookkeeping, inert once the registration they hash is
+// gone.
+func removeLegacyCodexHookTOML(baseDir, hookName, command string) (int, error) {
+	path := codexConfigTOMLPath(baseDir)
+	adopted, err := configurator.AdoptCodexOrphanTables(path, codexHookTableOwner(hookName, command))
+	if err != nil {
+		return 0, fmt.Errorf("provisioning: migrate %s: %w", path, err)
+	}
 	begin, end := codexHookMarkers(hookName)
-	_, err := blocktext.Remove(codexConfigTOMLPath(baseDir), begin, end, false)
-	return err
+	removed, err := blocktext.Remove(path, begin, end, false)
+	if err != nil {
+		return 0, fmt.Errorf("provisioning: migrate %s: %w", path, err)
+	}
+	n := len(adopted)
+	if removed {
+		n++
+	}
+	return n, nil
 }
 
 // hookProviderFromPath infers which provider materialized a hook's ManagedFile
@@ -623,7 +666,7 @@ func openCodePluginRelPath(hookName string) string {
 // registerOpenCodePlugin reads hook.json from fullDestDir and, if its event
 // maps to an OpenCode hook (openCodeHookEvents), (re)writes the generated
 // plugin wrapper at <baseDir>/<openCodePluginRelPath(hookName)>. Mirrors
-// registerHookSettings/registerHookConfigTOML's best-effort policy on a
+// registerHookSettings/registerCodexHook's best-effort policy on a
 // missing/malformed hook.json (ok=false from readHookSpec: nothing to
 // register, no error, no warning — Apply's materialization of the hook's own
 // files never fails because of it).

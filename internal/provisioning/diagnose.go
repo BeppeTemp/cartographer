@@ -138,8 +138,9 @@ func MCPServerEntryNames(baseDir string, provider configurator.Provider) ([]stri
 // HookRegistrations counts the provider-native registrations of hookName under
 // baseDir: managed is how many Cartographer owns and expects (exactly one when
 // the hook is registered), stray is how many live outside the mechanism's
-// managed span — the D99 double-fire, where Codex's own rewrite of config.toml
-// left a marker-less copy that fires alongside the block's.
+// managed span — for Codex, any registration of it still in config.toml (a
+// pre-D230 block, or the marker-less copy of D99), which fires alongside the
+// hooks.json entry.
 //
 // Only the two providers with a native registration file are inspected;
 // OpenCode registers through a generated plugin, which is a managed file and is
@@ -158,35 +159,42 @@ func HookRegistrations(baseDir string, provider configurator.Provider, hookName 
 		// entry is a duplicate, not a stray.
 		return countClaudeHookEntries(settings, hookOwnershipMarker(hookName)), 0, nil
 	case configurator.ProviderCodex:
+		settings, err := loadJSONObject(codexHooksPath(baseDir))
+		if err != nil && !errors.Is(err, os.ErrNotExist) {
+			return 0, 0, fmt.Errorf("parse %s: %w", HookRegistrationFile(provider), err)
+		}
+		if err == nil {
+			managed = countClaudeHookEntries(settings, codexHookOwnershipMarker(hookName))
+		}
+		// A registration still in config.toml is a stray (D230): the block a
+		// pre-D230 client wrote, or a marker-less copy Codex's rewrite left
+		// (D99). Either fires alongside the hooks.json entry until the next
+		// sync migrates it. Only the path-fragment identity is used: an inline
+		// one-liner's command lives in the materialized hook.json and is not
+		// known here (D127). [hooks.state."…"] is Codex's bookkeeping.
 		path := codexConfigTOMLPath(baseDir)
 		data, err := os.ReadFile(path)
 		if errors.Is(err, os.ErrNotExist) {
-			return 0, 0, nil
+			return managed, 0, nil
 		}
 		if err != nil {
-			return 0, 0, err
+			return managed, 0, err
 		}
 		begin, _ := codexHookMarkers(hookName)
 		if strings.Contains(string(data), begin) {
-			managed = 1
+			stray = 1
 		}
-		// Only the path-fragment identity is used: the command a registration
-		// for this hook would carry lives in the materialized hook.json and is
-		// not known here, so an inline one-liner hook (D127) is not diagnosable
-		// from outside — reporting it on a guess would be worse than not
-		// reporting it. [hooks.state."…"] is Codex's own bookkeeping, never a
-		// registration (D99).
 		marker := codexHookOwnershipMarker(hookName)
 		orphans, err := configurator.CodexOrphanTables(path, func(key []string, body string) bool {
 			if len(key) < 2 || key[0] != "hooks" || key[1] == "state" {
 				return false
 			}
-			return strings.Contains(body, marker)
+			return codexTableOwnedBy(body, marker)
 		})
 		if err != nil {
-			return managed, 0, err
+			return managed, stray, err
 		}
-		return managed, len(orphans), nil
+		return managed, stray + len(orphans), nil
 	}
 	return 0, 0, nil
 }
