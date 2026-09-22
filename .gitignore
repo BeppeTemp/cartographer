@@ -30,3 +30,8 @@ age-key.txt
 .vscode/
 graphify-out/
 dist/
+# The Atlas UI's production bundle is the one generated artifact this
+# repository tracks on purpose (D227): `go install` cannot run an npm build, so
+# the binary has to carry it. internal/webui's provenance test fails when it is
+# stale, and `make web` regenerates it.
+!internal/webui/dist/
