@@ -208,7 +208,9 @@ func Load(dir string) (*Config, error) {
 		delete(extra, key)
 	}
 	cfg := Config{
-		ServerURL:        y.ServerURL,
+		// The pre-#329 default is migrated on read, so the next connect or
+		// sync writes the working URL into every client's MCP config.
+		ServerURL:        defaults.MigrateLegacyMCPURL(y.ServerURL),
 		ServerName:       y.ServerName,
 		Auth:             y.Auth,
 		TokenEnv:         y.TokenEnv,

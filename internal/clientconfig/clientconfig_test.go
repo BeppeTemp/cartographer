@@ -572,3 +572,26 @@ func TestEveryYamlFieldIsWrittenBySave(t *testing.T) {
 		}
 	}
 }
+
+// TestLoad_MigratesLegacyLocalURL: a config written with the pre-#329 default
+// comes back on the loopback literal the service listens on, so the next sync
+// rewrites every client's MCP entry; a custom URL is left alone.
+func TestLoad_MigratesLegacyLocalURL(t *testing.T) {
+	cases := map[string]string{
+		"http://localhost:39273/mcp":           "http://127.0.0.1:39273/mcp",
+		"http://localhost:39273/mcp/alpha":     "http://127.0.0.1:39273/mcp/alpha",
+		"http://localhost:8080/mcp":            "http://localhost:8080/mcp",
+		"https://cartographer.example.com/mcp": "https://cartographer.example.com/mcp",
+	}
+	for in, want := range cases {
+		dir := t.TempDir()
+		writeConfigFile(t, dir, "server_url: "+in+"\n")
+		cfg, err := clientconfig.Load(dir)
+		if err != nil {
+			t.Fatalf("Load(%s): %v", in, err)
+		}
+		if cfg.ServerURL != want {
+			t.Errorf("Load(%s).ServerURL = %q, want %q", in, cfg.ServerURL, want)
+		}
+	}
+}

@@ -99,7 +99,7 @@ func classifyDialErr(err error) string {
 
 // MCPClient is a minimal JSON-RPC 2.0 client for the MCP `tools/call` method.
 type MCPClient struct {
-	ServerURL string // e.g. "http://localhost:39273/mcp"
+	ServerURL string // e.g. "http://127.0.0.1:39273/mcp"
 	Token     string // bearer token, empty = no Authorization header
 	// TokenEnv names the environment variable Token was read from, so a 401
 	// can say which variable to look at (D222). Empty when the caller has no
