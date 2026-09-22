@@ -352,7 +352,8 @@ func toolConceptPatch(k *kb.KB, live *liveIndex, sqlIdx *sqlindex.Index) Tool {
 			"if content changed since. Fails with old_string_not_found or old_string_ambiguous " +
 			"(pass replace_all to allow multiple matches); for a batch, the error names the failing " +
 			"edit's index and nothing is written. frontmatter, if given, is shallow-merged onto the " +
-			"existing frontmatter; set a key to null to remove it (fails if the key is required, e.g. " +
+			"existing frontmatter and may be the only change (no body edit needed, e.g. to set a missing " +
+			"title); set a key to null to remove it (fails if the key is required, e.g. " +
 			"'type'). Returns the new content_hash. " +
 			fmt.Sprintf("For a change spanning several concepts prefer concept_batch: one atomic commit for up "+
 				"to %d operations, against one commit per concept_patch call. It is operator-level tooling and "+
@@ -396,7 +397,7 @@ func toolConceptPatch(k *kb.KB, live *liveIndex, sqlIdx *sqlindex.Index) Tool {
 				},
 				"frontmatter": {
 					"type": "object",
-					"description": "Optional: frontmatter keys to shallow-merge onto the existing frontmatter (e.g. bump 'aggiornato'). Keys not listed are left untouched; set a key to null to remove it (fails if the key is required, e.g. 'type')."
+					"description": "Optional: frontmatter keys to shallow-merge onto the existing frontmatter (e.g. bump 'aggiornato'). May be given alone, with no body edit. Keys not listed are left untouched; set a key to null to remove it (fails if the key is required, e.g. 'type')."
 				}
 			}
 		}`),
@@ -432,13 +433,17 @@ func toolConceptPatch(k *kb.KB, live *liveIndex, sqlIdx *sqlindex.Index) Tool {
 			if hasEdits && hasSingle {
 				return errorResult("'edits' is mutually exclusive with top-level 'old_string'/'new_string'/'replace_all'"), nil
 			}
-			if !hasEdits && !hasSingle {
-				return errorResult("'old_string' is required (or provide 'edits' for a batch of edits)"), nil
+			// A frontmatter-only patch (no body edit) is legitimate: setting a
+			// missing title or fixing a type should not need a fake no-op edit
+			// or a full concept_write of a body the caller did not touch (#321).
+			hasFM := len(params.Frontmatter) > 0
+			if !hasEdits && !hasSingle && !hasFM {
+				return errorResult("'old_string' is required (or provide 'edits' for a batch of edits, or 'frontmatter' alone)"), nil
 			}
-			if hasEdits && len(params.Edits) == 0 {
+			if hasEdits && len(params.Edits) == 0 && !hasFM {
 				return errorResult("'edits' cannot be empty"), nil
 			}
-			if !hasEdits && params.OldString == "" {
+			if hasSingle && params.OldString == "" {
 				return errorResult("'old_string' is required"), nil
 			}
 
@@ -467,7 +472,7 @@ func toolConceptPatch(k *kb.KB, live *liveIndex, sqlIdx *sqlindex.Index) Tool {
 					body = newBody
 					replacements += n
 				}
-			} else {
+			} else if hasSingle {
 				newBody, n, err := applyPatchEdit(body, params.OldString, params.NewString, params.ReplaceAll)
 				if err != nil {
 					return errorResult(fmt.Sprintf("%v in %s", err, params.ID)), nil
@@ -1946,13 +1951,15 @@ func toolConceptBatch(k *kb.KB, live *liveIndex, sqlIdx *sqlindex.Index) Tool {
 					if hasEdits && hasSingle {
 						return errorResult(fmt.Sprintf("%s: 'edits' is mutually exclusive with top-level 'old_string'/'new_string'/'replace_all'", label)), nil
 					}
-					if !hasEdits && !hasSingle {
-						return errorResult(fmt.Sprintf("%s: 'old_string' is required (or provide 'edits' for a batch of edits)", label)), nil
+					// Frontmatter-only is legitimate, as in concept_patch (#321).
+					hasFM := len(op.Frontmatter) > 0
+					if !hasEdits && !hasSingle && !hasFM {
+						return errorResult(fmt.Sprintf("%s: 'old_string' is required (or provide 'edits' for a batch of edits, or 'frontmatter' alone)", label)), nil
 					}
-					if hasEdits && len(op.Edits) == 0 {
+					if hasEdits && len(op.Edits) == 0 && !hasFM {
 						return errorResult(fmt.Sprintf("%s: 'edits' cannot be empty", label)), nil
 					}
-					if !hasEdits && op.OldString == "" {
+					if hasSingle && op.OldString == "" {
 						return errorResult(fmt.Sprintf("%s: 'old_string' is required", label)), nil
 					}
 
@@ -1968,7 +1975,7 @@ func toolConceptBatch(k *kb.KB, live *liveIndex, sqlIdx *sqlindex.Index) Tool {
 							}
 							body = newBody
 						}
-					} else {
+					} else if hasSingle {
 						newBody, _, editErr := applyPatchEdit(body, op.OldString, op.NewString, op.ReplaceAll)
 						if editErr != nil {
 							return errorResult(fmt.Sprintf("%s: %v", label, editErr)), nil
