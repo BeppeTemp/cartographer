@@ -1,7 +1,6 @@
 import type Graph from "graphology";
 import FA2Layout from "graphology-layout-forceatlas2/worker";
-import forceAtlas2 from "graphology-layout-forceatlas2";
-import { seededUnit } from "./layout";
+import { layoutSettings, seededUnit } from "./layout";
 
 /**
  * What makes the graph feel alive rather than printed.
@@ -49,15 +48,40 @@ export interface DriftOffset {
  * showing the same graph at the same moment agree, and a test can assert it
  * without a renderer.
  */
-export function driftOffset(id: string, elapsedMs: number, amplitude = 1): DriftOffset {
-  const phaseX = seededUnit(id, 11) * Math.PI * 2;
-  const phaseY = seededUnit(id, 12) * Math.PI * 2;
+export function driftOffset(
+  id: string,
+  elapsedMs: number,
+  amplitude = 1,
+  group?: string,
+): DriftOffset {
+  const own = ellipse(id, elapsedMs);
+  if (group === undefined) {
+    return { dx: own.dx * amplitude, dy: own.dy * amplitude };
+  }
+  // Most of the motion is shared with the node's community, a little is its
+  // own. Independent per-node wobble is what made the first pass read as
+  // stiff: every node jittering on its own is noise, while a cluster that
+  // sways as one body -- with its members shifting slightly inside it -- reads
+  // as mass held together by its links.
+  const shared = ellipse(`community:${group}`, elapsedMs);
+  return {
+    dx: (shared.dx * GROUP_SHARE + own.dx * (1 - GROUP_SHARE)) * amplitude,
+    dy: (shared.dy * GROUP_SHARE + own.dy * (1 - GROUP_SHARE)) * amplitude,
+  };
+}
+
+/** The share of a node's drift it takes from its community. */
+const GROUP_SHARE = 0.7;
+
+function ellipse(key: string, elapsedMs: number): DriftOffset {
+  const phaseX = seededUnit(key, 11) * Math.PI * 2;
+  const phaseY = seededUnit(key, 12) * Math.PI * 2;
   // Slightly different rates per axis, so nodes trace small ellipses rather
   // than sliding back and forth along one line.
-  const rate = 0.75 + seededUnit(id, 13) * 0.5;
+  const rate = 0.75 + seededUnit(key, 13) * 0.5;
   return {
-    dx: Math.sin(elapsedMs * DRIFT_SPEED * rate + phaseX) * amplitude,
-    dy: Math.cos(elapsedMs * DRIFT_SPEED * rate * 0.82 + phaseY) * amplitude,
+    dx: Math.sin(elapsedMs * DRIFT_SPEED * rate + phaseX),
+    dy: Math.cos(elapsedMs * DRIFT_SPEED * rate * 0.82 + phaseY),
   };
 }
 
@@ -85,18 +109,10 @@ export interface Simulation {
 export function createSimulation(graph: Graph): Simulation | null {
   let layout: FA2Layout;
   try {
-    layout = new FA2Layout(graph, {
-      settings: {
-        ...forceAtlas2.inferSettings(graph),
-        barnesHutOptimize: graph.order > 500,
-        adjustSizes: true,
-        gravity: 1.1,
-        // A high slowDown is what turns a force layout from a spring that
-        // snaps into one that settles: the same forces, applied gently enough
-        // to watch.
-        slowDown: 14,
-      },
-    });
+    // The same physics as the deterministic layout, with a higher slowDown:
+    // that is what turns a force layout from a spring that snaps into one
+    // that settles -- the same forces, applied gently enough to watch.
+    layout = new FA2Layout(graph, { settings: layoutSettings(graph, 14) });
   } catch (err) {
     console.warn("Atlas: the force layout worker is unavailable, the graph will not re-settle", err);
     return null;
@@ -213,7 +229,9 @@ export function startDrift(graph: Graph): DriftController {
     const elapsed = now - started;
     for (const id of Object.keys(base)) {
       if (id === excluded || !graph.hasNode(id)) continue;
-      const { dx, dy } = driftOffset(id, elapsed, amplitude);
+      const community = graph.getNodeAttribute(id, "community") as number | undefined;
+      const group = community !== undefined && community >= 0 ? String(community) : undefined;
+      const { dx, dy } = driftOffset(id, elapsed, amplitude, group);
       graph.setNodeAttribute(id, "x", base[id]!.x + dx);
       graph.setNodeAttribute(id, "y", base[id]!.y + dy);
     }

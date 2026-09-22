@@ -1,6 +1,7 @@
 import Graph from "graphology";
 import forceAtlas2 from "graphology-layout-forceatlas2";
 import type { GraphSnapshot } from "../api/types";
+import type { Communities } from "./communities";
 
 /**
  * Deterministic layout.
@@ -13,7 +14,19 @@ import type { GraphSnapshot } from "../api/types";
  * identical requests is unusable as a navigation surface, because the user's
  * spatial memory of it is wrong every time.
  */
-const ITERATIONS = 260;
+/**
+ * Iterations scale down with size, because the one-shot layout runs on the
+ * main thread before the graph can be shown: 400 on a 2,000-node graph blocked
+ * it for well over a second. The community-seeded start (seedPosition) is
+ * already close to the answer, so a large graph needs fewer steps to settle,
+ * and the live worker keeps refining after first paint. A function of the node
+ * count only, so it stays deterministic.
+ */
+export function layoutIterations(order: number): number {
+  if (order > 1000) return 100;
+  if (order > 300) return 200;
+  return 400;
+}
 
 function hash(text: string): number {
   let h = 0x811c9dc5;
@@ -47,19 +60,26 @@ export interface Positions {
   [id: string]: { x: number; y: number };
 }
 
-export function buildGraph(snapshot: GraphSnapshot, positions?: Positions): Graph {
+/**
+ * An edge inside one community pulls this many times harder than an edge
+ * across two. It is what makes clusters read as bodies rather than as a
+ * uniform mesh: the layout and the community colour then say the same thing,
+ * and a bridge concept visibly sits between the groups it connects.
+ */
+export const INTRA_COMMUNITY_WEIGHT = 6;
+
+export function buildGraph(
+  snapshot: GraphSnapshot,
+  positions?: Positions,
+  communities?: Communities,
+): Graph {
   const graph = new Graph({ type: "directed", multi: false });
 
   snapshot.nodes.forEach((node, index) => {
-    const seeded = positions?.[node.id];
-    // The seed spreads nodes over a disc rather than a ring: a ring starts
-    // ForceAtlas2 from a degenerate configuration that takes far more
-    // iterations to resolve.
-    const angle = seededUnit(node.id, 1) * Math.PI * 2;
-    const radius = Math.sqrt(seededUnit(node.id, 2)) * 100 + (index % 7);
+    const seeded = positions?.[node.id] ?? seedPosition(node.id, index, communities);
     graph.addNode(node.id, {
-      x: seeded?.x ?? Math.cos(angle) * radius,
-      y: seeded?.y ?? Math.sin(angle) * radius,
+      x: seeded.x,
+      y: seeded.y,
       size: nodeSize(node.in_degree + node.out_degree),
       degree: node.in_degree + node.out_degree,
       collection: node.collection ?? "",
@@ -67,16 +87,58 @@ export function buildGraph(snapshot: GraphSnapshot, positions?: Positions): Grap
       selfLink: node.self_link ?? false,
       inDegree: node.in_degree,
       outDegree: node.out_degree,
+      community: communities?.rankOf.get(node.id) ?? -1,
     });
   });
 
   for (const edge of snapshot.edges) {
     if (!graph.hasNode(edge.source) || !graph.hasNode(edge.target)) continue;
     if (graph.hasDirectedEdge(edge.source, edge.target)) continue;
-    graph.addDirectedEdge(edge.source, edge.target);
+    const a = communities?.rankOf.get(edge.source);
+    const b = communities?.rankOf.get(edge.target);
+    graph.addDirectedEdge(edge.source, edge.target, {
+      weight: a !== undefined && a === b ? INTRA_COMMUNITY_WEIGHT : 1,
+    });
   }
   return graph;
 }
+
+/**
+ * Where a node starts before ForceAtlas2 runs.
+ *
+ * With communities known, each community starts as a small disc of its own,
+ * the discs laid out on a golden-angle spiral by rank. Starting from one
+ * uniform disc instead, a few hundred iterations are not enough for LinLog to
+ * pull communities apart and the result is an even, colour-speckled mesh --
+ * the "flat" first pass. Everything is derived from the node id and the
+ * community rank, never from Math.random, so the seed stays deterministic.
+ *
+ * Without communities the seed is a disc rather than a ring: a ring starts
+ * ForceAtlas2 from a degenerate configuration that takes far more iterations
+ * to resolve.
+ */
+function seedPosition(
+  id: string,
+  index: number,
+  communities?: Communities,
+): { x: number; y: number } {
+  const angle = seededUnit(id, 1) * Math.PI * 2;
+  const rank = communities?.rankOf.get(id);
+  if (rank === undefined) {
+    const radius = Math.sqrt(seededUnit(id, 2)) * 100 + (index % 7);
+    return { x: Math.cos(angle) * radius, y: Math.sin(angle) * radius };
+  }
+  const size = communities!.list[rank]!.size;
+  const centreAngle = rank * GOLDEN_ANGLE;
+  const centreRadius = 60 * Math.sqrt(rank + 1);
+  const spread = Math.sqrt(size) * 6 * Math.sqrt(seededUnit(id, 2));
+  return {
+    x: Math.cos(centreAngle) * centreRadius + Math.cos(angle) * spread,
+    y: Math.sin(centreAngle) * centreRadius + Math.sin(angle) * spread,
+  };
+}
+
+const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
 
 /**
  * Bounded degree scaling. A hub with 300 links must read as a hub without
@@ -84,21 +146,44 @@ export function buildGraph(snapshot: GraphSnapshot, positions?: Positions): Grap
  * clamped: linear scaling turns one node into the whole canvas.
  */
 export function nodeSize(degree: number): number {
-  return Math.min(4 + Math.sqrt(degree) * 2.4, 18);
+  return Math.min(3 + Math.sqrt(degree) * 2.8, 18);
+}
+
+/**
+ * The force model, shared by the one-shot deterministic layout and the live
+ * worker so a drag re-settles under the same physics the picture was drawn
+ * with -- two different parameter sets make the graph lurch the moment the
+ * worker takes over.
+ *
+ * LinLog mode is what gives the dense, clustered look: attraction grows with
+ * the log of distance, so communities contract into bodies with air between
+ * them instead of spreading into one even disc. Strong gravity keeps
+ * disconnected components from drifting off-screen, which LinLog otherwise
+ * encourages. Edge weights (INTRA_COMMUNITY_WEIGHT) and the community-seeded
+ * start (seedPosition) do the rest.
+ */
+export function layoutSettings(graph: Graph, slowDown = 6) {
+  return {
+    ...forceAtlas2.inferSettings(graph),
+    linLogMode: true,
+    strongGravityMode: true,
+    gravity: 0.3,
+    scalingRatio: 4,
+    edgeWeightInfluence: 1,
+    barnesHutOptimize: graph.order > 300,
+    // Anti-collision: LinLog packs a community tightly, and without this its
+    // members pile onto each other.
+    adjustSizes: true,
+    slowDown,
+  };
 }
 
 export function applyLayout(graph: Graph): Positions {
   if (graph.order === 0) return {};
   if (graph.order > 1) {
     forceAtlas2.assign(graph, {
-      iterations: ITERATIONS,
-      settings: {
-        ...forceAtlas2.inferSettings(graph),
-        barnesHutOptimize: graph.order > 500,
-        adjustSizes: true,
-        gravity: 1.2,
-        slowDown: 8,
-      },
+      iterations: layoutIterations(graph.order),
+      settings: layoutSettings(graph),
     });
   }
   const positions: Positions = {};
@@ -108,7 +193,13 @@ export function applyLayout(graph: Graph): Positions {
   return positions;
 }
 
-const CACHE_PREFIX = "cartographer.layout.";
+/**
+ * Bumped whenever layoutSettings, the seed or the edge weights change: the
+ * cache is keyed by node set, not by physics, so without the version a
+ * returning viewer would keep the old picture forever.
+ */
+export const LAYOUT_VERSION = 2;
+const CACHE_PREFIX = `cartographer.layout.v${LAYOUT_VERSION}.`;
 
 /**
  * Coordinates are cached per fingerprint so a reload does not re-run the

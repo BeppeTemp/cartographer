@@ -50,7 +50,8 @@ Rules to keep the code consistent. New code should resemble the existing code.
 - **Frontend dependencies** (`web/`, D227), pinned by `web/package-lock.json` and
   built only by the `web` CI job: `react`+`react-dom` (UI runtime), `vite`+
   `@vitejs/plugin-react`+`typescript` (build), `sigma`+`graphology`+
-  `graphology-layout-forceatlas2` (the WebGL graph and its force layout —
+  `graphology-layout-forceatlas2`+`graphology-communities-louvain` (the WebGL
+  graph, its force layout and the community colouring —
   chosen over Cytoscape/vis-network for WebGL rendering at two thousand nodes,
   and over bare d3-force for not owning the render loop), `react-markdown`+
   `remark-gfm`+`rehype-sanitize` (concept bodies, with raw HTML disabled),

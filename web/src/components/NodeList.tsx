@@ -16,10 +16,14 @@ export function NodeList({
   nodes,
   selected,
   onSelect,
+  swatchFor = (_id, collection) => collectionVar(collection ?? ""),
 }: {
   nodes: GraphNode[];
   selected: string | null;
   onSelect(id: string): void;
+  /** The node's colour in the graph's active colour mode, as a CSS value, so
+   *  the list and the canvas never disagree about what a colour means. */
+  swatchFor?(id: string, collection: string | undefined): string;
 }) {
   const [sort, setSort] = useState<SortKey>("id");
 
@@ -66,12 +70,13 @@ export function NodeList({
                 type="button"
                 className="nodelist__item"
                 aria-current={node.id === selected ? "true" : undefined}
+                data-concept-id={node.id}
                 onClick={() => onSelect(node.id)}
               >
                 <span
                   className="nodelist__swatch"
                   aria-hidden="true"
-                  style={{ background: collectionVar(node.collection ?? "") }}
+                  style={{ background: swatchFor(node.id, node.collection) }}
                 />
                 <span className="nodelist__id">{node.id}</span>
                 <span className="nodelist__meta">

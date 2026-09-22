@@ -16,14 +16,31 @@ import { CommandPalette } from "./components/CommandPalette";
 import { GraphCanvas } from "./components/GraphCanvas";
 import { Inspector } from "./components/Inspector";
 import { LeftRail } from "./components/LeftRail";
+import { Legend } from "./components/Legend";
+import { Sheet, useMediaQuery } from "./components/Sheet";
 import { NodeList } from "./components/NodeList";
 import { Observatory } from "./components/Observatory";
 import { EmptyState, ErrorState, Skeleton } from "./components/States";
 import { TopBar } from "./components/TopBar";
 import { applyTheme, readTheme, type Theme } from "./lib/theme";
+import { communitySlot, detectCommunities, type Communities } from "./lib/communities";
+import {
+  collectionHue,
+  readColorBy,
+  slotVar,
+  writeColorBy,
+  type ColorBy,
+} from "./lib/palette";
 import { pushView, readViewState, replaceView, type ViewState } from "./lib/viewstate";
 
 type Phase = "booting" | "auth" | "ready";
+type SheetName = "nav" | "inspector" | null;
+
+const NO_COMMUNITIES: Communities = { rankOf: new Map(), list: [] };
+
+/** Below this width the rail and the inspector become modal sheets. Kept in
+ *  step with the max-width: 1023px media queries in the stylesheets. */
+const NARROW_QUERY = "(max-width: 1023px)";
 
 export function App() {
   const [phase, setPhase] = useState<Phase>("booting");
@@ -56,8 +73,17 @@ export function App() {
   const [notice, setNotice] = useState<string>("");
   const [offline, setOffline] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
+  const [colorBy, setColorBy] = useState<ColorBy>(readColorBy);
+  const narrow = useMediaQuery(NARROW_QUERY);
+  const [sheet, setSheet] = useState<SheetName>(null);
 
   useEffect(() => applyTheme(theme), [theme]);
+  useEffect(() => writeColorBy(colorBy), [colorBy]);
+  // Leaving the narrow layout closes any sheet: on a wide screen the panels
+  // are simply there, and a leftover modal would trap focus over them.
+  useEffect(() => {
+    if (!narrow) setSheet(null);
+  }, [narrow]);
 
   /** A 401 anywhere returns to the prompt while keeping the view state: the
    *  user comes back to the concept they were reading, not to a blank atlas. */
@@ -254,6 +280,21 @@ export function App() {
     [snapshot, hiddenIds],
   );
 
+  // Computed on the whole snapshot, not on the filtered view: a filter must
+  // not recolour what remains, or toggling a chip reshuffles every colour.
+  const communities = useMemo(
+    () => (snapshot ? detectCommunities(snapshot) : NO_COMMUNITIES),
+    [snapshot],
+  );
+
+  const swatchFor = useCallback(
+    (id: string, collection: string | undefined) =>
+      slotVar(
+        colorBy === "community" ? communitySlot(communities, id) : collectionHue(collection ?? ""),
+      ),
+    [colorBy, communities],
+  );
+
   // Ctrl/Cmd+K anywhere, Escape to clear the selection.
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -281,9 +322,28 @@ export function App() {
   }, []);
 
   const selectConcept = useCallback(
-    (id: string | null) => navigate({ concept: id }),
-    [navigate],
+    (id: string | null) => {
+      navigate({ concept: id });
+      // On a narrow screen a selection is only visible in its sheet.
+      if (id && narrow) setSheet("inspector");
+    },
+    [navigate, narrow],
   );
+
+  /** Closing the inspector hands focus back to the concept's row in the node
+   *  list, so a keyboard user continues where they were instead of starting
+   *  over from the top of the page. */
+  const closeInspector = useCallback(() => {
+    const id = view.concept;
+    selectConcept(null);
+    setSheet(null);
+    window.requestAnimationFrame(() => {
+      const row = id
+        ? document.querySelector<HTMLElement>(`[data-concept-id="${CSS.escape(id)}"]`)
+        : null;
+      (row ?? document.getElementById("main"))?.focus();
+    });
+  }, [selectConcept, view.concept]);
 
   const expandConcept = useCallback(
     (id: string) => {
@@ -311,9 +371,63 @@ export function App() {
     );
   }
 
+  // The rail, node list and inspector are rendered in place on a wide screen
+  // and inside modal sheets on a narrow one; built once here so the two
+  // layouts cannot drift apart.
+  const rail = (inSheet: boolean) => (
+    <LeftRail
+      overview={overview}
+      snapshot={snapshot}
+      scope={view.scope}
+      panel={view.panel}
+      collapsed={inSheet ? false : railCollapsed}
+      collapsible={!inSheet}
+      typeFilter={typeFilter}
+      statusFilter={statusFilter}
+      onScope={(scope) => {
+        navigate({ scope, concept: null });
+        if (inSheet) setSheet(null);
+      }}
+      onPanel={(panel) => {
+        navigate({ panel });
+        if (inSheet) setSheet(null);
+      }}
+      onToggleCollapsed={() => setRailCollapsed((c) => !c)}
+      onToggleType={(value) => setTypeFilter(toggle(typeFilter, value))}
+      onToggleStatus={(value) => setStatusFilter(toggle(statusFilter, value))}
+      onClearFilters={() => {
+        setTypeFilter(new Set());
+        setStatusFilter(new Set());
+      }}
+    />
+  );
+
+  const nodeList = (
+    <NodeList
+      nodes={visibleNodes}
+      selected={view.concept}
+      onSelect={selectConcept}
+      swatchFor={swatchFor}
+    />
+  );
+
+  const inspector = (
+    <Inspector
+      conceptId={view.concept}
+      concept={concept}
+      error={conceptError}
+      loading={conceptLoading}
+      findings={view.concept ? (findingsByConcept.get(view.concept) ?? []) : []}
+      onNavigate={selectConcept}
+      onPreview={setPreview}
+      onClose={closeInspector}
+    />
+  );
+
   const bodyClass = [
     "shell__body",
     railCollapsed ? "shell__body--rail-collapsed" : "",
+    narrow ? "shell__body--narrow" : "",
     view.panel === "observatory" ? "shell__body--no-inspector" : "",
   ]
     .filter(Boolean)
@@ -329,30 +443,17 @@ export function App() {
         activeKB={activeKB}
         theme={theme}
         offline={offline}
+        narrow={narrow}
+        hasSelection={view.panel === "atlas" && view.concept !== null}
         onKBChange={(name) => navigate({ kb: name, scope: null, concept: null })}
         onThemeChange={setTheme}
         onOpenPalette={() => setPaletteOpen(true)}
+        onOpenNav={() => setSheet("nav")}
+        onOpenInspector={() => setSheet("inspector")}
       />
 
       <div className={bodyClass}>
-        <LeftRail
-          overview={overview}
-          snapshot={snapshot}
-          scope={view.scope}
-          panel={view.panel}
-          collapsed={railCollapsed}
-          typeFilter={typeFilter}
-          statusFilter={statusFilter}
-          onScope={(scope) => navigate({ scope, concept: null })}
-          onPanel={(panel) => navigate({ panel })}
-          onToggleCollapsed={() => setRailCollapsed((c) => !c)}
-          onToggleType={(value) => setTypeFilter(toggle(typeFilter, value))}
-          onToggleStatus={(value) => setStatusFilter(toggle(statusFilter, value))}
-          onClearFilters={() => {
-            setTypeFilter(new Set());
-            setStatusFilter(new Set());
-          }}
-        />
+        {!narrow && rail(false)}
 
         <main id="main" className="main" tabIndex={-1}>
           <p className="sr-only" role="status" aria-live="polite">
@@ -397,6 +498,8 @@ export function App() {
                 kb={activeKB!}
                 scope={view.scope}
                 snapshot={snapshot}
+                communities={communities}
+                colorBy={colorBy}
                 selected={view.concept}
                 highlighted={preview}
                 hiddenIds={hiddenIds}
@@ -404,25 +507,33 @@ export function App() {
                 themeKey={theme}
                 onSelect={selectConcept}
                 onExpand={expandConcept}
-              />
-              <NodeList nodes={visibleNodes} selected={view.concept} onSelect={selectConcept} />
+              >
+                <Legend
+                  snapshot={snapshot}
+                  communities={communities}
+                  colorBy={colorBy}
+                  onColorBy={setColorBy}
+                />
+              </GraphCanvas>
+              {!narrow && nodeList}
             </>
           )}
         </main>
 
-        {view.panel === "atlas" && (
-          <Inspector
-            conceptId={view.concept}
-            concept={concept}
-            error={conceptError}
-            loading={conceptLoading}
-            findings={view.concept ? (findingsByConcept.get(view.concept) ?? []) : []}
-            onNavigate={selectConcept}
-            onPreview={setPreview}
-            onClose={() => selectConcept(null)}
-          />
-        )}
+        {view.panel === "atlas" && !narrow && inspector}
       </div>
+
+      {narrow && sheet === "nav" && (
+        <Sheet side="start" label="Navigation" onClose={() => setSheet(null)}>
+          {rail(true)}
+          {snapshot && view.panel === "atlas" && nodeList}
+        </Sheet>
+      )}
+      {narrow && sheet === "inspector" && view.panel === "atlas" && (
+        <Sheet side="end" label="Inspector" onClose={() => setSheet(null)}>
+          {inspector}
+        </Sheet>
+      )}
 
       <CommandPalette
         open={paletteOpen}

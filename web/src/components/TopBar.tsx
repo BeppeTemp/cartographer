@@ -6,9 +6,15 @@ interface Props {
   activeKB: string | null;
   theme: Theme;
   offline: boolean;
+  /** Below 1,024px: navigation and the inspector live in sheets this bar
+   *  opens. */
+  narrow?: boolean;
+  hasSelection?: boolean;
   onKBChange(name: string): void;
   onThemeChange(theme: Theme): void;
   onOpenPalette(): void;
+  onOpenNav?(): void;
+  onOpenInspector?(): void;
 }
 
 const THEME_GLYPH: Record<Theme, string> = {
@@ -22,14 +28,29 @@ export function TopBar({
   activeKB,
   theme,
   offline,
+  narrow = false,
+  hasSelection = false,
   onKBChange,
   onThemeChange,
   onOpenPalette,
+  onOpenNav,
+  onOpenInspector,
 }: Props) {
   const nextTheme: Record<Theme, Theme> = { dark: "light", light: "system", system: "dark" };
 
   return (
     <header className="topbar">
+      {narrow && (
+        <button
+          type="button"
+          className="button button--icon"
+          onClick={onOpenNav}
+          aria-label="Open navigation"
+          aria-haspopup="dialog"
+        >
+          <span aria-hidden="true">&#9776;</span>
+        </button>
+      )}
       <div className="topbar__brand">
         <span className="topbar__mark" aria-hidden="true" />
         <span className="topbar__name">Cartographer</span>
@@ -61,6 +82,17 @@ export function TopBar({
       </button>
 
       <div className="topbar__end">
+        {narrow && hasSelection && (
+          <button
+            type="button"
+            className="button button--icon"
+            onClick={onOpenInspector}
+            aria-label="Open inspector"
+            aria-haspopup="dialog"
+          >
+            <span aria-hidden="true">&#9432;</span>
+          </button>
+        )}
         <span
           className={`topbar__status topbar__status--${offline ? "offline" : "online"}`}
           role="status"

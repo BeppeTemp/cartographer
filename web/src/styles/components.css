@@ -1119,36 +1119,206 @@
   cursor: not-allowed;
 }
 
-/* --- Narrow layout: the graph stays usable, panels become sheets --- */
+/* --- Legend: what colour means, and the switch between its two meanings --- */
+
+.legend {
+  position: absolute;
+  z-index: 2;
+  inset-block-end: var(--space-4);
+  inset-inline-start: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  max-width: 240px;
+  padding: var(--space-2);
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  background: color-mix(in srgb, var(--surface-1) 82%, transparent);
+  backdrop-filter: blur(12px);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-card);
+  box-shadow: var(--elevation-2);
+}
+
+.legend__switch {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-1);
+  padding: 2px;
+  background: var(--surface-2);
+  border-radius: var(--radius-control);
+}
+
+.legend__option {
+  padding: var(--space-1) var(--space-2);
+  font: inherit;
+  color: var(--text-secondary);
+  cursor: pointer;
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-control);
+  transition:
+    background var(--motion-instant) var(--ease-out),
+    color var(--motion-instant) var(--ease-out);
+}
+
+.legend__option:hover {
+  color: var(--text-primary);
+}
+
+.legend__option[aria-pressed="true"] {
+  color: var(--text-on-primary);
+  background: var(--primary);
+}
+
+.legend__option:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.legend__rows {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0 var(--space-1);
+  list-style: none;
+}
+
+.legend__row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.legend__swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: var(--radius-pill);
+  box-shadow: 0 0 0 2px var(--surface-1);
+}
+
+.legend__swatch--none {
+  background: transparent;
+  border: 1px dashed var(--border-strong);
+}
+
+.legend__label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.legend__count {
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+}
+
+/* --- Sheets: navigation and inspector below 1,024px --- */
+
+.sheet {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+}
+
+.sheet__scrim {
+  position: absolute;
+  inset: 0;
+  background: color-mix(in srgb, var(--surface-0) 64%, transparent);
+  animation: fade-in var(--motion-base) var(--ease-out);
+}
+
+.sheet__panel {
+  position: absolute;
+  inset-block: 0;
+  display: flex;
+  flex-direction: column;
+  width: min(380px, 92vw);
+  overflow-y: auto;
+  background: var(--surface-1);
+  box-shadow: var(--elevation-3);
+  animation: sheet-in-start var(--motion-base) var(--ease-out);
+}
+
+.sheet__panel:focus {
+  outline: none;
+}
+
+.sheet__panel--start {
+  inset-inline-start: 0;
+  border-inline-end: 1px solid var(--border-subtle);
+}
+
+.sheet__panel--end {
+  inset-inline-end: 0;
+  border-inline-start: 1px solid var(--border-subtle);
+  animation-name: sheet-in-end;
+}
+
+.sheet__close {
+  align-self: flex-end;
+  margin: var(--space-2) var(--space-2) 0;
+}
+
+/* Inside a sheet the panels are content, not grid columns: no borders of
+   their own, and the node list scrolls with the sheet. */
+.sheet .rail,
+.sheet .inspector,
+.sheet .nodelist {
+  flex: none;
+  border: 0;
+  overflow: visible;
+}
+
+.sheet .inspector {
+  flex: 1;
+  animation: none;
+}
+
+@keyframes sheet-in-start {
+  from {
+    opacity: 0;
+    transform: translateX(calc(-1 * var(--space-8)));
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes sheet-in-end {
+  from {
+    opacity: 0;
+    transform: translateX(var(--space-8));
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* Reduced motion: the sheet fades, it does not slide (motion spec). */
+@media (prefers-reduced-motion: reduce) {
+  .sheet__panel,
+  .sheet__panel--end {
+    animation-name: fade-in;
+  }
+}
 
 @media (max-width: 1023px) {
-  .rail,
-  .inspector {
-    position: fixed;
-    inset-block: var(--topbar-height) 0;
-    z-index: 40;
-    width: min(360px, 90vw);
-    box-shadow: var(--elevation-3);
-  }
-
-  .rail {
-    inset-inline-start: 0;
-  }
-
-  .inspector {
-    inset-inline-end: 0;
-  }
-
   .main:has(.graph):has(.nodelist) {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .nodelist {
-    display: none;
-  }
-
   .graph__banner {
     inset-inline: var(--space-2);
+  }
+
+  .legend {
+    inset-block-end: var(--space-2);
+    inset-inline-start: var(--space-2);
+    max-width: min(220px, 60vw);
   }
 }
 

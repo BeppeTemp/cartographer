@@ -64,13 +64,15 @@ web-test: ## Run the frontend unit/component tests (needs Node)
 # Vite output is not byte-stable across Node patch releases, so comparing it
 # would fail for reasons unrelated to the change. The manifest is a hash of the
 # sources and is byte-stable, so this catches a manifest edited by hand, while
-# internal/webui's Go test catches sources changed without a rebuild.
-web-check: web ## Clean locked frontend build + provenance check (CI only; needs Node)
+# internal/webui's Go test catches sources changed without a rebuild. The
+# budget script fails the job when the compressed bundle outgrows 700 KiB.
+web-check: web ## Clean locked frontend build + provenance and size-budget checks (CI only; needs Node)
 	@git diff --quiet -- internal/webui/dist/provenance.json || { \
 		echo "web-check: provenance.json does not match the sources it claims."; \
 		git --no-pager diff -- internal/webui/dist/provenance.json; \
 		exit 1; \
 	}
+	@cd web && npm run --silent budget
 	@echo "web-check: OK"
 
 docker: ## Build the Docker image

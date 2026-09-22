@@ -8,6 +8,8 @@ interface Props {
   scope: string | null;
   panel: Panel;
   collapsed: boolean;
+  /** False inside the narrow-layout sheet, which closes instead. */
+  collapsible?: boolean;
   typeFilter: Set<string>;
   statusFilter: Set<string>;
   onScope(scope: string | null): void;
@@ -24,6 +26,7 @@ export function LeftRail({
   scope,
   panel,
   collapsed,
+  collapsible = true,
   typeFilter,
   statusFilter,
   onScope,
@@ -38,15 +41,17 @@ export function LeftRail({
 
   return (
     <nav className={`rail${collapsed ? " rail--collapsed" : ""}`} aria-label="Atlas navigation">
-      <button
-        type="button"
-        className="rail__collapse button button--icon"
-        onClick={onToggleCollapsed}
-        aria-label={collapsed ? "Expand navigation" : "Collapse navigation"}
-        aria-expanded={!collapsed}
-      >
-        <span aria-hidden="true">{collapsed ? "»" : "«"}</span>
-      </button>
+      {collapsible && (
+        <button
+          type="button"
+          className="rail__collapse button button--icon"
+          onClick={onToggleCollapsed}
+          aria-label={collapsed ? "Expand navigation" : "Collapse navigation"}
+          aria-expanded={!collapsed}
+        >
+          <span aria-hidden="true">{collapsed ? "»" : "«"}</span>
+        </button>
+      )}
 
       <ul className="rail__panels">
         <li>

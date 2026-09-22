@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
+import { driftOffset } from "../lib/simulation";
 import {
+  DIM_ALPHA,
+  NEIGHBOUR_LABEL_LIMIT,
   RENDERABLE_EDGE_TYPES,
   RENDERABLE_NODE_TYPES,
   edgeAppearance,
@@ -21,7 +24,7 @@ function node(overrides: Partial<NodeInput> = {}): NodeInput {
   return {
     id: "infra/a",
     baseSize: 8,
-    collectionColor: "#2dd4bf",
+    hueColor: "#2dd4bf",
     expanded: false,
     entry: 1,
     hiddenByFilter: false,
@@ -163,5 +166,64 @@ describe("withAlpha", () => {
     expect(withAlpha("#abc", 0.5)).toBe("rgba(170, 187, 204, 0.5)");
     expect(withAlpha("rebeccapurple", 0.5)).toBe("rebeccapurple");
     expect(withAlpha("", 0.5)).toBe("");
+  });
+});
+
+describe("selection context", () => {
+  it("dims unrelated nodes to the specified 0.25", () => {
+    expect(DIM_ALPHA).toBe(0.25);
+    expect(nodeAppearance(node({ focus: "other" }), palette).color).toBe(
+      withAlpha("#2dd4bf", 0.25),
+    );
+  });
+
+  it("names the focused node's neighbours, unless it is a hub", () => {
+    const few = nodeAppearance(
+      node({ focus: "other", isNeighbourOfFocus: true, focusDegree: 3 }),
+      palette,
+    );
+    expect(few.forceLabel).toBe(true);
+    const many = nodeAppearance(
+      node({ focus: "other", isNeighbourOfFocus: true, focusDegree: NEIGHBOUR_LABEL_LIMIT + 1 }),
+      palette,
+    );
+    expect(many.forceLabel).toBe(false);
+    expect(nodeAppearance(node(), palette).forceLabel).toBe(false);
+  });
+
+  it("brightens the focused node's edges and dims the others to 0.25", () => {
+    const base = { hiddenByFilter: false, edgesVisible: true, focus: "a" };
+    const touching = edgeAppearance({ ...base, source: "x", target: "a" }, palette);
+    expect(touching.color).toBe(palette.edgeActive);
+    expect(touching.zIndex).toBeGreaterThan(0);
+    const other = edgeAppearance({ ...base, source: "c", target: "d", groupColor: "#a78bfa" }, palette);
+    expect(other.color).toBe(withAlpha(palette.edge, DIM_ALPHA));
+  });
+});
+
+describe("edge tint by colour group", () => {
+  it("tints an edge inside one group with its hue, and leaves bridges neutral", () => {
+    const base = { source: "a", target: "b", hiddenByFilter: false, edgesVisible: true, focus: null };
+    const inside = edgeAppearance({ ...base, groupColor: "#a78bfa" }, palette);
+    expect(inside.color).toContain("rgba(167, 139, 250");
+    const bridge = edgeAppearance(base, palette);
+    expect(bridge.color).toBe(palette.edge);
+  });
+});
+
+describe("resting drift", () => {
+  it("moves a community together: members share most of their motion", () => {
+    const t = 4321;
+    const a = driftOffset("infra/a", t, 1, "0");
+    const b = driftOffset("infra/b", t, 1, "0");
+    const loneA = driftOffset("infra/a", t, 1);
+    const loneB = driftOffset("infra/b", t, 1);
+    const together = Math.hypot(a.dx - b.dx, a.dy - b.dy);
+    const apart = Math.hypot(loneA.dx - loneB.dx, loneA.dy - loneB.dy);
+    expect(together).toBeLessThan(apart);
+  });
+
+  it("is a pure function of id, clock and group", () => {
+    expect(driftOffset("x", 1000, 2, "3")).toEqual(driftOffset("x", 1000, 2, "3"));
   });
 });

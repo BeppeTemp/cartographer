@@ -10,10 +10,13 @@
  * extra dependency, so this module never emits one, and a test holds it to it.
  *
  * What encodes what, given that constraint:
- *   - hue        -> collection
+ *   - hue        -> community (lib/communities) or collection, user's choice
  *   - size       -> degree, square-root scaled and clamped
  *   - ring/tint  -> selection, and lint severity
- *   - dimming    -> "not related to what is selected"
+ *   - dimming    -> "not related to what is selected", to 0.25 opacity
+ *   - edge tint  -> an edge inside one colour group takes that group's hue at
+ *                   low alpha; an edge across groups stays neutral, so the
+ *                   bridges between clusters are the lines that stand apart
  * A shape channel would need a node program this UI does not ship.
  */
 
@@ -33,10 +36,19 @@ export interface Palette {
   edgeActive: string;
 }
 
+/** Non-neighbours of the focused node fade to this opacity (plan: 0.25). */
+export const DIM_ALPHA = 0.25;
+/** Resting opacity of an edge tinted by its group's hue. */
+export const GROUP_EDGE_ALPHA = 0.32;
+/** Above this many neighbours, a focused node's neighbours are not all
+ *  labelled: a hub's hundred labels are unreadable and hide the graph. */
+export const NEIGHBOUR_LABEL_LIMIT = 24;
+
 export interface NodeInput {
   id: string;
   baseSize: number;
-  collectionColor: string;
+  /** The node's colour in the active colour mode (community or collection). */
+  hueColor: string;
   expanded: boolean;
   /** "error" | "warning" when lint has something to say about this concept. */
   severity?: string;
@@ -46,6 +58,9 @@ export interface NodeInput {
   /** The concept the view is focused on: selected, previewed or hovered. */
   focus: string | null;
   isNeighbourOfFocus: boolean;
+  /** How many neighbours the focused node has: decides whether they are all
+   *  labelled. */
+  focusDegree?: number;
 }
 
 export interface NodeAppearance {
@@ -56,17 +71,19 @@ export interface NodeAppearance {
   label: string;
   zIndex: number;
   highlighted: boolean;
+  forceLabel: boolean;
 }
 
 export function nodeAppearance(node: NodeInput, palette: Palette): NodeAppearance {
   const base: NodeAppearance = {
     type: "circle",
     hidden: false,
-    color: node.collectionColor,
+    color: node.hueColor,
     size: node.baseSize,
     label: shortLabel(node.id),
     zIndex: 0,
     highlighted: false,
+    forceLabel: false,
   };
 
   if (node.hiddenByFilter || node.entry <= 0) {
@@ -87,11 +104,14 @@ export function nodeAppearance(node: NodeInput, palette: Palette): NodeAppearanc
     return { ...base, color: palette.accent, zIndex: 2, highlighted: true };
   }
   if (node.isNeighbourOfFocus) {
-    return { ...base, zIndex: 1 };
+    // The 1-hop context is named, not just coloured: the point of selecting a
+    // node is to see what it touches.
+    const labelled = (node.focusDegree ?? 0) <= NEIGHBOUR_LABEL_LIMIT;
+    return { ...base, zIndex: 1, forceLabel: labelled };
   }
   // Dimmed, never hidden: a node the user can no longer see is a node they
   // cannot click their way back to.
-  return { ...base, color: withAlpha(base.color, 0.25), label: "" };
+  return { ...base, color: withAlpha(base.color, DIM_ALPHA), label: "" };
 }
 
 export interface EdgeInput {
@@ -102,6 +122,9 @@ export interface EdgeInput {
    *  reads as a tangle resolving rather than a picture forming. */
   edgesVisible: boolean;
   focus: string | null;
+  /** The source node's colour, set only when both ends share a colour group:
+   *  the edge then carries the group's hue instead of the neutral. */
+  groupColor?: string;
 }
 
 export interface EdgeAppearance {
@@ -121,13 +144,19 @@ export function edgeAppearance(edge: EdgeInput, palette: Palette): EdgeAppearanc
   if (touchesFocus) {
     return { type: "arrow", hidden: false, color: palette.edgeActive, size: 2, zIndex: 1 };
   }
-  return {
-    type: "arrow",
-    hidden: false,
-    color: edge.focus ? withAlpha(palette.edge, 0.35) : palette.edge,
-    size: 1,
-    zIndex: 0,
-  };
+  if (edge.focus) {
+    return { type: "arrow", hidden: false, color: withAlpha(palette.edge, DIM_ALPHA), size: 1, zIndex: 0 };
+  }
+  if (edge.groupColor) {
+    return {
+      type: "arrow",
+      hidden: false,
+      color: withAlpha(edge.groupColor, GROUP_EDGE_ALPHA),
+      size: 1.2,
+      zIndex: 0,
+    };
+  }
+  return { type: "arrow", hidden: false, color: palette.edge, size: 1, zIndex: 0 };
 }
 
 export function shortLabel(id: string): string {

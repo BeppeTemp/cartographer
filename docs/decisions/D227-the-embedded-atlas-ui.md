@@ -47,3 +47,19 @@ deterministic — the same KB state seeds the same coordinates — while the
 resting "breath" is written on the graph's coordinates around that base, which
 is kept aside so the cache never bakes one frame of the animation into the
 layout.
+
+**Encoding.** Node colour has two channels the viewer switches between, and
+the choice is remembered: by Map (which collection a concept is filed in) and,
+by default, by community — Louvain over the link graph
+(`graphology-communities-louvain`), which answers "what does this belong with"
+and agrees with what the force layout draws, where a per-Map hue paints a whole
+Map one flat colour. Communities are made deterministic like the layout — the
+input in server order, Louvain seeded and without its random walk, community
+numbers discarded and re-ranked by size then smallest member — because a node
+that changes colour on reload is as disorienting as one that moves. The twelve
+largest communities take the twelve audited hues and the long tail shares one
+neutral slot: thirteen colours cannot be told apart. There is no shape channel:
+stock Sigma registers one node program, and a shape would need a further
+node-program dependency; expanded concepts read as heavier instead. The type
+and status filters need `type` and `status` on each graph node, an additive
+field on D226's snapshot.

@@ -20,10 +20,13 @@
   --border-subtle: #1e2f44;
   --border-strong: #2c445f;
 
-  /* Text. */
+  /* Text. --text-muted is lighter (dark) and darker (light) than the plan's
+     shared #6b8299: at that value muted text failed WCAG AA 4.5:1 on the
+     raised and hover surfaces. test/contrast.test.ts recomputes every audited
+     pair from this file, so a tweak that breaks one fails the build. */
   --text-primary: #e6eef7;
   --text-secondary: #9fb3c8;
-  --text-muted: #6b8299;
+  --text-muted: #8196ad;
   --text-on-primary: #04211f;
   --text-on-accent: #2a1a00;
 
@@ -45,6 +48,11 @@
   --graph-edge: #24384f;
   --graph-edge-active: #2dd4bf;
   --graph-node-stroke: #070d14;
+  /* Community colouring (lib/communities): the twelve largest communities
+     take the hue wheel below in rank order; singletons and the long tail
+     share this quiet neutral, so thirteen near-identical colours never have
+     to be told apart. */
+  --graph-community-other: #5b6f86;
   /* Canvas atmosphere. Two soft light sources and a vignette -- no grid: a
      ruled background turns a force-directed graph into a spreadsheet, and the
      lines compete with the edges at exactly the weights the edges use. */
@@ -135,22 +143,25 @@
 
   --text-primary: #0d1622;
   --text-secondary: #4a5f75;
-  --text-muted: #6b8299;
+  --text-muted: #57697d;
   --text-on-primary: #ffffff;
   --text-on-accent: #ffffff;
 
   --primary: #0f766e;
   --primary-dim: #115e59;
-  --accent: #b45309;
+  /* --accent, --sev-warning and --sev-ok are a shade darker than the plan's
+     values, which fell just under 4.5:1 as text on --surface-2. */
+  --accent: #a84d08;
 
   --sev-error: #b91c1c;
-  --sev-warning: #a16207;
+  --sev-warning: #935a06;
   --sev-info: #1d4ed8;
-  --sev-ok: #15803d;
+  --sev-ok: #137a3a;
 
   --graph-edge: #c3d0de;
   --graph-edge-active: #0f766e;
   --graph-node-stroke: #ffffff;
+  --graph-community-other: #778a9e;
   --graph-glow-a: rgb(13 148 136 / 0.10);
   --graph-glow-b: rgb(99 102 241 / 0.08);
   --graph-vignette: rgb(31 65 102 / 0.07);

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import Sigma from "sigma";
 import type Graph from "graphology";
 import type { GraphSnapshot } from "../api/types";
@@ -10,7 +10,9 @@ import {
   writeCachedPositions,
 } from "../lib/layout";
 import { edgeAppearance, nodeAppearance, type Palette } from "../lib/encoding";
-import { collectionColor, cssVar } from "../lib/palette";
+import { collectionHue, cssVar, resolveSlots, type ColorBy } from "../lib/palette";
+import { OTHER_SLOT, communitySlot, type Communities } from "../lib/communities";
+import { makeHoverDrawer } from "../lib/halo";
 import {
   DRIFT_NODE_LIMIT,
   createSimulation,
@@ -24,6 +26,8 @@ interface Props {
   kb: string;
   scope: string | null;
   snapshot: GraphSnapshot;
+  communities: Communities;
+  colorBy: ColorBy;
   selected: string | null;
   highlighted: string | null;
   hiddenIds: Set<string>;
@@ -31,6 +35,8 @@ interface Props {
   themeKey: string;
   onSelect(id: string | null): void;
   onExpand(id: string): void;
+  /** Overlays drawn over the canvas, such as the legend. */
+  children?: ReactNode;
 }
 
 /** The entry settle, and the share of it spent staggering node arrivals. This
@@ -38,11 +44,24 @@ interface Props {
  *  happens once per graph. */
 const ENTRY_MS = 900;
 const STAGGER = 0.65;
+/** Camera moves at --motion-slow (360ms), as the motion spec asks. Sigma drives
+ *  the camera itself, so the token cannot be read by a transition. */
+const CAMERA_MS = 360;
+/** Nodes are drawn at this share of their layout size. Sizes are screen
+ *  pixels (Sigma's default, growing only with the square root of the zoom),
+ *  so zooming in opens space between nodes; drawn at full layout size, a
+ *  LinLog-packed community at the default zoom reads as one blob. A
+ *  "positions"-referenced size was tried and rejected: Sigma normalises the
+ *  graph to its own frame, so those units are not the layout's, and a zoom
+ *  onto a selection filled the canvas with overlapping discs. */
+const DRAWN_SIZE = 0.6;
 
 export function GraphCanvas({
   kb,
   scope,
   snapshot,
+  communities,
+  colorBy,
   selected,
   highlighted,
   hiddenIds,
@@ -50,6 +69,7 @@ export function GraphCanvas({
   themeKey,
   onSelect,
   onExpand,
+  children,
 }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const sigmaRef = useRef<Sigma | null>(null);
@@ -66,16 +86,42 @@ export function GraphCanvas({
   // Resolved from the CSS custom properties, and re-resolved when the theme
   // changes: a WebGL canvas cannot read a custom property, so these are the
   // one place token values are turned into concrete colours.
-  const palette = useMemo<Palette>(
+  const palette = useMemo<Palette & { slots: string[]; label: string; labelBackground: string; labelBorder: string }>(
     () => ({
       accent: cssVar("--accent") || "#f5b544",
       severityError: cssVar("--sev-error") || "#f87171",
       severityWarning: cssVar("--sev-warning") || "#fbbf24",
       edge: cssVar("--graph-edge") || "#24384f",
       edgeActive: cssVar("--graph-edge-active") || "#2dd4bf",
+      slots: resolveSlots(),
+      label: cssVar("--text-secondary") || "#9fb3c8",
+      labelBackground: cssVar("--surface-1") || "#0d1622",
+      labelBorder: cssVar("--border-strong") || "#2c445f",
     }),
     [themeKey],
   );
+
+  // What each node is coloured by, and which colour group it belongs to (an
+  // edge inside one group takes the group's hue). Recomputed per snapshot and
+  // per colour mode -- never per frame.
+  const colouring = useMemo(() => {
+    const slotOf = new Map<string, number>();
+    const groupOf = new Map<string, string>();
+    for (const node of snapshot.nodes) {
+      if (colorBy === "community") {
+        const slot = communitySlot(communities, node.id);
+        slotOf.set(node.id, slot);
+        // The "other" slot is a colour, not a community: two unrelated
+        // singletons share it and must not look connected.
+        if (slot !== OTHER_SLOT) groupOf.set(node.id, `c${communities.rankOf.get(node.id)}`);
+      } else {
+        const collection = node.collection ?? "";
+        slotOf.set(node.id, collectionHue(collection));
+        groupOf.set(node.id, `m${collection}`);
+      }
+    }
+    return { slotOf, groupOf };
+  }, [snapshot, communities, colorBy]);
   const arrivalDelay = useMemo(() => {
     const ordered = [...snapshot.nodes].sort(
       (a, b) => b.in_degree + b.out_degree - (a.in_degree + a.out_degree),
@@ -105,7 +151,7 @@ export function GraphCanvas({
 
     const fingerprint = snapshotFingerprint(kb, scope, snapshot);
     const cached = readCachedPositions(fingerprint);
-    const graph = buildGraph(snapshot, cached ?? undefined);
+    const graph = buildGraph(snapshot, cached ?? undefined, communities);
     if (!cached) writeCachedPositions(fingerprint, applyLayout(graph));
     graphRef.current = graph;
 
@@ -120,6 +166,9 @@ export function GraphCanvas({
       labelGridCellSize: 64,
       labelRenderedSizeThreshold: 6,
       zIndex: true,
+      // Tighter than the stock zoom, so the wheel moves in steps the eye can
+      // follow instead of jumps.
+      zoomingRatio: 1.4,
     });
     sigmaRef.current = renderer;
 
@@ -127,7 +176,9 @@ export function GraphCanvas({
     simulationRef.current = simulation;
     // A freshly laid-out graph gets one settle; a cached one is already where
     // it belongs and only needs the drift.
-    if (!cached) simulation?.nudge(1800);
+    // Bounded by the entry settle (ENTRY_MS): the motion spec allows one
+    // settle of at most 900ms on first load, not a graph that keeps moving.
+    if (!cached) simulation?.nudge(ENTRY_MS);
 
     const drift =
       !reducedMotion && snapshot.nodes.length <= DRIFT_NODE_LIMIT ? startDrift(graph) : null;
@@ -196,7 +247,7 @@ export function GraphCanvas({
       sigmaRef.current = null;
       graphRef.current = null;
     };
-  }, [kb, scope, snapshot, onSelect, onExpand, reducedMotion]);
+  }, [kb, scope, snapshot, communities, onSelect, onExpand, reducedMotion]);
 
   // The entry stagger. The resting drift is a separate loop that writes
   // coordinates on the graph (see lib/simulation), so it needs no React state
@@ -223,21 +274,33 @@ export function GraphCanvas({
     const renderer = sigmaRef.current;
     if (!renderer) return;
 
+    renderer.setSetting("labelColor", { color: palette.label });
+    renderer.setSetting(
+      "defaultDrawNodeHover",
+      makeHoverDrawer({
+        labelBackground: palette.labelBackground,
+        labelBorder: palette.labelBorder,
+        labelText: cssVar("--text-primary") || "#e6eef7",
+      }),
+    );
+
     const focus = selected ?? highlighted ?? hovered;
     const focusNeighbours = focus ? (neighbours.get(focus) ?? new Set<string>()) : null;
+    const { slotOf, groupOf } = colouring;
     renderer.setSetting("nodeReducer", (id, data) => {
       const delay = arrivalDelay.get(id) ?? 0;
       const appearance = nodeAppearance(
         {
           id,
-          baseSize: data.size as number,
-          collectionColor: collectionColor((data.collection as string) ?? ""),
+          baseSize: (data.size as number) * DRAWN_SIZE,
+          hueColor: palette.slots[slotOf.get(id) ?? OTHER_SLOT]!,
           expanded: Boolean(data.expanded),
           severity: severityByConcept.get(id),
           entry: (entry - delay) / (1 - STAGGER),
           hiddenByFilter: hiddenIds.has(id),
           focus,
           isNeighbourOfFocus: focusNeighbours?.has(id) ?? false,
+          focusDegree: focusNeighbours?.size ?? 0,
         },
         palette,
       );
@@ -249,6 +312,8 @@ export function GraphCanvas({
       const graph = graphRef.current;
       if (!graph) return data;
       const [source, target] = graph.extremities(edge);
+      const group = groupOf.get(source!);
+      const sameGroup = group !== undefined && group === groupOf.get(target!);
       return {
         ...data,
         ...edgeAppearance(
@@ -258,6 +323,7 @@ export function GraphCanvas({
             hiddenByFilter: hiddenIds.has(source!) || hiddenIds.has(target!),
             edgesVisible: entry >= STAGGER,
             focus,
+            groupColor: sameGroup ? palette.slots[slotOf.get(source!) ?? OTHER_SLOT] : undefined,
           },
           palette,
         ),
@@ -275,6 +341,7 @@ export function GraphCanvas({
     entry,
     arrivalDelay,
     palette,
+    colouring,
   ]);
 
   // Selecting a node brings the camera to it. Under reduced motion it jumps:
@@ -289,7 +356,7 @@ export function GraphCanvas({
     const camera = renderer.getCamera();
     const to = { x: position.x, y: position.y, ratio: Math.min(camera.ratio, 0.55) };
     if (reducedMotion) camera.setState(to);
-    else camera.animate(to, { duration: 420, easing: "quadraticInOut" });
+    else camera.animate(to, { duration: CAMERA_MS, easing: "cubicInOut" });
   }, [selected, highlighted, reducedMotion]);
 
   const moveCamera = useCallback(
@@ -297,7 +364,7 @@ export function GraphCanvas({
       const camera = sigmaRef.current?.getCamera();
       if (!camera) return;
       if (reducedMotion) camera.setState(to);
-      else camera.animate(to, { duration, easing: "quadraticInOut" });
+      else camera.animate(to, { duration, easing: "cubicInOut" });
     },
     [reducedMotion],
   );
@@ -305,7 +372,7 @@ export function GraphCanvas({
   const zoom = (factor: number) => {
     const camera = sigmaRef.current?.getCamera();
     if (!camera) return;
-    moveCamera({ ratio: camera.ratio * factor }, 260);
+    moveCamera({ ratio: camera.ratio * factor }, CAMERA_MS);
   };
 
   return (
@@ -336,7 +403,7 @@ export function GraphCanvas({
         <button
           type="button"
           className="button button--icon"
-          onClick={() => moveCamera({ x: 0.5, y: 0.5, ratio: 1, angle: 0 }, 420)}
+          onClick={() => moveCamera({ x: 0.5, y: 0.5, ratio: 1, angle: 0 }, CAMERA_MS)}
           aria-label="Fit graph to view"
         >
           &#9633;
@@ -354,6 +421,7 @@ export function GraphCanvas({
           &#8635;
         </button>
       </div>
+      {children}
       {snapshot.truncated && (
         <div className="graph__banner banner" role="status">
           <span className="banner__glyph" aria-hidden="true">
