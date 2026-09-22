@@ -1453,6 +1453,13 @@
   white-space: nowrap;
 }
 
+/* 3d-force-graph wraps the hover label in its own dark box; the label is
+   already a pill, so the box is only a position. */
+.graph3d .float-tooltip-kap {
+  padding: 0;
+  background: transparent;
+}
+
 .graph3d__label--selected {
   font-family: var(--font-editorial);
   font-size: var(--text-sm);

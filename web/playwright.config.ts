@@ -20,5 +20,9 @@ export default defineConfig({
     ...devices["Desktop Chrome"],
     viewport: { width: 1440, height: 900 },
     trace: "retain-on-failure",
+    // Headless Chromium has no GPU: SwiftShader gives the 3D view a real,
+    // software WebGL context on every runner, so graph3d.spec.ts tests the
+    // shipped renderer rather than its fallback.
+    launchOptions: { args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader"] },
   },
 });

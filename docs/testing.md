@@ -303,7 +303,21 @@ toolchain (D227). What they hold:
 - a complete keyboard path — shell, filters, node list, inspector and back —
   and, at narrow widths, navigation and inspector as modal sheets that trap and
   return focus;
-- the 2,000-node budget fixture (§Atlas UI budgets).
+- the 2,000-node budget fixture (§Atlas UI budgets);
+- the 3D physics, on a headless `d3-force-3d` simulation configured exactly as
+  the view configures `3d-force-graph` (`src/test/physics.test.ts`, D234): a
+  hub drag moves its neighbours more than their neighbours; a leaf drag moves
+  the graph less than a hub drag; a component with no link to the dragged node
+  is nudged by repulsion (<3% of the drag) but never towed; a release far out
+  settles without a jump or a non-finite coordinate; at rest the drift moves
+  nodes by less than 0.5% of the graph's radius per tick at p95, and paused
+  motion dies out; seeding is deterministic;
+- the 3D motion and camera policy (`src/test/motion.test.ts`): the panorama
+  turns only after quiet time with nothing selected; signals run only on the
+  selection's links, in their data direction, within 48 and a finite span;
+  focus centres the node in the strip the inspector leaves visible;
+- the no-WebGL state: the shell names why there is no graph and keeps the
+  list (`graphfirst.test.tsx`).
 
 `make web` rebuilds the committed bundle; `make web-check` does a clean locked
 build and verifies `internal/webui/dist/provenance.json` still matches the
@@ -340,6 +354,31 @@ of a relationship — the inspector lists every link.
 - **Selection feedback**: the same file asserts the inspector skeleton renders
   while the concept request is still pending, so feedback never waits on the
   network.
+
+- **3D view** (D234): `web/scripts/bench3d.mjs`, not in CI. It generates a
+  demo KB (`web/scripts/demo-kb.mjs`: clustered Maps, hubs, orphans, an
+  unlinked component), serves it, opens the 3D view and reports cold and warm
+  load to the first 3D frame, frame time at rest in live mode and while a node
+  is dragged in circles (5 s each, rAF intervals), the JS heap and the GL
+  renderer string. Run it headed on the GPU (`cd web && node
+  scripts/bench3d.mjs 1000,2000 --gpu`); a headless run falls back to
+  SwiftShader and measures software rendering, not the Atlas. Sizes are the
+  ones the UI receives: the graph API serves 2,000 nodes by default and 5,000
+  at most. Target p95 frame < 33 ms.
+
+  Reference run — Apple M5 (8-core GPU), 16 GB, macOS 27.0, Playwright
+  Chromium 1.63, ANGLE Metal, 1,440×900 viewport at device pixel ratio 2
+  (the view caps it at 2, or 1.5 above 1,000 nodes):
+
+  | Concepts | Cold / warm load | Rest p50 / p95 | Drag p50 / p95 | Heap |
+  |---|---|---|---|---|
+  | 1,000 | 1.8 s / 1.3 s | 16.7 / 16.8 ms | 16.7 / 16.8 ms | 80 MB |
+  | 2,000 | 3.1 s / 2.9 s | 16.8 / 33.4 ms | 32.9 / 33.4 ms | 171 MB |
+
+  At 2,000 the drag runs at 30 fps and p95 sits at the 33 ms line: the cost is
+  draw calls — `3d-force-graph` draws one mesh per node and one line per link,
+  with no instancing — not the physics. 5,000 is not reported; the view
+  accepts it (the API's ceiling) without a measured budget.
 
 ### Browser (`make e2e-web`)
 
@@ -378,6 +417,14 @@ What it holds, beyond the component tests:
   entry settle and jumps the camera, where full motion plays and tweens it
   (read from the `data-entry` and `data-camera` attributes the graph exposes
   for this);
+- the 3D view (`graph3d.spec.ts`, on a software WebGL context via SwiftShader,
+  so it tests the shipped renderer rather than its fallback): 3D is the first
+  view on a wide screen and a 2D choice is remembered; a lost WebGL context
+  hands over to 2D; with no WebGL at all the list, search and inspector still
+  work; the Motion toggle is remembered and reduced motion starts it paused;
+  a selection names the selected node and each neighbour once; a hidden tab
+  stops the render loop; `touch-action: none` is on the canvas only. The 2D
+  specs pick 2D through the remembered toggle (`with2D` in `e2e/support.ts`);
 - security: no request leaves the Cartographer origin (any foreign request
   fails the test, it is not allow-listed); the shell's CSP is present and an
   injected inline script and a same-origin `eval` are both refused; the token

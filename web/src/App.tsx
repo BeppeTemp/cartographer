@@ -25,6 +25,7 @@ import { EmptyState, ErrorState, Skeleton } from "./components/States";
 import { TopBar } from "./components/TopBar";
 import { applyTheme, onSystemThemeChange, prefersReducedMotion, readTheme, type Theme } from "./lib/theme";
 import { initialMotion } from "./lib/graph3d/motion";
+import { hasWebGL } from "./lib/webgl";
 import { communitySlot, detectCommunities, type Communities } from "./lib/communities";
 import {
   collectionHue,
@@ -108,6 +109,7 @@ export function App() {
     });
   }, []);
   const fallBackTo2D = useCallback(() => setExplore3d(false), []);
+  const webgl = useMemo(() => hasWebGL(), []);
   // Leaving the narrow layout closes any sheet: on a wide screen the panels
   // are simply there, and a leftover modal would trap focus over them.
   useEffect(() => {
@@ -522,7 +524,17 @@ export function App() {
             />
           ) : (
             <>
-              {explore3d && !narrow ? (
+              {!webgl ? (
+                <div className="graph graph--unavailable">
+                  <div className="state">
+                    <p className="state__title">This browser cannot draw the graph</p>
+                    <p className="state__detail">
+                      The graph needs WebGL, which is turned off or missing here. Every concept is still in
+                      the list and the search, and the inspector shows its links.
+                    </p>
+                  </div>
+                </div>
+              ) : explore3d && !narrow ? (
                 <div className="graph graph--3d">
                   <Graph3D
                     snapshot={snapshot}
@@ -580,6 +592,7 @@ export function App() {
                     Concepts
                     <span className="graph-toolbar__count">{visibleNodes.length}</span>
                   </button>
+                  {webgl && (
                   <div className="graph-toolbar__segmented" role="group" aria-label="Graph view">
                     <button type="button" aria-pressed={!explore3d} onClick={() => setExplore3d(false)}>
                       2D
@@ -588,7 +601,8 @@ export function App() {
                       3D
                     </button>
                   </div>
-                  {explore3d && (
+                  )}
+                  {webgl && explore3d && (
                     <button
                       type="button"
                       className="button graph-toolbar__toggle"

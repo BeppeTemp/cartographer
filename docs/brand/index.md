@@ -43,6 +43,10 @@ Clay is a graphic accent, not a small-text colour. Errors, warnings and success 
 their own semantic tokens; brand green does not mean "OK". Graph categories use the
 dedicated `graphCategories` palette so nodes never read as alerts.
 
+The Atlas UI maps these values onto its own token names in
+`web/src/styles/tokens.css` (D233); graph hues 1–6 must equal
+`graphCategories`, and a test fails when they drift apart.
+
 The full set is in [`cartographer.css`](cartographer.css) (CSS custom properties,
 `data-theme` override on top of `prefers-color-scheme`) and
 [`cartographer.tokens.json`](cartographer.tokens.json) (same values plus graph

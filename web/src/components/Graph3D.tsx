@@ -24,12 +24,16 @@ import { fade } from "../lib/encoding";
 import { collectionHue, cssVar, resolveSlots, type ColorBy } from "../lib/palette";
 import { prefersReducedMotion } from "../lib/theme";
 
-/** The 3D view draws every visible concept up to this many (D234). Above it
- *  the view says so and points at filters and the 2D atlas -- never a silent
- *  sample of the graph. */
-export const MAX_3D_NODES = 10_000;
-/** Above this many nodes spheres are drawn with fewer segments. */
-const LOW_DETAIL_NODES = 2_000;
+/** The 3D view draws every visible concept up to this many (D234): the graph
+ *  API's own ceiling (kb.MaxGraphNodeLimit; the UI asks for the default 2,000,
+ *  and a truncated graph already says so). Above it the view says so and
+ *  points at filters and the 2D atlas -- never a silent sample. */
+export const MAX_3D_NODES = 5_000;
+/** Above this many nodes spheres are drawn with fewer segments and the pixel
+ *  ratio is capped lower: 3d-force-graph draws one mesh per node and one line
+ *  per link, so draw calls and fill rate, not the physics, set the frame time
+ *  (docs/testing.md §Atlas UI budgets). */
+const LOW_DETAIL_NODES = 1_000;
 /** A selected node and its neighbours carry a name, up to this many. */
 const LABEL_LIMIT = 24;
 
@@ -284,7 +288,9 @@ function Scene({
         });
 
         const renderer = graph.renderer();
-        renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+        renderer.setPixelRatio(
+          Math.min(window.devicePixelRatio || 1, snapshot.nodes.length > LOW_DETAIL_NODES ? 1.5 : 2),
+        );
         const canvas = renderer.domElement;
 
         // Gestures. Orbit on the background and drag on a node are distinct

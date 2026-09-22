@@ -488,6 +488,17 @@ script and no eval. `web.enabled: false` registers neither route.
 
 Stdio mode never serves the UI, whatever the setting says.
 
+On a wide screen the Atlas opens in its 3D view, a live force-directed network
+(D234): drag a node and its neighbourhood follows, orbit on the background,
+zoom with the wheel or a pinch. A *Motion* toggle, remembered per browser,
+pauses the drift, the slow panorama and the signals a selection sends along its
+links; `prefers-reduced-motion` starts it paused. The 2D view is one click
+away, is still, and takes over when the WebGL context is lost. The 3D view
+draws up to 5,000 concepts (the graph API's ceiling). A browser without WebGL
+gets the concept list, search and inspector, with a note where the graph would
+be. The UI follows the system's light or dark scheme until the viewer picks one
+(D233).
+
 ### Runtime secrets
 
 Git credentials, MCP tokens, and the age/SOPS key (`SOPS_AGE_KEY_FILE`) are

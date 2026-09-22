@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "../App";
 import { linkWikiLinks } from "../components/Markdown";
 import { stubApi, use2D } from "./fixtures";
+import { hasWebGL } from "../lib/webgl";
 
 vi.mock("sigma", () => import("./sigmaStub"));
 
@@ -33,6 +34,23 @@ describe("graph-first layout", () => {
     expect(three).toHaveAttribute("aria-pressed", "false");
     // The motion toggle belongs to the 3D view only.
     expect(screen.queryByRole("button", { name: "Motion" })).not.toBeInTheDocument();
+  });
+
+  it("without WebGL keeps the list and names why there is no graph", async () => {
+    // Sigma needs WebGL as much as three.js does, and throws on its first
+    // draw: without the up-front check the whole page went to the boundary.
+    vi.mocked(hasWebGL).mockReturnValue(false);
+    try {
+      stubApi();
+      const user = userEvent.setup();
+      render(<App />);
+      expect(await screen.findByText("This browser cannot draw the graph")).toBeInTheDocument();
+      expect(screen.queryByRole("group", { name: "Graph view" })).not.toBeInTheDocument();
+      await user.click(screen.getByRole("button", { name: /^Concepts/ }));
+      expect(await screen.findByRole("region", { name: /concepts in this view/i })).toBeInTheDocument();
+    } finally {
+      vi.mocked(hasWebGL).mockReturnValue(true);
+    }
   });
 
   it("starts with only the graph, and opens panels on demand", async () => {

@@ -1,4 +1,4 @@
-import { LOCAL_URL, conceptRow, expect, listedConcepts, test, waitForAtlas, withPanelsOpen } from "./support";
+import { LOCAL_URL, conceptRow, expect, listedConcepts, test, waitForAtlas, with2D, withPanelsOpen } from "./support";
 
 // The flows a sighted mouse user takes, against the auth-off server. Motion is
 // reduced for the whole file: the assertions are about state, and a camera
@@ -189,6 +189,7 @@ test("the same KB state lays out to the same coordinates", async ({ browser }) =
   for (let run = 0; run < 2; run++) {
     const context = await browser.newContext({ reducedMotion: "reduce" });
     const page = await context.newPage();
+    await with2D(page);
     await page.goto(`${ATLAS}&scope=infra`);
     await waitForAtlas(page);
     const layout = await page.waitForFunction(() => {
