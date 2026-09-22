@@ -20,6 +20,8 @@ exclude_docs: |
 
 theme:
   name: material
+  logo: brand/coordinate-ivory.svg
+  favicon: brand/coordinate-micro-pine.svg
   icon:
     repo: fontawesome/brands/github
   palette:
@@ -53,6 +55,9 @@ markdown_extensions:
   - toc:
       permalink: true
 
+extra_css:
+  - brand/mkdocs.css
+
 plugins:
   - search
 
@@ -80,3 +85,4 @@ nav:
       - Go conventions: conventions.md
       - Testing: testing.md
       - References: references.md
+      - Brand: brand/index.md

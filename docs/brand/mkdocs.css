@@ -1,0 +1,20 @@
+/* Maps the brand tokens (cartographer.css) onto the Material theme of the docs site. */
+[data-md-color-scheme="default"] {
+  --md-primary-fg-color: #365D50;
+  --md-primary-fg-color--light: #4A7466;
+  --md-primary-fg-color--dark: #2A4A3F;
+  --md-accent-fg-color: #B8785D;
+  --md-default-bg-color: #FCFAF6;
+  --md-typeset-a-color: #365D50;
+}
+[data-md-color-scheme="slate"] {
+  --md-primary-fg-color: #222B25;
+  --md-primary-fg-color--light: #2B352D;
+  --md-primary-fg-color--dark: #191F1C;
+  --md-accent-fg-color: #D6A68D;
+  --md-default-bg-color: #191F1C;
+  --md-typeset-a-color: #91B9A0;
+}
+.md-typeset h1, .md-typeset h2, .md-typeset h3, .md-header__topic {
+  font-family: Georgia, serif;
+}
