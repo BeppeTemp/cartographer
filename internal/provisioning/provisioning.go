@@ -1558,8 +1558,7 @@ func KindCounts(m Manifest, lock Lock) map[string]KindCount {
 //   - codex: skill in .codex/skills/<name>/; agent in .codex/agents/<name>.toml
 //     (D58 — content translated into Codex's subagent schema, see
 //     translateAgentForProvider); hook in .codex/hooks/<name>/ — and registered
-//     in the Cartographer-managed block of .codex/config.toml (D58, see
-//     registerHookConfigTOML in hooksettings.go).
+//     in .codex/hooks.json (D230, see registerCodexHook in hooksettings.go).
 //   - kiro: skill materialized as today; agent/hook not supported (no known
 //     destination for this provider) → Unsupported.
 //     To extend: add a case in destDir for the new kind×provider.
@@ -1807,10 +1806,10 @@ func Apply(m Manifest, opts ApplyOptions) (AppliedResult, error) {
 				if a.Kind == "hook" {
 					// Register the hook in the provider's native mechanism
 					// (D137's hookMechanisms table: settings.json D57,
-					// config.toml D58, generated plugin D59), starting from
+					// hooks.json D230, generated plugin D59), starting from
 					// the hook.json just materialized. Best-effort on a
 					// malformed hook.json (see registerHookSettings/
-					// registerHookConfigTOML): doesn't fail materialization.
+					// registerCodexHook): doesn't fail materialization.
 					if mechanism, ok := hookMechanisms[opts.Provider]; ok {
 						pluginRel, warning, regErr := mechanism.register(opts.BaseDir, a.Name, fullDestDir)
 						if regErr != nil {
@@ -2556,8 +2555,8 @@ func pruneEmptyDirs(baseDir, relPath string) {
 //
 // Kind "hook" (D57, extended to codex in D58): besides removing the
 // materialized files, the provider-native registration must be stripped too
-// (settings.json for claude via removeHookEntries, the config.toml block for
-// codex via removeHookConfigTOML) — otherwise a removed/pruned hook would keep
+// (settings.json for claude via removeHookEntries, hooks.json for codex via
+// removeCodexHook) — otherwise a removed/pruned hook would keep
 // firing from a dangling command that no longer exists on disk. A hook can
 // have several ManagedFile entries (hook.json + script(s), same Name): the
 // entry is stripped once per distinct hook name, same dedup pattern as the
@@ -2611,8 +2610,8 @@ func PruneManaged(managed []ManagedFile, baseDir string, dryRun bool) ([]Managed
 						return nil, fmt.Errorf("provisioning: prune entry settings.json hook %s: %w", mf.Name, err)
 					}
 				case "codex":
-					if err := removeHookConfigTOML(baseDir, mf.Name); err != nil {
-						return nil, fmt.Errorf("provisioning: prune entry config.toml hook %s: %w", mf.Name, err)
+					if err := removeCodexHook(baseDir, mf.Name); err != nil {
+						return nil, fmt.Errorf("provisioning: prune entry hooks.json hook %s: %w", mf.Name, err)
 					}
 				case "opencode":
 					if err := removeOpenCodePlugin(baseDir, mf.Name); err != nil {
@@ -2864,7 +2863,7 @@ func ManagedDestinationRoots(provider configurator.Provider, baseDir string) []s
 // Supported providers per kind are the destinationMatrix above; docs/sync.md
 // §Kind × provider renders the same matrix for the reader. On claude/codex,
 // Apply also registers a hook in the provider's own file (D57 settings.json,
-// D58 config.toml — registerHookSettings/registerHookConfigTOML in
+// D230 hooks.json — registerHookSettings/registerCodexHook in
 // hooksettings.go); on opencode it generates a whole plugin JS file instead
 // (D59, registerOpenCodePlugin) when the hook's event has an OpenCode
 // equivalent. All three are idempotent (re-apply never duplicates/drifts) and

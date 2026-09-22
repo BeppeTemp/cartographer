@@ -147,30 +147,35 @@ func TestEnsureBootstrapHook_Codex_MaterializzaERegistra(t *testing.T) {
 		}
 	}
 
-	configPath := filepath.Join(baseDir, ".codex", "config.toml")
-	data, err := os.ReadFile(configPath)
-	if err != nil {
-		t.Fatalf("config.toml not written: %v", err)
+	// Registered in hooks.json (D230), once, however many times it runs.
+	hooksPath := filepath.Join(baseDir, ".codex", "hooks.json")
+	for run := 0; run < 2; run++ {
+		if run == 1 {
+			if _, err := provisioning.EnsureBootstrapHook(baseDir, configurator.ProviderCodex, lock, false); err != nil {
+				t.Fatalf("EnsureBootstrapHook (2): %v", err)
+			}
+		}
+		data, err := os.ReadFile(hooksPath)
+		if err != nil {
+			t.Fatalf("hooks.json not written: %v", err)
+		}
+		if n := strings.Count(string(data), provisioning.BootstrapHookName); n != 1 {
+			t.Errorf("run %d: bootstrap hook named %d times in hooks.json, want 1:\n%s", run, n, data)
+		}
+		var doc map[string]map[string][]interface{}
+		if err := json.Unmarshal(data, &doc); err != nil {
+			t.Fatalf("hooks.json: %v", err)
+		}
+		if n := len(doc["hooks"]["SessionStart"]); n != 1 {
+			t.Errorf("run %d: expected 1 SessionStart group, found %d:\n%s", run, n, data)
+		}
 	}
-	content := string(data)
-	if !strings.Contains(content, "cartographer:hook:"+provisioning.BootstrapHookName+":begin") {
-		t.Errorf("bootstrap block marker missing: %s", content)
-	}
-	if !strings.Contains(content, "[[hooks.SessionStart]]") {
-		t.Errorf("[[hooks.SessionStart]] missing: %s", content)
+	if _, err := os.Stat(filepath.Join(baseDir, ".codex", "config.toml")); !os.IsNotExist(err) {
+		t.Errorf("the bootstrap hook must not touch config.toml: %v", err)
 	}
 
 	if len(lock.Managed) != 2 {
 		t.Fatalf("expected 2 ManagedFile, got %d: %+v", len(lock.Managed), lock.Managed)
-	}
-
-	// Idempotent re-run: a single marker-delimited block in the file.
-	if _, err := provisioning.EnsureBootstrapHook(baseDir, configurator.ProviderCodex, lock, false); err != nil {
-		t.Fatalf("EnsureBootstrapHook (2): %v", err)
-	}
-	data2, _ := os.ReadFile(configPath)
-	if n := strings.Count(string(data2), "[[hooks.SessionStart]]"); n != 1 {
-		t.Errorf("re-run: expected 1 occurrence of [[hooks.SessionStart]], found %d:\n%s", n, data2)
 	}
 }
 
