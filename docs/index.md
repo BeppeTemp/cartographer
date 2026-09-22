@@ -30,6 +30,7 @@ only the pages relevant to your task.
 | [conventions.md](conventions.md) | Go conventions (language, style, errors, data-plane safety, tests, dependencies) |
 | [testing.md](testing.md) | Deterministic unit, smoke and end-to-end strategy plus release checks |
 | [references.md](references.md) | Bibliography (Karpathy, OKF, MCP spec, SOPS, agentskills.io) |
+| [brand/index.md](brand/index.md) | Mark, palette tokens, typography and voice; the brand assets live beside it in `docs/brand/` |
 
 ## Project state
 
@@ -82,3 +83,4 @@ matching file **in the same session/PR** as the change:
 | What an agent client reads (instruction file, skill/agent/hook/MCP paths) | The provider matrix in `internal/provisioning` **first** (`registry.go`, `workspacescope.go`), then `CONTRIBUTING.md` §Working with an agent client — a test fails if the two disagree |
 | User-facing install/onboarding flow | `getting-started.md` + README |
 | Agent-driven install/onboarding flow | `agent-install.md` + README |
+| Logo, banner, palette or typography | `brand/` assets + tokens, then `brand/index.md` |

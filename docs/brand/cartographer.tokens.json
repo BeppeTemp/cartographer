@@ -1,0 +1,101 @@
+{
+  "version": "0.2",
+  "themes": {
+    "light": {
+      "background": "#F5F2EB",
+      "surface": "#FCFAF6",
+      "text": "#252824",
+      "text-muted": "#646960",
+      "border": "#DCDDD5",
+      "control-border": "#858A80",
+      "accent": "#365D50",
+      "on-accent": "#FCFAF6",
+      "accent-soft": "#E3EAE1",
+      "focus": "#365D50",
+      "success": "#365D50",
+      "warning": "#805B18",
+      "danger": "#A13F3B",
+      "info": "#496B87"
+    },
+    "dark": {
+      "background": "#191F1C",
+      "surface": "#222B25",
+      "text": "#EEEDE5",
+      "text-muted": "#AFB9AE",
+      "border": "#3B473E",
+      "control-border": "#7D8C7D",
+      "accent": "#91B9A0",
+      "on-accent": "#191F1C",
+      "accent-soft": "#303F34",
+      "focus": "#B5D6BD",
+      "success": "#91B9A0",
+      "warning": "#DDB56F",
+      "danger": "#E9A199",
+      "info": "#A3BCD4"
+    }
+  },
+  "graphCategories": {
+    "light": [
+      "#365D50",
+      "#966C50",
+      "#586F86",
+      "#7C688A",
+      "#827538",
+      "#487D75"
+    ],
+    "dark": [
+      "#9DC6AA",
+      "#BF977D",
+      "#91ACBE",
+      "#B1A8BE",
+      "#BDB587",
+      "#79A59D"
+    ]
+  },
+  "spacing": [
+    4,
+    8,
+    12,
+    16,
+    24,
+    32,
+    48
+  ],
+  "radius": {
+    "small": 4,
+    "control": 6,
+    "panel": 10
+  },
+  "motionMs": {
+    "hover": 120,
+    "selection": 200,
+    "panel": 220,
+    "cameraFocus": 750,
+    "signalBurst": 2500
+  },
+  "typography": {
+    "ui": "system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif",
+    "editorial": "Georgia, serif",
+    "code": "ui-monospace, SFMono-Regular, Consolas, monospace",
+    "presentationTitle": "Georgia",
+    "presentationBody": "Arial"
+  },
+  "expressive": {
+    "light": {
+      "surface-sand": "#E9E8DE",
+      "clay-text": "#8C5237"
+    },
+    "dark": {
+      "surface-forest": "#2B352D",
+      "clay-text": "#D6A68D"
+    }
+  },
+  "graphInteraction": {
+    "drag": "spring-network",
+    "pinch": true,
+    "ambientDrift": true,
+    "orbitDegreesPerSecond": 2,
+    "prototypeNodes": 240,
+    "prototypeRepulsion": "O(n^2), not for production scale"
+  }
+}

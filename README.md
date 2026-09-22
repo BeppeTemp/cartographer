@@ -1,11 +1,8 @@
-```
- ██████╗ █████╗ ██████╗ ████████╗ ██████╗  ██████╗ ██████╗  █████╗ ██████╗ ██╗  ██╗███████╗██████╗
-██╔════╝██╔══██╗██╔══██╗╚══██╔══╝██╔═══██╗██╔════╝ ██╔══██╗██╔══██╗██╔══██╗██║  ██║██╔════╝██╔══██╗
-██║     ███████║██████╔╝   ██║   ██║   ██║██║  ███╗██████╔╝███████║██████╔╝███████║█████╗  ██████╔╝
-██║     ██╔══██║██╔══██╗   ██║   ██║   ██║██║   ██║██╔══██╗██╔══██║██╔═══╝ ██╔══██║██╔══╝  ██╔══██╗
-╚██████╗██║  ██║██║  ██║   ██║   ╚██████╔╝╚██████╔╝██║  ██║██║  ██║██║     ██║  ██║███████╗██║  ██║
- ╚═════╝╚═╝  ╚═╝╚═╝  ╚═╝   ╚═╝    ╚═════╝  ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝╚═╝     ╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝
-```
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/brand/banner-dark.png">
+  <source media="(prefers-color-scheme: light)" srcset="docs/brand/banner-light.png">
+  <img alt="Cartographer — Give knowledge a sense of place." src="docs/brand/banner-light.png" width="100%">
+</picture>
 
 > MCP governance server in **Go** for the *Agentic Wiki* — knowledge that **composes**, not that you query.
 
