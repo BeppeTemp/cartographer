@@ -57,7 +57,12 @@ export function setToken(value: string | null, remember = false): void {
   }
 }
 
+/** Picks up a token remembered for this tab. An in-memory token wins: the
+ *  boot after a sign-in without "remember" runs this too, and replacing the
+ *  token just typed with an empty tab store signed every such user straight
+ *  back out (D228). */
 export function restoreToken(): string | null {
+  if (token) return token;
   try {
     token = sessionStorage.getItem(SESSION_KEY);
   } catch {

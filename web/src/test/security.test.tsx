@@ -86,6 +86,14 @@ describe("the bearer token", () => {
     expect(restoreToken()).toBeNull();
   });
 
+  it("keeps a token typed without 'remember' across the boot that follows sign-in", () => {
+    // The sign-in reboots the app, and the boot calls restoreToken: an empty
+    // tab store must not erase the token that was just entered.
+    setToken("secret-token");
+    expect(restoreToken()).toBe("secret-token");
+    expect(hasToken()).toBe(true);
+  });
+
   it("travels in the Authorization header, never in the URL", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(JSON.stringify({ kbs: [] }), {

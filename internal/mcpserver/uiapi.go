@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	gopath "path"
 	"sort"
 	"strconv"
 	"strings"
@@ -491,14 +492,29 @@ func uiVisibleFindings(ctx requestContext, k *kb.KB, scope string) ([]lint.Findi
 
 // uiFindingConcept maps a finding's path back to the concept id it belongs to,
 // honouring the expanded form ("map/concept/index.md" → "map/concept").
-// Returns "" when the path is not a concept file.
+// Returns "" when the path is not a concept file -- including a map's own
+// index.md, log.md or descriptor: "infra/index.md" is the map's curated index,
+// not a concept "infra", and naming one sent the Observatory to a concept that
+// does not exist instead of saying there is no node to reveal (D228).
 func uiFindingConcept(path string) string {
 	p := strings.ReplaceAll(path, "\\", "/")
 	if !strings.HasSuffix(p, ".md") {
 		return ""
 	}
-	if strings.HasSuffix(p, "/index.md") {
-		return strings.TrimSuffix(p, "/index.md")
+	switch gopath.Base(p) {
+	case "log.md", "_map.md", "_archive.md":
+		return ""
+	}
+	if p == "index.md" {
+		return ""
+	}
+	if id, ok := strings.CutSuffix(p, "/index.md"); ok {
+		// An expanded concept is <map>/<concept>/index.md; one segment before
+		// index.md is a map, whose index is not a concept.
+		if !strings.Contains(id, "/") {
+			return ""
+		}
+		return id
 	}
 	return strings.TrimSuffix(p, ".md")
 }
