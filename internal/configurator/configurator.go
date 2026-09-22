@@ -544,10 +544,10 @@ func emitClaudeCodeServer(name string, spec ServerSpec) (*EmitResult, error) {
 // config.toml that holds the [mcp_servers.<name>] entry (D58). config.toml is
 // hand-curated (comments, ordering, unrelated sections) so it is never
 // parsed/re-serialized as TOML — only this marker-delimited slice is ever
-// touched, via internal/blocktext. A hook's own registration (see
-// internal/provisioning/hooksettings.go, registerHookConfigTOML) lives in the
-// same file under its own "cartographer:hook:<name>:*" markers — distinct
-// text, no collision.
+// touched, via internal/blocktext. Hooks are registered in hooks.json instead
+// (D230, internal/provisioning/hooksettings.go); a pre-D230 client left them
+// here under their own "cartographer:hook:<name>:*" markers, which only the
+// migration there still reads.
 const (
 	codexMCPBlockBegin = "# cartographer:mcp:begin — block managed by Cartographer, do not edit by hand"
 	codexMCPBlockEnd   = "# cartographer:mcp:end"

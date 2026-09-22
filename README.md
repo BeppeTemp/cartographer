@@ -126,7 +126,7 @@ That single command writes, per client and in the format that client expects:
 | **Instructions** | block in `~/.claude/CLAUDE.md` | block in `~/.config/opencode/AGENTS.md` | block in `~/.codex/AGENTS.md` | `~/.kiro/steering/cartographer.md` | block in `~/.gemini/GEMINI.md` | block in `~/.config/crush/CRUSH.md` | — |
 | **Skills** | `~/.claude/skills/` | `~/.opencode/skills/` | `~/.codex/skills/` | `~/.kiro/skills/` | `~/.gemini/config/skills/` | `~/.config/crush/skills/` | delivered to its inbox |
 | **Subagents** | `~/.claude/agents/*.md` | `~/.opencode/agent/*.md` | `~/.codex/agents/*.toml` | `~/.kiro/agents/*.json` | `~/.gemini/config/agents/*.md` | — | — |
-| **Hooks** | `~/.claude/hooks/`, registered in `settings.json` | `~/.opencode/hooks/`, run by a generated JS plugin | `~/.codex/hooks/`, registered in `config.toml` | — | `~/.gemini/config/hooks/`, registered in `hooks.json` | — | — |
+| **Hooks** | `~/.claude/hooks/`, registered in `settings.json` | `~/.opencode/hooks/`, run by a generated JS plugin | `~/.codex/hooks/`, registered in `hooks.json` | — | `~/.gemini/config/hooks/`, registered in `hooks.json` | — | — |
 | **Re-sync trigger** | `SessionStart` hook | `SessionStart` hook | `SessionStart` hook | scheduled timer | scheduled timer | scheduled timer | scheduled timer |
 
 Subagents and hooks are **translated**, not copied: the same KB artifact becomes a Markdown agent

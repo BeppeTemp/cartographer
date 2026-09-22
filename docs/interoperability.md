@@ -90,7 +90,7 @@ the citation lives next to it in `internal/provisioning/workspacescope.go`.
 | Provider | Project-local scope | Source |
 |---|---|---|
 | Claude Code | `.claude/skills/`, `.claude/agents/`, `.claude/hooks/`, `.mcp.json`, `./CLAUDE.md` | [skills](https://code.claude.com/docs/en/skills), [memory](https://code.claude.com/docs/en/memory), [sub-agents](https://code.claude.com/docs/en/sub-agents), [hooks](https://code.claude.com/docs/en/hooks), [mcp](https://code.claude.com/docs/en/mcp) |
-| Codex | `.agents/skills`, `.codex/agents`, `.codex/hooks`, `.codex/config.toml`, `AGENTS.md` | [skills](https://developers.openai.com/codex/skills), [subagents](https://developers.openai.com/codex/subagents), [hooks](https://developers.openai.com/codex/hooks), [mcp](https://developers.openai.com/codex/mcp) |
+| Codex | `.agents/skills`, `.codex/agents`, `.codex/hooks`, `.codex/hooks.json`, `.codex/config.toml`, `AGENTS.md` | [skills](https://developers.openai.com/codex/skills), [subagents](https://developers.openai.com/codex/subagents), [hooks](https://developers.openai.com/codex/hooks), [mcp](https://developers.openai.com/codex/mcp) |
 | Kiro | `.kiro/skills/`, `.kiro/agents/`, `.kiro/steering/`, `.kiro/settings/mcp.json` | [skills](https://kiro.dev/docs/skills/), [custom agents](https://kiro.dev/docs/custom-agents/) |
 | OpenCode | `.opencode/skills`, `.opencode/agent`, `.opencode/hooks`, `opencode.json`, `AGENTS.md` | [skills](https://opencode.ai/docs/skills), [rules](https://opencode.ai/docs/rules), [agents](https://opencode.ai/docs/agents), [plugins](https://opencode.ai/docs/plugins) |
 | Hermes | **none** | its configuration is rendered by its own Ansible role and skills go to one inbox (D141) |

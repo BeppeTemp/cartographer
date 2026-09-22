@@ -35,7 +35,7 @@ const BootstrapHookName = "cartographer-bootstrap"
 
 // bootstrapHookJSON renders the hook.json content the bootstrap hook's directory
 // is materialized with — same shape KB hooks use (readHookSpec/hookSpec), so
-// registerHookSettings/registerHookConfigTOML/registerOpenCodePlugin work on it
+// registerHookSettings/registerCodexHook/registerOpenCodePlugin work on it
 // completely unmodified. SessionStart has no matcher semantics in any of the three
 // engines, so Matcher is left empty.
 func bootstrapHookJSON() []byte {
@@ -178,8 +178,8 @@ func EnsureBootstrapHook(baseDir string, provider configurator.Provider, lock Lo
 }
 
 // hookMechanism describes how a provider registers a materialized hook in its
-// own configuration (D137): claude patches settings.json (D57), codex a
-// marker-delimited block in config.toml (D58), opencode generates a plugin JS
+// own configuration (D137): claude patches settings.json (D57), codex its
+// hooks.json (D230), opencode generates a plugin JS
 // file that *is* the registration (D59). A provider absent from
 // hookMechanisms has no hook mechanism at all — kiro, whose "hook" cell in
 // destinationMatrix is unsupported, so nothing reaches here for it.
@@ -224,11 +224,11 @@ var hookMechanisms = map[configurator.Provider]hookMechanism{
 		},
 	},
 	configurator.ProviderCodex: {
-		settingsFile: []string{".codex", "config.toml"},
+		settingsFile: []string{".codex", "hooks.json"},
 		register: func(baseDir, name, fullDestDir string) (string, string, error) {
-			warning, err := registerHookConfigTOML(baseDir, name, fullDestDir)
+			warning, err := registerCodexHook(baseDir, name, fullDestDir)
 			if err != nil {
-				return "", "", fmt.Errorf("provisioning: register hook %s in config.toml: %w", name, err)
+				return "", "", fmt.Errorf("provisioning: register hook %s in hooks.json: %w", name, err)
 			}
 			return "", warning, nil
 		},
