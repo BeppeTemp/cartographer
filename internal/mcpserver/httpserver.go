@@ -11,6 +11,7 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/audit"
 	"github.com/BeppeTemp/cartographer/internal/auth"
+	"github.com/BeppeTemp/cartographer/internal/webui"
 )
 
 // HTTPHandler returns an http.Handler that serves MCP over Streamable HTTP.
@@ -255,6 +256,24 @@ type MultiKBServer struct {
 	// order, used to decide whether `kb` may be omitted and to name them in
 	// the error when it may not.
 	routedNames []string
+	// web gates the read-only UI surface (D226/D227). Nil -- the default, and
+	// what stdio mode always leaves it as -- means neither /ui/ nor
+	// /api/ui/v1 is routed and both fall through to 404, restoring exactly the
+	// HTTP surface that existed before the UI.
+	web *webMount
+}
+
+// webMount is the UI surface a server may expose. Static may be nil: the JSON
+// API is useful on its own, and the handler tests mount it without a bundle.
+type webMount struct {
+	Static http.Handler
+}
+
+// EnableWeb turns on the read-only UI surface: the JSON API at /api/ui/v1 and,
+// when static is non-nil, the embedded bundle at /ui/ with / redirecting to
+// it. Called by the HTTP server when web.enabled is on; never in stdio mode.
+func (m *MultiKBServer) EnableWeb(static http.Handler) {
+	m.web = &webMount{Static: static}
 }
 
 // readiness folds every mounted KB's audit state into one verdict, and returns
@@ -532,9 +551,25 @@ func (m *MultiKBServer) Handler() http.Handler {
 		// The read-only UI API (D226). It sits inside the same auth chain as
 		// /mcp and below every endpoint above, so a KB named "api" keeps its
 		// own /mcp/<name> route and nothing here shadows /health or the OAuth
-		// metadata.
-		case r.URL.Path == UIAPIPrefix || strings.HasPrefix(r.URL.Path, UIAPIPrefix+"/"):
+		// metadata. Absent when the UI is disabled: the path then 404s like
+		// any other unknown one, with no hint that it could have existed.
+		case m.web != nil && (r.URL.Path == UIAPIPrefix || strings.HasPrefix(r.URL.Path, UIAPIPrefix+"/")):
 			m.handleUIAPI(w, r)
+			return
+
+		// The embedded UI (D227). The SPA owns everything below /ui/ and
+		// nothing outside it, which is what stops the client-routing fallback
+		// from swallowing /mcp, /health, /ready, /clients or /api.
+		case m.web != nil && m.web.Static != nil && strings.HasPrefix(r.URL.Path, webui.MountPath):
+			m.web.Static.ServeHTTP(w, r)
+			return
+
+		// /ui without its trailing slash is a permanent redirect, so a
+		// bookmark ends up on the canonical path. "/" is handled outside the
+		// auth chain by webui.RedirectRoot, because a browser reaching the
+		// bare address has no token yet.
+		case m.web != nil && m.web.Static != nil && r.URL.Path == "/ui":
+			http.Redirect(w, r, webui.MountPath, http.StatusMovedPermanently)
 			return
 
 		default:

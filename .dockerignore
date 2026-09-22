@@ -1,0 +1,4 @@
+# The frontend's install tree: the Go build never needs it, because the UI it
+# embeds is the committed bundle in internal/webui/dist (D227) — which must
+# never be listed here (test/install/goreleaser_guard.sh checks).
+web/node_modules
