@@ -28,7 +28,7 @@ for (const viewport of [
 
     test("shell and graph view", async ({ page }) => {
       await page.goto(ATLAS);
-      await expect(page.locator("[data-testid=graph-canvas]")).toBeVisible();
+      await expect(page.locator("[data-testid=graph-view] canvas").first()).toBeVisible();
       expect(await seriousViolations(page)).toEqual([]);
     });
 
@@ -104,52 +104,31 @@ test.describe("keyboard only", () => {
 });
 
 test.describe("reduced motion", () => {
-  // Every value data-entry takes, from the first frame on.
-  const recordEntry = () => {
-    const seen: string[] = [];
-    (window as unknown as { __entry: string[] }).__entry = seen;
-    new MutationObserver((records) => {
-      for (const r of records) {
-        const value = (r.target as HTMLElement).getAttribute("data-entry");
-        if (value) seen.push(value);
-      }
-    }).observe(document, { attributes: true, attributeFilter: ["data-entry"], subtree: true });
-    document.addEventListener("DOMContentLoaded", () => {
-      const el = document.querySelector("[data-entry]");
-      if (el) seen.push(el.getAttribute("data-entry")!);
-    });
-  };
-
   async function run(page: Page) {
     await withPanelsOpen(page);
-    await page.addInitScript(recordEntry);
     await page.goto(`${ATLAS}&scope=infra`);
     await waitForAtlas(page);
-    await expect(page.locator(".graph")).toHaveAttribute("data-entry", "settled");
     await conceptRow(page, "infra/gateway").click();
     await expect(page.getByRole("complementary", { name: "Inspector for infra/gateway" })).toBeVisible();
     return {
-      motion: await page.locator(".graph").getAttribute("data-motion"),
-      entries: await page.evaluate(() => (window as unknown as { __entry: string[] }).__entry),
-      camera: await page.locator("[data-testid=graph-canvas]").getAttribute("data-camera"),
+      motion: await page.locator("[data-testid=graph-view]").getAttribute("data-motion"),
+      toggle: await page.getByRole("button", { name: "Motion" }).getAttribute("aria-pressed"),
     };
   }
 
-  test("skips the entry settle and jumps the camera", async ({ browser }) => {
+  test("starts the graph still", async ({ browser }) => {
     const context = await browser.newContext({ reducedMotion: "reduce" });
     const result = await run(await context.newPage());
     await context.close();
-    expect(result.motion).toBe("reduced");
-    expect(result.entries).not.toContain("settling");
-    expect(result.camera).toBe("jump");
+    expect(result.motion).toBe("still");
+    expect(result.toggle).toBe("false");
   });
 
-  test("without the preference, the settle plays and the camera tweens", async ({ browser }) => {
+  test("without the preference, the graph is live", async ({ browser }) => {
     const context = await browser.newContext({ reducedMotion: "no-preference" });
     const result = await run(await context.newPage());
     await context.close();
-    expect(result.motion).toBe("full");
-    expect(result.entries).toContain("settling");
-    expect(result.camera).toBe("tween");
+    expect(result.motion).toBe("live");
+    expect(result.toggle).toBe("true");
   });
 });

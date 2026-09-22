@@ -5,9 +5,11 @@ import { fade } from "../lib/encoding";
 import type { Pose } from "../lib/graph3d/camera";
 import { planBursts } from "../lib/graph3d/motion";
 import { seedPosition } from "../lib/graph3d/physics";
-import type { LivingScene, SceneLink, SceneNode } from "../lib/graph3d/scene";
+import type { LivingScene, SceneLink, SceneMode, SceneNode } from "../lib/graph3d/scene";
 import { collectionHue, cssVar, resolveSlots, type ColorBy } from "../lib/palette";
 import { prefersReducedMotion } from "../lib/theme";
+import type { ReactNode } from "react";
+import { Icon } from "./Icon";
 
 /** The 3D view draws every visible concept up to this many (D234): the graph
  *  API's own ceiling (kb.MaxGraphNodeLimit; the UI asks for the default 2,000,
@@ -17,11 +19,25 @@ export const MAX_3D_NODES = 5_000;
 /** A selected node and its best-connected neighbours carry a name, up to
  *  this many: enough to read the neighbourhood, few enough not to cover it. */
 const LABEL_LIMIT = 12;
+/** The flat map names this many landmarks when nothing is selected. */
+const LANDMARKS = 10;
 /** How much of its hue a node outside the selection keeps. */
 const RECEDED = 0.32;
 
 interface Props {
+  /** "3d" orbits a network in depth; "2d" lays the same network flat, seen
+   *  from above, and lets its nodes be dragged. Same look, same physics. */
+  mode: SceneMode;
   snapshot: GraphSnapshot;
+  /** A concept to point at without selecting it (a link hovered in the
+   *  reading panel). */
+  highlighted?: string | null;
+  /** Worst lint severity per concept: such nodes take the severity colour. */
+  severityByConcept?: Map<string, string>;
+  /** A double click on a node. */
+  onExpand?(id: string): void;
+  /** Overlays drawn over the canvas (the legend). */
+  children?: ReactNode;
   communities: Communities;
   colorBy: ColorBy;
   selected: string | null;
@@ -41,7 +57,7 @@ interface Props {
 const endpoint = (end: string | SceneNode) => (typeof end === "object" ? end.id : end);
 
 /**
- * The 3D atlas: a living, elastic network (D234).
+ * The atlas's graph, in 3D or 2D: a living, elastic network (D234).
  *
  * Pull a node and its links stretch, its neighbours follow and the motion
  * travels through the rest of its component; let go and it settles. At rest
@@ -58,7 +74,7 @@ const endpoint = (end: string | SceneNode) => (typeof end === "object" ? end.id 
  * three.js is a separate chunk loaded on first use, never part of the initial
  * bundle.
  */
-export function Graph3D(props: Props) {
+export function GraphView(props: Props) {
   const { snapshot, hiddenIds } = props;
   const visibleCount = useMemo(
     () => snapshot.nodes.reduce((n, node) => n + (hiddenIds.has(node.id) ? 0 : 1), 0),
@@ -67,18 +83,23 @@ export function Graph3D(props: Props) {
   if (visibleCount > MAX_3D_NODES) {
     return (
       <div className="state">
-        <p className="state__title">Too many concepts for the 3D view</p>
+        <p className="state__title">Too many concepts to draw</p>
         <p className="state__detail">
           It draws up to {MAX_3D_NODES.toLocaleString("en")} concepts and {visibleCount.toLocaleString("en")} are
-          visible. Narrow them with the filters, or read the graph in 2D.
+          visible. Narrow them with the filters.
         </p>
       </div>
     );
   }
-  return <View {...props} />;
+  return <View {...props} key={props.mode} />;
 }
 
 function View({
+  mode,
+  highlighted = null,
+  severityByConcept,
+  onExpand,
+  children,
   snapshot,
   communities,
   colorBy,
@@ -101,6 +122,8 @@ function View({
   // the parent must never rebuild it.
   const onSelectRef = useRef(onSelect);
   onSelectRef.current = onSelect;
+  const onExpandRef = useRef(onExpand);
+  onExpandRef.current = onExpand;
   const onUnavailableRef = useRef(onUnavailable);
   onUnavailableRef.current = onUnavailable;
   const liveRef = useRef(live);
@@ -121,11 +144,11 @@ function View({
         {
           id: n.id,
           weight: Math.sqrt((n.in_degree + n.out_degree) / max),
-          ...seedPosition(n.id, snapshot.nodes.length),
+          ...seedPosition(n.id, snapshot.nodes.length, mode === "2d" ? 2 : 3),
         },
       ]),
     );
-  }, [snapshot]);
+  }, [snapshot, mode]);
 
   // Build the scene once per snapshot.
   useEffect(() => {
@@ -140,6 +163,7 @@ function View({
           container,
           {
             onSelect: (id) => onSelectRef.current(id),
+            onExpand: (id) => onExpandRef.current?.(id),
             onHover: (id, x, y) => {
               const tip = tooltipRef.current;
               if (!tip) return;
@@ -154,7 +178,7 @@ function View({
               onUnavailableRef.current?.();
             },
           },
-          { live: liveRef.current, reducedMotion },
+          { live: liveRef.current, reducedMotion, mode },
         );
         sceneRef.current = scene;
         setReady((n) => n + 1);
@@ -175,7 +199,7 @@ function View({
       sceneRef.current?.dispose();
       sceneRef.current = null;
     };
-  }, [snapshot, reducedMotion]);
+  }, [snapshot, reducedMotion, mode]);
 
   // The visible set.
   useEffect(() => {
@@ -199,6 +223,8 @@ function View({
     if (!scene) return;
     const slots = resolveSlots();
     const canvas = cssVar("--surface-0");
+    const sevError = cssVar("--sev-error");
+    const sevWarning = cssVar("--sev-warning");
     const near = new Set<string>();
     if (selected) {
       near.add(selected);
@@ -207,7 +233,13 @@ function View({
     const colours = snapshot.nodes
       .filter((n) => !hiddenIds.has(n.id))
       .map((n) => {
-        const base = slots[colorBy === "community" ? communitySlot(communities, n.id) : collectionHue(n.collection ?? "")]!;
+        const severity = severityByConcept?.get(n.id);
+        const base =
+          severity === "error"
+            ? sevError
+            : severity === "warning"
+              ? sevWarning
+              : slots[colorBy === "community" ? communitySlot(communities, n.id) : collectionHue(n.collection ?? "")]!;
         return !selected || near.has(n.id) ? base : fade(base, RECEDED, canvas);
       });
     scene.setColours(colours, {
@@ -217,7 +249,7 @@ function View({
       signal: cssVar("--graph-signal"),
       ring: cssVar("--graph-ring"),
     });
-  }, [ready, snapshot, hiddenIds, colorBy, communities, themeKey, selected]);
+  }, [ready, snapshot, hiddenIds, colorBy, communities, themeKey, selected, severityByConcept]);
 
   // Motion on or off.
   useEffect(() => {
@@ -234,7 +266,14 @@ function View({
     if (!node) {
       scene.unfocus(savedPose.current);
       savedPose.current = null;
-      return;
+      // The flat map names its landmarks at rest -- the best-connected
+      // concepts -- as a map names its cities. The 3D overview stays unnamed.
+      if (mode !== "2d") return;
+      const landmarks = [...nodes.values()]
+        .filter((n) => !hiddenIds.has(n.id) && scene.nodeById(n.id))
+        .sort((a, b) => b.weight - a.weight)
+        .slice(0, LANDMARKS);
+      return placeLabels(scene, layer, landmarks, null);
     }
     scene.focus(node.id, occludedRef.current, () => {
       if (!savedPose.current) savedPose.current = scene.pose();
@@ -248,27 +287,30 @@ function View({
     const byDegree = [...scene.neighboursOf(node.id)].sort(
       (a, b) => scene.neighboursOf(b.id).length - scene.neighboursOf(a.id).length,
     );
-    const named = [node, ...byDegree].slice(0, LABEL_LIMIT);
-    const els = named.map((n) => {
-      const el = document.createElement("span");
-      el.className = n === node ? "graph3d__label graph3d__label--selected" : "graph3d__label";
-      el.textContent = shortId(n.id);
-      layer.appendChild(el);
-      return el;
-    });
-    scene.afterFrame = () => {
-      named.forEach((n, i) => {
-        const at = scene.project(n);
-        const el = els[i]!;
-        el.hidden = !at;
-        if (at) el.style.transform = `translate(-50%, -100%) translate(${Math.round(at.x)}px, ${Math.round(at.y - 9)}px)`;
-      });
+    return placeLabels(scene, layer, [node, ...byDegree].slice(0, LABEL_LIMIT), node);
+  }, [ready, selected, reducedMotion, mode, hiddenIds, nodes]);
+
+  // The hovered link's node, named where it is.
+  useEffect(() => {
+    const scene = sceneRef.current;
+    const layer = labelsRef.current;
+    const node = highlighted ? scene?.nodeById(highlighted) : undefined;
+    if (!scene || !layer || !node) return;
+    const el = document.createElement("span");
+    el.className = "graph3d__label graph3d__label--selected graph3d__label--preview";
+    el.textContent = node.id;
+    layer.appendChild(el);
+    const place = () => {
+      const at = scene.project(node);
+      el.hidden = !at;
+      if (at) el.style.transform = `translate(-50%, -100%) translate(${Math.round(at.x)}px, ${Math.round(at.y - 9)}px)`;
     };
+    scene.frameListeners.add(place);
     return () => {
-      scene.afterFrame = null;
-      els.forEach((el) => el.remove());
+      scene.frameListeners.delete(place);
+      el.remove();
     };
-  }, [ready, selected, reducedMotion]);
+  }, [ready, highlighted]);
 
   if (failed) {
     return (
@@ -278,12 +320,79 @@ function View({
       </div>
     );
   }
+  const scene = () => sceneRef.current;
   return (
-    <div ref={containerRef} className="graph3d" data-testid="graph-3d">
-      <div ref={labelsRef} className="graph3d__labels" aria-hidden="true" />
-      <span ref={tooltipRef} className="graph3d__label graph3d__tooltip" aria-hidden="true" hidden />
+    <div
+      className="graph graph--view"
+      data-testid="graph-view"
+      data-mode={mode}
+      data-motion={live && !reducedMotion ? "live" : "still"}
+    >
+      <div ref={containerRef} className="graph3d">
+        <div ref={labelsRef} className="graph3d__labels" aria-hidden="true" />
+        <span ref={tooltipRef} className="graph3d__label graph3d__tooltip" aria-hidden="true" hidden />
+      </div>
+      <div className="graph__controls" role="group" aria-label="Graph camera">
+        <button type="button" className="button button--icon" onClick={() => scene()?.zoomBy(1 / 1.35)} aria-label="Zoom in">
+          <Icon name="plus" size={16} />
+        </button>
+        <button type="button" className="button button--icon" onClick={() => scene()?.zoomBy(1.35)} aria-label="Zoom out">
+          <Icon name="minus" size={16} />
+        </button>
+        <button type="button" className="button button--icon" onClick={() => scene()?.frameAll()} aria-label="Fit graph to view">
+          <Icon name="fit" size={16} />
+        </button>
+        {mode === "2d" && (
+          <button
+            type="button"
+            className="button button--icon"
+            onClick={() => scene()?.relax()}
+            aria-label="Relax layout"
+            title="Relax layout"
+          >
+            <Icon name="relax" size={16} />
+          </button>
+        )}
+      </div>
+      {children}
+      {snapshot.truncated && (
+        <div className="graph__banner banner" role="status">
+          <span className="banner__glyph">
+            <Icon name="info" size={16} />
+          </span>
+          <span>
+            Showing {snapshot.nodes.length} of {snapshot.total_nodes} concepts. This graph is truncated &mdash; narrow it
+            by Map, type or status to see a complete picture.
+          </span>
+        </div>
+      )}
     </div>
   );
+}
+
+/** Names `named` on the label layer, following them every frame; returns the
+ *  cleanup. The selected node's name is set in the editorial voice. */
+function placeLabels(scene: LivingScene, layer: HTMLElement, named: SceneNode[], selected: SceneNode | null) {
+  const els = named.map((n) => {
+    const el = document.createElement("span");
+    el.className = n === selected ? "graph3d__label graph3d__label--selected" : "graph3d__label";
+    el.textContent = shortId(n.id);
+    layer.appendChild(el);
+    return el;
+  });
+  const place = () => {
+    named.forEach((n, i) => {
+      const at = scene.project(n);
+      const el = els[i]!;
+      el.hidden = !at;
+      if (at) el.style.transform = `translate(-50%, -100%) translate(${Math.round(at.x)}px, ${Math.round(at.y - 9)}px)`;
+    });
+  };
+  scene.frameListeners.add(place);
+  return () => {
+    scene.frameListeners.delete(place);
+    els.forEach((el) => el.remove());
+  };
 }
 
 function shortId(id: string): string {

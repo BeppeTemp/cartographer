@@ -4,7 +4,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "../App";
 import { stubApi, openPanels } from "./fixtures";
 
-vi.mock("sigma", () => import("./sigmaStub"));
 
 /**
  * The shell as a keyboard user and a narrow screen meet it (WP1 acceptance).

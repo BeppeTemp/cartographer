@@ -50,7 +50,7 @@ export { expect };
 /** The shell is up and the graph for the current view has rendered. */
 export async function waitForAtlas(page: Page): Promise<void> {
   await expect(page.getByRole("navigation", { name: "Atlas navigation" })).toBeVisible();
-  await expect(page.locator("[data-testid=graph-canvas]")).toBeVisible();
+  await expect(page.locator("[data-testid=graph-view] canvas").first()).toBeVisible();
 }
 
 /** The ids the node list offers: the accessible mirror of the canvas. */
@@ -87,8 +87,8 @@ export async function withPanelsOpen(page: Page): Promise<void> {
 }
 
 /**
- * The flows, auth and a11y specs walk the 2D atlas (its canvas, its layout
- * cache, its camera attributes). 3D is the default view since D234, so they
+ * The flows, auth and a11y specs walk the flat (2D) view, which loads faster
+ * and has no autonomous panorama. 3D is the default view since D234, so they
  * pick 2D the way a viewer does -- the remembered toggle. graph3d.spec.ts
  * covers the 3D view and the default itself.
  */

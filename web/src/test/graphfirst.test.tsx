@@ -5,8 +5,8 @@ import { App } from "../App";
 import { linkWikiLinks } from "../components/Markdown";
 import { stubApi, use2D } from "./fixtures";
 import { hasWebGL } from "../lib/webgl";
+import { sceneStub } from "./sceneStub";
 
-vi.mock("sigma", () => import("./sigmaStub"));
 
 /**
  * The graph is the page: navigation and the node list start folded away and
@@ -22,18 +22,22 @@ describe("graph-first layout", () => {
   });
   afterEach(() => vi.unstubAllGlobals());
 
-  it("opens in 3D and falls back to the 2D atlas without WebGL", async () => {
-    // jsdom has no WebGL: the real 3D chunk loads, three.js fails to get a
-    // context, and the view hands over to 2D instead of leaving a dead canvas.
+  it("opens in 3D and falls back to the 2D atlas when 3D cannot start", async () => {
+    // The 3D scene fails to get a context; the view hands over to 2D instead
+    // of leaving a dead canvas.
     localStorage.removeItem("cartographer.panel.3d");
-    stubApi();
-    render(<App />);
-    const view = await screen.findByRole("group", { name: "Graph view" });
-    const [two, three] = within(view).getAllByRole("button");
-    await waitFor(() => expect(two).toHaveAttribute("aria-pressed", "true"), { timeout: 5000 });
-    expect(three).toHaveAttribute("aria-pressed", "false");
-    // The motion toggle belongs to the 3D view only.
-    expect(screen.queryByRole("button", { name: "Motion" })).not.toBeInTheDocument();
+    sceneStub.failModes.add("3d");
+    try {
+      stubApi();
+      render(<App />);
+      const view = await screen.findByRole("group", { name: "Graph view" });
+      const [two, three] = within(view).getAllByRole("button");
+      await waitFor(() => expect(two).toHaveAttribute("aria-pressed", "true"), { timeout: 5000 });
+      expect(three).toHaveAttribute("aria-pressed", "false");
+      await waitFor(() => expect(document.querySelector("[data-testid=graph-view]")).toHaveAttribute("data-mode", "2d"));
+    } finally {
+      sceneStub.failModes.clear();
+    }
   });
 
   it("without WebGL keeps the list and names why there is no graph", async () => {

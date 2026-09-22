@@ -1,4 +1,4 @@
-import { LOCAL_URL, conceptRow, expect, listedConcepts, test, waitForAtlas, with2D, withPanelsOpen } from "./support";
+import { LOCAL_URL, conceptRow, expect, listedConcepts, test, waitForAtlas, withPanelsOpen } from "./support";
 
 // The flows a sighted mouse user takes, against the auth-off server. Motion is
 // reduced for the whole file: the assertions are about state, and a camera
@@ -180,25 +180,4 @@ test("an unreachable server is named, not blank", async ({ page }) => {
   await expect(page.getByRole("main").getByRole("alert")).toContainText("Server unreachable");
   await expect(page.getByRole("status").filter({ hasText: "Disconnected" })).toBeVisible();
   await expect(page.getByRole("navigation", { name: "Atlas navigation" })).toBeVisible();
-});
-
-test("the same KB state lays out to the same coordinates", async ({ browser }) => {
-  // Two fresh contexts: nothing cached, so each layout is computed from
-  // scratch by the shipped bundle and only the seed can make them agree.
-  const layouts: string[] = [];
-  for (let run = 0; run < 2; run++) {
-    const context = await browser.newContext({ reducedMotion: "reduce" });
-    const page = await context.newPage();
-    await with2D(page);
-    await page.goto(`${ATLAS}&scope=infra`);
-    await waitForAtlas(page);
-    const layout = await page.waitForFunction(() => {
-      const key = Object.keys(localStorage).find((k) => k.startsWith("cartographer.layout."));
-      return key ? `${key}=${localStorage.getItem(key)}` : null;
-    });
-    layouts.push((await layout.jsonValue()) as string);
-    await context.close();
-  }
-  expect(layouts[0]).toContain('"infra/gateway"');
-  expect(layouts[1]).toBe(layouts[0]);
 });

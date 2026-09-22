@@ -1,0 +1,10 @@
+import { chromium } from "@playwright/test";
+const [url, out, scheme, rail] = process.argv.slice(2);
+const browser = await chromium.launch({ args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
+const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, colorScheme: scheme });
+await ctx.addInitScript((r) => { localStorage.setItem("cartographer.panel.rail", r); }, rail);
+const page = await ctx.newPage();
+await page.goto(url);
+await page.waitForTimeout(5000);
+await page.screenshot({ path: out });
+await browser.close();

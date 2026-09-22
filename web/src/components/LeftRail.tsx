@@ -1,6 +1,7 @@
 import type { GraphSnapshot, Overview } from "../api/types";
 import type { Panel } from "../lib/viewstate";
 import { collectionVar } from "../lib/palette";
+import { Icon } from "./Icon";
 
 interface Props {
   overview: Overview | null;
@@ -49,7 +50,7 @@ export function LeftRail({
           aria-label={collapsed ? "Expand navigation" : "Collapse navigation"}
           aria-expanded={!collapsed}
         >
-          <span aria-hidden="true">{collapsed ? "»" : "«"}</span>
+          <Icon name={collapsed ? "panel-open" : "panel-close"} />
         </button>
       )}
 
@@ -63,8 +64,8 @@ export function LeftRail({
             aria-current={panel === "atlas" ? "page" : undefined}
             onClick={() => onPanel("atlas")}
           >
-            <span className="rail__glyph" aria-hidden="true">
-              &#9673;
+            <span className="rail__glyph">
+              <Icon name="atlas" />
             </span>
             <span className="rail__label">Atlas</span>
           </button>
@@ -78,8 +79,8 @@ export function LeftRail({
             aria-current={panel === "observatory" ? "page" : undefined}
             onClick={() => onPanel("observatory")}
           >
-            <span className="rail__glyph" aria-hidden="true">
-              &#9678;
+            <span className="rail__glyph">
+              <Icon name="observatory" />
             </span>
             <span className="rail__label">Observatory</span>
             {lintTotal > 0 && <span className="rail__badge">{lintTotal}</span>}

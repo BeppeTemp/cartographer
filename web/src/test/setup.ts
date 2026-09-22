@@ -70,12 +70,12 @@ for (const name of ["localStorage", "sessionStorage"] as const) {
   }
 }
 
-// @sigma/node-border builds WebGL programs at import time, and jsdom has no
-// WebGL. Sigma itself is stubbed per test file; its border program is stubbed
-// here for all of them, since every shell test pulls it in through GraphCanvas.
-vi.mock("@sigma/node-border", () => ({ createNodeBorderProgram: () => class {} }));
 
 // jsdom has no WebGL, and both graph views are stubbed or expected to fail
 // on their own terms; the shell's up-front check (lib/webgl) is told WebGL is
 // there, and the one test of the no-WebGL state flips it.
 vi.mock("../lib/webgl", () => ({ hasWebGL: vi.fn(() => true) }));
+
+// jsdom has no WebGL: the graph view's scene is a stub (sceneStub.ts), so
+// the shell tests exercise everything but the drawing.
+vi.mock("../lib/graph3d/scene", () => import("./sceneStub"));

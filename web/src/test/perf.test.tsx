@@ -3,15 +3,14 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "../App";
 import { detectCommunities } from "../lib/communities";
-import { applyLayout, buildGraph } from "../lib/layout";
+import { forceLink, forceManyBody, forceSimulation } from "d3-force-3d";
+import { configureForces, drift, seedPosition, type PhysicsNode } from "../lib/graph3d/physics";
 import { generateSnapshot, json, stubApi, openPanels } from "./fixtures";
-
-vi.mock("sigma", () => import("./sigmaStub"));
 
 /**
  * The 2,000-node budget fixture (docs/testing.md §Atlas UI budgets).
  *
- * The client-side pipeline -- communities plus the deterministic layout --
+ * The client-side pipeline -- communities plus the simulation's warm-up --
  * runs synchronously on first view of a graph, so its cost is paid before the
  * canvas can show anything. Ceilings here are generous on purpose: they catch
  * an order-of-magnitude regression (an O(n^2) pass, a lost Barnes-Hut) on any
@@ -26,17 +25,26 @@ describe("2,000-node budget fixture", () => {
     expect(FIXTURE.edges.length).toBeGreaterThan(2000);
   });
 
-  it("detects communities and lays the graph out within budget", () => {
+  it("detects communities and warms the simulation up within budget", () => {
     const started = performance.now();
-    const communities = detectCommunities(FIXTURE);
+    detectCommunities(FIXTURE);
     const detected = performance.now();
-    applyLayout(buildGraph(FIXTURE, undefined, communities));
-    const laid = performance.now();
+    // The graph view's warm-up for this size (GraphView: 600,000 / n ticks,
+    // clamped to 80..300), on the view's own force configuration.
+    const nodes: PhysicsNode[] = FIXTURE.nodes.map((n) => ({ id: n.id, ...seedPosition(n.id, FIXTURE.nodes.length) }));
+    const links = FIXTURE.edges.map((e) => ({ source: e.source, target: e.target }));
+    const sim = forceSimulation<PhysicsNode>(nodes, 3)
+      .force("link", forceLink<PhysicsNode, (typeof links)[number]>(links).id((n) => n.id))
+      .force("charge", forceManyBody<PhysicsNode>())
+      .stop();
+    configureForces((name, ...rest: unknown[]) => (rest.length ? sim.force(name, rest[0] as never) : sim.force(name)), drift<PhysicsNode>());
+    sim.tick(300);
+    const warmed = performance.now();
     console.info(
-      `budget: communities ${(detected - started).toFixed(0)}ms, layout ${(laid - detected).toFixed(0)}ms for 2,000 nodes / ${FIXTURE.edges.length} edges`,
+      `budget: communities ${(detected - started).toFixed(0)}ms, warm-up ${(warmed - detected).toFixed(0)}ms for 2,000 nodes / ${FIXTURE.edges.length} edges`,
     );
     expect(detected - started).toBeLessThan(1000);
-    expect(laid - detected).toBeLessThan(2000);
+    expect(warmed - detected).toBeLessThan(4000);
   });
 
   describe("selection feedback", () => {

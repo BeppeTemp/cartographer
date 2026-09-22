@@ -76,3 +76,17 @@ describe("theme", () => {
     }
   });
 });
+
+describe("useAppliedTheme", () => {
+  it("follows the data-theme attribute, after it changes", async () => {
+    const { renderHook, act, waitFor } = await import("@testing-library/react");
+    const { useAppliedTheme } = await import("../lib/theme");
+    document.documentElement.dataset.theme = "dark";
+    const { result } = renderHook(() => useAppliedTheme());
+    expect(result.current).toBe("dark");
+    act(() => {
+      document.documentElement.dataset.theme = "light";
+    });
+    await waitFor(() => expect(result.current).toBe("light"));
+  });
+});

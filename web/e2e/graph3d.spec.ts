@@ -11,29 +11,39 @@ const ATLAS = `${LOCAL_URL}/ui/?kb=atlas`;
 async function open3D(page: Page, url = ATLAS): Promise<void> {
   await page.addInitScript(() => localStorage.setItem("cartographer.panel.list", "1"));
   await page.goto(url);
-  await expect(page.locator("[data-testid=graph-3d] canvas").first()).toBeVisible();
+  await expect(page.locator('[data-testid=graph-view][data-mode="3d"] canvas').first()).toBeVisible();
 }
 
 const viewGroup = (page: Page) => page.getByRole("group", { name: "Graph view" });
 
 test("a lost WebGL context hands over to the 2D atlas", async ({ page }) => {
   await open3D(page);
-  await page.locator("[data-testid=graph-3d] canvas").first().evaluate((canvas) => {
+  await page.locator('[data-testid=graph-view][data-mode="3d"] canvas').first().evaluate((canvas) => {
     const gl = (canvas as HTMLCanvasElement).getContext("webgl2") ?? (canvas as HTMLCanvasElement).getContext("webgl");
     gl?.getExtension("WEBGL_lose_context")?.loseContext();
   });
   await expect(viewGroup(page).getByRole("button", { name: "2D" })).toHaveAttribute("aria-pressed", "true");
-  await expect(page.locator("[data-testid=graph-canvas]")).toBeVisible();
+  await expect(page.locator('[data-testid=graph-view][data-mode="2d"]')).toBeVisible();
+});
+
+test("the flat view is the same living network, and its nodes can be dragged", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("cartographer.panel.3d", "0"));
+  await page.goto(ATLAS);
+  const view = page.locator('[data-testid=graph-view][data-mode="2d"]');
+  await expect(view.locator("canvas").first()).toBeVisible();
+  await expect(view).toHaveAttribute("data-motion", "live");
+  // The landmarks of the flat map are named at rest.
+  await expect(view.locator(".graph3d__label").first()).toBeVisible();
 });
 
 test("3D is the first view on a wide screen, and 2D is remembered", async ({ page }) => {
   await open3D(page);
   await expect(viewGroup(page).getByRole("button", { name: "3D" })).toHaveAttribute("aria-pressed", "true");
   await viewGroup(page).getByRole("button", { name: "2D" }).click();
-  await expect(page.locator("[data-testid=graph-canvas]")).toBeVisible();
+  await expect(page.locator('[data-testid=graph-view][data-mode="2d"]')).toBeVisible();
   await page.reload();
-  await expect(page.locator("[data-testid=graph-canvas]")).toBeVisible();
-  await expect(page.locator("[data-testid=graph-3d]")).toHaveCount(0);
+  await expect(page.locator('[data-testid=graph-view][data-mode="2d"]')).toBeVisible();
+  await expect(page.locator('[data-testid=graph-view][data-mode="3d"]')).toHaveCount(0);
 });
 
 test("without WebGL the list, search and inspector still work", async ({ page }) => {
@@ -121,7 +131,7 @@ test("a hidden tab stops the render loop", async ({ page }) => {
 test("the page stays scrollable around the canvas; gestures stay on it", async ({ page }) => {
   await open3D(page);
   const touchAction = await page
-    .locator("[data-testid=graph-3d] canvas")
+    .locator('[data-testid=graph-view][data-mode="3d"] canvas')
     .first()
     .evaluate((el) => getComputedStyle(el).touchAction);
   expect(touchAction).toBe("none");

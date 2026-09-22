@@ -1,3 +1,5 @@
+import { useEffect, useState } from "react";
+
 export type Theme = "dark" | "light" | "system";
 
 const STORAGE_KEY = "cartographer.theme";
@@ -49,4 +51,24 @@ export function systemTheme(): "dark" | "light" {
  */
 export function prefersReducedMotion(): boolean {
   return window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+}
+
+/**
+ * useAppliedTheme is the theme the page is painted in right now -- the
+ * data-theme attribute, observed. Canvas views resolve their colours from CSS
+ * custom properties, so they must re-read them after the attribute changes;
+ * keying them on the stored choice ("system", "light", ...) re-read them
+ * before it did, because a child's effects run before the parent effect that
+ * applies the theme. The WebGL graph then kept the old theme's canvas colour.
+ */
+export function useAppliedTheme(): "light" | "dark" {
+  const read = () => (document.documentElement.dataset.theme === "light" ? "light" : "dark");
+  const [applied, setApplied] = useState<"light" | "dark">(read);
+  useEffect(() => {
+    const observer = new MutationObserver(() => setApplied(read()));
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+    setApplied(read());
+    return () => observer.disconnect();
+  }, []);
+  return applied;
 }

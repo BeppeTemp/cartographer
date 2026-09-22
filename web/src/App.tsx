@@ -13,8 +13,7 @@ import {
 import type { Concept, GraphSnapshot, KBSummary, LintReport, Overview } from "./api/types";
 import { AuthPrompt } from "./components/AuthPrompt";
 import { CommandPalette } from "./components/CommandPalette";
-import { GraphCanvas } from "./components/GraphCanvas";
-import { Graph3D } from "./components/Graph3D";
+import { GraphView } from "./components/GraphView";
 import { Inspector } from "./components/Inspector";
 import { LeftRail } from "./components/LeftRail";
 import { Legend } from "./components/Legend";
@@ -22,8 +21,9 @@ import { Sheet, useMediaQuery } from "./components/Sheet";
 import { NodeList } from "./components/NodeList";
 import { Observatory } from "./components/Observatory";
 import { EmptyState, ErrorState, Skeleton } from "./components/States";
+import { Icon } from "./components/Icon";
 import { TopBar } from "./components/TopBar";
-import { applyTheme, onSystemThemeChange, prefersReducedMotion, readTheme, type Theme } from "./lib/theme";
+import { applyTheme, onSystemThemeChange, prefersReducedMotion, readTheme, useAppliedTheme, type Theme } from "./lib/theme";
 import { initialMotion } from "./lib/graph3d/motion";
 import { hasWebGL } from "./lib/webgl";
 import { communitySlot, detectCommunities, type Communities } from "./lib/communities";
@@ -115,6 +115,11 @@ export function App() {
   }, []);
   const fallBackTo2D = useCallback(() => setExplore3d(false), []);
   const webgl = useMemo(() => hasWebGL(), []);
+  // Both views draw with WebGL: if the 2D one loses its context too, the
+  // page says so and keeps the list, as it does without WebGL at all.
+  const [webglLost, setWebglLost] = useState(false);
+  const markWebglLost = useCallback(() => setWebglLost(true), []);
+  const appliedTheme = useAppliedTheme();
   // Leaving the narrow layout closes any sheet: on a wide screen the panels
   // are simply there, and a leftover modal would trap focus over them.
   useEffect(() => {
@@ -529,7 +534,7 @@ export function App() {
             />
           ) : (
             <>
-              {!webgl ? (
+              {!webgl || webglLost ? (
                 <div className="graph graph--unavailable">
                   <div className="state">
                     <p className="state__title">This browser cannot draw the graph</p>
@@ -539,42 +544,22 @@ export function App() {
                     </p>
                   </div>
                 </div>
-              ) : explore3d && !narrow ? (
-                <div className="graph graph--3d">
-                  <Graph3D
-                    snapshot={snapshot}
-                    communities={communities}
-                    colorBy={colorBy}
-                    selected={view.concept}
-                    hiddenIds={hiddenIds}
-                    themeKey={theme}
-                    live={motion}
-                    occludedRight={view.concept ? INSPECTOR_OCCLUSION : 0}
-                    onSelect={selectConcept}
-                    onUnavailable={fallBackTo2D}
-                  />
-                <Legend
-                  snapshot={snapshot}
-                  communities={communities}
-                  colorBy={colorBy}
-                  onColorBy={setColorBy}
-                />
-                </div>
               ) : (
-                <GraphCanvas
-                  kb={activeKB!}
-                  scope={view.scope}
+                <GraphView
+                  mode={explore3d && !narrow ? "3d" : "2d"}
                   snapshot={snapshot}
                   communities={communities}
                   colorBy={colorBy}
                   selected={view.concept}
-                  highlighted={preview}
                   hiddenIds={hiddenIds}
+                  highlighted={preview}
                   severityByConcept={severityByConcept}
-                  themeKey={theme}
+                  themeKey={appliedTheme}
+                  live={motion}
+                  occludedRight={!narrow && view.concept ? INSPECTOR_OCCLUSION : 0}
                   onSelect={selectConcept}
                   onExpand={expandConcept}
-                  occludedRight={!narrow && view.concept ? INSPECTOR_OCCLUSION : 0}
+                  onUnavailable={explore3d && !narrow ? fallBackTo2D : markWebglLost}
                 >
                   <Legend
                     snapshot={snapshot}
@@ -582,7 +567,7 @@ export function App() {
                     colorBy={colorBy}
                     onColorBy={setColorBy}
                   />
-                </GraphCanvas>
+                </GraphView>
               )}
               {!narrow && (
                 <div className="graph-toolbar">
@@ -593,7 +578,7 @@ export function App() {
                     aria-controls="concept-list"
                     onClick={() => setListOpen((open) => !open)}
                   >
-                    <span aria-hidden="true">&#9776;</span>
+                    <Icon name="list" />
                     Concepts
                     <span className="graph-toolbar__count">{visibleNodes.length}</span>
                   </button>
@@ -607,7 +592,7 @@ export function App() {
                     </button>
                   </div>
                   )}
-                  {webgl && explore3d && (
+                  {webgl && (
                     <button
                       type="button"
                       className="button graph-toolbar__toggle"
@@ -615,7 +600,7 @@ export function App() {
                       onClick={toggleMotion}
                       title={motion ? "Pause the drift, the panorama and the signals" : "Let the graph move on its own"}
                     >
-                      <span aria-hidden="true">{motion ? "\u275A\u275A" : "\u25B6"}</span>
+                      <Icon name={motion ? "pause" : "motion"} size={16} />
                       Motion
                     </button>
                   )}

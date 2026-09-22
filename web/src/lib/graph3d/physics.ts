@@ -66,7 +66,14 @@ const unit = (id: string, salt: number) => hashId(id, salt) / 2 ** 32;
  * picture and settles into the same shape -- a reload never reshuffles the
  * graph, as the 2D layout never does (D227).
  */
-export function seedPosition(id: string, nodeCount: number): { x: number; y: number; z: number } {
+export function seedPosition(id: string, nodeCount: number, dimensions: 2 | 3 = 3): { x: number; y: number; z: number } {
+  if (dimensions === 2) {
+    // A disc rather than a ball: uniform by area.
+    const radius = LINK_DISTANCE * 1.6 * Math.sqrt(Math.max(1, nodeCount)) * 0.9;
+    const r = radius * Math.sqrt(unit(id, 3));
+    const theta = 2 * Math.PI * unit(id, 1);
+    return { x: r * Math.cos(theta), y: r * Math.sin(theta), z: 0 };
+  }
   const radius = LINK_DISTANCE * 1.6 * Math.cbrt(Math.max(1, nodeCount));
   const u = unit(id, 1);
   const v = unit(id, 2);
@@ -93,7 +100,7 @@ export interface DriftForce<N extends PhysicsNode> extends Force<N> {
  * purpose -- alpha is the layout's temperature, and the drift is what keeps
  * the settled layout from looking frozen.
  */
-export function drift<N extends PhysicsNode>(): DriftForce<N> {
+export function drift<N extends PhysicsNode>(dimensions: 2 | 3 = 3): DriftForce<N> {
   let nodes: N[] = [];
   let phases: Float64Array = new Float64Array(0);
   let on = true;
@@ -108,7 +115,7 @@ export function drift<N extends PhysicsNode>(): DriftForce<N> {
       const p = phases[i]!;
       node.vx = (node.vx ?? 0) + DRIFT_AMPLITUDE * Math.sin(t + p);
       node.vy = (node.vy ?? 0) + DRIFT_AMPLITUDE * Math.cos(t * 0.87 + p * 1.3);
-      node.vz = (node.vz ?? 0) + DRIFT_AMPLITUDE * Math.sin(t * 0.71 + p * 0.7);
+      if (dimensions === 3) node.vz = (node.vz ?? 0) + DRIFT_AMPLITUDE * Math.sin(t * 0.71 + p * 0.7);
     }
   }) as unknown) as DriftForce<N>;
   force.initialize = (next: N[]) => {
@@ -138,11 +145,15 @@ interface Configurable {
  * the atlas's: it removes any centring force, adds per-axis gravity and the
  * drift, and tunes the link and many-body forces in place.
  */
-export function configureForces<N extends PhysicsNode>(host: ForceHost, driftForce: DriftForce<N>): void {
+export function configureForces<N extends PhysicsNode>(
+  host: ForceHost,
+  driftForce: DriftForce<N>,
+  dimensions: 2 | 3 = 3,
+): void {
   host("center", null);
   host("x", forceX<N>(0).strength(GRAVITY));
   host("y", forceY<N>(0).strength(GRAVITY));
-  host("z", forceZ<N>(0).strength(GRAVITY));
+  host("z", dimensions === 3 ? forceZ<N>(0).strength(GRAVITY) : null);
   const charge = host("charge") as Configurable | undefined;
   charge?.strength?.(CHARGE_STRENGTH);
   charge?.distanceMax?.(CHARGE_DISTANCE_MAX);

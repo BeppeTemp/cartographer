@@ -8,6 +8,7 @@ import {
   InstancedMesh,
   LineBasicMaterial,
   LineSegments,
+  MOUSE,
   Mesh,
   MeshBasicMaterial,
   Object3D,
@@ -16,8 +17,10 @@ import {
   PointsMaterial,
   Raycaster,
   Scene,
+  Plane,
   Sphere,
   SphereGeometry,
+  TOUCH,
   Vector2,
   Vector3,
   WebGLRenderer,
@@ -47,8 +50,9 @@ import {
  * the selection, signals as points running along its links. Depth comes from
  * perspective and a faint fog towards the canvas colour, not from lighting.
  *
- * Gestures: nodes are selected, not grabbed (a product choice -- see D234);
- * every drag orbits, the wheel and a pinch zoom.
+ * Two modes share it: "3d" (orbited; nodes are selected, not grabbed) and
+ * "2d" (the same network flat, seen from above; nodes can be dragged). See
+ * bindGestures and D234.
  */
 
 export interface SceneNode extends PhysicsNode {
@@ -69,14 +73,22 @@ export interface ScenePalette {
   ring: string;
 }
 
+/** "3d": a network in depth, orbited. "2d": the same network laid flat and
+ *  seen from above -- panned, zoomed, and its nodes can be dragged. */
+export type SceneMode = "2d" | "3d";
+
 export interface SceneCallbacks {
   onSelect(id: string | null): void;
+  /** A double click on a node. */
+  onExpand?(id: string): void;
   onHover(id: string | null, x: number, y: number): void;
   onLost(): void;
 }
 
-/** Radius of a leaf, in scene units (Studio 03: leaf .053 : hub .125). */
-const LEAF_RADIUS = LINK_DISTANCE * 0.07;
+/** Radius of a leaf, in scene units, and of the best-connected node: the
+ *  Studio 03 ratio (.053 : .125), one size up from it -- at the prototype's
+ *  scale a few hundred real concepts read as dust, and on paper as nothing. */
+const LEAF_RADIUS = LINK_DISTANCE * 0.12;
 const HUB_RADIUS = LEAF_RADIUS * 2.36;
 /** A press that travels less than this is a click, not a drag or an orbit. */
 const CLICK_SLOP_PX = 5;
@@ -93,7 +105,9 @@ export class LivingScene {
   readonly camera = new PerspectiveCamera(44, 1, 1, 50_000);
   readonly controls: OrbitControls;
   private readonly idle: IdleRotation;
-  private readonly driftForce: DriftForce<SceneNode> = drift<SceneNode>();
+  private readonly driftForce: DriftForce<SceneNode>;
+  readonly mode: SceneMode;
+  private readonly dims: 2 | 3;
   private sim: Simulation<SceneNode> | null = null;
 
   private nodes: SceneNode[] = [];
@@ -133,11 +147,15 @@ export class LivingScene {
   constructor(
     private readonly container: HTMLElement,
     private readonly callbacks: SceneCallbacks,
-    options: { live: boolean; reducedMotion: boolean },
+    options: { live: boolean; reducedMotion: boolean; mode?: SceneMode },
   ) {
+    this.mode = options.mode ?? "3d";
+    this.dims = this.mode === "2d" ? 2 : 3;
+    this.driftForce = drift<SceneNode>(this.dims);
     this.live = options.live && !options.reducedMotion;
     this.reducedMotion = options.reducedMotion;
-    this.idle = new IdleRotation(this.live);
+    // The panorama is a 3D thing: a flat map does not turn on its own.
+    this.idle = new IdleRotation(this.live && this.mode === "3d");
 
     this.renderer = new WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
     this.canvas = this.renderer.domElement;
@@ -149,6 +167,13 @@ export class LivingScene {
     this.controls.zoomSpeed = 0.8;
     this.controls.autoRotateSpeed = AUTO_ROTATE_SPEED;
     this.camera.position.set(0, 0, 600);
+    if (this.mode === "2d") {
+      // Seen from above, always: drag pans, wheel and pinch zoom.
+      this.controls.enableRotate = false;
+      this.controls.screenSpacePanning = true;
+      this.controls.mouseButtons = { LEFT: MOUSE.PAN, MIDDLE: MOUSE.DOLLY, RIGHT: MOUSE.PAN };
+      this.controls.touches = { ONE: TOUCH.PAN, TWO: TOUCH.DOLLY_PAN };
+    }
 
     for (const [geometry, object] of [
       [this.edgeGeometry, this.edges],
@@ -193,12 +218,16 @@ export class LivingScene {
     }
 
     this.sim?.stop();
-    const sim = forceSimulation<SceneNode>(nodes, 3)
+    const sim = forceSimulation<SceneNode>(nodes, this.dims)
       .force("link", forceLink<SceneNode, SceneLink>(links).id((n) => n.id))
       .force("charge", forceManyBody<SceneNode>())
       .velocityDecay(VELOCITY_DECAY)
       .stop();
-    configureForces((name, ...rest: unknown[]) => (rest.length ? sim.force(name, rest[0] as never) : sim.force(name)), this.driftForce);
+    configureForces(
+      (name, ...rest: unknown[]) => (rest.length ? sim.force(name, rest[0] as never) : sim.force(name)),
+      this.driftForce,
+      this.dims,
+    );
     sim.alpha(first ? 1 : 0.25);
     sim.tick(first ? warmupTicks : Math.round(warmupTicks / 4));
     sim.alphaTarget(this.live ? LIVE_ALPHA : 0);
@@ -299,7 +328,7 @@ export class LivingScene {
 
   setLive(live: boolean): void {
     this.live = live && !this.reducedMotion;
-    this.idle.setLive(this.live);
+    this.idle.setLive(this.live && this.mode === "3d");
     this.driftForce.enabled(this.live);
     this.sim?.alphaTarget(this.live ? LIVE_ALPHA : 0);
     if (!this.live) {
@@ -371,6 +400,27 @@ export class LivingScene {
     this.animateTo(() => pose, ms);
   }
 
+  /** Moves the camera towards (factor < 1) or away from the look-at point,
+   *  within the zoom limits: the + / - controls. */
+  zoomBy(factor: number): void {
+    this.touched = true;
+    this.idle.input();
+    const t = this.controls.target;
+    const offset = this.camera.position.clone().sub(t);
+    const d = Math.min(this.controls.maxDistance, Math.max(this.controls.minDistance, offset.length() * factor));
+    offset.setLength(d);
+    const to: Pose = {
+      position: { x: t.x + offset.x, y: t.y + offset.y, z: t.z + offset.z },
+      lookAt: { x: t.x, y: t.y, z: t.z },
+    };
+    this.animateTo(() => to, this.reducedMotion ? 0 : 220);
+  }
+
+  /** Shakes the layout loose and lets it settle again. */
+  relax(): void {
+    this.sim?.alpha(0.6);
+  }
+
   /** Re-frame once the layout has settled, unless the reader took the camera. */
   refitIfUntouched(): void {
     if (!this.touched && !this.selected) this.frameAll();
@@ -399,9 +449,15 @@ export class LivingScene {
     // gently into the canvas, the near side is fully drawn.
     const fog = this.scene.fog as Fog | null;
     if (!fog) return;
+    if (this.mode === "2d") {
+      // A flat map has no far side to fade.
+      fog.near = 1e9;
+      fog.far = 2e9;
+      return;
+    }
     const d = this.camera.position.distanceTo(this.controls.target);
-    fog.near = Math.max(1, d - this.radius * 0.3);
-    fog.far = d + this.radius * 2.6;
+    fog.near = Math.max(1, d);
+    fog.far = d + this.radius * 5;
   }
 
   private cancelTween(): void {
@@ -426,7 +482,7 @@ export class LivingScene {
     const sim = this.sim;
     // Still mode lets the simulation cool and then stops ticking it: at rest
     // the frame costs only the draw.
-    if (sim && (this.live || sim.alpha() > 0.002)) {
+    if (sim && (this.live || this.dragging || sim.alpha() > 0.002)) {
       sim.tick();
       if (++this.ticks % 30 === 0) sanitize(this.nodes, this.neighbours);
     }
@@ -456,11 +512,11 @@ export class LivingScene {
     this.updateFog();
     this.sync(now);
     this.renderer.render(this.scene, this.camera);
-    this.afterFrame?.();
+    for (const listener of this.frameListeners) listener();
   };
 
   /** Called after each rendered frame (the component places its labels). */
-  afterFrame: (() => void) | null = null;
+  readonly frameListeners = new Set<() => void>();
 
   private readonly dummy = new Object3D();
   private sync(now = performance.now()): void {
@@ -560,28 +616,71 @@ export class LivingScene {
   }
 
   /**
-   * Nodes are selected, never grabbed: every drag orbits, the wheel and a
-   * pinch zoom (OrbitControls), and a press that does not travel is a click
-   * -- on a node it selects it, on the background it clears the selection.
-   * Picking runs on the click and on a throttled hover, never per frame.
+   * 3D: nodes are selected, never grabbed -- every drag orbits, the wheel and
+   * a pinch zoom. 2D: a drag that starts on a node moves that node (pinned in
+   * the simulation, so its links pull the rest and let go it settles); any
+   * other drag pans. A press that does not travel is a click: on a node it
+   * selects it, on the background it clears the selection. Picking runs on
+   * press, click and a throttled hover, never per frame.
    */
+  private dragging: SceneNode | null = null;
+  private readonly plane = new Plane(new Vector3(0, 0, 1), 0);
+  private readonly hit = new Vector3();
+
   private bindGestures(): void {
     const canvas = this.canvas;
     const pointers = new Set<number>();
-    let press: { x: number; y: number; moved: boolean } | null = null;
+    let press: { x: number; y: number; moved: boolean; node: SceneNode | null } | null = null;
     let lastHover = 0;
+
+    const release = () => {
+      const node = this.dragging;
+      if (!node) return;
+      node.fx = node.fy = node.fz = undefined;
+      this.dragging = null;
+      this.sim?.alphaTarget(this.live ? LIVE_ALPHA : 0);
+      this.controls.enabled = true;
+      canvas.style.cursor = "";
+    };
 
     const onDown = (e: PointerEvent) => {
       this.touched = true;
       this.idle.input();
       this.cancelTween();
       pointers.add(e.pointerId);
-      // A second contact is a pinch, never a click.
-      press = pointers.size === 1 ? { x: e.clientX, y: e.clientY, moved: false } : null;
+      if (pointers.size > 1) {
+        // A second contact is a pinch: it ends a node drag in place.
+        release();
+        press = null;
+        return;
+      }
+      const node = this.mode === "2d" ? this.pick(e.clientX, e.clientY) : null;
+      press = { x: e.clientX, y: e.clientY, moved: false, node };
+      if (node) {
+        // Claim the gesture before OrbitControls sees it (capture phase).
+        this.controls.enabled = false;
+        this.dragging = node;
+        this.follow = null;
+        canvas.setPointerCapture(e.pointerId);
+      }
     };
 
     const onMove = (e: PointerEvent) => {
       if (press && Math.hypot(e.clientX - press.x, e.clientY - press.y) > CLICK_SLOP_PX) press.moved = true;
+      const node = this.dragging;
+      if (node && press?.moved) {
+        const r = canvas.getBoundingClientRect();
+        this.ndc.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
+        this.raycaster.setFromCamera(this.ndc, this.camera);
+        if (this.raycaster.ray.intersectPlane(this.plane, this.hit) && Number.isFinite(this.hit.x)) {
+          node.fx = node.x = this.hit.x;
+          node.fy = node.y = this.hit.y;
+          this.sim?.alphaTarget(0.3);
+          if (this.sim && this.sim.alpha() < 0.1) this.sim.alpha(0.1);
+        }
+        canvas.style.cursor = "grabbing";
+        return;
+      }
       if (pointers.size > 0) {
         this.idle.input();
         return;
@@ -589,7 +688,7 @@ export class LivingScene {
       if (e.timeStamp - lastHover > 50) {
         lastHover = e.timeStamp;
         const hover = this.pick(e.clientX, e.clientY);
-        canvas.style.cursor = hover ? "pointer" : "";
+        canvas.style.cursor = hover ? (this.mode === "2d" ? "grab" : "pointer") : "";
         const r = canvas.getBoundingClientRect();
         this.callbacks.onHover(hover?.id ?? null, e.clientX - r.left, e.clientY - r.top);
       }
@@ -599,11 +698,13 @@ export class LivingScene {
       pointers.delete(e.pointerId);
       const p = press;
       press = null;
-      if (p && !p.moved && pointers.size === 0) this.callbacks.onSelect(this.pick(p.x, p.y)?.id ?? null);
+      release();
+      if (p && !p.moved && pointers.size === 0) this.callbacks.onSelect((p.node ?? this.pick(p.x, p.y))?.id ?? null);
     };
     const onCancel = (e: PointerEvent) => {
       pointers.delete(e.pointerId);
       press = null;
+      release();
     };
     const onWheel = () => {
       this.touched = true;
@@ -611,6 +712,12 @@ export class LivingScene {
       this.cancelTween();
     };
     const onLeave = () => this.callbacks.onHover(null, 0, 0);
+    const onDouble = (e: MouseEvent) => {
+      const node = this.pick(e.clientX, e.clientY);
+      if (node) this.callbacks.onExpand?.(node.id);
+    };
+    canvas.addEventListener("dblclick", onDouble);
+    this.cleanups.push(() => canvas.removeEventListener("dblclick", onDouble));
 
     canvas.addEventListener("pointerdown", onDown, { capture: true });
     canvas.addEventListener("pointermove", onMove);

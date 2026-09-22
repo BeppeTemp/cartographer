@@ -1,5 +1,6 @@
 import type { KBSummary } from "../api/types";
 import type { Theme } from "../lib/theme";
+import { Icon, type IconName } from "./Icon";
 
 interface Props {
   kbs: KBSummary[];
@@ -17,10 +18,10 @@ interface Props {
   onOpenInspector?(): void;
 }
 
-const THEME_GLYPH: Record<Theme, string> = {
-  dark: "◓",
-  light: "○",
-  system: "◑",
+const THEME_ICON: Record<Theme, IconName> = {
+  dark: "moon",
+  light: "sun",
+  system: "auto",
 };
 
 export function TopBar({
@@ -48,7 +49,7 @@ export function TopBar({
           aria-label="Open navigation"
           aria-haspopup="dialog"
         >
-          <span aria-hidden="true">&#9776;</span>
+          <Icon name="list" />
         </button>
       )}
       <div className="topbar__brand">
@@ -72,10 +73,10 @@ export function TopBar({
       </div>
 
       {kbs.length > 0 && (
-        <label className="topbar__kb">
+        <label className="topbar__kb field">
           <span className="sr-only">Knowledge Base</span>
           <select
-            className="input"
+            className="field__control"
             value={activeKB ?? ""}
             onChange={(event) => onKBChange(event.target.value)}
           >
@@ -86,14 +87,16 @@ export function TopBar({
               </option>
             ))}
           </select>
+          <span className="field__adornment">
+            <Icon name="chevron" size={16} />
+          </span>
         </label>
       )}
 
-      <button type="button" className="topbar__search" onClick={onOpenPalette}>
-        <span aria-hidden="true">&#9906;</span>
-        <span>Search concepts</span>
-        <kbd className="kbd">Ctrl</kbd>
-        <kbd className="kbd">K</kbd>
+      <button type="button" className="topbar__search field" onClick={onOpenPalette}>
+        <Icon name="search" size={16} />
+        <span className="field__placeholder">Search concepts</span>
+        <kbd className="kbd">Ctrl K</kbd>
       </button>
 
       <div className="topbar__end">
@@ -105,7 +108,7 @@ export function TopBar({
             aria-label="Open inspector"
             aria-haspopup="dialog"
           >
-            <span aria-hidden="true">&#9432;</span>
+            <Icon name="info" />
           </button>
         )}
         <span
@@ -122,7 +125,7 @@ export function TopBar({
           aria-label={`Theme: ${theme}. Switch to ${nextTheme[theme]}.`}
           title={`Theme: ${theme}`}
         >
-          <span aria-hidden="true">{THEME_GLYPH[theme]}</span>
+          <Icon name={THEME_ICON[theme]} />
         </button>
       </div>
     </header>

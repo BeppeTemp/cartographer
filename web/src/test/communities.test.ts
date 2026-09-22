@@ -6,7 +6,6 @@ import {
   communitySlot,
   detectCommunities,
 } from "../lib/communities";
-import { applyLayout, buildGraph } from "../lib/layout";
 import { generateSnapshot } from "./fixtures";
 
 /** Two 5-cliques joined by one bridge edge, plus an isolated node. */
@@ -80,11 +79,4 @@ describe("community detection", () => {
     expect(communitySlot(c, "a")).toBe(OTHER_SLOT);
   });
 
-  it("keeps the community-seeded layout deterministic", () => {
-    const snapshot = generateSnapshot(300);
-    const c = detectCommunities(snapshot);
-    const first = applyLayout(buildGraph(snapshot, undefined, c));
-    const second = applyLayout(buildGraph(snapshot, undefined, detectCommunities(snapshot)));
-    expect(second).toEqual(first);
-  });
 });

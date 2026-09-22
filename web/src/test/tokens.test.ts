@@ -25,7 +25,7 @@ function walk(dir: string, out: string[] = []): string[] {
  * the literal does not move, and the defect only shows up for the people who
  * use that theme. The Sigma renderer is the one exception -- WebGL cannot read
  * a CSS custom property, so palette.ts resolves tokens to concrete values at
- * runtime and GraphCanvas keeps documented fallbacks for a missing one.
+ * runtime with a documented fallback for a missing one.
  */
 describe("design tokens", () => {
   const files = walk(SRC).filter((f) => /\.(ts|tsx|css)$/.test(f));
@@ -66,9 +66,9 @@ describe("design tokens", () => {
       // functions do with a palette, and a token indirection there would test
       // the indirection rather than the behaviour.
       if (file.includes("/test/")) continue;
-      // palette.ts and GraphCanvas.tsx resolve tokens for the WebGL canvas and
-      // carry a documented fallback for each; nothing else may.
-      const allowFallback = /lib\/palette\.ts$|components\/GraphCanvas\.tsx$/.test(file);
+      // palette.ts resolves tokens for the WebGL canvas and carries a
+      // documented fallback; nothing else may.
+      const allowFallback = /lib\/palette\.ts$/.test(file);
       const source = readFileSync(file, "utf8");
       source.split("\n").forEach((text, index) => {
         // &#9633; is an HTML entity, not a colour.

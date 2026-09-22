@@ -14,7 +14,6 @@ import { graph, json, stubApi, openPanels } from "./fixtures";
  * Sigma is stubbed: jsdom has no WebGL, and what is under test here is the
  * shell, the data flow and the states, not the renderer.
  */
-vi.mock("sigma", () => import("./sigmaStub"));
 
 describe("the shell boots", () => {
   beforeEach(() => {
