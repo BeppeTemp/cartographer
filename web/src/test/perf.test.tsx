@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "../App";
@@ -55,15 +55,22 @@ describe("2,000-node budget fixture", () => {
       });
       const user = userEvent.setup();
       render(<App />);
-      const row = await screen.findByRole(
-        "button",
-        { name: new RegExp(FIXTURE.nodes[0]!.id) },
+      // Plain selectors, not *ByRole: role queries compute every accessible
+      // name in a 2,000-row list, which on a CI runner alone blows the test
+      // timeout -- the cost is jsdom's, not the UI's.
+      const id = FIXTURE.nodes[0]!.id;
+      const row = await waitFor(
+        () => {
+          const el = document.querySelector<HTMLElement>(`[data-concept-id="${CSS.escape(id)}"]`);
+          if (!el) throw new Error(`row ${id} not rendered yet`);
+          return el;
+        },
         { timeout: 10000 },
       );
       await user.click(row);
-      expect(
-        await screen.findByRole("complementary", { name: /inspector for/i }),
-      ).toBeInTheDocument();
+      await waitFor(() =>
+        expect(document.querySelector(`aside[aria-label="Inspector for ${id}"]`)).not.toBeNull(),
+      );
       // Skeleton, not content: it rendered while the request is still pending.
       expect(screen.getByText(`Loading ${FIXTURE.nodes[0]!.id}`)).toBeInTheDocument();
     }, 20000);
