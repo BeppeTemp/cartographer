@@ -419,3 +419,53 @@ func readHash(t *testing.T, k *kb.KB, id string) string {
 	}
 	return data.ContentHash
 }
+
+// TestConceptPatch_FrontmatterOnly: a frontmatter merge is a complete patch
+// on its own, with the edits key absent or empty, in concept_patch and in a
+// concept_batch patch operation alike; the body is left byte-for-byte (#321).
+func TestConceptPatch_FrontmatterOnly(t *testing.T) {
+	const id = "manutenzione/test-runbook"
+	cases := []struct {
+		name string
+		call func(t *testing.T, k *kb.KB, hash string) string
+	}{
+		{"concept_patch, no edits key", func(t *testing.T, k *kb.KB, hash string) string {
+			return artifactCallMsg(t, 2, "concept_patch", map[string]any{"id": id, "if_match": hash, "frontmatter": map[string]any{"title": "Set alone"}})
+		}},
+		{"concept_patch, empty edits", func(t *testing.T, k *kb.KB, hash string) string {
+			return artifactCallMsg(t, 2, "concept_patch", map[string]any{"id": id, "if_match": hash, "edits": []any{}, "frontmatter": map[string]any{"title": "Set alone"}})
+		}},
+		{"concept_batch patch", func(t *testing.T, k *kb.KB, hash string) string {
+			return batchCallMsg(t, 2, []map[string]any{{"op": "patch", "id": id, "if_match": hash, "frontmatter": map[string]any{"title": "Set alone"}}})
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			k := setupTestKB(t)
+			s := New("test")
+			RegisterKBTools(s, k, Deps{})
+			before, err := k.ReadConcept(id)
+			if err != nil {
+				t.Fatalf("ReadConcept: %v", err)
+			}
+			resps := runMCPSequence(t, s, []string{initMsg, tc.call(t, k, readHash(t, k, id))})
+			if tr := decodeToolResult(t, resps[1]); tr.IsError {
+				t.Fatalf("frontmatter-only patch refused: %s", tr.Content[0].Text)
+			}
+			after, err := k.ReadConcept(id)
+			if err != nil {
+				t.Fatalf("ReadConcept: %v", err)
+			}
+			if after.Body != before.Body {
+				t.Errorf("body changed:\nbefore: %q\nafter:  %q", before.Body, after.Body)
+			}
+			fm, err := okf.ParseFrontmatter(after.FrontmatterRaw)
+			if err != nil {
+				t.Fatalf("ParseFrontmatter: %v", err)
+			}
+			if v, _ := fm.Get("title"); v != "Set alone" {
+				t.Errorf("title = %v, want %q", v, "Set alone")
+			}
+		})
+	}
+}
