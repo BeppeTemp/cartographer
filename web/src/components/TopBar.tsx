@@ -36,7 +36,7 @@ export function TopBar({
   onOpenNav,
   onOpenInspector,
 }: Props) {
-  const nextTheme: Record<Theme, Theme> = { dark: "light", light: "system", system: "dark" };
+  const nextTheme: Record<Theme, Theme> = { system: "light", light: "dark", dark: "system" };
 
   return (
     <header className="topbar">
@@ -52,7 +52,22 @@ export function TopBar({
         </button>
       )}
       <div className="topbar__brand">
-        <img className="topbar__mark" src={`${import.meta.env.BASE_URL}icon-64.png`} alt="" width={26} height={26} />
+        {/* The brand's master SVGs (docs/brand, D232), one per theme; CSS shows
+            the one for the resolved theme, so a switch never waits on a load. */}
+        <img
+          className="topbar__mark topbar__mark--light"
+          src={`${import.meta.env.BASE_URL}brand/coordinate-pine.svg`}
+          alt=""
+          width={28}
+          height={28}
+        />
+        <img
+          className="topbar__mark topbar__mark--dark"
+          src={`${import.meta.env.BASE_URL}brand/coordinate-sage.svg`}
+          alt=""
+          width={28}
+          height={28}
+        />
         <span className="topbar__name">Cartographer</span>
       </div>
 

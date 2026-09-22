@@ -14,6 +14,7 @@
  *   - size       -> degree, square-root scaled and clamped
  *   - ring/tint  -> selection, and lint severity
  *   - dimming    -> "not related to what is selected", to 0.25 opacity
+ *                   (mixed into the canvas colour, see fade)
  *   - edge tint  -> an edge inside one colour group takes that group's hue at
  *                   low alpha; an edge across groups stays neutral, so the
  *                   bridges between clusters are the lines that stand apart
@@ -37,6 +38,8 @@ export interface Palette {
   severityWarning: string;
   edge: string;
   edgeActive: string;
+  /** The canvas colour dimmed colours are mixed towards (see fade). */
+  canvas?: string;
   /** The node outline: the canvas colour, so touching nodes stay separate. */
   nodeStroke?: string;
 }
@@ -117,8 +120,12 @@ export function nodeAppearance(node: NodeInput, palette: Palette): NodeAppearanc
     return { ...base, zIndex: 1, forceLabel: labelled };
   }
   // Dimmed, never hidden: a node the user can no longer see is a node they
-  // cannot click their way back to.
-  return { ...base, color: withAlpha(base.color, DIM_ALPHA), label: "" };
+  // cannot click their way back to. The outline goes with the fill: on paper
+  // the outline is near-white, and a faint fill inside an opaque one reads as
+  // a hole rather than as receding context.
+  // (Not "transparent": the border program draws that as black.)
+  const faded = fade(base.color, DIM_ALPHA, palette.canvas);
+  return { ...base, color: faded, borderColor: faded, label: "" };
 }
 
 export interface EdgeInput {
@@ -152,7 +159,7 @@ export function edgeAppearance(edge: EdgeInput, palette: Palette): EdgeAppearanc
     return { type: "arrow", hidden: false, color: palette.edgeActive, size: 2, zIndex: 1 };
   }
   if (edge.focus) {
-    return { type: "line", hidden: false, color: withAlpha(palette.edge, DIM_ALPHA), size: 0.6, zIndex: 0 };
+    return { type: "line", hidden: false, color: fade(palette.edge, DIM_ALPHA, palette.canvas), size: 0.6, zIndex: 0 };
   }
   // At rest an edge is a plain hairline: a few hundred arrowheads are what
   // made the resting graph read as a tangle. Direction is shown where it is
@@ -161,7 +168,7 @@ export function edgeAppearance(edge: EdgeInput, palette: Palette): EdgeAppearanc
     return {
       type: "line",
       hidden: false,
-      color: withAlpha(edge.groupColor, GROUP_EDGE_ALPHA),
+      color: fade(edge.groupColor, GROUP_EDGE_ALPHA, palette.canvas),
       size: 0.8,
       zIndex: 0,
     };
@@ -174,15 +181,29 @@ export function shortLabel(id: string): string {
   return cut === -1 ? id : id.slice(cut + 1);
 }
 
-/** Sigma's WebGL renderer takes a colour string, so dimming rewrites the
- *  colour: there is no per-node opacity attribute to set. */
-export function withAlpha(color: string, alpha: number): string {
+function rgb(color: string): [number, number, number] | null {
   const hex = color.trim();
-  if (!hex.startsWith("#") || (hex.length !== 7 && hex.length !== 4)) return hex;
+  if (!hex.startsWith("#") || (hex.length !== 7 && hex.length !== 4)) return null;
   const full =
     hex.length === 4 ? `#${hex[1]}${hex[1]}${hex[2]}${hex[2]}${hex[3]}${hex[3]}` : hex;
-  const r = parseInt(full.slice(1, 3), 16);
-  const g = parseInt(full.slice(3, 5), 16);
-  const b = parseInt(full.slice(5, 7), 16);
-  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+  return [parseInt(full.slice(1, 3), 16), parseInt(full.slice(3, 5), 16), parseInt(full.slice(5, 7), 16)];
+}
+
+/**
+ * fade is "this colour at this opacity over the canvas", as an opaque colour.
+ *
+ * Sigma's WebGL renderer takes a colour string and has no per-node opacity,
+ * and an rgba() colour is not the answer: Sigma writes it unpremultiplied into
+ * a premultiplied canvas, so the colour is *added* to the page behind it. On a
+ * dark canvas that passes for transparency; on paper every faded node and edge
+ * turns white. Mixing towards the canvas colour gives the same picture in both
+ * themes. Without a canvas colour it falls back to rgba().
+ */
+export function fade(color: string, alpha: number, canvas?: string): string {
+  const fg = rgb(color);
+  if (!fg) return color.trim();
+  const bg = canvas ? rgb(canvas) : null;
+  if (!bg) return `rgba(${fg[0]}, ${fg[1]}, ${fg[2]}, ${alpha})`;
+  const mix = fg.map((c, i) => Math.round(c * alpha + bg[i]! * (1 - alpha)));
+  return `#${mix.map((c) => c.toString(16).padStart(2, "0")).join("")}`;
 }

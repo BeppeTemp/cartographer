@@ -95,6 +95,26 @@ describe("design tokens", () => {
     expect(offenders, "durations belong in tokens.css").toEqual([]);
   });
 
+  it("takes graph hues 1-6 from the brand's graph categories", () => {
+    // docs/brand/cartographer.tokens.json is the brand's source (D232); the
+    // Atlas maps it onto its own names (D233). This is the one place the two
+    // could drift apart without anything else noticing.
+    const brand = JSON.parse(
+      readFileSync(join(process.cwd(), "../docs/brand/cartographer.tokens.json"), "utf8"),
+    ) as { graphCategories: { light: string[]; dark: string[] } };
+    const tokens = readFileSync(TOKENS, "utf8");
+    const split = tokens.indexOf('[data-theme="light"]');
+    const hue = (css: string, i: number) => css.match(new RegExp(`--hue-${i}:\\s*(#[0-9a-fA-F]{6})`))?.[1];
+    for (const [theme, css] of [
+      ["dark", tokens.slice(0, split)],
+      ["light", tokens.slice(split)],
+    ] as const) {
+      brand.graphCategories[theme].forEach((value, index) => {
+        expect(hue(css, index + 1)?.toLowerCase(), `${theme} --hue-${index + 1}`).toBe(value.toLowerCase());
+      });
+    }
+  });
+
   it("collapses every animation under prefers-reduced-motion", () => {
     const tokens = readFileSync(TOKENS, "utf8");
     const block = tokens.slice(tokens.indexOf("prefers-reduced-motion"));

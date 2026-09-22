@@ -250,7 +250,8 @@ a {
 }
 
 .state__title {
-  font-size: var(--text-md);
+  font-family: var(--font-editorial);
+  font-size: var(--text-lg);
   color: var(--text-primary);
 }
 

@@ -4,81 +4,92 @@
  * it, because a second source of truth is how a theme quietly stops applying
  * to half the application.
  *
- * Direction: a modern nautical atlas. Deep navy neutrals, teal primary, warm
- * amber for focus and highlight, a faint map grid on the canvas. Dark is the
- * signature; light is a first-class peer, not an inversion.
+ * Direction: the Cartographer brand (docs/brand/, D232) -- a contemporary
+ * atlas. Warm paper and ink, pine green, sand surfaces that group, clay as a
+ * thin graphic mark. Neither theme is the signature: the viewer's system
+ * decides, and dark is a palette of its own, not an inversion. The values map
+ * docs/brand/cartographer.tokens.json onto the Atlas's own token names (D233).
  */
 
 :root {
   color-scheme: dark;
 
   /* Surfaces, from the backdrop up. */
-  --surface-0: #070d14;
-  --surface-1: #0d1622;
-  --surface-2: #142131;
-  --surface-3: #1b2c40;
-  --border-subtle: #1e2f44;
-  --border-strong: #2c445f;
+  --surface-0: #191f1c;
+  --surface-1: #222b25;
+  --surface-2: #2b352d;
+  --surface-3: #334036;
+  --border-subtle: #3b473e;
+  --border-strong: #7d8c7d;
 
-  /* Text. --text-muted is lighter (dark) and darker (light) than the plan's
-     shared #6b8299: at that value muted text failed WCAG AA 4.5:1 on the
-     raised and hover surfaces. test/contrast.test.ts recomputes every audited
-     pair from this file, so a tweak that breaks one fails the build. */
-  --text-primary: #e6eef7;
-  --text-secondary: #9fb3c8;
-  --text-muted: #8196ad;
-  --text-on-primary: #04211f;
-  --text-on-accent: #2a1a00;
+  /* Text. --text-muted is the brand's muted tone, a shade darker in the light
+     theme: at the brand value it fell under WCAG AA 4.5:1 on --surface-3.
+     test/contrast.test.ts recomputes every audited pair from this file, so a
+     tweak that breaks one fails the build. */
+  --text-primary: #eeede5;
+  --text-secondary: #bcc5ba;
+  --text-muted: #afb9ae;
+  --text-on-primary: #191f1c;
+  --text-on-accent: #191f1c;
 
-  /* Brand. */
-  --primary: #2dd4bf;
-  --primary-dim: #14b8a6;
-  --accent: #f5b544;
+  /* Brand. Pine (sage in dark) is the one brand colour of the interface.
+     --accent is the focus and highlight colour, the brand's "focus" token --
+     deliberately not clay: clay is a graphic mark (a rule, a marker), and as
+     small text it falls under 4.5:1. --clay-text is its text-safe shade. */
+  --primary: #91b9a0;
+  --primary-dim: #7aa58b;
+  --accent: #b5d6bd;
+  --clay: #b8785d;
+  --clay-text: #d6a68d;
 
   /* Severity and status. Never the only carrier of meaning: every use is
      paired with a glyph or a label (WCAG 2.2 AA, colour-independence). */
-  --sev-error: #f87171;
-  --sev-warning: #fbbf24;
-  --sev-info: #60a5fa;
-  --sev-ok: #4ade80;
+  --sev-error: #e9a199;
+  --sev-warning: #ddb56f;
+  --sev-info: #a3bcd4;
+  --sev-ok: #8cc4b8;
 
   /* Graph. Collection hues come from this fixed wheel, picked by a stable
      hash of the collection name, so a Map keeps its colour between sessions
      and between machines. */
-  --graph-edge: #22344a;
-  --graph-edge-3d: #3a5470;
-  --graph-edge-active: #7fe0d2;
-  --graph-node-stroke: #070d14;
+  --graph-edge: #3b473e;
+  --graph-edge-3d: #56655a;
+  --graph-edge-active: #91b9a0;
+  --graph-node-stroke: #191f1c;
   /* Community colouring (lib/communities): the twelve largest communities
      take the hue wheel below in rank order; singletons and the long tail
      share this quiet neutral, so thirteen near-identical colours never have
      to be told apart. */
-  --graph-community-other: #5b6f86;
+  --graph-community-other: #8a8f86;
   /* Canvas atmosphere. Two soft light sources and a vignette -- no grid: a
      ruled background turns a force-directed graph into a spreadsheet, and the
      lines compete with the edges at exactly the weights the edges use. */
-  --graph-glow-a: rgb(69 196 176 / 0.07);
-  --graph-glow-b: rgb(143 163 239 / 0.05);
-  --graph-vignette: rgb(4 8 13 / 0.55);
-  /* A curated wheel, not a framework's full-saturation set: mid-chroma tones
-     that sit together around the logo's teal, amber and blue, so a coloured
-     graph reads as one picture instead of a box of sweets. */
-  --hue-1: #45c4b0;
-  --hue-2: #e6b35c;
-  --hue-3: #8fa3ef;
-  --hue-4: #8cc8a0;
-  --hue-5: #e98f7f;
-  --hue-6: #72b3de;
-  --hue-7: #c49be0;
-  --hue-8: #d8c28e;
-  --hue-9: #5ec7d1;
-  --hue-10: #b7cf7a;
-  --hue-11: #e59bb8;
-  --hue-12: #a2b6c9;
+  --graph-glow-a: rgb(145 185 160 / 0.06);
+  --graph-glow-b: rgb(214 166 141 / 0.04);
+  --graph-vignette: rgb(10 14 12 / 0.45);
+  /* A curated wheel, not a framework's full-saturation set. Hues 1-6 are the
+     brand's graph categories (docs/brand/cartographer.tokens.json, checked by
+     tokens.test.ts); 7-12 extend them in the same mid-chroma family. No pure
+     red or amber: a node must never read as an alert. */
+  --hue-1: #9dc6aa;
+  --hue-2: #bf977d;
+  --hue-3: #91acbe;
+  --hue-4: #b1a8be;
+  --hue-5: #bdb587;
+  --hue-6: #79a59d;
+  --hue-7: #c99a9a;
+  --hue-8: #8fb5cf;
+  --hue-9: #a9b87c;
+  --hue-10: #c4a57e;
+  --hue-11: #9fa3c9;
+  --hue-12: #b79db3;
 
   /* Typography: local stacks only. A remote font would be the one network
      request this UI promises never to make. */
-  --font-sans: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-sans: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  /* Editorial voice: concept titles, state titles, the product name. Everything
+     operative (controls, navigation, lists) stays sans. */
+  --font-editorial: Georgia, "Times New Roman", serif;
   --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
   --text-xs: 12px;
   --text-sm: 13px;
@@ -89,6 +100,7 @@
   --text-2xl: 36px;
   --leading-tight: 1.25;
   --leading-normal: 1.6;
+  --leading-relaxed: 1.7;
 
   /* Spacing, on a 4px base. */
   --space-1: 4px;
@@ -101,9 +113,9 @@
   --space-16: 64px;
 
   /* Radius. */
-  --radius-control: 7px;
-  --radius-card: 12px;
-  --radius-panel: 16px;
+  --radius-control: 6px;
+  --radius-card: 10px;
+  --radius-panel: 10px;
   --radius-pill: 999px;
 
   /* Elevation: layered low-alpha shadows, no heavy blur. */
@@ -131,61 +143,63 @@
   --rail-width: 264px;
   --rail-width-collapsed: 56px;
   --inspector-width: 420px;
-  --topbar-height: 60px;
-  --focus-ring: 0 0 0 2px var(--surface-0), 0 0 0 4px var(--accent);
+  --topbar-height: 64px;
+  --focus-ring: 0 0 0 3px var(--surface-0), 0 0 0 5px var(--accent);
 }
 
 :root[data-theme="light"] {
   color-scheme: light;
 
-  --surface-0: #f6f8fb;
-  --surface-1: #ffffff;
-  --surface-2: #eef2f7;
-  --surface-3: #e3eaf3;
-  --border-subtle: #dde5ee;
-  --border-strong: #c3d0de;
+  --surface-0: #f5f2eb;
+  --surface-1: #fcfaf6;
+  --surface-2: #e9e8de;
+  --surface-3: #dfded2;
+  --border-subtle: #dcddd5;
+  --border-strong: #858a80;
 
-  --text-primary: #0d1622;
-  --text-secondary: #4a5f75;
-  --text-muted: #57697d;
-  --text-on-primary: #ffffff;
-  --text-on-accent: #ffffff;
+  --text-primary: #252824;
+  --text-secondary: #525750;
+  --text-muted: #5c6158;
+  --text-on-primary: #fcfaf6;
+  --text-on-accent: #fcfaf6;
 
-  --primary: #0f766e;
-  --primary-dim: #115e59;
-  /* --accent, --sev-warning and --sev-ok are a shade darker than the plan's
-     values, which fell just under 4.5:1 as text on --surface-2. */
-  --accent: #a84d08;
+  --primary: #365d50;
+  --primary-dim: #2a4a3f;
+  /* --sev-warning and --sev-info are a shade darker than the brand's, which
+     fell just under 4.5:1 as text on --surface-2. */
+  --accent: #365d50;
+  --clay: #b8785d;
+  --clay-text: #8c5237;
 
-  --sev-error: #b91c1c;
-  --sev-warning: #935a06;
-  --sev-info: #1d4ed8;
-  --sev-ok: #137a3a;
+  --sev-error: #a13f3b;
+  --sev-warning: #7a5616;
+  --sev-info: #445f7a;
+  --sev-ok: #2f6b63;
 
-  --graph-edge: #c3d0de;
-  --graph-edge-3d: #a9b9ca;
-  --graph-edge-active: #0f766e;
-  --graph-node-stroke: #ffffff;
-  --graph-community-other: #778a9e;
-  --graph-glow-a: rgb(13 148 136 / 0.10);
-  --graph-glow-b: rgb(99 102 241 / 0.08);
-  --graph-vignette: rgb(31 65 102 / 0.07);
-  --hue-1: #0f766e;
-  --hue-2: #9a5a08;
-  --hue-3: #4f5fc4;
-  --hue-4: #3f7d52;
-  --hue-5: #b94c3c;
-  --hue-6: #2d6f9e;
-  --hue-7: #8651a8;
-  --hue-8: #7f6526;
-  --hue-9: #1f7f8a;
-  --hue-10: #5a7420;
-  --hue-11: #a8466d;
-  --hue-12: #56697d;
+  --graph-edge: #d3d3c8;
+  --graph-edge-3d: #b4b6aa;
+  --graph-edge-active: #365d50;
+  --graph-node-stroke: #fcfaf6;
+  --graph-community-other: #7d8078;
+  --graph-glow-a: rgb(54 93 80 / 0.06);
+  --graph-glow-b: rgb(184 120 93 / 0.05);
+  --graph-vignette: rgb(37 40 36 / 0.05);
+  --hue-1: #365d50;
+  --hue-2: #966c50;
+  --hue-3: #586f86;
+  --hue-4: #7c688a;
+  --hue-5: #827538;
+  --hue-6: #487d75;
+  --hue-7: #9a5e5e;
+  --hue-8: #4e7392;
+  --hue-9: #6b7640;
+  --hue-10: #8e6a3e;
+  --hue-11: #5f6497;
+  --hue-12: #85607c;
 
-  --elevation-1: 0 1px 2px rgb(13 22 34 / 0.05);
-  --elevation-2: 0 6px 18px rgb(13 22 34 / 0.08), 0 1px 2px rgb(13 22 34 / 0.05);
-  --elevation-3: 0 18px 44px rgb(13 22 34 / 0.12), 0 2px 8px rgb(13 22 34 / 0.06);
+  --elevation-1: 0 1px 2px rgb(37 40 36 / 0.05);
+  --elevation-2: 0 6px 18px rgb(37 40 36 / 0.08), 0 1px 2px rgb(37 40 36 / 0.05);
+  --elevation-3: 0 18px 44px rgb(37 40 36 / 0.12), 0 2px 8px rgb(37 40 36 / 0.06);
 }
 
 /*

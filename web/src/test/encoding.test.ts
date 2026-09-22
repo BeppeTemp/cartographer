@@ -6,7 +6,7 @@ import {
   RENDERABLE_NODE_TYPES,
   edgeAppearance,
   nodeAppearance,
-  withAlpha,
+  fade,
   type NodeInput,
   type Palette,
 } from "../lib/encoding";
@@ -107,6 +107,9 @@ describe("node appearance", () => {
     expect(dimmed.hidden).toBe(false);
     expect(dimmed.color).toContain("rgba");
     expect(dimmed.label).toBe("");
+    // The outline recedes with the fill: an opaque paper-white outline around
+    // a faint fill reads as a hole in the light theme.
+    expect(dimmed.borderColor).toBe(dimmed.color);
   });
 
   it("labels a node by its last path segment", () => {
@@ -159,12 +162,19 @@ describe("edge appearance", () => {
   });
 });
 
-describe("withAlpha", () => {
-  it("converts hex to rgba and leaves anything else alone", () => {
-    expect(withAlpha("#2dd4bf", 0.25)).toBe("rgba(45, 212, 191, 0.25)");
-    expect(withAlpha("#abc", 0.5)).toBe("rgba(170, 187, 204, 0.5)");
-    expect(withAlpha("rebeccapurple", 0.5)).toBe("rebeccapurple");
-    expect(withAlpha("", 0.5)).toBe("");
+describe("fade", () => {
+  it("mixes towards the canvas into an opaque colour", () => {
+    // Opaque on purpose: an rgba() colour is added to the page by Sigma's
+    // unpremultiplied blending and turns white on a light canvas.
+    expect(fade("#000000", 0.25, "#ffffff")).toBe("#bfbfbf");
+    expect(fade("#2dd4bf", 1, "#000000")).toBe("#2dd4bf");
+    expect(fade("#abc", 0, "#123456")).toBe("#123456");
+  });
+
+  it("falls back to rgba without a canvas and leaves non-hex alone", () => {
+    expect(fade("#2dd4bf", 0.25)).toBe("rgba(45, 212, 191, 0.25)");
+    expect(fade("rebeccapurple", 0.5, "#ffffff")).toBe("rebeccapurple");
+    expect(fade("", 0.5)).toBe("");
   });
 });
 
@@ -172,7 +182,7 @@ describe("selection context", () => {
   it("dims unrelated nodes to the specified 0.25", () => {
     expect(DIM_ALPHA).toBe(0.25);
     expect(nodeAppearance(node({ focus: "other" }), palette).color).toBe(
-      withAlpha("#2dd4bf", 0.25),
+      fade("#2dd4bf", 0.25),
     );
   });
 
@@ -196,7 +206,7 @@ describe("selection context", () => {
     expect(touching.color).toBe(palette.edgeActive);
     expect(touching.zIndex).toBeGreaterThan(0);
     const other = edgeAppearance({ ...base, source: "c", target: "d", groupColor: "#a78bfa" }, palette);
-    expect(other.color).toBe(withAlpha(palette.edge, DIM_ALPHA));
+    expect(other.color).toBe(fade(palette.edge, DIM_ALPHA));
   });
 });
 

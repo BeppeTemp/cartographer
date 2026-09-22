@@ -73,6 +73,6 @@ export function resolveSlots(root: HTMLElement = document.documentElement): stri
   for (let i = 1; i <= HUES; i++) slots.push(style.getPropertyValue(`--hue-${i}`).trim());
   // A missing token (a test environment without the stylesheet) falls back
   // to the first resolved hue, then to the canvas default.
-  const fallback = slots.find(Boolean) || "#2dd4bf";
+  const fallback = slots.find(Boolean) || "#365d50";
   return slots.map((value) => value || fallback);
 }

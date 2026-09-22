@@ -72,6 +72,10 @@ const pairs: Pair[] = [
   ...HUES.map((fg) => ({ fg, bg: "--surface-0", min: 3 })),
   { fg: "--accent", bg: "--surface-0", min: 3 },
   { fg: "--graph-community-other", bg: "--surface-0", min: 3 },
+  // Clay: a graphic mark on the canvas, and the text-safe shade for the rare
+  // clay label.
+  { fg: "--clay", bg: "--surface-0", min: 3 },
+  ...PANELS.map((bg) => ({ fg: "--clay-text", bg, min: 4.5 })),
 ];
 
 describe("WCAG 2.2 AA contrast of the token palette", () => {

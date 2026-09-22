@@ -23,7 +23,7 @@ import { NodeList } from "./components/NodeList";
 import { Observatory } from "./components/Observatory";
 import { EmptyState, ErrorState, Skeleton } from "./components/States";
 import { TopBar } from "./components/TopBar";
-import { applyTheme, readTheme, type Theme } from "./lib/theme";
+import { applyTheme, onSystemThemeChange, readTheme, type Theme } from "./lib/theme";
 import { communitySlot, detectCommunities, type Communities } from "./lib/communities";
 import {
   collectionHue,
@@ -86,7 +86,13 @@ export function App() {
   const narrow = useMediaQuery(NARROW_QUERY);
   const [sheet, setSheet] = useState<SheetName>(null);
 
-  useEffect(() => applyTheme(theme), [theme]);
+  useEffect(() => {
+    applyTheme(theme);
+    if (theme !== "system") return;
+    // The OS can switch under a viewer on "system" (a scheduled dark mode):
+    // follow it, as the pre-paint script did on load.
+    return onSystemThemeChange(() => applyTheme("system"));
+  }, [theme]);
   useEffect(() => writeColorBy(colorBy), [colorBy]);
   useEffect(() => writePanel("rail", railCollapsed), [railCollapsed]);
   useEffect(() => writePanel("list", listOpen), [listOpen]);

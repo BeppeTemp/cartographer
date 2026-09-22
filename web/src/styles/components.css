@@ -15,15 +15,27 @@
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  font-weight: 650;
-  letter-spacing: -0.01em;
-  font-size: var(--text-md);
+}
+
+/* The product name is live text in the editorial voice beside the mark
+   (docs/brand: there is no custom wordmark). */
+.topbar__name {
+  font-family: var(--font-editorial);
+  font-size: var(--text-lg);
+  letter-spacing: -0.005em;
 }
 
 .topbar__mark {
-  width: 26px;
-  height: 26px;
+  width: 28px;
+  height: 28px;
   flex: none;
+}
+
+/* data-theme is always resolved to light or dark (lib/theme, theme-init.js),
+   so exactly one mark is ever shown. */
+:root[data-theme="light"] .topbar__mark--dark,
+:root:not([data-theme="light"]) .topbar__mark--light {
+  display: none;
 }
 
 
@@ -143,10 +155,13 @@
   transform: translateX(2px);
 }
 
+/* Clay marks "you are here": a thin rule, the one place it is a signal
+   rather than decoration, and always paired with aria-current and a
+   background change -- never colour alone. */
 .rail__panel[aria-current="page"] {
   color: var(--text-primary);
   background: var(--surface-3);
-  box-shadow: inset 2px 0 0 var(--primary);
+  box-shadow: inset 2px 0 0 var(--clay);
 }
 
 .rail--collapsed .rail__label {
@@ -254,7 +269,7 @@
 }
 
 .rail__swatch--all {
-  background: linear-gradient(135deg, var(--primary), var(--accent));
+  background: linear-gradient(135deg, var(--primary), var(--clay));
 }
 
 .rail__collection-name {
@@ -517,7 +532,7 @@
 .nodelist__item[aria-current="true"] {
   color: var(--text-primary);
   background: var(--surface-3);
-  box-shadow: inset 2px 0 0 var(--accent);
+  box-shadow: inset 2px 0 0 var(--clay);
 }
 
 .nodelist__swatch {
@@ -584,8 +599,11 @@
 }
 
 .inspector__title {
+  font-family: var(--font-editorial);
   font-size: var(--text-xl);
-  letter-spacing: -0.02em;
+  font-weight: 400;
+  line-height: var(--leading-tight);
+  letter-spacing: -0.01em;
   margin-block: var(--space-1);
 }
 
@@ -737,15 +755,24 @@
 
 /* --- Markdown --- */
 
+/* A concept is read, not scanned: serif body at reading size and measure,
+   sans headings to keep its structure operative (brand kit, technical
+   register). */
 .markdown {
-  font-size: var(--text-sm);
+  max-width: 68ch;
+  font-family: var(--font-editorial);
+  font-size: var(--text-md);
+  line-height: var(--leading-relaxed);
   color: var(--text-secondary);
 }
 
 .markdown h1,
 .markdown h2,
 .markdown h3 {
-  margin-block: var(--space-4) var(--space-2);
+  margin-block: var(--space-6) var(--space-2);
+  font-family: var(--font-sans);
+  font-weight: 650;
+  line-height: var(--leading-tight);
   color: var(--text-primary);
 }
 
@@ -770,7 +797,7 @@
 .markdown code {
   padding: 1px var(--space-1);
   font-family: var(--font-mono);
-  font-size: var(--text-xs);
+  font-size: var(--text-sm);
   background: var(--surface-2);
   border-radius: var(--radius-control);
 }
@@ -790,9 +817,11 @@
 
 .markdown blockquote {
   margin-inline: 0;
-  padding-inline-start: var(--space-3);
-  border-inline-start: 2px solid var(--border-strong);
-  color: var(--text-muted);
+  padding: var(--space-2) var(--space-4);
+  background: var(--surface-2);
+  border-inline-start: 2px solid var(--clay);
+  border-radius: 0 var(--radius-control) var(--radius-control) 0;
+  color: var(--text-secondary);
 }
 
 .markdown table {

@@ -94,16 +94,17 @@ export function GraphCanvas({
   // one place token values are turned into concrete colours.
   const palette = useMemo<Palette & { slots: string[]; label: string; labelBackground: string; labelBorder: string }>(
     () => ({
-      accent: cssVar("--accent") || "#f5b544",
-      severityError: cssVar("--sev-error") || "#f87171",
-      severityWarning: cssVar("--sev-warning") || "#fbbf24",
-      edge: cssVar("--graph-edge") || "#24384f",
-      edgeActive: cssVar("--graph-edge-active") || "#2dd4bf",
-      nodeStroke: cssVar("--graph-node-stroke") || "#070d14",
+      accent: cssVar("--accent") || "#b5d6bd",
+      severityError: cssVar("--sev-error") || "#e9a199",
+      severityWarning: cssVar("--sev-warning") || "#ddb56f",
+      edge: cssVar("--graph-edge") || "#3b473e",
+      edgeActive: cssVar("--graph-edge-active") || "#91b9a0",
+      nodeStroke: cssVar("--graph-node-stroke") || "#191f1c",
+      canvas: cssVar("--surface-0") || "#191f1c",
       slots: resolveSlots(),
-      label: cssVar("--text-secondary") || "#9fb3c8",
-      labelBackground: cssVar("--surface-1") || "#0d1622",
-      labelBorder: cssVar("--border-strong") || "#2c445f",
+      label: cssVar("--text-secondary") || "#bcc5ba",
+      labelBackground: cssVar("--surface-1") || "#222b25",
+      labelBorder: cssVar("--border-strong") || "#7d8c7d",
     }),
     [themeKey],
   );
@@ -265,14 +266,14 @@ export function GraphCanvas({
     renderer.setSetting("labelColor", { color: palette.label });
     renderer.setSetting(
       "defaultDrawNodeLabel",
-      makeLabelDrawer({ text: palette.label, halo: cssVar("--surface-0") || "#070d14" }),
+      makeLabelDrawer({ text: palette.label, halo: cssVar("--surface-0") || "#191f1c" }),
     );
     renderer.setSetting(
       "defaultDrawNodeHover",
       makeHoverDrawer({
         labelBackground: palette.labelBackground,
         labelBorder: palette.labelBorder,
-        labelText: cssVar("--text-primary") || "#e6eef7",
+        labelText: cssVar("--text-primary") || "#eeede5",
       }),
     );
 

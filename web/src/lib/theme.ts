@@ -11,9 +11,10 @@ export function readTheme(): Theme {
     const stored = localStorage.getItem(STORAGE_KEY);
     if (stored === "dark" || stored === "light" || stored === "system") return stored;
   } catch {
-    // Storage disabled: fall through to the signature theme.
+    // Storage disabled: fall through to the system's choice.
   }
-  return "dark";
+  // No signature theme (D233): until the viewer picks one, the system decides.
+  return "system";
 }
 
 export function applyTheme(theme: Theme): void {
@@ -24,6 +25,17 @@ export function applyTheme(theme: Theme): void {
   } catch {
     // Nothing to persist; the applied theme still holds for this session.
   }
+}
+
+/**
+ * onSystemThemeChange re-resolves the theme when the OS switches while the
+ * viewer is on "system". Returns the unsubscribe function.
+ */
+export function onSystemThemeChange(listener: () => void): () => void {
+  const query = window.matchMedia?.("(prefers-color-scheme: dark)");
+  if (!query?.addEventListener) return () => {};
+  query.addEventListener("change", listener);
+  return () => query.removeEventListener("change", listener);
 }
 
 export function systemTheme(): "dark" | "light" {
