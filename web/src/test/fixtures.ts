@@ -145,4 +145,12 @@ export function generateSnapshot(nodes: number, maps = 12, seed = 1): GraphSnaps
 export function openPanels(): void {
   localStorage.setItem("cartographer.panel.rail", "0");
   localStorage.setItem("cartographer.panel.list", "1");
+  use2D();
+}
+
+/** The shell tests exercise the 2D atlas. 3D is the default view (D234), and
+ *  jsdom has no WebGL, so without this every test would first watch the 3D
+ *  view fail and fall back -- the fallback has a test of its own. */
+export function use2D(): void {
+  localStorage.setItem("cartographer.panel.3d", "0");
 }

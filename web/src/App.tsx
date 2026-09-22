@@ -23,7 +23,8 @@ import { NodeList } from "./components/NodeList";
 import { Observatory } from "./components/Observatory";
 import { EmptyState, ErrorState, Skeleton } from "./components/States";
 import { TopBar } from "./components/TopBar";
-import { applyTheme, onSystemThemeChange, readTheme, type Theme } from "./lib/theme";
+import { applyTheme, onSystemThemeChange, prefersReducedMotion, readTheme, type Theme } from "./lib/theme";
+import { initialMotion } from "./lib/graph3d/motion";
 import { communitySlot, detectCommunities, type Communities } from "./lib/communities";
 import {
   collectionHue,
@@ -76,7 +77,10 @@ export function App() {
   // and open on demand, and the choice is remembered (lib/panels).
   const [railCollapsed, setRailCollapsed] = useState(() => readPanel("rail", true));
   const [listOpen, setListOpen] = useState(() => readPanel("list", false));
-  const [explore3d, setExplore3d] = useState(() => readPanel("3d", false));
+  // 3D is the first view on a wide screen (D234); the 2D atlas stays one click
+  // away, and takes over when WebGL is missing or lost.
+  const [explore3d, setExplore3d] = useState(() => readPanel("3d", true));
+  const [motion, setMotion] = useState(() => initialMotion(readPanel("motion", true), prefersReducedMotion()));
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [preview, setPreview] = useState<string | null>(null);
   const [notice, setNotice] = useState<string>("");
@@ -97,6 +101,13 @@ export function App() {
   useEffect(() => writePanel("rail", railCollapsed), [railCollapsed]);
   useEffect(() => writePanel("list", listOpen), [listOpen]);
   useEffect(() => writePanel("3d", explore3d), [explore3d]);
+  const toggleMotion = useCallback(() => {
+    setMotion((on) => {
+      writePanel("motion", !on);
+      return !on;
+    });
+  }, []);
+  const fallBackTo2D = useCallback(() => setExplore3d(false), []);
   // Leaving the narrow layout closes any sheet: on a wide screen the panels
   // are simply there, and a leftover modal would trap focus over them.
   useEffect(() => {
@@ -519,7 +530,11 @@ export function App() {
                     colorBy={colorBy}
                     selected={view.concept}
                     hiddenIds={hiddenIds}
+                    themeKey={theme}
+                    live={motion}
+                    occludedRight={view.concept ? INSPECTOR_OCCLUSION : 0}
                     onSelect={selectConcept}
+                    onUnavailable={fallBackTo2D}
                   />
                 <Legend
                   snapshot={snapshot}
@@ -573,6 +588,18 @@ export function App() {
                       3D
                     </button>
                   </div>
+                  {explore3d && (
+                    <button
+                      type="button"
+                      className="button graph-toolbar__toggle"
+                      aria-pressed={motion}
+                      onClick={toggleMotion}
+                      title={motion ? "Pause the drift, the panorama and the signals" : "Let the graph move on its own"}
+                    >
+                      <span aria-hidden="true">{motion ? "\u275A\u275A" : "\u25B6"}</span>
+                      Motion
+                    </button>
+                  )}
                 </div>
               )}
               {!narrow && listOpen && <div id="concept-list" className="overlay overlay--list">{nodeList}</div>}

@@ -1,9 +1,9 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "../App";
 import { linkWikiLinks } from "../components/Markdown";
-import { stubApi } from "./fixtures";
+import { stubApi, use2D } from "./fixtures";
 
 vi.mock("sigma", () => import("./sigmaStub"));
 
@@ -16,9 +16,24 @@ describe("graph-first layout", () => {
   beforeEach(() => {
     window.history.replaceState(null, "", "/ui/");
     localStorage.clear();
+    use2D();
     sessionStorage.clear();
   });
   afterEach(() => vi.unstubAllGlobals());
+
+  it("opens in 3D and falls back to the 2D atlas without WebGL", async () => {
+    // jsdom has no WebGL: the real 3D chunk loads, three.js fails to get a
+    // context, and the view hands over to 2D instead of leaving a dead canvas.
+    localStorage.removeItem("cartographer.panel.3d");
+    stubApi();
+    render(<App />);
+    const view = await screen.findByRole("group", { name: "Graph view" });
+    const [two, three] = within(view).getAllByRole("button");
+    await waitFor(() => expect(two).toHaveAttribute("aria-pressed", "true"), { timeout: 5000 });
+    expect(three).toHaveAttribute("aria-pressed", "false");
+    // The motion toggle belongs to the 3D view only.
+    expect(screen.queryByRole("button", { name: "Motion" })).not.toBeInTheDocument();
+  });
 
   it("starts with only the graph, and opens panels on demand", async () => {
     stubApi();
@@ -68,6 +83,7 @@ describe("wiki-links in a concept body", () => {
   it("navigate inside the atlas when followed", async () => {
     window.history.replaceState(null, "", "/ui/?kb=homelab&concept=infra%2Fa");
     localStorage.clear();
+    use2D();
     stubApi({
       "/concept": () =>
         new Response(

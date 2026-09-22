@@ -1436,13 +1436,28 @@
   inset: 0;
 }
 
+/* Gestures belong to the scene on the canvas only (orbit, drag, pinch); the
+   page around it keeps scrolling and zooming as usual. */
+.graph3d canvas {
+  touch-action: none;
+}
+
 .graph3d__label {
   padding: 2px 8px;
   font: 600 12px var(--font-sans);
   color: var(--text-primary);
   background: var(--surface-1);
-  border: 1px solid var(--border-strong);
+  border: 1px solid var(--border-subtle);
   border-radius: var(--radius-pill);
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+.graph3d__label--selected {
+  font-family: var(--font-editorial);
+  font-size: var(--text-sm);
+  font-weight: 400;
+  border-color: var(--clay);
 }
 
 .graph-toolbar__segmented {
