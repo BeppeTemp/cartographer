@@ -8,6 +8,23 @@
 
 KB histories with commits authored as `cartographer <cartographer@localhost>` may need a manual author rewrite before a forge with author push rules accepts the first push.
 
+## [0.15.0](https://github.com/BeppeTemp/cartographer/compare/v0.14.0...v0.15.0) (2026-09-22)
+
+
+### Features
+
+* **lint:** report concepts without a title as missing_title ([#324](https://github.com/BeppeTemp/cartographer/issues/324)) ([244c845](https://github.com/BeppeTemp/cartographer/commit/244c8453887a6cbd33c6fb0bb03acbe0b81522c0))
+* **mcpserver:** concept_patch accepts a frontmatter-only change ([#325](https://github.com/BeppeTemp/cartographer/issues/325)) ([4094fa1](https://github.com/BeppeTemp/cartographer/commit/4094fa15113401bc7e7d7bdef97ae1658e5a4512))
+* **mcpserver:** map_update changes a map's contract; lint every map index's dead links ([#326](https://github.com/BeppeTemp/cartographer/issues/326)) ([6952e58](https://github.com/BeppeTemp/cartographer/commit/6952e586b92bc192e9c56d34bea4b3d27125446e))
+* **provisioning:** register Codex hooks in hooks.json (D230) ([#331](https://github.com/BeppeTemp/cartographer/issues/331)) ([4642b1e](https://github.com/BeppeTemp/cartographer/commit/4642b1eecc27a2e7af835cb589b0374596096bf4))
+
+
+### Bug Fixes
+
+* **client:** provision local clients with 127.0.0.1, not localhost (D231) ([#333](https://github.com/BeppeTemp/cartographer/issues/333)) ([7e10d23](https://github.com/BeppeTemp/cartographer/commit/7e10d235f74134b838ba8705687b3ea17ca59951))
+* **service:** Windows serve task registers without administrator rights ([#334](https://github.com/BeppeTemp/cartographer/issues/334)) ([48871c1](https://github.com/BeppeTemp/cartographer/commit/48871c1b29cbcf5c6c901004ebfc484844908d63))
+* **service:** Windows task XML names no encoding, so the task registers ([#332](https://github.com/BeppeTemp/cartographer/issues/332)) ([47b04a4](https://github.com/BeppeTemp/cartographer/commit/47b04a4166cf1cca0dfc461c83f76955ef34da4b))
+
 ## [0.14.0](https://github.com/BeppeTemp/cartographer/compare/v0.13.0...v0.14.0) (2026-09-18)
 
 
