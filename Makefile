@@ -1,4 +1,4 @@
-.PHONY: help build test vet fmt fmt-check run run-http smoke smoke-http docker clean e2e test-install worktree-add worktree-rm gate decisions-index decisions-next decisions-new codemap web web-test web-check e2e-web
+.PHONY: help build test vet fmt fmt-check run run-http smoke smoke-http docker clean e2e test-install worktree-add worktree-rm gate decisions-index decisions-next decisions-new codemap web web-test web-check
 
 VERSION ?= $(shell git describe --tags --always 2>/dev/null || echo dev)
 
@@ -74,13 +74,6 @@ web-check: web ## Clean locked frontend build + provenance and size-budget check
 	}
 	@cd web && npm run --silent budget
 	@echo "web-check: OK"
-
-# Not part of gate: it needs Node and Playwright's Chromium, and gate stays
-# Go-only (D227). The harness builds the binary itself and tests it serving
-# its embedded bundle, never Vite's dev server (D228).
-e2e-web: ## Browser-level Atlas UI suite against the built binary (needs Node + `npx playwright install chromium`)
-	@cd web && npm ci --silent
-	@web/e2e/run.sh
 
 docker: ## Build the Docker image
 	docker build -t cartographer .

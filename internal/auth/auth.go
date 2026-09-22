@@ -70,26 +70,6 @@ func (p Policy) Allows(kbName, mapName, journalName, typeName string, write bool
 	return false
 }
 
-// AllowsCollection reports whether a policy reaches anything inside a map or
-// journal. The type selector is not consulted: a collection has no type, and
-// passing an empty one to Allows matched no rule that names types — so a role
-// narrowed to a map *and* a type could see no collection at all, and the UI
-// told it no KB was visible (D228). Concept-level checks still apply the type.
-func (p Policy) AllowsCollection(kbName, mapName, journalName string, write bool) bool {
-	if p.Admin {
-		return true
-	}
-	for _, rule := range p.Permissions {
-		if rule.KB != kbName || (write && !rule.Write) {
-			continue
-		}
-		if matchesSelector(rule.Maps, mapName) && matchesSelector(rule.Journals, journalName) {
-			return true
-		}
-	}
-	return false
-}
-
 // AllowsWholeKB requires an unselected permission. It is used for operations
 // which cannot safely be scoped to a partial collection.
 func (p Policy) AllowsWholeKB(kbName string, write bool) bool {

@@ -355,7 +355,6 @@ export function GraphCanvas({
     if (!position) return;
     const camera = renderer.getCamera();
     const to = { x: position.x, y: position.y, ratio: Math.min(camera.ratio, 0.55) };
-    markCamera(containerRef.current, reducedMotion);
     if (reducedMotion) camera.setState(to);
     else camera.animate(to, { duration: CAMERA_MS, easing: "cubicInOut" });
   }, [selected, highlighted, reducedMotion]);
@@ -364,7 +363,6 @@ export function GraphCanvas({
     (to: Record<string, number>, duration: number) => {
       const camera = sigmaRef.current?.getCamera();
       if (!camera) return;
-      markCamera(containerRef.current, reducedMotion);
       if (reducedMotion) camera.setState(to);
       else camera.animate(to, { duration, easing: "cubicInOut" });
     },
@@ -378,11 +376,7 @@ export function GraphCanvas({
   };
 
   return (
-    <div
-      className={`graph${dragging ? " graph--dragging" : ""}`}
-      data-motion={reducedMotion ? "reduced" : "full"}
-      data-entry={entry < 1 ? "settling" : "settled"}
-    >
+    <div className={`graph${dragging ? " graph--dragging" : ""}`}>
       <div
         ref={containerRef}
         className="graph__canvas"
@@ -441,13 +435,6 @@ export function GraphCanvas({
       )}
     </div>
   );
-}
-
-/** Records how the last camera move was made, "jump" or "tween", on the canvas
- *  element. The camera lives inside a WebGL renderer, so this attribute is the
- *  only way a browser test can tell reduced motion was honoured (D228). */
-function markCamera(container: HTMLElement | null, reducedMotion: boolean): void {
-  if (container) container.dataset.camera = reducedMotion ? "jump" : "tween";
 }
 
 function readGraphPositions(graph: Graph): Record<string, { x: number; y: number }> {

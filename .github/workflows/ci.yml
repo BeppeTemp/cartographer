@@ -85,15 +85,6 @@ jobs:
           cache-dependency-path: web/package-lock.json
       - run: make web-check
       - run: make web-test
-      # The browser suite (D228) drives bin/cartographer, which commits to the
-      # fixture KBs it initialises, so git needs an identity here too.
-      - name: Configure git for tests
-        run: |
-          git config --global user.name ci
-          git config --global user.email ci@local
-          git config --global init.defaultBranch master
-      - run: cd web && npx playwright install --with-deps chromium
-      - run: make e2e-web
 
   # With squash-merge the PR title becomes the commit on main that
   # release-please reads: it must be a valid conventional commit.

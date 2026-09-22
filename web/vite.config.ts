@@ -25,9 +25,6 @@ export default defineConfig({
     // sessionStorage assertion fails for a reason that has nothing to do with
     // the code under test.
     environmentOptions: { jsdom: { url: "http://localhost:39273/ui/" } },
-    // Only the unit/component tests: the Playwright suite under e2e/ runs
-    // against the built binary through `make e2e-web`, never under jsdom.
-    include: ["src/**/*.test.{ts,tsx}"],
     setupFiles: ["./src/test/setup.ts"],
     css: true,
   },
