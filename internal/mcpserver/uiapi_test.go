@@ -423,3 +423,28 @@ func TestUIAPI_AbsentWhenTheWebSurfaceIsDisabled(t *testing.T) {
 		t.Errorf("/health: status %d, want 200", rr.Code)
 	}
 }
+
+// TestUIFindingConcept: only a concept file names a concept. A map's own
+// index.md, log.md or descriptor is not one, and attributing its finding to a
+// concept named after the map sent the Observatory to a node that does not
+// exist (D228).
+func TestUIFindingConcept(t *testing.T) {
+	cases := map[string]string{
+		"infra/gateway.md":       "infra/gateway",
+		"infra/cluster/index.md": "infra/cluster",
+		"infra/cluster/nodes.md": "infra/cluster/nodes",
+		`infra\dns.md`:           "infra/dns",
+		"infra/index.md":         "",
+		"infra/log.md":           "",
+		"infra/_map.md":          "",
+		"infra/_archive.md":      "",
+		"index.md":               "",
+		"infra":                  "",
+		"infra/cluster/a.png":    "",
+	}
+	for path, want := range cases {
+		if got := uiFindingConcept(path); got != want {
+			t.Errorf("uiFindingConcept(%q) = %q, want %q", path, got, want)
+		}
+	}
+}
