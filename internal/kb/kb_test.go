@@ -1498,3 +1498,63 @@ func TestValidate_UnparseableFrontmatterNamesPathKeyAndLine(t *testing.T) {
 		}
 	}
 }
+
+// TestUpdateMapContract: a map created without a contract can opt in later,
+// only the named keys change, other keys and the body survive, an empty value
+// removes the key, and a legacy _archive.md is refused (#320).
+func TestUpdateMapContract(t *testing.T) {
+	k, err := Init(tempKB(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := k.CreateMap("m", "M", "map", nil, ""); err != nil {
+		t.Fatal(err)
+	}
+	yes := true
+	fields := []string{"owner", "owner", "status"}
+	contract, err := k.UpdateMapContract("m", MapContractUpdate{
+		RequireIndexEntry:    &yes,
+		RequiredFields:       &fields,
+		RequiredFieldsByType: map[string][]string{"Runbook": {"service"}},
+	})
+	if err != nil {
+		t.Fatalf("UpdateMapContract: %v", err)
+	}
+	if !contract.RequireIndexEntry || strings.Join(contract.RequiredFields, ",") != "owner,status" ||
+		strings.Join(contract.RequiredFieldsByType["Runbook"], ",") != "service" || len(contract.Malformed) != 0 {
+		t.Fatalf("contract after opt-in = %+v", contract)
+	}
+	raw, err := k.ReadRaw("m/_map.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"type: Map", "title: M", "kind: map", "ontology_mode: flexible", "require_index_entry: true", "required_fields.Runbook: [service]", "\n# M\n"} {
+		if !strings.Contains(raw, want) {
+			t.Errorf("_map.md lost or lacks %q:\n%s", want, raw)
+		}
+	}
+
+	no := false
+	none := []string{}
+	contract, err = k.UpdateMapContract("m", MapContractUpdate{RequireIndexEntry: &no, RequiredFields: &none, RequiredFieldsByType: map[string][]string{}})
+	if err != nil {
+		t.Fatalf("UpdateMapContract (remove): %v", err)
+	}
+	if contract.RequireIndexEntry || len(contract.RequiredFields) != 0 || len(contract.RequiredFieldsByType) != 0 {
+		t.Errorf("contract after removal = %+v", contract)
+	}
+	raw, _ = k.ReadRaw("m/_map.md")
+	if strings.Contains(raw, "require_index_entry") || strings.Contains(raw, "required_fields") {
+		t.Errorf("removed keys still in _map.md:\n%s", raw)
+	}
+
+	if err := os.MkdirAll(filepath.Join(k.DataRoot(), "legacy"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(k.DataRoot(), "legacy", "_archive.md"), []byte("---\ntype: Archive\ntitle: L\n---\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := k.UpdateMapContract("legacy", MapContractUpdate{RequireIndexEntry: &yes}); err == nil || !strings.Contains(err.Error(), "legacy") {
+		t.Errorf("legacy descriptor: err = %v, want a refusal naming it", err)
+	}
+}

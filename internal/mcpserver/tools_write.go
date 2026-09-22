@@ -749,25 +749,8 @@ func toolMapCreate(k *kb.KB) Tool {
 			if params.Title == "" {
 				return errorResult("'title' is required"), nil
 			}
-			for _, field := range params.RequiredFields {
-				if strings.TrimSpace(field) == "" {
-					return errorResult("'required_fields' must not contain empty field names"), nil
-				}
-			}
-			for typ, fields := range params.RequiredFieldsByType {
-				if strings.TrimSpace(typ) == "" {
-					return errorResult("'required_fields_by_type' must not contain an empty type name"), nil
-				}
-				for _, field := range fields {
-					if strings.TrimSpace(field) == "" {
-						return errorResult("'required_fields_by_type' must not contain empty field names"), nil
-					}
-				}
-			}
-			for _, prefix := range params.MachinePathAllowPrefixes {
-				if strings.TrimSpace(prefix) == "" {
-					return errorResult("'machine_path_allow_prefixes' must not contain empty entries"), nil
-				}
+			if msg := validateContractParams(params.RequiredFields, params.RequiredFieldsByType, params.MachinePathAllowPrefixes); msg != "" {
+				return errorResult(msg), nil
 			}
 
 			contract := kb.MapContract{
@@ -789,6 +772,145 @@ func toolMapCreate(k *kb.KB) Tool {
 			return textResult(string(out)), nil
 		},
 	}
+}
+
+// validateContractParams rejects the empty entries a map contract must not
+// carry. Shared by map_create and map_update so the two cannot drift; returns
+// "" when the input is acceptable.
+func validateContractParams(requiredFields []string, byType map[string][]string, allowPrefixes []string) string {
+	for _, field := range requiredFields {
+		if strings.TrimSpace(field) == "" {
+			return "'required_fields' must not contain empty field names"
+		}
+	}
+	for typ, fields := range byType {
+		if strings.TrimSpace(typ) == "" {
+			return "'required_fields_by_type' must not contain an empty type name"
+		}
+		for _, field := range fields {
+			if strings.TrimSpace(field) == "" {
+				return "'required_fields_by_type' must not contain empty field names"
+			}
+		}
+	}
+	for _, prefix := range allowPrefixes {
+		if strings.TrimSpace(prefix) == "" {
+			return "'machine_path_allow_prefixes' must not contain empty entries"
+		}
+	}
+	return ""
+}
+
+// --- map_update ---
+
+func toolMapUpdate(k *kb.KB) Tool {
+	return Tool{
+		Name: "map_update",
+		Description: "Changes the lint contract of an existing Map or Journal (the keys map_create accepts: " +
+			"require_index_entry, required_fields, required_fields_by_type, machine_path_allow_prefixes). " +
+			"Only the keys given change; an empty list or false removes one. Use it to opt an older map in to " +
+			"require_index_entry, after which concept_move maintains its curated index.md and lint reports " +
+			"missing entries. Returns the contract as read back.",
+		InputSchema: json.RawMessage(`{
+			"type": "object",
+			"required": ["map"],
+			"properties": {
+				"map": {
+					"type": "string",
+					"description": "Map/journal directory name (as passed to map_create)"
+				},
+				"required_fields": {
+					"type": "array",
+					"items": {"type": "string"},
+					"description": "Replaces the fields every concept in this map must carry; [] removes the requirement. Lint contract, not a write gate."
+				},
+				"required_fields_by_type": {
+					"type": "object",
+					"additionalProperties": {"type": "array", "items": {"type": "string"}},
+					"description": "Replaces every per-type requirement (types not listed lose theirs); {} removes them all. Lint contract, not a write gate."
+				},
+				"require_index_entry": {
+					"type": "boolean",
+					"description": "Require each concept to be linked from its curated index; false removes the requirement. Lint contract, not a write gate."
+				},
+				"machine_path_allow_prefixes": {
+					"type": "array",
+					"items": {"type": "string"},
+					"description": "Replaces the path prefixes the machine_path lint treats as operational target paths (D124); [] removes them."
+				}
+			}
+		}`),
+		Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
+			// Pointers distinguish "not given" (leave it) from an empty value
+			// (remove it): the two must never collapse into one.
+			var params struct {
+				Map                      string              `json:"map"`
+				RequiredFields           *[]string           `json:"required_fields"`
+				RequiredFieldsByType     map[string][]string `json:"required_fields_by_type"`
+				RequireIndexEntry        *bool               `json:"require_index_entry"`
+				MachinePathAllowPrefixes *[]string           `json:"machine_path_allow_prefixes"`
+			}
+			if err := json.Unmarshal(args, &params); err != nil {
+				return errorResult("invalid params: " + err.Error()), nil
+			}
+			if params.Map == "" {
+				return errorResult("'map' is required"), nil
+			}
+			if params.RequiredFields == nil && params.RequiredFieldsByType == nil &&
+				params.RequireIndexEntry == nil && params.MachinePathAllowPrefixes == nil {
+				return errorResult("nothing to change: pass at least one of require_index_entry, required_fields, required_fields_by_type, machine_path_allow_prefixes"), nil
+			}
+			var fields, prefixes []string
+			if params.RequiredFields != nil {
+				fields = *params.RequiredFields
+			}
+			if params.MachinePathAllowPrefixes != nil {
+				prefixes = *params.MachinePathAllowPrefixes
+			}
+			if msg := validateContractParams(fields, params.RequiredFieldsByType, prefixes); msg != "" {
+				return errorResult(msg), nil
+			}
+			if _, err := k.ReadArchiveMeta(params.Map); err != nil {
+				return errorResult(fmt.Sprintf("map_update %q: not found", params.Map)), nil
+			}
+
+			contract, err := k.UpdateMapContract(params.Map, kb.MapContractUpdate{
+				RequiredFields:           params.RequiredFields,
+				RequiredFieldsByType:     params.RequiredFieldsByType,
+				RequireIndexEntry:        params.RequireIndexEntry,
+				MachinePathAllowPrefixes: params.MachinePathAllowPrefixes,
+			})
+			if err != nil {
+				return errorResult(fmt.Sprintf("map_update %q: %v", params.Map, err)), nil
+			}
+
+			_ = k.AppendLog("map_update: "+params.Map, time.Now())
+			byType := contract.RequiredFieldsByType
+			if byType == nil {
+				byType = map[string][]string{}
+			}
+			result := map[string]interface{}{
+				"map":    params.Map,
+				"status": "updated",
+				"contract": map[string]interface{}{
+					"require_index_entry":         contract.RequireIndexEntry,
+					"required_fields":             nonNilStrings(contract.RequiredFields),
+					"required_fields_by_type":     byType,
+					"machine_path_allow_prefixes": nonNilStrings(contract.MachinePathAllowPrefixes),
+				},
+			}
+			out, _ := json.MarshalIndent(result, "", "  ")
+			return textResult(string(out)), nil
+		},
+	}
+}
+
+// nonNilStrings renders a nil slice as [] rather than null in JSON output.
+func nonNilStrings(v []string) []string {
+	if v == nil {
+		return []string{}
+	}
+	return v
 }
 
 // --- map_delete ---

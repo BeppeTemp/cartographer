@@ -30,7 +30,8 @@ package mcpserver
 // NOT advanced: concept_expand (D77 WP2) — growing a concept into an
 // expanded concept is a normal, frequent agent action, same tier as
 // concept_move/concept_delete. Also NOT advanced: map_delete (D88 WP2) —
-// same tier as its counterpart map_create, normal Atlas upkeep. Also NOT
+// same tier as its counterpart map_create, normal Atlas upkeep; so is
+// map_update (#320), which an agent tidying a map's index needs. Also NOT
 // advanced: validate, lint, gate_check, kb_status (D123) — read-only
 // governance diagnostics that the documented agent loop (docs/loop.md,
 // docs/use-cases.md) requires, and that descriptor-bound MCP hosts (e.g.

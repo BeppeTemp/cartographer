@@ -20,7 +20,7 @@ For each mounted KB, the server keeps only a **rebuildable derived index** and a
 - Read-only tools carry `Tool.ReadOnly=true`; HTTP scopes enforce the
   read/write boundary.
 
-**Commit per logical operation (Step 1 — local commit)**: every write tool (`concept_write`, `concept_new`, `concept_patch`, `map_create`, `map_delete`, `concept_expand`, `asset_write`, `asset_delete`, `log_append`, `snapshot`, `supersede`, `concept_move`, `concept_batch`, `concept_delete`, `conflict_resolve`, `skill_install`) is wrapped by `gitWrap`, which acquires the per-KB mutex, runs the tool, and on success (no application error) calls `CommitOp`. A failed commit does not turn a successful operation into an error: it is logged to stderr. `AutoCommit=false` (the struct's zero value) leaves everything unchanged and keeps compatibility with existing tests. `concept_batch` (D125) is the one write tool that additionally **rolls back its own already-written files** on a late failure (an index-update error after every file succeeded) — see `concurrency.md` §Writer boundary.
+**Commit per logical operation (Step 1 — local commit)**: every write tool (`concept_write`, `concept_new`, `concept_patch`, `map_create`, `map_update`, `map_delete`, `concept_expand`, `asset_write`, `asset_delete`, `log_append`, `snapshot`, `supersede`, `concept_move`, `concept_batch`, `concept_delete`, `conflict_resolve`, `skill_install`) is wrapped by `gitWrap`, which acquires the per-KB mutex, runs the tool, and on success (no application error) calls `CommitOp`. A failed commit does not turn a successful operation into an error: it is logged to stderr. `AutoCommit=false` (the struct's zero value) leaves everything unchanged and keeps compatibility with existing tests. `concept_batch` (D125) is the one write tool that additionally **rolls back its own already-written files** on a late failure (an index-update error after every file succeeded) — see `concurrency.md` §Writer boundary.
 
 **Read freshness across instances (D93)**: when `git.sync` is enabled and a KB has an `origin`, every tool marked **[R]** piggybacks a fetch + pull-rebase before handling the read, at most once per `git.in_window` per KB. A pull that moves HEAD reconciles the derived indexes before the read, so a remote concept becomes both readable and searchable. Read-side sync is best-effort: a fetch error is logged and serves the local replica; a rebase conflict is registered and its concepts are marked degraded, then the read still serves the local tree. There is no background poller.
 
@@ -71,6 +71,7 @@ for that KB, with an error naming the tool, the KB and the setting. On the per-K
 | Tool | Purpose |
 |---|---|
 | `map_create(name, title, [kind], [concept_types], [ontology_mode], [required_fields], [required_fields_by_type], [require_index_entry], [machine_path_allow_prefixes])` | Creates a map (`kind: map`, default) or a journal (`kind: journal`): a directory with `_map.md`, `index.md`, `log.md`. The optional contract fields are serialized deterministically in its descriptor. |
+| `map_update(map, [require_index_entry], [required_fields], [required_fields_by_type], [machine_path_allow_prefixes])` | Changes an existing map's lint contract and nothing else in `_map.md`: only the keys given change, an empty list or `false` removes one, and `required_fields_by_type` replaces every per-type key. How a map created without `require_index_entry` opts in, after which `concept_move` maintains its curated index and `lint` reports missing entries. A legacy `_archive.md` descriptor is refused. Returns the contract as read back. D229. |
 | `map_delete(map)` | Deletes a map/journal directory, but only if it holds nothing beyond the `map_create` scaffold (`_map.md`, `index.md`, `log.md`); if any concept remains, errors listing them — move them out with `concept_move` first, then retry (D88). |
 | `concept_expand(id)` | Promotes a concept to an expanded concept: `map/name.md` → `map/name/index.md`, **same ConceptID** (no backlink rewrite), from which it can grow with `map/name/child` satellites. Requires a 2-segment id; errors `not_found` / `already_expanded`. No inverse operation (D77). |
 | `asset_read(concept_id, path, [encoding])` **[R]** | Reads a non-Markdown asset inside an expanded concept. Returns content (`text` or base64; invalid UTF-8 is always base64), raw-byte `sha256`, size and executable mode. |
@@ -208,7 +209,9 @@ the only search mode the server offers (D135).
 - `commit_gate` inspects existing `type: Contradiction` concepts with
   `resolution_status: open` and blocks a supplied set of changed concept IDs
   when they are involved.
-- Broken links are tolerated on write and surfaced by lint.
+- Broken links are tolerated on write and surfaced by lint — including a dead
+  link in a map's `index.md`, whether or not the map opted in to
+  `require_index_entry` (D229); only completeness is opt-in.
 - A concept with no (or a blank) `title` is `missing_title` (warning): the
   title is the label `concept_list`, search results and indexes show, while
   `validate` only requires `type`. The message suggests the first H1.
