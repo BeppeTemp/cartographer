@@ -45,8 +45,9 @@
   /* Graph. Collection hues come from this fixed wheel, picked by a stable
      hash of the collection name, so a Map keeps its colour between sessions
      and between machines. */
-  --graph-edge: #24384f;
-  --graph-edge-active: #2dd4bf;
+  --graph-edge: #22344a;
+  --graph-edge-3d: #3a5470;
+  --graph-edge-active: #7fe0d2;
   --graph-node-stroke: #070d14;
   /* Community colouring (lib/communities): the twelve largest communities
      take the hue wheel below in rank order; singletons and the long tail
@@ -56,21 +57,24 @@
   /* Canvas atmosphere. Two soft light sources and a vignette -- no grid: a
      ruled background turns a force-directed graph into a spreadsheet, and the
      lines compete with the edges at exactly the weights the edges use. */
-  --graph-glow-a: rgb(45 212 191 / 0.13);
-  --graph-glow-b: rgb(120 90 220 / 0.10);
-  --graph-vignette: rgb(4 8 13 / 0.65);
-  --hue-1: #2dd4bf;
-  --hue-2: #f5b544;
-  --hue-3: #a78bfa;
-  --hue-4: #4ade80;
-  --hue-5: #60a5fa;
-  --hue-6: #fb923c;
-  --hue-7: #f472b6;
-  --hue-8: #22d3ee;
-  --hue-9: #c084fc;
-  --hue-10: #facc15;
-  --hue-11: #34d399;
-  --hue-12: #93c5fd;
+  --graph-glow-a: rgb(69 196 176 / 0.07);
+  --graph-glow-b: rgb(143 163 239 / 0.05);
+  --graph-vignette: rgb(4 8 13 / 0.55);
+  /* A curated wheel, not a framework's full-saturation set: mid-chroma tones
+     that sit together around the logo's teal, amber and blue, so a coloured
+     graph reads as one picture instead of a box of sweets. */
+  --hue-1: #45c4b0;
+  --hue-2: #e6b35c;
+  --hue-3: #8fa3ef;
+  --hue-4: #8cc8a0;
+  --hue-5: #e98f7f;
+  --hue-6: #72b3de;
+  --hue-7: #c49be0;
+  --hue-8: #d8c28e;
+  --hue-9: #5ec7d1;
+  --hue-10: #b7cf7a;
+  --hue-11: #e59bb8;
+  --hue-12: #a2b6c9;
 
   /* Typography: local stacks only. A remote font would be the one network
      request this UI promises never to make. */
@@ -159,6 +163,7 @@
   --sev-ok: #137a3a;
 
   --graph-edge: #c3d0de;
+  --graph-edge-3d: #a9b9ca;
   --graph-edge-active: #0f766e;
   --graph-node-stroke: #ffffff;
   --graph-community-other: #778a9e;
@@ -166,17 +171,17 @@
   --graph-glow-b: rgb(99 102 241 / 0.08);
   --graph-vignette: rgb(31 65 102 / 0.07);
   --hue-1: #0f766e;
-  --hue-2: #b45309;
-  --hue-3: #6d28d9;
-  --hue-4: #15803d;
-  --hue-5: #1d4ed8;
-  --hue-6: #c2410c;
-  --hue-7: #be185d;
-  --hue-8: #0e7490;
-  --hue-9: #7e22ce;
-  --hue-10: #a16207;
-  --hue-11: #047857;
-  --hue-12: #1e40af;
+  --hue-2: #9a5a08;
+  --hue-3: #4f5fc4;
+  --hue-4: #3f7d52;
+  --hue-5: #b94c3c;
+  --hue-6: #2d6f9e;
+  --hue-7: #8651a8;
+  --hue-8: #7f6526;
+  --hue-9: #1f7f8a;
+  --hue-10: #5a7420;
+  --hue-11: #a8466d;
+  --hue-12: #56697d;
 
   --elevation-1: 0 1px 2px rgb(13 22 34 / 0.05);
   --elevation-2: 0 6px 18px rgb(13 22 34 / 0.08), 0 1px 2px rgb(13 22 34 / 0.05);

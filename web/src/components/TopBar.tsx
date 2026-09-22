@@ -52,7 +52,7 @@ export function TopBar({
         </button>
       )}
       <div className="topbar__brand">
-        <span className="topbar__mark" aria-hidden="true" />
+        <img className="topbar__mark" src={`${import.meta.env.BASE_URL}icon-64.png`} alt="" width={26} height={26} />
         <span className="topbar__name">Cartographer</span>
       </div>
 

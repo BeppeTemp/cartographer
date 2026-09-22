@@ -69,3 +69,8 @@ for (const name of ["localStorage", "sessionStorage"] as const) {
     }
   }
 }
+
+// @sigma/node-border builds WebGL programs at import time, and jsdom has no
+// WebGL. Sigma itself is stubbed per test file; its border program is stubbed
+// here for all of them, since every shell test pulls it in through GraphCanvas.
+vi.mock("@sigma/node-border", () => ({ createNodeBorderProgram: () => class {} }));

@@ -21,40 +21,11 @@
 }
 
 .topbar__mark {
-  width: 18px;
-  height: 18px;
-  border-radius: var(--radius-pill);
-  border: 2px solid var(--primary);
-  position: relative;
+  width: 26px;
+  height: 26px;
+  flex: none;
 }
 
-.topbar__mark::after {
-  content: "";
-  position: absolute;
-  inset: 4px;
-  border-radius: var(--radius-pill);
-  background: var(--accent);
-  animation: mark-pulse 4s var(--ease-out) infinite;
-}
-
-/* The one piece of ambient motion outside the canvas: the brand mark has a
-   slow pulse, so a connected server looks connected. */
-@keyframes mark-pulse {
-  0%, 100% {
-    opacity: 1;
-    transform: scale(1);
-  }
-  50% {
-    opacity: 0.55;
-    transform: scale(0.82);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .topbar__mark::after {
-    animation: none;
-  }
-}
 
 .topbar__kb select {
   min-width: 140px;
@@ -1429,4 +1400,44 @@
 
 .markdown__wikilink:hover {
   border-block-end-style: solid;
+}
+
+.graph--3d .graph3d {
+  position: absolute;
+  inset: 0;
+}
+
+.graph3d__label {
+  padding: 2px 8px;
+  font: 600 12px var(--font-sans);
+  color: var(--text-primary);
+  background: var(--surface-1);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-pill);
+}
+
+.graph-toolbar__segmented {
+  display: inline-flex;
+  padding: 2px;
+  background: color-mix(in srgb, var(--surface-1) 86%, transparent);
+  backdrop-filter: blur(12px);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-control);
+  box-shadow: var(--elevation-2);
+}
+
+.graph-toolbar__segmented button {
+  padding: var(--space-1) var(--space-3);
+  font: inherit;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  background: transparent;
+  border: 0;
+  border-radius: calc(var(--radius-control) - 2px);
+  cursor: pointer;
+}
+
+.graph-toolbar__segmented button[aria-pressed="true"] {
+  color: var(--text-primary);
+  background: var(--surface-3);
 }

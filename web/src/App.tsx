@@ -14,6 +14,7 @@ import type { Concept, GraphSnapshot, KBSummary, LintReport, Overview } from "./
 import { AuthPrompt } from "./components/AuthPrompt";
 import { CommandPalette } from "./components/CommandPalette";
 import { GraphCanvas } from "./components/GraphCanvas";
+import { Graph3D } from "./components/Graph3D";
 import { Inspector } from "./components/Inspector";
 import { LeftRail } from "./components/LeftRail";
 import { Legend } from "./components/Legend";
@@ -75,6 +76,7 @@ export function App() {
   // and open on demand, and the choice is remembered (lib/panels).
   const [railCollapsed, setRailCollapsed] = useState(() => readPanel("rail", true));
   const [listOpen, setListOpen] = useState(() => readPanel("list", false));
+  const [explore3d, setExplore3d] = useState(() => readPanel("3d", false));
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [preview, setPreview] = useState<string | null>(null);
   const [notice, setNotice] = useState<string>("");
@@ -88,6 +90,7 @@ export function App() {
   useEffect(() => writeColorBy(colorBy), [colorBy]);
   useEffect(() => writePanel("rail", railCollapsed), [railCollapsed]);
   useEffect(() => writePanel("list", listOpen), [listOpen]);
+  useEffect(() => writePanel("3d", explore3d), [explore3d]);
   // Leaving the narrow layout closes any sheet: on a wide screen the panels
   // are simply there, and a leftover modal would trap focus over them.
   useEffect(() => {
@@ -502,28 +505,47 @@ export function App() {
             />
           ) : (
             <>
-              <GraphCanvas
-                kb={activeKB!}
-                scope={view.scope}
-                snapshot={snapshot}
-                communities={communities}
-                colorBy={colorBy}
-                selected={view.concept}
-                highlighted={preview}
-                hiddenIds={hiddenIds}
-                severityByConcept={severityByConcept}
-                themeKey={theme}
-                onSelect={selectConcept}
-                onExpand={expandConcept}
-                occludedRight={!narrow && view.concept ? INSPECTOR_OCCLUSION : 0}
-              >
+              {explore3d && !narrow ? (
+                <div className="graph graph--3d">
+                  <Graph3D
+                    snapshot={snapshot}
+                    communities={communities}
+                    colorBy={colorBy}
+                    selected={view.concept}
+                    hiddenIds={hiddenIds}
+                    onSelect={selectConcept}
+                  />
                 <Legend
                   snapshot={snapshot}
                   communities={communities}
                   colorBy={colorBy}
                   onColorBy={setColorBy}
                 />
-              </GraphCanvas>
+                </div>
+              ) : (
+                <GraphCanvas
+                  kb={activeKB!}
+                  scope={view.scope}
+                  snapshot={snapshot}
+                  communities={communities}
+                  colorBy={colorBy}
+                  selected={view.concept}
+                  highlighted={preview}
+                  hiddenIds={hiddenIds}
+                  severityByConcept={severityByConcept}
+                  themeKey={theme}
+                  onSelect={selectConcept}
+                  onExpand={expandConcept}
+                  occludedRight={!narrow && view.concept ? INSPECTOR_OCCLUSION : 0}
+                >
+                  <Legend
+                    snapshot={snapshot}
+                    communities={communities}
+                    colorBy={colorBy}
+                    onColorBy={setColorBy}
+                  />
+                </GraphCanvas>
+              )}
               {!narrow && (
                 <div className="graph-toolbar">
                   <button
@@ -537,6 +559,14 @@ export function App() {
                     Concepts
                     <span className="graph-toolbar__count">{visibleNodes.length}</span>
                   </button>
+                  <div className="graph-toolbar__segmented" role="group" aria-label="Graph view">
+                    <button type="button" aria-pressed={!explore3d} onClick={() => setExplore3d(false)}>
+                      2D
+                    </button>
+                    <button type="button" aria-pressed={explore3d} onClick={() => setExplore3d(true)}>
+                      3D
+                    </button>
+                  </div>
                 </div>
               )}
               {!narrow && listOpen && <div id="concept-list" className="overlay overlay--list">{nodeList}</div>}

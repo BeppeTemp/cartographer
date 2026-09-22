@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import Sigma from "sigma";
+import { createNodeBorderProgram } from "@sigma/node-border";
 import type Graph from "graphology";
 import type { GraphSnapshot } from "../api/types";
 import {
@@ -12,7 +13,7 @@ import {
 import { edgeAppearance, nodeAppearance, type Palette } from "../lib/encoding";
 import { collectionHue, cssVar, resolveSlots, type ColorBy } from "../lib/palette";
 import { OTHER_SLOT, communitySlot, type Communities } from "../lib/communities";
-import { makeHoverDrawer } from "../lib/halo";
+import { makeHoverDrawer, makeLabelDrawer } from "../lib/halo";
 import { prefersReducedMotion } from "../lib/theme";
 
 interface Props {
@@ -51,6 +52,13 @@ const CAMERA_MS = 360;
  *  graph to its own frame, so those units are not the layout's, and a zoom
  *  onto a selection filled the canvas with overlapping discs. */
 const DRAWN_SIZE = 0.5;
+/** A disc with a fixed 1.5px outline in the node's borderColor. */
+const NodeBorder = createNodeBorderProgram({
+  borders: [
+    { size: { value: 1.5, mode: "pixels" }, color: { attribute: "borderColor" } },
+    { size: { fill: true }, color: { attribute: "color" } },
+  ],
+});
 
 export function GraphCanvas({
   kb,
@@ -91,6 +99,7 @@ export function GraphCanvas({
       severityWarning: cssVar("--sev-warning") || "#fbbf24",
       edge: cssVar("--graph-edge") || "#24384f",
       edgeActive: cssVar("--graph-edge-active") || "#2dd4bf",
+      nodeStroke: cssVar("--graph-node-stroke") || "#070d14",
       slots: resolveSlots(),
       label: cssVar("--text-secondary") || "#9fb3c8",
       labelBackground: cssVar("--surface-1") || "#0d1622",
@@ -160,8 +169,8 @@ export function GraphCanvas({
       renderEdgeLabels: false,
       defaultEdgeType: "line",
       labelFont: cssVar("--font-sans") || "sans-serif",
-      labelSize: 12,
-      labelWeight: "600",
+      labelSize: 11.5,
+      labelWeight: "500",
       // Labels only where they can be read: the larger nodes at rest, more
       // as the user zooms in. The focused node's neighbourhood is labelled
       // regardless (encoding.ts, forceLabel).
@@ -169,6 +178,7 @@ export function GraphCanvas({
       labelGridCellSize: 90,
       labelRenderedSizeThreshold: 9,
       zIndex: true,
+      nodeProgramClasses: { border: NodeBorder },
       // Tighter than the stock zoom, so the wheel moves in steps the eye can
       // follow instead of jumps.
       zoomingRatio: 1.4,
@@ -253,6 +263,10 @@ export function GraphCanvas({
     if (!renderer) return;
 
     renderer.setSetting("labelColor", { color: palette.label });
+    renderer.setSetting(
+      "defaultDrawNodeLabel",
+      makeLabelDrawer({ text: palette.label, halo: cssVar("--surface-0") || "#070d14" }),
+    );
     renderer.setSetting(
       "defaultDrawNodeHover",
       makeHoverDrawer({

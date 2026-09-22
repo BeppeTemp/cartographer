@@ -21,7 +21,10 @@
  */
 
 /** The node types stock Sigma can render. */
-export const RENDERABLE_NODE_TYPES = ["circle"] as const;
+/** "border" is the one extra program the atlas registers (@sigma/node-border,
+ *  see GraphCanvas): a filled disc with a thin outline in the canvas colour,
+ *  which keeps neighbouring nodes crisp where they touch. */
+export const RENDERABLE_NODE_TYPES = ["circle", "border"] as const;
 /** The edge types stock Sigma can render. */
 export const RENDERABLE_EDGE_TYPES = ["line", "arrow"] as const;
 
@@ -34,12 +37,14 @@ export interface Palette {
   severityWarning: string;
   edge: string;
   edgeActive: string;
+  /** The node outline: the canvas colour, so touching nodes stay separate. */
+  nodeStroke?: string;
 }
 
 /** Non-neighbours of the focused node fade to this opacity (plan: 0.25). */
 export const DIM_ALPHA = 0.25;
 /** Resting opacity of an edge tinted by its group's hue. */
-export const GROUP_EDGE_ALPHA = 0.32;
+export const GROUP_EDGE_ALPHA = 0.22;
 /** Above this many neighbours, a focused node's neighbours are not all
  *  labelled: a hub's hundred labels are unreadable and hide the graph. */
 export const NEIGHBOUR_LABEL_LIMIT = 24;
@@ -72,11 +77,13 @@ export interface NodeAppearance {
   zIndex: number;
   highlighted: boolean;
   forceLabel: boolean;
+  borderColor: string;
 }
 
 export function nodeAppearance(node: NodeInput, palette: Palette): NodeAppearance {
   const base: NodeAppearance = {
-    type: "circle",
+    type: "border",
+    borderColor: palette.nodeStroke ?? "transparent",
     hidden: false,
     color: node.hueColor,
     size: node.baseSize,

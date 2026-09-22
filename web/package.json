@@ -16,6 +16,8 @@
     "budget": "node scripts/budget.mjs"
   },
   "dependencies": {
+    "@sigma/node-border": "^3.0.0",
+    "3d-force-graph": "^1.80.0",
     "graphology": "^0.26.0",
     "graphology-communities-louvain": "^2.0.2",
     "graphology-layout-forceatlas2": "^0.10.1",
@@ -36,6 +38,7 @@
     "@types/node": "^24.13.5",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
+    "@types/three": "^0.186.0",
     "@vitejs/plugin-react": "^5.0.4",
     "jsdom": "^27.0.0",
     "typescript": "^5.9.3",

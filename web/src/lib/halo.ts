@@ -1,4 +1,4 @@
-import type { NodeHoverDrawingFunction } from "sigma/rendering";
+import type { NodeHoverDrawingFunction, NodeLabelDrawingFunction } from "sigma/rendering";
 
 /**
  * The hover and selection halo, drawn on Sigma's 2D hover layer.
@@ -83,4 +83,26 @@ function roundedRect(
   context.arcTo(x, y + height, x, y, r);
   context.arcTo(x, y, x + width, y, r);
   context.closePath();
+}
+
+/**
+ * makeLabelDrawer draws a resting label with a halo in the canvas colour: the
+ * text is stroked in --surface-0 before it is filled, so it stays legible where
+ * it crosses nodes and edges without the heavier look of a box behind every
+ * label.
+ */
+export function makeLabelDrawer(colors: { text: string; halo: string }): NodeLabelDrawingFunction {
+  return (context, data, settings) => {
+    if (!data.label) return;
+    const fontSize = settings.labelSize;
+    context.font = `${settings.labelWeight} ${fontSize}px ${settings.labelFont}`;
+    const x = data.x + data.size + 4;
+    const y = data.y + fontSize / 3;
+    context.lineJoin = "round";
+    context.lineWidth = 4;
+    context.strokeStyle = colors.halo;
+    context.strokeText(data.label, x, y);
+    context.fillStyle = colors.text;
+    context.fillText(data.label, x, y);
+  };
 }
