@@ -186,8 +186,19 @@ func quotePath(p string) string { return `"` + p + `"` }
 // task templates take it from.
 const windowsTaskXMLDeclaration = `<?xml version="1.0"?>`
 
-func RenderWindowsTaskXML(binPath, configPath, logPath string) string {
+// The logon trigger names userID, the user installing the service. A
+// LogonTrigger with no UserId fires at *any* user's logon, and registering one
+// needs administrator rights: a standard user got "Access denied" and no
+// service at all. Scoped to its owner, the task is one any user may register
+// for themselves — which is also the only meaning a per-user service has.
+// An empty userID (the account name could not be resolved) falls back to the
+// unscoped trigger rather than to no trigger.
+func RenderWindowsTaskXML(binPath, configPath, logPath, userID string) string {
 	args := fmt.Sprintf("serve --config %s --log-file %s", quotePath(configPath), quotePath(logPath))
+	userElem := ""
+	if userID != "" {
+		userElem = "\n      <UserId>" + xmlEscape(userID) + "</UserId>"
+	}
 	return fmt.Sprintf(windowsTaskXMLDeclaration+`
 <Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
   <RegistrationInfo>
@@ -196,7 +207,7 @@ func RenderWindowsTaskXML(binPath, configPath, logPath string) string {
   </RegistrationInfo>
   <Triggers>
     <LogonTrigger>
-      <Enabled>true</Enabled>
+      <Enabled>true</Enabled>%s
     </LogonTrigger>
   </Triggers>
   <Principals>
@@ -235,7 +246,7 @@ func RenderWindowsTaskXML(binPath, configPath, logPath string) string {
     </Exec>
   </Actions>
 </Task>
-`, xmlEscape(windowsTaskFolder), xmlEscape(windowsServeTaskName), xmlEscape(binPath), xmlEscape(args))
+`, xmlEscape(windowsTaskFolder), xmlEscape(windowsServeTaskName), userElem, xmlEscape(binPath), xmlEscape(args))
 }
 
 // DefaultServerYAML renders the minimal `cartographer serve --config` YAML

@@ -163,7 +163,7 @@ func TestResolveStableBinPath_Windows(t *testing.T) {
 }
 
 func TestRenderWindowsTaskXML(t *testing.T) {
-	out := RenderWindowsTaskXML(`C:\bin\cartographer.exe`, `C:\Users\Nome Cognome\AppData\Roaming\cartographer\server.yaml`, `C:\logs\server.log`)
+	out := RenderWindowsTaskXML(`C:\bin\cartographer.exe`, `C:\Users\Nome Cognome\AppData\Roaming\cartographer\server.yaml`, `C:\logs\server.log`, `HOST\user`)
 
 	for _, want := range []string{
 		`<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">`,
@@ -227,12 +227,12 @@ func assertTaskXMLDeclaresNoEncoding(t *testing.T, out string) {
 }
 
 func TestRenderWindowsTaskXML_EscapesTheBinaryPath(t *testing.T) {
-	out := RenderWindowsTaskXML(`C:\R&D\cartographer.exe`, `C:\cfg\server.yaml`, `C:\logs\server.log`)
+	out := RenderWindowsTaskXML(`C:\R&D\cartographer.exe`, `C:\cfg\server.yaml`, `C:\logs\server.log`, `HOST\user`)
 	if !strings.Contains(out, `<Command>C:\R&amp;D\cartographer.exe</Command>`) {
 		t.Errorf("an ampersand in the path was not escaped, which makes the whole definition unparseable:\n%s", out)
 	}
 	// And it round-trips: the reader has to give the path back as written.
-	got, err := extractTaskConfigPath([]byte(RenderWindowsTaskXML(`C:\R&D\cartographer.exe`, `C:\R&D\server.yaml`, `C:\logs\server.log`)))
+	got, err := extractTaskConfigPath([]byte(RenderWindowsTaskXML(`C:\R&D\cartographer.exe`, `C:\R&D\server.yaml`, `C:\logs\server.log`, `HOST\user`)))
 	if err != nil {
 		t.Fatalf("extractTaskConfigPath: %v", err)
 	}
@@ -269,7 +269,7 @@ func TestRenderWindowsSyncTaskXML(t *testing.T) {
 // The server task also carries an <Interval> (the restart backoff), so a reader
 // that searched for the bare element would report a 1-minute sync period.
 func TestIntervalFromTaskXML_IgnoresTheRestartBackoff(t *testing.T) {
-	out := RenderWindowsTaskXML(`C:\bin\cartographer.exe`, `C:\cfg\server.yaml`, `C:\logs\server.log`)
+	out := RenderWindowsTaskXML(`C:\bin\cartographer.exe`, `C:\cfg\server.yaml`, `C:\logs\server.log`, `HOST\user`)
 	if got := intervalFromTaskXML(out); got != 0 {
 		t.Errorf("intervalFromTaskXML on the server task = %v, want 0 (it has no repetition)", got)
 	}
@@ -444,7 +444,7 @@ func TestRestart_Windows_FallsBackToRegisterWhenUnknown(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(taskPath), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(taskPath, []byte(RenderWindowsTaskXML(`C:\bin\cartographer.exe`, `C:\cfg\server.yaml`, `C:\logs\server.log`)), 0o644); err != nil {
+	if err := os.WriteFile(taskPath, []byte(RenderWindowsTaskXML(`C:\bin\cartographer.exe`, `C:\cfg\server.yaml`, `C:\logs\server.log`, `HOST\user`)), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	s := &stubRunner{fail: map[string]bool{"Get-ScheduledTask -TaskName 'Serve'": true}}
@@ -558,7 +558,7 @@ func TestEffectiveConfigPath_Windows(t *testing.T) {
 		if err := os.MkdirAll(filepath.Dir(taskPath), 0o755); err != nil {
 			t.Fatal(err)
 		}
-		xml := RenderWindowsTaskXML(`C:\bin\cartographer.exe`, configPath, `C:\logs\server.log`)
+		xml := RenderWindowsTaskXML(`C:\bin\cartographer.exe`, configPath, `C:\logs\server.log`, `HOST\user`)
 		if err := os.WriteFile(taskPath, []byte(xml), 0o644); err != nil {
 			t.Fatal(err)
 		}
@@ -718,5 +718,21 @@ func TestInstall_Windows_StopsARunningTaskBeforeStarting(t *testing.T) {
 				t.Errorf("a task that is not running was stopped: %v", s.calls)
 			}
 		})
+	}
+}
+
+// The logon trigger is scoped to the installing user: an unscoped one fires at
+// any user's logon and needs administrator rights to register, which is how a
+// standard user got "Access denied" and no service (verified on Windows 11).
+func TestRenderWindowsTaskXML_ScopesTheLogonTriggerToItsUser(t *testing.T) {
+	out := RenderWindowsTaskXML(`C:\bin\cartographer.exe`, `C:\cfg\server.yaml`, `C:\logs\server.log`, `CORP\R&D user`)
+	want := "<LogonTrigger>\n      <Enabled>true</Enabled>\n      <UserId>CORP\\R&amp;D user</UserId>\n    </LogonTrigger>"
+	if !strings.Contains(out, want) {
+		t.Errorf("logon trigger not scoped to the user:\n%s", out)
+	}
+	assertTaskXMLDeclaresNoEncoding(t, out)
+
+	if unscoped := RenderWindowsTaskXML(`C:\bin\cartographer.exe`, `C:\cfg\server.yaml`, `C:\logs\server.log`, ""); strings.Contains(unscoped, "<UserId>") {
+		t.Errorf("an unresolved user must not render an empty UserId:\n%s", unscoped)
 	}
 }

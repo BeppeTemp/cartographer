@@ -28,7 +28,12 @@ that has no counterpart to copy from.
   actual supervision (`sc failure`), and it is **per-machine and needs
   administrator rights**. That contradicts the premise of the package, whose paths
   all derive from one user's home and whose install must not prompt for
-  elevation. A task registered for the current user needs none.
+  elevation. A task registered for the current user needs none. *(Corrected:
+  that holds only when the task's logon trigger names the user. The first version
+  left `UserId` out, which makes the trigger fire at any user's logon and needs
+  administrator rights — verified on Windows 11 with a standard account, which
+  got `Access denied` registering the serve task while the time-triggered sync
+  task registered fine. The trigger now names the installing user.)*
 - *`schtasks.exe` instead of the cmdlets.* Its `/Query` output prints a
   **localised** state — an Italian Windows says `In esecuzione` — and this package
   already decided, in the comment above `launchdJobLoaded`, that liveness is
