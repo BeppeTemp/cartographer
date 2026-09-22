@@ -132,10 +132,3 @@ tools:
   #                     provisioning plumbing stay callable but unlisted.
   #   full            — advertise every registered tool.
   # profile: agent
-
-# The embedded read-only Atlas UI (D227). Served at /ui/ with its JSON API at
-# /api/ui/v1 whenever the server is in HTTP mode. Default true; `false` removes
-# both routes entirely, restoring the HTTP surface as it was before the UI.
-# Also CARTOGRAPHER_WEB_ENABLED and --web-enabled.
-web:
-  enabled: true

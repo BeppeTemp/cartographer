@@ -779,27 +779,62 @@ func toolConceptList(k *kb.KB) Tool {
 				}
 				after = &parsed
 			}
+			filtersApplied := len(filters) > 0 || before != nil || after != nil
+			timestampFilter := before != nil || after != nil
+
 			type conceptEntry struct {
 				ID    string `json:"id"`
 				Title string `json:"title,omitempty"`
 				Type  string `json:"type,omitempty"`
 			}
-			res, err := queryConcepts(k, ConceptQuery{
-				Scope:   scope,
-				Filters: filters,
-				Before:  before,
-				After:   after,
-				Include: func(id string) bool { return Visible(ctx, k, id) },
-			})
-			if err != nil {
+			entries := []conceptEntry{}
+			examined := 0
+			skippedTimestamp := 0
+			if err := k.WalkConcepts(func(id okf.ConceptID, content string) error {
+				idStr := string(id)
+				if scope != "" && idStr != scope && !strings.HasPrefix(idStr, scope+"/") {
+					return nil
+				}
+				if !Visible(ctx, k, idStr) {
+					return nil
+				}
+				examined++
+				fmRaw, _, _ := okf.SplitFrontmatter(content)
+				var title, typ string
+				fm, parseErr := okf.ParseFrontmatter(fmRaw)
+				if parseErr == nil {
+					if v, ok := fm.Get("title"); ok {
+						if s, ok := v.(string); ok {
+							title = s
+						}
+					}
+					typ = fm.Type()
+				}
+				if filtersApplied {
+					// Malformed frontmatter is examined but cannot match a filter.
+					if parseErr != nil || !matchesConceptListFilters(fm, filters) {
+						return nil
+					}
+					if timestampFilter {
+						value, exists := fm.Get("timestamp")
+						timestamp, timestampOK := value.(string)
+						parsed, timestampErr := parseConceptListTimestamp(timestamp)
+						if !exists || !timestampOK || timestampErr != nil {
+							skippedTimestamp++
+							return nil
+						}
+						if (before != nil && !parsed.Before(*before)) || (after != nil && !parsed.After(*after)) {
+							return nil
+						}
+					}
+				}
+				entries = append(entries, conceptEntry{ID: idStr, Title: title, Type: typ})
+				return nil
+			}); err != nil {
 				return errorResult(fmt.Sprintf("concept_list: %v", err)), nil
 			}
-			entries := make([]conceptEntry, 0, len(res.Entries))
-			for _, e := range res.Entries {
-				entries = append(entries, conceptEntry{ID: e.ID, Title: e.Title, Type: e.Type})
-			}
-			filtersApplied := len(filters) > 0 || before != nil || after != nil
-			timestampFilter := before != nil || after != nil
+
+			sort.Slice(entries, func(i, j int) bool { return entries[i].ID < entries[j].ID })
 
 			total := len(entries)
 			truncated := total > limit
@@ -816,10 +851,10 @@ func toolConceptList(k *kb.KB) Tool {
 				result["total"] = total
 			}
 			if filtersApplied {
-				result["examined"] = res.Examined
+				result["examined"] = examined
 			}
 			if timestampFilter {
-				result["skipped_timestamp"] = res.SkippedTimestamp
+				result["skipped_timestamp"] = skippedTimestamp
 			}
 			out, _ := json.MarshalIndent(result, "", "  ")
 			return textResult(string(out)), nil

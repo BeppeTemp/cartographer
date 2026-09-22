@@ -314,7 +314,6 @@ Every startup option has a corresponding environment variable (the CLI flag take
 | `CARTOGRAPHER_AUDIT_KEY` | — | Ed25519 seed (hex, 64 chars) for signing entries. Requires `CARTOGRAPHER_AUDIT_LOG`. |
 | `CARTOGRAPHER_SERVER_URL` | — | **Client** (not server): default server URL for `cartographer connect` on the client machine when no `.cartographer.yaml` exists yet. Precedence: existing yaml > env > `http://127.0.0.1:39273/mcp` (D64, `internal/clientconfig.Default`). |
 | `CARTOGRAPHER_MCP_MOUNT_MODE` | `--mount-mode` | Multi-KB HTTP mount topology: `per-kb` (default) \| `routed`. `routed` adds `/mcp/routed`, one endpoint advertising the union of the tools once with the KB as a `kb` tool argument; the per-KB endpoints are unchanged. A KB with `tool_prefix` cannot be routed (fatal at startup). D187, see `transport-auth.md` §Mount modes. |
-| `CARTOGRAPHER_WEB_ENABLED` | `--web-enabled` | Serve the embedded read-only Atlas UI at `/ui/` and its JSON API at `/api/ui/v1` in HTTP mode. Default `true`; `false` registers neither route, so both answer 404 and the HTTP surface is what it was before the UI. Stdio mode never serves it. D227, → `control-plane.md` §Read-only UI API. |
 | `CARTOGRAPHER_MCP_TOOL_PREFIX_MODE` | — | Global default for `mcp.tool_prefix_mode`: `off` (default) \| `kb-name`. Overridden per KB by `kbs[].tool_prefix` (D102, see §MCP tool-name prefix). |
 | `CARTOGRAPHER_MCP_ALLOWED_ORIGINS` | — | Comma-separated browser origins allowed to reach `/mcp`, scheme and port included. Empty (default) accepts only an `Origin` matching the request's own `Host`; `*` accepts any; a request without an `Origin` header is unaffected (D128, → `transport-auth.md` §Origin). |
 
@@ -379,7 +378,6 @@ Two entries that could both be the KB is a refusal, naming them: guessing there 
 - `installed` — the plist, the unit or the task definition is on disk. It is a **file**, on every platform, and never a query to the scheduler: `EffectiveConfigPath` reads that same file to recover the `--config` the service was installed with. When it is `false` the output says there is no local service and how to install one, and prints **no health line**: `healthy: false` next to `installed: false` describes an absence, and reads as an outage.
 - `loaded` — `launchctl print` / `systemctl --user is-active` / `Get-ScheduledTask` succeeded. On macOS and on Windows that proves the job is registered with the scheduler, **not** that a process is alive — a task's state would even distinguish `Ready` from `Running`, and conflating the two would make the field mean something different there. The JSON field keeps its name, `running`, and `lifecycle` (`not_installed` / `not_loaded` / `loaded`) is the field to read.
 - `healthy` — the result of `GET /health` on the address in the server config. It is a verdict only when the probe **ran**: `health_checked` says whether it did, and `health_skip_reason` why not (`config_missing`, `config_unreadable`, `stdio_transport`). An empty `http:` means the server is configured for **stdio**, so there is no endpoint to probe — the default listen address is never substituted, since that would probe an address nothing listens on.
-- `ui` — the address of the embedded Atlas UI (JSON `ui_url`, D227), only when the service is installed, configured for HTTP and `web.enabled` is on. A wildcard bind (`0.0.0.0`, `::`) is reported as `127.0.0.1`, because a browser cannot open a wildcard. An absent line means there is no UI, never that it is down — liveness is `healthy`.
 - `client` — one context line when the `.cartographer.yaml` on this machine points at a server that is not this local service. A local service alongside a client pointed at a shared remote one is a legitimate configuration, reported as context and never as a warning.
 
 The `--output json` shape is a contract: fields are added, existing fields and the exit codes keep their meaning.
@@ -468,25 +466,6 @@ single bare `<server_name> → /mcp` entry for backwards compatibility. Against 
 they write one entry instead, `<server_name> → /mcp/routed`, discovered from `/health`'s
 `mount_mode`/`routed_path` — the per-provider KB binding still decides which KBs that client may
 use, because routing changes the transport, not the authorization.
-
-### The embedded Atlas UI (D227)
-
-With `web.enabled` on — the default in HTTP mode — the same binary also serves:
-
-- `/ui/` — the embedded read-only Atlas. Unknown paths **below** `/ui/` serve the
-  shell so client-side routing works; unknown paths outside it stay `404`, which
-  is what keeps the fallback from shadowing `/mcp`, `/health`, `/ready`,
-  `/clients`, the OAuth metadata or `/api/`. `/ui` redirects permanently to
-  `/ui/`, and `/` does the same from outside the auth chain.
-- `/api/ui/v1/…` — the JSON the UI reads (→ `control-plane.md` §Read-only UI API).
-
-The static bundle is reachable without a bearer token, because it is the page
-that asks for one and it carries no server or KB data; `/api/ui/v1` is not, and
-is filtered with the caller's own principal. The shell is served `no-cache` and
-hashed assets are immutable, under a `default-src 'self'` CSP with no inline
-script and no eval. `web.enabled: false` registers neither route.
-
-Stdio mode never serves the UI, whatever the setting says.
 
 ### Runtime secrets
 

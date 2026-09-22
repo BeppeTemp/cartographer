@@ -78,7 +78,6 @@ matching file **in the same session/PR** as the change:
 | Any non-obvious choice (why X and not Y) | One new file `docs/decisions/D<n>-<slug>.md` (`make decisions-new`, then `make decisions-index`); never a second entry for the same choice |
 | New external dependency | A decision file under `docs/decisions/` + `conventions.md` §dependencies |
 | New test level or pre-release checklist change | `testing.md` |
-| Atlas UI (`web/`) or its routes/config | `make web` to rebuild the committed bundle; `deployment.md` §The embedded Atlas UI; `testing.md` §Frontend |
 | Contributor workflow (PR flow, plan issues, build loop) | `CONTRIBUTING.md` |
 | What an agent client reads (instruction file, skill/agent/hook/MCP paths) | The provider matrix in `internal/provisioning` **first** (`registry.go`, `workspacescope.go`), then `CONTRIBUTING.md` §Working with an agent client — a test fails if the two disagree |
 | User-facing install/onboarding flow | `getting-started.md` + README |

@@ -31,17 +31,6 @@ type Config struct {
 	// MCP controls MCP-protocol-level server behaviour that isn't specific
 	// to a single KB (currently: the tool-name prefix default, D102).
 	MCP MCPConfig
-	// Web controls the embedded read-only Atlas UI (D227).
-	Web WebConfig
-}
-
-// WebConfig controls the embedded web UI.
-type WebConfig struct {
-	// Enabled serves the UI at /ui/ and its JSON API at /api/ui/v1 when the
-	// server is in HTTP mode. Default true: the UI is part of what an HTTP
-	// server is for, and an operator who does not want the extra surface turns
-	// it off in one place. Stdio mode never serves it, whatever this says.
-	Enabled bool
 }
 
 // MCPConfig controls MCP-protocol-level server behaviour.
@@ -290,7 +279,6 @@ func Default() *Config {
 		// as the default configuration's behaviour. "off" is retained as an
 		// explicit, documented opt-out.
 		MCP: MCPConfig{ToolPrefixMode: "kb-name", MountMode: MountModePerKB},
-		Web: WebConfig{Enabled: true},
 	}
 }
 
@@ -308,15 +296,6 @@ type rawConfig struct {
 	Sops  SopsConfig  `yaml:"sops"`
 	Tools rawTools    `yaml:"tools"`
 	MCP   rawMCP      `yaml:"mcp"`
-	Web   rawWeb      `yaml:"web"`
-}
-
-// rawWeb mirrors the `web:` block. Enabled is a pointer for the same reason
-// git.autocommit is: the zero value of a bool would silently clobber a `true`
-// default, so "absent from YAML" has to be distinguishable from "explicitly
-// false".
-type rawWeb struct {
-	Enabled *bool `yaml:"enabled"`
 }
 
 type rawTools struct {
@@ -425,9 +404,6 @@ func Load(path string) (*Config, error) {
 
 	cfg.Sops = raw.Sops
 
-	if raw.Web.Enabled != nil {
-		cfg.Web.Enabled = *raw.Web.Enabled
-	}
 	if raw.Tools.Profile != "" {
 		cfg.ToolsProfile = normalizeToolsProfile(raw.Tools.Profile)
 	}
@@ -476,9 +452,6 @@ func FromEnv(cfg *Config) {
 	}
 	if v := os.Getenv("CARTOGRAPHER_GIT_SYNC"); v != "" {
 		cfg.Git.Sync = parseBool(v, cfg.Git.Sync)
-	}
-	if v := os.Getenv("CARTOGRAPHER_WEB_ENABLED"); v != "" {
-		cfg.Web.Enabled = parseBool(v, cfg.Web.Enabled)
 	}
 	if v := os.Getenv("CARTOGRAPHER_GIT_PROFILE"); v != "" {
 		cfg.Git.Profile = normalizeGitProfile(v)
@@ -531,7 +504,6 @@ type FlagOverrides struct {
 	GitSync       *bool
 	ToolsProfile  *string // "agent" | "full"
 	MountMode     *string // "per-kb" | "routed"
-	WebEnabled    *bool
 }
 
 // ApplyFlags layers the explicitly-passed serve flags on top of cfg.
@@ -569,9 +541,6 @@ func ApplyFlags(cfg *Config, o FlagOverrides) {
 	}
 	if o.MountMode != nil {
 		cfg.MCP.MountMode = normalizeMountMode(*o.MountMode)
-	}
-	if o.WebEnabled != nil {
-		cfg.Web.Enabled = *o.WebEnabled
 	}
 }
 

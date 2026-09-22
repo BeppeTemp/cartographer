@@ -344,9 +344,9 @@ func VisibleCollection(ctx context.Context, k *kb.KB, name, kind string) bool {
 		return true
 	}
 	if kind == "journal" {
-		return p.Policy.AllowsCollection(kbName(k), "", name, false)
+		return p.Policy.Allows(kbName(k), "", name, "", false)
 	}
-	return p.Policy.AllowsCollection(kbName(k), name, "", false)
+	return p.Policy.Allows(kbName(k), name, "", "", false)
 }
 
 func WholeVisible(ctx context.Context, k *kb.KB, write bool) bool {
