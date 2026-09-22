@@ -134,6 +134,16 @@ func TestPrintServiceStatus(t *testing.T) {
 			absent: []string{"running:", "not checked"},
 		},
 		{
+			name: "installed with the embedded UI",
+			st:   service.Status{Installed: true, Running: true, Lifecycle: service.LifecycleLoaded, HealthChecked: true, Healthy: true, HTTPAddr: "127.0.0.1:39273", UIURL: "http://127.0.0.1:39273/ui/"},
+			want: []string{"ui:        http://127.0.0.1:39273/ui/"},
+		},
+		{
+			name:   "installed without the embedded UI",
+			st:     service.Status{Installed: true, Running: true, Lifecycle: service.LifecycleLoaded, HealthChecked: true, Healthy: true, HTTPAddr: "127.0.0.1:39273"},
+			absent: []string{"ui:"},
+		},
+		{
 			name:   "installed, stdio transport",
 			st:     service.Status{Installed: true, Running: true, Lifecycle: service.LifecycleLoaded, HealthSkipReason: service.HealthSkipStdio},
 			want:   []string{"health:    not checked", "stdio transport"},
@@ -201,6 +211,16 @@ func TestServiceSnapshotContract(t *testing.T) {
 		if got[k] != want {
 			t.Errorf("%s = %v, want %v", k, got[k], want)
 		}
+	}
+	if _, present := got["ui_url"]; present {
+		t.Errorf("ui_url must be omitted when there is no UI: %s", b)
+	}
+	// The UI address is additive (D227): a new key, nothing renamed.
+	b, _ = json.Marshal(newServiceSnapshot(service.Status{Installed: true, UIURL: "http://127.0.0.1:39273/ui/"}))
+	got = map[string]any{}
+	json.Unmarshal(b, &got)
+	if got["ui_url"] != "http://127.0.0.1:39273/ui/" {
+		t.Errorf("ui_url snapshot = %s", b)
 	}
 	// A skipped check must be visible next to the bool it invalidates.
 	b, _ = json.Marshal(newServiceSnapshot(service.Status{Lifecycle: service.LifecycleNotInstalled, HealthSkipReason: service.HealthSkipStdio}))

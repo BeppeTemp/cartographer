@@ -269,11 +269,24 @@ func (ts *TokenStore) Middleware(next http.Handler) http.Handler {
 const WellKnownProtectedResourcePath = "/.well-known/oauth-protected-resource"
 
 // isPublicPath reports whether a request path must be reachable without auth:
-// the health endpoint (used by k8s liveness/readiness probes) and the OAuth
-// protected-resource metadata (RFC 9728, which by definition must be public).
+// the health endpoint (used by k8s liveness/readiness probes), the OAuth
+// protected-resource metadata (RFC 9728, which by definition must be public),
+// and the embedded UI's own static assets.
+//
+// The UI is exempt because it has to be: it is the page that *asks* for the
+// bearer token, so a browser must be able to load it while holding none. What
+// it serves is the shipped bundle and nothing else — no server state, no KB
+// content, no configuration — and everything it later reads comes from
+// /api/ui/v1, which is not exempt and is filtered by the caller's principal.
+// "/" is deliberately NOT exempt: it is an ordinary path as far as this
+// middleware is concerned, and the courtesy redirect that sends a browser from
+// it to the UI is applied outside the auth chain (webui.RedirectRoot). With
+// the UI disabled none of the /ui paths is routed at all and they 404
+// regardless of this exemption.
 func isPublicPath(path string) bool {
 	return path == "/health" ||
-		path == WellKnownProtectedResourcePath
+		path == WellKnownProtectedResourcePath ||
+		path == "/ui" || strings.HasPrefix(path, "/ui/")
 }
 
 // ScopesFromContext reports the plain per-KB scopes of the principal stored

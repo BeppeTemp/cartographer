@@ -63,6 +63,29 @@ jobs:
       # (test/smoke, test/e2e, test/install) and stay on ubuntu.
       - run: make gate
 
+  # The frontend, deliberately its own job rather than a step of `test`.
+  #
+  # `make gate` stays Go-only so a contributor changing Go code needs no Node
+  # toolchain (D227); what protects the committed bundle there is a pure-Go
+  # provenance test in internal/webui. This job is what actually builds the
+  # frontend and runs its tests, and it only needs to run when the frontend
+  # changed.
+  web:
+    name: web
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: web/.nvmrc
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: make web-check
+      - run: make web-test
+
   # With squash-merge the PR title becomes the commit on main that
   # release-please reads: it must be a valid conventional commit.
   pr-title:

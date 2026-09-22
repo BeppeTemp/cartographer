@@ -148,6 +148,8 @@ func TestLoadFullYAML(t *testing.T) {
 		ToolsProfile: "full",
 		// The YAML sets no mcp.tool_prefix_mode, so the default applies (kb-name since D153).
 		MCP: MCPConfig{ToolPrefixMode: "kb-name", MountMode: MountModePerKB},
+		// The UI is on by default in HTTP mode; this YAML does not mention it.
+		Web: WebConfig{Enabled: true},
 	}
 
 	if !reflect.DeepEqual(cfg, want) {
@@ -451,5 +453,53 @@ func TestMountModePrecedence(t *testing.T) {
 	ApplyFlags(cfg, FlagOverrides{MountMode: &bogus})
 	if cfg.MCP.MountMode != MountModePerKB {
 		t.Errorf("unrecognized MountMode = %q, want %q", cfg.MCP.MountMode, MountModePerKB)
+	}
+}
+
+// web.enabled follows the flag > env > YAML > default precedence, and the
+// raw field is a pointer so an explicit `false` is not mistaken for absence —
+// the same trap git.autocommit already carries.
+func TestWebEnabledPrecedence(t *testing.T) {
+	if !Default().Web.Enabled {
+		t.Fatal("the UI is on by default in HTTP mode")
+	}
+
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte("http: \":39273\"\nweb:\n  enabled: false\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Web.Enabled {
+		t.Error("an explicit `web.enabled: false` must survive the default")
+	}
+
+	// A YAML with no web block keeps the default.
+	bare := filepath.Join(t.TempDir(), "bare.yaml")
+	if err := os.WriteFile(bare, []byte("http: \":39273\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err = Load(bare)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.Web.Enabled {
+		t.Error("an absent web block must leave the default alone")
+	}
+
+	// Env beats YAML.
+	t.Setenv("CARTOGRAPHER_WEB_ENABLED", "false")
+	FromEnv(cfg)
+	if cfg.Web.Enabled {
+		t.Error("CARTOGRAPHER_WEB_ENABLED=false must win over the YAML default")
+	}
+
+	// Flag beats env.
+	on := true
+	ApplyFlags(cfg, FlagOverrides{WebEnabled: &on})
+	if !cfg.Web.Enabled {
+		t.Error("--web-enabled must win over the environment")
 	}
 }
