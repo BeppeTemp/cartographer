@@ -209,6 +209,10 @@ git log --oneline              # one commit per write operation, revertible
 ls data/                       # plain Markdown with YAML frontmatter
 ```
 
+Or open the Atlas in a browser — `cartographer service status` prints its
+address on the `ui:` line (by default `http://127.0.0.1:39273/ui/`): the graph
+of the KB, each concept with its links, and the lint findings, read-only.
+
 Nothing is opaque: the KB is the files, git is the history, and any write the
 agent made can be reviewed or reverted with ordinary git.
 

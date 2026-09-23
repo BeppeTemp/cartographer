@@ -276,12 +276,176 @@ silently ignored in OSS and would read as configuration. Each assertion was
 verified to fail when its target line is removed. Its Ruby is not executed — that would need a real Homebrew and
 GoReleaser environment, which is out of the deterministic gate (see below).
 
+### Frontend (`make web-test`, `make web-check`)
+
+The Atlas UI's own tests: Vitest with Testing Library, under `web/`. They run in
+the `web` CI job, not in `make gate`, so a pure-Go change needs no Node
+toolchain (D227). What they hold:
+
+- the token contract — no literal colour or duration outside
+  `web/src/styles/tokens.css`, and every dark-theme colour has a light-theme
+  value;
+- the graph's appearance functions never emit a node or edge type stock Sigma
+  has no program for (an unknown type throws inside the renderer and blanks the
+  page);
+- the shell boots, and degrades to a named state rather than a blank page on a
+  401, an unreachable server or an empty KB;
+- the atlas starts graph-only — rail folded, node list closed, no inspector
+  until a selection — and each panel opens on demand; `[[wiki-links]]` in a
+  concept body become in-atlas links, code spans left alone;
+- Markdown from a concept body renders inert — a raw `<script>` and an
+  `onerror` attribute must not survive;
+- the bearer token reaches neither `localStorage` nor a URL;
+- the graph layout is deterministic for identical input, and so is the
+  community colouring: the same KB state paints the same node the same colour;
+- the WCAG 2.2 AA contrast audit, computed from `tokens.css` on every run, for
+  both themes (§Atlas UI contrast);
+- a complete keyboard path — shell, filters, node list, inspector and back —
+  and, at narrow widths, navigation and inspector as modal sheets that trap and
+  return focus;
+- the 2,000-node budget fixture (§Atlas UI budgets);
+- the 3D physics, on a headless `d3-force-3d` simulation configured exactly as
+  the scene configures its own (`src/test/physics.test.ts`, D234): seeding is
+  deterministic; d3's centring force is replaced by per-axis gravity; at rest
+  the drift moves nodes by less than 0.5% of the graph's radius per tick at
+  p95, and paused motion dies out; a non-finite node is repaired at its
+  neighbours' centroid;
+- the 3D motion and camera policy (`src/test/motion.test.ts`): the panorama
+  turns only after quiet time with nothing selected; signals run only on the
+  selection's links, in their data direction, within 48 and a finite span;
+  focus centres the node in the strip the inspector leaves visible;
+- the no-WebGL state: the shell names why there is no graph and keeps the
+  list (`graphfirst.test.tsx`).
+
+`make web` rebuilds the committed bundle; `make web-check` does a clean locked
+build and verifies `internal/webui/dist/provenance.json` still matches the
+sources. The staleness of the *committed* bundle is checked by a pure-Go test in
+`internal/webui`, which is why `make gate` catches it without Node.
+
+#### Atlas UI contrast
+
+`web/src/test/contrast.test.ts` reads the hex tokens out of
+`web/src/styles/tokens.css` and checks, for the dark and the light theme:
+
+| Role | Pairs | Minimum |
+|---|---|---|
+| Text (1.4.3) | `--text-primary`/`-secondary`/`-muted` on `--surface-0`…`--surface-3` | 4.5:1 |
+| Brand and severity used as text | `--primary`, `--accent`, `--sev-*` on `--surface-0`…`--surface-2` | 4.5:1 |
+| Text on filled controls | `--text-on-primary` on `--primary`, `--text-on-accent` on `--accent` | 4.5:1 |
+| Graphical objects (1.4.11) | `--hue-1`…`--hue-12`, `--graph-community-other` and the `--accent` focus ring on `--surface-0` | 3:1 |
+
+Edges and borders are not audited: they are decoration, never the only carrier
+of a relationship — the inspector lists every link.
+
+#### Atlas UI budgets
+
+- **Bundle**: initial compressed JS+CSS ≤ 700 KiB. `make web-check` runs
+  `npm run budget` (`web/scripts/budget.mjs`), which gzips every asset in
+  `internal/webui/dist/assets` and fails over the ceiling.
+- **Client pipeline**: `web/src/test/perf.test.tsx` generates a 2,000-node
+  fixture (`generateSnapshot` in `web/src/test/fixtures.ts`), runs community
+  detection and the deterministic layout, and prints both timings
+  (`cd web && npx vitest run src/test/perf.test.tsx`). Ceilings are 1 s and
+  12 s: they catch a several-fold regression on any runner, not a few
+  percent. Reference measurements for 2,000 nodes / ~3,900 edges: communities
+  ~15 ms and the 3D warm-up (300 ticks) ~2.2 s on an Apple M5; ~45 ms and
+  ~5.4 s on a GitHub-hosted runner.
+- **Selection feedback**: the same file asserts the inspector skeleton renders
+  while the concept request is still pending, so feedback never waits on the
+  network.
+
+- **3D view** (D234): `web/scripts/bench3d.mjs`, not in CI. It generates a
+  demo KB (`web/scripts/demo-kb.mjs`: clustered Maps, hubs, orphans, an
+  unlinked component), serves it, opens the 3D view and reports cold and warm
+  load to the first 3D frame, frame time at rest in live mode and while the
+  view is orbited by a pointer drag (5 s each, rAF intervals), the JS heap and the GL
+  renderer string. Run it headed on the GPU (`cd web && node
+  scripts/bench3d.mjs 1000,2000 --gpu`); a headless run falls back to
+  SwiftShader and measures software rendering, not the Atlas. Sizes are the
+  ones the UI receives: the graph API serves 2,000 nodes by default and 5,000
+  at most. Target p95 frame < 33 ms.
+
+  Reference run — Apple M5 (8-core GPU), 16 GB, macOS 27.0, Playwright
+  Chromium 1.63, ANGLE Metal, 1,440×900 viewport at device pixel ratio 2
+  (the view caps it at 2):
+
+  | Concepts | Cold / warm load | Rest p50 / p95 | Orbit p50 / p95 | Heap |
+  |---|---|---|---|---|
+  | 1,000 | 1.5 s / 1.4 s | 16.7 / 17.3 ms | 16.7 / 17.2 ms | 57 MB |
+  | 2,000 | 3.2 s / 2.6 s | 16.7 / 16.8 ms | 16.7 / 17.1 ms | 35 MB |
+
+  Both sizes hold 60 fps at rest and while orbiting. The heap figure is
+  `performance.memory` after load and moves with garbage collection timing
+  more than with size. The scene draws every node
+  in one instanced mesh and every link in one line set, so the frame cost
+  barely moves with size; the load time is the synchronous warm-up of the
+  simulation. 5,000 is not reported; the view accepts it (the API's ceiling)
+  without a measured budget.
+
+### Browser (`make e2e-web`)
+
+Playwright drives Chromium against **`bin/cartographer` serving its embedded
+bundle** — never Vite's dev server, which serves different bytes under
+different headers (no CSP, no SPA fallback, no auth chain), so a pass there
+would verify nothing that ships (D228). `web/e2e/run.sh` builds the binary,
+starts two servers on ephemeral loopback ports and runs the suite: `local`
+with auth off, `auth` with an admin token and one narrowed by a role to
+`Entity` concepts under `infra/` in one KB. Node runs the test driver only.
+
+The fixture is `web/e2e/fixture.mjs`, a pure function of itself: three KBs —
+`atlas` (two Maps and a Journal, `type` and `status` on every concept, a
+backlink pair, a broken target, an orphan, an expanded concept with a
+satellite, a map index with a dead entry, and a concept body carrying a raw
+`<script>` and an `onerror` attribute), `annex` (for KB switching) and `void`
+(no concepts).
+
+What it holds, beyond the component tests:
+
+- the flows — local mode with no prompt; the bearer prompt, and "remember for
+  this tab" surviving a reload but not a new tab; KB switching; Map drill-in;
+  type/status filters and the Observatory's severity floor; the command
+  palette; URL state with Back/Forward and deep links; backlink chips;
+  Observatory findings revealing their concept or saying there is no node;
+  the truncation banner, the empty KB, a `500` and an unreachable server, each
+  confined to its panel;
+- **fine-grained non-disclosure**: under the narrowed token a hidden concept
+  appears in no node, edge, count, finding, search result or API body, and
+  requesting it directly yields the `404` state with the same body as a
+  concept that never existed — never a `403`;
+- determinism: two fresh browser contexts compute byte-identical layouts;
+- accessibility: axe finds no `serious` or `critical` WCAG 2.2 A/AA violation
+  on the shell, graph, inspector, navigation, Observatory and auth prompt, at
+  1,440×900 and 390×844; one keyboard-only traversal; reduced motion skips the
+  entry settle and jumps the camera, where full motion plays and tweens it
+  (read from the `data-entry` and `data-camera` attributes the graph exposes
+  for this);
+- the 3D view (`graph3d.spec.ts`, on a software WebGL context via SwiftShader,
+  so it tests the shipped renderer rather than its fallback): a lost WebGL
+  context says so and keeps the list; with no WebGL at all the list, search
+  and inspector still work; the Motion toggle is remembered and reduced motion
+  starts it paused; a selection names the selected node and each neighbour
+  once; a hidden tab stops the render loop; `touch-action: none` is on the
+  canvas only;
+- security: no request leaves the Cartographer origin (any foreign request
+  fails the test, it is not allow-listed); the shell's CSP is present and an
+  injected inline script and a same-origin `eval` are both refused; the token
+  reaches no URL, `localStorage` entry, console line or error body; a hostile
+  concept body renders inert.
+
+There are **no screenshot baselines**: cross-runner pixel baselines are a
+maintenance sink, and the behavioural assertions carry the contract. There are
+no retries either: a flaky flow is fixed at its cause or deleted. The suite
+runs in the `web` CI job on Linux only, like the other shell harnesses.
+
+Locally: `cd web && npx playwright install chromium` once, then
+`make e2e-web` (extra arguments pass through: `web/e2e/run.sh -g palette`).
+
 ## What is deliberately not in CI
 
 - Whether a particular model interprets an instruction well.
 - Provider/model quality comparisons.
 - Tests requiring production credentials or external private infrastructure.
-- Manual UI appearance checks.
+- Manual UI appearance checks, and screenshot baselines of the Atlas UI (D228).
 - The shell harnesses on Windows: `make smoke-http`, `make e2e` and
   `make test-install` are POSIX `sh` scripts (`test/smoke/`, `test/e2e/`,
   `test/install/`) driving a launchd/systemd install path, so they run on the
@@ -317,7 +481,7 @@ GOOS=windows GOARCH=amd64 go vet ./...
 
 ## Before a release
 
-- CI is green on the release commit.
+- CI is green on the release commit, including `make e2e-web` in the `web` job.
 - `make smoke` succeeds for the packaged/local stdio path.
 - Installation and upgrade are verified on the target platform.
 - Private deployment rollout checks are performed through maintainer tooling.

@@ -48,6 +48,7 @@ func RegisterKBTools(s *Server, k *kb.KB, deps Deps) {
 	if s.PolicyKB() != "" {
 		k.AuthName = s.PolicyKB()
 	}
+	s.kbRef = k
 	installPolicy(s, k)
 	register := func(t Tool) {
 		t.ResourceClass = resourceClassForTool(t.Name)

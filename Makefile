@@ -1,4 +1,4 @@
-.PHONY: help build test vet fmt fmt-check run run-http smoke smoke-http docker clean e2e test-install worktree-add worktree-rm gate decisions-index decisions-next decisions-new codemap
+.PHONY: help build test vet fmt fmt-check run run-http smoke smoke-http docker clean e2e test-install worktree-add worktree-rm gate decisions-index decisions-next decisions-new codemap web web-test web-check e2e-web
 
 VERSION ?= $(shell git describe --tags --always 2>/dev/null || echo dev)
 
@@ -52,6 +52,36 @@ smoke: build ## Build + quick stdio test
 		./bin/cartographer serve --kb ./demo-kb --init 2>/dev/null | \
 		grep -q '"protocolVersion"' && echo "smoke: OK" || (echo "smoke: FAIL" && exit 1)
 
+web: ## Build the embedded Atlas UI bundle into internal/webui/dist (needs Node, see web/.nvmrc)
+	@cd web && npm ci --silent && npm run build
+	@go run ./internal/webui/gen ./web ./internal/webui/dist
+
+web-test: ## Run the frontend unit/component tests (needs Node)
+	@cd web && npm ci --silent && npm test
+
+# A clean locked build from the committed lockfile, plus one check on the
+# provenance manifest. It deliberately does NOT diff the rest of the bundle:
+# Vite output is not byte-stable across Node patch releases, so comparing it
+# would fail for reasons unrelated to the change. The manifest is a hash of the
+# sources and is byte-stable, so this catches a manifest edited by hand, while
+# internal/webui's Go test catches sources changed without a rebuild. The
+# budget script fails the job when the compressed bundle outgrows 700 KiB.
+web-check: web ## Clean locked frontend build + provenance and size-budget checks (CI only; needs Node)
+	@git diff --quiet -- internal/webui/dist/provenance.json || { \
+		echo "web-check: provenance.json does not match the sources it claims."; \
+		git --no-pager diff -- internal/webui/dist/provenance.json; \
+		exit 1; \
+	}
+	@cd web && npm run --silent budget
+	@echo "web-check: OK"
+
+# Not part of gate: it needs Node and Playwright's Chromium, and gate stays
+# Go-only (D227). The harness builds the binary itself and tests it serving
+# its embedded bundle, never Vite's dev server (D228).
+e2e-web: ## Browser-level Atlas UI suite against the built binary (needs Node + `npx playwright install chromium`)
+	@cd web && npm ci --silent
+	@web/e2e/run.sh
+
 docker: ## Build the Docker image
 	docker build -t cartographer .
 
@@ -83,6 +113,10 @@ worktree-rm: ## Remove a plan worktree and its stale local branch: make worktree
 	@git branch -D "feat/$(SLUG)" 2>/dev/null || true
 	@echo "worktree removed: .worktrees/$(SLUG)"
 
+# Deliberately Go-only: a contributor changing Go code must not need a Node
+# toolchain. The committed UI bundle is kept honest by a pure-Go staleness test
+# in internal/webui, which runs here; building and testing the frontend is the
+# `web` CI job's business (D227).
 gate: fmt-check vet test ## Everything that must be green before a PR is opened
 	@echo "gate: OK"
 
