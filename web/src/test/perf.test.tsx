@@ -47,7 +47,8 @@ describe("2,000-node budget fixture", () => {
     // ~2.2 s on an Apple M5, ~5.4 s on a GitHub-hosted runner: the ceiling
     // leaves a shared runner its slack and still fails a 5x regression.
     expect(warmed - detected).toBeLessThan(12_000);
-  });
+    // vitest's default 5 s timeout would cut the run before the budget does.
+  }, 20_000);
 
   describe("selection feedback", () => {
     beforeEach(() => {
