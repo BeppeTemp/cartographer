@@ -1,5 +1,5 @@
 import { vi } from "vitest";
-import type { GraphSnapshot, LintReport, Overview } from "../api/types";
+import type { Artifact, ArtifactList, GraphSnapshot, LintReport, Overview } from "../api/types";
 
 /** Shared API fixtures for the shell-level tests. */
 export const overview: Overview = {
@@ -44,6 +44,58 @@ export function json(body: unknown, status = 200) {
   });
 }
 
+export const artifactList: ArtifactList = {
+  artifacts: [
+    {
+      kind: "agent",
+      name: "triage",
+      description: "Sorts incoming issues",
+      content_hash: "b".repeat(64),
+      signed: false,
+      clients: [{ id: "claude-code", name: "Claude Code" }],
+      files: [{ path: "agents/triage.md", sha256: "c", size: 40, executable: false }],
+    },
+    {
+      kind: "skill",
+      name: "review",
+      description: "Reviews a change",
+      content_hash: "a".repeat(64),
+      signed: true,
+      clients: [
+        { id: "claude-code", name: "Claude Code" },
+        { id: "codex", name: "Codex CLI" },
+      ],
+      files: [
+        { path: "skills/review/SKILL.md", sha256: "d", size: 60, executable: false },
+        { path: "skills/review/logo.bin", sha256: "e", size: 4, executable: false },
+      ],
+    },
+    {
+      kind: "template",
+      name: "runbook",
+      description: "Runbook template",
+      clients: [],
+      files: [{ path: "templates/runbook.md", sha256: "f", size: 30, executable: false }],
+    },
+  ],
+  counts: { agent: 1, skill: 1, template: 1 },
+  issues: [],
+};
+
+export const reviewSkill: Artifact = {
+  ...artifactList.artifacts[1]!,
+  files: [
+    {
+      path: "skills/review/SKILL.md",
+      sha256: "d",
+      size: 60,
+      executable: false,
+      content: "---\nname: review\ndescription: Reviews a change\n---\n# Review steps\n\nRead the diff.\n",
+    },
+    { path: "skills/review/logo.bin", sha256: "e", size: 4, executable: false, binary: true },
+  ],
+};
+
 /** Routes a fetch to the right fixture, so a missing route fails loudly here
  *  rather than as an unexplained empty panel. */
 export function stubApi(overrides: Record<string, () => Response> = {}) {
@@ -54,6 +106,8 @@ export function stubApi(overrides: Record<string, () => Response> = {}) {
     if (url.includes("/kbs/") && url.includes("/overview")) return json(overview);
     if (url.includes("/kbs/") && url.includes("/graph")) return json(graph);
     if (url.includes("/kbs/") && url.includes("/lint")) return json(lint);
+    if (url.includes("/kbs/") && url.includes("/artifacts")) return json(artifactList);
+    if (url.includes("/kbs/") && url.includes("/artifact?")) return json(reviewSkill);
     if (url.includes("/kbs/") && url.includes("/concept")) {
       return json({
         id: "infra/a",
@@ -69,7 +123,7 @@ export function stubApi(overrides: Record<string, () => Response> = {}) {
         broken: [],
       });
     }
-    if (url.endsWith("/kbs")) return json({ kbs: [{ name: "homelab", status: "normal", ready: true }] });
+    if (url.endsWith("/kbs")) return json({ kbs: [{ name: "homelab", status: "normal", ready: true, artifacts: true }] });
     throw new Error(`unstubbed request: ${url}`);
   });
   vi.stubGlobal("fetch", fetchMock);

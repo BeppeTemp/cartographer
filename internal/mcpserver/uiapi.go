@@ -129,6 +129,10 @@ func (m *MultiKBServer) handleUIAPI(w http.ResponseWriter, r *http.Request) {
 		uiConcept(w, r, k)
 	case "lint":
 		uiLint(w, r, k)
+	case "artifacts":
+		m.uiArtifacts(w, r, srv)
+	case "artifact":
+		m.uiArtifact(w, r, srv)
 	default:
 		writeUINotFound(w)
 	}
@@ -177,6 +181,9 @@ func (m *MultiKBServer) uiListKBs(w http.ResponseWriter, r *http.Request) {
 		Ready        bool                    `json:"ready"`
 		ToolPrefix   string                  `json:"tool_prefix,omitempty"`
 		Capabilities map[string]KBCapability `json:"capabilities,omitempty"`
+		// Artifacts says whether this principal may open the Artifacts
+		// panel: they are whole-KB resources (D238).
+		Artifacts bool `json:"artifacts"`
 	}
 	rows := []kbRow{}
 	for _, info := range infos {
@@ -190,6 +197,7 @@ func (m *MultiKBServer) uiListKBs(w http.ResponseWriter, r *http.Request) {
 			Ready:        info.Status == "normal",
 			ToolPrefix:   info.ToolPrefix,
 			Capabilities: info.Capabilities,
+			Artifacts:    uiArtifactsVisible(ctx, srv.kbRef),
 		})
 	}
 	sort.Slice(rows, func(i, j int) bool { return rows[i].Name < rows[j].Name })

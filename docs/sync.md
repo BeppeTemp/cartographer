@@ -319,7 +319,7 @@ The TUI's `S` (sync all) runs its providers **sequentially** under one lock rath
 
 ## Kind × provider matrix
 
-The matrix below is data in the code: `destinationMatrix` in `internal/provisioning/provisioning.go`, resolved by `destDir(kind, name, provider)` ([D137](decisions/D137-declarative-provider-registry-two-tables-owned-by-the.md)). Every cell either names a destination or is explicitly `unsupported` — a cell *missing* from the table fails a completeness test instead of degrading silently. `unsupported` is not `needs_approval` (no approval would unblock it): clients filter such artifacts out upstream with `FilterForProvider`, and they count as neither drift nor pending ([D50](decisions/D50-honest-per-provider-sync-state-unsupported-needs.md)).
+The matrix below is data in the code: `destinationMatrix` in `internal/provisioning/provisioning.go`, resolved by `destDir(kind, name, provider)` ([D137](decisions/D137-declarative-provider-registry-two-tables-owned-by-the.md)). Every cell either names a destination or is explicitly `unsupported` — a cell *missing* from the table fails a completeness test instead of degrading silently. `unsupported` is not `needs_approval` (no approval would unblock it): clients filter such artifacts out upstream with `FilterForProvider`, and they count as neither drift nor pending ([D50](decisions/D50-honest-per-provider-sync-state-unsupported-needs.md)). `provisioning.Destinations(kind, name)` reads the same matrix for the Atlas UI's Artifacts panel, which shows an artifact's clients (D238).
 
 | Kind | claude | opencode | codex | kiro | hermes | antigravity | crush |
 |---|---|---|---|---|---|---|---|

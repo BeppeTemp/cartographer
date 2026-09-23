@@ -1982,3 +1982,241 @@ body.is-resizing {
   border-radius: var(--radius-control);
 }
 
+
+/* --- Artifacts (D238) ---
+   What the KB ships to agent clients: a list grouped by kind beside the
+   selected artifact's metadata and files. The list width is the viewer's,
+   set with the same splitter as the reading panel (D239). */
+
+.artifacts {
+  display: grid;
+  grid-template-columns: var(--artifacts-list-width) minmax(0, 1fr);
+  width: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.artifacts--narrow {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.artifacts__side {
+  position: relative;
+  min-height: 0;
+  border-inline-end: 1px solid var(--border-subtle);
+}
+
+.artifacts__list {
+  height: 100%;
+  padding: var(--space-6) var(--space-4) var(--space-8);
+  overflow-y: auto;
+}
+
+.artifacts--narrow .artifacts__list {
+  height: auto;
+}
+
+.artifacts__title {
+  margin: 0 0 var(--space-4);
+  font-size: var(--text-md);
+  font-weight: 600;
+  line-height: var(--leading-tight);
+  color: var(--text-primary);
+}
+
+.artifacts__issues {
+  margin: 0 0 var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  font-size: var(--text-xs);
+  color: var(--sev-warning);
+  border: 1px solid var(--sev-warning);
+  border-radius: var(--radius-card);
+  list-style: none;
+}
+
+.artifacts__filter {
+  width: 100%;
+  margin-block-end: var(--space-4);
+}
+
+.artifacts__group + .artifacts__group {
+  margin-block-start: var(--space-4);
+}
+
+.artifacts__items {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.artifacts__item {
+  display: grid;
+  gap: var(--space-1);
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  font: inherit;
+  text-align: start;
+  color: inherit;
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-control);
+  cursor: pointer;
+  transition: background-color var(--motion-fast) var(--ease-out);
+}
+
+.artifacts__item:hover,
+.artifacts__item[aria-current="true"] {
+  background: var(--surface-2);
+}
+
+.artifacts__item-name {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+}
+
+.artifacts__item-desc {
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+}
+
+.artifacts__detail,
+.artifacts__placeholder {
+  min-width: 0;
+  min-height: 0;
+  padding: var(--space-6) var(--space-6) var(--space-12);
+  overflow-y: auto;
+}
+
+.artifacts__placeholder {
+  display: grid;
+  place-items: center;
+}
+
+.artifacts__back {
+  margin-block-end: var(--space-4);
+}
+
+.artifacts__name {
+  margin: 0;
+  font-size: var(--text-lg);
+  font-weight: 600;
+  line-height: var(--leading-tight);
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+}
+
+.artifacts__desc {
+  margin: var(--space-2) 0 0;
+  color: var(--text-secondary);
+}
+
+.artifacts__meta {
+  display: grid;
+  gap: var(--space-2);
+  margin: var(--space-4) 0;
+  font-size: var(--text-sm);
+}
+
+.artifacts__meta div {
+  display: grid;
+  grid-template-columns: 120px minmax(0, 1fr);
+  gap: var(--space-3);
+  align-items: baseline;
+}
+
+.artifacts__meta dt {
+  color: var(--text-muted);
+}
+
+.artifacts__meta dd {
+  margin: 0;
+}
+
+.artifacts__meta code,
+.artifacts__path code,
+.artifacts__pre {
+  font-family: var(--font-mono);
+}
+
+.artifacts__none {
+  color: var(--text-muted);
+}
+
+.chip--static {
+  cursor: default;
+}
+
+.artifacts__files {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  margin-block-end: var(--space-3);
+  border-block-end: 1px solid var(--border-subtle);
+}
+
+.artifacts__file-tab {
+  padding: var(--space-2) var(--space-3);
+  font: inherit;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  background: transparent;
+  border: 0;
+  border-block-end: 2px solid transparent;
+  cursor: pointer;
+}
+
+.artifacts__file-tab[aria-selected="true"] {
+  color: var(--text-primary);
+  border-block-end-color: var(--accent);
+}
+
+.artifacts__path {
+  margin: 0 0 var(--space-3);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+.artifacts__pre {
+  margin: 0;
+  padding: var(--space-3);
+  overflow-x: auto;
+  font-size: var(--text-sm);
+  white-space: pre;
+  background: var(--surface-2);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-card);
+}
+
+.artifacts__notice {
+  color: var(--text-muted);
+}
+
+.artifacts__frontmatter {
+  width: 100%;
+  margin-block-end: var(--space-4);
+  border-collapse: collapse;
+  font-size: var(--text-xs);
+}
+
+.artifacts__frontmatter th,
+.artifacts__frontmatter td {
+  padding: var(--space-2);
+  text-align: start;
+  vertical-align: top;
+  white-space: pre-wrap;
+  border-block-end: 1px solid var(--border-subtle);
+}
+
+.artifacts__frontmatter th {
+  width: 140px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+/* Folded, a count that is not a finding is left out rather than drawn as the
+   alarm-coloured dot the Observatory's uses. */
+.rail--collapsed .rail__badge--neutral {
+  display: none;
+}

@@ -71,6 +71,10 @@ type Server struct {
 	// plane of a mounted KB. Nil for a server built without RegisterKBTools:
 	// an adapter then treats the KB as absent rather than assuming one.
 	kbRef *kb.KB
+	// kbArtifacts is what the UI API's artifact routes need beside kbRef to
+	// list the KB's artifacts as artifact_list and sync do (D238): the MCP
+	// allowlist and the artifact signer. Set with kbRef.
+	kbArtifacts artifactSource
 	// policyKB is the mounted logical KB name used by authorization rules
 	// (SetPolicyKB); it lets the authorizer resolve the right KB even before
 	// RegisterKBTools sets kb.KB.AuthName.

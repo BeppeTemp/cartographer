@@ -5,12 +5,14 @@ import {
   fetchConcept,
   fetchGraph,
   fetchKBs,
+  fetchArtifacts,
   fetchLint,
   fetchOverview,
   restoreToken,
   setToken,
 } from "./api/client";
-import type { Concept, GraphSnapshot, KBSummary, LintReport, Overview } from "./api/types";
+import type { ArtifactList, Concept, GraphSnapshot, KBSummary, LintReport, Overview } from "./api/types";
+import { Artifacts } from "./components/Artifacts";
 import { AuthPrompt } from "./components/AuthPrompt";
 import { CommandPalette } from "./components/CommandPalette";
 import { GraphView } from "./components/GraphView";
@@ -79,6 +81,9 @@ export function App() {
   const [lint, setLint] = useState<LintReport | null>(null);
   const [lintError, setLintError] = useState<unknown>(null);
   const [lintLoading, setLintLoading] = useState(false);
+  const [artifacts, setArtifacts] = useState<ArtifactList | null>(null);
+  const [artifactsError, setArtifactsError] = useState<unknown>(null);
+  const [artifactsLoading, setArtifactsLoading] = useState(false);
   const [severityMin, setSeverityMin] = useState("info");
 
   const [typeFilter, setTypeFilter] = useState<Set<string>>(new Set());
@@ -315,6 +320,38 @@ export function App() {
     return () => controller.abort();
   }, [activeKB, severityMin, phase, handleFailure, reloadKey]);
 
+  // Artifacts are whole-KB resources (D238): a principal that cannot see the
+  // whole KB gets no panel, and a link to one falls back to the atlas.
+  const artifactsAllowed = kbs.find((kb) => kb.name === activeKB)?.artifacts ?? false;
+  useEffect(() => {
+    if (!activeKB || phase !== "ready" || !artifactsAllowed) {
+      setArtifacts(null);
+      setArtifactsError(null);
+      return;
+    }
+    const controller = new AbortController();
+    setArtifactsLoading(true);
+    fetchArtifacts(activeKB, controller.signal)
+      .then((data) => {
+        setArtifacts(data);
+        setArtifactsError(null);
+      })
+      .catch((err) => {
+        if (controller.signal.aborted) return;
+        if (!handleFailure(err)) setArtifactsError(err);
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setArtifactsLoading(false);
+      });
+    return () => controller.abort();
+  }, [activeKB, artifactsAllowed, phase, handleFailure, reloadKey]);
+  useEffect(() => {
+    if (view.panel !== "artifacts" || !activeKB || kbs.length === 0 || artifactsAllowed) return;
+    const next = { ...view, panel: "atlas" as const, artifact: null };
+    setView(next);
+    replaceView(next);
+  }, [view, activeKB, kbs, artifactsAllowed]);
+
   // --- Derived view ---
 
   // Worst severity per concept: the graph tints a node by it, so "error"
@@ -460,6 +497,7 @@ export function App() {
       snapshot={snapshot}
       scope={view.scope}
       panel={view.panel}
+      artifactsTotal={artifactsAllowed ? (artifacts?.artifacts.length ?? 0) : null}
       collapsed={inSheet ? false : railCollapsed}
       collapsible={!inSheet}
       typeFilter={typeFilter}
@@ -469,7 +507,7 @@ export function App() {
         if (inSheet) setSheet(null);
       }}
       onPanel={(panel) => {
-        navigate({ panel });
+        navigate({ panel, artifact: null });
         if (inSheet) setSheet(null);
       }}
       onToggleCollapsed={() => setRailCollapsed((c) => !c)}
@@ -524,7 +562,7 @@ export function App() {
         offline={offline}
         narrow={narrow}
         hasSelection={view.panel === "atlas" && view.concept !== null}
-        onKBChange={(name) => navigate({ kb: name, scope: null, concept: null })}
+        onKBChange={(name) => navigate({ kb: name, scope: null, concept: null, artifact: null })}
         onThemeChange={setTheme}
         onOpenPalette={() => setPaletteOpen(true)}
         onOpenNav={() => setSheet("nav")}
@@ -557,6 +595,18 @@ export function App() {
                 if (conceptId) navigate({ panel: "atlas", concept: conceptId });
                 else announce(message);
               }}
+            />
+          ) : view.panel === "artifacts" && activeKB ? (
+            <Artifacts
+              kb={activeKB}
+              list={artifacts}
+              loading={artifactsLoading}
+              error={artifactsError}
+              selected={view.artifact}
+              narrow={narrow}
+              onSelect={(artifact) => navigate({ artifact })}
+              onRetry={() => setReloadKey((k) => k + 1)}
+              onFailure={handleFailure}
             />
           ) : graphLoading && !snapshot ? (
             <Skeleton lines={4} label="Loading the graph" />

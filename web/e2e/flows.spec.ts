@@ -90,6 +90,32 @@ test("dragging the reading panel's edge resizes it, and the width survives a rel
   await expect(page.getByRole("separator", { name: "Resize reading panel" })).toHaveAttribute("aria-valuenow", "520");
 });
 
+test("the Artifacts panel lists what the KB ships and opens a skill", async ({ page }) => {
+  await page.goto(ATLAS);
+  await waitForAtlas(page);
+  await page.getByRole("button", { name: /^Artifacts, \d+/ }).click();
+  const panel = page.getByRole("region", { name: "Artifacts" });
+  await expect(panel.getByRole("heading", { level: 2 })).toHaveText([
+    /^Skills/,
+    /^Subagents/,
+    /^Hooks/,
+    /^Instructions/,
+    /^Templates/,
+  ]);
+
+  await panel.getByRole("button", { name: /review/ }).click();
+  await expect(page).toHaveURL(/panel=artifacts&artifact=skill%2Freview/);
+  const detail = page.getByRole("article", { name: "Artifact skill/review" });
+  await expect(detail.getByRole("heading", { name: "Review", exact: true })).toBeVisible();
+  await detail.getByRole("tab", { name: "checklist.txt" }).click();
+  await expect(detail.locator("pre")).toContainText("1. tests");
+
+  await page.goBack();
+  await expect(page).not.toHaveURL(/artifact=/);
+  await expect(page.getByRole("article", { name: /^Artifact / })).toHaveCount(0);
+  await expect(panel.getByRole("button", { name: /review/ })).toBeVisible();
+});
+
 test("the Observatory's severity floor updates its count", async ({ page }) => {
   await page.goto(`${ATLAS}&panel=observatory`);
   const observatory = page.getByRole("region", { name: "Observatory" });
