@@ -170,3 +170,86 @@ describe("colour legend", () => {
     expect(localStorage.getItem("cartographer.colorBy")).toBe("map");
   });
 });
+
+/**
+ * The reading panel's splitter (D239). jsdom lays nothing out, so the shell's
+ * body and main report a 1600px window with the open rail (264px): the panel
+ * may then grow to 1600 - 264 - 280 = 1056px.
+ */
+describe("the reading panel splitter", () => {
+  // jsdom defines clientWidth on Element.prototype: shadow it on
+  // HTMLElement.prototype and delete the shadow afterwards.
+  beforeEach(() => {
+    window.history.replaceState(null, "", "/ui/?kb=homelab&concept=infra%2Fa");
+    Object.defineProperty(HTMLElement.prototype, "clientWidth", {
+      configurable: true,
+      get(this: HTMLElement) {
+        if (this.classList.contains("shell__body")) return 1600;
+        if (this.id === "main") return 1336;
+        return 0;
+      },
+    });
+  });
+  afterEach(() => {
+    delete (HTMLElement.prototype as { clientWidth?: number }).clientWidth;
+  });
+
+  const panel = () => document.getElementById("reading-panel")!;
+
+  it("resizes from the keyboard, persists the result and resets on Enter", async () => {
+    stubApi();
+    const user = userEvent.setup();
+    render(<App />);
+    const handle = await screen.findByRole("separator", { name: "Resize reading panel" });
+    // The shell is measured in the effect after its first render.
+    await waitFor(() => expect(handle).toHaveAttribute("aria-valuemax", "1056"));
+    expect(handle).toHaveAttribute("aria-valuenow", "420");
+    expect(handle).toHaveAttribute("aria-valuemin", "320");
+    expect(handle).toHaveAttribute("aria-controls", "reading-panel");
+
+    handle.focus();
+    await user.keyboard("{ArrowLeft}");
+    expect(handle).toHaveAttribute("aria-valuenow", "436");
+    expect(panel().style.getPropertyValue("--inspector-width")).toBe("436px");
+    expect(localStorage.getItem("cartographer.inspector.width")).toBe("436");
+
+    await user.keyboard("{Shift>}{ArrowRight}{/Shift}");
+    expect(handle).toHaveAttribute("aria-valuenow", "372");
+    await user.keyboard("{Home}");
+    expect(handle).toHaveAttribute("aria-valuenow", "1056");
+    await user.keyboard("{End}");
+    expect(handle).toHaveAttribute("aria-valuenow", "320");
+
+    await user.keyboard("{Enter}");
+    expect(handle).toHaveAttribute("aria-valuenow", "420");
+    expect(localStorage.getItem("cartographer.inspector.width")).toBe("420");
+  });
+
+  it("restores the stored width, clamped to the window without rewriting it", async () => {
+    localStorage.setItem("cartographer.inspector.width", "600");
+    stubApi();
+    const { unmount } = render(<App />);
+    expect(await screen.findByRole("separator", { name: "Resize reading panel" })).toHaveAttribute(
+      "aria-valuenow",
+      "600",
+    );
+    unmount();
+
+    localStorage.setItem("cartographer.inspector.width", "5000");
+    render(<App />);
+    const handle = await screen.findByRole("separator", { name: "Resize reading panel" });
+    await waitFor(() => expect(handle).toHaveAttribute("aria-valuenow", "1056"));
+    expect(panel().style.getPropertyValue("--inspector-width")).toBe("1056px");
+    expect(localStorage.getItem("cartographer.inspector.width")).toBe("5000");
+  });
+
+  it("is absent from the narrow layout", async () => {
+    viewport(true);
+    stubApi();
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: /open inspector/i }));
+    expect(await screen.findByRole("dialog", { name: "Inspector" })).toBeInTheDocument();
+    expect(screen.queryByRole("separator", { name: "Resize reading panel" })).not.toBeInTheDocument();
+  });
+});
