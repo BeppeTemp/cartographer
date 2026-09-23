@@ -118,6 +118,10 @@ function View({
   const sceneRef = useRef<LivingScene | null>(null);
   const [ready, setReady] = useState(0);
   const [failed, setFailed] = useState(false);
+  // False from a new snapshot until its first frame is on screen: the import of
+  // the renderer and the synchronous warm-up take seconds on a large KB, and a
+  // cover keeps that from reading as a blank canvas.
+  const [drawn, setDrawn] = useState(false);
 
   // What the long-lived scene reads, through refs: a new callback identity from
   // the parent must never rebuild it.
@@ -162,6 +166,7 @@ function View({
     if (!container) return;
     let disposed = false;
     let refit: number | undefined;
+    setDrawn(false);
     void import("../lib/graph3d/scene")
       .then(({ LivingScene }) => {
         if (disposed) return;
@@ -220,6 +225,11 @@ function View({
     // nearly settled, short enough on a large KB not to block.
     const warmup = Math.round(Math.max(80, Math.min(300, 600_000 / Math.max(1, visible.length))));
     scene.setData(visible, links, warmup);
+    // Two frames: the first renders the scene, the second runs after it is painted.
+    let frame = requestAnimationFrame(() => {
+      frame = requestAnimationFrame(() => setDrawn(true));
+    });
+    return () => cancelAnimationFrame(frame);
   }, [ready, snapshot, hiddenIds, nodes]);
 
   // Colour: by community or Map, the selection's neighbourhood kept and the
@@ -331,6 +341,15 @@ function View({
       <div ref={containerRef} className="graph3d">
         <div ref={labelsRef} className="graph3d__labels" aria-hidden="true" />
         <span ref={tooltipRef} className="graph3d__label graph3d__tooltip" aria-hidden="true" hidden />
+      </div>
+      <div className="graph__loading" data-drawn={drawn} role="status" aria-live="polite">
+        <div className="graph__loading-orbit" aria-hidden="true">
+          <span />
+          <span />
+          <span />
+        </div>
+        {/* Kept through the fade-out; visibility: hidden then drops it from the tree. */}
+        <p className="state__detail">Charting {snapshot.nodes.length} concepts…</p>
       </div>
       <div className="graph__controls" role="group" aria-label="Graph camera">
         <button type="button" className="button button--icon" onClick={() => scene()?.zoomBy(1 / 1.35)} aria-label="Zoom in">

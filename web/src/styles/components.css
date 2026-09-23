@@ -83,6 +83,7 @@
 
 .field__control:focus-visible {
   outline: none;
+  box-shadow: none;
 }
 
 .field:has(.field__control:focus-visible) {
@@ -97,6 +98,19 @@
 
 .topbar__kb {
   width: 180px;
+}
+
+/* The select covers the whole field, chevron included: a click anywhere on
+   the picker opens it, and its text lines up with the search field's. */
+.topbar__kb .field__control {
+  position: absolute;
+  inset: 0;
+  padding-inline: var(--space-3) calc(var(--space-3) + 16px + var(--space-2));
+  border-radius: inherit;
+}
+
+.topbar__kb .field__adornment {
+  margin-inline-start: auto;
 }
 
 .topbar__search {
@@ -1715,6 +1729,71 @@
   position: absolute;
   inset: 0;
   overflow: hidden;
+}
+
+/* The cover over a graph that is still being built. Its motion is transform
+   and opacity only, so the compositor keeps it turning while the main thread
+   is busy with the layout warm-up -- the moment it exists for. */
+.graph__loading {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-4);
+  background: var(--surface-0);
+  transition: opacity var(--motion-slow) var(--ease-out),
+    visibility 0s linear var(--motion-slow);
+}
+
+.graph__loading[data-drawn="true"] {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.graph__loading-orbit {
+  position: relative;
+  width: 56px;
+  height: 56px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 50%;
+  animation: graph-orbit 2.4s linear infinite;
+}
+
+.graph__loading-orbit span {
+  position: absolute;
+  top: -4px;
+  left: calc(50% - 4px);
+  width: 8px;
+  height: 8px;
+  background: var(--primary);
+  border-radius: 50%;
+  transform-origin: 4px 32px;
+}
+
+.graph__loading-orbit span:nth-child(2) {
+  transform: rotate(120deg) scale(0.75);
+  opacity: 0.7;
+}
+
+.graph__loading-orbit span:nth-child(3) {
+  transform: rotate(240deg) scale(0.5);
+  opacity: 0.45;
+}
+
+@keyframes graph-orbit {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .graph__loading-orbit {
+    animation: none;
+  }
 }
 
 .graph3d__labels {
