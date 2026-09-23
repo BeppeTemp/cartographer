@@ -4,6 +4,8 @@ topic: deployment-release
 
 # D218 — winget is the only Windows channel, and its archive is a zip
 
+**Status: superseded by [D252](D252-windows-installs-through-install-ps1-not-winget.md)** — winget was withdrawn and Windows installs through `install.ps1` (the zip format below still stands).
+
 **Decision.** The release builds `windows/{amd64,arm64}` and ships those two assets
 as **zips** containing `cartographer.exe`, while darwin and linux keep their raw
 per-platform binaries. GoReleaser generates the three winget manifests for

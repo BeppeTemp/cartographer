@@ -23,28 +23,21 @@ Expected output: `Darwin` on macOS, `Linux`, or one of the Windows forms a POSIX
 there (`MINGW64_NT-…`, `MSYS_NT-…`, `CYGWIN_NT-…`).
 
 **If the command does not exist, you are on Windows** in PowerShell or `cmd`, where there is no
-`uname` — that failure is the answer, not an error to report. Confirm with:
+`uname` — that failure is the answer, not an error to report. On any platform other than macOS,
+Linux and Windows, stop and report it.
+
+**On Windows, install with `install.ps1`**, from PowerShell (in `cmd`, prefix it with
+`powershell -NoProfile -Command`). `install.sh` refuses there on purpose (D252):
 
 ```powershell
-winget --version
+irm https://raw.githubusercontent.com/BeppeTemp/cartographer/main/install.ps1 | iex
 ```
 
-On any platform other than macOS, Linux and Windows, stop and report it.
-
-**On Windows the channel is winget, and it is the only one** — there is no `install.ps1`, no Scoop
-bucket and no Chocolatey package, and `install.sh` refuses there on purpose (D218). Where winget cannot serve the package, the fallback
-is the published zip, installed by hand per [`getting-started.md`](getting-started.md) §Windows
-without winget (D223) — not a different channel:
-
-```powershell
-winget install BeppeTemp.Cartographer
-```
-
-Expected output: winget reports the package was installed and that a `cartographer` command was
-added. Then continue from *Confirm the binary is available* below; everything after step 1 is
-platform-neutral. Before ever removing Cartographer from a Windows machine, run
-`cartographer service uninstall` first: `winget uninstall` runs no Cartographer code, so a
-registered Scheduled Task would outlive the binary it points at.
+Expected output: `checksum OK`, then `installed: <version> -> <path>\cartographer.exe`. Then
+continue from *Confirm the binary is available* below; everything after step 1 is
+platform-neutral. Do not download or extract the release zip by hand: the script verifies the
+checksum and puts the binary on the user `PATH`, and a hand procedure is how either step gets
+skipped.
 
 On macOS, first check for Homebrew:
 
@@ -194,10 +187,11 @@ Omitting this is the single most common way a correct installation is reported a
 
 | Observed symptom | Next action |
 |---|---|
-| `command -v brew` has no output | Run the `install.sh` command in step 1 (on Windows, the `winget` command instead). |
-| `uname` is not a recognized command | You are on Windows in PowerShell or `cmd`. Use the `winget` step; do not treat it as a broken environment. |
-| `install.sh` says Windows is not installed through it | Correct, and it names the remedy: `winget install BeppeTemp.Cartographer`. Do not look for an `install.ps1` — there is none (D218). |
-| `winget` itself is not recognized, or has no manifest for the version wanted | The App Installer package is missing, too old, or blocked by policy: the user installs or updates it from the Microsoft Store, then step 1 is retried. There is still no second *channel* — but where winget cannot serve the package, the published zip is installed by hand: follow [`getting-started.md`](getting-started.md) §Windows without winget (D223) rather than inventing a procedure. |
+| `command -v brew` has no output | Run the `install.sh` command in step 1 (on Windows, the `install.ps1` command instead). |
+| `uname` is not a recognized command | You are on Windows in PowerShell or `cmd`. Use the `install.ps1` step; do not treat it as a broken environment. |
+| `install.sh` says Windows is installed with `install.ps1` | Correct: run the `install.ps1` command it prints, from PowerShell. |
+| `install.ps1` fails with `running scripts is disabled on this system` | That is the file form under a restrictive execution policy; the `irm … \| iex` form in step 1 is not subject to it. Rerun that exact command rather than changing the policy. |
+| `cartographer` is not recognized right after `install.ps1` | The command ran in a different process than the shell you are typing in. Open a new PowerShell window — the directory is on the user `PATH` — or invoke `%LOCALAPPDATA%\Cartographer\bin\cartographer.exe` directly. |
 | The user's agent shows no Cartographer MCP tools after a successful `connect` | The session was not restarted. Repeat step 6 — this is not a failed install. |
 | `cartographer status` exits non-zero immediately after install | The service may still be starting: wait a few seconds and retry once before diagnosing. |
 | The service reports that port 39273 is busy | Stop or reconfigure the process using the port, then rerun `cartographer service install`. |

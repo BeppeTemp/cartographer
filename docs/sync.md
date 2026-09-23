@@ -100,10 +100,10 @@ re-derived client-side (D120: `resolveKBTargets`/`qualifyTool` in `cmd/cartograp
 This keeps the client plumbing correct whether the server prefixes tools or not — an unprefixed
 KB is called unchanged, exactly as before D120.
 
-A **native local upgrade** is another trigger for the same path: after `install.sh` replaces the
+A **native local upgrade** is another trigger for the same path: after `install.sh` or `install.ps1` replaces the
 binary, `cartographer upgrade-repair` reconciles the configured providers in place (D121, →
-[deployment](deployment.md) §Upgrades, schema migration, and repo growth). After a Homebrew or a
-winget upgrade — neither of which runs Cartographer code — the next plain `cartographer sync` does
+[deployment](deployment.md) §Upgrades, schema migration, and repo growth). After a Homebrew upgrade —
+which runs no Cartographer code — the next plain `cartographer sync` does
 it instead (D199): before syncing it replaces a
 native service still running the previous binary, under the client-state lock so concurrent
 session-start syncs replace it once. It runs the very same in-process sync as plain `cartographer sync` — same

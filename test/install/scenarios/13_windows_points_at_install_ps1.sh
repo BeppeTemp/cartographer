@@ -1,12 +1,11 @@
 #!/bin/sh
-# scenarios/13_windows_points_at_winget.sh — piped from a Windows shell
-# environment (Git Bash, MSYS2, Cygwin), install.sh must refuse and name the one
-# channel that works there, without downloading or writing anything (D218).
+# scenarios/13_windows_points_at_install_ps1.sh — piped from a Windows shell
+# environment (Git Bash, MSYS2, Cygwin), install.sh must refuse and name the
+# installer that works there, without downloading or writing anything (D252).
 #
-# The refusal itself is not new; what is asserted here is that it is *actionable*.
-# A user who lands on "unsupported OS: mingw64_nt-10.0" has no way to know that
-# `winget install BeppeTemp.Cartographer` is the answer, and winget being the only
-# Windows channel means that string is the whole answer.
+# What is asserted is that the refusal is *actionable*: a user who lands on
+# "unsupported OS: mingw64_nt-10.0" has no way to know that install.ps1 is the
+# answer.
 
 SCENARIO_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 INSTALL_TEST_DIR=$(CDPATH= cd -- "${SCENARIO_DIR}/.." && pwd)
@@ -18,7 +17,7 @@ INSTALL_LIB_DIR="${INSTALL_TEST_DIR}/lib"
 # shellcheck source=../lib/harness.sh
 . "${INSTALL_LIB_DIR}/harness.sh"
 
-SCENARIO_NAME="13_windows_points_at_winget"
+SCENARIO_NAME="13_windows_points_at_install_ps1"
 echo "=== Scenario ${SCENARIO_NAME} ==="
 
 install_setup "$SCENARIO_NAME"
@@ -41,14 +40,10 @@ run_install install
 
 echo "--- Assertions ---"
 assert_eq "$INSTALL_RC" "1" "install.sh refuses on a Windows shell environment"
-assert_contains "$INSTALL_OUTPUT" "winget install BeppeTemp.Cartographer" \
-    "names the one supported Windows channel"
+assert_contains "$INSTALL_OUTPUT" "install.ps1 | iex" \
+    "names the Windows installer"
 assert_not_contains "$INSTALL_OUTPUT" "unsupported OS" \
     "does not fall through to the generic refusal, which names no remedy"
-# The Scheduled Task of D217 outlives `winget uninstall`, which runs no
-# Cartographer code: the counterpart of install.sh's own uninstall refusal.
-assert_contains "$INSTALL_OUTPUT" "cartographer service uninstall" \
-    "warns that the service must be uninstalled by Cartographer itself"
 # Nothing was downloaded: the asset request is the one thing the fake curl
 # records, so an absent marker means it was never reached.
 if [ -f "${SCENARIO_TMP}/last-asset" ]; then

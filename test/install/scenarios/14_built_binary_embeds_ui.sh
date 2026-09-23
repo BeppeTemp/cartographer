@@ -2,7 +2,7 @@
 # scenarios/14_built_binary_embeds_ui.sh — the Atlas UI travels inside the
 # binary on every install path (D227).
 #
-# Every channel — Homebrew, the winget zip, install.sh, the container and
+# Every channel — Homebrew, the Windows zip, install.sh, the container and
 # `go install` — ships the output of one `go build ./cmd/cartographer`, so this
 # builds exactly that, with the release's CGO_ENABLED=0 and stripped ldflags,
 # and proves two things about it:
