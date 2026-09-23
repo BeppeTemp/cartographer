@@ -86,6 +86,19 @@ func (e *RemoteError) Error() string {
 // working through a RemoteError.
 func (e *RemoteError) Unwrap() error { return e.Cause }
 
+// unreachableMessage words a failed request. A timeout while awaiting headers
+// means the server accepted the request and is still working on it -- in
+// practice a KB whose git remote is slow or down (#348) -- so "could not
+// reach" would send the operator after a healthy local server. net/http has
+// no typed error for that phase, only this text.
+func unreachableMessage(reqURL string, err error) string {
+	if strings.Contains(err.Error(), "awaiting headers") {
+		return fmt.Sprintf("%s accepted the request but did not answer in time; "+
+			"the server is up, so look at its log for a KB whose git remote is slow or unreachable", reqURL)
+	}
+	return fmt.Sprintf("could not reach %s", reqURL)
+}
+
 // classifyDialErr distinguishes a DNS failure from any other dial-time
 // network error (connection refused, timeout, ...), mirroring the
 // pre-existing cmd/cartographer/status_snapshot.go classification.
@@ -350,7 +363,7 @@ func (c *MCPClient) do(method string, params any) (json.RawMessage, error) {
 	resp, err := c.HTTP.Do(httpReq)
 	if err != nil {
 		return nil, &RemoteError{State: RemoteUnavailable, Code: classifyDialErr(err),
-			Message: fmt.Sprintf("could not reach %s", reqURL), Cause: err}
+			Message: unreachableMessage(reqURL, err), Cause: err}
 	}
 	defer resp.Body.Close()
 

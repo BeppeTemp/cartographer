@@ -563,3 +563,22 @@ func TestHealth_Unauthorized_NamesTokenEnv(t *testing.T) {
 		t.Fatalf("expected errors.Is(err, client.ErrUnauthorized), got %v", err)
 	}
 }
+
+// A server that accepts the request and answers too late is up: the error
+// must not say it could not be reached (#348).
+func TestCall_SlowServerIsNotReportedUnreachable(t *testing.T) {
+	release := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { <-release }))
+	defer srv.Close()
+	defer close(release)
+	c := client.New(srv.URL+"/mcp", "")
+	c.HTTP.Timeout = 200 * time.Millisecond
+
+	_, err := c.Call("kb_status", map[string]any{})
+	if err == nil {
+		t.Fatal("Call succeeded against a server that never answers")
+	}
+	if msg := err.Error(); strings.Contains(msg, "could not reach") || !strings.Contains(msg, "did not answer in time") {
+		t.Fatalf("error = %q, want the server named as up but slow", msg)
+	}
+}

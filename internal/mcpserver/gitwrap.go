@@ -152,7 +152,7 @@ func readSyncWrap(k *kb.KB, t Tool) Tool {
 		// the successful SyncIn is still within its freshness window. The check
 		// can race another SyncIn; SyncIn repeats it after this wrapper acquires
 		// the lock, turning that case into a harmless no-op.
-		if !k.SyncInDue() {
+		if !k.SyncInDue() || k.ReadFetchBackingOff() {
 			return orig.Handler(ctx, args)
 		}
 
@@ -162,6 +162,12 @@ func readSyncWrap(k *kb.KB, t Tool) Tool {
 		var fetchRan bool
 		start := time.Now()
 		_ = k.WithGitLock(func() error { // inner func always returns nil
+			// A call queued behind a fetch that just failed skips its own:
+			// retries must not stack one bounded fetch each (#348).
+			if k.ReadFetchBackingOff() {
+				res, handlerErr = orig.Handler(ctx, args)
+				return nil
+			}
 			syncInStart := time.Now()
 			var syncErr error
 			fetchRan, syncErr = k.SyncIn()
