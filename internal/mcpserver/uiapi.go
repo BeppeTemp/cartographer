@@ -366,16 +366,14 @@ func uiConcept(w http.ResponseWriter, r *http.Request, k *kb.KB) {
 		title = frontmatterString(fm, "title")
 	}
 
-	outbound, brokenOutbound, err := uiVisibleNeighbors(ctx, k, id, "out")
+	// One graph read for both directions (D241).
+	graph, err := k.LinkGraph()
 	if err != nil {
-		writeUIInternal(w, "concept: outbound", err)
+		writeUIInternal(w, "concept: graph", err)
 		return
 	}
-	inbound, _, err := uiVisibleNeighbors(ctx, k, id, "in")
-	if err != nil {
-		writeUIInternal(w, "concept: inbound", err)
-		return
-	}
+	outbound, brokenOutbound := uiVisibleNeighbors(ctx, k, graph, graph.Out[okf.ConceptID(id)], id)
+	inbound, _ := uiVisibleNeighbors(ctx, k, graph, graph.In[okf.ConceptID(id)], id)
 
 	writeUIJSON(w, http.StatusOK, map[string]interface{}{
 		"id":           id,
@@ -392,32 +390,32 @@ func uiConcept(w http.ResponseWriter, r *http.Request, k *kb.KB) {
 	})
 }
 
-// uiVisibleNeighbors returns the 1-hop neighbours of id the caller may see,
-// sorted, plus the outbound targets that are not concepts at all.
+// uiVisibleNeighbors returns, from one direction of id's links, the
+// neighbours the caller may see, sorted, plus the targets that are not
+// concepts at all. The concept itself is never its own neighbour.
 //
-// Two filters, for two different reasons. GraphNeighbors is not
+// Two filters, for two different reasons. The link graph is not
 // permission-aware — it answers about the files — so a concept the caller may
-// not see is dropped here. And it reports a link's target whether or not that
+// not see is dropped here. And it records a link's target whether or not that
 // target exists, so a missing one is kept apart instead of being offered as a
 // neighbour the UI would render as a dead chip. An existing-but-invisible
 // target falls out of both lists: reporting it as broken would disclose it.
-func uiVisibleNeighbors(ctx requestContext, k *kb.KB, id, direction string) (neighbours, broken []string, err error) {
-	found, err := k.GraphNeighbors(okf.ConceptID(id), 1, direction)
-	if err != nil {
-		return nil, nil, err
-	}
+func uiVisibleNeighbors(ctx requestContext, k *kb.KB, graph kb.LinkGraph, links map[okf.ConceptID]struct{}, id string) (neighbours, broken []string) {
 	neighbours, broken = []string{}, []string{}
-	for neighbor := range found {
-		switch {
-		case !conceptExists(k, neighbor):
+	for target := range links {
+		neighbor := string(target)
+		if neighbor == id {
+			continue
+		}
+		if _, exists := graph.Exists[target]; !exists {
 			broken = append(broken, neighbor)
-		case Visible(ctx, k, neighbor):
+		} else if Visible(ctx, k, neighbor) {
 			neighbours = append(neighbours, neighbor)
 		}
 	}
 	sort.Strings(neighbours)
 	sort.Strings(broken)
-	return neighbours, broken, nil
+	return neighbours, broken
 }
 
 func uiLint(w http.ResponseWriter, r *http.Request, k *kb.KB) {

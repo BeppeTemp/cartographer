@@ -201,16 +201,22 @@ func Run(k *kb.KB, scope string, scopeNeighbors bool) ([]Finding, error) {
 		}
 	}
 
-	// Expand scope with 1-hop graph neighbours when requested.
+	// One graph read serves the scope expansion and the orphan check (D241):
+	// a GraphNeighbors call per concept validated the whole KB each time.
+	graph, err := k.LinkGraph()
+	if err != nil {
+		return nil, fmt.Errorf("lint.Run: link graph: %w", err)
+	}
+
+	// Expand scope with 1-hop graph neighbours when requested: out-links
+	// only, the concept itself excluded — GraphNeighbors(id, 1)'s semantics.
 	if scopeNeighbors && len(toCheck) > 0 {
 		extra := map[okf.ConceptID]bool{}
 		for id := range toCheck {
-			neighbors, err := k.GraphNeighbors(id, 1)
-			if err != nil {
-				return nil, fmt.Errorf("lint.Run: graph neighbors for %s: %w", id, err)
-			}
-			for nid := range neighbors {
-				cid := okf.ConceptID(nid)
+			for cid := range graph.Out[id] {
+				if cid == id {
+					continue
+				}
 				if _, already := toCheck[cid]; !already {
 					extra[cid] = true
 				}
@@ -223,12 +229,9 @@ func Run(k *kb.KB, scope string, scopeNeighbors bool) ([]Finding, error) {
 		}
 	}
 
-	// Build the reverse-link graph once over all concepts for the orphan check.
-	// It retains self-links, preserving the pre-D108 orphan behaviour.
-	incomingLinks, err := k.IncomingLinks()
-	if err != nil {
-		return nil, fmt.Errorf("lint.Run: incoming links: %w", err)
-	}
+	// The reverse-link graph for the orphan check. It retains self-links,
+	// preserving the pre-D108 orphan behaviour.
+	incomingLinks := graph.In
 
 	// Archive name set for orphan skip rule.
 	archives, err := k.ListArchives()

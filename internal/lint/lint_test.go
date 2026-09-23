@@ -967,6 +967,27 @@ func TestRun_ScopeNeighbors(t *testing.T) {
 	}
 }
 
+// scope_neighbors used to call GraphNeighbors once per concept in scope, each
+// call a full walk of the KB. One lint run is now one graph validation (D241).
+func TestRun_ScopeNeighborsValidatesTheGraphOnce(t *testing.T) {
+	k := tempKB(t)
+	writeFile(t, k.DataRoot(), "arch/_archive.md",
+		"---\ntype: Archive\ntitle: Arch\narchive_type: ops\nontology_mode: flexible\n---\n")
+	for i := 0; i < 50; i++ {
+		writeFile(t, k.DataRoot(), fmt.Sprintf("arch/c%02d.md", i),
+			fmt.Sprintf("---\ntype: Note\n---\nSee [next](c%02d.md) and [out](../ext/e%02d.md).\n", (i+1)%50, i))
+		writeFile(t, k.DataRoot(), fmt.Sprintf("ext/e%02d.md", i), "---\ntype: Note\n---\nLeaf.\n")
+	}
+	before := k.GraphValidations()
+	if _, err := Run(k, "arch", true); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	// Which neighbours are pulled in is TestRun_ScopeNeighbors' concern.
+	if got := k.GraphValidations() - before; got != 1 {
+		t.Fatalf("graph validations = %d, want 1", got)
+	}
+}
+
 // --- D149: one link base, one concept resolver ---
 
 // The natural form inside an expanded concept's index.md is a bare sibling

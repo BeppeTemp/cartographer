@@ -101,8 +101,8 @@ func conceptCollection(id okf.ConceptID) string {
 	return ""
 }
 
-// GraphSnapshot derives the link graph in a single walk of the KB and returns
-// a sorted, bounded projection of it.
+// GraphSnapshot reads the link graph from the stat-validated cache (D241) and
+// returns a sorted, bounded projection of it.
 //
 // Sorting happens before truncation, so the same KB state always produces the
 // same response: a graph whose nodes reshuffle between two identical requests
@@ -139,34 +139,30 @@ func (kb *KB) GraphSnapshot(opts GraphSnapshotOptions) (GraphSnapshot, error) {
 	metas := map[okf.ConceptID]*conceptMeta{}
 	ids := []okf.ConceptID{}
 
-	err := kb.walkConceptPaths(func(id okf.ConceptID, physicalPath, content string) error {
+	view, err := kb.graphView()
+	if err != nil {
+		return GraphSnapshot{}, err
+	}
+	// Replays the cached walk (D241) in its order: the later of two files
+	// emitting one id wins, as it did when this was a walk.
+	for _, e := range view.entries {
+		id := e.id
 		exists[id] = struct{}{}
 		if !visible(string(id)) {
-			return nil
-		}
-		fmRaw, body, _ := okf.SplitFrontmatter(content)
-		meta := &conceptMeta{
-			collection: conceptCollection(id),
-			expanded:   physicalPath == path.Join(string(id), "index.md"),
-			targets:    ExtractLinks(body, physicalPath, kb.AssetExists),
+			continue
 		}
 		// Malformed frontmatter leaves the facets empty rather than failing the
 		// walk: one unparseable file must not blank the whole graph.
-		if fm, err := okf.ParseFrontmatter(fmRaw); err == nil {
-			meta.typ = fm.Type()
-			if v, ok := fm.Get("title"); ok {
-				meta.title, _ = v.(string)
-			}
-			if v, ok := fm.Get("status"); ok {
-				meta.status, _ = v.(string)
-			}
+		meta := &conceptMeta{
+			collection: conceptCollection(id),
+			expanded:   e.rel == path.Join(string(id), "index.md"),
+			targets:    e.links,
+			typ:        e.facets.Type,
+			title:      e.facets.Title,
+			status:     e.facets.Status,
 		}
 		ids = append(ids, id)
 		metas[id] = meta
-		return nil
-	})
-	if err != nil {
-		return GraphSnapshot{}, err
 	}
 	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
 

@@ -127,7 +127,7 @@ review_after: 2026-09-25
 
 ## Cross-links and the graph
 
-**Bundle-relative** links starting with `/` (stable, path from the KB root). A link A→B asserts a relationship (the prose supplies the type). Broken links are legitimate stubs. The emergent graph is what lint walks for scoping and is traversable both outbound and inbound (backlinks). Its reverse edges are derived on demand from the concept files; no link index is persisted.
+**Bundle-relative** links starting with `/` (stable, path from the KB root). A link A→B asserts a relationship (the prose supplies the type). Broken links are legitimate stubs. The emergent graph is what lint walks for scoping and is traversable both outbound and inbound (backlinks). It is derived from the concept files and kept in memory only, as a stat-validated cache (D241): every graph read enumerates the concept files and re-parses only those whose size, modification time or mode changed, whose modification time is too recent to vouch for them (within 2 s of when it was observed, git's "racily clean" rule), whose extensionless links' asset lookups now answer differently, or that are symlinks. An edit made by a tool, a git pull or an editor is therefore seen on the next read, with no restart and no reindex. What is cached is links, the content hash and a few frontmatter facets, never bodies; nothing is persisted, so a restart starts cold.
 
 ## Naming and concept IDs
 

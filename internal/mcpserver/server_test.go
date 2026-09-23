@@ -1783,6 +1783,7 @@ func TestServer_GraphNeighbors_DirectionAndOrder(t *testing.T) {
 	write("b", "")
 	write("c", "[a](a.md)\n")
 	write("d", "[c](c.md)\n")
+	write("e", "[b](b.md) and [gone](gone.md)\n")
 
 	s := New("1.0.0")
 	RegisterKBTools(s, k, Deps{})
@@ -1821,6 +1822,20 @@ func TestServer_GraphNeighbors_DirectionAndOrder(t *testing.T) {
 	result, _ = call(`{"id":"manutenzione/a","direction":"both","depth":1}`)
 	if strings.Join(neighborIDs(result), ",") != "manutenzione/b,manutenzione/c" {
 		t.Errorf("both/order result: %#v", result)
+	}
+	// A link target that is not a concept is flagged, a real neighbour is
+	// not (D241); both stay in the list, in order.
+	result, _ = call(`{"id":"manutenzione/e"}`)
+	entries := result["neighbors"].([]interface{})
+	if len(entries) != 2 {
+		t.Fatalf("e neighbours = %#v", entries)
+	}
+	real, gone := entries[0].(map[string]interface{}), entries[1].(map[string]interface{})
+	if real["id"] != "manutenzione/b" || real["missing"] != nil {
+		t.Errorf("real neighbour = %#v, want no missing flag", real)
+	}
+	if gone["id"] != "manutenzione/gone" || gone["missing"] != true {
+		t.Errorf("broken target = %#v, want missing: true", gone)
 	}
 	_, tr := call(`{"id":"manutenzione/a","direction":"sideways"}`)
 	if !tr.IsError || !strings.Contains(tr.Content[0].Text, "expected out, in, or both") {

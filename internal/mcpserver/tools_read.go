@@ -878,7 +878,11 @@ func toolGraphNeighbors(k *kb.KB) Tool {
 				depth = 1
 			}
 
-			neighbors, err := k.GraphNeighbors(okf.ConceptID(params.ID), depth, direction)
+			graph, err := k.LinkGraph()
+			if err != nil {
+				return errorResult(fmt.Sprintf("graph_neighbors %q: %v", params.ID, err)), nil
+			}
+			neighbors, err := graph.Neighbors(okf.ConceptID(params.ID), depth, direction)
 			if err != nil {
 				return errorResult(fmt.Sprintf("graph_neighbors %q: %v", params.ID, err)), nil
 			}
@@ -886,13 +890,19 @@ func toolGraphNeighbors(k *kb.KB) Tool {
 			type neighbor struct {
 				ID       string `json:"id"`
 				Distance int    `json:"distance"`
+				// Missing marks a link target that is not a concept (D241),
+				// so an agent can tell a broken link from a neighbour.
+				Missing bool `json:"missing,omitempty"`
 			}
 			var list []neighbor
 			for id, dist := range neighbors {
+				// Only entries the policy already lets through are flagged: a
+				// hidden target stays hidden, missing or not.
 				if !Visible(ctx, k, id) {
 					continue
 				}
-				list = append(list, neighbor{ID: id, Distance: dist})
+				_, exists := graph.Exists[okf.ConceptID(id)]
+				list = append(list, neighbor{ID: id, Distance: dist, Missing: !exists})
 			}
 			sort.Slice(list, func(i, j int) bool { return list[i].ID < list[j].ID })
 

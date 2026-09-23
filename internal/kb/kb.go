@@ -125,6 +125,11 @@ type KB struct {
 	// worker acquires separately (and only around the actual SyncOut call,
 	// never while holding pushMu) — see doAsyncPush.
 	pushMu sync.Mutex
+
+	// graphMu guards graph, the stat-validated link-graph cache (D241). The
+	// views it publishes are immutable, so readers hold it only to validate.
+	graphMu sync.Mutex
+	graph   *graphCache
 	// pushStarted is true once the worker goroutine has been launched
 	// (lazily, on the first SchedulePush). FlushPush checks this without
 	// starting the worker, so it stays a no-op — and starts no goroutine —
