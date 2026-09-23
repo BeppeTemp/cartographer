@@ -1285,3 +1285,26 @@ func TestFooterDistinguishesTheTwoSyncKeys(t *testing.T) {
 		t.Errorf("footer must distinguish the two sync keys:\n%s", out)
 	}
 }
+
+func TestSetupHint(t *testing.T) {
+	no, yes := false, true
+	local := "http://127.0.0.1:39273/mcp"
+	tests := []struct {
+		name string
+		s    statusSnapshot
+		want bool
+	}{
+		{"fresh machine: nothing answers, no service", statusSnapshot{ServerURL: local}, true},
+		{"service installed but down is a service problem, not a setup one", statusSnapshot{ServerURL: local, Service: &serviceSnapshot{Installed: true}}, false},
+		{"server up with no KB", statusSnapshot{ServerURL: local, Reachable: true, Ready: &no}, true},
+		{"set up", statusSnapshot{ServerURL: local, Reachable: true, Ready: &yes, KBs: []string{"a"}}, false},
+		{"a remote server is not this machine's to set up", statusSnapshot{ServerURL: "https://kb.example.com/mcp"}, false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := setupHint(&tc.s) != ""; got != tc.want {
+				t.Errorf("setupHint = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}

@@ -103,6 +103,15 @@ func cloneError(ctx context.Context, remote, dest string, err error, output stri
 	if ctx.Err() != nil {
 		return fmt.Errorf("%w while cloning %s: %v", ErrCloneTimeout, remote, ctx.Err())
 	}
+	if remedy := remoteRemedy(output); remedy != "" {
+		return fmt.Errorf("git clone %s: %s\n%s", remote, remedy, strings.TrimSpace(output))
+	}
+	return fmt.Errorf("git clone %s %s: %w: %s", remote, dest, err, strings.TrimSpace(output))
+}
+
+// remoteRemedy maps git's output for a failed network operation to the one
+// line an operator can act on, or "" when none of the known phrases appears.
+func remoteRemedy(output string) string {
 	remedies := []struct{ match, remedy string }{
 		{"could not resolve host", "the host name does not resolve: check the remote URL and this machine's DNS"},
 		{"permission denied (publickey", "the forge rejected this machine's SSH key: check the key loaded in your agent has access to the repository"},
@@ -115,10 +124,39 @@ func cloneError(ctx context.Context, remote, dest string, err error, output stri
 	lower := strings.ToLower(output)
 	for _, r := range remedies {
 		if strings.Contains(lower, r.match) {
-			return fmt.Errorf("git clone %s: %s\n%s", remote, r.remedy, strings.TrimSpace(output))
+			return r.remedy
 		}
 	}
-	return fmt.Errorf("git clone %s %s: %w: %s", remote, dest, err, strings.TrimSpace(output))
+	return ""
+}
+
+// ErrProbeTimeout reports that ProbeRemote was stopped by its context
+// deadline: the remote did not answer in time.
+var ErrProbeTimeout = errors.New("git ls-remote timed out")
+
+// ProbeRemote asks remote which refs it has ("git ls-remote"), under the same
+// non-interactive environment as Clone, and reports whether it has any. It is
+// the read-only question `cartographer setup` asks before changing anything:
+// it proves the remote is reachable with this machine's credentials, and an
+// empty answer is what distinguishes a repository to create a KB in from one
+// that already holds something to clone.
+func ProbeRemote(ctx context.Context, remote string) (hasRefs bool, err error) {
+	cmd := exec.CommandContext(ctx, "git", "ls-remote", remote)
+	cmd.Env = cloneEnv(remote, nil)
+	var stderr strings.Builder
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
+	if err != nil {
+		if ctx.Err() != nil {
+			return false, fmt.Errorf("%w for %s: %v", ErrProbeTimeout, remote, ctx.Err())
+		}
+		output := strings.TrimSpace(stderr.String())
+		if remedy := remoteRemedy(output); remedy != "" {
+			return false, fmt.Errorf("git ls-remote %s: %s\n%s", remote, remedy, output)
+		}
+		return false, fmt.Errorf("git ls-remote %s: %w: %s", remote, err, output)
+	}
+	return strings.TrimSpace(string(out)) != "", nil
 }
 
 // DefaultBranch is the branch a freshly initialized KB is created on. The

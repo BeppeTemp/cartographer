@@ -125,3 +125,19 @@ func TestOpsWindowsUpgradeUsesInstallPS1(t *testing.T) {
 		}
 	}
 }
+
+// TestOpsSkillCarriesTheSetupInterview guards the first-time setup section
+// (D239): an agent setting up a machine must interview the user and preview
+// the plan instead of answering setup's questions itself.
+func TestOpsSkillCarriesTheSetupInterview(t *testing.T) {
+	body, err := fs.ReadFile(FS, "bundled/cartographer-ops/SKILL.md")
+	if err != nil {
+		t.Fatalf("read cartographer-ops SKILL.md: %v", err)
+	}
+	text := string(body)
+	for _, want := range []string{"cartographer setup", "--dry-run", "one** message"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("the first-time setup section lost %q (D239)", want)
+		}
+	}
+}

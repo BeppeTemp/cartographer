@@ -1,17 +1,33 @@
 # Agent-driven installation
 
 Use this runbook whenever the user asks you to install Cartographer — a repository link and a
-conversation is the normal starting point, and it is enough. Execute every command in order; report
-the expected result before continuing.
+conversation is the normal starting point, and it is enough. It has one conversation and then
+commands: interview the user **once**, install the binary, then let `cartographer setup` do the
+rest from their answers. Execute every command in order and report the expected result before
+continuing.
 
-**Establish one input first: the git remote for the user's first Knowledge Base (KB).** A KB is a
-git repository and its remote is what makes it durable and syncable, so the remote is required, and
-on this path it is almost always the thing nobody supplied. Ask for it now — an empty repository
-they own (GitHub, Gitea, or any git host) — rather than discovering at step 3 that you need a URL
-you do not have. Only if the user explicitly accepts a throwaway, local-only KB do you proceed
-without one.
+## 0. Interview the user — one message, before any command
 
-## 1. Install Cartographer
+Ask these together, in a single message, so the user answers once. Explain each in a line; do not
+ask about anything that has a default (port, data directory, server name).
+
+1. **Where the first knowledge base lives** — required. A KB is a git repository and its remote is
+   what backs it up and syncs it. Either an **empty repository they own** (GitHub, Gitea, any git
+   host), in which setup creates the KB, or a repository that **already holds a Cartographer KB**,
+   which setup mounts. Only if they explicitly accept a throwaway local-only KB (not backed up,
+   never synced) do you proceed without one — and say that limitation back to them.
+2. **Which agent clients to connect.** Default: the one you are running in — name it (`claude`,
+   `codex`, `opencode`, `kiro`, `antigravity`, `hermes`, `crush`). Offer to add the others they
+   use on this machine.
+3. **Where the KB should be visible.** By default a connected KB is readable from **every**
+   directory on the machine. If they keep separate perimeters (work and personal repositories, a
+   client's code), offer to confine it to one repository instead — free now, a migration later
+   (D193). Default: everywhere.
+
+If the user already gave some of these in their request, ask only for the rest. Do not start step 1
+without an answer to question 1.
+
+## 1. Install the binary
 
 Detect the platform:
 
@@ -68,95 +84,44 @@ cartographer version
 
 Expected output: a Cartographer version.
 
-## 2. Install the local service
+## 2. Preview the plan
+
+Turn the answers into flags and ask setup for its plan without changing anything:
 
 ```bash
-cartographer service install
+cartographer setup --remote <git-remote-url> --agents <agents> --dry-run --no-input
 ```
 
-Expected output: the native user service is installed and started. It listens on
-`http://127.0.0.1:39273` and its data directory is ready for KBs.
+Add `--workspace <repository path>` if the user chose to confine the KB (question 3); use
+`--no-remote --name <name>` instead of `--remote` only for an accepted local-only KB.
 
-## 3. Mount the first KB
+Expected output: `Setup plan:` and four numbered lines — server, KB, agents, verify — then
+`dry run — nothing was changed`. Check the KB line against what the user told you: `create … and
+push it to <url> (empty repository)` or `mount … (the repository already has content)`. If it says
+*mount* for a repository they called empty, or *create* for one they said holds their KB, stop and
+tell them: the remote is not what they think it is, and nothing has been changed.
 
-When the remote already contains a KB, mount it through Cartographer:
+This step also proves the remote is reachable with this machine's git credentials: a failure here
+is reported before anything is installed (see *Failures*).
+
+## 3. Run it
+
+The same command with `--yes` instead of `--dry-run`; the user already answered, so it does not ask
+again:
 
 ```bash
-cartographer kb clone <git-remote-url> --restart
+cartographer setup --remote <git-remote-url> --agents <agents> --yes --no-input
 ```
 
-Expected output: `KB "<name>" mounted at <data-dir>/<name>`, followed by service restart and
-health guidance. Do not clone the repository into the service data directory yourself.
+Expected output: four sections — `==> server`, `==> knowledge base`, `==> agents`, `==> verify` —
+ending with `server ready` and `Cartographer is set up.`, plus the Atlas URL. If it stops, the line
+above `Setup stopped at …` is the cause: fix it and rerun the same command — finished steps are
+skipped, so a rerun is always safe.
 
-When the remote is an empty repository, create the KB in it:
+## 4. Verify the instructions reach the model
 
-```bash
-cartographer kb create <name> --remote <git-remote-url> --restart
-```
-
-Expected output: `KB "<name>" created at <data-dir>/<name>`, then `origin: <git-remote-url>`,
-followed by `service healthy`.
-
-Ask for a remote before running either command. Only if the user explicitly accepts a throwaway,
-local-only KB — not backed up and never synchronized — fall back to `cartographer kb create <name>
---no-remote --restart`, and state that limitation back to them.
-
-## 4. Connect the executing agent
-
-First identify the installed provider name:
-
-```bash
-cartographer agents
-```
-
-Expected output: a table listing `claude`, `opencode`, `codex`, `kiro`, `hermes`, `antigravity` and `crush` with installation state.
-Connect the executing provider with `--agents`; for example, for Codex:
-
-```bash
-cartographer connect --agents codex
-```
-
-Expected output: the generated MCP configuration paths and a reminder to restart the agent session.
-With two or more mounted KBs, Cartographer creates one MCP entry per KB the client is bound to.
-
-**Ask which KBs this client should receive.** On a first connect against a server mounting two or
-more KBs, `connect` requires the choice — it will not deliver all of them by default (D190), because
-everything a KB carries (skills, subagents, hooks, instructions, MCP descriptors) is delivered with
-it:
-
-```bash
-cartographer connect --agents codex --kb <name>          # repeatable, or comma-separated
-cartographer connect --agents codex --kb all             # every mounted KB, recorded explicitly
-```
-
-In an interactive terminal the same choice is offered as a list after the connect form. Prefer the
-narrowest selection that does the job, and verify the result with `cartographer status`: the bound
-KBs are printed per provider, with `explicit` next to them.
-
-A KB bound this way is readable from **every** directory on the machine. If the user works in two
-separate perimeters with the same client, offer the alternative before the first sync, because it
-is free only now (D193):
-
-```bash
-cartographer connect --agents codex --kb <name> --workspace <repository path>
-```
-
-That confines those KBs to one repository instead — their skills, subagents and hooks are
-materialized into that repository's own configuration and nowhere else. `cartographer workspace
-bind/unbind/list` manages it afterwards.
-
-## 5. Verify the installation
-
-```bash
-cartographer version
-curl -fsS http://127.0.0.1:39273/health
-cartographer status
-```
-
-Expected output: a version, then health JSON containing `"ready":true`, then in-sync status with
-exit code 0.
-
-Confirm the instructions actually reach the model, not just the disk. `cartographer status` and
+`cartographer status` should report in-sync with exit code 0. Then confirm the instructions actually
+reach the model, not just the disk. `cartographer status` and
 `cartographer doctor` now check the provider's own precedence chain (D189), but the provider's own
 tooling is the ground truth — for Codex:
 
@@ -167,13 +132,13 @@ codex debug prompt-input
 Expected output: a `cartographer:kb:*` section. If it is absent while `status` reports the
 instructions installed, report it: a provider precedence rule Cartographer does not model yet.
 
-`connect` provisioned the bundled skills, including `cartographer-ops`. Use that skill for ongoing
+`setup` (through `connect`) provisioned the bundled skills, including `cartographer-ops`. Use that skill for ongoing
 operations, diagnosis, upgrades, and synchronization after installation. From there the bundled
 `kb-create` and `kb-import` skills take over: `kb-create/references/artifacts.md` for authoring the
 KB's skills, subagents, hooks and MCP descriptors, and `kb-create/references/secrets.md` for the
 SOPS encryption flow.
 
-## 6. Tell the user to restart their agent session
+## 5. Tell the user to restart their agent session
 
 This is a step you cannot perform: the session that must restart is the one you are running in.
 State it to the user explicitly, as the last thing you say:
@@ -192,14 +157,14 @@ Omitting this is the single most common way a correct installation is reported a
 | `install.sh` says Windows is installed with `install.ps1` | Correct: run the `install.ps1` command it prints, from PowerShell. |
 | `install.ps1` fails with `running scripts is disabled on this system` | That is the file form under a restrictive execution policy; the `irm … \| iex` form in step 1 is not subject to it. Rerun that exact command rather than changing the policy. |
 | `cartographer` is not recognized right after `install.ps1` | The command ran in a different process than the shell you are typing in. Open a new PowerShell window — the directory is on the user `PATH` — or invoke `%LOCALAPPDATA%\Cartographer\bin\cartographer.exe` directly. |
-| The user's agent shows no Cartographer MCP tools after a successful `connect` | The session was not restarted. Repeat step 6 — this is not a failed install. |
-| `cartographer status` exits non-zero immediately after install | The service may still be starting: wait a few seconds and retry once before diagnosing. |
-| The service reports that port 39273 is busy | Stop or reconfigure the process using the port, then rerun `cartographer service install`. |
-| `kb clone` reports a git authentication failure | Configure ambient credentials (an SSH agent for SSH remotes or a git credential helper for HTTPS), then rerun the same `kb clone` command. |
-| `kb clone` reports a host key that is not in `known_hosts` | Connect once with `ssh <host>` to review and accept the key yourself, then rerun. The clone never accepts a host key on your behalf (D173). |
-| `kb clone` times out | The forge did not answer within the budget: check the remote is reachable, then rerun with `--timeout <duration>` if the repository is simply large. |
-| `kb clone`/`kb create` refuse because the client points at a remote server | These commands act on the local server's data dir. Mount the KB on the remote deployment instead, or pass `--local` (act locally anyway) or `--data <dir>` (name the target). |
-| `kb clone` says `not an OKF KB` | Use the `kb-import` skill to import the remote into an OKF KB, push it, then rerun `kb clone`. |
-| `kb create` says a KB needs a git remote | Ask the user for an empty repository URL and rerun with `--remote <url>`; use `--no-remote` only if they explicitly accept a local-only KB. |
-| `kb create --remote` fails to push (non-fast-forward, or the remote is not empty) | The repository already has content: mount it with `cartographer kb clone <git-remote-url> --restart` instead. |
-| `kb create --remote` reports a git authentication failure | Configure ambient credentials (an SSH agent for SSH remotes or a git credential helper for HTTPS), then rerun the same command. The scaffold is deliberately kept (D156): the command prints how to fix the author/push, or how to remove it. |
+| The user's agent shows no Cartographer MCP tools after a successful `setup` | The session was not restarted. Repeat step 5 — this is not a failed install. |
+| `cartographer status` exits non-zero immediately after setup | The service may still be starting: wait a few seconds and retry once before diagnosing. |
+| `setup` stops at the server step | Usually port 39273 is taken by another process: free it, or inspect `cartographer service status`, then rerun. |
+| `setup` says it `cannot reach <url> with this machine's git credentials — nothing was changed` | The line under it names the cause (unknown host, SSH key rejected, repository not found, credentials rejected, host key not in `known_hosts`). Configure ambient credentials — an SSH agent for SSH remotes, a git credential helper for HTTPS — or, for a host key, have the user run `ssh <host>` once to review and accept it (setup never accepts one for them, D173). Then rerun step 2. |
+| `setup` says `no KB is mounted yet` | `--remote` was missing: go back to question 1 of the interview. |
+| `setup` says `choose which ones the agents receive with --kb` | This machine already mounts two or more KBs and the agents have no binding yet (D190). Ask the user which KBs these agents should receive, then rerun with `--kb <name>` (repeatable) or `--kb all`. |
+| `setup` says `this client is connected to <url>, not to a local server` | This machine already uses a remote Cartographer server; setup does not re-point it. To add agents to that server use `cartographer connect --agents <agents>`. |
+| `setup` says `git is not installed` | Install git (on macOS `xcode-select --install` or Homebrew; on Windows the installer from git-scm.com), open a new shell, rerun. |
+| `setup` says `no agent client detected` | Name the agent explicitly with `--agents`; if it is really absent, it has to be installed first. |
+| `setup` stops at the KB step with `not an OKF KB` | The repository holds content that is not a Cartographer KB. Use the `kb-import` skill to import it into an OKF KB, push it, then rerun. |
+| `setup` stops at the KB step with a push failure | The repository was not empty after all, or the forge rejected the commit's author: the output names the fix. The scaffold is kept (D156). |

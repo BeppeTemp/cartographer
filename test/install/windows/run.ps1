@@ -94,6 +94,7 @@ try {
     Check ((Installed-Version) -eq $tag) "installs $tag into the default per-user dir"
     Check ($r.out -match 'checksum OK') 'verifies the checksum'
     Check (UserPath-Has $installDir) 'adds the install dir to the user PATH'
+    Check ($r.out -match 'cartographer setup') 'a first install points at cartographer setup'
     if ($r.rc -ne 0) { Write-Host $r.out }
 
     Write-Host '--- already current'

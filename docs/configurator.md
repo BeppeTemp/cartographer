@@ -32,6 +32,52 @@ automation; a wrapped low-level `cause` is retained in JSON only. `status`
 keeps exit 0 for in-sync, 1 for drift and 2 for configuration or operational
 errors. `service status` retains 0 running, 3 stopped and 4 not installed.
 
+### `cartographer setup`
+
+The first-run path in one command (D239): the native service, the first KB and the agent
+clients, then a health check. It adds no behaviour of its own — each step is the existing command
+(`service install`/`start`, `kb create`/`kb clone` with `--restart`, `connect --no-input`) — and it
+decides every step **before** running any:
+
+| Step | Decided from | Already done when |
+|---|---|---|
+| server | `service status` | installed and running (installed but stopped → `service start`) |
+| KB | `--remote`, `--no-remote`, or the interview; `git ls-remote <url>` | a KB in the data dir has that origin (trailing `/` and `.git` ignored) |
+| agents | `--agents`, else every detected client | never skipped: `connect` is idempotent and re-syncs |
+| verify | `/health` through `service status` | — |
+
+- **The remote decides create vs clone.** An empty `ls-remote` answer means an empty repository:
+  `kb create <name> --remote <url>`; any ref means content: `kb clone <url> <name>`. The name is
+  `--name`, else the repository name. The same probe proves the remote is reachable with this
+  machine's credentials, under the non-interactive git environment of `kb clone` (no prompts,
+  SSH batch mode, host keys never auto-accepted — D173); a failure exits 2 **before anything is
+  written**, with the remedy for the recognised git errors.
+- **KB binding (D190).** `--kb` is passed through. Without it: one KB binds itself; agents that
+  already carry a binding keep it; a KB this run adds next to existing ones is bound alone (the
+  narrowest choice); otherwise, with two or more KBs and nothing to go on, an interactive run
+  asks with the same picker as `connect` and a non-interactive one exits 2 naming `--kb`.
+- **Refusals, all before any change:** no `git` on `PATH`; a client already pointed at a
+  non-loopback server (setup provisions a local one — `connect` is the command for a remote
+  server); no remote and no mounted KB in a non-interactive run; no agent detected and none named.
+- **Interactive** (a TTY, no `--no-input`): asks for the remote when none is mounted — blank means
+  a local-only KB, confirmed explicitly (D134) — then which of the detected agents to connect, prints
+  the plan and asks `Proceed? [Y/n]` (skipped by `--yes`). `--dry-run` prints the plan and exits 0.
+- **Exit codes:** 0 set up; 1 a step failed or the operator cancelled; 2 usage, preflight or
+  choice error (nothing changed). A failed step prints `Setup stopped at …`; a rerun skips what is
+  done. On Linux a freshly installed user unit without lingering gets the `loginctl enable-linger`
+  hint. The run ends on the Atlas URL and on restarting the agent sessions.
+
+```bash
+cartographer setup                                                  # interview, plan, confirm
+cartographer setup --remote git@github.com:me/wiki.git --agents claude --yes --no-input
+cartographer setup --no-remote --name trial --agents codex --yes    # local-only KB
+cartographer setup --remote <url> --dry-run                          # the plan, nothing changed
+```
+
+The install scripts and the Homebrew cask end a first install on `Next: cartographer setup`, and
+the dashboard shows the same hint on its `next` line while a loopback server has no service
+behind it or answers with no KB mounted.
+
 ### `cartographer agents`
 
 Lists the supported providers, whether they are installed on the machine and whether they are

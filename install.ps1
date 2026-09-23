@@ -218,6 +218,12 @@ function Install-Cartographer {
             default { throw "unexpected exit code $rc from 'cartographer upgrade-repair' - inspect the service and retry" }
         }
         Remove-CartographerStaleBinaries $dir
+
+        # A first install ends on the one command that does the rest (D239).
+        if (-not $current) {
+            Write-Host ''
+            Write-Host 'Next: cartographer setup   (server, first knowledge base and agents, in one guided step)'
+        }
     } finally {
         Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
     }
