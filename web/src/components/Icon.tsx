@@ -21,7 +21,8 @@ export type IconName =
   | "plus"
   | "minus"
   | "fit"
-  | "close";
+  | "close"
+  | "check";
 
 const PATHS: Record<IconName, string> = {
   // Three places and the routes between them.
@@ -44,6 +45,7 @@ const PATHS: Record<IconName, string> = {
   minus: "M6 12h12",
   fit: "M4 9V4h5 M15 4h5v5 M20 15v5h-5 M9 20H4v-5",
   close: "M7 7l10 10 M17 7L7 17",
+  check: "M5.5 12.5l4 4 9-9",
 };
 
 const DOTS: Partial<Record<IconName, [number, number, number][]>> = {

@@ -100,17 +100,88 @@
   width: 180px;
 }
 
-/* The select covers the whole field, chevron included: a click anywhere on
-   the picker opens it, and its text lines up with the search field's. */
-.topbar__kb .field__control {
-  position: absolute;
-  inset: 0;
-  padding-inline: var(--space-3) calc(var(--space-3) + 16px + var(--space-2));
-  border-radius: inherit;
+/* The KB picker (KBPicker.tsx): the trigger is a .field, the menu borrows the
+   command palette's surface and row highlight. */
+.picker {
+  position: relative;
 }
 
-.topbar__kb .field__adornment {
+.picker__trigger {
+  width: 100%;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.picker__trigger .field__adornment {
   margin-inline-start: auto;
+  transition: transform var(--motion-fast) var(--ease-out);
+}
+
+.picker__trigger[aria-expanded="true"] {
+  border-color: var(--border-strong);
+}
+
+.picker__trigger[aria-expanded="true"] .field__adornment {
+  transform: rotate(180deg);
+}
+
+.picker__value {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.picker__note {
+  color: var(--text-muted);
+}
+
+.picker__menu {
+  position: absolute;
+  top: calc(100% + var(--space-1));
+  inset-inline: 0;
+  z-index: 40;
+  min-width: 100%;
+  max-height: 60vh;
+  margin: 0;
+  padding: var(--space-1);
+  overflow-y: auto;
+  list-style: none;
+  background: var(--surface-1);
+  border: 1px solid var(--border-strong);
+  /* The trigger's radius, so menu and field read as one control. */
+  border-radius: var(--radius-control);
+  box-shadow: var(--elevation-2);
+  animation: palette-in var(--motion-fast) var(--ease-out);
+}
+
+.picker__menu[hidden] {
+  display: none;
+}
+
+.picker__option {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  /* Concentric with the menu: its radius less the padding between them. */
+  border-radius: calc(var(--radius-control) - var(--space-1) / 2);
+  cursor: pointer;
+}
+
+.picker__option[data-active] {
+  color: var(--text-primary);
+  background: var(--surface-3);
+}
+
+.picker__option .picker__value {
+  flex: 1;
+}
+
+.picker__option svg {
+  color: var(--primary);
 }
 
 .topbar__search {
