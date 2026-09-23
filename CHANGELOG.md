@@ -8,6 +8,15 @@
 
 KB histories with commits authored as `cartographer <cartographer@localhost>` may need a manual author rewrite before a forge with author push rules accepts the first push.
 
+## [0.16.1](https://github.com/BeppeTemp/cartographer/compare/v0.16.0...v0.16.1) (2026-09-23)
+
+
+### Bug Fixes
+
+* **git:** bound the fetch and back reads off an unreachable remote ([#349](https://github.com/BeppeTemp/cartographer/issues/349)) ([9bf2521](https://github.com/BeppeTemp/cartographer/commit/9bf25215044f1e67d7858a7e8927b53aa50a550b))
+* **web:** cover the graph while it builds and square up the KB picker ([#345](https://github.com/BeppeTemp/cartographer/issues/345)) ([61004b2](https://github.com/BeppeTemp/cartographer/commit/61004b26d54408fd5f4708effa725917f1b22988))
+* **web:** draw the KB picker's menu instead of the native select ([#347](https://github.com/BeppeTemp/cartographer/issues/347)) ([426cf18](https://github.com/BeppeTemp/cartographer/commit/426cf184d2d010679e60628b01504f93a3099b3d))
+
 ## [0.16.0](https://github.com/BeppeTemp/cartographer/compare/v0.15.0...v0.16.0) (2026-09-23)
 
 
