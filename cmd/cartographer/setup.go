@@ -20,7 +20,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/service"
 )
 
-// `cartographer setup` (D239) is the first-run path in one command: the native
+// `cartographer setup` (D246) is the first-run path in one command: the native
 // service, the first KB and the agent clients, then a verification. It owns no
 // behaviour of its own beyond deciding what to run — every step is the
 // existing command (service install, kb create / kb clone, connect), so setup

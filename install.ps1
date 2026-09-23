@@ -219,7 +219,7 @@ function Install-Cartographer {
         }
         Remove-CartographerStaleBinaries $dir
 
-        # A first install ends on the one command that does the rest (D239).
+        # A first install ends on the one command that does the rest (D246).
         if (-not $current) {
             Write-Host ''
             Write-Host 'Next: cartographer setup   (server, first knowledge base and agents, in one guided step)'

@@ -2,7 +2,7 @@
 topic: client-configurator
 ---
 
-# D239 — `cartographer setup` chains the existing commands, and plans before it changes anything
+# D246 — `cartographer setup` chains the existing commands, and plans before it changes anything
 
 **Decision.** `cartographer setup` is the first-run command: native service,
 first KB, agent clients, health check. It runs no logic of its own. Every step
