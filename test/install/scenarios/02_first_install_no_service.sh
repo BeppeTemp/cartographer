@@ -30,6 +30,7 @@ echo "--- Assertions ---"
 assert_eq "$INSTALL_RC" "0" "install.sh exits 0 on a fresh install with no native service"
 assert_executable "$DEST" "the binary is installed"
 assert_file_contains "$FAKE_BIN_LOG" "upgrade-repair" "upgrade-repair is invoked after a fresh install"
+assert_contains "$INSTALL_OUTPUT" "cartographer setup" "a first install points at cartographer setup (D253)"
 
 install_report "$SCENARIO_NAME"
 exit $?

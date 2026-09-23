@@ -80,6 +80,16 @@ function Invoke-Installer([string]$case, [string[]]$arguments) {
     $out = & $Shell -NoProfile -ExecutionPolicy Bypass -File $installer @arguments 2>&1 | Out-String
     return @{ rc = $LASTEXITCODE; out = $out }
 }
+# A freshly written exe is often held for a moment by something else (Defender
+# scanning it, the previous child still unwinding), so fixture copies over the
+# installed binary retry instead of failing the run on a transient lock. The
+# installer itself never needs this: it renames the old binary aside.
+function Copy-Fixture([string]$from, [string]$to) {
+    for ($i = 0; $i -lt 20; $i++) {
+        try { Copy-Item $from $to -Force -ErrorAction Stop; return } catch { Start-Sleep -Milliseconds 500 }
+    }
+    Copy-Item $from $to -Force
+}
 function Installed-Version { if (Test-Path $dest) { (& $dest version | Select-Object -First 1).Trim() } }
 function UserPath-Has([string]$dir) {
     ([Environment]::GetEnvironmentVariable('PATH', 'User') -split ';') -contains $dir
@@ -94,6 +104,7 @@ try {
     Check ((Installed-Version) -eq $tag) "installs $tag into the default per-user dir"
     Check ($r.out -match 'checksum OK') 'verifies the checksum'
     Check (UserPath-Has $installDir) 'adds the install dir to the user PATH'
+    Check ($r.out -match 'cartographer setup') 'a first install points at cartographer setup'
     if ($r.rc -ne 0) { Write-Host $r.out }
 
     Write-Host '--- already current'
@@ -101,7 +112,7 @@ try {
     Check ($r.rc -eq 0 -and $r.out -match 'already installed') 'a second run is a no-op'
 
     Write-Host '--- update over an older binary'
-    Copy-Item $OldBin $dest -Force
+    Copy-Fixture $OldBin $dest
     $r = Invoke-Installer 'valid' @('update')
     Check ($r.rc -eq 0 -and $r.out -match 'updating cartographer v9.9.8 -> v9.9.9') 'reports the version change'
     Check ((Installed-Version) -eq $tag) "replaces it with $tag"
@@ -110,7 +121,7 @@ try {
     Write-Host '--- update while the old binary is running'
     # A running executable cannot be overwritten on Windows: this is the
     # native-service case, where the Scheduled Task runs this very file.
-    Copy-Item $OldBin $dest -Force
+    Copy-Fixture $OldBin $dest
     $kb = Join-Path $root 'kb'
     $running = Start-Process -PassThru -WindowStyle Hidden -FilePath $dest -ArgumentList @('serve', '--kb', $kb, '--init', '--http', "127.0.0.1:$($port + 1)")
     Start-Sleep -Seconds 2
@@ -123,7 +134,7 @@ try {
     if ($r.rc -ne 0) { Write-Host $r.out }
 
     Write-Host '--- checksum failures install nothing'
-    Copy-Item $OldBin $dest -Force
+    Copy-Fixture $OldBin $dest
     $r = Invoke-Installer 'mismatch' @('update')
     Check ($r.rc -ne 0 -and $r.out -match 'checksum mismatch') 'a wrong digest is a stop'
     Check ((Installed-Version) -eq 'v9.9.8') 'the previous binary is untouched'
@@ -141,7 +152,7 @@ try {
     $r = Invoke-Installer 'valid' @('uninstall', '-BinaryOnly')
     Check ($r.rc -eq 0 -and -not (Test-Path $dest)) '-BinaryOnly removes it anyway'
     Remove-Item -Recurse -Force $tasks
-    Copy-Item $NewBin $dest -Force
+    Copy-Fixture $NewBin $dest
     $r = Invoke-Installer 'valid' @('uninstall')
     Check ($r.rc -eq 0 -and -not (Test-Path $dest)) 'a clean uninstall removes the binary'
     Check (-not (UserPath-Has $installDir)) 'and the user PATH entry'

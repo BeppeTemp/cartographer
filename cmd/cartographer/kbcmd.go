@@ -714,6 +714,6 @@ func printNoKBHintIfEmpty(configPath, dataDir string) {
 		time.Sleep(healthPollInterval)
 	}
 	if h.hasNoKBs(dataDir) {
-		fmt.Println("no KB mounted yet — create one with: cartographer kb create <name>")
+		fmt.Println("no KB mounted yet — `cartographer setup` finishes the job, or: cartographer kb create <name> --remote <url>")
 	}
 }

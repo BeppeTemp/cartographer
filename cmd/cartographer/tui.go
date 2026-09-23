@@ -1226,10 +1226,29 @@ func (m Model) viewServerPanel() string {
 	if len(s.KBs) > 0 {
 		lines = append(lines, line("KBs", truncateForWidth(kbBindingSummary(s), valueWidth)))
 	}
+	if hint := setupHint(s); hint != "" {
+		lines = append(lines, line("next", hint))
+	}
 	if s.Error != nil {
 		lines = append(lines, "  "+wrapForWidth(s.Error.Message, m.width-8))
 	}
 	return strings.Join(lines, "\n")
+}
+
+// setupHint points a machine that is not set up yet at the one command that
+// sets it up (D253): a loopback server with no service behind it, or a server
+// that answers with no KB mounted. A remote server is never this machine's to
+// set up, so it gets no hint.
+func setupHint(s *statusSnapshot) string {
+	if !isLoopbackURL(s.ServerURL) {
+		return ""
+	}
+	noService := s.Service == nil || !s.Service.Installed
+	noKB := s.Reachable && len(s.KBs) == 0 && (s.Ready == nil || !*s.Ready)
+	if (!s.Reachable && noService) || noKB {
+		return "run `cartographer setup` — server, first KB and agents in one guided step"
+	}
+	return ""
 }
 
 // serviceLine describes the local native service, and only when there is one
