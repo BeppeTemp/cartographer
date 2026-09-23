@@ -112,6 +112,10 @@ type KB struct {
 	// means "never synced".
 	lastSyncInMu sync.RWMutex
 	lastSyncIn   time.Time
+	// lastFetchFail is when SyncIn's fetch last failed (same lock). Reads skip
+	// the fetch for ReadFetchBackoff after it, so a remote that is down costs
+	// one bounded fetch, not one per queued call (#348).
+	lastFetchFail time.Time
 
 	gitStatusMu sync.RWMutex
 	gitStatus   GitStatus

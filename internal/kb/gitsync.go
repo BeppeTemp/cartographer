@@ -105,6 +105,20 @@ func (k *KB) SyncInDue() bool {
 	return branch != ""
 }
 
+// ReadFetchBackoff is how long a read skips SyncIn after a failed fetch. A
+// write still fetches (and fails) every time: it must not commit on a base it
+// could not refresh.
+const ReadFetchBackoff = 60 * time.Second
+
+// ReadFetchBackingOff reports whether a fetch failed less than
+// ReadFetchBackoff ago, in which case a read serves the local clone as is.
+func (k *KB) ReadFetchBackingOff() bool {
+	k.lastSyncInMu.RLock()
+	last := k.lastFetchFail
+	k.lastSyncInMu.RUnlock()
+	return !last.IsZero() && time.Since(last) < ReadFetchBackoff
+}
+
 func (k *KB) syncInWithinWindow() bool {
 	if k.SyncInWindow <= 0 {
 		return false
@@ -156,6 +170,9 @@ func (k *KB) SyncIn() (bool, error) {
 	headBefore, _ := gitx.HeadSHA(k.Root)
 	// Fetch first to update remote refs.
 	if err := gitx.Fetch(k.Root, remote, k.GitEnv...); err != nil {
+		k.lastSyncInMu.Lock()
+		k.lastFetchFail = time.Now()
+		k.lastSyncInMu.Unlock()
 		return true, fmt.Errorf("SyncIn fetch: %w", err)
 	}
 	if k.ServerGit != nil {

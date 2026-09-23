@@ -3,6 +3,7 @@ package mcpserver
 import (
 	"encoding/json"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -917,5 +918,53 @@ func TestByteBudget(t *testing.T) {
 		if got := byteBudget(n); got != want {
 			t.Errorf("byteBudget(%d) = %q, want %q", n, got, want)
 		}
+	}
+}
+
+// A remote that accepts and never answers (#348): the first read pays one
+// bounded fetch and is served from the local clone; the next one skips the
+// fetch instead of queueing another.
+func TestReadSyncWrap_SilentRemoteFetchesOnceThenServesLocal(t *testing.T) {
+	k, _ := setupGitKBWithRemote(t)
+	k.GitSync = true
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			defer c.Close()
+		}
+	}()
+	if out, err := exec.Command("git", "-C", k.Root, "remote", "set-url", "origin", "http://"+ln.Addr().String()+"/kb.git").CombinedOutput(); err != nil {
+		t.Fatalf("set-url: %v\n%s", err, out)
+	}
+	defer func(d time.Duration) { gitx.FetchTimeout = d }(gitx.FetchTimeout)
+	gitx.FetchTimeout = 300 * time.Millisecond
+
+	s := New("test")
+	RegisterKBTools(s, k, Deps{})
+	call := `{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"kb_status","arguments":{}}}`
+	init := `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`
+
+	resps := runMCPSequence(t, s, []string{init, call})
+	if got := decodeToolResult(t, resps[1]); got.IsError {
+		t.Fatalf("first read = %+v, want the local view", got)
+	}
+	if !k.ReadFetchBackingOff() {
+		t.Fatal("the failed fetch did not start the read backoff")
+	}
+	start := time.Now()
+	resps = runMCPSequence(t, s, []string{init, call})
+	if got := decodeToolResult(t, resps[1]); got.IsError {
+		t.Fatalf("second read = %+v, want the local view", got)
+	}
+	if took := time.Since(start); took >= gitx.FetchTimeout {
+		t.Fatalf("second read took %s: it fetched again instead of backing off", took)
 	}
 }

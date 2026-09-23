@@ -386,11 +386,42 @@ func Fetch(dir, remote string, env ...string) error {
 	if remote == "" {
 		remote = "origin"
 	}
-	out, err := runGitEnv(dir, env, "fetch", remote)
+	ctx, cancel := context.WithTimeout(context.Background(), FetchTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "git", "-C", dir, "fetch", remote)
+	if len(env) > 0 {
+		cmd.Env = append(os.Environ(), env...)
+	}
+	killGroupOnCancel(cmd)
+	cmd.WaitDelay = time.Second
+	out, err := cmd.CombinedOutput()
+	if ctx.Err() == context.DeadlineExceeded {
+		return fmt.Errorf("git fetch %s: %w", remote, &RemoteTimeoutError{Remote: remote, After: FetchTimeout})
+	}
 	if err != nil {
-		return fmt.Errorf("git fetch %s: %w: %s", remote, err, out)
+		return fmt.Errorf("git fetch %s: %w: %s", remote, err, string(out))
 	}
 	return nil
+}
+
+// FetchTimeout bounds one git fetch. Without it a remote whose host drops
+// packets (a VPN that is down) holds the fetch for the OS TCP connect timeout
+// -- about 75s on macOS -- and every tool call waiting on the KB's git lock
+// with it, past the client's 30s HTTP timeout (#348). The fetch is the
+// operation that meets an unreachable remote first; pull and push run after a
+// fetch has just succeeded. A variable so tests can shorten it.
+var FetchTimeout = 15 * time.Second
+
+// RemoteTimeoutError reports a git remote that did not answer in time. It is
+// a distinct type so a caller can say "the remote is unreachable" rather than
+// pass on a bare exit status.
+type RemoteTimeoutError struct {
+	Remote string
+	After  time.Duration
+}
+
+func (e *RemoteTimeoutError) Error() string {
+	return fmt.Sprintf("git remote %q did not answer within %s (unreachable or blocked)", e.Remote, e.After)
 }
 
 // RemoteBranchExists reports whether refs/remotes/<remote>/<branch> exists.
