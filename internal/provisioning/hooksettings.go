@@ -487,6 +487,11 @@ func removeCodexHook(baseDir, hookName string) error {
 // the file or the registration is absent. Codex's [hooks.state."…"] trust tables are
 // left alone: they are Codex's bookkeeping, inert once the registration they hash is
 // gone.
+//
+// The block is deleted, not rewritten, so anything else Codex's own rewrite of the
+// file placed inside it (a [notice] table, trust bookkeeping) would go with it: those
+// tables are moved out first, as D126 does for the MCP block (#338). Inside the
+// hook's own block only its [[hooks.<Event>]] registrations are ours.
 func removeLegacyCodexHookTOML(baseDir, hookName, command string) (int, error) {
 	path := codexConfigTOMLPath(baseDir)
 	adopted, err := configurator.AdoptCodexOrphanTables(path, codexHookTableOwner(hookName, command))
@@ -494,6 +499,11 @@ func removeLegacyCodexHookTOML(baseDir, hookName, command string) (int, error) {
 		return 0, fmt.Errorf("provisioning: migrate %s: %w", path, err)
 	}
 	begin, end := codexHookMarkers(hookName)
+	if _, err := configurator.EvictTablesFromBlock(path, begin, end, func(key []string) bool {
+		return len(key) >= 2 && key[0] == "hooks" && key[1] != "state"
+	}); err != nil {
+		return 0, fmt.Errorf("provisioning: migrate %s: %w", path, err)
+	}
 	removed, err := blocktext.Remove(path, begin, end, false)
 	if err != nil {
 		return 0, fmt.Errorf("provisioning: migrate %s: %w", path, err)
