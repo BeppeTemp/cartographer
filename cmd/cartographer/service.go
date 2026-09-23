@@ -293,6 +293,9 @@ func printServiceStatus(w io.Writer, st service.Status, serverURL string) {
 	if st.Installed {
 		fmt.Fprintf(w, "loaded:    %v (known to the init system; not a liveness check)\n", st.Running)
 		fmt.Fprintln(w, serviceHealthLine(st))
+		if st.UIURL != "" {
+			fmt.Fprintf(w, "ui:        %s\n", st.UIURL)
+		}
 	} else {
 		fmt.Fprintln(w, "no local cartographer service is installed on this machine")
 		fmt.Fprintf(w, "  install one with: cartographer service install --data %s\n", defaultDataDir())

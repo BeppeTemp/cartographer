@@ -281,3 +281,23 @@ func TestMissingPrincipalFailsClosedEverywhere(t *testing.T) {
 		t.Fatalf("explicit local stdio principal = %+v", result)
 	}
 }
+
+// TestVisibleCollectionIgnoresTypeSelector: a role narrowed to a map and a
+// type reaches that map as a collection — a collection has no type — and no
+// other. Before, the empty type matched no typed rule, so such a principal saw
+// no collection anywhere and the UI reported that no KB was visible (D228).
+func TestVisibleCollectionIgnoresTypeSelector(t *testing.T) {
+	k := setupTestKB(t)
+	k.AuthName = "docs"
+	policy := auth.Policy{Permissions: []auth.Permission{{KB: "docs", Maps: []string{"manutenzione"}, Types: []string{"Runbook"}}}}
+	ctx := auth.ContextWithPrincipal(context.Background(), auth.Principal{ID: "narrow", Policy: policy})
+	if !VisibleCollection(ctx, k, "manutenzione", "map") {
+		t.Error("a map+type role must see its map as a collection")
+	}
+	if VisibleCollection(ctx, k, "other", "map") || VisibleCollection(ctx, k, "manutenzione", "journal") {
+		t.Error("a map+type role must not see another collection")
+	}
+	if WholeVisible(ctx, k, false) {
+		t.Error("a narrowed role must not see the whole KB")
+	}
+}

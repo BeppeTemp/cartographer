@@ -1,0 +1,7 @@
+node_modules/
+dist/
+*.tsbuildinfo
+playwright-report/
+test-results/
+# Throwaway scripts (screenshots, probes): never committed.
+*.tmp.mjs

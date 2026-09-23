@@ -27,6 +27,14 @@ corruption. **Cartographer** is the governance layer that makes the pattern safe
 the wiki exclusively through MCP tools, and the server enforces every invariant — validation,
 linking, immutability gates, one git commit per write.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/atlas/atlas-dark.png">
+  <source media="(prefers-color-scheme: light)" srcset="docs/atlas/atlas-light.png">
+  <img alt="The embedded Atlas: a knowledge base drawn as a 3D graph, one concept selected with its links named and its content open in the inspector." src="docs/atlas/atlas-light.png" width="100%">
+</picture>
+
+<sub>The embedded Atlas on a generated demo KB (`web/scripts/demo-kb.mjs`): a selected concept in light, the overview in dark.</sub>
+
 ## What is it
 
 **Cartographer** implements the _Agentic Wiki_: a persistent knowledge base of interlinked
@@ -216,6 +224,10 @@ carries one copy of the tool schemas instead of one per KB.
   assets — see [One KB, every agent](#one-kb-every-agent) for how they reach each client
 - 🔑 **Secrets via SOPS** — JSON Pointer references, scoped resolution and safe rotation; plaintext
   values never stored
+- 🗺️ **Embedded Atlas UI** — a read-only web view of each KB served by the same binary at `/ui/`
+  in HTTP mode: a live 3D graph you orbit and select from, coloured by
+  community or by Map, with an inspector and the lint findings; light and dark; no extra service,
+  no CDN. Disable with `web.enabled: false` — see [`docs/deployment.md`](docs/deployment.md)
 - 📦 **OKF-compliant** — each KB is an OKF bundle and a standalone git repo, zero lock-in (just git +
   Markdown)
 
@@ -364,6 +376,8 @@ make test          # Unit tests (go test ./...)
 make smoke         # stdio smoke test
 make smoke-http    # operator-level HTTP smoke test (creates temp KBs via curl)
 make e2e           # deterministic HTTP/CLI end-to-end scenarios
+make web-test      # Atlas UI frontend tests (needs Node; `make gate` does not)
+make web           # rebuild the committed UI bundle after changing web/
 ```
 
 The E2E suite drives the compiled binary through HTTP, CLI, filesystem and real

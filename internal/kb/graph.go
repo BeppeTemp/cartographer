@@ -482,6 +482,14 @@ func (kb *KB) WalkConcepts(fn func(id okf.ConceptID, content string) error) erro
 	})
 }
 
+// WalkConceptPaths is WalkConcepts' physical-path-aware variant: fn also
+// receives the actual KB-relative Markdown path holding the concept, which is
+// what tells an expanded concept ("map/concept/index.md") from a flat one
+// without a second stat per concept.
+func (kb *KB) WalkConceptPaths(fn func(id okf.ConceptID, physicalPath, content string) error) error {
+	return kb.walkConceptPaths(fn)
+}
+
 // walkConceptPaths is WalkConcepts' internal physical-path-aware variant.
 // physicalPath is always the actual KB-relative Markdown path for id.
 func (kb *KB) walkConceptPaths(fn func(id okf.ConceptID, physicalPath, content string) error) error {

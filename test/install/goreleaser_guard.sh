@@ -80,6 +80,40 @@ else
         "sets no 'use:' (GoReleaser Pro field, silently ignored in OSS)"
 fi
 
+# --- The embedded Atlas UI (D227) -------------------------------------------
+# Release archives, the Cask, the winget zip and the container all carry the
+# output of `go build ./cmd/cartographer`, and the UI reaches them only through
+# go:embed of the committed bundle. Three ways to lose it silently: a release
+# build that depends on a frontend toolchain, a bundle git ignores (GoReleaser
+# builds from a clean checkout), and a Docker build context that excludes it.
+# Scenario 14 builds the binary and serves the UI from it; this guards the
+# packaging inputs that scenario cannot see.
+echo ""
+echo "=== Guard: the embedded Atlas UI reaches every package (D227) ==="
+if [ -f "$GORELEASER_FILE" ]; then
+    assert_file_contains "$CODE_FILE" 'main: ./cmd/cartographer' \
+        "release builds compile the one package that embeds the UI"
+    assert_file_not_contains "$CODE_FILE" 'npm' \
+        "the release pipeline runs no npm: the bundle is committed, Node is not a release dependency"
+fi
+if [ -n "$(git -C "$REPO_ROOT" ls-files -- internal/webui/dist/index.html internal/webui/dist/provenance.json)" ]; then
+    _assert_pass "the UI bundle is tracked by git"
+else
+    _assert_fail "internal/webui/dist is not tracked by git: release archives would ship without the UI"
+fi
+if git -C "$REPO_ROOT" check-ignore -q internal/webui/dist/index.html; then
+    _assert_fail "internal/webui/dist/index.html is git-ignored (a 'dist/' rule without its '!internal/webui/dist/' exception)"
+else
+    _assert_pass "the UI bundle is not git-ignored"
+fi
+assert_file_contains "${REPO_ROOT}/Dockerfile" 'COPY . .' \
+    "the container build copies the whole tree, bundle included"
+if [ -f "${REPO_ROOT}/.dockerignore" ] && grep -v '^[[:space:]]*#' "${REPO_ROOT}/.dockerignore" | grep -Eq '(^|/)(internal|webui|dist)(/|$)|^\*'; then
+    _assert_fail ".dockerignore excludes the embedded bundle (internal/webui/dist) from the container build"
+else
+    _assert_pass ".dockerignore leaves the embedded bundle in the container build context"
+fi
+
 echo ""
 if [ "$INSTALL_FAILURES" -eq 0 ]; then
     echo "[GUARD] PASS"

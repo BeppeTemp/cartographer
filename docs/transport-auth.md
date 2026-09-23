@@ -6,6 +6,7 @@
 |---|---|---|
 | stdio | Newline-delimited JSON-RPC 2.0, one session per process | Process/user boundary; no bearer token |
 | HTTP | `POST /mcp`, `/mcp?kb=<name>`, `/mcp/<name>` or `/mcp/routed` | Optional static bearer token |
+| HTTP (read-only UI API) | `GET /api/ui/v1/…` | Same bearer token; never public |
 
 HTTP requests return complete JSON-RPC responses. Cartographer does not expose
 the legacy two-endpoint SSE transport or an HTTP streaming session, and issues
@@ -34,6 +35,14 @@ request itself), since it validates its own static bearer tokens rather than
 delegating to a separate authorization server. Cartographer does **not**
 implement an OAuth authorization server, dynamic client registration or JWT
 validation; configured tokens are opaque static bearer values.
+
+`/api/ui/v1` is the read-only JSON surface the web UI consumes
+(→ [`control-plane.md`](control-plane.md) §Read-only UI API). It is **not** a
+public path: it passes through the same origin check and token middleware as
+`/mcp`, is filtered with the same principal, and answers `404` — never `403` —
+for a KB or concept the principal cannot see, so it cannot be used to probe for
+existence. Only `/health` and the RFC 9728 metadata are exempt from
+authentication.
 
 ### Mount modes
 
@@ -331,6 +340,12 @@ Two properties are load-bearing:
   (which reads further ranked pages when hidden candidates would leave a page
   short) and in the vector store. A caller therefore cannot infer hidden
   concepts from short pages or shifted pagination.
+- **Collections have no type.** Whether a map or journal is listed at all
+  (`map_list`, `atlas_overview`, the UI's KB list and overview) is decided by
+  the `maps`/`journals` selectors alone; the `types` selector applies to the
+  concepts inside it, and the counts shown are counts of visible concepts. A
+  role narrowed to a map and a type therefore sees that map, holding only its
+  concepts of that type (D228).
 
 Writes are re-authorized under the git lock immediately before mutating, so a
 concept whose type changes between dispatch and commit cannot be written on the

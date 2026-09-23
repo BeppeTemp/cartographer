@@ -19,6 +19,7 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/audit"
 	"github.com/BeppeTemp/cartographer/internal/auth"
+	"github.com/BeppeTemp/cartographer/internal/kb"
 )
 
 // requestContext is an alias kept package-local so every tool implementation
@@ -65,6 +66,11 @@ type Server struct {
 	// reported as serverInfo.name by initialize (D102). Set via
 	// SetDisplayName.
 	displayName string
+	// kbRef is the KB this server's tools were registered against, kept so
+	// non-MCP read adapters in this package (the UI API) can reach the data
+	// plane of a mounted KB. Nil for a server built without RegisterKBTools:
+	// an adapter then treats the KB as absent rather than assuming one.
+	kbRef *kb.KB
 	// policyKB is the mounted logical KB name used by authorization rules
 	// (SetPolicyKB); it lets the authorizer resolve the right KB even before
 	// RegisterKBTools sets kb.KB.AuthName.
