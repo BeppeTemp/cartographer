@@ -36,6 +36,8 @@ for (const viewport of [
       await page.goto(`${ATLAS}&scope=infra&concept=infra%2Fgateway`);
       if (narrow) await page.getByRole("button", { name: "Open inspector" }).click();
       await expect(page.getByRole("complementary", { name: "Inspector for infra/gateway" })).toBeVisible();
+      // The reading panel's splitter is in the scan on a wide screen (D239).
+      await expect(page.getByRole("separator", { name: "Resize reading panel" })).toHaveCount(narrow ? 0 : 1);
       expect(await seriousViolations(page)).toEqual([]);
     });
 

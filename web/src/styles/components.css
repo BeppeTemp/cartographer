@@ -573,7 +573,9 @@
    The graph owns the whole main area. The node list and the reading panel
    open over it on demand. They are flat surfaces with a hairline edge, not
    floating cards (brand kit Studio 01): the reading panel docks to the right
-   edge, full height, the way a page's margin would. */
+   edge, full height, the way a page's margin would. Its width is the viewer's:
+   a splitter on its left edge resizes it, and App clamps it so some graph
+   always stays in view (D239). The canvas never resizes under it. */
 
 .overlay {
   position: absolute;
@@ -597,10 +599,65 @@
 .overlay--inspector {
   inset-block: 0;
   inset-inline-end: 0;
-  width: min(var(--inspector-width), 46%);
+  width: var(--inspector-width);
   border-block: 0;
   border-inline-end: 0;
   border-radius: 0;
+}
+
+/* --- Splitter (WAI-ARIA window splitter) ---
+   An 8px hit area over the panel's edge, drawn as a line only when it is
+   hovered, dragged or focused. It sits inside the panel, whose overflow would
+   clip a handle hanging outside it. */
+
+.splitter {
+  position: absolute;
+  z-index: 1;
+  inset-block: 0;
+  width: 8px;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.splitter--start {
+  inset-inline-start: 0;
+}
+
+.splitter--end {
+  inset-inline-end: 0;
+}
+
+.splitter::after {
+  content: "";
+  position: absolute;
+  inset-block: 0;
+  width: 2px;
+  background: transparent;
+  transition: background var(--motion-fast) var(--ease-out);
+}
+
+.splitter--start::after {
+  inset-inline-start: 0;
+}
+
+.splitter--end::after {
+  inset-inline-end: 0;
+}
+
+.splitter:hover::after,
+.splitter:active::after,
+.splitter:focus-visible::after {
+  background: var(--accent);
+}
+
+.splitter:focus-visible {
+  border-radius: 0;
+}
+
+/* While a splitter is dragged, text under the pointer is not selected. */
+body.is-resizing {
+  cursor: col-resize;
+  user-select: none;
 }
 
 .overlay .nodelist,
