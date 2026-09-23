@@ -100,6 +100,16 @@ describe("camera focus", () => {
     expect(wider.lookAt.x).toBeGreaterThan(open.lookAt.x);
   });
 
+  it("centres the node between the list on the left and the inspector on the right", () => {
+    const node = { x: 0, y: 0, z: 0 };
+    const camera = { x: 0, y: 0, z: 300 };
+    const list = focusPose(node, camera, 300, { ...view, occludedLeft: 332 });
+    // The list hides the left: the node moves right of centre.
+    expect(list.lookAt.x).toBeLessThan(0);
+    const both = focusPose(node, camera, 300, { ...view, occludedLeft: 420, occludedRight: 420 });
+    expect(both.lookAt.x).toBeCloseTo(0);
+  });
+
   it("has a defined pose from straight above", () => {
     const pose = focusPose({ x: 0, y: 0, z: 0 }, { x: 0, y: 300, z: 0 }, 300, { ...view, occludedRight: 400 });
     for (const v of [pose.position, pose.lookAt]) {

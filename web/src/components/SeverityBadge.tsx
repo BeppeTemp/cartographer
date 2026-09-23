@@ -9,7 +9,7 @@ export function SeverityBadge({ severity, count }: { severity: string; count?: n
     <span className={`severity severity--${severity}`}>
       <span className="severity__mark" aria-hidden="true" />
       {count !== undefined && <span className="severity__count">{count}</span>}
-      <span>{severity}</span>
+      <span>{count === undefined || count === 1 || severity === "info" ? severity : `${severity}s`}</span>
     </span>
   );
 }

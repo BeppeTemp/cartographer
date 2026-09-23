@@ -5,8 +5,9 @@ import { fade } from "../lib/encoding";
 import type { Pose } from "../lib/graph3d/camera";
 import { planBursts } from "../lib/graph3d/motion";
 import { seedPosition } from "../lib/graph3d/physics";
-import type { LivingScene, SceneLink, SceneMode, SceneNode } from "../lib/graph3d/scene";
+import type { LivingScene, SceneLink, SceneNode } from "../lib/graph3d/scene";
 import { collectionHue, cssVar, resolveSlots, type ColorBy } from "../lib/palette";
+import { nameOf, shortNameOf } from "../lib/names";
 import { prefersReducedMotion } from "../lib/theme";
 import type { ReactNode } from "react";
 import { Icon } from "./Icon";
@@ -14,20 +15,15 @@ import { Icon } from "./Icon";
 /** The 3D view draws every visible concept up to this many (D234): the graph
  *  API's own ceiling (kb.MaxGraphNodeLimit; the UI asks for the default 2,000,
  *  and a truncated graph already says so). Above it the view says so and
- *  points at filters and the 2D atlas -- never a silent sample. */
+ *  points at the filters -- never a silent sample. */
 export const MAX_3D_NODES = 5_000;
 /** A selected node and its best-connected neighbours carry a name, up to
  *  this many: enough to read the neighbourhood, few enough not to cover it. */
 const LABEL_LIMIT = 12;
-/** The flat map names this many landmarks when nothing is selected. */
-const LANDMARKS = 10;
 /** How much of its hue a node outside the selection keeps. */
 const RECEDED = 0.32;
 
 interface Props {
-  /** "3d" orbits a network in depth; "2d" lays the same network flat, seen
-   *  from above, and lets its nodes be dragged. Same look, same physics. */
-  mode: SceneMode;
   snapshot: GraphSnapshot;
   /** A concept to point at without selecting it (a link hovered in the
    *  reading panel). */
@@ -47,17 +43,21 @@ interface Props {
   /** Live motion (drift, panorama, signals) on or off; the reader's own
    *  gestures work either way. */
   live: boolean;
+  /** Turns live motion on or off: the toggle sits with the camera controls. */
+  onToggleLive?(): void;
   /** Pixels on the right covered by the reading panel. */
   occludedRight: number;
+  /** Pixels on the left covered by the concept list. */
+  occludedLeft?: number;
   onSelect(id: string | null): void;
-  /** WebGL is missing or was lost: the caller falls back to the 2D atlas. */
+  /** WebGL is missing or was lost: the caller says so and keeps the list. */
   onUnavailable?(): void;
 }
 
 const endpoint = (end: string | SceneNode) => (typeof end === "object" ? end.id : end);
 
 /**
- * The atlas's graph, in 3D or 2D: a living, elastic network (D234).
+ * The atlas's graph: a living, elastic network in 3D (D234, D235).
  *
  * Pull a node and its links stretch, its neighbours follow and the motion
  * travels through the rest of its component; let go and it settles. At rest
@@ -91,11 +91,10 @@ export function GraphView(props: Props) {
       </div>
     );
   }
-  return <View {...props} key={props.mode} />;
+  return <View {...props} />;
 }
 
 function View({
-  mode,
   highlighted = null,
   severityByConcept,
   onExpand,
@@ -107,7 +106,9 @@ function View({
   hiddenIds,
   themeKey,
   live,
+  onToggleLive,
   occludedRight,
+  occludedLeft = 0,
   onSelect,
   onUnavailable,
 }: Props) {
@@ -128,11 +129,16 @@ function View({
   onUnavailableRef.current = onUnavailable;
   const liveRef = useRef(live);
   liveRef.current = live;
-  const occludedRef = useRef(occludedRight);
-  occludedRef.current = occludedRight;
+  const occludedRef = useRef({ left: occludedLeft, right: occludedRight });
+  occludedRef.current = { left: occludedLeft, right: occludedRight };
 
   const reducedMotion = useMemo(() => prefersReducedMotion(), []);
   const savedPose = useRef<Pose | null>(null);
+
+  // Names by id: the canvas labels a concept by its title where it has one.
+  const byId = useMemo(() => new Map(snapshot.nodes.map((n) => [n.id, n])), [snapshot]);
+  const byIdRef = useRef(byId);
+  byIdRef.current = byId;
 
   // Node objects for this snapshot: they outlive filter changes, so a node
   // keeps its place when it is hidden and shown again.
@@ -144,11 +150,11 @@ function View({
         {
           id: n.id,
           weight: Math.sqrt((n.in_degree + n.out_degree) / max),
-          ...seedPosition(n.id, snapshot.nodes.length, mode === "2d" ? 2 : 3),
+          ...seedPosition(n.id, snapshot.nodes.length, 3),
         },
       ]),
     );
-  }, [snapshot, mode]);
+  }, [snapshot]);
 
   // Build the scene once per snapshot.
   useEffect(() => {
@@ -169,7 +175,7 @@ function View({
               if (!tip) return;
               tip.hidden = !id;
               if (id) {
-                tip.textContent = id;
+                tip.textContent = nameOf(byIdRef.current.get(id) ?? { id });
                 tip.style.transform = `translate(${Math.round(x + 14)}px, ${Math.round(y + 14)}px)`;
               }
             },
@@ -178,7 +184,7 @@ function View({
               onUnavailableRef.current?.();
             },
           },
-          { live: liveRef.current, reducedMotion, mode },
+          { live: liveRef.current, reducedMotion },
         );
         sceneRef.current = scene;
         setReady((n) => n + 1);
@@ -199,7 +205,7 @@ function View({
       sceneRef.current?.dispose();
       sceneRef.current = null;
     };
-  }, [snapshot, reducedMotion, mode]);
+  }, [snapshot, reducedMotion]);
 
   // The visible set.
   useEffect(() => {
@@ -266,14 +272,7 @@ function View({
     if (!node) {
       scene.unfocus(savedPose.current);
       savedPose.current = null;
-      // The flat map names its landmarks at rest -- the best-connected
-      // concepts -- as a map names its cities. The 3D overview stays unnamed.
-      if (mode !== "2d") return;
-      const landmarks = [...nodes.values()]
-        .filter((n) => !hiddenIds.has(n.id) && scene.nodeById(n.id))
-        .sort((a, b) => b.weight - a.weight)
-        .slice(0, LANDMARKS);
-      return placeLabels(scene, layer, landmarks, null);
+      return;
     }
     scene.focus(node.id, occludedRef.current, () => {
       if (!savedPose.current) savedPose.current = scene.pose();
@@ -287,8 +286,10 @@ function View({
     const byDegree = [...scene.neighboursOf(node.id)].sort(
       (a, b) => scene.neighboursOf(b.id).length - scene.neighboursOf(a.id).length,
     );
-    return placeLabels(scene, layer, [node, ...byDegree].slice(0, LABEL_LIMIT), node);
-  }, [ready, selected, reducedMotion, mode, hiddenIds, nodes]);
+    return placeLabels(scene, layer, [node, ...byDegree].slice(0, LABEL_LIMIT), node, (id) =>
+      shortNameOf(byId.get(id) ?? { id }),
+    );
+  }, [ready, selected, reducedMotion, byId]);
 
   // The hovered link's node, named where it is.
   useEffect(() => {
@@ -298,7 +299,7 @@ function View({
     if (!scene || !layer || !node) return;
     const el = document.createElement("span");
     el.className = "graph3d__label graph3d__label--selected graph3d__label--preview";
-    el.textContent = node.id;
+    el.textContent = nameOf(byId.get(node.id) ?? node);
     layer.appendChild(el);
     const place = () => {
       const at = scene.project(node);
@@ -310,13 +311,13 @@ function View({
       scene.frameListeners.delete(place);
       el.remove();
     };
-  }, [ready, highlighted]);
+  }, [ready, highlighted, byId]);
 
   if (failed) {
     return (
       <div className="state">
         <p className="state__title">The 3D view needs WebGL</p>
-        <p className="state__detail">This browser could not start it. The 2D atlas shows the same graph.</p>
+        <p className="state__detail">This browser could not start it. Every concept is still in the list and the search.</p>
       </div>
     );
   }
@@ -325,7 +326,6 @@ function View({
     <div
       className="graph graph--view"
       data-testid="graph-view"
-      data-mode={mode}
       data-motion={live && !reducedMotion ? "live" : "still"}
     >
       <div ref={containerRef} className="graph3d">
@@ -342,16 +342,20 @@ function View({
         <button type="button" className="button button--icon" onClick={() => scene()?.frameAll()} aria-label="Fit graph to view">
           <Icon name="fit" size={16} />
         </button>
-        {mode === "2d" && (
-          <button
-            type="button"
-            className="button button--icon"
-            onClick={() => scene()?.relax()}
-            aria-label="Relax layout"
-            title="Relax layout"
-          >
-            <Icon name="relax" size={16} />
-          </button>
+        {onToggleLive && (
+          <>
+            <span className="graph__controls-sep" aria-hidden="true" />
+            <button
+              type="button"
+              className="button button--icon"
+              aria-label="Motion"
+              aria-pressed={live}
+              onClick={onToggleLive}
+              title={live ? "Pause the drift, the panorama and the signals" : "Let the graph move on its own"}
+            >
+              <Icon name={live ? "pause" : "motion"} size={16} />
+            </button>
+          </>
         )}
       </div>
       {children}
@@ -372,11 +376,17 @@ function View({
 
 /** Names `named` on the label layer, following them every frame; returns the
  *  cleanup. The selected node's name is set in the editorial voice. */
-function placeLabels(scene: LivingScene, layer: HTMLElement, named: SceneNode[], selected: SceneNode | null) {
+function placeLabels(
+  scene: LivingScene,
+  layer: HTMLElement,
+  named: SceneNode[],
+  selected: SceneNode | null,
+  name: (id: string) => string,
+) {
   const els = named.map((n) => {
     const el = document.createElement("span");
     el.className = n === selected ? "graph3d__label graph3d__label--selected" : "graph3d__label";
-    el.textContent = shortId(n.id);
+    el.textContent = name(n.id);
     layer.appendChild(el);
     return el;
   });
@@ -393,9 +403,4 @@ function placeLabels(scene: LivingScene, layer: HTMLElement, named: SceneNode[],
     scene.frameListeners.delete(place);
     els.forEach((el) => el.remove());
   };
-}
-
-function shortId(id: string): string {
-  const cut = id.lastIndexOf("/");
-  return cut === -1 ? id : id.slice(cut + 1);
 }

@@ -52,6 +52,17 @@ for (const viewport of [
       expect(await seriousViolations(page)).toEqual([]);
     });
 
+    test("no page wider than the screen", async ({ page }) => {
+      // The top bar once set a 750px minimum: on a phone the browser widened
+      // the whole page to fit it, and every view spilled off the right edge.
+      for (const url of [ATLAS, `${ATLAS}&panel=observatory`]) {
+        await page.goto(url);
+        await expect(page.locator(".topbar")).toBeVisible();
+        const [scroll, inner] = await page.evaluate(() => [document.documentElement.scrollWidth, window.innerWidth]);
+        expect(scroll, url).toBeLessThanOrEqual(inner);
+      }
+    });
+
     test("auth prompt", async ({ page }) => {
       await page.goto(`${AUTH_URL}/ui/`);
       await expect(page.getByLabel("Bearer token")).toBeVisible();

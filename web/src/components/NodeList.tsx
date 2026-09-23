@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import type { GraphNode } from "../api/types";
 import { collectionVar } from "../lib/palette";
+import { nameOf } from "../lib/names";
 
 type SortKey = "id" | "degree" | "collection";
 
@@ -38,7 +39,7 @@ export function NodeList({
         const delta = (a.collection ?? "").localeCompare(b.collection ?? "");
         if (delta !== 0) return delta;
       }
-      return a.id.localeCompare(b.id);
+      return nameOf(a).localeCompare(nameOf(b));
     });
     return copy;
   }, [nodes, sort]);
@@ -71,6 +72,7 @@ export function NodeList({
                 className="nodelist__item"
                 aria-current={node.id === selected ? "true" : undefined}
                 data-concept-id={node.id}
+                title={node.title ? node.id : undefined}
                 onClick={() => onSelect(node.id)}
               >
                 <span
@@ -78,7 +80,7 @@ export function NodeList({
                   aria-hidden="true"
                   style={{ background: swatchFor(node.id, node.collection) }}
                 />
-                <span className="nodelist__id">{node.id}</span>
+                <span className="nodelist__id">{nameOf(node)}</span>
                 <span className="nodelist__meta">
                   {node.in_degree + node.out_degree} link
                   {node.in_degree + node.out_degree === 1 ? "" : "s"}

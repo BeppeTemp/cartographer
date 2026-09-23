@@ -1,21 +1,17 @@
-import type { SceneMode } from "../lib/graph3d/scene";
-
 /**
  * A LivingScene without WebGL, for jsdom: the graph view's own logic (data,
  * colours, selection, labels, fallbacks) runs; nothing is drawn. A test can
- * make a mode fail to start, as a browser without a context would:
- * `sceneStub.failModes.add("3d")`.
+ * make it fail to start, as a browser without a context would:
+ * `sceneStub.fail = true`.
  */
-export const sceneStub = { failModes: new Set<SceneMode>(), created: [] as SceneMode[] };
+export const sceneStub = { fail: false, created: 0 };
 
 export class LivingScene {
   readonly frameListeners = new Set<() => void>();
-  readonly mode: SceneMode;
   private nodes: { id: string }[] = [];
-  constructor(_container: HTMLElement, _callbacks: unknown, options: { mode?: SceneMode }) {
-    this.mode = options.mode ?? "3d";
-    if (sceneStub.failModes.has(this.mode)) throw new Error(`stub: no WebGL for ${this.mode}`);
-    sceneStub.created.push(this.mode);
+  constructor() {
+    if (sceneStub.fail) throw new Error("stub: no WebGL");
+    sceneStub.created++;
   }
   setData(nodes: { id: string }[]): void {
     this.nodes = nodes;
@@ -32,7 +28,6 @@ export class LivingScene {
   frameAll(): void {}
   refitIfUntouched(): void {}
   zoomBy(): void {}
-  relax(): void {}
   linksOf(): never[] {
     return [];
   }

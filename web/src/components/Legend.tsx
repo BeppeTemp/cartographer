@@ -73,7 +73,7 @@ export function Legend({
             {/* No swatch: the summarised groups do not share one colour. */}
             <span className="legend__swatch legend__swatch--none" aria-hidden="true" />
             <span className="legend__label">
-              {colorBy === "community" ? "in smaller groups" : "in other Maps"}
+              {colorBy === "community" ? "Smaller groups" : "Other Maps"}
             </span>
             <span className="legend__count">{rest}</span>
           </li>
@@ -90,7 +90,7 @@ function communityRows(communities: Communities): { rows: Row[]; tail: number } 
   let tail = 0;
   for (const c of communities.list) {
     if (c.slot === OTHER_SLOT) tail += c.size;
-    else rows.push({ key: `c${c.rank}`, slot: c.slot, label: `around ${shortLabel(c.anchor)}`, count: c.size });
+    else rows.push({ key: `c${c.rank}`, slot: c.slot, label: shortLabel(c.anchor), count: c.size });
   }
   return { rows, tail };
 }

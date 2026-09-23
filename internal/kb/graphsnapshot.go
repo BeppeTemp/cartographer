@@ -25,6 +25,10 @@ const (
 type GraphNode struct {
 	ID         okf.ConceptID `json:"id"`
 	Collection string        `json:"collection,omitempty"`
+	// Title is the frontmatter title: what a client names a node by, since an
+	// id is a path. Empty when the concept has none; the client falls back to
+	// the id.
+	Title string `json:"title,omitempty"`
 	// Type and Status come from the frontmatter and are what a client filters
 	// and encodes on: without them a graph can only be filtered by collection,
 	// which is the one facet its colours already show.
@@ -122,6 +126,7 @@ func (kb *KB) GraphSnapshot(opts GraphSnapshotOptions) (GraphSnapshot, error) {
 
 	type conceptMeta struct {
 		collection string
+		title      string
 		typ        string
 		status     string
 		expanded   bool
@@ -149,6 +154,9 @@ func (kb *KB) GraphSnapshot(opts GraphSnapshotOptions) (GraphSnapshot, error) {
 		// walk: one unparseable file must not blank the whole graph.
 		if fm, err := okf.ParseFrontmatter(fmRaw); err == nil {
 			meta.typ = fm.Type()
+			if v, ok := fm.Get("title"); ok {
+				meta.title, _ = v.(string)
+			}
 			if v, ok := fm.Get("status"); ok {
 				meta.status, _ = v.(string)
 			}
@@ -235,6 +243,7 @@ func (kb *KB) GraphSnapshot(opts GraphSnapshotOptions) (GraphSnapshot, error) {
 		snap.Nodes = append(snap.Nodes, GraphNode{
 			ID:         id,
 			Collection: metas[id].collection,
+			Title:      metas[id].title,
 			Type:       metas[id].typ,
 			Status:     metas[id].status,
 			Expanded:   metas[id].expanded,

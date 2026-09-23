@@ -17,7 +17,7 @@ quiet. A selection eases the camera onto the node's neighbourhood beside the
 inspector, follows it while selected, names it, and sends three finite waves of
 signals along its links in their data direction. A remembered *Motion* toggle
 and `prefers-reduced-motion` stop everything autonomous; the reader's own
-gestures always work. The 2D view is unchanged and still (D227).
+gestures always work. The 2D view was later removed (D235).
 
 **Why.** The brand kit asks for a navigator whose graph is alive — nodes moving
 locally under the physics, not a rigid group turning. D227

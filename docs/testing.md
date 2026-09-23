@@ -419,13 +419,12 @@ What it holds, beyond the component tests:
   (read from the `data-entry` and `data-camera` attributes the graph exposes
   for this);
 - the 3D view (`graph3d.spec.ts`, on a software WebGL context via SwiftShader,
-  so it tests the shipped renderer rather than its fallback): 3D is the first
-  view on a wide screen and a 2D choice is remembered; a lost WebGL context
-  hands over to 2D; with no WebGL at all the list, search and inspector still
-  work; the Motion toggle is remembered and reduced motion starts it paused;
-  a selection names the selected node and each neighbour once; a hidden tab
-  stops the render loop; `touch-action: none` is on the canvas only. The 2D
-  specs pick 2D through the remembered toggle (`with2D` in `e2e/support.ts`);
+  so it tests the shipped renderer rather than its fallback): a lost WebGL
+  context says so and keeps the list; with no WebGL at all the list, search
+  and inspector still work; the Motion toggle is remembered and reduced motion
+  starts it paused; a selection names the selected node and each neighbour
+  once; a hidden tab stops the render loop; `touch-action: none` is on the
+  canvas only;
 - security: no request leaves the Cartographer origin (any foreign request
   fails the test, it is not allow-listed); the shell's CSP is present and an
   injected inline script and a same-origin `eval` are both refused; the token

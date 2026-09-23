@@ -1,9 +1,9 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "../App";
 import { linkWikiLinks } from "../components/Markdown";
-import { stubApi, use2D } from "./fixtures";
+import { stubApi } from "./fixtures";
 import { hasWebGL } from "../lib/webgl";
 import { sceneStub } from "./sceneStub";
 
@@ -17,26 +17,21 @@ describe("graph-first layout", () => {
   beforeEach(() => {
     window.history.replaceState(null, "", "/ui/");
     localStorage.clear();
-    use2D();
     sessionStorage.clear();
   });
   afterEach(() => vi.unstubAllGlobals());
 
-  it("opens in 3D and falls back to the 2D atlas when 3D cannot start", async () => {
-    // The 3D scene fails to get a context; the view hands over to 2D instead
-    // of leaving a dead canvas.
-    localStorage.removeItem("cartographer.panel.3d");
-    sceneStub.failModes.add("3d");
+  it("says so instead of leaving a dead canvas when the scene cannot start", async () => {
+    // There is no other view to hand over to (D235): the page names the
+    // problem and keeps the list and the search.
+    sceneStub.fail = true;
     try {
       stubApi();
       render(<App />);
-      const view = await screen.findByRole("group", { name: "Graph view" });
-      const [two, three] = within(view).getAllByRole("button");
-      await waitFor(() => expect(two).toHaveAttribute("aria-pressed", "true"), { timeout: 5000 });
-      expect(three).toHaveAttribute("aria-pressed", "false");
-      await waitFor(() => expect(document.querySelector("[data-testid=graph-view]")).toHaveAttribute("data-mode", "2d"));
+      expect(await screen.findByText("This browser cannot draw the graph", {}, { timeout: 5000 })).toBeInTheDocument();
+      expect(document.querySelector("[data-testid=graph-view]")).toBeNull();
     } finally {
-      sceneStub.failModes.clear();
+      sceneStub.fail = false;
     }
   });
 
@@ -49,7 +44,7 @@ describe("graph-first layout", () => {
       const user = userEvent.setup();
       render(<App />);
       expect(await screen.findByText("This browser cannot draw the graph")).toBeInTheDocument();
-      expect(screen.queryByRole("group", { name: "Graph view" })).not.toBeInTheDocument();
+      expect(document.querySelector("[data-testid=graph-view]")).toBeNull();
       await user.click(screen.getByRole("button", { name: /^Concepts/ }));
       expect(await screen.findByRole("region", { name: /concepts in this view/i })).toBeInTheDocument();
     } finally {
@@ -105,7 +100,6 @@ describe("wiki-links in a concept body", () => {
   it("navigate inside the atlas when followed", async () => {
     window.history.replaceState(null, "", "/ui/?kb=homelab&concept=infra%2Fa");
     localStorage.clear();
-    use2D();
     stubApi({
       "/concept": () =>
         new Response(

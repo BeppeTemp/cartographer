@@ -38,7 +38,8 @@ export function LeftRail({
   onClearFilters,
 }: Props) {
   const lintTotal = overview?.lint.total ?? 0;
-  const filtersActive = typeFilter.size > 0 || statusFilter.size > 0;
+  const activeCount = typeFilter.size + statusFilter.size;
+  const filtersActive = activeCount > 0;
 
   return (
     <nav className={`rail${collapsed ? " rail--collapsed" : ""}`} aria-label="Atlas navigation">
@@ -90,23 +91,22 @@ export function LeftRail({
 
       {!collapsed && (
         <div className="rail__scroll">
+          {/* The whole atlas is not one Map among the others: it stands apart,
+              above the list it contains. */}
+          <button
+            type="button"
+            className="rail__collection rail__whole"
+            aria-current={scope === null ? "true" : undefined}
+            onClick={() => onScope(null)}
+          >
+            <span className="rail__swatch rail__swatch--all" aria-hidden="true" />
+            <span className="rail__collection-name">Whole atlas</span>
+            <span className="rail__collection-count">{overview?.concepts.total ?? 0}</span>
+          </button>
+
           <section className="rail__section">
             <h2 className="rail__title">Maps &amp; Journals</h2>
             <ul className="rail__collections">
-              <li>
-                <button
-                  type="button"
-                  className="rail__collection"
-                  aria-current={scope === null ? "true" : undefined}
-                  onClick={() => onScope(null)}
-                >
-                  <span className="rail__swatch rail__swatch--all" aria-hidden="true" />
-                  <span className="rail__collection-name">Whole atlas</span>
-                  <span className="rail__collection-count">
-                    {overview?.concepts.total ?? 0}
-                  </span>
-                </button>
-              </li>
               {(overview?.collections ?? []).map((collection) => (
                 <li key={collection.name}>
                   <button
@@ -136,6 +136,12 @@ export function LeftRail({
             )}
           </section>
 
+          {filtersActive && (
+            <button type="button" className="rail__clear" onClick={onClearFilters}>
+              <Icon name="close" size={14} />
+              Clear {activeCount} filter{activeCount === 1 ? "" : "s"}
+            </button>
+          )}
           <FilterSection
             title="Type"
             counts={overview?.concepts.by_type ?? {}}
@@ -149,11 +155,6 @@ export function LeftRail({
             onToggle={onToggleStatus}
           />
 
-          {filtersActive && (
-            <button type="button" className="button rail__clear" onClick={onClearFilters}>
-              Clear filters
-            </button>
-          )}
 
           {snapshot && (
             <p className="rail__meta">

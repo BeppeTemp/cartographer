@@ -313,3 +313,10 @@ a {
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/* Scrollbars: thin and in the palette, so a scrolling panel shows where it
+   is without a slab of system grey over its content. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}

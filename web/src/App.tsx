@@ -48,6 +48,8 @@ const NARROW_QUERY = "(max-width: 1023px)";
 /** The inspector card's width plus its margin (--inspector-width + gutter):
  *  the strip of canvas a selection must not be centred under. */
 const INSPECTOR_OCCLUSION = 420;
+/** The concept list: its width plus the gutter it floats in. */
+const LIST_OCCLUSION = 332;
 
 export function App() {
   const [phase, setPhase] = useState<Phase>("booting");
@@ -83,9 +85,6 @@ export function App() {
     readPanel("rail", !(window.matchMedia?.("(min-width: 1200px)").matches ?? false)),
   );
   const [listOpen, setListOpen] = useState(() => readPanel("list", false));
-  // 3D is the first view on a wide screen (D234); the 2D atlas stays one click
-  // away, and takes over when WebGL is missing or lost.
-  const [explore3d, setExplore3d] = useState(() => readPanel("3d", true));
   const [motion, setMotion] = useState(() => initialMotion(readPanel("motion", true), prefersReducedMotion()));
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [preview, setPreview] = useState<string | null>(null);
@@ -106,16 +105,14 @@ export function App() {
   useEffect(() => writeColorBy(colorBy), [colorBy]);
   useEffect(() => writePanel("rail", railCollapsed), [railCollapsed]);
   useEffect(() => writePanel("list", listOpen), [listOpen]);
-  useEffect(() => writePanel("3d", explore3d), [explore3d]);
   const toggleMotion = useCallback(() => {
     setMotion((on) => {
       writePanel("motion", !on);
       return !on;
     });
   }, []);
-  const fallBackTo2D = useCallback(() => setExplore3d(false), []);
   const webgl = useMemo(() => hasWebGL(), []);
-  // Both views draw with WebGL: if the 2D one loses its context too, the
+  // The graph is only ever drawn in 3D (D235): if it loses its context, the
   // page says so and keeps the list, as it does without WebGL at all.
   const [webglLost, setWebglLost] = useState(false);
   const markWebglLost = useCallback(() => setWebglLost(true), []);
@@ -546,7 +543,6 @@ export function App() {
                 </div>
               ) : (
                 <GraphView
-                  mode={explore3d && !narrow ? "3d" : "2d"}
                   snapshot={snapshot}
                   communities={communities}
                   colorBy={colorBy}
@@ -556,10 +552,12 @@ export function App() {
                   severityByConcept={severityByConcept}
                   themeKey={appliedTheme}
                   live={motion}
+                  onToggleLive={toggleMotion}
                   occludedRight={!narrow && view.concept ? INSPECTOR_OCCLUSION : 0}
+                  occludedLeft={!narrow && listOpen ? LIST_OCCLUSION : 0}
                   onSelect={selectConcept}
                   onExpand={expandConcept}
-                  onUnavailable={explore3d && !narrow ? fallBackTo2D : markWebglLost}
+                  onUnavailable={markWebglLost}
                 >
                   <Legend
                     snapshot={snapshot}
@@ -582,28 +580,6 @@ export function App() {
                     Concepts
                     <span className="graph-toolbar__count">{visibleNodes.length}</span>
                   </button>
-                  {webgl && (
-                  <div className="graph-toolbar__segmented" role="group" aria-label="Graph view">
-                    <button type="button" aria-pressed={!explore3d} onClick={() => setExplore3d(false)}>
-                      2D
-                    </button>
-                    <button type="button" aria-pressed={explore3d} onClick={() => setExplore3d(true)}>
-                      3D
-                    </button>
-                  </div>
-                  )}
-                  {webgl && (
-                    <button
-                      type="button"
-                      className="button graph-toolbar__toggle"
-                      aria-pressed={motion}
-                      onClick={toggleMotion}
-                      title={motion ? "Pause the drift, the panorama and the signals" : "Let the graph move on its own"}
-                    >
-                      <Icon name={motion ? "pause" : "motion"} size={16} />
-                      Motion
-                    </button>
-                  )}
                 </div>
               )}
               {!narrow && listOpen && <div id="concept-list" className="overlay overlay--list">{nodeList}</div>}

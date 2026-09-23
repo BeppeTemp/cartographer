@@ -83,15 +83,4 @@ export async function withPanelsOpen(page: Page): Promise<void> {
     localStorage.setItem("cartographer.panel.rail", "0");
     localStorage.setItem("cartographer.panel.list", "1");
   });
-  await with2D(page);
-}
-
-/**
- * The flows, auth and a11y specs walk the flat (2D) view, which loads faster
- * and has no autonomous panorama. 3D is the default view since D234, so they
- * pick 2D the way a viewer does -- the remembered toggle. graph3d.spec.ts
- * covers the 3D view and the default itself.
- */
-export async function with2D(page: Page): Promise<void> {
-  await page.addInitScript(() => localStorage.setItem("cartographer.panel.3d", "0"));
 }

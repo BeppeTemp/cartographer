@@ -93,7 +93,7 @@ export function TopBar({
         </label>
       )}
 
-      <button type="button" className="topbar__search field" onClick={onOpenPalette}>
+      <button type="button" className="topbar__search field" onClick={onOpenPalette} aria-label="Search concepts">
         <Icon name="search" size={16} />
         <span className="field__placeholder">Search concepts</span>
         <kbd className="kbd">Ctrl K</kbd>
@@ -115,8 +115,8 @@ export function TopBar({
           className={`topbar__status topbar__status--${offline ? "offline" : "online"}`}
           role="status"
         >
-          <span aria-hidden="true">{offline ? "●" : "●"}</span>
-          {offline ? "Disconnected" : "Connected"}
+          <span aria-hidden="true">●</span>
+          <span className="topbar__status-text">{offline ? "Disconnected" : "Connected"}</span>
         </span>
         <button
           type="button"

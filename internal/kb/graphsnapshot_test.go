@@ -29,7 +29,7 @@ func snapshotKB(t *testing.T) *KB {
 		}
 	}
 	write("infra/a.md", "---\ntype: Note\n---\n[b](b.md), [[infra/owner]] and [gone](missing.md)\n")
-	write("infra/b.md", "---\ntype: Note\nstatus: active\n---\n[self](b.md) and [a](a.md)\n")
+	write("infra/b.md", "---\ntype: Note\ntitle: Bravo\nstatus: active\n---\n[self](b.md) and [a](a.md)\n")
 	write("infra/owner/index.md", "---\ntype: Note\n---\n[child](child.md)\n")
 	write("infra/owner/child.md", "---\ntype: Note\n---\n[cross](../../notes/n.md)\n")
 	write("infra/orphan.md", "---\ntype: Note\n---\nNothing here.\n")
@@ -123,6 +123,13 @@ func TestGraphSnapshot_NodesEdgesAndClassification(t *testing.T) {
 	}
 	if b := findNode(t, snap, "infra/b"); b.Status != "active" {
 		t.Errorf("node status: got %q, want active", b.Status)
+	}
+	// The title names the node; a concept without one leaves it empty.
+	if b := findNode(t, snap, "infra/b"); b.Title != "Bravo" {
+		t.Errorf("node title: got %q, want Bravo", b.Title)
+	}
+	if a := findNode(t, snap, "infra/a"); a.Title != "" {
+		t.Errorf("untitled node: got title %q, want empty", a.Title)
 	}
 
 	// Degrees come from the same traversal.

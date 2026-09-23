@@ -225,7 +225,7 @@ carries one copy of the tool schemas instead of one per KB.
 - 🔑 **Secrets via SOPS** — JSON Pointer references, scoped resolution and safe rotation; plaintext
   values never stored
 - 🗺️ **Embedded Atlas UI** — a read-only web view of each KB served by the same binary at `/ui/`
-  in HTTP mode: a live 3D graph you orbit and select from (a still 2D view alongside), coloured by
+  in HTTP mode: a live 3D graph you orbit and select from, coloured by
   community or by Map, with an inspector and the lint findings; light and dark; no extra service,
   no CDN. Disable with `web.enabled: false` — see [`docs/deployment.md`](docs/deployment.md)
 - 📦 **OKF-compliant** — each KB is an OKF bundle and a standalone git repo, zero lock-in (just git +

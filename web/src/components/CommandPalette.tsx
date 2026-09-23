@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { nameOf } from "../lib/names";
 import type { GraphNode } from "../api/types";
 import { collectionVar } from "../lib/palette";
 
@@ -44,15 +45,17 @@ export function CommandPalette({ open, nodes, onClose, onSelect }: Props) {
   const results = useMemo(() => {
     const needle = query.trim().toLowerCase();
     const matches = needle
-      ? nodes.filter((node) => node.id.toLowerCase().includes(needle))
+      ? nodes.filter(
+          (node) => node.id.toLowerCase().includes(needle) || (node.title ?? "").toLowerCase().includes(needle),
+        )
       : nodes;
     return [...matches]
       .sort((a, b) => {
-        // An exact segment match beats a substring buried in a path.
-        const aStarts = a.id.toLowerCase().startsWith(needle) ? 0 : 1;
-        const bStarts = b.id.toLowerCase().startsWith(needle) ? 0 : 1;
+        // A name that starts with the query beats a substring buried in it.
+        const aStarts = nameOf(a).toLowerCase().startsWith(needle) ? 0 : 1;
+        const bStarts = nameOf(b).toLowerCase().startsWith(needle) ? 0 : 1;
         if (aStarts !== bStarts) return aStarts - bStarts;
-        return a.id.localeCompare(b.id);
+        return nameOf(a).localeCompare(nameOf(b));
       })
       .slice(0, MAX_RESULTS);
   }, [nodes, query]);
@@ -96,8 +99,8 @@ export function CommandPalette({ open, nodes, onClose, onSelect }: Props) {
           className="palette__input"
           type="text"
           value={query}
-          placeholder="Search concepts by id"
-          aria-label="Search concepts by id"
+          placeholder="Search concepts by title or id"
+          aria-label="Search concepts by title or id"
           aria-controls="palette-results"
           aria-activedescendant={results[cursor] ? `palette-option-${cursor}` : undefined}
           autoComplete="off"
@@ -138,7 +141,10 @@ export function CommandPalette({ open, nodes, onClose, onSelect }: Props) {
                   aria-hidden="true"
                   style={{ background: collectionVar(node.collection ?? "") }}
                 />
-                <Highlighted text={node.id} needle={query.trim()} />
+                <span className="palette__text">
+                  <Highlighted text={nameOf(node)} needle={query.trim()} />
+                  {node.title && <span className="palette__id">{node.id}</span>}
+                </span>
                 <span className="palette__hint">{node.collection}</span>
               </li>
             ))

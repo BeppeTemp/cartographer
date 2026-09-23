@@ -41,6 +41,9 @@ export interface Overview {
 export interface GraphNode {
   id: string;
   collection?: string;
+  /** The frontmatter title, when the concept has one: what the UI names a
+   *  node by. The id is the fallback. */
+  title?: string;
   type?: string;
   status?: string;
   expanded?: boolean;

@@ -1,11 +1,15 @@
 import { useMemo } from "react";
 import type { LintReport } from "../api/types";
-import { Icon } from "./Icon";
 import { SeverityBadge } from "./SeverityBadge";
 import { EmptyState, ErrorState, Skeleton } from "./States";
 
 const ORDER = ["error", "warning", "info"];
 const HEADING: Record<string, string> = { error: "Errors", warning: "Warnings", info: "Notes" };
+const FLOORS: [string, string][] = [
+  ["info", "All"],
+  ["warning", "Warnings and errors"],
+  ["error", "Errors only"],
+];
 
 /** The headline says what the reader should feel, in words: the counts follow. */
 function headline(report: LintReport): string {
@@ -24,9 +28,11 @@ function plural(n: number, word: string): string {
 /**
  * The Observatory answers "what is wrong with this KB" -- as a page to read,
  * not a dashboard (brand kit: a sober list with severity, explanation and a
- * way to the concept; no decorative KPIs). A serif headline says it in words,
- * one line gives the counts, and the findings follow as rows grouped by
- * severity, each opening its concept.
+ * way to the concept; no decorative KPIs). A headline says it in words, one
+ * line gives the counts, and the findings follow as rows grouped by severity,
+ * each opening its concept. It speaks the shell's language -- sans type,
+ * surface cards, the segmented switch of the legend -- so it reads as a view
+ * of the same app, not a separate document.
  *
  * It reports the unfiltered totals next to the filtered list, because the API
  * does: a page that showed only what cleared the floor would let a KB look
@@ -68,7 +74,7 @@ export function Observatory({
   return (
     <section className="observatory" aria-label="Observatory">
       <header className="observatory__intro">
-        <p className="eyebrow">Observatory</p>
+        <p className="observatory__eyebrow">Observatory</p>
         <h1 className="observatory__title">{headline(report)}</h1>
         <p className="observatory__summary">
           {ORDER.map((severity, i) => (
@@ -85,21 +91,19 @@ export function Observatory({
       </header>
 
       <div className="observatory__bar">
-        <label className="field observatory__filter">
-          <span className="sr-only">Minimum severity</span>
-          <select
-            className="field__control"
-            value={severityMin}
-            onChange={(event) => onSeverityChange(event.target.value)}
-          >
-            <option value="info">All findings</option>
-            <option value="warning">Warnings and errors</option>
-            <option value="error">Errors only</option>
-          </select>
-          <span className="field__adornment">
-            <Icon name="chevron" size={16} />
-          </span>
-        </label>
+        <div className="segmented" role="group" aria-label="Minimum severity">
+          {FLOORS.map(([value, label]) => (
+            <button
+              key={value}
+              type="button"
+              className="segmented__option"
+              aria-pressed={severityMin === value}
+              onClick={() => onSeverityChange(value)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
         {report.count < report.total && (
           <p className="observatory__note">
             Showing {report.count} of {report.total} findings at this severity floor.

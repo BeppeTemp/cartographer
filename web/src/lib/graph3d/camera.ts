@@ -25,6 +25,8 @@ export interface Viewport {
   fov: number;
   /** Pixels on the right hidden behind a floating panel. */
   occludedRight: number;
+  /** Pixels on the left hidden behind a floating panel (the concept list). */
+  occludedLeft?: number;
 }
 
 /** Focus lasts this long, eased in and out, cancelled by any input. */
@@ -67,7 +69,8 @@ export function focusPose(node: Vec3, camera: Vec3, radius: number, view: Viewpo
   right = normalize(right);
   const worldPerPixel = (2 * distance * Math.tan(((view.fov / 2) * Math.PI) / 180)) / Math.max(1, view.height);
   // Moving the look-at point right by d moves the node left on screen by d.
-  const shift = scale(right, (Math.max(0, view.occludedRight) / 2) * worldPerPixel);
+  const net = Math.max(0, view.occludedRight) - Math.max(0, view.occludedLeft ?? 0);
+  const shift = scale(right, (net / 2) * worldPerPixel);
   const lookAt = add(node, shift);
   return { position: add(lookAt, scale(back, distance)), lookAt };
 }
@@ -80,7 +83,8 @@ export function focusPose(node: Vec3, camera: Vec3, radius: number, view: Viewpo
 export function framePose(centroid: Vec3, radius: number, camera: Vec3, lookAt: Vec3, view: Viewport): Pose {
   const back = normalize(sub(camera, lookAt));
   const vertical = ((view.fov / 2) * Math.PI) / 180;
-  const aspect = Math.max(1, view.width - Math.max(0, view.occludedRight)) / Math.max(1, view.height);
+  const visible = view.width - Math.max(0, view.occludedRight) - Math.max(0, view.occludedLeft ?? 0);
+  const aspect = Math.max(1, visible) / Math.max(1, view.height);
   const horizontal = Math.atan(Math.tan(vertical) * aspect);
   const half = Math.min(vertical, horizontal);
   const distance = (radius * 1.12) / Math.sin(half);

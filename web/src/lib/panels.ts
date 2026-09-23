@@ -3,7 +3,7 @@
  * localStorage is the right store (never a token, never content), and every
  * access is guarded: a private window throws on the first read.
  */
-export type PanelName = "rail" | "list" | "3d" | "motion";
+export type PanelName = "rail" | "list" | "motion";
 
 const PREFIX = "cartographer.panel.";
 

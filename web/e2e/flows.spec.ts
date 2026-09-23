@@ -49,11 +49,11 @@ test("type and status filters update the graph and the count", async ({ page }) 
   await types.getByRole("button", { name: /^Runbook/ }).click();
   await expect.poll(() => listedConcepts(page)).toEqual(["infra/firewall"]);
 
-  await types.getByRole("button", { name: "Clear filters" }).click();
+  await types.getByRole("button", { name: "Clear 1 filter" }).click();
   await types.getByRole("button", { name: /^deprecated/ }).click();
   await expect.poll(() => listedConcepts(page)).toEqual(["infra/legacy-vpn"]);
 
-  await types.getByRole("button", { name: "Clear filters" }).click();
+  await types.getByRole("button", { name: "Clear 1 filter" }).click();
   await expect.poll(() => listedConcepts(page)).toEqual(INFRA);
 });
 
@@ -64,7 +64,7 @@ test("the Observatory's severity floor updates its count", async ({ page }) => {
   const before = await observatory.locator(".observatory__finding").count();
   expect(before).toBeGreaterThan(0);
 
-  await observatory.getByRole("combobox", { name: "Minimum severity" }).selectOption("error");
+  await observatory.getByRole("group", { name: "Minimum severity" }).getByRole("button", { name: "Errors only" }).click();
   await expect(observatory.getByText("Nothing to report")).toBeVisible();
   await expect(observatory.getByText(`Showing 0 of ${before} findings`)).toBeVisible();
 });
