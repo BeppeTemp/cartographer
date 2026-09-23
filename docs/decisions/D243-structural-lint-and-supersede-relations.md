@@ -47,3 +47,8 @@ today starts failing. The graph algorithms (`WeakComponents`,
 `ArticulationPoints`) are in `internal/graphalgo`, checked against a
 brute-force reference. A missing successor outside what the caller may write is
 refused by the policy before the handler, with the same text as a hidden one.
+Because the structural checks read the whole graph, `island`, `cut_concept`,
+`link_to_retired` and `map_misfit` (`lint.WholeGraphChecks`) are withheld from
+a caller that cannot see the whole KB, as the Atlas UI's lint route serves
+narrowed tokens: a `cut_concept` on a visible page counts and names the hidden
+concepts it cuts off. The browser suite's non-disclosure test found this.

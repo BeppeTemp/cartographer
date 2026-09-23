@@ -482,6 +482,11 @@ func uiVisibleFindings(ctx requestContext, k *kb.KB, scope string) ([]lint.Findi
 	whole := WholeVisible(ctx, k, false)
 	out := make([]lint.Finding, 0, len(findings))
 	for _, f := range findings {
+		// Structural checks read the whole graph (D243): on a visible concept
+		// they still count and name hidden ones.
+		if !whole && lint.WholeGraphChecks[f.Check] {
+			continue
+		}
 		concept := uiFindingConcept(f.Path)
 		if concept == "" {
 			if whole {

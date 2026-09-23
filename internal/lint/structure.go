@@ -29,6 +29,19 @@ const (
 	mapMisfitMajorityDen   = 3
 )
 
+// WholeGraphChecks are the checks computed on the whole-KB graph whose very
+// presence, let alone their message, depends on concepts other than the one
+// they are reported on. A caller that cannot see the whole KB must not receive
+// them: a cut_concept on a visible page counts, and names, the hidden ones it
+// cuts off. broken_relation is not among them — it reads only the concept's
+// own frontmatter.
+var WholeGraphChecks = map[string]bool{
+	"island":          true,
+	"cut_concept":     true,
+	"link_to_retired": true,
+	"map_misfit":      true,
+}
+
 // retired is the status vocabulary's "no longer current" (docs/data-plane.md):
 // deprecated, or superseded — what supersede writes. disputed is not retired.
 func retired(status string) bool { return status == "deprecated" || status == "superseded" }
