@@ -9,7 +9,11 @@ automatic PR workflow.
 1. Use `atlas_overview` or `map_list` to understand the KB shape.
 2. Use `search` to find candidates.
 3. Read only the relevant concept or section with `concept_read`.
-4. Follow links with `graph_neighbors` when nearby context matters.
+4. Follow links with `graph_neighbors` when nearby context matters, or ask
+   `graph_context` for the concepts most related to a question or to a few
+   concepts, ranked, in one call.
+5. After creating a concept, ask `link_suggest` which existing concepts it
+   should probably link to.
 
 Search results and indexes are derived. The Markdown concept remains the source
 of truth.

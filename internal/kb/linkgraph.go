@@ -1,0 +1,78 @@
+package kb
+
+import (
+	"sort"
+
+	"github.com/BeppeTemp/cartographer/internal/graphalgo"
+	"github.com/BeppeTemp/cartographer/internal/okf"
+)
+
+// NodeFacets are the facts about a concept the graph tools report beside it.
+type NodeFacets struct {
+	Title      string
+	Type       string
+	Status     string
+	Collection string
+}
+
+// LinkGraph is the int-indexed projection of the link graph that the
+// algorithms in internal/graphalgo run on (D242): only existing concepts a
+// caller's include predicate accepts, links to anything else dropped, no
+// self-links, no duplicates.
+type LinkGraph struct {
+	// IDs are the nodes in ascending order; a node's index is its position.
+	IDs    []okf.ConceptID
+	Index  map[okf.ConceptID]int
+	Facets []NodeFacets
+	Graph  *graphalgo.Graph
+}
+
+// LinkGraph projects the current cached view (D241) onto the concepts include
+// accepts (nil accepts all), in O(V+E). include is called at most once per
+// concept.
+//
+// The projection is what makes the graph tools safe for a narrowed principal:
+// hidden concepts are removed before anything is computed, so the answer is
+// the one the same algorithm gives on a KB in which they do not exist.
+// Filtering a result computed on the whole graph instead would leak them
+// through scores, distances and paths.
+func (kb *KB) LinkGraph(include func(id string) bool) (*LinkGraph, error) {
+	view, err := kb.graphView()
+	if err != nil {
+		return nil, err
+	}
+	ids := make([]okf.ConceptID, 0, len(view.exists))
+	for id := range view.exists {
+		if include == nil || include(string(id)) {
+			ids = append(ids, id)
+		}
+	}
+	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+	lg := &LinkGraph{
+		IDs:    ids,
+		Index:  make(map[okf.ConceptID]int, len(ids)),
+		Facets: make([]NodeFacets, len(ids)),
+	}
+	for i, id := range ids {
+		lg.Index[id] = i
+		f := view.facets[id]
+		lg.Facets[i] = NodeFacets{Title: f.Title, Type: f.Type, Status: f.Status, Collection: conceptCollection(id)}
+	}
+	g := &graphalgo.Graph{N: len(ids), Out: make([][]int, len(ids)), In: make([][]int, len(ids))}
+	for i, id := range ids {
+		for target := range view.adj.out[id] {
+			j, ok := lg.Index[target]
+			if !ok || j == i {
+				continue
+			}
+			g.Out[i] = append(g.Out[i], j)
+			g.In[j] = append(g.In[j], i)
+		}
+	}
+	for i := range ids {
+		sort.Ints(g.Out[i])
+		sort.Ints(g.In[i])
+	}
+	lg.Graph = g
+	return lg, nil
+}

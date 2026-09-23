@@ -200,7 +200,7 @@ and the publication of a new view. A view is immutable once published: every
 graph reader takes the current one after validating and traverses it without
 the lock, so a concurrent write can only make the *next* read see a newer
 view. Writes are atomic renames, so a validation reads either the old file or
-the new one, never a torn one. The maps a view exposes (`LinkGraph`,
+the new one, never a torn one. The maps a view exposes (`Links`,
 `IncomingLinks`) are shared across readers and must never be mutated.
 
 ## Operator recovery

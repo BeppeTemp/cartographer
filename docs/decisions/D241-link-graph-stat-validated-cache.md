@@ -54,5 +54,5 @@ script. The policy change is proved the same way in
 does (the direct form wins over an expanded `index.md`) and never runs a full
 validation. A file rewritten with its size, mode and an old modification time
 restored is not detected until one of them changes; git has the same limit.
-The maps `LinkGraph` and `IncomingLinks` return are shared and must never be
+The maps `Links` and `IncomingLinks` return are shared and must never be
 mutated.
