@@ -237,6 +237,32 @@ func TestUIAPI_ConceptCarriesBodyOutlineAndNeighbors(t *testing.T) {
 	}
 }
 
+// The panel reads both directions from one graph read (D241); a concept that
+// links to itself is still not its own neighbour, and a broken link is still
+// kept apart after the graph changed on disk.
+func TestUIAPI_ConceptNeighborsFollowTheFiles(t *testing.T) {
+	multi := NewMultiKBServer("test")
+	k := uiFixtureKB(t, "docs")
+	multi.MountKB("docs", func(s *Server) { RegisterKBTools(s, k, Deps{}) })
+	multi.EnableWeb(nil)
+	handler := auth.NewTokenStore(nil).Middleware(multi.Handler())
+	path := UIAPIPrefix + "/kbs/docs/concept?id=visible/beta"
+	if got := decodeUI(t, getUI(t, handler, path, ""))["outbound"].([]interface{}); len(got) != 1 {
+		t.Fatalf("outbound before = %v", got)
+	}
+	file := filepath.Join(k.DataRoot(), "visible", "beta.md")
+	if err := os.WriteFile(file, []byte("---\ntype: Note\ntitle: Beta\n---\nSelf [me](beta.md), [gone](gone.md), [a](alpha.md).\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	body := decodeUI(t, getUI(t, handler, path, ""))
+	if got := body["outbound"].([]interface{}); len(got) != 1 || got[0] != "visible/alpha" {
+		t.Errorf("outbound = %v, want only visible/alpha", got)
+	}
+	if got := body["broken"].([]interface{}); len(got) != 1 || got[0] != "visible/gone" {
+		t.Errorf("broken = %v", got)
+	}
+}
+
 // restrictedUIHandler wires a token narrowed to the "visible" Map: the shape a
 // UI must never be able to see past.
 func restrictedUIHandler(t *testing.T) http.Handler {

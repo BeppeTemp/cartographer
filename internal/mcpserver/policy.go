@@ -391,15 +391,13 @@ func conceptClass(k *kb.KB, id string) (mapName, journalName, typ string) {
 			}
 		}
 	}
+	// The type comes from the graph cache's facet lookup (D241), which
+	// resolves the file as ReadConcept does and re-reads it only when its
+	// signature changed: this runs once per concept in every visibility
+	// filter. No frontmatter, one that does not parse, or no type → "".
 	if conceptID, err := okf.PathToID(id + ".md"); err == nil {
-		if c, err := k.ReadConcept(conceptID); err == nil {
-			if fm, _, ok := okf.SplitFrontmatter(c.Content); ok {
-				if parsed, err := okf.ParseFrontmatter(fm); err == nil {
-					if t, ok := parsed.Get("type"); ok {
-						typ, _ = t.(string)
-					}
-				}
-			}
+		if f := k.ConceptFacets(conceptID); f.HasFrontmatter && f.Parsed {
+			typ = f.Type
 		}
 	}
 	return

@@ -2,10 +2,8 @@ package kb
 
 import (
 	"fmt"
-	"io/fs"
 	"os"
 	"path"
-	"path/filepath"
 	"regexp"
 	"strings"
 
@@ -376,33 +374,41 @@ func (kb *KB) AssetExists(relPath string) bool {
 	return err == nil && info.Mode().IsRegular()
 }
 
-// buildLinkAdjacency derives the link graph from the files on every call.
-// physicalPath, rather than IDToPath(id), is essential for an expanded
-// concept: its ID is map/concept but its body lives in map/concept/index.md.
+// buildLinkAdjacency returns the link graph of the current cached view
+// (D241): validated against the files on every call, so it always follows
+// them, but re-parsing only what changed. The maps belong to an immutable view
+// and must not be mutated.
 func (kb *KB) buildLinkAdjacency() (linkAdjacency, error) {
-	graph := linkAdjacency{
-		out: make(map[okf.ConceptID]map[okf.ConceptID]struct{}),
-		in:  make(map[okf.ConceptID]map[okf.ConceptID]struct{}),
+	view, err := kb.graphView()
+	if err != nil {
+		return linkAdjacency{}, err
 	}
-	err := kb.walkConceptPaths(func(id okf.ConceptID, physicalPath, content string) error {
-		_, body, _ := okf.SplitFrontmatter(content)
-		if graph.out[id] == nil {
-			graph.out[id] = make(map[okf.ConceptID]struct{})
-		}
-		for _, target := range ExtractLinks(body, physicalPath, kb.AssetExists) {
-			graph.out[id][target] = struct{}{}
-			if graph.in[target] == nil {
-				graph.in[target] = make(map[okf.ConceptID]struct{})
-			}
-			graph.in[target][id] = struct{}{}
-		}
-		return nil
-	})
-	return graph, err
+	return view.adj, nil
+}
+
+// LinkGraph is the whole link graph at one moment: both directions and the
+// set of ids that are concepts. It belongs to an immutable cached view
+// (D241): callers read it freely and must never mutate it.
+type LinkGraph struct {
+	Out    map[okf.ConceptID]map[okf.ConceptID]struct{}
+	In     map[okf.ConceptID]map[okf.ConceptID]struct{}
+	Exists map[okf.ConceptID]struct{}
+}
+
+// LinkGraph validates the cache against the files once and returns the
+// current graph, for a caller that needs several lookups to agree with each
+// other and not to re-validate per lookup.
+func (kb *KB) LinkGraph() (LinkGraph, error) {
+	view, err := kb.graphView()
+	if err != nil {
+		return LinkGraph{}, err
+	}
+	return LinkGraph{Out: view.adj.out, In: view.adj.in, Exists: view.exists}, nil
 }
 
 // IncomingLinks returns the derived inbound links keyed by target concept.
-// The graph is computed on demand so it always follows the KB files.
+// The graph is validated against the KB files on every call (D241). The
+// returned map is shared and must not be mutated.
 func (kb *KB) IncomingLinks() (map[okf.ConceptID]map[okf.ConceptID]struct{}, error) {
 	graph, err := kb.buildLinkAdjacency()
 	if err != nil {
@@ -416,6 +422,16 @@ func (kb *KB) IncomingLinks() (map[okf.ConceptID]map[okf.ConceptID]struct{}, err
 // conceptID → minimum distance from the starting concept. The starting concept
 // and self-edges are not included. depth <= 0 defaults to 1.
 func (kb *KB) GraphNeighbors(id okf.ConceptID, depth int, directions ...string) (map[string]int, error) {
+	graph, err := kb.LinkGraph()
+	if err != nil {
+		return nil, err
+	}
+	return graph.Neighbors(id, depth, directions...)
+}
+
+// Neighbors is GraphNeighbors over this graph, for a caller that already
+// holds one and needs its other lookups to agree with the traversal.
+func (g LinkGraph) Neighbors(id okf.ConceptID, depth int, directions ...string) (map[string]int, error) {
 	if depth <= 0 {
 		depth = 1
 	}
@@ -427,11 +443,6 @@ func (kb *KB) GraphNeighbors(id okf.ConceptID, depth int, directions ...string) 
 		return nil, fmt.Errorf("invalid graph direction %q", direction)
 	}
 
-	graph, err := kb.buildLinkAdjacency()
-	if err != nil {
-		return nil, err
-	}
-
 	result := map[string]int{}
 	frontier := []okf.ConceptID{id}
 
@@ -440,12 +451,12 @@ func (kb *KB) GraphNeighbors(id okf.ConceptID, depth int, directions ...string) 
 		for _, cur := range frontier {
 			neighbors := make(map[okf.ConceptID]struct{})
 			if direction == "out" || direction == "both" {
-				for neighbor := range graph.out[cur] {
+				for neighbor := range g.Out[cur] {
 					neighbors[neighbor] = struct{}{}
 				}
 			}
 			if direction == "in" || direction == "both" {
-				for neighbor := range graph.in[cur] {
+				for neighbor := range g.In[cur] {
 					neighbors[neighbor] = struct{}{}
 				}
 			}
@@ -493,72 +504,18 @@ func (kb *KB) WalkConceptPaths(fn func(id okf.ConceptID, physicalPath, content s
 // walkConceptPaths is WalkConcepts' internal physical-path-aware variant.
 // physicalPath is always the actual KB-relative Markdown path for id.
 func (kb *KB) walkConceptPaths(fn func(id okf.ConceptID, physicalPath, content string) error) error {
-	files, err := kb.listMDFiles(".")
+	files, err := kb.conceptFiles()
 	if err != nil {
 		return err
 	}
-	svcFiles, err := kb.listServiceFiles()
-	if err != nil {
-		return err
-	}
-	files = append(files, svcFiles...)
-
-	for _, rel := range files {
-		rel = filepath.ToSlash(rel)
-		base := path.Base(rel)
-
-		if base == "index.md" {
-			dir := path.Dir(rel)
-			if dir == "." || len(strings.Split(dir, "/")) != 2 {
-				// Root index.md and map-level index.md ("map/index.md")
-				// stay reserved/excluded — only an expanded concept's
-				// index.md ("map/concept/index.md") is emitted.
-				continue
-			}
-			content, err := kb.ReadRaw(rel)
-			if err != nil {
-				continue
-			}
-			if err := fn(okf.ConceptID(dir), rel, content); err != nil {
-				return err
-			}
-			continue
-		}
-
-		if okf.IsReserved(base) {
-			continue
-		}
-		content, err := kb.ReadRaw(rel)
+	for _, f := range files {
+		content, err := kb.ReadRaw(f.rel)
 		if err != nil {
 			continue
 		}
-		id := okf.ConceptID(strings.TrimSuffix(rel, ".md"))
-		if err := fn(id, rel, content); err != nil {
+		if err := fn(f.id, f.rel, content); err != nil {
 			return err
 		}
 	}
 	return nil
-}
-
-// listServiceFiles lists .md files under services/ (relative to Root, e.g.
-// "services/keycloak.md"). These paths are resolvable via ReadRaw because
-// ResolvePath anchors the services/ tree at Root. Returns nil if services/
-// does not exist.
-func (kb *KB) listServiceFiles() ([]string, error) {
-	servicesDir := filepath.Join(kb.Root, "services")
-	if _, err := os.Stat(servicesDir); os.IsNotExist(err) {
-		return nil, nil
-	}
-	var files []string
-	err := filepath.WalkDir(servicesDir, func(p string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if !d.IsDir() && strings.HasSuffix(p, ".md") {
-			rel, _ := filepath.Rel(kb.Root, p)
-			files = append(files, filepath.ToSlash(rel))
-		}
-		return nil
-	})
-	return files, err
 }
