@@ -130,7 +130,7 @@ for that KB, with an error naming the tool, the KB and the setting. On the per-K
 | Tool | Purpose |
 |---|---|
 | `artifact_read(path, [encoding])` **[R]** | Reads a KB-root artifact file (`skills/<slug>/**`, `agents/<slug>.md`, `hooks/**`, `mcp/<slug>.json`, `instructions.md`, `templates/<slug>.md`) and returns its content, `encoding` (`text` or `base64`) and raw-byte `sha256` (the `if_match` for `artifact_write`). Non-UTF-8 bytes are always base64. |
-| `artifact_list()` **[R]** **[A]** | Lists provisioning artifacts and KB-only templates by kind, with files, raw-byte sha256 and executable metadata. Templates are scanned directly because they are absent from `provisioning.BuildManifest`. |
+| `artifact_list()` **[R]** **[A]** | Lists provisioning artifacts and KB-only templates by kind, with files, raw-byte sha256 and executable metadata. Templates are scanned directly because they are absent from `provisioning.BuildManifest`. The UI API's artifact routes share its enumerator (D238). |
 | `template_list()` **[R]** | Agent-visible template discovery: returns each template's slug, literal `type`, title and sorted variables, never its body. |
 | `artifact_write(path, content, [encoding], [executable], [if_match])` | Creates/updates a KB-root artifact file. `encoding` is `text` (default) or `base64`; the 256 KiB limit applies after decoding. `executable` is tri-state: omitted preserves an existing mode and defaults false on creation. Structured principal files remain UTF-8 and non-executable. Templates require parseable frontmatter with a literal non-empty `type` and only `{{identifier}}` variables in scalar/list values or body. On an existing file, `if_match` (raw-byte sha256) is **mandatory** (`already_exists` if missing, `stale_write` if wrong); per-kind validation applies before the write. Only registered if the KB has `allow_artifact_write: true`. This is the write end of what a materialized skill or agent advertises: their provenance block ([D138](decisions/D138-provenance-stamp-on-materialized-skills-and-agents-and.md)) names this tool, the KB and the path to call it with. |
 | `artifact_delete(path, if_match)` **[A]** | Removes a KB-root artifact file (and an eligible empty directory). Same per-KB flag as `artifact_write`. |
@@ -170,16 +170,19 @@ public either — it sits inside the same `OriginGuard` → bearer-token chain a
 
 | Route | Returns |
 |---|---|
-| `GET /api/ui/v1/kbs` | The mounted KBs the principal can see something in, with status, readiness, tool prefix and capabilities. |
+| `GET /api/ui/v1/kbs` | The mounted KBs the principal can see something in, with status, readiness, tool prefix, capabilities and `artifacts` (whether the principal may read the KB's artifacts). |
 | `GET /api/ui/v1/kbs/{kb}/overview` | Visible collections with their concept and expanded counts, concept totals by type and by status, lint counts by severity and by check, and — only for a caller that can see the whole KB — the replication facts. |
 | `GET /api/ui/v1/kbs/{kb}/graph?scope=&limit=` | A bounded graph snapshot: sorted nodes with their collection, `title` (when the concept has one), `type`, `status` and both degrees, directed deduplicated edges, and broken link targets kept apart from the nodes. `scope` is one top-level collection; `limit` defaults to 2,000 nodes and is clamped to 5,000, with the effective value echoed back. |
 | `GET /api/ui/v1/kbs/{kb}/concept?id=` | Title, parsed frontmatter, body, outline, content hash, visible inbound/outbound neighbours and this concept's broken link targets. |
 | `GET /api/ui/v1/kbs/{kb}/lint?scope=&severity_min=` | Findings at or above the floor, plus the unfiltered totals by severity and by check — the same "counts describe what you are not being shown" contract `lint` has. |
+| `GET /api/ui/v1/kbs/{kb}/artifacts` | What `artifact_list` lists, sorted by kind then name, each with `description` (a skill's or agent's frontmatter, a template's title), `content_hash` and `signed` (manifest artifacts only), `clients` (from the sync destination matrix) and its files' path, sha256, size and executable bit; `counts` per kind; `issues`, the skills left out for failing validation (D238). |
+| `GET /api/ui/v1/kbs/{kb}/artifact?kind=&name=` | One artifact as above, each file with its UTF-8 `content`, or `binary: true` / `truncated: true` (over 256 KiB) instead. Nothing is decrypted. |
 
 Every route is `GET`/`HEAD` only; anything else is `405` with `Allow`. A
 malformed parameter is `400` with `{"error": {code, message, field}}`; an
 unknown *or invisible* KB or concept is `404` with the same envelope, never
-`403`. Responses carry `Cache-Control: no-store`,
+`403`. The two artifact routes answer `404` unless the principal can see the
+whole KB: artifacts are whole-KB resources. Responses carry `Cache-Control: no-store`,
 `X-Content-Type-Options: nosniff` and `Referrer-Policy: no-referrer`.
 
 Filtering uses the same `Visible` / `VisibleCollection` / `WholeVisible`

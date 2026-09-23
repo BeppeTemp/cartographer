@@ -48,6 +48,19 @@ for (const viewport of [
       expect(await seriousViolations(page)).toEqual([]);
     });
 
+    test("Artifacts", async ({ page }) => {
+      await page.goto(`${ATLAS}&panel=artifacts&artifact=skill%2Freview`);
+      await expect(page.getByRole("article", { name: "Artifact skill/review" })).toBeVisible();
+      expect(await seriousViolations(page)).toEqual([]);
+      if (narrow) {
+        // The list only, and the detail full-width with a way back.
+        await page.getByRole("button", { name: "Back to artifacts" }).click();
+        await expect(page.getByRole("searchbox", { name: "Filter artifacts" })).toBeVisible();
+      } else {
+        await expect(page.getByRole("separator", { name: "Resize artifact list" })).toBeVisible();
+      }
+    });
+
     test("Observatory", async ({ page }) => {
       await page.goto(`${ATLAS}&panel=observatory`);
       await expect(page.getByRole("region", { name: "Observatory" })).toBeVisible();

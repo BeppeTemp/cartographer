@@ -1,4 +1,4 @@
-import type { Concept, GraphSnapshot, KBSummary, LintReport, Overview } from "./types";
+import type { Artifact, ArtifactList, Concept, GraphSnapshot, KBSummary, LintReport, Overview } from "./types";
 
 const BASE = "/api/ui/v1";
 
@@ -143,6 +143,17 @@ export function fetchLint(
 ): Promise<LintReport> {
   return get<LintReport>(
     `/kbs/${encodeURIComponent(kb)}/lint?severity_min=${encodeURIComponent(severityMin)}`,
+    signal,
+  );
+}
+
+export function fetchArtifacts(kb: string, signal?: AbortSignal): Promise<ArtifactList> {
+  return get<ArtifactList>(`/kbs/${encodeURIComponent(kb)}/artifacts`, signal);
+}
+
+export function fetchArtifact(kb: string, kind: string, name: string, signal?: AbortSignal): Promise<Artifact> {
+  return get<Artifact>(
+    `/kbs/${encodeURIComponent(kb)}/artifact?kind=${encodeURIComponent(kind)}&name=${encodeURIComponent(name)}`,
     signal,
   );
 }

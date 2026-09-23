@@ -8,6 +8,9 @@ interface Props {
   snapshot: GraphSnapshot | null;
   scope: string | null;
   panel: Panel;
+  /** The KB's artifact count, or null when this principal may not open the
+   *  Artifacts panel (D238): the entry is then not drawn at all. */
+  artifactsTotal: number | null;
   collapsed: boolean;
   /** False inside the narrow-layout sheet, which closes instead. */
   collapsible?: boolean;
@@ -26,6 +29,7 @@ export function LeftRail({
   snapshot,
   scope,
   panel,
+  artifactsTotal,
   collapsed,
   collapsible = true,
   typeFilter,
@@ -87,6 +91,24 @@ export function LeftRail({
             {lintTotal > 0 && <span className="rail__badge">{lintTotal}</span>}
           </button>
         </li>
+        {artifactsTotal !== null && (
+          <li>
+            <button
+              type="button"
+              className="rail__panel"
+              aria-label={`Artifacts, ${artifactsTotal}`}
+              title={collapsed ? "Artifacts" : undefined}
+              aria-current={panel === "artifacts" ? "page" : undefined}
+              onClick={() => onPanel("artifacts")}
+            >
+              <span className="rail__glyph">
+                <Icon name="artifacts" />
+              </span>
+              <span className="rail__label">Artifacts</span>
+              {artifactsTotal > 0 && <span className="rail__badge rail__badge--neutral">{artifactsTotal}</span>}
+            </button>
+          </li>
+        )}
       </ul>
 
       {!collapsed && (

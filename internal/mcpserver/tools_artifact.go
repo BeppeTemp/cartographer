@@ -294,72 +294,22 @@ func toolArtifactList(k *kb.KB, allowlist []provisioning.MCPAllowlistEntry) Tool
 			"KB-only templates. Each has files and sha256 values for artifact_write/artifact_delete.",
 		InputSchema: json.RawMessage(`{"type":"object","properties":{}}`),
 		Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
-			if err := rejectArtifactTreeSymlinks(k.Root); err != nil {
-				return errorResult("artifact_list: " + err.Error()), nil
-			}
-			kbRoots := map[string]string{artifactManifestKBKey: k.Root}
-			// Reuses provisioning.BuildManifest (no bundle) so the kind
-			// classification stays in a single place (D71 WP1).
-			m, err := provisioning.BuildManifest(nil, kbRoots, provisioning.BuildOptions{MCPAllowlists: map[string][]provisioning.MCPAllowlistEntry{artifactManifestKBKey: allowlist}})
+			catalog, err := listKBArtifacts(k, allowlist, nil)
 			if err != nil {
 				return errorResult("artifact_list: " + err.Error()), nil
 			}
-
 			var out []artifactEntry
-			for _, a := range m.Artifacts {
-				switch a.Kind {
-				case "skill", "agent", "hook", "mcp":
-					files, err := provisioning.ReadArtifactFiles(a, nil, kbRoots)
-					if err != nil {
-						continue // best-effort: skip an artifact that fails to read
-					}
-					prefix := artifactFilePrefix(a.Kind, a.Name)
-					entry := artifactEntry{Kind: a.Kind, Name: a.Name}
-					for _, f := range files {
-						entry.Files = append(entry.Files, artifactFileEntry{
-							Path:       prefix + f.Path,
-							SHA256:     sha256Hex(f.Content),
-							Executable: f.Executable,
-						})
-					}
-					out = append(out, entry)
-				case "instructions":
-					// The manifest artifact holds GENERATED content (D56, see
-					// generateKBInstructions) — not the raw curated file on
-					// disk. List the raw instructions.md instead, consistent
-					// with what artifact_read/artifact_write operate on.
-					data, readErr := os.ReadFile(filepath.Join(k.Root, "instructions.md"))
-					if readErr != nil {
-						continue // no curated instructions.md: nothing to list
-					}
-					out = append(out, artifactEntry{
-						Kind:  "instructions",
-						Name:  "instructions",
-						Files: []artifactFileEntry{{Path: "instructions.md", SHA256: sha256Hex(data)}},
+			for _, a := range catalog.Artifacts {
+				entry := artifactEntry{Kind: a.Kind, Name: a.Name}
+				for _, f := range a.Files {
+					entry.Files = append(entry.Files, artifactFileEntry{
+						Path:       f.Path,
+						SHA256:     sha256Hex(f.Content),
+						Executable: f.Executable,
 					})
 				}
+				out = append(out, entry)
 			}
-			templates, err := listTemplateSlugs(k)
-			if err != nil {
-				return errorResult("artifact_list: " + err.Error()), nil
-			}
-			for _, slug := range templates {
-				data, err := os.ReadFile(filepath.Join(k.Root, "templates", slug+".md"))
-				if err != nil {
-					return errorResult("artifact_list: " + err.Error()), nil
-				}
-				out = append(out, artifactEntry{
-					Kind: "template", Name: slug,
-					Files: []artifactFileEntry{{Path: "templates/" + slug + ".md", SHA256: sha256Hex(data)}},
-				})
-			}
-
-			sort.Slice(out, func(i, j int) bool {
-				if out[i].Kind != out[j].Kind {
-					return out[i].Kind < out[j].Kind
-				}
-				return out[i].Name < out[j].Name
-			})
 
 			res, _ := json.MarshalIndent(out, "", "  ")
 			return textResult(string(res)), nil
