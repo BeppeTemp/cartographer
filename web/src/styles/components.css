@@ -322,7 +322,7 @@
   padding-block-end: var(--space-4);
   scrollbar-gutter: stable;
   /* Rows fade out under the panel switcher instead of being cut by it. */
-  mask-image: linear-gradient(to bottom, transparent, #000 var(--space-3));
+  mask-image: linear-gradient(to bottom, transparent, black var(--space-3));
 }
 
 .rail__title {

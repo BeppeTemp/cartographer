@@ -346,9 +346,10 @@ of a relationship — the inspector lists every link.
   fixture (`generateSnapshot` in `web/src/test/fixtures.ts`), runs community
   detection and the deterministic layout, and prints both timings
   (`cd web && npx vitest run src/test/perf.test.tsx`). Ceilings are 1 s and
-  2 s: they catch an order-of-magnitude regression on any runner, not a few
-  percent. Reference measurement on an Apple-silicon laptop: communities
-  ~15 ms, layout ~380 ms for 2,000 nodes / ~3,900 edges.
+  12 s: they catch a several-fold regression on any runner, not a few
+  percent. Reference measurements for 2,000 nodes / ~3,900 edges: communities
+  ~15 ms and the 3D warm-up (300 ticks) ~2.2 s on an Apple M5; ~45 ms and
+  ~5.4 s on a GitHub-hosted runner.
 - **Selection feedback**: the same file asserts the inspector skeleton renders
   while the concept request is still pending, so feedback never waits on the
   network.
