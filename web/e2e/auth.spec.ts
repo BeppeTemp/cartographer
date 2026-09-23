@@ -100,7 +100,9 @@ test.describe("a narrowed principal", () => {
     await expect
       .poll(() => listedConcepts(page))
       .toEqual(["infra/cluster", "infra/cluster/nodes", "infra/dns", "infra/gateway", "infra/legacy-vpn"]);
-    await expect(page.getByRole("combobox", { name: "Knowledge Base" }).locator("option")).toHaveText(["atlas"]);
+    await page.getByRole("combobox", { name: "Knowledge Base" }).click();
+    await expect(page.getByRole("listbox", { name: "Knowledge Base" }).getByRole("option")).toHaveText(["atlas"]);
+    await page.keyboard.press("Escape");
 
     // Counts: no hidden type, status or collection shows up in a filter.
     const rail = page.getByRole("navigation", { name: "Atlas navigation" });
