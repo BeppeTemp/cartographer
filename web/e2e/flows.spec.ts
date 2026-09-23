@@ -58,6 +58,19 @@ test("type and status filters update the graph and the count", async ({ page }) 
   await expect.poll(() => listedConcepts(page)).toEqual(INFRA);
 });
 
+test("a filter that hides the selection keeps it open but draws no names", async ({ page }) => {
+  await page.goto(`${ATLAS}&scope=infra&concept=infra%2Fgateway`);
+  await waitForAtlas(page);
+  await expect(page.locator(".graph3d__label--selected")).toHaveText("Gateway");
+
+  const rail = page.getByRole("navigation", { name: "Atlas navigation" });
+  await rail.getByRole("button", { name: /^Runbook/ }).click();
+  await expect.poll(() => listedConcepts(page)).toEqual(["infra/firewall"]);
+  await expect(page.locator(".graph3d__labels .graph3d__label")).toHaveCount(0);
+  await expect(page.getByRole("complementary", { name: "Inspector for infra/gateway" })).toBeVisible();
+  await expect(page).toHaveURL(/concept=infra%2Fgateway/);
+});
+
 test("the Observatory's severity floor updates its count", async ({ page }) => {
   await page.goto(`${ATLAS}&panel=observatory`);
   const observatory = page.getByRole("region", { name: "Observatory" });

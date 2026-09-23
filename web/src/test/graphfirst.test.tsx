@@ -126,3 +126,57 @@ describe("wiki-links in a concept body", () => {
     vi.unstubAllGlobals();
   });
 });
+
+/**
+ * A filter that hides the selection keeps it selected, but the graph draws
+ * the filtered set as if nothing were (D240): no receded canvas, no names
+ * floating over nodes that are no longer drawn.
+ */
+describe("a selection hidden by a filter", () => {
+  beforeEach(() => {
+    window.history.replaceState(null, "", "/ui/?kb=homelab&concept=infra%2Fa");
+    localStorage.clear();
+    sessionStorage.clear();
+    sceneStub.reset();
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  const labels = () => [...document.querySelectorAll(".graph3d__label:not(.graph3d__tooltip)")].map((el) => el.textContent);
+
+  async function openRail() {
+    stubApi();
+    const user = userEvent.setup();
+    render(<App />);
+    await waitFor(() => expect(sceneStub.calls.focus).toContain("infra/a"));
+    await user.click(screen.getByRole("button", { name: /expand navigation/i }));
+    return user;
+  }
+
+  it("draws the filtered set at full colour, unfocused and unnamed", async () => {
+    const user = await openRail();
+    expect(labels().length).toBeGreaterThan(0);
+
+    const unfocused = sceneStub.calls.unfocus;
+    await user.click(await screen.findByRole("button", { name: /^Note/ }));
+    await waitFor(() => expect(sceneStub.calls.unfocus).toBeGreaterThan(unfocused));
+    expect(labels()).toEqual([]);
+    // Without a canvas token the stub's receded colour is an rgba() fade.
+    expect(sceneStub.calls.colours.at(-1)!.some((c) => c.startsWith("rgba"))).toBe(false);
+    expect(window.location.search).toContain("concept=infra%2Fa");
+    expect(screen.getByRole("complementary", { name: /inspector for infra\/a/i })).toBeInTheDocument();
+
+    const focused = sceneStub.calls.focus.length;
+    await user.click(screen.getByRole("button", { name: /^Note/ }));
+    await waitFor(() => expect(sceneStub.calls.focus.length).toBeGreaterThan(focused));
+    expect(sceneStub.calls.focus.at(-1)).toBe("infra/a");
+  });
+
+  it("names only the neighbours still drawn", async () => {
+    const user = await openRail();
+    await waitFor(() => expect(labels()).toContain("c"));
+
+    await user.click(await screen.findByRole("button", { name: /^Service/ }));
+    await waitFor(() => expect(labels()).not.toContain("c"));
+    expect(labels()).toContain("b");
+  });
+});

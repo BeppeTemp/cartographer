@@ -232,6 +232,10 @@ function View({
     return () => cancelAnimationFrame(frame);
   }, [ready, snapshot, hiddenIds, nodes]);
 
+  // A selection hidden by a filter stays selected (the URL and the Inspector
+  // keep it), but the graph draws the filtered set as if nothing were (D240).
+  const shown = selected && !hiddenIds.has(selected) ? selected : null;
+
   // Colour: by community or Map, the selection's neighbourhood kept and the
   // rest receded into the canvas. Re-resolved from the tokens on a theme change.
   useEffect(() => {
@@ -242,9 +246,9 @@ function View({
     const sevError = cssVar("--sev-error");
     const sevWarning = cssVar("--sev-warning");
     const near = new Set<string>();
-    if (selected) {
-      near.add(selected);
-      for (const n of scene.neighboursOf(selected)) near.add(n.id);
+    if (shown) {
+      near.add(shown);
+      for (const n of scene.neighboursOf(shown)) near.add(n.id);
     }
     const colours = snapshot.nodes
       .filter((n) => !hiddenIds.has(n.id))
@@ -256,7 +260,7 @@ function View({
             : severity === "warning"
               ? sevWarning
               : slots[colorBy === "community" ? communitySlot(communities, n.id) : collectionHue(n.collection ?? "")]!;
-        return !selected || near.has(n.id) ? base : fade(base, RECEDED, canvas);
+        return !shown || near.has(n.id) ? base : fade(base, RECEDED, canvas);
       });
     scene.setColours(colours, {
       background: canvas,
@@ -265,7 +269,7 @@ function View({
       signal: cssVar("--graph-signal"),
       ring: cssVar("--graph-ring"),
     });
-  }, [ready, snapshot, hiddenIds, colorBy, communities, themeKey, selected, severityByConcept]);
+  }, [ready, snapshot, hiddenIds, colorBy, communities, themeKey, shown, severityByConcept]);
 
   // Motion on or off.
   useEffect(() => {
@@ -273,12 +277,15 @@ function View({
   }, [ready, live, reducedMotion]);
 
   // Selection: focus the camera, name the neighbourhood, send the signals.
+  // Declared after the visible-set effect on purpose: on a filter change it
+  // re-runs in the same commit after `setData`, so the neighbours it names
+  // are the visible ones.
   useEffect(() => {
     const scene = sceneRef.current;
     const layer = labelsRef.current;
     if (!scene || !layer) return;
-    scene.setSelection(selected);
-    const node = selected ? scene.nodeById(selected) : undefined;
+    scene.setSelection(shown);
+    const node = shown ? scene.nodeById(shown) : undefined;
     if (!node) {
       scene.unfocus(savedPose.current);
       savedPose.current = null;
@@ -299,7 +306,7 @@ function View({
     return placeLabels(scene, layer, [node, ...byDegree].slice(0, LABEL_LIMIT), node, (id) =>
       shortNameOf(byId.get(id) ?? { id }),
     );
-  }, [ready, selected, reducedMotion, byId]);
+  }, [ready, shown, hiddenIds, reducedMotion, byId]);
 
   // The hovered link's node, named where it is.
   useEffect(() => {
