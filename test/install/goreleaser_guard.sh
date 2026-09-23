@@ -101,6 +101,16 @@ else
     _assert_pass ".dockerignore leaves the embedded bundle in the container build context"
 fi
 
+# --- install.ps1 stays ASCII (D238) ------------------------------------------
+# Windows PowerShell 5.1 reads a BOM-less script file as the ANSI code page: a
+# UTF-8 em dash carries the byte 0x94, a closing quote there, and `-File` dies
+# with a ParserError that only the Windows CI job would otherwise catch.
+if LC_ALL=C grep -q '[^ -~	]' "${REPO_ROOT}/install.ps1"; then
+    _assert_fail "install.ps1 contains non-ASCII bytes: $(LC_ALL=C grep -n '[^ -~	]' "${REPO_ROOT}/install.ps1" | head -3)"
+else
+    _assert_pass "install.ps1 is pure ASCII (Windows PowerShell 5.1 reads it as ANSI)"
+fi
+
 echo ""
 if [ "$INSTALL_FAILURES" -eq 0 ]; then
     echo "[GUARD] PASS"

@@ -1,4 +1,4 @@
-# Cartographer installer for Windows — install / update / uninstall (D238).
+# Cartographer installer for Windows - install / update / uninstall (D238).
 #
 # Usage, from PowerShell (Windows PowerShell 5.1 or PowerShell 7):
 #   irm https://raw.githubusercontent.com/BeppeTemp/cartographer/main/install.ps1 | iex
@@ -18,8 +18,12 @@
 #                             override the GitHub endpoints; for the test suite
 #                             (test/install/windows), not for users
 #
+# ASCII only, on purpose: Windows PowerShell 5.1 reads a BOM-less script
+# file as the ANSI code page, where UTF-8 punctuation (an em dash carries the
+# byte 0x94, a closing quote there) breaks the parser under `-File`.
+#
 # Piped through `iex`, this script runs in the caller's own session. So nothing
-# here calls `exit` — that would close the user's window — failures `throw`
+# here calls `exit` - that would close the user's window - failures `throw`
 # instead, which stops the script and, under `powershell -File`, exits 1; and
 # every preference variable is set inside a function, never at script scope,
 # so the caller's session is left as it was found.
@@ -158,8 +162,8 @@ function Install-Cartographer {
             throw "download failed: $downloadUrl/$tag/$asset ($($_.Exception.Message))"
         }
 
-        # Every release that carries Windows zips carries sha256sums.txt, so —
-        # stricter than install.sh, which still accepts pre-checksum tags — a
+        # Every release that carries Windows zips carries sha256sums.txt, so -
+        # stricter than install.sh, which still accepts pre-checksum tags - a
         # missing file is an error too. A file with no line for this asset is
         # the shape a tampered or truncated manifest has.
         $sums = Join-Path $tmp 'sha256sums.txt'
@@ -209,9 +213,9 @@ function Install-Cartographer {
         $rc = $LASTEXITCODE
         switch ($rc) {
             0 { }
-            1 { Write-Warning "provider sync is pending — the binary update succeeded; retry with: cartographer sync" }
-            2 { throw "new binary installed at $dest but the running native service could not be verified — inspect it (cartographer service status) and retry: cartographer upgrade-repair" }
-            default { throw "unexpected exit code $rc from 'cartographer upgrade-repair' — inspect the service and retry" }
+            1 { Write-Warning "provider sync is pending - the binary update succeeded; retry with: cartographer sync" }
+            2 { throw "new binary installed at $dest but the running native service could not be verified - inspect it (cartographer service status) and retry: cartographer upgrade-repair" }
+            default { throw "unexpected exit code $rc from 'cartographer upgrade-repair' - inspect the service and retry" }
         }
         Remove-CartographerStaleBinaries $dir
     } finally {
@@ -248,7 +252,7 @@ function Uninstall-Cartographer([bool]$BinaryOnly) {
         try {
             Remove-Item -LiteralPath $dest -Force
         } catch {
-            throw "cannot remove $dest — it is in use; stop the server first (cartographer service stop)"
+            throw "cannot remove $dest - it is in use; stop the server first (cartographer service stop)"
         }
         Write-Host "removed $dest"
     } else {
@@ -256,7 +260,7 @@ function Uninstall-Cartographer([bool]$BinaryOnly) {
     }
     Remove-CartographerStaleBinaries $dir
     Remove-CartographerFromUserPath $dir
-    Write-Host 'note: this removes the binary only — materialized agent artifacts and your KB data are untouched.'
+    Write-Host 'note: this removes the binary only - materialized agent artifacts and your KB data are untouched.'
 }
 
 switch ($Command) {

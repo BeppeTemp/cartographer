@@ -1,4 +1,4 @@
-# test/install/windows/run.ps1 — install.ps1 end to end on a real Windows host (D238).
+# test/install/windows/run.ps1 - install.ps1 end to end on a real Windows host (D238).
 #
 # Usage (CI's test-windows job; needs python on PATH for the fixture server):
 #   pwsh -File test/install/windows/run.ps1 -Shell pwsh -NewBin <v9.9.9 exe> -OldBin <v9.9.8 exe>
@@ -7,7 +7,7 @@
 # The counterpart of test/install/run.sh, with the difference that matters on
 # Windows: nothing here is faked except the release server. The binaries are
 # real builds, the zip is a real zip, and the script runs under the shell a user
-# would run it in — so what a POSIX host cannot see (a running executable being
+# would run it in - so what a POSIX host cannot see (a running executable being
 # locked, the per-user PATH in the registry, Windows PowerShell 5.1's own
 # quirks) is exercised for real.
 param(
@@ -152,7 +152,7 @@ try {
 }
 
 if ($script:failed -gt 0) {
-    Write-Host "[install.ps1/$Shell] FAIL — $($script:failed) assertion(s) failed"
+    Write-Host "[install.ps1/$Shell] FAIL - $($script:failed) assertion(s) failed"
     exit 1
 }
 Write-Host "[install.ps1/$Shell] PASS"
