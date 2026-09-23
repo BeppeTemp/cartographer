@@ -49,6 +49,7 @@ func RegisterKBTools(s *Server, k *kb.KB, deps Deps) {
 		k.AuthName = s.PolicyKB()
 	}
 	s.kbRef = k
+	s.kbArtifacts = artifactSource{allowlist: deps.MCPAllowlist, signer: deps.ArtifactSigner}
 	installPolicy(s, k)
 	register := func(t Tool) {
 		t.ResourceClass = resourceClassForTool(t.Name)

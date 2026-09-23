@@ -7,6 +7,7 @@
 export type IconName =
   | "atlas"
   | "observatory"
+  | "artifacts"
   | "panel-open"
   | "panel-close"
   | "list"
@@ -29,6 +30,8 @@ const PATHS: Record<IconName, string> = {
   atlas: "M6.5 7.5 L16.5 5.5 M6.5 7.5 L10 17 M16.5 5.5 L10 17 M16.5 5.5 L19 13",
   // A pulse over a baseline: the health of the atlas.
   observatory: "M3 12h4l2-5 4 10 2-5h6",
+  // A packed box: what the KB ships to its agents.
+  artifacts: "M4 8l8-4 8 4v8l-8 4-8-4z M4 8l8 4 8-4 M12 12v8",
   "panel-open": "M4 5h16v14H4z M9 5v14 M13 10l2 2-2 2",
   "panel-close": "M4 5h16v14H4z M9 5v14 M15 10l-2 2 2 2",
   list: "M9 7h11 M9 12h11 M9 17h11 M4.5 7h.01 M4.5 12h.01 M4.5 17h.01",

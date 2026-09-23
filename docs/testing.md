@@ -331,7 +331,12 @@ toolchain (D227). What they hold:
   throwing storage as the default and clamps at both ends
   (`src/test/layout.test.ts`); its splitter resizes from the keyboard, persists
   only what the viewer set, and is absent from the narrow layout
-  (`shell.test.tsx`).
+  (`shell.test.tsx`);
+- the Artifacts panel (D238, `src/test/artifacts.test.tsx`): absent when the
+  KB's `artifacts` flag is false, with a link to it falling back to the atlas;
+  grouped by kind, filtered, the selection round-tripping through the URL and
+  Back; an artifact's Markdown, frontmatter and script files render inert
+  (`security.test.tsx`).
 
 `make web` rebuilds the committed bundle; `make web-check` does a clean locked
 build and verifies `internal/webui/dist/provenance.json` still matches the

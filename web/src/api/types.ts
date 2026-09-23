@@ -13,6 +13,44 @@ export interface KBSummary {
   ready: boolean;
   tool_prefix?: string;
   capabilities?: Record<string, KBCapability>;
+  /** Whether this principal may open the Artifacts panel: artifacts are
+   *  whole-KB resources (D238). */
+  artifacts: boolean;
+}
+
+/** An agent client an artifact is materialized for. */
+export interface ArtifactClient {
+  id: string;
+  name: string;
+}
+
+export interface ArtifactFile {
+  path: string;
+  sha256: string;
+  size: number;
+  executable: boolean;
+  /** Detail route only: the UTF-8 text, absent when binary or truncated. */
+  content?: string;
+  binary?: boolean;
+  truncated?: boolean;
+}
+
+export interface Artifact {
+  kind: string;
+  name: string;
+  description?: string;
+  content_hash?: string;
+  /** Absent for instructions and templates, which sync does not sign. */
+  signed?: boolean;
+  clients: ArtifactClient[];
+  files: ArtifactFile[];
+}
+
+export interface ArtifactList {
+  artifacts: Artifact[];
+  counts: Record<string, number>;
+  /** Why a skill was left out of what the KB ships. */
+  issues: string[];
 }
 
 export interface CollectionSummary {

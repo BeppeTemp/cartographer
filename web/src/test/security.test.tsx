@@ -1,4 +1,7 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { App } from "../App";
+import { json, reviewSkill, stubApi } from "./fixtures";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Markdown } from "../components/Markdown";
 import { clearToken, hasToken, restoreToken, setToken } from "../api/client";
@@ -110,6 +113,36 @@ describe("the bearer token", () => {
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(url).not.toContain("secret-token");
     expect((init.headers as Record<string, string>).Authorization).toBe("Bearer secret-token");
+    vi.unstubAllGlobals();
+  });
+});
+
+describe("an artifact's files are rendered as untrusted content", () => {
+  it("keeps script in a SKILL.md, its frontmatter and a script file inert", async () => {
+    window.history.replaceState(null, "", "/ui/?kb=homelab&panel=artifacts&artifact=skill%2Freview");
+    const hostile = {
+      ...reviewSkill,
+      files: [
+        {
+          ...reviewSkill.files[0]!,
+          content:
+            '---\nname: review\ndescription: <img src=x onerror="window.__pwned = true">\n---\n# Steps\n\n<script>window.__pwned = true;</script>\n',
+        },
+        { path: "skills/review/run.sh", sha256: "s", size: 40, executable: true, content: "<script>window.__pwned = true;</script>" },
+      ],
+    };
+    stubApi({ "/artifact?": () => json(hostile) });
+    const user = userEvent.setup();
+    render(<App />);
+    const detail = await screen.findByRole("article", { name: "Artifact skill/review" });
+    expect(detail.querySelector("script, img")).toBeNull();
+    // Shown as text: no element carries the handler.
+    expect(detail.querySelector("[onerror]")).toBeNull();
+    expect(within(detail).getByText('<img src=x onerror="window.__pwned = true">')).toBeInTheDocument();
+    await user.click(within(detail).getByRole("tab", { name: "run.sh" }));
+    expect(detail.querySelector("script")).toBeNull();
+    expect(within(detail).getByText("<script>window.__pwned = true;</script>")).toBeInTheDocument();
+    expect((window as { __pwned?: boolean }).__pwned).toBeUndefined();
     vi.unstubAllGlobals();
   });
 });

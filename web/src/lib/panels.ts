@@ -28,7 +28,7 @@ export function writePanel(name: PanelName, value: boolean): void {
 
 /** A remembered panel width in px, under `cartographer.<name>`. Anything but a
  *  positive integer reads as the fallback. */
-export type WidthName = "inspector.width";
+export type WidthName = "inspector.width" | "artifacts.width";
 
 export function readWidth(name: WidthName, fallback: number): number {
   try {

@@ -2875,6 +2875,20 @@ func ManagedDestinationRoots(provider configurator.Provider, baseDir string) []s
 // Returns "" for an unsupported kind×provider combo — and likewise for a kind
 // or provider this binary does not know — which causes Apply to place the
 // artifact in Unsupported instead of materializing it.
+// Destinations lists, in registry order, the providers an artifact of this kind
+// is materialized for: the providers whose destination cell is supported. It
+// reads the same matrix as destDir, so what the Atlas UI shows as an
+// artifact's clients (D238) cannot drift from what sync writes.
+func Destinations(kind, name string) []configurator.Provider {
+	var out []configurator.Provider
+	for _, d := range configurator.Providers() {
+		if destDir(kind, name, d.Provider) != "" {
+			out = append(out, d.Provider)
+		}
+	}
+	return out
+}
+
 func destDir(kind, name string, provider configurator.Provider) string {
 	cell, ok := destinationMatrix[kind][provider]
 	if !ok || cell.unsupported {

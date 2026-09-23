@@ -51,8 +51,23 @@ const root = (title) => ({
   "data/log.md": "# Log\n\n",
 });
 
+// What atlas ships to agent clients (D238): one artifact of each kind the
+// local server lists. An MCP descriptor is left out on purpose: the local
+// server has no MCP allowlist, so it would never be listed.
+const artifacts = {
+  "skills/review/SKILL.md":
+    "---\nname: review\ndescription: Reviews a change before it lands\n---\n# Review\n\nRead the diff, then the tests.\n",
+  "skills/review/checklist.txt": "1. tests\n2. docs\n",
+  "agents/triage.md": "---\nname: triage\ndescription: Sorts incoming issues\n---\nYou sort issues.\n",
+  "hooks/guard/hook.json": '{"event":"SessionStart"}\n',
+  "hooks/guard/run.sh": "#!/bin/sh\nexit 0\n",
+  "instructions.md": "# House rules\n\nWrite concepts in English.\n",
+  "templates/runbook.md": "---\ntype: Runbook\ntitle: Runbook template\n---\n# {{title}}\n",
+};
+
 const atlas = {
   ...root("Atlas"),
+  ...artifacts,
 
   "data/infra/_map.md": map("Infrastructure"),
   // A dead entry in a map index: a finding that is about no concept (#320),

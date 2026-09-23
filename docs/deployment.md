@@ -502,6 +502,19 @@ browser (`cartographer.inspector.width` in localStorage) and clamped between
 320px and what leaves 280px of graph beside the rail; on a narrow screen the
 panel is a sheet and has no splitter (D239).
 
+The **Artifacts** panel, third in the rail, shows what the KB ships to agent
+clients: skills, subagents, hooks, MCP descriptors in the allowlist, the
+curated `instructions.md` and templates, grouped by kind with a filter. Bundled
+skills are not listed: they belong to the binary. Selecting one opens its
+description, signature state, content hash, the clients sync writes it to, and
+its files: Markdown rendered (frontmatter as a table), anything else as plain
+text, a binary or over-256-KiB file named but not shown. Skills left out for
+failing validation are listed above. The selection is in the URL
+(`panel=artifacts&artifact=<kind>/<name>`); the list width is remembered in
+`cartographer.artifacts.width`. The panel exists only for a principal that can
+read the whole KB, since artifacts are whole-KB resources; on a narrow screen
+the list and the detail take turns (D238).
+
 ### Runtime secrets
 
 Git credentials, MCP tokens, and the age/SOPS key (`SOPS_AGE_KEY_FILE`) are
