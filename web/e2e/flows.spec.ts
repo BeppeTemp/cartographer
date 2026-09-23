@@ -23,7 +23,8 @@ test("switching KB changes the graph and the overview", async ({ page }) => {
   await expect(page.getByRole("button", { name: /Infrastructure/ })).toBeVisible();
   expect(await listedConcepts(page)).toContain("infra/gateway");
 
-  await page.getByRole("combobox", { name: "Knowledge Base" }).selectOption("annex");
+  await page.getByRole("combobox", { name: "Knowledge Base" }).click();
+  await page.getByRole("option", { name: "annex" }).click();
   await expect(page).toHaveURL(/kb=annex/);
   await expect(page.getByRole("button", { name: /Library/ })).toBeVisible();
   await expect(page.getByRole("button", { name: /Infrastructure/ })).toHaveCount(0);

@@ -1,6 +1,7 @@
 import type { KBSummary } from "../api/types";
 import type { Theme } from "../lib/theme";
 import { Icon, type IconName } from "./Icon";
+import { KBPicker } from "./KBPicker";
 
 interface Props {
   kbs: KBSummary[];
@@ -73,24 +74,7 @@ export function TopBar({
       </div>
 
       {kbs.length > 0 && (
-        <label className="topbar__kb field">
-          <span className="sr-only">Knowledge Base</span>
-          <select
-            className="field__control"
-            value={activeKB ?? ""}
-            onChange={(event) => onKBChange(event.target.value)}
-          >
-            {kbs.map((kb) => (
-              <option key={kb.name} value={kb.name}>
-                {kb.name}
-                {kb.ready ? "" : " (degraded)"}
-              </option>
-            ))}
-          </select>
-          <span className="field__adornment">
-            <Icon name="chevron" size={16} />
-          </span>
-        </label>
+        <KBPicker kbs={kbs} activeKB={activeKB} onChange={onKBChange} />
       )}
 
       <button type="button" className="topbar__search field" onClick={onOpenPalette} aria-label="Search concepts">
