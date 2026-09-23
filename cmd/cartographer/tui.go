@@ -1236,7 +1236,7 @@ func (m Model) viewServerPanel() string {
 }
 
 // setupHint points a machine that is not set up yet at the one command that
-// sets it up (D246): a loopback server with no service behind it, or a server
+// sets it up (D253): a loopback server with no service behind it, or a server
 // that answers with no KB mounted. A remote server is never this machine's to
 // set up, so it gets no hint.
 func setupHint(s *statusSnapshot) string {

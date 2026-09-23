@@ -300,7 +300,7 @@ regenerate this list with `make decisions-index`.
 - [D222 — sync checks the environment once, and a 401 names the variable it read](decisions/D222-sync-checks-the-environment-once-and-the-401-names.md)
 - [D224 — Detection records which heuristic matched, and the evidence is labelled with it](decisions/D224-detection-records-which-heuristic-matched.md)
 - [D225 — Crush is a provider, and the file we write is the deprecated JSON](decisions/D225-crush-is-a-provider-and-its-config-is-the-json.md)
-- [D246 — `cartographer setup` chains the existing commands, and plans before it changes anything](decisions/D246-setup-plans-before-it-changes-anything.md)
+- [D253 — `cartographer setup` chains the existing commands, and plans before it changes anything](decisions/D253-setup-plans-before-it-changes-anything.md)
 
 <a id="deployment-release"></a>
 

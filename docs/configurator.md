@@ -34,7 +34,7 @@ errors. `service status` retains 0 running, 3 stopped and 4 not installed.
 
 ### `cartographer setup`
 
-The first-run path in one command (D246): the native service, the first KB and the agent
+The first-run path in one command (D253): the native service, the first KB and the agent
 clients, then a health check. It adds no behaviour of its own — each step is the existing command
 (`service install`/`start`, `kb create`/`kb clone` with `--restart`, `connect --no-input`) — and it
 decides every step **before** running any:
