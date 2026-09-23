@@ -29,7 +29,11 @@ and a separate `test-windows` job on `windows-latest`
 The Windows job is separate rather than a matrix leg on `test` because the
 required check on `main` is named literally `test`, which a matrix would rename.
 It sets `shell: bash` for every step — the Makefile recipes are POSIX shell — and
-installs `make`, which is not on the runner image. The working tree is LF on both
+installs `make`, which is not on the runner image, and turns off Defender's
+real-time scanning, which made the git-backed tests 15-20x slower than on
+Linux. It and the `web` job run on PRs only, and only when the PR touches
+their paths: a `changes` job decides, failing open, and the release-please PR
+always runs both (D255). The working tree is LF on both
 legs (`.gitattributes`): gofmt is line-ending-sensitive, so a CRLF checkout fails
 `fmt-check` on every file at once.
 

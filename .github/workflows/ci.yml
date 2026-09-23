@@ -8,7 +8,47 @@ on:
 permissions:
   contents: read
 
+# A new push to a PR supersedes the run in flight. Runs on main are never
+# cancelled: each merge gets its own record.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+# On main only `test` runs: with squash-merge the commit has just been tested
+# as the PR's merge ref, and repeating the Windows and browser suites there
+# cost six minutes per merge for no new signal (D255).
 jobs:
+  # Which of the slower jobs this PR needs. A path filter at the workflow level
+  # would leave a required check that never reports, blocking the PR; a job
+  # skipped by `if:` reports as passed.
+  changes:
+    name: changes
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: read
+    outputs:
+      windows: ${{ steps.filter.outputs.windows }}
+      web: ${{ steps.filter.outputs.web }}
+    steps:
+      - id: filter
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_REF: ${{ github.head_ref }}
+        run: |
+          files=$(gh api --paginate "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files" --jq '.[].filename')
+          printf '%s\n' "$files"
+          # Windows: Go code and what it embeds or reads, the Windows installer
+          # and its harness. Not the rebuilt UI bundle: its provenance test is
+          # platform-independent and runs on `test`.
+          any() { printf '%s\n' "$files" | grep -v '^internal/webui/dist/' | grep -qE "$1" && echo true || echo false; }
+          # The release PR runs everything: it is the one full pass over what
+          # the merged PRs add up to before a tag.
+          if [[ "$HEAD_REF" == release-please--* ]]; then any() { echo true; }; fi
+          echo "windows=$(any '^(cmd/|internal/|test/|go\.(mod|sum)$|Makefile$|install\.ps1$|\.gitattributes$|\.github/workflows/ci\.yml$)')" >> "$GITHUB_OUTPUT"
+          # Web: the frontend, and the Go server the browser suite drives.
+          echo "web=$(any '^(web/|cmd/|internal/|go\.(mod|sum)$|Makefile$|\.github/workflows/ci\.yml$)')" >> "$GITHUB_OUTPUT"
+
   test:
     name: test
     runs-on: ubuntu-latest
@@ -39,6 +79,10 @@ jobs:
   # to `test (ubuntu-latest)` — which silently un-protects the branch.
   test-windows:
     name: test-windows
+    needs: changes
+    # Fail open: if `changes` itself fails, run rather than skip — a skipped
+    # required check counts as passed.
+    if: github.event_name == 'pull_request' && !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.windows == 'true')
     runs-on: windows-latest
     defaults:
       run:
@@ -46,6 +90,12 @@ jobs:
         # the runner's default shell is PowerShell. Git for Windows ships bash.
         shell: bash
     steps:
+      # Defender scans every file the git-backed tests create and every process
+      # they spawn: with it on, internal/mcpserver and internal/kb ran 15-20x
+      # slower than on ubuntu. The runner is throwaway.
+      - name: Disable Defender real-time scanning
+        shell: pwsh
+        run: Set-MpPreference -DisableRealtimeMonitoring $true
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
         with:
@@ -81,9 +131,11 @@ jobs:
   # toolchain (D227); what protects the committed bundle there is a pure-Go
   # provenance test in internal/webui. This job is what actually builds the
   # frontend and runs its tests, and it only needs to run when the frontend
-  # changed.
+  # changed (the `changes` job decides).
   web:
     name: web
+    needs: changes
+    if: github.event_name == 'pull_request' && !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.web == 'true')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
