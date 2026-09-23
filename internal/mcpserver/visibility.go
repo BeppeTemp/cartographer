@@ -92,6 +92,9 @@ var advancedToolNames = map[string]bool{
 	"asset_delete":         true,
 	"pr_status":            true,
 	"pr_finalize":          true,
+	// graph_path (D242): "how is X connected to Y" is an investigation, not
+	// a step of the normal loop; graph_context and link_suggest are.
+	"graph_path": true,
 }
 
 // ToolAdvanced reports whether the named tool is hidden from tools/list under

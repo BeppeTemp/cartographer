@@ -3672,7 +3672,7 @@ func TestServer_ToolsProfile(t *testing.T) {
 	agentVisible := []string{
 		"atlas_overview", "index_get", "concept_read", "log_tail", "changes_since",
 		"concept_write", "concept_new", "concept_patch", "index_patch", "map_create", "map_update", "map_delete", "concept_expand", "log_append", "snapshot",
-		"map_list", "concept_list", "graph_neighbors", "search",
+		"map_list", "concept_list", "graph_neighbors", "graph_context", "link_suggest", "search",
 		"supersede", "concept_move", "concept_delete",
 		"conflicts_list", "git_conflict_resolve",
 		"artifact_read", "template_list",

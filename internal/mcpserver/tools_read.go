@@ -878,7 +878,7 @@ func toolGraphNeighbors(k *kb.KB) Tool {
 				depth = 1
 			}
 
-			graph, err := k.LinkGraph()
+			graph, err := k.Links()
 			if err != nil {
 				return errorResult(fmt.Sprintf("graph_neighbors %q: %v", params.ID, err)), nil
 			}
