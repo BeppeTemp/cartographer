@@ -27,7 +27,7 @@ there (`MINGW64_NT-…`, `MSYS_NT-…`, `CYGWIN_NT-…`).
 Linux and Windows, stop and report it.
 
 **On Windows, install with `install.ps1`**, from PowerShell (in `cmd`, prefix it with
-`powershell -NoProfile -Command`). `install.sh` refuses there on purpose (D245):
+`powershell -NoProfile -Command`). `install.sh` refuses there on purpose (D252):
 
 ```powershell
 irm https://raw.githubusercontent.com/BeppeTemp/cartographer/main/install.ps1 | iex

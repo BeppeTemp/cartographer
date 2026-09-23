@@ -1,4 +1,4 @@
-# test/install/windows/run.ps1 - install.ps1 end to end on a real Windows host (D245).
+# test/install/windows/run.ps1 - install.ps1 end to end on a real Windows host (D252).
 #
 # Usage (CI's test-windows job; needs python on PATH for the fixture server):
 #   pwsh -File test/install/windows/run.ps1 -Shell pwsh -NewBin <v9.9.9 exe> -OldBin <v9.9.8 exe>

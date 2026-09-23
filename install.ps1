@@ -1,4 +1,4 @@
-# Cartographer installer for Windows - install / update / uninstall (D245).
+# Cartographer installer for Windows - install / update / uninstall (D252).
 #
 # Usage, from PowerShell (Windows PowerShell 5.1 or PowerShell 7):
 #   irm https://raw.githubusercontent.com/BeppeTemp/cartographer/main/install.ps1 | iex

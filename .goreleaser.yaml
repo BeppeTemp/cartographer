@@ -27,7 +27,7 @@ builds:
 #
 # Windows overrides the format to zip: install.ps1 downloads
 # cartographer-windows-<arch>.zip, verifies it against its line in
-# sha256sums.txt and extracts cartographer.exe from it (D245). Renaming the asset
+# sha256sums.txt and extracts cartographer.exe from it (D252). Renaming the asset
 # or changing the format breaks every existing Windows `install.ps1 update`, the
 # same way a rename breaks install.sh.
 #

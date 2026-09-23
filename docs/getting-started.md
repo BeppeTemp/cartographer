@@ -41,7 +41,7 @@ you for the KB remote itself.
 the newest release, verified against `sha256sums.txt` (a missing or wrong
 checksum is a stop), installed into `%LOCALAPPDATA%\Cartographer\bin` and added
 to the **user** `PATH` — no administrator rights, nothing outside your profile
-([D245](decisions/D245-windows-installs-through-install-ps1-not-winget.md)).
+([D252](decisions/D252-windows-installs-through-install-ps1-not-winget.md)).
 Piped through `iex` it runs in your own shell, so `cartographer` works on the
 next line; other already-open windows see it only once reopened. It runs under
 Windows PowerShell 5.1 and PowerShell 7 alike.

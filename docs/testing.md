@@ -243,7 +243,7 @@ without a service.
 One scenario covers a platform the script deliberately does not support: with a
 stub `uname` reporting `MINGW64_NT-…` on `PATH`, `install.sh` must exit non-zero
 naming the `install.ps1` command, **without** falling through to the generic
-"unsupported OS" and without requesting an asset or writing a binary (D245). The
+"unsupported OS" and without requesting an asset or writing a binary (D252). The
 refusal itself is old; that it is actionable is what is asserted.
 
 `install.ps1` has its own suite, `test/install/windows/run.ps1`, run by the
@@ -279,7 +279,7 @@ The same guard covers the Windows packaging shape: `windows` among the build
 targets, a `format_overrides` entry making its archive a **zip** — what
 `install.ps1` downloads and extracts — no override producing a raw binary, and no
 `winget:` block, which would start opening pull requests against
-`microsoft/winget-pkgs` again (D245). Each assertion was
+`microsoft/winget-pkgs` again (D252). Each assertion was
 verified to fail when its target line is removed. Its Ruby is not executed — that would need a real Homebrew and
 GoReleaser environment, which is out of the deterministic gate (see below).
 

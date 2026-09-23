@@ -988,7 +988,7 @@ One channel per platform, and an upgrade uses the one the binary came from:
 
 ```bash
 brew install beppetemp/tap/cartographer     # macOS (cask from the tap)
-irm https://raw.githubusercontent.com/BeppeTemp/cartographer/main/install.ps1 | iex   # Windows (PowerShell, D245)
+irm https://raw.githubusercontent.com/BeppeTemp/cartographer/main/install.ps1 | iex   # Windows (PowerShell, D252)
 curl -fsSL https://raw.githubusercontent.com/BeppeTemp/cartographer/main/install.sh | sh
 ```
 

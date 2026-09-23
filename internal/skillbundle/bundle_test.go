@@ -102,7 +102,7 @@ func TestOpsKubernetesUpgradeEndsOnAVerifiedImage(t *testing.T) {
 }
 
 // TestOpsWindowsUpgradeUsesInstallPS1 guards what an agent upgrading
-// Cartographer on Windows cannot derive from anywhere else (D245): the skill is
+// Cartographer on Windows cannot derive from anywhere else (D252): the skill is
 // the only thing it reads. Without the install.ps1 pointer it reconstructs a
 // manual zip procedure from the repository — which is how the checksum step gets
 // dropped and how an extract over a running cartographer.exe fails with a
@@ -116,12 +116,12 @@ func TestOpsWindowsUpgradeUsesInstallPS1(t *testing.T) {
 	}
 	text := string(body)
 	if !strings.Contains(text, "install.ps1") {
-		t.Error("the Windows upgrade step no longer names install.ps1 (D245)")
+		t.Error("the Windows upgrade step no longer names install.ps1 (D252)")
 	}
 	for _, banned := range []string{"winget", "Expand-Archive", "Get-FileHash", "Invoke-WebRequest"} {
 		if strings.Contains(text, banned) {
 			t.Errorf("the ops skill mentions %q: Windows installs, upgrades and removals go "+
-				"through install.ps1, which verifies, swaps and repairs on its own (D245)", banned)
+				"through install.ps1, which verifies, swaps and repairs on its own (D252)", banned)
 		}
 	}
 }

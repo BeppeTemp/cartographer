@@ -334,7 +334,7 @@ regenerate this list with `make decisions-index`.
 - [D221 — the Kubernetes upgrade step ends on a verified image, not on a rollout](decisions/D221-the-kubernetes-upgrade-step-ends-on-a-verified-image.md)
 - [D223 — the published Windows zip is a documented fallback, not a second channel](decisions/D223-the-published-windows-zip-is-a-documented-fallback.md)
 - [D227 — The embedded Atlas UI](decisions/D227-the-embedded-atlas-ui.md)
-- [D245 — Windows installs through install.ps1, not winget](decisions/D245-windows-installs-through-install-ps1-not-winget.md)
+- [D252 — Windows installs through install.ps1, not winget](decisions/D252-windows-installs-through-install-ps1-not-winget.md)
 
 <a id="project-governance"></a>
 

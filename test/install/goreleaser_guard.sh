@@ -1,7 +1,7 @@
 #!/bin/sh
 # goreleaser_guard.sh — static guard for .goreleaser.yaml's packaging blocks:
 # the generated Cask install steps (D121, D199) and the Windows zip shape
-# (D245). It tests the repository template checked into this repo — the only
+# (D252). It tests the repository template checked into this repo — the only
 # repository-side source of truth for both — not the Cask GoReleaser publishes to
 # BeppeTemp/homebrew-tap.
 #
@@ -42,7 +42,7 @@ else
     assert_file_not_contains "$CODE_FILE" 'upgrade-repair' \
         "does not run upgrade-repair inside Homebrew's sandbox (the next sync repairs, D199)"
 
-    # --- Windows targets: the zip install.ps1 reads (D245) -------------------
+    # --- Windows targets: the zip install.ps1 reads (D252) -------------------
     assert_file_contains "$CODE_FILE" '      - windows' \
         "builds for windows"
     assert_file_contains "$CODE_FILE" 'format_overrides:' \
@@ -61,7 +61,7 @@ else
     else
         _assert_pass "no windows override produces a raw binary"
     fi
-    # winget was withdrawn (D245): a stray `winget:` block would start opening
+    # winget was withdrawn (D252): a stray `winget:` block would start opening
     # pull requests against microsoft/winget-pkgs again on the next tag.
     assert_file_not_contains "$CODE_FILE" 'winget:' \
         "publishes no winget manifest"
@@ -101,7 +101,7 @@ else
     _assert_pass ".dockerignore leaves the embedded bundle in the container build context"
 fi
 
-# --- install.ps1 stays ASCII (D245) ------------------------------------------
+# --- install.ps1 stays ASCII (D252) ------------------------------------------
 # Windows PowerShell 5.1 reads a BOM-less script file as the ANSI code page: a
 # UTF-8 em dash carries the byte 0x94, a closing quote there, and `-File` dies
 # with a ParserError that only the Windows CI job would otherwise catch.
