@@ -77,9 +77,12 @@ function Get-CartographerVersion([string]$Exe) {
     # Continue, not the caller's Stop: Windows PowerShell 5.1 turns a native
     # command's redirected stderr into a terminating error under Stop.
     $ErrorActionPreference = 'Continue'
-    $out = & $Exe version 2>$null | Select-Object -First 1
-    if ($LASTEXITCODE -ne 0 -or -not $out) { return 'unknown' }
-    return ([string]$out).Trim()
+    # Collect the whole output before picking the first line: Select-Object
+    # -First in the pipeline stops the native command early, and PowerShell
+    # then reports a non-zero $LASTEXITCODE for a run that succeeded.
+    $out = @(& $Exe version 2>$null)
+    if ($LASTEXITCODE -ne 0 -or $out.Count -eq 0) { return 'unknown' }
+    return ([string]$out[0]).Trim()
 }
 
 function Test-PathEntry([string]$PathValue, [string]$Dir) {
