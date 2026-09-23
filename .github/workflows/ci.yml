@@ -90,9 +90,10 @@ jobs:
         # the runner's default shell is PowerShell. Git for Windows ships bash.
         shell: bash
     steps:
-      # Defender scans every file the git-backed tests create and every process
-      # they spawn: with it on, internal/mcpserver and internal/kb ran 15-20x
-      # slower than on ubuntu. The runner is throwaway.
+      # Defender scans every file the git-backed tests create: turning it off
+      # took about a fifth off `make gate` (internal/mcpserver 190s -> 155s).
+      # The rest of the gap with ubuntu is git process creation. The runner is
+      # throwaway.
       - name: Disable Defender real-time scanning
         shell: pwsh
         run: Set-MpPreference -DisableRealtimeMonitoring $true

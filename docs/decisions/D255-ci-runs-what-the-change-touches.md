@@ -14,7 +14,9 @@ turns off Defender's real-time scanning before anything else.
 **Why.** Every PR waited on `test-windows`, about six minutes against two for
 `test`, and every merge ran all three jobs again on `main`. On Windows the
 git-backed packages (`internal/mcpserver`, `internal/kb`) ran 15-20x slower
-than on Linux, from process creation and the scanning of every temp file.
+than on Linux, mostly from git process creation; turning off Defender's
+scanning of every temp file took about a fifth off the Windows gate. Since the
+rest cannot be tuned away, the remaining lever is not running it.
 The cost: a PR is no longer tested on Windows unless it touches a Windows-relevant
 path, and `main` is no longer re-tested on Windows or in the browser after each
 merge. The release PR is the one full pass over what the merged PRs add up to.
