@@ -558,6 +558,20 @@ func keysEqual(a, b []string) bool {
 // the caller can warn; no-op with no error if the file or the block is
 // absent, or nothing in the span is foreign.
 func EvictForeignTablesFromBlock(path, begin, end, newBody string) ([]string, error) {
+	ownKeys := codexBodyHeaderKeys(newBody)
+	return EvictTablesFromBlock(path, begin, end, func(key []string) bool {
+		return keyDeclaredIn(key, ownKeys)
+	})
+}
+
+// EvictTablesFromBlock is EvictForeignTablesFromBlock with the ownership test
+// passed in: every top-level table group inside the block for which ours is
+// false is moved out, verbatim, to just before the begin marker. It serves a
+// caller that is about to delete the block rather than rewrite it, and so has
+// no next body to declare its keys (D58 hook blocks migrated out by D230: a
+// table Codex placed inside one, such as [notice], belongs to the user and
+// must outlive the block).
+func EvictTablesFromBlock(path, begin, end string, ours func(key []string) bool) ([]string, error) {
 	data, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, nil
@@ -579,10 +593,9 @@ func EvictForeignTablesFromBlock(path, begin, end, newBody string) ([]string, er
 		return nil, nil
 	}
 
-	ownKeys := codexBodyHeaderKeys(newBody)
 	var foreign []codexTableGroup
 	for _, g := range codexTableGroupsInRange(content, span{start: target.bodyStart, end: target.bodyEnd}) {
-		if !keyDeclaredIn(g.key, ownKeys) {
+		if !ours(g.key) {
 			foreign = append(foreign, g)
 		}
 	}

@@ -333,6 +333,87 @@ func TestApply_Codex_Hook_MigratesLegacyConfigTOML(t *testing.T) {
 	}
 }
 
+// An upgrade leaves a KB hook whose content did not change: nothing rewrites
+// it, so the D58 registration used to stay in config.toml for good, and
+// doctor's suggested `sync` changed nothing (#338). The first sync must
+// migrate it, and a status (NoHeal) must report it as divergent until then.
+func TestApply_Codex_Hook_UnchangedMigratesOnNextSync(t *testing.T) {
+	kbRoot := t.TempDir()
+	writeCodexHookKB(t, kbRoot, "notify", "PostToolUse", "concept_write", "./notify.sh")
+	baseDir := t.TempDir()
+	res := applyCodexHookKB(t, kbRoot, baseDir, provisioning.Lock{})
+
+	// What a pre-D230 client left behind: the block, next to the hooks.json
+	// entry the current client already wrote.
+	configPath := filepath.Join(baseDir, ".codex", "config.toml")
+	command := filepath.Join(baseDir, ".codex", "hooks", "notify", "notify.sh")
+	if err := os.WriteFile(configPath, []byte(legacyCodexConfig(command)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	findings := provisioning.VerifyManaged(res.NewLock, configurator.ProviderCodex, baseDir)
+	if len(findings) != 1 || findings[0].Name != "notify" || findings[0].Reason != provisioning.DriftUnregistered {
+		t.Fatalf("a registration still in config.toml must be unregistered drift, got %+v", findings)
+	}
+
+	applyCodexHookKB(t, kbRoot, baseDir, res.NewLock)
+
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "hooks.PostToolUse") || strings.Contains(string(data), "cartographer:hook:notify") {
+		t.Errorf("an unchanged hook's D58 registration must be migrated on sync:\n%s", data)
+	}
+	managed, stray, err := provisioning.HookRegistrations(baseDir, configurator.ProviderCodex, "notify")
+	if err != nil || managed != 1 || stray != 0 {
+		t.Errorf("HookRegistrations after sync = %d managed, %d stray, %v; want 1, 0", managed, stray, err)
+	}
+}
+
+// Codex's own rewrite of config.toml can land a table of the user's inside a
+// Cartographer hook block. Deleting the block during the migration must not
+// delete it (#338).
+func TestApply_Codex_Hook_MigrationKeepsForeignTablesInsideTheBlock(t *testing.T) {
+	kbRoot := t.TempDir()
+	writeCodexHookKB(t, kbRoot, "notify", "PostToolUse", "concept_write", "./notify.sh")
+	baseDir := t.TempDir()
+	configPath := filepath.Join(baseDir, ".codex", "config.toml")
+	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	command := filepath.Join(baseDir, ".codex", "hooks", "notify", "notify.sh")
+	legacy := "model = \"gpt-5\"\n\n" +
+		"# cartographer:hook:notify:begin\n" +
+		"[[hooks.PostToolUse]]\n" +
+		"matcher = \"concept_write\"\n" +
+		"[[hooks.PostToolUse.hooks]]\n" +
+		"type = \"command\"\n" +
+		"command = " + configurator.QuoteTOMLString(command) + "\n\n" +
+		"[notice]\n" +
+		"hide_rate_limit_model_nudge = true\n" +
+		"# cartographer:hook:notify:end\n"
+	if err := os.WriteFile(configPath, []byte(legacy), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	applyCodexHookKB(t, kbRoot, baseDir, provisioning.Lock{})
+
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := string(data)
+	if strings.Contains(content, "hooks.PostToolUse") || strings.Contains(content, "cartographer:hook:notify") {
+		t.Errorf("the hook's registration must be gone:\n%s", content)
+	}
+	for _, keep := range []string{`model = "gpt-5"`, "[notice]", "hide_rate_limit_model_nudge = true"} {
+		if !strings.Contains(content, keep) {
+			t.Errorf("config.toml lost %q:\n%s", keep, content)
+		}
+	}
+}
+
 // An inline one-liner carries no path marker: its D58 orphan is recognized by
 // its command alone (D127), and a user's identical-looking hook elsewhere with
 // a different command is not taken.
