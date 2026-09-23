@@ -386,24 +386,25 @@ func (kb *KB) buildLinkAdjacency() (linkAdjacency, error) {
 	return view.adj, nil
 }
 
-// LinkGraph is the whole link graph at one moment: both directions and the
-// set of ids that are concepts. It belongs to an immutable cached view
-// (D241): callers read it freely and must never mutate it.
-type LinkGraph struct {
+// Links is the whole link graph at one moment, as maps: both directions and
+// the set of ids that are concepts. It belongs to an immutable cached view
+// (D241): callers read it freely and must never mutate it. LinkGraph is the
+// int-indexed projection the graph algorithms run on.
+type Links struct {
 	Out    map[okf.ConceptID]map[okf.ConceptID]struct{}
 	In     map[okf.ConceptID]map[okf.ConceptID]struct{}
 	Exists map[okf.ConceptID]struct{}
 }
 
-// LinkGraph validates the cache against the files once and returns the
-// current graph, for a caller that needs several lookups to agree with each
-// other and not to re-validate per lookup.
-func (kb *KB) LinkGraph() (LinkGraph, error) {
+// Links validates the cache against the files once and returns the current
+// graph, for a caller that needs several lookups to agree with each other and
+// not to re-validate per lookup.
+func (kb *KB) Links() (Links, error) {
 	view, err := kb.graphView()
 	if err != nil {
-		return LinkGraph{}, err
+		return Links{}, err
 	}
-	return LinkGraph{Out: view.adj.out, In: view.adj.in, Exists: view.exists}, nil
+	return Links{Out: view.adj.out, In: view.adj.in, Exists: view.exists}, nil
 }
 
 // IncomingLinks returns the derived inbound links keyed by target concept.
@@ -422,7 +423,7 @@ func (kb *KB) IncomingLinks() (map[okf.ConceptID]map[okf.ConceptID]struct{}, err
 // conceptID → minimum distance from the starting concept. The starting concept
 // and self-edges are not included. depth <= 0 defaults to 1.
 func (kb *KB) GraphNeighbors(id okf.ConceptID, depth int, directions ...string) (map[string]int, error) {
-	graph, err := kb.LinkGraph()
+	graph, err := kb.Links()
 	if err != nil {
 		return nil, err
 	}
@@ -431,7 +432,7 @@ func (kb *KB) GraphNeighbors(id okf.ConceptID, depth int, directions ...string) 
 
 // Neighbors is GraphNeighbors over this graph, for a caller that already
 // holds one and needs its other lookups to agree with the traversal.
-func (g LinkGraph) Neighbors(id okf.ConceptID, depth int, directions ...string) (map[string]int, error) {
+func (g Links) Neighbors(id okf.ConceptID, depth int, directions ...string) (map[string]int, error) {
 	if depth <= 0 {
 		depth = 1
 	}

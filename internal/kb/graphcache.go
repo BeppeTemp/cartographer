@@ -179,6 +179,9 @@ type graphView struct {
 	entries []*graphEntry
 	adj     linkAdjacency
 	exists  map[okf.ConceptID]struct{}
+	// facets per id; when two files emit one id, the later in walk order
+	// wins, as GraphSnapshot's replay does.
+	facets map[okf.ConceptID]ConceptFacets
 }
 
 type graphCache struct {
@@ -371,9 +374,11 @@ func buildGraphView(entries []*graphEntry, generation uint64) *graphView {
 			in:  make(map[okf.ConceptID]map[okf.ConceptID]struct{}),
 		},
 		exists: make(map[okf.ConceptID]struct{}, len(entries)),
+		facets: make(map[okf.ConceptID]ConceptFacets, len(entries)),
 	}
 	for _, e := range entries {
 		v.exists[e.id] = struct{}{}
+		v.facets[e.id] = e.facets
 		if v.adj.out[e.id] == nil {
 			v.adj.out[e.id] = make(map[okf.ConceptID]struct{})
 		}

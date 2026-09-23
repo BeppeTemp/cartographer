@@ -206,7 +206,9 @@ carries one copy of the tool schemas instead of one per KB.
 
 - 🔧 **Full MCP tool suite** — complete list in [`docs/control-plane.md`](docs/control-plane.md)
 - 📖 **Read & navigation** — `atlas_overview`, `index_get`, `concept_read`, `map_list`,
-  `graph_neighbors` (outbound links or backlinks) and `concept_list` (scoped frontmatter facets)
+  `graph_neighbors` (outbound links or backlinks), `graph_context` (ranked context around a question
+  or concepts), `link_suggest` (links a concept probably lacks) and `concept_list` (scoped frontmatter
+  facets)
 - 🔍 **Search** — keyword: a pure-Go inverted index, or SQLite FTS5 with a trigram tokenizer when
   the KB has a persisted index
 - ✍️ **Validated writes** with optimistic concurrency (`if_match` / content-hash), including

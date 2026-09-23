@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/BeppeTemp/cartographer/internal/graphalgo"
 	"github.com/BeppeTemp/cartographer/internal/kb"
 	"github.com/BeppeTemp/cartographer/internal/lint"
 	"github.com/BeppeTemp/cartographer/internal/okf"
@@ -117,7 +118,7 @@ func BenchmarkGraphSnapshotWarm(b *testing.B) {
 // D241, one validation now.
 func BenchmarkLintScopeNeighbors(b *testing.B) {
 	k := syntheticKB(b)
-	if _, err := k.LinkGraph(); err != nil {
+	if _, err := k.Links(); err != nil {
 		b.Fatal(err)
 	}
 	b.ResetTimer()
@@ -125,5 +126,48 @@ func BenchmarkLintScopeNeighbors(b *testing.B) {
 		if _, err := lint.Run(k, "infra", true); err != nil {
 			b.Fatal(err)
 		}
+	}
+}
+
+// The D242 retrieval tools' work, warm: the projection plus the algorithm, as
+// each tool call does it (the handler adds only JSON shaping).
+func BenchmarkGraphContext(b *testing.B) {
+	k := syntheticKB(b)
+	if _, err := k.LinkGraph(nil); err != nil {
+		b.Fatal(err)
+	}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		lg, err := k.LinkGraph(nil)
+		if err != nil {
+			b.Fatal(err)
+		}
+		seeds := map[int]float64{lg.Index["infra/c0000"]: 1, lg.Index["apps/c0001"]: 0.5}
+		graphalgo.PersonalizedPageRank(lg.Graph, seeds, 0.25, 1e-4)
+		graphalgo.BFS(lg.Graph, []int{lg.Index["infra/c0000"], lg.Index["apps/c0001"]}, graphalgo.Both, 0)
+	}
+}
+
+func BenchmarkLinkSuggest(b *testing.B) {
+	k := syntheticKB(b)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		lg, err := k.LinkGraph(nil)
+		if err != nil {
+			b.Fatal(err)
+		}
+		graphalgo.ResourceAllocation(lg.Graph, lg.Index["infra/c0000"], 2)
+	}
+}
+
+func BenchmarkGraphPath(b *testing.B) {
+	k := syntheticKB(b)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		lg, err := k.LinkGraph(nil)
+		if err != nil {
+			b.Fatal(err)
+		}
+		graphalgo.ShortestPath(lg.Graph, lg.Index["infra/c0000"], lg.Index["ops/c0997"], graphalgo.Both, 6)
 	}
 }

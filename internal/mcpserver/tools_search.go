@@ -98,8 +98,24 @@ func handleSearch(ctx requestContext, k *kb.KB, live *liveIndex, deps Deps, args
 		limit = 20
 	}
 
+	hits, mode := keywordHits(ctx, k, live, deps, params.Query, params.Scope, limit)
+	result := map[string]interface{}{
+		"query":   params.Query,
+		"mode":    mode,
+		"count":   len(hits),
+		"results": hits,
+	}
+	out, _ := json.MarshalIndent(result, "", "  ")
+	return textResult(string(out)), nil
+}
+
+// keywordHits is search's ranking, shared with graph_context's seeding (D242)
+// so the two cannot disagree about which concepts match a query: the backend
+// choice, FTS5 with its in-memory fallback, visibility filtering, merge and
+// sort. It returns the hits and the mode search reports.
+func keywordHits(ctx requestContext, k *kb.KB, live *liveIndex, deps Deps, query, scope string, limit int) ([]searchHit, string) {
 	if deps.SQLIndex == nil {
-		hits := live.searchFiltered(params.Query, params.Scope, limit, func(id string) bool {
+		hits := live.searchFiltered(query, scope, limit, func(id string) bool {
 			return Visible(ctx, k, id)
 		})
 
@@ -109,31 +125,23 @@ func handleSearch(ctx requestContext, k *kb.KB, live *liveIndex, deps Deps, args
 				ID:      h.ID,
 				Score:   h.Score,
 				Title:   live.title(h.ID),
-				Snippet: live.snippet(h.ID, params.Query, snippetMaxChars),
+				Snippet: live.snippet(h.ID, query, snippetMaxChars),
 			})
 		}
-
-		result := map[string]interface{}{
-			"query":   params.Query,
-			"mode":    "keyword",
-			"count":   len(results),
-			"results": results,
-		}
-		out, _ := json.MarshalIndent(result, "", "  ")
-		return textResult(string(out)), nil
+		return results, "keyword"
 	}
 
 	// Prefer SQLite FTS5, fall back to the in-memory index when FTS5 fails.
 	var kwHits []searchHit
 	useSQL := true
-	sqlHits, err := deps.SQLIndex.SearchFTSFiltered(params.Query, params.Scope, limit, func(id string) bool {
+	sqlHits, err := deps.SQLIndex.SearchFTSFiltered(query, scope, limit, func(id string) bool {
 		return Visible(ctx, k, id)
 	})
 	if err != nil {
 		useSQL = false
 	} else {
 		for _, h := range sqlHits {
-			if params.Scope == "" || strings.HasPrefix(h.ID, params.Scope) {
+			if scope == "" || strings.HasPrefix(h.ID, scope) {
 				kwHits = append(kwHits, searchHit{
 					ID: h.ID, Score: h.Score,
 					Title:   live.title(h.ID),
@@ -143,14 +151,14 @@ func handleSearch(ctx requestContext, k *kb.KB, live *liveIndex, deps Deps, args
 		}
 	}
 	if !useSQL {
-		memHits := live.searchFiltered(params.Query, params.Scope, limit, func(id string) bool {
+		memHits := live.searchFiltered(query, scope, limit, func(id string) bool {
 			return Visible(ctx, k, id)
 		})
 		for _, h := range memHits {
 			kwHits = append(kwHits, searchHit{
 				ID: h.ID, Score: h.Score,
 				Title:   live.title(h.ID),
-				Snippet: live.snippet(h.ID, params.Query, snippetMaxChars),
+				Snippet: live.snippet(h.ID, query, snippetMaxChars),
 			})
 		}
 	}
@@ -164,18 +172,10 @@ func handleSearch(ctx requestContext, k *kb.KB, live *liveIndex, deps Deps, args
 	if len(kwHits) > limit {
 		kwHits = kwHits[:limit]
 	}
-	mode := "keyword"
 	if useSQL {
-		mode = "keyword_fts5"
+		return kwHits, "keyword_fts5"
 	}
-	result := map[string]interface{}{
-		"query":   params.Query,
-		"mode":    mode,
-		"count":   len(kwHits),
-		"results": kwHits,
-	}
-	out, _ := json.MarshalIndent(result, "", "  ")
-	return textResult(string(out)), nil
+	return kwHits, "keyword"
 }
 
 // sqlRebuildStats reports how many concepts were (re)indexed into

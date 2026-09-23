@@ -367,7 +367,7 @@ func uiConcept(w http.ResponseWriter, r *http.Request, k *kb.KB) {
 	}
 
 	// One graph read for both directions (D241).
-	graph, err := k.LinkGraph()
+	graph, err := k.Links()
 	if err != nil {
 		writeUIInternal(w, "concept: graph", err)
 		return
@@ -400,7 +400,7 @@ func uiConcept(w http.ResponseWriter, r *http.Request, k *kb.KB) {
 // target exists, so a missing one is kept apart instead of being offered as a
 // neighbour the UI would render as a dead chip. An existing-but-invisible
 // target falls out of both lists: reporting it as broken would disclose it.
-func uiVisibleNeighbors(ctx requestContext, k *kb.KB, graph kb.LinkGraph, links map[okf.ConceptID]struct{}, id string) (neighbours, broken []string) {
+func uiVisibleNeighbors(ctx requestContext, k *kb.KB, graph kb.Links, links map[okf.ConceptID]struct{}, id string) (neighbours, broken []string) {
 	neighbours, broken = []string{}, []string{}
 	for target := range links {
 		neighbor := string(target)

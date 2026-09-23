@@ -203,7 +203,7 @@ func Run(k *kb.KB, scope string, scopeNeighbors bool) ([]Finding, error) {
 
 	// One graph read serves the scope expansion and the orphan check (D241):
 	// a GraphNeighbors call per concept validated the whole KB each time.
-	graph, err := k.LinkGraph()
+	graph, err := k.Links()
 	if err != nil {
 		return nil, fmt.Errorf("lint.Run: link graph: %w", err)
 	}
