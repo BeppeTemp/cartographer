@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -932,12 +933,17 @@ func TestReadSyncWrap_SilentRemoteFetchesOnceThenServesLocal(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer ln.Close()
+	// The remote accepts and never answers. Counting its connections tells a
+	// fetch apart from a read that backs off; wall-clock time does not, since
+	// the kb_status handler alone can outlast FetchTimeout on macOS (#373).
+	var dials atomic.Int32
 	go func() {
 		for {
 			c, err := ln.Accept()
 			if err != nil {
 				return
 			}
+			dials.Add(1)
 			defer c.Close()
 		}
 	}()
@@ -959,12 +965,15 @@ func TestReadSyncWrap_SilentRemoteFetchesOnceThenServesLocal(t *testing.T) {
 	if !k.ReadFetchBackingOff() {
 		t.Fatal("the failed fetch did not start the read backoff")
 	}
-	start := time.Now()
+	first := dials.Load()
+	if first == 0 {
+		t.Fatal("the first read never reached the remote: no fetch ran")
+	}
 	resps = runMCPSequence(t, s, []string{init, call})
 	if got := decodeToolResult(t, resps[1]); got.IsError {
 		t.Fatalf("second read = %+v, want the local view", got)
 	}
-	if took := time.Since(start); took >= gitx.FetchTimeout {
-		t.Fatalf("second read took %s: it fetched again instead of backing off", took)
+	if got := dials.Load(); got != first {
+		t.Fatalf("second read dialled the remote (%d connections, want %d): it fetched again instead of backing off", got, first)
 	}
 }
