@@ -489,7 +489,7 @@ func cmdConnect(args []string) int {
 			fmt.Fprintln(os.Stderr, "hint:", probeErrorMessage(state, nil))
 		case probeUnreachable:
 			if !errors.Is(probeErr, client.ErrUnauthorized) {
-				fmt.Fprintln(os.Stderr, "hint: the local server isn't responding — run `cartographer service install` to run it as a native background service")
+				fmt.Fprintln(os.Stderr, "hint: the local server isn't responding — run `cartographer setup` (server, first KB and agents), or `cartographer service install` for the server alone")
 			}
 		}
 	}

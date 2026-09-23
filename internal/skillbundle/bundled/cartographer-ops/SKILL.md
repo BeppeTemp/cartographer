@@ -1,7 +1,7 @@
 ---
 name: cartographer-ops
 description: Configure, operate, troubleshoot, or upgrade a Cartographer server or client; connect agents and manage Knowledge Bases.
-version: "1.3"
+version: "1.4"
 ---
 # Cartographer Operations
 
@@ -16,6 +16,7 @@ around writes.
 
 | Command | Use it when |
 |---|---|
+| `cartographer setup` | First-time setup of this machine: service, first KB and agents, verified (see below). |
 | `cartographer serve` | Starting the server directly, for development or a custom deployment. |
 | `cartographer service install\|status\|restart` | Installing, checking, or restarting the native local service. |
 | `cartographer kb create <name> --remote <url>` | Creating the first local KB in the service data directory, pushed to an empty repository that becomes its `origin`. `--no-remote` opts out into a local-only KB that is neither durable nor synced; the choice is mandatory. |
@@ -28,7 +29,34 @@ around writes.
 
 `--agents claude,codex` selects a comma-separated subset for `connect` or `disconnect`; do not
 combine it with the positional provider. `connect` probes the server before writing: a reachable
-server with no KBs needs `kb create --remote <url>` followed by `service restart`.
+server with no KBs needs `kb create --remote <url>` followed by `service restart` — or simply
+`cartographer setup --remote <url>`.
+
+## First-time setup
+
+`cartographer setup` sets a machine up in one step: the native service, the first KB (created in
+an empty repository, or mounted from one that already holds a KB — it asks the remote with
+`git ls-remote`) and the agent clients, then a health check. It checks git and the remote's
+credentials before changing anything, and a rerun skips what is done.
+
+When you run it for a user, interview them first, in **one** message:
+
+1. the git remote of the first KB — an empty repository they own, or one holding their KB; a
+   local-only KB only if they explicitly accept that it is never backed up or synced;
+2. which agent clients to connect — default: the one you are running in;
+3. whether the KB should be visible everywhere (default) or only inside one repository.
+
+Then preview and run, never answering its questions on the user's behalf:
+
+```bash
+cartographer setup --remote <url> --agents <a,b> [--workspace <repo>] --dry-run --no-input
+cartographer setup --remote <url> --agents <a,b> [--workspace <repo>] --yes --no-input
+```
+
+If the plan's KB line says *mount* for a repository the user called empty (or *create* for one
+they said holds their KB), stop and tell them. On a machine that already mounts two or more KBs,
+ask which ones the agents receive and pass `--kb`. End by telling the user to restart their agent
+sessions.
 
 ## Configuration
 

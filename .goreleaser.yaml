@@ -75,6 +75,9 @@ homebrew_casks:
     # unreadable, no network — which is why the Cask no longer calls
     # `cartographer upgrade-repair`: the next `cartographer sync` replaces a
     # native service still running the previous binary (D199, amends D121).
+    # The one command a first install needs next (D253); Homebrew prints it
+    # after `brew install` and again under `brew info`.
+    caveats: "Next: cartographer setup   (server, first knowledge base and agents, in one guided step)"
     custom_block: |
       postflight_steps do
         on_macos do

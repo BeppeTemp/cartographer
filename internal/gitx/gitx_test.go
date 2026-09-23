@@ -387,3 +387,36 @@ func TestClone_LocalBareRepo(t *testing.T) {
 		t.Errorf("cloned tree is missing the committed file: %v", err)
 	}
 }
+
+func TestProbeRemote(t *testing.T) {
+	if !hasGit() {
+		t.Skip("git not in PATH")
+	}
+	ctx := context.Background()
+
+	empty := filepath.Join(t.TempDir(), "empty.git")
+	if out, err := exec.Command("git", "init", "--bare", empty).CombinedOutput(); err != nil {
+		t.Fatalf("git init --bare: %v: %s", err, out)
+	}
+	if has, err := ProbeRemote(ctx, empty); err != nil || has {
+		t.Errorf("ProbeRemote(empty bare repo) = (%v, %v), want (false, nil)", has, err)
+	}
+
+	src := t.TempDir()
+	if err := Init(src); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(src, "a.md"), []byte("a"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := Commit(src, "init", "t", "t@example.com"); err != nil {
+		t.Fatal(err)
+	}
+	if has, err := ProbeRemote(ctx, src); err != nil || !has {
+		t.Errorf("ProbeRemote(repo with a commit) = (%v, %v), want (true, nil)", has, err)
+	}
+
+	if _, err := ProbeRemote(ctx, filepath.Join(t.TempDir(), "missing.git")); err == nil {
+		t.Error("ProbeRemote(missing path) returned no error")
+	}
+}

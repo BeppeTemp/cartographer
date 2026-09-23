@@ -65,16 +65,18 @@ first KB's remote: a KB *is* a git repository, and that remote is what makes it 
 syncable. `sops` in `PATH` is needed only if the KB will hold encrypted values.
 
 ```bash
-brew install beppetemp/tap/cartographer                  # macOS; install.ps1 / install.sh / go install — see Install
-cartographer service install                             # generates the config, installs and starts the service
-cartographer kb create <name> --remote <url> --restart   # scaffolds a KB, pushes it to <url>, restarts the service
-cartographer connect                                     # configures every detected agent client
+brew install beppetemp/tap/cartographer   # macOS; Windows, Linux and source installs — see Install
+cartographer setup                        # server, first KB and agents, in one guided step
 ```
 
-A repository that already holds a KB is mounted with `cartographer kb clone <remote>` instead;
-`--no-remote` creates a local-only KB that is neither backed up nor synced. `connect` in a TTY
-opens an interactive form (server URL, server name, token env var, auth); `--no-input` forces the
-flag defaults. Agent sessions that were already open need a restart to see the new MCP server.
+`setup` asks for the remote, shows its plan, and only then runs it: it installs the native
+service, creates the KB in an empty repository or mounts the one a repository already holds,
+connects every detected agent client and verifies the server. It checks git and the remote's
+credentials before changing anything, and a re-run skips what is already done. Unattended:
+`cartographer setup --remote <url> --agents claude --yes`. Each step is also its own command
+(`service install`, `kb create`/`kb clone`, `connect`) — see
+[`docs/configurator.md`](docs/configurator.md). Agent sessions that were already open need a
+restart to see the new MCP server.
 
 Once connected:
 

@@ -92,7 +92,9 @@ do_install() {
     dir=$(install_dir)
     dest="${dir}/${BIN_NAME}"
 
+    fresh=1
     if [ -x "$dest" ]; then
+        fresh=0
         current=$("$dest" version 2>/dev/null || echo "unknown")
         if [ "$current" = "$tag" ]; then
             log "cartographer ${tag} already installed at ${dest}"
@@ -154,6 +156,12 @@ do_install() {
             fail "unexpected exit code ${rc} from '${dest} upgrade-repair' — inspect the service manually and retry"
             ;;
     esac
+
+    # A first install ends on the one command that does the rest (D253).
+    if [ "$fresh" = 1 ]; then
+        log ""
+        log "Next: cartographer setup   (server, first knowledge base and agents, in one guided step)"
+    fi
 }
 
 # leftover_units lists the native units this machine still has installed, one

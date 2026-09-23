@@ -27,6 +27,7 @@ type subcommand struct {
 // subcommands lists every subcommand for the usage output.
 var subcommands = []subcommand{
 	{"Get started", "help", "Show this help"},
+	{"Get started", "setup", "Set up this machine: service, first KB, agents"},
 	{"Get started", "version", "Print the build version"},
 	{"Client", "agents", "List local agent clients"},
 	{"Client", "connect", "Connect an agent client"},
@@ -73,6 +74,7 @@ var (
 	auditFn         = cmdAudit
 	clientFn        = cmdClient
 	workspaceFn     = cmdWorkspace
+	setupFn         = cmdSetup
 )
 
 func main() {
@@ -99,6 +101,8 @@ func run(args []string) int {
 	switch cmd {
 	case "serve":
 		return serveFn(rest)
+	case "setup":
+		return setupFn(rest)
 	case "kb":
 		return kbFn(rest)
 	case "version", "--version":
