@@ -25,18 +25,15 @@ builds:
 # and then verifies against its line in sha256sums.txt — a missing entry there is
 # an error, not a skip, so any rename breaks every existing `install.sh update`.
 #
-# Windows overrides the format to zip, and that is a requirement rather than a
-# preference: GoReleaser's winget pipe derives the installer from the archive. A
-# zip yields `InstallerType: zip` + `NestedInstallerType: portable` and a
-# `PortableCommandAlias` of `cartographer` (the .exe suffix is trimmed), which is
-# the command a user gets on PATH. A raw binary takes the uploadable-binary branch
-# instead: `InstallerType: portable`, no alias, and the registered command name is
-# `cartographer.exe`. The two cannot be mixed for one platform either — the pipe
-# refuses an archive set with both .exe and .zip (errMixedFormats).
+# Windows overrides the format to zip: install.ps1 downloads
+# cartographer-windows-<arch>.zip, verifies it against its line in
+# sha256sums.txt and extracts cartographer.exe from it (D238). Renaming the asset
+# or changing the format breaks every existing Windows `install.ps1 update`, the
+# same way a rename breaks install.sh.
 #
-# The entry has no explicit id on purpose: there is exactly one, so the winget and
-# cask blocks consume it without an `ids:` filter, and adding a second archive
-# entry is what would make ids necessary.
+# The entry has no explicit id on purpose: there is exactly one, so the cask
+# block consumes it without an `ids:` filter, and adding a second archive entry
+# is what would make ids necessary.
 archives:
   - formats: [binary]
     name_template: "{{ .ProjectName }}-{{ .Os }}-{{ .Arch }}"
@@ -84,66 +81,3 @@ homebrew_casks:
           run "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "{{ "{{" }}staged_path{{ "}}" }}"]
         end
       end
-
-# winget is the ONLY Windows channel: no install.ps1, no Scoop bucket, no
-# Chocolatey package — one channel to keep correct (D218). The manifests are
-# pushed to our fork on a per-release branch and submitted to the community
-# repository as a cross-repo pull request, because `winget install
-# BeppeTemp.Cartographer` working out of the box is the entire point; a private
-# manifest repository would need `winget source add` first.
-#
-# `path` is left at its default, which already resolves to
-# manifests/<publisher initial>/<publisher>/<name>/<version> — the layout
-# winget-pkgs requires. `use:` is deliberately unset: it is a GoReleaser Pro
-# field, silently ignored in OSS, and setting it would make the archive choice
-# above look configured when it is not.
-#
-# Trap, and the reason this comment names a file that does not exist: GoReleaser
-# uses this repository's .github/PULL_REQUEST_TEMPLATE.md as the body of the
-# winget pull request when one is present. There is none today. Adding one for our
-# own PRs would start prefixing every winget-pkgs submission with it.
-#
-# A missing WINGET_PKGS_TOKEN does not fail the release: the winget pipe continues
-# on error. It logs and publishes nothing, which is why the token and the fork are
-# maintainer prerequisites (deployment.md §CI/CD) rather than release blockers.
-winget:
-  - name: cartographer
-    publisher: BeppeTemp
-    package_identifier: BeppeTemp.Cartographer
-    # Same wording as the Cask's description, so the two catalogue entries cannot
-    # drift into describing different products.
-    short_description: "MCP governance server for the Agentic Wiki — persistent, git-backed knowledge bases for LLM agents"
-    description: |
-      Cartographer is an MCP server that turns a git repository into a knowledge base
-      an LLM agent can navigate and write to safely: bounded reads, one commit per
-      write, and deterministic validation of every change. The same binary is also the
-      client that configures the agent tools installed on this machine.
-    license: Apache-2.0
-    license_url: "https://github.com/BeppeTemp/cartographer/blob/main/LICENSE"
-    copyright: "Copyright 2026 BeppeTemp"
-    homepage: "https://github.com/BeppeTemp/cartographer"
-    publisher_url: "https://github.com/BeppeTemp"
-    publisher_support_url: "https://github.com/BeppeTemp/cartographer/issues"
-    release_notes_url: "https://github.com/BeppeTemp/cartographer/releases/tag/v{{ .Version }}"
-    tags:
-      - mcp
-      - model-context-protocol
-      - knowledge-base
-      - git
-      - llm
-      - agents
-      - documentation
-    repository:
-      owner: BeppeTemp
-      name: winget-pkgs
-      # One branch per release: the community repository expects a branch it can
-      # review and merge on its own, not a moving target.
-      branch: "cartographer-{{ .Version }}"
-      token: "{{ .Env.WINGET_PKGS_TOKEN }}"
-      pull_request:
-        enabled: true
-        draft: false
-        base:
-          owner: microsoft
-          name: winget-pkgs
-          branch: master

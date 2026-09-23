@@ -59,9 +59,21 @@ jobs:
           git config --global user.name ci
           git config --global user.email ci@local
           git config --global init.defaultBranch master
-      # `make gate` only: smoke-http, e2e and test-install are POSIX sh harnesses
-      # (test/smoke, test/e2e, test/install) and stay on ubuntu.
+      # `make gate`, plus install.ps1 end to end: smoke-http, e2e and the POSIX
+      # test-install suite are sh harnesses and stay on ubuntu.
       - run: make gate
+      # install.ps1 against a local fixture release built from this commit, under
+      # both shells a user may run it in: PowerShell 7 and Windows PowerShell 5.1,
+      # whose quirks (TLS defaults, native stderr) are the ones that bite (D238).
+      - name: install.ps1
+        shell: pwsh
+        run: |
+          go build -ldflags "-X main.version=v9.9.9" -o "$env:RUNNER_TEMP\new\cartographer.exe" ./cmd/cartographer
+          go build -ldflags "-X main.version=v9.9.8" -o "$env:RUNNER_TEMP\old\cartographer.exe" ./cmd/cartographer
+          foreach ($shell in 'pwsh', 'powershell') {
+            ./test/install/windows/run.ps1 -Shell $shell -NewBin "$env:RUNNER_TEMP\new\cartographer.exe" -OldBin "$env:RUNNER_TEMP\old\cartographer.exe"
+            if ($LASTEXITCODE -ne 0) { exit 1 }
+          }
 
   # The frontend, deliberately its own job rather than a step of `test`.
   #

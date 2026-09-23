@@ -988,12 +988,13 @@ One channel per platform, and an upgrade uses the one the binary came from:
 
 ```bash
 brew install beppetemp/tap/cartographer     # macOS (cask from the tap)
-winget install BeppeTemp.Cartographer       # Windows (the only Windows channel, D218)
+irm https://raw.githubusercontent.com/BeppeTemp/cartographer/main/install.ps1 | iex   # Windows (PowerShell, D238)
 curl -fsSL https://raw.githubusercontent.com/BeppeTemp/cartographer/main/install.sh | sh
 ```
 
 `install.sh` downloads the latest binary from the GitHub Release for the current platform (darwin/linux ×
 amd64/arm64), verifies the checksum if `sha256sums.txt` is present in the release, and installs it into
 `/usr/local/bin` (or `~/.local/bin` if not writable). Also supports `update` and `uninstall` as the
-first argument. Run from a Windows shell (Git Bash, MSYS2, Cygwin) it refuses and prints the winget
-command instead — there is no `install.ps1`. See `docs/deployment.md` §CI/CD and client installation.
+first argument. Run from a Windows shell (Git Bash, MSYS2, Cygwin) it refuses and prints the `install.ps1`
+command instead. `install.ps1` is the Windows counterpart (install/`update`/`uninstall`, per-user,
+checksum-verified). See `docs/deployment.md` §Client installation.

@@ -101,46 +101,27 @@ func TestOpsKubernetesUpgradeEndsOnAVerifiedImage(t *testing.T) {
 	}
 }
 
-// TestOpsWindowsUpgradeKeepsTheZipFallback guards the two things an agent
-// upgrading Cartographer on Windows cannot derive from anywhere else (D223).
-// The skill is the only thing it reads: without the pointer it reconstructs the
-// manual procedure from the repository — which is how it was done the first
-// time, and how the checksum step gets dropped — and without the
-// stop-before-extract clause it extracts over a running `cartographer.exe`,
-// which on Windows fails with a sharing violation rather than succeeding.
-// Matched on the durable substance, not on a sentence any rewording would
-// break: the destination page, the command, and the reason.
-func TestOpsWindowsUpgradeKeepsTheZipFallback(t *testing.T) {
+// TestOpsWindowsUpgradeUsesInstallPS1 guards what an agent upgrading
+// Cartographer on Windows cannot derive from anywhere else (D238): the skill is
+// the only thing it reads. Without the install.ps1 pointer it reconstructs a
+// manual zip procedure from the repository — which is how the checksum step gets
+// dropped and how an extract over a running cartographer.exe fails with a
+// sharing violation — and a leftover winget instruction sends it to a channel
+// that no longer exists. Matched on the durable substance, not on a sentence
+// any rewording would break.
+func TestOpsWindowsUpgradeUsesInstallPS1(t *testing.T) {
 	body, err := fs.ReadFile(FS, "bundled/cartographer-ops/SKILL.md")
 	if err != nil {
 		t.Fatalf("read cartographer-ops SKILL.md: %v", err)
 	}
 	text := string(body)
-	for _, want := range []string{
-		"docs/getting-started.md",
-		"cartographer service stop",
-	} {
-		if !strings.Contains(text, want) {
-			t.Errorf("the Windows upgrade step lost the zip fallback: %q missing", want)
-		}
+	if !strings.Contains(text, "install.ps1") {
+		t.Error("the Windows upgrade step no longer names install.ps1 (D238)")
 	}
-	// The trap is the lock, not the command: a reader told to stop the service
-	// without being told why will skip it on the machine where it matters. The
-	// symptom is what identifies it and what the reader will search for, and it
-	// fits on one line — a phrase spanning the skill's line wrap would not match.
-	if !strings.Contains(text, "sharing violation") {
-		t.Error("the Windows upgrade step no longer says why the service is stopped " +
-			"before the extract: name the running-executable lock and its symptom")
-	}
-	// winget stays the channel (D218): the fallback is never presented as an
-	// alternative of equal standing, and the skill does not restate its steps.
-	if !strings.Contains(text, "winget is the only Windows channel") {
-		t.Error("the Windows upgrade step no longer leads with winget as the only channel (D218)")
-	}
-	for _, banned := range []string{"Expand-Archive", "Get-FileHash", "Invoke-WebRequest"} {
+	for _, banned := range []string{"winget", "Expand-Archive", "Get-FileHash", "Invoke-WebRequest"} {
 		if strings.Contains(text, banned) {
-			t.Errorf("the ops skill restates the manual procedure (%q): it points at "+
-				"docs/getting-started.md instead", banned)
+			t.Errorf("the ops skill mentions %q: Windows installs, upgrades and removals go "+
+				"through install.ps1, which verifies, swaps and repairs on its own (D238)", banned)
 		}
 	}
 }

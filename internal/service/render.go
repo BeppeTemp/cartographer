@@ -172,8 +172,8 @@ func quotePath(p string) string { return `"` + p + `"` }
 // does not need to. The D156 fix exists because a launchd job inherits a minimal
 // PATH that excludes Homebrew, so a Homebrew `sops` was invisible; a Scheduled
 // Task registered with an interactive token inherits the user's environment,
-// where the machine and user PATH from the registry — which is where winget,
-// Scoop and Chocolatey put their shims — is already present.
+// where the machine and user PATH from the registry — which is where
+// install.ps1 and package managers put their directories — is already present.
 //
 // The file is UTF-8 and its XML declaration names no encoding (#328). It is
 // registered through Register-ScheduledTask -Xml with the definition as a

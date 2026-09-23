@@ -65,7 +65,7 @@ first KB's remote: a KB *is* a git repository, and that remote is what makes it 
 syncable. `sops` in `PATH` is needed only if the KB will hold encrypted values.
 
 ```bash
-brew install beppetemp/tap/cartographer                  # macOS; winget / install.sh / go install — see Install
+brew install beppetemp/tap/cartographer                  # macOS; install.ps1 / install.sh / go install — see Install
 cartographer service install                             # generates the config, installs and starts the service
 cartographer kb create <name> --remote <url> --restart   # scaffolds a KB, pushes it to <url>, restarts the service
 cartographer connect                                     # configures every detected agent client
@@ -262,12 +262,11 @@ flowchart LR
 # macOS (Homebrew)
 brew install beppetemp/tap/cartographer
 
-# Windows (winget — the only Windows channel; no usable winget? getting-started.md
-# documents installing, upgrading and removing from the published zip)
-winget install BeppeTemp.Cartographer
+# Windows (PowerShell; no administrator rights)
+irm https://raw.githubusercontent.com/BeppeTemp/cartographer/main/install.ps1 | iex
 
 # Linux / macOS without Homebrew (Darwin and Linux only — the script refuses on
-# Windows and points at winget)
+# Windows and points at install.ps1)
 curl -fsSL https://raw.githubusercontent.com/BeppeTemp/cartographer/main/install.sh | sh
 
 # From source (Go 1.26+)
@@ -276,15 +275,11 @@ go install github.com/BeppeTemp/cartographer/cmd/cartographer@latest
 
 ### What gets installed
 
-- **The binary**, `cartographer` — in Homebrew's prefix (`brew`), under
-  `%LOCALAPPDATA%\Microsoft\WinGet\` with a `cartographer` shim on `PATH`
-  (`winget`, a portable install: no installer runs, nothing is written outside
-  your user profile), in `/usr/local/bin` or, when that is not writable,
-  `~/.local/bin` (`install.sh`), or in `$GOBIN`/`$GOPATH/bin` (`go install`).
-  A Windows machine winget cannot serve installs the published zip by hand into
-  `%LOCALAPPDATA%\Cartographer\bin`, on the user `PATH` — the fallback
-  procedure is in [`docs/getting-started.md`](docs/getting-started.md)
-  §Windows without winget ([D223](docs/decisions/D223-the-published-windows-zip-is-a-documented-fallback.md)).
+- **The binary**, `cartographer` — in Homebrew's prefix (`brew`), in
+  `%LOCALAPPDATA%\Cartographer\bin`, added to the **user** `PATH`
+  (`install.ps1`: nothing is written outside your user profile), in
+  `/usr/local/bin` or, when that is not writable, `~/.local/bin` (`install.sh`),
+  or in `$GOBIN`/`$GOPATH/bin` (`go install`).
 - **A native per-user service**, if you run `cartographer service install`:
   `~/Library/LaunchAgents/com.cartographer.serve.plist` on macOS,
   `~/.config/systemd/user/cartographer.service` on Linux, or the Scheduled Task
@@ -303,23 +298,26 @@ go install github.com/BeppeTemp/cartographer/cmd/cartographer@latest
 
 ### Upgrades
 
-Upgrades of a native local install (`brew upgrade` or `install.sh update`) repair themselves: the
-new binary restarts the running service and re-synchronizes the configured providers in place.
-`winget upgrade BeppeTemp.Cartographer` replaces the binary without running any Cartographer code,
-so the repair is the lazy one the Homebrew Cask also relies on: the next `cartographer sync` — the
+Upgrades of a native local install repair themselves: `install.sh update` and `install.ps1 update`
+restart the running service on the new binary and re-synchronize the configured providers in
+place; `brew upgrade` runs no Cartographer code, so there the next `cartographer sync` — the
 session-start hook, the scheduled task, or a manual run — replaces a service still running the
-previous binary.
-A Windows install that came from the zip rather than from winget upgrades by repeating that
-procedure against the newer release — stopping the service first, since Windows locks a running
-executable: [`docs/getting-started.md`](docs/getting-started.md) §Windows without winget.
+previous binary. On Windows the update lands even while the service is running from the file it
+replaces:
+
+```powershell
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/BeppeTemp/cartographer/main/install.ps1))) update
+```
+
 `cartographer reconnect` is the explicit rebuild for what an incremental sync cannot see. Only
 already-open agent sessions need restarting. Details →
 [`docs/deployment.md`](docs/deployment.md) §Upgrades, schema migration, and repo growth.
 
 ### How to remove it
 
-`install.sh uninstall` removes the **binary only**. It refuses to run while the
-native units are still installed, and names the teardown that has to come first:
+`install.sh uninstall` and `install.ps1 uninstall` remove the **binary only**. Both refuse to run
+while the native service or the sync timer is still installed, and name the teardown that has to
+come first:
 
 ```bash
 cartographer disconnect                      # removes what was materialized into your agents
@@ -328,21 +326,14 @@ cartographer service uninstall
 curl -fsSL https://raw.githubusercontent.com/BeppeTemp/cartographer/main/install.sh | sh -s -- uninstall
 ```
 
-On Windows the order is the same but nothing enforces it: `winget uninstall
-BeppeTemp.Cartographer` removes the binary **without running any Cartographer code**, so a
-registered Scheduled Task survives it and is left pointing at an executable that is gone. Tear the
-service down first, while the binary is still there:
-
 ```powershell
 cartographer disconnect
 cartographer service sync-timer uninstall
 cartographer service uninstall
-winget uninstall BeppeTemp.Cartographer
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/BeppeTemp/cartographer/main/install.ps1))) uninstall
 ```
 
-An install that came from the published zip instead of winget ends on deleting the directory and
-its `PATH` entry, after the same three commands:
-[`docs/getting-started.md`](docs/getting-started.md) §Windows without winget.
+`brew uninstall` checks nothing: run the same three commands before it.
 
 Your KBs are git repositories in the data directory: nothing above deletes them,
 and removing `~/cartographer-data` is a deliberate, separate act.

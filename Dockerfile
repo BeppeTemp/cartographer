@@ -27,7 +27,7 @@ RUN go vet ./... && go test ./...
 #
 # The .exe suffix is not cosmetic: without it this stage exports two
 # extensionless Windows binaries, which is neither what a Windows user can run by
-# name nor what the winget zip expects to contain.
+# name nor what the Windows release zip contains.
 FROM builder AS dist
 ARG VERSION=dev
 RUN set -e; \

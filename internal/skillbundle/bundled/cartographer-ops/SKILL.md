@@ -1,7 +1,7 @@
 ---
 name: cartographer-ops
 description: Configure, operate, troubleshoot, or upgrade a Cartographer server or client; connect agents and manage Knowledge Bases.
-version: "1.2"
+version: "1.3"
 ---
 # Cartographer Operations
 
@@ -68,14 +68,10 @@ Cartographers end up on `PATH`.
 - macOS: `brew upgrade --cask beppetemp/tap/cartographer`. The next `cartographer sync` (every
   agent session start runs one) replaces the running service with the new binary and re-syncs,
   so **no follow-up command is needed**; run `cartographer upgrade-repair` to do it immediately.
-- Windows: `winget upgrade BeppeTemp.Cartographer`. winget is the only Windows channel — there is
-  no `install.ps1`, and `install.sh` refuses there. Like Homebrew it runs no Cartographer code, so
-  the repair is the same lazy one: the next `cartographer sync` replaces a service still running
-  the previous binary. Where winget cannot serve the package, installing and upgrading from the
-  published zip by hand is the documented fallback (`docs/getting-started.md` §Windows without
-  winget, D223) — do not invent a procedure; and if the native service is installed, run
-  `cartographer service stop` before extracting over `cartographer.exe`, because Windows locks a
-  running executable and the extract fails with a sharing violation.
+- Windows: `install.ps1 update`, from PowerShell:
+  `& ([scriptblock]::Create((irm https://raw.githubusercontent.com/BeppeTemp/cartographer/main/install.ps1))) update`.
+  It verifies the checksum, swaps the binary even while the native service is running from it,
+  and runs `upgrade-repair` like the POSIX installer. Do not download or extract the zip by hand.
 - POSIX installer (Linux, macOS without Homebrew): `install.sh update`, which runs
   `upgrade-repair` the same way.
 - Kubernetes: update the Cartographer image tag in the deployment manifest and push it, then
@@ -90,10 +86,11 @@ Cartographers end up on `PATH`.
   3. Then wait for rollout, and confirm with the version the server reports: `cartographer status`
      prints it as `server vX`.
 
-**Removing it on Windows has an order that nothing enforces.** `winget uninstall` runs no
-Cartographer code, so a registered Scheduled Task survives it and is left pointing at an
-executable that is gone. Run `cartographer service uninstall` (and
-`cartographer service sync-timer uninstall` if installed) **before** removing the package.
+**Removing it has an order**, whatever the channel: `cartographer service sync-timer uninstall`,
+`cartographer service uninstall` and `cartographer disconnect` first, with the binary still in
+place, then the channel's own removal. `install.sh uninstall` and `install.ps1 uninstall` refuse
+while the service or the timer is installed; `brew uninstall` does not check, so a launchd agent
+would be left pointing at a missing executable.
 
 Only already-open agent sessions need restarting after an upgrade, so they reload the MCP
 configuration and the provisioned skills. Tell the user to do that — the agent cannot restart its
