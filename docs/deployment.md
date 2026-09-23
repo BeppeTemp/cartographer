@@ -495,7 +495,12 @@ links; `prefers-reduced-motion` starts it paused. There is no 2D view: when
 the WebGL context is lost the graph area says so. The view draws up to 5,000 concepts (the graph API's ceiling). A browser without WebGL
 gets the concept list, search and inspector, with a note where the graph would
 be. The UI follows the system's light or dark scheme until the viewer picks one
-(D233).
+(D233). The reading panel is resizable: drag its left edge, or focus the edge
+and use the arrow keys (Shift for larger steps, Home/End for the extremes,
+Enter or a double-click for the default 420px). The width is remembered per
+browser (`cartographer.inspector.width` in localStorage) and clamped between
+320px and what leaves 280px of graph beside the rail; on a narrow screen the
+panel is a sheet and has no splitter (D239).
 
 ### Runtime secrets
 

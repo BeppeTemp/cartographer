@@ -326,7 +326,12 @@ toolchain (D227). What they hold:
   selection's links, in their data direction, within 48 and a finite span;
   focus centres the node in the strip the inspector leaves visible;
 - the no-WebGL state: the shell names why there is no graph and keeps the
-  list (`graphfirst.test.tsx`).
+  list (`graphfirst.test.tsx`);
+- the reading panel's width (D239): the stored preference reads garbage or a
+  throwing storage as the default and clamps at both ends
+  (`src/test/layout.test.ts`); its splitter resizes from the keyboard, persists
+  only what the viewer set, and is absent from the narrow layout
+  (`shell.test.tsx`).
 
 `make web` rebuilds the committed bundle; `make web-check` does a clean locked
 build and verifies `internal/webui/dist/provenance.json` still matches the

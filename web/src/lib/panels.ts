@@ -25,3 +25,40 @@ export function writePanel(name: PanelName, value: boolean): void {
     // Nothing to remember it in; the default applies next time.
   }
 }
+
+/** A remembered panel width in px, under `cartographer.<name>`. Anything but a
+ *  positive integer reads as the fallback. */
+export type WidthName = "inspector.width";
+
+export function readWidth(name: WidthName, fallback: number): number {
+  try {
+    const v = localStorage.getItem("cartographer." + name);
+    if (v !== null && /^\d+$/.test(v) && Number(v) > 0) return Number(v);
+  } catch {
+    // Storage disabled: fall through to the default.
+  }
+  return fallback;
+}
+
+export function writeWidth(name: WidthName, px: number): void {
+  try {
+    localStorage.setItem("cartographer." + name, String(Math.round(px)));
+  } catch {
+    // Nothing to remember it in; the default applies next time.
+  }
+}
+
+export const INSPECTOR_DEFAULT = 420;
+export const INSPECTOR_MIN = 320;
+/** The graph a reading panel never covers. */
+export const GRAPH_MIN_VISIBLE = 280;
+
+/** The largest reading panel that still leaves GRAPH_MIN_VISIBLE of graph
+ *  beside the rail, never below INSPECTOR_MIN. */
+export function inspectorMax(bodyWidth: number, railWidth: number): number {
+  return Math.max(INSPECTOR_MIN, bodyWidth - railWidth - GRAPH_MIN_VISIBLE);
+}
+
+export function clampInspectorWidth(px: number, bodyWidth: number, railWidth: number): number {
+  return Math.round(Math.min(Math.max(px, INSPECTOR_MIN), inspectorMax(bodyWidth, railWidth)));
+}

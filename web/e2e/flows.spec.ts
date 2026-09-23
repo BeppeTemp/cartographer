@@ -71,6 +71,25 @@ test("a filter that hides the selection keeps it open but draws no names", async
   await expect(page).toHaveURL(/concept=infra%2Fgateway/);
 });
 
+test("dragging the reading panel's edge resizes it, and the width survives a reload", async ({ page }) => {
+  await page.goto(`${ATLAS}&scope=infra&concept=infra%2Fgateway`);
+  const handle = page.getByRole("separator", { name: "Resize reading panel" });
+  const panel = page.locator("#reading-panel");
+  await expect(handle).toHaveAttribute("aria-valuenow", "420");
+  const before = (await panel.boundingBox())!.width;
+
+  const box = (await handle.boundingBox())!;
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width / 2 - 100, box.y + box.height / 2, { steps: 5 });
+  await page.mouse.up();
+  await expect(handle).toHaveAttribute("aria-valuenow", "520");
+  await expect.poll(async () => Math.round((await panel.boundingBox())!.width - before)).toBe(100);
+
+  await page.reload();
+  await expect(page.getByRole("separator", { name: "Resize reading panel" })).toHaveAttribute("aria-valuenow", "520");
+});
+
 test("the Observatory's severity floor updates its count", async ({ page }) => {
   await page.goto(`${ATLAS}&panel=observatory`);
   const observatory = page.getByRole("region", { name: "Observatory" });

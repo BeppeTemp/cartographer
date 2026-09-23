@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import {
   ApiError,
   clearToken,
@@ -18,6 +18,7 @@ import { Inspector } from "./components/Inspector";
 import { LeftRail } from "./components/LeftRail";
 import { Legend } from "./components/Legend";
 import { Sheet, useMediaQuery } from "./components/Sheet";
+import { Splitter } from "./components/Splitter";
 import { NodeList } from "./components/NodeList";
 import { Observatory } from "./components/Observatory";
 import { EmptyState, ErrorState, Skeleton } from "./components/States";
@@ -35,7 +36,16 @@ import {
   type ColorBy,
 } from "./lib/palette";
 import { pushView, readViewState, replaceView, type ViewState } from "./lib/viewstate";
-import { readPanel, writePanel } from "./lib/panels";
+import {
+  INSPECTOR_DEFAULT,
+  INSPECTOR_MIN,
+  clampInspectorWidth,
+  inspectorMax,
+  readPanel,
+  readWidth,
+  writePanel,
+  writeWidth,
+} from "./lib/panels";
 
 type Phase = "booting" | "auth" | "ready";
 type SheetName = "nav" | "inspector" | null;
@@ -45,9 +55,6 @@ const NO_COMMUNITIES: Communities = { rankOf: new Map(), list: [] };
 /** Below this width the rail and the inspector become modal sheets. Kept in
  *  step with the max-width: 1023px media queries in the stylesheets. */
 const NARROW_QUERY = "(max-width: 1023px)";
-/** The inspector card's width plus its margin (--inspector-width + gutter):
- *  the strip of canvas a selection must not be centred under. */
-const INSPECTOR_OCCLUSION = 420;
 /** The concept list: its width plus the gutter it floats in. */
 const LIST_OCCLUSION = 332;
 
@@ -94,6 +101,41 @@ export function App() {
   const [colorBy, setColorBy] = useState<ColorBy>(readColorBy);
   const narrow = useMediaQuery(NARROW_QUERY);
   const [sheet, setSheet] = useState<SheetName>(null);
+
+  // The reading panel's width (D239): the viewer's preference, clamped to what
+  // the window can hold. A resize re-clamps what is drawn but never the stored
+  // value: only a drag or a key rewrites it.
+  const [inspectorPref, setInspectorPref] = useState(() => readWidth("inspector.width", INSPECTOR_DEFAULT));
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const mainRef = useRef<HTMLElement>(null);
+  const [room, setRoom] = useState({ body: 0, rail: 0 });
+  useEffect(() => {
+    const body = bodyRef.current;
+    const main = mainRef.current;
+    if (!body || !main) return;
+    const measure = () => setRoom({ body: body.clientWidth, rail: body.clientWidth - main.clientWidth });
+    measure();
+    window.addEventListener("resize", measure);
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(measure);
+    observer?.observe(body);
+    observer?.observe(main);
+    return () => {
+      window.removeEventListener("resize", measure);
+      observer?.disconnect();
+    };
+    // `phase`: the shell, and so these refs, only exist once it is "ready".
+  }, [phase, railCollapsed, narrow]);
+  // Unmeasured (the first render, or a layout engine that reports no size):
+  // draw the preference as is rather than squash it to the minimum.
+  const measured = room.body > 0;
+  const inspectorWidth = measured
+    ? clampInspectorWidth(inspectorPref, room.body, room.rail)
+    : Math.max(INSPECTOR_MIN, inspectorPref);
+  const inspectorLimit = measured ? inspectorMax(room.body, room.rail) : Math.max(inspectorWidth, INSPECTOR_MIN);
+  const commitInspectorWidth = useCallback((px: number) => {
+    setInspectorPref(px);
+    writeWidth("inspector.width", px);
+  }, []);
 
   useEffect(() => {
     applyTheme(theme);
@@ -489,10 +531,10 @@ export function App() {
         onOpenInspector={() => setSheet("inspector")}
       />
 
-      <div className={bodyClass}>
+      <div ref={bodyRef} className={bodyClass}>
         {!narrow && rail(false)}
 
-        <main id="main" className="main" tabIndex={-1}>
+        <main ref={mainRef} id="main" className="main" tabIndex={-1}>
           <p className="sr-only" role="status" aria-live="polite">
             {notice}
           </p>
@@ -553,7 +595,7 @@ export function App() {
                   themeKey={appliedTheme}
                   live={motion}
                   onToggleLive={toggleMotion}
-                  occludedRight={!narrow && view.concept ? INSPECTOR_OCCLUSION : 0}
+                  occludedRight={!narrow && view.concept ? inspectorWidth : 0}
                   occludedLeft={!narrow && listOpen ? LIST_OCCLUSION : 0}
                   onSelect={selectConcept}
                   onExpand={expandConcept}
@@ -588,7 +630,24 @@ export function App() {
         </main>
 
         {view.panel === "atlas" && !narrow && view.concept && (
-          <div className="overlay overlay--inspector">{inspector}</div>
+          <div
+            id="reading-panel"
+            className="overlay overlay--inspector"
+            style={{ "--inspector-width": `${inspectorWidth}px` } as CSSProperties}
+          >
+            <Splitter
+              value={inspectorWidth}
+              min={INSPECTOR_MIN}
+              max={inspectorLimit}
+              defaultValue={INSPECTOR_DEFAULT}
+              edge="start"
+              controls="reading-panel"
+              label="Resize reading panel"
+              onChange={setInspectorPref}
+              onCommit={commitInspectorWidth}
+            />
+            {inspector}
+          </div>
         )}
       </div>
 
