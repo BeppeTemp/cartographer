@@ -9,10 +9,11 @@ import (
 
 // NodeFacets are the facts about a concept the graph tools report beside it.
 type NodeFacets struct {
-	Title      string
-	Type       string
-	Status     string
-	Collection string
+	Title        string
+	Type         string
+	Status       string
+	SupersededBy string
+	Collection   string
 }
 
 // LinkGraph is the int-indexed projection of the link graph that the
@@ -25,6 +26,10 @@ type LinkGraph struct {
 	Index  map[okf.ConceptID]int
 	Facets []NodeFacets
 	Graph  *graphalgo.Graph
+	// Links is the unprojected graph of the same view — every concept, links
+	// to missing targets and self-links kept — so a caller needing both reads
+	// the files once.
+	Links Links
 }
 
 // LinkGraph projects the current cached view (D241) onto the concepts include
@@ -52,11 +57,12 @@ func (kb *KB) LinkGraph(include func(id string) bool) (*LinkGraph, error) {
 		IDs:    ids,
 		Index:  make(map[okf.ConceptID]int, len(ids)),
 		Facets: make([]NodeFacets, len(ids)),
+		Links:  Links{Out: view.adj.out, In: view.adj.in, Exists: view.exists},
 	}
 	for i, id := range ids {
 		lg.Index[id] = i
 		f := view.facets[id]
-		lg.Facets[i] = NodeFacets{Title: f.Title, Type: f.Type, Status: f.Status, Collection: conceptCollection(id)}
+		lg.Facets[i] = NodeFacets{Title: f.Title, Type: f.Type, Status: f.Status, SupersededBy: f.SupersededBy, Collection: conceptCollection(id)}
 	}
 	g := &graphalgo.Graph{N: len(ids), Out: make([][]int, len(ids)), In: make([][]int, len(ids))}
 	for i, id := range ids {

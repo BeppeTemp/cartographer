@@ -124,6 +124,12 @@ var perConceptChecks = map[string]bool{
 	"secrets_on_non_service": true,
 	"orphan":                 true,
 	"missing_title":          true,
+	// Structural checks (D243). island is deliberately absent: it belongs to
+	// a component, not to one concept.
+	"cut_concept":     true,
+	"link_to_retired": true,
+	"broken_relation": true,
+	"map_misfit":      true,
 }
 
 // lintIgnoreSet reads a concept's lint_ignore frontmatter key (D159). A bare
@@ -201,12 +207,14 @@ func Run(k *kb.KB, scope string, scopeNeighbors bool) ([]Finding, error) {
 		}
 	}
 
-	// One graph read serves the scope expansion and the orphan check (D241):
-	// a GraphNeighbors call per concept validated the whole KB each time.
-	graph, err := k.Links()
+	// One graph read serves the scope expansion, the orphan check (D241) and
+	// the structural checks (D243): a GraphNeighbors call per concept
+	// validated the whole KB each time.
+	lg, err := k.LinkGraph(nil)
 	if err != nil {
 		return nil, fmt.Errorf("lint.Run: link graph: %w", err)
 	}
+	graph := lg.Links
 
 	// Expand scope with 1-hop graph neighbours when requested: out-links
 	// only, the concept itself excluded — GraphNeighbors(id, 1)'s semantics.
@@ -265,6 +273,14 @@ func Run(k *kb.KB, scope string, scopeNeighbors bool) ([]Finding, error) {
 		}
 	}
 
+	// The structural analysis runs on the whole graph whatever the scope, so
+	// a scoped lint gives a concept the verdict a whole-KB lint gives it;
+	// scope only decides which findings are emitted (D243).
+	st, err := analyseStructure(k, lg, archives)
+	if err != nil {
+		return nil, fmt.Errorf("lint.Run: structure: %w", err)
+	}
+
 	for id, content := range toCheck {
 		relPath := okf.IDToPath(id)
 		// Relative links resolve against the file that contains them, which for
@@ -297,6 +313,8 @@ func Run(k *kb.KB, scope string, scopeNeighbors bool) ([]Finding, error) {
 			reason := "not a known lint check"
 			if name == "missing_required_field" || name == "expanded_ambiguous" {
 				reason = "an error-severity contract violation, which lint_ignore cannot silence"
+			} else if name == "island" {
+				reason = "a graph-level check with no single concept owner"
 			} else if name == "map_oversize" || name == "index_incomplete" || name == "orphan_asset" || strings.HasPrefix(name, "expanded_") {
 				// orphan_asset belongs to an expanded concept's asset set, reported
 				// in the directory pass: there is no single concept frontmatter that
@@ -472,7 +490,16 @@ func Run(k *kb.KB, scope string, scopeNeighbors bool) ([]Finding, error) {
 				})
 			}
 		}
+
+		// --- cut_concept, broken_relation, link_to_retired, map_misfit ---
+		for _, f := range st.conceptChecks(id, relPath) {
+			emit(f)
+		}
 	}
+	findings = append(findings, st.islandFindings(func(id okf.ConceptID) bool {
+		_, ok := toCheck[id]
+		return ok
+	})...)
 
 	// --- structural checks on maps and expanded concepts (D77 WP4) ---
 	// Directory-based (unlike the checks above, not driven by toCheck).

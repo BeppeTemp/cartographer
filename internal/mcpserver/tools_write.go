@@ -292,8 +292,15 @@ func writeConceptAndIndex(k *kb.KB, live *liveIndex, sqlIdx *sqlindex.Index, log
 	}
 
 	_ = k.AppendLog(logPrefix+": "+id, time.Now())
+	reindexConcept(k, live, sqlIdx, logPrefix, id)
+	return newHash, nil
+}
 
-	// Best-effort: keep both search indexes in sync.
+// reindexConcept re-reads a concept just written and pushes it into both
+// search indexes, best-effort: a write that succeeded is not failed by an
+// index. Every handler that writes a concept outside writeConceptAndIndex
+// calls it, or search keeps showing the old content until a reconcile.
+func reindexConcept(k *kb.KB, live *liveIndex, sqlIdx *sqlindex.Index, logPrefix, id string) {
 	if data, readErr := k.ReadConcept(okf.ConceptID(id)); readErr == nil {
 		live.add(id, data.Content)
 		if sqlIdx != nil {
@@ -302,8 +309,6 @@ func writeConceptAndIndex(k *kb.KB, live *liveIndex, sqlIdx *sqlindex.Index, log
 			}
 		}
 	}
-
-	return newHash, nil
 }
 
 // --- concept_patch ---
@@ -1096,7 +1101,7 @@ func toolSnapshot(k *kb.KB) Tool {
 
 // --- supersede ---
 
-func toolSupersede(k *kb.KB) Tool {
+func toolSupersede(k *kb.KB, live *liveIndex, sqlIdx *sqlindex.Index) Tool {
 	return Tool{
 		Name:        "supersede",
 		Description: "Marks a concept as superseded by another. Sets status=superseded and records the successor concept ID.",
@@ -1133,6 +1138,14 @@ func toolSupersede(k *kb.KB) Tool {
 			if params.TargetID == "" {
 				return errorResult("'target_id' is required"), nil
 			}
+			if params.TargetID == params.SourceID {
+				return errorResult("supersede: a concept cannot supersede itself"), nil
+			}
+			// One text for a missing and a hidden successor: no existence
+			// oracle (D243).
+			if !conceptExists(k, params.TargetID) || !Visible(ctx, k, params.TargetID) {
+				return errorResult("supersede: target not found: " + params.TargetID), nil
+			}
 
 			data, err := k.ReadConcept(okf.ConceptID(params.SourceID))
 			if err != nil {
@@ -1155,6 +1168,7 @@ func toolSupersede(k *kb.KB) Tool {
 			}
 
 			_ = k.AppendLog(fmt.Sprintf("supersede: %s → %s", params.SourceID, params.TargetID), time.Now())
+			reindexConcept(k, live, sqlIdx, "supersede", params.SourceID)
 			return textResult(fmt.Sprintf("superseded %s → %s", params.SourceID, params.TargetID)), nil
 		},
 	}
@@ -1842,13 +1856,30 @@ func rewriteBacklinks(k *kb.KB, live *liveIndex, sqlIdx *sqlindex.Index, moveMap
 			basePath = path.Join(string(id), "index.md")
 		}
 		newBody, count := kb.RewriteLinks(body, basePath, moveMap)
-		if count == 0 {
+		// superseded_by is a relation, not a link (D243), but it names a
+		// concept all the same: a moved successor must not leave it dangling.
+		// The frontmatter is parsed only when there is something to rewrite.
+		if count == 0 && !strings.Contains(fmRaw, "superseded_by") {
 			return nil
 		}
 
 		fm, err := okf.ParseFrontmatter(fmRaw)
 		if err != nil {
+			if count == 0 {
+				return nil // nothing in the body to fix, and no relation to read
+			}
 			return fmt.Errorf("parse frontmatter %q: %w", id, err)
+		}
+		if v, ok := fm.Get("superseded_by"); ok {
+			if old, ok := v.(string); ok {
+				if moved, ok := moveMap[old]; ok {
+					fm.Set("superseded_by", moved)
+					count++
+				}
+			}
+		}
+		if count == 0 {
+			return nil
 		}
 
 		ifMatch := okf.ContentHash(content)

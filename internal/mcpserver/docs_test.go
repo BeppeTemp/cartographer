@@ -40,6 +40,7 @@ var docsNonTools = map[string]bool{
 	"retention_days":    true,
 	"max_segment_bytes": true,
 	// lint rules (internal/lint)
+	"map_misfit":       true, // D243 structural check
 	"concept_oversize": true, "map_oversize": true, "machine_path": true,
 	"expanded_as_category": true, "expanded_ambiguous": true,
 	"expanded_missing_index": true, "legacy_archive_descriptor": true,

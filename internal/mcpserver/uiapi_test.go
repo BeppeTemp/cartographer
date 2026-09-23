@@ -474,3 +474,38 @@ func TestUIFindingConcept(t *testing.T) {
 		}
 	}
 }
+
+// Structural lint checks read the whole graph (D243): a cut_concept on a
+// visible page counts and names the hidden concepts it cuts off. A narrowed
+// principal gets none of them; one that sees the whole KB gets them all.
+func TestUIAPI_LintHidesWholeGraphChecksFromANarrowedToken(t *testing.T) {
+	k := uiFixtureKB(t, "docs")
+	for rel, body := range map[string]string{
+		"visible/hub.md":  "---\ntype: Note\ntitle: Hub\n---\n[x1](../hidden/x1.md) [x2](../hidden/x2.md) [x3](../hidden/x3.md)\n",
+		"hidden/x1.md":    "---\ntype: Note\n---\nLeaf.\n",
+		"hidden/x2.md":    "---\ntype: Note\n---\nLeaf.\n",
+		"hidden/x3.md":    "---\ntype: Note\n---\nLeaf.\n",
+		"visible/beta.md": "---\ntype: Note\ntitle: Beta\n---\nLinks back to [alpha](alpha.md) and [hub](hub.md).\n",
+	} {
+		if err := os.WriteFile(filepath.Join(k.DataRoot(), filepath.FromSlash(rel)), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ts := auth.NewScopedTokenStore([]auth.ScopedToken{
+		{Token: "narrow", Policy: auth.Policy{Permissions: []auth.Permission{{KB: "docs", Maps: []string{"visible"}}}}},
+		{Token: "whole", Policy: auth.Policy{Permissions: []auth.Permission{{KB: "docs"}}}},
+	})
+	multi := NewMultiKBServer("test")
+	multi.MountKB("docs", func(s *Server) { RegisterKBTools(s, k, Deps{}) })
+	multi.EnableWeb(nil)
+	handler := ts.Middleware(multi.Handler())
+
+	whole := getUI(t, handler, UIAPIPrefix+"/kbs/docs/lint", "whole").Body.String()
+	if !strings.Contains(whole, `"cut_concept"`) || !strings.Contains(whole, "hidden/x1") {
+		t.Fatalf("a whole-KB reader should see the cut concept: %s", whole)
+	}
+	narrow := getUI(t, handler, UIAPIPrefix+"/kbs/docs/lint", "narrow").Body.String()
+	if strings.Contains(narrow, "hidden/") || strings.Contains(narrow, "cut_concept") {
+		t.Fatalf("a narrowed reader learns about hidden concepts: %s", narrow)
+	}
+}

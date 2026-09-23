@@ -184,11 +184,13 @@ a deliberately-broken example link — could not be written without generating t
 describes, so a KB's own "known false positives" page was impossible.
 
 Suppressible: `broken_link`, `machine_path`, `concept_oversize`, `stale_claim`, `imported_draft`,
-`secrets_on_non_service`, `orphan`, `missing_title`. **Not** suppressible: every `error`-severity check
+`secrets_on_non_service`, `orphan`, `missing_title`, and the structural `cut_concept`,
+`link_to_retired`, `broken_relation`, `map_misfit`. **Not** suppressible: every `error`-severity check
 (`missing_required_field`, `expanded_ambiguous`) — those are contract violations, not judgements, and
 letting a concept declare its own contract void would be a hole rather than an escape hatch — and the
 directory-level checks (`map_oversize`, `index_incomplete`, `expanded_*`, `orphan_asset`), which
-belong to a map or an expanded concept and have no single concept frontmatter that owns them. Naming
+belong to a map or an expanded concept and have no single concept frontmatter that owns them, and
+`island`, which belongs to a whole component of the graph. Naming
 an unsuppressible or unknown check is itself reported as `lint_ignore_invalid`: a typo that silently
 suppresses nothing is worse than no opt-out.
 
