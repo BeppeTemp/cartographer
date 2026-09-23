@@ -192,6 +192,17 @@ the usual symptom is a `concurrent map read and map write` panic rather than a
 stale result. The `allow` predicate a caller passes is invoked while that lock
 is held and must not call back into the same `liveIndex`.
 
+## Graph cache concurrency
+
+The link-graph cache (D241) has its own mutex on the KB, separate from the
+writer boundary. It serialises validation — the stat walk and any re-parse —
+and the publication of a new view. A view is immutable once published: every
+graph reader takes the current one after validating and traverses it without
+the lock, so a concurrent write can only make the *next* read see a newer
+view. Writes are atomic renames, so a validation reads either the old file or
+the new one, never a torn one. The maps a view exposes (`LinkGraph`,
+`IncomingLinks`) are shared across readers and must never be mutated.
+
 ## Operator recovery
 
 Cartographer does not promise automatic repair of arbitrary interrupted git
