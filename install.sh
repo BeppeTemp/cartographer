@@ -41,7 +41,7 @@ detect_target() {
         # Git Bash, MSYS2 and Cygwin report mingw64_nt-10.0, msys_nt-10.0 and
         # cygwin_nt-10.0, so a Windows user piping this script lands here rather
         # than on the generic refusal below. install.ps1 is the Windows installer
-        # (D238), for `update` and `uninstall` as well as `install`, so naming it
+        # (D245), for `update` and `uninstall` as well as `install`, so naming it
         # is the whole answer.
         mingw*|msys*|cygwin*|windows*)
             log "Windows is installed, upgraded and removed with install.ps1, from PowerShell:"

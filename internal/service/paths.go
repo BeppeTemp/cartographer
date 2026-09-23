@@ -32,7 +32,7 @@ var stableBinSymlinks = []string{
 //
 // On Windows binPath is already stable: install.ps1 replaces
 // %LOCALAPPDATA%\Cartographer\bin\cartographer.exe in place on every upgrade
-// (D238), so there is no versioned payload to step around and nothing to
+// (D245), so there is no versioned payload to step around and nothing to
 // resolve.
 func resolveStableBinPath(binPath string) string {
 	if goos == "windows" {

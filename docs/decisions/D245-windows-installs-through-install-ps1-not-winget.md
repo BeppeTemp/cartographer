@@ -2,7 +2,7 @@
 topic: deployment-release
 ---
 
-# D238 — Windows installs through install.ps1, not winget
+# D245 — Windows installs through install.ps1, not winget
 
 **Decision.** Cartographer is installed, upgraded and removed on Windows with
 `install.ps1` at the repository root — `irm …/install.ps1 | iex` — the

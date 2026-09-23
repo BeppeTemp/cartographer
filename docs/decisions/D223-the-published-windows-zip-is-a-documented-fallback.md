@@ -4,7 +4,7 @@ topic: deployment-release
 
 # D223 — the published Windows zip is a documented fallback, not a second channel
 
-**Status: superseded by [D238](D238-windows-installs-through-install-ps1-not-winget.md)** — winget was withdrawn and Windows installs through `install.ps1`.
+**Status: superseded by [D245](D245-windows-installs-through-install-ps1-not-winget.md)** — winget was withdrawn and Windows installs through `install.ps1`.
 
 **Decision.** `docs/getting-started.md` documents how to install, upgrade and
 remove Cartographer on Windows from `cartographer-windows-{amd64,arm64}.zip`

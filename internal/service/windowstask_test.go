@@ -134,7 +134,7 @@ func TestWindowsPaths(t *testing.T) {
 }
 
 // On Windows the recorded binary path is the one the service was installed
-// from: install.ps1 replaces that same file in place on every upgrade (D238),
+// from: install.ps1 replaces that same file in place on every upgrade (D245),
 // so unlike the darwin arm (D83) there is no versioned payload to step around.
 func TestResolveStableBinPath_Windows(t *testing.T) {
 	withTestHome(t, "windows")

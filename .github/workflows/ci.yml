@@ -64,7 +64,7 @@ jobs:
       - run: make gate
       # install.ps1 against a local fixture release built from this commit, under
       # both shells a user may run it in: PowerShell 7 and Windows PowerShell 5.1,
-      # whose quirks (TLS defaults, native stderr) are the ones that bite (D238).
+      # whose quirks (TLS defaults, native stderr) are the ones that bite (D245).
       - name: install.ps1
         shell: pwsh
         run: |

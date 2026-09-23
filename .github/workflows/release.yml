@@ -11,7 +11,7 @@ permissions:
 jobs:
   # Binaries + checksums attached to the release-please release, plus the
   # Homebrew formula pushed to BeppeTemp/homebrew-tap. Windows has no package
-  # manager channel: install.ps1 reads the release assets directly (D238).
+  # manager channel: install.ps1 reads the release assets directly (D245).
   goreleaser:
     runs-on: ubuntu-latest
     steps:

@@ -1,7 +1,7 @@
 #!/bin/sh
 # scenarios/13_windows_points_at_install_ps1.sh — piped from a Windows shell
 # environment (Git Bash, MSYS2, Cygwin), install.sh must refuse and name the
-# installer that works there, without downloading or writing anything (D238).
+# installer that works there, without downloading or writing anything (D245).
 #
 # What is asserted is that the refusal is *actionable*: a user who lands on
 # "unsupported OS: mingw64_nt-10.0" has no way to know that install.ps1 is the
