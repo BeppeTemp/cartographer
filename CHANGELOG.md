@@ -8,6 +8,18 @@
 
 KB histories with commits authored as `cartographer <cartographer@localhost>` may need a manual author rewrite before a forge with author push rules accepts the first push.
 
+## [0.16.0](https://github.com/BeppeTemp/cartographer/compare/v0.15.0...v0.16.0) (2026-09-23)
+
+
+### Features
+
+* **web:** the embedded Atlas UI ([#342](https://github.com/BeppeTemp/cartographer/issues/342)) ([990ff65](https://github.com/BeppeTemp/cartographer/commit/990ff65ecc7d8706f2d6f3c5a6dfe240a3b33119))
+
+
+### Bug Fixes
+
+* **provisioning:** sync migrates unchanged Codex hooks and keeps foreign tables ([#344](https://github.com/BeppeTemp/cartographer/issues/344)) ([0d87f76](https://github.com/BeppeTemp/cartographer/commit/0d87f767712a3567861a87e12a107238dbd8f29a))
+
 ## [0.15.0](https://github.com/BeppeTemp/cartographer/compare/v0.14.0...v0.15.0) (2026-09-22)
 
 
