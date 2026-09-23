@@ -33,7 +33,9 @@ const (
 	// DriftModified: the content on disk no longer hashes to what was written.
 	DriftModified = "modified"
 	// DriftUnregistered: a managed key or marker block inside a file shared
-	// with the user (mcp, instructions) is no longer there.
+	// with the user (mcp, instructions) is no longer there — or, for a Codex
+	// hook, its registration is still in config.toml, where it fires beside
+	// the hooks.json entry until a rewrite migrates it (D230, #338).
 	DriftUnregistered = "unregistered"
 	// DriftUnknown: the artifact is on disk but no materialized hash was
 	// recorded — a lockfile written before D138 — so its content cannot be
@@ -279,6 +281,24 @@ func verifyArtifact(mf ManagedFile, provider configurator.Provider, baseDir stri
 			finding.Reason, finding.Detail = DriftError, statErr.Error()
 		}
 		return finding, true
+	}
+
+	// A Codex hook whose files are intact but whose registration is still in
+	// config.toml is unchanged content with a stale registration: without this
+	// the migration ran only when the hook's content changed, so after an
+	// upgrade an unchanged KB hook stayed in config.toml, and doctor's
+	// suggested `sync` changed nothing (#338). Checked ahead of the hash gate
+	// for the same reason as existence: it needs no recorded hash.
+	if mf.Kind == "hook" && provider == configurator.ProviderCodex {
+		_, stray, err := HookRegistrations(baseDir, provider, mf.Name)
+		switch {
+		case err != nil:
+			finding.Reason, finding.Detail = DriftError, err.Error()
+			return finding, true
+		case stray > 0:
+			finding.Reason = DriftUnregistered
+			return finding, true
+		}
 	}
 
 	// Only the content comparison needs a hash: a pre-D138 entry whose files
