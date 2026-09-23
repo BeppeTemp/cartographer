@@ -23,10 +23,6 @@ var stableBinSymlinks = []string{
 	"/usr/local/bin/cartographer",
 }
 
-// wingetLinkName is the shim winget's portable installer puts on PATH. Var so
-// tests can point it at a fake layout, like stableBinSymlinks.
-var wingetLinkName = filepath.Join("Microsoft", "WinGet", "Links", "cartographer.exe")
-
 // resolveStableBinPath returns the path to record in the generated service
 // definition for the given as-invoked binary path. It never resolves symlinks
 // on binPath itself (a resolved Homebrew Caskroom path is version-pinned and
@@ -34,18 +30,12 @@ var wingetLinkName = filepath.Join("Microsoft", "WinGet", "Links", "cartographer
 // resolves to the same file as binPath, that stable symlink is preferred;
 // otherwise binPath is returned unchanged.
 //
-// The Windows arm deliberately does *not* mirror the EvalSymlinks comparison:
-// a winget portable shim is not reliably a symlink (it is usually a small
-// launcher, and on some filesystems a hard link), so there is nothing to
-// compare targets with. It does not need one either — winget is the only
-// Windows channel (D218), so a shim under %LOCALAPPDATA%\Microsoft\WinGet\Links
-// belongs to the installed package by construction, and it is the path that
-// survives an upgrade to a new package version.
+// On Windows binPath is already stable: install.ps1 replaces
+// %LOCALAPPDATA%\Cartographer\bin\cartographer.exe in place on every upgrade
+// (D252), so there is no versioned payload to step around and nothing to
+// resolve.
 func resolveStableBinPath(binPath string) string {
 	if goos == "windows" {
-		if shim := wingetShimPath(); shim != "" && fileExists(shim) {
-			return shim
-		}
 		return binPath
 	}
 	target, err := filepath.EvalSymlinks(binPath)
@@ -67,16 +57,6 @@ func resolveStableBinPath(binPath string) string {
 func fileExists(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil
-}
-
-// wingetShimPath is %LOCALAPPDATA%\Microsoft\WinGet\Links\cartographer.exe, or
-// "" when the local application data directory cannot be resolved.
-func wingetShimPath() string {
-	dir, err := localAppDataDir()
-	if err != nil {
-		return ""
-	}
-	return filepath.Join(dir, wingetLinkName)
 }
 
 // appDataDir is %APPDATA% (roaming, per-user configuration that follows the

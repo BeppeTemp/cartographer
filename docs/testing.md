@@ -242,10 +242,21 @@ without a service.
 
 One scenario covers a platform the script deliberately does not support: with a
 stub `uname` reporting `MINGW64_NT-…` on `PATH`, `install.sh` must exit non-zero
-naming `winget install BeppeTemp.Cartographer` and the `cartographer service
-uninstall` that has to precede a removal there, **without** falling through to the
-generic "unsupported OS" and without requesting an asset or writing a binary
-(D218). The refusal itself is old; that it is actionable is what is asserted.
+naming the `install.ps1` command, **without** falling through to the generic
+"unsupported OS" and without requesting an asset or writing a binary (D252). The
+refusal itself is old; that it is actionable is what is asserted.
+
+`install.ps1` has its own suite, `test/install/windows/run.ps1`, run by the
+`test-windows` CI job under both PowerShell 7 and Windows PowerShell 5.1. Unlike
+the POSIX suite it fakes only the release server (a local `python -m
+http.server` over a fixture tree): the binaries are two real builds of the commit
+(`v9.9.9` and `v9.9.8`), the zip is a real zip, and the per-user `PATH` is the
+real registry value, saved and restored. It covers a fresh install into the
+default directory and the `PATH` entry, the already-current no-op, an update over
+an idle binary and over one **running** as a server (the lock the rename-aside
+exists for), a wrong digest and a manifest without the asset — each leaving the
+previous binary untouched — and the uninstall refusal while a task definition
+exists, `-BinaryOnly`, and a clean uninstall removing the `PATH` entry.
 
 A separate, non-deterministic check lives in
 `internal/provisioning/clientcompat_test.go`: it runs the *client's own*
@@ -264,15 +275,11 @@ quarantine from the staged path, and the absence of `hooks`, of the deprecated
 `postflight do` and of `upgrade-repair`, which cannot work inside Homebrew's
 sandbox (D199).
 
-The same guard covers the Windows packaging shape, where every failure mode is
-either silent or only visible on a real Windows machine: `windows` among the build
-targets, a `format_overrides` entry making its archive a **zip** and no override
-producing a raw binary (the pipe refuses an archive set with both, and a binary
-would register the command as `cartographer.exe` instead of `cartographer`), the
-`BeppeTemp.Cartographer` identifier, a `winget-pkgs` repository whose pull request
-base owner is `microsoft` — so a submission cannot be quietly retargeted at a
-private manifest repo — and the absence of `use:`, a GoReleaser Pro field that is
-silently ignored in OSS and would read as configuration. Each assertion was
+The same guard covers the Windows packaging shape: `windows` among the build
+targets, a `format_overrides` entry making its archive a **zip** — what
+`install.ps1` downloads and extracts — no override producing a raw binary, and no
+`winget:` block, which would start opening pull requests against
+`microsoft/winget-pkgs` again (D252). Each assertion was
 verified to fail when its target line is removed. Its Ruby is not executed — that would need a real Homebrew and
 GoReleaser environment, which is out of the deterministic gate (see below).
 

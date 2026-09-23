@@ -133,33 +133,15 @@ func TestWindowsPaths(t *testing.T) {
 	}
 }
 
-// The recorded binary path must survive an upgrade to a new package version,
-// which on Windows means the winget shim rather than the versioned payload —
-// the same reason the darwin arm prefers a Homebrew symlink over a Caskroom path
-// (D83).
+// On Windows the recorded binary path is the one the service was installed
+// from: install.ps1 replaces that same file in place on every upgrade (D252),
+// so unlike the darwin arm (D83) there is no versioned payload to step around.
 func TestResolveStableBinPath_Windows(t *testing.T) {
-	t.Run("prefers the winget shim when it exists", func(t *testing.T) {
-		home := withTestHome(t, "windows")
-		shim := filepath.Join(home, "AppData", "Local", wingetLinkName)
-		if err := os.MkdirAll(filepath.Dir(shim), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(shim, []byte("shim"), 0o644); err != nil {
-			t.Fatal(err)
-		}
-		got := resolveStableBinPath(`C:\payload\cartographer.exe`)
-		if got != shim {
-			t.Errorf("resolveStableBinPath = %q, want the winget shim %q", got, shim)
-		}
-	})
-
-	t.Run("returns the binary unchanged without a shim", func(t *testing.T) {
-		withTestHome(t, "windows")
-		in := `C:\payload\cartographer.exe`
-		if got := resolveStableBinPath(in); got != in {
-			t.Errorf("resolveStableBinPath = %q, want %q unchanged", got, in)
-		}
-	})
+	withTestHome(t, "windows")
+	in := `C:\Users\u\AppData\Local\Cartographer\bin\cartographer.exe`
+	if got := resolveStableBinPath(in); got != in {
+		t.Errorf("resolveStableBinPath = %q, want %q unchanged", got, in)
+	}
 }
 
 func TestRenderWindowsTaskXML(t *testing.T) {

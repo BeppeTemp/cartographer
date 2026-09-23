@@ -35,27 +35,20 @@ detect_target() {
     os=$(uname -s | tr '[:upper:]' '[:lower:]')
     arch=$(uname -m)
     # The OS is decided before the architecture, so a Windows shell gets the
-    # winget instruction whatever `uname -m` says there.
+    # install.ps1 instruction whatever `uname -m` says there.
     case "$os" in
         darwin|linux) ;;
         # Git Bash, MSYS2 and Cygwin report mingw64_nt-10.0, msys_nt-10.0 and
         # cygwin_nt-10.0, so a Windows user piping this script lands here rather
-        # than on the generic refusal below. winget is the only channel (D218),
-        # so naming it is most of the answer; the rest is the fallback for a
-        # machine winget cannot serve, which is reached through this same refusal
-        # by `update` and `uninstall` as well as by `install` (D223).
+        # than on the generic refusal below. install.ps1 is the Windows installer
+        # (D252), for `update` and `uninstall` as well as `install`, so naming it
+        # is the whole answer.
         mingw*|msys*|cygwin*|windows*)
-            log "Windows is not installed, upgraded or removed through this script."
+            log "Windows is installed, upgraded and removed with install.ps1, from PowerShell:"
             log ""
-            log "  winget install BeppeTemp.Cartographer"
+            log "  irm https://raw.githubusercontent.com/${REPO}/main/install.ps1 | iex"
             log ""
-            log "No usable winget? The published zip is the documented fallback for"
-            log "installing, upgrading and removing by hand — see docs/getting-started.md"
-            log "(\"Windows without winget\")."
-            log ""
-            log "Either way, before removing it: cartographer service uninstall"
-            log "(neither winget nor deleting the binary runs Cartographer code, so a"
-            log "registered Scheduled Task would survive it — see the README)."
+            log "update and uninstall: see the README (\"Install\")."
             exit 1
             ;;
         *) fail "unsupported OS: $os" ;;

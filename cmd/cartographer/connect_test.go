@@ -357,6 +357,13 @@ func TestProvidersManagingMCP(t *testing.T) {
 // loopback literal the service listens on (D231). Whether a local server
 // answers does not matter: a down server still records the connection.
 func TestDoConnect_MigratesLegacyDefaultURL(t *testing.T) {
+	// The migration target is the real default endpoint, so on a machine that
+	// runs the native service doConnect reaches it and inherits its KBs — two or
+	// more make the first connect fail on the D190 choice, which is not what
+	// this test is about. CI has no such server and keeps the coverage.
+	if _, err := client.New(defaults.DefaultMCPURL, "").Health(time.Second); err == nil {
+		t.Skip("a local server answers on the default endpoint this test migrates to")
+	}
 	dir := t.TempDir()
 	if _, err := doConnect(connectOptions{Providers: []string{"claude"}, Dir: dir, ServerURL: "http://localhost:39273/mcp", Name: "cartographer", Trust: true}); err != nil {
 		t.Fatalf("doConnect: %v", err)

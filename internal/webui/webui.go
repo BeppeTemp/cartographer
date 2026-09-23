@@ -5,7 +5,7 @@
 // artifact lives in version control: `go install
 // github.com/BeppeTemp/cartographer/cmd/cartographer@latest` cannot run an npm
 // build, and the promise is that every installation path — Homebrew, the
-// winget archive, the install script, the container, `go install` and the
+// Windows zip, the install scripts, the container, `go install` and the
 // native service — serves the same UI from the one binary. A committed bundle
 // is the price of that promise.
 //
