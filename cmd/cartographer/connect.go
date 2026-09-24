@@ -376,6 +376,10 @@ func cmdConnect(args []string) int {
 		PinKeys:   pinKeys,
 		KBs:       splitCommaList(kbSel),
 		Workspace: *workspaceFlag,
+		// The placeholder step is a question, so it follows the same rule as
+		// every other connect question: a terminal on both ends, and no
+		// --no-input. A dry run has nothing to re-materialize.
+		PromptPaths: !*noInput && !*dryRun && isTerminal(os.Stdin.Fd()) && isTerminal(os.Stdout.Fd()),
 	}
 
 	if interactive {
@@ -617,6 +621,12 @@ type connectOptions struct {
 	// provider-global connect materializes every selected KB's artifacts into
 	// $HOME, and moving them afterwards is a migration rather than a choice.
 	Workspace string
+	// PromptPaths opens the placeholder step (D262, pathsform.go) after the
+	// first materialization when some key the bound KBs cite did not
+	// resolve. Set by cmdConnect only on a TTY without --no-input; the TUI
+	// leaves it off (it cannot run a second program inside its own), and a
+	// non-interactive run reports the keys through printApplySummary instead.
+	PromptPaths bool
 }
 
 // connectResult is the outcome of doConnect: which providers were connected, the
@@ -805,9 +815,40 @@ func doConnect(opts connectOptions) (connectResult, error) {
 		res.Deferred = true
 		res.DeferredErr = err
 	} else {
-		applied, err := materializeForProviders(manifests, projections, opts.Dir, facts.Version, opts.Trust || opts.AutoTrust, opts.DryRun, false /* noHeal */, portabilityOptions{SearchRoots: existing.SearchRoots, SearchDepth: existing.SearchDepth, Paths: existing.Paths}, kbOrderForProviders(pullCfg, opts.Providers), existing.ApprovedMCPHashes())
+		materialize := func() (map[string]provisioning.AppliedResult, error) {
+			return materializeForProviders(manifests, projections, opts.Dir, facts.Version, opts.Trust || opts.AutoTrust, opts.DryRun, false /* noHeal */, portabilityOptions{SearchRoots: existing.SearchRoots, SearchDepth: existing.SearchDepth, Paths: existing.Paths}, kbOrderForProviders(pullCfg, opts.Providers), existing.ApprovedMCPHashes())
+		}
+		applied, err := materialize()
 		if err != nil {
 			return connectResult{}, err
+		}
+		// The placeholder step (D262): the keys are only known now, after the
+		// pull, so this is where they can be asked for. Answers go into
+		// existing.Paths — saved with the rest of the config below — and the
+		// instructions block is materialized once more so its table carries
+		// them; everything else is already in place and is a no-op.
+		if opts.PromptPaths && !opts.DryRun {
+			if rows := unresolvedRowsOf(applied); len(rows) > 0 {
+				answers, err := runPathsForm(rows)
+				if err != nil {
+					return connectResult{}, fmt.Errorf("placeholder step: %w", err)
+				}
+				if len(answers) > 0 {
+					if existing.Paths == nil {
+						existing.Paths = map[string]string{}
+					}
+					for id, path := range answers {
+						key, kind := pathsConfigKey(id)
+						for _, w := range pathWarnings(kind, path) {
+							res.Warnings = append(res.Warnings, fmt.Sprintf("%s: %s", id, w))
+						}
+						existing.Paths[key] = path
+					}
+					if applied, err = materialize(); err != nil {
+						return connectResult{}, err
+					}
+				}
+			}
 		}
 		res.Applied = applied
 	}

@@ -13,7 +13,7 @@ import (
 // cmdResolve resolves a single {{repo:<key>}}/{{path:<name>}} placeholder
 // (D75 WP5) and prints the local path it resolves to. It is the runtime
 // fallback for an agent that meets an unresolved placeholder in a concept
-// (see the "Local paths" table's own pointer to this command, D75 WP4) and a
+// (see the placeholder paragraph of the instructions block, D262) and a
 // standalone debug tool — the binary is already present on every connected
 // machine, so this never depends on the server being reachable.
 //

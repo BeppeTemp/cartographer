@@ -646,6 +646,11 @@ func summarizeApplied(r provisioning.AppliedResult) string {
 	if n := len(r.Warnings); n > 0 {
 		parts = append(parts, fmt.Sprintf("%d warning(s)", n))
 	}
+	// D262: the count only — fixing a key is `cartographer paths`, not an
+	// edit the dashboard offers.
+	if n := len(r.NewLock.UnresolvedPlaceholders); n > 0 {
+		parts = append(parts, fmt.Sprintf("%d placeholder(s) unresolved — run: cartographer paths", n))
+	}
 	if len(parts) == 0 {
 		return "up to date"
 	}

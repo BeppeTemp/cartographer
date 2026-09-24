@@ -44,7 +44,7 @@ func TestLinkGraphProjectsTheVisibleConcepts(t *testing.T) {
 	if got := lg.Graph.In[idx("infra/gateway")]; !reflect.DeepEqual(got, []int{idx("infra/dns")}) {
 		t.Errorf("gateway in = %v", got)
 	}
-	if fa := lg.Facets[idx("infra/gateway")]; fa != (NodeFacets{Title: "Gateway", Type: "Service", Status: "active", Collection: "infra"}) {
+	if fa := lg.Facets[idx("infra/gateway")]; !reflect.DeepEqual(fa, NodeFacets{Title: "Gateway", Type: "Service", Status: "active", Collection: "infra"}) {
 		t.Errorf("facets = %+v", fa)
 	}
 

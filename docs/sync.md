@@ -80,7 +80,7 @@ what diverged — see §On-disk verification and healing.
 |---|---|
 | `sync_check` | Returns `manifest.revision`, status (`in-sync`/`drift`), and the diff against the supplied lockfile. Read-only. |
 | `sync_apply` | Materializes into `base_dir` **shared with the server's filesystem** (local/stdio deployment), updates the lockfile, prunes. Honors the signature gate. Supports `dry_run`. |
-| `sync_pull` | Returns the manifest with file contents in base64: used by the remote HTTP client, which does not share the filesystem with the server. Read-only. |
+| `sync_pull` | Returns the manifest with file contents in base64: used by the remote HTTP client, which does not share the filesystem with the server. Also lists the path placeholders the KB cites (`placeholders`, outside `revision` and unsigned — §Path portability placeholders). Read-only. |
 
 ### Layer 3 — Push via MCP notifications (stdio only)
 
@@ -483,7 +483,8 @@ Shared content (concepts and provisioning artifacts) must never contain machine-
   cache, even for a key whose old path is still perfectly live.
 - `{{path:<name>}}` — manual `paths:` mapping in `.cartographer.yaml`, a fallback for directories that
   aren't git repos (and an override for `{{repo:<key>}}` too: `repoindex.Resolve` checks `paths:`
-  before cache/scan).
+  before cache/scan). Written by the operator with `cartographer paths set`, or answered at the
+  placeholder step of an interactive `connect` (`docs/configurator.md`); never by `sync`.
 
 The server-side `machine_path` lint flags a literal client-local path left in a concept body
 instead of one of these placeholders. Not every absolute path in a body is client-local: a Map's
@@ -504,13 +505,33 @@ passing `cfg.SearchRoots`/`cfg.Paths`.
   on the kind) — the client-side comparison must be against what was actually written to
   disk. Content with no placeholders → expansion is a no-op, hash identical to `Artifact.ContentHash`:
   **zero drift for existing installations**.
-- **Unresolved placeholder**: a warning on stderr (`AppliedResult.Warnings`), the text left as-is
-  in the file — sync never blocks on a missing resolution.
-- **"Local paths" table**: when `ExpandPlaceholders` is active, `applyInstructionsGroup` appends
-  to the instructions block (per provider) a placeholder → local path table with every key
-  resolved during that same `Apply` (agent/skill/hook included, not just the
-  instructions content), plus a fallback instruction for the agent: a placeholder missing from the table →
-  `cartographer resolve <key>` (`docs/configurator.md`).
+- **Which keys are resolved** (D262): `sync_pull` lists the keys a KB cites (`placeholders`, see
+  `docs/control-plane.md`) — the union of the placeholders in the bodies of the concepts the caller
+  may see, read from the graph cache, and those in the KB's own artifacts. The list is outside
+  `revision` and outside every signature, like `Manifest.Issues`. The client keeps it per KB and
+  gives each projection the keys of the KBs bound to it (`ApplyOptions.Placeholders`); `Apply`
+  adds the keys found in the manifest's own authorized artifacts, so an older server that lists
+  nothing still gets artifact-level coverage. Every key is resolved **before** any artifact is
+  expanded, through one `repoindex.Resolver`: the search roots are walked **at most once per
+  `Apply`**, however many keys miss. The parser (`okf.Placeholders`) is shared by server and
+  client: escaped (`{{\repo:…}}`) and metasyntax keys (`<name>`, `...`, `…`) are never listed.
+- **Unresolved placeholder**: the text left as-is in the file — sync never blocks on a missing
+  resolution. Reported as **one aggregated warning per sync** (not one per occurrence or per
+  provider), naming each key with its reason and the fix (`cartographer paths set <kind>:<key> <path>`).
+- **Placeholder state in the lock** (D262): each `Lock` records `resolved_placeholders` (key → local
+  path), `unresolved_placeholders` (key → reason) and `placeholder_sources` (key → citing KBs),
+  overwritten by every client-side `Apply`. `cartographer paths` and `status` read them; absent (an
+  older lockfile) means "nothing recorded", never a failure.
+- **Placeholder paragraph and "Local paths" table**: when `ExpandPlaceholders` is active,
+  `applyInstructionsGroup` appends to the instructions block (per provider) a fixed paragraph —
+  always, even when nothing resolved — explaining that concepts and artifacts may cite
+  `{{repo:<key>}}`/`{{path:<name>}}`, that an unlisted one is resolved with
+  `cartographer resolve <kind>:<key>`, and that on failure the agent asks the user instead of
+  guessing, recorded with `cartographer paths set`. Below it, a placeholder → local path table with
+  every key resolved in that `Apply` (the whole KB's list, concept-only keys included). The section
+  is appended after expansion, so nothing in it is ever resolved. Its hash is recorded in the lock
+  (`paths_section_hash`): a mismatch rewrites the block even when no artifact changed — a concept
+  that starts citing a key, or a new `paths:` entry, is not in the manifest diff.
 - **Repo ambiguity**: a short name matching several distinct remotes is an explicit error (it asks
   for the full form `host/owner/name`); multiple clones of the same remote resolve to the first match in
   `search_roots` order, with a warning.

@@ -384,3 +384,33 @@ func TestConceptFacetsNeverTrustsASymlink(t *testing.T) {
 		t.Fatalf("type after the target changed = %q, want Runbook", got)
 	}
 }
+
+// TestFacetsCarryBodyPlaceholders pins D262: the cached facets list the
+// placeholder keys a body cites — escaped ones and metasyntax excluded,
+// duplicates collapsed, frontmatter ignored — and follow the file on edit.
+func TestFacetsCarryBodyPlaceholders(t *testing.T) {
+	f := newGraphFixture(t)
+	f.write("infra/tools.md", "---\ntype: Service\ntitle: \"{{path:in-frontmatter}}\"\n---\n"+
+		"Clone {{repo:tool}} into {{path:work}}; again {{repo:tool}}. Syntax: {{\\repo:x}}, {{repo:<name>}}, {{repo:…}}.\n")
+
+	lg, err := f.k.LinkGraph(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := lg.Facets[lg.Index["infra/tools"]].Placeholders
+	if want := []string{"path:work", "repo:tool"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("placeholders = %v, want %v", got, want)
+	}
+	if p := f.k.ConceptFacets("infra/tools").Placeholders; !reflect.DeepEqual(p, []string{"path:work", "repo:tool"}) {
+		t.Errorf("ConceptFacets placeholders = %v", p)
+	}
+
+	f.write("infra/tools.md", "---\ntype: Service\n---\nNow only {{path:other}}.\n")
+	lg, err = f.k.LinkGraph(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := lg.Facets[lg.Index["infra/tools"]].Placeholders; !reflect.DeepEqual(got, []string{"path:other"}) {
+		t.Errorf("after edit placeholders = %v, want [path:other]", got)
+	}
+}

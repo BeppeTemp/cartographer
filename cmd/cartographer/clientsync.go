@@ -43,6 +43,10 @@ type pulledArtifactJSON struct {
 type pulledManifestJSON struct {
 	Revision  string               `json:"revision"`
 	Artifacts []pulledArtifactJSON `json:"artifacts"`
+	// Placeholders are the "kind:key" placeholders the KB cites (D262),
+	// outside revision and unsigned. An older server sends none, and the
+	// client falls back to the keys found in the artifacts themselves.
+	Placeholders []string `json:"placeholders,omitempty"`
 }
 
 // lockFilePath returns the path to the v2 multi-provider lockfile inside targetDir.
@@ -82,6 +86,50 @@ type candidateSet struct {
 	Named   map[string][]provisioning.Artifact
 	Bare    []provisioning.Artifact
 	HasBare bool
+	// Placeholders is, per KB, the placeholder keys its sync_pull listed
+	// (D262); BarePlaceholders the unnamed endpoint's. Selected per
+	// projection exactly like the artifacts, by placeholdersForProjection.
+	Placeholders     map[string][]string
+	BarePlaceholders []string
+}
+
+// placeholdersForProjection returns the placeholder keys a projection must
+// resolve, "kind:key" -> the KBs citing it, following forProjection's rules:
+// a bundle-only projection has no KB and no key, a workspace receives its own
+// KBs' keys, the global projection its provider's bound KBs'. Keys from the
+// unnamed endpoint carry no KB. nil when there is none.
+func (cs candidateSet) placeholdersForProjection(cfg *clientconfig.Config, p syncProjection) map[string][]string {
+	if p.BundleOnly {
+		return nil
+	}
+	out := map[string][]string{}
+	if cs.HasBare {
+		if p.Workspace != "" {
+			return nil
+		}
+		if bound, explicit := cfg.BoundKBs(p.Provider); explicit && len(bound) == 0 {
+			return nil
+		}
+		for _, id := range cs.BarePlaceholders {
+			out[id] = nil
+		}
+	} else {
+		kbs := p.KBs
+		if p.Workspace == "" {
+			kbs, _ = cfg.BoundKBs(p.Provider)
+		}
+		sorted := append([]string(nil), kbs...)
+		sort.Strings(sorted)
+		for _, kb := range sorted {
+			for _, id := range cs.Placeholders[kb] {
+				out[id] = append(out[id], kb)
+			}
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 // all returns every candidate, in a deterministic order.
@@ -299,7 +347,7 @@ type kbPullFailure struct {
 // server's unnamed endpoint, and two KBs serving one artifact with different
 // signatures.
 func fetchCandidatesPartial(cfg *clientconfig.Config, kbNames []string) (candidateSet, []kbPullFailure, error) {
-	cs := candidateSet{Named: make(map[string][]provisioning.Artifact)}
+	cs := candidateSet{Named: make(map[string][]provisioning.Artifact), Placeholders: make(map[string][]string)}
 	token := resolveToken(cfg)
 	tokenEnv := tokenEnvName(cfg)
 	health, err := client.New(cfg.ServerURL, token).WithTokenEnv(tokenEnv).Health(probeTimeout)
@@ -368,6 +416,11 @@ func fetchCandidatesPartial(cfg *clientconfig.Config, kbNames []string) (candida
 				cs.Named[target.Name] = append(cs.Named[target.Name], a)
 			}
 		}
+		if target.Name == "" {
+			cs.BarePlaceholders = append(cs.BarePlaceholders, res.placeholders...)
+		} else if len(res.placeholders) > 0 {
+			cs.Placeholders[target.Name] = res.placeholders
+		}
 		// A KB that answered with no artifacts at all still counts as answered:
 		// without this, a provider bound only to it would fall through the
 		// "nothing was pulled" branch instead of correctly receiving nothing.
@@ -393,9 +446,10 @@ const maxConcurrentPulls = 4
 // tool error, which fetchCandidates wraps with the KB name; err is a decoding
 // or integrity error, already worded for the operator.
 type pullResult struct {
-	artifacts []provisioning.Artifact
-	callErr   error
-	err       error
+	artifacts    []provisioning.Artifact
+	placeholders []string
+	callErr      error
+	err          error
 }
 
 // pullTarget calls sync_pull on one target and decodes and hash-checks its
@@ -428,7 +482,7 @@ func pullTarget(c *client.MCPClient, target kbTarget) pullResult {
 			ContentHash: pa.ContentHash, BuiltIn: pa.BuiltIn, Signature: pa.Signature, Files: files,
 		})
 	}
-	return pullResult{artifacts: arts}
+	return pullResult{artifacts: arts, placeholders: pm.Placeholders}
 }
 
 // collisionsForProvider narrows DetectCollisions to the ones a single provider
@@ -569,6 +623,7 @@ func materializeForProviders(manifests map[string]provisioning.Manifest, project
 	var appliedSoFar []string
 	for _, p := range projections {
 		previous := lockFile.ForProjection(p.Key())
+		manifest := manifests[projectionKey(p)]
 		opts := provisioning.ApplyOptions{
 			Provider:           configurator.Provider(p.Provider),
 			BaseDir:            p.BaseDir,
@@ -583,12 +638,15 @@ func materializeForProviders(manifests map[string]provisioning.Manifest, project
 			SearchRoots:        portability.SearchRoots,
 			SearchDepth:        portability.SearchDepth,
 			Paths:              portability.Paths,
-			KBOrder:            kbOrder[p.Provider],
+			// Read off the projection's manifest before the filter below,
+			// which — like every Manifest copy — does not carry it (D262).
+			Placeholders: manifest.Placeholders,
+			KBOrder:      kbOrder[p.Provider],
 		}
 		// Apply only the artifacts the provider knows how to materialize in
 		// this scope: unsupported kinds are neither drift nor pending, they
 		// simply don't concern it.
-		applied, err := provisioning.Apply(provisioning.FilterForProviderScoped(manifests[projectionKey(p)], configurator.Provider(p.Provider), p.Scope), opts)
+		applied, err := provisioning.Apply(provisioning.FilterForProviderScoped(manifest, configurator.Provider(p.Provider), p.Scope), opts)
 		if err != nil {
 			// Name what is already recorded, so a rerun is informed rather
 			// than a guess about how far the previous one got.
@@ -738,12 +796,31 @@ func printApplySummary(dir string, results map[string]provisioning.AppliedResult
 			fmt.Printf("[%s] warning: %s\n", p, w)
 		}
 	}
+	// One line for every placeholder no provider could resolve (D262), not
+	// one per provider and per occurrence: the same key missing for three
+	// clients is one problem with one fix.
+	if w := provisioning.UnresolvedPlaceholdersWarning(unresolvedAcross(results)); w != "" {
+		fmt.Printf("warning: %s\n", w)
+	}
 	if needsApproval {
 		fmt.Printf("to approve the unsigned artifacts run: %s\n", autoTrustCommand())
 	}
 	if needsMCPApproval {
 		fmt.Println("MCP artifacts require a point approval: cartographer approve mcp <name> --kb <kb>, then cartographer sync")
 	}
+}
+
+// unresolvedAcross unions the unresolved placeholders of every applied
+// projection. The reasons agree for one key across providers (same `paths:`,
+// same search roots), so which one is kept does not matter.
+func unresolvedAcross(results map[string]provisioning.AppliedResult) map[string]string {
+	out := map[string]string{}
+	for _, r := range results {
+		for id, reason := range r.NewLock.UnresolvedPlaceholders {
+			out[id] = reason
+		}
+	}
+	return out
 }
 
 // autoTrustCommand returns the exact command line the user must run to approve

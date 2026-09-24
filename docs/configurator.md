@@ -275,6 +275,16 @@ otherwise on failure the form is re-shown with the entered values and an inline 
 connection. A failed `doConnect` also re-shows the form populated (connect is idempotent: no
 `disconnect` is needed to retry).
 
+**Placeholder step (TTY, D262).** After the first materialization, when some `{{repo:…}}`/`{{path:…}}`
+key the bound KBs cite did not resolve on this machine, a TTY `connect` (no `--no-input`, no
+`--dry-run`) opens a second step (`pathsform.go`, a separate step like the KB choice because the keys
+are only known after the pull): one row per unresolved key, with its KBs and the reason, a text input
+for the local path, and an empty value to skip it. Answers are written into `paths:` in
+`.cartographer.yaml` and the instructions block is materialized once more so its "Local paths" table
+carries them. Outside a TTY nothing is asked: the apply summary prints one aggregated warning listing
+each key with its `cartographer paths set <kind>:<key> <path>` command, and the exit status is
+unchanged — an unresolved key never blocks a connect.
+
 **Local service (D73).** If the probe fails, the URL is loopback (`localhost`/`127.0.0.1`/`::1`),
 and the native service isn't running, before the `y/N` override the CLI flow offers to
 install and start the local service (`cartographer service install` with defaults, polling
@@ -342,6 +352,10 @@ A newer release known to the update cache adds `update available: vX (installed 
 reports one in `/health` adds `server update available: vX` — the server operator's job, so no
 command. Both read local state only (the cache is refreshed by the session hook and `update
 check`) and neither changes the exit code (D254).
+Placeholder keys the last sync could not resolve (read from the lockfile, no network) add
+``N placeholder(s) unresolved — run `cartographer paths` `` to the table and an additive
+`unresolved_placeholders: [{key, kbs, reason}]` to the JSON, present only when non-empty; neither
+changes the state or the exit code — an unresolved key is left verbatim, not a failed sync (D262).
 For an unavailable endpoint, the table names the configured endpoint once and
 suggests checking that URL (or `cartographer service status` for loopback);
 connected providers are reported as `unknown`, rather than repeating a network
@@ -679,7 +693,8 @@ Resolves a path portability placeholder (D75) and prints the local path to stdou
 server: it only reads `.cartographer.yaml` (`search_roots`, `paths`) and, if needed, scans the
 filesystem (`internal/repoindex`) — it works even before a `connect`. It's the runtime fallback
 for an agent that encounters, in a concept's body, a placeholder missing from the "Local
-paths" table materialized in the instructions block (`docs/sync.md` §Path portability placeholders), as well
+paths" table materialized in the instructions block — the block's placeholder paragraph points
+agents here, and to `cartographer paths set` when resolution fails (`docs/sync.md` §Path portability placeholders), as well
 as a standalone debugging tool.
 
 ```bash
@@ -704,6 +719,34 @@ Exit code: `0` resolved (path on stdout), `1` not resolved (no `paths:` entry, n
 found under `search_roots`, or an ambiguous key across several distinct remotes — error message on
 stderr with the full form to use), `2` usage error (missing argument or not in the
 `repo:...`/`path:...` form).
+
+### `cartographer paths [list [--json]] | set <key> <path> | unset <key>`
+
+The placeholder keys the last sync met, and the command that records where they live on this
+machine (D262). No network call: everything is read from the lockfile and `.cartographer.yaml`.
+
+```bash
+cartographer paths                          # = paths list: every key, its KB(s), path or failure reason
+cartographer paths list --json              # {"placeholders": [{key, kbs, path | reason}]}
+cartographer paths set path:kubeconfig ~/.kube/config
+cartographer paths set repo:dotfiles ~/src/dotfiles
+cartographer paths unset kubeconfig
+```
+
+- `list` shows every key recorded in the lockfile, resolved or not, with the KBs citing it (from
+  `sync_pull`'s `placeholders` list and the artifacts) and the local path or the reason it failed.
+- `set` writes `paths:` in `.cartographer.yaml` (`clientconfig.Save`: other keys survive). The key is
+  accepted with or without its `repo:`/`path:` prefix and stored **without** it, which is how
+  resolution looks it up — one map serves both kinds, `paths:` being checked before the repo cache
+  and scan. The path is stored as written (`~` kept, expanded at resolution time). A path that does
+  not exist is recorded anyway with a warning (you may be about to clone it); for a `repo:` key, a
+  path that is not a git clone is a warning too, never an error.
+- `unset` removes an entry (exit `1` if there is none).
+- `set`/`unset` print the one command that applies them — `cartographer sync` — and never sync
+  implicitly. `set`/`unset` need an existing `.cartographer.yaml` (exit `2`, run `connect` first).
+
+The TUI dashboard's per-provider sync reports the unresolved count in its done message; editing
+happens here, not in the TUI.
 
 ## Adding a provider
 
@@ -945,7 +988,7 @@ clients:         # per-provider KB binding (D169); absent provider = every known
     kbs: [homelab]
 search_roots: ["~/Documents"]   # where repoindex.Scan looks for git clones for {{repo:<key>}} (D75)
 search_depth: 4                 # how many levels repoindex descends from each root (D162); omitted when 0 = the default
-paths: {}                       # manual name -> path mapping for {{path:<name>}} (and an override for {{repo:<key>}}, D75)
+paths: {}                       # manual name -> path mapping for {{path:<name>}} (and an override for {{repo:<key>}}, D75); edit with `cartographer paths set`
 update:                         # D254; omitted entirely when both are the default
   check: true                   # false: no update lookup at all
   policy: notify                # notify | auto-patch (patch releases via homebrew/install.sh/install.ps1 install themselves)
@@ -1014,7 +1057,11 @@ been materialized:
 ```jsonc
 {
   "providers": {
-    "claude": { "applied_revision": "sha256:…", "server_version": "1.4.0", "managed": [ /* ManagedFile[] */ ] },
+    "claude": { "applied_revision": "sha256:…", "server_version": "1.4.0", "managed": [ /* ManagedFile[] */ ],
+                "resolved_placeholders": { "repo:tool": "/home/user/src/tool" },
+                "unresolved_placeholders": { "path:kubeconfig": "no \"kubeconfig\" entry under paths: (.cartographer.yaml)" },
+                "placeholder_sources": { "repo:tool": ["kb-a"], "path:kubeconfig": ["kb-a"] },
+                "paths_section_hash": "…" },
     "opencode": { "applied_revision": "sha256:…", "server_version": "1.4.0", "managed": [ /* ManagedFile[] */ ] }
   }
 }

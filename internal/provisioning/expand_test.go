@@ -80,8 +80,13 @@ func TestExpandPlaceholders_UnresolvedLeftAsIsWithWarning(t *testing.T) {
 	if string(got) != string(content) {
 		t.Errorf("unresolved placeholder must stay literal: %s", got)
 	}
-	if len(tracker.warnings) != 1 {
-		t.Errorf("expected 1 warning, got: %v", tracker.warnings)
+	// Recorded once as unresolved, not warned per occurrence (D262): the
+	// sync prints one aggregated line for all of them.
+	if len(tracker.warnings) != 0 {
+		t.Errorf("expected no per-occurrence warning, got: %v", tracker.warnings)
+	}
+	if _, ok := tracker.unresolved["path:missing"]; !ok || len(tracker.unresolved) != 1 {
+		t.Errorf("tracker.unresolved = %v, want path:missing", tracker.unresolved)
 	}
 }
 
@@ -288,8 +293,11 @@ func TestApply_ExpandPlaceholders_UnresolvedWarnsAndLeavesLiteral(t *testing.T) 
 	if !strings.Contains(string(data), "{{path:missing}}") {
 		t.Errorf("unresolved placeholder should have stayed literal: %s", data)
 	}
-	if len(res.Warnings) == 0 {
-		t.Error("expected at least one warning for the unresolved placeholder")
+	if _, ok := res.NewLock.UnresolvedPlaceholders["path:missing"]; !ok {
+		t.Errorf("lock must record the unresolved placeholder: %v", res.NewLock.UnresolvedPlaceholders)
+	}
+	if w := UnresolvedPlaceholdersWarning(res.NewLock.UnresolvedPlaceholders); !strings.Contains(w, "cartographer paths set path:missing <path>") {
+		t.Errorf("aggregated warning must name the fix: %q", w)
 	}
 }
 
@@ -531,8 +539,10 @@ func TestBuildPathsTable_SortedRows(t *testing.T) {
 	if zIdx == -1 || aIdx == -1 || aIdx > zIdx {
 		t.Errorf("rows not sorted by key:\n%s", table)
 	}
-	if !strings.Contains(table, "`cartographer resolve") {
-		t.Errorf("fallback instruction missing:\n%s", table)
+	// The pointer sentence moved into placeholderParagraph (D262): one
+	// place, written with or without a table.
+	if strings.Contains(table, "cartographer resolve") {
+		t.Errorf("the table must not repeat the paragraph's pointer:\n%s", table)
 	}
 }
 
@@ -577,8 +587,11 @@ func TestApply_ExpandPlaceholders_PathsTableInInstructions(t *testing.T) {
 	if !strings.Contains(content, "{{path:design}}") || !strings.Contains(content, "/mnt/design") {
 		t.Errorf("row for path:design missing from the table:\n%s", content)
 	}
-	if !strings.Contains(content, "cartographer resolve") {
-		t.Errorf("fallback instruction missing from the instructions block:\n%s", content)
+	if !strings.Contains(content, "cartographer resolve") || !strings.Contains(content, "cartographer paths set") {
+		t.Errorf("placeholder paragraph missing from the instructions block:\n%s", content)
+	}
+	if strings.Count(content, "cartographer resolve <kind>") != 1 {
+		t.Errorf("the pointer sentence must appear exactly once:\n%s", content)
 	}
 }
 
@@ -610,7 +623,13 @@ func TestApply_ExpandPlaceholders_NoPathsTableWhenNothingResolved(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(data), "Local paths") {
+	// D262: the paragraph is written even when nothing resolved — that is
+	// the case where the agent most needs to learn the mechanism exists —
+	// but there is no table to go with it.
+	if !strings.Contains(string(data), placeholderParagraph) {
+		t.Errorf("placeholder paragraph missing with nothing resolved:\n%s", data)
+	}
+	if strings.Contains(string(data), "| Placeholder |") {
 		t.Errorf("Local paths table should not appear without resolved placeholders:\n%s", data)
 	}
 }
@@ -643,8 +662,8 @@ func TestApply_ExpandPlaceholders_NoPathsTableServerSide(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(data), "Local paths") {
-		t.Errorf("the server must never add the Local paths table:\n%s", data)
+	if strings.Contains(string(data), "Local paths") || strings.Contains(string(data), "cartographer paths set") {
+		t.Errorf("the server must never add the placeholder paragraph or table:\n%s", data)
 	}
 }
 
@@ -681,21 +700,22 @@ func TestExpandPlaceholders_LiteralAndMetasyntax(t *testing.T) {
 
 	t.Run("metasyntax is verbatim and silent", func(t *testing.T) {
 		tr := newExpansionTracker()
-		out := expandPlaceholders([]byte(`the form is {{repo:<name>}} or {{path:<name>}}`), opts, tr)
+		// "…" is the Unicode ellipsis editors substitute for "..." (D262).
+		out := expandPlaceholders([]byte(`the form is {{repo:<name>}} or {{path:<name>}} or {{repo:…}} or {{path:...}}`), opts, tr)
 		if !strings.Contains(string(out), "{{repo:<name>}}") {
 			t.Errorf("output = %q, want the metasyntax verbatim", out)
 		}
 		// The complaint was a count, so the assertion is a count.
-		if len(tr.warnings) != 0 {
-			t.Errorf("warnings = %v, want none", tr.warnings)
+		if len(tr.warnings) != 0 || len(tr.unresolved) != 0 {
+			t.Errorf("warnings = %v, unresolved = %v, want none", tr.warnings, tr.unresolved)
 		}
 	})
 
-	t.Run("a genuinely missing key still warns exactly once", func(t *testing.T) {
+	t.Run("a genuinely missing key is recorded exactly once", func(t *testing.T) {
 		tr := newExpansionTracker()
-		expandPlaceholders([]byte(`{{path:missing}} and {{repo:<name>}}`), opts, tr)
-		if len(tr.warnings) != 1 {
-			t.Errorf("warnings = %v, want exactly one (the real one)", tr.warnings)
+		expandPlaceholders([]byte(`{{path:missing}} and {{repo:<name>}} and {{path:missing}} again`), opts, tr)
+		if len(tr.unresolved) != 1 {
+			t.Errorf("unresolved = %v, want exactly one (the real one)", tr.unresolved)
 		}
 	})
 

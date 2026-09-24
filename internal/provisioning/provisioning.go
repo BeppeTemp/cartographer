@@ -105,6 +105,14 @@ type Manifest struct {
 	// list that fed the hash would make a message edit look like a catalogue
 	// change.
 	Issues []string `json:"issues,omitempty"`
+	// Placeholders is client-side only: the {{repo:…}}/{{path:…}} keys the
+	// KBs feeding this manifest cite, "kind:key" -> KB names, as their
+	// sync_pull responses listed them (D262). Like Issues it is outside the
+	// revision and outside every signature: it is derived from concept bodies,
+	// and a concept starting to cite a key is not a catalogue change. Nothing
+	// that copies or filters a Manifest carries it — the client reads it off
+	// the projection's manifest into ApplyOptions.Placeholders.
+	Placeholders map[string][]string `json:"placeholders,omitempty"`
 }
 
 // ManagedFile records a single file materialized by provisioning in the client's base-dir.
@@ -182,6 +190,28 @@ type Lock struct {
 	// report a correctly materialized workspace as missing, and leave real
 	// files behind on a prune.
 	ProjectScope bool `json:"project_scope,omitempty"`
+
+	// The placeholder state of the last client-side Apply (D262), overwritten
+	// by every Apply — never merged, so a key that stopped being cited or got
+	// fixed disappears on the next sync. All three are keyed "kind:key".
+	// Absent — every lockfile written before D262, every server-side Apply —
+	// means "nothing recorded", which `status` and `paths` read as zero
+	// unresolved: not knowing is not a failure, and no migration runs.
+	//
+	// ResolvedPlaceholders maps a key to the local path it resolved to;
+	// UnresolvedPlaceholders maps a key to why it did not resolve;
+	// PlaceholderSources maps a key to the KBs citing it (empty for a key only
+	// a bundled artifact or an unnamed endpoint cites).
+	ResolvedPlaceholders   map[string]string   `json:"resolved_placeholders,omitempty"`
+	UnresolvedPlaceholders map[string]string   `json:"unresolved_placeholders,omitempty"`
+	PlaceholderSources     map[string][]string `json:"placeholder_sources,omitempty"`
+	// PathsSectionHash is the hash of the placeholder section last written
+	// into the instructions block (paragraph + "Local paths" table, D262). A
+	// mismatch rewrites the block even when no artifact changed — the table
+	// depends on concepts and on the local `paths:` map, neither of which
+	// enters the manifest diff. Empty (older lockfile) triggers one rewrite,
+	// which is what puts the paragraph into an existing block.
+	PathsSectionHash string `json:"paths_section_hash,omitempty"`
 }
 
 // Scope returns the destination-matrix half this lock's paths were resolved
@@ -264,6 +294,13 @@ type ApplyOptions struct {
 	// resolving a {{repo:<key>}} placeholder (D162). Zero means the default.
 	SearchDepth int
 	Paths       map[string]string
+	// Placeholders are the keys to pre-resolve before anything is expanded,
+	// "kind:key" -> the KBs citing it (D262): the ones the server listed for
+	// the KBs bound to this projection, concept-only keys included. Apply
+	// adds the keys found in the manifest's own artifacts, so the "Local
+	// paths" table covers the whole KB and not only the artifacts this Apply
+	// rewrites. Only read when ExpandPlaceholders is set.
+	Placeholders map[string][]string
 
 	// NoHeal reports on-disk divergence (AppliedResult.Divergent) instead of
 	// restoring it (D139). The escape hatch for someone deliberately
@@ -1576,6 +1613,20 @@ func Apply(m Manifest, opts ApplyOptions) (AppliedResult, error) {
 
 	var result AppliedResult
 	tracker := newExpansionTracker()
+	// Every key the bound KBs cite is resolved up front (D262), through one
+	// resolver that walks the search roots at most once, so the "Local paths"
+	// table covers concept-only keys and artifacts that are not rewritten in
+	// this run.
+	var sources map[string][]string
+	if opts.ExpandPlaceholders {
+		sources = placeholderSources(m, opts)
+		ids := make([]string, 0, len(sources))
+		for id := range sources {
+			ids = append(ids, id)
+		}
+		sort.Strings(ids)
+		tracker.preResolve(ids, opts)
+	}
 
 	// Artifacts to update (add + update).
 	toWrite := append(diff.Added, diff.Updated...)
@@ -1870,7 +1921,8 @@ func Apply(m Manifest, opts ApplyOptions) (AppliedResult, error) {
 			forceInstructions = true
 		}
 	}
-	if err := applyInstructionsGroup(m, diff, opts, tracker, &result, &newManaged, forceInstructions); err != nil {
+	var pathsHash string
+	if err := applyInstructionsGroup(m, diff, opts, tracker, &result, &newManaged, forceInstructions, &pathsHash); err != nil {
 		return AppliedResult{}, err
 	}
 
@@ -1901,9 +1953,34 @@ func Apply(m Manifest, opts ApplyOptions) (AppliedResult, error) {
 
 	// Build the new Lock.
 	result.NewLock = Lock{
-		AppliedRevision: m.Revision,
-		Provider:        string(opts.Provider),
-		Managed:         newManaged,
+		AppliedRevision:  m.Revision,
+		Provider:         string(opts.Provider),
+		Managed:          newManaged,
+		PathsSectionHash: pathsHash,
+	}
+	if opts.ExpandPlaceholders {
+		// placeholderSources already lists every key an authorized artifact
+		// cites; this only guarantees the invariant `paths list` relies on —
+		// every key in the two maps has a sources entry.
+		for id := range tracker.resolved {
+			if _, ok := sources[id]; !ok {
+				sources[id] = nil
+			}
+		}
+		for id := range tracker.unresolved {
+			if _, ok := sources[id]; !ok {
+				sources[id] = nil
+			}
+		}
+		if len(tracker.resolved) > 0 {
+			result.NewLock.ResolvedPlaceholders = tracker.resolved
+		}
+		if len(tracker.unresolved) > 0 {
+			result.NewLock.UnresolvedPlaceholders = tracker.unresolved
+		}
+		if len(sources) > 0 {
+			result.NewLock.PlaceholderSources = sources
+		}
 	}
 
 	// Write the v1 lockfile (only if not DryRun and not SkipLockWrite — the
@@ -2031,7 +2108,11 @@ func wrapKBSection(name, content string) string {
 // keep newManaged consistent with the unchanged state — with Path equal to the
 // provider's shared file, so KindCounts reports "instructions n/n" instead of
 // counting a single physical file.
-func applyInstructionsGroup(m Manifest, diff Diff, opts ApplyOptions, tracker *expansionTracker, result *AppliedResult, newManaged *[]ManagedFile, force bool) error {
+//
+// pathsHash receives the hash of the placeholder section the block carries
+// after this call (D262), for the new Lock; "" when there is no block or no
+// client-side expansion.
+func applyInstructionsGroup(m Manifest, diff Diff, opts ApplyOptions, tracker *expansionTracker, result *AppliedResult, newManaged *[]ManagedFile, force bool, pathsHash *string) error {
 	destRel := destDirScoped("instructions", "", opts.Provider, opts.Scope)
 	if destRel == "" {
 		// Provider with no known destination for instructions: keep this handled
@@ -2154,6 +2235,26 @@ func applyInstructionsGroup(m Manifest, diff Diff, opts ApplyOptions, tracker *e
 		triggered = instructionsOrderChanged(opts.Lock.Managed, signed)
 	}
 
+	// The placeholder section (D262): the fixed paragraph, always, plus the
+	// "Local paths" table — every repo:/path: placeholder resolved during
+	// THIS Apply, pre-resolved from the whole KB's key list (not just the
+	// instructions content) — so the agent learns the mechanism exists even
+	// when nothing resolved, and doesn't have to re-run `cartographer
+	// resolve` for the keys already known. Client-side only
+	// (opts.ExpandPlaceholders): the server never expands anything, so it has
+	// nothing to explain or tabulate. The table depends on concepts and on the
+	// local `paths:` map, neither of which enters the diff above, so a change
+	// in its rendering is a trigger of its own, recorded in the lock the same
+	// way a reorder is detected.
+	var pathsSection string
+	if opts.ExpandPlaceholders && len(signed) > 0 {
+		pathsSection = buildPathsSection(tracker.resolved)
+		*pathsHash = pathsSectionHash(pathsSection)
+		if !triggered && *pathsHash != opts.Lock.PathsSectionHash {
+			triggered = true
+		}
+	}
+
 	if !triggered {
 		return nil
 	}
@@ -2181,16 +2282,8 @@ func applyInstructionsGroup(m Manifest, diff Diff, opts ApplyOptions, tracker *e
 	}
 	body := strings.Join(snippets, "\n\n")
 
-	// "Local paths" table (D75 WP4): every repo:/path: placeholder resolved
-	// during THIS Apply (not just in the instructions content — also
-	// agent/skill/hook, see the shared tracker) becomes a key->local path
-	// row, so the agent doesn't have to re-run `cartographer resolve` for
-	// ones already known. Client-side only (opts.ExpandPlaceholders): the server
-	// never expands anything, so it has nothing to tabulate.
-	if opts.ExpandPlaceholders {
-		if table := buildPathsTable(tracker.resolved); table != "" {
-			body += "\n\n" + table
-		}
+	if pathsSection != "" {
+		body += "\n\n" + pathsSection
 	}
 
 	// The subagent sentence, per provider and per KB (D154): it must describe
