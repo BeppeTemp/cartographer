@@ -32,7 +32,7 @@ func registryOf(paths, repos map[string]PathDecl) PathRegistry {
 // an empty `paths:`, and lands in the "Local paths" table.
 func TestApply_DeclaredDefaultResolvesWithoutPaths(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setTestHome(t, home)
 	if err := os.MkdirAll(filepath.Join(home, ".claude"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -62,7 +62,7 @@ func TestApply_DeclaredDefaultResolvesWithoutPaths(t *testing.T) {
 
 func TestApply_ExplicitPathsWinsOverDefault(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setTestHome(t, home)
 	if err := os.MkdirAll(filepath.Join(home, ".claude"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -85,7 +85,7 @@ func TestApply_ExplicitPathsWinsOverDefault(t *testing.T) {
 // server — is never used either.
 func TestApply_MissingOrUnanchoredDefaultIsUnresolved(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setTestHome(t, home)
 	abs := t.TempDir() // exists, but is not home-anchored
 	m, kbRoot := placeholderKB(t)
 	opts := clientApplyOptions(kbRoot, t.TempDir(), Lock{})
@@ -113,7 +113,7 @@ func TestApply_MissingOrUnanchoredDefaultIsUnresolved(t *testing.T) {
 // shares the short name — which, looked up by short name, is an ambiguity.
 func TestApply_DeclaredRemoteDisambiguatesShortName(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setTestHome(t, home)
 	root := t.TempDir()
 	mine := filepath.Join(root, "a", "tools")
 	theirs := filepath.Join(root, "b", "tools")
@@ -149,7 +149,7 @@ func TestApply_DeclaredRemoteDisambiguatesShortName(t *testing.T) {
 // A repo default is used only when it is a live clone.
 func TestApply_RepoDefaultMustBeAClone(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setTestHome(t, home)
 	m, kbRoot := placeholderKB(t)
 	opts := clientApplyOptions(kbRoot, t.TempDir(), Lock{})
 	opts.SearchRoots = []string{t.TempDir()}
@@ -180,7 +180,7 @@ func TestApply_RepoDefaultMustBeAClone(t *testing.T) {
 // order wins, and one warning names both — never an error.
 func TestApply_ConflictingDefaultsFirstKBWins(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setTestHome(t, home)
 	for _, d := range []string{"from-b", "from-a"} {
 		if err := os.MkdirAll(filepath.Join(home, d), 0o755); err != nil {
 			t.Fatal(err)
@@ -210,7 +210,7 @@ func TestApply_ConflictingDefaultsFirstKBWins(t *testing.T) {
 // about to write learns it exists — and is dropped silently when it does not.
 func TestApply_UncitedDeclaredKeys(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setTestHome(t, home)
 	if err := os.MkdirAll(filepath.Join(home, ".ssh"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -271,7 +271,7 @@ func TestMergePathRegistries_Order(t *testing.T) {
 
 func TestRegistryDefaultPath(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setTestHome(t, home)
 	for in, want := range map[string]string{
 		"~":           home,
 		"$HOME":       home,
@@ -289,4 +289,13 @@ func TestRegistryDefaultPath(t *testing.T) {
 			t.Errorf("registryDefaultPath(%q) = %q, %v; want %q", in, got, ok, want)
 		}
 	}
+}
+
+// setTestHome points os.UserHomeDir at dir on every platform: Go reads $HOME
+// on unix and %USERPROFILE% on Windows, so setting only HOME leaves a Windows
+// test resolving `~` against the runner's real home.
+func setTestHome(t *testing.T, dir string) {
+	t.Helper()
+	t.Setenv("HOME", dir)
+	t.Setenv("USERPROFILE", dir)
 }
