@@ -155,6 +155,12 @@ func cmdKBCreate(args []string) int {
 	// no separate MkdirAll(dataDir) needed.
 	if _, err := kb.InitWithIdentity(path, authorName, authorEmail); err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)
+		// A failed initial commit stops here, before the push: pushing an
+		// unborn branch only yields "src refspec main does not match any",
+		// which names neither the commit nor its cause (D265).
+		if _, statErr := os.Stat(path); statErr == nil {
+			fmt.Fprintf(os.Stderr, "Hint: git refused the KB's initial commit; the git message above names why. Fix it, then remove the partial scaffold (rm -rf %s) and retry.\n", path)
+		}
 		return 1
 	}
 	if remote != "" {
@@ -241,6 +247,11 @@ func attachOrigin(path, remote string) int {
 	}
 	if err := gitx.PushSetUpstream(path, "origin", branch); err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)
+		if strings.Contains(err.Error(), "src refspec") {
+			// Not an authentication problem: the branch has no commit yet.
+			fmt.Fprintf(os.Stderr, "Hint: the KB has no commit to push — git could not make the initial commit (often: committer identity unknown). Commit it, which also shows why it failed: git -C %s commit -m %q\n", path, "init: KB initialized")
+			return 1
+		}
 		fmt.Fprintln(os.Stderr, "Hint: authenticate git with your SSH agent or credential helper, then retry.")
 		fmt.Fprintf(os.Stderr, "Hint: if the remote already holds a KB, mount it instead: cartographer kb clone %s\n", remote)
 		return 1
