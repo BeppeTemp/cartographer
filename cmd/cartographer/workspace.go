@@ -452,6 +452,21 @@ func allProjections(cfg *clientconfig.Config, providers []string, clientBaseDir 
 // workspaces is legal and must stay legal, while the same two bound to one
 // workspace is still refused.
 func manifestsForProjections(cfg *clientconfig.Config, projections []syncProjection) (map[string]provisioning.Manifest, error) {
+	out, _, err := buildProjectionManifests(cfg, projections, false)
+	return out, err
+}
+
+// manifestsForProjectionsPartial is manifestsForProjections for sync (#350):
+// a KB whose pull fails does not stop the run. Every projection that would
+// receive that KB is left out of the returned map — so it is not applied and
+// keeps its previous state — and the failures come back in KB order for the
+// caller to report. A projection that needs no failed KB is built exactly as
+// manifestsForProjections builds it.
+func manifestsForProjectionsPartial(cfg *clientconfig.Config, projections []syncProjection) (map[string]provisioning.Manifest, []kbPullFailure, error) {
+	return buildProjectionManifests(cfg, projections, true)
+}
+
+func buildProjectionManifests(cfg *clientconfig.Config, projections []syncProjection, partial bool) (map[string]provisioning.Manifest, []kbPullFailure, error) {
 	out := make(map[string]provisioning.Manifest, len(projections))
 
 	// Every KB any projection asks for, pulled once.
@@ -485,32 +500,62 @@ func manifestsForProjections(cfg *clientconfig.Config, projections []syncProject
 		// A bundle-only projection still needs the bundle, which lives on the
 		// server side of a sync_pull: with no KB to pull it from there is
 		// nothing to fetch, and an empty manifest is the honest answer.
-		return out, nil
+		return out, nil, nil
 	}
 
-	cs, err := fetchCandidates(cfg, union)
+	var cs candidateSet
+	var failed []kbPullFailure
+	var err error
+	if partial {
+		cs, failed, err = fetchCandidatesPartial(cfg, union)
+		if err == nil && len(failed) > 0 && len(failed) == len(union) {
+			// Nothing answered: there is no run to continue, only the first
+			// failure to report, as the all-or-nothing path would.
+			err = failed[0].Err
+		}
+	} else {
+		cs, err = fetchCandidates(cfg, union)
+	}
 	if err != nil {
-		return nil, annotateStaleBinding(err, requiredBy)
+		return nil, nil, annotateStaleBinding(err, requiredBy)
+	}
+	unavailable := make(map[string]bool, len(failed))
+	for _, f := range failed {
+		unavailable[f.KB] = true
 	}
 	if cs.HasBare {
 		fmt.Fprintln(os.Stderr, "warning: the server does not identify its KBs by name, so per-client KB bindings cannot be applied; every connected client receives everything it serves")
 	}
 	pins, err := pinnedPublicKeys(cfg)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	for _, p := range projections {
+		if needsAny(p.KBs, unavailable) {
+			continue
+		}
 		merged, err := provisioning.MergeArtifactsStrict(cs.forProjection(cfg, p))
 		if err != nil {
-			return nil, fmt.Errorf("%s: %w", p.Label(), err)
+			return nil, nil, fmt.Errorf("%s: %w", p.Label(), err)
 		}
 		verified, err := provisioning.VerifiedManifest(merged, pins)
 		if err != nil {
-			return nil, fmt.Errorf("%s: %w", p.Label(), err)
+			return nil, nil, fmt.Errorf("%s: %w", p.Label(), err)
 		}
 		out[projectionKey(p)] = verified
 	}
-	return out, nil
+	return out, failed, nil
+}
+
+// needsAny reports whether a projection bound to kbs would receive any KB in
+// unavailable.
+func needsAny(kbs []string, unavailable map[string]bool) bool {
+	for _, kb := range kbs {
+		if unavailable[kb] {
+			return true
+		}
+	}
+	return false
 }
 
 // prepareWorkspace runs the repository-hygiene checks and exclusions for one

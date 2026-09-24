@@ -196,9 +196,22 @@ func runSync(dir string, cfg *clientconfig.Config, opts syncOptions) (syncResult
 	if err != nil {
 		return syncResult{}, fmt.Errorf("%w (no configuration was modified)", err)
 	}
-	manifests, err := manifestsForProjections(cfg, projections)
+	manifests, pullFailures, err := manifestsForProjectionsPartial(cfg, projections)
 	if err != nil {
 		return syncResult{}, fmt.Errorf("%w (no configuration was modified)", err)
+	}
+	// A KB that could not be pulled costs only the providers bound to it
+	// (#350): they are dropped from this run before anything is written, so
+	// they keep their previous state exactly as --client leaves out a
+	// provider, and the run reports them at the end.
+	var skipped []string
+	targets, projections, skipped = dropUnbuiltProviders(targets, projections, manifests)
+	for _, provider := range skipped {
+		// Also out of the printed plan: its entries are not being written.
+		delete(entriesByProvider, provider)
+	}
+	if len(targets) == 0 {
+		return syncResult{}, fmt.Errorf("%w (no configuration was modified)", partialSyncError{Failures: pullFailures, Skipped: skipped})
 	}
 
 	if healthErr == nil {
@@ -250,7 +263,69 @@ func runSync(dir string, cfg *clientconfig.Config, opts syncOptions) (syncResult
 	}
 	printApplySummary(dir, results, opts.DryRun)
 	printSyncRevisions(results, targets, opts.DryRun)
+	if len(pullFailures) > 0 {
+		return syncResult{Revision: commonRevision(results, targets)}, partialSyncError{Failures: pullFailures, Skipped: skipped}
+	}
 	return syncResult{Revision: commonRevision(results, targets)}, nil
+}
+
+// partialSyncError reports a sync that went ahead without some KBs (#350):
+// the KBs whose pull failed, and the providers left untouched because they
+// are bound to one of them. It is an error — the run did not do everything it
+// was asked — but the providers not named here were applied.
+type partialSyncError struct {
+	Failures []kbPullFailure
+	Skipped  []string
+}
+
+func (e partialSyncError) Error() string {
+	var b strings.Builder
+	if len(e.Failures) == 1 {
+		b.WriteString("1 KB could not be pulled:")
+	} else {
+		fmt.Fprintf(&b, "%d KBs could not be pulled:", len(e.Failures))
+	}
+	for _, f := range e.Failures {
+		fmt.Fprintf(&b, "\n  %s: %v", f.KB, f.Err)
+	}
+	if len(e.Skipped) > 0 {
+		fmt.Fprintf(&b, "\nproviders bound to it kept their previous state: %s", strings.Join(e.Skipped, ", "))
+	}
+	return b.String()
+}
+
+// dropUnbuiltProviders removes from the run every provider that has a
+// projection with no manifest — the ones manifestsForProjectionsPartial left
+// out because they need a KB that could not be pulled. The whole provider is
+// dropped, not only that projection: its MCP entries, bootstrap and lockfile
+// entry then stay exactly as they were, which is what "kept its previous
+// state" has to mean for the operator reading the report.
+func dropUnbuiltProviders(targets []string, projections []syncProjection, manifests map[string]provisioning.Manifest) ([]string, []syncProjection, []string) {
+	unbuilt := map[string]bool{}
+	for _, p := range projections {
+		if _, ok := manifests[projectionKey(p)]; !ok {
+			unbuilt[p.Provider] = true
+		}
+	}
+	if len(unbuilt) == 0 {
+		return targets, projections, nil
+	}
+	var keptTargets, skipped []string
+	for _, t := range targets {
+		if unbuilt[t] {
+			skipped = append(skipped, t)
+		} else {
+			keptTargets = append(keptTargets, t)
+		}
+	}
+	var keptProjections []syncProjection
+	for _, p := range projections {
+		if !unbuilt[p.Provider] {
+			keptProjections = append(keptProjections, p)
+		}
+	}
+	sort.Strings(skipped)
+	return keptTargets, keptProjections, skipped
 }
 
 // preflightEnvironment reports, in ONE error, every environment variable the
