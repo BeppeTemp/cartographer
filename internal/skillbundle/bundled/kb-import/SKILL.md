@@ -1,7 +1,7 @@
 ---
 name: kb-import
 description: Agent-guided procedure to import an existing non-OKF wiki or knowledge base (Obsidian vault, markdown folder, wiki export) into a Cartographer KB, incrementally and without big-bang LLM rewriting.
-version: "1.1"
+version: "1.2"
 ---
 # KB Import — Skill
 
@@ -42,7 +42,16 @@ non-content (assets, templates, daily notes, trash). Produce a short summary for
 > merge silently produces files nobody on the team can decrypt.
 
 ### 2. Mapping plan — human checkpoint
-Propose, and get the operator's explicit approval on:
+The mapping plan fixes the Maps, boundaries and conventions every later curation session
+inherits, and a structural mistake made here becomes long-lived knowledge debt. So **before
+proposing it**, tell the operator once, in your own words, that this phase is worth the strongest
+reasoning model they have access to (for example Claude Opus or Codex Sol), that a faster model is
+fine for the batch curation in step 5, and ask whether to continue with the current one. It is
+advice, not a gate: on "continue", continue. The models named are examples, not a ranking; if you
+do not know which model you are running on, say it as written. Do not repeat it in curation
+sessions.
+
+Then propose, and get the operator's explicit approval on:
 - target **Maps** (existing ones, or new via `map_create`: `entities/`, `topics/`,
   `notes/`, `incidents/`, or custom) and the mapping *source directory → map[/expanded concept]*;
 - what to **exclude** (assets, templates, generated files, empty stubs);

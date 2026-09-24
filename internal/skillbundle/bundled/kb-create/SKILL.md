@@ -1,7 +1,7 @@
 ---
 name: kb-create
 description: Operator procedure to declare and provision a new Knowledge Base GitOps-style, so it survives pod restarts; also covers authoring the KB's artifacts (skills, subagents, hooks, MCP descriptors) and the SOPS encryption flow.
-version: "3.0"
+version: "3.1"
 ---
 # KB Create — Skill
 
@@ -135,6 +135,22 @@ Apply the updated ConfigMap/Secret and roll out the Deployment so the server pic
 ## Optional: shape the KB
 Once the KB is live there are two independent things to shape, both drivable by the agent rather
 than the operator.
+
+### Before modeling: suggest the strongest model, once
+The first Maps, Journals, concept boundaries and conventions are what every later session inherits,
+and a structural mistake made now becomes long-lived knowledge debt. So **before the first
+`map_create`**, tell the user once, in your own words:
+
+> The initial structure of a KB has a lasting effect on its quality. Consider switching to the
+> strongest reasoning model you have access to (for example Claude Opus or Codex Sol) for this
+> bootstrap phase; a faster model is fine for routine maintenance afterwards. Continue with the
+> current model?
+
+- It is advice, not a gate: when the user says continue, continue, with no second prompt.
+- Judge by capability, not by a list of names: the models named are examples. If you know which
+  model you are running on, you may say so; if you do not, the message works as written.
+- Say it once per KB bootstrap. Not before ordinary reads, writes or maintenance sessions, and not
+  when the user is only adding one Map to a KB that already has a structure.
 
 ### Content: Maps and Journals
 - Ask the user to describe the **Maps** (thematic, mixed concept types) or **Journals**
