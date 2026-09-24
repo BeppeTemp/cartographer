@@ -305,7 +305,7 @@ every sync and was reported as permanent drift.
 6. `clientconfig.Save` of `known_kbs`;
 7. `materializeForProviders`, which **checkpoints the lockfile after every provider**.
 
-A failed `sync_pull`, an unverifiable signature or a refused merge therefore leaves the machine exactly as it was, and the error says so. An unreachable server (`/health` itself failing) skips entry reconciliation entirely, as before.
+An unverifiable signature or a refused merge therefore leaves the machine exactly as it was, and the error says so. A failed `sync_pull` of one KB is narrower (D257): step 3 drops from the run every provider with a projection bound to that KB, before step 4, so those providers keep their previous state while the rest are applied, and the run ends with an error listing the failed KBs and the skipped providers. When no provider is left, or no KB answered, nothing is written, as before. Failures that no one KB can be blamed for stay fatal: `/health`, target resolution, the server's unnamed endpoint, two KBs serving one artifact with different signatures. An unreachable server (`/health` itself failing) skips entry reconciliation entirely, as before.
 
 **The guarantee, stated honestly.** A failure *between* steps leaves a consistent state, and a provider that completed is always recorded in the lockfile — before D172 a failure on provider N left providers 1..N−1 with files on disk and no lock entry, so nothing pruned them and `doctor` could not see them. It does **not** make a single `Apply` atomic: a provider whose `Apply` fails midway can still have partial files on disk. The cost is N atomic lockfile renames instead of one, which with at most six providers is a deliberate trade of I/O for safety.
 

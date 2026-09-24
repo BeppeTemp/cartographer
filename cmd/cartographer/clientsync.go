@@ -275,16 +275,40 @@ func fetchMergedManifest(cfg *clientconfig.Config) (provisioning.Manifest, error
 // (fetchMergedManifest refuses it; collisionsForProvider reports only the ones
 // a given provider would actually be exposed to).
 func fetchCandidates(cfg *clientconfig.Config, kbNames []string) (candidateSet, error) {
+	cs, failed, err := fetchCandidatesPartial(cfg, kbNames)
+	if len(failed) > 0 {
+		// The failures precede any fatal error in target order, so the first
+		// one is the error the all-or-nothing callers always reported.
+		return cs, failed[0].Err
+	}
+	return cs, err
+}
+
+// kbPullFailure is one named KB whose sync_pull could not be used: the call
+// failed, or its response did not decode or verify. Err is already worded for
+// the operator and names the KB.
+type kbPullFailure struct {
+	KB  string
+	Err error
+}
+
+// fetchCandidatesPartial is fetchCandidates for a caller that can go on
+// without some KBs (#350): a named KB whose pull fails is recorded in the
+// returned failures, in target order, and the others are still returned. What
+// no single KB can be blamed for stays fatal: /health, target resolution, the
+// server's unnamed endpoint, and two KBs serving one artifact with different
+// signatures.
+func fetchCandidatesPartial(cfg *clientconfig.Config, kbNames []string) (candidateSet, []kbPullFailure, error) {
 	cs := candidateSet{Named: make(map[string][]provisioning.Artifact)}
 	token := resolveToken(cfg)
 	tokenEnv := tokenEnvName(cfg)
 	health, err := client.New(cfg.ServerURL, token).WithTokenEnv(tokenEnv).Health(probeTimeout)
 	if err != nil {
-		return cs, fmt.Errorf("health: %w", err)
+		return cs, nil, fmt.Errorf("health: %w", err)
 	}
 	targets, err := resolveKBTargets(health, kbNames)
 	if err != nil {
-		return cs, err
+		return cs, nil, err
 	}
 
 	// The pulls run concurrently (#362): each one can wait on a server-side
@@ -308,22 +332,33 @@ func fetchCandidates(cfg *clientconfig.Config, kbNames []string) (candidateSet, 
 	wg.Wait()
 
 	seen := make(map[string]provisioning.Artifact)
+	var failed []kbPullFailure
 
 	for i, target := range targets {
 		res := results[i]
-		if res.callErr != nil {
-			if target.Name == "" {
-				return cs, fmt.Errorf("sync_pull: %w", res.callErr)
+		if res.callErr != nil || res.err != nil {
+			err := res.err
+			if res.callErr != nil {
+				if target.Name == "" {
+					err = fmt.Errorf("sync_pull: %w", res.callErr)
+				} else {
+					err = fmt.Errorf("sync_pull (kb=%s): %w", target.Name, res.callErr)
+				}
+			} else if target.Name != "" {
+				err = fmt.Errorf("kb=%s: %w", target.Name, res.err)
 			}
-			return cs, fmt.Errorf("sync_pull (kb=%s): %w", target.Name, res.callErr)
-		}
-		if res.err != nil {
-			return cs, res.err
+			// The unnamed endpoint is not a KB a provider is bound to, so
+			// there is nothing to skip around: it stays fatal.
+			if target.Name == "" {
+				return cs, failed, err
+			}
+			failed = append(failed, kbPullFailure{KB: target.Name, Err: err})
+			continue
 		}
 		for _, a := range res.artifacts {
 			key := a.Kind + "\x00" + a.Name + "\x00" + a.Source
 			if previous, exists := seen[key]; exists && !sameSignature(previous.Signature, a.Signature) {
-				return cs, fmt.Errorf("sync_pull: conflicting signatures for %s/%s", a.Kind, a.Name)
+				return cs, failed, fmt.Errorf("sync_pull: conflicting signatures for %s/%s", a.Kind, a.Name)
 			}
 			seen[key] = a
 			if target.Name == "" {
@@ -345,7 +380,7 @@ func fetchCandidates(cfg *clientconfig.Config, kbNames []string) (candidateSet, 
 		}
 	}
 
-	return cs, nil
+	return cs, failed, nil
 }
 
 // maxConcurrentPulls bounds the sync_pull calls fetchCandidates keeps in

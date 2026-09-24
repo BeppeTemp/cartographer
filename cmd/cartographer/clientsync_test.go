@@ -1306,3 +1306,101 @@ func globalProjections(providers []string, baseDir string) []syncProjection {
 	}
 	return out
 }
+
+// --- #350: a KB that cannot be pulled costs only the providers bound to it ---
+
+// TestSyncContinuesPastAKBThatCannotBePulled: kb "two" fails; claude, bound
+// to "one" only, is applied, while codex, bound to "two", keeps its previous
+// state — no artifact, no lockfile entry, no MCP entry written. The run still
+// fails, naming the KB and the provider it skipped.
+func TestSyncContinuesPastAKBThatCannotBePulled(t *testing.T) {
+	srv := syncPullServer(t, func(kb string) (string, bool) {
+		if kb == "two" {
+			return "fetch timed out", true
+		}
+		return syncPullPayload(t, kb, "skill-"+kb), false
+	})
+	defer srv.Close()
+
+	dir := t.TempDir()
+	cfg := &clientconfig.Config{
+		ServerURL: srv.URL + "/mcp", ServerName: "cartographer",
+		Agents: []string{"claude", "codex"}, KnownKBs: []string{"one", "two"}, Trust: true,
+		Clients: map[string]clientconfig.ClientBinding{
+			"claude": {KBs: []string{"one"}},
+			"codex":  {KBs: []string{"two"}},
+		},
+	}
+	if err := clientconfig.Save(dir, cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := runSync(dir, cfg, syncOptions{})
+	var partial partialSyncError
+	if !errors.As(err, &partial) {
+		t.Fatalf("err = %v (%T), want a partialSyncError", err, err)
+	}
+	for _, want := range []string{"1 KB could not be pulled", "two: sync_pull (kb=two)", "fetch timed out", "kept their previous state: codex"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("report missing %q:\n%s", want, err)
+		}
+	}
+	if strings.Contains(err.Error(), "no configuration was modified") {
+		t.Errorf("claude was applied, so the report must not say nothing changed:\n%s", err)
+	}
+
+	if _, err := os.Stat(filepath.Join(dir, ".claude", "skills", "skill-one", "SKILL.md")); err != nil {
+		t.Errorf("claude, bound to the KB that answered, was not applied: %v", err)
+	}
+	lf, err := provisioning.ReadLockFile(lockFilePath(dir))
+	if err != nil {
+		t.Fatalf("ReadLockFile: %v", err)
+	}
+	if len(lf.ForProvider("claude").Managed) == 0 {
+		t.Error("claude has no lockfile entry")
+	}
+	if got := lf.ForProvider("codex"); len(got.Managed) != 0 || got.AppliedRevision != "" {
+		t.Errorf("codex, bound to the failed KB, got lockfile entries: %+v", got)
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".codex")); !os.IsNotExist(err) {
+		t.Errorf("codex's configuration was touched (err=%v)", err)
+	}
+}
+
+// TestSyncWritesNothingWhenEveryProviderNeedsAFailedKB: one KB answers, but
+// the only provider is bound to both, so there is nothing to apply and the
+// run must leave the tree exactly as it was, as a fully failed pull does.
+func TestSyncWritesNothingWhenEveryProviderNeedsAFailedKB(t *testing.T) {
+	srv := syncPullServer(t, func(kb string) (string, bool) {
+		if kb == "two" {
+			return "fetch timed out", true
+		}
+		return syncPullPayload(t, kb, "skill-"+kb), false
+	})
+	defer srv.Close()
+
+	dir := t.TempDir()
+	cfg := &clientconfig.Config{
+		ServerURL: srv.URL + "/mcp", ServerName: "cartographer",
+		Agents: []string{"claude"}, KnownKBs: []string{"one", "two"}, Trust: true,
+		Clients: map[string]clientconfig.ClientBinding{"claude": {KBs: []string{"one", "two"}}},
+	}
+	if err := clientconfig.Save(dir, cfg); err != nil {
+		t.Fatal(err)
+	}
+	before := treeSnapshot(t, dir)
+
+	_, err := runSync(dir, cfg, syncOptions{})
+	if err == nil || !strings.Contains(err.Error(), "no configuration was modified") || !strings.Contains(err.Error(), "claude") {
+		t.Fatalf("err = %v, want a report naming claude and saying nothing changed", err)
+	}
+	after := treeSnapshot(t, dir)
+	if len(before) != len(after) {
+		t.Fatalf("file set changed: %d before, %d after", len(before), len(after))
+	}
+	for name, content := range before {
+		if after[name] != content {
+			t.Errorf("%s changed although no provider could be applied", name)
+		}
+	}
+}
