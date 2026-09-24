@@ -1014,9 +1014,10 @@ func TestToolDescriptions_StateTheirEnforcedLimits(t *testing.T) {
 
 func TestByteBudget(t *testing.T) {
 	cases := map[int]string{
-		1024 * 1024: "1 MiB",
-		512 * 1024:  "512 KiB",
-		1500:        "1500 bytes",
+		1024 * 1024:      "1 MiB",
+		10 * 1024 * 1024: "10 MiB",
+		512 * 1024:       "512 KiB",
+		1500:             "1500 bytes",
 	}
 	for n, want := range cases {
 		if got := byteBudget(n); got != want {

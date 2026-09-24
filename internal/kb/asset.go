@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path"
@@ -15,8 +16,11 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/okf"
 )
 
-// AssetMaxFileSize is the largest file the data-plane asset API accepts.
-const AssetMaxFileSize = 1024 * 1024 // 1 MiB
+// AssetMaxFileSize is the largest file still worth versioning in the KB's git
+// history (D270). asset_write refuses a larger file and asset_read will not
+// return one; a larger file that reached the KB through git is still listed
+// (Oversized) and can still be deleted, so it never blocks the owner.
+const AssetMaxFileSize = 10 * 1024 * 1024 // 10 MiB
 
 // AssetEntry describes one non-Markdown regular file owned by an expanded concept.
 type AssetEntry struct {
@@ -24,11 +28,31 @@ type AssetEntry struct {
 	Size       int64  `json:"size"`
 	SHA256     string `json:"sha256"`
 	Executable bool   `json:"executable"`
+	Oversized  bool   `json:"oversized,omitempty"`
 }
 
 func assetHash(data []byte) string {
 	sum := sha256.Sum256(data)
 	return hex.EncodeToString(sum[:])
+}
+
+// assetFileHash streams the file, so hashing an oversized asset to list or
+// delete it does not load it whole.
+func assetFileHash(abs string) (string, error) {
+	f, err := os.Open(abs)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+func errAssetTooLarge(rel string, size int64) error {
+	return fmt.Errorf("%w: asset %s is %d bytes, exceeds the %d MiB cap — too large to version in git; keep it outside the KB and cite it by link", okf.ErrInvalidPath, rel, size, AssetMaxFileSize>>20)
 }
 
 // resolveAsset verifies that id is an existing expanded data concept and that
@@ -115,7 +139,9 @@ func validateAssetRelativePath(assetPath string, rejectMarkdown bool) (string, [
 	return clean, parts, nil
 }
 
-func checkAssetFile(abs, rel string) (os.FileInfo, error) {
+// checkAssetFile requires a regular file; enforceCap also refuses one above
+// AssetMaxFileSize (reads), which a delete must not do.
+func checkAssetFile(abs, rel string, enforceCap bool) (os.FileInfo, error) {
 	info, err := os.Lstat(abs)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -126,8 +152,8 @@ func checkAssetFile(abs, rel string) (os.FileInfo, error) {
 	if !info.Mode().IsRegular() {
 		return nil, fmt.Errorf("%w: asset %s is not a regular file", okf.ErrInvalidPath, rel)
 	}
-	if info.Size() > AssetMaxFileSize {
-		return nil, fmt.Errorf("%w: asset %s is %d bytes, exceeds the %d bytes cap", okf.ErrInvalidPath, rel, info.Size(), AssetMaxFileSize)
+	if enforceCap && info.Size() > AssetMaxFileSize {
+		return nil, errAssetTooLarge(rel, info.Size())
 	}
 	return info, nil
 }
@@ -138,7 +164,7 @@ func (kb *KB) ReadAsset(id okf.ConceptID, assetPath string) ([]byte, AssetEntry,
 	if err != nil {
 		return nil, AssetEntry{}, err
 	}
-	info, err := checkAssetFile(abs, rel)
+	info, err := checkAssetFile(abs, rel, true)
 	if err != nil {
 		return nil, AssetEntry{}, err
 	}
@@ -153,7 +179,7 @@ func (kb *KB) ReadAsset(id okf.ConceptID, assetPath string) ([]byte, AssetEntry,
 // as its optimistic-concurrency token.
 func (kb *KB) WriteAsset(id okf.ConceptID, assetPath string, data []byte, ifMatch string, executable *bool) (AssetEntry, error) {
 	if len(data) > AssetMaxFileSize {
-		return AssetEntry{}, fmt.Errorf("%w: asset %s is %d bytes, exceeds the %d bytes cap", okf.ErrInvalidPath, assetPath, len(data), AssetMaxFileSize)
+		return AssetEntry{}, errAssetTooLarge(assetPath, int64(len(data)))
 	}
 	rel, abs, err := kb.resolveAsset(id, assetPath, true)
 	if err != nil {
@@ -168,14 +194,14 @@ func (kb *KB) WriteAsset(id okf.ConceptID, assetPath string, data []byte, ifMatc
 		return AssetEntry{}, fmt.Errorf("%w: asset %s is not a regular file", okf.ErrInvalidPath, assetPath)
 	}
 	if exists {
-		current, readErr := os.ReadFile(abs)
+		current, readErr := assetFileHash(abs)
 		if readErr != nil {
 			return AssetEntry{}, fmt.Errorf("WriteAsset %s: %w", assetPath, readErr)
 		}
 		if ifMatch == "" {
-			return AssetEntry{}, fmt.Errorf("already_exists: %s already exists (sha256 %s) — pass if_match to overwrite", assetPath, assetHash(current))
+			return AssetEntry{}, fmt.Errorf("already_exists: %s already exists (sha256 %s) — pass if_match to overwrite", assetPath, current)
 		}
-		if ifMatch != assetHash(current) {
+		if ifMatch != current {
 			return AssetEntry{}, fmt.Errorf("%w: %s content-hash mismatch", okf.ErrStaleWrite, assetPath)
 		}
 	} else if ifMatch != "" {
@@ -202,6 +228,10 @@ func (kb *KB) WriteAsset(id okf.ConceptID, assetPath string, data []byte, ifMatc
 }
 
 // ListAssets returns all regular, non-Markdown files below an expanded concept.
+// Hidden files and directories (.DS_Store, .gitkeep) are not assets and are
+// skipped; a file above AssetMaxFileSize is listed with Oversized set. Files
+// arrive through git as well as asset_write, so neither may fail the listing:
+// lint, concept_delete and concept_collapse all depend on it (D270).
 func (kb *KB) ListAssets(id okf.ConceptID) ([]AssetEntry, error) {
 	_, conceptAbs, err := kb.resolveAsset(id, "asset", false)
 	if err != nil {
@@ -214,6 +244,12 @@ func (kb *KB) ListAssets(id okf.ConceptID) ([]AssetEntry, error) {
 			return walkErr
 		}
 		if abs == conceptAbs {
+			return nil
+		}
+		if strings.HasPrefix(d.Name(), ".") {
+			if d.IsDir() {
+				return filepath.SkipDir
+			}
 			return nil
 		}
 		if d.Type()&os.ModeSymlink != 0 {
@@ -240,14 +276,11 @@ func (kb *KB) ListAssets(id okf.ConceptID) ([]AssetEntry, error) {
 		if err != nil {
 			return err
 		}
-		if info.Size() > AssetMaxFileSize {
-			return fmt.Errorf("%w: asset %s is %d bytes, exceeds the %d bytes cap", okf.ErrInvalidPath, filepath.ToSlash(rel), info.Size(), AssetMaxFileSize)
-		}
-		data, err := os.ReadFile(abs)
+		sum, err := assetFileHash(abs)
 		if err != nil {
 			return err
 		}
-		entries = append(entries, AssetEntry{Path: filepath.ToSlash(rel), Size: info.Size(), SHA256: assetHash(data), Executable: execbit.IsExecutable(info.Mode())})
+		entries = append(entries, AssetEntry{Path: filepath.ToSlash(rel), Size: info.Size(), SHA256: sum, Executable: execbit.IsExecutable(info.Mode()), Oversized: info.Size() > AssetMaxFileSize})
 		return nil
 	})
 	if err != nil {
@@ -267,14 +300,14 @@ func (kb *KB) DeleteAsset(id okf.ConceptID, assetPath, ifMatch string) error {
 	if ifMatch == "" {
 		return fmt.Errorf("%w: if_match is required for asset_delete", okf.ErrStaleWrite)
 	}
-	if _, err := checkAssetFile(abs, rel); err != nil {
+	if _, err := checkAssetFile(abs, rel, false); err != nil {
 		return err
 	}
-	data, err := os.ReadFile(abs)
+	sum, err := assetFileHash(abs)
 	if err != nil {
 		return fmt.Errorf("DeleteAsset %s: %w", assetPath, err)
 	}
-	if ifMatch != assetHash(data) {
+	if ifMatch != sum {
 		return fmt.Errorf("%w: %s content-hash mismatch", okf.ErrStaleWrite, assetPath)
 	}
 	if err := os.Remove(abs); err != nil {

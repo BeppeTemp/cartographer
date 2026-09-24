@@ -46,7 +46,7 @@ var docsNonTools = map[string]bool{
 	"expanded_as_category": true, "expanded_ambiguous": true,
 	"expanded_missing_index": true, "legacy_archive_descriptor": true,
 	"imported_draft": true, "broken_link": true, "stale_claim": true,
-	"orphan_asset":     true,
+	"orphan_asset": true, "oversized_asset": true, "unlistable_assets": true,
 	"index_incomplete": true,
 	// gate_check response field (D186), not a tool
 	"gate_blockers": true,

@@ -121,8 +121,9 @@ func TestAssetFilesystemGuardsAndOutOfBandFiles(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(owner, ".outside.csv"), []byte("x"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := k.ListAssets("map/owner"); !errors.Is(err, okf.ErrInvalidPath) {
-		t.Fatalf("hidden list entry: expected ErrInvalidPath, got %v", err)
+	// A hidden file is not an asset: skipped, never a failed listing (D270).
+	if entries, err := k.ListAssets("map/owner"); err != nil || len(entries) != 0 {
+		t.Fatalf("hidden list entry: want it skipped, got %+v, %v", entries, err)
 	}
 	if err := os.Remove(filepath.Join(owner, ".outside.csv")); err != nil {
 		t.Fatal(err)
@@ -184,8 +185,41 @@ func TestAssetFilesystemGuardsAndOutOfBandFiles(t *testing.T) {
 	if _, _, err := k.ReadAsset("map/owner", "oversize.bin"); !errors.Is(err, okf.ErrInvalidPath) {
 		t.Fatalf("oversize read: expected ErrInvalidPath, got %v", err)
 	}
-	if _, err := k.ListAssets("map/owner"); !errors.Is(err, okf.ErrInvalidPath) {
-		t.Fatalf("oversize list: expected ErrInvalidPath, got %v", err)
+	// Listed, flagged and still deletable: a file that reached the KB through
+	// git must never block its owner (D270).
+	entries, err := k.ListAssets("map/owner")
+	if err != nil {
+		t.Fatalf("oversize list: %v", err)
+	}
+	if len(entries) != 1 || entries[0].Path != "oversize.bin" || !entries[0].Oversized {
+		t.Fatalf("oversize list: want one oversized entry, got %+v", entries)
+	}
+	if err := k.DeleteAsset("map/owner", "oversize.bin", entries[0].SHA256); err != nil {
+		t.Fatalf("oversize delete: %v", err)
+	}
+}
+
+func TestListAssetsSkipsHiddenFiles(t *testing.T) {
+	k := expandedAssetKB(t)
+	owner := filepath.Join(k.DataRoot(), "map", "owner")
+	for _, rel := range []string{".DS_Store", ".cache/blob", "sub/.gitkeep", "sub/data.csv"} {
+		if err := os.MkdirAll(filepath.Dir(filepath.Join(owner, rel)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(owner, rel), []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	entries, err := k.ListAssets("map/owner")
+	if err != nil {
+		t.Fatalf("ListAssets: %v", err)
+	}
+	if len(entries) != 1 || entries[0].Path != "sub/data.csv" {
+		t.Fatalf("want only sub/data.csv, got %+v", entries)
+	}
+	// The API still refuses a hidden path outright.
+	if _, _, err := k.ReadAsset("map/owner", ".DS_Store"); !errors.Is(err, okf.ErrInvalidPath) {
+		t.Fatalf("hidden read: expected ErrInvalidPath, got %v", err)
 	}
 }
 

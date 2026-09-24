@@ -1612,7 +1612,7 @@ func toolConceptCollapse(k *kb.KB) Tool {
 		Name: "concept_collapse",
 		Description: "Turns an expanded concept back into a plain one: \"<id>/index.md\" becomes \"<id>.md\" " +
 			"under the SAME ConceptID, so no inbound link changes. The inverse of concept_expand. Refuses " +
-			"when the directory still holds satellites or assets — both would have no home after the " +
+			"when the directory still holds satellites, assets or any other file (a hidden one) — none would have a home after the " +
 			"collapse — and names them.",
 		InputSchema: json.RawMessage(`{
 			"type": "object",
@@ -1661,7 +1661,10 @@ func toolConceptCollapse(k *kb.KB) Tool {
 					params.ID, len(satellites), strings.Join(satellites, ", "))), nil
 			}
 			assets, assetErr := k.ListAssets(id)
-			if assetErr == nil && len(assets) > 0 {
+			if assetErr != nil {
+				return errorResult(fmt.Sprintf("concept_collapse %q: %v", params.ID, assetErr)), nil
+			}
+			if len(assets) > 0 {
 				names := make([]string, 0, len(assets))
 				for _, a := range assets {
 					names = append(names, a.Path)
@@ -1681,6 +1684,23 @@ func toolConceptCollapse(k *kb.KB) Tool {
 			}
 			if _, statErr := os.Stat(flatAbs); statErr == nil {
 				return errorResult(fmt.Sprintf("concept_collapse %q: %s.md already exists (expanded_ambiguous) — remove one form first", params.ID, params.ID)), nil
+			}
+			// Anything ListAssets does not count (a hidden file, an empty
+			// subdirectory) would make the final Remove fail after index.md
+			// already moved: refuse before touching anything (D270).
+			entries, err := os.ReadDir(dirAbs)
+			if err != nil {
+				return errorResult(fmt.Sprintf("concept_collapse %q: %v", params.ID, err)), nil
+			}
+			var leftover []string
+			for _, e := range entries {
+				if e.Name() != "index.md" {
+					leftover = append(leftover, e.Name())
+				}
+			}
+			if len(leftover) > 0 {
+				return errorResult(fmt.Sprintf("concept_collapse %q: the directory still holds %s, which would have no home after the collapse — remove it first",
+					params.ID, strings.Join(leftover, ", "))), nil
 			}
 			if err := os.Rename(filepath.Join(dirAbs, "index.md"), flatAbs); err != nil {
 				return errorResult(fmt.Sprintf("concept_collapse %q: move index.md: %v", params.ID, err)), nil

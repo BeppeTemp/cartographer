@@ -5404,6 +5404,27 @@ func TestConceptCollapse_RefusesSatellitesAndAssets(t *testing.T) {
 			t.Errorf("collapse with an asset = %+v, want a refusal naming it", res.Content)
 		}
 	})
+
+	// A hidden file is not an asset, but it used to make the final directory
+	// Remove fail after index.md had already moved (D270).
+	t.Run("hidden file", func(t *testing.T) {
+		k, s := d160Fixture(t)
+		d160Write(t, k, "m/_map.md", "---\ntype: Map\nkind: map\ntitle: M\n---\n# M\n")
+		d160Write(t, k, "m/c/index.md", "---\ntype: Note\ntitle: C\n---\n# C\n")
+		d160Write(t, k, "m/c/.DS_Store", "x")
+		data, err := k.ReadConcept("m/c")
+		if err != nil {
+			t.Fatal(err)
+		}
+		args, _ := json.Marshal(map[string]string{"id": "m/c", "if_match": data.ContentHash})
+		res, _ := s.Tools()["concept_collapse"].Handler(authLocalContext(), args)
+		if !res.IsError || !strings.Contains(res.Content[0].Text, ".DS_Store") {
+			t.Errorf("collapse with a hidden file = %+v, want a refusal naming it", res.Content)
+		}
+		if _, statErr := os.Stat(filepath.Join(k.DataRoot(), "m", "c", "index.md")); statErr != nil {
+			t.Errorf("index.md moved before the refusal: %v", statErr)
+		}
+	})
 }
 
 func TestConceptMergeAndCollapse_AreAdvancedButCallable(t *testing.T) {

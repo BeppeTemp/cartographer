@@ -347,7 +347,7 @@ func Run(k *kb.KB, scope string, scopeNeighbors bool) ([]Finding, error) {
 				reason = "an error-severity contract violation, which lint_ignore cannot silence"
 			} else if name == "island" {
 				reason = "a graph-level check with no single concept owner"
-			} else if name == "map_oversize" || name == "index_incomplete" || name == "orphan_asset" || name == "unused_placeholder" || strings.HasPrefix(name, "expanded_") {
+			} else if name == "map_oversize" || name == "index_incomplete" || name == "orphan_asset" || name == "oversized_asset" || name == "unlistable_assets" || name == "unused_placeholder" || strings.HasPrefix(name, "expanded_") {
 				// orphan_asset belongs to an expanded concept's asset set, reported
 				// in the directory pass: there is no single concept frontmatter that
 				// owns it, so listing it as suppressible would be a promise the
@@ -733,12 +733,28 @@ func Run(k *kb.KB, scope string, scopeNeighbors bool) ([]Finding, error) {
 						referenced[target] = true
 					}
 				}
+				// A directory lint cannot list (a symlink, a special file) is
+				// one finding on its owner, never an aborted run (D270).
 				assets, assetErr := k.ListAssets(expandedID)
 				if assetErr != nil {
-					return nil, fmt.Errorf("lint.Run: list assets for %s: %w", expandedID, assetErr)
+					findings = append(findings, Finding{
+						Path:     string(expandedID),
+						Check:    "unlistable_assets",
+						Severity: SevWarning,
+						Message:  fmt.Sprintf("the concept's assets cannot be listed: %v", assetErr),
+					})
+					continue
 				}
 				for _, asset := range assets {
 					assetPath := string(expandedID) + "/" + asset.Path
+					if asset.Oversized {
+						findings = append(findings, Finding{
+							Path:     assetPath,
+							Check:    "oversized_asset",
+							Severity: SevWarning,
+							Message:  fmt.Sprintf("asset is %d bytes, above the %d MiB worth versioning in git — move it outside the KB and cite it by link (D270)", asset.Size, kb.AssetMaxFileSize>>20),
+						})
+					}
 					if referenced[assetPath] {
 						continue
 					}
