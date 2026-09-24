@@ -21,7 +21,11 @@ var (
 	// check waits, and the 24 h cache absorbs every restart after it.
 	serverUpdateDelay    = 30 * time.Second
 	serverUpdateInterval = updatecheck.TTL
-	serverUpdateCheckFn  = func(ctx context.Context, current string, opts updatecheck.Options) (updatecheck.Result, error) {
+	// serverUpdateRetry is the wait after a failed check (GitHub unreachable,
+	// rate-limited): a failure writes no cache entry, so waiting the full
+	// interval would leave latest_version out for a day (#415).
+	serverUpdateRetry   = time.Hour
+	serverUpdateCheckFn = func(ctx context.Context, current string, opts updatecheck.Options) (updatecheck.Result, error) {
 		return updatecheck.Check(ctx, current, opts)
 	}
 )
@@ -45,13 +49,14 @@ func startServerUpdateCheck(cfg *config.Config, current string) func() string {
 	}
 	w := &serverUpdateWatch{}
 	opts := updatecheck.Options{CacheFile: serverUpdateCacheFile(cfg)}
-	check, delay, interval := serverUpdateCheckFn, serverUpdateDelay, serverUpdateInterval
+	check, delay, interval, retry := serverUpdateCheckFn, serverUpdateDelay, serverUpdateInterval, serverUpdateRetry
 	go func() {
 		time.Sleep(delay)
 		reported := ""
 		for {
 			// Fail silent: an unknown answer only leaves latest_version out.
-			if res, _ := check(context.Background(), current, opts); res.Available {
+			res, err := check(context.Background(), current, opts)
+			if res.Available {
 				w.latest.Store(res.Latest)
 				if res.Latest != reported {
 					log.Printf("a newer Cartographer release is available: %s (serving %s)", res.Latest, current)
@@ -60,7 +65,11 @@ func startServerUpdateCheck(cfg *config.Config, current string) func() string {
 			} else {
 				w.latest.Store("")
 			}
-			time.Sleep(interval)
+			if err != nil {
+				time.Sleep(retry)
+			} else {
+				time.Sleep(interval)
+			}
 		}
 	}()
 	return w.Latest

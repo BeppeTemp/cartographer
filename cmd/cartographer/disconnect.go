@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
@@ -200,7 +201,9 @@ func printDisconnectSummary(res disconnectResult, dryRun bool) {
 			fmt.Printf("%s[%s] skipped mcp config entry (not found)\n", prefix, pr.Provider)
 		}
 		for _, mf := range pr.Pruned {
-			fmt.Printf("%s[%s] pruned %s\n", prefix, pr.Provider, mf.Path)
+			// Managed paths mix recorded forward slashes with ones joined
+			// with the host separator; print them one way (#415).
+			fmt.Printf("%s[%s] pruned %s\n", prefix, pr.Provider, filepath.ToSlash(mf.Path))
 		}
 		if len(pr.Pruned) == 0 {
 			fmt.Printf("%s[%s] skipped skill prune (nothing managed)\n", prefix, pr.Provider)

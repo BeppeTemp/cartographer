@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
@@ -291,5 +292,26 @@ func TestDoDisconnect_DryRunDoesNotWrite(t *testing.T) {
 	servers := mcpServersOf(t, filepath.Join(dir, ".claude.json"), "mcpServers")
 	if _, ok := servers["wiki"]; !ok {
 		t.Error("dry-run should not have removed the wiki entry from disk")
+	}
+}
+
+// #415: a hook path joined with the host separator and a skill path recorded
+// with forward slashes print with the same separator.
+func TestPrintDisconnectSummaryUsesForwardSlashes(t *testing.T) {
+	res := disconnectResult{Providers: []disconnectProviderResult{{
+		Provider: "claude",
+		Pruned: []provisioning.ManagedFile{
+			{Path: filepath.Join(".claude", "hooks", "cartographer-bootstrap", "hook.json")},
+			{Path: ".claude/skills/kb-a/SKILL.md"},
+		},
+	}}}
+	out := withStdout(t, func() { printDisconnectSummary(res, false) })
+	for _, want := range []string{
+		"[claude] pruned .claude/hooks/cartographer-bootstrap/hook.json\n",
+		"[claude] pruned .claude/skills/kb-a/SKILL.md\n",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output lacks %q:\n%s", want, out)
+		}
 	}
 }

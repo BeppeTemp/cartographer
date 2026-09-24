@@ -10,6 +10,7 @@ import (
 	"reflect"
 	"sort"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -455,4 +456,38 @@ func TestClientUpdateSetsPolicy(t *testing.T) {
 			t.Errorf("invalid policy exit = %d", code)
 		}
 	})
+}
+
+// #415: a failed check retries after serverUpdateRetry, not after the full
+// interval, so a server started while GitHub was unreachable reports the newer
+// release once it is reachable again.
+func TestServerUpdateCheckRetriesSoonAfterAFailure(t *testing.T) {
+	var calls atomic.Int32
+	oldFn, oldDelay, oldInterval, oldRetry := serverUpdateCheckFn, serverUpdateDelay, serverUpdateInterval, serverUpdateRetry
+	serverUpdateCheckFn = func(_ context.Context, current string, _ updatecheck.Options) (updatecheck.Result, error) {
+		if calls.Add(1) == 1 {
+			return updatecheck.Result{Current: current}, errors.New("rate limited")
+		}
+		return updatecheck.Result{Current: current, Latest: "v0.17.0", Available: true, Kind: "minor"}, nil
+	}
+	serverUpdateDelay, serverUpdateInterval, serverUpdateRetry = 0, time.Hour, 10*time.Millisecond
+	t.Cleanup(func() {
+		serverUpdateCheckFn, serverUpdateDelay, serverUpdateInterval, serverUpdateRetry = oldFn, oldDelay, oldInterval, oldRetry
+	})
+	t.Setenv(updatecheck.EnvDisable, "")
+
+	cfg := config.Default()
+	cfg.UpdateCheck = true
+	cfg.Data = t.TempDir()
+	src := startServerUpdateCheck(cfg, "v0.16.1")
+	if src == nil {
+		t.Fatal("checker not started")
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for src() == "" && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if src() != "v0.17.0" {
+		t.Fatalf("latest = %q after a failed first check: the retry waited the full interval", src())
+	}
 }

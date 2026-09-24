@@ -627,3 +627,23 @@ func TestCmdKBClone_Cleanup(t *testing.T) {
 		t.Errorf("a pre-existing directory was removed: %v", err)
 	}
 }
+
+// #415: the recovery text names a removal command the operator's shell runs.
+func TestUnpushedScaffoldGuidanceRemovalCommand(t *testing.T) {
+	cases := []struct{ goos, path, want string }{
+		{"linux", "/home/user/kbs/kb-a", "Or remove it: rm -rf /home/user/kbs/kb-a "},
+		{"darwin", "/Users/user/kbs/kb-a", "Or remove it: rm -rf /Users/user/kbs/kb-a "},
+		{"windows", `C:\Users\user\kbs\kb-a`, `Or remove it: Remove-Item -Recurse -Force 'C:\Users\user\kbs\kb-a' `},
+		{"windows", `C:\Users\o'user\kb-a`, `Remove-Item -Recurse -Force 'C:\Users\o''user\kb-a'`},
+	}
+	for _, c := range cases {
+		var b strings.Builder
+		writeUnpushedScaffoldGuidance(&b, c.goos, c.path, "user", "user@example.com", "data")
+		if !strings.Contains(b.String(), c.want) {
+			t.Errorf("%s: guidance lacks %q:\n%s", c.goos, c.want, b.String())
+		}
+		if c.goos == "windows" && strings.Contains(b.String(), "rm -rf") {
+			t.Errorf("windows guidance still says rm -rf:\n%s", b.String())
+		}
+	}
+}
