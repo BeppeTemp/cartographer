@@ -1,0 +1,88 @@
+name: privacy
+
+# The repository is public, and its issues, PRs and history have carried real
+# names from private setups before. This scans what is published — pushed
+# commits, PR diffs, and issue/PR/comment text — for private terms, which exist
+# only as HMAC digests in the PRIVACY_GUARD_DIGESTS secret (key:
+# PRIVACY_GUARD_KEY), so no term is ever written here. A hit fails the run and,
+# for issue/PR/comment text, replaces the term with [redacted]; the edit
+# history still holds the original, so the notification is the signal to delete
+# that revision. Forks get no secrets and are skipped.
+on:
+  push:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+  issues:
+    types: [opened, edited]
+  issue_comment:
+    types: [created, edited]
+
+permissions:
+  contents: read
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+    env:
+      PRIVACY_GUARD_KEY: ${{ secrets.PRIVACY_GUARD_KEY }}
+      DIGESTS: ${{ secrets.PRIVACY_GUARD_DIGESTS }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Skip without secrets
+        id: gate
+        run: |
+          if [ -z "$PRIVACY_GUARD_KEY" ] || [ -z "$DIGESTS" ]; then
+            echo "secrets not available (fork or not configured): skipping"; echo "run=false" >> "$GITHUB_OUTPUT"
+          else
+            printf '%s\n' "$DIGESTS" > "$RUNNER_TEMP/digests"; echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/checkout@v7
+        if: steps.gate.outputs.run == 'true'
+        with:
+          fetch-depth: 0
+      - name: Scan commits
+        if: steps.gate.outputs.run == 'true' && (github.event_name == 'push' || github.event_name == 'pull_request')
+        env:
+          PRIVACY_GUARD_DIGESTS: ${{ runner.temp }}/digests
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.sha }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          if [ "${{ github.event_name }}" = pull_request ]; then range="$BASE..$HEAD"
+          elif [ -n "$BEFORE" ] && ! [[ "$BEFORE" =~ ^0+$ ]]; then range="$BEFORE..$AFTER"
+          else range="$AFTER --not --remotes=origin/main"; fi
+          # shellcheck disable=SC2086
+          git log -p --format=%B $range > "$RUNNER_TEMP/outgoing"
+          python3 .github/privacy-guard.py "$RUNNER_TEMP/outgoing"
+      - name: Scan and redact text
+        if: steps.gate.outputs.run == 'true' && (github.event_name == 'issues' || github.event_name == 'issue_comment' || github.event_name == 'pull_request')
+        env:
+          PRIVACY_GUARD_DIGESTS: ${{ runner.temp }}/digests
+          EVENT: ${{ github.event_name }}
+          REPO: ${{ github.repository }}
+          NUMBER: ${{ github.event.issue.number || github.event.pull_request.number }}
+          COMMENT_ID: ${{ github.event.comment.id }}
+        run: |
+          t="$RUNNER_TEMP/text"
+          if [ "$EVENT" = issue_comment ]; then
+            path="repos/$REPO/issues/comments/$COMMENT_ID"; gh api "$path" --jq '.body // ""' > "$t.body"; : > "$t.title"
+          else
+            path="repos/$REPO/issues/$NUMBER"; gh api "$path" --jq '.body // ""' > "$t.body"; gh api "$path" --jq '.title' > "$t.title"
+          fi
+          hit=0
+          for f in "$t.title" "$t.body"; do
+            python3 .github/privacy-guard.py "$f" || { hit=1; python3 .github/privacy-guard.py --redact "$f"; }
+          done
+          [ "$hit" = 0 ] && exit 0
+          if [ "$EVENT" = issue_comment ]; then
+            jq -n --rawfile body "$t.body" '{body: $body}' | gh api -X PATCH "$path" --input - >/dev/null
+          else
+            jq -n --rawfile body "$t.body" --arg title "$(cat "$t.title")" '{title: $title, body: $body}' | gh api -X PATCH "$path" --input - >/dev/null
+          fi
+          echo "::error::private term found and redacted in $path — delete the original revision from its edit history"
+          exit 1
