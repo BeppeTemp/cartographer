@@ -1416,3 +1416,44 @@ func TestLint_MapIndexBrokenLinkWithoutContract(t *testing.T) {
 		t.Errorf("a concept scope must not surface map-index findings: %v", findings)
 	}
 }
+
+// A file that reached an expanded concept through git — above the size cap,
+// or hidden — must not abort the whole lint run (D270).
+func TestLint_AssetsThatUsedToAbortTheRun(t *testing.T) {
+	k := tempKB(t)
+	writeFile(t, k.DataRoot(), "m/_map.md", "---\ntype: Map\nkind: map\ntitle: M\n---\n# M\n")
+	writeFile(t, k.DataRoot(), "m/index.md", "---\ntype: Index\ntitle: M\n---\n- [c](c.md)\n")
+	writeFile(t, k.DataRoot(), "m/c/index.md", "---\ntype: Note\ntitle: C\n---\n[big](big.pdf)\n")
+	writeFile(t, k.DataRoot(), "m/c/big.pdf", strings.Repeat("x", kb.AssetMaxFileSize+1))
+	writeFile(t, k.DataRoot(), "m/c/.DS_Store", "x")
+
+	findings, err := Run(k, "", false)
+	if err != nil {
+		t.Fatalf("lint.Run: %v", err)
+	}
+	if !hasCheck(findings, "m/c/big.pdf", "oversized_asset") {
+		t.Errorf("want oversized_asset on m/c/big.pdf, got %+v", findings)
+	}
+	for _, f := range findings {
+		if strings.Contains(f.Path, ".DS_Store") {
+			t.Errorf("a hidden file is not an asset, got %+v", f)
+		}
+	}
+}
+
+func TestLint_UnlistableAssetsIsAFinding(t *testing.T) {
+	k := tempKB(t)
+	writeFile(t, k.DataRoot(), "m/_map.md", "---\ntype: Map\nkind: map\ntitle: M\n---\n# M\n")
+	writeFile(t, k.DataRoot(), "m/index.md", "---\ntype: Index\ntitle: M\n---\n- [c](c.md)\n")
+	writeFile(t, k.DataRoot(), "m/c/index.md", "---\ntype: Note\ntitle: C\n---\n# C\n")
+	if err := os.Symlink("/etc/hosts", filepath.Join(k.DataRoot(), "m/c/link.txt")); err != nil {
+		t.Skipf("symlink: %v", err)
+	}
+	findings, err := Run(k, "", false)
+	if err != nil {
+		t.Fatalf("lint.Run: %v", err)
+	}
+	if !hasCheck(findings, "m/c", "unlistable_assets") {
+		t.Errorf("want unlistable_assets on m/c, got %+v", findings)
+	}
+}

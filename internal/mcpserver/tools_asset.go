@@ -68,7 +68,7 @@ func toolAssetList(k *kb.KB) Tool {
 	return Tool{
 		Name:        "asset_list",
 		ReadOnly:    true,
-		Description: "Lists every non-Markdown regular asset owned by an expanded concept, including its path, size, sha256, and executable mode.",
+		Description: "Lists every non-Markdown regular asset owned by an expanded concept, including its path, size, sha256, and executable mode. Hidden files are skipped; a file above " + byteBudget(kb.AssetMaxFileSize) + " is listed with oversized: true — it cannot be read, only deleted.",
 		InputSchema: json.RawMessage(`{"type":"object","required":["concept_id"],"properties":{"concept_id":{"type":"string"}}}`),
 		Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
 			var p struct {
