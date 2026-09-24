@@ -202,11 +202,17 @@ func HookRegistrations(baseDir string, provider configurator.Provider, hookName 
 // countClaudeHookEntries counts the entries in settings["hooks"] whose command
 // carries marker — the same ownership rule stripHookEntries applies, read-only.
 func countClaudeHookEntries(settings map[string]interface{}, marker string) int {
+	return len(ownedHookCommands(settings, marker))
+}
+
+// ownedHookCommands returns the command of every entry in settings["hooks"]
+// owned by marker (commandOwnedBy), read-only.
+func ownedHookCommands(settings map[string]interface{}, marker string) []string {
 	hooksMap, ok := settings["hooks"].(map[string]interface{})
 	if !ok {
-		return 0
+		return nil
 	}
-	count := 0
+	var commands []string
 	for _, groupsRaw := range hooksMap {
 		groups, ok := groupsRaw.([]interface{})
 		if !ok {
@@ -227,10 +233,10 @@ func countClaudeHookEntries(settings map[string]interface{}, marker string) int 
 					continue
 				}
 				if command, ok := entry["command"].(string); ok && commandOwnedBy(command, marker) {
-					count++
+					commands = append(commands, command)
 				}
 			}
 		}
 	}
-	return count
+	return commands
 }

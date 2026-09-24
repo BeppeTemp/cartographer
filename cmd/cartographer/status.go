@@ -135,6 +135,9 @@ func renderStatus(output string, s statusSnapshot, code int) int {
 		printShadowedInstructionsLine(p)
 		for _, d := range p.Diverged {
 			fmt.Printf("  diverged on disk (%s): %s/%s at %s\n", d.Trust, d.Kind, d.Name, d.Path)
+			if d.Detail != "" {
+				fmt.Printf("    %s\n", d.Detail)
+			}
 		}
 		unsigned, mcpPending := false, false
 		for _, a := range p.Added {

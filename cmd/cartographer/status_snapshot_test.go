@@ -88,3 +88,22 @@ func TestSnapshotArtifactsBuiltIn(t *testing.T) {
 		t.Errorf("trust=%q want built_in", got)
 	}
 }
+
+// D267: a hook whose registered command cannot run says why, in the table and
+// in the JSON, because "unrunnable" alone leaves the operator guessing.
+func TestStatusReportsAnUnrunnableHookCommand(t *testing.T) {
+	diverged := snapshotDiverged([]provisioning.DriftFinding{{
+		Kind: "hook", Name: "cartographer-bootstrap", Path: ".claude/hooks/cartographer-bootstrap",
+		Reason: provisioning.DriftUnrunnable, Detail: "command C:\\x\\bootstrap.cmd has backslashes, which the shell running it removes",
+	}})
+	if len(diverged) != 1 || diverged[0].Detail == "" {
+		t.Fatalf("diverged = %+v, want the finding with its detail", diverged)
+	}
+	s := statusSnapshot{Schema: statusSchema, Reachable: true, State: "drift", Providers: []providerStatus{{Name: "claude", Connected: true, State: "drift", Diverged: diverged}}}
+	out := withStdout(t, func() { renderStatus("table", s, 1) })
+	for _, want := range []string{"diverged on disk (unrunnable): hook/cartographer-bootstrap", "has backslashes"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("missing %q in %s", want, out)
+		}
+	}
+}

@@ -68,7 +68,8 @@ func TestApply_OpenCode_Hook_GeneraPluginToolBefore(t *testing.T) {
 	if !strings.Contains(content, `"tool.execute.before"`) {
 		t.Errorf("expected tool.execute.before mapping: %s", content)
 	}
-	scriptPath := filepath.Join(baseDir, ".opencode", "hooks", "notify", "notify.sh")
+	// Slash form: the plugin runs the command through `sh -c` (D267).
+	scriptPath := filepath.ToSlash(filepath.Join(baseDir, ".opencode", "hooks", "notify", "notify.sh"))
 	// The plugin embeds the command as a JS string literal, so on Windows the
 	// path's separators are escaped in it; compare against that encoding.
 	scriptLit, err := json.Marshal(scriptPath)

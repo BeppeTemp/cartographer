@@ -64,7 +64,8 @@ func TestEnsureBootstrapHook_Claude_MaterializzaERegistra(t *testing.T) {
 	if len(groups) != 1 || len(groups[0].Hooks) != 1 {
 		t.Fatalf("expected 1 SessionStart entry, got: %+v", settings.Hooks)
 	}
-	wantCmd := filepath.Join(hookDir, provisioning.BootstrapScriptNameForTest)
+	// Slash form: Claude Code runs hooks through Git Bash on Windows (D267).
+	wantCmd := filepath.ToSlash(filepath.Join(hookDir, provisioning.BootstrapScriptNameForTest))
 	if groups[0].Hooks[0].Command != wantCmd {
 		t.Errorf("command: expected %q, got %q", wantCmd, groups[0].Hooks[0].Command)
 	}
