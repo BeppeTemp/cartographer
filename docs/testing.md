@@ -430,6 +430,7 @@ What it holds, beyond the component tests:
   type/status filters and the Observatory's severity floor; the command
   palette; URL state with Back/Forward and deep links; backlink chips;
   Observatory findings revealing their concept or saying there is no node;
+  the Observatory scoped by the rail's Map, and its node filters stepping aside;
   the truncation banner, the empty KB, a `500` and an unreachable server, each
   confined to its panel;
 - **fine-grained non-disclosure**: under the narrowed token a hidden concept
