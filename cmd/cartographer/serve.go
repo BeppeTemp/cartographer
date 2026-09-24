@@ -54,6 +54,7 @@ func cmdServe(args []string) int {
 	configFlag := fs.String("config", "", "Path to a YAML config file (or CARTOGRAPHER_CONFIG)")
 	toolsProfileFlag := fs.String("tools-profile", "", "Tools advertised by tools/list: 'agent' (default, core set) or 'full' (or CARTOGRAPHER_TOOLS_PROFILE)")
 	webEnabledFlag := fs.Bool("web-enabled", true, "Serve the embedded read-only Atlas UI at /ui/ and its API at /api/ui/v1 in HTTP mode (or CARTOGRAPHER_WEB_ENABLED)")
+	updateCheckFlag := fs.Bool("update-check", true, "Look up the latest release once a day and report it in /health and kb_status when newer (or CARTOGRAPHER_UPDATE_CHECK)")
 	mountModeFlag := fs.String("mount-mode", "", "Multi-KB HTTP mount topology: 'per-kb' (default, one endpoint per KB) or 'routed' (one endpoint, kb as a tool argument) (or CARTOGRAPHER_MCP_MOUNT_MODE)")
 	logFileFlag := fs.String("log-file", "", "Append the server log to this file instead of stderr (created if absent; never rotated)")
 	fs.Parse(args)
@@ -79,6 +80,7 @@ func cmdServe(args []string) int {
 		ToolsProfile:  toolsProfileFlag,
 		MountMode:     mountModeFlag,
 		WebEnabled:    webEnabledFlag,
+		UpdateCheck:   updateCheckFlag,
 	}, *configFlag)
 	if err != nil {
 		log.Fatal(err)
@@ -131,6 +133,8 @@ func loadServeConfig(fs *flag.FlagSet, overrides config.FlagOverrides, configFla
 			explicit.MountMode = overrides.MountMode
 		case "web-enabled":
 			explicit.WebEnabled = overrides.WebEnabled
+		case "update-check":
+			explicit.UpdateCheck = overrides.UpdateCheck
 		}
 	})
 	config.ApplyFlags(cfg, explicit)
@@ -440,14 +444,15 @@ func runServe(cfg *config.Config) {
 		}
 	}
 
+	latestVersion := startServerUpdateCheck(cfg, version)
 	if cfg.HTTP != "" {
-		serveHTTP(cfg.HTTP, kbs, kbNames, kbToolPrefixes, kbArtifactSigners, kbMCPAllowlists, cfg.Auth, cfg.MCP.AllowedOrigins, cfg.ToolsProfile, cfg.MCP.MountMode, cfg.Web.Enabled, sqlIdxs, auditLog)
+		serveHTTP(cfg.HTTP, kbs, kbNames, kbToolPrefixes, kbArtifactSigners, kbMCPAllowlists, cfg.Auth, cfg.MCP.AllowedOrigins, cfg.ToolsProfile, cfg.MCP.MountMode, cfg.Web.Enabled, sqlIdxs, auditLog, latestVersion)
 	} else {
-		serveStdio(kbs[0], kbArtifactSigners[0], kbMCPAllowlists[0], cfg.ToolsProfile, sqlIdxs, auditLog)
+		serveStdio(kbs[0], kbArtifactSigners[0], kbMCPAllowlists[0], cfg.ToolsProfile, sqlIdxs, auditLog, latestVersion)
 	}
 }
 
-func serveStdio(k *kb.KB, artifactSigner ed25519.PrivateKey, allowlist []provisioning.MCPAllowlistEntry, toolsProfile string, sqlIdxs map[string]*sqlindex.Index, auditLog *audit.Log) {
+func serveStdio(k *kb.KB, artifactSigner ed25519.PrivateKey, allowlist []provisioning.MCPAllowlistEntry, toolsProfile string, sqlIdxs map[string]*sqlindex.Index, auditLog *audit.Log, latestVersion func() string) {
 	if auditLog != nil {
 		log.Printf("audit log active")
 	}
@@ -458,6 +463,7 @@ func serveStdio(k *kb.KB, artifactSigner ed25519.PrivateKey, allowlist []provisi
 	s.SetAuditLog(auditLog)
 	s.SetKBName(k.AuthName)
 	s.SetTransport("stdio")
+	s.SetLatestVersionSource(latestVersion)
 	log.Printf("stdio transport, KB: %s (tools profile: %s)", k.Root, toolsProfile)
 	// s.Run blocks on the stdio read loop and returns when the client closes
 	// stdin (or on a transport error) — that return is stdio's natural
@@ -472,7 +478,7 @@ func serveStdio(k *kb.KB, artifactSigner ed25519.PrivateKey, allowlist []provisi
 	}
 }
 
-func serveHTTP(addr string, kbs []*kb.KB, names []string, toolPrefixes []string, artifactSigners []ed25519.PrivateKey, allowlists [][]provisioning.MCPAllowlistEntry, authCfg config.AuthConfig, allowedOrigins []string, toolsProfile, mountMode string, webEnabled bool, sqlIdxs map[string]*sqlindex.Index, auditLog *audit.Log) {
+func serveHTTP(addr string, kbs []*kb.KB, names []string, toolPrefixes []string, artifactSigners []ed25519.PrivateKey, allowlists [][]provisioning.MCPAllowlistEntry, authCfg config.AuthConfig, allowedOrigins []string, toolsProfile, mountMode string, webEnabled bool, sqlIdxs map[string]*sqlindex.Index, auditLog *audit.Log, latestVersion func() string) {
 	if auditLog != nil {
 		log.Printf("audit log active")
 	}
@@ -500,6 +506,7 @@ func serveHTTP(addr string, kbs []*kb.KB, names []string, toolPrefixes []string,
 	}
 
 	multi := mcpserver.NewMultiKBServer(version)
+	multi.SetLatestVersionSource(latestVersion)
 	// serverInfo.name (D102) identifies the mounted KB only when more than
 	// one is mounted — a single-KB HTTP server keeps the historical bare
 	// "cartographer" (asserted verbatim in server_test.go).
@@ -518,6 +525,7 @@ func serveHTTP(addr string, kbs []*kb.KB, names []string, toolPrefixes []string,
 			s.SetAuditLog(auditLog)
 			s.SetKBName(name)
 			s.SetTransport("http")
+			s.SetLatestVersionSource(latestVersion)
 		})
 		if err != nil {
 			log.Fatal(err)

@@ -83,6 +83,17 @@ func renderStatus(output string, s statusSnapshot, code int) int {
 			fmt.Println("local service may still run the old binary — run: cartographer upgrade-repair")
 		}
 	}
+	// D254: informational, like the skew above — neither changes the exit code.
+	if u := s.Update; u != nil {
+		line := fmt.Sprintf("update available: %s (installed %s)", u.Latest, s.Client)
+		if u.Command != "" {
+			line += " — " + u.Command
+		}
+		fmt.Println(line)
+	}
+	if s.ServerLatest != "" {
+		fmt.Printf("server update available: %s (server %s) — for the server's operator\n", s.ServerLatest, s.Server)
+	}
 	// The server this client's state was materialized against, when it is not
 	// the one answering now (D142): inspectable without running a sync.
 	if changed := snapshotMaterializedVersions(s); len(changed) > 0 {

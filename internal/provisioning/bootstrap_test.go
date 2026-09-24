@@ -466,6 +466,34 @@ func TestBootstrapScriptIsRunnableOnThisPlatform(t *testing.T) {
 	if !strings.Contains(script, "cartographer sync --auto-trust") {
 		t.Error("the script does not run the sync it exists for")
 	}
+
+	// D254: the update notice runs after the sync, keeps its stdout (that is
+	// what reaches the agent) and discards its stderr.
+	var noticeLine string
+	for _, l := range strings.Split(strings.ReplaceAll(script, "\r\n", "\n"), "\n") {
+		if strings.Contains(l, "cartographer update notice") {
+			noticeLine = l
+		}
+	}
+	if noticeLine == "" {
+		t.Fatal("the script does not run `cartographer update notice`")
+	}
+	if strings.Index(script, "cartographer update notice") < strings.Index(script, "cartographer sync --auto-trust") {
+		t.Error("the notice must run after the sync")
+	}
+	if stdout := strings.NewReplacer("2>nul", "", "2>/dev/null", "").Replace(noticeLine); strings.Contains(stdout, ">") {
+		t.Errorf("the notice's stdout is redirected: %q", noticeLine)
+	}
+	if runtime.GOOS == "windows" {
+		if !strings.HasSuffix(noticeLine, "2>nul") {
+			t.Errorf("the notice's stderr is not discarded: %q", noticeLine)
+		}
+		if !strings.HasSuffix(script, "exit /b 0\r\n") {
+			t.Error("the script must still end on exit /b 0")
+		}
+	} else if noticeLine != "cartographer update notice 2>/dev/null || true" {
+		t.Errorf("notice line = %q", noticeLine)
+	}
 	// The session hook keeps --auto-trust, unlike the scheduled timer of D140.
 	if strings.Contains(script, "service sync-timer") {
 		t.Error("the bootstrap script is layer 1, not the scheduled trigger")
@@ -507,5 +535,49 @@ func TestBootstrapHookJSONReferencesThePlatformScript(t *testing.T) {
 	}
 	if !strings.Contains(string(settings), provisioning.BootstrapScriptNameForTest) {
 		t.Errorf("settings.json does not reference %s:\n%s", provisioning.BootstrapScriptNameForTest, settings)
+	}
+}
+
+// D254 WP2 trap: the bootstrap script's content hash is fixed and the hook is
+// excluded from diffing, so nothing compares an installed script against the
+// current one. What delivers a changed script to an already-connected client
+// is that EnsureBootstrapHook rewrites both files unconditionally on every
+// call — and `sync` calls it every run (cmd/cartographer runSync →
+// ensureBootstrapForProviders), which the session-start hook itself triggers.
+// Pinned here so a future "skip if already present" optimisation cannot strand
+// existing machines on the old script until a reconnect.
+func TestEnsureBootstrapHook_RewritesAnOutdatedScript(t *testing.T) {
+	for _, p := range []configurator.Provider{configurator.ProviderClaudeCode, configurator.ProviderCodex, configurator.ProviderOpenCode} {
+		t.Run(string(p), func(t *testing.T) {
+			baseDir := t.TempDir()
+			lock, err := provisioning.EnsureBootstrapHook(baseDir, p, provisioning.Lock{}, false)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var scriptPath string
+			for _, mf := range lock.Managed {
+				if filepath.Base(mf.Path) == provisioning.BootstrapScriptNameForTest {
+					scriptPath = filepath.Join(baseDir, mf.Path)
+				}
+			}
+			if scriptPath == "" {
+				t.Fatalf("no script among %+v", lock.Managed)
+			}
+			// The script an earlier release installed: sync only.
+			old := "#!/bin/sh\ncommand -v cartographer >/dev/null 2>&1 || exit 0\ncartographer sync --auto-trust >/dev/null 2>&1 || true\n"
+			if err := os.WriteFile(scriptPath, []byte(old), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := provisioning.EnsureBootstrapHook(baseDir, p, lock, false); err != nil {
+				t.Fatal(err)
+			}
+			got, err := os.ReadFile(scriptPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(got) != provisioning.BootstrapScriptContentForTest {
+				t.Fatalf("an outdated script was not rewritten:\n%s", got)
+			}
+		})
 	}
 }

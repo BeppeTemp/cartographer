@@ -149,7 +149,8 @@ func TestLoadFullYAML(t *testing.T) {
 		// The YAML sets no mcp.tool_prefix_mode, so the default applies (kb-name since D153).
 		MCP: MCPConfig{ToolPrefixMode: "kb-name", MountMode: MountModePerKB},
 		// The UI is on by default in HTTP mode; this YAML does not mention it.
-		Web: WebConfig{Enabled: true},
+		Web:         WebConfig{Enabled: true},
+		UpdateCheck: true,
 	}
 
 	if !reflect.DeepEqual(cfg, want) {
@@ -501,5 +502,40 @@ func TestWebEnabledPrecedence(t *testing.T) {
 	ApplyFlags(cfg, FlagOverrides{WebEnabled: &on})
 	if !cfg.Web.Enabled {
 		t.Error("--web-enabled must win over the environment")
+	}
+}
+
+// update_check (D254) follows flag > env > YAML > default, default true.
+func TestUpdateCheckPrecedence(t *testing.T) {
+	if !Default().UpdateCheck {
+		t.Fatal("the server update check is on by default")
+	}
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte("update_check: false\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.UpdateCheck {
+		t.Error("an explicit `update_check: false` must survive the default")
+	}
+	bare := filepath.Join(t.TempDir(), "bare.yaml")
+	if err := os.WriteFile(bare, []byte("http: \":39273\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if cfg, err = Load(bare); err != nil || !cfg.UpdateCheck {
+		t.Fatalf("absent update_check must keep the default: %v", err)
+	}
+	t.Setenv("CARTOGRAPHER_UPDATE_CHECK", "false")
+	FromEnv(cfg)
+	if cfg.UpdateCheck {
+		t.Error("CARTOGRAPHER_UPDATE_CHECK=false must win over YAML/default")
+	}
+	on := true
+	ApplyFlags(cfg, FlagOverrides{UpdateCheck: &on})
+	if !cfg.UpdateCheck {
+		t.Error("--update-check must win over the environment")
 	}
 }

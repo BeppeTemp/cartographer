@@ -1218,6 +1218,9 @@ func (m Model) viewServerPanel() string {
 	if s.State == "version_skew" {
 		versions = styleDrift.Render(versions)
 	}
+	if s.Update != nil {
+		versions += styleDrift.Render(" · " + s.Update.Latest + " available")
+	}
 	lines = append(lines, line("version", versions))
 
 	if svc := serviceLine(s.Service); svc != "" {
