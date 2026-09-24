@@ -485,16 +485,28 @@ func (kb *KB) GraphNeighbors(id okf.ConceptID, depth int, directions ...string) 
 // Neighbors is GraphNeighbors over this graph, for a caller that already
 // holds one and needs its other lookups to agree with the traversal.
 func (g Links) Neighbors(id okf.ConceptID, depth int, directions ...string) (map[string]int, error) {
+	direction := ""
+	if len(directions) > 0 {
+		direction = directions[0]
+	}
+	return g.NeighborsWithin(id, depth, direction, nil)
+}
+
+// NeighborsWithin is Neighbors on the subgraph induced by the nodes include
+// accepts (D249): an excluded node is neither reported nor traversed, and an
+// excluded start id keeps only its in-edges, as if its file were deleted. A
+// nil include accepts every node, so the result is exactly Neighbors'.
+func (g Links) NeighborsWithin(id okf.ConceptID, depth int, direction string, include func(okf.ConceptID) bool) (map[string]int, error) {
 	if depth <= 0 {
 		depth = 1
 	}
-	direction := "out"
-	if len(directions) > 0 && directions[0] != "" {
-		direction = directions[0]
+	if direction == "" {
+		direction = "out"
 	}
 	if direction != "out" && direction != "in" && direction != "both" {
 		return nil, fmt.Errorf("invalid graph direction %q", direction)
 	}
+	keep := func(n okf.ConceptID) bool { return include == nil || include(n) }
 
 	result := map[string]int{}
 	frontier := []okf.ConceptID{id}
@@ -503,7 +515,7 @@ func (g Links) Neighbors(id okf.ConceptID, depth int, directions ...string) (map
 		var next []okf.ConceptID
 		for _, cur := range frontier {
 			neighbors := make(map[okf.ConceptID]struct{})
-			if direction == "out" || direction == "both" {
+			if (direction == "out" || direction == "both") && keep(cur) {
 				for neighbor := range g.Out[cur] {
 					neighbors[neighbor] = struct{}{}
 				}
@@ -514,7 +526,7 @@ func (g Links) Neighbors(id okf.ConceptID, depth int, directions ...string) (map
 				}
 			}
 			for neighbor := range neighbors {
-				if neighbor == cur || neighbor == id {
+				if neighbor == cur || neighbor == id || !keep(neighbor) {
 					continue
 				}
 				if _, seen := result[string(neighbor)]; !seen {
