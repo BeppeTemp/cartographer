@@ -539,10 +539,10 @@ func kbCapabilities(k *kb.KB) map[string]KBCapability {
 	}
 }
 
-func toolKBStatus(k *kb.KB) Tool {
+func toolKBStatus(k *kb.KB, misses *searchMissLog) Tool {
 	return Tool{
 		Name:        "kb_status",
-		Description: "Returns aggregate metrics about the KB (total concepts, per-type counts, per-status counts (concepts with no status field are excluded), stale concepts (review_after in the past), open contradictions) plus its git replication state: whether a remote is configured (has_remote/remote_url), the push state and any unpushed commits, and the write workflow (git_workflow: local commit-and-push or server PR boundary), plus a capabilities section naming each per-KB gate (artifact_write, secrets, git_sync, git_workflow, tool_prefix, mount), its state, and the configuration key that controls it. Read-only, never hits the network.",
+		Description: "Returns aggregate metrics about the KB (total concepts, per-type counts, per-status counts (concepts with no status field are excluded), stale concepts (review_after in the past), open contradictions) plus its git replication state: whether a remote is configured (has_remote/remote_url), the push state and any unpushed commits, and the write workflow (git_workflow: local commit-and-push or server PR boundary), plus a capabilities section naming each per-KB gate (artifact_write, secrets, git_sync, git_workflow, tool_prefix, mount), its state, and the configuration key that controls it, plus search_misses: the 10 most frequent queries of the last 30 days that found nothing, with count and last_seen (omitted when there are none) — evidence of knowledge gaps. Read-only, never hits the network.",
 		ReadOnly:    true,
 		InputSchema: json.RawMessage(`{"type":"object","properties":{}}`),
 		Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
@@ -632,6 +632,9 @@ func toolKBStatus(k *kb.KB) Tool {
 				// migration. A state without the name of the switch is only half
 				// an answer, hence the setting alongside it.
 				"capabilities": kbCapabilities(k),
+			}
+			if top := misses.top(); len(top) > 0 {
+				result["search_misses"] = top
 			}
 			out, _ := json.MarshalIndent(result, "", "  ")
 			return textResult(string(out)), nil

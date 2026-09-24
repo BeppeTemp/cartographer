@@ -35,6 +35,7 @@ var toolPrefixes = []string{
 // an operation that does not exist (documented as such).
 var docsNonTools = map[string]bool{
 	"artifact_signing_seed": true,
+	"search_misses":         true, // kb_status field (D247), not a tool
 	// audit configuration keys (D119), not tools
 	"archive_dir":       true,
 	"retention_days":    true,
