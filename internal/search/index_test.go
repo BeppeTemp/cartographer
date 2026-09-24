@@ -1,6 +1,8 @@
 package search
 
 import (
+	"fmt"
+	"strings"
 	"testing"
 )
 
@@ -148,5 +150,82 @@ func TestIndex_SearchFilteredFillsLimitAfterHiddenHits(t *testing.T) {
 	hits := idx.SearchFiltered("needle", "", 1, func(id string) bool { return id != "hidden" })
 	if len(hits) != 1 || hits[0].ID != "visible" {
 		t.Fatalf("filtered hits = %+v, want visible", hits)
+	}
+}
+
+// D246: folding is one rune for one rune, so offsets survive it.
+func TestFold_PreservesRuneOffsets(t *testing.T) {
+	for _, s := range []string{"Attività della Città", "Ærø İstanbul ſtraße Œuvre", "plain"} {
+		f := Fold(s)
+		if got, want := len([]rune(f)), len([]rune(s)); got != want {
+			t.Errorf("Fold(%q) = %q: %d runes, want %d", s, f, got, want)
+		}
+	}
+	if got := Fold("Attività ÉÈ ŁÓDŹ ß æ"); got != "attivita ee lodz ß æ" {
+		t.Errorf("Fold = %q", got)
+	}
+}
+
+func TestSearch_FoldsDiacritics(t *testing.T) {
+	idx := New()
+	idx.Add("a", "---\ntype: Note\n---\nLe attività della città.\n")
+	for _, q := range []string{"attivita", "attività", "CITTÀ"} {
+		if hits := idx.Search(q, "", 5); len(hits) != 1 {
+			t.Errorf("%q: hits = %+v", q, hits)
+		}
+	}
+}
+
+// D246: a title hit outranks a body that mentions the term twice.
+func TestSearch_TitleOutranksBody(t *testing.T) {
+	idx := New()
+	idx.Add("notes/prose", "---\ntype: Note\ntitle: Prose\n---\nThe gateway is here, and the gateway is there.\n")
+	idx.Add("infra/gw", "---\ntype: Service\ntitle: Gateway\n---\nRoutes traffic.\n")
+	hits := idx.Search("gateway", "", 5)
+	if len(hits) != 2 || hits[0].ID != "infra/gw" {
+		t.Fatalf("hits = %+v, want infra/gw first", hits)
+	}
+}
+
+// Removal touches only the document's own postings, and leaves the index as
+// if the document had never been added.
+func TestIndex_RemoveLeavesNoTrace(t *testing.T) {
+	idx := New()
+	idx.Add("keep", "shared alpha")
+	idx.Add("gone", "shared beta")
+	idx.Remove("gone")
+	if _, ok := idx.inverted["beta"]; ok {
+		t.Error("beta posting survived the removal")
+	}
+	if hits := idx.Search("shared", "", 5); len(hits) != 1 || hits[0].ID != "keep" {
+		t.Errorf("hits = %+v", hits)
+	}
+	if len(idx.docTerms) != 1 {
+		t.Errorf("docTerms = %v", idx.docTerms)
+	}
+}
+
+// BenchmarkIndexRemove: removal cost follows the document's own terms, not the
+// vocabulary (D246 WP3). Each document carries 20 unique terms, so the
+// vocabulary grows with the corpus while each removal stays constant.
+func BenchmarkIndexRemove(b *testing.B) {
+	idx := New()
+	doc := func(i int) string {
+		var sb strings.Builder
+		for j := 0; j < 20; j++ {
+			fmt.Fprintf(&sb, "t%dx%d ", i, j)
+		}
+		return sb.String()
+	}
+	for i := 0; i < 1000; i++ {
+		idx.Add(fmt.Sprintf("d%d", i), doc(i))
+	}
+	b.ResetTimer()
+	for n := 0; n < b.N; n++ {
+		id := fmt.Sprintf("d%d", n%1000)
+		idx.Remove(id)
+		b.StopTimer()
+		idx.Add(id, doc(n%1000))
+		b.StartTimer()
 	}
 }
