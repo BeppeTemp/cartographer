@@ -14,13 +14,17 @@ package service
 // unit are on the other two platforms.
 
 import (
+	"errors"
 	"fmt"
+	"net"
 	"os"
 	"os/user"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/BeppeTemp/cartographer/internal/config"
 )
 
 const (
@@ -33,16 +37,60 @@ const (
 	// (TestSyncTimerFilesAreDistinctFromServerService).
 	windowsServeTaskName = "Serve"
 	windowsSyncTaskName  = "Sync"
+)
 
-	// windowsDrainTimeout bounds how long signalGraceful waits for the task to
-	// stop running after the shutdown event is set. It is the drain's budget,
-	// so it must exceed serve's own shutdownHTTPTimeout (10s) plus its push
-	// flush, without approaching Replace's DefaultReplaceTimeout — a wait that
-	// outlives the caller's deadline reports a timeout with no useful cause.
+// The budgets of stopServeAndWait. Variables only so tests can shrink them.
+var (
+	// windowsDrainTimeout bounds how long the server gets to exit after the
+	// shutdown event is set. It is the drain's budget, so it must exceed
+	// serve's own shutdownHTTPTimeout (10s) plus its push flush. Replace's
+	// poll deadline starts only after the stop returns, so the two do not
+	// compete.
 	windowsDrainTimeout = 20 * time.Second
-	// windowsDrainPoll paces that wait.
+	// windowsKillTimeout bounds the wait after Stop-ScheduledTask, which
+	// returns before the process has exited (#411): it is a kill, so it needs
+	// only the time Windows takes to tear the process down and free the port.
+	windowsKillTimeout = 10 * time.Second
+	// windowsDrainPoll paces both waits.
 	windowsDrainPoll = 250 * time.Millisecond
 )
+
+// serveAddrAnswers reports whether something accepts TCP connections on the
+// server's http address — a test seam over a real dial, which would otherwise
+// reach whatever the test host has listening on the default port.
+var serveAddrAnswers = func(addr string) bool {
+	target := dialAddr(addr)
+	if target == "" {
+		return false
+	}
+	c, err := net.DialTimeout("tcp", target, 500*time.Millisecond)
+	if err != nil {
+		return false
+	}
+	c.Close()
+	return true
+}
+
+// dialAddr turns a server http address into one a client can dial: a bare
+// port or a wildcard bind (0.0.0.0, ::) becomes loopback, because dialing
+// 0.0.0.0 fails on Windows and would read as "nothing listens".
+func dialAddr(addr string) string {
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil || port == "" {
+		return ""
+	}
+	if host == "" || host == "0.0.0.0" || host == "::" {
+		host = "127.0.0.1"
+	}
+	return net.JoinHostPort(host, port)
+}
+
+// noticef tells the operator something the Manager chose to do instead of
+// what was asked, without failing: a test seam over stderr, where the
+// package's other notices go (Install's "created <dir>").
+var noticef = func(format string, args ...any) {
+	fmt.Fprintf(os.Stderr, format+"\n", args...)
+}
 
 // setShutdownEvent is signalShutdownEvent behind a test seam: the real one is
 // build-tagged (shutdownevent_windows.go) and cannot run on a unix host, while
@@ -178,7 +226,7 @@ func (m *Manager) installWindows(binPath, configPath string) error {
 	if err := os.WriteFile(taskPath, []byte(RenderWindowsTaskXML(binPath, configPath, logPath, windowsTaskUser())), 0o644); err != nil {
 		return fmt.Errorf("service: write task definition: %w", err)
 	}
-	m.stopServeForReinstall()
+	m.stopServeForReinstall(configHTTPAddr(configPath))
 	if err := m.registerWindowsTask(windowsServeTaskName, taskPath); err != nil {
 		return err
 	}
@@ -190,50 +238,113 @@ func (m *Manager) installWindows(binPath, configPath string) error {
 // IgnoreNew makes Start-ScheduledTask a silent no-op on a running task, so
 // without this a re-install reported "installed and started" while the old
 // process kept serving the old config — the counterpart of the launchctl bootout
-// installDarwin does before bootstrap. The shutdown event drains it gracefully;
-// if the event cannot be set or the process outlives the drain, the task is
-// stopped outright. Best-effort by contract, like bootout: a task that is not
-// running is already in the state wanted.
-func (m *Manager) stopServeForReinstall() {
-	if !m.windowsTaskRunning(windowsServeTaskName) {
-		return
+// installDarwin does before bootstrap. Best-effort by contract, like bootout: a
+// server that survives the stop is left for the start to report.
+func (m *Manager) stopServeForReinstall(addr string) {
+	_ = m.stopServeAndWait(addr)
+}
+
+// serveHTTPAddr is the http address of the installed serve task, read from the
+// config its definition names, or "" when that cannot be resolved (no
+// definition, unreadable config, stdio transport). Only used to know when the
+// old process has let go of its port, so "" narrows the wait to the task state
+// rather than failing anything.
+func (m *Manager) serveHTTPAddr() string {
+	configPath, err := m.EffectiveConfigPath("")
+	if err != nil {
+		return ""
 	}
-	if setShutdownEvent() == nil {
-		deadline := time.Now().Add(windowsDrainTimeout)
-		for m.windowsTaskRunning(windowsServeTaskName) && time.Now().Before(deadline) {
-			time.Sleep(windowsDrainPoll)
+	return configHTTPAddr(configPath)
+}
+
+// configHTTPAddr is the http address a config file declares, "" when it
+// cannot be read.
+func configHTTPAddr(configPath string) string {
+	cfg, err := config.Load(configPath)
+	if err != nil {
+		return ""
+	}
+	return cfg.HTTP
+}
+
+// serveExited reports that the old server is gone: the task is no longer
+// Running **and** nothing answers on its port. The task state alone is not
+// proof — Stop-ScheduledTask returns, and the state can leave Running, while
+// the process is still tearing down with the socket bound, and a start in that
+// window dies on "only one usage of each socket address" (#411, D266).
+func (m *Manager) serveExited(addr string) bool {
+	return !m.windowsTaskRunning(windowsServeTaskName) && (addr == "" || !serveAddrAnswers(addr))
+}
+
+// waitServeExit polls serveExited until it holds or budget elapses.
+func (m *Manager) waitServeExit(addr string, budget time.Duration) bool {
+	deadline := time.Now().Add(budget)
+	for {
+		if m.serveExited(addr) {
+			return true
 		}
-	}
-	if m.windowsTaskRunning(windowsServeTaskName) {
-		m.powershell(fmt.Sprintf("Stop-ScheduledTask %s", taskSelector(windowsServeTaskName)))
+		if !time.Now().Before(deadline) {
+			return false
+		}
+		time.Sleep(windowsDrainPoll)
 	}
 }
 
-// drainWindowsTask sets the shutdown event, waits for the action to exit, and
-// starts the task again.
+// stopServeAndWait ends the running server and returns only once it has
+// exited (D266): the one stop that Restart, Uninstall, Replace and a
+// re-install share, because each of them used to act on the task while the
+// old process still held the port and the index files.
+//
+// The graceful path comes first: the shutdown event drains in-flight requests
+// and flushes pending pushes, exactly as SIGTERM does elsewhere. When the
+// event cannot be opened — the server runs in another logon session (the
+// event lives in the Local\ namespace, which is per session, so an SSH session
+// cannot see a desktop server's event), or predates the event — or the drain
+// outlives its budget, the task is stopped outright, and the wait starts
+// again. A server with nothing running is already stopped.
+func (m *Manager) stopServeAndWait(addr string) error {
+	if m.serveExited(addr) {
+		return nil
+	}
+	if err := setShutdownEvent(); err != nil {
+		noticef("note: cannot reach the server's shutdown event from this logon session — the server runs in another session (e.g. the desktop, while this runs over SSH) or predates the event (%v); stopping the scheduled task instead, so in-flight requests are cut and pending pushes are not flushed", err)
+	} else if m.waitServeExit(addr, windowsDrainTimeout) {
+		return nil
+	}
+	_, stopErr := m.powershell(fmt.Sprintf("Stop-ScheduledTask %s", taskSelector(windowsServeTaskName)))
+	if m.waitServeExit(addr, windowsKillTimeout) {
+		return nil
+	}
+	cause := "the task is still Running"
+	if !m.windowsTaskRunning(windowsServeTaskName) {
+		cause = fmt.Sprintf("something still answers on %s", addr)
+	}
+	err := fmt.Errorf("service: the server did not exit after the graceful drain and Stop-ScheduledTask: %s", cause)
+	if stopErr != nil {
+		err = fmt.Errorf("%w (Stop-ScheduledTask: %v)", err, stopErr)
+	}
+	return err
+}
+
+// restartWindowsServe stops the server, waits for it to exit, and starts the
+// task again: Restart's Windows branch and signalGraceful's.
 //
 // The explicit relaunch is the part with no counterpart on the other two
 // platforms, and the reason is that **a Scheduled Task is not a supervisor**:
 // launchd's KeepAlive and systemd's Restart=on-failure both bring a process
 // back after a clean exit, while Task Scheduler's RestartOnFailure only reacts
-// to a failure and a logon trigger only fires at logon. Nothing would restart a
-// server that drained successfully, so Replace's /health poll would wait out its
-// whole timeout against a port nobody is listening on.
+// to a failure to start and a logon trigger only fires at logon. Nothing would
+// restart a server that drained successfully.
 //
-// The relaunch is unconditional even when the wait timed out. If the old process
-// is genuinely still up, MultipleInstancesPolicy IgnoreNew makes the start
-// request a no-op and Replace reports the old version still serving — a clear
-// failure. Skipping the start instead would leave a server that exited one tick
-// after the deadline down for good.
-func (m *Manager) drainWindowsTask() error {
-	if err := setShutdownEvent(); err != nil {
-		return err
-	}
-	deadline := time.Now().Add(windowsDrainTimeout)
-	for m.windowsTaskRunning(windowsServeTaskName) && time.Now().Before(deadline) {
-		time.Sleep(windowsDrainPoll)
-	}
-	return m.startWindowsTask(windowsServeTaskName)
+// The start is unconditional even when the stop reports a survivor. If the old
+// process is genuinely still up, MultipleInstancesPolicy IgnoreNew makes the
+// start request a no-op, and the stop's error is returned; skipping the start
+// instead would leave a server that exited one tick after the deadline down for
+// good.
+func (m *Manager) restartWindowsServe() error {
+	stopErr := m.stopServeAndWait(m.serveHTTPAddr())
+	startErr := m.startWindowsTask(windowsServeTaskName)
+	return errors.Join(stopErr, startErr)
 }
 
 var taskArgumentsRe = regexp.MustCompile(`(?s)<Arguments>(.*?)</Arguments>`)

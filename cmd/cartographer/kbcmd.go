@@ -581,6 +581,9 @@ func onInterrupt(fn func()) func() {
 // leaves KBs nil.
 type healthInfo struct {
 	KBs *[]healthKB `json:"kbs"`
+	// StartedAt identifies the answering process (D266); empty from a server
+	// that predates the field.
+	StartedAt string `json:"started_at"`
 }
 
 // healthKB is one entry of /health's kbs array. Only the name is decoded:
@@ -680,7 +683,8 @@ func httpAddrToBaseURL(addr string) string {
 // with `serve --kb <path>` directly, no service involved).
 func printPostCreateGuidance(configPath string, restart bool) {
 	base := serverBaseURL(configPath)
-	if _, err := fetchHealth(base); err != nil {
+	before, err := fetchHealth(base)
+	if err != nil {
 		return
 	}
 
@@ -695,19 +699,24 @@ func printPostCreateGuidance(configPath string, restart bool) {
 		fmt.Fprintln(os.Stderr, "Error: restart failed:", err)
 		return
 	}
-	if waitHealthy(base) {
+	if waitHealthy(base, before.StartedAt) {
 		fmt.Println("service healthy")
 	} else {
 		fmt.Fprintf(os.Stderr, "Warning: service did not report healthy within %s\n", restartWaitTimeout)
 	}
 }
 
-// waitHealthy polls <baseURL>/health until it responds or
+// waitHealthy polls <baseURL>/health until a new process responds or
 // restartWaitTimeout elapses, returning whether it became healthy in time.
-func waitHealthy(baseURL string) bool {
+// "New" is proved by a started_at different from oldStartedAt, the one the
+// server reported before the restart (D266): the probe used to reach the old
+// process before it exited and print "service healthy" over a server that was
+// about to be gone. An empty oldStartedAt (a server predating the field)
+// accepts any answer.
+func waitHealthy(baseURL, oldStartedAt string) bool {
 	deadline := time.Now().Add(restartWaitTimeout)
 	for {
-		if _, err := fetchHealth(baseURL); err == nil {
+		if h, err := fetchHealth(baseURL); err == nil && (oldStartedAt == "" || h.StartedAt != oldStartedAt) {
 			return true
 		}
 		if time.Now().After(deadline) {

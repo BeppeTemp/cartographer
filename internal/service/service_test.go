@@ -159,6 +159,17 @@ func withTestHome(t *testing.T, os_ string) string {
 	goos = os_
 	getenv = func(string) string { return "" }
 	t.Cleanup(func() { userHomeDir, goos, getenv = origHome, origGOOS, origGetenv })
+	// The rest of the host a Windows stop consults (D266): a real dial would
+	// reach whatever the test machine has listening on the default port, the
+	// production budgets would make a never-exiting stub cost half a minute,
+	// and the fallback notice would land in the test output.
+	origAnswers, origDrain, origKill, origPoll, origNotice := serveAddrAnswers, windowsDrainTimeout, windowsKillTimeout, windowsDrainPoll, noticef
+	serveAddrAnswers = func(string) bool { return false }
+	windowsDrainTimeout, windowsKillTimeout, windowsDrainPoll = 50*time.Millisecond, 50*time.Millisecond, time.Millisecond
+	noticef = func(string, ...any) {}
+	t.Cleanup(func() {
+		serveAddrAnswers, windowsDrainTimeout, windowsKillTimeout, windowsDrainPoll, noticef = origAnswers, origDrain, origKill, origPoll, origNotice
+	})
 	return home
 }
 
@@ -1334,5 +1345,77 @@ func TestStatus_HealthChecked(t *testing.T) {
 	}
 	if st.HTTPAddr != "127.0.0.1:1" {
 		t.Errorf("HTTPAddr = %q", st.HTTPAddr)
+	}
+}
+
+func healthOKStartedAt(version, startedAt string) func(http.ResponseWriter) {
+	return func(w http.ResponseWriter) {
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(HealthStatus{Status: "ok", Version: version, StartedAt: startedAt})
+	}
+}
+
+// D266: a version check cannot tell the replacement from the old process still
+// answering before it exits — with a dev or empty expected version it accepts
+// anything healthy. The process's start time, read before the signal, can.
+func TestReplace_WaitsForANewProcess(t *testing.T) {
+	t.Run("the old process answering is not the replacement", func(t *testing.T) {
+		home := withTestHome(t, "linux")
+		srv := newHealthServer(t, healthOKStartedAt("v1.2.3", "t0"))
+		configPath := writeReplaceConfig(t, home, serverAddr(srv.Server))
+		m, _ := newTestManager()
+		err := m.Replace(ReplaceOptions{ConfigPath: configPath, ExpectedVersion: "dev", Timeout: 50 * time.Millisecond, PollInterval: 5 * time.Millisecond})
+		if err == nil {
+			t.Fatal("Replace accepted the process that answered before the restart")
+		}
+		if !strings.Contains(err.Error(), "new process") || !strings.Contains(err.Error(), "t0") {
+			t.Errorf("error = %v, want it to say the pre-restart process is still answering", err)
+		}
+	})
+	t.Run("a new start time is the proof", func(t *testing.T) {
+		home := withTestHome(t, "linux")
+		// First response is the pre-signal probe; then the old process twice.
+		srv := newHealthServer(t, healthOKStartedAt("v1.2.3", "t0"), healthOKStartedAt("v1.2.3", "t0"), healthOKStartedAt("v1.2.3", "t0"), healthOKStartedAt("v1.2.3", "t1"))
+		configPath := writeReplaceConfig(t, home, serverAddr(srv.Server))
+		m, _ := newTestManager()
+		if err := m.Replace(ReplaceOptions{ConfigPath: configPath, ExpectedVersion: "v1.2.3", Timeout: time.Second, PollInterval: 5 * time.Millisecond}); err != nil {
+			t.Fatalf("Replace: %v", err)
+		}
+		if got := atomic.LoadInt32(&srv.requests); got < 4 {
+			t.Errorf("Replace accepted a response from the old process (%d requests)", got)
+		}
+	})
+}
+
+func TestIsReplacement(t *testing.T) {
+	for _, tc := range []struct {
+		before, after string
+		want          bool
+	}{
+		{"", "", true}, // nothing answered before, or a server predating the field
+		{"", "t1", true},
+		{"t0", "t1", true},
+		{"t0", "", true}, // the replacement predates the field: a different process
+		{"t0", "t0", false},
+	} {
+		if got := isReplacement(HealthStatus{StartedAt: tc.before}, HealthStatus{StartedAt: tc.after}); got != tc.want {
+			t.Errorf("isReplacement(%q, %q) = %v, want %v", tc.before, tc.after, got, tc.want)
+		}
+	}
+}
+
+func TestDialAddr(t *testing.T) {
+	for in, want := range map[string]string{
+		"127.0.0.1:39273": "127.0.0.1:39273",
+		":39273":          "127.0.0.1:39273",
+		"0.0.0.0:39273":   "127.0.0.1:39273", // dialing 0.0.0.0 fails on Windows
+		"[::]:39273":      "127.0.0.1:39273",
+		"example.com:80":  "example.com:80",
+		"":                "",
+		"no-port":         "",
+	} {
+		if got := dialAddr(in); got != want {
+			t.Errorf("dialAddr(%q) = %q, want %q", in, got, want)
+		}
 	}
 }

@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/audit"
 	"github.com/BeppeTemp/cartographer/internal/auth"
@@ -808,5 +809,28 @@ func TestStripHeaderIfNotification_NotificationLosesTheHeaderAndKeepsItsBody(t *
 	}
 	if !bytes.Equal(got, body) {
 		t.Errorf("the forwarded body differs from the original:\n got %s\nwant %s", got, body)
+	}
+}
+
+// D266: both /health shapes carry the same process start instant, which is
+// what a restart compares to prove the process answering is a new one.
+func TestHealth_ReportsProcessStartedAt(t *testing.T) {
+	for name, h := range map[string]http.Handler{
+		"single-KB": New("test").HTTPHandler(),
+		"multi-KB":  NewMultiKBServer("test").Handler(),
+	} {
+		rr := httptest.NewRecorder()
+		h.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/health", nil))
+		var body map[string]interface{}
+		if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
+			t.Fatalf("%s: invalid JSON body: %v", name, err)
+		}
+		got, _ := body["started_at"].(string)
+		if got == "" || got != processStartedAt {
+			t.Errorf("%s: started_at = %v, want %q", name, body["started_at"], processStartedAt)
+		}
+		if _, err := time.Parse(time.RFC3339Nano, got); err != nil {
+			t.Errorf("%s: started_at %q is not RFC 3339: %v", name, got, err)
+		}
 	}
 }
