@@ -13,7 +13,9 @@ import (
 	"reflect"
 	"sort"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/artifactsig"
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
@@ -660,6 +662,87 @@ func TestFetchMergedManifestAcceptsDistinctNames(t *testing.T) {
 	}
 	if len(m.Artifacts) != 2 {
 		t.Errorf("artifacts = %d, want 2", len(m.Artifacts))
+	}
+}
+
+// syncPullServer is a two-KB server ("one", "two", unprefixed) whose
+// sync_pull answers with respond(kb): the text, and whether it is a tool
+// error. respond runs on the server's handler goroutines, concurrently.
+func syncPullServer(t *testing.T, respond func(kb string) (string, bool)) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/health" {
+			_ = json.NewEncoder(w).Encode(map[string]any{"status": "ok", "kbs": []map[string]any{{"name": "one"}, {"name": "two"}}})
+			return
+		}
+		var req struct {
+			ID int `json:"id"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		text, isErr := respond(r.URL.Query().Get("kb"))
+		_ = json.NewEncoder(w).Encode(map[string]any{"jsonrpc": "2.0", "id": req.ID, "result": map[string]any{
+			"content": []map[string]string{{"type": "text", "text": text}},
+			"isError": isErr,
+		}})
+	}))
+}
+
+// TestFetchCandidatesPullsConcurrently (#362): each KB's sync_pull holds its
+// answer until the other KB's call has arrived too. In series the first call
+// would wait out the deadline alone; concurrently both meet at the barrier.
+func TestFetchCandidatesPullsConcurrently(t *testing.T) {
+	var arrived sync.WaitGroup
+	arrived.Add(2)
+	met := make(chan struct{})
+	go func() { arrived.Wait(); close(met) }()
+	srv := syncPullServer(t, func(kb string) (string, bool) {
+		arrived.Done()
+		select {
+		case <-met:
+			return syncPullPayload(t, kb, "skill-"+kb), false
+		case <-time.After(5 * time.Second):
+			return "the other KB's pull never started while this one was in flight", true
+		}
+	})
+	defer srv.Close()
+
+	cfg := &clientconfig.Config{ServerURL: srv.URL + "/mcp"}
+	cs, err := fetchCandidates(cfg, []string{"one", "two"})
+	if err != nil {
+		t.Fatalf("fetchCandidates: %v", err)
+	}
+	for _, kb := range []string{"one", "two"} {
+		if got := cs.Named[kb]; len(got) != 1 || got[0].Name != "skill-"+kb {
+			t.Errorf("Named[%s] = %+v, want the one skill that KB served", kb, got)
+		}
+	}
+}
+
+// TestFetchCandidatesReportsFirstFailureInTargetOrder (#362): with every KB
+// failing, the error names the first KB in target order — the one the
+// sequential loop reported — even when a later KB fails first in time.
+func TestFetchCandidatesReportsFirstFailureInTargetOrder(t *testing.T) {
+	twoDone := make(chan struct{})
+	srv := syncPullServer(t, func(kb string) (string, bool) {
+		if kb == "two" {
+			defer close(twoDone)
+			return "two is down", true
+		}
+		select {
+		case <-twoDone:
+		case <-time.After(5 * time.Second):
+		}
+		return "not json", false // a decode error, not a call error
+	})
+	defer srv.Close()
+
+	cfg := &clientconfig.Config{ServerURL: srv.URL + "/mcp"}
+	_, err := fetchCandidates(cfg, []string{"one", "two"})
+	if err == nil {
+		t.Fatal("fetchCandidates succeeded with both KBs failing")
+	}
+	if !strings.Contains(err.Error(), "decode response") || strings.Contains(err.Error(), "two is down") {
+		t.Errorf("error = %q, want kb one's decode error, not kb two's earlier failure", err)
 	}
 }
 
