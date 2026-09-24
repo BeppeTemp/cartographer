@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/gitx"
@@ -141,62 +143,81 @@ func appendSyncWarning(res *ToolResult, k *kb.KB) {
 	res.Content = append(res.Content, ContentBlock{Type: "text", Text: string(b)})
 }
 
-// readSyncWrap refreshes a Git-synchronised KB before serving a read. Unlike
-// gitWrap, sync failures are deliberately non-fatal: a reader receives the
-// best currently available local view while an operator can still inspect the
-// stderr diagnostic or the conflict registry.
+// readSyncWrap keeps a Git-synchronised KB fresh for its readers without
+// making them wait (#361, D258). When the SyncIn freshness window has expired,
+// the read is served at once from the local clone and a SyncIn is started in
+// the background; the change it pulls is visible from the next call on. Sync
+// failures stay non-fatal, as they always were for reads: a conflict is
+// registered and its concepts degraded, any other error is logged. Writes do
+// not come through here: gitWrap still syncs them first, since a write must
+// not commit on a stale base (D237).
 func readSyncWrap(k *kb.KB, t Tool) Tool {
 	orig := t
 	t.Handler = func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
-		// Avoid the git lock entirely when sync is disabled, no remote exists, or
-		// the successful SyncIn is still within its freshness window. The check
-		// can race another SyncIn; SyncIn repeats it after this wrapper acquires
-		// the lock, turning that case into a harmless no-op.
-		if !k.SyncInDue() || k.ReadFetchBackingOff() {
-			return orig.Handler(ctx, args)
+		// The checks are lock-free and can race another SyncIn; SyncIn repeats
+		// them under the lock, which turns the race into a no-op.
+		if k.SyncInDue() && !k.ReadFetchBackingOff() {
+			startReadRefresh(k, orig.Name)
 		}
+		return orig.Handler(ctx, args)
+	}
+	return t
+}
 
-		var res ToolResult
-		var handlerErr error
-		var syncInDur, handlerDur time.Duration
-		var fetchRan bool
+// readRefresh is one KB's background read-side SyncIn. running coalesces
+// them: reads arriving while one is in flight do not queue another fetch
+// behind the git lock, they are served from the clone that fetch will update.
+type readRefresh struct {
+	running atomic.Bool
+	wg      sync.WaitGroup
+}
+
+// readRefreshes maps *kb.KB to its *readRefresh. KBs live as long as the
+// server, so entries are never removed.
+var readRefreshes sync.Map
+
+func readRefreshFor(k *kb.KB) *readRefresh {
+	v, _ := readRefreshes.LoadOrStore(k, &readRefresh{})
+	return v.(*readRefresh)
+}
+
+func startReadRefresh(k *kb.KB, op string) {
+	r := readRefreshFor(k)
+	if !r.running.CompareAndSwap(false, true) {
+		return
+	}
+	r.wg.Add(1)
+	go func() {
+		defer r.wg.Done()
+		defer r.running.Store(false)
 		start := time.Now()
+		var fetchRan bool
 		_ = k.WithGitLock(func() error { // inner func always returns nil
-			// A call queued behind a fetch that just failed skips its own:
-			// retries must not stack one bounded fetch each (#348).
+			// A fetch that failed while this one waited for the lock starts
+			// the backoff: do not stack a second bounded fetch on it (#348).
 			if k.ReadFetchBackingOff() {
-				res, handlerErr = orig.Handler(ctx, args)
 				return nil
 			}
-			syncInStart := time.Now()
 			var syncErr error
 			fetchRan, syncErr = k.SyncIn()
-			if fetchRan {
-				syncInDur = time.Since(syncInStart)
-			}
 			if syncErr != nil {
 				var rce *gitx.RebaseConflictError
 				if errors.As(syncErr, &rce) {
 					n := handleConflictError(k, rce)
 					fmt.Fprintf(os.Stderr,
 						"cartographer: git conflict during read sync (%s): registered %d concept(s) as degraded\n",
-						orig.Name, n)
+						op, n)
 				} else {
-					fmt.Fprintf(os.Stderr, "cartographer: git sync failed during read (%s): %v\n", orig.Name, syncErr)
+					fmt.Fprintf(os.Stderr, "cartographer: git sync failed during read (%s): %v\n", op, syncErr)
 				}
 			}
-
-			handlerStart := time.Now()
-			res, handlerErr = orig.Handler(ctx, args)
-			handlerDur = time.Since(handlerStart)
 			return nil
 		})
 		if fetchRan {
-			fmt.Fprintln(os.Stderr, formatTiming(orig.Name, syncInDur, handlerDur, 0, 0, false, time.Since(start)))
+			d := time.Since(start)
+			fmt.Fprintln(os.Stderr, formatTiming(op+" (background sync)", d, 0, 0, 0, false, d))
 		}
-		return res, handlerErr
-	}
-	return t
+	}()
 }
 
 // formatTiming renders a single greppable timing line for a write operation.
