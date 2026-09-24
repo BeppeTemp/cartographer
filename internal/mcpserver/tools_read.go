@@ -882,7 +882,14 @@ func toolGraphNeighbors(k *kb.KB) Tool {
 			if err != nil {
 				return errorResult(fmt.Sprintf("graph_neighbors %q: %v", params.ID, err)), nil
 			}
-			neighbors, err := graph.Neighbors(okf.ConceptID(params.ID), depth, direction)
+			// Trap: never traverse through a node the caller cannot see (D249).
+			// Filtering only the output would let a narrowed token reach a
+			// visible concept by way of a hidden one, disclosing that path; so
+			// the walk runs on the visible-induced graph, where a hidden
+			// concept is neither a result nor a transit node. For a whole-KB
+			// principal every node is visible and the result is unchanged.
+			visible := func(id okf.ConceptID) bool { return Visible(ctx, k, string(id)) }
+			neighbors, err := graph.NeighborsWithin(okf.ConceptID(params.ID), depth, direction, visible)
 			if err != nil {
 				return errorResult(fmt.Sprintf("graph_neighbors %q: %v", params.ID, err)), nil
 			}
@@ -896,11 +903,8 @@ func toolGraphNeighbors(k *kb.KB) Tool {
 			}
 			var list []neighbor
 			for id, dist := range neighbors {
-				// Only entries the policy already lets through are flagged: a
-				// hidden target stays hidden, missing or not.
-				if !Visible(ctx, k, id) {
-					continue
-				}
+				// Only visible entries were traversed, so a hidden target is
+				// never flagged missing: that would disclose it (D226).
 				_, exists := graph.Exists[okf.ConceptID(id)]
 				list = append(list, neighbor{ID: id, Distance: dist, Missing: !exists})
 			}
