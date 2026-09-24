@@ -53,8 +53,11 @@ jobs:
           BASE: ${{ github.event.pull_request.base.sha }}
           HEAD: ${{ github.event.pull_request.head.sha }}
         run: |
+          # A force-push (release-please rewrites its branch) leaves BEFORE
+          # unreachable, so the clone lacks it: scan what the branch holds
+          # beyond main instead.
           if [ "${{ github.event_name }}" = pull_request ]; then range="$BASE..$HEAD"
-          elif [ -n "$BEFORE" ] && ! [[ "$BEFORE" =~ ^0+$ ]]; then range="$BEFORE..$AFTER"
+          elif [ -n "$BEFORE" ] && ! [[ "$BEFORE" =~ ^0+$ ]] && git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then range="$BEFORE..$AFTER"
           else range="$AFTER --not --remotes=origin/main"; fi
           # shellcheck disable=SC2086
           git log -p --format=%B $range > "$RUNNER_TEMP/outgoing"
