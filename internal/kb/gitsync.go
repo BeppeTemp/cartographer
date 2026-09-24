@@ -42,6 +42,97 @@ func (e *ErrRebaseStatePresent) Error() string {
 		e.Root, e.Root, e.Root)
 }
 
+// ErrBranchDiverged is the sentinel for a local-profile KB whose checked-out
+// branch is not the remote's default branch (D264). errors.Is matches every
+// *BranchDivergedError.
+var ErrBranchDiverged = errors.New("KB branch diverges from the remote default branch")
+
+// BranchDivergedError refuses a local-profile write that would commit or push
+// on a branch other than the KB's canonical one: the remote's default branch.
+// Pushing it would create or advance a second branch on the remote and fork
+// the KB's history there. Merging two histories is an operator decision, so
+// the error names both branches and the way out rather than repairing
+// anything (D264).
+type BranchDivergedError struct {
+	Root string
+	// Branch is the checked-out branch.
+	Branch string
+	// Default is the remote's default branch; "" when the remote has none
+	// Cartographer can determine (see RemoteEmpty).
+	Default string
+	// RemoteEmpty is true when the remote has no refs at all: the only push
+	// allowed then is the first one of gitx.DefaultBranch.
+	RemoteEmpty bool
+}
+
+func (e *BranchDivergedError) Error() string {
+	switch {
+	case e.Default != "":
+		return fmt.Sprintf("%s: %s is checked out on branch %q but the remote's default branch is %q, so writes are refused to keep the KB from forking on the remote. "+
+			"Merge %q into %q on the remote, or check out %q in %s, then restart the server",
+			ErrBranchDiverged, e.Root, e.Branch, e.Default, e.Branch, e.Default, e.Default, e.Root)
+	case e.RemoteEmpty:
+		return fmt.Sprintf("%s: the remote is empty and %s is checked out on branch %q; the first push of a KB only creates %q. "+
+			"Rename the branch with `git -C %s branch -m %s`, then restart the server",
+			ErrBranchDiverged, e.Root, e.Branch, gitx.DefaultBranch, e.Root, gitx.DefaultBranch)
+	default:
+		return fmt.Sprintf("%s: %s is checked out on branch %q, which the remote does not have, and the remote names no default branch; Cartographer never creates a branch on the remote. "+
+			"Set the remote's default branch (HEAD) to the KB's branch, or check out that branch in %s, then restart the server",
+			ErrBranchDiverged, e.Root, e.Branch, e.Root)
+	}
+}
+
+// Is makes errors.Is(err, ErrBranchDiverged) hold.
+func (e *BranchDivergedError) Is(target error) bool { return target == ErrBranchDiverged }
+
+// canonicalBranch is the branch a local-profile KB writes to, given what the
+// remote advertises: its default branch; when the remote's HEAD names no
+// existing branch (a self-hosted bare repository initialised with "master"
+// and pushed "main"), gitx.DefaultBranch if the remote has it; otherwise ""
+// (unknown: the check is skipped, and SyncOut still refuses to create a
+// branch on the remote).
+func canonicalBranch(refs gitx.RemoteRefs) string {
+	if refs.Default != "" {
+		return refs.Default
+	}
+	if refs.HasBranch(gitx.DefaultBranch) {
+		return gitx.DefaultBranch
+	}
+	return ""
+}
+
+func (k *KB) setRemoteDefault(branch string) {
+	k.lastSyncInMu.Lock()
+	k.remoteDefault = branch
+	k.lastSyncInMu.Unlock()
+}
+
+// RemoteDefaultBranch returns the canonical branch last resolved from the
+// remote by SyncIn or SyncOut, or "" when not (yet) known.
+func (k *KB) RemoteDefaultBranch() string {
+	k.lastSyncInMu.RLock()
+	defer k.lastSyncInMu.RUnlock()
+	return k.remoteDefault
+}
+
+// divergedError records a divergence as the KB's sync status and returns it.
+func (k *KB) divergedError(err *BranchDivergedError, attempts int) error {
+	k.setGitStatus("degraded", err, attempts)
+	return err
+}
+
+// clearDivergedStatus drops a "degraded" status set by a branch divergence
+// once a sync finds the KB back on its canonical branch, so sync_status does
+// not keep reporting a condition the operator has already fixed.
+func (k *KB) clearDivergedStatus() {
+	k.gitStatusMu.RLock()
+	diverged := k.gitStatus.State == "degraded" && strings.HasPrefix(k.gitStatus.LastError, ErrBranchDiverged.Error())
+	k.gitStatusMu.RUnlock()
+	if diverged {
+		k.setGitStatus("clean", nil, 0)
+	}
+}
+
 // checkRebaseState refuses to touch git while a rebase state directory exists.
 // Deliberately detection plus instruction, never automatic deletion: the
 // directory may hold a real operator rebase, or an autostash holding the only
@@ -189,9 +280,27 @@ func (k *KB) SyncIn() (bool, error) {
 		}
 		return true, nil
 	}
+	// Local profile: the KB's branch is the remote's default branch (D264).
+	refs, err := gitx.LsRemote(k.Root, remote, k.GitEnv...)
+	if err != nil {
+		return true, fmt.Errorf("SyncIn remote default branch: %w", err)
+	}
+	canonical := canonicalBranch(refs)
+	k.setRemoteDefault(canonical)
+	if !refs.HasRefs {
+		// An empty remote has nothing to pull (pulling it fails on the missing
+		// ref); SyncOut makes the first push of main.
+		k.clearDivergedStatus()
+		k.setLastSyncIn(time.Now())
+		return true, nil
+	}
+	if canonical != "" && branch != canonical {
+		return true, k.divergedError(&BranchDivergedError{Root: k.Root, Branch: branch, Default: canonical}, 0)
+	}
 	if err := gitx.PullRebaseAutostash(k.Root, remote, branch, k.GitEnv...); err != nil {
 		return true, err
 	}
+	k.clearDivergedStatus()
 	k.setLastSyncIn(time.Now())
 	if headAfter, err := gitx.HeadSHA(k.Root); err == nil && headAfter != headBefore && k.OnSyncIn != nil {
 		k.OnSyncIn()
@@ -241,7 +350,10 @@ func (k *KB) SyncOut() error {
 			return err
 		}
 
-		pushErr := gitx.Push(k.Root, remote, branch, k.GitEnv...)
+		pushErr, diverged := k.pushLocal(remote, branch)
+		if diverged != nil {
+			return k.divergedError(diverged, attempt)
+		}
 		if pushErr == nil {
 			k.setGitStatus("clean", nil, attempt)
 			return nil
@@ -301,6 +413,44 @@ func (k *KB) SyncOut() error {
 	err := fmt.Errorf("SyncOut: push failed after %d attempts", maxAttempts)
 	k.setGitStatus("failed", err, maxAttempts)
 	return err
+}
+
+// pushLocal is one local-profile push attempt that never creates a branch on
+// the remote (D264), the defence behind SyncIn's check for anything that
+// bypassed it: a freshness window that skipped SyncIn, a checkout changed
+// between SyncIn and SyncOut. It pushes branch when it is the canonical branch
+// last resolved and the remote has it; the one exception is the first push of
+// a KB, gitx.DefaultBranch to an empty remote, which also sets the upstream.
+// A refusal comes back as diverged, with nothing pushed; the local commit
+// stays. A failure to ask the remote is returned as pushErr, retried like a
+// failed push.
+func (k *KB) pushLocal(remote, branch string) (pushErr error, diverged *BranchDivergedError) {
+	if canonical := k.RemoteDefaultBranch(); canonical != "" && branch != canonical {
+		return nil, &BranchDivergedError{Root: k.Root, Branch: branch, Default: canonical}
+	}
+	if gitx.RemoteBranchExists(k.Root, remote, branch) {
+		return gitx.Push(k.Root, remote, branch, k.GitEnv...), nil
+	}
+	// No remote-tracking ref: ask the remote itself, since the ref may just be
+	// stale (SyncIn skipped by the freshness window, or never run).
+	refs, err := gitx.LsRemote(k.Root, remote, k.GitEnv...)
+	if err != nil {
+		return err, nil
+	}
+	canonical := canonicalBranch(refs)
+	k.setRemoteDefault(canonical)
+	switch {
+	case !refs.HasRefs && branch == gitx.DefaultBranch:
+		return gitx.PushSetUpstream(k.Root, remote, branch, k.GitEnv...), nil
+	case !refs.HasRefs:
+		return nil, &BranchDivergedError{Root: k.Root, Branch: branch, RemoteEmpty: true}
+	case canonical != "" && branch != canonical:
+		return nil, &BranchDivergedError{Root: k.Root, Branch: branch, Default: canonical}
+	case refs.HasBranch(branch):
+		return gitx.Push(k.Root, remote, branch, k.GitEnv...), nil
+	default:
+		return nil, &BranchDivergedError{Root: k.Root, Branch: branch}
+	}
 }
 
 // syncOutServer pushes only the dedicated working branch (D117): a

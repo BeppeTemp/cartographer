@@ -116,6 +116,10 @@ type KB struct {
 	// the fetch for ReadFetchBackoff after it, so a remote that is down costs
 	// one bounded fetch, not one per queued call (#348).
 	lastFetchFail time.Time
+	// remoteDefault is the canonical branch last resolved from the remote by
+	// a local-profile sync (same lock): the remote's default branch, "" when
+	// unknown (D264).
+	remoteDefault string
 
 	gitStatusMu sync.RWMutex
 	gitStatus   GitStatus
@@ -172,6 +176,11 @@ type GitStatus struct {
 	UnpushedCommits *int       `json:"unpushed_commits"`
 	IdentityWarning bool       `json:"identity_warning,omitempty"`
 	Attempts        int        `json:"attempts"`
+	// Branch is the checked-out branch ("" when HEAD is detached).
+	Branch string `json:"branch,omitempty"`
+	// RemoteDefaultBranch is the KB's canonical branch as last resolved from
+	// the remote ("" when unknown); a Branch that differs blocks writes (D264).
+	RemoteDefaultBranch string `json:"remote_default_branch,omitempty"`
 }
 
 // Default git author identity used when GitAuthorName/GitAuthorEmail are
@@ -245,6 +254,8 @@ func (k *KB) GitStatusSnapshot() GitStatus {
 			}
 		}
 	}
+	s.Branch, _ = gitx.Branch(k.Root)
+	s.RemoteDefaultBranch = k.RemoteDefaultBranch()
 	_, remote := k.hasRemote()
 	s.IdentityWarning = ShouldWarnGitIdentity(k.GitSync, remote, k.GitAuthorEmail)
 	return s
@@ -378,7 +389,12 @@ func Init(root string) (*KB, error) {
 	// Initialize the KB as a git repository (best-effort).
 	// The KB remains valid even if git is unavailable or init fails.
 	// WriteConcept does NOT auto-commit: commits remain an explicit operation (commit_gate).
-	if !gitx.IsRepo(abs) {
+	// An existing repository with an unborn HEAD — the clone of an empty
+	// remote that server bootstrap produces — gets the same treatment as a new
+	// one: HEAD pinned to main and an initial commit. Skipping it left the KB
+	// on whatever branch the host's git named, with nothing to push, and the
+	// first sync failing on a missing remote ref (D264).
+	if !gitx.IsRepo(abs) || gitx.HeadUnborn(abs) {
 		if initErr := gitx.Init(abs); initErr == nil {
 			// Initial commit. Its error is returned (only ErrNothingToCommit is
 			// benign): swallowing it left `kb create` pushing a branch that does

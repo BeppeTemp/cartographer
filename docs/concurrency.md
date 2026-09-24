@@ -87,6 +87,19 @@ replacement is atomic, and Cartographer creates no working branch, opens no pull
 request and never merges into `main`: repository review policy belongs to the
 remote hosting workflow.
 
+With a remote and `git.sync` on, that branch must be the KB's **canonical
+branch**: the remote's default branch (D264). There is no configuration key for
+it. Cartographer asks the remote on every sync (`git ls-remote --symref`, and
+re-points `origin/HEAD` at the answer, since the one `git clone` wrote is never
+refreshed by a fetch); when the remote's `HEAD` names a branch it does not have —
+a self-hosted bare repository initialised with `master` and then pushed `main` —
+the canonical branch is `main` if the remote has it, and unknown otherwise. In the
+local profile Cartographer never creates, deletes or force-pushes a branch on the
+remote and never checks out a different branch in the clone. The single exception
+is the first push of a KB to an **empty** remote, which creates `main` with
+upstream tracking. A clone of an empty remote (server bootstrap with `--init`) is
+pinned to `main` and given its initial commit, exactly like `kb create`.
+
 Each commit subject is `<tool_name>: <resource>`, so the history of a KB is
 readable as an audit trail. The resource is built from the arguments that
 identify what the write touched: `path` for the artifact tools, `concept_id/path`
@@ -138,11 +151,28 @@ When `git.sync` is enabled and `origin` exists:
    replays it on the base; automatic force is never used outside finalization.
 
 `sync_status` is the authoritative read-only view of replication: it reports
-whether sync is disabled, no remote exists, a push is pending, or the latest
-commit/push failed, together with the best available ahead count. A failure is
+whether sync is disabled, no remote exists, a push is pending, the latest
+commit/push failed, or writes are blocked (`degraded`), together with the best
+available ahead count. A failure is
 cleared only after a real push succeeds. Offline writes remain local-successful;
 in debounced mode their response reports `pending` because the later result is
 not yet knowable.
+
+Before its pull, a local-profile `SyncIn` compares the checked-out branch with the
+canonical branch. An empty remote has nothing to pull and the sync succeeds. A
+different branch is refused with `ErrBranchDiverged`: the state becomes `degraded`,
+the write is not performed, and `last_error` names the clone, both branches and the
+recovery — merge the stray branch into the default branch on the remote, or check
+out the default branch in the clone, then restart. Divergence is never repaired
+automatically, since merging two histories is the operator's decision. Reads keep
+working from the local clone (their background refresh logs the error). `SyncOut`
+repeats the guard for anything that bypassed `SyncIn` (the freshness window, a
+checkout changed in between): it pushes only a branch the remote already has, or
+`main` to an empty remote, and otherwise leaves the commit local and reports the
+same error. `sync_status` shows `branch` and `remote_default_branch` side by side;
+the next sync that finds the clone back on the canonical branch clears the
+`degraded` state. The server profile keeps its own validated branches and is not
+subject to this check.
 
 Without a remote, synchronization is a no-op and local commits still work.
 

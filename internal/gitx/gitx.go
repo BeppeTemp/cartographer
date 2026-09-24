@@ -167,12 +167,18 @@ const DefaultBranch = "main"
 
 // Init initializes a git repository in the directory, if one does not already exist.
 // Pins the initial branch to DefaultBranch and configures merge.conflictStyle=zdiff3
-// locally. Existing repositories keep whatever branch they are on.
+// locally. An existing repository whose HEAD is unborn (no commit yet) is
+// pinned too: that is what `git clone` of an empty remote leaves, on a branch
+// named by the host's git version and init.defaultBranch (often "master"), and
+// a KB bootstrapped from it must land where `kb create` does (D264).
+// Repositories with commits keep whatever branch they are on.
 func Init(dir string) error {
 	if !IsRepo(dir) {
 		if out, err := runGit(dir, "init"); err != nil {
 			return fmt.Errorf("git init: %w: %s", err, out)
 		}
+	}
+	if HeadUnborn(dir) {
 		// The repository has no commits yet, so moving HEAD is safe and does
 		// not depend on a git version that supports "init -b".
 		if out, err := runGit(dir, "symbolic-ref", "HEAD", "refs/heads/"+DefaultBranch); err != nil {
@@ -314,6 +320,111 @@ func AheadCount(dir, remote, branch string) (count int, known bool, err error) {
 		return 0, false, fmt.Errorf("git rev-list count %q: %w", out, err)
 	}
 	return n, true, nil
+}
+
+// HeadUnborn reports whether dir is a git repository whose HEAD names a branch
+// with no commit yet: a fresh `git init`, or a clone of an empty remote.
+func HeadUnborn(dir string) bool {
+	if !IsRepo(dir) {
+		return false
+	}
+	if _, err := runGit(dir, "rev-parse", "--verify", "--quiet", "HEAD"); err == nil {
+		return false
+	}
+	// A detached or corrupt HEAD fails rev-parse too; only a symbolic HEAD
+	// pointing at a missing branch is "unborn".
+	_, err := runGit(dir, "symbolic-ref", "--quiet", "HEAD")
+	return err == nil
+}
+
+// RemoteRefs is what a remote advertises, as far as the canonical-branch
+// check needs it (D264).
+type RemoteRefs struct {
+	// HasRefs is false for an empty remote: no branch, no tag.
+	HasRefs bool
+	// Default is the branch the remote's HEAD points at, or "" when the
+	// remote does not advertise one (empty, or HEAD naming a branch that does
+	// not exist — common on a self-hosted `git init --bare` whose HEAD is
+	// "master" while only "main" was pushed).
+	Default string
+	// Branches are the remote's branch names.
+	Branches []string
+}
+
+// HasBranch reports whether the remote has branch.
+func (r RemoteRefs) HasBranch(branch string) bool {
+	for _, b := range r.Branches {
+		if b == branch {
+			return true
+		}
+	}
+	return false
+}
+
+// LsRemote asks remote for its branches and default branch
+// ("git ls-remote --symref"), bounded by FetchTimeout like Fetch. It asks the
+// remote every time rather than reading refs/remotes/<remote>/HEAD: that ref
+// is written once by clone and never refreshed by fetch, so it goes stale when
+// the forge's default branch changes (and is absent in a repository that was
+// init'ed and then given a remote). On success, and when the default branch
+// has a remote-tracking ref, <remote>/HEAD is re-pointed at it (local only,
+// best-effort) so an operator's `git log origin/HEAD` agrees with Cartographer.
+// env carries extra per-KB variables (e.g. GIT_SSH_COMMAND) — see runGitEnv.
+func LsRemote(dir, remote string, env ...string) (RemoteRefs, error) {
+	if remote == "" {
+		remote = "origin"
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), FetchTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "git", "-C", dir, "ls-remote", "--symref", remote)
+	if len(env) > 0 {
+		cmd.Env = append(os.Environ(), env...)
+	}
+	killGroupOnCancel(cmd)
+	cmd.WaitDelay = time.Second
+	var stderr strings.Builder
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
+	if ctx.Err() == context.DeadlineExceeded {
+		return RemoteRefs{}, fmt.Errorf("git ls-remote %s: %w", remote, &RemoteTimeoutError{Remote: remote, After: FetchTimeout})
+	}
+	if err != nil {
+		return RemoteRefs{}, fmt.Errorf("git ls-remote %s: %w: %s", remote, err, strings.TrimSpace(stderr.String()))
+	}
+	refs := parseLsRemoteSymref(string(out))
+	if refs.Default != "" && RemoteBranchExists(dir, remote, refs.Default) {
+		_, _ = runGit(dir, "symbolic-ref", "refs/remotes/"+remote+"/HEAD", "refs/remotes/"+remote+"/"+refs.Default)
+	}
+	return refs, nil
+}
+
+// parseLsRemoteSymref parses `git ls-remote --symref` output:
+//
+//	ref: refs/heads/main	HEAD
+//	<sha>	HEAD
+//	<sha>	refs/heads/main
+func parseLsRemoteSymref(out string) RemoteRefs {
+	var r RemoteRefs
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		r.HasRefs = true
+		fields := strings.Fields(line)
+		if len(fields) == 3 && fields[0] == "ref:" && fields[2] == "HEAD" {
+			r.Default = strings.TrimPrefix(fields[1], "refs/heads/")
+			continue
+		}
+		if len(fields) == 2 && strings.HasPrefix(fields[1], "refs/heads/") {
+			r.Branches = append(r.Branches, strings.TrimPrefix(fields[1], "refs/heads/"))
+		}
+	}
+	// A HEAD symref naming a branch the remote does not have is no default.
+	if r.Default != "" && !r.HasBranch(r.Default) {
+		r.Default = ""
+	}
+	return r
 }
 
 // HeadSHA returns the SHA of the HEAD commit.
@@ -587,9 +698,10 @@ func Push(dir, remote, branch string, env ...string) error {
 }
 
 // PushSetUpstream pushes branch to remote and sets it as the branch's
-// upstream ("git push -u"). Used once, when a KB's origin is first attached
-// (kb create --remote): the sync paths in internal/kb use Push, which must
-// not touch tracking configuration.
+// upstream ("git push -u"). Used once per KB: when its origin is first
+// attached (kb create --remote), or by the local-profile SyncOut for the very
+// first push of DefaultBranch to an empty remote (D264). Every other sync path
+// in internal/kb uses Push, which must not touch tracking configuration.
 // env carries extra per-KB variables (e.g. GIT_SSH_COMMAND) — see runGitEnv.
 func PushSetUpstream(dir, remote, branch string, env ...string) error {
 	out, err := runGitEnv(dir, env, "push", "-u", remote, branch)

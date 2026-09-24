@@ -1,7 +1,7 @@
 ---
 name: cartographer-ops
 description: Configure, operate, troubleshoot, or upgrade a Cartographer server or client; connect agents and manage Knowledge Bases.
-version: "1.5"
+version: "1.6"
 ---
 # Cartographer Operations
 
@@ -88,6 +88,13 @@ variables or the platform secret store, not in a committed YAML file.
    gracefully replaces a running server, proves the new version is serving, and reconciles the
    configured providers. A bare `service restart` does none of that and can leave a client
    configured against the previous version.
+6. If writes fail and `sync_status` reports `degraded` with `branch` different from
+   `remote_default_branch`, the KB's clone is on a branch other than the remote's default one
+   and Cartographer refuses to write rather than fork the KB on the remote (D264). Reads keep
+   working. Show the user `last_error`, which names both branches and the clone path; recovery
+   is theirs to choose: merge the stray branch into the default branch on the remote (a pull or
+   merge request), or check out the default branch in the clone. Then
+   `cartographer service restart`. Never merge, rebase, push or delete a branch yourself.
 
 ## Upgrade
 
@@ -146,6 +153,8 @@ or `cartographer status` / `kb_status` can report one (`update available`, `late
 
 - Do not edit KB concept files directly: use Cartographer MCP tools so validation, git commits,
   and synchronization invariants apply.
+- Do not run git in a KB's clone (`init`, `checkout`, `push`, …): the server owns it, and a
+  branch created there is how a KB forks on its remote. Report `sync_status` instead.
 - Do not hand-edit provisioned MCP entries or `.cartographer.yaml`; use `connect`, `sync`, and
   `disconnect` so Cartographer can track and safely prune its own files.
 
