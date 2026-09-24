@@ -3,7 +3,12 @@
 // The schema:
 //
 //	concepts(id TEXT PRIMARY KEY, content_hash TEXT NOT NULL, body TEXT NOT NULL)
-//	concepts_fts — FTS5 virtual table with trigram tokenizer
+//	concepts_fts(id UNINDEXED, title, meta, body) — FTS5, trigram tokenizer
+//	with diacritics removed, ranked by bm25 weights 5 / 2 / 1 (D246)
+//
+// The schema version lives in PRAGMA user_version (schemaVersion). Opening an
+// older database recreates concepts_fts and empties concepts: the index is
+// disposable, and the next reconciliation reindexes every concept.
 //
 // A database created before D135 may still carry an embeddings table: it is
 // never read nor written, and opening such a file is not an error.
@@ -16,6 +21,8 @@ import (
 	"path/filepath"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/BeppeTemp/cartographer/internal/search"
 
 	_ "modernc.org/sqlite" // register "sqlite" driver (pure-Go, no CGo)
 )
@@ -56,12 +63,51 @@ func Open(dbPath string) (*Index, error) {
 		return nil, fmt.Errorf("sqlindex: wal: %w", err)
 	}
 
+	if err := migrate(db); err != nil {
+		db.Close()
+		return nil, err
+	}
 	if err := createSchema(db); err != nil {
 		db.Close()
 		return nil, err
 	}
 
 	return &Index{db: db, path: dbPath}, nil
+}
+
+// schemaVersion is the concepts_fts layout this package writes. Version 2
+// (D246) split the single body column into title/meta/body and folded
+// diacritics; version 1 is every database created before it (user_version 0).
+const schemaVersion = 2
+
+// migrate brings an older database to schemaVersion by dropping what cannot
+// be converted in place. concepts is emptied with concepts_fts so the hashes
+// no longer claim rows that are gone: the next reconciliation sees every
+// concept as new and reindexes it.
+func migrate(db *sql.DB) error {
+	var version int
+	if err := db.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil {
+		return fmt.Errorf("sqlindex: read user_version: %w", err)
+	}
+	if version >= schemaVersion {
+		return nil
+	}
+	if _, err := db.Exec(`DROP TABLE IF EXISTS concepts_fts`); err != nil {
+		return fmt.Errorf("sqlindex: drop v%d fts: %w", version, err)
+	}
+	var hasConcepts int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='concepts'`).Scan(&hasConcepts); err != nil {
+		return fmt.Errorf("sqlindex: inspect schema: %w", err)
+	}
+	if hasConcepts > 0 {
+		if _, err := db.Exec(`DELETE FROM concepts`); err != nil {
+			return fmt.Errorf("sqlindex: clear v%d concepts: %w", version, err)
+		}
+	}
+	if _, err := db.Exec(fmt.Sprintf(`PRAGMA user_version = %d`, schemaVersion)); err != nil {
+		return fmt.Errorf("sqlindex: set user_version: %w", err)
+	}
+	return nil
 }
 
 func createSchema(db *sql.DB) error {
@@ -79,8 +125,10 @@ func createSchema(db *sql.DB) error {
 	_, err = db.Exec(`
 		CREATE VIRTUAL TABLE IF NOT EXISTS concepts_fts USING fts5(
 			id UNINDEXED,
+			title,
+			meta,
 			body,
-			tokenize='trigram'
+			tokenize='trigram remove_diacritics 1'
 		)
 	`)
 	if err != nil {
@@ -96,7 +144,8 @@ func (ix *Index) Close() error {
 }
 
 // Upsert inserts or updates a concept's content in both the concepts table and
-// the FTS5 index.
+// the FTS5 index. body is the raw file content; it is split into the title,
+// meta and body columns here, the same way the in-memory index weights it.
 func (ix *Index) Upsert(id, contentHash, body string) error {
 	_, err := ix.db.Exec(
 		`INSERT INTO concepts(id, content_hash, body) VALUES(?, ?, ?)
@@ -110,7 +159,8 @@ func (ix *Index) Upsert(id, contentHash, body string) error {
 	if _, err := ix.db.Exec(`DELETE FROM concepts_fts WHERE id = ?`, id); err != nil {
 		return fmt.Errorf("sqlindex: delete fts: %w", err)
 	}
-	if _, err := ix.db.Exec(`INSERT INTO concepts_fts(id, body) VALUES(?, ?)`, id, body); err != nil {
+	f := search.SplitFields(body)
+	if _, err := ix.db.Exec(`INSERT INTO concepts_fts(id, title, meta, body) VALUES(?, ?, ?, ?)`, id, f.Title, f.Meta, f.Body); err != nil {
 		return fmt.Errorf("sqlindex: insert fts: %w", err)
 	}
 
@@ -261,13 +311,25 @@ func (ix *Index) searchFTSFiltered(query, scope string, limit int, allow func(id
 	}
 }
 
+// ftsRank and ftsSnippet are the ranking and excerpt expressions of every
+// search query. bm25's weights are positional over ALL columns, the
+// unindexed id included: the leading 0 is id's, then title 5, meta 2, body 1.
+// Dropping the 0 silently shifts every weight one column to the left.
+// snippet() reads column 3, the body: a match only in title or meta yields
+// the start of the body, as the in-memory excerpt does with no term found,
+// and an empty body yields "", for which the caller uses its own excerpt.
+const (
+	ftsRank    = `-1.0 * bm25(concepts_fts, 0.0, 5.0, 2.0, 1.0)`
+	ftsSnippet = `snippet(concepts_fts, 3, '', '', '…', ?)`
+)
+
 func (ix *Index) searchFTSPage(query, scope string, limit, offset int) ([]Hit, error) {
 	var rows *sql.Rows
 	var err error
 	if scope != "" {
 		rows, err = ix.db.Query(
-			`SELECT c.id, -1.0 * bm25(concepts_fts) AS score,
-			        snippet(concepts_fts, 1, '', '', '…', ?) AS snip
+			`SELECT c.id, `+ftsRank+` AS score,
+			        `+ftsSnippet+` AS snip
 			 FROM concepts_fts
 			 JOIN concepts c ON c.id = concepts_fts.id
 			 WHERE concepts_fts MATCH ? AND c.id LIKE ? ESCAPE '\'
@@ -277,8 +339,8 @@ func (ix *Index) searchFTSPage(query, scope string, limit, offset int) ([]Hit, e
 		)
 	} else {
 		rows, err = ix.db.Query(
-			`SELECT c.id, -1.0 * bm25(concepts_fts) AS score,
-			        snippet(concepts_fts, 1, '', '', '…', ?) AS snip
+			`SELECT c.id, `+ftsRank+` AS score,
+			        `+ftsSnippet+` AS snip
 			 FROM concepts_fts
 			 JOIN concepts c ON c.id = concepts_fts.id
 			 WHERE concepts_fts MATCH ?

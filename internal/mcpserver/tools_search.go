@@ -152,10 +152,14 @@ func keywordHits(ctx requestContext, k *kb.KB, rec *searchReconciler, deps Deps,
 	} else {
 		for _, h := range sqlHits {
 			if scope == "" || strings.HasPrefix(h.ID, scope) {
+				snippet := h.Snippet
+				if snippet == "" {
+					snippet = live.snippet(h.ID, query, snippetMaxChars)
+				}
 				kwHits = append(kwHits, searchHit{
 					ID: h.ID, Score: h.Score,
 					Title:   live.title(h.ID),
-					Snippet: h.Snippet,
+					Snippet: snippet,
 				})
 			}
 		}

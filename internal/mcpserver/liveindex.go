@@ -5,7 +5,6 @@ import (
 	"sync"
 	"unicode/utf8"
 
-	"github.com/BeppeTemp/cartographer/internal/okf"
 	"github.com/BeppeTemp/cartographer/internal/search"
 )
 
@@ -101,16 +100,8 @@ func (l *liveIndex) remove(id string) {
 // parseConceptMeta extracts the frontmatter title and body from a concept's
 // raw content (frontmatter + body).
 func parseConceptMeta(content string) conceptMeta {
-	fmRaw, body, _ := okf.SplitFrontmatter(content)
-	var title string
-	if fm, err := okf.ParseFrontmatter(fmRaw); err == nil {
-		if v, ok := fm.Get("title"); ok {
-			if s, ok := v.(string); ok {
-				title = s
-			}
-		}
-	}
-	return conceptMeta{Title: title, Body: body}
+	f := search.SplitFields(content)
+	return conceptMeta{Title: f.Title, Body: f.Body}
 }
 
 // extractSnippet returns an excerpt (~maxChars runes) of body around the
@@ -125,10 +116,13 @@ func extractSnippet(body, query string, maxChars int) string {
 		maxChars = 200
 	}
 
-	lower := strings.ToLower(body)
+	// Terms are folded (D246), so they are looked for in a folded copy of the
+	// body. Folding is one rune for one rune, so a rune offset in the copy is
+	// the same offset in body, and the excerpt keeps the accents as written.
+	folded := search.Fold(body)
 	bytePos := -1
 	for _, term := range search.Tokenize(query) {
-		if idx := strings.Index(lower, term); idx >= 0 && (bytePos < 0 || idx < bytePos) {
+		if idx := strings.Index(folded, term); idx >= 0 && (bytePos < 0 || idx < bytePos) {
 			bytePos = idx
 		}
 	}
@@ -141,7 +135,7 @@ func extractSnippet(body, query string, maxChars int) string {
 		return strings.TrimSpace(string(runes[:maxChars])) + "…"
 	}
 
-	pos := utf8.RuneCountInString(body[:bytePos])
+	pos := utf8.RuneCountInString(folded[:bytePos])
 	start := pos - maxChars/2
 	if start < 0 {
 		start = 0

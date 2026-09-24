@@ -6,13 +6,27 @@ import (
 	"sort"
 	"strings"
 	"unicode"
+
+	"github.com/BeppeTemp/cartographer/internal/okf"
 )
 
 // Index is an in-memory inverted keyword index.
 type Index struct {
-	inverted map[string]map[string]int // term → conceptID → term frequency
-	docLen   map[string]int            // conceptID → total token count
+	inverted map[string]map[string]int // term → conceptID → weighted term frequency
+	docLen   map[string]int            // conceptID → weighted token count
+	// docTerms records each document's distinct terms, so removing one
+	// touches only its own postings instead of scanning the vocabulary.
+	docTerms map[string][]string
 }
+
+// Field weights (D246), matching the SQLite backend's bm25 weights: a title
+// hit beats several body hits, a frontmatter hit (type, tags, status) is
+// worth more than prose but less than the name.
+const (
+	titleWeight = 5
+	metaWeight  = 2
+	bodyWeight  = 1
+)
 
 // Hit represents a single search result.
 type Hit struct {
@@ -25,21 +39,38 @@ func New() *Index {
 	return &Index{
 		inverted: make(map[string]map[string]int),
 		docLen:   make(map[string]int),
+		docTerms: make(map[string][]string),
 	}
 }
 
-// Add indexes the content of a concept. Calling Add again with the same id
-// replaces the previous entry.
+// Add indexes the content of a concept — its raw file, frontmatter and body.
+// Title tokens count titleWeight times, frontmatter tokens metaWeight times,
+// body tokens once (D246). Calling Add again with the same id replaces the
+// previous entry.
 func (idx *Index) Add(id string, content string) {
 	idx.remove(id)
-	tokens := Tokenize(content)
-	idx.docLen[id] = len(tokens)
-	for _, tok := range tokens {
+	fields := SplitFields(content)
+	counts := make(map[string]int)
+	total := 0
+	for _, f := range []struct {
+		text   string
+		weight int
+	}{{fields.Title, titleWeight}, {fields.Meta, metaWeight}, {fields.Body, bodyWeight}} {
+		for _, tok := range Tokenize(f.text) {
+			counts[tok] += f.weight
+			total += f.weight
+		}
+	}
+	idx.docLen[id] = total
+	terms := make([]string, 0, len(counts))
+	for tok, n := range counts {
 		if _, ok := idx.inverted[tok]; !ok {
 			idx.inverted[tok] = make(map[string]int)
 		}
-		idx.inverted[tok][id]++
+		idx.inverted[tok][id] = n
+		terms = append(terms, tok)
 	}
+	idx.docTerms[id] = terms
 }
 
 // Remove deletes a concept from the index (used by concept_delete).
@@ -52,13 +83,15 @@ func (idx *Index) remove(id string) {
 	if _, ok := idx.docLen[id]; !ok {
 		return
 	}
-	for term, postings := range idx.inverted {
+	for _, term := range idx.docTerms[id] {
+		postings := idx.inverted[term]
 		delete(postings, id)
 		if len(postings) == 0 {
 			delete(idx.inverted, term)
 		}
 	}
 	delete(idx.docLen, id)
+	delete(idx.docTerms, id)
 }
 
 // Search returns hits matching the query, scored by term-frequency relevance.
@@ -180,11 +213,12 @@ func (idx *Index) Count() int {
 	return len(idx.docLen)
 }
 
-// Tokenize splits text into lowercase word tokens suitable for indexing.
+// Tokenize splits text into lowercase, diacritic-folded word tokens suitable
+// for indexing ("Attività" → "attivita", D246).
 func Tokenize(text string) []string {
 	var tokens []string
 	var buf strings.Builder
-	for _, r := range strings.ToLower(text) {
+	for _, r := range Fold(text) {
 		if unicode.IsLetter(r) || unicode.IsDigit(r) {
 			buf.WriteRune(r)
 		} else {
@@ -198,4 +232,24 @@ func Tokenize(text string) []string {
 		tokens = append(tokens, buf.String())
 	}
 	return tokens
+}
+
+// Fields is a concept's content split the way both search backends weight it.
+type Fields struct {
+	Title string // the frontmatter title; empty when absent or unparseable
+	Meta  string // the raw frontmatter
+	Body  string // the body, frontmatter stripped
+}
+
+// SplitFields splits a concept's raw content into its weighted fields. An
+// unparseable frontmatter keeps its raw text in Meta with an empty Title.
+func SplitFields(content string) Fields {
+	fmRaw, body, _ := okf.SplitFrontmatter(content)
+	f := Fields{Meta: fmRaw, Body: body}
+	if fm, err := okf.ParseFrontmatter(fmRaw); err == nil {
+		if v, ok := fm.Get("title"); ok {
+			f.Title, _ = v.(string)
+		}
+	}
+	return f
 }
