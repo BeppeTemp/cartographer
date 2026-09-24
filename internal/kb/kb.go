@@ -130,6 +130,10 @@ type KB struct {
 	// views it publishes are immutable, so readers hold it only to validate.
 	graphMu sync.Mutex
 	graph   *graphCache
+	// prMu guards prCache, the whole-KB PageRank percentiles of one graph
+	// view generation (D251).
+	prMu    sync.Mutex
+	prCache *pageRankPercentiles
 	// pushStarted is true once the worker goroutine has been launched
 	// (lazily, on the first SchedulePush). FlushPush checks this without
 	// starting the worker, so it stays a no-op — and starts no goroutine —

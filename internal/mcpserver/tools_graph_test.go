@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -375,5 +376,103 @@ func TestAtlasOverviewStructure(t *testing.T) {
 	}
 	if strings.Contains(got, "hidden/") {
 		t.Fatalf("hidden concept disclosed: %s", got)
+	}
+}
+
+// searchScores runs search and returns id → score, in result order.
+func searchScores(t *testing.T, s *Server, ctx context.Context, args string) ([]string, map[string]float64) {
+	t.Helper()
+	text, isErr := callJSON(t, s, ctx, "search", args)
+	if isErr {
+		t.Fatalf("search %s: %s", args, text)
+	}
+	var out struct {
+		Results []searchHit `json:"results"`
+	}
+	if err := json.Unmarshal([]byte(text), &out); err != nil {
+		t.Fatal(err)
+	}
+	ids := make([]string, 0, len(out.Results))
+	scores := map[string]float64{}
+	for _, h := range out.Results {
+		ids = append(ids, h.ID)
+		scores[h.ID] = h.Score
+	}
+	return ids, scores
+}
+
+// centralityKB: ops/aa and ops/bb match "zeppelin" equally; three linkers
+// point at bb when linked is set, and at nothing otherwise.
+func centralityKB(t *testing.T, linked bool, extra map[string]string) *Server {
+	files := map[string]string{
+		"ops/aa.md": "Zeppelin hangar.\n",
+		"ops/bb.md": "Zeppelin hangar.\n",
+	}
+	for _, l := range []string{"l1", "l2", "l3"} {
+		files["ops/"+l+".md"] = "Nothing to see.\n"
+		if linked {
+			files["ops/"+l+".md"] = "[bb](bb.md).\n"
+		}
+	}
+	for k, v := range extra {
+		files[k] = v
+	}
+	return graphToolKB(t, files)
+}
+
+func TestSearchCentralityPrior(t *testing.T) {
+	flat := centralityKB(t, false, nil)
+	linked := centralityKB(t, true, nil)
+
+	ids, flatScores := searchScores(t, flat, adminCtx, `{"query":"zeppelin"}`)
+	if strings.Join(ids, ",") != "ops/aa,ops/bb" || flatScores["ops/aa"] != flatScores["ops/bb"] {
+		t.Fatalf("fixture: equal text scores expected, got %v %v", ids, flatScores)
+	}
+	// Equal text, bb is the one the KB links to: it goes first.
+	ids, scores := searchScores(t, linked, adminCtx, `{"query":"zeppelin"}`)
+	if strings.Join(ids, ",") != "ops/bb,ops/aa" {
+		t.Fatalf("centrality did not break the tie: %v", ids)
+	}
+	// aa has no inbound link: p = 0, exact text score. bb is the only concept
+	// above the minimum: p = 1, the full +20%.
+	if scores["ops/aa"] != flatScores["ops/aa"] {
+		t.Errorf("unlinked concept score changed: %v vs %v", scores["ops/aa"], flatScores["ops/aa"])
+	}
+	if got, want := scores["ops/bb"], flatScores["ops/bb"]*1.2; math.Abs(got-want) > 1e-9 {
+		t.Errorf("bb score = %v, want %v", got, want)
+	}
+
+	// The window: with limit 1 the backend's first hit by text is aa, yet bb
+	// must win the page.
+	if ids, _ := searchScores(t, linked, adminCtx, `{"query":"zeppelin","limit":1}`); strings.Join(ids, ",") != "ops/bb" {
+		t.Fatalf("candidate window: %v", ids)
+	}
+
+	// A strong text match beats a weak but central one.
+	strong := centralityKB(t, true, map[string]string{
+		"ops/aa.md": "Zeppelin zeppelin zeppelin: the zeppelin hangar.\n",
+		"ops/bb.md": "Zeppelin. " + strings.Repeat("Other words about the hangar and the field. ", 20) + "\n",
+	})
+	if ids, _ := searchScores(t, strong, adminCtx, `{"query":"zeppelin"}`); ids[0] != "ops/aa" {
+		t.Fatalf("a weak central match beat a strong one: %v", ids)
+	}
+}
+
+// A hidden hub does not move a narrowed principal's order: it equals the
+// order on the KB without the hidden concepts.
+func TestSearchCentralityPriorNarrowed(t *testing.T) {
+	hidden := map[string]string{
+		"hidden/h1.md": "[bb](../ops/bb.md).\n",
+		"hidden/h2.md": "[bb](../ops/bb.md).\n",
+	}
+	full := centralityKB(t, false, hidden)
+	stripped := centralityKB(t, false, nil)
+	if ids, _ := searchScores(t, full, adminCtx, `{"query":"zeppelin"}`); ids[0] != "ops/bb" {
+		t.Fatalf("admin should see the hidden linkers lift bb: %v", ids)
+	}
+	gotIDs, got := searchScores(t, full, narrowCtx, `{"query":"zeppelin"}`)
+	wantIDs, want := searchScores(t, stripped, adminCtx, `{"query":"zeppelin"}`)
+	if strings.Join(gotIDs, ",") != strings.Join(wantIDs, ",") || got["ops/bb"] != want["ops/bb"] {
+		t.Fatalf("narrowed %v %v, stripped %v %v", gotIDs, got, wantIDs, want)
 	}
 }
