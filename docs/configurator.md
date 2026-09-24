@@ -388,6 +388,15 @@ when bindings made them diverge it prints one line per provider instead, rather
 than implying an agreement that does not exist. See [`sync.md`](sync.md)
 §Per-provider projection.
 
+A KB whose `sync_pull` fails does not stop the others. `sync` applies every
+provider whose bound KBs all answered, leaves each provider bound to a failed KB
+exactly as it was (its MCP entries, artifacts and lockfile entry, as if `--client`
+had left it out), then exits `2` with one error listing each failed KB and the
+providers it skipped. When every targeted provider needs a failed KB, nothing is
+written and the error says so. `upgrade-repair` gets the same behaviour through
+the same code, and reports the provider sync as pending
+([D257](decisions/D257-sync-continues-past-a-kb-that-cannot-be-pulled.md)).
+
 Before anything else — before the client-state lock and before the first network call, `--dry-run`
 included — `sync` checks the environment variables the targeted providers need: each provider's own
 base-directory variable (§Hermes Agent, `$HERMES_HOME`) and, when `.cartographer.yaml` has `auth: true` with a
