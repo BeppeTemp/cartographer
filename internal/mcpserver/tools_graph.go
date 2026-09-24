@@ -54,7 +54,7 @@ func clampInt(v, def, lo, hi int) int {
 
 // --- graph_context ---
 
-func toolGraphContext(k *kb.KB, live *liveIndex, deps Deps) Tool {
+func toolGraphContext(k *kb.KB, rec *searchReconciler, deps Deps) Tool {
 	return Tool{
 		Name:     "graph_context",
 		ReadOnly: true,
@@ -101,7 +101,7 @@ func toolGraphContext(k *kb.KB, live *liveIndex, deps Deps) Tool {
 			if params.Query != "" {
 				// Reciprocal rank, not the raw score: FTS5 and the in-memory
 				// index score on different scales.
-				hits, _ := keywordHits(ctx, k, live, deps, params.Query, "", graphContextSeedHits)
+				hits, _ := keywordHits(ctx, k, rec, deps, params.Query, "", graphContextSeedHits)
 				for r, h := range hits {
 					if i, ok := lg.Index[okf.ConceptID(h.ID)]; ok {
 						seeds[i] += 1 / float64(1+r)
@@ -177,7 +177,7 @@ func toolGraphContext(k *kb.KB, live *liveIndex, deps Deps) Tool {
 			}
 			if params.Query != "" {
 				for i := range results {
-					results[i].Snippet = live.snippet(results[i].ID, params.Query, 160)
+					results[i].Snippet = rec.live.snippet(results[i].ID, params.Query, 160)
 				}
 			}
 			result["results"] = results

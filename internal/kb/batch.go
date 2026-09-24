@@ -112,15 +112,11 @@ func pruneEmptyDirs(dir, root string) error {
 // and mode before the error is returned: callers observe either the
 // complete batch or the exact pre-call KB state, never an intermediate one.
 //
-// afterFiles runs after every file and the log entry are committed,
-// still before WriteConceptBatch returns success; it exists so the MCP
-// layer can keep the keyword/FTS5 search indexes in step with the same
-// atomicity boundary without this package depending on internal/search or
-// internal/sqlindex. If afterFiles returns an error, it must first reconcile
-// any index entries it already changed back to their pre-call state itself
-// (it has the original content, read before the batch started) — this
-// function then rolls the files and log back to match, so files and both
-// indexes stay consistent in every outcome.
+// afterFiles, when non-nil, runs after every file and the log entry are
+// committed, still before WriteConceptBatch returns success; an error from it
+// rolls the files and log back like any other failure. The MCP layer passes
+// nil: the search indexes follow the files by validation (D245), so nothing
+// has to be kept in step at this boundary.
 //
 // Callers must already hold the KB's write lock (gitWrap's WithGitLock):
 // this is the single acquisition the whole batch runs under, not a second
