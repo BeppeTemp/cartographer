@@ -139,10 +139,12 @@ export function fetchConcept(kb: string, id: string, signal?: AbortSignal): Prom
 export function fetchLint(
   kb: string,
   severityMin: string,
+  scope: string | null,
   signal?: AbortSignal,
 ): Promise<LintReport> {
+  const scoped = scope ? `&scope=${encodeURIComponent(scope)}` : "";
   return get<LintReport>(
-    `/kbs/${encodeURIComponent(kb)}/lint?severity_min=${encodeURIComponent(severityMin)}`,
+    `/kbs/${encodeURIComponent(kb)}/lint?severity_min=${encodeURIComponent(severityMin)}${scoped}`,
     signal,
   );
 }
