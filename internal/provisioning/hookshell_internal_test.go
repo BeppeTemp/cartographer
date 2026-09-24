@@ -110,7 +110,7 @@ func TestHookCommandProblem(t *testing.T) {
 		{name: "a bare name is PATH's business", command: "jq -r ."},
 		{name: "a $VAR path is the shell's business", command: "$HOME/bin/x.sh"},
 		{name: "a backslash path on Windows", command: `C:\Users\user\.claude\hooks\x\run.cmd`, windows: true, want: "backslashes"},
-		{name: "a backslash in an argument is fine", command: present + ` a\b`, windows: true},
+		{name: "a backslash in an argument is fine", command: filepath.ToSlash(present) + ` a\b`, windows: true},
 	}
 	exists := func(p string) bool { _, err := os.Stat(p); return err == nil }
 	for _, c := range cases {
@@ -203,7 +203,9 @@ func TestClaudeHookWithAMissingCommandFileIsUnrunnable(t *testing.T) {
 		"hooks": map[string]interface{}{
 			"SessionStart": []interface{}{
 				map[string]interface{}{"hooks": []interface{}{
-					map[string]interface{}{"type": "command", "command": gone},
+					// Slash form: with the host pretending not to be Windows, a
+					// backslash path would not even read as this hook's entry.
+					map[string]interface{}{"type": "command", "command": filepath.ToSlash(gone)},
 				}},
 			},
 		},

@@ -109,7 +109,8 @@ func TestApply_Hook_RegistraSettingsJSON(t *testing.T) {
 	if len(g.Hooks) != 1 || g.Hooks[0].Type != "command" {
 		t.Fatalf("hooks[]: expected 1 entry type=command, got %+v", g.Hooks)
 	}
-	wantCmd := filepath.Join(baseDir, ".claude", "hooks", "notify", "notify.sh")
+	// Slash form: Claude Code runs hooks through Git Bash on Windows (D267).
+	wantCmd := filepath.ToSlash(filepath.Join(baseDir, ".claude", "hooks", "notify", "notify.sh"))
 	if g.Hooks[0].Command != wantCmd {
 		t.Errorf("command: expected %q, got %q", wantCmd, g.Hooks[0].Command)
 	}
