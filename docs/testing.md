@@ -307,8 +307,9 @@ toolchain (D227). What they hold:
 - Markdown from a concept body renders inert — a raw `<script>` and an
   `onerror` attribute must not survive;
 - the bearer token reaches neither `localStorage` nor a URL;
-- the graph layout is deterministic for identical input, and so is the
-  community colouring: the same KB state paints the same node the same colour;
+- the graph layout is deterministic for identical input, and the community
+  colouring reads the server's communities (D244), which are deterministic
+  themselves: the same KB state paints the same node the same colour;
 - the WCAG 2.2 AA contrast audit, computed from `tokens.css` on every run, for
   both themes (§Atlas UI contrast);
 - a complete keyboard path — shell, filters, node list, inspector and back —
@@ -364,13 +365,15 @@ of a relationship — the inspector lists every link.
   `npm run budget` (`web/scripts/budget.mjs`), which gzips every asset in
   `internal/webui/dist/assets` and fails over the ceiling.
 - **Client pipeline**: `web/src/test/perf.test.tsx` generates a 2,000-node
-  fixture (`generateSnapshot` in `web/src/test/fixtures.ts`), runs community
-  detection and the deterministic layout, and prints both timings
-  (`cd web && npx vitest run src/test/perf.test.tsx`). Ceilings are 1 s and
-  12 s: they catch a several-fold regression on any runner, not a few
-  percent. Reference measurements for 2,000 nodes / ~3,900 edges: communities
-  ~15 ms and the 3D warm-up (300 ticks) ~2.2 s on an Apple M5; ~45 ms and
-  ~5.4 s on a GitHub-hosted runner.
+  fixture (`generateSnapshot` in `web/src/test/fixtures.ts`, which carries the
+  server's `pagerank`, `community` and `communities` fields), runs the
+  deterministic layout and prints its timing
+  (`cd web && npx vitest run src/test/perf.test.tsx`). Communities are computed
+  by the server (D244), so the browser no longer spends time on them. The
+  ceiling is 12 s: it catches a several-fold regression on any runner, not a
+  few percent. Reference measurement for 2,000 nodes / ~3,900 edges: the 3D
+  warm-up (300 ticks) takes ~2.2 s on an Apple M5 and ~5.4 s on a
+  GitHub-hosted runner.
 - **Selection feedback**: the same file asserts the inspector skeleton renders
   while the concept request is still pending, so feedback never waits on the
   network.

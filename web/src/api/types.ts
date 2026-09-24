@@ -88,6 +88,21 @@ export interface GraphNode {
   self_link?: boolean;
   in_degree: number;
   out_degree: number;
+  /** Global PageRank on the caller's visible graph (D244). */
+  pagerank?: number;
+  /** Rank of the node's community in GraphSnapshot.communities (D244). */
+  community?: number;
+}
+
+/** One community of the visible graph, computed by the server (D244). */
+export interface SnapshotCommunity {
+  /** 0-based: 0 is the largest. */
+  rank: number;
+  size: number;
+  /** The member a legend names the community after. */
+  anchor: string;
+  /** 1..12, or 0 for singletons and the long tail. */
+  slot: number;
 }
 
 export interface GraphEdge {
@@ -109,6 +124,8 @@ export interface GraphSnapshot {
   total_edges: number;
   total_broken?: number;
   limit: number;
+  /** Covers the whole visible graph, not only the returned nodes. */
+  communities?: SnapshotCommunity[];
 }
 
 export interface OutlineEntry {
