@@ -13,6 +13,7 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/artifactsig"
 	"github.com/BeppeTemp/cartographer/internal/defaults"
+	"github.com/BeppeTemp/cartographer/internal/updatecheck"
 	"gopkg.in/yaml.v3"
 )
 
@@ -106,8 +107,30 @@ type Config struct {
 	// MCPApprovals is keyed by source KB then artifact name. Each entry binds
 	// consent to one exact descriptor content hash.
 	MCPApprovals map[string]map[string]MCPApproval `yaml:"mcp_approvals,omitempty"`
+	// Update is the client-wide update-notice setting (D254), USER-owned.
+	// The zero value is the default: check, and only notify.
+	Update UpdateSettings `yaml:"-"`
 	// Extra retains unknown top-level YAML keys across approval updates.
 	Extra map[string]interface{} `yaml:"-"`
+}
+
+// UpdateSettings is the `update:` block. Check nil means the default, true;
+// Policy is "notify" (the default, also for an empty value) or "auto-patch",
+// and Load refuses anything else, naming the valid values.
+type UpdateSettings struct {
+	Check  *bool  `yaml:"check,omitempty"`
+	Policy string `yaml:"policy,omitempty"`
+}
+
+// CheckEnabled reports whether the update check runs (default true).
+func (u UpdateSettings) CheckEnabled() bool { return u.Check == nil || *u.Check }
+
+// EffectivePolicy is the policy with the default applied.
+func (u UpdateSettings) EffectivePolicy() string {
+	if u.Policy == "" {
+		return updatecheck.PolicyNotify
+	}
+	return u.Policy
 }
 
 type MCPApproval struct {
@@ -152,6 +175,7 @@ type yamlConfig struct {
 	Paths            map[string]string                 `yaml:"paths,omitempty"`
 	SigningKeys      map[string][]string               `yaml:"signing_keys,omitempty"`
 	MCPApprovals     map[string]map[string]MCPApproval `yaml:"mcp_approvals,omitempty"`
+	Update           *UpdateSettings                   `yaml:"update,omitempty"`
 }
 
 // Default returns a Config with the same defaults as configurator.DefaultConfig.
@@ -204,7 +228,7 @@ func Load(dir string) (*Config, error) {
 	if err := yaml.Unmarshal(data, &extra); err != nil {
 		return nil, fmt.Errorf("clientconfig: parse extras %s: %w", Path(dir), err)
 	}
-	for _, key := range []string{"server_url", "server_name", "auth", "token_env", "agents", "kbs", "known_kbs", "clients", "trust", "search_roots", "search_depth", "paths", "signing_keys", "mcp_approvals"} {
+	for _, key := range []string{"server_url", "server_name", "auth", "token_env", "agents", "kbs", "known_kbs", "clients", "trust", "search_roots", "search_depth", "paths", "signing_keys", "mcp_approvals", "update"} {
 		delete(extra, key)
 	}
 	cfg := Config{
@@ -237,6 +261,19 @@ func Load(dir string) (*Config, error) {
 	if y.Trust != nil {
 		cfg.Trust = *y.Trust
 	}
+	if y.Update != nil {
+		// An unknown policy is a load error, not a silent default: this
+		// setting decides whether a machine upgrades itself (D254).
+		policy := ""
+		if strings.TrimSpace(y.Update.Policy) != "" {
+			p, err := updatecheck.ParsePolicy(y.Update.Policy)
+			if err != nil {
+				return nil, fmt.Errorf("clientconfig: %s: %w", Path(dir), err)
+			}
+			policy = p
+		}
+		cfg.Update = UpdateSettings{Check: y.Update.Check, Policy: policy}
+	}
 	if len(cfg.SearchRoots) == 0 {
 		// Absent `search_roots` key: both brand-new configs and files written
 		// before this field existed default here, matching Default().
@@ -268,6 +305,11 @@ func Save(dir string, cfg *Config) error {
 		Paths:            cfg.Paths,
 		SigningKeys:      cfg.SigningKeys,
 		MCPApprovals:     cfg.MCPApprovals,
+	}
+	// Emitted only when set: a default machine's file stays byte-identical.
+	if cfg.Update.Check != nil || cfg.Update.Policy != "" {
+		u := cfg.Update
+		y.Update = &u
 	}
 	data, err := yaml.Marshal(&y)
 	if err != nil {

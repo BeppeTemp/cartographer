@@ -47,9 +47,12 @@ type Tool struct {
 
 // Server is the MCP stdio server.
 type Server struct {
-	version  string
-	tools    map[string]*Tool
-	toolsOrd []string // maintains registration order for tools/list
+	version string
+	// latestVersion reports a newer release when one is known (D254,
+	// latestrelease.go). Nil means never known.
+	latestVersion func() string
+	tools         map[string]*Tool
+	toolsOrd      []string // maintains registration order for tools/list
 	// agentProfile hides advanced tools (advancedToolNames, D65) from
 	// tools/list; they remain callable via tools/call. Zero value = full list,
 	// so New() keeps its historical behavior; `serve` sets it from

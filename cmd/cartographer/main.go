@@ -29,6 +29,7 @@ var subcommands = []subcommand{
 	{"Get started", "help", "Show this help"},
 	{"Get started", "setup", "Set up this machine: service, first KB, agents"},
 	{"Get started", "version", "Print the build version"},
+	{"Get started", "update", "Check whether a newer release exists"},
 	{"Client", "agents", "List local agent clients"},
 	{"Client", "connect", "Connect an agent client"},
 	{"Client", "disconnect", "Disconnect an agent client"},
@@ -75,6 +76,7 @@ var (
 	clientFn        = cmdClient
 	workspaceFn     = cmdWorkspace
 	setupFn         = cmdSetup
+	updateFn        = cmdUpdate
 )
 
 func main() {
@@ -107,6 +109,8 @@ func run(args []string) int {
 		return kbFn(rest)
 	case "version", "--version":
 		return versionFn()
+	case "update":
+		return updateFn(rest)
 	case "help", "-h", "--help":
 		printUsage(os.Stdout)
 		return 0

@@ -29,6 +29,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/updatecheck"
 )
 
 // doctorSchema is versioned like the status snapshot: this output ends up in
@@ -195,6 +196,7 @@ func runDoctor(dir, only string) doctorReport {
 		findings = append(findings, checkCapabilities(dir, cfg)...)
 		findings = append(findings, checkKBCollisions(dir, cfg, providers)...)
 		findings = append(findings, checkWorkspaceProjections(dir, cfg, providers)...)
+		findings = append(findings, checkUpdateAvailable()...)
 		if lockErr == nil {
 			findings = append(findings, checkUnboundResidues(dir, cfg, providers, lockFile)...)
 		}
@@ -864,5 +866,23 @@ func checkTriggerCoverage(dir string, providers []string) []doctorFinding {
 		Check: "trigger", Severity: doctorWarning, Path: path,
 		Message: fmt.Sprintf("%s has no session-start hook and the scheduled trigger is not installed: it syncs only on demand", strings.Join(hookless, ", ")),
 		Fix:     "cartographer service sync-timer install",
+	}}
+}
+
+// checkUpdateAvailable reports a newer release as context (D254): info
+// severity, so it never changes doctor's exit code. Cache only, like status.
+func checkUpdateAvailable() []doctorFinding {
+	res, ch := cachedUpdate()
+	if !res.Available {
+		return nil
+	}
+	fix := ch.UpgradeCommand(res.Latest)
+	if fix == "" {
+		fix = "see " + updatecheck.ReleasesURL
+	}
+	return []doctorFinding{{
+		Check: "update_available", Severity: doctorInfo,
+		Message: fmt.Sprintf("Cartographer %s is available (installed %s, %s release, %s channel)", res.Latest, res.Current, res.Kind, ch),
+		Fix:     fix,
 	}}
 }

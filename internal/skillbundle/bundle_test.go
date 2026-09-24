@@ -126,6 +126,31 @@ func TestOpsWindowsUpgradeUsesInstallPS1(t *testing.T) {
 	}
 }
 
+// TestOpsSkillCarriesTheUpdateNoticeRules guards the behaviour an agent
+// needs when a session starts with an update notice (D254): tell the user
+// once, act only on an explicit yes. The notice text itself says as much, but
+// the skill is what an agent reads when it wonders what the line means.
+func TestOpsSkillCarriesTheUpdateNoticeRules(t *testing.T) {
+	body, err := fs.ReadFile(FS, "bundled/cartographer-ops/SKILL.md")
+	if err != nil {
+		t.Fatalf("read cartographer-ops SKILL.md: %v", err)
+	}
+	text := string(body)
+	i := strings.Index(text, "## Update notices")
+	if i < 0 {
+		t.Fatal("the ops skill lost its Update notices section (D254)")
+	}
+	section := text[i:]
+	if j := strings.Index(section[1:], "\n## "); j >= 0 {
+		section = section[:j+1]
+	}
+	for _, want := range []string{"update notice", "**once**", "**only if**", "upgrade-repair", "reconnect"} {
+		if !strings.Contains(section, want) {
+			t.Errorf("the Update notices section lost %q (D254)", want)
+		}
+	}
+}
+
 // TestOpsSkillCarriesTheSetupInterview guards the first-time setup section
 // (D253): an agent setting up a machine must interview the user and preview
 // the plan instead of answering setup's questions itself.

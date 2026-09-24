@@ -313,6 +313,9 @@ replaces:
 & ([scriptblock]::Create((irm https://raw.githubusercontent.com/BeppeTemp/cartographer/main/install.ps1))) update
 ```
 
+You hear about a new release from your agent: at session start it is told once, with the upgrade
+command for your install channel, and offers to run it (`cartographer update check` asks directly).
+
 `cartographer reconnect` is the explicit rebuild for what an incremental sync cannot see. Only
 already-open agent sessions need restarting. Details →
 [`docs/deployment.md`](docs/deployment.md) §Upgrades, schema migration, and repo growth.

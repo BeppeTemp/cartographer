@@ -153,6 +153,30 @@ type statusSnapshot struct {
 	// change.
 	MountMode           string `json:"mount_mode,omitempty"`
 	ConfiguredMountMode string `json:"configured_mount_mode,omitempty"`
+	// Update is set only when a newer release than this client is known
+	// (D254), read from the update cache alone: status adds no network call.
+	Update *updateSnapshot `json:"update,omitempty"`
+	// ServerLatest is the newer release a remote server reports about itself
+	// in /health (D254). Loopback servers are this machine's own binary,
+	// already covered by Update.
+	ServerLatest string `json:"server_latest_version,omitempty"`
+}
+
+// updateSnapshot is the `update` object of the status contract. Additive.
+type updateSnapshot struct {
+	Latest  string `json:"latest"`
+	Kind    string `json:"kind"`
+	Channel string `json:"channel"`
+	Command string `json:"command,omitempty"`
+}
+
+// snapshotUpdate projects the cached update answer onto the snapshot.
+func snapshotUpdate() *updateSnapshot {
+	res, ch := cachedUpdate()
+	if !res.Available {
+		return nil
+	}
+	return &updateSnapshot{Latest: res.Latest, Kind: res.Kind, Channel: string(ch), Command: ch.UpgradeCommand(res.Latest)}
 }
 
 func classifyNetworkError(endpoint string, err error) statusError {
@@ -197,7 +221,7 @@ func outputFlag(args []string) (string, []string, error) {
 }
 
 func snapshotForConfig(dir string, cfg *clientconfig.Config, includeService bool) statusSnapshot {
-	s := statusSnapshot{Schema: statusSchema, Client: version, State: "in_sync", Providers: providerStatuses(cfg), ServerURL: cfg.ServerURL}
+	s := statusSnapshot{Schema: statusSchema, Client: version, State: "in_sync", Providers: providerStatuses(cfg), ServerURL: cfg.ServerURL, Update: snapshotUpdate()}
 	if includeService && isLoopbackURL(cfg.ServerURL) {
 		if st, err := statusServiceFn(); err == nil {
 			s.Service = newServiceSnapshot(st)
@@ -216,6 +240,9 @@ func snapshotForConfig(dir string, cfg *clientconfig.Config, includeService bool
 		return s
 	}
 	s.Reachable, s.Server, s.Ready = true, health.Version, health.Ready
+	if health.LatestVersion != "" && !isLoopbackURL(cfg.ServerURL) {
+		s.ServerLatest = health.LatestVersion
+	}
 	if health.Routed() {
 		s.MountMode = "routed"
 	}
