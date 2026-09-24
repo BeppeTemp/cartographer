@@ -38,7 +38,8 @@ The server process is **ephemeral** (k8s pod or local service); what persists on
 - SQLite indices (optional, rebuildable).
 - Optional local runtime files under `.cartographer/`. Search indexes are
   rebuildable; conflict registries are operational state and should survive a
-  restart until resolved.
+  restart until resolved; `search-misses.jsonl` (D247) is a bounded log of
+  searches that found nothing, disposable, lost harmlessly with the volume.
 
 When `audit.log` is set, MCP tool execution appends an attempt+completion event
 pair per call, so the file is a complete operational request log (D119). See

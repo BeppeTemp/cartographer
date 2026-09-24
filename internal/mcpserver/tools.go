@@ -73,6 +73,7 @@ func RegisterKBTools(s *Server, k *kb.KB, deps Deps) {
 	// reconciliation fills the live index (and brings SQLite in line), and
 	// every search, pull and reindex after it applies only the delta.
 	rec := newSearchReconciler(k, deps.SQLIndex)
+	misses := newSearchMissLog(k)
 	if _, err := rec.reconcile(); err != nil {
 		fmt.Fprintf(os.Stderr, "cartographer: build search index: %v\n", err)
 	}
@@ -108,7 +109,7 @@ func RegisterKBTools(s *Server, k *kb.KB, deps Deps) {
 	register(toolGraphContext(k, rec, deps))
 	register(toolLinkSuggest(k))
 	register(toolGraphPath(k))
-	register(toolSearch(k, rec, deps))
+	register(toolSearch(k, rec, misses, deps))
 	register(toolReindex(k, rec, deps))
 	register(toolLint(k))
 	register(toolCommitGate(k))
@@ -118,7 +119,7 @@ func RegisterKBTools(s *Server, k *kb.KB, deps Deps) {
 	register(gitWrap(k, toolConceptBatch(k)))
 	register(gitWrap(k, toolConceptDelete(k)))
 	register(gitWrap(k, toolConflictResolve(k)))
-	register(toolKBStatus(k))
+	register(toolKBStatus(k, misses))
 	register(toolContradictionReport(k))
 	register(toolConflictsList(k))
 	register(toolSyncStatus(k))

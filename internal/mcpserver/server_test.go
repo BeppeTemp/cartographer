@@ -1336,7 +1336,7 @@ func TestServer_Validate(t *testing.T) {
 // keyword results it did not ask for.
 func TestSearch_RemovedModeArgumentsRejected(t *testing.T) {
 	k := setupTestKB(t)
-	search := toolSearch(k, newSearchReconciler(k, nil), Deps{})
+	search := toolSearch(k, newSearchReconciler(k, nil), nil, Deps{})
 	if strings.Contains(string(search.InputSchema), `"mode"`) || strings.Contains(string(search.InputSchema), "use_semantic") {
 		t.Fatalf("search schema still offers the removed arguments: %s", search.InputSchema)
 	}
