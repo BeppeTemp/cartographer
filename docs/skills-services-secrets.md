@@ -144,6 +144,18 @@ The age key is selected in this order:
 It is passed to the child process as `SOPS_AGE_KEY_FILE` and must never be
 stored in the KB.
 
+That key file is the **only** identity `sops` can use. Every `sops` child runs
+in a hermetic environment (D260): it inherits only `PATH`, `TMPDIR`, `TMP`,
+`TEMP`, `SYSTEMROOT`, `LANG` and `LC_ALL` from the server, gets a fresh empty
+`HOME` and `XDG_CONFIG_HOME` (on Windows also `USERPROFILE` and `APPDATA`),
+removed after the call, plus `SOPS_AGE_KEY_FILE`. An ambient `SOPS_AGE_KEY` or
+`SOPS_AGE_KEY_CMD`, the default `sops/age/keys.txt`, SSH keys under `~/.ssh` and
+cloud KMS / Vault credentials (`AWS_*`, `GOOGLE_*`, `AZURE_*`, `VAULT_*`) are
+ignored — without a configured `sops_age_key_file` nothing decrypts, and a KB
+cannot be opened with another KB's key or the operator's personal one. Only
+`sops` stdout is parsed as the decrypted document; stderr surfaces only in the
+error of a failed decrypt.
+
 `service_get(resolve_secrets=true)` requires:
 
 - `sops` in `PATH`;

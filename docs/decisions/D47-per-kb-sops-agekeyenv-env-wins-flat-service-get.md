@@ -21,4 +21,8 @@ path traversal on `secrets_source` before decryption.
 **Rationale.** Propagating the `env` instead of mutating `os.Environ()` prevents one KB's age key
 from contaminating requests on another in a multi-KB server (same reason as D46). The special case
 in the guard keeps all r/rw enforcement in one place, consistent with D45.
+*(Completed by [D260](D260-sops-runs-in-a-hermetic-environment.md): passing the key through `env`
+isolated only the key Cartographer passes — the child still inherited the whole server
+environment, so an ambient `SOPS_AGE_KEY`, default `keys.txt` or SSH key could decrypt any KB.
+The child environment is now built from an allowlist.)*
 Details: `docs/skills-services-secrets.md` §SOPS secrets, `docs/transport-auth.md`.
