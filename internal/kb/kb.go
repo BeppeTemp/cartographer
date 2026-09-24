@@ -467,6 +467,15 @@ func ensureInfoExclude(kbDir, entry string) error {
 	return os.WriteFile(excludePath, []byte(newContent), 0o644)
 }
 
+// ServicesNamespace is the first ID segment of the service-descriptor
+// namespace. Unlike every map, it is rooted at kb.Root, not DataRoot():
+// ResolvePath is the one place that picks the root, and every operation that
+// turns a concept ID into a physical path must go through it — a direct
+// filepath.Join(kb.DataRoot(), id) lands in data/services/, which no read
+// ever looks at (D269). For the same reason it is not a valid map or journal
+// name (see CreateMapWithContract).
+const ServicesNamespace = "services"
+
 // ResolvePath resolves a concept path relative to the KB data root, verifying:
 //   - no escape from the base (../)
 //   - no absolute path
@@ -477,7 +486,7 @@ func ensureInfoExclude(kbDir, entry string) error {
 func (kb *KB) ResolvePath(relPath string, writeMode bool) (string, error) {
 	base := kb.DataRoot()
 	clean := filepath.Clean(relPath)
-	if clean == "services" || strings.HasPrefix(clean, "services"+string(os.PathSeparator)) {
+	if clean == ServicesNamespace || strings.HasPrefix(clean, ServicesNamespace+string(os.PathSeparator)) {
 		base = kb.Root
 	}
 	return safeJoin(base, relPath)
@@ -743,6 +752,45 @@ func (kb *KB) ConceptRelPath(id okf.ConceptID) (relPath string, expanded bool) {
 		return okf.IDToPath(id), false
 	}
 	return rel, exp
+}
+
+// ConceptLocation is where a concept ID lives on disk, resolved in its own
+// namespace (DataRoot() for maps, kb.Root for services/ — see ResolvePath).
+type ConceptLocation struct {
+	// File is the absolute path of the file that holds the concept:
+	// "<id>.md", or "<id>/index.md" when Expanded. For a concept that does
+	// not exist it is the direct form, so a Lstat on it answers "occupied?".
+	File string
+	// Dir is the absolute path of the expanded-concept directory "<id>/",
+	// whether or not it exists (an asset-only directory can exist without an
+	// owner concept).
+	Dir string
+	// Expanded reports that the concept is held by "<id>/index.md".
+	Expanded bool
+}
+
+// LocateConcept resolves id to its physical location for a caller that
+// moves or removes files itself (concept_move). It goes through the same
+// resolver as ReadConcept/WriteConcept, so the path it returns is the file a
+// read would have returned, in whichever namespace root holds it (D269): a
+// caller joining DataRoot() by hand removes data/services/<x>.md while the
+// real services/<x>.md survives. Both forms existing at once is refused as
+// expanded_ambiguous, as on the write path. It rejects the same absolute and
+// escaping IDs as ResolvePath (okf.ErrInvalidPath).
+func (kb *KB) LocateConcept(id okf.ConceptID) (ConceptLocation, error) {
+	rel, expanded, err := kb.resolveConceptRelPath(id, true)
+	if err != nil {
+		return ConceptLocation{}, err
+	}
+	file, err := kb.ResolvePath(rel, true)
+	if err != nil {
+		return ConceptLocation{}, err
+	}
+	dir, err := kb.ResolvePath(string(id), true)
+	if err != nil {
+		return ConceptLocation{}, err
+	}
+	return ConceptLocation{File: file, Dir: dir, Expanded: expanded}, nil
 }
 
 // resolveConceptRelPath resolves id to the relative path (from the data root)
@@ -1072,7 +1120,7 @@ const maxConceptDepth = 3
 // dossier stubbing (it has no archivio/dossier structure).
 func isServicesID(id okf.ConceptID) bool {
 	idStr := string(id)
-	return idStr == "services" || strings.HasPrefix(idStr, "services/")
+	return idStr == ServicesNamespace || strings.HasPrefix(idStr, ServicesNamespace+"/")
 }
 
 // titleFromKebab derives a title from a kebab-case name by splitting on "-"
@@ -1426,6 +1474,13 @@ func (kb *KB) CreateMapWithContract(name, title, kind string, conceptTypes []str
 	if _, err := okf.PathToID(name + ".md"); err != nil {
 		return fmt.Errorf("%w: invalid map name %q", okf.ErrInvalidPath, name)
 	}
+	// A map named "services" would be scaffolded under data/services/, but
+	// ResolvePath routes every services/ read to the KB-root descriptor
+	// namespace: the map would report success and then be unreadable (D269).
+	// Checked before any filesystem mutation, for every kind.
+	if name == ServicesNamespace {
+		return fmt.Errorf("%w: map name %q is reserved for service descriptors (the KB-root %s/ namespace); choose another name", okf.ErrInvalidPath, name, ServicesNamespace)
+	}
 
 	mapAbs := filepath.Join(kb.DataRoot(), name)
 	if _, err := os.Stat(mapAbs); err == nil {
@@ -1666,7 +1721,9 @@ func (kb *KB) DeleteMap(name string) error {
 	if _, err := okf.PathToID(name + ".md"); err != nil {
 		return fmt.Errorf("%w: invalid map name %q", okf.ErrInvalidPath, name)
 	}
-
+	// No reserved-name check here, unlike CreateMapWithContract: DeleteMap
+	// acts on data/<name>/, so an empty data/services/ scaffold left by the
+	// pre-D269 map_create can still be removed by the operator.
 	mapAbs := filepath.Join(kb.DataRoot(), name)
 	if _, err := os.Stat(mapAbs); err != nil {
 		if os.IsNotExist(err) {

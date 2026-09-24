@@ -662,19 +662,28 @@ func toolIndexPatch(k *kb.KB) Tool {
 	}
 }
 
+// conceptMoveRemove and conceptMoveRename are the two filesystem calls that
+// complete a move after its target exists. They are variables only so a test
+// can make them fail deterministically (a read-only directory does not stop
+// root, nor Windows): production never reassigns them.
+var (
+	conceptMoveRemove = os.Remove
+	conceptMoveRename = os.Rename
+)
+
 // --- map_create ---
 
 func toolMapCreate(k *kb.KB) Tool {
 	return Tool{
 		Name:        "map_create",
-		Description: "Creates a new Map or Journal in the Atlas (directory with _map.md, index.md, log.md). A Map holds mixed concept types on a theme; a Journal is a chronological log (e.g. incidents, notes). Concepts grow into expanded concepts via concept_expand, not via a separate creation step.",
+		Description: "Creates a new Map or Journal in the Atlas (directory with _map.md, index.md, log.md). A Map holds mixed concept types on a theme; a Journal is a chronological log (e.g. incidents, notes). Concepts grow into expanded concepts via concept_expand, not via a separate creation step. The name \"services\" is reserved for the KB-root service-descriptor namespace and is refused for every kind (this is unrelated to the Service concept type).",
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"required": ["name", "title"],
 			"properties": {
 				"name": {
 					"type": "string",
-					"description": "Directory name in kebab-case"
+					"description": "Directory name in kebab-case; \"services\" is reserved (service descriptors) and refused"
 				},
 				"title": {
 					"type": "string",
@@ -1181,7 +1190,7 @@ func toolConceptMove(k *kb.KB) Tool {
 			"invalid entry aborts the whole batch, no move is applied. After applying the moves, " +
 			"unless rewrite_links=false, the server rewrites in a single pass every inbound wiki-link " +
 			"([[old-id]], [[old-id#section]]) and markdown link across the whole KB (including " +
-			"services/) to point at the new IDs. Moving an expanded concept moves its whole directory, including assets and satellite concepts; inbound links to assets are intentionally left unchanged.",
+			"services/) to point at the new IDs. Moves work across namespaces (a map and the KB-root services/ tree) in any direction: on success the old ID is gone and the new one is readable. Moving an expanded concept moves its whole directory, including assets and satellite concepts; inbound links to assets are intentionally left unchanged. A filesystem failure after a target was written is reported as an error naming both IDs; it is not rolled back.",
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"properties": {
@@ -1257,6 +1266,8 @@ func toolConceptMove(k *kb.KB) Tool {
 				fm       *okf.Frontmatter
 				body     string
 				expanded bool
+				source   kb.ConceptLocation
+				target   kb.ConceptLocation
 				mappings map[string]string
 			}
 			seenSources := map[string]bool{}
@@ -1282,15 +1293,26 @@ func toolConceptMove(k *kb.KB) Tool {
 					return errorResult("invalid target_id: " + m.TargetID), nil
 				}
 
-				// Path traversal check (concept IDs are anchored at the data root).
-				targetAbs := filepath.Clean(filepath.Join(k.DataRoot(), m.TargetID+".md"))
-				if !strings.HasPrefix(targetAbs, filepath.Clean(k.DataRoot())+string(filepath.Separator)) {
-					return errorResult("target_id resolves outside KB root: " + m.TargetID), nil
+				// Both ends are resolved by the KB, never joined onto
+				// DataRoot() here: services/ is rooted at the KB root, and a
+				// hand-built path removed data/services/<x>.md while the real
+				// services/<x>.md survived, leaving two copies (D269). The
+				// resolver also carries the path-confinement check.
+				targetLoc, err := k.LocateConcept(okf.ConceptID(m.TargetID))
+				if err != nil {
+					if errors.Is(err, okf.ErrInvalidPath) {
+						return errorResult("target_id resolves outside KB root: " + m.TargetID), nil
+					}
+					return errorResult(fmt.Sprintf("concept_move: resolve target %q: %v", m.TargetID, err)), nil
 				}
 
 				data, err := k.ReadConcept(okf.ConceptID(m.SourceID))
 				if err != nil {
 					return errorResult(fmt.Sprintf("concept_move: read source %q: %v", m.SourceID, err)), nil
+				}
+				sourceLoc, err := k.LocateConcept(okf.ConceptID(m.SourceID))
+				if err != nil {
+					return errorResult(fmt.Sprintf("concept_move: resolve source %q: %v", m.SourceID, err)), nil
 				}
 
 				// Check that target does not already exist to prevent silent overwrite.
@@ -1299,25 +1321,32 @@ func toolConceptMove(k *kb.KB) Tool {
 				} else if !errors.Is(terr, okf.ErrNotFound) {
 					return errorResult(fmt.Sprintf("concept_move: check target %q: %v", m.TargetID, terr)), nil
 				}
+				// Occupied also means a file ReadConcept cannot parse, or an
+				// "<id>/" directory holding only assets: moving onto either
+				// would silently adopt or shadow what is there.
+				if _, statErr := os.Lstat(targetLoc.File); statErr == nil {
+					return errorResult("conflict: target already exists: " + m.TargetID), nil
+				} else if !os.IsNotExist(statErr) {
+					return errorResult(fmt.Sprintf("concept_move: check target %q: %v", m.TargetID, statErr)), nil
+				}
+				if _, statErr := os.Lstat(targetLoc.Dir); statErr == nil {
+					return errorResult("conflict: target directory already exists: " + m.TargetID), nil
+				} else if !os.IsNotExist(statErr) {
+					return errorResult(fmt.Sprintf("concept_move: check target directory %q: %v", m.TargetID, statErr)), nil
+				}
 
 				fm, err := okf.ParseFrontmatter(data.FrontmatterRaw)
 				if err != nil {
 					return errorResult(fmt.Sprintf("concept_move: parse frontmatter %q: %v", m.SourceID, err)), nil
 				}
 
-				vm := validMove{sourceID: m.SourceID, targetID: m.TargetID, fm: fm, body: data.Body, mappings: map[string]string{m.SourceID: m.TargetID}}
-				if _, indexErr := k.ReadRaw(filepath.Join(m.SourceID, "index.md")); indexErr == nil {
+				vm := validMove{sourceID: m.SourceID, targetID: m.TargetID, fm: fm, body: data.Body, source: sourceLoc, target: targetLoc, mappings: map[string]string{m.SourceID: m.TargetID}}
+				if sourceLoc.Expanded {
 					if len(strings.Split(m.SourceID, "/")) != 2 || len(strings.Split(m.TargetID, "/")) != 2 {
 						return errorResult("expanded concept moves require two-segment source_id and target_id"), nil
 					}
 					if strings.HasPrefix(m.TargetID+"/", m.SourceID+"/") || strings.HasPrefix(m.SourceID+"/", m.TargetID+"/") {
 						return errorResult("expanded concept target cannot be inside, above, or equal to its source"), nil
-					}
-					targetDir := filepath.Join(k.DataRoot(), m.TargetID)
-					if _, statErr := os.Lstat(targetDir); statErr == nil {
-						return errorResult("conflict: target directory already exists: " + m.TargetID), nil
-					} else if !os.IsNotExist(statErr) {
-						return errorResult(fmt.Sprintf("concept_move: check target directory %q: %v", m.TargetID, statErr)), nil
 					}
 					vm.expanded = true
 					if err := k.WalkConcepts(func(id okf.ConceptID, _ string) error {
@@ -1354,24 +1383,34 @@ func toolConceptMove(k *kb.KB) Tool {
 			applied := make([]conceptMoveEntry, 0, len(valid))
 			logLines := make([]string, 0, len(valid)+1)
 
+			// A failure from here on is late: earlier entries (and, for a flat
+			// move, this entry's target) are already on disk and are not rolled
+			// back. It must still be an explicit application error — gitWrap
+			// then neither commits nor logs success — and say what is where.
+			appliedNote := func() string {
+				if len(applied) == 0 {
+					return ""
+				}
+				return fmt.Sprintf("; %d earlier move(s) in this batch were already applied and are not rolled back", len(applied))
+			}
 			for _, mv := range valid {
 				if mv.expanded {
-					srcDir := filepath.Join(k.DataRoot(), mv.sourceID)
-					targetDir := filepath.Join(k.DataRoot(), mv.targetID)
-					if err := os.MkdirAll(filepath.Dir(targetDir), 0o755); err != nil {
-						return errorResult(fmt.Sprintf("concept_move: create target parent %q: %v", mv.targetID, err)), nil
+					if err := os.MkdirAll(filepath.Dir(mv.target.Dir), 0o755); err != nil {
+						return errorResult(fmt.Sprintf("concept_move: create target parent %q: %v%s", mv.targetID, err, appliedNote())), nil
 					}
-					if err := os.Rename(srcDir, targetDir); err != nil {
-						return errorResult(fmt.Sprintf("concept_move: move expanded source %q: %v", mv.sourceID, err)), nil
+					if err := conceptMoveRename(mv.source.Dir, mv.target.Dir); err != nil {
+						return errorResult(fmt.Sprintf("concept_move: could not move expanded concept %q to %q: %v; its directory was not moved%s", mv.sourceID, mv.targetID, err, appliedNote())), nil
 					}
 				} else {
 					if _, err := k.WriteConcept(okf.ConceptID(mv.targetID), mv.fm, mv.body, ""); err != nil {
-						return errorResult(fmt.Sprintf("concept_move: write target %q: %v", mv.targetID, err)), nil
+						return errorResult(fmt.Sprintf("concept_move: write target %q: %v%s", mv.targetID, err, appliedNote())), nil
 					}
 
-					srcPath := filepath.Join(k.DataRoot(), mv.sourceID+".md")
-					if err := os.Remove(srcPath); err != nil && !os.IsNotExist(err) {
-						return errorResult(fmt.Sprintf("concept_move: remove source %q: %v", mv.sourceID, err)), nil
+					// The source was resolved and read in preflight, so even
+					// not-found here is a failure: ignoring it is how the move
+					// used to report success with the source still in place.
+					if err := conceptMoveRemove(mv.source.File); err != nil {
+						return errorResult(fmt.Sprintf("concept_move: target %q was already written but source %q could not be removed: %v; both now exist and nothing was rolled back — delete one of them%s", mv.targetID, mv.sourceID, err, appliedNote())), nil
 					}
 				}
 

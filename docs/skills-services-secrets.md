@@ -99,6 +99,13 @@ near-miss such as `services` is still not a service. Lint reports
 `secret_refs` under any other type, so the mistake surfaces from the KB instead
 of from a source read.
 
+`services/` is a namespace at the KB root, a sibling of `data/`, not a map: the
+map/journal name `services` is reserved and `map_create` refuses it (D269). The
+reservation is about the folder name only; it neither affects the
+case-insensitive `Service` type match above nor names such as
+`application-services`. Concepts move in and out of `services/` with
+`concept_move` like between any two maps.
+
 Frontmatter supports Cartographer's scalar/list subset, so a
 descriptor intended for `service_get` should stay flat:
 
