@@ -2,7 +2,6 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "../App";
-import { detectCommunities } from "../lib/communities";
 import { forceLink, forceManyBody, forceSimulation } from "d3-force-3d";
 import { configureForces, drift, seedPosition, type PhysicsNode } from "../lib/graph3d/physics";
 import { generateSnapshot, json, stubApi, openPanels } from "./fixtures";
@@ -10,8 +9,8 @@ import { generateSnapshot, json, stubApi, openPanels } from "./fixtures";
 /**
  * The 2,000-node budget fixture (docs/testing.md §Atlas UI budgets).
  *
- * The client-side pipeline -- communities plus the simulation's warm-up --
- * runs synchronously on first view of a graph, so its cost is paid before the
+ * The client-side pipeline -- the simulation's warm-up; communities come from
+ * the server (D244) -- runs synchronously on first view of a graph, so its cost is paid before the
  * canvas can show anything. Ceilings here are generous on purpose: they catch
  * an order-of-magnitude regression (an O(n^2) pass, a lost Barnes-Hut) on any
  * CI runner, not a few percent. The measured values are printed and recorded
@@ -25,9 +24,7 @@ describe("2,000-node budget fixture", () => {
     expect(FIXTURE.edges.length).toBeGreaterThan(2000);
   });
 
-  it("detects communities and warms the simulation up within budget", () => {
-    const started = performance.now();
-    detectCommunities(FIXTURE);
+  it("warms the simulation up within budget", () => {
     const detected = performance.now();
     // The graph view's warm-up for this size (GraphView: 600,000 / n ticks,
     // clamped to 80..300), on the view's own force configuration.
@@ -41,9 +38,8 @@ describe("2,000-node budget fixture", () => {
     sim.tick(300);
     const warmed = performance.now();
     console.info(
-      `budget: communities ${(detected - started).toFixed(0)}ms, warm-up ${(warmed - detected).toFixed(0)}ms for 2,000 nodes / ${FIXTURE.edges.length} edges`,
+      `budget: warm-up ${(warmed - detected).toFixed(0)}ms for 2,000 nodes / ${FIXTURE.edges.length} edges`,
     );
-    expect(detected - started).toBeLessThan(1000);
     // ~2.2 s on an Apple M5, ~5.4 s on a GitHub-hosted runner: the ceiling
     // leaves a shared runner its slack and still fails a 5x regression.
     expect(warmed - detected).toBeLessThan(12_000);

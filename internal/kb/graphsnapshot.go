@@ -1,9 +1,11 @@
 package kb
 
 import (
+	"math"
 	"path"
 	"sort"
 
+	"github.com/BeppeTemp/cartographer/internal/graphalgo"
 	"github.com/BeppeTemp/cartographer/internal/okf"
 )
 
@@ -38,6 +40,21 @@ type GraphNode struct {
 	SelfLink  bool   `json:"self_link,omitempty"`
 	InDegree  int    `json:"in_degree"`
 	OutDegree int    `json:"out_degree"`
+	// PageRank is the node's global importance on the caller's visible graph
+	// (D244), rounded to 6 decimals; Community is its community's rank in
+	// GraphSnapshot.Communities. Both are whole-graph values, like the degrees.
+	PageRank  float64 `json:"pagerank"`
+	Community int     `json:"community"`
+}
+
+// SnapshotCommunity is one community of the caller's visible graph (D244):
+// its rank (0 = largest), size, anchor (the member a legend names it after)
+// and colour slot (1..12, or 0 for singletons and the long tail).
+type SnapshotCommunity struct {
+	Rank   int           `json:"rank"`
+	Size   int           `json:"size"`
+	Anchor okf.ConceptID `json:"anchor"`
+	Slot   int           `json:"slot"`
 }
 
 // GraphEdge is a directed link between two concepts both present in the
@@ -77,6 +94,9 @@ type GraphSnapshot struct {
 	Nodes  []GraphNode    `json:"nodes"`
 	Edges  []GraphEdge    `json:"edges"`
 	Broken []BrokenTarget `json:"broken,omitempty"`
+	// Communities covers the whole visible graph, not only the returned
+	// nodes, so a scoped view keeps whole-KB colours.
+	Communities []SnapshotCommunity `json:"communities"`
 
 	// Truncated is set when any of the three lists was cut by a bound.
 	Truncated bool `json:"truncated,omitempty"`
@@ -104,9 +124,11 @@ func conceptCollection(id okf.ConceptID) string {
 // GraphSnapshot reads the link graph from the stat-validated cache (D241) and
 // returns a sorted, bounded projection of it.
 //
-// Sorting happens before truncation, so the same KB state always produces the
-// same response: a graph whose nodes reshuffle between two identical requests
-// is unusable as a navigation surface. The traversal computes both degrees as
+// Selection is by importance and deterministic, and the output is sorted, so
+// the same KB state always produces the same response: a graph whose nodes
+// reshuffle between two identical requests is unusable as a navigation
+// surface. Past the limit the nodes with the highest PageRank are kept, and
+// past MaxGraphEdges the edges whose weaker endpoint ranks highest (D244). The traversal computes both degrees as
 // it goes — the alternative, one GraphNeighbors call per concept, re-walks the
 // whole KB once per node.
 //
@@ -201,6 +223,34 @@ func (kb *KB) GraphSnapshot(opts GraphSnapshotOptions) (GraphSnapshot, error) {
 		}
 	}
 
+	// Trap: importance and communities are computed on the whole visible
+	// graph, before scope and limit (D244). After them, a scoped view would
+	// recolour and a truncated one would rank on what survived the cut; and a
+	// graph that included hidden concepts would disclose them through the
+	// numbers (D226).
+	// They are computed on the edges this snapshot reports, not on the cached
+	// adjacency: when two files emit one id the two can differ, and the
+	// numbers must describe the graph the caller is shown.
+	index := make(map[okf.ConceptID]int, len(ids))
+	for i, id := range ids {
+		index[id] = i
+	}
+	g := &graphalgo.Graph{N: len(ids), Out: make([][]int, len(ids)), In: make([][]int, len(ids))}
+	for key := range edgeSet {
+		u, v := index[key.source], index[key.target]
+		g.Out[u] = append(g.Out[u], v)
+		g.In[v] = append(g.In[v], u)
+	}
+	degree := make([]int, len(ids))
+	for i, id := range ids {
+		sort.Ints(g.Out[i])
+		sort.Ints(g.In[i])
+		degree[i] = inDegree[id] + outDegree[id]
+	}
+	pagerank := graphalgo.PageRank(g, 0.85, 1e-9, 100)
+	prOf := func(id okf.ConceptID) float64 { return pagerank[index[id]] }
+	communityOf, communities := graphalgo.Communities(g, 1, degree)
+
 	// Scope selects the full candidate node set; the limit then cuts it.
 	scoped := ids
 	if opts.Scope != "" {
@@ -227,9 +277,23 @@ func (kb *KB) GraphSnapshot(opts GraphSnapshotOptions) (GraphSnapshot, error) {
 		snap.TotalEdges++
 	}
 
+	snap.Communities = make([]SnapshotCommunity, len(communities))
+	for i, c := range communities {
+		snap.Communities[i] = SnapshotCommunity{Rank: c.Rank, Size: c.Size, Anchor: ids[c.Anchor], Slot: c.Slot}
+	}
+
 	kept := scoped
 	if len(kept) > limit {
-		kept = kept[:limit]
+		byImportance := append([]okf.ConceptID(nil), scoped...)
+		sort.SliceStable(byImportance, func(i, j int) bool {
+			pi, pj := prOf(byImportance[i]), prOf(byImportance[j])
+			if pi != pj {
+				return pi > pj
+			}
+			return byImportance[i] < byImportance[j]
+		})
+		kept = byImportance[:limit]
+		sort.Slice(kept, func(i, j int) bool { return kept[i] < kept[j] })
 		snap.Truncated = true
 	}
 	inSnapshot := make(map[okf.ConceptID]struct{}, len(kept))
@@ -246,6 +310,8 @@ func (kb *KB) GraphSnapshot(opts GraphSnapshotOptions) (GraphSnapshot, error) {
 			SelfLink:   selfLink[id],
 			InDegree:   inDegree[id],
 			OutDegree:  outDegree[id],
+			PageRank:   math.Round(prOf(id)*1e6) / 1e6,
+			Community:  communityOf[index[id]],
 		})
 	}
 
@@ -259,14 +325,20 @@ func (kb *KB) GraphSnapshot(opts GraphSnapshotOptions) (GraphSnapshot, error) {
 		}
 		snap.Edges = append(snap.Edges, GraphEdge{Source: key.source, Target: key.target})
 	}
-	sort.Slice(snap.Edges, func(i, j int) bool {
-		if snap.Edges[i].Source != snap.Edges[j].Source {
-			return snap.Edges[i].Source < snap.Edges[j].Source
+	bySourceTarget := func(e []GraphEdge) func(i, j int) bool {
+		return func(i, j int) bool {
+			if e[i].Source != e[j].Source {
+				return e[i].Source < e[j].Source
+			}
+			return e[i].Target < e[j].Target
 		}
-		return snap.Edges[i].Target < snap.Edges[j].Target
-	})
+	}
+	sort.Slice(snap.Edges, bySourceTarget(snap.Edges))
 	if len(snap.Edges) > MaxGraphEdges {
+		weaker := func(e GraphEdge) float64 { return math.Min(prOf(e.Source), prOf(e.Target)) }
+		sort.SliceStable(snap.Edges, func(i, j int) bool { return weaker(snap.Edges[i]) > weaker(snap.Edges[j]) })
 		snap.Edges = snap.Edges[:MaxGraphEdges]
+		sort.Slice(snap.Edges, bySourceTarget(snap.Edges))
 		snap.Truncated = true
 	}
 

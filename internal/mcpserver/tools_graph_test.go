@@ -326,3 +326,54 @@ func TestGraphNeighborsNarrowedDepth(t *testing.T) {
 		t.Fatalf("admin should reach ops/b through hidden/h: %s", admin)
 	}
 }
+
+func TestAtlasOverviewStructure(t *testing.T) {
+	visible := map[string]string{
+		"ops/hub.md":  "---\ntype: Note\ntitle: The hub\n---\nHub.\n",
+		"ops/a.md":    "[h](hub.md) [b](b.md) [c](c.md).\n",
+		"ops/b.md":    "[h](hub.md) [a](a.md) [c](c.md).\n",
+		"ops/c.md":    "[h](hub.md) [a](a.md) [b](b.md).\n",
+		"ops/lone.md": "Nothing.\n",
+	}
+	withHidden := map[string]string{
+		"hidden/x.md": "[h](../ops/lone.md) [y](y.md) [z](z.md).\n",
+		"hidden/y.md": "[x](x.md) [z](z.md) [l](../ops/lone.md).\n",
+		"hidden/z.md": "[x](x.md) [y](y.md) [l](../ops/lone.md).\n",
+	}
+	for k, v := range visible {
+		withHidden[k] = v
+	}
+	full := graphToolKB(t, withHidden)
+	stripped := graphToolKB(t, visible)
+
+	plain := mustText(t, full, "atlas_overview", `{}`)
+	if strings.Contains(plain, "## Structure") {
+		t.Fatalf("structure without asking: %s", plain)
+	}
+	if again := mustText(t, full, "atlas_overview", `{"structure":false}`); again != plain {
+		t.Fatal("structure:false changed the default output")
+	}
+	withStructure := mustText(t, full, "atlas_overview", `{"structure":true}`)
+	if !strings.HasPrefix(withStructure, plain) {
+		t.Fatal("structure must only append to the default output")
+	}
+	section := withStructure[len(plain):]
+	if !strings.Contains(section, "### Most central\n\n- The hub (ops/hub)\n") ||
+		!strings.Contains(section, "- A — 4 concepts, mostly in ops (100%)") {
+		t.Fatalf("structure = %s", section)
+	}
+	if again := mustText(t, full, "atlas_overview", `{"structure":true}`); again != withStructure {
+		t.Fatal("structure is not deterministic")
+	}
+
+	// A narrowed token gets the structure of the KB without what it cannot see.
+	structureOf := func(s string) string { return s[strings.Index(s, "\n## Structure"):] }
+	got, _ := callJSON(t, full, narrowCtx, "atlas_overview", `{"structure":true}`)
+	want, _ := callJSON(t, stripped, adminCtx, "atlas_overview", `{"structure":true}`)
+	if structureOf(got) != structureOf(want) {
+		t.Fatalf("narrowed:\n%s\nstripped:\n%s", structureOf(got), structureOf(want))
+	}
+	if strings.Contains(got, "hidden/") {
+		t.Fatalf("hidden concept disclosed: %s", got)
+	}
+}

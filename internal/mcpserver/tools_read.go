@@ -18,10 +18,18 @@ import (
 func toolAtlasOverview(k *kb.KB) Tool {
 	return Tool{
 		Name:        "atlas_overview",
-		Description: "Returns the Atlas's root index.md plus the list of Maps and Journals, each with its concept (and expanded-concept) count.",
+		Description: "Returns the Atlas's root index.md plus the list of Maps and Journals, each with its concept (and expanded-concept) count. With structure: true it also lists the most central concepts and the main communities of the link graph — where to start reading.",
 		ReadOnly:    true,
-		InputSchema: json.RawMessage(`{"type":"object","properties":{}}`),
+		InputSchema: json.RawMessage(`{"type":"object","properties":{"structure":{"type":"boolean","description":"Also report the most central concepts (PageRank) and the main communities of the link graph. Default false."}}}`),
 		Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
+			var params struct {
+				Structure bool `json:"structure"`
+			}
+			if len(args) > 0 {
+				if err := json.Unmarshal(args, &params); err != nil {
+					return errorResult("invalid params: " + err.Error()), nil
+				}
+			}
 			archives, err := k.ListArchives()
 			if err != nil {
 				return errorResult(fmt.Sprintf("list maps: %v", err)), nil
@@ -58,6 +66,11 @@ func toolAtlasOverview(k *kb.KB) Tool {
 					} else {
 						sb.WriteString(fmt.Sprintf("- **%s** (%d concepts)\n", a, conceptCount))
 					}
+				}
+			}
+			if params.Structure {
+				if err := writeAtlasStructure(&sb, ctx, k); err != nil {
+					return errorResult(fmt.Sprintf("atlas structure: %v", err)), nil
 				}
 			}
 			return textResult(sb.String()), nil

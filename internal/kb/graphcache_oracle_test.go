@@ -8,12 +8,14 @@ package kb
 import (
 	"fmt"
 	"io/fs"
+	"math"
 	"os"
 	"path"
 	"path/filepath"
 	"sort"
 	"strings"
 
+	"github.com/BeppeTemp/cartographer/internal/graphalgo"
 	"github.com/BeppeTemp/cartographer/internal/okf"
 )
 
@@ -250,6 +252,39 @@ func (kb *KB) oracleSnapshot(opts GraphSnapshotOptions) (GraphSnapshot, error) {
 		}
 	}
 
+	// PageRank and communities on the visible graph, from the walk's own
+	// edges rather than the cached view (D244).
+	index := make(map[okf.ConceptID]int, len(ids))
+	for i, id := range ids {
+		index[id] = i
+	}
+	outs := make([]map[int]bool, len(ids))
+	ins := make([]map[int]bool, len(ids))
+	for i := range ids {
+		outs[i], ins[i] = map[int]bool{}, map[int]bool{}
+	}
+	for key := range edgeSet {
+		outs[index[key.source]][index[key.target]] = true
+		ins[index[key.target]][index[key.source]] = true
+	}
+	sortedKeys := func(m map[int]bool) []int {
+		out := make([]int, 0, len(m))
+		for k := range m {
+			out = append(out, k)
+		}
+		sort.Ints(out)
+		return out
+	}
+	g := &graphalgo.Graph{N: len(ids), Out: make([][]int, len(ids)), In: make([][]int, len(ids))}
+	degree := make([]int, len(ids))
+	for i, id := range ids {
+		g.Out[i], g.In[i] = sortedKeys(outs[i]), sortedKeys(ins[i])
+		degree[i] = inDegree[id] + outDegree[id]
+	}
+	pagerank := graphalgo.PageRank(g, 0.85, 1e-9, 100)
+	communityOf, communities := graphalgo.Communities(g, 1, degree)
+	prOf := func(id okf.ConceptID) float64 { return pagerank[index[id]] }
+
 	// Scope selects the full candidate node set; the limit then cuts it.
 	scoped := ids
 	if opts.Scope != "" {
@@ -276,9 +311,21 @@ func (kb *KB) oracleSnapshot(opts GraphSnapshotOptions) (GraphSnapshot, error) {
 		snap.TotalEdges++
 	}
 
+	snap.Communities = make([]SnapshotCommunity, len(communities))
+	for i, c := range communities {
+		snap.Communities[i] = SnapshotCommunity{Rank: c.Rank, Size: c.Size, Anchor: ids[c.Anchor], Slot: c.Slot}
+	}
 	kept := scoped
 	if len(kept) > limit {
+		kept = append([]okf.ConceptID(nil), scoped...)
+		sort.SliceStable(kept, func(i, j int) bool {
+			if prOf(kept[i]) != prOf(kept[j]) {
+				return prOf(kept[i]) > prOf(kept[j])
+			}
+			return kept[i] < kept[j]
+		})
 		kept = kept[:limit]
+		sort.Slice(kept, func(i, j int) bool { return kept[i] < kept[j] })
 		snap.Truncated = true
 	}
 	inSnapshot := make(map[okf.ConceptID]struct{}, len(kept))
@@ -295,6 +342,8 @@ func (kb *KB) oracleSnapshot(opts GraphSnapshotOptions) (GraphSnapshot, error) {
 			SelfLink:   selfLink[id],
 			InDegree:   inDegree[id],
 			OutDegree:  outDegree[id],
+			PageRank:   math.Round(prOf(id)*1e6) / 1e6,
+			Community:  communityOf[index[id]],
 		})
 	}
 
@@ -315,7 +364,15 @@ func (kb *KB) oracleSnapshot(opts GraphSnapshotOptions) (GraphSnapshot, error) {
 		return snap.Edges[i].Target < snap.Edges[j].Target
 	})
 	if len(snap.Edges) > MaxGraphEdges {
+		weaker := func(e GraphEdge) float64 { return math.Min(prOf(e.Source), prOf(e.Target)) }
+		sort.SliceStable(snap.Edges, func(i, j int) bool { return weaker(snap.Edges[i]) > weaker(snap.Edges[j]) })
 		snap.Edges = snap.Edges[:MaxGraphEdges]
+		sort.Slice(snap.Edges, func(i, j int) bool {
+			if snap.Edges[i].Source != snap.Edges[j].Source {
+				return snap.Edges[i].Source < snap.Edges[j].Source
+			}
+			return snap.Edges[i].Target < snap.Edges[j].Target
+		})
 		snap.Truncated = true
 	}
 
