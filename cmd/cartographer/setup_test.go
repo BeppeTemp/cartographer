@@ -149,7 +149,7 @@ func stubSetup(t *testing.T, facts setupFacts) *[]string {
 	calls := &[]string{}
 	record := func(s string) { *calls = append(*calls, s) }
 	saved := []any{setupProbeRemote, setupLookGit, setupServiceStatus, setupInstallSvc, setupStartSvc,
-		setupKBCreate, setupKBClone, setupConnect, setupDetected, setupWaitReady}
+		setupKBCreate, setupKBClone, setupConnect, setupDetected, setupWaitReady, setupProbeAuth}
 	t.Cleanup(func() {
 		setupProbeRemote = saved[0].(func(context.Context, string) (bool, error))
 		setupLookGit = saved[1].(func() bool)
@@ -161,6 +161,7 @@ func stubSetup(t *testing.T, facts setupFacts) *[]string {
 		setupConnect = saved[7].(func([]string) int)
 		setupDetected = saved[8].(func() []string)
 		setupWaitReady = saved[9].(func() (service.Status, bool))
+		setupProbeAuth = saved[10].(func(string) (bool, error))
 	})
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("USERPROFILE", t.TempDir())
@@ -180,6 +181,7 @@ func stubSetup(t *testing.T, facts setupFacts) *[]string {
 	setupConnect = func(a []string) int { record("connect " + strings.Join(a, " ")); return 0 }
 	setupDetected = func() []string { return []string{"claude"} }
 	setupWaitReady = func() (service.Status, bool) { record("verify"); return service.Status{Healthy: true}, true }
+	setupProbeAuth = func(addr string) (bool, error) { record("probe auth " + addr); return false, nil }
 	return calls
 }
 
@@ -270,5 +272,54 @@ func TestRunSetup_StopsAtTheFailingStep(t *testing.T) {
 	}
 	if slices.Contains(*calls, "connect --no-input --agents claude") {
 		t.Errorf("connect ran after the KB step failed: %q", *calls)
+	}
+}
+
+// TestRunSetup_TokenRequiringServerStopsBeforeConnect: a local service that
+// answers 401 (a CARTOGRAPHER_TOKENS meant for another server reached it, D268)
+// stops setup before connect, instead of letting sync_pull fail with a bare 401.
+func TestRunSetup_TokenRequiringServerStopsBeforeConnect(t *testing.T) {
+	calls := stubSetup(t, setupFacts{Service: service.Status{Installed: true, Running: true, HTTPAddr: "127.0.0.1:39273"}})
+	setupProbeAuth = func(addr string) (bool, error) {
+		*calls = append(*calls, "probe auth "+addr)
+		return true, nil
+	}
+	if code := runSetup(setupOptions{NoRemote: true, Name: "kb-a"}, false, true, false, noPrompt()); code != 1 {
+		t.Fatalf("runSetup = %d, want 1", code)
+	}
+	for _, c := range *calls {
+		if strings.HasPrefix(c, "connect") || c == "verify" {
+			t.Errorf("setup went on to %q against a server that rejects its agents", c)
+		}
+	}
+	if !slices.Contains(*calls, "probe auth 127.0.0.1:39273") {
+		t.Errorf("the service was never probed for auth: %q", *calls)
+	}
+}
+
+func TestRunSetup_ServerWithoutAuthIsProbedThenConnected(t *testing.T) {
+	calls := stubSetup(t, setupFacts{Service: service.Status{Installed: true, Running: true, HTTPAddr: "127.0.0.1:39273"}})
+	if code := runSetup(setupOptions{NoRemote: true, Name: "kb-a"}, false, true, false, noPrompt()); code != 0 {
+		t.Fatalf("runSetup = %d, want 0", code)
+	}
+	i := slices.Index(*calls, "probe auth 127.0.0.1:39273")
+	j := slices.IndexFunc(*calls, func(c string) bool { return strings.HasPrefix(c, "connect") })
+	if i < 0 || j < 0 || i > j {
+		t.Errorf("want the auth probe before connect: %q", *calls)
+	}
+}
+
+func TestAuthMismatchMessageNamesTheVariable(t *testing.T) {
+	msg := authMismatchMessage("127.0.0.1:39273", "$HOME/.config/cartographer/server.yaml", true, "")
+	for _, want := range []string{"401", "CARTOGRAPHER_TOKENS is set in this shell", `mode: "off"`, "$HOME/.config/cartographer/server.yaml", "service restart"} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("message lacks %q:\n%s", want, msg)
+		}
+	}
+	if strings.Contains(authMismatchMessage("a", "b", false, ""), "this shell") {
+		t.Error("claims the variable is in this shell when it is not")
+	}
+	if !strings.Contains(authMismatchMessage("a", "b", false, "on"), "CARTOGRAPHER_AUTH=on") {
+		t.Error("a CARTOGRAPHER_AUTH forcing auth on is not named")
 	}
 }

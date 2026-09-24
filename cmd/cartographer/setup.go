@@ -290,6 +290,7 @@ var (
 	setupConnect       = cmdConnect
 	setupDetected      = func() []string { p, _ := resolveTargetProviders("", ""); return p }
 	setupWaitReady     = waitSetupReady
+	setupProbeAuth     = func(addr string) (bool, error) { return service.ProbeAuthRequired(addr, 5*time.Second) }
 )
 
 const setupProbeTimeout = 30 * time.Second
@@ -551,6 +552,11 @@ func runSetupPlan(p setupPlan) int {
 		fmt.Printf("using %s\n", strings.Join(p.Existing, ", "))
 	}
 
+	if msg := setupAuthMismatch(); msg != "" {
+		fmt.Fprintln(os.Stderr, "Error:", msg)
+		return 1
+	}
+
 	fmt.Println("==> agents")
 	args := []string{"--no-input", "--agents", strings.Join(p.Agents, ",")}
 	for _, kb := range p.KBs {
@@ -580,6 +586,52 @@ func runSetupPlan(p setupPlan) int {
 	fmt.Println("  Restart your agent sessions now: the MCP tools and skills load at session start,")
 	fmt.Println("  so a session that was already open does not see them.")
 	return 0
+}
+
+// setupAuthMismatch returns why the agent step would fail with a 401, or "".
+// The clients setup configures for the local server send no token, so a
+// service that demands one rejects every call — which is what happens when a
+// CARTOGRAPHER_TOKENS exported for another server reaches the service's
+// environment under a server.yaml that leaves auth.mode to "auto" (D268: a
+// config generated today sets it to "off", an older one does not). Caught here,
+// before connect, the cause is named instead of surfacing as a sync_pull 401.
+// A client already configured to send a token is left alone, and a probe
+// that cannot run says nothing: connect reports reachability itself.
+func setupAuthMismatch() string {
+	if dir, err := clientconfig.TargetDir(); err == nil {
+		if cfg, err := clientconfig.Load(dir); err == nil && cfg.Auth {
+			return ""
+		}
+	}
+	st, err := setupServiceStatus()
+	if err != nil || st.HTTPAddr == "" {
+		return ""
+	}
+	required, err := setupProbeAuth(st.HTTPAddr)
+	if err != nil || !required {
+		return ""
+	}
+	return authMismatchMessage(st.HTTPAddr, st.ConfigPath, os.Getenv("CARTOGRAPHER_TOKENS") != "", os.Getenv("CARTOGRAPHER_AUTH"))
+}
+
+// authMismatchMessage names the variable and the fix. inShell reports whether
+// CARTOGRAPHER_TOKENS is set in setup's own environment: the service's may
+// differ (launchd, systemd --user and Task Scheduler each have their own), so
+// it is evidence, not proof.
+func authMismatchMessage(addr, configPath string, inShell bool, authEnv string) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "the local server at %s requires a bearer token (HTTP 401), but setup connects the agents to it without one.\n", addr)
+	b.WriteString("  The server turns authentication on when CARTOGRAPHER_TOKENS reaches its environment and its config leaves auth.mode unset")
+	if authEnv != "" {
+		fmt.Fprintf(&b, " (or CARTOGRAPHER_AUTH=%s forces it)", authEnv)
+	}
+	b.WriteString(".\n")
+	if inShell {
+		b.WriteString("  CARTOGRAPHER_TOKENS is set in this shell: probably meant for another server.\n")
+	}
+	fmt.Fprintf(&b, "  Fix: add\n\n    auth:\n      mode: \"off\"\n\n  to %s, run `cartographer service restart`, then rerun `cartographer setup`\n", configPath)
+	b.WriteString("  (or remove CARTOGRAPHER_TOKENS from the service's environment).")
+	return b.String()
 }
 
 // waitSetupReady polls the service until its health probe passes, and returns
