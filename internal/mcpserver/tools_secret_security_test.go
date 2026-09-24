@@ -47,7 +47,9 @@ func TestServiceAndSecretResolveScopeDeclaredRefs(t *testing.T) {
 	fakeSecretSOPS(t)
 	k := setupServiceTestKB(t, "/age/key")
 	writeSecretConcept(t, k.Root, "svc-refs", "type: Service\nsecret_refs:\n  - TOKEN=secrets/test.sops.yaml#/allowed\n")
-	res := callServiceGet(t, k, "svc-refs", true)
+	// reveal: the scoping assertion needs the value, and the not-requested one
+	// must stay absent even when values are printed (D261).
+	res := callServiceGetArgs(t, k, map[string]any{"service_id": "svc-refs", "resolve_secrets": true, "reveal": true})
 	if res.IsError {
 		t.Fatal(res.Content)
 	}

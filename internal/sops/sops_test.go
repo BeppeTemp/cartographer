@@ -31,27 +31,6 @@ nested_key: "value-with-colon: in-it"
 	}
 }
 
-func TestEnvForSkill(t *testing.T) {
-	resolved := map[string]string{
-		"DB_PASSWORD": "secret123",
-		"API_KEY":     "key456",
-	}
-	env := EnvForSkill(resolved)
-	if len(env) != 2 {
-		t.Fatalf("expected 2 env vars, got %d", len(env))
-	}
-	found := map[string]bool{}
-	for _, e := range env {
-		found[e] = true
-	}
-	if !found["DB_PASSWORD=secret123"] {
-		t.Error("missing DB_PASSWORD")
-	}
-	if !found["API_KEY=key456"] {
-		t.Error("missing API_KEY")
-	}
-}
-
 func TestAvailable(t *testing.T) {
 	// Just verify it doesn't panic — result depends on system.
 	_ = Available()

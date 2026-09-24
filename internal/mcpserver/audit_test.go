@@ -226,3 +226,75 @@ func TestClassifyOutcomeDistinguishesApplicationFromInternalErrors(t *testing.T)
 		t.Errorf("internal error = %q", got)
 	}
 }
+
+// The flags that decide whether a credential is decrypted and printed are
+// booleans; a string-only filter dropped them silently, so D158's promise that
+// reveal "is recorded in the audit trail" was never kept (D261).
+func TestExtractResourcesRecordsAllowListedBooleans(t *testing.T) {
+	t.Run("secret_resolve reveal is recorded, names are not", func(t *testing.T) {
+		got := extractResources("secret_resolve", json.RawMessage(`{"concept_id":"svc","names":["TOKEN"],"reveal":true}`))
+		if got["reveal"] != "true" {
+			t.Errorf("Resources[reveal] = %q, want \"true\" (all: %v)", got["reveal"], got)
+		}
+		if got["concept_id"] != "svc" {
+			t.Errorf("Resources[concept_id] = %q, want \"svc\"", got["concept_id"])
+		}
+		if _, ok := got["names"]; ok {
+			t.Errorf("secret names reached the audit: %v", got)
+		}
+	})
+
+	t.Run("reveal false is recorded as false", func(t *testing.T) {
+		got := extractResources("secret_resolve", json.RawMessage(`{"concept_id":"svc","reveal":false}`))
+		if got["reveal"] != "false" {
+			t.Errorf("Resources[reveal] = %q, want \"false\"", got["reveal"])
+		}
+	})
+
+	t.Run("service_get records resolve_secrets and reveal", func(t *testing.T) {
+		got := extractResources("service_get", json.RawMessage(`{"service_id":"svc","resolve_secrets":true,"reveal":true}`))
+		if got["resolve_secrets"] != "true" || got["reveal"] != "true" || got["service_id"] != "svc" {
+			t.Errorf("Resources = %v, want service_id, resolve_secrets and reveal", got)
+		}
+	})
+
+	t.Run("a boolean outside the allow-list stays absent", func(t *testing.T) {
+		got := extractResources("service_get", json.RawMessage(`{"service_id":"svc","verbose":true}`))
+		if _, ok := got["verbose"]; ok {
+			t.Errorf("a non-allow-listed boolean reached the audit: %v", got)
+		}
+	})
+
+	t.Run("other JSON types stay dropped", func(t *testing.T) {
+		got := extractResources("service_get", json.RawMessage(`{"service_id":"svc","resolve_secrets":1,"reveal":null}`))
+		if len(got) != 1 || got["service_id"] != "svc" {
+			t.Errorf("Resources = %v, want only service_id", got)
+		}
+	})
+}
+
+// End to end through the dispatcher: the audit entry of a revealing
+// secret_resolve call carries reveal=true (and never the requested names).
+func TestAuditRecordsSecretResolveReveal(t *testing.T) {
+	s, _, path := auditServer(t, audit.Options{})
+	s.RegisterTool(Tool{
+		Name:        "secret_resolve",
+		InputSchema: json.RawMessage(`{"type":"object"}`),
+		Handler: func(requestContext, json.RawMessage) (ToolResult, error) {
+			return textResult("TOKEN=<redacted>"), nil
+		},
+	})
+	callTool(t, s, "secret_resolve", `{"concept_id":"svc","names":["TOKEN"],"reveal":true}`)
+	entries := auditEntries(t, path)
+	if len(entries) == 0 {
+		t.Fatal("no audit entries")
+	}
+	for _, e := range entries {
+		if e.Resources["reveal"] != "true" {
+			t.Errorf("entry %+v: Resources[reveal] = %q, want \"true\"", e, e.Resources["reveal"])
+		}
+		if _, ok := e.Resources["names"]; ok {
+			t.Errorf("entry %+v carries secret names", e)
+		}
+	}
+}

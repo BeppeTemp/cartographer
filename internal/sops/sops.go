@@ -237,14 +237,6 @@ func Set(kbRoot, relativePath, pointer, value string, env ...string) error {
 	return os.Rename(tmpName, original)
 }
 
-func EnvForSkill(resolved map[string]string) []string {
-	env := make([]string, 0, len(resolved))
-	for k, v := range resolved {
-		env = append(env, k+"="+v)
-	}
-	return env
-}
-
 // validatePath refuses a path that is not relative and inside root, and any
 // component of it that is not a plain regular file or a plain directory.
 //
@@ -255,6 +247,11 @@ func EnvForSkill(resolved map[string]string) []string {
 // os.ModeIrregular, and a secret is read from or written to somewhere else. There
 // is no reason for the two guards to disagree, and a divergence would be found
 // the hard way.
+//
+// The check runs before sops opens the path, so a writer on the KB filesystem
+// could swap a component between the two (a time-of-check/time-of-use window).
+// Accepted (D261): that writer can already rewrite the KB, secrets/ included,
+// so the window grants nothing it does not already have.
 func validatePath(root, rel string, allowMissing bool) error {
 	if !filepath.IsLocal(rel) || rel == "." {
 		return fmt.Errorf("path %q must be relative and inside the KB", rel)

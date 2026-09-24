@@ -112,8 +112,8 @@ for that KB, with an error naming the tool, the KB and the setting. On the per-K
 |---|---|
 | `skill_list()` **[R]** **[A]** | Lists the installed skills (`skills/`) and the ones bundled in the binary. Field `source`: `[installed]` \| `[bundled]`. |
 | `skill_install(name, force)` **[A]** | Copies a bundled skill into `kb.Root/skills/<name>/`. Errors if already present; `force=true` overwrites. |
-| `service_get(service_id, resolve_secrets=false)` **[R]** **[A]** | Reads a Service. With `resolve_secrets: true`, resolves declared `secret_refs` (or legacy whole `secrets_source`) and requires **rw** scope. |
-| `secret_resolve(concept_id, names?)` **[RW]** **[A]** | Resolves SOPS references declared by any concept; `names` narrows the declared values. |
+| `service_get(service_id, resolve_secrets=false, reveal=false)` **[R]** **[A]** | Reads a Service. With `resolve_secrets: true`, resolves declared `secret_refs` (or legacy whole `secrets_source`), lists the key names with `<redacted>` values and requires **rw** scope; `reveal: true` returns the values (D261). `resolve_secrets` and `reveal` are recorded in the audit trail. |
+| `secret_resolve(concept_id, names?, reveal=false)` **[RW]** **[A]** | Resolves SOPS references declared by any concept; `names` narrows the declared values. Values are `<redacted>` unless `reveal: true` (D158); `reveal` is recorded in the audit trail. |
 | `secret_set(path, key, value)` **[RW]** **[A]** | Sets a JSON Pointer in an existing encrypted SOPS file; plaintext is never committed or returned. |
 | `service_list()` **[R]** **[A]** | Lists all concepts of type Service. |
 

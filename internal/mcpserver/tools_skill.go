@@ -63,7 +63,7 @@ func toolServiceGet(k *kb.KB) Tool {
 		// as a special case in the authorizer (policy.go's authorizeTool, D47)
 		// that inspects arguments.resolve_secrets directly.
 		ReadOnly:    true,
-		Description: "Reads a concept of type Service. Returns frontmatter (YAML) and body. With resolve_secrets=true, also decrypts and returns the service's secrets_source (requires rw scope).",
+		Description: "Reads a concept of type Service. Returns frontmatter (YAML) and body. With resolve_secrets=true, also decrypts the service's secrets and lists their key names with values redacted (requires rw scope); pass reveal: true as well to return the values, which then appear in the transcript and in any log that captures it.",
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"required": ["service_id"],
@@ -75,6 +75,10 @@ func toolServiceGet(k *kb.KB) Tool {
 				"resolve_secrets": {
 					"type": "boolean",
 					"description": "If true, decrypt the service's secrets_source (flat SOPS file) and include the resolved secrets in the result. Requires a KB with sops_age_key_file configured and rw scope. Default false."
+				},
+				"reveal": {
+					"type": "boolean",
+					"description": "With resolve_secrets=true, return the secret values instead of <redacted>; they will appear in the transcript. Ignored without resolve_secrets. Default false."
 				}
 			}
 		}`),
@@ -82,6 +86,7 @@ func toolServiceGet(k *kb.KB) Tool {
 			var params struct {
 				ServiceID      string `json:"service_id"`
 				ResolveSecrets bool   `json:"resolve_secrets"`
+				Reveal         bool   `json:"reveal"`
 			}
 			if err := json.Unmarshal(args, &params); err != nil {
 				return errorResult("invalid params: " + err.Error()), nil
@@ -134,11 +139,17 @@ func toolServiceGet(k *kb.KB) Tool {
 				keys = append(keys, key)
 			}
 			sort.Strings(keys)
+			// Redacted unless revealed, as secret_resolve (D158, D261): the only
+			// caller of this tool is an MCP client, so whatever is written here
+			// lands in an agent transcript.
 			for _, key := range keys {
-				val := values[key]
 				sb.WriteString(key)
 				sb.WriteString("=")
-				sb.WriteString(val)
+				if params.Reveal {
+					sb.WriteString(values[key])
+				} else {
+					sb.WriteString("<redacted>")
+				}
 				sb.WriteByte('\n')
 			}
 			return textResult(sb.String()), nil
