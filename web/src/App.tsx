@@ -29,7 +29,7 @@ import { TopBar } from "./components/TopBar";
 import { applyTheme, onSystemThemeChange, prefersReducedMotion, readTheme, useAppliedTheme, type Theme } from "./lib/theme";
 import { initialMotion } from "./lib/graph3d/motion";
 import { hasWebGL } from "./lib/webgl";
-import { communitySlot, detectCommunities, type Communities } from "./lib/communities";
+import { communitySlot, snapshotCommunities, type Communities } from "./lib/communities";
 import {
   collectionHue,
   readColorBy,
@@ -397,10 +397,11 @@ export function App() {
     [snapshot, hiddenIds],
   );
 
-  // Computed on the whole snapshot, not on the filtered view: a filter must
-  // not recolour what remains, or toggling a chip reshuffles every colour.
+  // The server's communities (D244), for the whole visible graph, not the
+  // filtered view: a filter must not recolour what remains, or toggling a chip
+  // reshuffles every colour.
   const communities = useMemo(
-    () => (snapshot ? detectCommunities(snapshot) : NO_COMMUNITIES),
+    () => (snapshot ? snapshotCommunities(snapshot) : NO_COMMUNITIES),
     [snapshot],
   );
 

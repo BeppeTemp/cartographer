@@ -1,82 +1,69 @@
 import { describe, expect, it } from "vitest";
 import type { GraphSnapshot } from "../api/types";
-import {
-  COMMUNITY_SLOTS,
-  OTHER_SLOT,
-  communitySlot,
-  detectCommunities,
-} from "../lib/communities";
+import { OTHER_SLOT, communitySlot, snapshotCommunities } from "../lib/communities";
 import { generateSnapshot } from "./fixtures";
 
-/** Two 5-cliques joined by one bridge edge, plus an isolated node. */
+/** Two 5-cliques joined by one bridge edge, plus an isolated node, with the
+ *  communities the server reports for it (internal/graphalgo
+ *  TestCommunitiesTwoCliques pins the same answer on the Go side). */
 function twoCliques(): GraphSnapshot {
   const nodes: GraphSnapshot["nodes"] = [];
   const edges: GraphSnapshot["edges"] = [];
-  for (const group of ["a", "b"]) {
-    for (let i = 0; i < 5; i++) nodes.push({ id: `${group}/${i}`, in_degree: 4, out_degree: 4 });
+  for (const [rank, group] of ["a", "b"].entries()) {
+    for (let i = 0; i < 5; i++) nodes.push({ id: `${group}/${i}`, in_degree: 4, out_degree: 4, community: rank });
     for (let i = 0; i < 5; i++)
       for (let j = i + 1; j < 5; j++) edges.push({ source: `${group}/${i}`, target: `${group}/${j}` });
   }
   edges.push({ source: "a/0", target: "b/0" });
-  nodes.push({ id: "loose/x", in_degree: 0, out_degree: 0 });
-  return { nodes, edges, total_nodes: nodes.length, total_edges: edges.length, limit: 2000 };
+  nodes.push({ id: "loose/x", in_degree: 0, out_degree: 0, community: 2 });
+  return {
+    nodes,
+    edges,
+    total_nodes: nodes.length,
+    total_edges: edges.length,
+    limit: 2000,
+    communities: [
+      { rank: 0, size: 5, anchor: "a/0", slot: 1 },
+      { rank: 1, size: 5, anchor: "b/0", slot: 2 },
+      { rank: 2, size: 1, anchor: "loose/x", slot: OTHER_SLOT },
+    ],
+  };
 }
 
-describe("community detection", () => {
-  it("finds the clusters the links draw", () => {
-    const c = detectCommunities(twoCliques());
-    const a = c.rankOf.get("a/1");
-    const b = c.rankOf.get("b/1");
-    expect(a).not.toBe(b);
+describe("server communities", () => {
+  it("maps every node to its community", () => {
+    const c = snapshotCommunities(twoCliques());
     for (let i = 0; i < 5; i++) {
-      expect(c.rankOf.get(`a/${i}`)).toBe(a);
-      expect(c.rankOf.get(`b/${i}`)).toBe(b);
+      expect(c.rankOf.get(`a/${i}`)).toBe(0);
+      expect(c.rankOf.get(`b/${i}`)).toBe(1);
     }
+    expect(c.list.map((community) => community.anchor)).toEqual(["a/0", "b/0", "loose/x"]);
   });
 
-  it("gives real communities a hue and singletons the neutral", () => {
-    const snapshot = twoCliques();
-    const c = detectCommunities(snapshot);
-    expect(communitySlot(c, "a/1")).toBeGreaterThan(OTHER_SLOT);
-    expect(communitySlot(c, "b/1")).toBeGreaterThan(OTHER_SLOT);
-    expect(communitySlot(c, "a/1")).not.toBe(communitySlot(c, "b/1"));
+  it("gives real communities their hue and singletons the neutral", () => {
+    const c = snapshotCommunities(twoCliques());
+    expect(communitySlot(c, "a/1")).toBe(1);
+    expect(communitySlot(c, "b/1")).toBe(2);
     expect(communitySlot(c, "loose/x")).toBe(OTHER_SLOT);
   });
 
-  it("ranks by size, then by smallest member, so equal inputs give equal colours", () => {
-    const c = detectCommunities(twoCliques());
-    // Equal sizes: "a/..." sorts before "b/...".
-    expect(c.list[0]!.anchor.startsWith("a/")).toBe(true);
-    expect(c.list[0]!.slot).toBe(1);
-    expect(c.list[1]!.slot).toBe(2);
+  it("colours a node the server did not place with the neutral", () => {
+    const snapshot = twoCliques();
+    snapshot.nodes.push({ id: "new/y", in_degree: 0, out_degree: 0, community: 99 });
+    const c = snapshotCommunities(snapshot);
+    expect(communitySlot(c, "new/y")).toBe(OTHER_SLOT);
+    expect(communitySlot(c, "unknown")).toBe(OTHER_SLOT);
   });
 
-  it("is deterministic: the same KB state gives the same communities", () => {
-    const snapshot = generateSnapshot(600);
-    const first = detectCommunities(snapshot);
-    const second = detectCommunities(snapshot);
-    expect([...second.rankOf.entries()]).toEqual([...first.rankOf.entries()]);
-    expect(second.list).toEqual(first.list);
-  });
-
-  it("never colours more than the hue wheel holds", () => {
-    const c = detectCommunities(generateSnapshot(2000, 40));
-    const slots = new Set(c.list.map((community) => community.slot));
-    for (const slot of slots) expect(slot).toBeLessThanOrEqual(COMMUNITY_SLOTS);
-    expect(c.list.filter((community) => community.slot !== OTHER_SLOT).length).toBeLessThanOrEqual(
-      COMMUNITY_SLOTS,
-    );
-  });
-
-  it("handles a graph without edges", () => {
-    const c = detectCommunities({
-      nodes: [{ id: "a", in_degree: 0, out_degree: 0 }],
-      edges: [],
-      total_nodes: 1,
-      total_edges: 0,
-      limit: 2000,
-    });
+  it("tolerates a snapshot without communities", () => {
+    const c = snapshotCommunities({ nodes: [{ id: "a", in_degree: 0, out_degree: 0 }], edges: [], total_nodes: 1, total_edges: 0, limit: 2000 });
     expect(communitySlot(c, "a")).toBe(OTHER_SLOT);
+    expect(c.list).toEqual([]);
   });
 
+  it("reads the budget fixture's communities", () => {
+    const c = snapshotCommunities(generateSnapshot(600));
+    expect(c.list).toHaveLength(12);
+    expect(communitySlot(c, generateSnapshot(600).nodes[0]!.id)).toBeGreaterThan(OTHER_SLOT);
+  });
 });

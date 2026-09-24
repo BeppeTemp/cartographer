@@ -2,6 +2,7 @@ package kb
 
 import (
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -229,6 +230,49 @@ func TestGraphSnapshot_InvisibleConceptIsAbsentEverywhere(t *testing.T) {
 	if snap.TotalNodes != 5 {
 		t.Errorf("TotalNodes must exclude the hidden concept: got %d, want 5", snap.TotalNodes)
 	}
+
+	// PageRank and communities are those of the KB without it (D244): the
+	// numbers must not disclose a concept the caller cannot see.
+	stripped := snapshotKB(t)
+	if err := os.Remove(filepath.Join(stripped.DataRoot(), "notes", "n.md")); err != nil {
+		t.Fatal(err)
+	}
+	want, err := stripped.GraphSnapshot(GraphSnapshotOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(snap.Nodes, want.Nodes) || !reflect.DeepEqual(snap.Communities, want.Communities) {
+		t.Errorf("narrowed snapshot differs from the KB without the hidden concept:\n%+v\n%+v", snap, want)
+	}
+}
+
+// A scoped snapshot keeps whole-KB communities (D244): the colours of a node do
+// not change when the view narrows to its collection.
+func TestGraphSnapshot_ScopeKeepsCommunities(t *testing.T) {
+	k := snapshotKB(t)
+	all, err := k.GraphSnapshot(GraphSnapshotOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	scoped, err := k.GraphSnapshot(GraphSnapshotOptions{Scope: "infra"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(all.Communities, scoped.Communities) {
+		t.Fatalf("communities differ: %+v vs %+v", all.Communities, scoped.Communities)
+	}
+	for _, n := range scoped.Nodes {
+		if full := findNode(t, all, string(n.ID)); full.Community != n.Community || full.PageRank != n.PageRank {
+			t.Errorf("%s: scoped %d/%v, unscoped %d/%v", n.ID, n.Community, n.PageRank, full.Community, full.PageRank)
+		}
+	}
+	var sum float64
+	for _, n := range all.Nodes {
+		sum += n.PageRank
+	}
+	if math.Abs(sum-1) > 1e-5 {
+		t.Errorf("pagerank sums to %v", sum)
+	}
 }
 
 func TestGraphSnapshot_DeterministicAndTruncated(t *testing.T) {
@@ -244,9 +288,30 @@ func TestGraphSnapshot_DeterministicAndTruncated(t *testing.T) {
 	if !reflect.DeepEqual(first, second) {
 		t.Fatal("two identical requests returned different snapshots")
 	}
-	// Sorting happens before the cut, so the limit keeps the first ids.
-	if got := nodeIDs(first); !reflect.DeepEqual(got, []string{"infra/a", "infra/b", "infra/orphan"}) {
-		t.Fatalf("truncation is not sort-stable: %v", got)
+	// The limit keeps the most important nodes (D244), not the first ids:
+	// notes/n sorts last but sits on the a → owner → child → n → a cycle that
+	// holds most of the rank, while infra/b and the orphan do not; the kept
+	// nodes are still returned sorted by id.
+	if got := nodeIDs(first); !reflect.DeepEqual(got, []string{"infra/a", "infra/owner/child", "notes/n"}) {
+		t.Fatalf("truncation does not keep the most important nodes: %v", got)
+	}
+	full, err := k.GraphSnapshot(GraphSnapshotOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	kept := map[okf.ConceptID]bool{}
+	for _, n := range first.Nodes {
+		kept[n.ID] = true
+		if full := findNode(t, full, string(n.ID)); full.PageRank != n.PageRank || full.Community != n.Community {
+			t.Errorf("%s: truncation changed its pagerank or community", n.ID)
+		}
+	}
+	for _, dropped := range full.Nodes {
+		for _, n := range first.Nodes {
+			if !kept[dropped.ID] && dropped.PageRank > n.PageRank {
+				t.Errorf("dropped %s (%v) ranks above kept %s (%v)", dropped.ID, dropped.PageRank, n.ID, n.PageRank)
+			}
+		}
 	}
 	if !first.Truncated {
 		t.Error("Truncated should be set when the node set exceeds the limit")
@@ -257,7 +322,7 @@ func TestGraphSnapshot_DeterministicAndTruncated(t *testing.T) {
 	if first.TotalEdges != 6 {
 		t.Errorf("TotalEdges must be the untruncated count: got %d, want 6", first.TotalEdges)
 	}
-	if got := edgePairs(first); !reflect.DeepEqual(got, []string{"infra/a->infra/b", "infra/b->infra/a"}) {
+	if got := edgePairs(first); !reflect.DeepEqual(got, []string{"infra/owner/child->notes/n", "notes/n->infra/a"}) {
 		t.Errorf("truncated snapshot must return the induced subgraph of the kept nodes: %v", got)
 	}
 }

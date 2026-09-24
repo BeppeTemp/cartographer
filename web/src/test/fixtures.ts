@@ -173,6 +173,7 @@ export function generateSnapshot(nodes: number, maps = 12, seed = 1): GraphSnaps
   edges.sort((a, b) => (a.source + a.target < b.source + b.target ? -1 : 1));
   const degree = new Map<string, [number, number]>();
   for (const id of ids) degree.set(id, [0, 0]);
+  const indexOf = new Map(ids.map((id, i) => [id, i]));
   for (const edge of edges) {
     degree.get(edge.source)![1]++;
     degree.get(edge.target)![0]++;
@@ -185,11 +186,20 @@ export function generateSnapshot(nodes: number, maps = 12, seed = 1): GraphSnaps
       status: "active",
       in_degree: degree.get(id)![0],
       out_degree: degree.get(id)![1],
+      // The server's fields (D244), synthesised: each Map is one community,
+      // ranked as the server ranks (size, then smallest member -- here the Map
+      // index), and PageRank is the in-degree share.
+      pagerank: (degree.get(id)![0] + 1) / (edges.length + nodes),
+      community: mapOf[indexOf.get(id)!]!,
     })),
     edges,
     total_nodes: nodes,
     total_edges: edges.length,
     limit: 2000,
+    communities: Array.from({ length: Math.min(maps, nodes) }, (_, rank) => {
+      const size = Math.floor(nodes / maps) + (rank < nodes % maps ? 1 : 0);
+      return { rank, size, anchor: ids[rank]!, slot: size > 1 && rank < 12 ? rank + 1 : 0 };
+    }),
   };
 }
 
