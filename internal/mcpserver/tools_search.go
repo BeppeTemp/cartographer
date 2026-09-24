@@ -54,7 +54,7 @@ type searchHit struct {
 //   - deps.SQLIndex != nil: SQLite FTS5, falling back to the in-memory index
 //     when FTS5 fails. Modes reported: keyword_fts5 / keyword on fallback.
 //   - otherwise: the in-memory keyword index. Mode reported: keyword.
-func toolSearch(k *kb.KB, rec *searchReconciler, deps Deps) Tool {
+func toolSearch(k *kb.KB, rec *searchReconciler, misses *searchMissLog, deps Deps) Tool {
 	description := "Keyword search over KB concepts. Returns matching concept IDs ranked by relevance. All query terms are preferred (AND, then OR fallback)."
 	if deps.SQLIndex != nil {
 		description = "Keyword search over KB concepts (SQLite FTS5 with substring matching). Returns matching concept IDs ranked by relevance."
@@ -66,7 +66,7 @@ func toolSearch(k *kb.KB, rec *searchReconciler, deps Deps) Tool {
 		Description: description,
 		InputSchema: searchInputSchema,
 		Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
-			return handleSearch(ctx, k, rec, deps, args)
+			return handleSearch(ctx, k, rec, misses, deps, args)
 		},
 	}
 }
@@ -74,7 +74,7 @@ func toolSearch(k *kb.KB, rec *searchReconciler, deps Deps) Tool {
 // handleSearch is the only search handler. It keeps both keyword paths
 // verbatim: the plain in-memory one, and the FTS5 one with its native
 // snippet() excerpts (D70) and in-memory fallback.
-func handleSearch(ctx requestContext, k *kb.KB, rec *searchReconciler, deps Deps, args json.RawMessage) (ToolResult, error) {
+func handleSearch(ctx requestContext, k *kb.KB, rec *searchReconciler, misses *searchMissLog, deps Deps, args json.RawMessage) (ToolResult, error) {
 	var params struct {
 		Query string `json:"query"`
 		Scope string `json:"scope"`
@@ -101,6 +101,13 @@ func handleSearch(ctx requestContext, k *kb.KB, rec *searchReconciler, deps Deps
 	}
 
 	hits, mode := keywordHits(ctx, k, rec, deps, params.Query, params.Scope, limit)
+	// A miss is recorded only for a principal who sees the whole KB (D247).
+	// For a narrowed token zero hits may only mean "hidden from you" — not a
+	// gap — and recording it would show that user's queries to every
+	// whole-KB reader of kb_status.
+	if len(hits) == 0 && WholeVisible(ctx, k, false) {
+		misses.record(params.Query)
+	}
 	result := map[string]interface{}{
 		"query":   params.Query,
 		"mode":    mode,
