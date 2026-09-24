@@ -5,6 +5,7 @@ import (
 	"os"
 	"path"
 	"regexp"
+	"sort"
 	"strings"
 
 	"github.com/BeppeTemp/cartographer/internal/okf"
@@ -87,10 +88,7 @@ func maskCodeSpans(body string) string {
 // keeps today's behaviour: with no resolver, an extensionless href stays a
 // ConceptID shorthand.
 func ExtractLinks(body string, basePath string, assetResolver ...func(relPath string) bool) []okf.ConceptID {
-	var isAsset func(string) bool
-	if len(assetResolver) > 0 {
-		isAsset = assetResolver[0]
-	}
+	isAsset := firstResolver(assetResolver)
 	body = maskCodeSpans(body)
 	baseDir := path.Dir(basePath)
 	seen := map[string]bool{}
@@ -104,54 +102,83 @@ func ExtractLinks(body string, basePath string, assetResolver ...func(relPath st
 		ids = append(ids, okf.ConceptID(id))
 	}
 
+	// Trap: RewriteLinks must resolve exactly as this does — same masking, same
+	// resolvers (mdLinkTarget, wikiLinkTarget) — or concept_move, which only
+	// reads the pages the graph says link to a moved id (D248), misses a link
+	// this function never reported or rewrites one it does not know about.
+	// Pinned by TestRewriteLinks_MatchesExtractLinks.
 	for _, m := range mdLinkRe.FindAllStringSubmatch(body, -1) {
-		href := m[2]
-		if strings.Contains(href, "://") || strings.HasPrefix(href, "#") || strings.HasPrefix(href, "mailto:") {
-			continue
+		if id, ok := mdLinkTarget(baseDir, m[2], isAsset); ok {
+			addID(id)
 		}
-
-		href = strings.SplitN(href, "#", 2)[0]
-		if href == "" {
-			continue
-		}
-
-		// A path with a non-Markdown extension is a file/asset link, not a
-		// shorthand ConceptID. In particular, report.csv must not become the
-		// false graph target report.csv.md.
-		if ext := path.Ext(href); ext != "" && !strings.EqualFold(ext, ".md") {
-			continue
-		}
-		if !strings.EqualFold(path.Ext(href), ".md") {
-			// An extensionless href may cite an extensionless ASSET of the
-			// citing concept — a Dockerfile, a Makefile, a LICENSE (D150).
-			// Appending .md unconditionally turned those into links to
-			// nonexistent concepts and left the asset orphan_asset forever,
-			// while renaming the file to satisfy the linter would be worse than
-			// the finding. Scoped to the concept's own asset set, so a stray
-			// file elsewhere in the KB cannot absorb a shorthand ConceptID.
-			if isAsset != nil && isAsset(path.Clean(path.Join(baseDir, href))) {
-				continue
-			}
-			href += ".md"
-		}
-
-		resolved := path.Clean(path.Join(baseDir, href))
-		if strings.HasPrefix(resolved, "..") {
-			continue
-		}
-
-		addID(strings.TrimSuffix(resolved, ".md"))
 	}
 
 	for _, m := range wikiLinkRe.FindAllStringSubmatch(body, -1) {
-		id := m[1]
-		if id == "" || strings.Contains(id, "://") {
-			continue
+		if id, ok := wikiLinkTarget(m[1]); ok {
+			addID(id)
 		}
-		addID(strings.TrimSuffix(id, ".md"))
 	}
 
 	return ids
+}
+
+func firstResolver(assetResolver []func(relPath string) bool) func(string) bool {
+	if len(assetResolver) > 0 {
+		return assetResolver[0]
+	}
+	return nil
+}
+
+// mdLinkTarget resolves one markdown href, from a concept whose file sits in
+// baseDir, to the concept ID it names. ok is false for anything that is not a
+// concept link: an absolute URL, an anchor, a mailto:, a non-Markdown file, an
+// existing extensionless asset, or a path escaping the KB. It is the single
+// resolver both ExtractLinks and RewriteLinks use (D248).
+func mdLinkTarget(baseDir, href string, isAsset func(string) bool) (string, bool) {
+	if strings.Contains(href, "://") || strings.HasPrefix(href, "#") || strings.HasPrefix(href, "mailto:") {
+		return "", false
+	}
+
+	href = strings.SplitN(href, "#", 2)[0]
+	if href == "" {
+		return "", false
+	}
+
+	// A path with a non-Markdown extension is a file/asset link, not a
+	// shorthand ConceptID. In particular, report.csv must not become the
+	// false graph target report.csv.md.
+	if ext := path.Ext(href); ext != "" && !strings.EqualFold(ext, ".md") {
+		return "", false
+	}
+	if !strings.EqualFold(path.Ext(href), ".md") {
+		// An extensionless href may cite an extensionless ASSET of the
+		// citing concept — a Dockerfile, a Makefile, a LICENSE (D150).
+		// Appending .md unconditionally turned those into links to
+		// nonexistent concepts and left the asset orphan_asset forever,
+		// while renaming the file to satisfy the linter would be worse than
+		// the finding. Scoped to the concept's own asset set, so a stray
+		// file elsewhere in the KB cannot absorb a shorthand ConceptID.
+		if isAsset != nil && isAsset(path.Clean(path.Join(baseDir, href))) {
+			return "", false
+		}
+		href += ".md"
+	}
+
+	resolved := path.Clean(path.Join(baseDir, href))
+	if strings.HasPrefix(resolved, "..") {
+		return "", false
+	}
+	id := strings.TrimSuffix(resolved, ".md")
+	return id, id != ""
+}
+
+// wikiLinkTarget resolves the ID group of a wiki-link match (root-relative).
+func wikiLinkTarget(raw string) (string, bool) {
+	if raw == "" || strings.Contains(raw, "://") {
+		return "", false
+	}
+	id := strings.TrimSuffix(raw, ".md")
+	return id, id != ""
 }
 
 // ExtractAssetLinks returns the physical KB-relative targets of Markdown
@@ -202,66 +229,89 @@ func ExtractAssetLinks(body string, basePath string, assetResolver ...func(relPa
 // relative path (from the same directory) to the moved target, preserving
 // any "#fragment" and adding back the ".md" suffix. Wiki-links are
 // root-relative and are rewritten by simple ID substitution, preserving any
-// "#section" suffix. Links whose resolved target is not in moveMap are left
-// untouched.
-func RewriteLinks(body string, basePath string, moveMap map[string]string) (string, int) {
+// "#section" suffix and "|label". Links whose resolved target is not in
+// moveMap are left untouched.
+//
+// Trap: a link is rewritten exactly when ExtractLinks reports it — the same
+// code-span masking and the same resolvers, assetResolver included (D248).
+// Fenced blocks and inline code are not links (D150), so they are not
+// rewritten either; and concept_move only reads the pages the link graph says
+// link to a moved id, so a link this function saw but ExtractLinks did not
+// would silently stay stale. Pinned by TestRewriteLinks_MatchesExtractLinks.
+func RewriteLinks(body string, basePath string, moveMap map[string]string, assetResolver ...func(relPath string) bool) (string, int) {
 	if len(moveMap) == 0 {
 		return body, 0
 	}
-
+	isAsset := firstResolver(assetResolver)
 	baseDir := path.Dir(basePath)
-	count := 0
+	// Matches are found on the masked body, which keeps every byte offset, and
+	// the replacements are applied to the original body at those offsets.
+	masked := maskCodeSpans(body)
+	var edits []spanEdit
 
-	body = mdLinkRe.ReplaceAllStringFunc(body, func(match string) string {
-		sub := mdLinkRe.FindStringSubmatch(match)
-		text, href := sub[1], sub[2]
-		if strings.Contains(href, "://") || strings.HasPrefix(href, "#") || strings.HasPrefix(href, "mailto:") {
-			return match
+	for _, m := range mdLinkRe.FindAllStringSubmatchIndex(masked, -1) {
+		hrefStart, hrefEnd := m[4], m[5]
+		href := masked[hrefStart:hrefEnd]
+		targetID, ok := mdLinkTarget(baseDir, href, isAsset)
+		if !ok {
+			continue
 		}
-
-		pathPart, frag := href, ""
-		if idx := strings.Index(href, "#"); idx >= 0 {
-			pathPart, frag = href[:idx], href[idx:]
-		}
-		if pathPart == "" {
-			return match
-		}
-
-		pathPartMd := pathPart
-		if !strings.HasSuffix(pathPartMd, ".md") {
-			pathPartMd += ".md"
-		}
-
-		resolved := path.Clean(path.Join(baseDir, pathPartMd))
-		if strings.HasPrefix(resolved, "..") {
-			return match
-		}
-
-		targetID := strings.TrimSuffix(resolved, ".md")
 		newID, ok := moveMap[targetID]
 		if !ok {
-			return match
+			continue
 		}
+		frag := ""
+		if idx := strings.Index(href, "#"); idx >= 0 {
+			frag = href[idx:]
+		}
+		edits = append(edits, spanEdit{hrefStart, hrefEnd, relLink(baseDir, newID+".md") + frag})
+	}
 
-		count++
-		newHref := relLink(baseDir, newID+".md") + frag
-		return "[" + text + "](" + newHref + ")"
-	})
-
-	body = wikiLinkRe.ReplaceAllStringFunc(body, func(match string) string {
-		sub := wikiLinkRe.FindStringSubmatch(match)
-		// sub[3] is the "|label" segment (D150): it is preserved verbatim, so a
-		// rename never costs the human-readable label.
-		id, frag, label := sub[1], sub[2], sub[3]
-		newID, ok := moveMap[id]
+	for _, m := range wikiLinkRe.FindAllStringSubmatchIndex(masked, -1) {
+		// Only the ID group is replaced: the "#section" and the "|label"
+		// segment (D150) stay verbatim, so a rename never costs the label.
+		idStart, idEnd := m[2], m[3]
+		targetID, ok := wikiLinkTarget(masked[idStart:idEnd])
 		if !ok {
-			return match
+			continue
 		}
-		count++
-		return "[[" + newID + frag + label + "]]"
-	})
+		newID, ok := moveMap[targetID]
+		if !ok {
+			continue
+		}
+		edits = append(edits, spanEdit{idStart, idEnd, newID})
+	}
 
-	return body, count
+	return applySpanEdits(body, edits)
+}
+
+// spanEdit replaces body[start:end] with text.
+type spanEdit struct {
+	start, end int
+	text       string
+}
+
+// applySpanEdits applies edits in offset order and returns the result and the
+// number applied. An edit overlapping one already applied is dropped (a
+// wiki-link written inside a markdown href), so the output stays well formed.
+func applySpanEdits(body string, edits []spanEdit) (string, int) {
+	if len(edits) == 0 {
+		return body, 0
+	}
+	sort.SliceStable(edits, func(i, j int) bool { return edits[i].start < edits[j].start })
+	var b strings.Builder
+	last, count := 0, 0
+	for _, e := range edits {
+		if e.start < last {
+			continue
+		}
+		b.WriteString(body[last:e.start])
+		b.WriteString(e.text)
+		last = e.end
+		count++
+	}
+	b.WriteString(body[last:])
+	return b.String(), count
 }
 
 // RewriteOutboundLinks rebases every relative markdown link in body from oldBase
@@ -284,23 +334,26 @@ func RewriteOutboundLinks(body, oldBase, newBase string, moveMap map[string]stri
 	if oldDir == newDir && len(moveMap) == 0 {
 		return body, 0
 	}
-	count := 0
-	out := mdLinkRe.ReplaceAllStringFunc(body, func(match string) string {
-		sub := mdLinkRe.FindStringSubmatch(match)
-		text, href := sub[1], sub[2]
+	// Code spans are not links (D150), so a move does not rebase them either
+	// (D248): matched on the masked body, replaced at the same offsets.
+	masked := maskCodeSpans(body)
+	var edits []spanEdit
+	for _, m := range mdLinkRe.FindAllStringSubmatchIndex(masked, -1) {
+		hrefStart, hrefEnd := m[4], m[5]
+		href := masked[hrefStart:hrefEnd]
 		if strings.Contains(href, "://") || strings.HasPrefix(href, "#") || strings.HasPrefix(href, "mailto:") || strings.HasPrefix(href, "/") {
-			return match
+			continue
 		}
 		pathPart, frag := href, ""
 		if idx := strings.Index(href, "#"); idx >= 0 {
 			pathPart, frag = href[:idx], href[idx:]
 		}
 		if pathPart == "" {
-			return match
+			continue
 		}
 		resolved := path.Clean(path.Join(oldDir, pathPart))
 		if strings.HasPrefix(resolved, "..") {
-			return match
+			continue
 		}
 		// A target moved in the same batch lands at its new path.
 		target := resolved
@@ -312,12 +365,11 @@ func RewriteOutboundLinks(body, oldBase, newBase string, moveMap map[string]stri
 			newHref = strings.TrimSuffix(newHref, ".md")
 		}
 		if newHref+frag == href {
-			return match
+			continue
 		}
-		count++
-		return "[" + text + "](" + newHref + frag + ")"
-	})
-	return out, count
+		edits = append(edits, spanEdit{hrefStart, hrefEnd, newHref + frag})
+	}
+	return applySpanEdits(body, edits)
 }
 
 // RelLink is relLink exported (D160): concept_move needs it to rewrite the moved
@@ -500,6 +552,59 @@ func (kb *KB) WalkConcepts(fn func(id okf.ConceptID, content string) error) erro
 // without a second stat per concept.
 func (kb *KB) WalkConceptPaths(fn func(id okf.ConceptID, physicalPath, content string) error) error {
 	return kb.walkConceptPaths(fn)
+}
+
+// WalkConceptsLinkingTo is WalkConceptPaths restricted to the concepts that
+// can hold a reference to one of targets: every file whose links (as
+// ExtractLinks reports them) include a target, every file whose superseded_by
+// facet names one, and every file emitting one of also. Candidates come from
+// the cached link graph (D241) and are visited in walk order; only they are
+// read, each once, at its physical path. A candidate that vanished since the
+// graph was validated is skipped, as the walk skips an unreadable file.
+//
+// This is what makes concept_move cost the pages that link to the moved
+// concept instead of the whole KB (D248). It is exact only because
+// RewriteLinks resolves links exactly as ExtractLinks does.
+func (kb *KB) WalkConceptsLinkingTo(targets, also []okf.ConceptID, fn func(id okf.ConceptID, physicalPath, content string) error) error {
+	view, err := kb.graphView()
+	if err != nil {
+		return err
+	}
+	want := make(map[okf.ConceptID]struct{}, len(targets))
+	for _, t := range targets {
+		want[t] = struct{}{}
+	}
+	extra := make(map[okf.ConceptID]struct{}, len(also))
+	for _, a := range also {
+		extra[a] = struct{}{}
+	}
+	isCandidate := func(e *graphEntry) bool {
+		if _, ok := extra[e.id]; ok {
+			return true
+		}
+		if _, ok := want[okf.ConceptID(e.facets.SupersededBy)]; ok && e.facets.SupersededBy != "" {
+			return true
+		}
+		for _, l := range e.links {
+			if _, ok := want[l]; ok {
+				return true
+			}
+		}
+		return false
+	}
+	for _, e := range view.entries {
+		if !isCandidate(e) {
+			continue
+		}
+		content, err := kb.ReadRaw(e.rel)
+		if err != nil {
+			continue
+		}
+		if err := fn(e.id, e.rel, content); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // walkConceptPaths is WalkConcepts' internal physical-path-aware variant.
