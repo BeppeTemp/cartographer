@@ -108,15 +108,6 @@ func authorizeTool(policy auth.Policy, k *kb.KB, name, tool string, args json.Ra
 			return errors.New("forbidden")
 		}
 	}
-	if tool == "graph_neighbors" {
-		var graphArgs struct {
-			Depth int `json:"depth"`
-		}
-		_ = json.Unmarshal(args, &graphArgs)
-		if graphArgs.Depth > 1 && !policy.AllowsWholeKB(name, false) {
-			return errors.New("forbidden")
-		}
-	}
 	if tool == "concept_new" {
 		id := stringField(raw, "id")
 		proposedType, ok := templateType(k, stringField(raw, "template"))

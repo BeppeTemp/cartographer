@@ -176,6 +176,7 @@ func TestGraphToolsHideAndMissAlike(t *testing.T) {
 		{"link_suggest", `{"id":"%s"}`},
 		{"graph_path", `{"source":"%s","target":"ops/alpha"}`},
 		{"graph_path", `{"source":"ops/alpha","target":"%s"}`},
+		{"graph_neighbors", `{"id":"%s","depth":2,"direction":"in"}`},
 	} {
 		hidden, hErr := callJSON(t, s, narrowCtx, tc.tool, fmt.Sprintf(tc.argsFmt, "hidden/secret"))
 		missing, mErr := callJSON(t, s, narrowCtx, tc.tool, fmt.Sprintf(tc.argsFmt, "hidden/nope"))
@@ -197,7 +198,7 @@ func TestGraphToolsNarrowedEquivalence(t *testing.T) {
 		"ops/b.md":   "[x](x.md) [y](y.md) [c](c.md).\n",
 		"ops/x.md":   "Shared.\n",
 		"ops/y.md":   "Shared too.\n",
-		"ops/c.md":   "[t](t.md).\n",
+		"ops/c.md":   "[t](t.md) [ghost](ghost.md).\n",
 		"ops/t.md":   "Target.\n",
 		"ops/far.md": "Isolated from ops except through hidden.\n",
 	}
@@ -217,6 +218,10 @@ func TestGraphToolsNarrowedEquivalence(t *testing.T) {
 		{"link_suggest", `{"id":"ops/far"}`},
 		{"graph_path", `{"source":"ops/s","target":"ops/far"}`},
 		{"graph_path", `{"source":"ops/s","target":"ops/t","direction":"out"}`},
+		// graph_neighbors walks the same visible-induced graph (D249).
+		{"graph_neighbors", `{"id":"ops/s","depth":3}`},
+		{"graph_neighbors", `{"id":"ops/x","depth":3,"direction":"in"}`},
+		{"graph_neighbors", `{"id":"ops/far","depth":3,"direction":"both"}`},
 	} {
 		got, _ := callJSON(t, full, narrowCtx, tc.tool, tc.args)
 		want, _ := callJSON(t, stripped, adminCtx, tc.tool, tc.args)
@@ -288,5 +293,36 @@ func TestGraphPathByHand(t *testing.T) {
 	}
 	if text, isErr := callJSON(t, s, adminCtx, "graph_path", `{"source":"ops/s","target":"ops/t","direction":"in"}`); !isErr || !strings.Contains(text, "expected out or both") {
 		t.Fatalf("bad direction: %s", text)
+	}
+}
+
+// A narrowed token may ask graph_neighbors for any depth (D249): the walk never
+// crosses a hidden concept, never reports one — not even as a broken link —
+// and still reports a real broken link as missing.
+func TestGraphNeighborsNarrowedDepth(t *testing.T) {
+	s := graphToolKB(t, map[string]string{
+		"ops/a.md":    "[h](../hidden/h.md) [ghost](ghost.md).\n",
+		"ops/b.md":    "End.\n",
+		"hidden/h.md": "[b](../ops/b.md).\n",
+	})
+	text, isErr := callJSON(t, s, narrowCtx, "graph_neighbors", `{"id":"ops/a","depth":3}`)
+	if isErr {
+		t.Fatalf("depth 3 refused to a narrowed token: %s", text)
+	}
+	if strings.Contains(text, "hidden/") || strings.Contains(text, "ops/b") {
+		t.Fatalf("walked through the hidden concept: %s", text)
+	}
+	out := decodeJSON(t, text)
+	list := out["neighbors"].([]interface{})
+	if len(list) != 1 {
+		t.Fatalf("neighbors = %v", list)
+	}
+	if n := list[0].(map[string]interface{}); n["id"] != "ops/ghost" || n["missing"] != true {
+		t.Fatalf("broken link = %v", n)
+	}
+	// The admin sees the route the narrowed token must not take.
+	admin, _ := callJSON(t, s, adminCtx, "graph_neighbors", `{"id":"ops/a","depth":3}`)
+	if !strings.Contains(admin, "ops/b") {
+		t.Fatalf("admin should reach ops/b through hidden/h: %s", admin)
 	}
 }
