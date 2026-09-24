@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -1791,26 +1790,32 @@ func joinIndex(fmRaw string, hasFM bool, body string) string {
 	return "---\n" + strings.TrimSuffix(fmRaw, "\n") + "\n---\n" + body
 }
 
-// rewriteBacklinks performs a single WalkConcepts pass over the whole KB
-// (post-move state, so a moved concept is walked at its new location) and
-// rewrites every markdown/wiki-link in every concept whose resolved target
-// is a key in moveMap (old ID → new ID, D72 WP1). Concepts with at least one
+// rewriteBacklinks rewrites every markdown/wiki-link whose resolved target is
+// a key in moveMap (old ID → new ID, D72 WP1), in the post-move state, so a
+// moved concept is visited at its new location. Only the concepts that can
+// need it are read (D248): those the link graph says link to an old id, those
+// whose superseded_by names one, and the moved concepts themselves (their own
+// links to co-moved targets, D160) — in walk order, so the rewritten list is
+// the one a whole-KB pass would produce. Concepts with at least one
 // replacement are written back through kb.WriteConcept — if_match is the
-// content-hash just read from WalkConcepts, guarding against a concurrent
-// external write. Content writes are never best-effort: the first write
-// failure aborts the pass and is returned as an error. Returns the list of
-// touched concepts and the total number of replacements performed.
+// content-hash just read, guarding against a concurrent external write.
+// Content writes are never best-effort: the first write failure aborts the
+// pass and is returned as an error. Returns the list of touched concepts and
+// the total number of replacements performed.
 func rewriteBacklinks(k *kb.KB, moveMap map[string]string) ([]rewrittenConcept, int, error) {
 	var touched []rewrittenConcept
 	total := 0
 
-	err := k.WalkConcepts(func(id okf.ConceptID, content string) error {
+	oldIDs := make([]okf.ConceptID, 0, len(moveMap))
+	newIDs := make([]okf.ConceptID, 0, len(moveMap))
+	for old, moved := range moveMap {
+		oldIDs = append(oldIDs, okf.ConceptID(old))
+		newIDs = append(newIDs, okf.ConceptID(moved))
+	}
+
+	err := k.WalkConceptsLinkingTo(oldIDs, newIDs, func(id okf.ConceptID, basePath, content string) error {
 		fmRaw, body, _ := okf.SplitFrontmatter(content)
-		basePath := okf.IDToPath(id)
-		if _, err := k.ReadRaw(path.Join(string(id), "index.md")); err == nil {
-			basePath = path.Join(string(id), "index.md")
-		}
-		newBody, count := kb.RewriteLinks(body, basePath, moveMap)
+		newBody, count := kb.RewriteLinks(body, basePath, moveMap, k.AssetExists)
 		// superseded_by is a relation, not a link (D243), but it names a
 		// concept all the same: a moved successor must not leave it dangling.
 		// The frontmatter is parsed only when there is something to rewrite.
