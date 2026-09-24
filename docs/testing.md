@@ -478,7 +478,9 @@ Locally: `cd web && npx playwright install chromium` once, then
 - Registering a real Scheduled Task, or setting the real named shutdown event: both
   change state outside the test's temp directory. The command sequences and the XML
   are asserted; that Task Scheduler accepts the document is verified by an actual
-  install on Windows.
+  install on Windows. The ordering of stop, exit and start is asserted against a
+  fake task whose process outlives `Stop-ScheduledTask` for a few polls (D266); how
+  long the real one takes to release the port is not.
 
 These belong to production validation or an explicit release exercise, not to
 the deterministic repository gate.

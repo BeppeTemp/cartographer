@@ -4,10 +4,13 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
@@ -645,5 +648,34 @@ func TestUnpushedScaffoldGuidanceRemovalCommand(t *testing.T) {
 		if c.goos == "windows" && strings.Contains(b.String(), "rm -rf") {
 			t.Errorf("windows guidance still says rm -rf:\n%s", b.String())
 		}
+	}
+}
+
+// D266: after a restart the old process may still answer /health for a moment
+// before it exits. waitHealthy must hold out for a different started_at rather
+// than report the service healthy on the strength of the process being
+// replaced (#411: "service healthy", then connection refused).
+func TestWaitHealthy_WaitsForANewProcess(t *testing.T) {
+	var n int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		startedAt := "2026-01-01T00:00:00Z"
+		if atomic.AddInt32(&n, 1) > 2 {
+			startedAt = "2026-01-01T00:05:00Z"
+		}
+		fmt.Fprintf(w, `{"status":"ok","started_at":%q}`, startedAt)
+	}))
+	defer srv.Close()
+
+	if !waitHealthy(srv.URL, "2026-01-01T00:00:00Z") {
+		t.Fatal("waitHealthy = false, want true once a new process answers")
+	}
+	if got := atomic.LoadInt32(&n); got < 3 {
+		t.Errorf("waitHealthy accepted the old process after %d probes", got)
+	}
+
+	// A server predating started_at (and so an empty old value) still counts.
+	atomic.StoreInt32(&n, 0)
+	if !waitHealthy(srv.URL, "") {
+		t.Error("waitHealthy with no previous start time = false, want true")
 	}
 }

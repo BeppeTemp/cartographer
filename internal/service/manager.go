@@ -236,9 +236,20 @@ func (m *Manager) Uninstall() error {
 		if err != nil {
 			return fmt.Errorf("service: resolve task path: %w", err)
 		}
+		// Stop first and wait for the exit, as bootout and `disable --now` do:
+		// unregistering a task does not end its process, and the orphan kept
+		// the port, index.db and server.log locked, so the data directory could
+		// not be removed and the next install could not bind (#413). A survivor
+		// does not keep the definition alive — removing it is what uninstall
+		// means, and the scheduler could not stop that process a second time
+		// either — but it is reported, since it still holds those files.
+		stopErr := m.stopServeAndWait(m.serveHTTPAddr())
 		m.unregisterWindowsTask(windowsServeTaskName)
 		if err := os.Remove(taskPath); err != nil && !os.IsNotExist(err) {
 			return fmt.Errorf("service: remove task definition: %w", err)
+		}
+		if stopErr != nil {
+			return fmt.Errorf("service: task unregistered, but its server is still running and holds its port and data files — end the cartographer.exe process (Stop-Process): %w", stopErr)
 		}
 		return nil
 	default:
@@ -333,16 +344,16 @@ func (m *Manager) Restart() error {
 		_, err := m.run("systemctl", "--user", "restart", systemdUnit)
 		return err
 	case "windows":
-		// Stop disables the task, so a restart that did not re-enable it would
-		// stop the server and leave it stopped — the D156 regression in the
-		// shape this platform takes it. startWindowsTask enables first, so the
-		// pair below is enough. The stop is best-effort: stopping a task that is
-		// not running is not a failure to restart it.
+		// The start waits for the old process to exit: Stop-ScheduledTask
+		// returns while it still holds the port, so the new instance died on
+		// bind and the restart left the server stopped (#411, D266). Stop
+		// disables the task, so a restart that did not re-enable it would stop
+		// the server and leave it stopped — the D156 regression in the shape
+		// this platform takes it; startWindowsTask enables first.
 		if !m.windowsTaskRegistered(windowsServeTaskName) {
 			return m.Start()
 		}
-		m.powershell(fmt.Sprintf("Stop-ScheduledTask %s", taskSelector(windowsServeTaskName)))
-		return m.startWindowsTask(windowsServeTaskName)
+		return m.restartWindowsServe()
 	default:
 		return fmt.Errorf("service: unsupported platform %q", goos)
 	}
@@ -479,6 +490,18 @@ func configArgAfter(args []string) (string, error) {
 type HealthStatus struct {
 	Status  string `json:"status"`
 	Version string `json:"version"`
+	// StartedAt identifies the serving process (D266): equal before and after
+	// a replacement means the old process answered. Empty from a server that
+	// predates the field.
+	StartedAt string `json:"started_at,omitempty"`
+}
+
+// isReplacement reports whether after comes from a different process than
+// before. Only a known previous start time can prove the contrary: an absent
+// one (nothing answered before, or a server that predates the field) leaves
+// the version check as the only proof, as it was.
+func isReplacement(before, after HealthStatus) bool {
+	return before.StartedAt == "" || after.StartedAt != before.StartedAt
 }
 
 // healthProtocolError marks a /health response that was received (HTTP 200)
@@ -533,7 +556,7 @@ func versionSatisfies(observed, expected string) bool {
 // exiting, unlike Restart's launchctl kickstart -k.
 //
 // Windows has neither the signal nor the supervisor, so its branch does both
-// halves itself — see drainWindowsTask.
+// halves itself — see restartWindowsServe.
 func (m *Manager) signalGraceful() error {
 	switch goos {
 	case "darwin":
@@ -543,7 +566,7 @@ func (m *Manager) signalGraceful() error {
 		_, err := m.run("systemctl", "--user", "restart", systemdUnit)
 		return err
 	case "windows":
-		return m.drainWindowsTask()
+		return m.restartWindowsServe()
 	default:
 		return fmt.Errorf("service: unsupported platform %q", goos)
 	}
@@ -564,7 +587,8 @@ type ReplaceOptions struct {
 
 // Replace gracefully replaces the already-running native service (SIGTERM,
 // relaunched by the platform supervisor) and blocks until /health proves the
-// expected version is serving, or returns a timeout error. Connection
+// expected version is serving from a new process (its started_at differs from
+// the one reported before the signal, D266), or returns a timeout error. Connection
 // failures, non-200 responses, and an old version are retried; a malformed
 // /health response fails immediately. Zero mounted KBs do not affect this —
 // /health stays 200 regardless of readiness (D84).
@@ -580,6 +604,11 @@ func (m *Manager) Replace(opts ReplaceOptions) error {
 	if cfg.HTTP == "" {
 		return fmt.Errorf("service: config %s has no http address configured", configPath)
 	}
+
+	// Best-effort: what answers before the signal is the process that must not
+	// count as the replacement (D266). Without it an empty or "dev" expected
+	// version accepted the old process still draining.
+	before, _ := ProbeHealth(cfg.HTTP, healthTimeout)
 
 	if err := m.signalGraceful(); err != nil {
 		return fmt.Errorf("service: graceful restart: %w", err)
@@ -598,6 +627,7 @@ func (m *Manager) Replace(opts ReplaceOptions) error {
 	deadline := time.Now().Add(timeout)
 	var lastStatus, lastVersion string
 	var lastErr error
+	var sameProcess bool
 	for {
 		hs, err := ProbeHealth(cfg.HTTP, healthTimeout)
 		if err != nil {
@@ -605,10 +635,11 @@ func (m *Manager) Replace(opts ReplaceOptions) error {
 			if errors.As(err, &protoErr) {
 				return fmt.Errorf("service: %s did not prove a healthy replacement (endpoint %s, expected version %s): %w", configPath, endpoint, displayVersion(opts.ExpectedVersion), err)
 			}
-			lastErr = err
+			lastErr, sameProcess = err, false
 		} else {
 			lastStatus, lastVersion = hs.Status, hs.Version
-			if versionSatisfies(hs.Version, opts.ExpectedVersion) {
+			sameProcess = !isReplacement(before, hs)
+			if versionSatisfies(hs.Version, opts.ExpectedVersion) && !sameProcess {
 				return nil
 			}
 		}
@@ -616,6 +647,9 @@ func (m *Manager) Replace(opts ReplaceOptions) error {
 			break
 		}
 		time.Sleep(interval)
+	}
+	if sameProcess {
+		return fmt.Errorf("service: timed out waiting for %s to serve version %s from a new process: the one answering started at %s, before the restart (last observed version=%q)", endpoint, displayVersion(opts.ExpectedVersion), before.StartedAt, lastVersion)
 	}
 	return fmt.Errorf("service: timed out waiting for %s to serve version %s (last observed status=%q version=%q, last error=%v)", endpoint, displayVersion(opts.ExpectedVersion), lastStatus, lastVersion, lastErr)
 }

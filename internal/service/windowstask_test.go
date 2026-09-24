@@ -13,6 +13,7 @@ package service
 
 import (
 	"encoding/xml"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -395,18 +396,105 @@ func TestStop_Windows_StopsThenDisables(t *testing.T) {
 	noGUIDomain(t, stub.calls)
 }
 
+// fakeServeTask is a serve task with a process behind it, for the tests that
+// care about *when* things happen rather than which commands ran: the State
+// query answers from it, and a stop — the shutdown event or Stop-ScheduledTask
+// — leaves the process alive for lingerPolls more State queries, which is how
+// Stop-ScheduledTask behaves (#411): it returns before the process has exited.
+type fakeServeTask struct {
+	calls       [][]string
+	running     bool
+	stopping    bool
+	lingerPolls int
+	// drains says whether the process honours the shutdown event.
+	drains bool
+	// ignoresStop makes Stop-ScheduledTask a no-op: a process that survives.
+	ignoresStop bool
+	// startedWhileRunning counts Start-ScheduledTask calls that reached a
+	// still-running process: the new instance that dies on bind.
+	startedWhileRunning int
+	fail                map[string]bool
+}
+
+func (f *fakeServeTask) stop() {
+	if f.running {
+		f.stopping = true
+	}
+}
+
+func (f *fakeServeTask) run(name string, args ...string) (string, error) {
+	call := append([]string{name}, args...)
+	f.calls = append(f.calls, call)
+	key := strings.Join(call, " ")
+	for pat := range f.fail {
+		if strings.Contains(key, pat) {
+			return "", errNotLoaded
+		}
+	}
+	switch {
+	case strings.Contains(key, "State -eq 'Running'"):
+		if f.stopping {
+			if f.lingerPolls > 0 {
+				f.lingerPolls--
+			} else {
+				f.running, f.stopping = false, false
+			}
+		}
+		if !f.running {
+			return "", errNotLoaded
+		}
+	case strings.Contains(key, "Stop-ScheduledTask"):
+		if !f.ignoresStop {
+			f.stop()
+		}
+	case strings.Contains(key, "Start-ScheduledTask"):
+		if f.running {
+			f.startedWhileRunning++
+		}
+		f.running = true
+	}
+	return "", nil
+}
+
+// eventFor installs a setShutdownEvent that drains f when it honours the event
+// and fails as an unreachable event otherwise.
+func eventFor(t *testing.T, f *fakeServeTask, reachable bool) *int {
+	t.Helper()
+	var set int
+	orig := setShutdownEvent
+	setShutdownEvent = func() error {
+		if !reachable {
+			return os.ErrNotExist
+		}
+		set++
+		if f.drains {
+			f.stop()
+		}
+		return nil
+	}
+	t.Cleanup(func() { setShutdownEvent = orig })
+	return &set
+}
+
+func joinedCalls(calls [][]string) string {
+	all := ""
+	for _, c := range calls {
+		all += strings.Join(c, " ") + "\n"
+	}
+	return all
+}
+
 // ...and a restart must undo that disable, or the server stays down.
 func TestRestart_Windows_ReEnablesBeforeStarting(t *testing.T) {
 	withTestHome(t, "windows")
-	m, stub := newTestManager()
+	f := &fakeServeTask{running: true, drains: true}
+	eventFor(t, f, true)
+	m := &Manager{run: f.run}
 	if err := m.Restart(); err != nil {
 		t.Fatalf("Restart: %v", err)
 	}
-	all := ""
-	for _, c := range stub.calls {
-		all += strings.Join(c, " ") + "\n"
-	}
-	for _, want := range []string{"Get-ScheduledTask", "Stop-ScheduledTask", "Enable-ScheduledTask", "Start-ScheduledTask"} {
+	all := joinedCalls(f.calls)
+	for _, want := range []string{"Get-ScheduledTask", "Enable-ScheduledTask", "Start-ScheduledTask"} {
 		if !strings.Contains(all, want) {
 			t.Errorf("restart commands missing %q:\n%s", want, all)
 		}
@@ -414,7 +502,105 @@ func TestRestart_Windows_ReEnablesBeforeStarting(t *testing.T) {
 	if strings.Index(all, "Enable-ScheduledTask") > strings.Index(all, "Start-ScheduledTask") {
 		t.Errorf("Start-ScheduledTask ran before Enable-ScheduledTask, so a stopped service stays stopped:\n%s", all)
 	}
-	noGUIDomain(t, stub.calls)
+	noGUIDomain(t, f.calls)
+}
+
+// #411: Stop-ScheduledTask returned before the old process exited, the start
+// that followed at once reached a process still holding the port, and the new
+// instance died on bind — every restart left the server stopped. The start
+// must wait for the exit, whichever way the old process was ended.
+func TestRestart_Windows_StartsOnlyAfterTheOldProcessExits(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		reachable bool // the shutdown event can be opened
+		drains    bool // the process honours it within the budget
+	}{
+		{"graceful drain", true, true},
+		{"drain times out, the task is stopped", true, false},
+		{"event unreachable, the task is stopped", false, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			withTestHome(t, "windows")
+			f := &fakeServeTask{running: true, drains: tc.drains, lingerPolls: 5}
+			set := eventFor(t, f, tc.reachable)
+			m := &Manager{run: f.run}
+			if err := m.Restart(); err != nil {
+				t.Fatalf("Restart: %v", err)
+			}
+			if f.startedWhileRunning != 0 {
+				t.Errorf("Start-ScheduledTask reached the old process %d time(s): the new instance dies on bind", f.startedWhileRunning)
+			}
+			if !f.running {
+				t.Error("the task was not started again")
+			}
+			all := joinedCalls(f.calls)
+			if tc.reachable && *set != 1 {
+				t.Errorf("shutdown event set %d times, want 1 (the graceful path comes first)", *set)
+			}
+			if gotStop := strings.Contains(all, "Stop-ScheduledTask"); gotStop == tc.drains {
+				t.Errorf("Stop-ScheduledTask ran = %v, want %v:\n%s", gotStop, !tc.drains, all)
+			}
+		})
+	}
+}
+
+// The task state is not the whole proof: the port is what the next instance
+// needs, and it stays bound while the process tears down.
+func TestRestart_Windows_WaitsForThePortToBeReleased(t *testing.T) {
+	home := withTestHome(t, "windows")
+	taskPath := filepath.Join(home, "AppData", "Local", "cartographer", "tasks", "serve.xml")
+	configPath := filepath.Join(home, "server.yaml")
+	if err := os.MkdirAll(filepath.Dir(taskPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(taskPath, []byte(RenderWindowsTaskXML(`C:\bin\cartographer.exe`, configPath, `C:\logs\server.log`, `HOST\user`)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(configPath, []byte("http: \"127.0.0.1:39273\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	f := &fakeServeTask{running: true, drains: true}
+	eventFor(t, f, true)
+	portHeld := 5
+	var probedAddr string
+	serveAddrAnswers = func(addr string) bool {
+		probedAddr = addr
+		if f.running {
+			return true
+		}
+		if portHeld > 0 {
+			portHeld--
+			return true
+		}
+		return false
+	}
+	m := &Manager{run: f.run}
+	if err := m.Restart(); err != nil {
+		t.Fatalf("Restart: %v", err)
+	}
+	if probedAddr != "127.0.0.1:39273" {
+		t.Errorf("port probed = %q, want the address of the config the task names", probedAddr)
+	}
+	if portHeld != 0 {
+		t.Errorf("the task was started with the port still held (%d probes left)", portHeld)
+	}
+}
+
+// A process that survives both the drain and Stop-ScheduledTask is reported,
+// and the start is still attempted: skipping it would leave a server that
+// exited one tick after the deadline down for good.
+func TestRestart_Windows_ReportsASurvivor(t *testing.T) {
+	withTestHome(t, "windows")
+	f := &fakeServeTask{running: true, ignoresStop: true}
+	eventFor(t, f, true)
+	m := &Manager{run: f.run}
+	err := m.Restart()
+	if err == nil || !strings.Contains(err.Error(), "did not exit") {
+		t.Fatalf("Restart = %v, want it to report the survivor", err)
+	}
+	if !strings.Contains(joinedCalls(f.calls), "Start-ScheduledTask") {
+		t.Error("the start was skipped after a failed stop")
+	}
 }
 
 // A task unregistered by hand (or by an older uninstall) must still be
@@ -465,18 +651,84 @@ func TestUninstall_Windows_UnregistersAndRemovesTheDefinition(t *testing.T) {
 	if err := os.WriteFile(taskPath, []byte("<Task/>"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	m, stub := newTestManager()
+	f := &fakeServeTask{}
+	m := &Manager{run: f.run}
 	if err := m.Uninstall(); err != nil {
 		t.Fatalf("Uninstall: %v", err)
 	}
 	if _, err := os.Stat(taskPath); !os.IsNotExist(err) {
 		t.Errorf("the task definition survived uninstall: %v", err)
 	}
-	if !strings.Contains(strings.Join(stub.calls[0], " "), "Unregister-ScheduledTask") {
-		t.Errorf("first call = %v, want Unregister-ScheduledTask", stub.calls[0])
+	var unregister []string
+	for _, c := range f.calls {
+		if strings.Contains(strings.Join(c, " "), "Unregister-ScheduledTask") {
+			unregister = c
+		}
 	}
-	if !strings.Contains(strings.Join(stub.calls[0], " "), "-Confirm:$false") {
-		t.Errorf("Unregister without -Confirm:$false blocks on a prompt no service manager can answer: %v", stub.calls[0])
+	if unregister == nil {
+		t.Fatalf("Uninstall never unregistered the task: %v", f.calls)
+	}
+	if !strings.Contains(strings.Join(unregister, " "), "-Confirm:$false") {
+		t.Errorf("Unregister without -Confirm:$false blocks on a prompt no service manager can answer: %v", unregister)
+	}
+}
+
+// #413: unregistering a task does not end its process, and the orphan kept the
+// port and the data files locked. Uninstall stops the server — gracefully
+// first — and unregisters only once it has exited.
+func TestUninstall_Windows_StopsTheServerBeforeUnregistering(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		reachable bool
+	}{
+		{"graceful drain", true},
+		{"event unreachable, the task is stopped", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			withTestHome(t, "windows")
+			f := &fakeServeTask{running: true, drains: true, lingerPolls: 5}
+			set := eventFor(t, f, tc.reachable)
+			var runningAtUnregister bool
+			run := func(name string, args ...string) (string, error) {
+				if strings.Contains(strings.Join(args, " "), "Unregister-ScheduledTask") {
+					runningAtUnregister = f.running
+				}
+				return f.run(name, args...)
+			}
+			m := &Manager{run: run}
+			if err := m.Uninstall(); err != nil {
+				t.Fatalf("Uninstall: %v", err)
+			}
+			if runningAtUnregister {
+				t.Errorf("the task was unregistered with its process still running:\n%s", joinedCalls(f.calls))
+			}
+			if tc.reachable && *set != 1 {
+				t.Errorf("shutdown event set %d times, want 1 (graceful, as a restart)", *set)
+			}
+		})
+	}
+}
+
+// A survivor does not keep the definition alive, but it is not a silent
+// success either: it still holds the files the user is about to remove.
+func TestUninstall_Windows_ReportsASurvivor(t *testing.T) {
+	home := withTestHome(t, "windows")
+	taskPath := filepath.Join(home, "AppData", "Local", "cartographer", "tasks", "serve.xml")
+	if err := os.MkdirAll(filepath.Dir(taskPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(taskPath, []byte("<Task/>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	f := &fakeServeTask{running: true, ignoresStop: true}
+	eventFor(t, f, false)
+	m := &Manager{run: f.run}
+	err := m.Uninstall()
+	if err == nil || !strings.Contains(err.Error(), "still running") {
+		t.Fatalf("Uninstall = %v, want it to report the surviving process", err)
+	}
+	if _, statErr := os.Stat(taskPath); !os.IsNotExist(statErr) {
+		t.Errorf("the task definition survived uninstall: %v", statErr)
 	}
 }
 
@@ -484,7 +736,7 @@ func TestUninstall_Windows_UnregistersAndRemovesTheDefinition(t *testing.T) {
 // is what has to go.
 func TestUninstall_Windows_UnknownTaskIsNotAFailure(t *testing.T) {
 	withTestHome(t, "windows")
-	s := &stubRunner{fail: map[string]bool{"Unregister-ScheduledTask": true}}
+	s := &stubRunner{fail: map[string]bool{"Unregister-ScheduledTask": true, "Get-ScheduledTask": true}}
 	m := &Manager{run: s.run}
 	if err := m.Uninstall(); err != nil {
 		t.Errorf("Uninstall with an unregistered task = %v, want success", err)
@@ -590,43 +842,52 @@ func TestEffectiveConfigPath_Windows(t *testing.T) {
 // is not a supervisor.
 func TestSignalGraceful_Windows_SetsTheEventThenRestarts(t *testing.T) {
 	withTestHome(t, "windows")
-	var signalled int
-	orig := setShutdownEvent
-	setShutdownEvent = func() error { signalled++; return nil }
-	t.Cleanup(func() { setShutdownEvent = orig })
-
-	// The task reports itself as not running, so the drain wait returns at once.
-	s := &stubRunner{fail: map[string]bool{"State -eq 'Running'": true}}
-	m := &Manager{run: s.run}
+	f := &fakeServeTask{running: true, drains: true}
+	set := eventFor(t, f, true)
+	m := &Manager{run: f.run}
 	if err := m.signalGraceful(); err != nil {
 		t.Fatalf("signalGraceful: %v", err)
 	}
-	if signalled != 1 {
-		t.Errorf("shutdown event set %d times, want 1", signalled)
+	if *set != 1 {
+		t.Errorf("shutdown event set %d times, want 1", *set)
 	}
-	all := ""
-	for _, c := range s.calls {
-		all += strings.Join(c, " ") + "\n"
-	}
+	all := joinedCalls(f.calls)
 	if !strings.Contains(all, "Start-ScheduledTask") {
 		t.Errorf("the task was not started again after the drain, so nothing would bring the server back:\n%s", all)
 	}
-	noGUIDomain(t, s.calls)
+	if strings.Contains(all, "Stop-ScheduledTask") {
+		t.Errorf("a drained server was also killed:\n%s", all)
+	}
+	noGUIDomain(t, f.calls)
 }
 
-func TestSignalGraceful_Windows_FailsWhenTheEventCannotBeSet(t *testing.T) {
+// #415 item 4: from another logon session (SSH, while the server runs on the
+// desktop) Local\cartographer-serve-shutdown cannot be opened, and
+// upgrade-repair — and the tail of an auto-patch apply — failed with a bare
+// "cannot find the file specified". The replacement falls back to stopping the
+// task, and says why in terms of the session.
+func TestSignalGraceful_Windows_FallsBackToStoppingTheTask(t *testing.T) {
 	withTestHome(t, "windows")
-	orig := setShutdownEvent
-	setShutdownEvent = func() error { return os.ErrNotExist }
-	t.Cleanup(func() { setShutdownEvent = orig })
+	f := &fakeServeTask{running: true, lingerPolls: 3}
+	eventFor(t, f, false)
+	var notice string
+	noticef = func(format string, args ...any) { notice = fmt.Sprintf(format, args...) }
 
-	m, stub := newTestManager()
-	if err := m.signalGraceful(); err == nil {
-		t.Fatal("signalGraceful should fail when the shutdown event cannot be set")
+	m := &Manager{run: f.run}
+	if err := m.signalGraceful(); err != nil {
+		t.Fatalf("signalGraceful: %v", err)
 	}
-	for _, c := range stub.calls {
-		if strings.Contains(strings.Join(c, " "), "Start-ScheduledTask") {
-			t.Errorf("the task was started after a failed drain: %v", stub.calls)
+	all := joinedCalls(f.calls)
+	stop, start := strings.Index(all, "Stop-ScheduledTask"), strings.Index(all, "Start-ScheduledTask")
+	if stop < 0 || start < stop {
+		t.Errorf("want Stop-ScheduledTask, then Start-ScheduledTask:\n%s", all)
+	}
+	if f.startedWhileRunning != 0 {
+		t.Error("the task was started before the stopped process exited")
+	}
+	for _, want := range []string{"logon session", "SSH", "stopping the scheduled task", os.ErrNotExist.Error()} {
+		if !strings.Contains(notice, want) {
+			t.Errorf("fallback notice %q does not mention %q", notice, want)
 		}
 	}
 }

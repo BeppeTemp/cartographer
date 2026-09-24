@@ -151,8 +151,9 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	// can make it not ready.
 	st := s.auditState()
 	result := map[string]interface{}{
-		"status":  "ok",
-		"version": s.version,
+		"status":     "ok",
+		"version":    s.version,
+		"started_at": processStartedAt,
 	}
 	if st != nil {
 		result["audit"] = st
@@ -437,10 +438,11 @@ func (m *MultiKBServer) Handler() http.Handler {
 			w.Header().Set("Content-Type", "application/json")
 			ready, kbs, _ := m.readiness()
 			result := map[string]interface{}{
-				"status":  "ok",
-				"version": m.version,
-				"kbs":     kbs,
-				"ready":   ready,
+				"status":     "ok",
+				"version":    m.version,
+				"started_at": processStartedAt,
+				"kbs":        kbs,
+				"ready":      ready,
 			}
 			// D187: the client needs to know the mount topology before it
 			// writes a single MCP entry, and /health is the probe it already

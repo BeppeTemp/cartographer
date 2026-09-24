@@ -603,7 +603,8 @@ cartographer service status        # exit: 0 running, 3 installed but stopped, 4
 
 Plain `restart` keeps its previous behavior. `restart --wait` gracefully replaces the process
 (`SIGTERM`, so in-flight requests drain) and only prints success once `/health` proves the
-installed binary version is serving; `--config` selects the config used for that verification,
+installed binary version is serving from a new process (its `started_at` differs from the one
+read before the restart, D266); `--config` selects the config used for that verification,
 and is otherwise unnecessary because the installed service definition is discoverable.
 
 Windows takes the same three verbs to a different scheduler, so two behaviours are worth naming.
@@ -612,6 +613,9 @@ otherwise bring the server straight back; `start` and `restart` re-enable it fir
 service stopped on purpose stays stopped and a restart after a stop still works. And the graceful
 replacement is not a signal but a named event in the user's session, followed by an explicit
 relaunch of the task — nothing else would restart a process that drained and exited cleanly.
+`restart` and `uninstall` wait for the old server to exit before starting or unregistering the task,
+and from another logon session (SSH), where the event cannot be reached, the task is stopped
+instead and the command says so (D266).
 
 Operational details (generated paths, defaults, behavior with an existing config, automatic
 repair on `install.sh update` and Cask upgrade) in `deployment.md` §Example: native local service
