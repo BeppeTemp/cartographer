@@ -27,10 +27,18 @@ func TestSchedulePush_Burst_CoalescesIntoOnePush(t *testing.T) {
 
 	const n = 5
 	for i := 0; i < n; i++ {
-		writeFileT(t, k.Root, filepath.Join("data", "burst-file.txt"), "n=0\n")
-		gitHere(t, k.Root, "add", "-A")
-		gitHere(t, k.Root, "-c", "user.email=test@test", "-c", "user.name=test",
-			"commit", "-m", "burst commit", "--allow-empty")
+		// Commit under the git lock, as every server write does. Without it,
+		// where git processes start slowly (Windows) the debounce expires
+		// between two commits and the push reads HEAD while the next commit is
+		// rewriting it: symbolic-ref fails, SyncOut reports a detached HEAD
+		// and the burst is left half pushed (#360).
+		_ = k.WithGitLock(func() error {
+			writeFileT(t, k.Root, filepath.Join("data", "burst-file.txt"), "n=0\n")
+			gitHere(t, k.Root, "add", "-A")
+			gitHere(t, k.Root, "-c", "user.email=test@test", "-c", "user.name=test",
+				"commit", "-m", "burst commit", "--allow-empty")
+			return nil
+		})
 		k.SchedulePush()
 	}
 
