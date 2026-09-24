@@ -504,8 +504,16 @@ func isAbsAnyPlatform(relPath string) bool {
 	return filepath.IsAbs(relPath)
 }
 
+// readRawHook, when non-nil, is called with every path ReadRaw is asked for.
+// It is nil in production and set only from export_test.go, so a test can
+// prove which files an operation reads (D248).
+var readRawHook func(relPath string)
+
 // ReadRaw reads the text of a file by its path relative to the KB root.
 func (kb *KB) ReadRaw(relPath string) (string, error) {
+	if readRawHook != nil {
+		readRawHook(relPath)
+	}
 	abs, err := kb.ResolvePath(relPath, false)
 	if err != nil {
 		return "", err

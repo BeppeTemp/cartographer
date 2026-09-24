@@ -1,10 +1,12 @@
 package kb
 
 import (
+	"math/rand"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/okf"
 )
@@ -394,5 +396,149 @@ func TestExtractLinks_ExtensionlessAssetIsNotAConcept(t *testing.T) {
 	// Without a resolver the shorthand behaviour is unchanged.
 	if got := ExtractLinks(body, "m/c/index.md"); len(got) != 2 {
 		t.Errorf("without a resolver ExtractLinks = %v, want both treated as concepts", got)
+	}
+}
+
+// A move must not rewrite what ExtractLinks says is not a link: fenced blocks
+// and inline code are examples, not references (D150, D248).
+func TestRewriteLinks_SkipsCodeSpans(t *testing.T) {
+	body := "real [a](a.md) and [[m/a]]\n\n```\n[a](a.md) [[m/a]]\n```\n\nsee `[a](a.md)` and `[[m/a|x]]`\n"
+	got, n := RewriteLinks(body, "m/x.md", map[string]string{"m/a": "m/b"})
+	want := "real [a](b.md) and [[m/b]]\n\n```\n[a](a.md) [[m/a]]\n```\n\nsee `[a](a.md)` and `[[m/a|x]]`\n"
+	if got != want || n != 2 {
+		t.Errorf("RewriteLinks = %q (%d), want %q (2)", got, n, want)
+	}
+	// RewriteOutboundLinks leaves code spans alone for the same reason.
+	out, n := RewriteOutboundLinks("[a](a.md)\n`[b](b.md)`\n", "m/x.md", "m/deep/x.md", nil)
+	if out != "[a](../a.md)\n`[b](b.md)`\n" || n != 1 {
+		t.Errorf("RewriteOutboundLinks = %q (%d)", out, n)
+	}
+}
+
+// An extensionless href naming an existing asset is not a concept link, so a
+// move of the same-named concept id does not touch it (D150, D248).
+func TestRewriteLinks_ExtensionlessAssetIsNotAConcept(t *testing.T) {
+	isAsset := func(rel string) bool { return rel == "m/c/Dockerfile" }
+	body := "[df](Dockerfile) [s](sibling)\n"
+	moveMap := map[string]string{"m/c/Dockerfile": "m/c/moved", "m/c/sibling": "m/c/sib2"}
+	got, n := RewriteLinks(body, "m/c/index.md", moveMap, isAsset)
+	if got != "[df](Dockerfile) [s](sib2.md)\n" || n != 1 {
+		t.Errorf("RewriteLinks = %q (%d)", got, n)
+	}
+	// A non-Markdown extension is never a concept either.
+	if got, n := RewriteLinks("[r](report.csv)\n", "m/a.md", map[string]string{"m/report.csv": "m/x"}); n != 0 {
+		t.Errorf("RewriteLinks rewrote an asset link: %q", got)
+	}
+}
+
+// TestRewriteLinks_MatchesExtractLinks pins the D248 trap: over generated
+// bodies, RewriteLinks changes a target exactly when ExtractLinks reports it.
+// concept_move reads only the pages the graph (built by ExtractLinks) says link
+// to a moved id, so any divergence is a stale link or a stray rewrite.
+func TestRewriteLinks_MatchesExtractLinks(t *testing.T) {
+	isAsset := func(rel string) bool { return rel == "m/c/Dockerfile" || rel == "m/Makefile" }
+	pieces := []string{
+		"[a](a.md)", "[a](a)", "[a](a.md#s)", "[up](../other/x.md)", "[s](sibling)",
+		"[df](Dockerfile)", "[mk](Makefile)", "[r](report.csv)", "[u](https://e.com/a.md)",
+		"[h](#top)", "[m](mailto:x@y)", "[esc](../../../out.md)", "[c](c/index.md)",
+		"[[m/a]]", "[[m/a#sec]]", "[[m/a|label]]", "[[m/a.md]]", "[[other/x#s|lbl]]", "[[m/c/sibling]]",
+		"`[a](a.md)`", "``[[m/a]]``", "plain text", "\n", "\n\n",
+		"\n```\n[a](a.md) [[m/a]]\n```\n", "\n~~~~\n[[other/x]]\n~~~~\n", "\n```mermaid\nN1[[\"x\"]]\n```\n",
+	}
+	pool := []string{"m/a", "m/c/a", "other/x", "m/c/sibling", "m/sibling", "m/c/Dockerfile", "m/Makefile",
+		"m/report.csv", "m/c/c/index", "m/c/index", "m/c", "out"}
+	bases := []string{"m/x.md", "m/c/index.md", "top.md"}
+	rng := rand.New(rand.NewSource(248))
+	for i := 0; i < 2000; i++ {
+		var b strings.Builder
+		for j, n := 0, 1+rng.Intn(10); j < n; j++ {
+			b.WriteString(pieces[rng.Intn(len(pieces))])
+			b.WriteString(" ")
+		}
+		body := b.String()
+		base := bases[rng.Intn(len(bases))]
+		linked := map[string]bool{}
+		for _, id := range ExtractLinks(body, base, isAsset) {
+			linked[string(id)] = true
+		}
+		full := map[string]string{}
+		for k, old := range pool {
+			newID := "moved/n" + string(rune('a'+k))
+			full[old] = newID
+			_, n := RewriteLinks(body, base, map[string]string{old: newID}, isAsset)
+			if (n > 0) != linked[old] {
+				t.Fatalf("body %q base %s: RewriteLinks changed %s = %v, ExtractLinks reports it = %v", body, base, old, n > 0, linked[old])
+			}
+		}
+		// All at once: no old target survives, every linked one lands at its new id.
+		rewritten, _ := RewriteLinks(body, base, full, isAsset)
+		after := map[string]bool{}
+		for _, id := range ExtractLinks(rewritten, base, isAsset) {
+			after[string(id)] = true
+		}
+		for old, newID := range full {
+			if after[old] {
+				t.Fatalf("body %q base %s: %s still linked after the rewrite: %q", body, base, old, rewritten)
+			}
+			if linked[old] && !after[newID] {
+				t.Fatalf("body %q base %s: %s not linked at %s after the rewrite: %q", body, base, old, newID, rewritten)
+			}
+		}
+	}
+}
+
+// TestWalkConceptsLinkingTo_ReadsOnlyCandidates proves the D248 invariant: a
+// concept that does not link to a moved id is not read.
+func TestWalkConceptsLinkingTo_ReadsOnlyCandidates(t *testing.T) {
+	k, err := Init(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	files := map[string]string{
+		"m/a.md":       "---\ntype: Note\n---\nsee [[m/target]]\n",
+		"m/b.md":       "---\ntype: Note\n---\nunrelated [[m/a]]\n",
+		"m/c/index.md": "---\ntype: Note\n---\n[t](../target.md)\n",
+		"m/d.md":       "---\ntype: Note\nsuperseded_by: m/target\n---\nold\n",
+		"m/e.md":       "---\ntype: Note\n---\nonly an example: `[[m/target]]`\n",
+		"m/moved.md":   "---\ntype: Note\n---\nno links\n",
+		"m/target.md":  "---\ntype: Note\n---\ntarget\n",
+		"other/far.md": "---\ntype: Note\n---\n[[m/b]]\n",
+	}
+	past := time.Now().Add(-time.Hour)
+	for rel, content := range files {
+		abs := filepath.Join(k.DataRoot(), filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(abs, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		// Outside the racy window, so the warm validation reuses every entry.
+		if err := os.Chtimes(abs, past, past); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := k.Links(); err != nil { // warm the cache
+		t.Fatal(err)
+	}
+
+	var reads []string
+	restore := SetReadRawHook(func(rel string) { reads = append(reads, rel) })
+	defer restore()
+	var visited []string
+	err = k.WalkConceptsLinkingTo([]okf.ConceptID{"m/target"}, []okf.ConceptID{"m/moved"}, func(id okf.ConceptID, rel, _ string) error {
+		visited = append(visited, string(id)+"@"+rel)
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantReads := []string{"m/a.md", "m/c/index.md", "m/d.md", "m/moved.md"}
+	if strings.Join(reads, ",") != strings.Join(wantReads, ",") {
+		t.Errorf("reads = %v, want exactly %v", reads, wantReads)
+	}
+	wantVisited := "m/a@m/a.md,m/c@m/c/index.md,m/d@m/d.md,m/moved@m/moved.md"
+	if strings.Join(visited, ",") != wantVisited {
+		t.Errorf("visited = %v, want %s", visited, wantVisited)
 	}
 }
