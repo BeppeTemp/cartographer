@@ -1,7 +1,7 @@
 ---
 name: kb-import
 description: Agent-guided procedure to import an existing non-OKF wiki or knowledge base (Obsidian vault, markdown folder, wiki export) into a Cartographer KB, incrementally and without big-bang LLM rewriting.
-version: "1.2"
+version: "1.3"
 ---
 # KB Import — Skill
 
@@ -89,7 +89,13 @@ Per session, pick a **batch** (5–15) of `imported_draft` findings. For each co
 1. read it (`concept_read`), improve frontmatter (summary, tags, `review_after` if factual);
 2. fix links to real `[[id]]` targets; merge duplicates (`concept_move` batch does backlink
    rewrite; `supersede` for content replaced by a better page);
-3. when the page meets KB standards, **remove `status: imported`** — that pops it off the queue.
+3. replace every home-anchored path (`~/…`, `/Users/<name>/…`, `/home/<name>/…` — what the
+   `machine_path` lint flags) and every local clone path with a placeholder: `{{path:<key>}}` or
+   `{{repo:<key>}}`. Reuse a key already declared in the KB's `paths.yaml` (`artifact_read`) when
+   its `default` is a prefix of the path — the `machine_path` message names it — and otherwise
+   declare the new key there, with a description and a `~/`-anchored default, in the same batch
+   (D263). Never cite a key `paths.yaml` does not declare;
+4. when the page meets KB standards, **remove `status: imported`** — that pops it off the queue.
    Shortcut: `concept_patch(id, frontmatter: {status: null}, if_match, ...)` unsets the key in
    place, without a full `concept_write` rewrite (D88).
 
@@ -109,7 +115,8 @@ skill.
 ## Reference
 
 - Tools: `atlas_overview`, `map_create`, `concept_expand`, `concept_read`, `concept_write`,
-  `concept_patch`, `concept_move`, `concept_list`, `supersede`, `lint`, `search`, `log_append`.
+  `concept_patch`, `concept_move`, `concept_list`, `supersede`, `lint`, `search`, `log_append`;
+  `artifact_read`/`artifact_write` for the KB's `paths.yaml`.
 - CLI: `cartographer import` (see D74 WP2), `kb-create` skill for a brand-new target KB,
   for authoring artifacts (`references/artifacts.md`) and for the SOPS flow
   (`references/secrets.md`); `cartographer-ops` for operations after the import.

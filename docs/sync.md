@@ -491,6 +491,32 @@ Shared content (concepts and provisioning artifacts) must never contain machine-
   before cache/scan). Written by the operator with `cartographer paths set`, or answered at the
   placeholder step of an interactive `connect` (`docs/configurator.md`); never by `sync`.
 
+### The KB's placeholder registry (D263)
+
+A KB declares the keys it may cite in `paths.yaml` at its root (`docs/data-plane.md`): per key a
+`description`, an optional `default` that must start with `~/` or `$HOME/`, and — for a repo — an
+optional `remote`. `sync_pull` serves it parsed as `path_registry` (malformed entries left out and
+named in `issues`); it is never materialized. The client keeps it per KB, gives each projection
+the registries of its bound KBs (`ApplyOptions.PathRegistries`), and `Apply` merges them in the
+provider's KB order: when two KBs declare one key with a different default or remote, the first
+wins and one warning per sync names both.
+
+**Resolution order**, per key:
+
+1. `.cartographer.yaml` `paths:` — always wins;
+2. for `repo:` — the repo index, looked up by the declared `remote` when there is one (so another
+   clone sharing the short name is not a match, nor an ambiguity), else by the key;
+3. the declared `default`, used **only if it exists** on this machine (for `repo:`, only if it is
+   a live clone);
+4. otherwise unresolved, with a reason naming the missing default.
+
+A declared key nothing cites is offered too: it joins the "Local paths" table when it resolves and
+is dropped silently when it does not — it is never reported unresolved. **Trust**: the registry is
+unsigned KB content, like a concept body. It can only propose a path under the reader's home, only
+as a fallback, only when that path exists, and it executes nothing; the client re-checks the home
+anchor itself, so a default that is absolute or climbs out with `..` is ignored whatever server
+sent it.
+
 The server-side `machine_path` lint flags a literal client-local path left in a concept body
 instead of one of these placeholders. Not every absolute path in a body is client-local: a Map's
 `machine_path_allow_prefixes` contract (D124, `docs/data-plane.md` §Maps and Journals) declares
@@ -524,15 +550,17 @@ passing `cfg.SearchRoots`/`cfg.Paths`.
   resolution. Reported as **one aggregated warning per sync** (not one per occurrence or per
   provider), naming each key with its reason and the fix (`cartographer paths set <kind>:<key> <path>`).
 - **Placeholder state in the lock** (D262): each `Lock` records `resolved_placeholders` (key → local
-  path), `unresolved_placeholders` (key → reason) and `placeholder_sources` (key → citing KBs),
-  overwritten by every client-side `Apply`. `cartographer paths` and `status` read them; absent (an
+  path), `unresolved_placeholders` (key → reason), `placeholder_sources` (key → citing KBs) and
+  `placeholder_decls` (key → its `paths.yaml` declaration, D263), overwritten by every client-side
+  `Apply`. `cartographer paths` and `status` read them; absent (an
   older lockfile) means "nothing recorded", never a failure.
 - **Placeholder paragraph and "Local paths" table**: when `ExpandPlaceholders` is active,
   `applyInstructionsGroup` appends to the instructions block (per provider) a fixed paragraph —
   always, even when nothing resolved — explaining that concepts and artifacts may cite
   `{{repo:<key>}}`/`{{path:<name>}}`, that an unlisted one is resolved with
   `cartographer resolve <kind>:<key>`, and that on failure the agent asks the user instead of
-  guessing, recorded with `cartographer paths set`. Below it, a placeholder → local path table with
+  guessing, recorded with `cartographer paths set` — and that a writer cites only the keys the KB's
+  `paths.yaml` declares, declaring a new one in the same change (D263). Below it, a placeholder → local path table with
   every key resolved in that `Apply` (the whole KB's list, concept-only keys included). The section
   is appended after expansion, so nothing in it is ever resolved. Its hash is recorded in the lock
   (`paths_section_hash`): a mismatch rewrites the block even when no artifact changed — a concept

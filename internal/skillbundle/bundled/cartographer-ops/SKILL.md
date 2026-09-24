@@ -1,7 +1,7 @@
 ---
 name: cartographer-ops
 description: Configure, operate, troubleshoot, or upgrade a Cartographer server or client; connect agents and manage Knowledge Bases.
-version: "1.6"
+version: "1.7"
 ---
 # Cartographer Operations
 
@@ -95,6 +95,15 @@ variables or the platform secret store, not in a committed YAML file.
    is theirs to choose: merge the stray branch into the default branch on the remote (a pull or
    merge request), or check out the default branch in the clone. Then
    `cartographer service restart`. Never merge, rebase, push or delete a branch yourself.
+7. If a sync warns that a `{{repo:…}}`/`{{path:…}}` placeholder is not resolved, run
+   `cartographer paths list`: it shows each key, the KBs citing it, what the KB's `paths.yaml`
+   says it points at and its declared default (D263). A key resolves from `paths:` in
+   `.cartographer.yaml` first, then (repo keys) from a clone under `search_roots`, found by the
+   declared `remote` when there is one, then from the declared default if it exists on this
+   machine. Fix it with `cartographer paths set <kind>:<key> <path>` — or, for a repo, add a closer
+   `search_roots` entry or raise `search_depth` (max 8) — then `cartographer sync`. A key missing
+   from the KB's `paths.yaml` is fixed in the KB, not on the client: declare it there with a
+   `~/`-anchored default so every machine resolves it with no configuration.
 
 ## Upgrade
 

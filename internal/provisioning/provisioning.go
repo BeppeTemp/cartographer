@@ -113,6 +113,12 @@ type Manifest struct {
 	// that copies or filters a Manifest carries it — the client reads it off
 	// the projection's manifest into ApplyOptions.Placeholders.
 	Placeholders map[string][]string `json:"placeholders,omitempty"`
+	// PathRegistries is client-side only, like Placeholders: each bound KB's
+	// declared placeholder vocabulary (paths.yaml, D263), KB name -> registry
+	// ("" for an unnamed endpoint), as its sync_pull listed it. Unsigned and
+	// outside the revision; read off the projection's manifest into
+	// ApplyOptions.PathRegistries.
+	PathRegistries map[string]PathRegistry `json:"path_registries,omitempty"`
 }
 
 // ManagedFile records a single file materialized by provisioning in the client's base-dir.
@@ -205,6 +211,12 @@ type Lock struct {
 	ResolvedPlaceholders   map[string]string   `json:"resolved_placeholders,omitempty"`
 	UnresolvedPlaceholders map[string]string   `json:"unresolved_placeholders,omitempty"`
 	PlaceholderSources     map[string][]string `json:"placeholder_sources,omitempty"`
+	// PlaceholderDecls maps a recorded key to the declaration its KB made in
+	// paths.yaml (D263), so `paths list` and the connect step can show what a
+	// key points at, and pre-fill its default, without a network call.
+	// Absent — an older lockfile, a KB with no registry — means "nothing
+	// declared", which is what those files meant.
+	PlaceholderDecls map[string]PathDecl `json:"placeholder_decls,omitempty"`
 	// PathsSectionHash is the hash of the placeholder section last written
 	// into the instructions block (paragraph + "Local paths" table, D262). A
 	// mismatch rewrites the block even when no artifact changed — the table
@@ -301,6 +313,13 @@ type ApplyOptions struct {
 	// paths" table covers the whole KB and not only the artifacts this Apply
 	// rewrites. Only read when ExpandPlaceholders is set.
 	Placeholders map[string][]string
+	// PathRegistries are the bound KBs' declared placeholder vocabularies
+	// (D263), KB name -> registry. Merged in KBOrder (first KB wins on a
+	// conflicting default or remote, with a warning); a declared remote is
+	// what a repo key is looked up by, and a declared default is the fallback
+	// after `paths:` and the repo index, used only if it exists. Only read
+	// when ExpandPlaceholders is set.
+	PathRegistries map[string]PathRegistry
 
 	// NoHeal reports on-disk divergence (AppliedResult.Divergent) instead of
 	// restoring it (D139). The escape hatch for someone deliberately
@@ -350,6 +369,11 @@ type AppliedResult struct {
 	// engine (D59, see registerOpenCodePlugin in hooksettings.go): the hook's
 	// files are materialized anyway, but no plugin is generated.
 	Warnings []string
+	// RegistryWarnings: two bound KBs declaring one placeholder key with a
+	// different default or remote (D263). Kept apart from Warnings because
+	// every projection bound to both KBs reports the same conflict, and the
+	// caller prints each one once per sync, not once per provider.
+	RegistryWarnings []string
 }
 
 // LockFileName is the lockfile's name, relative to base-dir.
@@ -1623,6 +1647,10 @@ func Apply(m Manifest, opts ApplyOptions) (AppliedResult, error) {
 	// this run.
 	var sources map[string][]string
 	if opts.ExpandPlaceholders {
+		var declaredBy map[string][]string
+		var conflicts []string
+		tracker.decls, declaredBy, conflicts = MergePathRegistries(opts.KBOrder, opts.PathRegistries)
+		result.RegistryWarnings = conflicts
 		sources = placeholderSources(m, opts)
 		ids := make([]string, 0, len(sources))
 		for id := range sources {
@@ -1630,6 +1658,7 @@ func Apply(m Manifest, opts ApplyOptions) (AppliedResult, error) {
 		}
 		sort.Strings(ids)
 		tracker.preResolve(ids, opts)
+		tracker.resolveDeclared(sources, declaredBy, opts)
 	}
 
 	// Artifacts to update (add + update).
@@ -1984,6 +2013,16 @@ func Apply(m Manifest, opts ApplyOptions) (AppliedResult, error) {
 		}
 		if len(sources) > 0 {
 			result.NewLock.PlaceholderSources = sources
+		}
+		// The declaration of every recorded key, for `paths list` and the
+		// connect step (D263); a key no KB declares has none.
+		for id := range sources {
+			if d, ok := tracker.decls[id]; ok {
+				if result.NewLock.PlaceholderDecls == nil {
+					result.NewLock.PlaceholderDecls = map[string]PathDecl{}
+				}
+				result.NewLock.PlaceholderDecls[id] = d
+			}
 		}
 	}
 

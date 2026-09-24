@@ -194,6 +194,13 @@ func EffectiveDepth(configured int) int {
 // when validating a cached path before serving it (D181) — a cache hit must
 // not paper over a clone that moved or was removed.
 func isLiveClone(path string) bool {
+	return IsLiveClone(path)
+}
+
+// IsLiveClone is isLiveClone for callers outside the package: a KB's
+// declared default for a {{repo:…}} key (D263) is used only when it is a live
+// clone, by the same definition a cached index entry must meet.
+func IsLiveClone(path string) bool {
 	fi, err := os.Stat(path)
 	if err != nil || !fi.IsDir() {
 		return false
@@ -414,8 +421,20 @@ func NewResolver(manualPaths map[string]string, roots []string, maxDepth int) *R
 // Warnings about unusable search roots are returned once, by the call that
 // scanned, rather than repeated on every later miss.
 func (r *Resolver) Resolve(key string) (string, []string, error) {
+	return r.ResolveDeclared(key, "")
+}
+
+// ResolveDeclared resolves key like Resolve, except that the index is
+// searched by remote — a canonical "host/owner/name" — when one is given: a
+// KB that declares its repository's remote (D263) is not at the mercy of
+// another clone sharing the short name. The manual `paths:` map is still
+// consulted first, by key: an explicit mapping always wins.
+func (r *Resolver) ResolveDeclared(key, remote string) (string, []string, error) {
 	if p, ok := r.manualPaths[key]; ok {
 		return ExpandHome(p), nil, nil
+	}
+	if remote != "" {
+		key = remote
 	}
 
 	if !r.scanned {

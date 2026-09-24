@@ -1,7 +1,7 @@
 ---
 name: kb-create
 description: Operator procedure to declare and provision a new Knowledge Base GitOps-style, so it survives pod restarts; also covers authoring the KB's artifacts (skills, subagents, hooks, MCP descriptors) and the SOPS encryption flow.
-version: "3.1"
+version: "3.2"
 ---
 # KB Create — Skill
 
@@ -162,8 +162,32 @@ and a structural mistake made now becomes long-lived knowledge debt. So **before
   (turns `<id>.md` into `<id>/index.md` plus satellite concepts) — there is no separate
   "dossier create" step.
 
+### Vocabulary: the path placeholder registry
+Concepts cite machine-local locations as `{{path:<key>}}` and repositories as `{{repo:<key>}}`
+(the client resolves them; D75). Right after the Maps, ask the user which home locations and
+repositories the KB will talk about, and create `paths.yaml` at the KB root with `artifact_write`
+(D263):
+
+```yaml
+paths:
+  claude-home: {description: Claude Code's per-user directory, default: ~/.claude}
+repos:
+  kb-tools: {description: the team's tooling repository, remote: gitlab.example.com/team/kb-tools}
+```
+
+- `description` is required: it is what a client shows when it asks where a key lives.
+- `default` is optional and must start with `~/` or `$HOME/` — an absolute path is refused, since
+  the file is read on every machine. A default that exists resolves the key with no client
+  configuration; one that does not is simply unresolved.
+- `remote` (repos only) makes the key resolve to the clone carrying that remote, not to whichever
+  clone shares the short name.
+- The rule for every later session: **cite only declared keys; add a key to `paths.yaml` in the
+  same change that first cites it.** Before coining a key, reuse one whose default is a prefix of
+  the path. `lint` reports an undeclared key (`unknown_placeholder`) and a declared one nothing
+  cites (`unused_placeholder`) once the file exists.
+
 ### Artifacts: skills, subagents, hooks, MCP descriptors
-A KB also configures the agents that read it. Authoring those artifacts — the six accepted
+A KB also configures the agents that read it. Authoring those artifacts — the seven accepted
 `artifact_write` paths, the shape of each, the naming rules a client enforces, the `if_match`
 protocol, and the manifest → trust → projection → materialization chain that is what actually makes
 one appear in a client — is in `references/artifacts.md`.

@@ -130,6 +130,9 @@ var perConceptChecks = map[string]bool{
 	"link_to_retired": true,
 	"broken_relation": true,
 	"map_misfit":      true,
+	// Path placeholder registry (D263): a concept documenting an old key on
+	// purpose must be writable. unused_placeholder belongs to paths.yaml.
+	"unknown_placeholder": true,
 }
 
 // lintIgnoreSet reads a concept's lint_ignore frontmatter key (D159). A bare
@@ -273,6 +276,35 @@ func Run(k *kb.KB, scope string, scopeNeighbors bool) ([]Finding, error) {
 		}
 	}
 
+	// The KB's path placeholder registry (D263). Its own findings — a
+	// malformed entry, a declared key nothing cites — belong to paths.yaml,
+	// a KB-level file, so only an unscoped lint reports them.
+	registry, registryFindings := loadRegistryLint(k)
+	if scopeNorm == "" {
+		findings = append(findings, registryFindings...)
+		cited := map[string]bool{}
+		for _, f := range lg.Facets {
+			for _, id := range f.Placeholders {
+				cited[id] = true
+			}
+		}
+		artifactIDs, artErr := k.ArtifactPlaceholders()
+		if artErr != nil {
+			return nil, fmt.Errorf("lint.Run: artifact placeholders: %w", artErr)
+		}
+		for _, id := range artifactIDs {
+			cited[id] = true
+		}
+		for _, id := range registry.unused(cited) {
+			findings = append(findings, Finding{
+				Path:     kb.PathRegistryFile,
+				Check:    "unused_placeholder",
+				Severity: SevInfo,
+				Message:  fmt.Sprintf("{{%s}} is declared but no concept or artifact cites it — drop it, or merge it into the key that is used", id),
+			})
+		}
+	}
+
 	// The structural analysis runs on the whole graph whatever the scope, so
 	// a scoped lint gives a concept the verdict a whole-KB lint gives it;
 	// scope only decides which findings are emitted (D243).
@@ -315,7 +347,7 @@ func Run(k *kb.KB, scope string, scopeNeighbors bool) ([]Finding, error) {
 				reason = "an error-severity contract violation, which lint_ignore cannot silence"
 			} else if name == "island" {
 				reason = "a graph-level check with no single concept owner"
-			} else if name == "map_oversize" || name == "index_incomplete" || name == "orphan_asset" || strings.HasPrefix(name, "expanded_") {
+			} else if name == "map_oversize" || name == "index_incomplete" || name == "orphan_asset" || name == "unused_placeholder" || strings.HasPrefix(name, "expanded_") {
 				// orphan_asset belongs to an expanded concept's asset set, reported
 				// in the directory pass: there is no single concept frontmatter that
 				// owns it, so listing it as suppressible would be a promise the
@@ -354,12 +386,27 @@ func Run(k *kb.KB, scope string, scopeNeighbors bool) ([]Finding, error) {
 
 		// --- machine_path (warning, D75 WP6 / D124) ---
 		if disallowed := firstDisallowedMachinePath(body, allowPrefixes); disallowed != "" {
+			msg := fmt.Sprintf("client-local path %q — use {{repo:<key>}}/{{path:<nome>}} instead (D75); operational paths on containers/remote hosts are not client-local (D124)", disallowed)
+			// A declared key whose default covers the path is the answer,
+			// not a generic hint (D263).
+			if s := registry.suggestion(disallowed); s != "" {
+				msg += fmt.Sprintf(" — use `%s`, declared in %s", s, kb.PathRegistryFile)
+			}
 			emit(Finding{
 				Path:     relPath,
 				Check:    "machine_path",
 				Severity: SevWarning,
-				Message:  fmt.Sprintf("client-local path %q — use {{repo:<key>}}/{{path:<nome>}} instead (D75); operational paths on containers/remote hosts are not client-local (D124)", disallowed),
+				Message:  msg,
 			})
+		}
+
+		// --- unknown_placeholder (warning, D263) ---
+		// The keys come from the graph cache's facet (D262), the same parse
+		// sync_pull lists them from — not a second regex here.
+		if i, ok := lg.Index[id]; ok {
+			if undeclared := registry.undeclared(lg.Facets[i].Placeholders); len(undeclared) > 0 {
+				emit(unknownPlaceholderFinding(relPath, undeclared))
+			}
 		}
 
 		// --- concept_oversize (info) ---

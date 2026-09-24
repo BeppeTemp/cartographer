@@ -47,6 +47,10 @@ type pulledManifestJSON struct {
 	// outside revision and unsigned. An older server sends none, and the
 	// client falls back to the keys found in the artifacts themselves.
 	Placeholders []string `json:"placeholders,omitempty"`
+	// PathRegistry is the KB's declared placeholder vocabulary (paths.yaml,
+	// D263), unsigned and outside revision. nil when the KB has none or the
+	// server predates it.
+	PathRegistry *provisioning.PathRegistry `json:"path_registry,omitempty"`
 }
 
 // lockFilePath returns the path to the v2 multi-provider lockfile inside targetDir.
@@ -91,6 +95,45 @@ type candidateSet struct {
 	// projection exactly like the artifacts, by placeholdersForProjection.
 	Placeholders     map[string][]string
 	BarePlaceholders []string
+	// PathRegistries is, per KB, the paths.yaml its sync_pull served (D263);
+	// BarePathRegistry the unnamed endpoint's. Selected per projection by
+	// pathRegistriesForProjection, like the placeholder keys.
+	PathRegistries   map[string]provisioning.PathRegistry
+	BarePathRegistry *provisioning.PathRegistry
+}
+
+// pathRegistriesForProjection returns the declared vocabularies of the KBs a
+// projection is bound to, KB name -> registry ("" for the unnamed endpoint),
+// selected by the same rules as placeholdersForProjection. Apply merges them
+// in the provider's KB order. nil when there is none.
+func (cs candidateSet) pathRegistriesForProjection(cfg *clientconfig.Config, p syncProjection) map[string]provisioning.PathRegistry {
+	if p.BundleOnly {
+		return nil
+	}
+	out := map[string]provisioning.PathRegistry{}
+	if cs.HasBare {
+		if p.Workspace != "" || cs.BarePathRegistry == nil {
+			return nil
+		}
+		if bound, explicit := cfg.BoundKBs(p.Provider); explicit && len(bound) == 0 {
+			return nil
+		}
+		out[""] = *cs.BarePathRegistry
+	} else {
+		kbs := p.KBs
+		if p.Workspace == "" {
+			kbs, _ = cfg.BoundKBs(p.Provider)
+		}
+		for _, kb := range kbs {
+			if reg, ok := cs.PathRegistries[kb]; ok {
+				out[kb] = reg
+			}
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 // placeholdersForProjection returns the placeholder keys a projection must
@@ -347,7 +390,7 @@ type kbPullFailure struct {
 // server's unnamed endpoint, and two KBs serving one artifact with different
 // signatures.
 func fetchCandidatesPartial(cfg *clientconfig.Config, kbNames []string) (candidateSet, []kbPullFailure, error) {
-	cs := candidateSet{Named: make(map[string][]provisioning.Artifact), Placeholders: make(map[string][]string)}
+	cs := candidateSet{Named: make(map[string][]provisioning.Artifact), Placeholders: make(map[string][]string), PathRegistries: make(map[string]provisioning.PathRegistry)}
 	token := resolveToken(cfg)
 	tokenEnv := tokenEnvName(cfg)
 	health, err := client.New(cfg.ServerURL, token).WithTokenEnv(tokenEnv).Health(probeTimeout)
@@ -418,8 +461,14 @@ func fetchCandidatesPartial(cfg *clientconfig.Config, kbNames []string) (candida
 		}
 		if target.Name == "" {
 			cs.BarePlaceholders = append(cs.BarePlaceholders, res.placeholders...)
-		} else if len(res.placeholders) > 0 {
-			cs.Placeholders[target.Name] = res.placeholders
+			cs.BarePathRegistry = res.pathRegistry
+		} else {
+			if len(res.placeholders) > 0 {
+				cs.Placeholders[target.Name] = res.placeholders
+			}
+			if res.pathRegistry != nil {
+				cs.PathRegistries[target.Name] = *res.pathRegistry
+			}
 		}
 		// A KB that answered with no artifacts at all still counts as answered:
 		// without this, a provider bound only to it would fall through the
@@ -448,6 +497,7 @@ const maxConcurrentPulls = 4
 type pullResult struct {
 	artifacts    []provisioning.Artifact
 	placeholders []string
+	pathRegistry *provisioning.PathRegistry
 	callErr      error
 	err          error
 }
@@ -482,7 +532,7 @@ func pullTarget(c *client.MCPClient, target kbTarget) pullResult {
 			ContentHash: pa.ContentHash, BuiltIn: pa.BuiltIn, Signature: pa.Signature, Files: files,
 		})
 	}
-	return pullResult{artifacts: arts, placeholders: pm.Placeholders}
+	return pullResult{artifacts: arts, placeholders: pm.Placeholders, pathRegistry: pm.PathRegistry}
 }
 
 // collisionsForProvider narrows DetectCollisions to the ones a single provider
@@ -640,8 +690,9 @@ func materializeForProviders(manifests map[string]provisioning.Manifest, project
 			Paths:              portability.Paths,
 			// Read off the projection's manifest before the filter below,
 			// which — like every Manifest copy — does not carry it (D262).
-			Placeholders: manifest.Placeholders,
-			KBOrder:      kbOrder[p.Provider],
+			Placeholders:   manifest.Placeholders,
+			PathRegistries: manifest.PathRegistries,
+			KBOrder:        kbOrder[p.Provider],
 		}
 		// Apply only the artifacts the provider knows how to materialize in
 		// this scope: unsupported kinds are neither drift nor pending, they
@@ -802,6 +853,11 @@ func printApplySummary(dir string, results map[string]provisioning.AppliedResult
 	if w := provisioning.UnresolvedPlaceholdersWarning(unresolvedAcross(results)); w != "" {
 		fmt.Printf("warning: %s\n", w)
 	}
+	// Two KBs declaring one key differently (D263): the same conflict for
+	// every provider bound to both, so each is printed once.
+	for _, w := range registryWarningsAcross(results) {
+		fmt.Printf("warning: %s\n", w)
+	}
 	if needsApproval {
 		fmt.Printf("to approve the unsigned artifacts run: %s\n", autoTrustCommand())
 	}
@@ -820,6 +876,23 @@ func unresolvedAcross(results map[string]provisioning.AppliedResult) map[string]
 			out[id] = reason
 		}
 	}
+	return out
+}
+
+// registryWarningsAcross is the sorted, de-duplicated union of every
+// projection's paths.yaml conflict warnings (D263).
+func registryWarningsAcross(results map[string]provisioning.AppliedResult) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, r := range results {
+		for _, w := range r.RegistryWarnings {
+			if !seen[w] {
+				seen[w] = true
+				out = append(out, w)
+			}
+		}
+	}
+	sort.Strings(out)
 	return out
 }
 
