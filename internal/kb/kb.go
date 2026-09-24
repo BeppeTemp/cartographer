@@ -380,7 +380,9 @@ func Init(root string) (*KB, error) {
 	// WriteConcept does NOT auto-commit: commits remain an explicit operation (commit_gate).
 	if !gitx.IsRepo(abs) {
 		if initErr := gitx.Init(abs); initErr == nil {
-			// Initial commit: ignore ErrNothingToCommit and any other non-fatal error.
+			// Initial commit. Its error is returned (only ErrNothingToCommit is
+			// benign): swallowing it left `kb create` pushing a branch that does
+			// not exist, and the push error blamed authentication (D265).
 			// The author is the caller's (InitWithIdentity) when it supplied one:
 			// a forge with an author push rule rejects the product default, and
 			// the rejection lands on the very first push (D156).
@@ -388,7 +390,9 @@ func Init(root string) (*KB, error) {
 			if name == "" || email == "" {
 				name, email = defaultGitAuthorName, defaultGitAuthorEmail
 			}
-			_ = gitx.Commit(abs, "init: KB initialized", name, email)
+			if err := gitx.Commit(abs, "init: KB initialized", name, email); err != nil && !errors.Is(err, gitx.ErrNothingToCommit) {
+				return nil, fmt.Errorf("Init: initial commit: %w", err)
+			}
 		}
 	}
 

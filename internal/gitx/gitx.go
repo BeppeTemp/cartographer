@@ -190,7 +190,8 @@ func Init(dir string) error {
 // author identity. The committer identity is taken from env (typically
 // GIT_COMMITTER_NAME/GIT_COMMITTER_EMAIL, assembled per-KB by the caller);
 // if env carries no committer variables, git falls back to its own config/
-// process environment. If there is nothing to commit, returns
+// process environment, and when git cannot resolve one either the author
+// becomes the committer (withCommitterFallback). If there is nothing to commit, returns
 // ErrNothingToCommit (not a fatal error).
 func Commit(dir, message, authorName, authorEmail string, env ...string) error {
 	if out, err := runGitEnv(dir, env, "add", "-A"); err != nil {
@@ -239,6 +240,7 @@ func commit(dir, message, authorName, authorEmail string, env ...string) error {
 		args = append(args, "--author", fmt.Sprintf("%s <%s>", authorName, authorEmail))
 	}
 	args = append(args, "-m", message)
+	env = withCommitterFallback(dir, env, authorName, authorEmail)
 	out, err := runGitEnv(dir, env, args...)
 	if err != nil {
 		// git commit exits with code 1 when there is nothing to commit.
@@ -249,6 +251,31 @@ func commit(dir, message, authorName, authorEmail string, env ...string) error {
 		return fmt.Errorf("git commit: %w: %s", err, out)
 	}
 	return nil
+}
+
+// withCommitterFallback returns env extended with GIT_COMMITTER_NAME/EMAIL set
+// to the author when an author is supplied and git cannot resolve a committer
+// on its own. --author sets only the author: on a machine with no user.email
+// (a fresh Git for Windows install) git still exits 128 with "Committer
+// identity unknown", so every commit Cartographer makes would fail (D265).
+//
+// The fallback applies only when `git var GIT_COMMITTER_IDENT` fails, rather
+// than always making the committer the author: a committer the operator did
+// configure (per-KB env, GIT_COMMITTER_* in the process, or user.* in git
+// config) is recorded unchanged, and the extra probe is skipped when env
+// already names both committer variables.
+func withCommitterFallback(dir string, env []string, authorName, authorEmail string) []string {
+	if authorName == "" || authorEmail == "" {
+		return env
+	}
+	if hasEnv(env, "GIT_COMMITTER_NAME") && hasEnv(env, "GIT_COMMITTER_EMAIL") {
+		return env
+	}
+	if _, err := runGitEnv(dir, env, "var", "GIT_COMMITTER_IDENT"); err == nil {
+		return env
+	}
+	return append(append([]string{}, env...),
+		"GIT_COMMITTER_NAME="+authorName, "GIT_COMMITTER_EMAIL="+authorEmail)
 }
 
 // AuthorIdent returns the identity resolved by Git itself (including local,
