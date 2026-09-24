@@ -305,7 +305,9 @@ export function App() {
     if (!activeKB || phase !== "ready") return;
     const controller = new AbortController();
     setLintLoading(true);
-    fetchLint(activeKB, severityMin, controller.signal)
+    // The rail's Map selection scopes the findings too: the server
+    // answers the same scope the graph is drawn for.
+    fetchLint(activeKB, severityMin, view.scope, controller.signal)
       .then((data) => {
         setLint(data);
         setLintError(null);
@@ -318,7 +320,7 @@ export function App() {
         if (!controller.signal.aborted) setLintLoading(false);
       });
     return () => controller.abort();
-  }, [activeKB, severityMin, phase, handleFailure, reloadKey]);
+  }, [activeKB, severityMin, view.scope, phase, handleFailure, reloadKey]);
 
   // Artifacts are whole-KB resources (D238): a principal that cannot see the
   // whole KB gets no panel, and a link to one falls back to the atlas.
@@ -587,6 +589,11 @@ export function App() {
           ) : view.panel === "observatory" ? (
             <Observatory
               report={lint}
+              scopeTitle={
+                view.scope
+                  ? (overview?.collections.find((c) => c.name === view.scope)?.title || view.scope)
+                  : null
+              }
               loading={lintLoading}
               error={lintError}
               severityMin={severityMin}

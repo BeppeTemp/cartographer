@@ -44,6 +44,11 @@ export function LeftRail({
   const lintTotal = overview?.lint.total ?? 0;
   const activeCount = typeFilter.size + statusFilter.size;
   const filtersActive = activeCount > 0;
+  // Type and Status filter the graph's nodes; the Observatory lists findings,
+  // some of which have no concept and so no type. The chips step aside there
+  // rather than look applied while doing nothing. The selection lives
+  // in App, so it is still applied on the way back to the Atlas.
+  const nodeFilters = panel !== "observatory";
 
   return (
     <nav className={`rail${collapsed ? " rail--collapsed" : ""}`} aria-label="Atlas navigation">
@@ -158,27 +163,30 @@ export function LeftRail({
             )}
           </section>
 
-          {filtersActive && (
+          {nodeFilters && filtersActive && (
             <button type="button" className="rail__clear" onClick={onClearFilters}>
               <Icon name="close" size={14} />
               Clear {activeCount} filter{activeCount === 1 ? "" : "s"}
             </button>
           )}
-          <FilterSection
-            title="Type"
-            counts={overview?.concepts.by_type ?? {}}
-            active={typeFilter}
-            onToggle={onToggleType}
-          />
-          <FilterSection
-            title="Status"
-            counts={overview?.concepts.by_status ?? {}}
-            active={statusFilter}
-            onToggle={onToggleStatus}
-          />
+          {nodeFilters && (
+            <>
+              <FilterSection
+                title="Type"
+                counts={overview?.concepts.by_type ?? {}}
+                active={typeFilter}
+                onToggle={onToggleType}
+              />
+              <FilterSection
+                title="Status"
+                counts={overview?.concepts.by_status ?? {}}
+                active={statusFilter}
+                onToggle={onToggleStatus}
+              />
+            </>
+          )}
 
-
-          {snapshot && (
+          {nodeFilters && snapshot && (
             <p className="rail__meta">
               {snapshot.nodes.length} node{snapshot.nodes.length === 1 ? "" : "s"},{" "}
               {snapshot.edges.length} link{snapshot.edges.length === 1 ? "" : "s"} in view

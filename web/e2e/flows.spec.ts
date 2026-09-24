@@ -201,6 +201,33 @@ test("an Observatory finding reveals its concept, or explains there is none", as
   await expect(conceptRow(page, "infra/firewall")).toHaveAttribute("aria-current", "true");
 });
 
+test("the Observatory follows the rail's Map, and hides the node filters (#364)", async ({ page }) => {
+  await page.goto(`${ATLAS}&panel=observatory`);
+  const observatory = page.getByRole("region", { name: "Observatory" });
+  const rail = page.getByRole("navigation", { name: "Atlas navigation" });
+  await expect(observatory.getByRole("button", { name: /infra\/firewall\.md/ })).toBeVisible();
+  // Type and Status filter nodes, not findings: they step aside here.
+  await expect(rail.getByRole("heading", { name: "Type" })).toHaveCount(0);
+
+  // Another Map's findings leave the list, and the page names the scope.
+  await rail.getByRole("button", { name: /Applications/ }).click();
+  await expect(observatory.getByRole("heading", { level: 1 })).toContainText("in Applications");
+  await expect(observatory.getByRole("button", { name: /infra\/firewall\.md/ })).toHaveCount(0);
+
+  await rail.getByRole("button", { name: /Infrastructure/ }).click();
+  await expect(observatory.getByRole("heading", { level: 1 })).toContainText("in Infrastructure");
+  await expect(observatory.getByRole("button", { name: /infra\/firewall\.md/ })).toBeVisible();
+  const paths = await observatory.locator(".observatory__path").allTextContents();
+  expect(paths.every((path) => path.startsWith("infra/"))).toBe(true);
+
+  // Whole atlas restores the KB-wide list; the Atlas gets its filters back.
+  await rail.getByRole("button", { name: /Whole atlas/ }).click();
+  await expect(observatory.getByRole("heading", { level: 1 })).not.toContainText("Infrastructure");
+  await expect(observatory.getByText(/run over the whole KB/)).toBeVisible();
+  await rail.getByRole("button", { name: "Atlas", exact: true }).click();
+  await expect(rail.getByRole("heading", { name: "Type" })).toBeVisible();
+});
+
 test("a truncated graph says so and names how to narrow it", async ({ page }) => {
   await page.route("**/api/ui/v1/kbs/atlas/graph**", async (route) => {
     const response = await route.fetch();

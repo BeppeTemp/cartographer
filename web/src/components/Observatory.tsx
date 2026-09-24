@@ -11,13 +11,17 @@ const FLOORS: [string, string][] = [
   ["error", "Errors only"],
 ];
 
-/** The headline says what the reader should feel, in words: the counts follow. */
-function headline(report: LintReport): string {
+/** The headline says what the reader should feel, in words: the counts follow.
+ *  A scoped report names its scope in the headline itself, so a Map with no
+ *  findings never reads as a healthy KB. */
+function headline(report: LintReport, scopeTitle: string | null): string {
   const errors = report.by_severity.error ?? 0;
   const warnings = report.by_severity.warning ?? 0;
-  if (report.total === 0) return "Nothing to report.";
-  if (errors > 0) return errors === 1 ? "One thing is broken." : `${errors} things are broken.`;
-  if (warnings > 0) return warnings === 1 ? "One thing needs attention." : `${warnings} things need attention.`;
+  const where = scopeTitle ? ` in ${scopeTitle}` : "";
+  if (report.total === 0) return `Nothing to report${where}.`;
+  if (errors > 0) return (errors === 1 ? "One thing is broken" : `${errors} things are broken`) + `${where}.`;
+  if (warnings > 0) return (warnings === 1 ? "One thing needs attention" : `${warnings} things need attention`) + `${where}.`;
+  if (scopeTitle) return report.total === 1 ? `One note${where}.` : `${report.total} notes${where}.`;
   return report.total === 1 ? "One note on this atlas." : `${report.total} notes on this atlas.`;
 }
 
@@ -36,10 +40,13 @@ function plural(n: number, word: string): string {
  *
  * It reports the unfiltered totals next to the filtered list, because the API
  * does: a page that showed only what cleared the floor would let a KB look
- * healthy by choosing a high enough severity.
+ * healthy by choosing a high enough severity. For the same reason a report
+ * scoped to one Map (the rail's selection) says so wherever it states a
+ * total: a scoped page that read as KB-wide would hide everything outside it.
  */
 export function Observatory({
   report,
+  scopeTitle,
   loading,
   error,
   severityMin,
@@ -48,6 +55,8 @@ export function Observatory({
   onRetry,
 }: {
   report: LintReport | null;
+  /** Title of the Map or Journal the findings are scoped to; null = whole KB. */
+  scopeTitle: string | null;
   loading: boolean;
   error: unknown;
   severityMin: string;
@@ -75,7 +84,7 @@ export function Observatory({
     <section className="observatory" aria-label="Observatory">
       <header className="observatory__intro">
         <p className="observatory__eyebrow">Observatory</p>
-        <h1 className="observatory__title">{headline(report)}</h1>
+        <h1 className="observatory__title">{headline(report, scopeTitle)}</h1>
         <p className="observatory__summary">
           {ORDER.map((severity, i) => (
             <span key={severity}>
@@ -85,7 +94,8 @@ export function Observatory({
           ))}
           <span className="observatory__summary-rest">
             {" "}
-            — from {plural(checks.length, "check")} run over the whole KB.
+            — from {plural(checks.length, "check")} run over{" "}
+            {scopeTitle ? <strong className="observatory__scope">{scopeTitle}</strong> : "the whole KB"}.
           </span>
         </p>
       </header>
@@ -117,7 +127,9 @@ export function Observatory({
           detail={
             report.total > 0
               ? "No findings at or above this severity. Lower the floor to see the rest."
-              : "This KB passes every deterministic lint check."
+              : scopeTitle
+                ? `${scopeTitle} passes every deterministic lint check. Choose Whole atlas for the rest of the KB.`
+                : "This KB passes every deterministic lint check."
           }
         />
       ) : (

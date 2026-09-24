@@ -504,6 +504,13 @@ browser (`cartographer.inspector.width` in localStorage) and clamped between
 320px and what leaves 280px of graph beside the rail; on a narrow screen the
 panel is a sheet and has no splitter (D239).
 
+The **Observatory** panel lists the lint findings the caller may see. The Map or
+Journal selected in the rail scopes them (`GET /api/ui/v1/kbs/<kb>/lint?scope=`),
+and the headline and summary name that scope, so a clean Map never reads as a
+clean KB; *Whole atlas* returns to the KB-wide list. The Type and Status filters
+apply to graph nodes only, so the rail hides them in the Observatory and keeps
+their selection for the way back to the Atlas.
+
 The **Artifacts** panel, third in the rail, shows what the KB ships to agent
 clients: skills, subagents, hooks, MCP descriptors in the allowlist, the
 curated `instructions.md` and templates, grouped by kind with a filter. Bundled

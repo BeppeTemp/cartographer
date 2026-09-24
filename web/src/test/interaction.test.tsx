@@ -3,8 +3,9 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { CommandPalette } from "../components/CommandPalette";
 import { NodeList } from "../components/NodeList";
+import { LeftRail } from "../components/LeftRail";
 import { Observatory } from "../components/Observatory";
-import type { GraphNode, LintReport } from "../api/types";
+import type { GraphNode, LintReport, Overview } from "../api/types";
 
 const nodes: GraphNode[] = [
   { id: "infra/gateway", collection: "infra", type: "Service", in_degree: 4, out_degree: 1 },
@@ -104,6 +105,7 @@ describe("observatory", () => {
     render(
       <Observatory
         report={report}
+        scopeTitle={null}
         loading={false}
         error={null}
         severityMin="info"
@@ -122,6 +124,7 @@ describe("observatory", () => {
     render(
       <Observatory
         report={report}
+        scopeTitle={null}
         loading={false}
         error={null}
         severityMin="info"
@@ -138,6 +141,7 @@ describe("observatory", () => {
     render(
       <Observatory
         report={report}
+        scopeTitle={null}
         loading={false}
         error={null}
         severityMin="warning"
@@ -153,6 +157,7 @@ describe("observatory", () => {
     render(
       <Observatory
         report={report}
+        scopeTitle={null}
         loading={false}
         error={null}
         severityMin="info"
@@ -164,5 +169,82 @@ describe("observatory", () => {
     const totals = screen.getByRole("region", { name: "Observatory" });
     expect(within(totals).getAllByText("error").length).toBeGreaterThan(0);
     expect(within(totals).getAllByText("warning").length).toBeGreaterThan(0);
+  });
+});
+
+describe("observatory scope", () => {
+  it("names the Map it is scoped to, in the headline and the summary", () => {
+    render(
+      <Observatory
+        report={report}
+        scopeTitle="Infrastructure"
+        loading={false}
+        error={null}
+        severityMin="info"
+        onSeverityChange={vi.fn()}
+        onReveal={vi.fn()}
+        onRetry={vi.fn()}
+      />,
+    );
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("One thing is broken in Infrastructure.");
+    expect(screen.getByText(/run over/)).toHaveTextContent("run over Infrastructure.");
+  });
+
+  it("does not let a clean Map read as a clean KB", () => {
+    const clean: LintReport = { ...report, findings: [], count: 0, total: 0, by_severity: {}, by_check: {} };
+    render(
+      <Observatory
+        report={clean}
+        scopeTitle="Infrastructure"
+        loading={false}
+        error={null}
+        severityMin="info"
+        onSeverityChange={vi.fn()}
+        onReveal={vi.fn()}
+        onRetry={vi.fn()}
+      />,
+    );
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Nothing to report in Infrastructure.");
+    expect(screen.queryByText(/This KB passes/)).not.toBeInTheDocument();
+  });
+});
+
+describe("left rail in the Observatory", () => {
+  const overview = {
+    concepts: { total: 3, by_type: { Service: 2, Note: 1 }, by_status: { draft: 1 } },
+    collections: [{ name: "infra", title: "Infrastructure", kind: "map", concepts: 2 }],
+    lint: { total: 0 },
+  } as unknown as Overview;
+  const rail = (panel: "atlas" | "observatory") => (
+    <LeftRail
+      overview={overview}
+      snapshot={null}
+      scope={null}
+      panel={panel}
+      artifactsTotal={null}
+      collapsed={false}
+      typeFilter={new Set(["Service"])}
+      statusFilter={new Set()}
+      onScope={vi.fn()}
+      onPanel={vi.fn()}
+      onToggleCollapsed={vi.fn()}
+      onToggleType={vi.fn()}
+      onToggleStatus={vi.fn()}
+      onClearFilters={vi.fn()}
+    />
+  );
+
+  it("keeps the Maps, which scope the findings, and hides the node filters", () => {
+    render(rail("observatory"));
+    expect(screen.getByRole("button", { name: /Infrastructure/ })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Type" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Status" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Clear 1 filter/ })).not.toBeInTheDocument();
+  });
+
+  it("shows the node filters, selection intact, back in the Atlas", () => {
+    render(rail("atlas"));
+    expect(screen.getByRole("heading", { name: "Type" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Service/ })).toHaveAttribute("aria-pressed", "true");
   });
 });
