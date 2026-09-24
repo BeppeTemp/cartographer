@@ -55,8 +55,16 @@ foreach ($case in $cases.Keys) {
 
 $port = Get-Random -Minimum 20000 -Maximum 40000
 $server = Start-Process -PassThru -WindowStyle Hidden -FilePath python -ArgumentList @('-m', 'http.server', "$port", '--bind', '127.0.0.1', '--directory', (Join-Path $root 'srv'))
-for ($i = 0; $i -lt 50; $i++) {
-    try { Invoke-WebRequest -UseBasicParsing "http://127.0.0.1:$port/api/releases" | Out-Null; break } catch { Start-Sleep -Milliseconds 200 }
+# Wait for the fixture server, and fail here if it never answers: a slow
+# runner once took longer than the old 10s budget to start python, and every
+# check below then failed with "connection refused" far from the cause.
+$ready = $false
+for ($i = 0; $i -lt 300; $i++) {
+    try { Invoke-WebRequest -UseBasicParsing "http://127.0.0.1:$port/api/releases" | Out-Null; $ready = $true; break } catch { Start-Sleep -Milliseconds 200 }
+}
+if (-not $ready) {
+    Stop-Process -Id $server.Id -Force -ErrorAction SilentlyContinue
+    throw "fixture HTTP server on 127.0.0.1:$port did not answer within 60s"
 }
 
 # --- isolation ----------------------------------------------------------------
