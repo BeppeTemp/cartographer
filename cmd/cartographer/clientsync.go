@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/BeppeTemp/cartographer/internal/agents"
 	"github.com/BeppeTemp/cartographer/internal/artifactsig"
@@ -286,38 +287,40 @@ func fetchCandidates(cfg *clientconfig.Config, kbNames []string) (candidateSet, 
 		return cs, err
 	}
 
+	// The pulls run concurrently (#362): each one can wait on a server-side
+	// git fetch of its KB, and the server serializes git work per KB only, so
+	// in series a sync costs the sum of those waits. Everything order-sensitive
+	// — which error is reported, the signature dedup over seen — runs below,
+	// in target order, so the outcome is the one the sequential loop gave.
+	results := make([]pullResult, len(targets))
+	sem := make(chan struct{}, maxConcurrentPulls)
+	var wg sync.WaitGroup
+	for i, target := range targets {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			c := client.New(cfg.ServerURL, token).WithTokenEnv(tokenEnv).WithKB(target.Name)
+			results[i] = pullTarget(c, target)
+		}()
+	}
+	wg.Wait()
+
 	seen := make(map[string]provisioning.Artifact)
 
-	for _, target := range targets {
-		c := client.New(cfg.ServerURL, token).WithTokenEnv(tokenEnv).WithKB(target.Name)
-		raw, err := callTool(c, target, "sync_pull", map[string]any{})
-		if err != nil {
+	for i, target := range targets {
+		res := results[i]
+		if res.callErr != nil {
 			if target.Name == "" {
-				return cs, fmt.Errorf("sync_pull: %w", err)
+				return cs, fmt.Errorf("sync_pull: %w", res.callErr)
 			}
-			return cs, fmt.Errorf("sync_pull (kb=%s): %w", target.Name, err)
+			return cs, fmt.Errorf("sync_pull (kb=%s): %w", target.Name, res.callErr)
 		}
-
-		var pm pulledManifestJSON
-		if err := json.Unmarshal(raw, &pm); err != nil {
-			return cs, fmt.Errorf("sync_pull: decode response: %w", err)
+		if res.err != nil {
+			return cs, res.err
 		}
-		for _, pa := range pm.Artifacts {
-			files := make([]provisioning.ArtifactFile, len(pa.Files))
-			for i, pf := range pa.Files {
-				data, err := base64.StdEncoding.DecodeString(pf.ContentB64)
-				if err != nil {
-					return cs, fmt.Errorf("sync_pull: decode file %s/%s/%s: %w", pa.Kind, pa.Name, pf.Path, err)
-				}
-				files[i] = provisioning.ArtifactFile{Path: pf.Path, Content: data, Executable: pf.Executable}
-			}
-			if got := provisioning.ContentHashFiles(files); got != pa.ContentHash {
-				return cs, fmt.Errorf("sync_pull: content hash mismatch for %s/%s", pa.Kind, pa.Name)
-			}
-			a := provisioning.Artifact{
-				Kind: pa.Kind, Name: pa.Name, Source: pa.Source, Version: pa.Version,
-				ContentHash: pa.ContentHash, BuiltIn: pa.BuiltIn, Signature: pa.Signature, Files: files,
-			}
+		for _, a := range res.artifacts {
 			key := a.Kind + "\x00" + a.Name + "\x00" + a.Source
 			if previous, exists := seen[key]; exists && !sameSignature(previous.Signature, a.Signature) {
 				return cs, fmt.Errorf("sync_pull: conflicting signatures for %s/%s", a.Kind, a.Name)
@@ -343,6 +346,54 @@ func fetchCandidates(cfg *clientconfig.Config, kbNames []string) (candidateSet, 
 	}
 
 	return cs, nil
+}
+
+// maxConcurrentPulls bounds the sync_pull calls fetchCandidates keeps in
+// flight: enough that a handful of KBs cost the slowest one rather than the
+// sum, few enough not to open a fetch against every remote of a large setup
+// at once.
+const maxConcurrentPulls = 4
+
+// pullResult is one target's sync_pull outcome. callErr is the transport or
+// tool error, which fetchCandidates wraps with the KB name; err is a decoding
+// or integrity error, already worded for the operator.
+type pullResult struct {
+	artifacts []provisioning.Artifact
+	callErr   error
+	err       error
+}
+
+// pullTarget calls sync_pull on one target and decodes and hash-checks its
+// artifacts. It touches no state shared with other targets, so fetchCandidates
+// can run it from several goroutines.
+func pullTarget(c *client.MCPClient, target kbTarget) pullResult {
+	raw, err := callTool(c, target, "sync_pull", map[string]any{})
+	if err != nil {
+		return pullResult{callErr: err}
+	}
+	var pm pulledManifestJSON
+	if err := json.Unmarshal(raw, &pm); err != nil {
+		return pullResult{err: fmt.Errorf("sync_pull: decode response: %w", err)}
+	}
+	arts := make([]provisioning.Artifact, 0, len(pm.Artifacts))
+	for _, pa := range pm.Artifacts {
+		files := make([]provisioning.ArtifactFile, len(pa.Files))
+		for i, pf := range pa.Files {
+			data, err := base64.StdEncoding.DecodeString(pf.ContentB64)
+			if err != nil {
+				return pullResult{err: fmt.Errorf("sync_pull: decode file %s/%s/%s: %w", pa.Kind, pa.Name, pf.Path, err)}
+			}
+			files[i] = provisioning.ArtifactFile{Path: pf.Path, Content: data, Executable: pf.Executable}
+		}
+		if got := provisioning.ContentHashFiles(files); got != pa.ContentHash {
+			return pullResult{err: fmt.Errorf("sync_pull: content hash mismatch for %s/%s", pa.Kind, pa.Name)}
+		}
+		arts = append(arts, provisioning.Artifact{
+			Kind: pa.Kind, Name: pa.Name, Source: pa.Source, Version: pa.Version,
+			ContentHash: pa.ContentHash, BuiltIn: pa.BuiltIn, Signature: pa.Signature, Files: files,
+		})
+	}
+	return pullResult{artifacts: arts}
 }
 
 // collisionsForProvider narrows DetectCollisions to the ones a single provider
