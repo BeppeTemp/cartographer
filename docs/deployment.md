@@ -160,7 +160,10 @@ of the remote, without `.git` — or the explicit `kbs[].name`, if set, see D53 
 the destination doesn't already exist** — an existing clone is left untouched: the existing
 `git-autocommit`/`git-sync` cycle handles fetch/push on subsequent writes
 (`cmd/cartographer/bootstrap.go`). Requires `--data`/`CARTOGRAPHER_DATA`/`data:` as the destination
-directory for clones.
+directory for clones. A remote that is still empty clones to a branch with no commit, named by the
+host's git (often `master`); with `--init` the KB is pinned to `main` and given its initial commit,
+which the first write pushes as the remote's first branch. From then on writes follow the remote's
+default branch (`concurrency.md` §Git profiles, D264).
 
 `GIT_SSH_COMMAND` for the clone is built from `git.ssh_key`/`git.known_hosts` (`ssh -i <key>
 -o UserKnownHostsFile=<known_hosts> -o StrictHostKeyChecking=yes`); if `GIT_SSH_COMMAND` is already

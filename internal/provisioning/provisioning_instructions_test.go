@@ -233,7 +233,8 @@ func TestBuildManifest_Instructions_NessunaSezioneSenzaAgentNeCurato(t *testing.
 		"Operational instructions:\n" +
 		"- consult it autonomously when you need historical or architectural context: `search` (keyword) or `atlas_overview` to orient yourself, `concept_read` to read;\n" +
 		"- write or update a page with `concept_write` when you discover something relevant; close relevant sessions with `log_append`;\n" +
-		"- every write is a git commit, revertible.\n"
+		"- every write is a git commit, revertible.\n" +
+		"- never run git commands in the KB's clone: report replication problems from `sync_status` to the operator instead.\n"
 	if content != want {
 		t.Errorf("output changed with no agent/instructions.md:\ngot:\n%s\nwant:\n%s", content, want)
 	}

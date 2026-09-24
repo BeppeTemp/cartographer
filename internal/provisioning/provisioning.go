@@ -815,7 +815,7 @@ func countMarkdownFiles(dir string) int {
 // generateKBInstructions generates the content (in English) of the "instructions"
 // imprinting artifact for the KB kbName rooted at kbRoot (D56): tells the LLM
 // agent that this KB exists, lists the names of its top-level archives
-// (§kbArchives) and gives three lines of operational instructions
+// (§kbArchives) and gives four lines of operational instructions
 // (search/atlas_overview/concept_read/concept_write/log_append), then appends
 // the optional curated file <kbRoot>/instructions.md
 // (§kbCuratedInstructionsWithPreamble) — orchestration directives hand-written
@@ -863,6 +863,10 @@ func generateKBInstructions(kbName, kbRoot, toolPrefix string, routed bool) stri
 		fmt.Fprintf(&sb, "- write or update a page with `%s` when you discover something relevant; close relevant sessions with `%s`;\n",
 			tool("concept_write"), tool("log_append"))
 		sb.WriteString("- every write is a git commit, revertible.\n")
+		// D264: an agent's own git in the clone (init, checkout -b, push) is
+		// what forks a KB on its remote; the server owns that clone.
+		fmt.Fprintf(&sb, "- never run git commands in the KB's clone: report replication problems from `%s` to the operator instead.\n",
+			tool("sync_status"))
 	}
 
 	// The subagent sentence is NOT emitted here (D154). This function has no

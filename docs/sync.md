@@ -155,6 +155,11 @@ it, and never nests it under a generated heading, so a curated `instructions.md`
 `#` without Cartographer demoting it. Client-wide trailers — the D75 WP4 local-paths table and the
 subagent sentence below — are appended **after** the last KB's region, never inside one.
 
+**The operational bullets forbid git in the KB's clone** (D264): the last one tells the agent never to
+run git commands there and to report replication problems from `sync_status` to the operator. An
+agent's own `git init`, `checkout -b` or `push` is how a KB ends up forked across two branches of its
+remote; the server owns the clone and refuses writes on a branch other than the remote's default one.
+
 **The scope sentence attributes and bounds each KB's directives** (D182): emitted immediately before
 the curated body, only when curated content exists, it says that what follows is that KB's own and
 governs work in its perimeter, and that the more specific source wins on a conflict with another KB's
@@ -456,7 +461,7 @@ cannot reach past its own projection.
 
 ## Instructions (imprinting)
 
-For every mounted KB, `BuildManifest` generates a `kind: instructions` artifact (name = KB name) whose content **does not live on disk**: it is produced by `generateKBInstructions` (pure and deterministic) and placed in `Artifact.Files`. It contains: a header (the KB is served via MCP) with the **names** of `data/`'s top-level archives inline (no page counts — it's stable imprinting, not state, D65), three lines of operational instructions (start with `search`/`atlas_overview`, read with `concept_read`, write with `concept_write`, close with `log_append`), the **names only** of the KB's agents (descriptions already come from the client's agent registry — the agent is installed natively, D65), and the verbatim content of the optional curated file `<kbRoot>/instructions.md` (at the root, never under `data/`). `ContentHash` = sha256 of the generated content: it changes only if the set of archives/agents or the curated file changes — not on every added page. Details → [D56/D61](decisions/D56-instructions-kind-kb-imprinting-via-managed-block-in.md) and [D65](decisions/D65-agent-tool-profile-and-compact-instructions-less-fixed.md).
+For every mounted KB, `BuildManifest` generates a `kind: instructions` artifact (name = KB name) whose content **does not live on disk**: it is produced by `generateKBInstructions` (pure and deterministic) and placed in `Artifact.Files`. It contains: a header (the KB is served via MCP) with the **names** of `data/`'s top-level archives inline (no page counts — it's stable imprinting, not state, D65), four lines of operational instructions (start with `search`/`atlas_overview`, read with `concept_read`, write with `concept_write`, close with `log_append`; every write is a commit; never run git in the KB's clone, report `sync_status` instead — D264), the **names only** of the KB's agents (descriptions already come from the client's agent registry — the agent is installed natively, D65), and the verbatim content of the optional curated file `<kbRoot>/instructions.md` (at the root, never under `data/`). `ContentHash` = sha256 of the generated content: it changes only if the set of archives/agents or the curated file changes — not on every added page. Details → [D56/D61](decisions/D56-instructions-kind-kb-imprinting-via-managed-block-in.md) and [D65](decisions/D65-agent-tool-profile-and-compact-instructions-less-fixed.md).
 
 Materialization: a **managed block** delimited by markers (`<!-- cartographer:instructions:begin/end -->`) inside the provider's global instructions file (see the matrix above) — a user file, never overwritten or deleted:
 

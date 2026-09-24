@@ -1064,3 +1064,34 @@ func TestReadSyncWrap_ReadDoesNotWaitForTheFetch(t *testing.T) {
 		t.Fatalf("remote dialled %d times, want 1: concurrent reads stacked fetches", got)
 	}
 }
+
+// A local-profile KB checked out on a branch other than the remote default is
+// refused writes, and sync_status names both branches (D264).
+func TestGitWrap_DivergedBranchRefusesWriteAndSyncStatusNamesBranches(t *testing.T) {
+	k, bare := setupGitKBWithRemote(t)
+	k.AutoCommit, k.GitSync = true, true
+	if err := k.SyncOut(); err != nil {
+		t.Fatalf("seed SyncOut: %v", err)
+	}
+	if out, err := exec.Command("git", "-C", bare, "symbolic-ref", "HEAD", "refs/heads/main").CombinedOutput(); err != nil {
+		t.Fatalf("set remote HEAD: %v\n%s", err, out)
+	}
+	if out, err := exec.Command("git", "-C", k.Root, "checkout", "-q", "-b", "feature").CombinedOutput(); err != nil {
+		t.Fatalf("checkout: %v\n%s", err, out)
+	}
+	headBefore, _ := gitx.HeadSHA(k.Root)
+	res := writeWrappedTool(t, k, "test_write", nil)
+	if !res.IsError || !strings.Contains(res.Content[0].Text, "remote's default branch") {
+		t.Fatalf("write on a diverged branch = %+v, want refused", res)
+	}
+	if headAfter, _ := gitx.HeadSHA(k.Root); headAfter != headBefore {
+		t.Fatal("a refused write committed")
+	}
+	if out, _ := exec.Command("git", "-C", bare, "for-each-ref", "--format=%(refname)", "refs/heads/").CombinedOutput(); strings.TrimSpace(string(out)) != "refs/heads/main" {
+		t.Fatalf("remote heads = %q, want main only", out)
+	}
+	status := syncStatus(t, k)
+	if status["state"] != "degraded" || status["branch"] != "feature" || status["remote_default_branch"] != "main" {
+		t.Fatalf("sync_status = %+v", status)
+	}
+}
