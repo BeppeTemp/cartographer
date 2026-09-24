@@ -58,6 +58,8 @@ Canonical mandate (self-contained — the subagent never sees this conversation)
 - `make gate` green — iterate until it is.
 - Single commit on `feat/<slug>` (the branch already exists in the worktree), message = PR title (conventional commit, the plan gives it), Co-Authored-By trailer.
 - `git push -u origin feat/<slug>` + `gh pr create` with a body ending `Closes #<n>`.
+  The PR body, commit messages and any test fixture carry placeholder names only —
+  never a KB, host, user or project from a real setup (D259, `AGENTS.md`).
 - Report `git diff --stat` vs main, the `make gate` outcome, and the PR URL.
 
 ## 3 — Review (coordinator GATE — never skip)
