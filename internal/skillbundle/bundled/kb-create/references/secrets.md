@@ -42,6 +42,12 @@ order, first match wins:
 2. global `sops.age_key_file`;
 3. the `CARTOGRAPHER_SOPS_AGE_KEY_FILE` environment variable.
 
+This configured file is the **only** key the server's `sops` can use: it runs
+`sops` with an isolated environment and an empty home, so a `SOPS_AGE_KEY`
+exported in your shell, `~/.config/sops/age/keys.txt` or an SSH key under
+`~/.ssh` is ignored. `sops` working in your terminal does not prove the server
+can decrypt — the configured key must be a recipient of the file.
+
 On a GitOps deployment with `sops.age_key_dir` set, the convention is
 `<age_key_dir>/<kb-name>.age` and no per-KB config key is needed.
 
@@ -156,7 +162,7 @@ as `~1`. A null leaf is the empty string.
 | Symptom | Cause and fix |
 |---|---|
 | `sops` not found | The `sops` CLI is not in the server's `PATH`. Resolution shells out to it; install it on the machine or image running the server. |
-| resolution fails to decrypt | The configured age key is not a recipient of that file. Re-encrypt with `sops updatekeys`, or point at the right key (§2.1 order). |
+| resolution fails to decrypt | The configured age key is not a recipient of that file, or no key is configured (an exported `SOPS_AGE_KEY` or default `keys.txt` is ignored — §2.1). Re-encrypt with `sops updatekeys`, or point at the right key (§2.1 order). |
 | resolution refused over HTTP | `service_get(resolve_secrets)` and `secret_set` need **`rw`** scope. A `kb:<name>:r` token cannot resolve. |
 | `lint` reports `secrets_on_non_service` | `secret_refs` or `secrets_source` was declared on a concept whose `type` is not `Service`. This is the most common mistake; fix the type or move the refs. |
 | a `NAME` resolves to nothing | The JSON Pointer does not exist in the decrypted file. Check it with `sops decrypt secrets/<file>.sops.yaml` and re-read §4. |

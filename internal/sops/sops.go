@@ -1,6 +1,13 @@
 // Package sops decrypts sops-encrypted KB secrets and resolves the references a
 // concept declares, turning them into the environment a skill runs with. It
 // shells out to the sops binary: no key material is ever handled in process.
+//
+// Every sops invocation runs in a hermetic environment (D260): the child gets
+// only a short allowlist of the server's variables, a fresh empty HOME and
+// XDG_CONFIG_HOME, and the per-KB SOPS_AGE_KEY_FILE the caller passes. sops
+// tries every identity it can find, so an ambient SOPS_AGE_KEY, a default
+// keys.txt, an SSH key under ~/.ssh or cloud KMS credentials would otherwise
+// decrypt any KB whatever its configured key file says.
 package sops
 
 import (
@@ -10,6 +17,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -35,20 +43,59 @@ func Decrypt(kbRoot, relativePath string, env ...string) (*SecretFile, error) {
 	if err := validatePath(kbRoot, relativePath, false); err != nil {
 		return nil, err
 	}
+	childEnv, cleanup, err := hermeticEnv(env)
+	if err != nil {
+		return nil, err
+	}
+	defer cleanup()
 	cmd := exec.Command("sops", "decrypt", "--output-type", "yaml", relativePath)
 	cmd.Dir = kbRoot
-	if len(env) > 0 {
-		cmd.Env = append(os.Environ(), env...)
+	cmd.Env = childEnv
+	// Only stdout is the document: a warning sops prints on stderr during a
+	// successful decrypt must never enter the YAML parse.
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &stdout, &stderr
+	if err := cmd.Run(); err != nil {
+		return nil, fmt.Errorf("sops decrypt %s: %w: %s", relativePath, err, stderr.String())
 	}
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return nil, fmt.Errorf("sops decrypt %s: %w: %s", relativePath, err, string(out))
-	}
-	values, err := parseYAMLFlat(out)
+	values, err := parseYAMLFlat(stdout.Bytes())
 	if err != nil {
 		return nil, fmt.Errorf("parse decrypted %s: %w", relativePath, err)
 	}
 	return &SecretFile{Path: relativePath, Values: values}, nil
+}
+
+// hermeticEnvAllowlist names the only server variables a sops child inherits,
+// and only when they are set: what a process needs to find binaries, write
+// temporary files and pick a locale — nothing that can carry an identity.
+// Allowlist, not denylist: a denylist would miss the next identity source
+// sops learns to read.
+var hermeticEnvAllowlist = []string{"PATH", "TMPDIR", "TMP", "TEMP", "SYSTEMROOT", "LANG", "LC_ALL"}
+
+// hermeticEnv builds the environment of a sops child from scratch (D260): the
+// allowlisted variables present in the parent, HOME and XDG_CONFIG_HOME (and on
+// Windows USERPROFILE and APPDATA) pointing at a fresh empty directory so no
+// default keys.txt or SSH key is found, then the caller's entries, which win.
+// cleanup removes the directory; it must run after the child has exited.
+func hermeticEnv(extra []string) (env []string, cleanup func(), err error) {
+	home, err := os.MkdirTemp("", "cartographer-sops-home-")
+	if err != nil {
+		// No fallback to the real home: that would reopen every ambient key.
+		return nil, nil, fmt.Errorf("sops: create isolated home: %w", err)
+	}
+	for _, name := range hermeticEnvAllowlist {
+		if v, ok := os.LookupEnv(name); ok {
+			env = append(env, name+"="+v)
+		}
+	}
+	env = append(env, "HOME="+home, "XDG_CONFIG_HOME="+home)
+	if runtime.GOOS == "windows" {
+		env = append(env, "USERPROFILE="+home, "APPDATA="+home)
+	}
+	// os/exec keeps the last value of a duplicated key, so the caller's
+	// entries (SOPS_AGE_KEY_FILE) override the allowlist.
+	env = append(env, extra...)
+	return env, func() { os.RemoveAll(home) }, nil
 }
 
 func AgeKeyEnv(path string) []string {
@@ -163,12 +210,15 @@ func Set(kbRoot, relativePath, pointer, value string, env ...string) error {
 	}
 	// SOPS 3.13 expects file before the selector. Keep the root cwd so its
 	// repository-relative creation_rules/path_regex matching is unchanged.
+	childEnv, cleanup, err := hermeticEnv(env)
+	if err != nil {
+		return err
+	}
+	defer cleanup()
 	cmd := exec.Command("sops", "set", "--value-stdin", tmpRel, selector)
 	cmd.Dir = kbRoot
 	cmd.Stdin = bytes.NewReader(encoded)
-	if len(env) > 0 {
-		cmd.Env = append(os.Environ(), env...)
-	}
+	cmd.Env = childEnv
 	_, err = cmd.CombinedOutput()
 	if err != nil {
 		// SOPS may include decrypted material in diagnostics. Never surface it.
