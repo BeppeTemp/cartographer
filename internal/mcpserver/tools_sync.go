@@ -331,6 +331,13 @@ func toolSyncPull(k *kb.KB, bundleFS fs.FS, toolPrefix string, routedMount bool,
 			if len(placeholders) > 0 {
 				result["placeholders"] = placeholders
 			}
+			registry, registryIssues := pulledPathRegistry(k)
+			if registry != nil {
+				result["path_registry"] = registry
+			}
+			if issues := append(append([]string(nil), m.Issues...), registryIssues...); len(issues) > 0 {
+				result["issues"] = issues
+			}
 			out, _ := json.MarshalIndent(result, "", "  ")
 			return textResult(string(out)), nil
 		},
@@ -370,6 +377,31 @@ func pulledPlaceholders(ctx requestContext, k *kb.KB, artifactKeys []string) ([]
 	add(artifactKeys)
 	sort.Strings(out)
 	return out, nil
+}
+
+// pulledPathRegistry is the KB's declared placeholder vocabulary for the
+// sync_pull response (D263): nil when the KB has no paths.yaml, otherwise the
+// parsed registry without its malformed entries, whose reasons are returned
+// for the response's issue list. Like placeholders it is outside revision and
+// every signature — a declaration is data a client resolves with, not an
+// artifact it installs. A registry that cannot be read at all (a symlink, not
+// YAML) is an issue, not a failed pull: resolution must never block a sync.
+func pulledPathRegistry(k *kb.KB) (*kb.PathRegistry, []string) {
+	st, err := k.ReadPathRegistry()
+	if err != nil {
+		return nil, []string{err.Error()}
+	}
+	if !st.Present {
+		return nil, nil
+	}
+	var issues []string
+	for _, m := range st.Malformed {
+		issues = append(issues, m.String()+" (left out of path_registry)")
+	}
+	if st.Unparseable {
+		return nil, issues
+	}
+	return &st.Registry, issues
 }
 
 // buildOptions assembles the manifest build options for the single KB this

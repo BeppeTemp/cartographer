@@ -51,13 +51,19 @@ kb-<domain>/                          # git repo = OKF bundle (content directori
 │       ├── hook.json                  # descriptor: event, matcher, command
 │       └── <script>                   # executable invoked by the hook
 │
-└── templates/                         # KB-ONLY CONCEPT TEMPLATES (not provisioning artifacts)
-    └── <slug>.md                      # frontmatter + Markdown skeleton; rendered by concept_new
+├── templates/                         # KB-ONLY CONCEPT TEMPLATES (not provisioning artifacts)
+│   └── <slug>.md                      # frontmatter + Markdown skeleton; rendered by concept_new
+│
+└── paths.yaml                         # optional: declared {{path:…}}/{{repo:…}} keys (D263)
 ```
 
 `services/` is included in `WalkConcepts` (search, graph, lint all see it) but its root is `kb.Root`, not `kb.DataRoot()`. Service concept IDs carry the `services/` prefix. `agents/` and `hooks/` are not concepts (no OKF frontmatter, they don't go through `WalkConcepts`): they are provisioning artifacts materialized client-side — see `docs/sync.md` §Agents and hooks.
 
 `templates/` is outside `WalkConcepts`: templates have no ConceptID and are never indexed, linted or added to the graph. A template is a KB-only artifact, not a provisioning kind: it is maintained through `artifact_*`, discovered with `template_list`, and used once by `concept_new`; it never affects a provisioning manifest or its revision.
+
+`paths.yaml` is likewise KB-only data, not a concept and not a provisioning artifact: the KB's
+declared placeholder vocabulary, maintained through `artifact_*` or git and served to clients by
+`sync_pull` (§The path placeholder registry below).
 
 ### Assets
 
@@ -185,12 +191,13 @@ a deliberately-broken example link — could not be written without generating t
 describes, so a KB's own "known false positives" page was impossible.
 
 Suppressible: `broken_link`, `machine_path`, `concept_oversize`, `stale_claim`, `imported_draft`,
-`secrets_on_non_service`, `orphan`, `missing_title`, and the structural `cut_concept`,
-`link_to_retired`, `broken_relation`, `map_misfit`. **Not** suppressible: every `error`-severity check
+`secrets_on_non_service`, `orphan`, `missing_title`, `unknown_placeholder`, and the structural
+`cut_concept`, `link_to_retired`, `broken_relation`, `map_misfit`. **Not** suppressible: every `error`-severity check
 (`missing_required_field`, `expanded_ambiguous`) — those are contract violations, not judgements, and
 letting a concept declare its own contract void would be a hole rather than an escape hatch — and the
-directory-level checks (`map_oversize`, `index_incomplete`, `expanded_*`, `orphan_asset`), which
-belong to a map or an expanded concept and have no single concept frontmatter that owns them, and
+directory-level checks (`map_oversize`, `index_incomplete`, `expanded_*`, `orphan_asset`,
+`unused_placeholder`), which belong to a map, an expanded concept or `paths.yaml` and have no single
+concept frontmatter that owns them, and
 `island`, which belongs to a whole component of the graph. Naming
 an unsuppressible or unknown check is itself reported as `lint_ignore_invalid`: a typo that silently
 suppresses nothing is worse than no opt-out.
@@ -206,6 +213,40 @@ The two "too big" numbers are now related: `concept_oversize` fires at **half** 
 message names both bounds. For a satellite the message does not advise `concept_expand` — the write
 path caps depth at three segments, so that remedy is structurally unavailable — and names splitting
 into sibling satellites instead.
+
+## The path placeholder registry (`paths.yaml`)
+
+A KB may declare, in `paths.yaml` at its root (beside `instructions.md`), the
+`{{path:<key>}}`/`{{repo:<key>}}` keys its concepts and artifacts cite (D263):
+
+```yaml
+paths:
+  claude-home: {description: Claude Code's per-user directory, default: ~/.claude}
+repos:
+  kb-tools: {description: the tooling repository, remote: gitlab.example.com/team/kb-tools, default: ~/src/kb-tools}
+```
+
+Keys are lowercase-hyphenated slugs; `description` is required; `default` is optional and must be
+`~`/`$HOME`-anchored (an absolute or relative path, or a `..` segment, is refused); `remote` is
+optional on repo keys only, a clone URL or `host/owner/name`, stored normalized. It is written with
+git or `artifact_write` (validated strictly: any malformed entry refuses the write, naming it) and
+read tolerantly (a malformed entry is left out). It is not a concept and is never materialized on a
+client: `sync_pull` serves it as data, and the client uses it to resolve keys
+(`docs/sync.md` §The KB's placeholder registry).
+
+When the file exists, `lint` adds three checks — none when it does not, so an existing KB is not
+flooded on upgrade:
+
+- `unknown_placeholder` (warning, per concept, suppressible): the concept cites a key not declared
+  under the matching kind. One finding per concept, naming every undeclared key; the keys come from
+  the graph cache's placeholder facet.
+- `unused_placeholder` (info, on `paths.yaml`, whole-KB lint only): a declared key no concept and no
+  artifact (`skills/`, `agents/`, `hooks/`, `mcp/`, `instructions.md`) cites.
+- `contract_malformed` (info, on `paths.yaml`): a malformed entry, or a file that is not a YAML
+  mapping at all — in which case no key is reported undeclared.
+
+`machine_path` also names the declared key whose `default` is a prefix of the flagged path, e.g.
+`~/.claude/settings.json` → "use `{{path:claude-home}}/settings.json`".
 
 ## Extended concept types
 

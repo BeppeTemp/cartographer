@@ -61,7 +61,7 @@ Client provisioning materializes KB skills into each provider's native
 directory. See [synchronization](sync.md) for the manifest, trust and pruning
 rules.
 
-Authoring a KB's artifacts — the six accepted `artifact_write` paths, the minimum
+Authoring a KB's artifacts — the seven accepted `artifact_write` paths, the minimum
 shape of each kind, the `if_match` protocol, and the manifest → trust →
 projection → materialization chain — is written out in the bundled `kb-create`
 skill's `references/artifacts.md` (D196).

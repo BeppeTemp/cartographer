@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"fmt"
+	"os"
 	"sort"
 	"strings"
 
@@ -30,6 +31,10 @@ type expansionTracker struct {
 	resolved   map[string]string // e.g. "repo:cartographer" -> "/home/x/repos/cartographer"
 	unresolved map[string]string // e.g. "path:assets" -> "no \"assets\" entry under paths: …"
 	resolver   *repoindex.Resolver
+	// decls are the bound KBs' declared keys (D263), "kind:key" -> the
+	// winning declaration: the remote a repo key is looked up by, and the
+	// default used when nothing else resolves the key.
+	decls map[string]PathDecl
 }
 
 func newExpansionTracker() *expansionTracker {
@@ -50,17 +55,36 @@ func (t *expansionTracker) resolve(kind, key string, opts ApplyOptions) (string,
 	}
 	var resolved string
 	var err error
+	// The order is fixed (D263): the operator's `paths:` entry, then — for a
+	// repo — the repo index (by the declared remote when there is one), then
+	// the KB's declared default, used only if it exists here. A default never
+	// overrides an explicit mapping, and a default that does not exist is an
+	// unresolved key, not a wrong path.
+	decl, declared := t.decls[id]
 	switch kind {
 	case "repo":
 		if t.resolver == nil {
 			t.resolver = repoindex.NewResolver(opts.Paths, opts.SearchRoots, opts.SearchDepth)
 		}
 		var warnings []string
-		resolved, warnings, err = t.resolver.Resolve(key)
+		resolved, warnings, err = t.resolver.ResolveDeclared(key, decl.Remote)
 		t.warnings = append(t.warnings, warnings...)
+		if err != nil && declared && decl.Default != "" {
+			if p, ok := registryDefaultPath(decl.Default); ok && repoindex.IsLiveClone(p) {
+				resolved, err = p, nil
+			} else {
+				err = fmt.Errorf("%v; the KB's declared default %s is not a git clone on this machine", err, decl.Default)
+			}
+		}
 	case "path":
 		if p, ok := opts.Paths[key]; ok {
 			resolved = expandHomePath(p)
+		} else if declared && decl.Default != "" {
+			if p, ok := registryDefaultPath(decl.Default); ok && pathExists(p) {
+				resolved = p
+			} else {
+				err = fmt.Errorf("no %q entry under paths: (.cartographer.yaml), and the KB's declared default %s does not exist on this machine", key, decl.Default)
+			}
 		} else {
 			err = fmt.Errorf("no %q entry under paths: (.cartographer.yaml)", key)
 		}
@@ -87,6 +111,44 @@ func (t *expansionTracker) preResolve(ids []string, opts ApplyOptions) {
 			continue
 		}
 		t.resolve(kind, key, opts)
+	}
+}
+
+// pathExists is the "only if it exists" of a declared default (D263): the
+// stat that follows symlinks, since a path the operator reaches through a
+// link is still where things are.
+func pathExists(p string) bool {
+	_, err := os.Stat(p)
+	return err == nil
+}
+
+// resolveDeclared offers every declared key no artifact or concept cites
+// (D263): one that resolves joins the "Local paths" table — an agent about
+// to write learns the key exists — while one that does not is dropped
+// silently, since nothing cites it and there is nothing to fix. declaredBy
+// gives such a key its KBs in sources.
+func (t *expansionTracker) resolveDeclared(sources map[string][]string, declaredBy map[string][]string, opts ApplyOptions) {
+	ids := make([]string, 0, len(t.decls))
+	for id := range t.decls {
+		if _, cited := sources[id]; !cited {
+			ids = append(ids, id)
+		}
+	}
+	sort.Strings(ids)
+	for _, id := range ids {
+		kind, key, ok := okf.SplitPlaceholderID(id)
+		if !ok {
+			continue
+		}
+		warnings := len(t.warnings)
+		if _, ok := t.resolve(kind, key, opts); ok {
+			sources[id] = append([]string(nil), declaredBy[id]...)
+			continue
+		}
+		delete(t.unresolved, id)
+		// A scan warning is still worth reporting; a lookup of an uncited
+		// key is not, so only what the resolver said about roots is kept.
+		t.warnings = t.warnings[:warnings]
 	}
 }
 
@@ -200,7 +262,11 @@ const placeholderParagraph = "### Local paths\n\n" +
 	"The ones resolved here are listed in the table below, when there are any. " +
 	"For any other, run `cartographer resolve <kind>:<key>` (e.g. `cartographer resolve repo:name`); " +
 	"if that fails, ask the user for the path instead of guessing it, and record the answer with " +
-	"`cartographer paths set <kind>:<key> <path>`."
+	"`cartographer paths set <kind>:<key> <path>`. " +
+	// D263: the KB declares its vocabulary; a key coined in one page is one
+	// more manual mapping on every machine.
+	"When writing to a KB, cite only the keys declared in its `paths.yaml` (read it with `artifact_read`), " +
+	"and declare a new key there in the same change that first cites it."
 
 // buildPathsSection renders the placeholder part of the instructions block:
 // the fixed paragraph, then the "Local paths" table when anything resolved.

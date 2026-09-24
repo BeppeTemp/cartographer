@@ -8,7 +8,7 @@ every connected client's native format.
 This is different from `skill_install`, which copies a **bundled** skill (one
 shipped inside the binary) into the KB. That is installation, not authoring.
 
-## 1. The six accepted paths
+## 1. The seven accepted paths
 
 `artifact_write` accepts exactly these, relative to the KB root — anything else
 is refused:
@@ -21,6 +21,7 @@ is refused:
 | `mcp/<slug>.json` | MCP server | one JSON descriptor |
 | `instructions.md` | instructions | one Markdown file at the KB root |
 | `templates/<slug>.md` | template | KB-only (D109): never materialized into a client |
+| `paths.yaml` | path registry | KB-only (D263): the declared `{{path:…}}`/`{{repo:…}}` keys, served to clients as data |
 
 ## 2. The minimum shape of each
 
@@ -97,6 +98,19 @@ fields are rejected.
 Free-form orchestration directives at the KB root. Its body is folded into the
 generated instructions artifact after the auto-generated archives and agent
 sections (D61) — it augments them, it does not replace them.
+
+### `paths.yaml`
+
+```yaml
+paths:
+  claude-home: {description: Claude Code's per-user directory, default: ~/.claude}
+repos:
+  kb-tools: {description: the tooling repository, remote: gitlab.example.com/team/kb-tools, default: ~/src/kb-tools}
+```
+
+Keys are lowercase-hyphenated slugs; `description` is required; `default` must start with `~/` or
+`$HOME/`; `remote` is a clone URL or `host/owner/name`. Any other field, or a malformed value, is
+refused with the entry named. The procedure for choosing keys is §Vocabulary in the skill.
 
 ## 3. Naming rules
 

@@ -544,6 +544,7 @@ func buildProjectionManifests(cfg *clientconfig.Config, projections []syncProjec
 		}
 		// Set after verification, which copies only the signed catalogue.
 		verified.Placeholders = cs.placeholdersForProjection(cfg, p)
+		verified.PathRegistries = cs.pathRegistriesForProjection(cfg, p)
 		out[projectionKey(p)] = verified
 	}
 	return out, failed, nil

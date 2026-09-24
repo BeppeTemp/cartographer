@@ -278,8 +278,10 @@ connection. A failed `doConnect` also re-shows the form populated (connect is id
 **Placeholder step (TTY, D262).** After the first materialization, when some `{{repo:…}}`/`{{path:…}}`
 key the bound KBs cite did not resolve on this machine, a TTY `connect` (no `--no-input`, no
 `--dry-run`) opens a second step (`pathsform.go`, a separate step like the KB choice because the keys
-are only known after the pull): one row per unresolved key, with its KBs and the reason, a text input
-for the local path, and an empty value to skip it. Answers are written into `paths:` in
+are only known after the pull): one row per unresolved key, with its KBs, the `description` its KB's
+`paths.yaml` declares (D263), the reason, a text input for the local path — pre-filled with the
+declared `default` when there is one (it did not resolve, so it does not exist here yet) — and an
+empty value to skip it. A key whose declared default exists is resolved without being asked. Answers are written into `paths:` in
 `.cartographer.yaml` and the instructions block is materialized once more so its "Local paths" table
 carries them. Outside a TTY nothing is asked: the apply summary prints one aggregated warning listing
 each key with its `cartographer paths set <kind>:<key> <path>` command, and the exit status is
@@ -727,7 +729,7 @@ machine (D262). No network call: everything is read from the lockfile and `.cart
 
 ```bash
 cartographer paths                          # = paths list: every key, its KB(s), path or failure reason
-cartographer paths list --json              # {"placeholders": [{key, kbs, path | reason}]}
+cartographer paths list --json              # {"placeholders": [{key, kbs, path | reason, description, default}]}
 cartographer paths set path:kubeconfig ~/.kube/config
 cartographer paths set repo:dotfiles ~/src/dotfiles
 cartographer paths unset kubeconfig
@@ -735,6 +737,9 @@ cartographer paths unset kubeconfig
 
 - `list` shows every key recorded in the lockfile, resolved or not, with the KBs citing it (from
   `sync_pull`'s `placeholders` list and the artifacts) and the local path or the reason it failed.
+  When a bound KB declares the key in its `paths.yaml` (D263), an indented line below shows its
+  `description` and declared `default` (both also in the JSON); the first, tab-separated line keeps
+  its shape.
 - `set` writes `paths:` in `.cartographer.yaml` (`clientconfig.Save`: other keys survive). The key is
   accepted with or without its `repo:`/`path:` prefix and stored **without** it, which is how
   resolution looks it up — one map serves both kinds, `paths:` being checked before the repo cache
@@ -1061,6 +1066,7 @@ been materialized:
                 "resolved_placeholders": { "repo:tool": "/home/user/src/tool" },
                 "unresolved_placeholders": { "path:kubeconfig": "no \"kubeconfig\" entry under paths: (.cartographer.yaml)" },
                 "placeholder_sources": { "repo:tool": ["kb-a"], "path:kubeconfig": ["kb-a"] },
+                "placeholder_decls": { "path:kubeconfig": { "description": "kubectl config" } },
                 "paths_section_hash": "…" },
     "opencode": { "applied_revision": "sha256:…", "server_version": "1.4.0", "managed": [ /* ManagedFile[] */ ] }
   }

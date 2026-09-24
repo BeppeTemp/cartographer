@@ -26,6 +26,10 @@ type placeholderRow struct {
 	KBs    []string `json:"kbs,omitempty"`
 	Path   string   `json:"path,omitempty"`
 	Reason string   `json:"reason,omitempty"`
+	// Description and Default are what the citing KB's paths.yaml declares
+	// for the key (D263), empty when no bound KB declares it.
+	Description string `json:"description,omitempty"`
+	Default     string `json:"default,omitempty"`
 }
 
 // Resolved reports whether some projection resolved the key.
@@ -60,6 +64,11 @@ func placeholderRows(lf provisioning.LockFile) []placeholderRow {
 		for id, reason := range l.UnresolvedPlaceholders {
 			if r := row(id); r.Path == "" {
 				r.Reason = reason
+			}
+		}
+		for id, d := range l.PlaceholderDecls {
+			if r := row(id); r.Description == "" {
+				r.Description, r.Default = d.Description, d.Default
 			}
 		}
 	}
@@ -185,10 +194,19 @@ func cmdPathsList(args []string) int {
 		}
 		if r.Resolved() {
 			fmt.Printf("%s\t%s\t%s\n", r.Key, kbs, r.Path)
-			continue
+		} else {
+			unresolved++
+			fmt.Printf("%s\t%s\tUNRESOLVED: %s\n", r.Key, kbs, r.Reason)
 		}
-		unresolved++
-		fmt.Printf("%s\t%s\tUNRESOLVED: %s\n", r.Key, kbs, r.Reason)
+		// What the KB says the key points at (D263), on its own line so the
+		// tab-separated first line stays what scripts already read.
+		if r.Description != "" {
+			line := "\t" + r.Description
+			if r.Default != "" {
+				line += " (default " + r.Default + ")"
+			}
+			fmt.Println(line)
+		}
 	}
 	if unresolved > 0 {
 		fmt.Printf("\n%d unresolved — record each with `cartographer paths set <key> <path>`, then run `cartographer sync`\n", unresolved)

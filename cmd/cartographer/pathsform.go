@@ -25,11 +25,17 @@ type pathsFormModel struct {
 
 func newPathsFormModel(rows []placeholderRow) pathsFormModel {
 	inputs := make([]textinput.Model, len(rows))
-	for i := range rows {
+	for i, r := range rows {
 		in := textinput.New()
 		in.Placeholder = "local path, empty to skip"
 		in.CharLimit = 4096
 		in.Width = 60
+		// A declared default that did not resolve does not exist here
+		// (D263); offering it still saves typing the likely answer, and
+		// pathWarnings says it is missing when it is recorded.
+		if r.Default != "" {
+			in.SetValue(r.Default)
+		}
 		inputs[i] = in
 	}
 	m := pathsFormModel{rows: rows, inputs: inputs}
@@ -108,7 +114,11 @@ func (m pathsFormModel) View() string {
 		if kbs == "" {
 			kbs = "-"
 		}
-		fmt.Fprintf(&b, "%s{{%s}}  [%s]\n    %s\n    %s\n\n", cursor, r.Key, kbs, r.Reason, m.inputs[i].View())
+		fmt.Fprintf(&b, "%s{{%s}}  [%s]\n", cursor, r.Key, kbs)
+		if r.Description != "" {
+			fmt.Fprintf(&b, "    %s\n", r.Description)
+		}
+		fmt.Fprintf(&b, "    %s\n    %s\n\n", r.Reason, m.inputs[i].View())
 	}
 	b.WriteString("tab/↓ next · shift+tab/↑ previous · enter next/confirm · empty skips · esc skip all\n")
 	return b.String()

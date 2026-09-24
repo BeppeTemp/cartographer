@@ -298,6 +298,10 @@ func TestClassifyArtifactPath(t *testing.T) {
 		{"hooks/my-hook/hook.json", true, "hook", "my-hook"},
 		{"mcp/my-server.json", true, "mcp", "my-server"},
 		{"instructions.md", true, "instructions", ""},
+		{"paths.yaml", true, "paths", ""},
+		{"./paths.yaml", true, "paths", ""},
+		{"data/paths.yaml", false, "", ""},
+		{"paths.yml", false, "", ""},
 		// Traversal.
 		{"../etc/passwd", false, "", ""},
 		{"skills/../../etc/passwd", false, "", ""},
