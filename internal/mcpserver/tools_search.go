@@ -41,6 +41,14 @@ var searchInputSchema = json.RawMessage(`{
 // the 5k char target.
 const snippetMaxChars = 200
 
+// searchCentralityBeta caps the centrality prior at +20% (D251): enough to
+// reorder near-ties, too little to lift a weak match over a strong one.
+// maxPriorWindow caps the candidates the prior re-ranks.
+const (
+	searchCentralityBeta = 0.2
+	maxPriorWindow       = 100
+)
+
 type searchHit struct {
 	ID      string  `json:"id"`
 	Score   float64 `json:"score"`
@@ -131,57 +139,50 @@ func keywordHits(ctx requestContext, k *kb.KB, rec *searchReconciler, deps Deps,
 		fmt.Fprintf(os.Stderr, "cartographer: search: %v\n", err)
 	}
 	live := rec.live
-	if deps.SQLIndex == nil {
-		hits := live.searchFiltered(query, scope, limit, func(id string) bool {
-			return Visible(ctx, k, id)
-		})
+	visible := func(id string) bool { return Visible(ctx, k, id) }
 
-		results := make([]searchHit, 0, len(hits))
-		for _, h := range hits {
-			results = append(results, searchHit{
-				ID:      h.ID,
-				Score:   h.Score,
-				Title:   live.title(h.ID),
-				Snippet: live.snippet(h.ID, query, snippetMaxChars),
-			})
-		}
-		return results, "keyword"
-	}
+	// Trap: fetch a window larger than the page (D251). The centrality prior
+	// re-ranks after the backend's cut, so with only `limit` candidates it
+	// could reorder the page but never let a central concept just below it in.
+	window := min(3*limit, maxPriorWindow)
+	window = max(window, limit)
 
-	// Prefer SQLite FTS5, fall back to the in-memory index when FTS5 fails.
 	var kwHits []searchHit
-	useSQL := true
-	sqlHits, err := deps.SQLIndex.SearchFTSFiltered(query, scope, limit, func(id string) bool {
-		return Visible(ctx, k, id)
-	})
-	if err != nil {
-		useSQL = false
-	} else {
-		for _, h := range sqlHits {
-			if scope == "" || strings.HasPrefix(h.ID, scope) {
-				snippet := h.Snippet
-				if snippet == "" {
-					snippet = live.snippet(h.ID, query, snippetMaxChars)
+	mode := "keyword"
+	useMem := deps.SQLIndex == nil
+	if !useMem {
+		// Prefer SQLite FTS5, fall back to the in-memory index when FTS5 fails.
+		sqlHits, err := deps.SQLIndex.SearchFTSFiltered(query, scope, window, visible)
+		if err != nil {
+			useMem = true
+		} else {
+			mode = "keyword_fts5"
+			for _, h := range sqlHits {
+				if scope == "" || strings.HasPrefix(h.ID, scope) {
+					kwHits = append(kwHits, searchHit{ID: h.ID, Score: h.Score, Snippet: h.Snippet})
 				}
-				kwHits = append(kwHits, searchHit{
-					ID: h.ID, Score: h.Score,
-					Title:   live.title(h.ID),
-					Snippet: snippet,
-				})
 			}
 		}
 	}
-	if !useSQL {
-		memHits := live.searchFiltered(query, scope, limit, func(id string) bool {
-			return Visible(ctx, k, id)
-		})
-		for _, h := range memHits {
-			kwHits = append(kwHits, searchHit{
-				ID: h.ID, Score: h.Score,
-				Title:   live.title(h.ID),
-				Snippet: live.snippet(h.ID, query, snippetMaxChars),
-			})
+	if useMem {
+		for _, h := range live.searchFiltered(query, scope, window, visible) {
+			kwHits = append(kwHits, searchHit{ID: h.ID, Score: h.Score})
 		}
+	}
+
+	// Centrality prior (D251): final = text × (1 + β·p), p the PageRank
+	// percentile on the caller's visible graph, so a hidden hub cannot move
+	// the order. A concept nothing links to has p = 0 and keeps its score.
+	var include func(string) bool
+	if !WholeVisible(ctx, k, false) {
+		include = visible
+	}
+	if pct, err := k.PageRankPercentiles(include); err == nil {
+		for i := range kwHits {
+			kwHits[i].Score *= 1 + searchCentralityBeta*pct[okf.ConceptID(kwHits[i].ID)]
+		}
+	} else {
+		fmt.Fprintf(os.Stderr, "cartographer: search centrality: %v\n", err)
 	}
 
 	sort.Slice(kwHits, func(i, j int) bool {
@@ -193,10 +194,13 @@ func keywordHits(ctx requestContext, k *kb.KB, rec *searchReconciler, deps Deps,
 	if len(kwHits) > limit {
 		kwHits = kwHits[:limit]
 	}
-	if useSQL {
-		return kwHits, "keyword_fts5"
+	for i := range kwHits {
+		kwHits[i].Title = live.title(kwHits[i].ID)
+		if kwHits[i].Snippet == "" {
+			kwHits[i].Snippet = live.snippet(kwHits[i].ID, query, snippetMaxChars)
+		}
 	}
-	return kwHits, "keyword"
+	return kwHits, mode
 }
 
 // rebuildSQLIndex walks all KB concepts and upserts them into ix's FTS5
