@@ -384,6 +384,9 @@ type changesSinceResult struct {
 	OtherChanges int                   `json:"other_changes"`
 	Truncated    bool                  `json:"truncated"`
 	Note         string                `json:"note,omitempty"`
+	// Links and LinksNote are set only by changes_since(links: true), D250.
+	Links     *changesLinks `json:"links,omitempty"`
+	LinksNote string        `json:"links_note,omitempty"`
 }
 
 func parseChangesSince(value string, now time.Time) (time.Time, error) {
@@ -429,7 +432,7 @@ func isCartographerPath(path string) bool {
 func toolChangesSince(k *kb.KB) Tool {
 	return Tool{
 		Name:        "changes_since",
-		Description: "Summarizes concept changes from git history since an RFC3339 timestamp or a duration such as 2d or 48h. Aggregates each concept's newest change, latest timestamp, authors, and recent operations.",
+		Description: "Summarizes concept changes from git history since an RFC3339 timestamp or a duration such as 2d or 48h. Aggregates each concept's newest change, latest timestamp, authors, and recent operations. With links: true it also reports links added and removed and pages that became or stopped being orphans — ask it after an agent session to review the structure.",
 		ReadOnly:    true,
 		InputSchema: json.RawMessage(`{
 			"type": "object",
@@ -441,6 +444,10 @@ func toolChangesSince(k *kb.KB) Tool {
 				"limit": {
 					"type": "integer",
 					"description": "Maximum concepts to return. Default 100; maximum 500."
+				},
+				"links": {
+					"type": "boolean",
+					"description": "Also report the link changes in the range: links added and removed, and pages that became or stopped being orphans. Default false."
 				}
 			}
 		}`),
@@ -448,6 +455,7 @@ func toolChangesSince(k *kb.KB) Tool {
 			var params struct {
 				Since string `json:"since"`
 				Limit int    `json:"limit"`
+				Links bool   `json:"links"`
 			}
 			if err := json.Unmarshal(args, &params); err != nil {
 				return errorResult("invalid params: " + err.Error()), nil
@@ -553,6 +561,13 @@ func toolChangesSince(k *kb.KB) Tool {
 			}
 			if len(commits) == 0 {
 				result.Note = fmt.Sprintf("no commits since %s", result.Since)
+			}
+			if params.Links {
+				links, note, err := changesSinceLinks(ctx, k, commits)
+				if err != nil {
+					return errorResult("changes_since links: " + err.Error()), nil
+				}
+				result.Links, result.LinksNote = links, note
 			}
 			out, _ := json.MarshalIndent(result, "", "  ")
 			return textResult(string(out)), nil
