@@ -480,9 +480,12 @@ func runSetup(o setupOptions, interactive, yes, dryRun bool, ask setupPrompter) 
 		}
 	}
 
-	fmt.Println()
-	renderSetupPlan(os.Stdout, plan, facts)
-	fmt.Println()
+	// The plan and the prompt that follows it go through the one writer the
+	// prompter uses, so the prompt always starts on its own line after the
+	// plan (#415 saw "…reports readyProceed?" on Windows).
+	fmt.Fprintln(ask.out)
+	renderSetupPlan(ask.out, plan, facts)
+	fmt.Fprintln(ask.out)
 	if dryRun {
 		fmt.Println("dry run — nothing was changed")
 		return 0

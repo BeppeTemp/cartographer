@@ -509,4 +509,5 @@ GOOS=windows GOARCH=amd64 go vet ./...
 - CI is green on the release commit, including `make e2e-web` in the `web` job.
 - `make smoke` succeeds for the packaged/local stdio path.
 - Installation and upgrade are verified on the target platform.
+- Every command the installers' closing "Next:" line (`install.sh`, `install.ps1`) names exists in the release being cut: `main` can reference one that no release has yet.
 - Private deployment rollout checks are performed through maintainer tooling.

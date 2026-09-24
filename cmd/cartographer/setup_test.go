@@ -323,3 +323,18 @@ func TestAuthMismatchMessageNamesTheVariable(t *testing.T) {
 		t.Error("a CARTOGRAPHER_AUTH forcing auth on is not named")
 	}
 }
+
+// #415: the confirmation prompt must start on its own line after the plan,
+// not glued to the last step ("…reports readyProceed?").
+func TestRunSetup_ProceedPromptOnItsOwnLine(t *testing.T) {
+	stubSetup(t, setupFacts{})
+	var out strings.Builder
+	// Accept the detected agents, then confirm the plan.
+	in := setupPrompter{in: bufio.NewReader(strings.NewReader("\n\n")), out: &out}
+	if code := runSetup(setupOptions{NoRemote: true}, true, false, false, in); code != 0 {
+		t.Fatalf("runSetup = %d, want 0", code)
+	}
+	if !strings.Contains(out.String(), "the server reports ready\n\nProceed? [Y/n]: ") {
+		t.Errorf("the prompt does not follow the plan on its own line:\n%s", out.String())
+	}
+}

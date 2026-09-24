@@ -13,6 +13,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"sort"
 	"strings"
 	"syscall"
@@ -206,11 +207,26 @@ func resolveCreateIdentity(path string) (name, email string) {
 // valid but whose first push failed. The scaffold is deliberately kept (D156):
 // the local work is correct and re-doing it by hand was the reported cost.
 func printUnpushedScaffoldGuidance(path, authorName, authorEmail, dataDir string) {
-	fmt.Fprintf(os.Stderr, "\nThe KB at %s is complete and valid; only the push failed. Finish it with:\n", path)
-	fmt.Fprintf(os.Stderr, "  git -C %s commit --amend --author %q   # if the forge rejected the author\n",
+	writeUnpushedScaffoldGuidance(os.Stderr, runtime.GOOS, path, authorName, authorEmail, dataDir)
+}
+
+// writeUnpushedScaffoldGuidance takes goos so the Windows wording is testable
+// on any host.
+func writeUnpushedScaffoldGuidance(w io.Writer, goos, path, authorName, authorEmail, dataDir string) {
+	fmt.Fprintf(w, "\nThe KB at %s is complete and valid; only the push failed. Finish it with:\n", path)
+	fmt.Fprintf(w, "  git -C %s commit --amend --author %q   # if the forge rejected the author\n",
 		path, fmt.Sprintf("%s <%s>", authorName, authorEmail))
-	fmt.Fprintf(os.Stderr, "  git -C %s push -u origin %s\n", path, gitx.DefaultBranch)
-	fmt.Fprintf(os.Stderr, "Or remove it: rm -rf %s   (a server started with data: %s would otherwise mount it)\n", path, dataDir)
+	fmt.Fprintf(w, "  git -C %s push -u origin %s\n", path, gitx.DefaultBranch)
+	fmt.Fprintf(w, "Or remove it: %s   (a server started with data: %s would otherwise mount it)\n", removeDirCommand(goos, path), dataDir)
+}
+
+// removeDirCommand is the shell command that deletes dir recursively on goos:
+// Windows users are in PowerShell, where `rm -rf` does not parse (#415).
+func removeDirCommand(goos, dir string) string {
+	if goos == "windows" {
+		return "Remove-Item -Recurse -Force '" + strings.ReplaceAll(dir, "'", "''") + "'"
+	}
+	return "rm -rf " + dir
 }
 
 // checkRemoteChoice validates the --remote/--no-remote pair, which is a
