@@ -90,7 +90,7 @@ On the stdio transport, the server emits `notifications/skills/list_changed` aft
 
 When client and server don't share a filesystem (`internal/client`, `internal/clientconfig`, `cmd/cartographer/clientsync.go`):
 
-1. the client calls `sync_pull` once per KB in the **union of every connected provider's binding** (§Per-provider projection) and keeps the responses unmerged;
+1. the client calls `sync_pull` once per KB in the **union of every connected provider's binding** (§Per-provider projection) and keeps the responses unmerged. The calls run concurrently, at most four in flight, because each can wait on that KB's server-side fetch (control-plane.md, D93); the responses are then checked in KB order, so the error a failing run reports is the first failing KB in that order, whichever failed first in time;
 2. for each provider it selects its bound KBs' responses (`SelectForSources`), merges them with `provisioning.MergeArtifactsStrict` — which refuses a `kind`+`name` claimed by two of *that provider's* KBs — and verifies signatures;
 3. it reconstructs each artifact hash from received paths, bytes and executable modes, then verifies any detached signature against the local KB pin;
 4. `Apply` materializes/prunes and writes the v2 lockfile, one entry per provider;
