@@ -74,6 +74,7 @@ decides every step **before** running any:
 |---|---|---|
 | server | `service status` | installed and running (installed but stopped → `service start`) |
 | KB | `--remote`, `--no-remote`, or the interview; `git ls-remote <url>` | a KB in the data dir has that origin (trailing `/` and `.git` ignored) |
+| auth check | an unauthenticated `GET /mcp` on the service (skipped when the client config already sends a token) | answers anything but 401 |
 | agents | `--agents`, else every detected client | never skipped: `connect` is idempotent and re-syncs |
 | verify | `/health` through `service status` | — |
 
@@ -90,6 +91,14 @@ decides every step **before** running any:
 - **Refusals, all before any change:** no `git` on `PATH`; a client already pointed at a
   non-loopback server (setup provisions a local one — `connect` is the command for a remote
   server); no remote and no mounted KB in a non-interactive run; no agent detected and none named.
+- **A service that demands a token stops setup before `connect` (D268).** The agents setup
+  configures reach the local server with no token, so a service answering 401 would fail them one
+  by one (`sync_pull: … unauthorized (401)`). That happens when a `CARTOGRAPHER_TOKENS` exported
+  for another server reaches the service's environment under a `server.yaml` without `auth.mode`
+  — one generated before D268; a config `service install` generates now pins `mode: "off"` for a
+  loopback address. The error names the variable (saying whether it is set in the current shell,
+  and `CARTOGRAPHER_AUTH` if that forces auth on), the config file to add `auth: {mode: "off"}`
+  to, and `service restart`; exit 1, and the rerun resumes at the agents.
 - **Interactive** (a TTY, no `--no-input`): asks for the remote when none is mounted — blank means
   a local-only KB, confirmed explicitly (D134) — then which of the detected agents to connect, prints
   the plan and asks `Proceed? [Y/n]` (skipped by `--yes`). `--dry-run` prints the plan and exits 0.

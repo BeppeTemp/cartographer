@@ -812,6 +812,13 @@ func checkHealth(addr string) bool {
 // healthURL builds the /health URL from a server http address, normalizing a
 // bare-port address (":39273") to a 127.0.0.1 host. Returns "" if addr is empty.
 func healthURL(addr string) string {
+	return localURL(addr, "/health")
+}
+
+// localURL builds http://<host:port><path> from a server http address, with
+// the same bare-port normalization as healthURL. Returns "" if addr is empty
+// or unparseable.
+func localURL(addr, path string) string {
 	if addr == "" {
 		return ""
 	}
@@ -822,5 +829,25 @@ func healthURL(addr string) string {
 	if host == "" {
 		host = "127.0.0.1"
 	}
-	return fmt.Sprintf("http://%s/health", net.JoinHostPort(host, port))
+	return fmt.Sprintf("http://%s%s", net.JoinHostPort(host, port), path)
+}
+
+// ProbeAuthRequired reports whether the server at addr demands a bearer
+// token: an unauthenticated GET /mcp answers 401. /health cannot tell, since
+// it is exempt from authentication. The request carries no credential and
+// reaches no tool — the auth middleware answers before any routing — so the
+// probe is side-effect free. Any status other than 401 means "no token
+// needed"; a transport failure is returned as an error.
+func ProbeAuthRequired(addr string, timeout time.Duration) (bool, error) {
+	url := localURL(addr, "/mcp")
+	if url == "" {
+		return false, fmt.Errorf("service: no usable http address %q", addr)
+	}
+	c := http.Client{Timeout: timeout}
+	resp, err := c.Get(url)
+	if err != nil {
+		return false, err
+	}
+	resp.Body.Close()
+	return resp.StatusCode == http.StatusUnauthorized, nil
 }

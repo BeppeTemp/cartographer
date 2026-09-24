@@ -502,7 +502,16 @@ func serveHTTP(addr string, kbs []*kb.KB, names []string, toolPrefixes []string,
 		log.Printf("HTTP auth enabled (%d token(s))", store.TokenCount())
 	} else {
 		store = auth.NewTokenStore(nil)
-		log.Print("HTTP auth disabled")
+		if len(authCfg.Tokens) > 0 {
+			// auth.mode "off" with tokens configured: the case of a local
+			// service whose generated config pins "off" while a
+			// CARTOGRAPHER_TOKENS meant for another server reached its
+			// environment (D268). Said out loud so an operator who did mean
+			// the tokens sees why they are not enforced.
+			log.Printf("HTTP auth disabled: auth.mode is \"off\", ignoring %d configured token(s) (CARTOGRAPHER_TOKENS/--tokens/auth.tokens)", len(authCfg.Tokens))
+		} else {
+			log.Print("HTTP auth disabled")
+		}
 	}
 
 	multi := mcpserver.NewMultiKBServer(version)

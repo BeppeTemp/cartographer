@@ -86,6 +86,67 @@ func TestDefaultServerYAML(t *testing.T) {
 	}
 }
 
+// TestDefaultServerYAMLAuthMode: a loopback server pins auth.mode "off" so a
+// CARTOGRAPHER_TOKENS meant for another server cannot turn authentication on
+// (D268); an address reachable from the network keeps "auto" and with it the
+// env tokens, since there "off" would expose the server.
+func TestDefaultServerYAMLAuthMode(t *testing.T) {
+	cases := []struct {
+		addr     string
+		wantMode string
+	}{
+		{"127.0.0.1:39273", "off"},
+		{"localhost:39273", "off"},
+		{"[::1]:39273", "off"},
+		{":39273", "auto"},
+		{"0.0.0.0:39273", "auto"},
+		{"192.0.2.10:39273", "auto"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.addr, func(t *testing.T) {
+			t.Setenv("CARTOGRAPHER_TOKENS", "remote-token")
+			t.Setenv("CARTOGRAPHER_AUTH", "")
+			path := filepath.Join(t.TempDir(), "server.yaml")
+			if err := os.WriteFile(path, []byte(DefaultServerYAML("/data", tc.addr)), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			cfg, err := config.Load(path)
+			if err != nil {
+				t.Fatalf("config.Load: %v", err)
+			}
+			config.FromEnv(cfg)
+			if cfg.Auth.Mode != tc.wantMode {
+				t.Errorf("auth.mode = %q, want %q", cfg.Auth.Mode, tc.wantMode)
+			}
+			if len(cfg.Auth.Tokens) != 1 {
+				t.Errorf("env tokens = %d, want 1: the env merge itself is unchanged", len(cfg.Auth.Tokens))
+			}
+		})
+	}
+}
+
+func TestProbeAuthRequired(t *testing.T) {
+	for _, tc := range []struct {
+		status int
+		want   bool
+	}{{http.StatusUnauthorized, true}, {http.StatusOK, false}, {http.StatusMethodNotAllowed, false}} {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path != "/mcp" || r.Header.Get("Authorization") != "" {
+				t.Errorf("probe hit %s with Authorization %q", r.URL.Path, r.Header.Get("Authorization"))
+			}
+			w.WriteHeader(tc.status)
+		}))
+		got, err := ProbeAuthRequired(strings.TrimPrefix(srv.URL, "http://"), time.Second)
+		srv.Close()
+		if err != nil || got != tc.want {
+			t.Errorf("status %d: ProbeAuthRequired = %v, %v; want %v", tc.status, got, err, tc.want)
+		}
+	}
+	if _, err := ProbeAuthRequired("", time.Second); err == nil {
+		t.Error("an empty address must be an error, not a verdict")
+	}
+}
+
 // withTestHome redirects userHomeDir/goos for the duration of the test, and
 // neutralises getenv so the Windows paths resolve through their documented
 // fallback instead of through whatever %APPDATA% the host happens to have. A
