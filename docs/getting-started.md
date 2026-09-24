@@ -179,3 +179,7 @@ agent made can be reviewed or reverted with ordinary git.
 - Keeping encrypted values the KB can resolve → the same skill's
   `references/secrets.md`
 - Importing an existing wiki or docs folder → the bundled `kb-import` skill
+- Giving a new or imported KB its first structure (Maps, Journals, concept
+  boundaries) → worth doing with the strongest reasoning model you have; both
+  skills suggest it once, before modeling starts, and a faster model is fine
+  for routine maintenance afterwards
