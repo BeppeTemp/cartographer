@@ -8,6 +8,58 @@
 
 KB histories with commits authored as `cartographer <cartographer@localhost>` may need a manual author rewrite before a forge with author push rules accepts the first push.
 
+## [0.17.0](https://github.com/BeppeTemp/cartographer/compare/v0.16.1...v0.17.0) (2026-09-24)
+
+
+### ⚠ BREAKING CHANGES
+
+* **mcp:** a caller parsing values from service_get(resolve_secrets: true) must pass reveal: true.
+
+### Features
+
+* **atlas:** the Observatory follows the rail's Map selection ([#397](https://github.com/BeppeTemp/cartographer/issues/397)) ([e0cb868](https://github.com/BeppeTemp/cartographer/commit/e0cb868cb341ae7a596d698e6327465a7f20164f))
+* **cli:** cartographer setup — first run in one guided command (D253) ([#355](https://github.com/BeppeTemp/cartographer/issues/355)) ([c369ecf](https://github.com/BeppeTemp/cartographer/commit/c369ecf6374d401ace2d013b916f4841921bc5fc))
+* **git:** KB writes follow the remote default branch (D264) ([#420](https://github.com/BeppeTemp/cartographer/issues/420)) ([164d457](https://github.com/BeppeTemp/cartographer/commit/164d457f4d3f6f16321d5cf556eb3a330a6fbe45))
+* **graph:** server-side importance and communities (D244) ([#389](https://github.com/BeppeTemp/cartographer/issues/389)) ([d5b5d03](https://github.com/BeppeTemp/cartographer/commit/d5b5d0302b8c77dd6fba7c1493da07fd89049830))
+* **install:** withdraw winget; Windows installs through install.ps1 (D252) ([#351](https://github.com/BeppeTemp/cartographer/issues/351)) ([59f72bb](https://github.com/BeppeTemp/cartographer/commit/59f72bb28d9c90796241c12dabd6b6452346e431))
+* **lint:** structural checks and supersede relations ([#382](https://github.com/BeppeTemp/cartographer/issues/382)) ([dcee723](https://github.com/BeppeTemp/cartographer/commit/dcee7237fdf494ac1c5c4f4dd14e4c3cb68c579c))
+* **mcp:** changes_since reports link changes (D250) ([#388](https://github.com/BeppeTemp/cartographer/issues/388)) ([f8621bd](https://github.com/BeppeTemp/cartographer/commit/f8621bd0e21ed4c42c2795b3d928df07620bd92f))
+* **mcp:** graph retrieval tools — graph_context, link_suggest, graph_path ([#381](https://github.com/BeppeTemp/cartographer/issues/381)) ([6944c9f](https://github.com/BeppeTemp/cartographer/commit/6944c9f422687265144e1be510408cb81706691d))
+* **mcp:** graph_neighbors walks the visible graph at any depth (D249) ([#387](https://github.com/BeppeTemp/cartographer/issues/387)) ([99cadd7](https://github.com/BeppeTemp/cartographer/commit/99cadd770e3a15251bcaa2da414e32c0b7dd92bd))
+* **mcp:** service_get redacts resolved secrets unless reveal, and the audit records reveal (D261) ([#421](https://github.com/BeppeTemp/cartographer/issues/421)) ([40ece95](https://github.com/BeppeTemp/cartographer/commit/40ece95628b3993ce6ce481524b7b1dd74f2003d))
+* **search:** break near-ties by centrality (D251) ([#390](https://github.com/BeppeTemp/cartographer/issues/390)) ([b32defd](https://github.com/BeppeTemp/cartographer/commit/b32defd77ca4bc792521f11889ea85175d0bc989))
+* **search:** kb_status reports search misses (D247) ([#385](https://github.com/BeppeTemp/cartographer/issues/385)) ([e16cd31](https://github.com/BeppeTemp/cartographer/commit/e16cd31dd247360142b8199661e1aa3ecd7f02dd))
+* **search:** weight titles and fold diacritics (D246) ([#384](https://github.com/BeppeTemp/cartographer/issues/384)) ([8c9c470](https://github.com/BeppeTemp/cartographer/commit/8c9c4709c3e5c1666c83c5d53840e321d9a0353f))
+* **skills:** suggest the strongest model before a KB's first structure ([#398](https://github.com/BeppeTemp/cartographer/issues/398)) ([54f81fe](https://github.com/BeppeTemp/cartographer/commit/54f81feb72fc989acb88f0cdc7d437058d08b32a))
+* **sync:** a KB declares its path placeholder registry (D263) ([#422](https://github.com/BeppeTemp/cartographer/issues/422)) ([f859bed](https://github.com/BeppeTemp/cartographer/commit/f859bed00e4e79bcd57c6e98e811d2b0531c8013))
+* **sync:** continue past a KB that cannot be pulled ([#399](https://github.com/BeppeTemp/cartographer/issues/399)) ([8ca2bf0](https://github.com/BeppeTemp/cartographer/commit/8ca2bf05c405dc983f5173faa22caf4e97e1f44a))
+* **sync:** path placeholders are visible, fully resolved and onboarded (D262) ([#419](https://github.com/BeppeTemp/cartographer/issues/419)) ([29bd0c1](https://github.com/BeppeTemp/cartographer/commit/29bd0c1726047069a1021446151b2dc500f28f66))
+* **update:** agents are told when Cartographer is out of date (D254) ([#391](https://github.com/BeppeTemp/cartographer/issues/391)) ([49c2d53](https://github.com/BeppeTemp/cartographer/commit/49c2d53456c2ddacfb0499020cb92100d65f3dac))
+* **web:** artifacts panel in the Atlas UI ([#379](https://github.com/BeppeTemp/cartographer/issues/379)) ([4ebb2e7](https://github.com/BeppeTemp/cartographer/commit/4ebb2e7b311e5ec2ffe94ace4755df30e4d87310))
+* **web:** resizable reading panel in the Atlas UI ([#378](https://github.com/BeppeTemp/cartographer/issues/378)) ([d8dc149](https://github.com/BeppeTemp/cartographer/commit/d8dc149825ad76abba7752675c7150e4129fe566))
+
+
+### Bug Fixes
+
+* **assets:** 10 MiB git cap, and stray files no longer break lint (D270) ([#430](https://github.com/BeppeTemp/cartographer/issues/430)) ([a589d72](https://github.com/BeppeTemp/cartographer/commit/a589d725275222c8de5d867b4faa8486c2584a87))
+* **git:** supply a committer identity with the author and surface initial-commit errors ([#417](https://github.com/BeppeTemp/cartographer/issues/417)) ([592003f](https://github.com/BeppeTemp/cartographer/commit/592003fa902006bb0f48856fb760ff96dc9d8c11))
+* **kb:** link graph as a stat-validated in-memory cache ([#380](https://github.com/BeppeTemp/cartographer/issues/380)) ([f0d2f7e](https://github.com/BeppeTemp/cartographer/commit/f0d2f7e51ebf7fb84ed9528999fcf64ebc2b319d))
+* **kb:** reserve the services namespace and make concept moves namespace-aware (D269) ([#428](https://github.com/BeppeTemp/cartographer/issues/428)) ([93ad5f9](https://github.com/BeppeTemp/cartographer/commit/93ad5f965ec043d9ebbeba555d7650afd9e0948a))
+* **mcp:** concept_move rewrites only the pages that link to it (D248) ([#386](https://github.com/BeppeTemp/cartographer/issues/386)) ([2dec4ea](https://github.com/BeppeTemp/cartographer/commit/2dec4ea59cb18698eb0d76972892ab37f7ac7ce7))
+* **provisioning:** write Claude Code hook commands with forward slashes on Windows ([#425](https://github.com/BeppeTemp/cartographer/issues/425)) ([5b1c203](https://github.com/BeppeTemp/cartographer/commit/5b1c203333443f2deee9a38b2d8e0bc7ce9708bb))
+* **search:** indexes follow the files by validation (D245) ([#383](https://github.com/BeppeTemp/cartographer/issues/383)) ([0799e07](https://github.com/BeppeTemp/cartographer/commit/0799e070484ba5b7da52238b89d8227252ec269e))
+* **service:** Windows restart and uninstall wait for the old server to exit ([#427](https://github.com/BeppeTemp/cartographer/issues/427)) ([b521436](https://github.com/BeppeTemp/cartographer/commit/b521436a3063149bf1e511cff51e4cdfae067e23))
+* **setup:** small Windows setup defects from an end-to-end run ([#424](https://github.com/BeppeTemp/cartographer/issues/424)) ([f8f4bdb](https://github.com/BeppeTemp/cartographer/commit/f8f4bdb20f982944dd9f277bcc34fc63a6d90b02))
+* **setup:** the local service ignores a CARTOGRAPHER_TOKENS meant for another server ([#423](https://github.com/BeppeTemp/cartographer/issues/423)) ([3851247](https://github.com/BeppeTemp/cartographer/commit/3851247a39518d85b7a71f18cc2272ef32883be4))
+* **sops:** run sops in a hermetic environment (D260) ([#418](https://github.com/BeppeTemp/cartographer/issues/418)) ([bdd30e3](https://github.com/BeppeTemp/cartographer/commit/bdd30e38670004cd60a9746f83860d279a971138))
+* **web:** a filtered-out selection no longer blanks the Atlas graph ([#376](https://github.com/BeppeTemp/cartographer/issues/376)) ([864e9b0](https://github.com/BeppeTemp/cartographer/commit/864e9b07d5240fef06898944bb12ba3261fd3c0d))
+
+
+### Performance Improvements
+
+* **server:** reads refresh the KB in the background instead of waiting ([#400](https://github.com/BeppeTemp/cartographer/issues/400)) ([f3a8bba](https://github.com/BeppeTemp/cartographer/commit/f3a8bbab581f595964fb81ca74d3960f530662a5))
+* **sync:** pull the KBs' manifests concurrently ([#396](https://github.com/BeppeTemp/cartographer/issues/396)) ([224f442](https://github.com/BeppeTemp/cartographer/commit/224f442dd871b944f2e6541adf5b58d86b911220))
+
 ## [0.16.1](https://github.com/BeppeTemp/cartographer/compare/v0.16.0...v0.16.1) (2026-09-23)
 
 
