@@ -42,7 +42,9 @@ the two places where the clients genuinely differ.
    structure, then:
    `gh issue create --title "Plan: <title> (D<n>)" --label plan --body-file <file>`.
    Delete the scratch file afterwards — it is not a repository artifact.
-5. Apply the self-sufficiency test from `CONTRIBUTING.md` before submitting.
+5. Apply the self-sufficiency test from `CONTRIBUTING.md` before submitting, and
+   replace every real KB name, host, username, employer or client with a
+   placeholder — the issue is public (D259).
 6. One analysis, several plans → every issue states the cross-plan execution
    order and which sibling plans touch the same files (those land strictly
    sequentially, never in parallel). Amend a plan by editing the issue body

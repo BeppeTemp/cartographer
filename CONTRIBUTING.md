@@ -163,6 +163,8 @@ only the issue and the repo must be able to implement without asking questions.
 - No open questions; anything delegated to the implementer is explicitly
   marked and is only a detail (local naming, test order).
 - Expected errors and edge cases are listed with the desired behavior.
+- **No private names**: measurements and reproductions from a real setup use placeholder
+  KB names, hosts and users — the repository is public (D259).
 - **No code in the plan**: exact semantics plus real `file:line` pointers,
   derived from the code before writing — not paraphrases of it.
 - A single analysis may yield **several plan issues**: each one states the
