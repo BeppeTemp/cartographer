@@ -123,10 +123,13 @@ When `git.sync` is enabled and `origin` exists:
 1. `SyncIn` fetches and runs pull/rebase/autostash before a local-profile write;
    server profile rebases the dedicated working branch onto `origin/<base>`. A freshness
    window can skip repeated fetches within the configured interval. A read-only tool
-   runs the same refresh, but a failure there is non-fatal: it serves the local clone.
-   Every fetch is bounded (15s, the whole git process group killed on expiry), and after
-   a failed one reads skip the fetch for 60s, so a remote that is down costs one bounded
-   wait rather than one per queued call; a write still fetches and fails (D237).
+   never waits for it (D258): when the window has expired it is served at once from the
+   local clone and starts the same refresh in the background, one per KB at a time, under
+   the same KB lock; what that refresh pulls is visible from the next call on, and a
+   failure there is non-fatal. Every fetch is bounded (15s, the whole git process group
+   killed on expiry), and after a failed one reads skip the fetch for 60s, so a remote
+   that is down costs one bounded fetch rather than one per call; a write still fetches,
+   synchronously, and fails (D237).
 2. The write and local commit run under the same KB lock.
 3. `SyncOut` queues a debounced background push. Sync-sensitive operations and
    graceful HTTP shutdown flush pending work.

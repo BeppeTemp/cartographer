@@ -432,6 +432,9 @@ func setupGitKBWithRemote(t *testing.T) (k *kb.KB, bare string) {
 	base := t.TempDir()
 	root := filepath.Join(base, "kb")
 	k, err := kb.Init(root)
+	// A background read refresh must end before TempDir is removed: this
+	// cleanup is registered after it, so it runs first.
+	t.Cleanup(func() { waitReadRefresh(k) })
 	if err != nil {
 		t.Fatalf("kb.Init: %v", err)
 	}
@@ -487,6 +490,14 @@ func pushRemoteFile(t *testing.T, bare, branch, relPath, content, message string
 	run(clone, "push", "origin", branch)
 }
 
+// waitReadRefresh blocks until k's background read-side SyncIn, if one is
+// running, has finished.
+func waitReadRefresh(k *kb.KB) {
+	if k != nil {
+		readRefreshFor(k).wg.Wait()
+	}
+}
+
 func syncInForTest(t *testing.T, k *kb.KB) {
 	t.Helper()
 	if err := k.WithGitLock(func() error {
@@ -515,16 +526,25 @@ func TestReadSyncWrap_RefreshesRemoteConceptAndSearch(t *testing.T) {
 	RegisterKBTools(s, k, Deps{SQLIndex: sqlIdx})
 
 	pushRemoteFile(t, bare, branch, "data/remote/fresh.md", "---\ntype: Note\ntitle: Fresh\n---\nremote-sync-fresh\n", "remote fresh")
+	// The read that finds the window expired is served from the local clone
+	// and starts the refresh (#361): the remote change is one call late.
 	resps := runMCPSequence(t, s, []string{
 		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
 		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_read","arguments":{"id":"remote/fresh"}}}`,
+	})
+	if got := decodeToolResult(t, resps[1]); !got.IsError {
+		t.Fatalf("the first read waited for the fetch instead of serving the local clone: %+v", got)
+	}
+	waitReadRefresh(k)
+	resps = runMCPSequence(t, s, []string{
+		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_read","arguments":{"id":"remote/fresh"}}}`,
 		`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"search","arguments":{"query":"remote-sync-fresh"}}}`,
 	})
-	if got := decodeToolResult(t, resps[1]); got.IsError || !strings.Contains(got.Content[0].Text, "remote-sync-fresh") {
-		t.Fatalf("concept_read after remote change = %+v", got)
+	if got := decodeToolResult(t, resps[0]); got.IsError || !strings.Contains(got.Content[0].Text, "remote-sync-fresh") {
+		t.Fatalf("concept_read after the background refresh = %+v", got)
 	}
-	if got := decodeToolResult(t, resps[2]); got.IsError || !strings.Contains(got.Content[0].Text, "remote/fresh") {
-		t.Fatalf("search after read-side SyncIn = %+v", got)
+	if got := decodeToolResult(t, resps[1]); got.IsError || !strings.Contains(got.Content[0].Text, "remote/fresh") {
+		t.Fatalf("search after the background refresh = %+v", got)
 	}
 
 	// A second remote commit remains invisible during the freshness window: the
@@ -536,15 +556,30 @@ func TestReadSyncWrap_RefreshesRemoteConceptAndSearch(t *testing.T) {
 	if got := decodeToolResult(t, resps[0]); !got.IsError {
 		t.Fatalf("concept_read within SyncInWindow fetched remote change: %+v", got)
 	}
+	waitReadRefresh(k)
+	if got := remoteReadVisible(t, s, "remote/second"); got {
+		t.Fatal("a read within SyncInWindow started a refresh")
+	}
 
 	// Disabling the window makes the next read fetch the pending change.
 	k.SyncInWindow = 0
-	resps = runMCPSequence(t, s, []string{
+	runMCPSequence(t, s, []string{
 		`{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"concept_read","arguments":{"id":"remote/second"}}}`,
 	})
-	if got := decodeToolResult(t, resps[0]); got.IsError || !strings.Contains(got.Content[0].Text, "remote-sync-second") {
-		t.Fatalf("concept_read after SyncInWindow disabled = %+v", got)
+	waitReadRefresh(k)
+	k.SyncInWindow = time.Hour
+	if !remoteReadVisible(t, s, "remote/second") {
+		t.Fatal("the read after SyncInWindow was disabled did not refresh the clone")
 	}
+}
+
+// remoteReadVisible reports whether concept_read finds id.
+func remoteReadVisible(t *testing.T, s *Server, id string) bool {
+	t.Helper()
+	resps := runMCPSequence(t, s, []string{
+		`{"jsonrpc":"2.0","id":9,"method":"tools/call","params":{"name":"concept_read","arguments":{"id":"` + id + `"}}}`,
+	})
+	return !decodeToolResult(t, resps[0]).IsError
 }
 
 func TestReadSyncWrap_ConflictDegradesAndServesLocalRead(t *testing.T) {
@@ -578,6 +613,8 @@ func TestReadSyncWrap_ConflictDegradesAndServesLocalRead(t *testing.T) {
 	if got := decodeToolResult(t, resps[1]); got.IsError || !strings.Contains(got.Content[0].Text, "local version") {
 		t.Fatalf("read after rebase conflict = %+v", got)
 	}
+	// The conflict surfaces in the background refresh, off the request.
+	waitReadRefresh(k)
 	conflicts, err := k.ListConflicts()
 	if err != nil {
 		t.Fatal(err)
@@ -962,6 +999,7 @@ func TestReadSyncWrap_SilentRemoteFetchesOnceThenServesLocal(t *testing.T) {
 	if got := decodeToolResult(t, resps[1]); got.IsError {
 		t.Fatalf("first read = %+v, want the local view", got)
 	}
+	waitReadRefresh(k)
 	if !k.ReadFetchBackingOff() {
 		t.Fatal("the failed fetch did not start the read backoff")
 	}
@@ -973,7 +1011,56 @@ func TestReadSyncWrap_SilentRemoteFetchesOnceThenServesLocal(t *testing.T) {
 	if got := decodeToolResult(t, resps[1]); got.IsError {
 		t.Fatalf("second read = %+v, want the local view", got)
 	}
+	waitReadRefresh(k)
 	if got := dials.Load(); got != first {
 		t.Fatalf("second read dialled the remote (%d connections, want %d): it fetched again instead of backing off", got, first)
+	}
+}
+
+// #361: a read never waits for the fetch. The remote accepts and never
+// answers, so the fetch can only end at FetchTimeout; the read must have
+// returned while it is still running, and concurrent reads must not start a
+// second one.
+func TestReadSyncWrap_ReadDoesNotWaitForTheFetch(t *testing.T) {
+	k, _ := setupGitKBWithRemote(t)
+	k.GitSync = true
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	var dials atomic.Int32
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			dials.Add(1)
+			defer c.Close()
+		}
+	}()
+	if out, err := exec.Command("git", "-C", k.Root, "remote", "set-url", "origin", "http://"+ln.Addr().String()+"/kb.git").CombinedOutput(); err != nil {
+		t.Fatalf("set-url: %v\n%s", err, out)
+	}
+	defer func(d time.Duration) { gitx.FetchTimeout = d }(gitx.FetchTimeout)
+	gitx.FetchTimeout = 3 * time.Second
+
+	s := New("test")
+	RegisterKBTools(s, k, Deps{})
+	init := `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`
+	call := `{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"kb_status","arguments":{}}}`
+	for i := 0; i < 3; i++ {
+		resps := runMCPSequence(t, s, []string{init, call})
+		if got := decodeToolResult(t, resps[1]); got.IsError {
+			t.Fatalf("read %d = %+v, want the local view", i, got)
+		}
+		if !readRefreshFor(k).running.Load() {
+			t.Fatalf("read %d returned after the fetch ended: it waited for it", i)
+		}
+	}
+	waitReadRefresh(k)
+	if got := dials.Load(); got != 1 {
+		t.Fatalf("remote dialled %d times, want 1: concurrent reads stacked fetches", got)
 	}
 }

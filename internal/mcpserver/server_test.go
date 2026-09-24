@@ -37,6 +37,8 @@ func setupTestKB(t *testing.T) *kb.KB {
 	if err != nil {
 		t.Fatalf("kb.Init: %v", err)
 	}
+	// Registered after the directory's removal, so it runs before it.
+	t.Cleanup(func() { waitReadRefresh(k) })
 
 	// Create a test archive and concept under the data root.
 	os.MkdirAll(filepath.Join(k.DataRoot(), "manutenzione"), 0o755)
