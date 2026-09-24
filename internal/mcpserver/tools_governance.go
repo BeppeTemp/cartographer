@@ -17,11 +17,11 @@ import (
 // index_rebuild tool). It is deliberately a write-scoped administrative
 // action: although it never changes KB content, it writes the server-owned
 // SQLite database — a read-only client has no business rewriting it.
-func toolReindex(k *kb.KB, live *liveIndex, deps Deps) Tool {
+func toolReindex(k *kb.KB, rec *searchReconciler, deps Deps) Tool {
 	return Tool{
 		Name: "reindex",
 		Description: "Reconciles the derived search index with KB files changed outside MCP, including imports, manual edits, and git pulls. Returns indexed, updated, and removed counts. " +
-			"Set full=true to rebuild the whole index from every concept instead, which also works when no SQLite index is available.",
+			"Search already reconciles before every query, so this is an explicit check. Set full=true to rebuild the whole index from every concept instead.",
 		InputSchema: json.RawMessage(`{
 	"type": "object",
 	"properties": {
@@ -42,26 +42,24 @@ func toolReindex(k *kb.KB, live *liveIndex, deps Deps) Tool {
 			}
 
 			if params.Full {
-				newIdx, newMeta := buildIndex(k)
-				live.swap(newIdx, newMeta)
-
+				indexed, sqlUpserted, err := rec.rebuild()
+				if err != nil {
+					return errorResult("reindex: " + err.Error()), nil
+				}
 				result := map[string]interface{}{
 					"status":           "rebuilt",
-					"concepts_indexed": newIdx.Count(),
+					"concepts_indexed": indexed,
 				}
 				if deps.SQLIndex != nil {
-					stats := rebuildSQLIndex(k, deps)
-					result["sql_upserted"] = stats.upserted
+					result["sql_upserted"] = sqlUpserted
 				}
 				out, _ := json.MarshalIndent(result, "", "  ")
 				return textResult(string(out)), nil
 			}
 
-			// Incremental reconciliation needs persisted state to compare against.
-			if deps.SQLIndex == nil {
-				return errorResult("reindex: SQLite index is unavailable"), nil
-			}
-			stats, err := ReconcileIndex(k, live, deps.SQLIndex)
+			// Incremental: the same reconciliation every search runs (D245),
+			// with or without SQLite.
+			stats, err := rec.reconcile()
 			if err != nil {
 				return errorResult("reindex: " + err.Error()), nil
 			}
