@@ -14,13 +14,13 @@ instances instead.
 `concept_batch` (D125) runs its whole multi-concept transaction under this
 same single per-KB lock — it does not acquire a second one. Every operation
 is validated and its content materialized in memory before the first byte is
-written; if a write, the summary `log.md` entry, or the caller's index-sync
-step then fails partway, every file the call already wrote (including any
+written; if a write or the summary `log.md` entry then fails partway, every file the call already wrote (including any
 implicit expanded-index stub a new directory triggered) and `log.md` are
 restored to their exact pre-call bytes and mode before the error is
 returned. Unlike `concept_move` — which documents that a `rewrite_links`
 failure leaves the already-applied moves in place — `concept_batch` never
-leaves a partially-applied batch on disk or in the search indexes: callers
+leaves a partially-applied batch on disk (and the search indexes follow the
+files, D245, so they never see one either): callers
 observe either the complete batch or the exact pre-call KB state. It does
 not open a nested git commit; a rolled-back call also leaves no commit,
 since `gitWrap` only commits after the handler returns success.
@@ -191,6 +191,13 @@ a search that ranks after releasing the lock races every concurrent write, and
 the usual symptom is a `concurrent map read and map write` panic rather than a
 stale result. The `allow` predicate a caller passes is invoked while that lock
 is held and must not call back into the same `liveIndex`.
+
+Incremental updates come from one place: the per-KB `searchReconciler`
+(D245). Its mutex serialises reconciliations — a second concurrent `search`
+waits, then finds an empty delta — and is taken outside both the KB mutex and
+the graph-cache mutex, which `ConceptChanges` takes on its own. `reindex(full:
+true)` rebuilds under the same mutex, so a rebuild and a reconciliation never
+interleave.
 
 ## Graph cache concurrency
 

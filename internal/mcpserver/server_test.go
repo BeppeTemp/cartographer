@@ -1336,10 +1336,7 @@ func TestServer_Validate(t *testing.T) {
 // keyword results it did not ask for.
 func TestSearch_RemovedModeArgumentsRejected(t *testing.T) {
 	k := setupTestKB(t)
-	idx, meta := buildIndex(k)
-	live := newLiveIndex(idx, meta)
-
-	search := toolSearch(k, live, Deps{})
+	search := toolSearch(k, newSearchReconciler(k, nil), Deps{})
 	if strings.Contains(string(search.InputSchema), `"mode"`) || strings.Contains(string(search.InputSchema), "use_semantic") {
 		t.Fatalf("search schema still offers the removed arguments: %s", search.InputSchema)
 	}
@@ -1442,7 +1439,8 @@ func TestServer_SearchScope(t *testing.T) {
 }
 
 // D136: the full rebuild lives in reindex(full=true) and works with no
-// SQLite index, exactly as index_rebuild did.
+// SQLite index, exactly as index_rebuild did. Since D245 a file added outside
+// MCP is already found before any reindex; the rebuild keeps finding it.
 func TestServer_ReindexFull(t *testing.T) {
 	k := setupTestKB(t)
 	s := New("0.3.0-m3")
@@ -1454,7 +1452,7 @@ func TestServer_ReindexFull(t *testing.T) {
 
 	msgs := []string{
 		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
-		// Before rebuild: should NOT find the new concept.
+		// Before rebuild: already found (D245).
 		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"search","arguments":{"query":"keyword42"}}}`,
 		// Rebuild.
 		`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"reindex","arguments":{"full":true}}}`,
@@ -1467,13 +1465,9 @@ func TestServer_ReindexFull(t *testing.T) {
 		t.Fatalf("expected 4 responses, received %d", len(resps))
 	}
 
-	// Before rebuild: no results.
 	tr1 := decodeToolResult(t, resps[1])
-	if tr1.IsError {
-		t.Fatalf("search before rebuild: isError=true: %v", tr1.Content)
-	}
-	if !strings.Contains(tr1.Content[0].Text, `"count": 0`) {
-		t.Errorf("search before rebuild: expected 0 results: %s", tr1.Content[0].Text)
+	if tr1.IsError || !strings.Contains(tr1.Content[0].Text, "new-concept") {
+		t.Errorf("search before rebuild: expected 'new-concept': %+v", tr1)
 	}
 
 	// Rebuild OK.
@@ -2638,8 +2632,8 @@ func TestServer_ConceptWrite_UpdatesIndex(t *testing.T) {
 }
 
 // D136: reindex is one tool with two levels of thoroughness. No arguments
-// keeps the incremental reconciliation (and its SQLite requirement); full=true
-// rebuilds everything and works without a SQLite index.
+// keeps the incremental reconciliation — with or without SQLite since D245;
+// full=true rebuilds everything.
 func TestServer_Reindex_Modes(t *testing.T) {
 	callReindex := func(t *testing.T, s *Server, args string) ToolResult {
 		t.Helper()
@@ -2659,6 +2653,7 @@ func TestServer_Reindex_Modes(t *testing.T) {
 		defer sqlIdx.Close()
 		s := New("1.0.0")
 		RegisterKBTools(s, k, Deps{SQLIndex: sqlIdx})
+		writeOutOfBand(t, k)
 
 		tr := callReindex(t, s, "{}")
 		if tr.IsError {
@@ -2673,8 +2668,8 @@ func TestServer_Reindex_Modes(t *testing.T) {
 				t.Errorf("reindex result missing %q: %s", key, tr.Content[0].Text)
 			}
 		}
-		if counters["indexed"] == 0 {
-			t.Errorf("reindex indexed = 0, want the KB's concepts: %s", tr.Content[0].Text)
+		if counters["indexed"] != 1 {
+			t.Errorf("reindex indexed = %d, want the one out-of-band concept: %s", counters["indexed"], tr.Content[0].Text)
 		}
 	})
 
@@ -2682,10 +2677,11 @@ func TestServer_Reindex_Modes(t *testing.T) {
 		k := setupTestKB(t)
 		s := New("1.0.0")
 		RegisterKBTools(s, k, Deps{})
+		writeOutOfBand(t, k)
 
 		tr := callReindex(t, s, "{}")
-		if !tr.IsError || !strings.Contains(tr.Content[0].Text, "SQLite index is unavailable") {
-			t.Fatalf("reindex without SQLite: expected the unavailable error, got %+v", tr)
+		if tr.IsError || !strings.Contains(tr.Content[0].Text, `"indexed": 1`) {
+			t.Fatalf("reindex without SQLite: expected one indexed concept, got %+v", tr)
 		}
 	})
 
@@ -5475,4 +5471,14 @@ func runStdioSession(t *testing.T, run func(io.Reader, io.Writer) error, message
 	outR.Close()
 	inR.Close()
 	return responses
+}
+
+// writeOutOfBand adds a concept file the way an editor would, bypassing MCP.
+func writeOutOfBand(t *testing.T, k *kb.KB) string {
+	t.Helper()
+	p := filepath.Join(k.DataRoot(), "manutenzione", "out-of-band.md")
+	if err := os.WriteFile(p, []byte("---\ntype: Note\n---\n# Out of band\nreconcileunique\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return p
 }

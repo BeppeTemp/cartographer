@@ -15,7 +15,6 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/gitx"
 	"github.com/BeppeTemp/cartographer/internal/kb"
 	"github.com/BeppeTemp/cartographer/internal/okf"
-	"github.com/BeppeTemp/cartographer/internal/sqlindex"
 )
 
 // batchCallMsg builds a tools/call JSON-RPC message for concept_batch with
@@ -261,55 +260,6 @@ func TestConceptBatch_HappyPath_OneCommitOneLogEntryOrderedResults(t *testing.T)
 	str := decodeToolResult(t, searchResp[1])
 	if !strings.Contains(str.Content[0].Text, "batch/new-one") {
 		t.Errorf("search does not see the newly written concept: %s", str.Content[0].Text)
-	}
-}
-
-// TestConceptBatch_SQLIndexFailureRollsBackFilesLogAndLiveIndex is the
-// MCP-layer integration test for D125 WP2's index-failure rollback: closing
-// the SQLite index before the call forces sqlIdx.Upsert to fail during
-// afterFiles, after every file and the log entry already succeeded.
-func TestConceptBatch_SQLIndexFailureRollsBackFilesLogAndLiveIndex(t *testing.T) {
-	k := setupTestKB(t)
-	dbPath := filepath.Join(t.TempDir(), "index.db")
-	sqlIdx, err := sqlindex.Open(dbPath)
-	if err != nil {
-		t.Skipf("sqlindex.Open: %v (FTS5 likely unavailable)", err)
-	}
-	s := New("test")
-	RegisterKBTools(s, k, Deps{SQLIndex: sqlIdx})
-	if err := sqlIdx.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
-
-	preLog, err := k.ReadRaw("log.md")
-	if err != nil {
-		t.Fatalf("ReadRaw log.md: %v", err)
-	}
-
-	ops := []map[string]any{
-		{"op": "write", "id": "batch/should-roll-back", "frontmatter": map[string]any{"type": "Note"}, "body": "x"},
-	}
-	resps := runMCPSequence(t, s, []string{initMsg, batchCallMsg(t, 2, ops)})
-	tr := decodeToolResult(t, resps[1])
-	if !tr.IsError {
-		t.Fatalf("expected the closed sqlindex to fail the batch, got success: %+v", tr.Content)
-	}
-
-	if _, statErr := os.Stat(filepath.Join(k.DataRoot(), "batch", "should-roll-back.md")); !os.IsNotExist(statErr) {
-		t.Error("file committed before the index failure must be rolled back")
-	}
-	postLog, err := k.ReadRaw("log.md")
-	if err != nil {
-		t.Fatalf("ReadRaw log.md: %v", err)
-	}
-	if postLog != preLog {
-		t.Error("log.md must be rolled back together with the files")
-	}
-
-	searchResp := runMCPSequence(t, s, []string{initMsg, artifactCallMsg(t, 3, "search", map[string]any{"query": "should-roll-back"})})
-	str := decodeToolResult(t, searchResp[1])
-	if strings.Contains(str.Content[0].Text, "batch/should-roll-back") {
-		t.Error("live keyword index must be reconciled back to the pre-batch state")
 	}
 }
 

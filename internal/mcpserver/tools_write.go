@@ -13,12 +13,11 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/kb"
 	"github.com/BeppeTemp/cartographer/internal/okf"
-	"github.com/BeppeTemp/cartographer/internal/sqlindex"
 )
 
 // --- concept_write ---
 
-func toolConceptWrite(k *kb.KB, live *liveIndex, sqlIdx *sqlindex.Index) Tool {
+func toolConceptWrite(k *kb.KB) Tool {
 	return Tool{
 		Name: "concept_write",
 		Description: "Creates or updates a concept. Requires frontmatter (YAML map) and markdown body. " +
@@ -70,7 +69,7 @@ func toolConceptWrite(k *kb.KB, live *liveIndex, sqlIdx *sqlindex.Index) Tool {
 			}
 			applyFrontmatterMap(fm, params.Frontmatter)
 
-			newHash, err := writeConceptAndIndex(k, live, sqlIdx, "concept_write", params.ID, fm, params.Body, params.IfMatch)
+			newHash, err := writeConceptAndLog(k, "concept_write", params.ID, fm, params.Body, params.IfMatch)
 			if err != nil {
 				if errors.Is(err, okf.ErrStaleWrite) {
 					return errorResult("stale_write: " + err.Error()), nil
@@ -93,7 +92,7 @@ func toolConceptWrite(k *kb.KB, live *liveIndex, sqlIdx *sqlindex.Index) Tool {
 // toolConceptNew creates a concept from a KB-owned template. Unlike
 // concept_write it is deliberately create-only: rendering is a one-shot,
 // literal substitution and never carries if_match overwrite semantics.
-func toolConceptNew(k *kb.KB, live *liveIndex, sqlIdx *sqlindex.Index) Tool {
+func toolConceptNew(k *kb.KB) Tool {
 	return Tool{
 		Name: "concept_new",
 		Description: "Creates a new concept from a KB-only template (git commit). Template variables are substituted once, " +
@@ -194,7 +193,7 @@ func toolConceptNew(k *kb.KB, live *liveIndex, sqlIdx *sqlindex.Index) Tool {
 				}
 			}
 			body = renderTemplateText(body, params.Vars)
-			newHash, err := writeConceptAndIndex(k, live, sqlIdx, "concept_new", params.ID, fm, body, "")
+			newHash, err := writeConceptAndLog(k, "concept_new", params.ID, fm, body, "")
 			if err != nil {
 				return errorResult(fmt.Sprintf("concept_new %q: %v", params.ID, err)), nil
 			}
@@ -280,35 +279,18 @@ func applyFrontmatterMap(fm *okf.Frontmatter, m map[string]interface{}) {
 	}
 }
 
-// writeConceptAndIndex writes a concept via k.WriteConcept and keeps the
-// in-memory keyword index and SQLite FTS5 index in sync, so search reflects
-// the new content immediately without requiring a reindex call.
-// Shared write-path for concept_write and concept_patch (D70). logPrefix
-// labels the resulting log.md entry (e.g. "concept_write", "concept_patch").
-func writeConceptAndIndex(k *kb.KB, live *liveIndex, sqlIdx *sqlindex.Index, logPrefix string, id string, fm *okf.Frontmatter, body string, ifMatch string) (string, error) {
+// writeConceptAndLog writes a concept via k.WriteConcept and appends its
+// log.md line. Shared write-path for concept_write, concept_new and
+// concept_patch (D70). It does no index work: the next search reconciles the
+// indexes with the files (D245). logPrefix labels the log.md entry.
+func writeConceptAndLog(k *kb.KB, logPrefix string, id string, fm *okf.Frontmatter, body string, ifMatch string) (string, error) {
 	newHash, err := k.WriteConcept(okf.ConceptID(id), fm, body, ifMatch)
 	if err != nil {
 		return "", err
 	}
 
 	_ = k.AppendLog(logPrefix+": "+id, time.Now())
-	reindexConcept(k, live, sqlIdx, logPrefix, id)
 	return newHash, nil
-}
-
-// reindexConcept re-reads a concept just written and pushes it into both
-// search indexes, best-effort: a write that succeeded is not failed by an
-// index. Every handler that writes a concept outside writeConceptAndIndex
-// calls it, or search keeps showing the old content until a reconcile.
-func reindexConcept(k *kb.KB, live *liveIndex, sqlIdx *sqlindex.Index, logPrefix, id string) {
-	if data, readErr := k.ReadConcept(okf.ConceptID(id)); readErr == nil {
-		live.add(id, data.Content)
-		if sqlIdx != nil {
-			if err := sqlIdx.Upsert(id, data.ContentHash, data.Content); err != nil {
-				fmt.Fprintf(os.Stderr, "%s: sqlindex upsert %q: %v\n", logPrefix, id, err)
-			}
-		}
-	}
 }
 
 // --- concept_patch ---
@@ -345,7 +327,7 @@ func applyPatchEdit(body, oldString, newString string, replaceAll bool) (newBody
 	return strings.Replace(body, oldString, newString, 1), 1, nil
 }
 
-func toolConceptPatch(k *kb.KB, live *liveIndex, sqlIdx *sqlindex.Index) Tool {
+func toolConceptPatch(k *kb.KB) Tool {
 	return Tool{
 		Name: "concept_patch",
 		Description: "Patches a concept's body with an old_string/new_string replacement " +
@@ -494,7 +476,7 @@ func toolConceptPatch(k *kb.KB, live *liveIndex, sqlIdx *sqlindex.Index) Tool {
 				applyFrontmatterMap(fm, params.Frontmatter)
 			}
 
-			newHash, err := writeConceptAndIndex(k, live, sqlIdx, "concept_patch", params.ID, fm, body, params.IfMatch)
+			newHash, err := writeConceptAndLog(k, "concept_patch", params.ID, fm, body, params.IfMatch)
 			if err != nil {
 				if errors.Is(err, okf.ErrStaleWrite) {
 					return errorResult("stale_write: " + err.Error()), nil
@@ -1101,7 +1083,7 @@ func toolSnapshot(k *kb.KB) Tool {
 
 // --- supersede ---
 
-func toolSupersede(k *kb.KB, live *liveIndex, sqlIdx *sqlindex.Index) Tool {
+func toolSupersede(k *kb.KB) Tool {
 	return Tool{
 		Name:        "supersede",
 		Description: "Marks a concept as superseded by another. Sets status=superseded and records the successor concept ID.",
@@ -1168,7 +1150,6 @@ func toolSupersede(k *kb.KB, live *liveIndex, sqlIdx *sqlindex.Index) Tool {
 			}
 
 			_ = k.AppendLog(fmt.Sprintf("supersede: %s → %s", params.SourceID, params.TargetID), time.Now())
-			reindexConcept(k, live, sqlIdx, "supersede", params.SourceID)
 			return textResult(fmt.Sprintf("superseded %s → %s", params.SourceID, params.TargetID)), nil
 		},
 	}
@@ -1190,7 +1171,7 @@ type rewrittenConcept struct {
 	Replacements int    `json:"replacements"`
 }
 
-func toolConceptMove(k *kb.KB, live *liveIndex, sqlIdx *sqlindex.Index) Tool {
+func toolConceptMove(k *kb.KB) Tool {
 	return Tool{
 		Name: "concept_move",
 		Description: "Moves one or more concepts to new paths within the KB, in a single commit. " +
@@ -1395,21 +1376,7 @@ func toolConceptMove(k *kb.KB, live *liveIndex, sqlIdx *sqlindex.Index) Tool {
 					}
 				}
 
-				// Keep the keyword and FTS5 indexes in sync: deindex the old ID and
-				// index the new one, same pattern as concept_delete/concept_write.
 				for oldID, newID := range mv.mappings {
-					live.remove(oldID)
-					if targetData, readErr := k.ReadConcept(okf.ConceptID(newID)); readErr == nil {
-						live.add(newID, targetData.Content)
-						if sqlIdx != nil {
-							if err := sqlIdx.Delete(oldID); err != nil {
-								fmt.Fprintf(os.Stderr, "concept_move: sqlindex delete %q: %v\n", oldID, err)
-							}
-							if err := sqlIdx.Upsert(newID, targetData.ContentHash, targetData.Content); err != nil {
-								fmt.Fprintf(os.Stderr, "concept_move: sqlindex upsert %q: %v\n", newID, err)
-							}
-						}
-					}
 					moveMap[oldID] = newID
 				}
 				applied = append(applied, conceptMoveEntry{SourceID: mv.sourceID, TargetID: mv.targetID})
@@ -1468,7 +1435,7 @@ func toolConceptMove(k *kb.KB, live *liveIndex, sqlIdx *sqlindex.Index) Tool {
 			}
 
 			if rewriteLinks {
-				touched, totalReplacements, err := rewriteBacklinks(k, live, sqlIdx, moveMap)
+				touched, totalReplacements, err := rewriteBacklinks(k, moveMap)
 				if err != nil {
 					// Moves are already applied (and will still be committed by
 					// gitWrap only on success); surface the rewrite failure so the
@@ -1501,7 +1468,7 @@ func toolConceptMove(k *kb.KB, live *liveIndex, sqlIdx *sqlindex.Index) Tool {
 // satellite's directory, links TO the deleted satellite remain, and so do links
 // from sibling satellites. All three are mechanical once the link rule is settled
 // (D149), and all three are what rewriteBacklinks already does for a move.
-func toolConceptMerge(k *kb.KB, live *liveIndex, sqlIdx *sqlindex.Index) Tool {
+func toolConceptMerge(k *kb.KB) Tool {
 	return Tool{
 		Name: "concept_merge",
 		Description: "Folds a satellite concept into its own expanded parent, in one commit: the satellite's " +
@@ -1574,15 +1541,11 @@ func toolConceptMerge(k *kb.KB, live *liveIndex, sqlIdx *sqlindex.Index) Tool {
 			if err := k.DeleteConcept(okf.ConceptID(params.SatelliteID)); err != nil {
 				return errorResult(fmt.Sprintf("concept_merge: delete satellite %q: %v", params.SatelliteID, err)), nil
 			}
-			live.remove(params.SatelliteID)
-			if sqlIdx != nil {
-				_ = sqlIdx.Delete(params.SatelliteID)
-			}
 
 			// Inbound links — including from sibling satellites, which the
 			// whole-KB pass covers with no special case.
 			moveMap := map[string]string{params.SatelliteID: string(parentID)}
-			touched, replacements, err := rewriteBacklinks(k, live, sqlIdx, moveMap)
+			touched, replacements, err := rewriteBacklinks(k, moveMap)
 			if err != nil {
 				return errorResult(fmt.Sprintf("concept_merge: merged %q but redirecting inbound links failed: %v", params.SatelliteID, err)), nil
 			}
@@ -1606,7 +1569,7 @@ func toolConceptMerge(k *kb.KB, live *liveIndex, sqlIdx *sqlindex.Index) Tool {
 //
 // Expansion never changes an ID, so neither does this: "<id>/index.md" becomes
 // "<id>.md" under the same ID, and no inbound link needs rewriting.
-func toolConceptCollapse(k *kb.KB, live *liveIndex, sqlIdx *sqlindex.Index) Tool {
+func toolConceptCollapse(k *kb.KB) Tool {
 	return Tool{
 		Name: "concept_collapse",
 		Description: "Turns an expanded concept back into a plain one: \"<id>/index.md\" becomes \"<id>.md\" " +
@@ -1686,12 +1649,6 @@ func toolConceptCollapse(k *kb.KB, live *liveIndex, sqlIdx *sqlindex.Index) Tool
 			}
 			if err := os.Remove(dirAbs); err != nil {
 				return errorResult(fmt.Sprintf("concept_collapse %q: remove the now-empty directory: %v", params.ID, err)), nil
-			}
-			if fresh, readErr := k.ReadConcept(id); readErr == nil {
-				live.add(params.ID, fresh.Content)
-				if sqlIdx != nil {
-					_ = sqlIdx.Upsert(params.ID, fresh.ContentHash, fresh.Content)
-				}
 			}
 			_ = k.AppendLog("concept_collapse: "+params.ID, time.Now())
 
@@ -1840,12 +1797,10 @@ func joinIndex(fmRaw string, hasFM bool, body string) string {
 // is a key in moveMap (old ID → new ID, D72 WP1). Concepts with at least one
 // replacement are written back through kb.WriteConcept — if_match is the
 // content-hash just read from WalkConcepts, guarding against a concurrent
-// external write — and re-indexed (live + sqlIdx upsert), same pattern as
-// the concept_write handler. Content writes are never best-effort: the first
-// write failure aborts the pass and is returned as an error. Index upserts
-// are best-effort (logged to stderr, never fail the pass). Returns the list
-// of touched concepts and the total number of replacements performed.
-func rewriteBacklinks(k *kb.KB, live *liveIndex, sqlIdx *sqlindex.Index, moveMap map[string]string) ([]rewrittenConcept, int, error) {
+// external write. Content writes are never best-effort: the first write
+// failure aborts the pass and is returned as an error. Returns the list of
+// touched concepts and the total number of replacements performed.
+func rewriteBacklinks(k *kb.KB, moveMap map[string]string) ([]rewrittenConcept, int, error) {
 	var touched []rewrittenConcept
 	total := 0
 
@@ -1885,15 +1840,6 @@ func rewriteBacklinks(k *kb.KB, live *liveIndex, sqlIdx *sqlindex.Index, moveMap
 		ifMatch := okf.ContentHash(content)
 		if _, err := k.WriteConcept(id, fm, newBody, ifMatch); err != nil {
 			return fmt.Errorf("write %q: %w", id, err)
-		}
-
-		if data, readErr := k.ReadConcept(id); readErr == nil {
-			live.add(string(id), data.Content)
-			if sqlIdx != nil {
-				if err := sqlIdx.Upsert(string(id), data.ContentHash, data.Content); err != nil {
-					fmt.Fprintf(os.Stderr, "concept_move: rewrite_links: sqlindex upsert %q: %v\n", id, err)
-				}
-			}
 		}
 
 		touched = append(touched, rewrittenConcept{ID: string(id), Replacements: count})
@@ -1941,22 +1887,13 @@ type batchOperationRequest struct {
 	Edits       []patchEditItem        `json:"edits"`
 }
 
-// batchOriginal is one target's pre-batch state, captured during preflight —
-// used only to reconcile the live/SQLite search indexes back to that exact
-// state if a later step in the same call fails (D125 WP2).
-type batchOriginal struct {
-	existed bool
-	content string
-	hash    string
-}
-
 // batchResultEntry is one applied operation's reported outcome, in request order.
 type batchResultEntry struct {
 	ID          string `json:"id"`
 	ContentHash string `json:"content_hash"`
 }
 
-func toolConceptBatch(k *kb.KB, live *liveIndex, sqlIdx *sqlindex.Index) Tool {
+func toolConceptBatch(k *kb.KB) Tool {
 	return Tool{
 		Name: "concept_batch",
 		Description: "Atomically writes or patches several distinct concepts in one logical operation " +
@@ -2027,7 +1964,6 @@ func toolConceptBatch(k *kb.KB, live *liveIndex, sqlIdx *sqlindex.Index) Tool {
 			}
 
 			ops := make([]kb.BatchWriteOp, 0, len(params.Operations))
-			originals := make(map[string]batchOriginal, len(params.Operations))
 			seen := make(map[string]bool, len(params.Operations))
 			totalBytes := 0
 
@@ -2163,44 +2099,12 @@ func toolConceptBatch(k *kb.KB, live *liveIndex, sqlIdx *sqlindex.Index) Tool {
 					return errorResult(fmt.Sprintf("%s: aggregate batch content exceeds %d bytes", label, conceptBatchMaxTotalBytes)), nil
 				}
 
-				orig := batchOriginal{existed: existed}
-				if existed {
-					orig.content = existing.Content
-					orig.hash = existing.ContentHash
-				}
-				originals[op.ID] = orig
 				ops = append(ops, kb.BatchWriteOp{ID: okf.ConceptID(op.ID), FM: fm, Body: body, IfMatch: op.IfMatch})
 			}
 
 			logMessage := fmt.Sprintf("concept_batch (%d operation(s)):\n%s", len(ops), strings.Join(batchLogLines(ops), "\n"))
 
-			// Index updates run only after every file and the log entry are
-			// committed (WriteConceptBatch guarantees that ordering). A
-			// failure here reconciles every already-applied index entry back
-			// to its pre-batch state before returning, so by the time
-			// WriteConceptBatch rolls the files back, both indexes already
-			// agree with the tree it is restoring (D125 WP2).
-			afterFiles := func(results []kb.BatchWriteResult) error {
-				applied := make([]string, 0, len(results))
-				for _, r := range results {
-					data, readErr := k.ReadConcept(okf.ConceptID(r.ID))
-					if readErr != nil {
-						reconcileBatchIndex(live, sqlIdx, originals, applied)
-						return fmt.Errorf("reindex %q: %w", r.ID, readErr)
-					}
-					live.add(r.ID, data.Content)
-					applied = append(applied, r.ID)
-					if sqlIdx != nil {
-						if err := sqlIdx.Upsert(r.ID, data.ContentHash, data.Content); err != nil {
-							reconcileBatchIndex(live, sqlIdx, originals, applied)
-							return fmt.Errorf("sqlindex upsert %q: %w", r.ID, err)
-						}
-					}
-				}
-				return nil
-			}
-
-			results, err := k.WriteConceptBatch(ops, logMessage, afterFiles)
+			results, err := k.WriteConceptBatch(ops, logMessage, nil)
 			if err != nil {
 				if errors.Is(err, okf.ErrStaleWrite) {
 					return errorResult("stale_write: " + err.Error()), nil
@@ -2227,35 +2131,6 @@ func batchLogLines(ops []kb.BatchWriteOp) []string {
 		lines[i] = "- " + string(op.ID)
 	}
 	return lines
-}
-
-// reconcileBatchIndex reverts every already-applied live/SQLite index update
-// for the given ids back to their pre-batch state (originals) — called when
-// a later id in the same afterFiles pass fails, so both indexes end up
-// consistent with the pre-call tree that WriteConceptBatch is about to
-// restore the files to (D125 WP2). Best-effort on the SQLite side, same as
-// every other write path: the persisted index is documented as
-// rebuildable/disposable (control-plane.md §Search index) so `reindex` can
-// always repair it, but the in-memory live index update itself cannot fail.
-func reconcileBatchIndex(live *liveIndex, sqlIdx *sqlindex.Index, originals map[string]batchOriginal, ids []string) {
-	for _, id := range ids {
-		orig := originals[id]
-		if !orig.existed {
-			live.remove(id)
-			if sqlIdx != nil {
-				if err := sqlIdx.Delete(id); err != nil {
-					fmt.Fprintf(os.Stderr, "concept_batch: rollback reindex delete %q: %v\n", id, err)
-				}
-			}
-			continue
-		}
-		live.add(id, orig.content)
-		if sqlIdx != nil {
-			if err := sqlIdx.Upsert(id, orig.hash, orig.content); err != nil {
-				fmt.Fprintf(os.Stderr, "concept_batch: rollback reindex upsert %q: %v\n", id, err)
-			}
-		}
-	}
 }
 
 // mapContractViolation checks a proposed concept id/frontmatter against its
@@ -2305,7 +2180,7 @@ func mapContractViolation(k *kb.KB, id string, fm *okf.Frontmatter) error {
 
 // --- concept_delete ---
 
-func toolConceptDelete(k *kb.KB, live *liveIndex, sqlIdx *sqlindex.Index) Tool {
+func toolConceptDelete(k *kb.KB) Tool {
 	return Tool{
 		Name: "concept_delete",
 		Description: "Permanently removes a concept from the KB (git commit). Inbound links " +
@@ -2359,13 +2234,6 @@ func toolConceptDelete(k *kb.KB, live *liveIndex, sqlIdx *sqlindex.Index) Tool {
 					return errorResult(fmt.Sprintf("concept_delete %q: not found", params.ID)), nil
 				}
 				return errorResult(fmt.Sprintf("concept_delete %q: %v", params.ID, err)), nil
-			}
-
-			live.remove(params.ID)
-			if sqlIdx != nil {
-				if err := sqlIdx.Delete(params.ID); err != nil {
-					fmt.Fprintf(os.Stderr, "concept_delete: sqlindex delete %q: %v\n", params.ID, err)
-				}
 			}
 
 			_ = k.AppendLog("concept_delete: "+params.ID, time.Now())
