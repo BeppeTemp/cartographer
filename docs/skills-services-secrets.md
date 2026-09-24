@@ -119,13 +119,27 @@ schema beyond the normal concept and strict-map type rules.
 `service_list` inventories Service concepts. `service_get` returns one
 descriptor; with `resolve_secrets: true` it resolves declared `secret_refs`.
 Any concept may own secret references and `secret_resolve` exposes them for
-task- and dossier-scoped credentials. **It redacts by default** (D158): the
-output is the sorted key names with `<redacted>` values, which is what verifying
-that resolution works actually needs. `reveal: true` returns the values, and is
-recorded in the audit trail — printing a credential is a decision, and the
-transcript (and any log that captures it) keeps it. `names` filters the keys and
-composes with redaction, so a caller can confirm *which* of several keys resolve
-without printing any of them.
+task- and dossier-scoped credentials. **Both tools redact by default** (D158,
+D261): the output is the sorted key names with `<redacted>` values, which is
+what verifying that resolution works actually needs. `reveal: true` returns the
+values, and is recorded in the audit trail (with `service_get`'s
+`resolve_secrets`) — printing a credential is a decision, and the transcript
+(and any log that captures it) keeps it. On `service_get`, `reveal` without
+`resolve_secrets` is ignored. `secret_resolve`'s `names` filters the keys and
+composes with redaction, so a caller can confirm *which* of several keys
+resolve without printing any of them. The key names themselves, and every
+value, never enter the audit trail.
+
+### What `rw` means for secrets
+
+A principal with `rw` scope on a KB has authority over **every** secret that
+KB's age key can decrypt, not only the ones its concepts already reference: it
+can `concept_write` a concept whose `secret_refs` point at any
+`secrets/*.sops.yaml#/pointer`, then `secret_resolve` it with `reveal: true`.
+`secret_refs` bound what a resolution *returns* (least exposure); they are not
+access control over *who may read*. There is no separate secrets scope (D261):
+this is accepted for single-operator deployments. A KB whose secrets must be
+readable by fewer principals than may edit it needs its own KB, key and token.
 
 ## SOPS files
 

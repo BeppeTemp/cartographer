@@ -53,11 +53,16 @@ func fakeSopsInPathMCP(t *testing.T) {
 
 func callServiceGet(t *testing.T, k *kb.KB, serviceID string, resolveSecrets bool) ToolResult {
 	t.Helper()
-	tool := toolServiceGet(k)
-	args, _ := json.Marshal(map[string]any{
+	return callServiceGetArgs(t, k, map[string]any{
 		"service_id":      serviceID,
 		"resolve_secrets": resolveSecrets,
 	})
+}
+
+func callServiceGetArgs(t *testing.T, k *kb.KB, params map[string]any) ToolResult {
+	t.Helper()
+	tool := toolServiceGet(k)
+	args, _ := json.Marshal(params)
 	res, err := tool.Handler(authLocalContext(), args)
 	if err != nil {
 		t.Fatalf("service_get handler error: %v", err)
@@ -115,13 +120,49 @@ func TestServiceGet_ResolveSecretsTrue_FakeSops(t *testing.T) {
 	fakeSopsInPathMCP(t)
 	k := setupServiceTestKB(t, "/tmp/age-key.txt")
 
+	res := callServiceGetArgs(t, k, map[string]any{"service_id": "svc-test", "resolve_secrets": true, "reveal": true})
+	if res.IsError {
+		t.Fatalf("service_get resolve_secrets=true reveal=true: unexpected error: %v", res.Content)
+	}
+	text := res.Content[0].Text
+	if !containsAll(text, []string{"db_password=super-secret", "resolved_key=/tmp/age-key.txt"}) {
+		t.Errorf("service_get resolve_secrets=true reveal=true missing expected secrets/env propagation: %s", text)
+	}
+}
+
+// The only caller of service_get is an MCP client, so resolving secrets must
+// not print them into the transcript unless reveal is passed (D261, as D158
+// for secret_resolve).
+func TestServiceGet_ResolveSecrets_RedactsByDefault(t *testing.T) {
+	fakeSopsInPathMCP(t)
+	k := setupServiceTestKB(t, "/tmp/age-key.txt")
+
 	res := callServiceGet(t, k, "svc-test", true)
 	if res.IsError {
 		t.Fatalf("service_get resolve_secrets=true: unexpected error: %v", res.Content)
 	}
 	text := res.Content[0].Text
-	if !containsAll(text, []string{"db_password=super-secret", "resolved_key=/tmp/age-key.txt"}) {
-		t.Errorf("service_get resolve_secrets=true missing expected secrets/env propagation: %s", text)
+	// The absence assertion is the one that makes a regression fail the build
+	// instead of leaking.
+	if strings.Contains(text, "super-secret") {
+		t.Errorf("the plaintext value leaked into the default output: %q", text)
+	}
+	if !containsAll(text, []string{"db_password=<redacted>", "secrets (from "}) {
+		t.Errorf("output = %q, want the header and the key name with a redacted value", text)
+	}
+}
+
+// reveal without resolve_secrets is a no-op, not an error: the output is the
+// plain concept, exactly as without either flag.
+func TestServiceGet_RevealWithoutResolveSecrets_IsNoop(t *testing.T) {
+	k := setupServiceTestKB(t, "")
+	plain := callServiceGet(t, k, "svc-test", false)
+	revealed := callServiceGetArgs(t, k, map[string]any{"service_id": "svc-test", "reveal": true})
+	if plain.IsError || revealed.IsError {
+		t.Fatalf("service_get errors: plain=%v revealed=%v", plain.Content, revealed.Content)
+	}
+	if plain.Content[0].Text != revealed.Content[0].Text {
+		t.Errorf("reveal without resolve_secrets changed the output:\n%q\nvs\n%q", plain.Content[0].Text, revealed.Content[0].Text)
 	}
 }
 

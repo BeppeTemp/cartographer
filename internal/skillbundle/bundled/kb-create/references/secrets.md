@@ -114,6 +114,7 @@ declares the *whole file* and is kept only for descriptors that already use it.
 
 ```
 service_get(service_id: "services/keycloak", resolve_secrets: true)
+service_get(service_id: "services/keycloak", resolve_secrets: true, reveal: true)
 secret_resolve(concept_id: "services/keycloak")
 secret_resolve(concept_id: "services/keycloak", names: ["CLIENT_SECRET"], reveal: true)
 ```
@@ -121,12 +122,13 @@ secret_resolve(concept_id: "services/keycloak", names: ["CLIENT_SECRET"], reveal
 `secret_resolve` works on **any** concept, not only a Service: a task or dossier
 page can own its own `secret_refs`.
 
-`secret_resolve` **redacts by default**: you get the sorted key names with
-`<redacted>` values, which is what verifying that resolution works actually
-needs. `reveal: true` returns the values and is **recorded in the audit trail** —
-printing a credential is a decision, and the transcript keeps it. `names` filters
-the keys and composes with redaction, so you can confirm *which* of several keys
-resolve without printing any of them.
+`service_get(resolve_secrets: true)` and `secret_resolve` both **redact by
+default**: you get the sorted key names with `<redacted>` values, which is what
+verifying that resolution works actually needs. Pass `reveal: true` only when
+the value itself is needed: it returns the values and is **recorded in the audit
+trail** — printing a credential is a decision, and the transcript keeps it.
+`secret_resolve`'s `names` filters the keys and composes with redaction, so you
+can confirm *which* of several keys resolve without printing any of them.
 
 A decrypted value must never be written back into a concept body.
 

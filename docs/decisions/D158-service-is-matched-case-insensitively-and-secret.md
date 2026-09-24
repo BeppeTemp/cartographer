@@ -4,7 +4,7 @@ topic: skills-services-secrets
 
 # D158 — `Service` is matched case-insensitively, and `secret_resolve` redacts by default
 
-**Status: implemented (2026-08-28).** Closes #179.
+**Status: implemented (2026-08-28); amended by [D261](D261-service-get-redacts-and-the-audit-records-reveal.md)** — `service_get` now redacts too, and `reveal` actually reaches the audit trail. Closes #179.
 
 **Context.** Two defects on the secrets path, one making the feature silently inert and one
 putting credentials in a transcript.

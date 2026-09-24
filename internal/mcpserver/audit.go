@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"strconv"
 	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/audit"
@@ -60,7 +61,10 @@ var auditResourceFields = map[string][]string{
 	"artifact_read":   {"path"},
 	"artifact_write":  {"path"},
 	"artifact_delete": {"path"},
-	"service_get":     {"service_id"},
+	// service_get's "resolve_secrets" and "reveal" are recorded for the same
+	// reason as secret_resolve's "reveal": decrypting, and then printing, a
+	// credential is the event the trail exists for (D261).
+	"service_get": {"service_id", "resolve_secrets", "reveal"},
 	// secret_resolve's "names" and secret_set's "key" are secret field
 	// names, not resource identifiers — deliberately excluded.
 	// "reveal" is recorded: the argument name is not secret, and the decision
@@ -73,8 +77,12 @@ var auditResourceFields = map[string][]string{
 }
 
 // extractResources returns the redacted Resources map for one tool call:
-// only the string-valued fields named in auditResourceFields[tool] that are
-// actually present in args. Returns nil if the tool has no allow-list entry,
+// only the fields named in auditResourceFields[tool] that are actually present
+// in args and hold a non-empty string or a boolean (recorded as "true"/"false").
+// Any other JSON type is dropped. Booleans are kept because the flags that
+// matter most to an audit ("reveal", "resolve_secrets") are booleans, and a
+// string-only filter silently discarded them (D261); the allow-list remains the
+// only gate on what is recorded. Returns nil if the tool has no allow-list entry,
 // the entry is empty, or none of its fields are present — the safe default
 // for any tool (including every read-only/introspection tool, and any tool
 // added without an explicit entry here).
@@ -94,7 +102,15 @@ func extractResources(tool string, args json.RawMessage) map[string]string {
 			continue
 		}
 		var s string
-		if err := json.Unmarshal(v, &s); err != nil || s == "" {
+		var b bool
+		switch {
+		case json.Unmarshal(v, &s) == nil:
+			if s == "" {
+				continue
+			}
+		case json.Unmarshal(v, &b) == nil:
+			s = strconv.FormatBool(b)
+		default:
 			continue
 		}
 		if out == nil {
