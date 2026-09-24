@@ -265,6 +265,13 @@ func TestIsRepo_False(t *testing.T) {
 // reach their forge, and replacing that breaks a working setup to prevent a
 // hypothetical one.
 func TestCloneEnv(t *testing.T) {
+	// cloneEnv starts from os.Environ(), so an inherited GIT_SSH_COMMAND would
+	// count as a second caller value. The go command sets one itself when it
+	// switches toolchain (go.mod newer than the installed go), which is how
+	// this test failed only on such machines. t.Setenv restores it afterwards.
+	t.Setenv("GIT_SSH_COMMAND", "")
+	os.Unsetenv("GIT_SSH_COMMAND")
+
 	const sshRemote = "git@forge.example.com:team/kb.git"
 	env := cloneEnv(sshRemote, nil)
 	if !hasEnv(env, "GIT_TERMINAL_PROMPT") {
@@ -291,7 +298,7 @@ func TestCloneEnv(t *testing.T) {
 
 	// An https remote needs no ssh wrapper at all.
 	env = cloneEnv("https://forge.example.com/team/kb.git", nil)
-	if hasEnv(env, "GIT_SSH_COMMAND") && !hasEnv(os.Environ(), "GIT_SSH_COMMAND") {
+	if hasEnv(env, "GIT_SSH_COMMAND") {
 		t.Error("an https remote should not get GIT_SSH_COMMAND")
 	}
 }
