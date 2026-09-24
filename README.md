@@ -210,7 +210,7 @@ carries one copy of the tool schemas instead of one per KB.
   or concepts), `link_suggest` (links a concept probably lacks) and `concept_list` (scoped frontmatter
   facets)
 - 🔍 **Search** — keyword: a pure-Go inverted index, or SQLite FTS5 with a trigram tokenizer when
-  the KB has a persisted index
+  the KB has a persisted index; titles weigh most, and accents are ignored (`citta` finds `città`)
 - ✍️ **Validated writes** with optimistic concurrency (`if_match` / content-hash), including
   `concept_new` from KB-owned templates discovered through `template_list`
 - ✂️ **Bounded edits and batches** — `concept_patch` and `index_patch` apply Edit-like patches to a
