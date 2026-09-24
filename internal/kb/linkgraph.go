@@ -14,6 +14,9 @@ type NodeFacets struct {
 	Status       string
 	SupersededBy string
 	Collection   string
+	// Placeholders are the concept's cited placeholder keys
+	// (ConceptFacets.Placeholders, D262). Shared with the cache: read-only.
+	Placeholders []string
 }
 
 // LinkGraph is the int-indexed projection of the link graph that the
@@ -67,7 +70,7 @@ func linkGraphOf(view *graphView, include func(id string) bool) *LinkGraph {
 	for i, id := range ids {
 		lg.Index[id] = i
 		f := view.facets[id]
-		lg.Facets[i] = NodeFacets{Title: f.Title, Type: f.Type, Status: f.Status, SupersededBy: f.SupersededBy, Collection: conceptCollection(id)}
+		lg.Facets[i] = NodeFacets{Title: f.Title, Type: f.Type, Status: f.Status, SupersededBy: f.SupersededBy, Collection: conceptCollection(id), Placeholders: f.Placeholders}
 	}
 	g := &graphalgo.Graph{N: len(ids), Out: make([][]int, len(ids)), In: make([][]int, len(ids))}
 	for i, id := range ids {

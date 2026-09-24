@@ -45,6 +45,7 @@ var subcommands = []subcommand{
 	{"Knowledge base", "kb", "Create or mount local knowledge bases"},
 	{"Knowledge base", "import", "Import an external markdown corpus"},
 	{"Knowledge base", "resolve", "Resolve a configured path placeholder"},
+	{"Knowledge base", "paths", "List placeholder keys and record where they live locally"},
 	{"Diagnostics", "doctor", "Diagnose client configuration and residues"},
 	{"Diagnostics", "reindex", "Reconcile search indexes"},
 	{"Diagnostics", "audit", "Verify or export the compliance audit log"},
@@ -69,6 +70,7 @@ var (
 	runTUIFn        = runTUI
 	importFn        = cmdImport
 	resolveFn       = cmdResolve
+	pathsFn         = cmdPaths
 	kbFn            = cmdKB
 	doctorFn        = cmdDoctor
 	reindexFn       = cmdReindex
@@ -136,6 +138,8 @@ func run(args []string) int {
 		return importFn(rest)
 	case "resolve":
 		return resolveFn(rest)
+	case "paths":
+		return pathsFn(rest)
 	case "audit":
 		return auditFn(rest)
 	case "doctor":

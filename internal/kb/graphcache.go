@@ -127,11 +127,17 @@ type ConceptFacets struct {
 	Title          string
 	Status         string
 	SupersededBy   string
+	// Placeholders are the {{repo:…}}/{{path:…}} keys the body cites, as
+	// sorted, unique "kind:key" strings (okf.Placeholders: escaped ones and
+	// metasyntax excluded). Cached with the rest of the entry, so sync_pull
+	// lists a KB's keys without re-reading a file (D262). Independent of
+	// whether the frontmatter parsed: a body cites what it cites.
+	Placeholders []string
 }
 
 func facetsOf(content string) ConceptFacets {
-	fmRaw, _, hasFM := okf.SplitFrontmatter(content)
-	f := ConceptFacets{Exists: true, HasFrontmatter: hasFM}
+	fmRaw, body, hasFM := okf.SplitFrontmatter(content)
+	f := ConceptFacets{Exists: true, HasFrontmatter: hasFM, Placeholders: okf.Placeholders(body)}
 	fm, err := okf.ParseFrontmatter(fmRaw)
 	if err != nil {
 		return f

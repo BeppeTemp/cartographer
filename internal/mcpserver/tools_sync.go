@@ -8,10 +8,12 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"sort"
 
 	"github.com/BeppeTemp/cartographer/internal/artifactsig"
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/kb"
+	"github.com/BeppeTemp/cartographer/internal/okf"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
 )
 
@@ -290,6 +292,7 @@ func toolSyncPull(k *kb.KB, bundleFS fs.FS, toolPrefix string, routedMount bool,
 			}
 
 			arts := make([]pulledArtifactJSON, 0, len(m.Artifacts))
+			var artifactKeys []string
 			for _, a := range m.Artifacts {
 				files, err := provisioning.ReadArtifactFiles(a, bundleFS, kbRoots)
 				if err != nil {
@@ -298,6 +301,11 @@ func toolSyncPull(k *kb.KB, bundleFS fs.FS, toolPrefix string, routedMount bool,
 				fj := make([]pulledFileJSON, len(files))
 				for i, f := range files {
 					fj[i] = pulledFileJSON{Path: f.Path, ContentB64: base64.StdEncoding.EncodeToString(f.Content), Executable: f.Executable}
+					// This KB's own artifacts only: the bundle is
+					// Cartographer's, and its keys are not this KB's.
+					if a.Source == "kb:"+kbName {
+						artifactKeys = append(artifactKeys, okf.Placeholders(string(f.Content))...)
+					}
 				}
 				arts = append(arts, pulledArtifactJSON{
 					Kind:        a.Kind,
@@ -316,10 +324,52 @@ func toolSyncPull(k *kb.KB, bundleFS fs.FS, toolPrefix string, routedMount bool,
 				"revision":  m.Revision,
 				"artifacts": arts,
 			}
+			placeholders, err := pulledPlaceholders(ctx, k, artifactKeys)
+			if err != nil {
+				return errorResult(fmt.Sprintf("sync_pull: placeholders: %v", err)), nil
+			}
+			if len(placeholders) > 0 {
+				result["placeholders"] = placeholders
+			}
 			out, _ := json.MarshalIndent(result, "", "  ")
 			return textResult(string(out)), nil
 		},
 	}
+}
+
+// pulledPlaceholders lists the {{repo:…}}/{{path:…}} keys this KB cites, as
+// sorted, unique "kind:key" strings (D262): the ones in the bodies of the
+// concepts this caller may see, plus the ones in this KB's own artifacts, so a
+// key used only in a skill is listed too. The server still expands nothing
+// (D75) — it only tells the client which keys to resolve.
+//
+// The concept half reads the stat-validated graph cache (D241) through
+// visibleGraph, never a walk per pull, and never lists a key only a hidden
+// concept cites: a narrowed principal learns nothing about a concept it cannot
+// read, not even the name of a repository it mentions. It sits outside
+// revision and outside every signature, like Manifest.Issues: a concept
+// starting to cite a key is derived data, not a catalogue change.
+func pulledPlaceholders(ctx requestContext, k *kb.KB, artifactKeys []string) ([]string, error) {
+	lg, err := visibleGraph(ctx, k)
+	if err != nil {
+		return nil, err
+	}
+	seen := map[string]bool{}
+	var out []string
+	add := func(ids []string) {
+		for _, id := range ids {
+			if !seen[id] {
+				seen[id] = true
+				out = append(out, id)
+			}
+		}
+	}
+	for _, f := range lg.Facets {
+		add(f.Placeholders)
+	}
+	add(artifactKeys)
+	sort.Strings(out)
+	return out, nil
 }
 
 // buildOptions assembles the manifest build options for the single KB this

@@ -517,3 +517,49 @@ func TestLoadCacheNotExist(t *testing.T) {
 		t.Errorf("LoadCache() err = %v, want os.ErrNotExist", err)
 	}
 }
+
+// TestResolverScansAtMostOnce pins D262: a Resolver walks the search roots at
+// most once, however many keys miss — before it, one sync with twenty
+// unresolved keys walked the roots twenty times.
+func TestResolverScansAtMostOnce(t *testing.T) {
+	home := t.TempDir()
+	userHomeDir = func() (string, error) { return home, nil }
+	defer func() { userHomeDir = os.UserHomeDir }()
+
+	root := t.TempDir()
+	repo := filepath.Join(root, "found")
+	os.MkdirAll(repo, 0o755)
+	writeGitRepo(t, repo, "git@github.com:acme/found.git")
+
+	scans := 0
+	scanFunc = func(roots []string, maxDepth int) (*Index, []string, error) {
+		scans++
+		return Scan(roots, maxDepth)
+	}
+	defer func() { scanFunc = Scan }()
+
+	r := NewResolver(map[string]string{"manual": "/srv/manual"}, []string{root}, 0)
+	for _, key := range []string{"missing-a", "missing-b"} {
+		if _, _, err := r.Resolve(key); err == nil {
+			t.Errorf("Resolve(%q) succeeded, want an error", key)
+		}
+	}
+	if path, _, err := r.Resolve("found"); err != nil || path != repo {
+		t.Errorf("Resolve(found) = %q, %v; want %q", path, err, repo)
+	}
+	if path, _, err := r.Resolve("manual"); err != nil || path != "/srv/manual" {
+		t.Errorf("Resolve(manual) = %q, %v", path, err)
+	}
+	if scans != 1 {
+		t.Errorf("scans = %d, want exactly 1", scans)
+	}
+
+	// The package-level Resolve is a fresh Resolver each call: the cache the
+	// scan above saved answers it without walking again.
+	if path, _, err := Resolve("found", nil, []string{root}, 0); err != nil || path != repo {
+		t.Errorf("Resolve(found) = %q, %v", path, err)
+	}
+	if scans != 1 {
+		t.Errorf("scans after a cache hit = %d, want 1", scans)
+	}
+}

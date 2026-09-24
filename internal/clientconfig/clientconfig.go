@@ -97,8 +97,10 @@ type Config struct {
 	// Paths is the manual `{{path:<nome>}}` mapping (D75 WP1/WP3): a
 	// fallback for directories that aren't git repos, and an override for
 	// `{{repo:<key>}}` resolution (checked before repoindex's scan/cache,
-	// see repoindex.Resolve). Never written by `cartographer connect`/`sync`
-	// — this is purely user-maintained, per-machine.
+	// see repoindex.Resolve). Per-machine and user-owned: written only on
+	// the operator's explicit answer — `cartographer paths set/unset`, or the
+	// placeholder step of an interactive `connect` (D262) — never by `sync`.
+	// Keys are stored without the "repo:"/"path:" prefix.
 	Paths map[string]string `yaml:"paths,omitempty"`
 
 	// SigningKeys pins Ed25519 public keys by source KB. Pins are configured

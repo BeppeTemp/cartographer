@@ -160,6 +160,22 @@ type statusSnapshot struct {
 	// in /health (D254). Loopback servers are this machine's own binary,
 	// already covered by Update.
 	ServerLatest string `json:"server_latest_version,omitempty"`
+	// UnresolvedPlaceholders are the placeholder keys the last sync could not
+	// resolve on this machine, read from the lockfile (D262). Additive and
+	// omitted when empty; informational like Update — it never changes State,
+	// because an unresolved key is left verbatim, not a failed sync.
+	UnresolvedPlaceholders []placeholderRow `json:"unresolved_placeholders,omitempty"`
+}
+
+// snapshotUnresolvedPlaceholders reads the lockfile's unresolved keys. A
+// lockfile that cannot be read reports none here: the snapshot's own lockfile
+// read is where that error surfaces.
+func snapshotUnresolvedPlaceholders(dir string) []placeholderRow {
+	lf, err := provisioning.ReadLockFile(lockFilePath(dir))
+	if err != nil {
+		return nil
+	}
+	return unresolvedRows(lf)
 }
 
 // updateSnapshot is the `update` object of the status contract. Additive.

@@ -53,6 +53,7 @@ func cmdStatus(args []string) int {
 		return renderStatus(output, emptySnapshot(), 0)
 	}
 	s := snapshotForConfig(dir, cfg, true)
+	s.UnresolvedPlaceholders = snapshotUnresolvedPlaceholders(dir)
 	code := 0
 	if s.State == "drift" {
 		code = 1
@@ -169,6 +170,11 @@ func renderStatus(output string, s statusSnapshot, code int) int {
 		if mcpPending {
 			fmt.Println("  MCP requires point approval: cartographer approve mcp <name> --kb <kb>")
 		}
+	}
+
+	// D262: informational, never a drift — the sync left the keys verbatim.
+	if n := len(s.UnresolvedPlaceholders); n > 0 {
+		fmt.Printf("%d placeholder(s) unresolved — run `cartographer paths`\n", n)
 	}
 
 	// D140: a connected provider with no session hook syncs only on demand.

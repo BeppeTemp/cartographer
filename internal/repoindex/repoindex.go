@@ -370,34 +370,93 @@ func lookupIndex(idx *Index, key string) (string, []string, error) {
 // roots on a cache miss (refreshing the cache for next time). Returns an
 // error — including any ambiguity error from lookupIndex — if key cannot be
 // resolved.
+//
+// It is a single lookup through a fresh Resolver; a caller resolving many
+// keys in one pass holds one Resolver instead, so the walk runs once (D262).
 func Resolve(key string, manualPaths map[string]string, roots []string, maxDepth int) (string, []string, error) {
-	if p, ok := manualPaths[key]; ok {
+	return NewResolver(manualPaths, roots, maxDepth).Resolve(key)
+}
+
+// scanFunc is Scan, as a variable so a test can count the walks a Resolver
+// performs.
+var scanFunc = Scan
+
+// Resolver resolves repo keys against one configuration and performs at most
+// one Scan over its lifetime (D262). The first key that misses both the
+// manual paths and the on-disk cache scans the roots and refreshes the cache;
+// every later miss is answered from that fresh index and fails without
+// walking again. Before this, one sync with twenty unresolved keys walked the
+// search roots twenty times — and a key the fresh index does not hold is not
+// going to appear by walking the same tree a second later.
+//
+// A Resolver is not safe for concurrent use.
+type Resolver struct {
+	manualPaths map[string]string
+	roots       []string
+	maxDepth    int
+
+	cacheLoaded bool
+	cache       *Index // nil when there is no usable cache for these roots
+
+	scanned      bool
+	index        *Index
+	rootWarnings []string
+	scanErr      error
+}
+
+// NewResolver returns a Resolver over manualPaths (the `paths:` map), the
+// search roots and the configured depth.
+func NewResolver(manualPaths map[string]string, roots []string, maxDepth int) *Resolver {
+	return &Resolver{manualPaths: manualPaths, roots: roots, maxDepth: maxDepth}
+}
+
+// Resolve resolves one key; see the package-level Resolve for the order.
+// Warnings about unusable search roots are returned once, by the call that
+// scanned, rather than repeated on every later miss.
+func (r *Resolver) Resolve(key string) (string, []string, error) {
+	if p, ok := r.manualPaths[key]; ok {
 		return ExpandHome(p), nil, nil
 	}
 
-	if idx, err := LoadCache(); err == nil && rootsMatch(idx.Roots, roots) {
-		path, warnings, lookupErr := lookupIndex(idx, key)
-		if lookupErr == nil {
-			return path, warnings, nil
+	if !r.scanned {
+		if !r.cacheLoaded {
+			r.cacheLoaded = true
+			if idx, err := LoadCache(); err == nil && rootsMatch(idx.Roots, r.roots) {
+				r.cache = idx
+			}
 		}
-		if !errors.Is(lookupErr, errNotIndexed) {
-			return "", nil, lookupErr
+		if r.cache != nil {
+			path, warnings, lookupErr := lookupIndex(r.cache, key)
+			if lookupErr == nil {
+				return path, warnings, nil
+			}
+			if !errors.Is(lookupErr, errNotIndexed) {
+				return "", nil, lookupErr
+			}
 		}
 	}
 
-	idx, rootWarnings, err := Scan(roots, maxDepth)
-	if err != nil {
-		return "", nil, err
+	var warnings []string
+	if !r.scanned {
+		r.scanned = true
+		r.index, r.rootWarnings, r.scanErr = scanFunc(r.roots, r.maxDepth)
+		if r.scanErr == nil {
+			_ = SaveCache(r.index) // best-effort: resolution proceeds even if the cache can't be persisted
+		}
+		// A bad root is surfaced even when the resolution failed: it is
+		// usually the reason it failed, and the error below can only talk
+		// about depth.
+		warnings = append(warnings, r.rootWarnings...)
 	}
-	_ = SaveCache(idx) // best-effort: resolution proceeds even if the cache can't be persisted
+	if r.scanErr != nil {
+		return "", warnings, r.scanErr
+	}
 
-	path, warnings, err := lookupIndex(idx, key)
-	// A bad root is surfaced even when the resolution failed: it is usually the
-	// reason it failed, and the error below can only talk about depth.
-	warnings = append(rootWarnings, warnings...)
+	path, lookupWarnings, err := lookupIndex(r.index, key)
+	warnings = append(warnings, lookupWarnings...)
 	if err != nil {
 		if errors.Is(err, errNotIndexed) {
-			return "", warnings, fmt.Errorf("repoindex: repo %q not found within %d directory levels of search roots %v — raise search_depth (max %d) or add a closer root in .cartographer.yaml", key, EffectiveDepth(maxDepth), roots, MaxDepth)
+			return "", warnings, fmt.Errorf("repoindex: repo %q not found within %d directory levels of search roots %v — raise search_depth (max %d) or add a closer root in .cartographer.yaml", key, EffectiveDepth(r.maxDepth), r.roots, MaxDepth)
 		}
 		return "", warnings, err
 	}
