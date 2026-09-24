@@ -239,6 +239,28 @@ func TestSearchFollowsExpandedMove(t *testing.T) {
 	})
 }
 
+// The same across the services/ boundary (D269): services/ is rooted at the
+// KB root, not under data/, and the reconciler must see both ends.
+func TestSearchFollowsExpandedMoveAcrossServices(t *testing.T) {
+	freshnessBackends(t, func(t *testing.T, k *kb.KB, s *Server) {
+		callOK(t, s, "concept_write", `{"id":"services/gateway","frontmatter":{"type":"Service","title":"Gateway"},"body":"wombatowner"}`)
+		callOK(t, s, "concept_expand", `{"id":"services/gateway"}`)
+		callOK(t, s, "concept_write", `{"id":"services/gateway/notes","frontmatter":{"type":"Note","title":"Notes"},"body":"wombatsatellite"}`)
+		if out := searchText(t, s, "wombatsatellite"); !strings.Contains(out, "services/gateway/notes") {
+			t.Fatalf("satellite not indexed: %s", out)
+		}
+		callOK(t, s, "concept_move", `{"source_id":"services/gateway","target_id":"manutenzione/gateway"}`)
+		if out := searchText(t, s, "wombatsatellite"); !strings.Contains(out, "manutenzione/gateway/notes") || strings.Contains(out, "services/gateway") {
+			t.Fatalf("expanded move out of services/ not followed: %s", out)
+		}
+		callOK(t, s, "concept_move", `{"source_id":"manutenzione/gateway","target_id":"services/edge"}`)
+		out := searchText(t, s, "wombatowner")
+		if !strings.Contains(out, `"services/edge"`) || strings.Contains(out, "manutenzione/gateway") {
+			t.Fatalf("expanded move into services/ not followed: %s", out)
+		}
+	})
+}
+
 // The warm path is one stat walk: a search over an unchanged KB reads no file.
 func TestSearchWarmPathReadsNoFile(t *testing.T) {
 	k := setupTestKB(t)

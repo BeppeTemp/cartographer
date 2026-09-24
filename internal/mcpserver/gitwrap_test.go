@@ -308,6 +308,72 @@ func TestGitWrap_ConceptWrite_FailedOp_NoCommit(t *testing.T) {
 	}
 }
 
+// A map_create refused because "services" is reserved (D269) commits
+// nothing, and a legacy data/services/ left by the pre-D269 bug is neither
+// repaired nor removed.
+func TestGitWrap_MapCreate_ReservedServices_NoCommit(t *testing.T) {
+	k, _ := setupGitKB(t)
+	k.AutoCommit = true
+	legacy := filepath.Join(k.DataRoot(), "services")
+	if err := os.MkdirAll(legacy, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(legacy, "_map.md"), []byte("not: [closed\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	seed, err := k.CommitOp("seed legacy data/services")
+	if err != nil {
+		t.Fatalf("seed commit: %v", err)
+	}
+
+	s := New("0.1.0-test")
+	RegisterKBTools(s, k, Deps{})
+	res := callTool(t, s, "map_create", `{"name":"services","title":"Services","kind":"journal"}`)
+	if !res.IsError {
+		t.Fatalf("map_create services succeeded: %+v", res.Content)
+	}
+	head, err := gitx.HeadSHA(k.Root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if head != seed {
+		t.Fatalf("rejected map_create committed: HEAD %s, want %s", head, seed)
+	}
+	if out, err := exec.Command("git", "-C", k.Root, "status", "--porcelain").Output(); err != nil || len(strings.TrimSpace(string(out))) != 0 {
+		t.Fatalf("rejected map_create left changes: %q err=%v", out, err)
+	}
+	if got, err := os.ReadFile(filepath.Join(legacy, "_map.md")); err != nil || string(got) != "not: [closed\n" {
+		t.Fatalf("legacy data/services/_map.md touched: %q err=%v", got, err)
+	}
+}
+
+// A concept_move whose source removal fails after the target was written is
+// an application error, so gitWrap does not commit the half-applied move.
+func TestGitWrap_ConceptMove_SourceRemovalFailure_NoCommit(t *testing.T) {
+	k, _ := setupGitKB(t)
+	k.AutoCommit = true
+	writeService(t, k, "services/sample", "svc\n")
+	seed, err := k.CommitOp("seed service")
+	if err != nil {
+		t.Fatalf("seed commit: %v", err)
+	}
+	failingFS(t, fmt.Errorf("injected remove failure"), nil)
+
+	s := New("0.1.0-test")
+	RegisterKBTools(s, k, Deps{})
+	res := callTool(t, s, "concept_move", `{"source_id":"services/sample","target_id":"ops/sample"}`)
+	if !res.IsError {
+		t.Fatalf("concept_move with failing removal succeeded: %+v", res.Content)
+	}
+	head, err := gitx.HeadSHA(k.Root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if head != seed {
+		t.Fatalf("failed concept_move committed: HEAD %s, want %s", head, seed)
+	}
+}
+
 // TestGitWrap_MapDelete_EmptyMap_CreatesCommit verifies that map_delete on an
 // empty map (only the map_create scaffold, no concepts) removes the
 // directory and creates a git commit (D88 WP2).

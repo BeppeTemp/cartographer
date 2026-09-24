@@ -57,7 +57,7 @@ kb-<domain>/                          # git repo = OKF bundle (content directori
 └── paths.yaml                         # optional: declared {{path:…}}/{{repo:…}} keys (D263)
 ```
 
-`services/` is included in `WalkConcepts` (search, graph, lint all see it) but its root is `kb.Root`, not `kb.DataRoot()`. Service concept IDs carry the `services/` prefix. `agents/` and `hooks/` are not concepts (no OKF frontmatter, they don't go through `WalkConcepts`): they are provisioning artifacts materialized client-side — see `docs/sync.md` §Agents and hooks.
+`services/` is included in `WalkConcepts` (search, graph, lint all see it) but its root is `kb.Root`, not `kb.DataRoot()`. Service concept IDs carry the `services/` prefix. `ResolvePath` is the one place that picks the root for an ID, and every operation that turns an ID into a file — read, write, collision check, removal, `concept_move` — goes through it (`LocateConcept` for callers that move files themselves). For the same reason `services` is not a valid map or journal name: `map_create` refuses it, since the scaffold would land under `data/services/`, where no read looks (D269). A `data/services/` left by an older version is neither read nor cleaned up. `agents/` and `hooks/` are not concepts (no OKF frontmatter, they don't go through `WalkConcepts`): they are provisioning artifacts materialized client-side — see `docs/sync.md` §Agents and hooks.
 
 `templates/` is outside `WalkConcepts`: templates have no ConceptID and are never indexed, linted or added to the graph. A template is a KB-only artifact, not a provisioning kind: it is maintained through `artifact_*`, discovered with `template_list`, and used once by `concept_new`; it never affects a provisioning manifest or its revision.
 
@@ -178,6 +178,15 @@ link: a line citing two concepts is prose the operator wrote, so it is kept and 
 Cartographer does not attempt to place the destination entry in the right thematic section — it cannot
 know, and a wrong placement in a curated document is worse than an obvious one at the end.
 `rewrite_links: false` still means "touch no other concept", so it skips the index maintenance too.
+
+None of this depends on the namespace: a move from a map into the KB-root `services/`, the reverse,
+or a rename within `services/` has the same postconditions as one between two maps — the old ID is not
+found, the new one is readable, an expanded concept carries its satellites and asset bytes, and search
+follows (D269). Every entry of a batch is validated — IDs, path confinement, source present, destination
+free in its real root, duplicates, overlapping expanded moves — before any entry is applied. The
+boundary is a filesystem failure after a destination was written (the source cannot be removed, or an
+expanded directory cannot be renamed): the call returns an error naming both IDs and what was already
+applied, nothing is rolled back, logged or committed, and the operator deletes the extra copy.
 
 A map created without `require_index_entry` opts in later with `map_update` (D229). Until it does, a
 move out of it leaves its index entry behind — which `lint` reports as a `broken_link` on the map's

@@ -2,6 +2,7 @@ package kb
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -868,6 +869,138 @@ func TestCreateMap_ErroreSeEsiste(t *testing.T) {
 	}
 }
 
+// snapshotTree maps every file under root (slash-separated relative path) to
+// its content, so a test can prove an operation left the tree untouched.
+func snapshotTree(t *testing.T, root string) map[string]string {
+	t.Helper()
+	out := map[string]string{}
+	err := filepath.Walk(root, func(p string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, _ := filepath.Rel(root, p)
+		if info.IsDir() {
+			if info.Name() == ".git" {
+				return filepath.SkipDir
+			}
+			out[filepath.ToSlash(rel)+"/"] = ""
+			return nil
+		}
+		data, readErr := os.ReadFile(p)
+		if readErr != nil {
+			return readErr
+		}
+		out[filepath.ToSlash(rel)] = string(data)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("snapshotTree: %v", err)
+	}
+	return out
+}
+
+// D269: "services" is the KB-root service-descriptor namespace, so a map or
+// journal of that name would be scaffolded under data/services/ and then be
+// unreadable. It is refused before anything is written, for every kind, and
+// neither the real descriptors nor a legacy data/services/ are touched.
+func TestCreateMap_ServicesReserved(t *testing.T) {
+	for _, kind := range []string{"map", "journal", ""} {
+		for _, withDescriptor := range []bool{false, true} {
+			for _, withLegacy := range []bool{false, true} {
+				name := fmt.Sprintf("kind=%q/descriptor=%v/legacy=%v", kind, withDescriptor, withLegacy)
+				t.Run(name, func(t *testing.T) {
+					dir := tempKB(t)
+					k, _ := Init(dir)
+					if withDescriptor {
+						fm, _ := okf.ParseFrontmatter("type: Service\ntitle: Sample")
+						if _, err := k.WriteConcept("services/sample", fm, "svc\n", ""); err != nil {
+							t.Fatalf("WriteConcept services/sample: %v", err)
+						}
+					}
+					if withLegacy {
+						legacy := filepath.Join(k.DataRoot(), "services")
+						if err := os.MkdirAll(legacy, 0o755); err != nil {
+							t.Fatal(err)
+						}
+						if err := os.WriteFile(filepath.Join(legacy, "_map.md"), []byte("not: [valid\n"), 0o644); err != nil {
+							t.Fatal(err)
+						}
+					}
+					before := snapshotTree(t, dir)
+					err := k.CreateMap("services", "Services", kind, nil, "")
+					if !errors.Is(err, okf.ErrInvalidPath) {
+						t.Fatalf("CreateMap services: err = %v, want ErrInvalidPath", err)
+					}
+					if !strings.Contains(err.Error(), "reserved for service descriptors") {
+						t.Fatalf("CreateMap services: message does not say why: %v", err)
+					}
+					after := snapshotTree(t, dir)
+					if fmt.Sprint(before) != fmt.Sprint(after) {
+						t.Fatalf("rejected CreateMap changed the tree:\nbefore=%v\nafter=%v", before, after)
+					}
+					if withDescriptor {
+						if _, err := k.ReadConcept("services/sample"); err != nil {
+							t.Fatalf("service descriptor lost: %v", err)
+						}
+					}
+				})
+			}
+		}
+	}
+}
+
+// The reservation is the exact name only: a map merely containing the word
+// stays valid, and the case-insensitive `type: Service` lookup is unrelated.
+func TestCreateMap_ServicesLikeNameAllowed(t *testing.T) {
+	dir := tempKB(t)
+	k, _ := Init(dir)
+	if err := k.CreateMap("application-services", "Application Services", "", nil, ""); err != nil {
+		t.Fatalf("CreateMap application-services: %v", err)
+	}
+	if _, err := k.ReadRaw("application-services/_map.md"); err != nil {
+		t.Fatalf("application-services not readable: %v", err)
+	}
+}
+
+// LocateConcept answers with the physical file a read would return, in the
+// namespace root that holds it (D269).
+func TestLocateConcept_NamespaceAware(t *testing.T) {
+	dir := tempKB(t)
+	k, _ := Init(dir)
+	fm, _ := okf.ParseFrontmatter("type: Service\ntitle: S")
+	for _, id := range []okf.ConceptID{"services/flat", "services/owner", "ops/note"} {
+		if _, err := k.WriteConcept(id, fm, "x\n", ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := k.ExpandConcept("services/owner"); err != nil {
+		t.Fatal(err)
+	}
+	cases := []struct {
+		id       okf.ConceptID
+		file     string
+		dir      string
+		expanded bool
+	}{
+		{"services/flat", filepath.Join(dir, "services", "flat.md"), filepath.Join(dir, "services", "flat"), false},
+		{"services/owner", filepath.Join(dir, "services", "owner", "index.md"), filepath.Join(dir, "services", "owner"), true},
+		{"services/absent", filepath.Join(dir, "services", "absent.md"), filepath.Join(dir, "services", "absent"), false},
+		{"ops/note", filepath.Join(k.DataRoot(), "ops", "note.md"), filepath.Join(k.DataRoot(), "ops", "note"), false},
+	}
+	for _, tc := range cases {
+		loc, err := k.LocateConcept(tc.id)
+		if err != nil {
+			t.Fatalf("LocateConcept %s: %v", tc.id, err)
+		}
+		if loc.File != tc.file || loc.Dir != tc.dir || loc.Expanded != tc.expanded {
+			t.Fatalf("LocateConcept %s = %+v, want file=%s dir=%s expanded=%v", tc.id, loc, tc.file, tc.dir, tc.expanded)
+		}
+	}
+	if _, err := k.LocateConcept("services/../../escape"); !errors.Is(err, okf.ErrInvalidPath) {
+		t.Fatalf("escaping id: err = %v, want ErrInvalidPath", err)
+	}
+}
+
 func TestCreateMap_ContractRoundTrip(t *testing.T) {
 	dir := tempKB(t)
 	k, _ := Init(dir)
@@ -1015,6 +1148,42 @@ func TestDeleteMap_RefusesAssetOnlyEntry(t *testing.T) {
 	err = k.DeleteMap("evidence")
 	if err == nil || !strings.Contains(err.Error(), "evidence/asset-only") {
 		t.Fatalf("DeleteMap should name asset-only entry, got %v", err)
+	}
+}
+
+// D269: map_create refuses "services", but an empty data/services/ scaffold
+// left by the earlier, unreadable map_create can still be removed, and the
+// KB-root service descriptors are untouched by it.
+func TestDeleteMap_RemovesLegacyServicesScaffold(t *testing.T) {
+	dir := tempKB(t)
+	k, err := Init(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacy := filepath.Join(k.DataRoot(), "services")
+	if err := os.MkdirAll(legacy, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range []string{"_map.md", "index.md", "log.md"} {
+		if err := os.WriteFile(filepath.Join(legacy, f), []byte("---\ntitle: Services\n---\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	descriptor := filepath.Join(k.Root, "services", "sample.md")
+	if err := os.MkdirAll(filepath.Dir(descriptor), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(descriptor, []byte("---\ntype: Service\ntitle: Sample\n---\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := k.DeleteMap("services"); err != nil {
+		t.Fatalf("DeleteMap(services) on a legacy scaffold: %v", err)
+	}
+	if _, err := os.Stat(legacy); !os.IsNotExist(err) {
+		t.Errorf("legacy data/services/ still present: %v", err)
+	}
+	if _, err := os.Stat(descriptor); err != nil {
+		t.Errorf("KB-root service descriptor touched: %v", err)
 	}
 }
 
