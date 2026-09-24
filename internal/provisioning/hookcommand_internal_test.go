@@ -7,10 +7,11 @@ package provisioning
 // settings.json looking plausible and fails only at session start.
 //
 // Where the assertion is about a path, the hook directory is built with
-// filepath.Join so it carries the host's separators: filepath.ToSlash — which
-// commandOwnedBy relies on — is a no-op on unix, so a hard-coded `C:\…` literal
-// would test a translation that only happens on Windows and fail here for a
-// reason that has nothing to do with the code. A directory segment containing a
+// filepath.Join so it carries the host's separators: commandOwnedBy reads
+// backslashes as separators only when hookHostWindows says so, so a hard-coded
+// `C:\…` literal would test a translation that only happens on Windows and fail
+// here for a reason that has nothing to do with the code (hookshell_internal_test.go
+// pins the Windows reading by setting the seam). A directory segment containing a
 // space is the part that reproduces the real defect, and it reproduces it on
 // every host.
 

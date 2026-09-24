@@ -37,6 +37,11 @@ const (
 	// hook, its registration is still in config.toml, where it fires beside
 	// the hooks.json entry until a rewrite migrates it (D230, #338).
 	DriftUnregistered = "unregistered"
+	// DriftUnrunnable: a Claude Code hook whose files are intact but whose
+	// settings.json command cannot run — a backslash path on Windows, which
+	// Git Bash deletes (the registration written before D267), or a command
+	// file that is not there. Healed by re-registering it.
+	DriftUnrunnable = "unrunnable"
 	// DriftUnknown: the artifact is on disk but no materialized hash was
 	// recorded — a lockfile written before D138 — so its content cannot be
 	// compared. Reported but never healed: treating it as drift would rewrite
@@ -63,7 +68,7 @@ type DriftFinding struct {
 // Healable reports whether this finding is one Apply restores. DriftUnknown is
 // not, by design (see the constant).
 func (f DriftFinding) Healable() bool {
-	return f.Reason == DriftMissing || f.Reason == DriftModified || f.Reason == DriftUnregistered
+	return f.Reason == DriftMissing || f.Reason == DriftModified || f.Reason == DriftUnregistered || f.Reason == DriftUnrunnable
 }
 
 // VerifyManaged checks every artifact in lock against the filesystem under
@@ -297,6 +302,22 @@ func verifyArtifact(mf ManagedFile, provider configurator.Provider, baseDir stri
 			return finding, true
 		case stray > 0:
 			finding.Reason = DriftUnregistered
+			return finding, true
+		}
+	}
+
+	// A Claude Code hook that is registered with a command that cannot run is
+	// on disk and unchanged, and still never fires: before D267 that was every
+	// hook on Windows, reported in-sync (#412). Re-registering it heals it — a
+	// sync does so for the bootstrap hook on every run (EnsureBootstrapHook).
+	if mf.Kind == "hook" && provider == configurator.ProviderClaudeCode {
+		problem, err := claudeHookCommandProblem(baseDir, mf.Name)
+		switch {
+		case err != nil:
+			finding.Reason, finding.Detail = DriftError, err.Error()
+			return finding, true
+		case problem != "":
+			finding.Reason, finding.Detail = DriftUnrunnable, problem
 			return finding, true
 		}
 	}

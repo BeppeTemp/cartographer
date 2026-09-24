@@ -92,6 +92,10 @@ type statusArtifact struct {
 	Path   string `json:"path,omitempty"`
 	Signed bool   `json:"signed,omitempty"`
 	Trust  string `json:"trust,omitempty"`
+	// Detail says why a diverged artifact is diverged when the reason alone
+	// does not: an "unrunnable" hook names the command and what is wrong with
+	// it (D267).
+	Detail string `json:"detail,omitempty"`
 }
 
 // serviceSnapshot is part of the `service status --output json` contract:
@@ -348,7 +352,7 @@ func snapshotDiverged(findings []provisioning.DriftFinding) []statusArtifact {
 		if !f.Healable() {
 			continue
 		}
-		out = append(out, statusArtifact{Kind: f.Kind, Name: f.Name, Path: f.Path, Trust: f.Reason})
+		out = append(out, statusArtifact{Kind: f.Kind, Name: f.Name, Path: f.Path, Trust: f.Reason, Detail: f.Detail})
 	}
 	return out
 }

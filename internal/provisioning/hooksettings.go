@@ -44,7 +44,8 @@ func registerHookSettings(baseDir, hookName, fullDestDir string) error {
 		return nil
 	}
 
-	command := resolveHookCommand(spec.Command, fullDestDir)
+	// Claude Code on Windows runs hooks through Git Bash (D267).
+	command := posixShellHookCommand(resolveHookCommand(spec.Command, fullDestDir), hookHostWindows)
 	// The D57 ownership criterion is the marker's presence in the command. A
 	// command that doesn't reference the hook's dir (e.g. a "jq ..." one-liner,
 	// resolved via PATH) would never contain it: without the marker the entry
@@ -146,9 +147,7 @@ func readHookSpec(hookDir string) (hookSpec, bool) {
 // a semantic change this is not the place to make.
 func resolveHookCommand(command, hookDirAbs string) string {
 	bin, rest, hasRest := splitHookCommand(strings.TrimSpace(command))
-	if len(bin) >= 2 && strings.HasPrefix(bin, `"`) && strings.HasSuffix(bin, `"`) {
-		bin = bin[1 : len(bin)-1]
-	}
+	bin = unquoteHookToken(bin)
 	if !isAbsCommandPath(bin) && !strings.HasPrefix(bin, "$") && strings.ContainsAny(bin, `/\`) {
 		bin = filepath.Join(hookDirAbs, bin)
 	}
@@ -188,11 +187,18 @@ func hookOwnershipMarker(hookName string) string {
 // commandOwnedBy reports whether a settings.json command belongs to the hook
 // the marker names. The marker is a slash path, while a resolved command
 // carries the host's separators: on Windows the very hook Cartographer just
-// materialized reads as ...\.claude\hooks\notify\notify.sh, so comparing the
-// two verbatim makes every entry look like somebody else's — registration
-// stops being idempotent and prune stops finding what to remove.
+// materialized reads as ...\.claude\hooks\notify\notify.sh (for Codex and
+// Antigravity, and for every Claude Code entry written before D267), so
+// comparing the two verbatim makes every entry look like somebody else's —
+// registration stops being idempotent, prune stops finding what to remove, and
+// the pre-D267 entry would sit beside its slash rewrite instead of being
+// replaced by it. This is filepath.ToSlash spelled out behind hookHostWindows,
+// so a unix test can pin the Windows reading.
 func commandOwnedBy(command, marker string) bool {
-	return strings.Contains(filepath.ToSlash(command), marker)
+	if hookHostWindows {
+		command = strings.ReplaceAll(command, `\`, "/")
+	}
+	return strings.Contains(command, marker)
 }
 
 // upsertHookEntry inserts an entry (matcher + command, type "command") into
@@ -698,7 +704,8 @@ func registerOpenCodePlugin(baseDir, hookName, fullDestDir string) (relPath, war
 		return "", fmt.Sprintf("hook %q: event %q has no OpenCode equivalent, plugin not generated (files materialized anyway)", hookName, spec.Event), nil
 	}
 
-	command := resolveHookCommand(spec.Command, fullDestDir)
+	// The plugin runs the command through `sh -c`, on Windows too (D267).
+	command := posixShellHookCommand(resolveHookCommand(spec.Command, fullDestDir), hookHostWindows)
 	content := generateOpenCodePlugin(hookName, spec, mapping, command)
 
 	fullPath := filepath.Join(baseDir, openCodePluginRelPath(hookName))

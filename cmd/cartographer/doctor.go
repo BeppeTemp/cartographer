@@ -350,9 +350,13 @@ func checkManagedFiles(dir string, providers []string, lockFile provisioning.Loc
 					Message: fmt.Sprintf("[%s] %s %q could not be verified: %s", p, f.Kind, f.Name, f.Detail),
 				})
 			default:
+				message := fmt.Sprintf("[%s] %s %q is %s on disk", p, f.Kind, f.Name, f.Reason)
+				if f.Detail != "" {
+					message += ": " + f.Detail
+				}
 				out = append(out, doctorFinding{
 					Check: "managed-files", Severity: doctorError, Path: full,
-					Message: fmt.Sprintf("[%s] %s %q is %s on disk", p, f.Kind, f.Name, f.Reason),
+					Message: message,
 					Fix:     "cartographer sync",
 				})
 			}
