@@ -46,6 +46,11 @@ func (kb *KB) LinkGraph(include func(id string) bool) (*LinkGraph, error) {
 	if err != nil {
 		return nil, err
 	}
+	return linkGraphOf(view, include), nil
+}
+
+// linkGraphOf is LinkGraph over a view the caller already holds.
+func linkGraphOf(view *graphView, include func(id string) bool) *LinkGraph {
 	ids := make([]okf.ConceptID, 0, len(view.exists))
 	for id := range view.exists {
 		if include == nil || include(string(id)) {
@@ -80,5 +85,50 @@ func (kb *KB) LinkGraph(include func(id string) bool) (*LinkGraph, error) {
 		sort.Ints(g.In[i])
 	}
 	lg.Graph = g
-	return lg, nil
+	return lg
+}
+
+type pageRankPercentiles struct {
+	generation uint64
+	pct        map[okf.ConceptID]float64
+}
+
+// PageRankPercentiles returns, for every concept include accepts (nil accepts
+// all), its PageRank percentile on the graph of those concepts (D251): the
+// share of the other N−1 concepts with a strictly lower PageRank, so every
+// concept at the minimum — any concept nothing links to — gets exactly 0, and
+// a single concept gets 0. Percentiles are scale-free: they mean the same on a
+// KB of ten concepts and of five thousand.
+//
+// The whole-KB result (include == nil) is cached per graph view generation
+// (D241); any other include is computed fresh, since it belongs to one
+// principal.
+func (kb *KB) PageRankPercentiles(include func(id string) bool) (map[okf.ConceptID]float64, error) {
+	view, err := kb.graphView()
+	if err != nil {
+		return nil, err
+	}
+	if include == nil {
+		kb.prMu.Lock()
+		defer kb.prMu.Unlock()
+		if c := kb.prCache; c != nil && c.generation == view.generation {
+			return c.pct, nil
+		}
+	}
+	lg := linkGraphOf(view, include)
+	pr := graphalgo.PageRank(lg.Graph, 0.85, 1e-9, 100)
+	sorted := append([]float64(nil), pr...)
+	sort.Float64s(sorted)
+	pct := make(map[okf.ConceptID]float64, len(pr))
+	for i, id := range lg.IDs {
+		if len(pr) > 1 {
+			pct[id] = float64(sort.SearchFloat64s(sorted, pr[i])) / float64(len(pr)-1)
+		} else {
+			pct[id] = 0
+		}
+	}
+	if include == nil {
+		kb.prCache = &pageRankPercentiles{generation: view.generation, pct: pct}
+	}
+	return pct, nil
 }
