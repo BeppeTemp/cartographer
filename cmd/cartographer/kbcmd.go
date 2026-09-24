@@ -160,7 +160,7 @@ func cmdKBCreate(args []string) int {
 		// unborn branch only yields "src refspec main does not match any",
 		// which names neither the commit nor its cause (D265).
 		if _, statErr := os.Stat(path); statErr == nil {
-			fmt.Fprintf(os.Stderr, "Hint: git refused the KB's initial commit; the git message above names why. Fix it, then remove the partial scaffold (rm -rf %s) and retry.\n", path)
+			fmt.Fprintf(os.Stderr, "Hint: git refused the KB's initial commit; the git message above names why. Fix it, then remove the partial scaffold (%s) and retry.\n", removeDirCommand(runtime.GOOS, path))
 		}
 		return 1
 	}
