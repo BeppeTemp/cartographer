@@ -32,6 +32,37 @@ automation; a wrapped low-level `cause` is retained in JSON only. `status`
 keeps exit 0 for in-sync, 1 for drift and 2 for configuration or operational
 errors. `service status` retains 0 running, 3 stopped and 4 not installed.
 
+### `cartographer update check|notice`
+
+Tells an agent, and its user, that a newer release exists
+([D254](decisions/D254-agents-are-told-when-cartographer-is-out-of-date.md)). The source is the
+GitHub release list (`/releases?per_page=1`, which includes the pre-releases every 0.x tag is),
+cached for 24 h in `<user cache dir>/cartographer/update-check.json`. A lookup times out after 3 s
+and any failure means "unknown": nothing is printed. A `dev` build never checks.
+`CARTOGRAPHER_NO_UPDATE_CHECK=1` or `update.check: false` (below) turns it off;
+`CARTOGRAPHER_UPDATE_API_URL` exists for tests only.
+
+| Command | Effect |
+|---|---|
+| `update check [--output table\|json]` | Refreshes regardless of the cache age, prints current, latest, channel and command. Always exit 0 (2 on usage errors). JSON: `{current, latest, available, kind, channel, command}`, additive |
+| `update notice` | What the session-start hook runs. Prints **nothing** unless an update exists, then one paragraph for the agent: the versions, the upgrade command, and the instruction to tell the user once and run it only on consent. Always exit 0 |
+
+The command depends on the channel the running binary came from: `homebrew` (Caskroom, or the
+`/opt/homebrew/bin`/`/usr/local/bin` symlink into it) → `brew upgrade --cask beppetemp/tap/cartographer`;
+`install.sh` (`/usr/local/bin` or `~/.local/bin` as a plain file, or `CARTOGRAPHER_INSTALL_DIR`) →
+`curl … install.sh | sh -s -- update`; `install.ps1` (`%LOCALAPPDATA%\Cartographer\bin`) → the
+`install.ps1 … update` one-liner; `go-install` (`GOBIN`/`GOPATH/bin`) →
+`go install …@<latest>`. `container` (`/.dockerenv`) and `unknown` get no command: the notice
+names the image tag or the releases page.
+
+With `update.policy: auto-patch`, a **patch** release through `homebrew`, `install.sh` or
+`install.ps1` installs itself: `update notice` or the next `sync` (the scheduled one included)
+starts a detached `update apply`, guarded by a lock in the cache directory so concurrent sessions
+start it once, logging to `<cache>/cartographer/update.log`. The next session's notice reads
+`Cartographer patched itself to vX; restart your agent sessions to load it.` once; a failed apply
+leaves the binary as it was and the notice reverts to the manual form, naming the log. Minor and
+major releases, and every other channel, always get the plain notice.
+
 ### `cartographer setup`
 
 The first-run path in one command (D253): the native service, the first KB and the agent
@@ -306,6 +337,11 @@ client and server versions. A non-`dev` mismatch is a warning only (it does not 
 code); on loopback, an installed local service also gets a `cartographer upgrade-repair` hint
 (D121: it replaces the running service **and** re-syncs the providers in place, where the former
 `service restart` hint only did the first half).
+A newer release known to the update cache adds `update available: vX (installed vY) — <command>`
+(JSON `update: {latest, kind, channel, command}`, present only then), and a remote server that
+reports one in `/health` adds `server update available: vX` — the server operator's job, so no
+command. Both read local state only (the cache is refreshed by the session hook and `update
+check`) and neither changes the exit code (D254).
 For an unavailable endpoint, the table names the configured endpoint once and
 suggests checking that URL (or `cartographer service status` for loopback);
 connected providers are reported as `unknown`, rather than repeating a network
@@ -315,7 +351,8 @@ failure for each provider.
 
 With no subcommand in a TTY, the dashboard renders the same status snapshot as
 `status`. Its server panel is a labelled block — endpoint with state and
-readiness, client/server versions, the local native service when one is
+readiness, client/server versions (with ` · vX available` in the drift colour when a newer
+release is cached, D254), the local native service when one is
 installed, and the KB inventory with, per KB, how many connected providers are
 **bound** to it (a count of bindings: not sessions, and not a confirmation that
 a sync has run, so `kb-tre (0)` means the server serves it and nothing consumes
@@ -459,6 +496,7 @@ The checks:
 | `capability` | every per-KB gate the server advertises on `/health` is on, and no KB was mounted by discovery rather than by a `kbs[]` entry (D151). Info severity: it names the setting that would change it |
 | `symlink` | no managed destination directory is a symlink, or anything else that is not a plain directory — provisioning refuses to write through one, so the artifacts it would hold are not installed (D148, widened in D216) |
 | `kb-collisions` | no two KBs bound to the same provider claim one `kind`+`name` (D171). `sync` refuses outright when they do, so a machine that has not synced since the binding changed would otherwise show no symptom. Silent when the server is unreachable |
+| `update_available` | a newer release is in the update cache (D254). Info severity; the fix is the channel's upgrade command. Cache only, so doctor stays offline |
 | `unbound-residue` | no managed file comes from a KB no longer bound to the provider holding it (D170) — a projection predating an unbind, or a hand-edited lockfile. Only for providers with an explicit binding; a file with no recorded source (a lockfile written before D170) is unknown, not wrong, and never reported |
 
 **Severities.** `error` — something is broken now (a managed file missing, a hook firing twice);
@@ -899,7 +937,13 @@ clients:         # per-provider KB binding (D169); absent provider = every known
 search_roots: ["~/Documents"]   # where repoindex.Scan looks for git clones for {{repo:<key>}} (D75)
 search_depth: 4                 # how many levels repoindex descends from each root (D162); omitted when 0 = the default
 paths: {}                       # manual name -> path mapping for {{path:<name>}} (and an override for {{repo:<key>}}, D75)
+update:                         # D254; omitted entirely when both are the default
+  check: true                   # false: no update lookup at all
+  policy: notify                # notify | auto-patch (patch releases via homebrew/install.sh/install.ps1 install themselves)
 ```
+
+An unknown `update.policy` makes the file fail to load, naming the valid values: it is the one
+setting that lets a machine upgrade itself.
 
 `known_kbs` is server-owned: `connect` and `sync` overwrite it wholesale with
 what `/health` advertises. `clients` is user-owned and is never written by them
@@ -921,6 +965,7 @@ warning, not a failure.
 | `client bind <provider> <kb>[,<kb>...]` | adds; creating the first binding narrows the provider from "every known KB" to only those listed, and the output says so |
 | `client unbind <provider> <kb>[,<kb>...]` | removes; removing the last KB leaves the provider bound to **no** KBs |
 | `client reset <provider>` | deletes the binding, returning the provider to the default |
+| `client update [--check=true\|false] [--policy notify\|auto-patch]` | shows, or sets, the client-wide `update:` block (D254) |
 
 Three states, resolved only through `clientconfig.Config.BoundKBs` and never by
 testing a list for emptiness: **no entry** means every known KB (today's

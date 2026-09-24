@@ -144,6 +144,10 @@ type Health struct {
 	// RoutedPath is that endpoint's path, named by the server rather than
 	// assumed by the client, so the two cannot drift.
 	RoutedPath string `json:"routed_path,omitempty"`
+	// LatestVersion is a newer release the server knows of (D254). Absent
+	// means unknown or up to date; the server never names a command, since
+	// how it was deployed is not knowable from inside.
+	LatestVersion string `json:"latest_version,omitempty"`
 }
 
 // Routed reports whether this server serves a routed mount (D187).

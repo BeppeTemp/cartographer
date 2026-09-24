@@ -157,6 +157,10 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	if st != nil {
 		result["audit"] = st
 	}
+	// Additive (D254): present only when a newer release is known.
+	if latest := s.knownLatestVersion(); latest != "" {
+		result["latest_version"] = latest
+	}
 	result["ready"] = auditGate(st)
 	json.NewEncoder(w).Encode(result)
 }
@@ -261,6 +265,8 @@ type MultiKBServer struct {
 	// /api/ui/v1 is routed and both fall through to 404, restoring exactly the
 	// HTTP surface that existed before the UI.
 	web *webMount
+	// latestVersion is the /health source of a newer release (D254).
+	latestVersion func() string
 }
 
 // webMount is the UI surface a server may expose. Static may be nil: the JSON
@@ -443,6 +449,13 @@ func (m *MultiKBServer) Handler() http.Handler {
 			if m.routed != nil {
 				result["mount_mode"] = "routed"
 				result["routed_path"] = RoutedMountPath
+			}
+			// D254: additive, and only when a newer release is known —
+			// absent means unknown or up to date.
+			if m.latestVersion != nil {
+				if latest := m.latestVersion(); latest != "" {
+					result["latest_version"] = latest
+				}
 			}
 			json.NewEncoder(w).Encode(result)
 			return

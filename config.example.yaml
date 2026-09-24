@@ -139,3 +139,11 @@ tools:
 # Also CARTOGRAPHER_WEB_ENABLED and --web-enabled.
 web:
   enabled: true
+
+# Look up the latest Cartographer release once a day (first check 30s after
+# start, cached 24h) and report it in /health and kb_status as
+# `latest_version` when it is newer (D254). Versions only: the server never
+# names an upgrade command, its deployment is not knowable from inside. A
+# failed lookup is silent; a `dev` build never checks. Default true.
+# Also CARTOGRAPHER_UPDATE_CHECK and --update-check.
+# update_check: true

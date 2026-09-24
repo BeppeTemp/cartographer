@@ -33,6 +33,11 @@ type Config struct {
 	MCP MCPConfig
 	// Web controls the embedded read-only Atlas UI (D227).
 	Web WebConfig
+	// UpdateCheck makes the server look up the latest release once a day and
+	// report it in /health and kb_status when newer (D254). Default true;
+	// YAML `update_check`, env CARTOGRAPHER_UPDATE_CHECK, flag --update-check.
+	// A dev build never checks, whatever this says.
+	UpdateCheck bool
 }
 
 // WebConfig controls the embedded web UI.
@@ -289,8 +294,9 @@ func Default() *Config {
 		// no error at call time — silent wrong answers from a plausible source,
 		// as the default configuration's behaviour. "off" is retained as an
 		// explicit, documented opt-out.
-		MCP: MCPConfig{ToolPrefixMode: "kb-name", MountMode: MountModePerKB},
-		Web: WebConfig{Enabled: true},
+		MCP:         MCPConfig{ToolPrefixMode: "kb-name", MountMode: MountModePerKB},
+		Web:         WebConfig{Enabled: true},
+		UpdateCheck: true,
 	}
 }
 
@@ -309,6 +315,9 @@ type rawConfig struct {
 	Tools rawTools    `yaml:"tools"`
 	MCP   rawMCP      `yaml:"mcp"`
 	Web   rawWeb      `yaml:"web"`
+	// UpdateCheck is a pointer for the same reason rawWeb.Enabled is: the
+	// default is true.
+	UpdateCheck *bool `yaml:"update_check"`
 }
 
 // rawWeb mirrors the `web:` block. Enabled is a pointer for the same reason
@@ -428,6 +437,9 @@ func Load(path string) (*Config, error) {
 	if raw.Web.Enabled != nil {
 		cfg.Web.Enabled = *raw.Web.Enabled
 	}
+	if raw.UpdateCheck != nil {
+		cfg.UpdateCheck = *raw.UpdateCheck
+	}
 	if raw.Tools.Profile != "" {
 		cfg.ToolsProfile = normalizeToolsProfile(raw.Tools.Profile)
 	}
@@ -479,6 +491,9 @@ func FromEnv(cfg *Config) {
 	}
 	if v := os.Getenv("CARTOGRAPHER_WEB_ENABLED"); v != "" {
 		cfg.Web.Enabled = parseBool(v, cfg.Web.Enabled)
+	}
+	if v := os.Getenv("CARTOGRAPHER_UPDATE_CHECK"); v != "" {
+		cfg.UpdateCheck = parseBool(v, cfg.UpdateCheck)
 	}
 	if v := os.Getenv("CARTOGRAPHER_GIT_PROFILE"); v != "" {
 		cfg.Git.Profile = normalizeGitProfile(v)
@@ -532,6 +547,7 @@ type FlagOverrides struct {
 	ToolsProfile  *string // "agent" | "full"
 	MountMode     *string // "per-kb" | "routed"
 	WebEnabled    *bool
+	UpdateCheck   *bool
 }
 
 // ApplyFlags layers the explicitly-passed serve flags on top of cfg.
@@ -572,6 +588,9 @@ func ApplyFlags(cfg *Config, o FlagOverrides) {
 	}
 	if o.WebEnabled != nil {
 		cfg.Web.Enabled = *o.WebEnabled
+	}
+	if o.UpdateCheck != nil {
+		cfg.UpdateCheck = *o.UpdateCheck
 	}
 }
 

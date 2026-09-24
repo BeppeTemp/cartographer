@@ -1,7 +1,7 @@
 ---
 name: cartographer-ops
 description: Configure, operate, troubleshoot, or upgrade a Cartographer server or client; connect agents and manage Knowledge Bases.
-version: "1.4"
+version: "1.5"
 ---
 # Cartographer Operations
 
@@ -26,6 +26,7 @@ around writes.
 | `cartographer sync` | Realigning provisioned skills, agents, hooks, and instructions. |
 | `cartographer disconnect [provider\|all] [--agents a,b]` | Removing Cartographer-managed client configuration. |
 | `cartographer version` | Checking the installed binary version. |
+| `cartographer update check` | Checking whether a newer release exists, and the upgrade command for this install. |
 
 `--agents claude,codex` selects a comma-separated subset for `connect` or `disconnect`; do not
 combine it with the positional provider. `connect` probes the server before writing: a reachable
@@ -123,6 +124,23 @@ would be left pointing at a missing executable.
 Only already-open agent sessions need restarting after an upgrade, so they reload the MCP
 configuration and the provisioned skills. Tell the user to do that — the agent cannot restart its
 own session.
+
+## Update notices
+
+A session can start with a line from `cartographer update notice` saying a newer release exists,
+or `cartographer status` / `kb_status` can report one (`update available`, `latest_version`).
+
+- Tell the user **once** per session, with the version and the command the notice names.
+- Offer to run that command; run it **only if** the user explicitly says yes. Never upgrade on
+  your own initiative, and never switch to a different channel than the one named.
+- After it succeeds: `cartographer upgrade-repair` (`install.sh` and `install.ps1` already run it),
+  `cartographer reconnect` only when the release notes ask for it, then tell the user to restart
+  their agent sessions.
+- A remote or cluster server is not yours to upgrade from a client: propose the procedure
+  (Kubernetes, above) to whoever operates it.
+- `cartographer client update --check=false` turns the check off; `--policy auto-patch` lets
+  patch releases install themselves (Homebrew, `install.sh`, `install.ps1` only). Change either
+  only when the user asks.
 
 ## Never do
 

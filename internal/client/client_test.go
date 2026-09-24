@@ -582,3 +582,22 @@ func TestCall_SlowServerIsNotReportedUnreachable(t *testing.T) {
 		t.Fatalf("error = %q, want the server named as up but slow", msg)
 	}
 }
+
+// D254: latest_version is decoded when present and empty when absent.
+func TestHealth_DecodesLatestVersion(t *testing.T) {
+	for body, want := range map[string]string{
+		`{"status":"ok","version":"v0.16.1","latest_version":"v0.17.0"}`: "v0.17.0",
+		`{"status":"ok","version":"v0.16.1"}`:                            "",
+	} {
+		body := body
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.Write([]byte(body)) }))
+		health, err := client.New(srv.URL+"/mcp", "").Health(time.Second)
+		srv.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if health.LatestVersion != want {
+			t.Errorf("%s: LatestVersion = %q, want %q", body, health.LatestVersion, want)
+		}
+	}
+}

@@ -61,6 +61,12 @@ func cmdSync(args []string) int {
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		return 2
 	}
+	// update.policy: auto-patch (D254). After runSync, so the client-state
+	// lock is released before the detached apply's own upgrade-repair needs
+	// it; the scheduled sync timer reaches this without any change of its own.
+	if !*dryRun {
+		maybeAutoPatch()
+	}
 	return 0
 }
 

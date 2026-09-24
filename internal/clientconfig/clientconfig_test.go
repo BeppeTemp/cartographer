@@ -595,3 +595,45 @@ func TestLoad_MigratesLegacyLocalURL(t *testing.T) {
 		}
 	}
 }
+
+// D254 WP6: `update:` round-trips, is absent from a default file, and an
+// unknown policy is a load error naming the valid values.
+func TestUpdateSettings(t *testing.T) {
+	dir := t.TempDir()
+	cfg := clientconfig.Default()
+	if err := clientconfig.Save(dir, cfg); err != nil {
+		t.Fatal(err)
+	}
+	data, _ := os.ReadFile(clientconfig.Path(dir))
+	if strings.Contains(string(data), "update") {
+		t.Fatalf("a default config must not carry an update block:\n%s", data)
+	}
+	loaded, err := clientconfig.Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !loaded.Update.CheckEnabled() || loaded.Update.EffectivePolicy() != "notify" {
+		t.Fatalf("defaults: %+v", loaded.Update)
+	}
+
+	off := false
+	loaded.Update = clientconfig.UpdateSettings{Check: &off, Policy: "auto-patch"}
+	if err := clientconfig.Save(dir, loaded); err != nil {
+		t.Fatal(err)
+	}
+	again, err := clientconfig.Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again.Update.CheckEnabled() || again.Update.EffectivePolicy() != "auto-patch" {
+		t.Fatalf("round trip: %+v", again.Update)
+	}
+
+	if err := os.WriteFile(clientconfig.Path(dir), []byte("server_url: http://x/mcp\nupdate:\n  policy: always\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err = clientconfig.Load(dir)
+	if err == nil || !strings.Contains(err.Error(), "notify") || !strings.Contains(err.Error(), "auto-patch") {
+		t.Fatalf("unknown policy: %v", err)
+	}
+}
