@@ -44,11 +44,12 @@ export function LeftRail({
   const lintTotal = overview?.lint.total ?? 0;
   const activeCount = typeFilter.size + statusFilter.size;
   const filtersActive = activeCount > 0;
-  // Type and Status filter the graph's nodes; the Observatory lists findings,
-  // some of which have no concept and so no type. The chips step aside there
-  // rather than look applied while doing nothing. The selection lives
+  // Type and Status filter the graph's nodes, so they exist only on the Atlas:
+  // the Observatory lists findings (some with no concept and so no type) and
+  // Artifacts lists files, and neither reads the filters. The chips step aside
+  // there rather than look applied while doing nothing. The selection lives
   // in App, so it is still applied on the way back to the Atlas.
-  const nodeFilters = panel !== "observatory";
+  const nodeFilters = panel === "atlas";
 
   return (
     <nav className={`rail${collapsed ? " rail--collapsed" : ""}`} aria-label="Atlas navigation">

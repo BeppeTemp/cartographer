@@ -507,8 +507,10 @@ be. The UI follows the system's light or dark scheme until the viewer picks one
 and use the arrow keys (Shift for larger steps, Home/End for the extremes,
 Enter or a double-click for the default 420px). The width is remembered per
 browser (`cartographer.inspector.width` in localStorage) and clamped between
-320px and what leaves 280px of graph beside the rail; on a narrow screen the
-panel is a sheet and has no splitter (D239).
+320px and the smaller of what leaves 280px of graph beside the rail and what
+the concept's prose can use — its 68ch reading measure plus padding (D281).
+Widening the panel reframes the selected concept in the graph it still shows;
+on a narrow screen the panel is a sheet and has no splitter (D239).
 
 The **Observatory** panel lists the lint findings the caller may see. The Map or
 Journal selected in the rail scopes them (`GET /api/ui/v1/kbs/<kb>/lint?scope=`),

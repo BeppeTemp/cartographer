@@ -209,13 +209,13 @@ describe("observatory scope", () => {
   });
 });
 
-describe("left rail in the Observatory", () => {
+describe("left rail outside the Atlas", () => {
   const overview = {
     concepts: { total: 3, by_type: { Service: 2, Note: 1 }, by_status: { draft: 1 } },
     collections: [{ name: "infra", title: "Infrastructure", kind: "map", concepts: 2 }],
     lint: { total: 0 },
   } as unknown as Overview;
-  const rail = (panel: "atlas" | "observatory") => (
+  const rail = (panel: "atlas" | "observatory" | "artifacts") => (
     <LeftRail
       overview={overview}
       snapshot={null}
@@ -237,6 +237,14 @@ describe("left rail in the Observatory", () => {
   it("keeps the Maps, which scope the findings, and hides the node filters", () => {
     render(rail("observatory"));
     expect(screen.getByRole("button", { name: /Infrastructure/ })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Type" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Status" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Clear 1 filter/ })).not.toBeInTheDocument();
+  });
+
+  // Artifacts lists files: nothing there reads the concept filters (#436).
+  it("hides the node filters on the Artifacts panel", () => {
+    render(rail("artifacts"));
     expect(screen.queryByRole("heading", { name: "Type" })).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Status" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Clear 1 filter/ })).not.toBeInTheDocument();

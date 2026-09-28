@@ -22,6 +22,9 @@ export const MAX_3D_NODES = 5_000;
 const LABEL_LIMIT = 12;
 /** How much of its hue a node outside the selection keeps. */
 const RECEDED = 0.32;
+/** How long the panels' width must hold still before a selection is framed
+ *  again for it: longer than the gap between two pointer moves of a drag. */
+const REFRAME_DEBOUNCE_MS = 150;
 
 interface Props {
   snapshot: GraphSnapshot;
@@ -135,6 +138,8 @@ function View({
   liveRef.current = live;
   const occludedRef = useRef({ left: occludedLeft, right: occludedRight });
   occludedRef.current = { left: occludedLeft, right: occludedRight };
+  // The occlusion the current selection was last framed for.
+  const focusedOcclusion = useRef<{ left: number; right: number } | null>(null);
 
   const reducedMotion = useMemo(() => prefersReducedMotion(), []);
   const savedPose = useRef<Pose | null>(null);
@@ -291,6 +296,7 @@ function View({
       savedPose.current = null;
       return;
     }
+    focusedOcclusion.current = occludedRef.current;
     scene.focus(node.id, occludedRef.current, () => {
       if (!savedPose.current) savedPose.current = scene.pose();
     });
@@ -307,6 +313,29 @@ function View({
       shortNameOf(byId.get(id) ?? { id }),
     );
   }, [ready, shown, hiddenIds, reducedMotion, byId]);
+
+  // The panels changed width under a selection (a splitter drag, the list
+  // opening, a window resize re-clamping the reading panel): frame it again in
+  // the strip they now leave, without the signals — nothing was selected anew.
+  // Debounced, so a drag re-frames once it settles instead of restarting the
+  // tween on every pointer move; and compared with the occlusion the selection
+  // was last framed for, so a selection's own opening of the panel is left to
+  // the effect above.
+  useEffect(() => {
+    if (!shown) return;
+    const timer = window.setTimeout(() => {
+      const scene = sceneRef.current;
+      const node = scene?.nodeById(shown);
+      const last = focusedOcclusion.current;
+      if (!scene || !node) return;
+      if (last && last.left === occludedLeft && last.right === occludedRight) return;
+      focusedOcclusion.current = { left: occludedLeft, right: occludedRight };
+      scene.focus(node.id, focusedOcclusion.current, () => {
+        if (!savedPose.current) savedPose.current = scene.pose();
+      });
+    }, REFRAME_DEBOUNCE_MS);
+    return () => window.clearTimeout(timer);
+  }, [ready, shown, occludedLeft, occludedRight]);
 
   // The hovered link's node, named where it is.
   useEffect(() => {

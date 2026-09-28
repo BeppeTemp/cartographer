@@ -108,6 +108,9 @@
   --leading-tight: 1.25;
   --leading-normal: 1.6;
   --leading-relaxed: 1.7;
+  /* The prose line length of a concept (.markdown), resolved in the font of
+     the element that uses it; it also bounds the reading panel's width (D281). */
+  --reading-measure: 68ch;
 
   /* Spacing, on a 4px base. */
   --space-1: 4px;

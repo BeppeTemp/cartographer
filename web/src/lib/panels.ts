@@ -54,11 +54,14 @@ export const INSPECTOR_MIN = 320;
 export const GRAPH_MIN_VISIBLE = 280;
 
 /** The largest reading panel that still leaves GRAPH_MIN_VISIBLE of graph
- *  beside the rail, never below INSPECTOR_MIN. */
-export function inspectorMax(bodyWidth: number, railWidth: number): number {
-  return Math.max(INSPECTOR_MIN, bodyWidth - railWidth - GRAPH_MIN_VISIBLE);
+ *  beside the rail and that its content can use — `readingMax`, the prose
+ *  measure plus the panel's padding, 0 when unmeasured — never below
+ *  INSPECTOR_MIN. Past the measure a wider panel only covers graph (D281). */
+export function inspectorMax(bodyWidth: number, railWidth: number, readingMax = 0): number {
+  const room = bodyWidth - railWidth - GRAPH_MIN_VISIBLE;
+  return Math.max(INSPECTOR_MIN, readingMax > 0 ? Math.min(room, readingMax) : room);
 }
 
-export function clampInspectorWidth(px: number, bodyWidth: number, railWidth: number): number {
-  return Math.round(Math.min(Math.max(px, INSPECTOR_MIN), inspectorMax(bodyWidth, railWidth)));
+export function clampInspectorWidth(px: number, bodyWidth: number, railWidth: number, readingMax = 0): number {
+  return Math.round(Math.min(Math.max(px, INSPECTOR_MIN), inspectorMax(bodyWidth, railWidth, readingMax)));
 }

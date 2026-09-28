@@ -113,12 +113,20 @@ export function App() {
   const [inspectorPref, setInspectorPref] = useState(() => readWidth("inspector.width", INSPECTOR_DEFAULT));
   const bodyRef = useRef<HTMLDivElement>(null);
   const mainRef = useRef<HTMLElement>(null);
-  const [room, setRoom] = useState({ body: 0, rail: 0 });
+  // The widest panel its content can use (D281), read off a hidden probe so
+  // it follows the reading measure in whatever font the browser picked.
+  const readingRef = useRef<HTMLDivElement>(null);
+  const [room, setRoom] = useState({ body: 0, rail: 0, reading: 0 });
   useEffect(() => {
     const body = bodyRef.current;
     const main = mainRef.current;
     if (!body || !main) return;
-    const measure = () => setRoom({ body: body.clientWidth, rail: body.clientWidth - main.clientWidth });
+    const measure = () =>
+      setRoom({
+        body: body.clientWidth,
+        rail: body.clientWidth - main.clientWidth,
+        reading: readingRef.current?.offsetWidth ?? 0,
+      });
     measure();
     window.addEventListener("resize", measure);
     const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(measure);
@@ -134,9 +142,11 @@ export function App() {
   // draw the preference as is rather than squash it to the minimum.
   const measured = room.body > 0;
   const inspectorWidth = measured
-    ? clampInspectorWidth(inspectorPref, room.body, room.rail)
+    ? clampInspectorWidth(inspectorPref, room.body, room.rail, room.reading)
     : Math.max(INSPECTOR_MIN, inspectorPref);
-  const inspectorLimit = measured ? inspectorMax(room.body, room.rail) : Math.max(inspectorWidth, INSPECTOR_MIN);
+  const inspectorLimit = measured
+    ? inspectorMax(room.body, room.rail, room.reading)
+    : Math.max(inspectorWidth, INSPECTOR_MIN);
   const commitInspectorWidth = useCallback((px: number) => {
     setInspectorPref(px);
     writeWidth("inspector.width", px);
@@ -573,6 +583,7 @@ export function App() {
       />
 
       <div ref={bodyRef} className={bodyClass}>
+        <div ref={readingRef} className="inspector__measure" aria-hidden="true" />
         {!narrow && rail(false)}
 
         <main ref={mainRef} id="main" className="main" tabIndex={-1}>
