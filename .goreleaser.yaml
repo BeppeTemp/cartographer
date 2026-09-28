@@ -75,9 +75,14 @@ homebrew_casks:
     # unreadable, no network — which is why the Cask no longer calls
     # `cartographer upgrade-repair`: the next `cartographer sync` replaces a
     # native service still running the previous binary (D199, amends D121).
-    # The one command a first install needs next (D253); Homebrew prints it
-    # after `brew install` and again under `brew info`.
-    caveats: "Next: cartographer setup   (server, first knowledge base and agents, in one guided step)"
+    # The one command a first install needs next (D253). Homebrew prints the
+    # caveat after `brew install`, after every `brew upgrade` and under
+    # `brew info`, and cannot tell the three apart, so it names both next
+    # steps (D280) — unlike install.sh, which prints only the first one, and
+    # only on a fresh install. Naming upgrade-repair here is text for the
+    # user, not a step Homebrew runs: the guard's no-upgrade-repair check
+    # skips this line.
+    caveats: "First install: cartographer setup   (server, first knowledge base and agents, in one guided step)\nUpgrade:       nothing to do — the next cartographer sync switches the service to the new binary; cartographer upgrade-repair does it now"
     custom_block: |
       postflight_steps do
         on_macos do

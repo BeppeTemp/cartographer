@@ -81,7 +81,7 @@ matching file **in the same session/PR** as the change:
 | New test level or pre-release checklist change | `testing.md` |
 | Atlas UI (`web/`) or its routes/config | `make web` to rebuild the committed bundle; `deployment.md` §The embedded Atlas UI; `testing.md` §Frontend |
 | Contributor workflow (PR flow, plan issues, build loop) | `CONTRIBUTING.md` |
-| What an agent client reads (instruction file, skill/agent/hook/MCP paths) | The provider matrix in `internal/provisioning` **first** (`registry.go`, `workspacescope.go`), then `CONTRIBUTING.md` §Working with an agent client — a test fails if the two disagree |
+| What an agent client reads (instruction file, skill/agent/hook/MCP paths) | The provider matrix **first** (`destinationMatrix` in `internal/provisioning/provisioning.go`, `projectDestinationMatrix` in `internal/provisioning/workspacescope.go`, provider descriptors in `internal/configurator/registry.go`), then `CONTRIBUTING.md` §Working with an agent client — a test fails if the two disagree |
 | User-facing install/onboarding flow | `getting-started.md` + README |
 | Agent-driven install/onboarding flow | `agent-install.md` + README |
 | Logo, banner, palette or typography | `brand/` assets + tokens, then `brand/index.md` |

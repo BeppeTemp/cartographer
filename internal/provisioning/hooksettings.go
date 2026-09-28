@@ -36,8 +36,9 @@ type hookSpec struct {
 // in hooks.<Event>[] (D57). Best-effort on hook.json's content: a missing,
 // unparseable file, or one lacking the required fields (event/command), does not
 // fail Apply — registration is simply skipped, the hook stays materialized on
-// disk anyway. Called by Apply only for kind "hook": destDir maps that kind only
-// for the claude provider, so no provider parameter is needed here.
+// disk anyway. This is the claude provider's registrar: hookMechanisms dispatches
+// each provider to its own (codex, opencode and antigravity have theirs), so no
+// provider parameter is needed here.
 func registerHookSettings(baseDir, hookName, fullDestDir string) error {
 	spec, ok := readHookSpec(fullDestDir)
 	if !ok {

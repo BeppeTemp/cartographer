@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -137,9 +138,21 @@ func pathsConfigKey(arg string) (key, kind string) {
 }
 
 func cmdPaths(args []string) int {
+	// Help is answered before the dispatch: a leading flag otherwise belongs to
+	// the default `list`, whose flag set would print only its own usage and
+	// exit 2, never naming `set` — the fix the placeholder warning points at.
+	if len(args) > 0 && isHelpArg(args[0]) {
+		printPathsUsage(os.Stdout)
+		return 0
+	}
 	sub := "list"
 	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
 		sub, args = args[0], args[1:]
+	}
+	// `help` stays a word here: `paths unset help` names a key called help.
+	if len(args) == 1 && (args[0] == "-h" || args[0] == "--help") {
+		printPathsUsage(os.Stdout)
+		return 0
 	}
 	switch sub {
 	case "list":
@@ -149,9 +162,21 @@ func cmdPaths(args []string) int {
 	case "unset":
 		return cmdPathsUnset(args)
 	default:
-		fmt.Fprintln(os.Stderr, "Usage: cartographer paths [list [--json]] | set <key> <path> | unset <key>")
+		printPathsUsage(os.Stderr)
 		return 2
 	}
+}
+
+func isHelpArg(a string) bool { return a == "-h" || a == "--help" || a == "help" }
+
+func printPathsUsage(w io.Writer) {
+	fmt.Fprintln(w, "Usage: cartographer paths [list [--json]] | set <key> <path> | unset <key>")
+	fmt.Fprintln(w, "")
+	fmt.Fprintln(w, "  list            every placeholder key the last sync met, its KBs, and its path or failure reason")
+	fmt.Fprintln(w, "  set <key> <p>   record where <key> (repo:<name> or path:<name>) lives on this machine")
+	fmt.Fprintln(w, "  unset <key>     remove a recorded entry")
+	fmt.Fprintln(w, "")
+	fmt.Fprintln(w, "set and unset edit paths: in .cartographer.yaml; apply them with: cartographer sync")
 }
 
 // cmdPathsList prints every key the lockfile records — no network call: it

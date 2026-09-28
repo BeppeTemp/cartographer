@@ -90,6 +90,64 @@ test("dragging the reading panel's edge resizes it, and the width survives a rel
   await expect(page.getByRole("separator", { name: "Resize reading panel" })).toHaveAttribute("aria-valuenow", "520");
 });
 
+// #436: what a wider reading panel must keep true — the close button at the
+// head's right edge, the selection framed in the strip the panel now leaves,
+// and no panel wider than its content can use (D281).
+test("a wider reading panel keeps its close button right and reframes the selection", async ({ page }) => {
+  await page.goto(`${ATLAS}&scope=infra&concept=infra%2Fgateway`);
+  await waitForAtlas(page);
+  const handle = page.getByRole("separator", { name: "Resize reading panel" });
+  const panel = page.locator("#reading-panel");
+  const label = page.locator(".graph3d__label--selected");
+  await expect(handle).toHaveAttribute("aria-valuenow", "420");
+  await expect(label).toHaveText("Gateway");
+  const centre = async () => {
+    const b = (await label.boundingBox())!;
+    return b.x + b.width / 2;
+  };
+  // The focus lands at once under reduced motion; let the layout settle.
+  await page.waitForTimeout(500);
+  const before = await centre();
+
+  const box = (await handle.boundingBox())!;
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  // 150px: inside the measure's cap (D281) in any font the runner has.
+  await page.mouse.move(box.x + box.width / 2 - 150, box.y + box.height / 2, { steps: 5 });
+  await page.mouse.up();
+  await expect(handle).toHaveAttribute("aria-valuenow", "570");
+
+  // The strip's centre moved left by half the widening.
+  await expect.poll(async () => Math.abs((await centre()) - (before - 75)), { timeout: 5_000 }).toBeLessThan(20);
+  const labelBox = (await label.boundingBox())!;
+  expect(labelBox.x + labelBox.width).toBeLessThan((await panel.boundingBox())!.x);
+
+  const head = (await page.locator(".inspector__head").boundingBox())!;
+  const close = (await page.getByRole("button", { name: "Close inspector" }).boundingBox())!;
+  // The head's inline padding (--space-4) is all that separates them.
+  expect(Math.round(head.x + head.width - (close.x + close.width))).toBeLessThanOrEqual(17);
+});
+
+test("the reading panel stops growing where its prose stops", async ({ page }) => {
+  await page.goto(`${ATLAS}&scope=infra&concept=infra%2Fgateway`);
+  await waitForAtlas(page);
+  const handle = page.getByRole("separator", { name: "Resize reading panel" });
+  // What the window alone would allow: main's width less the graph kept visible.
+  const room = await page.evaluate(() => document.querySelector("#main")!.clientWidth - 280);
+  const max = Number(await handle.getAttribute("aria-valuemax"));
+  // 1440px wide, the window alone would allow far more than the measure.
+  expect(max).toBeLessThan(room);
+
+  // Home moves a start-edge handle to the far left: the widest panel.
+  await handle.focus();
+  await page.keyboard.press("Home");
+  await expect(handle).toHaveAttribute("aria-valuenow", String(max));
+  const panel = (await page.locator("#reading-panel").boundingBox())!;
+  const prose = (await page.locator("#reading-panel .markdown").boundingBox())!;
+  // Only the body's padding and the border/scrollbar allowance are left over.
+  expect(panel.width - prose.width).toBeLessThanOrEqual(2 * 16 + 24 + 1);
+});
+
 test("the Artifacts panel lists what the KB ships and opens a skill", async ({ page }) => {
   await page.goto(ATLAS);
   await waitForAtlas(page);

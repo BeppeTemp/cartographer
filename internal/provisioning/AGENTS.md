@@ -19,12 +19,13 @@ modifies files a user did not ask about.
 - **Merging into a client's MCP config is non-destructive**: entries belonging to
   other servers are preserved (D23). A full rewrite of the file is a bug even when
   the result looks right on your machine.
-- **A provider's capabilities are declared, not inferred.** `registry.go` holds one
-  descriptor per provider and the unsupported cells are explicit with a stated
-  reason, so `Unsupported` means "no approval unblocks this" (D50). Do not make a
-  destination up for a provider that does not document one.
+- **A provider's capabilities are declared, not inferred.**
+  `internal/configurator/registry.go` holds one descriptor per provider, and in
+  `destinationMatrix` (`provisioning.go`) the unsupported cells are explicit with a
+  stated reason, so `Unsupported` means "no approval unblocks this" (D50). Do not
+  make a destination up for a provider that does not document one.
 - **This matrix is the repository's answer about a client, including in prose.**
-  `registry.go` and `workspacescope.go` (D193) are what `CONTRIBUTING.md`
+  `destinationMatrix` and `workspacescope.go` (D193) are what `CONTRIBUTING.md`
   §Working with an agent client restates for a human, and the restatement drifted
   once already — a whole client column claimed repo-local paths this matrix marks
   unsupported (D207). `internal/repodocs`

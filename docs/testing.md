@@ -328,9 +328,9 @@ toolchain (D227). What they hold:
   focus centres the node in the strip the inspector leaves visible;
 - the no-WebGL state: the shell names why there is no graph and keeps the
   list (`graphfirst.test.tsx`);
-- the reading panel's width (D239): the stored preference reads garbage or a
-  throwing storage as the default and clamps at both ends
-  (`src/test/layout.test.ts`); its splitter resizes from the keyboard, persists
+- the reading panel's width (D239, D281): the stored preference reads garbage
+  or a throwing storage as the default and clamps at both ends, the upper one
+  also at the reading measure once measured (`src/test/layout.test.ts`); its splitter resizes from the keyboard, persists
   only what the viewer set, and is absent from the narrow layout
   (`shell.test.tsx`);
 - the Artifacts panel (D238, `src/test/artifacts.test.tsx`): absent when the
@@ -431,6 +431,10 @@ What it holds, beyond the component tests:
   palette; URL state with Back/Forward and deep links; backlink chips;
   Observatory findings revealing their concept or saying there is no node;
   the Observatory scoped by the rail's Map, and its node filters stepping aside;
+  the reading panel's splitter (D239, D281): a drag persists across a reload,
+  a wider panel keeps its close button at the head's right edge and reframes
+  the selection in the strip it now leaves, and the panel stops growing at the
+  reading measure;
   the truncation banner, the empty KB, a `500` and an unreachable server, each
   confined to its panel;
 - **fine-grained non-disclosure**: under the narrowed token a hidden concept

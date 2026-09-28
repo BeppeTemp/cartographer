@@ -888,6 +888,27 @@ body.is-resizing {
   border-block-end: 1px solid var(--border-subtle);
 }
 
+/* The widest reading panel its content can use (D281): the prose measure,
+   in the prose's own font, plus the body's padding and an allowance for the
+   panel's border and a scrollbar. App measures it; nothing is drawn. */
+.inspector__measure {
+  position: absolute;
+  visibility: hidden;
+  pointer-events: none;
+  inline-size: calc(var(--reading-measure) + 2 * var(--space-4) + var(--space-6));
+  block-size: 0;
+  font-family: var(--font-editorial);
+  font-size: var(--text-md);
+}
+
+/* Takes the head's free width, so the close button stays at its right edge
+   however wide the panel is; min-width lets the break-all id wrap instead of
+   pushing the button out. */
+.inspector__identity {
+  flex: 1;
+  min-width: 0;
+}
+
 .inspector__eyebrow {
   margin: 0;
   font-size: var(--text-xs);
@@ -1058,7 +1079,7 @@ body.is-resizing {
    sans headings to keep its structure operative (brand kit, technical
    register). */
 .markdown {
-  max-width: 68ch;
+  max-width: var(--reading-measure);
   font-family: var(--font-editorial);
   font-size: var(--text-md);
   line-height: var(--leading-relaxed);

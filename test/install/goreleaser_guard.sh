@@ -39,8 +39,22 @@ else
         "sets no GoReleaser hooks (rendered as the deprecated postflight block)"
     assert_file_not_contains "$CODE_FILE" 'postflight do' \
         "writes no deprecated postflight block"
-    assert_file_not_contains "$CODE_FILE" 'upgrade-repair' \
+    # The caveat names upgrade-repair to the user (D280); what must not carry
+    # it is a step Homebrew runs, so that one line is left out of the check.
+    STEPS_FILE=$(mktemp)
+    trap 'rm -f "$CODE_FILE" "$STEPS_FILE"' EXIT
+    grep -v '^[[:space:]]*caveats:' "$CODE_FILE" > "$STEPS_FILE"
+    assert_file_not_contains "$STEPS_FILE" 'upgrade-repair' \
         "does not run upgrade-repair inside Homebrew's sandbox (the next sync repairs, D199)"
+    # Homebrew prints the caveat on every upgrade too, so it must not read as
+    # a first-install-only instruction (D280).
+    assert_file_contains "$CODE_FILE" 'caveats: "First install: cartographer setup' \
+        "the caveat labels setup as the first-install step"
+    if grep '^[[:space:]]*caveats:' "$CODE_FILE" | grep -q 'Upgrade:'; then
+        _assert_pass "the caveat says what an upgrade needs"
+    else
+        _assert_fail "the caveat says what an upgrade needs — no 'Upgrade:' in the caveats line"
+    fi
 
     # --- Windows targets: the zip install.ps1 reads (D252) -------------------
     assert_file_contains "$CODE_FILE" '      - windows' \

@@ -2828,9 +2828,9 @@ var unsupportedDest = destination{unsupported: true}
 //     (applyInstructionsGroup).
 //   - "skill"/"hook" cells are directories materialized by copyArtifactFiles;
 //     "agent" cells are a single file, written directly by Apply.
-//   - kiro has no known native subagent directory, and its hooks are declared
-//     per agent rather than per machine (D140), so neither cell is
-//     materializable — hence the two unsupported ones.
+//   - kiro's hooks are declared per agent rather than per machine (D140), so
+//     its "hook" cell is unsupported; its "agent" cell is a JSON config in the
+//     global agent directory (D195).
 //   - hermes supports exactly one kind, "skill", and delivers it to an inbox
 //     for the agent to adopt rather than installing it (D141). Its four other
 //     cells are unsupported for stated reasons, not by omission.
@@ -3054,10 +3054,11 @@ func destDir(kind, name string, provider configurator.Provider) string {
 // body verbatim. If the source has no frontmatter, the whole content becomes the
 // body and description falls back to the agent name.
 //
-// codex has its own custom-agent TOML schema (D58, see translateAgentForCodex)
-// — handled in a separate branch below. kiro never reaches here (destDir
-// returns "" for kind "agent" on that provider, so Apply routes it to
-// Unsupported before calling this function).
+// codex (TOML, D58), kiro (JSON, D195) and antigravity have their own agent
+// formats and are dispatched to their translators by the switch below; claude
+// takes the source verbatim. Providers whose "agent" cell is unsupported never
+// reach here: destDir returns "" for them, so Apply routes them to Unsupported
+// before calling this function.
 func translateAgentForProvider(provider configurator.Provider, name string, content []byte) ([]byte, error) {
 	switch provider {
 	case configurator.ProviderOpenCode:

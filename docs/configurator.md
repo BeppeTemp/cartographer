@@ -114,8 +114,10 @@ cartographer setup --no-remote --name trial --agents codex --yes    # local-only
 cartographer setup --remote <url> --dry-run                          # the plan, nothing changed
 ```
 
-The install scripts and the Homebrew cask end a first install on `Next: cartographer setup`, and
-the dashboard shows the same hint on its `next` line while a loopback server has no service
+The install scripts end a first install on `Next: cartographer setup`. The Homebrew cask cannot
+tell a first install from an upgrade, and its caveat names both: `First install: cartographer
+setup`, and for an upgrade that the next `cartographer sync` switches the service to the new binary
+or `cartographer upgrade-repair` does it now (D280). The dashboard shows the same hint on its `next` line while a loopback server has no service
 behind it or answers with no KB mounted.
 
 ### `cartographer agents`
@@ -750,6 +752,7 @@ cartographer paths list --json              # {"placeholders": [{key, kbs, path 
 cartographer paths set path:kubeconfig ~/.kube/config
 cartographer paths set repo:dotfiles ~/src/dotfiles
 cartographer paths unset kubeconfig
+cartographer paths --help                   # the usage above, on stdout, exit 0 (also `paths help`)
 ```
 
 - `list` shows every key recorded in the lockfile, resolved or not, with the KBs citing it (from

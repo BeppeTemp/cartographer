@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { clampInspectorWidth, readWidth, writeWidth } from "../lib/panels";
+import { clampInspectorWidth, inspectorMax, readWidth, writeWidth } from "../lib/panels";
 
 /** The reading panel's remembered width (D239): a guarded, clamped integer. */
 describe("inspector width preference", () => {
@@ -40,5 +40,19 @@ describe("inspector width preference", () => {
 
   it("returns the minimum when the window cannot fit it", () => {
     expect(clampInspectorWidth(600, 700, 264)).toBe(320);
+  });
+
+  // A panel wider than its content only covers graph (D281, #436).
+  it("never grows past what the reading measure can use", () => {
+    // room 1056, reading 640 → max 640
+    expect(inspectorMax(1600, 264, 640)).toBe(640);
+    expect(clampInspectorWidth(2000, 1600, 264, 640)).toBe(640);
+    expect(clampInspectorWidth(500, 1600, 264, 640)).toBe(500);
+    // the room still wins when it is the smaller bound
+    expect(inspectorMax(1000, 264, 640)).toBe(456);
+    // unmeasured (0): the room alone, as before
+    expect(inspectorMax(1600, 264, 0)).toBe(1056);
+    // and never below the minimum
+    expect(inspectorMax(1600, 264, 200)).toBe(320);
   });
 });
