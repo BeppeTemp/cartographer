@@ -163,6 +163,25 @@ func TestCmdPaths_SetListUnsetRoundTrip(t *testing.T) {
 	}
 }
 
+// TestCmdPaths_HelpPrintsEverySubcommand: `paths --help` used to reach the
+// default `list`'s flag set, which printed only its own usage and exited 2 —
+// never naming `set`, the fix the placeholder warning points at (#434).
+func TestCmdPaths_HelpPrintsEverySubcommand(t *testing.T) {
+	setHome(t, t.TempDir())
+	for _, args := range [][]string{{"--help"}, {"-h"}, {"help"}, {"list", "--help"}, {"set", "-h"}, {"unset", "--help"}} {
+		out := withStdout(t, func() {
+			if code := cmdPaths(args); code != 0 {
+				t.Errorf("paths %v = %d, want 0", args, code)
+			}
+		})
+		for _, want := range []string{"Usage: cartographer paths", "set <key>", "unset <key>"} {
+			if !strings.Contains(out, want) {
+				t.Errorf("paths %v: stdout lacks %q:\n%s", args, want, out)
+			}
+		}
+	}
+}
+
 func TestCmdPaths_SetNeedsAConfig(t *testing.T) {
 	setHome(t, t.TempDir())
 	if code := cmdPaths([]string{"set", "x", "/srv/x"}); code != 2 {
