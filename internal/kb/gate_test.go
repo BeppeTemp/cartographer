@@ -127,3 +127,32 @@ Body.
 		t.Errorf("expected Pass=true for resolved contradiction, blockers: %v", result.Blockers)
 	}
 }
+
+// D273: a knowledge gap never blocks, whatever it involves; any other kind
+// (or none) still does.
+func TestCommitGate_GapKindsDoNotBlock(t *testing.T) {
+	k, err := Init(tempKB(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, kind := range []string{"open_question", "missing_context"} {
+		writeTestFile(t, k.DataRoot(), "conflicts/"+kind+".md", "---\ntype: Contradiction\nresolution_status: open\ninvolves: [arch/concept-a]\ncontradiction_kind: "+kind+"\n---\nBody.\n")
+	}
+	result, err := k.CommitGate([]okf.ConceptID{"arch/concept-a"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Pass {
+		t.Fatalf("gap kinds must not block: %v", result.Blockers)
+	}
+
+	writeTestFile(t, k.DataRoot(), "conflicts/other.md", "---\ntype: Contradiction\nresolution_status: open\ninvolves: [arch/concept-a]\ncontradiction_kind: conflict\n---\nBody.\n")
+	writeTestFile(t, k.DataRoot(), "conflicts/nokind.md", "---\ntype: Contradiction\nresolution_status: open\ninvolves: [arch/concept-a]\n---\nBody.\n")
+	result, err = k.CommitGate([]okf.ConceptID{"arch/concept-a"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Pass || len(result.Blockers) != 2 {
+		t.Fatalf("want 2 blockers, got pass=%v %v", result.Pass, result.Blockers)
+	}
+}

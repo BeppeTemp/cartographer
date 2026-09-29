@@ -269,6 +269,14 @@ validate a nested per-type grammar.
   only a Service. See [skills, services and secrets](skills-services-secrets.md).
 - The contradiction tools use `resolution_status`, `contradiction_kind`,
   `involves` and `reason`.
+- **Knowledge gaps (D273).** A `Contradiction` whose `contradiction_kind` is
+  `missing_context` (the KB lacks information it should have) or `open_question`
+  (a question raised and not yet answered) records something *unknown* rather
+  than two claims that disagree. It has the same lifecycle (`resolution_status:
+  open` → `resolved`, closed with `conflict_resolve`), but it never blocks
+  `commit_gate` or `gate_check`, whatever its `involves`, and `involves` is
+  optional (a question may concern a page that does not exist yet). `kb_status`
+  counts open gaps apart from open contradictions (`open_gaps`).
 
 Concept references are path-based. There is no separate immutable UID layer,
 so use `concept_move` with backlink rewriting when an ID changes.

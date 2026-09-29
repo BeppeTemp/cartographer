@@ -63,6 +63,16 @@ Reasoning checks such as factual grounding, PII review or semantic
 contradiction analysis are agent/human policy. Cartographer does not currently
 run a second model or emit contradiction concepts automatically.
 
+## Record unknowns as gaps
+
+When writing, an unknown is recorded as a gap instead of being left as prose no
+tool can find: a `Contradiction` concept with `contradiction_kind:
+open_question` (a question raised, not answered) or `missing_context` (the KB
+lacks information it should have) and `resolution_status: open`. A gap never
+blocks a write, because writing is how it gets answered; `kb_status` lists open
+gaps (`open_gaps`) and `contradiction_report` with `kind: gap` lists them all.
+Once answered, close it with `conflict_resolve` (D273).
+
 ## Compound useful results
 
 When a result should survive the session, write it back as a focused concept
