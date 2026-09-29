@@ -866,8 +866,8 @@ func TestServer_ConceptDelete(t *testing.T) {
 	if !strings.Contains(trDelete.Content[0].Text, "deleted note/da-cancellare") {
 		t.Errorf("concept_delete: unexpected message: %s", trDelete.Content[0].Text)
 	}
-	if !strings.Contains(trDelete.Content[0].Text, "Warning") {
-		t.Errorf("concept_delete: expected inbound-link warning: %s", trDelete.Content[0].Text)
+	if strings.Contains(trDelete.Content[0].Text, "Warning") {
+		t.Errorf("concept_delete: no inbound links, expected no warning: %s", trDelete.Content[0].Text)
 	}
 
 	trRead := decodeToolResult(t, resps[3])
@@ -5504,4 +5504,107 @@ func writeOutOfBand(t *testing.T, k *kb.KB) string {
 		t.Fatal(err)
 	}
 	return p
+}
+
+// D271: concept_delete refuses to break inbound links without force.
+func deleteLinkFixture(t *testing.T) (*kb.KB, *Server) {
+	t.Helper()
+	k := setupTestKB(t)
+	k.AuthName = "docs"
+	fm, _ := okf.ParseFrontmatter("type: Note\ntitle: T")
+	for id, body := range map[string]string{
+		"manutenzione/target": "# Target\n",
+		"manutenzione/linker": "# Linker\n[[manutenzione/target]]\n",
+	} {
+		if _, err := k.WriteConcept(okf.ConceptID(id), fm, body, ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+	s := New("test")
+	RegisterKBTools(s, k, Deps{})
+	return k, s
+}
+
+func TestConceptDeleteRefusesInboundLinksWithoutForce(t *testing.T) {
+	k, s := deleteLinkFixture(t)
+	res := callTool(t, s, "concept_delete", `{"id":"manutenzione/target"}`)
+	if !res.IsError || !strings.HasPrefix(res.Content[0].Text, "inbound_links:") ||
+		!strings.Contains(res.Content[0].Text, "manutenzione/linker") ||
+		!strings.Contains(res.Content[0].Text, "force") {
+		t.Fatalf("want inbound_links refusal naming the linker, got %+v", res)
+	}
+	if _, err := os.Stat(filepath.Join(k.DataRoot(), "manutenzione", "target.md")); err != nil {
+		t.Fatalf("refused delete removed the file: %v", err)
+	}
+}
+
+func TestConceptDeleteForceWarnsAboutLinkers(t *testing.T) {
+	k, s := deleteLinkFixture(t)
+	res := callTool(t, s, "concept_delete", `{"id":"manutenzione/target","force":true}`)
+	if res.IsError || !strings.Contains(res.Content[0].Text, "Warning: 1 concept(s) still link to manutenzione/target: manutenzione/linker") {
+		t.Fatalf("want deleted with warning, got %+v", res)
+	}
+	if _, err := os.Stat(filepath.Join(k.DataRoot(), "manutenzione", "target.md")); !os.IsNotExist(err) {
+		t.Fatalf("forced delete kept the file: %v", err)
+	}
+}
+
+func TestConceptDeleteHiddenLinkerNeitherBlocksNorLeaks(t *testing.T) {
+	k, s := deleteLinkFixture(t)
+	fm, _ := okf.ParseFrontmatter("type: Note\ntitle: T")
+	if _, err := k.WriteConcept("segreto/hidden-linker", fm, "# H\n[[manutenzione/target]]\n", ""); err != nil {
+		t.Fatal(err)
+	}
+	// The visible linker is removed so only the hidden one remains.
+	if _, err := k.DeleteConceptWithAssets("manutenzione/linker", false); err != nil {
+		t.Fatal(err)
+	}
+	policy := auth.Policy{Permissions: []auth.Permission{{KB: "docs", Maps: []string{"manutenzione"}, Write: true}}}
+	ctx := auth.ContextWithPrincipal(context.Background(), auth.Principal{ID: "narrow", Policy: policy})
+	res := s.callTool(ctx, "concept_delete", json.RawMessage(`{"id":"manutenzione/target"}`))
+	if res.IsError {
+		t.Fatalf("hidden linker must not block: %+v", res)
+	}
+	if text := res.Content[0].Text; strings.Contains(text, "hidden-linker") || strings.Contains(text, "Warning") {
+		t.Fatalf("hidden linker leaked: %s", text)
+	}
+}
+
+func TestConceptDeleteNoLinkersNoWarning(t *testing.T) {
+	_, s := deleteLinkFixture(t)
+	res := callTool(t, s, "concept_delete", `{"id":"manutenzione/linker"}`)
+	if res.IsError || strings.Contains(res.Content[0].Text, "Warning") {
+		t.Fatalf("want clean delete, got %+v", res)
+	}
+}
+
+func TestConceptDeleteExpandedNotBlockedByOwnSatellites(t *testing.T) {
+	k := setupTestKB(t)
+	fm, _ := okf.ParseFrontmatter("type: Note\ntitle: T")
+	if _, err := k.WriteConcept("manutenzione/owner", fm, "# Owner\n", ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := k.ExpandConcept("manutenzione/owner"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := k.WriteConcept("manutenzione/owner/child", fm, "# Child\n[[manutenzione/owner]]\n", ""); err != nil {
+		t.Fatal(err)
+	}
+	s := New("test")
+	RegisterKBTools(s, k, Deps{})
+	res := callTool(t, s, "concept_delete", `{"id":"manutenzione/owner"}`)
+	if res.IsError || strings.Contains(res.Content[0].Text, "Warning") {
+		t.Fatalf("own satellite must not count as an inbound link: %+v", res)
+	}
+}
+
+func TestConceptDeleteMissingWithDanglingLinksIsNotFound(t *testing.T) {
+	_, s := deleteLinkFixture(t)
+	if res := callTool(t, s, "concept_delete", `{"id":"manutenzione/target","force":true}`); res.IsError {
+		t.Fatalf("setup delete: %+v", res)
+	}
+	res := callTool(t, s, "concept_delete", `{"id":"manutenzione/target"}`)
+	if !res.IsError || !strings.Contains(res.Content[0].Text, "not found") {
+		t.Fatalf("want not found for a missing concept with dangling links, got %+v", res)
+	}
 }

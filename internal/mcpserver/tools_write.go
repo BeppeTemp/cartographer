@@ -2247,8 +2247,10 @@ func mapContractViolation(k *kb.KB, id string, fm *okf.Frontmatter) error {
 func toolConceptDelete(k *kb.KB) Tool {
 	return Tool{
 		Name: "concept_delete",
-		Description: "Permanently removes a concept from the KB (git commit). Inbound links " +
-			"to the removed concept are NOT updated — run lint to find broken links. Deleting an expanded concept that owns assets requires force=true; satellite concepts are preserved.",
+		Description: "Permanently removes a concept from the KB (git commit). Refuses with " +
+			"'inbound_links:' (listing the concepts that link to it) unless force=true; links are never " +
+			"rewritten — use supersede to retire a page while keeping it, or concept_move to rename with " +
+			"backlink rewrite. Deleting an expanded concept that owns assets also requires force=true; satellite concepts are preserved.",
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"required": ["id"],
@@ -2263,7 +2265,7 @@ func toolConceptDelete(k *kb.KB) Tool {
 				},
 				"force": {
 					"type": "boolean",
-					"description": "Required to delete the non-Markdown assets owned by an expanded concept"
+					"description": "Accept the destructive side effects: leave inbound links from other concepts broken, and delete the non-Markdown assets owned by an expanded concept"
 				}
 			}
 		}`),
@@ -2293,6 +2295,22 @@ func toolConceptDelete(k *kb.KB) Tool {
 				}
 			}
 
+			linkers, err := visibleInboundLinkers(ctx, k, params.ID)
+			if err != nil {
+				return errorResult(fmt.Sprintf("concept_delete %q: read links: %v", params.ID, err)), nil
+			}
+			if len(linkers) > 0 && !params.Force {
+				// Dangling links to a missing concept are not a reason to refuse:
+				// report not found, as the delete itself would.
+				if _, err := k.ReadConcept(okf.ConceptID(params.ID)); errors.Is(err, okf.ErrNotFound) {
+					return errorResult(fmt.Sprintf("concept_delete %q: not found", params.ID)), nil
+				}
+				return errorResult(fmt.Sprintf("inbound_links: %d concept(s) still link to %s: %s. "+
+					"Relink them, use supersede (retire the page but keep it) or concept_move (rename with backlink rewrite), "+
+					"or pass force: true to delete anyway and leave these links broken",
+					len(linkers), params.ID, formatIDList(linkers))), nil
+			}
+
 			if _, err := k.DeleteConceptWithAssets(okf.ConceptID(params.ID), params.Force); err != nil {
 				if errors.Is(err, okf.ErrNotFound) {
 					return errorResult(fmt.Sprintf("concept_delete %q: not found", params.ID)), nil
@@ -2302,8 +2320,43 @@ func toolConceptDelete(k *kb.KB) Tool {
 
 			_ = k.AppendLog("concept_delete: "+params.ID, time.Now())
 			msg := fmt.Sprintf("deleted %s", params.ID)
-			msg += fmt.Sprintf("\nWarning: inbound links to %s are not updated — run lint to find broken links", params.ID)
+			if len(linkers) > 0 {
+				msg += fmt.Sprintf("\nWarning: %d concept(s) still link to %s: %s", len(linkers), params.ID, formatIDList(linkers))
+			}
 			return textResult(msg), nil
 		},
 	}
+}
+
+// maxListedLinkers caps how many linking concepts a concept_delete message names.
+const maxListedLinkers = 20
+
+// visibleInboundLinkers returns, sorted, the concepts the caller can see that
+// link to id. The concept itself and, for an expanded concept, everything under
+// id+"/" (its satellites and index) are not inbound links: the same call removes
+// or preserves the files that carry them. A linker hidden from the caller is
+// dropped so a narrowed token learns nothing about it (D271).
+func visibleInboundLinkers(ctx requestContext, k *kb.KB, id string) ([]string, error) {
+	in, err := k.IncomingLinks()
+	if err != nil {
+		return nil, err
+	}
+	var out []string
+	for src := range in[okf.ConceptID(id)] {
+		s := string(src)
+		if s == id || strings.HasPrefix(s, id+"/") || !Visible(ctx, k, s) {
+			continue
+		}
+		out = append(out, s)
+	}
+	sort.Strings(out)
+	return out, nil
+}
+
+// formatIDList joins ids, naming at most maxListedLinkers of them.
+func formatIDList(ids []string) string {
+	if len(ids) <= maxListedLinkers {
+		return strings.Join(ids, ", ")
+	}
+	return strings.Join(ids[:maxListedLinkers], ", ") + fmt.Sprintf(", and %d more", len(ids)-maxListedLinkers)
 }
