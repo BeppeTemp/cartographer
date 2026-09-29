@@ -91,6 +91,7 @@ func RegisterKBTools(s *Server, k *kb.KB, deps Deps) {
 	register(toolAtlasOverview(k))
 	register(toolIndexGet(k))
 	register(toolConceptRead(k))
+	register(toolConceptHistory(k))
 	register(toolLogTail(k))
 	register(toolChangesSince(k))
 	register(gitWrap(k, toolConceptWrite(k)))

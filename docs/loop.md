@@ -8,7 +8,10 @@ automatic PR workflow.
 
 1. Use `atlas_overview` or `map_list` to understand the KB shape.
 2. Use `search` to find candidates.
-3. Read only the relevant concept or section with `concept_read`.
+3. Read only the relevant concept or section with `concept_read`. When a page's
+   content surprises you, `concept_history` lists who changed it and why (the
+   `Reason` of each write); `concept_read` with a commit `rev` shows an older
+   version (D274).
 4. Follow links with `graph_neighbors` when nearby context matters, or ask
    `graph_context` for the concepts most related to a question or to a few
    concepts, ranked, in one call.
