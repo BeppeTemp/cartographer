@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -542,7 +543,7 @@ func kbCapabilities(k *kb.KB) map[string]KBCapability {
 func toolKBStatus(k *kb.KB, misses *searchMissLog, serverVersion string, latestVersion func() string) Tool {
 	return Tool{
 		Name:        "kb_status",
-		Description: "Returns aggregate metrics about the KB (total concepts, per-type counts, per-status counts (concepts with no status field are excluded), stale concepts (review_after in the past), open contradictions) plus its git replication state: whether a remote is configured (has_remote/remote_url), the push state and any unpushed commits, and the write workflow (git_workflow: local commit-and-push or server PR boundary), plus a capabilities section naming each per-KB gate (artifact_write, secrets, git_sync, git_workflow, tool_prefix, mount), its state, and the configuration key that controls it, plus search_misses: the 10 most frequent queries of the last 30 days that found nothing, with count and last_seen (omitted when there are none) — evidence of knowledge gaps, plus server_version and, when a newer release is known, latest_version. Read-only, never hits the network.",
+		Description: "Returns aggregate metrics about the KB (total concepts, per-type counts, per-status counts (concepts with no status field are excluded), stale concepts (review_after in the past), open contradictions (gap kinds excluded), plus open_gaps: knowledge gaps recorded as Contradiction concepts with contradiction_kind missing_context or open_question — total, by_kind and the 10 newest, omitted when zero) plus its git replication state: whether a remote is configured (has_remote/remote_url), the push state and any unpushed commits, and the write workflow (git_workflow: local commit-and-push or server PR boundary), plus a capabilities section naming each per-KB gate (artifact_write, secrets, git_sync, git_workflow, tool_prefix, mount), its state, and the configuration key that controls it, plus search_misses: the 10 most frequent queries of the last 30 days that found nothing, with count and last_seen (omitted when there are none) — evidence of knowledge gaps, plus server_version and, when a newer release is known, latest_version. Read-only, never hits the network.",
 		ReadOnly:    true,
 		InputSchema: json.RawMessage(`{"type":"object","properties":{}}`),
 		Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
@@ -552,6 +553,15 @@ func toolKBStatus(k *kb.KB, misses *searchMissLog, serverVersion string, latestV
 			total := 0
 			staleCount := 0
 			openContradictions := 0
+			type gapEntry struct {
+				ID       string   `json:"id"`
+				Title    string   `json:"title,omitempty"`
+				Kind     string   `json:"kind"`
+				Involves []string `json:"involves,omitempty"`
+				ts       string
+			}
+			var gaps []gapEntry
+			gapsByKind := map[string]int{}
 
 			err := k.WalkConcepts(func(id okf.ConceptID, content string) error {
 				total++
@@ -577,11 +587,35 @@ func toolKBStatus(k *kb.KB, misses *searchMissLog, serverVersion string, latestV
 				}
 
 				if t == "Contradiction" {
+					isOpen := false
 					rs, ok := fm.Get("resolution_status")
 					if !ok {
-						openContradictions++
+						isOpen = true
 					} else if rsStr, ok := rs.(string); ok && (rsStr == "open" || rsStr == "") {
-						openContradictions++
+						isOpen = true
+					}
+					if isOpen {
+						kind := ""
+						if v, ok := fm.Get("contradiction_kind"); ok {
+							kind, _ = v.(string)
+						}
+						if kb.IsGapKind(kind) {
+							// D273: a gap is not a disagreement; counted apart.
+							g := gapEntry{ID: string(id), Kind: kind}
+							if v, ok := fm.Get("title"); ok {
+								g.Title, _ = v.(string)
+							}
+							if v, ok := fm.Get("involves"); ok {
+								g.Involves, _ = v.([]string)
+							}
+							if v, ok := fm.Get("timestamp"); ok {
+								g.ts, _ = v.(string)
+							}
+							gaps = append(gaps, g)
+							gapsByKind[kind]++
+						} else {
+							openContradictions++
+						}
 					}
 				}
 				return nil
@@ -633,6 +667,24 @@ func toolKBStatus(k *kb.KB, misses *searchMissLog, serverVersion string, latestV
 				// an answer, hence the setting alongside it.
 				"capabilities": kbCapabilities(k),
 			}
+			if len(gaps) > 0 {
+				// Newest first by frontmatter timestamp, then ID descending.
+				sort.Slice(gaps, func(i, j int) bool {
+					if gaps[i].ts != gaps[j].ts {
+						return gaps[i].ts > gaps[j].ts
+					}
+					return gaps[i].ID > gaps[j].ID
+				})
+				recent := gaps
+				if len(recent) > 10 {
+					recent = recent[:10]
+				}
+				result["open_gaps"] = map[string]interface{}{
+					"total":   len(gaps),
+					"by_kind": gapsByKind,
+					"recent":  recent,
+				}
+			}
 			if top := misses.top(); len(top) > 0 {
 				result["search_misses"] = top
 			}
@@ -655,7 +707,7 @@ func toolKBStatus(k *kb.KB, misses *searchMissLog, serverVersion string, latestV
 func toolContradictionReport(k *kb.KB) Tool {
 	return Tool{
 		Name:        "contradiction_report",
-		Description: "Lists contradiction concepts, optionally filtered by scope prefix and resolution status (default: open).",
+		Description: "Lists contradiction concepts, optionally filtered by scope prefix, resolution status (default: open) and kind. Knowledge gaps (contradiction_kind missing_context or open_question, D273) are listed here too; they never block commit_gate.",
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"properties": {
@@ -666,6 +718,10 @@ func toolContradictionReport(k *kb.KB) Tool {
 				"status": {
 					"type": "string",
 					"description": "Filter by resolution_status (default 'open'). Use '*' for all."
+				},
+				"kind": {
+					"type": "string",
+					"description": "Filter by contradiction_kind: an exact kind, 'gap' (missing_context and open_question), 'contradiction' (every non-gap kind, including none). Empty = all."
 				}
 			}
 		}`),
@@ -673,6 +729,7 @@ func toolContradictionReport(k *kb.KB) Tool {
 			var params struct {
 				Scope  string `json:"scope"`
 				Status string `json:"status"`
+				Kind   string `json:"kind"`
 			}
 			json.Unmarshal(args, &params)
 
@@ -718,6 +775,26 @@ func toolContradictionReport(k *kb.KB) Tool {
 
 				if statusFilter != "*" && rs != statusFilter {
 					return nil
+				}
+
+				kindVal := ""
+				if v, ok := fm.Get("contradiction_kind"); ok {
+					kindVal, _ = v.(string)
+				}
+				switch params.Kind {
+				case "":
+				case "gap":
+					if !kb.IsGapKind(kindVal) {
+						return nil
+					}
+				case "contradiction":
+					if kb.IsGapKind(kindVal) {
+						return nil
+					}
+				default:
+					if kindVal != params.Kind {
+						return nil
+					}
 				}
 
 				e := entry{

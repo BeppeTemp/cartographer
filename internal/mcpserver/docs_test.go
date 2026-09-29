@@ -36,6 +36,9 @@ var toolPrefixes = []string{
 var docsNonTools = map[string]bool{
 	"artifact_signing_seed": true,
 	"search_misses":         true, // kb_status field (D247), not a tool
+	"open_gaps":             true, // kb_status field (D273), not a tool
+	"missing_context":       true, // reserved contradiction_kind (D273)
+	"open_question":         true, // reserved contradiction_kind (D273)
 	// audit configuration keys (D119), not tools
 	"archive_dir":       true,
 	"retention_days":    true,

@@ -20,6 +20,14 @@ type GateBlocker struct {
 	Reason      string   // reason field
 }
 
+// GapKinds are the reserved contradiction_kind values that record something the
+// KB does not know rather than two claims that disagree (D273). A gap is a
+// Contradiction concept for lifecycle and tooling, but it never blocks a write.
+var GapKinds = map[string]bool{"missing_context": true, "open_question": true}
+
+// IsGapKind reports whether kind is one of the reserved gap kinds.
+func IsGapKind(kind string) bool { return GapKinds[kind] }
+
 // CommitGate checks for open contradictions involving any of the given concept IDs.
 // It walks all .md files, finds those with type=Contradiction and resolution_status=open,
 // and checks if their "involves" list intersects with changedIDs.
@@ -62,6 +70,13 @@ func (kb *KB) CommitGate(changedIDs []okf.ConceptID) (*GateResult, error) {
 		statusStr, ok := statusVal.(string)
 		if !ok || statusStr != "open" {
 			continue
+		}
+
+		// A gap (D273) never blocks: writing is how it gets answered.
+		if kVal, ok := parsed.Get("contradiction_kind"); ok {
+			if s, ok := kVal.(string); ok && IsGapKind(s) {
+				continue
+			}
 		}
 
 		// Collect the involves list.
