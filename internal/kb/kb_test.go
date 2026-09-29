@@ -1727,3 +1727,111 @@ func TestUpdateMapContract(t *testing.T) {
 		t.Errorf("legacy descriptor: err = %v, want a refusal naming it", err)
 	}
 }
+
+// --- field_values / forbidden_fields (D275) ---
+
+func TestCreateMap_FieldValuesRoundTrip(t *testing.T) {
+	k, _ := Init(tempKB(t))
+	contract := MapContract{
+		FieldValues:       map[string][]string{"status": {"draft", "active", "active"}},
+		FieldValuesByType: map[string]map[string][]string{"Incident": {"outcome": {"open", "resolved"}, "status": {"open"}}},
+		ForbiddenFields:   []string{"state", "state", "legacy"},
+	}
+	if err := k.CreateMapWithContract("ops", "Ops", "map", nil, "", contract); err != nil {
+		t.Fatalf("CreateMapWithContract: %v", err)
+	}
+	got, err := k.ReadMapContract("ops")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Malformed) != 0 {
+		t.Fatalf("malformed: %v", got.Malformed)
+	}
+	if v, ok := got.AllowedValues("Note", "status"); !ok || strings.Join(v, ",") != "active,draft" {
+		t.Errorf("map-wide status = %v %v", v, ok)
+	}
+	if v, ok := got.AllowedValues("Incident", "status"); !ok || strings.Join(v, ",") != "open" {
+		t.Errorf("per-type status must replace the map-wide list, got %v", v)
+	}
+	if v, ok := got.AllowedValues("Incident", "outcome"); !ok || strings.Join(v, ",") != "open,resolved" {
+		t.Errorf("per-type outcome = %v", v)
+	}
+	if _, ok := got.AllowedValues("Note", "outcome"); ok {
+		t.Error("outcome must not apply to Note")
+	}
+	if strings.Join(got.ForbiddenFields, ",") != "legacy,state" {
+		t.Errorf("forbidden = %v", got.ForbiddenFields)
+	}
+	raw, _ := k.ReadRaw("ops/_map.md")
+	for _, want := range []string{"field_values.status: [active, draft]", "field_values.Incident.outcome: [open, resolved]", "forbidden_fields: [legacy, state]"} {
+		if !strings.Contains(raw, want) {
+			t.Errorf("_map.md lacks %q:\n%s", want, raw)
+		}
+	}
+}
+
+func TestUpdateMapContract_FieldValues(t *testing.T) {
+	k, _ := Init(tempKB(t))
+	if err := k.CreateMap("m", "M", "map", nil, ""); err != nil {
+		t.Fatal(err)
+	}
+	forbidden := []string{"state"}
+	c, err := k.UpdateMapContract("m", MapContractUpdate{
+		FieldValues:       map[string][]string{"status": {"active", "draft"}, "tier": {"a"}},
+		FieldValuesByType: map[string]map[string][]string{"Incident": {"outcome": {"open"}}},
+		ForbiddenFields:   &forbidden,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(c.FieldValues) != 2 || len(c.FieldValuesByType["Incident"]) != 1 || len(c.ForbiddenFields) != 1 {
+		t.Fatalf("after set: %+v", c)
+	}
+	// Replace map-wide only: per-type keys survive, unlisted map-wide keys go.
+	c, err = k.UpdateMapContract("m", MapContractUpdate{FieldValues: map[string][]string{"status": {"active"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(c.FieldValues) != 1 || strings.Join(c.FieldValues["status"], ",") != "active" || len(c.FieldValuesByType["Incident"]) != 1 {
+		t.Fatalf("after map-wide replace: %+v", c)
+	}
+	// Empty non-nil values remove.
+	none := []string{}
+	c, err = k.UpdateMapContract("m", MapContractUpdate{FieldValues: map[string][]string{}, FieldValuesByType: map[string]map[string][]string{}, ForbiddenFields: &none})
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := k.ReadRaw("m/_map.md")
+	if len(c.FieldValues) != 0 || len(c.FieldValuesByType) != 0 || len(c.ForbiddenFields) != 0 || strings.Contains(raw, "field_values") || strings.Contains(raw, "forbidden_fields") {
+		t.Fatalf("not removed: %+v\n%s", c, raw)
+	}
+}
+
+func TestReadMapContract_FieldValuesMalformed(t *testing.T) {
+	k, _ := Init(tempKB(t))
+	if err := os.MkdirAll(filepath.Join(k.DataRoot(), "m"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	desc := "---\ntype: Map\nkind: map\ntitle: M\n" +
+		"field_values.: [a]\n" + // empty field
+		"field_values.T.: [a]\n" + // empty field, typed
+		"field_values..f: [a]\n" + // empty type
+		"field_values.a.b.c: [x]\n" + // too many segments
+		"field_values.empty: []\n" + // empty list
+		"field_values.scalar: x\n" + // not a list
+		"forbidden_fields: [ok, ok]\n" + // duplicate entry
+		"field_values.good: [x]\n---\n"
+	if err := os.WriteFile(filepath.Join(k.DataRoot(), "m", "_map.md"), []byte(desc), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	c, err := k.ReadMapContract("m")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(c.Malformed) != 7 {
+		t.Errorf("malformed = %v", c.Malformed)
+	}
+	if len(c.FieldValues) != 1 || len(c.FieldValues["good"]) != 1 || len(c.FieldValuesByType) != 0 {
+		t.Errorf("only the well-formed key must load: %+v", c)
+	}
+}

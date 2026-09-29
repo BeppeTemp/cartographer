@@ -1020,6 +1020,35 @@ func TestServer_MapCreate_Contract(t *testing.T) {
 	}
 }
 
+func TestServer_MapCreateUpdate_FieldValues(t *testing.T) {
+	k := setupTestKB(t)
+	s := New("test")
+	RegisterKBTools(s, k, Deps{})
+	resps := runMCPSequence(t, s, []string{
+		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
+		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"map_create","arguments":{"name":"fv-map","title":"FV","field_values":{"status":["active","draft"]},"field_values_by_type":{"Incident":{"outcome":["open","resolved"]}},"forbidden_fields":["state"]}}}`,
+		`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"map_update","arguments":{"map":"fv-map","field_values":{"status":["active"]},"forbidden_fields":[]}}}`,
+		`{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"map_create","arguments":{"name":"fv-bad","title":"Bad","field_values":{"status":[]}}}}`,
+		`{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"map_update","arguments":{"map":"fv-map","field_values_by_type":{"T":{"a.b":["x"]}}}}}`,
+	})
+	if tr := decodeToolResult(t, resps[1]); tr.IsError {
+		t.Fatalf("map_create: %v", tr.Content)
+	}
+	tr := decodeToolResult(t, resps[2])
+	if tr.IsError || !strings.Contains(tr.Content[0].Text, `"field_values"`) || !strings.Contains(tr.Content[0].Text, `"outcome"`) {
+		t.Fatalf("map_update: %v", tr.Content)
+	}
+	content, _ := k.ReadRaw("fv-map/_map.md")
+	if !strings.Contains(content, "field_values.status: [active]") || !strings.Contains(content, "field_values.Incident.outcome: [open, resolved]") || strings.Contains(content, "forbidden_fields") {
+		t.Fatalf("descriptor = %q", content)
+	}
+	for _, r := range resps[3:] {
+		if !decodeToolResult(t, r).IsError {
+			t.Fatalf("malformed field_values accepted: %v", r)
+		}
+	}
+}
+
 func TestServer_MapCreate_RejectsEmptyContractNames(t *testing.T) {
 	k := setupTestKB(t)
 	s := New("test")
