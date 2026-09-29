@@ -217,10 +217,11 @@ var hookMechanisms = map[configurator.Provider]hookMechanism{
 	configurator.ProviderClaudeCode: {
 		settingsFile: []string{".claude", "settings.json"},
 		register: func(baseDir, name, fullDestDir string) (string, string, error) {
-			if err := registerHookSettings(baseDir, name, fullDestDir); err != nil {
+			warning, err := registerHookSettings(baseDir, name, fullDestDir)
+			if err != nil {
 				return "", "", fmt.Errorf("provisioning: register hook %s in settings.json: %w", name, err)
 			}
-			return "", "", nil
+			return "", warning, nil
 		},
 	},
 	configurator.ProviderCodex: {

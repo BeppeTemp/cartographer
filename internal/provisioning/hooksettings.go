@@ -35,14 +35,19 @@ type hookSpec struct {
 // updates <baseDir>/.claude/settings.json (creating it if absent) with its entry
 // in hooks.<Event>[] (D57). Best-effort on hook.json's content: a missing,
 // unparseable file, or one lacking the required fields (event/command), does not
-// fail Apply — registration is simply skipped, the hook stays materialized on
-// disk anyway. This is the claude provider's registrar: hookMechanisms dispatches
+// fail Apply — registration is skipped and the reason is returned as a warning
+// (D284); the hook stays materialized on disk anyway. An event outside the
+// vocabulary is registered as declared, with a warning. This is the claude provider's registrar: hookMechanisms dispatches
 // each provider to its own (codex, opencode and antigravity have theirs), so no
 // provider parameter is needed here.
-func registerHookSettings(baseDir, hookName, fullDestDir string) error {
-	spec, ok := readHookSpec(fullDestDir)
-	if !ok {
-		return nil
+func registerHookSettings(baseDir, hookName, fullDestDir string) (string, error) {
+	spec, err := loadHookSpec(fullDestDir)
+	if err != nil {
+		return hookSpecWarning(hookName, configurator.ProviderClaudeCode, err), nil
+	}
+	warning, skip := hookEventWarning(hookName, configurator.ProviderClaudeCode, spec.Event)
+	if skip {
+		return warning, nil
 	}
 
 	// Claude Code on Windows runs hooks through Git Bash (D267).
@@ -59,10 +64,10 @@ func registerHookSettings(baseDir, hookName, fullDestDir string) error {
 	settingsPath := claudeSettingsPath(baseDir)
 	settings, err := loadJSONObject(settingsPath)
 	if err != nil {
-		return err
+		return "", err
 	}
 	upsertHookEntry(settings, hookOwnershipMarker(hookName), spec.Event, spec.Matcher, command)
-	return saveJSONObject(settingsPath, settings)
+	return warning, saveJSONObject(settingsPath, settings)
 }
 
 // removeHookEntries strips every settings.json hooks entry owned by hookName
@@ -88,23 +93,8 @@ func claudeSettingsPath(baseDir string) string {
 	return filepath.Join(baseDir, ".claude", "settings.json")
 }
 
-// readHookSpec reads and parses <hookDir>/hook.json, returning ok=false (never an
-// error) if the file is missing, unparseable, or missing a required field — the
-// caller treats all of these as "nothing to register", not as a fatal condition.
-func readHookSpec(hookDir string) (hookSpec, bool) {
-	data, err := os.ReadFile(filepath.Join(hookDir, "hook.json"))
-	if err != nil {
-		return hookSpec{}, false
-	}
-	var spec hookSpec
-	if err := json.Unmarshal(data, &spec); err != nil {
-		return hookSpec{}, false
-	}
-	if spec.Event == "" || spec.Command == "" {
-		return hookSpec{}, false
-	}
-	return spec, true
-}
+// A hook.json that cannot be read or parsed (loadHookSpec, hookspec.go) is never a
+// fatal condition for Apply: the registrars turn the reason into a warning.
 
 // resolveHookCommand resolves the leading token of command (the executable) against
 // hookDirAbs when it is a relative path (e.g. "./notify.sh", "scripts\run.sh" —
@@ -422,9 +412,13 @@ func codexHooksPath(baseDir string) string {
 // hook would fire twice. Returns a warning describing that migration, if any.
 // Best-effort on a missing/malformed hook.json (via readHookSpec).
 func registerCodexHook(baseDir, hookName, fullDestDir string) (string, error) {
-	spec, ok := readHookSpec(fullDestDir)
-	if !ok {
-		return "", nil
+	spec, specErr := loadHookSpec(fullDestDir)
+	if specErr != nil {
+		return hookSpecWarning(hookName, configurator.ProviderCodex, specErr), nil
+	}
+	eventWarning, skip := hookEventWarning(hookName, configurator.ProviderCodex, spec.Event)
+	if skip {
+		return eventWarning, nil
 	}
 	resolved := resolveHookCommand(spec.Command, fullDestDir)
 	// Same reason as registerHookSettings: an inline command that does not
@@ -452,11 +446,16 @@ func registerCodexHook(baseDir, hookName, fullDestDir string) (string, error) {
 		return "", err
 	}
 	if migrated == 0 {
-		return "", nil
+		return eventWarning, nil
 	}
-	return fmt.Sprintf(
+	migration := fmt.Sprintf(
 		"codex: hook %q — moved its registration from config.toml to hooks.json; Codex will ask to trust it again once",
-		hookName), nil
+		hookName)
+	if eventWarning != "" {
+		// Both are true of one registration and the caller takes one string.
+		return migration + "; " + eventWarning, nil
+	}
+	return migration, nil
 }
 
 // removeCodexHook strips hookName's entry from <baseDir>/.codex/hooks.json and any
@@ -550,9 +549,9 @@ func hookProviderFromPath(path string) string {
 // shared ~/.gemini/config/hooks.json. Tool events use matcher groups; lifecycle
 // events use the direct command-handler list required by Antigravity.
 func registerAntigravityHook(baseDir, hookName, fullDestDir string) (string, error) {
-	spec, ok := readHookSpec(fullDestDir)
-	if !ok {
-		return "", nil
+	spec, specErr := loadHookSpec(fullDestDir)
+	if specErr != nil {
+		return hookSpecWarning(hookName, configurator.ProviderAntigravity, specErr), nil
 	}
 	if !antigravityHookEvents[spec.Event] {
 		return fmt.Sprintf("antigravity: hook %q — event %q has no native equivalent; files were installed but the hook was not registered", hookName, spec.Event), nil
@@ -695,9 +694,9 @@ func openCodePluginRelPath(hookName string) string {
 //     OpenCode equivalent — Apply surfaces this via AppliedResult.Warnings
 //     instead of failing (the hook's files are still materialized).
 func registerOpenCodePlugin(baseDir, hookName, fullDestDir string) (relPath, warning string, err error) {
-	spec, ok := readHookSpec(fullDestDir)
-	if !ok {
-		return "", "", nil
+	spec, specErr := loadHookSpec(fullDestDir)
+	if specErr != nil {
+		return "", hookSpecWarning(hookName, configurator.ProviderOpenCode, specErr), nil
 	}
 
 	mapping, ok := openCodeHookEvents[spec.Event]
