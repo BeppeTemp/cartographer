@@ -294,8 +294,8 @@ are only known after the pull): one row per unresolved key, with its KBs, the `d
 declared `default` when there is one (it did not resolve, so it does not exist here yet) — and an
 empty value to skip it. A key whose declared default exists is resolved without being asked. Answers are written into `paths:` in
 `.cartographer.yaml` and the instructions block is materialized once more so its "Local paths" table
-carries them. Outside a TTY nothing is asked: the apply summary prints one aggregated warning listing
-each key with its `cartographer paths set <kind>:<key> <path>` command, and the exit status is
+carries them. Outside a TTY nothing is asked: the apply summary prints one summary line for the unresolved keys, with detail and the
+`cartographer paths set`/`paths ignore` fixes only for keys new since the last sync (D282), and the exit status is
 unchanged — an unresolved key never blocks a connect.
 
 **Local service (D73).** If the probe fails, the URL is loopback (`localhost`/`127.0.0.1`/`::1`),
@@ -365,7 +365,7 @@ A newer release known to the update cache adds `update available: vX (installed 
 reports one in `/health` adds `server update available: vX` — the server operator's job, so no
 command. Both read local state only (the cache is refreshed by the session hook and `update
 check`) and neither changes the exit code (D254).
-Placeholder keys the last sync could not resolve (read from the lockfile, no network) add
+Placeholder keys the last sync could not resolve and the operator did not `paths ignore` (read from the lockfile, no network) add
 ``N placeholder(s) unresolved — run `cartographer paths` `` to the table and an additive
 `unresolved_placeholders: [{key, kbs, reason}]` to the JSON, present only when non-empty; neither
 changes the state or the exit code — an unresolved key is left verbatim, not a failed sync (D262).
@@ -741,17 +741,18 @@ found under `search_roots`, or an ambiguous key across several distinct remotes 
 stderr with the full form to use), `2` usage error (missing argument or not in the
 `repo:...`/`path:...` form).
 
-### `cartographer paths [list [--json]] | set <key> <path> | unset <key>`
+### `cartographer paths [list [--json]] | set <key> <path> | ignore <key> | unset <key>`
 
 The placeholder keys the last sync met, and the command that records where they live on this
 machine (D262). No network call: everything is read from the lockfile and `.cartographer.yaml`.
 
 ```bash
 cartographer paths                          # = paths list: every key, its KB(s), path or failure reason
-cartographer paths list --json              # {"placeholders": [{key, kbs, path | reason, description, default}]}
+cartographer paths list --json              # {"placeholders": [{key, kbs, path | reason, description, default, ignored}]}
 cartographer paths set path:kubeconfig ~/.kube/config
 cartographer paths set repo:dotfiles ~/src/dotfiles
-cartographer paths unset kubeconfig
+cartographer paths ignore repo:work-tools      # never exists on this machine: stop reporting it (D282)
+cartographer paths unset kubeconfig           # remove a mapping, or an ignore
 cartographer paths --help                   # the usage above, on stdout, exit 0 (also `paths help`)
 ```
 
@@ -766,9 +767,17 @@ cartographer paths --help                   # the usage above, on stdout, exit 0
   and scan. The path is stored as written (`~` kept, expanded at resolution time). A path that does
   not exist is recorded anyway with a warning (you may be about to clone it); for a `repo:` key, a
   path that is not a git clone is a warning too, never an error.
-- `unset` removes an entry (exit `1` if there is none).
-- `set`/`unset` print the one command that applies them — `cartographer sync` — and never sync
-  implicitly. `set`/`unset` need an existing `.cartographer.yaml` (exit `2`, run `connect` first).
+- `ignore` marks a key as deliberately absent on this machine (D282), for a work repo on a personal
+  laptop or a folder that exists on another host only. It is stored in `ignored_paths:` in
+  `.cartographer.yaml` with its kind prefix (`repo:work-tools`); an unprefixed argument is qualified
+  from the lockfile and refused (exit `2`) when the lockfile does not know it. Resolution is
+  untouched — the placeholder stays verbatim, and a key that does resolve still does — only the
+  reporting changes: the sync warning, `status` and the connect step stop naming it, and `list` shows
+  it as `IGNORED` (`"ignored": true` in the JSON) instead of counting it unresolved. A key mapped under
+  `paths:` cannot be ignored (exit `1`), and `set` on an ignored key lifts the ignore.
+- `unset` removes an entry or an ignore (exit `1` if there is neither).
+- `set`/`ignore`/`unset` print the one command that applies them — `cartographer sync` — and never sync
+  implicitly. They need an existing `.cartographer.yaml` (exit `2`, run `connect` first).
 
 The TUI dashboard's per-provider sync reports the unresolved count in its done message; editing
 happens here, not in the TUI.
@@ -1014,6 +1023,7 @@ clients:         # per-provider KB binding (D169); absent provider = every known
 search_roots: ["~/Documents"]   # where repoindex.Scan looks for git clones for {{repo:<key>}} (D75)
 search_depth: 4                 # how many levels repoindex descends from each root (D162); omitted when 0 = the default
 paths: {}                       # manual name -> path mapping for {{path:<name>}} (and an override for {{repo:<key>}}, D75); edit with `cartographer paths set`
+ignored_paths: []               # placeholder ids known to be absent on this machine, e.g. repo:work-tools (D282); edit with `cartographer paths ignore`
 update:                         # D254; omitted entirely when both are the default
   check: true                   # false: no update lookup at all
   policy: notify                # notify | auto-patch (patch releases via homebrew/install.sh/install.ps1 install themselves)

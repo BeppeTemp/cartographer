@@ -374,6 +374,10 @@ type AppliedResult struct {
 	// every projection bound to both KBs reports the same conflict, and the
 	// caller prints each one once per sync, not once per provider.
 	RegistryWarnings []string
+	// PriorUnresolved: the keys the lock this Apply started from already
+	// recorded as unresolved (D282). A sync reports in full only the keys
+	// that are not here — new since the last sync — and summarizes the rest.
+	PriorUnresolved []string
 }
 
 // LockFileName is the lockfile's name, relative to base-dir.
@@ -1990,6 +1994,9 @@ func Apply(m Manifest, opts ApplyOptions) (AppliedResult, error) {
 		Provider:         string(opts.Provider),
 		Managed:          newManaged,
 		PathsSectionHash: pathsHash,
+	}
+	for id := range opts.Lock.UnresolvedPlaceholders {
+		result.PriorUnresolved = append(result.PriorUnresolved, id)
 	}
 	if opts.ExpandPlaceholders {
 		// placeholderSources already lists every key an authorized artifact

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/BeppeTemp/cartographer/internal/okf"
@@ -310,24 +311,54 @@ func buildPathsTable(resolved map[string]string) string {
 	return strings.TrimRight(b.String(), "\n")
 }
 
-// UnresolvedPlaceholdersWarning renders the one aggregated line a sync prints
-// for every placeholder it could not resolve (D262), with the command that
-// fixes each. "" when there is none. Callers aggregate across providers
-// first: the same key missing for three providers is one problem.
-func UnresolvedPlaceholdersWarning(unresolved map[string]string) string {
+// UnresolvedPlaceholdersWarning renders what a sync prints for the
+// placeholders it could not resolve (D262, D282); "" when there is none.
+// unresolved is key -> reason, already without the keys the operator marked
+// absent (`paths ignore`); fresh names the keys that were not unresolved at
+// the previous sync. The first line is always the one-line summary; only the
+// fresh keys get detail after it, and a reason they share — the repo-index
+// search roots, which differ between two keys only by the key's own name — is
+// printed once. Callers aggregate across providers first: the same key
+// missing for three providers is one problem.
+func UnresolvedPlaceholdersWarning(unresolved map[string]string, fresh map[string]bool) string {
 	if len(unresolved) == 0 {
 		return ""
 	}
-	ids := make([]string, 0, len(unresolved))
+	var b strings.Builder
+	fmt.Fprintf(&b, "%d placeholder(s) not resolved on this machine (left verbatim) — cartographer paths list", len(unresolved))
+
+	var ids []string
 	for id := range unresolved {
-		ids = append(ids, id)
+		if fresh[id] {
+			ids = append(ids, id)
+		}
+	}
+	if len(ids) == 0 {
+		return b.String()
 	}
 	sort.Strings(ids)
-	var b strings.Builder
-	fmt.Fprintf(&b, "%d placeholder(s) not resolved on this machine (left verbatim):", len(ids))
+
+	// Group by the reason with the key's own quoted name factored out.
+	var order []string
+	groups := map[string][]string{}
 	for _, id := range ids {
-		fmt.Fprintf(&b, "\n  %s — %s\n    fix: cartographer paths set %s <path>", id, unresolved[id], id)
+		reason := unresolved[id]
+		if _, key, ok := okf.SplitPlaceholderID(id); ok && key != "" {
+			reason = strings.ReplaceAll(reason, strconv.Quote(key), `"<key>"`)
+		}
+		if _, seen := groups[reason]; !seen {
+			order = append(order, reason)
+		}
+		groups[reason] = append(groups[reason], id)
 	}
+	fmt.Fprintf(&b, "\n  new since the last sync (%d):", len(ids))
+	for _, reason := range order {
+		for _, id := range groups[reason] {
+			fmt.Fprintf(&b, "\n    %s", id)
+		}
+		fmt.Fprintf(&b, "\n    because: %s", reason)
+	}
+	b.WriteString("\n  fix: cartographer paths set <key> <path>, or, if it never exists here: cartographer paths ignore <key>")
 	return b.String()
 }
 

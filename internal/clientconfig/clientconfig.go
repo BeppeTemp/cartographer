@@ -103,6 +103,15 @@ type Config struct {
 	// Keys are stored without the "repo:"/"path:" prefix.
 	Paths map[string]string `yaml:"paths,omitempty"`
 
+	// IgnoredPaths are the placeholder ids ("repo:<key>" / "path:<key>", with
+	// the prefix) the operator marked as deliberately absent on this machine
+	// (D282, `cartographer paths ignore`). Resolution is untouched — an ignored
+	// key that does resolve still does — only the reporting changes: the sync
+	// warning, `status` and the connect step stop naming it, and `paths list`
+	// shows it as ignored. Same authorship rule as Paths: written only on the
+	// operator's explicit answer, never by `sync`.
+	IgnoredPaths []string `yaml:"ignored_paths,omitempty"`
+
 	// SigningKeys pins Ed25519 public keys by source KB. Pins are configured
 	// out of band and are never learned from sync_pull responses.
 	SigningKeys map[string][]string `yaml:"signing_keys,omitempty"`
@@ -175,6 +184,7 @@ type yamlConfig struct {
 	SearchRoots      []string                          `yaml:"search_roots,omitempty"`
 	SearchDepth      int                               `yaml:"search_depth,omitempty"`
 	Paths            map[string]string                 `yaml:"paths,omitempty"`
+	IgnoredPaths     []string                          `yaml:"ignored_paths,omitempty"`
 	SigningKeys      map[string][]string               `yaml:"signing_keys,omitempty"`
 	MCPApprovals     map[string]map[string]MCPApproval `yaml:"mcp_approvals,omitempty"`
 	Update           *UpdateSettings                   `yaml:"update,omitempty"`
@@ -230,7 +240,7 @@ func Load(dir string) (*Config, error) {
 	if err := yaml.Unmarshal(data, &extra); err != nil {
 		return nil, fmt.Errorf("clientconfig: parse extras %s: %w", Path(dir), err)
 	}
-	for _, key := range []string{"server_url", "server_name", "auth", "token_env", "agents", "kbs", "known_kbs", "clients", "trust", "search_roots", "search_depth", "paths", "signing_keys", "mcp_approvals", "update"} {
+	for _, key := range []string{"server_url", "server_name", "auth", "token_env", "agents", "kbs", "known_kbs", "clients", "trust", "search_roots", "search_depth", "paths", "ignored_paths", "signing_keys", "mcp_approvals", "update"} {
 		delete(extra, key)
 	}
 	cfg := Config{
@@ -251,6 +261,7 @@ func Load(dir string) (*Config, error) {
 		SearchRoots:      y.SearchRoots,
 		SearchDepth:      y.SearchDepth,
 		Paths:            y.Paths,
+		IgnoredPaths:     y.IgnoredPaths,
 		SigningKeys:      y.SigningKeys,
 		MCPApprovals:     y.MCPApprovals,
 		Extra:            extra,
@@ -305,6 +316,7 @@ func Save(dir string, cfg *Config) error {
 		SearchRoots:      cfg.SearchRoots,
 		SearchDepth:      cfg.SearchDepth,
 		Paths:            cfg.Paths,
+		IgnoredPaths:     cfg.IgnoredPaths,
 		SigningKeys:      cfg.SigningKeys,
 		MCPApprovals:     cfg.MCPApprovals,
 	}
