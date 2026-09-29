@@ -349,7 +349,7 @@ func Run(k *kb.KB, scope string, scopeNeighbors bool) ([]Finding, error) {
 				continue
 			}
 			reason := "not a known lint check"
-			if name == "missing_required_field" || name == "expanded_ambiguous" {
+			if name == "missing_required_field" || name == "invalid_field_value" || name == "forbidden_field" || name == "expanded_ambiguous" {
 				reason = "an error-severity contract violation, which lint_ignore cannot silence"
 			} else if name == "island" {
 				reason = "a graph-level check with no single concept owner"
@@ -527,6 +527,7 @@ func Run(k *kb.KB, scope string, scopeNeighbors bool) ([]Finding, error) {
 					})
 				}
 			}
+			findings = append(findings, mapFieldContractFindings(relPath, parts[0], contract, parsed)...)
 		}
 
 		// --- orphan (warning) ---
@@ -951,4 +952,81 @@ func scopeMatchesDir(scopeNorm, dir string) bool {
 		return true
 	}
 	return strings.HasPrefix(scopeNorm, dir+"/")
+}
+
+// mapFieldContractFindings applies the value and forbidden-field parts of a
+// map contract (D275) to one concept's frontmatter. Both checks are error
+// severity and not suppressible with lint_ignore. An absent field is never an
+// invalid value: presence is required_fields' job.
+func mapFieldContractFindings(relPath, mapName string, contract kb.MapContract, parsed *okf.Frontmatter) []Finding {
+	if parsed == nil {
+		return nil
+	}
+	var out []Finding
+	seen := map[string]bool{}
+	var fields []string
+	for f := range contract.FieldValues {
+		fields = append(fields, f)
+	}
+	for _, byField := range contract.FieldValuesByType {
+		for f := range byField {
+			fields = append(fields, f)
+		}
+	}
+	sort.Strings(fields)
+	for _, field := range fields {
+		if seen[field] {
+			continue
+		}
+		seen[field] = true
+		allowed, ok := contract.AllowedValues(parsed.Type(), field)
+		if !ok {
+			continue
+		}
+		value, exists := parsed.Get(field)
+		if !exists {
+			continue
+		}
+		var got []string
+		switch v := value.(type) {
+		case string:
+			got = []string{v}
+		case []string:
+			got = v
+		default:
+			got = []string{fmt.Sprint(v)}
+		}
+		for _, g := range got {
+			g = strings.TrimSpace(g)
+			if !fieldValueAllowed(allowed, g) {
+				out = append(out, Finding{
+					Path:     relPath,
+					Check:    "invalid_field_value",
+					Severity: SevError,
+					Message:  fmt.Sprintf("field %q has value %q, allowed by map %q: %s", field, g, mapName, strings.Join(allowed, ", ")),
+				})
+				break
+			}
+		}
+	}
+	for _, field := range contract.ForbiddenFields {
+		if _, exists := parsed.Get(field); exists {
+			out = append(out, Finding{
+				Path:     relPath,
+				Check:    "forbidden_field",
+				Severity: SevError,
+				Message:  fmt.Sprintf("field %q is forbidden by map %q", field, mapName),
+			})
+		}
+	}
+	return out
+}
+
+func fieldValueAllowed(allowed []string, v string) bool {
+	for _, a := range allowed {
+		if a == v {
+			return true
+		}
+	}
+	return false
 }

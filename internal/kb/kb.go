@@ -1431,9 +1431,23 @@ func (kb *KB) mapDescriptorRelPath(archive string) (string, error) {
 type MapContract struct {
 	RequiredFields           []string
 	RequiredFieldsByType     map[string][]string
+	FieldValues              map[string][]string
+	FieldValuesByType        map[string]map[string][]string
+	ForbiddenFields          []string
 	RequireIndexEntry        bool
 	MachinePathAllowPrefixes []string
 	Malformed                []ContractMalformed
+}
+
+// AllowedValues returns the allowed values declared for field on conceptType:
+// the per-type list when present (it replaces the map-wide one, D275), else the
+// map-wide list. The bool is false when the contract does not constrain it.
+func (c MapContract) AllowedValues(conceptType, field string) ([]string, bool) {
+	if vals, ok := c.FieldValuesByType[conceptType][field]; ok {
+		return vals, true
+	}
+	vals, ok := c.FieldValues[field]
+	return vals, ok
 }
 
 // ContractMalformed identifies a tolerated malformed contract entry.
@@ -1524,6 +1538,12 @@ func (kb *KB) CreateMapWithContract(name, title, kind string, conceptTypes []str
 			mapFM.WriteString("required_fields." + typ + ": [" + strings.Join(fields, ", ") + "]\n")
 		}
 	}
+	for _, key := range fieldValueKeys(contract.FieldValues, contract.FieldValuesByType) {
+		mapFM.WriteString(key.name + ": [" + strings.Join(key.values, ", ") + "]\n")
+	}
+	if len(contract.ForbiddenFields) > 0 {
+		mapFM.WriteString("forbidden_fields: [" + strings.Join(sortedUnique(contract.ForbiddenFields), ", ") + "]\n")
+	}
 	if contract.RequireIndexEntry {
 		mapFM.WriteString("require_index_entry: true\n")
 	}
@@ -1547,14 +1567,59 @@ func (kb *KB) CreateMapWithContract(name, title, kind string, conceptTypes []str
 	return nil
 }
 
+type fieldValueKey struct {
+	name   string
+	values []string
+}
+
+// fieldValueKeys flattens the field_values contract into descriptor keys in
+// sorted order: map-wide keys first, then per-type ones. Empty lists are
+// skipped; values are de-duplicated and sorted.
+func fieldValueKeys(wide map[string][]string, byType map[string]map[string][]string) []fieldValueKey {
+	var out []fieldValueKey
+	fields := make([]string, 0, len(wide))
+	for f := range wide {
+		fields = append(fields, f)
+	}
+	sort.Strings(fields)
+	for _, f := range fields {
+		if v := sortedUnique(wide[f]); len(v) > 0 {
+			out = append(out, fieldValueKey{"field_values." + f, v})
+		}
+	}
+	types := make([]string, 0, len(byType))
+	for t := range byType {
+		types = append(types, t)
+	}
+	sort.Strings(types)
+	for _, t := range types {
+		fs := make([]string, 0, len(byType[t]))
+		for f := range byType[t] {
+			fs = append(fs, f)
+		}
+		sort.Strings(fs)
+		for _, f := range fs {
+			if v := sortedUnique(byType[t][f]); len(v) > 0 {
+				out = append(out, fieldValueKey{"field_values." + t + "." + f, v})
+			}
+		}
+	}
+	return out
+}
+
 // MapContractUpdate is a partial change to an existing map's lint contract:
 // a nil field is left as it is. An empty list (or false) removes the key, so
 // the descriptor ends up exactly as CreateMapWithContract would have written
 // it for the resulting contract. A non-nil RequiredFieldsByType replaces every
-// per-type key, not only the types it names.
+// per-type key, not only the types it names. FieldValues and FieldValuesByType
+// work the same way on the map-wide and per-type field_values.* keys (D275); an
+// empty non-nil map removes them all.
 type MapContractUpdate struct {
 	RequiredFields           *[]string
 	RequiredFieldsByType     map[string][]string
+	FieldValues              map[string][]string
+	FieldValuesByType        map[string]map[string][]string
+	ForbiddenFields          *[]string
 	RequireIndexEntry        *bool
 	MachinePathAllowPrefixes *[]string
 }
@@ -1614,6 +1679,29 @@ func (kb *KB) UpdateMapContract(name string, upd MapContractUpdate) (MapContract
 		for _, typ := range types {
 			setList("required_fields."+typ, upd.RequiredFieldsByType[typ])
 		}
+	}
+	if upd.FieldValues != nil {
+		for _, key := range fm.Keys() {
+			if strings.HasPrefix(key, "field_values.") && strings.Count(key, ".") == 1 {
+				fm.Delete(key)
+			}
+		}
+		for _, k := range fieldValueKeys(upd.FieldValues, nil) {
+			fm.Set(k.name, k.values)
+		}
+	}
+	if upd.FieldValuesByType != nil {
+		for _, key := range fm.Keys() {
+			if strings.HasPrefix(key, "field_values.") && strings.Count(key, ".") >= 2 {
+				fm.Delete(key)
+			}
+		}
+		for _, k := range fieldValueKeys(nil, upd.FieldValuesByType) {
+			fm.Set(k.name, k.values)
+		}
+	}
+	if upd.ForbiddenFields != nil {
+		setList("forbidden_fields", *upd.ForbiddenFields)
 	}
 	if upd.RequireIndexEntry != nil {
 		if *upd.RequireIndexEntry {
@@ -1828,6 +1916,7 @@ func (kb *KB) ReadMapContract(archive string) (MapContract, error) {
 	}
 	for _, key := range meta.Keys() {
 		if key != "required_fields" && !strings.HasPrefix(key, "required_fields.") &&
+			key != "forbidden_fields" && !strings.HasPrefix(key, "field_values.") &&
 			key != "require_index_entry" && key != "machine_path_allow_prefixes" {
 			continue
 		}
@@ -1863,6 +1952,65 @@ func (kb *KB) ReadMapContract(archive string) (MapContract, error) {
 			}
 			sort.Strings(valid)
 			contract.MachinePathAllowPrefixes = valid
+		case strings.HasPrefix(key, "field_values."):
+			vals, ok := value.([]string)
+			parts := strings.Split(strings.TrimPrefix(key, "field_values."), ".")
+			if !ok || len(parts) > 2 {
+				bad(key)
+				continue
+			}
+			seen := map[string]bool{}
+			valid := make([]string, 0, len(vals))
+			for _, v := range vals {
+				if v = strings.TrimSpace(v); v != "" && !seen[v] {
+					seen[v] = true
+					valid = append(valid, v)
+				}
+			}
+			empty := false
+			for _, p := range parts {
+				empty = empty || strings.TrimSpace(p) == ""
+			}
+			if empty || len(valid) == 0 || len(valid) != len(vals) {
+				bad(key)
+				if empty || len(valid) == 0 {
+					continue
+				}
+			}
+			sort.Strings(valid)
+			if len(parts) == 1 {
+				if contract.FieldValues == nil {
+					contract.FieldValues = map[string][]string{}
+				}
+				contract.FieldValues[parts[0]] = valid
+				continue
+			}
+			if contract.FieldValuesByType == nil {
+				contract.FieldValuesByType = map[string]map[string][]string{}
+			}
+			if contract.FieldValuesByType[parts[0]] == nil {
+				contract.FieldValuesByType[parts[0]] = map[string][]string{}
+			}
+			contract.FieldValuesByType[parts[0]][parts[1]] = valid
+		case key == "forbidden_fields":
+			fields, ok := value.([]string)
+			if !ok {
+				bad(key)
+				continue
+			}
+			seen := map[string]bool{}
+			valid := make([]string, 0, len(fields))
+			for _, field := range fields {
+				field = strings.TrimSpace(field)
+				if field == "" || seen[field] {
+					bad(key)
+					continue
+				}
+				seen[field] = true
+				valid = append(valid, field)
+			}
+			sort.Strings(valid)
+			contract.ForbiddenFields = valid
 		case key == "required_fields" || strings.HasPrefix(key, "required_fields."):
 			fields, ok := value.([]string)
 			if !ok {

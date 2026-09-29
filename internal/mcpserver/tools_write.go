@@ -712,6 +712,21 @@ func toolMapCreate(k *kb.KB) Tool {
 					"additionalProperties": {"type": "array", "items": {"type": "string"}},
 					"description": "Additional required fields keyed by exact concept type. Lint contract, not a write gate."
 				},
+				"field_values": {
+					"type": "object",
+					"additionalProperties": {"type": "array", "items": {"type": "string"}},
+					"description": "Allowed values per frontmatter field, for every concept in this map (field -> values). Lint contract, not a write gate: a value outside the list is reported as invalid_field_value (error severity). An absent field is not checked (use required_fields)."
+				},
+				"field_values_by_type": {
+					"type": "object",
+					"additionalProperties": {"type": "object", "additionalProperties": {"type": "array", "items": {"type": "string"}}},
+					"description": "Allowed values keyed by exact concept type, then field (type -> field -> values). Replaces the map-wide list for that field on that type. Lint contract, not a write gate."
+				},
+				"forbidden_fields": {
+					"type": "array",
+					"items": {"type": "string"},
+					"description": "Frontmatter fields no concept in this map may carry (e.g. a legacy name). Lint contract, not a write gate: reported as forbidden_field (error severity)."
+				},
 				"require_index_entry": {
 					"type": "boolean",
 					"description": "Require each concept to be linked from its curated index. Lint contract, not a write gate. An expanded concept may be linked either <c>.md or <c>/index.md; both satisfy the check."
@@ -725,15 +740,18 @@ func toolMapCreate(k *kb.KB) Tool {
 		}`),
 		Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
 			var params struct {
-				Name                     string              `json:"name"`
-				Title                    string              `json:"title"`
-				Kind                     string              `json:"kind"`
-				ConceptTypes             []string            `json:"concept_types"`
-				OntologyMode             string              `json:"ontology_mode"`
-				RequiredFields           []string            `json:"required_fields"`
-				RequiredFieldsByType     map[string][]string `json:"required_fields_by_type"`
-				RequireIndexEntry        bool                `json:"require_index_entry"`
-				MachinePathAllowPrefixes []string            `json:"machine_path_allow_prefixes"`
+				Name                     string                         `json:"name"`
+				Title                    string                         `json:"title"`
+				Kind                     string                         `json:"kind"`
+				ConceptTypes             []string                       `json:"concept_types"`
+				OntologyMode             string                         `json:"ontology_mode"`
+				RequiredFields           []string                       `json:"required_fields"`
+				RequiredFieldsByType     map[string][]string            `json:"required_fields_by_type"`
+				FieldValues              map[string][]string            `json:"field_values"`
+				FieldValuesByType        map[string]map[string][]string `json:"field_values_by_type"`
+				ForbiddenFields          []string                       `json:"forbidden_fields"`
+				RequireIndexEntry        bool                           `json:"require_index_entry"`
+				MachinePathAllowPrefixes []string                       `json:"machine_path_allow_prefixes"`
 			}
 			if err := json.Unmarshal(args, &params); err != nil {
 				return errorResult("invalid params: " + err.Error()), nil
@@ -747,10 +765,16 @@ func toolMapCreate(k *kb.KB) Tool {
 			if msg := validateContractParams(params.RequiredFields, params.RequiredFieldsByType, params.MachinePathAllowPrefixes); msg != "" {
 				return errorResult(msg), nil
 			}
+			if msg := validateFieldValueParams(params.FieldValues, params.FieldValuesByType, params.ForbiddenFields); msg != "" {
+				return errorResult(msg), nil
+			}
 
 			contract := kb.MapContract{
 				RequiredFields:           params.RequiredFields,
 				RequiredFieldsByType:     params.RequiredFieldsByType,
+				FieldValues:              params.FieldValues,
+				FieldValuesByType:        params.FieldValuesByType,
+				ForbiddenFields:          params.ForbiddenFields,
 				RequireIndexEntry:        params.RequireIndexEntry,
 				MachinePathAllowPrefixes: params.MachinePathAllowPrefixes,
 			}
@@ -796,13 +820,56 @@ func validateContractParams(requiredFields []string, byType map[string][]string,
 	return ""
 }
 
+// validateFieldValueParams rejects the malformed entries of the D275 contract
+// keys (empty field or type names, empty or blank allowed values, empty
+// forbidden names). An empty list inside an update is a removal only at the
+// whole-key level, so a per-field empty list is refused here as it is when read.
+func validateFieldValueParams(values map[string][]string, byType map[string]map[string][]string, forbidden []string) string {
+	check := func(label, field string, vals []string) string {
+		if strings.TrimSpace(field) == "" || strings.Contains(field, ".") {
+			return "'" + label + "' field names must be non-empty and contain no '.'"
+		}
+		if len(vals) == 0 {
+			return "'" + label + "' needs at least one allowed value for " + fmt.Sprintf("%q", field)
+		}
+		for _, v := range vals {
+			if strings.TrimSpace(v) == "" {
+				return "'" + label + "' must not contain empty values"
+			}
+		}
+		return ""
+	}
+	for field, vals := range values {
+		if msg := check("field_values", field, vals); msg != "" {
+			return msg
+		}
+	}
+	for typ, fields := range byType {
+		if strings.TrimSpace(typ) == "" || strings.Contains(typ, ".") {
+			return "'field_values_by_type' type names must be non-empty and contain no '.'"
+		}
+		for field, vals := range fields {
+			if msg := check("field_values_by_type", field, vals); msg != "" {
+				return msg
+			}
+		}
+	}
+	for _, f := range forbidden {
+		if strings.TrimSpace(f) == "" {
+			return "'forbidden_fields' must not contain empty field names"
+		}
+	}
+	return ""
+}
+
 // --- map_update ---
 
 func toolMapUpdate(k *kb.KB) Tool {
 	return Tool{
 		Name: "map_update",
 		Description: "Changes the lint contract of an existing Map or Journal (the keys map_create accepts: " +
-			"require_index_entry, required_fields, required_fields_by_type, machine_path_allow_prefixes). " +
+			"require_index_entry, required_fields, required_fields_by_type, field_values, field_values_by_type, " +
+			"forbidden_fields, machine_path_allow_prefixes). " +
 			"Only the keys given change; an empty list or false removes one. Use it to opt an older map in to " +
 			"require_index_entry, after which concept_move maintains its curated index.md and lint reports " +
 			"missing entries. Returns the contract as read back.",
@@ -824,6 +891,21 @@ func toolMapUpdate(k *kb.KB) Tool {
 					"additionalProperties": {"type": "array", "items": {"type": "string"}},
 					"description": "Replaces every per-type requirement (types not listed lose theirs); {} removes them all. Lint contract, not a write gate."
 				},
+				"field_values": {
+					"type": "object",
+					"additionalProperties": {"type": "array", "items": {"type": "string"}},
+					"description": "Replaces every map-wide allowed-values list (field -> values); {} removes them all. Lint contract, not a write gate."
+				},
+				"field_values_by_type": {
+					"type": "object",
+					"additionalProperties": {"type": "object", "additionalProperties": {"type": "array", "items": {"type": "string"}}},
+					"description": "Replaces every per-type allowed-values list (type -> field -> values); {} removes them all. Lint contract, not a write gate."
+				},
+				"forbidden_fields": {
+					"type": "array",
+					"items": {"type": "string"},
+					"description": "Replaces the fields no concept in this map may carry; [] removes them. Lint contract, not a write gate."
+				},
 				"require_index_entry": {
 					"type": "boolean",
 					"description": "Require each concept to be linked from its curated index; false removes the requirement. Lint contract, not a write gate."
@@ -839,11 +921,14 @@ func toolMapUpdate(k *kb.KB) Tool {
 			// Pointers distinguish "not given" (leave it) from an empty value
 			// (remove it): the two must never collapse into one.
 			var params struct {
-				Map                      string              `json:"map"`
-				RequiredFields           *[]string           `json:"required_fields"`
-				RequiredFieldsByType     map[string][]string `json:"required_fields_by_type"`
-				RequireIndexEntry        *bool               `json:"require_index_entry"`
-				MachinePathAllowPrefixes *[]string           `json:"machine_path_allow_prefixes"`
+				Map                      string                         `json:"map"`
+				RequiredFields           *[]string                      `json:"required_fields"`
+				RequiredFieldsByType     map[string][]string            `json:"required_fields_by_type"`
+				FieldValues              map[string][]string            `json:"field_values"`
+				FieldValuesByType        map[string]map[string][]string `json:"field_values_by_type"`
+				ForbiddenFields          *[]string                      `json:"forbidden_fields"`
+				RequireIndexEntry        *bool                          `json:"require_index_entry"`
+				MachinePathAllowPrefixes *[]string                      `json:"machine_path_allow_prefixes"`
 			}
 			if err := json.Unmarshal(args, &params); err != nil {
 				return errorResult("invalid params: " + err.Error()), nil
@@ -852,10 +937,14 @@ func toolMapUpdate(k *kb.KB) Tool {
 				return errorResult("'map' is required"), nil
 			}
 			if params.RequiredFields == nil && params.RequiredFieldsByType == nil &&
+				params.FieldValues == nil && params.FieldValuesByType == nil && params.ForbiddenFields == nil &&
 				params.RequireIndexEntry == nil && params.MachinePathAllowPrefixes == nil {
-				return errorResult("nothing to change: pass at least one of require_index_entry, required_fields, required_fields_by_type, machine_path_allow_prefixes"), nil
+				return errorResult("nothing to change: pass at least one of require_index_entry, required_fields, required_fields_by_type, field_values, field_values_by_type, forbidden_fields, machine_path_allow_prefixes"), nil
 			}
-			var fields, prefixes []string
+			var fields, prefixes, forbidden []string
+			if params.ForbiddenFields != nil {
+				forbidden = *params.ForbiddenFields
+			}
 			if params.RequiredFields != nil {
 				fields = *params.RequiredFields
 			}
@@ -865,6 +954,9 @@ func toolMapUpdate(k *kb.KB) Tool {
 			if msg := validateContractParams(fields, params.RequiredFieldsByType, prefixes); msg != "" {
 				return errorResult(msg), nil
 			}
+			if msg := validateFieldValueParams(params.FieldValues, params.FieldValuesByType, forbidden); msg != "" {
+				return errorResult(msg), nil
+			}
 			if _, err := k.ReadArchiveMeta(params.Map); err != nil {
 				return errorResult(fmt.Sprintf("map_update %q: not found", params.Map)), nil
 			}
@@ -872,6 +964,9 @@ func toolMapUpdate(k *kb.KB) Tool {
 			contract, err := k.UpdateMapContract(params.Map, kb.MapContractUpdate{
 				RequiredFields:           params.RequiredFields,
 				RequiredFieldsByType:     params.RequiredFieldsByType,
+				FieldValues:              params.FieldValues,
+				FieldValuesByType:        params.FieldValuesByType,
+				ForbiddenFields:          params.ForbiddenFields,
 				RequireIndexEntry:        params.RequireIndexEntry,
 				MachinePathAllowPrefixes: params.MachinePathAllowPrefixes,
 			})
@@ -884,6 +979,14 @@ func toolMapUpdate(k *kb.KB) Tool {
 			if byType == nil {
 				byType = map[string][]string{}
 			}
+			fieldValues := contract.FieldValues
+			if fieldValues == nil {
+				fieldValues = map[string][]string{}
+			}
+			fieldValuesByType := contract.FieldValuesByType
+			if fieldValuesByType == nil {
+				fieldValuesByType = map[string]map[string][]string{}
+			}
 			result := map[string]interface{}{
 				"map":    params.Map,
 				"status": "updated",
@@ -891,6 +994,9 @@ func toolMapUpdate(k *kb.KB) Tool {
 					"require_index_entry":         contract.RequireIndexEntry,
 					"required_fields":             nonNilStrings(contract.RequiredFields),
 					"required_fields_by_type":     byType,
+					"field_values":                fieldValues,
+					"field_values_by_type":        fieldValuesByType,
+					"forbidden_fields":            nonNilStrings(contract.ForbiddenFields),
 					"machine_path_allow_prefixes": nonNilStrings(contract.MachinePathAllowPrefixes),
 				},
 			}

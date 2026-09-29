@@ -1457,3 +1457,78 @@ func TestLint_UnlistableAssetsIsAFinding(t *testing.T) {
 		t.Errorf("want unlistable_assets on m/c, got %+v", findings)
 	}
 }
+
+// --- field_values / forbidden_fields contract (D275) ---
+
+func fieldContractKB(t *testing.T) *kb.KB {
+	t.Helper()
+	k := tempKB(t)
+	writeFile(t, k.DataRoot(), "infra/_map.md", "---\ntype: Map\nkind: map\ntitle: I\n"+
+		"field_values.status: [active, draft, deprecated, superseded]\n"+
+		"field_values.Incident.status: [open, closed]\n"+
+		"forbidden_fields: [state]\n---\n# I\n")
+	return k
+}
+
+func TestRun_FieldValuesContract(t *testing.T) {
+	k := fieldContractKB(t)
+	writeFile(t, k.DataRoot(), "infra/ok.md", "---\ntype: Note\ntitle: OK\nstatus: active\n---\n")
+	writeFile(t, k.DataRoot(), "infra/bad.md", "---\ntype: Note\ntitle: Bad\nstatus: deprecate\n---\n")
+	writeFile(t, k.DataRoot(), "infra/list-bad.md", "---\ntype: Note\ntitle: L\nstatus: [active, nope]\n---\n")
+	writeFile(t, k.DataRoot(), "infra/list-ok.md", "---\ntype: Note\ntitle: L\nstatus: [active, draft]\n---\n")
+	writeFile(t, k.DataRoot(), "infra/absent.md", "---\ntype: Note\ntitle: A\n---\n")
+	writeFile(t, k.DataRoot(), "infra/inc-ok.md", "---\ntype: Incident\ntitle: I\nstatus: open\n---\n")
+	writeFile(t, k.DataRoot(), "infra/inc-bad.md", "---\ntype: Incident\ntitle: I\nstatus: active\n---\n")
+	findings, err := Run(k, "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for path, want := range map[string]int{
+		"infra/ok.md": 0, "infra/bad.md": 1, "infra/list-bad.md": 1, "infra/list-ok.md": 0,
+		"infra/absent.md": 0, "infra/inc-ok.md": 0, "infra/inc-bad.md": 1,
+	} {
+		if got := countCheck(findings, path, "invalid_field_value"); got != want {
+			t.Errorf("%s: invalid_field_value = %d, want %d", path, got, want)
+		}
+	}
+	for _, f := range findings {
+		if f.Path == "infra/bad.md" && f.Check == "invalid_field_value" {
+			if f.Severity != SevError || !strings.Contains(f.Message, `field "status" has value "deprecate", allowed by map "infra": active, deprecated, draft, superseded`) {
+				t.Errorf("finding = %#v", f)
+			}
+		}
+	}
+}
+
+func TestRun_ForbiddenFieldContract(t *testing.T) {
+	k := fieldContractKB(t)
+	writeFile(t, k.DataRoot(), "infra/legacy.md", "---\ntype: Note\ntitle: L\nstate: active\n---\n")
+	writeFile(t, k.DataRoot(), "infra/clean.md", "---\ntype: Note\ntitle: C\n---\n")
+	findings, err := Run(k, "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if countCheck(findings, "infra/legacy.md", "forbidden_field") != 1 || countCheck(findings, "infra/clean.md", "forbidden_field") != 0 {
+		t.Fatalf("findings = %#v", findings)
+	}
+	for _, f := range findings {
+		if f.Check == "forbidden_field" && f.Severity != SevError {
+			t.Errorf("severity = %s", f.Severity)
+		}
+	}
+}
+
+func TestRun_FieldContractNotSuppressible(t *testing.T) {
+	k := fieldContractKB(t)
+	writeFile(t, k.DataRoot(), "infra/c.md", "---\ntype: Note\ntitle: C\nstatus: bogus\nstate: x\nlint_ignore: [invalid_field_value, forbidden_field]\n---\n")
+	findings, err := Run(k, "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if countCheck(findings, "infra/c.md", "invalid_field_value") != 1 || countCheck(findings, "infra/c.md", "forbidden_field") != 1 {
+		t.Errorf("lint_ignore silenced a contract violation: %#v", findings)
+	}
+	if countCheck(findings, "infra/c.md", "lint_ignore_invalid") != 2 {
+		t.Errorf("lint_ignore_invalid should be reported for both: %#v", findings)
+	}
+}

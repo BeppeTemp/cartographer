@@ -84,13 +84,16 @@ concept_types: [Entity, Topic, Runbook]
 ontology_mode: strict          # strict | emergent | off
 required_fields: [timestamp]  # optional, required on every concept by lint
 required_fields.Runbook: [provenance] # optional, additive for this exact type
+field_values.status: [active, draft, deprecated, superseded] # optional, allowed values on every concept (D275)
+field_values.Incident.outcome: [open, mitigated, resolved]   # optional, per type; replaces the map-wide list for that field
+forbidden_fields: [state]            # optional, fields no concept may carry
 require_index_entry: true      # optional, require curated index membership
 machine_path_allow_prefixes: [/home/nonroot, /home/ubuntu/.cache/huggingface] # optional, operational path roots (D124)
 timestamp: 2026-06-25T10:00:00Z
 ---
 ```
 
-A **map** groups by theme, with mixed types (an Entity and a Topic from the same domain coexist: the type is a frontmatter attribute, not a position). A **journal** groups by chronology (dated concepts `YYYY-MM-DD-slug`, append-oriented). `ontology_mode`: `strict` (only `type`s in the palette), `emergent` (new types get registered in a manifest), `off` (no check). `required_fields` is a map-wide lint contract; `required_fields.<Type>` adds fields for an exact, case-sensitive type. `require_index_entry` requires every map concept in the map `index.md` and every satellite in its expanded owner's `index.md`. `machine_path_allow_prefixes` (D124) lists absolute path prefixes — POSIX or Windows drive-absolute — that the `machine_path` lint treats as this map's operational target paths (e.g. a container image's home directory) rather than client-local paths needing a `{{repo:<key>}}`/`{{path:<nome>}}` placeholder; see §Path portability placeholders in `docs/sync.md`. The server ships no default contract or domain vocabulary.
+A **map** groups by theme, with mixed types (an Entity and a Topic from the same domain coexist: the type is a frontmatter attribute, not a position). A **journal** groups by chronology (dated concepts `YYYY-MM-DD-slug`, append-oriented). `ontology_mode`: `strict` (only `type`s in the palette), `emergent` (new types get registered in a manifest), `off` (no check). `required_fields` is a map-wide lint contract; `required_fields.<Type>` adds fields for an exact, case-sensitive type. `field_values.<field>` restricts a frontmatter field to a list of exact strings (trimmed) on every concept; `field_values.<Type>.<field>` does the same for one type and **replaces** the map-wide list for that field. A list-valued field is valid only if every element is allowed, an absent field is not checked (presence is `required_fields`' job) and an empty allowed list is a malformed key. `forbidden_fields` lists fields no concept may carry (D275). `require_index_entry` requires every map concept in the map `index.md` and every satellite in its expanded owner's `index.md`. `machine_path_allow_prefixes` (D124) lists absolute path prefixes — POSIX or Windows drive-absolute — that the `machine_path` lint treats as this map's operational target paths (e.g. a container image's home directory) rather than client-local paths needing a `{{repo:<key>}}`/`{{path:<nome>}}` placeholder; see §Path portability placeholders in `docs/sync.md`. The server ships no default contract or domain vocabulary.
 
 Read-compat (D77): the legacy `_archive.md` descriptor (`type: Archive`, `archive_type`) remains readable and is treated as a Map with `kind: map`; it is never written again, and lint flags it (`legacy_archive_descriptor`) as a migration backlog item.
 
@@ -202,7 +205,7 @@ describes, so a KB's own "known false positives" page was impossible.
 Suppressible: `broken_link`, `machine_path`, `concept_oversize`, `stale_claim`, `imported_draft`,
 `secrets_on_non_service`, `orphan`, `missing_title`, `unknown_placeholder`, and the structural
 `cut_concept`, `link_to_retired`, `broken_relation`, `map_misfit`. **Not** suppressible: every `error`-severity check
-(`missing_required_field`, `expanded_ambiguous`) — those are contract violations, not judgements, and
+(`missing_required_field`, `invalid_field_value`, `forbidden_field`, `expanded_ambiguous`) — those are contract violations, not judgements, and
 letting a concept declare its own contract void would be a hole rather than an escape hatch — and the
 directory-level checks (`map_oversize`, `index_incomplete`, `expanded_*`, `orphan_asset`,
 `oversized_asset`, `unlistable_assets`, `unused_placeholder`), which belong to a map, an expanded concept or `paths.yaml` and have no single

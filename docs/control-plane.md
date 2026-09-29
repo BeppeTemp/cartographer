@@ -76,8 +76,8 @@ for that KB, with an error naming the tool, the KB and the setting. On the per-K
 
 | Tool | Purpose |
 |---|---|
-| `map_create(name, title, [kind], [concept_types], [ontology_mode], [required_fields], [required_fields_by_type], [require_index_entry], [machine_path_allow_prefixes])` | Creates a map (`kind: map`, default) or a journal (`kind: journal`): a directory with `_map.md`, `index.md`, `log.md`. The optional contract fields are serialized deterministically in its descriptor. The name `services` is reserved for the KB-root service-descriptor namespace and refused for every kind, before anything is written (an application error, no commit); this is unrelated to the `Service` concept type (D269). |
-| `map_update(map, [require_index_entry], [required_fields], [required_fields_by_type], [machine_path_allow_prefixes])` | Changes an existing map's lint contract and nothing else in `_map.md`: only the keys given change, an empty list or `false` removes one, and `required_fields_by_type` replaces every per-type key. How a map created without `require_index_entry` opts in, after which `concept_move` maintains its curated index and `lint` reports missing entries. A legacy `_archive.md` descriptor is refused. Returns the contract as read back. D229. |
+| `map_create(name, title, [kind], [concept_types], [ontology_mode], [required_fields], [required_fields_by_type], [field_values], [field_values_by_type], [forbidden_fields], [require_index_entry], [machine_path_allow_prefixes])` | Creates a map (`kind: map`, default) or a journal (`kind: journal`): a directory with `_map.md`, `index.md`, `log.md`. The optional contract fields are serialized deterministically in its descriptor. The name `services` is reserved for the KB-root service-descriptor namespace and refused for every kind, before anything is written (an application error, no commit); this is unrelated to the `Service` concept type (D269). |
+| `map_update(map, [require_index_entry], [required_fields], [required_fields_by_type], [field_values], [field_values_by_type], [forbidden_fields], [machine_path_allow_prefixes])` | Changes an existing map's lint contract and nothing else in `_map.md`: only the keys given change, an empty list or `false` removes one, and `required_fields_by_type`, `field_values` and `field_values_by_type` each replace every key of their kind (D275). How a map created without `require_index_entry` opts in, after which `concept_move` maintains its curated index and `lint` reports missing entries. A legacy `_archive.md` descriptor is refused. Returns the contract as read back. D229. |
 | `map_delete(map)` | Deletes a map/journal directory, but only if it holds nothing beyond the `map_create` scaffold (`_map.md`, `index.md`, `log.md`); if any concept remains, errors listing them — move them out with `concept_move` first, then retry (D88). |
 | `concept_expand(id)` | Promotes a concept to an expanded concept: `map/name.md` → `map/name/index.md`, **same ConceptID** (no backlink rewrite), from which it can grow with `map/name/child` satellites. Requires a 2-segment id; errors `not_found` / `already_expanded`. No inverse operation (D77). |
 | `asset_read(concept_id, path, [encoding])` **[R]** | Reads a non-Markdown asset inside an expanded concept. Returns content (`text` or base64; invalid UTF-8 is always base64), raw-byte `sha256`, size and executable mode. |
@@ -160,7 +160,7 @@ checks** — a figure and its documentation cannot drift apart.
 | 512 KiB aggregate per batch | `conceptBatchMaxTotalBytes` (same file) | `concept_batch` |
 | 500 lines per skill body | `maxSkillBodyLines` (`internal/skill/skill.go`) | skill lint (warning) |
 
-`required_fields`, `required_fields_by_type` and `require_index_entry` are **lint contracts, not
+`required_fields`, `required_fields_by_type`, `field_values`, `field_values_by_type`, `forbidden_fields` and `require_index_entry` are **lint contracts, not
 write gates**: a violation is a `lint`/`validate` finding and does not fail `concept_write`. The one
 map contract that *does* fail a write is `ontology_mode: strict`, which makes `validate` reject an
 out-of-vocabulary type. That asymmetry is what made the whole area confusing, so each description
@@ -215,7 +215,7 @@ the only search mode the server offers (D135).
   layout/depth rules and the allowed type palette of strict Maps.
 - `lint` reports deterministic findings. It does not generate typed graph
   edges or Contradiction concepts.
-- Contract findings are `missing_required_field` (error), `index_incomplete`
+- Contract findings are `missing_required_field`, `invalid_field_value`, `forbidden_field` (all error), `index_incomplete`
   (warning), and `contract_malformed` (info). A lint error makes `gate_check`
   fail; `commit_gate` remains contradiction-only.
 - When the KB has a `paths.yaml` (D263), a concept citing an undeclared
