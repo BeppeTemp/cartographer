@@ -850,7 +850,12 @@ func printApplySummary(dir string, results map[string]provisioning.AppliedResult
 	// One line for every placeholder no provider could resolve (D262), not
 	// one per provider and per occurrence: the same key missing for three
 	// clients is one problem with one fix.
-	if w := provisioning.UnresolvedPlaceholdersWarning(unresolvedAcross(results)); w != "" {
+	var ignored []string
+	if cfg, err := clientconfig.Load(dir); err == nil {
+		ignored = cfg.IgnoredPaths
+	}
+	unresolved, fresh := unresolvedAcross(results, ignored)
+	if w := provisioning.UnresolvedPlaceholdersWarning(unresolved, fresh); w != "" {
 		fmt.Printf("warning: %s\n", w)
 	}
 	// Two KBs declaring one key differently (D263): the same conflict for
@@ -867,16 +872,29 @@ func printApplySummary(dir string, results map[string]provisioning.AppliedResult
 }
 
 // unresolvedAcross unions the unresolved placeholders of every applied
-// projection. The reasons agree for one key across providers (same `paths:`,
-// same search roots), so which one is kept does not matter.
-func unresolvedAcross(results map[string]provisioning.AppliedResult) map[string]string {
-	out := map[string]string{}
+// projection, leaving out the ones the operator marked absent on this machine
+// (D282). The reasons agree for one key across providers (same `paths:`, same
+// search roots), so which one is kept does not matter. fresh holds the keys
+// that projection had not already recorded as unresolved at its previous sync:
+// only those are worth a line of detail.
+func unresolvedAcross(results map[string]provisioning.AppliedResult, ignored []string) (unresolved map[string]string, fresh map[string]bool) {
+	unresolved, fresh = map[string]string{}, map[string]bool{}
 	for _, r := range results {
+		prior := map[string]bool{}
+		for _, id := range r.PriorUnresolved {
+			prior[id] = true
+		}
 		for id, reason := range r.NewLock.UnresolvedPlaceholders {
-			out[id] = reason
+			if containsString(ignored, id) {
+				continue
+			}
+			unresolved[id] = reason
+			if !prior[id] {
+				fresh[id] = true
+			}
 		}
 	}
-	return out
+	return unresolved, fresh
 }
 
 // registryWarningsAcross is the sorted, de-duplicated union of every

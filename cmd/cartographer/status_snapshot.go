@@ -179,7 +179,11 @@ func snapshotUnresolvedPlaceholders(dir string) []placeholderRow {
 	if err != nil {
 		return nil
 	}
-	return unresolvedRows(lf)
+	var ignored []string
+	if cfg, err := clientconfig.Load(dir); err == nil {
+		ignored = cfg.IgnoredPaths
+	}
+	return unresolvedRows(lf, ignored)
 }
 
 // updateSnapshot is the `update` object of the status contract. Additive.

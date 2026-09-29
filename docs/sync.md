@@ -549,7 +549,12 @@ passing `cfg.SearchRoots`/`cfg.Paths`.
   client: escaped (`{{\repo:…}}`) and metasyntax keys (`<name>`, `...`, `…`) are never listed.
 - **Unresolved placeholder**: the text left as-is in the file — sync never blocks on a missing
   resolution. Reported as **one aggregated warning per sync** (not one per occurrence or per
-  provider), naming each key with its reason and the fix (`cartographer paths set <kind>:<key> <path>`).
+  provider) (D282): a single summary line (`N placeholder(s) not resolved on this machine …
+  cartographer paths list`), followed by detail only for the keys that were not already unresolved in
+  the lock the projection started from (`AppliedResult.PriorUnresolved`), with a reason shared by
+  several keys printed once and the two fixes, `cartographer paths set` and `cartographer paths
+  ignore`. A key the operator marked absent (`ignored_paths:` in `.cartographer.yaml`) is left out of
+  the warning and of `status`; it is still resolved like any other and still recorded in the lock.
 - **Placeholder state in the lock** (D262): each `Lock` records `resolved_placeholders` (key → local
   path), `unresolved_placeholders` (key → reason), `placeholder_sources` (key → citing KBs) and
   `placeholder_decls` (key → its `paths.yaml` declaration, D263), overwritten by every client-side

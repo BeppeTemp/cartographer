@@ -31,6 +31,9 @@ type placeholderRow struct {
 	// for the key (D263), empty when no bound KB declares it.
 	Description string `json:"description,omitempty"`
 	Default     string `json:"default,omitempty"`
+	// Ignored is set when the operator marked the key as absent on this
+	// machine (D282): it is still listed, but is not reported as a problem.
+	Ignored bool `json:"ignored,omitempty"`
 }
 
 // Resolved reports whether some projection resolved the key.
@@ -96,19 +99,20 @@ func placeholderRows(lf provisioning.LockFile) []placeholderRow {
 // unresolvedRowsOf is unresolvedRows over the new locks of one
 // materialization pass, before they are persisted (connect's placeholder
 // step reads them straight from the results).
-func unresolvedRowsOf(results map[string]provisioning.AppliedResult) []placeholderRow {
+func unresolvedRowsOf(results map[string]provisioning.AppliedResult, ignored []string) []placeholderRow {
 	lf := provisioning.LockFile{Providers: map[string]provisioning.Lock{}}
 	for key, r := range results {
 		lf.Providers[key] = r.NewLock
 	}
-	return unresolvedRows(lf)
+	return unresolvedRows(lf, ignored)
 }
 
-// unresolvedRows is placeholderRows narrowed to the keys nothing resolved.
-func unresolvedRows(lf provisioning.LockFile) []placeholderRow {
+// unresolvedRows is placeholderRows narrowed to the keys nothing resolved and
+// the operator did not mark absent on this machine (D282).
+func unresolvedRows(lf provisioning.LockFile, ignored []string) []placeholderRow {
 	var out []placeholderRow
 	for _, r := range placeholderRows(lf) {
-		if !r.Resolved() && r.Reason != "" {
+		if !r.Resolved() && r.Reason != "" && !containsString(ignored, r.Key) {
 			out = append(out, r)
 		}
 	}
@@ -159,6 +163,8 @@ func cmdPaths(args []string) int {
 		return cmdPathsList(args)
 	case "set":
 		return cmdPathsSet(args)
+	case "ignore":
+		return cmdPathsIgnore(args)
 	case "unset":
 		return cmdPathsUnset(args)
 	default:
@@ -170,13 +176,14 @@ func cmdPaths(args []string) int {
 func isHelpArg(a string) bool { return a == "-h" || a == "--help" || a == "help" }
 
 func printPathsUsage(w io.Writer) {
-	fmt.Fprintln(w, "Usage: cartographer paths [list [--json]] | set <key> <path> | unset <key>")
+	fmt.Fprintln(w, "Usage: cartographer paths [list [--json]] | set <key> <path> | ignore <key> | unset <key>")
 	fmt.Fprintln(w, "")
 	fmt.Fprintln(w, "  list            every placeholder key the last sync met, its KBs, and its path or failure reason")
 	fmt.Fprintln(w, "  set <key> <p>   record where <key> (repo:<name> or path:<name>) lives on this machine")
-	fmt.Fprintln(w, "  unset <key>     remove a recorded entry")
+	fmt.Fprintln(w, "  ignore <key>    mark <key> as absent on this machine: it stops being reported (listed as ignored)")
+	fmt.Fprintln(w, "  unset <key>     remove a recorded entry or an ignore, restoring the report")
 	fmt.Fprintln(w, "")
-	fmt.Fprintln(w, "set and unset edit paths: in .cartographer.yaml; apply them with: cartographer sync")
+	fmt.Fprintln(w, "set, ignore and unset edit .cartographer.yaml; apply them with: cartographer sync")
 }
 
 // cmdPathsList prints every key the lockfile records — no network call: it
@@ -199,6 +206,14 @@ func cmdPathsList(args []string) int {
 		return 1
 	}
 	rows := placeholderRows(lf)
+	// A missing config is not an error here: nothing is ignored yet.
+	var ignored []string
+	if cfg, err := clientconfig.Load(dir); err == nil {
+		ignored = cfg.IgnoredPaths
+	}
+	for i := range rows {
+		rows[i].Ignored = !rows[i].Resolved() && containsString(ignored, rows[i].Key)
+	}
 
 	if *asJSON {
 		out, _ := json.MarshalIndent(struct {
@@ -219,6 +234,8 @@ func cmdPathsList(args []string) int {
 		}
 		if r.Resolved() {
 			fmt.Printf("%s\t%s\t%s\n", r.Key, kbs, r.Path)
+		} else if r.Ignored {
+			fmt.Printf("%s\t%s\tIGNORED (absent on this machine)\n", r.Key, kbs)
 		} else {
 			unresolved++
 			fmt.Printf("%s\t%s\tUNRESOLVED: %s\n", r.Key, kbs, r.Reason)
@@ -234,7 +251,7 @@ func cmdPathsList(args []string) int {
 		}
 	}
 	if unresolved > 0 {
-		fmt.Printf("\n%d unresolved — record each with `cartographer paths set <key> <path>`, then run `cartographer sync`\n", unresolved)
+		fmt.Printf("\n%d unresolved — record each with `cartographer paths set <key> <path>` (or `cartographer paths ignore <key>` if it never exists here), then run `cartographer sync`\n", unresolved)
 	}
 	return 0
 }
@@ -264,6 +281,8 @@ func cmdPathsSet(args []string) int {
 		cfg.Paths = map[string]string{}
 	}
 	cfg.Paths[key] = value
+	// An explicit mapping supersedes an earlier "absent here" (D282).
+	cfg.IgnoredPaths = withoutIgnored(cfg.IgnoredPaths, key)
 	if err := clientconfig.Save(dir, cfg); err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		return 1
@@ -283,17 +302,77 @@ func cmdPathsUnset(args []string) int {
 	if code != 0 {
 		return code
 	}
-	if _, ok := cfg.Paths[key]; !ok {
-		fmt.Fprintf(os.Stderr, "Error: no %q entry under paths:\n", key)
+	_, hadPath := cfg.Paths[key]
+	remaining := withoutIgnored(cfg.IgnoredPaths, key)
+	hadIgnore := len(remaining) != len(cfg.IgnoredPaths)
+	if !hadPath && !hadIgnore {
+		fmt.Fprintf(os.Stderr, "Error: no %q entry under paths: and no ignored key of that name\n", key)
 		return 1
 	}
 	delete(cfg.Paths, key)
+	cfg.IgnoredPaths = remaining
 	if err := clientconfig.Save(dir, cfg); err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		return 1
 	}
 	fmt.Printf("paths: %s removed\n", key)
 	fmt.Println("apply it with: cartographer sync")
+	return 0
+}
+
+// withoutIgnored returns ignored minus the entries key names: "repo:<key>",
+// "path:<key>", or key itself (an unprefixed argument covers both kinds).
+func withoutIgnored(ignored []string, key string) []string {
+	var out []string
+	for _, id := range ignored {
+		if id == key || id == "repo:"+key || id == "path:"+key {
+			continue
+		}
+		out = append(out, id)
+	}
+	return out
+}
+
+// cmdPathsIgnore records that a key is deliberately absent on this machine
+// (D282). The stored id keeps its kind prefix, because the same slug can be a
+// repo on one KB and a path in another; an unprefixed argument is qualified
+// from the lockfile, and refused when that cannot be done unambiguously.
+func cmdPathsIgnore(args []string) int {
+	if len(args) != 1 || args[0] == "" {
+		fmt.Fprintln(os.Stderr, "Usage: cartographer paths ignore <key>")
+		return 2
+	}
+	key, kind := pathsConfigKey(args[0])
+	if key == "" {
+		fmt.Fprintln(os.Stderr, "Error: empty key")
+		return 2
+	}
+	dir, cfg, code := loadConfigForPaths()
+	if code != 0 {
+		return code
+	}
+	if kind == "" {
+		kind = recordedKind(dir, key)
+	}
+	if kind == "" {
+		fmt.Fprintf(os.Stderr, "Error: cannot tell whether %q is a repo or a path key — write repo:%s or path:%s\n", key, key, key)
+		return 2
+	}
+	if p, ok := cfg.Paths[key]; ok {
+		fmt.Fprintf(os.Stderr, "Error: %q is mapped to %s under paths: — run `cartographer paths unset %s` first\n", key, p, key)
+		return 1
+	}
+	id := kind + ":" + key
+	if !containsString(cfg.IgnoredPaths, id) {
+		cfg.IgnoredPaths = append(cfg.IgnoredPaths, id)
+		sort.Strings(cfg.IgnoredPaths)
+	}
+	if err := clientconfig.Save(dir, cfg); err != nil {
+		fmt.Fprintln(os.Stderr, "Error:", err)
+		return 1
+	}
+	fmt.Printf("paths: %s ignored (absent on this machine; still left verbatim)\n", id)
+	fmt.Println("restore the report with: cartographer paths unset " + id)
 	return 0
 }
 

@@ -50,10 +50,10 @@ func TestDoConnect_UnresolvedPlaceholderNonTTYPrintsFix(t *testing.T) {
 		t.Errorf("sources = %v, want [alpha]", got)
 	}
 	out := withStdout(t, func() { printConnectResult(dir, opts.Providers, opts, res) })
-	if !strings.Contains(out, "cartographer paths set path:x <path>") {
+	if !strings.Contains(out, "cartographer paths set <key> <path>") || !strings.Contains(out, "1 placeholder(s) not resolved") {
 		t.Errorf("non-TTY connect must print the fix command:\n%s", out)
 	}
-	if strings.Count(out, "path:x —") != 1 {
+	if strings.Count(out, "path:x") != 1 {
 		t.Errorf("the key must be reported once:\n%s", out)
 	}
 }
@@ -257,5 +257,107 @@ func TestPlaceholdersForProjection(t *testing.T) {
 	}
 	if got := cs.placeholdersForProjection(cfg, syncProjection{Provider: "claude", BundleOnly: true}); got != nil {
 		t.Errorf("bundle-only = %v, want nil", got)
+	}
+}
+
+// TestCmdPaths_IgnoreListUnsetAndSyncWarning: a key marked absent on this
+// machine (D282) drops out of the sync warning, `status` and the connect
+// step, is listed as ignored, and `unset` brings the warning back.
+func TestCmdPaths_IgnoreListUnsetAndSyncWarning(t *testing.T) {
+	home := t.TempDir()
+	setHome(t, home)
+	writeClientConfig(t, home, "future_key: kept\n")
+	lf := provisioning.LockFile{Providers: map[string]provisioning.Lock{
+		"claude": {
+			Provider:               "claude",
+			UnresolvedPlaceholders: map[string]string{"repo:work": "not found", "path:x": "no entry"},
+			PlaceholderSources:     map[string][]string{"repo:work": {"work-kb"}, "path:x": {"kb-a"}},
+		},
+	}}
+	if err := provisioning.WriteLockFile(lockFilePath(home), lf); err != nil {
+		t.Fatal(err)
+	}
+	results := map[string]provisioning.AppliedResult{"claude": {NewLock: lf.Providers["claude"]}}
+	warn := func() string {
+		return withStdout(t, func() { printApplySummary(home, results, false) })
+	}
+
+	// Unprefixed and unknown to the lock is refused; prefixed or known is fine.
+	if code := cmdPaths([]string{"ignore", "nothing"}); code != 2 {
+		t.Errorf("ignore of an unknown unprefixed key = %d, want 2", code)
+	}
+	if code := cmdPaths([]string{"ignore", "work"}); code != 0 {
+		t.Fatalf("ignore work = %d", code)
+	}
+	cfg, err := clientconfig.Load(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(cfg.IgnoredPaths, []string{"repo:work"}) {
+		t.Errorf("IgnoredPaths = %v", cfg.IgnoredPaths)
+	}
+	if data, _ := os.ReadFile(clientconfig.Path(home)); !strings.Contains(string(data), "future_key: kept") {
+		t.Errorf("an unknown key must survive the save:\n%s", data)
+	}
+
+	out := warn()
+	if !strings.Contains(out, "1 placeholder(s) not resolved") || strings.Contains(out, "repo:work") {
+		t.Errorf("an ignored key must leave the sync warning:\n%s", out)
+	}
+	if rows := snapshotUnresolvedPlaceholders(home); len(rows) != 1 || rows[0].Key != "path:x" {
+		t.Errorf("status rows = %+v", rows)
+	}
+
+	var listed struct {
+		Placeholders []placeholderRow `json:"placeholders"`
+	}
+	js := withStdout(t, func() { cmdPaths([]string{"list", "--json"}) })
+	if err := json.Unmarshal([]byte(js), &listed); err != nil {
+		t.Fatalf("not JSON: %s", js)
+	}
+	if len(listed.Placeholders) != 2 || !listed.Placeholders[1].Ignored || listed.Placeholders[0].Ignored {
+		t.Errorf("list --json = %+v", listed.Placeholders)
+	}
+	if txt := withStdout(t, func() { cmdPaths([]string{"list"}) }); !strings.Contains(txt, "IGNORED") || !strings.Contains(txt, "1 unresolved") {
+		t.Errorf("list must show the key as ignored and count one unresolved:\n%s", txt)
+	}
+
+	// A mapped key cannot be ignored; mapping an ignored key lifts the ignore.
+	if code := cmdPaths([]string{"set", "path:x", "/srv/x"}); code != 0 {
+		t.Fatal("set")
+	}
+	if code := cmdPaths([]string{"ignore", "path:x"}); code != 1 {
+		t.Errorf("ignore of a mapped key = %d, want 1", code)
+	}
+	if code := cmdPaths([]string{"set", "repo:work", "/srv/work"}); code != 0 {
+		t.Fatal("set")
+	}
+	if cfg, _ = clientconfig.Load(home); len(cfg.IgnoredPaths) != 0 {
+		t.Errorf("set must supersede the ignore: %v", cfg.IgnoredPaths)
+	}
+
+	// unset reverts an ignore.
+	cmdPaths([]string{"unset", "work"})
+	if code := cmdPaths([]string{"ignore", "repo:work"}); code != 0 {
+		t.Fatal("ignore")
+	}
+	if code := cmdPaths([]string{"unset", "repo:work"}); code != 0 {
+		t.Errorf("unset of an ignored key = %d", code)
+	}
+	if out := warn(); !strings.Contains(out, "2 placeholder(s) not resolved") {
+		t.Errorf("unset must restore the warning:\n%s", out)
+	}
+}
+
+// TestUnresolvedAcross_NewSinceLastSync: only the keys the projection had not
+// already recorded are "fresh" (D282).
+func TestUnresolvedAcross_NewSinceLastSync(t *testing.T) {
+	results := map[string]provisioning.AppliedResult{"claude": {
+		NewLock:         provisioning.Lock{UnresolvedPlaceholders: map[string]string{"path:old": "r", "path:new": "r", "path:off": "r"}},
+		PriorUnresolved: []string{"path:old"},
+	}}
+	un, fresh := unresolvedAcross(results, []string{"path:off"})
+	if len(un) != 2 || !fresh["path:new"] || fresh["path:old"] || fresh["path:off"] {
+		t.Errorf("unresolved=%v fresh=%v", un, fresh)
 	}
 }

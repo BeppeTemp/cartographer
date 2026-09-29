@@ -828,7 +828,7 @@ func doConnect(opts connectOptions) (connectResult, error) {
 		// instructions block is materialized once more so its table carries
 		// them; everything else is already in place and is a no-op.
 		if opts.PromptPaths && !opts.DryRun {
-			if rows := unresolvedRowsOf(applied); len(rows) > 0 {
+			if rows := unresolvedRowsOf(applied, existing.IgnoredPaths); len(rows) > 0 {
 				answers, err := runPathsForm(rows)
 				if err != nil {
 					return connectResult{}, fmt.Errorf("placeholder step: %w", err)

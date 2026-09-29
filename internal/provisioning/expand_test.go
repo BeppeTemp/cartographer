@@ -296,7 +296,7 @@ func TestApply_ExpandPlaceholders_UnresolvedWarnsAndLeavesLiteral(t *testing.T) 
 	if _, ok := res.NewLock.UnresolvedPlaceholders["path:missing"]; !ok {
 		t.Errorf("lock must record the unresolved placeholder: %v", res.NewLock.UnresolvedPlaceholders)
 	}
-	if w := UnresolvedPlaceholdersWarning(res.NewLock.UnresolvedPlaceholders); !strings.Contains(w, "cartographer paths set path:missing <path>") {
+	if w := UnresolvedPlaceholdersWarning(res.NewLock.UnresolvedPlaceholders, map[string]bool{"path:missing": true}); !strings.Contains(w, "cartographer paths set <key> <path>") || !strings.Contains(w, "path:missing") {
 		t.Errorf("aggregated warning must name the fix: %q", w)
 	}
 }
@@ -726,4 +726,58 @@ func TestExpandPlaceholders_LiteralAndMetasyntax(t *testing.T) {
 			t.Errorf("output = %q, want it unchanged", out)
 		}
 	})
+}
+
+// TestUnresolvedPlaceholdersWarning_CompactAndSharedReason: with nothing new
+// since the last sync the warning is one line however many keys are missing
+// (D282); with new keys, only they get detail, and the reason that differs
+// between two repo keys only by the key's own name is printed once.
+func TestUnresolvedPlaceholdersWarning_CompactAndSharedReason(t *testing.T) {
+	reason := func(k string) string {
+		return `repoindex: repo "` + k + `" not found within 4 directory levels of search roots [~/Documents ~/work] — raise search_depth (max 8)`
+	}
+	unresolved := map[string]string{
+		"repo:a": reason("a"), "repo:b": reason("b"), "repo:c": reason("c"),
+		"path:d": `no "d" entry under paths: (.cartographer.yaml)`,
+	}
+
+	quiet := UnresolvedPlaceholdersWarning(unresolved, nil)
+	if strings.Contains(quiet, "\n") {
+		t.Errorf("no new key: the warning must be one line:\n%s", quiet)
+	}
+	if !strings.HasPrefix(quiet, "4 placeholder(s) not resolved on this machine") || !strings.Contains(quiet, "cartographer paths list") {
+		t.Errorf("summary line = %q", quiet)
+	}
+
+	loud := UnresolvedPlaceholdersWarning(unresolved, map[string]bool{"repo:a": true, "repo:b": true, "path:d": true})
+	if strings.Contains(loud, "repo:c") {
+		t.Errorf("a key seen at the previous sync must not get detail:\n%s", loud)
+	}
+	if n := strings.Count(loud, "search roots [~/Documents ~/work]"); n != 1 {
+		t.Errorf("the shared reason must be printed once, got %d:\n%s", n, loud)
+	}
+	for _, want := range []string{"new since the last sync (3)", "repo:a", "repo:b", "path:d", "cartographer paths ignore <key>"} {
+		if !strings.Contains(loud, want) {
+			t.Errorf("missing %q:\n%s", want, loud)
+		}
+	}
+	if UnresolvedPlaceholdersWarning(nil, nil) != "" {
+		t.Error("nothing unresolved must print nothing")
+	}
+}
+
+// TestApply_RecordsPriorUnresolved: what the sync compares against to decide
+// which keys are new is the unresolved set of the lock it started from.
+func TestApply_RecordsPriorUnresolved(t *testing.T) {
+	m := Manifest{Revision: "r"}
+	res, err := Apply(m, ApplyOptions{
+		Provider: "claude", BaseDir: t.TempDir(), ExpandPlaceholders: true,
+		Lock: Lock{UnresolvedPlaceholders: map[string]string{"path:old": "x"}},
+	})
+	if err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	if len(res.PriorUnresolved) != 1 || res.PriorUnresolved[0] != "path:old" {
+		t.Errorf("PriorUnresolved = %v", res.PriorUnresolved)
+	}
 }
