@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "../App";
 import { graph, json, stubApi, openPanels } from "./fixtures";
@@ -32,10 +32,7 @@ describe("the shell boots", () => {
     // failure this test exists for.
     expect(await screen.findByRole("banner")).toBeInTheDocument();
     expect(await screen.findByRole("navigation", { name: /atlas navigation/i })).toBeInTheDocument();
-    await waitFor(() =>
-      expect(screen.getByRole("region", { name: /concepts in this view/i })).toBeInTheDocument(),
-    );
-    expect(screen.getByRole("button", { name: /infra\/a/ })).toBeInTheDocument();
+    expect(await screen.findByTestId("graph-view")).toBeInTheDocument();
   });
 
   it("lists the visible collections with their counts", async () => {

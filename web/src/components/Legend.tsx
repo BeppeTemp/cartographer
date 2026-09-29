@@ -1,6 +1,7 @@
 import type { GraphSnapshot } from "../api/types";
 import { OTHER_SLOT, type Communities } from "../lib/communities";
 import { shortLabel } from "../lib/encoding";
+import { nameOf } from "../lib/names";
 import { collectionHue, slotVar, type ColorBy } from "../lib/palette";
 
 /** Legend rows shown before the rest are summarised: past this a legend is a
@@ -32,7 +33,7 @@ export function Legend({
   onColorBy(value: ColorBy): void;
 }) {
   const { rows, tail } =
-    colorBy === "community" ? communityRows(communities) : collectionRows(snapshot);
+    colorBy === "community" ? communityRows(communities, snapshot) : collectionRows(snapshot);
   const shown = rows.slice(0, ROWS);
   const rest = rows.slice(ROWS).reduce((sum, row) => sum + row.count, tail);
 
@@ -79,18 +80,27 @@ export function Legend({
           </li>
         )}
       </ul>
+      {/* The size of what is drawn belongs with the key to it, not in the
+          navigation rail. */}
+      <p className="legend__meta">
+        {snapshot.nodes.length} node{snapshot.nodes.length === 1 ? "" : "s"} · {snapshot.edges.length} link
+        {snapshot.edges.length === 1 ? "" : "s"}
+      </p>
     </section>
   );
 }
 
-function communityRows(communities: Communities): { rows: Row[]; tail: number } {
+function communityRows(communities: Communities, snapshot: GraphSnapshot): { rows: Row[]; tail: number } {
+  // A community is named after its anchor: by the anchor's title, which a
+  // reader recognises, rather than its id's slug.
+  const titles = new Map(snapshot.nodes.map((n) => [n.id, nameOf(n)]));
   // Real communities get rows; singletons and the long tail share one neutral
   // and are only ever summed into the closing row.
   const rows: Row[] = [];
   let tail = 0;
   for (const c of communities.list) {
     if (c.slot === OTHER_SLOT) tail += c.size;
-    else rows.push({ key: `c${c.rank}`, slot: c.slot, label: shortLabel(c.anchor), count: c.size });
+    else rows.push({ key: `c${c.rank}`, slot: c.slot, label: titles.get(c.anchor) ?? shortLabel(c.anchor), count: c.size });
   }
   return { rows, tail };
 }

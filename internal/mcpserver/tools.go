@@ -2,6 +2,7 @@ package mcpserver
 
 import (
 	"crypto/ed25519"
+	"encoding/json"
 	"fmt"
 	"io/fs"
 	"os"
@@ -74,6 +75,9 @@ func RegisterKBTools(s *Server, k *kb.KB, deps Deps) {
 	// every search, pull and reindex after it applies only the delta.
 	rec := newSearchReconciler(k, deps.SQLIndex)
 	misses := newSearchMissLog(k)
+	s.uiSearch = func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
+		return handleSearch(ctx, k, rec, nil, deps, args)
+	}
 	if _, err := rec.reconcile(); err != nil {
 		fmt.Fprintf(os.Stderr, "cartographer: build search index: %v\n", err)
 	}

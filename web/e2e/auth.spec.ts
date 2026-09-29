@@ -1,17 +1,6 @@
 import type { Page, Response } from "@playwright/test";
 import { HIDDEN_IN_MAP, HIDDEN_OUT_OF_MAP } from "./fixture.mjs";
-import {
-  ADMIN_TOKEN,
-  AUTH_URL,
-  NARROW_TOKEN,
-  conceptRow,
-  expect,
-  listedConcepts,
-  signIn,
-  test,
-  waitForAtlas,
-  withPanelsOpen,
-} from "./support";
+import { ADMIN_TOKEN, AUTH_URL, expect, listedConcepts, NARROW_TOKEN, openConcept, signIn, test, waitForAtlas, withPanelsOpen } from "./support";
 
 test.use({ reducedMotion: "reduce" });
 test.beforeEach(({ page }) => withPanelsOpen(page));
@@ -74,7 +63,7 @@ test("the token reaches no URL, no localStorage, no console and no error body", 
   await page.getByRole("button", { name: "Open the atlas" }).click();
   await waitForAtlas(page);
   await page.getByRole("button", { name: /Infrastructure/ }).click();
-  await conceptRow(page, "infra/gateway").click();
+  await openConcept(page, "infra/gateway");
   await expect(page.getByRole("complementary", { name: "Inspector for infra/gateway" })).toBeVisible();
 
   const local = await page.evaluate(() => JSON.stringify({ ...localStorage }));

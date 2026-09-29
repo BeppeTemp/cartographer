@@ -1,0 +1,124 @@
+package mcpserver
+
+import (
+	"net/http"
+	"os"
+	"path/filepath"
+	"reflect"
+	"strings"
+	"testing"
+
+	"github.com/BeppeTemp/cartographer/internal/auth"
+	"github.com/BeppeTemp/cartographer/internal/okf"
+	"github.com/BeppeTemp/cartographer/internal/provisioning"
+)
+
+// homeUIHandler mounts the UI fixture with a "whole" and a "narrow" token and
+// one skill that references concepts in both Maps.
+func homeUIHandler(t *testing.T) http.Handler {
+	t.Helper()
+	k := uiFixtureKB(t, "docs")
+	skill := "---\nname: probe\ndescription: Reads the fixture\n---\nStart from [[visible/beta]], then visible/alpha.md and hidden/secret.\nNot a concept: visible/nope.\n"
+	full := filepath.Join(k.Root, "skills/probe/SKILL.md")
+	if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(full, []byte(skill), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ts := auth.NewScopedTokenStore([]auth.ScopedToken{
+		{Token: "whole", Policy: auth.Policy{Permissions: []auth.Permission{{KB: "docs"}}}},
+		{Token: "narrow", Policy: auth.Policy{Permissions: []auth.Permission{{KB: "docs", Maps: []string{"visible"}}}}},
+	})
+	multi := NewMultiKBServer("test")
+	multi.MountKB("docs", func(s *Server) { RegisterKBTools(s, k, Deps{MCPAllowlist: []provisioning.MCPAllowlistEntry{}}) })
+	multi.EnableWeb(nil)
+	return ts.Middleware(multi.Handler())
+}
+
+func TestUIAPI_SearchIsFilteredAndNeverRecordsAMiss(t *testing.T) {
+	handler := homeUIHandler(t)
+
+	if rr := getUI(t, handler, UIAPIPrefix+"/kbs/docs/search", "narrow"); rr.Code != http.StatusBadRequest {
+		t.Fatalf("search without q: status %d, want 400", rr.Code)
+	}
+	body := decodeUI(t, getUI(t, handler, UIAPIPrefix+"/kbs/docs/search?q=links", "narrow"))
+	var ids []string
+	for _, raw := range body["results"].([]interface{}) {
+		ids = append(ids, raw.(map[string]interface{})["id"].(string))
+	}
+	for _, id := range ids {
+		if strings.HasPrefix(id, "hidden/") {
+			t.Fatalf("narrowed search returned a hidden concept: %v", ids)
+		}
+	}
+	if len(ids) == 0 {
+		t.Fatal("narrowed search found nothing in its own Map")
+	}
+
+	// The reader types; what matches nothing is not a knowledge gap.
+	getUI(t, handler, UIAPIPrefix+"/kbs/docs/search?q=zzzunmatched", "whole")
+	status := decodeUI(t, getUI(t, handler, UIAPIPrefix+"/kbs/docs/status", "whole"))
+	if misses, ok := status["search_misses"]; ok {
+		t.Fatalf("a UI search was recorded as a miss: %v", misses)
+	}
+}
+
+func TestUIAPI_StatusIsAWholeKBResource(t *testing.T) {
+	handler := homeUIHandler(t)
+	if rr := getUI(t, handler, UIAPIPrefix+"/kbs/docs/status", "narrow"); rr.Code != http.StatusNotFound {
+		t.Fatalf("narrow status: %d, want 404", rr.Code)
+	}
+	if rr := getUI(t, handler, UIAPIPrefix+"/kbs/docs/status", "whole"); rr.Code != http.StatusOK {
+		t.Fatalf("whole status: %d: %s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestUIAPI_ChangesIsServedAndRejectsABadWindow(t *testing.T) {
+	handler := homeUIHandler(t)
+	rr := getUI(t, handler, UIAPIPrefix+"/kbs/docs/changes?since=7d", "narrow")
+	if rr.Code == http.StatusNotFound || rr.Code >= 500 {
+		t.Fatalf("changes: status %d: %s", rr.Code, rr.Body.String())
+	}
+	if rr.Code == http.StatusOK && strings.Contains(rr.Body.String(), "hidden/secret") {
+		t.Fatal("narrowed changes disclosed a hidden concept")
+	}
+	if rr := getUI(t, handler, UIAPIPrefix+"/kbs/docs/changes?since=yesterday-ish", "narrow"); rr.Code != http.StatusBadRequest {
+		t.Fatalf("bad since: status %d, want 400", rr.Code)
+	}
+}
+
+func TestUIAPI_ArtifactsCarryTheConceptsTheyReference(t *testing.T) {
+	handler := homeUIHandler(t)
+	detail := decodeUI(t, getUI(t, handler, UIAPIPrefix+"/kbs/docs/artifact?kind=skill&name=probe", "whole"))
+	var got []string
+	for _, raw := range detail["concepts"].([]interface{}) {
+		got = append(got, raw.(string))
+	}
+	want := []string{"hidden/secret", "visible/alpha", "visible/beta"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("concepts = %v, want %v (a missing id is never a reference)", got, want)
+	}
+
+	concept := decodeUI(t, getUI(t, handler, UIAPIPrefix+"/kbs/docs/concept?id=visible/alpha", "whole"))
+	usedBy, _ := concept["used_by"].([]interface{})
+	if len(usedBy) != 1 || usedBy[0].(map[string]interface{})["name"] != "probe" {
+		t.Fatalf("used_by = %v, want the probe skill", concept["used_by"])
+	}
+	// Artifacts are whole-KB resources: a narrowed principal learns nothing.
+	narrow := decodeUI(t, getUI(t, handler, UIAPIPrefix+"/kbs/docs/concept?id=visible/alpha", "narrow"))
+	if v := narrow["used_by"]; v != nil {
+		t.Fatalf("narrowed used_by = %v, want absent", v)
+	}
+}
+
+func TestArtifactConceptRefs(t *testing.T) {
+	exists := map[okf.ConceptID]struct{}{"a/b": {}, "c/d": {}, "e/f": {}}
+	a := kbArtifact{Files: []provisioning.ArtifactFile{
+		{Path: "SKILL.md", Content: []byte("See [[a/b|B]], c/d/index.md and e/f. Also x/y and /a/b.\n")},
+		{Path: "logo.bin", Content: []byte{0xff, 0xfe}},
+	}}
+	if got, want := artifactConceptRefs(a, exists), []string{"a/b", "c/d", "e/f"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("refs = %v, want %v", got, want)
+	}
+}

@@ -9,9 +9,8 @@ import {
   fetchLint,
   fetchOverview,
   restoreToken,
-  setToken,
-} from "./api/client";
-import type { ArtifactList, Concept, GraphSnapshot, KBSummary, LintReport, Overview } from "./api/types";
+  setToken, fetchStatus } from "./api/client";
+import type { ArtifactList, Concept, GraphSnapshot, KBSummary, LintReport, Overview, KBStatus } from "./api/types";
 import { Artifacts } from "./components/Artifacts";
 import { AuthPrompt } from "./components/AuthPrompt";
 import { CommandPalette } from "./components/CommandPalette";
@@ -21,22 +20,16 @@ import { LeftRail } from "./components/LeftRail";
 import { Legend } from "./components/Legend";
 import { Sheet, useMediaQuery } from "./components/Sheet";
 import { Splitter } from "./components/Splitter";
+import { Activity } from "./components/Activity";
 import { NodeList } from "./components/NodeList";
 import { Observatory } from "./components/Observatory";
 import { EmptyState, ErrorState, Skeleton } from "./components/States";
-import { Icon } from "./components/Icon";
 import { TopBar } from "./components/TopBar";
 import { applyTheme, onSystemThemeChange, prefersReducedMotion, readTheme, useAppliedTheme, type Theme } from "./lib/theme";
 import { initialMotion } from "./lib/graph3d/motion";
 import { hasWebGL } from "./lib/webgl";
-import { communitySlot, snapshotCommunities, type Communities } from "./lib/communities";
-import {
-  collectionHue,
-  readColorBy,
-  slotVar,
-  writeColorBy,
-  type ColorBy,
-} from "./lib/palette";
+import { snapshotCommunities, type Communities } from "./lib/communities";
+import { readColorBy, writeColorBy, type ColorBy } from "./lib/palette";
 import { pushView, readViewState, replaceView, type ViewState } from "./lib/viewstate";
 import {
   INSPECTOR_DEFAULT,
@@ -57,8 +50,6 @@ const NO_COMMUNITIES: Communities = { rankOf: new Map(), list: [] };
 /** Below this width the rail and the inspector become modal sheets. Kept in
  *  step with the max-width: 1023px media queries in the stylesheets. */
 const NARROW_QUERY = "(max-width: 1023px)";
-/** The concept list: its width plus the gutter it floats in. */
-const LIST_OCCLUSION = 332;
 
 export function App() {
   const [phase, setPhase] = useState<Phase>("booting");
@@ -96,7 +87,9 @@ export function App() {
   const [railCollapsed, setRailCollapsed] = useState(() =>
     readPanel("rail", !(window.matchMedia?.("(min-width: 1200px)").matches ?? false)),
   );
-  const [listOpen, setListOpen] = useState(() => readPanel("list", false));
+  // kb_status's knowledge signals for the Observatory; a principal that
+  // cannot see the whole KB gets a 404 and the section is simply absent.
+  const [kbStatus, setKbStatus] = useState<KBStatus | null>(null);
   const [motion, setMotion] = useState(() => initialMotion(readPanel("motion", true), prefersReducedMotion()));
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [preview, setPreview] = useState<string | null>(null);
@@ -161,7 +154,6 @@ export function App() {
   }, [theme]);
   useEffect(() => writeColorBy(colorBy), [colorBy]);
   useEffect(() => writePanel("rail", railCollapsed), [railCollapsed]);
-  useEffect(() => writePanel("list", listOpen), [listOpen]);
   const toggleMotion = useCallback(() => {
     setMotion((on) => {
       writePanel("motion", !on);
@@ -364,6 +356,16 @@ export function App() {
     replaceView(next);
   }, [view, activeKB, kbs, artifactsAllowed]);
 
+  useEffect(() => {
+    setKbStatus(null);
+    if (view.panel !== "observatory" || !activeKB || phase !== "ready") return;
+    const controller = new AbortController();
+    fetchStatus(activeKB, controller.signal)
+      .then(setKbStatus)
+      .catch(() => undefined);
+    return () => controller.abort();
+  }, [view.panel, activeKB, phase, reloadKey]);
+
   // --- Derived view ---
 
   // Worst severity per concept: the graph tints a node by it, so "error"
@@ -417,12 +419,19 @@ export function App() {
     [snapshot],
   );
 
-  const swatchFor = useCallback(
-    (id: string, collection: string | undefined) =>
-      slotVar(
-        colorBy === "community" ? communitySlot(communities, id) : collectionHue(collection ?? ""),
-      ),
-    [colorBy, communities],
+  // Skills, agents and hooks that reference concepts: what the atlas can
+  // draw as diamonds. Templates and instructions have no single concept.
+  const graphArtifacts = useMemo(
+    () =>
+      (artifacts?.artifacts ?? [])
+        .filter((a) => (a.kind === "skill" || a.kind === "agent" || a.kind === "hook") && a.concepts?.length)
+        .map((a) => ({ kind: a.kind, name: a.name, concepts: a.concepts! })),
+    [artifacts],
+  );
+
+  const nodeTitles = useMemo(
+    () => new Map((snapshot?.nodes ?? []).filter((n) => n.title).map((n) => [n.id, n.title!])),
+    [snapshot],
   );
 
   // Ctrl/Cmd+K anywhere, Escape to clear the selection.
@@ -431,7 +440,10 @@ export function App() {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
         event.preventDefault();
         setPaletteOpen(true);
-      } else if (event.key === "Escape" && !paletteOpen) {
+      } else if (event.key === "Escape" && !paletteOpen && !event.defaultPrevented) {
+        // An Escape a dialog already handled (the palette closing itself) is
+        // not also a request to drop the selection: by the time it bubbles
+        // here, paletteOpen may already read false.
         setView((current) => {
           if (!current.concept) return current;
           const next = { ...current, concept: null };
@@ -507,7 +519,6 @@ export function App() {
   const rail = (inSheet: boolean) => (
     <LeftRail
       overview={overview}
-      snapshot={snapshot}
       scope={view.scope}
       panel={view.panel}
       artifactsTotal={artifactsAllowed ? (artifacts?.artifacts.length ?? 0) : null}
@@ -533,15 +544,6 @@ export function App() {
     />
   );
 
-  const nodeList = (
-    <NodeList
-      nodes={visibleNodes}
-      selected={view.concept}
-      onSelect={selectConcept}
-      swatchFor={swatchFor}
-    />
-  );
-
   const inspector = (
     <Inspector
       conceptId={view.concept}
@@ -549,6 +551,8 @@ export function App() {
       error={conceptError}
       loading={conceptLoading}
       findings={view.concept ? (findingsByConcept.get(view.concept) ?? []) : []}
+      titleOf={(id) => nodeTitles.get(id)}
+      onOpenArtifact={(kind, name) => navigate({ panel: "artifacts", artifact: `${kind}/${name}` })}
       onNavigate={selectConcept}
       onPreview={setPreview}
       onClose={closeInspector}
@@ -578,6 +582,7 @@ export function App() {
         onKBChange={(name) => navigate({ kb: name, scope: null, concept: null, artifact: null })}
         onThemeChange={setTheme}
         onOpenPalette={() => setPaletteOpen(true)}
+        onHome={() => navigate({ panel: "atlas", concept: null, artifact: null })}
         onOpenNav={() => setSheet("nav")}
         onOpenInspector={() => setSheet("inspector")}
       />
@@ -597,9 +602,16 @@ export function App() {
               title="No Knowledge Base is visible"
               detail="This server has no KB mounted that your token can read."
             />
+          ) : view.panel === "activity" && activeKB ? (
+            <Activity
+              kb={activeKB}
+              snapshot={snapshot}
+              onOpen={(conceptId) => navigate({ panel: "atlas", concept: conceptId })}
+            />
           ) : view.panel === "observatory" ? (
             <Observatory
               report={lint}
+              status={kbStatus}
               scopeTitle={
                 view.scope
                   ? (overview?.collections.find((c) => c.name === view.scope)?.title || view.scope)
@@ -624,6 +636,14 @@ export function App() {
               selected={view.artifact}
               narrow={narrow}
               onSelect={(artifact) => navigate({ artifact })}
+              titleOf={(id) => nodeTitles.get(id)}
+              typeCount={(type) => overview?.concepts.by_type[type] ?? 0}
+              onOpenConcept={(id) => navigate({ panel: "atlas", concept: id, artifact: null })}
+              onFilterType={(type) => {
+                setTypeFilter(new Set([type]));
+                setStatusFilter(new Set());
+                navigate({ panel: "atlas", concept: null, artifact: null });
+              }}
               onRetry={() => setReloadKey((k) => k + 1)}
               onFailure={handleFailure}
             />
@@ -651,10 +671,15 @@ export function App() {
                       the list and the search, and the inspector shows its links.
                     </p>
                   </div>
+                  {/* Without a canvas the list is the only way to browse the
+                      atlas; with one, Ctrl/Cmd+K is the keyboard path. */}
+                  <NodeList nodes={visibleNodes} selected={view.concept} onSelect={selectConcept} />
                 </div>
               ) : (
                 <GraphView
                   snapshot={snapshot}
+                  artifacts={graphArtifacts}
+                  onOpenArtifact={(kind, name) => navigate({ panel: "artifacts", artifact: `${kind}/${name}` })}
                   communities={communities}
                   colorBy={colorBy}
                   selected={view.concept}
@@ -665,7 +690,6 @@ export function App() {
                   live={motion}
                   onToggleLive={toggleMotion}
                   occludedRight={!narrow && view.concept ? inspectorWidth : 0}
-                  occludedLeft={!narrow && listOpen ? LIST_OCCLUSION : 0}
                   onSelect={selectConcept}
                   onExpand={expandConcept}
                   onUnavailable={markWebglLost}
@@ -678,22 +702,6 @@ export function App() {
                   />
                 </GraphView>
               )}
-              {!narrow && (
-                <div className="graph-toolbar">
-                  <button
-                    type="button"
-                    className="button graph-toolbar__toggle"
-                    aria-pressed={listOpen}
-                    aria-controls="concept-list"
-                    onClick={() => setListOpen((open) => !open)}
-                  >
-                    <Icon name="list" />
-                    Concepts
-                    <span className="graph-toolbar__count">{visibleNodes.length}</span>
-                  </button>
-                </div>
-              )}
-              {!narrow && listOpen && <div id="concept-list" className="overlay overlay--list">{nodeList}</div>}
             </>
           )}
         </main>
@@ -723,7 +731,6 @@ export function App() {
       {narrow && sheet === "nav" && (
         <Sheet side="start" label="Navigation" onClose={() => setSheet(null)}>
           {rail(true)}
-          {snapshot && view.panel === "atlas" && nodeList}
         </Sheet>
       )}
       {narrow && sheet === "inspector" && view.panel === "atlas" && (
@@ -734,6 +741,7 @@ export function App() {
 
       <CommandPalette
         open={paletteOpen}
+        kb={activeKB}
         nodes={visibleNodes}
         onClose={() => setPaletteOpen(false)}
         onSelect={selectConcept}

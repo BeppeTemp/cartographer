@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import type { LintReport } from "../api/types";
+import type { KBStatus, LintReport } from "../api/types";
 import { SeverityBadge } from "./SeverityBadge";
 import { EmptyState, ErrorState, Skeleton } from "./States";
 
@@ -46,6 +46,7 @@ function plural(n: number, word: string): string {
  */
 export function Observatory({
   report,
+  status = null,
   scopeTitle,
   loading,
   error,
@@ -57,6 +58,9 @@ export function Observatory({
   report: LintReport | null;
   /** Title of the Map or Journal the findings are scoped to; null = whole KB. */
   scopeTitle: string | null;
+  /** kb_status's knowledge signals (gaps, misses, stale pages); null when
+   *  the principal cannot see the whole KB or it has not arrived. */
+  status?: KBStatus | null;
   loading: boolean;
   error: unknown;
   severityMin: string;
@@ -171,6 +175,8 @@ export function Observatory({
         ))
       )}
 
+      <Knowledge status={status} onReveal={onReveal} />
+
       {checks.length > 0 && (
         <details className="observatory__checks">
           <summary>Findings by check</summary>
@@ -187,5 +193,75 @@ export function Observatory({
         </details>
       )}
     </section>
+  );
+}
+
+/**
+ * What the KB does not know, beside what is wrong with it: the knowledge gaps
+ * agents recorded, the searches that found nothing, and the pages past their
+ * review date. Lint says a page is malformed; these say a page is missing or
+ * stale -- the other half of what a maintainer comes to the Observatory for.
+ */
+function Knowledge({
+  status,
+  onReveal,
+}: {
+  status: KBStatus | null;
+  onReveal(concept: string | null, message: string): void;
+}) {
+  if (!status) return null;
+  const gaps = status.open_gaps;
+  const misses = status.search_misses ?? [];
+  const stale = status.stale_count ?? 0;
+  if (!gaps?.total && misses.length === 0 && stale === 0) return null;
+  return (
+    <>
+      {!!gaps?.total && (
+        <section className="observatory__group" aria-labelledby="obs-gaps">
+          <h2 className="observatory__group-title" id="obs-gaps">
+            Open knowledge gaps
+            <span className="observatory__group-count">{gaps.total}</span>
+          </h2>
+          <ul className="observatory__findings">
+            {(gaps.recent ?? []).map((g) => (
+              <li key={g.id}>
+                <button type="button" className="observatory__finding" onClick={() => onReveal(g.id, "")}>
+                  <span className="observatory__body">
+                    <span className="observatory__message">{g.title || g.id}</span>
+                    <span className="observatory__meta">
+                      <code className="observatory__check">{(g.kind ?? "gap").replace(/_/g, " ")}</code>
+                      <code className="observatory__path">{g.id}</code>
+                    </span>
+                  </span>
+                  <span className="observatory__go">Open concept</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+      {misses.length > 0 && (
+        <section className="observatory__group" aria-labelledby="obs-misses">
+          <h2 className="observatory__group-title" id="obs-misses">
+            Searched for, not found
+            <span className="observatory__group-count">{misses.length}</span>
+          </h2>
+          <p className="observatory__note">What agents searched for in the last 30 days and the KB could not answer.</p>
+          <ul className="observatory__misses">
+            {misses.map((m) => (
+              <li key={m.query} className="chip">
+                {m.query}
+                <span className="chip__count">{m.count}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+      {stale > 0 && (
+        <p className="observatory__note observatory__stale">
+          {stale === 1 ? "One concept is" : `${stale} concepts are`} past its review date (<code>review_after</code>).
+        </p>
+      )}
+    </>
   );
 }

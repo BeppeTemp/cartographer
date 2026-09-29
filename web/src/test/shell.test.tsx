@@ -54,12 +54,12 @@ async function tabUntil(
 }
 
 describe("keyboard traversal", () => {
-  it("goes shell -> filters -> node list -> inspector and back", async () => {
+  it("goes shell -> filters -> search -> inspector and back", async () => {
     viewport(false);
     stubApi();
     const user = userEvent.setup();
     render(<App />);
-    await screen.findByRole("button", { name: /infra\/a/ });
+    await screen.findByTestId("graph-view");
     await screen.findByRole("button", { name: /^Service/ });
 
     // Shell first: the skip link and the top bar come before anything else.
@@ -74,24 +74,21 @@ describe("keyboard traversal", () => {
     await user.keyboard("{Enter}");
     expect(chip).toHaveAttribute("aria-pressed", "false");
 
-    // Then the node list, which exposes the same selection as the canvas.
-    const row = await tabUntil(user, (el) => el.getAttribute("data-concept-id") === "infra/a");
-    await user.keyboard("{Enter}");
-    expect(await screen.findByRole("complementary", { name: /inspector for infra\/a/i })).toBeInTheDocument();
-    expect(row).toHaveAttribute("aria-current", "true");
+    // Then the search, which exposes the same selection as the canvas: the
+    // keyboard path to every concept.
+    await user.keyboard("{Control>}k{/Control}");
+    expect(screen.getByRole("dialog", { name: /search concepts/i })).toBeInTheDocument();
+    await user.keyboard("infra/a{Enter}");
+    const inspector = await screen.findByRole("complementary", { name: /inspector for infra\/a/i });
 
-    // Onward into the inspector...
-    const inspector = screen.getByRole("complementary", { name: /inspector for infra\/a/i });
+    // Onward into the inspector.
     const inside = await tabUntil(user, (el) => inspector.contains(el));
     expect(inside).toBeInTheDocument();
 
-    // ...and back to the node list.
-    await tabUntil(user, (el) => el.hasAttribute("data-concept-id"), { shift: true });
-
-    // Closing the inspector returns focus to the concept's row, not to <body>.
+    // Closing the inspector leaves focus on the main region, not on <body>.
     screen.getByRole("button", { name: /close inspector/i }).focus();
     await user.keyboard("{Enter}");
-    await waitFor(() => expect(document.activeElement).toBe(row));
+    await waitFor(() => expect(document.activeElement).toBe(document.getElementById("main")));
   });
 });
 
@@ -110,10 +107,6 @@ describe("narrow layout", () => {
     const sheet = screen.getByRole("dialog", { name: /navigation/i });
     expect(sheet).toHaveAttribute("aria-modal", "true");
     expect(within(sheet).getByRole("navigation", { name: /atlas navigation/i })).toBeInTheDocument();
-    // The node list travels with it, so every node stays reachable.
-    await waitFor(() =>
-      expect(within(sheet).getByRole("button", { name: /infra\/a/ })).toBeInTheDocument(),
-    );
     expect(sheet.contains(document.activeElement)).toBe(true);
 
     // Tab never leaves the sheet.
@@ -133,9 +126,9 @@ describe("narrow layout", () => {
     const user = userEvent.setup();
     render(<App />);
 
-    await user.click(await screen.findByRole("button", { name: /open navigation/i }));
-    const nav = screen.getByRole("dialog", { name: /navigation/i });
-    await user.click(await within(nav).findByRole("button", { name: /infra\/a/ }));
+    await screen.findByTestId("graph-view");
+    await user.keyboard("{Control>}k{/Control}");
+    await user.keyboard("infra/a{Enter}");
 
     const sheet = await screen.findByRole("dialog", { name: /inspector/i });
     expect(

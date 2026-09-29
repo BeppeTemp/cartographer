@@ -218,7 +218,6 @@ describe("left rail outside the Atlas", () => {
   const rail = (panel: "atlas" | "observatory" | "artifacts") => (
     <LeftRail
       overview={overview}
-      snapshot={null}
       scope={null}
       panel={panel}
       artifactsTotal={null}

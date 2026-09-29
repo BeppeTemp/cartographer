@@ -61,21 +61,16 @@ describe("2,000-node budget fixture", () => {
         "/graph": () => json(FIXTURE),
         "/concept": () => new Promise<Response>(() => {}) as unknown as Response,
       });
+      // Selected through the search, the keyboard path to a concept: plain
+      // selectors, not *ByRole, which would compute every accessible name.
       const user = userEvent.setup();
       render(<App />);
-      // Plain selectors, not *ByRole: role queries compute every accessible
-      // name in a 2,000-row list, which on a CI runner alone blows the test
-      // timeout -- the cost is jsdom's, not the UI's.
       const id = FIXTURE.nodes[0]!.id;
-      const row = await waitFor(
-        () => {
-          const el = document.querySelector<HTMLElement>(`[data-concept-id="${CSS.escape(id)}"]`);
-          if (!el) throw new Error(`row ${id} not rendered yet`);
-          return el;
-        },
-        { timeout: 10000 },
-      );
-      await user.click(row);
+      await waitFor(() => expect(document.querySelector("[data-testid=graph-view]")).not.toBeNull(), {
+        timeout: 10000,
+      });
+      await user.keyboard("{Control>}k{/Control}");
+      await user.keyboard(`${id}{Enter}`);
       await waitFor(() =>
         expect(document.querySelector(`aside[aria-label="Inspector for ${id}"]`)).not.toBeNull(),
       );

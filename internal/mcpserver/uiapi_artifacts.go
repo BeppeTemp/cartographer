@@ -6,6 +6,7 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/kb"
+	"github.com/BeppeTemp/cartographer/internal/okf"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
 )
 
@@ -43,15 +44,18 @@ type uiArtifact struct {
 	Signed      *bool              `json:"signed,omitempty"`
 	Clients     []uiArtifactClient `json:"clients"`
 	Files       []uiArtifactFile   `json:"files"`
+	// Concepts the artifact references explicitly (uiapi_artifactrefs.go).
+	Concepts []string `json:"concepts"`
 }
 
-func uiArtifactFrom(a kbArtifact, withContent bool) uiArtifact {
+func uiArtifactFrom(a kbArtifact, withContent bool, exists map[okf.ConceptID]struct{}) uiArtifact {
 	out := uiArtifact{
 		Kind:        a.Kind,
 		Name:        a.Name,
 		Description: a.description(),
 		Clients:     []uiArtifactClient{},
 		Files:       []uiArtifactFile{},
+		Concepts:    artifactConceptRefs(a, exists),
 	}
 	if a.Manifest != nil {
 		signed := a.Manifest.Signed
@@ -97,10 +101,15 @@ func (m *MultiKBServer) uiArtifacts(w http.ResponseWriter, r *http.Request, srv 
 		writeUIInternal(w, "artifacts", err)
 		return
 	}
+	exists, err := conceptIDSet(srv.kbRef)
+	if err != nil {
+		writeUIInternal(w, "artifacts: concepts", err)
+		return
+	}
 	list := make([]uiArtifact, 0, len(catalog.Artifacts))
 	counts := map[string]int{}
 	for _, a := range catalog.Artifacts {
-		list = append(list, uiArtifactFrom(a, false))
+		list = append(list, uiArtifactFrom(a, false, exists))
 		counts[a.Kind]++
 	}
 	issues := catalog.Issues
@@ -134,9 +143,14 @@ func (m *MultiKBServer) uiArtifact(w http.ResponseWriter, r *http.Request, srv *
 		writeUIInternal(w, "artifact", err)
 		return
 	}
+	exists, err := conceptIDSet(srv.kbRef)
+	if err != nil {
+		writeUIInternal(w, "artifact: concepts", err)
+		return
+	}
 	for _, a := range catalog.Artifacts {
 		if a.Kind == kind && a.Name == name {
-			writeUIJSON(w, http.StatusOK, uiArtifactFrom(a, true))
+			writeUIJSON(w, http.StatusOK, uiArtifactFrom(a, true, exists))
 			return
 		}
 	}
