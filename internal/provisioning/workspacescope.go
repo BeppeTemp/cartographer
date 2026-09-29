@@ -419,7 +419,7 @@ func FilterForProviderScoped(m Manifest, provider configurator.Provider, scope S
 	}
 	var out Manifest
 	for _, a := range m.Artifacts {
-		if destDirScoped(a.Kind, a.Name, provider, scope) != "" {
+		if destDirScoped(a.Kind, a.Name, provider, scope) != "" && !strictAgentSkipped(a, provider) {
 			out.Artifacts = append(out.Artifacts, a)
 		}
 	}

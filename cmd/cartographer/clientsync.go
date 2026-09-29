@@ -527,10 +527,16 @@ func pullTarget(c *client.MCPClient, target kbTarget) pullResult {
 		if got := provisioning.ContentHashFiles(files); got != pa.ContentHash {
 			return pullResult{err: fmt.Errorf("sync_pull: content hash mismatch for %s/%s", pa.Kind, pa.Name)}
 		}
-		arts = append(arts, provisioning.Artifact{
+		art := provisioning.Artifact{
 			Kind: pa.Kind, Name: pa.Name, Source: pa.Source, Version: pa.Version,
 			ContentHash: pa.ContentHash, BuiltIn: pa.BuiltIn, Signature: pa.Signature, Files: files,
-		})
+		}
+		if art.Kind == "agent" && len(files) == 1 {
+			// Derived here rather than sent (D283): a restriction the target
+			// client cannot express is a client-side fact.
+			art.Restriction = provisioning.ParseAgentRestriction(files[0].Content)
+		}
+		arts = append(arts, art)
 	}
 	return pullResult{artifacts: arts, placeholders: pm.Placeholders, pathRegistry: pm.PathRegistry}
 }

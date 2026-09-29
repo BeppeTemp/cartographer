@@ -96,6 +96,13 @@ the citation lives next to it in `internal/provisioning/workspacescope.go`.
 | Hermes | **none** | its configuration is rendered by its own Ansible role and skills go to one inbox (D141) |
 | Antigravity | **none** | only a global configuration root is documented (D194) |
 
+A subagent's `tools` allow-list is enforced by Claude Code only. The other
+clients receive the agent without it, and therefore with every tool that client
+has; each `sync` warns per agent, and `strict_tools: true` in the agent's
+frontmatter skips it on those clients instead
+([D283](decisions/D283-a-dropped-tools-allow-list-is-reported-and-can-opt-out.md)).
+There is no per-client way to write a native restriction through Cartographer.
+
 Two consequences are worth stating plainly. Kiro receives subagents in both
 scopes since [D195](decisions/D195-kiro-receives-subagents-its-hooks-are-documented-but.md) but keeps an
 `unsupported` hook cell, because the shipped client has no hook mechanism at

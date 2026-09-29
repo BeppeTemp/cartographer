@@ -54,6 +54,13 @@ type Artifact struct {
 	// manifest exposed by sync_check/sync_apply/sync_pull (that uses dedicated
 	// structures).
 	Files []ArtifactFile `json:"-"`
+
+	// Restriction is what an "agent" artifact's source declares that a
+	// non-Claude client cannot express (D283). Derived from the source content
+	// by whoever builds the Artifact (BuildManifest, the client's sync_pull
+	// decoding), never sent on the wire: nil for every other kind and for an
+	// agent that declares no `tools`.
+	Restriction *AgentRestriction `json:"-"`
 }
 
 // BuildOptions controls manifest construction. Signers is keyed by mounted KB
@@ -648,12 +655,16 @@ func BuildManifest(bundleFS fs.FS, kbRoots map[string]string, opts BuildOptions)
 				if err != nil {
 					return Manifest{}, fmt.Errorf("provisioning: hash kb:%s/agents/%s: %w", kbName, name, err)
 				}
-				artifacts = append(artifacts, Artifact{
+				agent := Artifact{
 					Kind:        "agent",
 					Name:        name,
 					Source:      "kb:" + kbName,
 					ContentHash: hash,
-				})
+				}
+				if raw, rerr := os.ReadFile(filepath.Join(agentsDir, e.Name())); rerr == nil {
+					agent.Restriction = ParseAgentRestriction(raw)
+				}
+				artifacts = append(artifacts, agent)
 			}
 		}
 
@@ -1524,7 +1535,7 @@ func ComputeDiff(m Manifest, lock Lock) Diff {
 func FilterForProvider(m Manifest, provider configurator.Provider) Manifest {
 	var out Manifest
 	for _, a := range m.Artifacts {
-		if destDir(a.Kind, a.Name, provider) != "" {
+		if destDir(a.Kind, a.Name, provider) != "" && !strictAgentSkipped(a, provider) {
 			out.Artifacts = append(out.Artifacts, a)
 		}
 	}
@@ -1789,6 +1800,18 @@ func Apply(m Manifest, opts ApplyOptions) (AppliedResult, error) {
 			result.Unsupported = append(result.Unsupported, a)
 			continue
 		}
+		if strictAgentSkipped(a, opts.Provider) {
+			// A restricted agent that opted out of being widened (D283):
+			// not written here, and whatever an earlier sync wrote for it
+			// leaves with it.
+			result.Unsupported = append(result.Unsupported, a)
+			for _, mf := range opts.Lock.Managed {
+				if mf.Kind == a.Kind && mf.Name == a.Name {
+					orphaned = append(orphaned, mf)
+				}
+			}
+			continue
+		}
 
 		var relPaths []string
 		// materializedHash is the hash of the bytes written to disk (D138);
@@ -1965,6 +1988,7 @@ func Apply(m Manifest, opts ApplyOptions) (AppliedResult, error) {
 
 	result.Warnings = append(result.Warnings, tracker.warnings...)
 	result.Warnings = append(result.Warnings, unsupportedKindWarnings(m, opts.Provider)...)
+	result.Warnings = append(result.Warnings, widenedAgentWarnings(m, opts)...)
 
 	// Prune: remove stale managed entries from BaseDir. The "instructions" kind
 	// is excluded: removing it with the generic logic (one file per
@@ -2391,6 +2415,29 @@ func instructionsOrderChanged(previous []ManagedFile, newOrder []Artifact) bool 
 	return false
 }
 
+// widenedAgentWarnings names, on every run, each KB agent that declares a
+// `tools` allow-list this provider drops (D283): in Claude Code an omitted
+// `tools` means every tool, so the agent installed here is broader than the
+// one its description promises. Computed from the manifest like
+// unsupportedKindWarnings, so a widened agent is not reported once and then
+// forgotten. An artifact not installed (awaiting approval, or skipped by
+// strict_tools) is not reported: nothing was widened.
+func widenedAgentWarnings(m Manifest, opts ApplyOptions) []string {
+	var out []string
+	for _, a := range m.Artifacts {
+		if !agentWidened(a, opts.Provider) || a.Restriction.Strict {
+			continue
+		}
+		if destDirScoped(a.Kind, a.Name, opts.Provider, opts.Scope) == "" || !artifactAuthorized(a, opts) {
+			continue
+		}
+		out = append(out, fmt.Sprintf(
+			"agent %q declares tools: %s; %s cannot express that restriction, so it receives the agent unrestricted (add `strict_tools: true` to its frontmatter to skip it there instead)",
+			a.Name, a.Restriction.Tools, opts.Provider))
+	}
+	return out
+}
+
 // unsupportedKindWarnings reports, per KB and per artifact kind, what this
 // provider cannot receive at all (D154). Computed from the manifest rather than
 // from the diff, so it is emitted on **every** run: the per-artifact
@@ -2443,7 +2490,7 @@ func installedSubagentSentence(m Manifest, opts ApplyOptions) string {
 		if a.Kind != "agent" || !strings.HasPrefix(a.Source, "kb:") {
 			continue
 		}
-		if destDirScoped("agent", a.Name, opts.Provider, opts.Scope) == "" {
+		if destDirScoped("agent", a.Name, opts.Provider, opts.Scope) == "" || strictAgentSkipped(a, opts.Provider) {
 			continue
 		}
 		if !artifactAuthorized(a, opts) {
@@ -3487,4 +3534,61 @@ func readDirFiles(srcDir string) ([]ArtifactFile, error) {
 		return nil, err
 	}
 	return files, nil
+}
+
+// AgentRestriction is the part of a Claude Code subagent's frontmatter that
+// only Claude Code enforces (D283).
+type AgentRestriction struct {
+	// Tools is the declared `tools` allow-list, rendered as one line.
+	Tools string
+	// Strict is `strict_tools: true`: the author prefers the agent not exist on
+	// a client that cannot enforce Tools over existing there unrestricted.
+	Strict bool
+}
+
+// ParseAgentRestriction reads an agent's source frontmatter and returns its
+// restriction, or nil when it declares no `tools` (nothing to widen) or the
+// frontmatter cannot be parsed (the translation reports that on its own).
+func ParseAgentRestriction(content []byte) *AgentRestriction {
+	fmRaw, _, hasFM := okf.SplitFrontmatter(string(content))
+	if !hasFM {
+		return nil
+	}
+	fm, err := okf.ParseFrontmatter(fmRaw)
+	if err != nil {
+		return nil
+	}
+	v, ok := fm.Get("tools")
+	if !ok {
+		return nil
+	}
+	var tools string
+	switch t := v.(type) {
+	case string:
+		tools = strings.TrimSpace(t)
+	case []string:
+		tools = strings.Join(t, ", ")
+	}
+	if tools == "" {
+		return nil
+	}
+	r := &AgentRestriction{Tools: tools}
+	if sv, ok := fm.Get("strict_tools"); ok {
+		if str, ok := sv.(string); ok && strings.EqualFold(strings.TrimSpace(str), "true") {
+			r.Strict = true
+		}
+	}
+	return r
+}
+
+// agentWidened reports that installing this agent on provider drops a `tools`
+// allow-list. Claude Code receives the source verbatim, so it enforces it.
+func agentWidened(a Artifact, provider configurator.Provider) bool {
+	return a.Kind == "agent" && a.Restriction != nil && provider != configurator.ProviderClaudeCode
+}
+
+// strictAgentSkipped reports that the agent opted out of being widened
+// (strict_tools) and provider cannot enforce its restriction.
+func strictAgentSkipped(a Artifact, provider configurator.Provider) bool {
+	return agentWidened(a, provider) && a.Restriction.Strict
 }

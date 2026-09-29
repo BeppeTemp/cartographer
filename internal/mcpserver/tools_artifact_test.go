@@ -779,3 +779,27 @@ func TestArtifactTools_SkillWriteRefusesFrontmatterAClientCannotParse(t *testing
 		t.Fatalf("the quoted form must be accepted: %v", tr.Content)
 	}
 }
+
+// An agent whose frontmatter name differs from its file name would be two
+// agents depending on the client (D283).
+func TestArtifactTools_AgentNameMustEqualFileName(t *testing.T) {
+	k := setupTestKB(t)
+	k.AllowArtifactWrite = true
+	s := New("test")
+	RegisterKBTools(s, k, Deps{})
+	call := func(path, name string) ToolResult {
+		r := runMCPSequence(t, s, []string{initMsg, artifactCallMsg(t, 2, "artifact_write", map[string]any{
+			"path": path, "content": "---\nname: " + name + "\ndescription: d\n---\nBody\n",
+		})})
+		return decodeToolResult(t, r[1])
+	}
+	if tr := call("agents/explorer.md", "other"); !tr.IsError || !containsText(tr, "must equal the file name") {
+		t.Fatalf("mismatched name accepted: %+v", tr.Content)
+	}
+	if _, err := os.Stat(filepath.Join(k.Root, "agents", "explorer.md")); !os.IsNotExist(err) {
+		t.Fatalf("mismatched agent was written: %v", err)
+	}
+	if tr := call("agents/explorer.md", "explorer"); tr.IsError {
+		t.Fatalf("matching name rejected: %+v", tr.Content)
+	}
+}

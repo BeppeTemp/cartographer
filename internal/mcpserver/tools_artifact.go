@@ -547,7 +547,7 @@ func validateArtifactContent(info artifactPathInfo, relPath string, data []byte)
 		}
 		return validateSkillArtifact(info.Name, data)
 	case "agent":
-		return validateAgentArtifact(data)
+		return validateAgentArtifact(info.Name, data)
 	case "mcp":
 		if _, err := provisioning.ParseMCPServerSpec(info.Name, data); err != nil {
 			return err
@@ -750,8 +750,11 @@ func validateSkillArtifact(slug string, data []byte) error {
 
 // validateAgentArtifact parses a candidate agents/<slug>.md content and
 // requires a frontmatter with non-empty name and description (same
-// requirements as the KB agent scan feeding provisioning/sync).
-func validateAgentArtifact(data []byte) error {
+// requirements as the KB agent scan feeding provisioning/sync) and a name equal
+// to the file name (D283): Claude registers the agent under the frontmatter
+// name, the other clients under the file name, so a mismatch would give one
+// agent two names.
+func validateAgentArtifact(slug string, data []byte) error {
 	fmRaw, _, hasFM := okf.SplitFrontmatter(string(data))
 	if !hasFM {
 		return fmt.Errorf("frontmatter is required (name, description)")
@@ -764,6 +767,9 @@ func validateAgentArtifact(data []byte) error {
 	nameStr, _ := name.(string)
 	if strings.TrimSpace(nameStr) == "" {
 		return fmt.Errorf("frontmatter 'name' is required")
+	}
+	if strings.TrimSpace(nameStr) != slug {
+		return fmt.Errorf("frontmatter 'name' (%q) must equal the file name %q", strings.TrimSpace(nameStr), slug)
 	}
 	desc, _ := fm.Get("description")
 	descStr, _ := desc.(string)
