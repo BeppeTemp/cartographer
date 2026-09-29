@@ -3675,7 +3675,7 @@ func TestServer_ToolsProfile(t *testing.T) {
 	// Agent profile: exactly the core set.
 	s.SetToolsProfile("agent")
 	agentVisible := []string{
-		"atlas_overview", "index_get", "concept_read", "log_tail", "changes_since",
+		"atlas_overview", "index_get", "concept_read", "concept_history", "log_tail", "changes_since",
 		"concept_write", "concept_new", "concept_patch", "index_patch", "map_create", "map_update", "map_delete", "concept_expand", "log_append", "snapshot",
 		"map_list", "concept_list", "graph_neighbors", "graph_context", "link_suggest", "search",
 		"supersede", "concept_move", "concept_delete",

@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -897,6 +898,77 @@ func LogNameStatus(dir string, since time.Time) ([]CommitChanges, error) {
 		commits = append(commits, commit)
 	}
 	return commits, nil
+}
+
+// FileRevision is one commit that touched a single file, as reported by
+// FileHistory.
+type FileRevision struct {
+	SHA     string
+	At      time.Time
+	Author  string
+	Subject string
+	// Reason is the value of the commit's Reason: trailer (D272), empty when
+	// absent.
+	Reason string
+	// Path is the file's path in that commit (the destination for a rename),
+	// relative to the repository root.
+	Path string
+	// Status is A, M, D or R.
+	Status string
+}
+
+// FileHistory returns the commits that touched path (relative to the
+// repository root), newest first, following renames (git log --follow). At
+// most limit entries are returned (limit <= 0 means no cap). A path with no
+// history, a directory that is not a git repository and a repository with no
+// commits all return an empty slice.
+func FileHistory(dir, path string, limit int) ([]FileRevision, error) {
+	if !IsRepo(dir) {
+		return []FileRevision{}, nil
+	}
+	if _, err := HeadSHA(dir); err != nil {
+		return []FileRevision{}, nil
+	}
+	format := "%x1e%H%x00%aI%x00%an%x00%s%x00%(trailers:key=Reason,valueonly,separator=%x1f)"
+	args := []string{"-c", "core.quotepath=off", "log", "--follow", "-M", "--name-status", "--pretty=format:" + format}
+	if limit > 0 {
+		args = append(args, "-n", strconv.Itoa(limit))
+	}
+	args = append(args, "--", path)
+	out, err := runGitEnv(dir, nil, args...)
+	if err != nil {
+		return nil, fmt.Errorf("git log --follow %s: %w: %s", path, err, out)
+	}
+	revs := []FileRevision{}
+	for _, record := range strings.Split(out, "\x1e") {
+		if record == "" {
+			continue
+		}
+		head := strings.SplitN(record, "\x00", 5)
+		if len(head) != 5 {
+			continue
+		}
+		at, err := time.Parse(time.RFC3339, head[1])
+		if err != nil {
+			return nil, fmt.Errorf("parse git commit time %q: %w", head[1], err)
+		}
+		reasonAndFiles := strings.SplitN(head[4], "\n", 2)
+		reason, _, _ := strings.Cut(reasonAndFiles[0], "\x1f")
+		rev := FileRevision{SHA: head[0], At: at, Author: head[2], Subject: head[3], Reason: strings.TrimSpace(reason), Path: path, Status: "M"}
+		if len(reasonAndFiles) == 2 {
+			for _, line := range strings.Split(reasonAndFiles[1], "\n") {
+				parts := strings.Split(line, "\t")
+				if len(parts) < 2 || parts[0] == "" {
+					continue
+				}
+				rev.Status = string(parts[0][0])
+				rev.Path = parts[len(parts)-1]
+				break
+			}
+		}
+		revs = append(revs, rev)
+	}
+	return revs, nil
 }
 
 // DiffNameStatus returns changed files between two refs as a list of FileChange.

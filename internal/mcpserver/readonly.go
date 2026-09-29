@@ -10,6 +10,7 @@ var readOnlyToolNames = map[string]bool{
 	"atlas_overview":  true,
 	"index_get":       true,
 	"concept_read":    true,
+	"concept_history": true,
 	"log_tail":        true,
 	"changes_since":   true,
 	"validate":        true,

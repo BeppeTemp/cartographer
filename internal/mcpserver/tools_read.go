@@ -3,6 +3,8 @@ package mcpserver
 import (
 	"encoding/json"
 	"fmt"
+	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -205,7 +207,10 @@ func toolConceptRead(k *kb.KB) Tool {
 			"If 'section' is specified, returns only that section (error lists the available headings " +
 			"if the section is not found). If 'outline' is true, returns the heading structure " +
 			"({level, title, bytes} per heading) without content. Bodies over 60 KB are returned as an " +
-			"outline by default (note explains why); pass 'full: true' to force the full content.",
+			"outline by default (note explains why); pass 'full: true' to force the full content. " +
+			"With 'rev' (a 7-40 hex commit SHA, e.g. from concept_history) it reads the concept as it " +
+			"was at that commit; the response carries 'rev', and its content_hash is computed on the " +
+			"historical content, so it is not usable as if_match.",
 		ReadOnly: true,
 		InputSchema: json.RawMessage(`{
 			"type": "object",
@@ -230,6 +235,10 @@ func toolConceptRead(k *kb.KB) Tool {
 				"with_content": {
 					"type": "boolean",
 					"description": "If true, the full response also carries 'content' (frontmatter + body, the exact bytes). Optional, default false. Ignored by the 'section', 'outline' and size-guard responses, which never carried it."
+				},
+				"rev": {
+					"type": "string",
+					"description": "Commit SHA (7-40 hex characters) to read the concept at, as listed by concept_history. Optional. Branch names and relative refs are rejected. The response's content_hash refers to the historical content and is not an if_match."
 				}
 			}
 		}`),
@@ -240,6 +249,7 @@ func toolConceptRead(k *kb.KB) Tool {
 				Outline     bool   `json:"outline"`
 				Full        bool   `json:"full"`
 				WithContent bool   `json:"with_content"`
+				Rev         string `json:"rev"`
 			}
 			if err := json.Unmarshal(args, &params); err != nil {
 				return errorResult("invalid params: " + err.Error()), nil
@@ -248,18 +258,37 @@ func toolConceptRead(k *kb.KB) Tool {
 				return errorResult("'id' is required"), nil
 			}
 
-			data, err := k.ReadConcept(okf.ConceptID(params.ID))
-			if err != nil {
-				return errorResult(fmt.Sprintf("concept_read %q: %v", params.ID, err)), nil
+			var data *kb.ConceptData
+			if params.Rev != "" {
+				if !revPattern.MatchString(params.Rev) {
+					return errorResult(fmt.Sprintf("concept_read %q: invalid rev %q: want a 7-40 hex commit SHA", params.ID, params.Rev)), nil
+				}
+				var msg string
+				data, msg = readConceptAtRev(k, params.ID, params.Rev)
+				if data == nil {
+					return errorResult(msg), nil
+				}
+			} else {
+				var err error
+				data, err = k.ReadConcept(okf.ConceptID(params.ID))
+				if err != nil {
+					return errorResult(fmt.Sprintf("concept_read %q: %v", params.ID, err)), nil
+				}
+			}
+			withRev := func(m map[string]interface{}) map[string]interface{} {
+				if params.Rev != "" {
+					m["rev"] = params.Rev
+				}
+				return m
 			}
 
 			if params.Outline {
-				result := map[string]interface{}{
+				result := withRev(map[string]interface{}{
 					"id":           params.ID,
 					"content_hash": data.ContentHash,
 					"outline":      headingsToOutline(okf.ListHeadings(data.Body)),
 					"body_bytes":   len(data.Body),
-				}
+				})
 				out, _ := json.MarshalIndent(result, "", "  ")
 				return textResult(string(out)), nil
 			}
@@ -283,25 +312,25 @@ func toolConceptRead(k *kb.KB) Tool {
 					}
 					return errorResult(msg), nil
 				}
-				result := map[string]interface{}{
+				result := withRev(map[string]interface{}{
 					"id":           params.ID,
 					"section":      params.Section,
 					"content":      section,
 					"content_hash": data.ContentHash,
-				}
+				})
 				out, _ := json.MarshalIndent(result, "", "  ")
 				return textResult(string(out)), nil
 			}
 
 			if !params.Full && len(data.Body) > conceptReadSizeGuard {
-				result := map[string]interface{}{
+				result := withRev(map[string]interface{}{
 					"id":           params.ID,
 					"content_hash": data.ContentHash,
 					"outline":      headingsToOutline(okf.ListHeadings(data.Body)),
 					"body_bytes":   len(data.Body),
 					"note": fmt.Sprintf("body is %d bytes (over the %d byte guard) — use 'section' to read "+
 						"a specific part, or 'full: true' to force the full content", len(data.Body), conceptReadSizeGuard),
-				}
+				})
 				out, _ := json.MarshalIndent(result, "", "  ")
 				return textResult(string(out)), nil
 			}
@@ -311,15 +340,164 @@ func toolConceptRead(k *kb.KB) Tool {
 			// concept in the response twice (measured 2.06x on a real read).
 			// It stays available, opt-in, for a caller that must re-write the
 			// exact bytes.
-			result := map[string]interface{}{
+			result := withRev(map[string]interface{}{
 				"id":              params.ID,
 				"content_hash":    data.ContentHash,
 				"frontmatter_raw": data.FrontmatterRaw,
 				"body":            data.Body,
-			}
+			})
 			if params.WithContent {
 				result["content"] = data.Content
 			}
+			out, _ := json.MarshalIndent(result, "", "  ")
+			return textResult(string(out)), nil
+		},
+	}
+}
+
+// revPattern is the only shape of rev that reaches a git argument: a hex
+// commit SHA. Branch names, HEAD~n and anything starting with '-' never match.
+var revPattern = regexp.MustCompile(`^[0-9a-fA-F]{7,40}$`)
+
+// conceptHistoryScan bounds how far readConceptAtRev walks a concept's history
+// looking for the revision that was current at rev.
+const conceptHistoryScan = 1000
+
+// conceptGitPath is the concept's file relative to the repository root, as
+// git wants it.
+func conceptGitPath(k *kb.KB, id string) (string, error) {
+	loc, err := k.LocateConcept(okf.ConceptID(id))
+	if err != nil {
+		return "", err
+	}
+	rel, err := filepath.Rel(k.Root, loc.File)
+	if err != nil {
+		return "", err
+	}
+	return filepath.ToSlash(rel), nil
+}
+
+// readConceptAtRev returns the concept as of commit rev: the newest entry of
+// the file's history that is rev or one of its ancestors, unless that entry is
+// a deletion. On failure it returns nil and the error message.
+func readConceptAtRev(k *kb.KB, id, rev string) (*kb.ConceptData, string) {
+	notFound := fmt.Sprintf("concept_read %q: not found at rev %s", id, rev)
+	path, err := conceptGitPath(k, id)
+	if err != nil {
+		return nil, fmt.Sprintf("concept_read %q: %v", id, err)
+	}
+	revs, err := gitx.FileHistory(k.Root, path, conceptHistoryScan)
+	if err != nil {
+		return nil, fmt.Sprintf("concept_read %q: %v", id, err)
+	}
+	for _, r := range revs {
+		ok, err := gitx.IsAncestor(k.Root, r.SHA, rev)
+		if err != nil {
+			// An unknown rev is reported by git as an error; to the caller
+			// it is the same as a revision without the file.
+			return nil, notFound
+		}
+		if !ok {
+			continue
+		}
+		if r.Status == "D" {
+			return nil, notFound
+		}
+		content, err := gitx.ShowFile(k.Root, r.SHA, r.Path)
+		if err != nil {
+			return nil, notFound
+		}
+		fm, body, _ := okf.SplitFrontmatter(content)
+		return &kb.ConceptData{Content: content, FrontmatterRaw: fm, Body: body, ContentHash: okf.ContentHash(content)}, ""
+	}
+	return nil, notFound
+}
+
+// --- concept_history ---
+
+const (
+	conceptHistoryDefaultLimit = 20
+	conceptHistoryMaxLimit     = 100
+)
+
+func toolConceptHistory(k *kb.KB) Tool {
+	return Tool{
+		Name: "concept_history",
+		Description: "Lists the commits that changed a concept, newest first, following renames (including " +
+			"the expansion of '<id>.md' into '<id>/index.md' when git detects it; otherwise the history " +
+			"starts at the expansion): {sha, at, author, subject, reason?, path}. 'reason' is the Reason " +
+			"trailer recorded by the write (D272). Pass a 'sha' as 'rev' to concept_read to see the " +
+			"concept as it was then. 'truncated' is true when the list may continue past 'limit'. " +
+			"A KB without git history returns no revisions and a note.",
+		ReadOnly: true,
+		InputSchema: json.RawMessage(`{
+			"type": "object",
+			"required": ["id"],
+			"properties": {
+				"id": {
+					"type": "string",
+					"description": "Concept ID (path relative to KB root without .md)"
+				},
+				"limit": {
+					"type": "integer",
+					"description": "Maximum revisions to return. Default 20, maximum 100; out-of-range values are clamped."
+				}
+			}
+		}`),
+		Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
+			var params struct {
+				ID    string `json:"id"`
+				Limit int    `json:"limit"`
+			}
+			if err := json.Unmarshal(args, &params); err != nil {
+				return errorResult("invalid params: " + err.Error()), nil
+			}
+			if params.ID == "" {
+				return errorResult("'id' is required"), nil
+			}
+			limit := params.Limit
+			if limit <= 0 {
+				limit = conceptHistoryDefaultLimit
+			}
+			if limit > conceptHistoryMaxLimit {
+				limit = conceptHistoryMaxLimit
+			}
+
+			path, err := conceptGitPath(k, params.ID)
+			if err != nil {
+				return errorResult(fmt.Sprintf("concept_history %q: %v", params.ID, err)), nil
+			}
+			revisions := []map[string]interface{}{}
+			result := map[string]interface{}{"id": params.ID, "revisions": revisions, "truncated": false}
+			if !k.AutoCommit || !gitx.IsRepo(k.Root) {
+				result["note"] = "no git history"
+				out, _ := json.MarshalIndent(result, "", "  ")
+				return textResult(string(out)), nil
+			}
+			revs, err := gitx.FileHistory(k.Root, path, limit)
+			if err != nil {
+				return errorResult(fmt.Sprintf("concept_history %q: %v", params.ID, err)), nil
+			}
+			if len(revs) == 0 {
+				if _, statErr := k.ReadConcept(okf.ConceptID(params.ID)); statErr != nil {
+					return errorResult(fmt.Sprintf("concept_history %q: not found", params.ID)), nil
+				}
+			}
+			for _, r := range revs {
+				e := map[string]interface{}{
+					"sha":     r.SHA,
+					"at":      r.At.UTC().Format(time.RFC3339),
+					"author":  r.Author,
+					"subject": r.Subject,
+					"path":    r.Path,
+				}
+				if r.Reason != "" {
+					e["reason"] = r.Reason
+				}
+				revisions = append(revisions, e)
+			}
+			result["revisions"] = revisions
+			result["truncated"] = len(revs) == limit
 			out, _ := json.MarshalIndent(result, "", "  ")
 			return textResult(string(out)), nil
 		},

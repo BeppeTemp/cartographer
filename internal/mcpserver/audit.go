@@ -31,6 +31,7 @@ import (
 // test, since silence is always safe here).
 var auditResourceFields = map[string][]string{
 	"concept_read":         {"id"},
+	"concept_history":      {"id"},
 	"concept_write":        {"id"},
 	"concept_new":          {"id", "template"},
 	"concept_patch":        {"id"},

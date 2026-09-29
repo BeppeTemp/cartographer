@@ -479,3 +479,78 @@ func TestLogNameStatus_Reason(t *testing.T) {
 		}
 	}
 }
+
+// commitAt commits the working tree at a fixed instant with an optional
+// Reason trailer in the message.
+func commitAt(t *testing.T, dir, msg string, at time.Time) {
+	t.Helper()
+	ts := at.Format(time.RFC3339)
+	if err := Commit(dir, msg, "Tester", "tester@example.test", "GIT_AUTHOR_DATE="+ts, "GIT_COMMITTER_DATE="+ts); err != nil {
+		t.Fatalf("Commit %q: %v", msg, err)
+	}
+}
+
+func TestFileHistory(t *testing.T) {
+	if !hasGit() {
+		t.Skip("git not in PATH, skipping gitx tests")
+	}
+	dir := t.TempDir()
+	if err := Init(dir); err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "data"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	base := time.Date(2024, time.March, 1, 10, 0, 0, 0, time.UTC)
+	old := filepath.Join(dir, "data", "old.md")
+	content := "line one\nline two\nline three\nline four\n"
+	if err := os.WriteFile(old, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	commitAt(t, dir, "concept_write: old", base)
+	if err := os.WriteFile(old, []byte(content+"line five\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	commitAt(t, dir, "concept_write: old\n\nReason: fix the outage note", base.Add(time.Hour))
+	if err := os.Rename(old, filepath.Join(dir, "data", "new.md")); err != nil {
+		t.Fatal(err)
+	}
+	commitAt(t, dir, "concept_move: new", base.Add(2*time.Hour))
+	if err := os.WriteFile(filepath.Join(dir, "data", "other.md"), []byte("unrelated\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	commitAt(t, dir, "concept_write: other", base.Add(3*time.Hour))
+
+	revs, err := FileHistory(dir, "data/new.md", 10)
+	if err != nil {
+		t.Fatalf("FileHistory: %v", err)
+	}
+	if len(revs) != 3 {
+		t.Fatalf("revisions = %d, want 3 (rename followed): %#v", len(revs), revs)
+	}
+	if revs[0].Status != "R" || revs[0].Path != "data/new.md" || revs[0].Subject != "concept_move: new" {
+		t.Errorf("newest = %#v, want the rename to data/new.md", revs[0])
+	}
+	if revs[1].Status != "M" || revs[1].Path != "data/old.md" || revs[1].Reason != "fix the outage note" {
+		t.Errorf("middle = %#v, want an edit of data/old.md with its reason", revs[1])
+	}
+	if revs[2].Status != "A" || revs[2].Reason != "" {
+		t.Errorf("oldest = %#v, want the add without a reason", revs[2])
+	}
+
+	limited, err := FileHistory(dir, "data/new.md", 2)
+	if err != nil || len(limited) != 2 {
+		t.Fatalf("limit 2 = %d revisions, err %v", len(limited), err)
+	}
+	none, err := FileHistory(dir, "data/missing.md", 10)
+	if err != nil || len(none) != 0 {
+		t.Fatalf("missing path = %#v, err %v; want empty", none, err)
+	}
+}
+
+func TestFileHistory_NotARepo(t *testing.T) {
+	revs, err := FileHistory(t.TempDir(), "a.md", 5)
+	if err != nil || len(revs) != 0 {
+		t.Fatalf("FileHistory outside a repository = %#v, %v; want empty", revs, err)
+	}
+}
