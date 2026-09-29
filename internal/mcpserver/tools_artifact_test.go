@@ -803,3 +803,49 @@ func TestArtifactTools_AgentNameMustEqualFileName(t *testing.T) {
 		t.Fatalf("matching name rejected: %+v", tr.Content)
 	}
 }
+
+func TestArtifactWrite_HookJSONIsValidated(t *testing.T) {
+	k := setupTestKB(t)
+	k.AllowArtifactWrite = true
+	s := New("test")
+	RegisterKBTools(s, k, Deps{})
+	write := func(path, content string) ToolResult {
+		resps := runMCPSequence(t, s, []string{initMsg, artifactCallMsg(t, 2, "artifact_write", map[string]any{"path": path, "content": content})})
+		return decodeToolResult(t, resps[1])
+	}
+	for name, c := range map[string]struct{ content, want string }{
+		"invalid JSON":    {`{"event":`, "invalid JSON"},
+		"missing event":   {`{"command":"./run.sh"}`, `"event"`},
+		"missing command": {`{"event":"Stop"}`, `"command"`},
+		"escaping path":   {`{"event":"Stop","command":"../x/run.sh"}`, "outside the hook's directory"},
+	} {
+		tr := write("hooks/guard/hook.json", c.content)
+		if !tr.IsError || !strings.Contains(tr.Content[0].Text, c.want) {
+			t.Errorf("%s: want rejection containing %q, got %+v", name, c.want, tr)
+		}
+		if _, err := os.Stat(filepath.Join(k.Root, "hooks", "guard", "hook.json")); err == nil {
+			t.Fatalf("%s: a rejected hook.json must not be written", name)
+		}
+	}
+
+	// The hook's script is not validated as JSON.
+	if tr := write("hooks/guard/run.sh", "#!/bin/sh\n"); tr.IsError {
+		t.Fatalf("script write: %+v", tr.Content)
+	}
+	// A valid hook.json is accepted without warnings when every client fires it...
+	tr := write("hooks/guard/hook.json", `{"event":"PreToolUse","command":"./run.sh"}`)
+	if tr.IsError || strings.Contains(tr.Content[0].Text, "warnings") {
+		t.Fatalf("valid hook: %+v", tr.Content)
+	}
+	// An event outside the vocabulary is accepted with a warning: a client may
+	// fire events the repository does not encode.
+	tr = write("hooks/notify/hook.json", `{"event":"Notification","command":"./run.sh"}`)
+	if tr.IsError || !strings.Contains(tr.Content[0].Text, `\"Notification\" is not in the known vocabulary`) {
+		t.Fatalf("unknown event should be accepted with a warning: %+v", tr.Content)
+	}
+	// ...and with a warning naming the clients that will not fire it otherwise.
+	tr = write("hooks/other/hook.json", `{"event":"PreInvocation","command":"./run.sh"}`)
+	if tr.IsError || !strings.Contains(tr.Content[0].Text, "claude, codex, opencode") {
+		t.Fatalf("antigravity-only hook should be accepted with a warning: %+v", tr.Content)
+	}
+}

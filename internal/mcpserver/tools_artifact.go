@@ -526,6 +526,9 @@ func toolArtifactWrite(k *kb.KB) Tool {
 				"path":   params.Path,
 				"sha256": sha256Hex(data),
 			}
+			if w := hookClientWarnings(info, params.Path, data); len(w) > 0 {
+				result["warnings"] = w
+			}
 			out, _ := json.MarshalIndent(result, "", "  ")
 			return textResult(string(out)), nil
 		},
@@ -534,7 +537,7 @@ func toolArtifactWrite(k *kb.KB) Tool {
 
 // validateArtifactContent runs the per-kind validation required before a
 // write (D71 WP1). Only the files that actually carry structured content are
-// validated; hooks/** and instructions.md get no validation beyond the
+// validated (a hook only for its hook.json); other hook files and instructions.md get no validation beyond the
 // generic size cap already applied by the caller.
 func validateArtifactContent(info artifactPathInfo, relPath string, data []byte) error {
 	if isStructuredArtifact(info, relPath) && !utf8.Valid(data) {
@@ -560,9 +563,32 @@ func validateArtifactContent(info artifactPathInfo, relPath string, data []byte)
 		// Strict: a registry that can be written can be read in full
 		// (D263); the tolerant read path exists for files arriving by git.
 		return kb.ValidatePathRegistry(data)
-	default: // hook, instructions
+	case "hook":
+		if filepath.Base(relPath) != "hook.json" {
+			return nil // the hook's script and other files
+		}
+		_, err := provisioning.ValidateHookJSON(data)
+		return err
+	default: // instructions
 		return nil
 	}
+}
+
+// hookClientWarnings names, for a hook.json that passed validation, the
+// hook-capable clients that will not fire its event (D284). Empty for any other
+// file: the hook may target a single client, so this informs and never rejects.
+func hookClientWarnings(info artifactPathInfo, relPath string, data []byte) []string {
+	if info.Kind != "hook" || filepath.Base(relPath) != "hook.json" {
+		return nil
+	}
+	if w := provisioning.UnknownHookEvent(data); w != "" {
+		return []string{w}
+	}
+	misses, err := provisioning.ValidateHookJSON(data)
+	if err != nil || len(misses) == 0 {
+		return nil
+	}
+	return []string{fmt.Sprintf("this hook's event is not fired by: %s (it is not registered there at sync)", strings.Join(misses, ", "))}
 }
 
 func isStructuredArtifact(info artifactPathInfo, relPath string) bool {

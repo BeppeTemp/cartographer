@@ -251,6 +251,7 @@ flooded on upgrade:
   the graph cache's placeholder facet.
 - `unused_placeholder` (info, on `paths.yaml`, whole-KB lint only): a declared key no concept and no
   artifact (`skills/`, `agents/`, `hooks/`, `mcp/`, `instructions.md`) cites.
+- `hook_invalid` (warning, on `hooks/<name>/hook.json`, whole-KB lint only): a hook whose `hook.json` `artifact_write` would now refuse (invalid JSON, missing `event`/`command`, a command outside the hook's directory) or warn about (an event outside the declared vocabulary, which never fires if misspelled), so hooks written before that validation surface. Independent of `paths.yaml`: it applies to every KB with a `hooks/` directory ([D284](decisions/D284-hook-json-is-validated-against-one-declared-event-vocabulary.md)).
 - `contract_malformed` (info, on `paths.yaml`): a malformed entry, or a file that is not a YAML
   mapping at all — in which case no key is reported undeclared.
 

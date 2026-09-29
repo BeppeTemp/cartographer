@@ -305,6 +305,12 @@ func Run(k *kb.KB, scope string, scopeNeighbors bool) ([]Finding, error) {
 		}
 	}
 
+	// Hooks are KB-level artifacts, not concepts: only an unscoped lint
+	// reports a broken hook.json (D284).
+	if scopeNorm == "" {
+		findings = append(findings, checkHooks(k)...)
+	}
+
 	// The structural analysis runs on the whole graph whatever the scope, so
 	// a scoped lint gives a concept the verdict a whole-KB lint gives it;
 	// scope only decides which findings are emitted (D243).
