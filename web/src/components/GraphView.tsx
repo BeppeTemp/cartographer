@@ -20,14 +20,29 @@ export const MAX_3D_NODES = 5_000;
 /** A selected node and its best-connected neighbours carry a name, up to
  *  this many: enough to read the neighbourhood, few enough not to cover it. */
 const LABEL_LIMIT = 12;
-/** How much of its hue a node outside the selection keeps. */
-const RECEDED = 0.32;
+/** How much of its hue a node outside the selection keeps: little, so the
+ *  selected neighbourhood stands alone against the canvas. */
+const RECEDED = 0.12;
 /** How long the panels' width must hold still before a selection is framed
  *  again for it: longer than the gap between two pointer moves of a drag. */
 const REFRAME_DEBOUNCE_MS = 150;
 
+/** An artifact as the atlas draws it: a diamond linked to the concepts it
+ *  references. */
+export interface GraphArtifact {
+  kind: string;
+  name: string;
+  concepts: string[];
+}
+
+const ARTIFACT_PREFIX = "artifact:";
+
 interface Props {
   snapshot: GraphSnapshot;
+  /** Artifacts to draw beside the concepts; empty draws none. */
+  artifacts?: GraphArtifact[];
+  /** A click on an artifact's diamond. */
+  onOpenArtifact?(kind: string, name: string): void;
   /** A concept to point at without selecting it (a link hovered in the
    *  reading panel). */
   highlighted?: string | null;
@@ -98,6 +113,8 @@ export function GraphView(props: Props) {
 }
 
 function View({
+  artifacts = [],
+  onOpenArtifact,
   highlighted = null,
   severityByConcept,
   onExpand,
@@ -134,6 +151,8 @@ function View({
   onExpandRef.current = onExpand;
   const onUnavailableRef = useRef(onUnavailable);
   onUnavailableRef.current = onUnavailable;
+  const onOpenArtifactRef = useRef(onOpenArtifact);
+  onOpenArtifactRef.current = onOpenArtifact;
   const liveRef = useRef(live);
   liveRef.current = live;
   const occludedRef = useRef({ left: occludedLeft, right: occludedRight });
@@ -165,6 +184,29 @@ function View({
     );
   }, [snapshot]);
 
+  // Artifact nodes: kept across toggles like concept nodes, so a diamond
+  // shown again returns to its place.
+  const artifactNodes = useMemo(() => new Map<string, SceneNode>(), [snapshot]);
+  // The artifacts drawn now: only those that reference a visible concept,
+  // each with its links to those concepts.
+  const drawnArtifacts = useMemo(() => {
+    const out: { node: SceneNode; label: string; targets: string[] }[] = [];
+    for (const a of artifacts) {
+      const targets = a.concepts.filter((id) => byId.has(id) && !hiddenIds.has(id));
+      if (!targets.length) continue;
+      const id = `${ARTIFACT_PREFIX}${a.kind}/${a.name}`;
+      let node = artifactNodes.get(id);
+      if (!node) {
+        node = { id, weight: 0.35, artifact: true, ...seedPosition(id, snapshot.nodes.length, 3) };
+        artifactNodes.set(id, node);
+      }
+      out.push({ node, label: `${a.name} · ${a.kind}`, targets });
+    }
+    return out;
+  }, [artifacts, artifactNodes, byId, hiddenIds, snapshot]);
+  const artifactLabels = useRef(new Map<string, string>());
+  artifactLabels.current = new Map(drawnArtifacts.map((a) => [a.node.id, a.label]));
+
   // Build the scene once per snapshot.
   useEffect(() => {
     const container = containerRef.current;
@@ -178,14 +220,24 @@ function View({
         const scene = new LivingScene(
           container,
           {
-            onSelect: (id) => onSelectRef.current(id),
-            onExpand: (id) => onExpandRef.current?.(id),
+            onSelect: (id) => {
+              if (id?.startsWith(ARTIFACT_PREFIX)) {
+                const ref = id.slice(ARTIFACT_PREFIX.length);
+                const slash = ref.indexOf("/");
+                onOpenArtifactRef.current?.(ref.slice(0, slash), ref.slice(slash + 1));
+                return;
+              }
+              onSelectRef.current(id);
+            },
+            onExpand: (id) => {
+              if (!id.startsWith(ARTIFACT_PREFIX)) onExpandRef.current?.(id);
+            },
             onHover: (id, x, y) => {
               const tip = tooltipRef.current;
               if (!tip) return;
               tip.hidden = !id;
               if (id) {
-                tip.textContent = nameOf(byIdRef.current.get(id) ?? { id });
+                tip.textContent = artifactLabels.current.get(id) ?? nameOf(byIdRef.current.get(id) ?? { id });
                 tip.style.transform = `translate(${Math.round(x + 14)}px, ${Math.round(y + 14)}px)`;
               }
             },
@@ -226,6 +278,10 @@ function View({
     const links: SceneLink[] = snapshot.edges
       .filter((e) => ids.has(e.source) && ids.has(e.target))
       .map((e) => ({ source: e.source, target: e.target }));
+    for (const a of drawnArtifacts) {
+      visible.push(a.node);
+      for (const t of a.targets) links.push({ source: a.node.id, target: t });
+    }
     // Warm-up runs before the first frame: long enough that the graph opens
     // nearly settled, short enough on a large KB not to block.
     const warmup = Math.round(Math.max(80, Math.min(300, 600_000 / Math.max(1, visible.length))));
@@ -235,7 +291,7 @@ function View({
       frame = requestAnimationFrame(() => setDrawn(true));
     });
     return () => cancelAnimationFrame(frame);
-  }, [ready, snapshot, hiddenIds, nodes]);
+  }, [ready, snapshot, hiddenIds, nodes, drawnArtifacts]);
 
   // A selection hidden by a filter stays selected (the URL and the Inspector
   // keep it), but the graph draws the filtered set as if nothing were (D240).
@@ -267,6 +323,12 @@ function View({
               : slots[colorBy === "community" ? communitySlot(communities, n.id) : collectionHue(n.collection ?? "")]!;
         return !shown || near.has(n.id) ? base : fade(base, RECEDED, canvas);
       });
+    // Diamonds wear the signal colour: an artifact is not in any community
+    // or Map, and a colour of its own says so.
+    const artifactColour = cssVar("--graph-signal");
+    for (const a of drawnArtifacts) {
+      colours.push(!shown || near.has(a.node.id) ? artifactColour : fade(artifactColour, RECEDED, canvas));
+    }
     scene.setColours(colours, {
       background: canvas,
       edge: cssVar("--graph-edge-3d"),
@@ -274,7 +336,7 @@ function View({
       signal: cssVar("--graph-signal"),
       ring: cssVar("--graph-ring"),
     });
-  }, [ready, snapshot, hiddenIds, colorBy, communities, themeKey, shown, severityByConcept]);
+  }, [ready, snapshot, hiddenIds, colorBy, communities, themeKey, shown, severityByConcept, drawnArtifacts]);
 
   // Motion on or off.
   useEffect(() => {

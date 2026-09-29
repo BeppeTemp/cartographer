@@ -124,6 +124,8 @@ var perConceptChecks = map[string]bool{
 	"secrets_on_non_service": true,
 	"orphan":                 true,
 	"missing_title":          true,
+	"duplicate_link":         true,
+	"bare_link_list":         true,
 	// Structural checks (D243). island is deliberately absent: it belongs to
 	// a component, not to one concept.
 	"cut_concept":     true,
@@ -386,6 +388,31 @@ func Run(k *kb.KB, scope string, scopeNeighbors bool) ([]Finding, error) {
 					Check:    "broken_link",
 					Severity: SevWarning,
 					Message:  fmt.Sprintf("broken link to %s", targetPath),
+				})
+			}
+		}
+
+		// --- duplicate_link / bare_link_list (info): the trailing links
+		// section (linksection.go) ---
+		if heading, dups, bare, n := linksSectionIssues(body, linkBase, k.AssetExists); heading != "" {
+			if len(dups) > 0 {
+				names := make([]string, len(dups))
+				for i, d := range dups {
+					names[i] = string(d)
+				}
+				emit(Finding{
+					Path:     relPath,
+					Check:    "duplicate_link",
+					Severity: SevInfo,
+					Message:  fmt.Sprintf("linked both in the text and under %q: %s — keep the link where the text says why", heading, strings.Join(names, ", ")),
+				})
+			}
+			if bare {
+				emit(Finding{
+					Path:     relPath,
+					Check:    "bare_link_list",
+					Severity: SevInfo,
+					Message:  fmt.Sprintf("%q lists %d link(s) with no word on why each matters — add a short reason per link", heading, n),
 				})
 			}
 		}

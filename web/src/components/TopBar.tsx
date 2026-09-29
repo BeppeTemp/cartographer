@@ -15,6 +15,8 @@ interface Props {
   onKBChange(name: string): void;
   onThemeChange(theme: Theme): void;
   onOpenPalette(): void;
+  /** The brand leads back to the atlas: the graph, nothing selected. */
+  onHome?(): void;
   onOpenNav?(): void;
   onOpenInspector?(): void;
 }
@@ -35,6 +37,7 @@ export function TopBar({
   onKBChange,
   onThemeChange,
   onOpenPalette,
+  onHome,
   onOpenNav,
   onOpenInspector,
 }: Props) {
@@ -53,7 +56,7 @@ export function TopBar({
           <Icon name="list" />
         </button>
       )}
-      <div className="topbar__brand">
+      <button type="button" className="topbar__brand" onClick={onHome} aria-label="Cartographer — back to the atlas">
         {/* The brand's master SVGs (docs/brand, D232), one per theme; CSS shows
             the one for the resolved theme, so a switch never waits on a load. */}
         <img
@@ -71,7 +74,7 @@ export function TopBar({
           height={28}
         />
         <span className="topbar__name">Cartographer</span>
-      </div>
+      </button>
 
       {kbs.length > 0 && (
         <KBPicker kbs={kbs} activeKB={activeKB} onChange={onKBChange} />
@@ -95,9 +98,13 @@ export function TopBar({
             <Icon name="info" />
           </button>
         )}
+        {/* Being connected is the normal state and says nothing: the status
+            takes room only when the server is unreachable. The live region
+            stays mounted so the change is still announced. */}
         <span
           className={`topbar__status topbar__status--${offline ? "offline" : "online"}`}
           role="status"
+          hidden={!offline}
         >
           <span aria-hidden="true">●</span>
           <span className="topbar__status-text">{offline ? "Disconnected" : "Connected"}</span>

@@ -1,11 +1,11 @@
 import AxeBuilder from "@axe-core/playwright";
 import type { Page } from "@playwright/test";
-import { AUTH_URL, LOCAL_URL, conceptRow, expect, test, waitForAtlas, withPanelsOpen } from "./support";
+import { AUTH_URL, expect, LOCAL_URL, openConcept, test, waitForAtlas, withPanelsOpen } from "./support";
 
 const ATLAS = `${LOCAL_URL}/ui/?kb=atlas`;
 
-// Panels open, so axe and the keyboard walk cover the rail and the node list
-// too; the graph-only default is covered by the component tests.
+// The rail open, so axe and the keyboard walk cover it too; the graph-only
+// default is covered by the component tests.
 test.beforeEach(({ page }) => withPanelsOpen(page));
 
 /** Serious and critical axe violations, WCAG 2.2 A/AA rules. */
@@ -106,7 +106,7 @@ test.describe("keyboard only", () => {
     throw new Error("Tab never reached the expected element");
   }
 
-  test("top bar → filters → node list → inspector and back", async ({ page }) => {
+  test("top bar → filters → search → inspector and back", async ({ page }) => {
     await page.goto(ATLAS);
     await waitForAtlas(page);
     await page.locator("body").focus();
@@ -118,14 +118,16 @@ test.describe("keyboard only", () => {
 
     await tabTo(page, (el) => el.text.startsWith("Runbook"));
     await page.keyboard.press("Enter");
-    await tabTo(page, (el) => el.id === "infra/firewall");
+    // The keyboard path to a concept is the search.
+    await page.keyboard.press("ControlOrMeta+k");
+    await page.keyboard.type("infra/firewall");
     await page.keyboard.press("Enter");
     const inspector = page.getByRole("complementary", { name: "Inspector for infra/firewall" });
     await expect(inspector).toBeVisible();
 
     await tabTo(page, (el) => el.label === "Close inspector");
     await page.keyboard.press("Enter");
-    await expect(conceptRow(page, "infra/firewall")).toBeFocused();
+    await expect(page.locator("#main")).toBeFocused();
   });
 });
 
@@ -134,7 +136,7 @@ test.describe("reduced motion", () => {
     await withPanelsOpen(page);
     await page.goto(`${ATLAS}&scope=infra`);
     await waitForAtlas(page);
-    await conceptRow(page, "infra/gateway").click();
+    await openConcept(page, "infra/gateway");
     await expect(page.getByRole("complementary", { name: "Inspector for infra/gateway" })).toBeVisible();
     return {
       motion: await page.locator("[data-testid=graph-view]").getAttribute("data-motion"),

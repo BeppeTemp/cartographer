@@ -81,6 +81,10 @@ type Server struct {
 	// list the KB's artifacts as artifact_list and sync do (D238): the MCP
 	// allowlist and the artifact signer. Set with kbRef.
 	kbArtifacts artifactSource
+	// uiSearch is the search tool's handler without the search-miss log: the
+	// Atlas searches as the reader types, and every keystroke that matches
+	// nothing would otherwise be recorded as a knowledge gap. Set with kbRef.
+	uiSearch func(requestContext, json.RawMessage) (ToolResult, error)
 	// policyKB is the mounted logical KB name used by authorization rules
 	// (SetPolicyKB); it lets the authorizer resolve the right KB even before
 	// RegisterKBTools sets kb.KB.AuthName.

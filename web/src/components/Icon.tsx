@@ -6,6 +6,7 @@
  */
 export type IconName =
   | "atlas"
+  | "activity"
   | "observatory"
   | "artifacts"
   | "panel-open"
@@ -37,6 +38,7 @@ const PATHS: Record<IconName, string> = {
   list: "M9 7h11 M9 12h11 M9 17h11 M4.5 7h.01 M4.5 12h.01 M4.5 17h.01",
   motion: "M8 5.5v13l10.5-6.5z",
   pause: "M8.5 5.5v13 M15.5 5.5v13",
+  activity: "M12 20a8 8 0 1 0 0-16 8 8 0 0 0 0 16z M12 8v4l2.5 2.5",
   search: "M10.5 17a6.5 6.5 0 1 0 0-13 6.5 6.5 0 0 0 0 13z M15.5 15.5 20 20",
   chevron: "M8 10l4 4 4-4",
   sun: "M12 16a4 4 0 1 0 0-8 4 4 0 0 0 0 8z M12 2.5v2 M12 19.5v2 M4.6 4.6l1.4 1.4 M18 18l1.4 1.4 M2.5 12h2 M19.5 12h2 M4.6 19.4 6 18 M18 6l1.4-1.4",

@@ -1,5 +1,5 @@
 import type { Page } from "@playwright/test";
-import { LOCAL_URL, conceptRow, expect, test } from "./support";
+import { expect, LOCAL_URL, openConcept, test } from "./support";
 
 // The living 3D atlas (D234), against the shipped bundle on a real (software)
 // WebGL context. The physics itself is measured in src/test/physics.test.ts;
@@ -40,7 +40,7 @@ test("without WebGL the list, search and inspector still work", async ({ page })
   // go down with the renderer.
   await expect(page.getByText("This browser cannot draw the graph")).toBeVisible();
   await expect(page.locator("[data-testid=graph-view]")).toHaveCount(0);
-  await conceptRow(page, "infra/gateway").click();
+  await openConcept(page, "infra/gateway");
   await expect(page.getByRole("complementary", { name: "Inspector for infra/gateway" })).toBeVisible();
 });
 
@@ -67,7 +67,7 @@ test.describe("motion", () => {
 
 test("a selection opens the inspector and names its neighbourhood", async ({ page }) => {
   await open3D(page);
-  await conceptRow(page, "infra/gateway").click();
+  await openConcept(page, "infra/gateway");
   await expect(page.getByRole("complementary", { name: "Inspector for infra/gateway" })).toBeVisible();
   // Labels carry the concept's title, not its id.
   await expect(page.locator(".graph3d__label--selected")).toHaveText("Gateway");

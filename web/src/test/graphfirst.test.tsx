@@ -9,9 +9,10 @@ import { sceneStub } from "./sceneStub";
 
 
 /**
- * The graph is the page: navigation and the node list start folded away and
- * the inspector exists only while something is selected. Each panel opens on
- * demand, and the choice is remembered.
+ * The graph is the page: navigation starts folded away and the inspector
+ * exists only while something is selected. There is no concept list beside
+ * the canvas: Ctrl/Cmd+K is the way to a concept, and the list survives only
+ * where there is no canvas at all.
  */
 describe("graph-first layout", () => {
   beforeEach(() => {
@@ -41,11 +42,10 @@ describe("graph-first layout", () => {
     vi.mocked(hasWebGL).mockReturnValue(false);
     try {
       stubApi();
-      const user = userEvent.setup();
       render(<App />);
       expect(await screen.findByText("This browser cannot draw the graph")).toBeInTheDocument();
       expect(document.querySelector("[data-testid=graph-view]")).toBeNull();
-      await user.click(screen.getByRole("button", { name: /^Concepts/ }));
+      // With no canvas the list is shown outright: it is the only way to browse.
       expect(await screen.findByRole("region", { name: /concepts in this view/i })).toBeInTheDocument();
     } finally {
       vi.mocked(hasWebGL).mockReturnValue(true);
@@ -57,18 +57,14 @@ describe("graph-first layout", () => {
     const user = userEvent.setup();
     render(<App />);
 
-    const toggle = await screen.findByRole("button", { name: /^Concepts/ });
-    expect(toggle).toHaveAttribute("aria-pressed", "false");
+    await screen.findByTestId("graph-view");
+    expect(screen.queryByRole("button", { name: /^Concepts/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("region", { name: /concepts in this view/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("complementary")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /expand navigation/i })).toBeInTheDocument();
 
-    await user.click(toggle);
-    expect(toggle).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByRole("region", { name: /concepts in this view/i })).toBeInTheDocument();
-    expect(localStorage.getItem("cartographer.panel.list")).toBe("1");
-
-    await user.click(screen.getByRole("button", { name: /infra\/a/ }));
+    await user.keyboard("{Control>}k{/Control}");
+    await user.keyboard("infra/a{Enter}");
     expect(await screen.findByRole("complementary", { name: /inspector for infra\/a/i })).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: /close inspector/i }));

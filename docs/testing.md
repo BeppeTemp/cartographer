@@ -301,8 +301,9 @@ toolchain (D227). What they hold:
   page);
 - the shell boots, and degrades to a named state rather than a blank page on a
   401, an unreachable server or an empty KB;
-- the atlas starts graph-only — rail folded, node list closed, no inspector
-  until a selection — and each panel opens on demand; `[[wiki-links]]` in a
+- the atlas starts graph-only — rail folded, no inspector until a selection —
+  and there is no concept list beside the canvas: Ctrl/Cmd+K is the way to a
+  concept, and the list is shown only when there is no WebGL to draw with; `[[wiki-links]]` in a
   concept body become in-atlas links, code spans left alone;
 - Markdown from a concept body renders inert — a raw `<script>` and an
   `onerror` attribute must not survive;
@@ -312,7 +313,7 @@ toolchain (D227). What they hold:
   themselves: the same KB state paints the same node the same colour;
 - the WCAG 2.2 AA contrast audit, computed from `tokens.css` on every run, for
   both themes (§Atlas UI contrast);
-- a complete keyboard path — shell, filters, node list, inspector and back —
+- a complete keyboard path — shell, filters, search, inspector and back —
   and, at narrow widths, navigation and inspector as modal sheets that trap and
   return focus;
 - the 2,000-node budget fixture (§Atlas UI budgets);

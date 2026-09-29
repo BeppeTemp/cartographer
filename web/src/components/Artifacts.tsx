@@ -44,7 +44,17 @@ export function Artifacts({
   onSelect,
   onRetry,
   onFailure,
+  titleOf = () => undefined,
+  typeCount = () => 0,
+  onOpenConcept,
+  onFilterType,
 }: {
+  titleOf?(id: string): string | undefined;
+  /** How many concepts carry a type: a template's reach. */
+  typeCount?(type: string): number;
+  onOpenConcept?(id: string): void;
+  /** Opens the atlas filtered to one concept type. */
+  onFilterType?(type: string): void;
   kb: string;
   list: ArtifactList | null;
   loading: boolean;
@@ -148,6 +158,10 @@ export function Artifacts({
       id={selected}
       onBack={narrow ? () => onSelect(null) : undefined}
       onFailure={onFailure}
+      titleOf={titleOf}
+      typeCount={typeCount}
+      onOpenConcept={onOpenConcept}
+      onFilterType={onFilterType}
     />
   ) : (
     <div className="artifacts__placeholder">
@@ -188,11 +202,19 @@ function ArtifactDetail({
   id,
   onBack,
   onFailure,
+  titleOf,
+  typeCount,
+  onOpenConcept,
+  onFilterType,
 }: {
   kb: string;
   id: string;
   onBack?: () => void;
   onFailure(err: unknown): boolean;
+  titleOf(id: string): string | undefined;
+  typeCount(type: string): number;
+  onOpenConcept?(id: string): void;
+  onFilterType?(type: string): void;
 }) {
   const [artifact, setArtifact] = useState<Artifact | null>(null);
   const [error, setError] = useState<unknown>(null);
@@ -274,6 +296,38 @@ function ArtifactDetail({
             </dd>
           </div>
         </dl>
+        {/* Where the artifact meets the atlas: a template shapes every
+            concept of its type; a skill or agent points agents at the
+            concepts it names. */}
+        {artifact.kind === "template" ? (
+          typeCount(artifact.name) > 0 && (
+            <p className="artifacts__reach">
+              <button type="button" className="button" onClick={() => onFilterType?.(artifact.name)}>
+                Show the {typeCount(artifact.name)} “{artifact.name}” concepts on the atlas
+              </button>
+            </p>
+          )
+        ) : (
+          !!artifact.concepts?.length && (
+            <section className="artifacts__reach" aria-label="Concepts it reads">
+              <h3 className="inspector__group-title">
+                Concepts it reads <span className="inspector__count">{artifact.concepts.length}</span>
+              </h3>
+              <ul className="inspector__links">
+                {artifact.concepts.map((cid) => (
+                  <li key={cid}>
+                    <button type="button" className="inspector__link" onClick={() => onOpenConcept?.(cid)}>
+                      <span className="inspector__link-text">
+                        <span className="inspector__link-title">{titleOf(cid) ?? cid.split("/").pop()}</span>
+                        <span className="inspector__link-id">{cid}</span>
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )
+        )}
       </header>
 
       {artifact.files.length > 1 && (

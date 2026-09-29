@@ -1,4 +1,4 @@
-import type { Artifact, ArtifactList, Concept, GraphSnapshot, KBSummary, LintReport, Overview } from "./types";
+import type { Artifact, ArtifactList, Concept, GraphSnapshot, KBSummary, LintReport, Overview, ChangesResponse, KBStatus, SearchResponse } from "./types";
 
 const BASE = "/api/ui/v1";
 
@@ -147,6 +147,18 @@ export function fetchLint(
     `/kbs/${encodeURIComponent(kb)}/lint?severity_min=${encodeURIComponent(severityMin)}${scoped}`,
     signal,
   );
+}
+
+export function fetchSearch(kb: string, query: string, signal?: AbortSignal): Promise<SearchResponse> {
+  return get<SearchResponse>(`/kbs/${encodeURIComponent(kb)}/search?q=${encodeURIComponent(query)}&limit=20`, signal);
+}
+
+export function fetchChanges(kb: string, since: string, signal?: AbortSignal): Promise<ChangesResponse> {
+  return get<ChangesResponse>(`/kbs/${encodeURIComponent(kb)}/changes?since=${encodeURIComponent(since)}&limit=40`, signal);
+}
+
+export function fetchStatus(kb: string, signal?: AbortSignal): Promise<KBStatus> {
+  return get<KBStatus>(`/kbs/${encodeURIComponent(kb)}/status`, signal);
 }
 
 export function fetchArtifacts(kb: string, signal?: AbortSignal): Promise<ArtifactList> {

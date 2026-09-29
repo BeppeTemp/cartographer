@@ -53,16 +53,33 @@ export async function waitForAtlas(page: Page): Promise<void> {
   await expect(page.locator("[data-testid=graph-view] canvas").first()).toBeVisible();
 }
 
-/** The ids the node list offers: the accessible mirror of the canvas. */
+/** The ids the search offers with an empty query: every concept the current
+ *  view draws (the fixture is far below the palette's row cap). */
 export async function listedConcepts(page: Page): Promise<string[]> {
-  const list = page.getByRole("region", { name: "Concepts in this view" });
-  return (await list.locator("[data-concept-id]").evaluateAll((els) =>
+  await page.keyboard.press("ControlOrMeta+k");
+  const dialog = page.getByRole("dialog", { name: "Search concepts" });
+  await expect(dialog).toBeVisible();
+  const ids = await dialog.locator("[data-concept-id]").evaluateAll((els) =>
     els.map((el) => el.getAttribute("data-concept-id") ?? ""),
-  )).sort();
+  );
+  await page.keyboard.press("Escape");
+  await expect(dialog).toBeHidden();
+  return ids.sort();
 }
 
-export function conceptRow(page: Page, id: string) {
-  return page.locator(`[data-concept-id="${id}"]`);
+/** Opens a concept the way a keyboard user does: Ctrl/Cmd+K, its id, Enter. */
+export async function openConcept(page: Page, id: string): Promise<void> {
+  await page.keyboard.press("ControlOrMeta+k");
+  const dialog = page.getByRole("dialog", { name: "Search concepts" });
+  await expect(dialog).toBeVisible();
+  await page.keyboard.type(id);
+  await expect(dialog.locator(`[data-concept-id="${id}"]`).first()).toBeVisible();
+  await dialog.locator(`[data-concept-id="${id}"]`).first().click();
+}
+
+/** The URL names the selected concept. */
+export function selectedIn(id: string): RegExp {
+  return new RegExp("concept=" + encodeURIComponent(id).replace(/[.*()]/g, "\\$&"));
 }
 
 /** Opens the atlas on the auth-on server and signs in with token. */
@@ -74,13 +91,12 @@ export async function signIn(page: Page, token: string, remember = false, path =
 }
 
 /**
- * The atlas starts graph-only: navigation folded, node list closed. Flows that
+ * The atlas starts graph-only: navigation folded. Flows that
  * walk those panels open them the way a returning viewer has them -- through
  * the remembered preference -- so each test does not re-click its way there.
  */
 export async function withPanelsOpen(page: Page): Promise<void> {
   await page.addInitScript(() => {
     localStorage.setItem("cartographer.panel.rail", "0");
-    localStorage.setItem("cartographer.panel.list", "1");
   });
 }

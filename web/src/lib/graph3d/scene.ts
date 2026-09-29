@@ -11,6 +11,7 @@ import {
   Mesh,
   MeshBasicMaterial,
   Object3D,
+  OctahedronGeometry,
   PerspectiveCamera,
   Points,
   PointsMaterial,
@@ -54,6 +55,8 @@ import {
 export interface SceneNode extends PhysicsNode {
   /** Visual weight, 0..1: 0 a leaf, 1 the best-connected node. */
   weight: number;
+  /** An artifact (skill, agent, hook), drawn as a diamond, not a sphere. */
+  artifact?: boolean;
 }
 
 export interface SceneLink {
@@ -88,6 +91,11 @@ const CLICK_SLOP_PX = 5;
  *  to hit (brand kit: 12-18 px hit area). */
 const HIT_RADIUS_PX = 14;
 
+/** Resting links, and the same links behind a selection: they recede so the
+ *  selection's own links carry the picture. */
+const EDGE_REST = 0.22;
+const EDGE_BEHIND_SELECTION = 0.06;
+
 const endpoint = (end: string | SceneNode) => (typeof end === "object" ? end.id : end);
 
 export class LivingScene {
@@ -107,9 +115,17 @@ export class LivingScene {
 
   private readonly sphere = new SphereGeometry(1, 12, 9);
   private nodeMesh: InstancedMesh | null = null;
+  /** Artifacts get their own instanced mesh: a diamond reads as "not a
+   *  concept" before any colour or label does. */
+  private readonly diamond = new OctahedronGeometry(1, 0);
+  private artifactMesh: InstancedMesh | null = null;
+  /** Each node's instance index within its own mesh, and each mesh's nodes. */
+  private slot: number[] = [];
+  private sphereNodes: SceneNode[] = [];
+  private diamondNodes: SceneNode[] = [];
   private readonly nodeMaterial = new MeshBasicMaterial();
   private readonly edgeGeometry = new BufferGeometry();
-  private readonly edgeMaterial = new LineBasicMaterial({ transparent: true, opacity: 0.28, depthWrite: false });
+  private readonly edgeMaterial = new LineBasicMaterial({ transparent: true, opacity: EDGE_REST, depthWrite: false });
   private readonly edges = new LineSegments(this.edgeGeometry, this.edgeMaterial);
   private readonly activeGeometry = new BufferGeometry();
   private readonly activeMaterial = new LineBasicMaterial({ transparent: true, opacity: 0.85, depthWrite: false });
@@ -128,7 +144,11 @@ export class LivingScene {
   private live: boolean;
   private readonly reducedMotion: boolean;
   private frame: number | null = null;
-  private tween: { from: Pose; to: () => Pose; start: number; ms: number } | null = null;
+  private tween: { from: Pose; to: () => Pose; start: number; ms: number; shiftFrom: number; shiftTo: number } | null = null;
+  /** Horizontal screen shift, in CSS pixels, applied through the camera's view
+   *  offset: it centres a focused node in the strip the panels leave visible
+   *  while the orbit still pivots on the node itself. */
+  private shift = 0;
   private follow: Vector3 | null = null;
   private touched = false;
   private radius = LINK_DISTANCE * 4;
@@ -210,21 +230,31 @@ export class LivingScene {
     );
     sim.alpha(first ? 1 : 0.25);
     sim.tick(first ? warmupTicks : Math.round(warmupTicks / 4));
-    sim.alphaTarget(this.live ? LIVE_ALPHA : 0);
     this.sim = sim;
-    this.driftForce.enabled(this.live);
+    this.applyMotion();
 
-    this.nodeMesh?.removeFromParent();
-    this.nodeMesh?.dispose();
-    const mesh = new InstancedMesh(this.sphere, this.nodeMaterial, Math.max(1, nodes.length));
-    mesh.count = nodes.length;
-    mesh.instanceMatrix.setUsage(DynamicDrawUsage);
-    mesh.frustumCulled = false;
-    // Nodes move every frame: a bounding sphere that holds everything, so the
-    // raycaster never skips the mesh on a stale one.
-    mesh.boundingSphere = new Sphere(new Vector3(), Number.POSITIVE_INFINITY);
-    this.nodeMesh = mesh;
-    this.scene.add(mesh);
+    this.sphereNodes = nodes.filter((n) => !n.artifact);
+    this.diamondNodes = nodes.filter((n) => n.artifact);
+    const sphereSlot = new Map(this.sphereNodes.map((n, i) => [n, i]));
+    const diamondSlot = new Map(this.diamondNodes.map((n, i) => [n, i]));
+    this.slot = nodes.map((n) => (n.artifact ? diamondSlot.get(n)! : sphereSlot.get(n)!));
+    const build = (geometry: SphereGeometry | OctahedronGeometry, count: number) => {
+      const mesh = new InstancedMesh(geometry, this.nodeMaterial, Math.max(1, count));
+      mesh.count = count;
+      mesh.instanceMatrix.setUsage(DynamicDrawUsage);
+      mesh.frustumCulled = false;
+      // Nodes move every frame: a bounding sphere that holds everything, so
+      // the raycaster never skips the mesh on a stale one.
+      mesh.boundingSphere = new Sphere(new Vector3(), Number.POSITIVE_INFINITY);
+      this.scene.add(mesh);
+      return mesh;
+    };
+    for (const old of [this.nodeMesh, this.artifactMesh]) {
+      old?.removeFromParent();
+      old?.dispose();
+    }
+    this.nodeMesh = build(this.sphere, this.sphereNodes.length);
+    this.artifactMesh = build(this.diamond, this.diamondNodes.length);
     this.edgeGeometry.setAttribute("position", new BufferAttribute(new Float32Array(links.length * 6), 3).setUsage(DynamicDrawUsage));
     this.applyColours();
     this.setSelection(this.selected);
@@ -245,8 +275,11 @@ export class LivingScene {
     const palette = this.palette;
     if (!mesh || !palette) return;
     const colour = new Color();
-    for (let i = 0; i < this.nodes.length; i++) mesh.setColorAt(i, colour.set(this.colours[i] ?? palette.edge));
-    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+    for (let i = 0; i < this.nodes.length; i++) {
+      const target = this.nodes[i]!.artifact ? this.artifactMesh : mesh;
+      target?.setColorAt(this.slot[i]!, colour.set(this.colours[i] ?? palette.edge));
+    }
+    for (const m of [mesh, this.artifactMesh]) if (m?.instanceColor) m.instanceColor.needsUpdate = true;
     const background = new Color(palette.background);
     this.renderer.setClearColor(background);
     this.scene.fog = new Fog(background, 1, 2);
@@ -266,6 +299,7 @@ export class LivingScene {
     this.activeGeometry.setAttribute("position", new BufferAttribute(new Float32Array(this.activeLinks.length * 6), 3).setUsage(DynamicDrawUsage));
     this.ring.visible = !!node;
     this.idle.setSelected(!!node);
+    this.edgeMaterial.opacity = node ? EDGE_BEHIND_SELECTION : EDGE_REST;
     this.burst = null;
     this.signalGeometry.setAttribute("position", new BufferAttribute(new Float32Array(MAX_SIGNALS * 3), 3).setUsage(DynamicDrawUsage));
     this.signals.visible = false;
@@ -309,12 +343,19 @@ export class LivingScene {
   setLive(live: boolean): void {
     this.live = live && !this.reducedMotion;
     this.idle.setLive(this.live);
-    this.driftForce.enabled(this.live);
-    this.sim?.alphaTarget(this.live ? LIVE_ALPHA : 0);
+    this.applyMotion();
     if (!this.live) {
       this.burst = null;
       this.signals.visible = false;
     }
+  }
+
+  /** Drift and the live simulation follow the motion toggle alone: a
+   *  selection keeps the network breathing (the rest recedes instead). */
+  private applyMotion(): void {
+    const drifting = this.live;
+    this.driftForce.enabled(drifting);
+    this.sim?.alphaTarget(drifting ? LIVE_ALPHA : 0);
   }
 
   /** Eases the camera onto a node's neighbourhood in the strip the panels
@@ -324,21 +365,25 @@ export class LivingScene {
     if (!node) return;
     savePose();
     const from = this.camera.position.clone();
+    // The look-at point is the node itself, so dragging orbits around it; the
+    // panels' occlusion is compensated by shifting the image, not the pivot.
     const target = () =>
       focusPose(node as Required<SceneNode>, from, this.neighbourhoodRadius(node), {
         width: this.canvas.clientWidth,
         height: this.canvas.clientHeight,
         fov: this.camera.fov,
-        occludedRight: occluded.right,
-        occludedLeft: occluded.left,
+        occludedRight: 0,
+        occludedLeft: 0,
       });
-    this.animateTo(target, this.reducedMotion ? 0 : FOCUS_MS);
+    const shift = (Math.max(0, occluded.right) - Math.max(0, occluded.left)) / 2;
+    this.animateTo(target, this.reducedMotion ? 0 : FOCUS_MS, shift);
     this.follow = new Vector3(node.x, node.y, node.z);
   }
 
   unfocus(pose: Pose | null): void {
     this.follow = null;
-    if (pose) this.animateTo(() => pose, this.reducedMotion ? 0 : FOCUS_MS);
+    if (pose) this.animateTo(() => pose, this.reducedMotion ? 0 : FOCUS_MS, 0);
+    else this.setShift(0);
   }
 
   pose(): Pose {
@@ -402,15 +447,24 @@ export class LivingScene {
     if (!this.touched && !this.selected) this.frameAll();
   }
 
-  private animateTo(to: () => Pose, ms: number): void {
+  private animateTo(to: () => Pose, ms: number, shift = this.shift): void {
     const from = this.pose();
     if (ms <= 0) {
       this.tween = null;
+      this.setShift(shift);
       this.applyPose(to());
       return;
     }
-    this.tween = { from, to, start: performance.now(), ms };
+    this.tween = { from, to, start: performance.now(), ms, shiftFrom: this.shift, shiftTo: shift };
     this.idle.setFocusing(true);
+  }
+
+  private setShift(px: number): void {
+    this.shift = px;
+    const w = Math.max(1, this.container.clientWidth);
+    const h = Math.max(1, this.container.clientHeight);
+    if (Math.abs(px) < 0.5) this.camera.clearViewOffset();
+    else this.camera.setViewOffset(w, h, px, 0, w, h);
   }
 
   private applyPose(p: Pose): void {
@@ -462,6 +516,7 @@ export class LivingScene {
       const to = this.tween.to();
       const f = this.tween.from;
       const lerp = (a: number, b: number) => a + (b - a) * k;
+      this.setShift(lerp(this.tween.shiftFrom, this.tween.shiftTo));
       this.applyPose({
         position: { x: lerp(f.position.x, to.position.x), y: lerp(f.position.y, to.position.y), z: lerp(f.position.z, to.position.z) },
         lookAt: { x: lerp(f.lookAt.x, to.lookAt.x), y: lerp(f.lookAt.y, to.lookAt.y), z: lerp(f.lookAt.z, to.lookAt.z) },
@@ -493,14 +548,16 @@ export class LivingScene {
     const mesh = this.nodeMesh;
     if (!mesh) return;
     const d = this.dummy;
+    const diamonds = this.artifactMesh;
     for (let i = 0; i < this.nodes.length; i++) {
       const n = this.nodes[i]!;
       d.position.set(n.x ?? 0, n.y ?? 0, n.z ?? 0);
-      d.scale.setScalar(this.radiusOf(n));
+      d.scale.setScalar(this.radiusOf(n) * (n.artifact ? 1.5 : 1));
       d.updateMatrix();
-      mesh.setMatrixAt(i, d.matrix);
+      (n.artifact ? diamonds : mesh)?.setMatrixAt(this.slot[i]!, d.matrix);
     }
     mesh.instanceMatrix.needsUpdate = true;
+    if (diamonds) diamonds.instanceMatrix.needsUpdate = true;
 
     const write = (attr: BufferAttribute, i: number, l: SceneLink) => {
       const a = l.source as SceneNode;
@@ -566,8 +623,13 @@ export class LivingScene {
     const r = this.canvas.getBoundingClientRect();
     this.ndc.set(((clientX - r.left) / r.width) * 2 - 1, -((clientY - r.top) / r.height) * 2 + 1);
     this.raycaster.setFromCamera(this.ndc, this.camera);
-    const hits = this.raycaster.intersectObject(mesh);
-    if (hits.length && hits[0]!.instanceId !== undefined) return this.nodes[hits[0]!.instanceId] ?? null;
+    const meshes = this.artifactMesh ? [mesh, this.artifactMesh] : [mesh];
+    const hits = this.raycaster.intersectObjects(meshes, false);
+    const hit = hits[0];
+    if (hit && hit.instanceId !== undefined) {
+      const owner = hit.object === this.artifactMesh ? this.diamondNodes : this.sphereNodes;
+      return owner[hit.instanceId] ?? null;
+    }
     let best: SceneNode | null = null;
     let bestD = HIT_RADIUS_PX * HIT_RADIUS_PX;
     const v = new Vector3();
@@ -689,6 +751,7 @@ export class LivingScene {
     this.renderer.setSize(w, h);
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
+    this.setShift(this.shift);
   }
 
   dispose(): void {
@@ -697,7 +760,8 @@ export class LivingScene {
     this.cleanups.forEach((fn) => fn());
     this.controls.dispose();
     this.nodeMesh?.dispose();
-    for (const g of [this.sphere, this.edgeGeometry, this.activeGeometry, this.signalGeometry, this.ring.geometry]) g.dispose();
+    this.artifactMesh?.dispose();
+    for (const g of [this.sphere, this.diamond, this.edgeGeometry, this.activeGeometry, this.signalGeometry, this.ring.geometry]) g.dispose();
     for (const m of [this.nodeMaterial, this.edgeMaterial, this.activeMaterial, this.signalMaterial, this.ring.material as MeshBasicMaterial]) m.dispose();
     this.renderer.dispose();
     this.canvas.remove();

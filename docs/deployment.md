@@ -512,21 +512,46 @@ the concept's prose can use — its 68ch reading measure plus padding (D281).
 Widening the panel reframes the selected concept in the graph it still shows;
 on a narrow screen the panel is a sheet and has no splitter (D239).
 
+A selected concept is the orbit's pivot: dragging turns the graph around it,
+while it stays centred in the strip the panels leave visible, and everything
+outside its neighbourhood recedes. The skills, agents and hooks that reference
+concepts are drawn as diamonds linked to them; clicking one opens it on the
+Artifacts panel (D286). Ctrl/Cmd+K searches titles and ids at once and, after a
+pause in typing, the full text through the `search` tool, showing the excerpt
+that matched; it is the way to a concept, and there is no concept list beside
+the canvas. The brand in the top bar returns to the atlas; the connection
+status appears only when the server is unreachable.
+
+The reading panel folds the concept's outline into *On this page*, drops the
+body's leading title (the header shows it) and hides a trailing links section
+that lists nothing the *Links* tab does not already show (D287). The *Links*
+tab lists links by title — *Links to*, *Linked from*, and *Used by* for the
+artifacts that reference the concept.
+
+The **Activity** panel is `changes_since` for the reader: the concepts changed
+in the last day, week or month, newest first, with authors and the reasons the
+writes recorded, filterable by author; a row opens the concept on the atlas.
+
 The **Observatory** panel lists the lint findings the caller may see. The Map or
 Journal selected in the rail scopes them (`GET /api/ui/v1/kbs/<kb>/lint?scope=`),
 and the headline and summary name that scope, so a clean Map never reads as a
 clean KB; *Whole atlas* returns to the KB-wide list. The Type and Status filters
 apply to graph nodes only, so the rail hides them in the Observatory and keeps
-their selection for the way back to the Atlas.
+their selection for the way back to the Atlas. Below the findings, for a caller
+that can see the whole KB, the Observatory lists what the KB does not know
+(`GET /api/ui/v1/kbs/<kb>/status`): open knowledge gaps, the searches agents
+made that found nothing, and how many concepts are past their review date.
 
-The **Artifacts** panel, third in the rail, shows what the KB ships to agent
+The **Artifacts** panel, last in the rail, shows what the KB ships to agent
 clients: skills, subagents, hooks, MCP descriptors in the allowlist, the
 curated `instructions.md` and templates, grouped by kind with a filter. Bundled
 skills are not listed: they belong to the binary. Selecting one opens its
 description, signature state, content hash, the clients sync writes it to, and
 its files: Markdown rendered (frontmatter as a table), anything else as plain
 text, a binary or over-256-KiB file named but not shown. Skills left out for
-failing validation are listed above. The selection is in the URL
+failing validation are listed above. A skill, agent or hook lists the concepts
+it reads, each opening on the atlas; a template offers the atlas filtered to
+the concepts of its type. The selection is in the URL
 (`panel=artifacts&artifact=<kind>/<name>`); the list width is remembered in
 `cartographer.artifacts.width`. The panel exists only for a principal that can
 read the whole KB, since artifacts are whole-KB resources; on a narrow screen

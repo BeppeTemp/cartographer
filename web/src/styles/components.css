@@ -15,8 +15,13 @@
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  padding-inline-end: var(--space-4);
+  padding: 0 var(--space-4) 0 0;
+  border: 0;
   border-inline-end: 1px solid var(--border-subtle);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
 }
 
 /* The product name is live text in the editorial voice beside the mark
@@ -201,6 +206,10 @@
   margin-inline-start: auto;
 }
 
+.topbar__status[hidden] {
+  display: none;
+}
+
 .topbar__status {
   display: inline-flex;
   align-items: center;
@@ -291,15 +300,20 @@
 }
 
 .rail__collapse {
-  align-self: flex-end;
+  align-self: flex-start;
+  margin-block-start: auto;
+  flex-shrink: 0;
 }
 
+/* The panels are where you are; everything under the rule is what you filter
+   by. A rule keeps the two from reading as one list. */
 .rail__panels {
   display: grid;
   gap: var(--space-1);
   margin: 0;
-  padding: 0;
+  padding: 0 0 var(--space-3);
   list-style: none;
+  border-block-end: 1px solid var(--border-subtle);
 }
 
 .rail__panel {
@@ -1575,6 +1589,16 @@ body.is-resizing {
   color: var(--text-muted);
 }
 
+.palette__snippet {
+  display: block;
+  margin-block-start: 2px;
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .palette__hint {
   flex: none;
   margin-inline-start: auto;
@@ -2240,4 +2264,254 @@ body.is-resizing {
    alarm-coloured dot the Observatory's uses. */
 .rail--collapsed .rail__badge--neutral {
   display: none;
+}
+
+/* --- Activity: changes_since as a page, the Observatory's sibling. --- */
+.activity {
+  width: 100%;
+  max-width: 880px;
+  margin-inline: auto;
+  padding: var(--space-8) var(--space-6) var(--space-12);
+  overflow-y: auto;
+}
+
+.activity__head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.activity__title {
+  margin: 0;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.activity__window {
+  display: inline-flex;
+  flex: none;
+}
+
+.activity__authors {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: var(--space-6) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.activity__list {
+  margin: var(--space-6) 0 0;
+  padding: 0;
+  list-style: none;
+  overflow: hidden;
+  background: var(--surface-1);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-panel);
+}
+
+.activity__list li + li {
+  border-block-start: 1px solid var(--border-subtle);
+}
+
+.activity__row {
+  display: grid;
+  gap: 2px;
+  width: 100%;
+  padding: var(--space-3) var(--space-4);
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  text-align: start;
+  color: inherit;
+  cursor: pointer;
+}
+
+.activity__row:hover:not(:disabled) {
+  background: var(--surface-2);
+}
+
+.activity__row:disabled {
+  cursor: default;
+  opacity: 0.7;
+}
+
+.activity__row-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-primary);
+}
+
+.activity__row-meta,
+.activity__reason {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.activity__reason {
+  color: var(--text-secondary);
+  font-style: italic;
+}
+
+.activity__tag--added {
+  color: var(--graph-edge-active);
+}
+
+.activity__tag--deleted {
+  color: var(--sev-error);
+}
+
+.activity__note {
+  margin: var(--space-3) 0 0;
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+
+.activity__foot {
+  font-size: var(--text-xs);
+}
+
+.observatory__misses {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: var(--space-3) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.observatory__stale {
+  margin-block-start: var(--space-6);
+}
+
+.legend__meta {
+  margin: var(--space-2) 0 0;
+  padding-block-start: var(--space-2);
+  border-block-start: 1px solid var(--border-subtle);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Reading panel: a closed table of contents, links as rows. */
+.inspector__toc {
+  margin-block-end: var(--space-4);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+.inspector__toc summary {
+  cursor: pointer;
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.inspector__toc .inspector__outline {
+  margin-block: var(--space-2) 0;
+}
+
+.inspector__outline-item {
+  display: block;
+  width: 100%;
+  padding-block: 2px;
+  border: 0;
+  background: transparent;
+  text-align: start;
+  font: inherit;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.inspector__outline-item:hover {
+  color: var(--text-primary);
+}
+
+.inspector__tab-count {
+  margin-inline-start: var(--space-2);
+  padding: 0 var(--space-2);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  background: var(--surface-2);
+  border-radius: var(--radius-pill);
+}
+
+.inspector__links {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-panel);
+  overflow: hidden;
+}
+
+.inspector__links li + li {
+  border-block-start: 1px solid var(--border-subtle);
+}
+
+.inspector__link {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  border: 0;
+  background: transparent;
+  text-align: start;
+  color: inherit;
+  cursor: pointer;
+}
+
+.inspector__link:hover,
+.inspector__link:focus-visible {
+  background: var(--surface-2);
+}
+
+.inspector__link-swatch {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+}
+
+.inspector__link-text {
+  display: grid;
+  min-width: 0;
+}
+
+.inspector__link-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-primary);
+}
+
+.inspector__link-id {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+.inspector__link-kind {
+  flex: none;
+  width: 8px;
+  font-size: 9px;
+  color: var(--graph-signal);
+}
+
+.artifacts__reach {
+  margin-block-start: var(--space-4);
 }

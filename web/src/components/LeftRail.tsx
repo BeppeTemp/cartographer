@@ -1,11 +1,10 @@
-import type { GraphSnapshot, Overview } from "../api/types";
+import type { Overview } from "../api/types";
 import type { Panel } from "../lib/viewstate";
 import { collectionVar } from "../lib/palette";
 import { Icon } from "./Icon";
 
 interface Props {
   overview: Overview | null;
-  snapshot: GraphSnapshot | null;
   scope: string | null;
   panel: Panel;
   /** The KB's artifact count, or null when this principal may not open the
@@ -26,7 +25,6 @@ interface Props {
 
 export function LeftRail({
   overview,
-  snapshot,
   scope,
   panel,
   artifactsTotal,
@@ -53,18 +51,6 @@ export function LeftRail({
 
   return (
     <nav className={`rail${collapsed ? " rail--collapsed" : ""}`} aria-label="Atlas navigation">
-      {collapsible && (
-        <button
-          type="button"
-          className="rail__collapse button button--icon"
-          onClick={onToggleCollapsed}
-          aria-label={collapsed ? "Expand navigation" : "Collapse navigation"}
-          aria-expanded={!collapsed}
-        >
-          <Icon name={collapsed ? "panel-open" : "panel-close"} />
-        </button>
-      )}
-
       <ul className="rail__panels">
         <li>
           <button
@@ -79,6 +65,21 @@ export function LeftRail({
               <Icon name="atlas" />
             </span>
             <span className="rail__label">Atlas</span>
+          </button>
+        </li>
+        <li>
+          <button
+            type="button"
+            className="rail__panel"
+            aria-label="Activity"
+            title={collapsed ? "Activity" : undefined}
+            aria-current={panel === "activity" ? "page" : undefined}
+            onClick={() => onPanel("activity")}
+          >
+            <span className="rail__glyph">
+              <Icon name="activity" />
+            </span>
+            <span className="rail__label">Activity</span>
           </button>
         </li>
         <li>
@@ -187,13 +188,21 @@ export function LeftRail({
             </>
           )}
 
-          {nodeFilters && snapshot && (
-            <p className="rail__meta">
-              {snapshot.nodes.length} node{snapshot.nodes.length === 1 ? "" : "s"},{" "}
-              {snapshot.edges.length} link{snapshot.edges.length === 1 ? "" : "s"} in view
-            </p>
-          )}
         </div>
+      )}
+
+      {/* The collapse toggle sits at the foot of the rail: at the top it took a
+          whole row of its own above the navigation. */}
+      {collapsible && (
+        <button
+          type="button"
+          className="rail__collapse button button--icon"
+          onClick={onToggleCollapsed}
+          aria-label={collapsed ? "Expand navigation" : "Collapse navigation"}
+          aria-expanded={!collapsed}
+        >
+          <Icon name={collapsed ? "panel-open" : "panel-close"} />
+        </button>
       )}
     </nav>
   );

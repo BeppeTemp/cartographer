@@ -44,6 +44,8 @@ export interface Artifact {
   signed?: boolean;
   clients: ArtifactClient[];
   files: ArtifactFile[];
+  /** Concepts the artifact references explicitly ([[id]] or a written id). */
+  concepts?: string[];
 }
 
 export interface ArtifactList {
@@ -146,6 +148,9 @@ export interface Concept {
   outbound: string[];
   inbound: string[];
   broken: string[];
+  /** Skills, agents and hooks that reference this concept explicitly; absent
+   *  for a principal that cannot see the whole KB. */
+  used_by?: { kind: string; name: string }[];
 }
 
 export type Severity = "info" | "warning" | "error";
@@ -165,4 +170,41 @@ export interface LintReport {
   by_severity: Record<string, number>;
   by_check: Record<string, number>;
   severity_min: string;
+}
+
+/** GET /kbs/{kb}/search: the search tool's own response. */
+export interface SearchHit {
+  id: string;
+  title?: string;
+  snippet?: string;
+  score: number;
+}
+export interface SearchResponse {
+  query: string;
+  count: number;
+  results: SearchHit[];
+}
+
+/** GET /kbs/{kb}/changes: changes_since's own response. */
+export interface ConceptChange {
+  id: string;
+  change: string;
+  last_at: string;
+  authors?: string[];
+  ops?: string[];
+  reasons?: string[];
+}
+export interface ChangesResponse {
+  since: string;
+  commit_count: number;
+  truncated?: boolean;
+  concepts: ConceptChange[];
+}
+
+/** GET /kbs/{kb}/status: the parts of kb_status the home reads. Both are
+ *  omitted by the server when empty. */
+export interface KBStatus {
+  open_gaps?: { total: number; by_kind?: Record<string, number>; recent?: { id: string; title?: string; kind?: string; subjects?: string[] }[] };
+  search_misses?: { query: string; count: number; last_seen?: string }[];
+  stale_count?: number;
 }

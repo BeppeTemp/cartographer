@@ -1,4 +1,4 @@
-import { LOCAL_URL, conceptRow, expect, listedConcepts, test, waitForAtlas, withPanelsOpen } from "./support";
+import { expect, listedConcepts, LOCAL_URL, openConcept, selectedIn, test, waitForAtlas, withPanelsOpen } from "./support";
 
 // The flows a sighted mouse user takes, against the auth-off server. Motion is
 // reduced for the whole file: the assertions are about state, and a camera
@@ -14,7 +14,8 @@ test("local mode reaches the atlas with no prompt", async ({ page }) => {
   await expect(page).toHaveURL(/\/ui\//);
   await waitForAtlas(page);
   await expect(page.getByLabel("Bearer token")).toHaveCount(0);
-  await expect(page.getByRole("status").filter({ hasText: "Connected" })).toBeVisible();
+  // Connected is the normal state: the status only takes room when it is not.
+  await expect(page.getByText("Disconnected")).toBeHidden();
 });
 
 test("switching KB changes the graph and the overview", async ({ page }) => {
@@ -39,7 +40,7 @@ test("selecting a Map loads its scoped graph", async ({ page }) => {
   await page.getByRole("button", { name: /Infrastructure/ }).click();
   await expect(page).toHaveURL(/scope=infra/);
   await expect.poll(() => listedConcepts(page)).toEqual(INFRA);
-  await expect(page.getByText("6 nodes,", { exact: false })).toBeVisible();
+  await expect(page.getByText(/^6 nodes ·/)).toBeVisible();
 });
 
 test("type and status filters update the graph and the count", async ({ page }) => {
@@ -199,14 +200,14 @@ test("the command palette finds a concept and reveals it", async ({ page }) => {
   await expect(palette).toBeHidden();
   await expect(page).toHaveURL(/concept=infra%2Fgateway/);
   await expect(page.getByRole("complementary", { name: "Inspector for infra/gateway" })).toBeVisible();
-  await expect(conceptRow(page, "infra/gateway")).toHaveAttribute("aria-current", "true");
+  await expect(page).toHaveURL(selectedIn("infra/gateway"));
 });
 
 test("URL state and Back/Forward restore KB, scope and selection", async ({ page }) => {
   await page.goto(ATLAS);
   await waitForAtlas(page);
   await page.getByRole("button", { name: /Infrastructure/ }).click();
-  await conceptRow(page, "infra/dns").click();
+  await openConcept(page, "infra/dns");
   await expect(page).toHaveURL(/kb=atlas&scope=infra&concept=infra%2Fdns/);
 
   await page.goBack();
@@ -256,7 +257,7 @@ test("an Observatory finding reveals its concept, or explains there is none", as
   await observatory.getByRole("button", { name: /infra\/firewall\.md/ }).click();
   await expect(page).toHaveURL(/concept=infra%2Ffirewall/);
   await expect(page.getByRole("complementary", { name: "Inspector for infra/firewall" })).toBeVisible();
-  await expect(conceptRow(page, "infra/firewall")).toHaveAttribute("aria-current", "true");
+  await expect(page).toHaveURL(selectedIn("infra/firewall"));
 });
 
 test("the Observatory follows the rail's Map, and hides the node filters (#364)", async ({ page }) => {

@@ -126,13 +126,19 @@ func (m *MultiKBServer) handleUIAPI(w http.ResponseWriter, r *http.Request) {
 	case "graph":
 		uiGraph(w, r, k)
 	case "concept":
-		uiConcept(w, r, k)
+		uiConcept(w, r, k, srv)
 	case "lint":
 		uiLint(w, r, k)
 	case "artifacts":
 		m.uiArtifacts(w, r, srv)
 	case "artifact":
 		m.uiArtifact(w, r, srv)
+	case "search":
+		uiSearch(w, r, srv)
+	case "changes":
+		uiChanges(w, r, srv)
+	case "status":
+		uiStatus(w, r, srv)
 	default:
 		writeUINotFound(w)
 	}
@@ -336,7 +342,7 @@ func uiGraph(w http.ResponseWriter, r *http.Request, k *kb.KB) {
 	writeUIJSON(w, http.StatusOK, snap)
 }
 
-func uiConcept(w http.ResponseWriter, r *http.Request, k *kb.KB) {
+func uiConcept(w http.ResponseWriter, r *http.Request, k *kb.KB, srv *Server) {
 	ctx := r.Context()
 	id := r.URL.Query().Get("id")
 	if id == "" {
@@ -387,6 +393,7 @@ func uiConcept(w http.ResponseWriter, r *http.Request, k *kb.KB) {
 		"outbound":     outbound,
 		"inbound":      inbound,
 		"broken":       brokenOutbound,
+		"used_by":      artifactsReading(ctx, srv, id),
 	})
 }
 
