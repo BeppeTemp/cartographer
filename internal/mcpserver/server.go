@@ -39,6 +39,9 @@ type Tool struct {
 	ReadOnly bool
 	// InputSchema is the JSON Schema for the "arguments" parameter.
 	InputSchema json.RawMessage
+	// GitWrapped is set by gitWrap: the tool commits (and syncs) after a
+	// successful call, so it accepts the optional `reason` argument (D272).
+	GitWrapped bool
 	// Handler receives the request context and raw parameters (JSON object)
 	// and returns a result and application error. Application errors go in
 	// the ToolResult (isError:true), not as Go errors.

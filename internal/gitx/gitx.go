@@ -830,7 +830,10 @@ type CommitChanges struct {
 	At      time.Time
 	Author  string
 	Subject string
-	Files   []FileChange
+	// Reason is the value of the commit's Reason: trailer (D272), empty when
+	// absent. With several trailers only the first is kept.
+	Reason string
+	Files  []FileChange
 }
 
 // LogNameStatus returns commits since the supplied instant with their changed
@@ -850,7 +853,7 @@ func LogNameStatus(dir string, since time.Time) ([]CommitChanges, error) {
 	// The record separator gives each commit an unambiguous boundary while the
 	// NUL-separated header keeps subjects with spaces intact. --name-status is
 	// deliberately left line-oriented to match git's ordinary path format.
-	format := "%x1e%H%x00%aI%x00%an%x00%s"
+	format := "%x1e%H%x00%aI%x00%an%x00%s%x00%(trailers:key=Reason,valueonly,separator=%x1f)"
 	out, err := runGitEnv(dir, nil, "log", "--since="+since.Format(time.RFC3339), "--name-status", "-M", "--pretty=format:"+format)
 	if err != nil {
 		return nil, fmt.Errorf("git log --name-status: %w: %s", err, out)
@@ -861,18 +864,21 @@ func LogNameStatus(dir string, since time.Time) ([]CommitChanges, error) {
 		if record == "" {
 			continue
 		}
-		head := strings.SplitN(record, "\x00", 4)
-		if len(head) != 4 {
+		head := strings.SplitN(record, "\x00", 5)
+		if len(head) != 5 {
 			continue
 		}
 		at, err := time.Parse(time.RFC3339, head[1])
 		if err != nil {
 			return nil, fmt.Errorf("parse git commit time %q: %w", head[1], err)
 		}
-		subjectAndFiles := strings.SplitN(head[3], "\n", 2)
-		commit := CommitChanges{SHA: head[0], At: at, Author: head[2], Subject: subjectAndFiles[0]}
-		if len(subjectAndFiles) == 2 {
-			for _, line := range strings.Split(subjectAndFiles[1], "\n") {
+		// The trailers value ends with a newline that precedes the name-status
+		// block, so the block is whatever follows the first newline.
+		reasonAndFiles := strings.SplitN(head[4], "\n", 2)
+		reason, _, _ := strings.Cut(reasonAndFiles[0], "\x1f")
+		commit := CommitChanges{SHA: head[0], At: at, Author: head[2], Subject: head[3], Reason: strings.TrimSpace(reason)}
+		if len(reasonAndFiles) == 2 {
+			for _, line := range strings.Split(reasonAndFiles[1], "\n") {
 				if line == "" {
 					continue
 				}

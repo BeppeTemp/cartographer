@@ -387,6 +387,9 @@ type changesSinceConcept struct {
 	LastAt  string   `json:"last_at"`
 	Authors []string `json:"authors"`
 	Ops     []string `json:"ops"`
+	// Reasons are the distinct Reason: trailers of the commits that touched the
+	// concept, newest first, at most 5 (D272).
+	Reasons []string `json:"reasons,omitempty"`
 }
 
 type changesSinceResult struct {
@@ -445,7 +448,7 @@ func isCartographerPath(path string) bool {
 func toolChangesSince(k *kb.KB) Tool {
 	return Tool{
 		Name:        "changes_since",
-		Description: "Summarizes concept changes from git history since an RFC3339 timestamp or a duration such as 2d or 48h. Aggregates each concept's newest change, latest timestamp, authors, and recent operations. With links: true it also reports links added and removed and pages that became or stopped being orphans — ask it after an agent session to review the structure.",
+		Description: "Summarizes concept changes from git history since an RFC3339 timestamp or a duration such as 2d or 48h. Aggregates each concept's newest change, latest timestamp, authors, recent operations, and the reasons recorded by the writes (reasons, newest first). With links: true it also reports links added and removed and pages that became or stopped being orphans — ask it after an agent session to review the structure.",
 		ReadOnly:    true,
 		InputSchema: json.RawMessage(`{
 			"type": "object",
@@ -495,6 +498,7 @@ func toolChangesSince(k *kb.KB) Tool {
 			conceptByID := map[string]*changesSinceConcept{}
 			authorSeen := map[string]map[string]bool{}
 			opSeen := map[string]map[string]bool{}
+			reasonSeen := map[string]map[string]bool{}
 			movedTo := map[string]string{}
 			resolveMovedID := func(id string) string {
 				for movedTo[id] != "" {
@@ -534,6 +538,7 @@ func toolChangesSince(k *kb.KB) Tool {
 						conceptByID[id] = info
 						authorSeen[id] = map[string]bool{}
 						opSeen[id] = map[string]bool{}
+						reasonSeen[id] = map[string]bool{}
 					}
 					if !authorSeen[id][commit.Author] {
 						authorSeen[id][commit.Author] = true
@@ -542,6 +547,10 @@ func toolChangesSince(k *kb.KB) Tool {
 					if !opSeen[id][commit.Subject] && len(info.Ops) < 5 {
 						opSeen[id][commit.Subject] = true
 						info.Ops = append(info.Ops, commit.Subject)
+					}
+					if commit.Reason != "" && !reasonSeen[id][commit.Reason] && len(info.Reasons) < 5 {
+						reasonSeen[id][commit.Reason] = true
+						info.Reasons = append(info.Reasons, commit.Reason)
 					}
 				}
 			}

@@ -3,6 +3,7 @@ package gitx
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -425,5 +426,56 @@ func TestProbeRemote(t *testing.T) {
 
 	if _, err := ProbeRemote(ctx, filepath.Join(t.TempDir(), "missing.git")); err == nil {
 		t.Error("ProbeRemote(missing path) returned no error")
+	}
+}
+
+func TestLogNameStatus_Reason(t *testing.T) {
+	if !hasGit() {
+		t.Skip("git not in PATH, skipping gitx tests")
+	}
+
+	dir := t.TempDir()
+	if err := Init(dir); err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "data"), 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	base := time.Now().UTC().Truncate(time.Second).Add(time.Minute)
+	commit := func(i int, msg string) {
+		t.Helper()
+		name := filepath.Join(dir, "data", fmt.Sprintf("f%d.md", i))
+		if err := os.WriteFile(name, []byte("x\n"), 0o644); err != nil {
+			t.Fatalf("WriteFile: %v", err)
+		}
+		at := base.Add(time.Duration(i) * time.Minute).Format(time.RFC3339)
+		if err := Commit(dir, msg, "Author", "a@example.test", "GIT_AUTHOR_DATE="+at, "GIT_COMMITTER_DATE="+at); err != nil {
+			t.Fatalf("Commit %q: %v", msg, err)
+		}
+	}
+	commit(1, "concept_write: plain")
+	commit(2, "concept_write: it's \"quoted\" % $x `y`\n\nReason: incident 42: DNS cutover")
+	commit(3, "concept_write: multi\n\nReason: first\nReason: second")
+
+	commits, err := LogNameStatus(dir, base.Add(-time.Second))
+	if err != nil {
+		t.Fatalf("LogNameStatus: %v", err)
+	}
+	if len(commits) != 3 {
+		t.Fatalf("commits = %d, want 3: %#v", len(commits), commits)
+	}
+	want := []struct{ subject, reason, path string }{
+		{"concept_write: multi", "first", "data/f3.md"},
+		{"concept_write: it's \"quoted\" % $x `y`", "incident 42: DNS cutover", "data/f2.md"},
+		{"concept_write: plain", "", "data/f1.md"},
+	}
+	for i, w := range want {
+		c := commits[i]
+		if c.Subject != w.subject || c.Reason != w.reason {
+			t.Errorf("commit %d = subject %q reason %q, want %q / %q", i, c.Subject, c.Reason, w.subject, w.reason)
+		}
+		if len(c.Files) != 1 || c.Files[0].Path != w.path || c.Files[0].Status != "A" {
+			t.Errorf("commit %d files = %#v, want A %s", i, c.Files, w.path)
+		}
 	}
 }
