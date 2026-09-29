@@ -445,7 +445,7 @@ func TestToolChangesSince(t *testing.T) {
 		t.Fatalf("Remove deleted concept: %v", err)
 	}
 	write("data/log.md", "# Log\n\nchanged\n")
-	commitAt(base.Add(2*time.Minute), "concept_patch: modified", "Bob")
+	commitAt(base.Add(2*time.Minute), "concept_patch: modified\n\nReason: incident 7 follow-up", "Bob")
 
 	if err := os.Rename(filepath.Join(k.Root, "data/changes/moved.md"), filepath.Join(k.Root, "data/changes/renamed.md")); err != nil {
 		t.Fatalf("Rename moved concept: %v", err)
@@ -489,6 +489,13 @@ func TestToolChangesSince(t *testing.T) {
 	}
 	if got := byID["changes/modified"]; len(got.Authors) != 2 || got.Authors[0] != "Bob" || got.Authors[1] != "Alice" {
 		t.Errorf("modified authors = %#v, want newest-first Bob and Alice", got.Authors)
+	}
+
+	if got := byID["changes/modified"].Reasons; len(got) != 1 || got[0] != "incident 7 follow-up" {
+		t.Errorf("modified reasons = %#v, want [incident 7 follow-up]", got)
+	}
+	if got := byID["changes/renamed"].Reasons; len(got) != 0 {
+		t.Errorf("renamed reasons = %#v, want none", got)
 	}
 
 	limited := call(fmt.Sprintf(`{"since":%q,"limit":2}`, since))

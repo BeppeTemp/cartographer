@@ -9,6 +9,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"unicode/utf8"
 
 	"github.com/BeppeTemp/cartographer/internal/gitx"
 	"github.com/BeppeTemp/cartographer/internal/kb"
@@ -43,6 +44,8 @@ const pushFlushTimeout = 5 * time.Second
 //     as success).
 func gitWrap(k *kb.KB, t Tool) Tool {
 	orig := t
+	t.InputSchema = withReasonProperty(t.Name, t.InputSchema)
+	t.GitWrapped = true
 	t.Handler = func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
 		var res ToolResult
 		var handlerErr error
@@ -82,6 +85,9 @@ func gitWrap(k *kb.KB, t Tool) Tool {
 			handlerDur = time.Since(handlerStart)
 			if handlerErr == nil && !res.IsError {
 				msg := commitMessage(orig.Name, args)
+				if reason := commitReason(args); reason != "" {
+					msg += "\n\n" + commitReasonKey + ": " + reason
+				}
 				commitStart := time.Now()
 				sha, commitErr := k.CommitOp(msg)
 				commitDur = time.Since(commitStart)
@@ -132,6 +138,71 @@ func gitWrap(k *kb.KB, t Tool) Tool {
 		return res, handlerErr
 	}
 	return t
+}
+
+// commitReasonKey is the git trailer key that carries the reason of a write
+// (D272). gitx.LogNameStatus reads it back with the same key.
+const commitReasonKey = "Reason"
+
+// maxCommitReasonBytes bounds the stored reason; longer text is cut at a rune
+// boundary and ends with an ellipsis.
+const maxCommitReasonBytes = 500
+
+const reasonSchemaDescription = "Optional: why this change is made (incident, source, decision). " +
+	"Stored in the commit as a Reason: trailer and shown by changes_since."
+
+// withReasonProperty returns schema with an optional string `reason` property
+// added, unless the tool already declares one (supersede, conflict_resolve keep
+// their own entry). An empty schema is treated as a bare object. A schema that
+// is not a JSON object panics: every wrapped tool has a literal schema, so this
+// is a programmer error caught at registration.
+func withReasonProperty(toolName string, schema json.RawMessage) json.RawMessage {
+	top := map[string]json.RawMessage{}
+	if len(schema) == 0 {
+		top["type"] = json.RawMessage(`"object"`)
+	} else if err := json.Unmarshal(schema, &top); err != nil || top == nil {
+		panic(fmt.Sprintf("mcpserver: tool %q has an unparsable input schema: %v", toolName, err))
+	}
+	props := map[string]json.RawMessage{}
+	if raw, ok := top["properties"]; ok {
+		if err := json.Unmarshal(raw, &props); err != nil || props == nil {
+			panic(fmt.Sprintf("mcpserver: tool %q has unparsable schema properties: %v", toolName, err))
+		}
+	}
+	if _, ok := props["reason"]; ok {
+		return schema
+	}
+	entry, _ := json.Marshal(map[string]string{"type": "string", "description": reasonSchemaDescription})
+	props["reason"] = entry
+	top["properties"], _ = json.Marshal(props)
+	out, err := json.Marshal(top)
+	if err != nil {
+		panic(fmt.Sprintf("mcpserver: tool %q: re-encode input schema: %v", toolName, err))
+	}
+	return out
+}
+
+// commitReason extracts the optional `reason` argument of a write and
+// normalises it for a commit trailer: trimmed, newlines and whitespace runs
+// collapsed to one space, cut to maxCommitReasonBytes at a rune boundary with
+// an ellipsis. It returns "" when there is no usable reason.
+func commitReason(args json.RawMessage) string {
+	var p struct {
+		Reason any `json:"reason"`
+	}
+	if err := json.Unmarshal(args, &p); err != nil {
+		return ""
+	}
+	raw, _ := p.Reason.(string)
+	reason := strings.Join(strings.Fields(raw), " ")
+	if len(reason) > maxCommitReasonBytes {
+		cut := maxCommitReasonBytes
+		for cut > 0 && !utf8.RuneStart(reason[cut]) {
+			cut--
+		}
+		reason = strings.TrimRight(reason[:cut], " ") + "…"
+	}
+	return reason
 }
 
 func appendSyncWarning(res *ToolResult, k *kb.KB) {

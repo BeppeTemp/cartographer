@@ -29,9 +29,12 @@ of truth.
    instead of `concept_patch`: an expanded concept's own `index.md` (e.g.
    `map/concept`) is a concept and still goes through `concept_patch(id=
    <owner>)` (D122).
-3. Pass `if_match` when updating existing content. A concurrent change fails
+3. Pass `reason` (one sentence: the incident, source or decision behind the
+   change) on any non-trivial write: it lands in the commit as a `Reason:`
+   trailer and `changes_since` shows it (D272).
+4. Pass `if_match` when updating existing content. A concurrent change fails
    with `stale_write` instead of being overwritten.
-4. The server validates the write, updates live indexes and—when enabled—
+5. The server validates the write, updates live indexes and—when enabled—
    creates one local git commit for the logical operation.
 
 Remote synchronization is handled around writes when configured. See

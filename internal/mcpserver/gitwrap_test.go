@@ -1166,3 +1166,115 @@ func TestGitWrap_DivergedBranchRefusesWriteAndSyncStatusNamesBranches(t *testing
 		t.Fatalf("sync_status = %+v", status)
 	}
 }
+
+// headReason returns the Reason trailer values of HEAD and its full body.
+func headReason(t *testing.T, dir string) (reason, body string) {
+	t.Helper()
+	r, err := exec.Command("git", "-C", dir, "log", "-1", "--format=%(trailers:key=Reason,valueonly)").Output()
+	if err != nil {
+		t.Fatalf("git log trailers: %v", err)
+	}
+	b, err := exec.Command("git", "-C", dir, "log", "-1", "--format=%b").Output()
+	if err != nil {
+		t.Fatalf("git log body: %v", err)
+	}
+	return strings.TrimSpace(string(r)), strings.TrimSpace(string(b))
+}
+
+func writeWithArgs(t *testing.T, k *kb.KB, id string, extra map[string]any) {
+	t.Helper()
+	args := map[string]any{"id": id, "frontmatter": map[string]any{"type": "Note", "title": id}, "body": "# T\n"}
+	for key, v := range extra {
+		args[key] = v
+	}
+	raw, _ := json.Marshal(args)
+	s := New("0.1.0-test")
+	RegisterKBTools(s, k, Deps{})
+	res := s.callTool(authLocalContext(), "concept_write", raw)
+	if res.IsError {
+		t.Fatalf("concept_write: %+v", res)
+	}
+}
+
+func TestGitWrap_ReasonBecomesTrailer(t *testing.T) {
+	k, _ := setupGitKB(t)
+	k.AutoCommit = true
+
+	writeWithArgs(t, k, "test/with-reason", map[string]any{"reason": "  incident 42:\n  DNS   cutover\t\n"})
+	reason, body := headReason(t, k.Root)
+	if reason != "incident 42: DNS cutover" {
+		t.Errorf("reason trailer = %q, want normalised text", reason)
+	}
+	if body != "Reason: incident 42: DNS cutover" {
+		t.Errorf("body = %q, want a single Reason trailer", body)
+	}
+	if got := headSubject(t, k.Root); got != "concept_write: test/with-reason" {
+		t.Errorf("subject = %q, must be unchanged by the reason", got)
+	}
+
+	writeWithArgs(t, k, "test/no-reason", nil)
+	if reason, body := headReason(t, k.Root); reason != "" || body != "" {
+		t.Errorf("no reason: trailer %q body %q, want both empty", reason, body)
+	}
+
+	writeWithArgs(t, k, "test/blank-reason", map[string]any{"reason": " \n\t "})
+	if _, body := headReason(t, k.Root); body != "" {
+		t.Errorf("blank reason: body %q, want empty", body)
+	}
+
+	long := strings.Repeat("é", 400) // 800 bytes
+	writeWithArgs(t, k, "test/long-reason", map[string]any{"reason": long})
+	reason, _ = headReason(t, k.Root)
+	if !strings.HasSuffix(reason, "…") || len(reason) > maxCommitReasonBytes+len("…") || !utf8Valid(reason) {
+		t.Errorf("long reason = %d bytes %q, want truncated at a rune boundary with ellipsis", len(reason), reason)
+	}
+}
+
+func utf8Valid(s string) bool { return strings.ToValidUTF8(s, "�") == s }
+
+func TestCommitReason(t *testing.T) {
+	cases := map[string]string{
+		`{}`:                        "",
+		`{"reason":""}`:             "",
+		`{"reason":123}`:            "",
+		`not json`:                  "",
+		`{"reason":"a\r\n\r\nb"}`:   "a b",
+		`{"reason":"  x  y  "}`:     "x y",
+		`{"reason":"Reason: keep"}`: "Reason: keep",
+	}
+	for in, want := range cases {
+		if got := commitReason(json.RawMessage(in)); got != want {
+			t.Errorf("commitReason(%s) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+// TestGitWrap_EveryWrappedToolExposesReason walks a real registry: a tool added
+// later through gitWrap cannot miss the argument.
+func TestGitWrap_EveryWrappedToolExposesReason(t *testing.T) {
+	k := setupTestKB(t)
+	s := New("test")
+	RegisterKBTools(s, k, Deps{})
+	wrapped := 0
+	for name, tool := range s.Tools() {
+		if !tool.GitWrapped {
+			continue
+		}
+		var schema struct {
+			Properties map[string]struct {
+				Type string `json:"type"`
+			} `json:"properties"`
+		}
+		if err := json.Unmarshal(tool.InputSchema, &schema); err != nil {
+			t.Errorf("%s: schema: %v", name, err)
+			continue
+		}
+		if schema.Properties["reason"].Type != "string" {
+			t.Errorf("git-wrapped tool %q does not expose a string `reason` property", name)
+		}
+		wrapped++
+	}
+	if wrapped == 0 {
+		t.Fatal("no git-wrapped tools found in the registry")
+	}
+}
