@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/kb"
+	"github.com/BeppeTemp/cartographer/internal/lint"
 	"github.com/BeppeTemp/cartographer/internal/okf"
 )
 
@@ -21,7 +22,7 @@ func toolConceptWrite(k *kb.KB) Tool {
 		Name: "concept_write",
 		Description: "Creates or updates a concept. Requires frontmatter (YAML map) and markdown body. " +
 			"Uses if_match (content-hash) for optimistic concurrency: fails with stale_write " +
-			"if content was modified. Returns the new content_hash.",
+			"if content was modified. Returns the new content_hash and the concept's lint findings.",
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"required": ["id", "frontmatter", "body"],
@@ -60,6 +61,9 @@ func toolConceptWrite(k *kb.KB) Tool {
 			if params.Frontmatter == nil {
 				return errorResult("'frontmatter' is required"), nil
 			}
+			if err := rejectToolParamKeys(params.Frontmatter, false); err != nil {
+				return errorResult("concept_write: " + err.Error()), nil
+			}
 
 			// Build a structured Frontmatter from a JSON map.
 			fm, err := okf.ParseFrontmatter("")
@@ -79,6 +83,9 @@ func toolConceptWrite(k *kb.KB) Tool {
 			result := map[string]interface{}{
 				"id":           params.ID,
 				"content_hash": newHash,
+			}
+			if f := writeFindings(k, params.ID); f != nil {
+				result["findings"] = f
 			}
 			out, _ := json.MarshalIndent(result, "", "  ")
 			return textResult(string(out)), nil
@@ -192,11 +199,20 @@ func toolConceptNew(k *kb.KB) Tool {
 				}
 			}
 			body = renderTemplateText(body, params.Vars)
+			for _, key := range fm.Keys() {
+				if lint.IsToolParamField(key) {
+					return errorResult(fmt.Sprintf("concept_new: template %q: frontmatter key %q is a tool parameter, not a field — pass it as a top-level argument", params.Template, key)), nil
+				}
+			}
 			newHash, err := writeConceptAndLog(k, "concept_new", params.ID, fm, body, "")
 			if err != nil {
 				return errorResult(fmt.Sprintf("concept_new %q: %v", params.ID, err)), nil
 			}
-			out, _ := json.MarshalIndent(map[string]string{"id": params.ID, "template": params.Template, "content_hash": newHash}, "", "  ")
+			result := map[string]interface{}{"id": params.ID, "template": params.Template, "content_hash": newHash}
+			if f := writeFindings(k, params.ID); f != nil {
+				result["findings"] = f
+			}
+			out, _ := json.MarshalIndent(result, "", "  ")
 			return textResult(string(out)), nil
 		},
 	}
@@ -340,7 +356,7 @@ func toolConceptPatch(k *kb.KB) Tool {
 			"edit's index and nothing is written. frontmatter, if given, is shallow-merged onto the " +
 			"existing frontmatter and may be the only change (no body edit needed, e.g. to set a missing " +
 			"title); set a key to null to remove it (fails if the key is required, e.g. " +
-			"'type'). Returns the new content_hash. " +
+			"'type'). Returns the new content_hash and the concept's lint findings. " +
 			fmt.Sprintf("For a change spanning several concepts prefer concept_batch: one atomic commit for up "+
 				"to %d operations, against one commit per concept_patch call. It is operator-level tooling and "+
 				"is not advertised in tools/list, but it is callable by name.", conceptBatchMaxOps),
@@ -472,6 +488,9 @@ func toolConceptPatch(k *kb.KB) Tool {
 				return errorResult(fmt.Sprintf("concept_patch: parse frontmatter: %v", err)), nil
 			}
 			if params.Frontmatter != nil {
+				if err := rejectToolParamKeys(params.Frontmatter, true); err != nil {
+					return errorResult("concept_patch: " + err.Error()), nil
+				}
 				applyFrontmatterMap(fm, params.Frontmatter)
 			}
 
@@ -487,6 +506,9 @@ func toolConceptPatch(k *kb.KB) Tool {
 				"id":           params.ID,
 				"content_hash": newHash,
 				"replacements": replacements,
+			}
+			if f := writeFindings(k, params.ID); f != nil {
+				result["findings"] = f
 			}
 			out, _ := json.MarshalIndent(result, "", "  ")
 			return textResult(string(out)), nil
@@ -2059,8 +2081,9 @@ type batchOperationRequest struct {
 
 // batchResultEntry is one applied operation's reported outcome, in request order.
 type batchResultEntry struct {
-	ID          string `json:"id"`
-	ContentHash string `json:"content_hash"`
+	ID          string       `json:"id"`
+	ContentHash string       `json:"content_hash"`
+	Findings    []findingOut `json:"findings,omitempty"`
 }
 
 func toolConceptBatch(k *kb.KB) Tool {
@@ -2081,7 +2104,7 @@ func toolConceptBatch(k *kb.KB) Tool {
 			"target distinct concept IDs; delete, move, expand, assets, and Map/root curated indexes are out " +
 			"of scope for this tool. Every operation is validated — including each Map's strict-ontology " +
 			"palette and required-field contract — before anything is written. Returns each operation's id " +
-			"and new content_hash in request order.",
+			"and new content_hash in request order, with the concept's lint findings.",
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"required": ["operations"],
@@ -2178,6 +2201,9 @@ func toolConceptBatch(k *kb.KB) Tool {
 					if op.Frontmatter == nil {
 						return errorResult(fmt.Sprintf("%s: 'frontmatter' is required for a write operation", label)), nil
 					}
+					if err := rejectToolParamKeys(op.Frontmatter, false); err != nil {
+						return errorResult(fmt.Sprintf("%s: %v", label, err)), nil
+					}
 					if existed && op.IfMatch == "" {
 						return errorResult(fmt.Sprintf("%s: if_match is required to update an existing concept", label)), nil
 					}
@@ -2248,6 +2274,9 @@ func toolConceptBatch(k *kb.KB) Tool {
 						return errorResult(fmt.Sprintf("%s: parse frontmatter: %v", label, err)), nil
 					}
 					if op.Frontmatter != nil {
+						if err := rejectToolParamKeys(op.Frontmatter, true); err != nil {
+							return errorResult(fmt.Sprintf("%s: %v", label, err)), nil
+						}
 						applyFrontmatterMap(fm, op.Frontmatter)
 					}
 
@@ -2284,7 +2313,7 @@ func toolConceptBatch(k *kb.KB) Tool {
 
 			entries := make([]batchResultEntry, len(results))
 			for i, r := range results {
-				entries[i] = batchResultEntry{ID: r.ID, ContentHash: r.ContentHash}
+				entries[i] = batchResultEntry{ID: r.ID, ContentHash: r.ContentHash, Findings: writeFindings(k, r.ID)}
 			}
 			out, _ := json.MarshalIndent(map[string]interface{}{"results": entries}, "", "  ")
 			return textResult(string(out)), nil

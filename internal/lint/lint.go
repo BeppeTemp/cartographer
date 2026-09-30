@@ -137,6 +137,9 @@ var perConceptChecks = map[string]bool{
 	"unknown_placeholder": true,
 	// Glossary (D276): a migration note may quote the old name on purpose.
 	"forbidden_term": true,
+	// Conformance (D289). tool_param_field is deliberately absent: a concept
+	// cannot declare a tool argument a legitimate field.
+	"nonstandard_field": true,
 }
 
 // lintIgnoreSet reads a concept's lint_ignore frontmatter key (D159). A bare
@@ -172,6 +175,7 @@ type Finding struct {
 	Check    string // check name (e.g. "broken_link", "stale_claim")
 	Severity string // "warning" or "error"
 	Message  string
+	Fix      *Fix // optional mechanical remedy (D289)
 }
 
 // Now is used for date comparison in stale_claim checks. Override in tests.
@@ -350,7 +354,7 @@ func Run(k *kb.KB, scope string, scopeNeighbors bool) ([]Finding, error) {
 			}
 		}
 		emit := func(f Finding) {
-			if f.Severity != SevError && conceptIgnores[f.Check] {
+			if suppressed(f, conceptIgnores) {
 				return
 			}
 			findings = append(findings, f)
@@ -362,6 +366,8 @@ func Run(k *kb.KB, scope string, scopeNeighbors bool) ([]Finding, error) {
 			reason := "not a known lint check"
 			if name == "missing_required_field" || name == "invalid_field_value" || name == "forbidden_field" || name == "expanded_ambiguous" {
 				reason = "an error-severity contract violation, which lint_ignore cannot silence"
+			} else if name == "tool_param_field" {
+				reason = "a tool argument is never a legitimate field, so it cannot be declared one"
 			} else if name == "island" {
 				reason = "a graph-level check with no single concept owner"
 			} else if name == "map_oversize" || name == "index_incomplete" || name == "orphan_asset" || name == "oversized_asset" || name == "unlistable_assets" || name == "unused_placeholder" || strings.HasPrefix(name, "expanded_") {
@@ -426,22 +432,6 @@ func Run(k *kb.KB, scope string, scopeNeighbors bool) ([]Finding, error) {
 			}
 		}
 
-		// --- machine_path (warning, D75 WP6 / D124) ---
-		if disallowed := firstDisallowedMachinePath(body, allowPrefixes); disallowed != "" {
-			msg := fmt.Sprintf("client-local path %q — use {{repo:<key>}}/{{path:<nome>}} instead (D75); operational paths on containers/remote hosts are not client-local (D124)", disallowed)
-			// A declared key whose default covers the path is the answer,
-			// not a generic hint (D263).
-			if s := registry.suggestion(disallowed); s != "" {
-				msg += fmt.Sprintf(" — use `%s`, declared in %s", s, kb.PathRegistryFile)
-			}
-			emit(Finding{
-				Path:     relPath,
-				Check:    "machine_path",
-				Severity: SevWarning,
-				Message:  msg,
-			})
-		}
-
 		// --- unknown_placeholder (warning, D263) ---
 		// The keys come from the graph cache's facet (D262), the same parse
 		// sync_pull lists them from — not a second regex here.
@@ -481,20 +471,6 @@ func Run(k *kb.KB, scope string, scopeNeighbors bool) ([]Finding, error) {
 		if hasFM {
 			parsed, _ = okf.ParseFrontmatter(fmRaw)
 			if parsed != nil {
-				if raVal, ok := parsed.Get("review_after"); ok {
-					if dateStr, ok := raVal.(string); ok {
-						t, parseErr := time.Parse("2006-01-02", dateStr)
-						if parseErr == nil && t.Before(Now()) {
-							emit(Finding{
-								Path:     relPath,
-								Check:    "stale_claim",
-								Severity: SevWarning,
-								Message:  fmt.Sprintf("review_after %s is in the past", dateStr),
-							})
-						}
-					}
-				}
-
 				// D74 WP1: a concept imported via `cartographer import` (or the
 				// agent-side fallback) is marked status: imported until curated.
 				// The finding keeps the curation backlog visible and resumable
@@ -528,47 +504,16 @@ func Run(k *kb.KB, scope string, scopeNeighbors bool) ([]Finding, error) {
 				}
 			}
 		}
-		// --- missing_title (warning) ---
-		// validate only requires a type, yet the title is the label concept_list,
-		// search results and curated indexes show: an untitled concept is listed
-		// with an empty one. The first H1 is the value an author almost always
-		// meant, so the message offers it.
-		if parsed == nil || emptyFrontmatterValue(frontmatterValue(parsed, "title")) {
-			msg := "no title in frontmatter: concept_list and search show it with an empty label"
-			if h1 := firstH1(body); h1 != "" {
-				msg += fmt.Sprintf(" — suggested: title: %q (its first heading)", h1)
-			}
-			emit(Finding{
-				Path:     relPath,
-				Check:    "missing_title",
-				Severity: SevWarning,
-				Message:  msg,
-			})
-		}
-
+		// --- stale_claim, machine_path, missing_title, map contracts,
+		// nonstandard_field, tool_param_field: one implementation shared with
+		// CheckConcept (D289) ---
+		in := conceptInput{RelPath: relPath, Body: body, Parsed: parsed, AllowPrefixes: allowPrefixes, Registry: registry}
 		if len(parts) > 1 && archiveSet[parts[0]] {
-			contract := contracts[parts[0]]
-			for _, field := range contract.RequiredFor(func() string {
-				if parsed == nil {
-					return ""
-				}
-				return parsed.Type()
-			}()) {
-				missing := parsed == nil
-				if !missing {
-					value, exists := parsed.Get(field)
-					missing = !exists || emptyFrontmatterValue(value)
-				}
-				if missing {
-					findings = append(findings, Finding{
-						Path:     relPath,
-						Check:    "missing_required_field",
-						Severity: SevError,
-						Message:  fmt.Sprintf("missing required field %q required by map %q", field, parts[0]),
-					})
-				}
-			}
-			findings = append(findings, mapFieldContractFindings(relPath, parts[0], contract, parsed)...)
+			c := contracts[parts[0]]
+			in.MapName, in.Contract = parts[0], &c
+		}
+		for _, f := range frontmatterFindings(in) {
+			emit(f)
 		}
 
 		// --- orphan (warning) ---
@@ -612,6 +557,11 @@ func Run(k *kb.KB, scope string, scopeNeighbors bool) ([]Finding, error) {
 						Message:  "legacy _archive.md descriptor — rewrite as _map.md with a kind (D77)",
 					})
 				}
+			}
+
+			// --- missing_value_contract (info, D289) ---
+			if c, ok := contracts[archiveName]; ok {
+				findings = append(findings, valueContractFindings(archiveName, c, allConcepts)...)
 			}
 
 			// --- map_oversize (info) ---
