@@ -126,6 +126,8 @@ func RegisterKBTools(s *Server, k *kb.KB, deps Deps) {
 	register(gitWrap(k, toolConflictResolve(k)))
 	register(toolKBStatus(k, misses, s.version, s.knownLatestVersion))
 	register(toolContradictionReport(k))
+	register(gitWrap(k, toolSourceRegister(k)))
+	register(toolSourceList(k))
 	register(toolConflictsList(k))
 	register(toolSyncStatus(k))
 	register(toolGitConflictResolve(k))

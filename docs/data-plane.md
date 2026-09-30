@@ -207,7 +207,7 @@ a deliberately-broken example link — could not be written without generating t
 describes, so a KB's own "known false positives" page was impossible.
 
 Suppressible: `broken_link`, `machine_path`, `concept_oversize`, `stale_claim`, `imported_draft`,
-`secrets_on_non_service`, `orphan`, `missing_title`, `unknown_placeholder`, `forbidden_term`, `nonstandard_field`, `duplicate_link`, `bare_link_list`, and the structural
+`secrets_on_non_service`, `orphan`, `missing_title`, `unknown_placeholder`, `forbidden_term`, `nonstandard_field`, `source_uncited`, `duplicate_link`, `bare_link_list`, and the structural
 `cut_concept`, `link_to_retired`, `broken_relation`, `map_misfit`. **Not** suppressible: `tool_param_field` (a tool argument is never a legitimate field), every `error`-severity check
 (`missing_required_field`, `invalid_field_value`, `forbidden_field`, `expanded_ambiguous`) — those are contract violations, not judgements, and
 letting a concept declare its own contract void would be a hole rather than an escape hatch — and the
@@ -319,7 +319,7 @@ a client.
 
 ## Extended concept types
 
-`Service` and `Contradiction` are conventional types used by dedicated tools.
+`Service`, `Contradiction` and `Source` are conventional types used by dedicated tools.
 `validate()` enforces the normal frontmatter/layout rules and, in a strict Map,
 that the type is present in the Map's `concept_types` palette. It does not
 validate a nested per-type grammar.
@@ -337,6 +337,27 @@ validate a nested per-type grammar.
   `commit_gate` or `gate_check`, whatever its `involves`, and `involves` is
   optional (a question may concern a page that does not exist yet). `kb_status`
   counts open gaps apart from open contradictions (`open_gaps`).
+- **The source ledger (D278).** A `Source` records one primary source the KB has
+  absorbed (document, transcript, ticket, thread, web page, dataset), so the KB
+  can answer *already ingested?*, *what is pending?*, *where does this claim come
+  from?* and *what depends on this source?*. It lives in a journal (`sources` by
+  default, created with `map_create(name: "sources", kind: "journal")`;
+  `source_register` never creates it). Frontmatter: `title`, `source_kind` (free
+  string), optional `locator` (a URL or a `{{path:<key>}}` placeholder, never a
+  machine path), optional `sha256` (lowercase hex of the original bytes, computed
+  by the agent), `timestamp` (the source's own date), `ingest_status`
+  (`pending` \| `ingested` \| `skipped`) and `ingested_at`. The body is the
+  agent's distillation (key facts, decisions, open questions); keeping the
+  original is optional, as an asset of the expanded concept (D106, D270) — the
+  server never fetches or copies anything. **Citation:** a concept cites a source
+  by listing its ConceptID in `provenance`; an entry that is an existing Source ID
+  is a source citation, anything else (URLs, free text) stays a plain note.
+  **Dedup** (`source_register`): `sha256` decides when both sides have one,
+  otherwise an exact `locator` match; a title match is not a duplicate. Marking a
+  source ingested is a plain `concept_patch` of its frontmatter. `lint` reports an
+  `ingested` Source nobody cites as `source_uncited` (warning, suppressible);
+  `concept_delete` of a cited Source needs `force: true`; `kb_status` counts
+  sources by status (`sources`).
 
 Concept references are path-based. There is no separate immutable UID layer,
 so use `concept_move` with backlink rewriting when an ID changes.

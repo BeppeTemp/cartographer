@@ -76,6 +76,18 @@ blocks a write, because writing is how it gets answered; `kb_status` lists open
 gaps (`open_gaps`) and `contradiction_report` with `kind: gap` lists them all.
 Once answered, close it with `conflict_resolve` (D273).
 
+## Register what you ingest
+
+When the material comes from a primary source (document, transcript, ticket,
+thread, web page), record it in the source ledger before writing pages from it:
+`source_register` returns `duplicate: true` if the same source (same `sha256`,
+else same `locator`) was already ingested, and `source_list` shows what is still
+`pending`. Write the pages, cite the source by listing its ID in their
+`provenance`, then mark it ingested with `concept_patch` (`ingest_status:
+ingested`, `ingested_at`). `lint` flags an ingested source nobody cites
+(`source_uncited`). The ledger is bookkeeping: the server never fetches or copies
+the source (D278).
+
 ## Compound useful results
 
 When a result should survive the session, write it back as a focused concept

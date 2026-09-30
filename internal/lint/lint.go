@@ -140,6 +140,8 @@ var perConceptChecks = map[string]bool{
 	// Conformance (D289). tool_param_field is deliberately absent: a concept
 	// cannot declare a tool argument a legitimate field.
 	"nonstandard_field": true,
+	// D278: an ingested Source nothing cites.
+	"source_uncited": true,
 }
 
 // lintIgnoreSet reads a concept's lint_ignore frontmatter key (D159). A bare
@@ -326,6 +328,9 @@ func Run(k *kb.KB, scope string, scopeNeighbors bool) ([]Finding, error) {
 		findings = append(findings, checkHooks(k)...)
 	}
 
+	// Source citations (D278), over the whole KB whatever the scope.
+	sourceCited := kb.SourceCitations(allConcepts)
+
 	// The structural analysis runs on the whole graph whatever the scope, so
 	// a scoped lint gives a concept the verdict a whole-KB lint gives it;
 	// scope only decides which findings are emitted (D243).
@@ -443,6 +448,11 @@ func Run(k *kb.KB, scope string, scopeNeighbors bool) ([]Finding, error) {
 
 		// --- forbidden_term (warning, D276) ---
 		for _, f := range forbiddenTermFindings(relPath, body, glossary) {
+			emit(f)
+		}
+
+		// --- source_uncited (warning, D278) ---
+		if f, ok := uncitedSourceFinding(relPath, id, content, sourceCited); ok {
 			emit(f)
 		}
 

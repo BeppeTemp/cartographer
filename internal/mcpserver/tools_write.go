@@ -2385,7 +2385,7 @@ func toolConceptDelete(k *kb.KB) Tool {
 		Description: "Permanently removes a concept from the KB (git commit). Refuses with " +
 			"'inbound_links:' (listing the concepts that link to it) unless force=true; links are never " +
 			"rewritten — use supersede to retire a page while keeping it, or concept_move to rename with " +
-			"backlink rewrite. Deleting an expanded concept that owns assets also requires force=true; satellite concepts are preserved.",
+			"backlink rewrite. A Source cited through another concept's provenance counts as linked (D278). Deleting an expanded concept that owns assets also requires force=true; satellite concepts are preserved.",
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"required": ["id"],
@@ -2430,7 +2430,7 @@ func toolConceptDelete(k *kb.KB) Tool {
 				}
 			}
 
-			linkers, err := visibleInboundLinkers(ctx, k, params.ID)
+			linkers, err := deleteBlockers(ctx, k, params.ID)
 			if err != nil {
 				return errorResult(fmt.Sprintf("concept_delete %q: read links: %v", params.ID, err)), nil
 			}

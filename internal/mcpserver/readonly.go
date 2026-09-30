@@ -37,6 +37,7 @@ var readOnlyToolNames = map[string]bool{
 	"asset_read":      true,
 	"asset_list":      true,
 	"pr_status":       true,
+	"source_list":     true,
 }
 
 // ToolRequiresWrite reports whether calling the named tool requires write

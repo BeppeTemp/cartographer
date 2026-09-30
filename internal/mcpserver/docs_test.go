@@ -27,7 +27,7 @@ var toolPrefixes = []string{
 	"atlas_", "map_", "concept_", "index_", "log_", "graph_", "search_",
 	"skill_", "service_", "secret_", "artifact_", "template_", "asset_", "sync_", "git_", "kb_", "archive_",
 	"dossier_", "conflict_", "conflicts_", "commit_", "gate_", "changes_",
-	"contradiction_",
+	"contradiction_", "source_",
 }
 
 // docsNonTools are identifiers that match toolShaped and a tool prefix but are
@@ -57,7 +57,7 @@ var docsNonTools = map[string]bool{
 	"concept_id": true, "concept_types": true, "archive_type": true,
 	// tool argument names, cited where the docs explain which argument
 	// identifies the resource a write touched (commit subjects)
-	"contradiction_id": true, "source_id": true,
+	"contradiction_id": true, "source_id": true, "source_kind": true, "source_uncited": true,
 	"contradiction_kind": true, "service_ref": true, "secret_refs": true,
 	"secrets_source": true, "review_after": true, "asserted_by": true,
 	"last_indexed_commit": true, "content_hash": true, "applied_revision": true,
