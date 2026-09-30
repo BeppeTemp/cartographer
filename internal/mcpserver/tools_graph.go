@@ -101,7 +101,9 @@ func toolGraphContext(k *kb.KB, rec *searchReconciler, deps Deps) Tool {
 			if params.Query != "" {
 				// Reciprocal rank, not the raw score: FTS5 and the in-memory
 				// index score on different scales.
-				hits, _ := keywordHits(ctx, k, rec, deps, params.Query, "", graphContextSeedHits)
+				// Through the glossary (D276), so a seed query and a search
+				// agree on what an alias matches.
+				hits, _, _ := expandedKeywordHits(ctx, k, rec, deps, params.Query, "", graphContextSeedHits)
 				for r, h := range hits {
 					if i, ok := lg.Index[okf.ConceptID(h.ID)]; ok {
 						seeds[i] += 1 / float64(1+r)

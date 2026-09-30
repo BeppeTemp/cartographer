@@ -29,7 +29,7 @@ var fenceRe = regexp.MustCompile("^[ \t]*(`{3,}|~{3,})")
 // backticks on one line.
 var inlineCodeRe = regexp.MustCompile("(`+)[^`\n]*?(`+)")
 
-// maskCodeSpans blanks every byte inside a fenced block or an inline code span,
+// MaskCodeSpans blanks every byte inside a fenced block or an inline code span,
 // keeping newlines and total length identical so byte offsets stay valid for
 // any other span-based reasoning over the same body (lint's machine_path check
 // already works that way).
@@ -43,7 +43,7 @@ var inlineCodeRe = regexp.MustCompile("(`+)[^`\n]*?(`+)")
 // Indented (four-space) code blocks are deliberately NOT treated as code: they
 // are indistinguishable from a continuation line inside a list, which is how
 // most KB bodies indent, so masking them would hide real links.
-func maskCodeSpans(body string) string {
+func MaskCodeSpans(body string) string {
 	lines := strings.Split(body, "\n")
 	var fence string // the open fence's delimiter run, empty when outside
 	blank := func(i int) { lines[i] = strings.Repeat(" ", len(lines[i])) }
@@ -89,7 +89,7 @@ func maskCodeSpans(body string) string {
 // ConceptID shorthand.
 func ExtractLinks(body string, basePath string, assetResolver ...func(relPath string) bool) []okf.ConceptID {
 	isAsset := firstResolver(assetResolver)
-	body = maskCodeSpans(body)
+	body = MaskCodeSpans(body)
 	baseDir := path.Dir(basePath)
 	seen := map[string]bool{}
 	var ids []okf.ConceptID
@@ -246,7 +246,7 @@ func RewriteLinks(body string, basePath string, moveMap map[string]string, asset
 	baseDir := path.Dir(basePath)
 	// Matches are found on the masked body, which keeps every byte offset, and
 	// the replacements are applied to the original body at those offsets.
-	masked := maskCodeSpans(body)
+	masked := MaskCodeSpans(body)
 	var edits []spanEdit
 
 	for _, m := range mdLinkRe.FindAllStringSubmatchIndex(masked, -1) {
@@ -336,7 +336,7 @@ func RewriteOutboundLinks(body, oldBase, newBase string, moveMap map[string]stri
 	}
 	// Code spans are not links (D150), so a move does not rebase them either
 	// (D248): matched on the masked body, replaced at the same offsets.
-	masked := maskCodeSpans(body)
+	masked := MaskCodeSpans(body)
 	var edits []spanEdit
 	for _, m := range mdLinkRe.FindAllStringSubmatchIndex(masked, -1) {
 		hrefStart, hrefEnd := m[4], m[5]
