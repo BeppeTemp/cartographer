@@ -48,14 +48,22 @@ func New() *Index {
 // body tokens once (D246). Calling Add again with the same id replaces the
 // previous entry.
 func (idx *Index) Add(id string, content string) {
+	idx.AddWithAssets(id, content, "")
+}
+
+// AddWithAssets is Add plus the text of the concept's assets (D277), whose
+// tokens count bodyWeight: an asset is evidence the concept cites, not its
+// name or its metadata.
+func (idx *Index) AddWithAssets(id string, content string, assetsText string) {
 	idx.remove(id)
 	fields := SplitFields(content)
+	fields.Assets = assetsText
 	counts := make(map[string]int)
 	total := 0
 	for _, f := range []struct {
 		text   string
 		weight int
-	}{{fields.Title, titleWeight}, {fields.Meta, metaWeight}, {fields.Body, bodyWeight}} {
+	}{{fields.Title, titleWeight}, {fields.Meta, metaWeight}, {fields.Body, bodyWeight}, {fields.Assets, bodyWeight}} {
 		for _, tok := range Tokenize(f.text) {
 			counts[tok] += f.weight
 			total += f.weight
@@ -239,6 +247,9 @@ type Fields struct {
 	Title string // the frontmatter title; empty when absent or unparseable
 	Meta  string // the raw frontmatter
 	Body  string // the body, frontmatter stripped
+	// Assets is the searchable text of the concept's assets (D277). It is not
+	// part of the concept file, so SplitFields leaves it empty: the caller sets it.
+	Assets string
 }
 
 // SplitFields splits a concept's raw content into its weighted fields. An

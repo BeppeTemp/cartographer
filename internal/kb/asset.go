@@ -1,6 +1,7 @@
 package kb
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -11,6 +12,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
+	"unicode/utf8"
 
 	"github.com/BeppeTemp/cartographer/internal/execbit"
 	"github.com/BeppeTemp/cartographer/internal/okf"
@@ -364,4 +367,206 @@ func (kb *KB) DeleteConceptWithAssets(id okf.ConceptID, force bool) ([]AssetEntr
 		}
 	}
 	return assets, kb.DeleteConcept(id)
+}
+
+// Searchable asset text (D277). An expanded concept's text assets are indexed
+// into the owner's search document, so a value that lives only in a CSV, a
+// config or a script is findable. Binary formats are out of scope: extracting
+// them needs a dependency, and the ingestion procedure has the agent write
+// their content into the concept instead.
+
+// AssetIndexMaxBytes is how much of one asset is indexed; the rest is ignored.
+const AssetIndexMaxBytes = 256 * 1024
+
+// indexableAssetExts are the extensions whose content is searchable text.
+var indexableAssetExts = map[string]bool{
+	".txt": true, ".csv": true, ".tsv": true, ".json": true, ".yaml": true,
+	".yml": true, ".toml": true, ".ini": true, ".conf": true, ".cfg": true,
+	".sh": true, ".ps1": true, ".py": true, ".go": true, ".sql": true,
+	".xml": true, ".log": true,
+}
+
+// assetStat is an indexable asset as a stat sees it: no content read.
+type assetStat struct {
+	path    string // relative to the owner directory, slash-separated
+	size    int64
+	modTime int64 // nanoseconds
+}
+
+// ownerAssetStats stats the indexable assets below ownerAbs (an expanded
+// concept directory): known extension, not Oversized, hidden entries and
+// symlinks skipped. It reads no content and hashes nothing, so it is cheap
+// enough to run on every reconcile; it lists each directory once and stats
+// only candidate files (a WalkDir with Info() per file measured several times
+// slower on macOS). racy reports a modification time within racyWindow of
+// now, the graph cache's rule (D241): such a file may be rewritten inside one
+// timestamp tick without changing its signature.
+func ownerAssetStats(ownerAbs string) (stats []assetStat, racy bool, err error) {
+	stats, racy, _, err = scanOwner(ownerAbs, time.Now())
+	return stats, racy, err
+}
+
+// scanOwner is ownerAssetStats that also reports whether the directory holds
+// an index.md at its top level, which is what makes a concept directory an
+// expanded concept (AssetSignatures learns it from the same listing).
+func scanOwner(ownerAbs string, now time.Time) (stats []assetStat, racy, hasIndex bool, err error) {
+	var scan func(dirAbs, relPrefix string, top bool) error
+	scan = func(dirAbs, relPrefix string, top bool) error {
+		entries, err := os.ReadDir(dirAbs)
+		if err != nil {
+			return err
+		}
+		for _, e := range entries {
+			name := e.Name()
+			if top && name == "index.md" {
+				hasIndex = true
+			}
+			if strings.HasPrefix(name, ".") {
+				continue
+			}
+			if e.IsDir() {
+				if err := scan(filepath.Join(dirAbs, name), relPrefix+name+"/", false); err != nil {
+					return err
+				}
+				continue
+			}
+			if !e.Type().IsRegular() || !indexableAssetExts[strings.ToLower(filepath.Ext(name))] {
+				continue
+			}
+			info, err := os.Lstat(filepath.Join(dirAbs, name))
+			if err != nil || info.Size() > AssetMaxFileSize {
+				continue // vanished since the listing, or oversized (D270)
+			}
+			if info.ModTime().After(now.Add(-racyWindow)) {
+				racy = true
+			}
+			stats = append(stats, assetStat{path: relPrefix + name, size: info.Size(), modTime: info.ModTime().UnixNano()})
+		}
+		return nil
+	}
+	err = scan(ownerAbs, "", true)
+	sort.Slice(stats, func(i, j int) bool { return stats[i].path < stats[j].path })
+	return stats, racy, hasIndex, err
+}
+
+// assetSignature renders stats as the string two reconciliations compare. A
+// racy signature ends in "~", so it never equals the next one: the owner is
+// re-read once more after the window has passed, as the graph cache does.
+func assetSignature(stats []assetStat, racy bool) string {
+	if len(stats) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	for _, s := range stats {
+		fmt.Fprintf(&b, "%s\t%d\t%d\n", s.path, s.size, s.modTime)
+	}
+	if racy {
+		b.WriteString("~")
+	}
+	return b.String()
+}
+
+// AssetSignatures returns, for every expanded data concept that owns at least
+// one indexable asset, the signature of those assets (path, size, mtime). It
+// reads no content: it lists the two directory levels where concepts live and
+// stats each candidate file. An id absent from the map has no indexable assets.
+func (kb *KB) AssetSignatures() (map[okf.ConceptID]string, error) {
+	dataRoot, err := kb.ResolvePath(".", false)
+	if err != nil {
+		return nil, err
+	}
+	now := time.Now()
+	sigs := map[okf.ConceptID]string{}
+	maps, err := os.ReadDir(dataRoot)
+	if err != nil {
+		return nil, fmt.Errorf("AssetSignatures: %w", err)
+	}
+	for _, m := range maps {
+		if !m.IsDir() || strings.HasPrefix(m.Name(), ".") {
+			continue
+		}
+		mapAbs := filepath.Join(dataRoot, m.Name())
+		concepts, err := os.ReadDir(mapAbs)
+		if err != nil {
+			continue // a broken map must not blind every other one
+		}
+		direct := make(map[string]bool, len(concepts))
+		for _, c := range concepts {
+			if !c.IsDir() {
+				direct[c.Name()] = true
+			}
+		}
+		for _, c := range concepts {
+			id := okf.ConceptID(m.Name() + "/" + c.Name())
+			// The direct form map/id.md wins over an expanded directory
+			// (resolveConceptRelPath), which then owns no assets.
+			if !c.IsDir() || strings.HasPrefix(c.Name(), ".") || direct[c.Name()+".md"] || isServicesID(id) {
+				continue
+			}
+			stats, racy, hasIndex, err := scanOwner(filepath.Join(mapAbs, c.Name()), now)
+			if err != nil || !hasIndex {
+				continue
+			}
+			if sig := assetSignature(stats, racy); sig != "" {
+				sigs[id] = sig
+			}
+		}
+	}
+	return sigs, nil
+}
+
+// IndexableAssetText returns the searchable text of id's assets and their
+// signature (the one AssetSignatures reports). The text is the concatenation,
+// in path order, of "<path>\n<text>\n\n", so the path is searchable too. An
+// asset counts only if its extension is a text one, it is not Oversized, and
+// the first AssetIndexMaxBytes are valid UTF-8 (a cut inside a rune is
+// forgiven); anything else is skipped, never an error. An id that is not an
+// expanded data concept yields an error, as ListAssets does.
+func (kb *KB) IndexableAssetText(id okf.ConceptID) (text string, sig string, err error) {
+	_, anyAbs, err := kb.resolveAsset(id, "asset", false)
+	if err != nil {
+		return "", "", err
+	}
+	ownerAbs := filepath.Dir(anyAbs)
+	stats, racy, err := ownerAssetStats(ownerAbs)
+	if err != nil {
+		return "", "", fmt.Errorf("IndexableAssetText %s: %w", id, err)
+	}
+	var b strings.Builder
+	for _, s := range stats {
+		data, ok := readAssetText(filepath.Join(ownerAbs, filepath.FromSlash(s.path)))
+		if !ok {
+			continue
+		}
+		b.WriteString(s.path)
+		b.WriteByte('\n')
+		b.WriteString(data)
+		b.WriteString("\n\n")
+	}
+	return b.String(), assetSignature(stats, racy), nil
+}
+
+// readAssetText reads up to AssetIndexMaxBytes of abs and reports whether it
+// is indexable text: valid UTF-8 without NUL bytes.
+func readAssetText(abs string) (string, bool) {
+	f, err := os.Open(abs)
+	if err != nil {
+		return "", false
+	}
+	defer f.Close()
+	data, err := io.ReadAll(io.LimitReader(f, AssetIndexMaxBytes+1))
+	if err != nil {
+		return "", false
+	}
+	if len(data) > AssetIndexMaxBytes {
+		data = data[:AssetIndexMaxBytes]
+		// The cut may fall inside a multi-byte rune: drop the partial tail.
+		for i := 0; i < utf8.UTFMax-1 && len(data) > 0 && !utf8.Valid(data); i++ {
+			data = data[:len(data)-1]
+		}
+	}
+	if !utf8.Valid(data) || bytes.IndexByte(data, 0) >= 0 {
+		return "", false
+	}
+	return string(data), true
 }

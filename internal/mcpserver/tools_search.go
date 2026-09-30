@@ -275,7 +275,8 @@ func rebuildSQLIndex(k *kb.KB, ix *sqlindex.Index) int {
 		conceptID := string(id)
 		contentHash := okf.ContentHash(content)
 
-		if err := ix.Upsert(conceptID, contentHash, content); err != nil {
+		assets, sig, _ := k.IndexableAssetText(id) // no assets (or not expanded): empty
+		if err := ix.Upsert(conceptID, assetContentHash(contentHash, sig), content, assets); err != nil {
 			return nil
 		}
 		upserted++

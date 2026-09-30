@@ -75,7 +75,7 @@ func TestPolicySQLiteSearchFiltersBeforeLimit(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := ix.Upsert(id, data.ContentHash, data.Content); err != nil {
+		if err := ix.Upsert(id, data.ContentHash, data.Content, ""); err != nil {
 			t.Fatal(err)
 		}
 	}

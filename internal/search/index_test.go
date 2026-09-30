@@ -229,3 +229,22 @@ func BenchmarkIndexRemove(b *testing.B) {
 		b.StartTimer()
 	}
 }
+
+// D277: asset text is indexed into the owner's document at body weight, so a
+// query that matches only there finds the owner, and a title hit still wins.
+func TestAddWithAssets(t *testing.T) {
+	idx := New()
+	idx.AddWithAssets("dossier/inv", "---\ntitle: Inventory\n---\nDevices list.\n", "devices.csv\nmac,host\naa:bb:cc:dd:ee:ff,gw1\n")
+	idx.Add("dossier/other", "---\ntitle: Other\n---\nnothing here\n")
+	hits := idx.Search("gw1", "", 10)
+	if len(hits) != 1 || hits[0].ID != "dossier/inv" {
+		t.Fatalf("asset-only term: hits = %+v", hits)
+	}
+	if hits := idx.Search("devices.csv", "", 10); len(hits) != 1 {
+		t.Fatalf("asset path is not searchable: %+v", hits)
+	}
+	idx.AddWithAssets("dossier/inv", "---\ntitle: Inventory\n---\nDevices list.\n", "")
+	if hits := idx.Search("gw1", "", 10); len(hits) != 0 {
+		t.Fatalf("stale asset text after re-add: %+v", hits)
+	}
+}

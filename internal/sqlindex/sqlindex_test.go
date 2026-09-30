@@ -26,13 +26,13 @@ func TestUpsertAndSearchFTS(t *testing.T) {
 	}
 	defer ix.Close()
 
-	if err := ix.Upsert("archive/container", "hash1", "homelab kubernetes setup"); err != nil {
+	if err := ix.Upsert("archive/container", "hash1", "homelab kubernetes setup", ""); err != nil {
 		t.Fatalf("Upsert: %v", err)
 	}
-	if err := ix.Upsert("archive/networking", "hash2", "network config vlan"); err != nil {
+	if err := ix.Upsert("archive/networking", "hash2", "network config vlan", ""); err != nil {
 		t.Fatalf("Upsert: %v", err)
 	}
-	if err := ix.Upsert("services/keycloak", "hash3", "keycloak sso setup"); err != nil {
+	if err := ix.Upsert("services/keycloak", "hash3", "keycloak sso setup", ""); err != nil {
 		t.Fatalf("Upsert: %v", err)
 	}
 
@@ -85,13 +85,13 @@ func TestSearchFTS_MultiTermFallback(t *testing.T) {
 		t.Fatalf("Open: %v", err)
 	}
 	defer ix.Close()
-	if err := ix.Upsert("both", "h1", "karpenter handles cluster downscaler work"); err != nil {
+	if err := ix.Upsert("both", "h1", "karpenter handles cluster downscaler work", ""); err != nil {
 		t.Fatalf("Upsert both: %v", err)
 	}
-	if err := ix.Upsert("first", "h2", "karpenter provisions nodes"); err != nil {
+	if err := ix.Upsert("first", "h2", "karpenter provisions nodes", ""); err != nil {
 		t.Fatalf("Upsert first: %v", err)
 	}
-	if err := ix.Upsert("second", "h3", "downscaler schedules maintenance"); err != nil {
+	if err := ix.Upsert("second", "h3", "downscaler schedules maintenance", ""); err != nil {
 		t.Fatalf("Upsert second: %v", err)
 	}
 
@@ -119,11 +119,11 @@ func TestSearchFTSFilteredFillsLimitAcrossHiddenPages(t *testing.T) {
 	}
 	defer ix.Close()
 	for i := 0; i < ftsSearchBatch+1; i++ {
-		if err := ix.Upsert(fmt.Sprintf("hidden/%03d", i), fmt.Sprintf("h%d", i), "needle needle"); err != nil {
+		if err := ix.Upsert(fmt.Sprintf("hidden/%03d", i), fmt.Sprintf("h%d", i), "needle needle", ""); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if err := ix.Upsert("visible", "visible", "needle"); err != nil {
+	if err := ix.Upsert("visible", "visible", "needle", ""); err != nil {
 		t.Fatal(err)
 	}
 	hits, err := ix.SearchFTSFiltered("needle", "", 1, func(id string) bool { return !strings.HasPrefix(id, "hidden/") })
@@ -141,7 +141,7 @@ func TestSearchFTS_ShortTokensAndSingleTerm(t *testing.T) {
 		t.Fatalf("Open: %v", err)
 	}
 	defer ix.Close()
-	if err := ix.Upsert("c", "h", "api gateway kubernetes"); err != nil {
+	if err := ix.Upsert("c", "h", "api gateway kubernetes", ""); err != nil {
 		t.Fatalf("Upsert: %v", err)
 	}
 
@@ -169,10 +169,10 @@ func TestUpsertUpdate(t *testing.T) {
 	}
 	defer ix.Close()
 
-	if err := ix.Upsert("concept/a", "hash-v1", "old content"); err != nil {
+	if err := ix.Upsert("concept/a", "hash-v1", "old content", ""); err != nil {
 		t.Fatalf("Upsert v1: %v", err)
 	}
-	if err := ix.Upsert("concept/a", "hash-v2", "new content rewritten"); err != nil {
+	if err := ix.Upsert("concept/a", "hash-v2", "new content rewritten", ""); err != nil {
 		t.Fatalf("Upsert v2: %v", err)
 	}
 
@@ -203,10 +203,10 @@ func TestAllHashes(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer ix.Close()
-	if err := ix.Upsert("a", "hash-a", "alpha"); err != nil {
+	if err := ix.Upsert("a", "hash-a", "alpha", ""); err != nil {
 		t.Fatal(err)
 	}
-	if err := ix.Upsert("b", "hash-b", "beta"); err != nil {
+	if err := ix.Upsert("b", "hash-b", "beta", ""); err != nil {
 		t.Fatal(err)
 	}
 	hashes, err := ix.AllHashes()
@@ -252,7 +252,7 @@ func TestSearchQuotesSanitization(t *testing.T) {
 	}
 	defer ix.Close()
 
-	if err := ix.Upsert("c", "h", `text with "quotes" inside`); err != nil {
+	if err := ix.Upsert("c", "h", `text with "quotes" inside`, ""); err != nil {
 		t.Fatalf("Upsert: %v", err)
 	}
 
@@ -277,7 +277,7 @@ func TestSearchFTS_Snippet(t *testing.T) {
 	defer ix.Close()
 
 	body := "Filler text before the term, then kubernetes shows up right here in the middle, and then more filler text after it, so that the body of the concept runs well past the two hundred characters the snippet budget allows."
-	if err := ix.Upsert("archive/container", "hash1", body); err != nil {
+	if err := ix.Upsert("archive/container", "hash1", body, ""); err != nil {
 		t.Fatalf("Upsert: %v", err)
 	}
 
@@ -328,7 +328,7 @@ func TestOpenDatabaseWithLegacyEmbeddingsTable(t *testing.T) {
 	}
 	defer reopened.Close()
 
-	if err := reopened.Upsert("notes/legacy", "hash-legacy", "the legacy concept body"); err != nil {
+	if err := reopened.Upsert("notes/legacy", "hash-legacy", "the legacy concept body", ""); err != nil {
 		t.Fatalf("Upsert: %v", err)
 	}
 	hits, err := reopened.SearchFTS("legacy", "", 10)
@@ -367,10 +367,10 @@ func TestSearchFTSScopeTreatsLikeMetacharactersLiterally(t *testing.T) {
 				t.Fatalf("Open: %v", err)
 			}
 			defer ix.Close()
-			if err := ix.Upsert(tc.inScope, "h1", "alpha bravo charlie"); err != nil {
+			if err := ix.Upsert(tc.inScope, "h1", "alpha bravo charlie", ""); err != nil {
 				t.Fatalf("Upsert: %v", err)
 			}
-			if err := ix.Upsert(tc.outside, "h2", "alpha bravo charlie"); err != nil {
+			if err := ix.Upsert(tc.outside, "h2", "alpha bravo charlie", ""); err != nil {
 				t.Fatalf("Upsert: %v", err)
 			}
 
