@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
-# scenarios/17_routed_multikb.sh — OPERATOR scenario: routed multi-KB mount (D187).
+# scenarios/17_routed_multikb.sh — OPERATOR scenario: the routed topology (D187, D288).
 #
-# A three-KB server with mcp.mount_mode: routed. The point of the mode is that a
-# client using N KBs stops paying N copies of the same tool schemas in its fixed
-# context on every model round-trip; the point of this scenario is that the flag
-# actually reaches the wire, which the unit tests cannot show.
+# A three-KB server. The routed mount is the one agent-facing topology: a client
+# using N KBs stops paying N copies of the same tool schemas in its fixed context
+# on every model round-trip, and since D288 a provider's binding travels in the
+# URL (?kbs=). The point of this scenario is that all of it reaches the wire,
+# which the unit tests cannot show.
 #
 # Verifies (operator channel only, curl + CLI — no agent/model):
 #   1. /health advertises mount_mode and routed_path, so a client can detect the
@@ -14,7 +15,13 @@
 #   3. A call routed with `kb` reaches that KB; a call without `kb` is refused
 #      naming the mounted KBs, and one with an unknown `kb` is refused too.
 #   4. The per-KB endpoints still answer exactly as before.
-#   5. `cartographer connect` writes ONE MCP entry, pointed at /mcp/routed.
+#   5. `cartographer connect` writes ONE MCP entry per provider, pointed at
+#      /mcp/routed, with ?kbs= carrying an explicit binding.
+#   6. A provider bound to 2 of 3 KBs sees a 2-value enum and is refused the
+#      third; a provider bound to 1 KB sees no `kb` property at all and calls
+#      without it; an unknown name in ?kbs= is a 400.
+#   7. From an old per-KB client state, ONE `sync` leaves a single entry and no
+#      orphan per-KB entry.
 #
 # Expected environment variables: E2E_TMP_DIR, E2E_HTTP_PORT, REPO_ROOT.
 
@@ -49,8 +56,6 @@ for name in "${KBS[@]}"; do kb_make "${DIR}/${name}"; done
 {
     echo "http: \":${E2E_HTTP_PORT}\""
     echo "init: true"
-    echo "mcp:"
-    echo "  mount_mode: routed"
     echo "kbs:"
     for name in "${KBS[@]}"; do
         echo "  - path: ${DIR}/${name}"
@@ -128,7 +133,7 @@ else
 fi
 
 UNKNOWN_KB="$(routed_call "$(call_with_kb nope)")"
-if grep -q 'unknown kb' <<< "$UNKNOWN_KB"; then
+if grep -q 'not available' <<< "$UNKNOWN_KB"; then
     _assert_pass "a routed call with an unknown kb is refused"
 else
     _assert_fail "an unknown kb was not refused: ${UNKNOWN_KB}"
@@ -158,24 +163,100 @@ else
 fi
 
 echo ""
-echo "--- Phase 5: the client writes ONE MCP entry, at the routed endpoint ---"
+echo "--- Phase 5: one MCP entry per provider, the binding in the URL ---"
 
-(cd "$SANDBOX" && HOME="$SANDBOX" "$BIN" connect opencode --server-url "$SERVER_URL" --kb all --auto-trust) \
-    >"${DIR}/connect.log" 2>&1 || true
+run_client() {
+    local out="$1"; shift
+    (cd "$SANDBOX" && HOME="$SANDBOX" "$BIN" "$@") >"$out" 2>&1
+}
 
-OPENCODE_CFG="${SANDBOX}/.config/opencode/opencode.json"
+# opencode is bound to two of the three KBs, claude to one.
+run_client "${DIR}/connect-opencode.log" connect opencode --server-url "$SERVER_URL" --kb alpha,beta --auto-trust || true
+run_client "${DIR}/connect-claude.log" connect claude --server-url "$SERVER_URL" --kb gamma --auto-trust || true
+
+OPENCODE_CFG="${SANDBOX}/opencode.json"
 if [[ ! -f "$OPENCODE_CFG" ]]; then
     OPENCODE_CFG="$(find "$SANDBOX" -name 'opencode.json' -print -quit 2>/dev/null)"
 fi
+CLAUDE_CFG="${SANDBOX}/.claude.json"
 assert_file_exists "$OPENCODE_CFG"
-assert_file_contains "$OPENCODE_CFG" "/mcp/routed"
-assert_file_not_contains "$OPENCODE_CFG" "kb=alpha"
+assert_file_exists "$CLAUDE_CFG"
+assert_file_contains "$OPENCODE_CFG" "/mcp/routed?kbs=alpha,beta"
+assert_file_contains "$CLAUDE_CFG" "/mcp/routed?kbs=gamma"
+assert_file_not_contains "$OPENCODE_CFG" "kb=alpha\""
 
 ENTRIES="$(grep -o '/mcp/routed' "$OPENCODE_CFG" | wc -l | tr -d ' ')"
 if [[ "$ENTRIES" == "1" ]]; then
-    _assert_pass "exactly one routed MCP entry was written"
+    _assert_pass "exactly one routed MCP entry was written for opencode"
 else
-    _assert_fail "${ENTRIES} routed MCP entries were written, want 1"
+    _assert_fail "${ENTRIES} routed MCP entries were written for opencode, want 1"
+fi
+
+echo ""
+echo "--- Phase 6: what each binding sees on the wire ---"
+
+TWO_URL="${ROUTED_URL}?kbs=alpha,beta"
+ONE_URL="${ROUTED_URL}?kbs=gamma"
+
+TWO_LIST="${DIR}/two-tools.json"
+post "$TWO_URL" "$list_body" > "$TWO_LIST"
+assert_file_contains "$TWO_LIST" '"enum":["alpha","beta"]'
+assert_file_not_contains "$TWO_LIST" 'gamma'
+THIRD="$(post "$TWO_URL" "$(call_with_kb gamma)")"
+if grep -q '"isError":true' <<< "$THIRD" && grep -q 'not available' <<< "$THIRD"; then
+    _assert_pass "a KB outside the binding is refused on the 2-KB connection"
+else
+    _assert_fail "the third KB was not refused on the 2-KB connection: ${THIRD}"
+fi
+assert_mcp_ok "a KB inside the binding answers on the 2-KB connection" "$(post "$TWO_URL" "$(call_with_kb beta)")"
+
+ONE_LIST="${DIR}/one-tools.json"
+post "$ONE_URL" "$list_body" > "$ONE_LIST"
+assert_file_not_contains "$ONE_LIST" '"kb":{'
+assert_mcp_ok "a 1-KB connection dispatches a call with no kb" \
+    "$(post "$ONE_URL" '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"atlas_overview","arguments":{}}}')"
+OTHER="$(post "$ONE_URL" "$(call_with_kb alpha)")"
+if grep -q '"isError":true' <<< "$OTHER"; then
+    _assert_pass "a KB other than the bound one is refused on the 1-KB connection"
+else
+    _assert_fail "another KB was not refused on the 1-KB connection: ${OTHER}"
+fi
+
+BAD_CODE="$(curl -s -o /dev/null -w '%{http_code}' -X POST "${ROUTED_URL}?kbs=alpha,nope" \
+    -H "Content-Type: application/json" -H "Accept: application/json, text/event-stream" -d "$list_body")"
+if [[ "$BAD_CODE" == "400" ]]; then
+    _assert_pass "an unknown name in ?kbs= is refused with 400"
+else
+    _assert_fail "an unknown name in ?kbs= returned ${BAD_CODE}, want 400"
+fi
+
+echo ""
+echo "--- Phase 7: one sync heals an old per-KB client state ---"
+
+# Put opencode back into the pre-D288 shape: the bare entry on the plain
+# endpoint plus one ?kb= entry per KB. No reconnect follows, only a sync.
+python3 - "$OPENCODE_CFG" "$SERVER_URL" <<'PY'
+import json, sys
+path, url = sys.argv[1], sys.argv[2]
+cfg = json.load(open(path))
+cfg["mcp"]["cartographer"]["url"] = url
+for kb in ("alpha", "beta", "gamma"):
+    cfg["mcp"]["cartographer-" + kb] = {"enabled": True, "type": "remote", "url": url + "?kb=" + kb}
+json.dump(cfg, open(path, "w"), indent=2)
+PY
+if run_client "${DIR}/sync.log" sync; then
+    _assert_pass "cartographer sync succeeds from the old per-KB state"
+else
+    _assert_fail "cartographer sync failed: $(cat "${DIR}/sync.log")"
+fi
+assert_file_contains "$OPENCODE_CFG" "/mcp/routed?kbs=alpha,beta"
+assert_file_not_contains "$OPENCODE_CFG" "cartographer-alpha"
+assert_file_not_contains "$OPENCODE_CFG" "cartographer-gamma"
+ENTRIES="$(python3 -c "import json,sys; print(len(json.load(open(sys.argv[1]))['mcp']))" "$OPENCODE_CFG")"
+if [[ "$ENTRIES" == "1" ]]; then
+    _assert_pass "one sync left exactly one entry and no orphan"
+else
+    _assert_fail "${ENTRIES} entries after sync, want 1"
 fi
 
 echo ""

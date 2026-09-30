@@ -141,64 +141,35 @@ It starts
 the real binary with two temporary KBs, calls MCP through HTTP and exercises
 Map creation, concept writes/expansion and Atlas overview.
 
-Tool names are qualified with the prefix `/health` reports for each KB, rather
-than assumed bare: since [D153](decisions/D153-a-tool-prefix-is-the-default-for-every-mounted-kb.md) a KB-name
-prefix is the default, so a bare name resolves to nothing. Each call asserts on
+Tool names are bare: since [D288](decisions/D288-one-routed-topology-for-agent-clients.md) a server
+never prefixes them. Each call asserts on
 `isError` — an unresolvable tool comes back as a JSON-RPC *result* whose text
 says "tool not found", which the script would otherwise print and count as a
 pass.
 
-It runs in CI.
-
-### Deterministic end-to-end
-
-`make e2e` runs the scenarios under `test/e2e/`. They exercise the compiled
-binary, HTTP server, CLI client, filesystem and real temporary git remotes
-together.
-
-The canonical scenario catalog and direct-run flags live in
-[`test/e2e/README.md`](https://github.com/BeppeTemp/cartographer/blob/main/test/e2e/README.md).
-The suite uses no LLM credentials and runs in CI.
-
-**Authorization is tested at two levels, on purpose.** `14_rbac_visibility`
-covers RBAC end-to-end at *KB* granularity, the only level `serve` currently
-accepts a policy for through env/CLI. The finer map/journal/type selectors that
-`auth.roles` compiles into are covered in Go
-(`internal/mcpserver/policy_test.go`, `internal/auth/auth_test.go`,
-`internal/config/roles_test.go`), because expressing them requires a YAML config
-file rather than the env-var form the scenarios use. Anything asserting
-*non-disclosure* belongs at whichever level can observe the raw response: a
-forbidden resource and a missing one must produce byte-identical output, and a
-filtered collection must not reveal hidden elements through a short page.
-
-**Audit failure paths are tested by fault injection.** The whole contract of
-`audit.mode` is what happens when the sink is broken, so the write path is made
-to fail on purpose (`audit.FailAppendsForTest`) rather than waiting for a real
-disk error: `best_effort` must let the call through, `required` must reject it
-**before the tool handler runs** — that last assertion is the one that matters,
-since a log missing an operation that actually happened is worse than no log.
 `15_operational_audit` closes the loop end-to-end by tampering with a recorded
 entry and requiring `audit verify` and `audit export` to fail on it.
 
-**Prefixed multi-KB is exercised with an arbitrary prefix.** `16_prefixed_multikb`
-sets `tool_prefix` to a string unrelated to the KB name, precisely so a client
-that re-derived the prefix from the KB name instead of discovering it from
-`/health` fails the scenario. It also asserts the negative — the bare tool name
-must *not* resolve on the prefixed KB — because the D102 promise is that
-prefixing is exact, not additive. Its last phase restarts the same two KBs with
-both mounted unprefixed and asserts the D144 startup warning names them, while
-`tools/list` stays unchanged on both endpoints: the warning is a diagnostic,
-never an implicit prefix.
+**Deprecated topology keys are exercised as a real upgrade.** `16_deprecated_prefix_keys` starts a
+server whose config still carries `mcp.mount_mode`, `mcp.tool_prefix_mode` and an explicit
+`kbs[].tool_prefix` (D288) plus a KB named like the routed endpoint. It asserts the server starts, each
+key is named once in the log, tools are bare on the per-KB endpoint and listed on `/mcp/routed`,
+`/health` carries no per-KB `tool_prefix` value, and the KB named `routed` is skipped with a warning
+to rename it while its siblings are unaffected.
 
 **The routed mount is asserted on the wire, not only in Go.** `17_routed_multikb`
-starts a real three-KB server with `mcp.mount_mode: routed` and drives it with
+starts a real three-KB server with no topology setting (routed is always on) and drives it with
 `curl`: `/health` must advertise `mount_mode` and `routed_path`, `/mcp/routed`
 must list each tool exactly once with a `kb` argument and in far fewer bytes than
 the per-KB mounts summed, a call must reach the KB it names, a call without `kb`
 must be refused **naming the mounted KBs**, and `?kb=` on that URL must be `400`.
-It then asserts the additive promise from the other side — the per-KB endpoints
-still answer and their `tools/list` has gained no `kb` argument — and that
-`connect` writes exactly **one** MCP entry, pointed at `/mcp/routed`.
+It asserts the per-KB plumbing still answers with no `kb` argument. Then the
+bindings (D288): `connect` writes **one** entry per provider, with `?kbs=`
+carrying an explicit binding; a provider bound to 2 of 3 KBs sees a 2-value enum
+and is refused the third, one bound to a single KB sees no `kb` property and calls
+without it, and an unknown name in `?kbs=` is `400`. Last, the heal: the client state
+is put back into the old per-KB shape by hand and **one `sync`** must leave a
+single entry and no orphan.
 
 The scenario earns its keep: it is what caught that D153's derived `kb-name`
 prefix, which nobody configures explicitly, was making the routed mode fail at

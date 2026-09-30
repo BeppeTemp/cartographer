@@ -44,64 +44,83 @@ for a KB or concept the principal cannot see, so it cannot be used to probe for
 existence. Only `/health` and the RFC 9728 metadata are exempt from
 authentication.
 
-### Mount modes
+### One routed topology (D288)
 
-A multi-KB HTTP server can expose its tools two ways. `mcp.mount_mode`
-(`CARTOGRAPHER_MCP_MOUNT_MODE`, `--mount-mode`) selects which, and the two
-**coexist**: enabling routing adds an endpoint, it never removes or alters the
-per-KB ones.
+A multi-KB HTTP server always serves `/mcp/routed`, and that is the only endpoint
+`cartographer connect`/`sync` write into an agent client. The per-KB endpoints
+(`/mcp?kb=<name>`, `/mcp/<name>`) stay as **plumbing**: the routed mount
+dispatches into the per-KB servers, and a client not yet re-synced keeps working.
+`mcp.mount_mode` ([D187](decisions/D187-one-tool-surface-for-a-multi-kb-server-a-routed-mount.md)
+opt-in) no longer exists as a choice: the key, `CARTOGRAPHER_MCP_MOUNT_MODE` and
+`--mount-mode` are **deprecated** — accepted, ignored, one startup warning each.
 
-| Mode | Endpoints | `tools/list` | Selecting the KB |
+| Endpoint | Role | `tools/list` | Selecting the KB |
 |---|---|---|---|
-| `per-kb` (default) | `/mcp?kb=<name>`, `/mcp/<name>` | one full copy per KB | in the URL |
-| `routed` | the above, **plus** `/mcp/routed` | one copy of the union, on the routed endpoint | a `kb` tool argument |
+| `/mcp/routed` | what agent clients use | one copy, shaped per connection | a `kb` tool argument, or the URL |
+| `/mcp?kb=<name>`, `/mcp/<name>` | plumbing, older clients | one full copy per KB | in the URL |
 
-**Why routing exists.** A client using N KBs writes N MCP server entries and
-carries N copies of the same tool schemas in its fixed context, on every model
-round-trip. Measured against a running server with three KBs, `tools/list`
-returned 82,341 bytes across the three mounts — more than twice the whole rest
-of that session's fixed context — and the two KBs never called still paid for
-themselves on all 204 round-trips. The tool-name prefix
-([D102](decisions/D102-opt-in-per-kb-mcp-tool-name-prefix.md)) makes multi-KB *work* on a
-flat-namespace client and the `agent` profile (D65/D123) shrinks the set *per
-mount*; neither removes the duplication, because the duplication is the
-topology.
+**Why one topology.** A client using N KBs on per-KB entries carries N copies of
+the same tool schemas in its fixed context, on every model round-trip: a real
+five-KB server advertises about 33 KB (about 8.3k tokens) of `tools/list` per
+mount, so a provider bound to all five pays about 41k tokens against about 10k
+routed. Everything a per-KB entry gave an agent client is available on the routed
+mount, except client-side permission rules that match a tool *name* per KB —
+those match names, not arguments, and are lost by design. Real authorization is
+per-KB scopes (D44/D45), and read auto-approval through `readOnlyHint` (D76) is
+unaffected.
 
-**The KB is an argument, never inferred.** On the routed endpoint every tool's
-input schema carries a `kb` property, **required** whenever two or more KBs are
-routed; a call without it is refused with an error naming the mounted KBs.
-With exactly one KB routed there is nothing to disambiguate, so `kb` is
-optional. A default KB would land a write in the wrong archive on a model slip,
-which is precisely what D102's flat-namespace warning exists to prevent.
+**The binding travels in the URL: `/mcp/routed?kbs=kb-a,kb-b`.** Absent, the
+connection serves every mounted KB. `kbs` only **narrows**, never widens:
+per-KB authorization still runs at the target KB. It is a different parameter
+from `kb`, which stays `400` on this path (D187's one-channel rule is about
+selecting *the* KB, not the allowed set). The effective set is `kbs` intersected
+with the mounted KBs; a name in `kbs` that is not mounted is a `400` naming it
+and the mounted KBs (fail loud: a typo would otherwise silently hide a KB);
+duplicates are ignored.
 
-**The advertised set is the union.** A tool one KB gates off — `artifact_write`
-under `kbs[].allow_artifact_write` — is still registered once, and refused at
-dispatch for the KB that gates it, with an error naming the tool, the KB and the
-setting. The alternative, an intersection, would silently hide a tool from a KB
-that allows it because a sibling does not.
+**The schema follows the connection.** With two or more KBs in the effective set,
+every tool's input schema carries `kb`, **required**, as an enum of that set; a
+call without it, or naming a KB outside it, is refused with an error naming the
+allowed KBs. With exactly one, `kb` is **omitted** from every schema and the call
+dispatches to that KB. That is not inference: the URL named the KB explicitly,
+exactly like `/mcp/<name>`. A call that still passes `kb` equal to that KB is
+accepted; any other value is refused. A KB is never guessed when the URL left
+more than one open: a default would land a write in the wrong archive on a model
+slip.
+
+**The advertised set is the union** of the connection's KBs. A tool one KB gates
+off — `artifact_write` under `kbs[].allow_artifact_write` — is still registered
+once, and refused at dispatch for the KB that gates it, with an error naming the
+tool, the KB and the setting. The alternative, an intersection, would silently
+hide a tool from a KB that allows it because a sibling does not. The metadata
+gate (`initialize`, `tools/list`) asks whether the principal can reach at least
+one KB of the connection's set.
 
 **Everything per-KB is resolved after `kb`**: the read/write classification, the
 per-KB authorization policy, the git lock and commit wrapper, and the audit
-record's KB. The routed endpoint dispatches into the target KB's own server, so
-it cannot drift from the per-KB path.
+record's KB: exactly one authorization and one audit record per call, at the
+target KB. The routed endpoint dispatches into the target KB's own server, so it
+cannot drift from the per-KB path.
 
-**Prefixes and routing do not combine.** A routed mount has no flat namespace
-left to disambiguate, so the `kb-name` *derived* default (D153) is **not applied**
-when routing: the operator never asked for it, and it would only re-inflate the
-names routing exists to shrink. An **explicit** `kbs[].tool_prefix` is a different
-matter — that one was asked for, and it contradicts the request to route, so it is
-refused at startup naming the KB and the key. A KB named `routed` is refused too:
-it would A `?kb=` on the routed URL is refused with
-400: the KB travels in the tool arguments there, and two channels for one choice
-are how they get to disagree.
+**Tools are never prefixed.** One entry cannot collide with itself, so
+`kbs[].tool_prefix` and `mcp.tool_prefix_mode` (D102/D153) are deprecated the same
+way: accepted, ignored, a warning each (one per KB for `tool_prefix`), never
+fatal — an upgrade must not fail to start. A KB named `routed` collides with the
+endpoint's own path and is **skipped** with a warning to rename it. A `?kb=` on
+the routed URL is refused with 400.
 
-`GET /health` reports `mount_mode: "routed"` and `routed_path` when routing is
-on, and omits both otherwise — which is what an older client and a `per-kb`
-server both see. `cartographer connect`/`sync` read it and write **one** MCP
-entry for a routed server. Switching an existing deployment between modes
-changes the *shape* of every entry, which an incremental sync cannot see:
-`cartographer status` reports the mismatch and tells you to run
-`cartographer reconnect`. It does not heal it.
+**With `auth: false` the binding is advisory**: a client can edit its own URL. It
+is exactly as true of the old per-KB entries (a client can add any `/mcp/<name>`
+entry). Isolation between providers needs per-provider tokens with per-KB scopes.
+
+`GET /health` always reports `mount_mode: "routed"` and `routed_path` in HTTP
+mode (a server with no KB mounted yet has nothing to route and omits both); it no
+longer carries a per-KB `tool_prefix`. `cartographer connect`/`sync` read it and
+write **one** entry per provider; against an older server that does not report
+`routed_path` the client keeps writing per-KB entries. **`cartographer sync`
+heals a topology change** — it rewrites the entries to the single routed one and
+removes the per-KB ones; no `reconnect` is needed, and `cartographer status`
+names `sync` when the configured mount differs from the server's.
 
 ### Protocol versions: two eras at once
 
@@ -461,18 +480,9 @@ what tells an operator whether every client of a given deployment has moved.
 
 ## Tool namespace discovery
 
-`GET /health` reports, per mounted KB, the **effective** tool-name prefix under
-which that KB's tools are registered (`tool_prefix`, empty when unprefixed —
-the default). This is the authoritative source for any client that needs to
-call a tool by name (D120).
-
-Clients must not re-derive the prefix from the KB name: `tool_prefix` is an
-arbitrary operator-chosen string, so a derived value is a guess that produces
-calls to tools that do not exist. The value is read live per operation and
-never persisted, so an operator changing a prefix server-side does not require
-any client-side reconnection.
-
-Prefixing is exact, not additive: on a prefixed KB the bare tool name does not
-resolve. It applies uniformly to every tool the KB registers, including the
-ones hidden by the `agent` tools profile, so the advanced/operator tools stay
-reachable by name under the same namespace.
+Since D288 a server never prefixes tool names, so there is no namespace to
+discover: `GET /health` no longer carries a per-KB `tool_prefix`. A client that
+talks to a **pre-D288** server still reads it (D120), because such a server can
+have prefixes configured: it is the authoritative source there, it is read live
+per operation and never persisted, and on a prefixed KB the bare tool name does
+not resolve. Clients must not re-derive a prefix from the KB name.

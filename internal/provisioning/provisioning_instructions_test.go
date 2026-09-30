@@ -1501,7 +1501,7 @@ func TestBuildManifest_Instructions_RoutedMount(t *testing.T) {
 	if got == plainContent {
 		t.Fatal("routed instructions are identical to the per-KB ones: the kb argument is never stated")
 	}
-	if !strings.Contains(got, "`kb: \"homelab\"`") {
+	if !strings.Contains(got, "where a tool takes a `kb` argument, pass `kb: \"homelab\"`") {
 		t.Errorf("routed instructions do not name the kb value to pass:\n%s", got)
 	}
 	// The tool names stay bare: a routed mount refuses a prefix, so imprinting

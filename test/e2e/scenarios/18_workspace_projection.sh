@@ -87,8 +87,6 @@ done
 cat > "$CONFIG" <<YAML
 http: ":${E2E_HTTP_PORT}"
 init: true
-mcp:
-  tool_prefix_mode: "off"
 kbs:
   - path: ${WORK_KB}
     name: work-kb

@@ -55,7 +55,7 @@ func cmdServe(args []string) int {
 	toolsProfileFlag := fs.String("tools-profile", "", "Tools advertised by tools/list: 'agent' (default, core set) or 'full' (or CARTOGRAPHER_TOOLS_PROFILE)")
 	webEnabledFlag := fs.Bool("web-enabled", true, "Serve the embedded read-only Atlas UI at /ui/ and its API at /api/ui/v1 in HTTP mode (or CARTOGRAPHER_WEB_ENABLED)")
 	updateCheckFlag := fs.Bool("update-check", true, "Look up the latest release once a day and report it in /health and kb_status when newer (or CARTOGRAPHER_UPDATE_CHECK)")
-	mountModeFlag := fs.String("mount-mode", "", "Multi-KB HTTP mount topology: 'per-kb' (default, one endpoint per KB) or 'routed' (one endpoint, kb as a tool argument) (or CARTOGRAPHER_MCP_MOUNT_MODE)")
+	mountModeFlag := fs.String("mount-mode", "", "Deprecated and ignored (D288): the routed mount is always served (or CARTOGRAPHER_MCP_MOUNT_MODE)")
 	logFileFlag := fs.String("log-file", "", "Append the server log to this file instead of stderr (created if absent; never rotated)")
 	fs.Parse(args)
 
@@ -206,6 +206,9 @@ func resolveSopsAgeKeyFile(spec config.KBSpec, sops config.SopsConfig, name stri
 
 // runServe opens/bootstraps all configured KBs and starts the server.
 func runServe(cfg *config.Config) {
+	for _, w := range deprecatedMCPKeyWarnings(cfg.MCP) {
+		log.Printf("warning: %s", w)
+	}
 	var auditLog *audit.Log
 	if cfg.Audit.Log != "" {
 		opts := auditOptions(cfg.Audit)
@@ -287,10 +290,8 @@ func runServe(cfg *config.Config) {
 	}
 
 	seenNames := make(map[string]string) // name → first path seen
-	seenPrefixes := map[string]string{}  // resolved tool prefix -> KB name (D152)
 	var kbs []*kb.KB
 	var kbNames []string                                   // index-aligned with kbs
-	var kbToolPrefixes []string                            // index-aligned with kbs (D102, "" = unprefixed)
 	var kbArtifactSigners []ed25519.PrivateKey             // index-aligned with kbs
 	var kbMCPAllowlists [][]provisioning.MCPAllowlistEntry // index-aligned with kbs
 	for _, m := range mounts {
@@ -338,48 +339,23 @@ func runServe(cfg *config.Config) {
 		k.AllowArtifactWrite = m.Spec.AllowArtifactWrite
 		k.Discovered = m.Discovered
 		name := m.Name
+		if name == strings.TrimPrefix(mcpserver.RoutedMountPath, "/mcp/") {
+			// The routed endpoint's own path (D288): a KB with this name would
+			// be unreachable through /mcp/<name> and ambiguous next to it.
+			log.Printf("warning: KB %q (%s) collides with the routed endpoint %s — skipping it; rename the KB", name, m.Path, mcpserver.RoutedMountPath)
+			continue
+		}
 		if prev, ok := seenNames[name]; ok {
 			log.Printf("warning: KB name collision %q (first: %s, duplicate: %s) — skipping duplicate", name, prev, m.Path)
 			continue
 		}
-		// With one KB mounted a prefix is pure noise, so derivation is reserved
-		// for the second mount onward (D153). An explicit kbs[].tool_prefix still
-		// applies: only derivation is suppressed, which ResolveToolPrefix's own
-		// precedence gives for free once the mode is the thing we override.
-		prefixMode := cfg.MCP.ToolPrefixMode
-		if len(mounts) == 1 {
-			prefixMode = "off"
+		// D288: tools are never prefixed — the routed mount is the one
+		// agent-facing topology, so there is no flat namespace to disambiguate.
+		// An explicit kbs[].tool_prefix is accepted and ignored, never fatal:
+		// an upgrade must not fail to start.
+		if m.Spec.ToolPrefix != "" {
+			log.Printf("warning: KB %q: kbs[].tool_prefix %q is deprecated and ignored (D288: one routed endpoint, tools are never prefixed)", name, m.Spec.ToolPrefix)
 		}
-		// A routed mount (D187) exposes one copy of the tools on one endpoint,
-		// so there is no flat namespace left to disambiguate and a *derived*
-		// prefix would only re-inflate the names routing exists to shrink. The
-		// D153 default is therefore not applied here — the operator never asked
-		// for it. An explicit kbs[].tool_prefix survives this override and is
-		// refused by EnableRoutedMount, because that one the operator did ask
-		// for and the two requests contradict each other.
-		if cfg.MCP.MountMode == config.MountModeRouted {
-			prefixMode = "off"
-		}
-		toolPrefix, err := config.ResolveToolPrefix(m.Spec, prefixMode, name)
-		if err != nil {
-			log.Fatal(err)
-		}
-		// Fail fast on a duplicate, before anything is appended: two KBs whose
-		// prefixes collide advertise identical tool names, and on a flat-namespace
-		// client one silently answers for the other (D152). Same shape as the KB
-		// name collision above, but fatal: a name clash has a safe fallback
-		// (skip the duplicate), an ambiguous prefix does not.
-		rawPrefix := m.Spec.ToolPrefix
-		if rawPrefix == "" {
-			rawPrefix = name
-		}
-		if err := config.ValidateToolPrefixUniqueness(seenPrefixes, name, toolPrefix, rawPrefix); err != nil {
-			log.Fatal(err)
-		}
-		if toolPrefix != "" {
-			seenPrefixes[toolPrefix] = name
-		}
-		k.ToolPrefix = toolPrefix
 		seenNames[name] = m.Path
 		var artifactSigner ed25519.PrivateKey
 		if m.Spec.ArtifactSigningSeed != "" {
@@ -398,14 +374,8 @@ func runServe(cfg *config.Config) {
 		}
 		kbs = append(kbs, k)
 		kbNames = append(kbNames, name)
-		kbToolPrefixes = append(kbToolPrefixes, toolPrefix)
 		kbArtifactSigners = append(kbArtifactSigners, artifactSigner)
 		kbMCPAllowlists = append(kbMCPAllowlists, m.Spec.MCPAllowlist)
-		if toolPrefix != "" && m.Spec.ToolPrefix == "" {
-			// Derived, not written down by the operator: adding a second KB renames
-			// the first one's tools, and that must be loud rather than silent (D153).
-			log.Printf("KB %q mounts its tools as %s__<tool> (derived from the KB name; set mcp.tool_prefix_mode: off to keep bare names)", name, toolPrefix)
-		}
 		if m.Discovered {
 			// A discovered KB works — it serves tools, answers reads, commits
 			// writes — and looks identical to a configured one from every client
@@ -446,7 +416,7 @@ func runServe(cfg *config.Config) {
 
 	latestVersion := startServerUpdateCheck(cfg, version)
 	if cfg.HTTP != "" {
-		serveHTTP(cfg.HTTP, kbs, kbNames, kbToolPrefixes, kbArtifactSigners, kbMCPAllowlists, cfg.Auth, cfg.MCP.AllowedOrigins, cfg.ToolsProfile, cfg.MCP.MountMode, cfg.Web.Enabled, sqlIdxs, auditLog, latestVersion)
+		serveHTTP(cfg.HTTP, kbs, kbNames, kbArtifactSigners, kbMCPAllowlists, cfg.Auth, cfg.MCP.AllowedOrigins, cfg.ToolsProfile, cfg.Web.Enabled, sqlIdxs, auditLog, latestVersion)
 	} else {
 		serveStdio(kbs[0], kbArtifactSigners[0], kbMCPAllowlists[0], cfg.ToolsProfile, sqlIdxs, auditLog, latestVersion)
 	}
@@ -478,7 +448,7 @@ func serveStdio(k *kb.KB, artifactSigner ed25519.PrivateKey, allowlist []provisi
 	}
 }
 
-func serveHTTP(addr string, kbs []*kb.KB, names []string, toolPrefixes []string, artifactSigners []ed25519.PrivateKey, allowlists [][]provisioning.MCPAllowlistEntry, authCfg config.AuthConfig, allowedOrigins []string, toolsProfile, mountMode string, webEnabled bool, sqlIdxs map[string]*sqlindex.Index, auditLog *audit.Log, latestVersion func() string) {
+func serveHTTP(addr string, kbs []*kb.KB, names []string, artifactSigners []ed25519.PrivateKey, allowlists [][]provisioning.MCPAllowlistEntry, authCfg config.AuthConfig, allowedOrigins []string, toolsProfile string, webEnabled bool, sqlIdxs map[string]*sqlindex.Index, auditLog *audit.Log, latestVersion func() string) {
 	if auditLog != nil {
 		log.Printf("audit log active")
 	}
@@ -523,13 +493,12 @@ func serveHTTP(addr string, kbs []*kb.KB, names []string, toolPrefixes []string,
 	for i, k := range kbs {
 		k := k
 		name := names[i]
-		prefix := toolPrefixes[i]
-		err := multi.MountKBWithPrefix(name, prefix, func(s *mcpserver.Server) {
+		err := multi.MountKBWithPrefix(name, "", func(s *mcpserver.Server) {
 			if multiKB {
 				s.SetDisplayName("cartographer:" + name)
 			}
 			sqlIdx := sqlIdxs[filepath.Clean(k.Root)]
-			mcpserver.RegisterKBTools(s, k, mcpserver.Deps{SQLIndex: sqlIdx, BundleFS: skillbundle.FS, ArtifactSigner: artifactSigners[i], MCPAllowlist: allowlists[i], RoutedMount: mountMode == config.MountModeRouted})
+			mcpserver.RegisterKBTools(s, k, mcpserver.Deps{SQLIndex: sqlIdx, BundleFS: skillbundle.FS, ArtifactSigner: artifactSigners[i], MCPAllowlist: allowlists[i], RoutedMount: true})
 			s.SetToolsProfile(toolsProfile)
 			s.SetAuditLog(auditLog)
 			s.SetKBName(name)
@@ -540,20 +509,16 @@ func serveHTTP(addr string, kbs []*kb.KB, names []string, toolPrefixes []string,
 			log.Fatal(err)
 		}
 		multi.SetKBCapabilities(name, mcpserver.KBCapabilitiesFor(k))
-		// The unprefixed line stays exactly as it was pre-D102: the prefix is
-		// only mentioned when there is one.
-		prefixLog := ""
-		if prefix != "" {
-			prefixLog = fmt.Sprintf(", tool prefix: %s__", prefix)
-		}
-		log.Printf("mounted KB %q at %s (tools profile: %s%s)", name, k.Root, toolsProfile, prefixLog)
+		log.Printf("mounted KB %q at %s (tools profile: %s)", name, k.Root, toolsProfile)
 	}
 
-	// D187: the routed mount is additive — the per-KB endpoints above keep
-	// their exact behaviour, tools/list output included. It is enabled after
-	// every KB is mounted because it registers the union of what they
-	// registered.
-	if mountMode == config.MountModeRouted {
+	// D187/D288: the routed mount is the one agent-facing topology, always
+	// served. The per-KB endpoints above stay as plumbing (the routed mount
+	// dispatches into them) and for clients not yet re-synced. It is enabled
+	// after every KB is mounted because it registers the union of what they
+	// registered. A server with no KB yet has nothing to route: the next
+	// restart, with KBs, serves it.
+	if len(names) > 0 {
 		err := multi.EnableRoutedMount(version, func(s *mcpserver.Server) {
 			s.SetToolsProfile(toolsProfile)
 			s.SetTransport("http")
@@ -563,10 +528,6 @@ func serveHTTP(addr string, kbs []*kb.KB, names []string, toolPrefixes []string,
 		}
 		log.Printf("routed mount enabled at %s (%d KB(s), one copy of the tools, kb as a tool argument)",
 			mcpserver.RoutedMountPath, len(names))
-	}
-
-	if w := flatNamespaceMountWarning(names, toolPrefixes); w != "" {
-		log.Printf("warning: %s", w)
 	}
 
 	// The read-only Atlas UI (D227). Mounted only in HTTP mode and only when
@@ -790,4 +751,19 @@ func displayAddr(addr string) string {
 		return "localhost" + strings.TrimPrefix(addr, "0.0.0.0")
 	}
 	return addr
+}
+
+// deprecatedMCPKeyWarnings names each mcp.* key that D288 turned into a no-op,
+// one warning per key actually set. The keys stay accepted for one release so
+// an upgrade never fails to start; a follow-up removes them. An unset key (the
+// default) is silent: Default() no longer carries a value for either.
+func deprecatedMCPKeyWarnings(c config.MCPConfig) []string {
+	var out []string
+	if c.MountMode != "" {
+		out = append(out, "mcp.mount_mode is deprecated and ignored (D288): the routed mount at "+mcpserver.RoutedMountPath+" is always served and is the only topology written into clients")
+	}
+	if c.ToolPrefixMode != "" {
+		out = append(out, "mcp.tool_prefix_mode is deprecated and ignored (D288): tools are never prefixed")
+	}
+	return out
 }

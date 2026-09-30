@@ -876,10 +876,11 @@ func generateKBInstructions(kbName, kbRoot, toolPrefix string, routed bool) stri
 
 	fmt.Fprintf(&sb, "The %q KB is served via MCP by the \"cartographer\" server.", kbName)
 	if routed {
-		// D187: one endpoint, one copy of the tools, the KB as an argument.
-		// The tool names are bare (a routed mount refuses tool_prefix), so the
-		// only thing the model must be told is the value to pass.
-		fmt.Fprintf(&sb, " Every tool call to it must carry `kb: %q` — that server serves several KBs through one set of tools and never infers which one you mean.", kbName)
+		// D187/D288: one endpoint, one copy of the tools, bare names. A
+		// connection bound to several KBs has a `kb` argument on every tool, a
+		// connection bound to one has none — the sentence is true for both, so
+		// it names the value and says where it applies instead of requiring it.
+		fmt.Fprintf(&sb, " Its tools are not prefixed: where a tool takes a `kb` argument, pass `kb: %q` — that connection serves several KBs through one set of tools and never infers which one you mean.", kbName)
 	}
 
 	archives := kbArchives(kbRoot)

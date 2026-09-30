@@ -7,12 +7,12 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/BeppeTemp/cartographer/internal/client"
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
+	"github.com/BeppeTemp/cartographer/internal/config"
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 )
 
@@ -253,7 +253,7 @@ func TestDoConnect_Kiro_MultiKB_WarnsFlatNamespace(t *testing.T) {
 }
 
 func TestEntriesForKBs_SingleStaysBare(t *testing.T) {
-	entries, err := entriesForKBs("wiki", "https://example.test/mcp", []string{"only"}, []string{"only"}, "")
+	entries, err := entriesForKBs("wiki", "https://example.test/mcp", []string{"only"}, []string{"only"}, "", false)
 	if err != nil || len(entries) != 1 || entries[0].Name != "wiki" || entries[0].URL != "https://example.test/mcp" {
 		t.Fatalf("entriesForKBs = %+v, %v; want one bare entry", entries, err)
 	}
@@ -285,7 +285,7 @@ func TestDoConnect_SingleKB_BareEntry_AllProviders(t *testing.T) {
 
 func TestRemoveMCPEntries_RemovesEveryManagedEntry(t *testing.T) {
 	dir := t.TempDir()
-	entries, err := entriesForKBs("wiki", "https://example.test/mcp", []string{"a", "b"}, []string{"a", "b"}, "")
+	entries, err := entriesForKBs("wiki", "https://example.test/mcp", []string{"a", "b"}, []string{"a", "b"}, "", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -318,7 +318,7 @@ func TestCmdSync_ReconcilesOneToManyAndBack(t *testing.T) {
 	if err := clientconfig.Save(dir, cfg); err != nil {
 		t.Fatal(err)
 	}
-	bare, _ := entriesForKBs("wiki", cfg.ServerURL, cfg.KnownKBs, cfg.KnownKBs, "")
+	bare, _ := entriesForKBs("wiki", cfg.ServerURL, cfg.KnownKBs, cfg.KnownKBs, "", false)
 	if _, _, err := applyMCPEntries(sameEntriesFor(cfg.Agents, bare), cfg.Agents, dir, false, "", false); err != nil {
 		t.Fatal(err)
 	}
@@ -358,7 +358,7 @@ func TestDoDisconnect_RemovesPersistedPerKBEntries(t *testing.T) {
 	if err := clientconfig.Save(dir, cfg); err != nil {
 		t.Fatal(err)
 	}
-	entries, _ := entriesForKBs("wiki", cfg.ServerURL, cfg.KnownKBs, cfg.KnownKBs, "")
+	entries, _ := entriesForKBs("wiki", cfg.ServerURL, cfg.KnownKBs, cfg.KnownKBs, "", false)
 	if _, _, err := applyMCPEntries(sameEntriesFor(cfg.Agents, entries), cfg.Agents, dir, false, "", false); err != nil {
 		t.Fatal(err)
 	}
@@ -381,7 +381,7 @@ func TestCmdSync_ServerDownKeepsMCPEntriesAndKBs(t *testing.T) {
 	if err := clientconfig.Save(dir, cfg); err != nil {
 		t.Fatal(err)
 	}
-	entries, _ := entriesForKBs("wiki", cfg.ServerURL, cfg.KnownKBs, cfg.KnownKBs, "")
+	entries, _ := entriesForKBs("wiki", cfg.ServerURL, cfg.KnownKBs, cfg.KnownKBs, "", false)
 	if _, _, err := applyMCPEntries(sameEntriesFor(cfg.Agents, entries), cfg.Agents, dir, false, "", false); err != nil {
 		t.Fatal(err)
 	}
@@ -452,44 +452,6 @@ bearer_token_env_var = "CARTOGRAPHER_TOKENS"
 	}
 	if len(res.Warnings) == 0 {
 		t.Error("the adopted duplicates must be reported through connectResult.Warnings")
-	}
-}
-
-// D144: the process that knows the mounted configuration warns about a
-// colliding tool surface, whatever the client was configured by hand with.
-func TestFlatNamespaceMountWarning(t *testing.T) {
-	cases := []struct {
-		name     string
-		names    []string
-		prefixes []string
-		want     bool
-	}{
-		{"two unprefixed KBs", []string{"a", "b"}, []string{"", ""}, true},
-		{"three KBs, two unprefixed", []string{"a", "b", "c"}, []string{"", "cp", ""}, true},
-		{"two prefixed KBs", []string{"a", "b"}, []string{"ap", "bp"}, false},
-		{"one of two prefixed", []string{"a", "b"}, []string{"ap", ""}, false},
-		{"single unprefixed KB", []string{"a"}, []string{""}, false},
-		{"no KB", nil, nil, false},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			w := flatNamespaceMountWarning(tc.names, tc.prefixes)
-			if (w != "") != tc.want {
-				t.Fatalf("flatNamespaceMountWarning(%v, %v) = %q, want warning=%v", tc.names, tc.prefixes, w, tc.want)
-			}
-			if !tc.want {
-				return
-			}
-			for i, name := range tc.names {
-				quoted := strconv.Quote(name)
-				if unprefixed := tc.prefixes[i] == ""; unprefixed != strings.Contains(w, quoted) {
-					t.Errorf("warning %q: KB %s named=%v, want %v", w, quoted, !unprefixed, unprefixed)
-				}
-			}
-			if !strings.Contains(w, "tool_prefix") {
-				t.Errorf("warning does not point at the fix: %q", w)
-			}
-		})
 	}
 }
 
@@ -606,7 +568,7 @@ func TestEntriesForKBs_ShapeFromServerSetFromBinding(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			entries, err := entriesForKBs("wiki", "https://example.test/mcp", tc.mounted, tc.bound, "")
+			entries, err := entriesForKBs("wiki", "https://example.test/mcp", tc.mounted, tc.bound, "", false)
 			if err != nil {
 				t.Fatalf("entriesForKBs: %v", err)
 			}
@@ -856,7 +818,7 @@ func TestDoConnect_UnknownKB_FailsBeforeAnyWrite(t *testing.T) {
 // with three KBs produces ONE MCP entry, pointing at the routed endpoint, with
 // no ?kb= in the URL — the KB now travels in each tool call.
 func TestEntriesForKBs_Routed_OneEntry(t *testing.T) {
-	entries, err := entriesForKBs("wiki", "https://example.test/mcp", []string{"a", "b", "c"}, []string{"a", "b", "c"}, "/mcp/routed")
+	entries, err := entriesForKBs("wiki", "https://example.test/mcp", []string{"a", "b", "c"}, []string{"a", "b", "c"}, "/mcp/routed", false)
 	if err != nil {
 		t.Fatalf("entriesForKBs: %v", err)
 	}
@@ -874,17 +836,76 @@ func TestEntriesForKBs_Routed_OneEntry(t *testing.T) {
 	}
 }
 
-// TestEntriesForKBs_Routed_NarrowBindingStillOneEntry: routing changes the
-// transport, not the authorization. A provider bound to one of three KBs still
-// gets the single routed entry — what it may *use* is the binding's business,
-// enforced during sync, not the entry set's.
-func TestEntriesForKBs_Routed_NarrowBindingStillOneEntry(t *testing.T) {
-	entries, err := entriesForKBs("wiki", "https://example.test/mcp", []string{"a", "b", "c"}, []string{"b"}, "/mcp/routed")
+// TestEntriesForKBs_Routed_ExplicitBindingTravelsInTheURL (D288): an explicit
+// binding is one entry whose URL carries ?kbs=, sorted and comma-joined; a
+// name the server no longer mounts is left out, because the server refuses an
+// unknown name with a 400.
+func TestEntriesForKBs_Routed_ExplicitBindingTravelsInTheURL(t *testing.T) {
+	entries, err := entriesForKBs("wiki", "https://example.test/mcp", []string{"a", "b", "c"}, []string{"c", "a", "gone"}, "/mcp/routed", true)
 	if err != nil {
 		t.Fatalf("entriesForKBs: %v", err)
 	}
 	if len(entries) != 1 || entries[0].Name != "wiki" {
 		t.Fatalf("entries = %+v, want the single routed entry", entries)
+	}
+	if want := "https://example.test/mcp/routed?kbs=a,c"; entries[0].URL != want {
+		t.Errorf("entry URL = %q, want %q", entries[0].URL, want)
+	}
+}
+
+// TestEntriesForKBs_Routed_DefaultBindingHasNoKBS: the default binding means
+// "every KB the server mounts", so a KB added later reaches the provider
+// without a rewrite.
+func TestEntriesForKBs_Routed_DefaultBindingHasNoKBS(t *testing.T) {
+	entries, err := entriesForKBs("wiki", "https://example.test/mcp", []string{"a", "b"}, []string{"a", "b"}, "/mcp/routed", false)
+	if err != nil {
+		t.Fatalf("entriesForKBs: %v", err)
+	}
+	if len(entries) != 1 || entries[0].URL != "https://example.test/mcp/routed" {
+		t.Fatalf("entries = %+v, want the bare routed URL", entries)
+	}
+}
+
+// TestEntriesByProviderForKBs_Routed_PerProviderBinding: two providers with
+// different bindings against one routed server get one entry each, each with
+// its own ?kbs=; a provider bound only to vanished KBs gets none.
+func TestEntriesByProviderForKBs_Routed_PerProviderBinding(t *testing.T) {
+	cfg := &clientconfig.Config{
+		ServerURL: "https://example.test/mcp", ServerName: "wiki", KnownKBs: []string{"a", "b", "c"},
+		Clients: map[string]clientconfig.ClientBinding{
+			"claude": {KBs: []string{"b"}},
+			"codex":  {KBs: []string{"a", "b"}},
+			"kiro":   {KBs: []string{"gone"}},
+		},
+	}
+	got, err := entriesByProviderForKBs(cfg, []string{"claude", "codex", "kiro", "opencode"}, "wiki", cfg.ServerURL, []string{"a", "b", "c"}, "/mcp/routed")
+	if err != nil {
+		t.Fatalf("entriesByProviderForKBs: %v", err)
+	}
+	want := map[string]string{
+		"claude":   "https://example.test/mcp/routed?kbs=b",
+		"codex":    "https://example.test/mcp/routed?kbs=a,b",
+		"opencode": "https://example.test/mcp/routed",
+	}
+	for p, url := range want {
+		if len(got[p]) != 1 || got[p][0].URL != url {
+			t.Errorf("%s entries = %+v, want one at %s", p, got[p], url)
+		}
+	}
+	if len(got["kiro"]) != 0 {
+		t.Errorf("kiro bound only to a vanished KB got %+v, want none", got["kiro"])
+	}
+}
+
+// TestDeprecatedMCPKeyWarnings (D288): each deprecated key that was written
+// yields exactly one warning naming it; unset keys are silent.
+func TestDeprecatedMCPKeyWarnings(t *testing.T) {
+	if w := deprecatedMCPKeyWarnings(config.MCPConfig{}); len(w) != 0 {
+		t.Fatalf("unset keys warned: %v", w)
+	}
+	w := deprecatedMCPKeyWarnings(config.MCPConfig{MountMode: "per-kb", ToolPrefixMode: "kb-name"})
+	if len(w) != 2 || !strings.Contains(w[0], "mcp.mount_mode") || !strings.Contains(w[1], "mcp.tool_prefix_mode") {
+		t.Fatalf("warnings = %v, want one per key naming it", w)
 	}
 }
 

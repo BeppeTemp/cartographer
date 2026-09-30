@@ -303,34 +303,6 @@ func toolIdentifierBudgetWarning(providers []string, entriesByProvider map[strin
 	return strings.Join(parts, "; ")
 }
 
-// flatNamespaceMountWarning returns a non-empty warning when this server
-// mounts 2 or more KBs and 2 or more of them registered their tools
-// unprefixed: those KBs advertise identical tool names, and a client with a
-// flat MCP tool namespace (Kiro) silently keeps only one of them — answering
-// questions about one KB from another (D144). Warning only, never a startup
-// failure and never an implicit prefix: a Claude Code/Codex/OpenCode
-// deployment namespaces per server and must keep working untouched (D102).
-// names and prefixes are positionally paired, as built by the mount loop.
-func flatNamespaceMountWarning(names, prefixes []string) string {
-	if len(names) < 2 {
-		return ""
-	}
-	var unprefixed []string
-	for i, name := range names {
-		if i < len(prefixes) && prefixes[i] != "" {
-			continue
-		}
-		unprefixed = append(unprefixed, name)
-	}
-	if len(unprefixed) < 2 {
-		return ""
-	}
-	return fmt.Sprintf("KBs %s register identical MCP tool names: clients with a flat MCP tool namespace "+
-		"(kiro) silently keep only one of them, and answer from the wrong KB. Set kbs[].tool_prefix or "+
-		"mcp.tool_prefix_mode: kb-name (see docs/deployment.md §MCP tool-name prefix)",
-		strings.Join(quoteAll(unprefixed), ", "))
-}
-
 // quoteAll quotes each name for a log line listing KBs.
 func quoteAll(names []string) []string {
 	out := make([]string, len(names))
@@ -351,18 +323,33 @@ func quoteAll(names []string) []string {
 // though that client's list has a single name.
 //
 // url.URL is used rather than concatenation so an existing query survives.
-func entriesForKBs(baseName, serverURL string, mounted, bound []string, routedPath string) ([]mcpEntry, error) {
+func entriesForKBs(baseName, serverURL string, mounted, bound []string, routedPath string, explicit bool) ([]mcpEntry, error) {
 	if routedPath != "" {
-		// D187: a routed server exposes one endpoint for every KB, so one entry
-		// is the whole configuration. The binding still decides which KBs this
-		// provider may use — routing changes the transport, not the
-		// authorization — but it no longer shapes the entry set, because the
-		// KB now travels in each tool call rather than in the URL.
+		// D187/D288: a routed server exposes one endpoint for every KB, so one
+		// entry named after the server is the whole configuration. An explicit
+		// binding travels in the URL (?kbs=, sorted, comma-joined): the server
+		// narrows the connection to it, and with a single KB drops the `kb`
+		// argument from the schemas. The default binding ("every KB the server
+		// mounts") writes no kbs at all, so a KB added later reaches the
+		// provider without a rewrite. A name the server no longer mounts is
+		// left out: the server refuses an unknown name in kbs with a 400, which
+		// would break every call of the entry.
 		u, err := url.Parse(serverURL)
 		if err != nil {
 			return nil, fmt.Errorf("parse server URL %q: %w", serverURL, err)
 		}
 		u.Path = routedPath
+		u.RawQuery = ""
+		if explicit {
+			names := routedBinding(mounted, bound)
+			if len(names) > 0 {
+				escaped := make([]string, len(names))
+				for i, n := range names {
+					escaped[i] = url.QueryEscape(n)
+				}
+				u.RawQuery = "kbs=" + strings.Join(escaped, ",")
+			}
+		}
 		return []mcpEntry{{Name: baseName, URL: u.String()}}, nil
 	}
 	if len(mounted) <= 1 {
@@ -383,6 +370,27 @@ func entriesForKBs(baseName, serverURL string, mounted, bound []string, routedPa
 		entries = append(entries, mcpEntry{Name: baseName + "-" + kb, URL: entryURL.String(), KBName: kb})
 	}
 	return entries, nil
+}
+
+// routedBinding is the explicit binding of a provider as it goes into ?kbs=:
+// sorted, deduplicated and, when the server's KB list is known, restricted to
+// what the server mounts.
+func routedBinding(mounted, bound []string) []string {
+	live := map[string]bool{}
+	for _, n := range mounted {
+		live[n] = true
+	}
+	seen := map[string]bool{}
+	var out []string
+	for _, n := range bound {
+		if seen[n] || (len(live) > 0 && !live[n]) {
+			continue
+		}
+		seen[n] = true
+		out = append(out, n)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // managedEntryNames returns every name this client may have owned for the
@@ -420,7 +428,13 @@ func entriesByProviderForKBs(cfg *clientconfig.Config, providers []string, baseN
 			out[p] = nil
 			continue
 		}
-		entries, err := entriesForKBs(baseName, serverURL, mounted, bound, routedPath)
+		if explicit && routedPath != "" && len(mounted) > 0 && len(routedBinding(mounted, bound)) == 0 {
+			// Bound only to KBs the server no longer mounts: nothing to point
+			// the provider at, the same declaration as an empty binding.
+			out[p] = nil
+			continue
+		}
+		entries, err := entriesForKBs(baseName, serverURL, mounted, bound, routedPath, explicit)
 		if err != nil {
 			return nil, err
 		}

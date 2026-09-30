@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/BeppeTemp/cartographer/internal/audit"
 	"github.com/BeppeTemp/cartographer/internal/auth"
@@ -261,6 +262,13 @@ type MultiKBServer struct {
 	// order, used to decide whether `kb` may be omitted and to name them in
 	// the error when it may not.
 	routedNames []string
+	// routedVersion/routedSetup rebuild a routed server for a narrower KB set
+	// (D288); routedViews caches one per distinct set, keyed by the sorted,
+	// comma-joined names, under routedMu.
+	routedVersion string
+	routedSetup   func(s *Server)
+	routedMu      sync.Mutex
+	routedViews   map[string]*Server
 	// web gates the read-only UI surface (D226/D227). Nil -- the default, and
 	// what stdio mode always leaves it as -- means neither /ui/ nor
 	// /api/ui/v1 is routed and both fall through to 404, restoring exactly the
@@ -520,8 +528,8 @@ func (m *MultiKBServer) Handler() http.Handler {
 			json.NewEncoder(w).Encode(result)
 			return
 
-		// D187: the routed mount. The KB travels in the tool arguments here, so
-		// a ?kb= on this URL is a second channel for the same choice — refused
+		// D187/D288: the routed mount. The KB travels in the tool arguments here
+		// (the allowed set in ?kbs=, which only narrows), so a ?kb= on this URL is a second channel for the same choice — refused
 		// rather than silently preferred, the same rule /mcp/<name> already
 		// applies to a conflicting ?kb=. The guard is on m.routed, not on the
 		// path alone: with no routed mount enabled the path falls through to
@@ -532,7 +540,12 @@ func (m *MultiKBServer) Handler() http.Handler {
 				http.Error(w, "conflicting kb selection: the routed mount takes the KB as a tool argument, not as a query parameter", http.StatusBadRequest)
 				return
 			}
-			m.routed.handleMCP(w, r)
+			srv, err := m.routedFor(r.URL.Query()["kbs"])
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			srv.handleMCP(w, r)
 			return
 
 		case r.URL.Path == "/mcp":
