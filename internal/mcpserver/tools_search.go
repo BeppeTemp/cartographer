@@ -9,6 +9,7 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/kb"
 	"github.com/BeppeTemp/cartographer/internal/okf"
+	"github.com/BeppeTemp/cartographer/internal/search"
 	"github.com/BeppeTemp/cartographer/internal/sqlindex"
 )
 
@@ -67,6 +68,7 @@ func toolSearch(k *kb.KB, rec *searchReconciler, misses *searchMissLog, deps Dep
 	if deps.SQLIndex != nil {
 		description = "Keyword search over KB concepts (SQLite FTS5 with substring matching). Returns matching concept IDs ranked by relevance."
 	}
+	description += " A term the KB's glossary.yaml declares is also searched under its canonical form and aliases; the variants run are listed in expanded_to."
 
 	return Tool{
 		Name:        "search",
@@ -108,8 +110,9 @@ func handleSearch(ctx requestContext, k *kb.KB, rec *searchReconciler, misses *s
 		limit = 20
 	}
 
-	hits, mode := keywordHits(ctx, k, rec, deps, params.Query, params.Scope, limit)
-	// A miss is recorded only for a principal who sees the whole KB (D247).
+	hits, mode, expandedTo := expandedKeywordHits(ctx, k, rec, deps, params.Query, params.Scope, limit)
+	// A miss is recorded only when every glossary variant came back empty
+	// (D276), and only for a principal who sees the whole KB (D247).
 	// For a narrowed token zero hits may only mean "hidden from you" — not a
 	// gap — and recording it would show that user's queries to every
 	// whole-KB reader of kb_status.
@@ -122,8 +125,67 @@ func handleSearch(ctx requestContext, k *kb.KB, rec *searchReconciler, misses *s
 		"count":   len(hits),
 		"results": hits,
 	}
+	if len(expandedTo) > 0 {
+		result["expanded_to"] = expandedTo
+	}
 	out, _ := json.MarshalIndent(result, "", "  ")
 	return textResult(string(out)), nil
+}
+
+// glossaryMaxVariants caps the queries one search runs through the glossary
+// (D276), the original included: each variant is a full keywordHits pass.
+const glossaryMaxVariants = 8
+
+// expandedKeywordHits is keywordHits through the KB's glossary (D276): the
+// query, then each variant the glossary derives from it, run with the same
+// scope and limit and merged by concept ID keeping the best score. It returns
+// the merged hits, the mode of the original query's pass, and the variants
+// other than the original (nil when the glossary did not expand the query).
+// A missing, unreadable or unparseable glossary expands nothing, so a KB
+// without one searches exactly as before.
+//
+// Trap: on the FTS5 backend a term shorter than three characters matches
+// nothing on its own (the trigram tokenizer, sqlindex.ftsTokens), so a query
+// that is only a two-letter alias finds pages through its longer variants
+// but never pages that use only the two-letter form.
+func expandedKeywordHits(ctx requestContext, k *kb.KB, rec *searchReconciler, deps Deps, query, scope string, limit int) ([]searchHit, string, []string) {
+	var variants []string
+	if st, err := k.ReadGlossary(); err == nil {
+		variants = st.Glossary.Variants(search.Fold(query), glossaryMaxVariants)
+	}
+	if len(variants) <= 1 {
+		hits, mode := keywordHits(ctx, k, rec, deps, query, scope, limit)
+		return hits, mode, nil
+	}
+	// variants[0] is the folded query: run the query as typed instead, so the
+	// original pass is byte-for-byte today's search.
+	hits, mode := keywordHits(ctx, k, rec, deps, query, scope, limit)
+	best := map[string]searchHit{}
+	for _, h := range hits {
+		best[h.ID] = h
+	}
+	for _, v := range variants[1:] {
+		vh, _ := keywordHits(ctx, k, rec, deps, v, scope, limit)
+		for _, h := range vh {
+			if cur, ok := best[h.ID]; !ok || h.Score > cur.Score {
+				best[h.ID] = h
+			}
+		}
+	}
+	merged := make([]searchHit, 0, len(best))
+	for _, h := range best {
+		merged = append(merged, h)
+	}
+	sort.Slice(merged, func(i, j int) bool {
+		if merged[i].Score != merged[j].Score {
+			return merged[i].Score > merged[j].Score
+		}
+		return merged[i].ID < merged[j].ID
+	})
+	if len(merged) > limit {
+		merged = merged[:limit]
+	}
+	return merged, mode, variants[1:]
 }
 
 // keywordHits is search's ranking, shared with graph_context's seeding (D242)

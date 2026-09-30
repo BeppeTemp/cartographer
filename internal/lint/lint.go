@@ -135,6 +135,8 @@ var perConceptChecks = map[string]bool{
 	// Path placeholder registry (D263): a concept documenting an old key on
 	// purpose must be writable. unused_placeholder belongs to paths.yaml.
 	"unknown_placeholder": true,
+	// Glossary (D276): a migration note may quote the old name on purpose.
+	"forbidden_term": true,
 }
 
 // lintIgnoreSet reads a concept's lint_ignore frontmatter key (D159). A bare
@@ -307,6 +309,13 @@ func Run(k *kb.KB, scope string, scopeNeighbors bool) ([]Finding, error) {
 		}
 	}
 
+	// The KB's glossary (D276): its malformed entries belong to glossary.yaml,
+	// so only an unscoped lint reports them; forbidden_term is per concept.
+	glossary, glossaryFindings := loadGlossaryLint(k)
+	if scopeNorm == "" {
+		findings = append(findings, glossaryFindings...)
+	}
+
 	// Hooks are KB-level artifacts, not concepts: only an unscoped lint
 	// reports a broken hook.json (D284).
 	if scopeNorm == "" {
@@ -440,6 +449,11 @@ func Run(k *kb.KB, scope string, scopeNeighbors bool) ([]Finding, error) {
 			if undeclared := registry.undeclared(lg.Facets[i].Placeholders); len(undeclared) > 0 {
 				emit(unknownPlaceholderFinding(relPath, undeclared))
 			}
+		}
+
+		// --- forbidden_term (warning, D276) ---
+		for _, f := range forbiddenTermFindings(relPath, body, glossary) {
+			emit(f)
 		}
 
 		// --- concept_oversize (info) ---

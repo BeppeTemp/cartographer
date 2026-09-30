@@ -54,7 +54,8 @@ kb-<domain>/                          # git repo = OKF bundle (content directori
 ├── templates/                         # KB-ONLY CONCEPT TEMPLATES (not provisioning artifacts)
 │   └── <slug>.md                      # frontmatter + Markdown skeleton; rendered by concept_new
 │
-└── paths.yaml                         # optional: declared {{path:…}}/{{repo:…}} keys (D263)
+├── paths.yaml                         # optional: declared {{path:…}}/{{repo:…}} keys (D263)
+└── glossary.yaml                      # optional: canonical terms, aliases, forbidden forms (D276)
 ```
 
 `services/` is included in `WalkConcepts` (search, graph, lint all see it) but its root is `kb.Root`, not `kb.DataRoot()`. Service concept IDs carry the `services/` prefix. `ResolvePath` is the one place that picks the root for an ID, and every operation that turns an ID into a file — read, write, collision check, removal, `concept_move` — goes through it (`LocateConcept` for callers that move files themselves). For the same reason `services` is not a valid map or journal name: `map_create` refuses it, since the scaffold would land under `data/services/`, where no read looks (D269). A `data/services/` left by an older version is neither read nor cleaned up. `agents/` and `hooks/` are not concepts (no OKF frontmatter, they don't go through `WalkConcepts`): they are provisioning artifacts materialized client-side — see `docs/sync.md` §Agents and hooks.
@@ -63,7 +64,8 @@ kb-<domain>/                          # git repo = OKF bundle (content directori
 
 `paths.yaml` is likewise KB-only data, not a concept and not a provisioning artifact: the KB's
 declared placeholder vocabulary, maintained through `artifact_*` or git and served to clients by
-`sync_pull` (§The path placeholder registry below).
+`sync_pull` (§The path placeholder registry below). `glossary.yaml` is KB-only data too, read
+only by `search` and `lint` on the server (§The glossary below).
 
 ### Assets
 
@@ -203,7 +205,7 @@ a deliberately-broken example link — could not be written without generating t
 describes, so a KB's own "known false positives" page was impossible.
 
 Suppressible: `broken_link`, `machine_path`, `concept_oversize`, `stale_claim`, `imported_draft`,
-`secrets_on_non_service`, `orphan`, `missing_title`, `unknown_placeholder`, `duplicate_link`, `bare_link_list`, and the structural
+`secrets_on_non_service`, `orphan`, `missing_title`, `unknown_placeholder`, `forbidden_term`, `duplicate_link`, `bare_link_list`, and the structural
 `cut_concept`, `link_to_retired`, `broken_relation`, `map_misfit`. **Not** suppressible: every `error`-severity check
 (`missing_required_field`, `invalid_field_value`, `forbidden_field`, `expanded_ambiguous`) — those are contract violations, not judgements, and
 letting a concept declare its own contract void would be a hole rather than an escape hatch — and the
@@ -260,6 +262,35 @@ flooded on upgrade:
 
 `machine_path` also names the declared key whose `default` is a prefix of the flagged path, e.g.
 `~/.claude/settings.json` → "use `{{path:claude-home}}/settings.json`".
+
+## The glossary (`glossary.yaml`)
+
+A KB may declare its terminology in `glossary.yaml` at its root ([D276](decisions/D276-a-kb-glossary-expands-search-and-flags-forbidden-terms.md)):
+
+```yaml
+terms:
+  - canonical: Home Assistant
+    aliases: [HA, hass]
+    forbidden: [HomeAssistant]
+```
+
+`canonical` is required; `aliases` and `forbidden` are optional lists; no other key is accepted.
+Every term is a non-empty string of at most 80 bytes. Terms are compared lowercased and
+diacritic-folded (the folding `search` uses, D246): the same folded string may not belong to two
+canonicals, nor be both an alias and forbidden. Like `paths.yaml` it is written with git or
+`artifact_write` (strict: any malformed entry refuses the write, naming it), read tolerantly (a
+malformed entry is left out, the earlier term keeping a contested string), and never materialized on
+a client.
+
+- **Search expansion.** A query containing a canonical or an alias as a whole-word phrase also runs
+  with that phrase replaced by each other member of its group — forbidden terms never expand. At most
+  8 queries run, the original first, and a variant is never re-expanded; hits are merged by id keeping
+  the best score. The response names the variants in `expanded_to`, and a miss is recorded only when
+  every variant came back empty. A KB without the file searches exactly as before.
+- **Lint.** `forbidden_term` (warning, per concept, suppressible with `lint_ignore` — a migration
+  note may quote an old name): the body uses a forbidden term as a whole word outside fenced and
+  inline code (the masking the link graph uses, D150). One finding per distinct term, naming the
+  canonical. A malformed entry is `contract_malformed` (info, on `glossary.yaml`, whole-KB lint only).
 
 ## Extended concept types
 

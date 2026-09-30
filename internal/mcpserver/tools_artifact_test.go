@@ -302,6 +302,8 @@ func TestClassifyArtifactPath(t *testing.T) {
 		{"./paths.yaml", true, "paths", ""},
 		{"data/paths.yaml", false, "", ""},
 		{"paths.yml", false, "", ""},
+		{"glossary.yaml", true, "glossary", ""},
+		{"data/glossary.yaml", false, "", ""},
 		// Traversal.
 		{"../etc/passwd", false, "", ""},
 		{"skills/../../etc/passwd", false, "", ""},

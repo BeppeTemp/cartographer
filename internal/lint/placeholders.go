@@ -153,3 +153,49 @@ func (r registryLint) suggestion(flagged string) string {
 	consider("repo", r.state.Registry.Repos)
 	return best
 }
+
+// loadGlossaryLint reads the KB's glossary.yaml (D276) for the forbidden_term
+// check. Its malformed entries are contract_malformed findings on the file,
+// like paths.yaml's; an absent or unparseable glossary forbids nothing.
+func loadGlossaryLint(k *kb.KB) (kb.Glossary, []Finding) {
+	st, err := k.ReadGlossary()
+	if err != nil {
+		return kb.Glossary{}, []Finding{{
+			Path:     kb.GlossaryFile,
+			Check:    "contract_malformed",
+			Severity: SevInfo,
+			Message:  fmt.Sprintf("glossary unreadable: %v", err),
+		}}
+	}
+	var findings []Finding
+	for _, m := range st.Malformed {
+		msg := "malformed glossary"
+		if m.Entry != "" {
+			msg += fmt.Sprintf(" entry %q", m.Entry)
+		}
+		findings = append(findings, Finding{
+			Path:     kb.GlossaryFile,
+			Check:    "contract_malformed",
+			Severity: SevInfo,
+			Message:  msg + ": " + m.Reason,
+		})
+	}
+	return st.Glossary, findings
+}
+
+// forbiddenTermFindings flags each distinct forbidden glossary term the body
+// uses as a whole word outside code (D276): code is masked the way the link
+// graph masks it (D150), because a command or a quoted old name in a fence is
+// not prose.
+func forbiddenTermFindings(relPath, body string, g kb.Glossary) []Finding {
+	var out []Finding
+	for _, u := range g.ForbiddenUses(kb.MaskCodeSpans(body)) {
+		out = append(out, Finding{
+			Path:     relPath,
+			Check:    "forbidden_term",
+			Severity: SevWarning,
+			Message:  fmt.Sprintf("uses %q — the glossary's canonical term is %q", u.Term, u.Canonical),
+		})
+	}
+	return out
+}

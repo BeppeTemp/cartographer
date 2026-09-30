@@ -52,15 +52,15 @@ const artifactManifestKBKey = "kb"
 
 // artifactPathInfo is the result of classifying a whitelisted artifact path.
 type artifactPathInfo struct {
-	Kind string // "skill" | "agent" | "hook" | "mcp" | "instructions" | "template" | "paths"
-	Name string // artifact name (slug); "" for instructions and paths
+	Kind string // "skill" | "agent" | "hook" | "mcp" | "instructions" | "template" | "paths" | "glossary"
+	Name string // artifact name (slug); "" for instructions, paths and glossary
 }
 
 // classifyArtifactPath validates relPath against the D71 whitelist and
 // extracts its (kind, name). This is the single path guard shared by all
 // four artifact_* tools: skills/<slug>/**, agents/<slug>.md, hooks/**,
 // mcp/<slug>.json, instructions.md, templates/<slug>.md, and the path
-// placeholder registry paths.yaml (D263). Rejects absolute
+// placeholder registry paths.yaml (D263) and the glossary glossary.yaml (D276). Rejects absolute
 // paths, traversal ("../"), and anything not matching one of those shapes.
 func classifyArtifactPath(relPath string) (artifactPathInfo, error) {
 	if relPath == "" {
@@ -85,6 +85,10 @@ func classifyArtifactPath(relPath string) (artifactPathInfo, error) {
 	// never materialized on a client, sync_pull serves it parsed.
 	if clean == kb.PathRegistryFile {
 		return artifactPathInfo{Kind: "paths"}, nil
+	}
+	// The KB's terminology (D276): KB-only data, like paths.yaml.
+	if clean == kb.GlossaryFile {
+		return artifactPathInfo{Kind: "glossary"}, nil
 	}
 
 	segs := strings.Split(clean, "/")
@@ -121,7 +125,7 @@ func classifyArtifactPath(relPath string) (artifactPathInfo, error) {
 	}
 
 	return artifactPathInfo{}, fmt.Errorf(
-		"path %q is not a whitelisted artifact path (skills/<slug>/**, agents/<slug>.md, hooks/**, mcp/<slug>.json, instructions.md, templates/<slug>.md, paths.yaml)",
+		"path %q is not a whitelisted artifact path (skills/<slug>/**, agents/<slug>.md, hooks/**, mcp/<slug>.json, instructions.md, templates/<slug>.md, paths.yaml, glossary.yaml)",
 		relPath)
 }
 
@@ -152,7 +156,7 @@ func rejectArtifactSymlinks(root, relPath string) error {
 }
 
 func rejectArtifactTreeSymlinks(root string) error {
-	for _, rel := range []string{"skills", "agents", "hooks", "mcp", "instructions.md", "templates", kb.PathRegistryFile} {
+	for _, rel := range []string{"skills", "agents", "hooks", "mcp", "instructions.md", "templates", kb.PathRegistryFile, kb.GlossaryFile} {
 		if err := rejectArtifactSymlinks(root, rel); err != nil {
 			return err
 		}
@@ -182,8 +186,8 @@ func toolArtifactRead(k *kb.KB, allowlist []provisioning.MCPAllowlistEntry) Tool
 		Name:     "artifact_read",
 		ReadOnly: true,
 		Description: "Reads a KB-root artifact file (provisioning artifacts under skills/, agents/, hooks/, mcp/, " +
-			"or instructions.md; KB-only templates/<slug>.md and paths.yaml, the KB's declared " +
-			"{{path:…}}/{{repo:…}} placeholder keys). Returns content and " +
+			"or instructions.md; KB-only templates/<slug>.md, paths.yaml, the KB's declared " +
+			"{{path:…}}/{{repo:…}} placeholder keys, and glossary.yaml, its terminology). Returns content and " +
 			"sha256 — use the sha256 as if_match for a subsequent artifact_write/artifact_delete, which are " +
 			"registered only when this KB sets kbs[].allow_artifact_write: true (see kb_status capabilities).",
 		InputSchema: json.RawMessage(`{
@@ -406,12 +410,13 @@ func toolArtifactWrite(k *kb.KB) Tool {
 	return Tool{
 		Name: "artifact_write",
 		Description: "Creates or updates a KB-root artifact file (skills/<slug>/**, agents/<slug>.md, " +
-			"hooks/**, mcp/<slug>.json, instructions.md, templates/<slug>.md, paths.yaml). " +
+			"hooks/**, mcp/<slug>.json, instructions.md, templates/<slug>.md, paths.yaml, glossary.yaml). " +
 			"On an existing file, if_match is required (sha256 of the current content, from " +
 			"artifact_read/artifact_list) — fails with stale_write if it's missing or doesn't " +
 			"match. On a new file, omit if_match — fails with already_exists if the file is " +
 			"actually already there. Validates structured artifacts, including template frontmatter and variables " +
-			"and the paths.yaml schema (paths:/repos: key -> {description, default: ~/…, remote}), before writing.",
+			"the paths.yaml schema (paths:/repos: key -> {description, default: ~/…, remote}) and the glossary.yaml schema " +
+			"(terms: list of {canonical, aliases: [..], forbidden: [..]}), before writing.",
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"required": ["path", "content"],
@@ -563,6 +568,9 @@ func validateArtifactContent(info artifactPathInfo, relPath string, data []byte)
 		// Strict: a registry that can be written can be read in full
 		// (D263); the tolerant read path exists for files arriving by git.
 		return kb.ValidatePathRegistry(data)
+	case "glossary":
+		// Strict for the same reason as paths.yaml (D276).
+		return kb.ValidateGlossary(data)
 	case "hook":
 		if filepath.Base(relPath) != "hook.json" {
 			return nil // the hook's script and other files
@@ -592,7 +600,7 @@ func hookClientWarnings(info artifactPathInfo, relPath string, data []byte) []st
 }
 
 func isStructuredArtifact(info artifactPathInfo, relPath string) bool {
-	return (info.Kind == "skill" && filepath.Base(relPath) == "SKILL.md") || info.Kind == "agent" || info.Kind == "mcp" || info.Kind == "template" || info.Kind == "instructions" || info.Kind == "paths" || (info.Kind == "hook" && filepath.Base(relPath) == "hook.json")
+	return (info.Kind == "skill" && filepath.Base(relPath) == "SKILL.md") || info.Kind == "agent" || info.Kind == "mcp" || info.Kind == "template" || info.Kind == "instructions" || info.Kind == "paths" || info.Kind == "glossary" || (info.Kind == "hook" && filepath.Base(relPath) == "hook.json")
 }
 
 var templateVariablePattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
@@ -811,7 +819,7 @@ func toolArtifactDelete(k *kb.KB) Tool {
 	return Tool{
 		Name: "artifact_delete",
 		Description: "Deletes a KB-root artifact file (skills/<slug>/**, agents/<slug>.md, hooks/**, " +
-			"mcp/<slug>.json, instructions.md, templates/<slug>.md, paths.yaml), and its now-empty containing artifact " +
+			"mcp/<slug>.json, instructions.md, templates/<slug>.md, paths.yaml, glossary.yaml), and its now-empty containing artifact " +
 			"directory for skills/hooks. if_match (sha256 of the current content, from " +
 			"artifact_read/artifact_list) is required.",
 		InputSchema: json.RawMessage(`{

@@ -349,11 +349,11 @@ func TestExtractLinks_SkipsCodeSpans(t *testing.T) {
 	}
 }
 
-// maskCodeSpans must not change offsets or line count: lint's machine_path
+// MaskCodeSpans must not change offsets or line count: lint's machine_path
 // check already reasons about spans over the same body.
 func TestMaskCodeSpans_PreservesLengthAndLines(t *testing.T) {
 	body := "before\n```sh\ngrep x\n```\nafter `code` end\n"
-	masked := maskCodeSpans(body)
+	masked := MaskCodeSpans(body)
 	if len(masked) != len(body) {
 		t.Errorf("length %d, want %d", len(masked), len(body))
 	}
