@@ -50,6 +50,8 @@ var auditResourceFields = map[string][]string{
 	"link_suggest":         {"id"},
 	"graph_path":           {"source", "target"},
 	"concept_list":         {"scope"},
+	"source_register":      {"map"},
+	"source_list":          {"scope"},
 	"contradiction_report": {"scope"},
 	"asset_read":           {"concept_id", "path"},
 	"asset_list":           {"concept_id"},
