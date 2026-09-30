@@ -77,8 +77,9 @@ func Open(dbPath string) (*Index, error) {
 
 // schemaVersion is the concepts_fts layout this package writes. Version 2
 // (D246) split the single body column into title/meta/body and folded
-// diacritics; version 1 is every database created before it (user_version 0).
-const schemaVersion = 2
+// diacritics; version 3 (D277) added the assets column; version 1 is every
+// database created before it (user_version 0).
+const schemaVersion = 3
 
 // migrate brings an older database to schemaVersion by dropping what cannot
 // be converted in place. concepts is emptied with concepts_fts so the hashes
@@ -128,6 +129,7 @@ func createSchema(db *sql.DB) error {
 			title,
 			meta,
 			body,
+			assets,
 			tokenize='trigram remove_diacritics 1'
 		)
 	`)
@@ -146,7 +148,9 @@ func (ix *Index) Close() error {
 // Upsert inserts or updates a concept's content in both the concepts table and
 // the FTS5 index. body is the raw file content; it is split into the title,
 // meta and body columns here, the same way the in-memory index weights it.
-func (ix *Index) Upsert(id, contentHash, body string) error {
+// assetsText is the searchable text of the concept's assets (D277), empty for
+// a concept that has none; contentHash should cover it (see the reconciler).
+func (ix *Index) Upsert(id, contentHash, body, assetsText string) error {
 	_, err := ix.db.Exec(
 		`INSERT INTO concepts(id, content_hash, body) VALUES(?, ?, ?)
 		 ON CONFLICT(id) DO UPDATE SET content_hash=excluded.content_hash, body=excluded.body`,
@@ -160,7 +164,7 @@ func (ix *Index) Upsert(id, contentHash, body string) error {
 		return fmt.Errorf("sqlindex: delete fts: %w", err)
 	}
 	f := search.SplitFields(body)
-	if _, err := ix.db.Exec(`INSERT INTO concepts_fts(id, title, meta, body) VALUES(?, ?, ?, ?)`, id, f.Title, f.Meta, f.Body); err != nil {
+	if _, err := ix.db.Exec(`INSERT INTO concepts_fts(id, title, meta, body, assets) VALUES(?, ?, ?, ?, ?)`, id, f.Title, f.Meta, f.Body, assetsText); err != nil {
 		return fmt.Errorf("sqlindex: insert fts: %w", err)
 	}
 
@@ -311,17 +315,38 @@ func (ix *Index) searchFTSFiltered(query, scope string, limit int, allow func(id
 	}
 }
 
-// ftsRank and ftsSnippet are the ranking and excerpt expressions of every
+// ftsRank and the two snippet expressions are the ranking and excerpt of every
 // search query. bm25's weights are positional over ALL columns, the
-// unindexed id included: the leading 0 is id's, then title 5, meta 2, body 1.
-// Dropping the 0 silently shifts every weight one column to the left.
+// unindexed id included: the leading 0 is id's, then title 5, meta 2, body 1,
+// assets 1 (D277). Dropping the 0 silently shifts every weight one column to
+// the left.
 // snippet() reads column 3, the body: a match only in title or meta yields
 // the start of the body, as the in-memory excerpt does with no term found,
-// and an empty body yields "", for which the caller uses its own excerpt.
+// and an empty body yields "", for which the caller uses its own excerpt. A
+// match only in the assets (column 4) would yield that same start of the
+// body, so both columns are excerpted with match marks and pickSnippet takes
+// the assets excerpt when only it carries a mark.
 const (
-	ftsRank    = `-1.0 * bm25(concepts_fts, 0.0, 5.0, 2.0, 1.0)`
-	ftsSnippet = `snippet(concepts_fts, 3, '', '', '…', ?)`
+	ftsRank         = `-1.0 * bm25(concepts_fts, 0.0, 5.0, 2.0, 1.0, 1.0)`
+	ftsSnippet      = `snippet(concepts_fts, 3, char(1), char(2), '…', ?)`
+	ftsAssetSnippet = `snippet(concepts_fts, 4, char(1), char(2), '…', ?)`
+	snipMarks       = "\x01\x02"
 )
+
+// pickSnippet chooses between the body and assets excerpts and strips the
+// match marks.
+func pickSnippet(body, assets string) string {
+	pick := body
+	if !strings.Contains(body, "\x01") && strings.Contains(assets, "\x01") {
+		pick = assets
+	}
+	return strings.Map(func(r rune) rune {
+		if strings.ContainsRune(snipMarks, r) {
+			return -1
+		}
+		return r
+	}, pick)
+}
 
 func (ix *Index) searchFTSPage(query, scope string, limit, offset int) ([]Hit, error) {
 	var rows *sql.Rows
@@ -329,24 +354,26 @@ func (ix *Index) searchFTSPage(query, scope string, limit, offset int) ([]Hit, e
 	if scope != "" {
 		rows, err = ix.db.Query(
 			`SELECT c.id, `+ftsRank+` AS score,
-			        `+ftsSnippet+` AS snip
+			        `+ftsSnippet+` AS snip,
+			        `+ftsAssetSnippet+` AS asnip
 			 FROM concepts_fts
 			 JOIN concepts c ON c.id = concepts_fts.id
 			 WHERE concepts_fts MATCH ? AND c.id LIKE ? ESCAPE '\'
 			 ORDER BY score DESC, c.id
 			 LIMIT ? OFFSET ?`,
-			ftsSnippetTokens, query, likePrefixPattern(scope), limit, offset,
+			ftsSnippetTokens, ftsSnippetTokens, query, likePrefixPattern(scope), limit, offset,
 		)
 	} else {
 		rows, err = ix.db.Query(
 			`SELECT c.id, `+ftsRank+` AS score,
-			        `+ftsSnippet+` AS snip
+			        `+ftsSnippet+` AS snip,
+			        `+ftsAssetSnippet+` AS asnip
 			 FROM concepts_fts
 			 JOIN concepts c ON c.id = concepts_fts.id
 			 WHERE concepts_fts MATCH ?
 			 ORDER BY score DESC, c.id
 			 LIMIT ? OFFSET ?`,
-			ftsSnippetTokens, query, limit, offset,
+			ftsSnippetTokens, ftsSnippetTokens, query, limit, offset,
 		)
 	}
 	if err != nil {
@@ -357,9 +384,11 @@ func (ix *Index) searchFTSPage(query, scope string, limit, offset int) ([]Hit, e
 	var hits []Hit
 	for rows.Next() {
 		var h Hit
-		if err := rows.Scan(&h.ID, &h.Score, &h.Snippet); err != nil {
+		var bodySnip, assetSnip string
+		if err := rows.Scan(&h.ID, &h.Score, &bodySnip, &assetSnip); err != nil {
 			return nil, fmt.Errorf("sqlindex: scan hit: %w", err)
 		}
+		h.Snippet = pickSnippet(bodySnip, assetSnip)
 		hits = append(hits, h)
 	}
 	if err := rows.Err(); err != nil {

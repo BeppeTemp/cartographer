@@ -3845,8 +3845,10 @@ func TestServer_AssetToolsRoundTripAndClassification(t *testing.T) {
 	if err != nil {
 		t.Fatalf("search handler: %v", err)
 	}
-	if strings.Contains(searchResult.Content[0].Text, "evidence/search.txt") || strings.Contains(searchResult.Content[0].Text, "manutenzione/test-runbook") {
-		t.Fatal("asset bytes entered the keyword index")
+	// D277: a text asset is searchable, and the hit is its owner concept, never
+	// a per-asset result. The binary asset written above stays out of the index.
+	if !strings.Contains(searchResult.Content[0].Text, "manutenzione/test-runbook") || strings.Contains(searchResult.Content[0].Text, "\"asset\"") {
+		t.Fatalf("text asset not found through its owner: %s", searchResult.Content[0].Text)
 	}
 	deleteMsg := `{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"asset_delete","arguments":{"concept_id":"manutenzione/test-runbook","path":"evidence/raw.bin","if_match":"` + read.SHA256 + `"}}}`
 	deleteResp := runMCPSequence(t, s, []string{deleteMsg})

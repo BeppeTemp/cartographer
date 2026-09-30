@@ -15,6 +15,9 @@ import (
 type conceptMeta struct {
 	Title string
 	Body  string
+	// Assets is the text of the concept's assets (D277), kept for the snippet
+	// of a hit that matched only there.
+	Assets string
 }
 
 // liveIndex is a swappable, concurrency-safe handle to the in-memory keyword
@@ -67,9 +70,12 @@ func (l *liveIndex) title(id string) string {
 // body if no term matches (or query is empty). Empty if id is unknown.
 func (l *liveIndex) snippet(id, query string, maxChars int) string {
 	l.mu.RLock()
-	body := l.meta[id].Body
+	m := l.meta[id]
 	l.mu.RUnlock()
-	return extractSnippet(body, query, maxChars)
+	if m.Assets != "" && !containsTerm(m.Body, query) && containsTerm(m.Assets, query) {
+		return extractSnippet(m.Assets, query, maxChars)
+	}
+	return extractSnippet(m.Body, query, maxChars)
 }
 
 // swap atomically replaces the index and metadata map (used by reindex full=true).
@@ -83,10 +89,29 @@ func (l *liveIndex) swap(idx *search.Index, meta map[string]conceptMeta) {
 // add incrementally indexes a single concept (used by concept_write).
 // content is the raw file content (frontmatter + body).
 func (l *liveIndex) add(id, content string) {
+	l.addWithAssets(id, content, "")
+}
+
+// addWithAssets is add plus the text of the concept's assets (D277).
+func (l *liveIndex) addWithAssets(id, content, assets string) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	l.idx.Add(id, content)
-	l.meta[id] = parseConceptMeta(content)
+	l.idx.AddWithAssets(id, content, assets)
+	m := parseConceptMeta(content)
+	m.Assets = assets
+	l.meta[id] = m
+}
+
+// containsTerm reports whether any tokenized term of query occurs in text,
+// folded the way the index folds it (D246).
+func containsTerm(text, query string) bool {
+	folded := search.Fold(text)
+	for _, term := range search.Tokenize(query) {
+		if strings.Contains(folded, term) {
+			return true
+		}
+	}
+	return false
 }
 
 // remove incrementally deindexes a single concept (used by concept_delete).
