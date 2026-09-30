@@ -101,11 +101,11 @@ func renderStatus(output string, s statusSnapshot, code int) int {
 		fmt.Printf("configured against server %s — now %s: run `cartographer reconnect` to rebuild the client configuration\n",
 			strings.Join(changed, ", "), s.Server)
 	}
-	// D187: a mount-mode switch changes the *shape* of every MCP entry, not
-	// their content, so an incremental sync cannot see it. Report it; do not
-	// heal it.
+	// D187/D288: a topology switch (per-KB entries to the single routed one)
+	// is healed by the next sync, which rewrites the entries to the live shape;
+	// status only reports it, it never writes.
 	if s.Reachable && s.MountMode != s.ConfiguredMountMode {
-		fmt.Printf("mount mode changed: configured %s, server now serves %s — run `cartographer reconnect` to rewrite the MCP entries\n",
+		fmt.Printf("mount mode changed: configured %s, server now serves %s — run `cartographer sync` to rewrite the MCP entries\n",
 			mountModeLabel(s.ConfiguredMountMode), mountModeLabel(s.MountMode))
 	}
 	for _, p := range s.Providers {

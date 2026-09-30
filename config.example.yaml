@@ -42,44 +42,19 @@ kbs:
                                    # KB (default false, D71): writing a skill means
                                    # injecting instructions that clients will run —
                                    # grant per-KB, an rw token alone does not imply it
-    # tool_prefix: "locale"        # (D102) opt-in per-KB MCP tool-name prefix: this
-                                   # KB's tools register as "locale__<tool>" instead
-                                   # of "<tool>". Default "" (off). Needed for MCP
-                                   # clients with a flat tool namespace across servers
-                                   # (e.g. Kiro CLI) when mounting 2+ KBs; wins over
-                                   # mcp.tool_prefix_mode below. See docs/deployment.md
+    # tool_prefix: "locale"        # DEPRECATED, ignored (D288): tools are never prefixed
+                                   # and a startup warning names the key. Removed in a
+                                   # later release. See docs/deployment.md
                                    # §MCP tool-name prefix.
 mcp:
-  # mount_mode: "per-kb"           # (D187) per-kb (default) | routed — how a multi-KB HTTP
-                                   # server exposes its tools. per-kb mounts one MCP server
-                                   # per KB, each advertising its own full copy of the tool
-                                   # schemas: a client using N KBs writes N server entries
-                                   # and pays N copies of the schemas in its fixed context,
-                                   # on every model round-trip (measured: 82,341 bytes for
-                                   # three KBs, two thirds of it duplicate).
-                                   # routed additionally serves /mcp/routed: one endpoint
-                                   # advertising the union of the tools exactly once, with
-                                   # the target KB travelling as a `kb` tool argument —
-                                   # required whenever 2+ KBs are routed, and never
-                                   # inferred. The per-KB endpoints (?kb= and /mcp/<name>)
-                                   # keep working unchanged in both modes: routing is an
-                                   # addition, not a replacement, so nothing changes for an
-                                   # existing deployment until this key is set.
-                                   # A KB that sets tool_prefix cannot be routed — the two
-                                   # are alternative answers to the same problem, and the
-                                   # combination is a fatal config error at startup.
-                                   # See docs/transport-auth.md §Mount modes.
-  # tool_prefix_mode: "kb-name"    # (D102, default flipped in D153) kb-name (default) | off
-                                   # global default applied to every KB above that doesn't
-                                   # set its own tool_prefix; kb-name derives the prefix
-                                   # from the KB's own name. With one KB mounted no prefix
-                                   # is derived — it would be pure noise — so tools keep
-                                   # their bare names until a second KB appears, and that
-                                   # rename is announced at startup.
-                                   # off keeps bare names on every KB: the documented
-                                   # opt-out for a deployment that cannot absorb the
-                                   # rename, at the cost of silent wrong answers on a
-                                   # client with a flat tool namespace.
+  # mount_mode: "per-kb"           # DEPRECATED, ignored (D288): /mcp/routed is always
+                                   # served and is the one topology written into agent
+                                   # clients (the KB is a `kb` tool argument, or the
+                                   # binding in ?kbs=). The per-KB endpoints stay as
+                                   # plumbing. A startup warning names the key. See
+                                   # docs/transport-auth.md §One routed topology.
+  # tool_prefix_mode: "off"        # DEPRECATED, ignored (D288): tools are never prefixed.
+                                   # A startup warning names the key.
   # allowed_origins:               # (D128) browser origins allowed to reach /mcp, scheme
   #   - "https://app.example.com"  # and port included. Empty (default) accepts only an
                                    # Origin matching the request's own Host; "*" accepts

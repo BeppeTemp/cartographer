@@ -21,9 +21,10 @@ import (
 //
 // The routed mount registers the union of the mounted KBs' tool descriptors
 // exactly once and carries the KB as an explicit `kb` tool argument. It is
-// additive: MountKB/MountKBWithPrefix and the ?kb=/ /mcp/<name> endpoints keep
-// their exact behaviour, tools/list output included, so nobody's working setup
-// changes on upgrade.
+// additive over the per-KB plumbing: MountKB/MountKBWithPrefix and the ?kb=/
+// /mcp/<name> endpoints keep answering as before. Since D288 it is the only
+// topology written into agent clients, and a connection may narrow it to a
+// subset of the KBs with ?kbs= (one KB: no `kb` argument at all).
 //
 // Everything that is per-KB is resolved *after* `kb`: the read/write
 // classification, the auth policy (D118), the git lock and commit wrapper, the
@@ -42,54 +43,51 @@ const RoutedMountPath = "/mcp/routed"
 const routedKBArgument = "kb"
 
 // EnableRoutedMount builds the routed mount over the KBs already mounted on m.
-// Call it after every MountKB/MountKBWithPrefix. It returns an error when the
-// configuration is inconsistent; on success the routed endpoint is served
-// alongside the per-KB ones.
+// Call it after every MountKB/MountKBWithPrefix. It returns an error when no KB
+// is mounted; on success the routed endpoint is served alongside the per-KB
+// ones.
 //
-// A KB carrying a tool-name prefix (D102) cannot be routed: prefixes exist to
-// disambiguate N mounts sharing one flat namespace, and with a single mount
-// there is nothing to disambiguate — a prefix would only re-inflate the names
-// this mount exists to shrink. Routing and prefixing are alternative answers to
-// the same problem, so asking for both is a config error, not a silently
-// ignored setting.
+// D288: the routed mount is the one agent-facing topology. The connection
+// chooses its KB set (`?kbs=`, see routedFor): with the default binding the
+// schemas carry a required `kb` enum, with a single KB they carry no `kb` at
+// all. The caller (serve.go) skips a KB named like the endpoint's own path
+// before mounting it, so no name can shadow the route here.
 func (m *MultiKBServer) EnableRoutedMount(version string, setup func(s *Server)) error {
 	if len(m.servers) == 0 {
 		return errors.New("routed mount: no KB is mounted")
 	}
+	m.routedVersion = version
+	m.routedSetup = setup
 	names := m.mountedNames()
-	for _, name := range names {
-		if name == strings.TrimPrefix(RoutedMountPath, "/mcp/") {
-			return fmt.Errorf("KB %q collides with the routed mount's own path %s: rename the KB, or serve it per-KB",
-				name, RoutedMountPath)
-		}
-	}
-	for _, info := range m.kbs {
-		if info.ToolPrefix != "" {
-			return fmt.Errorf("KB %q: tool_prefix %q cannot be combined with mcp.mount_mode: routed — "+
-				"a routed mount exposes one copy of each tool, so there is no flat namespace to disambiguate; "+
-				"drop the prefix for this KB or serve it per-KB", info.Name, info.ToolPrefix)
-		}
-	}
+	m.routedViews = map[string]*Server{}
+	m.routed = m.buildRouted(names)
+	m.routedViews[strings.Join(names, ",")] = m.routed
+	m.routedNames = names
+	return nil
+}
 
-	routed := New(version)
+// buildRouted assembles the routed server for one effective KB set: the union
+// of those KBs' tools, once, with the schemas shaped for that set.
+func (m *MultiKBServer) buildRouted(set []string) *Server {
+	routed := New(m.routedVersion)
 	routed.SetDisplayName("cartographer")
-	if setup != nil {
-		setup(routed)
+	if m.routedSetup != nil {
+		m.routedSetup(routed)
 	}
 	// The real authorization decision belongs to the target KB and is taken
 	// inside its own callTool, after `kb` has been resolved. What this
 	// authorizer still has to answer is the metadata gate (initialize, ping,
 	// tools/list): a caller with no resolvable principal must be denied rather
 	// than implicitly treated as having full access. On a routed mount the
-	// honest rule is "can reach at least one of the routed KBs" — a principal
-	// scoped to one KB legitimately lists the union and is refused per call on
-	// the others.
+	// honest rule is "can reach at least one of the connection's KBs" — a
+	// principal scoped to one KB legitimately lists the union and is refused per
+	// call on the others.
 	routed.SetAuthorizer(func(ctx context.Context, tool string, args json.RawMessage) error {
 		if tool != "" {
 			return nil
 		}
 		var lastErr error = errors.New("forbidden")
-		for _, name := range names {
+		for _, name := range set {
 			if err := m.servers[name].authorize(ctx, "", args); err == nil {
 				return nil
 			} else {
@@ -98,14 +96,51 @@ func (m *MultiKBServer) EnableRoutedMount(version string, setup func(s *Server))
 		}
 		return lastErr
 	})
-
-	for _, t := range m.unionTools() {
+	for _, t := range m.unionTools(set) {
 		routed.RegisterTool(t)
 	}
+	return routed
+}
 
-	m.routed = routed
-	m.routedNames = names
-	return nil
+// routedFor resolves the `kbs` query parameter of a routed request to the
+// server that answers it (D288). Absent or empty means every mounted KB. The
+// binding only narrows: a name that is not mounted is an error naming it and
+// the mounted KBs (a typo must not silently hide a KB), duplicates are
+// ignored, and per-KB authorization still runs at the target.
+//
+// One Server is built per distinct effective set and cached: the set is part
+// of the URL, so tools/list differs per connection and cannot come from a
+// single shared registry. The number of sets is bounded by the subsets of the
+// mounted KBs.
+func (m *MultiKBServer) routedFor(rawKBs []string) (*Server, error) {
+	seen := map[string]bool{}
+	for _, raw := range rawKBs {
+		for _, n := range strings.Split(raw, ",") {
+			if n = strings.TrimSpace(n); n != "" {
+				seen[n] = true
+			}
+		}
+	}
+	if len(seen) == 0 {
+		return m.routed, nil
+	}
+	set := make([]string, 0, len(seen))
+	for n := range seen {
+		if _, ok := m.servers[n]; !ok {
+			return nil, fmt.Errorf("unknown kb %q in kbs: this server mounts %s", n, strings.Join(m.routedNames, ", "))
+		}
+		set = append(set, n)
+	}
+	sort.Strings(set)
+	key := strings.Join(set, ",")
+	m.routedMu.Lock()
+	defer m.routedMu.Unlock()
+	if srv, ok := m.routedViews[key]; ok {
+		return srv, nil
+	}
+	srv := m.buildRouted(set)
+	m.routedViews[key] = srv
+	return srv, nil
 }
 
 // mountedNames returns the mounted KB names in deterministic order.
@@ -118,20 +153,20 @@ func (m *MultiKBServer) mountedNames() []string {
 	return names
 }
 
-// unionTools assembles the routed mount's tool list: every tool registered by
-// any mounted KB, once, in the registration order of the first KB that has it,
-// with the `kb` argument injected into each schema at this single point rather
-// than in fifty schema literals.
+// unionTools assembles the routed tool list for a KB set: every tool
+// registered by any KB of the set, once, in the registration order of the first
+// KB that has it, with the `kb` argument shaped into each schema at this single
+// point rather than in fifty schema literals.
 //
 // The exposed set is the **union**, not the intersection. An intersection would
 // silently hide artifact_write from a KB that allows it because a sibling KB
 // does not; the union registers it once and refuses it per KB at dispatch, with
 // an error naming the KB and the setting that would enable it — which is the
 // answer a caller can act on.
-func (m *MultiKBServer) unionTools() []Tool {
+func (m *MultiKBServer) unionTools(set []string) []Tool {
 	seen := map[string]bool{}
 	var out []Tool
-	for _, name := range m.mountedNames() {
+	for _, name := range set {
 		srv := m.servers[name]
 		srv.mu.Lock()
 		ord := append([]string(nil), srv.toolsOrd...)
@@ -148,40 +183,41 @@ func (m *MultiKBServer) unionTools() []Tool {
 				continue
 			}
 			routedTool := *t
-			routedTool.InputSchema = withKBProperty(t.InputSchema, len(m.servers) > 1)
-			routedTool.Handler = m.routedHandler(toolName)
+			routedTool.InputSchema = withKBProperty(t.InputSchema, set)
+			routedTool.Handler = m.routedHandler(toolName, set)
 			out = append(out, routedTool)
 		}
 	}
 	return out
 }
 
-// routedHandler resolves `kb`, strips it from the arguments and hands the call
-// to that KB's own Server.callTool — the same entry point the per-KB endpoint
-// uses, so authorization, audit, the read/write classification and the git
-// wrapper are the per-KB ones, unchanged, applied to the KB actually named.
-func (m *MultiKBServer) routedHandler(toolName string) func(context.Context, json.RawMessage) (ToolResult, error) {
+// routedHandler resolves `kb` within the connection's set, strips it from the
+// arguments and hands the call to that KB's own Server.callTool — the same
+// entry point the per-KB endpoint uses, so authorization, audit, the
+// read/write classification and the git wrapper are the per-KB ones,
+// unchanged, applied to the KB actually named.
+func (m *MultiKBServer) routedHandler(toolName string, set []string) func(context.Context, json.RawMessage) (ToolResult, error) {
 	return func(ctx context.Context, args json.RawMessage) (ToolResult, error) {
 		kbName, rest, err := splitKBArgument(args)
 		if err != nil {
 			return errorResult(err.Error()), nil
 		}
 		if kbName == "" {
-			if len(m.routedNames) == 1 {
-				// Exactly one KB routed: there is no ambiguity to resolve, so
-				// requiring the argument would be ceremony.
-				kbName = m.routedNames[0]
+			if len(set) == 1 {
+				// The URL named this KB explicitly (D288), exactly like
+				// /mcp/<name>: there is nothing to infer.
+				kbName = set[0]
 			} else {
 				return errorResult(fmt.Sprintf(
 					"%q is required on this endpoint: it serves %d Knowledge Bases (%s) and the KB is never inferred",
-					routedKBArgument, len(m.routedNames), strings.Join(m.routedNames, ", "))), nil
+					routedKBArgument, len(set), strings.Join(set, ", "))), nil
 			}
 		}
-		srv, ok := m.servers[kbName]
-		if !ok {
-			return errorResult(fmt.Sprintf("unknown kb %q — this endpoint serves: %s",
-				kbName, strings.Join(m.describeRoutedKBs(), ", "))), nil
+		if !containsString(set, kbName) {
+			return errorResult(fmt.Sprintf("kb %q is not available on this connection — allowed: %s",
+				kbName, strings.Join(m.describeRoutedKBs(set), ", "))), nil
 		}
+		srv := m.servers[kbName]
 		srv.mu.Lock()
 		_, registered := srv.tools[toolName]
 		srv.mu.Unlock()
@@ -195,10 +231,19 @@ func (m *MultiKBServer) routedHandler(toolName string) func(context.Context, jso
 	}
 }
 
+func containsString(list []string, s string) bool {
+	for _, v := range list {
+		if v == s {
+			return true
+		}
+	}
+	return false
+}
+
 // describeRoutedKBs names the mounted KBs with their state, so an error about
 // an unknown kb carries the same information readiness() already assembles
 // rather than a bare list.
-func (m *MultiKBServer) describeRoutedKBs() []string {
+func (m *MultiKBServer) describeRoutedKBs(set []string) []string {
 	_, kbs, degraded := m.readiness()
 	bad := map[string]bool{}
 	for _, d := range degraded {
@@ -206,6 +251,9 @@ func (m *MultiKBServer) describeRoutedKBs() []string {
 	}
 	out := make([]string, 0, len(kbs))
 	for _, info := range kbs {
+		if !containsString(set, info.Name) {
+			continue
+		}
 		state := info.Status
 		if bad[info.Name] {
 			state = "degraded"
@@ -243,12 +291,12 @@ func splitKBArgument(args json.RawMessage) (string, json.RawMessage, error) {
 	return strings.TrimSpace(name), rest, nil
 }
 
-// withKBProperty injects the `kb` property into one tool's input schema, and
-// marks it required when more than one KB is routed. It edits the decoded
-// schema object rather than the JSON text: a tool whose schema is absent or
-// not an object is given the minimal one, so no tool can reach the routed
-// mount without the argument it is dispatched by.
-func withKBProperty(schema json.RawMessage, required bool) json.RawMessage {
+// withKBProperty shapes the `kb` property of one tool's input schema for a
+// connection's KB set (D288): with two or more KBs it is a required enum of the
+// set; with exactly one the property is absent, because the URL already named
+// the KB. It edits the decoded schema object rather than the JSON text: a tool
+// whose schema is absent or not an object is given the minimal one.
+func withKBProperty(schema json.RawMessage, set []string) json.RawMessage {
 	obj := map[string]any{}
 	if len(schema) > 0 {
 		if err := json.Unmarshal(schema, &obj); err != nil {
@@ -256,35 +304,44 @@ func withKBProperty(schema json.RawMessage, required bool) json.RawMessage {
 		}
 	}
 	obj["type"] = "object"
+	if len(set) < 2 {
+		out, err := json.Marshal(obj)
+		if err != nil {
+			return schema
+		}
+		return out
+	}
 
 	props, _ := obj["properties"].(map[string]any)
 	if props == nil {
 		props = map[string]any{}
 	}
-	desc := "Knowledge Base this call is for; optional while this endpoint serves a single KB."
-	if required {
-		desc = "Knowledge Base this call is for. Required: this endpoint serves several KBs and never infers one."
+	enum := make([]any, len(set))
+	for i, n := range set {
+		enum[i] = n
 	}
-	props[routedKBArgument] = map[string]any{"type": "string", "description": desc}
+	props[routedKBArgument] = map[string]any{
+		"type":        "string",
+		"enum":        enum,
+		"description": "Knowledge Base this call is for. Required: this endpoint serves several KBs and never infers one.",
+	}
 	obj["properties"] = props
 
-	if required {
-		var req []any
-		if existing, ok := obj["required"].([]any); ok {
-			req = existing
-		}
-		found := false
-		for _, r := range req {
-			if s, ok := r.(string); ok && s == routedKBArgument {
-				found = true
-				break
-			}
-		}
-		if !found {
-			req = append([]any{routedKBArgument}, req...)
-		}
-		obj["required"] = req
+	var req []any
+	if existing, ok := obj["required"].([]any); ok {
+		req = existing
 	}
+	found := false
+	for _, r := range req {
+		if s, ok := r.(string); ok && s == routedKBArgument {
+			found = true
+			break
+		}
+	}
+	if !found {
+		req = append([]any{routedKBArgument}, req...)
+	}
+	obj["required"] = req
 
 	out, err := json.Marshal(obj)
 	if err != nil {

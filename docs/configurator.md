@@ -202,45 +202,46 @@ catalogue, and no upgrade changes it. Full rules, the project-local destination 
 repository-hygiene guarantees and the providers that cannot be scoped at all → `sync.md`
 §Workspace scope.
 
-**Routed servers (D187).** When `/health` reports `mount_mode: routed`, the KB is no longer part of
-the URL: the client writes **one** entry, `<server_name>`, pointed at the path the server names in
-`routed_path` (`/mcp/routed`), whatever the provider is bound to. The binding still decides which
-KBs that provider may use — routing changes the transport, not the authorization — and the
-generated instructions block names the `kb` value each KB's tools must be called with. Both facts
-are persisted in `.cartographer.yaml` (`server_mount_mode`, `server_routed_path`) so `doctor` and
-`status` can derive the expected entries offline.
+**One routed entry (D187, D288).** When `/health` reports `routed_path` (every server since D288),
+the KB is no longer part of the entry name: the client writes **one** entry per provider,
+`<server_name>`, pointed at `/mcp/routed`. The provider's binding travels in the URL: an explicit
+binding writes `?kbs=<bound KBs, sorted, comma-joined>`, which the server turns into that connection's
+KB set (two or more KBs: `kb` is a required enum in every schema; exactly one: no `kb` argument at
+all); the default binding, every KB the server mounts, writes no `kbs`, so a KB added later reaches the
+provider without a rewrite. A bound name the server no longer mounts is left out of the URL (the server
+refuses an unknown name), and a provider bound only to vanished KBs gets no entry, the same declaration
+as an explicit empty binding. `kbs` only narrows, never widens: the per-KB authorization still runs at
+the target, and with `auth: false` the binding is advisory, since the client can edit its own URL.
+The generated instructions block names the bare tools and says to pass `kb: "<name>"` where a tool
+takes a `kb` argument, which is true for both shapes. The topology is persisted in
+`.cartographer.yaml` (`server_mount_mode`, `server_routed_path`) so `doctor` and `status` can derive
+the expected entries offline.
 
-Switching an existing deployment between the two modes is a **reconnect**, not a silent rewrite: it
-changes the *shape* of every entry, which an incremental sync cannot see. `cartographer status`
-reports `mount mode changed: …` and names `cartographer reconnect`, the same answer D142 gives to a
-server-version change. The removal set covers both shapes, so a reconnect leaves no orphan entry
-from the previous mode.
+**`sync` heals a topology change; no reconnect is needed.** A client whose state predates D288 holds
+per-KB entries (`<server_name>-<kb> → /mcp?kb=<kb>`). The next `cartographer sync` removes every name the
+client may have owned (the bare name and one per known KB, including unbound ones) and writes the single
+routed entry, so one sync leaves exactly one entry per provider and no orphan. `cartographer status`
+reports `mount mode changed: …` and names `cartographer sync` until then. Against a server that does
+**not** report `routed_path` (pre-D288) the client keeps the historical per-KB shape, with the two
+warnings below.
 
-**Kiro and flat tool namespaces (D102).** Kiro's MCP tool namespace is flat across servers, unlike
-Claude Code/Codex/OpenCode which namespace per server: writing 2+ MCP entries for `kiro` (i.e.
-connecting to a 2+-KB server) leaves only one KB's tools reachable in a Kiro session unless the
-*server* mounts the others with a `tool_prefix` (`docs/deployment.md` §MCP tool-name prefix, D102).
-`connect`/`sync` warn on stderr in that case; the operator is expected to add
-`tool_prefix`/`tool_prefix_mode` server-side. The warning stays **silent against a routed server**:
-one entry cannot collide with itself, and routing is the other answer to the same problem. Since D120 `/health` advertises each KB's effective
-`tool_prefix`, so the client can see which KBs are already namespaced instead of reasoning from the
-precondition alone.
+**Kiro and flat tool namespaces (D102), pre-D288 servers only.** Kiro's MCP tool namespace is flat
+across servers: writing 2+ MCP entries for `kiro` against a server that does not route leaves only one
+KB's tools reachable in a Kiro session unless that server mounts the others with a `tool_prefix`.
+`connect`/`sync` warn on stderr in that case and read each KB's effective `tool_prefix` from `/health`.
+Against a D288 server the warning never fires: one entry cannot collide with itself.
 
-**Antigravity and the 64-character tool identifier (D201).** Antigravity shows each tool as
-`mcp_<server>_<tool>` and drops any identifier over 64 characters, silently. `connect`/`sync`
-compute the longest identifier each Antigravity entry would produce — entry name, the KB's effective
-`tool_prefix` from `/health`, the longest tool name — and warn on stderr when it exceeds the limit,
-naming the entry. The remedies are server-side: a shorter `kbs[].tool_prefix`, or
-`mcp.mount_mode: routed`, whose single entry carries unprefixed tools. Without `/health` facts the
-check stays silent.
+**Antigravity and the 64-character tool identifier (D201), pre-D288 servers only.** Antigravity shows
+each tool as `mcp_<server>_<tool>` and drops any identifier over 64 characters, silently.
+`connect`/`sync` compute the longest identifier each Antigravity entry would produce (entry name, the
+KB's effective `tool_prefix` from `/health`, the longest tool name) and warn on stderr when it exceeds
+the limit. A routed entry carries unprefixed tools and is checked with no prefix; without `/health`
+facts the check stays silent.
 
-**Prefix discovery (D120).** Every client-owned direct tool call — manifest pull during `sync`,
-remote `reindex`, the TUI's status probes — qualifies the tool name with the prefix the server
-advertises for that KB in `/health`, never with one re-derived locally from the KB name. A locally
-derived prefix is a guess: `tool_prefix` is an arbitrary operator string, so a client that guessed it
-called tools that did not exist and reported the resulting failure as an unreachable server. The
-discovered value is used live and never persisted, so changing a prefix server-side needs no
-client-side reconnect.
+**Prefix discovery (D120), pre-D288 servers only.** Every client-owned direct tool call (manifest pull
+during `sync`, remote `reindex`, the TUI's status probes) qualifies the tool name with the prefix the
+server advertises for that KB in `/health`, never one re-derived locally from the KB name. A D288 server
+advertises none, so the tool names are bare.
 
 ```bash
 cartographer connect                                   # all agents detected on the machine

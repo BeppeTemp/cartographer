@@ -51,19 +51,13 @@ type WebConfig struct {
 
 // MCPConfig controls MCP-protocol-level server behaviour.
 type MCPConfig struct {
-	// MountMode selects how a multi-KB HTTP server exposes its tools:
-	// "per-kb" (default) mounts one MCP server per KB, each advertising its
-	// own full copy of the tool schemas — byte-identical to pre-D187
-	// behaviour; "routed" additionally serves /mcp/routed, one endpoint
-	// advertising the union of the tools exactly once with the KB travelling
-	// as a required `kb` tool argument. The per-KB endpoints keep working in
-	// both modes: routing is an addition, never a replacement.
+	// MountMode is deprecated and ignored (D288): every HTTP server serves
+	// the routed mount at /mcp/routed, the one agent-facing topology. The key
+	// still parses so an existing config keeps starting; serve warns when it
+	// is set. Empty unless the operator wrote it.
 	MountMode string
-	// ToolPrefixMode is the default per-KB tool-name prefix policy for KBs
-	// that don't set an explicit KBSpec.ToolPrefix: "off" (default) leaves
-	// tool names unprefixed, byte-identical to pre-D102 behaviour; "kb-name"
-	// derives the prefix from the KB's resolved name (sanitised, see
-	// SanitizeToolPrefix — e.g. "eng-team" → "eng_team__concept_read").
+	// ToolPrefixMode is deprecated and ignored (D288): tools are never
+	// prefixed. Same treatment as MountMode; a follow-up removes both.
 	ToolPrefixMode string
 	// AllowedOrigins lists the browser origins allowed to reach the MCP
 	// endpoint, scheme and port included ("https://app.example.com"). Empty
@@ -198,13 +192,9 @@ type KBSpec struct {
 	// Default false. Propagated to kb.KB.AllowArtifactWrite (see serve.go).
 	AllowArtifactWrite bool `yaml:"allow_artifact_write,omitempty"`
 
-	// ToolPrefix, if set, namespaces every MCP tool this KB registers as
-	// "<prefix>__<tool>" (opt-in per-KB tool-name prefix, D102 — for MCP
-	// clients whose tool namespace is flat across servers, e.g. Kiro CLI).
-	// Wins over the global MCP.ToolPrefixMode. Resolved, sanitised
-	// (SanitizeToolPrefix) and shape-validated (ValidateToolPrefixShape) at
-	// KB-mount time via ResolveToolPrefix — an invalid result is a fail-fast
-	// startup error naming the KB; the KB is not mounted.
+	// ToolPrefix is deprecated and ignored (D288): tools are never prefixed
+	// (one routed endpoint, no flat namespace to disambiguate). Still parsed
+	// so an existing config keeps starting; serve warns once per KB.
 	ToolPrefix string `yaml:"tool_prefix,omitempty"`
 }
 
@@ -289,14 +279,9 @@ func Default() *Config {
 			SyncOutDebounce: 3 * time.Second,
 		},
 		ToolsProfile: "agent",
-		// kb-name since D153: with prefixing opt-in and its absence silent, two
-		// unprefixed KBs on a flat-namespace client answered for each other with
-		// no error at call time — silent wrong answers from a plausible source,
-		// as the default configuration's behaviour. "off" is retained as an
-		// explicit, documented opt-out.
-		MCP:         MCPConfig{ToolPrefixMode: "kb-name", MountMode: MountModePerKB},
-		Web:         WebConfig{Enabled: true},
-		UpdateCheck: true,
+		MCP:          MCPConfig{},
+		Web:          WebConfig{Enabled: true},
+		UpdateCheck:  true,
 	}
 }
 

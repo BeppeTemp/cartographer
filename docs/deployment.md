@@ -98,19 +98,15 @@ kbs:                          # (kbs[]) explicit KBs, local path or remote git (
                                                       # clients will execute — the capability must be
                                                       # granted per-KB by the operator; an rw token alone
                                                       # does not imply it
-    tool_prefix: "team"                              # (kbs[].tool_prefix) opt-in per-KB tool-name prefix
-                                                      # (default "", off): registers this KB's tools as
-                                                      # `team__<tool>` instead of `<tool>`. Wins over
-                                                      # `mcp.tool_prefix_mode` below. See §MCP tool-name prefix.
+    tool_prefix: "team"                              # (kbs[].tool_prefix) DEPRECATED, ignored (D288):
+                                                      # tools are never prefixed; a warning per KB.
+                                                      # See §MCP tool-name prefix.
 mcp:
-  mount_mode: "per-kb"          # (mcp.mount_mode) per-kb (default) | routed: how a multi-KB HTTP server
-                                # exposes its tools. routed adds /mcp/routed, one endpoint advertising
-                                # the union once with the KB as a `kb` tool argument. The per-KB
-                                # endpoints keep working unchanged. See docs/transport-auth.md
-                                # §Mount modes.
-  tool_prefix_mode: "off"       # (mcp.tool_prefix_mode) off (default) | kb-name: global default for
-                                # every mounted KB that doesn't set its own kbs[].tool_prefix — kb-name
-                                # derives the prefix from the KB's own name. See §MCP tool-name prefix.
+  mount_mode: "per-kb"          # (mcp.mount_mode) DEPRECATED, ignored (D288): /mcp/routed is always
+                                # served and is the one topology written into clients. One warning.
+                                # See docs/transport-auth.md §One routed topology.
+  tool_prefix_mode: "off"       # (mcp.tool_prefix_mode) DEPRECATED, ignored (D288): tools are never
+                                # prefixed. One warning. See §MCP tool-name prefix.
 git:
   autocommit: true            # (git.autocommit) commit after every write
   sync: true                  # (git.sync) read/write fetch/pull-rebase + post-write push if the KB has a remote
@@ -207,94 +203,32 @@ Similarly, `sops.age_key_dir` fixes a directory with a per-KB age key
 (explicit override) → `<sops.age_key_dir>/<name>.age` if the file exists → global
 `sops.age_key_file`.
 
-### MCP tool-name prefix (D102)
+### MCP tool-name prefix (D102, deprecated by D288)
 
-Every KB mounted on a multi-KB server exposes the *same* 20 tool names (`concept_read`, `search`,
-...) on its own endpoint (`?kb=<name>` / `/mcp/<name>`). Clients that namespace MCP tools per
-server — Claude Code, Codex, OpenCode — are unaffected by the collision. Kiro's CLI has a single,
-flat tool namespace across every configured MCP server: mounting two KBs there means only one of
-them keeps its tools reachable, silently.
+Tools are **never prefixed** any more. D102 added an opt-in per-KB prefix
+(`kbs[].tool_prefix`), D153 made a KB-name-derived prefix the default
+(`mcp.tool_prefix_mode: kb-name`) and D152 enforced its uniqueness, all to keep a
+flat-namespace MCP client (Kiro) from confusing N per-KB entries that advertise
+identical tool names. Since D288 an agent client gets **one** routed entry whose
+tools carry bare names (`search`, `concept_read`, ...), and one entry cannot
+collide with itself, so the mechanism has nothing left to do.
 
-Since D153 a prefix is the **default**, not an opt-in: `mcp.tool_prefix_mode` defaults to
-`kb-name`, so every KB registers its tools as `<prefix>__<tool>` derived from its own name unless
-it sets an explicit `kbs[].tool_prefix`. **With one KB mounted no prefix is derived** — it would be
-pure noise — so a single-KB deployment keeps bare tool names; adding a second KB then renames the
-first one's tools, and that rename is announced at startup rather than happening silently.
-`mcp.tool_prefix_mode: off` is retained as the documented opt-out.
+`kbs[].tool_prefix`, `mcp.tool_prefix_mode` and `CARTOGRAPHER_MCP_TOOL_PREFIX_MODE`
+are **deprecated for one release**: still parsed, **ignored**, and each one logs a
+single startup warning naming the key (`tool_prefix` once per KB). They are never
+fatal: an upgrade must not fail to start on a config that used to be valid. A
+follow-up release removes the keys and the prefix code. The per-KB plumbing
+endpoints (`/mcp?kb=`, `/mcp/<name>`) answer with bare names too, and
+`GET /health` no longer carries a per-KB `tool_prefix`.
 
-**Renaming a KB renames its derived prefix.** With `tool_prefix_mode: kb-name`, `cartographer kb rename` changes every tool name the agents see, in exactly the way adding a second KB does. The command prints the old and new prefix before acting (D177); an explicit `kbs[].tool_prefix` is immune, since it does not follow the name.
-
-*Upgrading from 0.8.x:* a multi-KB deployment will see tool names change on first start. The
-generated steering block follows automatically (it is rendered with each KB's effective prefix), but
-**hand-written tool citations inside skill bodies are not rewritten** and must be updated — the
-concrete cost measured in the field was 25 citations across two KBs. Set
-`mcp.tool_prefix_mode: off` to defer the rename.
-
-The mechanism is a per-KB tool-name prefix: `kbs[].tool_prefix` (or the global
-`mcp.tool_prefix_mode: kb-name`/`CARTOGRAPHER_MCP_TOOL_PREFIX_MODE=kb-name`, which derives the
-prefix from the KB's own name for every KB that doesn't set its own `tool_prefix`) registers that
-KB's tools as `<prefix>__<tool>` instead of `<tool>`. Precedence: `kbs[].tool_prefix` (explicit) >
-`mcp.tool_prefix_mode`/env (global default) > off. Before D153 it was off by default, so that Claude Code/Codex/OpenCode deployments — unaffected by
-the collision — would never see a tool rename; that optimised for not renaming tools at the price of
-making correctness depend on which client happened to connect.
-
-**Uniqueness is enforced at startup** (D152). Two mounted KBs whose **resolved, sanitised**
-prefixes are equal make the server fail fast, naming both KBs and the colliding prefix. The check
-is on the sanitised result because sanitisation is what creates collisions: `SanitizeToolPrefix` is
-lossy by design, so `my-kb`, `my_kb` and `My KB` all derive `my_kb`, and two explicit
-`kbs[].tool_prefix` values were previously never compared against each other at all. Unprefixed
-KBs are exempt — an empty prefix is the absence of one, and two unprefixed KBs remain the warning
-case below, not a failure, so a per-server-namespaced deployment keeps working untouched.
-
-The client-side warning printed by `connect`/`sync` uses the same predicate as the server's:
-it fires only when a flat-namespace provider would receive **two or more** KBs that are actually
-unprefixed, reading each KB's effective prefix from `/health` (which advertises it since D120)
-rather than guessing. When those prefixes cannot be read — an unreachable server, or one too old
-to advertise them — it still warns and says why: a missing signal is not evidence that everything
-is fine.
-
-The raw prefix is sanitized before use: lowercased, every run of characters outside `[a-z0-9_]`
-collapsed to a single `_`, leading/trailing `_` stripped. The server fails fast at startup (not at
-first tool call) if, after sanitisation, the result is empty, starts with a digit, or the resulting
-`<prefix>__<tool>` name exceeds 48 characters for any tool the KB registers — the error names the
-KB and the offending tool/prefix. Read/write classification (§Auth) and the `agent`/`full` tools
-profile (D65) both match on the tool name *after* stripping the prefix, so scoped tokens and the
-tools profile behave identically with or without a prefix. When 2+ KBs are mounted, `serverInfo.name`
-also becomes `cartographer:<kb>` (a single-KB deployment keeps the bare `cartographer` it has
-always reported).
-
-The managed instructions block Cartographer materializes into the client's memory file is
-generated with each KB's **effective** tool names (D144): with a prefix configured it tells the
-agent to call `<prefix>__search`, `<prefix>__concept_read`, … Turning a prefix on or off is
-therefore a content change for that KB's instructions artifact, re-materialized on the next
-`cartographer sync` — once, since the prefix is a stable config value.
-
-The server prints one warning line on stderr at startup when it mounts 2+ KBs of which 2+ resolved
-to no prefix, naming them (D144): those KBs register identical tool names and a flat-namespace
-client keeps only one. It is a warning only — never a startup failure and never an implicit
-prefix, so a Claude Code/Codex/OpenCode deployment is untouched.
-
-`cartographer connect`/`cartographer sync` print a warning on stderr whenever the provider being
-configured is `kiro` and 2+ MCP entries (i.e. 2+ KBs) are about to be written, regardless of
-whether the server actually has prefixes configured (the client does not plumb `/health`'s
-`tool_prefix` through that path): the operator adds `tool_prefix`/`tool_prefix_mode` to the server
-config as the fix.
-
-`GET /health`'s `kbs[]` items carry the KB's *effective* prefix as `tool_prefix` (omitted when
-unprefixed) — the exact sanitised value the server registered its tools under, whether it came
-from an explicit `kbs[].tool_prefix` or a derived `kb-name` mode (D120). Client-owned direct
-administrative tool calls (`cartographer sync`'s `sync_pull`, `cartographer reindex`) discover
-this value from a live `/health` snapshot before qualifying the tool name; they never re-derive
-it from the server's own YAML. A stale client selection (a configured KB no longer among the
-KBs the server currently advertises) is reported as an explicit error rather than guessed.
-
-> **Two different units.** `cartographer service install` manages the **server** as a per-user
-> service (`com.cartographer.serve` / `cartographer.service` / the `\Cartographer\Serve` task).
-> `cartographer service sync-timer install` manages a **client-side** scheduled
-> `cartographer sync` (`com.cartographer.sync` / `cartographer-sync.timer` /
-> `\Cartographer\Sync`, D140). Both live under `~/Library/LaunchAgents`,
-> `~/.config/systemd/user` or `%LOCALAPPDATA%\cartographer\tasks`, with distinct names and
-> separate logs; installing or removing one never touches the other.
+*Upgrading:* a deployment that ran with derived or explicit prefixes sees its tool
+names change, and so do the MCP entry names (a per-KB entry such as `cartographer-kb-a` with a
+prefixed tool name becomes the single `cartographer` entry with the bare name). The next `cartographer sync`
+rewrites the entries and the generated instructions block; **hand-written tool
+citations inside skill bodies, and client permission rules naming the old tools,
+are not rewritten** and must be updated. Read auto-approval through the
+`readOnlyHint` annotation (D76) is unaffected. `cartographer kb rename` no longer
+changes any tool name.
 
 ### Environment variables
 
@@ -320,10 +254,10 @@ Every startup option has a corresponding environment variable (the CLI flag take
 | `CARTOGRAPHER_AUDIT_LOG` | — | Path to the audit log's JSONL file (e.g. `/data/audit.log`). If empty, audit is disabled. |
 | `CARTOGRAPHER_AUDIT_KEY` | — | Ed25519 seed (hex, 64 chars) for signing entries. Requires `CARTOGRAPHER_AUDIT_LOG`. |
 | `CARTOGRAPHER_SERVER_URL` | — | **Client** (not server): default server URL for `cartographer connect` on the client machine when no `.cartographer.yaml` exists yet. Precedence: existing yaml > env > `http://127.0.0.1:39273/mcp` (D64, `internal/clientconfig.Default`). |
-| `CARTOGRAPHER_MCP_MOUNT_MODE` | `--mount-mode` | Multi-KB HTTP mount topology: `per-kb` (default) \| `routed`. `routed` adds `/mcp/routed`, one endpoint advertising the union of the tools once with the KB as a `kb` tool argument; the per-KB endpoints are unchanged. A KB with `tool_prefix` cannot be routed (fatal at startup). D187, see `transport-auth.md` §Mount modes. |
+| `CARTOGRAPHER_MCP_MOUNT_MODE` | `--mount-mode` | **Deprecated, ignored (D288)**: `/mcp/routed` is always served; a startup warning names the key. See `transport-auth.md` §One routed topology. |
 | `CARTOGRAPHER_WEB_ENABLED` | `--web-enabled` | Serve the embedded read-only Atlas UI at `/ui/` and its JSON API at `/api/ui/v1` in HTTP mode. Default `true`; `false` registers neither route, so both answer 404 and the HTTP surface is what it was before the UI. Stdio mode never serves it. D227, → `control-plane.md` §Read-only UI API. |
 | `CARTOGRAPHER_UPDATE_CHECK` | `--update-check` | YAML `update_check`. Look up the latest release (GitHub release list) 30 s after start and every 24 h, cached in the data dir's `.cartographer/update-check.json` (the user cache dir without a data dir), and report it as `latest_version` in `/health` and `kb_status` when newer. Default `true`; a failed lookup is silent and retried after an hour instead of 24 h, and a `dev` build never checks. D254. |
-| `CARTOGRAPHER_MCP_TOOL_PREFIX_MODE` | — | Global default for `mcp.tool_prefix_mode`: `off` (default) \| `kb-name`. Overridden per KB by `kbs[].tool_prefix` (D102, see §MCP tool-name prefix). |
+| `CARTOGRAPHER_MCP_TOOL_PREFIX_MODE` | — | **Deprecated, ignored (D288)**: tools are never prefixed; a startup warning names the key. See §MCP tool-name prefix. |
 | `CARTOGRAPHER_MCP_ALLOWED_ORIGINS` | — | Comma-separated browser origins allowed to reach `/mcp`, scheme and port included. Empty (default) accepts only an `Origin` matching the request's own `Host`; `*` accepts any; a request without an `Origin` header is unaffected (D128, → `transport-auth.md` §Origin). |
 
 **`CARTOGRAPHER_AUTH`** — three modes:
@@ -462,20 +396,20 @@ If both `/mcp/<name>` and `?kb=` are present and disagree, the request is reject
 conflicting kb selection` rather than silently picking one; an unknown `<name>` (either form) is
 `404 unknown kb`.
 
-A fourth route exists when `mcp.mount_mode: routed` is set (D187): `/mcp/routed` serves every
-mounted KB through one endpoint, advertising the union of the tools exactly once, with the KB
-carried as a `kb` tool argument. It is **additive** — the three routes above keep their exact
-behaviour, `tools/list` output included. A `?kb=` on `/mcp/routed` is `400 conflicting kb
-selection`: there the KB travels in the tool arguments. See `docs/transport-auth.md` §Mount modes.
+A fourth route, `/mcp/routed` (D187, always served since D288), is the one agent clients use: it
+serves every mounted KB through one endpoint, advertising the union of the tools exactly once, with
+the KB carried as a `kb` tool argument (required for 2+ KBs, absent for one). `?kbs=kb-a,kb-b` on
+that URL narrows the connection to a subset; an unknown name is `400`. The three routes above stay
+as plumbing with their exact behaviour, `tools/list` output included. A `?kb=` on `/mcp/routed` is
+`400 conflicting kb selection`. See `docs/transport-auth.md` §One routed topology.
 
-For a client connected to a multi-KB server in the default `per-kb` mode, `cartographer connect`
-and `cartographer sync` use the query form deliberately: they create one provider MCP entry per
-mounted KB, `<server_name>-<kb> → /mcp?kb=<kb>`. This makes the selected KB explicit to every
-current client without requiring a client to understand path routing. A one-KB server remains a
-single bare `<server_name> → /mcp` entry for backwards compatibility. Against a **routed** server
-they write one entry instead, `<server_name> → /mcp/routed`, discovered from `/health`'s
-`mount_mode`/`routed_path` — the per-provider KB binding still decides which KBs that client may
-use, because routing changes the transport, not the authorization.
+`cartographer connect` and `cartographer sync` write **one** entry per provider against a routed
+server, `<server_name> → /mcp/routed`, discovered from `/health`'s `mount_mode`/`routed_path`. A
+provider with an explicit KB binding gets `?kbs=<bound, sorted, comma-joined>` in that URL (names the
+server no longer mounts are left out); the default binding, every KB the server mounts, writes no
+`kbs`. Against a server that does **not** report `routed_path` (pre-D288) the client keeps writing
+one entry per mounted KB, `<server_name>-<kb> → /mcp?kb=<kb>`, and a one-KB server keeps the single
+bare `<server_name> → /mcp` entry.
 
 ### The embedded Atlas UI (D227)
 

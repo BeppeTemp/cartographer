@@ -175,10 +175,10 @@ Edit a skill once in the KB, and every client of every machine converges on it.
 ## Teams
 
 The same mechanism is what makes Cartographer work for more than one person. A server mounts
-several KBs, each on its own endpoint (`/mcp/<name>` or `?kb=<name>`), so colleagues can each keep
-a private knowledge base while sharing others. With `mcp.mount_mode: routed` the server also exposes
-a single `/mcp/routed` surface where the KB is a tool argument: a client using several KBs then
-carries one copy of the tool schemas instead of one per KB.
+several KBs behind a single `/mcp/routed` surface where the KB is a tool argument, so colleagues can
+each keep a private knowledge base while sharing others: a client using several KBs carries one copy
+of the tool schemas instead of one per KB, and a provider's binding (`?kbs=`) narrows it to its own
+KBs (one KB: no `kb` argument at all).
 
 - **Per-KB authorization** — bearer tokens carry `kb:<name>:r` or `kb:<name>:rw` scopes. **Roles**
   ([`docs/transport-auth.md`](docs/transport-auth.md)) narrow that further to specific maps, journals
@@ -199,8 +199,7 @@ carries one copy of the tool schemas instead of one per KB.
   the public key out of band and refuse anything that fails verification. Distributing a skill to a
   team is then a checkable act, not a matter of trust.
 - **Per-KB identity** — the commit author is configured per KB, so history attributes correctly; on
-  per-KB endpoints an optional tool-name prefix keeps an agent mounting several KBs from confusing
-  their tools (the routed surface needs none: the KB is a call argument).
+  the routed surface the KB is a call argument and tools are never prefixed.
 
 ## Key features
 
@@ -362,7 +361,7 @@ most often set:
 | `CARTOGRAPHER_TOKENS` | — | Comma-separated bearer tokens |
 | `CARTOGRAPHER_GIT_SYNC` | `true` | fetch/pull-rebase + push on `origin` around each write |
 | `CARTOGRAPHER_TOOLS_PROFILE` | `agent` | `agent` lists only the agent's core tools; `full` lists all (hidden ones stay callable) |
-| `CARTOGRAPHER_MCP_MOUNT_MODE` | `per-kb` | `routed` adds the single `/mcp/routed` surface for all KBs |
+| `CARTOGRAPHER_MCP_MOUNT_MODE` | — | Deprecated, ignored (D288): `/mcp/routed` is always served |
 
 Full list with CLI flags and defaults → [`docs/deployment.md`](docs/deployment.md).
 

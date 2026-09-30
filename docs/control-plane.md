@@ -38,15 +38,15 @@ Tools marked **[A]** (advanced, `advancedToolNames` in `internal/mcpserver/visib
 
 **Agent governance vs. operator maintenance (D123).** `validate`, `lint`, `gate_check`, and `kb_status` are read-only governance diagnostics, not operator maintenance: the documented agent loop (`loop.md`, `use-cases.md`) runs them every session, and a descriptor-bound MCP host (one that can only invoke tools `tools/list` advertises, e.g. Codex) cannot call them by name the way a stdio/TUI agent can. They are therefore part of the default `agent` profile's core set, unlike `commit_gate`, `conflict_resolve`, `contradiction_report`, and the rest of `advancedToolNames`, which stay operator-only and advanced.
 
-**The `kb` argument on a routed mount (D187).** On the `/mcp/routed` endpoint of a server with
-`mcp.mount_mode: routed`, every tool below carries one extra property: `kb`, the Knowledge Base the
-call is for. It is **required** whenever the routed mount serves two or more KBs — the KB is never
-inferred — and optional when it serves exactly one, where there is nothing to disambiguate. A call
-without it is refused with an error naming the mounted KBs. The advertised set is the **union** of
-what the mounted KBs register, so a tool one KB gates off is still listed and is refused at dispatch
-for that KB, with an error naming the tool, the KB and the setting. On the per-KB endpoints
-(`/mcp?kb=` and `/mcp/<name>`) no `kb` argument exists and nothing below changes. See
-[`transport-auth.md`](transport-auth.md) §Mount modes.
+**The `kb` argument on the routed mount (D187, D288).** On `/mcp/routed`, the endpoint agent clients use, the
+connection's KB set is `?kbs=` (absent: every mounted KB). With two or more KBs in that set every tool below
+carries one extra property, `kb`, **required** and an **enum** of the set: the KB is never inferred, and a call
+without it, or naming a KB outside the set, is refused with an error naming the allowed KBs. With exactly one KB
+in the set `kb` is **absent** from every schema and the call targets that KB (a `kb` equal to it is accepted, any
+other value refused). The advertised set is the **union** of what the set's KBs register, so a tool one KB gates
+off is still listed and is refused at dispatch for that KB, with an error naming the tool, the KB and the
+setting. On the per-KB endpoints (`/mcp?kb=` and `/mcp/<name>`, plumbing since D288) no `kb` argument exists and
+nothing below changes. See [`transport-auth.md`](transport-auth.md) §One routed topology.
 
 ### Reading and navigation
 
@@ -147,7 +147,7 @@ for that KB, with an error naming the tool, the KB and the setting. On the per-K
 
 See `docs/sync.md` for the full model (Manifest, Lock, Diff, layered triggers).
 
-> Multi-KB: which KB a tool call reaches is decided per-connection, not per-call — `?kb=<name>` (query param) or `/mcp/<name>` (path) select one KB's isolated `Server` for the whole session; no tool takes a `kb` argument. Every KB exposes the same tool names by default, which flat-namespace MCP clients (e.g. Kiro) cannot disambiguate across servers — see `tool_prefix` in [`deployment.md`](deployment.md) §MCP tool-name prefix.
+> Multi-KB: agent clients use the routed endpoint `/mcp/routed`, where the KB is a `kb` tool argument (required for 2+ KBs in the connection's `?kbs=` set, absent for one) — see the paragraph above. On the per-KB plumbing endpoints `?kb=<name>` (query param) or `/mcp/<name>` (path) select one KB's isolated `Server` for the whole session and no tool takes a `kb` argument. Tool names are never prefixed (D288; `tool_prefix` is deprecated and ignored).
 
 ### Enforced limits
 

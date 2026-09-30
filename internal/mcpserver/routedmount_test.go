@@ -233,8 +233,8 @@ func TestRoutedMount_MissingKB_NamesThem(t *testing.T) {
 	}
 }
 
-// TestRoutedMount_SingleKB_KBOptional: with exactly one KB routed there is no
-// ambiguity to resolve, so requiring the argument would be ceremony.
+// TestRoutedMount_SingleKB_KBOptional: with exactly one KB mounted there is no
+// ambiguity to resolve, so the schemas carry no kb at all (D288).
 func TestRoutedMount_SingleKB_KBOptional(t *testing.T) {
 	handler := newRoutedTestHandler(t, "only")
 
@@ -244,14 +244,9 @@ func TestRoutedMount_SingleKB_KBOptional(t *testing.T) {
 	}
 
 	for _, tool := range decodeToolList(t, routedPost(t, handler, RoutedMountPath, toolsListBody)) {
-		var schema struct {
-			Required []string `json:"required"`
-		}
-		json.Unmarshal(tool.InputSchema, &schema)
-		for _, r := range schema.Required {
-			if r == "kb" {
-				t.Fatalf("%s: kb is required with a single KB routed", tool.Name)
-			}
+		props, _ := routedSchema(t, tool)
+		if _, ok := props["kb"]; ok {
+			t.Fatalf("%s: schema carries kb with a single KB routed", tool.Name)
 		}
 	}
 }
@@ -259,7 +254,7 @@ func TestRoutedMount_SingleKB_KBOptional(t *testing.T) {
 func TestRoutedMount_UnknownKB(t *testing.T) {
 	handler := newRoutedTestHandler(t, "kb-one", "kb-two")
 	res := routedCall(t, handler, "atlas_overview", map[string]any{"kb": "nope"})
-	if !res.IsError || !strings.Contains(res.Content[0].Text, `unknown kb "nope"`) {
+	if !res.IsError || !strings.Contains(res.Content[0].Text, `kb "nope" is not available`) {
 		t.Fatalf("want unknown-kb error, got %+v", res)
 	}
 	if !strings.Contains(res.Content[0].Text, "kb-one") {
@@ -333,33 +328,154 @@ func TestRoutedMount_NotEnabled_PathFallsThrough(t *testing.T) {
 	}
 }
 
-// TestRoutedMount_RefusesToolPrefix: routing and prefixing are alternative
-// answers to the same problem, so asking for both is a config error rather
-// than a silently ignored setting.
-func TestRoutedMount_RefusesToolPrefix(t *testing.T) {
-	multi := NewMultiKBServer("test")
-	k := setupNamedTestKB(t, "kb-one")
-	if err := multi.MountKBWithPrefix("kb-one", "one", func(s *Server) { RegisterKBTools(s, k, Deps{}) }); err != nil {
-		t.Fatalf("MountKBWithPrefix: %v", err)
+// routedSchema decodes one tool's listed schema.
+func routedSchema(t *testing.T, tool listedTool) (props map[string]map[string]any, required []string) {
+	t.Helper()
+	var schema struct {
+		Properties map[string]map[string]any `json:"properties"`
+		Required   []string                  `json:"required"`
 	}
-	err := multi.EnableRoutedMount("test", nil)
-	if err == nil {
-		t.Fatal("routed mount accepted a prefixed KB")
+	if err := json.Unmarshal(tool.InputSchema, &schema); err != nil {
+		t.Fatalf("%s: decode schema: %v", tool.Name, err)
 	}
-	if !strings.Contains(err.Error(), "kb-one") || !strings.Contains(err.Error(), "tool_prefix") {
-		t.Errorf("error names neither the KB nor the key: %v", err)
+	return schema.Properties, schema.Required
+}
+
+// TestRoutedMount_KBS_AbsentIsAllMounted: no ?kbs= is the default binding, every
+// mounted KB, as a required enum of all of them (D288).
+func TestRoutedMount_KBS_AbsentIsAllMounted(t *testing.T) {
+	handler := newRoutedTestHandler(t, "kb-a", "kb-b", "kb-c")
+	for _, tool := range decodeToolList(t, routedPost(t, handler, RoutedMountPath, toolsListBody)) {
+		props, _ := routedSchema(t, tool)
+		enum, _ := props["kb"]["enum"].([]any)
+		if len(enum) != 3 {
+			t.Fatalf("%s: kb enum = %v, want the 3 mounted KBs", tool.Name, enum)
+		}
 	}
 }
 
-// TestRoutedMount_RefusesKBNamedRouted: the routed mount's own path cannot be
-// claimed by a KB, and the collision is refused at startup rather than
-// shadowing one of the two at request time.
-func TestRoutedMount_RefusesKBNamedRouted(t *testing.T) {
+// TestRoutedMount_KBS_NarrowsToTwo: ?kbs= of two KBs advertises an enum of
+// exactly those two, dispatches to either and refuses the third, naming the
+// allowed ones. The binding only narrows: the token would reach the third.
+func TestRoutedMount_KBS_NarrowsToTwo(t *testing.T) {
+	handler := newRoutedTestHandler(t, "kb-a", "kb-b", "kb-c")
+	path := RoutedMountPath + "?kbs=kb-b,kb-a,kb-a"
+
+	for _, tool := range decodeToolList(t, routedPost(t, handler, path, toolsListBody)) {
+		props, required := routedSchema(t, tool)
+		enum, _ := props["kb"]["enum"].([]any)
+		if len(enum) != 2 || enum[0] != "kb-a" || enum[1] != "kb-b" {
+			t.Fatalf("%s: kb enum = %v, want [kb-a kb-b]", tool.Name, enum)
+		}
+		if !containsString(required, "kb") {
+			t.Errorf("%s: kb not required with 2 KBs", tool.Name)
+		}
+	}
+
+	call := func(args map[string]any) ToolResult {
+		body, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+			"params": map[string]any{"name": "concept_read", "arguments": args}})
+		var resp Response
+		rr := routedPost(t, handler, path, string(body))
+		if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+			t.Fatalf("decode: %v; %s", err, rr.Body.String())
+		}
+		return decodeToolResult(t, resp)
+	}
+	res := call(map[string]any{"kb": "kb-b", "id": "manutenzione/marker"})
+	if res.IsError || !strings.Contains(res.Content[0].Text, "belongs-to-kb-b") {
+		t.Fatalf("kb-b inside the binding: %+v", res)
+	}
+	res = call(map[string]any{"kb": "kb-c", "id": "manutenzione/marker"})
+	if !res.IsError || !strings.Contains(res.Content[0].Text, "kb-a") || strings.Contains(res.Content[0].Text, "belongs-to") {
+		t.Fatalf("kb-c outside the binding must be refused naming the allowed KBs: %+v", res)
+	}
+	res = call(map[string]any{"id": "manutenzione/marker"})
+	if !res.IsError {
+		t.Fatalf("no kb with 2 KBs bound must be refused: %+v", res)
+	}
+}
+
+// TestRoutedMount_KBS_SingleKB: ?kbs= of one KB removes `kb` from every schema,
+// dispatches a call without it to that KB, accepts the same value and refuses
+// any other.
+func TestRoutedMount_KBS_SingleKB(t *testing.T) {
+	handler := newRoutedTestHandler(t, "kb-a", "kb-b", "kb-c")
+	path := RoutedMountPath + "?kbs=kb-b"
+
+	for _, tool := range decodeToolList(t, routedPost(t, handler, path, toolsListBody)) {
+		props, required := routedSchema(t, tool)
+		if _, ok := props["kb"]; ok {
+			t.Fatalf("%s: schema still carries kb with a single-KB binding", tool.Name)
+		}
+		if containsString(required, "kb") {
+			t.Errorf("%s: kb required with a single-KB binding", tool.Name)
+		}
+	}
+
+	call := func(args map[string]any) ToolResult {
+		body, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+			"params": map[string]any{"name": "concept_read", "arguments": args}})
+		var resp Response
+		rr := routedPost(t, handler, path, string(body))
+		if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+			t.Fatalf("decode: %v; %s", err, rr.Body.String())
+		}
+		return decodeToolResult(t, resp)
+	}
+	for _, args := range []map[string]any{
+		{"id": "manutenzione/marker"},
+		{"kb": "kb-b", "id": "manutenzione/marker"},
+	} {
+		res := call(args)
+		if res.IsError || !strings.Contains(res.Content[0].Text, "belongs-to-kb-b") {
+			t.Fatalf("args %v: want kb-b content, got %+v", args, res)
+		}
+	}
+	if res := call(map[string]any{"kb": "kb-a", "id": "manutenzione/marker"}); !res.IsError {
+		t.Fatalf("a kb other than the bound one must be refused: %+v", res)
+	}
+}
+
+// TestRoutedMount_KBS_UnknownName: a name that is not mounted is a 400 naming
+// it and the mounted KBs, never a silently smaller set.
+func TestRoutedMount_KBS_UnknownName(t *testing.T) {
+	handler := newRoutedTestHandler(t, "kb-a", "kb-b")
+	rr := routedPost(t, handler, RoutedMountPath+"?kbs=kb-a,nope", toolsListBody)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d, want 400; body=%s", rr.Code, rr.Body.String())
+	}
+	body := rr.Body.String()
+	if !strings.Contains(body, `"nope"`) || !strings.Contains(body, "kb-a") || !strings.Contains(body, "kb-b") {
+		t.Errorf("400 names neither the typo nor the mounted KBs: %s", body)
+	}
+}
+
+// TestRoutedMount_KBS_MetadataGateUsesTheSet: a principal scoped to kb-a only
+// is refused the metadata of a connection bound to kb-b (it can reach none of
+// that connection's KBs) and admitted on one bound to kb-a.
+func TestRoutedMount_KBS_MetadataGateUsesTheSet(t *testing.T) {
 	multi := NewMultiKBServer("test")
-	k := setupNamedTestKB(t, "routed")
-	multi.MountKB("routed", func(s *Server) { RegisterKBTools(s, k, Deps{}) })
-	if err := multi.EnableRoutedMount("test", nil); err == nil {
-		t.Fatal("routed mount accepted a KB named \"routed\"")
+	for _, name := range []string{"kb-a", "kb-b"} {
+		k := setupNamedTestKB(t, name)
+		multi.MountKB(name, func(s *Server) { RegisterKBTools(s, k, Deps{}) })
+	}
+	if err := multi.EnableRoutedMount("test", nil); err != nil {
+		t.Fatalf("EnableRoutedMount: %v", err)
+	}
+	handler := routedTokenStore("kb-a").Middleware(multi.Handler())
+
+	hasRPCError := func(rr *httptest.ResponseRecorder) bool {
+		var resp struct {
+			Error *struct{} `json:"error"`
+		}
+		return rr.Code != http.StatusOK || json.Unmarshal(rr.Body.Bytes(), &resp) != nil || resp.Error != nil
+	}
+	if rr := routedPost(t, handler, RoutedMountPath+"?kbs=kb-a", toolsListBody); hasRPCError(rr) {
+		t.Fatalf("bound to the reachable KB: status=%d body=%.300s", rr.Code, rr.Body.String())
+	}
+	if rr := routedPost(t, handler, RoutedMountPath+"?kbs=kb-b", toolsListBody); !hasRPCError(rr) {
+		t.Fatalf("a connection bound only to an unreachable KB listed tools: %.300s", rr.Body.String())
 	}
 }
 
@@ -367,7 +483,7 @@ func TestRoutedMount_RefusesKBNamedRouted(t *testing.T) {
 // schema, so a tool's own required list and properties survive.
 func TestWithKBProperty_PreservesExistingSchema(t *testing.T) {
 	in := json.RawMessage(`{"type":"object","required":["id"],"properties":{"id":{"type":"string"}}}`)
-	out := withKBProperty(in, true)
+	out := withKBProperty(in, []string{"kb-a", "kb-b"})
 	var schema struct {
 		Properties map[string]json.RawMessage `json:"properties"`
 		Required   []string                   `json:"required"`

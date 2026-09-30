@@ -146,8 +146,8 @@ func TestLoadFullYAML(t *testing.T) {
 		Audit:        AuditConfig{Log: "/data/audit.log", KeySeed: "deadbeef"},
 		Sops:         SopsConfig{AgeKeyFile: "/etc/cartographer/age.key", AgeKeyDir: "/etc/kb-sops-keys"},
 		ToolsProfile: "full",
-		// The YAML sets no mcp.tool_prefix_mode, so the default applies (kb-name since D153).
-		MCP: MCPConfig{ToolPrefixMode: "kb-name", MountMode: MountModePerKB},
+		// The YAML sets neither deprecated mcp key (D288): both stay empty.
+		MCP: MCPConfig{},
 		// The UI is on by default in HTTP mode; this YAML does not mention it.
 		Web:         WebConfig{Enabled: true},
 		UpdateCheck: true,
@@ -409,12 +409,13 @@ func TestParseTokenSpecsIgnoresPureSeparators(t *testing.T) {
 	}
 }
 
-// TestMountModeDefaultIsPerKB pins D187's opt-in guarantee: an existing
-// configuration keeps the per-KB mount topology, byte-identical to before.
-func TestMountModeDefaultIsPerKB(t *testing.T) {
+// TestDeprecatedMCPKeysDefaultEmpty pins D288: mount_mode and tool_prefix_mode
+// carry no default any more, so serve can tell "the operator wrote it" (and
+// warn) from "nobody did".
+func TestDeprecatedMCPKeysDefaultEmpty(t *testing.T) {
 	cfg := Default()
-	if cfg.MCP.MountMode != MountModePerKB {
-		t.Errorf("default MountMode = %q, want %q", cfg.MCP.MountMode, MountModePerKB)
+	if cfg.MCP.MountMode != "" || cfg.MCP.ToolPrefixMode != "" {
+		t.Errorf("default MCP = %+v, want both deprecated keys empty", cfg.MCP)
 	}
 }
 
