@@ -173,21 +173,7 @@ func toolLint(k *kb.KB) Tool {
 			total := len(findings)
 			findings, countsByCheck, countsBySeverity := lint.Filter(findings, params.SeverityMin)
 
-			type findingJSON struct {
-				Path     string `json:"path"`
-				Check    string `json:"check"`
-				Severity string `json:"severity"`
-				Message  string `json:"message"`
-			}
-			results := make([]findingJSON, 0, len(findings))
-			for _, f := range findings {
-				results = append(results, findingJSON{
-					Path:     f.Path,
-					Check:    f.Check,
-					Severity: f.Severity,
-					Message:  f.Message,
-				})
-			}
+			results := findingsOut(findings)
 
 			// 'count' keeps meaning the unfiltered total, which is what it has
 			// always meant; findings_omitted says how much of it is not below.
@@ -374,12 +360,6 @@ func toolGateCheck(k *kb.KB) Tool {
 				Path    string `json:"path"`
 				Message string `json:"message"`
 			}
-			type lintJSON struct {
-				Path     string `json:"path"`
-				Check    string `json:"check"`
-				Severity string `json:"severity"`
-				Message  string `json:"message"`
-			}
 			type blockerJSON struct {
 				Path     string   `json:"path"`
 				Involves []string `json:"involves"`
@@ -391,12 +371,7 @@ func toolGateCheck(k *kb.KB) Tool {
 			for _, e := range valErrs {
 				valErrsJSON = append(valErrsJSON, valErrJSON{Path: e.Path, Message: e.Message})
 			}
-			lintJSON2 := make([]lintJSON, 0, len(lintFindings))
-			for _, f := range lintFindings {
-				lintJSON2 = append(lintJSON2, lintJSON{
-					Path: f.Path, Check: f.Check, Severity: f.Severity, Message: f.Message,
-				})
-			}
+			lintJSON2 := findingsOut(lintFindings)
 			var blockers []blockerJSON
 			for _, b := range gate.Blockers {
 				blockers = append(blockers, blockerJSON{

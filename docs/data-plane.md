@@ -207,8 +207,8 @@ a deliberately-broken example link — could not be written without generating t
 describes, so a KB's own "known false positives" page was impossible.
 
 Suppressible: `broken_link`, `machine_path`, `concept_oversize`, `stale_claim`, `imported_draft`,
-`secrets_on_non_service`, `orphan`, `missing_title`, `unknown_placeholder`, `forbidden_term`, `duplicate_link`, `bare_link_list`, and the structural
-`cut_concept`, `link_to_retired`, `broken_relation`, `map_misfit`. **Not** suppressible: every `error`-severity check
+`secrets_on_non_service`, `orphan`, `missing_title`, `unknown_placeholder`, `forbidden_term`, `nonstandard_field`, `duplicate_link`, `bare_link_list`, and the structural
+`cut_concept`, `link_to_retired`, `broken_relation`, `map_misfit`. **Not** suppressible: `tool_param_field` (a tool argument is never a legitimate field), every `error`-severity check
 (`missing_required_field`, `invalid_field_value`, `forbidden_field`, `expanded_ambiguous`) — those are contract violations, not judgements, and
 letting a concept declare its own contract void would be a hole rather than an escape hatch — and the
 directory-level checks (`map_oversize`, `index_incomplete`, `expanded_*`, `orphan_asset`,
@@ -217,6 +217,29 @@ concept frontmatter that owns them, and
 `island`, which belongs to a whole component of the graph. Naming
 an unsuppressible or unknown check is itself reported as `lint_ignore_invalid`: a typo that silently
 suppresses nothing is worse than no opt-out.
+
+### Conformance checks (D289)
+
+Lint also compares a KB with the standard fields the server reads, not only with the contracts the KB declared. All are warning or info, so `gate_check` never fails on them, and a check fires only on a field the KB actually has.
+
+- `nonstandard_field` (warning): a frontmatter key that is a known synonym of a standard field. Standard field absent: the finding carries the fix `rename_field <synonym> → <standard>`. Standard field also present: the finding says so and has no fix, since merging values is a judgement. A synonym a map names in `required_fields` is still reported, with a note that the contract names it too. Keys match case-insensitively. The synonym table (`StandardFieldSynonyms` in `internal/lint/conformance.go`):
+
+  | Standard field | Known synonyms |
+  |---|---|
+  | `timestamp` | `updated`, `updated_at`, `last_updated`, `modified`, `date`, `aggiornato`, `data` |
+  | `provenance` | `sources`, `source`, `refs`, `fonti`, `fonte` |
+  | `status` | `state`, `stato` |
+  | `description` | `summary`, `sommario` |
+  | `tags` | `keywords`, `parole_chiave` |
+  | `review_after` | `review_by` |
+  | `superseded_by` | `replaced_by` |
+
+  The `timestamp` synonyms are English words that are legitimate fields in their own right, so they are flagged only when the value is a scalar string that parses as `YYYY-MM-DD` or RFC 3339; `data: some payload` or a list value gets no finding and no fix. The other standard fields flag every synonym.
+
+- `tool_param_field` (warning, not suppressible): a key named like a parameter of a concept-write tool (`lint.ToolParamFields`: `id`, `frontmatter`, `body`, `if_match`, `template`, `vars`, `old_string`, `new_string`, `replace_all`, `edits`, `operations`, `op`), fix `drop_field`. The same write is rejected, see `docs/control-plane.md`.
+- `missing_value_contract` (info, on the map's `_map.md`): a scalar string field present in at least 5 concepts of the map, with at most 8 distinct values and no `field_values` for it (map-wide or for the dominant type). The message lists the observed values with their counts and the line to add, typed (`field_values.<Type>.<field>`) when at least 90 % of the carrying concepts share one type. `title`, `type`, `description`, `timestamp`, `review_after`, `superseded_by` and the synonyms above are never suggested. No fix: declaring a vocabulary is a judgement.
+
+A finding whose remedy is mechanical carries `fix: {kind, field, to?}` (`rename_field`, `drop_field`); the rest carry none. `lint.CheckConcept` computes the frontmatter-driven checks of one concept without walking the KB (`missing_required_field`, `invalid_field_value`, `forbidden_field`, `nonstandard_field`, `tool_param_field`, `missing_title`, `machine_path`, `stale_claim`); `Run` calls the same function, and the write tools return its result.
 
 `machine_path_allow_prefixes` accepts **`~/`-anchored** prefixes as well as POSIX- and
 Windows-absolute ones: `~/.ssh/config` means "your ssh config" on every machine, exactly as `/etc/…`
