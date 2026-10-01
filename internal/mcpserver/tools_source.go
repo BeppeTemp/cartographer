@@ -68,7 +68,7 @@ func fmString(fm *okf.Frontmatter, key string) string {
 func toolSourceRegister(k *kb.KB) Tool {
 	return Tool{
 		Name:        "source_register",
-		Description: "Records a primary source in the ledger BEFORE ingesting it, as a Source concept in a journal (default 'sources', which must exist: map_create(name: 'sources', kind: 'journal')). Dedupes by sha256, else locator: returns {id, duplicate: true, ingest_status}, writes nothing; else writes <map>/<YYYY-MM-DD>-<slug>, returns {id, duplicate: false}. Never fetches the source: body is your distillation. Cite its ID in provenance, then mark it ingested via concept_patch (ingest_status, ingested_at).",
+		Description: "Records a primary source in the ledger BEFORE ingesting it: a Source concept in a journal (default 'sources', created with map_create kind journal). Dedupes by sha256, else locator: a duplicate returns {id, duplicate: true, ingest_status} and writes nothing. Never fetches the source; body is your distillation. Cite its ID in provenance, then set ingest_status via concept_patch.",
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"required": ["title", "source_kind"],

@@ -10,6 +10,7 @@ import (
 	gopath "path"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -1466,7 +1467,16 @@ type MapContract struct {
 	// ValueSynonyms extends the built-in value families for this map
 	// (value_synonyms.<canonical>: [synonym, ...], D296).
 	ValueSynonyms map[string][]string
-	Malformed     []ContractMalformed
+	// Lifecycle keys (D297): the map's kind ("map" or "journal"), the
+	// statuses that mean "not finished", the age after which such a concept
+	// is stale, whether pages must carry their template's H2 sections, and
+	// the words that mark an open question.
+	Kind             string
+	OpenStatuses     []string
+	StaleAfterDays   int
+	TemplateSections bool
+	OpenMarkers      []string
+	Malformed        []ContractMalformed
 }
 
 // AllowedValues returns the allowed values declared for field on conceptType:
@@ -1655,6 +1665,12 @@ type MapContractUpdate struct {
 	// ValueSynonyms replaces every value_synonyms.* key (D296); an empty
 	// non-nil map removes them.
 	ValueSynonyms map[string][]string
+	// D297 lifecycle keys: nil leaves the key, an empty list, 0 or false
+	// removes it.
+	OpenStatuses     *[]string
+	StaleAfterDays   *int
+	TemplateSections *bool
+	OpenMarkers      *[]string
 }
 
 // UpdateMapContract rewrites the contract keys of an existing map's _map.md,
@@ -1735,6 +1751,26 @@ func (kb *KB) UpdateMapContract(name string, upd MapContractUpdate) (MapContract
 	}
 	if upd.ForbiddenFields != nil {
 		setList("forbidden_fields", *upd.ForbiddenFields)
+	}
+	if upd.OpenStatuses != nil {
+		setList("open_statuses", *upd.OpenStatuses)
+	}
+	if upd.OpenMarkers != nil {
+		setList("open_markers", *upd.OpenMarkers)
+	}
+	if upd.StaleAfterDays != nil {
+		if *upd.StaleAfterDays > 0 {
+			fm.Set("stale_after", strconv.Itoa(*upd.StaleAfterDays))
+		} else {
+			fm.Delete("stale_after")
+		}
+	}
+	if upd.TemplateSections != nil {
+		if *upd.TemplateSections {
+			fm.Set("template_sections", "true")
+		} else {
+			fm.Delete("template_sections")
+		}
 	}
 	if upd.ValueSynonyms != nil {
 		for _, key := range fm.Keys() {
@@ -1963,6 +1999,9 @@ func (kb *KB) ReadMapContract(archive string) (MapContract, error) {
 			contract.OntologyMode = s
 		}
 	}
+	if kind, ok := meta.Get("kind"); ok {
+		contract.Kind, _ = kind.(string)
+	}
 	if contract.OntologyMode == "" {
 		contract.OntologyMode = "flexible"
 	}
@@ -1983,7 +2022,8 @@ func (kb *KB) ReadMapContract(archive string) (MapContract, error) {
 		if key != "required_fields" && !strings.HasPrefix(key, "required_fields.") &&
 			key != "forbidden_fields" && !strings.HasPrefix(key, "field_values.") &&
 			key != "require_index_entry" && key != "machine_path_allow_prefixes" &&
-			!strings.HasPrefix(key, "value_synonyms.") {
+			!strings.HasPrefix(key, "value_synonyms.") &&
+			key != "open_statuses" && key != "stale_after" && key != "template_sections" && key != "open_markers" {
 			continue
 		}
 		value, _ := meta.Get(key)
@@ -2058,6 +2098,32 @@ func (kb *KB) ReadMapContract(archive string) (MapContract, error) {
 				contract.FieldValuesByType[parts[0]] = map[string][]string{}
 			}
 			contract.FieldValuesByType[parts[0]][parts[1]] = valid
+		case key == "open_statuses" || key == "open_markers":
+			vals, ok := value.([]string)
+			if !ok || len(vals) == 0 {
+				bad(key)
+				continue
+			}
+			if key == "open_statuses" {
+				contract.OpenStatuses = vals
+			} else {
+				contract.OpenMarkers = vals
+			}
+		case key == "stale_after":
+			s, _ := value.(string)
+			n, err := strconv.Atoi(strings.TrimSpace(s))
+			if err != nil || n <= 0 {
+				bad(key)
+				continue
+			}
+			contract.StaleAfterDays = n
+		case key == "template_sections":
+			v, ok := value.(string)
+			if !ok || (v != "true" && v != "false") {
+				bad(key)
+				continue
+			}
+			contract.TemplateSections = v == "true"
 		case strings.HasPrefix(key, "value_synonyms."):
 			canonical := strings.TrimSpace(strings.TrimPrefix(key, "value_synonyms."))
 			syns, ok := value.([]string)
@@ -2281,4 +2347,75 @@ func (kb *KB) listMDFiles(relDir string) ([]string, error) {
 		return nil
 	})
 	return files, err
+}
+
+// TemplateSections returns the H2 headings of templates/<type>.md, the
+// sections a concept of that type promises (D297). The slug is the type
+// lowercased; a missing or unreadable template returns nil. Headings inside
+// fenced code are ignored.
+func (kb *KB) TemplateSections(conceptType string) []string {
+	slug := strings.ToLower(strings.TrimSpace(conceptType))
+	if slug == "" || strings.ContainsAny(slug, "/\\.") {
+		return nil
+	}
+	data, err := os.ReadFile(filepath.Join(kb.Root, "templates", slug+".md"))
+	if err != nil {
+		return nil
+	}
+	_, body, _ := okf.SplitFrontmatter(string(data))
+	return templateH2(body)
+}
+
+// templateH2 is the section list a template promises: its H2 headings outside
+// fenced code, or — for a template written as a fenced markdown sample, a
+// common shape — the H2 headings of its first fenced block.
+func templateH2(body string) []string {
+	var outside, firstBlock []string
+	inFence, blocks := false, 0
+	for _, line := range strings.Split(body, "\n") {
+		// A bare fence closes; an opener with an info string ("```markdown")
+		// inside an open block is read as the author meant it — the previous
+		// sample ended unclosed and a new one starts — not as CommonMark
+		// would, which would merge two samples into one section list.
+		if trimmed := strings.TrimSpace(line); strings.HasPrefix(trimmed, "```") {
+			switch {
+			case !inFence:
+				blocks++
+				inFence = true
+			case strings.Trim(trimmed, "`") == "":
+				inFence = false
+			default:
+				blocks++
+			}
+			continue
+		}
+		if !strings.HasPrefix(line, "## ") {
+			continue
+		}
+		h := strings.TrimSpace(strings.TrimRight(strings.TrimPrefix(line, "## "), "#"))
+		switch {
+		case h == "":
+		case !inFence:
+			outside = append(outside, h)
+		case blocks == 1:
+			firstBlock = append(firstBlock, h)
+		}
+	}
+	if len(outside) > 0 {
+		return outside
+	}
+	return firstBlock
+}
+
+// H2Headings lists a body's level-2 headings in order, ignoring fenced code.
+func H2Headings(body string) []string {
+	var out []string
+	for _, line := range strings.Split(MaskCodeSpans(body), "\n") {
+		if strings.HasPrefix(line, "## ") {
+			if h := strings.TrimSpace(strings.TrimRight(strings.TrimPrefix(line, "## "), "#")); h != "" {
+				out = append(out, h)
+			}
+		}
+	}
+	return out
 }

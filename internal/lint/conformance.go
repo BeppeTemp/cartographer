@@ -102,6 +102,7 @@ type conceptInput struct {
 	Registry       registryLint
 	MapName        string          // "" outside a map
 	Contract       *kb.MapContract // nil outside a map
+	Sections       []string        // the H2 sections of the concept's template (D297)
 }
 
 // frontmatterFindings computes the checks that depend only on one concept's
@@ -188,6 +189,7 @@ func frontmatterFindings(in conceptInput) []Finding {
 	if parsed != nil {
 		out = append(out, nonstandardFieldFindings(in)...)
 		out = append(out, proseValueFindings(in)...)
+		out = append(out, decayFindings(in, in.Sections)...)
 		out = append(out, toolParamFieldFindings(in.RelPath, parsed)...)
 	}
 	return out
@@ -265,6 +267,9 @@ func CheckConcept(k *kb.KB, id okf.ConceptID, content string) []Finding {
 		if contract, err := k.ReadMapContract(parts[0]); err == nil {
 			in.MapName, in.Contract = parts[0], &contract
 			in.AllowPrefixes = contract.MachinePathAllowPrefixes
+			if contract.TemplateSections && parsed != nil {
+				in.Sections = k.TemplateSections(parsed.Type())
+			}
 		}
 	}
 	ignores := lintIgnoreSet(parsed)

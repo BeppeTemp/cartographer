@@ -84,6 +84,8 @@ var conformanceChecks = map[string]bool{
 	"map_misfit":                true,
 	"prose_value":               true,
 	"invalid_field_value":       true,
+	"stale_open":                true,
+	"closed_with_open_items":    true,
 	"legacy_archive_descriptor": true,
 }
 
