@@ -20,9 +20,9 @@ import (
 func toolAtlasOverview(k *kb.KB) Tool {
 	return Tool{
 		Name:        "atlas_overview",
-		Description: "Returns the Atlas's root index.md plus the list of Maps and Journals, each with its concept (and expanded-concept) count. With structure: true it also lists the most central concepts and the main communities of the link graph — where to start reading.",
+		Description: "Root index.md plus the Maps and Journals with concept counts. structure: true adds the most central concepts and link-graph communities: where to start reading.",
 		ReadOnly:    true,
-		InputSchema: json.RawMessage(`{"type":"object","properties":{"structure":{"type":"boolean","description":"Also report the most central concepts (PageRank) and the main communities of the link graph. Default false."}}}`),
+		InputSchema: json.RawMessage(`{"type":"object","properties":{"structure":{"type":"boolean"}}}`),
 		Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
 			var params struct {
 				Structure bool `json:"structure"`
@@ -84,32 +84,23 @@ func toolAtlasOverview(k *kb.KB) Tool {
 
 func toolIndexGet(k *kb.KB) Tool {
 	return Tool{
-		Name: "index_get",
-		Description: "Reads the index.md of the given folder (root if path is empty). By default returns " +
-			"the raw Markdown verbatim (byte-for-byte, for backward compatibility). Pass 'with_hash: true' " +
-			"to get a structured {path, content, content_hash} response instead — the content_hash is the " +
-			"'if_match' expected by index_patch when curating the root or a Map/Journal's index.md. " +
-			"Indexes over 60 KB are returned as a heading outline by default (note explains why); pass " +
-			"'full: true' to force the whole content, or 'outline: true' to ask for the outline at any size.",
-		ReadOnly: true,
+		Name:        "index_get",
+		Description: "Reads a folder's index.md (root if path empty). with_hash: true returns {path, content, content_hash}, the if_match for index_patch. Over 60 KB it returns an outline; full: true forces the content, outline: true forces the outline.",
+		ReadOnly:    true,
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"properties": {
 				"path": {
-					"type": "string",
-					"description": "Path relative to KB root (e.g. 'maintenance'). Empty = root."
+					"type": "string"
 				},
 				"with_hash": {
-					"type": "boolean",
-					"description": "If true, returns structured {path, content, content_hash} instead of raw Markdown. Optional, default false."
+					"type": "boolean"
 				},
 				"outline": {
-					"type": "boolean",
-					"description": "If true, returns only the heading outline ({level, title, bytes}), no content, whatever the size. Optional."
+					"type": "boolean"
 				},
 				"full": {
-					"type": "boolean",
-					"description": "If true, forces the whole content even if it exceeds the 60 KB size guard. Optional."
+					"type": "boolean"
 				}
 			}
 		}`),
@@ -199,46 +190,32 @@ func headingsToOutline(headings []okf.Heading) []map[string]interface{} {
 
 func toolConceptRead(k *kb.KB) Tool {
 	return Tool{
-		Name: "concept_read",
-		Description: "Reads a concept by ID. Returns content_hash, frontmatter_raw and body — the body " +
-			"is the concept's text, and it is returned once. Pass 'with_content: true' to also get " +
-			"'content' (frontmatter + body, the exact bytes on disk), which is what a caller that will " +
-			"re-write the file verbatim needs; without it the response does not carry the concept twice. " +
-			"If 'section' is specified, returns only that section (error lists the available headings " +
-			"if the section is not found). If 'outline' is true, returns the heading structure " +
-			"({level, title, bytes} per heading) without content. Bodies over 60 KB are returned as an " +
-			"outline by default (note explains why); pass 'full: true' to force the full content. " +
-			"With 'rev' (a 7-40 hex commit SHA, e.g. from concept_history) it reads the concept as it " +
-			"was at that commit; the response carries 'rev', and its content_hash is computed on the " +
-			"historical content, so it is not usable as if_match.",
-		ReadOnly: true,
+		Name:        "concept_read",
+		Description: "Reads a concept: content_hash, frontmatter_raw, body. with_content: true also returns content (exact bytes). section returns one section; outline: true only the headings. Bodies over 60 KB come as an outline; full: true forces them. rev reads a past version; its content_hash is not an if_match.",
+		ReadOnly:    true,
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"required": ["id"],
 			"properties": {
 				"id": {
-					"type": "string",
-					"description": "Concept ID (path relative to KB root without .md, e.g. 'maintenance/cert-rotation/runbook')"
+					"type": "string"
 				},
 				"section": {
 					"type": "string",
-					"description": "Heading of the section to extract (e.g. '# Schema'). Optional."
+					"description": "Heading, e.g. '# Schema'"
 				},
 				"outline": {
-					"type": "boolean",
-					"description": "If true, returns only the heading outline ({level, title, bytes}), no content. Optional."
+					"type": "boolean"
 				},
 				"full": {
-					"type": "boolean",
-					"description": "If true, forces the full content even if the body exceeds the 60 KB size guard. Optional."
+					"type": "boolean"
 				},
 				"with_content": {
-					"type": "boolean",
-					"description": "If true, the full response also carries 'content' (frontmatter + body, the exact bytes). Optional, default false. Ignored by the 'section', 'outline' and size-guard responses, which never carried it."
+					"type": "boolean"
 				},
 				"rev": {
 					"type": "string",
-					"description": "Commit SHA (7-40 hex characters) to read the concept at, as listed by concept_history. Optional. Branch names and relative refs are rejected. The response's content_hash refers to the historical content and is not an if_match."
+					"description": "Commit SHA (7-40 hex) from concept_history"
 				}
 			}
 		}`),
@@ -422,25 +399,18 @@ const (
 
 func toolConceptHistory(k *kb.KB) Tool {
 	return Tool{
-		Name: "concept_history",
-		Description: "Lists the commits that changed a concept, newest first, following renames (including " +
-			"the expansion of '<id>.md' into '<id>/index.md' when git detects it; otherwise the history " +
-			"starts at the expansion): {sha, at, author, subject, reason?, path}. 'reason' is the Reason " +
-			"trailer recorded by the write (D272). Pass a 'sha' as 'rev' to concept_read to see the " +
-			"concept as it was then. 'truncated' is true when the list may continue past 'limit'. " +
-			"A KB without git history returns no revisions and a note.",
-		ReadOnly: true,
+		Name:        "concept_history",
+		Description: "Commits that changed a concept, newest first, following renames: {sha, at, author, subject, reason?, path}; truncated if more exist. A sha passed as rev to concept_read shows the concept then. No git history: no revisions.",
+		ReadOnly:    true,
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"required": ["id"],
 			"properties": {
 				"id": {
-					"type": "string",
-					"description": "Concept ID (path relative to KB root without .md)"
+					"type": "string"
 				},
 				"limit": {
-					"type": "integer",
-					"description": "Maximum revisions to return. Default 20, maximum 100; out-of-range values are clamped."
+					"type": "integer"
 				}
 			}
 		}`),
@@ -508,22 +478,17 @@ func toolConceptHistory(k *kb.KB) Tool {
 
 func toolLogTail(k *kb.KB) Tool {
 	return Tool{
-		Name: "log_tail",
-		Description: "Returns the last n entries relevant to path. Empty path = root log verbatim. " +
-			"A non-empty path never has its own log.md written by log_append (root-log-with-prefix " +
-			"convention, D78): it returns any entries in '<path>/log.md' (rare, pre-existing files) " +
-			"followed by root-log entries prefixed '[<path>] ', up to n total. Default n = 20.",
-		ReadOnly: true,
+		Name:        "log_tail",
+		Description: "Last n entries (default 20) for path; empty = root log. A path filters root-log entries prefixed '[<path>] ' (plus any pre-existing <path>/log.md).",
+		ReadOnly:    true,
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"properties": {
 				"path": {
-					"type": "string",
-					"description": "Folder relative to KB root. Empty = root."
+					"type": "string"
 				},
 				"n": {
-					"type": "integer",
-					"description": "Maximum number of entries. Default 20."
+					"type": "integer"
 				}
 			}
 		}`),
@@ -626,22 +591,20 @@ func isCartographerPath(path string) bool {
 func toolChangesSince(k *kb.KB) Tool {
 	return Tool{
 		Name:        "changes_since",
-		Description: "Summarizes concept changes from git history since an RFC3339 timestamp or a duration such as 2d or 48h. Aggregates each concept's newest change, latest timestamp, authors, recent operations, and the reasons recorded by the writes (reasons, newest first). With links: true it also reports links added and removed and pages that became or stopped being orphans — ask it after an agent session to review the structure.",
+		Description: "Concept changes from git history since a timestamp or duration: each concept's newest change, authors, operations and reasons. links: true also reports links added/removed and pages that became or stopped being orphans.",
 		ReadOnly:    true,
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"properties": {
 				"since": {
 					"type": "string",
-					"description": "RFC3339 timestamp or duration shorthand <N>d/<N>h, such as '2d' or '48h'. Default 7d."
+					"description": "RFC3339 or <N>d/<N>h; default 7d"
 				},
 				"limit": {
-					"type": "integer",
-					"description": "Maximum concepts to return. Default 100; maximum 500."
+					"type": "integer"
 				},
 				"links": {
-					"type": "boolean",
-					"description": "Also report the link changes in the range: links added and removed, and pages that became or stopped being orphans. Default false."
+					"type": "boolean"
 				}
 			}
 		}`),
@@ -795,7 +758,7 @@ func visibleCounts(ctx requestContext, k *kb.KB, archive string) (concepts, expa
 func toolMapList(k *kb.KB) Tool {
 	return Tool{
 		Name:        "map_list",
-		Description: "Lists all Maps and Journals in the Atlas with their metadata (kind, ontology_mode, concept_types, expanded-concept count).",
+		Description: "Lists Maps and Journals with kind, ontology_mode, concept_types and expanded-concept count.",
 		ReadOnly:    true,
 		InputSchema: json.RawMessage(`{"type":"object","properties":{}}`),
 		Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
@@ -924,31 +887,29 @@ func parseConceptListTimestamp(value string) (time.Time, error) {
 func toolConceptList(k *kb.KB) Tool {
 	return Tool{
 		Name:        "concept_list",
-		Description: "Exhaustive inventory of concepts (id, title, type from frontmatter) under a scope prefix, sorted by id. Empty scope lists the whole KB. where predicates and timestamp ranges are applied before limit. The bounded equivalent of 'ls -R'; use index_get for curated, progressive-disclosure navigation instead.",
+		Description: "Exhaustive inventory (id, title, type) under a scope prefix, sorted by id; empty = whole KB. where and timestamp filters apply before limit. A bounded 'ls -R'; for curated navigation use index_get.",
 		ReadOnly:    true,
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"properties": {
 				"scope": {
-					"type": "string",
-					"description": "Path prefix relative to KB root (e.g. 'entities/'). Empty = whole KB."
+					"type": "string"
 				},
 				"limit": {
-					"type": "integer",
-					"description": "Maximum number of results. Default 500."
+					"type": "integer"
 				},
 				"where": {
 					"type": "array",
 					"items": {"type": "string"},
-					"description": "ANDed frontmatter predicates key=value or key!=value. Scalar fields match exactly and list fields match any element; matching is case-sensitive. A missing key matches != but not =."
+					"description": "ANDed frontmatter key=value or key!=value; list fields match any element; case-sensitive; a missing key matches != only"
 				},
 				"timestamp_before": {
 					"type": "string",
-					"description": "Strict upper bound for frontmatter timestamp, as RFC3339 or YYYY-MM-DD (midnight UTC)."
+					"description": "Strict upper bound, RFC3339 or YYYY-MM-DD"
 				},
 				"timestamp_after": {
 					"type": "string",
-					"description": "Strict lower bound for frontmatter timestamp, as RFC3339 or YYYY-MM-DD (midnight UTC)."
+					"description": "Strict lower bound, RFC3339 or YYYY-MM-DD"
 				}
 			}
 		}`),
@@ -1047,24 +1008,21 @@ func toolConceptList(k *kb.KB) Tool {
 func toolGraphNeighbors(k *kb.KB) Tool {
 	return Tool{
 		Name:        "graph_neighbors",
-		Description: "Returns graph neighbors up to depth hops (default 1): direction out means concepts linked from this one, in means concepts that link to it, and both follows either edge. Useful for scoping lint and understanding relationships.",
+		Description: "Graph neighbors up to depth hops (default 1): out = linked from the concept, in = linking to it, both = either.",
 		ReadOnly:    true,
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"required": ["id"],
 			"properties": {
 				"id": {
-					"type": "string",
-					"description": "ConceptID of the starting concept"
+					"type": "string"
 				},
 				"depth": {
-					"type": "integer",
-					"description": "Maximum traversal depth (default 1)"
+					"type": "integer"
 				},
 				"direction": {
 					"type": "string",
-					"enum": ["out", "in", "both"],
-					"description": "Edge direction: out (default) finds linked concepts, in finds backlinks, both follows either."
+					"enum": ["out", "in", "both"]
 				}
 			}
 		}`),

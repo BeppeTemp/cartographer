@@ -22,18 +22,9 @@ var searchInputSchema = json.RawMessage(`{
 	"type": "object",
 	"required": ["query"],
 	"properties": {
-		"query": {
-			"type": "string",
-			"description": "Search query (one or more keywords)"
-		},
-		"scope": {
-			"type": "string",
-			"description": "Restrict results to concepts under this path prefix (e.g. 'maintenance/')"
-		},
-		"limit": {
-			"type": "integer",
-			"description": "Maximum number of results (default 20)"
-		}
+		"query": {"type": "string"},
+		"scope": {"type": "string"},
+		"limit": {"type": "integer"}
 	}
 }`)
 
@@ -64,11 +55,11 @@ type searchHit struct {
 //     when FTS5 fails. Modes reported: keyword_fts5 / keyword on fallback.
 //   - otherwise: the in-memory keyword index. Mode reported: keyword.
 func toolSearch(k *kb.KB, rec *searchReconciler, misses *searchMissLog, deps Deps) Tool {
-	description := "Keyword search over KB concepts. Returns matching concept IDs ranked by relevance. All query terms are preferred (AND, then OR fallback)."
+	description := "Keyword search over concepts; returns IDs ranked by relevance (all terms preferred, then OR fallback)."
 	if deps.SQLIndex != nil {
-		description = "Keyword search over KB concepts (SQLite FTS5 with substring matching). Returns matching concept IDs ranked by relevance."
+		description = "Keyword search over concepts (SQLite FTS5, substring matching); returns IDs ranked by relevance."
 	}
-	description += " A term the KB's glossary.yaml declares is also searched under its canonical form and aliases; the variants run are listed in expanded_to."
+	description += " Glossary terms are also searched by canonical form and aliases; variants are listed in expanded_to."
 
 	return Tool{
 		Name:        "search",

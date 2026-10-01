@@ -151,8 +151,7 @@ const commitReasonKey = "Reason"
 // boundary and ends with an ellipsis.
 const maxCommitReasonBytes = 500
 
-const reasonSchemaDescription = "Optional: why this change is made (incident, source, decision). " +
-	"Stored in the commit as a Reason: trailer and shown by changes_since."
+const reasonSchemaDescription = "Why (commit trailer)"
 
 // withReasonProperty returns schema with an optional string `reason` property
 // added, unless the tool already declares one (supersede, conflict_resolve keep

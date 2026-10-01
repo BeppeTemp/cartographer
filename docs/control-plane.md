@@ -169,6 +169,79 @@ map contract that *does* fail a write is `ontology_mode: strict`, which makes `v
 out-of-vocabulary type. That asymmetry is what made the whole area confusing, so each description
 now says which kind it is.
 
+### Tool descriptions and their size budget
+
+Every client pays the `tools/list` text on every round-trip, in both mount modes (D288), so the
+single copy is kept small (D285). `TestServer_ToolDescriptionBudget` (`internal/mcpserver/tool_budget_test.go`)
+fails the build when the `agent`-profile `tools/list` of one unprefixed mount exceeds **22 KiB**
+serialized, or any tool `description` exceeds **600 characters**; the failure names the five heaviest
+tools. Tool names, `required` lists, types and enums are untouched by the budget: only prose is.
+
+What a description keeps: what the tool does, when to use it instead of its neighbour, and every
+rule needed to call it correctly (required preconditions such as `if_match`, refusal conditions,
+destructive effects, the enforced limits above). What it drops: `D<n>` references, rationale, response
+field listings and anything another tool's description already says. The rest lives on this page,
+which stays the full reference. Hiding a tool is not a way to meet the budget: a descriptor-bound
+host cannot call a tool `tools/list` does not advertise (D123).
+
+Parameter details not repeated in the schema:
+
+- **`reason`** (every mutating tool, optional): stored in the commit as a `Reason:` trailer (at most
+  500 bytes) and shown by `changes_since`.
+- **Defaults and caps**: `changes_since` `limit` 100 (max 500), `since` 7d; `concept_list` `limit` 500;
+  `concept_history` `limit` 20 (max 100, out-of-range values clamped); `source_list` `limit` 50 (max 500),
+  `status` `pending`; `search` `limit` 20; `link_suggest` `limit` 5 (1-20); `graph_context` `limit` 10
+  (1-30), `ids` at most 10; `graph_neighbors` `depth` 1, `direction` `out`; `log_tail` `n` 20.
+- **`concept_list`**: `where` predicates are ANDed `key=value` / `key!=value`; scalar fields match
+  exactly, list fields match any element, matching is case-sensitive, a missing key matches `!=` but
+  not `=`. `timestamp_before`/`timestamp_after` are strict bounds on the frontmatter timestamp, as RFC 3339
+  or `YYYY-MM-DD` (midnight UTC). Filters apply before `limit`.
+- **`concept_read`**: the body is returned once; `with_content: true` adds `content` (frontmatter +
+  body, the exact bytes), which a verbatim rewrite needs. `section` returns one section (the error lists
+  the headings); `outline: true` returns `{level, title, bytes}` per heading; bodies over 60 KB come as an
+  outline with a note unless `full: true`. `rev` (7-40 hex commit SHA, as listed by `concept_history`;
+  branches and relative refs are rejected) reads the concept as it was; its `content_hash` is computed on
+  the historical content and is not an `if_match`. `index_get` has the same `full`/`outline`/`with_hash`.
+- **`concept_patch` / `index_patch`**: `if_match` is required. The single `old_string`/`new_string`/`replace_all`
+  triple and the `edits` array are mutually exclusive; `edits` apply atomically and in order, and a failing
+  batch names the edit's index and writes nothing. `frontmatter` (concept_patch) is shallow-merged, may be
+  the only change, and a `null` value removes a key (refused for a required key such as `type`).
+  `concept_batch` (one commit for up to 50 operations) is callable by name but not listed in the `agent` profile.
+- **`concept_delete`**: refuses with `inbound_links:` unless `force=true`; a Source cited through another
+  concept's provenance counts as linked (D278). Deleting an expanded concept that owns assets also needs
+  `force=true`; satellite concepts are preserved.
+- **`concept_move`**: every entry is validated before anything is applied (source exists, target free
+  including against other targets of the batch, no path traversal, no duplicate `source_id`). Links rewritten
+  are `[[old-id]]`, `[[old-id#section]]` and markdown links across the whole KB, `services/` included; links
+  to assets are left unchanged. A filesystem failure after a target was written is reported naming both IDs
+  and is not rolled back.
+- **`asset_write`**: `executable` is tri-state (omitted: new files are non-executable and an existing mode
+  is preserved). `asset_list` skips hidden files.
+- **`artifact_read`**: `encoding` defaults to text; non-UTF-8 content is always returned as base64.
+- **`atlas_overview`** `structure: true`: most central concepts (PageRank) and main link-graph communities.
+- **`changes_since`** `links: true`: links added and removed, and pages that became or stopped being orphans.
+- **`map_create` / `map_update`**: `kind` is `map` (default) or `journal`; `ontology_mode` is `strict` or
+  `flexible` (default); `concept_types` is the allowed vocabulary under `strict`. `field_values` maps a field
+  to its allowed values (`invalid_field_value`), `*_by_type` variants are keyed by exact concept type and
+  replace the map-wide entry for that type, `forbidden_fields` reports `forbidden_field`, `required_fields`
+  reports `missing_required_field`, `machine_path_allow_prefixes` lists the absolute path prefixes the
+  `machine_path` lint treats as operational targets (D124), `require_index_entry` accepts `<c>.md` or
+  `<c>/index.md` for an expanded concept. `map_update` replaces each given key whole and removes it when
+  given an empty list, `false` or `{}`.
+- **`gate_check` / `lint`**: `severity_min` defaults to `warning` for `gate_check` and `info` for `lint`;
+  `pass` and `count` are always computed on the unfiltered results (D186). `scope_neighbors` also lints
+  the 1-hop graph neighbours of the concepts in scope. `gate_check` never infers `scope` from `changed_ids`.
+- **`snapshot`**: appends a log entry and, when `CARTOGRAPHER_GIT_AUTOCOMMIT=true`, a git commit.
+- **`source_register`**: `locator` is a URL or a `{{path:<key>}}` placeholder, never a raw machine path;
+  `sha256` is the lowercase hex digest of the original bytes, computed by the caller; `source_kind` is free
+  text (document, transcript, ticket, thread, web, dataset); `timestamp` is the source's own date.
+- **`kb_status`**: besides the concept metrics (per-type and per-status counts, stale concepts, open
+  contradictions, `open_gaps`) it reports git replication (`has_remote`, `remote_url`, push state, unpushed
+  commits, `git_workflow`), `capabilities` (each per-KB gate, state and controlling key), `sources`
+  `{pending, ingested, skipped}`, `search_misses` (the 10 most frequent zero-result queries of the last 30
+  days), `conformance` (D290; follow the `kb-doctor` skill when `doctor_suggested` is true), `server_version`
+  and `latest_version`. It is read-only and never hits the network.
+
 ## Read-only UI API
 
 Beside the MCP surface the HTTP server serves `/api/ui/v1`, a versioned

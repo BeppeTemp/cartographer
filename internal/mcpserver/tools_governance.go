@@ -78,16 +78,14 @@ func toolReindex(k *kb.KB, rec *searchReconciler, deps Deps) Tool {
 
 func toolValidate(k *kb.KB) Tool {
 	return Tool{
-		Name:     "validate",
-		ReadOnly: true,
-		Description: "Validates KB files: parseable frontmatter, non-empty type, well-formed reserved files, " +
-			"strict ontology where applicable. Returns the list of errors.",
+		Name:        "validate",
+		ReadOnly:    true,
+		Description: "Validates frontmatter, reserved files and strict ontology; returns the errors.",
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"properties": {
 				"scope": {
-					"type": "string",
-					"description": "Path relative to KB root. Empty = entire KB."
+					"type": "string"
 				}
 			}
 		}`),
@@ -120,28 +118,23 @@ func toolValidate(k *kb.KB) Tool {
 
 func toolLint(k *kb.KB) Tool {
 	return Tool{
-		Name:     "lint",
-		ReadOnly: true,
-		Description: "Runs deterministic lint checks: broken links, stale claims (review_after in the past), " +
-			"orphan concepts (no incoming links). Returns findings with severity. 'severity_min' sets the " +
-			"floor (info/warning/error, default info: lint is the tool you call to *see* findings, so its " +
-			"default stays exhaustive). Every response also carries counts_by_check and counts_by_severity " +
-			"computed before filtering, and 'count' is always the unfiltered total (D186).",
+		Name:        "lint",
+		ReadOnly:    true,
+		Description: "Deterministic checks: broken links, stale claims (review_after past), orphans. Returns findings with severity. severity_min sets the floor (default info). counts_by_check and counts_by_severity are computed before filtering; count is the unfiltered total.",
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"properties": {
 				"scope": {
-					"type": "string",
-					"description": "Path prefix to lint (e.g. 'maintenance'). Empty = entire KB."
+					"type": "string"
 				},
 				"scope_neighbors": {
 					"type": "boolean",
-					"description": "Also lint 1-hop graph neighbors of concepts in scope (default false)."
+					"description": "Also lint 1-hop neighbors"
 				},
 				"severity_min": {
 					"type": "string",
 					"enum": ["info", "warning", "error"],
-					"description": "Lowest severity to return. Optional, default 'info' (everything)."
+					"description": "info (default), warning or error"
 				}
 			}
 		}`),
@@ -260,36 +253,28 @@ func toolCommitGate(k *kb.KB) Tool {
 
 func toolGateCheck(k *kb.KB) Tool {
 	return Tool{
-		Name:     "gate_check",
-		ReadOnly: true,
-		Description: "Lightweight local gate: runs validate + lint + commit_gate in one call. " +
-			"Returns pass/fail with details. Use before fast-forwarding to main. " +
-			"'severity_min' sets the lint floor (info/warning/error, default 'warning': the info checks " +
-			"cannot fail the gate, so an agent that wants them asks). 'scope' gates only that path prefix " +
-			"— empty, the default, gates the whole KB; the caller owns that choice and the tool never " +
-			"infers it from changed_ids. 'pass' is always computed on the unfiltered, whole-scope results, " +
-			"so a floor can never turn a failing gate into a passing one (D186).",
+		Name:        "gate_check",
+		ReadOnly:    true,
+		Description: "Local gate: validate + lint + commit_gate in one call; pass/fail with details. Use before fast-forwarding to main. severity_min sets the lint floor (default warning); scope gates a path prefix (default whole KB). pass ignores the floor: it covers the whole unfiltered scope.",
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"required": ["changed_ids"],
 			"properties": {
 				"changed_ids": {
 					"type": "array",
-					"items": {"type": "string"},
-					"description": "List of concept IDs that were modified"
+					"items": {"type": "string"}
 				},
 				"severity_min": {
 					"type": "string",
 					"enum": ["info", "warning", "error"],
-					"description": "Lowest lint severity to return. Optional, default 'warning'. Never affects 'pass'."
+					"description": "info, warning (default) or error; never affects pass"
 				},
 				"scope": {
-					"type": "string",
-					"description": "Path prefix to validate and lint (e.g. 'maintenance'). Optional, empty = the whole KB."
+					"type": "string"
 				},
 				"scope_neighbors": {
 					"type": "boolean",
-					"description": "Also lint 1-hop graph neighbors of concepts in scope (default false)."
+					"description": "Also lint 1-hop neighbors"
 				}
 			}
 		}`),
@@ -518,7 +503,7 @@ func kbCapabilities(k *kb.KB) map[string]KBCapability {
 func toolKBStatus(k *kb.KB, misses *searchMissLog, serverVersion string, latestVersion func() string) Tool {
 	return Tool{
 		Name:        "kb_status",
-		Description: "Returns aggregate metrics about the KB (total concepts, per-type counts, per-status counts (concepts with no status field are excluded), stale concepts (review_after in the past), open contradictions (gap kinds excluded), plus open_gaps: knowledge gaps recorded as Contradiction concepts with contradiction_kind missing_context or open_question — total, by_kind and the 10 newest, omitted when zero) plus its git replication state: whether a remote is configured (has_remote/remote_url), the push state and any unpushed commits, and the write workflow (git_workflow: local commit-and-push or server PR boundary), plus a capabilities section naming each per-KB gate (artifact_write, secrets, git_sync, git_workflow, tool_prefix, mount), its state, and the configuration key that controls it, plus sources: {pending, ingested, skipped} counts of the source ledger (Source concepts, D278; omitted when the KB has none), plus search_misses: the 10 most frequent queries of the last 30 days that found nothing, with count and last_seen (omitted when there are none) — evidence of knowledge gaps, plus conformance: {findings by severity, fixable, last_doctor, doctor_suggested}, the KB's drift from the current standard (D290; when doctor_suggested is true, follow the kb-doctor skill), plus server_version and, when a newer release is known, latest_version. Read-only, never hits the network.",
+		Description: "KB health in one call: concept counts (by type, status), stale concepts, open contradictions and gaps, git replication state, capabilities (each per-KB gate, its state and controlling key), source-ledger counts, frequent search misses, versions, and conformance: {findings by severity, fixable, last_doctor, doctor_suggested}, the drift from the current standard. When doctor_suggested is true, follow the kb-doctor skill. Read-only.",
 		ReadOnly:    true,
 		InputSchema: json.RawMessage(`{"type":"object","properties":{}}`),
 		Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
@@ -829,12 +814,9 @@ func toolContradictionReport(k *kb.KB) Tool {
 // NOT wrapped with gitWrap (no write, no sync).
 func toolConflictsList(k *kb.KB) Tool {
 	return Tool{
-		Name:     "conflicts_list",
-		ReadOnly: true,
-		Description: "Lists open git rebase conflicts registered on this KB. " +
-			"Each entry includes the affected concept, the local and remote SHAs, " +
-			"the branch, and the list of conflicting files. Use the kb-conflict-resolve skill " +
-			"for the step-by-step resolution procedure.",
+		Name:        "conflicts_list",
+		ReadOnly:    true,
+		Description: "Lists open git rebase conflicts: concept, local/remote SHAs, branch, files. Resolve with git_conflict_resolve (kb-conflict-resolve skill).",
 		InputSchema: json.RawMessage(`{"type":"object","properties":{}}`),
 		Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
 			conflicts, err := k.ListConflicts()
@@ -894,19 +876,15 @@ func toolConflictsList(k *kb.KB) Tool {
 // and must not trigger the SyncIn/SyncOut wrapper (which would re-hit the conflict).
 func toolGitConflictResolve(k *kb.KB) Tool {
 	return Tool{
-		Name: "git_conflict_resolve",
-		Description: "Resolves a registered git conflict on a concept. strategy: " +
-			"'ours' keeps the local version, 'theirs' takes the remote version, 'edit' uses the " +
-			"full reconciled file content passed in 'body'. The decision is recorded; once every " +
-			"open conflict (see conflicts_list) has a recorded resolution, Cartographer performs a " +
-			"single merge, commits, pushes, and removes the degraded markers.",
+		Name:        "git_conflict_resolve",
+		Description: "Resolves a registered git conflict. strategy: ours (local), theirs (remote), edit (reconciled content in body). When every open conflict (conflicts_list) has a resolution, Cartographer merges, commits, pushes and clears the degraded markers.",
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"required": ["concept_id", "strategy"],
 			"properties": {
-				"concept_id": {"type": "string", "description": "The conflicting concept ID (from conflicts_list)."},
-				"strategy": {"type": "string", "enum": ["ours", "theirs", "edit"], "description": "ours=local, theirs=remote, edit=use body."},
-				"body": {"type": "string", "description": "Full reconciled file content (frontmatter + body); required when strategy=edit."}
+				"concept_id": {"type": "string"},
+				"strategy": {"type": "string", "enum": ["ours", "theirs", "edit"]},
+				"body": {"type": "string", "description": "Full file content; for edit"}
 			}
 		}`),
 		Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {

@@ -19,29 +19,25 @@ import (
 
 func toolConceptWrite(k *kb.KB) Tool {
 	return Tool{
-		Name: "concept_write",
-		Description: "Creates or updates a concept. Requires frontmatter (YAML map) and markdown body. " +
-			"Uses if_match (content-hash) for optimistic concurrency: fails with stale_write " +
-			"if content was modified. Returns the new content_hash and the concept's lint findings.",
+		Name:        "concept_write",
+		Description: "Creates or updates a concept from frontmatter (YAML map, type required) and a markdown body. if_match (content hash) gives optimistic concurrency: stale_write if changed. Returns content_hash and lint findings.",
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"required": ["id", "frontmatter", "body"],
 			"properties": {
 				"id": {
-					"type": "string",
-					"description": "ConceptID (path relative to KB root without .md)"
+					"type": "string"
 				},
 				"frontmatter": {
 					"type": "object",
-					"description": "Frontmatter key-value map. The type field is required. Values can be strings or string arrays."
+					"description": "Map; type required"
 				},
 				"body": {
-					"type": "string",
-					"description": "Markdown body"
+					"type": "string"
 				},
 				"if_match": {
 					"type": "string",
-					"description": "Expected content-hash (optional, for optimistic concurrency)"
+					"description": "Optional content hash"
 				}
 			}
 		}`),
@@ -100,17 +96,14 @@ func toolConceptWrite(k *kb.KB) Tool {
 // literal substitution and never carries if_match overwrite semantics.
 func toolConceptNew(k *kb.KB) Tool {
 	return Tool{
-		Name: "concept_new",
-		Description: "Creates a new concept from a KB-only template (git commit). Template variables are substituted once, " +
-			"literally, in frontmatter values and the body. It refuses an existing target; use concept_write or concept_patch " +
-			"to update one. It does not pre-check strict-map ontology because a template may legitimately serve several maps, " +
-			"and it does not curate map indexes.",
+		Name:        "concept_new",
+		Description: "Creates a concept from a KB-only template (see template_list); variables are substituted literally. Refuses an existing id (use concept_write/concept_patch). No strict-ontology pre-check, no index curation.",
 		InputSchema: json.RawMessage(`{
 			"type":"object", "required":["template", "id"],
 			"properties": {
-				"template":{"type":"string","description":"Template slug from template_list"},
-				"id":{"type":"string","description":"New ConceptID (path relative to KB root without .md)"},
-				"vars":{"type":"object","additionalProperties":{"type":"string"},"description":"Optional template variable values"}
+				"template":{"type":"string"},
+				"id":{"type":"string"},
+				"vars":{"type":"object","additionalProperties":{"type":"string"}}
 			}
 		}`),
 		Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
@@ -345,44 +338,29 @@ func applyPatchEdit(body, oldString, newString string, replaceAll bool) (newBody
 func toolConceptPatch(k *kb.KB) Tool {
 	return Tool{
 		Name: "concept_patch",
-		Description: "Patches a concept's body with an old_string/new_string replacement " +
-			"(Edit-tool semantics), without rewriting the whole content. Accepts either a single " +
-			"top-level old_string/new_string/replace_all triple or an 'edits' array of {old_string, " +
-			"new_string, replace_all?} objects applied atomically and in order (each edit sees the " +
-			"result of the previous one); the two forms are mutually exclusive. if_match is required " +
-			"(a patch only makes sense against an already-read concept): fails with stale_write " +
-			"if content changed since. Fails with old_string_not_found or old_string_ambiguous " +
-			"(pass replace_all to allow multiple matches); for a batch, the error names the failing " +
-			"edit's index and nothing is written. frontmatter, if given, is shallow-merged onto the " +
-			"existing frontmatter and may be the only change (no body edit needed, e.g. to set a missing " +
-			"title); set a key to null to remove it (fails if the key is required, e.g. " +
-			"'type'). Returns the new content_hash and the concept's lint findings. " +
-			fmt.Sprintf("For a change spanning several concepts prefer concept_batch: one atomic commit for up "+
-				"to %d operations, against one commit per concept_patch call. It is operator-level tooling and "+
-				"is not advertised in tools/list, but it is callable by name.", conceptBatchMaxOps),
+		Description: "Edit-tool-style patch of a concept's body: one old_string/new_string/replace_all or an edits array of {old_string, new_string, replace_all?} applied atomically in order (exclusive forms). if_match is required: stale_write if changed. Fails with old_string_not_found or old_string_ambiguous (use replace_all); a batch error names the failing edit, nothing is written. frontmatter is shallow-merged (null removes a key; type refused) and may be the only change. Returns content_hash, lint findings. " +
+			fmt.Sprintf("Many concepts: concept_batch (unlisted, callable by name), up to %d operations in one commit.", conceptBatchMaxOps),
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"required": ["id", "if_match"],
 			"properties": {
 				"id": {
-					"type": "string",
-					"description": "ConceptID (path relative to KB root without .md)"
+					"type": "string"
 				},
 				"old_string": {
 					"type": "string",
-					"description": "Exact substring to find in the concept's current body (single-edit form, mutually exclusive with 'edits')"
+					"description": "Exact text to find (single form)"
 				},
 				"new_string": {
-					"type": "string",
-					"description": "Replacement text (single-edit form, mutually exclusive with 'edits')"
+					"type": "string"
 				},
 				"replace_all": {
 					"type": "boolean",
-					"description": "Replace all occurrences of old_string. Default false: old_string must match exactly once. (single-edit form, mutually exclusive with 'edits')"
+					"description": "Replace every match; default: must match once"
 				},
 				"edits": {
 					"type": "array",
-					"description": "Batch form: list of {old_string, new_string, replace_all?} applied atomically and in order. Mutually exclusive with old_string/new_string/replace_all.",
+					"description": "Batch form; exclusive with the single form",
 					"items": {
 						"type": "object",
 						"required": ["old_string", "new_string"],
@@ -394,12 +372,11 @@ func toolConceptPatch(k *kb.KB) Tool {
 					}
 				},
 				"if_match": {
-					"type": "string",
-					"description": "Expected content-hash (required)"
+					"type": "string"
 				},
 				"frontmatter": {
 					"type": "object",
-					"description": "Optional: frontmatter keys to shallow-merge onto the existing frontmatter (e.g. bump 'aggiornato'). May be given alone, with no body edit. Keys not listed are left untouched; set a key to null to remove it (fails if the key is required, e.g. 'type')."
+					"description": "Keys to shallow-merge; null removes a key"
 				}
 			}
 		}`),
@@ -539,42 +516,27 @@ func normalizeIndexPath(path string) string {
 // concepts.
 func toolIndexPatch(k *kb.KB) Tool {
 	return Tool{
-		Name: "index_patch",
-		Description: "Patches the root or a Map/Journal's curated index.md with an old_string/new_string " +
-			"replacement (Edit-tool semantics), the same bounded primitive as concept_patch but for a " +
-			"curated index rather than a concept. Accepts either a single top-level " +
-			"old_string/new_string/replace_all triple or an 'edits' array of {old_string, new_string, " +
-			"replace_all?} objects applied atomically and in order (each edit sees the result of the " +
-			"previous one); the two forms are mutually exclusive. if_match is required (read the current " +
-			"content_hash with index_get(with_hash=true) first): fails with stale_write if the index " +
-			"changed since. Fails with old_string_not_found or old_string_ambiguous (pass replace_all to " +
-			"allow multiple matches); for a batch, the error names the failing edit's index and nothing " +
-			"is written. An expanded concept's own index.md (e.g. 'map/concept') is not a curated index " +
-			"and is rejected with expanded_index — use concept_patch(id=<owner>) for that instead. " +
-			"Returns the normalized path, new content_hash, and replacement count.",
+		Name:        "index_patch",
+		Description: "Like concept_patch, for the root or a Map/Journal curated index.md (same edit forms; if_match required, from index_get with_hash). An expanded concept's own index.md is refused with expanded_index: use concept_patch. Returns path, content_hash, replacement count.",
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"required": ["if_match"],
 			"properties": {
 				"path": {
 					"type": "string",
-					"description": "Path relative to KB root: empty/root, or a Map/Journal name (e.g. 'maintenance')."
+					"description": "Empty (root) or a Map/Journal name"
 				},
 				"old_string": {
-					"type": "string",
-					"description": "Exact substring to find in the index's current content (single-edit form, mutually exclusive with 'edits')"
+					"type": "string"
 				},
 				"new_string": {
-					"type": "string",
-					"description": "Replacement text (single-edit form, mutually exclusive with 'edits')"
+					"type": "string"
 				},
 				"replace_all": {
-					"type": "boolean",
-					"description": "Replace all occurrences of old_string. Default false: old_string must match exactly once. (single-edit form, mutually exclusive with 'edits')"
+					"type": "boolean"
 				},
 				"edits": {
 					"type": "array",
-					"description": "Batch form: list of {old_string, new_string, replace_all?} applied atomically and in order. Mutually exclusive with old_string/new_string/replace_all.",
 					"items": {
 						"type": "object",
 						"required": ["old_string", "new_string"],
@@ -586,8 +548,7 @@ func toolIndexPatch(k *kb.KB) Tool {
 					}
 				},
 				"if_match": {
-					"type": "string",
-					"description": "Expected content-hash (required)"
+					"type": "string"
 				}
 			}
 		}`),
@@ -698,65 +659,60 @@ var (
 func toolMapCreate(k *kb.KB) Tool {
 	return Tool{
 		Name:        "map_create",
-		Description: "Creates a new Map or Journal in the Atlas (directory with _map.md, index.md, log.md). A Map holds mixed concept types on a theme; a Journal is a chronological log (e.g. incidents, notes). Concepts grow into expanded concepts via concept_expand, not via a separate creation step. The name \"services\" is reserved for the KB-root service-descriptor namespace and is refused for every kind (this is unrelated to the Service concept type).",
+		Description: "Creates a Map (themed) or Journal (kind: journal, chronological, e.g. incidents) with _map.md, index.md, log.md. ontology_mode: strict (concept_types enforced) or flexible (default). Concepts grow via concept_expand. 'services' is reserved. Contract options are lint contracts, not a write gate.",
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"required": ["name", "title"],
 			"properties": {
 				"name": {
-					"type": "string",
-					"description": "Directory name in kebab-case; \"services\" is reserved (service descriptors) and refused"
+					"type": "string"
 				},
 				"title": {
-					"type": "string",
-					"description": "Human-readable title"
+					"type": "string"
 				},
 				"kind": {
-					"type": "string",
-					"description": "\"map\" (thematic, default) or \"journal\" (chronological log, e.g. incidents/notes)"
+					"type": "string"
 				},
 				"concept_types": {
 					"type": "array",
-					"items": {"type": "string"},
-					"description": "Allowed types when ontology_mode=strict"
+					"items": {"type": "string"}
 				},
 				"ontology_mode": {
-					"type": "string",
-					"description": "strict or flexible (default: flexible)"
+					"type": "string"
 				},
 				"required_fields": {
 					"type": "array",
 					"items": {"type": "string"},
-					"description": "Frontmatter fields every concept in this map must carry. Lint contract, not a write gate: a missing field is reported as missing_required_field (error severity) by lint/validate and does not fail concept_write."
+					"description": "Fields every concept must carry"
 				},
 				"required_fields_by_type": {
 					"type": "object",
 					"additionalProperties": {"type": "array", "items": {"type": "string"}},
-					"description": "Additional required fields keyed by exact concept type. Lint contract, not a write gate."
+					"description": "type -> required fields"
 				},
 				"field_values": {
 					"type": "object",
 					"additionalProperties": {"type": "array", "items": {"type": "string"}},
-					"description": "Allowed values per frontmatter field, for every concept in this map (field -> values). Lint contract, not a write gate: a value outside the list is reported as invalid_field_value (error severity). An absent field is not checked (use required_fields)."
+					"description": "field -> allowed values"
 				},
 				"field_values_by_type": {
 					"type": "object",
 					"additionalProperties": {"type": "object", "additionalProperties": {"type": "array", "items": {"type": "string"}}},
-					"description": "Allowed values keyed by exact concept type, then field (type -> field -> values). Replaces the map-wide list for that field on that type. Lint contract, not a write gate."
+					"description": "type -> field -> values; overrides field_values"
 				},
 				"forbidden_fields": {
 					"type": "array",
 					"items": {"type": "string"},
-					"description": "Frontmatter fields no concept in this map may carry (e.g. a legacy name). Lint contract, not a write gate: reported as forbidden_field (error severity)."
+					"description": "Fields no concept may carry"
 				},
 				"require_index_entry": {
 					"type": "boolean",
-					"description": "Require each concept to be linked from its curated index. Lint contract, not a write gate. An expanded concept may be linked either <c>.md or <c>/index.md; both satisfy the check."
+					"description": "Concepts must be linked from the curated index"
 				},
 				"machine_path_allow_prefixes": {
 					"type": "array",
 					"items": {"type": "string"},
-					"description": "Absolute path prefixes (POSIX or Windows) that the machine_path lint should treat as this map's operational target paths rather than client-local paths (D124)"
+					"description": "Path prefixes machine_path accepts"
 				}
 			}
 		}`),
@@ -888,54 +844,41 @@ func validateFieldValueParams(values map[string][]string, byType map[string]map[
 
 func toolMapUpdate(k *kb.KB) Tool {
 	return Tool{
-		Name: "map_update",
-		Description: "Changes the lint contract of an existing Map or Journal (the keys map_create accepts: " +
-			"require_index_entry, required_fields, required_fields_by_type, field_values, field_values_by_type, " +
-			"forbidden_fields, machine_path_allow_prefixes). " +
-			"Only the keys given change; an empty list or false removes one. Use it to opt an older map in to " +
-			"require_index_entry, after which concept_move maintains its curated index.md and lint reports " +
-			"missing entries. Returns the contract as read back.",
+		Name:        "map_update",
+		Description: "Changes the lint contract of an existing Map or Journal: only the keys given (as in map_create) change, each replaced whole; an empty list, false or {} removes it. Returns the contract. Opt an older map into require_index_entry so concept_move maintains its index.",
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"required": ["map"],
 			"properties": {
 				"map": {
-					"type": "string",
-					"description": "Map/journal directory name (as passed to map_create)"
+					"type": "string"
 				},
 				"required_fields": {
 					"type": "array",
-					"items": {"type": "string"},
-					"description": "Replaces the fields every concept in this map must carry; [] removes the requirement. Lint contract, not a write gate."
+					"items": {"type": "string"}
 				},
 				"required_fields_by_type": {
 					"type": "object",
-					"additionalProperties": {"type": "array", "items": {"type": "string"}},
-					"description": "Replaces every per-type requirement (types not listed lose theirs); {} removes them all. Lint contract, not a write gate."
+					"additionalProperties": {"type": "array", "items": {"type": "string"}}
 				},
 				"field_values": {
 					"type": "object",
-					"additionalProperties": {"type": "array", "items": {"type": "string"}},
-					"description": "Replaces every map-wide allowed-values list (field -> values); {} removes them all. Lint contract, not a write gate."
+					"additionalProperties": {"type": "array", "items": {"type": "string"}}
 				},
 				"field_values_by_type": {
 					"type": "object",
-					"additionalProperties": {"type": "object", "additionalProperties": {"type": "array", "items": {"type": "string"}}},
-					"description": "Replaces every per-type allowed-values list (type -> field -> values); {} removes them all. Lint contract, not a write gate."
+					"additionalProperties": {"type": "object", "additionalProperties": {"type": "array", "items": {"type": "string"}}}
 				},
 				"forbidden_fields": {
 					"type": "array",
-					"items": {"type": "string"},
-					"description": "Replaces the fields no concept in this map may carry; [] removes them. Lint contract, not a write gate."
+					"items": {"type": "string"}
 				},
 				"require_index_entry": {
-					"type": "boolean",
-					"description": "Require each concept to be linked from its curated index; false removes the requirement. Lint contract, not a write gate."
+					"type": "boolean"
 				},
 				"machine_path_allow_prefixes": {
 					"type": "array",
-					"items": {"type": "string"},
-					"description": "Replaces the path prefixes the machine_path lint treats as operational target paths (D124); [] removes them."
+					"items": {"type": "string"}
 				}
 			}
 		}`),
@@ -1040,18 +983,14 @@ func nonNilStrings(v []string) []string {
 
 func toolMapDelete(k *kb.KB) Tool {
 	return Tool{
-		Name: "map_delete",
-		Description: "Deletes a Map or Journal directory, but only if it is empty — i.e. it contains " +
-			"nothing but the scaffold files written by map_create (_map.md, index.md, log.md). If any " +
-			"concept remains under it, the map is left untouched and the error lists them: move them " +
-			"first with concept_move, then retry.",
+		Name:        "map_delete",
+		Description: "Deletes a Map or Journal only if empty (just the scaffold _map.md, index.md, log.md). Otherwise nothing changes and the error lists the concepts: concept_move them first.",
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"required": ["map"],
 			"properties": {
 				"map": {
-					"type": "string",
-					"description": "Map/journal directory name (as passed to map_create)"
+					"type": "string"
 				}
 			}
 		}`),
@@ -1085,18 +1024,14 @@ func toolMapDelete(k *kb.KB) Tool {
 
 func toolConceptExpand(k *kb.KB) Tool {
 	return Tool{
-		Name: "concept_expand",
-		Description: "Promotes a concept into an expanded concept: turns \"<id>.md\" into a directory " +
-			"\"<id>/\" whose index.md holds the same content under the same ID, so it can grow satellite " +
-			"concepts (\"<id>/<child>\") without changing its ID or breaking existing links. Requires id " +
-			"to have exactly two segments (map/concept). There is no inverse (concept_collapse).",
+		Name:        "concept_expand",
+		Description: "Turns <id>.md into a directory <id>/ whose index.md keeps the same ID, so the concept can hold satellites <id>/<child>; links keep working. id needs exactly two segments (map/concept). No inverse.",
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"required": ["id"],
 			"properties": {
 				"id": {
-					"type": "string",
-					"description": "ConceptID to expand (path relative to KB root without .md, exactly 2 segments: map/concept)"
+					"type": "string"
 				}
 			}
 		}`),
@@ -1130,22 +1065,18 @@ func toolConceptExpand(k *kb.KB) Tool {
 
 func toolLogAppend(k *kb.KB) Tool {
 	return Tool{
-		Name: "log_append",
-		Description: "Appends an entry to the root log.md (newest-on-top). If path is given, the entry " +
-			"is prefixed '[<path>] ' and still written to the root log — there is no per-directory log.md " +
-			"(root-log-with-prefix convention, D78). Use log_tail(path) to read it back: it filters the " +
-			"root log by that prefix.",
+		Name:        "log_append",
+		Description: "Appends an entry to the root log.md (newest first). With path, the entry is prefixed '[<path>] ' in the root log (no per-directory log); read back with log_tail(path).",
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"required": ["entry"],
 			"properties": {
 				"entry": {
-					"type": "string",
-					"description": "Log entry text"
+					"type": "string"
 				},
 				"path": {
 					"type": "string",
-					"description": "Relative folder (optional, default root). Written to the root log as '[<path>] entry', not to a per-directory log.md (D78)."
+					"description": "Optional folder prefix"
 				}
 			}
 		}`),
@@ -1180,15 +1111,13 @@ func toolLogAppend(k *kb.KB) Tool {
 
 func toolSnapshot(k *kb.KB) Tool {
 	return Tool{
-		Name: "snapshot",
-		Description: "Creates a KB snapshot: records a log entry and, when git auto-commit " +
-			"is enabled (CARTOGRAPHER_GIT_AUTOCOMMIT=true), also creates a git commit.",
+		Name:        "snapshot",
+		Description: "Logs a KB snapshot entry and, with git auto-commit enabled, a git commit.",
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"properties": {
 				"message": {
-					"type": "string",
-					"description": "Snapshot message (optional)"
+					"type": "string"
 				}
 			}
 		}`),
@@ -1222,22 +1151,22 @@ func toolSnapshot(k *kb.KB) Tool {
 func toolSupersede(k *kb.KB) Tool {
 	return Tool{
 		Name:        "supersede",
-		Description: "Marks a concept as superseded by another. Sets status=superseded and records the successor concept ID.",
+		Description: "Marks a concept as superseded by another: sets status=superseded and records the successor.",
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"required": ["source_id", "target_id"],
 			"properties": {
 				"source_id": {
 					"type": "string",
-					"description": "Concept ID of the concept to supersede"
+					"description": "Concept to supersede"
 				},
 				"target_id": {
 					"type": "string",
-					"description": "Concept ID of the replacement concept"
+					"description": "Replacement concept"
 				},
 				"reason": {
 					"type": "string",
-					"description": "Optional reason for supersession"
+					"description": "Why"
 				}
 			}
 		}`),
@@ -1309,30 +1238,20 @@ type rewrittenConcept struct {
 
 func toolConceptMove(k *kb.KB) Tool {
 	return Tool{
-		Name: "concept_move",
-		Description: "Moves one or more concepts to new paths within the KB, in a single commit. " +
-			"Accepts either a single source_id/target_id pair or a 'moves' array of {source_id, " +
-			"target_id} objects (the two forms are mutually exclusive). Every entry is fully " +
-			"validated (source exists, target free — including against other targets in the same " +
-			"batch —, no path traversal, no duplicate source_id) before anything is applied: an " +
-			"invalid entry aborts the whole batch, no move is applied. After applying the moves, " +
-			"unless rewrite_links=false, the server rewrites in a single pass every inbound wiki-link " +
-			"([[old-id]], [[old-id#section]]) and markdown link across the whole KB (including " +
-			"services/) to point at the new IDs. Moves work across namespaces (a map and the KB-root services/ tree) in any direction: on success the old ID is gone and the new one is readable. Moving an expanded concept moves its whole directory, including assets and satellite concepts; inbound links to assets are intentionally left unchanged. A filesystem failure after a target was written is reported as an error naming both IDs; it is not rolled back.",
+		Name:        "concept_move",
+		Description: "Moves concepts to new IDs in one commit: one source_id/target_id pair or a moves array (exclusive). All entries are validated first (source exists, target free, no traversal or duplicate source); an invalid one aborts the batch. Unless rewrite_links=false, inbound links KB-wide are rewritten. Works across maps and services/. An expanded concept moves with assets and satellites. A mid-batch filesystem failure names both IDs, no rollback.",
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"properties": {
 				"source_id": {
-					"type": "string",
-					"description": "Concept ID of the concept to move (single-move form, mutually exclusive with 'moves')"
+					"type": "string"
 				},
 				"target_id": {
-					"type": "string",
-					"description": "Destination concept ID, path relative to KB root without .md (single-move form, mutually exclusive with 'moves')"
+					"type": "string"
 				},
 				"moves": {
 					"type": "array",
-					"description": "Batch form: list of {source_id, target_id} pairs. Mutually exclusive with source_id/target_id.",
+					"description": "Batch of {source_id, target_id} pairs; exclusive with the single pair",
 					"items": {
 						"type": "object",
 						"required": ["source_id", "target_id"],
@@ -1343,8 +1262,7 @@ func toolConceptMove(k *kb.KB) Tool {
 					}
 				},
 				"rewrite_links": {
-					"type": "boolean",
-					"description": "Rewrite inbound wiki-links and markdown links across the KB to the new IDs. Default true."
+					"type": "boolean"
 				}
 			}
 		}`),
@@ -2381,26 +2299,22 @@ func mapContractViolation(k *kb.KB, id string, fm *okf.Frontmatter) error {
 
 func toolConceptDelete(k *kb.KB) Tool {
 	return Tool{
-		Name: "concept_delete",
-		Description: "Permanently removes a concept from the KB (git commit). Refuses with " +
-			"'inbound_links:' (listing the concepts that link to it) unless force=true; links are never " +
-			"rewritten — use supersede to retire a page while keeping it, or concept_move to rename with " +
-			"backlink rewrite. A Source cited through another concept's provenance counts as linked (D278). Deleting an expanded concept that owns assets also requires force=true; satellite concepts are preserved.",
+		Name:        "concept_delete",
+		Description: "Permanently removes a concept (git commit). Refuses with inbound_links (listing the linkers) unless force=true; links are never rewritten. To keep the page use supersede; to rename, concept_move. An expanded concept that owns assets also needs force=true.",
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"required": ["id"],
 			"properties": {
 				"id": {
-					"type": "string",
-					"description": "ConceptID (path relative to KB root without .md)"
+					"type": "string"
 				},
 				"if_match": {
 					"type": "string",
-					"description": "Expected content-hash (optional, for optimistic concurrency)"
+					"description": "Optional content hash"
 				},
 				"force": {
 					"type": "boolean",
-					"description": "Accept the destructive side effects: leave inbound links from other concepts broken, and delete the non-Markdown assets owned by an expanded concept"
+					"description": "Accept broken inbound links and deletion of an expanded concept's assets"
 				}
 			}
 		}`),

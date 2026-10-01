@@ -235,19 +235,18 @@ func contractRenameUpdate(c kb.MapContract, ren map[string]string) (kb.MapContra
 func toolKBRepair(k *kb.KB) Tool {
 	return Tool{
 		Name: "kb_repair",
-		Description: "Applies the mechanical fix that lint attaches to the findings of one check (" +
-			strings.Join(lint.FixableChecks, ", ") + "): renames or drops a frontmatter field across the KB " +
-			"in one commit, and rewrites a map's required_fields/field_values that name a renamed field. " +
-			"dry_run defaults to true and writes nothing: it returns the plan. A concept changed since it was " +
-			"listed is skipped, never overwritten. Judgement fixes are not done here (use the kb-doctor skill).",
+		Description: "Applies the mechanical fix lint attaches to one check (" + strings.Join(lint.FixableChecks, ", ") +
+			"): renames or drops a frontmatter field KB-wide in one commit, updating map required_fields/field_values " +
+			"that name it. dry_run defaults to true (plan only). Concepts changed since listing are skipped. " +
+			"Judgement fixes: kb-doctor skill.",
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"required": ["check"],
 			"properties": {
-				"check": {"type": "string", "description": "A lint check that emits fixes."},
-				"scope": {"type": "string", "description": "Path prefix, as in lint. Empty = whole KB."},
-				"dry_run": {"type": "boolean", "description": "Default true: plan only, write nothing."},
-				"limit": {"type": "integer", "description": "Repair at most this many concepts."}
+				"check": {"type": "string"},
+				"scope": {"type": "string"},
+				"dry_run": {"type": "boolean", "description": "Default true"},
+				"limit": {"type": "integer"}
 			}
 		}`),
 		Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {

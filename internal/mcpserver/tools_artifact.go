@@ -183,22 +183,17 @@ func rejectArtifactTreeSymlinks(root string) error {
 
 func toolArtifactRead(k *kb.KB, allowlist []provisioning.MCPAllowlistEntry) Tool {
 	return Tool{
-		Name:     "artifact_read",
-		ReadOnly: true,
-		Description: "Reads a KB-root artifact file (provisioning artifacts under skills/, agents/, hooks/, mcp/, " +
-			"or instructions.md; KB-only templates/<slug>.md, paths.yaml, the KB's declared " +
-			"{{path:…}}/{{repo:…}} placeholder keys, and glossary.yaml, its terminology). Returns content and " +
-			"sha256 — use the sha256 as if_match for a subsequent artifact_write/artifact_delete, which are " +
-			"registered only when this KB sets kbs[].allow_artifact_write: true (see kb_status capabilities).",
+		Name:        "artifact_read",
+		ReadOnly:    true,
+		Description: "Reads a KB-root artifact (skills/, agents/, hooks/, mcp/, instructions.md, templates/<slug>.md, paths.yaml, glossary.yaml). Returns content and sha256, the if_match for artifact_write/artifact_delete (present only if the KB sets allow_artifact_write).",
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"required": ["path"],
 			"properties": {
 				"path": {
-					"type": "string",
-					"description": "Path relative to the KB root, e.g. skills/my-skill/SKILL.md"
+					"type": "string"
 				}
-				,"encoding": {"type":"string","enum":["text","base64"],"description":"Optional requested response encoding; defaults to text, but non-UTF-8 content is always returned as base64"}
+				,"encoding": {"type":"string","enum":["text","base64"]}
 			}
 		}`),
 		Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
@@ -390,8 +385,7 @@ func scanTemplates(k *kb.KB) ([]templateListEntry, error) {
 func toolTemplateList(k *kb.KB) Tool {
 	return Tool{
 		Name: "template_list", ReadOnly: true,
-		Description: "Lists KB-only concept templates with slug, literal type, title, and sorted variables. " +
-			"Use artifact_read to retrieve a template body.",
+		Description: "Lists KB-only concept templates: slug, type, title, variables. Read a template body with artifact_read.",
 		InputSchema: json.RawMessage(`{"type":"object","properties":{}}`),
 		Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
 			templates, err := scanTemplates(k)

@@ -67,23 +67,20 @@ func fmString(fm *okf.Frontmatter, key string) string {
 
 func toolSourceRegister(k *kb.KB) Tool {
 	return Tool{
-		Name: "source_register",
-		Description: "Records a primary source (document, transcript, ticket, thread, web page...) in the KB's source ledger BEFORE ingesting it, as a concept of type Source in a journal (default 'sources', which must already exist: map_create(name: \"sources\", kind: \"journal\")). " +
-			"Deduplicates first: a source with the same sha256 (when both have one), otherwise the same locator, is not registered again — the result is {id, duplicate: true, ingest_status} and nothing is written. A title match is not a duplicate. " +
-			"Otherwise writes <map>/<YYYY-MM-DD>-<slug> and returns {id, duplicate: false}. The server never fetches or copies the source: body is your distillation (key facts, decisions, open questions). " +
-			"Cite the source from the pages built on it by listing its ID in their provenance, then mark it ingested with concept_patch (ingest_status: ingested, ingested_at).",
+		Name:        "source_register",
+		Description: "Records a primary source in the ledger BEFORE ingesting it, as a Source concept in a journal (default 'sources', which must exist: map_create(name: 'sources', kind: 'journal')). Dedupes by sha256, else locator: returns {id, duplicate: true, ingest_status}, writes nothing; else writes <map>/<YYYY-MM-DD>-<slug>, returns {id, duplicate: false}. Never fetches the source: body is your distillation. Cite its ID in provenance, then mark it ingested via concept_patch (ingest_status, ingested_at).",
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"required": ["title", "source_kind"],
 			"properties": {
-				"title": {"type": "string", "description": "Human title of the source"},
-				"source_kind": {"type": "string", "description": "Free string, e.g. document, transcript, ticket, thread, web, dataset"},
-				"locator": {"type": "string", "description": "Optional URL or {{path:<key>}} placeholder; never a raw machine path"},
-				"sha256": {"type": "string", "description": "Optional lowercase hex SHA-256 of the original bytes, computed by the caller"},
-				"timestamp": {"type": "string", "description": "The source's own date (RFC3339 date or date-time), when known"},
-				"body": {"type": "string", "description": "Distillation of the source: key facts, decisions, open questions"},
-				"map": {"type": "string", "description": "Journal holding the ledger (default 'sources')"},
-				"ingest_status": {"type": "string", "enum": ["pending", "ingested", "skipped"], "description": "Default pending"}
+				"title": {"type": "string"},
+				"source_kind": {"type": "string"},
+				"locator": {"type": "string", "description": "URL or {{path:<key>}}, never a raw path"},
+				"sha256": {"type": "string", "description": "Lowercase hex SHA-256 of the original bytes"},
+				"timestamp": {"type": "string"},
+				"body": {"type": "string", "description": "Distillation: facts, decisions, open questions"},
+				"map": {"type": "string", "description": "Ledger journal; default 'sources'"},
+				"ingest_status": {"type": "string", "enum": ["pending", "ingested", "skipped"]}
 			}
 		}`),
 		Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
@@ -215,16 +212,15 @@ func toolSourceRegister(k *kb.KB) Tool {
 
 func toolSourceList(k *kb.KB) Tool {
 	return Tool{
-		Name: "source_list",
-		Description: "Lists the source ledger (concepts of type Source), oldest first by timestamp then ID — the order a backlog is worked in. " +
-			"status defaults to 'pending' ('*' = all). Each entry: {id, title, source_kind, ingest_status, timestamp?, cited_by}, where cited_by counts the visible concepts listing the source ID in their provenance. Read-only.",
-		ReadOnly: true,
+		Name:        "source_list",
+		Description: "Source ledger (Source concepts), oldest first: {id, title, source_kind, ingest_status, timestamp?, cited_by (concepts citing it in provenance)}. status defaults to pending ('*' = all). Read-only.",
+		ReadOnly:    true,
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"properties": {
-				"status": {"type": "string", "description": "pending (default), ingested, skipped, or '*' for all"},
-				"scope": {"type": "string", "description": "Concept ID prefix filter (e.g. 'sources/'). Empty = all."},
-				"limit": {"type": "integer", "description": "Max entries (default 50, max 500)"}
+				"status": {"type": "string", "description": "pending (default), ingested, skipped or *"},
+				"scope": {"type": "string"},
+				"limit": {"type": "integer"}
 			}
 		}`),
 		Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
