@@ -56,16 +56,15 @@ func clampInt(v, def, lo, hi int) int {
 
 func toolGraphContext(k *kb.KB, rec *searchReconciler, deps Deps) Tool {
 	return Tool{
-		Name:     "graph_context",
-		ReadOnly: true,
-		Description: "Ranked context around a question or a set of concepts: the concepts most related to them, " +
-			"following links in both directions, with the hop count and the concept each was reached through.",
+		Name:        "graph_context",
+		ReadOnly:    true,
+		Description: "Concepts most related to a question or set of concepts, following links both ways, with hop count and the concept each was reached through.",
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"properties": {
-				"query": {"type": "string", "description": "A question or topic; its top search hits seed the ranking"},
-				"ids": {"type": "array", "items": {"type": "string"}, "maxItems": 10, "description": "ConceptIDs to start from (at most 10)"},
-				"limit": {"type": "integer", "description": "Results to return (default 10, 1–30)"}
+				"query": {"type": "string"},
+				"ids": {"type": "array", "items": {"type": "string"}, "maxItems": 10},
+				"limit": {"type": "integer"}
 			}
 		}`),
 		Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
@@ -194,16 +193,15 @@ func toolGraphContext(k *kb.KB, rec *searchReconciler, deps Deps) Tool {
 
 func toolLinkSuggest(k *kb.KB) Tool {
 	return Tool{
-		Name:     "link_suggest",
-		ReadOnly: true,
-		Description: "Suggests existing concepts a concept should probably link to: those sharing at least two " +
-			"neighbours with it and not yet linked either way, ranked so that evidence through hubs counts less.",
+		Name:        "link_suggest",
+		ReadOnly:    true,
+		Description: "Existing concepts this one probably should link to: at least two shared neighbours, not yet linked, hub evidence discounted.",
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"required": ["id"],
 			"properties": {
-				"id": {"type": "string", "description": "ConceptID to suggest links for"},
-				"limit": {"type": "integer", "description": "Candidates to return (default 5, 1–20)"}
+				"id": {"type": "string"},
+				"limit": {"type": "integer"}
 			}
 		}`),
 		Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {

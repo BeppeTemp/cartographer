@@ -6,6 +6,7 @@ Rules to keep the code consistent. New code should resemble the existing code.
 
 - **Everything in English**: code (comments, error messages, identifiers, doc-comments), documentation (`docs/`, `README.md`, `AGENTS.md`), plan issues and D entries.
 - MCP tool `Description`s in English (consumed by LLM agents).
+  They have a size budget (D285, `TestServer_ToolDescriptionBudget`): state what the tool does, when to use it instead of a neighbour and the rules needed to call it; no `D<n>` references, rationale or response-field listings; put the detail in `docs/control-plane.md` §Tool descriptions and their size budget.
 
 ## Go style
 
@@ -32,7 +33,7 @@ Rules to keep the code consistent. New code should resemble the existing code.
 
 - Diagnostic logs on **stderr**; **stdout** reserved for the JSON-RPC protocol.
 - Tool application errors go in the `ToolResult` (`errorResult`, `isError`), not as a JSON-RPC protocol error.
-- Every tool declares an `InputSchema` (JSON Schema) and a keyword-rich `Description` (in English) for discovery by the LLM agent.
+- Every tool declares an `InputSchema` (JSON Schema) and a short, keyword-rich `Description` (in English, within the D285 budget) for discovery by the LLM agent.
 
 ## Tests
 

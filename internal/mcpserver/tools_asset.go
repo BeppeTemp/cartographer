@@ -35,7 +35,7 @@ func toolAssetRead(k *kb.KB) Tool {
 	return Tool{
 		Name:        "asset_read",
 		ReadOnly:    true,
-		Description: "Reads a non-Markdown asset owned by an expanded concept. Returns raw content, encoding, sha256, size, and executable mode; use sha256 as if_match when changing or deleting the asset.",
+		Description: "Reads a non-Markdown asset of an expanded concept: content, encoding, sha256 (the if_match to change or delete it), size, executable mode.",
 		InputSchema: json.RawMessage(`{"type":"object","required":["concept_id","path"],"properties":{"concept_id":{"type":"string"},"path":{"type":"string"},"encoding":{"type":"string","enum":["text","base64"]}}}`),
 		Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
 			var p struct {
@@ -68,7 +68,7 @@ func toolAssetList(k *kb.KB) Tool {
 	return Tool{
 		Name:        "asset_list",
 		ReadOnly:    true,
-		Description: "Lists every non-Markdown regular asset owned by an expanded concept, including its path, size, sha256, and executable mode. Hidden files are skipped; a file above " + byteBudget(kb.AssetMaxFileSize) + " is listed with oversized: true — it cannot be read, only deleted.",
+		Description: "Lists the non-Markdown assets of an expanded concept: path, size, sha256, executable. A file over " + byteBudget(kb.AssetMaxFileSize) + " shows oversized: true (deletable only).",
 		InputSchema: json.RawMessage(`{"type":"object","required":["concept_id"],"properties":{"concept_id":{"type":"string"}}}`),
 		Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
 			var p struct {
@@ -91,8 +91,8 @@ func toolAssetList(k *kb.KB) Tool {
 func toolAssetWrite(k *kb.KB) Tool {
 	return Tool{
 		Name:        "asset_write",
-		Description: "Creates or updates a non-Markdown asset inside an expanded concept. New assets must omit if_match; overwrites require the current raw-byte sha256 from asset_read or asset_list. Content may be text or base64. executable is tri-state: omitted creates non-executable files and preserves an existing mode; true or false explicitly sets the mode. Rejects a file larger than " + byteBudget(kb.AssetMaxFileSize) + ".",
-		InputSchema: json.RawMessage(`{"type":"object","required":["concept_id","path","content"],"properties":{"concept_id":{"type":"string"},"path":{"type":"string"},"content":{"type":"string"},"encoding":{"type":"string","enum":["text","base64"]},"executable":{"type":"boolean","description":"Tri-state: omit to create non-executable or preserve an overwrite; true/false explicitly sets executable mode."},"if_match":{"type":"string"}}}`),
+		Description: "Creates or updates a non-Markdown asset of an expanded concept (max " + byteBudget(kb.AssetMaxFileSize) + "). New: omit if_match; overwrite: if_match = current sha256. Content is text or base64. executable: omit to keep the mode (new files are non-executable).",
+		InputSchema: json.RawMessage(`{"type":"object","required":["concept_id","path","content"],"properties":{"concept_id":{"type":"string"},"path":{"type":"string"},"content":{"type":"string"},"encoding":{"type":"string","enum":["text","base64"]},"executable":{"type":"boolean"},"if_match":{"type":"string"}}}`),
 		Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
 			var p struct {
 				ConceptID  string `json:"concept_id"`
