@@ -75,6 +75,11 @@ unique token; ask the client to repeat it.
   listed and connected.
 - Instructions: token in `$HOME/.claude/CLAUDE.md` (project: `CLAUDE.md`), asked
   back.
+- Project `AGENTS.md` (since 2.1.277): token in `AGENTS.md` of a temp git repo,
+  asked back with `claude -p`, then again with a `CLAUDE.md` holding only the
+  managed block (expected: not read) and with `@AGENTS.md` added to it (read).
+  The `agents-md@builtin` plugin can be off on the probing machine; test the
+  default with `--settings '{"enabledPlugins":{"agents-md@builtin":true}}'`.
 
 ## Codex
 
