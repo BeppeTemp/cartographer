@@ -35,6 +35,17 @@ them incrementally:
 
 The bundled `kb-import` skill contains the operator procedure.
 
+## Ingest one new source into existing knowledge
+
+A document, meeting transcript, thread, ticket, incident timeline, email, web page or dataset
+arrives and must become KB knowledge. The bundled `kb-ingest` skill (D279) is the procedure: the
+agent registers the source in the ledger (`source_register`, which refuses a second ingestion of
+the same source), distils it, patches the pages that own each subject instead of creating
+duplicates, cites the source in their `provenance`, opens a `Contradiction` rather than overwriting
+a claim the source disputes, records unknowns as gaps, and closes with `gate_check` and
+`log_append`. A plan touching more than 5 pages or creating more than 2 is shown to the operator
+before any write. The agent reads the source; the server never does.
+
 ## Share one KB with different agent clients
 
 Run the HTTP server, then use `cartographer connect` for Claude Code, Codex,

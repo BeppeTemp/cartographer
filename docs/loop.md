@@ -86,7 +86,8 @@ else same `locator`) was already ingested, and `source_list` shows what is still
 `provenance`, then mark it ingested with `concept_patch` (`ingest_status:
 ingested`, `ingested_at`). `lint` flags an ingested source nobody cites
 (`source_uncited`). The ledger is bookkeeping: the server never fetches or copies
-the source (D278).
+the source (D278). The bundled `kb-ingest` skill runs this whole step as one procedure — register,
+distil, patch the owning pages, cite, record gaps, verify, close — for any new primary source (D279).
 
 ## Compound useful results
 
