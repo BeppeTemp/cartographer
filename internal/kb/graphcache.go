@@ -240,6 +240,19 @@ func (kb *KB) GraphFileReads() int {
 	return kb.graph.stats.reads
 }
 
+// GraphGeneration returns the current graph view generation: a monotonically
+// increasing counter that bumps whenever a file add, remove or content change
+// is detected during validation. Callers outside the package use it to key
+// caches that depend on the set of concepts (D294). The call itself runs a
+// validation, so an out-of-band edit invalidates as expected.
+func (kb *KB) GraphGeneration() (uint64, error) {
+	v, err := kb.graphView()
+	if err != nil {
+		return 0, err
+	}
+	return v.generation, nil
+}
+
 func (kb *KB) graphCacheLocked() *graphCache {
 	if kb.graph == nil {
 		kb.graph = &graphCache{entries: map[string]*graphEntry{}, facetOnly: map[string]*graphEntry{}}

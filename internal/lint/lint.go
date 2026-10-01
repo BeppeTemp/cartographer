@@ -187,10 +187,19 @@ var Now = func() time.Time { return time.Now() }
 // If scope is empty, lints the entire KB.
 // When scopeNeighbors is true, also lint the graph neighbors of concepts in scope.
 func Run(k *kb.KB, scope string, scopeNeighbors bool) ([]Finding, error) {
-	// Collect all non-reserved concepts.
+	// Collect all non-reserved concepts and their physical paths.
+	// relPathOf mirrors resolveConceptRelPath on the read path: for a plain
+	// concept it holds "<id>.md", for an expanded one "<id>/index.md".  When
+	// both forms exist the walk emits two files with the same id; the direct
+	// form comes first in walk order and wins (matching resolveConceptRelPath's
+	// "direct wins" rule on the read path).
 	allConcepts := map[okf.ConceptID]string{} // id → full content
-	if err := k.WalkConcepts(func(id okf.ConceptID, content string) error {
+	relPathOf := map[okf.ConceptID]string{}   // id → physical rel path
+	if err := k.WalkConceptPaths(func(id okf.ConceptID, physicalPath, content string) error {
 		allConcepts[id] = content
+		if _, exists := relPathOf[id]; !exists {
+			relPathOf[id] = physicalPath // direct form wins
+		}
 		return nil
 	}); err != nil {
 		return nil, fmt.Errorf("lint.Run: walk: %w", err)
@@ -345,7 +354,7 @@ func Run(k *kb.KB, scope string, scopeNeighbors bool) ([]Finding, error) {
 		// an expanded concept is "<id>/index.md", not "<id>.md" (D149). relPath
 		// stays ID-derived: it is what Finding.Path reports and what callers
 		// sort on. The two coincide for a plain concept.
-		linkBase, _ := k.ConceptRelPath(id)
+		linkBase := relPathOf[id]
 		fmRaw, body, hasFM := okf.SplitFrontmatter(content)
 		// lint_ignore (D159): a concept that documents a false positive — a
 		// ~/.ssh/config in prose, a deliberately-broken example link — could not
@@ -398,11 +407,9 @@ func Run(k *kb.KB, scope string, scopeNeighbors bool) ([]Finding, error) {
 		// --- broken_link (warning) ---
 		for _, target := range kb.ExtractLinks(body, linkBase, k.AssetExists) {
 			targetPath := okf.IDToPath(target)
-			// ReadConcept honours the expanded-concept fallback, so a link to
-			// the canonical ID of an expanded concept is not broken — lint and
-			// concept_read now agree on what a valid target is (D149).
-			_, readErr := k.ReadConcept(target)
-			if readErr != nil && errors.Is(readErr, okf.ErrNotFound) {
+			// A link target is broken iff it was not among the enumerated
+			// concepts (D294): this avoids an os.Stat per link.
+			if _, known := relPathOf[target]; !known {
 				emit(Finding{
 					Path:     relPath,
 					Check:    "broken_link",
@@ -607,7 +614,7 @@ func Run(k *kb.KB, scope string, scopeNeighbors bool) ([]Finding, error) {
 			// when it has no direct concepts. A scope inside an expanded concept
 			// must not surface unrelated map-index content.
 			if len(direct) > 0 || scopeNorm == "" || scopeNorm == archiveName {
-				checkCuratedIndex(k, archiveName, archiveName+"/index.md", direct, true, &findings)
+				checkCuratedIndex(k, archiveName, archiveName+"/index.md", direct, true, &findings, relPathOf)
 			}
 		} else if scopeNorm == "" || scopeNorm == archiveName {
 			// A dead link is dead whether or not the map promised completeness:
@@ -617,7 +624,7 @@ func Run(k *kb.KB, scope string, scopeNeighbors bool) ([]Finding, error) {
 			// missing index is not reported: nothing required one.
 			if content, err := k.ReadIndex(archiveName); err == nil {
 				_, body, _ := okf.SplitFrontmatter(content)
-				checkIndexLinks(k, archiveName+"/index.md", body, &findings)
+				checkIndexLinks(k, archiveName+"/index.md", body, &findings, relPathOf)
 			}
 		}
 
@@ -640,7 +647,7 @@ func Run(k *kb.KB, scope string, scopeNeighbors bool) ([]Finding, error) {
 				if len(satellites) > 0 {
 					// Expanded indexes are emitted by WalkConcepts, so their link
 					// targets are already covered by the general broken_link pass.
-					checkCuratedIndex(k, string(expandedID), string(expandedID)+"/index.md", satellites, false, &findings)
+					checkCuratedIndex(k, string(expandedID), string(expandedID)+"/index.md", satellites, false, &findings, relPathOf)
 				}
 			}
 
@@ -883,7 +890,7 @@ func firstH1(body string) string {
 // checkCuratedIndex verifies both directions of an opted-in curated index.
 // folder is passed to ReadIndex; indexPath is the exact physical base used by
 // ExtractLinks so relative Markdown links resolve from the right directory.
-func checkCuratedIndex(k *kb.KB, folder, indexPath string, candidates []okf.ConceptID, validateLinks bool, findings *[]Finding) {
+func checkCuratedIndex(k *kb.KB, folder, indexPath string, candidates []okf.ConceptID, validateLinks bool, findings *[]Finding, relPathOf map[okf.ConceptID]string) {
 	content, err := k.ReadIndex(folder)
 	if err != nil {
 		*findings = append(*findings, Finding{
@@ -908,7 +915,7 @@ func checkCuratedIndex(k *kb.KB, folder, indexPath string, candidates []okf.Conc
 		}
 	}
 	if validateLinks {
-		checkIndexLinks(k, indexPath, body, findings)
+		checkIndexLinks(k, indexPath, body, findings, relPathOf)
 	}
 	sort.Slice(candidates, func(i, j int) bool { return candidates[i] < candidates[j] })
 	for _, candidate := range candidates {
@@ -925,9 +932,11 @@ func checkCuratedIndex(k *kb.KB, folder, indexPath string, candidates []okf.Conc
 
 // checkIndexLinks reports every link in an index body whose target does not
 // resolve, as broken_link on the index itself.
-func checkIndexLinks(k *kb.KB, indexPath, body string, findings *[]Finding) {
+func checkIndexLinks(k *kb.KB, indexPath, body string, findings *[]Finding, relPathOf map[okf.ConceptID]string) {
 	for _, target := range kb.ExtractLinks(body, indexPath, k.AssetExists) {
-		if _, readErr := k.ReadConcept(target); errors.Is(readErr, okf.ErrNotFound) {
+		// A link target is broken iff it was not among the enumerated
+		// concepts (D294): this avoids an os.Stat per link.
+		if _, known := relPathOf[target]; !known {
 			*findings = append(*findings, Finding{
 				Path:     indexPath,
 				Check:    "broken_link",

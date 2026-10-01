@@ -2,9 +2,12 @@ package mcpserver
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/kb"
@@ -138,4 +141,90 @@ func summarizeConformance(findings []lint.Finding, lastDoctor string, now time.T
 		out["last_doctor"] = lastDoctor
 	}
 	return out
+}
+
+// conformanceCache caches the whole-KB lint findings and the last-doctor date
+// keyed on the graph view generation (D294). The cached slice is the unfiltered
+// output of lint.Run; per-caller visibility (D226) is applied on every read, so
+// the cache never leaks a hidden concept.
+type conformanceCache struct {
+	mu sync.Mutex
+
+	// lint findings, cached on graph generation.
+	gen      uint64
+	cached   bool // true once findings has been set (findings may be nil = no issues)
+	findings []lint.Finding
+
+	// lastDoctorDate, cached on the root log file's mtime+size.
+	doctorDate string
+	logMtime   int64
+	logSize    int64
+
+	// lintCalls counts how many times lint.Run was actually called (for tests).
+	lintCalls int
+}
+
+// findings returns the whole-KB lint findings, reusing the cache when the graph
+// generation has not changed since the last call.
+func (cc *conformanceCache) lintFindings(k *kb.KB) ([]lint.Finding, error) {
+	gen, err := k.GraphGeneration()
+	if err != nil {
+		return nil, err
+	}
+	cc.mu.Lock()
+	if gen == cc.gen && cc.cached {
+		out := cc.findings
+		cc.mu.Unlock()
+		return out, nil
+	}
+	cc.mu.Unlock()
+	// Cache miss: run lint outside the lock.
+	findings, err := lint.Run(k, "", false)
+	if err != nil {
+		return nil, err
+	}
+	// lint.Run triggers graphView internally (via LinkGraph); re-read the
+	// generation so the cache key reflects the post-lint state.
+	genAfter, err := k.GraphGeneration()
+	if err != nil {
+		genAfter = gen
+	}
+	cc.mu.Lock()
+	cc.gen = genAfter
+	cc.findings = findings
+	cc.cached = true
+	cc.lintCalls++
+	cc.mu.Unlock()
+	return findings, nil
+}
+
+// doctorDate returns the cached last-doctor date, re-reading the log only when
+// the file's mtime or size has changed.
+func (cc *conformanceCache) cachedDoctorDate(k *kb.KB) string {
+	logPath := filepath.Join(k.DataRoot(), "log.md")
+	info, err := os.Stat(logPath)
+	if err != nil {
+		return lastDoctorDate(k)
+	}
+	mtime := info.ModTime().UnixNano()
+	size := info.Size()
+	cc.mu.Lock()
+	defer cc.mu.Unlock()
+	if mtime == cc.logMtime && size == cc.logSize {
+		return cc.doctorDate
+	}
+	cc.mu.Unlock()
+	date := lastDoctorDate(k)
+	cc.mu.Lock()
+	cc.doctorDate = date
+	cc.logMtime = mtime
+	cc.logSize = size
+	return date
+}
+
+// LintCalls returns how many times lint.Run was invoked (for tests).
+func (cc *conformanceCache) LintCalls() int {
+	cc.mu.Lock()
+	defer cc.mu.Unlock()
+	return cc.lintCalls
 }

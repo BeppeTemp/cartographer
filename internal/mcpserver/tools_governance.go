@@ -500,7 +500,7 @@ func kbCapabilities(k *kb.KB) map[string]KBCapability {
 	}
 }
 
-func toolKBStatus(k *kb.KB, misses *searchMissLog, serverVersion string, latestVersion func() string) Tool {
+func toolKBStatus(k *kb.KB, misses *searchMissLog, serverVersion string, latestVersion func() string, cc *conformanceCache) Tool {
 	return Tool{
 		Name:        "kb_status",
 		Description: "KB health in one call: concept counts (by type, status), stale concepts, open contradictions and gaps, git replication state, capabilities (each per-KB gate, its state and controlling key), source-ledger counts, frequent search misses, versions, and conformance: {findings by severity, fixable, last_doctor, doctor_suggested}, the drift from the current standard. When doctor_suggested is true, follow the kb-doctor skill. Read-only.",
@@ -646,8 +646,12 @@ func toolKBStatus(k *kb.KB, misses *searchMissLog, serverVersion string, latestV
 				}
 			}
 			// D290: conformance debt, from the findings this caller may see.
-			if vis, lerr := uiVisibleFindings(ctx, k, ""); lerr == nil {
-				result["conformance"] = summarizeConformance(vis, lastDoctorDate(k), time.Now().UTC())
+			// D294: lint.Run is cached on the graph generation; the visibility
+			// filter stays outside the cache so a restricted caller never sees
+			// a hidden concept's findings from a warm cache.
+			if allFindings, lerr := cc.lintFindings(k); lerr == nil {
+				vis, _ := uiVisibleFindingsFrom(ctx, k, "", allFindings)
+				result["conformance"] = summarizeConformance(vis, cc.cachedDoctorDate(k), time.Now().UTC())
 			}
 			if src := sourceCounts(k); src != nil {
 				result["sources"] = src
