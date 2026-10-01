@@ -186,3 +186,42 @@ func TestConformanceCacheVisibilityFilterApplied(t *testing.T) {
 		t.Fatal("summarizeConformance returned nil")
 	}
 }
+
+// TestConformanceCacheInvalidatedByContractEdit: a map descriptor is not a
+// concept file, so the graph generation does not move when it changes; the
+// inputs stamp must (D294).
+func TestConformanceCacheInvalidatedByContractEdit(t *testing.T) {
+	k := cacheTestKB(t)
+	cc := &conformanceCache{}
+	if _, err := cc.lintFindings(k); err != nil {
+		t.Fatal(err)
+	}
+	mapFile := filepath.Join(k.DataRoot(), "arch", "_map.md")
+	data, err := os.ReadFile(mapFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(mapFile, append(data, []byte("\n<!-- edited -->\n")...), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := cc.lintFindings(k); err != nil {
+		t.Fatal(err)
+	}
+	if cc.LintCalls() != 2 {
+		t.Fatalf("expected 2 lint calls after a _map.md edit, got %d", cc.LintCalls())
+	}
+}
+
+// TestConformanceCacheNeverNil: a clean KB caches an empty, non-nil slice, so
+// uiVisibleFindingsFrom does not mistake it for "not computed" and lint again.
+func TestConformanceCacheNeverNil(t *testing.T) {
+	k := cacheTestKB(t)
+	cc := &conformanceCache{}
+	f, err := cc.lintFindings(k)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f == nil {
+		t.Fatal("lintFindings returned nil")
+	}
+}

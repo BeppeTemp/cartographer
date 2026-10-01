@@ -1,7 +1,10 @@
 package mcpserver
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -152,6 +155,7 @@ type conformanceCache struct {
 
 	// lint findings, cached on graph generation.
 	gen      uint64
+	stamp    string
 	cached   bool // true once findings has been set (findings may be nil = no issues)
 	findings []lint.Finding
 
@@ -164,38 +168,80 @@ type conformanceCache struct {
 	lintCalls int
 }
 
-// findings returns the whole-KB lint findings, reusing the cache when the graph
-// generation has not changed since the last call.
+// lintFindings returns the whole-KB lint findings, reusing the cache while
+// the KB's inputs are unchanged. The key is the graph generation plus a stamp
+// of every non-concept input lint reads (map descriptors and indexes, assets,
+// glossary.yaml, paths.yaml, hooks, templates): the graph cache tracks concept
+// files only, so a map_update or an out-of-band contract edit would otherwise
+// serve stale findings. The result is never nil, so callers can tell "cached,
+// no findings" from "not computed".
 func (cc *conformanceCache) lintFindings(k *kb.KB) ([]lint.Finding, error) {
 	gen, err := k.GraphGeneration()
 	if err != nil {
 		return nil, err
 	}
+	stamp := lintInputsStamp(k)
 	cc.mu.Lock()
-	if gen == cc.gen && cc.cached {
+	if cc.cached && gen == cc.gen && stamp == cc.stamp {
 		out := cc.findings
 		cc.mu.Unlock()
 		return out, nil
 	}
 	cc.mu.Unlock()
-	// Cache miss: run lint outside the lock.
 	findings, err := lint.Run(k, "", false)
 	if err != nil {
 		return nil, err
 	}
-	// lint.Run triggers graphView internally (via LinkGraph); re-read the
-	// generation so the cache key reflects the post-lint state.
-	genAfter, err := k.GraphGeneration()
-	if err != nil {
-		genAfter = gen
+	if findings == nil {
+		findings = []lint.Finding{}
 	}
-	cc.mu.Lock()
-	cc.gen = genAfter
-	cc.findings = findings
-	cc.cached = true
-	cc.lintCalls++
-	cc.mu.Unlock()
+	// A write that landed while lint ran would make these findings older
+	// than the state the new key describes: return them, but cache only when
+	// the inputs did not move underneath.
+	genAfter, gerr := k.GraphGeneration()
+	if gerr == nil && genAfter == gen && lintInputsStamp(k) == stamp {
+		cc.mu.Lock()
+		cc.gen, cc.stamp, cc.findings, cc.cached = gen, stamp, findings, true
+		cc.lintCalls++
+		cc.mu.Unlock()
+	} else {
+		cc.mu.Lock()
+		cc.lintCalls++
+		cc.mu.Unlock()
+	}
 	return findings, nil
+}
+
+// lintInputsStamp fingerprints (path, size, mtime) of every regular file in
+// the KB root that is not a concept body and not under .git. Concept bodies
+// are covered by the graph generation; everything else lint reads is here.
+// A stat walk, no reads.
+func lintInputsStamp(k *kb.KB) string {
+	root := filepath.Dir(k.DataRoot())
+	h := sha256.New()
+	_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if d.IsDir() {
+			if d.Name() == ".git" {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		rel, _ := filepath.Rel(root, path)
+		name := d.Name()
+		if strings.HasSuffix(name, ".md") && name != "index.md" && name != "_map.md" && name != "_archive.md" && strings.HasPrefix(filepath.ToSlash(rel), "data/") {
+			return nil
+		}
+		info, ierr := d.Info()
+		if ierr != nil {
+			return nil
+		}
+		fmt.Fprintf(h, "%s\x00%d\x00%d\n", filepath.ToSlash(rel), info.Size(), info.ModTime().UnixNano())
+		return nil
+	})
+	return hex.EncodeToString(h.Sum(nil))
 }
 
 // doctorDate returns the cached last-doctor date, re-reading the log only when
