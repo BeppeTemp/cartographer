@@ -128,6 +128,20 @@ func applyFixes(fm *okf.Frontmatter, body *string, fixes []*lint.Fix) string {
 		case lint.FixRebaseLink:
 			// Replace the old href with the new one in the body.
 			*body = rebaseHrefInBody(*body, fx.Field, fx.To)
+		case lint.FixSetValue:
+			fm.Set(fx.Field, fx.To)
+		case lint.FixSplitValue:
+			raw, ok := fm.Get(fx.Field)
+			v, isStr := raw.(string)
+			if !ok || !isStr {
+				continue
+			}
+			_, rest, prose := lint.SplitProse(v)
+			if !prose {
+				continue // already split: idempotent
+			}
+			fm.Set(fx.Field, fx.To)
+			*body = insertAfterH1(*body, "> "+fx.Field+": "+rest)
 		case lint.FixDropLinkItem:
 			*body = lint.DropLinkItem(*body, fx.Field)
 		default:
@@ -135,6 +149,20 @@ func applyFixes(fm *okf.Frontmatter, body *string, fixes []*lint.Fix) string {
 		}
 	}
 	return ""
+}
+
+// insertAfterH1 inserts line as its own paragraph after the body's first H1,
+// or at the top when there is none (D296 split_value: the prose that leaves a
+// vocabulary field is kept in the body, never dropped).
+func insertAfterH1(body, line string) string {
+	lines := strings.Split(body, "\n")
+	for i, l := range lines {
+		if strings.HasPrefix(l, "# ") {
+			rest := append([]string{l, "", line}, lines[i+1:]...)
+			return strings.Join(append(lines[:i:i], rest...), "\n")
+		}
+	}
+	return line + "\n\n" + body
 }
 
 // rebaseHrefInBody replaces all occurrences of oldHref with newHref inside

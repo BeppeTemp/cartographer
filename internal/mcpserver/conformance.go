@@ -21,17 +21,18 @@ import (
 // findingOut is a lint finding as the tools return it (D289): the optional
 // machine-readable fix is omitted when the finding has none.
 type findingOut struct {
-	Path     string    `json:"path"`
-	Check    string    `json:"check"`
-	Severity string    `json:"severity"`
-	Message  string    `json:"message"`
-	Fix      *lint.Fix `json:"fix,omitempty"`
+	Path     string         `json:"path"`
+	Check    string         `json:"check"`
+	Severity string         `json:"severity"`
+	Message  string         `json:"message"`
+	Fix      *lint.Fix      `json:"fix,omitempty"`
+	Proposal *lint.Proposal `json:"proposal,omitempty"`
 }
 
 func findingsOut(findings []lint.Finding) []findingOut {
 	out := make([]findingOut, 0, len(findings))
 	for _, f := range findings {
-		out = append(out, findingOut{Path: f.Path, Check: f.Check, Severity: f.Severity, Message: f.Message, Fix: f.Fix})
+		out = append(out, findingOut{Path: f.Path, Check: f.Check, Severity: f.Severity, Message: f.Message, Fix: f.Fix, Proposal: f.Proposal})
 	}
 	return out
 }
@@ -81,6 +82,8 @@ var conformanceChecks = map[string]bool{
 	"broken_relation":           true,
 	"link_to_retired":           true,
 	"map_misfit":                true,
+	"prose_value":               true,
+	"invalid_field_value":       true,
 	"legacy_archive_descriptor": true,
 }
 

@@ -1463,7 +1463,10 @@ type MapContract struct {
 	ForbiddenFields          []string
 	RequireIndexEntry        bool
 	MachinePathAllowPrefixes []string
-	Malformed                []ContractMalformed
+	// ValueSynonyms extends the built-in value families for this map
+	// (value_synonyms.<canonical>: [synonym, ...], D296).
+	ValueSynonyms map[string][]string
+	Malformed     []ContractMalformed
 }
 
 // AllowedValues returns the allowed values declared for field on conceptType:
@@ -1649,6 +1652,9 @@ type MapContractUpdate struct {
 	ForbiddenFields          *[]string
 	RequireIndexEntry        *bool
 	MachinePathAllowPrefixes *[]string
+	// ValueSynonyms replaces every value_synonyms.* key (D296); an empty
+	// non-nil map removes them.
+	ValueSynonyms map[string][]string
 }
 
 // UpdateMapContract rewrites the contract keys of an existing map's _map.md,
@@ -1729,6 +1735,24 @@ func (kb *KB) UpdateMapContract(name string, upd MapContractUpdate) (MapContract
 	}
 	if upd.ForbiddenFields != nil {
 		setList("forbidden_fields", *upd.ForbiddenFields)
+	}
+	if upd.ValueSynonyms != nil {
+		for _, key := range fm.Keys() {
+			if strings.HasPrefix(key, "value_synonyms.") {
+				fm.Delete(key)
+			}
+		}
+		canon := make([]string, 0, len(upd.ValueSynonyms))
+		for c := range upd.ValueSynonyms {
+			canon = append(canon, c)
+		}
+		sort.Strings(canon)
+		for _, c := range canon {
+			if strings.TrimSpace(c) == "" || strings.Contains(c, ".") {
+				return MapContract{}, fmt.Errorf("UpdateMapContract %s: value_synonyms canonical %q must be non-empty and contain no '.'", name, c)
+			}
+			setList("value_synonyms."+c, upd.ValueSynonyms[c])
+		}
 	}
 	if upd.RequireIndexEntry != nil {
 		if *upd.RequireIndexEntry {
@@ -1958,7 +1982,8 @@ func (kb *KB) ReadMapContract(archive string) (MapContract, error) {
 	for _, key := range meta.Keys() {
 		if key != "required_fields" && !strings.HasPrefix(key, "required_fields.") &&
 			key != "forbidden_fields" && !strings.HasPrefix(key, "field_values.") &&
-			key != "require_index_entry" && key != "machine_path_allow_prefixes" {
+			key != "require_index_entry" && key != "machine_path_allow_prefixes" &&
+			!strings.HasPrefix(key, "value_synonyms.") {
 			continue
 		}
 		value, _ := meta.Get(key)
@@ -2033,6 +2058,21 @@ func (kb *KB) ReadMapContract(archive string) (MapContract, error) {
 				contract.FieldValuesByType[parts[0]] = map[string][]string{}
 			}
 			contract.FieldValuesByType[parts[0]][parts[1]] = valid
+		case strings.HasPrefix(key, "value_synonyms."):
+			canonical := strings.TrimSpace(strings.TrimPrefix(key, "value_synonyms."))
+			syns, ok := value.([]string)
+			if !ok || canonical == "" || strings.Contains(canonical, ".") || len(syns) == 0 {
+				bad(key)
+				continue
+			}
+			if contract.ValueSynonyms == nil {
+				contract.ValueSynonyms = map[string][]string{}
+			}
+			for _, s := range syns {
+				if s = strings.TrimSpace(s); s != "" {
+					contract.ValueSynonyms[canonical] = append(contract.ValueSynonyms[canonical], s)
+				}
+			}
 		case key == "forbidden_fields":
 			fields, ok := value.([]string)
 			if !ok {
