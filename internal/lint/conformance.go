@@ -33,7 +33,7 @@ type Fix struct {
 // FixableChecks are the checks whose findings carry a Fix, which is what
 // kb_repair accepts (D290). A check that gains a Fix is added here: the list
 // is the repair tool's contract, and a test pins it to what the checks emit.
-var FixableChecks = []string{"broken_link", "duplicate_link", "nonstandard_field", "tool_param_field"}
+var FixableChecks = []string{"broken_link", "duplicate_link", "invalid_field_value", "nonstandard_field", "prose_value", "tool_param_field"}
 
 // StandardFieldSynonyms maps each standard frontmatter field to the synonyms
 // KBs are known to use for it (nonstandard_field). Keys are matched
@@ -187,6 +187,7 @@ func frontmatterFindings(in conceptInput) []Finding {
 
 	if parsed != nil {
 		out = append(out, nonstandardFieldFindings(in)...)
+		out = append(out, proseValueFindings(in)...)
 		out = append(out, toolParamFieldFindings(in.RelPath, parsed)...)
 	}
 	return out
@@ -352,6 +353,33 @@ func valueContractFindings(mapName string, contract kb.MapContract, concepts map
 		for v := range counts {
 			values = append(values, v)
 		}
+		// D296: status folds its synonyms onto one member per family.
+		var proposed []string
+		var mapping map[string]string
+		if field == "status" {
+			// A prose value proposes its leading token (prose_value moves
+			// the rest into the body).
+			tokens := map[string]int{}
+			proseTo := map[string]string{}
+			for v, n := range counts {
+				if tok, _, prose := SplitProse(v); prose {
+					tokens[tok] += n
+					proseTo[v] = tok
+				} else {
+					tokens[v] += n
+				}
+			}
+			proposed, mapping = foldVocabulary(tokens, familiesFor(&contract))
+			for v, tok := range proseTo {
+				if mapping == nil {
+					mapping = map[string]string{}
+				}
+				if canon, ok := mapping[tok]; ok {
+					tok = canon
+				}
+				mapping[v] = tok
+			}
+		}
 		sort.Slice(values, func(i, j int) bool {
 			if counts[values[i]] != counts[values[j]] {
 				return counts[values[i]] > counts[values[j]]
@@ -367,12 +395,33 @@ func valueContractFindings(mapName string, contract kb.MapContract, concepts map
 		if typed {
 			key = "field_values." + dominant + "." + field
 		}
+		if proposed == nil {
+			proposed = values
+		}
+		msg := fmt.Sprintf("field %q takes %d distinct value(s) across %d concepts (%s) and has no value contract — declare it in _map.md: %s: [%s]",
+			field, len(counts), len(carriers), strings.Join(observed, ", "), key, strings.Join(proposed, ", "))
+		if len(mapping) > 0 {
+			from := make([]string, 0, len(mapping))
+			for m := range mapping {
+				from = append(from, m)
+			}
+			sort.Strings(from)
+			pairs := make([]string, len(from))
+			for i, m := range from {
+				pairs[i] = fmt.Sprintf("%s→%s ×%d", m, mapping[m], counts[m])
+			}
+			msg += "; then kb_repair invalid_field_value converges " + strings.Join(pairs, ", ")
+		}
+		p := &Proposal{Key: key, Field: field, Values: proposed, Mapping: mapping}
+		if typed {
+			p.Type = dominant
+		}
 		out = append(out, Finding{
 			Path:     mapName + "/_map.md",
 			Check:    "missing_value_contract",
 			Severity: SevInfo,
-			Message: fmt.Sprintf("field %q takes %d distinct value(s) across %d concepts (%s) and has no value contract — declare it in _map.md: %s: [%s]",
-				field, len(counts), len(carriers), strings.Join(observed, ", "), key, strings.Join(values, ", ")),
+			Message:  msg,
+			Proposal: p,
 		})
 	}
 	return out

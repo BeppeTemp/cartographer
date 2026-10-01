@@ -141,6 +141,8 @@ var perConceptChecks = map[string]bool{
 	// Conformance (D289). tool_param_field is deliberately absent: a concept
 	// cannot declare a tool argument a legitimate field.
 	"nonstandard_field": true,
+	// D296: a sentence in a vocabulary field.
+	"prose_value": true,
 	// D295: malformed_frontmatter is not suppressible (like tool_param_field),
 	// but is a per-concept check so it appears here.
 	"malformed_frontmatter": true,
@@ -182,6 +184,9 @@ type Finding struct {
 	Severity string // "warning" or "error"
 	Message  string
 	Fix      *Fix // optional mechanical remedy (D289)
+	// Proposal is the structured vocabulary a missing_value_contract
+	// finding suggests (D296).
+	Proposal *Proposal
 }
 
 // Now is used for date comparison in stale_claim checks. Override in tests.
@@ -1099,12 +1104,20 @@ func mapFieldContractFindings(relPath, mapName string, contract kb.MapContract, 
 		for _, g := range got {
 			g = strings.TrimSpace(g)
 			if !fieldValueAllowed(allowed, g) {
-				out = append(out, Finding{
+				f := Finding{
 					Path:     relPath,
 					Check:    "invalid_field_value",
 					Severity: SevError,
 					Message:  fmt.Sprintf("field %q has value %q, allowed by map %q: %s", field, g, mapName, strings.Join(allowed, ", ")),
-				})
+				}
+				// D296: a synonym of exactly one allowed value is mechanical.
+				if _, scalar := value.(string); scalar {
+					if to, ok := familiesFor(&contract).canonicalIn(g, allowed); ok {
+						f.Fix = &Fix{Kind: FixSetValue, Field: field, To: to}
+						f.Message += fmt.Sprintf(" — fix: set it to %q", to)
+					}
+				}
+				out = append(out, f)
 				break
 			}
 		}

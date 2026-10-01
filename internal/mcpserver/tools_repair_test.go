@@ -203,6 +203,19 @@ func TestFixableChecksCoverEveryEmittedFix(t *testing.T) {
 		t.Fatal(err)
 	}
 	seedBodyFixes(t, k)
+	if _, err := k.UpdateMapContract("ops", kb.MapContractUpdate{FieldValues: map[string][]string{"status": {"done"}}}); err != nil {
+		t.Fatal(err)
+	}
+	for id, st := range map[string]string{"ops/v1": "Completato", "ops/v2": "done — with prose"} {
+		vf := newFM()
+		vf.Set("type", "Note")
+		vf.Set("title", "V")
+		vf.Set("updated", "2026-01-02")
+		vf.Set("status", st)
+		if _, err := k.WriteConcept(okf.ConceptID(id), vf, "# V\n", ""); err != nil {
+			t.Fatal(err)
+		}
+	}
 	findings, err := lint.Run(k, "", false)
 	if err != nil {
 		t.Fatal(err)
@@ -401,5 +414,38 @@ func TestKBRepairBodyFixes(t *testing.T) {
 		if f.Check == "broken_link" && f.Path == "ops/e.md" {
 			t.Errorf("still broken after repair: %+v", f)
 		}
+	}
+}
+
+func TestKBRepairValueFixes(t *testing.T) {
+	k, s := repairKB(t, 0)
+	if _, err := k.UpdateMapContract("ops", kb.MapContractUpdate{FieldValues: map[string][]string{"status": {"done", "in-progress"}}}); err != nil {
+		t.Fatal(err)
+	}
+	for id, st := range map[string]string{"ops/a": "Completato", "ops/b": "done — after the second pass"} {
+		fm := newFM()
+		fm.Set("type", "Note")
+		fm.Set("title", "T")
+		fm.Set("updated", "2026-01-02")
+		fm.Set("status", st)
+		if _, err := k.WriteConcept(okf.ConceptID(id), fm, "# T\n\nbody\n", ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+	repairCall(t, s, `{"check":"invalid_field_value","dry_run":false}`)
+	repairCall(t, s, `{"check":"prose_value","dry_run":false}`)
+	a, _ := k.ReadConcept("ops/a")
+	if !strings.Contains(a.FrontmatterRaw, "status: done") {
+		t.Errorf("set_value not applied:\n%s", a.FrontmatterRaw)
+	}
+	b, _ := k.ReadConcept("ops/b")
+	if !strings.Contains(b.FrontmatterRaw, "status: done\n") && !strings.HasSuffix(strings.TrimSpace(b.FrontmatterRaw), "status: done") {
+		t.Errorf("split_value field:\n%s", b.FrontmatterRaw)
+	}
+	if !strings.Contains(b.Body, "# T\n\n> status: after the second pass\n") {
+		t.Errorf("prose not kept in body:\n%s", b.Body)
+	}
+	if out := repairCall(t, s, `{"check":"prose_value"}`); out["planned_total"].(float64) != 0 {
+		t.Errorf("second run must plan nothing: %v", out)
 	}
 }

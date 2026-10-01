@@ -879,6 +879,10 @@ func toolMapUpdate(k *kb.KB) Tool {
 				"machine_path_allow_prefixes": {
 					"type": "array",
 					"items": {"type": "string"}
+				},
+				"value_synonyms": {
+					"type": "object",
+					"additionalProperties": {"type": "array", "items": {"type": "string"}}
 				}
 			}
 		}`),
@@ -894,6 +898,7 @@ func toolMapUpdate(k *kb.KB) Tool {
 				ForbiddenFields          *[]string                      `json:"forbidden_fields"`
 				RequireIndexEntry        *bool                          `json:"require_index_entry"`
 				MachinePathAllowPrefixes *[]string                      `json:"machine_path_allow_prefixes"`
+				ValueSynonyms            map[string][]string            `json:"value_synonyms"`
 			}
 			if err := json.Unmarshal(args, &params); err != nil {
 				return errorResult("invalid params: " + err.Error()), nil
@@ -903,8 +908,8 @@ func toolMapUpdate(k *kb.KB) Tool {
 			}
 			if params.RequiredFields == nil && params.RequiredFieldsByType == nil &&
 				params.FieldValues == nil && params.FieldValuesByType == nil && params.ForbiddenFields == nil &&
-				params.RequireIndexEntry == nil && params.MachinePathAllowPrefixes == nil {
-				return errorResult("nothing to change: pass at least one of require_index_entry, required_fields, required_fields_by_type, field_values, field_values_by_type, forbidden_fields, machine_path_allow_prefixes"), nil
+				params.RequireIndexEntry == nil && params.MachinePathAllowPrefixes == nil && params.ValueSynonyms == nil {
+				return errorResult("nothing to change: pass at least one of require_index_entry, required_fields, required_fields_by_type, field_values, field_values_by_type, forbidden_fields, machine_path_allow_prefixes, value_synonyms"), nil
 			}
 			var fields, prefixes, forbidden []string
 			if params.ForbiddenFields != nil {
@@ -934,6 +939,7 @@ func toolMapUpdate(k *kb.KB) Tool {
 				ForbiddenFields:          params.ForbiddenFields,
 				RequireIndexEntry:        params.RequireIndexEntry,
 				MachinePathAllowPrefixes: params.MachinePathAllowPrefixes,
+				ValueSynonyms:            params.ValueSynonyms,
 			})
 			if err != nil {
 				return errorResult(fmt.Sprintf("map_update %q: %v", params.Map, err)), nil

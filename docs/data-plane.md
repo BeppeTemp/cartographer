@@ -212,7 +212,7 @@ a deliberately-broken example link — could not be written without generating t
 describes, so a KB's own "known false positives" page was impossible.
 
 Suppressible: `broken_link`, `machine_path`, `concept_oversize`, `stale_claim`, `imported_draft`,
-`secrets_on_non_service`, `orphan`, `missing_title`, `unknown_placeholder`, `forbidden_term`, `nonstandard_field`, `source_uncited`, `duplicate_link`, `bare_link_list`, and the structural
+`secrets_on_non_service`, `orphan`, `missing_title`, `unknown_placeholder`, `forbidden_term`, `nonstandard_field`, `prose_value`, `source_uncited`, `duplicate_link`, `bare_link_list`, and the structural
 `cut_concept`, `link_to_retired`, `broken_relation`, `map_misfit`. **Not** suppressible: `tool_param_field` (a tool argument is never a legitimate field), every `error`-severity check
 (`missing_required_field`, `invalid_field_value`, `forbidden_field`, `expanded_ambiguous`) — those are contract violations, not judgements, and
 letting a concept declare its own contract void would be a hole rather than an escape hatch — and the
@@ -248,7 +248,29 @@ Lint also compares a KB with the standard fields the server reads, not only with
 
 Two finding kinds gained a mechanical fix in D295. `broken_link` in the `index.md` of an expanded concept carries `rebase_link` (`field` the href, `to` the rewritten href) when the link resolves against the pre-expansion file `<id>.md`: that is the damage an expansion did before `concept_expand` rebased links. `duplicate_link` is one finding per repeated target, and carries `drop_link_item` (`field` the exact list line) when that item is a single link and nothing else: the link stays in the text, the item goes, and a section left with no item loses its heading. An item with any other word keeps no fix — the word may be the reason. `map_misfit` names only a map whose contract admits the concept's type (a strict map's `concept_types`); with no admitting majority there is no finding.
 
-A finding whose remedy is mechanical carries `fix: {kind, field, to?}` (`rename_field`, `drop_field`, `rebase_link`, `drop_link_item`); the rest carry none. `lint.CheckConcept` computes the frontmatter-driven checks of one concept without walking the KB (`missing_required_field`, `invalid_field_value`, `forbidden_field`, `nonstandard_field`, `tool_param_field`, `missing_title`, `machine_path`, `stale_claim`); `Run` calls the same function, and the write tools return its result.
+### Value vocabularies (D296)
+
+D289 converges field names; D296 converges **values**, starting with `status`. The server knows *families* of synonyms, never the canonical value: that is always the KB's — the one its contract declares, or the most frequent one observed. Values compare after folding case, accents, whitespace and `_` (`In corso` ≡ `in-corso`). The built-in families (`lint.ValueSynonymFamilies`) ship English plus the languages contributors add, and a map extends them in any language with `value_synonyms.<canonical>: [synonym, …]` in `_map.md` (or `map_update` `value_synonyms`); a KB in a language the table does not know gets no automatic answer until it declares its synonyms — never a wrong one.
+
+| Family | Members |
+|---|---|
+| `done` | done, completed, complete, completato, completata, finito, finita, chiuso, chiusa |
+| `resolved` | resolved, risolto, risolta, closed, fixed |
+| `in-progress` | in-progress, in-corso, wip, ongoing, doing |
+| `blocked` | blocked, bloccato, bloccata, on-hold, in-attesa, waiting |
+| `proposed` | proposed, proposto, proposta |
+| `draft` | draft, bozza |
+| `active` | active, attivo, attiva, current |
+| `deprecated` | deprecated, dismesso, dismessa, retired |
+| `suspended` | suspended, sospeso, sospesa |
+
+`open`, `decision-needed`, `reference`, `accepted`, `rejected`, `superseded`, `mitigated`, `monitoring` are deliberately in no family: they are distinct states, or KB-specific.
+
+- `missing_value_contract` on `status` folds each family onto its majority member and each prose value onto its leading token, and carries a structured `proposal: {key, field, type?, values, mapping}` next to the message. Declaring it is the operator's judgement (`map_update`); after that the per-concept findings are mechanical.
+- `invalid_field_value` carries `set_value` when the value is, up to folding or by family, exactly one allowed value. Two candidates, or none, give no fix.
+- `prose_value` (warning, suppressible): `status`, or a field the contract constrains, holds a sentence (a separator such as ` — `, `;`, `: `, or more than three words). It carries `split_value` when the leading token is a contract value or, with no contract, a family member: the field keeps the token and `kb_repair` writes the rest as `> <field>: <rest>` after the first heading, so nothing is lost.
+
+A finding whose remedy is mechanical carries `fix: {kind, field, to?}` (`rename_field`, `drop_field`, `rebase_link`, `drop_link_item`, `set_value`, `split_value`); the rest carry none. `lint.CheckConcept` computes the frontmatter-driven checks of one concept without walking the KB (`missing_required_field`, `invalid_field_value`, `forbidden_field`, `nonstandard_field`, `tool_param_field`, `missing_title`, `machine_path`, `stale_claim`); `Run` calls the same function, and the write tools return its result.
 
 `machine_path_allow_prefixes` accepts **`~/`-anchored** prefixes as well as POSIX- and
 Windows-absolute ones: `~/.ssh/config` means "your ssh config" on every machine, exactly as `/etc/…`
