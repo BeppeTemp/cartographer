@@ -28,6 +28,11 @@ type Fix struct {
 	To    string `json:"to,omitempty"`
 }
 
+// FixableChecks are the checks whose findings carry a Fix, which is what
+// kb_repair accepts (D290). A check that gains a Fix is added here: the list
+// is the repair tool's contract, and a test pins it to what the checks emit.
+var FixableChecks = []string{"nonstandard_field", "tool_param_field"}
+
 // StandardFieldSynonyms maps each standard frontmatter field to the synonyms
 // KBs are known to use for it (nonstandard_field). Keys are matched
 // case-insensitively. docs/data-plane.md lists every entry: the table is the

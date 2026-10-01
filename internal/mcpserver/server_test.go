@@ -3711,7 +3711,7 @@ func TestServer_ToolsProfile(t *testing.T) {
 		"conflicts_list", "git_conflict_resolve",
 		"artifact_read", "template_list",
 		"asset_read", "asset_list", "asset_write",
-		"validate", "lint", "gate_check", "kb_status", "source_register", "source_list",
+		"validate", "lint", "gate_check", "kb_status", "kb_repair", "source_register", "source_list",
 	}
 	got := listToolNames(t, s)
 	for _, name := range agentVisible {
