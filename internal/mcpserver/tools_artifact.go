@@ -810,6 +810,12 @@ func validateAgentArtifact(slug string, data []byte) error {
 	if strings.TrimSpace(descStr) == "" {
 		return fmt.Errorf("frontmatter 'description' is required")
 	}
+	// A `providers:` block is copied verbatim into native agent files (D291):
+	// a typo in a client name or a reserved key would otherwise drop the
+	// author's restriction without a word, so it is rejected here.
+	if err := provisioning.ValidateAgentProviders(fm); err != nil {
+		return err
+	}
 	return nil
 }
 

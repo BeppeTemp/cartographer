@@ -25,9 +25,20 @@ type entry struct {
 	raw   string      // original line; valid only for entryCommentKind
 }
 
+// Block is the raw text of a nested block under a key whose value is empty:
+//
+//	providers:
+//	  codex: { sandbox_mode: read-only }
+//
+// The parser does not interpret it (its YAML subset has no nested maps); it
+// keeps the indented lines verbatim, so the block is neither flattened into
+// sibling keys nor lost on Serialize, and a consumer that needs the structure
+// parses the text itself. Lines keep their original indentation.
+type Block string
+
 // Frontmatter is an ordered map representing an OKF frontmatter block.
 // Preserves key order and the position of original comments.
-// Supported values: string, []string, nil.
+// Supported values: string, []string, Block, nil.
 type Frontmatter struct {
 	entries []entry
 	index   map[string]int // key → index in entries (entryKeyKind only)
@@ -86,6 +97,9 @@ func ParseFrontmatter(raw string) (*Frontmatter, error) {
 			if len(blockItems) > 0 {
 				value = blockItems
 				i = j
+			} else if end := nestedBlockEnd(lines, i+1); end > i+1 {
+				value = Block(strings.Join(lines[i+1:end], "\n"))
+				i = end
 			} else {
 				value = nil
 				i++
@@ -120,6 +134,28 @@ func ParseFrontmatter(raw string) (*Frontmatter, error) {
 	}
 
 	return fm, nil
+}
+
+// nestedBlockEnd returns the index just past the indented block that starts at
+// lines[start]: every following line that is indented (or blank/comment inside
+// the block, provided an indented line follows). It returns start when
+// lines[start] is not indented, i.e. there is no block.
+func nestedBlockEnd(lines []string, start int) int {
+	isIndented := func(l string) bool {
+		return l != "" && (l[0] == ' ' || l[0] == '\t') && strings.TrimSpace(l) != ""
+	}
+	end := start
+	for j := start; j < len(lines); j++ {
+		switch {
+		case isIndented(lines[j]):
+			end = j + 1
+		case strings.TrimSpace(lines[j]) == "":
+			// blank: belongs to the block only if an indented line follows
+		default:
+			return end
+		}
+	}
+	return end
 }
 
 // collectFlowList accumulates the inner text of a flow list starting on
@@ -280,6 +316,8 @@ func serializeEntry(key string, value interface{}) string {
 		return key + ":\n"
 	case string:
 		return key + ": " + serializeScalar(v) + "\n"
+	case Block:
+		return key + ":\n" + string(v) + "\n"
 	case []string:
 		items := make([]string, len(v))
 		for i, item := range v {

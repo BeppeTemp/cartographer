@@ -172,6 +172,11 @@ not a terminator. An unclosed flow list is still an error and names the key **an
 thousand pages. The serializer always emits the single-line form: a multi-line source round-trips into
 one line, which is reflow, not data loss.
 
+A key whose value is empty and whose following lines are **indented** holds a nested block (D291), for
+example an agent's `providers:` map. The parser keeps those lines verbatim as an `okf.Block` value under
+that key instead of flattening them into sibling keys (which made a nested `tools:` look like the
+agent's own); it does not interpret them, and the serializer writes them back unchanged.
+
 ### What a move touches
 
 `concept_move` is complete as of D160: it rewrites **inbound** links across the KB — reading only the

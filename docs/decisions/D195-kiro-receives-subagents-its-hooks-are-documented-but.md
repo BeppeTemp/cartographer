@@ -4,6 +4,8 @@ topic: sync-provisioning
 
 # D195 — Kiro receives subagents; its hooks are documented but not shipped
 
+*(Partly superseded by [D291](D291-an-agent-can-carry-each-clients-own-restriction-verbatim.md): an agent's `providers:` frontmatter block now writes a client's own native fields verbatim; dropping `tools` and `model` is unchanged.)*
+
 **Status: implemented.** Closes #248.
 
 **Context.** D140 settled Kiro's empty `agent` and `hook` cells against **CLI 2.20.0**, on three

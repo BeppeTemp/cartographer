@@ -304,6 +304,7 @@ regenerate this list with `make decisions-index`.
 - [D282 — A key absent on this machine is ignored by name, and a sync warns in one line](decisions/D282-an-absent-key-is-ignored-and-a-sync-warns-once.md)
 - [D283 — A dropped `tools` allow-list is reported, and an agent can opt out of being widened](decisions/D283-a-dropped-tools-allow-list-is-reported-and-can-opt-out.md)
 - [D284 — `hook.json` is validated against one declared event vocabulary, on write, at sync and in lint](decisions/D284-hook-json-is-validated-against-one-declared-event-vocabulary.md)
+- [D291 — An agent can carry each client's own restriction, verbatim](decisions/D291-an-agent-can-carry-each-clients-own-restriction-verbatim.md)
 
 <a id="client-configurator"></a>
 
