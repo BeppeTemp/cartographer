@@ -1,10 +1,16 @@
 package mcpserver
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
+	"io/fs"
+	"os"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/kb"
@@ -138,4 +144,133 @@ func summarizeConformance(findings []lint.Finding, lastDoctor string, now time.T
 		out["last_doctor"] = lastDoctor
 	}
 	return out
+}
+
+// conformanceCache caches the whole-KB lint findings and the last-doctor date
+// keyed on the graph view generation (D294). The cached slice is the unfiltered
+// output of lint.Run; per-caller visibility (D226) is applied on every read, so
+// the cache never leaks a hidden concept.
+type conformanceCache struct {
+	mu sync.Mutex
+
+	// lint findings, cached on graph generation.
+	gen      uint64
+	stamp    string
+	cached   bool // true once findings has been set (findings may be nil = no issues)
+	findings []lint.Finding
+
+	// lastDoctorDate, cached on the root log file's mtime+size.
+	doctorDate string
+	logMtime   int64
+	logSize    int64
+
+	// lintCalls counts how many times lint.Run was actually called (for tests).
+	lintCalls int
+}
+
+// lintFindings returns the whole-KB lint findings, reusing the cache while
+// the KB's inputs are unchanged. The key is the graph generation plus a stamp
+// of every non-concept input lint reads (map descriptors and indexes, assets,
+// glossary.yaml, paths.yaml, hooks, templates): the graph cache tracks concept
+// files only, so a map_update or an out-of-band contract edit would otherwise
+// serve stale findings. The result is never nil, so callers can tell "cached,
+// no findings" from "not computed".
+func (cc *conformanceCache) lintFindings(k *kb.KB) ([]lint.Finding, error) {
+	gen, err := k.GraphGeneration()
+	if err != nil {
+		return nil, err
+	}
+	stamp := lintInputsStamp(k)
+	cc.mu.Lock()
+	if cc.cached && gen == cc.gen && stamp == cc.stamp {
+		out := cc.findings
+		cc.mu.Unlock()
+		return out, nil
+	}
+	cc.mu.Unlock()
+	findings, err := lint.Run(k, "", false)
+	if err != nil {
+		return nil, err
+	}
+	if findings == nil {
+		findings = []lint.Finding{}
+	}
+	// A write that landed while lint ran would make these findings older
+	// than the state the new key describes: return them, but cache only when
+	// the inputs did not move underneath.
+	genAfter, gerr := k.GraphGeneration()
+	if gerr == nil && genAfter == gen && lintInputsStamp(k) == stamp {
+		cc.mu.Lock()
+		cc.gen, cc.stamp, cc.findings, cc.cached = gen, stamp, findings, true
+		cc.lintCalls++
+		cc.mu.Unlock()
+	} else {
+		cc.mu.Lock()
+		cc.lintCalls++
+		cc.mu.Unlock()
+	}
+	return findings, nil
+}
+
+// lintInputsStamp fingerprints (path, size, mtime) of every regular file in
+// the KB root that is not a concept body and not under .git. Concept bodies
+// are covered by the graph generation; everything else lint reads is here.
+// A stat walk, no reads.
+func lintInputsStamp(k *kb.KB) string {
+	root := filepath.Dir(k.DataRoot())
+	h := sha256.New()
+	_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if d.IsDir() {
+			if d.Name() == ".git" {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		rel, _ := filepath.Rel(root, path)
+		name := d.Name()
+		if strings.HasSuffix(name, ".md") && name != "index.md" && name != "_map.md" && name != "_archive.md" && strings.HasPrefix(filepath.ToSlash(rel), "data/") {
+			return nil
+		}
+		info, ierr := d.Info()
+		if ierr != nil {
+			return nil
+		}
+		fmt.Fprintf(h, "%s\x00%d\x00%d\n", filepath.ToSlash(rel), info.Size(), info.ModTime().UnixNano())
+		return nil
+	})
+	return hex.EncodeToString(h.Sum(nil))
+}
+
+// doctorDate returns the cached last-doctor date, re-reading the log only when
+// the file's mtime or size has changed.
+func (cc *conformanceCache) cachedDoctorDate(k *kb.KB) string {
+	logPath := filepath.Join(k.DataRoot(), "log.md")
+	info, err := os.Stat(logPath)
+	if err != nil {
+		return lastDoctorDate(k)
+	}
+	mtime := info.ModTime().UnixNano()
+	size := info.Size()
+	cc.mu.Lock()
+	defer cc.mu.Unlock()
+	if mtime == cc.logMtime && size == cc.logSize {
+		return cc.doctorDate
+	}
+	cc.mu.Unlock()
+	date := lastDoctorDate(k)
+	cc.mu.Lock()
+	cc.doctorDate = date
+	cc.logMtime = mtime
+	cc.logSize = size
+	return date
+}
+
+// LintCalls returns how many times lint.Run was invoked (for tests).
+func (cc *conformanceCache) LintCalls() int {
+	cc.mu.Lock()
+	defer cc.mu.Unlock()
+	return cc.lintCalls
 }

@@ -477,14 +477,26 @@ func uiLint(w http.ResponseWriter, r *http.Request, k *kb.KB) {
 	})
 }
 
-// uiVisibleFindings runs lint and drops every finding the caller may not see.
-// A finding that does not name a concept — a directory-level check — is only
-// for a caller that can see the whole KB: its message can describe files the
-// caller has no access to.
+// uiVisibleFindings runs lint (or uses precomputed findings when provided) and
+// drops every finding the caller may not see. A finding that does not name a
+// concept — a directory-level check — is only for a caller that can see the
+// whole KB: its message can describe files the caller has no access to.
 func uiVisibleFindings(ctx requestContext, k *kb.KB, scope string) ([]lint.Finding, error) {
-	findings, err := lint.Run(k, scope, false)
-	if err != nil {
-		return nil, err
+	return uiVisibleFindingsFrom(ctx, k, scope, nil)
+}
+
+// uiVisibleFindingsFrom is uiVisibleFindings with an optional pre-computed
+// findings slice: when non-nil it skips lint.Run entirely (D294 cache path).
+func uiVisibleFindingsFrom(ctx requestContext, k *kb.KB, scope string, precomputed []lint.Finding) ([]lint.Finding, error) {
+	var findings []lint.Finding
+	var err error
+	if precomputed != nil {
+		findings = precomputed
+	} else {
+		findings, err = lint.Run(k, scope, false)
+		if err != nil {
+			return nil, err
+		}
 	}
 	whole := WholeVisible(ctx, k, false)
 	out := make([]lint.Finding, 0, len(findings))
