@@ -81,6 +81,9 @@ var projectDestinationMatrix = map[string]map[configurator.Provider]destination{
 		// project; .claude/CLAUDE.md is the alternative. The root file is
 		// chosen because it is the one a repository already has, and the block
 		// is marker-delimited so it coexists with the user's own text.
+		// D293: creating this file hides a project's AGENTS.md from the
+		// built-in agents-md@builtin plugin (on by default since 2.1.277),
+		// so the managed block prepends an @AGENTS.md import when one exists.
 		configurator.ProviderClaudeCode:  at("CLAUDE.md"),
 		configurator.ProviderCodex:       at("AGENTS.md"),
 		configurator.ProviderOpenCode:    at("AGENTS.md"),
