@@ -4,6 +4,7 @@ package lint
 import (
 	"errors"
 	"fmt"
+	"path"
 	"regexp"
 	"sort"
 	"strings"
@@ -140,6 +141,9 @@ var perConceptChecks = map[string]bool{
 	// Conformance (D289). tool_param_field is deliberately absent: a concept
 	// cannot declare a tool argument a legitimate field.
 	"nonstandard_field": true,
+	// D295: malformed_frontmatter is not suppressible (like tool_param_field),
+	// but is a per-concept check so it appears here.
+	"malformed_frontmatter": true,
 	// D278: an ingested Source nothing cites.
 	"source_uncited": true,
 }
@@ -203,6 +207,17 @@ func Run(k *kb.KB, scope string, scopeNeighbors bool) ([]Finding, error) {
 		return nil
 	}); err != nil {
 		return nil, fmt.Errorf("lint.Run: walk: %w", err)
+	}
+	// exists answers "is target a concept" from the walk, falling back to the
+	// filesystem only on a miss: a link may name an expanded concept by its
+	// index file ("<id>/index") or a map's own index.md, neither of which is a
+	// walked ID, and ReadConcept resolves both (D294 regression, D295).
+	exists := func(target okf.ConceptID) bool {
+		if _, ok := relPathOf[target]; ok {
+			return true
+		}
+		_, err := k.ReadConcept(target)
+		return err == nil || !errors.Is(err, okf.ErrNotFound)
 	}
 
 	// Normalise scope to forward-slash form (OKF paths use /). Empty means
@@ -343,7 +358,7 @@ func Run(k *kb.KB, scope string, scopeNeighbors bool) ([]Finding, error) {
 	// The structural analysis runs on the whole graph whatever the scope, so
 	// a scoped lint gives a concept the verdict a whole-KB lint gives it;
 	// scope only decides which findings are emitted (D243).
-	st, err := analyseStructure(k, lg, archives)
+	st, err := analyseStructure(k, lg, archives, contracts)
 	if err != nil {
 		return nil, fmt.Errorf("lint.Run: structure: %w", err)
 	}
@@ -405,34 +420,48 @@ func Run(k *kb.KB, scope string, scopeNeighbors bool) ([]Finding, error) {
 		}
 
 		// --- broken_link (warning) ---
+		// For expanded concepts, detect links broken by past expansions:
+		// if the same href resolves from the pre-expansion base "<id>.md",
+		// the fix is a rebase (D295 WP2).
+		isExpanded := strings.HasSuffix(linkBase, "/index.md") && strings.Count(linkBase, "/") >= 2
+		var rebasable map[string]*Fix // broken target path → fix
+		if isExpanded {
+			preExpBase := strings.TrimSuffix(linkBase, "/index.md") + ".md"
+			rebasable = brokenLinkRebaseFixes(body, linkBase, preExpBase, exists)
+		}
 		for _, target := range kb.ExtractLinks(body, linkBase, k.AssetExists) {
 			targetPath := okf.IDToPath(target)
-			// A link target is broken iff it was not among the enumerated
-			// concepts (D294): this avoids an os.Stat per link.
-			if _, known := relPathOf[target]; !known {
-				emit(Finding{
+			if !exists(target) {
+				f := Finding{
 					Path:     relPath,
 					Check:    "broken_link",
 					Severity: SevWarning,
 					Message:  fmt.Sprintf("broken link to %s", targetPath),
-				})
+				}
+				if fix, ok := rebasable[targetPath]; ok {
+					f.Fix = fix
+					f.Message += "; fix: rebase relative to the expanded index"
+				}
+				emit(f)
 			}
 		}
 
 		// --- duplicate_link / bare_link_list (info): the trailing links
 		// section (linksection.go) ---
-		if heading, dups, bare, n := linksSectionIssues(body, linkBase, k.AssetExists); heading != "" {
+		if heading, dups, fixableDups, bare, n := linksSectionIssues(body, linkBase, k.AssetExists); heading != "" {
 			if len(dups) > 0 {
-				names := make([]string, len(dups))
-				for i, d := range dups {
-					names[i] = string(d)
+				for _, d := range dups {
+					f := Finding{
+						Path:     relPath,
+						Check:    "duplicate_link",
+						Severity: SevInfo,
+						Message:  fmt.Sprintf("linked both in the text and under %q: %s — keep the link where the text says why", heading, d),
+					}
+					if line, ok := fixableDups[d]; ok {
+						f.Fix = &Fix{Kind: FixDropLinkItem, Field: line}
+					}
+					emit(f)
 				}
-				emit(Finding{
-					Path:     relPath,
-					Check:    "duplicate_link",
-					Severity: SevInfo,
-					Message:  fmt.Sprintf("linked both in the text and under %q: %s — keep the link where the text says why", heading, strings.Join(names, ", ")),
-				})
 			}
 			if bare {
 				emit(Finding{
@@ -524,7 +553,7 @@ func Run(k *kb.KB, scope string, scopeNeighbors bool) ([]Finding, error) {
 		// --- stale_claim, machine_path, missing_title, map contracts,
 		// nonstandard_field, tool_param_field: one implementation shared with
 		// CheckConcept (D289) ---
-		in := conceptInput{RelPath: relPath, Body: body, Parsed: parsed, AllowPrefixes: allowPrefixes, Registry: registry}
+		in := conceptInput{RelPath: relPath, Body: body, FrontmatterRaw: fmRaw, Parsed: parsed, AllowPrefixes: allowPrefixes, Registry: registry}
 		if len(parts) > 1 && archiveSet[parts[0]] {
 			c := contracts[parts[0]]
 			in.MapName, in.Contract = parts[0], &c
@@ -614,7 +643,7 @@ func Run(k *kb.KB, scope string, scopeNeighbors bool) ([]Finding, error) {
 			// when it has no direct concepts. A scope inside an expanded concept
 			// must not surface unrelated map-index content.
 			if len(direct) > 0 || scopeNorm == "" || scopeNorm == archiveName {
-				checkCuratedIndex(k, archiveName, archiveName+"/index.md", direct, true, &findings, relPathOf)
+				checkCuratedIndex(k, archiveName, archiveName+"/index.md", direct, true, &findings, exists)
 			}
 		} else if scopeNorm == "" || scopeNorm == archiveName {
 			// A dead link is dead whether or not the map promised completeness:
@@ -624,7 +653,7 @@ func Run(k *kb.KB, scope string, scopeNeighbors bool) ([]Finding, error) {
 			// missing index is not reported: nothing required one.
 			if content, err := k.ReadIndex(archiveName); err == nil {
 				_, body, _ := okf.SplitFrontmatter(content)
-				checkIndexLinks(k, archiveName+"/index.md", body, &findings, relPathOf)
+				checkIndexLinks(k, archiveName+"/index.md", body, &findings, exists)
 			}
 		}
 
@@ -647,7 +676,7 @@ func Run(k *kb.KB, scope string, scopeNeighbors bool) ([]Finding, error) {
 				if len(satellites) > 0 {
 					// Expanded indexes are emitted by WalkConcepts, so their link
 					// targets are already covered by the general broken_link pass.
-					checkCuratedIndex(k, string(expandedID), string(expandedID)+"/index.md", satellites, false, &findings, relPathOf)
+					checkCuratedIndex(k, string(expandedID), string(expandedID)+"/index.md", satellites, false, &findings, exists)
 				}
 			}
 
@@ -836,6 +865,67 @@ func matchesAllowedPrefix(candidate string, allowPrefixes []string) bool {
 	return false
 }
 
+// brokenLinkRebaseFixes computes, for an expanded concept, which broken
+// markdown links would resolve from the pre-expansion base. Each is returned
+// keyed by the broken target path (e.g. "map/c/other.md") with a Fix carrying
+// the old href (Field) and the correct new href (To). D295 WP2.
+func brokenLinkRebaseFixes(body, newBase, oldBase string, exists func(okf.ConceptID) bool) map[string]*Fix {
+	oldDir, newDir := path.Dir(oldBase), path.Dir(newBase)
+	masked := kb.MaskCodeSpans(body)
+	mdLinkPat := regexp.MustCompile(`\[([^\]]*)\]\(([^)]+)\)`)
+	out := map[string]*Fix{}
+	for _, m := range mdLinkPat.FindAllStringSubmatch(masked, -1) {
+		href := m[2]
+		if strings.Contains(href, "://") || strings.HasPrefix(href, "#") || strings.HasPrefix(href, "mailto:") || strings.HasPrefix(href, "/") {
+			continue
+		}
+		pathPart := strings.SplitN(href, "#", 2)[0]
+		if pathPart == "" {
+			continue
+		}
+		ext := path.Ext(pathPart)
+		if ext != "" && !strings.EqualFold(ext, ".md") {
+			continue
+		}
+		target := pathPart
+		if !strings.EqualFold(path.Ext(target), ".md") {
+			target += ".md"
+		}
+
+		// Resolve from the new base (where it's broken).
+		brokenResolved := path.Clean(path.Join(newDir, target))
+		if strings.HasPrefix(brokenResolved, "..") {
+			continue
+		}
+		brokenID := strings.TrimSuffix(brokenResolved, ".md")
+
+		// Resolve from the old base (where it should work).
+		goodResolved := path.Clean(path.Join(oldDir, target))
+		if strings.HasPrefix(goodResolved, "..") {
+			continue
+		}
+		goodID := strings.TrimSuffix(goodResolved, ".md")
+
+		// The link is broken from the new base...
+		if exists(okf.ConceptID(brokenID)) {
+			continue // not actually broken
+		}
+		// ...but resolves from the old base.
+		if !exists(okf.ConceptID(goodID)) {
+			continue // broken from both bases: no fix
+		}
+
+		// Compute correct href relative to the new base.
+		newHref := kb.RelLink(newDir, goodResolved)
+		// Keep the ".md" or not to match the original style.
+		if !strings.EqualFold(path.Ext(pathPart), ".md") {
+			newHref = strings.TrimSuffix(newHref, ".md")
+		}
+		out[brokenResolved] = &Fix{Kind: FixRebaseLink, Field: pathPart, To: newHref}
+	}
+	return out
+}
+
 func pathHasPrefix(candidate, prefix string) bool {
 	if !strings.HasPrefix(candidate, prefix) {
 		return false
@@ -890,7 +980,7 @@ func firstH1(body string) string {
 // checkCuratedIndex verifies both directions of an opted-in curated index.
 // folder is passed to ReadIndex; indexPath is the exact physical base used by
 // ExtractLinks so relative Markdown links resolve from the right directory.
-func checkCuratedIndex(k *kb.KB, folder, indexPath string, candidates []okf.ConceptID, validateLinks bool, findings *[]Finding, relPathOf map[okf.ConceptID]string) {
+func checkCuratedIndex(k *kb.KB, folder, indexPath string, candidates []okf.ConceptID, validateLinks bool, findings *[]Finding, exists func(okf.ConceptID) bool) {
 	content, err := k.ReadIndex(folder)
 	if err != nil {
 		*findings = append(*findings, Finding{
@@ -915,7 +1005,7 @@ func checkCuratedIndex(k *kb.KB, folder, indexPath string, candidates []okf.Conc
 		}
 	}
 	if validateLinks {
-		checkIndexLinks(k, indexPath, body, findings, relPathOf)
+		checkIndexLinks(k, indexPath, body, findings, exists)
 	}
 	sort.Slice(candidates, func(i, j int) bool { return candidates[i] < candidates[j] })
 	for _, candidate := range candidates {
@@ -932,11 +1022,11 @@ func checkCuratedIndex(k *kb.KB, folder, indexPath string, candidates []okf.Conc
 
 // checkIndexLinks reports every link in an index body whose target does not
 // resolve, as broken_link on the index itself.
-func checkIndexLinks(k *kb.KB, indexPath, body string, findings *[]Finding, relPathOf map[okf.ConceptID]string) {
+func checkIndexLinks(k *kb.KB, indexPath, body string, findings *[]Finding, exists func(okf.ConceptID) bool) {
 	for _, target := range kb.ExtractLinks(body, indexPath, k.AssetExists) {
 		// A link target is broken iff it was not among the enumerated
 		// concepts (D294): this avoids an os.Stat per link.
-		if _, known := relPathOf[target]; !known {
+		if !exists(target) {
 			*findings = append(*findings, Finding{
 				Path:     indexPath,
 				Check:    "broken_link",

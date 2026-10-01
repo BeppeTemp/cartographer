@@ -82,11 +82,15 @@ func TestToolParamField(t *testing.T) {
 }
 
 func valueContractKB(t *testing.T, mapFM string, statuses []string) string {
+	return valueContractKBField(t, mapFM, statuses, "status")
+}
+
+func valueContractKBField(t *testing.T, mapFM string, values []string, field string) string {
 	t.Helper()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "kb-a/_map.md", "---\ntype: Map\nkind: map\ntitle: A\n"+mapFM+"---\n# A\n")
-	for i, s := range statuses {
-		writeFile(t, k.DataRoot(), fmt.Sprintf("kb-a/t%d.md", i), fmt.Sprintf("---\ntype: Task\ntitle: T%d\nstatus: %s\n---\nx\n", i, s))
+	for i, v := range values {
+		writeFile(t, k.DataRoot(), fmt.Sprintf("kb-a/t%d.md", i), fmt.Sprintf("---\ntype: Task\ntitle: T%d\n%s: %s\n---\nx\n", i, field, v))
 	}
 	findings, err := Run(k, "", false)
 	if err != nil {
@@ -116,12 +120,17 @@ func TestMissingValueContract(t *testing.T) {
 	if msg := valueContractKB(t, "field_values.status: [open, done]\n", five); msg != "" {
 		t.Errorf("map-wide contract declared, still fired: %q", msg)
 	}
+	// A non-status field with more than 8 distinct values is skipped.
 	var many []string
 	for i := 0; i < 9; i++ {
 		many = append(many, fmt.Sprintf("v%d", i), fmt.Sprintf("v%d", i))
 	}
-	if msg := valueContractKB(t, "", many); msg != "" {
-		t.Errorf("more than 8 distinct values fired: %q", msg)
+	if msg := valueContractKBField(t, "", many, "phase"); msg != "" {
+		t.Errorf("more than 8 distinct values fired for non-status field: %q", msg)
+	}
+	// But status bypasses the cap (D295): 10 distinct values still fires.
+	if msg := valueContractKB(t, "", many); msg == "" {
+		t.Error("status with 9 distinct values should still fire (no cap)")
 	}
 }
 
@@ -203,5 +212,84 @@ func TestNonstandardField_TimestampSynonymNeedsDateValue(t *testing.T) {
 	}
 	if f := findingFor(findings, "kb-a/state.md", "nonstandard_field"); f == nil || f.Fix == nil {
 		t.Errorf("non-timestamp synonyms keep their behaviour: %+v", f)
+	}
+}
+
+func TestMalformedFrontmatter_Detected(t *testing.T) {
+	k := tempKB(t)
+	// Scalar followed by indented list lines — the parser truncates the value.
+	writeFile(t, k.DataRoot(), "kb-a/bad.md", "---\ntype: Note\ntitle: Bad\nprovenance: \"- a\"\n  - b\n  - c\n---\nx\n")
+	writeFile(t, k.DataRoot(), "kb-a/good.md", "---\ntype: Note\ntitle: Good\nprovenance:\n  - a\n  - b\n---\nx\n")
+	findings, _ := Run(k, "", false)
+	if f := findingFor(findings, "kb-a/bad.md", "malformed_frontmatter"); f == nil {
+		t.Fatal("malformed_frontmatter not detected")
+	} else if f.Severity != SevWarning {
+		t.Errorf("wrong severity: %s", f.Severity)
+	}
+	if hasCheck(findings, "kb-a/good.md", "malformed_frontmatter") {
+		t.Error("false positive on well-formed block list")
+	}
+}
+
+func TestMalformedFrontmatter_NotSuppressible(t *testing.T) {
+	k := tempKB(t)
+	writeFile(t, k.DataRoot(), "kb-a/ign.md", "---\ntype: Note\ntitle: I\nlint_ignore: [malformed_frontmatter]\nprovenance: \"- a\"\n  - b\n---\nx\n")
+	findings, _ := Run(k, "", false)
+	if !hasCheck(findings, "kb-a/ign.md", "malformed_frontmatter") {
+		t.Error("malformed_frontmatter should not be suppressible")
+	}
+}
+
+func TestMissingValueContract_ProvenanceExcluded(t *testing.T) {
+	k := tempKB(t)
+	writeFile(t, k.DataRoot(), "kb-a/_map.md", "---\ntype: Map\nkind: map\ntitle: A\n---\n# A\n")
+	for i := 0; i < 6; i++ {
+		writeFile(t, k.DataRoot(), fmt.Sprintf("kb-a/c%d.md", i), "---\ntype: Note\ntitle: same\nprovenance: same\ntags: same\nresource: same\nsecrets_source: same\n---\nx\n")
+	}
+	findings, _ := Run(k, "", false)
+	if hasCheck(findings, "kb-a/_map.md", "missing_value_contract") {
+		t.Errorf("provenance/tags/resource/secrets_source should be excluded: %+v", findings)
+	}
+}
+
+func TestMissingValueContract_StatusNoCap(t *testing.T) {
+	// Status with 10 distinct values should still fire (D295 WP3).
+	var many []string
+	for i := 0; i < 10; i++ {
+		many = append(many, fmt.Sprintf("s%d", i), fmt.Sprintf("s%d", i))
+	}
+	msg := valueContractKB(t, "", many)
+	if msg == "" {
+		t.Error("status with 10 distinct values should fire (no cap)")
+	}
+}
+
+// A link may name an expanded concept by its index file or a map by its own
+// index.md: neither is a walked concept ID, and neither is broken. Pins the
+// fallback the D294 enumeration lost (one finding per such link on a real KB).
+func TestBrokenLink_IndexFormTargetsResolve(t *testing.T) {
+	k := tempKB(t)
+	writeFile(t, k.DataRoot(), "kb-a/index.md", "---\ntype: Index\ntitle: A\n---\n# A\n")
+	writeFile(t, k.DataRoot(), "kb-a/exp/index.md", "---\ntype: Note\ntitle: E\n---\n# E\n")
+	writeFile(t, k.DataRoot(), "kb-a/exp/sat.md", "---\ntype: Note\ntitle: S\n---\nUp: [e](index.md), map: [a](../index.md), [[kb-a/exp/index]].\n")
+	findings, _ := Run(k, "", false)
+	if hasCheck(findings, "kb-a/exp/sat.md", "broken_link") {
+		t.Fatalf("index-form links reported broken: %+v", findings)
+	}
+}
+
+// An indented continuation line is never taken for a key of its own.
+func TestMalformedFrontmatter_OneFindingPerKey(t *testing.T) {
+	k := tempKB(t)
+	writeFile(t, k.DataRoot(), "kb-a/bad.md", "---\ntype: Note\ntitle: Bad\nprovenance: \"- a\"\n  - see https://example.com\n  - b\n---\nx\n")
+	findings, _ := Run(k, "", false)
+	n := 0
+	for _, f := range findings {
+		if f.Check == "malformed_frontmatter" {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Fatalf("want 1 malformed_frontmatter, got %d", n)
 	}
 }

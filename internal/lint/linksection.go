@@ -47,27 +47,108 @@ func linksSection(body string) (heading, section, rest string, ok bool) {
 
 // linksSectionIssues reports, for one concept body, the links repeated in
 // the text and whether the section is a bare list of links.
-func linksSectionIssues(body, linkBase string, assetExists func(string) bool) (heading string, duplicates []okf.ConceptID, bare bool, count int) {
+// fixable is the subset of duplicates whose list item is link-only (no word):
+// mechanical removal is safe.
+func linksSectionIssues(body, linkBase string, assetExists func(string) bool) (heading string, duplicates []okf.ConceptID, fixable map[okf.ConceptID]string, bare bool, count int) {
 	heading, section, rest, ok := linksSection(body)
 	if !ok {
-		return "", nil, false, 0
+		return "", nil, nil, false, 0
 	}
 	listed := kb.ExtractLinks(section, linkBase, assetExists)
 	if len(listed) == 0 {
-		return heading, nil, false, 0
+		return heading, nil, nil, false, 0
 	}
 	inText := map[okf.ConceptID]bool{}
 	for _, id := range kb.ExtractLinks(rest, linkBase, assetExists) {
 		inText[id] = true
 	}
+	// Per-item link-only test: check each list item in the section.
+	itemLinkOnly := linkOnlyItems(section, linkBase, assetExists)
+	fixable = map[okf.ConceptID]string{}
 	for _, id := range listed {
 		if inText[id] {
 			duplicates = append(duplicates, id)
+			if line, ok := itemLinkOnly[id]; ok {
+				fixable[id] = line
+			}
 		}
 	}
 	words := listMarkRe.ReplaceAllString(mdLinkRe.ReplaceAllString(wikiLinkRe.ReplaceAllString(section, ""), ""), "")
 	bare = !strings.ContainsFunc(words, func(r rune) bool {
 		return r >= '0' && r <= '9' || r >= 'A' && r <= 'Z' || r >= 'a' && r <= 'z' || r > 127
 	})
-	return heading, duplicates, bare, len(listed)
+	return heading, duplicates, fixable, bare, len(listed)
+}
+
+// linkOnlyItems maps each concept ID whose list item in the section is a
+// single link and nothing else to that item's exact line. A line with two
+// links, or with any word beside the link, is never fixable: the words may be
+// the reason the link is there.
+func linkOnlyItems(section, linkBase string, assetExists func(string) bool) map[okf.ConceptID]string {
+	out := map[okf.ConceptID]string{}
+	for _, line := range strings.Split(section, "\n") {
+		if !listMarkRe.MatchString(line) {
+			continue
+		}
+		stripped := strings.TrimSpace(listMarkRe.ReplaceAllString(line, ""))
+		if stripped == "" {
+			continue
+		}
+		noLinks := mdLinkRe.ReplaceAllString(wikiLinkRe.ReplaceAllString(stripped, ""), "")
+		if strings.TrimSpace(noLinks) != "" {
+			continue
+		}
+		ids := kb.ExtractLinks(stripped, linkBase, assetExists)
+		if len(ids) != 1 || len(wikiLinkRe.FindAllString(stripped, -1))+len(mdLinkRe.FindAllString(stripped, -1)) != 1 {
+			continue
+		}
+		if _, seen := out[ids[0]]; !seen {
+			out[ids[0]] = line
+		}
+	}
+	return out
+}
+
+// DropLinkItem removes the exact line from the body's links section (D295
+// WP4) and, when the section is left with no list item, its heading too. Every
+// other byte of the body is kept in place. A line no longer present is a no-op.
+func DropLinkItem(body, line string) string {
+	loc := linksSectionHeading.FindStringSubmatchIndex(body)
+	if loc == nil {
+		return body
+	}
+	level := loc[3] - loc[2]
+	after := body[loc[1]:]
+	end := len(after)
+	next := regexp.MustCompile(`(?m)^#{1,` + string(rune('0'+level)) + `}\s`)
+	if m := next.FindStringIndex(after); m != nil {
+		end = m[0]
+	}
+	section := after[:end]
+	lines := strings.Split(section, "\n")
+	kept := lines[:0]
+	removed := false
+	for _, l := range lines {
+		if !removed && l == line {
+			removed = true
+			continue
+		}
+		kept = append(kept, l)
+	}
+	if !removed {
+		return body
+	}
+	newSection := strings.Join(kept, "\n")
+	hasItem := false
+	for _, l := range kept {
+		if listMarkRe.MatchString(l) && strings.TrimSpace(listMarkRe.ReplaceAllString(l, "")) != "" {
+			hasItem = true
+			break
+		}
+	}
+	if !hasItem && strings.TrimSpace(newSection) == "" {
+		// Heading and empty section go; keep the following content.
+		return strings.TrimRight(body[:loc[0]], "\n") + "\n" + strings.TrimLeft(after[end:], "\n")
+	}
+	return body[:loc[1]] + newSection + after[end:]
 }

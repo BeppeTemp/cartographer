@@ -93,11 +93,12 @@ func applyRepair(k *kb.KB, targets []repairTarget) (applied []repairTarget, skip
 			skipped = append(skipped, repairSkip{t.Path, "unreadable frontmatter: " + err.Error()})
 			continue
 		}
-		if reason := applyFixes(fm, t.Fixes); reason != "" {
+		body := cd.Body
+		if reason := applyFixes(fm, &body, t.Fixes); reason != "" {
 			skipped = append(skipped, repairSkip{t.Path, reason})
 			continue
 		}
-		if _, err := k.WriteConcept(t.ID, fm, cd.Body, t.Hash); err != nil {
+		if _, err := k.WriteConcept(t.ID, fm, body, t.Hash); err != nil {
 			reason := err.Error()
 			if errors.Is(err, okf.ErrStaleWrite) {
 				reason = "stale_write: the concept changed since it was listed"
@@ -110,9 +111,9 @@ func applyRepair(k *kb.KB, targets []repairTarget) (applied []repairTarget, skip
 	return applied, skipped
 }
 
-// applyFixes applies fixes to fm in place and returns a non-empty reason when
-// one cannot be applied (fm is then discarded by the caller).
-func applyFixes(fm *okf.Frontmatter, fixes []*lint.Fix) string {
+// applyFixes applies fixes to fm and body in place and returns a non-empty
+// reason when one cannot be applied (the caller then discards the write).
+func applyFixes(fm *okf.Frontmatter, body *string, fixes []*lint.Fix) string {
 	for _, fx := range fixes {
 		switch fx.Kind {
 		case lint.FixRenameField:
@@ -124,11 +125,46 @@ func applyFixes(fm *okf.Frontmatter, fixes []*lint.Fix) string {
 			}
 		case lint.FixDropField:
 			fm.Delete(fx.Field)
+		case lint.FixRebaseLink:
+			// Replace the old href with the new one in the body.
+			*body = rebaseHrefInBody(*body, fx.Field, fx.To)
+		case lint.FixDropLinkItem:
+			*body = lint.DropLinkItem(*body, fx.Field)
 		default:
 			return "unknown fix kind " + fx.Kind
 		}
 	}
 	return ""
+}
+
+// rebaseHrefInBody replaces all occurrences of oldHref with newHref inside
+// markdown link parentheses — [text](oldHref) → [text](newHref) — leaving
+// non-link occurrences untouched. Idempotent: if the oldHref is absent, the
+// body is returned unchanged.
+func rebaseHrefInBody(body, oldHref, newHref string) string {
+	// Match markdown links whose href is exactly oldHref (possibly with a fragment).
+	var sb strings.Builder
+	remainder := body
+	needle := "](" + oldHref
+	for {
+		idx := strings.Index(remainder, needle)
+		if idx == -1 {
+			break
+		}
+		after := remainder[idx+len(needle):]
+		// The character after the href must be ")" or "#" (fragment).
+		if len(after) > 0 && after[0] != ')' && after[0] != '#' {
+			sb.WriteString(remainder[:idx+len(needle)])
+			remainder = after
+			continue
+		}
+		sb.WriteString(remainder[:idx])
+		sb.WriteString("](")
+		sb.WriteString(newHref)
+		remainder = after
+	}
+	sb.WriteString(remainder)
+	return sb.String()
 }
 
 // renameInContracts rewrites the _map.md of every map in which a renamed field
@@ -236,9 +272,8 @@ func toolKBRepair(k *kb.KB) Tool {
 	return Tool{
 		Name: "kb_repair",
 		Description: "Applies the mechanical fix lint attaches to one check (" + strings.Join(lint.FixableChecks, ", ") +
-			"): renames or drops a frontmatter field KB-wide in one commit, updating map required_fields/field_values " +
-			"that name it. dry_run defaults to true (plan only). Concepts changed since listing are skipped. " +
-			"Judgement fixes: kb-doctor skill.",
+			"): applies frontmatter or body fixes KB-wide in one commit. dry_run defaults to true (plan only). " +
+			"Concepts changed since listing are skipped. Judgement fixes: kb-doctor skill.",
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"required": ["check"],

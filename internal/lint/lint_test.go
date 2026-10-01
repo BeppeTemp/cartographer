@@ -1532,3 +1532,92 @@ func TestRun_FieldContractNotSuppressible(t *testing.T) {
 		t.Errorf("lint_ignore_invalid should be reported for both: %#v", findings)
 	}
 }
+
+func TestLint_ExpandRebasesLinks_NoBrokenLink(t *testing.T) {
+	k := tempKB(t)
+	writeFile(t, k.DataRoot(), "m/_map.md", "---\ntype: Map\nkind: map\ntitle: M\n---\n# M\n- [c](c.md)\n- [other](other.md)\n")
+	writeFile(t, k.DataRoot(), "m/other.md", "---\ntype: Note\ntitle: Other\n---\n# Other\n")
+	// Write c.md with relative links before expanding.
+	writeFile(t, k.DataRoot(), "m/c.md", "---\ntype: Note\ntitle: C\n---\nSee [other](other.md).\n")
+	// Expand via the KB API — this should rebase the link.
+	if err := k.ExpandConcept("m/c"); err != nil {
+		t.Fatal(err)
+	}
+	findings, err := Run(k, "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range findings {
+		if f.Check == "broken_link" && strings.Contains(f.Path, "m/c") {
+			t.Errorf("broken_link after expand: %s — %s", f.Path, f.Message)
+		}
+	}
+}
+
+func TestLint_BrokenLinkRebaseFix_ExpandedConcept(t *testing.T) {
+	k := tempKB(t)
+	writeFile(t, k.DataRoot(), "m/_map.md", "---\ntype: Map\nkind: map\ntitle: M\n---\n# M\n- [c](c/index.md)\n- [other](other.md)\n- [x](x.md)\n")
+	writeFile(t, k.DataRoot(), "m/other.md", "---\ntype: Note\ntitle: Other\n---\n# Other\n")
+	writeFile(t, k.DataRoot(), "m/x.md", "---\ntype: Note\ntitle: X\n---\n# X\n")
+	// Simulate a concept expanded WITHOUT link rebasing (the old bug):
+	// c/index.md still has links written for the old base "m/c.md".
+	os.MkdirAll(filepath.Join(k.DataRoot(), "m", "c"), 0o755)
+	writeFile(t, k.DataRoot(), "m/c/index.md", "---\ntype: Note\ntitle: C\n---\nSee [other](other.md) and [x](../m2/nowhere.md).\n")
+
+	findings, err := Run(k, "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fixable, unfixable int
+	for _, f := range findings {
+		if f.Check != "broken_link" || f.Path != "m/c.md" {
+			continue
+		}
+		if f.Fix != nil && f.Fix.Kind == FixRebaseLink {
+			fixable++
+			if f.Fix.Field != "other.md" || f.Fix.To != "../other.md" {
+				t.Errorf("unexpected fix: %+v", f.Fix)
+			}
+		} else {
+			unfixable++
+		}
+	}
+	if fixable != 1 {
+		t.Errorf("expected 1 fixable broken_link, got %d", fixable)
+	}
+	// The link to "../m2/nowhere.md" doesn't resolve from either base → no fix.
+	if unfixable != 1 {
+		t.Errorf("expected 1 unfixable broken_link, got %d", unfixable)
+	}
+}
+
+func TestLint_DuplicateLinkFix_LinkOnlyItem(t *testing.T) {
+	k := tempKB(t)
+	writeFile(t, k.DataRoot(), "m/_map.md", "---\ntype: Map\nkind: map\ntitle: M\n---\n# M\n- [a](a.md)\n- [b](b.md)\n")
+	writeFile(t, k.DataRoot(), "m/a.md", "---\ntype: Note\ntitle: A\n---\n# A\n")
+	writeFile(t, k.DataRoot(), "m/b.md", "---\ntype: Note\ntitle: B\n---\n# B\n")
+	// A concept with links in text AND in the links section.
+	writeFile(t, k.DataRoot(), "m/page.md", "---\ntype: Note\ntitle: Page\n---\nUses [[m/a]] daily.\nAlso [[m/b]] — runtime dependency.\n\n## Collegamenti\n\n- [[m/a]]\n- [[m/b]] — runtime dependency\n")
+	findings, err := Run(k, "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fixable, notFixable int
+	for _, f := range findings {
+		if f.Check != "duplicate_link" || f.Path != "m/page.md" {
+			continue
+		}
+		if f.Fix != nil && f.Fix.Kind == FixDropLinkItem {
+			fixable++
+		} else {
+			notFixable++
+		}
+	}
+	// [[m/a]] is link-only → fixable; [[m/b]] has a reason → not fixable.
+	if fixable != 1 {
+		t.Errorf("expected 1 fixable duplicate_link, got %d (findings: %+v)", fixable, findings)
+	}
+	if notFixable != 1 {
+		t.Errorf("expected 1 non-fixable duplicate_link, got %d", notFixable)
+	}
+}
