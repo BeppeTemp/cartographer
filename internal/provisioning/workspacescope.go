@@ -51,9 +51,10 @@ const (
 //     /agents, /plugins.
 //   - Crush: .crush/skills, one of the project skill directories it scans by
 //     default — https://github.com/charmbracelet/crush/tree/main/docs/config.
-//     Its project *configuration*, on the other hand, is documented only in
-//     `crushrc` form, so the four other cells fail closed rather than guessing
-//     a JSON filename Crush may not read (D225).
+//     Its project *configuration* was documented only in `crushrc` form when
+//     D225 was written; the docs now also name `.crush.json`/`crush.json` in
+//     the project directory, but no probe has confirmed Crush reads them, so the
+//     four other cells still fail closed (docs/harnesses.md, ## crush).
 //
 // Two providers have **no** project-local cells at all, and say so rather than
 // pretending (decision 11): hermes renders its configuration from an Ansible
