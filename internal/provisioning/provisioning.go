@@ -2331,6 +2331,18 @@ func applyInstructionsGroup(m Manifest, diff Diff, opts ApplyOptions, tracker *e
 		}
 	}
 
+	// D293: does the AGENTS.md import state need to change? A project-scope
+	// Claude CLAUDE.md must import @AGENTS.md when the project root has one,
+	// and drop the import when it doesn't. An appearing/disappearing
+	// AGENTS.md changes the rendered body, so it is a trigger of its own.
+	wantImport := needsAgentsMDImport(opts)
+	if !triggered && len(signed) > 0 {
+		fullPath := filepath.Join(opts.BaseDir, destRel)
+		if wantImport != blockHasAgentsMDImport(fullPath) {
+			triggered = true
+		}
+	}
+
 	if !triggered {
 		return nil
 	}
@@ -2357,6 +2369,13 @@ func applyInstructionsGroup(m Manifest, diff Diff, opts ApplyOptions, tracker *e
 		snippets = append(snippets, wrapKBSection(a.Name, content))
 	}
 	body := strings.Join(snippets, "\n\n")
+
+	// D293: a project-scope Claude CLAUDE.md that lives alongside an
+	// AGENTS.md must import it, or creating/keeping CLAUDE.md hides the
+	// repository's own instructions from every Claude session.
+	if wantImport {
+		body = "@AGENTS.md\n\n" + body
+	}
 
 	if pathsSection != "" {
 		body += "\n\n" + pathsSection
@@ -2411,6 +2430,80 @@ func instructionsOrderChanged(previous []ManagedFile, newOrder []Artifact) bool 
 	}
 	for i, a := range newOrder {
 		if prevNames[i] != a.Name {
+			return true
+		}
+	}
+	return false
+}
+
+// needsAgentsMDImport reports whether the instructions block should start with
+// an @AGENTS.md import line (D293). The import is needed when all three hold:
+//   - the provider is Claude Code (the only one whose CLAUDE.md hides AGENTS.md);
+//   - the scope is project (user-scope ~/.claude/CLAUDE.md is irrelevant);
+//   - the project root contains an AGENTS.md file.
+//
+// When the file at fullPath already contains @AGENTS.md OUTSIDE the managed
+// block, the import is NOT added inside (a repo following the D213 convention
+// already has one — duplicating it would break the file).
+func needsAgentsMDImport(opts ApplyOptions) bool {
+	if opts.Provider != configurator.ProviderClaudeCode || opts.Scope != ScopeProject {
+		return false
+	}
+	agentsPath := filepath.Join(opts.BaseDir, "AGENTS.md")
+	if _, err := os.Lstat(agentsPath); err != nil {
+		return false
+	}
+	// If the target file already imports @AGENTS.md outside the managed block,
+	// skip: the user (or D213) already wrote one and a duplicate would be wrong.
+	destRel := destDirScoped("instructions", "", opts.Provider, opts.Scope)
+	fullPath := filepath.Join(opts.BaseDir, destRel)
+	return !fileImportsAgentsMDOutsideBlock(fullPath)
+}
+
+// fileImportsAgentsMDOutsideBlock reports whether the file at path contains an
+// @AGENTS.md import line outside the Cartographer-managed block. Used by D293
+// to avoid adding a duplicate import inside the block when the user already
+// wrote one.
+func fileImportsAgentsMDOutsideBlock(path string) bool {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return false
+	}
+	content := string(data)
+	// Strip the managed block so only the user's own text is checked.
+	stripped, ok := replaceBetweenMarkers(content, "")
+	if !ok {
+		stripped = content
+	}
+	return containsAgentsMDImport(stripped)
+}
+
+// blockHasAgentsMDImport reports whether the existing managed block at path
+// contains the @AGENTS.md import line. Used to detect when the import state
+// changed (AGENTS.md appeared or disappeared) and trigger a rewrite.
+func blockHasAgentsMDImport(path string) bool {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return false
+	}
+	content := string(data)
+	beginIdx := strings.Index(content, instructionsBlockBeginPrefix)
+	if beginIdx == -1 {
+		return false
+	}
+	endIdx := strings.Index(content[beginIdx:], instructionsBlockEnd)
+	if endIdx == -1 {
+		return false
+	}
+	block := content[beginIdx : beginIdx+endIdx+len(instructionsBlockEnd)]
+	return containsAgentsMDImport(block)
+}
+
+// containsAgentsMDImport reports whether text contains a line that is exactly
+// "@AGENTS.md" (the Claude Code import syntax).
+func containsAgentsMDImport(text string) bool {
+	for _, line := range strings.Split(text, "\n") {
+		if strings.TrimSpace(line) == "@AGENTS.md" {
 			return true
 		}
 	}

@@ -406,7 +406,7 @@ exposure and activation, and that is all it claims.
 | `skill` | `.claude/skills/<name>/` | `.opencode/skills/<name>/` | `.agents/skills/<name>/` | `.kiro/skills/<name>/` | unsupported | unsupported |
 | `agent` | `.claude/agents/<name>.md` | `.opencode/agent/<name>.md` | `.codex/agents/<name>.toml` | `.kiro/agents/<name>.json` | unsupported | unsupported |
 | `hook` | `.claude/hooks/<name>/` | `.opencode/hooks/<name>/` | `.codex/hooks/<name>/` | unsupported | unsupported | unsupported |
-| `instructions` | block in `./CLAUDE.md` | block in `./AGENTS.md` | block in `./AGENTS.md` | `.kiro/steering/cartographer.md` | unsupported | unsupported |
+| `instructions` | block in `./CLAUDE.md` ([D293](decisions/D293-claude-md-imports-agents-md.md): prepends `@AGENTS.md` when the project has one) | block in `./AGENTS.md` | block in `./AGENTS.md` | `.kiro/steering/cartographer.md` | unsupported | unsupported |
 | `mcp` | `.mcp.json` | `opencode.json` | `.codex/config.toml` | `.kiro/settings/mcp.json` | unsupported | unsupported |
 
 Paths are relative to the **workspace**. The matrix is data, like the global one, and is held to the

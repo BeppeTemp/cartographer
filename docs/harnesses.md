@@ -45,11 +45,10 @@ would flip a matrix cell is confirmed with a probe
     is on the project path**; the import stays necessary wherever a `CLAUDE.md`
     exists.
 - **Watch items**:
-  - [#476](https://github.com/BeppeTemp/cartographer/issues/476) (plan): the
-    project `instructions` cell writes `./CLAUDE.md`, which hides the repository's
-    `AGENTS.md` from Claude. Probed on 2.1.286 (plugin enabled): `AGENTS.md` alone
-    → read; plus a `./CLAUDE.md` or `.claude/CLAUDE.md` holding only the managed
-    block → not read; plus `@AGENTS.md` in that `CLAUDE.md` → read.
+  - ~~[#476](https://github.com/BeppeTemp/cartographer/issues/476)~~: resolved by
+    [D293](decisions/D293-claude-md-imports-agents-md.md) — the project
+    `instructions` block prepends `@AGENTS.md` when the project root has one, so
+    creating `CLAUDE.md` no longer hides the repository's `AGENTS.md`.
   - claude.ai account-synced skills share `~/.claude/skills/` (2.1.275, 2.1.280);
     not a cell.
 - **Probe notes**: the AGENTS.md probe needs the plugin on: a machine can disable
