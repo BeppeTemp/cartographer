@@ -4,9 +4,9 @@ const body = (section: string) => `Intro.\n\n## Punti aperti\n\n- one\n\n## Coll
 
 describe("withoutRedundantLinksSection", () => {
   it("drops a links-only section whose relative links are all outbound", () => {
-    const out = strip(body("- [Keycloak](../piattaforma/keycloak.md)\n- [Inc](../incidenti/x.md)"), "attivita/k", [
-      "piattaforma/keycloak",
-      "incidenti/x",
+    const out = strip(body("- [Service](../services-map/service.md)\n- [Inc](../journal-b/x.md)"), "journal-a/k", [
+      "services-map/service",
+      "journal-b/x",
     ]);
     expect(out).not.toContain("Collegamenti");
     expect(out).toContain("Punti aperti");
