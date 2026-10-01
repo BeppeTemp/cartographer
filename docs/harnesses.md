@@ -59,9 +59,12 @@ would flip a matrix cell is confirmed with a probe
 
 ## codex
 
-- **Aligned with**: `0.159.3` — 2026-10-01 (documentary review; cells not
-  re-probed). Last probed: `0.153.4`, date `unknown` (D192: `codex debug
-  prompt-input` catalogues skills in `~/.codex/skills`).
+- **Aligned with**: `0.159.3` — 2026-10-01 (documentary review). Probed on
+  `0.158.0` — 2026-10-01: `codex debug prompt-input` catalogues skills from both
+  `~/.codex/skills` and `~/.agents/skills` (D192 still holds); a user-layer
+  `SessionStart` hook fires in `codex exec`, but only for a trusted hook
+  definition; a project's `.codex/hooks.json` runs only once the project is
+  trusted (D193 still holds). Not probed: `sandbox_mode` on an agent.
 - **Sources**: changelog <https://learn.chatgpt.com/docs/changelog>; releases
   <https://github.com/openai/codex/releases> (tags `rust-v<version>`); version:
   `npm view @openai/codex version`, `codex --version`. Documentation (the
@@ -85,11 +88,14 @@ would flip a matrix cell is confirmed with a probe
     (`AGENTS.override.md` in the same directory wins, first non-empty file only);
     hook trust is keyed by the exact hook definition, and a project's `.codex/`
     layer is inactive unless the project is trusted (D193).
-- **Watch items**: no issue open. To re-probe at the next cell pass: the
-  `SessionStart` sentinel after 0.155.0 (session-start hooks now distinguish
-  forked sessions), and the untrusted-project `.codex/` layer after the
-  folder-trust rework of 0.156.0–0.158.0.
-- **Probe notes**: `codex debug prompt-input` lists the catalogued skills.
+- **Watch items**: none open.
+- **Probe notes**: `codex debug prompt-input` lists the catalogued skills (no
+  model call). Isolate a run with a temp `HOME` and `CODEX_HOME`, copying only
+  `auth.json`; close stdin (`</dev/null`) or `codex exec` waits for input. Hook
+  trust is per definition (a `trusted_hash` under `[hooks.state]` in
+  `config.toml`, granted interactively): an untrusted sentinel never fires, so
+  probe with `codex exec --dangerously-bypass-hook-trust` inside the isolated
+  home only. Project trust: `[projects."<path>"] trust_level = "trusted"`.
 
 ## kiro
 
@@ -147,7 +153,7 @@ would flip a matrix cell is confirmed with a probe
     `session.created` event.
   - `mcp` under the `mcp` key of `opencode.json`; `instructions` in
     `~/.config/opencode/AGENTS.md` (both documented).
-- **Watch items**: no issue open. Probe the undocumented global
+- **Watch items**: [#478](https://github.com/BeppeTemp/cartographer/issues/478) lists the probes for this client. Probe the undocumented global
   `~/.opencode/skills/` when the client is installed; 1.18.24 introduced a V2
   config format (watch the `mcp` key shape).
 - **Probe notes**: `opencode agent list` and `opencode debug config` print what the
@@ -172,7 +178,7 @@ would flip a matrix cell is confirmed with a probe
     Ansible role, `SOUL.md` operator-owned).
   - No project-local cell; no session hook: sync layer 1 is the scheduled timer
     (D140/D141).
-- **Watch items**: no issue open. The docs now describe surfaces D141 states as
+- **Watch items**: [#478](https://github.com/BeppeTemp/cartographer/issues/478) lists the probes for this client. The docs now describe surfaces D141 states as
   absent; none probed, so no cell changes:
   - gateway hooks in `$HERMES_HOME/hooks/<name>/` (`HOOK.yaml` + `handler.py`,
     `session:start`, documented as gateway-only) and shell hooks in the
@@ -206,7 +212,7 @@ would flip a matrix cell is confirmed with a probe
     PreToolUse, PostToolUse, PreInvocation, PostInvocation, Stop): sync layer 1 is
     the timer (D140, D194, D284). Agent frontmatter documents `tools`, `model`
     and `commandExecutionPolicy` (candidate D291 keys, not verified).
-- **Watch items**: no issue open. The docs now describe a workspace scope that
+- **Watch items**: [#478](https://github.com/BeppeTemp/cartographer/issues/478) lists the probes for this client. The docs now describe a workspace scope that
   would flip several cells if a probe confirms it: `.agents/skills/`,
   `.agents/agents/`, `.agents/hooks.json`, `.agents/mcp_config.json`,
   `.agents/rules/*.md`, native `AGENTS.md`/`GEMINI.md` reading up to the
@@ -238,7 +244,7 @@ would flip a matrix cell is confirmed with a probe
     the `.agents`/`.claude`/`.cursor` project skill directories).
   - `agent` unsupported (no documented subagent mechanism); sync layer 1 is the
     timer.
-- **Watch items**: no issue open. Documented since D225, not probed:
+- **Watch items**: [#478](https://github.com/BeppeTemp/cartographer/issues/478) lists the probes for this client. Documented since D225, not probed:
   - hooks: a `hooks` map in `crush.json`/`.crush.json` (global and project), one
     event, `PreToolUse` (`{name, matcher, command, timeout}`, Claude
     Code-compatible payload) — D225's "no hook mechanism is documented" no longer
