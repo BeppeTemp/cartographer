@@ -3,6 +3,7 @@ package mcpserver
 import (
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"github.com/BeppeTemp/cartographer/internal/execbit"
 	"os"
 	"path/filepath"
@@ -803,6 +804,37 @@ func TestArtifactTools_AgentNameMustEqualFileName(t *testing.T) {
 	}
 	if tr := call("agents/explorer.md", "explorer"); tr.IsError {
 		t.Fatalf("matching name rejected: %+v", tr.Content)
+	}
+}
+
+// A `providers:` block is validated on write (D291): an unknown client or a key
+// Cartographer writes itself is a mistake, not a restriction.
+func TestArtifactTools_AgentProvidersBlockIsValidated(t *testing.T) {
+	k := setupTestKB(t)
+	k.AllowArtifactWrite = true
+	s := New("test")
+	RegisterKBTools(s, k, Deps{})
+	n := 0
+	write := func(providers string) ToolResult {
+		n++
+		name := fmt.Sprintf("explorer%d", n)
+		r := runMCPSequence(t, s, []string{initMsg, artifactCallMsg(t, 2, "artifact_write", map[string]any{
+			"path": "agents/" + name + ".md", "content": "---\nname: " + name + "\ndescription: d\n" + providers + "---\nBody\n",
+		})})
+		return decodeToolResult(t, r[1])
+	}
+	if tr := write("providers:\n  codex: { sandbox_mode: read-only }\n  opencode:\n    permission:\n      edit: deny\n"); tr.IsError {
+		t.Fatalf("valid providers block rejected: %+v", tr.Content)
+	}
+	for _, bad := range []string{
+		"providers:\n  cdex: { sandbox_mode: read-only }\n",
+		"providers:\n  claude: { tools: Read }\n",
+		"providers:\n  codex: read-only\n",
+		"providers:\n  codex: { description: other }\n",
+	} {
+		if tr := write(bad); !tr.IsError || !containsText(tr, "providers") {
+			t.Errorf("bad providers block accepted: %q -> %+v", bad, tr.Content)
+		}
 	}
 }
 

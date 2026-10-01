@@ -12,6 +12,7 @@
 package provisioning
 
 import (
+	"bytes"
 	"crypto/ed25519"
 	"crypto/sha256"
 	"encoding/json"
@@ -2433,7 +2434,7 @@ func widenedAgentWarnings(m Manifest, opts ApplyOptions) []string {
 			continue
 		}
 		out = append(out, fmt.Sprintf(
-			"agent %q declares tools: %s; %s cannot express that restriction, so it receives the agent unrestricted (add `strict_tools: true` to its frontmatter to skip it there instead)",
+			"agent %[1]q declares tools: %[2]s; %[3]s cannot express that restriction, so it receives the agent unrestricted (write that client's own restriction under `providers.%[3]s` in its frontmatter, or add `strict_tools: true` to skip it there instead)",
 			a.Name, a.Restriction.Tools, opts.Provider))
 	}
 	return out
@@ -3131,6 +3132,7 @@ func translateAgentForProvider(provider configurator.Provider, name string, cont
 	fmRaw, body, hasFM := okf.SplitFrontmatter(string(content))
 
 	description := name
+	var native []nativeField
 	if hasFM {
 		fm, err := okf.ParseFrontmatter(fmRaw)
 		if err != nil {
@@ -3141,8 +3143,15 @@ func translateAgentForProvider(provider configurator.Provider, name string, cont
 				description = s
 			}
 		}
+		if native, err = nativeFieldsFor(fm, provider); err != nil {
+			return nil, fmt.Errorf("provisioning: agent %s: %w", name, err)
+		}
 	} else {
 		body = string(content)
+	}
+	extra, err := renderNativeYAML(native)
+	if err != nil {
+		return nil, fmt.Errorf("provisioning: agent %s: %w", name, err)
 	}
 
 	var sb strings.Builder
@@ -3150,6 +3159,7 @@ func translateAgentForProvider(provider configurator.Provider, name string, cont
 	sb.WriteString("description: ")
 	sb.WriteString(yamlQuoteScalar(description))
 	sb.WriteString("\nmode: subagent\n")
+	sb.WriteString(extra)
 	sb.WriteString("---\n")
 	sb.WriteString(body)
 
@@ -3162,6 +3172,7 @@ func translateAgentForProvider(provider configurator.Provider, name string, cont
 func translateAgentForAntigravity(name string, content []byte) ([]byte, error) {
 	fmRaw, body, hasFM := okf.SplitFrontmatter(string(content))
 	description := name
+	var native []nativeField
 	if hasFM {
 		fm, err := okf.ParseFrontmatter(fmRaw)
 		if err != nil {
@@ -3172,8 +3183,15 @@ func translateAgentForAntigravity(name string, content []byte) ([]byte, error) {
 				description = s
 			}
 		}
+		if native, err = nativeFieldsFor(fm, configurator.ProviderAntigravity); err != nil {
+			return nil, fmt.Errorf("provisioning: agent %s: %w", name, err)
+		}
 	} else {
 		body = string(content)
+	}
+	extra, err := renderNativeYAML(native)
+	if err != nil {
+		return nil, fmt.Errorf("provisioning: agent %s: %w", name, err)
 	}
 
 	var sb strings.Builder
@@ -3181,7 +3199,9 @@ func translateAgentForAntigravity(name string, content []byte) ([]byte, error) {
 	sb.WriteString(yamlQuoteScalar(name))
 	sb.WriteString("\ndescription: ")
 	sb.WriteString(yamlQuoteScalar(description))
-	sb.WriteString("\nmainAgent: false\nsubagent: true\n---\n")
+	sb.WriteString("\nmainAgent: false\nsubagent: true\n")
+	sb.WriteString(extra)
+	sb.WriteString("---\n")
 	sb.WriteString(body)
 	return []byte(sb.String()), nil
 }
@@ -3204,6 +3224,7 @@ func translateAgentForAntigravity(name string, content []byte) ([]byte, error) {
 func translateAgentForKiro(name string, content []byte) ([]byte, error) {
 	fmRaw, body, hasFM := okf.SplitFrontmatter(string(content))
 	description := name
+	var native []nativeField
 	if hasFM {
 		fm, err := okf.ParseFrontmatter(fmRaw)
 		if err != nil {
@@ -3214,23 +3235,37 @@ func translateAgentForKiro(name string, content []byte) ([]byte, error) {
 				description = s
 			}
 		}
+		if native, err = nativeFieldsFor(fm, configurator.ProviderKiro); err != nil {
+			return nil, fmt.Errorf("provisioning: agent %s: %w", name, err)
+		}
 	} else {
 		// No frontmatter: the whole file is the prompt and the name stands in
 		// for the description, the same fallback the other translations use.
 		body = string(content)
 	}
 
-	cfg := struct {
-		Name        string `json:"name"`
-		Description string `json:"description"`
-		Prompt      string `json:"prompt"`
-	}{Name: name, Description: description, Prompt: body}
-
-	out, err := json.MarshalIndent(cfg, "", "  ")
+	// Built member by member so the author's `providers.kiro` fields (D291) land
+	// after ours, in their own order, without a round trip through a Go map.
+	members := make([]string, 0, 3+len(native))
+	for _, kv := range [][2]string{{"name", name}, {"description", description}, {"prompt", body}} {
+		k, _ := json.Marshal(kv[0])
+		v, err := json.Marshal(kv[1])
+		if err != nil {
+			return nil, fmt.Errorf("provisioning: encode agent %s for kiro: %w", name, err)
+		}
+		members = append(members, string(k)+": "+string(v))
+	}
+	extra, err := renderNativeJSONPairs(native)
 	if err != nil {
+		return nil, fmt.Errorf("provisioning: agent %s: %w", name, err)
+	}
+	members = append(members, extra...)
+	var out bytes.Buffer
+	if err := json.Indent(&out, []byte("{"+strings.Join(members, ", ")+"}"), "", "  "); err != nil {
 		return nil, fmt.Errorf("provisioning: encode agent %s for kiro: %w", name, err)
 	}
-	return append(out, '\n'), nil
+	out.WriteByte('\n')
+	return out.Bytes(), nil
 }
 
 // translateAgentForCodex adapts an "agent" artifact's content (a Claude Code
@@ -3249,6 +3284,7 @@ func translateAgentForCodex(name string, content []byte) ([]byte, error) {
 	fmRaw, body, hasFM := okf.SplitFrontmatter(string(content))
 
 	description := name
+	var native []nativeField
 	if hasFM {
 		fm, err := okf.ParseFrontmatter(fmRaw)
 		if err != nil {
@@ -3259,8 +3295,15 @@ func translateAgentForCodex(name string, content []byte) ([]byte, error) {
 				description = s
 			}
 		}
+		if native, err = nativeFieldsFor(fm, configurator.ProviderCodex); err != nil {
+			return nil, fmt.Errorf("provisioning: agent %s: %w", name, err)
+		}
 	} else {
 		body = string(content)
+	}
+	extra, err := renderNativeTOML(native)
+	if err != nil {
+		return nil, fmt.Errorf("provisioning: agent %s: %w", name, err)
 	}
 
 	var sb strings.Builder
@@ -3269,6 +3312,9 @@ func translateAgentForCodex(name string, content []byte) ([]byte, error) {
 	sb.WriteString("developer_instructions = ")
 	sb.WriteString(configurator.QuoteTOMLMultiline(strings.TrimRight(body, "\n")))
 	sb.WriteString("\n")
+	// The author's `providers.codex` fields (D291): top-level keys after ours, so
+	// they cannot fall inside a table.
+	sb.WriteString(extra)
 
 	return []byte(sb.String()), nil
 }
@@ -3545,6 +3591,10 @@ type AgentRestriction struct {
 	// Strict is `strict_tools: true`: the author prefers the agent not exist on
 	// a client that cannot enforce Tools over existing there unrestricted.
 	Strict bool
+	// Native lists, sorted, the clients with a non-empty `providers:` entry
+	// (D291): the author wrote that client's own restriction, so the agent is
+	// not widened there — it is neither warned about nor skipped by Strict.
+	Native []string
 }
 
 // ParseAgentRestriction reads an agent's source frontmatter and returns its
@@ -3573,7 +3623,7 @@ func ParseAgentRestriction(content []byte) *AgentRestriction {
 	if tools == "" {
 		return nil
 	}
-	r := &AgentRestriction{Tools: tools}
+	r := &AgentRestriction{Tools: tools, Native: nativeProvidersDeclared(fm)}
 	if sv, ok := fm.Get("strict_tools"); ok {
 		if str, ok := sv.(string); ok && strings.EqualFold(strings.TrimSpace(str), "true") {
 			r.Strict = true
@@ -3583,9 +3633,20 @@ func ParseAgentRestriction(content []byte) *AgentRestriction {
 }
 
 // agentWidened reports that installing this agent on provider drops a `tools`
-// allow-list. Claude Code receives the source verbatim, so it enforces it.
+// allow-list. Claude Code receives the source verbatim, so it enforces it, and a
+// client the author gave a `providers:` entry (D291) is not widened either.
 func agentWidened(a Artifact, provider configurator.Provider) bool {
-	return a.Kind == "agent" && a.Restriction != nil && provider != configurator.ProviderClaudeCode
+	if a.Kind != "agent" || a.Restriction == nil || provider == configurator.ProviderClaudeCode {
+		return false
+	}
+	// A `providers.<client>` entry is the author's own native restriction for
+	// that client (D291): nothing is widened there.
+	for _, p := range a.Restriction.Native {
+		if p == string(provider) {
+			return false
+		}
+	}
+	return true
 }
 
 // strictAgentSkipped reports that the agent opted out of being widened

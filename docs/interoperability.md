@@ -101,7 +101,12 @@ clients receive the agent without it, and therefore with every tool that client
 has; each `sync` warns per agent, and `strict_tools: true` in the agent's
 frontmatter skips it on those clients instead
 ([D283](decisions/D283-a-dropped-tools-allow-list-is-reported-and-can-opt-out.md)).
-There is no per-client way to write a native restriction through Cartographer.
+An agent can instead carry each client's own restriction in a `providers:` frontmatter
+block (`opencode`, `codex`, `kiro`, `antigravity`), copied **verbatim** into that client's native
+agent file; a client with an entry is not widened, so it is neither warned about nor skipped
+([D291](decisions/D291-an-agent-can-carry-each-clients-own-restriction-verbatim.md)). Cartographer
+does not infer the syntax, and which native keys each client honours has **not been verified
+against the real clients**: the author writes them and owns their correctness.
 
 Two consequences are worth stating plainly. Kiro receives subagents in both
 scopes since [D195](decisions/D195-kiro-receives-subagents-its-hooks-are-documented-but.md) but keeps an

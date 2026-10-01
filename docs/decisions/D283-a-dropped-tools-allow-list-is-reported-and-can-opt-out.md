@@ -4,6 +4,8 @@ topic: sync-provisioning
 
 # D283 — A dropped `tools` allow-list is reported, and an agent can opt out of being widened
 
+*(Partly superseded by [D291](D291-an-agent-can-carry-each-clients-own-restriction-verbatim.md): an agent's `providers:` frontmatter block now writes a client's own native fields verbatim; dropping `tools` and `model` is unchanged.)*
+
 **Decision.** When a KB agent declares `tools` and the target client is not
 Claude Code, `sync` warns on every run, naming the agent, the client and the
 list. An agent may add `strict_tools: true` to its frontmatter: it is then not

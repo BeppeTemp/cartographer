@@ -7,6 +7,7 @@ package provisioning_test
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -187,7 +188,7 @@ func TestParseAgentRestriction(t *testing.T) {
 	}
 	for _, c := range cases {
 		got := provisioning.ParseAgentRestriction([]byte(c.src))
-		if (got == nil) != (c.want == nil) || (got != nil && *got != *c.want) {
+		if (got == nil) != (c.want == nil) || (got != nil && !reflect.DeepEqual(*got, *c.want)) {
 			t.Errorf("%s: got %+v want %+v", c.name, got, c.want)
 		}
 	}

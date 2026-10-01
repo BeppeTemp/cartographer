@@ -4,6 +4,8 @@ topic: sync-provisioning
 
 # D55 — Agents also materialized on OpenCode, via frontmatter translation
 
+*(Partly superseded by [D291](D291-an-agent-can-carry-each-clients-own-restriction-verbatim.md): an agent's `providers:` frontmatter block now writes a client's own native fields verbatim; dropping `tools` and `model` is unchanged.)*
+
 **Context.** D48 materializes `kind: agent` only on `claude` — but OpenCode has its own native
 subagents (`.opencode/agent/<nome>.md`, singular dir, incompatible frontmatter: `description` +
 `mode: subagent`, name from the filename).
