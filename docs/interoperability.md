@@ -51,6 +51,8 @@ duplicate a dated market-wide capability matrix. The maintained sources are:
 - [configurator](configurator.md) — exact files Cartographer reads and writes;
 - [synchronization](sync.md) — the `kind × provider` materialization matrix,
   translation losses, trust and pruning;
+- [harness ledger](harnesses.md) — per client, the version last aligned with, where
+  its changes are announced and which cells depend on it;
 - tests under `internal/configurator` and `internal/provisioning` — executable
   compatibility contract.
 
