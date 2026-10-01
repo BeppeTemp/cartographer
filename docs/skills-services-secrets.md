@@ -10,6 +10,13 @@ the Agent Skills frontmatter (`name` and `description`) and exposes installed
 and binary-bundled skills through `skill_list`. `skill_install` copies a
 bundled skill into the KB.
 
+The bundled catalog (`internal/skillbundle/bundled/`) is `cartographer-ops`, `kb-create`,
+`kb-import`, `kb-conflict-resolve` and `kb-ingest`. `kb-ingest` (D279) ingests **one** primary
+source (document, transcript, thread, ticket, incident timeline, email, web page, dataset) into
+existing pages through the source ledger of D278: register, distil, patch rather than create,
+cite via `provenance`, open a `Contradiction` instead of overwriting, record gaps, verify with
+`gate_check`. Per-kind advice is in its `references/source-kinds.md`.
+
 **Naming rules** (D191). One validator answers for both channels — a write over
 `artifact_write` and a skill that arrived through git are held to the same rules,
 because a skill only one of them accepts breaks the other later:
