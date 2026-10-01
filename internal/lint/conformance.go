@@ -17,8 +17,10 @@ import (
 // Fix kinds a Finding may carry. A fix is mechanical: applying it needs no
 // judgement, so a repair tool never parses the message.
 const (
-	FixRenameField = "rename_field" // Field → To
-	FixDropField   = "drop_field"   // Field
+	FixRenameField  = "rename_field"   // Field → To
+	FixDropField    = "drop_field"     // Field
+	FixRebaseLink   = "rebase_link"    // Field = old href, To = new href (D295 WP2)
+	FixDropLinkItem = "drop_link_item" // Field = the exact list line to remove from the links section (D295 WP4)
 )
 
 // Fix is the machine-readable remedy of a finding whose repair is mechanical.
@@ -31,7 +33,7 @@ type Fix struct {
 // FixableChecks are the checks whose findings carry a Fix, which is what
 // kb_repair accepts (D290). A check that gains a Fix is added here: the list
 // is the repair tool's contract, and a test pins it to what the checks emit.
-var FixableChecks = []string{"nonstandard_field", "tool_param_field"}
+var FixableChecks = []string{"broken_link", "duplicate_link", "nonstandard_field", "tool_param_field"}
 
 // StandardFieldSynonyms maps each standard frontmatter field to the synonyms
 // KBs are known to use for it (nonstandard_field). Keys are matched
@@ -92,13 +94,14 @@ const (
 
 // conceptInput is what the frontmatter-driven checks of one concept need.
 type conceptInput struct {
-	RelPath       string
-	Body          string
-	Parsed        *okf.Frontmatter // nil when the concept has no readable frontmatter
-	AllowPrefixes []string
-	Registry      registryLint
-	MapName       string          // "" outside a map
-	Contract      *kb.MapContract // nil outside a map
+	RelPath        string
+	Body           string
+	FrontmatterRaw string           // raw frontmatter block (between ---), for malformed detection
+	Parsed         *okf.Frontmatter // nil when the concept has no readable frontmatter
+	AllowPrefixes  []string
+	Registry       registryLint
+	MapName        string          // "" outside a map
+	Contract       *kb.MapContract // nil outside a map
 }
 
 // frontmatterFindings computes the checks that depend only on one concept's
@@ -109,6 +112,13 @@ type conceptInput struct {
 func frontmatterFindings(in conceptInput) []Finding {
 	var out []Finding
 	parsed := in.Parsed
+
+	// --- malformed_frontmatter (warning, D295 WP5) ---
+	// A scalar value followed by indented lines that look like block-list
+	// continuations: the stdlib-only parser (D8) silently truncates the value.
+	if in.FrontmatterRaw != "" {
+		out = append(out, detectMalformedFrontmatter(in.RelPath, in.FrontmatterRaw)...)
+	}
 
 	// --- stale_claim (warning) ---
 	if parsed != nil {
@@ -248,7 +258,7 @@ func CheckConcept(k *kb.KB, id okf.ConceptID, content string) []Finding {
 	if hasFM {
 		parsed, _ = okf.ParseFrontmatter(fmRaw)
 	}
-	in := conceptInput{RelPath: okf.IDToPath(id), Body: body, Parsed: parsed}
+	in := conceptInput{RelPath: okf.IDToPath(id), Body: body, FrontmatterRaw: fmRaw, Parsed: parsed}
 	in.Registry, _ = loadRegistryLint(k)
 	if parts := strings.Split(string(id), "/"); len(parts) > 1 {
 		if contract, err := k.ReadMapContract(parts[0]); err == nil {
@@ -291,8 +301,13 @@ func valueContractFindings(mapName string, contract kb.MapContract, concepts map
 			}
 		}
 	}
-	skip := map[string]bool{"title": true, "type": true, "description": true, "timestamp": true,
-		"review_after": true, "superseded_by": true, "lint_ignore": true}
+	skip := map[string]bool{
+		"title": true, "type": true, "description": true, "timestamp": true,
+		"review_after": true, "superseded_by": true, "lint_ignore": true,
+		// D295 WP3: free-form, source-like and list-valued fields are never
+		// vocabulary candidates.
+		"provenance": true, "tags": true, "resource": true, "secrets_source": true,
+	}
 	var fields []string
 	for f := range byField {
 		fields = append(fields, f)
@@ -315,7 +330,9 @@ func valueContractFindings(mapName string, contract kb.MapContract, concepts map
 			counts[c.value]++
 			types[c.typ]++
 		}
-		if len(counts) > valueContractMaxValues {
+		// D295 WP3: status is always eligible (vocabulary every reader
+		// assumes), with no distinct-value cap.
+		if field != "status" && len(counts) > valueContractMaxValues {
 			continue
 		}
 		dominant := ""
@@ -364,8 +381,57 @@ func valueContractFindings(mapName string, contract kb.MapContract, concepts map
 // suppressed reports whether a concept's lint_ignore silences f. Errors never
 // are, and neither is tool_param_field: a concept cannot declare a tool
 // argument a legitimate field.
+
+// detectMalformedFrontmatter checks for a scalar value followed by indented
+// block-list-like lines that the OKF parser (D8) silently ignores, truncating
+// the value. The shape: `key: "- a"` then `  - b` (indented, unquoted).
+func detectMalformedFrontmatter(relPath, fmRaw string) []Finding {
+	lines := strings.Split(strings.ReplaceAll(fmRaw, "\r\n", "\n"), "\n")
+	var out []Finding
+	for i := 0; i < len(lines); i++ {
+		line := lines[i]
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		// Only a top-level key can own a value; an indented or list line is
+		// itself a continuation and is reported under its key.
+		if line[0] == ' ' || line[0] == '\t' || line[0] == '-' {
+			continue
+		}
+		colonIdx := strings.Index(line, ":")
+		if colonIdx < 0 {
+			continue
+		}
+		key := strings.TrimSpace(line[:colonIdx])
+		valueRaw := strings.TrimSpace(line[colonIdx+1:])
+		// Only scalar values: not empty (block list), not flow list.
+		if valueRaw == "" || strings.HasPrefix(valueRaw, "[") || strings.HasPrefix(valueRaw, "|") || strings.HasPrefix(valueRaw, ">") {
+			continue
+		}
+		// Check if the next non-blank line is indented and starts with "- ".
+		for j := i + 1; j < len(lines); j++ {
+			next := lines[j]
+			if strings.TrimSpace(next) == "" {
+				continue
+			}
+			// Indented (leading spaces) and starts with "- " after trimming.
+			if len(next) > 0 && (next[0] == ' ' || next[0] == '\t') && strings.HasPrefix(strings.TrimSpace(next), "- ") {
+				out = append(out, Finding{
+					Path:     relPath,
+					Check:    "malformed_frontmatter",
+					Severity: SevWarning,
+					Message:  fmt.Sprintf("key %q has a scalar value followed by indented list lines (line %d): the parser silently truncates the value", key, j+1),
+				})
+			}
+			break // only check the immediately following non-blank line
+		}
+	}
+	return out
+}
+
 func suppressed(f Finding, ignores map[string]bool) bool {
-	return f.Severity != SevError && f.Check != "tool_param_field" && ignores[f.Check]
+	return f.Severity != SevError && f.Check != "tool_param_field" && f.Check != "malformed_frontmatter" && ignores[f.Check]
 }
 
 // dateShaped reports whether v is a scalar string that parses as YYYY-MM-DD or

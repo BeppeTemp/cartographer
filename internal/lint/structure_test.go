@@ -191,3 +191,35 @@ func TestMapMisfit(t *testing.T) {
 		t.Fatalf("message = %q", misfits[0].Message)
 	}
 }
+
+func TestMapMisfit_StrictMapRefusingType_NoFinding(t *testing.T) {
+	// When the candidate map is strict and doesn't admit the concept's type,
+	// map_misfit should not fire (D295 WP3).
+	s := newStructKB(t, map[string]string{"ops": "map", "net": "map"})
+	// Make net strict with concept_types that do NOT include "Note".
+	writeFile(t, s.k.DataRoot(), "net/_map.md", "---\ntype: Map\ntitle: net\nkind: map\nontology_mode: strict\nconcept_types: [Service, Runbook]\n---\n")
+	// Create a Note in ops with 3 of 4 neighbors in net → normally fires.
+	s.concept("ops/router", "", "net/a", "net/b", "net/c", "ops/x")
+	for _, id := range []string{"net/a", "net/b", "net/c", "ops/x"} {
+		s.concept(id, "")
+	}
+	findings := s.run("")
+	misfits := findingsOf(findings, "map_misfit")
+	if len(misfits) != 0 {
+		t.Fatalf("strict map refusing the type should not produce map_misfit: %+v", misfits)
+	}
+}
+
+func TestMapMisfit_FlexibleMapAdmitsAnyType(t *testing.T) {
+	s := newStructKB(t, map[string]string{"ops": "map", "net": "map"})
+	// net is flexible (default) → admits any type.
+	s.concept("ops/router", "", "net/a", "net/b", "net/c", "ops/x")
+	for _, id := range []string{"net/a", "net/b", "net/c", "ops/x"} {
+		s.concept(id, "")
+	}
+	findings := s.run("")
+	misfits := findingsOf(findings, "map_misfit")
+	if len(misfits) != 1 || misfits[0].Path != "ops/router.md" {
+		t.Fatalf("flexible map should produce map_misfit: %+v", misfits)
+	}
+}

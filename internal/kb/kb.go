@@ -1390,6 +1390,31 @@ func (kb *KB) ExpandConcept(id okf.ConceptID) error {
 	if err := os.MkdirAll(dirAbs, 0o755); err != nil {
 		return fmt.Errorf("ExpandConcept: mkdir: %w", err)
 	}
+
+	// Rebase relative markdown links before moving the file one directory
+	// deeper: a link written as "other.md" or "../m2/z.md" relative to
+	// "<map>/<c>.md" must be rewritten for "<map>/<c>/index.md", otherwise
+	// every outbound link silently breaks. Wiki-links are root-relative and
+	// untouched. A test pins this (D295 WP1).
+	raw, readErr := os.ReadFile(directAbs)
+	if readErr != nil {
+		return fmt.Errorf("ExpandConcept: read %s: %w", id, readErr)
+	}
+	oldBase := string(id) + ".md"
+	newBase := string(id) + "/index.md"
+	content := string(raw)
+	_, body, _ := okf.SplitFrontmatter(content)
+	out := content
+	if rebased, n := RewriteOutboundLinks(body, oldBase, newBase, nil); n > 0 && strings.HasSuffix(content, body) {
+		// Splice the body back so the frontmatter keeps its exact bytes.
+		out = content[:len(content)-len(body)] + rebased
+	}
+	if out != content {
+		if err := os.WriteFile(directAbs, []byte(out), 0o644); err != nil {
+			return fmt.Errorf("ExpandConcept: rebase write %s: %w", id, err)
+		}
+	}
+
 	if err := os.Rename(directAbs, filepath.Join(dirAbs, "index.md")); err != nil {
 		return fmt.Errorf("ExpandConcept: move %s: %w", id, err)
 	}
@@ -1429,6 +1454,8 @@ func (kb *KB) mapDescriptorRelPath(archive string) (string, error) {
 // node's runtime path, which are identical across every reader's machine and
 // therefore not a false positive.
 type MapContract struct {
+	OntologyMode             string   // "strict" or "flexible" (default)
+	ConceptTypes             []string // allowed types when OntologyMode is "strict"
 	RequiredFields           []string
 	RequiredFieldsByType     map[string][]string
 	FieldValues              map[string][]string
@@ -1906,6 +1933,20 @@ func (kb *KB) ReadMapContract(archive string) (MapContract, error) {
 		return MapContract{}, err
 	}
 	contract := MapContract{RequiredFieldsByType: map[string][]string{}}
+	// Populate ontology mode and concept types for map_misfit filtering (D295 WP3).
+	if om, ok := meta.Get("ontology_mode"); ok {
+		if s, ok := om.(string); ok {
+			contract.OntologyMode = s
+		}
+	}
+	if contract.OntologyMode == "" {
+		contract.OntologyMode = "flexible"
+	}
+	if ctVal, ok := meta.Get("concept_types"); ok {
+		if ctList, ok := ctVal.([]string); ok {
+			contract.ConceptTypes = ctList
+		}
+	}
 	malformedKeys := map[string]bool{}
 	bad := func(key string) {
 		if malformedKeys[key] {

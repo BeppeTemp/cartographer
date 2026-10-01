@@ -3,7 +3,9 @@ package mcpserver
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -200,6 +202,7 @@ func TestFixableChecksCoverEveryEmittedFix(t *testing.T) {
 	if _, err := k.WriteConcept("ops/p", fm, "# P\n", ""); err != nil {
 		t.Fatal(err)
 	}
+	seedBodyFixes(t, k)
 	findings, err := lint.Run(k, "", false)
 	if err != nil {
 		t.Fatal(err)
@@ -354,4 +357,49 @@ func BenchmarkKBStatusConformance1000(b *testing.B) {
 func newFM() *okf.Frontmatter {
 	fm, _ := okf.ParseFrontmatter("")
 	return fm
+}
+
+// seedBodyFixes writes an expanded concept whose index still carries links
+// written for the pre-expansion file (rebase_link), plus a links section that
+// repeats a link of the text as a bare item (drop_link_item).
+func seedBodyFixes(t *testing.T, k *kb.KB) {
+	t.Helper()
+	dir := filepath.Join(k.DataRoot(), "ops", "e")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body := "---\ntype: Note\ntitle: E\nupdated: 2026-01-02\n---\n# E\n\nSee [n0](n0.md) and [[ops/n0]].\n\n## Links\n\n- [[ops/n0]]\n- [[ops/n0]] — the reason it matters\n"
+	if err := os.WriteFile(filepath.Join(dir, "index.md"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestKBRepairBodyFixes(t *testing.T) {
+	k, s := repairKB(t, 1)
+	seedBodyFixes(t, k)
+	plan := repairCall(t, s, `{"check":"broken_link"}`)
+	if plan["planned_total"].(float64) != 1 {
+		t.Fatalf("broken_link plan = %v", plan)
+	}
+	repairCall(t, s, `{"check":"broken_link","dry_run":false}`)
+	repairCall(t, s, `{"check":"duplicate_link","dry_run":false}`)
+	cd, err := k.ReadConcept("ops/e")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(cd.Body, "[n0](../n0.md)") {
+		t.Errorf("link not rebased:\n%s", cd.Body)
+	}
+	if strings.Contains(cd.Body, "\n- [[ops/n0]]\n") {
+		t.Errorf("bare duplicate item not dropped:\n%s", cd.Body)
+	}
+	if !strings.Contains(cd.Body, "the reason it matters") || !strings.Contains(cd.Body, "## Links") {
+		t.Errorf("item with a reason or heading lost:\n%s", cd.Body)
+	}
+	findings, _ := lint.Run(k, "ops", false)
+	for _, f := range findings {
+		if f.Check == "broken_link" && f.Path == "ops/e.md" {
+			t.Errorf("still broken after repair: %+v", f)
+		}
+	}
 }

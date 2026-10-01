@@ -1,7 +1,7 @@
 ---
 name: kb-doctor
 description: Align an existing Knowledge Base with the current Cartographer standard - apply the mechanical fixes with kb_repair and walk the judgement ones. Use when kb_status reports conformance.doctor_suggested, when the operator asks to tidy or align a KB, or after a Cartographer upgrade.
-version: "1.0"
+version: "1.1"
 ---
 # KB Doctor - Skill
 
@@ -20,7 +20,7 @@ always the next `lint`, never a stored version.
    ask for a pass.
 2. **Survey.** `lint` over the whole KB, grouped by check (`counts_by_check`). Tell the operator what
    the pass will cover.
-3. **Mechanical fixes.** For each check that emits fixes (`nonstandard_field`, `tool_param_field`):
+3. **Mechanical fixes.** For each check that emits fixes (`nonstandard_field`, `tool_param_field`, `broken_link`, `duplicate_link`):
    `kb_repair` with `dry_run: true` (the default), show the plan to the operator, then repeat with
    `dry_run: false` after confirmation. One call is one commit. A concept in `skipped` changed since it
    was listed: run the check again.

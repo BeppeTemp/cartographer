@@ -683,6 +683,76 @@ func TestExpandConcept_Success(t *testing.T) {
 	}
 }
 
+func TestExpandConcept_RebasesRelativeLinks(t *testing.T) {
+	dir := tempKB(t)
+	k, _ := Init(dir)
+
+	// Create targets so ExtractLinks can resolve them.
+	for _, id := range []string{"entities/other", "m2/z"} {
+		fm, _ := okf.ParseFrontmatter("type: Note\ntitle: T")
+		if _, err := k.WriteConcept(okf.ConceptID(id), fm, "target\n", ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// A concept with relative markdown links, a wiki-link, an anchor and an
+	// external URL — all relative to entities/foo.md (the pre-expansion base).
+	body := `See [x](other.md) and [y](../m2/z.md).
+Also [[entities/other]] and [anchor](#s1) and [ext](https://example.com).
+`
+	fm, _ := okf.ParseFrontmatter("type: Note\ntitle: Foo")
+	if _, err := k.WriteConcept(okf.ConceptID("entities/foo"), fm, body, ""); err != nil {
+		t.Fatal(err)
+	}
+
+	// Collect links before expand.
+	pre, _ := k.ReadConcept(okf.ConceptID("entities/foo"))
+	linksBefore := ExtractLinks(pre.Body, "entities/foo.md", k.AssetExists)
+
+	if err := k.ExpandConcept(okf.ConceptID("entities/foo")); err != nil {
+		t.Fatalf("ExpandConcept: %v", err)
+	}
+
+	// Collect links after expand: they must resolve to the same IDs.
+	post, err := k.ReadConcept(okf.ConceptID("entities/foo"))
+	if err != nil {
+		t.Fatalf("ReadConcept: %v", err)
+	}
+	linksAfter := ExtractLinks(post.Body, "entities/foo/index.md", k.AssetExists)
+
+	idSet := func(links []okf.ConceptID) map[okf.ConceptID]bool {
+		m := map[okf.ConceptID]bool{}
+		for _, l := range links {
+			m[l] = true
+		}
+		return m
+	}
+	before := idSet(linksBefore)
+	after := idSet(linksAfter)
+	for id := range before {
+		if !after[id] {
+			t.Errorf("link to %s lost after expand", id)
+		}
+	}
+	for id := range after {
+		if !before[id] {
+			t.Errorf("unexpected new link to %s after expand", id)
+		}
+	}
+
+	// The wiki-link must be untouched (root-relative).
+	if !strings.Contains(post.Body, "[[entities/other]]") {
+		t.Errorf("wiki-link was rewritten: %s", post.Body)
+	}
+	// The anchor and external URL must be untouched.
+	if !strings.Contains(post.Body, "[anchor](#s1)") {
+		t.Errorf("anchor was rewritten: %s", post.Body)
+	}
+	if !strings.Contains(post.Body, "[ext](https://example.com)") {
+		t.Errorf("external URL was rewritten: %s", post.Body)
+	}
+}
+
 func TestExpandConcept_NotFound_Error(t *testing.T) {
 	dir := tempKB(t)
 	kb, _ := Init(dir)
@@ -1833,5 +1903,28 @@ func TestReadMapContract_FieldValuesMalformed(t *testing.T) {
 	}
 	if len(c.FieldValues) != 1 || len(c.FieldValues["good"]) != 1 || len(c.FieldValuesByType) != 0 {
 		t.Errorf("only the well-formed key must load: %+v", c)
+	}
+}
+
+// The rebase rewrites the body only: the frontmatter keeps its exact bytes.
+func TestExpandConcept_KeepsFrontmatterBytes(t *testing.T) {
+	k, _ := Init(tempKB(t))
+	raw := "---\ntype: Note\ntitle:   \"Spaced\"\n# a comment\n---\nSee [o](other.md).\n"
+	if err := os.MkdirAll(filepath.Join(k.DataRoot(), "m"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(k.DataRoot(), "m", "c.md"), []byte(raw), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := k.ExpandConcept("m/c"); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(filepath.Join(k.DataRoot(), "m", "c", "index.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "---\ntype: Note\ntitle:   \"Spaced\"\n# a comment\n---\nSee [o](../other.md).\n"
+	if string(got) != want {
+		t.Fatalf("got %q", got)
 	}
 }

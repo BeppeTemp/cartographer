@@ -57,8 +57,10 @@ type structure struct {
 	// islands are the non-main components worth reporting, with their anchor.
 	islands []island
 	// kinds is each collection's declared kind ("map" by default).
-	kinds    map[string]string
-	resolves func(id string) bool
+	kinds map[string]string
+	// contracts are the map lint contracts, keyed by map name.
+	contracts map[string]kb.MapContract
+	resolves  func(id string) bool
 }
 
 type island struct {
@@ -66,8 +68,8 @@ type island struct {
 	members []okf.ConceptID
 }
 
-func analyseStructure(k *kb.KB, lg *kb.LinkGraph, archives []string) (*structure, error) {
-	s := &structure{lg: lg, cut: map[okf.ConceptID]string{}, kinds: map[string]string{}}
+func analyseStructure(k *kb.KB, lg *kb.LinkGraph, archives []string, contracts map[string]kb.MapContract) (*structure, error) {
+	s := &structure{lg: lg, cut: map[okf.ConceptID]string{}, kinds: map[string]string{}, contracts: contracts}
 	for _, a := range archives {
 		kind := "map"
 		if meta, err := k.ReadArchiveMeta(a); err == nil {
@@ -186,6 +188,24 @@ func (s *structure) kindOf(id okf.ConceptID) string {
 	return s.kinds[parts[0]]
 }
 
+// admitsType reports whether the map's contract allows conceptType. A flexible
+// map admits everything; a strict map admits only its declared concept_types.
+func (s *structure) admitsType(mapName, conceptType string) bool {
+	c, ok := s.contracts[mapName]
+	if !ok {
+		return true // no contract: accepts anything
+	}
+	if c.OntologyMode != "strict" {
+		return true
+	}
+	for _, t := range c.ConceptTypes {
+		if t == conceptType {
+			return true
+		}
+	}
+	return false
+}
+
 // conceptChecks returns the per-concept structural findings for id, to be
 // passed through the caller's emit (so lint_ignore applies).
 func (s *structure) conceptChecks(id okf.ConceptID, relPath string) []Finding {
@@ -234,6 +254,7 @@ func (s *structure) conceptChecks(id okf.ConceptID, relPath string) []Finding {
 	// A direct neighbour-majority rule, not community detection: communities
 	// shift with unrelated edits, and the finding would flicker.
 	if home := strings.Split(string(id), "/")[0]; s.kindOf(id) == "map" {
+		conceptType := facets.Type
 		counts := map[string]int{}
 		n := 0
 		for _, v := range s.lg.Graph.Undirected()[i] {
@@ -252,6 +273,11 @@ func (s *structure) conceptChecks(id okf.ConceptID, relPath string) []Finding {
 			sort.Strings(maps)
 			for _, m := range maps {
 				if m != home && counts[m]*mapMisfitMajorityDen >= n*mapMisfitMajorityNum {
+					// A candidate map must admit the concept's type (D295
+					// WP3): a strict map that refuses the type is not advice.
+					if !s.admitsType(m, conceptType) {
+						continue
+					}
 					out = append(out, Finding{Path: relPath, Check: "map_misfit", Severity: SevInfo,
 						Message: fmt.Sprintf("%d of %d linked concepts are in map %s: consider concept_move", counts[m], n, m)})
 					break
