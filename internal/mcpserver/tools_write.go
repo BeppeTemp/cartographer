@@ -338,7 +338,7 @@ func applyPatchEdit(body, oldString, newString string, replaceAll bool) (newBody
 func toolConceptPatch(k *kb.KB) Tool {
 	return Tool{
 		Name: "concept_patch",
-		Description: "Edit-tool-style patch of a concept's body: one old_string/new_string/replace_all or an edits array of {old_string, new_string, replace_all?} applied atomically in order (exclusive forms). if_match is required: stale_write if changed. Fails with old_string_not_found or old_string_ambiguous (use replace_all); a batch error names the failing edit, nothing is written. frontmatter is shallow-merged (null removes a key; type refused) and may be the only change. Returns content_hash, lint findings. " +
+		Description: "Edit-style patch of a concept body: old_string/new_string/replace_all, or an edits array applied atomically in order. if_match required (stale_write). Errors old_string_not_found / old_string_ambiguous; a failed batch writes nothing. frontmatter is shallow-merged (null removes a key) and may be the only change. Returns content_hash, findings. " +
 			fmt.Sprintf("Many concepts: concept_batch (unlisted, callable by name), up to %d operations in one commit.", conceptBatchMaxOps),
 		InputSchema: json.RawMessage(`{
 			"type": "object",
@@ -682,38 +682,31 @@ func toolMapCreate(k *kb.KB) Tool {
 				},
 				"required_fields": {
 					"type": "array",
-					"items": {"type": "string"},
-					"description": "Fields every concept must carry"
-				},
+					"items": {"type": "string"}
+					},
 				"required_fields_by_type": {
 					"type": "object",
-					"additionalProperties": {"type": "array", "items": {"type": "string"}},
-					"description": "type -> required fields"
-				},
+					"additionalProperties": {"type": "array", "items": {"type": "string"}}
+					},
 				"field_values": {
 					"type": "object",
-					"additionalProperties": {"type": "array", "items": {"type": "string"}},
-					"description": "field -> allowed values"
-				},
+					"additionalProperties": {"type": "array", "items": {"type": "string"}}
+					},
 				"field_values_by_type": {
 					"type": "object",
-					"additionalProperties": {"type": "object", "additionalProperties": {"type": "array", "items": {"type": "string"}}},
-					"description": "type -> field -> values; overrides field_values"
-				},
+					"additionalProperties": {"type": "object", "additionalProperties": {"type": "array", "items": {"type": "string"}}}
+					},
 				"forbidden_fields": {
 					"type": "array",
-					"items": {"type": "string"},
-					"description": "Fields no concept may carry"
-				},
+					"items": {"type": "string"}
+					},
 				"require_index_entry": {
-					"type": "boolean",
-					"description": "Concepts must be linked from the curated index"
-				},
+					"type": "boolean"
+					},
 				"machine_path_allow_prefixes": {
 					"type": "array",
-					"items": {"type": "string"},
-					"description": "Path prefixes machine_path accepts"
-				}
+					"items": {"type": "string"}
+					}
 			}
 		}`),
 		Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
@@ -883,7 +876,11 @@ func toolMapUpdate(k *kb.KB) Tool {
 				"value_synonyms": {
 					"type": "object",
 					"additionalProperties": {"type": "array", "items": {"type": "string"}}
-				}
+				},
+				"open_statuses": {"type": "array", "items": {"type": "string"}},
+				"open_markers": {"type": "array", "items": {"type": "string"}},
+				"stale_after": {"type": "integer"},
+				"template_sections": {"type": "boolean"}
 			}
 		}`),
 		Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
@@ -899,6 +896,10 @@ func toolMapUpdate(k *kb.KB) Tool {
 				RequireIndexEntry        *bool                          `json:"require_index_entry"`
 				MachinePathAllowPrefixes *[]string                      `json:"machine_path_allow_prefixes"`
 				ValueSynonyms            map[string][]string            `json:"value_synonyms"`
+				OpenStatuses             *[]string                      `json:"open_statuses"`
+				OpenMarkers              *[]string                      `json:"open_markers"`
+				StaleAfter               *int                           `json:"stale_after"`
+				TemplateSections         *bool                          `json:"template_sections"`
 			}
 			if err := json.Unmarshal(args, &params); err != nil {
 				return errorResult("invalid params: " + err.Error()), nil
@@ -908,8 +909,9 @@ func toolMapUpdate(k *kb.KB) Tool {
 			}
 			if params.RequiredFields == nil && params.RequiredFieldsByType == nil &&
 				params.FieldValues == nil && params.FieldValuesByType == nil && params.ForbiddenFields == nil &&
-				params.RequireIndexEntry == nil && params.MachinePathAllowPrefixes == nil && params.ValueSynonyms == nil {
-				return errorResult("nothing to change: pass at least one of require_index_entry, required_fields, required_fields_by_type, field_values, field_values_by_type, forbidden_fields, machine_path_allow_prefixes, value_synonyms"), nil
+				params.RequireIndexEntry == nil && params.MachinePathAllowPrefixes == nil && params.ValueSynonyms == nil &&
+				params.OpenStatuses == nil && params.OpenMarkers == nil && params.StaleAfter == nil && params.TemplateSections == nil {
+				return errorResult("nothing to change: pass at least one of require_index_entry, required_fields, required_fields_by_type, field_values, field_values_by_type, forbidden_fields, machine_path_allow_prefixes, value_synonyms, open_statuses, open_markers, stale_after, template_sections"), nil
 			}
 			var fields, prefixes, forbidden []string
 			if params.ForbiddenFields != nil {
@@ -940,6 +942,10 @@ func toolMapUpdate(k *kb.KB) Tool {
 				RequireIndexEntry:        params.RequireIndexEntry,
 				MachinePathAllowPrefixes: params.MachinePathAllowPrefixes,
 				ValueSynonyms:            params.ValueSynonyms,
+				OpenStatuses:             params.OpenStatuses,
+				OpenMarkers:              params.OpenMarkers,
+				StaleAfterDays:           params.StaleAfter,
+				TemplateSections:         params.TemplateSections,
 			})
 			if err != nil {
 				return errorResult(fmt.Sprintf("map_update %q: %v", params.Map, err)), nil

@@ -34,11 +34,12 @@ var toolPrefixes = []string{
 // not tools: lint rule names, frontmatter fields, and one deliberate mention of
 // an operation that does not exist (documented as such).
 var docsNonTools = map[string]bool{
-	"artifact_signing_seed": true,
-	"search_misses":         true, // kb_status field (D247), not a tool
-	"open_gaps":             true, // kb_status field (D273), not a tool
-	"missing_context":       true, // reserved contradiction_kind (D273)
-	"open_question":         true, // reserved contradiction_kind (D273)
+	"artifact_signing_seed":    true,
+	"search_misses":            true, // kb_status field (D247), not a tool
+	"open_gaps":                true, // kb_status field (D273), not a tool
+	"template_section_missing": true, // lint check (D297), not a tool
+	"missing_context":          true, // reserved contradiction_kind (D273)
+	"open_question":            true, // reserved contradiction_kind (D273)
 	// audit configuration keys (D119), not tools
 	"archive_dir":       true,
 	"retention_days":    true,

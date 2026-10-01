@@ -212,12 +212,12 @@ a deliberately-broken example link — could not be written without generating t
 describes, so a KB's own "known false positives" page was impossible.
 
 Suppressible: `broken_link`, `machine_path`, `concept_oversize`, `stale_claim`, `imported_draft`,
-`secrets_on_non_service`, `orphan`, `missing_title`, `unknown_placeholder`, `forbidden_term`, `nonstandard_field`, `prose_value`, `source_uncited`, `duplicate_link`, `bare_link_list`, and the structural
+`secrets_on_non_service`, `orphan`, `missing_title`, `unknown_placeholder`, `forbidden_term`, `nonstandard_field`, `prose_value`, `stale_open`, `closed_with_open_items`, `template_section_missing`, `open_marker`, `source_uncited`, `duplicate_link`, `bare_link_list`, and the structural
 `cut_concept`, `link_to_retired`, `broken_relation`, `map_misfit`. **Not** suppressible: `tool_param_field` (a tool argument is never a legitimate field), every `error`-severity check
 (`missing_required_field`, `invalid_field_value`, `forbidden_field`, `expanded_ambiguous`) — those are contract violations, not judgements, and
 letting a concept declare its own contract void would be a hole rather than an escape hatch — and the
 directory-level checks (`map_oversize`, `index_incomplete`, `expanded_*`, `orphan_asset`,
-`oversized_asset`, `unlistable_assets`, `unused_placeholder`), which belong to a map, an expanded concept or `paths.yaml` and have no single
+`oversized_asset`, `unlistable_assets`, `unused_placeholder`, `facet_sprawl`), which belong to a map, an expanded concept or `paths.yaml` and have no single
 concept frontmatter that owns them, and
 `island`, which belongs to a whole component of the graph. Naming
 an unsuppressible or unknown check is itself reported as `lint_ignore_invalid`: a typo that silently
@@ -269,6 +269,23 @@ D289 converges field names; D296 converges **values**, starting with `status`. T
 - `missing_value_contract` on `status` folds each family onto its majority member and each prose value onto its leading token, and carries a structured `proposal: {key, field, type?, values, mapping}` next to the message. Declaring it is the operator's judgement (`map_update`); after that the per-concept findings are mechanical.
 - `invalid_field_value` carries `set_value` when the value is, up to folding or by family, exactly one allowed value. Two candidates, or none, give no fix.
 - `prose_value` (warning, suppressible): `status`, or a field the contract constrains, holds a sentence (a separator such as ` — `, `;`, `: `, or more than three words). It carries `split_value` when the leading token is a contract value or, with no contract, a family member: the field keeps the token and `kb_repair` writes the rest as `> <field>: <rest>` after the first heading, so nothing is lost.
+
+### Decay checks (D297)
+
+Lint also sees a KB **decaying**: work never closed, closed work not finished, pages without the shape their template promises, open questions nobody counts, facets that stopped being facets. All are `info`, never a gate, and judgement (no fix): they feed the doctor. A map contract tunes them with four keys, also settable through `map_update`:
+
+| Key | Meaning | Default |
+|---|---|---|
+| `open_statuses: [...]` | statuses that mean "not finished" | the `in-progress`, `blocked`, `proposed`, `draft` families, `open`, `decision-needed`, and the `active` family **in a journal only** (there `active` means not closed; in a map it means "valid") |
+| `stale_after: <days>` | age after which an open concept is stale | 60 in a journal; none in a map (a reference page is not stale by age) |
+| `template_sections: true` | pages must carry the H2 sections of `templates/<type>.md` | off: many KBs use templates as guidance, not a schema |
+| `open_markers: [...]` | words that mark an open question, in the KB's language | `TODO`, `TBD`, `FIXME` |
+
+- `stale_open` (suppressible): open status and `timestamp` older than `stale_after`.
+- `closed_with_open_items` (suppressible): a status of the `done` or `resolved` family with unchecked `- [ ]` items outside code.
+- `template_section_missing` (suppressible): sections of the type's template the page lacks, compared folding case and accents; headings inside fenced code in the template are ignored.
+- `open_marker` (suppressible): marker occurrences outside code, whole words, case- and accent-folded; `kb_status.open_markers` totals them as `{concepts, markers}`.
+- `facet_sprawl` (on `_map.md`, directory-level): `tags` with at least 30 distinct values, half or more used once; the message lists the ten most used as the likely vocabulary.
 
 A finding whose remedy is mechanical carries `fix: {kind, field, to?}` (`rename_field`, `drop_field`, `rebase_link`, `drop_link_item`, `set_value`, `split_value`); the rest carry none. `lint.CheckConcept` computes the frontmatter-driven checks of one concept without walking the KB (`missing_required_field`, `invalid_field_value`, `forbidden_field`, `nonstandard_field`, `tool_param_field`, `missing_title`, `machine_path`, `stale_claim`); `Run` calls the same function, and the write tools return its result.
 

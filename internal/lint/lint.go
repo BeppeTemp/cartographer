@@ -143,6 +143,11 @@ var perConceptChecks = map[string]bool{
 	"nonstandard_field": true,
 	// D296: a sentence in a vocabulary field.
 	"prose_value": true,
+	// D297: lifecycle decay.
+	"stale_open":               true,
+	"closed_with_open_items":   true,
+	"template_section_missing": true,
+	"open_marker":              true,
 	// D295: malformed_frontmatter is not suppressible (like tool_param_field),
 	// but is a per-concept check so it appears here.
 	"malformed_frontmatter": true,
@@ -187,6 +192,8 @@ type Finding struct {
 	// Proposal is the structured vocabulary a missing_value_contract
 	// finding suggests (D296).
 	Proposal *Proposal
+	// Count is a check-specific tally (open_marker: markers found, D297).
+	Count int
 }
 
 // Now is used for date comparison in stale_claim checks. Override in tests.
@@ -297,6 +304,7 @@ func Run(k *kb.KB, scope string, scopeNeighbors bool) ([]Finding, error) {
 	// Contracts are descriptor-level data. Cache them once per map for this
 	// run, so a map with many concepts does not repeatedly parse _map.md.
 	contracts := make(map[string]kb.MapContract, len(archives))
+	templateSections := map[string][]string{} // type → its template's H2s, read once per run (D297)
 	for _, archive := range archives {
 		contract, contractErr := k.ReadMapContract(archive)
 		if contractErr != nil {
@@ -562,6 +570,13 @@ func Run(k *kb.KB, scope string, scopeNeighbors bool) ([]Finding, error) {
 		if len(parts) > 1 && archiveSet[parts[0]] {
 			c := contracts[parts[0]]
 			in.MapName, in.Contract = parts[0], &c
+			if c.TemplateSections && parsed != nil {
+				typ := parsed.Type()
+				if _, done := templateSections[typ]; !done {
+					templateSections[typ] = k.TemplateSections(typ)
+				}
+				in.Sections = templateSections[typ]
+			}
 		}
 		for _, f := range frontmatterFindings(in) {
 			emit(f)
@@ -613,6 +628,10 @@ func Run(k *kb.KB, scope string, scopeNeighbors bool) ([]Finding, error) {
 			// --- missing_value_contract (info, D289) ---
 			if c, ok := contracts[archiveName]; ok {
 				findings = append(findings, valueContractFindings(archiveName, c, allConcepts)...)
+			}
+			// --- facet_sprawl (info, D297) ---
+			if _, ok := contracts[archiveName]; ok {
+				findings = append(findings, facetSprawlFindings(archiveName, allConcepts)...)
 			}
 
 			// --- map_oversize (info) ---

@@ -1,7 +1,7 @@
 ---
 name: kb-doctor
 description: Align an existing Knowledge Base with the current Cartographer standard - apply the mechanical fixes with kb_repair and walk the judgement ones. Use when kb_status reports conformance.doctor_suggested, when the operator asks to tidy or align a KB, or after a Cartographer upgrade.
-version: "1.2"
+version: "1.3"
 ---
 # KB Doctor - Skill
 
@@ -32,6 +32,9 @@ always the next `lint`, never a stored version.
       `concept_patch` (frontmatter key set to null).
    4. `link_to_retired`: reword, or point to the successor.
    5. `map_misfit`: `concept_move` after the operator agrees.
+   6. `stale_open` / `closed_with_open_items`: ask the operator, per concept, close (set the status), update, or keep open with a line on why.
+   7. `open_marker` and `template_section_missing`: never invent the answer — fill what the KB already knows elsewhere, otherwise record a `contradiction_report` of kind `open_question`.
+   8. `facet_sprawl`: propose the vocabulary the message lists; retag only after the operator agrees.
 5. **Instructions and templates.** `artifact_read` the KB's instructions file and `templates/`: none may
    keep naming a field that was renamed. Update them in the same session.
 6. **Close.** `log_append` whose text contains `kb-doctor` and the counts before and after (for

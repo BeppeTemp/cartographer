@@ -652,6 +652,17 @@ func toolKBStatus(k *kb.KB, misses *searchMissLog, serverVersion string, latestV
 			if allFindings, lerr := cc.lintFindings(k); lerr == nil {
 				vis, _ := uiVisibleFindingsFrom(ctx, k, "", allFindings)
 				result["conformance"] = summarizeConformance(vis, cc.cachedDoctorDate(k), time.Now().UTC())
+				// D297: open questions the KB marks in its own words.
+				concepts, markers := 0, 0
+				for _, f := range vis {
+					if f.Check == "open_marker" {
+						concepts++
+						markers += f.Count
+					}
+				}
+				if concepts > 0 {
+					result["open_markers"] = map[string]int{"concepts": concepts, "markers": markers}
+				}
 			}
 			if src := sourceCounts(k); src != nil {
 				result["sources"] = src
