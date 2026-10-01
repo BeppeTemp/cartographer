@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/BeppeTemp/cartographer/internal/blocktext"
+	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
 )
 
@@ -701,6 +702,37 @@ func TestReferenceCorpusIsSane(t *testing.T) {
 		if index[unwanted] {
 			t.Errorf("%s is in the reference corpus but must not be: see skipFile/skipDir for why",
 				unwanted)
+		}
+	}
+}
+
+// docs/harnesses.md is the ledger the harness-watch skill reads as its baseline
+// (D292). It has one `## <provider-id>` section per client, so adding a client to
+// the registry without a ledger entry — and therefore without anyone ever being
+// told to re-align with it — fails here, and so does a section for a client the
+// registry no longer has.
+func TestHarnessLedgerCoversEveryProvider(t *testing.T) {
+	ledger := readFile(t, repoRoot(t), "docs/harnesses.md")
+
+	sections := map[string]bool{}
+	for _, line := range strings.Split(ledger, "\n") {
+		if id, ok := strings.CutPrefix(line, "## "); ok {
+			sections[strings.TrimSpace(id)] = true
+		}
+	}
+
+	known := map[string]bool{}
+	for _, d := range configurator.Providers() {
+		id := string(d.Provider)
+		known[id] = true
+		if !sections[id] {
+			t.Errorf("docs/harnesses.md has no `## %s` section: add one (Aligned with, Sources, "+
+				"Depends on, Watch items, Probe notes) — write `unknown` where no version was ever recorded", id)
+		}
+	}
+	for id := range sections {
+		if !known[id] {
+			t.Errorf("docs/harnesses.md has a `## %s` section, but configurator.Providers() has no such provider", id)
 		}
 	}
 }

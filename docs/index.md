@@ -26,6 +26,7 @@ only the pages relevant to your task.
 | [transport-auth.md](transport-auth.md) | stdio / HTTP transport, static bearer tokens, per-KB scopes and statelessness |
 | [loop.md](loop.md) | Current read, write, validate and lint workflow |
 | [interoperability.md](interoperability.md) | OKF boundaries and ownership of provider-specific compatibility documentation |
+| [harnesses.md](harnesses.md) | Harness ledger: per agent client, the version last aligned with, where changes are announced, which provider-matrix cells depend on it and the open watch items |
 | [decisions.md](decisions.md) | How to refer to and add a decision, plus the generated list of every record under `docs/decisions/` (one file each); decisions explain why, while topic docs define current behavior |
 | [conventions.md](conventions.md) | Go conventions (language, style, errors, data-plane safety, tests, dependencies) |
 | [testing.md](testing.md) | Deterministic unit, smoke and end-to-end strategy plus release checks |
@@ -82,6 +83,7 @@ matching file **in the same session/PR** as the change:
 | Atlas UI (`web/`) or its routes/config | `make web` to rebuild the committed bundle; `deployment.md` §The embedded Atlas UI; `testing.md` §Frontend |
 | Contributor workflow (PR flow, plan issues, build loop) | `CONTRIBUTING.md` |
 | What an agent client reads (instruction file, skill/agent/hook/MCP paths) | The provider matrix **first** (`destinationMatrix` in `internal/provisioning/provisioning.go`, `projectDestinationMatrix` in `internal/provisioning/workspacescope.go`, provider descriptors in `internal/configurator/registry.go`), then `CONTRIBUTING.md` §Working with an agent client — a test fails if the two disagree |
+| A client re-audit (version bump, new sources, watch items) | `harnesses.md` (via the `harness-watch` skill); the matrix and docs above only if a cell changes |
 | User-facing install/onboarding flow | `getting-started.md` + README |
 | Agent-driven install/onboarding flow | `agent-install.md` + README |
 | Logo, banner, palette or typography | `brand/` assets + tokens, then `brand/index.md` |

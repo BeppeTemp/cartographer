@@ -64,7 +64,7 @@ Nothing else is needed to start. Concretely:
 | **Codex** | `AGENTS.md`, natively | `.agents/skills/`, natively | Do not add an `AGENTS.override.md`: it *replaces* `AGENTS.md` in the same directory rather than adding to it |
 | **Kiro** | `AGENTS.md`, natively | `.kiro/skills/` → symlinks | Do not put a copy of `AGENTS.md` under `.kiro/steering/`: it is already always included, and a steering file that re-includes it would load it twice. A steering file with *other* content is fine — `cartographer sync` legitimately owns `.kiro/steering/cartographer.md` when this workspace is bound to a KB |
 | **Claude Code** | `CLAUDE.md` → `@AGENTS.md` | `.claude/skills/` → symlinks | Every directory with an `AGENTS.md` has its own one-line `CLAUDE.md` import, which Claude loads on its first read of a file there (D213) |
-| **Antigravity** | `AGENTS.md`, per its own documentation — not audited here | **global only**: `~/.gemini/config/skills/`; no project-local directory | Its whole configuration root is global (`~/.gemini/GEMINI.md`, `~/.gemini/config/{skills,agents,hooks,mcp_config.json}`), so the two skills below are *not* reachable from a clone and no repo-local path would make them so |
+| **Antigravity** | `AGENTS.md`, per its own documentation — not audited here | **global only**: `~/.gemini/config/skills/`; no project-local directory | Its whole configuration root is global (`~/.gemini/GEMINI.md`, `~/.gemini/config/{skills,agents,hooks,mcp_config.json}`), so the repo-local skills below are *not* reachable from a clone and no repo-local path would make them so |
 
 The Antigravity row is the one to be careful with. Where a client reads its
 instructions and its skills is a fact this repository already owns, audited, in
@@ -73,7 +73,7 @@ instructions and its skills is a fact this repository already owns, audited, in
 Antigravity. `TestClientSkillSurfacesMatchTheProviderRegistry` checks this table
 against the matrix, so if you re-audit a client, change both together (D207).
 
-The two skills, `plan-issue` and `implement-issue`, exist **once** in
+The repo-local skills (`plan-issue`, `implement-issue`, `harness-watch`: the directories of `.agents/skills/`) exist **once** in
 `.agents/skills/`; `.claude/skills/<name>` and `.kiro/skills/<name>` are
 symlinks into it. Symlinks do work — verified empirically on Kiro CLI 2.21.4
 across 45 runs with negative controls — but **git on Windows is the catch**: with
@@ -82,7 +82,7 @@ materialises each link as a text file containing its target and the client then
 loads **nothing at all, silently**. So:
 
 - if you are on Windows, enable Developer Mode or use an elevated git so that
-  `core.symlinks=true`, otherwise the two skills will be missing from your
+  `core.symlinks=true`, otherwise the skills will be missing from your
   session with no error to tell you;
 - `make test` asserts the **git index** mode (`120000`), not the working tree, so
   the check gives the same answer on every platform and a copy committed by
