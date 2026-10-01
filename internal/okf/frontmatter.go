@@ -375,6 +375,22 @@ func (fm *Frontmatter) Delete(key string) {
 	}
 }
 
+// Rename moves the value of oldKey to newKey keeping its position. It reports
+// false, changing nothing, when oldKey is absent or newKey already exists.
+func (fm *Frontmatter) Rename(oldKey, newKey string) bool {
+	idx, ok := fm.index[oldKey]
+	if !ok {
+		return false
+	}
+	if _, taken := fm.index[newKey]; taken {
+		return false
+	}
+	fm.entries[idx].key = newKey
+	delete(fm.index, oldKey)
+	fm.index[newKey] = idx
+	return true
+}
+
 // Keys returns the keys in insertion order (excludes comments).
 func (fm *Frontmatter) Keys() []string {
 	var keys []string

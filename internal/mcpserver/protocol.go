@@ -91,6 +91,10 @@ type ToolResult struct {
 	// excluded from the wire format (json:"-") and consumed solely by the
 	// audit completion event in callTool.
 	CommitSHA string `json:"-"`
+	// CommitSubject, if set by a handler, replaces the commit subject gitWrap
+	// derives from the arguments: for a write whose subject needs a figure only
+	// the handler knows (kb_repair: the number of concepts changed, D290).
+	CommitSubject string `json:"-"`
 }
 
 // textResult builds a ToolResult with a single text block.

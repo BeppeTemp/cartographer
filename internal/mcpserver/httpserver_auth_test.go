@@ -371,3 +371,30 @@ func TestClients_AuthRequiresToken(t *testing.T) {
 		t.Fatalf("/clients with valid token: status = %d, want 200; body=%s", rr.Code, rr.Body.String())
 	}
 }
+
+// TestHTTPGuard_KBRepair_RequiresWholeKBWrite pins kb_repair (D290) to the
+// whole-KB write grant: it rewrites concepts across every map, so neither a
+// whole-KB read grant nor a map-scoped write grant may reach the handler. A
+// resourceWhole tool missing from the authorizer's whole-KB list falls through
+// to the per-concept checks, which pass a call that carries no id.
+func TestHTTPGuard_KBRepair_RequiresWholeKBWrite(t *testing.T) {
+	ts := auth.NewScopedTokenStore([]auth.ScopedToken{
+		{Token: "r-tok", Scopes: []auth.KBScope{{KB: "kbx", Write: false}}},
+		{Token: "rw-tok", Scopes: []auth.KBScope{{KB: "kbx", Write: true}}},
+		{Token: "scoped-w-tok", Policy: auth.Policy{Permissions: []auth.Permission{
+			{KB: "kbx", Write: true, Maps: []string{"manutenzione"}},
+		}}},
+	})
+	handler := newScopedTestHandler(t, ts)
+
+	assertMCPForbidden(t, doMCP(handler, "kbx", "r-tok", writeToolCallBody("kb_repair")))
+	assertMCPForbidden(t, doMCP(handler, "kbx", "scoped-w-tok", writeToolCallBody("kb_repair")))
+
+	rr := doMCP(handler, "kbx", "rw-tok", writeToolCallBody("kb_repair"))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("kb_repair with whole-kb rw scope: status = %d, want 200; body=%s", rr.Code, rr.Body.String())
+	}
+	if tr := decodeToolResult(t, unmarshalMCPResponse(t, rr)); tr.IsError && strings.Contains(tr.Content[0].Text, "forbidden") {
+		t.Fatalf("kb_repair with whole-kb rw scope: unexpected forbidden: %v", tr.Content)
+	}
+}

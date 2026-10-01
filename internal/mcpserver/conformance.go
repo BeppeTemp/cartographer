@@ -2,7 +2,10 @@ package mcpserver
 
 import (
 	"fmt"
+	"regexp"
 	"sort"
+	"strings"
+	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/kb"
 	"github.com/BeppeTemp/cartographer/internal/lint"
@@ -59,4 +62,80 @@ func writeFindings(k *kb.KB, id string) []findingOut {
 		return nil
 	}
 	return findingsOut(found)
+}
+
+// conformanceChecks are the checks kb_status counts as conformance debt (D290):
+// the D289 ones plus the structural debt that accumulates when nothing
+// surfaces it. Everything else lint reports is content, not drift.
+var conformanceChecks = map[string]bool{
+	"nonstandard_field":         true,
+	"tool_param_field":          true,
+	"missing_value_contract":    true,
+	"broken_link":               true,
+	"broken_relation":           true,
+	"link_to_retired":           true,
+	"map_misfit":                true,
+	"legacy_archive_descriptor": true,
+}
+
+// doctorMarker is the text a log.md entry carries when the kb-doctor skill
+// closed a session: kb_status reads the date of the newest one.
+const doctorMarker = "kb-doctor"
+
+// doctorStaleDays is how long after the last doctor run a KB with any finding
+// is suggested another one.
+const doctorStaleDays = 30
+
+var logDateRe = regexp.MustCompile(`^## (\d{4}-\d{2}-\d{2})`)
+
+// lastDoctorDate returns the date (YYYY-MM-DD) of the newest log.md entry whose
+// text contains doctorMarker, or "".
+func lastDoctorDate(k *kb.KB) string {
+	tail, err := k.LogTail("", 1<<20)
+	if err != nil {
+		return ""
+	}
+	newest := ""
+	for _, block := range strings.Split("\n"+tail, "\n## ")[1:] {
+		heading, _, _ := strings.Cut(block, "\n")
+		m := logDateRe.FindStringSubmatch("## " + heading)
+		if m == nil || !strings.Contains(block, doctorMarker) {
+			continue
+		}
+		if m[1] > newest {
+			newest = m[1]
+		}
+	}
+	return newest
+}
+
+// summarizeConformance turns the findings the caller may see into the
+// kb_status conformance object. A pure function of its inputs, so the
+// doctor_suggested truth table is testable without a KB.
+func summarizeConformance(findings []lint.Finding, lastDoctor string, now time.Time) map[string]interface{} {
+	bySev := map[string]int{}
+	fixable := 0
+	for _, f := range findings {
+		if !conformanceChecks[f.Check] {
+			continue
+		}
+		bySev[f.Severity]++
+		if f.Fix != nil {
+			fixable++
+		}
+	}
+	total := bySev[lint.SevError] + bySev[lint.SevWarning] + bySev[lint.SevInfo]
+	stale := true
+	if t, err := time.Parse("2006-01-02", lastDoctor); err == nil {
+		stale = now.Sub(t) > doctorStaleDays*24*time.Hour
+	}
+	out := map[string]interface{}{
+		"findings":         bySev,
+		"fixable":          fixable,
+		"doctor_suggested": bySev[lint.SevWarning] >= 1 || fixable > 0 || (stale && total >= 1),
+	}
+	if lastDoctor != "" {
+		out["last_doctor"] = lastDoctor
+	}
+	return out
 }

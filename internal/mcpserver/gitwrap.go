@@ -85,6 +85,9 @@ func gitWrap(k *kb.KB, t Tool) Tool {
 			handlerDur = time.Since(handlerStart)
 			if handlerErr == nil && !res.IsError {
 				msg := commitMessage(orig.Name, args)
+				if res.CommitSubject != "" {
+					msg = res.CommitSubject
+				}
 				if reason := commitReason(args); reason != "" {
 					msg += "\n\n" + commitReasonKey + ": " + reason
 				}

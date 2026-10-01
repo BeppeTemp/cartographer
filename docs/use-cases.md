@@ -46,6 +46,14 @@ a claim the source disputes, records unknowns as gaps, and closes with `gate_che
 `log_append`. A plan touching more than 5 pages or creating more than 2 is shown to the operator
 before any write. The agent reads the source; the server never does.
 
+## Keep an old KB aligned with the current standard
+
+A KB written on earlier releases, or by agents that never saw today's conventions, drifts: synonym
+fields (`updated` for `timestamp`), tool parameters stored as fields, links to retired pages.
+`kb_status` reports it as `conformance` and sets `doctor_suggested`; the bundled `kb-doctor` skill
+then runs `kb_repair` as a dry run per check, applies it after the operator confirms (one commit per
+check, however many concepts), and walks the judgement fixes with the agent. Nothing runs by itself.
+
 ## Share one KB with different agent clients
 
 Run the HTTP server, then use `cartographer connect` for Claude Code, Codex,
