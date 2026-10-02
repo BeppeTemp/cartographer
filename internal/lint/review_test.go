@@ -121,6 +121,13 @@ var reviewFixtures = map[string]func(t *testing.T, dismiss bool) (*kb.KB, string
 		writeFile(t, k.DataRoot(), "ref/page.md", "---\ntype: Topic\ntitle: Page\n"+ignoreLine(ReviewScatteredWork, dismiss)+"---\n# Page\n\n## Follow-up\n\n- [ ] migrate the host\n")
 		return k, "ref/page"
 	},
+	ReviewMapNaming: func(t *testing.T, dismiss bool) (*kb.KB, string) {
+		k := tempKB(t)
+		writeFile(t, k.DataRoot(), "a/_map.md", "---\ntype: Map\ntitle: Alpha — first notes\n"+ignoreLine(ReviewMapNaming, dismiss)+"---\n")
+		writeFile(t, k.DataRoot(), "b/_map.md", "---\ntype: Map\ntitle: Beta\n---\n")
+		writeFile(t, k.DataRoot(), "c/_map.md", "---\ntype: Map\ntitle: Gamma\n---\n")
+		return k, "a/_map"
+	},
 	ReviewLintJudgement: func(t *testing.T, dismiss bool) (*kb.KB, string) {
 		k := tempKB(t)
 		writeFile(t, k.DataRoot(), "m/_map.md", "---\ntype: Map\ntitle: M\n---\n")
@@ -477,5 +484,42 @@ func TestReviewScatteredWork(t *testing.T) {
 	f, _ := Run(k, "", false)
 	if !hasCheck(f, "ref/_map.md", "contract_malformed") {
 		t.Fatal("work_map naming no map is not contract_malformed")
+	}
+}
+
+// TestReviewMapNaming (D304): one item for a set of map titles that mixes
+// shapes or capitalisation, naming every map; none for a consistent set, nor
+// below three maps, and never for a caller who cannot see the whole KB.
+func TestReviewMapNaming(t *testing.T) {
+	for name, tc := range map[string]struct {
+		titles []string
+		want   string
+	}{
+		"consistent":    {[]string{"Infrastructure", "Smart Home", "Dev Tools"}, ""},
+		"two maps":      {[]string{"Infra — the cluster", "Notes"}, ""},
+		"subtitle mix":  {[]string{"Infra — the cluster", "Notes", "Clients"}, "1 with a subtitle and 2 without"},
+		"case mix":      {[]string{"Smart Home", "Operational backlog", "Clients"}, "1 in Title Case and 1 in sentence case"},
+		"acronyms skip": {[]string{"AI Tools", "DNS and VPN", "Home Lab"}, ""},
+	} {
+		t.Run(name, func(t *testing.T) {
+			k := tempKB(t)
+			for i, title := range tc.titles {
+				writeFile(t, k.DataRoot(), fmt.Sprintf("m%d/_map.md", i), "---\ntype: Map\ntitle: "+title+"\n---\n")
+			}
+			got := itemsOf(review(t, k), ReviewMapNaming)
+			if tc.want == "" {
+				if len(got) != 0 {
+					t.Fatalf("unexpected: %+v", got)
+				}
+				return
+			}
+			if len(got) != 1 || len(got[0].Concepts) != len(tc.titles) || got[0].Concepts[0] != "m0/_map" ||
+				!strings.Contains(got[0].Evidence, tc.want) || !strings.Contains(got[0].Evidence, fmt.Sprintf("%q", tc.titles[0])) {
+				t.Fatalf("item: %+v", got)
+			}
+			if vis := FilterReview(got, func(string) bool { return true }, false); len(vis) != 0 {
+				t.Fatalf("a restricted caller sees map titles: %+v", vis)
+			}
+		})
 	}
 }

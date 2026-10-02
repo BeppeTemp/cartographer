@@ -165,6 +165,8 @@ var perConceptChecks = map[string]bool{
 	ReviewReadHotspot:  true,
 	// D302.
 	ReviewScatteredWork: true,
+	// D304: dismissed in a map's _map.md, not on a concept.
+	ReviewMapNaming: true,
 	// D301: an efficiency choice a concept may decline.
 	"reciprocal_link_item": true,
 }

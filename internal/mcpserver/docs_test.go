@@ -53,6 +53,7 @@ var docsNonTools = map[string]bool{
 	"orphan_asset": true, "oversized_asset": true, "unlistable_assets": true,
 	"index_incomplete": true,
 	"index_stale":      true,
+	"map_naming":       true,
 	// gate_check response field (D186), not a tool
 	"gate_blockers": true,
 	// frontmatter fields and schema keys

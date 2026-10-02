@@ -161,3 +161,30 @@ func TestUpdateMapContract_WorkMap(t *testing.T) {
 		t.Fatalf("remove: %+v %v", c, err)
 	}
 }
+
+// TestUpdateMapContract_Title (D304): a rename reaches the title and the H1
+// that repeats it in _map.md and index.md; an H1 written differently stays.
+func TestUpdateMapContract_Title(t *testing.T) {
+	k, _ := Init(tempKB(t))
+	if err := k.CreateMap("ref", "Reference notes", "map", nil, ""); err != nil {
+		t.Fatal(err)
+	}
+	title := "Reference"
+	if _, err := k.UpdateMapContract("ref", MapContractUpdate{Title: &title}); err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range []string{"ref/_map.md", "ref/index.md"} {
+		raw, err := k.ReadRaw(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(raw, "Reference notes") || !strings.Contains(raw, "title: Reference\n") {
+			t.Fatalf("%s not renamed:\n%s", f, raw)
+		}
+	}
+	for _, bad := range []string{"", "two\nlines"} {
+		if _, err := k.UpdateMapContract("ref", MapContractUpdate{Title: &bad}); err == nil {
+			t.Fatalf("title %q accepted", bad)
+		}
+	}
+}

@@ -1,7 +1,7 @@
 ---
 name: kb-doctor
 description: Keep a Knowledge Base from rotting - a short, budgeted session that applies mechanical repairs and walks the operator through the server's ranked review list. Use when a tool result proposes a kb-doctor session, when kb_status reports conformance.doctor_suggested, when the operator asks to tidy or align a KB, or after a Cartographer upgrade.
-version: "2.2"
+version: "2.3"
 ---
 # KB Doctor - Skill
 
@@ -48,8 +48,12 @@ since the last one; it never runs one by itself.
      `concept_expand` into satellites with a short summary page, or turn it into an index page;
      for `scattered_work` create a concept in the contract's `work_map` from its template (one per
      independent item, or one for the checklist), link both ways and replace the items with the link;
+     for `map_naming` propose one scheme for every map title the evidence lists (one language,
+     one shape, one capitalisation, recognisable from the folder), and after the operator agrees
+     rename each with `map_update` `title` — never a map's folder, which would break every link;
    - **dismiss** with a reason: `concept_patch` adding the kind to `lint_ignore` on a concept the
-     item names, `reason` saying why, so the history keeps it;
+     item names, `reason` saying why, so the history keeps it (a `map_naming` item names maps as
+     `<map>/_map`: ask the operator to add `lint_ignore: [map_naming]` to that map's `_map.md`);
    - **defer**: nothing is written; it comes back next session.
    Never invent content: what the KB does not know becomes a `contradiction_report` of kind
    `open_question`. Run `gate_check` scoped to each map you changed.

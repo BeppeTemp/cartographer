@@ -873,7 +873,7 @@ func generatedBlockEdited(k *kb.KB, mapName, before, after string) string {
 func toolMapUpdate(k *kb.KB) Tool {
 	return Tool{
 		Name:        "map_update",
-		Description: "Changes an existing map's or journal's lint contract: only the keys given (as in map_create) change, each replaced whole; an empty list, \"\", false or {} removes it. Returns the contract.",
+		Description: "Changes an existing map's or journal's title or lint contract: only the keys given (as in map_create) change, each replaced whole; an empty list, \"\", false or {} removes it. title also renames the index. Returns the contract.",
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"required": ["map"],
@@ -924,7 +924,8 @@ func toolMapUpdate(k *kb.KB) Tool {
 				"hotspot_in_degree": {"type": "integer"},
 				"hotspot_bytes": {"type": "integer"},
 				"oversize_bytes": {"type": "integer"},
-				"work_map": {"type": "string"}
+				"work_map": {"type": "string"},
+				"title": {"type": "string"}
 			}
 		}`),
 		Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
@@ -953,6 +954,7 @@ func toolMapUpdate(k *kb.KB) Tool {
 				HotspotBytes             *int                           `json:"hotspot_bytes"`
 				OversizeBytes            *int                           `json:"oversize_bytes"`
 				WorkMap                  *string                        `json:"work_map"`
+				Title                    *string                        `json:"title"`
 			}
 			if err := json.Unmarshal(args, &params); err != nil {
 				return errorResult("invalid params: " + err.Error()), nil
@@ -965,8 +967,8 @@ func toolMapUpdate(k *kb.KB) Tool {
 				params.RequireIndexEntry == nil && params.MachinePathAllowPrefixes == nil && params.ValueSynonyms == nil &&
 				params.OpenStatuses == nil && params.OpenMarkers == nil && params.StaleAfter == nil && params.TemplateSections == nil &&
 				params.PromoteTo == nil && params.ProcedureHeadings == nil && params.Glossary == nil &&
-				params.Index == nil && params.RepeatedFactMin == nil && params.HotspotInDegree == nil && params.HotspotBytes == nil && params.OversizeBytes == nil && params.WorkMap == nil {
-				return errorResult("nothing to change: pass at least one of require_index_entry, required_fields, required_fields_by_type, field_values, field_values_by_type, forbidden_fields, machine_path_allow_prefixes, value_synonyms, open_statuses, open_markers, stale_after, template_sections, promote_to, procedure_headings, glossary, index, repeated_fact_min, hotspot_in_degree, hotspot_bytes, oversize_bytes, work_map"), nil
+				params.Index == nil && params.RepeatedFactMin == nil && params.HotspotInDegree == nil && params.HotspotBytes == nil && params.OversizeBytes == nil && params.WorkMap == nil && params.Title == nil {
+				return errorResult("nothing to change: pass at least one of title, require_index_entry, required_fields, required_fields_by_type, field_values, field_values_by_type, forbidden_fields, machine_path_allow_prefixes, value_synonyms, open_statuses, open_markers, stale_after, template_sections, promote_to, procedure_headings, glossary, index, repeated_fact_min, hotspot_in_degree, hotspot_bytes, oversize_bytes, work_map"), nil
 			}
 			var fields, prefixes, forbidden []string
 			if params.ForbiddenFields != nil {
@@ -1010,6 +1012,7 @@ func toolMapUpdate(k *kb.KB) Tool {
 				HotspotBytes:             params.HotspotBytes,
 				OversizeBytes:            params.OversizeBytes,
 				WorkMap:                  params.WorkMap,
+				Title:                    params.Title,
 			})
 			if err != nil {
 				return errorResult(fmt.Sprintf("map_update %q: %v", params.Map, err)), nil
