@@ -38,7 +38,7 @@ func repairTestKB(t *testing.T, autoRepair []string) (toolCaller, string) {
 	if _, err := k.WriteConcept("ops/first", fm, "# First\n", ""); err != nil {
 		t.Fatal(err)
 	}
-	concept := filepath.Join(root, "ops", "first.md")
+	concept := filepath.Join(k.DataRoot(), "ops", "first.md")
 	s := mcpserver.New("test")
 	mcpserver.RegisterKBTools(s, k, mcpserver.Deps{})
 	h := s.HTTPHandler()
@@ -72,7 +72,10 @@ func checkLine(rep kbRepairReport, check string) kbRepairCheck {
 
 func TestKBRepairDryRunWritesNothing(t *testing.T) {
 	c, concept := repairTestKB(t, []string{"nonstandard_field"})
-	before, _ := os.ReadFile(concept)
+	before, err := os.ReadFile(concept)
+	if err != nil || !bytes.Contains(before, []byte("updated:")) {
+		t.Fatalf("fixture: %v %q", err, before)
+	}
 	rep, code := runRepairJSON(t, c, false)
 	if code != kbRepairExitJudgement {
 		t.Fatalf("exit = %d, want %d (debt remains)", code, kbRepairExitJudgement)
@@ -124,6 +127,22 @@ func TestKBRepairApplyRunsOnlyTheListedChecks(t *testing.T) {
 	log, _ := os.ReadFile(filepath.Join(filepath.Dir(filepath.Dir(concept)), "log.md"))
 	if strings.Contains(string(log), "kb-doctor") {
 		t.Fatalf("kb doctor wrote the kb-doctor marker:\n%s", log)
+	}
+}
+
+// The server nudges a writer once a day toward a kb-doctor session (D299),
+// but never the CLI: client.Call would hand every command a JSON array.
+func TestKBRepairCLIIsNeverNudged(t *testing.T) {
+	c, _ := repairTestKB(t, nil)
+	for i := 0; i < 2; i++ {
+		raw, err := c.Call("search", map[string]any{"query": "First"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var blocks []string
+		if json.Unmarshal(raw, &blocks) == nil {
+			t.Fatalf("the CLI received %d blocks: %q", len(blocks), blocks)
+		}
 	}
 }
 

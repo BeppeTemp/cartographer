@@ -269,31 +269,39 @@ func TestSummarizeConformanceTruthTable(t *testing.T) {
 		}
 		return x
 	}
+	warn := []lint.Finding{f("broken_link", lint.SevWarning, false)}
+	info := []lint.Finding{f("map_misfit", lint.SevInfo, false)}
 	cases := []struct {
 		name     string
 		findings []lint.Finding
+		review   int
 		last     string
+		interval int
 		want     bool
 	}{
-		{"clean", nil, "", false},
-		{"unrelated finding ignored", []lint.Finding{f("orphan", lint.SevWarning, false)}, "", false},
-		{"warning", []lint.Finding{f("broken_link", lint.SevWarning, false)}, "2026-09-30", true},
-		{"fixable", []lint.Finding{f("tool_param_field", lint.SevInfo, true)}, "2026-09-30", true},
-		{"info, never run", []lint.Finding{f("map_misfit", lint.SevInfo, false)}, "", true},
-		{"info, run long ago", []lint.Finding{f("map_misfit", lint.SevInfo, false)}, "2026-08-01", true},
-		{"info, run recently", []lint.Finding{f("map_misfit", lint.SevInfo, false)}, "2026-09-20", false},
-		{"no finding, never run", nil, "", false},
+		{"clean, never run", nil, 0, "", 14, false},
+		{"unrelated finding ignored", []lint.Finding{f("orphan", lint.SevWarning, false)}, 0, "", 14, false},
+		{"warning, never run", warn, 0, "", 14, true},
+		{"warning, run recently", warn, 0, "2026-09-30", 14, false},
+		{"fixable, run long ago", []lint.Finding{f("tool_param_field", lint.SevInfo, true)}, 0, "2026-09-01", 14, true},
+		{"info, interval just passed", info, 0, "2026-09-17", 14, true},
+		{"info, a day short", info, 0, "2026-09-18", 14, false},
+		{"review only, due", nil, 3, "2026-08-01", 14, true},
+		{"debt, interval off", warn, 5, "", 0, false},
 	}
 	for _, c := range cases {
-		got := summarizeConformance(c.findings, c.last, now)
+		got := summarizeConformance(c.findings, c.review, c.last, c.interval, now)
 		if got["doctor_suggested"] != c.want {
 			t.Errorf("%s: doctor_suggested = %v, want %v", c.name, got["doctor_suggested"], c.want)
 		}
 	}
+	if got := summarizeConformance(warn, 0, "2026-09-20", 14, now); got["next_doctor"] != "2026-10-04" {
+		t.Errorf("next_doctor = %v, want 2026-10-04", got["next_doctor"])
+	}
 	got := summarizeConformance([]lint.Finding{
 		f("nonstandard_field", lint.SevWarning, true), f("nonstandard_field", lint.SevWarning, false),
 		f("link_to_retired", lint.SevInfo, false), f("orphan", lint.SevWarning, false),
-	}, "2026-09-20", now)
+	}, 0, "2026-09-20", 14, now)
 	sev := got["findings"].(map[string]int)
 	if sev[lint.SevWarning] != 2 || sev[lint.SevInfo] != 1 || got["fixable"] != 1 || got["last_doctor"] != "2026-09-20" {
 		t.Fatalf("summary = %v", got)
@@ -302,6 +310,7 @@ func TestSummarizeConformanceTruthTable(t *testing.T) {
 
 func TestKBStatusConformance(t *testing.T) {
 	k, s := repairKB(t, 2)
+	k.DoctorIntervalDays = 14
 	status := func() map[string]any {
 		res := callTool(t, s, "kb_status", `{}`)
 		var out map[string]any
@@ -363,7 +372,7 @@ func BenchmarkKBStatusConformance1000(b *testing.B) {
 		if err != nil {
 			b.Fatal(err)
 		}
-		_ = summarizeConformance(f, lastDoctorDate(k), time.Now())
+		_ = summarizeConformance(f, 0, lastDoctorDate(k), 14, time.Now())
 	}
 }
 

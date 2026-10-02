@@ -290,8 +290,10 @@ const (
 	metaClientCapabilities = "io.modelcontextprotocol/clientCapabilities"
 )
 
-// clientName identifies this client in the server's roster.
-const clientName = "cartographer"
+// ClientName identifies this client in the server's roster, and tells the
+// server a caller is the CLI, which decodes one JSON answer per tool call and
+// so never receives the doctor nudge (D299).
+const ClientName = "cartographer"
 
 // clientVersion is the build stamp reported to the server, or "unknown".
 func (c *MCPClient) clientVersion() string {
@@ -307,7 +309,7 @@ func (c *MCPClient) clientVersion() string {
 func (c *MCPClient) withProtocolMeta(params any) any {
 	meta := map[string]any{
 		metaProtocolVersion: ProtocolVersion,
-		metaClientInfo:      map[string]any{"name": clientName, "version": c.clientVersion()},
+		metaClientInfo:      map[string]any{"name": ClientName, "version": c.clientVersion()},
 		// This client implements no optional capability.
 		metaClientCapabilities: map[string]any{},
 	}

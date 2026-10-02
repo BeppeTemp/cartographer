@@ -181,7 +181,7 @@ func TestConformanceCacheVisibilityFilterApplied(t *testing.T) {
 
 	// summarizeConformance uses only the conformanceChecks: verify it works
 	// on the cached findings.
-	summary := summarizeConformance(vis, "", lint.Now())
+	summary := summarizeConformance(vis, 0, "", 14, lint.Now())
 	if summary == nil {
 		t.Fatal("summarizeConformance returned nil")
 	}

@@ -115,6 +115,7 @@ func (s *Server) buildSDKServer() *sdk.Server {
 // sees for an ordinary denial or a failing tool.
 func (s *Server) sdkToolHandler(registeredName string) sdk.ToolHandler {
 	return func(ctx context.Context, req *sdk.CallToolRequest) (*sdk.CallToolResult, error) {
+		ctx = withCallerClient(ctx, req)
 		return sdkResult(s.callTool(ctx, registeredName, json.RawMessage(req.Params.Arguments))), nil
 	}
 }
@@ -179,7 +180,7 @@ func (s *Server) callTool(ctx context.Context, registeredName string, args json.
 	if err != nil {
 		return errorResult("internal error: " + err.Error())
 	}
-	return result
+	return s.withDoctorNudge(ctx, canonicalName, result)
 }
 
 // sdkResult converts Cartographer's ToolResult into the SDK's.
