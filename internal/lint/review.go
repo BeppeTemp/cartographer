@@ -787,8 +787,29 @@ func glossaryEvidence(term string, n int) string {
 	return fmt.Sprintf("%q is used in %d concepts and defined nowhere: not in glossary.yaml, not in a glossary map", term, n)
 }
 
+// commonTechTerms are acronyms every technical reader knows: a glossary entry
+// for them defines nothing (D307). A KB's own terms are what glossary_gap is
+// for. Compared folded.
+var commonTechTerms = map[string]bool{}
+
+func init() {
+	for _, t := range strings.Fields(`API HTTP HTTPS IP URL URI JSON YAML XML HTML CSS CLI UI UX
+		SSH DNS LAN WAN VPN TCP UDP TLS SSL CPU GPU RAM SSD HDD NVMe USB GB MB KB TB GiB MiB KiB TiB
+		DB SQL ID OK PR CI CD SDK REST PC VM AI LLM UTC TTL OS PDF CSV IoT WiFi FAQ TODO README`) {
+		commonTechTerms[search.Fold(t)] = true
+	}
+}
+
+// shoutMinLen: an all-caps word of at least this length whose lowercase form
+// is an ordinary word in as many concepts is emphasis ("NON"), not a term.
+// Shorter ones stay terms: two letters ("HA") are acronyms in any language.
+const shoutMinLen = 3
+
 func glossaryItems(concepts []*reviewConcept, contracts map[string]kb.MapContract, glossary kb.Glossary) []ReviewItem {
 	known := map[string]bool{}
+	for t := range commonTechTerms {
+		known[t] = true
+	}
 	for _, t := range glossary.Terms {
 		for _, s := range append(append([]string{t.Canonical}, t.Aliases...), t.Forbidden...) {
 			known[search.Fold(strings.TrimSpace(s))] = true
@@ -799,13 +820,20 @@ func glossaryItems(concepts []*reviewConcept, contracts map[string]kb.MapContrac
 	}
 	defined := map[string]bool{} // terms some glossary-map concept uses
 	users := map[string][]string{}
+	lowerUse := map[string]int{} // concepts using a word in lower case
 	for _, c := range concepts {
 		text := urlRe.ReplaceAllString(kb.MaskCodeSpans(c.body), " ")
 		terms := map[string]bool{}
+		lower := map[string]bool{}
 		for _, w := range wordRe.FindAllString(text, -1) {
 			if acronymRe.MatchString(w) || mixedCaseRe.MatchString(w) {
 				terms[w] = true
+			} else if w == strings.ToLower(w) {
+				lower[w] = true
 			}
+		}
+		for w := range lower {
+			lowerUse[w]++
 		}
 		inGlossaryMap := contracts[c.mapName].Glossary && c.mapName != ""
 		for t := range terms {
@@ -823,6 +851,9 @@ func glossaryItems(concepts []*reviewConcept, contracts map[string]kb.MapContrac
 	for t, ids := range users {
 		if len(ids) < glossaryMinConcepts || defined[t] || known[search.Fold(t)] {
 			continue
+		}
+		if len(t) >= shoutMinLen && acronymRe.MatchString(t) && lowerUse[strings.ToLower(t)] >= len(ids) {
+			continue // emphasis of an ordinary word, not a term
 		}
 		sort.Strings(ids)
 		out = append(out, ReviewItem{

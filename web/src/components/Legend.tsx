@@ -11,8 +11,6 @@ const ROWS = 6;
 interface Row {
   key: string;
   slot: number;
-  /** A CSS colour that overrides the slot (health rows). */
-  colour?: string;
   label: string;
   count: number;
 }
@@ -28,20 +26,14 @@ export function Legend({
   communities,
   colorBy,
   onColorBy,
-  severityByConcept,
 }: {
   snapshot: GraphSnapshot;
   communities: Communities;
   colorBy: ColorBy;
   onColorBy(value: ColorBy): void;
-  severityByConcept?: Map<string, string>;
 }) {
   const { rows, tail } =
-    colorBy === "community"
-      ? communityRows(communities, snapshot)
-      : colorBy === "health"
-        ? healthRows(snapshot, severityByConcept)
-        : collectionRows(snapshot);
+    colorBy === "community" ? communityRows(communities, snapshot) : collectionRows(snapshot);
   const shown = rows.slice(0, ROWS);
   const rest = rows.slice(ROWS).reduce((sum, row) => sum + row.count, tail);
 
@@ -52,7 +44,6 @@ export function Legend({
           [
             ["community", "Community"],
             ["map", "Map"],
-            ["health", "Health"],
           ] as const
         ).map(([value, label]) => (
           <button
@@ -72,7 +63,7 @@ export function Legend({
             <span
               className="legend__swatch"
               aria-hidden="true"
-              style={{ background: row.colour ?? slotVar(row.slot) }}
+              style={{ background: slotVar(row.slot) }}
             />
             <span className="legend__label">{row.label}</span>
             <span className="legend__count">{row.count}</span>
@@ -129,20 +120,4 @@ function collectionRows(snapshot: GraphSnapshot): { rows: Row[]; tail: number } 
       count,
     }));
   return { rows, tail: 0 };
-}
-
-function healthRows(snapshot: GraphSnapshot, severity?: Map<string, string>): { rows: Row[]; tail: number } {
-  let errors = 0;
-  let warnings = 0;
-  for (const node of snapshot.nodes) {
-    const s = severity?.get(node.id);
-    if (s === "error") errors++;
-    else if (s === "warning") warnings++;
-  }
-  const rows: Row[] = [
-    { key: "error", slot: 0, colour: "var(--sev-error)", label: "Errors", count: errors },
-    { key: "warning", slot: 0, colour: "var(--sev-warning)", label: "Warnings", count: warnings },
-    { key: "ok", slot: 0, colour: "var(--sev-ok)", label: "No warnings", count: snapshot.nodes.length - errors - warnings },
-  ];
-  return { rows: rows.filter((r) => r.count > 0), tail: 0 };
 }

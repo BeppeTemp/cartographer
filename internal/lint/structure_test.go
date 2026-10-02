@@ -182,6 +182,8 @@ func TestMapMisfit(t *testing.T) {
 	s.concept("ops/switch", "", "net/a", "net/b", "net/c", "diary/day", "rootpage")
 	// silent: 4 neighbours split 2/2.
 	s.concept("ops/firewall", "", "net/a", "net/b", "ops/x", "ops/y")
+	// silent: retired, and an archive holds retired things of every domain (D307).
+	s.concept("ops/oldrouter", "status: deprecated\n", "net/a", "net/b", "net/c", "ops/x")
 	for _, id := range []string{"net/a", "net/b", "net/c", "ops/x", "ops/y", "diary/day"} {
 		s.concept(id, "")
 	}

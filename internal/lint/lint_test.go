@@ -1659,11 +1659,9 @@ func TestLint_DuplicateLinkFix_LinkOnlyItem(t *testing.T) {
 			notFixable++
 		}
 	}
-	// [[m/a]] is link-only → fixable; [[m/b]] has a reason → not fixable.
-	if fixable != 1 {
-		t.Errorf("expected 1 fixable duplicate_link, got %d (findings: %+v)", fixable, findings)
-	}
-	if notFixable != 1 {
-		t.Errorf("expected 1 non-fixable duplicate_link, got %d", notFixable)
+	// Both are fixable since D307: the text already links them, so the item
+	// goes with its reason (the text says why).
+	if fixable != 2 || notFixable != 0 {
+		t.Errorf("expected 2 fixable duplicate_link, got %d fixable and %d not (findings: %+v)", fixable, notFixable, findings)
 	}
 }

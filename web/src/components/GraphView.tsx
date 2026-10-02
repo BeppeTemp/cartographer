@@ -46,8 +46,6 @@ interface Props {
   /** A concept to point at without selecting it (a link hovered in the
    *  reading panel). */
   highlighted?: string | null;
-  /** Worst lint severity per concept: such nodes take the severity colour. */
-  severityByConcept?: Map<string, string>;
   /** A double click on a node. */
   onExpand?(id: string): void;
   /** Overlays drawn over the canvas (the legend). */
@@ -116,7 +114,6 @@ function View({
   artifacts = [],
   onOpenArtifact,
   highlighted = null,
-  severityByConcept,
   onExpand,
   children,
   snapshot,
@@ -304,9 +301,6 @@ function View({
     if (!scene) return;
     const slots = resolveSlots();
     const canvas = cssVar("--surface-0");
-    const sevError = cssVar("--sev-error");
-    const sevWarning = cssVar("--sev-warning");
-    const sevOk = cssVar("--sev-ok");
     const near = new Set<string>();
     if (shown) {
       near.add(shown);
@@ -315,15 +309,7 @@ function View({
     const colours = snapshot.nodes
       .filter((n) => !hiddenIds.has(n.id))
       .map((n) => {
-        const severity = severityByConcept?.get(n.id);
-        const base =
-          colorBy === "health"
-            ? severity === "error"
-              ? sevError
-              : severity === "warning"
-                ? sevWarning
-                : sevOk
-            : slots[colorBy === "community" ? communitySlot(communities, n.id) : collectionHue(n.collection ?? "")]!;
+        const base = slots[colorBy === "community" ? communitySlot(communities, n.id) : collectionHue(n.collection ?? "")]!;
         return !shown || near.has(n.id) ? base : fade(base, RECEDED, canvas);
       });
     // Diamonds wear the signal colour: an artifact is not in any community
@@ -339,7 +325,7 @@ function View({
       signal: cssVar("--graph-signal"),
       ring: cssVar("--graph-ring"),
     });
-  }, [ready, snapshot, hiddenIds, colorBy, communities, themeKey, shown, severityByConcept, drawnArtifacts]);
+  }, [ready, snapshot, hiddenIds, colorBy, communities, themeKey, shown, drawnArtifacts]);
 
   // Motion on or off.
   useEffect(() => {

@@ -369,21 +369,6 @@ export function App() {
 
   // --- Derived view ---
 
-  // Worst severity per concept: the graph tints a node by it, so "error"
-  // must win over "warning" rather than whichever finding came last.
-  const severityByConcept = useMemo(() => {
-    const rank: Record<string, number> = { info: 0, warning: 1, error: 2 };
-    const worst = new Map<string, string>();
-    for (const finding of lint?.findings ?? []) {
-      if (!finding.concept) continue;
-      const current = worst.get(finding.concept);
-      if (!current || (rank[finding.severity] ?? -1) > (rank[current] ?? -1)) {
-        worst.set(finding.concept, finding.severity);
-      }
-    }
-    return worst;
-  }, [lint]);
-
   const findingsByConcept = useMemo(() => {
     const map = new Map<string, LintReport["findings"]>();
     for (const finding of lint?.findings ?? []) {
@@ -688,7 +673,6 @@ export function App() {
                   selected={view.concept}
                   hiddenIds={hiddenIds}
                   highlighted={preview}
-                  severityByConcept={severityByConcept}
                   themeKey={appliedTheme}
                   live={motion}
                   onToggleLive={toggleMotion}
@@ -702,7 +686,6 @@ export function App() {
                     communities={communities}
                     colorBy={colorBy}
                     onColorBy={setColorBy}
-                    severityByConcept={severityByConcept}
                   />
                 </GraphView>
               )}

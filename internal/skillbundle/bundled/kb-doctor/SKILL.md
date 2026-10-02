@@ -1,7 +1,7 @@
 ---
 name: kb-doctor
 description: Keep a Knowledge Base from rotting - a short, budgeted session that applies mechanical repairs and walks the operator through the server's ranked review list. Use when a tool result proposes a kb-doctor session, when kb_status reports conformance.doctor_suggested, when the operator asks to tidy or align a KB, or after a Cartographer upgrade.
-version: "2.5"
+version: "2.6"
 ---
 # KB Doctor - Skill
 
@@ -83,7 +83,9 @@ what is allowed:
    one reason per link; `link_to_retired` in a live page: update the sentence or point at the
    successor). Accept what is a choice with `lint_ignore` and a `reason`: on the concept for a
    one-off, map-wide with `map_update` `lint_ignore` (the list replaces the map's: extend the
-   `lint_ignore` that `map_list` shows) when the whole map follows that style. Each accepted check counts against the budget once per map, not once per concept.
+   `lint_ignore` that `map_list` shows) when the whole map follows that style. Each accepted check
+   counts against the budget once per map, not once per concept. Many per-concept writes go in
+   one `concept_batch` (up to 50 operations, one commit), not one call each.
 7. **Artifacts.** `artifact_read` the KB's `instructions.md` and `templates/`: update any rule or
    template this session made obsolete (a field renamed, a workaround a repair removed, a rule to add
    pages to a now-generated index or to add reverse links).

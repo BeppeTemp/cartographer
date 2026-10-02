@@ -1,8 +1,11 @@
 package lint
 
-import "strings"
+import (
+	"strings"
+	"testing"
 
-import "testing"
+	"github.com/BeppeTemp/cartographer/internal/okf"
+)
 
 func TestLinksSectionIssues(t *testing.T) {
 	cases := []struct {
@@ -51,5 +54,26 @@ func TestLinkOnlyItemsNeedOneLinkAndNoWord(t *testing.T) {
 	got := linkOnlyItems(section, "x/y.md", nil)
 	if _, ok := got["a/b"]; !ok || len(got) != 1 {
 		t.Fatalf("got %v", got)
+	}
+}
+
+// TestDuplicateItemFixes (D307): every duplicate is fixable. The duplicate
+// leaves its item with its reason; other links in the item stay; an item
+// left with no link is dropped; a separator inside a link label is not one.
+func TestDuplicateItemFixes(t *testing.T) {
+	inText := map[okf.ConceptID]bool{"m/a": true, "m/b": true}
+	section := "\n- [[m/a]] — the reason\n- [[m/b]] (successor) · [[m/c]] · [[m/d|D, the label]]\n- [[m/c]] and [[m/a]] together\n"
+	got := duplicateItemFixes(section, "m/page.md", nil, inText)
+	if f := got["m/a"]; f == nil || f.Kind != FixDropLinkItem || f.Field != "- [[m/a]] — the reason" {
+		t.Fatalf("single item with a reason: %+v", f)
+	}
+	if f := got["m/b"]; f == nil || f.Kind != FixRewriteLinkItem || f.To != "- [[m/c]] · [[m/d|D, the label]]" {
+		t.Fatalf("multi-link item: %+v", f)
+	}
+	body := "# P\n\nText [[m/a]] and [[m/b]].\n\n## See also\n" + section
+	body = ReplaceLinkItem(body, got["m/b"].Field, got["m/b"].To)
+	body = DropLinkItem(body, got["m/a"].Field)
+	if strings.Contains(body, "the reason") || strings.Contains(body, "(successor)") || !strings.Contains(body, "- [[m/c]] · [[m/d|D, the label]]") || !strings.Contains(body, "together") {
+		t.Fatalf("rewritten body:\n%s", body)
 	}
 }

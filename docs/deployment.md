@@ -457,10 +457,9 @@ A selected concept is the orbit's pivot: dragging turns the graph around it,
 while it stays centred in the strip the panels leave visible, and everything
 outside its neighbourhood recedes. The skills, agents and hooks that reference
 concepts are drawn as diamonds linked to them; clicking one opens it on the
-Artifacts panel (D286). The legend colours nodes by community, by Map or by
-*Health*, the worst lint severity; severity has a mode of its own rather than
-tinting the other two, which a KB with a warning on most concepts would paint
-one colour. Ctrl/Cmd+K searches titles and ids at once and, after a
+Artifacts panel (D286). The legend colours nodes by community or by Map, never by
+lint severity: on a real KB a severity colour painted most of the graph one
+colour, and a KB's health is read in the Observatory (D307). Ctrl/Cmd+K searches titles and ids at once and, after a
 pause in typing, the full text through the `search` tool, showing the excerpt
 that matched; it is the way to a concept, and there is no concept list beside
 the canvas. The brand in the top bar returns to the atlas; the connection

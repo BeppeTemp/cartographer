@@ -162,10 +162,8 @@ describe("colour legend", () => {
     expect(within(legend).getByText("infra")).toBeInTheDocument();
     expect(localStorage.getItem("cartographer.colorBy")).toBe("map");
 
-    // Health is its own mode: lint severity no longer tints the other two.
-    await user.click(within(legend).getByRole("button", { name: "Health" }));
-    expect(within(legend).getByRole("button", { name: "Health" })).toHaveAttribute("aria-pressed", "true");
-    expect(localStorage.getItem("cartographer.colorBy")).toBe("health");
+    // Lint severity is not a colour mode (D307): the Observatory reads health.
+    expect(within(legend).queryByRole("button", { name: "Health" })).not.toBeInTheDocument();
   });
 });
 
