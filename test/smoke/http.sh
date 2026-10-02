@@ -19,6 +19,9 @@ SERVER_PID=""
 cleanup() {
   echo "→ cleanup: stopping server and removing $DATA"
   [ -n "$SERVER_PID" ] && kill "$SERVER_PID" 2>/dev/null || true
+  # Wait for the server to exit: a shutdown still writing into $DATA made
+  # rm -rf fail with "Directory not empty" on a passing run.
+  [ -n "$SERVER_PID" ] && wait "$SERVER_PID" 2>/dev/null || true
   rm -rf "$DATA"
 }
 trap cleanup EXIT
