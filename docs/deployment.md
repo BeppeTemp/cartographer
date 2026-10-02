@@ -475,7 +475,7 @@ writes recorded, filterable by author; a row opens the concept on the atlas.
 
 The **Work** panel is `work_list` for the reader (D302): open-phase concepts and
 unchecked items, filterable by map, status, staleness and free text, grouped by
-status or by map; a card expands to its items and opens the concept on the atlas.
+status (a closed concept listed only for its items goes under *unchecked items*) or by map; a card expands to its items and opens the concept on the atlas.
 It is read-only: work changes through the agents' write tools.
 
 The **Observatory** panel lists the lint findings the caller may see. The Map or

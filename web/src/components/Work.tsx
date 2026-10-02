@@ -36,7 +36,7 @@ export function Work({ kb, onOpen }: { kb: string; onOpen(conceptId: string): vo
     return (data?.entries ?? []).filter(
       (e) =>
         (!map || e.map === map) &&
-        (!status || statusOf(e) === status) &&
+        (!status || groupOf(e) === status) &&
         (!staleOnly || e.stale) &&
         (!needle ||
           (e.title ?? e.id).toLowerCase().includes(needle) ||
@@ -47,7 +47,7 @@ export function Work({ kb, onOpen }: { kb: string; onOpen(conceptId: string): vo
   const groups = useMemo(() => {
     const out = new Map<string, WorkEntry[]>();
     for (const e of entries) {
-      const key = layout === "status" ? statusOf(e) : e.map || "(root)";
+      const key = layout === "status" ? groupOf(e) : e.map || "(root)";
       out.set(key, [...(out.get(key) ?? []), e]);
     }
     return [...out.entries()].sort((a, b) => a[0].localeCompare(b[0]));
@@ -55,6 +55,7 @@ export function Work({ kb, onOpen }: { kb: string; onOpen(conceptId: string): vo
 
   const maps = Object.keys(data?.by_map ?? {}).sort();
   const statuses = Object.keys(data?.by_status ?? {}).sort();
+  if (data?.entries.some((e) => !e.open_phase)) statuses.push(ITEMS_ONLY);
 
   return (
     <section className="activity work" aria-label="Open work">
@@ -173,6 +174,17 @@ function WorkCard({ entry, onOpen }: { entry: WorkEntry; onOpen(id: string): voi
 
 function statusOf(e: WorkEntry): string {
   return e.status || "none";
+}
+
+/**
+ * A concept listed only for its unchecked items is grouped apart: its own
+ * status is closed (done, active…), and showing it as a status column would
+ * read as open work in that state.
+ */
+const ITEMS_ONLY = "unchecked items";
+
+function groupOf(e: WorkEntry): string {
+  return e.open_phase ? statusOf(e) : ITEMS_ONLY;
 }
 
 function headline(data: WorkResponse | null): string {

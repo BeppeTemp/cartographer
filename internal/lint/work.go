@@ -78,7 +78,7 @@ func Work(k *kb.KB) ([]WorkEntry, error) {
 			e.Status, _ = frontmatterValue(fm, "status").(string)
 			e.Timestamp, _ = frontmatterValue(fm, "timestamp").(string)
 		}
-		e.OpenPhase = openPhase(e.Status, contract)
+		e.OpenPhase = workPhase(e.Status, contract)
 		if !e.OpenPhase && len(e.Items) == 0 {
 			return nil
 		}
@@ -101,6 +101,22 @@ func Work(k *kb.KB) ([]WorkEntry, error) {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 	return out, nil
+}
+
+// workPhase reports whether status makes a concept work: openPhase, except
+// the draft family, which says a page is still being written rather than that
+// something in its subject is pending. A draft rots like any open phase
+// (stale_open keeps it) but is work only where a map's open_statuses lists it.
+// Its unchecked items stay work whatever the status.
+func workPhase(status string, contract *kb.MapContract) bool {
+	if !openPhase(status, contract) {
+		return false
+	}
+	if contract != nil && len(contract.OpenStatuses) > 0 {
+		return true
+	}
+	fam, ok := familiesFor(contract).member(status)
+	return !ok || fam != "draft"
 }
 
 // staleAfterDays is stale_open's threshold for a map: the contract's

@@ -338,7 +338,7 @@ Lint also sees a KB **decaying**: work never closed, closed work not finished, p
 | `glossary: true` | this map is where the KB defines its terms: a term used in any of its concepts is never a `glossary_gap` | off: only `glossary.yaml` defines terms |
 | `work_map: <map>` | the existing map where this map's work belongs (D302): a concept here with unchecked items or an open-phase status and no link into it is `scattered_work`; a name that is no map is `contract_malformed` | none: work may live anywhere |
 
-**Work items (D302).** A work item is a concept in an open phase for its map (`open_statuses`, else the defaults; `active` only in a journal), of any type, or an unchecked `- [ ]` item outside code in any concept, whatever its status. `work_list` returns them read-only; staleness is `stale_open`'s threshold, extended to a concept whose unchecked items are that old.
+**Work items (D302).** A work item is a concept in an open phase for its map (`open_statuses`, else the defaults; `active` only in a journal; the `draft` family only where `open_statuses` lists it, since it marks a page still being written), of any type, or an unchecked `- [ ]` item outside code in any concept, whatever its status. `work_list` returns them read-only; staleness is `stale_open`'s threshold, extended to a concept whose unchecked items are that old.
 
 A review item is dismissed by `lint_ignore: [<kind>]` on a concept it names — for a pair, either member; a `glossary_gap` instead stops counting the concept carrying it, and the item goes when fewer than 10 remain. The agent writes the dismissal with the reason in the same commit, so the history says why; there is no review state besides the KB itself.
 

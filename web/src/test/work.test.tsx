@@ -6,7 +6,8 @@ import { json, stubApi } from "./fixtures";
 
 const work = {
   total: 3,
-  by_status: { open: 1, "in-progress": 1, done: 1 },
+  open_concepts: 2,
+  by_status: { open: 1, "in-progress": 1 },
   by_map: { infra: 2, notes: 1 },
   open_items: 2,
   entries: [
@@ -45,9 +46,9 @@ describe("the Work panel", () => {
     const panel = await screen.findByRole("region", { name: "Open work" });
     expect(await within(panel).findByText("3 concepts carry open work, 2 unchecked items.")).toBeInTheDocument();
     expect(within(panel).getAllByRole("heading", { level: 2 }).map((h) => h.textContent)).toEqual([
-      "done 1",
       "in-progress 1",
       "open 1",
+      "unchecked items 1",
     ]);
 
     await user.click(within(panel).getByRole("button", { name: "By map" }));
@@ -75,7 +76,7 @@ describe("the Work panel", () => {
   });
 
   it("says so when nothing is open", async () => {
-    stubApi({ "/work": () => json({ total: 0, by_status: {}, by_map: {}, open_items: 0, entries: [] }) });
+    stubApi({ "/work": () => json({ total: 0, open_concepts: 0, by_status: {}, by_map: {}, open_items: 0, entries: [] }) });
     render(<App />);
     expect(
       await screen.findByText("No open work: no concept in an open status and no unchecked item."),

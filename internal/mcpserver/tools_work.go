@@ -37,12 +37,13 @@ type workEntryOut struct {
 }
 
 type workResponse struct {
-	Total      int            `json:"total"`
-	ByStatus   map[string]int `json:"by_status"`
-	ByMap      map[string]int `json:"by_map"`
-	OpenItems  int            `json:"open_items"`
-	Entries    []workEntryOut `json:"entries"`
-	NextOffset *int           `json:"next_offset,omitempty"`
+	Total        int            `json:"total"`
+	OpenConcepts int            `json:"open_concepts"`
+	ByStatus     map[string]int `json:"by_status"`
+	ByMap        map[string]int `json:"by_map"`
+	OpenItems    int            `json:"open_items"`
+	Entries      []workEntryOut `json:"entries"`
+	NextOffset   *int           `json:"next_offset,omitempty"`
 }
 
 // newWorkQuery validates the raw arguments both surfaces receive.
@@ -124,12 +125,19 @@ func runWorkQuery(ctx requestContext, k *kb.KB, cc *conformanceCache, q workQuer
 	sortWork(sel, q.OrderBy)
 
 	resp := workResponse{Total: len(sel), ByStatus: map[string]int{}, ByMap: map[string]int{}, Entries: []workEntryOut{}}
+	// total counts entries, for paging; open_concepts and by_status count only
+	// the open-phase ones, so a closed concept listed for its unchecked items
+	// never shows its closed status as work, and open_concepts matches
+	// kb_status.work.
 	for _, e := range sel {
-		status := e.Status
-		if status == "" {
-			status = "none"
+		if e.OpenPhase {
+			status := e.Status
+			if status == "" {
+				status = "none"
+			}
+			resp.OpenConcepts++
+			resp.ByStatus[status]++
 		}
-		resp.ByStatus[status]++
 		resp.ByMap[e.Map]++
 		resp.OpenItems += len(e.Items)
 	}
