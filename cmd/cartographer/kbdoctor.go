@@ -53,13 +53,13 @@ type kbDoctorCheck struct {
 }
 
 type kbDoctorReport struct {
-	KB           string         `json:"kb"`
-	Applied      bool           `json:"apply"`
-	AutoRepair   []string       `json:"doctor_auto_repair"`
-	Checks       []kbDoctorCheck  `json:"checks"`
-	ReviewTotal  int            `json:"review_total"`
-	ReviewByKind map[string]int `json:"review_by_kind,omitempty"`
-	Remaining    int            `json:"remaining"`
+	KB           string          `json:"kb"`
+	Applied      bool            `json:"apply"`
+	AutoRepair   []string        `json:"doctor_auto_repair"`
+	Checks       []kbDoctorCheck `json:"checks"`
+	ReviewTotal  int             `json:"review_total"`
+	ReviewByKind map[string]int  `json:"review_by_kind,omitempty"`
+	Remaining    int             `json:"remaining"`
 }
 
 // cmdKBDoctor implements `cartographer kb doctor <kb> [--apply] [--json]`:
