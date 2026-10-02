@@ -702,6 +702,7 @@ export function App() {
                     communities={communities}
                     colorBy={colorBy}
                     onColorBy={setColorBy}
+                    severityByConcept={severityByConcept}
                   />
                 </GraphView>
               )}

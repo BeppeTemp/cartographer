@@ -29,9 +29,12 @@ export function cssVar(name: string, root: HTMLElement = document.documentElemen
   return getComputedStyle(root).getPropertyValue(name).trim();
 }
 
-/** What node colour means: the Map a concept is filed in, or the community
- *  its links place it in (lib/communities). */
-export type ColorBy = "community" | "map";
+/** What node colour means: the Map a concept is filed in, the community its
+ *  links place it in (lib/communities), or its worst lint severity. Health is
+ *  a mode of its own rather than a tint over the others: in a KB where most
+ *  concepts carry a warning, a tint paints the whole graph one colour and the
+ *  other two channels disappear. */
+export type ColorBy = "community" | "map" | "health";
 
 const COLOR_BY_KEY = "cartographer.colorBy";
 
@@ -40,7 +43,7 @@ const COLOR_BY_KEY = "cartographer.colorBy";
 export function readColorBy(): ColorBy {
   try {
     const stored = localStorage.getItem(COLOR_BY_KEY);
-    if (stored === "community" || stored === "map") return stored;
+    if (stored === "community" || stored === "map" || stored === "health") return stored;
   } catch {
     // Storage disabled: fall through to the default.
   }
