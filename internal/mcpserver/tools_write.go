@@ -1031,8 +1031,15 @@ func toolMapUpdate(k *kb.KB) Tool {
 			if fieldValuesByType == nil {
 				fieldValuesByType = map[string]map[string][]string{}
 			}
+			title := ""
+			if meta, err := k.ReadArchiveMeta(params.Map); err == nil {
+				if v, ok := meta.Get("title"); ok {
+					title, _ = v.(string)
+				}
+			}
 			result := map[string]interface{}{
 				"map":    params.Map,
+				"title":  title,
 				"status": "updated",
 				"contract": map[string]interface{}{
 					"require_index_entry":         contract.RequireIndexEntry,
@@ -1612,6 +1619,14 @@ func toolConceptMove(k *kb.KB) Tool {
 				if len(touched) > 0 {
 					logLines = append(logLines, fmt.Sprintf("rewrite_links: %d concept(s), %d replacement(s)", len(touched), totalReplacements))
 				}
+				indexes, err := rewriteIndexLinks(k, moveMap)
+				if err != nil {
+					return errorResult(fmt.Sprintf("concept_move: applied %d move(s) but rewriting index links failed: %v", len(applied), err)), nil
+				}
+				if len(indexes) > 0 {
+					result["rewritten_indexes"] = indexes
+					logLines = append(logLines, "rewrite_links: index(es) "+strings.Join(indexes, ", "))
+				}
 			} else {
 				var warnings []string
 				for _, mv := range valid {
@@ -1714,6 +1729,9 @@ func toolConceptMerge(k *kb.KB) Tool {
 			touched, replacements, err := rewriteBacklinks(k, moveMap)
 			if err != nil {
 				return errorResult(fmt.Sprintf("concept_merge: merged %q but redirecting inbound links failed: %v", params.SatelliteID, err)), nil
+			}
+			if _, err := rewriteIndexLinks(k, moveMap); err != nil {
+				return errorResult(fmt.Sprintf("concept_merge: merged %q but redirecting index links failed: %v", params.SatelliteID, err)), nil
 			}
 			_ = k.AppendLog(fmt.Sprintf("concept_merge: %s → %s", params.SatelliteID, parentID), time.Now())
 
@@ -2044,6 +2062,45 @@ func rewriteBacklinks(k *kb.KB, moveMap map[string]string) ([]rewrittenConcept, 
 	}
 
 	return touched, total, nil
+}
+
+// rewriteIndexLinks redirects the links to a moved concept in the root and
+// every map's index.md. Indexes are not concepts, so rewriteBacklinks never
+// reads them, and maintainCuratedIndexes only edits the source and target maps
+// that opted in: an index of a third map citing the concept kept the old path,
+// a broken_link with no mechanical fix. Pointing an existing link at where its
+// target now lives adds or removes no entry, so it needs no opt-in (D160 is
+// about entries). Returns the index paths written ("" is the root).
+func rewriteIndexLinks(k *kb.KB, moveMap map[string]string) ([]string, error) {
+	maps, err := k.ListArchives()
+	if err != nil {
+		return nil, err
+	}
+	var touched []string
+	for _, name := range append([]string{""}, maps...) {
+		content, hash, err := k.IndexHash(name)
+		if err != nil {
+			continue // no index.md: nothing to redirect
+		}
+		fmRaw, body, hasFM := okf.SplitFrontmatter(content)
+		basePath := "index.md"
+		if name != "" {
+			basePath = name + "/index.md"
+		}
+		newBody, n := kb.RewriteLinks(body, basePath, moveMap, k.AssetExists)
+		if n == 0 {
+			continue
+		}
+		if _, err := k.PatchIndex(name, hash, joinIndex(fmRaw, hasFM, newBody)); err != nil {
+			return touched, fmt.Errorf("%s: %w", basePath, err)
+		}
+		if name == "" {
+			touched = append(touched, "index.md")
+		} else {
+			touched = append(touched, basePath)
+		}
+	}
+	return touched, nil
 }
 
 // --- concept_batch ---

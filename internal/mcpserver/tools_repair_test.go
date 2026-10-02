@@ -495,3 +495,46 @@ func TestKBRepairValueFixes(t *testing.T) {
 		t.Errorf("second run must plan nothing: %v", out)
 	}
 }
+
+// TestKBRepairSynonymGroups pins two traps found on a real KB. Two synonyms of
+// one standard field are one decision: equal values collapse into it,
+// different values are left for a person, and in both cases the concept's
+// other fixes still apply. And a limited dry run still reports the whole job.
+func TestKBRepairSynonymGroups(t *testing.T) {
+	k, s := repairKB(t, 0)
+	write := func(id string, kv ...string) {
+		fm := newFM()
+		fm.Set("type", "Note")
+		fm.Set("title", "T")
+		for i := 0; i < len(kv); i += 2 {
+			fm.Set(kv[i], kv[i+1])
+		}
+		if _, err := k.WriteConcept(okf.ConceptID(id), fm, "# T\n", ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("ops/same", "date", "2026-01-02", "modified", "2026-01-02", "sources", "a")
+	write("ops/differ", "date", "2026-01-02", "modified", "2026-02-03", "sources", "b")
+
+	dry := repairCall(t, s, `{"check":"nonstandard_field","limit":1}`)
+	if dry["found_concepts"].(float64) != 2 || dry["found_total"].(float64) != 6 || dry["planned_total"].(float64) != 3 {
+		t.Fatalf("limited dry run hides the job: %v", dry)
+	}
+
+	out := repairCall(t, s, `{"check":"nonstandard_field","dry_run":false}`)
+	if out["applied"].(float64) != 2 {
+		t.Fatalf("applied = %v, skipped = %v", out["applied"], out["skipped"])
+	}
+	cd, _ := k.ReadConcept("ops/same")
+	if fm := cd.FrontmatterRaw; !strings.Contains(fm, "timestamp: 2026-01-02") || strings.Contains(fm, "date:") || strings.Contains(fm, "modified:") || !strings.Contains(fm, "provenance:") {
+		t.Fatalf("equal synonyms not collapsed:\n%s", fm)
+	}
+	cd, _ = k.ReadConcept("ops/differ")
+	if fm := cd.FrontmatterRaw; !strings.Contains(fm, "date:") || !strings.Contains(fm, "modified:") || strings.Contains(fm, "timestamp:") || !strings.Contains(fm, "provenance:") {
+		t.Fatalf("conflicting synonyms touched, or the other fix held back:\n%s", fm)
+	}
+	skipped, _ := json.Marshal(out["skipped"])
+	if !strings.Contains(string(skipped), `all mean \"timestamp\" and hold different values`) {
+		t.Fatalf("skip reason: %s", skipped)
+	}
+}

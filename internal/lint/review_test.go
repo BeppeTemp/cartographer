@@ -523,3 +523,54 @@ func TestReviewMapNaming(t *testing.T) {
 		})
 	}
 }
+
+// TestReviewZombieSharedOrigin: a retired concept three open ones link is
+// their origin. They get one item naming it first, which lint_ignore on it
+// dismisses, while a concept's own retired subject still gets its own item.
+func TestReviewZombieSharedOrigin(t *testing.T) {
+	k := tempKB(t)
+	writeFile(t, k.DataRoot(), "b/_map.md", "---\ntype: Map\ntitle: B\n---\n")
+	writeFile(t, k.DataRoot(), "b/oldlist.md", "---\ntype: Topic\ntitle: Old list\nstatus: deprecated\n---\n# Old list\n")
+	writeFile(t, k.DataRoot(), "b/gone.md", "---\ntype: Service\ntitle: Gone\nstatus: deprecated\n---\n# Gone\n")
+	for _, n := range []string{"t1", "t2", "t3"} {
+		extra := ""
+		if n == "t1" {
+			extra = " About [gone](gone.md)."
+		}
+		writeFile(t, k.DataRoot(), "b/"+n+".md", "---\ntype: Task\ntitle: "+n+"\nstatus: open\n---\n# "+n+"\n\nFrom [the old list](oldlist.md)."+extra+"\n")
+	}
+	got := itemsOf(review(t, k), ReviewZombie)
+	if len(got) != 2 {
+		t.Fatalf("want one shared item and one own item: %+v", got)
+	}
+	var shared, own ReviewItem
+	for _, it := range got {
+		if it.Concepts[0] == "b/oldlist" {
+			shared = it
+		} else {
+			own = it
+		}
+	}
+	if len(shared.Concepts) != 4 || shared.Weight != 3 {
+		t.Fatalf("shared origin item: %+v", shared)
+	}
+	if own.Concepts[0] != "b/t1" || !strings.Contains(own.Evidence, "b/gone") || strings.Contains(own.Evidence, "oldlist") {
+		t.Fatalf("own subject item: %+v", own)
+	}
+	writeFile(t, k.DataRoot(), "b/oldlist.md", "---\ntype: Topic\ntitle: Old list\nstatus: deprecated\nlint_ignore: [zombie_work]\n---\n# Old list\n")
+	if got := itemsOf(review(t, k), ReviewZombie); len(got) != 1 || got[0].Concepts[0] != "b/t1" {
+		t.Fatalf("dismissing the origin once: %+v", got)
+	}
+}
+
+// TestReviewDuplicateSkipsNamedSatellite: a satellite titled "<parent> — part"
+// is the split concept_expand made, not a duplicate of its parent.
+func TestReviewDuplicateSkipsNamedSatellite(t *testing.T) {
+	k := tempKB(t)
+	writeFile(t, k.DataRoot(), "m/_map.md", "---\ntype: Map\ntitle: M\n---\n")
+	writeFile(t, k.DataRoot(), "m/plan/index.md", "---\ntype: Topic\ntitle: Operational evolution plan\n---\n# Plan\n")
+	writeFile(t, k.DataRoot(), "m/plan/phases.md", "---\ntype: Topic\ntitle: Operational evolution plan — Phases\n---\n# Phases\n")
+	if got := itemsOf(review(t, k), ReviewDuplicate); len(got) != 0 {
+		t.Fatalf("satellite named after its parent: %+v", got)
+	}
+}

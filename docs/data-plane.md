@@ -389,7 +389,9 @@ flooded on upgrade:
   mapping at all — in which case no key is reported undeclared.
 
 `machine_path` also names the declared key whose `default` is a prefix of the flagged path, e.g.
-`~/.claude/settings.json` → "use `{{path:claude-home}}/settings.json`".
+`~/.claude/settings.json` → "use `{{path:claude-home}}/settings.json`". It stays one finding per
+concept but names every other disallowed path in it ("and 2 more here: …"), without the prose
+punctuation that follows a path, so fixing the first is not how the author learns of the next.
 
 ## The glossary (`glossary.yaml`)
 

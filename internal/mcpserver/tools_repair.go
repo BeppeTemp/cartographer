@@ -94,9 +94,19 @@ func applyRepair(k *kb.KB, targets []repairTarget) (applied []repairTarget, skip
 			continue
 		}
 		body := cd.Body
-		if reason := applyFixes(fm, &body, t.Fixes); reason != "" {
+		changed, partial, reason := applyFixes(fm, &body, t.Fixes)
+		if reason == "" && changed == 0 && len(partial) > 0 {
+			reason = strings.Join(partial, "; ")
+			partial = nil
+		}
+		if reason != "" {
 			skipped = append(skipped, repairSkip{t.Path, reason})
 			continue
+		}
+		// A fix that needs a person does not hold back the others on the
+		// same concept: they are written, and it is reported on its own.
+		for _, p := range partial {
+			skipped = append(skipped, repairSkip{t.Path, p})
 		}
 		if _, err := k.WriteConcept(t.ID, fm, body, t.Hash); err != nil {
 			reason := err.Error()
@@ -111,18 +121,21 @@ func applyRepair(k *kb.KB, targets []repairTarget) (applied []repairTarget, skip
 	return applied, skipped
 }
 
-// applyFixes applies fixes to fm and body in place and returns a non-empty
-// reason when one cannot be applied (the caller then discards the write).
-func applyFixes(fm *okf.Frontmatter, body *string, fixes []*lint.Fix) string {
+// applyFixes applies fixes to fm and body in place. It returns how many
+// fixes it applied, the fixes it left for a person (partial: the others still
+// apply), and a non-empty fatal reason when the concept must not be written.
+func applyFixes(fm *okf.Frontmatter, body *string, fixes []*lint.Fix) (changed int, partial []string, fatal string) {
+	handled, renamed, partial := applyRenameGroups(fm, fixes)
+	changed += renamed
 	for _, fx := range fixes {
+		if handled[fx] {
+			continue
+		}
+		changed++
 		switch fx.Kind {
 		case lint.FixRenameField:
-			if _, ok := fm.Get(fx.Field); !ok {
-				continue // already gone: idempotent
-			}
-			if !fm.Rename(fx.Field, fx.To) {
-				return fmt.Sprintf("%q already exists: merge the values by hand", fx.To)
-			}
+			// Never reached: applyRenameGroups decides every rename.
+			changed--
 		case lint.FixDropField:
 			fm.Delete(fx.Field)
 		case lint.FixRebaseLink:
@@ -145,10 +158,70 @@ func applyFixes(fm *okf.Frontmatter, body *string, fixes []*lint.Fix) string {
 		case lint.FixDropLinkItem:
 			*body = lint.DropLinkItem(*body, fx.Field)
 		default:
-			return "unknown fix kind " + fx.Kind
+			return 0, nil, "unknown fix kind " + fx.Kind
 		}
 	}
-	return ""
+	return changed, partial, ""
+}
+
+// applyRenameGroups applies the rename_field fixes grouped by their target:
+// several synonyms of one standard field (date and updated both meaning
+// timestamp) are one decision, not a rename followed by a collision with
+// itself. When every present value agrees, one is renamed and the rest
+// dropped; when they differ, the group is left for a person and named in
+// full. handled marks every rename fix it decided.
+func applyRenameGroups(fm *okf.Frontmatter, fixes []*lint.Fix) (handled map[*lint.Fix]bool, changed int, partial []string) {
+	handled = map[*lint.Fix]bool{}
+	var order []string
+	groups := map[string][]*lint.Fix{}
+	for _, fx := range fixes {
+		if fx.Kind != lint.FixRenameField {
+			continue
+		}
+		handled[fx] = true
+		if _, ok := fm.Get(fx.Field); !ok {
+			continue // already gone: idempotent
+		}
+		if _, seen := groups[fx.To]; !seen {
+			order = append(order, fx.To)
+		}
+		groups[fx.To] = append(groups[fx.To], fx)
+	}
+	for _, to := range order {
+		group := groups[to]
+		var names []string
+		var values []string
+		for _, fx := range group {
+			v, _ := fm.Get(fx.Field)
+			names = append(names, fmt.Sprintf("%q", fx.Field))
+			values = append(values, fmt.Sprint(v))
+		}
+		existing, hasTo := fm.Get(to)
+		if hasTo {
+			values = append(values, fmt.Sprint(existing))
+		}
+		agree := true
+		for _, v := range values[1:] {
+			agree = agree && v == values[0]
+		}
+		if !agree {
+			if hasTo {
+				partial = append(partial, fmt.Sprintf("%s and the existing %q hold different values: merge them into %q by hand", strings.Join(names, ", "), to, to))
+			} else {
+				partial = append(partial, fmt.Sprintf("%s all mean %q and hold different values: keep one as %q by hand", strings.Join(names, ", "), to, to))
+			}
+			continue
+		}
+		for i, fx := range group {
+			if i == 0 && !hasTo {
+				fm.Rename(fx.Field, to)
+			} else {
+				fm.Delete(fx.Field)
+			}
+			changed++
+		}
+	}
+	return handled, changed, partial
 }
 
 // insertAfterH1 inserts line as its own paragraph after the body's first H1,
@@ -338,6 +411,9 @@ func toolKBRepair(k *kb.KB) Tool {
 			if err != nil {
 				return errorResult(fmt.Sprintf("kb_repair: %v", err)), nil
 			}
+			// The whole job, before limit: a dry run with a limit must still
+			// say how much work there is, not only the page it shows.
+			foundTotal, foundConcepts := len(items), len(targets)
 			if params.Limit > 0 && len(targets) > params.Limit {
 				targets = targets[:params.Limit]
 				keep := map[string]bool{}
@@ -362,8 +438,11 @@ func toolKBRepair(k *kb.KB) Tool {
 				"dry_run":       dryRun,
 				"planned":       planned,
 				"planned_total": len(items),
-				"applied":       0,
-				"skipped":       []repairSkip{},
+				// found_*: in scope before limit; equal to planned_* without one.
+				"found_total":    foundTotal,
+				"found_concepts": foundConcepts,
+				"applied":        0,
+				"skipped":        []repairSkip{},
 			}
 			res := ToolResult{}
 			if !dryRun && len(targets) > 0 {
