@@ -1,7 +1,7 @@
 ---
 name: kb-doctor
 description: Keep a Knowledge Base from rotting - a short, budgeted session that applies mechanical repairs and walks the operator through the server's ranked review list. Use when a tool result proposes a kb-doctor session, when kb_status reports conformance.doctor_suggested, when the operator asks to tidy or align a KB, or after a Cartographer upgrade.
-version: "2.3"
+version: "2.4"
 ---
 # KB Doctor - Skill
 
@@ -17,6 +17,18 @@ Three trust levels, never mixed: **mechanical** fixes (`kb_repair`) are determin
 operator's choice per item. The server proposes a session when the KB's `doctor_interval` has passed
 since the last one; it never runs one by itself.
 
+**Delegation.** The operator may hand the session over ("do it yourself"), or the KB's
+`instructions.md` may say doctor sessions run unattended. Then you decide every item yourself,
+with the option you would have recommended, and report afterwards instead of asking first:
+mechanical repairs after their dry run, proposals, judgement. Delegation changes who chooses, not
+what is allowed:
+- decide from the KB, not from guesses: before closing work whose subject looks retired, `search`
+  for what replaced it; when the KB cannot tell (a decision only the operator can make, a fact it
+  does not hold), **defer** the item — dismiss only the signal, never the open question;
+- never delete a concept, never rename a map's folder, never invent content;
+- every write carries a `reason` saying why, so the history explains the session;
+- end with one list: each decision, what was written, and what was deferred and why.
+
 ## Procedure
 
 1. **Signal.** `kb_status`: read `conformance` (`findings`, `fixable`, `last_doctor`,
@@ -26,8 +38,12 @@ since the last one; it never runs one by itself.
 2. **Mechanical.** For each check with a fix (`nonstandard_field`, `tool_param_field`, `broken_link`,
    `duplicate_link`, `invalid_field_value`, `prose_value`): `kb_repair` with `dry_run: true`.
    Checks listed in `capabilities.auto_repair.checks` the operator already trusts: apply them
-   (`dry_run: false`) and report the counts. Any other: show the plan, apply on confirmation. One
-   call is one commit; a concept in `skipped` changed since it was listed, so run the check again.
+   (`dry_run: false`) and report the counts. Any other: show the plan (`found_total` is the whole
+   job, `planned_total` what this call covers under `limit`), apply on confirmation. One call is
+   one commit. A `skipped` entry is either a concept changed since it was listed (run the check
+   again) or a fix that needs a person — two synonyms of one field holding different values: pick
+   the value with the operator and write it with `concept_patch`; the concept's other fixes were
+   already applied.
    `reciprocal_link_item` is not drift: propose it once per KB as an opt-in, with its count and the
    trade-off (backlinks keep the edge navigable; a reader of the raw file loses the reverse link).
 3. **Cost (once per KB).** For each map whose index the operator keeps by hand (`index_incomplete`
@@ -51,12 +67,16 @@ since the last one; it never runs one by itself.
      for `map_naming` propose one scheme for every map title the evidence lists (one language,
      one shape, one capitalisation, recognisable from the folder), and after the operator agrees
      rename each with `map_update` `title` — never a map's folder, which would break every link;
+     a subtitle the new title drops ("Incidents — dated post-mortems") becomes the first line of
+     the map's `index.md` (`index_patch`) when the index does not already say it;
    - **dismiss** with a reason: `concept_patch` adding the kind to `lint_ignore` on a concept the
      item names, `reason` saying why, so the history keeps it (a `map_naming` item names maps as
-     `<map>/_map`: ask the operator to add `lint_ignore: [map_naming]` to that map's `_map.md`);
+     `<map>/_map`: ask the operator to add `lint_ignore: [map_naming]` to that map's `_map.md`; a
+     `zombie_work` item whose first concept is retired is a shared origin — when it is where the
+     others came from, dismiss it once on that retired concept);
    - **defer**: nothing is written; it comes back next session.
    Never invent content: what the KB does not know becomes a `contradiction_report` of kind
-   `open_question`. Run `gate_check` scoped to each map you changed.
+   `open_question`. Run `gate_check` with `changed_ids` set to the concepts you wrote.
 6. **Artifacts.** `artifact_read` the KB's `instructions.md` and `templates/`: update any rule or
    template this session made obsolete (a field renamed, a workaround a repair removed, a rule to add
    pages to a now-generated index or to add reverse links).
@@ -66,8 +86,10 @@ since the last one; it never runs one by itself.
 
 ## Rules
 
-- Judgement is never applied without the operator's choice; a mechanical repair outside
-  `auto_repair` never without a dry-run plan they saw.
+- Judgement is never applied without the operator's choice, and a mechanical repair outside
+  `auto_repair` never without a dry-run plan they saw — unless the session is delegated (see
+  Purpose), and then every choice is in the closing report.
 - One numbered list per session; a deferred item is not asked again in the same session.
-- Never overwrite by hand a concept `kb_repair` skipped: re-read it and run the check again.
+- Never overwrite by hand a concept `kb_repair` skipped as changed: re-read it and run the check
+  again. A fix skipped as needing a person is written by hand, after reading the concept.
 - Do not invent contract values, glossary definitions or procedure steps.

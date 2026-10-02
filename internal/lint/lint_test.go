@@ -273,6 +273,30 @@ func TestRun_MachinePath_Tilde_Detected(t *testing.T) {
 	}
 }
 
+// TestRun_MachinePath_NamesEveryPath: one finding per concept, naming every
+// disallowed path, so fixing the first does not reveal the next one.
+func TestRun_MachinePath_NamesEveryPath(t *testing.T) {
+	k := tempKB(t)
+	writeFile(t, k.DataRoot(), "arch/concept-m.md",
+		"---\ntype: Note\n---\nSee ~/.zprofile, then ~/.codex/hooks.json and ~/.zprofile again.\n")
+	findings, err := Run(k, "", false)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	n := 0
+	for _, f := range findings {
+		if f.Check == "machine_path" {
+			n++
+			if !strings.Contains(f.Message, "and 1 more here: ~/.codex/hooks.json") {
+				t.Errorf("message does not name the other path: %s", f.Message)
+			}
+		}
+	}
+	if n != 1 {
+		t.Errorf("want one machine_path finding, got %d", n)
+	}
+}
+
 func TestRun_MachinePath_WindowsUsers_Detected(t *testing.T) {
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "arch/concept-d.md",

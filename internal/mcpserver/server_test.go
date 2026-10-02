@@ -5276,6 +5276,47 @@ func TestConceptMove_KeepsAMultiLinkIndexLine(t *testing.T) {
 	}
 }
 
+// TestConceptMove_RewritesOtherIndexes: a third map's index and the root
+// index citing the moved concept follow it. Indexes are not concepts, and
+// before this they kept the old path (found on a real KB: a backlog index
+// still linked a page moved to the archive).
+func TestConceptMove_RewritesOtherIndexes(t *testing.T) {
+	k := setupTestKB(t)
+	s := New("test")
+	RegisterKBTools(s, k, Deps{})
+	for rel, content := range map[string]string{
+		"src/_map.md":    "---\ntype: Map\nkind: map\ntitle: Src\n---\n# Src\n",
+		"src/mover.md":   "---\ntype: Note\ntitle: Mover\n---\n# Mover\n",
+		"dst/_map.md":    "---\ntype: Map\nkind: map\ntitle: Dst\n---\n# Dst\n",
+		"third/_map.md":  "---\ntype: Map\nkind: map\ntitle: Third\n---\n# Third\n",
+		"third/index.md": "---\ntype: Index\ntitle: Third\n---\n# Third\n\nThe old page [[src/mover]] is history now.\n",
+		"index.md":       "---\ntype: Index\ntitle: Root\n---\n# Root\n\n- [Mover](src/mover.md)\n",
+	} {
+		abs := filepath.Join(k.DataRoot(), rel)
+		if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(abs, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	res, err := s.Tools()["concept_move"].Handler(authLocalContext(), json.RawMessage(`{"source_id":"src/mover","target_id":"dst/mover"}`))
+	if err != nil || res.IsError {
+		t.Fatalf("concept_move: %+v err=%v", res, err)
+	}
+	third, _ := k.ReadIndex("third")
+	root, _ := k.ReadIndex("")
+	if !strings.Contains(third, "dst/mover") || strings.Contains(third, "src/mover") {
+		t.Errorf("third map index not redirected:\n%s", third)
+	}
+	if !strings.Contains(root, "dst/mover.md") || strings.Contains(root, "src/mover") {
+		t.Errorf("root index not redirected:\n%s", root)
+	}
+	if !strings.Contains(res.Content[0].Text, "rewritten_indexes") {
+		t.Errorf("result does not report the indexes: %s", res.Content[0].Text)
+	}
+}
+
 // --- D160 WP3: concept_merge and concept_collapse ---
 
 func d160Fixture(t *testing.T) (*kb.KB, *Server) {

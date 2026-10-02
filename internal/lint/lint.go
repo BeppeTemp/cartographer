@@ -906,22 +906,34 @@ func Run(k *kb.KB, scope string, scopeNeighbors bool) ([]Finding, error) {
 // match still surfaces. Returns "" when every candidate is allowed or there
 // is none.
 func firstDisallowedMachinePath(body string, allowPrefixes []string) string {
+	if all := disallowedMachinePaths(body, allowPrefixes); len(all) > 0 {
+		return all[0]
+	}
+	return ""
+}
+
+// disallowedMachinePaths is every distinct disallowed candidate, in order.
+func disallowedMachinePaths(body string, allowPrefixes []string) []string {
 	candidates := machinePathRe.FindAllStringIndex(body, -1)
 	if len(candidates) == 0 {
-		return ""
+		return nil
 	}
 	urlSpans := urlRe.FindAllStringIndex(body, -1)
+	var out []string
+	seen := map[string]bool{}
 	for _, span := range candidates {
 		if withinAnySpan(span, urlSpans) {
 			continue
 		}
-		candidate := body[span[0]:span[1]]
-		if matchesAllowedPrefix(candidate, allowPrefixes) {
+		// Prose punctuation after a path is not part of it.
+		candidate := strings.TrimRight(body[span[0]:span[1]], ",;:.)")
+		if candidate == "" || matchesAllowedPrefix(candidate, allowPrefixes) || seen[candidate] {
 			continue
 		}
-		return candidate
+		seen[candidate] = true
+		out = append(out, candidate)
 	}
-	return ""
+	return out
 }
 
 // withinAnySpan reports whether span (a [start, end) match position) is

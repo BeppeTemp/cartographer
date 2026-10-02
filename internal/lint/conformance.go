@@ -139,8 +139,18 @@ func frontmatterFindings(in conceptInput) []Finding {
 	}
 
 	// --- machine_path (warning, D75 WP6 / D124) ---
-	if disallowed := firstDisallowedMachinePath(in.Body, in.AllowPrefixes); disallowed != "" {
+	if all := disallowedMachinePaths(in.Body, in.AllowPrefixes); len(all) > 0 {
+		disallowed := all[0]
 		msg := fmt.Sprintf("client-local path %q — use {{repo:<key>}}/{{path:<nome>}} instead (D75); operational paths on containers/remote hosts are not client-local (D124)", disallowed)
+		// One finding per concept, but naming every path: fixing the first
+		// must not be how the author learns about the second.
+		if rest := all[1:]; len(rest) > 0 {
+			shown := rest
+			if len(shown) > 5 {
+				shown = shown[:5]
+			}
+			msg += fmt.Sprintf(" — and %d more here: %s", len(rest), strings.Join(shown, ", "))
+		}
 		// A declared key whose default covers the path is the answer,
 		// not a generic hint (D263).
 		if s := in.Registry.suggestion(disallowed); s != "" {

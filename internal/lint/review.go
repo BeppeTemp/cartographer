@@ -379,7 +379,7 @@ func duplicateItems(concepts []*reviewConcept) []ReviewItem {
 				}
 				seen[other] = true
 				pair := [2]okf.ConceptID{c.id, other}
-				if paired[pair] {
+				if paired[pair] || namedAfterParent(c.id, other, titles) {
 					continue
 				}
 				j := Jaccard(ts, tokens[other])
@@ -398,6 +398,21 @@ func duplicateItems(concepts []*reviewConcept) []ReviewItem {
 		}
 	}
 	return out
+}
+
+// namedAfterParent reports a satellite whose title extends its parent's
+// ("Plan" and "Plan — Phases 0–4"): concept_expand names parts that way, so
+// the shared words are the split, not a duplicate. A satellite titled like
+// its parent without extending it is still compared.
+func namedAfterParent(a, b okf.ConceptID, titles map[okf.ConceptID]string) bool {
+	parent, child := a, b
+	if strings.HasPrefix(string(a), string(b)+"/") {
+		parent, child = b, a
+	} else if !strings.HasPrefix(string(b), string(a)+"/") {
+		return false
+	}
+	pt, ct := strings.TrimSpace(titles[parent]), strings.TrimSpace(titles[child])
+	return pt != "" && len(ct) > len(pt) && strings.HasPrefix(ct, pt)
 }
 
 func duplicateAction(ids []okf.ConceptID) string {
@@ -424,21 +439,38 @@ func idStrings(ids []okf.ConceptID) []string {
 
 // --- zombie_work ---
 
+// zombieSharedMin is how many open concepts linking one retired concept make
+// it their common origin rather than each one's subject.
+const zombieSharedMin = 3
+
+var retiredTarget = regexp.MustCompile(`retired concept (\S+)`)
+
 func zombieWorkItems(concepts []*reviewConcept, contracts map[string]kb.MapContract, byConcept map[okf.ConceptID][]Finding) (map[okf.ConceptID]bool, []ReviewItem) {
-	zombies := map[okf.ConceptID]bool{}
-	var out []ReviewItem
+	type opener struct {
+		id      okf.ConceptID
+		status  string
+		retired []string // finding messages
+		targets []string // retired concept IDs, parallel to retired
+	}
+	var open []opener
+	linkers := map[string][]okf.ConceptID{}
 	for _, c := range concepts {
-		var retired []string
+		var o opener
 		staleOpen := false
 		for _, f := range byConcept[c.id] {
 			switch f.Check {
 			case "link_to_retired":
-				retired = append(retired, f.Message)
+				target := ""
+				if m := retiredTarget.FindStringSubmatch(f.Message); m != nil {
+					target = m[1]
+				}
+				o.retired = append(o.retired, f.Message)
+				o.targets = append(o.targets, target)
 			case "stale_open":
 				staleOpen = true
 			}
 		}
-		if len(retired) == 0 {
+		if len(o.retired) == 0 {
 			continue
 		}
 		var contract *kb.MapContract
@@ -448,13 +480,61 @@ func zombieWorkItems(concepts []*reviewConcept, contracts map[string]kb.MapContr
 		if !staleOpen && !openPhase(c.status, contract) {
 			continue
 		}
-		zombies[c.id] = true
+		o.id, o.status = c.id, c.status
+		open = append(open, o)
+		for _, t := range o.targets {
+			if t != "" {
+				linkers[t] = append(linkers[t], c.id)
+			}
+		}
+	}
+
+	zombies := map[okf.ConceptID]bool{}
+	var out []ReviewItem
+	// A retired concept many open ones link is where they came from (an old
+	// backlog, a migrated page), not what each is about: one item for the
+	// group, dismissed once on the retired concept, instead of one per opener
+	// burying the zombies that are real.
+	shared := map[string]bool{}
+	var sharedTargets []string
+	for t, ids := range linkers {
+		if len(ids) >= zombieSharedMin {
+			shared[t] = true
+			sharedTargets = append(sharedTargets, t)
+		}
+	}
+	sort.Strings(sharedTargets)
+	for _, t := range sharedTargets {
+		ids := idStrings(linkers[t])
+		for _, id := range linkers[t] {
+			zombies[id] = true
+		}
 		out = append(out, ReviewItem{
 			Kind:            ReviewZombie,
-			Concepts:        []string{string(c.id)},
-			Evidence:        fmt.Sprintf("status %q, still open, and it links to retired concepts: %s", c.status, strings.Join(retired, "; ")),
+			Concepts:        append([]string{t}, ids...),
+			Evidence:        fmt.Sprintf("%d open concepts link the retired %s: more likely the place they came from than what each is about", len(ids), t),
+			SuggestedAction: fmt.Sprintf("if %s is their origin, dismiss once with lint_ignore: [zombie_work] on it; otherwise close or retarget each", t),
+			Weight:          len(ids),
+			wholeGraph:      true,
+		})
+	}
+	for _, o := range open {
+		var own []string
+		for i, t := range o.targets {
+			if !shared[t] {
+				own = append(own, o.retired[i])
+			}
+		}
+		if len(own) == 0 {
+			continue
+		}
+		zombies[o.id] = true
+		out = append(out, ReviewItem{
+			Kind:            ReviewZombie,
+			Concepts:        []string{string(o.id)},
+			Evidence:        fmt.Sprintf("status %q, still open, and it links to retired concepts: %s", o.status, strings.Join(own, "; ")),
 			SuggestedAction: "close it as obsolete, or retarget it at what replaced the retired concept",
-			Weight:          len(retired),
+			Weight:          len(own),
 			wholeGraph:      true,
 		})
 	}
