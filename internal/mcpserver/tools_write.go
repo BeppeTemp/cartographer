@@ -17,7 +17,7 @@ import (
 
 // --- concept_write ---
 
-func toolConceptWrite(k *kb.KB) Tool {
+func toolConceptWrite(k *kb.KB, sim *similarFinder) Tool {
 	return Tool{
 		Name:        "concept_write",
 		Description: "Creates or updates a concept from frontmatter (YAML map, type required) and a markdown body. if_match (content hash) gives optimistic concurrency: stale_write if changed. Returns content_hash and lint findings.",
@@ -68,6 +68,7 @@ func toolConceptWrite(k *kb.KB) Tool {
 			}
 			applyFrontmatterMap(fm, params.Frontmatter)
 
+			isNew := conceptIsNew(k, params.ID)
 			newHash, err := writeConceptAndLog(k, "concept_write", params.ID, fm, params.Body, params.IfMatch)
 			if err != nil {
 				if errors.Is(err, okf.ErrStaleWrite) {
@@ -83,6 +84,11 @@ func toolConceptWrite(k *kb.KB) Tool {
 			if f := writeFindings(k, params.ID); f != nil {
 				result["findings"] = f
 			}
+			if isNew {
+				if similar := sim.find(ctx, params.ID, frontmatterTitle(k, params.ID)); len(similar) > 0 {
+					result["similar"] = similar
+				}
+			}
 			out, _ := json.MarshalIndent(result, "", "  ")
 			return textResult(string(out)), nil
 		},
@@ -94,7 +100,7 @@ func toolConceptWrite(k *kb.KB) Tool {
 // toolConceptNew creates a concept from a KB-owned template. Unlike
 // concept_write it is deliberately create-only: rendering is a one-shot,
 // literal substitution and never carries if_match overwrite semantics.
-func toolConceptNew(k *kb.KB) Tool {
+func toolConceptNew(k *kb.KB, sim *similarFinder) Tool {
 	return Tool{
 		Name:        "concept_new",
 		Description: "Creates a concept from a KB-only template (see template_list); variables are substituted literally. Refuses an existing id (use concept_write/concept_patch). No strict-ontology pre-check, no index curation.",
@@ -204,6 +210,9 @@ func toolConceptNew(k *kb.KB) Tool {
 			result := map[string]interface{}{"id": params.ID, "template": params.Template, "content_hash": newHash}
 			if f := writeFindings(k, params.ID); f != nil {
 				result["findings"] = f
+			}
+			if similar := sim.find(ctx, params.ID, frontmatterTitle(k, params.ID)); len(similar) > 0 {
+				result["similar"] = similar
 			}
 			out, _ := json.MarshalIndent(result, "", "  ")
 			return textResult(string(out)), nil
@@ -838,7 +847,7 @@ func validateFieldValueParams(values map[string][]string, byType map[string]map[
 func toolMapUpdate(k *kb.KB) Tool {
 	return Tool{
 		Name:        "map_update",
-		Description: "Changes the lint contract of an existing Map or Journal: only the keys given (as in map_create) change, each replaced whole; an empty list, false or {} removes it. Returns the contract. Opt an older map into require_index_entry so concept_move maintains its index.",
+		Description: "Changes an existing map's or journal's lint contract: only the keys given (as in map_create) change, each replaced whole; an empty list, \"\", false or {} removes it. Returns the contract.",
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"required": ["map"],
@@ -880,7 +889,10 @@ func toolMapUpdate(k *kb.KB) Tool {
 				"open_statuses": {"type": "array", "items": {"type": "string"}},
 				"open_markers": {"type": "array", "items": {"type": "string"}},
 				"stale_after": {"type": "integer"},
-				"template_sections": {"type": "boolean"}
+				"template_sections": {"type": "boolean"},
+				"promote_to": {"type": "string"},
+				"procedure_headings": {"type": "array", "items": {"type": "string"}},
+				"glossary": {"type": "boolean"}
 			}
 		}`),
 		Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
@@ -900,6 +912,9 @@ func toolMapUpdate(k *kb.KB) Tool {
 				OpenMarkers              *[]string                      `json:"open_markers"`
 				StaleAfter               *int                           `json:"stale_after"`
 				TemplateSections         *bool                          `json:"template_sections"`
+				PromoteTo                *string                        `json:"promote_to"`
+				ProcedureHeadings        *[]string                      `json:"procedure_headings"`
+				Glossary                 *bool                          `json:"glossary"`
 			}
 			if err := json.Unmarshal(args, &params); err != nil {
 				return errorResult("invalid params: " + err.Error()), nil
@@ -910,8 +925,9 @@ func toolMapUpdate(k *kb.KB) Tool {
 			if params.RequiredFields == nil && params.RequiredFieldsByType == nil &&
 				params.FieldValues == nil && params.FieldValuesByType == nil && params.ForbiddenFields == nil &&
 				params.RequireIndexEntry == nil && params.MachinePathAllowPrefixes == nil && params.ValueSynonyms == nil &&
-				params.OpenStatuses == nil && params.OpenMarkers == nil && params.StaleAfter == nil && params.TemplateSections == nil {
-				return errorResult("nothing to change: pass at least one of require_index_entry, required_fields, required_fields_by_type, field_values, field_values_by_type, forbidden_fields, machine_path_allow_prefixes, value_synonyms, open_statuses, open_markers, stale_after, template_sections"), nil
+				params.OpenStatuses == nil && params.OpenMarkers == nil && params.StaleAfter == nil && params.TemplateSections == nil &&
+				params.PromoteTo == nil && params.ProcedureHeadings == nil && params.Glossary == nil {
+				return errorResult("nothing to change: pass at least one of require_index_entry, required_fields, required_fields_by_type, field_values, field_values_by_type, forbidden_fields, machine_path_allow_prefixes, value_synonyms, open_statuses, open_markers, stale_after, template_sections, promote_to, procedure_headings, glossary"), nil
 			}
 			var fields, prefixes, forbidden []string
 			if params.ForbiddenFields != nil {
@@ -946,6 +962,9 @@ func toolMapUpdate(k *kb.KB) Tool {
 				OpenMarkers:              params.OpenMarkers,
 				StaleAfterDays:           params.StaleAfter,
 				TemplateSections:         params.TemplateSections,
+				PromoteTo:                params.PromoteTo,
+				ProcedureHeadings:        params.ProcedureHeadings,
+				Glossary:                 params.Glossary,
 			})
 			if err != nil {
 				return errorResult(fmt.Sprintf("map_update %q: %v", params.Map, err)), nil

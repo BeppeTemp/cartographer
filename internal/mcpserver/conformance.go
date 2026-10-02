@@ -171,6 +171,47 @@ type conformanceCache struct {
 
 	// lintCalls counts how many times lint.Run was actually called (for tests).
 	lintCalls int
+
+	// review work list (D298), cached on the same key as findings.
+	reviewGen    uint64
+	reviewStamp  string
+	reviewCached bool
+	review       []lint.ReviewItem
+}
+
+// reviewItems returns the whole-KB review work list (D298), unfiltered, on the
+// same cache key as lintFindings: kb_status and kb_review share one
+// computation per generation. Visibility is the caller's (lint.FilterReview).
+func (cc *conformanceCache) reviewItems(k *kb.KB) ([]lint.ReviewItem, error) {
+	gen, err := k.GraphGeneration()
+	if err != nil {
+		return nil, err
+	}
+	stamp := lintInputsStamp(k)
+	cc.mu.Lock()
+	if cc.reviewCached && gen == cc.reviewGen && stamp == cc.reviewStamp {
+		out := cc.review
+		cc.mu.Unlock()
+		return out, nil
+	}
+	cc.mu.Unlock()
+	findings, err := cc.lintFindings(k)
+	if err != nil {
+		return nil, err
+	}
+	items, err := lint.Review(k, findings)
+	if err != nil {
+		return nil, err
+	}
+	if items == nil {
+		items = []lint.ReviewItem{}
+	}
+	if genAfter, gerr := k.GraphGeneration(); gerr == nil && genAfter == gen && lintInputsStamp(k) == stamp {
+		cc.mu.Lock()
+		cc.reviewGen, cc.reviewStamp, cc.review, cc.reviewCached = gen, stamp, items, true
+		cc.mu.Unlock()
+	}
+	return items, nil
 }
 
 // lintFindings returns the whole-KB lint findings, reusing the cache while

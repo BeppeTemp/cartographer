@@ -664,6 +664,10 @@ func toolKBStatus(k *kb.KB, misses *searchMissLog, serverVersion string, latestV
 					result["open_markers"] = map[string]int{"concepts": concepts, "markers": markers}
 				}
 			}
+			// D298: the size of the doctor's work list this caller may see.
+			if items, rerr := visibleReview(ctx, k, cc); rerr == nil {
+				result["review"] = reviewSummary(items)
+			}
 			if src := sourceCounts(k); src != nil {
 				result["sources"] = src
 			}

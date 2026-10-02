@@ -153,6 +153,13 @@ var perConceptChecks = map[string]bool{
 	"malformed_frontmatter": true,
 	// D278: an ingested Source nothing cites.
 	"source_uncited": true,
+	// D298: kb_review kinds. Dismissing a review item is lint_ignore on a
+	// concept it names; TestReviewKindsDismissible pins every kind here.
+	ReviewDuplicate:     true,
+	ReviewZombie:        true,
+	ReviewPromotion:     true,
+	ReviewGlossary:      true,
+	ReviewLintJudgement: true,
 }
 
 // lintIgnoreSet reads a concept's lint_ignore frontmatter key (D159). A bare

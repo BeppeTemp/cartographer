@@ -24,6 +24,7 @@ var readOnlyToolNames = map[string]bool{
 	"lint":            true,
 	"gate_check":      true,
 	"kb_status":       true,
+	"kb_review":       true,
 	"conflicts_list":  true,
 	"service_get":     true,
 	"service_list":    true,

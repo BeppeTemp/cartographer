@@ -1928,3 +1928,40 @@ func TestExpandConcept_KeepsFrontmatterBytes(t *testing.T) {
 		t.Fatalf("got %q", got)
 	}
 }
+
+// TestUpdateMapContract_ReviewKeys covers the D298 keys: set, read back,
+// removed, and a promote_to that is not a map name refused or reported.
+func TestUpdateMapContract_ReviewKeys(t *testing.T) {
+	k, _ := Init(tempKB(t))
+	if err := k.CreateMap("j", "J", "journal", nil, ""); err != nil {
+		t.Fatal(err)
+	}
+	to, headings, yes := "procedures", []string{"Procedure", "Steps"}, true
+	c, err := k.UpdateMapContract("j", MapContractUpdate{PromoteTo: &to, ProcedureHeadings: &headings, Glossary: &yes})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.PromoteTo != "procedures" || len(c.ProcedureHeadings) != 2 || !c.Glossary || len(c.Malformed) != 0 {
+		t.Fatalf("after set: %+v", c)
+	}
+	empty, none, no := "", []string{}, false
+	c, err = k.UpdateMapContract("j", MapContractUpdate{PromoteTo: &empty, ProcedureHeadings: &none, Glossary: &no})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if raw, _ := k.ReadRaw("j/_map.md"); c.PromoteTo != "" || c.Glossary || strings.Contains(raw, "promote_to") || strings.Contains(raw, "glossary") {
+		t.Fatalf("after remove: %+v\n%s", c, raw)
+	}
+	bad := "a/b"
+	if _, err := k.UpdateMapContract("j", MapContractUpdate{PromoteTo: &bad}); err == nil {
+		t.Fatal("promote_to a/b accepted")
+	}
+	raw, _ := k.ReadRaw("j/_map.md")
+	if err := os.WriteFile(filepath.Join(k.DataRoot(), "j", "_map.md"), []byte(strings.Replace(raw, "---\n", "---\npromote_to: a/b\nglossary: maybe\n", 1)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	c, err = k.ReadMapContract("j")
+	if err != nil || c.PromoteTo != "" || len(c.Malformed) != 2 {
+		t.Fatalf("malformed keys: %+v %v", c, err)
+	}
+}
