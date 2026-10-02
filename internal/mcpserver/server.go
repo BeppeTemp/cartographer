@@ -81,6 +81,11 @@ type Server struct {
 	// list the KB's artifacts as artifact_list and sync do (D238): the MCP
 	// allowlist and the artifact signer. Set with kbRef.
 	kbArtifacts artifactSource
+	// conformance is the KB's lint and review cache, shared by kb_status and
+	// the doctor nudge (D299); nudgedAt is when the nudge last went out,
+	// guarded by mu. Set with kbRef.
+	conformance *conformanceCache
+	nudgedAt    time.Time
 	// uiSearch is the search tool's handler without the search-miss log: the
 	// Atlas searches as the reader types, and every keystroke that matches
 	// nothing would otherwise be recorded as a knowledge gap. Set with kbRef.

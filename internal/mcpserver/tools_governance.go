@@ -484,6 +484,10 @@ func kbCapabilities(k *kb.KB) map[string]KBCapability {
 	if k.Discovered {
 		mount = "discovered"
 	}
+	interval := "disabled"
+	if k.DoctorIntervalDays > 0 {
+		interval = fmt.Sprintf("%d days", k.DoctorIntervalDays)
+	}
 	workflow := "local"
 	if k.ServerGit != nil {
 		workflow = "pr"
@@ -497,6 +501,10 @@ func kbCapabilities(k *kb.KB) map[string]KBCapability {
 		// A discovered KB cannot carry any of the settings above, which is the
 		// single invisible cause behind several of them being off at once.
 		"mount": {State: mount, Setting: "kbs[]"},
+		// D299: what `cartographer kb repair --apply` may apply unattended,
+		// and when the server proposes the next kb-doctor session.
+		"auto_repair":     {State: onOff(len(k.AutoRepair) > 0), Setting: "kbs[].auto_repair", Checks: k.AutoRepair},
+		"doctor_interval": {State: interval, Setting: "kbs[].doctor_interval"},
 	}
 }
 
@@ -645,13 +653,19 @@ func toolKBStatus(k *kb.KB, misses *searchMissLog, serverVersion string, latestV
 					"recent":  recent,
 				}
 			}
+			// D298: the size of the doctor's work list this caller may see.
+			reviewTotal := 0
+			if items, rerr := visibleReview(ctx, k, cc); rerr == nil {
+				result["review"] = reviewSummary(items)
+				reviewTotal = len(items)
+			}
 			// D290: conformance debt, from the findings this caller may see.
 			// D294: lint.Run is cached on the graph generation; the visibility
 			// filter stays outside the cache so a restricted caller never sees
 			// a hidden concept's findings from a warm cache.
 			if allFindings, lerr := cc.lintFindings(k); lerr == nil {
 				vis, _ := uiVisibleFindingsFrom(ctx, k, "", allFindings)
-				result["conformance"] = summarizeConformance(vis, cc.cachedDoctorDate(k), time.Now().UTC())
+				result["conformance"] = summarizeConformance(vis, reviewTotal, cc.cachedDoctorDate(k), k.DoctorIntervalDays, time.Now().UTC())
 				// D297: open questions the KB marks in its own words.
 				concepts, markers := 0, 0
 				for _, f := range vis {
@@ -663,10 +677,6 @@ func toolKBStatus(k *kb.KB, misses *searchMissLog, serverVersion string, latestV
 				if concepts > 0 {
 					result["open_markers"] = map[string]int{"concepts": concepts, "markers": markers}
 				}
-			}
-			// D298: the size of the doctor's work list this caller may see.
-			if items, rerr := visibleReview(ctx, k, cc); rerr == nil {
-				result["review"] = reviewSummary(items)
 			}
 			if src := sourceCounts(k); src != nil {
 				result["sources"] = src

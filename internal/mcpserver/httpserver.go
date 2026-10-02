@@ -246,6 +246,8 @@ type KBInfo struct {
 type KBCapability struct {
 	State   string `json:"state"`
 	Setting string `json:"setting"`
+	// Checks lists the checks an auto_repair capability covers (D299).
+	Checks []string `json:"checks,omitempty"`
 }
 
 // MultiKBServer wraps multiple KB instances served by a single HTTP server.

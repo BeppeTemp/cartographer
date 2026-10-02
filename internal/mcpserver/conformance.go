@@ -93,10 +93,6 @@ var conformanceChecks = map[string]bool{
 // closed a session: kb_status reads the date of the newest one.
 const doctorMarker = "kb-doctor"
 
-// doctorStaleDays is how long after the last doctor run a KB with any finding
-// is suggested another one.
-const doctorStaleDays = 30
-
 var logDateRe = regexp.MustCompile(`^## (\d{4}-\d{2}-\d{2})`)
 
 // lastDoctorDate returns the date (YYYY-MM-DD) of the newest log.md entry whose
@@ -120,10 +116,25 @@ func lastDoctorDate(k *kb.KB) string {
 	return newest
 }
 
-// summarizeConformance turns the findings the caller may see into the
-// kb_status conformance object. A pure function of its inputs, so the
-// doctor_suggested truth table is testable without a KB.
-func summarizeConformance(findings []lint.Finding, lastDoctor string, now time.Time) map[string]interface{} {
+// doctorDue says whether a kb-doctor session is due (D299): the KB's interval
+// has passed since the last one, or there never was one. An interval of 0
+// means the operator turned the proposal off.
+func doctorDue(lastDoctor string, intervalDays int, now time.Time) bool {
+	if intervalDays <= 0 {
+		return false
+	}
+	t, err := time.Parse("2006-01-02", lastDoctor)
+	return err != nil || !now.Before(t.AddDate(0, 0, intervalDays))
+}
+
+// summarizeConformance turns the findings and the review items the caller may
+// see into the kb_status conformance object. A pure function of its inputs, so
+// the doctor_suggested truth table is testable without a KB.
+//
+// doctor_suggested is debt && due (D299): any counted finding or review item,
+// once the KB's doctor interval has passed. Time, not the first warning,
+// decides, so the flag does not stay on for good on a real KB.
+func summarizeConformance(findings []lint.Finding, reviewTotal int, lastDoctor string, intervalDays int, now time.Time) map[string]interface{} {
 	bySev := map[string]int{}
 	fixable := 0
 	for _, f := range findings {
@@ -136,17 +147,16 @@ func summarizeConformance(findings []lint.Finding, lastDoctor string, now time.T
 		}
 	}
 	total := bySev[lint.SevError] + bySev[lint.SevWarning] + bySev[lint.SevInfo]
-	stale := true
-	if t, err := time.Parse("2006-01-02", lastDoctor); err == nil {
-		stale = now.Sub(t) > doctorStaleDays*24*time.Hour
-	}
 	out := map[string]interface{}{
 		"findings":         bySev,
 		"fixable":          fixable,
-		"doctor_suggested": bySev[lint.SevWarning] >= 1 || fixable > 0 || (stale && total >= 1),
+		"doctor_suggested": (total+reviewTotal) > 0 && doctorDue(lastDoctor, intervalDays, now),
 	}
 	if lastDoctor != "" {
 		out["last_doctor"] = lastDoctor
+		if t, err := time.Parse("2006-01-02", lastDoctor); err == nil && intervalDays > 0 {
+			out["next_doctor"] = t.AddDate(0, 0, intervalDays).Format("2006-01-02")
+		}
 	}
 	return out
 }

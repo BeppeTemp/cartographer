@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/BeppeTemp/cartographer/internal/lint"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
 	"gopkg.in/yaml.v3"
 )
@@ -192,6 +193,19 @@ type KBSpec struct {
 	// Default false. Propagated to kb.KB.AllowArtifactWrite (see serve.go).
 	AllowArtifactWrite bool `yaml:"allow_artifact_write,omitempty"`
 
+	// AutoRepair lists the lint checks whose mechanical fix
+	// `cartographer kb repair --apply` may apply without a human reviewing
+	// the plan (D299). Each name must be in lint.FixableChecks. There is
+	// deliberately no "all": a fixable check added by a later release must be
+	// seen as a dry-run plan before it runs unattended. Default empty.
+	AutoRepair []string `yaml:"auto_repair,omitempty"`
+
+	// DoctorInterval is how long after the last kb-doctor session the server
+	// starts proposing the next one (D299): "<n>d" or "<n>" days, "0"
+	// disables it, empty means DefaultDoctorIntervalDays. Read it through
+	// DoctorIntervalDays.
+	DoctorInterval string `yaml:"doctor_interval,omitempty"`
+
 	// ToolPrefix is deprecated and ignored (D288): tools are never prefixed
 	// (one routed endpoint, no flat namespace to disambiguate). Still parsed
 	// so an existing config keeps starting; serve warns once per KB.
@@ -370,6 +384,12 @@ func Load(path string) (*Config, error) {
 	for _, spec := range cfg.KBs {
 		if err := provisioning.ValidateMCPAllowlist(spec.MCPAllowlist); err != nil {
 			return nil, fmt.Errorf("config: mcp_allowlist: %w", err)
+		}
+		if err := ValidateAutoRepair(spec.AutoRepair); err != nil {
+			return nil, fmt.Errorf("config: auto_repair: %w", err)
+		}
+		if _, err := spec.DoctorIntervalDays(); err != nil {
+			return nil, fmt.Errorf("config: doctor_interval: %w", err)
 		}
 	}
 	cfg.Audit = raw.Audit
@@ -778,6 +798,40 @@ func validateRule(role string, i int, rule RuleSpec) error {
 	for _, m := range rule.Maps {
 		if journals[m] {
 			return fmt.Errorf("%s: %q declared as both map and journal", where, m)
+		}
+	}
+	return nil
+}
+
+// DefaultDoctorIntervalDays is the doctor interval of a KB that does not set
+// doctor_interval, including a discovered one (D299).
+const DefaultDoctorIntervalDays = 14
+
+// DoctorIntervalDays resolves DoctorInterval: the default when empty, 0 when
+// disabled.
+func (s KBSpec) DoctorIntervalDays() (int, error) {
+	v := strings.TrimSpace(s.DoctorInterval)
+	if v == "" {
+		return DefaultDoctorIntervalDays, nil
+	}
+	n, err := strconv.Atoi(strings.TrimSuffix(v, "d"))
+	if err != nil || n < 0 {
+		return 0, fmt.Errorf("%q is not a number of days (\"14d\", \"14\", or \"0\" to disable)", s.DoctorInterval)
+	}
+	return n, nil
+}
+
+// ValidateAutoRepair rejects a auto_repair entry that is not a
+// check with a mechanical fix, naming it.
+func ValidateAutoRepair(checks []string) error {
+	for _, c := range checks {
+		known := false
+		for _, f := range lint.FixableChecks {
+			known = known || c == f
+		}
+		if !known {
+			return fmt.Errorf("%q is not a check with a mechanical fix (one of: %s; list them by name, there is no \"all\")",
+				c, strings.Join(lint.FixableChecks, ", "))
 		}
 	}
 	return nil
