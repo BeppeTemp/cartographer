@@ -120,6 +120,7 @@ func toolGraphContext(k *kb.KB, rec *searchReconciler, deps Deps) Tool {
 				Title   string  `json:"title,omitempty"`
 				Score   float64 `json:"score"`
 				Hops    int     `json:"hops"`
+				Bytes   int64   `json:"bytes"`
 				Via     string  `json:"via,omitempty"`
 				Snippet string  `json:"snippet,omitempty"`
 			}
@@ -158,7 +159,7 @@ func toolGraphContext(k *kb.KB, rec *searchReconciler, deps Deps) Tool {
 				if _, seed := seeds[i]; seed || round4(p) <= 0 {
 					continue
 				}
-				r := resultOut{ID: string(lg.IDs[i]), Title: lg.Facets[i].Title, Score: round4(p), Hops: dist[i]}
+				r := resultOut{ID: string(lg.IDs[i]), Title: lg.Facets[i].Title, Score: round4(p), Hops: dist[i], Bytes: lg.Facets[i].Bytes}
 				if pred[i] >= 0 {
 					r.Via = string(lg.IDs[pred[i]])
 				}

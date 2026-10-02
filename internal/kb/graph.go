@@ -446,6 +446,8 @@ type Links struct {
 	Out    map[okf.ConceptID]map[okf.ConceptID]struct{}
 	In     map[okf.ConceptID]map[okf.ConceptID]struct{}
 	Exists map[okf.ConceptID]struct{}
+	// Bytes is each concept's file size (D301). Shared: read-only.
+	Bytes map[okf.ConceptID]int64
 }
 
 // Links validates the cache against the files once and returns the current
@@ -456,7 +458,7 @@ func (kb *KB) Links() (Links, error) {
 	if err != nil {
 		return Links{}, err
 	}
-	return Links{Out: view.adj.out, In: view.adj.in, Exists: view.exists}, nil
+	return Links{Out: view.adj.out, In: view.adj.in, Exists: view.exists, Bytes: view.bytes}, nil
 }
 
 // IncomingLinks returns the derived inbound links keyed by target concept.

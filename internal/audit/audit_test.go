@@ -1,7 +1,10 @@
 package audit
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -739,5 +742,42 @@ func TestSegmentsListsArchiveThenActive(t *testing.T) {
 		if segs[i] != want[i] {
 			t.Errorf("segment %d = %q, want %q", i, segs[i], want[i])
 		}
+	}
+}
+
+// TestResultBytesKeepsOldHashesAndIsCovered pins D301: an event without
+// result_bytes hashes exactly as before the field existed, a log mixing old
+// and new events verifies, and a tampered result_bytes breaks the chain.
+func TestResultBytesKeepsOldHashesAndIsCovered(t *testing.T) {
+	ts := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	old := Entry{Version: VersionV2, ID: "e1", Timestamp: ts, Phase: PhaseCompletion, RequestID: "r", Tool: "t", Outcome: OutcomeSuccess, PrevHash: "p"}
+	pre := `{"version":2,"id":"e1","timestamp":"2026-01-02T03:04:05Z","phase":"completion","request_id":"r","principal_id":"","transport":"","kb":"","tool":"t","read_only":false,"outcome":"success","duration_ms":0,"prev_hash":"p"}`
+	sum := sha256.Sum256([]byte(pre))
+	if got := computeHash(old); got != hex.EncodeToString(sum[:]) {
+		t.Fatalf("hash of an event without result_bytes changed: %s", got)
+	}
+
+	l, path := tempLog(t)
+	for i, rb := range []int64{0, 42} {
+		req := fmt.Sprintf("req-%d", i)
+		if _, err := l.AppendEvent(Entry{RequestID: req, Phase: PhaseAttempt, Tool: "concept_read"}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := l.AppendEvent(Entry{RequestID: req, Phase: PhaseCompletion, Tool: "concept_read", Outcome: OutcomeSuccess, ResultBytes: rb}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if s, err := VerifyFile(path, nil); err != nil || s.Valid != 4 {
+		t.Fatalf("mixed log: %+v %v", s, err)
+	}
+	data, _ := os.ReadFile(path)
+	if !strings.Contains(string(data), `"result_bytes":42`) {
+		t.Fatal("result_bytes not written")
+	}
+	if err := os.WriteFile(path, []byte(strings.Replace(string(data), `"result_bytes":42`, `"result_bytes":7`, 1)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if s, err := VerifyFile(path, nil); err == nil && s.Valid == 4 {
+		t.Fatal("tampered result_bytes still verifies")
 	}
 }

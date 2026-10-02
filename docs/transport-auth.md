@@ -391,7 +391,11 @@ transport, the principal and the outcome (`success`, `application_error`,
 matching completion is itself evidence: a crash mid-operation becomes visible
 rather than silent. The principal is read from the request context, so it is
 always the identity authorization actually used. Arguments of an unregistered
-tool are never recorded.
+tool are never recorded. A completion also records `result_bytes`, the size of
+the result's text (D301): what the call cost the agent to read, so read
+amplification per session is measurable from the log without logging content.
+The field is hashed only when present, so events written before it verify
+unchanged.
 
 Entries form a JSONL hash chain with optional Ed25519 signatures: altering one
 recorded entry invalidates every entry after it.

@@ -1489,7 +1489,16 @@ type MapContract struct {
 	PromoteTo         string
 	ProcedureHeadings []string
 	Glossary          bool
-	Malformed         []ContractMalformed
+	// Cost keys (D301): Index is "generated" when the server maintains the
+	// map's concept list in a marked block of its index.md ("" = curated);
+	// the integers override the review and oversize thresholds for this map
+	// (0 = the built-in default).
+	Index           string
+	RepeatedFactMin int
+	HotspotInDegree int
+	HotspotBytes    int
+	OversizeBytes   int
+	Malformed       []ContractMalformed
 }
 
 // AllowedValues returns the allowed values declared for field on conceptType:
@@ -1660,6 +1669,14 @@ func fieldValueKeys(wide map[string][]string, byType map[string]map[string][]str
 	return out
 }
 
+// IndexGenerated is the value of the `index` contract key that hands a map's
+// concept list to the server (D301); "curated" (the default) leaves it to
+// the agent.
+const IndexGenerated = "generated"
+
+// costIntKeys are the D301 positive-integer threshold overrides.
+var costIntKeys = map[string]bool{"repeated_fact_min": true, "hotspot_in_degree": true, "hotspot_bytes": true, "oversize_bytes": true}
+
 // MapContractUpdate is a partial change to an existing map's lint contract:
 // a nil field is left as it is. An empty list (or false) removes the key, so
 // the descriptor ends up exactly as CreateMapWithContract would have written
@@ -1689,6 +1706,12 @@ type MapContractUpdate struct {
 	PromoteTo         *string
 	ProcedureHeadings *[]string
 	Glossary          *bool
+	// D301 cost keys: nil leaves the key; "" or "curated" / 0 removes it.
+	Index           *string
+	RepeatedFactMin *int
+	HotspotInDegree *int
+	HotspotBytes    *int
+	OversizeBytes   *int
 }
 
 // UpdateMapContract rewrites the contract keys of an existing map's _map.md,
@@ -1802,6 +1825,29 @@ func (kb *KB) UpdateMapContract(name string, upd MapContractUpdate) (MapContract
 	}
 	if upd.ProcedureHeadings != nil {
 		setList("procedure_headings", *upd.ProcedureHeadings)
+	}
+	if upd.Index != nil {
+		switch v := strings.TrimSpace(*upd.Index); v {
+		case IndexGenerated:
+			fm.Set("index", v)
+		case "", "curated":
+			fm.Delete("index")
+		default:
+			return MapContract{}, fmt.Errorf("UpdateMapContract %s: index %q must be generated or curated", name, v)
+		}
+	}
+	for _, kv := range []struct {
+		key string
+		val *int
+	}{{"repeated_fact_min", upd.RepeatedFactMin}, {"hotspot_in_degree", upd.HotspotInDegree}, {"hotspot_bytes", upd.HotspotBytes}, {"oversize_bytes", upd.OversizeBytes}} {
+		if kv.val == nil {
+			continue
+		}
+		if *kv.val > 0 {
+			fm.Set(kv.key, strconv.Itoa(*kv.val))
+		} else {
+			fm.Delete(kv.key)
+		}
 	}
 	if upd.Glossary != nil {
 		if *upd.Glossary {
@@ -2062,7 +2108,8 @@ func (kb *KB) ReadMapContract(archive string) (MapContract, error) {
 			key != "require_index_entry" && key != "machine_path_allow_prefixes" &&
 			!strings.HasPrefix(key, "value_synonyms.") &&
 			key != "open_statuses" && key != "stale_after" && key != "template_sections" && key != "open_markers" &&
-			key != "promote_to" && key != "procedure_headings" && key != "glossary" {
+			key != "promote_to" && key != "procedure_headings" && key != "glossary" &&
+			key != "index" && !costIntKeys[key] {
 			continue
 		}
 		value, _ := meta.Get(key)
@@ -2147,6 +2194,33 @@ func (kb *KB) ReadMapContract(archive string) (MapContract, error) {
 				contract.OpenStatuses = vals
 			} else {
 				contract.OpenMarkers = vals
+			}
+		case key == "index":
+			v, _ := value.(string)
+			switch strings.TrimSpace(v) {
+			case IndexGenerated:
+				contract.Index = IndexGenerated
+			case "curated":
+			default:
+				bad(key)
+				continue
+			}
+		case costIntKeys[key]:
+			s, _ := value.(string)
+			n, err := strconv.Atoi(strings.TrimSpace(s))
+			if err != nil || n <= 0 {
+				bad(key)
+				continue
+			}
+			switch key {
+			case "repeated_fact_min":
+				contract.RepeatedFactMin = n
+			case "hotspot_in_degree":
+				contract.HotspotInDegree = n
+			case "hotspot_bytes":
+				contract.HotspotBytes = n
+			case "oversize_bytes":
+				contract.OversizeBytes = n
 			}
 		case key == "stale_after":
 			s, _ := value.(string)
@@ -2422,6 +2496,30 @@ func (kb *KB) TemplateSections(conceptType string) []string {
 	}
 	_, body, _ := okf.SplitFrontmatter(string(data))
 	return templateH2(body)
+}
+
+// TemplateTexts returns the bodies of the KB's templates/*.md, in name
+// order: what lint compares against to tell template boilerplate from a
+// repeated fact (D301). Unreadable entries and symlinks are skipped.
+func (kb *KB) TemplateTexts() []string {
+	dir := filepath.Join(kb.Root, "templates")
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil
+	}
+	var out []string
+	for _, e := range entries {
+		if !e.Type().IsRegular() || !strings.HasSuffix(e.Name(), ".md") {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(dir, e.Name()))
+		if err != nil {
+			continue
+		}
+		_, body, _ := okf.SplitFrontmatter(string(data))
+		out = append(out, body)
+	}
+	return out
 }
 
 // templateH2 is the section list a template promises: its H2 headings outside

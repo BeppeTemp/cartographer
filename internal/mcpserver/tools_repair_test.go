@@ -394,6 +394,43 @@ func seedBodyFixes(t *testing.T, k *kb.KB) {
 	if err := os.WriteFile(filepath.Join(dir, "index.md"), []byte(body), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	// D301: ops/r1 lists ops/r2, which links back (reciprocal_link_item);
+	// it also lists ops/r3, which does not.
+	for id, b := range map[string]string{
+		"r1": "# R1\n\n## Links\n\n- [[ops/r2]]\n- [[ops/r3]]\n",
+		"r2": "# R2\n\nDepends on [[ops/r1]].\n",
+		"r3": "# R3\n",
+	} {
+		c := "---\ntype: Note\ntitle: " + id + "\nupdated: 2026-01-02\n---\n" + b
+		if err := os.WriteFile(filepath.Join(k.DataRoot(), "ops", id+".md"), []byte(c), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// TestKBRepairReciprocalLinkItem: the item goes only when the target links
+// back, through the usual dry-run plan, and the check is no conformance debt.
+func TestKBRepairReciprocalLinkItem(t *testing.T) {
+	k, s := repairKB(t, 0)
+	seedBodyFixes(t, k)
+	if conformanceChecks["reciprocal_link_item"] {
+		t.Fatal("reciprocal_link_item counted as conformance debt")
+	}
+	plan := repairCall(t, s, `{"check":"reciprocal_link_item"}`)
+	if plan["planned_total"].(float64) != 1 {
+		t.Fatalf("plan = %v", plan)
+	}
+	if cd, _ := k.ReadConcept("ops/r1"); !strings.Contains(cd.Body, "- [[ops/r2]]") {
+		t.Fatal("dry run wrote")
+	}
+	repairCall(t, s, `{"check":"reciprocal_link_item","dry_run":false}`)
+	cd, err := k.ReadConcept("ops/r1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(cd.Body, "[[ops/r2]]") || !strings.Contains(cd.Body, "- [[ops/r3]]") {
+		t.Fatalf("after apply:\n%s", cd.Body)
+	}
 }
 
 func TestKBRepairBodyFixes(t *testing.T) {

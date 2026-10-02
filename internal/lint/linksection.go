@@ -80,6 +80,31 @@ func linksSectionIssues(body, linkBase string, assetExists func(string) bool) (h
 	return heading, duplicates, fixable, bare, len(listed)
 }
 
+// reciprocalLinkItems maps each link-only item of the links section whose
+// target links back to self anywhere in its body to that item's line (D301):
+// the reverse edge stays navigable through backlinks once the item is gone.
+// Targets in skip (already duplicate_link) are left to that check.
+func reciprocalLinkItems(body, linkBase string, self okf.ConceptID, out map[okf.ConceptID]map[okf.ConceptID]struct{}, skip []okf.ConceptID, assetExists func(string) bool) map[okf.ConceptID]string {
+	_, section, _, ok := linksSection(body)
+	if !ok {
+		return nil
+	}
+	skipped := map[okf.ConceptID]bool{}
+	for _, id := range skip {
+		skipped[id] = true
+	}
+	found := map[okf.ConceptID]string{}
+	for target, line := range linkOnlyItems(section, linkBase, assetExists) {
+		if target == self || skipped[target] {
+			continue
+		}
+		if _, back := out[target][self]; back {
+			found[target] = line
+		}
+	}
+	return found
+}
+
 // linkOnlyItems maps each concept ID whose list item in the section is a
 // single link and nothing else to that item's exact line. A line with two
 // links, or with any word beside the link, is never fixable: the words may be

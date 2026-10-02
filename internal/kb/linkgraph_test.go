@@ -44,7 +44,12 @@ func TestLinkGraphProjectsTheVisibleConcepts(t *testing.T) {
 	if got := lg.Graph.In[idx("infra/gateway")]; !reflect.DeepEqual(got, []int{idx("infra/dns")}) {
 		t.Errorf("gateway in = %v", got)
 	}
-	if fa := lg.Facets[idx("infra/gateway")]; !reflect.DeepEqual(fa, NodeFacets{Title: "Gateway", Type: "Service", Status: "active", Collection: "infra"}) {
+	fa := lg.Facets[idx("infra/gateway")]
+	if fa.Bytes <= 0 {
+		t.Errorf("facets bytes = %d, want the file size", fa.Bytes)
+	}
+	fa.Bytes = 0
+	if !reflect.DeepEqual(fa, NodeFacets{Title: "Gateway", Type: "Service", Status: "active", Collection: "infra"}) {
 		t.Errorf("facets = %+v", fa)
 	}
 

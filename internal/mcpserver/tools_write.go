@@ -602,6 +602,7 @@ func toolIndexPatch(k *kb.KB) Tool {
 			if err != nil {
 				return errorResult(fmt.Sprintf("index_patch %q: %v", params.Path, err)), nil
 			}
+			original := content
 
 			// Apply every edit in memory first (sequentially, each seeing the
 			// previous edit's result): nothing is written until all edits
@@ -626,6 +627,10 @@ func toolIndexPatch(k *kb.KB) Tool {
 				}
 				content = newContent
 				replacements = n
+			}
+
+			if msg := generatedBlockEdited(k, normalizeIndexPath(params.Path), original, content); msg != "" {
+				return errorResult(msg), nil
 			}
 
 			newHash, err := k.PatchIndex(params.Path, params.IfMatch, content)
@@ -842,6 +847,27 @@ func validateFieldValueParams(values map[string][]string, byType map[string]map[
 	return ""
 }
 
+// generatedBlockEdited refuses an index_patch that changes the block the
+// server maintains in an `index: generated` map (D301): the edit would be
+// overwritten by the next write anyway. Text outside the block is free.
+func generatedBlockEdited(k *kb.KB, mapName, before, after string) string {
+	if mapName == "" {
+		return ""
+	}
+	contract, err := k.ReadMapContract(mapName)
+	if err != nil || contract.Index != kb.IndexGenerated {
+		return ""
+	}
+	was, ok := kb.IndexBlock(before)
+	if !ok {
+		return ""
+	}
+	if now, ok := kb.IndexBlock(after); ok && now == was {
+		return ""
+	}
+	return fmt.Sprintf("generated_index: map %q has index: generated; its concept list between the cartographer:index markers is maintained by the server, edit only outside the block", mapName)
+}
+
 // --- map_update ---
 
 func toolMapUpdate(k *kb.KB) Tool {
@@ -892,7 +918,12 @@ func toolMapUpdate(k *kb.KB) Tool {
 				"template_sections": {"type": "boolean"},
 				"promote_to": {"type": "string"},
 				"procedure_headings": {"type": "array", "items": {"type": "string"}},
-				"glossary": {"type": "boolean"}
+				"glossary": {"type": "boolean"},
+				"index": {"type": "string"},
+				"repeated_fact_min": {"type": "integer"},
+				"hotspot_in_degree": {"type": "integer"},
+				"hotspot_bytes": {"type": "integer"},
+				"oversize_bytes": {"type": "integer"}
 			}
 		}`),
 		Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
@@ -915,6 +946,11 @@ func toolMapUpdate(k *kb.KB) Tool {
 				PromoteTo                *string                        `json:"promote_to"`
 				ProcedureHeadings        *[]string                      `json:"procedure_headings"`
 				Glossary                 *bool                          `json:"glossary"`
+				Index                    *string                        `json:"index"`
+				RepeatedFactMin          *int                           `json:"repeated_fact_min"`
+				HotspotInDegree          *int                           `json:"hotspot_in_degree"`
+				HotspotBytes             *int                           `json:"hotspot_bytes"`
+				OversizeBytes            *int                           `json:"oversize_bytes"`
 			}
 			if err := json.Unmarshal(args, &params); err != nil {
 				return errorResult("invalid params: " + err.Error()), nil
@@ -926,8 +962,9 @@ func toolMapUpdate(k *kb.KB) Tool {
 				params.FieldValues == nil && params.FieldValuesByType == nil && params.ForbiddenFields == nil &&
 				params.RequireIndexEntry == nil && params.MachinePathAllowPrefixes == nil && params.ValueSynonyms == nil &&
 				params.OpenStatuses == nil && params.OpenMarkers == nil && params.StaleAfter == nil && params.TemplateSections == nil &&
-				params.PromoteTo == nil && params.ProcedureHeadings == nil && params.Glossary == nil {
-				return errorResult("nothing to change: pass at least one of require_index_entry, required_fields, required_fields_by_type, field_values, field_values_by_type, forbidden_fields, machine_path_allow_prefixes, value_synonyms, open_statuses, open_markers, stale_after, template_sections, promote_to, procedure_headings, glossary"), nil
+				params.PromoteTo == nil && params.ProcedureHeadings == nil && params.Glossary == nil &&
+				params.Index == nil && params.RepeatedFactMin == nil && params.HotspotInDegree == nil && params.HotspotBytes == nil && params.OversizeBytes == nil {
+				return errorResult("nothing to change: pass at least one of require_index_entry, required_fields, required_fields_by_type, field_values, field_values_by_type, forbidden_fields, machine_path_allow_prefixes, value_synonyms, open_statuses, open_markers, stale_after, template_sections, promote_to, procedure_headings, glossary, index, repeated_fact_min, hotspot_in_degree, hotspot_bytes, oversize_bytes"), nil
 			}
 			var fields, prefixes, forbidden []string
 			if params.ForbiddenFields != nil {
@@ -965,6 +1002,11 @@ func toolMapUpdate(k *kb.KB) Tool {
 				PromoteTo:                params.PromoteTo,
 				ProcedureHeadings:        params.ProcedureHeadings,
 				Glossary:                 params.Glossary,
+				Index:                    params.Index,
+				RepeatedFactMin:          params.RepeatedFactMin,
+				HotspotInDegree:          params.HotspotInDegree,
+				HotspotBytes:             params.HotspotBytes,
+				OversizeBytes:            params.OversizeBytes,
 			})
 			if err != nil {
 				return errorResult(fmt.Sprintf("map_update %q: %v", params.Map, err)), nil
@@ -995,6 +1037,9 @@ func toolMapUpdate(k *kb.KB) Tool {
 					"forbidden_fields":            nonNilStrings(contract.ForbiddenFields),
 					"machine_path_allow_prefixes": nonNilStrings(contract.MachinePathAllowPrefixes),
 				},
+			}
+			if contract.Index != "" {
+				result["contract"].(map[string]interface{})["index"] = contract.Index
 			}
 			out, _ := json.MarshalIndent(result, "", "  ")
 			return textResult(string(out)), nil
@@ -1811,7 +1856,8 @@ func maintainCuratedIndexes(k *kb.KB, applied []conceptMoveEntry) []string {
 	var notes []string
 	requiresIndex := func(mapName string) bool {
 		contract, err := k.ReadMapContract(mapName)
-		return err == nil && contract.RequireIndexEntry
+		// A generated index (D301) is the server's: gitWrap rewrites it.
+		return err == nil && contract.RequireIndexEntry && contract.Index != kb.IndexGenerated
 	}
 	for _, mv := range applied {
 		srcMap, srcOK := conceptMapName(mv.SourceID)

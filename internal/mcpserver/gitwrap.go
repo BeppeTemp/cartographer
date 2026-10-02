@@ -84,6 +84,12 @@ func gitWrap(k *kb.KB, t Tool) Tool {
 			res, handlerErr = orig.Handler(ctx, args)
 			handlerDur = time.Since(handlerStart)
 			if handlerErr == nil && !res.IsError {
+				// Generated map indexes (D301) follow the write in the same
+				// commit. A failure is logged, never fatal: lint reports a
+				// stale block and the next write retries.
+				if _, regenErr := k.RegenerateIndexes(); regenErr != nil {
+					fmt.Fprintf(os.Stderr, "cartographer: generated index (%s): %v\n", orig.Name, regenErr)
+				}
 				msg := commitMessage(orig.Name, args)
 				if res.CommitSubject != "" {
 					msg = res.CommitSubject

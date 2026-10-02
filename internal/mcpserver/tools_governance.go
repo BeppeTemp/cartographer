@@ -659,6 +659,10 @@ func toolKBStatus(k *kb.KB, misses *searchMissLog, serverVersion string, latestV
 				result["review"] = reviewSummary(items)
 				reviewTotal = len(items)
 			}
+			// D301: what reading this KB costs, over what this caller sees.
+			if rc, rerr := cc.readCostFor(k, func(id string) bool { return Visible(ctx, k, id) }, WholeVisible(ctx, k, false)); rerr == nil {
+				result["read_cost"] = rc
+			}
 			// D290: conformance debt, from the findings this caller may see.
 			// D294: lint.Run is cached on the graph generation; the visibility
 			// filter stays outside the cache so a restricted caller never sees

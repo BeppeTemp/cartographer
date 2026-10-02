@@ -80,9 +80,12 @@ type Entry struct {
 	Outcome    string `json:"outcome"`
 	DurationMs int64  `json:"duration_ms,omitempty"`
 	CommitSHA  string `json:"commit_sha,omitempty"`
-	PrevHash   string `json:"prev_hash"`
-	Hash       string `json:"hash"`
-	Sig        string `json:"sig,omitempty"` // hex-encoded Ed25519 signature of Hash (omitempty = unsigned entries)
+	// ResultBytes is the size of a completion's result text (D301): what the
+	// call cost the agent to read. Never the content itself.
+	ResultBytes int64  `json:"result_bytes,omitempty"`
+	PrevHash    string `json:"prev_hash"`
+	Hash        string `json:"hash"`
+	Sig         string `json:"sig,omitempty"` // hex-encoded Ed25519 signature of Hash (omitempty = unsigned entries)
 }
 
 // KeyPair holds an Ed25519 key pair for signing audit entries.
@@ -400,6 +403,9 @@ type canonicalEntry struct {
 	DurationMs   int64             `json:"duration_ms"`
 	CommitSHA    string            `json:"commit_sha,omitempty"`
 	PrevHash     string            `json:"prev_hash"`
+	// ResultBytes (D301) is last and omitempty, so every event written
+	// before it existed hashes to the same bytes as it did then.
+	ResultBytes int64 `json:"result_bytes,omitempty"`
 }
 
 func computeHash(e Entry) string {
@@ -409,7 +415,7 @@ func computeHash(e Entry) string {
 	b, _ := json.Marshal(canonicalEntry{
 		e.Version, e.ID, e.Timestamp.UTC().Format(time.RFC3339Nano), e.Phase, e.RequestID,
 		e.PrincipalID, e.Transport, e.KB, e.Tool, e.ExternalTool, e.ReadOnly, e.Resources,
-		e.Outcome, e.DurationMs, e.CommitSHA, e.PrevHash,
+		e.Outcome, e.DurationMs, e.CommitSHA, e.PrevHash, e.ResultBytes,
 	})
 	h := sha256.Sum256(b)
 	return hex.EncodeToString(h[:])
