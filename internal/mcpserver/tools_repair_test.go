@@ -538,3 +538,20 @@ func TestKBRepairSynonymGroups(t *testing.T) {
 		t.Fatalf("skip reason: %s", skipped)
 	}
 }
+
+// TestMapUpdateLintIgnore (D306): map_update writes the map-wide lint_ignore,
+// map_list shows it, and an empty list removes it.
+func TestMapUpdateLintIgnore(t *testing.T) {
+	_, s := repairKB(t, 0)
+	res := callTool(t, s, "map_update", `{"map":"ops","lint_ignore":["duplicate_link","map_misfit"]}`)
+	if res.IsError || !strings.Contains(res.Content[0].Text, `"duplicate_link"`) {
+		t.Fatalf("map_update lint_ignore: %+v", res)
+	}
+	if list := callTool(t, s, "map_list", `{}`); !strings.Contains(list.Content[0].Text, `"lint_ignore"`) {
+		t.Fatalf("map_list does not show it: %s", list.Content[0].Text)
+	}
+	res = callTool(t, s, "map_update", `{"map":"ops","lint_ignore":[]}`)
+	if res.IsError || !strings.Contains(res.Content[0].Text, `"lint_ignore": []`) {
+		t.Fatalf("removing lint_ignore: %+v", res)
+	}
+}

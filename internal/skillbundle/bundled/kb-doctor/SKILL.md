@@ -1,7 +1,7 @@
 ---
 name: kb-doctor
 description: Keep a Knowledge Base from rotting - a short, budgeted session that applies mechanical repairs and walks the operator through the server's ranked review list. Use when a tool result proposes a kb-doctor session, when kb_status reports conformance.doctor_suggested, when the operator asks to tidy or align a KB, or after a Cartographer upgrade.
-version: "2.4"
+version: "2.5"
 ---
 # KB Doctor - Skill
 
@@ -77,10 +77,17 @@ what is allowed:
    - **defer**: nothing is written; it comes back next session.
    Never invent content: what the KB does not know becomes a `contradiction_report` of kind
    `open_question`. Run `gate_check` with `changed_ids` set to the concepts you wrote.
-6. **Artifacts.** `artifact_read` the KB's `instructions.md` and `templates/`: update any rule or
+6. **Advice.** `lint` with `severity_min: info`: an `info` finding is advice the KB has not
+   answered yet, and the session is done only when nothing is left — fixed, or accepted where the
+   KB says so. Fix what is a defect (`orphan`: link the page with `link_suggest`; `bare_link_list`:
+   one reason per link; `link_to_retired` in a live page: update the sentence or point at the
+   successor). Accept what is a choice with `lint_ignore` and a `reason`: on the concept for a
+   one-off, map-wide with `map_update` `lint_ignore` (the list replaces the map's: extend the
+   `lint_ignore` that `map_list` shows) when the whole map follows that style. Each accepted check counts against the budget once per map, not once per concept.
+7. **Artifacts.** `artifact_read` the KB's `instructions.md` and `templates/`: update any rule or
    template this session made obsolete (a field renamed, a workaround a repair removed, a rule to add
    pages to a now-generated index or to add reverse links).
-7. **Close.** `log_append` whose text contains `kb-doctor` and the before/after counts per bucket,
+8. **Close.** `log_append` whose text contains `kb-doctor` and the before/after counts per bucket,
    for example `kb-doctor: warnings 205 -> 0, fixable 40 -> 0, review 34 -> 25, open_markers 161 ->
    158`. `kb_status` reads `last_doctor` from it, which also stops the proposal for one interval.
 

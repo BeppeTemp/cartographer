@@ -117,9 +117,13 @@ func TestStructuralIgnoresAndScope(t *testing.T) {
 	if hasCheck(findings, "ops/h.md", "cut_concept") {
 		t.Fatal("lint_ignore: [cut_concept] was not honoured")
 	}
-	invalid := findingsOf(findings, "lint_ignore_invalid")
-	if len(invalid) != 1 || !strings.Contains(invalid[0].Message, "a graph-level check with no single concept owner") {
+	// island is accepted by a member (D306): m1 is not in the island, so
+	// it is valid and changes nothing.
+	if invalid := findingsOf(findings, "lint_ignore_invalid"); len(invalid) != 0 {
 		t.Fatalf("lint_ignore: [island] = %+v", invalid)
+	}
+	if len(findingsOf(findings, "island")) != 1 {
+		t.Fatal("a non-member's lint_ignore accepted the island")
 	}
 
 	// Scoped lint: computed on the whole graph, emitted only in scope.
@@ -221,5 +225,27 @@ func TestMapMisfit_FlexibleMapAdmitsAnyType(t *testing.T) {
 	misfits := findingsOf(findings, "map_misfit")
 	if len(misfits) != 1 || misfits[0].Path != "ops/router.md" {
 		t.Fatalf("flexible map should produce map_misfit: %+v", misfits)
+	}
+}
+
+// TestMapLintIgnore (D306): lint_ignore in a _map.md accepts a check for the
+// whole map, including the checks no concept owns; an island goes when one
+// member accepts it; errors never go; a name a map cannot accept is reported.
+func TestMapLintIgnore(t *testing.T) {
+	s := newStructKB(t, map[string]string{"ops": "map", "notes": "map"})
+	s.mainGraph(nil)
+	s.concept("notes/a", "", "notes/b")
+	s.concept("notes/b", "lint_ignore: [island]\n")
+	if got := findingsOf(s.run(""), "island"); len(got) != 0 {
+		t.Fatalf("a member accepted the island, still: %+v", got)
+	}
+	writeFile(t, s.k.DataRoot(), "ops/_map.md", "---\ntype: Map\ntitle: Ops\nkind: map\nlint_ignore: [cut_concept, tool_param_field]\n---\n")
+	findings := s.run("")
+	if len(findingsOf(findings, "cut_concept")) != 0 {
+		t.Fatalf("map-level cut_concept kept: %+v", findingsOf(findings, "cut_concept"))
+	}
+	invalid := findingsOf(findings, "lint_ignore_invalid")
+	if len(invalid) != 1 || invalid[0].Path != "ops/_map.md" || !strings.Contains(invalid[0].Message, "tool_param_field") {
+		t.Fatalf("invalid map-level name: %+v", invalid)
 	}
 }

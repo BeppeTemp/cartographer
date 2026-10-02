@@ -776,7 +776,10 @@ func toolMapList(k *kb.KB) Tool {
 				Kind         string   `json:"kind,omitempty"`
 				OntologyMode string   `json:"ontology_mode,omitempty"`
 				ConceptTypes []string `json:"concept_types,omitempty"`
-				Expanded     int      `json:"expanded_concepts"`
+				// LintIgnore is the checks the map accepts as a whole (D306):
+				// map_update replaces the list, so this is what to extend.
+				LintIgnore []string `json:"lint_ignore,omitempty"`
+				Expanded   int      `json:"expanded_concepts"`
 			}
 
 			var infos []mapInfo
@@ -806,6 +809,9 @@ func toolMapList(k *kb.KB) Tool {
 					}
 					if v, ok := meta.Get("concept_types"); ok {
 						info.ConceptTypes, _ = v.([]string)
+					}
+					if v, ok := meta.Get("lint_ignore"); ok {
+						info.LintIgnore, _ = v.([]string)
 					}
 				}
 				infos = append(infos, info)

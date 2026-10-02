@@ -519,9 +519,12 @@ func TestRun_Orphan_ArchiveTopLevel_Skipped(t *testing.T) {
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "arch/_archive.md",
 		"---\ntype: Archive\ntitle: Arch\narchive_type: ops\nontology_mode: flexible\n---\n")
-	// concept-a is directly under archive arch/ (depth=1) — must not be orphan.
+	// concept-a is directly under archive arch/ (depth=1) and leads somewhere
+	// — an entry point, not an orphan.
 	writeFile(t, k.DataRoot(), "arch/concept-a.md",
-		"---\ntype: Note\n---\nEntry point for archive.\n")
+		"---\ntype: Note\n---\nEntry point for archive, see [[arch/concept-b]].\n")
+	writeFile(t, k.DataRoot(), "arch/concept-b.md",
+		"---\ntype: Note\n---\nB.\n")
 
 	findings, err := Run(k, "", false)
 	if err != nil {
@@ -529,6 +532,25 @@ func TestRun_Orphan_ArchiveTopLevel_Skipped(t *testing.T) {
 	}
 	if hasCheck(findings, "arch/concept-a.md", "orphan") {
 		t.Errorf("unexpected orphan for archive top-level concept: %v", findings)
+	}
+}
+
+// TestRun_Orphan_ArchiveTopLevel_Isolated: a top-level concept with no link
+// in or out is a node connected to nothing — the index listing it is not an
+// edge of the graph the Atlas draws (found on a real KB).
+func TestRun_Orphan_ArchiveTopLevel_Isolated(t *testing.T) {
+	k := tempKB(t)
+	writeFile(t, k.DataRoot(), "arch/_map.md",
+		"---\ntype: Map\ntitle: Arch\nkind: map\n---\n")
+	writeFile(t, k.DataRoot(), "arch/lonely.md",
+		"---\ntype: Note\n---\nNothing links here, and this links nowhere.\n")
+
+	findings, err := Run(k, "", false)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if !hasCheck(findings, "arch/lonely.md", "orphan") {
+		t.Errorf("isolated top-level concept not reported: %v", findings)
 	}
 }
 

@@ -169,6 +169,8 @@ var perConceptChecks = map[string]bool{
 	ReviewMapNaming: true,
 	// D301: an efficiency choice a concept may decline.
 	"reciprocal_link_item": true,
+	// D306: a member of an island accepts the whole island (applyMapIgnores).
+	"island": true,
 }
 
 // lintIgnoreSet reads a concept's lint_ignore frontmatter key (D159). A bare
@@ -210,6 +212,8 @@ type Finding struct {
 	Proposal *Proposal
 	// Count is a check-specific tally (open_marker: markers found, D297).
 	Count int
+	// members are an island's concepts, for its acceptance (D306).
+	members []okf.ConceptID
 }
 
 // Now is used for date comparison in stale_claim checks. Override in tests.
@@ -219,6 +223,109 @@ var Now = func() time.Time { return time.Now() }
 // If scope is empty, lints the entire KB.
 // When scopeNeighbors is true, also lint the graph neighbors of concepts in scope.
 func Run(k *kb.KB, scope string, scopeNeighbors bool) ([]Finding, error) {
+	findings, err := runChecks(k, scope, scopeNeighbors)
+	if err != nil {
+		return nil, err
+	}
+	return applyMapIgnores(k, findings), nil
+}
+
+// mapOnlyIgnorable are the checks a map's _map.md may accept that no single
+// concept owns: they are reported on the map, or on one member of a graph
+// component, so lint_ignore on a concept could never reach them.
+var mapOnlyIgnorable = map[string]bool{
+	"facet_sprawl":           true,
+	"missing_value_contract": true,
+	"island":                 true,
+}
+
+// applyMapIgnores drops the findings a map accepts as a whole with
+// lint_ignore in its _map.md (D306): a KB's style choice (a "See also" that
+// says why, services linking the infrastructure they run on) is one decision
+// for the map, not one write per concept. Every concept-suppressible check
+// may be named, plus mapOnlyIgnorable; errors never go. An island goes when
+// any member's concept or map accepts it. A name that suppresses nothing is
+// itself reported, on the _map.md.
+func applyMapIgnores(k *kb.KB, findings []Finding) []Finding {
+	archives, err := k.ListArchives()
+	if err != nil {
+		return findings
+	}
+	ignores := map[string]map[string]bool{}
+	var invalid []Finding
+	for _, a := range archives {
+		meta, err := k.ReadArchiveMeta(a)
+		if err != nil {
+			continue
+		}
+		set := lintIgnoreSet(meta)
+		if len(set) == 0 {
+			continue
+		}
+		ignores[a] = set
+		names := make([]string, 0, len(set))
+		for name := range set {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+		for _, name := range names {
+			if perConceptChecks[name] || mapOnlyIgnorable[name] {
+				continue
+			}
+			invalid = append(invalid, Finding{
+				Path:     a + "/_map.md",
+				Check:    "lint_ignore_invalid",
+				Severity: SevWarning,
+				Message:  fmt.Sprintf("lint_ignore names %q, which a map cannot accept (unknown, an error, or a directory-level check), so nothing is suppressed", name),
+			})
+		}
+	}
+	mapOf := func(path string) string {
+		if m, _, ok := strings.Cut(path, "/"); ok {
+			return m
+		}
+		return ""
+	}
+	accepts := func(mapName, check string) bool {
+		return ignores[mapName][check] && (perConceptChecks[check] || mapOnlyIgnorable[check])
+	}
+	out := findings[:0]
+	for _, f := range findings {
+		if f.Severity == SevError {
+			out = append(out, f)
+			continue
+		}
+		if accepts(mapOf(f.Path), f.Check) {
+			continue
+		}
+		if f.Check == "island" && islandAccepted(k, f, accepts) {
+			continue
+		}
+		out = append(out, f)
+	}
+	return append(out, invalid...)
+}
+
+// islandAccepted reports an island one of whose members, or whose map,
+// accepts it: the finding is reported on one member, but the island is the
+// whole component's.
+func islandAccepted(k *kb.KB, f Finding, accepts func(mapName, check string) bool) bool {
+	for _, id := range f.members {
+		m, _, _ := strings.Cut(string(id), "/")
+		if accepts(m, "island") {
+			return true
+		}
+		if cd, err := k.ReadConcept(id); err == nil {
+			if fm, _ := okf.ParseFrontmatter(cd.FrontmatterRaw); fm != nil && lintIgnoreSet(fm)["island"] {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// runChecks is Run before the map-level lint_ignore pass.
+func runChecks(k *kb.KB, scope string, scopeNeighbors bool) ([]Finding, error) {
 	// Collect all non-reserved concepts and their physical paths.
 	// relPathOf mirrors resolveConceptRelPath on the read path: for a plain
 	// concept it holds "<id>.md", for an expanded one "<id>/index.md".  When
@@ -426,8 +533,6 @@ func Run(k *kb.KB, scope string, scopeNeighbors bool) ([]Finding, error) {
 				reason = "an error-severity contract violation, which lint_ignore cannot silence"
 			} else if name == "tool_param_field" {
 				reason = "a tool argument is never a legitimate field, so it cannot be declared one"
-			} else if name == "island" {
-				reason = "a graph-level check with no single concept owner"
 			} else if name == "map_oversize" || name == "index_incomplete" || name == "index_stale" || name == "orphan_asset" || name == "oversized_asset" || name == "unlistable_assets" || name == "unused_placeholder" || strings.HasPrefix(name, "expanded_") {
 				// orphan_asset belongs to an expanded concept's asset set, reported
 				// in the directory pass: there is no single concept frontmatter that
@@ -624,14 +729,31 @@ func Run(k *kb.KB, scope string, scopeNeighbors bool) ([]Finding, error) {
 		// --- orphan (warning) ---
 		if len(incomingLinks[id]) == 0 {
 			parts := strings.Split(string(id), "/")
-			// Skip concepts at depth=1 inside a known archive (expected entry points).
+			// A concept at depth=1 inside a known archive is an entry point,
+			// reached from the map's index — unless it links to nothing
+			// either: the index is not an edge of the graph, so that concept
+			// is a node connected to nothing, which nothing else reports.
 			atArchiveTop := len(parts) == 2 && archiveSet[parts[0]]
-			if !atArchiveTop {
+			outgoing := 0
+			for t := range graph.Out[id] {
+				if _, ok := relPathOf[t]; ok && t != id {
+					outgoing++
+				}
+			}
+			switch {
+			case !atArchiveTop:
 				emit(Finding{
 					Path:     relPath,
 					Check:    "orphan",
 					Severity: SevWarning,
 					Message:  "no incoming links",
+				})
+			case outgoing == 0:
+				emit(Finding{
+					Path:     relPath,
+					Check:    "orphan",
+					Severity: SevWarning,
+					Message:  "no links in or out: a node connected to nothing in the graph (the map's index is not a link) — link it to the concepts it relates to (link_suggest proposes some)",
 				})
 			}
 		}
