@@ -8,6 +8,61 @@
 
 KB histories with commits authored as `cartographer <cartographer@localhost>` may need a manual author rewrite before a forge with author push rules accepts the first push.
 
+## [0.18.0](https://github.com/BeppeTemp/cartographer/compare/v0.17.0...v0.18.0) (2026-10-02)
+
+
+### ⚠ BREAKING CHANGES
+
+* **mcp:** one routed topology for agent clients, binding in the URL (D288) ([#469](https://github.com/BeppeTemp/cartographer/issues/469))
+* **mcp:** deleting a linked concept without force now fails.
+
+### Features
+
+* **atlas:** search, activity and artifacts in the Atlas; links-section lint ([#462](https://github.com/BeppeTemp/cartographer/issues/462)) ([c0db60f](https://github.com/BeppeTemp/cartographer/commit/c0db60fc11402cc7682d50bc7b222cbb53dd8c3d))
+* **doctor:** a KB is kept by a budgeted loop the server proposes (D299) ([#494](https://github.com/BeppeTemp/cartographer/issues/494)) ([938b2ec](https://github.com/BeppeTemp/cartographer/commit/938b2ece4af5ed43b666780b0cb1f594ef9b4000))
+* **doctor:** map titles are reviewed as one set and renamed through map_update (D304) ([#503](https://github.com/BeppeTemp/cartographer/issues/503)) ([eb41e93](https://github.com/BeppeTemp/cartographer/commit/eb41e93623d54e0a03ed6b09fb4a21963799511c))
+* **doctor:** repair drifted KBs with kb_repair and signal the need in kb_status (D290) ([#472](https://github.com/BeppeTemp/cartographer/issues/472)) ([e9d51bc](https://github.com/BeppeTemp/cartographer/commit/e9d51bcb190109a53c483f7a9305eef5492f9eb4))
+* **kb:** a KB stays cheap to read and to maintain (D301) ([#498](https://github.com/BeppeTemp/cartographer/issues/498)) ([b617986](https://github.com/BeppeTemp/cartographer/commit/b6179865af8946ed48b4688a7f084c0c24118afb))
+* **lint:** a KB's values converge on its own vocabulary (D296) ([#490](https://github.com/BeppeTemp/cartographer/issues/490)) ([3a76e74](https://github.com/BeppeTemp/cartographer/commit/3a76e74c7c0d60b7225b086fd8db735c6c99036f)), closes [#483](https://github.com/BeppeTemp/cartographer/issues/483)
+* **lint:** every finding is fixed or accepted, a map accepts a style once, isolated nodes are orphans (D306) ([#506](https://github.com/BeppeTemp/cartographer/issues/506)) ([4136235](https://github.com/BeppeTemp/cartographer/commit/4136235b1743fe339ca0023f5b047f389c61dfe5))
+* **lint:** lint checks a KB against the current standard ([#466](https://github.com/BeppeTemp/cartographer/issues/466)) ([6a11172](https://github.com/BeppeTemp/cartographer/commit/6a11172bd4f6bc4395fb258141da0c4618fe4aaa))
+* **lint:** lint findings are executable on real KBs (D295) ([#489](https://github.com/BeppeTemp/cartographer/issues/489)) ([7d39983](https://github.com/BeppeTemp/cartographer/commit/7d39983471f434863ebbf5545559e5db5aeead5c)), closes [#482](https://github.com/BeppeTemp/cartographer/issues/482)
+* **lint:** lint sees a KB decay (D297) ([#491](https://github.com/BeppeTemp/cartographer/issues/491)) ([2131f8f](https://github.com/BeppeTemp/cartographer/commit/2131f8f005d1e573bdc79ca5d4fdaf81bbf72b5b)), closes [#484](https://github.com/BeppeTemp/cartographer/issues/484)
+* **lint:** map contracts constrain field values and forbid fields ([#460](https://github.com/BeppeTemp/cartographer/issues/460)) ([2dfbe67](https://github.com/BeppeTemp/cartographer/commit/2dfbe67a864a94ca97ec5383c943efc17d8dd4e8)), closes [#441](https://github.com/BeppeTemp/cartographer/issues/441)
+* **mcp:** a source ledger for ingested material, revisiting D28 (D278) ([#467](https://github.com/BeppeTemp/cartographer/issues/467)) ([2e2b06b](https://github.com/BeppeTemp/cartographer/commit/2e2b06b71b7f346ec140cf7c8a4a14c1ca837110))
+* **mcp:** concept_delete refuses to break inbound links without force ([#451](https://github.com/BeppeTemp/cartographer/issues/451)) ([63be752](https://github.com/BeppeTemp/cartographer/commit/63be752557253b9bb1076f8a633651e1aa5d7fba)), closes [#437](https://github.com/BeppeTemp/cartographer/issues/437)
+* **mcp:** concept_history and concept_read at a past revision ([#455](https://github.com/BeppeTemp/cartographer/issues/455)) ([d64c9e7](https://github.com/BeppeTemp/cartographer/commit/d64c9e734fbbf2a69690edd61d1a7372d9445e7d)), closes [#440](https://github.com/BeppeTemp/cartographer/issues/440)
+* **mcp:** knowledge gaps as non-blocking contradiction kinds ([#454](https://github.com/BeppeTemp/cartographer/issues/454)) ([343f806](https://github.com/BeppeTemp/cartographer/commit/343f8062c204a86959b1654b87bf3c8d441fa62c)), closes [#439](https://github.com/BeppeTemp/cartographer/issues/439)
+* **mcp:** one routed topology for agent clients, binding in the URL (D288) ([#469](https://github.com/BeppeTemp/cartographer/issues/469)) ([8da6022](https://github.com/BeppeTemp/cartographer/commit/8da6022a50daa5be7aecc973b395ca1a3ed6687a))
+* **mcp:** the server builds the doctor's work list with kb_review (D298) ([#492](https://github.com/BeppeTemp/cartographer/issues/492)) ([5b19611](https://github.com/BeppeTemp/cartographer/commit/5b19611c4ff8b47eeb8fa021626df7d499088a41))
+* **mcp:** work is a view over open states and unchecked items (D302) ([#499](https://github.com/BeppeTemp/cartographer/issues/499)) ([c737135](https://github.com/BeppeTemp/cartographer/commit/c737135dbf70e5ab6c74dede721817ae9eaea32f))
+* **mcp:** writes carry a reason into the commit, and changes_since shows it ([#453](https://github.com/BeppeTemp/cartographer/issues/453)) ([a40edae](https://github.com/BeppeTemp/cartographer/commit/a40edaed25fe8437f264f773215a060977cb6ae6)), closes [#438](https://github.com/BeppeTemp/cartographer/issues/438)
+* **provisioning:** Kiro gets a session-start sync hook (D300) ([#495](https://github.com/BeppeTemp/cartographer/issues/495)) ([5f9b484](https://github.com/BeppeTemp/cartographer/commit/5f9b484d716280ce6e3bfb0af5522cdc8396da35))
+* **search:** a KB glossary expands search and flags forbidden terms ([#465](https://github.com/BeppeTemp/cartographer/issues/465)) ([20aa9ee](https://github.com/BeppeTemp/cartographer/commit/20aa9ee527b02927ea3f48e848f77e6a50171e12))
+* **search:** index the text of concept assets into the owner (D277) ([#468](https://github.com/BeppeTemp/cartographer/issues/468)) ([46a946e](https://github.com/BeppeTemp/cartographer/commit/46a946e01c16f2b165b22cddc61c7457b465467c))
+* **skills:** a generic kb-ingest skill for any primary source (D279) ([#470](https://github.com/BeppeTemp/cartographer/issues/470)) ([7246eea](https://github.com/BeppeTemp/cartographer/commit/7246eea502d03d85ab95c800162532779fadd6f4))
+* **sync:** compact unresolved-placeholder warning and `paths ignore` ([#452](https://github.com/BeppeTemp/cartographer/issues/452)) ([7e01db1](https://github.com/BeppeTemp/cartographer/commit/7e01db16881b3d8ef46cd98645df5e2f3828f8c9)), closes [#433](https://github.com/BeppeTemp/cartographer/issues/433)
+
+
+### Bug Fixes
+
+* **atlas:** lint severity is a Health colour mode, and Work uses the page width ([#502](https://github.com/BeppeTemp/cartographer/issues/502)) ([912d78a](https://github.com/BeppeTemp/cartographer/commit/912d78a9e5ab23e4d50f3839cd030589e47f007b))
+* **doctor:** what a first real kb-doctor session found (D305) ([#504](https://github.com/BeppeTemp/cartographer/issues/504)) ([cd4c3ca](https://github.com/BeppeTemp/cartographer/commit/cd4c3cad735d0530a29ab2a98f2a3ad789b27692))
+* **hooks:** validate hook.json on write, report it at sync, lint it ([#459](https://github.com/BeppeTemp/cartographer/issues/459)) ([38a3997](https://github.com/BeppeTemp/cartographer/commit/38a39976b98f494494856436270028c10e151af3)), closes [#446](https://github.com/BeppeTemp/cartographer/issues/446)
+* **lint:** a duplicated see-also link goes, and lint stops raising non-questions (D307) ([#507](https://github.com/BeppeTemp/cartographer/issues/507)) ([5295e1e](https://github.com/BeppeTemp/cartographer/commit/5295e1e3b3cfe5adc63de5f0134ecd191c4eb3d7))
+* **mcp:** work_list counts open concepts apart from item-only entries, and a draft is not work by default ([#501](https://github.com/BeppeTemp/cartographer/issues/501)) ([ffa2c6c](https://github.com/BeppeTemp/cartographer/commit/ffa2c6c2f328cfe82e0011da905aa91a323f89aa))
+* paths --help, cask upgrade caveat, Atlas reading panel, stale provisioning references ([#449](https://github.com/BeppeTemp/cartographer/issues/449)) ([08a84ae](https://github.com/BeppeTemp/cartographer/commit/08a84ae2766c2af56279a2d367a57681b6f1022d))
+* **provisioning:** a project CLAUDE.md imports AGENTS.md instead of hiding it (D293) ([#480](https://github.com/BeppeTemp/cartographer/issues/480)) ([24ca96f](https://github.com/BeppeTemp/cartographer/commit/24ca96fcd8fc313d8bfac362466a0932bb201499)), closes [#476](https://github.com/BeppeTemp/cartographer/issues/476)
+* **provisioning:** a restricted agent is never widened silently on other clients (D291) ([#471](https://github.com/BeppeTemp/cartographer/issues/471)) ([87d345d](https://github.com/BeppeTemp/cartographer/commit/87d345d97f120fadfce48d3adb5aab91c1a7815b))
+* **provisioning:** report a dropped agent tools allow-list and let an agent opt out ([#456](https://github.com/BeppeTemp/cartographer/issues/456)) ([7857b9c](https://github.com/BeppeTemp/cartographer/commit/7857b9c0151805277f8b7cbb3017f6afd43c74ed)), closes [#447](https://github.com/BeppeTemp/cartographer/issues/447)
+* **review:** a shared-origin zombie item is dismissed only on its origin ([#505](https://github.com/BeppeTemp/cartographer/issues/505)) ([1adf02d](https://github.com/BeppeTemp/cartographer/commit/1adf02dd7bfa37211ffc98339ebe5cd7a006e0fb))
+
+
+### Performance Improvements
+
+* **lint:** lint and kb_status stay fast on real KBs (D294) ([#488](https://github.com/BeppeTemp/cartographer/issues/488)) ([c93e9ce](https://github.com/BeppeTemp/cartographer/commit/c93e9ceb1135a2c2dde40319d9d643e6bf8d98d6))
+* **mcp:** shorten tool descriptions and guard them with a size budget ([#473](https://github.com/BeppeTemp/cartographer/issues/473)) ([e092f72](https://github.com/BeppeTemp/cartographer/commit/e092f72acfca697da03df61e9526c05d070ac394))
+
 ## [0.17.0](https://github.com/BeppeTemp/cartographer/compare/v0.16.1...v0.17.0) (2026-09-24)
 
 
