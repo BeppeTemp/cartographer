@@ -557,6 +557,12 @@ func TestReviewZombieSharedOrigin(t *testing.T) {
 	if own.Concepts[0] != "b/t1" || !strings.Contains(own.Evidence, "b/gone") || strings.Contains(own.Evidence, "oldlist") {
 		t.Fatalf("own subject item: %+v", own)
 	}
+	// A member dismissing zombie_work on itself does not dismiss the group
+	// (found on a real KB: two members' own dismissals hid the group item).
+	writeFile(t, k.DataRoot(), "b/t2.md", "---\ntype: Task\ntitle: t2\nstatus: open\nlint_ignore: [zombie_work]\n---\n# t2\n\nFrom [the old list](oldlist.md).\n")
+	if got := itemsOf(review(t, k), ReviewZombie); len(got) != 2 {
+		t.Fatalf("a member's dismissal hid the group: %+v", got)
+	}
 	writeFile(t, k.DataRoot(), "b/oldlist.md", "---\ntype: Topic\ntitle: Old list\nstatus: deprecated\nlint_ignore: [zombie_work]\n---\n# Old list\n")
 	if got := itemsOf(review(t, k), ReviewZombie); len(got) != 1 || got[0].Concepts[0] != "b/t1" {
 		t.Fatalf("dismissing the origin once: %+v", got)
