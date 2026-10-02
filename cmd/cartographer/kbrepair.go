@@ -14,19 +14,19 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/lint"
 )
 
-// Exit codes of `kb doctor` (D299). "Debt remains" is not an error: on a real
+// Exit codes of `kb repair` (D299). "Debt remains" is not an error: on a real
 // KB judgement work almost always remains, so a scheduler must be able to tell
 // it from a failure and from a clean KB.
 const (
-	kbDoctorExitClean     = 0
-	kbDoctorExitError     = 2
-	kbDoctorExitJudgement = 3
+	kbRepairExitClean     = 0
+	kbRepairExitError     = 2
+	kbRepairExitJudgement = 3
 )
 
-// kbDoctorExamples is how many planned fixes per check the report shows.
-const kbDoctorExamples = 5
+// kbRepairExamples is how many planned fixes per check the report shows.
+const kbRepairExamples = 5
 
-// toolCaller is the slice of client.MCPClient kb doctor uses, so tests can
+// toolCaller is the slice of client.MCPClient kb repair uses, so tests can
 // drive it without a server.
 type toolCaller interface {
 	Call(tool string, args any) (json.RawMessage, error)
@@ -42,8 +42,8 @@ func (t targetCaller) Call(tool string, args any) (json.RawMessage, error) {
 	return callTool(t.c, t.target, tool, args)
 }
 
-// kbDoctorCheck is one fixable check's line of the report.
-type kbDoctorCheck struct {
+// kbRepairCheck is one fixable check's line of the report.
+type kbRepairCheck struct {
 	Check    string   `json:"check"`
 	Planned  int      `json:"planned"`
 	Auto     bool     `json:"auto"`
@@ -52,32 +52,32 @@ type kbDoctorCheck struct {
 	Examples []string `json:"examples,omitempty"`
 }
 
-type kbDoctorReport struct {
+type kbRepairReport struct {
 	KB           string          `json:"kb"`
 	Applied      bool            `json:"apply"`
-	AutoRepair   []string        `json:"doctor_auto_repair"`
-	Checks       []kbDoctorCheck `json:"checks"`
+	AutoRepair   []string        `json:"auto_repair"`
+	Checks       []kbRepairCheck `json:"checks"`
 	ReviewTotal  int             `json:"review_total"`
 	ReviewByKind map[string]int  `json:"review_by_kind,omitempty"`
 	Remaining    int             `json:"remaining"`
 }
 
-// cmdKBDoctor implements `cartographer kb doctor <kb> [--apply] [--json]`:
+// cmdKBRepair implements `cartographer kb repair <kb> [--apply] [--json]`:
 // the unattended half of the doctor loop (D299). It plans every mechanical
 // repair, applies only the checks the operator listed in the KB's
-// doctor_auto_repair, and reports the judgement work left for a kb-doctor
+// auto_repair, and reports the judgement work left for a kb-doctor
 // session. It never writes the kb-doctor log marker: a mechanical pass is not
 // a doctor session (D290), and writing it would silence the doctor proposal
 // for a whole interval while the judgement work is still undone.
-func cmdKBDoctor(args []string) int {
+func cmdKBRepair(args []string) int {
 	name, rest := splitPositional(args, "")
-	fs := flag.NewFlagSet("kb doctor", flag.ExitOnError)
-	applyFlag := fs.Bool("apply", false, "Apply the checks listed in the KB's doctor_auto_repair (default: plan only)")
+	fs := flag.NewFlagSet("kb repair", flag.ExitOnError)
+	applyFlag := fs.Bool("apply", false, "Apply the checks listed in the KB's auto_repair (default: plan only)")
 	jsonFlag := fs.Bool("json", false, "Print the report as JSON")
 	fs.Parse(rest)
 	if name == "" || fs.NArg() != 0 {
-		fmt.Fprintln(os.Stderr, "Usage: cartographer kb doctor <kb> [--apply] [--json]")
-		return kbDoctorExitError
+		fmt.Fprintln(os.Stderr, "Usage: cartographer kb repair <kb> [--apply] [--json]")
+		return kbRepairExitError
 	}
 
 	cfg := clientconfig.Default()
@@ -89,26 +89,26 @@ func cmdKBDoctor(args []string) int {
 	token := resolveToken(cfg)
 	health, err := client.New(cfg.ServerURL, token).Health(probeTimeout)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "kb doctor:", err)
-		return kbDoctorExitError
+		fmt.Fprintln(os.Stderr, "kb repair:", err)
+		return kbRepairExitError
 	}
 	targets, err := resolveKBTargets(health, []string{name})
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "kb doctor:", err)
-		return kbDoctorExitError
+		fmt.Fprintln(os.Stderr, "kb repair:", err)
+		return kbRepairExitError
 	}
 	c := targetCaller{c: client.New(cfg.ServerURL, token).WithKB(targets[0].Name), target: targets[0]}
-	return runKBDoctor(c, *applyFlag, *jsonFlag, os.Stdout, os.Stderr)
+	return runKBRepair(c, *applyFlag, *jsonFlag, os.Stdout, os.Stderr)
 }
 
-// runKBDoctor is cmdKBDoctor once a caller for the KB exists.
-func runKBDoctor(c toolCaller, apply, asJSON bool, out, errOut io.Writer) int {
+// runKBRepair is cmdKBRepair once a caller for the KB exists.
+func runKBRepair(c toolCaller, apply, asJSON bool, out, errOut io.Writer) int {
 	var status struct {
 		KB           string `json:"kb"`
 		Capabilities struct {
-			DoctorAutoRepair struct {
+			AutoRepair struct {
 				Checks []string `json:"checks"`
-			} `json:"doctor_auto_repair"`
+			} `json:"auto_repair"`
 		} `json:"capabilities"`
 		Review struct {
 			Total  int            `json:"total"`
@@ -116,34 +116,34 @@ func runKBDoctor(c toolCaller, apply, asJSON bool, out, errOut io.Writer) int {
 		} `json:"review"`
 	}
 	if err := callInto(c, "kb_status", map[string]any{}, &status); err != nil {
-		fmt.Fprintln(errOut, "kb doctor: kb_status:", err)
-		return kbDoctorExitError
+		fmt.Fprintln(errOut, "kb repair: kb_status:", err)
+		return kbRepairExitError
 	}
 	auto := map[string]bool{}
-	for _, check := range status.Capabilities.DoctorAutoRepair.Checks {
+	for _, check := range status.Capabilities.AutoRepair.Checks {
 		auto[check] = true
 	}
 
-	rep := kbDoctorReport{
+	rep := kbRepairReport{
 		KB:           status.KB,
 		Applied:      apply,
-		AutoRepair:   append([]string{}, status.Capabilities.DoctorAutoRepair.Checks...),
+		AutoRepair:   append([]string{}, status.Capabilities.AutoRepair.Checks...),
 		ReviewTotal:  status.Review.Total,
 		ReviewByKind: status.Review.ByKind,
 		Remaining:    status.Review.Total,
 	}
 	for _, check := range lint.FixableChecks {
-		dc, err := kbDoctorRepair(c, check, true)
+		dc, err := kbRepairRun(c, check, true)
 		if err != nil {
-			fmt.Fprintf(errOut, "kb doctor: kb_repair %s: %v\n", check, err)
-			return kbDoctorExitError
+			fmt.Fprintf(errOut, "kb repair: kb_repair %s: %v\n", check, err)
+			return kbRepairExitError
 		}
 		dc.Auto = auto[check]
 		if apply && dc.Auto && dc.Planned > 0 {
-			done, err := kbDoctorRepair(c, check, false)
+			done, err := kbRepairRun(c, check, false)
 			if err != nil {
-				fmt.Fprintf(errOut, "kb doctor: kb_repair %s: %v\n", check, err)
-				return kbDoctorExitError
+				fmt.Fprintf(errOut, "kb repair: kb_repair %s: %v\n", check, err)
+				return kbRepairExitError
 			}
 			dc.Applied, dc.Skipped = done.Applied, done.Skipped
 		}
@@ -155,16 +155,16 @@ func runKBDoctor(c toolCaller, apply, asJSON bool, out, errOut io.Writer) int {
 		data, _ := json.MarshalIndent(rep, "", "  ")
 		fmt.Fprintln(out, string(data))
 	} else {
-		printKBDoctorReport(out, rep)
+		printKBRepairReport(out, rep)
 	}
 	if rep.Remaining > 0 {
-		return kbDoctorExitJudgement
+		return kbRepairExitJudgement
 	}
-	return kbDoctorExitClean
+	return kbRepairExitClean
 }
 
-// kbDoctorRepair runs kb_repair for one check and summarises its answer.
-func kbDoctorRepair(c toolCaller, check string, dryRun bool) (kbDoctorCheck, error) {
+// kbRepairRun runs kb_repair for one check and summarises its answer.
+func kbRepairRun(c toolCaller, check string, dryRun bool) (kbRepairCheck, error) {
 	var res struct {
 		Planned []struct {
 			Path string    `json:"path"`
@@ -175,15 +175,15 @@ func kbDoctorRepair(c toolCaller, check string, dryRun bool) (kbDoctorCheck, err
 		Skipped      json.RawMessage `json:"skipped"`
 	}
 	if err := callInto(c, "kb_repair", map[string]any{"check": check, "dry_run": dryRun}, &res); err != nil {
-		return kbDoctorCheck{}, err
+		return kbRepairCheck{}, err
 	}
-	dc := kbDoctorCheck{Check: check, Planned: res.PlannedTotal, Applied: res.Applied}
+	dc := kbRepairCheck{Check: check, Planned: res.PlannedTotal, Applied: res.Applied}
 	var skipped []json.RawMessage
 	if json.Unmarshal(res.Skipped, &skipped) == nil {
 		dc.Skipped = len(skipped)
 	}
 	for _, p := range res.Planned {
-		if len(dc.Examples) == kbDoctorExamples {
+		if len(dc.Examples) == kbRepairExamples {
 			break
 		}
 		dc.Examples = append(dc.Examples, describeFix(p.Path, p.Fix))
@@ -220,14 +220,14 @@ func callInto(c toolCaller, tool string, args any, v any) error {
 	return json.Unmarshal(raw, v)
 }
 
-func printKBDoctorReport(w io.Writer, rep kbDoctorReport) {
+func printKBRepairReport(w io.Writer, rep kbRepairReport) {
 	mode := "plan only"
 	if rep.Applied {
 		mode = "apply"
 	}
-	fmt.Fprintf(w, "KB %s — doctor (%s)\n", displayKBName(rep.KB), mode)
+	fmt.Fprintf(w, "KB %s — repair (%s)\n", displayKBName(rep.KB), mode)
 	if len(rep.AutoRepair) == 0 {
-		fmt.Fprintln(w, "doctor_auto_repair is empty for this KB: nothing is applied unattended (set kbs[].doctor_auto_repair in the server config).")
+		fmt.Fprintln(w, "auto_repair is empty for this KB: nothing is applied unattended (set kbs[].auto_repair in the server config).")
 	}
 	fmt.Fprintln(w, "\nMechanical repairs:")
 	for _, dc := range rep.Checks {

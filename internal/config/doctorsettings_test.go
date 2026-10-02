@@ -20,10 +20,10 @@ func TestLoadDoctorSettings(t *testing.T) {
 		"disabled":  {body: "kbs:\n  - path: /tmp/kb\n    doctor_interval: \"0\"\n", wantDays: 0},
 		"negative":  {body: "kbs:\n  - path: /tmp/kb\n    doctor_interval: -3d\n", wantErr: "doctor_interval"},
 		"duration":  {body: "kbs:\n  - path: /tmp/kb\n    doctor_interval: 2w\n", wantErr: "doctor_interval"},
-		"checks":    {body: "kbs:\n  - path: /tmp/kb\n    doctor_auto_repair: [nonstandard_field, duplicate_link]\n", wantDays: DefaultDoctorIntervalDays},
-		"unknown":   {body: "kbs:\n  - path: /tmp/kb\n    doctor_auto_repair: [nonstandard_field, stale_open]\n", wantErr: `"stale_open"`},
-		"no-all":    {body: "kbs:\n  - path: /tmp/kb\n    doctor_auto_repair: [all]\n", wantErr: `no "all"`},
-		"judgement": {body: "kbs:\n  - path: /tmp/kb\n    doctor_auto_repair: [map_misfit]\n", wantErr: `"map_misfit"`},
+		"checks":    {body: "kbs:\n  - path: /tmp/kb\n    auto_repair: [nonstandard_field, duplicate_link]\n", wantDays: DefaultDoctorIntervalDays},
+		"unknown":   {body: "kbs:\n  - path: /tmp/kb\n    auto_repair: [nonstandard_field, stale_open]\n", wantErr: `"stale_open"`},
+		"no-all":    {body: "kbs:\n  - path: /tmp/kb\n    auto_repair: [all]\n", wantErr: `no "all"`},
+		"judgement": {body: "kbs:\n  - path: /tmp/kb\n    auto_repair: [map_misfit]\n", wantErr: `"map_misfit"`},
 	} {
 		path := filepath.Join(dir, name+".yaml")
 		if err := os.WriteFile(path, []byte(tc.body), 0o644); err != nil {

@@ -71,11 +71,11 @@ type KB struct {
 	// alone. Default false. artifact_read/artifact_list are unaffected.
 	AllowArtifactWrite bool
 
-	// DoctorAutoRepair and DoctorIntervalDays are the per-KB doctor settings
-	// (D299, config.KBSpec): the checks `kb doctor --apply` may apply
+	// AutoRepair and DoctorIntervalDays are the per-KB doctor settings
+	// (D299, config.KBSpec): the checks `kb repair --apply` may apply
 	// unattended, and the days after the last kb-doctor session before the
 	// next is proposed (0 = never proposed).
-	DoctorAutoRepair   []string
+	AutoRepair         []string
 	DoctorIntervalDays int
 
 	// ToolPrefix is the effective MCP tool-name prefix this KB was mounted

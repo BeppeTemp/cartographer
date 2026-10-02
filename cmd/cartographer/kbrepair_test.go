@@ -17,16 +17,16 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/okf"
 )
 
-// doctorTestKB serves a KB with one nonstandard_field finding (`updated` for
+// repairTestKB serves a KB with one nonstandard_field finding (`updated` for
 // `timestamp`) through an in-process server, and returns a caller for it.
-func doctorTestKB(t *testing.T, autoRepair []string) (toolCaller, string) {
+func repairTestKB(t *testing.T, autoRepair []string) (toolCaller, string) {
 	t.Helper()
 	root := filepath.Join(t.TempDir(), "kb-a")
 	k, err := kb.Init(root)
 	if err != nil {
 		t.Fatal(err)
 	}
-	k.DoctorAutoRepair = autoRepair
+	k.AutoRepair = autoRepair
 	k.DoctorIntervalDays = 14
 	if err := k.CreateMapWithContract("ops", "Ops", "map", nil, "", kb.MapContract{}); err != nil {
 		t.Fatal(err)
@@ -50,32 +50,32 @@ func doctorTestKB(t *testing.T, autoRepair []string) (toolCaller, string) {
 	return targetCaller{c: client.New(srv.URL+"/mcp", "")}, concept
 }
 
-func runDoctorJSON(t *testing.T, c toolCaller, apply bool) (kbDoctorReport, int) {
+func runRepairJSON(t *testing.T, c toolCaller, apply bool) (kbRepairReport, int) {
 	t.Helper()
 	var out, errOut bytes.Buffer
-	code := runKBDoctor(c, apply, true, &out, &errOut)
-	var rep kbDoctorReport
+	code := runKBRepair(c, apply, true, &out, &errOut)
+	var rep kbRepairReport
 	if err := json.Unmarshal(out.Bytes(), &rep); err != nil {
 		t.Fatalf("report: %v (stdout %q, stderr %q)", err, out.String(), errOut.String())
 	}
 	return rep, code
 }
 
-func checkLine(rep kbDoctorReport, check string) kbDoctorCheck {
+func checkLine(rep kbRepairReport, check string) kbRepairCheck {
 	for _, dc := range rep.Checks {
 		if dc.Check == check {
 			return dc
 		}
 	}
-	return kbDoctorCheck{}
+	return kbRepairCheck{}
 }
 
-func TestKBDoctorDryRunWritesNothing(t *testing.T) {
-	c, concept := doctorTestKB(t, []string{"nonstandard_field"})
+func TestKBRepairDryRunWritesNothing(t *testing.T) {
+	c, concept := repairTestKB(t, []string{"nonstandard_field"})
 	before, _ := os.ReadFile(concept)
-	rep, code := runDoctorJSON(t, c, false)
-	if code != kbDoctorExitJudgement {
-		t.Fatalf("exit = %d, want %d (debt remains)", code, kbDoctorExitJudgement)
+	rep, code := runRepairJSON(t, c, false)
+	if code != kbRepairExitJudgement {
+		t.Fatalf("exit = %d, want %d (debt remains)", code, kbRepairExitJudgement)
 	}
 	if dc := checkLine(rep, "nonstandard_field"); dc.Planned != 1 || dc.Applied != 0 || !dc.Auto {
 		t.Fatalf("nonstandard_field = %+v", dc)
@@ -85,25 +85,25 @@ func TestKBDoctorDryRunWritesNothing(t *testing.T) {
 	}
 }
 
-func TestKBDoctorApplyRefusesChecksOutsideTheCapability(t *testing.T) {
-	c, concept := doctorTestKB(t, nil)
+func TestKBRepairApplyRefusesChecksOutsideTheCapability(t *testing.T) {
+	c, concept := repairTestKB(t, nil)
 	before, _ := os.ReadFile(concept)
 	var out, errOut bytes.Buffer
-	code := runKBDoctor(c, true, false, &out, &errOut)
-	if code != kbDoctorExitJudgement {
-		t.Fatalf("exit = %d, want %d; stderr %s", code, kbDoctorExitJudgement, errOut.String())
+	code := runKBRepair(c, true, false, &out, &errOut)
+	if code != kbRepairExitJudgement {
+		t.Fatalf("exit = %d, want %d; stderr %s", code, kbRepairExitJudgement, errOut.String())
 	}
 	if after, _ := os.ReadFile(concept); !bytes.Equal(before, after) {
-		t.Fatal("--apply with an empty doctor_auto_repair changed the concept")
+		t.Fatal("--apply with an empty auto_repair changed the concept")
 	}
-	if !strings.Contains(out.String(), "doctor_auto_repair is empty") {
+	if !strings.Contains(out.String(), "auto_repair is empty") {
 		t.Fatalf("report does not say why nothing was applied:\n%s", out.String())
 	}
 }
 
-func TestKBDoctorApplyRunsOnlyTheListedChecks(t *testing.T) {
-	c, concept := doctorTestKB(t, []string{"nonstandard_field"})
-	rep, code := runDoctorJSON(t, c, true)
+func TestKBRepairApplyRunsOnlyTheListedChecks(t *testing.T) {
+	c, concept := repairTestKB(t, []string{"nonstandard_field"})
+	rep, code := runRepairJSON(t, c, true)
 	if dc := checkLine(rep, "nonstandard_field"); dc.Applied != 1 {
 		t.Fatalf("nonstandard_field = %+v, want 1 applied", dc)
 	}
@@ -116,7 +116,7 @@ func TestKBDoctorApplyRunsOnlyTheListedChecks(t *testing.T) {
 	if !strings.Contains(string(after), "timestamp:") || strings.Contains(string(after), "updated:") {
 		t.Fatalf("concept not repaired:\n%s", after)
 	}
-	if code != kbDoctorExitClean || rep.Remaining != 0 {
+	if code != kbRepairExitClean || rep.Remaining != 0 {
 		t.Fatalf("exit = %d, remaining = %d, want a clean KB", code, rep.Remaining)
 	}
 	// A mechanical pass is not a doctor session (D290): it must not move

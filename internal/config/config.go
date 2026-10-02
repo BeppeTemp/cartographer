@@ -193,12 +193,12 @@ type KBSpec struct {
 	// Default false. Propagated to kb.KB.AllowArtifactWrite (see serve.go).
 	AllowArtifactWrite bool `yaml:"allow_artifact_write,omitempty"`
 
-	// DoctorAutoRepair lists the lint checks whose mechanical fix
-	// `cartographer kb doctor --apply` may apply without a human reviewing
+	// AutoRepair lists the lint checks whose mechanical fix
+	// `cartographer kb repair --apply` may apply without a human reviewing
 	// the plan (D299). Each name must be in lint.FixableChecks. There is
 	// deliberately no "all": a fixable check added by a later release must be
 	// seen as a dry-run plan before it runs unattended. Default empty.
-	DoctorAutoRepair []string `yaml:"doctor_auto_repair,omitempty"`
+	AutoRepair []string `yaml:"auto_repair,omitempty"`
 
 	// DoctorInterval is how long after the last kb-doctor session the server
 	// starts proposing the next one (D299): "<n>d" or "<n>" days, "0"
@@ -385,8 +385,8 @@ func Load(path string) (*Config, error) {
 		if err := provisioning.ValidateMCPAllowlist(spec.MCPAllowlist); err != nil {
 			return nil, fmt.Errorf("config: mcp_allowlist: %w", err)
 		}
-		if err := ValidateDoctorAutoRepair(spec.DoctorAutoRepair); err != nil {
-			return nil, fmt.Errorf("config: doctor_auto_repair: %w", err)
+		if err := ValidateAutoRepair(spec.AutoRepair); err != nil {
+			return nil, fmt.Errorf("config: auto_repair: %w", err)
 		}
 		if _, err := spec.DoctorIntervalDays(); err != nil {
 			return nil, fmt.Errorf("config: doctor_interval: %w", err)
@@ -821,9 +821,9 @@ func (s KBSpec) DoctorIntervalDays() (int, error) {
 	return n, nil
 }
 
-// ValidateDoctorAutoRepair rejects a doctor_auto_repair entry that is not a
+// ValidateAutoRepair rejects a auto_repair entry that is not a
 // check with a mechanical fix, naming it.
-func ValidateDoctorAutoRepair(checks []string) error {
+func ValidateAutoRepair(checks []string) error {
 	for _, c := range checks {
 		known := false
 		for _, f := range lint.FixableChecks {
