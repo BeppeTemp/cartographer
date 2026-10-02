@@ -61,9 +61,11 @@ var bootstrapContentHash = contentHashBytes(append(bootstrapHookJSON(), []byte(b
 // lets a later session self-heal once it comes back.
 //
 // A provider that cannot run a hook at session start is a no-op here, lock
-// returned unchanged: kiro has no hook mechanism at all
-// (destDir("hook", _, kiro) == ""), antigravity has one but no session-start
-// event (noSessionStartEvent). Both sync on the scheduled trigger instead (D140).
+// returned unchanged: hermes and crush have no hook mechanism at all
+// (destDir("hook", _, p) == ""), antigravity has one but no session-start
+// event (noSessionStartEvent). They sync on the scheduled trigger instead
+// (D140). Kiro gets the hook, which fires only in some of its sessions
+// (SessionHookLimit, D300).
 //
 // dryRun performs no I/O and simulates the resulting paths (mirrors Apply's own
 // DryRun contract) — used by `connect --dry-run`/`sync --dry-run`.
@@ -180,9 +182,10 @@ func EnsureBootstrapHook(baseDir string, provider configurator.Provider, lock Lo
 // hookMechanism describes how a provider registers a materialized hook in its
 // own configuration (D137): claude patches settings.json (D57), codex its
 // hooks.json (D230), opencode generates a plugin JS
-// file that *is* the registration (D59). A provider absent from
-// hookMechanisms has no hook mechanism at all — kiro, whose "hook" cell in
-// destinationMatrix is unsupported, so nothing reaches here for it.
+// file that *is* the registration (D59), kiro its own standalone hook file
+// (D300). A provider absent from hookMechanisms has no hook mechanism at all,
+// and its "hook" cell in destinationMatrix is unsupported, so nothing reaches
+// here for it.
 type hookMechanism struct {
 	// settingsFile is the provider-native file the registration is written
 	// into, relative to the base dir. Empty when the registration is a
@@ -207,6 +210,13 @@ type hookMechanism struct {
 	// regressed, and silently leaving the bootstrap hook unregistered is
 	// worse than failing. Codex's warning is a D99 repair notice, informational.
 	warningBlocksBootstrap bool
+	// sessionHookLimit names the only sessions the bootstrap hook fires in,
+	// when the client has session modes that run no hooks at all; empty when
+	// it fires in every session. A provider with a limit still has its
+	// bootstrap hook installed, and the scheduled timer is still advised for
+	// it (SessionHookLimit), because a sync that runs only in some sessions
+	// is not a trigger an operator can rely on (D300).
+	sessionHookLimit string
 	// register performs the registration, returning the relative path of any
 	// generated artifact (so it is tracked as a managed file) plus any
 	// non-fatal warning for the caller to surface.
@@ -268,6 +278,21 @@ var hookMechanisms = map[configurator.Provider]hookMechanism{
 			return "", warning, nil
 		},
 	},
+	configurator.ProviderKiro: {
+		settingsFile: kiroHooksRelPath,
+		// Probed on 2.26.1 and 2.27.0: the standalone hook files load only
+		// in the V3 TUI. Plain `kiro-cli chat` (whose interactive UI is the
+		// new TUI since 2.27.0, over the v2 engine) and every
+		// --no-interactive run never build the hook cache.
+		sessionHookLimit: "kiro-cli chat --v3 --tui",
+		register: func(baseDir, name, fullDestDir string) (string, string, error) {
+			warning, err := registerKiroHook(baseDir, name, fullDestDir)
+			if err != nil {
+				return "", "", fmt.Errorf("provisioning: register hook %s in Kiro cartographer.json: %w", name, err)
+			}
+			return "", warning, nil
+		},
+	},
 }
 
 // SupportsSessionHook reports whether the bootstrap hook (D60) can run at
@@ -281,6 +306,17 @@ func SupportsSessionHook(provider configurator.Provider) bool {
 	}
 	m, ok := hookMechanisms[provider]
 	return ok && !m.noSessionStartEvent
+}
+
+// SessionHookLimit names the only sessions in which provider's bootstrap hook
+// fires, or "" when it fires in every session (or the provider has none — see
+// SupportsSessionHook). A non-empty limit means the hook is installed and the
+// scheduled timer is still needed for every other session (D300).
+func SessionHookLimit(provider configurator.Provider) string {
+	if !SupportsSessionHook(provider) {
+		return ""
+	}
+	return hookMechanisms[provider].sessionHookLimit
 }
 
 // HookRegistrationFile returns the provider-native file a hook registration is

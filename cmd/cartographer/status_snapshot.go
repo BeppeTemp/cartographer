@@ -318,7 +318,8 @@ func snapshotForConfig(dir string, cfg *clientconfig.Config, includeService bool
 		); ok {
 			p.ShadowedInstructions = shadowing
 		}
-		p.Kinds = formatKindStatus(pm, lockFile.ForProvider(p.Name), p.ShadowedInstructions != "")
+		p.Kinds = formatKindStatus(pm, lockFile.ForProvider(p.Name), p.ShadowedInstructions != "",
+			provisioning.SessionHookLimit(configurator.Provider(p.Name)))
 
 		// On-disk verification (D139): the manifest↔lockfile comparison says
 		// nothing about what is actually on disk, so an artifact edited or

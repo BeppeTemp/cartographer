@@ -73,7 +73,7 @@ func TestDestDirPaths(t *testing.T) {
 		{"hook", configurator.ProviderClaudeCode, ".claude/hooks/demo"},
 		{"hook", configurator.ProviderCodex, ".codex/hooks/demo"},
 		{"hook", configurator.ProviderOpenCode, ".opencode/hooks/demo"},
-		{"hook", configurator.ProviderKiro, ""},
+		{"hook", configurator.ProviderKiro, ".kiro/hooks/cartographer/demo"},
 		{"skill", configurator.ProviderClaudeCode, ".claude/skills/demo"},
 		{"skill", configurator.ProviderCodex, ".codex/skills/demo"},
 		{"skill", configurator.ProviderKiro, ".kiro/skills/demo"},

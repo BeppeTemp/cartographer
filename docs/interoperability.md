@@ -111,40 +111,50 @@ does not infer the syntax, and which native keys each client honours has **not b
 against the real clients**: the author writes them and owns their correctness.
 
 Two consequences are worth stating plainly. Kiro receives subagents in both
-scopes since [D195](decisions/D195-kiro-receives-subagents-its-hooks-are-documented-but.md) but keeps an
-`unsupported` hook cell, because the shipped client has no hook mechanism at
-all. And Codex ignores a
+scopes since [D195](decisions/D195-kiro-receives-subagents-its-hooks-are-documented-but.md),
+and hooks only in the global scope, where they fire in one session mode
+([D300](decisions/D300-kiro-gets-a-session-start-hook.md), below). And Codex ignores a
 project's `.codex/` layer unless the project is **trusted**, which is the one
 case where writing the files correctly is not the same as the projection being
 active: `status` and `doctor` report it as `inactive` rather than installed.
 
-### Kiro hooks: documented, not shipped (D195)
+### Kiro hooks: one session mode (D300)
 
-Kiro's documentation describes standalone hooks — `.kiro/hooks/*.json` with a
-`"version": "v1"` schema, and `~/.kiro/hooks/` firing in every workspace. The
-shipped client does not implement them. Verified on **Kiro CLI 2.21.3**,
-2026-09-11:
+Kiro has hooks on every engine, but a hook Cartographer can own fires in only
+one of its session modes. Probed on **Kiro CLI 2.26.1 and 2.27.0** (macOS, the
+real binary, an unrelated temp dir, a sentinel file per hook):
 
-- a hook in `~/.kiro/hooks/` **and** in the workspace's `.kiro/hooks/`, with
-  each of `AgentSpawn`, `SessionStart`, `PromptSubmit`, `UserPromptSubmit` and
-  `PreToolUse`, never fires — in a session that completes normally, with `--v3`;
-- the agent log never mentions hooks, the config `kiro-cli agent create` writes
-  has **no** `hooks` key, and the shipped agent binary contains no `.kiro/hooks`
-  path (it does contain `.kiro/agents`, `.kiro/skills`, `.kiro/steering`).
+| Session | Standalone `~/.kiro/hooks/*.json` | `hooks` inside an agent config |
+|---|---|---|
+| `kiro-cli chat` interactive (the default; since 2.27.0 a new TUI over the v2 engine) | does not fire | fires (`agentSpawn`) |
+| `kiro-cli chat --no-interactive` | does not fire | fires |
+| `kiro-cli chat --v3 --tui` | **fires** (`SessionStart`, `UserPromptSubmit`, `Stop`) | fires |
+| `--v3` / `--agent-engine v3`, non-interactive | does not fire: the engine builds its hook cache only when the ACP client asks for hooks | — |
 
-The reason is in the vendor's own text: the v1 hook format was *"introduced in
-IDE 1.0 and **CLI 3.0**"*, and the [CLI changelog](https://kiro.dev/changelog/cli/)
-puts **3.0 in early access** with 2.21.x on the release channel. `kiro-cli --v3`
-launches the next-generation *agent*, which is not the same thing as CLI 3.0.
+What this means for Cartographer:
 
-The documentation also contradicts itself on the trigger names: the
-[migration page](https://kiro.dev/docs/cli/v3/hooks-migration/) lists
-`SessionStart` among the CLI triggers, while the
-[feature page](https://kiro.dev/docs/hooks/) marks `SessionStart` as IDE-only and
-`AgentSpawn` as CLI-only. D140 recorded the same pattern against 2.20.0.
+- **The registration is a standalone file Cartographer owns whole**,
+  `~/.kiro/hooks/cartographer.json` (`{"version": "v1", "hooks": [...]}`), with
+  the hooks' files one level below it. The loader reads only the `*.json` files
+  directly in `~/.kiro/hooks/`: it does not recurse, and a hook file in a
+  subdirectory was not loaded. The scripts are therefore never read as hook
+  files themselves. The workspace `.kiro/hooks/` fires in the same mode as the
+  global one, so it adds nothing and stays `unsupported`.
+- **No agent config is written for a hook.** An agent's own hooks fire in every
+  mode, but only for that agent. The user's agent is theirs. Shadowing the
+  built-in `kiro_default` (it can be shadowed in v2 since 2.26.1) would replace
+  its prompt and tools, which is the intrusion D140 refused. A Cartographer-owned
+  agent made the default with `chat.defaultAgent` would not behave like the
+  default either: an agent with no `tools` key gets **no tools** (`/tools`:
+  "No tools available", against 14 for `kiro_default`), and the default's prompt
+  is compiled into the binary, so it would have to be copied from a moving target.
+- **The scheduled timer stays Kiro's trigger** for every session but
+  `--v3 --tui`. `connect`, `status` and `doctor` say so, and `status` qualifies
+  the hook count (`hook 1/1 (fires in kiro-cli chat --v3 --tui only)`).
 
-So Kiro's `hook` cell stays `unsupported` and its re-sync trigger stays the
-scheduled timer. Re-check when CLI 3.0 reaches the release channel.
+Kiro IDE (workspace `.kiro/hooks/<id>.json` is documented, a global directory
+is not) and Kiro Crew (`~/.kiro/crew/hooks/` is documented) were not installed
+on the probing machine, so no cell claims them.
 
 ### Instruction slots Cartographer deliberately does not write
 

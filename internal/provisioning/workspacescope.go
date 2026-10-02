@@ -108,11 +108,11 @@ var projectDestinationMatrix = map[string]map[configurator.Provider]destination{
 		configurator.ProviderClaudeCode: perName("", ".claude", "hooks"),
 		configurator.ProviderCodex:      perName("", ".codex", "hooks"),
 		configurator.ProviderOpenCode:   perName("", ".opencode", "hooks"),
-		// kiro: no hook mechanism at all in the shipped client — neither the
-		// per-agent `hooks` map D140 found in 2.20.0 nor the standalone
-		// ~/.kiro/hooks/ the vendor documents for v3. Verified empirically
-		// against 2.21.3 (D195): a SessionStart hook placed in either location
-		// never fires. Its trigger stays the scheduled timer.
+		// kiro: a workspace .kiro/hooks/ fires in exactly the sessions the
+		// global ~/.kiro/hooks/ does, `kiro-cli chat --v3 --tui` (probed on
+		// 2.26.1), so a project-local copy of the global registration (D300)
+		// would reach no session the global one misses. Kept unsupported until
+		// a mode fires one and not the other.
 		configurator.ProviderKiro:        unsupportedDest,
 		configurator.ProviderHermes:      unsupportedDest,
 		configurator.ProviderAntigravity: unsupportedDest,

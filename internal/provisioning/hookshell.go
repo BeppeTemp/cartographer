@@ -8,7 +8,9 @@ package provisioning
 // nothing on Cartographer's side to say so (#412). Windows accepts forward
 // slashes in a path, so the resolved executable is written that way for the
 // providers whose hooks go through a POSIX shell. Codex and Antigravity keep
-// the host's spelling: neither documents running hooks through one.
+// the host's spelling: neither documents running hooks through one. Kiro keeps
+// it too: its engine runs a command hook through PowerShell (or cmd.exe) on
+// Windows, never a POSIX shell (D300).
 
 import (
 	"fmt"

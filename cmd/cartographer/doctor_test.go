@@ -192,7 +192,9 @@ func TestRunDoctor_Checks(t *testing.T) {
 			check: "hooks", severity: doctorError, wantFix: "cartographer sync",
 		},
 		{
-			name: "hookless provider without a timer", provider: "kiro", installed: []string{"kiro"}, timer: false,
+			// Kiro's hook fires only in the V3 TUI (D300): with it installed
+			// and no timer, the other sessions are still uncovered.
+			name: "partially hooked provider without a timer", provider: "kiro", installed: []string{"kiro"}, timer: false,
 			break_: func(*testing.T, string) {},
 			check:  "trigger", severity: doctorWarning, wantFix: "cartographer service sync-timer install",
 		},
@@ -227,7 +229,7 @@ func TestRunDoctor_Checks(t *testing.T) {
 	}
 }
 
-// A hookless provider with the timer installed has nothing to report.
+// A partially hooked provider with the timer installed has nothing to report.
 func TestRunDoctor_TimerCoversHooklessProvider(t *testing.T) {
 	doctorStubs(t, []string{"kiro"}, true)
 	dir := doctorFixture(t, "kiro")

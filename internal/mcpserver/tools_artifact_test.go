@@ -867,7 +867,7 @@ func TestArtifactWrite_HookJSONIsValidated(t *testing.T) {
 		t.Fatalf("script write: %+v", tr.Content)
 	}
 	// A valid hook.json is accepted without warnings when every client fires it...
-	tr := write("hooks/guard/hook.json", `{"event":"PreToolUse","command":"./run.sh"}`)
+	tr := write("hooks/guard/hook.json", `{"event":"Stop","command":"./run.sh"}`)
 	if tr.IsError || strings.Contains(tr.Content[0].Text, "warnings") {
 		t.Fatalf("valid hook: %+v", tr.Content)
 	}

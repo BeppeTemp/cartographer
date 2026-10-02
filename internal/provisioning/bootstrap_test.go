@@ -223,24 +223,43 @@ func TestEnsureBootstrapHook_OpenCode_MaterializzaERegistra(t *testing.T) {
 	}
 }
 
-func TestEnsureBootstrapHook_Kiro_NoOp(t *testing.T) {
+// Kiro gets the bootstrap hook as an entry of its owned standalone hook file
+// (D300), with the script one level below the directory the engine scans.
+func TestEnsureBootstrapHook_Kiro_RegistersSessionStart(t *testing.T) {
 	baseDir := t.TempDir()
 	lock, err := provisioning.EnsureBootstrapHook(baseDir, configurator.ProviderKiro, provisioning.Lock{}, false)
 	if err != nil {
 		t.Fatalf("EnsureBootstrapHook: %v", err)
 	}
-	if len(lock.Managed) != 0 {
-		t.Fatalf("kiro: expected no ManagedFile, got %+v", lock.Managed)
+	if len(lock.Managed) != 2 {
+		t.Fatalf("kiro: expected hook.json + script, got %+v", lock.Managed)
 	}
-	if _, err := os.Stat(filepath.Join(baseDir, ".kiro")); err == nil {
-		t.Errorf("kiro: no .kiro directory was expected to be created")
+	hookDir := filepath.Join(baseDir, ".kiro", "hooks", "cartographer", provisioning.BootstrapHookName)
+	for _, mf := range lock.Managed {
+		if !strings.HasPrefix(filepath.Join(baseDir, mf.Path), hookDir+string(filepath.Separator)) {
+			t.Errorf("managed file outside %s: %s", hookDir, mf.Path)
+		}
+	}
+	hooks := kiroHookDoc(t, baseDir)
+	if len(hooks) != 1 || hooks[0]["name"] != provisioning.BootstrapHookName || hooks[0]["trigger"] != "SessionStart" {
+		t.Fatalf("cartographer.json = %v", hooks)
+	}
+
+	// Idempotent: a second run leaves exactly one entry.
+	if _, err := provisioning.EnsureBootstrapHook(baseDir, configurator.ProviderKiro, lock, false); err != nil {
+		t.Fatalf("EnsureBootstrapHook (2): %v", err)
+	}
+	if got := len(kiroHookDoc(t, baseDir)); got != 1 {
+		t.Errorf("re-run: %d entries, want 1", got)
 	}
 }
 
 // SupportsSessionHook is the single answer both EnsureBootstrapHook and the
 // client's "install the sync timer" advice derive from, and it has two distinct
-// negative cases that must not collapse into one: kiro has no hook mechanism at
-// all, antigravity has one whose engine exposes no session-start event (D194).
+// negative cases that must not collapse into one: hermes has no hook mechanism
+// at all, antigravity has one whose engine exposes no session-start event
+// (D194). Kiro has one that fires in some sessions only, which is
+// SessionHookLimit's answer, not a "no" here (D300).
 func TestSupportsSessionHook(t *testing.T) {
 	for _, tc := range []struct {
 		provider configurator.Provider
@@ -249,12 +268,29 @@ func TestSupportsSessionHook(t *testing.T) {
 		{configurator.ProviderClaudeCode, true},
 		{configurator.ProviderCodex, true},
 		{configurator.ProviderOpenCode, true},
-		{configurator.ProviderKiro, false},
+		{configurator.ProviderKiro, true},
 		{configurator.ProviderHermes, false},
 		{configurator.ProviderAntigravity, false},
 	} {
 		if got := provisioning.SupportsSessionHook(tc.provider); got != tc.want {
 			t.Errorf("SupportsSessionHook(%s) = %v; want %v", tc.provider, got, tc.want)
+		}
+	}
+}
+
+// Only kiro's hook is limited to some sessions; for it the limit names them.
+func TestSessionHookLimit(t *testing.T) {
+	for _, d := range configurator.Providers() {
+		p := d.Provider
+		got := provisioning.SessionHookLimit(p)
+		if p == configurator.ProviderKiro {
+			if !strings.Contains(got, "--v3 --tui") {
+				t.Errorf("SessionHookLimit(kiro) = %q, want the V3 TUI named", got)
+			}
+			continue
+		}
+		if got != "" {
+			t.Errorf("SessionHookLimit(%s) = %q, want none", p, got)
 		}
 	}
 }

@@ -142,7 +142,7 @@ func MCPServerEntryNames(baseDir string, provider configurator.Provider) ([]stri
 // pre-D230 block, or the marker-less copy of D99), which fires alongside the
 // hooks.json entry.
 //
-// Only the two providers with a native registration file are inspected;
+// Only the providers with a native registration file are inspected;
 // OpenCode registers through a generated plugin, which is a managed file and is
 // therefore already covered by on-disk verification (D139).
 func HookRegistrations(baseDir string, provider configurator.Provider, hookName string) (managed, stray int, err error) {
@@ -195,6 +195,14 @@ func HookRegistrations(baseDir string, provider configurator.Provider, hookName 
 			return managed, stray, err
 		}
 		return managed, stray + len(orphans), nil
+	case configurator.ProviderKiro:
+		// One flat list in a file Cartographer owns whole (D300): a second
+		// entry of the same name is a duplicate, and there is no outside.
+		managed, err := countKiroHookEntries(baseDir, hookName)
+		if err != nil {
+			return 0, 0, fmt.Errorf("parse %s: %w", HookRegistrationFile(provider), err)
+		}
+		return managed, 0, nil
 	}
 	return 0, 0, nil
 }

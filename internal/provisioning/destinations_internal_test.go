@@ -29,8 +29,8 @@ func TestDestinationsSpotChecks(t *testing.T) {
 	if !slices.Contains(agent, configurator.ProviderClaudeCode) || slices.Contains(agent, configurator.ProviderHermes) {
 		t.Errorf("agent destinations = %v, want Claude Code and not Hermes", agent)
 	}
-	if hook := Destinations("hook", "guard"); slices.Contains(hook, configurator.ProviderKiro) {
-		t.Errorf("hook destinations = %v, Kiro has no hook destination", hook)
+	if hook := Destinations("hook", "guard"); !slices.Contains(hook, configurator.ProviderKiro) || slices.Contains(hook, configurator.ProviderHermes) {
+		t.Errorf("hook destinations = %v, want Kiro (D300) and not Hermes", hook)
 	}
 	for _, kind := range []string{"template", "unknown", ""} {
 		if got := Destinations(kind, "x"); len(got) != 0 {

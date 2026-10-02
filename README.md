@@ -133,8 +133,8 @@ That single command writes, per client and in the format that client expects:
 | **Instructions** | block in `~/.claude/CLAUDE.md` | block in `~/.config/opencode/AGENTS.md` | block in `~/.codex/AGENTS.md` | `~/.kiro/steering/cartographer.md` | block in `~/.gemini/GEMINI.md` | block in `~/.config/crush/CRUSH.md` | — |
 | **Skills** | `~/.claude/skills/` | `~/.opencode/skills/` | `~/.codex/skills/` | `~/.kiro/skills/` | `~/.gemini/config/skills/` | `~/.config/crush/skills/` | delivered to its inbox |
 | **Subagents** | `~/.claude/agents/*.md` | `~/.opencode/agent/*.md` | `~/.codex/agents/*.toml` | `~/.kiro/agents/*.json` | `~/.gemini/config/agents/*.md` | — | — |
-| **Hooks** | `~/.claude/hooks/`, registered in `settings.json` | `~/.opencode/hooks/`, run by a generated JS plugin | `~/.codex/hooks/`, registered in `hooks.json` | — | `~/.gemini/config/hooks/`, registered in `hooks.json` | — | — |
-| **Re-sync trigger** | `SessionStart` hook | `SessionStart` hook | `SessionStart` hook | scheduled timer | scheduled timer | scheduled timer | scheduled timer |
+| **Hooks** | `~/.claude/hooks/`, registered in `settings.json` | `~/.opencode/hooks/`, run by a generated JS plugin | `~/.codex/hooks/`, registered in `hooks.json` | `~/.kiro/hooks/cartographer/`, registered in `~/.kiro/hooks/cartographer.json` (fires in `kiro-cli chat --v3 --tui` only) | `~/.gemini/config/hooks/`, registered in `hooks.json` | — | — |
+| **Re-sync trigger** | `SessionStart` hook | `SessionStart` hook | `SessionStart` hook | `SessionStart` hook in `--v3 --tui`, scheduled timer elsewhere | scheduled timer | scheduled timer | scheduled timer |
 
 Subagents and hooks are **translated**, not copied: the same KB artifact becomes a Markdown agent
 for Claude Code, a TOML one for Codex, Antigravity-native Markdown, and a generated JavaScript
@@ -143,10 +143,11 @@ plugin where a hook has no declarative equivalent.
 Every `—` is an `unsupported` cell **declared for a stated reason**, never a silent omission — and a
 cell missing from the table fails a test:
 
-- **kiro** — the shipped client has no hook mechanism that actually fires (verified empirically;
-  details in [`docs/interoperability.md`](docs/interoperability.md) §Kiro hooks), so its re-sync
-  trigger is the scheduled timer. Subagents work: `~/.kiro/agents/<name>.json` is discovered
-  globally and the built-in agent delegates to it by description.
+- **kiro** — its hooks fire only in `kiro-cli chat --v3 --tui`. Plain `kiro-cli chat` and
+  `--no-interactive` runs fire none (verified empirically; details in
+  [`docs/interoperability.md`](docs/interoperability.md) §Kiro hooks), so the scheduled timer is
+  still its re-sync trigger for those sessions. Subagents work: `~/.kiro/agents/<name>.json` is
+  discovered globally and the built-in agent delegates to it by description.
 - **hermes** — its MCP endpoints and its always-on instruction slot are rendered by its own Ansible
   role and recreated on the next playbook run, and it has no subagent directory and no hook engine.
   Skills are *delivered*, not installed: they land in an inbox with a generated `SOURCE.md` and the
@@ -297,7 +298,8 @@ go install github.com/BeppeTemp/cartographer/cmd/cartographer@latest
   when you run `cartographer connect` — never before. Each destination path is
   listed in the [One KB, every agent](#one-kb-every-agent) matrix above. A sync
   timer (`com.cartographer.sync` / `cartographer-sync.timer`) is installed for
-  clients that have no session-start hook.
+  clients that have no session-start hook, or one that fires only in some
+  sessions (Kiro).
 
 ### Upgrades
 

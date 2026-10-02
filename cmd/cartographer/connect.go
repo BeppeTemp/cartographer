@@ -544,7 +544,9 @@ func printConnectResult(dir string, providers []string, opts connectOptions, res
 }
 
 // providersNeedingSyncTimer returns the providers among those given that have
-// no session-start hook and are therefore covered by no trigger at all: nil
+// no session-start hook, or one that fires only in some of their sessions
+// (provisioning.SessionHookLimit — Kiro, D300), and are therefore not covered
+// by a trigger in every session: nil
 // when every provider has a hook, and also nil when the scheduled timer is
 // installed, since that is what covers the hook-less ones (D140). The timer
 // status is returned alongside so a caller can name its path.
@@ -557,7 +559,8 @@ func printConnectResult(dir string, providers []string, opts connectOptions, res
 func providersNeedingSyncTimer(providers []string) ([]string, service.SyncTimerStatus) {
 	var hookless []string
 	for _, p := range providers {
-		if !provisioning.SupportsSessionHook(configurator.Provider(p)) {
+		provider := configurator.Provider(p)
+		if !provisioning.SupportsSessionHook(provider) || provisioning.SessionHookLimit(provider) != "" {
 			hookless = append(hookless, p)
 		}
 	}
@@ -583,8 +586,29 @@ func printSyncTimerHint(providers []string) {
 	if len(hookless) == 0 {
 		return
 	}
-	fmt.Printf("%s has no session-start hook: it syncs only on demand — install the scheduled trigger with `cartographer service sync-timer install`\n",
-		strings.Join(hookless, ", "))
+	fmt.Printf("%s: it syncs only on demand — install the scheduled trigger with `cartographer service sync-timer install`\n",
+		describeHookless(hookless))
+}
+
+// describeHookless names the providers providersNeedingSyncTimer returned, each
+// with the reason it needs the timer: no session-start hook at all, or one that
+// fires only in the sessions SessionHookLimit names. Saying "no hook" of a
+// client whose hook is installed would be false; saying nothing would hide the
+// sessions it never fires in.
+func describeHookless(hookless []string) string {
+	var none, partial []string
+	for _, p := range hookless {
+		if limit := provisioning.SessionHookLimit(configurator.Provider(p)); limit != "" {
+			partial = append(partial, fmt.Sprintf("%s's session-start hook fires only in `%s`", p, limit))
+		} else {
+			none = append(none, p)
+		}
+	}
+	var parts []string
+	if len(none) > 0 {
+		parts = append(parts, strings.Join(none, ", ")+" has no session-start hook")
+	}
+	return strings.Join(append(parts, partial...), "; ")
 }
 
 // connectOptions bundles the parameters of a connect operation, shared by the

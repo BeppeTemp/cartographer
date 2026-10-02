@@ -854,8 +854,9 @@ func checkSymlinkedDestinations(dir string, providers []string) []doctorFinding 
 	return out
 }
 
-// checkTriggerCoverage: a provider with no session hook syncs only when a human
-// remembers to, unless the scheduled trigger is installed (D140). Shares its
+// checkTriggerCoverage: a provider with no session hook, or one that fires only
+// in some sessions (D300), syncs only when a human remembers to, unless the
+// scheduled trigger is installed (D140). Shares its
 // predicate with printSyncTimerHint (connect.go) so the two cannot disagree.
 func checkTriggerCoverage(dir string, providers []string) []doctorFinding {
 	hookless, st := providersNeedingSyncTimer(providers)
@@ -868,7 +869,7 @@ func checkTriggerCoverage(dir string, providers []string) []doctorFinding {
 	}
 	return []doctorFinding{{
 		Check: "trigger", Severity: doctorWarning, Path: path,
-		Message: fmt.Sprintf("%s has no session-start hook and the scheduled trigger is not installed: it syncs only on demand", strings.Join(hookless, ", ")),
+		Message: fmt.Sprintf("%s, and the scheduled trigger is not installed: it syncs only on demand", describeHookless(hookless)),
 		Fix:     "cartographer service sync-timer install",
 	}}
 }
