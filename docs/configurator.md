@@ -559,6 +559,22 @@ The bootstrap hook and the scheduled timer deliberately do **not** run it: it is
 and eight checks on every session start is exactly the background cost D60 avoided by keeping
 the bootstrap script silent and deterministic.
 
+### `cartographer kb repair <kb> [--apply] [--json]`
+
+The unattended half of KB upkeep (D299), schedulable by the operator (cron, launchd, a CI job); nothing
+installs a schedule. It calls `kb_status`, then `kb_repair` with `dry_run: true` for every check with a
+mechanical fix, and prints per check the planned count and up to 5 examples. With `--apply` it re-runs
+**only** the checks listed in the KB's `kbs[].auto_repair` with `dry_run: false` (`[auto]` in the
+report); a check outside it is never applied, and an empty list is said so. It ends with the judgement
+work left — the `kb_review` counts by kind — which only a `kb-doctor` session with the operator handles.
+It writes no `kb-doctor` log entry: a mechanical pass is not a doctor session, and the entry would
+silence the server's doctor proposal while the judgement work is undone (each applied check still
+leaves `kb_repair`'s own entry).
+
+Exit codes: `0` nothing left to do, `3` only judgement work or checks outside `auto_repair` remain,
+`2` error. `--json` prints the report as an object (`checks`, `review_total`, `review_by_kind`,
+`remaining`). Not to be confused with `cartographer doctor`, which checks the client's provisioning.
+
 ### `cartographer service sync-timer <action>`
 
 The scheduled sync trigger for clients with no session-start hook (D140) — distinct from the

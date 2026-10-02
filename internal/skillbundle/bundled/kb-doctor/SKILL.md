@@ -1,47 +1,58 @@
 ---
 name: kb-doctor
-description: Align an existing Knowledge Base with the current Cartographer standard - apply the mechanical fixes with kb_repair and walk the judgement ones. Use when kb_status reports conformance.doctor_suggested, when the operator asks to tidy or align a KB, or after a Cartographer upgrade.
-version: "1.3"
+description: Keep a Knowledge Base from rotting - a short, budgeted session that applies mechanical repairs and walks the operator through the server's ranked review list. Use when a tool result proposes a kb-doctor session, when kb_status reports conformance.doctor_suggested, when the operator asks to tidy or align a KB, or after a Cartographer upgrade.
+version: "2.0"
 ---
 # KB Doctor - Skill
 
 ## Purpose
 
-A KB drifts from the standard the server reads: synonym fields (`updated` for `timestamp`), tool
-parameters stored as fields, links to retired pages, concepts in the wrong map. Lint reports it,
-`kb_status.conformance` counts it, and this procedure repairs it. Nothing runs by itself: repair is
-an explicit, dry-run-first call (D290), and a KB that was repaired can drift again, so the truth is
-always the next `lint`, never a stored version.
+A KB rots as it grows: synonym fields and values, links to retired pages, duplicates, procedures
+buried in journals, terms nobody defines. The server finds and ranks it (`lint`, `kb_review`); this
+session decides it with the operator. It is short on purpose: at most **10 decisions** per session
+(the operator may ask for more), so it actually happens, and the KB converges over weeks.
+
+Three trust levels, never mixed: **mechanical** fixes (`kb_repair`) are deterministic; a
+**proposal** (a vocabulary) needs one approval; **judgement** (merge, move, close, promote) needs the
+operator's choice per item. The server proposes a session when the KB's `doctor_interval` has passed
+since the last one; it never runs one by itself.
 
 ## Procedure
 
-1. **Check the signal.** Call `kb_status` and read `conformance` (`findings` by severity, `fixable`,
-   `last_doctor`, `doctor_suggested`). Stop if `doctor_suggested` is false and the operator did not
-   ask for a pass.
-2. **Survey.** `lint` over the whole KB, grouped by check (`counts_by_check`). Tell the operator what
-   the pass will cover.
-3. **Mechanical fixes.** For each check that emits fixes (`nonstandard_field`, `tool_param_field`, `broken_link`, `duplicate_link`, `invalid_field_value`, `prose_value`):
-   `kb_repair` with `dry_run: true` (the default), show the plan to the operator, then repeat with
-   `dry_run: false` after confirmation. One call is one commit. A concept in `skipped` changed since it
-   was listed: run the check again.
-4. **Judgement fixes**, in order of value. Batch per map and run `gate_check` scoped to the map after
-   each batch:
-   1. `broken_relation` / `broken_link`: read the concept, fix or remove the reference.
-   2. `missing_value_contract`: show the finding's `proposal` (values and the synonyms it maps), and after the operator agrees `map_update` with those `field_values`; then `kb_repair invalid_field_value` and `kb_repair prose_value` converge the map.
-   3. `nonstandard_field` where both fields are present: merge the values, drop the synonym with
-      `concept_patch` (frontmatter key set to null).
-   4. `link_to_retired`: reword, or point to the successor.
-   5. `map_misfit`: `concept_move` after the operator agrees.
-   6. `stale_open` / `closed_with_open_items`: ask the operator, per concept, close (set the status), update, or keep open with a line on why.
-   7. `open_marker` and `template_section_missing`: never invent the answer — fill what the KB already knows elsewhere, otherwise record a `contradiction_report` of kind `open_question`.
-   8. `facet_sprawl`: propose the vocabulary the message lists; retag only after the operator agrees.
-5. **Instructions and templates.** `artifact_read` the KB's instructions file and `templates/`: none may
-   keep naming a field that was renamed. Update them in the same session.
-6. **Close.** `log_append` whose text contains `kb-doctor` and the counts before and after (for
-   example `kb-doctor: warnings 205 -> 0, info 97 -> 41`): `kb_status` reads `last_doctor` from it.
+1. **Signal.** `kb_status`: read `conformance` (`findings`, `fixable`, `last_doctor`,
+   `next_doctor`, `doctor_suggested`), `review` (`total`, `by_kind`), `open_markers`, and
+   `capabilities.auto_repair`. Stop if nothing is suggested and the operator did not ask. Tell the
+   operator in two lines what the session will cover.
+2. **Mechanical.** For each check with a fix (`nonstandard_field`, `tool_param_field`, `broken_link`,
+   `duplicate_link`, `invalid_field_value`, `prose_value`): `kb_repair` with `dry_run: true`.
+   Checks listed in `capabilities.auto_repair.checks` the operator already trusts: apply them
+   (`dry_run: false`) and report the counts. Any other: show the plan, apply on confirmation. One
+   call is one commit; a concept in `skipped` changed since it was listed, so run the check again.
+3. **Vocabulary proposals.** A `missing_value_contract` finding carries a `proposal` (values and the
+   synonyms it maps). One numbered decision per map; after approval `map_update` with those
+   `field_values`, then `kb_repair invalid_field_value` and `kb_repair prose_value`.
+4. **Review items.** `kb_review` with `limit: 10` (the budget, minus the decisions step 3 used). Present
+   **one numbered list**; for each item the kind, the concepts, the evidence and 2-3 options:
+   - **act** with the ordinary tools: `concept_merge` or a cross-link (`duplicate_candidate`), close
+     or update (`zombie_work`, `stale_open`, `closed_with_open_items`), `concept_new` from the target
+     map's template and links both ways (`promotion_candidate`), a glossary entry
+     (`glossary_gap`), `concept_move` (`map_misfit`), `concept_expand` or a split
+     (`concept_oversize`);
+   - **dismiss** with a reason: `concept_patch` adding the kind to `lint_ignore` on a concept the
+     item names, `reason` saying why, so the history keeps it;
+   - **defer**: nothing is written; it comes back next session.
+   Never invent content: what the KB does not know becomes a `contradiction_report` of kind
+   `open_question`. Run `gate_check` scoped to each map you changed.
+5. **Artifacts.** `artifact_read` the KB's `instructions.md` and `templates/`: update any rule or
+   template this session made obsolete (a field renamed, a workaround a repair removed).
+6. **Close.** `log_append` whose text contains `kb-doctor` and the before/after counts per bucket,
+   for example `kb-doctor: warnings 205 -> 0, fixable 40 -> 0, review 34 -> 25, open_markers 161 ->
+   158`. `kb_status` reads `last_doctor` from it, which also stops the proposal for one interval.
 
 ## Rules
 
-- Never apply a repair the operator has not seen as a dry-run plan.
+- Judgement is never applied without the operator's choice; a mechanical repair outside
+  `auto_repair` never without a dry-run plan they saw.
+- One numbered list per session; a deferred item is not asked again in the same session.
 - Never overwrite by hand a concept `kb_repair` skipped: re-read it and run the check again.
-- Do not invent contract values or move concepts without the operator's agreement.
+- Do not invent contract values, glossary definitions or procedure steps.

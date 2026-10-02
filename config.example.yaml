@@ -42,6 +42,10 @@ kbs:
                                    # KB (default false, D71): writing a skill means
                                    # injecting instructions that clients will run —
                                    # grant per-KB, an rw token alone does not imply it
+    # auto_repair: [nonstandard_field]  # checks `cartographer kb repair --apply` may
+                                   # apply unattended (D299), by name, no "all"
+    # doctor_interval: 14d         # days before the server proposes the next
+                                   # kb-doctor session (D299); "0" disables
     # tool_prefix: "locale"        # DEPRECATED, ignored (D288): tools are never prefixed
                                    # and a startup warning names the key. Removed in a
                                    # later release. See docs/deployment.md

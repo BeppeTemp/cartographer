@@ -135,7 +135,7 @@ func TestKBRepairApplyRunsOnlyTheListedChecks(t *testing.T) {
 func TestKBRepairCLIIsNeverNudged(t *testing.T) {
 	c, _ := repairTestKB(t, nil)
 	for i := 0; i < 2; i++ {
-		raw, err := c.Call("search", map[string]any{"query": "First"})
+		raw, err := c.Invoke("search", map[string]any{"query": "First"})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -156,4 +156,4 @@ func TestCallIntoTakesTheFirstBlock(t *testing.T) {
 
 type fakeCaller string
 
-func (f fakeCaller) Call(string, any) (json.RawMessage, error) { return json.RawMessage(f), nil }
+func (f fakeCaller) Invoke(string, any) (json.RawMessage, error) { return json.RawMessage(f), nil }

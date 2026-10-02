@@ -29,7 +29,7 @@ const kbRepairExamples = 5
 // toolCaller is the slice of client.MCPClient kb repair uses, so tests can
 // drive it without a server.
 type toolCaller interface {
-	Call(tool string, args any) (json.RawMessage, error)
+	Invoke(tool string, args any) (json.RawMessage, error)
 }
 
 // targetCaller qualifies tool names for one KB target (multikb.go).
@@ -38,7 +38,7 @@ type targetCaller struct {
 	target kbTarget
 }
 
-func (t targetCaller) Call(tool string, args any) (json.RawMessage, error) {
+func (t targetCaller) Invoke(tool string, args any) (json.RawMessage, error) {
 	return callTool(t.c, t.target, tool, args)
 }
 
@@ -209,7 +209,7 @@ func describeFix(path string, f *lint.Fix) string {
 // a notice block (D299 nudge) makes client.Call return a JSON array of the
 // blocks' texts: the answer is the first one.
 func callInto(c toolCaller, tool string, args any, v any) error {
-	raw, err := c.Call(tool, args)
+	raw, err := c.Invoke(tool, args)
 	if err != nil {
 		return err
 	}

@@ -98,6 +98,13 @@ kbs:                          # (kbs[]) explicit KBs, local path or remote git (
                                                       # clients will execute — the capability must be
                                                       # granted per-KB by the operator; an rw token alone
                                                       # does not imply it
+    auto_repair: [nonstandard_field, duplicate_link] # (kbs[].auto_repair) checks `cartographer kb repair
+                                                      # --apply` may apply unattended (D299); each must be
+                                                      # a check with a mechanical fix, listed by name (no
+                                                      # "all"). Default empty: nothing runs unattended
+    doctor_interval: 14d                             # (kbs[].doctor_interval) days after the last
+                                                      # kb-doctor session before the server proposes the
+                                                      # next one (D299); "0" disables, default 14d
     tool_prefix: "team"                              # (kbs[].tool_prefix) DEPRECATED, ignored (D288):
                                                       # tools are never prefixed; a warning per KB.
                                                       # See §MCP tool-name prefix.
