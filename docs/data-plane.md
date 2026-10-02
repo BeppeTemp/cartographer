@@ -336,7 +336,7 @@ Lint also sees a KB **decaying**: work never closed, closed work not finished, p
 - `stale_open` (suppressible): open status and `timestamp` older than `stale_after`.
 - `closed_with_open_items` (suppressible): a status of the `done` or `resolved` family with unchecked `- [ ]` items outside code.
 - `template_section_missing` (suppressible): sections of the type's template the page lacks, compared folding case and accents; headings inside fenced code in the template are ignored.
-- `open_marker` (suppressible): marker occurrences outside code, whole words, case- and accent-folded; `kb_status.open_markers` totals them as `{concepts, markers}`.
+- `open_marker` (suppressible): marker occurrences outside code and outside struck-through `~~text~~` (closed or cancelled, D307), whole words, case- and accent-folded; `kb_status.open_markers` totals them as `{concepts, markers}`.
 - `facet_sprawl` (on `_map.md`, directory-level): `tags` with at least 30 distinct values, half or more used once; the message lists the ten most used as the likely vocabulary.
 
 ### Review keys (D298)

@@ -21,6 +21,10 @@ const (
 	FixDropField    = "drop_field"     // Field
 	FixRebaseLink   = "rebase_link"    // Field = old href, To = new href (D295 WP2)
 	FixDropLinkItem = "drop_link_item" // Field = the exact list line to remove from the links section (D295 WP4)
+	// FixRewriteLinkItem: Field = the exact list line, To = that line without
+	// the links the text already carries (D307). An item holding other links
+	// keeps them; one left with none is dropped (FixDropLinkItem instead).
+	FixRewriteLinkItem = "rewrite_link_item"
 )
 
 // Fix is the machine-readable remedy of a finding whose repair is mechanical.

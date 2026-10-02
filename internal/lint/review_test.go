@@ -243,7 +243,9 @@ func TestReviewPromotionCandidate(t *testing.T) {
 func TestReviewGlossaryGap(t *testing.T) {
 	k, _ := reviewFixtures[ReviewGlossary](t, false)
 	for i := 0; i < glossaryMinConcepts; i++ {
-		writeFile(t, k.DataRoot(), fmt.Sprintf("m/d%02d.md", i), "---\ntype: Note\ntitle: D\n---\n# D\n\nCPU and PostgreSQL and TODO, `NAS` in code. NFS mount.\n")
+		// API and JSON are common terms; NON is "non" shouted (D307); HA,
+		// two letters, stays a term even though "ha" is an ordinary word.
+		writeFile(t, k.DataRoot(), fmt.Sprintf("m/d%02d.md", i), "---\ntype: Note\ntitle: D\n---\n# D\n\nCPU and PostgreSQL and TODO, `NAS` in code. NFS mount. API, JSON. NON farlo: non serve. HA ha.\n")
 	}
 	// NFS is used in 10 concepts but one glossary-map page defines it.
 	writeFile(t, k.DataRoot(), "g/_map.md", "---\ntype: Map\ntitle: G\nglossary: true\n---\n")
@@ -254,7 +256,7 @@ func TestReviewGlossaryGap(t *testing.T) {
 	for _, it := range items {
 		terms[it.Term] = len(it.Concepts)
 	}
-	if !reflect.DeepEqual(terms, map[string]int{"ZFS": glossaryMinConcepts, "PostgreSQL": glossaryMinConcepts}) {
+	if !reflect.DeepEqual(terms, map[string]int{"ZFS": glossaryMinConcepts, "PostgreSQL": glossaryMinConcepts, "HA": glossaryMinConcepts}) {
 		t.Fatalf("glossary terms = %v", terms)
 	}
 }

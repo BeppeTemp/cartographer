@@ -591,8 +591,8 @@ func runChecks(k *kb.KB, scope string, scopeNeighbors bool) ([]Finding, error) {
 						Severity: SevInfo,
 						Message:  fmt.Sprintf("linked both in the text and under %q: %s — keep the link where the text says why", heading, d),
 					}
-					if line, ok := fixableDups[d]; ok {
-						f.Fix = &Fix{Kind: FixDropLinkItem, Field: line}
+					if fix, ok := fixableDups[d]; ok {
+						f.Fix = fix
 					}
 					emit(f)
 				}

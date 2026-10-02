@@ -253,14 +253,16 @@ func (s *structure) conceptChecks(id okf.ConceptID, relPath string) []Finding {
 	// --- map_misfit (info) ---
 	// A direct neighbour-majority rule, not community detection: communities
 	// shift with unrelated edits, and the finding would flicker.
-	if home := strings.Split(string(id), "/")[0]; s.kindOf(id) == "map" {
+	// A retired concept is not misfiled: an archive holds retired things of
+	// every domain, so its neighbours are always elsewhere (D307).
+	if home := strings.Split(string(id), "/")[0]; s.kindOf(id) == "map" && !retired(facets.Status) {
 		conceptType := facets.Type
 		counts := map[string]int{}
 		n := 0
 		for _, v := range s.lg.Graph.Undirected()[i] {
 			vid := s.lg.IDs[v]
-			if s.kindOf(vid) != "map" {
-				continue // journals, root and services concepts do not vote
+			if s.kindOf(vid) != "map" || retired(s.lg.Facets[v].Status) {
+				continue // journals, root, services and retired concepts do not vote
 			}
 			n++
 			counts[strings.Split(string(vid), "/")[0]]++

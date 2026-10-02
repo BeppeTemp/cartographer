@@ -157,6 +157,8 @@ func applyFixes(fm *okf.Frontmatter, body *string, fixes []*lint.Fix) (changed i
 			*body = insertAfterH1(*body, "> "+fx.Field+": "+rest)
 		case lint.FixDropLinkItem:
 			*body = lint.DropLinkItem(*body, fx.Field)
+		case lint.FixRewriteLinkItem:
+			*body = lint.ReplaceLinkItem(*body, fx.Field, fx.To)
 		default:
 			return 0, nil, "unknown fix kind " + fx.Kind
 		}

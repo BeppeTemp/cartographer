@@ -120,7 +120,10 @@ func decayFindings(in conceptInput, sections []string) []Finding {
 		markers = in.Contract.OpenMarkers
 	}
 	if re := markerRegexp(markers); re != nil {
-		lines := strings.Split(masked, "\n")
+		// Struck-through text is closed or cancelled: a marker there is
+		// history, not an open question (D307).
+		unstruck := struckRe.ReplaceAllStringFunc(masked, func(m string) string { return strings.Repeat(" ", len(m)) })
+		lines := strings.Split(unstruck, "\n")
 		orig := strings.Split(in.Body, "\n")
 		count, first := 0, ""
 		for i, l := range lines {
@@ -141,6 +144,8 @@ func decayFindings(in conceptInput, sections []string) []Finding {
 	}
 	return out
 }
+
+var struckRe = regexp.MustCompile(`~~[^~\n]+~~`)
 
 func foldHeading(h string) string {
 	return strings.Join(strings.Fields(search.Fold(strings.ToLower(h))), " ")
