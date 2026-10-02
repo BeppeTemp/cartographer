@@ -337,6 +337,9 @@ func runServe(cfg *config.Config) {
 		}
 		k.SopsAgeKeyFile = resolveSopsAgeKeyFile(m.Spec, cfg.Sops, m.Name)
 		k.AllowArtifactWrite = m.Spec.AllowArtifactWrite
+		k.DoctorAutoRepair = m.Spec.DoctorAutoRepair
+		// Validated by config.Load; a discovered KB's zero spec yields the default.
+		k.DoctorIntervalDays, _ = m.Spec.DoctorIntervalDays()
 		k.Discovered = m.Discovered
 		name := m.Name
 		if name == strings.TrimPrefix(mcpserver.RoutedMountPath, "/mcp/") {
