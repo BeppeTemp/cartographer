@@ -204,6 +204,46 @@ A map created without `require_index_entry` opts in later with `map_update` (D22
 move out of it leaves its index entry behind — which `lint` reports as a `broken_link` on the map's
 `index.md`, since dead index links are checked for every map.
 
+### Generated indexes (D301)
+
+A map whose contract says `index: generated` (set with `map_update`; `curated` or `""` removes it)
+hands its concept list to the server. After every successful write, before the commit, the server
+recomputes for each such map the block below from the graph cache and rewrites `index.md` only if
+the bytes differ — in the same commit as the write, so creating a concept in a 100-entry journal is
+one added line, not a re-sent index. Every map is checked, not only those the write touched: the
+work is in memory, and an index edited out of band heals on the next write.
+
+```
+<!-- cartographer:index begin — generated from this map's concepts; edit outside the block -->
+### <Type>
+- [[<id>]] — <title>
+<!-- cartographer:index end -->
+```
+
+The entries are the map's **direct** concepts (two-segment IDs: an expanded concept is one entry,
+its satellites none), titled from the frontmatter or by the ID. A map lists them by title then ID,
+under a `### <Type>` heading only when it holds at least two types (untyped last, as `Other`); a
+journal newest ID first, grouped by `### YYYY-MM` past 30 entries (IDs with no date prefix last,
+under `Undated`). The same concept set always renders the same bytes. The block is appended after
+the curated text the first time and replaced in place afterwards; every byte outside it is the
+operator's. `index_patch` refuses an edit that changes the block (`generated_index`), `concept_move`
+leaves a generated index to the server instead of editing it, and `lint` reports `index_stale`
+(info, directory-level) when the block differs from what the next write would put there — in place
+of `index_incomplete`, which a generated map never gets. A KB's `instructions.md` that tells agents
+to add new pages to the index is the `kb-doctor` skill's to update, not the server's.
+
+### Cost keys (D301)
+
+| Key | Meaning | Default |
+|---|---|---|
+| `index: generated` | the server keeps the map's concept list (§Generated indexes) | `curated` |
+| `repeated_fact_min: <n>` | concepts that must carry a line for a `repeated_fact` review item; with owners in several maps the lowest threshold among them applies | 3 |
+| `hotspot_in_degree: <n>` | inbound links that, with `hotspot_bytes`, make a `read_hotspot` | 50 |
+| `hotspot_bytes: <n>` | body size that, with `hotspot_in_degree`, makes a `read_hotspot` | 16384 |
+| `oversize_bytes: <n>` | this map's `concept_oversize` threshold | half the 60 KB read guard |
+
+Each is a positive integer (or `generated`/`curated`); anything else is `contract_malformed`.
+
 ### Silencing a lint finding on one concept
 
 `lint_ignore: [check, …]` in a concept's frontmatter drops the named findings **for that concept
@@ -213,10 +253,10 @@ describes, so a KB's own "known false positives" page was impossible.
 
 Suppressible: `broken_link`, `machine_path`, `concept_oversize`, `stale_claim`, `imported_draft`,
 `secrets_on_non_service`, `orphan`, `missing_title`, `unknown_placeholder`, `forbidden_term`, `nonstandard_field`, `prose_value`, `stale_open`, `closed_with_open_items`, `template_section_missing`, `open_marker`, `source_uncited`, `duplicate_link`, `bare_link_list`, and the structural
-`cut_concept`, `link_to_retired`, `broken_relation`, `map_misfit`, and the `kb_review` kinds (D298) `duplicate_candidate`, `zombie_work`, `promotion_candidate`, `glossary_gap`, `lint_judgement` — there the name dismisses a review item that names the concept (see §Review keys). **Not** suppressible: `tool_param_field` (a tool argument is never a legitimate field), every `error`-severity check
+`cut_concept`, `link_to_retired`, `broken_relation`, `map_misfit`, `reciprocal_link_item` (D301), and the `kb_review` kinds (D298, D301) `duplicate_candidate`, `zombie_work`, `repeated_fact`, `read_hotspot`, `promotion_candidate`, `glossary_gap`, `lint_judgement` — there the name dismisses a review item that names the concept (see §Review keys). **Not** suppressible: `tool_param_field` (a tool argument is never a legitimate field), every `error`-severity check
 (`missing_required_field`, `invalid_field_value`, `forbidden_field`, `expanded_ambiguous`) — those are contract violations, not judgements, and
 letting a concept declare its own contract void would be a hole rather than an escape hatch — and the
-directory-level checks (`map_oversize`, `index_incomplete`, `expanded_*`, `orphan_asset`,
+directory-level checks (`map_oversize`, `index_incomplete`, `index_stale`, `expanded_*`, `orphan_asset`,
 `oversized_asset`, `unlistable_assets`, `unused_placeholder`, `facet_sprawl`), which belong to a map, an expanded concept or `paths.yaml` and have no single
 concept frontmatter that owns them, and
 `island`, which belongs to a whole component of the graph. Naming
@@ -246,7 +286,7 @@ Lint also compares a KB with the standard fields the server reads, not only with
 
 - `malformed_frontmatter` (warning, not suppressible, no fix, D295): a top-level key with a scalar value followed by indented `- ` lines. The stdlib-only parser (D8) keeps the scalar and drops the lines, so the value is silently truncated; the message names the key and the line.
 
-Two finding kinds gained a mechanical fix in D295. `broken_link` in the `index.md` of an expanded concept carries `rebase_link` (`field` the href, `to` the rewritten href) when the link resolves against the pre-expansion file `<id>.md`: that is the damage an expansion did before `concept_expand` rebased links. `duplicate_link` is one finding per repeated target, and carries `drop_link_item` (`field` the exact list line) when that item is a single link and nothing else: the link stays in the text, the item goes, and a section left with no item loses its heading. An item with any other word keeps no fix — the word may be the reason. `map_misfit` names only a map whose contract admits the concept's type (a strict map's `concept_types`); with no admitting majority there is no finding.
+Two finding kinds gained a mechanical fix in D295. `broken_link` in the `index.md` of an expanded concept carries `rebase_link` (`field` the href, `to` the rewritten href) when the link resolves against the pre-expansion file `<id>.md`: that is the damage an expansion did before `concept_expand` rebased links. `duplicate_link` is one finding per repeated target, and carries `drop_link_item` (`field` the exact list line) when that item is a single link and nothing else: the link stays in the text, the item goes, and a section left with no item loses its heading. An item with any other word keeps no fix — the word may be the reason. `reciprocal_link_item` (D301, info) carries the same fix for a link-only item whose target links back to the concept anywhere in its body: backlinks keep the edge navigable both ways, so the item is a second write for an edge the server already exposes. It is an efficiency choice the operator opts into (`kb_repair reciprocal_link_item`, or `auto_repair` when listed), not conformance debt, and refines D287 without reverting it: only reciprocated items go, the section stays. `map_misfit` names only a map whose contract admits the concept's type (a strict map's `concept_types`); with no admitting majority there is no finding.
 
 ### Value vocabularies (D296)
 

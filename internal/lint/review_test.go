@@ -53,6 +53,9 @@ func ignoreLine(kind string, on bool) string {
 	return "lint_ignore: [" + kind + "]\n"
 }
 
+// sharedFact is a prose line long enough to count as a fact (D301).
+const sharedFact = "The backup job runs nightly at 02:00 and keeps fourteen copies."
+
 // reviewFixtures build, per kind, a KB with one positive item whose first
 // concept carries lint_ignore: [kind] when dismiss is true. The trap test
 // iterates ReviewKinds over this map, so a new kind without a fixture fails.
@@ -89,6 +92,27 @@ var reviewFixtures = map[string]func(t *testing.T, dismiss bool) (*kb.KB, string
 			writeFile(t, k.DataRoot(), fmt.Sprintf("m/c%02d.md", i), fmt.Sprintf("---\ntype: Note\ntitle: C%d\n%s---\n# C\n\nThe ZFS pool.\n", i, ign))
 		}
 		return k, "m/c00"
+	},
+	ReviewRepeatedFact: func(t *testing.T, dismiss bool) (*kb.KB, string) {
+		k := tempKB(t)
+		writeFile(t, k.DataRoot(), "m/_map.md", "---\ntype: Map\ntitle: M\n---\n")
+		for i := 0; i < repeatedFactMinConcepts; i++ {
+			ign := ""
+			if i == 0 {
+				ign = ignoreLine(ReviewRepeatedFact, dismiss)
+			}
+			writeFile(t, k.DataRoot(), fmt.Sprintf("m/r%d.md", i), fmt.Sprintf("---\ntype: Note\ntitle: R%d\n%s---\n# R\n\n%s\n", i, ign, sharedFact))
+		}
+		return k, "m/r0"
+	},
+	ReviewReadHotspot: func(t *testing.T, dismiss bool) (*kb.KB, string) {
+		k := tempKB(t)
+		writeFile(t, k.DataRoot(), "m/_map.md", "---\ntype: Map\ntitle: M\nhotspot_in_degree: 3\nhotspot_bytes: 100\n---\n")
+		writeFile(t, k.DataRoot(), "m/hub.md", "---\ntype: Note\ntitle: Hub\n"+ignoreLine(ReviewReadHotspot, dismiss)+"---\n# Hub\n\n"+strings.Repeat("word ", 40)+"\n")
+		for i := 0; i < 3; i++ {
+			writeFile(t, k.DataRoot(), fmt.Sprintf("m/l%d.md", i), fmt.Sprintf("---\ntype: Note\ntitle: L%d\n---\n# L\n\n[hub](hub.md)\n", i))
+		}
+		return k, "m/hub"
 	},
 	ReviewLintJudgement: func(t *testing.T, dismiss bool) (*kb.KB, string) {
 		k := tempKB(t)
@@ -309,4 +333,114 @@ func idsOf(ids ...string) []okf.ConceptID {
 		out[i] = okf.ConceptID(id)
 	}
 	return out
+}
+
+// TestReviewRepeatedFact pins what is and is not a repeated fact (D301).
+func TestReviewRepeatedFact(t *testing.T) {
+	k := tempKB(t)
+	writeFile(t, k.DataRoot(), "m/_map.md", "---\ntype: Map\ntitle: M\n---\n")
+	writeFile(t, k.Root, "templates/note.md", "---\ntype: Note\n---\n> Fill in the details of this note before saving it anywhere.\n")
+	row := "| backup-host | nightly at 02:00 | fourteen copies kept |"
+	body := strings.Join([]string{
+		"# Title that is a heading and long enough to count otherwise",
+		"> Fill in the details of this note before saving it anywhere.",
+		"- [[m/target-of-a-link-only-list-item-long-enough]]",
+		"`an inline code span that is long enough to be a fact line`",
+		"```",
+		"a fenced code line that is also long enough to be a fact",
+		"```",
+		"| Host name of the machine | Schedule | Retention policy |",
+		"| --- | --- | --- |",
+		row,
+	}, "\n")
+	for i := 0; i < 3; i++ {
+		writeFile(t, k.DataRoot(), fmt.Sprintf("m/c%d.md", i), fmt.Sprintf("---\ntype: Note\ntitle: C%d\n---\n%s\n", i, body))
+	}
+	// A line in only two concepts is not an item.
+	for i := 0; i < 2; i++ {
+		writeFile(t, k.DataRoot(), fmt.Sprintf("m/d%d.md", i), fmt.Sprintf("---\ntype: Note\ntitle: D%d\n---\n%s\n", i, sharedFact))
+	}
+	got := itemsOf(review(t, k), ReviewRepeatedFact)
+	if len(got) != 1 || !strings.Contains(got[0].Evidence, "backup-host | nightly at 02:00") || got[0].Weight != 3 {
+		t.Fatalf("want only the table row: %+v", got)
+	}
+	// A map may lower the threshold: two copies are then an item.
+	writeFile(t, k.DataRoot(), "m/_map.md", "---\ntype: Map\ntitle: M\nrepeated_fact_min: 2\n---\n")
+	if got := itemsOf(review(t, k), ReviewRepeatedFact); !names(got, "m/d0") {
+		t.Fatalf("repeated_fact_min: 2 ignored: %+v", got)
+	}
+}
+
+// TestReviewReadHotspot: both conditions are needed (D301).
+func TestReviewReadHotspot(t *testing.T) {
+	k := tempKB(t)
+	writeFile(t, k.DataRoot(), "m/_map.md", "---\ntype: Map\ntitle: M\n---\n")
+	big := strings.Repeat("word ", hotspotMinBytes/5+10)
+	// A hub of 60 small pages is not a hotspot.
+	writeFile(t, k.DataRoot(), "m/hub.md", "---\ntype: Note\ntitle: Hub\n---\n# Hub\n")
+	// A 20 KB page with 10 inbound links is not one either.
+	writeFile(t, k.DataRoot(), "m/big.md", "---\ntype: Note\ntitle: Big\n---\n"+big+"\n")
+	// A 20 KB page with 60 inbound links is.
+	writeFile(t, k.DataRoot(), "m/hot.md", "---\ntype: Note\ntitle: Hot\n---\n"+big+"\n")
+	for i := 0; i < 60; i++ {
+		extra := ""
+		if i < 10 {
+			extra = " [big](big.md)"
+		}
+		writeFile(t, k.DataRoot(), fmt.Sprintf("m/p%02d.md", i), fmt.Sprintf("---\ntype: Note\ntitle: P%d\n---\n[hub](hub.md) [hot](hot.md)%s\n", i, extra))
+	}
+	items := review(t, k)
+	got := itemsOf(items, ReviewReadHotspot)
+	if len(got) != 1 || got[0].Concepts[0] != "m/hot" {
+		t.Fatalf("hotspots: %+v", got)
+	}
+	if vis := FilterReview(got, func(string) bool { return true }, false); len(vis) != 0 {
+		t.Fatal("a whole-graph item reached a narrowed caller")
+	}
+}
+
+// TestConceptOversizePerMap: oversize_bytes lowers the threshold for its own
+// map only (D301); the default stays tied to the read guard.
+func TestConceptOversizePerMap(t *testing.T) {
+	k := tempKB(t)
+	writeFile(t, k.DataRoot(), "small/_map.md", "---\ntype: Map\ntitle: S\noversize_bytes: 100\n---\n")
+	writeFile(t, k.DataRoot(), "other/_map.md", "---\ntype: Map\ntitle: O\n---\n")
+	body := strings.Repeat("word ", 60)
+	writeFile(t, k.DataRoot(), "small/a.md", "---\ntype: Note\ntitle: A\n---\n"+body+"\n")
+	writeFile(t, k.DataRoot(), "other/a.md", "---\ntype: Note\ntitle: A\n---\n"+body+"\n")
+	f, err := Run(k, "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasCheck(f, "small/a", "concept_oversize") || hasCheck(f, "other/a", "concept_oversize") {
+		t.Fatalf("per-map oversize: %+v", f)
+	}
+}
+
+// TestReciprocalLinkItem (D301): only a link-only item whose target links
+// back; an item with prose is kept; a duplicate_link is not reported twice.
+func TestReciprocalLinkItem(t *testing.T) {
+	k := tempKB(t)
+	writeFile(t, k.DataRoot(), "m/_map.md", "---\ntype: Map\ntitle: M\n---\n")
+	writeFile(t, k.DataRoot(), "m/a.md", "---\ntype: Note\ntitle: A\n---\n# A\n\nUses [[m/d]].\n\n## Links\n\n- [[m/b]]\n- [[m/c]] — why it matters\n- [[m/d]]\n- [[m/e]]\n")
+	for _, id := range []string{"b", "c", "d"} {
+		writeFile(t, k.DataRoot(), "m/"+id+".md", "---\ntype: Note\ntitle: "+id+"\n---\nBack to [[m/a]].\n")
+	}
+	writeFile(t, k.DataRoot(), "m/e.md", "---\ntype: Note\ntitle: e\n---\nNo link back.\n")
+	f, err := Run(k, "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, x := range f {
+		if x.Check == "reciprocal_link_item" {
+			got = append(got, x.Fix.Field)
+		}
+	}
+	if len(got) != 1 || got[0] != "- [[m/b]]" {
+		t.Fatalf("reciprocal items: %v", got)
+	}
+	if countCheck(f, "m/a.md", "duplicate_link") != 1 {
+		t.Fatalf("duplicate_link lost: %+v", f)
+	}
 }

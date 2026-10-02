@@ -219,7 +219,18 @@ func (c auditCall) end(s *Server, outcome string, result ToolResult) {
 		Tool: c.tool, ExternalTool: c.external, ReadOnly: c.readOnly, Resources: c.resources,
 		Phase: audit.PhaseCompletion, Outcome: outcome,
 		DurationMs: time.Since(c.start).Milliseconds(), CommitSHA: result.CommitSHA,
+		ResultBytes: resultBytes(result),
 	})
+}
+
+// resultBytes is the total size of a result's text blocks (D301): with it the
+// audit log measures read amplification per session without logging content.
+func resultBytes(result ToolResult) int64 {
+	var n int64
+	for _, c := range result.Content {
+		n += int64(len(c.Text))
+	}
+	return n
 }
 
 // auditDenied records an authorization denial (handleToolsCall's

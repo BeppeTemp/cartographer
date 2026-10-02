@@ -160,6 +160,11 @@ var perConceptChecks = map[string]bool{
 	ReviewPromotion:     true,
 	ReviewGlossary:      true,
 	ReviewLintJudgement: true,
+	// D301: cost kinds.
+	ReviewRepeatedFact: true,
+	ReviewReadHotspot:  true,
+	// D301: an efficiency choice a concept may decline.
+	"reciprocal_link_item": true,
 }
 
 // lintIgnoreSet reads a concept's lint_ignore frontmatter key (D159). A bare
@@ -419,7 +424,7 @@ func Run(k *kb.KB, scope string, scopeNeighbors bool) ([]Finding, error) {
 				reason = "a tool argument is never a legitimate field, so it cannot be declared one"
 			} else if name == "island" {
 				reason = "a graph-level check with no single concept owner"
-			} else if name == "map_oversize" || name == "index_incomplete" || name == "orphan_asset" || name == "oversized_asset" || name == "unlistable_assets" || name == "unused_placeholder" || strings.HasPrefix(name, "expanded_") {
+			} else if name == "map_oversize" || name == "index_incomplete" || name == "index_stale" || name == "orphan_asset" || name == "oversized_asset" || name == "unlistable_assets" || name == "unused_placeholder" || strings.HasPrefix(name, "expanded_") {
 				// orphan_asset belongs to an expanded concept's asset set, reported
 				// in the directory pass: there is no single concept frontmatter that
 				// owns it, so listing it as suppressible would be a promise the
@@ -483,6 +488,24 @@ func Run(k *kb.KB, scope string, scopeNeighbors bool) ([]Finding, error) {
 					emit(f)
 				}
 			}
+			// --- reciprocal_link_item (info, D301): an opt-in efficiency
+			// fix, never conformance debt; the target's own link keeps the
+			// edge navigable both ways through backlinks. ---
+			recips := reciprocalLinkItems(body, linkBase, id, graph.Out, dups, k.AssetExists)
+			recipIDs := make([]okf.ConceptID, 0, len(recips))
+			for target := range recips {
+				recipIDs = append(recipIDs, target)
+			}
+			sort.Slice(recipIDs, func(i, j int) bool { return recipIDs[i] < recipIDs[j] })
+			for _, target := range recipIDs {
+				emit(Finding{
+					Path:     relPath,
+					Check:    "reciprocal_link_item",
+					Severity: SevInfo,
+					Message:  fmt.Sprintf("%s already links back here, so the backlink shows this edge — the item under %q is a second write to keep in sync", target, heading),
+					Fix:      &Fix{Kind: FixDropLinkItem, Field: recips[target]},
+				})
+			}
 			if bare {
 				emit(Finding{
 					Path:     relPath,
@@ -513,7 +536,12 @@ func Run(k *kb.KB, scope string, scopeNeighbors bool) ([]Finding, error) {
 		}
 
 		// --- concept_oversize (info) ---
-		if len(body) > conceptOversizeThreshold {
+		// A map's contract may set its own threshold (oversize_bytes, D301).
+		oversize := conceptOversizeThreshold
+		if len(parts) > 1 && contracts[parts[0]].OversizeBytes > 0 {
+			oversize = contracts[parts[0]].OversizeBytes
+		}
+		if len(body) > oversize {
 			// concept_expand requires exactly two segments and the write path caps
 			// depth at three, so for a satellite the remedy this check used to
 			// advise is structurally unavailable — and the two largest concepts in
@@ -526,7 +554,7 @@ func Run(k *kb.KB, scope string, scopeNeighbors bool) ([]Finding, error) {
 				Path:     string(id),
 				Check:    "concept_oversize",
 				Severity: SevInfo,
-				Message:  fmt.Sprintf("%d bytes in one concept (threshold %d; concept_read returns an outline instead of the body above %d) — %s", len(body), conceptOversizeThreshold, okf.ConceptReadSizeGuard, remedy),
+				Message:  fmt.Sprintf("%d bytes in one concept (threshold %d; concept_read returns an outline instead of the body above %d) — %s", len(body), oversize, okf.ConceptReadSizeGuard, remedy),
 			})
 		}
 
@@ -662,7 +690,27 @@ func Run(k *kb.KB, scope string, scopeNeighbors bool) ([]Finding, error) {
 		// Only candidates in toCheck participate, which keeps a scoped lint
 		// actionable instead of reporting unrelated map siblings.
 		contract, hasContract := contracts[archiveName]
-		if hasContract && contract.RequireIndexEntry {
+		if hasContract && contract.Index == kb.IndexGenerated {
+			// --- index_stale (info, D301) ---
+			// The server owns the concept list of a generated index, so
+			// completeness is not the agent's to check: only whether the
+			// block still matches what the next write would put there.
+			if scopeNorm == "" || scopeNorm == archiveName {
+				if content, err := k.ReadIndex(archiveName); err == nil {
+					want, werr := k.ExpectedIndexBlock(archiveName, contract)
+					if got, _ := kb.IndexBlock(content); werr == nil && got != want {
+						findings = append(findings, Finding{
+							Path:     archiveName + "/index.md",
+							Check:    "index_stale",
+							Severity: SevInfo,
+							Message:  "generated index block differs from the map's concepts (edited out of band or written by an older server) — the next write regenerates it",
+						})
+					}
+					_, body, _ := okf.SplitFrontmatter(content)
+					checkIndexLinks(k, archiveName+"/index.md", body, &findings, exists)
+				}
+			}
+		} else if hasContract && contract.RequireIndexEntry {
 			var direct []okf.ConceptID
 			for id := range toCheck {
 				parts := strings.Split(string(id), "/")

@@ -17,6 +17,8 @@ type NodeFacets struct {
 	// Placeholders are the concept's cited placeholder keys
 	// (ConceptFacets.Placeholders, D262). Shared with the cache: read-only.
 	Placeholders []string
+	// Bytes is the concept file's size (D301), from its stat signature.
+	Bytes int64
 }
 
 // LinkGraph is the int-indexed projection of the link graph that the
@@ -65,12 +67,12 @@ func linkGraphOf(view *graphView, include func(id string) bool) *LinkGraph {
 		IDs:    ids,
 		Index:  make(map[okf.ConceptID]int, len(ids)),
 		Facets: make([]NodeFacets, len(ids)),
-		Links:  Links{Out: view.adj.out, In: view.adj.in, Exists: view.exists},
+		Links:  Links{Out: view.adj.out, In: view.adj.in, Exists: view.exists, Bytes: view.bytes},
 	}
 	for i, id := range ids {
 		lg.Index[id] = i
 		f := view.facets[id]
-		lg.Facets[i] = NodeFacets{Title: f.Title, Type: f.Type, Status: f.Status, SupersededBy: f.SupersededBy, Collection: conceptCollection(id), Placeholders: f.Placeholders}
+		lg.Facets[i] = NodeFacets{Title: f.Title, Type: f.Type, Status: f.Status, SupersededBy: f.SupersededBy, Collection: conceptCollection(id), Placeholders: f.Placeholders, Bytes: view.bytes[id]}
 	}
 	g := &graphalgo.Graph{N: len(ids), Out: make([][]int, len(ids)), In: make([][]int, len(ids))}
 	for i, id := range ids {

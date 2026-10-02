@@ -24,8 +24,9 @@ func toolKBReview(k *kb.KB, cc *conformanceCache) Tool {
 	return Tool{
 		Name:     "kb_review",
 		ReadOnly: true,
-		Description: "Ranked kb-doctor work list: duplicates, zombie work, procedures to promote, " +
-			"glossary gaps, judgement lint; items {kind, concepts, evidence, suggested_action}. " +
+		// The kinds are not listed here: they grow per release (D301) and
+		// are in docs/control-plane.md and in each item's kind.
+		Description: "Ranked kb-doctor work list: items {kind, concepts, evidence, suggested_action}. " +
 			"Dismiss: lint_ignore: [kind] on a named concept.",
 		InputSchema: json.RawMessage(`{
 			"type": "object",

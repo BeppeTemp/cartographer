@@ -1070,6 +1070,8 @@ func toolGraphNeighbors(k *kb.KB) Tool {
 			type neighbor struct {
 				ID       string `json:"id"`
 				Distance int    `json:"distance"`
+				// Bytes is the file size: what reading it costs (D301).
+				Bytes int64 `json:"bytes,omitempty"`
 				// Missing marks a link target that is not a concept (D241),
 				// so an agent can tell a broken link from a neighbour.
 				Missing bool `json:"missing,omitempty"`
@@ -1079,7 +1081,7 @@ func toolGraphNeighbors(k *kb.KB) Tool {
 				// Only visible entries were traversed, so a hidden target is
 				// never flagged missing: that would disclose it (D226).
 				_, exists := graph.Exists[okf.ConceptID(id)]
-				list = append(list, neighbor{ID: id, Distance: dist, Missing: !exists})
+				list = append(list, neighbor{ID: id, Distance: dist, Bytes: graph.Bytes[okf.ConceptID(id)], Missing: !exists})
 			}
 			sort.Slice(list, func(i, j int) bool { return list[i].ID < list[j].ID })
 

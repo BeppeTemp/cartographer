@@ -187,6 +187,43 @@ type conformanceCache struct {
 	reviewStamp  string
 	reviewCached bool
 	review       []lint.ReviewItem
+
+	// whole-KB read cost (D301), cached on the graph generation alone: it
+	// reads nothing but concept files.
+	readCostGen    uint64
+	readCostCached bool
+	readCost       kb.ReadCost
+}
+
+// readCostFor returns kb_status.read_cost for a caller. The whole-KB answer
+// is cached on the graph generation; a narrowed caller's is computed on its
+// visible graph every time, since percentiles over a filtered cache entry
+// would still count the hidden concepts (D226).
+func (cc *conformanceCache) readCostFor(k *kb.KB, include func(string) bool, whole bool) (kb.ReadCost, error) {
+	if !whole {
+		return k.ReadCost(include)
+	}
+	gen, err := k.GraphGeneration()
+	if err != nil {
+		return kb.ReadCost{}, err
+	}
+	cc.mu.Lock()
+	if cc.readCostCached && cc.readCostGen == gen {
+		out := cc.readCost
+		cc.mu.Unlock()
+		return out, nil
+	}
+	cc.mu.Unlock()
+	rc, err := k.ReadCost(nil)
+	if err != nil {
+		return kb.ReadCost{}, err
+	}
+	if genAfter, gerr := k.GraphGeneration(); gerr == nil && genAfter == gen {
+		cc.mu.Lock()
+		cc.readCostGen, cc.readCost, cc.readCostCached = gen, rc, true
+		cc.mu.Unlock()
+	}
+	return rc, nil
 }
 
 // reviewItems returns the whole-KB review work list (D298), unfiltered, on the

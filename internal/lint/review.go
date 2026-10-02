@@ -21,11 +21,16 @@ const (
 	ReviewPromotion     = "promotion_candidate"
 	ReviewGlossary      = "glossary_gap"
 	ReviewLintJudgement = "lint_judgement"
+	// D301: the structural causes of read and write fan-out.
+	ReviewRepeatedFact = "repeated_fact"
+	ReviewReadHotspot  = "read_hotspot"
 )
 
 // ReviewKinds lists the kinds in ranking priority: an item of an earlier kind
 // always comes before one of a later kind.
-var ReviewKinds = []string{ReviewDuplicate, ReviewZombie, ReviewPromotion, ReviewGlossary, ReviewLintJudgement}
+// Repeated facts and hotspots rank before promotion (D301): a duplicated fact
+// is cheaper to fix than to keep updating in every copy.
+var ReviewKinds = []string{ReviewDuplicate, ReviewZombie, ReviewRepeatedFact, ReviewReadHotspot, ReviewPromotion, ReviewGlossary, ReviewLintJudgement}
 
 // Thresholds of the review generators.
 const (
@@ -184,6 +189,8 @@ func Review(k *kb.KB, findings []Finding) ([]ReviewItem, error) {
 	items = append(items, duplicateItems(concepts)...)
 	zombies, zombieItems := zombieWorkItems(concepts, contracts, byConcept)
 	items = append(items, zombieItems...)
+	items = append(items, repeatedFactItems(concepts, contracts, k.TemplateTexts())...)
+	items = append(items, readHotspotItems(concepts, contracts, links)...)
 	items = append(items, promotionItems(concepts, contracts, links)...)
 	items = append(items, glossaryItems(concepts, contracts, glossary)...)
 	items = append(items, lintJudgementItems(findings, zombies)...)
