@@ -143,6 +143,12 @@ func TestApply_Kiro_Hook_UserFilesUntouchedAndDisconnectRemovesOurs(t *testing.T
 	if err := os.WriteFile(userFile, []byte(userBody), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	// Compared with the mode as written, not a literal: Windows reports 0o666
+	// for a file created 0o600.
+	before, err := os.Stat(userFile)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	res := applyKiroHooks(t, kbRoot, baseDir, provisioning.Lock{})
 	lock, err := provisioning.EnsureBootstrapHook(baseDir, configurator.ProviderKiro, res.NewLock, false)
@@ -166,7 +172,7 @@ func TestApply_Kiro_Hook_UserFilesUntouchedAndDisconnectRemovesOurs(t *testing.T
 	if err != nil || string(data) != userBody {
 		t.Errorf("user hook file changed or removed: %q, %v", data, err)
 	}
-	if info, err := os.Stat(userFile); err != nil || info.Mode().Perm() != 0o600 {
+	if info, err := os.Stat(userFile); err != nil || info.Mode() != before.Mode() {
 		t.Errorf("user hook file mode changed: %v, %v", info, err)
 	}
 }
