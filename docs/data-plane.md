@@ -213,7 +213,7 @@ describes, so a KB's own "known false positives" page was impossible.
 
 Suppressible: `broken_link`, `machine_path`, `concept_oversize`, `stale_claim`, `imported_draft`,
 `secrets_on_non_service`, `orphan`, `missing_title`, `unknown_placeholder`, `forbidden_term`, `nonstandard_field`, `prose_value`, `stale_open`, `closed_with_open_items`, `template_section_missing`, `open_marker`, `source_uncited`, `duplicate_link`, `bare_link_list`, and the structural
-`cut_concept`, `link_to_retired`, `broken_relation`, `map_misfit`. **Not** suppressible: `tool_param_field` (a tool argument is never a legitimate field), every `error`-severity check
+`cut_concept`, `link_to_retired`, `broken_relation`, `map_misfit`, and the `kb_review` kinds (D298) `duplicate_candidate`, `zombie_work`, `promotion_candidate`, `glossary_gap`, `lint_judgement` — there the name dismisses a review item that names the concept (see §Review keys). **Not** suppressible: `tool_param_field` (a tool argument is never a legitimate field), every `error`-severity check
 (`missing_required_field`, `invalid_field_value`, `forbidden_field`, `expanded_ambiguous`) — those are contract violations, not judgements, and
 letting a concept declare its own contract void would be a hole rather than an escape hatch — and the
 directory-level checks (`map_oversize`, `index_incomplete`, `expanded_*`, `orphan_asset`,
@@ -286,6 +286,18 @@ Lint also sees a KB **decaying**: work never closed, closed work not finished, p
 - `template_section_missing` (suppressible): sections of the type's template the page lacks, compared folding case and accents; headings inside fenced code in the template are ignored.
 - `open_marker` (suppressible): marker occurrences outside code, whole words, case- and accent-folded; `kb_status.open_markers` totals them as `{concepts, markers}`.
 - `facet_sprawl` (on `_map.md`, directory-level): `tags` with at least 30 distinct values, half or more used once; the message lists the ten most used as the likely vocabulary.
+
+### Review keys (D298)
+
+`kb_review` (`docs/control-plane.md`) builds the doctor's work list from the graph, the lint findings and the search index. Three contract keys, also settable through `map_update`, tell it where the KB keeps what the server must not guess:
+
+| Key | Meaning | Default |
+|---|---|---|
+| `promote_to: <map>` | the map a journal's reusable procedures belong in: a concept with 5+ consecutive numbered items, or an H2 matching `procedure_headings`, and no link into it is a `promotion_candidate` | none: no promotion candidates |
+| `procedure_headings: [...]` | H2 prefixes that mark a procedure, in the KB's language, matched case- and accent-folded | `procedure`, `steps`, `how to` |
+| `glossary: true` | this map is where the KB defines its terms: a term used in any of its concepts is never a `glossary_gap` | off: only `glossary.yaml` defines terms |
+
+A review item is dismissed by `lint_ignore: [<kind>]` on a concept it names — for a pair, either member; a `glossary_gap` instead stops counting the concept carrying it, and the item goes when fewer than 10 remain. The agent writes the dismissal with the reason in the same commit, so the history says why; there is no review state besides the KB itself.
 
 A finding whose remedy is mechanical carries `fix: {kind, field, to?}` (`rename_field`, `drop_field`, `rebase_link`, `drop_link_item`, `set_value`, `split_value`); the rest carry none. `lint.CheckConcept` computes the frontmatter-driven checks of one concept without walking the KB (`missing_required_field`, `invalid_field_value`, `forbidden_field`, `nonstandard_field`, `tool_param_field`, `missing_title`, `machine_path`, `stale_claim`); `Run` calls the same function, and the write tools return its result.
 

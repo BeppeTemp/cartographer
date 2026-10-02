@@ -98,7 +98,8 @@ func RegisterKBTools(s *Server, k *kb.KB, deps Deps) {
 	register(toolConceptHistory(k))
 	register(toolLogTail(k))
 	register(toolChangesSince(k))
-	register(gitWrap(k, toolConceptWrite(k)))
+	sim := &similarFinder{k: k, rec: rec, deps: deps}
+	register(gitWrap(k, toolConceptWrite(k, sim)))
 	register(gitWrap(k, toolConceptPatch(k)))
 	register(gitWrap(k, toolIndexPatch(k)))
 	register(gitWrap(k, toolMapCreate(k)))
@@ -127,6 +128,7 @@ func RegisterKBTools(s *Server, k *kb.KB, deps Deps) {
 	register(gitWrap(k, toolConflictResolve(k)))
 	cc := &conformanceCache{}
 	register(toolKBStatus(k, misses, s.version, s.knownLatestVersion, cc))
+	register(toolKBReview(k, cc))
 	register(toolContradictionReport(k))
 	register(gitWrap(k, toolSourceRegister(k)))
 	register(toolSourceList(k))
@@ -144,7 +146,7 @@ func RegisterKBTools(s *Server, k *kb.KB, deps Deps) {
 	register(toolArtifactRead(k, deps.MCPAllowlist))
 	register(toolArtifactList(k, deps.MCPAllowlist))
 	register(toolTemplateList(k))
-	register(gitWrap(k, toolConceptNew(k)))
+	register(gitWrap(k, toolConceptNew(k, sim)))
 	register(gitWrap(k, toolConceptMerge(k)))
 	register(gitWrap(k, toolConceptCollapse(k)))
 	register(toolAssetRead(k))

@@ -1476,7 +1476,13 @@ type MapContract struct {
 	StaleAfterDays   int
 	TemplateSections bool
 	OpenMarkers      []string
-	Malformed        []ContractMalformed
+	// Review keys (D298): the map a journal's reusable procedures belong in,
+	// the H2 prefixes that mark a procedure, and whether this map is where
+	// the KB defines its terms.
+	PromoteTo         string
+	ProcedureHeadings []string
+	Glossary          bool
+	Malformed         []ContractMalformed
 }
 
 // AllowedValues returns the allowed values declared for field on conceptType:
@@ -1671,6 +1677,11 @@ type MapContractUpdate struct {
 	StaleAfterDays   *int
 	TemplateSections *bool
 	OpenMarkers      *[]string
+	// D298 review keys: nil leaves the key, "" / an empty list / false
+	// removes it.
+	PromoteTo         *string
+	ProcedureHeadings *[]string
+	Glossary          *bool
 }
 
 // UpdateMapContract rewrites the contract keys of an existing map's _map.md,
@@ -1770,6 +1781,26 @@ func (kb *KB) UpdateMapContract(name string, upd MapContractUpdate) (MapContract
 			fm.Set("template_sections", "true")
 		} else {
 			fm.Delete("template_sections")
+		}
+	}
+	if upd.PromoteTo != nil {
+		if v := strings.TrimSpace(*upd.PromoteTo); v != "" {
+			if _, err := okf.PathToID(v + ".md"); err != nil || strings.Contains(v, "/") {
+				return MapContract{}, fmt.Errorf("UpdateMapContract %s: promote_to %q must be a map name", name, v)
+			}
+			fm.Set("promote_to", v)
+		} else {
+			fm.Delete("promote_to")
+		}
+	}
+	if upd.ProcedureHeadings != nil {
+		setList("procedure_headings", *upd.ProcedureHeadings)
+	}
+	if upd.Glossary != nil {
+		if *upd.Glossary {
+			fm.Set("glossary", "true")
+		} else {
+			fm.Delete("glossary")
 		}
 	}
 	if upd.ValueSynonyms != nil {
@@ -2023,7 +2054,8 @@ func (kb *KB) ReadMapContract(archive string) (MapContract, error) {
 			key != "forbidden_fields" && !strings.HasPrefix(key, "field_values.") &&
 			key != "require_index_entry" && key != "machine_path_allow_prefixes" &&
 			!strings.HasPrefix(key, "value_synonyms.") &&
-			key != "open_statuses" && key != "stale_after" && key != "template_sections" && key != "open_markers" {
+			key != "open_statuses" && key != "stale_after" && key != "template_sections" && key != "open_markers" &&
+			key != "promote_to" && key != "procedure_headings" && key != "glossary" {
 			continue
 		}
 		value, _ := meta.Get(key)
@@ -2117,13 +2149,32 @@ func (kb *KB) ReadMapContract(archive string) (MapContract, error) {
 				continue
 			}
 			contract.StaleAfterDays = n
-		case key == "template_sections":
+		case key == "template_sections" || key == "glossary":
 			v, ok := value.(string)
 			if !ok || (v != "true" && v != "false") {
 				bad(key)
 				continue
 			}
-			contract.TemplateSections = v == "true"
+			if key == "glossary" {
+				contract.Glossary = v == "true"
+			} else {
+				contract.TemplateSections = v == "true"
+			}
+		case key == "promote_to":
+			v, ok := value.(string)
+			v = strings.TrimSpace(v)
+			if _, err := okf.PathToID(v + ".md"); !ok || v == "" || err != nil || strings.Contains(v, "/") {
+				bad(key)
+				continue
+			}
+			contract.PromoteTo = v
+		case key == "procedure_headings":
+			vals, ok := value.([]string)
+			if !ok || len(vals) == 0 {
+				bad(key)
+				continue
+			}
+			contract.ProcedureHeadings = vals
 		case strings.HasPrefix(key, "value_synonyms."):
 			canonical := strings.TrimSpace(strings.TrimPrefix(key, "value_synonyms."))
 			syns, ok := value.([]string)
