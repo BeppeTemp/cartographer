@@ -1738,6 +1738,9 @@ type MapContractUpdate struct {
 	HotspotInDegree *int
 	HotspotBytes    *int
 	OversizeBytes   *int
+	// Title renames the map: the title key and the H1 that repeats it, in
+	// _map.md and in index.md. nil leaves it; "" is refused, a map has one.
+	Title *string
 }
 
 // UpdateMapContract rewrites the contract keys of an existing map's _map.md,
@@ -1910,6 +1913,18 @@ func (kb *KB) UpdateMapContract(name string, upd MapContractUpdate) (MapContract
 			setList("value_synonyms."+c, upd.ValueSynonyms[c])
 		}
 	}
+	var oldTitle, newTitle string
+	if upd.Title != nil {
+		newTitle = strings.TrimSpace(*upd.Title)
+		if newTitle == "" || strings.ContainsAny(newTitle, "\n\r") {
+			return MapContract{}, fmt.Errorf("UpdateMapContract %s: title must be one non-empty line", name)
+		}
+		if v, ok := fm.Get("title"); ok {
+			oldTitle, _ = v.(string)
+		}
+		fm.Set("title", newTitle)
+		body = retitleH1(body, oldTitle, newTitle)
+	}
 	if upd.RequireIndexEntry != nil {
 		if *upd.RequireIndexEntry {
 			fm.Set("require_index_entry", "true")
@@ -1929,7 +1944,64 @@ func (kb *KB) UpdateMapContract(name string, upd MapContractUpdate) (MapContract
 	if err := writeFileAtomic(abs, []byte(out)); err != nil {
 		return MapContract{}, fmt.Errorf("UpdateMapContract %s: write _map.md: %w", name, err)
 	}
+	if upd.Title != nil {
+		if err := kb.retitleIndex(name, oldTitle, newTitle); err != nil {
+			return MapContract{}, fmt.Errorf("UpdateMapContract %s: %w", name, err)
+		}
+	}
 	return kb.ReadMapContract(name)
+}
+
+// retitleIndex carries a map's new title into its index.md, which repeats it
+// in its own frontmatter and H1: a map renamed in _map.md alone would show
+// two names. A map without an index.md has nothing to carry.
+func (kb *KB) retitleIndex(name, oldTitle, newTitle string) error {
+	relPath := name + "/index.md"
+	content, err := kb.ReadRaw(relPath)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil
+		}
+		return fmt.Errorf("read index.md: %w", err)
+	}
+	fmRaw, body, ok := okf.SplitFrontmatter(content)
+	if !ok {
+		return nil
+	}
+	fm, err := okf.ParseFrontmatter(fmRaw)
+	if err != nil {
+		return fmt.Errorf("index.md: %w", err)
+	}
+	if v, ok := fm.Get("title"); ok {
+		if s, _ := v.(string); s == oldTitle || oldTitle == "" {
+			fm.Set("title", newTitle)
+		}
+	}
+	abs, err := kb.ResolvePath(relPath, false)
+	if err != nil {
+		return err
+	}
+	out := "---\n" + fm.Serialize() + "\n---\n" + retitleH1(body, oldTitle, newTitle)
+	if err := writeFileAtomic(abs, []byte(out)); err != nil {
+		return fmt.Errorf("write index.md: %w", err)
+	}
+	return nil
+}
+
+// retitleH1 replaces the body's first H1 when it repeats the old title; an H1
+// someone wrote differently is theirs and stays.
+func retitleH1(body, oldTitle, newTitle string) string {
+	lines := strings.Split(body, "\n")
+	for i, line := range lines {
+		if !strings.HasPrefix(line, "# ") {
+			continue
+		}
+		if strings.TrimSpace(strings.TrimPrefix(line, "# ")) == oldTitle {
+			lines[i] = "# " + newTitle
+		}
+		break
+	}
+	return strings.Join(lines, "\n")
 }
 
 // normalizeAllowPrefix validates and normalizes one

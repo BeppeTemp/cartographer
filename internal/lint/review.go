@@ -5,6 +5,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"unicode"
 
 	"github.com/BeppeTemp/cartographer/internal/kb"
 	"github.com/BeppeTemp/cartographer/internal/okf"
@@ -26,13 +27,15 @@ const (
 	ReviewReadHotspot  = "read_hotspot"
 	// D302: work kept outside the map the KB says work belongs in.
 	ReviewScatteredWork = "scattered_work"
+	// D304: map titles that do not read as one set.
+	ReviewMapNaming = "map_naming"
 )
 
 // ReviewKinds lists the kinds in ranking priority: an item of an earlier kind
 // always comes before one of a later kind.
 // Repeated facts and hotspots rank before promotion (D301): a duplicated fact
 // is cheaper to fix than to keep updating in every copy.
-var ReviewKinds = []string{ReviewDuplicate, ReviewZombie, ReviewRepeatedFact, ReviewReadHotspot, ReviewPromotion, ReviewScatteredWork, ReviewGlossary, ReviewLintJudgement}
+var ReviewKinds = []string{ReviewDuplicate, ReviewZombie, ReviewRepeatedFact, ReviewReadHotspot, ReviewPromotion, ReviewScatteredWork, ReviewMapNaming, ReviewGlossary, ReviewLintJudgement}
 
 // Thresholds of the review generators.
 const (
@@ -165,9 +168,17 @@ func Review(k *kb.KB, findings []Finding) ([]ReviewItem, error) {
 	if err != nil {
 		return nil, fmt.Errorf("lint.Review: list archives: %w", err)
 	}
+	var titles []mapTitle
 	for _, a := range archives {
 		if c, cerr := k.ReadMapContract(a); cerr == nil {
 			contracts[a] = c
+		}
+		// A map is dismissed from map_naming by lint_ignore in its _map.md,
+		// under the pseudo-ID the item names it by.
+		if meta, merr := k.ReadArchiveMeta(a); merr == nil {
+			t, _ := frontmatterValue(meta, "title").(string)
+			titles = append(titles, mapTitle{name: a, title: strings.TrimSpace(t)})
+			byID[okf.ConceptID(a+mapDescriptorSuffix)] = &reviewConcept{id: okf.ConceptID(a + mapDescriptorSuffix), ignores: lintIgnoreSet(meta)}
 		}
 	}
 	links, err := k.Links()
@@ -195,6 +206,7 @@ func Review(k *kb.KB, findings []Finding) ([]ReviewItem, error) {
 	items = append(items, readHotspotItems(concepts, contracts, links)...)
 	items = append(items, promotionItems(concepts, contracts, links)...)
 	items = append(items, scatteredWorkItems(concepts, contracts, links)...)
+	items = append(items, mapNamingItems(titles)...)
 	items = append(items, glossaryItems(concepts, contracts, glossary)...)
 	items = append(items, lintJudgementItems(findings, zombies)...)
 
@@ -573,6 +585,105 @@ func scatteredWorkItems(concepts []*reviewConcept, contracts map[string]kb.MapCo
 		})
 	}
 	return out
+}
+
+// --- map_naming (D304) ---
+
+// mapDescriptorSuffix makes a map's pseudo-ID in a map_naming item: the map
+// is not a concept, and its _map.md is where lint_ignore dismisses it.
+const mapDescriptorSuffix = "/_map"
+
+// mapNamingMin is how many titled maps make a set worth comparing.
+const mapNamingMin = 3
+
+type mapTitle struct{ name, title string }
+
+// subtitleSep is what splits a title into a name and a subtitle.
+var subtitleSep = regexp.MustCompile(` [—–-] |: `)
+
+// mapNamingItems flags a KB whose map titles do not share one shape: some
+// with a subtitle and some without, or Title Case beside sentence case. Only
+// those two are measured; language, length and agreement with the folder
+// name are the agent's to judge from the titles the evidence lists. One item
+// for the whole set, naming every map: renaming is a scheme, not a page.
+func mapNamingItems(titles []mapTitle) []ReviewItem {
+	var named []mapTitle
+	for _, m := range titles {
+		if m.title != "" {
+			named = append(named, m)
+		}
+	}
+	if len(named) < mapNamingMin {
+		return nil
+	}
+	sub, plain, upper, lower := 0, 0, 0, 0
+	for _, m := range named {
+		head := m.title
+		if loc := subtitleSep.FindStringIndex(head); loc != nil {
+			sub++
+			head = head[:loc[0]]
+		} else {
+			plain++
+		}
+		switch titleCaseStyle(head) {
+		case "title":
+			upper++
+		case "sentence":
+			lower++
+		}
+	}
+	var why []string
+	if sub > 0 && plain > 0 {
+		why = append(why, fmt.Sprintf("%d with a subtitle and %d without", sub, plain))
+	}
+	if upper > 0 && lower > 0 {
+		why = append(why, fmt.Sprintf("%d in Title Case and %d in sentence case", upper, lower))
+	}
+	if len(why) == 0 {
+		return nil
+	}
+	ids := make([]string, 0, len(named))
+	list := make([]string, 0, len(named))
+	for _, m := range named {
+		ids = append(ids, m.name+mapDescriptorSuffix)
+		list = append(list, fmt.Sprintf("%s %q", m.name, m.title))
+	}
+	return []ReviewItem{{
+		Kind:            ReviewMapNaming,
+		Concepts:        ids,
+		Evidence:        fmt.Sprintf("map titles mix %s: %s", strings.Join(why, ", "), strings.Join(list, "; ")),
+		SuggestedAction: "agree a scheme with the operator: one language, one shape (a short name; a description belongs in the index body), one capitalisation, each title recognisable from its folder; then rename with map_update title",
+		Weight:          len(named),
+		// Titles of maps a restricted caller cannot see stay out of its list.
+		wholeGraph: true,
+	}}
+}
+
+// titleCaseStyle is "title" when every later word of four letters or more
+// starts upper-case, "sentence" when every one starts lower-case, else "".
+// Acronyms and short words (articles, prepositions) say nothing either way.
+func titleCaseStyle(s string) string {
+	words := strings.Fields(s)
+	upper, lower := 0, 0
+	for _, w := range words[min(1, len(words)):] {
+		r := []rune(w)
+		if len(r) < 4 || strings.ToUpper(w) == w {
+			continue
+		}
+		switch {
+		case unicode.IsUpper(r[0]):
+			upper++
+		case unicode.IsLower(r[0]):
+			lower++
+		}
+	}
+	switch {
+	case upper > 0 && lower == 0:
+		return "title"
+	case lower > 0 && upper == 0:
+		return "sentence"
+	}
+	return ""
 }
 
 // --- glossary_gap ---
