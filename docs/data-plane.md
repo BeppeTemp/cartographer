@@ -244,6 +244,18 @@ to add new pages to the index is the `kb-doctor` skill's to update, not the serv
 
 Each is a positive integer (or `generated`/`curated`); anything else is `contract_malformed`.
 
+### Accepting a check for a whole map (D306)
+
+`lint_ignore: [check, …]` in a map's `_map.md` accepts the named checks for **every concept of
+that map**, and for the findings reported on the map itself: a KB's style choice (a "See also"
+that says why each link matters, services that link the infrastructure they run on) is one
+decision, not one write per concept. It takes every check a concept can silence (below) plus
+`facet_sprawl`, `missing_value_contract` and `island`, which no single concept owns; an
+`island` also goes when any member, or a member's map, accepts it. Errors never go; a name a map
+cannot accept is reported as `lint_ignore_invalid` on the `_map.md`. With this, every finding has
+a way out — fixed, or accepted where the KB says so — and an Observatory with nothing to report is
+what a finished `kb-doctor` session leaves.
+
 ### Silencing a lint finding on one concept
 
 `lint_ignore: [check, …]` in a concept's frontmatter drops the named findings **for that concept
@@ -258,8 +270,8 @@ Suppressible: `broken_link`, `machine_path`, `concept_oversize`, `stale_claim`, 
 letting a concept declare its own contract void would be a hole rather than an escape hatch — and the
 directory-level checks (`map_oversize`, `index_incomplete`, `index_stale`, `expanded_*`, `orphan_asset`,
 `oversized_asset`, `unlistable_assets`, `unused_placeholder`, `facet_sprawl`), which belong to a map, an expanded concept or `paths.yaml` and have no single
-concept frontmatter that owns them, and
-`island`, which belongs to a whole component of the graph. Naming
+concept frontmatter that owns them (a map accepts `facet_sprawl` in its `_map.md`, above).
+`island` is accepted by any of its members. Naming
 an unsuppressible or unknown check is itself reported as `lint_ignore_invalid`: a typo that silently
 suppresses nothing is worse than no opt-out.
 

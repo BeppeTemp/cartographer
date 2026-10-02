@@ -1741,6 +1741,10 @@ type MapContractUpdate struct {
 	// Title renames the map: the title key and the H1 that repeats it, in
 	// _map.md and in index.md. nil leaves it; "" is refused, a map has one.
 	Title *string
+	// LintIgnore is the map-wide lint_ignore (D306): the checks the whole map
+	// accepts. nil leaves it, an empty list removes it; lint reports names a
+	// map cannot accept.
+	LintIgnore *[]string
 }
 
 // UpdateMapContract rewrites the contract keys of an existing map's _map.md,
@@ -1912,6 +1916,9 @@ func (kb *KB) UpdateMapContract(name string, upd MapContractUpdate) (MapContract
 			}
 			setList("value_synonyms."+c, upd.ValueSynonyms[c])
 		}
+	}
+	if upd.LintIgnore != nil {
+		setList("lint_ignore", *upd.LintIgnore)
 	}
 	var oldTitle, newTitle string
 	if upd.Title != nil {

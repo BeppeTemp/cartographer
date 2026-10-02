@@ -289,8 +289,8 @@ func (s *structure) conceptChecks(id okf.ConceptID, relPath string) []Finding {
 }
 
 // islandFindings are emitted once per island, on its anchor, when the anchor
-// is in scope. Not suppressible: an island belongs to a component, not to any
-// one concept's frontmatter.
+// is in scope. An island belongs to the component, so any member (or its map)
+// accepts it, through applyMapIgnores rather than the anchor's own emit.
 func (s *structure) islandFindings(inScope func(okf.ConceptID) bool) []Finding {
 	var out []Finding
 	for _, isl := range s.islands {
@@ -310,6 +310,7 @@ func (s *structure) islandFindings(inScope func(okf.ConceptID) bool) []Finding {
 			Check:    "island",
 			Severity: SevInfo,
 			Message:  fmt.Sprintf("%d concepts form an island disconnected from the main graph: %s", len(isl.members), strings.Join(names, ", ")),
+			members:  isl.members,
 		})
 	}
 	return out
