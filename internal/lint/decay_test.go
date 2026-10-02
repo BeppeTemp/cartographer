@@ -71,7 +71,7 @@ func TestOpenMarker(t *testing.T) {
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "m/_map.md", "---\ntype: Map\ntitle: M\n---\n")
 	writeFile(t, k.DataRoot(), "l/_map.md", "---\ntype: Map\ntitle: L\nopen_markers: [da verificare]\n---\n")
-	writeFile(t, k.DataRoot(), "m/a.md", "---\ntype: Note\ntitle: A\n---\n# A\n\nTODO: check. Also TBD.\n\n`TODO in code`\n\nTODOLIST is not one.\n")
+	writeFile(t, k.DataRoot(), "m/a.md", "---\ntype: Note\ntitle: A\n---\n# A\n\nTODO: check. Also TBD.\n\n`TODO in code`\n\nTODOLIST is not one.\n\n3. ~~A TODO that was cancelled~~ — dropped.\n")
 	writeFile(t, k.DataRoot(), "l/a.md", "---\ntype: Note\ntitle: A\n---\n# A\n\nQuesto è Da Verificare.\nTODO here is not a marker in this map.\n")
 	f, _ := Run(k, "", false)
 	if got := findingFor(f, "m/a.md", "open_marker"); got == nil || got.Count != 2 {

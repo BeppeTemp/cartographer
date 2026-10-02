@@ -11,6 +11,8 @@ its heading. Three other checks stop raising questions that have no answer:
 - `map_misfit` neither flags nor counts a retired concept;
 - `glossary_gap` ignores universal technical acronyms and all-caps emphasis of
   ordinary words;
+- `open_marker` ignores markers in struck-through text, which is closed or
+  cancelled;
 - the Atlas no longer colours nodes by lint severity, so its legend has no
   Health mode.
 
