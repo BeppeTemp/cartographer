@@ -2516,7 +2516,12 @@ body.is-resizing {
   margin-block-start: var(--space-4);
 }
 
-/* --- Work: work_list as a page (D302), Activity's sibling. --- */
+/* --- Work: work_list as a page (D302), Activity's sibling. A board, so it
+   takes the whole width Activity's reading column leaves empty. --- */
+.activity.work {
+  max-width: none;
+}
+
 .work__filters {
   display: flex;
   flex-wrap: wrap;
@@ -2539,9 +2544,33 @@ body.is-resizing {
 
 .work__columns {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(18rem, 1fr);
+  align-items: start;
   gap: var(--space-4);
   margin-top: var(--space-6);
+  overflow-x: auto;
+  padding-bottom: var(--space-2);
+}
+
+/* By map, each group's cards fill the row instead of stacking in one column. */
+.work__groups .work__list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(18rem, 1fr));
+  gap: var(--space-2);
+  overflow: visible;
+  background: transparent;
+  border: 0;
+}
+
+.work__groups .work__list li {
+  background: var(--surface-1);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-panel);
+}
+
+.work__groups .work__list li + li {
+  border-block-start: 1px solid var(--border-subtle);
 }
 
 .work__groups {

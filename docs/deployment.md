@@ -457,7 +457,10 @@ A selected concept is the orbit's pivot: dragging turns the graph around it,
 while it stays centred in the strip the panels leave visible, and everything
 outside its neighbourhood recedes. The skills, agents and hooks that reference
 concepts are drawn as diamonds linked to them; clicking one opens it on the
-Artifacts panel (D286). Ctrl/Cmd+K searches titles and ids at once and, after a
+Artifacts panel (D286). The legend colours nodes by community, by Map or by
+*Health*, the worst lint severity; severity has a mode of its own rather than
+tinting the other two, which a KB with a warning on most concepts would paint
+one colour. Ctrl/Cmd+K searches titles and ids at once and, after a
 pause in typing, the full text through the `search` tool, showing the excerpt
 that matched; it is the way to a concept, and there is no concept list beside
 the canvas. The brand in the top bar returns to the atlas; the connection
@@ -475,7 +478,8 @@ writes recorded, filterable by author; a row opens the concept on the atlas.
 
 The **Work** panel is `work_list` for the reader (D302): open-phase concepts and
 unchecked items, filterable by map, status, staleness and free text, grouped by
-status (a closed concept listed only for its items goes under *unchecked items*) or by map; a card expands to its items and opens the concept on the atlas.
+status, as a board of columns across the page (a closed concept listed only for
+its items goes under *unchecked items*), or by map, as a grid of cards; a card expands to its items and opens the concept on the atlas.
 It is read-only: work changes through the agents' write tools.
 
 The **Observatory** panel lists the lint findings the caller may see. The Map or

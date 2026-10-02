@@ -306,6 +306,7 @@ function View({
     const canvas = cssVar("--surface-0");
     const sevError = cssVar("--sev-error");
     const sevWarning = cssVar("--sev-warning");
+    const sevOk = cssVar("--sev-ok");
     const near = new Set<string>();
     if (shown) {
       near.add(shown);
@@ -316,11 +317,13 @@ function View({
       .map((n) => {
         const severity = severityByConcept?.get(n.id);
         const base =
-          severity === "error"
-            ? sevError
-            : severity === "warning"
-              ? sevWarning
-              : slots[colorBy === "community" ? communitySlot(communities, n.id) : collectionHue(n.collection ?? "")]!;
+          colorBy === "health"
+            ? severity === "error"
+              ? sevError
+              : severity === "warning"
+                ? sevWarning
+                : sevOk
+            : slots[colorBy === "community" ? communitySlot(communities, n.id) : collectionHue(n.collection ?? "")]!;
         return !shown || near.has(n.id) ? base : fade(base, RECEDED, canvas);
       });
     // Diamonds wear the signal colour: an artifact is not in any community
