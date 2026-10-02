@@ -118,6 +118,10 @@ type ReviewItem struct {
 	// graph (WholeGraphChecks): a caller who cannot see the whole KB must not
 	// receive it.
 	wholeGraph bool
+	// dismissOnFirst: only the first concept's lint_ignore dismisses the
+	// item. A group item (a shared retired origin) must not vanish because
+	// one member dismissed its own, separate item.
+	dismissOnFirst bool
 }
 
 type reviewConcept struct {
@@ -222,7 +226,11 @@ func Review(k *kb.KB, findings []Finding) ([]ReviewItem, error) {
 }
 
 func dismissed(it ReviewItem, byID map[okf.ConceptID]*reviewConcept) bool {
-	for _, id := range it.Concepts {
+	names := it.Concepts
+	if it.dismissOnFirst && len(names) > 0 {
+		names = names[:1]
+	}
+	for _, id := range names {
 		if c := byID[okf.ConceptID(id)]; c != nil && c.ignores[it.Kind] {
 			return true
 		}
@@ -516,6 +524,7 @@ func zombieWorkItems(concepts []*reviewConcept, contracts map[string]kb.MapContr
 			SuggestedAction: fmt.Sprintf("if %s is their origin, dismiss once with lint_ignore: [zombie_work] on it; otherwise close or retarget each", t),
 			Weight:          len(ids),
 			wholeGraph:      true,
+			dismissOnFirst:  true,
 		})
 	}
 	for _, o := range open {
