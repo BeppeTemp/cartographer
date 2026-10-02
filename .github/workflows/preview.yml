@@ -1,0 +1,48 @@
+name: Preview image
+
+# A server image for trying an unreleased main on a real deployment before the
+# release PR is merged (D303). It publishes ONLY ghcr.io/…:<tag>: no `latest`,
+# no GitHub release, no Homebrew cask, no MCP Registry entry — those belong to
+# release.yml and a `v*` tag, which is why a preview is not a pushed tag.
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Pre-release tag, e.g. v0.18.0-rc.1"
+        required: true
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      # A plain vX.Y.Z here would overwrite the image a real release publishes
+      # under the same tag; a pre-release suffix is mandatory.
+      - name: Require a pre-release tag
+        env:
+          TAG: ${{ inputs.tag }}
+        run: |
+          if ! printf '%s' "$TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+-[0-9A-Za-z.]+$'; then
+            echo "::error::tag '$TAG' must be vX.Y.Z-<suffix> (D303)" >&2
+            exit 1
+          fi
+      - uses: actions/checkout@v7
+      - uses: docker/setup-qemu-action@v4
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          build-args: |
+            VERSION=${{ inputs.tag }}
+          tags: |
+            ghcr.io/beppetemp/cartographer:${{ inputs.tag }}
