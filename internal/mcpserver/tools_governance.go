@@ -659,6 +659,10 @@ func toolKBStatus(k *kb.KB, misses *searchMissLog, serverVersion string, latestV
 				result["review"] = reviewSummary(items)
 				reviewTotal = len(items)
 			}
+			// D302: the open work this caller can see.
+			if work, werr := visibleWork(ctx, k, cc); werr == nil {
+				result["work"] = workSummary(work)
+			}
 			// D301: what reading this KB costs, over what this caller sees.
 			if rc, rerr := cc.readCostFor(k, func(id string) bool { return Visible(ctx, k, id) }, WholeVisible(ctx, k, false)); rerr == nil {
 				result["read_cost"] = rc

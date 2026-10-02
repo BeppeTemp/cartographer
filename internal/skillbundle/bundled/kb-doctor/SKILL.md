@@ -1,7 +1,7 @@
 ---
 name: kb-doctor
 description: Keep a Knowledge Base from rotting - a short, budgeted session that applies mechanical repairs and walks the operator through the server's ranked review list. Use when a tool result proposes a kb-doctor session, when kb_status reports conformance.doctor_suggested, when the operator asks to tidy or align a KB, or after a Cartographer upgrade.
-version: "2.1"
+version: "2.2"
 ---
 # KB Doctor - Skill
 
@@ -46,6 +46,8 @@ since the last one; it never runs one by itself.
      (`concept_oversize`); for `repeated_fact` choose the owner concept with the operator, keep the
      fact there and replace each copy with a link (never rewrite the fact); for `read_hotspot`
      `concept_expand` into satellites with a short summary page, or turn it into an index page;
+     for `scattered_work` create a concept in the contract's `work_map` from its template (one per
+     independent item, or one for the checklist), link both ways and replace the items with the link;
    - **dismiss** with a reason: `concept_patch` adding the kind to `lint_ignore` on a concept the
      item names, `reason` saying why, so the history keeps it;
    - **defer**: nothing is written; it comes back next session.

@@ -14,7 +14,9 @@ import (
 // the detail to docs/control-plane.md §API MCP), not the budget raised
 // without a decision.
 const (
-	toolsListBudgetBytes   = 22 * 1024
+	// 23 KiB since D302: work_list added 700 bytes (22490 → 23190) after
+	// D301 had already trimmed the descriptions that list growing sets.
+	toolsListBudgetBytes   = 23 * 1024
 	toolDescriptionMaxChar = 600
 )
 

@@ -111,3 +111,40 @@ func uiStatus(w http.ResponseWriter, r *http.Request, srv *Server) {
 	res, err := tool.Handler(r.Context(), json.RawMessage(`{}`))
 	uiRelay(w, "status", res, err)
 }
+
+// GET /kbs/{kb}/work?scope=&include=&stale=&where=&order_by=&fields=&limit=&offset=
+// — work_list (D302) for the request's principal: open-phase concepts and
+// unchecked items, filtered by what it can see. where repeats (one predicate
+// per parameter); order_by and fields repeat or take a comma list.
+func uiWork(w http.ResponseWriter, r *http.Request, srv *Server) {
+	tool, ok := uiTool(srv, "work_list")
+	if !ok {
+		writeUINotFound(w)
+		return
+	}
+	q := r.URL.Query()
+	list := func(key string) []string {
+		var out []string
+		for _, v := range q[key] {
+			for _, part := range strings.Split(v, ",") {
+				if part = strings.TrimSpace(part); part != "" {
+					out = append(out, part)
+				}
+			}
+		}
+		return out
+	}
+	offset, _ := strconv.Atoi(q.Get("offset"))
+	args, _ := json.Marshal(map[string]interface{}{
+		"scope":    q.Get("scope"),
+		"include":  q.Get("include"),
+		"stale":    q.Get("stale") == "true" || q.Get("stale") == "1",
+		"where":    q["where"],
+		"order_by": list("order_by"),
+		"fields":   list("fields"),
+		"limit":    uiLimit(r, workListDefaultLimit, workListMaxLimit),
+		"offset":   offset,
+	})
+	res, err := tool.Handler(r.Context(), args)
+	uiRelay(w, "work", res, err)
+}

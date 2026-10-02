@@ -24,13 +24,15 @@ const (
 	// D301: the structural causes of read and write fan-out.
 	ReviewRepeatedFact = "repeated_fact"
 	ReviewReadHotspot  = "read_hotspot"
+	// D302: work kept outside the map the KB says work belongs in.
+	ReviewScatteredWork = "scattered_work"
 )
 
 // ReviewKinds lists the kinds in ranking priority: an item of an earlier kind
 // always comes before one of a later kind.
 // Repeated facts and hotspots rank before promotion (D301): a duplicated fact
 // is cheaper to fix than to keep updating in every copy.
-var ReviewKinds = []string{ReviewDuplicate, ReviewZombie, ReviewRepeatedFact, ReviewReadHotspot, ReviewPromotion, ReviewGlossary, ReviewLintJudgement}
+var ReviewKinds = []string{ReviewDuplicate, ReviewZombie, ReviewRepeatedFact, ReviewReadHotspot, ReviewPromotion, ReviewScatteredWork, ReviewGlossary, ReviewLintJudgement}
 
 // Thresholds of the review generators.
 const (
@@ -192,6 +194,7 @@ func Review(k *kb.KB, findings []Finding) ([]ReviewItem, error) {
 	items = append(items, repeatedFactItems(concepts, contracts, k.TemplateTexts())...)
 	items = append(items, readHotspotItems(concepts, contracts, links)...)
 	items = append(items, promotionItems(concepts, contracts, links)...)
+	items = append(items, scatteredWorkItems(concepts, contracts, links)...)
 	items = append(items, glossaryItems(concepts, contracts, glossary)...)
 	items = append(items, lintJudgementItems(findings, zombies)...)
 
@@ -520,6 +523,53 @@ func promotionItems(concepts []*reviewConcept, contracts map[string]kb.MapContra
 			Evidence:        fmt.Sprintf("a procedure (%s) and no link into %s, where the contract promotes procedures", strings.Join(why, ", "), contract.PromoteTo),
 			SuggestedAction: fmt.Sprintf("create the procedure in %s from that map's template (template_list, concept_new), move the steps there, and link both ways", contract.PromoteTo),
 			Weight:          weight,
+		})
+	}
+	return out
+}
+
+// --- scattered_work (D302) ---
+
+// scatteredWorkItems flags work in a map whose contract names a work_map:
+// unchecked items or an open-phase status, and no link into that map. A KB
+// that keeps its work in journals sets no work_map and gets no item.
+func scatteredWorkItems(concepts []*reviewConcept, contracts map[string]kb.MapContract, links kb.Links) []ReviewItem {
+	var out []ReviewItem
+	for _, c := range concepts {
+		contract, ok := contracts[c.mapName]
+		if !ok || contract.WorkMap == "" || contract.WorkMap == c.mapName {
+			continue
+		}
+		items := workItems(c.body)
+		open := openPhase(c.status, &contract)
+		if len(items) == 0 && !open {
+			continue
+		}
+		linked := false
+		for target := range links.Out[c.id] {
+			if strings.HasPrefix(string(target), contract.WorkMap+"/") {
+				linked = true
+				break
+			}
+		}
+		if linked {
+			continue
+		}
+		var evidence string
+		if len(items) > 0 {
+			evidence = fmt.Sprintf("%d unchecked item(s)", len(items))
+			if items[0].Section != "" {
+				evidence += fmt.Sprintf(", first under %q", items[0].Section)
+			}
+		} else {
+			evidence = fmt.Sprintf("status %q", c.status)
+		}
+		out = append(out, ReviewItem{
+			Kind:            ReviewScatteredWork,
+			Concepts:        []string{string(c.id)},
+			Evidence:        fmt.Sprintf("%s and no link into %s, where the contract keeps this map's work", evidence, contract.WorkMap),
+			SuggestedAction: fmt.Sprintf("create a concept in %s from its template for this work (one per independent item or one for the checklist), link both ways, and replace the items with the link", contract.WorkMap),
+			Weight:          len(items),
 		})
 	}
 	return out

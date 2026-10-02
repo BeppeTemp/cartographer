@@ -141,3 +141,23 @@ func TestRegenerateIndexes(t *testing.T) {
 		t.Fatalf("after delete:\n%s", got)
 	}
 }
+
+// TestUpdateMapContract_WorkMap (D302): work_map must name an existing map.
+func TestUpdateMapContract_WorkMap(t *testing.T) {
+	k, _ := Init(tempKB(t))
+	for _, m := range []string{"ref", "backlog"} {
+		if err := k.CreateMap(m, m, "map", nil, ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+	to, missing, empty := "backlog", "nowhere", ""
+	if c, err := k.UpdateMapContract("ref", MapContractUpdate{WorkMap: &to}); err != nil || c.WorkMap != "backlog" {
+		t.Fatalf("set: %+v %v", c, err)
+	}
+	if _, err := k.UpdateMapContract("ref", MapContractUpdate{WorkMap: &missing}); err == nil {
+		t.Fatal("work_map naming no map accepted")
+	}
+	if c, err := k.UpdateMapContract("ref", MapContractUpdate{WorkMap: &empty}); err != nil || c.WorkMap != "" {
+		t.Fatalf("remove: %+v %v", c, err)
+	}
+}

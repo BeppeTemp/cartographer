@@ -336,6 +336,9 @@ Lint also sees a KB **decaying**: work never closed, closed work not finished, p
 | `promote_to: <map>` | the map a journal's reusable procedures belong in: a concept with 5+ consecutive numbered items, or an H2 matching `procedure_headings`, and no link into it is a `promotion_candidate` | none: no promotion candidates |
 | `procedure_headings: [...]` | H2 prefixes that mark a procedure, in the KB's language, matched case- and accent-folded | `procedure`, `steps`, `how to` |
 | `glossary: true` | this map is where the KB defines its terms: a term used in any of its concepts is never a `glossary_gap` | off: only `glossary.yaml` defines terms |
+| `work_map: <map>` | the existing map where this map's work belongs (D302): a concept here with unchecked items or an open-phase status and no link into it is `scattered_work`; a name that is no map is `contract_malformed` | none: work may live anywhere |
+
+**Work items (D302).** A work item is a concept in an open phase for its map (`open_statuses`, else the defaults; `active` only in a journal), of any type, or an unchecked `- [ ]` item outside code in any concept, whatever its status. `work_list` returns them read-only; staleness is `stale_open`'s threshold, extended to a concept whose unchecked items are that old.
 
 A review item is dismissed by `lint_ignore: [<kind>]` on a concept it names — for a pair, either member; a `glossary_gap` instead stops counting the concept carrying it, and the item goes when fewer than 10 remain. The agent writes the dismissal with the reason in the same commit, so the history says why; there is no review state besides the KB itself.
 

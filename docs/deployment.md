@@ -473,6 +473,11 @@ The **Activity** panel is `changes_since` for the reader: the concepts changed
 in the last day, week or month, newest first, with authors and the reasons the
 writes recorded, filterable by author; a row opens the concept on the atlas.
 
+The **Work** panel is `work_list` for the reader (D302): open-phase concepts and
+unchecked items, filterable by map, status, staleness and free text, grouped by
+status or by map; a card expands to its items and opens the concept on the atlas.
+It is read-only: work changes through the agents' write tools.
+
 The **Observatory** panel lists the lint findings the caller may see. The Map or
 Journal selected in the rail scopes them (`GET /api/ui/v1/kbs/<kb>/lint?scope=`),
 and the headline and summary name that scope, so a clean Map never reads as a

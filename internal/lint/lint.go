@@ -163,6 +163,8 @@ var perConceptChecks = map[string]bool{
 	// D301: cost kinds.
 	ReviewRepeatedFact: true,
 	ReviewReadHotspot:  true,
+	// D302.
+	ReviewScatteredWork: true,
 	// D301: an efficiency choice a concept may decline.
 	"reciprocal_link_item": true,
 }

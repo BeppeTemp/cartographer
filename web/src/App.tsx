@@ -21,6 +21,7 @@ import { Legend } from "./components/Legend";
 import { Sheet, useMediaQuery } from "./components/Sheet";
 import { Splitter } from "./components/Splitter";
 import { Activity } from "./components/Activity";
+import { Work } from "./components/Work";
 import { NodeList } from "./components/NodeList";
 import { Observatory } from "./components/Observatory";
 import { EmptyState, ErrorState, Skeleton } from "./components/States";
@@ -608,6 +609,8 @@ export function App() {
               snapshot={snapshot}
               onOpen={(conceptId) => navigate({ panel: "atlas", concept: conceptId })}
             />
+          ) : view.panel === "work" && activeKB ? (
+            <Work kb={activeKB} onOpen={(conceptId) => navigate({ panel: "atlas", concept: conceptId })} />
           ) : view.panel === "observatory" ? (
             <Observatory
               report={lint}

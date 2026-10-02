@@ -1489,6 +1489,9 @@ type MapContract struct {
 	PromoteTo         string
 	ProcedureHeadings []string
 	Glossary          bool
+	// WorkMap (D302) is the map where this map's work belongs: an open item
+	// or open-phase concept here with no link into it is scattered_work.
+	WorkMap string
 	// Cost keys (D301): Index is "generated" when the server maintains the
 	// map's concept list in a marked block of its index.md ("" = curated);
 	// the integers override the review and oversize thresholds for this map
@@ -1669,6 +1672,27 @@ func fieldValueKeys(wide map[string][]string, byType map[string]map[string][]str
 	return out
 }
 
+// isMapName reports whether name is one segment naming an existing map or
+// journal (one with a descriptor).
+func (kb *KB) isMapName(name string) bool {
+	if name == "" || strings.Contains(name, "/") {
+		return false
+	}
+	if _, err := okf.PathToID(name + ".md"); err != nil {
+		return false
+	}
+	rel, err := kb.mapDescriptorRelPath(name)
+	if err != nil {
+		return false
+	}
+	abs, err := kb.ResolvePath(rel, false)
+	if err != nil {
+		return false
+	}
+	_, err = os.Stat(abs)
+	return err == nil
+}
+
 // IndexGenerated is the value of the `index` contract key that hands a map's
 // concept list to the server (D301); "curated" (the default) leaves it to
 // the agent.
@@ -1706,6 +1730,8 @@ type MapContractUpdate struct {
 	PromoteTo         *string
 	ProcedureHeadings *[]string
 	Glossary          *bool
+	// D302: nil leaves work_map, "" removes it.
+	WorkMap *string
 	// D301 cost keys: nil leaves the key; "" or "curated" / 0 removes it.
 	Index           *string
 	RepeatedFactMin *int
@@ -1825,6 +1851,16 @@ func (kb *KB) UpdateMapContract(name string, upd MapContractUpdate) (MapContract
 	}
 	if upd.ProcedureHeadings != nil {
 		setList("procedure_headings", *upd.ProcedureHeadings)
+	}
+	if upd.WorkMap != nil {
+		if v := strings.TrimSpace(*upd.WorkMap); v != "" {
+			if !kb.isMapName(v) {
+				return MapContract{}, fmt.Errorf("UpdateMapContract %s: work_map %q must name an existing map", name, v)
+			}
+			fm.Set("work_map", v)
+		} else {
+			fm.Delete("work_map")
+		}
 	}
 	if upd.Index != nil {
 		switch v := strings.TrimSpace(*upd.Index); v {
@@ -2109,7 +2145,7 @@ func (kb *KB) ReadMapContract(archive string) (MapContract, error) {
 			!strings.HasPrefix(key, "value_synonyms.") &&
 			key != "open_statuses" && key != "stale_after" && key != "template_sections" && key != "open_markers" &&
 			key != "promote_to" && key != "procedure_headings" && key != "glossary" &&
-			key != "index" && !costIntKeys[key] {
+			key != "index" && !costIntKeys[key] && key != "work_map" {
 			continue
 		}
 		value, _ := meta.Get(key)
@@ -2249,6 +2285,14 @@ func (kb *KB) ReadMapContract(archive string) (MapContract, error) {
 				continue
 			}
 			contract.PromoteTo = v
+		case key == "work_map":
+			v, ok := value.(string)
+			v = strings.TrimSpace(v)
+			if !ok || !kb.isMapName(v) {
+				bad(key)
+				continue
+			}
+			contract.WorkMap = v
 		case key == "procedure_headings":
 			vals, ok := value.([]string)
 			if !ok || len(vals) == 0 {

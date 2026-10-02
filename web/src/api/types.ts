@@ -201,6 +201,33 @@ export interface ChangesResponse {
   concepts: ConceptChange[];
 }
 
+/** GET /kbs/{kb}/work: work_list for the caller (D302). */
+export interface WorkItem {
+  text: string;
+  section?: string;
+  line: number;
+}
+export interface WorkEntry {
+  id: string;
+  title?: string;
+  type?: string;
+  map?: string;
+  status?: string;
+  open_phase: boolean;
+  timestamp?: string;
+  age_days?: number;
+  stale: boolean;
+  items: WorkItem[];
+}
+export interface WorkResponse {
+  total: number;
+  by_status: Record<string, number>;
+  by_map: Record<string, number>;
+  open_items: number;
+  entries: WorkEntry[];
+  next_offset?: number;
+}
+
 /** GET /kbs/{kb}/status: the parts of kb_status the home reads. Both are
  *  omitted by the server when empty. */
 export interface KBStatus {

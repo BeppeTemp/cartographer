@@ -1,4 +1,4 @@
-import type { Artifact, ArtifactList, Concept, GraphSnapshot, KBSummary, LintReport, Overview, ChangesResponse, KBStatus, SearchResponse } from "./types";
+import type { Artifact, ArtifactList, Concept, GraphSnapshot, KBSummary, LintReport, Overview, ChangesResponse, KBStatus, SearchResponse, WorkResponse } from "./types";
 
 const BASE = "/api/ui/v1";
 
@@ -155,6 +155,11 @@ export function fetchSearch(kb: string, query: string, signal?: AbortSignal): Pr
 
 export function fetchChanges(kb: string, since: string, signal?: AbortSignal): Promise<ChangesResponse> {
   return get<ChangesResponse>(`/kbs/${encodeURIComponent(kb)}/changes?since=${encodeURIComponent(since)}&limit=40`, signal);
+}
+
+/** The caller's open work, up to the route's cap (D302). */
+export function fetchWork(kb: string, signal?: AbortSignal): Promise<WorkResponse> {
+  return get<WorkResponse>(`/kbs/${encodeURIComponent(kb)}/work?limit=200`, signal);
 }
 
 export function fetchStatus(kb: string, signal?: AbortSignal): Promise<KBStatus> {
