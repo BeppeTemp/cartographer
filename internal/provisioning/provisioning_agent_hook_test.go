@@ -263,9 +263,9 @@ func TestApply_DestDir_Matrix(t *testing.T) {
 		{"hook", configurator.ProviderClaudeCode, true, ".claude/hooks/art/hook.json"},
 		{"hook", configurator.ProviderOpenCode, true, ".opencode/hooks/art/hook.json"},
 		{"hook", configurator.ProviderCodex, true, ".codex/hooks/art/hook.json"},
-		// kiro keeps no hook cell: the shipped client has no hook mechanism at
-		// all, verified empirically against 2.21.3 (D195).
-		{"hook", configurator.ProviderKiro, false, ""},
+		// kiro: the files sit below the directory its engine scans, the
+		// registration is a separate owned file (D300).
+		{"hook", configurator.ProviderKiro, true, ".kiro/hooks/cartographer/art/hook.json"},
 		{"hook", configurator.ProviderAntigravity, true, ".gemini/config/hooks/art/hook.json"},
 	}
 

@@ -540,6 +540,8 @@ func hookProviderFromPath(path string) string {
 		return "opencode"
 	case strings.HasPrefix(slash, ".gemini/config/hooks/"):
 		return "antigravity"
+	case strings.HasPrefix(slash, ".kiro/hooks/"):
+		return "kiro"
 	default:
 		return ""
 	}

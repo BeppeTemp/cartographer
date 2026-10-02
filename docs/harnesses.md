@@ -98,8 +98,9 @@ would flip a matrix cell is confirmed with a probe
 
 ## kiro
 
-- **Aligned with**: `2.26.1` — 2026-10-01 for the hook probe only (default v2
-  engine, `--agent-engine v3`, `--v3 --tui`; KAS `0.66.15`); `2.21.3` —
+- **Aligned with**: `2.27.0` — 2026-10-02 for the `hook` cell (D300: the default
+  interactive TUI, `--no-interactive`, `--v3 --tui`, the default-agent probe);
+  `2.26.1` — 2026-10-01 for the first hook re-probe (KAS `0.66.15`); `2.21.3` —
   2026-09-11 for the agent and hook cells (D195); `2.21.4` for skill symlinks
   (D207, `CONTRIBUTING.md`); `2.20.0` — 2026-08-27 for D140.
 - **Sources**: changelog <https://kiro.dev/changelog/cli/>; hook docs
@@ -109,18 +110,22 @@ would flip a matrix cell is confirmed with a probe
   - `agent` as JSON (`name`/`description`/`prompt`) in `~/.kiro/agents/`,
     workspace `.kiro/agents/` wins over global (D195); native restriction keys
     believed to be `tools`/`allowedTools` (D291, not verified).
-  - `hook` is **unsupported** (D140, D195): standalone hooks exist in the shipped
-    binary (KAS) but fire only in the interactive V3 UI; sync layer 1 stays the
-    scheduled timer.
+  - `hook` in `~/.kiro/hooks/cartographer/<name>/`, registered in the owned
+    `~/.kiro/hooks/cartographer.json` (D300). It fires only in
+    `kiro-cli chat --v3 --tui`, so the scheduled timer stays advised. The loader
+    must stay non-recursive, or the cell has to move out of `~/.kiro/hooks/`.
+    The workspace cell stays unsupported.
   - `skill` in `~/.kiro/skills/` (project `.kiro/skills/`), `mcp` in
     `~/.kiro/settings/mcp.json`, `instructions` in `~/.kiro/steering/cartographer.md`.
-- **Watch items**: [#265](https://github.com/BeppeTemp/cartographer/issues/265).
-  Trigger: V3 becomes the default interactive engine (the default session stops
-  advertising it as an early release). Then a `SessionStart` hook in
-  `~/.kiro/hooks/` is the layer-1 trigger; the non-interactive gap still needs the
-  timer. Re-check of 2026-10-01: standalone hooks fire only under
-  `chat --v3 --tui`, never in `--no-interactive` runs nor the default engine;
-  `AgentSpawn` and `PromptSubmit` are not valid KAS triggers.
+- **Watch items**:
+  - the default `kiro-cli chat` starts firing standalone hooks (its KAS log shows
+    `v2 hooks cache initialized`). Then drop the `sessionHookLimit` on the Kiro
+    hook mechanism, and the timer advice with it;
+  - Kiro IDE: does it read a global `~/.kiro/hooks`, and fire a `SessionStart`
+    from it?
+  - Kiro Crew: does `~/.kiro/crew/hooks/` take the same v1 file?
+
+  Probe both on a machine that has them before any matrix cell claims them.
 - **Probe notes**: run the real binary
   (`"/Applications/Kiro CLI.app/Contents/MacOS/kiro-cli"` on macOS; the Homebrew
   symlink breaks its launcher). Three agent engines coexist (`--agent-engine

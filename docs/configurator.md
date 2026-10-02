@@ -184,9 +184,16 @@ up.
 **Kiro subagents (D195).** Kiro receives KB subagents as JSON configs in
 `~/.kiro/agents/` (and `.kiro/agents/` in workspace scope), which `kiro-cli agent
 list` reports as Global/Workspace and the built-in agent delegates to through its
-`use_subagent` tool, selecting by `description`. Its `hook` cell stays
-unsupported — the shipped client has no hook mechanism, so its re-sync trigger
-remains the scheduled timer (`interoperability.md` §Kiro hooks).
+`use_subagent` tool, selecting by `description`.
+
+**Kiro hooks (D300).** KB hooks and the bootstrap hook reach Kiro as entries of
+`~/.kiro/hooks/cartographer.json`, a standalone hook file Cartographer owns whole,
+with their files in `~/.kiro/hooks/cartographer/<name>/`. They fire only in
+`kiro-cli chat --v3 --tui`, so `status` reports `hook n/m (fires in kiro-cli chat --v3
+--tui only)`. `connect`, `status` and `doctor` keep advising the scheduled timer for
+Kiro, naming that limit rather than calling it hookless. Nothing is written into a
+Kiro agent config and `chat.defaultAgent` is never set (`interoperability.md` §Kiro
+hooks).
 
 **Workspace scope (D193).** `cartographer workspace bind <provider> <path> --kb <name>…` moves a
 provider from one machine-wide catalogue to one projection per bound repository: the KBs land in
@@ -577,7 +584,8 @@ Exit codes: `0` nothing left to do, `3` only judgement work or checks outside `a
 
 ### `cartographer service sync-timer <action>`
 
-The scheduled sync trigger for clients with no session-start hook (D140) — distinct from the
+The scheduled sync trigger (D140) for clients with no session-start hook, or one that fires only in
+some sessions (Kiro, D300). It is distinct from the
 **server** service below, with its own unit files:
 
 ```bash
@@ -596,7 +604,7 @@ cartographer service sync-timer status   # exit: 0 active, 3 installed but inact
 installed is a success. The timer runs `cartographer sync` **without** `--auto-trust`: an
 unattended job must not grant a trust the user never gave, while the persisted `trust` setting
 still applies. `connect` and `status` name this command once per invocation when a connected
-provider has no session hook — they never install it.
+provider has no session hook, or one limited to some sessions. They never install it.
 
 On Windows the trigger is a repetition at the configured interval with *start-when-available*
 (systemd's `Persistent=true` analogue: a run missed while the machine was off happens as soon as it

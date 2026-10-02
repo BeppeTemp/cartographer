@@ -648,15 +648,33 @@ func TestFormatKindStatus(t *testing.T) {
 		},
 	}
 
-	got := formatKindStatus(m, lock, false)
+	got := formatKindStatus(m, lock, false, "")
 	want := "skill 1/2 · agent 2/2 · hook 0/1"
 	if got != want {
 		t.Errorf("formatKindStatus: got %q, want %q", got, want)
 	}
 }
 
+// A hook installed for a client that fires it only in some sessions is not
+// reported as a bare count (D189): the figure names where it fires (D300).
+func TestFormatKindStatus_HookLimitQualifiesInstalledHooks(t *testing.T) {
+	m := provisioning.Manifest{Artifacts: []provisioning.Artifact{{Kind: "hook", Name: "hk1", ContentHash: "h1"}}}
+	lock := provisioning.Lock{Managed: []provisioning.ManagedFile{{Kind: "hook", Name: "hk1", Path: "x", ContentHash: "h1"}}}
+	limit := provisioning.SessionHookLimit(configurator.ProviderKiro)
+	if limit == "" {
+		t.Fatal("kiro declares no session hook limit")
+	}
+	want := "hook 1/1 (fires in " + limit + " only)"
+	if got := formatKindStatus(m, lock, false, limit); got != want {
+		t.Errorf("formatKindStatus = %q, want %q", got, want)
+	}
+	if got := formatKindStatus(m, provisioning.Lock{}, false, limit); got != "hook 0/1" {
+		t.Errorf("nothing installed must stay a bare count, got %q", got)
+	}
+}
+
 func TestFormatKindStatus_Empty(t *testing.T) {
-	if got := formatKindStatus(provisioning.Manifest{}, provisioning.Lock{}, false); got != "" {
+	if got := formatKindStatus(provisioning.Manifest{}, provisioning.Lock{}, false, ""); got != "" {
 		t.Errorf("formatKindStatus on empty manifest: got %q, want \"\"", got)
 	}
 }
@@ -668,7 +686,7 @@ func TestFormatKindStatus_UnknownKindAppendedAlphabetically(t *testing.T) {
 			{Kind: "zzz-future-kind", Name: "f1", ContentHash: "h2"},
 		},
 	}
-	got := formatKindStatus(m, provisioning.Lock{}, false)
+	got := formatKindStatus(m, provisioning.Lock{}, false, "")
 	want := "skill 0/1 · zzz-future-kind 0/1"
 	if got != want {
 		t.Errorf("formatKindStatus: got %q, want %q", got, want)

@@ -21,7 +21,8 @@ Run the real binary, not the Homebrew symlink (it breaks the launcher):
 (`--agent-engine v1|v2|v3`, default `v2`); a feature present only in a
 non-default engine is not "supported" for a user who runs the default.
 
-**Hook probe** (seeded from #265, Kiro CLI 2.26.1, KAS 0.66.15, 2026-10-01).
+**Hook probe** (seeded from #265, Kiro CLI 2.26.1, KAS 0.66.15, 2026-10-01;
+re-run on 2.27.0 for D300, 2026-10-02).
 
 1. Write a `"version": "v1"` hook file with a `command` action that appends a
    token to `$SENTINEL`, once to `$HOME/.kiro/hooks/` and once to the workspace
@@ -37,17 +38,41 @@ non-default engine is not "supported" for a user who runs the default.
    - `"$KIRO" chat --no-interactive --v3` with a prompt that makes a tool call;
    - `"$KIRO" chat --v3 --tui` interactive.
 3. Interactive runs need a pty: `script -q "$LOG" "$KIRO" chat --v3 --tui` with
-   scripted input, then exit cleanly.
+   scripted input, then exit cleanly. Wait ~20 s before typing: a prompt typed
+   while the TUI shows `Initializing` is queued and may never be sent, and the
+   `SessionStart` hook then never fires. That looks like a negative result and
+   is not one.
 4. Read the client's own logs, not only the sentinel:
    `grep -ri hook "$HOME/.kiro/logs/<run>/"`. Expected loader lines when it works:
    `v2 hooks cache initialized`, `loaded N standalone hooks from .kiro/hooks/`.
 5. Negative control: the same run with the hook files removed.
 
-Result on 2.26.1: hooks fire **only** in `chat --v3 --tui` (global and
-workspace); never in `--no-interactive` runs (KAS builds its hook cache only when
-the ACP client's `initialize` sends `hooks: {enabled: true, v2: true}`) nor in the
-default v2 engine. `PreToolUse` was not exercised (no tool call in that run).
-Watch #265 trigger: V3 becomes the default interactive engine.
+Result on 2.26.1 and 2.27.0 (D300):
+
+| Session | Standalone `~/.kiro/hooks/*.json` | Agent `hooks` (`agentSpawn`) |
+|---|---|---|
+| `chat` interactive (default; a new TUI over v2 since 2.27.0) | no | yes |
+| `chat --no-interactive`, no `--agent`, with `chat.defaultAgent=<x>` | no | yes |
+| `chat --v3 --tui` | yes (`SessionStart`, `UserPromptSubmit`, `Stop`) | yes |
+| `--v3` / `--agent-engine v3`, non-interactive | no (the KAS hook cache is built only when the ACP `initialize` sends `hooks: {enabled: true, v2: true}`) | — |
+
+The standalone loader does not recurse: a `*.json` in a subdirectory of
+`~/.kiro/hooks/` is not loaded (`loaded N standalone hooks` counts only the top
+level). The file schema is `{version: "v1", hooks: [{name, description?, trigger,
+matcher?, action: {type: "command", command}, timeout? (seconds, default 60),
+enabled?}]}`, with at least one entry. `PreToolUse` was not exercised.
+
+**Default-agent probe** (D300; a negative result, recorded so the next audit does
+not redo it): put `$HOME/.kiro/agents/<x>.json` with only `name`, `description`
+and `hooks`, then compare `/tools` in an interactive `chat --agent <x>` against
+`chat --agent kiro_default`. On 2.27.0 the bare agent has **no tools**, against
+14 for the default. With `"tools": ["*"]` it has the same 14, but it still lacks
+the default's built-in prompt. Side effect: running a session on an old-format
+agent file leaves `<x>.json.bak` and writes `chat.enableAutoAgentUpgrade: true`
+into `$HOME/.kiro/settings/cli.json`. Back up `cli.json` before the probe and
+restore it byte for byte afterwards. Kiro also creates
+`$HOME/.kiro/agents/agent_config.json.example`; delete it if it was not there
+before.
 
 **Skill probe**: place `<dir>/<name>/SKILL.md` in `$HOME/.kiro/skills/` and in the
 workspace `.kiro/skills/`; confirm the client lists it (a symlinked skill dir must

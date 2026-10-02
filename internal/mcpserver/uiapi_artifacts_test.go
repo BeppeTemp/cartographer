@@ -120,7 +120,7 @@ func TestUIAPI_ArtifactsListsWhatTheKBShips(t *testing.T) {
 			t.Errorf("client %q has no display name", c.ID)
 		}
 	}
-	if !hookClients[string(configurator.ProviderClaudeCode)] || hookClients[string(configurator.ProviderKiro)] {
+	if !hookClients[string(configurator.ProviderClaudeCode)] || !hookClients[string(configurator.ProviderKiro)] || hookClients[string(configurator.ProviderHermes)] {
 		t.Errorf("hook clients = %v", hookClients)
 	}
 }

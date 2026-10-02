@@ -81,6 +81,26 @@ func TestCmdServiceSyncTimer_Dispatch(t *testing.T) {
 	})
 }
 
+// Kiro has a session-start hook that fires only in the V3 TUI (D300): the
+// timer is still advised, and the reason given is the limit, never "no hook",
+// which would be false of a client whose hook is installed.
+func TestPrintSyncTimerHint_KiroNamesWhereItsHookFires(t *testing.T) {
+	old := syncTimerStatusFn
+	t.Cleanup(func() { syncTimerStatusFn = old })
+	syncTimerStatusFn = func() (service.SyncTimerStatus, error) { return service.SyncTimerStatus{}, nil }
+
+	out := withStdout(t, func() { printSyncTimerHint([]string{"hermes", "kiro"}) })
+	if !strings.Contains(out, "hermes has no session-start hook") {
+		t.Errorf("hermes must still be named as hookless: %q", out)
+	}
+	if !strings.Contains(out, "kiro's session-start hook fires only in `kiro-cli chat --v3 --tui`") {
+		t.Errorf("kiro must be named with its limit: %q", out)
+	}
+	if strings.Contains(out, "kiro has no session-start hook") || strings.Count(out, "sync-timer install") != 1 {
+		t.Errorf("unexpected hint: %q", out)
+	}
+}
+
 // The hint names the scheduled trigger once per invocation, only for providers
 // that genuinely have no session hook, and only when the trigger is not already
 // installed (a status the hint used to ignore, advising the installation of

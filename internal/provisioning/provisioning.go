@@ -2906,6 +2906,10 @@ func PruneManaged(managed []ManagedFile, baseDir string, dryRun bool) ([]Managed
 					if err := removeAntigravityHook(baseDir, mf.Name); err != nil {
 						return nil, fmt.Errorf("provisioning: prune entry Antigravity hooks.json hook %s: %w", mf.Name, err)
 					}
+				case "kiro":
+					if err := removeKiroHook(baseDir, mf.Name); err != nil {
+						return nil, fmt.Errorf("provisioning: prune entry Kiro cartographer.json hook %s: %w", mf.Name, err)
+					}
 				}
 				hookSettingsDone[mf.Name] = true
 			}
@@ -2977,9 +2981,10 @@ var unsupportedDest = destination{unsupported: true}
 //     (applyInstructionsGroup).
 //   - "skill"/"hook" cells are directories materialized by copyArtifactFiles;
 //     "agent" cells are a single file, written directly by Apply.
-//   - kiro's hooks are declared per agent rather than per machine (D140), so
-//     its "hook" cell is unsupported; its "agent" cell is a JSON config in the
-//     global agent directory (D195).
+//   - kiro's "hook" cell holds the hook's files outside the directory its
+//     engine scans; the registration is one Cartographer-owned file beside
+//     them (D300). Its "agent" cell is a JSON config in the global agent
+//     directory (D195).
 //   - hermes supports exactly one kind, "skill", and delivers it to an inbox
 //     for the agent to adopt rather than installing it (D141). Its four other
 //     cells are unsupported for stated reasons, not by omission.
@@ -3048,12 +3053,17 @@ var destinationMatrix = map[string]map[configurator.Provider]destination{
 		// the JS plugin that invokes them (D59) is generated elsewhere (Apply,
 		// registerOpenCodePlugin) in .config/opencode/plugins/, not here.
 		configurator.ProviderOpenCode: perName("", ".opencode", "hooks"),
-		// kiro: hooks are a `hooks` map inside an AGENT config
-		// (~/.kiro/agents/<name>.json), not files in a directory of their own,
-		// and they fire only for the agent that declares them — so no hook
-		// Cartographer owns can fire for the agent the user actually runs
-		// (D140). Its trigger is the scheduled timer.
-		configurator.ProviderKiro: unsupportedDest,
+		// kiro (D300): the registration is ~/.kiro/hooks/cartographer.json, a
+		// standalone v1 hook file Cartographer owns whole (registerKiroHook).
+		// The scripts sit one level below it, in ~/.kiro/hooks/cartographer/<n>/,
+		// because the engine's loader does not recurse: it reads only the
+		// *.json files directly in ~/.kiro/hooks (KAS loadHooksDir, and a probe
+		// on 2.27.0 that loaded one hook file of the two placed at the top level
+		// and in a subdirectory). If a release makes it recurse, every hook.json
+		// here would be read as a malformed hook file, and this cell must move
+		// out of ~/.kiro/hooks. These hooks fire only in `kiro-cli chat --v3
+		// --tui`, so the scheduled timer is still advised (hookMechanism.sessionHookLimit).
+		configurator.ProviderKiro: perName("", ".kiro", "hooks", "cartographer"),
 		// hermes: no hook mechanism at all — nothing fires at conversation
 		// start, so its trigger is the scheduled timer (D140/D141).
 		configurator.ProviderHermes:      unsupportedDest,

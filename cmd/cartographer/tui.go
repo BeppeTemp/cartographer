@@ -592,7 +592,11 @@ var knownProvisioningKinds = []string{"skill", "agent", "hook", "instructions", 
 // `cartographer status` and the dashboard read the result off the snapshot, so
 // the two cannot report different breakdowns for the same provider. It stands
 // alongside — not in place of — formatDiffStatus.
-func formatKindStatus(m provisioning.Manifest, lock provisioning.Lock, instructionsShadowed bool) string {
+//
+// hookLimit is provisioning.SessionHookLimit for the provider: when set, the
+// installed hooks fire only in those sessions, and the hook figure says so
+// (D189, D300) instead of a bare count that reads as "covered everywhere".
+func formatKindStatus(m provisioning.Manifest, lock provisioning.Lock, instructionsShadowed bool, hookLimit string) string {
 	counts := provisioning.KindCounts(m, lock)
 
 	// A block written into a file the provider does not read is not installed
@@ -609,7 +613,11 @@ func formatKindStatus(m provisioning.Manifest, lock provisioning.Lock, instructi
 	var parts []string
 	for _, k := range knownProvisioningKinds {
 		if c, ok := counts[k]; ok {
-			parts = append(parts, fmt.Sprintf("%s %d/%d", k, c.Installed, c.Total))
+			part := fmt.Sprintf("%s %d/%d", k, c.Installed, c.Total)
+			if k == "hook" && hookLimit != "" && c.Installed > 0 {
+				part += " (fires in " + hookLimit + " only)"
+			}
+			parts = append(parts, part)
 			seen[k] = true
 		}
 	}
