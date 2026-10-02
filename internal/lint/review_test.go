@@ -114,6 +114,13 @@ var reviewFixtures = map[string]func(t *testing.T, dismiss bool) (*kb.KB, string
 		}
 		return k, "m/hub"
 	},
+	ReviewScatteredWork: func(t *testing.T, dismiss bool) (*kb.KB, string) {
+		k := tempKB(t)
+		writeFile(t, k.DataRoot(), "backlog/_map.md", "---\ntype: Map\ntitle: Backlog\n---\n")
+		writeFile(t, k.DataRoot(), "ref/_map.md", "---\ntype: Map\ntitle: Ref\nwork_map: backlog\n---\n")
+		writeFile(t, k.DataRoot(), "ref/page.md", "---\ntype: Topic\ntitle: Page\n"+ignoreLine(ReviewScatteredWork, dismiss)+"---\n# Page\n\n## Follow-up\n\n- [ ] migrate the host\n")
+		return k, "ref/page"
+	},
 	ReviewLintJudgement: func(t *testing.T, dismiss bool) (*kb.KB, string) {
 		k := tempKB(t)
 		writeFile(t, k.DataRoot(), "m/_map.md", "---\ntype: Map\ntitle: M\n---\n")
@@ -442,5 +449,33 @@ func TestReciprocalLinkItem(t *testing.T) {
 	}
 	if countCheck(f, "m/a.md", "duplicate_link") != 1 {
 		t.Fatalf("duplicate_link lost: %+v", f)
+	}
+}
+
+// TestReviewScatteredWork (D302): no item without work_map; an item for a
+// reference page with an unchecked item; none once it links into work_map.
+func TestReviewScatteredWork(t *testing.T) {
+	k := tempKB(t)
+	writeFile(t, k.DataRoot(), "backlog/_map.md", "---\ntype: Map\ntitle: Backlog\n---\n")
+	writeFile(t, k.DataRoot(), "backlog/t.md", "---\ntype: Task\ntitle: T\nstatus: open\n---\n# T\n")
+	writeFile(t, k.DataRoot(), "ref/_map.md", "---\ntype: Map\ntitle: Ref\n---\n")
+	writeFile(t, k.DataRoot(), "ref/page.md", "---\ntype: Topic\ntitle: Page\n---\n# Page\n\n## Follow-up\n\n- [ ] one\n- [ ] two\n")
+	if got := itemsOf(review(t, k), ReviewScatteredWork); len(got) != 0 {
+		t.Fatalf("no work_map, yet: %+v", got)
+	}
+	writeFile(t, k.DataRoot(), "ref/_map.md", "---\ntype: Map\ntitle: Ref\nwork_map: backlog\n---\n")
+	got := itemsOf(review(t, k), ReviewScatteredWork)
+	if len(got) != 1 || got[0].Weight != 2 || !strings.Contains(got[0].Evidence, `"Follow-up"`) {
+		t.Fatalf("scattered work: %+v", got)
+	}
+	writeFile(t, k.DataRoot(), "ref/page.md", "---\ntype: Topic\ntitle: Page\n---\n# Page\n\nTracked in [[backlog/t]].\n\n- [ ] one\n")
+	if got := itemsOf(review(t, k), ReviewScatteredWork); len(got) != 0 {
+		t.Fatalf("linked into work_map, yet: %+v", got)
+	}
+	// A work_map that names no map is malformed.
+	writeFile(t, k.DataRoot(), "ref/_map.md", "---\ntype: Map\ntitle: Ref\nwork_map: nowhere\n---\n")
+	f, _ := Run(k, "", false)
+	if !hasCheck(f, "ref/_map.md", "contract_malformed") {
+		t.Fatal("work_map naming no map is not contract_malformed")
 	}
 }

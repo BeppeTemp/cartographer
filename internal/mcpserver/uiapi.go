@@ -139,6 +139,8 @@ func (m *MultiKBServer) handleUIAPI(w http.ResponseWriter, r *http.Request) {
 		uiChanges(w, r, srv)
 	case "status":
 		uiStatus(w, r, srv)
+	case "work":
+		uiWork(w, r, srv)
 	default:
 		writeUINotFound(w)
 	}

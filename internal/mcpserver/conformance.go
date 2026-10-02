@@ -193,6 +193,46 @@ type conformanceCache struct {
 	readCostGen    uint64
 	readCostCached bool
 	readCost       kb.ReadCost
+
+	// work view (D302), cached on the same key as findings.
+	workGen    uint64
+	workStamp  string
+	workCached bool
+	work       []lint.WorkEntry
+}
+
+// workEntries returns the whole-KB work view (D302), unfiltered, on the lint
+// cache key: the open statuses come from map contracts, which the stamp
+// covers. Visibility is the caller's (visibleWork).
+func (cc *conformanceCache) workEntries(k *kb.KB) ([]lint.WorkEntry, error) {
+	gen, err := k.GraphGeneration()
+	if err != nil {
+		return nil, err
+	}
+	// Age and staleness move with the calendar, not with the files: the day
+	// is part of the key, so an idle KB does not serve yesterday's ages.
+	day := lint.Now().UTC().Format("2006-01-02")
+	stamp := lintInputsStamp(k) + "|" + day
+	cc.mu.Lock()
+	if cc.workCached && gen == cc.workGen && stamp == cc.workStamp {
+		out := cc.work
+		cc.mu.Unlock()
+		return out, nil
+	}
+	cc.mu.Unlock()
+	entries, err := lint.Work(k)
+	if err != nil {
+		return nil, err
+	}
+	if entries == nil {
+		entries = []lint.WorkEntry{}
+	}
+	if genAfter, gerr := k.GraphGeneration(); gerr == nil && genAfter == gen && lintInputsStamp(k)+"|"+day == stamp {
+		cc.mu.Lock()
+		cc.workGen, cc.workStamp, cc.work, cc.workCached = gen, stamp, entries, true
+		cc.mu.Unlock()
+	}
+	return entries, nil
 }
 
 // readCostFor returns kb_status.read_cost for a caller. The whole-KB answer

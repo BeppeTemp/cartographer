@@ -130,6 +130,7 @@ func RegisterKBTools(s *Server, k *kb.KB, deps Deps) {
 	s.conformance = cc
 	register(toolKBStatus(k, misses, s.version, s.knownLatestVersion, cc))
 	register(toolKBReview(k, cc))
+	register(toolWorkList(k, cc))
 	register(toolContradictionReport(k))
 	register(gitWrap(k, toolSourceRegister(k)))
 	register(toolSourceList(k))

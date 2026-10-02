@@ -122,3 +122,34 @@ func TestArtifactConceptRefs(t *testing.T) {
 		t.Fatalf("refs = %v, want %v", got, want)
 	}
 }
+
+// TestUIAPI_WorkFiltersLikeTheTool (D302): the route is work_list for the
+// request's principal, and a KB the caller cannot see is a 404.
+func TestUIAPI_WorkFiltersLikeTheTool(t *testing.T) {
+	k := uiFixtureKB(t, "docs")
+	writeKBFile(t, k, "visible/task.md", "---\ntype: Task\ntitle: Task\nstatus: open\npriority: p1\n---\n# T\n\n- [ ] visible item\n")
+	writeKBFile(t, k, "hidden/task.md", "---\ntype: Task\ntitle: Hidden\nstatus: open\n---\n# H\n\n- [ ] hidden item\n")
+	ts := auth.NewScopedTokenStore([]auth.ScopedToken{
+		{Token: "whole", Policy: auth.Policy{Permissions: []auth.Permission{{KB: "docs"}}}},
+		{Token: "narrow", Policy: auth.Policy{Permissions: []auth.Permission{{KB: "docs", Maps: []string{"visible"}}}}},
+		{Token: "other", Policy: auth.Policy{Permissions: []auth.Permission{{KB: "elsewhere"}}}},
+	})
+	multi := NewMultiKBServer("test")
+	multi.MountKB("docs", func(s *Server) { RegisterKBTools(s, k, Deps{}) })
+	multi.EnableWeb(nil)
+	handler := ts.Middleware(multi.Handler())
+
+	if rr := getUI(t, handler, UIAPIPrefix+"/kbs/docs/work", "other"); rr.Code != http.StatusNotFound {
+		t.Fatalf("unseen KB: status %d, want 404", rr.Code)
+	}
+	rr := getUI(t, handler, UIAPIPrefix+"/kbs/docs/work?include=items&fields=priority", "narrow")
+	if rr.Code != http.StatusOK || strings.Contains(rr.Body.String(), "hidden") || !strings.Contains(rr.Body.String(), "visible item") || !strings.Contains(rr.Body.String(), `"priority":"p1"`) {
+		t.Fatalf("narrow work: %d %s", rr.Code, rr.Body.String())
+	}
+	if body := decodeUI(t, getUI(t, handler, UIAPIPrefix+"/kbs/docs/work?where=priority%3Dp1", "whole")); body["total"].(float64) != 1 {
+		t.Fatalf("where: %v", body)
+	}
+	if rr := getUI(t, handler, UIAPIPrefix+"/kbs/docs/work?include=bogus", "whole"); rr.Code != http.StatusBadRequest {
+		t.Fatalf("bad include: %d", rr.Code)
+	}
+}
