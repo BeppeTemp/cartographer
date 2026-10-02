@@ -24,7 +24,7 @@ func TestWork(t *testing.T) {
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "m/_map.md", "---\ntype: Map\ntitle: M\n---\n")
 	writeFile(t, k.DataRoot(), "j/_map.md", "---\ntype: Map\ntitle: J\nkind: journal\n---\n")
-	writeFile(t, k.DataRoot(), "c/_map.md", "---\ntype: Map\ntitle: C\nopen_statuses: [waiting]\n---\n")
+	writeFile(t, k.DataRoot(), "c/_map.md", "---\ntype: Map\ntitle: C\nopen_statuses: [waiting, draft]\n---\n")
 	// An open-phase concept of a non-Task type.
 	writeFile(t, k.DataRoot(), "m/plan.md", "---\ntype: Topic\ntitle: Plan\nstatus: in-progress\n---\n# Plan\n")
 	// A done concept with unchecked items; a checkbox in code is not work.
@@ -34,6 +34,11 @@ func TestWork(t *testing.T) {
 	writeFile(t, k.DataRoot(), "j/2026-01-02-e.md", "---\ntype: Note\ntitle: E\nstatus: active\ntimestamp: 2026-01-02\n---\n# E\n")
 	// A contract's open_statuses override the defaults.
 	writeFile(t, k.DataRoot(), "c/w.md", "---\ntype: Note\ntitle: W\nstatus: waiting\n---\n")
+	// A draft is a page being written, not work, unless the map lists it;
+	// its unchecked items are work all the same.
+	writeFile(t, k.DataRoot(), "m/study.md", "---\ntype: Topic\ntitle: Study\nstatus: draft\n---\n# Study\n")
+	writeFile(t, k.DataRoot(), "m/study2.md", "---\ntype: Topic\ntitle: Study 2\nstatus: draft\n---\n# Study 2\n\n- [ ] open point\n")
+	writeFile(t, k.DataRoot(), "c/d.md", "---\ntype: Note\ntitle: D\nstatus: draft\n---\n")
 	writeFile(t, k.DataRoot(), "c/p.md", "---\ntype: Note\ntitle: P\nstatus: in-progress\n---\n")
 
 	entries, err := Work(k)
@@ -62,6 +67,15 @@ func TestWork(t *testing.T) {
 	}
 	if _, ok := got["c/w"]; !ok {
 		t.Fatal("open_statuses value not open")
+	}
+	if _, ok := got["m/study"]; ok {
+		t.Fatal("draft counted as work by default")
+	}
+	if e, ok := got["m/study2"]; !ok || e.OpenPhase || len(e.Items) != 1 {
+		t.Fatalf("draft with items: %+v", e)
+	}
+	if e, ok := got["c/d"]; !ok || !e.OpenPhase {
+		t.Fatalf("draft listed in open_statuses: %+v", e)
 	}
 	if _, ok := got["c/p"]; ok {
 		t.Fatal("default open status kept despite open_statuses")

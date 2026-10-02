@@ -221,6 +221,7 @@ export interface WorkEntry {
 }
 export interface WorkResponse {
   total: number;
+  open_concepts: number;
   by_status: Record<string, number>;
   by_map: Record<string, number>;
   open_items: number;

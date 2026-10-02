@@ -56,7 +56,7 @@ func workIDs(r workResponse) string {
 func TestWorkList(t *testing.T) {
 	s, _ := workServer(t)
 	all := workCall(t, s, `{"scope":"visible"}`)
-	if workIDs(all) != "visible/a,visible/b,visible/c" || all.Total != 3 || all.OpenItems != 2 || all.ByStatus["done"] != 1 || all.ByMap["visible"] != 3 {
+	if workIDs(all) != "visible/a,visible/b,visible/c" || all.Total != 3 || all.OpenConcepts != 2 || all.OpenItems != 2 || len(all.ByStatus) != 2 || all.ByStatus["done"] != 0 || all.ByMap["visible"] != 3 {
 		t.Fatalf("all: %s %+v", workIDs(all), all)
 	}
 	if c := all.Entries[2]; c.OpenPhase || len(c.Items) != 2 || c.Items[0].Section != "Todo" {

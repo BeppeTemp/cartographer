@@ -43,7 +43,14 @@ noise.
 
 **Consequences.** The collector (`lint.Work`) is pure and shares `openPhase`,
 the checkbox pattern and code masking with the lifecycle lint, so the view and
-`stale_open`/`closed_with_open_items` cannot disagree. The cached view is keyed
+`stale_open`/`closed_with_open_items` cannot disagree, with one deliberate
+exception: by default the `draft` family is not work. Tried on a real KB, the
+view listed study pages in `draft` as open work. A draft says a page is still
+being written, not that something in its subject is pending, so it is work only
+where a map's `open_statuses` lists it; it still goes stale for `stale_open`,
+and its unchecked items stay work. `total` counts entries, for paging, while
+`open_concepts` and `by_status` count only open-phase concepts: a closed concept
+listed for its items would otherwise show its closed status as work. The cached view is keyed
 on the lint inputs and the day, because ages move with the calendar. Visibility
 is applied outside the cache, and a test pins that a hidden concept never
 reaches entries or counts. `work_list` is part of the `agent` core set: a
