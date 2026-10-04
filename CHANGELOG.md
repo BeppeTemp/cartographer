@@ -8,6 +8,13 @@
 
 KB histories with commits authored as `cartographer <cartographer@localhost>` may need a manual author rewrite before a forge with author push rules accepts the first push.
 
+## [0.18.1](https://github.com/BeppeTemp/cartographer/compare/v0.18.0...v0.18.1) (2026-10-04)
+
+
+### Bug Fixes
+
+* **web:** the Atlas sends same-origin credentials so an SSO proxy can front it ([#510](https://github.com/BeppeTemp/cartographer/issues/510)) ([686f0e3](https://github.com/BeppeTemp/cartographer/commit/686f0e3ce341fdc9c0a64bb460b441b6d68576fc))
+
 ## [0.18.0](https://github.com/BeppeTemp/cartographer/compare/v0.17.0...v0.18.0) (2026-10-02)
 
 
