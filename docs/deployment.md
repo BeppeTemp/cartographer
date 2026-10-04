@@ -437,6 +437,11 @@ script and no eval. `web.enabled: false` registers neither route.
 
 Stdio mode never serves the UI, whatever the setting says.
 
+Behind an SSO reverse proxy that protects `/ui` and `/api/ui` only (leave `/mcp`
+on bearer auth) and injects a read-only bearer, the Atlas opens without the token
+prompt. The UI sends same-origin cookies so the proxy session reaches the API
+(D308).
+
 The Atlas draws its graph in 3D, as a live force-directed network (D234, D235): it breathes and turns slowly on its own; drag to orbit, zoom with the
 wheel or a pinch, click a concept to select it (nodes are not dragged). A *Motion* toggle, remembered per browser,
 pauses the drift, the slow panorama and the signals a selection sends along its

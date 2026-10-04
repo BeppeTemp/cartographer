@@ -90,7 +90,9 @@ async function get<T>(path: string, signal?: AbortSignal): Promise<T> {
 
   let response: Response;
   try {
-    response = await fetch(BASE + path, { headers, signal, credentials: "omit" });
+    // same-origin: a proxy session cookie (SSO in front of the UI) must reach the API;
+    // never cross-origin, so no third party sees it.
+    response = await fetch(BASE + path, { headers, signal, credentials: "same-origin" });
   } catch (err) {
     if (err instanceof DOMException && err.name === "AbortError") throw err;
     throw new ApiError(0, "offline", "the Cartographer server is unreachable");
