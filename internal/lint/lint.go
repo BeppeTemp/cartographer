@@ -1093,7 +1093,7 @@ func linkFindings(k *kb.KB, id okf.ConceptID, relPath, linkBase, body string, ex
 	var rebasable map[string]*Fix // broken target path → fix
 	if isExpanded {
 		preExpBase := strings.TrimSuffix(linkBase, "/index.md") + ".md"
-		rebasable = brokenLinkRebaseFixes(body, linkBase, preExpBase, exists)
+		rebasable = brokenLinkRebaseFixes(body, linkBase, preExpBase, id, exists)
 	}
 	for _, target := range kb.ExtractLinks(body, linkBase, k.AssetExists) {
 		targetPath := okf.IDToPath(target)
@@ -1107,9 +1107,18 @@ func linkFindings(k *kb.KB, id okf.ConceptID, relPath, linkBase, body string, ex
 			if fix, ok := rebasable[targetPath]; ok {
 				f.Fix = fix
 				f.Message += "; fix: rebase relative to the expanded index"
+				if fix.To == "" {
+					f.Message = fmt.Sprintf("link to the concept's own page (%s) — drop the link, keep the label", targetPath)
+				}
 			}
 			emit(f)
 		}
+	}
+
+	// --- index_link_form (info, D310) ---
+	for _, f := range indexLinkForms(body, linkBase, exists) {
+		f.Path = relPath
+		emit(f)
 	}
 
 	// --- duplicate_link / bare_link_list (info): the trailing links
@@ -1266,11 +1275,72 @@ func matchesAllowedPrefix(candidate string, allowPrefixes []string) bool {
 // map's machine_path_allow_prefixes only adds to them.
 var builtinAllowPrefixes = []string{"~/.ssh/", "~/.kube/", "~/.m2/", "~/.config/", "~/.cache/", "~/.local/", "~/.gnupg/"}
 
+var (
+	mdLinkPat   = regexp.MustCompile(`\[([^\]]*)\]\(([^)]+)\)`)
+	wikiLinkPat = regexp.MustCompile(`\[\[([^\[\]|#]+)(#[^\[\]|]*)?(\|[^\[\]]*)?\]\]`)
+)
+
+// indexLinkForms finds the links that spell an expanded concept as
+// <concept>/index (D310). The graph already counts them as links to the
+// concept; the canonical spelling is the concept itself, and the fix is
+// mechanical: a markdown href becomes the relative <concept>.md, a wiki-link
+// its bare ID. A target whose parent is no concept is a broken link, not
+// this check's business.
+func indexLinkForms(body, linkBase string, exists func(okf.ConceptID) bool) []Finding {
+	masked := kb.MaskCodeSpans(body)
+	baseDir := path.Dir(linkBase)
+	var out []Finding
+	seen := map[string]bool{}
+	for _, m := range mdLinkPat.FindAllStringSubmatch(masked, -1) {
+		href := m[2]
+		if strings.Contains(href, "://") || strings.HasPrefix(href, "#") || strings.HasPrefix(href, "mailto:") || strings.HasPrefix(href, "/") {
+			continue
+		}
+		pathPart := strings.SplitN(href, "#", 2)[0]
+		if !strings.EqualFold(path.Ext(pathPart), ".md") {
+			continue
+		}
+		resolved := path.Clean(path.Join(baseDir, pathPart))
+		parent, ok := strings.CutSuffix(strings.TrimSuffix(resolved, path.Ext(resolved)), "/index")
+		if !ok || strings.HasPrefix(resolved, "..") || !exists(okf.ConceptID(parent)) {
+			continue
+		}
+		if seen[pathPart] {
+			continue
+		}
+		seen[pathPart] = true
+		to := kb.RelLink(baseDir, parent+".md")
+		out = append(out, Finding{
+			Check:    "index_link_form",
+			Severity: SevInfo,
+			Message:  fmt.Sprintf("link to %s — the concept is %s; write %s", pathPart, parent, to),
+			Fix:      &Fix{Kind: FixRebaseLink, Field: pathPart, To: to},
+		})
+	}
+	for _, m := range wikiLinkPat.FindAllStringSubmatch(masked, -1) {
+		raw := m[1]
+		parent, ok := strings.CutSuffix(strings.TrimSuffix(raw, ".md"), "/index")
+		if !ok || strings.Contains(raw, "://") || !exists(okf.ConceptID(parent)) || seen["[["+raw] {
+			continue
+		}
+		seen["[["+raw] = true
+		out = append(out, Finding{
+			Check:    "index_link_form",
+			Severity: SevInfo,
+			Message:  fmt.Sprintf("link to [[%s]] — the concept is %s; write [[%s]]", raw, parent, parent),
+			Fix:      &Fix{Kind: FixRewriteWikiLink, Field: raw, To: parent},
+		})
+	}
+	return out
+}
+
 // brokenLinkRebaseFixes computes, for an expanded concept, which broken
 // markdown links would resolve from the pre-expansion base. Each is returned
 // keyed by the broken target path (e.g. "map/c/other.md") with a Fix carrying
-// the old href (Field) and the correct new href (To). D295 WP2.
-func brokenLinkRebaseFixes(body, newBase, oldBase string, exists func(okf.ConceptID) bool) map[string]*Fix {
+// the old href (Field) and the correct new href (To). D295 WP2. A link that
+// would resolve to the concept itself (self, or its own index.md) carries an
+// empty To: the repair keeps the label and drops the link (D310).
+func brokenLinkRebaseFixes(body, newBase, oldBase string, self okf.ConceptID, exists func(okf.ConceptID) bool) map[string]*Fix {
 	oldDir, newDir := path.Dir(oldBase), path.Dir(newBase)
 	masked := kb.MaskCodeSpans(body)
 	mdLinkPat := regexp.MustCompile(`\[([^\]]*)\]\(([^)]+)\)`)
@@ -1314,6 +1384,11 @@ func brokenLinkRebaseFixes(body, newBase, oldBase string, exists func(okf.Concep
 		// ...but resolves from the old base.
 		if !exists(okf.ConceptID(goodID)) {
 			continue // broken from both bases: no fix
+		}
+
+		if okf.ConceptID(goodID) == self || okf.ConceptID(goodID) == self+"/index" {
+			out[brokenResolved] = &Fix{Kind: FixRebaseLink, Field: pathPart}
+			continue
 		}
 
 		// Compute correct href relative to the new base.
