@@ -919,7 +919,7 @@ func toolConflictsList(k *kb.KB) Tool {
 func toolGitConflictResolve(k *kb.KB) Tool {
 	return Tool{
 		Name:        "git_conflict_resolve",
-		Description: "Resolves a registered git conflict. strategy: ours (local), theirs (remote), edit (reconciled content in body), union (both sides; a reserved log.md only). When every open conflict (conflicts_list) has a resolution, Cartographer merges, commits, pushes and clears the degraded markers.",
+		Description: "Resolves a git conflict. strategy: ours (local), theirs (remote), edit (reconciled body), union (log.md only). Once every open conflict (conflicts_list) is resolved, Cartographer merges, commits, pushes and clears the degraded markers.",
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"required": ["concept_id", "strategy"],
