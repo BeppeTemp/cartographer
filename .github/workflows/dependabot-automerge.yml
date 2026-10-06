@@ -1,0 +1,25 @@
+name: dependabot-automerge
+
+# Dependabot's weekly grouped PRs merge themselves once the required checks
+# pass, for patch and minor bumps (D329). A major bump stays open for a human:
+# it is the kind that changes behaviour. The merge itself is GitHub's
+# auto-merge, so the PR still waits for `test` (and `test-windows` where it
+# runs) exactly like any other.
+on: pull_request
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  automerge:
+    if: github.event.pull_request.user.login == 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - id: meta
+        uses: dependabot/fetch-metadata@v2
+      - if: steps.meta.outputs.update-type != 'version-update:semver-major'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+        run: gh pr merge --auto --squash "$PR_URL"
