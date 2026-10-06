@@ -124,7 +124,7 @@ file-sets overlap:
    clean append — real code or current-state prose divergence — → **STOP** and
    surface it to the user.
 3. `git rebase --continue`, then the **full** `make -C .worktrees/<slug> gate` on the rebased tree, then `git push --force-with-lease`. Rebase onto the `main` that already holds the previous merges even when GitHub says the PR is mergeable: two PRs that each pass alone can fail together — a whole-catalogue budget (D285), a duplicate decision number — and only the combined tree shows it. The local gate (~2 min) catches that before it breaks `main` (D328).
-4. Wait for CI green and `mergeStateStatus == CLEAN`, then `gh pr merge <pr> --squash --delete-branch`. Auto-merge is disabled on this repository, so wait in a **background** command that loops on `gh pr view <pr> --json mergeStateStatus,statusCheckRollup` until `CLEAN` (stop on a `FAILURE` conclusion or on `DIRTY`/`BEHIND`), then merges. Not `gh pr checks --watch`: right after a push it can return before the checks are registered. The Bash tool's shell is zsh, which does not word-split an unquoted `$var`: pass the PR number and slug as separate literal arguments. Never rewrite a script a background job is running: bash reads it as it executes.
+4. `gh pr merge <pr> --squash --delete-branch --auto` right after the push: GitHub merges it when the required checks pass (D329), with no wait loop on this side. Check `gh pr view <pr> --json state` before the next plan's rebase; a check that fails leaves the PR open, and auto-merge is cancelled by any later push.
 5. `git checkout main && git pull --ff-only` in the main working copy, then
    `make worktree-rm SLUG=<slug>`.
 
