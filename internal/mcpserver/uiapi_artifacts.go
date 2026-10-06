@@ -2,10 +2,12 @@ package mcpserver
 
 import (
 	"net/http"
+	"strings"
 	"unicode/utf8"
 
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/kb"
+	"github.com/BeppeTemp/cartographer/internal/lint"
 	"github.com/BeppeTemp/cartographer/internal/okf"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
 )
@@ -46,6 +48,66 @@ type uiArtifact struct {
 	Files       []uiArtifactFile   `json:"files"`
 	// Concepts the artifact references explicitly (uiapi_artifactrefs.go).
 	Concepts []string `json:"concepts"`
+	// Findings are the artifact lint findings on this artifact's files
+	// (D316), so its health shows beside it.
+	Findings []uiArtifactFinding `json:"findings,omitempty"`
+}
+
+type uiArtifactFinding struct {
+	Path     string `json:"path"`
+	Check    string `json:"check"`
+	Severity string `json:"severity"`
+	Message  string `json:"message"`
+}
+
+// uiArtifactFindingChecks are the lint checks the Artifacts panel reports
+// (D316): the ones about what the KB ships, not about its concepts.
+var uiArtifactFindingChecks = map[string]bool{
+	"skill_invalid": true, "skill_warning": true, "legacy_tool_name": true,
+	"skill_broken_ref": true, "skill_git_command": true, "hook_invalid": true,
+	"junk_file": true, "junk_asset": true, "missing_instructions": true,
+	"sops_format_mismatch": true, "sops_missing_file": true, "cross_kb_path": true,
+	"skill_missing_perimeter": true,
+}
+
+// artifactFindings returns the KB's artifact findings, from the whole-KB lint
+// cache when the server has one. A finding on a concept (a sops pipeline in a
+// concept body) is not an artifact's.
+func artifactFindings(srv *Server) ([]lint.Finding, error) {
+	var all []lint.Finding
+	var err error
+	if srv.conformance != nil {
+		all, err = srv.conformance.lintFindings(srv.kbRef)
+	} else {
+		all, err = lint.Run(srv.kbRef, "", false)
+	}
+	if err != nil {
+		return nil, err
+	}
+	var out []lint.Finding
+	for _, f := range all {
+		// sops_* also fire on concept bodies: only the artifact ones count.
+		if uiArtifactFindingChecks[f.Check] && (f.Artifact || !strings.HasPrefix(f.Check, "sops_")) {
+			out = append(out, f)
+		}
+	}
+	return out, nil
+}
+
+// attachFindings gives an artifact the findings on one of its files, or on
+// its directory (a skill reported as a whole).
+func attachFindings(a *uiArtifact, findings []lint.Finding) {
+	for _, f := range findings {
+		if f.Path == "" {
+			continue
+		}
+		for _, file := range a.Files {
+			if f.Path == file.Path || strings.HasPrefix(file.Path, f.Path+"/") {
+				a.Findings = append(a.Findings, uiArtifactFinding{Path: f.Path, Check: f.Check, Severity: f.Severity, Message: f.Message})
+				break
+			}
+		}
+	}
 }
 
 func uiArtifactFrom(a kbArtifact, withContent bool, exists map[okf.ConceptID]struct{}) uiArtifact {
@@ -106,17 +168,34 @@ func (m *MultiKBServer) uiArtifacts(w http.ResponseWriter, r *http.Request, srv 
 		writeUIInternal(w, "artifacts: concepts", err)
 		return
 	}
+	findings, err := artifactFindings(srv)
+	if err != nil {
+		writeUIInternal(w, "artifacts: lint", err)
+		return
+	}
 	list := make([]uiArtifact, 0, len(catalog.Artifacts))
 	counts := map[string]int{}
 	for _, a := range catalog.Artifacts {
-		list = append(list, uiArtifactFrom(a, false, exists))
+		ua := uiArtifactFrom(a, false, exists)
+		attachFindings(&ua, findings)
+		list = append(list, ua)
 		counts[a.Kind]++
 	}
 	issues := catalog.Issues
 	if issues == nil {
 		issues = []string{}
 	}
-	writeUIJSON(w, http.StatusOK, map[string]interface{}{"artifacts": list, "counts": counts, "issues": issues})
+	// Every artifact finding is counted, including the ones no listed
+	// artifact owns (a skill left out, a junk file, no instructions.md).
+	findingCounts, severityCounts := map[string]int{}, map[string]int{}
+	for _, f := range findings {
+		findingCounts[f.Check]++
+		severityCounts[f.Severity]++
+	}
+	writeUIJSON(w, http.StatusOK, map[string]interface{}{
+		"artifacts": list, "counts": counts, "issues": issues,
+		"finding_counts": findingCounts, "finding_severities": severityCounts,
+	})
 }
 
 func (m *MultiKBServer) uiArtifact(w http.ResponseWriter, r *http.Request, srv *Server) {
@@ -150,7 +229,14 @@ func (m *MultiKBServer) uiArtifact(w http.ResponseWriter, r *http.Request, srv *
 	}
 	for _, a := range catalog.Artifacts {
 		if a.Kind == kind && a.Name == name {
-			writeUIJSON(w, http.StatusOK, uiArtifactFrom(a, true, exists))
+			ua := uiArtifactFrom(a, true, exists)
+			findings, err := artifactFindings(srv)
+			if err != nil {
+				writeUIInternal(w, "artifact: lint", err)
+				return
+			}
+			attachFindings(&ua, findings)
+			writeUIJSON(w, http.StatusOK, ua)
 			return
 		}
 	}

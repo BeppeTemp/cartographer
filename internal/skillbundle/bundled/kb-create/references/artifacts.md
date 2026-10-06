@@ -40,6 +40,10 @@ Procedure the agent follows.
 Frontmatter `name` and `description` are both required, and `name` must equal the
 directory name. Auxiliary files travel as raw bytes with their executable bit
 preserved, so `skills/my-skill/scripts/run.sh` stays executable in the client.
+In the client, a generated `SOURCE.env` sits beside the materialized `SKILL.md`:
+`CARTOGRAPHER_KB_NAME=<kb>` and, when the KB's root is on that machine,
+`CARTOGRAPHER_KB_ROOT=<path>` — a script reads it instead of hard-coding a path.
+Never ship a file named `SOURCE.env` yourself: the skill is then not materialized.
 
 ### `agents/<slug>.md`
 
@@ -97,7 +101,10 @@ fields are rejected.
 
 Free-form orchestration directives at the KB root. Its body is folded into the
 generated instructions artifact after the auto-generated archives and agent
-sections (D61) — it augments them, it does not replace them.
+sections (D61) — it augments them, it does not replace them. Its frontmatter is
+dropped from that text; `lint` reads two optional keys from it: `perimeter` (a
+word every skill description should contain) and `legacy_paths` (old path
+prefix → replacement, applied by `kb_repair legacy_path`).
 
 ### `paths.yaml`
 

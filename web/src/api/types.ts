@@ -46,6 +46,16 @@ export interface Artifact {
   files: ArtifactFile[];
   /** Concepts the artifact references explicitly ([[id]] or a written id). */
   concepts?: string[];
+  /** Lint findings on this artifact's files (D316). */
+  findings?: ArtifactFinding[];
+}
+
+/** One artifact lint finding (D316). */
+export interface ArtifactFinding {
+  path: string;
+  check: string;
+  severity: string;
+  message: string;
 }
 
 export interface ArtifactList {
@@ -53,6 +63,10 @@ export interface ArtifactList {
   counts: Record<string, number>;
   /** Why a skill was left out of what the KB ships. */
   issues: string[];
+  /** Every artifact finding by check, including those no listed artifact owns (D316). */
+  finding_counts?: Record<string, number>;
+  /** The same findings by severity. */
+  finding_severities?: Record<string, number>;
 }
 
 export interface CollectionSummary {

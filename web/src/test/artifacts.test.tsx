@@ -69,6 +69,20 @@ describe("the Artifacts panel", () => {
     expect(screen.queryByRole("article", { name: /Artifact/ })).not.toBeInTheDocument();
   });
 
+  it("shows artifact findings in the list and the detail (D316)", async () => {
+    window.history.replaceState(null, "", "/ui/?kb=homelab&panel=artifacts&artifact=skill%2Freview");
+    stubApi();
+    render(<App />);
+    const panel = await screen.findByRole("region", { name: "Artifacts" });
+    expect(within(panel).getByText(/2 findings across artifacts/)).toBeInTheDocument();
+    const item = within(panel).getByRole("button", { name: /review/ });
+    expect(within(item).getByText("warning")).toBeInTheDocument();
+    expect(within(panel).getByRole("button", { name: /triage/ }).querySelector(".severity")).toBeNull();
+    const detail = await screen.findByRole("article", { name: "Artifact skill/review" });
+    const list = within(detail).getByRole("list", { name: "Artifact findings" });
+    expect(within(list).getByText("legacy_tool_name")).toBeInTheDocument();
+  });
+
   it("opens the artifact a shared link names", async () => {
     window.history.replaceState(null, "", "/ui/?kb=homelab&panel=artifacts&artifact=skill%2Freview");
     stubApi();

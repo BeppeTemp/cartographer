@@ -3486,7 +3486,7 @@ func copyArtifactFiles(a Artifact, opts ApplyOptions, fullDestDir string, tracke
 	// SOURCE.md). A collision with a KB file of the same name fails this one
 	// artifact — with a warning, before anything is written — and leaves the
 	// rest of the sync to complete.
-	generated, collision, ok := generatedArtifactFiles(a, opts.Provider, files)
+	generated, collision, ok := generatedArtifactFiles(a, opts, files)
 	if !ok {
 		// The caller created fullDestDir just before this call: remove it
 		// again so a refused delivery leaves no empty directory that looks

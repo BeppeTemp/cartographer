@@ -69,6 +69,14 @@ export const artifactList: ArtifactList = {
         { path: "skills/review/SKILL.md", sha256: "d", size: 60, executable: false },
         { path: "skills/review/logo.bin", sha256: "e", size: 4, executable: false },
       ],
+      findings: [
+        {
+          path: "skills/review/SKILL.md",
+          check: "legacy_tool_name",
+          severity: "warning",
+          message: 'references pre-D288 prefixed tool name "kb_a__search"',
+        },
+      ],
     },
     {
       kind: "template",
@@ -80,6 +88,8 @@ export const artifactList: ArtifactList = {
   ],
   counts: { agent: 1, skill: 1, template: 1 },
   issues: [],
+  finding_counts: { legacy_tool_name: 1, junk_file: 1 },
+  finding_severities: { warning: 2 },
 };
 
 export const reviewSkill: Artifact = {

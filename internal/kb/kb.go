@@ -71,6 +71,14 @@ type KB struct {
 	// alone. Default false. artifact_read/artifact_list are unaffected.
 	AllowArtifactWrite bool
 
+	// SiblingRoots maps every other KB the same server mounts to its absolute
+	// root (D316). Set by the HTTP server at mount time when it mounts more
+	// than one KB; nil otherwise. Lint reads it for cross_kb_path: an
+	// artifact hard-coding a sibling's local path breaks on every other
+	// machine. Injected rather than discovered, so lint stays a function of
+	// its inputs.
+	SiblingRoots map[string]string
+
 	// AutoRepair and DoctorIntervalDays are the per-KB doctor settings
 	// (D299, config.KBSpec): the checks `kb repair --apply` may apply
 	// unattended, and the days after the last kb-doctor session before the
@@ -383,7 +391,9 @@ func Init(root string) (*KB, error) {
 	// agent notice it is reading the wrong KB. Only on creation — an existing
 	// index.md is never rewritten.
 	indexPath := filepath.Join(dataDir, "index.md")
+	created := false
 	if _, err := os.Stat(indexPath); os.IsNotExist(err) {
+		created = true
 		name := filepath.Base(abs)
 		indexContent := "---\ntype: Index\ntitle: " + name + "\n---\n# " + name + "\n\nKB initialized.\n"
 		if err := writeFileAtomic(indexPath, []byte(indexContent)); err != nil {
@@ -395,6 +405,17 @@ func Init(root string) (*KB, error) {
 	if _, err := os.Stat(logPath); os.IsNotExist(err) {
 		if err := writeFileAtomic(logPath, []byte("# Log\n\n")); err != nil {
 			return nil, fmt.Errorf("Init: write data/log.md: %w", err)
+		}
+	}
+
+	// data/.gitignore (D316): junk an editor or an interpreter leaves behind
+	// stays out of the KB from the first commit. Only for a KB this call
+	// creates (no root index yet): Init on an existing KB must not leave an
+	// untracked file for an unrelated write to commit.
+	ignorePath := filepath.Join(dataDir, ".gitignore")
+	if _, err := os.Lstat(ignorePath); created && os.IsNotExist(err) {
+		if err := writeFileAtomic(ignorePath, []byte(dataGitignore())); err != nil {
+			return nil, fmt.Errorf("Init: write data/.gitignore: %w", err)
 		}
 	}
 

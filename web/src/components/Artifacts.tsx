@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
 import { fetchArtifact } from "../api/client";
-import type { Artifact, ArtifactFile, ArtifactList } from "../api/types";
+import type { Artifact, ArtifactFile, ArtifactFinding, ArtifactList } from "../api/types";
 import { readWidth, writeWidth } from "../lib/panels";
 import { Markdown } from "./Markdown";
+import { SeverityBadge } from "./SeverityBadge";
 import { Splitter } from "./Splitter";
 import { EmptyState, ErrorState, Skeleton } from "./States";
 
@@ -21,6 +22,13 @@ const LIST_MIN = 240;
 const LIST_MAX = 560;
 
 export const artifactId = (a: Pick<Artifact, "kind" | "name">) => `${a.kind}/${a.name}`;
+
+const SEVERITIES = ["error", "warning", "info"];
+
+/** The most severe level among an artifact's findings. */
+function worstSeverity(findings: ArtifactFinding[]): string {
+  return SEVERITIES.find((s) => findings.some((f) => f.severity === s)) ?? "info";
+}
 
 function formatBytes(n: number): string {
   if (n < 1024) return `${n} B`;
@@ -106,6 +114,7 @@ export function Artifacts({
           {list.artifacts.length} artifact{list.artifacts.length === 1 ? "" : "s"} ship with this KB
         </h1>
       </header>
+      <FindingSummary list={list} />
       {list.issues.length > 0 && (
         <ul className="artifacts__issues" aria-label="Artifacts left out">
           {list.issues.map((issue) => (
@@ -139,7 +148,15 @@ export function Artifacts({
                     aria-current={selected === id ? "true" : undefined}
                     onClick={() => onSelect(id)}
                   >
-                    <span className="artifacts__item-name">{a.name}</span>
+                    <span className="artifacts__item-name">
+                      {a.name}
+                      {!!a.findings?.length && (
+                        <>
+                          {" "}
+                          <SeverityBadge severity={worstSeverity(a.findings)} count={a.findings.length} />
+                        </>
+                      )}
+                    </span>
                     {a.description && <span className="artifacts__item-desc">{a.description}</span>}
                   </button>
                 </li>
@@ -362,6 +379,20 @@ function ArtifactDetail({
           <FileContent file={current} />
         </div>
       )}
+      {!!artifact.findings?.length && (
+        <details className="artifacts__findings" open>
+          <summary>
+            Findings <span className="inspector__count">{artifact.findings.length}</span>
+          </summary>
+          <ul aria-label="Artifact findings">
+            {artifact.findings.map((f, i) => (
+              <li key={`${f.check}-${i}`}>
+                <SeverityBadge severity={f.severity} /> <code>{f.check}</code> {f.message}
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
     </article>
   );
 }
@@ -401,5 +432,26 @@ function FileContent({ file }: { file: ArtifactFile }) {
       )}
       <Markdown>{split ? split.body : text}</Markdown>
     </>
+  );
+}
+
+/** The panel's health line (D316): every artifact finding, by severity. */
+function FindingSummary({ list }: { list: ArtifactList }) {
+  const bySeverity = list.finding_severities ?? {};
+  const total = Object.values(bySeverity).reduce((a, b) => a + b, 0);
+  if (total === 0) return <p className="artifacts__health">No artifact findings</p>;
+  return (
+    <p className="artifacts__health">
+      {SEVERITIES.filter((s) => (bySeverity[s] ?? 0) > 0).map((s, i) => (
+        <span key={s}>
+          {i > 0 && <span aria-hidden="true"> · </span>}
+          <SeverityBadge severity={s} count={bySeverity[s]} />
+        </span>
+      ))}
+      <span>
+        {" "}
+        — {total} finding{total === 1 ? "" : "s"} across artifacts
+      </span>
+    </p>
   );
 }

@@ -300,8 +300,14 @@ func TestApply_DestDir_Matrix(t *testing.T) {
 			if len(res.NeedsApproval) != 0 {
 				t.Errorf("%s/%s: expected materialized, got NeedsApproval: %v", c.kind, c.provider, res.NeedsApproval)
 			}
-			if len(res.Written) != 1 {
-				t.Fatalf("%s/%s: expected 1 file written, got %d", c.kind, c.provider, len(res.Written))
+			// A skill also gets its generated SOURCE.env (D316), or hermes'
+			// SOURCE.md, after its own files.
+			wantFiles := 1
+			if c.kind == "skill" {
+				wantFiles = 2
+			}
+			if len(res.Written) != wantFiles {
+				t.Fatalf("%s/%s: expected %d files written, got %d", c.kind, c.provider, wantFiles, len(res.Written))
 			}
 			if res.Written[0].Path != c.wantSuffix {
 				t.Errorf("%s/%s: expected path %q, got %q", c.kind, c.provider, c.wantSuffix, res.Written[0].Path)

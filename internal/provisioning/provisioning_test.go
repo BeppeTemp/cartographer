@@ -896,7 +896,7 @@ func TestReadArtifactFiles_KB(t *testing.T) {
 func TestApply_ArtifactFiles_InMemory(t *testing.T) {
 	baseDir := t.TempDir()
 	a := provisioning.Artifact{
-		Kind: "skill", Name: "remote-skill", Source: "kb:homelab",
+		Kind: "skill", Name: "remote-skill", Source: "kb:kb-a",
 		ContentHash: "hash1", Signed: true,
 		Files: []provisioning.ArtifactFile{
 			{Path: "SKILL.md", Content: []byte("---\nname: remote-skill\n---\nBody.\n")},
@@ -913,12 +913,125 @@ func TestApply_ArtifactFiles_InMemory(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Apply: %v", err)
 	}
-	if len(res.Written) != 1 {
-		t.Fatalf("Apply: expected 1 file written, got %d", len(res.Written))
+	if len(res.Written) != 2 {
+		t.Fatalf("Apply: expected SKILL.md and SOURCE.env written, got %d", len(res.Written))
 	}
 	skillPath := filepath.Join(baseDir, ".claude", "skills", "remote-skill", "SKILL.md")
 	if _, err := os.Stat(skillPath); err != nil {
 		t.Errorf("Apply: SKILL.md not found at %s: %v", skillPath, err)
+	}
+	// A remote client has no local copy of the KB: SOURCE.env names it but
+	// carries no root (D316).
+	env, err := os.ReadFile(filepath.Join(baseDir, ".claude", "skills", "remote-skill", "SOURCE.env"))
+	if err != nil {
+		t.Fatalf("SOURCE.env: %v", err)
+	}
+	if !strings.Contains(string(env), "CARTOGRAPHER_KB_NAME=kb-a\n") || strings.Contains(string(env), "CARTOGRAPHER_KB_ROOT=") {
+		t.Errorf("SOURCE.env = %q", env)
+	}
+}
+
+// --- SOURCE.env (D316) ---
+
+// sourceEnvApply materializes a local KB with one skill, applied through KBRoots the way a
+// local deployment (or the server's sync_apply) does.
+func sourceEnvApply(t *testing.T, lock provisioning.Lock) (kbRoot, baseDir string, res provisioning.AppliedResult) {
+	t.Helper()
+	kbRoot = t.TempDir()
+	skillDir := filepath.Join(kbRoot, "skills", "my-skill")
+	if err := os.MkdirAll(skillDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("---\nname: my-skill\ndescription: d\n---\nBody.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	kbRoots := map[string]string{"kb-a": kbRoot}
+	m, err := provisioning.BuildManifest(nil, kbRoots, provisioning.BuildOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	baseDir = t.TempDir()
+	res, err = provisioning.Apply(provisioning.FilterForProvider(m, configurator.ProviderClaudeCode), provisioning.ApplyOptions{
+		Provider:  configurator.ProviderClaudeCode,
+		BaseDir:   baseDir,
+		KBRoots:   kbRoots,
+		AutoTrust: true,
+		Lock:      lock,
+	})
+	if err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	return kbRoot, baseDir, res
+}
+
+func TestApply_SkillWritesSourceEnv(t *testing.T) {
+	kbRoot, baseDir, _ := sourceEnvApply(t, provisioning.Lock{})
+	env, err := os.ReadFile(filepath.Join(baseDir, ".claude", "skills", "my-skill", "SOURCE.env"))
+	if err != nil {
+		t.Fatalf("SOURCE.env not materialized: %v", err)
+	}
+	for _, want := range []string{"CARTOGRAPHER_KB_ROOT=" + kbRoot + "\n", "CARTOGRAPHER_KB_NAME=kb-a\n"} {
+		if !strings.Contains(string(env), want) {
+			t.Errorf("SOURCE.env lacks %q:\n%s", want, env)
+		}
+	}
+	// Never in the KB itself.
+	if _, err := os.Stat(filepath.Join(kbRoot, "skills", "my-skill", "SOURCE.env")); !os.IsNotExist(err) {
+		t.Errorf("SOURCE.env must not be written into the KB (err=%v)", err)
+	}
+}
+
+func TestApply_SourceEnvTrackedInLock(t *testing.T) {
+	_, _, res := sourceEnvApply(t, provisioning.Lock{})
+	found := false
+	for _, mf := range res.NewLock.Managed {
+		if strings.HasSuffix(mf.Path, "my-skill/SOURCE.env") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("SOURCE.env not in the lock's managed files: %+v", res.NewLock.Managed)
+	}
+}
+
+func TestDisconnect_SourceEnvRemoved(t *testing.T) {
+	_, baseDir, res := sourceEnvApply(t, provisioning.Lock{})
+	envPath := filepath.Join(baseDir, ".claude", "skills", "my-skill", "SOURCE.env")
+	if _, err := os.Stat(envPath); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := provisioning.PruneManaged(res.NewLock.Managed, baseDir, false); err != nil {
+		t.Fatalf("PruneManaged: %v", err)
+	}
+	if _, err := os.Stat(envPath); !os.IsNotExist(err) {
+		t.Errorf("SOURCE.env survived the disconnect prune (err=%v)", err)
+	}
+}
+
+func TestApply_SkillShippingSourceEnvIsRefused(t *testing.T) {
+	baseDir := t.TempDir()
+	a := provisioning.Artifact{
+		Kind: "skill", Name: "clash", Source: "kb:kb-a", ContentHash: "h", Signed: true,
+		Files: []provisioning.ArtifactFile{
+			{Path: "SKILL.md", Content: []byte("---\nname: clash\n---\nBody.\n")},
+			{Path: "SOURCE.env", Content: []byte("MINE=1\n")},
+		},
+	}
+	res, err := provisioning.Apply(provisioning.MergeArtifacts([]provisioning.Artifact{a}), provisioning.ApplyOptions{
+		Provider: configurator.ProviderClaudeCode, BaseDir: baseDir, Lock: provisioning.Lock{},
+	})
+	if err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	if len(res.Written) != 0 {
+		t.Errorf("a skill shipping its own SOURCE.env must not be materialized: %+v", res.Written)
+	}
+	warned := false
+	for _, w := range res.Warnings {
+		warned = warned || strings.Contains(w, "SOURCE.env")
+	}
+	if !warned {
+		t.Errorf("warnings = %v", res.Warnings)
 	}
 }
 

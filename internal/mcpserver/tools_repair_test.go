@@ -204,6 +204,7 @@ func TestFixableChecksCoverEveryEmittedFix(t *testing.T) {
 		t.Fatal(err)
 	}
 	seedBodyFixes(t, k)
+	seedLegacyFixes(t, k)
 	if _, err := k.UpdateMapContract("ops", kb.MapContractUpdate{FieldValues: map[string][]string{"status": {"done"}}}); err != nil {
 		t.Fatal(err)
 	}
@@ -585,5 +586,88 @@ func TestMapUpdateLintIgnore(t *testing.T) {
 	res = callTool(t, s, "map_update", `{"map":"ops","lint_ignore":[]}`)
 	if res.IsError || !strings.Contains(res.Content[0].Text, `"lint_ignore": []`) {
 		t.Fatalf("removing lint_ignore: %+v", res)
+	}
+}
+
+// seedLegacyFixes gives a repair KB one legacy_path concept (D316 WP13) and one
+// skill with a pre-D288 prefixed tool name (WP2).
+func seedLegacyFixes(t *testing.T, k *kb.KB) {
+	t.Helper()
+	files := map[string]string{
+		"instructions.md":          "---\nlegacy_paths:\n  \"wiki/\": \"old/\"\n  \"wiki/ops/\": \"ops/\"\n---\nKB.\n",
+		"data/ops/legacy.md":       "---\ntype: Note\ntitle: L\nupdated: 2026-01-02\n---\n# L\n\nSee wiki/ops/runbook-x and wiki/notes/y.\n",
+		"skills/old-way/SKILL.md":  "---\nname: old-way\ndescription: Old way\n---\nCall `kb_a__search`, then kb_a__concept_read.\n",
+		"skills/old-way/helper.sh": "#!/bin/sh\necho kb_a__search\n",
+	}
+	for rel, content := range files {
+		full := filepath.Join(k.Root, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Chmod(filepath.Join(k.Root, "skills", "old-way", "helper.sh"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestRepair_LegacyPath: the declared prefixes are rewritten longest first, in
+// one pass, so "wiki/ops/" wins over the shorter "wiki/" it contains.
+func TestRepair_LegacyPath(t *testing.T) {
+	k, s := repairKB(t, 0)
+	seedLegacyFixes(t, k)
+	if _, err := k.CommitOp("test: seed legacy"); err != nil {
+		t.Fatal(err)
+	}
+	plan := repairCall(t, s, `{"check":"legacy_path"}`)
+	if plan["planned_total"].(float64) != 2 || plan["found_concepts"].(float64) != 1 {
+		t.Fatalf("plan = %v", plan)
+	}
+	out := repairCall(t, s, `{"check":"legacy_path","dry_run":false}`)
+	if out["applied"].(float64) != 1 {
+		t.Fatalf("apply = %v", out)
+	}
+	cd, err := k.ReadConcept("ops/legacy")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(cd.Body, "See ops/runbook-x and old/notes/y.") {
+		t.Errorf("body = %q", cd.Body)
+	}
+}
+
+// TestRepair_LegacyToolName: the prefix is stripped from every artifact file
+// that carries it, the file mode kept, and only with allow_artifact_write.
+func TestRepair_LegacyToolName(t *testing.T) {
+	k, s := repairKB(t, 0)
+	seedLegacyFixes(t, k)
+	if _, err := k.CommitOp("test: seed legacy"); err != nil {
+		t.Fatal(err)
+	}
+	plan := repairCall(t, s, `{"check":"legacy_tool_name"}`)
+	if plan["planned_total"].(float64) != 3 || plan["found_files"].(float64) != 2 {
+		t.Fatalf("plan = %v", plan)
+	}
+	if res := callTool(t, s, "kb_repair", `{"check":"legacy_tool_name","dry_run":false}`); !res.IsError || !strings.Contains(res.Content[0].Text, "allow_artifact_write") {
+		t.Fatalf("apply without allow_artifact_write must be refused: %+v", res)
+	}
+	k.AllowArtifactWrite = true
+	before := commitCount(t, k)
+	out := repairCall(t, s, `{"check":"legacy_tool_name","dry_run":false}`)
+	if out["applied"].(float64) != 2 {
+		t.Fatalf("apply = %v", out)
+	}
+	data, _ := os.ReadFile(filepath.Join(k.Root, "skills", "old-way", "SKILL.md"))
+	if strings.Contains(string(data), "kb_a__") || !strings.Contains(string(data), "Call `search`, then concept_read.") {
+		t.Errorf("SKILL.md = %q", data)
+	}
+	st, _ := os.Stat(filepath.Join(k.Root, "skills", "old-way", "helper.sh"))
+	if st.Mode().Perm() != 0o755 {
+		t.Errorf("helper.sh mode = %v, want 0755 kept", st.Mode().Perm())
+	}
+	if commitCount(t, k) != before+1 {
+		t.Errorf("want one commit for the repair")
 	}
 }

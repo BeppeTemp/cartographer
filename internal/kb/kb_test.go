@@ -58,7 +58,7 @@ func TestInit_CreaDirAgentsHooks(t *testing.T) {
 	}
 }
 
-func TestInit_NoAgentsMdNoGitignore(t *testing.T) {
+func TestInit_NoAgentsMdNoRootGitignore(t *testing.T) {
 	dir := tempKB(t)
 	if _, err := Init(dir); err != nil {
 		t.Fatalf("Init: %v", err)
@@ -66,6 +66,48 @@ func TestInit_NoAgentsMdNoGitignore(t *testing.T) {
 	for _, rel := range []string{"AGENTS.md", ".gitignore"} {
 		if _, err := os.Stat(filepath.Join(dir, rel)); !os.IsNotExist(err) {
 			t.Errorf("Init: %s should not be generated (got err=%v)", rel, err)
+		}
+	}
+	// D62 stands for the root; the concept root carries its own (D316).
+	if _, err := os.Stat(filepath.Join(dir, "data", ".gitignore")); err != nil {
+		t.Errorf("Init: data/.gitignore should be generated: %v", err)
+	}
+}
+
+func TestInit_DataGitignore(t *testing.T) {
+	dir := tempKB(t)
+	if _, err := Init(dir); err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "data", ".gitignore"))
+	if err != nil {
+		t.Fatalf("read data/.gitignore: %v", err)
+	}
+	for _, p := range JunkPatterns {
+		if !strings.Contains(string(data), "\n"+p+"\n") {
+			t.Errorf("data/.gitignore lacks %q:\n%s", p, data)
+		}
+	}
+	// An existing KB re-initialised gets no new untracked file.
+	if err := os.Remove(filepath.Join(dir, "data", ".gitignore")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Init(dir); err != nil {
+		t.Fatalf("Init again: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "data", ".gitignore")); !os.IsNotExist(err) {
+		t.Errorf("Init on an existing KB must not write data/.gitignore (err=%v)", err)
+	}
+}
+
+func TestIsJunkPath(t *testing.T) {
+	for p, want := range map[string]bool{
+		".DS_Store": true, "a/b/.DS_Store": true, "skills/x/__pycache__/m.pyc": true,
+		"x/__pycache__/notes.txt": true, "m.pyo": true, "notes.md~": true, ".a.swp": true,
+		"Thumbs.db": true, "notes.md": false, "pycache/m.py": false, "run.sh": false,
+	} {
+		if got := IsJunkPath(p); got != want {
+			t.Errorf("IsJunkPath(%q) = %v, want %v", p, got, want)
 		}
 	}
 }

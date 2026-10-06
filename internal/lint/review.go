@@ -197,6 +197,9 @@ func Review(k *kb.KB, findings []Finding) ([]ReviewItem, error) {
 	// Findings by concept ID.
 	byConcept := map[okf.ConceptID][]Finding{}
 	for _, f := range findings {
+		if f.Artifact {
+			continue // a file, not a concept (D316)
+		}
 		if id := findingConceptID(f.Path); id != "" {
 			byConcept[id] = append(byConcept[id], f)
 		}
@@ -877,7 +880,7 @@ func lintJudgementItems(findings []Finding, zombies map[okf.ConceptID]bool) []Re
 			continue
 		}
 		id := findingConceptID(f.Path)
-		if id == "" {
+		if id == "" || f.Artifact {
 			continue // a map index or descriptor: not a concept the doctor opens
 		}
 		if f.Check == "stale_open" && zombies[id] {

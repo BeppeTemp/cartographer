@@ -355,7 +355,8 @@ func TestCmdImport_UnmappedSourceWithoutMap_Errors(t *testing.T) {
 		t.Fatalf("read data dir: %v", err)
 	}
 	for _, e := range entries {
-		if e.Name() != "index.md" && e.Name() != "log.md" {
+		// kb.Init's own scaffold, data/.gitignore included (D316).
+		if e.Name() != "index.md" && e.Name() != "log.md" && e.Name() != ".gitignore" {
 			t.Errorf("expected no writes, found: %s", e.Name())
 		}
 	}

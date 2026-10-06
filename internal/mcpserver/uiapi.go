@@ -463,7 +463,7 @@ func uiLint(w http.ResponseWriter, r *http.Request, k *kb.KB) {
 	for _, f := range kept {
 		rows = append(rows, findingRow{
 			Path:     f.Path,
-			Concept:  uiFindingConcept(f.Path),
+			Concept:  findingConcept(f),
 			Check:    f.Check,
 			Severity: f.Severity,
 			Message:  f.Message,
@@ -508,7 +508,7 @@ func uiVisibleFindingsFrom(ctx requestContext, k *kb.KB, scope string, precomput
 		if !whole && lint.WholeGraphChecks[f.Check] {
 			continue
 		}
-		concept := uiFindingConcept(f.Path)
+		concept := findingConcept(f)
 		if concept == "" {
 			if whole {
 				out = append(out, f)
@@ -520,6 +520,17 @@ func uiVisibleFindingsFrom(ctx requestContext, k *kb.KB, scope string, precomput
 		}
 	}
 	return out, nil
+}
+
+// findingConcept is uiFindingConcept for a finding: an artifact finding
+// (skills/x/SKILL.md, agents/x.md, instructions.md) names a file, never a
+// concept, even when its path ends in .md (D316). Being concept-less, it is
+// shown only to a caller that can see the whole KB, like the artifacts.
+func findingConcept(f lint.Finding) string {
+	if f.Artifact {
+		return ""
+	}
+	return uiFindingConcept(f.Path)
 }
 
 // uiFindingConcept maps a finding's path back to the concept id it belongs to,

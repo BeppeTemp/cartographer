@@ -4,7 +4,9 @@ package lint
 import (
 	"errors"
 	"fmt"
+	"os"
 	"path"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
@@ -171,6 +173,11 @@ var perConceptChecks = map[string]bool{
 	"reciprocal_link_item": true,
 	// D306: a member of an island accepts the whole island (applyMapIgnores).
 	"island": true,
+	// D316: a concept may show the wrong sops pipeline on purpose, or quote
+	// an old path in a migration note.
+	"sops_format_mismatch": true,
+	"sops_missing_file":    true,
+	"legacy_path":          true,
 }
 
 // lintIgnoreSet reads a concept's lint_ignore frontmatter key (D159). A bare
@@ -214,6 +221,11 @@ type Finding struct {
 	Count int
 	// members are an island's concepts, for its acceptance (D306).
 	members []okf.ConceptID
+	// Artifact marks a finding whose Path is a KB-root artifact file
+	// (skills/…, agents/…, instructions.md), never a concept, even when it
+	// ends in .md (D316): a caller mapping a path back to a concept must not
+	// invent one from it.
+	Artifact bool
 }
 
 // Now is used for date comparison in stale_claim checks. Override in tests.
@@ -222,8 +234,17 @@ var Now = func() time.Time { return time.Now() }
 // Run executes all deterministic lint checks on the given scope.
 // If scope is empty, lints the entire KB.
 // When scopeNeighbors is true, also lint the graph neighbors of concepts in scope.
+//
+// The sibling KB roots for cross_kb_path come from k.SiblingRoots (D316), so
+// every caller — the lint tool, the cached kb_status/Atlas findings, the gate
+// — reports the same findings for the same KB.
 func Run(k *kb.KB, scope string, scopeNeighbors bool) ([]Finding, error) {
-	findings, err := runChecks(k, scope, scopeNeighbors)
+	return RunWithOptions(k, scope, scopeNeighbors, Options{CrossKBRoots: k.SiblingRoots})
+}
+
+// RunWithOptions is Run with the injected, non-KB inputs explicit.
+func RunWithOptions(k *kb.KB, scope string, scopeNeighbors bool, opts Options) ([]Finding, error) {
+	findings, err := runChecks(k, scope, scopeNeighbors, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -325,7 +346,7 @@ func islandAccepted(k *kb.KB, f Finding, accepts func(mapName, check string) boo
 }
 
 // runChecks is Run before the map-level lint_ignore pass.
-func runChecks(k *kb.KB, scope string, scopeNeighbors bool) ([]Finding, error) {
+func runChecks(k *kb.KB, scope string, scopeNeighbors bool, opts Options) ([]Finding, error) {
 	// Collect all non-reserved concepts and their physical paths.
 	// relPathOf mirrors resolveConceptRelPath on the read path: for a plain
 	// concept it holds "<id>.md", for an expanded one "<id>/index.md".  When
@@ -488,6 +509,22 @@ func runChecks(k *kb.KB, scope string, scopeNeighbors bool) ([]Finding, error) {
 		findings = append(findings, checkHooks(k)...)
 	}
 
+	// The other KB-root artifacts (D316): skills, agents, instructions.md.
+	// KB-level like the hooks, so only an unscoped lint reports them; the
+	// instructions.md frontmatter (perimeter, legacy_paths) is read once here
+	// and also drives the per-concept legacy_path check below.
+	instr := readInstructions(k)
+	hasSecretsDir := false
+	if fi, statErr := os.Stat(filepath.Join(k.Root, "secrets")); statErr == nil && fi.IsDir() {
+		hasSecretsDir = true
+	}
+	if scopeNorm == "" {
+		findings = append(findings, checkArtifacts(k, opts, instr, len(allConcepts), hasSecretsDir)...)
+	}
+	// junkAssets are the junk files the expanded-concept pass reported as
+	// junk_asset, so the whole-tree junk_file pass does not report them twice.
+	junkAssets := map[string]bool{}
+
 	// Source citations (D278), over the whole KB whatever the scope.
 	sourceCited := kb.SourceCitations(allConcepts)
 
@@ -546,6 +583,8 @@ func runChecks(k *kb.KB, scope string, scopeNeighbors bool) ([]Finding, error) {
 				reason = "an error-severity contract violation, which lint_ignore cannot silence"
 			} else if name == "tool_param_field" {
 				reason = "a tool argument is never a legitimate field, so it cannot be declared one"
+			} else if artifactChecks[name] {
+				reason = "a KB-level check (artifacts, junk files), not a per-concept one"
 			} else if name == "map_oversize" || name == "index_incomplete" || name == "index_stale" || name == "orphan_asset" || name == "oversized_asset" || name == "unlistable_assets" || name == "unused_placeholder" || strings.HasPrefix(name, "expanded_") {
 				// orphan_asset belongs to an expanded concept's asset set, reported
 				// in the directory pass: there is no single concept frontmatter that
@@ -678,6 +717,14 @@ func runChecks(k *kb.KB, scope string, scopeNeighbors bool) ([]Finding, error) {
 				Severity: SevInfo,
 				Message:  fmt.Sprintf("%d bytes in one concept (threshold %d; concept_read returns an outline instead of the body above %d) — %s", len(body), oversize, okf.ConceptReadSizeGuard, remedy),
 			})
+		}
+
+		// --- sops_format_mismatch / sops_missing_file / legacy_path (D316) ---
+		for _, f := range sopsFindings(body, relPath, k.Root, hasSecretsDir) {
+			emit(f)
+		}
+		for _, f := range legacyPathFindings(body, relPath, instr.legacyPaths) {
+			emit(f)
 		}
 
 		// --- stale_claim / imported_draft / missing_required_field ---
@@ -1017,6 +1064,18 @@ func runChecks(k *kb.KB, scope string, scopeNeighbors bool) ([]Finding, error) {
 							Message:  fmt.Sprintf("asset is %d bytes, above the %d MiB worth versioning in git — move it outside the KB and cite it by link (D270)", asset.Size, kb.AssetMaxFileSize>>20),
 						})
 					}
+					// A junk file is not an asset to cite (D316): orphan_asset's
+					// advice was once followed literally on a .pyc.
+					if kb.IsJunkPath(asset.Path) {
+						junkAssets[assetPath] = true
+						findings = append(findings, Finding{
+							Path:     assetPath,
+							Check:    "junk_asset",
+							Severity: SevWarning,
+							Message:  "junk file tracked as asset; delete it with asset_delete",
+						})
+						continue
+					}
 					if referenced[assetPath] {
 						continue
 					}
@@ -1029,6 +1088,10 @@ func runChecks(k *kb.KB, scope string, scopeNeighbors bool) ([]Finding, error) {
 				}
 			}
 		}
+	}
+
+	if scopeNorm == "" {
+		findings = append(findings, checkJunkFiles(k, junkAssets)...)
 	}
 
 	return findings, nil
