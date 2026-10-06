@@ -86,6 +86,26 @@ func TestDefaultServerYAML(t *testing.T) {
 	}
 }
 
+// TestDefaultServerYAMLAudit: a fresh install has an operation log inside its
+// data directory, with the default retention (D325).
+func TestDefaultServerYAMLAudit(t *testing.T) {
+	dataDir := filepath.Join(t.TempDir(), "data")
+	path := filepath.Join(t.TempDir(), "server.yaml")
+	if err := os.WriteFile(path, []byte(DefaultServerYAML(dataDir, defaults.DefaultListenAddress)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := filepath.Join(dataDir, "audit.log"); cfg.Audit.Log != want {
+		t.Errorf("audit.log = %q, want %q", cfg.Audit.Log, want)
+	}
+	if cfg.Audit.RetentionDays != config.DefaultAuditRetentionDays {
+		t.Errorf("retention_days = %d, want %d", cfg.Audit.RetentionDays, config.DefaultAuditRetentionDays)
+	}
+}
+
 // TestDefaultServerYAMLAuthMode: a loopback server pins auth.mode "off" so a
 // CARTOGRAPHER_TOKENS meant for another server cannot turn authentication on
 // (D268); an address reachable from the network keeps "auto" and with it the

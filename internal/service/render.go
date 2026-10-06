@@ -283,7 +283,11 @@ init: true
 git:
   # author_name: "Your Name"
   # author_email: "you@example.com"
-`, httpAddr, dataDir, authBlock)
+# Operation log (D325): rotated segments older than 90 days are deleted; set
+# audit.retention_days: 0 to keep everything. Signing (audit.key_seed) is opt-in.
+audit:
+  log: %q
+`, httpAddr, dataDir, authBlock, filepath.Join(dataDir, "audit.log"))
 }
 
 // IsLoopbackListenAddr reports whether a server `http:` address binds only

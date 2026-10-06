@@ -761,7 +761,7 @@ func toolMapCreate(k *kb.KB) Tool {
 				FieldValues              map[string][]string            `json:"field_values"`
 				FieldValuesByType        map[string]map[string][]string `json:"field_values_by_type"`
 				ForbiddenFields          []string                       `json:"forbidden_fields"`
-				RequireIndexEntry        bool                           `json:"require_index_entry"`
+				RequireIndexEntry        *bool                          `json:"require_index_entry"`
 				MachinePathAllowPrefixes []string                       `json:"machine_path_allow_prefixes"`
 			}
 			if err := json.Unmarshal(args, &params); err != nil {
@@ -781,12 +781,15 @@ func toolMapCreate(k *kb.KB) Tool {
 			}
 
 			contract := kb.MapContract{
-				RequiredFields:           params.RequiredFields,
-				RequiredFieldsByType:     params.RequiredFieldsByType,
-				FieldValues:              params.FieldValues,
-				FieldValuesByType:        params.FieldValuesByType,
-				ForbiddenFields:          params.ForbiddenFields,
-				RequireIndexEntry:        params.RequireIndexEntry,
+				RequiredFields:       params.RequiredFields,
+				RequiredFieldsByType: params.RequiredFieldsByType,
+				FieldValues:          params.FieldValues,
+				FieldValuesByType:    params.FieldValuesByType,
+				ForbiddenFields:      params.ForbiddenFields,
+				// Absent means on (D325): a concept nobody links from its map's
+				// index is an orphan within one lint run. Only an explicit
+				// false opts out.
+				RequireIndexEntry:        params.RequireIndexEntry == nil || *params.RequireIndexEntry,
 				MachinePathAllowPrefixes: params.MachinePathAllowPrefixes,
 			}
 			if err := k.CreateMapWithContract(params.Name, params.Title, params.Kind, params.ConceptTypes, params.OntologyMode, contract); err != nil {

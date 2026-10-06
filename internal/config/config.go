@@ -284,14 +284,31 @@ type AuditConfig struct {
 	ArchiveDir string `yaml:"archive_dir,omitempty"`
 	// RetentionDays deletes a rotated segment once it is older than this many
 	// days AND its checkpoint has been durably written — never before, so the
-	// chain stays verifiable. Zero disables retention.
+	// chain stays verifiable. Default 90 (D325); an explicit 0 disables
+	// retention (keep everything).
 	RetentionDays int `yaml:"retention_days,omitempty"`
 }
+
+// rawAudit mirrors AuditConfig; RetentionDays is a pointer so an absent key
+// (default 90) differs from an explicit 0 (keep forever).
+type rawAudit struct {
+	Log             string `yaml:"log"`
+	KeySeed         string `yaml:"key_seed"`
+	Mode            string `yaml:"mode"`
+	MaxSegmentBytes int64  `yaml:"max_segment_bytes"`
+	ArchiveDir      string `yaml:"archive_dir"`
+	RetentionDays   *int   `yaml:"retention_days"`
+}
+
+// DefaultAuditRetentionDays is how long rotated audit segments are kept when
+// the operator does not say (D325).
+const DefaultAuditRetentionDays = 90
 
 // Default returns the configuration used when no YAML file is provided.
 func Default() *Config {
 	return &Config{
-		Auth: AuthConfig{Mode: "auto"},
+		Auth:  AuthConfig{Mode: "auto"},
+		Audit: AuditConfig{RetentionDays: DefaultAuditRetentionDays},
 		Git: GitConfig{
 			Autocommit:      true,
 			Sync:            true,
@@ -309,17 +326,17 @@ func Default() *Config {
 // clobber a non-zero default (git.autocommit, git.sync) are pointers, so
 // Load can distinguish "absent from YAML" from "explicitly false".
 type rawConfig struct {
-	HTTP  string      `yaml:"http"`
-	Init  bool        `yaml:"init"`
-	Auth  rawAuth     `yaml:"auth"`
-	Data  string      `yaml:"data"`
-	KBs   []KBSpec    `yaml:"kbs"`
-	Git   rawGit      `yaml:"git"`
-	Audit AuditConfig `yaml:"audit"`
-	Sops  SopsConfig  `yaml:"sops"`
-	Tools rawTools    `yaml:"tools"`
-	MCP   rawMCP      `yaml:"mcp"`
-	Web   rawWeb      `yaml:"web"`
+	HTTP  string     `yaml:"http"`
+	Init  bool       `yaml:"init"`
+	Auth  rawAuth    `yaml:"auth"`
+	Data  string     `yaml:"data"`
+	KBs   []KBSpec   `yaml:"kbs"`
+	Git   rawGit     `yaml:"git"`
+	Audit rawAudit   `yaml:"audit"`
+	Sops  SopsConfig `yaml:"sops"`
+	Tools rawTools   `yaml:"tools"`
+	MCP   rawMCP     `yaml:"mcp"`
+	Web   rawWeb     `yaml:"web"`
 	// UpdateCheck is a pointer for the same reason rawWeb.Enabled is: the
 	// default is true.
 	UpdateCheck *bool `yaml:"update_check"`
@@ -401,7 +418,14 @@ func Load(path string) (*Config, error) {
 			return nil, fmt.Errorf("config: usage_stale_days: %d is negative (a number of days, or 0 to disable)", *spec.UsageStaleDays)
 		}
 	}
-	cfg.Audit = raw.Audit
+	cfg.Audit.Log = raw.Audit.Log
+	cfg.Audit.KeySeed = raw.Audit.KeySeed
+	cfg.Audit.Mode = raw.Audit.Mode
+	cfg.Audit.MaxSegmentBytes = raw.Audit.MaxSegmentBytes
+	cfg.Audit.ArchiveDir = raw.Audit.ArchiveDir
+	if raw.Audit.RetentionDays != nil {
+		cfg.Audit.RetentionDays = *raw.Audit.RetentionDays
+	}
 
 	if raw.Auth.Mode != "" {
 		cfg.Auth.Mode = normalizeAuthMode(raw.Auth.Mode)

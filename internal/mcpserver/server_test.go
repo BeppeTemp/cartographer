@@ -5820,3 +5820,30 @@ func TestServer_GateCheck_EmptyChangedIDsIsWholeKBGate(t *testing.T) {
 		t.Fatalf("whole-KB gate must fail on an error finding: %+v", g)
 	}
 }
+
+// TestServer_MapCreate_DefaultRequireIndexEntry: a map created without the
+// key demands index entries (D325); only an explicit false opts out, and the
+// descriptor then carries no key.
+func TestServer_MapCreate_DefaultRequireIndexEntry(t *testing.T) {
+	k := setupTestKB(t)
+	s := New("test")
+	RegisterKBTools(s, k, Deps{})
+	resps := runMCPSequence(t, s, []string{
+		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
+		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"map_create","arguments":{"name":"dflt-map","title":"Default"}}}`,
+		`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"map_create","arguments":{"name":"optout-map","title":"Opt out","require_index_entry":false}}}`,
+	})
+	for _, r := range resps[1:] {
+		if tr := decodeToolResult(t, r); tr.IsError {
+			t.Fatalf("map_create: %v", tr.Content)
+		}
+	}
+	on, err := k.ReadRaw("dflt-map/_map.md")
+	if err != nil || !strings.Contains(on, "require_index_entry: true") {
+		t.Fatalf("default descriptor = %q, %v", on, err)
+	}
+	off, err := k.ReadRaw("optout-map/_map.md")
+	if err != nil || strings.Contains(off, "require_index_entry") {
+		t.Fatalf("opt-out descriptor = %q, %v", off, err)
+	}
+}

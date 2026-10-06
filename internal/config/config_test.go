@@ -143,7 +143,7 @@ func TestLoadFullYAML(t *testing.T) {
 			SyncInWindow:    45 * time.Second,
 			SyncOutDebounce: 5 * time.Second,
 		},
-		Audit:        AuditConfig{Log: "/data/audit.log", KeySeed: "deadbeef"},
+		Audit:        AuditConfig{Log: "/data/audit.log", KeySeed: "deadbeef", RetentionDays: 90},
 		Sops:         SopsConfig{AgeKeyFile: "/etc/cartographer/age.key", AgeKeyDir: "/etc/kb-sops-keys"},
 		ToolsProfile: "full",
 		// The YAML sets neither deprecated mcp key (D288): both stay empty.
@@ -538,5 +538,50 @@ func TestUpdateCheckPrecedence(t *testing.T) {
 	ApplyFlags(cfg, FlagOverrides{UpdateCheck: &on})
 	if !cfg.UpdateCheck {
 		t.Error("--update-check must win over the environment")
+	}
+}
+
+func TestDefaultAuditRetention(t *testing.T) {
+	if got := Default().Audit.RetentionDays; got != 90 {
+		t.Errorf("Default().Audit.RetentionDays = %d, want 90 (D325)", got)
+	}
+}
+
+func TestLoadAuditRetention(t *testing.T) {
+	cases := []struct {
+		name, yaml string
+		want       int
+	}{
+		{"absent", "audit:\n  log: /tmp/a.log\n", 90},
+		{"no audit block", "http: \":9090\"\n", 90},
+		{"explicit zero keeps everything", "audit:\n  retention_days: 0\n", 0},
+		{"explicit value", "audit:\n  retention_days: 30\n", 30},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "config.yaml")
+			if err := os.WriteFile(path, []byte(c.yaml), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			cfg, err := Load(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if cfg.Audit.RetentionDays != c.want {
+				t.Errorf("RetentionDays = %d, want %d", cfg.Audit.RetentionDays, c.want)
+			}
+		})
+	}
+	// The other audit keys survive the layering.
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte("audit:\n  log: /tmp/a.log\n  key_seed: abc\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Audit.Log != "/tmp/a.log" || cfg.Audit.KeySeed != "abc" {
+		t.Errorf("Audit = %+v, want log and key_seed kept", cfg.Audit)
 	}
 }
