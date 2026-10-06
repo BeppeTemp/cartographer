@@ -27,6 +27,8 @@ translate between Markdown, TOML and JSON.
 - No agent, inline mandates only: works on every client, but costs the prompt on
   every spawn and leaves the report format to chance.
 
+**Model.** Each definition pins a cheaper model than a coordinator usually runs on (Claude `claude-sonnet-5-5`, Kiro `claude-sonnet-5.5`, Codex `terra-6`): a plan issue already carries the design, the implementer executes it, and the coordinator's diff read is the quality gate. A model rename is a one-line change in each of the three files.
+
 **Consequences.** A change to the mandate goes in the skill only. A change to the
 wrapper's defaults goes in all three files in the same commit. Antigravity has no
 documented project-local agent cell, so it keeps running the mandate inline.
