@@ -327,6 +327,7 @@ regenerate this list with `make decisions-index`.
 - [D291 — An agent can carry each client's own restriction, verbatim](decisions/D291-an-agent-can-carry-each-clients-own-restriction-verbatim.md)
 - [D293 — A project CLAUDE.md written by sync imports AGENTS.md](decisions/D293-claude-md-imports-agents-md.md)
 - [D300 — Kiro gets a session-start hook through a standalone file Cartographer owns, limited to the V3 TUI](decisions/D300-kiro-gets-a-session-start-hook.md)
+- [D320 — Upgrades and client provisioning tell the user what changed](decisions/D320-upgrades-and-provisioning-tell-the-user-what-changed.md)
 
 <a id="client-configurator"></a>
 

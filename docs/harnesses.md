@@ -148,7 +148,8 @@ would flip a matrix cell is confirmed with a probe
     `.opencode/agents/`, and accept `agent/` for backwards compatibility):
     Markdown with `description` + `mode: subagent`. Native restriction key
     `permission` (`edit`, `bash`, … allow/ask/deny) is documented (D291); `tools`
-    is no longer shown in the agents doc.
+    is no longer shown in the agents doc: use `permission` instead, `tools` may
+    still work but is undocumented (D320).
   - `skill` project `.opencode/skills/` (documented). Global `~/.opencode/skills/`
     is not in the documented global list (`~/.config/opencode/skills`,
     `~/.claude/skills`, `~/.agents/skills`): `unverified`. Hooks fire through a

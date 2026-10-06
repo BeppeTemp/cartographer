@@ -151,7 +151,11 @@ func (s *Server) callTool(ctx context.Context, registeredName string, args json.
 		// agent profile" and "absent from this build", and only the server can
 		// tell them apart. Arguments are deliberately not resolved or recorded
 		// for a name this server has no allow-list entry for.
-		result := errorResult(unknownToolMessage(canonicalName))
+		msg := s.legacyToolMessage(canonicalName)
+		if msg == "" {
+			msg = unknownToolMessage(canonicalName)
+		}
+		result := errorResult(msg)
 		call, rejected, ok := s.beginAuditCall(principal, canonicalName, externalName, false, nil)
 		if !ok {
 			return rejected

@@ -746,3 +746,63 @@ func TestRunDoctor_NoPrecedenceChain_NoFinding(t *testing.T) {
 		t.Fatalf("claude declares no chain: expected no finding, got %+v", f)
 	}
 }
+
+// D320: a pre-D288 prefixed tool name in the operator's own steering text is
+// flagged; the same name inside the managed block is Cartographer's to rewrite
+// and is not.
+func TestDoctorFlagsLegacyPrefixInSteering(t *testing.T) {
+	doctorStubs(t, []string{"codex"}, false)
+	dir := doctorFixture(t, "codex")
+	path := withManagedInstructions(t, dir, "codex")
+
+	inside := "# Mine\n<!-- cartographer:instructions:begin -->\nuse kb_a__lint\n<!-- cartographer:instructions:end -->\n"
+	if err := os.WriteFile(path, []byte(inside), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if f := findingsFor(runDoctor(dir, ""), "legacy_steering_pattern"); len(f) != 0 {
+		t.Fatalf("a name inside the managed block must not be flagged: %+v", f)
+	}
+
+	outside := inside + "\nAlways run kb_a__lint first; kb_a__lint again, and def __init__ is fine.\n"
+	if err := os.WriteFile(path, []byte(outside), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	f := findingsFor(runDoctor(dir, ""), "legacy_steering_pattern")
+	if len(f) != 1 {
+		t.Fatalf("want one finding per distinct name, got %d: %+v", len(f), f)
+	}
+	if f[0].Severity != doctorWarning || f[0].Path != path || !strings.Contains(f[0].Fix, "unprefixed tool lint") {
+		t.Errorf("finding = %+v", f[0])
+	}
+}
+
+// Kiro's Cartographer file is a dedicated one: the operator's own steering
+// files beside it are scanned too.
+func TestDoctorFlagsLegacyPrefixInKiroSiblingSteering(t *testing.T) {
+	doctorStubs(t, []string{"kiro"}, false)
+	dir := doctorFixture(t, "kiro")
+	path := withManagedInstructions(t, dir, "kiro")
+	own := filepath.Join(filepath.Dir(path), "KIRO.md")
+	if err := os.WriteFile(own, []byte("Call kb_a__search before answering.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	f := findingsFor(runDoctor(dir, ""), "legacy_steering_pattern")
+	if len(f) != 1 || f[0].Path != own {
+		t.Fatalf("want one finding on %s, got %+v", own, f)
+	}
+}
+
+// Claude Code's own MCP tool names (mcp__<server>__<tool>) and word__word text
+// that names no Cartographer tool are not legacy forms (D320).
+func TestDoctorIgnoresNonLegacyDoubleUnderscore(t *testing.T) {
+	doctorStubs(t, []string{"codex"}, false)
+	dir := doctorFixture(t, "codex")
+	path := withManagedInstructions(t, dir, "codex")
+	text := "Use mcp__homeassistant__ha_get_state and mcp__cartographer__search; my_var__thing is mine.\n"
+	if err := os.WriteFile(path, []byte(text), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if f := findingsFor(runDoctor(dir, ""), "legacy_steering_pattern"); len(f) != 0 {
+		t.Fatalf("non-legacy names flagged: %+v", f)
+	}
+}

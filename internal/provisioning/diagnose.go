@@ -79,6 +79,39 @@ func InstructionsBlockMarkers(path string) (begins, ends int, err error) {
 	return strings.Count(content, instructionsBlockBeginPrefix), strings.Count(content, instructionsBlockEnd), nil
 }
 
+// UnmanagedInstructionsText returns the bytes of the instructions file at path
+// that lie OUTSIDE every managed instructions block — the operator's own
+// steering text, which sync never rewrites and so can keep a superseded
+// topology's tool names forever (D320). An unterminated block drops the rest of
+// the file: what follows its begin marker is not known to be the operator's,
+// and checkInstructionsBlock already reports the broken block. A missing file
+// is ("", nil).
+func UnmanagedInstructionsText(path string) (string, error) {
+	data, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	content := string(data)
+	var out strings.Builder
+	for {
+		i := strings.Index(content, instructionsBlockBeginPrefix)
+		if i < 0 {
+			out.WriteString(content)
+			break
+		}
+		out.WriteString(content[:i])
+		j := strings.Index(content[i:], instructionsBlockEnd)
+		if j < 0 {
+			break
+		}
+		content = content[i+j+len(instructionsBlockEnd):]
+	}
+	return out.String(), nil
+}
+
 // codexMCPTableHeader matches an [mcp_servers.<name>] table header in Codex's
 // config.toml, capturing the server name.
 var codexMCPTableHeader = regexp.MustCompile(`(?m)^\s*\[mcp_servers\.([^\[\]]+)\]\s*$`)

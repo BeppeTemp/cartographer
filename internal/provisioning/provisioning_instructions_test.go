@@ -234,7 +234,8 @@ func TestBuildManifest_Instructions_NessunaSezioneSenzaAgentNeCurato(t *testing.
 		"- consult it autonomously when you need historical or architectural context: `search` (keyword) or `atlas_overview` to orient yourself, `concept_read` to read;\n" +
 		"- write or update a page with `concept_write` when you discover something relevant; close relevant sessions with `log_append`;\n" +
 		"- every write is a git commit, revertible.\n" +
-		"- never run git commands in the KB's clone: report replication problems from `sync_status` to the operator instead.\n"
+		"- never run git commands in the KB's clone: report replication problems from `sync_status` to the operator instead.\n" +
+		"- when `kb_status` reports a `latest_version` that differs from `server_version`, tell the user once: the installed version, the available version and the upgrade command for this channel (`cartographer update check` prints it); offer to run it, run it only on explicit consent, then follow the cartographer-ops skill (§Upgrade).\n"
 	if content != want {
 		t.Errorf("output changed with no agent/instructions.md:\ngot:\n%s\nwant:\n%s", content, want)
 	}
@@ -1513,5 +1514,21 @@ func TestBuildManifest_Instructions_RoutedMount(t *testing.T) {
 	}
 	if strings.Contains(got, "__") {
 		t.Errorf("routed instructions contain a prefixed tool name:\n%s", got)
+	}
+}
+
+// D320: the generated bullets carry the in-session update directive, the
+// fallback channel for clients whose SessionStart hook never fires.
+func TestGeneratedInstructionsContainUpdateDirective(t *testing.T) {
+	kbRoot := makeKBWithArchives(t, map[string][]string{"entities": {"a.md"}})
+	m, err := provisioning.BuildManifest(nil, map[string]string{"kb-a": kbRoot}, provisioning.BuildOptions{})
+	if err != nil {
+		t.Fatalf("BuildManifest: %v", err)
+	}
+	content := string(findInstructionsArtifact(t, m, "kb-a").Files[0].Content)
+	for _, want := range []string{"`kb_status`", "`latest_version`", "`cartographer update check`", "explicit consent"} {
+		if !strings.Contains(content, want) {
+			t.Errorf("update directive lacks %q:\n%s", want, content)
+		}
 	}
 }

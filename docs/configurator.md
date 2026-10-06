@@ -191,7 +191,8 @@ list` reports as Global/Workspace and the built-in agent delegates to through it
 with their files in `~/.kiro/hooks/cartographer/<name>/`. They fire only in
 `kiro-cli chat --v3 --tui`, so `status` reports `hook n/m (fires in kiro-cli chat --v3
 --tui only)`. `connect`, `status` and `doctor` keep advising the scheduled timer for
-Kiro, naming that limit rather than calling it hookless. Nothing is written into a
+Kiro, naming that limit rather than calling it hookless; `status` stops repeating it once
+`connect` or `reconnect` has shown it (D320, `sync.md` §Scheduled trigger). Nothing is written into a
 Kiro agent config and `chat.defaultAgent` is never set (`interoperability.md` §Kiro
 hooks).
 
@@ -544,6 +545,7 @@ The checks:
 | `capability` | every per-KB gate the server advertises on `/health` is on, and no KB was mounted by discovery rather than by a `kbs[]` entry (D151). Info severity: it names the setting that would change it |
 | `symlink` | no managed destination directory is a symlink, or anything else that is not a plain directory — provisioning refuses to write through one, so the artifacts it would hold are not installed (D148, widened in D216) |
 | `kb-collisions` | no two KBs bound to the same provider claim one `kind`+`name` (D171). `sync` refuses outright when they do, so a machine that has not synced since the binding changed would otherwise show no symptom. Silent when the server is unreachable |
+| `legacy_steering_pattern` | the operator's own steering text — the provider's instructions file outside the managed block, plus, for Kiro, the other `*.md` files beside `~/.kiro/steering/cartographer.md` — names a pre-D288 prefixed tool (`<prefix>__<tool>`, where `<tool>` is a real Cartographer tool and `<prefix>` neither is `mcp` nor contains `__`, so Claude Code's `mcp__<server>__<tool>` names are not flagged), which `sync` never rewrites there. Warning severity; the fix names the unprefixed tool ([D320](decisions/D320-upgrades-and-provisioning-tell-the-user-what-changed.md)) |
 | `update_available` | a newer release is in the update cache (D254). Info severity; the fix is the channel's upgrade command. Cache only, so doctor stays offline |
 | `unbound-residue` | no managed file comes from a KB no longer bound to the provider holding it (D170) — a projection predating an unbind, or a hand-edited lockfile. Only for providers with an explicit binding; a file with no recorded source (a lockfile written before D170) is unknown, not wrong, and never reported |
 
@@ -778,9 +780,16 @@ cartographer paths set path:kubeconfig ~/.kube/config
 cartographer paths set repo:dotfiles ~/src/dotfiles
 cartographer paths ignore repo:work-tools      # never exists on this machine: stop reporting it (D282)
 cartographer paths unset kubeconfig           # remove a mapping, or an ignore
+cartographer paths suggest                  # a candidate path, as a `paths set` line, for every unresolved key (D320)
 cartographer paths --help                   # the usage above, on stdout, exit 0 (also `paths help`)
 ```
 
+- `suggest` reads the same unresolved, not ignored keys and prints, per key, its KBs, its
+  description and one `cartographer paths set <key> <path>` line per candidate — or a line saying
+  there is none. Candidates, in order: the `paths.yaml` default, when it exists on this machine;
+  for a `repo:` key, every clone under `search_roots` whose origin remote contains the key name or
+  whose directory is named after it (the near misses sync's exact match refused); for a `path:`
+  key, `~/<name>`, `~/.config/<name>` and `~/.<name>`. It writes nothing.
 - `list` shows every key recorded in the lockfile, resolved or not, with the KBs citing it (from
   `sync_pull`'s `placeholders` list and the artifacts) and the local path or the reason it failed.
   When a bound KB declares the key in its `paths.yaml` (D263), an indented line below shows its

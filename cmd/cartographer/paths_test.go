@@ -12,6 +12,7 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/repoindex"
 )
 
 // placeholderServer is multiKBServer whose one KB, alpha, cites {{path:x}} in
@@ -359,5 +360,83 @@ func TestUnresolvedAcross_NewSinceLastSync(t *testing.T) {
 	un, fresh := unresolvedAcross(results, []string{"path:off"})
 	if len(un) != 2 || !fresh["path:new"] || fresh["path:old"] || fresh["path:off"] {
 		t.Errorf("unresolved=%v fresh=%v", un, fresh)
+	}
+}
+
+// D320: `paths suggest` proposes the paths.yaml default when it exists here,
+// and the `path:` home-relative guesses, without writing anything.
+func TestCmdPathsSuggest_FindsDefault(t *testing.T) {
+	home := t.TempDir()
+	setHome(t, home)
+	writeClientConfig(t, home, "future_key: kept\n")
+	def := filepath.Join(t.TempDir(), "testpath")
+	if err := os.MkdirAll(def, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(home, ".config", "notes"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	lf := provisioning.LockFile{Providers: map[string]provisioning.Lock{
+		"claude": {
+			Provider:               "claude",
+			UnresolvedPlaceholders: map[string]string{"path:data": "no entry", "path:notes": "no entry", "path:none": "no entry"},
+			PlaceholderSources:     map[string][]string{"path:data": {"kb-a"}, "path:notes": {"kb-a"}, "path:none": {"kb-a"}},
+			PlaceholderDecls:       map[string]provisioning.PathDecl{"path:data": {Description: "the data dir", Default: def}},
+		},
+	}}
+	if err := provisioning.WriteLockFile(lockFilePath(home), lf); err != nil {
+		t.Fatal(err)
+	}
+	before, _ := os.ReadFile(clientconfig.Path(home))
+	out := withStdout(t, func() {
+		if code := cmdPaths([]string{"suggest"}); code != 0 {
+			t.Errorf("paths suggest = %d", code)
+		}
+	})
+	for _, want := range []string{
+		"cartographer paths set path:data " + def,
+		"the data dir",
+		"cartographer paths set path:notes " + filepath.Join(home, ".config", "notes"),
+		"(no suggestion — use cartographer paths set path:none <path>",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("suggest lacks %q:\n%s", want, out)
+		}
+	}
+	if after, _ := os.ReadFile(clientconfig.Path(home)); string(after) != string(before) {
+		t.Errorf("suggest must not write the config")
+	}
+}
+
+func TestCmdPathsSuggest_SkipsIgnored(t *testing.T) {
+	home := t.TempDir()
+	setHome(t, home)
+	writeClientConfig(t, home, "ignored_paths:\n  - path:gone\n")
+	lf := provisioning.LockFile{Providers: map[string]provisioning.Lock{
+		"claude": {
+			Provider:               "claude",
+			UnresolvedPlaceholders: map[string]string{"path:gone": "no entry"},
+			PlaceholderSources:     map[string][]string{"path:gone": {"kb-a"}},
+		},
+	}}
+	if err := provisioning.WriteLockFile(lockFilePath(home), lf); err != nil {
+		t.Fatal(err)
+	}
+	out := withStdout(t, func() { cmdPaths([]string{"suggest"}) })
+	if strings.Contains(out, "path:gone") || !strings.Contains(out, "nothing to suggest") {
+		t.Errorf("an ignored key must not be suggested:\n%s", out)
+	}
+}
+
+func TestRepoCandidates(t *testing.T) {
+	idx := &repoindex.Index{Repos: map[repoindex.RemoteKey][]string{
+		"example.com/user/tool":   {"/src/tool"},
+		"example.com/user/other":  {"/src/tool-fork"},
+		"example.com/user/tools2": {"/src/x"},
+	}}
+	got := repoCandidates(idx, "tool")
+	want := []string{"/src/tool", "/src/x"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("repoCandidates = %v, want %v", got, want)
 	}
 }

@@ -191,6 +191,9 @@ func updateNotice() (code int) {
 func noticeText() string {
 	settings, _ := updateSettingsFn()
 	opts, cacheDir := updateOptions(settings)
+	// D320: a cache that only knows the running version is re-checked, so a
+	// release published inside the TTL window reaches the next session.
+	opts.ForceRefreshOnVersion = version
 
 	// A patch this machine applied to itself is announced once, by the
 	// binary it installed.

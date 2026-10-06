@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/BeppeTemp/cartographer/internal/provisioning"
 	"github.com/BeppeTemp/cartographer/internal/service"
 )
 
@@ -147,5 +148,42 @@ func TestPrintSyncTimerHint(t *testing.T) {
 				t.Errorf("a hooked provider must not be named: %q", out)
 			}
 		})
+	}
+}
+
+// D320: connect shows Kiro's session-hook limit once and records it; every
+// later sync keeps the acknowledgement and status stops repeating the hint,
+// while a provider with no hook at all is still named.
+func TestKiroHookLimitWarningPrintedOnce(t *testing.T) {
+	old := syncTimerStatusFn
+	t.Cleanup(func() { syncTimerStatusFn = old })
+	syncTimerStatusFn = func() (service.SyncTimerStatus, error) { return service.SyncTimerStatus{}, nil }
+
+	dir := doctorFixture(t, "kiro")
+	if out := withStdout(t, func() { printSyncTimerHint([]string{"kiro"}) }); !strings.Contains(out, "kiro-cli chat --v3 --tui") {
+		t.Fatalf("connect must show the limit: %q", out)
+	}
+	ackSessionHookLimit(dir, []string{"kiro"})
+
+	// A sync rebuilds the lock: the acknowledgement must survive it.
+	m := provisioning.Manifest{Revision: "r2"}
+	if _, err := materializeForProviders(uniformManifests(m, []string{"kiro"}), globalProjections([]string{"kiro"}, dir), dir, "", true, false, false, portabilityOptions{}, nil); err != nil {
+		t.Fatal(err)
+	}
+	lf, err := provisioning.ReadLockFile(lockFilePath(dir))
+	if err != nil || !lf.ForProvider("kiro").SessionHookLimitAcked {
+		t.Fatalf("acknowledgement lost across sync: %v %+v", err, lf.ForProvider("kiro"))
+	}
+
+	s := statusSnapshot{Schema: statusSchema, Reachable: true, State: "in_sync", Providers: []providerStatus{
+		{Name: "kiro", Connected: true, HookLimitAcked: true},
+		{Name: "hermes", Connected: true},
+	}}
+	out := withStdout(t, func() { renderStatus("table", s, 0) })
+	if strings.Contains(out, "kiro-cli chat --v3 --tui") {
+		t.Errorf("status repeated an acknowledged limit: %q", out)
+	}
+	if !strings.Contains(out, "hermes has no session-start hook") {
+		t.Errorf("a hook-less provider must still be named: %q", out)
 	}
 }

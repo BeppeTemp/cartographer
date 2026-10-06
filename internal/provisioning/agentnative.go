@@ -16,8 +16,10 @@ package provisioning
 // mapping of Claude's `tools`, and this is the opt-in that does not need one.
 //
 // VERIFICATION STATUS (honest): the keys believed to restrict an agent are
-//   - opencode: `permission` (edit/bash/webfetch: allow|ask|deny) and `tools`
-//     (name: bool) in the agent Markdown frontmatter, per opencode.ai/docs/agents;
+//   - opencode: `permission` (edit/bash/webfetch/mcp: allow|ask|deny) in the
+//     agent Markdown frontmatter, per opencode.ai/docs/agents. `tools`
+//     (name: bool) is no longer shown in the OpenCode agents documentation as
+//     of 1.18.x; prefer `permission` (D320);
 //   - codex: `sandbox_mode` (read-only, workspace-write, ...) in the agent TOML,
 //     per the Codex subagents documentation;
 //   - kiro: `tools` and `allowedTools` in the agent JSON config;
@@ -176,6 +178,49 @@ func nativeFieldsFor(fm *okf.Frontmatter, provider configurator.Provider) ([]nat
 		return nil, err
 	}
 	return m[provider], nil
+}
+
+// nativeMCPServerRefs returns the MCP server names an entry's `tools` or
+// `allowedTools` list cites as `@<server>` or `@<server>/<tool>` (Kiro's
+// syntax), sorted and unique, `@builtin` excluded (D320). A heuristic over the
+// author's values, not a parse of any client's grammar: D291 copies the entry
+// verbatim and promises nothing, so what this feeds is advisory only.
+func nativeMCPServerRefs(fields []nativeField) []string {
+	seen := map[string]bool{}
+	var walk func(n *yaml.Node)
+	walk = func(n *yaml.Node) {
+		if n == nil {
+			return
+		}
+		if n.Kind == yaml.ScalarNode {
+			v := strings.TrimSpace(n.Value)
+			if !strings.HasPrefix(v, "@") {
+				return
+			}
+			server := strings.TrimPrefix(v, "@")
+			if i := strings.Index(server, "/"); i >= 0 {
+				server = server[:i]
+			}
+			if server != "" && server != "builtin" {
+				seen[server] = true
+			}
+			return
+		}
+		for _, c := range n.Content {
+			walk(c)
+		}
+	}
+	for _, f := range fields {
+		if f.Key == "tools" || f.Key == "allowedTools" {
+			walk(f.Value)
+		}
+	}
+	out := make([]string, 0, len(seen))
+	for s := range seen {
+		out = append(out, s)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // renderNativeYAML renders the fields as top-level YAML lines, keeping the

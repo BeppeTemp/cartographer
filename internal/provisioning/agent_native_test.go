@@ -160,3 +160,41 @@ func TestFrontmatter_NestedBlockIsNotFlattenedIntoSiblingKeys(t *testing.T) {
 		t.Errorf("nested block lost on serialize:\n%s", fm.Serialize())
 	}
 }
+
+// D320: an `@<server>` the client has no MCP entry for is named at sync; the
+// agent is still installed with the entry verbatim (D291).
+func TestSyncWarnsAbsentMCPServer(t *testing.T) {
+	src := "---\nname: operator\ndescription: d\nproviders:\n  kiro: { tools: [\"@builtin\", \"@homeassistant/call_service\"] }\n---\nBody.\n"
+	m, kbRoot := restrictedAgentManifest(t, map[string]string{"operator": src})
+
+	res, base := applyAgents(t, m, kbRoot, configurator.ProviderKiro, provisioning.Lock{})
+	w := warningsMentioning(res, "@homeassistant")
+	if len(w) != 1 || !strings.Contains(w[0], `agent "operator" on kiro`) {
+		t.Fatalf("want one warning naming agent, client and server, got %v", res.Warnings)
+	}
+	if len(warningsMentioning(res, "@builtin")) != 0 {
+		t.Errorf("@builtin is not a server: %v", res.Warnings)
+	}
+	if _, err := os.Stat(filepath.Join(base, ".kiro", "agents", "operator.json")); err != nil {
+		t.Errorf("the warning is advisory, the agent must still be installed: %v", err)
+	}
+
+	// Same agent, the server configured on the client: no warning.
+	base = t.TempDir()
+	mcp := filepath.Join(base, ".kiro", "settings", "mcp.json")
+	if err := os.MkdirAll(filepath.Dir(mcp), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(mcp, []byte(`{"mcpServers":{"homeassistant":{"command":"x"}}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := provisioning.Apply(provisioning.FilterForProvider(m, configurator.ProviderKiro), provisioning.ApplyOptions{
+		AutoTrust: true, KBRoots: map[string]string{"kb-a": kbRoot}, Provider: configurator.ProviderKiro, BaseDir: base,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if w := warningsMentioning(res, "@homeassistant"); len(w) != 0 {
+		t.Errorf("configured server must not warn: %v", w)
+	}
+}
