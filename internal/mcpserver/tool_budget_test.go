@@ -16,7 +16,13 @@ import (
 const (
 	// 23 KiB since D302: work_list added 700 bytes (22490 → 23190) after
 	// D301 had already trimmed the descriptions that list growing sets.
-	toolsListBudgetBytes   = 23 * 1024
+	//
+	// 25 KiB since D318: concept_batch and asset_delete joined the agent
+	// profile (25322 bytes, +1.8 KiB over D302's 23190) after concept_batch's
+	// description and schema were cut from 3 KiB to 1.4 KiB; the remaining
+	// descriptions were already at their floor. artifact_delete (~0.3 KiB)
+	// appears only for a KB with allow_artifact_write and is not counted here.
+	toolsListBudgetBytes   = 25 * 1024
 	toolDescriptionMaxChar = 600
 )
 

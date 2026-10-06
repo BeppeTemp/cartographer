@@ -308,19 +308,18 @@ func TestConceptBatch_ReadOnlyTokenDenied(t *testing.T) {
 	assertMCPForbidden(t, rr)
 }
 
-// TestConceptBatch_HiddenUnderAgentVisibleUnderFullProfile verifies the
-// D65/D123-style profile behavior (D125 WP3): concept_batch is advanced, so
-// it must be absent from tools/list under the default "agent" profile and
-// present under "full", while remaining callable via tools/call in both.
-func TestConceptBatch_HiddenUnderAgentVisibleUnderFullProfile(t *testing.T) {
+// TestConceptBatch_VisibleUnderAgentAndFullProfile verifies concept_batch is
+// advertised in tools/list under both profiles (D318; D125 WP3 had hidden it)
+// and callable via tools/call.
+func TestConceptBatch_VisibleUnderAgentAndFullProfile(t *testing.T) {
 	k := setupTestKB(t)
 	s := New("test")
 	RegisterKBTools(s, k, Deps{})
 
 	s.SetToolsProfile("agent")
 	agentNames := listToolNames(t, s)
-	if agentNames["concept_batch"] {
-		t.Error("concept_batch must be hidden from tools/list under the agent profile")
+	if !agentNames["concept_batch"] {
+		t.Error("concept_batch must be advertised in tools/list under the agent profile (D318)")
 	}
 	ops := []map[string]any{{"op": "write", "id": "batch/agent-profile", "frontmatter": map[string]any{"type": "Note"}, "body": "x"}}
 	resps := runMCPSequence(t, s, []string{initMsg, batchCallMsg(t, 2, ops)})
@@ -336,8 +335,8 @@ func TestConceptBatch_HiddenUnderAgentVisibleUnderFullProfile(t *testing.T) {
 }
 
 // TestConceptBatch_PrefixedNaming verifies concept_batch is reachable and
-// correctly hidden/visible under a configured multi-KB tool-name prefix
-// (D125 WP3), the same shape as TestServer_ToolsProfile_Prefixed.
+// correctly listed under a configured multi-KB tool-name prefix
+// (D125 WP3, D318), the same shape as TestServer_ToolsProfile_Prefixed.
 func TestConceptBatch_PrefixedNaming(t *testing.T) {
 	k := setupTestKB(t)
 	s := New("test")
@@ -347,8 +346,8 @@ func TestConceptBatch_PrefixedNaming(t *testing.T) {
 
 	resps := runMCPSequence(t, s, []string{toolsListBody})
 	names := toolNamesFromToolsList(t, resps[0])
-	if _, ok := names["engteam__concept_batch"]; ok {
-		t.Error("engteam__concept_batch is advanced and must be hidden under the agent profile")
+	if _, ok := names["engteam__concept_batch"]; !ok {
+		t.Error("engteam__concept_batch must be listed under the agent profile (D318)")
 	}
 
 	callResp := runMCPSequence(t, s, []string{initMsg, artifactCallMsg(t, 2, "engteam__concept_batch", map[string]any{
@@ -493,5 +492,35 @@ func TestConceptBatch_PatchUnsetKey(t *testing.T) {
 	}
 	if strings.Contains(cd.FrontmatterRaw, "status") || !strings.Contains(cd.FrontmatterRaw, "title: Seed") {
 		t.Fatalf("status not removed:\n%s", cd.FrontmatterRaw)
+	}
+}
+
+// TestConceptBatch_PatchesCountEditsNotBodies (D318): ten one-word patches on
+// ~100 KiB concepts total well over the aggregate limit if each counted its
+// full post-patch body, and must be accepted: a patch counts what it sends.
+func TestConceptBatch_PatchesCountEditsNotBodies(t *testing.T) {
+	k := setupTestKB(t)
+	s := New("test")
+	RegisterKBTools(s, k, Deps{})
+
+	big := "# Big\n\nmarker\n\n" + strings.Repeat("lorem ipsum dolor sit amet\n", 4000)
+	if len(big)*10 <= conceptBatchMaxTotalBytes {
+		t.Fatal("fixture too small to prove the point")
+	}
+	var ops []map[string]any
+	for i := 0; i < 10; i++ {
+		id := "batch/large-" + strconv.Itoa(i)
+		fm, _ := okf.ParseFrontmatter("type: Note\ntitle: Large")
+		if _, err := k.WriteConcept(okf.ConceptID(id), fm, big, ""); err != nil {
+			t.Fatal(err)
+		}
+		ops = append(ops, map[string]any{"op": "patch", "id": id, "if_match": readHash(t, k, id), "old_string": "marker", "new_string": "done"})
+	}
+	resps := runMCPSequence(t, s, []string{initMsg, batchCallMsg(t, 2, ops)})
+	if tr := decodeToolResult(t, resps[1]); tr.IsError {
+		t.Fatalf("small patches on large concepts rejected: %+v", tr.Content)
+	}
+	if cd, err := k.ReadConcept("batch/large-9"); err != nil || !strings.Contains(cd.Body, "done") {
+		t.Fatalf("patch not applied: %v", err)
 	}
 }

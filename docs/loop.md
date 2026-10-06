@@ -60,7 +60,9 @@ end-to-end (D123, → `control-plane.md` §MCP API).
   the `info` checks cannot fail a gate, so they are not in the way of reading
   the ones that can (D186). Pass `severity_min: "info"` to see them, and `scope`
   to gate one prefix instead of the whole archive — the verdict is computed on
-  the unfiltered results either way.
+  the unfiltered results either way. `changed_ids` may be empty: the gate then
+  runs validate and lint over the scope and skips the commit gate, which is the
+  session-end check of the whole KB (D318).
 
 Reasoning checks such as factual grounding, PII review or semantic
 contradiction analysis are agent/human policy. Cartographer does not currently

@@ -671,3 +671,20 @@ func TestRepair_LegacyToolName(t *testing.T) {
 		t.Errorf("want one commit for the repair")
 	}
 }
+
+// TestKBRepairApplyOmitsPlan (D318): the plan is a dry run's product; an apply
+// answers with applied/skipped and the found_/planned_ totals only.
+func TestKBRepairApplyOmitsPlan(t *testing.T) {
+	_, s := repairKB(t, 2)
+	dry := repairCall(t, s, `{"check":"nonstandard_field"}`)
+	if _, ok := dry["planned"]; !ok {
+		t.Fatalf("dry run must carry planned: %v", dry)
+	}
+	out := repairCall(t, s, `{"check":"nonstandard_field","dry_run":false}`)
+	if _, ok := out["planned"]; ok {
+		t.Fatalf("apply must not carry planned: %v", out)
+	}
+	if out["applied"].(float64) != 2 || out["planned_total"].(float64) != 2 {
+		t.Fatalf("apply response = %v", out)
+	}
+}

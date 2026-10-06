@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -301,7 +302,7 @@ func (kb *KB) DeleteAsset(id okf.ConceptID, assetPath, ifMatch string) error {
 		return err
 	}
 	if ifMatch == "" {
-		return fmt.Errorf("%w: if_match is required for asset_delete", okf.ErrStaleWrite)
+		return errors.New("if_match is required for asset_delete: use the sha256 from asset_read or asset_list (a missing parameter, not a stale write)")
 	}
 	if _, err := checkAssetFile(abs, rel, false); err != nil {
 		return err

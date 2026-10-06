@@ -381,8 +381,8 @@ func TestArtifactTools_FlagEnabled_ProfileClassification(t *testing.T) {
 	if !names["artifact_write"] {
 		t.Error("artifact_write: expected agent-visible (not advanced) when AllowArtifactWrite=true")
 	}
-	if names["artifact_delete"] {
-		t.Error("artifact_delete: expected hidden (advanced) under the agent profile")
+	if !names["artifact_delete"] {
+		t.Error("artifact_delete: expected agent-visible when AllowArtifactWrite=true (D318)")
 	}
 	if names["artifact_list"] {
 		t.Error("artifact_list: expected hidden (advanced) under the agent profile")

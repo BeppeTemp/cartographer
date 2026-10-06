@@ -159,10 +159,9 @@ func toolLint(k *kb.KB) Tool {
 				return errorResult(fmt.Sprintf("lint: %v", err)), nil
 			}
 
-			if len(findings) == 0 {
-				return textResult("Lint OK: no findings."), nil
-			}
-
+			// No early return for a clean KB: the empty result keeps the shape
+			// of a non-empty one, so a caller that parses JSON never meets a
+			// bare string (D318).
 			total := len(findings)
 			findings, countsByCheck, countsBySeverity := lint.Filter(findings, params.SeverityMin)
 
@@ -255,7 +254,7 @@ func toolGateCheck(k *kb.KB) Tool {
 	return Tool{
 		Name:        "gate_check",
 		ReadOnly:    true,
-		Description: "Local gate: validate + lint + commit_gate in one call; pass/fail with details. Use before fast-forwarding to main. severity_min sets the lint floor (default warning); scope gates a path prefix (default whole KB). pass ignores the floor: it covers the whole unfiltered scope.",
+		Description: "Local gate: validate + lint + commit_gate in one call; pass/fail with details. Use before fast-forwarding to main; changed_ids may be empty for a whole-KB check (no commit gate). severity_min sets the lint floor (default warning); scope gates a path prefix (default whole KB). pass ignores the floor: it covers the whole unfiltered scope.",
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"required": ["changed_ids"],
@@ -287,9 +286,6 @@ func toolGateCheck(k *kb.KB) Tool {
 			}
 			if err := json.Unmarshal(args, &params); err != nil {
 				return errorResult("invalid params: " + err.Error()), nil
-			}
-			if len(params.ChangedIDs) == 0 {
-				return errorResult("'changed_ids' is required and must not be empty"), nil
 			}
 			if params.SeverityMin == "" {
 				params.SeverityMin = lint.SevWarning
@@ -332,13 +328,19 @@ func toolGateCheck(k *kb.KB) Tool {
 			lintTotal := len(lintFindings)
 			lintFindings, countsByCheck, countsBySeverity := lint.Filter(lintFindings, params.SeverityMin)
 
-			// 3. Commit gate
-			gate, err := k.CommitGate(ids)
-			if err != nil {
-				return errorResult(fmt.Sprintf("gate_check: commit_gate: %v", err)), nil
-			}
-			if !gate.Pass {
-				pass = false
+			// 3. Commit gate. It checks the contradictions that involve the
+			// changed concepts, so with none there is nothing to check: an empty
+			// changed_ids is the whole-KB session-end gate (D318).
+			gate := &kb.GateResult{Pass: true}
+			if len(ids) > 0 {
+				var err error
+				gate, err = k.CommitGate(ids)
+				if err != nil {
+					return errorResult(fmt.Sprintf("gate_check: commit_gate: %v", err)), nil
+				}
+				if !gate.Pass {
+					pass = false
+				}
 			}
 
 			type valErrJSON struct {

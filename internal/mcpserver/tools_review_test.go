@@ -197,3 +197,23 @@ func TestConceptNewSimilarOnCreation(t *testing.T) {
 		t.Fatalf("concept_new similar: %+v", out)
 	}
 }
+
+// TestKBReviewReportsClampedLimit (D318): a limit above the page maximum is
+// clamped, and the response says so instead of reading as complete.
+func TestKBReviewReportsClampedLimit(t *testing.T) {
+	s, _ := reviewServer(t)
+	res := callTool(t, s, "kb_review", `{"limit":200}`)
+	var out map[string]any
+	if err := json.Unmarshal([]byte(res.Content[0].Text), &out); err != nil {
+		t.Fatal(err)
+	}
+	if out["limit_capped"] != true || out["limit_max"] != float64(kbReviewMaxLimit) || out["limit_applied"] != float64(kbReviewMaxLimit) {
+		t.Fatalf("clamped limit not reported: %v", out)
+	}
+	res = callTool(t, s, "kb_review", `{"limit":5}`)
+	out = nil
+	_ = json.Unmarshal([]byte(res.Content[0].Text), &out)
+	if _, ok := out["limit_capped"]; ok || out["limit_applied"] != float64(5) {
+		t.Fatalf("an in-range limit must not be flagged: %v", out)
+	}
+}

@@ -364,7 +364,7 @@ func toolConceptPatch(k *kb.KB) Tool {
 	return Tool{
 		Name: "concept_patch",
 		Description: "Edit-style patch of a concept body: old_string/new_string/replace_all, or an edits array applied atomically in order. if_match required (stale_write). Errors old_string_not_found / old_string_ambiguous; a failed batch writes nothing. frontmatter is shallow-merged (null removes a key) and may be the only change. Returns content_hash, findings. " +
-			fmt.Sprintf("Many concepts: concept_batch (unlisted, callable by name), up to %d operations in one commit.", conceptBatchMaxOps),
+			fmt.Sprintf("Many concepts: concept_batch, up to %d operations in one commit.", conceptBatchMaxOps),
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"required": ["id", "if_match"],
@@ -2174,6 +2174,28 @@ type batchOperationRequest struct {
 	Edits       []patchEditItem        `json:"edits"`
 }
 
+// batchOpBytes is what one operation adds to the batch's aggregate size. A
+// write counts its final body and frontmatter; a patch counts what the caller
+// sent (the edits, plus the frontmatter when it changes it), not the full body
+// after the patch, so fifteen one-line patches on large concepts are not
+// rejected for bytes they never transmitted (D318). The limit bounds the
+// request line, not the result.
+func batchOpBytes(op batchOperationRequest, hasEdits bool, body string, fm *okf.Frontmatter) int {
+	if op.Op != "patch" {
+		return len(body) + len(fm.Serialize())
+	}
+	n := len(op.OldString) + len(op.NewString)
+	if hasEdits {
+		for _, e := range op.Edits {
+			n += len(e.OldString) + len(e.NewString)
+		}
+	}
+	if len(op.Frontmatter) > 0 || len(op.Unset) > 0 {
+		n += len(fm.Serialize())
+	}
+	return max(n, 1)
+}
+
 // batchResultEntry is one applied operation's reported outcome, in request order.
 type batchResultEntry struct {
 	ID          string       `json:"id"`
@@ -2184,45 +2206,32 @@ type batchResultEntry struct {
 func toolConceptBatch(k *kb.KB) Tool {
 	return Tool{
 		Name: "concept_batch",
-		Description: "Atomically writes or patches several distinct concepts in one logical operation " +
-			"(one git commit, one summary log.md entry): either every operation in 'operations' is applied " +
-			"or none is — a failure at any point (validation, a stale/missing if_match, a write, or an index " +
-			"update) leaves the KB exactly as it was before the call. Intended for large multi-page refactors " +
-			"where separate concept_write/concept_patch calls would leave partially-aligned intermediate " +
-			"commits if interrupted; for edits confined to one concept use concept_patch's own 'edits' batch " +
-			fmt.Sprintf("instead, and for renames use concept_move. At most %d operations and %s of aggregate "+
-				"decoded content per call, so plan a larger refactor in chunks. ", conceptBatchMaxOps, byteBudget(conceptBatchMaxTotalBytes)) +
-			"Each operation is 'write' (frontmatter, body, optional " +
-			"if_match — absent if_match means create-only; updating an existing concept requires it) or " +
-			"'patch' (required if_match, optional frontmatter shallow merge, and the same single " +
-			"old_string/new_string/replace_all or batch 'edits' semantics as concept_patch). Operations must " +
-			"target distinct concept IDs; delete, move, expand, assets, and Map/root curated indexes are out " +
-			"of scope for this tool. Every operation is validated — including each Map's strict-ontology " +
-			"palette and required-field contract — before anything is written. Returns each operation's id " +
-			"and new content_hash in request order, with the concept's lint findings.",
+		Description: "All-or-nothing write/patch of several distinct concepts: one commit, one log entry; any failure leaves the KB untouched. " +
+			fmt.Sprintf("At most %d operations and %s of decoded content per call (a patch counts its edits, not the whole body). ", conceptBatchMaxOps, byteBudget(conceptBatchMaxTotalBytes)) +
+			"Each operation is 'write' (frontmatter, body, if_match optional = create-only) or 'patch' (if_match required; frontmatter merge; old_string/new_string/replace_all or 'edits', as concept_patch). " +
+			"Not covered: delete, move, expand, assets, Map/root indexes. Returns id and content_hash per operation, with lint findings.",
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"required": ["operations"],
 			"properties": {
 				"operations": {
 					"type": "array",
-					"description": "Ordered list of operations over distinct concept IDs, applied atomically.",
+					"description": "Distinct concept IDs, applied atomically.",
 					"items": {
 						"type": "object",
 						"required": ["op", "id"],
 						"properties": {
-							"op": {"type": "string", "description": "\"write\" or \"patch\""},
-							"id": {"type": "string", "description": "ConceptID (path relative to KB root without .md)"},
-							"frontmatter": {"type": "object", "description": "Full frontmatter (write) or partial shallow-merge (patch, optional)"},
-							"unset": {"type": "array", "items": {"type": "string"}, "description": "Patch: frontmatter keys to remove (same as null)"},
-							"body": {"type": "string", "description": "Full markdown body (write only)"},
-							"if_match": {"type": "string", "description": "Expected content-hash: optional (create-only) for write, required for patch"},
-							"old_string": {"type": "string", "description": "Patch: exact substring to find (single-edit form, mutually exclusive with 'edits')"},
-							"new_string": {"type": "string", "description": "Patch: replacement text (single-edit form, mutually exclusive with 'edits')"},
-							"replace_all": {"type": "boolean", "description": "Patch: replace all occurrences of old_string (single-edit form)"},
+							"op": {"type": "string"},
+							"id": {"type": "string"},
+							"frontmatter": {"type": "object"},
+							"unset": {"type": "array", "items": {"type": "string"}},
+							"body": {"type": "string"},
+							"if_match": {"type": "string"},
+							"old_string": {"type": "string"},
+							"new_string": {"type": "string"},
+							"replace_all": {"type": "boolean"},
 							"edits": {
 								"type": "array",
-								"description": "Patch: batch form, applied atomically and in order. Mutually exclusive with old_string/new_string/replace_all.",
 								"items": {
 									"type": "object",
 									"required": ["old_string", "new_string"],
@@ -2392,7 +2401,7 @@ func toolConceptBatch(k *kb.KB) Tool {
 					return errorResult(fmt.Sprintf("%s: %v", label, err)), nil
 				}
 
-				totalBytes += len(body) + len(fm.Serialize())
+				totalBytes += batchOpBytes(op, hasEdits, body, fm)
 				if totalBytes > conceptBatchMaxTotalBytes {
 					return errorResult(fmt.Sprintf("%s: aggregate batch content exceeds %d bytes", label, conceptBatchMaxTotalBytes)), nil
 				}
