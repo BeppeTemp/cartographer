@@ -552,6 +552,13 @@ func TestRun_Orphan_ArchiveTopLevel_Isolated(t *testing.T) {
 	if !hasCheck(findings, "arch/lonely.md", "orphan") {
 		t.Errorf("isolated top-level concept not reported: %v", findings)
 	}
+	// link_suggest has no graph evidence for an isolated node: the message
+	// must not promise what only the title fallback can give (D317).
+	for _, f := range findings {
+		if f.Check == "orphan" && strings.Contains(f.Message, "proposes some") {
+			t.Errorf("orphan message overpromises: %q", f.Message)
+		}
+	}
 }
 
 // --- expanded_missing_index (D72 WP4, renamed in D77 WP4) ---

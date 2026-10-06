@@ -178,6 +178,7 @@ func (kb *KB) oracleSnapshot(opts GraphSnapshotOptions) (GraphSnapshot, error) {
 		status     string
 		expanded   bool
 		targets    []okf.ConceptID
+		linkLines  map[okf.ConceptID][]string
 	}
 	// exists holds every concept id in the KB, visible or not: it is what
 	// tells a genuinely broken link from a link to a concept this caller may
@@ -196,6 +197,7 @@ func (kb *KB) oracleSnapshot(opts GraphSnapshotOptions) (GraphSnapshot, error) {
 			collection: conceptCollection(id),
 			expanded:   physicalPath == path.Join(string(id), "index.md"),
 			targets:    ExtractLinks(body, physicalPath, kb.AssetExists),
+			linkLines:  linkLinesOf(body, physicalPath, kb.AssetExists),
 		}
 		// Malformed frontmatter leaves the facets empty rather than failing the
 		// walk: one unparseable file must not blank the whole graph.
@@ -282,7 +284,15 @@ func (kb *KB) oracleSnapshot(opts GraphSnapshotOptions) (GraphSnapshot, error) {
 		degree[i] = inDegree[id] + outDegree[id]
 	}
 	pagerank := graphalgo.PageRank(g, 0.85, 1e-9, 100)
-	communityOf, communities := graphalgo.Communities(g, 1, degree)
+	counts := linkLineCounts(ids, func(id okf.ConceptID) map[okf.ConceptID][]string { return metas[id].linkLines })
+	weights := make([][]float64, len(ids))
+	for i, id := range ids {
+		weights[i] = make([]float64, len(g.Out[i]))
+		for k, j := range g.Out[i] {
+			weights[i][k] = linkEdgeWeight(metas[id].linkLines[ids[j]], counts)
+		}
+	}
+	communityOf, communities := graphalgo.Communities(g, 1, degree, weights)
 	prOf := func(id okf.ConceptID) float64 { return pagerank[index[id]] }
 
 	// Scope selects the full candidate node set; the limit then cuts it.

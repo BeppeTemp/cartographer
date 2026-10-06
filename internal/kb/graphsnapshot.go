@@ -153,6 +153,7 @@ func (kb *KB) GraphSnapshot(opts GraphSnapshotOptions) (GraphSnapshot, error) {
 		status     string
 		expanded   bool
 		targets    []okf.ConceptID
+		linkLines  map[okf.ConceptID][]string
 	}
 	// exists holds every concept id in the KB, visible or not: it is what
 	// tells a genuinely broken link from a link to a concept this caller may
@@ -179,6 +180,7 @@ func (kb *KB) GraphSnapshot(opts GraphSnapshotOptions) (GraphSnapshot, error) {
 			collection: conceptCollection(id),
 			expanded:   e.rel == path.Join(string(id), "index.md"),
 			targets:    e.links,
+			linkLines:  e.linkLines,
 			typ:        e.facets.Type,
 			title:      e.facets.Title,
 			status:     e.facets.Status,
@@ -249,7 +251,17 @@ func (kb *KB) GraphSnapshot(opts GraphSnapshotOptions) (GraphSnapshot, error) {
 	}
 	pagerank := graphalgo.PageRank(g, 0.85, 1e-9, 100)
 	prOf := func(id okf.ConceptID) float64 { return pagerank[index[id]] }
-	communityOf, communities := graphalgo.Communities(g, 1, degree)
+	// Boilerplate edges weigh less (D317), counted over the visible concepts
+	// only, as LinkGraph counts them.
+	counts := linkLineCounts(ids, func(id okf.ConceptID) map[okf.ConceptID][]string { return metas[id].linkLines })
+	weights := make([][]float64, len(ids))
+	for i, id := range ids {
+		weights[i] = make([]float64, len(g.Out[i]))
+		for k, j := range g.Out[i] {
+			weights[i][k] = linkEdgeWeight(metas[id].linkLines[ids[j]], counts)
+		}
+	}
+	communityOf, communities := graphalgo.Communities(g, 1, degree, weights)
 
 	// Scope selects the full candidate node set; the limit then cuts it.
 	scoped := ids

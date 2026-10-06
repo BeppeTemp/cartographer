@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"path"
 	"sort"
+	"strings"
 
 	"github.com/BeppeTemp/cartographer/internal/graphalgo"
 	"github.com/BeppeTemp/cartographer/internal/kb"
@@ -192,11 +194,11 @@ func toolGraphContext(k *kb.KB, rec *searchReconciler, deps Deps) Tool {
 
 // --- link_suggest ---
 
-func toolLinkSuggest(k *kb.KB) Tool {
+func toolLinkSuggest(k *kb.KB, rec *searchReconciler, deps Deps) Tool {
 	return Tool{
 		Name:        "link_suggest",
 		ReadOnly:    true,
-		Description: "Existing concepts this one probably should link to: at least two shared neighbours, not yet linked, hub evidence discounted.",
+		Description: "Existing concepts this one probably should link to: at least two shared neighbours, not yet linked, hub evidence discounted; for a concept with no links at all, concepts whose text matches its title.",
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"required": ["id"],
@@ -252,14 +254,77 @@ func toolLinkSuggest(k *kb.KB) Tool {
 					break
 				}
 			}
+			method := "resource_allocation"
+			if len(candidates) == 0 && len(lg.Graph.Undirected()[u]) == 0 {
+				// An orphan has no neighbour to share (D317): fall back to the
+				// concepts the search ranks for its title. score 0 and no
+				// common neighbours say the evidence is text, not the graph.
+				method = "text_similarity"
+				for _, id := range titleMatches(ctx, k, rec, deps, lg, u, limit) {
+					candidates = append(candidates, candidateOut{ID: string(lg.IDs[id]), Title: lg.Facets[id].Title, Common: []string{}})
+				}
+			}
 			out, _ := json.MarshalIndent(map[string]interface{}{
 				"id":         params.ID,
+				"method":     method,
 				"candidates": candidates,
 				"count":      len(candidates),
 			}, "", "  ")
 			return textResult(string(out)), nil
 		},
 	}
+}
+
+// titleMatches returns up to limit visible concepts the keyword search ranks
+// for u's title (its id's last segment when untitled), u itself and retired
+// concepts excluded: link_suggest's fallback for an orphan (D317).
+//
+// Trap: search requires every term first and widens to any term only when
+// nothing matches all of them — and u's own title always matches all of them,
+// so a multi-word title would return u alone. When the whole title finds
+// nothing else, each term is searched on its own and the hits merged.
+func titleMatches(ctx requestContext, k *kb.KB, rec *searchReconciler, deps Deps, lg *kb.LinkGraph, u, limit int) []int {
+	query := lg.Facets[u].Title
+	if query == "" {
+		query = path.Base(string(lg.IDs[u]))
+		query = strings.NewReplacer("-", " ", "_", " ").Replace(query)
+	}
+	best := map[int]float64{}
+	collect := func(q string) {
+		hits, _, _ := expandedKeywordHits(ctx, k, rec, deps, q, "", limit+1)
+		for _, h := range hits {
+			i, ok := lg.Index[okf.ConceptID(h.ID)]
+			if !ok || i == u {
+				continue
+			}
+			if status := lg.Facets[i].Status; status == "deprecated" || status == "superseded" {
+				continue
+			}
+			if cur, seen := best[i]; !seen || h.Score > cur {
+				best[i] = h.Score
+			}
+		}
+	}
+	collect(query)
+	if terms := strings.Fields(query); len(best) == 0 && len(terms) > 1 {
+		for _, term := range terms {
+			collect(term)
+		}
+	}
+	ids := make([]int, 0, len(best))
+	for i := range best {
+		ids = append(ids, i)
+	}
+	sort.Slice(ids, func(a, b int) bool {
+		if best[ids[a]] != best[ids[b]] {
+			return best[ids[a]] > best[ids[b]]
+		}
+		return ids[a] < ids[b]
+	})
+	if len(ids) > limit {
+		ids = ids[:limit]
+	}
+	return ids
 }
 
 // --- graph_path ---

@@ -476,3 +476,86 @@ func TestSearchCentralityPriorNarrowed(t *testing.T) {
 		t.Fatalf("narrowed %v %v, stripped %v %v", gotIDs, got, wantIDs, want)
 	}
 }
+
+// An orphan has no neighbour to share, so link_suggest falls back to the
+// concepts the search ranks for its title (D317). "Lonely gateway" matches
+// only itself on every term: the per-term pass is what finds the others.
+func TestLinkSuggestOrphanFallback(t *testing.T) {
+	s := graphToolKB(t, map[string]string{
+		"ops/lonely.md":    "---\ntype: Note\ntitle: Lonely gateway\n---\nNo links here.\n",
+		"ops/gw.md":        "---\ntype: Note\ntitle: Gateway routing\n---\nRoutes traffic. [edge](edge.md)\n",
+		"ops/edge.md":      "---\ntype: Note\ntitle: Edge proxy\n---\nIn front of the gateway.\n",
+		"ops/old.md":       "---\ntype: Note\ntitle: Gateway legacy\nstatus: deprecated\n---\nRetired gateway.\n",
+		"ops/unrelated.md": "---\ntype: Note\ntitle: Backups\n---\nNightly.\n",
+	})
+	out := decodeJSON(t, mustText(t, s, "link_suggest", `{"id":"ops/lonely"}`))
+	if out["method"] != "text_similarity" {
+		t.Fatalf("method = %v", out["method"])
+	}
+	cands := out["candidates"].([]interface{})
+	if out["count"].(float64) == 0 || len(cands) == 0 {
+		t.Fatalf("no suggestion for an orphan: %v", out)
+	}
+	ids := map[string]bool{}
+	for _, c := range cands {
+		m := c.(map[string]interface{})
+		ids[m["id"].(string)] = true
+		if m["score"].(float64) != 0 || len(m["common"].([]interface{})) != 0 {
+			t.Fatalf("a text suggestion carries graph evidence: %v", m)
+		}
+	}
+	if !ids["ops/gw"] || ids["ops/lonely"] || ids["ops/old"] || ids["ops/unrelated"] {
+		t.Fatalf("candidates = %v", ids)
+	}
+}
+
+// A concept with links never falls back, even when resource allocation finds
+// nothing: its neighbours are the evidence, and there is none to add.
+func TestLinkSuggestConnectedNodeNoFallback(t *testing.T) {
+	s := graphToolKB(t, map[string]string{
+		"ops/u.md": "[a](a.md) [b](b.md).\n",
+		"ops/a.md": "[x](x.md).\n",
+		"ops/b.md": "[x](x.md).\n",
+		"ops/x.md": "X.\n",
+		"ops/p.md": "---\ntype: Note\ntitle: Pair\n---\n[q](q.md)\n",
+		"ops/q.md": "---\ntype: Note\ntitle: Pair partner\n---\nQ.\n",
+	})
+	out := decodeJSON(t, mustText(t, s, "link_suggest", `{"id":"ops/u"}`))
+	if out["method"] != "resource_allocation" || out["count"].(float64) != 1 {
+		t.Fatalf("connected node: %v", out)
+	}
+	out = decodeJSON(t, mustText(t, s, "link_suggest", `{"id":"ops/p"}`))
+	if out["method"] != "resource_allocation" || out["count"].(float64) != 0 {
+		t.Fatalf("linked node with no candidate fell back: %v", out)
+	}
+}
+
+// A template line linking every page to one monitoring page must not name
+// the largest community after it (D317).
+func TestAtlasOverviewStructureWithBoilerplate(t *testing.T) {
+	files := map[string]string{"ops/monitoring.md": "Dashboards.\n"}
+	for _, g := range []string{"a", "b"} {
+		for i := 1; i <= 5; i++ {
+			body := "Monitoring: see [monitoring](monitoring.md).\n"
+			if i < 5 {
+				body += fmt.Sprintf("Next: [%s%d](%s%d.md).\n", g, i+1, g, i+1)
+			}
+			files[fmt.Sprintf("ops/%s%d.md", g, i)] = body
+		}
+	}
+	for _, g := range []string{"c", "d"} {
+		for i := 1; i <= 5; i++ {
+			body := "Plain page.\n"
+			if i < 5 {
+				body = fmt.Sprintf("Next: [%s%d](%s%d.md).\n", g, i+1, g, i+1)
+			}
+			files[fmt.Sprintf("ops/%s%d.md", g, i)] = body
+		}
+	}
+	s := graphToolKB(t, files)
+	text := mustText(t, s, "atlas_overview", `{"structure":true}`)
+	section := text[strings.Index(text, "### Communities"):]
+	if strings.Contains(section, "- Monitoring —") {
+		t.Fatalf("the boilerplate hub names a community:\n%s", section)
+	}
+}

@@ -95,3 +95,49 @@ func TestPageRankPercentiles(t *testing.T) {
 		t.Error("a hidden concept has a percentile")
 	}
 }
+
+// A link line six concepts share is a template's boilerplate: its edges weigh
+// 1/6, a page's own links weigh 1, and a narrowed include counts only what it
+// sees (D317).
+func TestLinkGraphEdgeWeights(t *testing.T) {
+	f := &graphFixture{t: t, k: mustInitKB(t)}
+	f.write("svc/_map.md", "---\ntype: Map\ntitle: Services\n---\n# Services\n")
+	f.write("svc/monitoring.md", "---\ntype: Entity\ntitle: Monitoring\n---\nDashboards.\n")
+	f.write("svc/peer.md", "---\ntype: Entity\ntitle: Peer\n---\nA peer.\n")
+	for i := 0; i < 6; i++ {
+		body := "See [monitoring](monitoring.md) for dashboards.\n"
+		if i == 0 {
+			body += "Talks to [peer](peer.md).\n"
+		}
+		f.write(fmt.Sprintf("svc/s%d.md", i), "---\ntype: Entity\n---\n"+body)
+	}
+	weight := func(lg *LinkGraph, from, to okf.ConceptID) float64 {
+		t.Helper()
+		u, v := lg.Index[from], lg.Index[to]
+		for k, j := range lg.Graph.Out[u] {
+			if j == v {
+				return lg.EdgeWeights[u][k]
+			}
+		}
+		t.Fatalf("no edge %s → %s", from, to)
+		return 0
+	}
+	lg, err := f.k.LinkGraph(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if w := weight(lg, "svc/s0", "svc/monitoring"); w != 1.0/6 {
+		t.Errorf("boilerplate edge weight = %v, want 1/6", w)
+	}
+	if w := weight(lg, "svc/s0", "svc/peer"); w != 1 {
+		t.Errorf("own edge weight = %v, want 1", w)
+	}
+	// Two of the six hidden: four carriers stay under the threshold.
+	narrowed, err := f.k.LinkGraph(func(id string) bool { return id != "svc/s4" && id != "svc/s5" })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if w := weight(narrowed, "svc/s0", "svc/monitoring"); w != 1 {
+		t.Errorf("narrowed boilerplate weight = %v, want 1 (hidden carriers not counted)", w)
+	}
+}

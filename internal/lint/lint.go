@@ -753,7 +753,7 @@ func runChecks(k *kb.KB, scope string, scopeNeighbors bool) ([]Finding, error) {
 					Path:     relPath,
 					Check:    "orphan",
 					Severity: SevWarning,
-					Message:  "no links in or out: a node connected to nothing in the graph (the map's index is not a link) — link it to the concepts it relates to (link_suggest proposes some)",
+					Message:  "no links in or out: a node connected to nothing in the graph (the map's index is not a link) — link it to the concepts it relates to (link_suggest may propose some by title similarity)",
 				})
 			}
 		}
