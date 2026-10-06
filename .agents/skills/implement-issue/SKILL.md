@@ -94,7 +94,7 @@ Canonical mandate (self-contained — the subagent never sees this conversation)
 - Read the plan: `gh issue view <n> --comments` — later amendments live in the comments.
 - Implement **all** WPs exactly, starting from the `file:line` pointers in the plan; do not re-explore from scratch.
 - Write the tests in the plan's "Tests" section.
-- **Same session**: update the docs in the "Closing" section per `docs/index.md` §Documentation maintenance rules, and add the decision file `docs/decisions/D<n>-<slug>.md` from `docs/decisions/TEMPLATE.md`, then `make decisions-index`. Every trap you hit is fixed where it bites: a test if it can be checked, a comment next to the code otherwise (D214).
+- **Same session**: update the docs in the "Closing" section per `docs/index.md` §Documentation maintenance rules, and add the decision file `docs/decisions/D<n>-<slug>.md` from `docs/decisions/TEMPLATE.md`; never regenerate `docs/decisions.md` (the release PR does, D328). Every trap you hit is fixed where it bites: a test if it can be checked, a comment next to the code otherwise (D214).
 - `make gate` green — iterate until it is.
 - Single commit on `feat/<slug>` (the branch already exists in the worktree), message = PR title (conventional commit, the plan gives it), Co-Authored-By trailer.
 - `git push -u origin feat/<slug>` + `gh pr create` with a body ending `Closes #<n>`.
@@ -117,13 +117,14 @@ file-sets overlap:
 
 1. `git fetch origin`, then rebase **in the plan's own worktree**:
    `git -C .worktrees/<slug> rebase origin/main`.
-2. A conflict inside the **generated block** of `docs/decisions.md` is never
-   resolved by hand: it is regenerated. Take either side, then
-   `make decisions-index` and stage the result. Any other conflict that is not a
+2. A conflict inside the **generated block** of `docs/decisions.md` (an older
+   PR that still regenerated it) is never resolved by hand: take `origin/main`'s
+   side — the release PR regenerates it (D328). The same for
+   `internal/webui/dist/`: take `origin/main`'s side, then `make web`. Any other conflict that is not a
    clean append — real code or current-state prose divergence — → **STOP** and
    surface it to the user.
-3. `git rebase --continue`; run the plan's affected package tests (`go test ./internal/<pkg>/...`); `git push --force-with-lease`.
-4. Wait for CI green and `mergeable == MERGEABLE`, then `gh pr merge <pr> --squash --delete-branch`. Auto-merge is disabled on this repository, so wait in a **background** command — `gh pr checks <pr> --watch --required && gh pr merge <pr> --squash --delete-branch` — and act on its completion instead of polling.
+3. `git rebase --continue`, then the **full** `make -C .worktrees/<slug> gate` on the rebased tree, then `git push --force-with-lease`. Rebase onto the `main` that already holds the previous merges even when GitHub says the PR is mergeable: two PRs that each pass alone can fail together — a whole-catalogue budget (D285), a duplicate decision number — and only the combined tree shows it. The local gate (~2 min) catches that before it breaks `main` (D328).
+4. Wait for CI green and `mergeStateStatus == CLEAN`, then `gh pr merge <pr> --squash --delete-branch`. Auto-merge is disabled on this repository, so wait in a **background** command that loops on `gh pr view <pr> --json mergeStateStatus,statusCheckRollup` until `CLEAN` (stop on a `FAILURE` conclusion or on `DIRTY`/`BEHIND`), then merges. Not `gh pr checks --watch`: right after a push it can return before the checks are registered. The Bash tool's shell is zsh, which does not word-split an unquoted `$var`: pass the PR number and slug as separate literal arguments. Never rewrite a script a background job is running: bash reads it as it executes.
 5. `git checkout main && git pull --ff-only` in the main working copy, then
    `make worktree-rm SLUG=<slug>`.
 

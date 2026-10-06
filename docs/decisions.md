@@ -50,10 +50,12 @@ them resolves.
    part a reader six months from now actually needs. Current behaviour goes in
    the corresponding topic page, future work in a GitHub issue.
 
-4. **Regenerate the index and commit it**: `make decisions-index`. CI fails if it
-   is stale, so this is not optional. It also fails if the file still carries a
-   placeholder from the template — a half-written record indexes as a blank
-   entry, because `<title>` renders as an HTML tag.
+4. **Do not regenerate the index in the same PR**: the list below is
+   regenerated on the release PR, which CI checks strictly (D328). Parallel PRs
+   that each rewrote it conflicted with every merge. `make decisions-index`
+   still regenerates it locally when you want to read it current. CI fails on a
+   file that still carries a placeholder from the template — a half-written
+   record indexes as a blank entry, because `<title>` renders as an HTML tag.
 
 Do not add status tables, milestone lists or duplicate entries. A decision has
 exactly one file; other pages link to it.

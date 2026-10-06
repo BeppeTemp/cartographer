@@ -21,7 +21,7 @@ make clean           # removes bin/ and demo-kb/
 
 make decisions-next  # next free decision number
 make decisions-new N=202 SLUG=my-choice TOPIC=control-plane
-make decisions-index # regenerate the index in docs/decisions.md (CI fails if stale)
+make decisions-index # regenerate docs/decisions.md locally (the release PR does it, D328)
 make worktree-add SLUG=my-change   # isolated worktree for a plan branch
 make worktree-rm  SLUG=my-change   # remove it (force: discards uncommitted work)
 ```
@@ -119,6 +119,6 @@ Not duplicated here:
 - Analysis/design and implementation often happen in separate sessions: the handoff is a **plan issue** — a self-contained GitHub issue from the `Plan` template, label `plan` (procedure and self-sufficiency test in `CONTRIBUTING.md` §Plan issues). The implementing session reads it with `gh issue view <n>` and the implementation PR closes it (`Closes #<n>`).
 - Server and client releases (release-please PR merge, pipeline, rollout, local client update) → maintainer-local tooling, not versioned here.
 - **Documentation is updated in the same session in which the code is changed — never afterward.** The "what changes → which file to update" table is in `docs/index.md` §Documentation maintenance rules: use it for every change.
-- Conventions → `docs/conventions.md`. Every non-obvious choice → one file `docs/decisions/D<n>-<slug>.md`, and the index is regenerated with `make decisions-index`.
+- Conventions → `docs/conventions.md`. Every non-obvious choice → one file `docs/decisions/D<n>-<slug>.md`, never regenerate `docs/decisions.md` in a feature PR (D328).
 - Project status and backlog live in GitHub issues, pull requests and releases; user-visible completed work lives in `CHANGELOG.md`.
 - **This file is stable imprinting**: no mutable state, versions, counts or changelog here. Topic docs describe the **current state**; "how we got here" lives in `docs/decisions/` and the git log. Its size is a gate — `internal/repodocs` fails the build past 120 lines of hand-written text (generated blocks excluded) or 12.000 characters in total, because past that a client starts dropping instructions without saying so.

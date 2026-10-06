@@ -14,9 +14,10 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
-# On main only `test` runs: with squash-merge the commit has just been tested
-# as the PR's merge ref, and repeating the Windows and browser suites there
-# cost six minutes per merge for no new signal (D255).
+# On main `test` and `test-windows` run. Windows is not run on feature PRs
+# (D328): at ~8 minutes it was the whole wait of every PR, and it catches a
+# platform regression rarely. It runs after every merge on main and on the
+# release PR, which stays blocked on it, so no release ships without it.
 jobs:
   # Which of the slower jobs this PR needs. A path filter at the workflow level
   # would leave a required check that never reports, blocking the PR; a job
@@ -28,7 +29,6 @@ jobs:
     permissions:
       pull-requests: read
     outputs:
-      windows: ${{ steps.filter.outputs.windows }}
       web: ${{ steps.filter.outputs.web }}
     steps:
       - id: filter
@@ -38,20 +38,22 @@ jobs:
         run: |
           files=$(gh api --paginate "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files" --jq '.[].filename')
           printf '%s\n' "$files"
-          # Windows: Go code and what it embeds or reads, the Windows installer
-          # and its harness. Not the rebuilt UI bundle: its provenance test is
+          # Not the rebuilt UI bundle: its provenance test is
           # platform-independent and runs on `test`.
           any() { printf '%s\n' "$files" | grep -v '^internal/webui/dist/' | grep -qE "$1" && echo true || echo false; }
           # The release PR runs everything: it is the one full pass over what
           # the merged PRs add up to before a tag.
           if [[ "$HEAD_REF" == release-please--* ]]; then any() { echo true; }; fi
-          echo "windows=$(any '^(cmd/|internal/|test/|go\.(mod|sum)$|Makefile$|install\.ps1$|\.gitattributes$|\.github/workflows/ci\.yml$)')" >> "$GITHUB_OUTPUT"
           # Web: the frontend, and the Go server the browser suite drives.
           echo "web=$(any '^(web/|cmd/|internal/|go\.(mod|sum)$|Makefile$|\.github/workflows/ci\.yml$)')" >> "$GITHUB_OUTPUT"
 
   test:
     name: test
     runs-on: ubuntu-latest
+    env:
+      # Feature PRs leave docs/decisions.md alone; the release PR regenerates
+      # it and is the one place its staleness is checked (D328).
+      CARTOGRAPHER_STRICT_DECISION_INDEX: ${{ startsWith(github.head_ref, 'release-please--') && '1' || '' }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
@@ -80,9 +82,11 @@ jobs:
   test-windows:
     name: test-windows
     needs: changes
-    # Fail open: if `changes` itself fails, run rather than skip — a skipped
-    # required check counts as passed.
-    if: github.event_name == 'pull_request' && !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.windows == 'true')
+    # Push to main, and the release PR (D328). On a feature PR the job is
+    # skipped, which a required check counts as passed; on the release PR it
+    # is required for real. `!cancelled()` keeps it running on push, where
+    # `changes` is skipped.
+    if: "!cancelled() && (github.event_name == 'push' || startsWith(github.head_ref, 'release-please--'))"
     runs-on: windows-latest
     defaults:
       run:
@@ -157,7 +161,19 @@ jobs:
           git config --global user.name ci
           git config --global user.email ci@local
           git config --global init.defaultBranch master
-      - run: cd web && npx playwright install --with-deps chromium
+      # The browser binary is cached by Playwright version (D328); the OS
+      # packages it needs are not cacheable and are installed every run.
+      - id: playwright
+        run: echo "version=$(node -p "require('./web/node_modules/@playwright/test/package.json').version")" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@v4
+        id: pw-cache
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.playwright.outputs.version }}
+      - if: steps.pw-cache.outputs.cache-hit != 'true'
+        run: cd web && npx playwright install --with-deps chromium
+      - if: steps.pw-cache.outputs.cache-hit == 'true'
+        run: cd web && npx playwright install-deps chromium
       - run: make e2e-web
 
   # With squash-merge the PR title becomes the commit on main that
