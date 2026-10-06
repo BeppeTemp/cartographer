@@ -39,14 +39,23 @@ Cartographer installs that into every client you use.
 
 ## What you get
 
-| | |
-|---|---|
-| 🧠 **Memory that compounds** | A wiki the agent builds over time ([Karpathy's LLM Wiki](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f) pattern): plain Markdown + YAML, one git repo per KB, readable in Obsidian or any editor. No lock-in. |
-| 🛡️ **Guardrails, not good intentions** | Schema validation, link checks, lint, immutability gates, optimistic concurrency, one commit per write, a signed audit log. The agent cannot leave the KB in a broken state. |
-| 🧩 **One KB configures every agent** | Skills, subagents, hooks and standing instructions live in the KB and are translated into each client's native format — Claude Code, Codex, OpenCode, Kiro, Antigravity, Crush, Hermes. Edit once, every machine converges. |
-| 👥 **Built for teams** | Several KBs behind one server, per-KB and per-map access with bearer-token roles, git as the sync layer, conflicts turned into a guided workflow, Ed25519-signed artifacts. |
-| 🗺️ **See it all in the Atlas** | A read-only web UI in the same binary: a living 3D graph, search, what the agents changed, what the KB ships to them, and what needs fixing. No extra service, no CDN. |
-| 🔑 **Secrets, done properly** | SOPS-encrypted values referenced by concepts and resolved on demand; plaintext is never stored. |
+- 🧠 **Memory that compounds**<br>
+  A wiki the agent builds over time ([Karpathy's LLM Wiki](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f) pattern): plain Markdown + YAML, one git repo per KB, readable in Obsidian or any editor. No lock-in.
+
+- 🛡️ **Guardrails, not good intentions**<br>
+  Schema validation, link checks, lint, immutability gates, optimistic concurrency, one commit per write, a signed audit log. The agent cannot leave the KB in a broken state.
+
+- 🧩 **One KB configures every agent**<br>
+  Skills, subagents, hooks and standing instructions live in the KB and are translated into each client's native format — Claude Code, Codex, OpenCode, Kiro, Antigravity, Crush, Hermes. Edit once, every machine converges.
+
+- 👥 **Built for teams**<br>
+  Several KBs behind one server, per-KB and per-map access with bearer-token roles, git as the sync layer, conflicts turned into a guided workflow, Ed25519-signed artifacts.
+
+- 🗺️ **See it all in the Atlas**<br>
+  A read-only web UI in the same binary: a living 3D graph, search, what the agents changed, what the KB ships to them, and what needs fixing. No extra service, no CDN.
+
+- 🔑 **Secrets, done properly**<br>
+  SOPS-encrypted values referenced by concepts and resolved on demand; plaintext is never stored.
 
 ## Quick start
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Records the README's hero animation (D330): e2e/hero.spec.ts walked over the
-# demo KB at a watchable pace, filmed by Playwright, cut to the tour and
+# demo KB at a watchable pace, filmed through the browser screencast at 2x and
 # encoded as docs/atlas/hero.webp.
 #
 # Run it on a machine with a GPU (the recording does not use SwiftShader) after
@@ -17,9 +17,9 @@ WEB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 REPO_ROOT="$(cd "${WEB_DIR}/.." && pwd)"
 BIN="${REPO_ROOT}/bin/cartographer"
 OUT="${REPO_ROOT}/docs/atlas/hero.webp"
-WIDTH="${HERO_WIDTH:-960}"
+WIDTH="${HERO_WIDTH:-1280}"
 FPS="${HERO_FPS:-12}"
-QUALITY="${HERO_QUALITY:-60}"
+QUALITY="${HERO_QUALITY:-75}"
 # The tour is paced for a person driving it; played back faster it reads as a
 # demo rather than a screen recording.
 SPEED="${HERO_SPEED:-1.3}"
@@ -53,13 +53,15 @@ E2E_LOCAL_URL="$URL" E2E_AUTH_URL="$URL" HERO_RECORD=1 \
     HERO_KB=demo HERO_CONCEPT=astronomy/orbit HERO_QUERY=orbit HERO_ARTIFACT=star-chart \
     npx playwright test hero.spec.ts --output "${TMP}/run"
 
-VIDEO="$(find "${TMP}/run" -name '*.webm' | head -1)"
-START="$(cat "$(find "${TMP}/run" -name tour-start.txt | head -1)")"
+FRAMES="$(find "${TMP}/run" -name frames.ffconcat | head -1)"
 
 # Animated WebP, not GIF: the living graph changes most pixels of every frame,
 # which a 256-colour GIF pays for at about three times the size (D330).
-mkdir -p "${TMP}/frames"
-ffmpeg -v error -ss "$START" -i "$VIDEO" -vf "setpts=PTS/${SPEED},fps=${FPS},scale=${WIDTH}:-1:flags=lanczos" "${TMP}/frames/%04d.png"
-img2webp -loop 0 -lossy -q "$QUALITY" -m 4 -d $((1000 / FPS)) "${TMP}"/frames/*.png -o "$OUT" >/dev/null
+# The screencast's frames carry their own timing (frames.ffconcat); ffmpeg
+# resamples them to a constant rate and scales the 2x capture down.
+mkdir -p "${TMP}/out"
+ffmpeg -v error -f concat -safe 0 -i "$FRAMES" \
+    -vf "setpts=PTS/${SPEED},fps=${FPS},scale=${WIDTH}:-1:flags=lanczos" "${TMP}/out/%04d.png"
+img2webp -loop 0 -lossy -q "$QUALITY" -m 4 -d $((1000 / FPS)) "${TMP}"/out/*.png -o "$OUT" >/dev/null
 
 echo "record-hero: $(du -h "$OUT" | cut -f1) -> ${OUT#"${REPO_ROOT}/"}"
