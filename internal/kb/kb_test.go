@@ -510,6 +510,24 @@ func TestWriteConcept_AggiornamentoIfMatchCorretto(t *testing.T) {
 	}
 }
 
+// TestWriteConcept_RejectsNonRoundTrippingFrontmatter (D309): serialised
+// frontmatter that would not parse back is refused before anything is
+// written.
+func TestWriteConcept_RejectsNonRoundTrippingFrontmatter(t *testing.T) {
+	dir := tempKB(t)
+	kb, _ := Init(dir)
+
+	fm, _ := okf.ParseFrontmatter("type: Runbook\ntitle: Test")
+	fm.Set("broken: [", "x") // serialises as "broken: [: x", an unclosed flow list
+	_, err := kb.WriteConcept(okf.ConceptID("concept"), fm, "# V1\n", "")
+	if err == nil || !strings.Contains(err.Error(), "frontmatter round-trip check failed") {
+		t.Fatalf("expected round-trip rejection, got: %v", err)
+	}
+	if _, err := kb.ReadRaw("concept.md"); err == nil {
+		t.Fatal("rejected write reached disk")
+	}
+}
+
 func TestWriteConcept_StaleWrite(t *testing.T) {
 	dir := tempKB(t)
 	kb, _ := Init(dir)

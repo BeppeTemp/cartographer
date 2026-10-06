@@ -423,3 +423,97 @@ func TestParseFrontmatter_MultiLineFlowListRoundTripsToOneLine(t *testing.T) {
 		t.Errorf("round trip lost elements: %#v", v)
 	}
 }
+
+// --- D309: writes never corrupt frontmatter ---
+
+func TestSet_PrunesOrphanedContinuationLines(t *testing.T) {
+	fm, err := ParseFrontmatter("type: Note\nprovenance: old text\n  - item1\n  - item2\ntitle: T")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fm.Set("provenance", []string{"new"})
+	out := fm.Serialize()
+	if strings.Contains(out, "- item1") || strings.Contains(out, "- item2") {
+		t.Fatalf("orphaned continuation lines kept:\n%s", out)
+	}
+	if want := "type: Note\nprovenance: [new]\ntitle: T"; out != want {
+		t.Fatalf("got\n%s\nwant\n%s", out, want)
+	}
+	if v, _ := fm.Get("title"); v != "T" {
+		t.Fatalf("index shifted wrong: title = %v", v)
+	}
+	// Delete takes the old value's lines with it too.
+	fm2, _ := ParseFrontmatter("type: Note\nprovenance: old\n  - item1\ntitle: T")
+	fm2.Delete("provenance")
+	if out := fm2.Serialize(); out != "type: Note\ntitle: T" {
+		t.Fatalf("delete left orphans:\n%s", out)
+	}
+}
+
+func TestSet_PreservesRealComments(t *testing.T) {
+	fm, err := ParseFrontmatter("type: Note\nprovenance: old\n\n# real comment\ntitle: T")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fm.Set("provenance", "new")
+	if want := "type: Note\nprovenance: new\n\n# real comment\ntitle: T"; fm.Serialize() != want {
+		t.Fatalf("got\n%s", fm.Serialize())
+	}
+}
+
+func TestSerializeScalar_QuotesApostrophe(t *testing.T) {
+	if got := serializeScalar("dall'operatore"); got != `"dall'operatore"` {
+		t.Fatalf("got %s", got)
+	}
+}
+
+func TestParseFrontmatter_RoundtripWithApostrophe(t *testing.T) {
+	fm, _ := ParseFrontmatter("type: Note")
+	fm.Set("tags", []string{"dall'operatore", "other"})
+	back, err := ParseFrontmatter(fm.Serialize())
+	if err != nil {
+		t.Fatalf("re-parse: %v\n%s", err, fm.Serialize())
+	}
+	if v, _ := back.Get("tags"); !reflect.DeepEqual(v, []string{"dall'operatore", "other"}) {
+		t.Fatalf("got %#v", v)
+	}
+}
+
+func TestParseFrontmatter_RoundtripWithAllSpecialChars(t *testing.T) {
+	var items []string
+	for _, c := range ":,[]{}#\n\r\t\\\"'" {
+		items = append(items, "a"+string(c)+"b")
+	}
+	fm, _ := ParseFrontmatter("type: Note")
+	fm.Set("tags", items)
+	back, err := ParseFrontmatter(fm.Serialize())
+	if err != nil {
+		t.Fatalf("re-parse: %v\n%s", err, fm.Serialize())
+	}
+	if v, _ := back.Get("tags"); !reflect.DeepEqual(v, items) {
+		t.Fatalf("got %#v, want %#v", v, items)
+	}
+	if err := VerifyRoundTrip(fm.Serialize()); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestSerialize_NoLeadingBlankLine(t *testing.T) {
+	fm, err := ParseFrontmatter("\ntype: Note")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out := fm.Serialize(); !strings.HasPrefix(out, "type:") {
+		t.Fatalf("got %q", out)
+	}
+}
+
+func TestSerialize_PreservesLeadingRealComment(t *testing.T) {
+	fm, err := ParseFrontmatter("# comment\ntype: Note")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out := fm.Serialize(); out != "# comment\ntype: Note" {
+		t.Fatalf("got %q", out)
+	}
+}

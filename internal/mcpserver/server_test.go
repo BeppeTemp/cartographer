@@ -4431,6 +4431,85 @@ func TestServer_ConceptPatch_UnsetProtectedKey(t *testing.T) {
 	}
 }
 
+// --- concept_patch 'unset' array, concept_read parsed frontmatter (D309) ---
+
+// unsetSeed writes id with a status and returns its content hash.
+func unsetSeed(t *testing.T, s *Server, id string) string {
+	t.Helper()
+	tr := callTool(t, s, "concept_write", `{"id":"`+id+`","frontmatter":{"type":"Note","status":"imported"},"body":"# Corpo\n"}`)
+	if tr.IsError {
+		t.Fatalf("concept_write: %v", tr.Content)
+	}
+	return conceptHash(t, tr)
+}
+
+// TestServer_ConceptPatch_UnsetViaArray: 'unset' removes a key as null does,
+// for clients that strip null values — and needs no body edit.
+func TestServer_ConceptPatch_UnsetViaArray(t *testing.T) {
+	k := setupTestKB(t)
+	s := New("1.0.0")
+	RegisterKBTools(s, k, Deps{})
+	hash := unsetSeed(t, s, "note/unset-array")
+	tr := callTool(t, s, "concept_patch", fmt.Sprintf(`{"id":"note/unset-array","unset":["status"],"if_match":%q}`, hash))
+	if tr.IsError {
+		t.Fatalf("concept_patch: %v", tr.Content)
+	}
+	cd, err := k.ReadConcept("note/unset-array")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(cd.FrontmatterRaw, "status") || !strings.Contains(cd.FrontmatterRaw, "type: Note") {
+		t.Fatalf("status not removed:\n%s", cd.FrontmatterRaw)
+	}
+}
+
+// TestServer_ConceptPatch_UnsetProtectedKeyViaArray: 'type' cannot be removed.
+func TestServer_ConceptPatch_UnsetProtectedKeyViaArray(t *testing.T) {
+	k := setupTestKB(t)
+	s := New("1.0.0")
+	RegisterKBTools(s, k, Deps{})
+	hash := unsetSeed(t, s, "note/unset-type")
+	tr := callTool(t, s, "concept_patch", fmt.Sprintf(`{"id":"note/unset-type","unset":["type"],"if_match":%q}`, hash))
+	if !tr.IsError || !strings.Contains(tr.Content[0].Text, "required") {
+		t.Fatalf("expected a refusal, got: %v", tr.Content)
+	}
+	if cd, _ := k.ReadConcept("note/unset-type"); !strings.Contains(cd.FrontmatterRaw, "type: Note") {
+		t.Fatalf("type removed:\n%s", cd.FrontmatterRaw)
+	}
+}
+
+// TestServer_ConceptRead_ReturnsParsedFrontmatter: concept_read carries the
+// parsed frontmatter next to frontmatter_raw.
+func TestServer_ConceptRead_ReturnsParsedFrontmatter(t *testing.T) {
+	k := setupTestKB(t)
+	s := New("1.0.0")
+	RegisterKBTools(s, k, Deps{})
+	if tr := callTool(t, s, "concept_write", `{"id":"note/parsed","frontmatter":{"type":"Note","title":"L'operatore","tags":["a","b"]},"body":"# P\n"}`); tr.IsError {
+		t.Fatalf("concept_write: %v", tr.Content)
+	}
+	tr := callTool(t, s, "concept_read", `{"id":"note/parsed"}`)
+	if tr.IsError {
+		t.Fatalf("concept_read: %v", tr.Content)
+	}
+	var out struct {
+		Frontmatter    map[string]any `json:"frontmatter"`
+		FrontmatterRaw string         `json:"frontmatter_raw"`
+	}
+	if err := json.Unmarshal([]byte(tr.Content[0].Text), &out); err != nil {
+		t.Fatal(err)
+	}
+	if out.FrontmatterRaw == "" {
+		t.Fatal("frontmatter_raw missing")
+	}
+	if out.Frontmatter["type"] != "Note" || out.Frontmatter["title"] != "L'operatore" {
+		t.Fatalf("frontmatter = %v", out.Frontmatter)
+	}
+	tags, ok := out.Frontmatter["tags"].([]any)
+	if !ok || len(tags) != 2 || tags[0] != "a" || tags[1] != "b" {
+		t.Fatalf("tags = %#v", out.Frontmatter["tags"])
+	}
+}
+
 // --- search title/snippet (D70) ---
 
 // TestServer_Search_TitleAndSnippet verifies that search results carry a

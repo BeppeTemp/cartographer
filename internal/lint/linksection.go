@@ -172,10 +172,16 @@ func duplicateItemFixes(section, linkBase string, assetExists func(string) bool,
 }
 
 // reciprocalLinkItems maps each link-only item of the links section whose
-// target links back to self anywhere in its body to that item's line (D301):
-// the reverse edge stays navigable through backlinks once the item is gone.
+// target links back to self from its text to that item's line (D301): the
+// reverse edge stays navigable through backlinks once the item is gone.
 // Targets in skip (already duplicate_link) are left to that check.
-func reciprocalLinkItems(body, linkBase string, self okf.ConceptID, out map[okf.ConceptID]map[okf.ConceptID]struct{}, skip []okf.ConceptID, assetExists func(string) bool) map[okf.ConceptID]string {
+//
+// A back-link that sits only in the target's own links section does not
+// count (D309): A and B listing each other only there would both be flagged,
+// and repairing both findings drops the edge from the graph. out is the first
+// filter — a target that does not link to self at all needs no body read —
+// and readBody returns the target's body and link base for the second.
+func reciprocalLinkItems(body, linkBase string, self okf.ConceptID, out map[okf.ConceptID]map[okf.ConceptID]struct{}, skip []okf.ConceptID, assetExists func(string) bool, readBody func(okf.ConceptID) (body, linkBase string)) map[okf.ConceptID]string {
 	_, section, _, ok := linksSection(body)
 	if !ok {
 		return nil
@@ -189,11 +195,28 @@ func reciprocalLinkItems(body, linkBase string, self okf.ConceptID, out map[okf.
 		if target == self || skipped[target] {
 			continue
 		}
-		if _, back := out[target][self]; back {
+		if _, back := out[target][self]; !back {
+			continue
+		}
+		tBody, tBase := readBody(target)
+		if bodyLinksOutsideLinkSection(tBody, tBase, assetExists)[self] {
 			found[target] = line
 		}
 	}
 	return found
+}
+
+// bodyLinksOutsideLinkSection returns the concept IDs body links to outside
+// its links section ("## Collegamenti" / "## Links" / "## Related" …).
+func bodyLinksOutsideLinkSection(body, linkBase string, assetExists func(string) bool) map[okf.ConceptID]bool {
+	if _, _, rest, ok := linksSection(body); ok {
+		body = rest
+	}
+	set := map[okf.ConceptID]bool{}
+	for _, id := range kb.ExtractLinks(body, linkBase, assetExists) {
+		set[id] = true
+	}
+	return set
 }
 
 // linkOnlyItems maps each concept ID whose list item in the section is a

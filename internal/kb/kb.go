@@ -1282,7 +1282,11 @@ func (kb *KB) prepareWriteConcept(id okf.ConceptID, fm *okf.Frontmatter, body st
 	if body != "" && !strings.HasSuffix(body, "\n") {
 		body += "\n"
 	}
-	content := "---\n" + fm.Serialize() + "\n---\n" + body
+	serialized := fm.Serialize()
+	if err := okf.VerifyRoundTrip(serialized); err != nil {
+		return nil, fmt.Errorf("%w: %v", okf.ErrInvalidConcept, err)
+	}
+	content := "---\n" + serialized + "\n---\n" + body
 
 	// Detect implicit expansion (map/concept, level 2) *before* MkdirAll:
 	// only stub index.md when the expanded directory itself is new.

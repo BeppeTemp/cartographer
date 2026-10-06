@@ -77,3 +77,49 @@ func TestDuplicateItemFixes(t *testing.T) {
 		t.Fatalf("rewritten body:\n%s", body)
 	}
 }
+
+// reciprocalFields returns, per concept path, the fix lines of its
+// reciprocal_link_item findings.
+func reciprocalFields(f []Finding) map[string][]string {
+	got := map[string][]string{}
+	for _, x := range f {
+		if x.Check == "reciprocal_link_item" {
+			got[x.Path] = append(got[x.Path], x.Fix.Field)
+		}
+	}
+	return got
+}
+
+// TestReciprocalLinkItems_MutualPairSuppressed (D309): A and B list each
+// other only in their links sections — flagging both would let kb_repair drop
+// the edge from the graph.
+func TestReciprocalLinkItems_MutualPairSuppressed(t *testing.T) {
+	k := tempKB(t)
+	writeFile(t, k.DataRoot(), "m/_map.md", "---\ntype: Map\ntitle: M\n---\n")
+	writeFile(t, k.DataRoot(), "m/a.md", "---\ntype: Note\ntitle: A\n---\n# A\n\nText.\n\n## Collegamenti\n\n- [[m/b]]\n")
+	writeFile(t, k.DataRoot(), "m/b.md", "---\ntype: Note\ntitle: B\n---\n# B\n\nText.\n\n## Collegamenti\n\n- [[m/a]]\n")
+	f, err := Run(k, "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := reciprocalFields(f); len(got) != 0 {
+		t.Fatalf("mutual pair flagged: %v", got)
+	}
+}
+
+// TestReciprocalLinkItems_OneSideInText (D309): A links B in its text, B
+// links A only in its links section — B's item is redundant, A has none.
+func TestReciprocalLinkItems_OneSideInText(t *testing.T) {
+	k := tempKB(t)
+	writeFile(t, k.DataRoot(), "m/_map.md", "---\ntype: Map\ntitle: M\n---\n")
+	writeFile(t, k.DataRoot(), "m/a.md", "---\ntype: Note\ntitle: A\n---\n# A\n\nDepends on [[m/b]].\n")
+	writeFile(t, k.DataRoot(), "m/b.md", "---\ntype: Note\ntitle: B\n---\n# B\n\nText.\n\n## Collegamenti\n\n- [[m/a]]\n")
+	f, err := Run(k, "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := reciprocalFields(f)
+	if len(got["m/b.md"]) != 1 || got["m/b.md"][0] != "- [[m/a]]" || len(got["m/a.md"]) != 0 {
+		t.Fatalf("reciprocal items: %v", got)
+	}
+}

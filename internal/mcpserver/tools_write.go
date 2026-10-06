@@ -296,6 +296,22 @@ func applyFrontmatterMap(fm *okf.Frontmatter, m map[string]interface{}) {
 	}
 }
 
+// applyUnset removes each key of a patch's 'unset' array (D309): the same
+// removal a null value asks for, for clients that strip null values from the
+// arguments before sending them. 'type' is required and cannot be removed; a
+// tool-parameter key may be, as with null — removing it is the repair.
+func applyUnset(fm *okf.Frontmatter, keys []string) error {
+	for _, key := range keys {
+		if key == "type" {
+			return fmt.Errorf("'unset' cannot remove %q: the field is required", key)
+		}
+	}
+	for _, key := range keys {
+		fm.Delete(key)
+	}
+	return nil
+}
+
 // writeConceptAndLog writes a concept via k.WriteConcept and appends its
 // log.md line. Shared write-path for concept_write, concept_new and
 // concept_patch (D70). It does no index work: the next search reconciles the
@@ -386,6 +402,11 @@ func toolConceptPatch(k *kb.KB) Tool {
 				"frontmatter": {
 					"type": "object",
 					"description": "Keys to shallow-merge; null removes a key"
+				},
+				"unset": {
+					"type": "array",
+					"items": {"type": "string"},
+					"description": "Keys to remove from frontmatter (alternative to null, for clients that strip null values)"
 				}
 			}
 		}`),
@@ -398,6 +419,7 @@ func toolConceptPatch(k *kb.KB) Tool {
 				Edits       []patchEditItem        `json:"edits"`
 				IfMatch     string                 `json:"if_match"`
 				Frontmatter map[string]interface{} `json:"frontmatter"`
+				Unset       []string               `json:"unset"`
 			}
 			if err := json.Unmarshal(args, &params); err != nil {
 				return errorResult("invalid params: " + err.Error()), nil
@@ -424,9 +446,9 @@ func toolConceptPatch(k *kb.KB) Tool {
 			// A frontmatter-only patch (no body edit) is legitimate: setting a
 			// missing title or fixing a type should not need a fake no-op edit
 			// or a full concept_write of a body the caller did not touch (#321).
-			hasFM := len(params.Frontmatter) > 0
+			hasFM := len(params.Frontmatter) > 0 || len(params.Unset) > 0
 			if !hasEdits && !hasSingle && !hasFM {
-				return errorResult("'old_string' is required (or provide 'edits' for a batch of edits, or 'frontmatter' alone)"), nil
+				return errorResult("'old_string' is required (or provide 'edits' for a batch of edits, or 'frontmatter'/'unset' alone)"), nil
 			}
 			if hasEdits && len(params.Edits) == 0 && !hasFM {
 				return errorResult("'edits' cannot be empty"), nil
@@ -478,6 +500,10 @@ func toolConceptPatch(k *kb.KB) Tool {
 					return errorResult("concept_patch: " + err.Error()), nil
 				}
 				applyFrontmatterMap(fm, params.Frontmatter)
+			}
+			// After the merge: 'unset' wins over a same-key frontmatter entry.
+			if err := applyUnset(fm, params.Unset); err != nil {
+				return errorResult("concept_patch: " + err.Error()), nil
 			}
 
 			newHash, err := writeConceptAndLog(k, "concept_patch", params.ID, fm, body, params.IfMatch)
@@ -2139,6 +2165,7 @@ type batchOperationRequest struct {
 	Op          string                 `json:"op"`
 	ID          string                 `json:"id"`
 	Frontmatter map[string]interface{} `json:"frontmatter"`
+	Unset       []string               `json:"unset"`
 	Body        string                 `json:"body"`
 	IfMatch     string                 `json:"if_match"`
 	OldString   string                 `json:"old_string"`
@@ -2187,6 +2214,7 @@ func toolConceptBatch(k *kb.KB) Tool {
 							"op": {"type": "string", "description": "\"write\" or \"patch\""},
 							"id": {"type": "string", "description": "ConceptID (path relative to KB root without .md)"},
 							"frontmatter": {"type": "object", "description": "Full frontmatter (write) or partial shallow-merge (patch, optional)"},
+							"unset": {"type": "array", "items": {"type": "string"}, "description": "Patch: keys to remove from frontmatter (alternative to null, for clients that strip null values)"},
 							"body": {"type": "string", "description": "Full markdown body (write only)"},
 							"if_match": {"type": "string", "description": "Expected content-hash: optional (create-only) for write, required for patch"},
 							"old_string": {"type": "string", "description": "Patch: exact substring to find (single-edit form, mutually exclusive with 'edits')"},
@@ -2305,9 +2333,9 @@ func toolConceptBatch(k *kb.KB) Tool {
 						return errorResult(fmt.Sprintf("%s: 'edits' is mutually exclusive with top-level 'old_string'/'new_string'/'replace_all'", label)), nil
 					}
 					// Frontmatter-only is legitimate, as in concept_patch (#321).
-					hasFM := len(op.Frontmatter) > 0
+					hasFM := len(op.Frontmatter) > 0 || len(op.Unset) > 0
 					if !hasEdits && !hasSingle && !hasFM {
-						return errorResult(fmt.Sprintf("%s: 'old_string' is required (or provide 'edits' for a batch of edits, or 'frontmatter' alone)", label)), nil
+						return errorResult(fmt.Sprintf("%s: 'old_string' is required (or provide 'edits' for a batch of edits, or 'frontmatter'/'unset' alone)", label)), nil
 					}
 					if hasEdits && len(op.Edits) == 0 && !hasFM {
 						return errorResult(fmt.Sprintf("%s: 'edits' cannot be empty", label)), nil
@@ -2346,6 +2374,9 @@ func toolConceptBatch(k *kb.KB) Tool {
 							return errorResult(fmt.Sprintf("%s: %v", label, err)), nil
 						}
 						applyFrontmatterMap(fm, op.Frontmatter)
+					}
+					if err := applyUnset(fm, op.Unset); err != nil {
+						return errorResult(fmt.Sprintf("%s: %v", label, err)), nil
 					}
 
 				case "":
