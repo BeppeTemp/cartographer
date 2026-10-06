@@ -123,7 +123,7 @@ file-sets overlap:
    clean append — real code or current-state prose divergence — → **STOP** and
    surface it to the user.
 3. `git rebase --continue`; run the plan's affected package tests (`go test ./internal/<pkg>/...`); `git push --force-with-lease`.
-4. Wait for CI green and `mergeable == MERGEABLE`, then `gh pr merge <pr> --squash --delete-branch`.
+4. Wait for CI green and `mergeable == MERGEABLE`, then `gh pr merge <pr> --squash --delete-branch`. Auto-merge is disabled on this repository, so wait in a **background** command — `gh pr checks <pr> --watch --required && gh pr merge <pr> --squash --delete-branch` — and act on its completion instead of polling.
 5. `git checkout main && git pull --ff-only` in the main working copy, then
    `make worktree-rm SLUG=<slug>`.
 
