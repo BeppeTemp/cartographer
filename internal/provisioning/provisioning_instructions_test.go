@@ -233,6 +233,7 @@ func TestBuildManifest_Instructions_NessunaSezioneSenzaAgentNeCurato(t *testing.
 		"Operational instructions:\n" +
 		"- consult it autonomously when you need historical or architectural context: `search` (keyword) or `atlas_overview` to orient yourself, `concept_read` to read;\n" +
 		"- write or update a page with `concept_write` when you discover something relevant; close relevant sessions with `log_append`;\n" +
+		"- write responses carry structural findings (broken links, missing index entry, orphan): fix them before moving on or the KB drifts;\n" +
 		"- every write is a git commit, revertible.\n" +
 		"- never run git commands in the KB's clone: report replication problems from `sync_status` to the operator instead.\n" +
 		"- when `kb_status` reports a `latest_version` that differs from `server_version`, tell the user once: the installed version, the available version and the upgrade command for this channel (`cartographer update check` prints it); offer to run it, run it only on explicit consent, then follow the cartographer-ops skill (§Upgrade).\n"
@@ -1530,5 +1531,19 @@ func TestGeneratedInstructionsContainUpdateDirective(t *testing.T) {
 		if !strings.Contains(content, want) {
 			t.Errorf("update directive lacks %q:\n%s", want, content)
 		}
+	}
+}
+
+// D312: the instructions tell the agent that a write answers with structural
+// findings and that they are its to fix.
+func TestGenerateKBInstructions_ContainsWriteFindingsGuidance(t *testing.T) {
+	kbRoot := makeKBWithArchives(t, map[string][]string{"entities": {"a.md"}})
+	m, err := provisioning.BuildManifest(nil, map[string]string{"homelab": kbRoot}, provisioning.BuildOptions{})
+	if err != nil {
+		t.Fatalf("BuildManifest: %v", err)
+	}
+	content := string(findInstructionsArtifact(t, m, "homelab").Files[0].Content)
+	if !strings.Contains(content, "write responses carry structural findings") || !strings.Contains(content, "fix them before moving on") {
+		t.Errorf("write-findings guidance missing:\n%s", content)
 	}
 }

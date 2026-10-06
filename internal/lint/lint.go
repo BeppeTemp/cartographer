@@ -652,77 +652,7 @@ func runChecks(k *kb.KB, scope string, scopeNeighbors bool, opts Options) ([]Fin
 			allowPrefixes = contracts[parts[0]].MachinePathAllowPrefixes
 		}
 
-		// --- broken_link (warning) ---
-		// For expanded concepts, detect links broken by past expansions:
-		// if the same href resolves from the pre-expansion base "<id>.md",
-		// the fix is a rebase (D295 WP2).
-		isExpanded := strings.HasSuffix(linkBase, "/index.md") && strings.Count(linkBase, "/") >= 2
-		var rebasable map[string]*Fix // broken target path → fix
-		if isExpanded {
-			preExpBase := strings.TrimSuffix(linkBase, "/index.md") + ".md"
-			rebasable = brokenLinkRebaseFixes(body, linkBase, preExpBase, exists)
-		}
-		for _, target := range kb.ExtractLinks(body, linkBase, k.AssetExists) {
-			targetPath := okf.IDToPath(target)
-			if !exists(target) {
-				f := Finding{
-					Path:     relPath,
-					Check:    "broken_link",
-					Severity: SevWarning,
-					Message:  fmt.Sprintf("broken link to %s", targetPath),
-				}
-				if fix, ok := rebasable[targetPath]; ok {
-					f.Fix = fix
-					f.Message += "; fix: rebase relative to the expanded index"
-				}
-				emit(f)
-			}
-		}
-
-		// --- duplicate_link / bare_link_list (info): the trailing links
-		// section (linksection.go) ---
-		if heading, dups, fixableDups, bare, n := linksSectionIssues(body, linkBase, k.AssetExists); heading != "" {
-			if len(dups) > 0 {
-				for _, d := range dups {
-					f := Finding{
-						Path:     relPath,
-						Check:    "duplicate_link",
-						Severity: SevInfo,
-						Message:  fmt.Sprintf("linked both in the text and under %q: %s — keep the link where the text says why", heading, d),
-					}
-					if fix, ok := fixableDups[d]; ok {
-						f.Fix = fix
-					}
-					emit(f)
-				}
-			}
-			// --- reciprocal_link_item (info, D301): an opt-in efficiency
-			// fix, never conformance debt; the target's own link keeps the
-			// edge navigable both ways through backlinks. ---
-			recips := reciprocalLinkItems(body, linkBase, id, graph.Out, dups, k.AssetExists, readTargetBody)
-			recipIDs := make([]okf.ConceptID, 0, len(recips))
-			for target := range recips {
-				recipIDs = append(recipIDs, target)
-			}
-			sort.Slice(recipIDs, func(i, j int) bool { return recipIDs[i] < recipIDs[j] })
-			for _, target := range recipIDs {
-				emit(Finding{
-					Path:     relPath,
-					Check:    "reciprocal_link_item",
-					Severity: SevInfo,
-					Message:  fmt.Sprintf("%s already links back here, so the backlink shows this edge — the item under %q is a second write to keep in sync", target, heading),
-					Fix:      &Fix{Kind: FixDropLinkItem, Field: recips[target]},
-				})
-			}
-			if bare {
-				emit(Finding{
-					Path:     relPath,
-					Check:    "bare_link_list",
-					Severity: SevInfo,
-					Message:  fmt.Sprintf("%q lists %d link(s) with no word on why each matters — add a short reason per link", heading, n),
-				})
-			}
-		}
+		linkFindings(k, id, relPath, linkBase, body, exists, graph.Out, readTargetBody, emit)
 
 		// --- unknown_placeholder (warning, D263) ---
 		// The keys come from the graph cache's facet (D262), the same parse
@@ -835,35 +765,8 @@ func runChecks(k *kb.KB, scope string, scopeNeighbors bool, opts Options) ([]Fin
 		}
 
 		// --- orphan (warning) ---
-		if len(incomingLinks[id]) == 0 {
-			parts := strings.Split(string(id), "/")
-			// A concept at depth=1 inside a known archive is an entry point,
-			// reached from the map's index — unless it links to nothing
-			// either: the index is not an edge of the graph, so that concept
-			// is a node connected to nothing, which nothing else reports.
-			atArchiveTop := len(parts) == 2 && archiveSet[parts[0]]
-			outgoing := 0
-			for t := range graph.Out[id] {
-				if _, ok := relPathOf[t]; ok && t != id {
-					outgoing++
-				}
-			}
-			switch {
-			case !atArchiveTop:
-				emit(Finding{
-					Path:     relPath,
-					Check:    "orphan",
-					Severity: SevWarning,
-					Message:  "no incoming links",
-				})
-			case outgoing == 0:
-				emit(Finding{
-					Path:     relPath,
-					Check:    "orphan",
-					Severity: SevWarning,
-					Message:  "no links in or out: a node connected to nothing in the graph (the map's index is not a link) — link it to the concepts it relates to (link_suggest may propose some by title similarity)",
-				})
-			}
+		if f, ok := orphanFinding(id, relPath, incomingLinks, graph.Out, archiveSet, func(t okf.ConceptID) bool { _, ok := relPathOf[t]; return ok }); ok {
+			emit(f)
 		}
 
 		// --- cut_concept, broken_relation, link_to_retired, map_misfit ---
@@ -1155,6 +1058,123 @@ func runChecks(k *kb.KB, scope string, scopeNeighbors bool, opts Options) ([]Fin
 	}
 
 	return findings, nil
+}
+
+// linkFindings are the checks one concept's body links drive: broken_link,
+// then the trailing links section's duplicate_link, reciprocal_link_item and
+// bare_link_list. Shared by runChecks and ScopedCheck (D312), so a write
+// response and a whole-KB lint report the same finding for the same body.
+// out is the link graph's out-edges (reciprocal_link_item reads it).
+func linkFindings(k *kb.KB, id okf.ConceptID, relPath, linkBase, body string, exists func(okf.ConceptID) bool, out map[okf.ConceptID]map[okf.ConceptID]struct{}, readTargetBody func(okf.ConceptID) (string, string), emit func(Finding)) {
+	// --- broken_link (warning) ---
+	// For expanded concepts, detect links broken by past expansions:
+	// if the same href resolves from the pre-expansion base "<id>.md",
+	// the fix is a rebase (D295 WP2).
+	isExpanded := strings.HasSuffix(linkBase, "/index.md") && strings.Count(linkBase, "/") >= 2
+	var rebasable map[string]*Fix // broken target path → fix
+	if isExpanded {
+		preExpBase := strings.TrimSuffix(linkBase, "/index.md") + ".md"
+		rebasable = brokenLinkRebaseFixes(body, linkBase, preExpBase, exists)
+	}
+	for _, target := range kb.ExtractLinks(body, linkBase, k.AssetExists) {
+		targetPath := okf.IDToPath(target)
+		if !exists(target) {
+			f := Finding{
+				Path:     relPath,
+				Check:    "broken_link",
+				Severity: SevWarning,
+				Message:  fmt.Sprintf("broken link to %s", targetPath),
+			}
+			if fix, ok := rebasable[targetPath]; ok {
+				f.Fix = fix
+				f.Message += "; fix: rebase relative to the expanded index"
+			}
+			emit(f)
+		}
+	}
+
+	// --- duplicate_link / bare_link_list (info): the trailing links
+	// section (linksection.go) ---
+	if heading, dups, fixableDups, bare, n := linksSectionIssues(body, linkBase, k.AssetExists); heading != "" {
+		if len(dups) > 0 {
+			for _, d := range dups {
+				f := Finding{
+					Path:     relPath,
+					Check:    "duplicate_link",
+					Severity: SevInfo,
+					Message:  fmt.Sprintf("linked both in the text and under %q: %s — keep the link where the text says why", heading, d),
+				}
+				if fix, ok := fixableDups[d]; ok {
+					f.Fix = fix
+				}
+				emit(f)
+			}
+		}
+		// --- reciprocal_link_item (info, D301): an opt-in efficiency
+		// fix, never conformance debt; the target's own link keeps the
+		// edge navigable both ways through backlinks. ---
+		recips := reciprocalLinkItems(body, linkBase, id, out, dups, k.AssetExists, readTargetBody)
+		recipIDs := make([]okf.ConceptID, 0, len(recips))
+		for target := range recips {
+			recipIDs = append(recipIDs, target)
+		}
+		sort.Slice(recipIDs, func(i, j int) bool { return recipIDs[i] < recipIDs[j] })
+		for _, target := range recipIDs {
+			emit(Finding{
+				Path:     relPath,
+				Check:    "reciprocal_link_item",
+				Severity: SevInfo,
+				Message:  fmt.Sprintf("%s already links back here, so the backlink shows this edge — the item under %q is a second write to keep in sync", target, heading),
+				Fix:      &Fix{Kind: FixDropLinkItem, Field: recips[target]},
+			})
+		}
+		if bare {
+			emit(Finding{
+				Path:     relPath,
+				Check:    "bare_link_list",
+				Severity: SevInfo,
+				Message:  fmt.Sprintf("%q lists %d link(s) with no word on why each matters — add a short reason per link", heading, n),
+			})
+		}
+	}
+}
+
+// orphanFinding is the orphan check for one concept (shared with ScopedCheck,
+// D312). in and out are the link graph's edges; present says whether a link
+// target is an existing concept.
+func orphanFinding(id okf.ConceptID, relPath string, in, out map[okf.ConceptID]map[okf.ConceptID]struct{}, archiveSet map[string]bool, present func(okf.ConceptID) bool) (Finding, bool) {
+	if len(in[id]) != 0 {
+		return Finding{}, false
+	}
+	parts := strings.Split(string(id), "/")
+	// A concept at depth=1 inside a known archive is an entry point,
+	// reached from the map's index — unless it links to nothing
+	// either: the index is not an edge of the graph, so that concept
+	// is a node connected to nothing, which nothing else reports.
+	atArchiveTop := len(parts) == 2 && archiveSet[parts[0]]
+	outgoing := 0
+	for t := range out[id] {
+		if present(t) && t != id {
+			outgoing++
+		}
+	}
+	switch {
+	case !atArchiveTop:
+		return Finding{
+			Path:     relPath,
+			Check:    "orphan",
+			Severity: SevWarning,
+			Message:  "no incoming links",
+		}, true
+	case outgoing == 0:
+		return Finding{
+			Path:     relPath,
+			Check:    "orphan",
+			Severity: SevWarning,
+			Message:  "no links in or out: a node connected to nothing in the graph (the map's index is not a link) — link it to the concepts it relates to (link_suggest may propose some by title similarity)",
+		}, true
+	}
+	return Finding{}, false
 }
 
 // firstDisallowedMachinePath scans body for machine_path candidates in order

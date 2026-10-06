@@ -69,7 +69,8 @@ not answered) or `missing_context` (the KB lacks something it should have), and 
 the pages concerned (D273). Gaps never block the gate.
 
 ### 8. Verify
-`gate_check` (with `scope`) on the changed IDs. Fix what is yours to fix. Open contradictions are
+`gate_check` (with `scope`) on the changed IDs. The write responses already surfaced each concept's
+findings; `gate_check` catches the rest (whole-KB structural checks). Fix what is yours to fix. Open contradictions are
 left for the operator: they block the gate on purpose.
 
 ### 9. Close

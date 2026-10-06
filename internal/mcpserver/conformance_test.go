@@ -112,7 +112,7 @@ func TestWriteResponsesCarryFindings(t *testing.T) {
 
 	// A clean write has no findings key.
 	clean := decodeJSON(t, mustText(t, s, "concept_write",
-		`{"id":"ops/b","frontmatter":{"type":"Note","title":"B","status":"open"},"body":"b"}`))
+		`{"id":"ops/b","frontmatter":{"type":"Note","title":"B","status":"open"},"body":"See [a](a.md)."}`))
 	if _, has := clean["findings"]; has {
 		t.Errorf("clean write carries findings: %v", clean["findings"])
 	}
@@ -125,7 +125,7 @@ func TestWriteResponsesCarryFindings(t *testing.T) {
 		t.Errorf("patch without findings: %v", patched)
 	}
 	batch := decodeJSON(t, mustText(t, s, "concept_batch",
-		`{"operations":[{"op":"write","id":"ops/c","frontmatter":{"type":"Note","title":"C","stato":"x"},"body":"b"},{"op":"write","id":"ops/d","frontmatter":{"type":"Note","title":"D"},"body":"b"}]}`))
+		`{"operations":[{"op":"write","id":"ops/c","frontmatter":{"type":"Note","title":"C","stato":"x"},"body":"b"},{"op":"write","id":"ops/d","frontmatter":{"type":"Note","title":"D"},"body":"See [a](a.md)."}]}`))
 	results := batch["results"].([]interface{})
 	if _, has := results[0].(map[string]interface{})["findings"]; !has {
 		t.Errorf("batch entry 0 without findings: %v", results[0])
@@ -143,7 +143,7 @@ func TestLintOutputFixShape(t *testing.T) {
 	for _, tool := range []string{"lint", "gate_check"} {
 		args := `{}`
 		if tool == "gate_check" {
-			args = `{"changed_ids":["ops/syn"]}`
+			args = `{"changed_ids":[]}` // the whole-KB gate (D318); changed_ids alone is scoped (D312)
 		}
 		out := decodeJSON(t, mustText(t, s, tool, args))
 		key := "findings"

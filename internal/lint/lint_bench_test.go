@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sort"
 	"testing"
+	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/kb"
 	"github.com/BeppeTemp/cartographer/internal/okf"
@@ -145,6 +146,20 @@ func TestRun_OracleRelPathOfMatchesResolveConceptRelPath(t *testing.T) {
 // BenchmarkLintRun generates a KB of 1,000 concepts with ~7 links each and
 // benchmarks a whole-KB lint.Run.
 func BenchmarkLintRun(b *testing.B) {
+	k := benchKB(b)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		f, err := Run(k, "", false)
+		if err != nil {
+			b.Fatal(err)
+		}
+		_ = f
+	}
+}
+
+// benchKB builds the 1,000-concept fixture the lint benchmarks share.
+func benchKB(b *testing.B) *kb.KB {
+	b.Helper()
 	dir := b.TempDir()
 	k, err := kb.Init(dir)
 	if err != nil {
@@ -178,13 +193,19 @@ func BenchmarkLintRun(b *testing.B) {
 			}
 		}
 	}
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		f, err := Run(k, "", false)
-		if err != nil {
+	return k
+}
+
+// settleGraph lets the fixture's files age past the graph cache's racy window
+// (D294) and warms the cache: a write-time lint runs on a KB whose files are
+// old, the one just written being the only entry to re-read.
+func settleGraph(b *testing.B, k *kb.KB) {
+	b.Helper()
+	time.Sleep(2200 * time.Millisecond)
+	for i := 0; i < 2; i++ {
+		if _, err := k.LinkGraph(nil); err != nil {
 			b.Fatal(err)
 		}
-		_ = f
 	}
 }
 
@@ -199,4 +220,27 @@ func joinLinks(links []string) string {
 		out += l + "\n"
 	}
 	return out
+}
+
+// BenchmarkScopedCheck is the write-time lint (D312) of one concept on the
+// same 1,000-concept KB as BenchmarkLintRun. Acceptance: <= 30 ms.
+func BenchmarkScopedCheck(b *testing.B) {
+	k := benchKB(b)
+	settleGraph(b, k)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = ScopedCheck(k, []okf.ConceptID{"m3/c42"})
+	}
+}
+
+// BenchmarkScopedCheckFiveIDs is the gate_check changed_ids cost (D312):
+// five concepts of a 1,000-concept KB. Acceptance: <= 50 ms.
+func BenchmarkScopedCheckFiveIDs(b *testing.B) {
+	k := benchKB(b)
+	settleGraph(b, k)
+	ids := []okf.ConceptID{"m0/c1", "m1/c2", "m2/c3", "m3/c4", "m4/c5"}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = ScopedCheck(k, ids)
+	}
 }
