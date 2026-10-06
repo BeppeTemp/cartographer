@@ -96,6 +96,7 @@ regenerate this list with `make decisions-index`.
 - [D244 — server-side importance and communities](decisions/D244-server-side-importance-and-communities.md)
 - [D281 — The reading panel stops growing at its prose measure](decisions/D281-the-reading-panel-stops-growing-at-its-prose-measure.md)
 - [D286 — The Atlas answers the reader's questions with the agents' own tools, and draws artifacts beside concepts](decisions/D286-the-atlas-follows-the-readers-questions.md)
+- [D317 — communities discount boilerplate links, anchor on internal ties, and link_suggest falls back to the title for an orphan](decisions/D317-communities-ignore-boilerplate.md)
 
 <a id="data-plane"></a>
 

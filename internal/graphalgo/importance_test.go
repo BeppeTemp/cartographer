@@ -76,7 +76,7 @@ func TestCommunitiesTwoCliques(t *testing.T) {
 	for u := 0; u < 10; u++ {
 		deg[u] = 8
 	}
-	rank, list := Communities(g, 1, deg)
+	rank, list := Communities(g, 1, deg, nil)
 	want := []int{0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 2}
 	if !reflect.DeepEqual(rank, want) {
 		t.Fatalf("rank = %v", rank)
@@ -89,7 +89,7 @@ func TestCommunitiesTwoCliques(t *testing.T) {
 
 func TestCommunitiesRingOfCliques(t *testing.T) {
 	g := cliques(14, 5, true)
-	rank, list := Communities(g, 1, degrees(g))
+	rank, list := Communities(g, 1, degrees(g), nil)
 	if len(list) != 14 {
 		t.Fatalf("%d communities: %+v", len(list), list)
 	}
@@ -125,7 +125,7 @@ func TestSplitDisconnected(t *testing.T) {
 func TestCommunitiesAreConnected(t *testing.T) {
 	for seed := uint64(1); seed <= 20; seed++ {
 		g := randomGraph(seed, 80, 160)
-		rank, list := Communities(g, 1, degrees(g))
+		rank, list := Communities(g, 1, degrees(g), nil)
 		adj := g.Undirected()
 		for _, c := range list {
 			var ids []int
@@ -159,8 +159,8 @@ func TestCommunitiesAreConnected(t *testing.T) {
 
 func TestCommunitiesDeterministicAndRelabelInvariant(t *testing.T) {
 	g := randomGraph(5, 200, 500)
-	r1, l1 := Communities(g, 1, degrees(g))
-	r2, l2 := Communities(g, 1, degrees(g))
+	r1, l1 := Communities(g, 1, degrees(g), nil)
+	r2, l2 := Communities(g, 1, degrees(g), nil)
 	if !reflect.DeepEqual(r1, r2) || !reflect.DeepEqual(l1, l2) {
 		t.Fatal("not deterministic")
 	}
@@ -184,8 +184,8 @@ func TestCommunitiesDeterministicAndRelabelInvariant(t *testing.T) {
 		}
 	}
 	h := build(n, edges)
-	rg, _ := Communities(g, 1, degrees(g))
-	rh, _ := Communities(h, 1, degrees(h))
+	rg, _ := Communities(g, 1, degrees(g), nil)
+	rh, _ := Communities(h, 1, degrees(h), nil)
 	for u := 0; u < n; u++ {
 		for v := 0; v < n; v++ {
 			if (rg[u] == rg[v]) != (rh[perm[u]] == rh[perm[v]]) {
@@ -199,5 +199,112 @@ func TestCommunitiesDeterministicAndRelabelInvariant(t *testing.T) {
 		if math.Abs(pg[u]-ph[perm[u]]) > 1e-9 {
 			t.Fatalf("pagerank of %d: %v vs %v", u, pg[u], ph[perm[u]])
 		}
+	}
+}
+
+// boilerplateHub is two groups of five pages (0–4, 5–9), each a chain of real
+// links, and a hub 10 every page links to, as a template line linking every
+// page to one monitoring page does (D317). hubWeight is the weight of the hub
+// edges in the weights it returns.
+func boilerplateHub(hubWeight float64) (*Graph, [][]float64) {
+	var edges [][2]int
+	for c := 0; c < 2; c++ {
+		for i := 0; i < 5; i++ {
+			if i < 4 {
+				edges = append(edges, [2]int{c*5 + i, c*5 + i + 1})
+			}
+			edges = append(edges, [2]int{c*5 + i, 10})
+		}
+	}
+	g := build(11, edges)
+	weights := make([][]float64, g.N)
+	for u, vs := range g.Out {
+		weights[u] = make([]float64, len(vs))
+		for k, v := range vs {
+			weights[u][k] = 1
+			if v == 10 {
+				weights[u][k] = hubWeight
+			}
+		}
+	}
+	return g, weights
+}
+
+func TestCommunitiesWeightedBoilerplate(t *testing.T) {
+	g, _ := boilerplateHub(1)
+	rank, list := Communities(g, 1, degrees(g), nil)
+	// Unweighted, the hub joins a group and, the best-tied member there,
+	// names it: the legend says "Monitoring" for a group about something else.
+	if list[rank[10]].Anchor != 10 {
+		t.Fatalf("unweighted: anchor = %+v, want the hub (rank %v)", list[rank[10]], rank)
+	}
+
+	g, weights := boilerplateHub(0.05)
+	rank, list = Communities(g, 1, degrees(g), weights)
+	for c := 0; c < 2; c++ {
+		for i := 1; i < 5; i++ {
+			if rank[c*5+i] != rank[c*5] {
+				t.Fatalf("weighted: group %d split: %v", c, rank)
+			}
+		}
+	}
+	if rank[0] == rank[5] {
+		t.Fatalf("weighted: groups still merged: %v", rank)
+	}
+	for _, c := range list {
+		if c.Anchor == 10 && c.Size > 1 {
+			t.Fatalf("weighted: the hub anchors %+v", c)
+		}
+	}
+}
+
+// nil weights are the unweighted partition, and all-ones weights are too.
+func TestCommunitiesWeightsNil(t *testing.T) {
+	g := cliques(6, 5, true)
+	r1, l1 := Communities(g, 1, degrees(g), nil)
+	ones := make([][]float64, g.N)
+	for u, vs := range g.Out {
+		ones[u] = make([]float64, len(vs))
+		for k := range vs {
+			ones[u][k] = 1
+		}
+	}
+	r2, l2 := Communities(g, 1, degrees(g), ones)
+	if !reflect.DeepEqual(r1, r2) || !reflect.DeepEqual(l1, l2) {
+		t.Fatalf("nil %v %+v vs ones %v %+v", r1, l1, r2, l2)
+	}
+}
+
+// The anchor is the member most connected inside its community, not the one
+// with the highest total degree (D317). Community A is the 5-clique 1–5 plus
+// node 0, linked to 1 and 2 and to one node of each of four other 5-cliques:
+// 0 has the highest total degree (6) but only 2 links inside A.
+func TestCommunityAnchorInternalDegree(t *testing.T) {
+	var edges [][2]int
+	clique := func(base int) {
+		for i := 0; i < 5; i++ {
+			for j := i + 1; j < 5; j++ {
+				edges = append(edges, [2]int{base + i, base + j})
+			}
+		}
+	}
+	clique(1)
+	edges = append(edges, [2]int{0, 1}, [2]int{0, 2})
+	for c := 0; c < 4; c++ {
+		clique(6 + c*5)
+		edges = append(edges, [2]int{0, 6 + c*5})
+	}
+	g := build(26, edges)
+	deg := degrees(g)
+	rank, list := Communities(g, 1, deg, nil)
+	if rank[0] != rank[1] {
+		t.Fatalf("node 0 left community A: %v", rank)
+	}
+	a := list[rank[0]]
+	if a.Anchor == 0 {
+		t.Fatalf("the high-degree node anchors A: %+v (deg %v)", a, deg)
+	}
+	if a.Anchor != 1 {
+		t.Fatalf("anchor of A = %d, want 1 (5 internal links)", a.Anchor)
 	}
 }

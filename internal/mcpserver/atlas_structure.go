@@ -51,7 +51,7 @@ func writeAtlasStructure(sb *strings.Builder, ctx requestContext, k *kb.KB) erro
 	for i := range degree {
 		degree[i] = len(g.Out[i]) + len(g.In[i])
 	}
-	rank, list := graphalgo.Communities(g, 1, degree)
+	rank, list := graphalgo.Communities(g, 1, degree, lg.EdgeWeights)
 	members := make([][]int, len(list))
 	for i, r := range rank {
 		members[r] = append(members[r], i)

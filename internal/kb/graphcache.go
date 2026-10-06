@@ -21,9 +21,10 @@ import (
 // nothing depends on a write path remembering to invalidate: an edit made by
 // a handler, a git pull or an operator's editor is seen the same way.
 //
-// What is cached per file is what the graph readers need — links, the asset
-// probes that decided them, the content hash and four frontmatter facets —
-// never the body, so memory stays proportional to the link count.
+// What is cached per file is what the graph readers need — links, the lines
+// that wrote them (D317), the asset probes that decided them, the content
+// hash and four frontmatter facets — never the body, so memory stays
+// proportional to the link count.
 
 // racyWindow is how close to its observation a modification time may be
 // before the signature stops being trusted. A file rewritten within the same
@@ -164,6 +165,10 @@ type graphEntry struct {
 	observed time.Time
 	// links is ExtractLinks' result, in its order.
 	links []okf.ConceptID
+	// linkLines are, per link target, the normalised lines that link it
+	// (linkLinesOf): what weighs a template's boilerplate edges (D317). Only
+	// lines carrying a link are kept, so memory stays proportional to links.
+	linkLines map[okf.ConceptID][]string
 	// probes are the asset-resolver answers that decided links: an href is a
 	// concept link or an asset citation depending on whether a file exists,
 	// so a new or deleted asset changes the links without touching this file.
@@ -192,6 +197,8 @@ type graphView struct {
 	// bytes is each id's file size from its stat signature (D301): what a
 	// read of the concept costs, known without reading it.
 	bytes map[okf.ConceptID]int64
+	// linkLines merges every entry's linkLines per id, as adj merges links.
+	linkLines map[okf.ConceptID]map[okf.ConceptID][]string
 }
 
 type graphCache struct {
@@ -385,12 +392,14 @@ func parseGraphEntry(kb *KB, f conceptFile, content, hash string) *graphEntry {
 		return ok
 	}
 	return &graphEntry{
-		id:     f.id,
-		rel:    f.rel,
-		links:  ExtractLinks(body, f.rel, resolver),
-		probes: probes,
-		hash:   hash,
-		facets: facetsOf(content),
+		id:    f.id,
+		rel:   f.rel,
+		links: ExtractLinks(body, f.rel, resolver),
+		// The same read, no second walk: the body is not kept (D317).
+		linkLines: linkLinesOf(body, f.rel, resolver),
+		probes:    probes,
+		hash:      hash,
+		facets:    facetsOf(content),
 	}
 }
 
@@ -428,9 +437,21 @@ func buildGraphView(entries []*graphEntry, generation uint64) *graphView {
 		exists: make(map[okf.ConceptID]struct{}, len(entries)),
 		facets: make(map[okf.ConceptID]ConceptFacets, len(entries)),
 		bytes:  make(map[okf.ConceptID]int64, len(entries)),
+
+		linkLines: make(map[okf.ConceptID]map[okf.ConceptID][]string, len(entries)),
 	}
 	for _, e := range entries {
 		v.exists[e.id] = struct{}{}
+		if len(e.linkLines) > 0 {
+			merged := v.linkLines[e.id]
+			if merged == nil {
+				merged = make(map[okf.ConceptID][]string, len(e.linkLines))
+				v.linkLines[e.id] = merged
+			}
+			for target, lines := range e.linkLines {
+				merged[target] = append(merged[target], lines...)
+			}
+		}
 		v.facets[e.id] = e.facets
 		v.bytes[e.id] = e.sig.size
 		if v.adj.out[e.id] == nil {

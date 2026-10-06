@@ -2,6 +2,7 @@ package kb
 
 import (
 	"sort"
+	"strings"
 
 	"github.com/BeppeTemp/cartographer/internal/graphalgo"
 	"github.com/BeppeTemp/cartographer/internal/okf"
@@ -31,6 +32,11 @@ type LinkGraph struct {
 	Index  map[okf.ConceptID]int
 	Facets []NodeFacets
 	Graph  *graphalgo.Graph
+	// EdgeWeights is parallel to Graph.Out: EdgeWeights[u][k] weighs the edge
+	// u → Graph.Out[u][k] (D317). An edge written by a line that at least
+	// boilerplateThreshold of the projected concepts carry — a template's
+	// boilerplate — weighs 1/N; every other edge weighs 1.
+	EdgeWeights [][]float64
 	// Links is the unprojected graph of the same view — every concept, links
 	// to missing targets and self-links kept — so a caller needing both reads
 	// the files once.
@@ -90,7 +96,79 @@ func linkGraphOf(view *graphView, include func(id string) bool) *LinkGraph {
 		sort.Ints(g.In[i])
 	}
 	lg.Graph = g
+	// Counted over the projected concepts only: a count that included hidden
+	// ones would disclose them through the communities (D226).
+	counts := linkLineCounts(ids, func(id okf.ConceptID) map[okf.ConceptID][]string { return view.linkLines[id] })
+	lg.EdgeWeights = make([][]float64, len(ids))
+	for i, id := range ids {
+		lg.EdgeWeights[i] = make([]float64, len(g.Out[i]))
+		for k, j := range g.Out[i] {
+			lg.EdgeWeights[i][k] = linkEdgeWeight(view.linkLines[id][ids[j]], counts)
+		}
+	}
 	return lg
+}
+
+// boilerplateThreshold is how many concepts must carry the same link line
+// before the edges it writes are discounted (D317): five pages saying the
+// same thing is a template, not five authors agreeing.
+const boilerplateThreshold = 5
+
+// linkLinesOf returns, per concept ID body links to, the distinct normalised
+// lines that link it: code masked as ExtractLinks masks it, whitespace runs
+// collapsed, as lint's factLines normalises. A link whose text spans lines
+// has no line and so is never discounted.
+func linkLinesOf(body, basePath string, isAsset func(string) bool) map[okf.ConceptID][]string {
+	var out map[okf.ConceptID][]string
+	for _, line := range strings.Split(MaskCodeSpans(body), "\n") {
+		if !strings.Contains(line, "](") && !strings.Contains(line, "[[") {
+			continue
+		}
+		norm := strings.Join(strings.Fields(line), " ")
+		for _, target := range ExtractLinks(line, basePath, isAsset) {
+			if out == nil {
+				out = map[okf.ConceptID][]string{}
+			}
+			lines := out[target]
+			if len(lines) == 0 || lines[len(lines)-1] != norm {
+				out[target] = append(lines, norm)
+			}
+		}
+	}
+	return out
+}
+
+// linkLineCounts counts, per normalised link line, how many of ids carry it.
+func linkLineCounts(ids []okf.ConceptID, linesOf func(okf.ConceptID) map[okf.ConceptID][]string) map[string]int {
+	counts := map[string]int{}
+	for _, id := range ids {
+		seen := map[string]bool{}
+		for _, lines := range linesOf(id) {
+			for _, l := range lines {
+				if !seen[l] {
+					seen[l] = true
+					counts[l]++
+				}
+			}
+		}
+	}
+	return counts
+}
+
+// linkEdgeWeight weighs an edge written by lines: by its most specific line
+// (the one the fewest concepts carry), 1/N once N reaches
+// boilerplateThreshold, otherwise 1.
+func linkEdgeWeight(lines []string, counts map[string]int) float64 {
+	n := 0
+	for _, l := range lines {
+		if c := counts[l]; n == 0 || c < n {
+			n = c
+		}
+	}
+	if n >= boilerplateThreshold {
+		return 1 / float64(n)
+	}
+	return 1
 }
 
 type pageRankPercentiles struct {

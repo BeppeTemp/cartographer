@@ -123,7 +123,7 @@ func RegisterKBTools(s *Server, k *kb.KB, deps Deps) {
 	register(toolConceptList(k))
 	register(toolGraphNeighbors(k))
 	register(toolGraphContext(k, rec, deps))
-	register(toolLinkSuggest(k))
+	register(toolLinkSuggest(k, rec, deps))
 	register(toolGraphPath(k))
 	register(toolSearch(k, rec, misses, deps))
 	register(toolReindex(k, rec, deps))
