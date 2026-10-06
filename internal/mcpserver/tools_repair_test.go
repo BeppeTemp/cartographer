@@ -3,6 +3,7 @@ package mcpserver
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/BeppeTemp/cartographer/internal/execbit"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -680,7 +681,7 @@ func TestRepair_LegacyToolName(t *testing.T) {
 		t.Errorf("SKILL.md = %q", data)
 	}
 	st, _ := os.Stat(filepath.Join(k.Root, "skills", "old-way", "helper.sh"))
-	if st.Mode().Perm() != 0o755 {
+	if execbit.Supported && st.Mode().Perm() != 0o755 {
 		t.Errorf("helper.sh mode = %v, want 0755 kept", st.Mode().Perm())
 	}
 	if commitCount(t, k) != before+1 {

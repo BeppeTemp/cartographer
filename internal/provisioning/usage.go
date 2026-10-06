@@ -282,16 +282,23 @@ func eachLine(path string, fn func(line []byte)) {
 }
 
 // pathNeedles returns the byte strings that mean "this artifact's file was
-// touched" in a transcript: each managed path, plain and JSON-escaped (a
-// Windows path carries doubled backslashes inside a JSON string).
+// touched" in a transcript: each managed path in its native and its
+// forward-slash spelling (a Windows client may write either), each plain,
+// JSON-escaped once (a path inside a JSON string) and twice (Codex stores a
+// call's arguments as a JSON string inside the JSON record, so a Windows
+// backslash arrives quadrupled). On a POSIX path every form is the same.
 func pathNeedles(paths []string) [][]byte {
 	var out [][]byte
 	seen := map[string]bool{}
 	for _, p := range paths {
-		for _, s := range []string{p, strings.Trim(mustJSON(p), `"`)} {
-			if s != "" && !seen[s] {
-				seen[s] = true
-				out = append(out, []byte(s))
+		for _, sp := range []string{p, filepath.ToSlash(p)} {
+			once := strings.Trim(mustJSON(sp), `"`)
+			twice := strings.Trim(mustJSON(once), `"`)
+			for _, s := range []string{sp, once, twice} {
+				if s != "" && !seen[s] {
+					seen[s] = true
+					out = append(out, []byte(s))
+				}
 			}
 		}
 	}
