@@ -128,6 +128,9 @@ type KB struct {
 	// a local-profile sync (same lock): the remote's default branch, "" when
 	// unknown (D264).
 	remoteDefault string
+	// gitattrsChecked records that ensureGitAttributes ran in this process
+	// (D311). Guarded by mu, the git-operation lock.
+	gitattrsChecked bool
 
 	gitStatusMu sync.RWMutex
 	gitStatus   GitStatus
@@ -275,10 +278,11 @@ func ShouldWarnGitIdentity(gitSync, hasRemote bool, authorEmail string) bool {
 	return gitSync && hasRemote && authorEmail == defaultGitAuthorEmail
 }
 
-// MarkPushPending keeps an existing failure visible until a push succeeds.
+// MarkPushPending keeps an existing failure visible until a push succeeds,
+// and so a "degraded" write on the local base after a failed fetch (D311).
 func (k *KB) MarkPushPending() {
 	k.gitStatusMu.Lock()
-	if k.gitStatus.State != "failed" {
+	if k.gitStatus.State != "failed" && k.gitStatus.State != "degraded" {
 		k.gitStatus = GitStatus{State: "pending"}
 	}
 	k.gitStatusMu.Unlock()
@@ -410,6 +414,13 @@ func Init(root string) (*KB, error) {
 			// The author is the caller's (InitWithIdentity) when it supplied one:
 			// a forge with an author push rule rejects the product default, and
 			// the rejection lands on the very first push (D156).
+			// .gitattributes is part of the initial commit (D311): it gives
+			// log.md the union merge on every clone, which a file in
+			// .git/info/attributes would not. Only on a new repository —
+			// on an existing one it would be left uncommitted.
+			if _, err := writeGitAttributes(abs); err != nil {
+				return nil, fmt.Errorf("Init: write %s: %w", gitAttributesFile, err)
+			}
 			name, email := initAuthorName, initAuthorEmail
 			if name == "" || email == "" {
 				name, email = defaultGitAuthorName, defaultGitAuthorEmail

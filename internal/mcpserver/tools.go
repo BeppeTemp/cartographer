@@ -65,7 +65,7 @@ func RegisterKBTools(s *Server, k *kb.KB, deps Deps) {
 	// used for synchronous pushes in gitWrap. No-op when SyncOutDebounce==0
 	// (the worker is never started in that case).
 	k.OnPushConflict = func(rce *gitx.RebaseConflictError) {
-		n := handleConflictError(k, rce)
+		n, _ := handleConflictError(k, rce)
 		fmt.Fprintf(os.Stderr,
 			"cartographer: git conflict during async push: registered %d concept(s) as degraded\n", n)
 	}

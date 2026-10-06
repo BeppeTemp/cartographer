@@ -1,7 +1,7 @@
 ---
 name: kb-conflict-resolve
 description: Guide an agent through resolving open git rebase conflicts on degraded KB concepts.
-version: "1.1"
+version: "1.2"
 ---
 # KB Conflict Resolve — Skill
 
@@ -68,6 +68,15 @@ from step 2.
 > **Note**: `status: degraded` is a soft marker set by Cartographer to signal that the
 > concept diverged from the remote. It is **not** a permanent status — removing it via
 > `concept_write` is the resolution action.
+
+## Reserved files
+
+`log.md`, `index.md`, `_map.md` and `_archive.md` are not concepts: Cartographer
+reconciles their conflicts itself. If one appears in `conflicts_list` with
+`kind: reserved` (its `concept_id` is the file path), resolve it with
+`git_conflict_resolve`: `strategy: union` for a `log.md` (keeps both sides'
+entries), otherwise `theirs` (remote) or `ours` (local). Never run git in the
+KB clone.
 
 ## Reference
 

@@ -121,12 +121,14 @@ func (k *KB) divergedError(err *BranchDivergedError, attempts int) error {
 	return err
 }
 
-// clearDivergedStatus drops a "degraded" status set by a branch divergence
-// once a sync finds the KB back on its canonical branch, so sync_status does
-// not keep reporting a condition the operator has already fixed.
+// clearDivergedStatus drops a "degraded" status set by a branch divergence,
+// or by a write on the local base after a failed fetch (D311), once a sync
+// finds the KB back on its canonical branch with the remote reachable, so
+// sync_status does not keep reporting a condition that has passed.
 func (k *KB) clearDivergedStatus() {
 	k.gitStatusMu.RLock()
-	diverged := k.gitStatus.State == "degraded" && strings.HasPrefix(k.gitStatus.LastError, ErrBranchDiverged.Error())
+	diverged := k.gitStatus.State == "degraded" &&
+		(strings.HasPrefix(k.gitStatus.LastError, ErrBranchDiverged.Error()) || strings.HasPrefix(k.gitStatus.LastError, FetchFailedLocalBase))
 	k.gitStatusMu.RUnlock()
 	if diverged {
 		k.setGitStatus("clean", nil, 0)
@@ -197,9 +199,24 @@ func (k *KB) SyncInDue() bool {
 }
 
 // ReadFetchBackoff is how long a read skips SyncIn after a failed fetch. A
-// write still fetches (and fails) every time: it must not commit on a base it
-// could not refresh.
+// write still fetches every time; when the fetch fails it commits only on a
+// base with nothing unpushed (localBaseIsCurrent, D311), never on one that
+// may have diverged.
 const ReadFetchBackoff = 60 * time.Second
+
+// FetchFailedLocalBase prefixes the sync status a write sets when its fetch
+// failed and it proceeded on the local base (D311).
+const FetchFailedLocalBase = "fetch failed, writing on local base"
+
+// localBaseIsCurrent reports whether HEAD has no commit missing from the
+// remote-tracking ref origin/<branch>: HEAD is at or behind what the last
+// successful fetch saw, so committing on it forks from the remote only if
+// someone pushed since — the fork the next successful pull rebases. Without a
+// tracking ref nothing can be verified and the answer is false.
+func (k *KB) localBaseIsCurrent(remote, branch string) bool {
+	n, known, err := gitx.AheadCount(k.Root, remote, branch)
+	return err == nil && known && n == 0
+}
 
 // ReadFetchBackingOff reports whether a fetch failed less than
 // ReadFetchBackoff ago, in which case a read serves the local clone as is.
@@ -242,7 +259,10 @@ func (k *KB) lastSyncInAt() time.Time {
 //     avoids a redundant fetch+pull on every write during a burst.
 //
 // The returned bool reports whether a fetch was attempted, including a fetch
-// that failed. Returns gitx.ErrRebaseConflict if the pull hits a conflict (the
+// that failed. A failed fetch is not an error when HEAD has nothing unpushed
+// (D311): the status turns "degraded" and the caller proceeds on the local
+// base. A conflict on reserved files only is reconciled in place
+// (pullRebase). Returns gitx.ErrRebaseConflict if the pull hits a conflict (the
 // rebase is aborted automatically). Other network/git errors are propagated as
 // is. lastSyncIn is only updated after a fetch+pull that actually succeeds.
 // Callers must hold the git lock.
@@ -264,6 +284,14 @@ func (k *KB) SyncIn() (bool, error) {
 		k.lastSyncInMu.Lock()
 		k.lastFetchFail = time.Now()
 		k.lastSyncInMu.Unlock()
+		// D311 revises D237: with nothing unpushed, the local base is as
+		// current as the last successful fetch left it, so the write commits
+		// locally and its push is deferred. With unpushed commits, or no
+		// tracking ref to compare against, it still fails.
+		if k.localBaseIsCurrent(remote, branch) {
+			k.setGitStatus("degraded", fmt.Errorf("%s: %w", FetchFailedLocalBase, err), 0)
+			return true, nil
+		}
 		return true, fmt.Errorf("SyncIn fetch: %w", err)
 	}
 	if k.ServerGit != nil {
@@ -297,11 +325,12 @@ func (k *KB) SyncIn() (bool, error) {
 	if canonical != "" && branch != canonical {
 		return true, k.divergedError(&BranchDivergedError{Root: k.Root, Branch: branch, Default: canonical}, 0)
 	}
-	if err := gitx.PullRebaseAutostash(k.Root, remote, branch, k.GitEnv...); err != nil {
+	if err := k.pullRebase(remote, branch); err != nil {
 		return true, err
 	}
 	k.clearDivergedStatus()
 	k.setLastSyncIn(time.Now())
+	k.ensureGitAttributes()
 	if headAfter, err := gitx.HeadSHA(k.Root); err == nil && headAfter != headBefore && k.OnSyncIn != nil {
 		k.OnSyncIn()
 	}
@@ -391,7 +420,7 @@ func (k *KB) SyncOut() error {
 			continue
 		}
 
-		if rebaseErr := gitx.PullRebaseAutostash(k.Root, remote, branch, k.GitEnv...); rebaseErr != nil {
+		if rebaseErr := k.pullRebase(remote, branch); rebaseErr != nil {
 			if errors.Is(rebaseErr, gitx.ErrRebaseConflict) {
 				k.setGitStatus("failed", rebaseErr, attempt)
 				return rebaseErr
