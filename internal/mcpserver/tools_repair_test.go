@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -143,7 +144,7 @@ func TestKBRepairSkipsStaleConcept(t *testing.T) {
 	if _, err := k.WriteConcept("ops/n0", fm, cd.Body, ""); err != nil {
 		t.Fatal(err)
 	}
-	applied, skipped := applyRepair(k, targets)
+	applied, skipped := applyRepair(k, targets, false)
 	if len(applied) != 1 || applied[0].Path != "ops/n1.md" {
 		t.Fatalf("applied = %v", applied)
 	}
@@ -430,6 +431,37 @@ func TestKBRepairReciprocalLinkItem(t *testing.T) {
 	}
 	if strings.Contains(cd.Body, "[[ops/r2]]") || !strings.Contains(cd.Body, "- [[ops/r3]]") {
 		t.Fatalf("after apply:\n%s", cd.Body)
+	}
+}
+
+// TestKBRepair_ReciprocalLinkItem_MutualPairSkipsSecondSide (D309): should
+// the lint ever flag both sides of a mutual pair again, the repair drops one
+// item and keeps the other, so the edge survives.
+func TestKBRepair_ReciprocalLinkItem_MutualPairSkipsSecondSide(t *testing.T) {
+	k, _ := repairKB(t, 0)
+	var targets []repairTarget
+	for id, other := range map[string]string{"pa": "pb", "pb": "pa"} {
+		fm := newFM()
+		fm.Set("type", "Note")
+		fm.Set("title", id)
+		item := "- [[ops/" + other + "]]"
+		hash, err := k.WriteConcept(okf.ConceptID("ops/"+id), fm, "# "+id+"\n\n## Links\n\n"+item+"\n", "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		targets = append(targets, repairTarget{ID: okf.ConceptID("ops/" + id), Path: "ops/" + id + ".md", Hash: hash,
+			Fixes: []*lint.Fix{{Kind: lint.FixDropLinkItem, Field: item}}})
+	}
+	sort.Slice(targets, func(i, j int) bool { return targets[i].Path < targets[j].Path })
+	applied, skipped := applyRepair(k, targets, true)
+	if len(applied) != 1 || applied[0].Path != "ops/pa.md" {
+		t.Fatalf("applied = %v", applied)
+	}
+	if len(skipped) != 1 || skipped[0].Path != "ops/pb.md" || !strings.Contains(skipped[0].Reason, "mutual pair: other side already removed") {
+		t.Fatalf("skipped = %v", skipped)
+	}
+	if cd, _ := k.ReadConcept("ops/pb"); !strings.Contains(cd.Body, "- [[ops/pa]]") {
+		t.Fatalf("second side dropped:\n%s", cd.Body)
 	}
 }
 

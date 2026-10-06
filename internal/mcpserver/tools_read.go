@@ -191,7 +191,7 @@ func headingsToOutline(headings []okf.Heading) []map[string]interface{} {
 func toolConceptRead(k *kb.KB) Tool {
 	return Tool{
 		Name:        "concept_read",
-		Description: "Reads a concept: content_hash, frontmatter_raw, body. with_content: true also returns content (exact bytes). section returns one section; outline: true only the headings. Bodies over 60 KB come as an outline; full: true forces them. rev reads a past version; its content_hash is not an if_match.",
+		Description: "Reads a concept: content_hash, frontmatter (parsed), frontmatter_raw, body. with_content: true also returns content (exact bytes). section returns one section; outline: true only the headings. Bodies over 60 KB come as an outline; full: true forces them. rev reads a past version; its content_hash is not an if_match.",
 		ReadOnly:    true,
 		InputSchema: json.RawMessage(`{
 			"type": "object",
@@ -323,6 +323,12 @@ func toolConceptRead(k *kb.KB) Tool {
 				"frontmatter_raw": data.FrontmatterRaw,
 				"body":            data.Body,
 			})
+			// The parsed form (D309), so a caller that rewrites the frontmatter
+			// need not parse OKF YAML itself; frontmatter_raw stays for exact
+			// round-trip control. Omitted when the raw text does not parse.
+			if fm, err := okf.ParseFrontmatter(data.FrontmatterRaw); err == nil {
+				result["frontmatter"] = frontmatterToMap(fm)
+			}
 			if params.WithContent {
 				result["content"] = data.Content
 			}
@@ -330,6 +336,22 @@ func toolConceptRead(k *kb.KB) Tool {
 			return textResult(string(out)), nil
 		},
 	}
+}
+
+// frontmatterToMap converts parsed frontmatter to its JSON form: strings stay
+// strings, []string becomes an array, nil null, and a nested Block its raw text.
+func frontmatterToMap(fm *okf.Frontmatter) map[string]interface{} {
+	out := map[string]interface{}{}
+	for _, key := range fm.Keys() {
+		v, _ := fm.Get(key)
+		switch x := v.(type) {
+		case okf.Block:
+			out[key] = string(x)
+		default:
+			out[key] = x
+		}
+	}
+	return out
 }
 
 // revPattern is the only shape of rev that reaches a git argument: a hex

@@ -499,6 +499,19 @@ func runChecks(k *kb.KB, scope string, scopeNeighbors bool) ([]Finding, error) {
 		return nil, fmt.Errorf("lint.Run: structure: %w", err)
 	}
 
+	// readTargetBody serves reciprocal_link_item the body of a link target
+	// (D309): the target's text, not its links section, must link back. The
+	// split is cached across the run — a hub is the target of many pages.
+	targetBodies := map[okf.ConceptID]string{}
+	readTargetBody := func(target okf.ConceptID) (string, string) {
+		b, ok := targetBodies[target]
+		if !ok {
+			_, b, _ = okf.SplitFrontmatter(allConcepts[target])
+			targetBodies[target] = b
+		}
+		return b, relPathOf[target]
+	}
+
 	for id, content := range toCheck {
 		relPath := okf.IDToPath(id)
 		// Relative links resolve against the file that contains them, which for
@@ -600,7 +613,7 @@ func runChecks(k *kb.KB, scope string, scopeNeighbors bool) ([]Finding, error) {
 			// --- reciprocal_link_item (info, D301): an opt-in efficiency
 			// fix, never conformance debt; the target's own link keeps the
 			// edge navigable both ways through backlinks. ---
-			recips := reciprocalLinkItems(body, linkBase, id, graph.Out, dups, k.AssetExists)
+			recips := reciprocalLinkItems(body, linkBase, id, graph.Out, dups, k.AssetExists, readTargetBody)
 			recipIDs := make([]okf.ConceptID, 0, len(recips))
 			for target := range recips {
 				recipIDs = append(recipIDs, target)

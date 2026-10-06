@@ -81,8 +81,33 @@ func planRepair(k *kb.KB, check, scope string) ([]repairTarget, []repairItem, er
 // planning time as if_match: a concept that changed since is skipped, never
 // overwritten. It returns the targets written and the skipped ones. The caller
 // holds the KB lock (gitWrap).
-func applyRepair(k *kb.KB, targets []repairTarget) (applied []repairTarget, skipped []repairSkip) {
+//
+// mutualGuard (reciprocal_link_item, D309) keeps at most one side of a mutual
+// pair: an item A→B is not dropped when this run already dropped B→A, or the
+// edge would leave the graph. The lint suppresses such pairs already; this is
+// defence-in-depth against a regression there.
+func applyRepair(k *kb.KB, targets []repairTarget, mutualGuard bool) (applied []repairTarget, skipped []repairSkip) {
+	removed := map[[2]okf.ConceptID]bool{} // (source, target) items dropped in this run
 	for _, t := range targets {
+		var dropped []okf.ConceptID
+		if mutualGuard {
+			var fixes []*lint.Fix
+			for _, fx := range t.Fixes {
+				target := linkItemTarget(t.Path, fx)
+				if target != "" && removed[[2]okf.ConceptID{target, t.ID}] {
+					skipped = append(skipped, repairSkip{t.Path, fmt.Sprintf("%s: mutual pair: other side already removed", fx.Field)})
+					continue
+				}
+				if target != "" {
+					dropped = append(dropped, target)
+				}
+				fixes = append(fixes, fx)
+			}
+			if len(fixes) == 0 {
+				continue
+			}
+			t.Fixes = fixes
+		}
 		cd, err := k.ReadConcept(t.ID)
 		if err != nil {
 			skipped = append(skipped, repairSkip{t.Path, err.Error()})
@@ -116,9 +141,26 @@ func applyRepair(k *kb.KB, targets []repairTarget) (applied []repairTarget, skip
 			skipped = append(skipped, repairSkip{t.Path, reason})
 			continue
 		}
+		for _, target := range dropped {
+			removed[[2]okf.ConceptID{t.ID, target}] = true
+		}
 		applied = append(applied, t)
 	}
 	return applied, skipped
+}
+
+// linkItemTarget is the concept a drop_link_item fix unlinks, or "" for any
+// other fix. The item is resolved against the ID-derived path: a relative
+// markdown link in an expanded concept may not resolve, and the guard then
+// simply does not apply to it — the lint check is the primary protection.
+func linkItemTarget(path string, fx *lint.Fix) okf.ConceptID {
+	if fx.Kind != lint.FixDropLinkItem {
+		return ""
+	}
+	if ids := kb.ExtractLinks(fx.Field, path); len(ids) == 1 {
+		return ids[0]
+	}
+	return ""
 }
 
 // applyFixes applies fixes to fm and body in place. It returns how many
@@ -448,7 +490,7 @@ func toolKBRepair(k *kb.KB) Tool {
 			}
 			res := ToolResult{}
 			if !dryRun && len(targets) > 0 {
-				applied, skipped := applyRepair(k, targets)
+				applied, skipped := applyRepair(k, targets, params.Check == "reciprocal_link_item")
 				var rewritten []string
 				if len(applied) > 0 {
 					var cerr error

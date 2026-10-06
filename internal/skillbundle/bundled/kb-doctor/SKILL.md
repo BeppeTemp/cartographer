@@ -46,6 +46,10 @@ what is allowed:
    already applied.
    `reciprocal_link_item` is not drift: propose it once per KB as an opt-in, with its count and the
    trade-off (backlinks keep the edge navigable; a reader of the raw file loses the reverse link).
+   A mutual pair whose only back-link is in the target's own links section is not flagged, and
+   the repair never drops both sides of a pair (D309). A server older than that fix flagged both
+   sides of such a pair and the repair dropped the edge: there, run it with `dry_run: true` first
+   and leave out any concept that appears on both sides of a pair.
 3. **Cost (once per KB).** For each map whose index the operator keeps by hand (`index_incomplete`
    findings, or a long `index.md` rewritten in many sessions) propose `map_update` with
    `index: generated`: the server then keeps the concept list in a marked block, curated text

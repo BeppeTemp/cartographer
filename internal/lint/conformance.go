@@ -75,7 +75,7 @@ var synonymOf = func() map[string]string {
 var ToolParamFields = []string{
 	"id", "frontmatter", "body", "if_match",
 	"template", "vars",
-	"old_string", "new_string", "replace_all", "edits",
+	"old_string", "new_string", "replace_all", "edits", "unset",
 	"operations", "op",
 }
 

@@ -469,3 +469,29 @@ func TestMapUpdate_OptInEnablesMoveIndexMaintenance(t *testing.T) {
 		t.Errorf("source index.md not maintained after opt-in:\n%s", index)
 	}
 }
+
+// TestConceptBatch_PatchUnsetKey (D309): a batch patch op removes the keys in
+// its 'unset' array, with no body edit.
+func TestConceptBatch_PatchUnsetKey(t *testing.T) {
+	k, _ := setupGitKB(t)
+	fm, _ := okf.ParseFrontmatter("type: Note\ntitle: Seed\nstatus: draft")
+	if _, err := k.WriteConcept(okf.ConceptID("batch/unset"), fm, "# Seed\n", ""); err != nil {
+		t.Fatalf("seed write: %v", err)
+	}
+	s := New("test")
+	RegisterKBTools(s, k, Deps{})
+	ops := []map[string]any{
+		{"op": "patch", "id": "batch/unset", "if_match": readHash(t, k, "batch/unset"), "unset": []string{"status"}},
+	}
+	resps := runMCPSequence(t, s, []string{initMsg, batchCallMsg(t, 2, ops)})
+	if tr := decodeToolResult(t, resps[1]); tr.IsError {
+		t.Fatalf("concept_batch failed: %+v", tr.Content)
+	}
+	cd, err := k.ReadConcept("batch/unset")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(cd.FrontmatterRaw, "status") || !strings.Contains(cd.FrontmatterRaw, "title: Seed") {
+		t.Fatalf("status not removed:\n%s", cd.FrontmatterRaw)
+	}
+}

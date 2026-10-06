@@ -170,6 +170,7 @@ func collectFlowList(lines []string, start int) (inner string, consumed int, clo
 	var sb strings.Builder
 	depth := 0
 	var quote byte
+	escaped := false
 	for n, line := range lines {
 		segment := line
 		if n == 0 {
@@ -180,7 +181,15 @@ func collectFlowList(lines []string, start int) (inner string, consumed int, clo
 		for i := 0; i < len(segment); i++ {
 			c := segment[i]
 			if quote != 0 {
-				if c == quote {
+				// A \" inside a double-quoted item (strconv.Quote's escape,
+				// which serializeScalar emits) does not close it — the same
+				// rule splitFlowList applies (D309).
+				switch {
+				case escaped:
+					escaped = false
+				case c == '\\' && quote == '"':
+					escaped = true
+				case c == quote:
 					quote = 0
 				}
 				sb.WriteByte(c)
@@ -282,9 +291,16 @@ func unquoteScalar(s string) string {
 // Serialize generates the YAML text of the frontmatter in insertion order,
 // preserving original comments. Does not include the --- delimiters.
 // []string values are always serialized as flow lists [a, b, c].
+// Blank lines before the first key are dropped (D309): a written file never
+// starts with "---\n\n". A real comment there is kept.
 func (fm *Frontmatter) Serialize() string {
 	var sb strings.Builder
+	leading := true
 	for _, e := range fm.entries {
+		if leading && e.kind == entryCommentKind && strings.TrimSpace(e.raw) == "" {
+			continue
+		}
+		leading = false
 		switch e.kind {
 		case entryCommentKind:
 			sb.WriteString(e.raw)
@@ -294,6 +310,17 @@ func (fm *Frontmatter) Serialize() string {
 		}
 	}
 	return strings.TrimRight(sb.String(), "\n")
+}
+
+// VerifyRoundTrip reports whether serialized frontmatter (the output of
+// Serialize) parses back. The write path calls it before a concept reaches
+// disk (D309), so a serialisation regression rejects the write instead of
+// leaving a file no tool can read.
+func VerifyRoundTrip(serialized string) error {
+	if _, err := ParseFrontmatter(serialized); err != nil {
+		return fmt.Errorf("frontmatter round-trip check failed: %w", err)
+	}
+	return nil
 }
 
 // CanonicalString generates YAML text with keys sorted alphabetically
@@ -332,8 +359,14 @@ func serializeEntry(key string, value interface{}) string {
 // serializeScalar keeps ordinary frontmatter readable while quoting values
 // that could otherwise change YAML structure. strconv.Quote also turns literal
 // newlines into \n escapes, which ParseFrontmatter decodes through unquoteScalar.
+//
+// The character set must stay in sync with the quote handling of
+// splitFlowList and collectFlowList:
+// every byte they treat as a delimiter or a quote (',', '"', '\”)
+// is quoted here, or a flow-list item does not re-parse (D309: an unquoted
+// "dall'operatore" opened a single-quoted string that never closed).
 func serializeScalar(value string) string {
-	if value == "" || strings.ContainsAny(value, ":,[]{}#\n\r\t\\\"") || strings.HasPrefix(value, "-") || strings.HasPrefix(value, " ") || strings.HasSuffix(value, " ") {
+	if value == "" || strings.ContainsAny(value, ":,[]{}#\n\r\t\\\"'") || strings.HasPrefix(value, "-") || strings.HasPrefix(value, " ") || strings.HasSuffix(value, " ") {
 		return strconv.Quote(value)
 	}
 	return value
@@ -350,9 +383,13 @@ func (fm *Frontmatter) Get(key string) (interface{}, bool) {
 
 // Set sets the value for a key. If the key already exists, updates the value
 // in place preserving the original position; otherwise appends the key at the end.
+//
+// Overwriting a key also drops the orphaned continuation lines of its old
+// value (D309, see pruneContinuations): the new value replaces them.
 func (fm *Frontmatter) Set(key string, value interface{}) {
 	if idx, exists := fm.index[key]; exists {
 		fm.entries[idx].value = value
+		fm.pruneContinuations(idx)
 		return
 	}
 	fm.index[key] = len(fm.entries)
@@ -365,12 +402,48 @@ func (fm *Frontmatter) Delete(key string) {
 	if !ok {
 		return
 	}
+	fm.pruneContinuations(idx)
 	fm.entries = append(fm.entries[:idx], fm.entries[idx+1:]...)
 	delete(fm.index, key)
 	// Update indices of keys that were shifted.
 	for k, i := range fm.index {
 		if i > idx {
 			fm.index[k] = i - 1
+		}
+	}
+}
+
+// pruneContinuations removes the comment entries right after the key at idx
+// that were lines of its old value: "provenance: text" followed by
+// "  - item" lines parses the scalar and keeps the items as unrecognizable
+// lines (comments), which Serialize would print after the new value as
+// malformed YAML (D309). The run removed is the indented lines (and the blank
+// lines among them) up to the last indented one; it stops at the next key or
+// at a comment starting at column 0, so a real "# comment" is never removed
+// and blank lines that only separate keys stay.
+func (fm *Frontmatter) pruneContinuations(idx int) {
+	end := idx + 1 // one past the last indented continuation
+	for j := idx + 1; j < len(fm.entries); j++ {
+		e := fm.entries[j]
+		if e.kind != entryCommentKind {
+			break
+		}
+		if strings.TrimSpace(e.raw) == "" {
+			continue
+		}
+		if !strings.HasPrefix(e.raw, " ") && !strings.HasPrefix(e.raw, "\t") {
+			break
+		}
+		end = j + 1
+	}
+	n := end - (idx + 1)
+	if n == 0 {
+		return
+	}
+	fm.entries = append(fm.entries[:idx+1], fm.entries[end:]...)
+	for k, i := range fm.index {
+		if i > idx {
+			fm.index[k] = i - n
 		}
 	}
 }

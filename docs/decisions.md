@@ -144,6 +144,7 @@ regenerate this list with `make decisions-index`.
 - [D305 — A doctor session can be delegated, and the review groups a shared origin](decisions/D305-a-doctor-session-can-be-delegated.md)
 - [D306 — Every finding is fixed or accepted, and a map accepts a style once](decisions/D306-every-finding-is-fixed-or-accepted.md)
 - [D307 — A duplicated "See also" link goes, and lint stops raising non-questions](decisions/D307-a-duplicated-see-also-link-goes.md)
+- [D309 — Writes never corrupt frontmatter or drop graph edges](decisions/D309-writes-never-corrupt-frontmatter-or-drop-graph-edges.md)
 
 <a id="control-plane"></a>
 

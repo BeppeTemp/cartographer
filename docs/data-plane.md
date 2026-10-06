@@ -177,6 +177,21 @@ example an agent's `providers:` map. The parser keeps those lines verbatim as an
 that key instead of flattening them into sibling keys (which made a nested `tools:` look like the
 agent's own); it does not interpret them, and the serializer writes them back unchanged.
 
+### Serialization guarantees
+
+A write never leaves frontmatter that its own parser cannot read back (D309):
+
+- A scalar is quoted whenever it holds a byte the flow-list parser treats as a delimiter or a quote —
+  `'` included, so `dall'operatore` is written `"dall'operatore"`. A `\"` inside a quoted flow element
+  does not close it.
+- Overwriting or removing a key also removes the indented lines its old value left behind
+  (`provenance: text` followed by `  - item` lines), never a `#` comment at column 0 or a blank line
+  that separates keys.
+- Blank lines before the first key are dropped: a file never starts with `---` and an empty line. A
+  comment there is kept.
+- As a last guard, the write path parses the serialized frontmatter before the file is written and
+  rejects the write (`frontmatter round-trip check failed: …`) if it does not parse.
+
 ### What a move touches
 
 `concept_move` is complete as of D160: it rewrites **inbound** links across the KB — reading only the
@@ -293,12 +308,12 @@ Lint also compares a KB with the standard fields the server reads, not only with
 
   The `timestamp` synonyms are English words that are legitimate fields in their own right, so they are flagged only when the value is a scalar string that parses as `YYYY-MM-DD` or RFC 3339; `data: some payload` or a list value gets no finding and no fix. The other standard fields flag every synonym.
 
-- `tool_param_field` (warning, not suppressible): a key named like a parameter of a concept-write tool (`lint.ToolParamFields`: `id`, `frontmatter`, `body`, `if_match`, `template`, `vars`, `old_string`, `new_string`, `replace_all`, `edits`, `operations`, `op`), fix `drop_field`. The same write is rejected, see `docs/control-plane.md`.
+- `tool_param_field` (warning, not suppressible): a key named like a parameter of a concept-write tool (`lint.ToolParamFields`: `id`, `frontmatter`, `body`, `if_match`, `template`, `vars`, `old_string`, `new_string`, `replace_all`, `edits`, `unset`, `operations`, `op`), fix `drop_field`. The same write is rejected, see `docs/control-plane.md`.
 - `missing_value_contract` (info, on the map's `_map.md`): a scalar string field present in at least 5 concepts of the map, with at most 8 distinct values (no cap for `status`, the vocabulary every reader assumes) and no `field_values` for it (map-wide or for the dominant type). The message lists the observed values with their counts and the line to add, typed (`field_values.<Type>.<field>`) when at least 90 % of the carrying concepts share one type. `title`, `type`, `description`, `timestamp`, `review_after`, `superseded_by`, the free-form or list-shaped `provenance`, `tags`, `resource`, `secrets_source`, and the synonyms above are never suggested (D295). No fix: declaring a vocabulary is a judgement.
 
 - `malformed_frontmatter` (warning, not suppressible, no fix, D295): a top-level key with a scalar value followed by indented `- ` lines. The stdlib-only parser (D8) keeps the scalar and drops the lines, so the value is silently truncated; the message names the key and the line.
 
-Two finding kinds gained a mechanical fix in D295. `broken_link` in the `index.md` of an expanded concept carries `rebase_link` (`field` the href, `to` the rewritten href) when the link resolves against the pre-expansion file `<id>.md`: that is the damage an expansion did before `concept_expand` rebased links. `duplicate_link` is one finding per repeated target, and carries `drop_link_item` (`field` the exact list line) when that item is a single link and nothing else: the link stays in the text, the item goes, and a section left with no item loses its heading. An item with any other word keeps no fix — the word may be the reason. `reciprocal_link_item` (D301, info) carries the same fix for a link-only item whose target links back to the concept anywhere in its body: backlinks keep the edge navigable both ways, so the item is a second write for an edge the server already exposes. It is an efficiency choice the operator opts into (`kb_repair reciprocal_link_item`, or `auto_repair` when listed), not conformance debt, and refines D287 without reverting it: only reciprocated items go, the section stays. `map_misfit` names only a map whose contract admits the concept's type (a strict map's `concept_types`); with no admitting majority there is no finding.
+Two finding kinds gained a mechanical fix in D295. `broken_link` in the `index.md` of an expanded concept carries `rebase_link` (`field` the href, `to` the rewritten href) when the link resolves against the pre-expansion file `<id>.md`: that is the damage an expansion did before `concept_expand` rebased links. `duplicate_link` is one finding per repeated target, and carries `drop_link_item` (`field` the exact list line) when that item is a single link and nothing else: the link stays in the text, the item goes, and a section left with no item loses its heading. An item with any other word keeps no fix — the word may be the reason. `reciprocal_link_item` (D301, info) carries the same fix for a link-only item whose target links back to the concept from its text — a back-link only in the target's own links section does not count, so a mutual pair listed only in the two links sections is never flagged and repairing it can never drop the edge (D309): backlinks keep the edge navigable both ways, so the item is a second write for an edge the server already exposes. It is an efficiency choice the operator opts into (`kb_repair reciprocal_link_item`, or `auto_repair` when listed), not conformance debt, and refines D287 without reverting it: only reciprocated items go, the section stays. `map_misfit` names only a map whose contract admits the concept's type (a strict map's `concept_types`); with no admitting majority there is no finding.
 
 ### Value vocabularies (D296)
 
