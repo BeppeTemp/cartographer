@@ -102,6 +102,31 @@ for (const c of concepts) {
   put(`data/${c.id}.md`, fm({ type: pick(TYPES), title, status: pick(STATUS) }) + body);
 }
 
+// What the KB ships to agent clients (D238): skills, subagents and a hook that
+// name concepts by id, so the graph draws them as diamonds beside what they
+// read (D286). Written after the concepts and without rand(): the concept
+// set, and so the benchmark, is the same with or without them.
+const read = (...ids) => ids.map((id) => `- [[${id}]]`).join("\n");
+const skill = (name, description, ids) =>
+  put(
+    `skills/${name}/SKILL.md`,
+    `---\nname: ${name}\ndescription: ${description}\n---\n# ${name}\n\nRead first:\n\n${read(...ids)}\n`,
+  );
+skill("star-chart", "Plans a night of observation", [hubs[2].id, "astronomy/comet", "weather/front"]);
+skill("field-survey", "Surveys a site and records what grows there", [hubs[1].id, hubs[4].id, "cartography/contour"]);
+skill("score-reading", "Reads a score and names its form", [hubs[3].id, "music/fugue", "language/metre"]);
+put(
+  "agents/archivist.md",
+  `---\nname: archivist\ndescription: Files new findings into the right map\n---\nYou file findings.\n\n${read(hubs[0].id, hubs[5].id)}\n`,
+);
+put(
+  "agents/forecaster.md",
+  `---\nname: forecaster\ndescription: Answers questions about tomorrow's weather\n---\nYou forecast.\n\n${read(hubs[6].id, "weather/isobar")}\n`,
+);
+put("hooks/session-brief/hook.json", '{"event":"SessionStart","command":"run.sh"}\n');
+put("hooks/session-brief/run.sh", "#!/bin/sh\necho 'Read [[craft/loom]] before you start.'\n");
+put("instructions.md", "# House rules\n\nFile every finding under the map that owns its subject.\n");
+
 const root = join(out, "demo");
 rmSync(root, { recursive: true, force: true });
 for (const [path, text] of Object.entries(files)) {
