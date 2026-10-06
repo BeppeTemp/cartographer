@@ -2,6 +2,7 @@ package lint
 
 import (
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -34,6 +35,10 @@ const (
 	// body is rewritten; several on one concept apply longest first, in one
 	// pass.
 	FixReplacePrefix = "replace_prefix"
+	// FixListifyField: Field = a list-valued key stored as a string that
+	// looks like a list (stringified_list, D314). The repair parses the
+	// current value with ListItems and stores the items as a real list.
+	FixListifyField = "listify_field"
 )
 
 // Fix is the machine-readable remedy of a finding whose repair is mechanical.
@@ -46,7 +51,7 @@ type Fix struct {
 // FixableChecks are the checks whose findings carry a Fix, which is what
 // kb_repair accepts (D290). A check that gains a Fix is added here: the list
 // is the repair tool's contract, and a test pins it to what the checks emit.
-var FixableChecks = []string{"broken_link", "duplicate_link", "invalid_field_value", "legacy_path", "legacy_tool_name", "nonstandard_field", "prose_value", "reciprocal_link_item", "tool_param_field"}
+var FixableChecks = []string{"broken_link", "duplicate_link", "invalid_field_value", "legacy_path", "legacy_tool_name", "nonstandard_field", "prose_value", "reciprocal_link_item", "stringified_list", "tool_param_field"}
 
 // StandardFieldSynonyms maps each standard frontmatter field to the synonyms
 // KBs are known to use for it (nonstandard_field). Keys are matched
@@ -134,6 +139,11 @@ func frontmatterFindings(in conceptInput) []Finding {
 		out = append(out, detectMalformedFrontmatter(in.RelPath, in.FrontmatterRaw)...)
 	}
 
+	// --- stringified_list (warning, D314) ---
+	if parsed != nil {
+		out = append(out, detectStringifiedLists(in.RelPath, parsed)...)
+	}
+
 	// --- stale_claim (warning) ---
 	if parsed != nil {
 		if raVal, ok := parsed.Get("review_after"); ok {
@@ -170,6 +180,11 @@ func frontmatterFindings(in conceptInput) []Finding {
 			msg += fmt.Sprintf(" — use `%s`, declared in %s", s, kb.PathRegistryFile)
 		}
 		out = append(out, Finding{Path: in.RelPath, Check: "machine_path", Severity: SevWarning, Message: msg})
+	}
+
+	// --- mangled_placeholder (warning, D314) ---
+	if f, ok := detectMangledPlaceholders(in.RelPath, in.Body); ok {
+		out = append(out, f)
 	}
 
 	// --- missing_title (warning) ---
@@ -508,7 +523,7 @@ func detectMalformedFrontmatter(relPath, fmRaw string) []Finding {
 }
 
 func suppressed(f Finding, ignores map[string]bool) bool {
-	return f.Severity != SevError && f.Check != "tool_param_field" && f.Check != "malformed_frontmatter" && ignores[f.Check]
+	return f.Severity != SevError && f.Check != "tool_param_field" && f.Check != "malformed_frontmatter" && f.Check != "stringified_list" && ignores[f.Check]
 }
 
 // dateShaped reports whether v is a scalar string that parses as YYYY-MM-DD or
@@ -524,4 +539,118 @@ func dateShaped(v interface{}) bool {
 	}
 	_, err := time.Parse(time.RFC3339, str)
 	return err == nil
+}
+
+// listFields are the frontmatter keys whose value is a list of strings. A
+// string stored under one of them is the shape stringified_list reports.
+var listFields = map[string]bool{
+	"provenance": true, "tags": true, "related": true,
+	"lint_ignore": true, "open": true, "secrets_source": true,
+}
+
+// listFieldOrder fixes the order findings are emitted in (map iteration is
+// random, and lint output is compared by tests and diffed by people).
+var listFieldOrder = []string{"provenance", "tags", "related", "lint_ignore", "open", "secrets_source"}
+
+// looksStringified reports whether a string value was meant as a list: a
+// bracketed flow list, several of them joined by "; " ("[a]; [b]"), or a
+// block-list item that lost its siblings ("- a"). The OKF parser sends a
+// quoted "[a, b]" to the scalar branch (a leading quote is not "["), so the
+// value reaches lint as a string, not a []string (D314).
+func looksStringified(v string) bool {
+	v = strings.TrimSpace(v)
+	if strings.HasPrefix(v, "- ") {
+		return true
+	}
+	if strings.HasPrefix(v, "[") && strings.HasSuffix(v, "]") {
+		return true
+	}
+	return strings.Contains(v, "; [")
+}
+
+// ListItems extracts the items of a stringified list: "[a, b]", "[a]; [b]"
+// and "- a" all give their elements, trimmed of brackets, quotes and spaces.
+func ListItems(v string) []string {
+	v = strings.TrimSpace(v)
+	v = strings.TrimPrefix(v, "- ")
+	var items []string
+	for _, group := range strings.Split(v, "; ") {
+		group = strings.TrimSpace(group)
+		group = strings.TrimPrefix(group, "[")
+		group = strings.TrimSuffix(group, "]")
+		for _, it := range strings.Split(group, ",") {
+			it = strings.Trim(strings.TrimSpace(it), `"'`)
+			if it = strings.TrimSpace(it); it != "" {
+				items = append(items, it)
+			}
+		}
+	}
+	return items
+}
+
+// detectStringifiedLists implements stringified_list (D314): a list field
+// whose parsed value is a string that looks like a list. The data type is
+// wrong, and no other check sees it.
+func detectStringifiedLists(relPath string, fm *okf.Frontmatter) []Finding {
+	var out []Finding
+	for _, key := range listFieldOrder {
+		raw, ok := fm.Get(key)
+		if !ok {
+			continue
+		}
+		str, isStr := raw.(string)
+		if !isStr || !looksStringified(str) {
+			continue
+		}
+		out = append(out, Finding{
+			Path:     relPath,
+			Check:    "stringified_list",
+			Severity: SevWarning,
+			Message:  fmt.Sprintf("key %q is a string that looks like a list — rewrite it as a proper YAML list", key),
+			Fix:      &Fix{Kind: FixListifyField, Field: key},
+		})
+	}
+	return out
+}
+
+// mangledPlaceholderRe matches a placeholder an import unwrapped into prose:
+// a `repo:key` / `path:key` code span followed, within 40 characters, by the
+// words "between double braces" in one of the languages seen in the field.
+var mangledPlaceholderRe = regexp.MustCompile("(?i)`(?:repo|path):[a-z][a-z0-9_-]*`.{0,40}?(?:fra doppie graffe|tra doppie graffe|between double braces|between double curly|in double braces|in double curly|entre doubles accolades)")
+
+// detectMangledPlaceholders implements mangled_placeholder (D314): one finding
+// per concept naming every match. Fenced blocks are skipped, and so is any
+// line holding "{{": that is documentation of the syntax, not a casualty of it.
+// MaskCodeSpans is deliberately not used: it would blank the very code span
+// the pattern is anchored on.
+func detectMangledPlaceholders(relPath, body string) (Finding, bool) {
+	var matches []string
+	fence := ""
+	for _, line := range strings.Split(body, "\n") {
+		t := strings.TrimSpace(line)
+		if fence == "" {
+			if strings.HasPrefix(t, "```") || strings.HasPrefix(t, "~~~") {
+				fence = t[:3]
+				continue
+			}
+		} else {
+			if strings.HasPrefix(t, fence) {
+				fence = ""
+			}
+			continue
+		}
+		if strings.Contains(line, "{{") {
+			continue
+		}
+		matches = append(matches, mangledPlaceholderRe.FindAllString(line, -1)...)
+	}
+	if len(matches) == 0 {
+		return Finding{}, false
+	}
+	return Finding{
+		Path:     relPath,
+		Check:    "mangled_placeholder",
+		Severity: SevWarning,
+		Message:  fmt.Sprintf("body contains what looks like a placeholder rewritten as prose: %s — restore the {{…}} syntax", strings.Join(matches, "; ")),
+	}, true
 }

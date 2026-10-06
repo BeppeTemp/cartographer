@@ -31,21 +31,34 @@ var tableSeparatorCell = regexp.MustCompile(`^:?-+:?$`)
 // factLines returns the distinct normalised fact lines of one body: prose
 // lines and table rows, trimmed with whitespace runs collapsed. Headings,
 // code (fenced and inline), table header and separator rows, link-only list
-// items and blockquote lines found in a template are not facts.
-func factLines(body string, templateQuotes map[string]bool) map[string]bool {
-	out := map[string]bool{}
-	lines := strings.Split(kb.MaskCodeSpans(body), "\n")
-	for i, line := range lines {
+// items and any line found in a template are not facts (D314).
+//
+// The result maps the comparison key (the normalised line with code spans
+// masked) to the same line normalised but unmasked, which is what a reader
+// must be shown: the masked form has spaces where the code was (D314).
+func factLines(body string, boilerplate map[string]bool) map[string]string {
+	out := map[string]string{}
+	masked := strings.Split(kb.MaskCodeSpans(body), "\n")
+	orig := strings.Split(body, "\n")
+	for i, line := range masked {
 		t := strings.Join(strings.Fields(line), " ")
 		if t == "" || strings.HasPrefix(t, "#") {
 			continue
 		}
+		shown := t
+		if i < len(orig) {
+			shown = strings.Join(strings.Fields(orig[i]), " ")
+		}
 		if strings.HasPrefix(t, "|") {
 			cells, sep := tableCells(t)
-			if sep || (i+1 < len(lines) && isSeparatorRow(lines[i+1])) {
+			if sep || (i+1 < len(masked) && isSeparatorRow(masked[i+1])) {
 				continue
 			}
 			t = "| " + strings.Join(cells, " | ") + " |"
+			if i < len(orig) {
+				o, _ := tableCells(strings.Join(strings.Fields(orig[i]), " "))
+				shown = "| " + strings.Join(o, " | ") + " |"
+			}
 		} else if listMarkRe.MatchString(line) {
 			rest := listMarkRe.ReplaceAllString(line, "")
 			if strings.TrimSpace(mdLinkRe.ReplaceAllString(wikiLinkRe.ReplaceAllString(rest, ""), "")) == "" {
@@ -55,10 +68,10 @@ func factLines(body string, templateQuotes map[string]bool) map[string]bool {
 		if len(t) < repeatedFactMinBytes {
 			continue
 		}
-		if strings.HasPrefix(t, ">") && templateQuotes[t] {
+		if boilerplate[t] {
 			continue
 		}
-		out[t] = true
+		out[t] = shown
 	}
 	return out
 }
@@ -88,15 +101,15 @@ func isSeparatorRow(line string) bool {
 	return sep
 }
 
-// templateQuoteLines are the normalised blockquote lines of the templates:
-// guidance every page made from a template carries by design.
-func templateQuoteLines(templates []string) map[string]bool {
+// templateBoilerplate is every fact line of the templates, normalised the way
+// factLines normalises a concept body: whatever a page made from a template
+// carries by design is not a fact it repeats, whether it is a blockquote, a
+// table row or prose (D314).
+func templateBoilerplate(templates []string) map[string]bool {
 	out := map[string]bool{}
 	for _, body := range templates {
-		for _, line := range strings.Split(body, "\n") {
-			if t := strings.Join(strings.Fields(line), " "); strings.HasPrefix(t, ">") {
-				out[t] = true
-			}
+		for line := range factLines(body, nil) {
+			out[line] = true
 		}
 	}
 	return out
@@ -106,11 +119,15 @@ func templateQuoteLines(templates []string) map[string]bool {
 // the threshold number of concepts. The threshold is the lowest one among
 // the owners' maps: a map that asked for a stricter check sees its own pages.
 func repeatedFactItems(concepts []*reviewConcept, contracts map[string]kb.MapContract, templates []string) []ReviewItem {
-	quotes := templateQuoteLines(templates)
+	boilerplate := templateBoilerplate(templates)
 	owners := map[string][]string{}
+	originals := map[string]string{} // first unmasked form seen of each key
 	for _, c := range concepts {
-		for line := range factLines(c.body, quotes) {
+		for line, shown := range factLines(c.body, boilerplate) {
 			owners[line] = append(owners[line], string(c.id))
+			if _, ok := originals[line]; !ok {
+				originals[line] = shown
+			}
 		}
 	}
 	threshold := func(mapName string) int {
@@ -135,7 +152,7 @@ func repeatedFactItems(concepts []*reviewConcept, contracts map[string]kb.MapCon
 		out = append(out, ReviewItem{
 			Kind:            ReviewRepeatedFact,
 			Concepts:        ids,
-			Evidence:        fmt.Sprintf("the same line in %d concepts: %q", len(ids), cutBytes(line, repeatedFactEvidenceBytes)),
+			Evidence:        fmt.Sprintf("the same line in %d concepts: %q", len(ids), cutBytes(originals[line], repeatedFactEvidenceBytes)),
 			SuggestedAction: "keep the fact in one concept (the one whose subject it is) and link to it from the others",
 			Weight:          len(ids),
 		})
