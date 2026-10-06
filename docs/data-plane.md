@@ -459,7 +459,7 @@ only in a whole-KB lint, and their findings name the artifact file (`skills/<nam
   the prefix most likely meant, so the agent adds `kb: "<name>"`; the fix only strips the prefix.
 - `skill_broken_ref` (warning): a `tools/`, `scripts/` or `skills/` path in a skill's code (fenced
   block or inline code — prose is not scanned) that exists neither under the KB root nor in the
-  skill's directory.
+  skill's directory. The MCP methods `tools/list` and `tools/call` are protocol, not paths.
 - `skill_git_command` (info): a skill's code runs `git add|commit|push|pull|merge|rebase|reset|checkout|stash`;
   the KB is written only through MCP tools. `git clone`, `status`, `log` are reads.
 - `missing_instructions` (warning, KB-level, no path): more than 10 concepts and no `instructions.md`.
