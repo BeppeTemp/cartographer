@@ -493,6 +493,18 @@ func serveHTTP(addr string, kbs []*kb.KB, names []string, artifactSigners []ed25
 	// one is mounted — a single-KB HTTP server keeps the historical bare
 	// "cartographer" (asserted verbatim in server_test.go).
 	multiKB := len(kbs) > 1
+	// Each KB learns its siblings' roots for lint's cross_kb_path (D316).
+	if multiKB {
+		for i, k := range kbs {
+			siblings := make(map[string]string, len(kbs)-1)
+			for j, other := range kbs {
+				if j != i {
+					siblings[names[j]] = other.Root
+				}
+			}
+			k.SiblingRoots = siblings
+		}
+	}
 	for i, k := range kbs {
 		k := k
 		name := names[i]

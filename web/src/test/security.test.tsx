@@ -119,7 +119,7 @@ describe("the bearer token", () => {
 
 describe("an artifact's files are rendered as untrusted content", () => {
   it("keeps script in a SKILL.md, its frontmatter and a script file inert", async () => {
-    window.history.replaceState(null, "", "/ui/?kb=homelab&panel=artifacts&artifact=skill%2Freview");
+    window.history.replaceState(null, "", "/ui/?kb=kb-a&panel=artifacts&artifact=skill%2Freview");
     const hostile = {
       ...reviewSkill,
       files: [

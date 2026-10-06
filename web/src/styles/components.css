@@ -2121,6 +2121,25 @@ body.is-resizing {
   overflow-wrap: anywhere;
 }
 
+.artifacts__health {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+.artifacts__findings {
+  margin-top: var(--space-3);
+  font-size: var(--text-sm);
+}
+
+.artifacts__findings ul {
+  display: grid;
+  gap: var(--space-2);
+  margin: var(--space-2) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
 .artifacts__item-desc {
   font-size: var(--text-xs);
   color: var(--text-secondary);

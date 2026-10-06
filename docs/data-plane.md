@@ -24,6 +24,7 @@ kb-<domain>/                          # git repo = OKF bundle (content directori
 ├── .gitattributes                     # diff=sopsdiffer for *.sops.yaml
 │
 ├── data/                              # CONCEPTUAL ROOT
+│   ├── .gitignore                     # junk patterns, written by kb create (D316)
 │   ├── index.md                       # root index — reserved
 │   ├── log.md                         # global history — reserved
 │   ├── smart-home/                    # MAP (kind: map, thematic domain)
@@ -54,6 +55,7 @@ kb-<domain>/                          # git repo = OKF bundle (content directori
 ├── templates/                         # KB-ONLY CONCEPT TEMPLATES (not provisioning artifacts)
 │   └── <slug>.md                      # frontmatter + Markdown skeleton; rendered by concept_new
 │
+├── instructions.md                    # optional: curated directives (D61); frontmatter keys below
 ├── paths.yaml                         # optional: declared {{path:…}}/{{repo:…}} keys (D263)
 └── glossary.yaml                      # optional: canonical terms, aliases, forbidden forms (D276)
 ```
@@ -61,6 +63,22 @@ kb-<domain>/                          # git repo = OKF bundle (content directori
 `services/` is included in `WalkConcepts` (search, graph, lint all see it) but its root is `kb.Root`, not `kb.DataRoot()`. Service concept IDs carry the `services/` prefix. `ResolvePath` is the one place that picks the root for an ID, and every operation that turns an ID into a file — read, write, collision check, removal, `concept_move` — goes through it (`LocateConcept` for callers that move files themselves). For the same reason `services` is not a valid map or journal name: `map_create` refuses it, since the scaffold would land under `data/services/`, where no read looks (D269). A `data/services/` left by an older version is neither read nor cleaned up. `agents/` and `hooks/` are not concepts (no OKF frontmatter, they don't go through `WalkConcepts`): they are provisioning artifacts materialized client-side — see `docs/sync.md` §Agents and hooks.
 
 `templates/` is outside `WalkConcepts`: templates have no ConceptID and are never indexed, linted or added to the graph. A template is a KB-only artifact, not a provisioning kind: it is maintained through `artifact_*`, discovered with `template_list`, and used once by `concept_new`; it never affects a provisioning manifest or its revision.
+
+`kb create` writes `data/.gitignore` with the junk patterns (`.DS_Store`, `__pycache__/`, `*.pyc`,
+`*.pyo`, `*~`, `*.swp`, `Thumbs.db` — `kb.JunkPatterns`), only when it creates the KB: the root
+`.gitignore` stays absent (D62), and this one is content that travels with the KB (D316).
+
+`instructions.md` is folded into the client instructions with its frontmatter discarded (D61). Two
+optional frontmatter keys are read by `lint` only (D316):
+
+```yaml
+---
+perimeter: ops                 # the KB's perimeter, named by each skill description
+legacy_paths:                  # old path prefix -> replacement, for kb_repair legacy_path
+  "wiki/operations/": "ops/"
+  "wiki/": ""                  # empty: strip the prefix
+---
+```
 
 `paths.yaml` is likewise KB-only data, not a concept and not a provisioning artifact: the KB's
 declared placeholder vocabulary, maintained through `artifact_*` or git and served to clients by
@@ -73,7 +91,7 @@ An **asset** is a regular, non-Markdown file inside an expanded concept director
 
 **Searchable text (D277).** `search` indexes the text of an owner's assets into the owner's own document, so a value that lives only in an inventory CSV, a config or a script finds the owner; the file is then found with `asset_list` and `asset_read`. An asset is indexed only if all hold: its extension is one of `.txt .csv .tsv .json .yaml .yml .toml .ini .conf .cfg .sh .ps1 .py .go .sql .xml .log`; it is not `oversized`; it is valid UTF-8 without NUL bytes, of which the first 256 KiB count (the rest is ignored). Binary formats (PDF, DOCX, images) are not extracted — that needs a dependency; write their content into the concept instead. The indexed text is the assets in path order, each as `<path>\n<text>`, so a path is searchable too. Changes are detected by stat signature (path, size, mtime), not by content, so an asset edited in place on disk is picked up by the next `search`.
 
-An asset is **not** a concept: it has no frontmatter or ConceptID, is never emitted by `WalkConcepts`, validated as OKF, or made a graph node. Its text is searchable through its owner (D277, below); the asset itself is never a search hit. A dossier document can link to it with a relative Markdown file link. Lint reports an uncited asset as `orphan_asset` (info), one above the cap as `oversized_asset` (warning), and an owner whose assets cannot be listed (a symlink or special file inside it) as `unlistable_assets` (warning) rather than aborting the run. Moving an expanded concept moves its assets with it; inbound links from outside that directory to an asset are not rewritten. Deleting one requires explicit `force: true` when assets remain.
+An asset is **not** a concept: it has no frontmatter or ConceptID, is never emitted by `WalkConcepts`, validated as OKF, or made a graph node. Its text is searchable through its owner (D277, below); the asset itself is never a search hit. A dossier document can link to it with a relative Markdown file link. Lint reports a junk asset (`__pycache__/…`, `*.pyc`, see `data/.gitignore` above) as `junk_asset` (warning, delete it with `asset_delete`) and never as `orphan_asset`, an uncited asset as `orphan_asset` (info), one above the cap as `oversized_asset` (warning), and an owner whose assets cannot be listed (a symlink or special file inside it) as `unlistable_assets` (warning) rather than aborting the run. Moving an expanded concept moves its assets with it; inbound links from outside that directory to an asset are not rewritten. Deleting one requires explicit `force: true` when assets remain.
 
 ## Maps and Journals
 
@@ -279,12 +297,13 @@ a deliberately-broken example link — could not be written without generating t
 describes, so a KB's own "known false positives" page was impossible.
 
 Suppressible: `broken_link`, `machine_path`, `concept_oversize`, `stale_claim`, `imported_draft`,
-`secrets_on_non_service`, `orphan`, `missing_title`, `unknown_placeholder`, `forbidden_term`, `nonstandard_field`, `prose_value`, `stale_open`, `closed_with_open_items`, `template_section_missing`, `open_marker`, `source_uncited`, `duplicate_link`, `bare_link_list`, and the structural
+`secrets_on_non_service`, `orphan`, `missing_title`, `unknown_placeholder`, `forbidden_term`, `sops_format_mismatch`, `sops_missing_file`, `legacy_path`, `nonstandard_field`, `prose_value`, `stale_open`, `closed_with_open_items`, `template_section_missing`, `open_marker`, `source_uncited`, `duplicate_link`, `bare_link_list`, and the structural
 `cut_concept`, `link_to_retired`, `broken_relation`, `map_misfit`, `reciprocal_link_item` (D301), and the `kb_review` kinds (D298, D301) `duplicate_candidate`, `zombie_work`, `repeated_fact`, `read_hotspot`, `promotion_candidate`, `glossary_gap`, `lint_judgement` — there the name dismisses a review item that names the concept (see §Review keys). **Not** suppressible: `tool_param_field` (a tool argument is never a legitimate field), every `error`-severity check
 (`missing_required_field`, `invalid_field_value`, `forbidden_field`, `expanded_ambiguous`) — those are contract violations, not judgements, and
 letting a concept declare its own contract void would be a hole rather than an escape hatch — and the
 directory-level checks (`map_oversize`, `index_incomplete`, `index_stale`, `expanded_*`, `orphan_asset`,
-`oversized_asset`, `unlistable_assets`, `unused_placeholder`, `facet_sprawl`), which belong to a map, an expanded concept or `paths.yaml` and have no single
+`oversized_asset`, `unlistable_assets`, `unused_placeholder`, `facet_sprawl`) and the artifact checks
+below (`skill_*`, `legacy_tool_name`, `missing_instructions`, `junk_*`, `cross_kb_path`), which belong to a map, an expanded concept or `paths.yaml` and have no single
 concept frontmatter that owns them (a map accepts `facet_sprawl` in its `_map.md`, above).
 `island` is accepted by any of its members. Naming
 an unsuppressible or unknown check is itself reported as `lint_ignore_invalid`: a typo that silently
@@ -382,6 +401,44 @@ The two "too big" numbers are now related: `concept_oversize` fires at **half** 
 message names both bounds. For a satellite the message does not advise `concept_expand` — the write
 path caps depth at three segments, so that remedy is structurally unavailable — and names splitting
 into sibling satellites instead.
+
+### Artifact checks (D316)
+
+Lint also covers what a KB ships beside its concepts. All are warning or info; the KB-level ones run
+only in a whole-KB lint, and their findings name the artifact file (`skills/<name>/SKILL.md`,
+`agents/<name>.md`, `instructions.md`), never a concept.
+
+- `skill_invalid` (warning): `skill.Validate` would refuse the skill (unreadable frontmatter, name
+  rules, name ≠ directory, no description), or a `skills/<dir>` has no `SKILL.md`.
+- `skill_warning` (info): `skill.Validate`'s warnings (description over 1024 characters, body over
+  500 lines).
+- `legacy_tool_name` (warning, fix `strip_tool_prefix`): a pre-D288 prefixed tool name
+  (`<kb>__search`, e.g. kb_a__search) in a skill, agent or `instructions.md` (Markdown, text, scripts and config
+  files; stylesheets are skipped, a BEM class has the same shape). The message names the mounted KB
+  the prefix most likely meant, so the agent adds `kb: "<name>"`; the fix only strips the prefix.
+- `skill_broken_ref` (warning): a `tools/`, `scripts/` or `skills/` path in a skill's code (fenced
+  block or inline code — prose is not scanned) that exists neither under the KB root nor in the
+  skill's directory.
+- `skill_git_command` (info): a skill's code runs `git add|commit|push|pull|merge|rebase|reset|checkout|stash`;
+  the KB is written only through MCP tools. `git clone`, `status`, `log` are reads.
+- `missing_instructions` (warning, KB-level, no path): more than 10 concepts and no `instructions.md`.
+- `junk_file` (warning): a junk file git tracks, or would add at the next commit (`git ls-files
+  --cached --others --exclude-standard`), outside an expanded concept's assets; remove it with `git
+  rm`. `junk_asset` covers the assets (§Assets).
+- `sops_format_mismatch` (warning, also per concept, suppressible): a `sops decrypt` (or `-d`)
+  piped to `jq` or `python3 … json.load` without `--output-type json` in code — sops prints YAML by
+  default. `sops_missing_file` (warning, same scope): with a `secrets/` directory in the KB, a
+  `sops decrypt secrets/…` naming a file that does not exist. Nothing is decrypted or read.
+- `cross_kb_path` (warning): an artifact hard-codes a sibling KB's root (or
+  `~/cartographer-data/<name>`). The server injects the siblings' roots when it mounts more than
+  one KB (`kb.KB.SiblingRoots`); a single-KB server has none and pays nothing.
+- `skill_missing_perimeter` (info): `instructions.md` declares `perimeter` and a skill's
+  description does not contain it (case-insensitive substring, so `ops` matches `DevOps`).
+- `legacy_path` (warning, per concept, suppressible, fix `replace_prefix`): a concept body contains
+  a prefix declared in `instructions.md` `legacy_paths`. One finding per prefix found; the repair
+  rewrites every occurrence, all prefixes in one pass, longest first.
+
+The Atlas Artifacts panel shows these findings beside each artifact (`docs/deployment.md`).
 
 ## The path placeholder registry (`paths.yaml`)
 

@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -49,7 +51,7 @@ func planRepair(k *kb.KB, check, scope string) ([]repairTarget, []repairItem, er
 	byPath := map[string]*repairTarget{}
 	var items []repairItem
 	for _, f := range findings {
-		if f.Check != check || f.Fix == nil {
+		if f.Check != check || f.Fix == nil || f.Artifact {
 			continue
 		}
 		concept := uiFindingConcept(f.Path)
@@ -169,14 +171,16 @@ func linkItemTarget(path string, fx *lint.Fix) okf.ConceptID {
 func applyFixes(fm *okf.Frontmatter, body *string, fixes []*lint.Fix) (changed int, partial []string, fatal string) {
 	handled, renamed, partial := applyRenameGroups(fm, fixes)
 	changed += renamed
+	changed += applyPrefixReplacements(body, fixes, handled)
 	for _, fx := range fixes {
 		if handled[fx] {
 			continue
 		}
 		changed++
 		switch fx.Kind {
-		case lint.FixRenameField:
-			// Never reached: applyRenameGroups decides every rename.
+		case lint.FixRenameField, lint.FixReplacePrefix:
+			// Never reached: applyRenameGroups decides every rename,
+			// applyPrefixReplacements every prefix rewrite.
 			changed--
 		case lint.FixDropField:
 			fm.Delete(fx.Field)
@@ -206,6 +210,200 @@ func applyFixes(fm *okf.Frontmatter, body *string, fixes []*lint.Fix) (changed i
 		}
 	}
 	return changed, partial, ""
+}
+
+// applyPrefixReplacements applies every replace_prefix fix of one concept in
+// a single pass, longest prefix first (D316): applied one after the other,
+// "wiki/" could rewrite the text "wiki/ops/" was declared for, or rewrite what
+// an earlier replacement produced. It marks the fixes it applied in handled
+// and returns how many.
+func applyPrefixReplacements(body *string, fixes []*lint.Fix, handled map[*lint.Fix]bool) int {
+	var prefixes []*lint.Fix
+	for _, fx := range fixes {
+		if fx.Kind == lint.FixReplacePrefix && fx.Field != "" {
+			prefixes = append(prefixes, fx)
+			handled[fx] = true
+		}
+	}
+	if len(prefixes) == 0 {
+		return 0
+	}
+	sort.SliceStable(prefixes, func(i, j int) bool { return len(prefixes[i].Field) > len(prefixes[j].Field) })
+	pairs := make([]string, 0, 2*len(prefixes))
+	for _, fx := range prefixes {
+		pairs = append(pairs, fx.Field, fx.To)
+	}
+	// strings.Replacer tries the pairs in argument order at each position and
+	// never rescans its own output: longest first, one pass.
+	*body = strings.NewReplacer(pairs...).Replace(*body)
+	return len(prefixes)
+}
+
+// artifactRepairChecks are the fixable checks whose findings name a KB-root
+// artifact file rather than a concept (D316). Their repair rewrites that file
+// the way artifact_write would, so it needs the same per-KB opt-in.
+var artifactRepairChecks = map[string]bool{"legacy_tool_name": true}
+
+// artifactRepairTarget is one artifact file with every fix it needs and the
+// sha256 read when the plan was made.
+type artifactRepairTarget struct {
+	Path  string
+	Hash  string
+	Fixes []*lint.Fix
+}
+
+// planArtifactRepair is planRepair for an artifact check. Artifact findings
+// exist only in a whole-KB lint, so a scoped plan is empty.
+func planArtifactRepair(k *kb.KB, check, scope string) ([]artifactRepairTarget, []repairItem, error) {
+	findings, err := lint.Run(k, scope, false)
+	if err != nil {
+		return nil, nil, err
+	}
+	byPath := map[string]*artifactRepairTarget{}
+	var items []repairItem
+	for _, f := range findings {
+		if f.Check != check || f.Fix == nil || !f.Artifact {
+			continue
+		}
+		t := byPath[f.Path]
+		if t == nil {
+			abs, rerr := k.ResolveRootPath(f.Path)
+			if rerr != nil {
+				continue
+			}
+			data, rerr := os.ReadFile(abs)
+			if rerr != nil {
+				continue // vanished since the lint: nothing to repair
+			}
+			t = &artifactRepairTarget{Path: f.Path, Hash: sha256Hex(data)}
+			byPath[f.Path] = t
+		}
+		t.Fixes = append(t.Fixes, f.Fix)
+		items = append(items, repairItem{Path: f.Path, Fix: f.Fix})
+	}
+	targets := make([]artifactRepairTarget, 0, len(byPath))
+	for _, t := range byPath {
+		targets = append(targets, *t)
+	}
+	sort.Slice(targets, func(i, j int) bool { return targets[i].Path < targets[j].Path })
+	sort.SliceStable(items, func(i, j int) bool { return items[i].Path < items[j].Path })
+	return targets, items, nil
+}
+
+// applyArtifactRepair rewrites each artifact file with its fixes, under the
+// same rules as artifact_write: no symlink on the path, the content hash read
+// at planning time as if_match, the per-kind validation, the file mode kept.
+// The caller holds the KB lock (gitWrap).
+func applyArtifactRepair(k *kb.KB, targets []artifactRepairTarget) (applied []artifactRepairTarget, skipped []repairSkip) {
+	for _, t := range targets {
+		info, err := classifyArtifactPath(t.Path)
+		if err != nil {
+			skipped = append(skipped, repairSkip{t.Path, err.Error()})
+			continue
+		}
+		if err := rejectArtifactSymlinks(k.Root, t.Path); err != nil {
+			skipped = append(skipped, repairSkip{t.Path, err.Error()})
+			continue
+		}
+		abs, err := k.ResolveRootPath(t.Path)
+		if err != nil {
+			skipped = append(skipped, repairSkip{t.Path, err.Error()})
+			continue
+		}
+		data, err := os.ReadFile(abs)
+		if err != nil {
+			skipped = append(skipped, repairSkip{t.Path, err.Error()})
+			continue
+		}
+		if sha256Hex(data) != t.Hash {
+			skipped = append(skipped, repairSkip{t.Path, "stale_write: the file changed since it was listed"})
+			continue
+		}
+		text := string(data)
+		for _, fx := range t.Fixes {
+			if fx.Kind != lint.FixStripToolPrefix || fx.Field == "" {
+				continue
+			}
+			re := regexp.MustCompile(`\b` + regexp.QuoteMeta(fx.Field) + `\b`)
+			text = re.ReplaceAllLiteralString(text, fx.To)
+		}
+		if text == string(data) {
+			skipped = append(skipped, repairSkip{t.Path, "nothing to rewrite"})
+			continue
+		}
+		if err := validateArtifactContent(info, t.Path, []byte(text)); err != nil {
+			skipped = append(skipped, repairSkip{t.Path, "the rewritten file would not validate: " + err.Error()})
+			continue
+		}
+		st, err := os.Stat(abs)
+		if err != nil {
+			skipped = append(skipped, repairSkip{t.Path, err.Error()})
+			continue
+		}
+		if err := os.WriteFile(abs, []byte(text), st.Mode().Perm()); err != nil {
+			skipped = append(skipped, repairSkip{t.Path, err.Error()})
+			continue
+		}
+		applied = append(applied, t)
+	}
+	return applied, skipped
+}
+
+// kbRepairArtifacts is kb_repair for an artifact check: the same response
+// shape, counted in files instead of concepts.
+func kbRepairArtifacts(k *kb.KB, check, scope string, dryRun bool, limit int) (ToolResult, error) {
+	if !dryRun && !k.AllowArtifactWrite {
+		return errorResult(fmt.Sprintf("kb_repair: %s rewrites artifact files, which needs kbs[].allow_artifact_write for this KB; dry_run still lists the plan", check)), nil
+	}
+	targets, items, err := planArtifactRepair(k, check, scope)
+	if err != nil {
+		return errorResult(fmt.Sprintf("kb_repair: %v", err)), nil
+	}
+	foundTotal, foundFiles := len(items), len(targets)
+	if limit > 0 && len(targets) > limit {
+		targets = targets[:limit]
+		keep := map[string]bool{}
+		for _, t := range targets {
+			keep[t.Path] = true
+		}
+		kept := items[:0]
+		for _, it := range items {
+			if keep[it.Path] {
+				kept = append(kept, it)
+			}
+		}
+		items = kept
+	}
+	planned := items
+	if len(planned) > repairPlannedCap {
+		planned = planned[:repairPlannedCap]
+	}
+	result := map[string]interface{}{
+		"check":         check,
+		"dry_run":       dryRun,
+		"planned":       planned,
+		"planned_total": len(items),
+		"found_total":   foundTotal,
+		"found_files":   foundFiles,
+		"applied":       0,
+		"skipped":       []repairSkip{},
+	}
+	res := ToolResult{}
+	if !dryRun && len(targets) > 0 {
+		applied, skipped := applyArtifactRepair(k, targets)
+		if len(applied) > 0 {
+			entry := fmt.Sprintf("kb_repair: %s (%d files)\n\n%d applied, %d skipped", check, len(applied), len(applied), len(skipped))
+			_ = k.AppendLog(entry, time.Now())
+			res.CommitSubject = fmt.Sprintf("kb_repair: %s (%d files)", check, len(applied))
+		}
+		result["applied"] = len(applied)
+		if skipped != nil {
+			result["skipped"] = skipped
+		}
+	}
+	out, _ := json.MarshalIndent(result, "", "  ")
+	res.Content = textResult(string(out)).Content
+	return res, nil
 }
 
 // applyRenameGroups applies the rename_field fixes grouped by their target:
@@ -450,6 +648,9 @@ func toolKBRepair(k *kb.KB) Tool {
 					params.Check, strings.Join(lint.FixableChecks, ", "))), nil
 			}
 			dryRun := params.DryRun == nil || *params.DryRun
+			if artifactRepairChecks[params.Check] {
+				return kbRepairArtifacts(k, params.Check, params.Scope, dryRun, params.Limit)
+			}
 
 			targets, items, err := planRepair(k, params.Check, params.Scope)
 			if err != nil {

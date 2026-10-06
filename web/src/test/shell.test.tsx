@@ -176,7 +176,7 @@ describe("the reading panel splitter", () => {
   // jsdom defines clientWidth on Element.prototype: shadow it on
   // HTMLElement.prototype and delete the shadow afterwards.
   beforeEach(() => {
-    window.history.replaceState(null, "", "/ui/?kb=homelab&concept=infra%2Fa");
+    window.history.replaceState(null, "", "/ui/?kb=kb-a&concept=infra%2Fa");
     Object.defineProperty(HTMLElement.prototype, "clientWidth", {
       configurable: true,
       get(this: HTMLElement) {

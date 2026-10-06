@@ -25,6 +25,15 @@ const (
 	// the links the text already carries (D307). An item holding other links
 	// keeps them; one left with none is dropped (FixDropLinkItem instead).
 	FixRewriteLinkItem = "rewrite_link_item"
+	// FixStripToolPrefix: Field = a pre-D288 prefixed tool name in an
+	// artifact file, To = the bare name it becomes (D316). The path is the
+	// artifact's, not a concept's.
+	FixStripToolPrefix = "strip_tool_prefix"
+	// FixReplacePrefix: Field = a legacy path prefix declared in
+	// instructions.md, To = its replacement (D316). Every occurrence in the
+	// body is rewritten; several on one concept apply longest first, in one
+	// pass.
+	FixReplacePrefix = "replace_prefix"
 )
 
 // Fix is the machine-readable remedy of a finding whose repair is mechanical.
@@ -37,7 +46,7 @@ type Fix struct {
 // FixableChecks are the checks whose findings carry a Fix, which is what
 // kb_repair accepts (D290). A check that gains a Fix is added here: the list
 // is the repair tool's contract, and a test pins it to what the checks emit.
-var FixableChecks = []string{"broken_link", "duplicate_link", "invalid_field_value", "nonstandard_field", "prose_value", "reciprocal_link_item", "tool_param_field"}
+var FixableChecks = []string{"broken_link", "duplicate_link", "invalid_field_value", "legacy_path", "legacy_tool_name", "nonstandard_field", "prose_value", "reciprocal_link_item", "tool_param_field"}
 
 // StandardFieldSynonyms maps each standard frontmatter field to the synonyms
 // KBs are known to use for it (nonstandard_field). Keys are matched

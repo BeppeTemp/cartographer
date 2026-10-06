@@ -32,7 +32,7 @@ const work = {
 /** The Work panel (D302): work_list as a page, read-only. */
 describe("the Work panel", () => {
   beforeEach(() => {
-    window.history.replaceState(null, "", "/ui/?kb=homelab&panel=work");
+    window.history.replaceState(null, "", "/ui/?kb=kb-a&panel=work");
     localStorage.clear();
     localStorage.setItem("cartographer.panel.rail", "0");
     sessionStorage.clear();

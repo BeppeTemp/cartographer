@@ -94,7 +94,7 @@ describe("wiki-links in a concept body", () => {
   });
 
   it("navigate inside the atlas when followed", async () => {
-    window.history.replaceState(null, "", "/ui/?kb=homelab&concept=infra%2Fa");
+    window.history.replaceState(null, "", "/ui/?kb=kb-a&concept=infra%2Fa");
     localStorage.clear();
     stubApi({
       "/concept": () =>
@@ -130,7 +130,7 @@ describe("wiki-links in a concept body", () => {
  */
 describe("a selection hidden by a filter", () => {
   beforeEach(() => {
-    window.history.replaceState(null, "", "/ui/?kb=homelab&concept=infra%2Fa");
+    window.history.replaceState(null, "", "/ui/?kb=kb-a&concept=infra%2Fa");
     localStorage.clear();
     sessionStorage.clear();
     sceneStub.reset();

@@ -507,7 +507,11 @@ skills are not listed: they belong to the binary. Selecting one opens its
 description, signature state, content hash, the clients sync writes it to, and
 its files: Markdown rendered (frontmatter as a table), anything else as plain
 text, a binary or over-256-KiB file named but not shown. Skills left out for
-failing validation are listed above. A skill, agent or hook lists the concepts
+failing validation are listed above. The artifact lint findings (D316, `docs/data-plane.md`
+§Artifact checks) are summarised above the list by severity ("No artifact findings" when clean,
+`finding_counts`/`finding_severities` in `GET …/artifacts`, counting those no listed artifact
+owns), marked on each artifact with its worst severity, and listed in the detail under
+**Findings**. A skill, agent or hook lists the concepts
 it reads, each opening on the atlas; a template offers the atlas filtered to
 the concepts of its type. The selection is in the URL
 (`panel=artifacts&artifact=<kind>/<name>`); the list width is remembered in

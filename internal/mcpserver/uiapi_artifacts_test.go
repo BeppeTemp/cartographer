@@ -222,3 +222,44 @@ func TestUIAPI_ArtifactsRefuseASymlinkedTree(t *testing.T) {
 		t.Errorf("error code = %v", code)
 	}
 }
+
+// TestUIAPI_ArtifactsIncludesFindings: the Artifacts panel carries the artifact
+// lint findings (D316) — counted for the whole KB, attached to the artifact
+// whose file they name.
+func TestUIAPI_ArtifactsIncludesFindings(t *testing.T) {
+	handler := artifactUIHandler(t)
+	rr := getUI(t, handler, UIAPIPrefix+"/kbs/docs/artifacts", "whole")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status %d: %s", rr.Code, rr.Body.String())
+	}
+	var body struct {
+		Artifacts     []uiArtifact   `json:"artifacts"`
+		FindingCounts map[string]int `json:"finding_counts"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	// skills/broken is left out of the list, but its finding still counts.
+	if body.FindingCounts["skill_invalid"] < 1 {
+		t.Errorf("finding_counts = %v, want skill_invalid >= 1", body.FindingCounts)
+	}
+	for _, a := range body.Artifacts {
+		if a.Kind == "hook" && a.Name == "guard" {
+			if len(a.Findings) == 0 || a.Findings[0].Check != "hook_invalid" {
+				t.Errorf("hook/guard findings = %+v, want hook_invalid", a.Findings)
+			}
+		}
+		if a.Kind == "skill" && a.Name == "review" && len(a.Findings) != 0 {
+			t.Errorf("a healthy skill carries no findings: %+v", a.Findings)
+		}
+	}
+	// The detail route carries them too.
+	rr = getUI(t, handler, UIAPIPrefix+"/kbs/docs/artifact?kind=hook&name=guard", "whole")
+	var detail uiArtifact
+	if err := json.Unmarshal(rr.Body.Bytes(), &detail); err != nil {
+		t.Fatal(err)
+	}
+	if len(detail.Findings) == 0 {
+		t.Errorf("detail findings = %+v", detail.Findings)
+	}
+}

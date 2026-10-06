@@ -808,6 +808,27 @@ func UnmergedFiles(dir string) ([]string, error) {
 	return files, nil
 }
 
+// ListFiles returns the files git tracks in dir, plus the untracked ones it
+// would add at the next commit (not ignored): "git ls-files --cached --others
+// --exclude-standard", slash-separated and relative to dir. An error means dir
+// is not inside a git work tree (or git is missing).
+func ListFiles(dir string) ([]string, error) {
+	cmd := exec.Command("git", "-C", dir, "ls-files", "-z", "--cached", "--others", "--exclude-standard")
+	out, err := cmd.Output() // stdout only: a warning on stderr is not a path
+	if err != nil {
+		return nil, fmt.Errorf("git ls-files: %w", err)
+	}
+	var files []string
+	seen := map[string]bool{}
+	for _, f := range strings.Split(string(out), "\x00") {
+		if f != "" && !seen[f] {
+			seen[f] = true
+			files = append(files, f)
+		}
+	}
+	return files, nil
+}
+
 // AddPath stages a single path ("git add -- <path>").
 func AddPath(dir, path string) error {
 	out, err := runGit(dir, "add", "--", path)
