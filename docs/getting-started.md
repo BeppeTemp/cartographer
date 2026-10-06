@@ -165,6 +165,66 @@ of the KB, each concept with its links, and the lint findings, read-only.
 Nothing is opaque: the KB is the files, git is the history, and any write the
 agent made can be reviewed or reverted with ordinary git.
 
+## What gets installed
+
+- **The binary**, `cartographer` — in Homebrew's prefix (`brew`), in
+  `%LOCALAPPDATA%\Cartographer\bin`, added to the **user** `PATH`
+  (`install.ps1`: nothing is written outside your user profile), in
+  `/usr/local/bin` or, when that is not writable, `~/.local/bin` (`install.sh`),
+  or in `$GOBIN`/`$GOPATH/bin` (`go install`).
+- **A native per-user service**, if you run `cartographer service install`:
+  `~/Library/LaunchAgents/com.cartographer.serve.plist` on macOS,
+  `~/.config/systemd/user/cartographer.service` on Linux, or the Scheduled Task
+  `\Cartographer\Serve` on Windows, listening on `127.0.0.1:39273`. Its config is
+  generated at `~/.config/cartographer/server.yaml` — on Windows
+  `%APPDATA%\cartographer\server.yaml`, with the log at
+  `%LOCALAPPDATA%\cartographer\Logs\server.log`. None of the three needs
+  administrator rights. The service is **optional** — a stdio-only setup
+  (`serve --kb <path>`) is a legitimate topology and installs none of this.
+- **A data directory**, `~/cartographer-data` by default, holding the cloned KBs.
+- **Writes into your agent clients' own configuration** under `$HOME`, and only
+  when you run `cartographer connect` — never before. Each destination path is
+  listed in [`sync.md`](sync.md) §Kind × provider matrix. A sync timer
+  (`com.cartographer.sync` / `cartographer-sync.timer`) is installed for clients
+  that have no session-start hook, or one that fires only in some sessions (Kiro).
+
+### Upgrades
+
+Upgrades of a native local install repair themselves: `install.sh update` and
+`install.ps1 update` restart the running service on the new binary and
+re-synchronize the configured providers in place; `brew upgrade` runs no
+Cartographer code, so there the next `cartographer sync` — the session-start
+hook, the scheduled task, or a manual run — replaces a service still running the
+previous binary. On Windows the update lands even while the service is running
+from the file it replaces (see [Windows](#windows) above).
+
+You hear about a new release from your agent: at session start it is told once,
+with the upgrade command for your install channel, and offers to run it
+(`cartographer update check` asks directly). `cartographer reconnect` is the
+explicit rebuild for what an incremental sync cannot see. Only already-open agent
+sessions need restarting. Details → [`deployment.md`](deployment.md) §Upgrades,
+schema migration, and repo growth.
+
+### How to remove it
+
+`install.sh uninstall` and `install.ps1 uninstall` remove the **binary only**.
+Both refuse to run while the native service or the sync timer is still
+installed, and name the teardown that has to come first:
+
+```bash
+cartographer disconnect                      # removes what was materialized into your agents
+cartographer service sync-timer uninstall
+cartographer service uninstall
+curl -fsSL https://raw.githubusercontent.com/BeppeTemp/cartographer/main/install.sh | sh -s -- uninstall
+```
+
+On Windows the same three commands come first, then the `uninstall` shown under
+[Windows](#windows). `brew uninstall` checks nothing: run the three commands
+before it.
+
+Your KBs are git repositories in the data directory: nothing above deletes them,
+and removing `~/cartographer-data` is a deliberate, separate act.
+
 ## Where to go next
 
 - Multiple KBs, token auth, running in k8s →

@@ -1,4 +1,4 @@
-.PHONY: help build test vet fmt fmt-check run run-http smoke smoke-http docker clean e2e test-install worktree-add worktree-rm gate decisions-index decisions-next decisions-new codemap web web-test web-check e2e-web
+.PHONY: help build test vet fmt fmt-check run run-http smoke smoke-http docker clean e2e test-install worktree-add worktree-rm gate decisions-index decisions-next decisions-new codemap web web-test web-check e2e-web hero
 
 VERSION ?= $(shell git describe --tags --always 2>/dev/null || echo dev)
 
@@ -81,6 +81,12 @@ web-check: web ## Clean locked frontend build + provenance and size-budget check
 e2e-web: ## Browser-level Atlas UI suite against the built binary (needs Node + `npx playwright install chromium`)
 	@cd web && npm ci --silent
 	@web/e2e/run.sh
+
+# Re-records docs/atlas/hero.webp, the README animation (D330). Not in CI: it
+# needs a GPU, ffmpeg and img2webp. hero.spec.ts itself runs in e2e-web.
+hero: ## Re-record the README's Atlas animation (needs Node, Chromium, ffmpeg, img2webp, a GPU)
+	@cd web && npm ci --silent
+	@web/scripts/record-hero.sh
 
 docker: ## Build the Docker image
 	docker build -t cartographer .

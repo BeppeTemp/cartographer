@@ -4,105 +4,66 @@
   <img alt="Cartographer — Give knowledge a sense of place." src="docs/brand/banner-light.png" width="100%">
 </picture>
 
-> MCP governance server in **Go** for the *Agentic Wiki* — knowledge that **composes**, not that you query.
+<p align="center">
+  <b>One home for everything your AI agents know — and everything that makes them work.</b><br>
+  Memory they build, skills they share, rules they cannot break: one binary, every agent client, a whole team.
+</p>
 
-[![CI](https://github.com/BeppeTemp/cartographer/actions/workflows/ci.yml/badge.svg)](https://github.com/BeppeTemp/cartographer/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/github/v/release/BeppeTemp/cartographer?include_prereleases)](https://github.com/BeppeTemp/cartographer/releases)
-[![Go Report Card](https://goreportcard.com/badge/github.com/BeppeTemp/cartographer)](https://goreportcard.com/report/github.com/BeppeTemp/cartographer)
-[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
-[![Go](https://img.shields.io/badge/Go-1.26+-00ADD8?logo=go)](https://go.dev/)
-[![MCP](https://img.shields.io/badge/protocol-MCP-7C3AED)](https://modelcontextprotocol.io/)
+<p align="center">
+  <a href="https://github.com/BeppeTemp/cartographer/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/BeppeTemp/cartographer/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="https://github.com/BeppeTemp/cartographer/releases"><img alt="Release" src="https://img.shields.io/github/v/release/BeppeTemp/cartographer?include_prereleases"></a>
+  <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/License-Apache_2.0-blue.svg"></a>
+  <a href="https://modelcontextprotocol.io/"><img alt="MCP" src="https://img.shields.io/badge/protocol-MCP-7C3AED"></a>
+</p>
 
-> [!WARNING]
-> **Beta software.** Cartographer is pre-1.0: the MCP tool surface, CLI and
-> configuration may change between minor releases without a deprecation
-> period. Breaking changes bump the **minor** version (0.x semantics) and are
-> called out in the [changelog](CHANGELOG.md). Expect rough edges — bug
-> reports are very welcome.
+<p align="center">
+  <img alt="The embedded Atlas: a knowledge base drawn as a living 3D graph — searched, a concept opened with its links, recoloured by map, the skills it ships to agents and the findings that need attention." src="docs/atlas/hero.webp" width="100%">
+</p>
 
-LLM agents forget everything between sessions, and stateless RAG only bolts retrieval onto that
-amnesia. The alternative is a knowledge base the agent itself **builds and maintains over time** —
-but letting an agent loose on a folder of files ends in broken links, lost history, and silent
-corruption. **Cartographer** is the governance layer that makes the pattern safe: the agent works
-the wiki exclusively through MCP tools, and the server enforces every invariant — validation,
-linking, immutability gates, one git commit per write.
+<p align="center"><sub>The Atlas, served by the same binary, on a generated demo KB. Pre-1.0: breaking changes bump the minor version and are called out in the <a href="CHANGELOG.md">changelog</a>.</sub></p>
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/atlas/atlas-dark.png">
-  <source media="(prefers-color-scheme: light)" srcset="docs/atlas/atlas-light.png">
-  <img alt="The embedded Atlas: a knowledge base drawn as a 3D graph, one concept selected with its links named and its content open in the inspector." src="docs/atlas/atlas-light.png" width="100%">
-</picture>
+## Why
 
-<sub>The embedded Atlas on a generated demo KB (`web/scripts/demo-kb.mjs`): a selected concept in light, the overview in dark.</sub>
+AI agents start every session from zero. The usual fixes each solve a third of the problem:
 
-## What is it
+- **RAG** retrieves, but nothing accumulates — the agent never gets to write down what it learned.
+- **A folder of Markdown** the agent edits freely ends in broken links, lost history and silent
+  corruption.
+- **Skills, subagents and instructions** get hand-copied into `.claude/`, `.codex/`, `.kiro/`…
+  and drift apart on every machine.
 
-**Cartographer** implements the _Agentic Wiki_: a persistent knowledge base of interlinked
-Markdown files that an LLM agent grows and curates by talking to the server over the MCP
-protocol. The agent **never touches the files directly**.
+Cartographer puts all three in one place, behind a server that enforces the rules. Your agents
+read and grow a knowledge base **only through MCP tools**; every write is validated, linked and
+committed to git. The same knowledge base also carries **how your agents are set up**, and
+Cartographer installs that into every client you use.
 
-The wiki is grounded in **Karpathy's "LLM Wiki" pattern** (operating model: knowledge accretes
-over time, it is not stateless RAG) on top of the **OKF** substrate (Open Knowledge Format v0.1 by
-Google Cloud) — each KB is a folder of `.md` files with YAML frontmatter, self-contained and
-version-controlled with git. Zero lock-in: the wiki is readable by any tool, including Obsidian and
-any text editor.
+## What you get
 
-One binary, two transports — deployment choices, not separate products: the KB model and the MCP
-tools are the same on both.
-- **Local stdio** — one client, one KB, no network. The simplest way to run the pattern.
-- **HTTP server** — one or more KBs behind bearer-token auth, as a native user service, a container
-  or a Kubernetes workload. It hands each client the artifacts its KBs define, and lets a team
-  share some KBs while keeping others private.
-
-Two consequences are worth stating on their own, because they are what most of the design is for:
-the KB **configures the agents that read it** across every client you use, and it does that for a
-whole team rather than a single laptop.
+| | |
+|---|---|
+| 🧠 **Memory that compounds** | A wiki the agent builds over time ([Karpathy's LLM Wiki](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f) pattern): plain Markdown + YAML, one git repo per KB, readable in Obsidian or any editor. No lock-in. |
+| 🛡️ **Guardrails, not good intentions** | Schema validation, link checks, lint, immutability gates, optimistic concurrency, one commit per write, a signed audit log. The agent cannot leave the KB in a broken state. |
+| 🧩 **One KB configures every agent** | Skills, subagents, hooks and standing instructions live in the KB and are translated into each client's native format — Claude Code, Codex, OpenCode, Kiro, Antigravity, Crush, Hermes. Edit once, every machine converges. |
+| 👥 **Built for teams** | Several KBs behind one server, per-KB and per-map access with bearer-token roles, git as the sync layer, conflicts turned into a guided workflow, Ed25519-signed artifacts. |
+| 🗺️ **See it all in the Atlas** | A read-only web UI in the same binary: a living 3D graph, search, what the agents changed, what the KB ships to them, and what needs fixing. No extra service, no CDN. |
+| 🔑 **Secrets, done properly** | SOPS-encrypted values referenced by concepts and resolved on demand; plaintext is never stored. |
 
 ## Quick start
 
-You need **git** and an **empty git repository** you own (GitHub, Gitea, any git host) to be your
-first KB's remote: a KB *is* a git repository, and that remote is what makes it durable and
-syncable. `sops` in `PATH` is needed only if the KB will hold encrypted values.
+You need **git** and an **empty git repository** you own (GitHub, Gitea, any host) to hold your
+first KB.
 
 ```bash
-brew install beppetemp/tap/cartographer   # macOS; Windows, Linux and source installs — see Install
-cartographer setup                        # server, first KB and agents, in one guided step
+brew install beppetemp/tap/cartographer   # macOS — Windows, Linux and source: see Install
+cartographer setup                        # server, first KB and your agents, in one guided step
 ```
 
-`setup` asks for the remote, shows its plan, and only then runs it: it installs the native
-service, creates the KB in an empty repository or mounts the one a repository already holds,
-connects every detected agent client and verifies the server. It checks git and the remote's
-credentials before changing anything, and a re-run skips what is already done. Unattended:
-`cartographer setup --remote <url> --agents claude --yes`. Each step is also its own command
-(`service install`, `kb create`/`kb clone`, `connect`) — see
-[`docs/configurator.md`](docs/configurator.md). Agent sessions that were already open need a
-restart to see the new MCP server.
+`setup` shows its plan before touching anything, then installs the local service, creates the KB,
+connects every agent client it detects and verifies the result. Restart already-open agent
+sessions and ask your agent what it knows. Step by step:
+[`docs/getting-started.md`](docs/getting-started.md).
 
-Once connected:
-
-```bash
-cartographer status    # drift check and client/server version check; exit 0 in-sync / 1 drift / 2 error
-cartographer sync      # re-apply after drift
-cartographer doctor    # read-only diagnosis of the client configuration: residues, drift, missing triggers
-cartographer reconnect # rebuild a client configuration from scratch, preserving every setting
-```
-
-The step-by-step walkthrough is [`docs/getting-started.md`](docs/getting-started.md). For a single
-KB over stdio with no service (typically development) or a hand-configured HTTP server, see `serve`
-in [`docs/deployment.md`](docs/deployment.md).
-
-### Installing Cartographer with an agent
-
-The Quick start assumes an **interactive operator** who answers the prompts and diagnoses a failure
-as it happens.
-
-**If you are an agent and the user has asked you to install Cartographer**: fetch
-<https://raw.githubusercontent.com/BeppeTemp/cartographer/main/docs/agent-install.md>
-and follow it command by command. Do **not** install from the Quick start above: the runbook asks
-for the KB remote up front, verifies the install and ends with the session restart you cannot
-perform yourself.
-
-For a human driving an agent, this is the prompt to paste:
+**Prefer to let your agent install it?** Paste this:
 
 ```text
 Set up Cartographer on this machine by following
@@ -110,155 +71,45 @@ https://raw.githubusercontent.com/BeppeTemp/cartographer/main/docs/agent-install
 My first knowledge base is at: `<git remote URL>`
 ```
 
+<sub>If you are an agent asked to install Cartographer: follow that runbook, not the Quick start.</sub>
+
 ## One KB, every agent
 
-A knowledge base is not only what an agent reads — it is also **how that agent is set up to work**.
-Cartographer treats skills, subagents, hooks and standing instructions as content of the KB, and
-materializes them into each client's native format.
+`cartographer connect` detects your installed clients and writes, in each one's own format:
 
-The manual alternative is what most setups do today: the same skill hand-copied into
-`.claude/skills/`, `.opencode/skills/` and `.codex/skills/`, each drifting on its own, each config
-file edited by hand for every MCP endpoint. Change one thing and you change it in six places, on
-every machine, forever.
+| | Claude Code | Codex | OpenCode | Kiro | Antigravity | Crush | Hermes |
+|---|:-:|:-:|:-:|:-:|:-:|:-:|:-:|
+| MCP endpoint | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | — |
+| Instructions | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | — |
+| Skills | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | inbox |
+| Subagents | ✓ | ✓ | ✓ | ✓ | ✓ | — | — |
+| Hooks | ✓ | ✓ | ✓ | ✓ | ✓ | — | — |
 
-```bash
-cartographer connect        # detects installed clients and configures all of them
-```
+Subagents and hooks are **translated**, not copied. Every `—` is a gap declared for a stated reason,
+never a silent omission. Cartographer re-syncs at session start (or on a timer where there is no
+hook), restores files edited or deleted by hand, and only ever touches what it created. Exact paths
+and reasons: [`docs/sync.md`](docs/sync.md#kind--provider-matrix).
 
-That single command writes, per client and in the format that client expects:
-
-| | claude | opencode | codex | kiro | antigravity | crush | hermes |
-|---|---|---|---|---|---|---|---|
-| **MCP endpoint** | `~/.claude.json` | `~/opencode.json` | block in `~/.codex/config.toml` | `~/.kiro/settings/mcp.json` | `~/.gemini/config/mcp_config.json` | `~/.config/crush/crush.json` | — |
-| **Instructions** | block in `~/.claude/CLAUDE.md` | block in `~/.config/opencode/AGENTS.md` | block in `~/.codex/AGENTS.md` | `~/.kiro/steering/cartographer.md` | block in `~/.gemini/GEMINI.md` | block in `~/.config/crush/CRUSH.md` | — |
-| **Skills** | `~/.claude/skills/` | `~/.opencode/skills/` | `~/.codex/skills/` | `~/.kiro/skills/` | `~/.gemini/config/skills/` | `~/.config/crush/skills/` | delivered to its inbox |
-| **Subagents** | `~/.claude/agents/*.md` | `~/.opencode/agent/*.md` | `~/.codex/agents/*.toml` | `~/.kiro/agents/*.json` | `~/.gemini/config/agents/*.md` | — | — |
-| **Hooks** | `~/.claude/hooks/`, registered in `settings.json` | `~/.opencode/hooks/`, run by a generated JS plugin | `~/.codex/hooks/`, registered in `hooks.json` | `~/.kiro/hooks/cartographer/`, registered in `~/.kiro/hooks/cartographer.json` (fires in `kiro-cli chat --v3 --tui` only) | `~/.gemini/config/hooks/`, registered in `hooks.json` | — | — |
-| **Re-sync trigger** | `SessionStart` hook | `SessionStart` hook | `SessionStart` hook | `SessionStart` hook in `--v3 --tui`, scheduled timer elsewhere | scheduled timer | scheduled timer | scheduled timer |
-
-Subagents and hooks are **translated**, not copied: the same KB artifact becomes a Markdown agent
-for Claude Code, a TOML one for Codex, Antigravity-native Markdown, and a generated JavaScript
-plugin where a hook has no declarative equivalent.
-
-Every `—` is an `unsupported` cell **declared for a stated reason**, never a silent omission — and a
-cell missing from the table fails a test:
-
-- **kiro** — its hooks fire only in `kiro-cli chat --v3 --tui`. Plain `kiro-cli chat` and
-  `--no-interactive` runs fire none (verified empirically; details in
-  [`docs/interoperability.md`](docs/interoperability.md) §Kiro hooks), so the scheduled timer is
-  still its re-sync trigger for those sessions. Subagents work: `~/.kiro/agents/<name>.json` is
-  discovered globally and the built-in agent delegates to it by description.
-- **hermes** — its MCP endpoints and its always-on instruction slot are rendered by its own Ansible
-  role and recreated on the next playbook run, and it has no subagent directory and no hook engine.
-  Skills are *delivered*, not installed: they land in an inbox with a generated `SOURCE.md` and the
-  agent's own curator adopts them, because overwriting what that curator owns would destroy its
-  learning.
-
-Where there is no session hook, the **scheduled trigger** takes over
-(`cartographer service sync-timer install`): opt-in, explicit, and never installed as a side effect
-of connecting.
-
-What keeps it true after the first run:
-
-- **it re-syncs by itself** — a `SessionStart` hook on every client that has one, a scheduled timer
-  for those that don't;
-- **it verifies the files on disk**, not just its own bookkeeping: an artifact edited by hand or
-  deleted is restored from the server;
-- **every materialized file carries a provenance stamp** saying which KB it came from and where to
-  edit it for real;
-- **it only ever touches what it created** — pruning is limited to its own tracked paths, and
-  `--dry-run` shows the plan without writing;
-- **`doctor`** diagnoses residues and drift read-only; **`reconnect`** rebuilds a client from
-  scratch while preserving every setting.
-
-Edit a skill once in the KB, and every client of every machine converges on it.
-
-## Teams
-
-The same mechanism is what makes Cartographer work for more than one person. A server mounts
-several KBs behind a single `/mcp/routed` surface where the KB is a tool argument, so colleagues can
-each keep a private knowledge base while sharing others: a client using several KBs carries one copy
-of the tool schemas instead of one per KB, and a provider's binding (`?kbs=`) narrows it to its own
-KBs (one KB: no `kb` argument at all).
-
-- **Per-KB authorization** — bearer tokens carry `kb:<name>:r` or `kb:<name>:rw` scopes. **Roles**
-  ([`docs/transport-auth.md`](docs/transport-auth.md)) narrow that further to specific maps, journals
-  and concept types, so a teammate can be an editor of the runbooks and a reader of everything else.
-  Rules are unioned: adding a role can only widen access, never silently revoke it.
-- **Git is the sync layer** — every write is a commit, with fetch/pull-rebase before and push after,
-  so teammates running their own server against **separate clones of the same remote** converge
-  without a coordination protocol. A conflict is then not an error page but a workflow: the affected
-  concepts are flagged `degraded`, `conflicts_list` enumerates them, and a bundled skill walks an
-  agent through resolving them. (One process is the sole writer of a given working copy; pointing
-  two writers at one checkout is not a supported model — partition KBs across instances instead, see
-  [`docs/concurrency.md`](docs/concurrency.md).)
-- **Shared content stays portable** — a skill that mentions a local repository uses a
-  `{{repo:<name>}}` placeholder resolved **on each client** from its own git remotes, so the same
-  artifact works on every teammate's machine without machine-specific paths leaking into the KB. A
-  server-side lint flags the ones that do.
-- **Provenance you can verify** — a KB can sign its provisioning artifacts with Ed25519; clients pin
-  the public key out of band and refuse anything that fails verification. Distributing a skill to a
-  team is then a checkable act, not a matter of trust.
-- **Per-KB identity** — the commit author is configured per KB, so history attributes correctly; on
-  the routed surface the KB is a call argument and tools are never prefixed.
-
-## Key features
-
-- 🔧 **Full MCP tool suite** — complete list in [`docs/control-plane.md`](docs/control-plane.md)
-- 📖 **Read & navigation** — `atlas_overview`, `index_get`, `concept_read`, `map_list`,
-  `graph_neighbors` (outbound links or backlinks), `graph_context` (ranked context around a question
-  or concepts), `link_suggest` (links a concept probably lacks) and `concept_list` (scoped frontmatter
-  facets)
-- 🔍 **Search** — keyword: a pure-Go inverted index, or SQLite FTS5 with a trigram tokenizer when
-  the KB has a persisted index; titles weigh most, and accents are ignored (`citta` finds `città`)
-- ✍️ **Validated writes** with optimistic concurrency (`if_match` / content-hash), including
-  `concept_new` from KB-owned templates discovered through `template_list`
-- ✂️ **Bounded edits and batches** — `concept_patch` and `index_patch` apply Edit-like patches to a
-  concept or a curated `index.md`; `concept_batch` makes a large refactor atomic across many
-  concepts (one commit, full rollback on any failure)
-- 📎 **Concept assets** — read, write, list, and delete binary or text dossier files inside expanded
-  concepts
-- 🛡️ **Governance** — deterministic `lint` (broken link, stale claim, orphan, map contracts),
-  `gate_check` (validation + lint + commit gate in one call), `supersede`, contradiction tracking
-- 🧬 **Transactional git** — one commit per write operation; optional synchronization to a remote
-  (fetch/pull-rebase before and push after every write), which is also what lets several instances
-  serve one KB — see [Teams](#teams)
-- 🔐 **Audit log** — append-only with hash-chain and Ed25519 signature
-- 🧩 **Domain skills** (`SKILL.md` / agentskills.io format), including executable scripts and binary
-  assets — see [One KB, every agent](#one-kb-every-agent) for how they reach each client
-- 🔑 **Secrets via SOPS** — JSON Pointer references, scoped resolution and safe rotation; plaintext
-  values never stored
-- 🗺️ **Embedded Atlas UI** — a read-only web view of each KB served by the same binary at `/ui/`
-  in HTTP mode: a live 3D graph you orbit and select from, coloured by
-  community or by Map, with an inspector and the lint findings; light and dark; no extra service,
-  no CDN. Disable with `web.enabled: false` — see [`docs/deployment.md`](docs/deployment.md)
-- 📦 **OKF-compliant** — each KB is an OKF bundle and a standalone git repo, zero lock-in (just git +
-  Markdown)
-
-## Architecture
-
-Cartographer separates a **data plane** from a **control plane**:
-
-- **Data plane** — the KB itself: OKF Markdown files under `data/`, organized as
-  **atlas → map → concept** (the KB, its thematic archives, the pages; journals are the
-  chronological maps). Plain files + git: history, diff, backup, sharing for free.
-- **Control plane** — the MCP tools the agent calls. The server applies every invariant (validation,
-  gates, immutability) so the agent operates safely without direct filesystem access.
-
-The interaction rests on the **MCP + Skill + Hook** triad: MCP carries data and capabilities, Skills
-carry procedural know-how loaded on demand, Hooks carry deterministic 0-token automation.
+## How it works
 
 ```mermaid
 flowchart LR
-    A["🤖 Agent (LLM)<br/><i>only via MCP — never touches files</i>"]
-    S["Cartographer<br/>Go MCP server<br/><i>invariants enforced server-side</i>"]
+    A["🤖 Agents<br/><i>Claude Code, Codex, Kiro…</i>"]
+    S["Cartographer<br/><i>one Go binary</i>"]
     KB[("KB<br/>Markdown + git")]
-    R[("remote git")]
+    R[("git remote")]
+    U["🗺️ Atlas UI"]
     A -- "MCP tools" --> S
-    S -- "bounded reads" --> A
+    S -- "skills, subagents,<br/>hooks, instructions" --> A
     S -- "one commit<br/>per write" --> KB
-    KB -. "sync in/out" .-> R
+    KB -. "sync" .-> R
+    S --> U
 ```
+
+The agent never touches the files. **MCP** carries data and capabilities, **skills** carry
+procedural know-how loaded on demand, **hooks** carry zero-token automation. Run it over stdio for
+one client and one KB, or as an HTTP server — a native user service, a container or a Kubernetes
+workload — for many KBs and many people. Design: [`docs/overview.md`](docs/overview.md).
 
 ## Install
 
@@ -269,152 +120,34 @@ brew install beppetemp/tap/cartographer
 # Windows (PowerShell; no administrator rights)
 irm https://raw.githubusercontent.com/BeppeTemp/cartographer/main/install.ps1 | iex
 
-# Linux / macOS without Homebrew (Darwin and Linux only — the script refuses on
-# Windows and points at install.ps1)
+# Linux / macOS without Homebrew
 curl -fsSL https://raw.githubusercontent.com/BeppeTemp/cartographer/main/install.sh | sh
 
 # From source (Go 1.26+)
 go install github.com/BeppeTemp/cartographer/cmd/cartographer@latest
 ```
 
-### What gets installed
-
-- **The binary**, `cartographer` — in Homebrew's prefix (`brew`), in
-  `%LOCALAPPDATA%\Cartographer\bin`, added to the **user** `PATH`
-  (`install.ps1`: nothing is written outside your user profile), in
-  `/usr/local/bin` or, when that is not writable, `~/.local/bin` (`install.sh`),
-  or in `$GOBIN`/`$GOPATH/bin` (`go install`).
-- **A native per-user service**, if you run `cartographer service install`:
-  `~/Library/LaunchAgents/com.cartographer.serve.plist` on macOS,
-  `~/.config/systemd/user/cartographer.service` on Linux, or the Scheduled Task
-  `\Cartographer\Serve` on Windows, listening on `127.0.0.1:39273`. Its config is
-  generated at `~/.config/cartographer/server.yaml` — on Windows
-  `%APPDATA%\cartographer\server.yaml`, with the log at
-  `%LOCALAPPDATA%\cartographer\Logs\server.log`. None of the three needs
-  administrator rights. The service is **optional** — a stdio-only setup
-  (`serve --kb <path>`) is a legitimate topology and installs none of this.
-- **A data directory**, `~/cartographer-data` by default, holding the cloned KBs.
-- **Writes into your agent clients' own configuration** under `$HOME`, and only
-  when you run `cartographer connect` — never before. Each destination path is
-  listed in the [One KB, every agent](#one-kb-every-agent) matrix above. A sync
-  timer (`com.cartographer.sync` / `cartographer-sync.timer`) is installed for
-  clients that have no session-start hook, or one that fires only in some
-  sessions (Kiro).
-
-### Upgrades
-
-Upgrades of a native local install repair themselves: `install.sh update` and `install.ps1 update`
-restart the running service on the new binary and re-synchronize the configured providers in
-place; `brew upgrade` runs no Cartographer code, so there the next `cartographer sync` — the
-session-start hook, the scheduled task, or a manual run — replaces a service still running the
-previous binary. On Windows the update lands even while the service is running from the file it
-replaces:
-
-```powershell
-& ([scriptblock]::Create((irm https://raw.githubusercontent.com/BeppeTemp/cartographer/main/install.ps1))) update
-```
-
-You hear about a new release from your agent: at session start it is told once, with the upgrade
-command for your install channel, and offers to run it (`cartographer update check` asks directly).
-
-`cartographer reconnect` is the explicit rebuild for what an incremental sync cannot see. Only
-already-open agent sessions need restarting. Details →
-[`docs/deployment.md`](docs/deployment.md) §Upgrades, schema migration, and repo growth.
-
-### How to remove it
-
-`install.sh uninstall` and `install.ps1 uninstall` remove the **binary only**. Both refuse to run
-while the native service or the sync timer is still installed, and name the teardown that has to
-come first:
-
-```bash
-cartographer disconnect                      # removes what was materialized into your agents
-cartographer service sync-timer uninstall
-cartographer service uninstall
-curl -fsSL https://raw.githubusercontent.com/BeppeTemp/cartographer/main/install.sh | sh -s -- uninstall
-```
-
-```powershell
-cartographer disconnect
-cartographer service sync-timer uninstall
-cartographer service uninstall
-& ([scriptblock]::Create((irm https://raw.githubusercontent.com/BeppeTemp/cartographer/main/install.ps1))) uninstall
-```
-
-`brew uninstall` checks nothing: run the same three commands before it.
-
-Your KBs are git repositories in the data directory: nothing above deletes them,
-and removing `~/cartographer-data` is a deliberate, separate act.
-
-## Configuration
-
-The server reads a YAML file — `cartographer service install` generates
-`~/.config/cartographer/server.yaml`, and [`config.example.yaml`](config.example.yaml) is the
-annotated example. Environment variables and CLI flags override it (flag > env > YAML > default). The ones
-most often set:
-
-| Environment variable | Default | Description |
-|---|---|---|
-| `CARTOGRAPHER_CONFIG` | — | Path to the YAML config file |
-| `CARTOGRAPHER_KB` | — | KB path(s) (single, or multiple comma-separated) |
-| `CARTOGRAPHER_DATA` | — | Directory whose subfolders are auto-discovered KBs |
-| `CARTOGRAPHER_HTTP` | — | HTTP address (e.g. `:39273`). Absent = stdio only |
-| `CARTOGRAPHER_AUTH` | auto | `true` / `false` / unset (auto on HTTP) |
-| `CARTOGRAPHER_TOKENS` | — | Comma-separated bearer tokens |
-| `CARTOGRAPHER_GIT_SYNC` | `true` | fetch/pull-rebase + push on `origin` around each write |
-| `CARTOGRAPHER_TOOLS_PROFILE` | `agent` | `agent` lists only the agent's core tools; `full` lists all (hidden ones stay callable) |
-| `CARTOGRAPHER_MCP_MOUNT_MODE` | — | Deprecated, ignored (D288): `/mcp/routed` is always served |
-
-Full list with CLI flags and defaults → [`docs/deployment.md`](docs/deployment.md).
-
-## Building and testing
-
-```bash
-make build         # → bin/cartographer
-make test          # Unit tests (go test ./...)
-make smoke         # stdio smoke test
-make smoke-http    # operator-level HTTP smoke test (creates temp KBs via curl)
-make e2e           # deterministic HTTP/CLI end-to-end scenarios
-make web-test      # Atlas UI frontend tests (needs Node; `make gate` does not)
-make web           # rebuild the committed UI bundle after changing web/
-```
-
-The E2E suite drives the compiled binary through HTTP, CLI, filesystem and real
-temporary git remotes. It is deterministic, requires no model credentials and
-runs in CI. Full strategy → [`docs/testing.md`](docs/testing.md).
-
-## Project structure
-
-```
-cmd/cartographer/   # single binary: server (serve), client (connect/status/sync/kb/service), TUI
-internal/           # one package per concern: KB model, MCP server, search, git, auth, provisioning, …
-docs/               # full documentation (docs/index.md is the map)
-test/               # deterministic HTTP smoke and cross-component E2E tests
-```
-
-Package-by-package map, with what each one owns → [`AGENTS.md`](AGENTS.md) §Code map (kept next to
-the contributor instructions so there is a single copy to keep true).
+What lands where, upgrades and removal:
+[`docs/getting-started.md`](docs/getting-started.md#what-gets-installed). Server configuration,
+environment variables and deployment topologies: [`docs/deployment.md`](docs/deployment.md).
 
 ## Documentation
 
-Browsable at **[beppetemp.github.io/cartographer](https://beppetemp.github.io/cartographer/)** — same content as `docs/`, rendered.
+Browsable at **[beppetemp.github.io/cartographer](https://beppetemp.github.io/cartographer/)**; the
+map is [`docs/index.md`](docs/index.md).
 
-The full index lives in [`docs/index.md`](docs/index.md). Main entry points:
-
-- [`docs/getting-started.md`](docs/getting-started.md) — from zero to a working wiki, step by step
-- [`docs/overview.md`](docs/overview.md) — vision, guiding principles, architecture
-- [`docs/data-plane.md`](docs/data-plane.md) — KB model, hierarchy, OKF
-- [`docs/control-plane.md`](docs/control-plane.md) — Go server, MCP tool API
-- [`docs/concurrency.md`](docs/concurrency.md) — single-writer, git sync, conflicts
-- [`docs/deployment.md`](docs/deployment.md) — topologies (local service / k8s / multi-server), backup, env vars
+- [Getting started](docs/getting-started.md) — from zero to a working wiki
+- [Overview](docs/overview.md) — vision, principles, architecture
+- [MCP tools](docs/control-plane.md) — the full tool API
+- [Deployment](docs/deployment.md) — topologies, configuration, backup
+- [Sync](docs/sync.md) — how artifacts reach each agent client
 
 ## Contributing
 
-Issues and PRs are welcome — see [`CONTRIBUTING.md`](CONTRIBUTING.md) for the build/test loop, the
-PR flow (squash-merge, conventional titles, docs updated in the same PR), and how to find your way
-around the codebase. Cartographer is a personal project maintained on a best-effort basis: no
-response-time SLA. For security reports, see [`SECURITY.md`](SECURITY.md).
+Issues and PRs are welcome: [`CONTRIBUTING.md`](CONTRIBUTING.md) covers building, testing and the
+PR flow. Cartographer is a personal project maintained on a best-effort basis. Security reports:
+[`SECURITY.md`](SECURITY.md).
 
 ## License
 
-Released under the Apache License 2.0. See [`LICENSE`](LICENSE).
+Apache License 2.0 — see [`LICENSE`](LICENSE).

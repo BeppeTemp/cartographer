@@ -80,10 +80,10 @@ matching file **in the same session/PR** as the change:
 | Any non-obvious choice (why X and not Y) | One new file `docs/decisions/D<n>-<slug>.md` (`make decisions-new`; the release PR regenerates `docs/decisions.md`, D328); never a second entry for the same choice |
 | New external dependency | A decision file under `docs/decisions/` + `conventions.md` §dependencies |
 | New test level or pre-release checklist change | `testing.md` |
-| Atlas UI (`web/`) or its routes/config | `make web` to rebuild the committed bundle; `deployment.md` §The embedded Atlas UI; `testing.md` §Frontend |
+| Atlas UI (`web/`) or its routes/config | `make web` to rebuild the committed bundle; `deployment.md` §The embedded Atlas UI; `testing.md` §Frontend; `make hero` when the README's hero tour looks different (D330) |
 | Contributor workflow (PR flow, plan issues, build loop) | `CONTRIBUTING.md` |
 | What an agent client reads (instruction file, skill/agent/hook/MCP paths) | The provider matrix **first** (`destinationMatrix` in `internal/provisioning/provisioning.go`, `projectDestinationMatrix` in `internal/provisioning/workspacescope.go`, provider descriptors in `internal/configurator/registry.go`), then `CONTRIBUTING.md` §Working with an agent client — a test fails if the two disagree |
 | A client re-audit (version bump, new sources, watch items) | `harnesses.md` (via the `harness-watch` skill); the matrix and docs above only if a cell changes |
-| User-facing install/onboarding flow | `getting-started.md` + README |
+| User-facing install/onboarding flow | `getting-started.md` (+ README Quick start/Install, kept short: details live in `getting-started.md`) |
 | Agent-driven install/onboarding flow | `agent-install.md` + README |
 | Logo, banner, palette or typography | `brand/` assets + tokens, then `brand/index.md` |

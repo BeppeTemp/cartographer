@@ -26,6 +26,11 @@ client and temporary git remotes without model credentials; see
 command, so there is one answer to "what must be green" — followed by
 `make smoke-http`, `make e2e` and `make test-install`.
 
+The Atlas UI has its own loop (Node, outside `make gate`): `make web-test` for
+the frontend tests, `make web` to rebuild the committed bundle, `make e2e-web`
+for the browser suite, and `make hero` to re-record the README animation when
+what it shows has changed — see [`docs/testing.md`](docs/testing.md) §Frontend.
+
 `make test` also runs the repository's own documentation gates
 (`internal/repodocs`): the size of `AGENTS.md`, the freshness of the generated
 decision index, the fact that every relative documentation link resolves, and
@@ -38,6 +43,9 @@ run is not a gate.
 - [`AGENTS.md`](AGENTS.md) is the canonical entry point for both people and
   agents, and it has a compact code map (what lives where). `CLAUDE.md` is one
   line importing it.
+- The top level: `cmd/cartographer/` is the single binary (server, client, TUI),
+  `internal/` has one package per concern, `web/` is the Atlas UI source,
+  `docs/` the documentation, `test/` the shell-driven smoke and E2E suites.
 - [`docs/index.md`](docs/index.md) is the documentation index, with reading
   paths and the maintenance rules.
 - The *why* behind non-obvious choices is one file per decision under

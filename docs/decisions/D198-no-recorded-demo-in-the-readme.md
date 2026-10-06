@@ -6,6 +6,9 @@ topic: project-governance
 
 **Status: implemented.** Closes #268.
 
+> **Superseded by D330**: the README shows a recorded Atlas tour again, and the tour is a test
+> in the `e2e-web` suite — the way to go stale loudly asked for below.
+
 **Context.** The README opened with a `vhs`-recorded GIF of the CLI/TUI
 (`docs/assets/demo.gif`, produced by `.github/vhs/record.sh`). By the time #249 asked for a
 re-recording it predated the current TUI by six releases; #262 re-recorded it, and the next visible

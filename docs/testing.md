@@ -432,6 +432,9 @@ What it holds, beyond the component tests:
   starts it paused; a selection names the selected node and each neighbour
   once; a hidden tab stops the render loop; `touch-action: none` is on the
   canvas only;
+- the README's hero tour (`hero.spec.ts`, D330): graph, search, a concept's
+  links, colour by Map, a skill in the Artifacts panel, the Observatory — so a
+  step the recorded animation shows and the UI no longer offers fails here;
 - security: no request leaves the Cartographer origin (any foreign request
   fails the test, it is not allow-listed); the shell's CSP is present and an
   injected inline script and a same-origin `eval` are both refused; the token
@@ -445,6 +448,10 @@ runs in the `web` CI job on Linux only, like the other shell harnesses.
 
 Locally: `cd web && npx playwright install chromium` once, then
 `make e2e-web` (extra arguments pass through: `web/e2e/run.sh -g palette`).
+
+`make hero` re-records `docs/atlas/hero.webp` from the same `hero.spec.ts` over
+the demo KB (`web/scripts/record-hero.sh`): run it, on a machine with a GPU, in
+the PR that changes what the tour shows.
 
 ## What is deliberately not in CI
 
