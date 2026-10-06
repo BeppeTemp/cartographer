@@ -107,6 +107,7 @@ sops:
   # age_key_dir: /etc/kb-sops-keys
 audit:
   log: ""               # e.g. /data/audit.log
+  # retention_days: 90  # default 90 (D325): rotated segments older than this are deleted; 0 = keep forever
 tools:
   # profile: which tools tools/list advertises to the LLM agent (D65).
   #   agent (default) — core set only (read/write/search/log, structure,

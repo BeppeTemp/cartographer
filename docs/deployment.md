@@ -46,7 +46,7 @@ The server process is **ephemeral** (k8s pod or local service); what persists on
 
 When `audit.log` is set, MCP tool execution appends an attempt+completion event
 pair per call, so the file is a complete operational request log (D119). See
-§Audit log below and [transport-auth](transport-auth.md) §Operational audit.
+§Audit log below and [transport-auth](transport-auth.md) §Operational audit. `service install` writes `audit.log: <data>/audit.log` into its generated configuration, and `audit.retention_days` defaults to 90 (D325; `0` keeps everything).
 
 ### Configuration: flags, env, YAML
 
@@ -149,7 +149,7 @@ audit:
   mode: best_effort            # (audit.mode) best_effort (default) | required
   max_segment_bytes: 0         # (audit.max_segment_bytes) rotate past this size; 0 = package default
   archive_dir: ""              # (audit.archive_dir) rotated segments; empty = beside the log
-  retention_days: 0            # (audit.retention_days) delete checkpointed segments older than N days; 0 = keep
+  retention_days: 90           # (audit.retention_days) delete checkpointed segments older than N days; default 90; 0 = keep forever
 sops:
   age_key_dir: /etc/kb-sops-keys # (sops.age_key_dir) directory <age_key_dir>/<name>.age (D53, see below)
 tools:
