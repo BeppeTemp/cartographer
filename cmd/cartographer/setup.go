@@ -73,6 +73,7 @@ type setupFacts struct {
 	KBs            []kbRow // direct subdirectories of the data dir
 	Detected       []string
 	ProvidersBound bool // every target provider already carries an explicit KB binding
+	TimerOptOut    bool // the operator uninstalled the sync timer on purpose (D325)
 	RemoteProbed   bool
 	RemoteHasRefs  bool
 }
@@ -260,6 +261,13 @@ func renderSetupPlan(w io.Writer, p setupPlan, f setupFacts) {
 		scope = "only inside " + p.Workspace
 	}
 	line("agents       connect %s — KBs: %s; visible in %s", strings.Join(p.Agents, ", "), kbs, scope)
+	// D325: the timer is a background job connect installs on its own, so the
+	// plan is where the operator sees it before it runs.
+	if !f.TimerOptOut {
+		if hookless, _ := providersNeedingSyncTimer(p.Agents); len(hookless) > 0 {
+			line("sync timer   install (every %s) — %s", service.DefaultSyncInterval, describeHookless(hookless))
+		}
+	}
 	line("verify       the server reports ready")
 }
 
@@ -303,6 +311,7 @@ func gatherSetupFacts(o setupOptions) (setupFacts, error) {
 	if dir, err := clientconfig.TargetDir(); err == nil {
 		if cfg, err := clientconfig.Load(dir); err == nil {
 			f.ClientURL = cfg.ServerURL
+			f.TimerOptOut = cfg.SyncTimerOptOut
 			agents := o.Agents
 			if len(agents) == 0 {
 				agents = setupDetected()

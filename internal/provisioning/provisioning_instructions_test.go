@@ -16,6 +16,7 @@ import (
 	"testing"
 
 	"github.com/BeppeTemp/cartographer/internal/configurator"
+	"github.com/BeppeTemp/cartographer/internal/kb"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
 )
 
@@ -240,6 +241,25 @@ func TestBuildManifest_Instructions_NessunaSezioneSenzaAgentNeCurato(t *testing.
 		"- when `kb_status` reports a `latest_version` that differs from `server_version`, tell the user once: the installed version, the available version and the upgrade command for this channel (`cartographer update check` prints it); offer to run it, run it only on explicit consent, then follow the cartographer-ops skill (§Upgrade).\n"
 	if content != want {
 		t.Errorf("output changed with no agent/instructions.md:\ngot:\n%s\nwant:\n%s", content, want)
+	}
+}
+
+// A KB freshly created by kb.Init (D325) gets the full generated block: the
+// default instructions.md must not suppress the operational bullets.
+func TestGenerateInstructions_WithDefaultFile(t *testing.T) {
+	kbRoot := t.TempDir()
+	if _, err := kb.Init(kbRoot); err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+	m, err := provisioning.BuildManifest(nil, map[string]string{"kb-a": kbRoot}, provisioning.BuildOptions{})
+	if err != nil {
+		t.Fatalf("BuildManifest: %v", err)
+	}
+	content := string(findInstructionsArtifact(t, m, "kb-a").Files[0].Content)
+	for _, want := range []string{"Operational instructions:", "every write is a git commit", "Status convention", "Write discipline", "gate_check"} {
+		if !strings.Contains(content, want) {
+			t.Errorf("generated instructions lack %q:\n%s", want, content)
+		}
 	}
 }
 

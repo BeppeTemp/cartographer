@@ -540,7 +540,11 @@ func printConnectResult(dir string, providers []string, opts connectOptions, res
 	if res.Deferred {
 		fmt.Println("warning: skill sync deferred (server unreachable); run `cartographer sync` once the server is up")
 	}
-	printSyncTimerHint(providers)
+	if !opts.DryRun {
+		ensureSyncTimer(dir, providers)
+	} else if hookless := hooklessProviders(providers); len(hookless) > 0 {
+		fmt.Printf("[dry-run] would install the sync timer: %s\n", describeHookless(hookless))
+	}
 	if !opts.DryRun {
 		ackSessionHookLimit(dir, providers)
 	}
@@ -575,20 +579,11 @@ func ackSessionHookLimit(dir string, providers []string) {
 	}
 }
 
-// providersNeedingSyncTimer returns the providers among those given that have
-// no session-start hook, or one that fires only in some of their sessions
-// (provisioning.SessionHookLimit — Kiro, D300), and are therefore not covered
-// by a trigger in every session: nil
-// when every provider has a hook, and also nil when the scheduled timer is
-// installed, since that is what covers the hook-less ones (D140). The timer
-// status is returned alongside so a caller can name its path.
-//
-// One predicate, two callers — printSyncTimerHint below (connect, reconnect and
-// status) and doctor's checkTriggerCoverage — because two copies of it
-// disagreed: the hint never consulted the timer, so it advised installing a
-// trigger that was already installed and running, on the command an operator
-// reads last.
-func providersNeedingSyncTimer(providers []string) ([]string, service.SyncTimerStatus) {
+// hooklessProviders returns the providers among those given that have no
+// session-start hook, or one that fires only in some of their sessions
+// (provisioning.SessionHookLimit — Kiro, D300): not covered by a trigger in
+// every session. Pure — it never looks at the timer.
+func hooklessProviders(providers []string) []string {
 	var hookless []string
 	for _, p := range providers {
 		provider := configurator.Provider(p)
@@ -596,6 +591,23 @@ func providersNeedingSyncTimer(providers []string) ([]string, service.SyncTimerS
 			hookless = append(hookless, p)
 		}
 	}
+	return hookless
+}
+
+// providersNeedingSyncTimer returns the hookless providers (hooklessProviders)
+// that the scheduled timer does not yet cover: nil when every provider has a
+// hook, and also nil when the timer is installed, since that is what covers the
+// hook-less ones (D140). The timer status is returned alongside so a caller can
+// name its path.
+//
+// One predicate, three callers — ensureSyncTimer (connect), printSyncTimerHint
+// (status) and doctor's checkTriggerCoverage — because two copies of it
+// disagreed: the hint never consulted the timer, so it advised installing a
+// trigger that was already installed and running. Disconnect must NOT use this
+// one to decide whether the timer is still needed: an installed timer makes it
+// return nil, which would read as "nobody needs it"; it uses hooklessProviders.
+func providersNeedingSyncTimer(providers []string) ([]string, service.SyncTimerStatus) {
+	hookless := hooklessProviders(providers)
 	if len(hookless) == 0 {
 		return nil, service.SyncTimerStatus{}
 	}
@@ -608,11 +620,38 @@ func providersNeedingSyncTimer(providers []string) ([]string, service.SyncTimerS
 	return hookless, st
 }
 
-// printSyncTimerHint names the scheduled trigger once per invocation when a
-// provider being configured has no session hook and the trigger is not already
-// installed (D140): without either, that client only syncs when a human
-// remembers to. The timer is never installed automatically — see
-// cmdServiceSyncTimer.
+// ensureSyncTimer installs the scheduled trigger when a provider being
+// configured has no reliable session-start hook and the timer is not already
+// there (D325, revising D140's opt-in): left to a hint, that client drifts
+// silently. An explicit `service sync-timer uninstall` is remembered
+// (clientconfig.SyncTimerOptOut) and respected. The opt-out is read BEFORE
+// anything is installed, and a config that cannot be read counts as opted out:
+// a corrupt file must never be the reason a background job appears.
+func ensureSyncTimer(dir string, providers []string) {
+	hookless, _ := providersNeedingSyncTimer(providers)
+	if len(hookless) == 0 {
+		return // every provider has a hook, or the timer already covers them
+	}
+	cfg, err := clientconfig.Load(dir)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		fmt.Printf("note: %s, but the client config cannot be read (%v) — not installing the sync timer\n", describeHookless(hookless), err)
+		return
+	}
+	if cfg != nil && cfg.SyncTimerOptOut {
+		fmt.Printf("note: %s, but the sync timer was explicitly uninstalled — not reinstalling (reset with `cartographer service sync-timer install`)\n", describeHookless(hookless))
+		return
+	}
+	fmt.Printf("installing the sync timer: %s\n", describeHookless(hookless))
+	if err := syncTimerInstallFn(service.DefaultSyncInterval); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: sync timer install failed: %v; install it manually with `cartographer service sync-timer install`\n", err)
+		return
+	}
+	fmt.Printf("sync timer installed (every %s); opt out with `cartographer service sync-timer uninstall`\n", service.DefaultSyncInterval)
+}
+
+// printSyncTimerHint names the scheduled trigger when a connected provider has
+// no reliable session hook and the timer is not installed. `status` only
+// reports (D325): installing is connect's and setup's job, never a read's.
 func printSyncTimerHint(providers []string) {
 	hookless, _ := providersNeedingSyncTimer(providers)
 	if len(hookless) == 0 {

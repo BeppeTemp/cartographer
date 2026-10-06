@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -86,9 +87,11 @@ var (
 )
 
 // cmdServiceSyncTimer manages the scheduled client sync (D140): the supported
-// trigger for providers with no session hook. Opt-in and explicit —
-// installing a launchd agent, a systemd user unit or a Scheduled Task behind the
-// user's back on `connect` would be out of proportion.
+// trigger for providers with no reliable session hook. Since D325 `setup` and
+// `connect` install it themselves when a connected client needs it, showing it
+// in the plan first; `uninstall` here is the explicit opt-out, remembered in
+// the client config so connect does not bring it back, and `install` clears
+// that opt-out.
 func cmdServiceSyncTimer(args []string) int {
 	action, rest := splitPositional(args, "")
 	switch action {
@@ -105,6 +108,7 @@ func cmdServiceSyncTimer(args []string) int {
 			return exitStatusError
 		}
 		fmt.Printf("sync timer installed (every %s)\n", *interval)
+		setSyncTimerOptOut(false)
 		// The timer never passes --auto-trust: an unattended job must not
 		// grant a trust the user never gave (D54).
 		fmt.Println("it runs `cartographer sync` without --auto-trust; the persisted `trust` setting still applies")
@@ -115,6 +119,9 @@ func cmdServiceSyncTimer(args []string) int {
 			return exitStatusError
 		}
 		fmt.Println("sync timer uninstalled")
+		if setSyncTimerOptOut(true) {
+			fmt.Println("opt-out remembered: connect will not reinstall it (reset with `cartographer service sync-timer install`)")
+		}
 		return 0
 	case "status":
 		st, err := syncTimerStatusFn()
@@ -144,6 +151,30 @@ func cmdServiceSyncTimer(args []string) int {
 		printServiceUsage(os.Stderr)
 		return exitStatusError
 	}
+}
+
+// setSyncTimerOptOut persists the operator's choice about the timer (D325).
+// Best effort: a client config that cannot be loaded or saved leaves the timer
+// itself exactly as the command made it. A missing config file is created only
+// to record an opt-out; clearing one never creates it. Reports whether the
+// value was written.
+func setSyncTimerOptOut(optOut bool) bool {
+	dir, err := clientconfig.TargetDir()
+	if err != nil {
+		return false
+	}
+	cfg, err := clientconfig.Load(dir)
+	if err != nil {
+		if !errors.Is(err, os.ErrNotExist) || !optOut {
+			return false
+		}
+		cfg = clientconfig.Default()
+	}
+	if cfg.SyncTimerOptOut == optOut {
+		return optOut
+	}
+	cfg.SyncTimerOptOut = optOut
+	return clientconfig.Save(dir, cfg) == nil && optOut
 }
 
 func cmdServiceInstall(args []string) int {

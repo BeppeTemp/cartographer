@@ -126,6 +126,12 @@ type Config struct {
 	// reads no transcript and reports nothing; the server degrades to "no
 	// data". USER-owned: sync never writes it.
 	UsageScan bool `yaml:"-"`
+
+	// SyncTimerOptOut remembers that the operator ran `service sync-timer
+	// uninstall` (D325): connect and setup then stop installing the timer
+	// themselves. Cleared by an explicit `sync-timer install`. A removal
+	// because no client needs the timer any more does not set it.
+	SyncTimerOptOut bool `yaml:"-"`
 	// Update is the client-wide update-notice setting (D254), USER-owned.
 	// The zero value is the default: check, and only notify.
 	Update UpdateSettings `yaml:"-"`
@@ -197,6 +203,7 @@ type yamlConfig struct {
 	MCPApprovals     map[string]map[string]MCPApproval `yaml:"mcp_approvals,omitempty"`
 	Update           *UpdateSettings                   `yaml:"update,omitempty"`
 	UsageScan        *bool                             `yaml:"usage_scan,omitempty"`
+	SyncTimerOptOut  bool                              `yaml:"sync_timer_opt_out,omitempty"`
 }
 
 // Default returns a Config with the same defaults as configurator.DefaultConfig.
@@ -250,7 +257,7 @@ func Load(dir string) (*Config, error) {
 	if err := yaml.Unmarshal(data, &extra); err != nil {
 		return nil, fmt.Errorf("clientconfig: parse extras %s: %w", Path(dir), err)
 	}
-	for _, key := range []string{"server_url", "server_name", "auth", "token_env", "agents", "kbs", "known_kbs", "clients", "trust", "search_roots", "search_depth", "paths", "ignored_paths", "signing_keys", "mcp_approvals", "update", "usage_scan"} {
+	for _, key := range []string{"server_url", "server_name", "auth", "token_env", "agents", "kbs", "known_kbs", "clients", "trust", "search_roots", "search_depth", "paths", "ignored_paths", "signing_keys", "mcp_approvals", "update", "usage_scan", "sync_timer_opt_out"} {
 		delete(extra, key)
 	}
 	cfg := Config{
@@ -275,6 +282,7 @@ func Load(dir string) (*Config, error) {
 		IgnoredPaths:     y.IgnoredPaths,
 		SigningKeys:      y.SigningKeys,
 		MCPApprovals:     y.MCPApprovals,
+		SyncTimerOptOut:  y.SyncTimerOptOut,
 		Extra:            extra,
 	}
 	if y.KnownKBs != nil {
@@ -333,6 +341,7 @@ func Save(dir string, cfg *Config) error {
 		IgnoredPaths:     cfg.IgnoredPaths,
 		SigningKeys:      cfg.SigningKeys,
 		MCPApprovals:     cfg.MCPApprovals,
+		SyncTimerOptOut:  cfg.SyncTimerOptOut,
 	}
 	// Emitted only when off: a default machine's file stays byte-identical.
 	if !cfg.UsageScan {

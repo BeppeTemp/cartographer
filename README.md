@@ -96,7 +96,8 @@ My first knowledge base is at: `<git remote URL>`
 
 Subagents and hooks are **translated**, not copied. Every `—` is a gap declared for a stated reason,
 never a silent omission. Cartographer re-syncs at session start (or on a timer where there is no
-hook), restores files edited or deleted by hand, and only ever touches what it created. Exact paths
+hook; `setup` and `connect` install that timer themselves when a connected client needs it, and
+`cartographer service sync-timer uninstall` is the remembered opt-out), restores files edited or deleted by hand, and only ever touches what it created. Exact paths
 and reasons: [`docs/sync.md`](docs/sync.md#kind--provider-matrix).
 
 ## How it works

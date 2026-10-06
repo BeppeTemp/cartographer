@@ -44,6 +44,11 @@ func TestMain(m *testing.M) {
 	serverUpdateCheckFn = func(context.Context, string, updatecheck.Options) (updatecheck.Result, error) {
 		return updatecheck.Result{}, nil
 	}
+	// No test may touch a real launchd/systemd/Task Scheduler: connect, setup
+	// and disconnect now install and remove the sync timer on their own (D325).
+	syncTimerInstallFn = func(time.Duration) error { return nil }
+	syncTimerUninstallFn = func() error { return nil }
+	syncTimerStatusFn = func() (service.SyncTimerStatus, error) { return service.SyncTimerStatus{}, nil }
 	code := m.Run()
 	os.RemoveAll(cache)
 	os.Exit(code)

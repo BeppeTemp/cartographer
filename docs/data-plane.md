@@ -55,7 +55,7 @@ kb-<domain>/                          # git repo = OKF bundle (content directori
 ├── templates/                         # KB-ONLY CONCEPT TEMPLATES (not provisioning artifacts)
 │   └── <slug>.md                      # frontmatter + Markdown skeleton; rendered by concept_new
 │
-├── instructions.md                    # optional: curated directives (D61); frontmatter keys below
+├── instructions.md                    # curated directives (D61), scaffolded by kb create (D325); frontmatter keys below
 ├── paths.yaml                         # optional: declared {{path:…}}/{{repo:…}} keys (D263)
 └── glossary.yaml                      # optional: canonical terms, aliases, forbidden forms (D276)
 ```
@@ -67,6 +67,10 @@ kb-<domain>/                          # git repo = OKF bundle (content directori
 `kb create` writes `data/.gitignore` with the junk patterns (`.DS_Store`, `__pycache__/`, `*.pyc`,
 `*.pyo`, `*~`, `*.swp`, `Thumbs.db` — `kb.JunkPatterns`), only when it creates the KB: the root
 `.gitignore` stays absent (D62), and this one is content that travels with the KB (D316).
+
+`kb create` also writes a short generic `instructions.md` at the KB root (status convention and write
+discipline, English, no KB-specific names), only when it creates the KB and before the initial commit,
+so a new KB never raises `missing_instructions`; an existing KB is left alone (D325).
 
 `instructions.md` is folded into the client instructions with its frontmatter discarded (D61). Two
 optional frontmatter keys are read by `lint` only (D316):

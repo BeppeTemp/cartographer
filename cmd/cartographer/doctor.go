@@ -860,7 +860,8 @@ func checkSymlinkedDestinations(dir string, providers []string) []doctorFinding 
 // checkTriggerCoverage: a provider with no session hook, or one that fires only
 // in some sessions (D300), syncs only when a human remembers to, unless the
 // scheduled trigger is installed (D140). Shares its
-// predicate with printSyncTimerHint (connect.go) so the two cannot disagree.
+// predicate with ensureSyncTimer (connect.go) so the two cannot disagree. A
+// timer the operator uninstalled on purpose (D325) is info, not a warning.
 func checkTriggerCoverage(dir string, providers []string) []doctorFinding {
 	hookless, st := providersNeedingSyncTimer(providers)
 	if len(hookless) == 0 {
@@ -869,6 +870,13 @@ func checkTriggerCoverage(dir string, providers []string) []doctorFinding {
 	path := st.Path
 	if path == "" {
 		path = filepath.Join(dir, clientconfig.FileName)
+	}
+	if cfg, err := clientconfig.Load(dir); err == nil && cfg.SyncTimerOptOut {
+		return []doctorFinding{{
+			Check: "trigger", Severity: doctorInfo, Path: path,
+			Message: fmt.Sprintf("%s, and the sync timer was explicitly uninstalled: it syncs only on demand", describeHookless(hookless)),
+			Fix:     "cartographer service sync-timer install",
+		}}
 	}
 	return []doctorFinding{{
 		Check: "trigger", Severity: doctorWarning, Path: path,

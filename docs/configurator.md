@@ -541,7 +541,7 @@ The checks:
 | `instructions` | exactly one well-formed managed block per provider that has instructions materialized (begin recognized by prefix, so a block written by an older version still counts), **and** that the provider actually reads the file it was written into (D189) |
 | `hooks` | one native registration per managed hook — the D99 double-fire is a registration left outside the managed block by Codex's own rewrite |
 | `server` | `/health` reachable; the recorded `server_version` (D142) against the live one; client binary against server. When an unreachable server is loopback **and** no local native service is installed, the finding names that cause and the two remedies instead of pointing at `service status`, which would only repeat `installed: false` (D174) |
-| `trigger` | every connected provider has a session hook, or the scheduled trigger is installed (D140) |
+| `trigger` | every connected provider has a session hook, or the scheduled trigger is installed (D140); a timer the operator uninstalled on purpose is info (D325) |
 | `capability` | every per-KB gate the server advertises on `/health` is on, and no KB was mounted by discovery rather than by a `kbs[]` entry (D151). Info severity: it names the setting that would change it |
 | `symlink` | no managed destination directory is a symlink, or anything else that is not a plain directory — provisioning refuses to write through one, so the artifacts it would hold are not installed (D148, widened in D216) |
 | `kb-collisions` | no two KBs bound to the same provider claim one `kind`+`name` (D171). `sync` refuses outright when they do, so a machine that has not synced since the binding changed would otherwise show no symptom. Silent when the server is unreachable |
@@ -613,8 +613,12 @@ cartographer service sync-timer status   # exit: 0 active, 3 installed but inact
 `install` is idempotent (it overwrites and re-registers); uninstalling a timer that is not
 installed is a success. The timer runs `cartographer sync` **without** `--auto-trust`: an
 unattended job must not grant a trust the user never gave, while the persisted `trust` setting
-still applies. `connect` and `status` name this command once per invocation when a connected
-provider has no session hook, or one limited to some sessions. They never install it.
+still applies. `setup` and `connect` install the timer themselves when a connected provider has no
+session hook, or one limited to some sessions (D325); `setup` lists it in its plan. `uninstall` is
+the explicit opt-out, remembered as `sync_timer_opt_out` in `.cartographer.yaml` (so `connect` does
+not reinstall it, and `doctor`'s `trigger` check is info rather than a warning); `install` clears
+it. `disconnect` removes the timer when no remaining client needs it, without an opt-out. `status`
+only names the command.
 
 On Windows the trigger is a repetition at the configured interval with *start-when-available*
 (systemd's `Persistent=true` analogue: a run missed while the machine was off happens as soon as it
