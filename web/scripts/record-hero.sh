@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # Records the README's hero animation (D330): e2e/hero.spec.ts walked over the
-# demo KB at a watchable pace, filmed through the browser screencast at 2x and
+# demo KB at a watchable pace, filmed through the browser screencast and
 # encoded as docs/atlas/hero.webp.
 #
-# Run it on a machine with a GPU (the recording does not use SwiftShader) after
-# a visible Atlas change. The suite fails hero.spec.ts when a step of the tour
+# Run it after a visible Atlas change, on a desktop session with a GPU and,
+# for a sharp result, a Retina display: the recording opens a real Chromium
+# window and films what it paints (2560x1520 on a 2x display). The suite fails hero.spec.ts when a step of the tour
 # no longer exists; this script only refreshes what the tour looks like.
 #
 # Usage: web/scripts/record-hero.sh   (make hero)
@@ -17,12 +18,11 @@ WEB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 REPO_ROOT="$(cd "${WEB_DIR}/.." && pwd)"
 BIN="${REPO_ROOT}/bin/cartographer"
 OUT="${REPO_ROOT}/docs/atlas/hero.webp"
-WIDTH="${HERO_WIDTH:-1280}"
-FPS="${HERO_FPS:-12}"
-QUALITY="${HERO_QUALITY:-75}"
-# The tour is paced for a person driving it; played back faster it reads as a
-# demo rather than a screen recording.
-SPEED="${HERO_SPEED:-1.3}"
+WIDTH="${HERO_WIDTH:-1600}"
+FPS="${HERO_FPS:-30}"
+QUALITY="${HERO_QUALITY:-92}"
+# Playback speed; the beats in hero.spec.ts are already paced for a viewer.
+SPEED="${HERO_SPEED:-1}"
 
 for tool in ffmpeg img2webp; do
     command -v "$tool" >/dev/null || { echo "record-hero: $tool is required (brew install ffmpeg webp)" >&2; exit 1; }
@@ -32,7 +32,7 @@ TMP="$(mktemp -d "${TMPDIR:-/tmp}/cartographer_hero_XXXXXX")"
 PID=""
 cleanup() {
     if [ -n "$PID" ]; then kill "$PID" 2>/dev/null || true; wait "$PID" 2>/dev/null || true; fi
-    rm -rf "$TMP"
+    if [ -n "${HERO_KEEP:-}" ]; then echo "record-hero: kept ${TMP}"; else rm -rf "$TMP"; fi
 }
 trap cleanup EXIT
 
@@ -54,6 +54,9 @@ E2E_LOCAL_URL="$URL" E2E_AUTH_URL="$URL" HERO_RECORD=1 \
     npx playwright test hero.spec.ts --output "${TMP}/run"
 
 FRAMES="$(find "${TMP}/run" -name frames.ffconcat | head -1)"
+# The screencast delivers what the compositor paints, so its rate is the
+# machine's, not FPS: printed so a choppy capture is visible before encoding.
+awk '/^duration/ { n++; t += $2 } END { printf "record-hero: captured %d frames over %.1fs (%.0f/s)\n", n, t, n / t }' "$FRAMES"
 
 # Animated WebP, not GIF: the living graph changes most pixels of every frame,
 # which a 256-colour GIF pays for at about three times the size (D330).
