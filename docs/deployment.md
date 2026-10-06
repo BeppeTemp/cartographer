@@ -104,7 +104,14 @@ kbs:                          # (kbs[]) explicit KBs, local path or remote git (
     auto_repair: [nonstandard_field, duplicate_link] # (kbs[].auto_repair) checks `cartographer kb repair
                                                       # --apply` may apply unattended (D299); each must be
                                                       # a check with a mechanical fix, listed by name (no
-                                                      # "all"). Default empty: nothing runs unattended
+                                                      # "all"). Absent: the default list (D323,
+                                                      # nonstandard_field, tool_param_field,
+                                                      # invalid_field_value, duplicate_link,
+                                                      # prose_value); [] means none
+    doctor_auto_interval: 1d                         # (kbs[].doctor_auto_interval) how often the server
+                                                      # applies auto_repair by itself, at most 50
+                                                      # concepts per check (D323, HTTP serve only);
+                                                      # "0" disables, default 1d
     doctor_interval: 14d                             # (kbs[].doctor_interval) days after the last
                                                       # kb-doctor session before the server proposes the
                                                       # next one (D299); "0" disables, default 14d
@@ -492,6 +499,14 @@ unchecked items, filterable by map, status, staleness and free text, grouped by
 status, as a board of columns across the page (a closed concept listed only for
 its items goes under *unchecked items*), or by map, as a grid of cards; a card expands to its items and opens the concept on the atlas.
 It is read-only: work changes through the agents' write tools.
+
+The **Maintenance** panel, between Work and the Observatory, shows what keeps the KB in
+repair (D323): whether the background repair is on and which checks it runs (and whether that is the
+default list), the last run, the last and next doctor session; the open questions the doctor deferred
+(`open_question` concepts, each with a *Copy ID* button: they are answered from an agent session);
+and the repair commits of the last 30 days with their SHA and the exact `cartographer kb repair <kb>
+--revert <sha>` command behind a *Copy revert command* button. Like the rest of the UI it writes
+nothing: no button reverts, answers or repairs. The summary is whole-KB.
 
 The **Observatory** panel lists the lint findings the caller may see. The Map or
 Journal selected in the rail scopes them (`GET /api/ui/v1/kbs/<kb>/lint?scope=`),

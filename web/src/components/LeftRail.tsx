@@ -101,6 +101,21 @@ export function LeftRail({
           <button
             type="button"
             className="rail__panel"
+            aria-label="Maintenance"
+            title={collapsed ? "Maintenance" : undefined}
+            aria-current={panel === "maintenance" ? "page" : undefined}
+            onClick={() => onPanel("maintenance")}
+          >
+            <span className="rail__glyph">
+              <Icon name="maintenance" />
+            </span>
+            <span className="rail__label">Maintenance</span>
+          </button>
+        </li>
+        <li>
+          <button
+            type="button"
+            className="rail__panel"
             aria-label={lintTotal > 0 ? `Observatory, ${lintTotal} findings` : "Observatory"}
             title={collapsed ? "Observatory" : undefined}
             aria-current={panel === "observatory" ? "page" : undefined}

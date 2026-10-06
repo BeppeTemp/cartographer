@@ -1,4 +1,4 @@
-import type { Artifact, ArtifactList, Concept, GraphSnapshot, KBSummary, LintReport, Overview, ChangesResponse, KBStatus, SearchResponse, WorkResponse } from "./types";
+import type { Artifact, ArtifactList, Concept, GraphSnapshot, KBSummary, LintReport, Overview, ChangesResponse, KBStatus, MaintenanceQuestions, MaintenanceSummary, SearchResponse, WorkResponse } from "./types";
 
 const BASE = "/api/ui/v1";
 
@@ -162,6 +162,16 @@ export function fetchChanges(kb: string, since: string, signal?: AbortSignal): P
 /** The caller's open work, up to the route's cap (D302). */
 export function fetchWork(kb: string, signal?: AbortSignal): Promise<WorkResponse> {
   return get<WorkResponse>(`/kbs/${encodeURIComponent(kb)}/work?limit=200`, signal);
+}
+
+/** What the server repaired by itself and what the doctor left (D323). */
+export function fetchMaintenanceSummary(kb: string, signal?: AbortSignal): Promise<MaintenanceSummary> {
+  return get<MaintenanceSummary>(`/kbs/${encodeURIComponent(kb)}/maintenance/summary`, signal);
+}
+
+/** The questions the doctor deferred to a person: open_question concepts. */
+export function fetchMaintenanceQuestions(kb: string, signal?: AbortSignal): Promise<MaintenanceQuestions> {
+  return get<MaintenanceQuestions>(`/kbs/${encodeURIComponent(kb)}/maintenance/questions`, signal);
 }
 
 export function fetchStatus(kb: string, signal?: AbortSignal): Promise<KBStatus> {

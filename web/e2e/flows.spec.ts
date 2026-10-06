@@ -175,6 +175,20 @@ test("the Artifacts panel lists what the KB ships and opens a skill", async ({ p
   await expect(panel.getByRole("button", { name: /review/ })).toBeVisible();
 });
 
+test("the Maintenance panel loads the summary and the questions, and offers no write", async ({ page }) => {
+  await page.goto(ATLAS);
+  await waitForAtlas(page);
+  await page.getByRole("button", { name: "Maintenance" }).click();
+  await expect(page).toHaveURL(/panel=maintenance/);
+  const panel = page.getByRole("region", { name: "Maintenance" });
+  // A KB served with no doctor settings is maintained by default (D323).
+  await expect(panel.getByText("Background repair")).toBeVisible();
+  await expect(panel.getByText(/^on, every day: nonstandard_field/)).toBeVisible();
+  await expect(panel.getByRole("heading", { name: "Questions for you" })).toBeVisible();
+  await expect(panel.getByRole("heading", { name: /^Recent repairs/ })).toBeVisible();
+  await expect(panel.getByText(/Could not read/)).toHaveCount(0);
+});
+
 test("the Observatory's severity floor updates its count", async ({ page }) => {
   await page.goto(`${ATLAS}&panel=observatory`);
   const observatory = page.getByRole("region", { name: "Observatory" });

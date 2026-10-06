@@ -8,7 +8,7 @@
  * the bearer token never touches it.
  */
 
-export type Panel = "atlas" | "activity" | "work" | "observatory" | "artifacts";
+export type Panel = "atlas" | "activity" | "work" | "maintenance" | "observatory" | "artifacts";
 
 export interface ViewState {
   kb: string | null;
@@ -25,7 +25,13 @@ export function readViewState(search: string = window.location.search): ViewStat
   const params = new URLSearchParams(search);
   const param = params.get("panel");
   const panel: Panel =
-    param === "activity" || param === "work" || param === "observatory" || param === "artifacts" ? param : "atlas";
+    param === "activity" ||
+    param === "work" ||
+    param === "maintenance" ||
+    param === "observatory" ||
+    param === "artifacts"
+      ? param
+      : "atlas";
   return {
     kb: params.get("kb"),
     scope: params.get("scope"),

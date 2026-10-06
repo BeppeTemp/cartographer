@@ -86,6 +86,13 @@ type KB struct {
 	AutoRepair         []string
 	DoctorIntervalDays int
 
+	// AutoRepairDefault says AutoRepair is the product default rather than a
+	// list the operator wrote (D323); DoctorAutoIntervalDays is how often the
+	// server applies AutoRepair by itself (0 = never). A KB opened any other
+	// way leaves both at zero, which is off.
+	AutoRepairDefault      bool
+	DoctorAutoIntervalDays int
+
 	// UsageStaleDays is the per-KB threshold (D326, config.KBSpec) past which
 	// an artifact no client has used is reported by the artifact_unused lint:
 	// 0 disables the finding. Set by serve; a KB opened any other way has it

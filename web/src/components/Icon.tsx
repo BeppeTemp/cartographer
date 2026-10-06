@@ -8,6 +8,7 @@ export type IconName =
   | "atlas"
   | "activity"
   | "work"
+  | "maintenance"
   | "observatory"
   | "artifacts"
   | "panel-open"
@@ -42,6 +43,8 @@ const PATHS: Record<IconName, string> = {
   activity: "M12 20a8 8 0 1 0 0-16 8 8 0 0 0 0 16z M12 8v4l2.5 2.5",
   // A checklist: open items and the work still to do.
   work: "M10 7h10 M10 12h10 M10 17h10 M4 7l1.5 1.5L8 6 M4.5 12h2 M4.5 17h2",
+  // A wrench: what keeps the KB in repair.
+  maintenance: "M14.5 5.5a4 4 0 0 0-4.8 5.2L4.5 15.9a1.8 1.8 0 0 0 2.6 2.6l5.2-5.2a4 4 0 0 0 5.2-4.8l-2.4 2.4-2.2-.6-.6-2.2z",
   search: "M10.5 17a6.5 6.5 0 1 0 0-13 6.5 6.5 0 0 0 0 13z M15.5 15.5 20 20",
   chevron: "M8 10l4 4 4-4",
   sun: "M12 16a4 4 0 1 0 0-8 4 4 0 0 0 0 8z M12 2.5v2 M12 19.5v2 M4.6 4.6l1.4 1.4 M18 18l1.4 1.4 M2.5 12h2 M19.5 12h2 M4.6 19.4 6 18 M18 6l1.4-1.4",

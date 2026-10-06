@@ -248,6 +248,9 @@ type KBCapability struct {
 	Setting string `json:"setting"`
 	// Checks lists the checks an auto_repair capability covers (D299).
 	Checks []string `json:"checks,omitempty"`
+	// Default is true when the setting is the product default and not a value
+	// the operator wrote (D323), so a client can tell a customised KB.
+	Default bool `json:"default,omitempty"`
 }
 
 // MultiKBServer wraps multiple KB instances served by a single HTTP server.

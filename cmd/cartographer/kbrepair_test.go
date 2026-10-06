@@ -12,6 +12,7 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/auth"
 	"github.com/BeppeTemp/cartographer/internal/client"
+	"github.com/BeppeTemp/cartographer/internal/config"
 	"github.com/BeppeTemp/cartographer/internal/kb"
 	"github.com/BeppeTemp/cartographer/internal/mcpserver"
 	"github.com/BeppeTemp/cartographer/internal/okf"
@@ -89,7 +90,9 @@ func TestKBRepairDryRunWritesNothing(t *testing.T) {
 }
 
 func TestKBRepairApplyRefusesChecksOutsideTheCapability(t *testing.T) {
-	c, concept := repairTestKB(t, nil)
+	// At the kb.KB level an empty list is "none": the default is resolved
+	// from the config before the KB is built (config.KBSpec.AutoRepairChecks).
+	c, concept := repairTestKB(t, []string{})
 	before, _ := os.ReadFile(concept)
 	var out, errOut bytes.Buffer
 	code := runKBRepair(c, true, false, &out, &errOut)
@@ -99,7 +102,7 @@ func TestKBRepairApplyRefusesChecksOutsideTheCapability(t *testing.T) {
 	if after, _ := os.ReadFile(concept); !bytes.Equal(before, after) {
 		t.Fatal("--apply with an empty auto_repair changed the concept")
 	}
-	if !strings.Contains(out.String(), "auto_repair is empty") {
+	if !strings.Contains(out.String(), "auto_repair is explicitly empty") {
 		t.Fatalf("report does not say why nothing was applied:\n%s", out.String())
 	}
 }
@@ -157,3 +160,38 @@ func TestCallIntoTakesTheFirstBlock(t *testing.T) {
 type fakeCaller string
 
 func (f fakeCaller) Invoke(string, any) (json.RawMessage, error) { return json.RawMessage(f), nil }
+
+// The product default (D323) is what --apply runs when the operator never
+// wrote an auto_repair: the five safe checks, and the report says it is the
+// default so an upgrading operator is not surprised.
+func TestKBRepairApplyRunsDefaultChecks(t *testing.T) {
+	c, concept := repairTestKB(t, config.DefaultAutoRepair)
+	rep, code := runRepairJSON(t, c, true)
+	if dc := checkLine(rep, "nonstandard_field"); dc.Applied != 1 {
+		t.Fatalf("nonstandard_field = %+v, want 1 applied by the default list", dc)
+	}
+	if code != kbRepairExitClean {
+		t.Fatalf("exit = %d, want a clean KB", code)
+	}
+	for _, check := range config.DefaultAutoRepair {
+		if !checkLine(rep, check).Auto {
+			t.Errorf("%s is in the default list but not marked auto", check)
+		}
+	}
+	for _, check := range []string{"broken_link", "reciprocal_link_item"} {
+		if checkLine(rep, check).Auto {
+			t.Errorf("%s drops or rewrites links and must not be a default", check)
+		}
+	}
+	if after, _ := os.ReadFile(concept); strings.Contains(string(after), "updated:") {
+		t.Fatalf("concept not repaired:\n%s", after)
+	}
+}
+
+func TestKBRepairReportsTheDefaultList(t *testing.T) {
+	var out bytes.Buffer
+	printKBRepairReport(&out, kbRepairReport{KB: "kb-a", AutoRepair: config.DefaultAutoRepair, AutoRepairDefault: true})
+	if !strings.Contains(out.String(), "auto_repair uses the default (5 checks") {
+		t.Fatalf("report:\n%s", out.String())
+	}
+}

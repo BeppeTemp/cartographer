@@ -103,7 +103,10 @@ func (m *MultiKBServer) handleUIAPI(w http.ResponseWriter, r *http.Request) {
 		m.uiListKBs(w, r)
 		return
 	}
-	if len(segments) != 3 || segments[0] != "kbs" {
+	// The one four-segment route family: maintenance/{summary,questions}.
+	if len(segments) == 4 && segments[0] == "kbs" && segments[2] == "maintenance" {
+		segments = []string{segments[0], segments[1], "maintenance", segments[3]}
+	} else if len(segments) != 3 || segments[0] != "kbs" {
 		writeUINotFound(w)
 		return
 	}
@@ -141,6 +144,12 @@ func (m *MultiKBServer) handleUIAPI(w http.ResponseWriter, r *http.Request) {
 		uiStatus(w, r, srv)
 	case "work":
 		uiWork(w, r, srv)
+	case "maintenance":
+		if len(segments) != 4 {
+			writeUINotFound(w)
+			return
+		}
+		uiMaintenance(w, r, srv, segments[3])
 	default:
 		writeUINotFound(w)
 	}

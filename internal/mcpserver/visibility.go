@@ -140,6 +140,10 @@ var advancedToolNames = map[string]bool{
 	"artifact_list":        true,
 	"pr_status":            true,
 	"pr_finalize":          true,
+	// repair_revert (D323): undoing an automatic repair is an operator
+	// decision, taken from the Atlas's revert command or the CLI, not a step
+	// of the normal agent loop; it stays callable by name.
+	"repair_revert": true,
 	// graph_path (D242): "how is X connected to Y" is an investigation, not
 	// a step of the normal loop; graph_context and link_suggest are.
 	"graph_path": true,
