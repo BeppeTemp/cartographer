@@ -709,11 +709,19 @@ type mapTitle struct{ name, title string }
 // subtitleSep is what splits a title into a name and a subtitle.
 var subtitleSep = regexp.MustCompile(` [—–-] |: `)
 
-// mapNamingItems flags a KB whose map titles do not share one shape: some
-// with a subtitle and some without, or Title Case beside sentence case. Only
-// those two are measured; language, length and agreement with the folder
-// name are the agent's to judge from the titles the evidence lists. One item
-// for the whole set, naming every map: renaming is a scheme, not a page.
+// Thresholds of the individual-title arm of map_naming (D315): a map title
+// is a short label, and a subtitle past the second is a description.
+const (
+	mapTitleMaxRunes    = 30
+	mapSubtitleMaxRunes = 20
+)
+
+// mapNamingItems flags a KB whose map titles do not share one shape (some
+// with a subtitle and some without, or Title Case beside sentence case) and,
+// separately, a map whose title is poor on its own: too long, a subtitle that
+// is a description, or no resemblance to its folder (D315). A consistent set
+// of poor titles is still flagged. One item for the set, naming every map:
+// renaming is a scheme, not a page.
 func mapNamingItems(titles []mapTitle) []ReviewItem {
 	var named []mapTitle
 	for _, m := range titles {
@@ -747,24 +755,88 @@ func mapNamingItems(titles []mapTitle) []ReviewItem {
 	if upper > 0 && lower > 0 {
 		why = append(why, fmt.Sprintf("%d in Title Case and %d in sentence case", upper, lower))
 	}
-	if len(why) == 0 {
+	poor := poorMapTitles(named)
+	if len(why) == 0 && len(poor) == 0 {
 		return nil
 	}
-	ids := make([]string, 0, len(named))
-	list := make([]string, 0, len(named))
-	for _, m := range named {
-		ids = append(ids, m.name+mapDescriptorSuffix)
-		list = append(list, fmt.Sprintf("%s %q", m.name, m.title))
+	var evidence []string
+	var ids []string
+	weight := len(poor)
+	if len(why) > 0 {
+		list := make([]string, 0, len(named))
+		for _, m := range named {
+			ids = append(ids, m.name+mapDescriptorSuffix)
+			list = append(list, fmt.Sprintf("%s %q", m.name, m.title))
+		}
+		evidence = append(evidence, fmt.Sprintf("map titles mix %s: %s", strings.Join(why, ", "), strings.Join(list, "; ")))
+		weight = len(named)
+	}
+	if len(poor) > 0 {
+		list := make([]string, 0, len(poor))
+		for _, p := range poor {
+			if len(why) == 0 {
+				ids = append(ids, p.name+mapDescriptorSuffix)
+			}
+			list = append(list, fmt.Sprintf("%s %q: %s", p.name, p.title, p.reason))
+		}
+		evidence = append(evidence, "poor map titles: "+strings.Join(list, "; "))
 	}
 	return []ReviewItem{{
 		Kind:            ReviewMapNaming,
 		Concepts:        ids,
-		Evidence:        fmt.Sprintf("map titles mix %s: %s", strings.Join(why, ", "), strings.Join(list, "; ")),
+		Evidence:        strings.Join(evidence, " — "),
 		SuggestedAction: "agree a scheme with the operator: one language, one shape (a short name; a description belongs in the index body), one capitalisation, each title recognisable from its folder; then rename with map_update title",
-		Weight:          len(named),
+		Weight:          weight,
 		// Titles of maps a restricted caller cannot see stay out of its list.
 		wholeGraph: true,
 	}}
+}
+
+type poorTitle struct{ name, title, reason string }
+
+// poorMapTitles lists the map titles that are individually off, each with
+// every reason (D315). The folder mismatch is a signal, not a rule: a title
+// in another language than its folder is the agent's to judge.
+func poorMapTitles(named []mapTitle) []poorTitle {
+	var out []poorTitle
+	for _, m := range named {
+		var reasons []string
+		if n := len([]rune(m.title)); n > mapTitleMaxRunes {
+			reasons = append(reasons, fmt.Sprintf("%d characters; map titles are 1-3 words", n))
+		}
+		head := m.title
+		if loc := subtitleSep.FindStringIndex(m.title); loc != nil {
+			head = m.title[:loc[0]]
+			if rest := strings.TrimSpace(m.title[loc[1]:]); len([]rune(rest)) > mapSubtitleMaxRunes {
+				reasons = append(reasons, fmt.Sprintf("a %d-character subtitle is a description, not a qualifier", len([]rune(rest))))
+			}
+		}
+		if i := strings.Index(head, " ("); i >= 0 {
+			head = head[:i]
+		}
+		if slug, folder := slugOf(head), slugOf(m.name); slug != "" && !strings.HasPrefix(slug, folder) && !strings.HasPrefix(folder, slug) {
+			reasons = append(reasons, fmt.Sprintf("does not match folder %q", m.name))
+		}
+		if len(reasons) > 0 {
+			out = append(out, poorTitle{m.name, m.title, strings.Join(reasons, ", ")})
+		}
+	}
+	return out
+}
+
+// slugOf lowercases s, turns spaces into hyphens and drops what is neither a
+// letter, a digit nor a hyphen.
+func slugOf(s string) string {
+	var b strings.Builder
+	for _, r := range strings.ToLower(strings.TrimSpace(s)) {
+		switch {
+		case r == ' ' || r == '-' || r == '_':
+			b.WriteByte('-')
+		case unicode.IsLetter(r) || unicode.IsDigit(r):
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
 }
 
 // titleCaseStyle is "title" when every later word of four letters or more

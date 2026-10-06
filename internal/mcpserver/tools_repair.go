@@ -215,6 +215,13 @@ func applyFixes(fm *okf.Frontmatter, body *string, fixes []*lint.Fix) (changed i
 				continue
 			}
 			fm.Set(fx.Field, items)
+		case lint.FixSyncH1:
+			nb, ok := replaceFirstH1(*body, fx.To)
+			if !ok {
+				changed-- // no heading, or already equal: idempotent
+				continue
+			}
+			*body = nb
 		case lint.FixDropLinkItem:
 			*body = lint.DropLinkItem(*body, fx.Field)
 		case lint.FixRewriteLinkItem:
@@ -493,6 +500,35 @@ func insertAfterH1(body, line string) string {
 		}
 	}
 	return line + "\n\n" + body
+}
+
+// replaceFirstH1 overwrites the body's first level-1 heading with `# title`
+// (sync_h1, D315). The title is plain text: any formatting the old heading
+// carried (bold, a link, a code span) goes with it. A "# " line inside a
+// code fence is never touched. ok is false when there is no heading or it
+// already reads title.
+func replaceFirstH1(body, title string) (string, bool) {
+	lines := strings.Split(body, "\n")
+	inFence := false
+	for i, l := range lines {
+		if t := strings.TrimSpace(l); strings.HasPrefix(t, "```") || strings.HasPrefix(t, "~~~") {
+			inFence = !inFence
+			continue
+		}
+		if inFence || !strings.HasPrefix(l, "# ") {
+			continue
+		}
+		cr := ""
+		if strings.HasSuffix(l, "\r") {
+			cr = "\r"
+		}
+		if strings.TrimSpace(l) == "# "+title {
+			return body, false
+		}
+		lines[i] = "# " + title + cr
+		return strings.Join(lines, "\n"), true
+	}
+	return body, false
 }
 
 // rebaseHrefInBody replaces all occurrences of oldHref with newHref inside

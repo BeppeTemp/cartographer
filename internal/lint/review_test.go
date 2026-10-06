@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math/rand"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -521,8 +522,13 @@ func TestReviewMapNaming(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			k := tempKB(t)
+			// Folders follow the titles (D315 flags a title its folder does not echo).
+			folders := make([]string, len(tc.titles))
 			for i, title := range tc.titles {
-				writeFile(t, k.DataRoot(), fmt.Sprintf("m%d/_map.md", i), "---\ntype: Map\ntitle: "+title+"\n---\n")
+				folders[i] = slugOf(subtitleSep.Split(title, 2)[0])
+			}
+			for i, title := range tc.titles {
+				writeFile(t, k.DataRoot(), folders[i]+"/_map.md", "---\ntype: Map\ntitle: "+title+"\n---\n")
 			}
 			got := itemsOf(review(t, k), ReviewMapNaming)
 			if tc.want == "" {
@@ -531,12 +537,45 @@ func TestReviewMapNaming(t *testing.T) {
 				}
 				return
 			}
-			if len(got) != 1 || len(got[0].Concepts) != len(tc.titles) || got[0].Concepts[0] != "m0/_map" ||
+			if len(got) != 1 || len(got[0].Concepts) != len(tc.titles) || !slices.Contains(got[0].Concepts, folders[0]+"/_map") ||
 				!strings.Contains(got[0].Evidence, tc.want) || !strings.Contains(got[0].Evidence, fmt.Sprintf("%q", tc.titles[0])) {
 				t.Fatalf("item: %+v", got)
 			}
 			if vis := FilterReview(got, func(string) bool { return true }, false); len(vis) != 0 {
 				t.Fatalf("a restricted caller sees map titles: %+v", vis)
+			}
+		})
+	}
+}
+
+// TestReviewMapNamingIndividual (D315): a map title poor on its own is
+// flagged even when the set is consistent, with the reason in the evidence.
+func TestReviewMapNamingIndividual(t *testing.T) {
+	long := "Everything we know about the cluster and its nodes"
+	for name, tc := range map[string]struct {
+		folders, titles []string
+		want            string
+	}{
+		"clean":           {[]string{"infra", "clients", "notes"}, []string{"Infra", "Clients", "Notes"}, ""},
+		"long title":      {[]string{"infra", "clients", "notes"}, []string{"Infra", "Clients", long}, "50 characters; map titles are 1-3 words"},
+		"long subtitles":  {[]string{"infra", "clients", "notes"}, []string{"Infra — the cluster and its nodes", "Clients — who we work for here", "Notes — whatever comes to mind"}, "subtitle is a description, not a qualifier"},
+		"folder mismatch": {[]string{"infra", "clients", "notes"}, []string{"Infra", "Clients", "Ricerche"}, `does not match folder "notes"`},
+		"folder prefix":   {[]string{"managed-services", "clients", "notes"}, []string{"Managed", "Clients", "Notes"}, ""},
+	} {
+		t.Run(name, func(t *testing.T) {
+			k := tempKB(t)
+			for i, title := range tc.titles {
+				writeFile(t, k.DataRoot(), tc.folders[i]+"/_map.md", "---\ntype: Map\ntitle: "+title+"\n---\n")
+			}
+			got := itemsOf(review(t, k), ReviewMapNaming)
+			if tc.want == "" {
+				if len(got) != 0 {
+					t.Fatalf("unexpected: %+v", got)
+				}
+				return
+			}
+			if len(got) != 1 || !strings.Contains(got[0].Evidence, tc.want) {
+				t.Fatalf("item: %+v", got)
 			}
 		})
 	}

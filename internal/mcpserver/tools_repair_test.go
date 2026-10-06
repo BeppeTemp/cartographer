@@ -748,3 +748,37 @@ func TestRepair_StringifiedList(t *testing.T) {
 		}
 	}
 }
+
+// TestRepair_SyncH1 (D315): the first heading becomes the plain title even
+// when it carried formatting, a later heading and a "# " line in a code fence
+// stay, and a second run finds nothing left.
+func TestRepair_SyncH1(t *testing.T) {
+	k, s := repairKB(t, 0)
+	fm := newFM()
+	fm.Set("type", "Note")
+	fm.Set("title", "Alpha")
+	fm.Set("updated", "2026-01-02")
+	body := "# **Beta** and [link](x.md) `code`\n\ntext\n\n# Later\n\n```\n# in fence\n```\n"
+	if _, err := k.WriteConcept("ops/h1", fm, body, ""); err != nil {
+		t.Fatal(err)
+	}
+	if out := repairCall(t, s, `{"check":"title_h1_mismatch","dry_run":false}`); out["error"] != nil || out["applied"].(float64) != 1 {
+		t.Fatalf("repair: %v", out)
+	}
+	cd, err := k.ReadConcept("ops/h1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "# Alpha\n\ntext\n\n# Later\n\n```\n# in fence\n```"; !strings.Contains(cd.Body, want) || strings.Contains(cd.Body, "Beta") {
+		t.Fatalf("body = %q", cd.Body)
+	}
+	findings, err := lint.Run(k, "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range findings {
+		if f.Check == "title_h1_mismatch" {
+			t.Errorf("still flagged after repair: %+v", f)
+		}
+	}
+}

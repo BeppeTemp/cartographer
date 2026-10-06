@@ -1546,7 +1546,12 @@ type MapContract struct {
 	// OversizeConcepts (D313) is the top-level concept count above which the map
 	// is map_oversize; 0 keeps the built-in threshold.
 	OversizeConcepts int
-	Malformed        []ContractMalformed
+	// Page-name keys (D315): TitleMaxLength is the title length above which
+	// title_quality fires (nil = built-in default, 0 = off);
+	// ForbiddenTitleTerms are substrings no title in this map may carry.
+	TitleMaxLength      *int
+	ForbiddenTitleTerms []string
+	Malformed           []ContractMalformed
 }
 
 // AllowedValues returns the allowed values declared for field on conceptType:
@@ -1784,6 +1789,11 @@ type MapContractUpdate struct {
 	HotspotBytes     *int
 	OversizeBytes    *int
 	OversizeConcepts *int
+	// D315 page-name keys: TitleMaxLength nil leaves the key, a negative
+	// value removes it (default length), 0 turns the length rule off;
+	// ForbiddenTitleTerms nil leaves it, an empty list removes it.
+	TitleMaxLength      *int
+	ForbiddenTitleTerms *[]string
 	// Title renames the map: the title key and the H1 that repeats it, in
 	// _map.md and in index.md. nil leaves it; "" is refused, a map has one.
 	Title *string
@@ -1904,6 +1914,16 @@ func (kb *KB) UpdateMapContract(name string, upd MapContractUpdate) (MapContract
 	}
 	if upd.ProcedureHeadings != nil {
 		setList("procedure_headings", *upd.ProcedureHeadings)
+	}
+	if upd.ForbiddenTitleTerms != nil {
+		setList("forbidden_title_terms", *upd.ForbiddenTitleTerms)
+	}
+	if upd.TitleMaxLength != nil {
+		if *upd.TitleMaxLength >= 0 {
+			fm.Set("title_max_length", strconv.Itoa(*upd.TitleMaxLength))
+		} else {
+			fm.Delete("title_max_length")
+		}
 	}
 	if upd.WorkMap != nil {
 		if v := strings.TrimSpace(*upd.WorkMap); v != "" {
@@ -2270,7 +2290,8 @@ func (kb *KB) ReadMapContract(archive string) (MapContract, error) {
 			!strings.HasPrefix(key, "value_synonyms.") &&
 			key != "open_statuses" && key != "stale_after" && key != "template_sections" && key != "open_markers" &&
 			key != "promote_to" && key != "procedure_headings" && key != "glossary" &&
-			key != "index" && !costIntKeys[key] && key != "work_map" {
+			key != "index" && !costIntKeys[key] && key != "work_map" &&
+			key != "title_max_length" && key != "forbidden_title_terms" {
 			continue
 		}
 		value, _ := meta.Get(key)
@@ -2420,6 +2441,21 @@ func (kb *KB) ReadMapContract(archive string) (MapContract, error) {
 				continue
 			}
 			contract.WorkMap = v
+		case key == "title_max_length":
+			s, _ := value.(string)
+			n, err := strconv.Atoi(strings.TrimSpace(s))
+			if err != nil || n < 0 {
+				bad(key)
+				continue
+			}
+			contract.TitleMaxLength = &n
+		case key == "forbidden_title_terms":
+			vals, ok := value.([]string)
+			if !ok || len(vals) == 0 {
+				bad(key)
+				continue
+			}
+			contract.ForbiddenTitleTerms = vals
 		case key == "procedure_headings":
 			vals, ok := value.([]string)
 			if !ok || len(vals) == 0 {

@@ -2,10 +2,12 @@ package lint
 
 import (
 	"fmt"
+	"path"
 	"regexp"
 	"sort"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/BeppeTemp/cartographer/internal/kb"
 	"github.com/BeppeTemp/cartographer/internal/okf"
@@ -39,6 +41,10 @@ const (
 	// looks like a list (stringified_list, D314). The repair parses the
 	// current value with ListItems and stores the items as a real list.
 	FixListifyField = "listify_field"
+	// FixSyncH1: To = the concept's frontmatter title (title_h1_mismatch,
+	// D315). The repair overwrites the body's first level-1 heading with it:
+	// the title is the source of truth, the H1 its rendering.
+	FixSyncH1 = "sync_h1"
 )
 
 // Fix is the machine-readable remedy of a finding whose repair is mechanical.
@@ -51,7 +57,7 @@ type Fix struct {
 // FixableChecks are the checks whose findings carry a Fix, which is what
 // kb_repair accepts (D290). A check that gains a Fix is added here: the list
 // is the repair tool's contract, and a test pins it to what the checks emit.
-var FixableChecks = []string{"broken_link", "duplicate_link", "invalid_field_value", "legacy_path", "legacy_tool_name", "nonstandard_field", "prose_value", "reciprocal_link_item", "stringified_list", "tool_param_field"}
+var FixableChecks = []string{"broken_link", "duplicate_link", "invalid_field_value", "legacy_path", "legacy_tool_name", "nonstandard_field", "prose_value", "reciprocal_link_item", "stringified_list", "title_h1_mismatch", "tool_param_field"}
 
 // StandardFieldSynonyms maps each standard frontmatter field to the synonyms
 // KBs are known to use for it (nonstandard_field). Keys are matched
@@ -198,6 +204,23 @@ func frontmatterFindings(in conceptInput) []Finding {
 			msg += fmt.Sprintf(" — suggested: title: %q (its first heading)", h1)
 		}
 		out = append(out, Finding{Path: in.RelPath, Check: "missing_title", Severity: SevWarning, Message: msg})
+	}
+
+	// --- title_h1_mismatch (warning, D315) ---
+	// Both exist and differ: the title is what listings, search and the
+	// Atlas show, so the heading is the one that is wrong.
+	if parsed != nil {
+		title := titleOf(parsed)
+		if h1 := firstH1(in.Body); title != "" && h1 != "" && h1 != title {
+			out = append(out, Finding{
+				Path:     in.RelPath,
+				Check:    "title_h1_mismatch",
+				Severity: SevWarning,
+				Message:  fmt.Sprintf("title %q and first heading %q differ: the title is the label shown in concept_list, search and the Atlas; the heading should match", title, h1),
+				Fix:      &Fix{Kind: FixSyncH1, To: title},
+			})
+		}
+		out = append(out, titleQualityFindings(in, parsed, title)...)
 	}
 
 	// --- missing_required_field / invalid_field_value / forbidden_field ---
@@ -667,4 +690,90 @@ func detectMangledPlaceholders(relPath, body string) (Finding, bool) {
 		Severity: SevWarning,
 		Message:  fmt.Sprintf("body contains what looks like a placeholder rewritten as prose: %s — restore the {{…}} syntax", strings.Join(matches, "; ")),
 	}, true
+}
+
+// titleOf is a concept's frontmatter title with its whitespace collapsed, or
+// "" when it has none or it is not a scalar.
+func titleOf(fm *okf.Frontmatter) string {
+	v, _ := frontmatterValue(fm, "title").(string)
+	return strings.Join(strings.Fields(v), " ")
+}
+
+// defaultTitleMaxLength is the length above which a title is a sentence, not
+// a label (title_quality). A map overrides it with title_max_length.
+const defaultTitleMaxLength = 100
+
+// titleStatusWords are lifecycle words that decay when embedded in a title.
+var titleStatusWords = []string{"attivo", "active", "dismesso", "deprecated", "draft", "superseded", "preparazione", "archiviato", "archived", "declassato"}
+
+var datePrefixedSlug = regexp.MustCompile(`^\d{4}-\d{2}`)
+
+// titleQualityFindings implements title_quality (info, D315): decorative
+// characters, over-long titles, a status word where the status field already
+// says it, a term the map forbids, and a date-prefixed slug outside a
+// journal. No fix: each is a judgement about wording.
+func titleQualityFindings(in conceptInput, fm *okf.Frontmatter, title string) []Finding {
+	if title == "" {
+		return nil
+	}
+	var out []Finding
+	add := func(msg string) {
+		out = append(out, Finding{Path: in.RelPath, Check: "title_quality", Severity: SevInfo, Message: msg})
+	}
+	var deco []string
+	for _, r := range title {
+		if unicode.Is(unicode.So, r) || unicode.Is(unicode.Sk, r) || r == '\uFE0F' || r == '\u200D' {
+			deco = append(deco, string(r))
+		}
+	}
+	if len(deco) > 0 {
+		add(fmt.Sprintf("title contains decorative characters (%s); titles are labels shown in listings and the Atlas: prefer plain text", strings.Join(deco, " ")))
+	}
+	limit := defaultTitleMaxLength
+	if in.Contract != nil && in.Contract.TitleMaxLength != nil {
+		limit = *in.Contract.TitleMaxLength
+	}
+	if n := len([]rune(title)); limit > 0 && n > limit {
+		add(fmt.Sprintf("title is %d characters (limit %d for this map); a title is a label, not a sentence", n, limit))
+	}
+	lower := strings.ToLower(title)
+	if _, ok := fm.Get("status"); ok {
+		for _, w := range titleStatusWords {
+			if containsWord(lower, w) {
+				add(fmt.Sprintf("title contains status word %q; the status field tracks lifecycle — a status in the title decays with the page", w))
+				break
+			}
+		}
+	}
+	if in.Contract != nil {
+		for _, term := range in.Contract.ForbiddenTitleTerms {
+			if t := strings.ToLower(strings.TrimSpace(term)); t != "" && strings.Contains(lower, t) {
+				add(fmt.Sprintf("title contains forbidden term %q (declared in the map contract)", term))
+			}
+		}
+	}
+	slug := strings.TrimSuffix(path.Base(in.RelPath), ".md")
+	if in.MapName != "" && datePrefixedSlug.MatchString(slug) && (in.Contract == nil || in.Contract.Kind != "journal") {
+		add("date-prefixed ID in a non-journal map; journal entries belong in a journal, map concepts use a descriptive slug")
+	}
+	return out
+}
+
+// containsWord reports whether word occurs in s delimited by non-letters, so
+// "draft" matches "Draft plan" and "(draft)" but "active" not "proactive".
+func containsWord(s, word string) bool {
+	for from := 0; ; {
+		i := strings.Index(s[from:], word)
+		if i < 0 {
+			return false
+		}
+		i += from
+		end := i + len(word)
+		before := i == 0 || !unicode.IsLetter([]rune(s[:i])[len([]rune(s[:i]))-1])
+		after := end == len(s) || !unicode.IsLetter([]rune(s[end:])[0])
+		if before && after {
+			return true
+		}
+		from = end
+	}
 }

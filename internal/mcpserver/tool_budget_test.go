@@ -22,7 +22,10 @@ const (
 	// description and schema were cut from 3 KiB to 1.4 KiB; the remaining
 	// descriptions were already at their floor. artifact_delete (~0.3 KiB)
 	// appears only for a KB with allow_artifact_write and is not counted here.
-	toolsListBudgetBytes   = 25 * 1024
+	//
+	// 25.5 KiB since D315: map_update gained title_max_length and
+	// forbidden_title_terms (+0.1 KiB of schema, no description grew).
+	toolsListBudgetBytes   = 25*1024 + 512
 	toolDescriptionMaxChar = 600
 )
 
