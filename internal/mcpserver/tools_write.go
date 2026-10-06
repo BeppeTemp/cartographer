@@ -406,7 +406,7 @@ func toolConceptPatch(k *kb.KB) Tool {
 				"unset": {
 					"type": "array",
 					"items": {"type": "string"},
-					"description": "Keys to remove from frontmatter (alternative to null, for clients that strip null values)"
+					"description": "Frontmatter keys to remove (same as a null value)"
 				}
 			}
 		}`),
@@ -2214,7 +2214,7 @@ func toolConceptBatch(k *kb.KB) Tool {
 							"op": {"type": "string", "description": "\"write\" or \"patch\""},
 							"id": {"type": "string", "description": "ConceptID (path relative to KB root without .md)"},
 							"frontmatter": {"type": "object", "description": "Full frontmatter (write) or partial shallow-merge (patch, optional)"},
-							"unset": {"type": "array", "items": {"type": "string"}, "description": "Patch: keys to remove from frontmatter (alternative to null, for clients that strip null values)"},
+							"unset": {"type": "array", "items": {"type": "string"}, "description": "Patch: frontmatter keys to remove (same as null)"},
 							"body": {"type": "string", "description": "Full markdown body (write only)"},
 							"if_match": {"type": "string", "description": "Expected content-hash: optional (create-only) for write, required for patch"},
 							"old_string": {"type": "string", "description": "Patch: exact substring to find (single-edit form, mutually exclusive with 'edits')"},
