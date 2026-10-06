@@ -1,12 +1,14 @@
-import { writeFileSync } from "node:fs";
-import type { Page } from "@playwright/test";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import type { Page, TestInfo } from "@playwright/test";
 import { expect, LOCAL_URL, test } from "./support";
 
 // The README's hero animation (D330), as a flow the suite runs on every web
 // change. In the suite it walks the fixture at full speed: a step the UI no
 // longer offers fails here, which is how the recording goes stale loudly.
 // scripts/record-hero.sh runs the same flow over the demo KB with HERO_RECORD
-// set: the beats slow down to a watchable pace and Playwright records it.
+// set: the beats slow down to a watchable pace and the browser's own screencast
+// films it, frame by frame (see film()).
 
 const RECORD = !!process.env.HERO_RECORD;
 const KB = process.env.HERO_KB ?? "atlas";
@@ -18,7 +20,8 @@ const VIEWPORT = { width: 1280, height: 760 };
 test.use({
   viewport: VIEWPORT,
   colorScheme: "dark",
-  video: RECORD ? { mode: "on", size: VIEWPORT } : "off",
+  // Filmed at 2x and scaled down by record-hero.sh, so text stays crisp.
+  ...(RECORD ? { deviceScaleFactor: 2 } : {}),
   // The recording draws on the machine's GPU: SwiftShader charts a 400-node
   // KB too slowly to film.
   ...(RECORD ? { launchOptions: { args: [] } } : {}),
@@ -27,6 +30,41 @@ if (RECORD) test.setTimeout(120_000);
 
 /** A pause the viewer needs and the check does not. */
 const beat = (page: Page, ms: number) => (RECORD ? page.waitForTimeout(ms) : Promise.resolve());
+
+/**
+ * Films the page through the DevTools screencast: lossless-quality frames
+ * straight from the compositor, each with its timestamp, instead of
+ * Playwright's video, whose ~1 Mbit/s VP8 smears a dense graph. Frames arrive
+ * only when something changes, so stop() writes an ffconcat list that holds
+ * each one for as long as it was on screen.
+ */
+async function film(page: Page, testInfo: TestInfo): Promise<{ stop(): Promise<void> }> {
+  const dir = testInfo.outputPath("frames");
+  mkdirSync(dir, { recursive: true });
+  const cdp = await page.context().newCDPSession(page);
+  const frames: { file: string; at: number }[] = [];
+  cdp.on("Page.screencastFrame", ({ data, metadata, sessionId }) => {
+    const file = `${String(frames.length).padStart(5, "0")}.png`;
+    writeFileSync(join(dir, file), Buffer.from(data, "base64"));
+    frames.push({ file, at: metadata.timestamp ?? Date.now() / 1000 });
+    void cdp.send("Page.screencastFrameAck", { sessionId }).catch(() => {});
+  });
+  await cdp.send("Page.startScreencast", { format: "png", everyNthFrame: 1 });
+  return {
+    async stop() {
+      await cdp.send("Page.stopScreencast");
+      const end = Date.now() / 1000;
+      const lines = ["ffconcat version 1.0"];
+      frames.forEach((frame, i) => {
+        const next = i + 1 < frames.length ? frames[i + 1].at : end;
+        lines.push(`file ${frame.file}`, `duration ${Math.max(next - frame.at, 0.001).toFixed(4)}`);
+      });
+      // The concat demuxer drops the last duration unless the file repeats.
+      if (frames.length) lines.push(`file ${frames[frames.length - 1].file}`);
+      writeFileSync(join(dir, "frames.ffconcat"), lines.join("\n") + "\n");
+    },
+  };
+}
 
 /** Orbits the camera with a slow drag across the canvas. */
 async function orbit(page: Page, dx: number, steps: number): Promise<void> {
@@ -41,7 +79,6 @@ async function orbit(page: Page, dx: number, steps: number): Promise<void> {
 }
 
 test("the hero tour: graph, search, a concept's links, artifacts, observatory", async ({ page }, testInfo) => {
-  const opened = Date.now();
   await page.addInitScript(() => {
     localStorage.setItem("cartographer.theme", "dark");
     localStorage.setItem("cartographer.colorBy", "community");
@@ -50,11 +87,11 @@ test("the hero tour: graph, search, a concept's links, artifacts, observatory", 
   const canvas = page.locator("[data-testid=graph-view] canvas").first();
   await expect(canvas).toBeVisible();
   // A software renderer charts the demo KB slowly: the recording waits, and
-  // record-hero.sh cuts the wait off the front using tour-start.txt.
+  // filming starts once the graph is drawn.
   await expect(page.locator(".graph__loading")).toHaveAttribute("data-drawn", "true", {
     timeout: RECORD ? 90_000 : undefined,
   });
-  if (RECORD) writeFileSync(testInfo.outputPath("tour-start.txt"), String((Date.now() - opened) / 1000));
+  const camera = RECORD ? await film(page, testInfo) : null;
 
   // 1. The graph settles and turns.
   await beat(page, 800);
@@ -101,4 +138,5 @@ test("the hero tour: graph, search, a concept's links, artifacts, observatory", 
   await page.getByRole("button", { name: "Atlas", exact: true }).click();
   await expect(canvas).toBeVisible();
   await beat(page, 600);
+  await camera?.stop();
 });
