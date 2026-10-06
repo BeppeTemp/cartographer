@@ -8,6 +8,13 @@
 
 KB histories with commits authored as `cartographer <cartographer@localhost>` may need a manual author rewrite before a forge with author push rules accepts the first push.
 
+## [0.19.2](https://github.com/BeppeTemp/cartographer/compare/v0.19.1...v0.19.2) (2026-10-06)
+
+
+### Bug Fixes
+
+* **lint:** an MCP method in a skill is not a broken path ([#563](https://github.com/BeppeTemp/cartographer/issues/563)) ([c5cf802](https://github.com/BeppeTemp/cartographer/commit/c5cf802c6598ab5436c1742ac6ecebf10f0aa038))
+
 ## [0.19.1](https://github.com/BeppeTemp/cartographer/compare/v0.19.0...v0.19.1) (2026-10-06)
 
 
