@@ -24,6 +24,9 @@ const (
 // rejected, superseded, mitigated, monitoring) are deliberately in none. The
 // table ships English plus the languages contributors add; a map contract
 // extends it with value_synonyms.<canonical>: [...] in any language.
+// archived is deliberately absent too (D322): it is a server-reserved word, a
+// lifecycle stage after done (closedPhase and kb.IsRetired know it), not a
+// vocabulary synonym a KB can fold onto done.
 var ValueSynonymFamilies = map[string][]string{
 	"done":        {"done", "completed", "complete", "completato", "completata", "finito", "finita", "chiuso", "chiusa"},
 	"resolved":    {"resolved", "risolto", "risolta", "closed", "fixed"},

@@ -104,7 +104,7 @@ func toolGraphContext(k *kb.KB, rec *searchReconciler, deps Deps) Tool {
 				// index score on different scales.
 				// Through the glossary (D276), so a seed query and a search
 				// agree on what an alias matches.
-				hits, _, _ := expandedKeywordHits(ctx, k, rec, deps, params.Query, "", graphContextSeedHits)
+				hits, _, _ := expandedKeywordHits(ctx, k, rec, deps, params.Query, "", graphContextSeedHits, false)
 				for r, h := range hits {
 					if i, ok := lg.Index[okf.ConceptID(h.ID)]; ok {
 						seeds[i] += 1 / float64(1+r)
@@ -237,7 +237,7 @@ func toolLinkSuggest(k *kb.KB, rec *searchReconciler, deps Deps) Tool {
 			}
 			candidates := []candidateOut{}
 			for _, c := range graphalgo.ResourceAllocation(lg.Graph, u, linkSuggestMinCommon) {
-				if status := lg.Facets[c.Node].Status; status == "deprecated" || status == "superseded" {
+				if status := lg.Facets[c.Node].Status; kb.IsRetired(status) {
 					continue
 				}
 				common := make([]string, 0, 5)
@@ -291,13 +291,13 @@ func titleMatches(ctx requestContext, k *kb.KB, rec *searchReconciler, deps Deps
 	}
 	best := map[int]float64{}
 	collect := func(q string) {
-		hits, _, _ := expandedKeywordHits(ctx, k, rec, deps, q, "", limit+1)
+		hits, _, _ := expandedKeywordHits(ctx, k, rec, deps, q, "", limit+1, false)
 		for _, h := range hits {
 			i, ok := lg.Index[okf.ConceptID(h.ID)]
 			if !ok || i == u {
 				continue
 			}
-			if status := lg.Facets[i].Status; status == "deprecated" || status == "superseded" {
+			if status := lg.Facets[i].Status; kb.IsRetired(status) {
 				continue
 			}
 			if cur, seen := best[i]; !seen || h.Score > cur {

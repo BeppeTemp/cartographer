@@ -31,13 +31,14 @@ const (
 	ReviewMapNaming = "map_naming"
 	// D321: an `active` page in a journal that does not declare it open.
 	ReviewStatusReclassify = "status_reclassify"
+	// ReviewHarvestCandidate (D322) is declared in harvest.go.
 )
 
 // ReviewKinds lists the kinds in ranking priority: an item of an earlier kind
 // always comes before one of a later kind.
 // Repeated facts and hotspots rank before promotion (D301): a duplicated fact
 // is cheaper to fix than to keep updating in every copy.
-var ReviewKinds = []string{ReviewDuplicate, ReviewZombie, ReviewStatusReclassify, ReviewRepeatedFact, ReviewReadHotspot, ReviewPromotion, ReviewScatteredWork, ReviewMapNaming, ReviewGlossary, ReviewLintJudgement}
+var ReviewKinds = []string{ReviewDuplicate, ReviewZombie, ReviewHarvestCandidate, ReviewStatusReclassify, ReviewRepeatedFact, ReviewReadHotspot, ReviewPromotion, ReviewScatteredWork, ReviewMapNaming, ReviewGlossary, ReviewLintJudgement}
 
 // Thresholds of the review generators.
 const (
@@ -127,14 +128,16 @@ type ReviewItem struct {
 }
 
 type reviewConcept struct {
-	id       okf.ConceptID
-	mapName  string
-	typ      string
-	title    string
-	status   string
-	resource string
-	body     string
-	ignores  map[string]bool
+	id      okf.ConceptID
+	mapName string
+	typ     string
+	title   string
+	status  string
+	// timestamp is the frontmatter timestamp, verbatim (harvest_candidate).
+	timestamp string
+	resource  string
+	body      string
+	ignores   map[string]bool
 }
 
 // Review builds the ranked work list from the KB, its contracts and the
@@ -157,6 +160,7 @@ func Review(k *kb.KB, findings []Finding) ([]ReviewItem, error) {
 			c.typ = parsed.Type()
 			c.title, _ = frontmatterValue(parsed, "title").(string)
 			c.status, _ = frontmatterValue(parsed, "status").(string)
+			c.timestamp, _ = frontmatterValue(parsed, "timestamp").(string)
 			c.resource, _ = frontmatterValue(parsed, "resource").(string)
 			c.resource = strings.TrimSpace(c.resource)
 			c.ignores = lintIgnoreSet(parsed)
@@ -211,6 +215,7 @@ func Review(k *kb.KB, findings []Finding) ([]ReviewItem, error) {
 	items = append(items, duplicateItems(concepts)...)
 	zombies, zombieItems := zombieWorkItems(byID, concepts, contracts, byConcept, links)
 	items = append(items, zombieItems...)
+	items = append(items, harvestCandidateItems(concepts, contracts)...)
 	items = append(items, statusReclassifyItems(concepts, contracts)...)
 	items = append(items, repeatedFactItems(concepts, contracts, k.TemplateTexts())...)
 	items = append(items, readHotspotItems(concepts, contracts, links)...)

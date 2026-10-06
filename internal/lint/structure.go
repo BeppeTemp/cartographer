@@ -43,8 +43,9 @@ var WholeGraphChecks = map[string]bool{
 }
 
 // retired is the status vocabulary's "no longer current" (docs/data-plane.md):
-// deprecated, or superseded — what supersede writes. disputed is not retired.
-func retired(status string) bool { return status == "deprecated" || status == "superseded" }
+// deprecated, superseded — what supersede writes — or archived (D322).
+// disputed is not retired.
+func retired(status string) bool { return kb.IsRetired(status) }
 
 // structure is the whole-KB graph analysis one lint run shares. It is
 // computed on the whole graph whatever the scope — a scoped lint must give a
@@ -312,6 +313,12 @@ func (s *structure) retiredLinkers(i int, facets kb.NodeFacets) []string {
 	for _, u := range s.lg.Graph.In[i] { // ascending, so sorted by id
 		uid := s.lg.IDs[u]
 		if u == i || retired(s.lg.Facets[u].Status) || s.kindOf(uid) != "map" || string(uid) == facets.SupersededBy {
+			continue
+		}
+		// A digest (D322) is where archiving records what it archived: it
+		// links the archived entries by design. A journal's own index is a
+		// journal page, already out above.
+		if strings.EqualFold(s.lg.Facets[u].Type, "digest") {
 			continue
 		}
 		linkers = append(linkers, string(uid))

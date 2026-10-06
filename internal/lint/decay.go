@@ -73,8 +73,13 @@ func reviewSuspended(fm *okf.Frontmatter) bool {
 	return !t.Before(today)
 }
 
-// closedPhase reports whether status means "finished".
+// closedPhase reports whether status means "finished". archived is finished
+// too (D322), by the reserved word rather than a family: it is a lifecycle
+// stage after done, not a synonym of it.
 func closedPhase(status string, contract *kb.MapContract) bool {
+	if NormValue(status) == kb.StatusArchived {
+		return true
+	}
 	fam, ok := familiesFor(contract).member(status)
 	return ok && (fam == "done" || fam == "resolved")
 }

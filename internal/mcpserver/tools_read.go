@@ -188,7 +188,7 @@ func headingsToOutline(headings []okf.Heading) []map[string]interface{} {
 	return outline
 }
 
-func toolConceptRead(k *kb.KB) Tool {
+func toolConceptRead(k *kb.KB, reads *readAccessLog) Tool {
 	return Tool{
 		Name:        "concept_read",
 		Description: "Reads a concept: content_hash, frontmatter (parsed) and _raw, body. with_content: true also returns content (exact bytes). section returns one section; outline: true only the headings. Bodies over 60 KB come as an outline; full: true forces them. rev reads a past version; its content_hash is not an if_match.",
@@ -252,6 +252,7 @@ func toolConceptRead(k *kb.KB) Tool {
 					return errorResult(fmt.Sprintf("concept_read %q: %v", params.ID, err)), nil
 				}
 			}
+			reads.record(params.ID) // D322: the concept reached the agent
 			withRev := func(m map[string]interface{}) map[string]interface{} {
 				if params.Rev != "" {
 					m["rev"] = params.Rev

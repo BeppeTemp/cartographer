@@ -25,7 +25,8 @@ var searchInputSchema = json.RawMessage(`{
 		"query": {"type": "string"},
 		"scope": {"type": "string"},
 		"limit": {"type": "integer"},
-		"record_miss": {"type": "boolean"}
+		"record_miss": {"type": "boolean"},
+		"include_archived": {"type": "boolean"}
 	}
 }`)
 
@@ -47,6 +48,9 @@ type searchHit struct {
 	Score   float64 `json:"score"`
 	Title   string  `json:"title,omitempty"`
 	Snippet string  `json:"snippet,omitempty"`
+	// Archived marks a hit that is an archived concept (D322): only the
+	// archived fallback and include_archived return those.
+	Archived bool `json:"archived,omitempty"`
 }
 
 // toolSearch returns the keyword search tool (D135: keyword is the only mode).
@@ -55,7 +59,7 @@ type searchHit struct {
 //   - deps.SQLIndex != nil: SQLite FTS5, falling back to the in-memory index
 //     when FTS5 fails. Modes reported: keyword_fts5 / keyword on fallback.
 //   - otherwise: the in-memory keyword index. Mode reported: keyword.
-func toolSearch(k *kb.KB, rec *searchReconciler, misses *searchMissLog, deps Deps) Tool {
+func toolSearch(k *kb.KB, rec *searchReconciler, misses *searchMissLog, reads *readAccessLog, deps Deps) Tool {
 	description := "Keyword search over concepts; returns IDs ranked by relevance (all terms preferred, then OR fallback)."
 	if deps.SQLIndex != nil {
 		description = "Keyword search over concepts (SQLite FTS5, substring matching); returns IDs ranked by relevance."
@@ -68,7 +72,7 @@ func toolSearch(k *kb.KB, rec *searchReconciler, misses *searchMissLog, deps Dep
 		Description: description,
 		InputSchema: searchInputSchema,
 		Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
-			return handleSearch(ctx, k, rec, misses, deps, args)
+			return handleSearch(ctx, k, rec, misses, reads, deps, args)
 		},
 	}
 }
@@ -76,7 +80,7 @@ func toolSearch(k *kb.KB, rec *searchReconciler, misses *searchMissLog, deps Dep
 // handleSearch is the only search handler. It keeps both keyword paths
 // verbatim: the plain in-memory one, and the FTS5 one with its native
 // snippet() excerpts (D70) and in-memory fallback.
-func handleSearch(ctx requestContext, k *kb.KB, rec *searchReconciler, misses *searchMissLog, deps Deps, args json.RawMessage) (ToolResult, error) {
+func handleSearch(ctx requestContext, k *kb.KB, rec *searchReconciler, misses *searchMissLog, reads *readAccessLog, deps Deps, args json.RawMessage) (ToolResult, error) {
 	var params struct {
 		Query string `json:"query"`
 		Scope string `json:"scope"`
@@ -84,6 +88,9 @@ func handleSearch(ctx requestContext, k *kb.KB, rec *searchReconciler, misses *s
 		// RecordMiss false keeps a verification probe out of the miss log
 		// (D319); absent means true.
 		RecordMiss *bool `json:"record_miss"`
+		// IncludeArchived (D322): absent hides archived concepts unless
+		// nothing live matches, true returns both, false never falls back.
+		IncludeArchived *bool `json:"include_archived"`
 		// Mode and UseSemantic are declared only to reject them: semantic and
 		// hybrid search are gone (D135), and a stale caller must fail loudly
 		// instead of silently receiving keyword results it did not ask for.
@@ -105,7 +112,21 @@ func handleSearch(ctx requestContext, k *kb.KB, rec *searchReconciler, misses *s
 		limit = 20
 	}
 
-	hits, mode, expandedTo := expandedKeywordHits(ctx, k, rec, deps, params.Query, params.Scope, limit)
+	skipArchived := params.IncludeArchived == nil || !*params.IncludeArchived
+	hits, mode, expandedTo := expandedKeywordHits(ctx, k, rec, deps, params.Query, params.Scope, limit, skipArchived)
+	// Archived fallback (D322): when nothing live matches and the caller did
+	// not say include_archived, search again with archived concepts in, so
+	// "the KB knows nothing" is never concluded from pages that are only
+	// archived. An explicit false disables it (verification searches).
+	archivedFallback := false
+	if len(hits) == 0 && params.IncludeArchived == nil {
+		if ah, _, ex := expandedKeywordHits(ctx, k, rec, deps, params.Query, params.Scope, limit, false); len(ah) > 0 {
+			hits, expandedTo, archivedFallback = ah, ex, true
+		}
+	}
+	for i := range hits {
+		hits[i].Archived = k.ConceptFacets(okf.ConceptID(hits[i].ID)).Status == kb.StatusArchived
+	}
 	// A miss is recorded only when every glossary variant came back empty
 	// (D276), and only for a principal who sees the whole KB (D247).
 	// For a narrowed token zero hits may only mean "hidden from you" — not a
@@ -115,6 +136,14 @@ func handleSearch(ctx requestContext, k *kb.KB, rec *searchReconciler, misses *s
 	if len(hits) == 0 && (params.RecordMiss == nil || *params.RecordMiss) && WholeVisible(ctx, k, false) {
 		misses.record(params.Query)
 	}
+	// A hit is a concept the agent will see (D322); navigation is not a read.
+	if len(hits) > 0 {
+		ids := make([]string, len(hits))
+		for i, h := range hits {
+			ids[i] = h.ID
+		}
+		reads.record(ids...)
+	}
 	result := map[string]interface{}{
 		"query":   params.Query,
 		"mode":    mode,
@@ -123,6 +152,10 @@ func handleSearch(ctx requestContext, k *kb.KB, rec *searchReconciler, misses *s
 	}
 	if len(expandedTo) > 0 {
 		result["expanded_to"] = expandedTo
+	}
+	if archivedFallback {
+		result["archived_fallback"] = true
+		result["note"] = "no live concept matches; these are archived entries"
 	}
 	out, _ := json.MarshalIndent(result, "", "  ")
 	return textResult(string(out)), nil
@@ -144,24 +177,24 @@ const glossaryMaxVariants = 8
 // nothing on its own (the trigram tokenizer, sqlindex.ftsTokens), so a query
 // that is only a two-letter alias finds pages through its longer variants
 // but never pages that use only the two-letter form.
-func expandedKeywordHits(ctx requestContext, k *kb.KB, rec *searchReconciler, deps Deps, query, scope string, limit int) ([]searchHit, string, []string) {
+func expandedKeywordHits(ctx requestContext, k *kb.KB, rec *searchReconciler, deps Deps, query, scope string, limit int, skipArchived bool) ([]searchHit, string, []string) {
 	var variants []string
 	if st, err := k.ReadGlossary(); err == nil {
 		variants = st.Glossary.Variants(search.Fold(query), glossaryMaxVariants)
 	}
 	if len(variants) <= 1 {
-		hits, mode := keywordHits(ctx, k, rec, deps, query, scope, limit)
+		hits, mode := keywordHits(ctx, k, rec, deps, query, scope, limit, skipArchived)
 		return hits, mode, nil
 	}
 	// variants[0] is the folded query: run the query as typed instead, so the
 	// original pass is byte-for-byte today's search.
-	hits, mode := keywordHits(ctx, k, rec, deps, query, scope, limit)
+	hits, mode := keywordHits(ctx, k, rec, deps, query, scope, limit, skipArchived)
 	best := map[string]searchHit{}
 	for _, h := range hits {
 		best[h.ID] = h
 	}
 	for _, v := range variants[1:] {
-		vh, _ := keywordHits(ctx, k, rec, deps, v, scope, limit)
+		vh, _ := keywordHits(ctx, k, rec, deps, v, scope, limit, skipArchived)
 		for _, h := range vh {
 			if cur, ok := best[h.ID]; !ok || h.Score > cur.Score {
 				best[h.ID] = h
@@ -192,12 +225,23 @@ func expandedKeywordHits(ctx requestContext, k *kb.KB, rec *searchReconciler, de
 // It reconciles the indexes with the files first (D245), so every reader
 // sees every change however it was made. That is the only freshness
 // mechanism: no write path updates an index directly any more.
-func keywordHits(ctx requestContext, k *kb.KB, rec *searchReconciler, deps Deps, query, scope string, limit int) ([]searchHit, string) {
+func keywordHits(ctx requestContext, k *kb.KB, rec *searchReconciler, deps Deps, query, scope string, limit int, skipArchived bool) ([]searchHit, string) {
 	if _, err := rec.reconcile(); err != nil {
 		fmt.Fprintf(os.Stderr, "cartographer: search: %v\n", err)
 	}
 	live := rec.live
 	visible := func(id string) bool { return Visible(ctx, k, id) }
+	// skipArchived (D322) drops archived concepts inside the backend's own
+	// filter, before its cut to the window, so the page is still full of live
+	// hits (a post-filter would need an over-fetch and still be short). The
+	// centrality prior below keeps the visibility-only predicate: an archived
+	// concept still links, it just is not offered.
+	pick := visible
+	if skipArchived {
+		pick = func(id string) bool {
+			return visible(id) && k.ConceptFacets(okf.ConceptID(id)).Status != kb.StatusArchived
+		}
+	}
 
 	// Trap: fetch a window larger than the page (D251). The centrality prior
 	// re-ranks after the backend's cut, so with only `limit` candidates it
@@ -210,7 +254,7 @@ func keywordHits(ctx requestContext, k *kb.KB, rec *searchReconciler, deps Deps,
 	useMem := deps.SQLIndex == nil
 	if !useMem {
 		// Prefer SQLite FTS5, fall back to the in-memory index when FTS5 fails.
-		sqlHits, err := deps.SQLIndex.SearchFTSFiltered(query, scope, window, visible)
+		sqlHits, err := deps.SQLIndex.SearchFTSFiltered(query, scope, window, pick)
 		if err != nil {
 			useMem = true
 		} else {
@@ -223,7 +267,7 @@ func keywordHits(ctx requestContext, k *kb.KB, rec *searchReconciler, deps Deps,
 		}
 	}
 	if useMem {
-		for _, h := range live.searchFiltered(query, scope, window, visible) {
+		for _, h := range live.searchFiltered(query, scope, window, pick) {
 			kwHits = append(kwHits, searchHit{ID: h.ID, Score: h.Score})
 		}
 	}

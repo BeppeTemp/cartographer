@@ -1,7 +1,7 @@
 ---
 name: kb-doctor
 description: Keep a Knowledge Base from rotting - a short, budgeted session that applies mechanical repairs and walks the operator through the server's ranked review list. Use when a tool result proposes a kb-doctor session, when kb_status reports conformance.doctor_suggested, when the operator asks to tidy or align a KB, or after a Cartographer upgrade.
-version: "2.6"
+version: "2.7"
 ---
 # KB Doctor - Skill
 
@@ -90,6 +90,27 @@ what is allowed:
    `open_question`. Run `gate_check` with `changed_ids` set to the concepts you wrote.
    Write responses surface per-concept findings inline; the `gate_check` at session end is the
    complementary pass.
+5b. **Harvest and archive.** `kb_review` `kind: "harvest_candidate"`: a journal entry that is closed
+   and older than the journal's `harvest_after` (default 45 days). For each:
+   - `concept_read` it and pick the durable facts: root causes, recurring traps, diagnostic commands
+     that worked, workarounds - what a future reader of the live subject page would need (the
+     evidence lists the sections that look durable);
+   - for each outbound link to a live concept (a map, not a journal) the fact belongs to, add it as
+     a line under an existing section, or under `## Lessons from incidents` (or the KB's own heading
+     for this), with a dated link back: `- <fact> ([YYYY-MM-DD - title](journal/entry))`;
+   - `concept_patch` the entry to `status: archived` and add at the top of its body
+     `> Archived YYYY-MM-DD: lessons in [page](id), [page](id).` (or `> Archived YYYY-MM-DD: no
+     durable lessons.`);
+   - create or update the quarterly digest `<journal>/archive-<year>-q<quarter>` (type `digest` when
+     the map allows it - `map_update` `concept_types` adds it to a strict one - otherwise the
+     journal's first allowed type, status `reference`) with one line per archived entry:
+     `| entry title | outcome | lessons in |`;
+   - `gate_check` the changed concepts.
+   An entry with no durable facts is still archived, with "no durable lessons", and the digest
+   records its outcome. Delegated (D305): extract the facts yourself and report what you wrote;
+   attended: show the candidate and the proposed lessons for the operator to confirm. Archived
+   entries leave default `search`, `read_cost` and the atlas structure; `search` with
+   `include_archived: true` still finds them.
 6. **Advice.** `lint` with `severity_min: info`: an `info` finding is advice the KB has not
    answered yet, and the session is done only when nothing is left — fixed, or accepted where the
    KB says so. Fix what is a defect (`orphan`: link the page with `link_suggest`; `bare_link_list`:
@@ -114,4 +135,7 @@ what is allowed:
 - One numbered list per session; a deferred item is not asked again in the same session.
 - Never overwrite by hand a concept `kb_repair` skipped as changed: re-read it and run the check
   again. A fix skipped as needing a person is written by hand, after reading the concept.
+- Never delete a journal entry during archival, and never move it out of its journal.
+- The quarterly digest is created if it does not exist and updated if it does; its status is
+  `reference`, never `archived`.
 - Do not invent contract values, glossary definitions or procedure steps.
