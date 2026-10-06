@@ -41,7 +41,7 @@ message or a read; none changes what is written into a client.
   shim is a message there, and no prefixed name can ever be listed.
 - *A fixed regex for the old prefix* (`…_kb__…`): the D102 prefix was any
   sanitised KB name or an explicit `tool_prefix`, so the doctor pattern matches
-  the shape `<word>__<tool-shaped word>` instead, and the routed message names
+  `<prefix>__<tool>` where `<tool>` is a tool this build registers (`mcpserver.IsToolName`) and `<prefix>` is neither `mcp` nor contains `__` (Claude Code's `mcp__<server>__<tool>`), and the routed message names
   the KB only when a served KB's name derives the prefix.
 - *Validate `providers:` keys at sync*: D291 copies verbatim and promises
   nothing; the `@server` check is a heuristic warning that never blocks.

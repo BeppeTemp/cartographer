@@ -29,6 +29,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/agents"
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/configurator"
+	"github.com/BeppeTemp/cartographer/internal/mcpserver"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
 	"github.com/BeppeTemp/cartographer/internal/updatecheck"
 )
@@ -901,7 +902,9 @@ func checkUpdateAvailable() []doctorFinding {
 var legacySteeringPatterns = []struct {
 	re    *regexp.Regexp
 	check string
-	fix   func(match []string) string
+	// keep filters a regexp match: false drops it.
+	keep func(match []string) bool
+	fix  func(match []string) string
 }{
 	{
 		// "<prefix>__<tool>": the D102 per-KB tool prefix, removed by D288.
@@ -909,6 +912,13 @@ var legacySteeringPatterns = []struct {
 		// "_"), which keeps dunder identifiers such as __init__ out.
 		re:    regexp.MustCompile(`\b([a-z][a-z0-9_]*[a-z0-9])__([a-z]+(?:_[a-z]+)*)\b`),
 		check: "legacy_steering_pattern",
+		// The tool part must be a real Cartographer tool, and the prefix a
+		// D102 one: those never contain "__" (SanitizeToolPrefix collapses
+		// underscores) and are never "mcp", so Claude Code's own
+		// mcp__<server>__<tool> names are not a legacy form.
+		keep: func(m []string) bool {
+			return mcpserver.IsToolName(m[2]) && m[1] != "mcp" && !strings.Contains(m[1], "__")
+		},
 		fix: func(m []string) string {
 			return fmt.Sprintf("replace %s with the unprefixed tool %s (pass kb: \"<name>\" where the tool takes a kb argument, D288)", m[0], m[2])
 		},
@@ -947,7 +957,7 @@ func checkSteeringPatterns(dir string, providers []string) []doctorFinding {
 			for _, pat := range legacySteeringPatterns {
 				seen := map[string]bool{}
 				for _, m := range pat.re.FindAllStringSubmatch(text, -1) {
-					if seen[m[0]] {
+					if seen[m[0]] || !pat.keep(m) {
 						continue
 					}
 					seen[m[0]] = true

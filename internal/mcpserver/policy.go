@@ -26,6 +26,12 @@ const (
 // resourceClassForTool is an exhaustive registry inventory. Keeping it next
 // to the policy resolver makes a new tool fail closed at registration until
 // its resource semantics are deliberately chosen.
+// IsToolName reports whether name is a tool this build can register. Every
+// registered tool must have a resource class (RegisterKBTools panics otherwise),
+// so resourceClassForTool is the complete list; the client's doctor uses it to
+// tell a stale Cartographer tool name from any other word__word (D320).
+func IsToolName(name string) bool { return resourceClassForTool(name) != "" }
+
 func resourceClassForTool(name string) string {
 	switch name {
 	case "atlas_overview", "changes_since", "map_list", "concept_list", "graph_neighbors", "graph_context", "link_suggest", "graph_path", "search", "contradiction_report", "service_list", "source_list", "work_list":

@@ -791,3 +791,18 @@ func TestDoctorFlagsLegacyPrefixInKiroSiblingSteering(t *testing.T) {
 		t.Fatalf("want one finding on %s, got %+v", own, f)
 	}
 }
+
+// Claude Code's own MCP tool names (mcp__<server>__<tool>) and word__word text
+// that names no Cartographer tool are not legacy forms (D320).
+func TestDoctorIgnoresNonLegacyDoubleUnderscore(t *testing.T) {
+	doctorStubs(t, []string{"codex"}, false)
+	dir := doctorFixture(t, "codex")
+	path := withManagedInstructions(t, dir, "codex")
+	text := "Use mcp__homeassistant__ha_get_state and mcp__cartographer__search; my_var__thing is mine.\n"
+	if err := os.WriteFile(path, []byte(text), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if f := findingsFor(runDoctor(dir, ""), "legacy_steering_pattern"); len(f) != 0 {
+		t.Fatalf("non-legacy names flagged: %+v", f)
+	}
+}
