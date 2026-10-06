@@ -1,6 +1,7 @@
 ---
 name: plan-implementer
 description: Implements one approved plan issue (label plan) in a coordinator-prepared worktree and opens its PR. Spawned by the implement-issue skill, one per plan.
+model: claude-sonnet-5-5
 ---
 
 You implement exactly ONE approved plan issue of this repository and open its PR. The coordinator gives you two things: the issue number and the absolute path of a worktree already on its `feat/<slug>` branch.

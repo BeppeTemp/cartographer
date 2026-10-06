@@ -36,6 +36,10 @@ state; the plans are read by the subagents that implement them.
   graph needs (step 2 below).
 - **Spawn prompt = issue number + absolute worktree path** (plus the sibling
   plans in flight); the `plan-implementer` agent carries the rest (D327).
+- **Implementers run on a cheaper model** than the coordinator, pinned in each
+  agent definition (Claude `claude-sonnet-5-5`, Kiro `claude-sonnet-5.5`, Codex
+  `terra-6`): the plan already carries the design, so the implementer executes,
+  and the coordinator's §3 read is the quality gate.
 - **Run everything in the background** and act on completion notifications:
   never poll or read a subagent transcript.
 
@@ -141,7 +145,7 @@ stop and comment on the issue rather than guessing).
 
 | | How to spawn a subagent | Authorization gate |
 |---|---|---|
-| **Claude Code** | `Agent` with `subagent_type: plan-implementer`; `isolation: "worktree"` is available, but pass the `make worktree-add` path explicitly so the layout matches every other client. Default model unless the user asks otherwise | auto-mode classifier; standing allow rules live in `.claude/settings.local.json` (`Bash(gh pr merge *)`, `Bash(git push --force-with-lease *)`) — machine-local, not versioned |
+| **Claude Code** | `Agent` with `subagent_type: plan-implementer`; `isolation: "worktree"` is available, but pass the `make worktree-add` path explicitly so the layout matches every other client. The agent pins Sonnet 5.5 (`model:` in its frontmatter) | auto-mode classifier; standing allow rules live in `.claude/settings.local.json` (`Bash(gh pr merge *)`, `Bash(git push --force-with-lease *)`) — machine-local, not versioned |
 | **Codex** | `collaboration.spawn_agent` with the `plan-implementer` agent, one call per plan. Independent worktrees may run concurrently within the agent-slot limit | explicit user authorization or a standing approval |
 | **Kiro** | `orchestrate_subagent` with the `plan-implementer` agent (or `role: general-task-execution`), one stage per plan. Independent plans are stages **without** `depends_on` and run in parallel; a dependency chain is `depends_on` on the predecessor | explicit user decision |
 | **Antigravity** | one subagent per plan from `.agents/agents/`, or sequential execution if none is defined | `commandExecutionPolicy` on the subagent |
