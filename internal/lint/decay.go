@@ -24,8 +24,9 @@ var defaultOpenMarkers = []string{"TODO", "TBD", "FIXME"}
 
 // openPhase reports whether status means "not finished" for this map. A
 // contract's open_statuses decide; otherwise the in-progress, blocked,
-// proposed and draft families, open and decision-needed, and — in a journal
-// only, where it means "not closed" — the active family.
+// proposed and draft families, open and decision-needed. The active family is
+// never open by default, in a journal or a map: active means the page is valid
+// (D321); a KB that reads it as work lists it in open_statuses.
 func openPhase(status string, contract *kb.MapContract) bool {
 	n := NormValue(status)
 	if n == "" {
@@ -49,10 +50,27 @@ func openPhase(status string, contract *kb.MapContract) bool {
 	switch fam {
 	case "in-progress", "blocked", "proposed", "draft":
 		return true
-	case "active":
-		return contract != nil && contract.Kind == "journal"
 	}
 	return false
+}
+
+// reviewSuspended reports whether a concept declares review_after in the
+// future: its timer is suspended, it is still open but not stale (D321). A
+// date in the past does not suspend: the review is overdue.
+func reviewSuspended(fm *okf.Frontmatter) bool {
+	if fm == nil {
+		return false
+	}
+	ra, _ := frontmatterValue(fm, "review_after").(string)
+	if len(ra) < 10 {
+		return false
+	}
+	t, err := time.Parse("2006-01-02", ra[:10])
+	if err != nil {
+		return false
+	}
+	today := Now().Truncate(24 * time.Hour)
+	return !t.Before(today)
 }
 
 // closedPhase reports whether status means "finished".
@@ -73,7 +91,7 @@ func decayFindings(in conceptInput, sections []string) []Finding {
 	masked := kb.MaskCodeSpans(in.Body)
 
 	// --- stale_open ---
-	if in.Contract != nil && openPhase(status, in.Contract) {
+	if in.Contract != nil && openPhase(status, in.Contract) && !reviewSuspended(in.Parsed) {
 		days := in.Contract.StaleAfterDays
 		if days == 0 && in.Contract.Kind == "journal" {
 			days = journalStaleAfterDays

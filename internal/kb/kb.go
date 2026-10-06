@@ -1587,6 +1587,11 @@ func (c MapContract) RequiredFor(conceptType string) []string {
 	return fields
 }
 
+// DefaultJournalOpenStatuses is the open_statuses a new journal is created
+// with (D321). proposed and decision-needed are left out on purpose: a proposal
+// is a suggestion, not a commitment, and a KB that wants them adds them.
+var DefaultJournalOpenStatuses = []string{"open", "in-progress", "blocked"}
+
 // CreateMap creates a map or journal with minimal structure: _map.md,
 // index.md, log.md (D77 WP1 — replaces the former CreateArchive/
 // "_archive.md" pair, which is now read-compat only, never written).
@@ -1664,6 +1669,14 @@ func (kb *KB) CreateMapWithContract(name, title, kind string, conceptTypes []str
 	}
 	if len(contract.MachinePathAllowPrefixes) > 0 {
 		mapFM.WriteString("machine_path_allow_prefixes: [" + strings.Join(sortedUnique(contract.MachinePathAllowPrefixes), ", ") + "]\n")
+	}
+	// A journal declares what "open" means (D321): the server default is the
+	// minimum every work journal uses; map_update changes it.
+	if kind == "journal" && len(contract.OpenStatuses) == 0 {
+		contract.OpenStatuses = DefaultJournalOpenStatuses
+	}
+	if len(contract.OpenStatuses) > 0 {
+		mapFM.WriteString("open_statuses: [" + strings.Join(contract.OpenStatuses, ", ") + "]\n")
 	}
 	mapMD := "---\n" + strings.TrimRight(mapFM.String(), "\n") + "\n---\n# " + title + "\n"
 	if err := writeFileAtomic(filepath.Join(mapAbs, "_map.md"), []byte(mapMD)); err != nil {

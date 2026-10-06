@@ -88,7 +88,7 @@ func Work(k *kb.KB) ([]WorkEntry, error) {
 				e.AgeDays = &age
 				// The stale_open threshold (D297), extended to a concept
 				// whose unchecked items are as old.
-				if days := staleAfterDays(contract); days > 0 && age > days {
+				if days := staleAfterDays(contract); days > 0 && age > days && !reviewSuspended(e.Frontmatter) {
 					e.Stale = true
 				}
 			}

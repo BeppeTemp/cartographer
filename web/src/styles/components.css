@@ -2577,6 +2577,12 @@ body.is-resizing {
   max-width: none;
 }
 
+.work__note {
+  margin: 0 0 var(--space-3);
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+
 .work__filters {
   display: flex;
   flex-wrap: wrap;

@@ -307,7 +307,7 @@ a deliberately-broken example link — could not be written without generating t
 describes, so a KB's own "known false positives" page was impossible.
 
 Suppressible: `broken_link`, `machine_path`, `concept_oversize`, `stale_claim`, `imported_draft`,
-`secrets_on_non_service`, `orphan`, `missing_title`, `unknown_placeholder`, `forbidden_term`, `sops_format_mismatch`, `sops_missing_file`, `legacy_path`, `nonstandard_field`, `prose_value`, `stale_open`, `closed_with_open_items`, `template_section_missing`, `open_marker`, `source_uncited`, `mangled_placeholder` (D314), `title_h1_mismatch` and `title_quality` (D315), `duplicate_link`, `bare_link_list`, and the structural
+`secrets_on_non_service`, `orphan`, `missing_title`, `unknown_placeholder`, `forbidden_term`, `sops_format_mismatch`, `sops_missing_file`, `legacy_path`, `nonstandard_field`, `prose_value`, `stale_open`, `closed_with_open_items`, `status_semantics` (D321), `template_section_missing`, `open_marker`, `source_uncited`, `mangled_placeholder` (D314), `title_h1_mismatch` and `title_quality` (D315), `duplicate_link`, `bare_link_list`, and the structural
 `cut_concept`, `link_to_retired`, `broken_relation`, `map_misfit`, `reciprocal_link_item` (D301), and the `kb_review` kinds (D298, D301) `duplicate_candidate`, `zombie_work`, `repeated_fact`, `read_hotspot`, `promotion_candidate`, `glossary_gap`, `lint_judgement` — there the name dismisses a review item that names the concept (see §Review keys). **Not** suppressible: `stringified_list` (D314), `tool_param_field` (a tool argument is never a legitimate field), every `error`-severity check
 (`missing_required_field`, `invalid_field_value`, `forbidden_field`, `expanded_ambiguous`) — those are contract violations, not judgements, and
 letting a concept declare its own contract void would be a hole rather than an escape hatch — and the
@@ -392,12 +392,13 @@ Lint also sees a KB **decaying**: work never closed, closed work not finished, p
 
 | Key | Meaning | Default |
 |---|---|---|
-| `open_statuses: [...]` | statuses that mean "not finished" | the `in-progress`, `blocked`, `proposed`, `draft` families, `open`, `decision-needed`, and the `active` family **in a journal only** (there `active` means not closed; in a map it means "valid") |
+| `open_statuses: [...]` | statuses that mean "not finished" | the `in-progress`, `blocked`, `proposed`, `draft` families, `open`, `decision-needed`; never the `active` family, which means "the page is valid" in a journal and in a map alike (D321). `map_create` with `kind: journal` writes `open_statuses: [open, in-progress, blocked]`; a KB that reads `active` as open lists it |
 | `stale_after: <days>` | age after which an open concept is stale | 60 in a journal; none in a map (a reference page is not stale by age) |
 | `template_sections: true` | pages must carry the H2 sections of `templates/<type>.md` | off: many KBs use templates as guidance, not a schema |
 | `open_markers: [...]` | words that mark an open question, in the KB's language | `TODO`, `TBD`, `FIXME` |
 
-- `stale_open` (suppressible): open status and `timestamp` older than `stale_after`.
+- `stale_open` (suppressible): open status and `timestamp` older than `stale_after`, unless the concept declares a `review_after` today or later: that suspends the timer (D321); a past `review_after` does not, it makes the wait overdue (and `stale_claim` fires). `waiting_on` is a free-text field naming who or what blocks the work, with no vocabulary; the doctor sets both on a finding only the operator can resolve.
+- `status_semantics` (warning, suppressible, D321): `status` in the `active` family on a concept of a journal whose `open_statuses` does not list it, which is checked on write too. The review kind `status_reclassify` proposes the replacement.
 - `closed_with_open_items` (suppressible): a status of the `done` or `resolved` family with unchecked `- [ ]` items outside code and outside a section whose H2 matches the map's `procedure_headings` (default `procedure`, `steps`, `how to`: a procedure's checklist is a reusable template, D313).
 - `template_section_missing` (suppressible): sections of the type's template the page lacks, compared folding case and accents; headings inside fenced code in the template are ignored.
 - `open_marker` (suppressible): marker occurrences outside code, outside heading lines, outside table rows of a concept in an open phase (D313), and outside struck-through `~~text~~` (closed or cancelled, D307), whole words, case- and accent-folded; `kb_status.open_markers` totals them as `{concepts, markers}`.
@@ -414,7 +415,7 @@ Lint also sees a KB **decaying**: work never closed, closed work not finished, p
 | `glossary: true` | this map is where the KB defines its terms: a term used in any of its concepts is never a `glossary_gap` | off: only `glossary.yaml` defines terms |
 | `work_map: <map>` | the existing map where this map's work belongs (D302): a concept here with unchecked items or an open-phase status and no link into it is `scattered_work`; a name that is no map is `contract_malformed` | none: work may live anywhere |
 
-**Work items (D302).** A work item is a concept in an open phase for its map (`open_statuses`, else the defaults; `active` only in a journal; the `draft` family only where `open_statuses` lists it, since it marks a page still being written), of any type, or an unchecked `- [ ]` item outside code in any concept, whatever its status. `work_list` returns them read-only; staleness is `stale_open`'s threshold, extended to a concept whose unchecked items are that old.
+**Work items (D302).** A work item is a concept in an open phase for its map (`open_statuses`, else the defaults; never `active`, D321; the `draft` family only where `open_statuses` lists it, since it marks a page still being written), of any type, or an unchecked `- [ ]` item outside code in any concept, whatever its status. `work_list` returns them read-only; staleness is `stale_open`'s threshold, extended to a concept whose unchecked items are that old.
 
 A review item is dismissed by `lint_ignore: [<kind>]` on a concept it names — for a pair, either member; a `glossary_gap` instead stops counting the concept carrying it, and the item goes when fewer than 10 remain. The agent writes the dismissal with the reason in the same commit, so the history says why; there is no review state besides the KB itself.
 

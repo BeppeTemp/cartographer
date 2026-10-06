@@ -122,6 +122,12 @@ var reviewFixtures = map[string]func(t *testing.T, dismiss bool) (*kb.KB, string
 		writeFile(t, k.DataRoot(), "ref/page.md", "---\ntype: Topic\ntitle: Page\n"+ignoreLine(ReviewScatteredWork, dismiss)+"---\n# Page\n\n## Follow-up\n\n- [ ] migrate the host\n")
 		return k, "ref/page"
 	},
+	ReviewStatusReclassify: func(t *testing.T, dismiss bool) (*kb.KB, string) {
+		k := tempKB(t)
+		writeFile(t, k.DataRoot(), "j/_map.md", "---\ntype: Map\ntitle: J\nkind: journal\n---\n")
+		writeFile(t, k.DataRoot(), "j/e.md", "---\ntype: Note\ntitle: E\nstatus: active\n"+ignoreLine(ReviewStatusReclassify, dismiss)+"---\n# E\n")
+		return k, "j/e"
+	},
 	ReviewMapNaming: func(t *testing.T, dismiss bool) (*kb.KB, string) {
 		k := tempKB(t)
 		writeFile(t, k.DataRoot(), "a/_map.md", "---\ntype: Map\ntitle: Alpha — first notes\n"+ignoreLine(ReviewMapNaming, dismiss)+"---\n")
@@ -662,5 +668,36 @@ func TestRepeatedFact_EvidencePreservesCodeSpans(t *testing.T) {
 	got := itemsOf(review(t, k), ReviewRepeatedFact)
 	if len(got) != 1 || !strings.Contains(got[0].Evidence, "nexus.example.com") {
 		t.Fatalf("evidence lost the code span: %+v", got)
+	}
+}
+
+// TestStatusReclassify (D321): a proposal per active journal entry, from
+// deterministic signals; none where the journal declares active open.
+func TestStatusReclassify(t *testing.T) {
+	k := tempKB(t)
+	writeFile(t, k.DataRoot(), "j/_map.md", "---\ntype: Map\ntitle: J\nkind: journal\n---\n")
+	writeFile(t, k.DataRoot(), "o/_map.md", "---\ntype: Map\ntitle: O\nkind: journal\nopen_statuses: [active]\n---\n")
+	page := func(rel, typ, body string) {
+		writeFile(t, k.DataRoot(), rel, "---\ntype: "+typ+"\ntitle: T\nstatus: active\n---\n# T\n\n"+body)
+	}
+	page("j/assess.md", "Assessment", "text\n")
+	page("j/closed.md", "Note", "## Esito\n\nfatto\n")
+	page("j/todo.md", "Note", "- [ ] open item\n")
+	page("j/wait.md", "Note", "Siamo in attesa di una risposta.\n")
+	page("j/none.md", "Note", "nothing\n")
+	page("o/a.md", "Note", "- [ ] open item\n")
+	got := itemsOf(review(t, k), ReviewStatusReclassify)
+	want := map[string]string{
+		"j/assess": "set status to reference", "j/closed": "set status to done", "j/todo": "set status to in-progress",
+		"j/wait": "set status to blocked", "j/none": "no deterministic signal",
+	}
+	if len(got) != len(want) {
+		t.Fatalf("items: %+v", got)
+	}
+	for _, it := range got {
+		w, ok := want[it.Concepts[0]]
+		if !ok || !strings.HasPrefix(it.SuggestedAction, w) {
+			t.Errorf("%s: %q, want prefix %q", it.Concepts[0], it.SuggestedAction, w)
+		}
 	}
 }

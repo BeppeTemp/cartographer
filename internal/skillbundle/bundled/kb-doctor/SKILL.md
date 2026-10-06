@@ -73,12 +73,19 @@ what is allowed:
      rename each with `map_update` `title` — never a map's folder, which would break every link;
      a subtitle the new title drops ("Incidents — dated post-mortems") becomes the first line of
      the map's `index.md` (`index_patch`) when the index does not already say it;
+     for `status_reclassify` apply the proposed status with `concept_patch` `frontmatter:
+     {status: "<proposed>"}`, reason "reclassify active to <proposed> (D321)"; when the proposal
+     is `unknown`, ask the operator — or, if delegated, set `waiting_on: "operator decision"` and
+     `review_after` 14 days from now and move on;
    - **dismiss** with a reason: `concept_patch` adding the kind to `lint_ignore` on a concept the
      item names, `reason` saying why, so the history keeps it (a `map_naming` item names maps as
      `<map>/_map`: ask the operator to add `lint_ignore: [map_naming]` to that map's `_map.md`; a
      `zombie_work` item whose first concept is retired is a shared origin — when it is where the
      others came from, dismiss it once on that retired concept);
-   - **defer**: nothing is written; it comes back next session.
+   - **defer**: nothing is written and it comes back next session — unless the finding is on open
+     work only the operator or a third party can unblock: then `concept_patch` `waiting_on` (who or
+     what) and `review_after` (a date), which suspends `stale_open` until then and makes the wait
+     visible (D321). Never touch `timestamp` to restart the clock.
    Never invent content: what the KB does not know becomes a `contradiction_report` of kind
    `open_question`. Run `gate_check` with `changed_ids` set to the concepts you wrote.
    Write responses surface per-concept findings inline; the `gate_check` at session end is the

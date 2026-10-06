@@ -29,13 +29,15 @@ const (
 	ReviewScatteredWork = "scattered_work"
 	// D304: map titles that do not read as one set.
 	ReviewMapNaming = "map_naming"
+	// D321: an `active` page in a journal that does not declare it open.
+	ReviewStatusReclassify = "status_reclassify"
 )
 
 // ReviewKinds lists the kinds in ranking priority: an item of an earlier kind
 // always comes before one of a later kind.
 // Repeated facts and hotspots rank before promotion (D301): a duplicated fact
 // is cheaper to fix than to keep updating in every copy.
-var ReviewKinds = []string{ReviewDuplicate, ReviewZombie, ReviewRepeatedFact, ReviewReadHotspot, ReviewPromotion, ReviewScatteredWork, ReviewMapNaming, ReviewGlossary, ReviewLintJudgement}
+var ReviewKinds = []string{ReviewDuplicate, ReviewZombie, ReviewStatusReclassify, ReviewRepeatedFact, ReviewReadHotspot, ReviewPromotion, ReviewScatteredWork, ReviewMapNaming, ReviewGlossary, ReviewLintJudgement}
 
 // Thresholds of the review generators.
 const (
@@ -209,6 +211,7 @@ func Review(k *kb.KB, findings []Finding) ([]ReviewItem, error) {
 	items = append(items, duplicateItems(concepts)...)
 	zombies, zombieItems := zombieWorkItems(byID, concepts, contracts, byConcept, links)
 	items = append(items, zombieItems...)
+	items = append(items, statusReclassifyItems(concepts, contracts)...)
 	items = append(items, repeatedFactItems(concepts, contracts, k.TemplateTexts())...)
 	items = append(items, readHotspotItems(concepts, contracts, links)...)
 	items = append(items, promotionItems(concepts, contracts, links)...)
@@ -646,6 +649,85 @@ func promotionItems(concepts []*reviewConcept, contracts map[string]kb.MapContra
 		})
 	}
 	return out
+}
+
+// --- status_reclassify (D321) ---
+
+// activeNotOpen reports whether status is in the active family in a journal
+// whose contract does not list it in open_statuses: the page says "valid" where
+// the journal's reader reads "work". status_semantics and status_reclassify
+// share it.
+func activeNotOpen(status string, contract *kb.MapContract) bool {
+	if contract == nil || contract.Kind != "journal" {
+		return false
+	}
+	if fam, ok := familiesFor(contract).member(status); !ok || fam != "active" {
+		return false
+	}
+	return !openPhase(status, contract)
+}
+
+var (
+	reclassifyReferenceTypes = map[string]bool{"assessment": true, "solution": true, "analysis": true, "reference": true}
+	reclassifyClosedHeads    = []string{"esito", "outcome", "chiuso", "closed"}
+	reclassifyNextHeads      = []string{"prossimi passi", "next steps"}
+	reclassifyWaiting        = []string{"in attesa di", "waiting for", "blocked by"}
+)
+
+// statusReclassifyItems proposes a status for every `active` page of a journal
+// that does not declare active open (D321), from deterministic signals only;
+// with none, the proposal is "unknown" and the operator decides.
+func statusReclassifyItems(concepts []*reviewConcept, contracts map[string]kb.MapContract) []ReviewItem {
+	var out []ReviewItem
+	for _, c := range concepts {
+		contract, ok := contracts[c.mapName]
+		if !ok || !activeNotOpen(c.status, &contract) {
+			continue
+		}
+		proposed, signal := reclassifySignal(c)
+		it := ReviewItem{
+			Kind:     ReviewStatusReclassify,
+			Concepts: []string{string(c.id)},
+			Evidence: fmt.Sprintf("status active in journal %s; signals: %s", c.mapName, signal),
+		}
+		if proposed == "unknown" {
+			it.SuggestedAction = "no deterministic signal — the operator decides: reference, done, in-progress, or blocked"
+		} else {
+			it.SuggestedAction = "set status to " + proposed
+		}
+		out = append(out, it)
+	}
+	return out
+}
+
+// reclassifySignal is the first matching signal's proposal and its name.
+func reclassifySignal(c *reviewConcept) (proposed, signal string) {
+	if reclassifyReferenceTypes[strings.ToLower(c.typ)] {
+		return "reference", "type " + strings.ToLower(c.typ)
+	}
+	heads := kb.H2Headings(c.body)
+	hasHead := func(want []string) bool {
+		for _, h := range heads {
+			if isProcedureHeading(h, want) {
+				return true
+			}
+		}
+		return false
+	}
+	masked := kb.MaskCodeSpans(c.body)
+	switch {
+	case hasHead(reclassifyClosedHeads):
+		return "done", "outcome section"
+	case openCheckbox.MatchString(masked+"\n") || hasHead(reclassifyNextHeads):
+		return "in-progress", "unchecked items or next steps"
+	}
+	folded := search.Fold(strings.ToLower(masked))
+	for _, w := range reclassifyWaiting {
+		if strings.Contains(folded, w) {
+			return "blocked", "waiting phrase"
+		}
+	}
+	return "unknown", "none"
 }
 
 // --- scattered_work (D302) ---
