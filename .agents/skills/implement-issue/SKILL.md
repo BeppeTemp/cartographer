@@ -48,6 +48,11 @@ Never run two subagents in the same working copy. Worktrees branch from fresh
 `origin/main`, so each subagent sees the merged predecessors — start a chain's
 next plan only after the previous PR is merged.
 
+Spawn the `plan-implementer` subagent (D327: `.claude/agents/`, `.codex/agents/`,
+`.kiro/agents/`, same text): it already carries the mandate below and a fixed
+≤10-line report, so the spawn prompt is just the issue number and the absolute
+worktree path. Where the client has no such agent, pass the mandate inline.
+
 Canonical mandate (self-contained — the subagent never sees this conversation):
 
 - Work **only** inside `<absolute-worktree-path>`; every command runs there. The tools inherit no working directory from this conversation, so pass it explicitly: `git -C <path>`, `make -C <path>`. Sibling subagents are active on other worktrees: never revert or touch their files.
@@ -105,7 +110,7 @@ stop and comment on the issue rather than guessing).
 
 | | How to spawn a subagent | Authorization gate |
 |---|---|---|
-| **Claude Code** | `Task` with `isolation: "worktree"` is available, but pass the `make worktree-add` path explicitly so the layout matches every other client. Default model unless the user asks otherwise | auto-mode classifier; standing allow rules live in `.claude/settings.local.json` (`Bash(gh pr merge *)`, `Bash(git push --force-with-lease *)`) — machine-local, not versioned |
-| **Codex** | `collaboration.spawn_agent`, one call per plan. Independent worktrees may run concurrently within the agent-slot limit | explicit user authorization or a standing approval |
-| **Kiro** | `orchestrate_subagent`, `role: general-task-execution`, one stage per plan. Independent plans are stages **without** `depends_on` and run in parallel; a dependency chain is `depends_on` on the predecessor | explicit user decision |
+| **Claude Code** | `Agent` with `subagent_type: plan-implementer`; `isolation: "worktree"` is available, but pass the `make worktree-add` path explicitly so the layout matches every other client. Default model unless the user asks otherwise | auto-mode classifier; standing allow rules live in `.claude/settings.local.json` (`Bash(gh pr merge *)`, `Bash(git push --force-with-lease *)`) — machine-local, not versioned |
+| **Codex** | `collaboration.spawn_agent` with the `plan-implementer` agent, one call per plan. Independent worktrees may run concurrently within the agent-slot limit | explicit user authorization or a standing approval |
+| **Kiro** | `orchestrate_subagent` with the `plan-implementer` agent (or `role: general-task-execution`), one stage per plan. Independent plans are stages **without** `depends_on` and run in parallel; a dependency chain is `depends_on` on the predecessor | explicit user decision |
 | **Antigravity** | one subagent per plan from `.agents/agents/`, or sequential execution if none is defined | `commandExecutionPolicy` on the subagent |

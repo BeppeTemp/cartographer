@@ -107,6 +107,12 @@ format and location — project-local for `.mcp.json`, `.codex/config.toml` and
 all of them machine-local and git-ignored. If you are pointing a client at a
 Cartographer server, use `cartographer connect`, not a hand-written file.
 
+The repository also ships one coding subagent, `plan-implementer`, the worker the
+`implement-issue` skill spawns per plan. It exists in each client's own format —
+`.claude/agents/plan-implementer.md`, `.codex/agents/plan-implementer.toml`,
+`.kiro/agents/plan-implementer.json` — and the three must say the same thing: the
+procedure itself stays in the skill (D327).
+
 Working on more than one plan at a time? No client isolates its own subagents
 from your working copy, so use a worktree per plan:
 
