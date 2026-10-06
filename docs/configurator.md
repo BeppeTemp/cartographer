@@ -568,17 +568,25 @@ The bootstrap hook and the scheduled timer deliberately do **not** run it: it is
 and eight checks on every session start is exactly the background cost D60 avoided by keeping
 the bootstrap script silent and deterministic.
 
-### `cartographer kb repair <kb> [--apply] [--json]`
+### `cartographer kb repair <kb> [--apply] [--json | --revert <sha> [--reason <text>]]`
 
 The unattended half of KB upkeep (D299), schedulable by the operator (cron, launchd, a CI job); nothing
 installs a schedule. It calls `kb_status`, then `kb_repair` with `dry_run: true` for every check with a
 mechanical fix, and prints per check the planned count and up to 5 examples. With `--apply` it re-runs
 **only** the checks listed in the KB's `kbs[].auto_repair` with `dry_run: false` (`[auto]` in the
-report); a check outside it is never applied, and an empty list is said so. It ends with the judgement
+report); a check outside it is never applied. A KB that never wrote `auto_repair` has the default list
+(`nonstandard_field`, `tool_param_field`, `invalid_field_value`, `duplicate_link`, `prose_value`, D323):
+the report says so, and says that earlier releases applied none, so an upgrade followed by `--apply` is not
+a surprise; an explicit `auto_repair: []` is reported as such. The server applies the same list by
+itself every `doctor_auto_interval`, so `--apply` usually finds little. It ends with the judgement
 work left — the `kb_review` counts by kind — which only a `kb-doctor` session with the operator handles.
 It writes no `kb-doctor` log entry: a mechanical pass is not a doctor session, and the entry would
 silence the server's doctor proposal while the judgement work is undone (each applied check still
 leaves `kb_repair`'s own entry).
+
+`--revert <sha>` replaces the repair: it calls `repair_revert`, which undoes one `kb_repair` or
+auto-repair commit (the SHA the Atlas Maintenance panel shows) as a new commit through the server's
+ordinary write path, and refuses any other commit.
 
 Exit codes: `0` nothing left to do, `3` only judgement work or checks outside `auto_repair` remain,
 `2` error. `--json` prints the report as an object (`checks`, `review_total`, `review_by_kind`,

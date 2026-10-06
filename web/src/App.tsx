@@ -21,6 +21,7 @@ import { Legend } from "./components/Legend";
 import { Sheet, useMediaQuery } from "./components/Sheet";
 import { Splitter } from "./components/Splitter";
 import { Activity } from "./components/Activity";
+import { Maintenance } from "./components/Maintenance";
 import { Work } from "./components/Work";
 import { NodeList } from "./components/NodeList";
 import { Observatory } from "./components/Observatory";
@@ -596,6 +597,8 @@ export function App() {
             />
           ) : view.panel === "work" && activeKB ? (
             <Work kb={activeKB} onOpen={(conceptId) => navigate({ panel: "atlas", concept: conceptId })} />
+          ) : view.panel === "maintenance" && activeKB ? (
+            <Maintenance kb={activeKB} onOpen={(conceptId) => navigate({ panel: "atlas", concept: conceptId })} />
           ) : view.panel === "observatory" ? (
             <Observatory
               report={lint}

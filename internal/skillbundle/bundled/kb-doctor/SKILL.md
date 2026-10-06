@@ -1,7 +1,7 @@
 ---
 name: kb-doctor
 description: Keep a Knowledge Base from rotting - a short, budgeted session that applies mechanical repairs and walks the operator through the server's ranked review list. Use when a tool result proposes a kb-doctor session, when kb_status reports conformance.doctor_suggested, when the operator asks to tidy or align a KB, or after a Cartographer upgrade.
-version: "2.7"
+version: "2.8"
 ---
 # KB Doctor - Skill
 
@@ -15,7 +15,10 @@ session decides it with the operator. It is short on purpose: at most **10 decis
 Three trust levels, never mixed: **mechanical** fixes (`kb_repair`) are deterministic; a
 **proposal** (a vocabulary) needs one approval; **judgement** (merge, move, close, promote) needs the
 operator's choice per item. The server proposes a session when the KB's `doctor_interval` has passed
-since the last one; it never runs one by itself.
+since the last one; it never runs one by itself. What it does run by itself, once per
+`doctor_auto_interval` (default daily), is the **background repair** (D323): the KB's `auto_repair`
+checks, at most 50 concepts per check, one commit each with reason "auto-repair (background)". It is
+not a session: it writes no `kb-doctor` log entry and cannot make a judgement.
 
 **Delegation.** The operator may hand the session over ("do it yourself"), or the KB's
 `instructions.md` may say doctor sessions run unattended. Then you decide every item yourself,
@@ -33,12 +36,22 @@ what is allowed:
 
 1. **Signal.** `kb_status`: read `conformance` (`findings`, `fixable`, `last_doctor`,
    `next_doctor`, `doctor_suggested`), `review` (`total`, `by_kind`), `open_markers`, `read_cost`,
-   and `capabilities.auto_repair`. Stop if nothing is suggested and the operator did not ask. Tell the
-   operator in two lines what the session will cover.
+   and `capabilities.auto_repair`. Stop if nothing is suggested and the operator did not ask. Read
+   the questions earlier sessions deferred: `contradiction_report` with `kind: "open_question"`
+   (status open). Answer the ones the KB or the operator can now settle: `concept_patch` the answer
+   into the question and set `resolution_status: resolved`. Tell the operator in two lines what the
+   session will cover.
 2. **Mechanical.** For each check with a fix (`nonstandard_field`, `tool_param_field`, `broken_link`,
-   `duplicate_link`, `invalid_field_value`, `prose_value`): `kb_repair` with `dry_run: true`.
-   Checks listed in `capabilities.auto_repair.checks` the operator already trusts: apply them
-   (`dry_run: false`) and report the counts. Any other: show the plan (`found_total` is the whole
+   `duplicate_link`, `invalid_field_value`, `prose_value`, `title_h1_mismatch`): `kb_repair` with
+   `dry_run: true`. Checks listed in `capabilities.auto_repair.checks` the operator already trusts:
+   apply them (`dry_run: false`) and report the counts. While `capabilities.auto_repair.default` is
+   true (the operator never wrote the list) it is `nonstandard_field`, `tool_param_field`,
+   `invalid_field_value`, `duplicate_link` and `prose_value`: deterministic, never rewrite body text or
+   drop a link (D323). The server applies them by itself every `doctor_auto_interval`, so they are
+   usually already done: run them again only when `capabilities.doctor_auto_interval` is disabled or
+   findings remain after the last write (a `skipped` entry, or a KB with more than 50 per check). To
+   undo a repair commit, `repair_revert` with its `sha` (only `kb_repair` and auto-repair commits are
+   accepted; the Atlas Maintenance panel lists them with the exact command). Any other: show the plan (`found_total` is the whole
    job, `planned_total` what this call covers under `limit`), apply on confirmation. One call is
    one commit. A `skipped` entry is either a concept changed since it was listed (run the check
    again) or a fix that needs a person — two synonyms of one field holding different values: pick
@@ -63,7 +76,8 @@ what is allowed:
      or update (`zombie_work`, `stale_open`, `closed_with_open_items`), `concept_new` from the target
      map's template and links both ways (`promotion_candidate`), a glossary entry
      (`glossary_gap`), `concept_move` (`map_misfit`), `concept_expand` or a split
-     (`concept_oversize`); for `repeated_fact` choose the owner concept with the operator, keep the
+     (`concept_oversize`); a `lint_judgement` item is a `lint` finding of that check, so decide it
+     from `lint` (the check is the actionable unit) and do not count it twice; for `repeated_fact` choose the owner concept with the operator, keep the
      fact there and replace each copy with a link (never rewrite the fact); for `read_hotspot`
      `concept_expand` into satellites with a short summary page, or turn it into an index page;
      for `scattered_work` create a concept in the contract's `work_map` from its template (one per
@@ -87,7 +101,9 @@ what is allowed:
      what) and `review_after` (a date), which suspends `stale_open` until then and makes the wait
      visible (D321). Never touch `timestamp` to restart the clock.
    Never invent content: what the KB does not know becomes a `contradiction_report` of kind
-   `open_question`. Run `gate_check` with `changed_ids` set to the concepts you wrote.
+   `open_question`: `title` is the question in one sentence, the body the evidence and the options,
+   `involves` the concepts it concerns. It stays open across sessions, the Atlas Maintenance panel
+   lists it for the operator, and the next session's step 1 reads it back. Run `gate_check` with `changed_ids` set to the concepts you wrote.
    Write responses surface per-concept findings inline; the `gate_check` at session end is the
    complementary pass.
 5b. **Harvest and archive.** `kb_review` `kind: "harvest_candidate"`: a journal entry that is closed
@@ -120,12 +136,28 @@ what is allowed:
    `lint_ignore` that `map_list` shows) when the whole map follows that style. Each accepted check
    counts against the budget once per map, not once per concept. Many per-concept writes go in
    one `concept_batch` (up to 50 operations, one commit), not one call each.
+   - **Page names** (D315): `title_h1_mismatch` is mechanical (`kb_repair`, the heading follows the
+     title); `title_quality` is an info finding with no fix, because the wording is a judgement:
+     show the operator the title and a shorter label, and accept it with `lint_ignore` when the
+     title is deliberate.
+   - **Boilerplate** (D314, D317): a `repeated_fact` whose evidence line comes from a template is
+     structural. The fix is in the template (`artifact_read` `templates/`), not in each concept:
+     one decision, not one per copy.
+   - **Search misses**: `kb_status` `search_misses`. A miss with `resolved: true` found something
+     on the last check and needs nothing (D319); a still-open one, asked more than once, is a gap:
+     write the page if the KB has the facts, otherwise an `open_question`.
 7. **Artifacts.** `artifact_read` the KB's `instructions.md` and `templates/`: update any rule or
    template this session made obsolete (a field renamed, a workaround a repair removed, a rule to add
    pages to a now-generated index or to add reverse links).
 8. **Close.** `log_append` whose text contains `kb-doctor` and the before/after counts per bucket,
    for example `kb-doctor: warnings 205 -> 0, fixable 40 -> 0, review 34 -> 25, open_markers 161 ->
    158`. `kb_status` reads `last_doctor` from it, which also stops the proposal for one interval.
+9. **Volume.** A KB imported with more than 200 findings is not a 10-decision session; work it in
+   this order, over several sessions if needed. First the mechanical repairs that change the graph
+   (link forms, frontmatter normalisation): many findings disappear after them, so re-run `kb_status`
+   to recount before planning anything else. Then delegate the body-text checks (`bare_link_list`,
+   `link_to_retired`) in `concept_batch` calls of up to 50 operations, one commit each, to up to 4
+   subagents working on disjoint maps. Judgement items (`kb_review`) come last, from the heaviest.
 
 ## Rules
 

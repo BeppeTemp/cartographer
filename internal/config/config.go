@@ -197,8 +197,17 @@ type KBSpec struct {
 	// `cartographer kb repair --apply` may apply without a human reviewing
 	// the plan (D299). Each name must be in lint.FixableChecks. There is
 	// deliberately no "all": a fixable check added by a later release must be
-	// seen as a dry-run plan before it runs unattended. Default empty.
+	// seen as a dry-run plan before it runs unattended. Absent means
+	// DefaultAutoRepair; an explicit empty list ("auto_repair: []") means
+	// none, so nil and empty are different values here (D323). Read it
+	// through AutoRepairChecks.
 	AutoRepair []string `yaml:"auto_repair,omitempty"`
+
+	// DoctorAutoInterval is how often the server runs the auto_repair checks
+	// by itself, with no agent session (D323): "<n>d" or "<n>" days, "0"
+	// turns the heartbeat off, empty means DefaultDoctorAutoIntervalDays.
+	// Read it through DoctorAutoIntervalDays.
+	DoctorAutoInterval string `yaml:"doctor_auto_interval,omitempty"`
 
 	// DoctorInterval is how long after the last kb-doctor session the server
 	// starts proposing the next one (D299): "<n>d" or "<n>" days, "0"
@@ -413,6 +422,9 @@ func Load(path string) (*Config, error) {
 		}
 		if _, err := spec.DoctorIntervalDays(); err != nil {
 			return nil, fmt.Errorf("config: doctor_interval: %w", err)
+		}
+		if _, err := spec.DoctorAutoIntervalDays(); err != nil {
+			return nil, fmt.Errorf("config: doctor_auto_interval: %w", err)
 		}
 		if spec.UsageStaleDays != nil && *spec.UsageStaleDays < 0 {
 			return nil, fmt.Errorf("config: usage_stale_days: %d is negative (a number of days, or 0 to disable)", *spec.UsageStaleDays)
@@ -843,15 +855,51 @@ const DefaultDoctorIntervalDays = 14
 // DoctorIntervalDays resolves DoctorInterval: the default when empty, 0 when
 // disabled.
 func (s KBSpec) DoctorIntervalDays() (int, error) {
-	v := strings.TrimSpace(s.DoctorInterval)
+	return parseDays(s.DoctorInterval, DefaultDoctorIntervalDays)
+}
+
+// DefaultDoctorAutoIntervalDays is how often the server runs a KB's
+// auto_repair checks when doctor_auto_interval is not set: daily (D323).
+const DefaultDoctorAutoIntervalDays = 1
+
+// DoctorAutoIntervalDays resolves DoctorAutoInterval: the default when empty,
+// 0 when the heartbeat is off.
+func (s KBSpec) DoctorAutoIntervalDays() (int, error) {
+	return parseDays(s.DoctorAutoInterval, DefaultDoctorAutoIntervalDays)
+}
+
+// parseDays reads "<n>d" or "<n>" as a number of days, def when empty.
+func parseDays(v string, def int) (int, error) {
+	raw := v
+	v = strings.TrimSpace(v)
 	if v == "" {
-		return DefaultDoctorIntervalDays, nil
+		return def, nil
 	}
 	n, err := strconv.Atoi(strings.TrimSuffix(v, "d"))
 	if err != nil || n < 0 {
-		return 0, fmt.Errorf("%q is not a number of days (\"14d\", \"14\", or \"0\" to disable)", s.DoctorInterval)
+		return 0, fmt.Errorf("%q is not a number of days (\"14d\", \"14\", or \"0\" to disable)", raw)
 	}
 	return n, nil
+}
+
+// DefaultAutoRepair is the auto_repair of a KB that does not set one (D323):
+// the checks whose fix is deterministic, never rewrites body text and never
+// removes a link, so running it unattended cannot lose a graph edge.
+// broken_link and reciprocal_link_item are deliberately absent: they rewrite
+// or drop links, and D309 showed a mutual-pair drop can lose hundreds of
+// edges in one commit. A fixable check added later is not added here without
+// a decision. Do not mutate the returned slice: use AutoRepairChecks.
+var DefaultAutoRepair = []string{"nonstandard_field", "tool_param_field", "invalid_field_value", "duplicate_link", "prose_value"}
+
+// AutoRepairChecks resolves AutoRepair: DefaultAutoRepair when the key is
+// absent (nil), the operator's list when set, none when it is an explicit
+// empty list. isDefault says which, so a status line can tell a customised
+// KB from one that never chose.
+func (s KBSpec) AutoRepairChecks() (checks []string, isDefault bool) {
+	if s.AutoRepair == nil {
+		return append([]string{}, DefaultAutoRepair...), true
+	}
+	return s.AutoRepair, false
 }
 
 // DefaultUsageStaleDays is the artifact_unused threshold of a KB that does not

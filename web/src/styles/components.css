@@ -2674,3 +2674,65 @@ body.is-resizing {
 .work__stale-badge {
   color: var(--sev-warning);
 }
+
+/* --- Maintenance (D323): Activity's sibling, read-only. Each repair and each
+   question is a row with the text to copy beside it; nothing here acts. --- */
+.maintenance h2.work__group-title {
+  margin-block: var(--space-6) 0;
+}
+
+.maintenance__summary {
+  display: grid;
+  gap: var(--space-2);
+  margin: var(--space-3) 0 0;
+  padding: var(--space-3) var(--space-4);
+  background: var(--surface-1);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-panel);
+}
+
+.maintenance__summary div {
+  display: grid;
+  grid-template-columns: minmax(9rem, 14rem) 1fr;
+  gap: var(--space-3);
+}
+
+.maintenance__summary dt {
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+
+.maintenance__summary dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.maintenance__row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: var(--space-3);
+  padding-inline-end: var(--space-3);
+}
+
+.maintenance__repair {
+  cursor: default;
+}
+
+.maintenance__revert {
+  overflow-wrap: anywhere;
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  user-select: all;
+}
+
+.maintenance__copy {
+  white-space: nowrap;
+}
+
+@media (max-width: 40rem) {
+  .maintenance__summary div,
+  .maintenance__row {
+    grid-template-columns: 1fr;
+  }
+}

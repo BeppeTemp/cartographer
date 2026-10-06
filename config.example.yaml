@@ -42,8 +42,12 @@ kbs:
                                    # KB (default false, D71): writing a skill means
                                    # injecting instructions that clients will run —
                                    # grant per-KB, an rw token alone does not imply it
-    # auto_repair: [nonstandard_field]  # checks `cartographer kb repair --apply` may
-                                   # apply unattended (D299), by name, no "all"
+    # auto_repair: [nonstandard_field]  # checks `cartographer kb repair --apply` and
+                                   # the background repair apply unattended (D299), by
+                                   # name, no "all". Absent: the default list of five
+                                   # safe checks (D323); [] means none
+    # doctor_auto_interval: 1d     # how often the server applies auto_repair by
+                                   # itself (D323); "0" disables, default 1d
     # doctor_interval: 14d         # days before the server proposes the next
                                    # kb-doctor session (D299); "0" disables
     # usage_stale_days: 42         # days a skill or agent may go unused by every

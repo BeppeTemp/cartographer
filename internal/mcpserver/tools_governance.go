@@ -589,6 +589,10 @@ func kbCapabilities(k *kb.KB) map[string]KBCapability {
 	if k.DoctorIntervalDays > 0 {
 		interval = fmt.Sprintf("%d days", k.DoctorIntervalDays)
 	}
+	autoInterval := "disabled"
+	if k.DoctorAutoIntervalDays > 0 && len(k.AutoRepair) > 0 {
+		autoInterval = fmt.Sprintf("%d days", k.DoctorAutoIntervalDays)
+	}
 	workflow := "local"
 	if k.ServerGit != nil {
 		workflow = "pr"
@@ -604,8 +608,10 @@ func kbCapabilities(k *kb.KB) map[string]KBCapability {
 		"mount": {State: mount, Setting: "kbs[]"},
 		// D299: what `cartographer kb repair --apply` may apply unattended,
 		// and when the server proposes the next kb-doctor session.
-		"auto_repair":     {State: onOff(len(k.AutoRepair) > 0), Setting: "kbs[].auto_repair", Checks: k.AutoRepair},
+		"auto_repair":     {State: onOff(len(k.AutoRepair) > 0), Setting: "kbs[].auto_repair", Checks: k.AutoRepair, Default: k.AutoRepairDefault},
 		"doctor_interval": {State: interval, Setting: "kbs[].doctor_interval"},
+		// D323: the server applies auto_repair by itself on this interval.
+		"doctor_auto_interval": {State: autoInterval, Setting: "kbs[].doctor_auto_interval"},
 	}
 }
 
@@ -848,86 +854,7 @@ func toolContradictionReport(k *kb.KB) Tool {
 			}
 			json.Unmarshal(args, &params)
 
-			statusFilter := params.Status
-			if statusFilter == "" {
-				statusFilter = "open"
-			}
-
-			type entry struct {
-				ID                string   `json:"id"`
-				Title             string   `json:"title,omitempty"`
-				Involves          []string `json:"involves,omitempty"`
-				ContradictionKind string   `json:"contradiction_kind,omitempty"`
-				ResolutionStatus  string   `json:"resolution_status"`
-			}
-
-			var matches []entry
-
-			err := k.WalkConcepts(func(id okf.ConceptID, content string) error {
-				fmRaw, _, _ := okf.SplitFrontmatter(content)
-				fm, err := okf.ParseFrontmatter(fmRaw)
-				if err != nil {
-					return nil
-				}
-				if fm.Type() != "Contradiction" {
-					return nil
-				}
-
-				sid := string(id)
-				if params.Scope != "" && !strings.HasPrefix(sid, params.Scope) {
-					return nil
-				}
-				if !Visible(ctx, k, sid) {
-					return nil
-				}
-
-				rs := "open"
-				if v, ok := fm.Get("resolution_status"); ok {
-					if s, ok := v.(string); ok && s != "" {
-						rs = s
-					}
-				}
-
-				if statusFilter != "*" && rs != statusFilter {
-					return nil
-				}
-
-				kindVal := ""
-				if v, ok := fm.Get("contradiction_kind"); ok {
-					kindVal, _ = v.(string)
-				}
-				switch params.Kind {
-				case "":
-				case "gap":
-					if !kb.IsGapKind(kindVal) {
-						return nil
-					}
-				case "contradiction":
-					if kb.IsGapKind(kindVal) {
-						return nil
-					}
-				default:
-					if kindVal != params.Kind {
-						return nil
-					}
-				}
-
-				e := entry{
-					ID:               sid,
-					ResolutionStatus: rs,
-				}
-				if v, ok := fm.Get("title"); ok {
-					e.Title, _ = v.(string)
-				}
-				if v, ok := fm.Get("involves"); ok {
-					e.Involves, _ = v.([]string)
-				}
-				if v, ok := fm.Get("contradiction_kind"); ok {
-					e.ContradictionKind, _ = v.(string)
-				}
-				matches = append(matches, e)
-				return nil
-			})
+			matches, err := listContradictions(ctx, k, params.Scope, params.Status, params.Kind)
 			if err != nil {
 				return errorResult(fmt.Sprintf("contradiction_report: walk: %v", err)), nil
 			}
@@ -953,6 +880,89 @@ func toolContradictionReport(k *kb.KB) Tool {
 			return textResult(strings.TrimRight(sb.String(), "\n")), nil
 		},
 	}
+}
+
+// contradictionEntry is one Contradiction concept as contradiction_report and
+// the Atlas's maintenance questions list it.
+type contradictionEntry struct {
+	ID                string   `json:"id"`
+	Title             string   `json:"title,omitempty"`
+	Involves          []string `json:"involves,omitempty"`
+	ContradictionKind string   `json:"contradiction_kind,omitempty"`
+	ResolutionStatus  string   `json:"resolution_status"`
+}
+
+// listContradictions walks the KB for Contradiction concepts the caller can
+// see, filtered by ID prefix, resolution status ("" = open, "*" = all) and
+// kind (see the tool's schema). One implementation for the tool and the UI
+// route, so the two cannot disagree about what is open.
+func listContradictions(ctx requestContext, k *kb.KB, scope, status, kind string) ([]contradictionEntry, error) {
+	statusFilter := status
+	if statusFilter == "" {
+		statusFilter = "open"
+	}
+	var matches []contradictionEntry
+	err := k.WalkConcepts(func(id okf.ConceptID, content string) error {
+		fmRaw, _, _ := okf.SplitFrontmatter(content)
+		fm, err := okf.ParseFrontmatter(fmRaw)
+		if err != nil {
+			return nil
+		}
+		if fm.Type() != "Contradiction" {
+			return nil
+		}
+
+		sid := string(id)
+		if scope != "" && !strings.HasPrefix(sid, scope) {
+			return nil
+		}
+		if !Visible(ctx, k, sid) {
+			return nil
+		}
+
+		rs := "open"
+		if v, ok := fm.Get("resolution_status"); ok {
+			if s, ok := v.(string); ok && s != "" {
+				rs = s
+			}
+		}
+
+		if statusFilter != "*" && rs != statusFilter {
+			return nil
+		}
+
+		kindVal := ""
+		if v, ok := fm.Get("contradiction_kind"); ok {
+			kindVal, _ = v.(string)
+		}
+		switch kind {
+		case "":
+		case "gap":
+			if !kb.IsGapKind(kindVal) {
+				return nil
+			}
+		case "contradiction":
+			if kb.IsGapKind(kindVal) {
+				return nil
+			}
+		default:
+			if kindVal != kind {
+				return nil
+			}
+		}
+
+		e := contradictionEntry{ID: sid, ResolutionStatus: rs}
+		if v, ok := fm.Get("title"); ok {
+			e.Title, _ = v.(string)
+		}
+		if v, ok := fm.Get("involves"); ok {
+			e.Involves, _ = v.([]string)
+		}
+		e.ContradictionKind = kindVal
+		matches = append(matches, e)
+		return nil
+	})
+	return matches, err
 }
 
 // --- conflicts_list ---

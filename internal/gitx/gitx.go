@@ -1117,3 +1117,46 @@ func MergeFileUnion(base, ours, theirs string) (string, error) {
 	}
 	return string(out), nil
 }
+
+// ResolveCommit returns the full SHA of the commit that ref names, or an error
+// when ref is not a commit of this repository.
+func ResolveCommit(dir, ref string) (string, error) {
+	out, err := runGit(dir, "rev-parse", "--verify", "--quiet", ref+"^{commit}")
+	if err != nil {
+		return "", fmt.Errorf("%q is not a commit of this KB", ref)
+	}
+	return strings.TrimSpace(out), nil
+}
+
+// CommitSummary is the part of a commit a revert guard reads.
+type CommitSummary struct {
+	Subject string
+	// Reason is the Reason: trailer (D272), empty when absent.
+	Reason  string
+	Parents int
+}
+
+// ShowCommit reads the subject, the Reason trailer and the number of parents
+// of one commit.
+func ShowCommit(dir, sha string) (CommitSummary, error) {
+	out, err := runGit(dir, "show", "-s", "--format=%P%x00%s%x00%(trailers:key=Reason,valueonly,separator=%x1f)", sha)
+	if err != nil {
+		return CommitSummary{}, fmt.Errorf("git show %s: %w: %s", sha, err, out)
+	}
+	parts := strings.SplitN(strings.TrimRight(out, "\n"), "\x00", 3)
+	if len(parts) != 3 {
+		return CommitSummary{}, fmt.Errorf("git show %s: unexpected output %q", sha, out)
+	}
+	reason, _, _ := strings.Cut(parts[2], "\x1f")
+	return CommitSummary{Subject: parts[1], Reason: strings.TrimSpace(reason), Parents: len(strings.Fields(parts[0]))}, nil
+}
+
+// RevertNoCommit applies the inverse of commit sha to the working tree and the
+// index without committing, so the caller's own commit path records it. On a
+// conflict it returns an error and leaves the tree for the caller to reset.
+func RevertNoCommit(dir, sha string, env ...string) error {
+	if out, err := runGitEnv(dir, env, "revert", "--no-commit", sha); err != nil {
+		return fmt.Errorf("git revert %s: %w: %s", sha, err, strings.TrimSpace(out))
+	}
+	return nil
+}

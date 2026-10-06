@@ -337,9 +337,10 @@ func runServe(cfg *config.Config) {
 		}
 		k.SopsAgeKeyFile = resolveSopsAgeKeyFile(m.Spec, cfg.Sops, m.Name)
 		k.AllowArtifactWrite = m.Spec.AllowArtifactWrite
-		k.AutoRepair = m.Spec.AutoRepair
+		k.AutoRepair, k.AutoRepairDefault = m.Spec.AutoRepairChecks()
 		// Validated by config.Load; a discovered KB's zero spec yields the default.
 		k.DoctorIntervalDays, _ = m.Spec.DoctorIntervalDays()
+		k.DoctorAutoIntervalDays, _ = m.Spec.DoctorAutoIntervalDays()
 		k.UsageStaleDays = m.Spec.UsageStale()
 		k.Discovered = m.Discovered
 		name := m.Name
@@ -490,6 +491,10 @@ func serveHTTP(addr string, kbs []*kb.KB, names []string, artifactSigners []ed25
 
 	multi := mcpserver.NewMultiKBServer(version)
 	multi.SetLatestVersionSource(latestVersion)
+	// The background repair (D323) of every mounted KB stops with the server:
+	// cancelled before the drain, so no run starts while it shuts down.
+	repairCtx, stopRepair := context.WithCancel(context.Background())
+	defer stopRepair()
 	// serverInfo.name (D102) identifies the mounted KB only when more than
 	// one is mounted — a single-KB HTTP server keeps the historical bare
 	// "cartographer" (asserted verbatim in server_test.go).
@@ -520,6 +525,7 @@ func serveHTTP(addr string, kbs []*kb.KB, names []string, artifactSigners []ed25
 			s.SetKBName(name)
 			s.SetTransport("http")
 			s.SetLatestVersionSource(latestVersion)
+			s.StartAutoRepair(repairCtx)
 		})
 		if err != nil {
 			log.Fatal(err)
@@ -613,6 +619,7 @@ func serveHTTP(addr string, kbs []*kb.KB, names []string, artifactSigners []ed25
 	// One shutdown path, whatever asked for it: a second copy is how the drain
 	// and the push flush come to differ between a signal and an event.
 	shutdown := func() {
+		stopRepair()
 		ctx, cancel := context.WithTimeout(context.Background(), shutdownHTTPTimeout)
 		defer cancel()
 		if err := httpSrv.Shutdown(ctx); err != nil {

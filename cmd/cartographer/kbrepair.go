@@ -53,13 +53,16 @@ type kbRepairCheck struct {
 }
 
 type kbRepairReport struct {
-	KB           string          `json:"kb"`
-	Applied      bool            `json:"apply"`
-	AutoRepair   []string        `json:"auto_repair"`
-	Checks       []kbRepairCheck `json:"checks"`
-	ReviewTotal  int             `json:"review_total"`
-	ReviewByKind map[string]int  `json:"review_by_kind,omitempty"`
-	Remaining    int             `json:"remaining"`
+	KB         string   `json:"kb"`
+	Applied    bool     `json:"apply"`
+	AutoRepair []string `json:"auto_repair"`
+	// AutoRepairDefault is true when auto_repair is the product default and
+	// not a list the operator wrote (D323).
+	AutoRepairDefault bool            `json:"auto_repair_default,omitempty"`
+	Checks            []kbRepairCheck `json:"checks"`
+	ReviewTotal       int             `json:"review_total"`
+	ReviewByKind      map[string]int  `json:"review_by_kind,omitempty"`
+	Remaining         int             `json:"remaining"`
 }
 
 // cmdKBRepair implements `cartographer kb repair <kb> [--apply] [--json]`:
@@ -74,9 +77,11 @@ func cmdKBRepair(args []string) int {
 	fs := flag.NewFlagSet("kb repair", flag.ExitOnError)
 	applyFlag := fs.Bool("apply", false, "Apply the checks listed in the KB's auto_repair (default: plan only)")
 	jsonFlag := fs.Bool("json", false, "Print the report as JSON")
+	revertFlag := fs.String("revert", "", "Revert one auto-repair or kb_repair commit by SHA (as a new commit) instead of repairing")
+	reasonFlag := fs.String("reason", "", "With --revert: why (recorded in the commit)")
 	fs.Parse(rest)
-	if name == "" || fs.NArg() != 0 {
-		fmt.Fprintln(os.Stderr, "Usage: cartographer kb repair <kb> [--apply] [--json]")
+	if name == "" || fs.NArg() != 0 || (*revertFlag != "" && *applyFlag) {
+		fmt.Fprintln(os.Stderr, "Usage: cartographer kb repair <kb> [--apply] [--json]\n       cartographer kb repair <kb> --revert <sha> [--reason <text>]")
 		return kbRepairExitError
 	}
 
@@ -98,7 +103,30 @@ func cmdKBRepair(args []string) int {
 		return kbRepairExitError
 	}
 	c := targetCaller{c: client.New(cfg.ServerURL, token).WithKB(targets[0].Name), target: targets[0]}
+	if *revertFlag != "" {
+		return runKBRepairRevert(c, *revertFlag, *reasonFlag, os.Stdout, os.Stderr)
+	}
 	return runKBRepair(c, *applyFlag, *jsonFlag, os.Stdout, os.Stderr)
+}
+
+// runKBRepairRevert undoes one repair commit through the repair_revert tool,
+// so the revert is a normal write: the KB lock, the sync and the audit trail
+// apply, and the operator never runs git in the server's clone (D323).
+func runKBRepairRevert(c toolCaller, sha, reason string, out, errOut io.Writer) int {
+	args := map[string]any{"sha": sha}
+	if reason != "" {
+		args["reason"] = reason
+	}
+	var res struct {
+		Reverted string `json:"reverted"`
+		Commit   string `json:"commit"`
+	}
+	if err := callInto(c, "repair_revert", args, &res); err != nil {
+		fmt.Fprintln(errOut, "kb repair --revert:", err)
+		return kbRepairExitError
+	}
+	fmt.Fprintf(out, "reverted %s\n", res.Reverted)
+	return kbRepairExitClean
 }
 
 // runKBRepair is cmdKBRepair once a caller for the KB exists.
@@ -107,7 +135,8 @@ func runKBRepair(c toolCaller, apply, asJSON bool, out, errOut io.Writer) int {
 		KB           string `json:"kb"`
 		Capabilities struct {
 			AutoRepair struct {
-				Checks []string `json:"checks"`
+				Checks  []string `json:"checks"`
+				Default bool     `json:"default"`
 			} `json:"auto_repair"`
 		} `json:"capabilities"`
 		Review struct {
@@ -125,12 +154,13 @@ func runKBRepair(c toolCaller, apply, asJSON bool, out, errOut io.Writer) int {
 	}
 
 	rep := kbRepairReport{
-		KB:           status.KB,
-		Applied:      apply,
-		AutoRepair:   append([]string{}, status.Capabilities.AutoRepair.Checks...),
-		ReviewTotal:  status.Review.Total,
-		ReviewByKind: status.Review.ByKind,
-		Remaining:    status.Review.Total,
+		KB:                status.KB,
+		Applied:           apply,
+		AutoRepair:        append([]string{}, status.Capabilities.AutoRepair.Checks...),
+		AutoRepairDefault: status.Capabilities.AutoRepair.Default,
+		ReviewTotal:       status.Review.Total,
+		ReviewByKind:      status.Review.ByKind,
+		Remaining:         status.Review.Total,
 	}
 	for _, check := range lint.FixableChecks {
 		dc, err := kbRepairRun(c, check, true)
@@ -226,8 +256,14 @@ func printKBRepairReport(w io.Writer, rep kbRepairReport) {
 		mode = "apply"
 	}
 	fmt.Fprintf(w, "KB %s — repair (%s)\n", displayKBName(rep.KB), mode)
-	if len(rep.AutoRepair) == 0 {
-		fmt.Fprintln(w, "auto_repair is empty for this KB: nothing is applied unattended (set kbs[].auto_repair in the server config).")
+	switch {
+	case len(rep.AutoRepair) == 0:
+		fmt.Fprintln(w, "auto_repair is explicitly empty for this KB: nothing is applied unattended (set kbs[].auto_repair in the server config, or remove the key for the default).")
+	case rep.AutoRepairDefault:
+		// Before D323 an unset auto_repair applied nothing: an operator who
+		// upgrades and runs --apply is told what is about to change.
+		fmt.Fprintf(w, "auto_repair uses the default (%d checks: %s): --apply applies them. Releases before D323 applied none by default: read the plan below first.\n",
+			len(rep.AutoRepair), strings.Join(rep.AutoRepair, ", "))
 	}
 	fmt.Fprintln(w, "\nMechanical repairs:")
 	for _, dc := range rep.Checks {
