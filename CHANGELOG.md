@@ -8,6 +8,45 @@
 
 KB histories with commits authored as `cartographer <cartographer@localhost>` may need a manual author rewrite before a forge with author push rules accepts the first push.
 
+## [0.19.0](https://github.com/BeppeTemp/cartographer/compare/v0.18.1...v0.19.0) (2026-10-06)
+
+
+### ⚠ BREAKING CHANGES
+
+* **config:** remove the deprecated D288 mount and tool-prefix knobs (D325) ([#559](https://github.com/BeppeTemp/cartographer/issues/559))
+
+### Features
+
+* **agents:** a plan-implementer subagent for Claude Code, Codex and Kiro (D327) ([#531](https://github.com/BeppeTemp/cartographer/issues/531)) ([37c79df](https://github.com/BeppeTemp/cartographer/commit/37c79df8844bcc97cdb2c3b4a789454082b56256))
+* **client:** the sync timer installs itself when needed; kb create scaffolds instructions.md (D325) ([#560](https://github.com/BeppeTemp/cartographer/issues/560)) ([6a206e3](https://github.com/BeppeTemp/cartographer/commit/6a206e38ec2e14cd6e2a0d9c92bf147f40993fec))
+* **config:** new maps demand index entries and a fresh install keeps a rotating audit log (D325) ([#547](https://github.com/BeppeTemp/cartographer/issues/547)) ([cc4aadd](https://github.com/BeppeTemp/cartographer/commit/cc4aaddcf11926d45dd96600775f481657ad0be0))
+* **config:** remove the deprecated D288 mount and tool-prefix knobs (D325) ([#559](https://github.com/BeppeTemp/cartographer/issues/559)) ([bcd2538](https://github.com/BeppeTemp/cartographer/commit/bcd2538af98a0ce8a7e1f226a30ba2101fd7325b))
+* **doctor:** the server maintains a KB by itself (D323) ([#558](https://github.com/BeppeTemp/cartographer/issues/558)) ([d01dd64](https://github.com/BeppeTemp/cartographer/commit/d01dd64ea2a98d01e380b72a8427ca781d1ff0d7))
+* **graph:** a link to an expanded concept's index.md is the concept (D310) ([#555](https://github.com/BeppeTemp/cartographer/issues/555)) ([b778c5d](https://github.com/BeppeTemp/cartographer/commit/b778c5d49ba9993ac76d7558d4a803c1217c4ca5))
+* **graph:** communities and link suggestions ignore boilerplate (D317) ([#536](https://github.com/BeppeTemp/cartographer/issues/536)) ([bd831a1](https://github.com/BeppeTemp/cartographer/commit/bd831a149101303689177088fe127b8dbe450158))
+* **lint:** active means the page is valid everywhere; waiting work is declared (D321) ([#556](https://github.com/BeppeTemp/cartographer/issues/556)) ([bc75423](https://github.com/BeppeTemp/cartographer/commit/bc754234fdae74f7f1f9a9efe39b146700e401d2)), closes [#524](https://github.com/BeppeTemp/cartographer/issues/524)
+* **lint:** broken shapes and template boilerplate are detected (D314) ([#544](https://github.com/BeppeTemp/cartographer/issues/544)) ([495df13](https://github.com/BeppeTemp/cartographer/commit/495df139f9bb7582aacb8e1c324220e26c58f280))
+* **lint:** closed work is harvested and archived (D322) ([#557](https://github.com/BeppeTemp/cartographer/issues/557)) ([c8b77cd](https://github.com/BeppeTemp/cartographer/commit/c8b77cdf8f255c42d2b62106d7475a408bee1cdd))
+* **lint:** every finding can be accepted, structural checks stop flagging structure (D313) ([#546](https://github.com/BeppeTemp/cartographer/issues/546)) ([2f85c49](https://github.com/BeppeTemp/cartographer/commit/2f85c4960cf6de62ae5c0597923de8b63f560429))
+* **lint:** lint covers the KB's artifacts (D316) ([#539](https://github.com/BeppeTemp/cartographer/issues/539)) ([e769206](https://github.com/BeppeTemp/cartographer/commit/e769206f20f7244e6a9adc699c20a5320d5e39f6))
+* **lint:** page names are linted (D315) ([#553](https://github.com/BeppeTemp/cartographer/issues/553)) ([005b7a2](https://github.com/BeppeTemp/cartographer/commit/005b7a2c298d32960be7b8ff975d88f9fe0182e5))
+* **lint:** the lint tool filters by check and paginates (D324) ([#552](https://github.com/BeppeTemp/cartographer/issues/552)) ([fb05b97](https://github.com/BeppeTemp/cartographer/commit/fb05b97f9e17a5166b48b7d211df155bef5fd6bc))
+* **mcp:** a write tells the agent what it broke (D312) ([#550](https://github.com/BeppeTemp/cartographer/issues/550)) ([5e73311](https://github.com/BeppeTemp/cartographer/commit/5e7331188d1bd2f2e44d27b61ef8a952aa7dab1d))
+* **mcp:** tools an agent is told to call are listed and their answers parse (D318) ([#543](https://github.com/BeppeTemp/cartographer/issues/543)) ([4aad0ee](https://github.com/BeppeTemp/cartographer/commit/4aad0eeae335dcbec0359ba7bb5399d7f884b55b))
+* **search:** search misses close by themselves (D319) ([#534](https://github.com/BeppeTemp/cartographer/issues/534)) ([93efff1](https://github.com/BeppeTemp/cartographer/commit/93efff14f63537c95db14202bbb3c0c22c8e6e27))
+* **sync:** upgrades and client provisioning tell the user what changed (D320) ([#537](https://github.com/BeppeTemp/cartographer/issues/537)) ([d222973](https://github.com/BeppeTemp/cartographer/commit/d222973a368cef8a9292a82217db5ee5140911e0))
+* **usage:** skill and agent usage is measured from client transcripts (D326) ([#545](https://github.com/BeppeTemp/cartographer/issues/545)) ([8ec9731](https://github.com/BeppeTemp/cartographer/commit/8ec97312abb47cc3cc8e2501ba56f2527ad798e0))
+
+
+### Bug Fixes
+
+* **git:** a conflict on a reserved file or a network failure never blocks writes (D311) ([#538](https://github.com/BeppeTemp/cartographer/issues/538)) ([969c999](https://github.com/BeppeTemp/cartographer/commit/969c999d405366922493e74dea519f6649917fbf))
+* main back under the tool-description budget and with a fresh decisions index ([#540](https://github.com/BeppeTemp/cartographer/issues/540)) ([770e31f](https://github.com/BeppeTemp/cartographer/commit/770e31fe901fe746ed6e0636169eb8f9eeb3bd59))
+* **readme:** a sharp hero and a feature list without an empty header ([#551](https://github.com/BeppeTemp/cartographer/issues/551)) ([ad179c6](https://github.com/BeppeTemp/cartographer/commit/ad179c6dc272a2c00e063926da2ee26fd3a9d6b6))
+* **readme:** the hero is filmed in a headed window at Retina resolution ([#554](https://github.com/BeppeTemp/cartographer/issues/554)) ([edf2623](https://github.com/BeppeTemp/cartographer/commit/edf2623cae466a425d3b5255bdab8e128fb5b94d))
+* **usage:** the transcript scan matches Windows paths in every spelling a client writes ([#548](https://github.com/BeppeTemp/cartographer/issues/548)) ([7229c1c](https://github.com/BeppeTemp/cartographer/commit/7229c1cf8aeae3a5fbfed487bfee52f233795c68))
+* writes never corrupt frontmatter or drop graph edges (D309) ([#535](https://github.com/BeppeTemp/cartographer/issues/535)) ([9ea2242](https://github.com/BeppeTemp/cartographer/commit/9ea224260649d611ec786e6ec0e0aed5d76ea315))
+
 ## [0.18.1](https://github.com/BeppeTemp/cartographer/compare/v0.18.0...v0.18.1) (2026-10-04)
 
 
