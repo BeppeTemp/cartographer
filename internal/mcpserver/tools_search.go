@@ -24,7 +24,8 @@ var searchInputSchema = json.RawMessage(`{
 	"properties": {
 		"query": {"type": "string"},
 		"scope": {"type": "string"},
-		"limit": {"type": "integer"}
+		"limit": {"type": "integer"},
+		"record_miss": {"type": "boolean"}
 	}
 }`)
 
@@ -80,6 +81,9 @@ func handleSearch(ctx requestContext, k *kb.KB, rec *searchReconciler, misses *s
 		Query string `json:"query"`
 		Scope string `json:"scope"`
 		Limit int    `json:"limit"`
+		// RecordMiss false keeps a verification probe out of the miss log
+		// (D319); absent means true.
+		RecordMiss *bool `json:"record_miss"`
 		// Mode and UseSemantic are declared only to reject them: semantic and
 		// hybrid search are gone (D135), and a stale caller must fail loudly
 		// instead of silently receiving keyword results it did not ask for.
@@ -107,7 +111,8 @@ func handleSearch(ctx requestContext, k *kb.KB, rec *searchReconciler, misses *s
 	// For a narrowed token zero hits may only mean "hidden from you" — not a
 	// gap — and recording it would show that user's queries to every
 	// whole-KB reader of kb_status.
-	if len(hits) == 0 && WholeVisible(ctx, k, false) {
+	// record_miss: false is a caller's probe, not a gap (D319).
+	if len(hits) == 0 && (params.RecordMiss == nil || *params.RecordMiss) && WholeVisible(ctx, k, false) {
 		misses.record(params.Query)
 	}
 	result := map[string]interface{}{

@@ -46,6 +46,18 @@ type searchMissLog struct {
 	mu   sync.Mutex
 	// lines is the file's line count, -1 until first counted.
 	lines int
+	// checker reports whether a missed query now has results (D319); nil
+	// skips the re-check. Set once by SetChecker before any request.
+	checker func(query string) bool
+}
+
+// SetChecker installs the re-check top() runs on every reported query, so a
+// gap that has since been filled is marked resolved instead of reported as
+// open (D319).
+func (l *searchMissLog) SetChecker(fn func(query string) bool) {
+	if l != nil {
+		l.checker = fn
+	}
 }
 
 func newSearchMissLog(k *kb.KB) *searchMissLog {
@@ -164,10 +176,16 @@ type searchMissSummary struct {
 	Query    string `json:"query"`
 	Count    int    `json:"count"`
 	LastSeen string `json:"last_seen"`
+	// Resolved: the same query now returns results (D319).
+	Resolved bool `json:"resolved,omitempty"`
 }
 
 // top aggregates the misses of the last searchMissWindow: the searchMissTop
 // most frequent queries, by count desc, then last seen desc, then query.
+// With a checker, each query is re-run and one that now has results is
+// marked Resolved and sorted after every open one (D319). Queries are checked
+// in rank order only until searchMissTop open ones are found, so the re-check
+// costs at most a handful of in-memory searches beyond the reported ones.
 func (l *searchMissLog) top() []searchMissSummary {
 	if l == nil {
 		return nil
@@ -209,6 +227,21 @@ func (l *searchMissLog) top() []searchMissSummary {
 		}
 		return out[i].Query < out[j].Query
 	})
+	if l.checker != nil {
+		var open, resolved []searchMissSummary
+		for _, s := range out {
+			if len(open) == searchMissTop {
+				break
+			}
+			if l.checker(s.Query) {
+				s.Resolved = true
+				resolved = append(resolved, s)
+			} else {
+				open = append(open, s)
+			}
+		}
+		out = append(open, resolved...)
+	}
 	if len(out) > searchMissTop {
 		out = out[:searchMissTop]
 	}

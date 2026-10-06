@@ -172,6 +172,33 @@ describe("observatory", () => {
   });
 });
 
+describe("observatory search misses", () => {
+  it("marks a miss whose search now finds something as resolved", () => {
+    render(
+      <Observatory
+        report={report}
+        scopeTitle={null}
+        status={{
+          search_misses: [
+            { query: "zephyr", count: 1 },
+            { query: "kafka", count: 3, resolved: true },
+          ],
+        }}
+        loading={false}
+        error={null}
+        severityMin="info"
+        onSeverityChange={vi.fn()}
+        onReveal={vi.fn()}
+        onRetry={vi.fn()}
+      />,
+    );
+    const resolved = screen.getByText("kafka").closest("li");
+    expect(resolved).toHaveClass("chip--resolved");
+    expect(resolved).toHaveTextContent("(now found)");
+    expect(screen.getByText("zephyr").closest("li")).not.toHaveClass("chip--resolved");
+  });
+});
+
 describe("observatory scope", () => {
   it("names the Map it is scoped to, in the headline and the summary", () => {
     render(

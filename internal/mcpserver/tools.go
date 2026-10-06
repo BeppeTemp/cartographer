@@ -75,6 +75,16 @@ func RegisterKBTools(s *Server, k *kb.KB, deps Deps) {
 	// every search, pull and reindex after it applies only the delta.
 	rec := newSearchReconciler(k, deps.SQLIndex)
 	misses := newSearchMissLog(k)
+	// The miss re-check (D319) must come after newSearchReconciler, which it
+	// closes over, and must use the in-memory index only: FTS5 may be absent
+	// or failing, and the live index is always there. No auth filter — this is
+	// the server checking its own telemetry, not a user query.
+	misses.SetChecker(func(query string) bool {
+		if _, err := rec.reconcile(); err != nil {
+			fmt.Fprintf(os.Stderr, "cartographer: search-miss re-check: %v\n", err)
+		}
+		return len(rec.live.searchFiltered(query, "", 1, nil)) > 0
+	})
 	s.uiSearch = func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
 		return handleSearch(ctx, k, rec, nil, deps, args)
 	}

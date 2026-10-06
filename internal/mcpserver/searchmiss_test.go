@@ -149,3 +149,122 @@ func TestKBStatus_SearchMisses(t *testing.T) {
 		}
 	}
 }
+
+// D319: a miss whose query now has results is marked resolved and sorted
+// after every open one; with no checker, top() behaves as before.
+func checkedTop(t *testing.T, checker func(string) bool, queries ...string) []searchMissSummary {
+	t.Helper()
+	_, _, l := missFixture(t)
+	for _, q := range queries {
+		l.record(q)
+	}
+	l.SetChecker(checker)
+	return l.top()
+}
+
+func findMiss(top []searchMissSummary, q string) (searchMissSummary, bool) {
+	for _, e := range top {
+		if e.Query == q {
+			return e, true
+		}
+	}
+	return searchMissSummary{}, false
+}
+
+func TestSearchMiss_AutoEvictsResolvedMisses(t *testing.T) {
+	top := checkedTop(t, func(q string) bool { return q == "kafka" }, "kafka", "kafka", "zephyr")
+	e, ok := findMiss(top, "kafka")
+	if !ok || !e.Resolved {
+		t.Fatalf("kafka = %+v (present %v), want resolved", e, ok)
+	}
+	// Resolved sorts last even with the higher count.
+	if top[len(top)-1].Query != "kafka" || top[0].Query != "zephyr" {
+		t.Fatalf("order = %+v, want open before resolved", top)
+	}
+}
+
+func TestSearchMiss_KeepsUnresolvedMisses(t *testing.T) {
+	top := checkedTop(t, func(string) bool { return false }, "zephyr")
+	if e, ok := findMiss(top, "zephyr"); !ok || e.Resolved {
+		t.Fatalf("zephyr = %+v (present %v), want open", e, ok)
+	}
+}
+
+func TestSearchMiss_NilCheckerSkipsEviction(t *testing.T) {
+	top := checkedTop(t, nil, "zephyr")
+	if e, ok := findMiss(top, "zephyr"); !ok || e.Resolved {
+		t.Fatalf("zephyr = %+v (present %v), want open", e, ok)
+	}
+}
+
+// The re-check stops once searchMissTop open queries are found, but resolved
+// ones never crowd an open one out of the report.
+func TestSearchMiss_ResolvedNeverDisplaceOpen(t *testing.T) {
+	_, _, l := missFixture(t)
+	for i := 0; i < searchMissTop+3; i++ {
+		q := fmt.Sprintf("q%02d", i)
+		for j := 0; j <= searchMissTop+3-i; j++ { // higher index, lower count
+			l.record(q)
+		}
+	}
+	checked := 0
+	l.SetChecker(func(q string) bool { checked++; return q < "q03" })
+	top := l.top()
+	if len(top) != searchMissTop {
+		t.Fatalf("top has %d entries", len(top))
+	}
+	for _, e := range top {
+		if e.Resolved {
+			t.Fatalf("a resolved entry displaced an open one: %+v", top)
+		}
+	}
+	if checked != searchMissTop+3 {
+		t.Fatalf("checked %d queries, want %d", checked, searchMissTop+3)
+	}
+}
+
+func TestKBStatus_SearchMissesResolvedAreGone(t *testing.T) {
+	k, s, _ := missFixture(t)
+	searchText(t, s, "reconcileunique") // miss: the concept does not exist yet
+	searchText(t, s, "zephyrnothing")   // miss that stays open
+	writeOutOfBand(t, k)                // fills the gap, outside any tool
+	var top []searchMissSummary
+	var m map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(callOK(t, s, "kb_status", `{}`)), &m); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(m["search_misses"], &top); err != nil {
+		t.Fatal(err)
+	}
+	if e, ok := findMiss(top, "reconcileunique"); !ok || !e.Resolved {
+		t.Fatalf("filled gap = %+v (present %v), want resolved: %+v", e, ok, top)
+	}
+	if e, ok := findMiss(top, "zephyrnothing"); !ok || e.Resolved {
+		t.Fatalf("open gap = %+v (present %v): %+v", e, ok, top)
+	}
+	if !strings.Contains(string(m["search_misses"]), `"resolved": true`) || strings.Count(string(m["search_misses"]), `"resolved"`) != 1 {
+		t.Fatalf("resolved must be emitted only when true: %s", m["search_misses"])
+	}
+}
+
+// D319: record_miss: false keeps a verification probe out of the log.
+func assertRecorded(t *testing.T, args string, want int) {
+	t.Helper()
+	_, s, l := missFixture(t)
+	callOK(t, s, "search", args)
+	if got := missLines(t, l); len(got) != want {
+		t.Fatalf("recorded %d entries, want %d: %+v", len(got), want, got)
+	}
+}
+
+func TestSearchMiss_RecordMissFalseSuppresses(t *testing.T) {
+	assertRecorded(t, `{"query":"nothingmatches","record_miss":false}`, 0)
+}
+
+func TestSearchMiss_RecordMissDefaultRecords(t *testing.T) {
+	assertRecorded(t, `{"query":"nothingmatches"}`, 1)
+}
+
+func TestSearchMiss_RecordMissTrueRecords(t *testing.T) {
+	assertRecorded(t, `{"query":"nothingmatches","record_miss":true}`, 1)
+}

@@ -233,6 +233,7 @@ export interface WorkResponse {
  *  omitted by the server when empty. */
 export interface KBStatus {
   open_gaps?: { total: number; by_kind?: Record<string, number>; recent?: { id: string; title?: string; kind?: string; subjects?: string[] }[] };
-  search_misses?: { query: string; count: number; last_seen?: string }[];
+  /** resolved: the same search now finds something (D319); sorted last. */
+  search_misses?: { query: string; count: number; last_seen?: string; resolved?: boolean }[];
   stale_count?: number;
 }
