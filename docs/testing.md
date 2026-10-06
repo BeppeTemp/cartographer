@@ -31,9 +31,14 @@ required check on `main` is named literally `test`, which a matrix would rename.
 It sets `shell: bash` for every step — the Makefile recipes are POSIX shell — and
 installs `make`, which is not on the runner image, and turns off Defender's
 real-time scanning (about a fifth of the gate's time; the git-backed packages
-stay far slower than on Linux, from process creation). It and the `web` job run on PRs only, and only when the PR touches
-their paths: a `changes` job decides, failing open, and the release-please PR
-always runs both (D255). The working tree is LF on both
+stay far slower than on Linux, from process creation). It runs on every push
+to `main` and on the release-please PR, never on a feature PR (D328): it was
+the whole wait of each PR, and the release stays blocked on it. A Windows
+regression therefore shows on `main` right after the merge that caused it, not
+before. The `web` job runs on PRs only, and only when the PR touches its paths:
+a `changes` job decides, failing open, and the release-please PR always runs it
+(D255); its Playwright browser is cached by version. `docs/decisions.md`'s
+generated index is checked only on the release PR, which regenerates it. The working tree is LF on both
 legs (`.gitattributes`): gofmt is line-ending-sensitive, so a CRLF checkout fails
 `fmt-check` on every file at once.
 

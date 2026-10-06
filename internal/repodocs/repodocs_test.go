@@ -87,6 +87,13 @@ func TestDecisionIndexIsUpToDate(t *testing.T) {
 			unknown)
 	}
 
+	// The index is checked only where it is regenerated (D328): on the
+	// release PR, whose CI sets the variable, and by -update itself. A feature
+	// PR adds a decision file and leaves the index alone, so parallel PRs no
+	// longer conflict on it or fail on each other's entries.
+	if !*update && os.Getenv("CARTOGRAPHER_STRICT_DECISION_INDEX") != "1" {
+		t.Skip("decision index staleness is checked on the release PR (D328); set CARTOGRAPHER_STRICT_DECISION_INDEX=1 to check it here")
+	}
 	checkGeneratedBlock(t, root, "docs/decisions.md",
 		IndexBegin, IndexEnd, RenderIndex(decisions), "make decisions-index")
 }

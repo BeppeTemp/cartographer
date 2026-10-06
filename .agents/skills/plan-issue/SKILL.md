@@ -60,8 +60,8 @@ the two places where the clients genuinely differ.
 1. `gh issue view <n>` (add `--comments`: later amendments live there).
 2. Execute the WPs in order, `make gate` after each.
 3. Update the docs per the closing checklist and write the decision file
-   `docs/decisions/D<n>-<slug>.md` (`make decisions-index` regenerates the
-   index); the implementation PR body includes `Closes #<n>`.
+   `docs/decisions/D<n>-<slug>.md` (never regenerate `docs/decisions.md` in the
+   PR: the release PR regenerates the index (D328)); the implementation PR body includes `Closes #<n>`.
 4. Contradiction between plan and code → **stop and flag it** in an issue
    comment: the plan may be stale relative to `main`.
 

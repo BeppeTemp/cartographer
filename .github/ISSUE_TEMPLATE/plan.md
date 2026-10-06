@@ -6,8 +6,8 @@ labels: plan
 ---
 
 > **Status**: approved, not implemented. On completion: add the decision file
-> `docs/decisions/D<n>-<slug>.md` (`make decisions-new`, then
-> `make decisions-index`), update the affected current-state docs
+> `docs/decisions/D<n>-<slug>.md` (`make decisions-new`; the release PR
+> regenerates the index, D328), update the affected current-state docs
 > (`docs/index.md` §Documentation maintenance rules), then close this issue from
 > the implementation PR (`Closes #<n>`).
 
