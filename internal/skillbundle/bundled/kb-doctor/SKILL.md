@@ -81,6 +81,8 @@ what is allowed:
    - **defer**: nothing is written; it comes back next session.
    Never invent content: what the KB does not know becomes a `contradiction_report` of kind
    `open_question`. Run `gate_check` with `changed_ids` set to the concepts you wrote.
+   Write responses surface per-concept findings inline; the `gate_check` at session end is the
+   complementary pass.
 6. **Advice.** `lint` with `severity_min: info`: an `info` finding is advice the KB has not
    answered yet, and the session is done only when nothing is left — fixed, or accepted where the
    KB says so. Fix what is a defect (`orphan`: link the page with `link_suggest`; `bare_link_list`:

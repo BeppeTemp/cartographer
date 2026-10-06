@@ -255,7 +255,7 @@ func toolGateCheck(k *kb.KB) Tool {
 	return Tool{
 		Name:        "gate_check",
 		ReadOnly:    true,
-		Description: "Local gate: validate + lint + commit_gate in one call; pass/fail with details. Use before fast-forwarding to main; changed_ids may be empty for a whole-KB check (no commit gate). severity_min sets the lint floor (default warning); scope gates a path prefix (default whole KB). pass ignores the floor: it covers the whole unfiltered scope.",
+		Description: "Local gate: validate + lint + commit_gate. Use at session end over the IDs you wrote, or before fast-forwarding to main. changed_ids alone lints just those (no whole-KB structure checks); empty changed_ids: whole KB, no commit gate; scope: a path prefix. severity_min sets the lint floor (default warning); pass ignores it.",
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"required": ["changed_ids"],
@@ -267,7 +267,7 @@ func toolGateCheck(k *kb.KB) Tool {
 				"severity_min": {
 					"type": "string",
 					"enum": ["info", "warning", "error"],
-					"description": "info, warning (default) or error; never affects pass"
+					"description": "info, warning (default) or error"
 				},
 				"scope": {
 					"type": "string"
@@ -303,19 +303,54 @@ func toolGateCheck(k *kb.KB) Tool {
 
 			pass := true
 
+			// changed_ids with no scope is the cheap session-end gate (D312):
+			// validate, the frontmatter checks and the write-time structural
+			// checks over exactly the concepts the session touched, not a
+			// whole-KB lint. With a scope the gate is the scope's lint as
+			// before, and with no changed_ids it is the whole-KB gate (D318).
+			scopedToIDs := len(ids) > 0 && params.Scope == ""
+			lintScope := "kb"
+			switch {
+			case scopedToIDs:
+				lintScope = "changed_ids"
+			case params.Scope != "":
+				lintScope = "scope"
+			}
+
 			// 1. Validate
-			valErrs, err := k.Validate(params.Scope)
-			if err != nil {
-				return errorResult(fmt.Sprintf("gate_check: validate: %v", err)), nil
+			var valErrs []kb.ValidationError
+			if scopedToIDs {
+				for _, id := range ids {
+					rel, _ := k.ConceptRelPath(id)
+					errs, err := k.Validate(rel)
+					if err != nil {
+						// A changed id that no longer exists has no file to
+						// validate: lint's gone-id check covers it.
+						continue
+					}
+					valErrs = append(valErrs, errs...)
+				}
+			} else {
+				var err error
+				valErrs, err = k.Validate(params.Scope)
+				if err != nil {
+					return errorResult(fmt.Sprintf("gate_check: validate: %v", err)), nil
+				}
 			}
 			if len(valErrs) > 0 {
 				pass = false
 			}
 
 			// 2. Lint
-			lintFindings, err := lint.Run(k, params.Scope, params.ScopeNeighbors)
-			if err != nil {
-				return errorResult(fmt.Sprintf("gate_check: lint: %v", err)), nil
+			var lintFindings []lint.Finding
+			if scopedToIDs {
+				lintFindings = writeLintFindings(k, params.ChangedIDs, nil)
+			} else {
+				var err error
+				lintFindings, err = lint.Run(k, params.Scope, params.ScopeNeighbors)
+				if err != nil {
+					return errorResult(fmt.Sprintf("gate_check: lint: %v", err)), nil
+				}
 			}
 			// pass is decided on the unfiltered findings, before severity_min is
 			// applied below: a response budget must never be able to change a
@@ -371,6 +406,7 @@ func toolGateCheck(k *kb.KB) Tool {
 			// already error-level and small.
 			result := map[string]interface{}{
 				"pass":               pass,
+				"lint_scope":         lintScope,
 				"validation_errors":  valErrsJSON,
 				"lint_findings":      lintJSON2,
 				"gate_blockers":      blockers,

@@ -20,7 +20,7 @@ import (
 func toolConceptWrite(k *kb.KB, sim *similarFinder) Tool {
 	return Tool{
 		Name:        "concept_write",
-		Description: "Creates or updates a concept from frontmatter (YAML map, type required) and a markdown body. if_match (content hash) gives optimistic concurrency: stale_write if changed. Returns content_hash and lint findings.",
+		Description: "Creates or updates a concept from frontmatter (YAML map, type required) and a markdown body. if_match (content hash) gives optimistic concurrency: stale_write if changed. Returns content_hash and structural findings too (links, orphan, index): fix them.",
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"required": ["id", "frontmatter", "body"],
@@ -103,7 +103,7 @@ func toolConceptWrite(k *kb.KB, sim *similarFinder) Tool {
 func toolConceptNew(k *kb.KB, sim *similarFinder) Tool {
 	return Tool{
 		Name:        "concept_new",
-		Description: "Creates a concept from a KB-only template (see template_list); variables are substituted literally. Refuses an existing id (use concept_write/concept_patch). No strict-ontology pre-check, no index curation.",
+		Description: "Creates a concept from a KB-only template (see template_list); variables are substituted literally. Refuses an existing id (use concept_write/concept_patch). No strict-ontology pre-check, no index curation. Returns findings.",
 		InputSchema: json.RawMessage(`{
 			"type":"object", "required":["template", "id"],
 			"properties": {
@@ -552,7 +552,7 @@ func normalizeIndexPath(path string) string {
 func toolIndexPatch(k *kb.KB) Tool {
 	return Tool{
 		Name:        "index_patch",
-		Description: "Like concept_patch, for the root or a Map/Journal curated index.md (same edit forms; if_match required, from index_get with_hash). An expanded concept's own index.md is refused with expanded_index: use concept_patch. Returns path, content_hash, replacement count.",
+		Description: "Like concept_patch, for the root or a Map/Journal curated index.md (same edit forms; if_match required, from index_get with_hash). An expanded concept's own index.md is refused (expanded_index): use concept_patch. Returns path, content_hash, replacements, findings.",
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"required": ["if_match"],
@@ -679,10 +679,44 @@ func toolIndexPatch(k *kb.KB) Tool {
 				"content_hash": newHash,
 				"replacements": replacements,
 			}
+			// D312: the concepts this patch took out of the index may now be
+			// missing from it (index_incomplete).
+			if dropped := indexEntriesDropped(k, normalizedPath, original, content); len(dropped) > 0 {
+				if f := scopedFindings(k, dropped, "index_incomplete"); f != nil {
+					result["findings"] = f
+				}
+			}
 			out, _ := json.MarshalIndent(result, "", "  ")
 			return textResult(string(out)), nil
 		},
 	}
+}
+
+// indexEntriesDropped lists the existing concepts a curated index linked
+// before an index_patch and no longer links after it (D312). The root index
+// and an index whose map keeps it generated have no entries to lose.
+func indexEntriesDropped(k *kb.KB, indexPath, before, after string) []string {
+	if indexPath == "" {
+		return nil
+	}
+	linked := func(content string) map[okf.ConceptID]bool {
+		_, body, _ := okf.SplitFrontmatter(content)
+		set := map[okf.ConceptID]bool{}
+		for _, id := range kb.ExtractLinks(body, indexPath+"/index.md", k.AssetExists) {
+			set[id] = true
+		}
+		return set
+	}
+	now := linked(after)
+	var dropped []string
+	for id := range linked(before) {
+		if now[id] || !conceptExists(k, string(id)) {
+			continue
+		}
+		dropped = append(dropped, string(id))
+	}
+	sort.Strings(dropped)
+	return dropped
 }
 
 // conceptMoveRemove and conceptMoveRename are the two filesystem calls that
@@ -1282,7 +1316,7 @@ func toolSnapshot(k *kb.KB) Tool {
 func toolSupersede(k *kb.KB) Tool {
 	return Tool{
 		Name:        "supersede",
-		Description: "Marks a concept as superseded by another: sets status=superseded and records the successor.",
+		Description: "Marks a concept as superseded by another: sets status=superseded and records the successor. Returns findings on it.",
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"required": ["source_id", "target_id"],
@@ -1346,7 +1380,12 @@ func toolSupersede(k *kb.KB) Tool {
 			}
 
 			_ = k.AppendLog(fmt.Sprintf("supersede: %s → %s", params.SourceID, params.TargetID), time.Now())
-			return textResult(fmt.Sprintf("superseded %s → %s", params.SourceID, params.TargetID)), nil
+			text := fmt.Sprintf("superseded %s → %s", params.SourceID, params.TargetID)
+			if f := writeFindings(k, params.SourceID); f != nil {
+				enc, _ := json.MarshalIndent(f, "", "  ")
+				text += "\nfindings:\n" + string(enc)
+			}
+			return textResult(text), nil
 		},
 	}
 }
@@ -1370,7 +1409,7 @@ type rewrittenConcept struct {
 func toolConceptMove(k *kb.KB) Tool {
 	return Tool{
 		Name:        "concept_move",
-		Description: "Moves concepts to new IDs in one commit: one source_id/target_id pair or a moves array (exclusive). All entries are validated first (source exists, target free, no traversal or duplicate source); an invalid one aborts the batch. Unless rewrite_links=false, inbound links KB-wide are rewritten. Works across maps and services/. An expanded concept moves with assets and satellites. A mid-batch filesystem failure names both IDs, no rollback.",
+		Description: "Moves concepts to new IDs in one commit: one source_id/target_id pair or a moves array (exclusive). All entries are validated first (source exists, target free, no traversal or duplicate source); an invalid one aborts the batch. Unless rewrite_links=false, inbound links KB-wide are rewritten. Works across maps and services/. An expanded concept moves with assets and satellites. A mid-batch filesystem failure names both IDs, no rollback. Returns findings on moved concepts and their linkers.",
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"properties": {
@@ -1678,6 +1717,21 @@ func toolConceptMove(k *kb.KB) Tool {
 			}
 
 			_ = k.AppendLog(fmt.Sprintf("concept_move (%d move(s)):\n%s", len(applied), strings.Join(logLines, "\n")), time.Now())
+
+			// D312: what the move left behind. Every moved ID is checked, and
+			// every old ID as a gone one: a page still linking it (rewrite_links
+			// false, or a link the rewrite could not follow) is broken now.
+			written := make([]string, 0, len(moveMap))
+			gone := make([]string, 0, len(moveMap))
+			for oldID, newID := range moveMap {
+				written = append(written, newID)
+				gone = append(gone, oldID)
+			}
+			sort.Strings(written)
+			sort.Strings(gone)
+			if f := writeFindingsFor(k, written, gone); f != nil {
+				result["findings"] = f
+			}
 
 			out, _ := json.MarshalIndent(result, "", "  ")
 			return textResult(string(out)), nil
@@ -2212,10 +2266,10 @@ type batchResultEntry struct {
 func toolConceptBatch(k *kb.KB) Tool {
 	return Tool{
 		Name: "concept_batch",
-		Description: "All-or-nothing write/patch of several distinct concepts: one commit, one log entry; any failure leaves the KB untouched. " +
-			fmt.Sprintf("At most %d operations and %s of decoded content per call (a patch counts its edits, not the whole body). ", conceptBatchMaxOps, byteBudget(conceptBatchMaxTotalBytes)) +
+		Description: "All-or-nothing write/patch of distinct concepts: one commit and log entry; a failure leaves the KB untouched. " +
+			fmt.Sprintf("At most %d operations and %s of decoded content per call (a patch counts its edits). ", conceptBatchMaxOps, byteBudget(conceptBatchMaxTotalBytes)) +
 			"Each operation is 'write' (frontmatter, body, if_match optional = create-only) or 'patch' (if_match required; frontmatter merge; old_string/new_string/replace_all or 'edits', as concept_patch). " +
-			"Not covered: delete, move, expand, assets, Map/root indexes. Returns id and content_hash per operation, with lint findings.",
+			"Not covered: delete, move, expand, assets, Map/root indexes. Returns id, content_hash and findings per operation.",
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"required": ["operations"],

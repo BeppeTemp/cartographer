@@ -910,6 +910,7 @@ func generateKBInstructions(kbName, kbRoot, toolPrefix string, routed bool) stri
 			tool("search"), tool("atlas_overview"), tool("concept_read"))
 		fmt.Fprintf(&sb, "- write or update a page with `%s` when you discover something relevant; close relevant sessions with `%s`;\n",
 			tool("concept_write"), tool("log_append"))
+		sb.WriteString("- write responses carry structural findings (broken links, missing index entry, orphan): fix them before moving on or the KB drifts;\n")
 		sb.WriteString("- every write is a git commit, revertible.\n")
 		// D264: an agent's own git in the clone (init, checkout -b, push) is
 		// what forks a KB on its remote; the server owns that clone.

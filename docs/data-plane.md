@@ -326,6 +326,8 @@ to them). `missing_value_contract` skips a field whose every value is a date.
 
 ### Conformance checks (D289)
 
+A write response carries these checks for the concept it wrote, plus the body, link and light graph checks `lint.ScopedCheck` runs without walking the KB (D312, `control-plane.md` §`concept_write`); the whole-KB structural checks stay with `lint` and `gate_check`.
+
 Lint also compares a KB with the standard fields the server reads, not only with the contracts the KB declared. All are warning or info, so `gate_check` never fails on them, and a check fires only on a field the KB actually has.
 
 - `nonstandard_field` (warning): a frontmatter key that is a known synonym of a standard field. Standard field absent: the finding carries the fix `rename_field <synonym> → <standard>`. Standard field also present: the finding says so and has no fix, since merging values is a judgement. A synonym a map names in `required_fields` is still reported, with a note that the contract names it too. Keys match case-insensitively. The synonym table (`StandardFieldSynonyms` in `internal/lint/conformance.go`):

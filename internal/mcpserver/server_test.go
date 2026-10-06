@@ -2220,11 +2220,14 @@ func TestServer_GateCheck_SeverityFloor_DefaultDropsInfo(t *testing.T) {
 	s := New("1.0.0")
 	RegisterKBTools(s, k, Deps{})
 
+	// An empty changed_ids is the whole-KB gate (D318): the fixture's three
+	// severities live on different concepts, and a changed_ids-scoped gate
+	// (D312) would see only one.
 	resps := runMCPSequence(t, s, []string{
 		initMsg,
-		artifactCallMsg(t, 2, "gate_check", map[string]any{"changed_ids": []string{"manutenzione/test-runbook"}}),
-		artifactCallMsg(t, 3, "gate_check", map[string]any{"changed_ids": []string{"manutenzione/test-runbook"}, "severity_min": "info"}),
-		artifactCallMsg(t, 4, "gate_check", map[string]any{"changed_ids": []string{"manutenzione/test-runbook"}, "severity_min": "error"}),
+		artifactCallMsg(t, 2, "gate_check", map[string]any{"changed_ids": []string{}}),
+		artifactCallMsg(t, 3, "gate_check", map[string]any{"changed_ids": []string{}, "severity_min": "info"}),
+		artifactCallMsg(t, 4, "gate_check", map[string]any{"changed_ids": []string{}, "severity_min": "error"}),
 	})
 
 	byDefault := decodeGate(t, decodeToolResult(t, resps[1]))

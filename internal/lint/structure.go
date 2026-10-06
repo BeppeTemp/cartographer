@@ -68,7 +68,11 @@ type island struct {
 	members []okf.ConceptID
 }
 
-func analyseStructure(k *kb.KB, lg *kb.LinkGraph, archives []string, contracts map[string]kb.MapContract) (*structure, error) {
+// newStructure is the cheap part of the analysis: the collection kinds and the
+// successor resolver, with no component or articulation pass. ScopedCheck
+// (D312) uses it alone for the per-concept checks that need only the graph's
+// edges and facets.
+func newStructure(k *kb.KB, lg *kb.LinkGraph, archives []string, contracts map[string]kb.MapContract) *structure {
 	s := &structure{lg: lg, cut: map[okf.ConceptID]string{}, kinds: map[string]string{}, contracts: contracts}
 	for _, a := range archives {
 		kind := "map"
@@ -90,7 +94,11 @@ func analyseStructure(k *kb.KB, lg *kb.LinkGraph, archives []string, contracts m
 		_, err = k.ReadConcept(cid)
 		return err == nil
 	}
+	return s
+}
 
+func analyseStructure(k *kb.KB, lg *kb.LinkGraph, archives []string, contracts map[string]kb.MapContract) (*structure, error) {
+	s := newStructure(k, lg, archives, contracts)
 	g := lg.Graph
 	comps := graphalgo.WeakComponents(g)
 	if len(comps) == 0 {
@@ -236,45 +244,8 @@ func (s *structure) conceptChecks(id okf.ConceptID, relPath string) []Finding {
 		out = append(out, Finding{Path: relPath, Check: "cut_concept", Severity: SevInfo, Message: msg})
 	}
 
-	// --- broken_relation (warning) ---
-	if sb := facets.SupersededBy; sb != "" {
-		switch {
-		case sb == string(id):
-			out = append(out, Finding{Path: relPath, Check: "broken_relation", Severity: SevWarning,
-				Message: fmt.Sprintf("superseded_by %q names this concept itself", sb)})
-		case !s.resolves(sb):
-			out = append(out, Finding{Path: relPath, Check: "broken_relation", Severity: SevWarning,
-				Message: fmt.Sprintf("superseded_by %q is not a concept", sb)})
-		}
-	}
-
-	// --- link_to_retired (info, D313) ---
-	// One finding per retired concept, on the retired concept: retiring a
-	// component is one decision, so it yields one finding, and accepting it
-	// (lint_ignore: [link_to_retired] here) means the remaining mentions are
-	// historical. Linkers are live concepts in a map only (an incident in a
-	// journal legitimately cites a component that is gone today), and the
-	// declared successor is never counted.
-	if retired(facets.Status) {
-		var linkers []string
-		for _, u := range s.lg.Graph.In[i] { // ascending, so sorted by id
-			uid := s.lg.IDs[u]
-			if u == i || retired(s.lg.Facets[u].Status) || s.kindOf(uid) != "map" || string(uid) == facets.SupersededBy {
-				continue
-			}
-			linkers = append(linkers, string(uid))
-		}
-		if len(linkers) > 0 {
-			shown := linkers
-			more := ""
-			if len(shown) > 5 {
-				shown, more = shown[:5], ", …"
-			}
-			out = append(out, Finding{Path: relPath, Check: "link_to_retired", Severity: SevInfo,
-				Message: fmt.Sprintf("retired (status: %s) but still linked by %d live concepts: %s%s — update the ones that rely on it; accept with lint_ignore: [link_to_retired] on this concept if the remaining mentions are historical",
-					facets.Status, len(linkers), strings.Join(shown, ", "), more)})
-		}
-	}
+	out = append(out, s.brokenRelation(id, relPath, facets)...)
+	out = append(out, s.linkToRetired(i, relPath, facets)...)
 
 	// --- map_misfit (info) ---
 	// A direct neighbour-majority rule, not community detection: communities
@@ -314,6 +285,65 @@ func (s *structure) conceptChecks(id okf.ConceptID, relPath string) []Finding {
 		}
 	}
 	return out
+}
+
+// brokenRelation reports a superseded_by that names the concept itself or
+// something that is not a concept.
+func (s *structure) brokenRelation(id okf.ConceptID, relPath string, facets kb.NodeFacets) []Finding {
+	var out []Finding
+	if sb := facets.SupersededBy; sb != "" {
+		switch {
+		case sb == string(id):
+			out = append(out, Finding{Path: relPath, Check: "broken_relation", Severity: SevWarning,
+				Message: fmt.Sprintf("superseded_by %q names this concept itself", sb)})
+		case !s.resolves(sb):
+			out = append(out, Finding{Path: relPath, Check: "broken_relation", Severity: SevWarning,
+				Message: fmt.Sprintf("superseded_by %q is not a concept", sb)})
+		}
+	}
+	return out
+}
+
+// retiredLinkers lists, ascending, the live map concepts that still link the
+// concept at node i: the ones link_to_retired counts. The declared successor
+// is never one.
+func (s *structure) retiredLinkers(i int, facets kb.NodeFacets) []string {
+	var linkers []string
+	for _, u := range s.lg.Graph.In[i] { // ascending, so sorted by id
+		uid := s.lg.IDs[u]
+		if u == i || retired(s.lg.Facets[u].Status) || s.kindOf(uid) != "map" || string(uid) == facets.SupersededBy {
+			continue
+		}
+		linkers = append(linkers, string(uid))
+	}
+	return linkers
+}
+
+// linkToRetired is the link_to_retired check for the concept at node i, on the
+// concept itself (D313).
+//
+// One finding per retired concept, on the retired concept: retiring a
+// component is one decision, so it yields one finding, and accepting it
+// (lint_ignore: [link_to_retired] here) means the remaining mentions are
+// historical. Linkers are live concepts in a map only (an incident in a
+// journal legitimately cites a component that is gone today), and the
+// declared successor is never counted.
+func (s *structure) linkToRetired(i int, relPath string, facets kb.NodeFacets) []Finding {
+	if !retired(facets.Status) {
+		return nil
+	}
+	linkers := s.retiredLinkers(i, facets)
+	if len(linkers) == 0 {
+		return nil
+	}
+	shown := linkers
+	more := ""
+	if len(shown) > 5 {
+		shown, more = shown[:5], ", …"
+	}
+	return []Finding{{Path: relPath, Check: "link_to_retired", Severity: SevInfo,
+		Message: fmt.Sprintf("retired (status: %s) but still linked by %d live concepts: %s%s — update the ones that rely on it; accept with lint_ignore: [link_to_retired] on this concept if the remaining mentions are historical",
+			facets.Status, len(linkers), strings.Join(shown, ", "), more)}}
 }
 
 // islandFindings are emitted once per island, on its anchor, when the anchor

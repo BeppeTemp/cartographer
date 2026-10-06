@@ -56,19 +56,77 @@ func rejectToolParamKeys(fm map[string]interface{}, allowNull bool) error {
 	return nil
 }
 
-// writeFindings returns the lint findings of a concept just written (D289),
-// lint_ignore applied. The write has already succeeded: findings never fail it.
-// Nil when there is nothing to say, so the response omits the key.
+// writeFindings returns the lint findings of a concept just written (D289,
+// D312), lint_ignore applied: the frontmatter-driven checks of that concept
+// plus the structural ones lint.ScopedCheck computes on it and its graph
+// neighbours (broken links, orphan, missing index entry, links to retired
+// concepts). The write has already succeeded: findings never fail it. Nil when
+// there is nothing to say, so the response omits the key.
 func writeFindings(k *kb.KB, id string) []findingOut {
-	data, err := k.ReadConcept(okf.ConceptID(id))
-	if err != nil {
+	return writeFindingsFor(k, []string{id}, nil)
+}
+
+// scopedFindings is the structural half of writeFindings alone, for a write
+// that changed no concept's own content (an index_patch, D312), keeping only
+// the findings of the check named: what the patch did, not what was already
+// there.
+func scopedFindings(k *kb.KB, ids []string, check string) []findingOut {
+	scoped := make([]okf.ConceptID, len(ids))
+	for i, id := range ids {
+		scoped[i] = okf.ConceptID(id)
+	}
+	var kept []lint.Finding
+	for _, f := range lint.ScopedCheck(k, scoped) {
+		if f.Check == check {
+			kept = append(kept, f)
+		}
+	}
+	if len(kept) == 0 {
 		return nil
 	}
-	found := lint.CheckConcept(k, okf.ConceptID(id), data.Content)
-	if len(found) == 0 {
+	return findingsOut(kept)
+}
+
+// writeFindingsFor is writeFindings for several concepts at once: written is
+// every ID the call left on disk, gone every ID it removed or moved away (the
+// pages that still link them are what the write broke). One ScopedCheck
+// serves them all.
+func writeFindingsFor(k *kb.KB, written, gone []string) []findingOut {
+	uniq := writeLintFindings(k, written, gone)
+	if len(uniq) == 0 {
 		return nil
 	}
-	return findingsOut(found)
+	return findingsOut(uniq)
+}
+
+// writeLintFindings is writeFindingsFor before the response shape: gate_check's
+// changed_ids path (D312) decides pass on the severities.
+func writeLintFindings(k *kb.KB, written, gone []string) []lint.Finding {
+	var found []lint.Finding
+	scoped := make([]okf.ConceptID, 0, len(written)+len(gone))
+	for _, id := range written {
+		scoped = append(scoped, okf.ConceptID(id))
+		if data, err := k.ReadConcept(okf.ConceptID(id)); err == nil {
+			found = append(found, lint.CheckConcept(k, okf.ConceptID(id), data.Content)...)
+		}
+	}
+	for _, id := range gone {
+		scoped = append(scoped, okf.ConceptID(id))
+	}
+	found = append(found, lint.ScopedCheck(k, scoped)...)
+	// CheckConcept and ScopedCheck can both report the same thing (the
+	// frontmatter-driven part of a body check): one finding, not two.
+	seen := map[string]bool{}
+	uniq := found[:0]
+	for _, f := range found {
+		key := f.Path + "\x00" + f.Check + "\x00" + f.Message
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		uniq = append(uniq, f)
+	}
+	return uniq
 }
 
 // conformanceChecks are the checks kb_status counts as conformance debt (D290):
