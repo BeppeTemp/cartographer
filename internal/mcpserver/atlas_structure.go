@@ -8,6 +8,7 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/graphalgo"
 	"github.com/BeppeTemp/cartographer/internal/kb"
+	"github.com/BeppeTemp/cartographer/internal/okf"
 )
 
 const (
@@ -19,9 +20,13 @@ const (
 // writeAtlasStructure appends atlas_overview's opt-in "## Structure" section
 // (D244): the most central concepts by PageRank and the main communities, both
 // computed on the graph of the concepts the caller can see, so the ranking
-// discloses nothing about the others (D226).
+// discloses nothing about the others (D226). Archived concepts (D322) are not
+// in that graph: closed entries must not dominate the ranking or form
+// communities of their own; the other graph tools still show them.
 func writeAtlasStructure(sb *strings.Builder, ctx requestContext, k *kb.KB) error {
-	lg, err := k.LinkGraph(func(id string) bool { return Visible(ctx, k, id) })
+	lg, err := k.LinkGraph(func(id string) bool {
+		return Visible(ctx, k, id) && k.ConceptFacets(okf.ConceptID(id)).Status != kb.StatusArchived
+	})
 	if err != nil {
 		return err
 	}

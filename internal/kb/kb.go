@@ -1520,9 +1520,12 @@ type MapContract struct {
 	// statuses that mean "not finished", the age after which such a concept
 	// is stale, whether pages must carry their template's H2 sections, and
 	// the words that mark an open question.
-	Kind             string
-	OpenStatuses     []string
-	StaleAfterDays   int
+	Kind           string
+	OpenStatuses   []string
+	StaleAfterDays int
+	// HarvestAfterDays is the age after which a closed journal entry is a
+	// harvest candidate (D322); 0 means the default, DefaultHarvestAfterDays.
+	HarvestAfterDays int
 	TemplateSections bool
 	OpenMarkers      []string
 	// Review keys (D298): the map a journal's reusable procedures belong in,
@@ -1764,6 +1767,10 @@ const IndexGenerated = "generated"
 // costIntKeys are the D301 positive-integer threshold overrides.
 var costIntKeys = map[string]bool{"repeated_fact_min": true, "hotspot_in_degree": true, "hotspot_bytes": true, "oversize_bytes": true, "oversize_concepts": true}
 
+// DefaultHarvestAfterDays is how long a closed journal entry rests before
+// kb_review offers it for harvesting (D322).
+const DefaultHarvestAfterDays = 45
+
 // MapContractUpdate is a partial change to an existing map's lint contract:
 // a nil field is left as it is. An empty list (or false) removes the key, so
 // the descriptor ends up exactly as CreateMapWithContract would have written
@@ -1786,6 +1793,7 @@ type MapContractUpdate struct {
 	// removes it.
 	OpenStatuses     *[]string
 	StaleAfterDays   *int
+	HarvestAfterDays *int // D322: nil leaves the key, 0 or less removes it
 	TemplateSections *bool
 	OpenMarkers      *[]string
 	// D298 review keys: nil leaves the key, "" / an empty list / false
@@ -1807,6 +1815,12 @@ type MapContractUpdate struct {
 	// ForbiddenTitleTerms nil leaves it, an empty list removes it.
 	TitleMaxLength      *int
 	ForbiddenTitleTerms *[]string
+	// D322: ConceptTypes nil leaves the list, an empty one removes it (the
+	// types are then unconstrained); OntologyMode nil leaves it, "" removes
+	// it (flexible), otherwise "strict" or "flexible". A list on a map that
+	// is not strict is refused: a flexible map ignores it.
+	ConceptTypes *[]string
+	OntologyMode *string
 	// Title renames the map: the title key and the H1 that repeats it, in
 	// _map.md and in index.md. nil leaves it; "" is refused, a map has one.
 	Title *string
@@ -1907,6 +1921,16 @@ func (kb *KB) UpdateMapContract(name string, upd MapContractUpdate) (MapContract
 		} else {
 			fm.Delete("stale_after")
 		}
+	}
+	if upd.HarvestAfterDays != nil {
+		if *upd.HarvestAfterDays > 0 {
+			fm.Set("harvest_after", strconv.Itoa(*upd.HarvestAfterDays))
+		} else {
+			fm.Delete("harvest_after")
+		}
+	}
+	if err := kb.applyOntologyUpdate(name, fm, upd); err != nil {
+		return MapContract{}, err
 	}
 	if upd.TemplateSections != nil {
 		if *upd.TemplateSections {
@@ -2036,6 +2060,93 @@ func (kb *KB) UpdateMapContract(name string, upd MapContractUpdate) (MapContract
 		}
 	}
 	return kb.ReadMapContract(name)
+}
+
+// applyOntologyUpdate writes concept_types and ontology_mode (D322), the two
+// keys map_create sets and map_update used to leave out: a strict map could
+// not learn a type it did not know at creation.
+func (kb *KB) applyOntologyUpdate(name string, fm *okf.Frontmatter, upd MapContractUpdate) error {
+	if upd.ConceptTypes == nil && upd.OntologyMode == nil {
+		return nil
+	}
+	mode := "flexible"
+	if v, ok := fm.Get("ontology_mode"); ok {
+		if str, _ := v.(string); str != "" {
+			mode = str
+		}
+	}
+	if upd.OntologyMode != nil {
+		switch m := strings.TrimSpace(*upd.OntologyMode); m {
+		case "":
+			fm.Delete("ontology_mode")
+			mode = "flexible"
+		case "strict", "flexible":
+			fm.Set("ontology_mode", m)
+			mode = m
+		default:
+			return fmt.Errorf("UpdateMapContract %s: ontology_mode %q must be strict or flexible", name, m)
+		}
+	}
+	if upd.ConceptTypes != nil {
+		var types []string
+		for _, t := range *upd.ConceptTypes {
+			if strings.TrimSpace(t) == "" {
+				return fmt.Errorf("UpdateMapContract %s: concept_types must not contain an empty type", name)
+			}
+			types = append(types, strings.TrimSpace(t))
+		}
+		types = uniqueKeepOrder(types)
+		if len(types) > 0 && mode != "strict" {
+			return fmt.Errorf("UpdateMapContract %s: concept_types is ignored by a flexible map: set ontology_mode: strict with it", name)
+		}
+		if len(types) > 0 {
+			fm.Set("concept_types", types)
+		} else {
+			fm.Delete("concept_types")
+		}
+		return nil
+	}
+	// Switching to strict with no list: infer it from what the map holds, or
+	// the new mode would refuse every concept already there.
+	if mode == "strict" {
+		if _, has := fm.Get("concept_types"); !has {
+			var types []string
+			prefix := name + "/"
+			err := kb.WalkConcepts(func(id okf.ConceptID, content string) error {
+				if !strings.HasPrefix(string(id), prefix) {
+					return nil
+				}
+				if fmRaw, _, ok := okf.SplitFrontmatter(content); ok {
+					if cfm, err := okf.ParseFrontmatter(fmRaw); err == nil {
+						if t := cfm.Type(); t != "" {
+							types = append(types, t)
+						}
+					}
+				}
+				return nil
+			})
+			if err != nil {
+				return fmt.Errorf("UpdateMapContract %s: infer concept_types: %w", name, err)
+			}
+			if types = sortedUnique(types); len(types) > 0 {
+				fm.Set("concept_types", types)
+			}
+		}
+	}
+	return nil
+}
+
+// uniqueKeepOrder drops repeated values, keeping the first occurrence.
+func uniqueKeepOrder(in []string) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, v := range in {
+		if !seen[v] {
+			seen[v] = true
+			out = append(out, v)
+		}
+	}
+	return out
 }
 
 // retitleIndex carries a map's new title into its index.md, which repeats it
@@ -2301,7 +2412,7 @@ func (kb *KB) ReadMapContract(archive string) (MapContract, error) {
 			key != "forbidden_fields" && !strings.HasPrefix(key, "field_values.") &&
 			key != "require_index_entry" && key != "machine_path_allow_prefixes" &&
 			!strings.HasPrefix(key, "value_synonyms.") &&
-			key != "open_statuses" && key != "stale_after" && key != "template_sections" && key != "open_markers" &&
+			key != "open_statuses" && key != "stale_after" && key != "harvest_after" && key != "template_sections" && key != "open_markers" &&
 			key != "promote_to" && key != "procedure_headings" && key != "glossary" &&
 			key != "index" && !costIntKeys[key] && key != "work_map" &&
 			key != "title_max_length" && key != "forbidden_title_terms" {
@@ -2427,6 +2538,14 @@ func (kb *KB) ReadMapContract(archive string) (MapContract, error) {
 				continue
 			}
 			contract.StaleAfterDays = n
+		case key == "harvest_after":
+			s, _ := value.(string)
+			n, err := strconv.Atoi(strings.TrimSpace(s))
+			if err != nil || n <= 0 {
+				bad(key)
+				continue
+			}
+			contract.HarvestAfterDays = n
 		case key == "template_sections" || key == "glossary":
 			v, ok := value.(string)
 			if !ok || (v != "true" && v != "false") {

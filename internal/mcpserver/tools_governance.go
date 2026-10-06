@@ -609,7 +609,7 @@ func kbCapabilities(k *kb.KB) map[string]KBCapability {
 	}
 }
 
-func toolKBStatus(k *kb.KB, misses *searchMissLog, serverVersion string, latestVersion func() string, cc *conformanceCache) Tool {
+func toolKBStatus(k *kb.KB, misses *searchMissLog, reads *readAccessLog, serverVersion string, latestVersion func() string, cc *conformanceCache) Tool {
 	return Tool{
 		Name:        "kb_status",
 		Description: "KB health in one call: concept counts (by type, status), stale concepts, open contradictions and gaps, git replication state, capabilities (each per-KB gate, its state and controlling key), source-ledger counts, frequent search misses, versions, and conformance: {findings by severity, fixable, last_doctor, doctor_suggested}, the drift from the current standard. When doctor_suggested is true, follow the kb-doctor skill. usage: which skills and agents the clients actually load (never used, stale, active), from their reports. Read-only.",
@@ -794,6 +794,11 @@ func toolKBStatus(k *kb.KB, misses *searchMissLog, serverVersion string, latestV
 			}
 			if src := sourceCounts(k); src != nil {
 				result["sources"] = src
+			}
+			if n, oldest, newest := reads.summary(); n > 0 {
+				// D322: the last-read telemetry the doctor and the operator can
+				// see is being collected (not retroactive).
+				result["read_access"] = map[string]interface{}{"tracked_concepts": n, "oldest": oldest, "newest": newest}
 			}
 			if top := misses.top(); len(top) > 0 {
 				result["search_misses"] = top

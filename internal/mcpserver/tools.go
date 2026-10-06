@@ -75,6 +75,7 @@ func RegisterKBTools(s *Server, k *kb.KB, deps Deps) {
 	// every search, pull and reindex after it applies only the delta.
 	rec := newSearchReconciler(k, deps.SQLIndex)
 	misses := newSearchMissLog(k)
+	reads := newReadAccessLog(k)
 	// The miss re-check (D319) must come after newSearchReconciler, which it
 	// closes over, and must use the in-memory index only: FTS5 may be absent
 	// or failing, and the live index is always there. No auth filter — this is
@@ -86,7 +87,7 @@ func RegisterKBTools(s *Server, k *kb.KB, deps Deps) {
 		return len(rec.live.searchFiltered(query, "", 1, nil)) > 0
 	})
 	s.uiSearch = func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
-		return handleSearch(ctx, k, rec, nil, deps, args)
+		return handleSearch(ctx, k, rec, nil, nil, deps, args)
 	}
 	if _, err := rec.reconcile(); err != nil {
 		fmt.Fprintf(os.Stderr, "cartographer: build search index: %v\n", err)
@@ -104,7 +105,7 @@ func RegisterKBTools(s *Server, k *kb.KB, deps Deps) {
 
 	register(toolAtlasOverview(k))
 	register(toolIndexGet(k))
-	register(toolConceptRead(k))
+	register(toolConceptRead(k, reads))
 	register(toolConceptHistory(k))
 	register(toolLogTail(k))
 	register(toolChangesSince(k))
@@ -125,7 +126,7 @@ func RegisterKBTools(s *Server, k *kb.KB, deps Deps) {
 	register(toolGraphContext(k, rec, deps))
 	register(toolLinkSuggest(k, rec, deps))
 	register(toolGraphPath(k))
-	register(toolSearch(k, rec, misses, deps))
+	register(toolSearch(k, rec, misses, reads, deps))
 	register(toolReindex(k, rec, deps))
 	register(toolLint(k))
 	register(gitWrap(k, toolKBRepair(k)))
@@ -138,7 +139,7 @@ func RegisterKBTools(s *Server, k *kb.KB, deps Deps) {
 	register(gitWrap(k, toolConflictResolve(k)))
 	cc := &conformanceCache{}
 	s.conformance = cc
-	register(toolKBStatus(k, misses, s.version, s.knownLatestVersion, cc))
+	register(toolKBStatus(k, misses, reads, s.version, s.knownLatestVersion, cc))
 	register(toolKBReview(k, cc))
 	register(toolWorkList(k, cc))
 	register(toolContradictionReport(k))

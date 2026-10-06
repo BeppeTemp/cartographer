@@ -192,6 +192,8 @@ var perConceptChecks = map[string]bool{
 	ReviewScatteredWork: true,
 	// D321.
 	ReviewStatusReclassify: true,
+	// D322.
+	ReviewHarvestCandidate: true,
 	"status_semantics":     true,
 	// D304: dismissed in a map's _map.md, not on a concept.
 	ReviewMapNaming: true,
@@ -832,7 +834,8 @@ func runChecks(k *kb.KB, scope string, scopeNeighbors bool, opts Options) ([]Fin
 			// Counts top-level concepts only: an expanded concept's satellites
 			// are the concept's own content, not siblings to split. A journal
 			// grows by construction and needs harvest, not a split. The check
-			// is on contract.Kind, never on the map's name.
+			// is on contract.Kind, never on the map's name. Archived concepts
+			// (D322) are closed and harvested: they do not count.
 			if contracts[archiveName].Kind != "journal" {
 				threshold := mapOversizeThreshold
 				if n := contracts[archiveName].OversizeConcepts; n > 0 {
@@ -843,6 +846,9 @@ func runChecks(k *kb.KB, scope string, scopeNeighbors bool, opts Options) ([]Fin
 					// Exactly one "/" after the map prefix: a naive prefix count
 					// would also count every satellite.
 					if rest, ok := strings.CutPrefix(string(id), archiveName+"/"); ok && !strings.Contains(rest, "/") {
+						if i, ok := st.lg.Index[id]; ok && st.lg.Facets[i].Status == kb.StatusArchived {
+							continue
+						}
 						mapConcepts++
 					}
 				}

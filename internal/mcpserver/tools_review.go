@@ -172,7 +172,7 @@ func (sf *similarFinder) find(ctx requestContext, id, title string) []similarHit
 	if len(want) == 0 {
 		return nil
 	}
-	hits, _, _ := expandedKeywordHits(ctx, sf.k, sf.rec, sf.deps, title, "", similarSearchWindow)
+	hits, _, _ := expandedKeywordHits(ctx, sf.k, sf.rec, sf.deps, title, "", similarSearchWindow, false)
 	var out []similarHit
 	for _, h := range hits {
 		if h.ID == id || lint.Jaccard(want, lint.TitleTokens(h.Title)) < lint.TitleJaccardMin {

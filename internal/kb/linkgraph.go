@@ -22,6 +22,18 @@ type NodeFacets struct {
 	Bytes int64
 }
 
+// IsRetired is the status vocabulary's "no longer current" (docs/data-plane.md):
+// deprecated, superseded (what supersede writes) or archived (D322: closed,
+// harvested, kept for reading). disputed is not retired. The one predicate lint
+// and the graph tools share, so a new terminal state cannot be missed in one.
+func IsRetired(status string) bool {
+	return status == "deprecated" || status == "superseded" || status == StatusArchived
+}
+
+// StatusArchived is the reserved status of a closed journal entry whose
+// durable facts have been harvested into live pages (D322).
+const StatusArchived = "archived"
+
 // LinkGraph is the int-indexed projection of the link graph that the
 // algorithms in internal/graphalgo run on (D242): only existing concepts a
 // caller's include predicate accepts, links to anything else dropped, no

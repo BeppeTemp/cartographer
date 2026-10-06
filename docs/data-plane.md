@@ -132,7 +132,7 @@ description: Procedura trimestrale.
 tags: [tls, sicurezza]
 timestamp: 2026-06-25T10:00:00Z
 # --- project extensions ---
-status: active                       # draft | active | superseded | disputed | deprecated
+status: active                       # draft | active | superseded | disputed | deprecated | archived
 provenance: [https://internal.example.com/maintenance/cert-policy.pdf]
 confidence: high                     # high | medium | low
 valid_from: 2026-06-25
@@ -308,7 +308,7 @@ describes, so a KB's own "known false positives" page was impossible.
 
 Suppressible: `broken_link`, `machine_path`, `concept_oversize`, `stale_claim`, `imported_draft`,
 `secrets_on_non_service`, `orphan`, `missing_title`, `unknown_placeholder`, `forbidden_term`, `sops_format_mismatch`, `sops_missing_file`, `legacy_path`, `nonstandard_field`, `prose_value`, `stale_open`, `closed_with_open_items`, `status_semantics` (D321), `template_section_missing`, `open_marker`, `source_uncited`, `mangled_placeholder` (D314), `title_h1_mismatch` and `title_quality` (D315), `duplicate_link`, `bare_link_list`, and the structural
-`cut_concept`, `link_to_retired`, `broken_relation`, `map_misfit`, `reciprocal_link_item` (D301), and the `kb_review` kinds (D298, D301) `duplicate_candidate`, `zombie_work`, `repeated_fact`, `read_hotspot`, `promotion_candidate`, `glossary_gap`, `lint_judgement` — there the name dismisses a review item that names the concept (see §Review keys). **Not** suppressible: `stringified_list` (D314), `tool_param_field` (a tool argument is never a legitimate field), every `error`-severity check
+`cut_concept`, `link_to_retired`, `broken_relation`, `map_misfit`, `reciprocal_link_item` (D301), and the `kb_review` kinds (D298, D301) `duplicate_candidate`, `zombie_work`, `harvest_candidate` (D322), `repeated_fact`, `read_hotspot`, `promotion_candidate`, `glossary_gap`, `lint_judgement` — there the name dismisses a review item that names the concept (see §Review keys). **Not** suppressible: `stringified_list` (D314), `tool_param_field` (a tool argument is never a legitimate field), every `error`-severity check
 (`missing_required_field`, `invalid_field_value`, `forbidden_field`, `expanded_ambiguous`) — those are contract violations, not judgements, and
 letting a concept declare its own contract void would be a hole rather than an escape hatch — and the
 directory-level checks (`index_incomplete`, `index_stale`, `expanded_*`, `orphan_asset`,
@@ -394,6 +394,7 @@ Lint also sees a KB **decaying**: work never closed, closed work not finished, p
 |---|---|---|
 | `open_statuses: [...]` | statuses that mean "not finished" | the `in-progress`, `blocked`, `proposed`, `draft` families, `open`, `decision-needed`; never the `active` family, which means "the page is valid" in a journal and in a map alike (D321). `map_create` with `kind: journal` writes `open_statuses: [open, in-progress, blocked]`; a KB that reads `active` as open lists it |
 | `stale_after: <days>` | age after which an open concept is stale | 60 in a journal; none in a map (a reference page is not stale by age) |
+| `harvest_after: <days>` | age after which a closed journal entry is a `harvest_candidate` (D322) | 45 |
 | `template_sections: true` | pages must carry the H2 sections of `templates/<type>.md` | off: many KBs use templates as guidance, not a schema |
 | `open_markers: [...]` | words that mark an open question, in the KB's language | `TODO`, `TBD`, `FIXME` |
 
@@ -403,6 +404,10 @@ Lint also sees a KB **decaying**: work never closed, closed work not finished, p
 - `template_section_missing` (suppressible): sections of the type's template the page lacks, compared folding case and accents; headings inside fenced code in the template are ignored.
 - `open_marker` (suppressible): marker occurrences outside code, outside heading lines, outside table rows of a concept in an open phase (D313), and outside struck-through `~~text~~` (closed or cancelled, D307), whole words, case- and accent-folded; `kb_status.open_markers` totals them as `{concepts, markers}`.
 - `facet_sprawl` (on `_map.md`, directory-level): `tags` with at least 30 distinct values, half or more used once; the message lists the ten most used as the likely vocabulary.
+
+### The `archived` status (D322)
+
+`archived` is a server-reserved status, after `done`: the entry is finished **and** its durable facts have been carried into the live pages it links. It is retired like `deprecated` and `superseded` (`link_to_retired` counts live linkers, `map_misfit` and `link_suggest` skip it; a `digest`-typed page linking archived entries is not a linker) and closed, never open, and in no synonym family: it is a lifecycle stage, not a value a KB chooses among synonyms. An archived concept stays readable and linkable but leaves the active surface: default `search` (with an archived fallback, `docs/control-plane.md`), `read_cost`, the `atlas_overview` structure graph and the `map_oversize` count. The other graph tools still show it; `deprecated` and `superseded` concepts still count in `read_cost`. The bundled `kb-doctor` skill does the harvest: facts into live pages with a dated link back, `status: archived` with a header line, one `reference` digest per quarter. Nothing is deleted or moved.
 
 ### Review keys (D298)
 

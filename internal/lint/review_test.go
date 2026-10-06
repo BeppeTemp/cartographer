@@ -122,6 +122,13 @@ var reviewFixtures = map[string]func(t *testing.T, dismiss bool) (*kb.KB, string
 		writeFile(t, k.DataRoot(), "ref/page.md", "---\ntype: Topic\ntitle: Page\n"+ignoreLine(ReviewScatteredWork, dismiss)+"---\n# Page\n\n## Follow-up\n\n- [ ] migrate the host\n")
 		return k, "ref/page"
 	},
+	ReviewHarvestCandidate: func(t *testing.T, dismiss bool) (*kb.KB, string) {
+		withNow(t, "2026-10-01")
+		k := tempKB(t)
+		writeFile(t, k.DataRoot(), "j/_map.md", "---\ntype: Map\ntitle: J\nkind: journal\n---\n")
+		writeFile(t, k.DataRoot(), "j/e.md", "---\ntype: Note\ntitle: E\nstatus: done\ntimestamp: 2026-07-01\n"+ignoreLine(ReviewHarvestCandidate, dismiss)+"---\n# E\n")
+		return k, "j/e"
+	},
 	ReviewStatusReclassify: func(t *testing.T, dismiss bool) (*kb.KB, string) {
 		k := tempKB(t)
 		writeFile(t, k.DataRoot(), "j/_map.md", "---\ntype: Map\ntitle: J\nkind: journal\n---\n")

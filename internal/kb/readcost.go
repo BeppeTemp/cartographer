@@ -1,6 +1,10 @@
 package kb
 
-import "sort"
+import (
+	"sort"
+
+	"github.com/BeppeTemp/cartographer/internal/okf"
+)
 
 // ByteStats are nearest-rank percentiles of a set of byte counts.
 type ByteStats struct {
@@ -22,8 +26,16 @@ type ReadCost struct {
 // concept is neither counted nor a neighbour, so the numbers are the ones a
 // KB without it would give (D226). Sizes come from the graph cache's stat
 // signatures; no body is read.
+//
+// Archived concepts (D322) are left out: a closed, harvested entry is not
+// something an agent reads to work, so its size must not inflate the
+// numbers. Only archived: deprecated and superseded concepts have always
+// counted and stay, being few and still meaningful.
 func (kb *KB) ReadCost(include func(id string) bool) (ReadCost, error) {
-	lg, err := kb.LinkGraph(include)
+	live := func(id string) bool {
+		return (include == nil || include(id)) && kb.ConceptFacets(okf.ConceptID(id)).Status != StatusArchived
+	}
+	lg, err := kb.LinkGraph(live)
 	if err != nil {
 		return ReadCost{}, err
 	}
