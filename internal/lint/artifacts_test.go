@@ -106,7 +106,7 @@ func TestLint_LegacyToolNameInInstructions(t *testing.T) {
 func TestLint_SkillBrokenRef(t *testing.T) {
 	k := tempKB(t)
 	writeFile(t, k.Root, "skills/broken/SKILL.md", skillMD("broken", "b", "Run:\n\n```\npython3 tools/check.py\n```\n"))
-	writeFile(t, k.Root, "skills/my-skill/SKILL.md", skillMD("my-skill", "m", "Run `skills/my-skill/run.sh`, then `scripts/helper.sh` and `/opt/tools/x`.\n"))
+	writeFile(t, k.Root, "skills/my-skill/SKILL.md", skillMD("my-skill", "m", "Run `skills/my-skill/run.sh`, then `scripts/helper.sh` and `/opt/tools/x`. Never re-read `tools/list` before `tools/call`.\n"))
 	writeFile(t, k.Root, "skills/my-skill/run.sh", "#!/bin/sh\n")
 	writeFile(t, k.Root, "skills/my-skill/scripts/helper.sh", "#!/bin/sh\n")
 	findings, err := Run(k, "", false)

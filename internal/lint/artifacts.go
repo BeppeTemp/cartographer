@@ -86,6 +86,11 @@ var gitMutationRe = regexp.MustCompile(`\bgit\s+(add|commit|push|pull|merge|reba
 // skillRefRe matches a KB-relative path a skill's code may run or read.
 var skillRefRe = regexp.MustCompile(`(?:tools|scripts|skills)/[A-Za-z0-9_.\-/]+`)
 
+// mcpMethods are the MCP JSON-RPC methods skillRefRe would read as a path: a
+// skill about an MCP server names them ("do not re-read `tools/list`"), and
+// they are protocol, not files.
+var mcpMethods = map[string]bool{"tools/list": true, "tools/call": true}
+
 // sopsCommandRe finds a sops invocation; the rest of its pipeline is read by
 // hand, because RE2 has no negative lookahead for "without --output-type json".
 var sopsCommandRe = regexp.MustCompile(`\bsops\b`)
@@ -474,7 +479,7 @@ func checkSkillInternalRefs(k *kb.KB, skills []skill.Skill) []Finding {
 					continue
 				}
 				ref := strings.TrimRight(span[idx[0]:idx[1]], ".,:;")
-				if seen[ref] || strings.HasSuffix(ref, "/") {
+				if seen[ref] || strings.HasSuffix(ref, "/") || mcpMethods[ref] {
 					continue
 				}
 				seen[ref] = true
