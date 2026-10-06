@@ -454,7 +454,8 @@ only in a whole-KB lint, and their findings name the artifact file (`skills/<nam
   500 lines).
 - `legacy_tool_name` (warning, fix `strip_tool_prefix`): a pre-D288 prefixed tool name
   (`<kb>__search`, e.g. kb_a__search) in a skill, agent or `instructions.md` (Markdown, text, scripts and config
-  files; stylesheets are skipped, a BEM class has the same shape). The message names the mounted KB
+  files; stylesheets are skipped, a BEM class has the same shape). A client's own MCP tool name,
+  `mcp__<server>__<tool>` (Claude Code, Codex), is never flagged: it is current, not a prefix. The message names the mounted KB
   the prefix most likely meant, so the agent adds `kb: "<name>"`; the fix only strips the prefix.
 - `skill_broken_ref` (warning): a `tools/`, `scripts/` or `skills/` path in a skill's code (fenced
   block or inline code — prose is not scanned) that exists neither under the KB root nor in the

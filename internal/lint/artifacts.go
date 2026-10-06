@@ -363,6 +363,13 @@ func checkLegacyToolNames(files []artifactText, kbNames []string) []Finding {
 				continue
 			}
 			seen[m] = true
+			// mcp__<server>__<tool> is how Claude Code and Codex name any MCP
+			// server's tool (mcp__homeassistant__ha_get_state): a client's
+			// current name, not a Cartographer prefix. Stripping "mcp__" would
+			// break every agent that lists it.
+			if strings.HasPrefix(m, "mcp__") {
+				continue
+			}
 			prefix, bare, _ := strings.Cut(m, "__")
 			kbArg := "<kb>"
 			for _, n := range kbNames {

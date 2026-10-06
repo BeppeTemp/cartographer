@@ -679,22 +679,19 @@ func TestKBStatus_ReportsCapabilities(t *testing.T) {
 	if got := caps["mount"]["state"]; got != "configured" {
 		t.Errorf("mount state = %q, want configured", got)
 	}
-	if got := caps["tool_prefix"]["state"]; got != "none" {
-		t.Errorf("tool_prefix state = %q, want none", got)
+	// D325 removed the knobs that set a prefix: no capability names them.
+	if _, ok := caps["tool_prefix"]; ok {
+		t.Errorf("tool_prefix capability still reported: %v", caps["tool_prefix"])
 	}
 
 	k.AllowArtifactWrite = true
 	k.Discovered = true
-	k.ToolPrefix = "eng_team"
 	caps = read()
 	if got := caps["artifact_write"]["state"]; got != "enabled" {
 		t.Errorf("after enabling, artifact_write state = %q", got)
 	}
 	if got := caps["mount"]["state"]; got != "discovered" {
 		t.Errorf("mount state = %q, want discovered", got)
-	}
-	if got := caps["tool_prefix"]["state"]; got != "eng_team" {
-		t.Errorf("tool_prefix state = %q, want eng_team", got)
 	}
 }
 
