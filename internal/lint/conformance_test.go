@@ -293,3 +293,15 @@ func TestMalformedFrontmatter_OneFindingPerKey(t *testing.T) {
 		t.Fatalf("want 1 malformed_frontmatter, got %d", n)
 	}
 }
+
+// D313: a purely date-valued field holds instants, not a vocabulary.
+func TestMissingValueContract_DateFieldSkipped(t *testing.T) {
+	dates := []string{"2026-01-01", "2026-01-01", "2026-01-02", "2026-01-02", "2026-01-03", "2026-01-03"}
+	if msg := valueContractKBField(t, "", dates, "claimed_at"); msg != "" {
+		t.Errorf("date-shaped field proposed a vocabulary: %q", msg)
+	}
+	mixed := append(append([]string{}, dates...), "whenever", "whenever")
+	if msg := valueContractKBField(t, "", mixed, "claimed_at"); msg == "" {
+		t.Error("a field with a non-date value must still fire")
+	}
+}

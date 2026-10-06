@@ -950,6 +950,7 @@ func toolMapUpdate(k *kb.KB) Tool {
 				"hotspot_in_degree": {"type": "integer"},
 				"hotspot_bytes": {"type": "integer"},
 				"oversize_bytes": {"type": "integer"},
+				"oversize_concepts": {"type": "integer"},
 				"work_map": {"type": "string"},
 				"title": {"type": "string"},
 				"lint_ignore": {"type": "array", "items": {"type": "string"}}
@@ -980,6 +981,7 @@ func toolMapUpdate(k *kb.KB) Tool {
 				HotspotInDegree          *int                           `json:"hotspot_in_degree"`
 				HotspotBytes             *int                           `json:"hotspot_bytes"`
 				OversizeBytes            *int                           `json:"oversize_bytes"`
+				OversizeConcepts         *int                           `json:"oversize_concepts"`
 				WorkMap                  *string                        `json:"work_map"`
 				Title                    *string                        `json:"title"`
 				LintIgnore               *[]string                      `json:"lint_ignore"`
@@ -995,8 +997,8 @@ func toolMapUpdate(k *kb.KB) Tool {
 				params.RequireIndexEntry == nil && params.MachinePathAllowPrefixes == nil && params.ValueSynonyms == nil &&
 				params.OpenStatuses == nil && params.OpenMarkers == nil && params.StaleAfter == nil && params.TemplateSections == nil &&
 				params.PromoteTo == nil && params.ProcedureHeadings == nil && params.Glossary == nil &&
-				params.Index == nil && params.RepeatedFactMin == nil && params.HotspotInDegree == nil && params.HotspotBytes == nil && params.OversizeBytes == nil && params.WorkMap == nil && params.Title == nil && params.LintIgnore == nil {
-				return errorResult("nothing to change: pass at least one of title, lint_ignore, require_index_entry, required_fields, required_fields_by_type, field_values, field_values_by_type, forbidden_fields, machine_path_allow_prefixes, value_synonyms, open_statuses, open_markers, stale_after, template_sections, promote_to, procedure_headings, glossary, index, repeated_fact_min, hotspot_in_degree, hotspot_bytes, oversize_bytes, work_map"), nil
+				params.Index == nil && params.RepeatedFactMin == nil && params.HotspotInDegree == nil && params.HotspotBytes == nil && params.OversizeBytes == nil && params.OversizeConcepts == nil && params.WorkMap == nil && params.Title == nil && params.LintIgnore == nil {
+				return errorResult("nothing to change: pass at least one of title, lint_ignore, require_index_entry, required_fields, required_fields_by_type, field_values, field_values_by_type, forbidden_fields, machine_path_allow_prefixes, value_synonyms, open_statuses, open_markers, stale_after, template_sections, promote_to, procedure_headings, glossary, index, repeated_fact_min, hotspot_in_degree, hotspot_bytes, oversize_bytes, oversize_concepts, work_map"), nil
 			}
 			var fields, prefixes, forbidden []string
 			if params.ForbiddenFields != nil {
@@ -1039,6 +1041,7 @@ func toolMapUpdate(k *kb.KB) Tool {
 				HotspotInDegree:          params.HotspotInDegree,
 				HotspotBytes:             params.HotspotBytes,
 				OversizeBytes:            params.OversizeBytes,
+				OversizeConcepts:         params.OversizeConcepts,
 				WorkMap:                  params.WorkMap,
 				Title:                    params.Title,
 				LintIgnore:               params.LintIgnore,

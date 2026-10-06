@@ -18,20 +18,20 @@ func TestUpdateMapContract_CostKeys(t *testing.T) {
 		t.Fatal(err)
 	}
 	gen, n := IndexGenerated, 5
-	c, err := k.UpdateMapContract("m", MapContractUpdate{Index: &gen, RepeatedFactMin: &n, HotspotInDegree: &n, HotspotBytes: &n, OversizeBytes: &n})
+	c, err := k.UpdateMapContract("m", MapContractUpdate{Index: &gen, RepeatedFactMin: &n, HotspotInDegree: &n, HotspotBytes: &n, OversizeBytes: &n, OversizeConcepts: &n})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.Index != IndexGenerated || c.RepeatedFactMin != 5 || c.HotspotInDegree != 5 || c.HotspotBytes != 5 || c.OversizeBytes != 5 || len(c.Malformed) != 0 {
+	if c.Index != IndexGenerated || c.RepeatedFactMin != 5 || c.HotspotInDegree != 5 || c.HotspotBytes != 5 || c.OversizeBytes != 5 || c.OversizeConcepts != 5 || len(c.Malformed) != 0 {
 		t.Fatalf("after set: %+v", c)
 	}
 	cur, zero := "curated", 0
-	c, err = k.UpdateMapContract("m", MapContractUpdate{Index: &cur, RepeatedFactMin: &zero, HotspotInDegree: &zero, HotspotBytes: &zero, OversizeBytes: &zero})
+	c, err = k.UpdateMapContract("m", MapContractUpdate{Index: &cur, RepeatedFactMin: &zero, HotspotInDegree: &zero, HotspotBytes: &zero, OversizeBytes: &zero, OversizeConcepts: &zero})
 	if err != nil {
 		t.Fatal(err)
 	}
 	raw, _ := k.ReadRaw("m/_map.md")
-	if c.Index != "" || c.OversizeBytes != 0 || strings.Contains(raw, "index:") || strings.Contains(raw, "oversize_bytes") {
+	if c.Index != "" || c.OversizeBytes != 0 || c.OversizeConcepts != 0 || strings.Contains(raw, "oversize_concepts") || strings.Contains(raw, "index:") || strings.Contains(raw, "oversize_bytes") {
 		t.Fatalf("after remove: %+v\n%s", c, raw)
 	}
 	bad := "auto"

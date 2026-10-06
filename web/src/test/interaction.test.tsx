@@ -95,10 +95,29 @@ const report: LintReport = {
   total: 9,
   by_severity: { error: 1, warning: 1, info: 7 },
   by_check: { broken_link: 1, index_incomplete: 1 },
+  acceptability: { broken_link: "concept", index_incomplete: "none" },
   severity_min: "info",
 };
 
 describe("observatory", () => {
+  it("tells who can accept each check", () => {
+    render(
+      <Observatory
+        report={report}
+        scopeTitle={null}
+        loading={false}
+        error={null}
+        severityMin="info"
+        onSeverityChange={vi.fn()}
+        onReveal={vi.fn()}
+        onRetry={vi.fn()}
+      />,
+    );
+    expect(screen.getAllByTitle(/Accept with lint_ignore on the concept/).length).toBeGreaterThan(0);
+    expect(screen.getAllByTitle(/Cannot be accepted/).length).toBeGreaterThan(0);
+  });
+
+
   it("reveals the concept behind a finding", async () => {
     const user = userEvent.setup();
     const onReveal = vi.fn();

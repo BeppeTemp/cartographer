@@ -90,7 +90,7 @@ func decayFindings(in conceptInput, sections []string) []Finding {
 
 	// --- closed_with_open_items ---
 	if closedPhase(status, in.Contract) {
-		if n := len(openCheckbox.FindAllString(masked, -1)); n > 0 {
+		if n := countOpenItems(masked, in.Contract); n > 0 {
 			out = append(out, Finding{Path: in.RelPath, Check: "closed_with_open_items", Severity: SevInfo,
 				Message: fmt.Sprintf("status %q but %d unchecked item(s) in the body: tick them, move them, or reopen", status, n)})
 		}
@@ -124,6 +124,14 @@ func decayFindings(in conceptInput, sections []string) []Finding {
 		// history, not an open question (D307).
 		unstruck := struckRe.ReplaceAllStringFunc(masked, func(m string) string { return strings.Repeat(" ", len(m)) })
 		lines := strings.Split(unstruck, "\n")
+		// D313: a heading is a section name ("## Todo list"), not an open
+		// question; a table row of an open concept is tracking its status.
+		tableRowsTracked := openPhase(status, in.Contract)
+		for i, l := range lines {
+			if headingLine.MatchString(l) || (tableRowsTracked && tableRowLine.MatchString(l)) {
+				lines[i] = ""
+			}
+		}
 		orig := strings.Split(in.Body, "\n")
 		count, first := 0, ""
 		for i, l := range lines {
@@ -143,6 +151,51 @@ func decayFindings(in conceptInput, sections []string) []Finding {
 		}
 	}
 	return out
+}
+
+var (
+	headingLine  = regexp.MustCompile(`^\s{0,3}#{1,6}\s`)
+	tableRowLine = regexp.MustCompile(`^\s*\|`)
+)
+
+// procedureHeadingsOf is the map's procedure_headings contract, else the
+// built-in defaults (D298).
+func procedureHeadingsOf(contract *kb.MapContract) []string {
+	if contract != nil && len(contract.ProcedureHeadings) > 0 {
+		return contract.ProcedureHeadings
+	}
+	return defaultProcedureHeadings
+}
+
+// isProcedureHeading reports whether an H2 heading starts with one of headings
+// (folded, prefix match), the rule promotion_candidate uses.
+func isProcedureHeading(h string, headings []string) bool {
+	fh := foldHeading(h)
+	for _, p := range headings {
+		if fp := foldHeading(p); fp != "" && strings.HasPrefix(fh, fp) {
+			return true
+		}
+	}
+	return false
+}
+
+// countOpenItems counts unchecked checkboxes outside the sections whose H2
+// matches the map's procedure_headings: a procedure's checklist is a reusable
+// template, not unclosed work (D313).
+func countOpenItems(masked string, contract *kb.MapContract) int {
+	headings := procedureHeadingsOf(contract)
+	n, inProcedure := 0, false
+	for _, line := range strings.Split(masked, "\n") {
+		switch {
+		case strings.HasPrefix(line, "## "):
+			inProcedure = isProcedureHeading(strings.TrimSpace(strings.TrimRight(strings.TrimPrefix(line, "## "), "#")), headings)
+		case strings.HasPrefix(line, "# "):
+			inProcedure = false
+		case !inProcedure && openCheckbox.MatchString(line+"\n"):
+			n++
+		}
+	}
+	return n
 }
 
 var struckRe = regexp.MustCompile(`~~[^~\n]+~~`)

@@ -270,6 +270,28 @@ var mapOnlyIgnorable = map[string]bool{
 	"facet_sprawl":           true,
 	"missing_value_contract": true,
 	"island":                 true,
+	"map_oversize":           true,
+}
+
+// Acceptability levels (D313): who can accept a check with lint_ignore.
+const (
+	AcceptConcept = "concept" // lint_ignore on the concept (or on its map's _map.md)
+	AcceptMap     = "map"     // lint_ignore on the map's _map.md only
+	AcceptNone    = "none"    // cannot be accepted: fix it
+)
+
+// CheckAcceptability says where a finding of this check can be accepted:
+// "concept", "map" or "none". Errors and unknown checks are "none"; the answer
+// comes from the same tables lint_ignore is validated against, so it cannot
+// drift from what lint_ignore_invalid enforces.
+func CheckAcceptability(check string) string {
+	switch {
+	case perConceptChecks[check]:
+		return AcceptConcept
+	case mapOnlyIgnorable[check]:
+		return AcceptMap
+	}
+	return AcceptNone
 }
 
 // applyMapIgnores drops the findings a map accepts as a whole with
@@ -610,7 +632,7 @@ func runChecks(k *kb.KB, scope string, scopeNeighbors bool, opts Options) ([]Fin
 				reason = "a tool argument is never a legitimate field, so it cannot be declared one"
 			} else if artifactChecks[name] {
 				reason = "a KB-level check (artifacts, junk files), not a per-concept one"
-			} else if name == "map_oversize" || name == "index_incomplete" || name == "index_stale" || name == "orphan_asset" || name == "oversized_asset" || name == "unlistable_assets" || name == "unused_placeholder" || name == "missing_registry" || strings.HasPrefix(name, "expanded_") {
+			} else if name == "index_incomplete" || name == "index_stale" || name == "orphan_asset" || name == "oversized_asset" || name == "unlistable_assets" || name == "unused_placeholder" || name == "missing_registry" || strings.HasPrefix(name, "expanded_") {
 				// orphan_asset belongs to an expanded concept's asset set, reported
 				// in the directory pass: there is no single concept frontmatter that
 				// owns it, so listing it as suppressible would be a promise the
@@ -774,18 +796,19 @@ func runChecks(k *kb.KB, scope string, scopeNeighbors bool, opts Options) ([]Fin
 					}
 				}
 
-				// --- secrets_on_non_service (warning, D158) ---
+				// --- secrets_on_non_service (info, D158, D313) ---
 				// service_list/service_get match type Service (case-insensitively
-				// since D158): a concept declaring secrets under any other type has
-				// them unresolvable, and nothing else reported why.
+				// since D158): a concept declaring secrets under any other type is
+				// not listed there. Info, not warning: a dossier with a legitimate
+				// bundle is resolved by concept ID with secret_resolve.
 				if !strings.EqualFold(parsed.Type(), "Service") {
 					for _, field := range []string{"secrets_source", "secret_refs"} {
 						if v, ok := parsed.Get(field); ok && !emptyFrontmatterValue(v) {
 							emit(Finding{
 								Path:     relPath,
 								Check:    "secrets_on_non_service",
-								Severity: SevWarning,
-								Message:  fmt.Sprintf("declares %s but type is %q — service_list/service_get only match type Service, so these secrets are unresolvable", field, parsed.Type()),
+								Severity: SevInfo,
+								Message:  fmt.Sprintf("declares %s but type is %q — service_get only resolves type Service; use secret_resolve for this concept, or move the secrets bundle to a dedicated Service", field, parsed.Type()),
 							})
 						}
 					}
@@ -880,20 +903,32 @@ func runChecks(k *kb.KB, scope string, scopeNeighbors bool, opts Options) ([]Fin
 				findings = append(findings, facetSprawlFindings(archiveName, allConcepts)...)
 			}
 
-			// --- map_oversize (info) ---
-			mapConcepts := 0
-			for id := range allConcepts {
-				if strings.HasPrefix(string(id), archiveName+"/") {
-					mapConcepts++
+			// --- map_oversize (info, D313) ---
+			// Counts top-level concepts only: an expanded concept's satellites
+			// are the concept's own content, not siblings to split. A journal
+			// grows by construction and needs harvest, not a split. The check
+			// is on contract.Kind, never on the map's name.
+			if contracts[archiveName].Kind != "journal" {
+				threshold := mapOversizeThreshold
+				if n := contracts[archiveName].OversizeConcepts; n > 0 {
+					threshold = n
 				}
-			}
-			if mapConcepts > mapOversizeThreshold {
-				findings = append(findings, Finding{
-					Path:     archiveName,
-					Check:    "map_oversize",
-					Severity: SevInfo,
-					Message:  fmt.Sprintf("%d concepts in one map (threshold %d) — consider a thematic split into a new map", mapConcepts, mapOversizeThreshold),
-				})
+				mapConcepts := 0
+				for id := range allConcepts {
+					// Exactly one "/" after the map prefix: a naive prefix count
+					// would also count every satellite.
+					if rest, ok := strings.CutPrefix(string(id), archiveName+"/"); ok && !strings.Contains(rest, "/") {
+						mapConcepts++
+					}
+				}
+				if mapConcepts > threshold {
+					findings = append(findings, Finding{
+						Path:     archiveName + "/_map.md",
+						Check:    "map_oversize",
+						Severity: SevInfo,
+						Message:  fmt.Sprintf("%d top-level concepts in one map (threshold %d) — consider a thematic split into a new map, raise oversize_concepts, or accept with lint_ignore: [map_oversize] in _map.md", mapConcepts, threshold),
+					})
+				}
 			}
 		}
 
@@ -1175,13 +1210,22 @@ func withinAnySpan(span []int, spans [][]int) bool {
 // prefix matching: "/home/nonroot" covers "/home/nonroot/.headroom" but not
 // "/home/nonroot2" (prefix-boundary collision).
 func matchesAllowedPrefix(candidate string, allowPrefixes []string) bool {
-	for _, prefix := range allowPrefixes {
-		if pathHasPrefix(candidate, prefix) {
-			return true
+	for _, prefixes := range [][]string{builtinAllowPrefixes, allowPrefixes} {
+		for _, prefix := range prefixes {
+			if pathHasPrefix(candidate, prefix) {
+				return true
+			}
 		}
 	}
 	return false
 }
+
+// builtinAllowPrefixes are the conventional tool paths every reader's machine
+// agrees on (D313): citing ~/.ssh/config or ~/.kube/config is documentation,
+// not a client-local path, so no map has to list them. Applied in
+// matchesAllowedPrefix, the one place both Run and CheckConcept go through; a
+// map's machine_path_allow_prefixes only adds to them.
+var builtinAllowPrefixes = []string{"~/.ssh/", "~/.kube/", "~/.m2/", "~/.config/", "~/.cache/", "~/.local/", "~/.gnupg/"}
 
 // brokenLinkRebaseFixes computes, for an expanded concept, which broken
 // markdown links would resolve from the pre-expansion base. Each is returned

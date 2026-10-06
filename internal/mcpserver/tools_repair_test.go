@@ -311,6 +311,15 @@ func TestSummarizeConformanceTruthTable(t *testing.T) {
 		f("nonstandard_field", lint.SevWarning, true), f("nonstandard_field", lint.SevWarning, false),
 		f("link_to_retired", lint.SevInfo, false), f("orphan", lint.SevWarning, false),
 	}, 0, "2026-09-20", 14, now)
+	// D313: the accept level of every counted check, none for an error-only or
+	// unlisted one.
+	acc := got["acceptability"].(map[string]string)
+	if acc["nonstandard_field"] != "concept" || acc["link_to_retired"] != "concept" || len(acc) != 2 {
+		t.Fatalf("acceptability = %v", acc)
+	}
+	if m := summarizeConformance([]lint.Finding{f("missing_value_contract", lint.SevInfo, false)}, 0, "", 14, now)["acceptability"].(map[string]string); m["missing_value_contract"] != "map" {
+		t.Fatalf("map-only check: %v", m)
+	}
 	sev := got["findings"].(map[string]int)
 	if sev[lint.SevWarning] != 2 || sev[lint.SevInfo] != 1 || got["fixable"] != 1 || got["last_doctor"] != "2026-09-20" {
 		t.Fatalf("summary = %v", got)

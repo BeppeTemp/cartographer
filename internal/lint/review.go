@@ -207,7 +207,7 @@ func Review(k *kb.KB, findings []Finding) ([]ReviewItem, error) {
 
 	var items []ReviewItem
 	items = append(items, duplicateItems(concepts)...)
-	zombies, zombieItems := zombieWorkItems(concepts, contracts, byConcept)
+	zombies, zombieItems := zombieWorkItems(byID, concepts, contracts, byConcept, links)
 	items = append(items, zombieItems...)
 	items = append(items, repeatedFactItems(concepts, contracts, k.TemplateTexts())...)
 	items = append(items, readHotspotItems(concepts, contracts, links)...)
@@ -321,6 +321,10 @@ func findingConceptID(path string) okf.ConceptID {
 
 // --- duplicate_candidate ---
 
+// resourceTitleJaccardMin is the title similarity two concepts sharing a
+// resource need before they are duplicate candidates (D313).
+const resourceTitleJaccardMin = 0.3
+
 func duplicateItems(concepts []*reviewConcept) []ReviewItem {
 	var out []ReviewItem
 	paired := map[[2]okf.ConceptID]bool{}
@@ -328,14 +332,30 @@ func duplicateItems(concepts []*reviewConcept) []ReviewItem {
 	// (a) one type, one resource.
 	type key struct{ typ, resource string }
 	groups := map[key][]okf.ConceptID{}
+	groupTokens := map[okf.ConceptID]map[string]bool{}
 	for _, c := range concepts {
 		if c.resource != "" && c.typ != "" {
+			groupTokens[c.id] = TitleTokens(c.title)
 			k := key{strings.ToLower(c.typ), c.resource}
 			groups[k] = append(groups[k], c.id)
 		}
 	}
 	for k, ids := range groups {
 		if len(ids) < 2 {
+			continue
+		}
+		// D313: a shared resource alone is not duplication (a dozen tasks on
+		// one cluster); at least one pair must also share
+		// resourceTitleJaccardMin of its title words.
+		similar := false
+		for i := range ids {
+			for j := i + 1; j < len(ids); j++ {
+				if Jaccard(groupTokens[ids[i]], groupTokens[ids[j]]) >= resourceTitleJaccardMin {
+					similar = true
+				}
+			}
+		}
+		if !similar {
 			continue
 		}
 		for i := range ids {
@@ -454,9 +474,7 @@ func idStrings(ids []okf.ConceptID) []string {
 // it their common origin rather than each one's subject.
 const zombieSharedMin = 3
 
-var retiredTarget = regexp.MustCompile(`retired concept (\S+)`)
-
-func zombieWorkItems(concepts []*reviewConcept, contracts map[string]kb.MapContract, byConcept map[okf.ConceptID][]Finding) (map[okf.ConceptID]bool, []ReviewItem) {
+func zombieWorkItems(byID map[okf.ConceptID]*reviewConcept, concepts []*reviewConcept, contracts map[string]kb.MapContract, byConcept map[okf.ConceptID][]Finding, links kb.Links) (map[okf.ConceptID]bool, []ReviewItem) {
 	type opener struct {
 		id      okf.ConceptID
 		status  string
@@ -468,15 +486,24 @@ func zombieWorkItems(concepts []*reviewConcept, contracts map[string]kb.MapContr
 	for _, c := range concepts {
 		var o opener
 		staleOpen := false
+		// Read from the link graph, not from link_to_retired findings: those sit
+		// on the retired concept (D313) and a lint_ignore there must not hide
+		// open work that still points at it.
+		if kind := contracts[c.mapName].Kind; c.mapName != "" && (kind == "" || kind == "map") && !retired(c.status) {
+			var targets []okf.ConceptID
+			for t := range links.Out[c.id] {
+				if tc := byID[t]; tc != nil && retired(tc.status) && t != c.id {
+					targets = append(targets, t)
+				}
+			}
+			sort.Slice(targets, func(i, j int) bool { return targets[i] < targets[j] })
+			for _, t := range targets {
+				o.retired = append(o.retired, fmt.Sprintf("links to retired concept %s (status: %s)", t, byID[t].status))
+				o.targets = append(o.targets, string(t))
+			}
+		}
 		for _, f := range byConcept[c.id] {
 			switch f.Check {
-			case "link_to_retired":
-				target := ""
-				if m := retiredTarget.FindStringSubmatch(f.Message); m != nil {
-					target = m[1]
-				}
-				o.retired = append(o.retired, f.Message)
-				o.targets = append(o.targets, target)
 			case "stale_open":
 				staleOpen = true
 			}
@@ -583,10 +610,7 @@ func promotionItems(concepts []*reviewConcept, contracts map[string]kb.MapContra
 		if !ok || contract.PromoteTo == "" || contract.PromoteTo == c.mapName {
 			continue
 		}
-		headings := defaultProcedureHeadings
-		if len(contract.ProcedureHeadings) > 0 {
-			headings = contract.ProcedureHeadings
-		}
+		headings := procedureHeadingsOf(&contract)
 		var why []string
 		weight := 0
 		if n := longestNumberedRun(kb.MaskCodeSpans(c.body)); n >= promotionMinSteps {
@@ -594,15 +618,7 @@ func promotionItems(concepts []*reviewConcept, contracts map[string]kb.MapContra
 			weight = n
 		}
 		for _, h := range kb.H2Headings(c.body) {
-			fh := foldHeading(h)
-			matched := false
-			for _, p := range headings {
-				if fp := foldHeading(p); fp != "" && strings.HasPrefix(fh, fp) {
-					matched = true
-					break
-				}
-			}
-			if matched {
+			if isProcedureHeading(h, headings) {
 				why = append(why, fmt.Sprintf("heading %q", h))
 				weight += promotionMinSteps
 				break

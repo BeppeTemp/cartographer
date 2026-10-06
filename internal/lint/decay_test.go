@@ -49,6 +49,22 @@ func TestClosedWithOpenItems(t *testing.T) {
 	}
 }
 
+// D313: checkboxes under a procedure heading are a reusable checklist.
+func TestClosedWithOpenItems_ProcedureExempt(t *testing.T) {
+	k := tempKB(t)
+	writeFile(t, k.DataRoot(), "r/_map.md", "---\ntype: Map\ntitle: R\nprocedure_headings: [Procedura]\n---\n")
+	writeFile(t, k.DataRoot(), "r/a.md", "---\ntype: Task\ntitle: A\nstatus: done\n---\n# A\n\n## Procedura\n\n- [ ] step one\n- [ ] step two\n")
+	writeFile(t, k.DataRoot(), "r/b.md", "---\ntype: Task\ntitle: B\nstatus: done\n---\n# B\n\n## Procedura\n\n- [ ] step one\n\n## Follow-up\n\n- [ ] real leftover\n")
+	f, _ := Run(k, "", false)
+	if hasCheck(f, "r/a.md", "closed_with_open_items") {
+		t.Fatalf("procedure checklist fired: %+v", f)
+	}
+	got := findingFor(f, "r/b.md", "closed_with_open_items")
+	if got == nil || !contains(got.Message, "1 unchecked") {
+		t.Fatalf("leftover outside the procedure must fire once: %+v", got)
+	}
+}
+
 func TestTemplateSectionMissing(t *testing.T) {
 	k := tempKB(t)
 	writeFile(t, k.Root, "templates/service.md", "---\ntype: Service\ntitle: \"{{title}}\"\n---\n# {{title}}\n\n## Endpoint\n\n## Source of truth\n\n## Città\n")
@@ -79,6 +95,22 @@ func TestOpenMarker(t *testing.T) {
 	}
 	if got := findingFor(f, "l/a.md", "open_marker"); got == nil || got.Count != 1 {
 		t.Fatalf("l/a: %+v", got)
+	}
+}
+
+// D313: headings are section names, table rows of an open concept are tracked.
+func TestOpenMarker_HeadingAndOpenTableExempt(t *testing.T) {
+	k := tempKB(t)
+	writeFile(t, k.DataRoot(), "j/_map.md", "---\ntype: Map\ntitle: J\nkind: journal\n---\n")
+	writeFile(t, k.DataRoot(), "j/h.md", "---\ntype: Note\ntitle: H\n---\n# H\n\n## TODO list\n\n- [x] done\n")
+	writeFile(t, k.DataRoot(), "j/open.md", "---\ntype: Task\ntitle: O\nstatus: in-progress\n---\n# O\n\n| item | state |\n|---|---|\n| TBD | pending |\n")
+	writeFile(t, k.DataRoot(), "j/closed.md", "---\ntype: Task\ntitle: C\nstatus: done\n---\n# C\n\n| item | state |\n|---|---|\n| TBD | pending |\n")
+	f, _ := Run(k, "", false)
+	if hasCheck(f, "j/h.md", "open_marker") || hasCheck(f, "j/open.md", "open_marker") {
+		t.Fatalf("heading / open-concept table marker fired: %+v", f)
+	}
+	if got := findingFor(f, "j/closed.md", "open_marker"); got == nil || got.Count != 1 {
+		t.Fatalf("a TBD in a closed concept's table must count: %+v", got)
 	}
 }
 
