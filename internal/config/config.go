@@ -52,14 +52,6 @@ type WebConfig struct {
 
 // MCPConfig controls MCP-protocol-level server behaviour.
 type MCPConfig struct {
-	// MountMode is deprecated and ignored (D288): every HTTP server serves
-	// the routed mount at /mcp/routed, the one agent-facing topology. The key
-	// still parses so an existing config keeps starting; serve warns when it
-	// is set. Empty unless the operator wrote it.
-	MountMode string
-	// ToolPrefixMode is deprecated and ignored (D288): tools are never
-	// prefixed. Same treatment as MountMode; a follow-up removes both.
-	ToolPrefixMode string
 	// AllowedOrigins lists the browser origins allowed to reach the MCP
 	// endpoint, scheme and port included ("https://app.example.com"). Empty
 	// (the default) accepts only an Origin matching the request's own Host;
@@ -220,11 +212,6 @@ type KBSpec struct {
 	// DefaultUsageStaleDays, 0 disables the finding. Read it through
 	// UsageStale.
 	UsageStaleDays *int `yaml:"usage_stale_days,omitempty"`
-
-	// ToolPrefix is deprecated and ignored (D288): tools are never prefixed
-	// (one routed endpoint, no flat namespace to disambiguate). Still parsed
-	// so an existing config keeps starting; serve warns once per KB.
-	ToolPrefix string `yaml:"tool_prefix,omitempty"`
 }
 
 // GitConfig controls per-KB git autocommit/sync, the SSH identity used to
@@ -364,8 +351,6 @@ type rawTools struct {
 }
 
 type rawMCP struct {
-	MountMode      string   `yaml:"mount_mode"`
-	ToolPrefixMode string   `yaml:"tool_prefix_mode"`
 	AllowedOrigins []string `yaml:"allowed_origins"`
 }
 
@@ -494,12 +479,6 @@ func Load(path string) (*Config, error) {
 		cfg.ToolsProfile = normalizeToolsProfile(raw.Tools.Profile)
 	}
 
-	if raw.MCP.MountMode != "" {
-		cfg.MCP.MountMode = normalizeMountMode(raw.MCP.MountMode)
-	}
-	if raw.MCP.ToolPrefixMode != "" {
-		cfg.MCP.ToolPrefixMode = normalizeToolPrefixMode(raw.MCP.ToolPrefixMode)
-	}
 	if len(raw.MCP.AllowedOrigins) > 0 {
 		cfg.MCP.AllowedOrigins = raw.MCP.AllowedOrigins
 	}
@@ -572,12 +551,6 @@ func FromEnv(cfg *Config) {
 	if v := os.Getenv("CARTOGRAPHER_TOOLS_PROFILE"); v != "" {
 		cfg.ToolsProfile = normalizeToolsProfile(v)
 	}
-	if v := os.Getenv("CARTOGRAPHER_MCP_MOUNT_MODE"); v != "" {
-		cfg.MCP.MountMode = normalizeMountMode(v)
-	}
-	if v := os.Getenv("CARTOGRAPHER_MCP_TOOL_PREFIX_MODE"); v != "" {
-		cfg.MCP.ToolPrefixMode = normalizeToolPrefixMode(v)
-	}
 	if v := os.Getenv("CARTOGRAPHER_MCP_ALLOWED_ORIGINS"); v != "" {
 		cfg.MCP.AllowedOrigins = splitCSV(v)
 	}
@@ -595,7 +568,6 @@ type FlagOverrides struct {
 	GitAutocommit *bool
 	GitSync       *bool
 	ToolsProfile  *string // "agent" | "full"
-	MountMode     *string // "per-kb" | "routed"
 	WebEnabled    *bool
 	UpdateCheck   *bool
 }
@@ -633,9 +605,6 @@ func ApplyFlags(cfg *Config, o FlagOverrides) {
 	if o.ToolsProfile != nil {
 		cfg.ToolsProfile = normalizeToolsProfile(*o.ToolsProfile)
 	}
-	if o.MountMode != nil {
-		cfg.MCP.MountMode = normalizeMountMode(*o.MountMode)
-	}
 	if o.WebEnabled != nil {
 		cfg.Web.Enabled = *o.WebEnabled
 	}
@@ -659,36 +628,6 @@ func normalizeToolsProfile(v string) string {
 		return "full"
 	}
 	return "agent"
-}
-
-// Mount modes for a multi-KB HTTP server (D187).
-const (
-	// MountModePerKB is the historical behaviour: one MCP server per KB, each
-	// advertising its own copy of every tool schema.
-	MountModePerKB = "per-kb"
-	// MountModeRouted additionally serves one endpoint advertising the union
-	// of the tools once, with the KB as a required tool argument.
-	MountModeRouted = "routed"
-)
-
-// normalizeMountMode maps a mount_mode spelling onto the canonical
-// "per-kb"/"routed". Anything unrecognized falls back to "per-kb"
-// (fail-closed: no behavioural change for existing deployments/clients).
-func normalizeMountMode(v string) string {
-	if strings.ToLower(strings.TrimSpace(v)) == MountModeRouted {
-		return MountModeRouted
-	}
-	return MountModePerKB
-}
-
-// normalizeToolPrefixMode maps a tool_prefix_mode spelling onto the
-// canonical "off"/"kb-name". Anything unrecognized falls back to "off"
-// (fail-closed: no behavioural change for existing deployments/clients).
-func normalizeToolPrefixMode(v string) string {
-	if strings.ToLower(strings.TrimSpace(v)) == "kb-name" {
-		return "kb-name"
-	}
-	return "off"
 }
 
 // normalizeAuthMode maps the legacy boolean-ish spellings (accepted by both

@@ -1,14 +1,15 @@
 #!/usr/bin/env bash
-# scenarios/16_deprecated_prefix_keys.sh — OPERATOR scenario: deprecated topology keys (D288).
+# scenarios/16_deprecated_prefix_keys.sh — OPERATOR scenario: removed topology keys (D288, D325).
 #
 # Until D288 a multi-KB server could prefix each KB's tools (tool_prefix,
 # tool_prefix_mode) and opt into a routed mount (mount_mode). The routed mount is
-# now the one topology and tools are never prefixed, so those three keys are
-# accepted, ignored and warned about — an upgrade must never fail to start.
+# now the one topology and tools are never prefixed; D325 removed the three keys,
+# so a config that still carries them is silently ignored — an upgrade must never
+# fail to start, and nothing warns about them any more.
 #
 # Verifies (operator channel only, curl — no agent/model):
-#   1. A config carrying all three deprecated keys still starts, and the server
-#      log names each key once.
+#   1. A config carrying all three removed keys still starts, and the server log
+#      says nothing about them.
 #   2. Tools are not prefixed: /health advertises no tool_prefix, the per-KB
 #      endpoint answers on the bare tool name and the routed one lists it.
 #   3. The routed mount is served although mount_mode says per-kb.
@@ -62,19 +63,16 @@ server_wait_health 20
 trap 'server_stop' EXIT
 
 echo ""
-echo "--- Phase 1: the deprecated keys are accepted and named once ---"
+echo "--- Phase 1: the removed keys are ignored silently ---"
 
-assert_file_contains "$SERVER_LOG" "mcp.mount_mode is deprecated"
-assert_file_contains "$SERVER_LOG" "mcp.tool_prefix_mode is deprecated"
-assert_file_contains "$SERVER_LOG" 'kbs[].tool_prefix "zzarb" is deprecated'
+assert_file_not_contains "$SERVER_LOG" "is deprecated and ignored"
 
 echo ""
 echo "--- Phase 2: tools are never prefixed ---"
 
 HEALTH="${DIR}/health.json"
 curl -s "${HOST}/health" -o "$HEALTH"
-# The capabilities map still names the (deprecated) gate; what must be gone is a
-# per-KB prefix value.
+# What must be absent is a per-KB prefix value.
 assert_file_not_contains "$HEALTH" '"tool_prefix":"'
 
 call_body() { printf '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"%s","arguments":{}}}' "$1"; }

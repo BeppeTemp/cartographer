@@ -53,19 +53,7 @@ kbs:
     # usage_stale_days: 42         # days a skill or agent may go unused by every
                                    # client before artifact_unused reports it (D326);
                                    # 0 disables the finding
-    # tool_prefix: "locale"        # DEPRECATED, ignored (D288): tools are never prefixed
-                                   # and a startup warning names the key. Removed in a
-                                   # later release. See docs/deployment.md
-                                   # §MCP tool-name prefix.
 mcp:
-  # mount_mode: "per-kb"           # DEPRECATED, ignored (D288): /mcp/routed is always
-                                   # served and is the one topology written into agent
-                                   # clients (the KB is a `kb` tool argument, or the
-                                   # binding in ?kbs=). The per-KB endpoints stay as
-                                   # plumbing. A startup warning names the key. See
-                                   # docs/transport-auth.md §One routed topology.
-  # tool_prefix_mode: "off"        # DEPRECATED, ignored (D288): tools are never prefixed.
-                                   # A startup warning names the key.
   # allowed_origins:               # (D128) browser origins allowed to reach /mcp, scheme
   #   - "https://app.example.com"  # and port included. Empty (default) accepts only an
                                    # Origin matching the request's own Host; "*" accepts

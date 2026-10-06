@@ -119,15 +119,7 @@ kbs:                          # (kbs[]) explicit KBs, local path or remote git (
                                                       # activating a skill or agent before the
                                                       # artifact_unused lint reports it (D326); "0"
                                                       # disables the finding, default 42
-    tool_prefix: "team"                              # (kbs[].tool_prefix) DEPRECATED, ignored (D288):
-                                                      # tools are never prefixed; a warning per KB.
-                                                      # See §MCP tool-name prefix.
 mcp:
-  mount_mode: "per-kb"          # (mcp.mount_mode) DEPRECATED, ignored (D288): /mcp/routed is always
-                                # served and is the one topology written into clients. One warning.
-                                # See docs/transport-auth.md §One routed topology.
-  tool_prefix_mode: "off"       # (mcp.tool_prefix_mode) DEPRECATED, ignored (D288): tools are never
-                                # prefixed. One warning. See §MCP tool-name prefix.
 git:
   autocommit: true            # (git.autocommit) commit after every write
   sync: true                  # (git.sync) read/write fetch/pull-rebase + post-write push if the KB has a remote
@@ -224,32 +216,22 @@ Similarly, `sops.age_key_dir` fixes a directory with a per-KB age key
 (explicit override) → `<sops.age_key_dir>/<name>.age` if the file exists → global
 `sops.age_key_file`.
 
-### MCP tool-name prefix (D102, deprecated by D288)
+### MCP tool-name prefix (removed)
 
-Tools are **never prefixed** any more. D102 added an opt-in per-KB prefix
-(`kbs[].tool_prefix`), D153 made a KB-name-derived prefix the default
-(`mcp.tool_prefix_mode: kb-name`) and D152 enforced its uniqueness, all to keep a
-flat-namespace MCP client (Kiro) from confusing N per-KB entries that advertise
-identical tool names. Since D288 an agent client gets **one** routed entry whose
-tools carry bare names (`search`, `concept_read`, ...), and one entry cannot
-collide with itself, so the mechanism has nothing left to do.
+Tools are **never prefixed** (D288): an agent client gets one routed entry whose tools carry
+bare names, and one entry cannot collide with itself. The knobs that once prefixed them
+(`kbs[].tool_prefix`, `mcp.tool_prefix_mode`, `CARTOGRAPHER_MCP_TOOL_PREFIX_MODE`) and the
+topology switch (`mcp.mount_mode`, `CARTOGRAPHER_MCP_MOUNT_MODE`, `--mount-mode`) were
+deprecated by D288 and **removed by D325**. A config that still carries them loads and the
+keys are **silently ignored** (no warning); the `--mount-mode` flag and the env vars are
+gone, so a launcher still passing `--mount-mode` now fails with an unknown-flag error.
 
-`kbs[].tool_prefix`, `mcp.tool_prefix_mode` and `CARTOGRAPHER_MCP_TOOL_PREFIX_MODE`
-are **deprecated for one release**: still parsed, **ignored**, and each one logs a
-single startup warning naming the key (`tool_prefix` once per KB). They are never
-fatal: an upgrade must not fail to start on a config that used to be valid. A
-follow-up release removes the keys and the prefix code. The per-KB plumbing
-endpoints (`/mcp?kb=`, `/mcp/<name>`) answer with bare names too, and
-`GET /health` no longer carries a per-KB `tool_prefix`.
-
-*Upgrading:* a deployment that ran with derived or explicit prefixes sees its tool
-names change, and so do the MCP entry names (a per-KB entry such as `cartographer-kb-a` with a
-prefixed tool name becomes the single `cartographer` entry with the bare name). The next `cartographer sync`
-rewrites the entries and the generated instructions block; **hand-written tool
-citations inside skill bodies, and client permission rules naming the old tools,
-are not rewritten** and must be updated. Read auto-approval through the
-`readOnlyHint` annotation (D76) is unaffected. `cartographer kb rename` no longer
-changes any tool name.
+*Upgrading from a prefixed deployment:* tool names change, and so do the MCP entry names (a per-KB
+entry such as `cartographer-kb-a` with a prefixed tool name becomes the single `cartographer`
+entry with the bare name). The next `cartographer sync` rewrites the entries and the generated
+instructions block; **hand-written tool citations inside skill bodies, and client permission rules
+naming the old tools, are not rewritten** and must be updated. `readOnlyHint` auto-approval (D76)
+is unaffected. `cartographer kb rename` never changes a tool name.
 
 ### Environment variables
 
@@ -275,10 +257,8 @@ Every startup option has a corresponding environment variable (the CLI flag take
 | `CARTOGRAPHER_AUDIT_LOG` | — | Path to the audit log's JSONL file (e.g. `/data/audit.log`). If empty, audit is disabled. |
 | `CARTOGRAPHER_AUDIT_KEY` | — | Ed25519 seed (hex, 64 chars) for signing entries. Requires `CARTOGRAPHER_AUDIT_LOG`. |
 | `CARTOGRAPHER_SERVER_URL` | — | **Client** (not server): default server URL for `cartographer connect` on the client machine when no `.cartographer.yaml` exists yet. Precedence: existing yaml > env > `http://127.0.0.1:39273/mcp` (D64, `internal/clientconfig.Default`). |
-| `CARTOGRAPHER_MCP_MOUNT_MODE` | `--mount-mode` | **Deprecated, ignored (D288)**: `/mcp/routed` is always served; a startup warning names the key. See `transport-auth.md` §One routed topology. |
 | `CARTOGRAPHER_WEB_ENABLED` | `--web-enabled` | Serve the embedded read-only Atlas UI at `/ui/` and its JSON API at `/api/ui/v1` in HTTP mode. Default `true`; `false` registers neither route, so both answer 404 and the HTTP surface is what it was before the UI. Stdio mode never serves it. D227, → `control-plane.md` §Read-only UI API. |
 | `CARTOGRAPHER_UPDATE_CHECK` | `--update-check` | YAML `update_check`. Look up the latest release (GitHub release list) 30 s after start and every 24 h, cached in the data dir's `.cartographer/update-check.json` (the user cache dir without a data dir), and report it as `latest_version` in `/health` and `kb_status` when newer. Default `true`; a failed lookup is silent and retried after an hour instead of 24 h, and a `dev` build never checks. D254. |
-| `CARTOGRAPHER_MCP_TOOL_PREFIX_MODE` | — | **Deprecated, ignored (D288)**: tools are never prefixed; a startup warning names the key. See §MCP tool-name prefix. |
 | `CARTOGRAPHER_MCP_ALLOWED_ORIGINS` | — | Comma-separated browser origins allowed to reach `/mcp`, scheme and port included. Empty (default) accepts only an `Origin` matching the request's own `Host`; `*` accepts any; a request without an `Origin` header is unaffected (D128, → `transport-auth.md` §Origin). |
 
 **`CARTOGRAPHER_AUTH`** — three modes:
@@ -317,7 +297,7 @@ cartographer kb rename <old> <new>           # renames the mount point: director
 
 `service restart --wait` (D121) is a **graceful** replacement everywhere, and on Windows that took a mechanism of its own: there is no CLI-deliverable `SIGTERM`, `Stop-ScheduledTask` is a kill, and `GenerateConsoleCtrlEvent` cannot reach a process with no console. `serve` therefore also waits on a named event in the user's session (`Local\cartographer-serve-shutdown`) and triggers the same drain a `SIGTERM` does; the Manager sets it, waits for the server to exit, and then **starts the task again** — a Scheduled Task is not a supervisor, so nothing else would bring back a server that exited cleanly. `Local\` is per logon session, so from another session — `upgrade-repair` or an `auto-patch` apply run over SSH while the server runs on the desktop — the event cannot be opened: the Manager then stops the task with `Stop-ScheduledTask`, waits for the exit, and prints why, since that stop cuts in-flight requests and does not flush pending pushes. The verification that follows only accepts a `/health` answer from a **new** process: `/health` reports `started_at`, and a value equal to the one read before the restart is the old process still draining (D266).
 
-**Configured versus discovered mounts.** A KB listed in `kbs[]` is *configured*; a KB found by scanning `data:` is *discovered* and has **no `KBSpec`**, so every per-KB setting sits at its zero value — no `tool_prefix`, `allow_artifact_write` false, no `sops_age_key_file`, no `machine_path_allow_prefixes` — and nothing but adding the entry can change that. A discovered KB otherwise works and looks identical from every client surface, which is how one deployment ran a whole migration with artifact writes and tool prefixes silently off. Startup now warns once per discovered KB, `kb_status` reports `capabilities.mount: discovered`, and `cartographer doctor` raises a `capability` finding (D151).
+**Configured versus discovered mounts.** A KB listed in `kbs[]` is *configured*; a KB found by scanning `data:` is *discovered* and has **no `KBSpec`**, so every per-KB setting sits at its zero value — `allow_artifact_write` false, no `sops_age_key_file`, no `machine_path_allow_prefixes` — and nothing but adding the entry can change that. A discovered KB otherwise works and looks identical from every client surface, which is how one deployment ran a whole migration with artifact writes silently off. Startup now warns once per discovered KB, `kb_status` reports `capabilities.mount: discovered`, and `cartographer doctor` raises a `capability` finding (D151).
 
 `kb create` authors the KB's initial commit with the identity the server would use: `git.author_name`/`git.author_email` from the service config, then git's own `user.name`/`user.email`, then the product default `cartographer@localhost`. It warns before pushing when it falls back to that default, because a forge with an author-membership push rule rejects it. **If the push fails the scaffold is kept**, not rolled back: the local KB is complete and valid and only the push failed, so the command exits non-zero and prints the `commit --amend --author` and `push -u origin` lines to finish by hand — or the command that discards it (`rm -rf`, or `Remove-Item -Recurse -Force` on Windows), noting that a server started with that data dir would otherwise mount it (D156). If git refuses the initial commit itself (a commit hook, signing without a key), `kb create` reports that error and stops before the push (D265).
 
@@ -329,7 +309,7 @@ Binds to **loopback** by default (`127.0.0.1:39273`) → auth is off (pinned in 
 
 `kb rename <old> <new> [--data <dir>] [--config <path>] [--restart]` renames a KB's **mount point**: the directory and the matching `kbs[]` entry, together or neither (D177). It is offline and local — it never contacts a server, a client or a git remote, and the git `origin` is untouched: renaming a mount point is not renaming a repository. A cross-filesystem move fails explicitly rather than falling back to a recursive copy, which would silently change the ownership and timestamps of a git repository.
 
-Before moving anything it reports what else the name is an identity for. An explicit `kbs[].tool_prefix` is preserved verbatim; a **derived** one (`mcp.tool_prefix_mode: kb-name`) changes with the name, so every tool the agents see is renamed and the command says so with both prefixes. Auth scopes (`kb:<old>:r|rw`), role rules, client `signing_keys` pins and `mcp_approvals` entries are **listed, never rewritten**: they are configured out of band, and silently editing an operator's auth configuration would be worse than telling them what to change. Clients' MCP entries need no orchestration — they reconcile on the next `cartographer sync`.
+Before moving anything it reports what else the name is an identity for. Auth scopes (`kb:<old>:r|rw`), role rules, client `signing_keys` pins and `mcp_approvals` entries are **listed, never rewritten**: they are configured out of band, and silently editing an operator's auth configuration would be worse than telling them what to change. Clients' MCP entries need no orchestration — they reconcile on the next `cartographer sync`.
 
 Two entries that could both be the KB is a refusal, naming them: guessing there silently detaches a KB from its configuration. **No** entry is not a refusal — a KB created by `kb create` or found by discovery legitimately has none, and renaming its directory is then the whole job.
 

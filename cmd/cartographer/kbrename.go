@@ -30,11 +30,6 @@ type renamePlan struct {
 	ConfigPath string
 	EntryIndex int
 
-	// DerivedPrefix means the tool prefix follows the KB name, so every
-	// tool the agents see is about to be renamed with it.
-	DerivedPrefix        bool
-	OldPrefix, NewPrefix string
-
 	// Scopes/SigningKey/Approvals are references to the old name this
 	// command deliberately does NOT migrate: rewriting an operator's auth
 	// configuration silently would be worse than telling them what to change.
@@ -146,7 +141,6 @@ func planKBRename(old, newName, dataDir, configPath string) (*renamePlan, error)
 	if err := locateKBEntry(p, cfg); err != nil {
 		return nil, err
 	}
-	describePrefixChange(p, cfg)
 	p.Scopes = scopeRefs(cfg, old)
 	p.SigningKey, p.Approvals = clientRefs(old)
 	return p, nil
@@ -184,23 +178,6 @@ func locateKBEntry(p *renamePlan, cfg *config.Config) error {
 // server uses.
 func sameDir(a, b string) bool {
 	return filepath.Clean(a) == filepath.Clean(b)
-}
-
-// describePrefixChange records whether the MCP tool prefix follows the name.
-// An explicit kbs[].tool_prefix is preserved verbatim by the rewrite and
-// nothing changes for the agents; a derived one renames every tool they see,
-// which is the kind of consequence an operator must be told before it happens.
-func describePrefixChange(p *renamePlan, cfg *config.Config) {
-	var spec config.KBSpec
-	if p.EntryIndex >= 0 {
-		spec = cfg.KBs[p.EntryIndex]
-	}
-	if spec.ToolPrefix != "" || cfg.MCP.ToolPrefixMode != "kb-name" {
-		return
-	}
-	p.DerivedPrefix = true
-	p.OldPrefix = config.SanitizeToolPrefix(p.Old)
-	p.NewPrefix = config.SanitizeToolPrefix(p.New)
 }
 
 // scopeRefs lists the configured tokens whose scopes name the old KB. They
@@ -260,10 +237,6 @@ func printRenamePreflight(w io.Writer, p *renamePlan) {
 		fmt.Fprintf(w, "%s has no kbs[] entry for this KB (mounted by discovery): only the directory changes\n", p.ConfigPath)
 	default:
 		fmt.Fprintf(w, "%s: rewriting kbs[%d]\n", p.ConfigPath, p.EntryIndex)
-	}
-	if p.DerivedPrefix {
-		fmt.Fprintf(w, "\nWARNING: the MCP tool prefix is derived from the KB name (mcp.tool_prefix_mode: kb-name)\n")
-		fmt.Fprintf(w, "  every tool the agents see is renamed: %s… → %s…\n", p.OldPrefix, p.NewPrefix)
 	}
 	if len(p.Scopes) == 0 && !p.SigningKey && !p.Approvals {
 		return

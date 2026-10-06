@@ -155,10 +155,10 @@ pass.
 `15_operational_audit` closes the loop end-to-end by tampering with a recorded
 entry and requiring `audit verify` and `audit export` to fail on it.
 
-**Deprecated topology keys are exercised as a real upgrade.** `16_deprecated_prefix_keys` starts a
+**Removed topology keys are exercised as a real upgrade.** `16_deprecated_prefix_keys` starts a
 server whose config still carries `mcp.mount_mode`, `mcp.tool_prefix_mode` and an explicit
-`kbs[].tool_prefix` (D288) plus a KB named like the routed endpoint. It asserts the server starts, each
-key is named once in the log, tools are bare on the per-KB endpoint and listed on `/mcp/routed`,
+`kbs[].tool_prefix` (D288, removed by D325) plus a KB named like the routed endpoint. It asserts the server
+starts and logs no deprecation warning, tools are bare on the per-KB endpoint and listed on `/mcp/routed`,
 `/health` carries no per-KB `tool_prefix` value, and the KB named `routed` is skipped with a warning
 to rename it while its siblings are unaffected.
 

@@ -12,7 +12,6 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/client"
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
-	"github.com/BeppeTemp/cartographer/internal/config"
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 )
 
@@ -894,18 +893,6 @@ func TestEntriesByProviderForKBs_Routed_PerProviderBinding(t *testing.T) {
 	}
 	if len(got["kiro"]) != 0 {
 		t.Errorf("kiro bound only to a vanished KB got %+v, want none", got["kiro"])
-	}
-}
-
-// TestDeprecatedMCPKeyWarnings (D288): each deprecated key that was written
-// yields exactly one warning naming it; unset keys are silent.
-func TestDeprecatedMCPKeyWarnings(t *testing.T) {
-	if w := deprecatedMCPKeyWarnings(config.MCPConfig{}); len(w) != 0 {
-		t.Fatalf("unset keys warned: %v", w)
-	}
-	w := deprecatedMCPKeyWarnings(config.MCPConfig{MountMode: "per-kb", ToolPrefixMode: "kb-name"})
-	if len(w) != 2 || !strings.Contains(w[0], "mcp.mount_mode") || !strings.Contains(w[1], "mcp.tool_prefix_mode") {
-		t.Fatalf("warnings = %v, want one per key naming it", w)
 	}
 }
 
