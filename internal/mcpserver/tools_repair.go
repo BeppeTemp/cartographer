@@ -397,6 +397,7 @@ func kbRepairArtifacts(k *kb.KB, check, scope string, dryRun bool, limit int) (T
 			res.CommitSubject = fmt.Sprintf("kb_repair: %s (%d files)", check, len(applied))
 		}
 		result["applied"] = len(applied)
+		delete(result, "planned") // applied/skipped say what happened; the plan is a dry run's product (D318)
 		if skipped != nil {
 			result["skipped"] = skipped
 		}
@@ -705,6 +706,7 @@ func toolKBRepair(k *kb.KB) Tool {
 					res.CommitSubject = fmt.Sprintf("kb_repair: %s (%d concepts)", params.Check, len(applied))
 				}
 				result["applied"] = len(applied)
+				delete(result, "planned") // applied/skipped say what happened; the plan is a dry run's product (D318)
 				if skipped != nil {
 					result["skipped"] = skipped
 				}

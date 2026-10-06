@@ -242,3 +242,19 @@ func TestAssetCreateIfMatchAndNonEmptyPrune(t *testing.T) {
 		t.Fatalf("non-empty parent was pruned: %v", err)
 	}
 }
+
+// TestDeleteAssetMissingIfMatchIsNotAStaleWrite (D318): an empty if_match is a
+// missing parameter, and must not read (or unwrap) as a stale write.
+func TestDeleteAssetMissingIfMatchIsNotAStaleWrite(t *testing.T) {
+	k := expandedAssetKB(t)
+	if _, err := k.WriteAsset("map/owner", "keep.txt", []byte("x"), "", nil); err != nil {
+		t.Fatal(err)
+	}
+	err := k.DeleteAsset("map/owner", "keep.txt", "")
+	if err == nil || !strings.Contains(err.Error(), "if_match is required") {
+		t.Fatalf("want an if_match-required error, got %v", err)
+	}
+	if errors.Is(err, okf.ErrStaleWrite) {
+		t.Fatalf("a missing if_match must not unwrap as ErrStaleWrite: %v", err)
+	}
+}

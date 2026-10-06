@@ -53,6 +53,7 @@ func toolKBReview(k *kb.KB, cc *conformanceCache) Tool {
 			if params.Limit <= 0 {
 				params.Limit = 20
 			}
+			requestedLimit := params.Limit
 			params.Limit = min(params.Limit, kbReviewMaxLimit)
 			params.Offset = max(params.Offset, 0)
 
@@ -82,6 +83,12 @@ func toolKBReview(k *kb.KB, cc *conformanceCache) Tool {
 				"by_kind": byKind,
 				"offset":  params.Offset,
 				"items":   page,
+			}
+			// A clamped limit must not read as "that was everything" (D318).
+			result["limit_applied"] = params.Limit
+			if requestedLimit > kbReviewMaxLimit {
+				result["limit_capped"] = true
+				result["limit_max"] = kbReviewMaxLimit
 			}
 			if next := params.Offset + len(page); next < total {
 				result["next_offset"] = next

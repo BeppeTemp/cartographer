@@ -22,11 +22,10 @@ import (
 //   - provisioning plumbing (sync_*, skill_*, service_*): consumed by the
 //     client CLI / hooks, or operator-level (skill_install, service_get).
 //
-// Also advanced: concept_batch (D125) — a bounded atomic multi-concept
-// write, deliberately kept operator/large-refactor tooling rather than part
-// of the default agent working set: normal agent sessions reach for
-// concept_write/concept_patch (single concept) or concept_move (renames),
-// and the default profile stays small.
+// NOT advanced since D318: concept_batch (the bundled kb-doctor skill
+// prescribes it, and an agent cannot call by name what tools/list omits),
+// asset_delete and artifact_delete (the latter registers only under
+// allow_artifact_write, gatedToolSettings; when registered it is visible).
 //
 // NOT advanced (agent-visible) despite being niche: conflicts_list and
 // git_conflict_resolve — an agent whose write fails on a degraded concept must
@@ -118,7 +117,6 @@ func unknownToolMessage(name string) string {
 }
 
 var advancedToolNames = map[string]bool{
-	"concept_batch": true,
 	// concept_merge/concept_collapse (D160): large-refactor tooling, same tier as
 	// concept_batch — consolidating a dossier or undoing an expansion is not part
 	// of a normal agent session, and the default working set stays small. Both
@@ -140,8 +138,6 @@ var advancedToolNames = map[string]bool{
 	"secret_resolve":       true,
 	"secret_set":           true,
 	"artifact_list":        true,
-	"artifact_delete":      true,
-	"asset_delete":         true,
 	"pr_status":            true,
 	"pr_finalize":          true,
 	// graph_path (D242): "how is X connected to Y" is an investigation, not

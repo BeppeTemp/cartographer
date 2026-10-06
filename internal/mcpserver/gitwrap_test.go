@@ -990,9 +990,8 @@ func TestToolDescriptions_StateTheirEnforcedLimits(t *testing.T) {
 	}{
 		{"concept_batch", []string{fmt.Sprintf("%d operations", conceptBatchMaxOps), byteBudget(conceptBatchMaxTotalBytes)}},
 		{"asset_write", []string{byteBudget(kb.AssetMaxFileSize)}},
-		// The signpost: an agent that cannot see concept_batch in tools/list has
-		// no other way to learn it exists.
-		{"concept_patch", []string{"concept_batch", fmt.Sprintf("%d operations", conceptBatchMaxOps), "callable by name"}},
+		// The signpost to concept_batch, now a listed tool (D318).
+		{"concept_patch", []string{"concept_batch", fmt.Sprintf("%d operations", conceptBatchMaxOps)}},
 		// required_fields reads as a write gate and is not one.
 		{"map_create", []string{"not a write gate"}},
 	}

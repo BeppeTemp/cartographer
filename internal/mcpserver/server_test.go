@@ -3710,12 +3710,12 @@ func TestServer_ToolsProfile(t *testing.T) {
 	s.SetToolsProfile("agent")
 	agentVisible := []string{
 		"atlas_overview", "index_get", "concept_read", "concept_history", "log_tail", "changes_since",
-		"concept_write", "concept_new", "concept_patch", "index_patch", "map_create", "map_update", "map_delete", "concept_expand", "log_append", "snapshot",
+		"concept_write", "concept_new", "concept_patch", "concept_batch", "index_patch", "map_create", "map_update", "map_delete", "concept_expand", "log_append", "snapshot",
 		"map_list", "concept_list", "graph_neighbors", "graph_context", "link_suggest", "search",
 		"supersede", "concept_move", "concept_delete",
 		"conflicts_list", "git_conflict_resolve",
 		"artifact_read", "template_list",
-		"asset_read", "asset_list", "asset_write",
+		"asset_read", "asset_list", "asset_write", "asset_delete",
 		"validate", "lint", "gate_check", "kb_status", "kb_repair", "kb_review", "work_list", "source_register", "source_list",
 	}
 	got := listToolNames(t, s)
@@ -3815,7 +3815,7 @@ func TestServer_AssetToolsRoundTripAndClassification(t *testing.T) {
 			t.Errorf("%s must require rw", name)
 		}
 	}
-	if !ToolAdvanced("asset_delete") || ToolAdvanced("asset_write") {
+	if ToolAdvanced("asset_delete") || ToolAdvanced("asset_write") {
 		t.Error("asset visibility classification is wrong")
 	}
 
@@ -5769,5 +5769,54 @@ func TestConceptDeleteMissingWithDanglingLinksIsNotFound(t *testing.T) {
 	res := callTool(t, s, "concept_delete", `{"id":"manutenzione/target"}`)
 	if !res.IsError || !strings.Contains(res.Content[0].Text, "not found") {
 		t.Fatalf("want not found for a missing concept with dangling links, got %+v", res)
+	}
+}
+
+// TestServer_Lint_ZeroFindingsIsJSON (D318): a clean scope answers with the
+// same JSON shape as a dirty one, never a bare string.
+func TestServer_Lint_ZeroFindingsIsJSON(t *testing.T) {
+	k := setupTestKB(t)
+	s := New("test")
+	RegisterKBTools(s, k, Deps{})
+	tr := callTool(t, s, "lint", `{"scope":"no-such-scope"}`)
+	var out struct {
+		Count    int              `json:"count"`
+		Findings []map[string]any `json:"findings"`
+		Omitted  *int             `json:"findings_omitted"`
+		ByCheck  map[string]int   `json:"counts_by_check"`
+		BySev    map[string]int   `json:"counts_by_severity"`
+	}
+	if err := json.Unmarshal([]byte(tr.Content[0].Text), &out); err != nil {
+		t.Fatalf("zero-finding lint is not JSON: %v: %q", err, tr.Content[0].Text)
+	}
+	if out.Count != 0 || out.Findings == nil || len(out.Findings) != 0 || out.Omitted == nil || out.ByCheck == nil || out.BySev == nil {
+		t.Fatalf("zero-finding shape = %+v (%s)", out, tr.Content[0].Text)
+	}
+}
+
+// TestServer_GateCheck_EmptyChangedIDsIsWholeKBGate (D318): no changed_ids
+// runs validate + lint on the whole KB and skips the commit gate.
+func TestServer_GateCheck_EmptyChangedIDsIsWholeKBGate(t *testing.T) {
+	k := setupTestKB(t)
+	s := New("test")
+	RegisterKBTools(s, k, Deps{})
+	g := decodeGate(t, callTool(t, s, "gate_check", `{"changed_ids":[]}`))
+	if !g.Pass {
+		t.Fatalf("clean KB, empty changed_ids: pass = false")
+	}
+	var raw map[string]json.RawMessage
+	tr := callTool(t, s, "gate_check", `{"changed_ids":[]}`)
+	if err := json.Unmarshal([]byte(tr.Content[0].Text), &raw); err != nil {
+		t.Fatal(err)
+	}
+	if string(raw["gate_blockers"]) != "null" && string(raw["gate_blockers"]) != "[]" {
+		t.Fatalf("gate_blockers = %s", raw["gate_blockers"])
+	}
+
+	// A lint error still fails the whole-KB gate.
+	setupThreeSeverityKB(t, k)
+	g = decodeGate(t, callTool(t, s, "gate_check", `{"changed_ids":[]}`))
+	if g.Pass || g.CountsBySeverity["error"] == 0 {
+		t.Fatalf("whole-KB gate must fail on an error finding: %+v", g)
 	}
 }
