@@ -20,11 +20,12 @@ const VIEWPORT = { width: 1280, height: 760 };
 test.use({
   viewport: VIEWPORT,
   colorScheme: "dark",
-  // Filmed at 2x and scaled down by record-hero.sh, so text stays crisp.
-  ...(RECORD ? { deviceScaleFactor: 2 } : {}),
-  // The recording draws on the machine's GPU: SwiftShader charts a 400-node
-  // KB too slowly to film.
-  ...(RECORD ? { launchOptions: { args: [] } } : {}),
+  // The recording runs in a headed window on the machine's GPU. SwiftShader
+  // charts a 400-node KB too slowly to film, and headless Chromium hands the
+  // screencast fewer than 20 frames/s against ~45 headed. Do not emulate a
+  // deviceScaleFactor there: in a headed window it crops the screencast to a
+  // corner. A Retina display already paints at 2x.
+  ...(RECORD ? { launchOptions: { args: [], headless: false } } : {}),
 });
 if (RECORD) test.setTimeout(120_000);
 
@@ -32,7 +33,7 @@ if (RECORD) test.setTimeout(120_000);
 const beat = (page: Page, ms: number) => (RECORD ? page.waitForTimeout(ms) : Promise.resolve());
 
 /**
- * Films the page through the DevTools screencast: lossless-quality frames
+ * Films the page through the DevTools screencast: near-lossless frames
  * straight from the compositor, each with its timestamp, instead of
  * Playwright's video, whose ~1 Mbit/s VP8 smears a dense graph. Frames arrive
  * only when something changes, so stop() writes an ffconcat list that holds
@@ -43,13 +44,24 @@ async function film(page: Page, testInfo: TestInfo): Promise<{ stop(): Promise<v
   mkdirSync(dir, { recursive: true });
   const cdp = await page.context().newCDPSession(page);
   const frames: { file: string; at: number }[] = [];
-  cdp.on("Page.screencastFrame", ({ data, metadata, sessionId }) => {
-    const file = `${String(frames.length).padStart(5, "0")}.png`;
+  cdp.on("Page.screencastFrame", ({ data, sessionId }) => {
+    const file = `${String(frames.length).padStart(5, "0")}.jpg`;
     writeFileSync(join(dir, file), Buffer.from(data, "base64"));
-    frames.push({ file, at: metadata.timestamp ?? Date.now() / 1000 });
+    // Arrival time, not metadata.timestamp: stop() closes the last frame with
+    // Date.now(), and the two clocks are not the same one.
+    frames.push({ file, at: Date.now() / 1000 });
     void cdp.send("Page.screencastFrameAck", { sessionId }).catch(() => {});
   });
-  await cdp.send("Page.startScreencast", { format: "png", everyNthFrame: 1 });
+  // JPEG at 95 is cheaper to hand over than PNG, and the WebP pass loses far
+  // more than it does. maxWidth/maxHeight must be explicit: without them a
+  // headed window's screencast is a cropped corner of the page.
+  await cdp.send("Page.startScreencast", {
+    format: "jpeg",
+    quality: 95,
+    everyNthFrame: 1,
+    maxWidth: VIEWPORT.width * 2,
+    maxHeight: VIEWPORT.height * 2,
+  });
   return {
     async stop() {
       await cdp.send("Page.stopScreencast");
@@ -74,7 +86,15 @@ async function orbit(page: Page, dx: number, steps: number): Promise<void> {
   const y = box.y + box.height / 2;
   await page.mouse.move(x, y);
   await page.mouse.down();
-  await page.mouse.move(x + dx, y + dx / 8, { steps: RECORD ? steps : 2 });
+  if (!RECORD) {
+    await page.mouse.move(x + dx, y + dx / 8, { steps: 2 });
+  } else {
+    // One step per frame, so the turn takes as long as it looks like it does.
+    for (let i = 1; i <= steps; i++) {
+      await page.mouse.move(x + (dx * i) / steps, y + (dx / 8) * (i / steps));
+      await page.waitForTimeout(16);
+    }
+  }
   await page.mouse.up();
 }
 
@@ -95,7 +115,7 @@ test("the hero tour: graph, search, a concept's links, artifacts, observatory", 
 
   // 1. The graph settles and turns.
   await beat(page, 800);
-  await orbit(page, 260, 40);
+  await orbit(page, 320, 120);
   await beat(page, 400);
 
   // 2. Search: the palette, a query typed, the camera flies to the concept.
@@ -119,7 +139,7 @@ test("the hero tour: graph, search, a concept's links, artifacts, observatory", 
   // 4. The same graph, coloured by Map.
   await page.getByRole("button", { name: "Map", exact: true }).click();
   await expect(page.getByRole("button", { name: "Map", exact: true })).toHaveAttribute("aria-pressed", "true");
-  await orbit(page, -220, 35);
+  await orbit(page, -260, 100);
   await beat(page, 600);
 
   // 5. What the KB ships to agents: a skill and the concepts it reads.

@@ -9,7 +9,7 @@ Atlas (`docs/atlas/hero.webp`): the graph, a search, a concept's links, colour
 by Map, a skill in the Artifacts panel, the Observatory. The tour is
 `web/e2e/hero.spec.ts`. In the `e2e-web` suite it runs over the fixture at full
 speed, and `make hero` runs it over the demo KB at a watchable pace, filmed through the
-browser's DevTools screencast at 2x and encoded by `web/scripts/record-hero.sh`. Along with it, the
+browser's DevTools screencast in a headed window and encoded by `web/scripts/record-hero.sh`. Along with it, the
 README becomes a landing page: what Cartographer is for, what you get, a short
 Quick start, a ✓/— client matrix and links. Install details, upgrades, removal,
 configuration, build and structure live in `docs/getting-started.md`,
@@ -26,7 +26,8 @@ subagents and hooks that configure every agent client, and a moving tour shows
 both sides at once. The cost is the part a test cannot check: a cosmetic
 change (spacing, colour) leaves the image behind until someone runs
 `make hero`, which needs a GPU, ffmpeg and img2webp, so it stays outside CI.
-It also adds about 6 MB per re-recording to the clone; the two screenshots it
+It also adds up to ~20 MB per re-recording to the clone (1600 px, 30 fps:
+the maintainer chose sharpness over weight); the two screenshots it
 replaces weighed about 0.8 MB.
 
 **Alternatives rejected.**
@@ -36,7 +37,8 @@ replaces weighed about 0.8 MB.
 - *Playwright's built-in video.* It encodes VP8 at about 1 Mbit/s, which
   smears a dense graph and its labels before the WebP pass even starts; the
   first hero shipped that way and looked it. The screencast hands over each
-  composited frame losslessly, with its timestamp.
+  composited frame almost losslessly, at about 45 frames/s from a headed
+  window.
 - *MP4 or a video link.* GitHub does not autoplay a repository video in a
   README, and a hero that needs a click is not a hero.
 - *Hosting the image outside the repository* (release asset, docs site). It
