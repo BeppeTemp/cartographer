@@ -246,11 +246,21 @@ function Knowledge({
             Searched for, not found
             <span className="observatory__group-count">{misses.length}</span>
           </h2>
-          <p className="observatory__note">What agents searched for in the last 30 days and the KB could not answer.</p>
+          <p className="observatory__note">What agents searched for in the last 30 days and the KB could not answer. A ticked one finds something now.</p>
           <ul className="observatory__misses">
             {misses.map((m) => (
-              <li key={m.query} className="chip">
+              <li
+                key={m.query}
+                className={m.resolved ? "chip chip--resolved" : "chip"}
+                title={m.resolved ? "This search finds something now" : undefined}
+              >
+                {m.resolved && (
+                  <span className="chip__resolved" aria-hidden="true">
+                    ✓
+                  </span>
+                )}
                 {m.query}
+                {m.resolved && <span className="sr-only"> (now found)</span>}
                 <span className="chip__count">{m.count}</span>
               </li>
             ))}

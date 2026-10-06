@@ -2389,6 +2389,17 @@ body.is-resizing {
   list-style: none;
 }
 
+/* A miss whose search now finds something (D319): closed, kept for the record. */
+.chip--resolved {
+  color: var(--text-muted);
+  border-style: dashed;
+  cursor: default;
+}
+
+.chip__resolved {
+  margin-inline-end: var(--space-1);
+}
+
 .observatory__stale {
   margin-block-start: var(--space-6);
 }

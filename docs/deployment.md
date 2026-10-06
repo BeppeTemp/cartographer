@@ -40,6 +40,9 @@ The server process is **ephemeral** (k8s pod or local service); what persists on
   rebuildable; conflict registries are operational state and should survive a
   restart until resolved; `search-misses.jsonl` (D247) is a bounded log of
   searches that found nothing, disposable, lost harmlessly with the volume.
+  An entry ages out after 30 days; one whose search finds something now is
+  reported `resolved` by `kb_status` before that (D319). Deleting the file is
+  the only manual reset.
 
 When `audit.log` is set, MCP tool execution appends an attempt+completion event
 pair per call, so the file is a complete operational request log (D119). See
@@ -494,7 +497,8 @@ apply to graph nodes only, so the rail hides them in the Observatory and keeps
 their selection for the way back to the Atlas. Below the findings, for a caller
 that can see the whole KB, the Observatory lists what the KB does not know
 (`GET /api/ui/v1/kbs/<kb>/status`): open knowledge gaps, the searches agents
-made that found nothing, and how many concepts are past their review date.
+made that found nothing (ticked and muted once the same search finds something,
+D319), and how many concepts are past their review date.
 
 The **Artifacts** panel, last in the rail, shows what the KB ships to agent
 clients: skills, subagents, hooks, MCP descriptors in the allowlist, the
