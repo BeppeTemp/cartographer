@@ -436,11 +436,27 @@ only in a whole-KB lint, and their findings name the artifact file (`skills/<nam
   one KB (`kb.KB.SiblingRoots`); a single-KB server has none and pays nothing.
 - `skill_missing_perimeter` (info): `instructions.md` declares `perimeter` and a skill's
   description does not contain it (case-insensitive substring, so `ops` matches `DevOps`).
+- `artifact_unused` (info): a skill or agent no client has activated for `usage_stale_days`
+  (default 42, per KB in the server config, `0` disables; D326). Three messages: *never
+  activated* (absent from the usage reports), *never seen activated, catalogue loaded N days
+  ago* (the only signal is a Codex catalogue load, which proves availability, not use), and
+  *last activated N days ago*. With no usage report at all the check is silent — the absence
+  of a signal is not evidence of disuse. The usage is local state, below.
 - `legacy_path` (warning, per concept, suppressible, fix `replace_prefix`): a concept body contains
   a prefix declared in `instructions.md` `legacy_paths`. One finding per prefix found; the repair
   rewrites every occurrence, all prefixes in one pass, longest first.
 
 The Atlas Artifacts panel shows these findings beside each artifact (`docs/deployment.md`).
+
+## Artifact usage (`.cartographer/usage.json`, D326)
+
+`<root>/.cartographer/usage.json` holds the usage clients reported for the KB's skills and
+agents: one row per (artifact, provider) with `last_used` and `count`. Like the rest of
+`.cartographer/` it is **local state, never committed** (excluded through `.git/info/exclude`)
+and not replicated between servers: "is this skill used?" is a question about one operator's
+machines. Losing it loses nothing durable; the next `sync` of each client rebuilds it. It feeds
+`artifact_unused`, the `usage` section of `kb_status` and the Atlas Artifacts panel's "Last used"
+column. Written only by `POST /api/usage` (`docs/control-plane.md` §Usage reports).
 
 ## The path placeholder registry (`paths.yaml`)
 

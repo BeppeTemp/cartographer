@@ -48,6 +48,15 @@ export interface Artifact {
   concepts?: string[];
   /** Lint findings on this artifact's files (D316). */
   findings?: ArtifactFinding[];
+  /**
+   * When a client last activated the artifact (D326): ISO 8601, or null when
+   * nothing reported. Absent from a server that predates the field.
+   */
+  last_used?: string | null;
+  last_used_provider?: string | null;
+  last_used_days_ago?: number | null;
+  /** The only signal is a client loading a catalogue that lists it: available, not seen used. */
+  last_used_catalog_only?: boolean;
 }
 
 /** One artifact lint finding (D316). */

@@ -118,6 +118,14 @@ type Config struct {
 	// MCPApprovals is keyed by source KB then artifact name. Each entry binds
 	// consent to one exact descriptor content hash.
 	MCPApprovals map[string]map[string]MCPApproval `yaml:"mcp_approvals,omitempty"`
+	// UsageScan is the opt-out of the session-transcript scan that tells the
+	// server which skills and agents this machine actually loads (D326).
+	// Defaults to true — brand-new configs (Default()) and files written
+	// before this field existed — and only an explicit `usage_scan: false`
+	// turns it off, which is why yamlConfig holds it as a *bool. Off, sync
+	// reads no transcript and reports nothing; the server degrades to "no
+	// data". USER-owned: sync never writes it.
+	UsageScan bool `yaml:"-"`
 	// Update is the client-wide update-notice setting (D254), USER-owned.
 	// The zero value is the default: check, and only notify.
 	Update UpdateSettings `yaml:"-"`
@@ -188,6 +196,7 @@ type yamlConfig struct {
 	SigningKeys      map[string][]string               `yaml:"signing_keys,omitempty"`
 	MCPApprovals     map[string]map[string]MCPApproval `yaml:"mcp_approvals,omitempty"`
 	Update           *UpdateSettings                   `yaml:"update,omitempty"`
+	UsageScan        *bool                             `yaml:"usage_scan,omitempty"`
 }
 
 // Default returns a Config with the same defaults as configurator.DefaultConfig.
@@ -199,6 +208,7 @@ func Default() *Config {
 		TokenEnv:    "CARTOGRAPHER_TOKENS",
 		Agents:      []string{},
 		Trust:       true,
+		UsageScan:   true,
 		SearchRoots: []string{"~/Documents"},
 	}
 }
@@ -240,7 +250,7 @@ func Load(dir string) (*Config, error) {
 	if err := yaml.Unmarshal(data, &extra); err != nil {
 		return nil, fmt.Errorf("clientconfig: parse extras %s: %w", Path(dir), err)
 	}
-	for _, key := range []string{"server_url", "server_name", "auth", "token_env", "agents", "kbs", "known_kbs", "clients", "trust", "search_roots", "search_depth", "paths", "ignored_paths", "signing_keys", "mcp_approvals", "update"} {
+	for _, key := range []string{"server_url", "server_name", "auth", "token_env", "agents", "kbs", "known_kbs", "clients", "trust", "search_roots", "search_depth", "paths", "ignored_paths", "signing_keys", "mcp_approvals", "update", "usage_scan"} {
 		delete(extra, key)
 	}
 	cfg := Config{
@@ -258,6 +268,7 @@ func Load(dir string) (*Config, error) {
 		Scopes:           y.Scopes,
 		Workspaces:       y.Workspaces,
 		Trust:            true, // absent `trust` key defaults to true, see yamlConfig doc
+		UsageScan:        true, // absent `usage_scan` key defaults to true
 		SearchRoots:      y.SearchRoots,
 		SearchDepth:      y.SearchDepth,
 		Paths:            y.Paths,
@@ -273,6 +284,9 @@ func Load(dir string) (*Config, error) {
 	}
 	if y.Trust != nil {
 		cfg.Trust = *y.Trust
+	}
+	if y.UsageScan != nil {
+		cfg.UsageScan = *y.UsageScan
 	}
 	if y.Update != nil {
 		// An unknown policy is a load error, not a silent default: this
@@ -319,6 +333,11 @@ func Save(dir string, cfg *Config) error {
 		IgnoredPaths:     cfg.IgnoredPaths,
 		SigningKeys:      cfg.SigningKeys,
 		MCPApprovals:     cfg.MCPApprovals,
+	}
+	// Emitted only when off: a default machine's file stays byte-identical.
+	if !cfg.UsageScan {
+		off := false
+		y.UsageScan = &off
 	}
 	// Emitted only when set: a default machine's file stays byte-identical.
 	if cfg.Update.Check != nil || cfg.Update.Policy != "" {

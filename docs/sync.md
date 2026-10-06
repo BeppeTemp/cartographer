@@ -119,6 +119,37 @@ repair never implies `--auto-trust`, never invents an approval and never broaden
 never disconnects or reconnects a provider. It only runs when the client is configured against
 that same native service over loopback HTTP; any other endpoint is skipped rather than contacted.
 
+## Usage scan (D326)
+
+After the apply, `cartographer sync` (not a dry run, only with the server reachable) tells each
+server which of its skills and agents this machine's clients loaded. The server cannot see it:
+the client loads a skill from the file `sync` wrote. So `provisioning.ScanUsage`
+(`internal/provisioning/usage.go`) reads the clients' own session transcripts, **read-only**
+(D148), for the paths the lockfile says it materialised, and `cmd/cartographer/usagesync.go`
+posts only the aggregate, per source KB, to `POST /api/usage` (`docs/control-plane.md`):
+`{name, kind, provider, source, last_used, count}`. Never a prompt, a message, a session id or
+a file content.
+
+What is read: only structured tool-call records, never a `user` record, assistant text or
+reasoning. A skill counts as used when a tool call names its materialised path (a file read, a
+shell `cat`, a grep), never when its name merely appears in prose; plus, where the client has
+one, an explicit activation.
+
+| Provider | Transcript | Signal |
+|---|---|---|
+| claude | `~/.claude/projects/**/*.jsonl` | `Skill` tool, `Agent`/`Task` `subagent_type`, tool call carrying a materialised path |
+| kiro | `~/.kiro/sessions/**/*.jsonl` | `kind.BuiltIn.FileRead` of the path, or a shell command containing it |
+| codex | `~/.codex/sessions/**/rollout-*.jsonl` | partial: a catalogue-loaded timestamp (`count` 0) plus path-bearing tool calls |
+| opencode, hermes, antigravity, crush | none | none: no readable or documented transcript, an explicit stub each |
+
+The window is 90 days: older transcript files are not opened and older events are not counted.
+`count` is that window's aggregate, summed over providers; the server replaces, never adds. A
+transcript line that is not the expected shape is skipped; it never fails the sync, and neither
+does a server that is unreachable, too old for the route, or refuses the token (a debug line).
+`usage_scan: false` in `.cartographer.yaml` turns the scan off entirely: nothing is read or sent,
+and the server degrades to "no data". Every scan reads the whole window afresh: there is no
+incremental state to go stale.
+
 ## Writing a placeholder literally, and how deep the repo scan goes
 
 Documenting the generic form of a placeholder used to trigger it: eleven warnings per sync in one

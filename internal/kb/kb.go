@@ -86,6 +86,12 @@ type KB struct {
 	AutoRepair         []string
 	DoctorIntervalDays int
 
+	// UsageStaleDays is the per-KB threshold (D326, config.KBSpec) past which
+	// an artifact no client has used is reported by the artifact_unused lint:
+	// 0 disables the finding. Set by serve; a KB opened any other way has it
+	// off, which is the safe reading of "nobody asked".
+	UsageStaleDays int
+
 	// ToolPrefix is the effective MCP tool-name prefix this KB was mounted
 	// with (D102), or empty when unprefixed. Discovered is true when the KB was
 	// found by scanning the data directory rather than declared in a kbs[]

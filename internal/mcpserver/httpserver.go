@@ -578,6 +578,13 @@ func (m *MultiKBServer) Handler() http.Handler {
 			m.serveKB(w, r, pathName)
 			return
 
+		// A client's usage report (D326): metadata about the skills it loaded,
+		// not an agent operation. Always routed — it does not depend on the UI
+		// being enabled — and inside the same auth chain as /mcp.
+		case r.URL.Path == UsagePath:
+			m.handleUsage(w, r)
+			return
+
 		// The read-only UI API (D226). It sits inside the same auth chain as
 		// /mcp and below every endpoint above, so a KB named "api" keeps its
 		// own /mcp/<name> route and nothing here shadows /health or the OAuth

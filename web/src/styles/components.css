@@ -2145,6 +2145,25 @@ body.is-resizing {
   color: var(--text-secondary);
 }
 
+/* Last used (D326): the words carry the meaning, the colour only echoes it. */
+.artifacts__used {
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+}
+
+.artifacts__used--active {
+  color: var(--sev-ok);
+}
+
+.artifacts__used--stale {
+  color: var(--sev-warning);
+}
+
+.artifacts__used--never {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
 .artifacts__detail,
 .artifacts__placeholder {
   min-width: 0;

@@ -487,6 +487,59 @@ func (c *MCPClient) Health(timeout time.Duration) (*Health, error) {
 	return &health, nil
 }
 
+// usagePath is the server route a usage report goes to (D326).
+const usagePath = "/api/usage"
+
+// ReportUsage posts a usage report (a JSON-encodable list of entries) for one
+// KB to the server's /api/usage route. Like Health, it derives the origin from
+// the MCP endpoint URL and applies timeout to this call only. It is
+// best-effort by design — the caller logs and goes on — so any non-2xx, 404
+// from an older server included, is an error the caller is free to ignore.
+func (c *MCPClient) ReportUsage(kbName string, entries any, timeout time.Duration) error {
+	u, err := url.Parse(c.ServerURL)
+	if err != nil {
+		return fmt.Errorf("client: invalid server URL %q: %w", c.ServerURL, err)
+	}
+	u.Path = strings.TrimSuffix(strings.TrimRight(u.Path, "/"), "/mcp")
+	u.Path = strings.TrimRight(u.Path, "/") + usagePath
+	u.Fragment = ""
+	q := url.Values{}
+	if kbName != "" {
+		q.Set("kb", kbName)
+	}
+	u.RawQuery = q.Encode()
+	body, err := json.Marshal(entries)
+	if err != nil {
+		return fmt.Errorf("client: encode usage report: %w", err)
+	}
+	hc := *c.HTTP
+	hc.Timeout = timeout
+	req, err := http.NewRequest(http.MethodPost, u.String(), bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("client: build usage request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if c.Token != "" {
+		req.Header.Set("Authorization", "Bearer "+c.Token)
+	}
+	resp, err := hc.Do(req)
+	if err != nil {
+		return &RemoteError{State: RemoteUnavailable, Code: classifyDialErr(err),
+			Message: fmt.Sprintf("could not reach %s", u.Redacted()), Cause: err}
+	}
+	defer resp.Body.Close()
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<20))
+	switch {
+	case resp.StatusCode == http.StatusUnauthorized:
+		return &RemoteError{State: RemoteUnavailable, Code: CodeUnauthorized,
+			Message: fmt.Sprintf("%s rejected the request", u.Redacted()), Cause: c.unauthorizedCauseFor()}
+	case resp.StatusCode < 200 || resp.StatusCode > 299:
+		return &RemoteError{State: RemoteUnavailable, Code: CodeHTTPFailed,
+			Message: fmt.Sprintf("%s returned HTTP %d", u.Redacted(), resp.StatusCode)}
+	}
+	return nil
+}
+
 // Call invokes an MCP tool via tools/call and preserves all text content blocks.
 func (c *MCPClient) Call(tool string, args any) (json.RawMessage, error) {
 	raw, err := c.do("tools/call", map[string]any{"name": tool, "arguments": args})

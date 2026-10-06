@@ -108,6 +108,10 @@ kbs:                          # (kbs[]) explicit KBs, local path or remote git (
     doctor_interval: 14d                             # (kbs[].doctor_interval) days after the last
                                                       # kb-doctor session before the server proposes the
                                                       # next one (D299); "0" disables, default 14d
+    usage_stale_days: 42                             # (kbs[].usage_stale_days) days without a client
+                                                      # activating a skill or agent before the
+                                                      # artifact_unused lint reports it (D326); "0"
+                                                      # disables the finding, default 42
     tool_prefix: "team"                              # (kbs[].tool_prefix) DEPRECATED, ignored (D288):
                                                       # tools are never prefixed; a warning per KB.
                                                       # See §MCP tool-name prefix.

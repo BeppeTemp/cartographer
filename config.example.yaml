@@ -46,6 +46,9 @@ kbs:
                                    # apply unattended (D299), by name, no "all"
     # doctor_interval: 14d         # days before the server proposes the next
                                    # kb-doctor session (D299); "0" disables
+    # usage_stale_days: 42         # days a skill or agent may go unused by every
+                                   # client before artifact_unused reports it (D326);
+                                   # 0 disables the finding
     # tool_prefix: "locale"        # DEPRECATED, ignored (D288): tools are never prefixed
                                    # and a startup warning names the key. Removed in a
                                    # later release. See docs/deployment.md

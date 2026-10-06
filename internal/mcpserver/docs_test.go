@@ -40,7 +40,7 @@ var docsNonTools = map[string]bool{
 	"template_section_missing": true, // lint check (D297), not a tool
 	// artifact lint checks (D316), not tools
 	"skill_invalid": true, "skill_warning": true, "skill_broken_ref": true,
-	"skill_git_command": true, "skill_missing_perimeter": true,
+	"skill_git_command": true, "skill_missing_perimeter": true, "artifact_unused": true,
 	"missing_context": true, // reserved contradiction_kind (D273)
 	"open_question":   true, // reserved contradiction_kind (D273)
 	// audit configuration keys (D119), not tools

@@ -637,3 +637,34 @@ func TestUpdateSettings(t *testing.T) {
 		t.Fatalf("unknown policy: %v", err)
 	}
 }
+
+// D326: usage_scan defaults to on, survives a round trip, and is written only
+// when it is off, so a default machine's file does not change.
+func TestUsageScan_DefaultsOnAndOnlyOffIsWritten(t *testing.T) {
+	dir := t.TempDir()
+	if !clientconfig.Default().UsageScan {
+		t.Fatal("clientconfig.Default().UsageScan must be true")
+	}
+	if err := clientconfig.Save(dir, clientconfig.Default()); err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := os.ReadFile(clientconfig.Path(dir))
+	if strings.Contains(string(raw), "usage_scan") {
+		t.Errorf("a default config wrote usage_scan:\n%s", raw)
+	}
+	loaded, err := clientconfig.Load(dir)
+	if err != nil || !loaded.UsageScan {
+		t.Fatalf("absent key must load as on: %+v, %v", loaded, err)
+	}
+	loaded.UsageScan = false
+	if err := clientconfig.Save(dir, loaded); err != nil {
+		t.Fatal(err)
+	}
+	again, err := clientconfig.Load(dir)
+	if err != nil || again.UsageScan {
+		t.Fatalf("usage_scan: false did not round-trip: %+v, %v", again, err)
+	}
+	if _, stray := again.Extra["usage_scan"]; stray {
+		t.Error("usage_scan leaked into Extra")
+	}
+}

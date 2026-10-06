@@ -1061,6 +1061,7 @@ ignored_paths: []               # placeholder ids known to be absent on this mac
 update:                         # D254; omitted entirely when both are the default
   check: true                   # false: no update lookup at all
   policy: notify                # notify | auto-patch (patch releases via homebrew/install.sh/install.ps1 install themselves)
+usage_scan: true                # D326; written only when false. false: sync reads no session transcript and reports no skill usage (docs/sync.md §Usage scan)
 ```
 
 An unknown `update.policy` makes the file fail to load, naming the valid values: it is the one

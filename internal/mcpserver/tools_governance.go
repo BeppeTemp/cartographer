@@ -11,6 +11,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/kb"
 	"github.com/BeppeTemp/cartographer/internal/lint"
 	"github.com/BeppeTemp/cartographer/internal/okf"
+	"github.com/BeppeTemp/cartographer/internal/provisioning"
 )
 
 // toolReindex reconciles the derived search indexes with out-of-band KB
@@ -513,7 +514,7 @@ func kbCapabilities(k *kb.KB) map[string]KBCapability {
 func toolKBStatus(k *kb.KB, misses *searchMissLog, serverVersion string, latestVersion func() string, cc *conformanceCache) Tool {
 	return Tool{
 		Name:        "kb_status",
-		Description: "KB health in one call: concept counts (by type, status), stale concepts, open contradictions and gaps, git replication state, capabilities (each per-KB gate, its state and controlling key), source-ledger counts, frequent search misses, versions, and conformance: {findings by severity, fixable, last_doctor, doctor_suggested}, the drift from the current standard. When doctor_suggested is true, follow the kb-doctor skill. Read-only.",
+		Description: "KB health in one call: concept counts (by type, status), stale concepts, open contradictions and gaps, git replication state, capabilities (each per-KB gate, its state and controlling key), source-ledger counts, frequent search misses, versions, and conformance: {findings by severity, fixable, last_doctor, doctor_suggested}, the drift from the current standard. When doctor_suggested is true, follow the kb-doctor skill. usage: which skills and agents the clients actually load (never used, stale, active), from their reports. Read-only.",
 		ReadOnly:    true,
 		InputSchema: json.RawMessage(`{"type":"object","properties":{}}`),
 		Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
@@ -687,6 +688,11 @@ func toolKBStatus(k *kb.KB, misses *searchMissLog, serverVersion string, latestV
 				if concepts > 0 {
 					result["open_markers"] = map[string]int{"concepts": concepts, "markers": markers}
 				}
+			}
+			// D326: which skills and agents the clients actually load. Only
+			// whole-KB callers see it: artifacts are whole-KB resources.
+			if WholeVisible(ctx, k, false) {
+				result["usage"] = usageSummary(k, time.Now())
 			}
 			if src := sourceCounts(k); src != nil {
 				result["sources"] = src
@@ -1028,4 +1034,38 @@ func reservedStrategyError(k *kb.KB, conceptID, strategy string) string {
 		return ""
 	}
 	return ""
+}
+
+// usageSummary is kb_status's `usage` section (D326). scanner_enabled is true
+// once any client has reported: the scan is client-side and the server cannot
+// see whether one is switched off, only that nothing has arrived — in which
+// case no_data is true and every count would be a guess, so none is given.
+func usageSummary(k *kb.KB, now time.Time) map[string]interface{} {
+	entries, err := k.LoadUsage()
+	if err != nil || len(entries) == 0 {
+		return map[string]interface{}{"scanner_enabled": false, "no_data": true}
+	}
+	supported, partial, unsupported := provisioning.UsageProviders()
+	usage := kb.SummarizeUsage(entries)
+	counts := map[string]int{}
+	staleDays := k.UsageStaleDays
+	if staleDays <= 0 { // threshold disabled: nothing is stale, only never or active
+		staleDays = 1 << 30
+	}
+	for _, a := range lint.UsageArtifacts(k) {
+		u, seen := usage[kb.UsageKey(a.Kind, a.Name)]
+		counts[lint.UsageState(u, seen, staleDays, now)]++
+	}
+	return map[string]interface{}{
+		"scanner_enabled":       true,
+		"supported_providers":   supported,
+		"partial_providers":     partial,
+		"unsupported_providers": unsupported,
+		// catalogue-only artifacts count as never used: a Codex load proves
+		// availability, not use.
+		"artifacts_never_used": counts[lint.UsageNever] + counts[lint.UsageCatalog],
+		"artifacts_stale":      counts[lint.UsageStale],
+		"artifacts_active":     counts[lint.UsageActive],
+		"stale_threshold_days": k.UsageStaleDays,
+	}
 }

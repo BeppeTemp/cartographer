@@ -206,6 +206,12 @@ type KBSpec struct {
 	// DoctorIntervalDays.
 	DoctorInterval string `yaml:"doctor_interval,omitempty"`
 
+	// UsageStaleDays is how many days without a client activating a skill or
+	// agent before the artifact_unused lint reports it (D326): nil means
+	// DefaultUsageStaleDays, 0 disables the finding. Read it through
+	// UsageStale.
+	UsageStaleDays *int `yaml:"usage_stale_days,omitempty"`
+
 	// ToolPrefix is deprecated and ignored (D288): tools are never prefixed
 	// (one routed endpoint, no flat namespace to disambiguate). Still parsed
 	// so an existing config keeps starting; serve warns once per KB.
@@ -390,6 +396,9 @@ func Load(path string) (*Config, error) {
 		}
 		if _, err := spec.DoctorIntervalDays(); err != nil {
 			return nil, fmt.Errorf("config: doctor_interval: %w", err)
+		}
+		if spec.UsageStaleDays != nil && *spec.UsageStaleDays < 0 {
+			return nil, fmt.Errorf("config: usage_stale_days: %d is negative (a number of days, or 0 to disable)", *spec.UsageStaleDays)
 		}
 	}
 	cfg.Audit = raw.Audit
@@ -819,6 +828,18 @@ func (s KBSpec) DoctorIntervalDays() (int, error) {
 		return 0, fmt.Errorf("%q is not a number of days (\"14d\", \"14\", or \"0\" to disable)", s.DoctorInterval)
 	}
 	return n, nil
+}
+
+// DefaultUsageStaleDays is the artifact_unused threshold of a KB that does not
+// set usage_stale_days: six weeks (D326).
+const DefaultUsageStaleDays = 42
+
+// UsageStale resolves UsageStaleDays: the default when unset, 0 when disabled.
+func (s KBSpec) UsageStale() int {
+	if s.UsageStaleDays == nil {
+		return DefaultUsageStaleDays
+	}
+	return *s.UsageStaleDays
 }
 
 // ValidateAutoRepair rejects a auto_repair entry that is not a
