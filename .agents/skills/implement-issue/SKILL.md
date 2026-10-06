@@ -22,15 +22,46 @@ not in prose.
 - `main` is protected: every plan lands via its own PR, squash-merge, CI green. No direct pushes.
 - Merging a self-authored PR and `git push --force-with-lease` require an explicit user decision or a standing approval. **Never work around the approval gate** — surface it and let the user choose.
 
+## 0 — Keep the coordinator cheap
+
+A batch of plans is easily 300 KB of issue text; the coordinator must not read it.
+The coordinator's context holds only the wave graph, the diffs and the merge
+state; the plans are read by the subagents that implement them.
+
+- **Ask once, up front**, in a single question: the wave plan, plus a standing
+  approval for self-merge (squash on green CI after the §3 read) and
+  `--force-with-lease` on `feat/*` for the session. Then run without
+  per-PR check-ins, stopping only at the §Explicit gates that remain.
+- **Never `gh issue view` a whole plan** for wave planning: extract only what the
+  graph needs (step 2 below).
+- **Spawn prompt = issue number + absolute worktree path** (plus the sibling
+  plans in flight); the `plan-implementer` agent carries the rest (D327).
+- **Run everything in the background** and act on completion notifications:
+  never poll or read a subagent transcript.
+
 ## 1 — Wave planning (coordinator)
 
 1. Collect the target issues: `gh issue list --label plan` (or the subset the user named). Each title already carries its reserved `D<n>`.
-2. `gh issue view <n>` each; extract the **execution order** line (plans state it explicitly) and the **file-set** each touches.
+2. Extract, per plan, only the **execution order** paragraph and the **file-set**, from one bulk fetch:
+
+   ```bash
+   gh issue list --label plan --state open --limit 100 --json number,body > plans.json
+   for n in $(jq -r '.[].number' plans.json | sort -n); do
+     b=$(jq -r ".[]|select(.number==$n).body" plans.json); echo "=== #$n"
+     echo "$b" | grep -iA5 -m2 'execution order\|cross-plan'
+     echo "FILES: $(echo "$b" | grep -oE '(internal|cmd|docs|web)/[A-Za-z0-9_./-]+\.(go|md|ts|tsx)' | grep -v decisions/ | sort -u | tr '\n' ' ')"
+   done
+   ```
+
+   Plans written in the same batch often **contradict each other** on the order
+   of plans that only share files (A says "before B", B says "before A"). That is
+   not a hard dependency: pick one order and state it in the wave plan.
 3. Build the graph, two edge types:
    - **Hard code dependency** — a plan uses code a sibling introduces (a new client method, a new helper). These form **strictly sequential chains**: never start a plan before its predecessor is on `main`.
    - **Shared file** — plans touching the same code or the same current-state page can conflict at merge. Decision files no longer share a file: one decision is one `docs/decisions/D<n>-<slug>.md`, so two plans adding two decisions never conflict there. The **generated index** is the exception: it is regenerated, not merged (see §4).
-4. Emit **waves**: independent roots with disjoint code file-sets run in parallel; dependency chains run internally sequential but in parallel with each other when their file-sets are disjoint. One plan = one PR.
-5. State the wave plan to the user before spawning (spawning N subagents and opening N public PRs is outward-facing).
+4. Plans that share a **hot file** (one touched by three or more plans, e.g. `internal/lint/lint.go` or `internal/mcpserver/conformance.go`) go in **one sequential chain**, not in parallel waves: each rebase there is a real conflict, and resolving it costs more than the time saved.
+5. Emit **waves**: independent roots with disjoint code file-sets run in parallel; dependency chains run internally sequential but in parallel with each other when their file-sets are disjoint. One plan = one PR.
+6. State the wave plan to the user before spawning (spawning N subagents and opening N public PRs is outward-facing).
 
 ## 2 — Delegate each plan to a coding subagent
 
