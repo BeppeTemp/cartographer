@@ -7,9 +7,11 @@
 migrated-kb/
 .claude/*
 !.claude/skills/
+!.claude/agents/
 !.claude/rules/
 .kiro/*
 !.kiro/skills/
+!.kiro/agents/
 # Per-client MCP configuration is machine-local, as CONTRIBUTING.md says: written
 # by `cartographer connect`, never committed.
 .mcp.json
