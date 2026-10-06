@@ -55,7 +55,6 @@ func cmdServe(args []string) int {
 	toolsProfileFlag := fs.String("tools-profile", "", "Tools advertised by tools/list: 'agent' (default, core set) or 'full' (or CARTOGRAPHER_TOOLS_PROFILE)")
 	webEnabledFlag := fs.Bool("web-enabled", true, "Serve the embedded read-only Atlas UI at /ui/ and its API at /api/ui/v1 in HTTP mode (or CARTOGRAPHER_WEB_ENABLED)")
 	updateCheckFlag := fs.Bool("update-check", true, "Look up the latest release once a day and report it in /health and kb_status when newer (or CARTOGRAPHER_UPDATE_CHECK)")
-	mountModeFlag := fs.String("mount-mode", "", "Deprecated and ignored (D288): the routed mount is always served (or CARTOGRAPHER_MCP_MOUNT_MODE)")
 	logFileFlag := fs.String("log-file", "", "Append the server log to this file instead of stderr (created if absent; never rotated)")
 	fs.Parse(args)
 
@@ -78,7 +77,6 @@ func cmdServe(args []string) int {
 		GitAutocommit: gitAutoCommitFlag,
 		GitSync:       gitSyncFlag,
 		ToolsProfile:  toolsProfileFlag,
-		MountMode:     mountModeFlag,
 		WebEnabled:    webEnabledFlag,
 		UpdateCheck:   updateCheckFlag,
 	}, *configFlag)
@@ -129,8 +127,6 @@ func loadServeConfig(fs *flag.FlagSet, overrides config.FlagOverrides, configFla
 			explicit.GitSync = overrides.GitSync
 		case "tools-profile":
 			explicit.ToolsProfile = overrides.ToolsProfile
-		case "mount-mode":
-			explicit.MountMode = overrides.MountMode
 		case "web-enabled":
 			explicit.WebEnabled = overrides.WebEnabled
 		case "update-check":
@@ -206,9 +202,6 @@ func resolveSopsAgeKeyFile(spec config.KBSpec, sops config.SopsConfig, name stri
 
 // runServe opens/bootstraps all configured KBs and starts the server.
 func runServe(cfg *config.Config) {
-	for _, w := range deprecatedMCPKeyWarnings(cfg.MCP) {
-		log.Printf("warning: %s", w)
-	}
 	var auditLog *audit.Log
 	if cfg.Audit.Log != "" {
 		opts := auditOptions(cfg.Audit)
@@ -353,13 +346,6 @@ func runServe(cfg *config.Config) {
 		if prev, ok := seenNames[name]; ok {
 			log.Printf("warning: KB name collision %q (first: %s, duplicate: %s) — skipping duplicate", name, prev, m.Path)
 			continue
-		}
-		// D288: tools are never prefixed — the routed mount is the one
-		// agent-facing topology, so there is no flat namespace to disambiguate.
-		// An explicit kbs[].tool_prefix is accepted and ignored, never fatal:
-		// an upgrade must not fail to start.
-		if m.Spec.ToolPrefix != "" {
-			log.Printf("warning: KB %q: kbs[].tool_prefix %q is deprecated and ignored (D288: one routed endpoint, tools are never prefixed)", name, m.Spec.ToolPrefix)
 		}
 		seenNames[name] = m.Path
 		var artifactSigner ed25519.PrivateKey
@@ -774,19 +760,4 @@ func displayAddr(addr string) string {
 		return "localhost" + strings.TrimPrefix(addr, "0.0.0.0")
 	}
 	return addr
-}
-
-// deprecatedMCPKeyWarnings names each mcp.* key that D288 turned into a no-op,
-// one warning per key actually set. The keys stay accepted for one release so
-// an upgrade never fails to start; a follow-up removes them. An unset key (the
-// default) is silent: Default() no longer carries a value for either.
-func deprecatedMCPKeyWarnings(c config.MCPConfig) []string {
-	var out []string
-	if c.MountMode != "" {
-		out = append(out, "mcp.mount_mode is deprecated and ignored (D288): the routed mount at "+mcpserver.RoutedMountPath+" is always served and is the only topology written into clients")
-	}
-	if c.ToolPrefixMode != "" {
-		out = append(out, "mcp.tool_prefix_mode is deprecated and ignored (D288): tools are never prefixed")
-	}
-	return out
 }

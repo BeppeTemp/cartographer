@@ -154,7 +154,7 @@ prefixed name is never registered and never listed ([D320](decisions/D320-upgrad
 
 See `docs/sync.md` for the full model (Manifest, Lock, Diff, layered triggers).
 
-> Multi-KB: agent clients use the routed endpoint `/mcp/routed`, where the KB is a `kb` tool argument (required for 2+ KBs in the connection's `?kbs=` set, absent for one) — see the paragraph above. On the per-KB plumbing endpoints `?kb=<name>` (query param) or `/mcp/<name>` (path) select one KB's isolated `Server` for the whole session and no tool takes a `kb` argument. Tool names are never prefixed (D288; `tool_prefix` is deprecated and ignored).
+> Multi-KB: agent clients use the routed endpoint `/mcp/routed`, where the KB is a `kb` tool argument (required for 2+ KBs in the connection's `?kbs=` set, absent for one) — see the paragraph above. On the per-KB plumbing endpoints `?kb=<name>` (query param) or `/mcp/<name>` (path) select one KB's isolated `Server` for the whole session and no tool takes a `kb` argument. Tool names are never prefixed (D288; the `tool_prefix` keys were removed by D325).
 
 ### Enforced limits
 

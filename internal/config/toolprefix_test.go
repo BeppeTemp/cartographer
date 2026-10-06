@@ -1,7 +1,6 @@
 package config
 
 import (
-	"strings"
 	"testing"
 )
 
@@ -36,94 +35,4 @@ func TestValidateToolPrefixShape(t *testing.T) {
 			t.Errorf("ValidateToolPrefixShape(%q) error = %v, wantErr %v", in, err, wantErr)
 		}
 	}
-}
-
-func TestResolveToolPrefix(t *testing.T) {
-	tests := []struct {
-		name    string
-		spec    KBSpec
-		mode    string
-		kbName  string
-		want    string
-		wantErr bool
-	}{
-		{name: "off, no explicit prefix", spec: KBSpec{}, mode: "off", kbName: "eng-team", want: ""},
-		{name: "explicit prefix wins", spec: KBSpec{ToolPrefix: "custom"}, mode: "kb-name", kbName: "eng-team", want: "custom"},
-		{name: "explicit prefix sanitised", spec: KBSpec{ToolPrefix: "ENG Team"}, mode: "off", kbName: "eng-team", want: "eng_team"},
-		{name: "kb-name mode derives from kbName", spec: KBSpec{}, mode: "kb-name", kbName: "eng-team", want: "eng_team"},
-		{name: "kb-name mode, digit-leading name fails", spec: KBSpec{}, mode: "kb-name", kbName: "1kb", wantErr: true},
-		{name: "explicit prefix sanitises to empty fails", spec: KBSpec{ToolPrefix: "---"}, mode: "off", kbName: "x", wantErr: true},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got, err := ResolveToolPrefix(tt.spec, tt.mode, tt.kbName)
-			if (err != nil) != tt.wantErr {
-				t.Fatalf("ResolveToolPrefix() error = %v, wantErr %v", err, tt.wantErr)
-			}
-			if err == nil && got != tt.want {
-				t.Errorf("ResolveToolPrefix() = %q, want %q", got, tt.want)
-			}
-		})
-	}
-}
-
-// A deployment that had done everything right could still be silently
-// ambiguous: SanitizeToolPrefix is lossy, so distinct valid KB names derive one
-// prefix, and two explicit tool_prefix values were never compared at all (D152).
-func TestValidateToolPrefixUniqueness(t *testing.T) {
-	t.Run("distinct names that sanitise to one prefix collide", func(t *testing.T) {
-		taken := map[string]string{}
-		first, err := ResolveToolPrefix(KBSpec{}, "kb-name", "eng-team")
-		if err != nil {
-			t.Fatal(err)
-		}
-		taken[first] = "eng-team"
-		second, err := ResolveToolPrefix(KBSpec{}, "kb-name", "ENG Team")
-		if err != nil {
-			t.Fatal(err)
-		}
-		if first != second {
-			t.Fatalf("expected both to sanitise to the same prefix, got %q and %q", first, second)
-		}
-		err = ValidateToolPrefixUniqueness(taken, "ENG Team", second, "ENG Team")
-		if err == nil {
-			t.Fatal("expected a collision error")
-		}
-		for _, want := range []string{"eng-team", "ENG Team", second} {
-			if !strings.Contains(err.Error(), want) {
-				t.Errorf("error %q does not name %q", err, want)
-			}
-		}
-	})
-
-	t.Run("two identical explicit prefixes collide", func(t *testing.T) {
-		taken := map[string]string{"shared": "alpha"}
-		if err := ValidateToolPrefixUniqueness(taken, "beta", "shared", "shared"); err == nil {
-			t.Error("expected a collision error for two identical explicit prefixes")
-		}
-	})
-
-	t.Run("prefixed and unprefixed do not collide", func(t *testing.T) {
-		taken := map[string]string{"alpha": "alpha"}
-		if err := ValidateToolPrefixUniqueness(taken, "beta", "", ""); err != nil {
-			t.Errorf("unprefixed KB reported a collision: %v", err)
-		}
-	})
-
-	t.Run("two unprefixed KBs do not collide", func(t *testing.T) {
-		taken := map[string]string{}
-		if err := ValidateToolPrefixUniqueness(taken, "alpha", "", ""); err != nil {
-			t.Fatal(err)
-		}
-		if err := ValidateToolPrefixUniqueness(taken, "beta", "", ""); err != nil {
-			t.Errorf("two unprefixed KBs reported a collision: %v", err)
-		}
-	})
-
-	t.Run("distinct prefixes are accepted", func(t *testing.T) {
-		taken := map[string]string{"alpha": "alpha"}
-		if err := ValidateToolPrefixUniqueness(taken, "beta", "beta", "beta"); err != nil {
-			t.Errorf("distinct prefixes reported a collision: %v", err)
-		}
-	})
 }

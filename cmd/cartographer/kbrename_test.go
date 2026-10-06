@@ -157,8 +157,7 @@ func TestCmdKBRename_HappyPath(t *testing.T) {
 	})
 }
 
-// TestPlanKBRename_ReportsWhatItDoesNotMigrate: a derived tool prefix renames
-// every tool the agents see, and auth scopes are not rewritten by anyone.
+// TestPlanKBRename_ReportsWhatItDoesNotMigrate: auth scopes are not rewritten by anyone.
 func TestPlanKBRename_ReportsWhatItDoesNotMigrate(t *testing.T) {
 	if !hasGitBinary() {
 		t.Skip("git not available")
@@ -166,16 +165,12 @@ func TestPlanKBRename_ReportsWhatItDoesNotMigrate(t *testing.T) {
 	withClientServerURL(t, "")
 	dataDir := seedRenameKB(t, "wiki")
 	cfgPath := writeServerConfig(t, "data: "+dataDir+"\n"+
-		"mcp:\n  tool_prefix_mode: kb-name\n"+
 		"auth:\n  mode: \"on\"\n  tokens:\n    - token: s3cret\n      id: ops\n      scopes: [\"kb:wiki:rw\"]\n"+
 		"kbs:\n  - path: "+filepath.Join(dataDir, "wiki")+"\n")
 
 	p, err := planKBRename("wiki", "atlas", dataDir, cfgPath)
 	if err != nil {
 		t.Fatal(err)
-	}
-	if !p.DerivedPrefix || p.OldPrefix == "" || p.NewPrefix == "" {
-		t.Errorf("a derived prefix should be announced: %+v", p)
 	}
 	if len(p.Scopes) != 1 || !strings.Contains(p.Scopes[0], "ops") {
 		t.Errorf("the scoped token should be reported: %v", p.Scopes)
@@ -184,7 +179,7 @@ func TestPlanKBRename_ReportsWhatItDoesNotMigrate(t *testing.T) {
 	var sb strings.Builder
 	printRenamePreflight(&sb, p)
 	out := sb.String()
-	for _, want := range []string{"WARNING", "kb:wiki:rw", "NOT migrated"} {
+	for _, want := range []string{"kb:wiki:rw", "NOT migrated"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("preflight is missing %q:\n%s", want, out)
 		}

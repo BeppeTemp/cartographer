@@ -409,53 +409,25 @@ func TestParseTokenSpecsIgnoresPureSeparators(t *testing.T) {
 	}
 }
 
-// TestDeprecatedMCPKeysDefaultEmpty pins D288: mount_mode and tool_prefix_mode
-// carry no default any more, so serve can tell "the operator wrote it" (and
-// warn) from "nobody did".
-func TestDeprecatedMCPKeysDefaultEmpty(t *testing.T) {
-	cfg := Default()
-	if cfg.MCP.MountMode != "" || cfg.MCP.ToolPrefixMode != "" {
-		t.Errorf("default MCP = %+v, want both deprecated keys empty", cfg.MCP)
-	}
-}
-
-// TestMountModePrecedence walks flag > env > YAML > default for mcp.mount_mode.
-func TestMountModePrecedence(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "config.yaml")
-	if err := os.WriteFile(path, []byte("mcp:\n  mount_mode: routed\n"), 0o644); err != nil {
+// TestRemovedD288KeysAreIgnored pins D325: mcp.mount_mode, mcp.tool_prefix_mode
+// and kbs[].tool_prefix no longer exist, but a config that still carries them
+// loads without error and without effect (unknown YAML keys are ignored).
+func TestRemovedD288KeysAreIgnored(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	yml := "mcp:\n  mount_mode: per-kb\n  tool_prefix_mode: kb-name\nkbs:\n  - path: /x/wiki\n    tool_prefix: old\n"
+	if err := os.WriteFile(path, []byte(yml), 0o644); err != nil {
 		t.Fatal(err)
 	}
-
 	cfg, err := Load(path)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("a config with the removed keys must still load: %v", err)
 	}
-	if cfg.MCP.MountMode != MountModeRouted {
-		t.Fatalf("YAML MountMode = %q, want %q", cfg.MCP.MountMode, MountModeRouted)
+	if len(cfg.KBs) != 1 || cfg.KBs[0].Path != "/x/wiki" {
+		t.Errorf("kbs = %+v, want the one entry intact", cfg.KBs)
 	}
-
-	// env beats YAML
-	t.Setenv("CARTOGRAPHER_MCP_MOUNT_MODE", "per-kb")
-	FromEnv(cfg)
-	if cfg.MCP.MountMode != MountModePerKB {
-		t.Fatalf("env MountMode = %q, want %q", cfg.MCP.MountMode, MountModePerKB)
-	}
-
-	// flag beats env
-	routed := MountModeRouted
-	ApplyFlags(cfg, FlagOverrides{MountMode: &routed})
-	if cfg.MCP.MountMode != MountModeRouted {
-		t.Fatalf("flag MountMode = %q, want %q", cfg.MCP.MountMode, MountModeRouted)
-	}
-
-	// an unrecognized spelling falls back to the historical topology rather
-	// than enabling a mode nobody asked for
-	bogus := "sideways"
-	ApplyFlags(cfg, FlagOverrides{MountMode: &bogus})
-	if cfg.MCP.MountMode != MountModePerKB {
-		t.Errorf("unrecognized MountMode = %q, want %q", cfg.MCP.MountMode, MountModePerKB)
-	}
+	t.Setenv("CARTOGRAPHER_MCP_MOUNT_MODE", "routed")
+	t.Setenv("CARTOGRAPHER_MCP_TOOL_PREFIX_MODE", "kb-name")
+	FromEnv(cfg) // the removed env vars are dead: nothing to read them
 }
 
 // web.enabled follows the flag > env > YAML > default precedence, and the

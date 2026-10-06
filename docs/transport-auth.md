@@ -52,7 +52,7 @@ A multi-KB HTTP server always serves `/mcp/routed`, and that is the only endpoin
 dispatches into the per-KB servers, and a client not yet re-synced keeps working.
 `mcp.mount_mode` ([D187](decisions/D187-one-tool-surface-for-a-multi-kb-server-a-routed-mount.md)
 opt-in) no longer exists as a choice: the key, `CARTOGRAPHER_MCP_MOUNT_MODE` and
-`--mount-mode` are **deprecated** — accepted, ignored, one startup warning each.
+`--mount-mode` were deprecated by D288 and removed by D325 (a leftover key in YAML is silently ignored).
 
 | Endpoint | Role | `tools/list` | Selecting the KB |
 |---|---|---|---|
@@ -103,9 +103,8 @@ target KB. The routed endpoint dispatches into the target KB's own server, so it
 cannot drift from the per-KB path.
 
 **Tools are never prefixed.** One entry cannot collide with itself, so
-`kbs[].tool_prefix` and `mcp.tool_prefix_mode` (D102/D153) are deprecated the same
-way: accepted, ignored, a warning each (one per KB for `tool_prefix`), never
-fatal — an upgrade must not fail to start. A KB named `routed` collides with the
+`kbs[].tool_prefix` and `mcp.tool_prefix_mode` (D102/D153) were removed by D325 the same
+way (a leftover key in YAML is silently ignored, so an upgrade never fails to start). A KB named `routed` collides with the
 endpoint's own path and is **skipped** with a warning to rename it. A `?kb=` on
 the routed URL is refused with 400.
 
