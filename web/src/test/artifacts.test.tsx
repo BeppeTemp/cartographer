@@ -83,6 +83,46 @@ describe("the Artifacts panel", () => {
     expect(within(list).getByText("legacy_tool_name")).toBeInTheDocument();
   });
 
+  it("shows when each skill and agent was last used (D326)", async () => {
+    window.history.replaceState(null, "", "/ui/?kb=kb-a&panel=artifacts&artifact=skill%2Freview");
+    const fetchMock = stubApi();
+    const route = fetchMock.getMockImplementation()!;
+    const used = {
+      last_used: "2026-10-03T08:00:00Z",
+      last_used_provider: "claude",
+      last_used_days_ago: 3,
+    };
+    fetchMock.mockImplementation(async (url: string) => {
+      if (url.includes("/kbs/") && url.includes("/artifacts")) {
+        const res = (await route(url)) as Response;
+        const list = await res.json();
+        // review: used 3 days ago; triage: never; the template has no usage.
+        for (const a of list.artifacts) {
+          if (a.name === "review") Object.assign(a, used);
+          if (a.name === "triage") Object.assign(a, { last_used: null, last_used_provider: null, last_used_days_ago: null });
+        }
+        return json(list);
+      }
+      if (url.includes("/kbs/") && url.includes("/artifact?")) {
+        const res = (await route(url)) as Response;
+        return json({ ...(await res.json()), ...used });
+      }
+      return route(url);
+    });
+    render(<App />);
+    const panel = await screen.findByRole("region", { name: "Artifacts" });
+    const review = within(panel).getByRole("button", { name: /review/ });
+    expect(within(review).getByText("3 days ago (claude)")).toHaveClass("artifacts__used--active");
+    const triage = within(panel).getByRole("button", { name: /triage/ });
+    expect(within(triage).getByText("never used")).toHaveClass("artifacts__used--never");
+    // A template is not followed by the scanner: no cell at all.
+    expect(within(panel).getByRole("button", { name: /runbook/ }).querySelector(".artifacts__used")).toBeNull();
+    // The detail carries the exact timestamp.
+    const detail = await screen.findByRole("article", { name: "Artifact skill/review" });
+    expect(within(detail).getByText("Last used")).toBeInTheDocument();
+    expect(within(detail).getByText("2026-10-03T08:00:00Z")).toBeInTheDocument();
+  });
+
   it("opens the artifact a shared link names", async () => {
     window.history.replaceState(null, "", "/ui/?kb=kb-a&panel=artifacts&artifact=skill%2Freview");
     stubApi();

@@ -1,0 +1,4 @@
+{"timestamp":"__NOW__","kind":{"BuiltIn":{"FileRead":{"operations":[{"path":"$HOME/.kiro/skills/ops-tool/SKILL.md"}]}}}}
+{"timestamp":"__NOW__","kind":{"BuiltIn":{"FileRead":{"operations":[{"path":"$HOME/projects/app/README.md"}]}}}}
+{"timestamp":"__NOW__","kind":{"BuiltIn":{"ExecuteBash":{"command":"cat $HOME/.kiro/skills/other-tool/SKILL.md"}}}}
+{"timestamp":"__NOW__","role":"user","content":"please use $HOME/.kiro/skills/never-used/SKILL.md"}

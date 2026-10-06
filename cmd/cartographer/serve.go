@@ -340,6 +340,7 @@ func runServe(cfg *config.Config) {
 		k.AutoRepair = m.Spec.AutoRepair
 		// Validated by config.Load; a discovered KB's zero spec yields the default.
 		k.DoctorIntervalDays, _ = m.Spec.DoctorIntervalDays()
+		k.UsageStaleDays = m.Spec.UsageStale()
 		k.Discovered = m.Discovered
 		name := m.Name
 		if name == strings.TrimPrefix(mcpserver.RoutedMountPath, "/mcp/") {

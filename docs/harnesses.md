@@ -44,6 +44,12 @@ would flip a matrix cell is confirmed with a probe
     project `AGENTS.md` itself, but **only when no `CLAUDE.md`/`CLAUDE.local.md`
     is on the project path**; the import stays necessary wherever a `CLAUDE.md`
     exists.
+  - session transcripts, read by the usage scan (D326): `~/.claude/projects/**/*.jsonl`,
+    one JSON record per line; `assistant` records carry `message.content` blocks, and
+    the scan reads only `tool_use` blocks (the `Skill` tool's `input.skill`, the
+    `Agent`/`Task` tool's `input.subagent_type`, and any other tool whose arguments
+    carry a materialised skill path). The format is undocumented: an unknown shape is
+    skipped, never fatal.
 - **Watch items**:
   - ~~[#476](https://github.com/BeppeTemp/cartographer/issues/476)~~: resolved by
     [D293](decisions/D293-claude-md-imports-agents-md.md) — the project
@@ -87,6 +93,13 @@ would flip a matrix cell is confirmed with a probe
     (`AGENTS.override.md` in the same directory wins, first non-empty file only);
     hook trust is keyed by the exact hook definition, and a project's `.codex/`
     layer is inactive unless the project is trusted (D193).
+  - session transcripts, read by the usage scan (D326):
+    `~/.codex/sessions/**/rollout-*.jsonl`. Codex records no per-activation skill event:
+    a `world_state` event whose `payload.state.host_skills` is non-empty proves the
+    catalogue was loaded (a catalogue sighting, not a use), and a `response_item` tool
+    call (`function_call`, `local_shell_call`, `custom_tool_call`, `mcp_tool_call`)
+    whose arguments carry a materialised skill path is a use. Message and reasoning
+    items are never read.
 - **Watch items**: none open.
 - **Probe notes**: `codex debug prompt-input` lists the catalogued skills (no
   model call). Isolate a run with a temp `HOME` and `CODEX_HOME`, copying only
@@ -117,10 +130,21 @@ would flip a matrix cell is confirmed with a probe
     The workspace cell stays unsupported.
   - `skill` in `~/.kiro/skills/` (project `.kiro/skills/`), `mcp` in
     `~/.kiro/settings/mcp.json`, `instructions` in `~/.kiro/steering/cartographer.md`.
+  - session transcripts, read by the usage scan (D326): `~/.kiro/sessions/**/*.jsonl`.
+    When the model activates a skill it reads its `SKILL.md` with the built-in
+    file-read tool, recorded as `kind.BuiltIn.FileRead.operations[].path`; a shell
+    record carries the path in its command. The scan reads only the `kind` object. The
+    record shape is pinned by `internal/provisioning/testdata/usage/kiro-session.jsonl`
+    (home replaced by `$HOME`). It was observed on the operator's machine on
+    2026-10-05; **the Kiro version was not recorded then, so none is declared here**:
+    re-probe on a machine with Kiro, read the shape off a real record, and write the
+    version on this line.
 - **Watch items**:
   - the default `kiro-cli chat` starts firing standalone hooks (its KAS log shows
     `v2 hooks cache initialized`). Then drop the `sessionHookLimit` on the Kiro
     hook mechanism, and the timer advice with it;
+  - the usage scan's record shape (above) changes: a new Kiro release that renames
+    `kind.BuiltIn.FileRead` makes every Kiro skill look unused, silently;
   - Kiro IDE: does it read a global `~/.kiro/hooks`, and fire a `SessionStart`
     from it?
   - Kiro Crew: does `~/.kiro/crew/hooks/` take the same v1 file?

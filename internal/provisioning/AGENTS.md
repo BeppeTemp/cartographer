@@ -35,6 +35,12 @@ modifies files a user did not ask about.
 - **Prune is as dangerous as write.** It removes what the lockfile says we own;
   anything outside it is someone else's. Deleting an empty directory has
   boundaries for the same reason (D63).
+- **The usage scan (`usage.go`, D326) reads transcripts, so it reads tool calls only.**
+  A user message, assistant text or reasoning item is never decoded into anything it
+  keeps, and a skill's name in prose is not a use: only a tool call carrying a path the
+  lockfile materialised, or an explicit activation event. `TestScanUsage_*IgnoresUserMessages`
+  pin it. It is read-only on client directories, and a transcript shape it does not know
+  is skipped, never fatal.
 - The lockfile is the client-side record of applied state. Changing its shape is a
   migration, and an empty new field must keep meaning what the files written
   before it meant (see `base_dir`, D141).

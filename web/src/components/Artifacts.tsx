@@ -25,6 +25,27 @@ export const artifactId = (a: Pick<Artifact, "kind" | "name">) => `${a.kind}/${a
 
 const SEVERITIES = ["error", "warning", "info"];
 
+/** Past this many days without a use, an artifact is flagged (the server's default, D326). */
+const STALE_DAYS = 42;
+const ACTIVE_DAYS = 7;
+
+/**
+ * The "Last used" cell of a skill or agent (D326): a label that says it in
+ * words — colour only reinforces it — and its tone. Null for kinds the scanner
+ * does not follow (hooks, MCP descriptors, instructions, templates).
+ */
+export function lastUsed(a: Artifact): { text: string; tone: "active" | "normal" | "stale" | "never" } | null {
+  if (a.kind !== "skill" && a.kind !== "agent") return null;
+  if (a.last_used === undefined) return null; // an older server: say nothing rather than "never"
+  const provider = a.last_used_provider ? ` (${a.last_used_provider})` : "";
+  if (!a.last_used || a.last_used_days_ago == null) return { text: "never used", tone: "never" };
+  const days = a.last_used_days_ago;
+  const when = days === 0 ? "today" : days === 1 ? "1 day ago" : `${days} days ago`;
+  if (a.last_used_catalog_only) return { text: `catalogue loaded ${when}${provider}, no use seen`, tone: "stale" };
+  const tone = days <= ACTIVE_DAYS ? "active" : days > STALE_DAYS ? "stale" : "normal";
+  return { text: `${when}${provider}`, tone };
+}
+
 /** The most severe level among an artifact's findings. */
 function worstSeverity(findings: ArtifactFinding[]): string {
   return SEVERITIES.find((s) => findings.some((f) => f.severity === s)) ?? "info";
@@ -158,6 +179,7 @@ export function Artifacts({
                       )}
                     </span>
                     {a.description && <span className="artifacts__item-desc">{a.description}</span>}
+                    <LastUsed artifact={a} />
                   </button>
                 </li>
               );
@@ -296,6 +318,20 @@ function ArtifactDetail({
               </dd>
             </div>
           )}
+          {lastUsed(artifact) && (
+            <div>
+              <dt>Last used</dt>
+              <dd>
+                <LastUsed artifact={artifact} />
+                {artifact.last_used && (
+                  <>
+                    {" "}
+                    <time dateTime={artifact.last_used}>{artifact.last_used}</time>
+                  </>
+                )}
+              </dd>
+            </div>
+          )}
           <div>
             <dt>Clients</dt>
             <dd>
@@ -395,6 +431,12 @@ function ArtifactDetail({
       )}
     </article>
   );
+}
+
+function LastUsed({ artifact }: { artifact: Artifact }) {
+  const used = lastUsed(artifact);
+  if (!used) return null;
+  return <span className={`artifacts__used artifacts__used--${used.tone}`}>{used.text}</span>;
 }
 
 /** Frontmatter as key/value rows, never rendered as Markdown. */

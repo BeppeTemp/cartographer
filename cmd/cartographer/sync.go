@@ -263,6 +263,12 @@ func runSync(dir string, cfg *clientconfig.Config, opts syncOptions) (syncResult
 	}
 	printApplySummary(dir, results, opts.DryRun)
 	printSyncRevisions(results, targets, opts.DryRun)
+	// D326: after the apply, so the lockfile names what was just materialised.
+	// A dry run changes nothing and neither does it report, and an unreachable
+	// server has nobody to report to.
+	if !opts.DryRun && healthErr == nil {
+		reportUsage(cfg, dir)
+	}
 	if len(pullFailures) > 0 {
 		return syncResult{Revision: commonRevision(results, targets)}, partialSyncError{Failures: pullFailures, Skipped: skipped}
 	}

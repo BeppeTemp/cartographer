@@ -3,6 +3,7 @@ package mcpserver
 import (
 	"net/http"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/BeppeTemp/cartographer/internal/configurator"
@@ -51,6 +52,15 @@ type uiArtifact struct {
 	// Findings are the artifact lint findings on this artifact's files
 	// (D316), so its health shows beside it.
 	Findings []uiArtifactFinding `json:"findings,omitempty"`
+	// Usage (D326): when a client last activated the artifact, from the
+	// reports in .cartographer/usage.json. All three are null for an artifact
+	// nothing reported (and for kinds the scanner does not follow).
+	LastUsed         *string `json:"last_used"`
+	LastUsedProvider *string `json:"last_used_provider"`
+	LastUsedDaysAgo  *int    `json:"last_used_days_ago"`
+	// LastUsedCatalogOnly is true when the only signal is a client loading
+	// the catalogue the artifact was listed in (Codex): available, not used.
+	LastUsedCatalogOnly bool `json:"last_used_catalog_only,omitempty"`
 }
 
 type uiArtifactFinding struct {
@@ -67,7 +77,7 @@ var uiArtifactFindingChecks = map[string]bool{
 	"skill_broken_ref": true, "skill_git_command": true, "hook_invalid": true,
 	"junk_file": true, "junk_asset": true, "missing_instructions": true,
 	"sops_format_mismatch": true, "sops_missing_file": true, "cross_kb_path": true,
-	"skill_missing_perimeter": true,
+	"skill_missing_perimeter": true, "artifact_unused": true,
 }
 
 // artifactFindings returns the KB's artifact findings, from the whole-KB lint
@@ -92,6 +102,32 @@ func artifactFindings(srv *Server) ([]lint.Finding, error) {
 		}
 	}
 	return out, nil
+}
+
+// artifactUsage reads the KB's usage reports once per request. A store that
+// cannot be read is no data: the panel still answers.
+func artifactUsage(k *kb.KB) map[string]kb.UsageSummary {
+	entries, err := k.LoadUsage()
+	if err != nil || len(entries) == 0 {
+		return nil
+	}
+	return kb.SummarizeUsage(entries)
+}
+
+// attachUsage fills the Last used fields of a skill or agent.
+func attachUsage(a *uiArtifact, usage map[string]kb.UsageSummary, now time.Time) {
+	u, ok := usage[kb.UsageKey(a.Kind, a.Name)]
+	if !ok || u.LastUsed.IsZero() {
+		return
+	}
+	at := u.LastUsed.UTC().Format(time.RFC3339)
+	days := int(now.Sub(u.LastUsed).Hours() / 24)
+	if days < 0 {
+		days = 0
+	}
+	provider := u.Provider
+	a.LastUsed, a.LastUsedProvider, a.LastUsedDaysAgo = &at, &provider, &days
+	a.LastUsedCatalogOnly = u.Count == 0
 }
 
 // attachFindings gives an artifact the findings on one of its files, or on
@@ -175,9 +211,11 @@ func (m *MultiKBServer) uiArtifacts(w http.ResponseWriter, r *http.Request, srv 
 	}
 	list := make([]uiArtifact, 0, len(catalog.Artifacts))
 	counts := map[string]int{}
+	usage, now := artifactUsage(srv.kbRef), time.Now()
 	for _, a := range catalog.Artifacts {
 		ua := uiArtifactFrom(a, false, exists)
 		attachFindings(&ua, findings)
+		attachUsage(&ua, usage, now)
 		list = append(list, ua)
 		counts[a.Kind]++
 	}
@@ -236,6 +274,7 @@ func (m *MultiKBServer) uiArtifact(w http.ResponseWriter, r *http.Request, srv *
 				return
 			}
 			attachFindings(&ua, findings)
+			attachUsage(&ua, artifactUsage(srv.kbRef), time.Now())
 			writeUIJSON(w, http.StatusOK, ua)
 			return
 		}

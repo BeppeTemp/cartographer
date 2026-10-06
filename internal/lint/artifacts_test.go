@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/kb"
 )
@@ -381,5 +382,120 @@ func TestLint_ArtifactCheckNotConceptIgnorable(t *testing.T) {
 	}
 	if !hasCheck(findings, "ops/a.md", "lint_ignore_invalid") {
 		t.Error("lint_ignore naming an artifact check must be reported as invalid")
+	}
+}
+
+// usageKB is a KB with one skill ("ops-tool") and one agent ("helper").
+func usageKB(t *testing.T) *kb.KB {
+	t.Helper()
+	k := tempKB(t)
+	writeFile(t, k.Root, "skills/ops-tool/SKILL.md", skillMD("ops-tool", "Ops things", "# Ops\n"))
+	writeFile(t, k.Root, "agents/helper.md", "---\nname: helper\ndescription: Helps\n---\nHelp.\n")
+	return k
+}
+
+func unusedFindings(t *testing.T, k *kb.KB, usage map[string]kb.UsageSummary, staleDays int) []Finding {
+	t.Helper()
+	findings, err := RunWithOptions(k, "", false, Options{Usage: usage, UsageStaleDays: staleDays})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return findingsOf(findings, "artifact_unused")
+}
+
+func agoDays(d int) time.Time { return time.Now().Add(-time.Duration(d) * 24 * time.Hour) }
+
+func TestLint_ArtifactUnused_NeverUsed(t *testing.T) {
+	k := usageKB(t)
+	// Data exists (the agent was used), the skill is absent from it.
+	got := unusedFindings(t, k, map[string]kb.UsageSummary{
+		kb.UsageKey("agent", "helper"): {LastUsed: agoDays(1), Provider: "claude", Count: 3},
+	}, 42)
+	if len(got) != 1 || got[0].Path != "skills/ops-tool/SKILL.md" || got[0].Severity != SevInfo || !got[0].Artifact ||
+		!strings.Contains(got[0].Message, "has never been activated") {
+		t.Fatalf("got %v", got)
+	}
+}
+
+func TestLint_ArtifactUnused_Stale(t *testing.T) {
+	k := usageKB(t)
+	got := unusedFindings(t, k, map[string]kb.UsageSummary{
+		kb.UsageKey("skill", "ops-tool"): {LastUsed: agoDays(50), Provider: "claude", Count: 4},
+		kb.UsageKey("agent", "helper"):   {LastUsed: agoDays(1), Provider: "claude", Count: 1},
+	}, 42)
+	if len(got) != 1 || !strings.Contains(got[0].Message, "last activated 50 days ago (by claude)") {
+		t.Fatalf("got %v", got)
+	}
+}
+
+func TestLint_ArtifactUnused_Recent(t *testing.T) {
+	k := usageKB(t)
+	got := unusedFindings(t, k, map[string]kb.UsageSummary{
+		kb.UsageKey("skill", "ops-tool"): {LastUsed: agoDays(5), Provider: "claude", Count: 1},
+		kb.UsageKey("agent", "helper"):   {LastUsed: agoDays(5), Provider: "kiro", Count: 1},
+	}, 42)
+	if len(got) != 0 {
+		t.Fatalf("got %v", got)
+	}
+}
+
+func TestLint_ArtifactUnused_NoUsageData(t *testing.T) {
+	k := usageKB(t)
+	if got := unusedFindings(t, k, nil, 42); len(got) != 0 {
+		t.Fatalf("no data must stay silent, got %v", got)
+	}
+	// Run itself, on a KB nothing reported to, is silent too.
+	k.UsageStaleDays = 42
+	findings, err := Run(k, "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := findingsOf(findings, "artifact_unused"); len(got) != 0 {
+		t.Fatalf("got %v", got)
+	}
+}
+
+func TestLint_ArtifactUnused_CatalogOnlyIsNotUse(t *testing.T) {
+	k := usageKB(t)
+	got := unusedFindings(t, k, map[string]kb.UsageSummary{
+		kb.UsageKey("skill", "ops-tool"): {LastUsed: agoDays(1), Provider: "codex", Count: 0},
+		kb.UsageKey("agent", "helper"):   {LastUsed: agoDays(1), Provider: "claude", Count: 1},
+	}, 42)
+	if len(got) != 1 || !strings.Contains(got[0].Message, "never been seen activated") || !strings.Contains(got[0].Message, "catalogue 1 days ago (codex)") {
+		t.Fatalf("got %v", got)
+	}
+}
+
+func TestLint_ArtifactUnused_CustomThreshold(t *testing.T) {
+	k := usageKB(t)
+	usage := map[string]kb.UsageSummary{
+		kb.UsageKey("skill", "ops-tool"): {LastUsed: agoDays(20), Provider: "claude", Count: 1},
+		kb.UsageKey("agent", "helper"):   {LastUsed: agoDays(20), Provider: "claude", Count: 1},
+	}
+	if got := unusedFindings(t, k, usage, 14); len(got) != 2 {
+		t.Fatalf("threshold 14: got %v", got)
+	}
+	if got := unusedFindings(t, k, usage, 0); len(got) != 0 {
+		t.Fatalf("threshold 0 disables the check, got %v", got)
+	}
+}
+
+// Run reads the store the server wrote (D326): the whole chain from
+// usage.json to a finding, with the threshold taken from the KB.
+func TestLint_ArtifactUnused_ReadsTheKBStore(t *testing.T) {
+	k := usageKB(t)
+	k.UsageStaleDays = 42
+	if _, err := k.MergeUsage([]kb.UsageEntry{
+		{Name: "ops-tool", Kind: "skill", Provider: "claude", LastUsed: agoDays(60), Count: 2},
+		{Name: "helper", Kind: "agent", Provider: "claude", LastUsed: agoDays(2), Count: 2},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	findings, err := Run(k, "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := findingsOf(findings, "artifact_unused"); len(got) != 1 || got[0].Path != "skills/ops-tool/SKILL.md" {
+		t.Fatalf("got %v", got)
 	}
 }
