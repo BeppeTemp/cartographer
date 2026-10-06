@@ -55,3 +55,5 @@ D141's Hermes is a second by design — its configuration is owned by an Ansible
 to register a hook. Both need the same thing: a trigger that does not depend on the client having
 hooks. For Kiro the timer is not a fallback but the answer: `agentSpawn` is CLI-only and would
 never have covered the IDE surface anyway, and it fires per agent rather than per machine.
+
+**Revised by D325.** The timer is now auto-installed when a connected provider has no reliable session-start hook. The opt-out is `service sync-timer uninstall`, persisted as `sync_timer_opt_out` in `.cartographer.yaml`. The original rationale, that putting a background job on someone's machine as a side effect is out of proportion, is addressed by showing the timer in the `setup` plan before it runs and by uninstalling it when no client needs it.

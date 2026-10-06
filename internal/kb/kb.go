@@ -432,6 +432,18 @@ func Init(root string) (*KB, error) {
 		}
 	}
 
+	// instructions.md (D325): a KB born healthy has the curated half of its
+	// generated agent instructions from the first session, and the
+	// missing_instructions lint never fires on it. Only for a KB this call
+	// creates, and before the initial commit so it is versioned with it. It
+	// carries no `preamble: none` directive: that would drop the operational bullets.
+	instrPath := filepath.Join(abs, "instructions.md")
+	if _, err := os.Lstat(instrPath); created && os.IsNotExist(err) {
+		if err := writeFileAtomic(instrPath, []byte(defaultInstructionsContent)); err != nil {
+			return nil, fmt.Errorf("Init: write instructions.md: %w", err)
+		}
+	}
+
 	// Initialize the KB as a git repository (best-effort).
 	// The KB remains valid even if git is unavailable or init fails.
 	// WriteConcept does NOT auto-commit: commits remain an explicit operation (commit_gate).
@@ -2921,3 +2933,17 @@ func H2Headings(body string) []string {
 	}
 	return out
 }
+
+// defaultInstructionsContent is the instructions.md a new KB starts with
+// (D325): generic, English, no KB-specific names. The operator replaces it as
+// the KB matures. It must never carry the `preamble: none` directive.
+const defaultInstructionsContent = "# How to use this KB\n\n" +
+	"Reply in **English** unless the operator writes in another language.\n\n" +
+	"## Status convention\n\n" +
+	"- `active` means the page is valid and current, not that work is open.\n" +
+	"- Work in journals uses `open`, `in-progress`, `blocked`, or `proposed`.\n" +
+	"- A finished task is `done`; a reference that stays valid is `reference`.\n\n" +
+	"## Write discipline\n\n" +
+	"- Act on every finding a write returns: fix or acknowledge it before moving on.\n" +
+	"- Run `gate_check` at the end of a session and resolve what it reports.\n" +
+	"- Every write is a git commit, revertible. Close sessions with `log_append`.\n"

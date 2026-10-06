@@ -61,13 +61,16 @@ After the silent sync the script runs `cartographer update notice`, keeping its 
 
 **Scheduled trigger (D140).** For a client with no session hook, `cartographer service sync-timer
 install [--interval 30m]` registers a launchd agent (macOS) or a systemd user timer (Linux) that
-runs `cartographer sync` on an interval. It is **opt-in**: installing a background job on the
-user's machine during `connect` would be out of proportion, so `connect` and `status` only name the
-command when a connected provider has no session hook, or one that fires only in some of its
-sessions (kiro, `provisioning.SessionHookLimit`, D300), **and** the timer is not already installed —
-the same predicate `doctor`'s `trigger` check uses, so the three commands cannot disagree about
-whether a trigger covers the client. A timer status that cannot be read is not evidence of coverage,
-so the hint is still printed. For a client whose hook fires only in some sessions, `connect` and
+runs `cartographer sync` on an interval. `setup` and `connect` (and so `reconnect`) **install it
+themselves** (D325) when a connected provider has no session hook, or one that fires only in some of
+its sessions (kiro, `provisioning.SessionHookLimit`, D300), **and** the timer is not already
+installed; `setup` shows it in its plan first. `service sync-timer uninstall` is the explicit
+opt-out and is remembered (`sync_timer_opt_out` in `.cartographer.yaml`): connect then only notes it,
+and `doctor`'s `trigger` check drops to info; `sync-timer install` clears it. `disconnect` removes the
+timer once no remaining client needs it, without recording an opt-out. `status` never installs: it
+names the command. The predicate is the one `doctor`'s `trigger` check uses, so the commands cannot
+disagree about whether a trigger covers the client. A timer status that cannot be read is not
+evidence of coverage, and a client config that cannot be read never triggers an install. For a client whose hook fires only in some sessions, `connect` and
 `reconnect` always print the hint and then record in the lockfile that it was shown
 (`session_hook_limit_acked`, carried over by every sync); `status` does not repeat it after that,
 while a client with no hook at all is always named and `doctor`'s `trigger` check still reports the

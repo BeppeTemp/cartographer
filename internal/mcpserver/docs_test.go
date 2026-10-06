@@ -36,6 +36,7 @@ var toolPrefixes = []string{
 var docsNonTools = map[string]bool{
 	"artifact_signing_seed":    true,
 	"search_misses":            true, // kb_status field (D247), not a tool
+	"sync_timer_opt_out":       true, // client config key (D325), not a tool
 	"open_gaps":                true, // kb_status field (D273), not a tool
 	"template_section_missing": true, // lint check (D297), not a tool
 	// artifact lint checks (D316), not tools

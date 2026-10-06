@@ -2,6 +2,7 @@ package lint
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -126,6 +127,10 @@ func TestLint_MissingInstructions(t *testing.T) {
 	for i := 0; i < 15; i++ {
 		writeFile(t, big.Root, fmt.Sprintf("data/ops/c%d.md", i), "---\ntype: Note\ntitle: C\n---\n# C\n")
 	}
+	// kb.Init scaffolds an instructions.md (D325); this case is about its absence.
+	if err := os.Remove(filepath.Join(big.Root, "instructions.md")); err != nil {
+		t.Fatal(err)
+	}
 	for name, tc := range map[string]struct {
 		k    *kb.KB
 		want int
@@ -138,6 +143,22 @@ func TestLint_MissingInstructions(t *testing.T) {
 		if got := findingsOf(findings, "missing_instructions"); len(got) != tc.want {
 			t.Errorf("%s: want %d missing_instructions, got %v", name, tc.want, got)
 		}
+	}
+}
+
+// A KB created by Init never raises missing_instructions, however large it
+// grows (D325).
+func TestLint_ScaffoldedKBHasInstructions(t *testing.T) {
+	k := tempKB(t)
+	for i := 0; i < 15; i++ {
+		writeFile(t, k.Root, fmt.Sprintf("data/ops/c%d.md", i), "---\ntype: Note\ntitle: C\n---\n# C\n")
+	}
+	findings, err := Run(k, "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := findingsOf(findings, "missing_instructions"); len(got) != 0 {
+		t.Errorf("a scaffolded KB must not raise missing_instructions: %v", got)
 	}
 }
 

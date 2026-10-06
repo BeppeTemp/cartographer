@@ -92,6 +92,9 @@ type disconnectProviderResult struct {
 // disconnectResult is the outcome of doDisconnect.
 type disconnectResult struct {
 	Providers []disconnectProviderResult
+	// TimerUninstalled is set when the sync timer was removed because no
+	// remaining client needs it (D325). It is not an operator opt-out.
+	TimerUninstalled bool
 }
 
 // doDisconnect is the single source of truth for "disconnect" business logic,
@@ -184,6 +187,19 @@ func doDisconnect(opts disconnectOptions) (disconnectResult, error) {
 		return disconnectResult{}, err
 	}
 
+	// D325: the timer exists for clients with no reliable session hook; when
+	// none remains it has no purpose. hooklessProviders, not
+	// providersNeedingSyncTimer: the latter returns nil while the timer is
+	// installed, which would read as "nobody needs it". SyncTimerOptOut is left
+	// alone: this removal is not the operator's choice.
+	if len(hooklessProviders(cfg.Agents)) == 0 {
+		if st, err := syncTimerStatusFn(); err == nil && st.Installed {
+			if err := syncTimerUninstallFn(); err == nil {
+				res.TimerUninstalled = true
+			}
+		}
+	}
+
 	return res, nil
 }
 
@@ -208,6 +224,9 @@ func printDisconnectSummary(res disconnectResult, dryRun bool) {
 		if len(pr.Pruned) == 0 {
 			fmt.Printf("%s[%s] skipped skill prune (nothing managed)\n", prefix, pr.Provider)
 		}
+	}
+	if res.TimerUninstalled {
+		fmt.Println("sync timer uninstalled (no remaining client needs it)")
 	}
 }
 

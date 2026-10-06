@@ -315,3 +315,36 @@ func TestPrintDisconnectSummaryUsesForwardSlashes(t *testing.T) {
 		}
 	}
 }
+
+// D325: the timer exists for clients with no reliable session hook; when the
+// last one is disconnected it goes, and that is not an operator opt-out.
+func TestDisconnect_UninstallsTimerWhenNoClientNeedsIt(t *testing.T) {
+	c := stubTimer(t, true)
+	dir := setupDisconnectFixture(t, "claude", "kiro")
+
+	res, err := doDisconnect(disconnectOptions{Providers: []string{"kiro"}, Dir: dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.uninstalls != 1 || !res.TimerUninstalled {
+		t.Errorf("uninstalls=%d TimerUninstalled=%v, want the timer removed", c.uninstalls, res.TimerUninstalled)
+	}
+	cfg, err := clientconfig.Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.SyncTimerOptOut {
+		t.Error("removing the timer because nobody needs it must not record an opt-out")
+	}
+}
+
+func TestDisconnect_KeepsTimerWhileAClientNeedsIt(t *testing.T) {
+	c := stubTimer(t, true)
+	dir := setupDisconnectFixture(t, "claude", "kiro")
+	if _, err := doDisconnect(disconnectOptions{Providers: []string{"claude"}, Dir: dir}); err != nil {
+		t.Fatal(err)
+	}
+	if c.uninstalls != 0 {
+		t.Error("kiro still needs the timer: it must stay (an installed timer must not read as 'nobody needs it')")
+	}
+}

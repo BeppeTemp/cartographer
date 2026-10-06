@@ -185,8 +185,10 @@ agent made can be reviewed or reverted with ordinary git.
 - **Writes into your agent clients' own configuration** under `$HOME`, and only
   when you run `cartographer connect` — never before. Each destination path is
   listed in [`sync.md`](sync.md) §Kind × provider matrix. A sync timer
-  (`com.cartographer.sync` / `cartographer-sync.timer`) is installed for clients
-  that have no session-start hook, or one that fires only in some sessions (Kiro).
+  (`com.cartographer.sync` / `cartographer-sync.timer`) is installed by `setup`
+  and `connect` for clients that have no session-start hook, or one that fires
+  only in some sessions (Kiro); `setup` shows it in its plan, and
+  `cartographer service sync-timer uninstall` opts out for good.
 
 ### Upgrades
 

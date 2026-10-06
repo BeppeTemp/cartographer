@@ -5,10 +5,12 @@ package main
 
 import (
 	"errors"
+	"os"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
 	"github.com/BeppeTemp/cartographer/internal/service"
 )
@@ -185,5 +187,150 @@ func TestKiroHookLimitWarningPrintedOnce(t *testing.T) {
 	}
 	if !strings.Contains(out, "hermes has no session-start hook") {
 		t.Errorf("a hook-less provider must still be named: %q", out)
+	}
+}
+
+// stubTimer replaces the three timer functions for one test and returns what
+// was called. installed is the status the timer reports.
+type timerCalls struct{ installs, uninstalls int }
+
+func stubTimer(t *testing.T, installed bool) *timerCalls {
+	t.Helper()
+	oldI, oldU, oldS := syncTimerInstallFn, syncTimerUninstallFn, syncTimerStatusFn
+	t.Cleanup(func() { syncTimerInstallFn, syncTimerUninstallFn, syncTimerStatusFn = oldI, oldU, oldS })
+	c := &timerCalls{}
+	syncTimerInstallFn = func(time.Duration) error { c.installs++; return nil }
+	syncTimerUninstallFn = func() error { c.uninstalls++; return nil }
+	syncTimerStatusFn = func() (service.SyncTimerStatus, error) {
+		return service.SyncTimerStatus{Installed: installed}, nil
+	}
+	return c
+}
+
+// writeOptOut writes a client config under dir with the given opt-out.
+func writeOptOut(t *testing.T, dir string, optOut bool) {
+	t.Helper()
+	cfg := clientconfig.Default()
+	cfg.SyncTimerOptOut = optOut
+	if err := clientconfig.Save(dir, cfg); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestEnsureSyncTimer_InstallsForKiro(t *testing.T) {
+	c := stubTimer(t, false)
+	dir := t.TempDir()
+	writeOptOut(t, dir, false)
+	out := withStdout(t, func() { ensureSyncTimer(dir, []string{"claude", "kiro"}) })
+	if c.installs != 1 {
+		t.Fatalf("installs = %d, want 1 (output %q)", c.installs, out)
+	}
+	if !strings.Contains(out, "sync-timer uninstall") {
+		t.Errorf("the escape hatch must be named: %q", out)
+	}
+}
+
+func TestEnsureSyncTimer_RespectsOptOut(t *testing.T) {
+	c := stubTimer(t, false)
+	dir := t.TempDir()
+	writeOptOut(t, dir, true)
+	out := withStdout(t, func() { ensureSyncTimer(dir, []string{"kiro"}) })
+	if c.installs != 0 {
+		t.Errorf("an explicit opt-out was overridden (output %q)", out)
+	}
+	if !strings.Contains(out, "explicitly uninstalled") {
+		t.Errorf("the opt-out must be named: %q", out)
+	}
+}
+
+// A client config that cannot be parsed is not evidence the operator did not
+// opt out: nothing is installed.
+func TestEnsureSyncTimer_CorruptConfigInstallsNothing(t *testing.T) {
+	c := stubTimer(t, false)
+	dir := t.TempDir()
+	if err := os.WriteFile(clientconfig.Path(dir), []byte("agents: [unclosed"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	withStdout(t, func() { ensureSyncTimer(dir, []string{"kiro"}) })
+	if c.installs != 0 {
+		t.Error("a corrupt client config must not trigger an install")
+	}
+}
+
+func TestEnsureSyncTimer_NoTimerWhenAllHaveHooks(t *testing.T) {
+	c := stubTimer(t, false)
+	dir := t.TempDir()
+	withStdout(t, func() { ensureSyncTimer(dir, []string{"claude", "codex"}) })
+	if c.installs != 0 {
+		t.Error("no provider needs the timer, none must be installed")
+	}
+}
+
+func TestEnsureSyncTimer_AlreadyInstalled(t *testing.T) {
+	c := stubTimer(t, true)
+	withStdout(t, func() { ensureSyncTimer(t.TempDir(), []string{"kiro"}) })
+	if c.installs != 0 {
+		t.Error("an installed timer must not be installed again")
+	}
+}
+
+func TestSyncTimerUninstall_SetsOptOutAndInstallClearsIt(t *testing.T) {
+	stubTimer(t, true)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+
+	withStdout(t, func() { cmdService([]string{"sync-timer", "uninstall"}) })
+	cfg, err := clientconfig.Load(home)
+	if err != nil || !cfg.SyncTimerOptOut {
+		t.Fatalf("uninstall must remember the opt-out: cfg=%+v err=%v", cfg, err)
+	}
+	data, _ := os.ReadFile(clientconfig.Path(home))
+	if !strings.Contains(string(data), "sync_timer_opt_out: true") {
+		t.Errorf("opt-out not persisted: %s", data)
+	}
+
+	withStdout(t, func() { cmdService([]string{"sync-timer", "install"}) })
+	cfg, err = clientconfig.Load(home)
+	if err != nil || cfg.SyncTimerOptOut {
+		t.Fatalf("install must clear the opt-out: cfg=%+v err=%v", cfg, err)
+	}
+}
+
+func TestRenderSetupPlan_ShowsSyncTimer(t *testing.T) {
+	stubTimer(t, false)
+	plan := setupPlan{Service: serviceKeep, KB: kbKeepExisting, Existing: []string{"kb-a"}, Agents: []string{"claude", "kiro"}}
+
+	var b strings.Builder
+	renderSetupPlan(&b, plan, setupFacts{})
+	if !strings.Contains(b.String(), "sync timer") || !strings.Contains(b.String(), "kiro") {
+		t.Errorf("the plan must show the timer before it runs:\n%s", b.String())
+	}
+
+	b.Reset()
+	renderSetupPlan(&b, plan, setupFacts{TimerOptOut: true})
+	if strings.Contains(b.String(), "sync timer") {
+		t.Errorf("an opted-out timer must not be planned:\n%s", b.String())
+	}
+
+	b.Reset()
+	renderSetupPlan(&b, setupPlan{Service: serviceKeep, KB: kbKeepExisting, Existing: []string{"kb-a"}, Agents: []string{"claude"}}, setupFacts{})
+	if strings.Contains(b.String(), "sync timer") {
+		t.Errorf("no client needs the timer:\n%s", b.String())
+	}
+}
+
+func TestCheckTriggerCoverage_OptOutIsInfo(t *testing.T) {
+	stubTimer(t, false)
+	dir := t.TempDir()
+	writeOptOut(t, dir, true)
+	got := checkTriggerCoverage(dir, []string{"kiro"})
+	if len(got) != 1 || got[0].Severity != doctorInfo {
+		t.Fatalf("want one info finding, got %+v", got)
+	}
+	writeOptOut(t, dir, false)
+	got = checkTriggerCoverage(dir, []string{"kiro"})
+	if len(got) != 1 || got[0].Severity != doctorWarning {
+		t.Fatalf("want one warning, got %+v", got)
 	}
 }

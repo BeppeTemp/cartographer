@@ -58,6 +58,53 @@ func TestInit_CreaDirAgentsHooks(t *testing.T) {
 	}
 }
 
+func TestInit_DefaultInstructions(t *testing.T) {
+	dir := tempKB(t)
+	if _, err := Init(dir); err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+	path := filepath.Join(dir, "instructions.md")
+	first, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("instructions.md missing after Init: %v", err)
+	}
+	for _, want := range []string{"Status convention", "gate_check"} {
+		if !strings.Contains(string(first), want) {
+			t.Errorf("instructions.md lacks %q:\n%s", want, first)
+		}
+	}
+	if strings.Contains(string(first), "preamble") {
+		t.Error("the default instructions.md must not carry a preamble directive: it would drop the operational bullets")
+	}
+	// Idempotent, and never overwrites what the operator wrote.
+	custom := []byte("# mine\n")
+	if err := os.WriteFile(path, custom, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Init(dir); err != nil {
+		t.Fatalf("second Init: %v", err)
+	}
+	if got, _ := os.ReadFile(path); string(got) != string(custom) {
+		t.Errorf("second Init rewrote instructions.md: %q", got)
+	}
+}
+
+func TestInit_ExistingKBGetsNoInstructions(t *testing.T) {
+	dir := tempKB(t)
+	if _, err := Init(dir); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(dir, "instructions.md")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Init(dir); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "instructions.md")); !os.IsNotExist(err) {
+		t.Errorf("Init on an existing KB must not add instructions.md (err=%v)", err)
+	}
+}
+
 func TestInit_NoAgentsMdNoRootGitignore(t *testing.T) {
 	dir := tempKB(t)
 	if _, err := Init(dir); err != nil {
