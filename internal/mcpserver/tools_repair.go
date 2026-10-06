@@ -201,6 +201,20 @@ func applyFixes(fm *okf.Frontmatter, body *string, fixes []*lint.Fix) (changed i
 			}
 			fm.Set(fx.Field, fx.To)
 			*body = insertAfterH1(*body, "> "+fx.Field+": "+rest)
+		case lint.FixListifyField:
+			raw, ok := fm.Get(fx.Field)
+			v, isStr := raw.(string)
+			if !ok || !isStr {
+				changed-- // already a list: idempotent
+				continue
+			}
+			items := lint.ListItems(v)
+			if len(items) == 0 {
+				partial = append(partial, fx.Field+": no items to extract from the string")
+				changed--
+				continue
+			}
+			fm.Set(fx.Field, items)
 		case lint.FixDropLinkItem:
 			*body = lint.DropLinkItem(*body, fx.Field)
 		case lint.FixRewriteLinkItem:

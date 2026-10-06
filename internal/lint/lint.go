@@ -153,6 +153,10 @@ var perConceptChecks = map[string]bool{
 	// D295: malformed_frontmatter is not suppressible (like tool_param_field),
 	// but is a per-concept check so it appears here.
 	"malformed_frontmatter": true,
+	// D314: not suppressible either (see suppressed); a warning a concept
+	// may silence only for mangled_placeholder, a page documenting the syntax.
+	"stringified_list":    true,
+	"mangled_placeholder": true,
 	// D278: an ingested Source nothing cites.
 	"source_uncited": true,
 	// D298: kb_review kinds. Dismissing a review item is lint_ignore on a
@@ -486,6 +490,19 @@ func runChecks(k *kb.KB, scope string, scopeNeighbors bool, opts Options) ([]Fin
 		for _, id := range artifactIDs {
 			cited[id] = true
 		}
+		// A KB that cites placeholders but never wrote paths.yaml gets one
+		// nudge (D314): the D263 checks are opt-in by presence of the file, so
+		// without it nothing says the vocabulary is undeclared. A file that
+		// exists but is unreadable is contract_malformed, not this.
+		if !registry.state.Present && len(registryFindings) == 0 && len(cited) > 0 {
+			findings = append(findings, Finding{
+				Path:     kb.PathRegistryFile,
+				Check:    "missing_registry",
+				Severity: SevInfo,
+				Message: fmt.Sprintf("%d placeholder(s) cited but %s does not exist — create it to get unknown_placeholder and unused_placeholder checks (D263)",
+					len(cited), kb.PathRegistryFile),
+			})
+		}
 		for _, id := range registry.unused(cited) {
 			findings = append(findings, Finding{
 				Path:     kb.PathRegistryFile,
@@ -585,7 +602,7 @@ func runChecks(k *kb.KB, scope string, scopeNeighbors bool, opts Options) ([]Fin
 				reason = "a tool argument is never a legitimate field, so it cannot be declared one"
 			} else if artifactChecks[name] {
 				reason = "a KB-level check (artifacts, junk files), not a per-concept one"
-			} else if name == "map_oversize" || name == "index_incomplete" || name == "index_stale" || name == "orphan_asset" || name == "oversized_asset" || name == "unlistable_assets" || name == "unused_placeholder" || strings.HasPrefix(name, "expanded_") {
+			} else if name == "map_oversize" || name == "index_incomplete" || name == "index_stale" || name == "orphan_asset" || name == "oversized_asset" || name == "unlistable_assets" || name == "unused_placeholder" || name == "missing_registry" || strings.HasPrefix(name, "expanded_") {
 				// orphan_asset belongs to an expanded concept's asset set, reported
 				// in the directory pass: there is no single concept frontmatter that
 				// owns it, so listing it as suppressible would be a promise the

@@ -205,6 +205,13 @@ func TestFixableChecksCoverEveryEmittedFix(t *testing.T) {
 	}
 	seedBodyFixes(t, k)
 	seedLegacyFixes(t, k)
+	sf := newFM()
+	sf.Set("type", "Note")
+	sf.Set("title", "S")
+	sf.Set("provenance", "[a, b]")
+	if _, err := k.WriteConcept("ops/stringified", sf, "# S\n", ""); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := k.UpdateMapContract("ops", kb.MapContractUpdate{FieldValues: map[string][]string{"status": {"done"}}}); err != nil {
 		t.Fatal(err)
 	}
@@ -686,5 +693,48 @@ func TestKBRepairApplyOmitsPlan(t *testing.T) {
 	}
 	if out["applied"].(float64) != 2 || out["planned_total"].(float64) != 2 {
 		t.Fatalf("apply response = %v", out)
+	}
+}
+
+// TestRepair_StringifiedList: the string becomes a real list, and a second run
+// finds nothing left (D314).
+func TestRepair_StringifiedList(t *testing.T) {
+	k, s := repairKB(t, 0)
+	for id, v := range map[string]string{"ops/s1": "[a, b]", "ops/s2": "[a]; [b]", "ops/s3": "- a"} {
+		fm := newFM()
+		fm.Set("type", "Note")
+		fm.Set("title", "S")
+		fm.Set("updated", "2026-01-02")
+		fm.Set("provenance", v)
+		if _, err := k.WriteConcept(okf.ConceptID(id), fm, "# S\n", ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+	dry := repairCall(t, s, `{"check":"stringified_list","dry_run":true}`)
+	if dry["error"] != nil {
+		t.Fatalf("dry run: %v", dry)
+	}
+	repairCall(t, s, `{"check":"stringified_list","dry_run":false}`)
+	want := map[string]int{"ops/s1": 2, "ops/s2": 2, "ops/s3": 1}
+	for id, n := range want {
+		cd, err := k.ReadConcept(okf.ConceptID(id))
+		if err != nil {
+			t.Fatal(err)
+		}
+		fm, _ := okf.ParseFrontmatter(cd.FrontmatterRaw)
+		v, _ := fm.Get("provenance")
+		list, ok := v.([]string)
+		if !ok || len(list) != n {
+			t.Errorf("%s provenance = %#v, want a list of %d", id, v, n)
+		}
+	}
+	findings, err := lint.Run(k, "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range findings {
+		if f.Check == "stringified_list" {
+			t.Errorf("still flagged after repair: %+v", f)
+		}
 	}
 }

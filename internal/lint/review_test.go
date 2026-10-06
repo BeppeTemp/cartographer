@@ -582,3 +582,30 @@ func TestReviewDuplicateSkipsNamedSatellite(t *testing.T) {
 		t.Fatalf("satellite named after its parent: %+v", got)
 	}
 }
+
+// D314: a template's table row is boilerplate, and the evidence keeps the
+// code spans the comparison key masks.
+func TestRepeatedFact_TemplateTableRowExempt(t *testing.T) {
+	k := tempKB(t)
+	writeFile(t, k.DataRoot(), "m/_map.md", "---\ntype: Map\ntitle: M\n---\n")
+	writeFile(t, k.Root, "templates/svc.md", "---\ntype: Note\n---\n| Header one of it | Header two of it |\n| --- | --- |\n| image | on the registry (see the template note) |\n")
+	for i := 0; i < 3; i++ {
+		writeFile(t, k.DataRoot(), fmt.Sprintf("m/c%d.md", i), fmt.Sprintf("---\ntype: Note\ntitle: C%d\n---\n| Header one of it | Header two of it |\n| --- | --- |\n| image | on the registry (see the template note) |\n| backup-host | nightly at 02:00 and kept fourteen days |\n", i))
+	}
+	got := itemsOf(review(t, k), ReviewRepeatedFact)
+	if len(got) != 1 || !strings.Contains(got[0].Evidence, "backup-host") {
+		t.Fatalf("want only the non-template row: %+v", got)
+	}
+}
+
+func TestRepeatedFact_EvidencePreservesCodeSpans(t *testing.T) {
+	k := tempKB(t)
+	writeFile(t, k.DataRoot(), "m/_map.md", "---\ntype: Map\ntitle: M\n---\n")
+	for i := 0; i < 3; i++ {
+		writeFile(t, k.DataRoot(), fmt.Sprintf("m/c%d.md", i), fmt.Sprintf("---\ntype: Note\ntitle: C%d\n---\n| image | pulled on the shared registry host `nexus.example.com` |\n| other | row |\n", i))
+	}
+	got := itemsOf(review(t, k), ReviewRepeatedFact)
+	if len(got) != 1 || !strings.Contains(got[0].Evidence, "nexus.example.com") {
+		t.Fatalf("evidence lost the code span: %+v", got)
+	}
+}
