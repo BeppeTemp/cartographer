@@ -413,6 +413,11 @@ func seedBodyFixes(t *testing.T, k *kb.KB) {
 	if err := os.WriteFile(filepath.Join(dir, "index.md"), []byte(body), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	// D310: a link spelled <concept>/index, in both syntaxes.
+	lk := "---\ntype: Note\ntitle: LK\nupdated: 2026-01-02\n---\nSee [e](e/index.md) and [[ops/e/index|the e]].\n"
+	if err := os.WriteFile(filepath.Join(k.DataRoot(), "ops", "lk.md"), []byte(lk), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	// D301: ops/r1 lists ops/r2, which links back (reciprocal_link_item);
 	// it also lists ops/r3, which does not.
 	for id, b := range map[string]string{
@@ -780,5 +785,67 @@ func TestRepair_SyncH1(t *testing.T) {
 		if f.Check == "title_h1_mismatch" {
 			t.Errorf("still flagged after repair: %+v", f)
 		}
+	}
+}
+
+func TestRebaseHrefInBody_EmptyTargetKeepsTheLabel(t *testing.T) {
+	got := rebaseHrefInBody("a [Proj](proj/index.md) b [P2](proj/index.md#x) c [o](other.md)", "proj/index.md", "")
+	if want := "a Proj b P2 c [o](other.md)"; got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+func TestRewriteWikiLinkInBody(t *testing.T) {
+	got := rewriteWikiLinkInBody("[[a/b/index]] [[a/b/index#s|t]] `[[a/b/index]]` [[a/b/index2]]", "a/b/index", "a/b")
+	if want := "[[a/b]] [[a/b#s|t]] `[[a/b/index]]` [[a/b/index2]]"; got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+// D310: kb_repair converges every <concept>/index link to the canonical form
+// in one pass, and lint then reports none.
+func TestKBRepairIndexLinkForm(t *testing.T) {
+	k, s := repairKB(t, 0)
+	seedBodyFixes(t, k)
+	if conformanceChecks["index_link_form"] {
+		t.Fatal("index_link_form counted as conformance debt")
+	}
+	repairCall(t, s, `{"check":"index_link_form","dry_run":false}`)
+	cd, err := k.ReadConcept("ops/lk")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(cd.Body, "[e](e.md)") || !strings.Contains(cd.Body, "[[ops/e|the e]]") || strings.Contains(cd.Body, "index") {
+		t.Fatalf("after repair:\n%s", cd.Body)
+	}
+	findings, err := lint.Run(k, "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range findings {
+		if f.Check == "index_link_form" {
+			t.Errorf("still reported: %+v", f)
+		}
+	}
+}
+
+// D310: applying broken_link to a self-link removes the link syntax.
+func TestKBRepairSelfLinkIsDropped(t *testing.T) {
+	k, s := repairKB(t, 0)
+	dir := filepath.Join(k.DataRoot(), "ops", "sl")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body := "---\ntype: Note\ntitle: SL\nupdated: 2026-01-02\n---\nSee [Me](sl/index.md) here.\n"
+	if err := os.WriteFile(filepath.Join(dir, "index.md"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	repairCall(t, s, `{"check":"broken_link","dry_run":false}`)
+	cd, err := k.ReadConcept("ops/sl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(cd.Body, "See Me here.") {
+		t.Fatalf("after repair:\n%s", cd.Body)
 	}
 }

@@ -442,6 +442,22 @@ func buildGraphView(entries []*graphEntry, generation uint64) *graphView {
 	}
 	for _, e := range entries {
 		v.exists[e.id] = struct{}{}
+	}
+	// canon maps a link target spelled <concept>/index to the expanded concept
+	// itself (D310): conceptFiles gives that index.md the ID of its directory,
+	// so "map/c/index" is never a node. A target whose parent is not a concept
+	// stays as written: it is a genuine broken link. Done here, not in
+	// ExtractLinks, because RewriteLinks must keep resolving exactly as
+	// ExtractLinks does (D248, TestRewriteLinks_MatchesExtractLinks).
+	canon := func(t okf.ConceptID) okf.ConceptID {
+		if parent, ok := strings.CutSuffix(string(t), "/index"); ok {
+			if _, ok := v.exists[okf.ConceptID(parent)]; ok {
+				return okf.ConceptID(parent)
+			}
+		}
+		return t
+	}
+	for _, e := range entries {
 		if len(e.linkLines) > 0 {
 			merged := v.linkLines[e.id]
 			if merged == nil {
@@ -449,6 +465,9 @@ func buildGraphView(entries []*graphEntry, generation uint64) *graphView {
 				v.linkLines[e.id] = merged
 			}
 			for target, lines := range e.linkLines {
+				if target = canon(target); target == e.id {
+					continue
+				}
 				merged[target] = append(merged[target], lines...)
 			}
 		}
@@ -458,6 +477,11 @@ func buildGraphView(entries []*graphEntry, generation uint64) *graphView {
 			v.adj.out[e.id] = make(map[okf.ConceptID]struct{})
 		}
 		for _, target := range e.links {
+			if c := canon(target); c != target {
+				if target = c; target == e.id {
+					continue
+				}
+			}
 			v.adj.out[e.id][target] = struct{}{}
 			if v.adj.in[target] == nil {
 				v.adj.in[target] = make(map[okf.ConceptID]struct{})

@@ -37,6 +37,9 @@ const (
 	// body is rewritten; several on one concept apply longest first, in one
 	// pass.
 	FixReplacePrefix = "replace_prefix"
+	// FixRewriteWikiLink: Field = the ID a wiki-link names, To = the ID it
+	// becomes (index_link_form, D310). Alias and anchor stay as written.
+	FixRewriteWikiLink = "rewrite_wiki_link"
 	// FixListifyField: Field = a list-valued key stored as a string that
 	// looks like a list (stringified_list, D314). The repair parses the
 	// current value with ListItems and stores the items as a real list.
@@ -57,7 +60,7 @@ type Fix struct {
 // FixableChecks are the checks whose findings carry a Fix, which is what
 // kb_repair accepts (D290). A check that gains a Fix is added here: the list
 // is the repair tool's contract, and a test pins it to what the checks emit.
-var FixableChecks = []string{"broken_link", "duplicate_link", "invalid_field_value", "legacy_path", "legacy_tool_name", "nonstandard_field", "prose_value", "reciprocal_link_item", "stringified_list", "title_h1_mismatch", "tool_param_field"}
+var FixableChecks = []string{"broken_link", "duplicate_link", "index_link_form", "invalid_field_value", "legacy_path", "legacy_tool_name", "nonstandard_field", "prose_value", "reciprocal_link_item", "stringified_list", "title_h1_mismatch", "tool_param_field"}
 
 // StandardFieldSynonyms maps each standard frontmatter field to the synonyms
 // KBs are known to use for it (nonstandard_field). Keys are matched

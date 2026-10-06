@@ -1806,3 +1806,80 @@ func TestFilter_DeterministicOrder(t *testing.T) {
 		}
 	}
 }
+
+func indexFormFindings(t *testing.T, k *kb.KB) []Finding {
+	t.Helper()
+	findings, err := Run(k, "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out []Finding
+	for _, f := range findings {
+		if f.Check == "index_link_form" {
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
+func seedIndexForm(t *testing.T, linker, exp string) *kb.KB {
+	t.Helper()
+	k := tempKB(t)
+	writeFile(t, k.DataRoot(), "arch/_map.md", "---\ntype: Map\nkind: map\ntitle: A\n---\n# A\n")
+	writeFile(t, k.DataRoot(), "arch/exp/index.md", "---\ntype: Note\ntitle: Exp\n---\n"+exp)
+	writeFile(t, k.DataRoot(), "arch/linker.md", "---\ntype: Note\ntitle: Linker\n---\n"+linker)
+	return k
+}
+
+// D310: a link spelled <concept>/index gets the canonical spelling.
+func TestLint_IndexLinkForm(t *testing.T) {
+	cases := []struct {
+		name, linker, exp string
+		path              string
+		field, to         string
+		kind              string
+	}{
+		{"markdown", "See [exp](exp/index.md).\n", "# Exp\n", "arch/linker.md", "exp/index.md", "exp.md", FixRebaseLink},
+		{"wiki", "See [[arch/exp/index]].\n", "# Exp\n", "arch/linker.md", "arch/exp/index", "arch/exp", FixRewriteWikiLink},
+		{"wiki in the expanded index", "# L\n", "See [[arch/exp/index]].\n", "arch/exp.md", "arch/exp/index", "arch/exp", FixRewriteWikiLink},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			k := seedIndexForm(t, c.linker, c.exp)
+			got := indexFormFindings(t, k)
+			if len(got) != 1 {
+				t.Fatalf("findings = %+v", got)
+			}
+			f := got[0]
+			if f.Severity != SevInfo || f.Fix == nil || f.Fix.Kind != c.kind || f.Fix.Field != c.field || f.Fix.To != c.to {
+				t.Errorf("finding = %+v fix = %+v", f, f.Fix)
+			}
+		})
+	}
+	t.Run("no concept behind it", func(t *testing.T) {
+		k := seedIndexForm(t, "See [m](missing/index.md) and [[arch/missing/index]].\n", "# Exp\n")
+		if got := indexFormFindings(t, k); len(got) != 0 {
+			t.Errorf("findings = %+v", got)
+		}
+	})
+}
+
+// D310: a link to the concept itself is dropped, not rebased to index.md.
+func TestLint_BrokenLinkSelfLinkIsDropped(t *testing.T) {
+	k := tempKB(t)
+	writeFile(t, k.DataRoot(), "catalog/_map.md", "---\ntype: Map\nkind: map\ntitle: C\n---\n# C\n")
+	writeFile(t, k.DataRoot(), "catalog/proj/index.md", "---\ntype: Note\ntitle: P\n---\nSee [proj](proj/index.md).\n")
+	findings, err := Run(k, "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range findings {
+		if f.Check == "broken_link" {
+			if f.Fix == nil || f.Fix.Kind != FixRebaseLink || f.Fix.Field != "proj/index.md" || f.Fix.To != "" {
+				t.Errorf("fix = %+v", f.Fix)
+			}
+			return
+		}
+	}
+	t.Fatal("no broken_link finding")
+}

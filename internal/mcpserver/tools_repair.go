@@ -187,6 +187,8 @@ func applyFixes(fm *okf.Frontmatter, body *string, fixes []*lint.Fix) (changed i
 		case lint.FixRebaseLink:
 			// Replace the old href with the new one in the body.
 			*body = rebaseHrefInBody(*body, fx.Field, fx.To)
+		case lint.FixRewriteWikiLink:
+			*body = rewriteWikiLinkInBody(*body, fx.Field, fx.To)
 		case lint.FixSetValue:
 			fm.Set(fx.Field, fx.To)
 		case lint.FixSplitValue:
@@ -533,8 +535,9 @@ func replaceFirstH1(body, title string) (string, bool) {
 
 // rebaseHrefInBody replaces all occurrences of oldHref with newHref inside
 // markdown link parentheses — [text](oldHref) → [text](newHref) — leaving
-// non-link occurrences untouched. Idempotent: if the oldHref is absent, the
-// body is returned unchanged.
+// non-link occurrences untouched. An empty newHref drops the link and keeps
+// its label (a link to the concept itself, D310). Idempotent: if the oldHref
+// is absent, the body is returned unchanged.
 func rebaseHrefInBody(body, oldHref, newHref string) string {
 	// Match markdown links whose href is exactly oldHref (possibly with a fragment).
 	var sb strings.Builder
@@ -552,6 +555,19 @@ func rebaseHrefInBody(body, oldHref, newHref string) string {
 			remainder = after
 			continue
 		}
+		if newHref == "" {
+			open := strings.LastIndex(remainder[:idx], "[")
+			end := strings.Index(after, ")")
+			if open < 0 || end < 0 || strings.Contains(remainder[open:idx], "]") {
+				sb.WriteString(remainder[:idx+len(needle)])
+				remainder = after
+				continue
+			}
+			sb.WriteString(remainder[:open])
+			sb.WriteString(remainder[open+1 : idx])
+			remainder = after[end+1:]
+			continue
+		}
 		sb.WriteString(remainder[:idx])
 		sb.WriteString("](")
 		sb.WriteString(newHref)
@@ -560,6 +576,27 @@ func rebaseHrefInBody(body, oldHref, newHref string) string {
 	sb.WriteString(remainder)
 	return sb.String()
 }
+
+// rewriteWikiLinkInBody replaces the ID of every wiki-link [[old]], [[old#a]],
+// [[old|t]] with newID, keeping the anchor and the alias. Code spans are left
+// alone, as the link extraction does (D150). Idempotent.
+func rewriteWikiLinkInBody(body, oldID, newID string) string {
+	masked := kb.MaskCodeSpans(body)
+	var sb strings.Builder
+	last := 0
+	for _, m := range wikiLinkRewriteRe.FindAllStringSubmatchIndex(masked, -1) {
+		if masked[m[2]:m[3]] != oldID {
+			continue
+		}
+		sb.WriteString(body[last:m[2]])
+		sb.WriteString(newID)
+		last = m[3]
+	}
+	sb.WriteString(body[last:])
+	return sb.String()
+}
+
+var wikiLinkRewriteRe = regexp.MustCompile(`\[\[([^\[\]|#]+)(#[^\[\]|]*)?(\|[^\[\]]*)?\]\]`)
 
 // renameInContracts rewrites the _map.md of every map in which a renamed field
 // is named by required_fields or field_values, so the contract keeps pointing

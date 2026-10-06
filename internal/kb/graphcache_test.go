@@ -414,3 +414,51 @@ func TestFacetsCarryBodyPlaceholders(t *testing.T) {
 		t.Errorf("after edit placeholders = %v, want [path:other]", got)
 	}
 }
+
+// A link to <concept>/index is the concept itself (D310): the graph stores the
+// edge under the expanded concept's ID, in both link syntaxes, and leaves a
+// target whose parent is no concept as written (a genuine broken link).
+func TestBuildGraphView_NormalisesIndexTarget(t *testing.T) {
+	for name, link := range map[string]string{"markdown": "[exp](exp/index.md)", "wiki": "[[arch/exp/index]]"} {
+		t.Run(name, func(t *testing.T) {
+			f := &graphFixture{t: t, k: mustInitKB(t)}
+			f.write("arch/_map.md", "---\ntype: Map\ntitle: Arch\n---\n# Arch\n")
+			f.write("arch/exp/index.md", "---\ntype: Entity\ntitle: Exp\n---\nSelf [me](index.md).\n")
+			f.write("arch/linker.md", "---\ntype: Entity\ntitle: Linker\n---\n"+link+" and [x](nonexistent/index.md)\n")
+			v, err := f.k.graphView()
+			if err != nil {
+				t.Fatal(err)
+			}
+			out := v.adj.out["arch/linker"]
+			if _, ok := out["arch/exp"]; !ok {
+				t.Errorf("out = %v, want arch/exp", out)
+			}
+			if _, ok := out["arch/exp/index"]; ok {
+				t.Errorf("out keeps the /index spelling: %v", out)
+			}
+			if _, ok := out["arch/nonexistent/index"]; !ok {
+				t.Errorf("a target with no concept parent must stay as written: %v", out)
+			}
+			if _, ok := v.adj.in["arch/exp"]["arch/linker"]; !ok {
+				t.Errorf("in[arch/exp] = %v", v.adj.in["arch/exp"])
+			}
+			if len(v.adj.in["arch/exp/index"]) != 0 {
+				t.Errorf("in[arch/exp/index] = %v", v.adj.in["arch/exp/index"])
+			}
+			if _, ok := v.exists["arch/exp/index"]; ok {
+				t.Error("exists carries arch/exp/index")
+			}
+			lg, err := f.k.LinkGraph(nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			i, j := lg.Index["arch/linker"], lg.Index["arch/exp"]
+			if !reflect.DeepEqual(lg.Graph.Out[i], []int{j}) || !reflect.DeepEqual(lg.Graph.In[j], []int{i}) {
+				t.Errorf("graph out=%v in=%v", lg.Graph.Out[i], lg.Graph.In[j])
+			}
+			if len(lg.Graph.Out[j]) != 0 {
+				t.Errorf("the concept's self-link became an edge: %v", lg.Graph.Out[j])
+			}
+		})
+	}
+}
