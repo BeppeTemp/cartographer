@@ -71,6 +71,7 @@ func TestLint_LegacyToolName(t *testing.T) {
 	k.AuthName = "kb-a"
 	writeFile(t, k.Root, "skills/old/SKILL.md", skillMD("old", "Old", "Call `kb_a__search` then kb_a__search again.\n"))
 	writeFile(t, k.Root, "skills/new/SKILL.md", skillMD("new", "New", "Call `search(kb: \"kb-a\")` and concept_read.\n"))
+	writeFile(t, k.Root, "agents/ha.md", "---\nname: ha\ndescription: h\ntools: mcp__homeassistant__ha_get_state, mcp__cartographer__search\n---\nUse mcp__homeassistant__ha_get_state.\n")
 	writeFile(t, k.Root, "skills/new/style.css", ".artifacts__list { color: red }\n")
 	findings, err := Run(k, "", false)
 	if err != nil {

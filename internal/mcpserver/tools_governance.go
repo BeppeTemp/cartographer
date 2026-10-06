@@ -577,10 +577,6 @@ func kbCapabilities(k *kb.KB) map[string]KBCapability {
 		}
 		return "disabled"
 	}
-	prefix := k.ToolPrefix
-	if prefix == "" {
-		prefix = "none"
-	}
 	mount := "configured"
 	if k.Discovered {
 		mount = "discovered"
@@ -602,7 +598,6 @@ func kbCapabilities(k *kb.KB) map[string]KBCapability {
 		"secrets":        {State: onOff(k.SopsAgeKeyFile != ""), Setting: "kbs[].sops_age_key_file or sops.age_key_file"},
 		"git_sync":       {State: onOff(k.GitSync), Setting: "git.sync"},
 		"git_workflow":   {State: workflow, Setting: "kbs[].server_git"},
-		"tool_prefix":    {State: prefix, Setting: "kbs[].tool_prefix or mcp.tool_prefix_mode"},
 		// A discovered KB cannot carry any of the settings above, which is the
 		// single invisible cause behind several of them being off at once.
 		"mount": {State: mount, Setting: "kbs[]"},
