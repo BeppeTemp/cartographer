@@ -133,7 +133,7 @@ export function stubApi(overrides: Record<string, () => Response> = {}) {
         broken: [],
       });
     }
-    if (url.endsWith("/kbs")) return json({ kbs: [{ name: "homelab", status: "normal", ready: true, artifacts: true }] });
+    if (url.endsWith("/kbs")) return json({ kbs: [{ name: "kb-a", status: "normal", ready: true, artifacts: true }] });
     throw new Error(`unstubbed request: ${url}`);
   });
   vi.stubGlobal("fetch", fetchMock);

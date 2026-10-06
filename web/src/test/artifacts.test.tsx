@@ -18,14 +18,14 @@ describe("the Artifacts panel", () => {
   afterEach(() => vi.unstubAllGlobals());
 
   it("is not offered to a principal that cannot see the whole KB", async () => {
-    window.history.replaceState(null, "", "/ui/?kb=homelab&panel=artifacts");
+    window.history.replaceState(null, "", "/ui/?kb=kb-a&panel=artifacts");
     const fetchMock = stubApi();
     const route = fetchMock.getMockImplementation()!;
     const requested: string[] = [];
     fetchMock.mockImplementation(async (url: string) => {
       requested.push(url);
       if (url.endsWith("/kbs")) {
-        return json({ kbs: [{ name: "homelab", status: "normal", ready: true, artifacts: false }] });
+        return json({ kbs: [{ name: "kb-a", status: "normal", ready: true, artifacts: false }] });
       }
       return route(url);
     });
@@ -70,7 +70,7 @@ describe("the Artifacts panel", () => {
   });
 
   it("shows artifact findings in the list and the detail (D316)", async () => {
-    window.history.replaceState(null, "", "/ui/?kb=homelab&panel=artifacts&artifact=skill%2Freview");
+    window.history.replaceState(null, "", "/ui/?kb=kb-a&panel=artifacts&artifact=skill%2Freview");
     stubApi();
     render(<App />);
     const panel = await screen.findByRole("region", { name: "Artifacts" });
@@ -84,7 +84,7 @@ describe("the Artifacts panel", () => {
   });
 
   it("opens the artifact a shared link names", async () => {
-    window.history.replaceState(null, "", "/ui/?kb=homelab&panel=artifacts&artifact=skill%2Freview");
+    window.history.replaceState(null, "", "/ui/?kb=kb-a&panel=artifacts&artifact=skill%2Freview");
     stubApi();
     render(<App />);
     expect(await screen.findByRole("article", { name: "Artifact skill/review" })).toBeInTheDocument();

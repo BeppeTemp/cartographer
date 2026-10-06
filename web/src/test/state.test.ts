@@ -6,7 +6,7 @@ import { readViewState, viewStateToSearch, type ViewState } from "../lib/viewsta
 describe("view state round-trips through the URL", () => {
   it("restores everything it writes", () => {
     const view: ViewState = {
-      kb: "homelab",
+      kb: "kb-a",
       scope: "infra",
       concept: "infra/gateway",
       panel: "observatory",
