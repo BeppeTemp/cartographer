@@ -374,6 +374,11 @@ func valueContractFindings(mapName string, contract kb.MapContract, concepts map
 			counts[c.value]++
 			types[c.typ]++
 		}
+		// D313: a field whose every value is date-shaped (claimed_at, due) holds
+		// instants, not a vocabulary: proposing one is noise nobody can accept.
+		if field != "status" && allDateShaped(counts) {
+			continue
+		}
 		// D295 WP3: status is always eligible (vocabulary every reader
 		// assumes), with no distinct-value cap.
 		if field != "status" && len(counts) > valueContractMaxValues {
@@ -528,6 +533,15 @@ func suppressed(f Finding, ignores map[string]bool) bool {
 
 // dateShaped reports whether v is a scalar string that parses as YYYY-MM-DD or
 // RFC3339. Anything else (other text, a list) is not a timestamp.
+func allDateShaped(counts map[string]int) bool {
+	for v := range counts {
+		if !dateShaped(v) {
+			return false
+		}
+	}
+	return len(counts) > 0
+}
+
 func dateShaped(v interface{}) bool {
 	str, ok := v.(string)
 	if !ok {

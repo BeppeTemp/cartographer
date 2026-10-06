@@ -123,7 +123,22 @@ func analyseStructure(k *kb.KB, lg *kb.LinkGraph, archives []string, contracts m
 		if !main[a.Node] || a.Separated < cutConceptMinSeparated {
 			continue
 		}
-		cutOff := separatedNodes(g, a.Node)
+		// Structural leaves are not fragility (D313): an expanded concept's
+		// satellites hang off its index by construction, and a journal's
+		// entries are normally linked only to their subject page. A vertex is
+		// reported only for what remains.
+		vertex := lg.IDs[a.Node]
+		var cutOff []int
+		for _, u := range separatedNodes(g, a.Node) {
+			id := lg.IDs[u]
+			if strings.HasPrefix(string(id), string(vertex)+"/") || s.kindOf(id) == "journal" {
+				continue
+			}
+			cutOff = append(cutOff, u)
+		}
+		if len(cutOff) < cutConceptMinSeparated {
+			continue
+		}
 		examples := make([]string, 0, 3)
 		for _, u := range cutOff {
 			if len(examples) == 3 {
@@ -131,8 +146,8 @@ func analyseStructure(k *kb.KB, lg *kb.LinkGraph, archives []string, contracts m
 			}
 			examples = append(examples, string(lg.IDs[u]))
 		}
-		s.cut[lg.IDs[a.Node]] = fmt.Sprintf("removing or unlinking this concept disconnects %d concepts (e.g. %s)",
-			a.Separated, strings.Join(examples, ", "))
+		s.cut[vertex] = fmt.Sprintf("removing or unlinking this concept disconnects %d concepts (e.g. %s)",
+			len(cutOff), strings.Join(examples, ", "))
 	}
 	return s, nil
 }
@@ -233,20 +248,31 @@ func (s *structure) conceptChecks(id okf.ConceptID, relPath string) []Finding {
 		}
 	}
 
-	// --- link_to_retired (info) ---
-	// From a live concept in a map only: an incident in a journal legitimately
-	// cites a component that is gone today.
-	if !retired(facets.Status) && s.kindOf(id) == "map" {
-		for _, t := range s.lg.Graph.Out[i] { // ascending, so sorted by target
-			tf := s.lg.Facets[t]
-			if !retired(tf.Status) {
+	// --- link_to_retired (info, D313) ---
+	// One finding per retired concept, on the retired concept: retiring a
+	// component is one decision, so it yields one finding, and accepting it
+	// (lint_ignore: [link_to_retired] here) means the remaining mentions are
+	// historical. Linkers are live concepts in a map only (an incident in a
+	// journal legitimately cites a component that is gone today), and the
+	// declared successor is never counted.
+	if retired(facets.Status) {
+		var linkers []string
+		for _, u := range s.lg.Graph.In[i] { // ascending, so sorted by id
+			uid := s.lg.IDs[u]
+			if u == i || retired(s.lg.Facets[u].Status) || s.kindOf(uid) != "map" || string(uid) == facets.SupersededBy {
 				continue
 			}
-			msg := fmt.Sprintf("links to retired concept %s (status: %s)", s.lg.IDs[t], tf.Status)
-			if tf.SupersededBy != "" && tf.SupersededBy != string(s.lg.IDs[t]) && s.resolves(tf.SupersededBy) {
-				msg += "; successor: " + tf.SupersededBy
+			linkers = append(linkers, string(uid))
+		}
+		if len(linkers) > 0 {
+			shown := linkers
+			more := ""
+			if len(shown) > 5 {
+				shown, more = shown[:5], ", …"
 			}
-			out = append(out, Finding{Path: relPath, Check: "link_to_retired", Severity: SevInfo, Message: msg})
+			out = append(out, Finding{Path: relPath, Check: "link_to_retired", Severity: SevInfo,
+				Message: fmt.Sprintf("retired (status: %s) but still linked by %d live concepts: %s%s — update the ones that rely on it; accept with lint_ignore: [link_to_retired] on this concept if the remaining mentions are historical",
+					facets.Status, len(linkers), strings.Join(shown, ", "), more)})
 		}
 	}
 

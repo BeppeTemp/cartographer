@@ -136,11 +136,13 @@ func doctorDue(lastDoctor string, intervalDays int, now time.Time) bool {
 // decides, so the flag does not stay on for good on a real KB.
 func summarizeConformance(findings []lint.Finding, reviewTotal int, lastDoctor string, intervalDays int, now time.Time) map[string]interface{} {
 	bySev := map[string]int{}
+	acceptability := map[string]string{}
 	fixable := 0
 	for _, f := range findings {
 		if !conformanceChecks[f.Check] {
 			continue
 		}
+		acceptability[f.Check] = lint.CheckAcceptability(f.Check)
 		bySev[f.Severity]++
 		if f.Fix != nil {
 			fixable++
@@ -150,6 +152,7 @@ func summarizeConformance(findings []lint.Finding, reviewTotal int, lastDoctor s
 	out := map[string]interface{}{
 		"findings":         bySev,
 		"fixable":          fixable,
+		"acceptability":    acceptability,
 		"doctor_suggested": (total+reviewTotal) > 0 && doctorDue(lastDoctor, intervalDays, now),
 	}
 	if lastDoctor != "" {

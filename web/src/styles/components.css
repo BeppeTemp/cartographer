@@ -1401,6 +1401,12 @@ body.is-resizing {
   word-break: break-all;
 }
 
+.observatory__accept {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
 .observatory__go {
   font-size: var(--text-xs);
   color: var(--text-muted);

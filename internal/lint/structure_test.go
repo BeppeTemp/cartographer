@@ -152,16 +152,17 @@ func TestLinkToRetiredAndBrokenRelation(t *testing.T) {
 	s.concept("ops/selfish", "superseded_by: ops/selfish\n")
 	findings := s.run("")
 
+	// One finding per retired concept, on the retired concept (D313): the
+	// successor, a retired linker and a journal entry are never counted.
 	retiredLinks := findingsOf(findings, "link_to_retired")
 	if len(retiredLinks) != 2 {
 		t.Fatalf("link_to_retired = %+v", retiredLinks)
 	}
-	msgs := []string{retiredLinks[0].Message, retiredLinks[1].Message}
-	want := []string{
-		"links to retired concept ops/legacy (status: deprecated)",
-		"links to retired concept ops/old-dns (status: superseded); successor: ops/new-dns",
+	if retiredLinks[0].Path != "ops/legacy.md" || retiredLinks[1].Path != "ops/old-dns.md" {
+		t.Fatalf("link_to_retired = %+v", retiredLinks)
 	}
-	if retiredLinks[0].Path != "ops/live.md" || !reflect.DeepEqual(msgs, want) {
+	if !strings.Contains(retiredLinks[0].Message, "(status: deprecated) but still linked by 1 live concepts: ops/live —") ||
+		!strings.Contains(retiredLinks[1].Message, "(status: superseded) but still linked by 1 live concepts: ops/live —") {
 		t.Fatalf("link_to_retired = %+v", retiredLinks)
 	}
 
@@ -249,5 +250,91 @@ func TestMapLintIgnore(t *testing.T) {
 	invalid := findingsOf(findings, "lint_ignore_invalid")
 	if len(invalid) != 1 || invalid[0].Path != "ops/_map.md" || !strings.Contains(invalid[0].Message, "tool_param_field") {
 		t.Fatalf("invalid map-level name: %+v", invalid)
+	}
+}
+
+func TestLinkToRetired_SuccessorExempt(t *testing.T) {
+	s := newStructKB(t, map[string]string{"ops": "map"})
+	s.concept("ops/adr-old", "status: superseded\nsuperseded_by: ops/adr-new\n")
+	s.concept("ops/adr-new", "", "ops/adr-old")
+	if got := findingsOf(s.run(""), "link_to_retired"); len(got) != 0 {
+		t.Fatalf("the successor linking its predecessor is not a finding: %+v", got)
+	}
+}
+
+func TestLinkToRetired_AcceptedOnTarget(t *testing.T) {
+	s := newStructKB(t, map[string]string{"ops": "map"})
+	s.concept("ops/gone", "status: deprecated\nlint_ignore: [link_to_retired]\n")
+	s.concept("ops/a", "", "ops/gone")
+	if got := findingsOf(s.run(""), "link_to_retired"); len(got) != 0 {
+		t.Fatalf("accepted on the retired concept: %+v", got)
+	}
+	s.concept("ops/b", "", "ops/gone") // a new linker does not reopen it
+	if got := findingsOf(s.run(""), "link_to_retired"); len(got) != 0 {
+		t.Fatalf("a new linker reopened an accepted finding: %+v", got)
+	}
+}
+
+func TestLinkToRetired_ManyLinkersOneFinding(t *testing.T) {
+	s := newStructKB(t, map[string]string{"ops": "map"})
+	s.concept("ops/gone", "status: deprecated\n")
+	for _, n := range []string{"a", "b", "c", "d", "e", "f", "g"} {
+		s.concept("ops/"+n, "", "ops/gone")
+	}
+	got := findingsOf(s.run(""), "link_to_retired")
+	if len(got) != 1 || got[0].Path != "ops/gone.md" || !strings.Contains(got[0].Message, "linked by 7 live concepts: ops/a, ops/b, ops/c, ops/d, ops/e, …") {
+		t.Fatalf("7 linkers must be one finding: %+v", got)
+	}
+}
+
+// chainTo builds r1-r2-r3-r4-hub, the large side every cut vertex needs.
+func (s *structKB) chainTo(hub string) {
+	s.concept("ops/r1", "", "ops/r2")
+	s.concept("ops/r2", "", "ops/r3")
+	s.concept("ops/r3", "", "ops/r4")
+	s.concept("ops/r4", "", hub)
+}
+
+func TestCutConcept_ExpandedIndexExempt(t *testing.T) {
+	s := newStructKB(t, map[string]string{"ops": "map"})
+	s.chainTo("ops/svc")
+	s.concept("ops/svc/index", "", "ops/svc/api", "ops/svc/db", "ops/svc/ui")
+	for _, sat := range []string{"api", "db", "ui"} {
+		s.concept("ops/svc/"+sat, "")
+	}
+	if got := findingsOf(s.run(""), "cut_concept"); hasCheck(got, "ops/svc/index.md", "cut_concept") {
+		t.Fatalf("an expanded index cutting off its own satellites is not fragility: %+v", got)
+	}
+}
+
+func TestCutConcept_JournalLeavesExempt(t *testing.T) {
+	s := newStructKB(t, map[string]string{"ops": "map", "incidents": "journal"})
+	s.chainTo("ops/svc")
+	s.concept("ops/svc", "")
+	for _, n := range []string{"a", "b", "c"} {
+		s.concept("incidents/"+n, "", "ops/svc")
+	}
+	if got := findingsOf(s.run(""), "cut_concept"); hasCheck(got, "ops/svc.md", "cut_concept") {
+		t.Fatalf("journal notes linked only to their subject are not fragility: %+v", got)
+	}
+}
+
+func TestCutConcept_MixedStillFires(t *testing.T) {
+	s := newStructKB(t, map[string]string{"ops": "map", "incidents": "journal"})
+	s.chainTo("ops/svc")
+	s.concept("ops/svc", "", "ops/leaf1", "ops/leaf2", "ops/leaf3")
+	for _, n := range []string{"leaf1", "leaf2", "leaf3"} {
+		s.concept("ops/"+n, "")
+	}
+	s.concept("incidents/a", "", "ops/svc")
+	got := findingsOf(s.run(""), "cut_concept")
+	var msg string
+	for _, f := range got {
+		if f.Path == "ops/svc.md" {
+			msg = f.Message
+		}
+	}
+	if !strings.Contains(msg, "disconnects 3 concepts (e.g. ops/leaf1, ops/leaf2, ops/leaf3)") || strings.Contains(msg, "incidents") {
+		t.Fatalf("a real separation must fire, naming only map concepts: %q", msg)
 	}
 }

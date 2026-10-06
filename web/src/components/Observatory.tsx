@@ -163,6 +163,7 @@ export function Observatory({
                       <span className="observatory__message">{finding.message}</span>
                       <span className="observatory__meta">
                         <code className="observatory__check">{finding.check}</code>
+                        <AcceptBadge level={report.acceptability?.[finding.check]} />
                         <code className="observatory__path">{finding.path}</code>
                       </span>
                     </span>
@@ -184,7 +185,7 @@ export function Observatory({
             {checks.map(([check, count]) => (
               <div key={check}>
                 <dt>
-                  <code>{check}</code>
+                  <code>{check}</code> <AcceptBadge level={report.acceptability?.[check]} />
                 </dt>
                 <dd>{count}</dd>
               </div>
@@ -273,5 +274,22 @@ function Knowledge({
         </p>
       )}
     </>
+  );
+}
+
+const ACCEPT: Record<string, { glyph: string; label: string; title: string }> = {
+  none: { glyph: "⊘", label: "fix", title: "Cannot be accepted: fix it" },
+  concept: { glyph: "◌", label: "concept", title: "Accept with lint_ignore on the concept, or on its map" },
+  map: { glyph: "◎", label: "map", title: "Accept with lint_ignore in the map's _map.md" },
+};
+
+/** Who can accept a finding of this check (D313): nobody, the concept, or its map. */
+function AcceptBadge({ level }: { level?: string }) {
+  const entry = level ? ACCEPT[level] : undefined;
+  if (!entry) return null;
+  return (
+    <span className="observatory__accept" title={entry.title}>
+      <span aria-hidden="true">{entry.glyph}</span> {entry.label}
+    </span>
   );
 }

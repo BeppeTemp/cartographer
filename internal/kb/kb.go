@@ -1543,7 +1543,10 @@ type MapContract struct {
 	HotspotInDegree int
 	HotspotBytes    int
 	OversizeBytes   int
-	Malformed       []ContractMalformed
+	// OversizeConcepts (D313) is the top-level concept count above which the map
+	// is map_oversize; 0 keeps the built-in threshold.
+	OversizeConcepts int
+	Malformed        []ContractMalformed
 }
 
 // AllowedValues returns the allowed values declared for field on conceptType:
@@ -1741,7 +1744,7 @@ func (kb *KB) isMapName(name string) bool {
 const IndexGenerated = "generated"
 
 // costIntKeys are the D301 positive-integer threshold overrides.
-var costIntKeys = map[string]bool{"repeated_fact_min": true, "hotspot_in_degree": true, "hotspot_bytes": true, "oversize_bytes": true}
+var costIntKeys = map[string]bool{"repeated_fact_min": true, "hotspot_in_degree": true, "hotspot_bytes": true, "oversize_bytes": true, "oversize_concepts": true}
 
 // MapContractUpdate is a partial change to an existing map's lint contract:
 // a nil field is left as it is. An empty list (or false) removes the key, so
@@ -1775,11 +1778,12 @@ type MapContractUpdate struct {
 	// D302: nil leaves work_map, "" removes it.
 	WorkMap *string
 	// D301 cost keys: nil leaves the key; "" or "curated" / 0 removes it.
-	Index           *string
-	RepeatedFactMin *int
-	HotspotInDegree *int
-	HotspotBytes    *int
-	OversizeBytes   *int
+	Index            *string
+	RepeatedFactMin  *int
+	HotspotInDegree  *int
+	HotspotBytes     *int
+	OversizeBytes    *int
+	OversizeConcepts *int
 	// Title renames the map: the title key and the H1 that repeats it, in
 	// _map.md and in index.md. nil leaves it; "" is refused, a map has one.
 	Title *string
@@ -1924,7 +1928,7 @@ func (kb *KB) UpdateMapContract(name string, upd MapContractUpdate) (MapContract
 	for _, kv := range []struct {
 		key string
 		val *int
-	}{{"repeated_fact_min", upd.RepeatedFactMin}, {"hotspot_in_degree", upd.HotspotInDegree}, {"hotspot_bytes", upd.HotspotBytes}, {"oversize_bytes", upd.OversizeBytes}} {
+	}{{"repeated_fact_min", upd.RepeatedFactMin}, {"hotspot_in_degree", upd.HotspotInDegree}, {"hotspot_bytes", upd.HotspotBytes}, {"oversize_bytes", upd.OversizeBytes}, {"oversize_concepts", upd.OversizeConcepts}} {
 		if kv.val == nil {
 			continue
 		}
@@ -2378,6 +2382,8 @@ func (kb *KB) ReadMapContract(archive string) (MapContract, error) {
 				contract.HotspotBytes = n
 			case "oversize_bytes":
 				contract.OversizeBytes = n
+			case "oversize_concepts":
+				contract.OversizeConcepts = n
 			}
 		case key == "stale_after":
 			s, _ := value.(string)

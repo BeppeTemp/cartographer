@@ -63,8 +63,8 @@ var reviewFixtures = map[string]func(t *testing.T, dismiss bool) (*kb.KB, string
 	ReviewDuplicate: func(t *testing.T, dismiss bool) (*kb.KB, string) {
 		k := tempKB(t)
 		writeFile(t, k.DataRoot(), "m/_map.md", "---\ntype: Map\ntitle: M\n---\n")
-		writeFile(t, k.DataRoot(), "m/a.md", "---\ntype: Service\ntitle: Alpha\nresource: https://example.com/x\n"+ignoreLine(ReviewDuplicate, dismiss)+"---\n# A\n")
-		writeFile(t, k.DataRoot(), "m/b.md", "---\ntype: Service\ntitle: Beta\nresource: https://example.com/x\n---\n# B\n")
+		writeFile(t, k.DataRoot(), "m/a.md", "---\ntype: Service\ntitle: Alpha gateway\nresource: https://example.com/x\n"+ignoreLine(ReviewDuplicate, dismiss)+"---\n# A\n")
+		writeFile(t, k.DataRoot(), "m/b.md", "---\ntype: Service\ntitle: Beta gateway\nresource: https://example.com/x\n---\n# B\n")
 		return k, "m/a"
 	},
 	ReviewZombie: func(t *testing.T, dismiss bool) (*kb.KB, string) {
@@ -192,6 +192,22 @@ func TestReviewDuplicateCandidate(t *testing.T) {
 	}
 	if dups[0].Concepts[0] != "m/svc-a" {
 		t.Fatalf("resource duplicate must rank first: %+v", dups)
+	}
+}
+
+// D313: the same resource with unrelated titles is not a duplicate.
+func TestReviewDuplicateCandidate_ResourceNeedsSimilarTitle(t *testing.T) {
+	k := tempKB(t)
+	writeFile(t, k.DataRoot(), "m/_map.md", "---\ntype: Map\ntitle: M\n---\n")
+	for name, title := range map[string]string{"a": "Rotate certificates", "b": "Upgrade storage nodes", "c": "Tune ingress limits"} {
+		writeFile(t, k.DataRoot(), "m/"+name+".md", "---\ntype: Task\ntitle: "+title+"\nresource: https://example.com/cluster\n---\n")
+	}
+	if dups := itemsOf(review(t, k), ReviewDuplicate); len(dups) != 0 {
+		t.Fatalf("unrelated titles on one resource: %+v", dups)
+	}
+	writeFile(t, k.DataRoot(), "m/d.md", "---\ntype: Task\ntitle: Rotate the certificates\nresource: https://example.com/cluster\n---\n")
+	if dups := itemsOf(review(t, k), ReviewDuplicate); len(dups) == 0 {
+		t.Fatal("similar titles on one resource must be a candidate")
 	}
 }
 

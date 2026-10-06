@@ -12,7 +12,7 @@ The data plane is the **source of truth**: UTF-8 `.md` files with YAML frontmatt
 
 There is no intermediate categorization level (D77): category navigation is the job of curated `index.md` files, `search`, and the graph — not the filesystem. A growing concept becomes an **expanded concept** — a *state*, not a level: `concept_expand` turns `map/name.md` into `map/name/index.md` **without changing the ConceptID** (ID resolution tries `<id>.md` and then `<id>/index.md`, so no backlink breaks), and from there the concept can grow with `map/name/child` satellites and assets. Expansion is the prerequisite for owning assets. Expansion is also allowed in journals (e.g. a heavy incident with attachments). `concept_collapse` is its inverse (D160): `map/name/index.md` becomes `map/name.md` under the same ConceptID, so no inbound link changes. It refuses while the directory still holds satellites, assets or anything else besides `index.md` (a hidden file) — none would have a home after the collapse — and names them. `concept_merge` folds a satellite into its own parent, rebasing the merged body's relative links and redirecting every inbound link, including those from sibling satellites; both are `advanced`, i.e. callable by name but not advertised in `tools/list`.
 
-Depth is **enforced on the write path** (D72 WP4): a ConceptID under `data/` has at most 3 segments (`map/concept/child`, where the third segment only exists inside an expanded concept); deeper writes are rejected. Reads are unaffected (legacy KBs remain readable). If a write implicitly creates a new expansion directory (e.g. `concept_move` into a nested path), the server also generates the `index.md` stub (`type: Index`, title from the name) — so `index_get`'s progressive disclosure never breaks. Lint defends the semantics of the hierarchy (D77 WP4, `concept_oversize` D78): `expanded_missing_index` (a directory with no `index.md`), `expanded_ambiguous` (both `<id>.md` and `<id>/index.md` exist: writes are blocked until one form is removed), `expanded_as_category` (many children not linked from the concept's index: the directory is being used as a taxonomy), `map_oversize` (a map beyond the size threshold: a thematic split is preferable to a subfolder), `legacy_archive_descriptor` (a pre-D77 `_archive.md` descriptor), `concept_oversize` (a concept beyond the byte threshold: a candidate for `concept_expand` into a dossier).
+Depth is **enforced on the write path** (D72 WP4): a ConceptID under `data/` has at most 3 segments (`map/concept/child`, where the third segment only exists inside an expanded concept); deeper writes are rejected. Reads are unaffected (legacy KBs remain readable). If a write implicitly creates a new expansion directory (e.g. `concept_move` into a nested path), the server also generates the `index.md` stub (`type: Index`, title from the name) — so `index_get`'s progressive disclosure never breaks. Lint defends the semantics of the hierarchy (D77 WP4, `concept_oversize` D78): `expanded_missing_index` (a directory with no `index.md`), `expanded_ambiguous` (both `<id>.md` and `<id>/index.md` exist: writes are blocked until one form is removed), `expanded_as_category` (many children not linked from the concept's index: the directory is being used as a taxonomy), `map_oversize` (a map with more top-level concepts than its threshold, D313: a thematic split is preferable to a subfolder; satellites of an expanded concept and every journal entry are not counted, a journal never fires), `legacy_archive_descriptor` (a pre-D77 `_archive.md` descriptor), `concept_oversize` (a concept beyond the byte threshold: a candidate for `concept_expand` into a dossier).
 
 Every KB (Atlas) is split into two planes: the **conceptual root** (`data/`), which holds maps, journals, and concepts; and the support folders (`skills/`, `services/`, `agents/`, `hooks/`, `templates/`), which sit directly under the KB root. KBs are **isolated**: no cross-links between different KBs.
 
@@ -274,6 +274,7 @@ to add new pages to the index is the `kb-doctor` skill's to update, not the serv
 | `hotspot_in_degree: <n>` | inbound links that, with `hotspot_bytes`, make a `read_hotspot` | 50 |
 | `hotspot_bytes: <n>` | body size that, with `hotspot_in_degree`, makes a `read_hotspot` | 16384 |
 | `oversize_bytes: <n>` | this map's `concept_oversize` threshold | half the 60 KB read guard |
+| `oversize_concepts: <n>` | top-level concepts above which the map is `map_oversize` (D313) | 50 |
 
 Each is a positive integer (or `generated`/`curated`); anything else is `contract_malformed`.
 
@@ -283,7 +284,7 @@ Each is a positive integer (or `generated`/`curated`); anything else is `contrac
 that map**, and for the findings reported on the map itself: a KB's style choice (a "See also"
 that says why each link matters, services that link the infrastructure they run on) is one
 decision, not one write per concept. It takes every check a concept can silence (below) plus
-`facet_sprawl`, `missing_value_contract` and `island`, which no single concept owns; an
+`facet_sprawl`, `missing_value_contract`, `map_oversize` and `island`, which no single concept owns; an
 `island` also goes when any member, or a member's map, accepts it. Errors never go; a name a map
 cannot accept is reported as `lint_ignore_invalid` on the `_map.md`. With this, every finding has
 a way out — fixed, or accepted where the KB says so — and an Observatory with nothing to report is
@@ -301,13 +302,27 @@ Suppressible: `broken_link`, `machine_path`, `concept_oversize`, `stale_claim`, 
 `cut_concept`, `link_to_retired`, `broken_relation`, `map_misfit`, `reciprocal_link_item` (D301), and the `kb_review` kinds (D298, D301) `duplicate_candidate`, `zombie_work`, `repeated_fact`, `read_hotspot`, `promotion_candidate`, `glossary_gap`, `lint_judgement` — there the name dismisses a review item that names the concept (see §Review keys). **Not** suppressible: `stringified_list` (D314), `tool_param_field` (a tool argument is never a legitimate field), every `error`-severity check
 (`missing_required_field`, `invalid_field_value`, `forbidden_field`, `expanded_ambiguous`) — those are contract violations, not judgements, and
 letting a concept declare its own contract void would be a hole rather than an escape hatch — and the
-directory-level checks (`map_oversize`, `index_incomplete`, `index_stale`, `expanded_*`, `orphan_asset`,
+directory-level checks (`index_incomplete`, `index_stale`, `expanded_*`, `orphan_asset`,
 `oversized_asset`, `unlistable_assets`, `unused_placeholder`, `facet_sprawl`) and the artifact checks
 below (`skill_*`, `legacy_tool_name`, `missing_instructions`, `junk_*`, `cross_kb_path`), which belong to a map, an expanded concept or `paths.yaml` and have no single
-concept frontmatter that owns them (a map accepts `facet_sprawl` in its `_map.md`, above).
+concept frontmatter that owns them (a map accepts `facet_sprawl` and `map_oversize` in its `_map.md`, above).
 `island` is accepted by any of its members. Naming
 an unsuppressible or unknown check is itself reported as `lint_ignore_invalid`: a typo that silently
 suppresses nothing is worse than no opt-out.
+
+Where each check can be accepted (D313) is `lint.CheckAcceptability` — `concept`, `map` (only the
+map's `_map.md`) or `none` — read from the same tables `lint_ignore_invalid` enforces, and shown as
+`kb_status.conformance.acceptability` and as a badge in the Observatory.
+
+Structural checks flag defects, not structure (D313): `link_to_retired` is **one finding per retired
+concept**, on the retired concept ("retired, still linked by N live concepts: …"; the declared
+`superseded_by` successor and linkers in a journal are not counted), so retiring a component is one
+decision and `lint_ignore: [link_to_retired]` on it accepts the remaining mentions as historical;
+`cut_concept` does not count an expanded concept's own satellites or a journal's entries among the
+nodes a vertex separates; `secrets_on_non_service` is `info` and points at `secret_resolve`; and
+`machine_path` never fires for the conventional tool paths `~/.ssh/`, `~/.kube/`, `~/.m2/`,
+`~/.config/`, `~/.cache/`, `~/.local/`, `~/.gnupg/` (a map's `machine_path_allow_prefixes` only adds
+to them). `missing_value_contract` skips a field whose every value is a date.
 
 ### Conformance checks (D289)
 
@@ -370,9 +385,9 @@ Lint also sees a KB **decaying**: work never closed, closed work not finished, p
 | `open_markers: [...]` | words that mark an open question, in the KB's language | `TODO`, `TBD`, `FIXME` |
 
 - `stale_open` (suppressible): open status and `timestamp` older than `stale_after`.
-- `closed_with_open_items` (suppressible): a status of the `done` or `resolved` family with unchecked `- [ ]` items outside code.
+- `closed_with_open_items` (suppressible): a status of the `done` or `resolved` family with unchecked `- [ ]` items outside code and outside a section whose H2 matches the map's `procedure_headings` (default `procedure`, `steps`, `how to`: a procedure's checklist is a reusable template, D313).
 - `template_section_missing` (suppressible): sections of the type's template the page lacks, compared folding case and accents; headings inside fenced code in the template are ignored.
-- `open_marker` (suppressible): marker occurrences outside code and outside struck-through `~~text~~` (closed or cancelled, D307), whole words, case- and accent-folded; `kb_status.open_markers` totals them as `{concepts, markers}`.
+- `open_marker` (suppressible): marker occurrences outside code, outside heading lines, outside table rows of a concept in an open phase (D313), and outside struck-through `~~text~~` (closed or cancelled, D307), whole words, case- and accent-folded; `kb_status.open_markers` totals them as `{concepts, markers}`.
 - `facet_sprawl` (on `_map.md`, directory-level): `tags` with at least 30 distinct values, half or more used once; the message lists the ten most used as the likely vocabulary.
 
 ### Review keys (D298)

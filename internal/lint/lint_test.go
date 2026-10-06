@@ -873,21 +873,87 @@ func TestRun_ExpandedAsCategory_LinkedChildren_Clean(t *testing.T) {
 
 // --- map_oversize (D77 WP4) ---
 
+func oversizeMap(t *testing.T, k *kb.KB, front string, top, satellites int) {
+	t.Helper()
+	writeFile(t, k.DataRoot(), "arch/_map.md", "---\ntype: Map\ntitle: Arch\n"+front+"---\n")
+	for i := 0; i < top; i++ {
+		writeFile(t, k.DataRoot(), fmt.Sprintf("arch/concept-%d.md", i), "---\ntype: Note\n---\nContent.\n")
+	}
+	if satellites > 0 {
+		writeFile(t, k.DataRoot(), "arch/big/index.md", "---\ntype: Note\n---\nIndex.\n")
+		for i := 0; i < satellites; i++ {
+			writeFile(t, k.DataRoot(), fmt.Sprintf("arch/big/sat-%d.md", i), "---\ntype: Note\n---\nSat.\n")
+		}
+	}
+}
+
 func TestRun_MapOversize_Detected(t *testing.T) {
 	k := tempKB(t)
-	writeFile(t, k.DataRoot(), "arch/_map.md",
-		"---\ntype: Map\ntitle: Arch\nkind: map\nontology_mode: flexible\n---\n")
-	for i := 0; i < mapOversizeThreshold+1; i++ {
-		writeFile(t, k.DataRoot(), fmt.Sprintf("arch/concept-%d.md", i),
-			"---\ntype: Note\n---\nContent.\n")
-	}
-
+	oversizeMap(t, k, "kind: map\n", mapOversizeThreshold+1, 0)
 	findings, err := Run(k, "", false)
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	if !hasCheck(findings, "arch", "map_oversize") {
+	if !hasCheck(findings, "arch/_map.md", "map_oversize") {
 		t.Errorf("expected map_oversize for arch, got: %v", findings)
+	}
+}
+
+// Satellites of an expanded concept are its own content: only top-level
+// concepts count (D313), checked by the segment after the map prefix, not by a
+// naive prefix count.
+func TestRun_MapOversize_SatellitesNotCounted(t *testing.T) {
+	k := tempKB(t)
+	oversizeMap(t, k, "kind: map\n", 7, mapOversizeThreshold*3)
+	findings, err := Run(k, "", false)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if hasCheck(findings, "arch/_map.md", "map_oversize") {
+		t.Errorf("satellites must not inflate map_oversize: %v", findings)
+	}
+}
+
+// A journal grows by construction: it needs harvest, not a split.
+func TestRun_MapOversize_JournalExempt(t *testing.T) {
+	k := tempKB(t)
+	oversizeMap(t, k, "kind: journal\n", mapOversizeThreshold+10, 0)
+	findings, err := Run(k, "", false)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if hasCheck(findings, "arch/_map.md", "map_oversize") {
+		t.Errorf("a journal never fires map_oversize: %v", findings)
+	}
+}
+
+func TestRun_MapOversize_CustomThreshold(t *testing.T) {
+	k := tempKB(t)
+	oversizeMap(t, k, "kind: map\noversize_concepts: 200\n", 150, 0)
+	findings, err := Run(k, "", false)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if hasCheck(findings, "arch/_map.md", "map_oversize") {
+		t.Errorf("oversize_concepts: 200 must raise the threshold: %v", findings)
+	}
+	oversizeMap(t, k, "kind: map\noversize_concepts: 10\n", 11, 0)
+	findings, _ = Run(k, "", false)
+	if !hasCheck(findings, "arch/_map.md", "map_oversize") {
+		t.Errorf("oversize_concepts: 10 must lower the threshold: %v", findings)
+	}
+}
+
+// The map accepts map_oversize in _map.md without lint_ignore_invalid (D313).
+func TestRun_MapOversize_AcceptedByMap(t *testing.T) {
+	k := tempKB(t)
+	oversizeMap(t, k, "kind: map\nlint_ignore: [map_oversize]\n", mapOversizeThreshold+1, 0)
+	findings, err := Run(k, "", false)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if hasCheck(findings, "arch/_map.md", "map_oversize") || hasCheck(findings, "arch/_map.md", "lint_ignore_invalid") {
+		t.Errorf("map_oversize must be accepted by the map: %v", findings)
 	}
 }
 
@@ -1185,6 +1251,11 @@ func TestLint_SecretsOnNonServiceConcept(t *testing.T) {
 			for _, f := range findings {
 				if f.Check == "secrets_on_non_service" {
 					got = true
+				}
+			}
+			for _, f := range findings {
+				if f.Check == "secrets_on_non_service" && (f.Severity != SevInfo || !strings.Contains(f.Message, "secret_resolve")) {
+					t.Errorf("secrets_on_non_service must be info and name secret_resolve: %+v", f)
 				}
 			}
 			if got != tc.wantCheck {
@@ -1670,5 +1741,43 @@ func TestLint_DuplicateLinkFix_LinkOnlyItem(t *testing.T) {
 	// goes with its reason (the text says why).
 	if fixable != 2 || notFixable != 0 {
 		t.Errorf("expected 2 fixable duplicate_link, got %d fixable and %d not (findings: %+v)", fixable, notFixable, findings)
+	}
+}
+
+// D313: conventional tool paths never need a per-concept lint_ignore.
+func TestRun_MachinePath_BuiltinConventionalPaths_Clean(t *testing.T) {
+	k := tempKB(t)
+	writeFile(t, k.DataRoot(), "m/_map.md", "---\ntype: Map\nkind: map\ntitle: M\n---\n# M\n")
+	writeFile(t, k.DataRoot(), "m/ok.md", "---\ntype: Note\ntitle: OK\n---\nSee ~/.ssh/config, ~/.kube/config, ~/.m2/settings.xml and ~/.config/sops/age.\n")
+	writeFile(t, k.DataRoot(), "m/bad.md", "---\ntype: Note\ntitle: Bad\n---\nSee ~/Documents/work/secret.txt.\n")
+	findings, err := Run(k, "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hasCheck(findings, "m/ok.md", "machine_path") {
+		t.Errorf("conventional paths flagged: %+v", findings)
+	}
+	if !hasCheck(findings, "m/bad.md", "machine_path") {
+		t.Errorf("a non-conventional home path must still fire: %+v", findings)
+	}
+	// CheckConcept (write responses) shares the allowlist.
+	for _, f := range CheckConcept(k, "m/ok", "---\ntype: Note\ntitle: OK\n---\nSee ~/.ssh/config.\n") {
+		if f.Check == "machine_path" {
+			t.Errorf("CheckConcept flagged a conventional path: %+v", f)
+		}
+	}
+}
+
+func TestCheckAcceptability(t *testing.T) {
+	for check, want := range map[string]string{
+		"machine_path":           AcceptConcept,
+		"map_oversize":           AcceptMap,
+		"missing_value_contract": AcceptMap,
+		"missing_required_field": AcceptNone, // an error: fix it
+		"no_such_check":          AcceptNone,
+	} {
+		if got := CheckAcceptability(check); got != want {
+			t.Errorf("CheckAcceptability(%q) = %q, want %q", check, got, want)
+		}
 	}
 }

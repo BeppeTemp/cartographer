@@ -102,7 +102,7 @@ match it **case-insensitively** (D158): a KB whose type vocabulary is lowercase 
 a likely outcome of an import, or of a non-English domain vocabulary — used to
 get zero services and unusable secret resolution with no error anywhere. A
 near-miss such as `services` is still not a service. Lint reports
-`secrets_on_non_service` when a concept declares `secrets_source` or
+`secrets_on_non_service` (info, D313: such a concept is resolved by `secret_resolve` on its ID, or the bundle moves to a Service) when a concept declares `secrets_source` or
 `secret_refs` under any other type, so the mistake surfaces from the KB instead
 of from a source read.
 
