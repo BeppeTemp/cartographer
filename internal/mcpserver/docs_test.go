@@ -42,6 +42,7 @@ var docsNonTools = map[string]bool{
 	"skill_invalid": true, "skill_warning": true, "skill_broken_ref": true,
 	"skill_git_command": true, "skill_missing_perimeter": true, "artifact_unused": true,
 	"missing_context": true, // reserved contradiction_kind (D273)
+	"sync_h1":         true, // kb_repair fix kind (D315), not a tool
 	"open_question":   true, // reserved contradiction_kind (D273)
 	// audit configuration keys (D119), not tools
 	"archive_dir":       true,

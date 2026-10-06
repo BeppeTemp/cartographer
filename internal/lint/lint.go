@@ -144,6 +144,8 @@ var perConceptChecks = map[string]bool{
 	"secrets_on_non_service": true,
 	"orphan":                 true,
 	"missing_title":          true,
+	"title_h1_mismatch":      true,
+	"title_quality":          true,
 	"duplicate_link":         true,
 	"bare_link_list":         true,
 	// Structural checks (D243). island is deliberately absent: it belongs to

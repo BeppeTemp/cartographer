@@ -278,6 +278,15 @@ to add new pages to the index is the `kb-doctor` skill's to update, not the serv
 
 Each is a positive integer (or `generated`/`curated`); anything else is `contract_malformed`.
 
+Page-name keys (D315), read by `title_quality`:
+
+| Key | Meaning | Default |
+|---|---|---|
+| `title_max_length: <n>` | title length (characters) above which a concept of this map is `title_quality`; `0` turns the length rule off | 100 |
+| `forbidden_title_terms: [...]` | substrings no title in this map may carry, matched case-insensitively | none |
+
+`title_max_length` is a non-negative integer, `forbidden_title_terms` a non-empty list; anything else is `contract_malformed`. `map_update` sets them (`title_max_length: -1` removes the key, back to the default).
+
 ### Accepting a check for a whole map (D306)
 
 `lint_ignore: [check, …]` in a map's `_map.md` accepts the named checks for **every concept of
@@ -298,7 +307,7 @@ a deliberately-broken example link — could not be written without generating t
 describes, so a KB's own "known false positives" page was impossible.
 
 Suppressible: `broken_link`, `machine_path`, `concept_oversize`, `stale_claim`, `imported_draft`,
-`secrets_on_non_service`, `orphan`, `missing_title`, `unknown_placeholder`, `forbidden_term`, `sops_format_mismatch`, `sops_missing_file`, `legacy_path`, `nonstandard_field`, `prose_value`, `stale_open`, `closed_with_open_items`, `template_section_missing`, `open_marker`, `source_uncited`, `mangled_placeholder` (D314), `duplicate_link`, `bare_link_list`, and the structural
+`secrets_on_non_service`, `orphan`, `missing_title`, `unknown_placeholder`, `forbidden_term`, `sops_format_mismatch`, `sops_missing_file`, `legacy_path`, `nonstandard_field`, `prose_value`, `stale_open`, `closed_with_open_items`, `template_section_missing`, `open_marker`, `source_uncited`, `mangled_placeholder` (D314), `title_h1_mismatch` and `title_quality` (D315), `duplicate_link`, `bare_link_list`, and the structural
 `cut_concept`, `link_to_retired`, `broken_relation`, `map_misfit`, `reciprocal_link_item` (D301), and the `kb_review` kinds (D298, D301) `duplicate_candidate`, `zombie_work`, `repeated_fact`, `read_hotspot`, `promotion_candidate`, `glossary_gap`, `lint_judgement` — there the name dismisses a review item that names the concept (see §Review keys). **Not** suppressible: `stringified_list` (D314), `tool_param_field` (a tool argument is never a legitimate field), every `error`-severity check
 (`missing_required_field`, `invalid_field_value`, `forbidden_field`, `expanded_ambiguous`) — those are contract violations, not judgements, and
 letting a concept declare its own contract void would be a hole rather than an escape hatch — and the
@@ -349,6 +358,8 @@ Lint also compares a KB with the standard fields the server reads, not only with
 
 - `malformed_frontmatter` (warning, not suppressible, no fix, D295): a top-level key with a scalar value followed by indented `- ` lines. The stdlib-only parser (D8) keeps the scalar and drops the lines, so the value is silently truncated; the message names the key and the line.
 - `stringified_list` (warning, not suppressible, fix `listify_field`, D314): a list field (`provenance`, `tags`, `related`, `lint_ignore`, `open`, `secrets_source`) whose parsed value is a string that looks like a list: `"[a, b]"`, `"[a]; [b]"` or `"- a"`. The parser reads a quoted flow list as a scalar, so nothing else sees it. `kb_repair` rewrites it as a real list.
+- `title_h1_mismatch` (warning, suppressible, fix `sync_h1`, D315): the frontmatter `title` and the body's first `# ` heading both exist and differ. The title is the label `concept_list`, search and the Atlas show, so the heading is the wrong one: `kb_repair title_h1_mismatch` overwrites it with `# <title>` (plain text: formatting in the old heading goes; only the first heading, never one in a code fence).
+- `title_quality` (info, suppressible, no fix, D315): the title carries a decorative character (Unicode symbol or modifier, emoji included), is longer than the map's `title_max_length`, holds a lifecycle word (`attivo`, `active`, `dismesso`, `deprecated`, `draft`, `superseded`, `preparazione`, `archiviato`, `archived`, `declassato`, whole words) while the concept has a `status` field, holds one of the map's `forbidden_title_terms`, or the concept's own slug starts `YYYY-MM` in a map that is not `kind: journal`. One finding per rule that fires; a KB that wants it stricter promotes nothing here, it fixes the titles.
 - `mangled_placeholder` (warning, suppressible, no fix, D314): the body holds a `` `repo:key` `` or `` `path:key` `` code span followed within 40 characters by "between double braces" (or its Italian/French forms): a `{{…}}` placeholder an import unwrapped into prose. Fenced blocks and lines containing `{{` are skipped.
 
 Two finding kinds gained a mechanical fix in D295. `broken_link` in the `index.md` of an expanded concept carries `rebase_link` (`field` the href, `to` the rewritten href) when the link resolves against the pre-expansion file `<id>.md`: that is the damage an expansion did before `concept_expand` rebased links. `duplicate_link` is one finding per repeated target, and carries `drop_link_item` (`field` the exact list line) when that item is a single link and nothing else: the link stays in the text, the item goes, and a section left with no item loses its heading. An item with any other word keeps no fix — the word may be the reason. `reciprocal_link_item` (D301, info) carries the same fix for a link-only item whose target links back to the concept from its text — a back-link only in the target's own links section does not count, so a mutual pair listed only in the two links sections is never flagged and repairing it can never drop the edge (D309): backlinks keep the edge navigable both ways, so the item is a second write for an edge the server already exposes. It is an efficiency choice the operator opts into (`kb_repair reciprocal_link_item`, or `auto_repair` when listed), not conformance debt, and refines D287 without reverting it: only reciprocated items go, the section stays. `map_misfit` names only a map whose contract admits the concept's type (a strict map's `concept_types`); with no admitting majority there is no finding.
@@ -407,7 +418,7 @@ Lint also sees a KB **decaying**: work never closed, closed work not finished, p
 
 A review item is dismissed by `lint_ignore: [<kind>]` on a concept it names — for a pair, either member; a `glossary_gap` instead stops counting the concept carrying it, and the item goes when fewer than 10 remain. The agent writes the dismissal with the reason in the same commit, so the history says why; there is no review state besides the KB itself.
 
-A finding whose remedy is mechanical carries `fix: {kind, field, to?}` (`rename_field`, `drop_field`, `rebase_link`, `drop_link_item`, `set_value`, `split_value`); the rest carry none. `lint.CheckConcept` computes the frontmatter-driven checks of one concept without walking the KB (`missing_required_field`, `invalid_field_value`, `forbidden_field`, `nonstandard_field`, `tool_param_field`, `missing_title`, `machine_path`, `stale_claim`); `Run` calls the same function, and the write tools return its result.
+A finding whose remedy is mechanical carries `fix: {kind, field, to?}` (`rename_field`, `drop_field`, `rebase_link`, `drop_link_item`, `set_value`, `split_value`, `sync_h1`); the rest carry none. `lint.CheckConcept` computes the frontmatter-driven checks of one concept without walking the KB (`missing_required_field`, `invalid_field_value`, `forbidden_field`, `nonstandard_field`, `tool_param_field`, `missing_title`, `title_h1_mismatch`, `title_quality`, `machine_path`, `stale_claim`); `Run` calls the same function, and the write tools return its result.
 
 `machine_path_allow_prefixes` accepts **`~/`-anchored** prefixes as well as POSIX- and
 Windows-absolute ones: `~/.ssh/config` means "your ssh config" on every machine, exactly as `/etc/…`
