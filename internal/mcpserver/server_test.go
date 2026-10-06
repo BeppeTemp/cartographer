@@ -2359,6 +2359,9 @@ func TestServer_Lint_SeverityFloor_CountsSurvive(t *testing.T) {
 		var r struct {
 			Count            int            `json:"count"`
 			FindingsOmitted  int            `json:"findings_omitted"`
+			Offset           *int           `json:"offset"`
+			NextOffset       *int           `json:"next_offset"`
+			Truncated        bool           `json:"truncated"`
 			CountsByCheck    map[string]int `json:"counts_by_check"`
 			CountsBySeverity map[string]int `json:"counts_by_severity"`
 			Findings         []struct {
@@ -2369,6 +2372,11 @@ func TestServer_Lint_SeverityFloor_CountsSurvive(t *testing.T) {
 		}
 		if err := json.Unmarshal([]byte(tr.Content[0].Text), &r); err != nil {
 			t.Fatalf("decode lint: %v", err)
+		}
+		// Pagination fields (D324): offset is always present; with no limit
+		// the page is the whole list, so there is no next_offset.
+		if r.Offset == nil || *r.Offset != 0 || r.NextOffset != nil || r.Truncated {
+			t.Errorf("lint without limit: want offset 0, no next_offset, not truncated; got %+v", r)
 		}
 		return gateResponse{
 			LintFindings:     r.Findings,
@@ -5848,5 +5856,162 @@ func TestServer_MapCreate_DefaultRequireIndexEntry(t *testing.T) {
 	off, err := k.ReadRaw("optout-map/_map.md")
 	if err != nil || strings.Contains(off, "require_index_entry") {
 		t.Fatalf("opt-out descriptor = %q, %v", off, err)
+	}
+}
+
+// lintPage is the subset of lint's payload the D324 tests assert on.
+type lintPage struct {
+	Count               int            `json:"count"`
+	Findings            []lintFinding  `json:"findings"`
+	FindingsInPage      int            `json:"findings_in_page"`
+	FindingsAfterFilter int            `json:"findings_after_filter"`
+	FindingsOmitted     int            `json:"findings_omitted"`
+	Offset              int            `json:"offset"`
+	NextOffset          *int           `json:"next_offset"`
+	Truncated           bool           `json:"truncated"`
+	CountsByCheck       map[string]int `json:"counts_by_check"`
+}
+
+type lintFinding struct {
+	Path     string `json:"path"`
+	Check    string `json:"check"`
+	Severity string `json:"severity"`
+	Message  string `json:"message"`
+}
+
+func callLintPages(t *testing.T, k *kb.KB, calls ...map[string]any) []lintPage {
+	t.Helper()
+	s := New("1.0.0")
+	RegisterKBTools(s, k, Deps{})
+	msgs := []string{initMsg}
+	for i, c := range calls {
+		msgs = append(msgs, artifactCallMsg(t, i+2, "lint", c))
+	}
+	resps := runMCPSequence(t, s, msgs)
+	out := make([]lintPage, 0, len(calls))
+	for i := range calls {
+		tr := decodeToolResult(t, resps[i+1])
+		if tr.IsError {
+			t.Fatalf("lint: isError=true: %v", tr.Content)
+		}
+		var p lintPage
+		if err := json.Unmarshal([]byte(tr.Content[0].Text), &p); err != nil {
+			t.Fatalf("decode lint: %v", err)
+		}
+		out = append(out, p)
+	}
+	return out
+}
+
+func TestServer_Lint_CheckFilter(t *testing.T) {
+	k := setupTestKB(t)
+	setupThreeSeverityKB(t, k)
+	pages := callLintPages(t, k, map[string]any{}, map[string]any{"check": "broken_link"})
+	all, only := pages[0], pages[1]
+	if len(only.Findings) == 0 {
+		t.Fatal("check=broken_link returned nothing")
+	}
+	for _, f := range only.Findings {
+		if f.Check != "broken_link" {
+			t.Errorf("check filter leaked %s", f.Check)
+		}
+	}
+	// counts describe the KB, not the view.
+	if only.Count != all.Count || len(only.CountsByCheck) != len(all.CountsByCheck) || len(all.CountsByCheck) < 2 {
+		t.Errorf("counts must be computed before the check filter: %d/%v vs %d/%v",
+			only.Count, only.CountsByCheck, all.Count, all.CountsByCheck)
+	}
+	if only.FindingsAfterFilter != len(only.Findings) || only.FindingsOmitted != 0 {
+		t.Errorf("after_filter=%d omitted=%d", only.FindingsAfterFilter, only.FindingsOmitted)
+	}
+}
+
+func TestServer_Lint_CheckFilterArray(t *testing.T) {
+	k := setupTestKB(t)
+	setupThreeSeverityKB(t, k)
+	pages := callLintPages(t, k,
+		map[string]any{"check": []string{"broken_link", "concept_oversize"}},
+		map[string]any{"check": "no_such_check"})
+	seen := map[string]bool{}
+	for _, f := range pages[0].Findings {
+		seen[f.Check] = true
+	}
+	if len(seen) != 2 || !seen["broken_link"] || !seen["concept_oversize"] {
+		t.Errorf("want exactly broken_link and concept_oversize, got %v", seen)
+	}
+	if len(pages[1].Findings) != 0 || pages[1].Count == 0 {
+		t.Errorf("an unknown check is an empty page with the real count: %+v", pages[1])
+	}
+}
+
+func TestServer_Lint_Pagination(t *testing.T) {
+	k := setupTestKB(t)
+	setupThreeSeverityKB(t, k)
+	pages := callLintPages(t, k, map[string]any{},
+		map[string]any{"limit": 2, "offset": 0},
+		map[string]any{"limit": 2, "offset": 2},
+		map[string]any{"limit": 2, "offset": 100})
+	all, first, second, beyond := pages[0], pages[1], pages[2], pages[3]
+	if len(all.Findings) < 3 {
+		t.Fatalf("fixture too small to paginate: %d findings", len(all.Findings))
+	}
+	if first.FindingsInPage != 2 || first.NextOffset == nil || *first.NextOffset != 2 || !first.Truncated {
+		t.Errorf("first page: %+v", first)
+	}
+	if second.Offset != 2 || second.Findings[0] != all.Findings[2] {
+		t.Errorf("second page does not continue the first: %+v", second)
+	}
+	if beyond.FindingsInPage != 0 || beyond.NextOffset != nil || beyond.Truncated || len(beyond.Findings) != 0 {
+		t.Errorf("past the end: %+v", beyond)
+	}
+	// Walking next_offset visits every finding once, in order.
+	var walked []lintFinding
+	for off := 0; ; {
+		p := callLintPages(t, k, map[string]any{"limit": 2, "offset": off})[0]
+		walked = append(walked, p.Findings...)
+		if p.NextOffset == nil {
+			break
+		}
+		off = *p.NextOffset
+	}
+	if len(walked) != len(all.Findings) {
+		t.Fatalf("walk saw %d findings, want %d", len(walked), len(all.Findings))
+	}
+	for i := range walked {
+		if walked[i] != all.Findings[i] {
+			t.Errorf("walk[%d]=%+v want %+v", i, walked[i], all.Findings[i])
+		}
+	}
+}
+
+func TestServer_Lint_DeterministicOrder(t *testing.T) {
+	k := setupTestKB(t)
+	setupThreeSeverityKB(t, k)
+	pages := callLintPages(t, k, map[string]any{}, map[string]any{}, map[string]any{})
+	for i := 1; i < len(pages); i++ {
+		if len(pages[i].Findings) != len(pages[0].Findings) {
+			t.Fatalf("finding count changed between calls")
+		}
+		for j := range pages[0].Findings {
+			if pages[i].Findings[j] != pages[0].Findings[j] {
+				t.Fatalf("order differs at %d: %+v vs %+v", j, pages[i].Findings[j], pages[0].Findings[j])
+			}
+		}
+	}
+}
+
+func TestServer_Lint_CheckAndPagination(t *testing.T) {
+	k := setupTestKB(t)
+	setupThreeSeverityKB(t, k)
+	// every check has at most a couple of findings here, so page by 1.
+	pages := callLintPages(t, k,
+		map[string]any{"check": []string{"broken_link", "concept_oversize"}},
+		map[string]any{"check": []string{"broken_link", "concept_oversize"}, "limit": 1, "offset": 1})
+	full, p := pages[0], pages[1]
+	if len(full.Findings) < 2 {
+		t.Fatalf("fixture too small: %d", len(full.Findings))
+	}
+	if p.FindingsAfterFilter != len(full.Findings) || p.FindingsInPage != 1 || p.Findings[0] != full.Findings[1] {
+		t.Errorf("check + limit + offset do not compose: %+v", p)
 	}
 }

@@ -1781,3 +1781,28 @@ func TestCheckAcceptability(t *testing.T) {
 		}
 	}
 }
+
+func TestFilter_DeterministicOrder(t *testing.T) {
+	in := []Finding{
+		{Path: "b.md", Check: "orphan", Severity: SevInfo, Message: "m"},
+		{Path: "b.md", Check: "broken_link", Severity: SevWarning, Message: "z"},
+		{Path: "a.md", Check: "broken_link", Severity: SevWarning, Message: "z"},
+		{Path: "a.md", Check: "broken_link", Severity: SevWarning, Message: "a"},
+		{Path: "z.md", Check: "validate", Severity: SevError, Message: "m"},
+		{Path: "a.md", Check: "a_check", Severity: SevInfo, Message: "m"},
+	}
+	want := []string{"z.md/validate/m", "a.md/broken_link/a", "a.md/broken_link/z", "b.md/broken_link/z", "a.md/a_check/m", "b.md/orphan/m"}
+	for round := 0; round < 3; round++ {
+		shuffled := append([]Finding(nil), in...)
+		for i := range shuffled { // a fixed permutation per round
+			j := (i*7 + round*3) % len(shuffled)
+			shuffled[i], shuffled[j] = shuffled[j], shuffled[i]
+		}
+		kept, _, _ := Filter(shuffled, SevInfo)
+		for i, f := range kept {
+			if got := f.Path + "/" + f.Check + "/" + f.Message; got != want[i] {
+				t.Fatalf("round %d pos %d: got %s want %s", round, i, got, want[i])
+			}
+		}
+	}
+}

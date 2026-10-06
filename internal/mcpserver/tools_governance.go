@@ -117,11 +117,15 @@ func toolValidate(k *kb.KB) Tool {
 
 // --- lint ---
 
+// lintMaxPage caps the findings of one lint page (D324). It is a judgment about
+// the caller's context window (~150 bytes a finding), not a protocol limit.
+const lintMaxPage = 200
+
 func toolLint(k *kb.KB) Tool {
 	return Tool{
 		Name:        "lint",
 		ReadOnly:    true,
-		Description: "Deterministic checks: broken links, stale claims (review_after past), orphans. Returns findings with severity. severity_min sets the floor (default info). counts_by_check and counts_by_severity are computed before filtering; count is the unfiltered total.",
+		Description: "Deterministic checks. check, severity_min, limit (max 200), offset filter and page. Counts ignore them.",
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"properties": {
@@ -136,16 +140,39 @@ func toolLint(k *kb.KB) Tool {
 					"type": "string",
 					"enum": ["info", "warning", "error"],
 					"description": "info (default), warning or error"
-				}
+				},
+				"check": {
+					"oneOf": [
+						{"type": "string"},
+						{"type": "array", "items": {"type": "string"}}
+					]
+				},
+				"limit": {"type": "integer"},
+				"offset": {"type": "integer"}
 			}
 		}`),
 		Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
 			var params struct {
-				Scope          string `json:"scope"`
-				ScopeNeighbors bool   `json:"scope_neighbors"`
-				SeverityMin    string `json:"severity_min"`
+				Scope          string          `json:"scope"`
+				ScopeNeighbors bool            `json:"scope_neighbors"`
+				SeverityMin    string          `json:"severity_min"`
+				Check          json.RawMessage `json:"check"`
+				Limit          int             `json:"limit"`
+				Offset         int             `json:"offset"`
 			}
 			json.Unmarshal(args, &params)
+
+			// check is a view filter: a name no check carries yields zero
+			// matches instead of an error, which tells the caller it is empty.
+			var checks []string
+			if len(params.Check) > 0 && string(params.Check) != "null" {
+				var one string
+				if json.Unmarshal(params.Check, &one) == nil {
+					checks = []string{one}
+				} else if err := json.Unmarshal(params.Check, &checks); err != nil {
+					return errorResult("lint: 'check' must be a string or an array of strings"), nil
+				}
+			}
 
 			if params.SeverityMin == "" {
 				params.SeverityMin = lint.SevInfo
@@ -166,16 +193,51 @@ func toolLint(k *kb.KB) Tool {
 			total := len(findings)
 			findings, countsByCheck, countsBySeverity := lint.Filter(findings, params.SeverityMin)
 
-			results := findingsOut(findings)
+			// findings_omitted is what severity_min hid, taken before the check
+			// filter so it keeps its old meaning.
+			omitted := total - len(findings)
+
+			if len(checks) > 0 {
+				want := make(map[string]bool, len(checks))
+				for _, c := range checks {
+					want[c] = true
+				}
+				kept := findings[:0:0]
+				for _, f := range findings {
+					if want[f.Check] {
+						kept = append(kept, f)
+					}
+				}
+				findings = kept
+			}
+
+			afterFilter := len(findings)
+			offset := max(params.Offset, 0)
+			limit := params.Limit
+			if limit <= 0 {
+				limit = afterFilter
+			}
+			limit = min(limit, lintMaxPage)
+			var page []lint.Finding
+			if offset < afterFilter {
+				page = findings[offset:min(offset+limit, afterFilter)]
+			}
 
 			// 'count' keeps meaning the unfiltered total, which is what it has
-			// always meant; findings_omitted says how much of it is not below.
+			// always meant; findings_omitted says how much severity_min hid.
 			result := map[string]interface{}{
-				"count":              total,
-				"findings":           results,
-				"findings_omitted":   total - len(results),
-				"counts_by_check":    countsByCheck,
-				"counts_by_severity": countsBySeverity,
+				"count":                 total,
+				"findings":              findingsOut(page),
+				"findings_in_page":      len(page),
+				"findings_after_filter": afterFilter,
+				"findings_omitted":      omitted,
+				"offset":                offset,
+				"counts_by_check":       countsByCheck,
+				"counts_by_severity":    countsBySeverity,
+			}
+			if next := offset + len(page); next < afterFilter {
+				result["next_offset"] = next
+				result["truncated"] = true
 			}
 			out, _ := json.MarshalIndent(result, "", "  ")
 			return textResult(string(out)), nil
