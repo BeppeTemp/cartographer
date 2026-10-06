@@ -8,6 +8,13 @@
 
 KB histories with commits authored as `cartographer <cartographer@localhost>` may need a manual author rewrite before a forge with author push rules accepts the first push.
 
+## [0.19.1](https://github.com/BeppeTemp/cartographer/compare/v0.19.0...v0.19.1) (2026-10-06)
+
+
+### Bug Fixes
+
+* **lint:** a client's mcp__&lt;server&gt;__&lt;tool&gt; name is not a legacy prefix ([#561](https://github.com/BeppeTemp/cartographer/issues/561)) ([dca0969](https://github.com/BeppeTemp/cartographer/commit/dca0969ad8a9b5303b78fa78c6a45e604e3d5eb3))
+
 ## [0.19.0](https://github.com/BeppeTemp/cartographer/compare/v0.18.1...v0.19.0) (2026-10-06)
 
 
