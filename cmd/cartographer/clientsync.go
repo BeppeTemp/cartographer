@@ -721,6 +721,8 @@ func materializeForProviders(manifests map[string]provisioning.Manifest, project
 		// An unknown live version preserves the recorded one rather than
 		// blanking it (D142).
 		applied.NewLock.ServerVersion = previous.ServerVersion
+		// D320: an acknowledgement survives every sync; only connect sets it.
+		applied.NewLock.SessionHookLimitAcked = previous.SessionHookLimitAcked
 		if serverVersion != "" {
 			applied.NewLock.ServerVersion = serverVersion
 		}

@@ -78,6 +78,12 @@ type Options struct {
 	CacheOnly bool
 	// Disabled is the client configuration's `update.check: false`.
 	Disabled bool
+	// ForceRefreshOnVersion treats a fresh cache as stale when its Latest
+	// equals this version (D320): a cache refreshed just before a release
+	// would otherwise hide it for the rest of the TTL. Callers pass the
+	// running version, so only "nothing newer known yet" re-asks GitHub;
+	// a cache that already names a newer release is still trusted.
+	ForceRefreshOnVersion string
 
 	// Injection points for tests; nil means the real thing.
 	Now        func() time.Time
@@ -149,6 +155,9 @@ func Check(ctx context.Context, current string, opts Options) (Result, error) {
 	cached, haveCache := readCache(cachePath)
 
 	fresh := haveCache && !cached.CheckedAt.After(now()) && now().Sub(cached.CheckedAt) < TTL
+	if fresh && opts.ForceRefreshOnVersion != "" && cached.Latest == opts.ForceRefreshOnVersion {
+		fresh = false
+	}
 	if opts.CacheOnly || (fresh && !opts.Force) {
 		if !haveCache {
 			return res, nil

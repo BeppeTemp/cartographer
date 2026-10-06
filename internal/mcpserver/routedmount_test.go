@@ -521,3 +521,42 @@ func TestSplitKBArgument_StripsKB(t *testing.T) {
 		t.Errorf("rest = %v", got)
 	}
 }
+
+// D320: a stale session calling a pre-D288 prefixed name learns what replaced
+// it, and the prefixed name is never advertised.
+func TestLegacyPrefixedToolReturnsExplicitError(t *testing.T) {
+	handler := newRoutedTestHandler(t, "kb-a", "kb-b")
+
+	res := routedCall(t, handler, "kb_a__search", map[string]any{"query": "marker"})
+	if !res.IsError {
+		t.Fatalf("prefixed name must fail: %+v", res)
+	}
+	msg := res.Content[0].Text
+	for _, want := range []string{"D288", "`search`", `kb: "kb-a"`, "Restart your agent session"} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("message lacks %q: %s", want, msg)
+		}
+	}
+	// A prefix no served KB derives still names the replacement, not the KB.
+	if msg := routedCall(t, handler, "other__search", nil).Content[0].Text; !strings.Contains(msg, "`kb` argument") {
+		t.Errorf("unmapped prefix: %s", msg)
+	}
+	// A genuinely unknown name keeps the plain message.
+	if msg := routedCall(t, handler, "kb_a__nonsense", nil).Content[0].Text; msg != "tool not found: kb_a__nonsense" {
+		t.Errorf("unknown bare tool: %s", msg)
+	}
+	for _, tool := range decodeToolList(t, routedPost(t, handler, RoutedMountPath, toolsListBody)) {
+		if strings.Contains(tool.Name, "__") {
+			t.Errorf("tools/list advertises prefixed name %q", tool.Name)
+		}
+	}
+	// The per-KB endpoint has no kb argument, so the message names none.
+	body := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"kb_a__search","arguments":{"query":"x"}}}`
+	var resp Response
+	if err := json.Unmarshal(routedPost(t, handler, "/mcp/kb-a", body).Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if msg := decodeToolResult(t, resp).Content[0].Text; !strings.Contains(msg, "call `search` instead") {
+		t.Errorf("per-KB endpoint: %s", msg)
+	}
+}

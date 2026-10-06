@@ -94,6 +94,10 @@ type Server struct {
 	// (SetPolicyKB); it lets the authorizer resolve the right KB even before
 	// RegisterKBTools sets kb.KB.AuthName.
 	policyKB string
+	// connKBs are the KBs a routed connection serves (buildRouted), used only
+	// to name the KB in the legacy prefixed-tool message (D320). Empty on a
+	// per-KB server, which names policyKB instead.
+	connKBs []string
 	// authorizer is installed during KB tool registration (installPolicy). It
 	// is a closure over immutable registration dependencies, never mutable
 	// request-global state.

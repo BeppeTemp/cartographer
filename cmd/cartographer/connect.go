@@ -541,6 +541,38 @@ func printConnectResult(dir string, providers []string, opts connectOptions, res
 		fmt.Println("warning: skill sync deferred (server unreachable); run `cartographer sync` once the server is up")
 	}
 	printSyncTimerHint(providers)
+	if !opts.DryRun {
+		ackSessionHookLimit(dir, providers)
+	}
+}
+
+// ackSessionHookLimit records, for every provider whose session hook fires only
+// in some sessions (SessionHookLimit, D300), that connect has just shown the
+// operator that limit (D320): `status` then stops repeating it. Best effort —
+// a lockfile that cannot be read or written only means the hint is shown
+// again, which is the pre-D320 behaviour.
+func ackSessionHookLimit(dir string, providers []string) {
+	path := lockFilePath(dir)
+	lf, err := provisioning.ReadLockFile(path)
+	if err != nil {
+		return
+	}
+	changed := false
+	for _, p := range providers {
+		if provisioning.SessionHookLimit(configurator.Provider(p)) == "" {
+			continue
+		}
+		lock := lf.ForProvider(p)
+		if lock.SessionHookLimitAcked || lock.Provider == "" {
+			continue
+		}
+		lock.SessionHookLimitAcked = true
+		lf.SetProvider(p, lock)
+		changed = true
+	}
+	if changed {
+		_ = provisioning.WriteLockFile(path, lf)
+	}
 }
 
 // providersNeedingSyncTimer returns the providers among those given that have

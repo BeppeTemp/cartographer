@@ -232,6 +232,13 @@ type Lock struct {
 	// enters the manifest diff. Empty (older lockfile) triggers one rewrite,
 	// which is what puts the paragraph into an existing block.
 	PathsSectionHash string `json:"paths_section_hash,omitempty"`
+	// SessionHookLimitAcked records that `connect`/`reconnect` has shown this
+	// provider's SessionHookLimit (D300) to the operator, so `status` stops
+	// repeating it on every run (D320). Absent — an older lockfile — means
+	// "not shown yet", which keeps printing it, as before. Carried over by
+	// every sync (clientsync), set only by connect; doctor still reports the
+	// limitation every run.
+	SessionHookLimitAcked bool `json:"session_hook_limit_acked,omitempty"`
 }
 
 // Scope returns the destination-matrix half this lock's paths were resolved
@@ -908,6 +915,11 @@ func generateKBInstructions(kbName, kbRoot, toolPrefix string, routed bool) stri
 		// what forks a KB on its remote; the server owns that clone.
 		fmt.Fprintf(&sb, "- never run git commands in the KB's clone: report replication problems from `%s` to the operator instead.\n",
 			tool("sync_status"))
+		// D320: the fallback update channel for every client whose
+		// SessionStart hook does not fire (Kiro default chat, timer-only
+		// clients): kb_status carries latest_version (D254).
+		fmt.Fprintf(&sb, "- when `%s` reports a `latest_version` that differs from `server_version`, tell the user once: the installed version, the available version and the upgrade command for this channel (`cartographer update check` prints it); offer to run it, run it only on explicit consent, then follow the cartographer-ops skill (§Upgrade).\n",
+			tool("kb_status"))
 	}
 
 	// The subagent sentence is NOT emitted here (D154). This function has no
@@ -1991,6 +2003,7 @@ func Apply(m Manifest, opts ApplyOptions) (AppliedResult, error) {
 	result.Warnings = append(result.Warnings, tracker.warnings...)
 	result.Warnings = append(result.Warnings, unsupportedKindWarnings(m, opts.Provider)...)
 	result.Warnings = append(result.Warnings, widenedAgentWarnings(m, opts)...)
+	result.Warnings = append(result.Warnings, absentMCPServerWarnings(m, opts)...)
 
 	// Prune: remove stale managed entries from BaseDir. The "instructions" kind
 	// is excluded: removing it with the generic logic (one file per
@@ -2529,6 +2542,64 @@ func widenedAgentWarnings(m Manifest, opts ApplyOptions) []string {
 		out = append(out, fmt.Sprintf(
 			"agent %[1]q declares tools: %[2]s; %[3]s cannot express that restriction, so it receives the agent unrestricted (write that client's own restriction under `providers.%[3]s` in its frontmatter, or add `strict_tools: true` to skip it there instead)",
 			a.Name, a.Restriction.Tools, opts.Provider))
+	}
+	return out
+}
+
+// absentMCPServerWarnings names, on every run, each agent whose
+// `providers.<client>` tools cite an `@<server>` this machine's client has no
+// MCP entry for (D320): the client then hands the subagent nothing from that
+// server, and nothing else says so. Advisory — the entry is still copied
+// verbatim (D291). Only the global scope is checked: a project-scope apply
+// inherits the global MCP servers as well, so its own config alone would
+// report servers that are in fact there. An unreadable config reports nothing.
+func absentMCPServerWarnings(m Manifest, opts ApplyOptions) []string {
+	if opts.Scope != ScopeGlobal {
+		return nil
+	}
+	var configured map[string]bool
+	var out []string
+	for _, a := range m.Artifacts {
+		if a.Kind != "agent" || destDirScoped(a.Kind, a.Name, opts.Provider, opts.Scope) == "" || !artifactAuthorized(a, opts) {
+			continue
+		}
+		content, err := singleArtifactContent(a, opts)
+		if err != nil {
+			continue
+		}
+		fmRaw, _, ok := okf.SplitFrontmatter(string(content))
+		if !ok {
+			continue
+		}
+		fm, err := okf.ParseFrontmatter(fmRaw)
+		if err != nil {
+			continue
+		}
+		fields, err := nativeFieldsFor(fm, opts.Provider)
+		if err != nil {
+			continue
+		}
+		refs := nativeMCPServerRefs(fields)
+		if len(refs) == 0 {
+			continue
+		}
+		if configured == nil {
+			names, err := MCPServerEntryNames(opts.BaseDir, opts.Provider)
+			if err != nil {
+				return out
+			}
+			configured = map[string]bool{}
+			for _, n := range names {
+				configured[n] = true
+			}
+		}
+		for _, server := range refs {
+			if !configured[server] {
+				out = append(out, fmt.Sprintf(
+					"agent %[1]q on %[2]s: providers.%[2]s.tools references @%[3]s, which is not configured on this machine's %[2]s — the agent will only see built-in tools",
+					a.Name, opts.Provider, server))
+			}
+		}
 	}
 	return out
 }

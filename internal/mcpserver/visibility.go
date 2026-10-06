@@ -1,5 +1,12 @@
 package mcpserver
 
+import (
+	"fmt"
+	"strings"
+
+	"github.com/BeppeTemp/cartographer/internal/config"
+)
+
 // advancedToolNames is the source-of-truth list of tool names hidden from
 // tools/list under the default "agent" tools profile (D65). They stay fully
 // registered and callable via tools/call — the CLI client (sync_pull, D57) and
@@ -53,6 +60,51 @@ package mcpserver
 var gatedToolSettings = map[string]string{
 	"artifact_write":  "kbs[].allow_artifact_write",
 	"artifact_delete": "kbs[].allow_artifact_write",
+}
+
+// legacyToolMessage answers a call to a pre-D288 prefixed tool name
+// ("<prefix>__<tool>", D102) whose bare tool this server registers: a session
+// opened before the topology change still holds the old schema, and a bare
+// "tool not found" does not tell its agent what replaced the name (D320).
+// The KB is named when the prefix is one a served KB's name derives
+// (config.SanitizeToolPrefix, the D102 kb-name mode); an explicit
+// kbs[].tool_prefix no longer exists in configuration, so it cannot be mapped
+// back and the message names the argument instead. It is consulted only on
+// the unknown-tool path, so a prefixed name is never registered and never
+// appears in tools/list. Returns "" for any other unknown name.
+func (s *Server) legacyToolMessage(name string) string {
+	i := strings.LastIndex(name, "__")
+	if i <= 0 || i+2 >= len(name) {
+		return ""
+	}
+	prefix, base := name[:i], name[i+2:]
+	s.mu.Lock()
+	_, known := s.tools[base]
+	kbs := append([]string(nil), s.connKBs...)
+	if len(kbs) == 0 && s.policyKB != "" {
+		kbs = []string{s.policyKB}
+	}
+	s.mu.Unlock()
+	if !known {
+		return ""
+	}
+	kbName := ""
+	for _, k := range kbs {
+		if config.SanitizeToolPrefix(k) == prefix {
+			kbName = k
+			break
+		}
+	}
+	call := fmt.Sprintf("`%s`", base)
+	if len(kbs) > 1 {
+		// Only a connection serving several KBs has a `kb` argument (D288).
+		if kbName != "" {
+			call += fmt.Sprintf(" with kb: %q", kbName)
+		} else {
+			call += " with the `kb` argument naming the KB"
+		}
+	}
+	return fmt.Sprintf("tool not found: %s — prefixed tool names were removed in the D288 topology change; call %s instead. Restart your agent session to load the new tool list; `cartographer doctor` flags the old names left in your own steering files.", name, call)
 }
 
 // unknownToolMessage names the setting that would register a known-but-gated

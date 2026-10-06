@@ -46,7 +46,10 @@ in the set `kb` is **absent** from every schema and the call targets that KB (a 
 other value refused). The advertised set is the **union** of what the set's KBs register, so a tool one KB gates
 off is still listed and is refused at dispatch for that KB, with an error naming the tool, the KB and the
 setting. On the per-KB endpoints (`/mcp?kb=` and `/mcp/<name>`, plumbing since D288) no `kb` argument exists and
-nothing below changes. See [`transport-auth.md`](transport-auth.md) §One routed topology.
+nothing below changes. A call to a pre-D288 prefixed name (`<prefix>__<tool>`, D102) whose bare tool exists, on
+either endpoint, fails with a message naming the replacement — the bare tool, with `kb: "<name>"` when the prefix
+is one a served KB's name derives and the connection has a `kb` argument — and asking for a session restart; a
+prefixed name is never registered and never listed ([D320](decisions/D320-upgrades-and-provisioning-tell-the-user-what-changed.md)). See [`transport-auth.md`](transport-auth.md) §One routed topology.
 
 ### Reading and navigation
 

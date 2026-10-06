@@ -55,6 +55,10 @@ type providerStatus struct {
 	// unknown (a lockfile written before D142). Shown next to the live
 	// version so a server change is inspectable without running a sync.
 	ServerVersion string `json:"materialized_server_version,omitempty"`
+	// HookLimitAcked: connect already showed this provider's SessionHookLimit
+	// (D320), so the human status output does not repeat the timer hint for
+	// it. Not part of the JSON contract.
+	HookLimitAcked bool `json:"-"`
 	// BoundKBs and BindingOrigin describe which KBs this provider may receive
 	// and whether that was declared or defaulted (D170). Without them the same
 	// list of names means two different things and the reader cannot tell.
@@ -326,6 +330,7 @@ func snapshotForConfig(dir string, cfg *clientconfig.Config, includeService bool
 		// deleted locally used to report in-sync.
 		lock := lockFile.ForProvider(p.Name)
 		p.ServerVersion = lock.ServerVersion
+		p.HookLimitAcked = lock.SessionHookLimitAcked
 		bound, explicit := cfg.BoundKBs(p.Name)
 		p.BoundKBs = bound
 		p.BindingOrigin = "default"

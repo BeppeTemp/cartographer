@@ -243,3 +243,40 @@ func TestCompare(t *testing.T) {
 		}
 	}
 }
+
+// D320: a fresh cache that only knows the running version is re-checked, so a
+// release published inside the TTL window is not hidden for the rest of it.
+func TestForceRefreshOnVersionBypassesTTL(t *testing.T) {
+	f := newFakeGitHub(t, 200, `[{"tag_name":"v0.17.0"}]`, "")
+	cache := filepath.Join(t.TempDir(), CacheFileName)
+	now := time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC)
+	writeCache(cache, cacheEntry{CheckedAt: now, Latest: "v0.16.1"})
+
+	o := opts(t, f, cache, now)
+	o.ForceRefreshOnVersion = "v0.16.1"
+	res, _ := Check(context.Background(), "v0.16.1", o)
+	if f.hits.Load() != 1 || res.Latest != "v0.17.0" || !res.Available {
+		t.Fatalf("same-version cache not refreshed (%d hits): %+v", f.hits.Load(), res)
+	}
+
+	// CacheOnly still never fetches, whatever the version.
+	writeCache(cache, cacheEntry{CheckedAt: now, Latest: "v0.16.1"})
+	o.CacheOnly = true
+	if _, _ = Check(context.Background(), "v0.16.1", o); f.hits.Load() != 1 {
+		t.Fatalf("cache-only fetched: %d hits", f.hits.Load())
+	}
+}
+
+func TestForceRefreshNotTriggeredWhenDifferent(t *testing.T) {
+	f := newFakeGitHub(t, 200, `[{"tag_name":"v0.18.0"}]`, "")
+	cache := filepath.Join(t.TempDir(), CacheFileName)
+	now := time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC)
+	writeCache(cache, cacheEntry{CheckedAt: now, Latest: "v0.17.0"})
+
+	o := opts(t, f, cache, now)
+	o.ForceRefreshOnVersion = "v0.16.1"
+	res, _ := Check(context.Background(), "v0.16.1", o)
+	if f.hits.Load() != 0 || res.Latest != "v0.17.0" {
+		t.Fatalf("a cache naming a newer release must be trusted (%d hits): %+v", f.hits.Load(), res)
+	}
+}

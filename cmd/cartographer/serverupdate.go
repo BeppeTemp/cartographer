@@ -48,7 +48,8 @@ func startServerUpdateCheck(cfg *config.Config, current string) func() string {
 		return nil
 	}
 	w := &serverUpdateWatch{}
-	opts := updatecheck.Options{CacheFile: serverUpdateCacheFile(cfg)}
+	// D320: same-version cache is re-checked, as in `update notice`.
+	opts := updatecheck.Options{CacheFile: serverUpdateCacheFile(cfg), ForceRefreshOnVersion: current}
 	check, delay, interval, retry := serverUpdateCheckFn, serverUpdateDelay, serverUpdateInterval, serverUpdateRetry
 	go func() {
 		time.Sleep(delay)

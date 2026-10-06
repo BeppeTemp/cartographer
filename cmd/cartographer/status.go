@@ -10,6 +10,8 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/client"
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
+	"github.com/BeppeTemp/cartographer/internal/configurator"
+	"github.com/BeppeTemp/cartographer/internal/provisioning"
 	"github.com/BeppeTemp/cartographer/internal/service"
 )
 
@@ -184,7 +186,10 @@ func renderStatus(output string, s statusSnapshot, code int) int {
 	// Once per invocation, not once per provider.
 	var connected []string
 	for _, p := range s.Providers {
-		if p.Connected {
+		// D320: a SessionHookLimit connect already showed is not repeated
+		// here; doctor still reports it. A provider with no hook at all is
+		// always named.
+		if p.Connected && !(p.HookLimitAcked && provisioning.SessionHookLimit(configurator.Provider(p.Name)) != "") {
 			connected = append(connected, p.Name)
 		}
 	}

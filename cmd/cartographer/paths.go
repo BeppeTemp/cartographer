@@ -167,6 +167,8 @@ func cmdPaths(args []string) int {
 		return cmdPathsIgnore(args)
 	case "unset":
 		return cmdPathsUnset(args)
+	case "suggest":
+		return cmdPathsSuggest(args)
 	default:
 		printPathsUsage(os.Stderr)
 		return 2
@@ -176,9 +178,10 @@ func cmdPaths(args []string) int {
 func isHelpArg(a string) bool { return a == "-h" || a == "--help" || a == "help" }
 
 func printPathsUsage(w io.Writer) {
-	fmt.Fprintln(w, "Usage: cartographer paths [list [--json]] | set <key> <path> | ignore <key> | unset <key>")
+	fmt.Fprintln(w, "Usage: cartographer paths [list [--json]] | suggest | set <key> <path> | ignore <key> | unset <key>")
 	fmt.Fprintln(w, "")
 	fmt.Fprintln(w, "  list            every placeholder key the last sync met, its KBs, and its path or failure reason")
+	fmt.Fprintln(w, "  suggest         propose a local path for every unresolved key (never writes)")
 	fmt.Fprintln(w, "  set <key> <p>   record where <key> (repo:<name> or path:<name>) lives on this machine")
 	fmt.Fprintln(w, "  ignore <key>    mark <key> as absent on this machine: it stops being reported (listed as ignored)")
 	fmt.Fprintln(w, "  unset <key>     remove a recorded entry or an ignore, restoring the report")
@@ -254,6 +257,124 @@ func cmdPathsList(args []string) int {
 		fmt.Printf("\n%d unresolved — record each with `cartographer paths set <key> <path>` (or `cartographer paths ignore <key>` if it never exists here), then run `cartographer sync`\n", unresolved)
 	}
 	return 0
+}
+
+// cmdPathsSuggest proposes candidate paths for every unresolved, not ignored
+// key (D320), so recording one is a confirmation instead of a lookup. It only
+// reads — the lockfile, the client config and the disk — and prints the
+// `paths set` line to run; nothing is written. Candidates, in order: the
+// default the KB's paths.yaml declares, when it exists here; for a repo key,
+// every clone under the search roots whose origin remote or directory names
+// the key (sync's own resolution wanted an exact, unambiguous match, so this
+// is where the near misses surface); for a path key, ~/<name>,
+// ~/.config/<name> and ~/.<name>.
+func cmdPathsSuggest(args []string) int {
+	if len(args) != 0 {
+		fmt.Fprintln(os.Stderr, "Usage: cartographer paths suggest")
+		return 2
+	}
+	dir, err := clientconfig.TargetDir()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "Error:", err)
+		return 2
+	}
+	lf, err := provisioning.ReadLockFile(lockFilePath(dir))
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "Error:", err)
+		return 1
+	}
+	var ignored, roots []string
+	depth := 0
+	if cfg, err := clientconfig.Load(dir); err == nil {
+		ignored, roots, depth = cfg.IgnoredPaths, cfg.SearchRoots, cfg.SearchDepth
+	}
+	rows := unresolvedRows(lf, ignored)
+	if len(rows) == 0 {
+		fmt.Println("no unresolved placeholder — nothing to suggest")
+		return 0
+	}
+	home, _ := os.UserHomeDir()
+	var idx *repoindex.Index
+	for _, r := range rows {
+		kind, name, _ := strings.Cut(r.Key, ":")
+		var candidates []string
+		add := func(p string) {
+			if p != "" && !containsString(candidates, p) {
+				candidates = append(candidates, p)
+			}
+		}
+		if r.Default != "" {
+			if p := repoindex.ExpandHome(r.Default); pathExists(p) {
+				add(p)
+			}
+		}
+		switch kind {
+		case "repo":
+			if idx == nil {
+				idx, _, _ = repoindex.Scan(roots, depth)
+			}
+			for _, p := range repoCandidates(idx, name) {
+				add(p)
+			}
+		case "path":
+			if home != "" {
+				last := filepath.Base(filepath.FromSlash(name))
+				for _, p := range []string{filepath.Join(home, last), filepath.Join(home, ".config", last), filepath.Join(home, "."+last)} {
+					if pathExists(p) {
+						add(p)
+					}
+				}
+			}
+		}
+
+		kbs := strings.Join(r.KBs, ",")
+		if kbs == "" {
+			kbs = "-"
+		}
+		fmt.Printf("%s\t%s\n", r.Key, kbs)
+		if r.Description != "" {
+			fmt.Printf("\t%s\n", r.Description)
+		}
+		if len(candidates) == 0 {
+			fmt.Printf("\t(no suggestion — use cartographer paths set %s <path> or cartographer paths ignore %s)\n", r.Key, r.Key)
+			continue
+		}
+		for _, c := range candidates {
+			fmt.Printf("\tcartographer paths set %s %s\n", r.Key, c)
+		}
+	}
+	fmt.Println("\nrun the line you confirm, then: cartographer sync")
+	return 0
+}
+
+// repoCandidates returns, sorted, every clone in idx whose normalized origin
+// remote contains name or whose directory is named name, case-insensitively.
+func repoCandidates(idx *repoindex.Index, name string) []string {
+	if idx == nil || name == "" {
+		return nil
+	}
+	short := strings.ToLower(name)
+	if i := strings.LastIndex(short, "/"); i >= 0 {
+		short = short[i+1:]
+	}
+	var out []string
+	for remote, paths := range idx.Repos {
+		match := strings.Contains(strings.ToLower(string(remote)), short)
+		for _, p := range paths {
+			if match || strings.EqualFold(filepath.Base(p), short) {
+				if !containsString(out, p) {
+					out = append(out, p)
+				}
+			}
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+func pathExists(p string) bool {
+	_, err := os.Stat(p)
+	return err == nil
 }
 
 func cmdPathsSet(args []string) int {

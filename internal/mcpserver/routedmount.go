@@ -71,6 +71,7 @@ func (m *MultiKBServer) EnableRoutedMount(version string, setup func(s *Server))
 func (m *MultiKBServer) buildRouted(set []string) *Server {
 	routed := New(m.routedVersion)
 	routed.SetDisplayName("cartographer")
+	routed.connKBs = append([]string(nil), set...)
 	if m.routedSetup != nil {
 		m.routedSetup(routed)
 	}

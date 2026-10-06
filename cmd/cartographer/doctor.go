@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -197,6 +198,7 @@ func runDoctor(dir, only string) doctorReport {
 		findings = append(findings, checkKBCollisions(dir, cfg, providers)...)
 		findings = append(findings, checkWorkspaceProjections(dir, cfg, providers)...)
 		findings = append(findings, checkUpdateAvailable()...)
+		findings = append(findings, checkSteeringPatterns(dir, providers)...)
 		if lockErr == nil {
 			findings = append(findings, checkUnboundResidues(dir, cfg, providers, lockFile)...)
 		}
@@ -890,4 +892,73 @@ func checkUpdateAvailable() []doctorFinding {
 		Message: fmt.Sprintf("Cartographer %s is available (installed %s, %s release, %s channel)", res.Latest, res.Current, res.Kind, ch),
 		Fix:     fix,
 	}}
+}
+
+// legacySteeringPatterns are the superseded-topology forms an operator's own
+// steering text may still carry (D320). Sync never rewrites text outside its
+// managed blocks, so only doctor can point at them. A list so a later topology
+// change adds a row instead of a check.
+var legacySteeringPatterns = []struct {
+	re    *regexp.Regexp
+	check string
+	fix   func(match []string) string
+}{
+	{
+		// "<prefix>__<tool>": the D102 per-KB tool prefix, removed by D288.
+		// The tool part has the bare-name shape (lowercase words joined by
+		// "_"), which keeps dunder identifiers such as __init__ out.
+		re:    regexp.MustCompile(`\b([a-z][a-z0-9_]*[a-z0-9])__([a-z]+(?:_[a-z]+)*)\b`),
+		check: "legacy_steering_pattern",
+		fix: func(m []string) string {
+			return fmt.Sprintf("replace %s with the unprefixed tool %s (pass kb: \"<name>\" where the tool takes a kb argument, D288)", m[0], m[2])
+		},
+	},
+}
+
+// checkSteeringPatterns scans each provider's instructions file — and, for a
+// provider whose Cartographer file is a dedicated one in a steering directory
+// (Kiro), the operator's sibling files there — for legacySteeringPatterns,
+// outside the managed blocks only. Read-only, like every doctor check (D143).
+func checkSteeringPatterns(dir string, providers []string) []doctorFinding {
+	lockFile, _ := provisioning.ReadLockFile(lockFilePath(dir))
+	var out []doctorFinding
+	for _, p := range providers {
+		rel := provisioning.InstructionsFile(configurator.Provider(p))
+		if rel == "" {
+			continue
+		}
+		base := provisioning.LockBaseDir(lockFile.ForProvider(p), dir)
+		path := filepath.Join(base, rel)
+		paths := []string{path}
+		if filepath.Base(path) == "cartographer.md" {
+			siblings, _ := filepath.Glob(filepath.Join(filepath.Dir(path), "*.md"))
+			sort.Strings(siblings)
+			for _, sib := range siblings {
+				if sib != path {
+					paths = append(paths, sib)
+				}
+			}
+		}
+		for _, file := range paths {
+			text, err := provisioning.UnmanagedInstructionsText(file)
+			if err != nil || text == "" {
+				continue
+			}
+			for _, pat := range legacySteeringPatterns {
+				seen := map[string]bool{}
+				for _, m := range pat.re.FindAllStringSubmatch(text, -1) {
+					if seen[m[0]] {
+						continue
+					}
+					seen[m[0]] = true
+					out = append(out, doctorFinding{
+						Check: pat.check, Severity: doctorWarning, Path: file,
+						Message: fmt.Sprintf("[%s] %s names %s, a form from a superseded topology: sync does not rewrite your own text outside the managed block", p, file, m[0]),
+						Fix:     pat.fix(m),
+					})
+				}
+			}
+		}
+	}
+	return out
 }
