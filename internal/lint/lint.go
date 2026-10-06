@@ -81,6 +81,23 @@ func Filter(findings []Finding, floor string) (kept []Finding, byCheck, bySeveri
 			kept = append(kept, f)
 		}
 	}
+	// Deterministic order (D324): lint.Run walks a map, so without this two
+	// calls on the same KB disagree and offset pagination is meaningless. The
+	// sort lives here, not in Run, so the Run cache (D294) stays untouched.
+	// Errors first, then grouped by check, then by path.
+	sort.SliceStable(kept, func(i, j int) bool {
+		a, b := kept[i], kept[j]
+		if ra, rb := severityRank(a.Severity), severityRank(b.Severity); ra != rb {
+			return ra > rb
+		}
+		if a.Check != b.Check {
+			return a.Check < b.Check
+		}
+		if a.Path != b.Path {
+			return a.Path < b.Path
+		}
+		return a.Message < b.Message
+	})
 	return kept, byCheck, bySeverity
 }
 
