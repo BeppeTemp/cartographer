@@ -170,6 +170,14 @@ func frontmatterFindings(in conceptInput) []Finding {
 		}
 	}
 
+	// --- status_semantics (warning, D321) ---
+	if parsed != nil {
+		if status, _ := frontmatterValue(parsed, "status").(string); activeNotOpen(status, in.Contract) {
+			out = append(out, Finding{Path: in.RelPath, Check: "status_semantics", Severity: SevWarning,
+				Message: fmt.Sprintf("status %q in a journal means the page is valid, not that work is open — use open, in-progress, blocked or another work status; if this journal reads it as open, list it in open_statuses", status)})
+		}
+	}
+
 	// --- machine_path (warning, D75 WP6 / D124) ---
 	if all := disallowedMachinePaths(in.Body, in.AllowPrefixes); len(all) > 0 {
 		disallowed := all[0]
@@ -374,6 +382,7 @@ func valueContractFindings(mapName string, contract kb.MapContract, concepts map
 	skip := map[string]bool{
 		"title": true, "type": true, "description": true, "timestamp": true,
 		"review_after": true, "superseded_by": true, "lint_ignore": true,
+		"waiting_on": true, // free text (D321)
 		// D295 WP3: free-form, source-like and list-valued fields are never
 		// vocabulary candidates.
 		"provenance": true, "tags": true, "resource": true, "secrets_source": true,

@@ -39,6 +39,12 @@ describe("the Work panel", () => {
   });
   afterEach(() => vi.unstubAllGlobals());
 
+  it("explains why a status is open work (D321)", async () => {
+    stubApi({ "/work": () => json(work) });
+    render(<App />);
+    expect(await screen.findByText(/"active" means the page is valid, not that work is pending/)).toBeInTheDocument();
+  });
+
   it("groups by status and by map, filters, and opens a concept", async () => {
     stubApi({ "/work": () => json(work) });
     const user = userEvent.setup();

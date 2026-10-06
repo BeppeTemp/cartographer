@@ -911,6 +911,8 @@ func generateKBInstructions(kbName, kbRoot, toolPrefix string, routed bool) stri
 		fmt.Fprintf(&sb, "- write or update a page with `%s` when you discover something relevant; close relevant sessions with `%s`;\n",
 			tool("concept_write"), tool("log_append"))
 		sb.WriteString("- write responses carry structural findings (broken links, missing index entry, orphan): fix them before moving on or the KB drifts;\n")
+		// D321: one meaning for `active`, said once, true for every KB.
+		sb.WriteString("- status convention: `active` means the page is valid and current; open work uses `open`, `in-progress` or `blocked`, and a wait is declared with `waiting_on` and `review_after`;\n")
 		sb.WriteString("- every write is a git commit, revertible.\n")
 		// D264: an agent's own git in the clone (init, checkout -b, push) is
 		// what forks a KB on its remote; the server owns that clone.

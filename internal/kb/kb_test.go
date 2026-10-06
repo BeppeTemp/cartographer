@@ -2025,3 +2025,27 @@ func TestUpdateMapContract_ReviewKeys(t *testing.T) {
 		t.Fatalf("malformed keys: %+v %v", c, err)
 	}
 }
+
+// D321: a new journal declares what open means; an explicit list wins.
+func TestCreateMapJournalDefaultOpenStatuses(t *testing.T) {
+	k, _ := Init(tempKB(t))
+	if err := k.CreateMap("j", "J", "journal", nil, ""); err != nil {
+		t.Fatal(err)
+	}
+	c, err := k.ReadMapContract("j")
+	if err != nil || strings.Join(c.OpenStatuses, ",") != "open,in-progress,blocked" {
+		t.Fatalf("default: %+v %v", c.OpenStatuses, err)
+	}
+	if err := k.CreateMapWithContract("j2", "J2", "journal", nil, "", MapContract{OpenStatuses: []string{"custom"}}); err != nil {
+		t.Fatal(err)
+	}
+	if c, _ := k.ReadMapContract("j2"); strings.Join(c.OpenStatuses, ",") != "custom" {
+		t.Fatalf("explicit: %+v", c.OpenStatuses)
+	}
+	if err := k.CreateMap("m", "M", "map", nil, ""); err != nil {
+		t.Fatal(err)
+	}
+	if c, _ := k.ReadMapContract("m"); len(c.OpenStatuses) != 0 {
+		t.Fatalf("map: %+v", c.OpenStatuses)
+	}
+}

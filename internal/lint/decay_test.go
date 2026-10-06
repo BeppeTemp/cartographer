@@ -24,6 +24,8 @@ func TestStaleOpen(t *testing.T) {
 	page := func(rel, status, ts string) {
 		writeFile(t, k.DataRoot(), rel, fmt.Sprintf("---\ntype: Task\ntitle: T\nstatus: %s\ntimestamp: %s\n---\n# T\n", status, ts))
 	}
+	writeFile(t, k.DataRoot(), "a/_map.md", "---\ntype: Map\ntitle: A\nkind: journal\nopen_statuses: [active, in-progress]\n---\n")
+	page("a/old-active.md", "active", "2026-06-01")
 	page("j/old-active.md", "active", "2026-06-01")
 	page("j/old-done.md", "done", "2026-06-01")
 	page("j/recent.md", "in-progress", "2026-09-20")
@@ -31,9 +33,62 @@ func TestStaleOpen(t *testing.T) {
 	page("c/doing.md", "doing", "2026-09-01")
 	page("c/active.md", "active", "2026-01-01")
 	f, _ := Run(k, "", false)
-	for rel, want := range map[string]bool{"j/old-active.md": true, "j/old-done.md": false, "j/recent.md": false, "m/old-active.md": false, "c/doing.md": true, "c/active.md": false} {
+	for rel, want := range map[string]bool{"a/old-active.md": true, "j/old-active.md": false, "j/old-done.md": false, "j/recent.md": false, "m/old-active.md": false, "c/doing.md": true, "c/active.md": false} {
 		if got := hasCheck(f, rel, "stale_open"); got != want {
 			t.Errorf("%s: stale_open = %v, want %v", rel, got, want)
+		}
+	}
+}
+
+// D321: a future review_after suspends stale_open; a past one does not.
+func TestStaleOpenSuspendedByReviewAfter(t *testing.T) {
+	withNow(t, "2026-10-01")
+	k := tempKB(t)
+	writeFile(t, k.DataRoot(), "j/_map.md", "---\ntype: Map\ntitle: J\nkind: journal\nopen_statuses: [open, in-progress, blocked]\n---\n")
+	page := func(rel, extra string) {
+		writeFile(t, k.DataRoot(), rel, "---\ntype: Task\ntitle: T\nstatus: in-progress\ntimestamp: 2026-07-03\n"+extra+"---\n# T\n")
+	}
+	page("j/future.md", "waiting_on: vendor\nreview_after: 2026-10-31\n")
+	page("j/today.md", "review_after: 2026-10-01\n")
+	page("j/past.md", "review_after: 2026-09-01\n")
+	page("j/none.md", "")
+	f, _ := Run(k, "", false)
+	for rel, want := range map[string]bool{"j/future.md": false, "j/today.md": false, "j/past.md": true, "j/none.md": true} {
+		if got := hasCheck(f, rel, "stale_open"); got != want {
+			t.Errorf("%s: stale_open = %v, want %v", rel, got, want)
+		}
+	}
+	if hasCheck(f, "j/future.md", "nonstandard_field") {
+		t.Error("waiting_on flagged")
+	}
+	entries, _ := Work(k)
+	for _, e := range entries {
+		if e.ID == "j/future" && (!e.OpenPhase || e.Stale) {
+			t.Errorf("suspended work must stay open, not stale: %+v", e)
+		}
+		if e.ID == "j/past" && !e.Stale {
+			t.Errorf("past review_after must not suspend: %+v", e)
+		}
+	}
+}
+
+// D321: active in a journal that does not list it open gets status_semantics.
+func TestStatusSemantics(t *testing.T) {
+	k := tempKB(t)
+	writeFile(t, k.DataRoot(), "j/_map.md", "---\ntype: Map\ntitle: J\nkind: journal\n---\n")
+	writeFile(t, k.DataRoot(), "o/_map.md", "---\ntype: Map\ntitle: O\nkind: journal\nopen_statuses: [active]\n---\n")
+	writeFile(t, k.DataRoot(), "m/_map.md", "---\ntype: Map\ntitle: M\n---\n")
+	page := func(rel, status string) {
+		writeFile(t, k.DataRoot(), rel, "---\ntype: Note\ntitle: T\nstatus: "+status+"\n---\n# T\n")
+	}
+	page("j/a.md", "active")
+	page("o/a.md", "active")
+	page("j/b.md", "in-progress")
+	page("m/a.md", "active")
+	f, _ := Run(k, "", false)
+	for rel, want := range map[string]bool{"j/a.md": true, "o/a.md": false, "j/b.md": false, "m/a.md": false} {
+		if got := hasCheck(f, rel, "status_semantics"); got != want {
+			t.Errorf("%s: status_semantics = %v, want %v", rel, got, want)
 		}
 	}
 }

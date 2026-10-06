@@ -29,7 +29,10 @@ func TestWork(t *testing.T) {
 	writeFile(t, k.DataRoot(), "m/plan.md", "---\ntype: Topic\ntitle: Plan\nstatus: in-progress\n---\n# Plan\n")
 	// A done concept with unchecked items; a checkbox in code is not work.
 	writeFile(t, k.DataRoot(), "m/done.md", "---\ntype: Note\ntitle: Done\nstatus: done\ntimestamp: 2026-01-01\n---\n# Done\n\n## Next steps\n\n- [ ] ship "+strings.Repeat("é", 150)+"\n- [x] closed\n\n```\n- [ ] in code\n```\n")
-	// active is open in a journal, not in a map.
+	// active is valid, not open, in a journal and in a map (D321) unless the
+	// journal lists it in open_statuses.
+	writeFile(t, k.DataRoot(), "a/_map.md", "---\ntype: Map\ntitle: A\nkind: journal\nopen_statuses: [active]\n---\n")
+	writeFile(t, k.DataRoot(), "a/e.md", "---\ntype: Note\ntitle: E\nstatus: active\ntimestamp: 2026-01-02\n---\n# E\n")
 	writeFile(t, k.DataRoot(), "m/svc.md", "---\ntype: Service\ntitle: Svc\nstatus: active\n---\n# Svc\n")
 	writeFile(t, k.DataRoot(), "j/2026-01-02-e.md", "---\ntype: Note\ntitle: E\nstatus: active\ntimestamp: 2026-01-02\n---\n# E\n")
 	// A contract's open_statuses override the defaults.
@@ -62,8 +65,11 @@ func TestWork(t *testing.T) {
 	if _, ok := got["m/svc"]; ok {
 		t.Fatal("active counted as open in a map")
 	}
-	if e, ok := got["j/2026-01-02-e"]; !ok || !e.OpenPhase || !e.Stale {
-		t.Fatalf("active in a journal, 150 days old: %+v", e)
+	if _, ok := got["j/2026-01-02-e"]; ok {
+		t.Fatal("active counted as open in a journal without open_statuses")
+	}
+	if e, ok := got["a/e"]; !ok || !e.OpenPhase || !e.Stale {
+		t.Fatalf("active listed in open_statuses, 150 days old: %+v", e)
 	}
 	if _, ok := got["c/w"]; !ok {
 		t.Fatal("open_statuses value not open")

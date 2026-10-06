@@ -72,6 +72,10 @@ export function Work({ kb, onOpen }: { kb: string; onOpen(conceptId: string): vo
           ))}
         </div>
       </header>
+      <p className="work__note">
+        A concept is open work when its status is listed in the map&apos;s open_statuses, or is one of the default open statuses (open,
+        in-progress, blocked, decision-needed, proposed). &quot;active&quot; means the page is valid, not that work is pending.
+      </p>
 
       {data && data.total > 0 && (
         <div className="work__filters">
