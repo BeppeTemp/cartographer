@@ -191,7 +191,7 @@ func headingsToOutline(headings []okf.Heading) []map[string]interface{} {
 func toolConceptRead(k *kb.KB) Tool {
 	return Tool{
 		Name:        "concept_read",
-		Description: "Reads a concept: content_hash, frontmatter (parsed), frontmatter_raw, body. with_content: true also returns content (exact bytes). section returns one section; outline: true only the headings. Bodies over 60 KB come as an outline; full: true forces them. rev reads a past version; its content_hash is not an if_match.",
+		Description: "Reads a concept: content_hash, frontmatter (parsed) and _raw, body. with_content: true also returns content (exact bytes). section returns one section; outline: true only the headings. Bodies over 60 KB come as an outline; full: true forces them. rev reads a past version; its content_hash is not an if_match.",
 		ReadOnly:    true,
 		InputSchema: json.RawMessage(`{
 			"type": "object",

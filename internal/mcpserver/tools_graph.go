@@ -198,7 +198,7 @@ func toolLinkSuggest(k *kb.KB, rec *searchReconciler, deps Deps) Tool {
 	return Tool{
 		Name:        "link_suggest",
 		ReadOnly:    true,
-		Description: "Existing concepts this one probably should link to: at least two shared neighbours, not yet linked, hub evidence discounted; for a concept with no links at all, concepts whose text matches its title.",
+		Description: "Existing concepts this one probably should link to: at least two shared neighbours, not yet linked, hub evidence discounted; for an unlinked concept, title matches.",
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"required": ["id"],
