@@ -62,12 +62,7 @@ func gitWrap(k *kb.KB, t Tool) Tool {
 				var rce *gitx.RebaseConflictError
 				if errors.As(syncErr, &rce) {
 					// Step 3: rebase conflict — register conflicts, mark concepts degraded.
-					n := handleConflictError(k, rce)
-					res = errorResult(fmt.Sprintf(
-						"git conflict detected and registered on %d concept(s); "+
-							"use the conflicts_list tool and kb-conflict-resolve skill to resolve",
-						n,
-					))
+					res = errorResult(conflictMessage(handleConflictError(k, rce)))
 				} else {
 					res = errorResult("git sync (fetch/pull) failed: " + syncErr.Error())
 				}
@@ -129,7 +124,7 @@ func gitWrap(k *kb.KB, t Tool) Tool {
 					if syncErr != nil {
 						var rce *gitx.RebaseConflictError
 						if errors.As(syncErr, &rce) {
-							n := handleConflictError(k, rce)
+							n, _ := handleConflictError(k, rce)
 							fmt.Fprintf(os.Stderr,
 								"cartographer: git conflict during push (%s): registered %d concept(s) as degraded\n",
 								orig.Name, n)
@@ -215,7 +210,7 @@ func commitReason(args json.RawMessage) string {
 
 func appendSyncWarning(res *ToolResult, k *kb.KB) {
 	s := k.GitStatusSnapshot()
-	if s.State != "failed" && s.State != "pending" {
+	if s.State != "failed" && s.State != "pending" && s.State != "degraded" {
 		return
 	}
 	b, _ := json.Marshal(map[string]any{"sync_state": s.State, "last_error": s.LastError})
@@ -282,7 +277,7 @@ func startReadRefresh(k *kb.KB, op string) {
 			if syncErr != nil {
 				var rce *gitx.RebaseConflictError
 				if errors.As(syncErr, &rce) {
-					n := handleConflictError(k, rce)
+					n, _ := handleConflictError(k, rce)
 					fmt.Fprintf(os.Stderr,
 						"cartographer: git conflict during read sync (%s): registered %d concept(s) as degraded\n",
 						op, n)
@@ -318,14 +313,36 @@ func formatTiming(op string, syncIn, handler, commit, push time.Duration, pushAs
 
 // handleConflictError registers each conflicting concept in the KB conflict registry
 // and marks it as degraded. Best-effort: errors are logged to stderr.
-// Returns the number of concept IDs successfully identified in the conflict.
-func handleConflictError(k *kb.KB, rce *gitx.RebaseConflictError) int {
+// Returns the number of concept IDs successfully identified in the conflict,
+// and the reserved files (log.md, index.md, _map.md, _archive.md) in it.
+//
+// Reserved files are not concepts (D311). Alongside a concept they stay out of
+// the registry: FinalizeConflicts resolves them automatically with the
+// concepts. Alone, they reach here only when the server's own reconciliation
+// (kb.pullRebase) failed, and are registered with kind "reserved" and their
+// path as concept_id so git_conflict_resolve can settle them — registering
+// nothing would leave the KB with no tool-level way out.
+func handleConflictError(k *kb.KB, rce *gitx.RebaseConflictError) (int, []string) {
 	now := time.Now().UTC().Format(time.RFC3339)
 	n := 0
+	var reserved, concepts []string
+	conceptIDs := map[string]string{}
 	for _, file := range rce.Files {
-		conceptID, ok := kb.GitPathToConceptID(file)
-		if !ok {
-			continue
+		if conceptID, ok := kb.GitPathToConceptID(file); ok {
+			concepts = append(concepts, file)
+			conceptIDs[file] = conceptID
+		} else if kb.IsReservedPath(file) {
+			reserved = append(reserved, file)
+		}
+	}
+	register := concepts
+	if len(concepts) == 0 {
+		register = reserved
+	}
+	for _, file := range register {
+		conceptID, kind := conceptIDs[file], ""
+		if conceptID == "" {
+			conceptID, kind = file, kb.ConflictKindReserved
 		}
 		c := kb.Conflict{
 			ConceptID:  conceptID,
@@ -335,6 +352,7 @@ func handleConflictError(k *kb.KB, rce *gitx.RebaseConflictError) int {
 			Branch:     rce.Branch,
 			Files:      rce.Files,
 			DetectedAt: now,
+			Kind:       kind,
 		}
 		if state := k.ServerGitStatus(); state.Profile == "server" {
 			c.BaseBranch, c.WorkingBranch, c.PRNumber, c.PRURL = state.BaseBranch, state.WorkingBranch, state.PRNumber, state.PRURL
@@ -342,12 +360,33 @@ func handleConflictError(k *kb.KB, rce *gitx.RebaseConflictError) int {
 		if err := k.RegisterConflict(c); err != nil {
 			fmt.Fprintf(os.Stderr, "cartographer: register conflict %q: %v\n", conceptID, err)
 		}
+		if kind == kb.ConflictKindReserved {
+			continue
+		}
 		if err := k.MarkDegraded(conceptID); err != nil {
 			fmt.Fprintf(os.Stderr, "cartographer: mark degraded %q: %v\n", conceptID, err)
 		}
 		n++
 	}
-	return n
+	return n, reserved
+}
+
+// conflictMessage is the error a write returns when its SyncIn hit a rebase
+// conflict on n concepts and the given reserved files. It never suggests a
+// git command: every way out is a tool (D311).
+func conflictMessage(n int, reserved []string) string {
+	if len(reserved) == 0 {
+		return fmt.Sprintf("git conflict detected and registered on %d concept(s); "+
+			"use the conflicts_list tool and kb-conflict-resolve skill to resolve", n)
+	}
+	files := strings.Join(reserved, ", ")
+	if n == 0 {
+		return fmt.Sprintf("git conflict on reserved file(s) only (%s); auto-resolution failed — "+
+			"resolve with git_conflict_resolve (concept_id: the file path, strategy: union|ours|theirs; union only for log.md)", files)
+	}
+	return fmt.Sprintf("git conflict detected and registered on %d concept(s); "+
+		"%d reserved file(s) also in conflict (%s) — these are auto-resolved when the concept conflicts are resolved; "+
+		"use the conflicts_list tool and kb-conflict-resolve skill to resolve the concept conflicts", n, len(reserved), files)
 }
 
 // byteBudget renders a byte limit the way an operator reads it, so a tool

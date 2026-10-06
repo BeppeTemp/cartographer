@@ -1058,3 +1058,41 @@ func StashDrop(dir string) error {
 	}
 	return nil
 }
+
+// MergeBase returns the best common ancestor of a and b ("git merge-base").
+func MergeBase(dir, a, b string) (string, error) {
+	out, err := runGit(dir, "merge-base", a, b)
+	if err != nil {
+		return "", fmt.Errorf("git merge-base %s %s: %w: %s", a, b, err, out)
+	}
+	return strings.TrimSpace(out), nil
+}
+
+// MergeFileUnion returns the line-level union of ours and theirs against base
+// ("git merge-file -p --union"): the content git's built-in merge=union driver
+// produces, computed without touching the index or the working tree. It is
+// how an append-only file such as log.md is reconciled when two clones added
+// entries concurrently (D311). Only stdout is read: CombinedOutput would mix a
+// warning into the merged content.
+func MergeFileUnion(base, ours, theirs string) (string, error) {
+	dir, err := os.MkdirTemp("", "cartographer-merge-file-*")
+	if err != nil {
+		return "", fmt.Errorf("merge-file temp dir: %w", err)
+	}
+	defer os.RemoveAll(dir)
+	paths := make([]string, 3)
+	for i, content := range []string{ours, base, theirs} {
+		paths[i] = filepath.Join(dir, fmt.Sprintf("f%d", i))
+		if err := os.WriteFile(paths[i], []byte(content), 0o600); err != nil {
+			return "", fmt.Errorf("merge-file temp file: %w", err)
+		}
+	}
+	cmd := exec.Command("git", "merge-file", "-p", "--union", paths[0], paths[1], paths[2])
+	var stderr strings.Builder
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("git merge-file --union: %w: %s", err, strings.TrimSpace(stderr.String()))
+	}
+	return string(out), nil
+}

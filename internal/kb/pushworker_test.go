@@ -108,11 +108,13 @@ func TestSchedulePush_Conflict_InvokesOnPushConflict(t *testing.T) {
 	}
 	branch, _ := gitx.Branch(k.Root)
 
-	// Remote diverges: another writer edits data/index.md and pushes.
-	pushCommitToBare(t, bare, branch, "data/index.md")
+	// Remote diverges: another writer edits a concept and pushes. Not a
+	// reserved file such as data/index.md: SyncOut reconciles those itself
+	// (D311), so they never reach OnPushConflict.
+	pushCommitToBare(t, bare, branch, "data/note.md")
 
 	// Local diverges too, on the same file: a genuine conflict on push.
-	writeFileT(t, k.Root, "data/index.md", "local content\n")
+	writeFileT(t, k.Root, "data/note.md", "local content\n")
 	gitHere(t, k.Root, "add", "-A")
 	gitHere(t, k.Root, "-c", "user.email=test@test", "-c", "user.name=test",
 		"commit", "-m", "local conflicting edit")

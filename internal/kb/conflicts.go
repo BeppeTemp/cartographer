@@ -35,9 +35,13 @@ type Conflict struct {
 	PRURL         string   `json:"pr_url,omitempty"`         // server profile only (D117)
 	Files         []string `json:"files"`                    // all conflicting git paths in the same rebase
 	DetectedAt    string   `json:"detected_at"`              // RFC3339 UTC
+	// Kind is ConflictKindReserved for a reserved file the server could not
+	// reconcile by itself (D311): ConceptID then holds its git path. Empty for
+	// a concept.
+	Kind string `json:"kind,omitempty"`
 
 	// Step 4 — recorded resolution (empty until the agent calls git_conflict_resolve).
-	ResolutionStrategy string `json:"resolution_strategy,omitempty"` // "ours" | "theirs" | "edit"
+	ResolutionStrategy string `json:"resolution_strategy,omitempty"` // "ours" | "theirs" | "edit" | "union" (reserved log.md only)
 	ResolutionBody     string `json:"resolution_body,omitempty"`     // full reconciled file content, used when strategy="edit"
 }
 
@@ -201,6 +205,8 @@ func (k *KB) resolvedContent(c Conflict) (string, error) {
 		return gitx.ShowFile(k.Root, c.LocalSHA, c.Path)
 	case "theirs":
 		return gitx.ShowFile(k.Root, c.RemoteSHA, c.Path)
+	case "union":
+		return k.unionContent(c.Path, c.LocalSHA, c.RemoteSHA)
 	case "edit":
 		if c.ResolutionBody == "" {
 			return "", fmt.Errorf("resolvedContent: empty body for edit resolution of %q", c.ConceptID)
@@ -287,9 +293,25 @@ func (k *KB) FinalizeConflicts() ([]string, error) {
 	if unmerged, uerr := gitx.UnmergedFiles(k.Root); uerr == nil {
 		var foreign []string
 		for _, f := range unmerged {
-			if !resolvedPaths[f] {
-				foreign = append(foreign, f)
+			if resolvedPaths[f] {
+				continue
 			}
+			// A reserved file that conflicted alongside a concept was left
+			// out of the registry (D311): it takes its automatic resolution
+			// here, with the concepts the agent resolved.
+			if IsReservedPath(f) {
+				content, rerr := k.reservedResolution(f, conflicts[0].LocalSHA, remoteSHA)
+				if rerr == nil {
+					rerr = writeFileAtomic(filepath.Join(k.Root, filepath.FromSlash(f)), []byte(content))
+				}
+				if rerr == nil {
+					rerr = gitx.AddPath(k.Root, f)
+				}
+				if rerr == nil {
+					continue
+				}
+			}
+			foreign = append(foreign, f)
 		}
 		if len(foreign) > 0 {
 			_ = gitx.MergeAbort(k.Root)
@@ -401,8 +423,7 @@ func GitPathToConceptID(path string) (string, bool) {
 		return "", false
 	}
 	// Exclude reserved filenames at any depth.
-	base := filepath.Base(id + ".md")
-	if base == "index.md" || base == "log.md" || base == "_map.md" || base == "_archive.md" {
+	if IsReservedFile(filepath.Base(id + ".md")) {
 		return "", false
 	}
 	return id, true

@@ -33,6 +33,9 @@ func remoteWithDefault(t *testing.T) (k *KB, bare string) {
 		t.Fatalf("Init: %v", err)
 	}
 	k.GitSync, k.AutoCommit = true, true
+	// A clone predating D311 has no .gitattributes: without this, the first
+	// SyncIn adds it in an unpushed commit and the status reads "pending".
+	k.gitattrsChecked = true
 	return k, bare
 }
 

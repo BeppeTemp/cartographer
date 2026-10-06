@@ -4,6 +4,10 @@ topic: concurrency-git
 
 # D237 — A bounded fetch, and a read backoff, for a remote that does not answer
 
+*(Superseded in part by [D311](D311-reserved-file-conflicts-and-network-resilient-writes.md):
+a write whose fetch fails now commits on the local base when `HEAD` has nothing
+unpushed, instead of failing.)*
+
 **Decision.** `gitx.Fetch` runs under a 15s deadline and kills git's whole
 process group when it expires, returning a `RemoteTimeoutError` that names the
 remote. After a failed fetch, read-only tools skip `SyncIn` for 60s and serve the

@@ -876,6 +876,7 @@ func toolConflictsList(k *kb.KB) Tool {
 				PRURL         string   `json:"pr_url,omitempty"`
 				Files         []string `json:"files"`
 				DetectedAt    string   `json:"detected_at"`
+				Kind          string   `json:"kind,omitempty"`
 				Guidance      string   `json:"guidance"`
 			}
 			results := make([]conflictJSON, len(conflicts))
@@ -892,9 +893,13 @@ func toolConflictsList(k *kb.KB) Tool {
 					PRURL:         c.PRURL,
 					Files:         c.Files,
 					DetectedAt:    c.DetectedAt,
+					Kind:          c.Kind,
 					Guidance: "Read the concept with concept_read, reconcile the content, " +
 						"then rewrite it with concept_write removing status:degraded. " +
 						"See the kb-conflict-resolve skill for the full procedure.",
+				}
+				if c.Kind == kb.ConflictKindReserved {
+					results[i].Guidance = reservedConflictGuidance(c.Path)
 				}
 			}
 			out, _ := json.MarshalIndent(results, "", "  ")
@@ -914,13 +919,13 @@ func toolConflictsList(k *kb.KB) Tool {
 func toolGitConflictResolve(k *kb.KB) Tool {
 	return Tool{
 		Name:        "git_conflict_resolve",
-		Description: "Resolves a registered git conflict. strategy: ours (local), theirs (remote), edit (reconciled content in body). When every open conflict (conflicts_list) has a resolution, Cartographer merges, commits, pushes and clears the degraded markers.",
+		Description: "Resolves a git conflict. strategy: ours (local), theirs (remote), edit (reconciled body), union (log.md only). Once every open conflict (conflicts_list) is resolved, Cartographer merges, commits, pushes and clears the degraded markers.",
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"required": ["concept_id", "strategy"],
 			"properties": {
 				"concept_id": {"type": "string"},
-				"strategy": {"type": "string", "enum": ["ours", "theirs", "edit"]},
+				"strategy": {"type": "string", "enum": ["ours", "theirs", "edit", "union"]},
 				"body": {"type": "string", "description": "Full file content; for edit"}
 			}
 		}`),
@@ -942,13 +947,16 @@ func toolGitConflictResolve(k *kb.KB) Tool {
 				return errorResult("'concept_id' and 'strategy' are required"), nil
 			}
 			switch p.Strategy {
-			case "ours", "theirs":
+			case "ours", "theirs", "union":
 			case "edit":
 				if strings.TrimSpace(p.Body) == "" {
 					return errorResult("strategy 'edit' requires a non-empty 'body'"), nil
 				}
 			default:
-				return errorResult("unknown strategy: " + p.Strategy + " (use ours|theirs|edit)"), nil
+				return errorResult("unknown strategy: " + p.Strategy + " (use ours|theirs|edit|union)"), nil
+			}
+			if msg := reservedStrategyError(k, p.ConceptID, p.Strategy); msg != "" {
+				return errorResult(msg), nil
 			}
 
 			var result ToolResult
@@ -982,4 +990,40 @@ func toolGitConflictResolve(k *kb.KB) Tool {
 			return result, nil
 		},
 	}
+}
+
+// reservedConflictGuidance is the conflicts_list guidance for a reserved file
+// the server could not reconcile by itself (D311).
+func reservedConflictGuidance(path string) string {
+	strategies := "theirs (remote) or ours (local)"
+	if filepath.Base(path) == "log.md" {
+		strategies = "union (keeps both sides' entries), theirs (remote) or ours (local)"
+	}
+	return "Reserved file, not a concept: resolve it with git_conflict_resolve, concept_id " + path +
+		", strategy " + strategies + "."
+}
+
+// reservedStrategyError rejects a strategy that does not fit the registered
+// conflict: union is only for a reserved log.md, and a reserved file takes no
+// edit (it is generated or append-only). Empty when the strategy fits, or when
+// no conflict is registered (RecordResolution reports that).
+func reservedStrategyError(k *kb.KB, conceptID, strategy string) string {
+	conflicts, err := k.ListConflicts()
+	if err != nil {
+		return ""
+	}
+	for _, c := range conflicts {
+		if c.ConceptID != conceptID {
+			continue
+		}
+		reserved := c.Kind == kb.ConflictKindReserved
+		switch {
+		case strategy == "union" && (!reserved || filepath.Base(c.Path) != "log.md"):
+			return "strategy 'union' applies only to a reserved log.md conflict (use ours|theirs|edit)"
+		case strategy == "edit" && reserved:
+			return "strategy 'edit' does not apply to a reserved file (use union|ours|theirs for log.md, ours|theirs otherwise)"
+		}
+		return ""
+	}
+	return ""
 }
