@@ -117,6 +117,13 @@ tools:
 web:
   enabled: true
 
+# Agent peers (D341, beta): agent sessions connected to this server see each
+# other per KB and exchange short messages (peer_* tools, /api/peer/v1). In
+# memory only, never committed. HTTP only. Default false.
+# Also CARTOGRAPHER_PEERS_ENABLED. → docs/peers.md
+# peers:
+#   enabled: true
+
 # Look up the latest Cartographer release once a day (first check 30s after
 # start, cached 24h) and report it in /health and kb_status as
 # `latest_version` when it is newer (D254). Versions only: the server never

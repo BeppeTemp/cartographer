@@ -15,6 +15,7 @@ only the pages relevant to your task.
 | [data-plane.md](data-plane.md) | KB model: Atlas/Map/Journal hierarchy, filesystem layout, expanded concepts, OKF concepts, naming, extended type schema |
 | [skills-services-secrets.md](skills-services-secrets.md) | Skill packaging (`SKILL.md`), `type: Service` descriptors, SOPS secrets |
 | [sync.md](sync.md) | Client ↔ server provisioning sync: manifest+revision, lockfile, drift detection, layered triggers, prune, path-portability placeholders |
+| [peers.md](peers.md) | Agent peers (beta): sessions on the same server and KB see and message each other — opt-in, tools, delivery per client, relay, limits |
 | [use-cases.md](use-cases.md) | Executable patterns for runbooks, imports, provider sharing and multi-KB separation |
 
 ## Internals & contributing

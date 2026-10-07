@@ -12,6 +12,7 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/audit"
 	"github.com/BeppeTemp/cartographer/internal/auth"
+	"github.com/BeppeTemp/cartographer/internal/peers"
 	"github.com/BeppeTemp/cartographer/internal/webui"
 )
 
@@ -273,6 +274,9 @@ type MultiKBServer struct {
 	web *webMount
 	// latestVersion is the /health source of a newer release (D254).
 	latestVersion func() string
+	// peers is the agent-messaging hub behind PeerAPIPrefix (D341). Nil -- the
+	// default -- leaves the prefix unrouted, like the UI API when it is off.
+	peers *peers.Hub
 }
 
 // webMount is the UI surface a server may expose. Static may be nil: the JSON
@@ -547,6 +551,10 @@ func (m *MultiKBServer) Handler() http.Handler {
 		// being enabled — and inside the same auth chain as /mcp.
 		case r.URL.Path == UsagePath:
 			m.handleUsage(w, r)
+			return
+
+		case m.peers != nil && strings.HasPrefix(r.URL.Path, PeerAPIPrefix+"/"):
+			m.handlePeerAPI(w, r)
 			return
 
 		// The read-only UI API (D226). It sits inside the same auth chain as
