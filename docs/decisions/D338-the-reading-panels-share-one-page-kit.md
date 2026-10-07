@@ -7,9 +7,9 @@ topic: control-plane
 **Decision.** Activity, Work and Health are built from one set of components
 (`web/src/components/Page.tsx`) and one stylesheet (`web/src/styles/pages.css`):
 a header whose title answers in a sentence with its count in bold and folds long
-explanations behind a *?*; a band of cards side by side that sums the answer up
-and filters it (stats, facet rows, a Map bar); sections of dense rows without a
-box around them, with row actions shown on hover or focus; and a one-line,
+explanations behind a *?*; an open hero, with no box around it, that sums the
+answer up — large figures, a chart where there is a series, filters as pills
+and a Map bar; sections of dense rows without a box around them, with row actions shown on hover or focus; and a one-line,
 positive note where a list would be empty. The pages share one width (1,360px),
 mark rows with their Map's colour, and keep the previous answer on screen,
 dimmed, while a new one loads. Artifacts keeps its two-pane layout but uses the
@@ -27,5 +27,8 @@ row — to one place, where a change applies to every page.
   pieces the token system already styles (`docs/conventions.md` keeps the
   runtime dependencies to what the UI cannot do without).
 - Restyling each panel on its own: the drift that produced the problem.
+- A band of cards, one per summary: tried first; a card sized by its row left
+  empty space beside its neighbours, and boxes around a few numbers made the
+  pages read heavier than their content.
 - Folding the kit into `components.css`: pages and the graph shell change for
   different reasons, and one 2,700-line file hid which rules a page owned.

@@ -486,8 +486,9 @@ artifacts that reference the concept.
 
 Activity, Work and Health are reading panels built from one page kit (D338):
 a header that says the answer in a sentence with its count in bold (long
-explanations behind a *?*), a band of cards that sums it up side by side and
-filters it, then dense rows. They share one width, Map colours mark every
+explanations behind a *?*), an open hero with no box around it — large
+figures, a chart where there is a series, and filters as pills (a pressed one
+lights up in its Map's colour) — then dense rows. They share one width, Map colours mark every
 row, and nothing is said twice: a count in the title is not repeated in the
 band, a section with nothing in it is left out rather than shown empty, and an
 empty answer is said in one line with a check.
@@ -495,7 +496,8 @@ empty answer is said in one line with a check.
 The **Activity** panel is `changes_since` for the reader: the concepts changed
 in the last day, week or month (up to 500). The title counts the concepts; the
 band counts additions, removals and commits with one bar per day of the
-window, and offers
+window drawn as one area across the page (the day under the pointer named with
+its count), and offers
 *Where* (a bar split by Map, one row per Map) and *Who* (one row per author) as
 filters. Below it the timeline groups the concepts by the day each one last
 changed, newest first, one row each on a rail in its Map's colour: time, title,
@@ -518,8 +520,11 @@ The **Health** panel (D337) is how the KB is doing, on one page. Its title
 gives the worst state in words behind a mark — broken, needs attention,
 questions waiting, or all clear — and the line under it says where the
 findings were looked for, that no question waits when none does, and when the
-doctor comes next. The band shows the *Findings* by severity (or one line when
-there are none), the *Upkeep* schedule and the *Knowledge* counts. Below, only
+doctor comes next. The hero shows the state as a ring (healthy, needs
+attention, waiting on you, broken), the findings by severity (or one line when
+there are none), the knowledge counts, whether the background repair is on
+(a live dot) and what its last run did, and the doctor's cycle as a track
+from the last session to the next with today on it. Below, only
 the sections with something in them, in order of what to act on:
 
 - *Questions for you*: the `open_question` concepts the doctor deferred, each
@@ -536,7 +541,8 @@ the sections with something in them, in order of what to act on:
   something, D319), and how many concepts are past their review date
   (`GET /api/ui/v1/kbs/<kb>/status`);
 - beside them, *Repairs, last 30 days* (D323): each repair commit with its
-  check, concepts, background or by hand, and date, and a *Copy revert* action
+  check, concepts (with a bar of its size), background or by hand, and date,
+  and a *Copy revert* action
   holding the exact `cartographer kb repair <kb> --revert <sha>` command.
 
 *Upkeep* says whether the background repair is on and how many checks it runs
@@ -560,10 +566,12 @@ saying what that kind is, with its first names and a *more* chip that narrows
 the list to it; then the skills and agents used recently, the idle ones (never
 used, or not in the last 42 days) and those with findings, each opening its
 artifact. Selecting one opens its
-description, signature state, content hash, the clients sync writes it to, and
-its files: Markdown rendered (frontmatter as a table, without the name and
-description the header already shows), anything else as plain text, a binary
-or over-256-KiB file named but not shown. Skills left out for
+description, its signature, content hash and last use as one line of pills,
+the clients sync writes it to as a sentence, and its files: Markdown rendered
+(frontmatter as a light table without the name and description the header
+already shows, list values such as `tools` as chips folded past eight, nested
+values as a folded YAML block), anything else as plain text, a binary or
+over-256-KiB file named but not shown. Skills left out for
 failing validation are listed above. The artifact lint findings (D316, `docs/data-plane.md`
 §Artifact checks) are summarised above the list by severity ("No artifact findings" when clean,
 `finding_counts`/`finding_severities` in `GET …/artifacts`, counting those no listed artifact

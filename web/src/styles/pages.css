@@ -373,15 +373,7 @@
   color: var(--text-muted);
 }
 
-/* --- The band: the answer summed up, cells side by side --- */
-
-.band {
-  display: grid;
-  grid-auto-flow: column;
-  grid-auto-columns: minmax(0, 1fr);
-  gap: var(--space-4);
-  margin-block: var(--space-6) var(--space-8);
-}
+/* --- A titled block --- */
 
 .facet {
   min-width: 0;
@@ -397,80 +389,6 @@
   font-weight: 600;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--text-muted);
-}
-
-.stats {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: space-between;
-  gap: var(--space-4);
-  margin: 0;
-}
-
-.stats__item {
-  display: flex;
-  flex-direction: column-reverse;
-}
-
-.stats__item dt {
-  font-size: var(--text-xs);
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-}
-
-.stats__item dd {
-  margin: 0;
-  font-size: var(--text-xl);
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-  line-height: var(--leading-tight);
-  color: var(--text-primary);
-}
-
-.stats__item[data-tone="error"] dd {
-  color: var(--sev-error);
-}
-
-.stats__item[data-tone="warning"] dd {
-  color: var(--sev-warning);
-}
-
-.stats__item[data-tone="ok"] dd {
-  color: var(--sev-ok);
-}
-
-.stats__item[data-tone="muted"] dd {
-  color: var(--text-muted);
-}
-
-/* A key/value list inside a facet: settings, dates, plain facts. */
-.facts {
-  display: grid;
-  gap: var(--space-2);
-  margin: 0;
-}
-
-.facts > div {
-  display: grid;
-  grid-template-columns: 9em minmax(0, 1fr);
-  gap: var(--space-3);
-  align-items: baseline;
-}
-
-.facts dt {
-  font-size: var(--text-xs);
-  color: var(--text-muted);
-}
-
-.facts dd {
-  margin: 0;
-  font-size: var(--text-sm);
-  color: var(--text-primary);
-}
-
-.facts__aside {
   color: var(--text-muted);
 }
 
@@ -775,12 +693,6 @@ button.row {
 .page__body[data-loading="true"] {
   opacity: 0.45;
   pointer-events: none;
-}
-
-@media (max-width: 1100px) {
-  .band {
-    grid-auto-flow: row;
-  }
 }
 
 @media (max-width: 640px) {
@@ -1610,3 +1522,8 @@ button.row {
   color: var(--text-muted);
 }
 
+
+/* A calendar date beside a relative one: the quieter of the two. */
+.day__aside {
+  color: var(--text-muted);
+}

@@ -341,52 +341,42 @@ function ArtifactDetail({
         <p className="page__eyebrow">{artifact.kind}</p>
         <h2 className="artifacts__name">{artifact.name}</h2>
         {artifact.description && <p className="artifacts__desc">{artifact.description}</p>}
-        <dl className="artifacts__meta">
+        {/* The facts in one line of pills, the clients as a sentence: a
+            table of four rows was the heaviest thing on the page. */}
+        <div className="artifacts__facts">
           {artifact.signed !== undefined && (
-            <div>
-              <dt>Signature</dt>
-              <dd>{artifact.signed ? "Signed" : "Unsigned"}</dd>
-            </div>
+            <span className={artifact.signed ? "pill pill--ok" : "pill"}>{artifact.signed ? "Signed" : "Unsigned"}</span>
           )}
           {artifact.content_hash && (
-            <div>
-              <dt>Content hash</dt>
-              <dd>
-                <code title={artifact.content_hash}>{artifact.content_hash.slice(0, 12)}</code>
-              </dd>
-            </div>
+            <span className="pill" title={`Content hash ${artifact.content_hash}`}>
+              <code>{artifact.content_hash.slice(0, 12)}</code>
+            </span>
           )}
           {lastUsed(artifact) && (
-            <div>
-              <dt>Last used</dt>
-              <dd>
-                <LastUsed artifact={artifact} />
-                {artifact.last_used && (
-                  <>
-                    {" "}
-                    <time dateTime={artifact.last_used}>{artifact.last_used}</time>
-                  </>
-                )}
-              </dd>
-            </div>
-          )}
-          <div>
-            <dt>Clients</dt>
-            <dd>
-              {artifact.clients.length === 0 ? (
-                <span className="artifacts__none">Stays in the KB</span>
-              ) : (
-                <ul className="rail__chips">
-                  {artifact.clients.map((c) => (
-                    <li key={c.id} className="chip chip--static">
-                      {c.name || c.id}
-                    </li>
-                  ))}
-                </ul>
+            <span className="pill artifacts__used-pill">
+              <span className="artifacts__fact-label">Last used</span> <LastUsed artifact={artifact} />
+              {artifact.last_used && (
+                <>
+                  {" "}
+                  <time dateTime={artifact.last_used}>{artifact.last_used}</time>
+                </>
               )}
-            </dd>
-          </div>
-        </dl>
+            </span>
+          )}
+        </div>
+        <p className="artifacts__clients">
+          <span className="artifacts__fact-label">Synced to</span>{" "}
+          {artifact.clients.length === 0 ? (
+            <span className="artifacts__none">no client: it stays in the KB</span>
+          ) : (
+            artifact.clients.map((c, i) => (
+              <span key={c.id}>
+                {i > 0 && <span aria-hidden="true"> · </span>}
+                <span className="artifacts__client">{c.name || c.id}</span>
+              </span>
+            ))
+          )}
+        </p>
         {/* Where the artifact meets the atlas: a template shapes every
             concept of its type; a skill or agent points agents at the
             concepts it names. */}
@@ -490,9 +480,67 @@ function splitFrontmatter(text: string): { fields: [string, string][]; body: str
   return { fields, body: text.slice(m[0].length) };
 }
 
+/** A YAML scalar as a reader wants it: without the quotes YAML needed. */
+function unquote(v: string): string {
+  const t = v.trim();
+  return t.length >= 2 && ((t[0] === '"' && t.endsWith('"')) || (t[0] === "'" && t.endsWith("'"))) ? t.slice(1, -1) : t;
+}
+
+/** A value that is a list — `[a, b]`, `- a` lines, or a long comma run — as its items. */
+function listOf(v: string): string[] | null {
+  const t = v.trim();
+  if (t.startsWith("[") && t.endsWith("]")) return t.slice(1, -1).split(",").map((x) => unquote(x)).filter(Boolean);
+  const lines = t.split("\n").map((x) => x.trim());
+  if (lines.length > 1 && lines.every((x) => x.startsWith("- "))) return lines.map((x) => unquote(x.slice(2)));
+  const parts = t.split(/,\s*/);
+  if (parts.length > 3 && parts.every((x) => /^[\w.:/@-]+$/.test(x))) return parts;
+  return null;
+}
+
+const LIST_PREVIEW = 8;
+
+/** A list value as chips, folded past a few: forty tool names are not a paragraph. */
+function ListValue({ items }: { items: string[] }) {
+  const [open, setOpen] = useState(false);
+  const shown = open ? items : items.slice(0, LIST_PREVIEW);
+  return (
+    <ul className="artifacts__values">
+      {shown.map((x, i) => (
+        <li key={`${x}-${i}`}>
+          <code>{x}</code>
+        </li>
+      ))}
+      {items.length > LIST_PREVIEW && (
+        <li>
+          <button type="button" className="chip chip--more" onClick={() => setOpen(!open)}>
+            {open ? "Show fewer" : `+${items.length - LIST_PREVIEW} more`}
+          </button>
+        </li>
+      )}
+    </ul>
+  );
+}
+
+/** A nested value as YAML, folded to a few lines until asked for. */
+function BlockValue({ text }: { text: string }) {
+  const [open, setOpen] = useState(false);
+  const long = text.split("\n").length > 4 || text.length > 320;
+  return (
+    <div className="artifacts__block" data-open={open || !long}>
+      <pre>{text.replace(/^\n+/, "")}</pre>
+      {long && (
+        <button type="button" className="chip chip--more" onClick={() => setOpen(!open)}>
+          {open ? "Show less" : "Show all"}
+        </button>
+      )}
+    </div>
+  );
+}
+
 /**
  * A file's content. Frontmatter fields the header already shows (name,
- * description) are left out of the table rather than said twice.
+ * description) are left out of the table rather than said twice; list values
+ * become chips.
  */
 function FileContent({ file, known = {} }: { file: ArtifactFile; known?: Record<string, string> }) {
   if (file.binary) return <p className="artifacts__notice">Binary file — not shown.</p>;
@@ -500,18 +548,29 @@ function FileContent({ file, known = {} }: { file: ArtifactFile; known?: Record<
   const text = file.content ?? "";
   if (!file.path.endsWith(".md")) return <pre className="artifacts__pre">{text}</pre>;
   const split = splitFrontmatter(text);
-  const fields = (split?.fields ?? []).filter(([key, value]) => known[key] === undefined || known[key] !== value);
+  const fields = (split?.fields ?? []).filter(([key, value]) => known[key] === undefined || known[key] !== unquote(value));
   return (
     <>
       {fields.length > 0 && (
         <table className="artifacts__frontmatter">
           <tbody>
-            {fields.map(([key, value], i) => (
-              <tr key={`${key}-${i}`}>
-                <th scope="row">{key}</th>
-                <td>{value}</td>
-              </tr>
-            ))}
+            {fields.map(([key, value], i) => {
+              const items = listOf(value);
+              return (
+                <tr key={`${key}-${i}`}>
+                  <th scope="row">{key}</th>
+                  <td>
+                    {items ? (
+                      <ListValue items={items} />
+                    ) : value.includes("\n") ? (
+                      <BlockValue text={value} />
+                    ) : (
+                      unquote(value)
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       )}

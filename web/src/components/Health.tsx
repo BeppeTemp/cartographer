@@ -372,7 +372,7 @@ function Day({ iso }: { iso: string }) {
   return (
     <time dateTime={iso} title={iso}>
       {relativeDay(iso)}{" "}
-      <span className="facts__aside">· {new Date(t).toLocaleDateString("en", { day: "numeric", month: "short" })}</span>
+      <span className="day__aside">· {new Date(t).toLocaleDateString("en", { day: "numeric", month: "short" })}</span>
     </time>
   );
 }

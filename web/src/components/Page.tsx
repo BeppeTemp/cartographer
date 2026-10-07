@@ -96,16 +96,7 @@ export function Segmented<T extends string>({
   );
 }
 
-/** The summary band: cells side by side, stacked on a narrow screen. */
-export function Band({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <div className="band" role="region" aria-label={label}>
-      {children}
-    </div>
-  );
-}
-
-/** One cell of the band, or any titled card. */
+/** A titled block: an overview section, a card. */
 export function Facet({
   title,
   id,
@@ -126,20 +117,6 @@ export function Facet({
       )}
       {children}
     </section>
-  );
-}
-
-/** Big numbers with a small label under each. */
-export function Stats({ items }: { items: { label: string; value: number | string; tone?: string }[] }) {
-  return (
-    <dl className="stats">
-      {items.map((s) => (
-        <div key={s.label} className="stats__item" data-tone={s.tone}>
-          <dt>{s.label}</dt>
-          <dd>{s.value}</dd>
-        </div>
-      ))}
-    </dl>
   );
 }
 
@@ -323,7 +300,7 @@ export function Quiet({ children, tone = "ok" }: { children: ReactNode; tone?: "
 /** Placeholder rows while a list loads. */
 export function SkeletonRows({ label, rows = 4 }: { label: string; rows?: number }) {
   return (
-    <div className="skeleton-rows" aria-busy="true" aria-label={label}>
+    <div className="skeleton-rows" role="status" aria-busy="true" aria-label={label}>
       {Array.from({ length: rows }, (_, i) => (
         <span key={i} className="skeleton" />
       ))}
