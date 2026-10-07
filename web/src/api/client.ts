@@ -156,7 +156,7 @@ export function fetchSearch(kb: string, query: string, signal?: AbortSignal): Pr
 }
 
 export function fetchChanges(kb: string, since: string, signal?: AbortSignal): Promise<ChangesResponse> {
-  return get<ChangesResponse>(`/kbs/${encodeURIComponent(kb)}/changes?since=${encodeURIComponent(since)}&limit=40`, signal);
+  return get<ChangesResponse>(`/kbs/${encodeURIComponent(kb)}/changes?since=${encodeURIComponent(since)}&limit=500`, signal);
 }
 
 /** The caller's open work, up to the route's cap (D302). */
@@ -172,6 +172,11 @@ export function fetchMaintenanceSummary(kb: string, signal?: AbortSignal): Promi
 /** The questions the doctor deferred to a person: open_question concepts. */
 export function fetchMaintenanceQuestions(kb: string, signal?: AbortSignal): Promise<MaintenanceQuestions> {
   return get<MaintenanceQuestions>(`/kbs/${encodeURIComponent(kb)}/maintenance/questions`, signal);
+}
+
+/** An opaque token that changes whenever the KB's concepts do (D337). */
+export function fetchRevision(kb: string, signal?: AbortSignal): Promise<{ revision: string }> {
+  return get<{ revision: string }>(`/kbs/${encodeURIComponent(kb)}/revision`, signal);
 }
 
 export function fetchStatus(kb: string, signal?: AbortSignal): Promise<KBStatus> {

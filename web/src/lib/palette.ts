@@ -31,7 +31,7 @@ export function cssVar(name: string, root: HTMLElement = document.documentElemen
 
 /** What node colour means: the Map a concept is filed in, or the community
  *  its links place it in (lib/communities). Lint severity is not a colour: it
- *  painted most of a real KB one colour, and the Observatory is where a KB's
+ *  painted most of a real KB one colour, and the Health panel is where a KB's
  *  health is read. */
 export type ColorBy = "community" | "map";
 

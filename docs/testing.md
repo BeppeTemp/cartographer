@@ -265,6 +265,14 @@ GoReleaser environment, which is out of the deterministic gate (see below).
 
 ### Frontend (`make web-test`, `make web-check`)
 
+To work on the UI live, run a server (`cartographer serve --http :39273 --kb …`)
+and `cd web && npm run dev`: Vite serves the UI with hot reload on
+`http://localhost:5173/ui/` and proxies `/api` to the server
+(`CARTOGRAPHER_DEV_API` for another address); the Atlas follows the KB live
+(D337). Keep no local file under `web/`: every file there enters the bundle's
+provenance hash, so an untracked one makes `make web` record a hash CI cannot
+reproduce and `web-check` fails.
+
 The Atlas UI's own tests: Vitest with Testing Library, under `web/`. They run in
 the `web` CI job, not in `make gate`, so a pure-Go change needs no Node
 toolchain (D227). What they hold:
@@ -284,6 +292,18 @@ toolchain (D227). What they hold:
 - Markdown from a concept body renders inert — a raw `<script>` and an
   `onerror` attribute must not survive;
 - the bearer token reaches neither `localStorage` nor a URL;
+- the live refresh bumps only when the KB revision changes, stops for good on a
+  `404` (a narrowed principal has no revision) and never polls while disabled
+  (D337);
+- Health (D338): findings by severity with their accept badges and floor,
+  revealing a concept or saying there is none, scoped by the rail's Map so a
+  clean Map never reads as a clean KB; the upkeep, questions and repairs, each
+  copy action a clipboard write and every request a `GET`; a whole-KB `404`
+  left out silently while another failure is reported; the old
+  `panel=observatory` and `panel=maintenance` links landing on Health;
+- Work's columns in the order work moves and its Map cards busiest first, its
+  Map, status, stale and text filters; Activity's day groups; the legend
+  folding and remembering it;
 - the graph layout is deterministic for identical input, and the community
   colouring reads the server's communities (D244), which are deterministic
   themselves: the same KB state paints the same node the same colour;
@@ -404,11 +424,12 @@ What it holds, beyond the component tests:
 
 - the flows — local mode with no prompt; the bearer prompt, and "remember for
   this tab" surviving a reload but not a new tab; KB switching; Map drill-in;
-  type/status filters and the Observatory's severity floor; the command
+  type/status filters and Health's severity floor; the command
   palette; URL state with Back/Forward and deep links; backlink chips;
-  Observatory findings revealing their concept or saying there is no node;
-  the Observatory scoped by the rail's Map, and its node filters stepping aside;
-  the Maintenance panel loading its summary and questions (D323);
+  Health findings revealing their concept or saying there is no node;
+  Health's findings scoped by the rail's Map, and its node filters stepping aside;
+  Health loading its upkeep schedule and questions (D323, D338); the Artifacts
+  catalog opening an artifact beside it and closing it;
   the reading panel's splitter (D239, D281): a drag persists across a reload,
   a wider panel keeps its close button at the head's right edge and reframes
   the selection in the strip it now leaves, and the panel stops growing at the
@@ -421,8 +442,9 @@ What it holds, beyond the component tests:
   concept that never existed — never a `403`;
 - determinism: two fresh browser contexts compute byte-identical layouts;
 - accessibility: axe finds no `serious` or `critical` WCAG 2.2 A/AA violation
-  on the shell, graph, inspector, navigation, Observatory and auth prompt, at
-  1,440×900 and 390×844; one keyboard-only traversal; reduced motion skips the
+  on the shell, graph, inspector, navigation, Activity, Work, Health,
+  Artifacts and auth prompt, at 1,440×900 and 390×844, and no page wider than
+  the screen; one keyboard-only traversal; reduced motion skips the
   entry settle and jumps the camera, where full motion plays and tweens it
   (read from the `data-entry` and `data-camera` attributes the graph exposes
   for this);
@@ -434,7 +456,7 @@ What it holds, beyond the component tests:
   once; a hidden tab stops the render loop; `touch-action: none` is on the
   canvas only;
 - the README's hero tour (`hero.spec.ts`, D330): graph, search, a concept's
-  links, colour by Map, a skill in the Artifacts panel, the Observatory — so a
+  links, colour by Map, a skill in the Artifacts panel, Health — so a
   step the recorded animation shows and the UI no longer offers fails here;
 - security: no request leaves the Cartographer origin (any foreign request
   fails the test, it is not allow-listed); the shell's CSP is present and an

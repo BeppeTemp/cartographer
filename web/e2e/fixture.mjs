@@ -71,7 +71,7 @@ const atlas = {
 
   "data/infra/_map.md": map("Infrastructure"),
   // A dead entry in a map index: a finding that is about no concept (#320),
-  // so the Observatory can only explain that there is no node to reveal.
+  // so Health can only explain that there is no node to reveal.
   "data/infra/index.md": index("Infrastructure", ["- [[infra/gateway]]", "- [[infra/decommissioned-router]]"]),
   "data/infra/log.md": "# Log\n\n",
   // The backlink pair: gateway ↔ dns.

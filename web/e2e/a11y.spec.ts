@@ -57,20 +57,24 @@ for (const viewport of [
         await page.getByRole("button", { name: "Back to artifacts" }).click();
         await expect(page.getByRole("searchbox", { name: "Filter artifacts" })).toBeVisible();
       } else {
-        await expect(page.getByRole("separator", { name: "Resize artifact list" })).toBeVisible();
+        // The detail opens beside the catalog and closes back to it.
+        await page.getByRole("button", { name: "Close the artifact" }).click();
+        await expect(page.getByRole("article", { name: /^Artifact / })).toHaveCount(0);
       }
     });
 
-    test("Observatory", async ({ page }) => {
-      await page.goto(`${ATLAS}&panel=observatory`);
-      await expect(page.getByRole("region", { name: "Observatory" })).toBeVisible();
-      expect(await seriousViolations(page)).toEqual([]);
-    });
+    for (const panel of ["activity", "work", "health"]) {
+      test(`the ${panel} page`, async ({ page }) => {
+        await page.goto(`${ATLAS}&panel=${panel}`);
+        await expect(page.locator(".page")).toBeVisible();
+        expect(await seriousViolations(page)).toEqual([]);
+      });
+    }
 
     test("no page wider than the screen", async ({ page }) => {
       // The top bar once set a 750px minimum: on a phone the browser widened
       // the whole page to fit it, and every view spilled off the right edge.
-      for (const url of [ATLAS, `${ATLAS}&panel=observatory`]) {
+      for (const url of [ATLAS, ...["activity", "work", "health", "artifacts"].map((p) => `${ATLAS}&panel=${p}`)]) {
         await page.goto(url);
         await expect(page.locator(".topbar")).toBeVisible();
         const [scroll, inner] = await page.evaluate(() => [document.documentElement.scrollWidth, window.innerWidth]);

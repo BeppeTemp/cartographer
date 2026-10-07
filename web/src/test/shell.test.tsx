@@ -162,8 +162,16 @@ describe("colour legend", () => {
     expect(within(legend).getByText("infra")).toBeInTheDocument();
     expect(localStorage.getItem("cartographer.colorBy")).toBe("map");
 
-    // Lint severity is not a colour mode (D307): the Observatory reads health.
+    // Lint severity is not a colour mode (D307): the Health panel reads it.
     expect(within(legend).queryByRole("button", { name: "Health" })).not.toBeInTheDocument();
+
+    // Folded, it keeps the switch and the counts, and remembers it.
+    await user.click(within(legend).getByRole("button", { name: "Hide the legend" }));
+    expect(within(legend).queryByText("infra")).not.toBeInTheDocument();
+    expect(within(legend).getByRole("button", { name: "Map" })).toBeInTheDocument();
+    expect(localStorage.getItem("cartographer.panel.legend")).toBe("1");
+    await user.click(within(legend).getByRole("button", { name: "Show the legend" }));
+    expect(within(legend).getByText("infra")).toBeInTheDocument();
   });
 });
 

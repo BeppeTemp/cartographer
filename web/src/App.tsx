@@ -7,10 +7,24 @@ import {
   fetchKBs,
   fetchArtifacts,
   fetchLint,
+  fetchMaintenanceQuestions,
+  fetchMaintenanceSummary,
   fetchOverview,
+  fetchStatus,
   restoreToken,
-  setToken, fetchStatus } from "./api/client";
-import type { ArtifactList, Concept, GraphSnapshot, KBSummary, LintReport, Overview, KBStatus } from "./api/types";
+  setToken,
+} from "./api/client";
+import type {
+  ArtifactList,
+  Concept,
+  GraphSnapshot,
+  KBStatus,
+  KBSummary,
+  LintReport,
+  MaintenanceQuestions,
+  MaintenanceSummary,
+  Overview,
+} from "./api/types";
 import { Artifacts } from "./components/Artifacts";
 import { AuthPrompt } from "./components/AuthPrompt";
 import { CommandPalette } from "./components/CommandPalette";
@@ -21,15 +35,15 @@ import { Legend } from "./components/Legend";
 import { Sheet, useMediaQuery } from "./components/Sheet";
 import { Splitter } from "./components/Splitter";
 import { Activity } from "./components/Activity";
-import { Maintenance } from "./components/Maintenance";
 import { Work } from "./components/Work";
 import { NodeList } from "./components/NodeList";
-import { Observatory } from "./components/Observatory";
+import { Health } from "./components/Health";
 import { EmptyState, ErrorState, Skeleton } from "./components/States";
 import { TopBar } from "./components/TopBar";
 import { applyTheme, onSystemThemeChange, prefersReducedMotion, readTheme, useAppliedTheme, type Theme } from "./lib/theme";
 import { initialMotion } from "./lib/graph3d/motion";
 import { hasWebGL } from "./lib/webgl";
+import { useLiveRevision } from "./lib/live";
 import { snapshotCommunities, type Communities } from "./lib/communities";
 import { readColorBy, writeColorBy, type ColorBy } from "./lib/palette";
 import { pushView, readViewState, replaceView, type ViewState } from "./lib/viewstate";
@@ -89,15 +103,20 @@ export function App() {
   const [railCollapsed, setRailCollapsed] = useState(() =>
     readPanel("rail", !(window.matchMedia?.("(min-width: 1200px)").matches ?? false)),
   );
-  // kb_status's knowledge signals for the Observatory; a principal that
-  // cannot see the whole KB gets a 404 and the section is simply absent.
+  // kb_status's knowledge signals for Health; a principal that cannot see
+  // the whole KB gets a 404 and those parts are simply absent.
   const [kbStatus, setKbStatus] = useState<KBStatus | null>(null);
+  const [maintenance, setMaintenance] = useState<MaintenanceSummary | null>(null);
+  const [maintenanceError, setMaintenanceError] = useState<string | null>(null);
+  const [questions, setQuestions] = useState<MaintenanceQuestions | null>(null);
+  const [questionsError, setQuestionsError] = useState<string | null>(null);
   const [motion, setMotion] = useState(() => initialMotion(readPanel("motion", true), prefersReducedMotion()));
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [preview, setPreview] = useState<string | null>(null);
   const [notice, setNotice] = useState<string>("");
   const [offline, setOffline] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
+  const loadedConcept = useRef<string | null>(null);
   const [colorBy, setColorBy] = useState<ColorBy>(readColorBy);
   const narrow = useMediaQuery(NARROW_QUERY);
   const [sheet, setSheet] = useState<SheetName>(null);
@@ -243,6 +262,9 @@ export function App() {
   // cannot let a stale response overwrite a newer one. ---
 
   const activeKB = view.kb;
+  // Bumps when the KB changes under the open page (D337): every data effect
+  // below lists it, so the views refetch in place without a reload.
+  const live = useLiveRevision(activeKB, phase === "ready");
 
   useEffect(() => {
     if (!activeKB || phase !== "ready") return;
@@ -257,7 +279,7 @@ export function App() {
         if (!handleFailure(err)) setOverview(null);
       });
     return () => controller.abort();
-  }, [activeKB, phase, handleFailure, reloadKey]);
+  }, [activeKB, phase, handleFailure, reloadKey, live]);
 
   useEffect(() => {
     if (!activeKB || phase !== "ready") return;
@@ -277,18 +299,22 @@ export function App() {
         if (!controller.signal.aborted) setGraphLoading(false);
       });
     return () => controller.abort();
-  }, [activeKB, view.scope, phase, handleFailure, reloadKey]);
+  }, [activeKB, view.scope, phase, handleFailure, reloadKey, live]);
 
   useEffect(() => {
     if (!activeKB || !view.concept || phase !== "ready") {
+      loadedConcept.current = null;
       setConcept(null);
       setConceptError(null);
       return;
     }
     const controller = new AbortController();
-    setConceptLoading(true);
-    fetchConcept(activeKB, view.concept, controller.signal)
+    // A live refetch of the concept already shown keeps it on screen.
+    if (loadedConcept.current !== view.concept) setConceptLoading(true);
+    const id = view.concept;
+    fetchConcept(activeKB, id, controller.signal)
       .then((data) => {
+        loadedConcept.current = id;
         setConcept(data);
         setConceptError(null);
       })
@@ -303,7 +329,7 @@ export function App() {
         if (!controller.signal.aborted) setConceptLoading(false);
       });
     return () => controller.abort();
-  }, [activeKB, view.concept, phase, handleFailure]);
+  }, [activeKB, view.concept, phase, handleFailure, live]);
 
   useEffect(() => {
     if (!activeKB || phase !== "ready") return;
@@ -324,7 +350,7 @@ export function App() {
         if (!controller.signal.aborted) setLintLoading(false);
       });
     return () => controller.abort();
-  }, [activeKB, severityMin, view.scope, phase, handleFailure, reloadKey]);
+  }, [activeKB, severityMin, view.scope, phase, handleFailure, reloadKey, live]);
 
   // Artifacts are whole-KB resources (D238): a principal that cannot see the
   // whole KB gets no panel, and a link to one falls back to the atlas.
@@ -350,7 +376,7 @@ export function App() {
         if (!controller.signal.aborted) setArtifactsLoading(false);
       });
     return () => controller.abort();
-  }, [activeKB, artifactsAllowed, phase, handleFailure, reloadKey]);
+  }, [activeKB, artifactsAllowed, phase, handleFailure, reloadKey, live]);
   useEffect(() => {
     if (view.panel !== "artifacts" || !activeKB || kbs.length === 0 || artifactsAllowed) return;
     const next = { ...view, panel: "atlas" as const, artifact: null };
@@ -358,15 +384,42 @@ export function App() {
     replaceView(next);
   }, [view, activeKB, kbs, artifactsAllowed]);
 
+  // Health's whole-KB reads (D338): kb_status and the maintenance summary
+  // answer 404 to a principal that cannot see the whole KB, which is not an
+  // error to show — the page leaves those parts out. The questions are
+  // filtered per principal and always answer.
   useEffect(() => {
-    setKbStatus(null);
-    if (view.panel !== "observatory" || !activeKB || phase !== "ready") return;
+    if (view.panel !== "health" || !activeKB || phase !== "ready") {
+      setKbStatus(null);
+      setMaintenance(null);
+      setMaintenanceError(null);
+      setQuestions(null);
+      setQuestionsError(null);
+      return;
+    }
     const controller = new AbortController();
+    const quiet404 = (set: (m: string | null) => void) => (err: unknown) => {
+      if (controller.signal.aborted || handleFailure(err)) return;
+      if (err instanceof ApiError && err.status === 404) return set(null);
+      set(err instanceof Error ? err.message : String(err));
+    };
     fetchStatus(activeKB, controller.signal)
       .then(setKbStatus)
       .catch(() => undefined);
+    fetchMaintenanceSummary(activeKB, controller.signal)
+      .then((data) => {
+        setMaintenance(data);
+        setMaintenanceError(null);
+      })
+      .catch(quiet404(setMaintenanceError));
+    fetchMaintenanceQuestions(activeKB, controller.signal)
+      .then((data) => {
+        setQuestions(data);
+        setQuestionsError(null);
+      })
+      .catch(quiet404(setQuestionsError));
     return () => controller.abort();
-  }, [view.panel, activeKB, phase, reloadKey]);
+  }, [view.panel, activeKB, phase, handleFailure, reloadKey, live]);
 
   // --- Derived view ---
 
@@ -592,17 +645,21 @@ export function App() {
           ) : view.panel === "activity" && activeKB ? (
             <Activity
               kb={activeKB}
+              live={live}
+              collections={overview?.collections}
               snapshot={snapshot}
               onOpen={(conceptId) => navigate({ panel: "atlas", concept: conceptId })}
             />
           ) : view.panel === "work" && activeKB ? (
-            <Work kb={activeKB} onOpen={(conceptId) => navigate({ panel: "atlas", concept: conceptId })} />
-          ) : view.panel === "maintenance" && activeKB ? (
-            <Maintenance kb={activeKB} onOpen={(conceptId) => navigate({ panel: "atlas", concept: conceptId })} />
-          ) : view.panel === "observatory" ? (
-            <Observatory
+            <Work kb={activeKB} live={live} collections={overview?.collections} onOpen={(conceptId) => navigate({ panel: "atlas", concept: conceptId })} />
+          ) : view.panel === "health" ? (
+            <Health
               report={lint}
               status={kbStatus}
+              summary={maintenance}
+              summaryError={maintenanceError}
+              questions={questions}
+              questionsError={questionsError}
               scopeTitle={
                 view.scope
                   ? (overview?.collections.find((c) => c.name === view.scope)?.title || view.scope)
@@ -613,6 +670,7 @@ export function App() {
               severityMin={severityMin}
               onSeverityChange={setSeverityMin}
               onRetry={() => setReloadKey((k) => k + 1)}
+              onOpen={(conceptId) => navigate({ panel: "atlas", concept: conceptId })}
               onReveal={(conceptId, message) => {
                 if (conceptId) navigate({ panel: "atlas", concept: conceptId });
                 else announce(message);

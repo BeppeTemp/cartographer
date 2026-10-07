@@ -9,7 +9,7 @@ describe("view state round-trips through the URL", () => {
       kb: "kb-a",
       scope: "infra",
       concept: "infra/gateway",
-      panel: "observatory",
+      panel: "health",
       artifact: null,
     };
     expect(readViewState(viewStateToSearch(view))).toEqual(view);
@@ -18,6 +18,14 @@ describe("view state round-trips through the URL", () => {
   it("omits empty values instead of writing blanks", () => {
     expect(viewStateToSearch({ kb: null, scope: null, concept: null, panel: "atlas", artifact: null })).toBe("");
     expect(viewStateToSearch({ kb: "kb", scope: null, concept: null, panel: "atlas", artifact: null })).toBe("?kb=kb");
+  });
+
+  it("sends the old Observatory and Maintenance links to Health (D338)", () => {
+    expect(readViewState("?panel=observatory").panel).toBe("health");
+    expect(readViewState("?panel=maintenance").panel).toBe("health");
+    expect(viewStateToSearch({ kb: "k", scope: null, concept: null, panel: "health", artifact: null })).toBe(
+      "?kb=k&panel=health",
+    );
   });
 
   it("falls back to the atlas for an unknown panel", () => {

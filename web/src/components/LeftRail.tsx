@@ -43,7 +43,7 @@ export function LeftRail({
   const activeCount = typeFilter.size + statusFilter.size;
   const filtersActive = activeCount > 0;
   // Type and Status filter the graph's nodes, so they exist only on the Atlas:
-  // the Observatory lists findings (some with no concept and so no type) and
+  // Health lists findings (some with no concept and so no type) and
   // Artifacts lists files, and neither reads the filters. The chips step aside
   // there rather than look applied while doing nothing. The selection lives
   // in App, so it is still applied on the way back to the Atlas.
@@ -101,30 +101,15 @@ export function LeftRail({
           <button
             type="button"
             className="rail__panel"
-            aria-label="Maintenance"
-            title={collapsed ? "Maintenance" : undefined}
-            aria-current={panel === "maintenance" ? "page" : undefined}
-            onClick={() => onPanel("maintenance")}
+            aria-label={lintTotal > 0 ? `Health, ${lintTotal} findings` : "Health"}
+            title={collapsed ? "Health" : undefined}
+            aria-current={panel === "health" ? "page" : undefined}
+            onClick={() => onPanel("health")}
           >
             <span className="rail__glyph">
-              <Icon name="maintenance" />
+              <Icon name="health" />
             </span>
-            <span className="rail__label">Maintenance</span>
-          </button>
-        </li>
-        <li>
-          <button
-            type="button"
-            className="rail__panel"
-            aria-label={lintTotal > 0 ? `Observatory, ${lintTotal} findings` : "Observatory"}
-            title={collapsed ? "Observatory" : undefined}
-            aria-current={panel === "observatory" ? "page" : undefined}
-            onClick={() => onPanel("observatory")}
-          >
-            <span className="rail__glyph">
-              <Icon name="observatory" />
-            </span>
-            <span className="rail__label">Observatory</span>
+            <span className="rail__label">Health</span>
             {lintTotal > 0 && <span className="rail__badge">{lintTotal}</span>}
           </button>
         </li>
@@ -133,7 +118,7 @@ export function LeftRail({
             <button
               type="button"
               className="rail__panel"
-              aria-label={`Artifacts, ${artifactsTotal}`}
+              aria-label="Artifacts"
               title={collapsed ? "Artifacts" : undefined}
               aria-current={panel === "artifacts" ? "page" : undefined}
               onClick={() => onPanel("artifacts")}
@@ -142,7 +127,6 @@ export function LeftRail({
                 <Icon name="artifacts" />
               </span>
               <span className="rail__label">Artifacts</span>
-              {artifactsTotal > 0 && <span className="rail__badge rail__badge--neutral">{artifactsTotal}</span>}
             </button>
           </li>
         )}

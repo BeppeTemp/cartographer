@@ -14,15 +14,16 @@
 :root {
   color-scheme: dark;
 
-  /* Surfaces, from the backdrop up. Warm charcoal, not forest: with green
-     surfaces, green borders and green controls the dark theme read as one
-     green block. The brand's sage is the accent, never the ground. */
-  --surface-0: #1a1b19;
-  --surface-1: #212220;
-  --surface-2: #292a27;
-  --surface-3: #31322f;
-  --border-subtle: #3a3b37;
-  --border-strong: #7e8079;
+  /* Surfaces, from the backdrop up. Neutral graphite: no hue of its own, so
+     the sage, the Map colours and the severities carry all of the colour. A
+     warm, faintly olive charcoal read as one muted green block under the
+     sage accent and dulled the whole UI (D340). */
+  --surface-0: #131416;
+  --surface-1: #1a1b1e;
+  --surface-2: #222327;
+  --surface-3: #2b2c31;
+  --border-subtle: #2f3036;
+  --border-strong: #7c7e86;
 
   /* Text. --text-muted is the brand's muted tone, a shade darker in the light
      theme: at the brand value it fell under WCAG AA 4.5:1 on --surface-3.
@@ -31,8 +32,8 @@
   --text-primary: #eeede5;
   --text-secondary: #c4c5bd;
   --text-muted: #afb1a8;
-  --text-on-primary: #1a1b19;
-  --text-on-accent: #1a1b19;
+  --text-on-primary: #131416;
+  --text-on-accent: #131416;
 
   /* Brand. Pine (sage in dark) is the one brand colour of the interface.
      --accent is the focus and highlight colour, the brand's "focus" token --
@@ -54,7 +55,7 @@
   /* Graph. Collection hues come from this fixed wheel, picked by a stable
      hash of the collection name, so a Map keeps its colour between sessions
      and between machines. */
-  --graph-edge: #3a3b37;
+  --graph-edge: #303137;
   /* The 3D view (brand kit Studio 03): hairline links at 0.28 opacity, the
      selection's links, its signals and its ring. */
   --graph-edge-3d: #a9aba3;
@@ -62,7 +63,7 @@
   --graph-signal: #f0d0ac;
   --graph-ring: #eeede5;
   --graph-edge-active: #91b9a0;
-  --graph-node-stroke: #1a1b19;
+  --graph-node-stroke: #131416;
   /* Community colouring (lib/communities): the twelve largest communities
      take the hue wheel below in rank order; singletons and the long tail
      share this quiet neutral, so thirteen near-identical colours never have
@@ -73,7 +74,7 @@
      lines compete with the edges at exactly the weights the edges use. */
   --graph-glow-a: rgb(238 237 229 / 0.035);
   --graph-glow-b: rgb(214 166 141 / 0.04);
-  --graph-vignette: rgb(12 12 11 / 0.45);
+  --graph-vignette: rgb(8 8 10 / 0.45);
   /* A curated wheel, not a framework's full-saturation set. Hues 1-6 are the
      brand's graph categories (docs/brand/cartographer.tokens.json, checked by
      tokens.test.ts); 7-12 extend them in the same mid-chroma family. No pure

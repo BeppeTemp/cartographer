@@ -107,11 +107,11 @@ test.describe("a narrowed principal", () => {
     await page.keyboard.press("Escape");
 
     // Lint findings.
-    await rail.getByRole("button", { name: /Observatory/ }).click();
-    const observatory = page.getByRole("region", { name: "Observatory" });
-    await expect(observatory).toBeVisible();
-    await expect(observatory).not.toContainText("firewall");
-    await expect(observatory).not.toContainText("infra/index.md");
+    await rail.getByRole("button", { name: /^Health/ }).click();
+    const health = page.getByRole("region", { name: "Health" });
+    await expect(health).toBeVisible();
+    await expect(health).not.toContainText("firewall");
+    await expect(health).not.toContainText("infra/index.md");
 
     // And on the wire: not a node, not an edge endpoint, not a count, not a
     // finding, not a title.

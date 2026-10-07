@@ -45,8 +45,6 @@
   display: none;
 }
 
-
-
 /* One field family for the top bar (the KB picker and the search): same
    height, edge, radius and type, so the two read as a pair. */
 .field {
@@ -1225,38 +1223,7 @@ body.is-resizing {
   box-shadow: var(--focus-ring);
 }
 
-/* --- Observatory --- */
-
-.observatory {
-  width: 100%;
-  max-width: 880px;
-  margin-inline: auto;
-  padding: var(--space-8) var(--space-6) var(--space-12);
-  overflow-y: auto;
-}
-
-.observatory__eyebrow {
-  margin: 0 0 var(--space-2);
-  font-size: var(--text-xs);
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--text-muted);
-}
-
-.observatory__title {
-  margin: 0;
-  font-size: var(--text-lg);
-  font-weight: 600;
-  line-height: var(--leading-tight);
-  color: var(--text-primary);
-}
-
-.observatory__summary {
-  margin: var(--space-2) 0 0;
-  font-size: var(--text-sm);
-  color: var(--text-secondary);
-}
+/* --- Severity marks (Health, Artifacts) --- */
 
 .severity {
   display: inline-flex;
@@ -1294,183 +1261,6 @@ body.is-resizing {
 .severity--info .severity__mark {
   background: var(--sev-info);
   border-radius: 50%;
-}
-
-.observatory__summary .severity {
-  font-size: var(--text-sm);
-  text-transform: none;
-  letter-spacing: 0;
-}
-
-.observatory__summary-rest {
-  color: var(--text-muted);
-}
-
-.observatory__bar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-4);
-  margin-block: var(--space-6) 0;
-}
-
-.observatory__note {
-  margin: 0;
-  font-size: var(--text-sm);
-  color: var(--text-muted);
-}
-
-.observatory__group {
-  margin-block-start: var(--space-6);
-}
-
-.observatory__group-title {
-  display: flex;
-  align-items: baseline;
-  gap: var(--space-2);
-  margin: 0 0 var(--space-2);
-  font-size: var(--text-xs);
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--text-muted);
-}
-
-.observatory__group-count {
-  font-variant-numeric: tabular-nums;
-  letter-spacing: 0;
-}
-
-.observatory__findings {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  overflow: hidden;
-  background: var(--surface-1);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-card);
-}
-
-.observatory__findings li + li {
-  border-block-start: 1px solid var(--border-subtle);
-}
-
-.observatory__finding {
-  display: grid;
-  grid-template-columns: 88px minmax(0, 1fr) auto;
-  align-items: baseline;
-  gap: var(--space-3);
-  width: 100%;
-  padding: var(--space-3) var(--space-4);
-  font: inherit;
-  text-align: start;
-  color: inherit;
-  background: transparent;
-  border: 0;
-  cursor: pointer;
-  transition: background-color var(--motion-fast) var(--ease-out);
-}
-
-.observatory__finding:hover {
-  background: var(--surface-2);
-}
-
-.observatory__body {
-  display: grid;
-  gap: var(--space-1);
-  min-width: 0;
-}
-
-.observatory__message {
-  font-size: var(--text-sm);
-  line-height: var(--leading-normal);
-  color: var(--text-primary);
-}
-
-.observatory__meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-3);
-  font-size: var(--text-xs);
-  color: var(--text-muted);
-}
-
-.observatory__check,
-.observatory__path {
-  font-family: var(--font-mono);
-  word-break: break-all;
-}
-
-.observatory__accept {
-  font-size: var(--text-xs);
-  color: var(--text-muted);
-  white-space: nowrap;
-}
-
-.observatory__go {
-  font-size: var(--text-xs);
-  color: var(--text-muted);
-  white-space: nowrap;
-}
-
-.observatory__finding:hover .observatory__go {
-  color: var(--primary);
-}
-
-.observatory__checks {
-  margin-block-start: var(--space-8);
-  font-size: var(--text-sm);
-  color: var(--text-secondary);
-}
-
-.observatory__checks summary {
-  cursor: pointer;
-  color: var(--text-secondary);
-}
-
-.observatory__bycheck {
-  display: grid;
-  gap: 0;
-  margin: var(--space-2) 0 0;
-  overflow: hidden;
-  background: var(--surface-1);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-card);
-}
-
-.observatory__bycheck div {
-  display: flex;
-  justify-content: space-between;
-  padding: var(--space-2) var(--space-4);
-}
-
-.observatory__bycheck div + div {
-  border-block-start: 1px solid var(--border-subtle);
-}
-
-.observatory__bycheck dt,
-.observatory__bycheck dd {
-  margin: 0;
-}
-
-.observatory__bycheck code {
-  font-family: var(--font-mono);
-  font-size: var(--text-xs);
-}
-
-@media (max-width: 767px) {
-  .observatory {
-    padding: var(--space-6) var(--space-4);
-  }
-
-  .observatory__finding {
-    grid-template-columns: minmax(0, 1fr);
-    gap: var(--space-2);
-  }
-
-  .observatory__go {
-    display: none;
-  }
 }
 
 /* --- Command palette --- */
@@ -2033,50 +1823,31 @@ body.is-resizing {
   border-radius: var(--radius-control);
 }
 
-
 /* --- Artifacts (D238) ---
    What the KB ships to agent clients: a list grouped by kind beside the
    selected artifact's metadata and files. The list width is the viewer's,
    set with the same splitter as the reading panel (D239). */
 
+/* --- Artifacts: a catalog page, the detail opening beside it (D339) --- */
+
 .artifacts {
   display: grid;
-  grid-template-columns: var(--artifacts-list-width) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
   width: 100%;
   min-height: 0;
   overflow: hidden;
 }
 
-.artifacts--narrow {
-  grid-template-columns: minmax(0, 1fr);
+.artifacts--open {
+  grid-template-columns: minmax(0, 1fr) minmax(420px, 46%);
 }
 
-.artifacts__side {
-  position: relative;
+.artifacts > .page {
   min-height: 0;
-  border-inline-end: 1px solid var(--border-subtle);
-}
-
-.artifacts__list {
-  height: 100%;
-  padding: var(--space-6) var(--space-4) var(--space-8);
-  overflow-y: auto;
-}
-
-.artifacts--narrow .artifacts__list {
-  height: auto;
-}
-
-.artifacts__title {
-  margin: 0 0 var(--space-4);
-  font-size: var(--text-md);
-  font-weight: 600;
-  line-height: var(--leading-tight);
-  color: var(--text-primary);
 }
 
 .artifacts__issues {
-  margin: 0 0 var(--space-4);
+  margin: 0 0 var(--space-6);
   padding: var(--space-3) var(--space-4);
   font-size: var(--text-xs);
   color: var(--sev-warning);
@@ -2085,46 +1856,154 @@ body.is-resizing {
   list-style: none;
 }
 
-.artifacts__filter {
-  width: 100%;
-  margin-block-end: var(--space-4);
+.artifacts__health {
+  color: var(--text-muted);
 }
 
-.artifacts__group + .artifacts__group {
-  margin-block-start: var(--space-4);
+.kind-mark {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  font-size: 11px;
+  line-height: 1;
+  color: var(--kind);
+  background: color-mix(in srgb, var(--kind) 16%, transparent);
+  border-radius: var(--radius-small);
 }
 
-.artifacts__items {
+.catalog__group + .catalog__group {
+  margin-block-start: var(--space-8);
+}
+
+.catalog__group-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-1) var(--space-3);
+  margin-block-end: var(--space-3);
+}
+
+.catalog__group-title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.catalog__about {
+  margin: 0;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+.catalog__tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: var(--space-3);
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
-.artifacts__item {
+/* A tile: the name, two lines of what it does, where it goes. Its kind's
+   colour is a hairline on top, never a fill. */
+.catalog__tile {
   display: grid;
-  gap: var(--space-1);
+  grid-template-rows: auto 1fr auto;
+  gap: var(--space-2);
   width: 100%;
-  padding: var(--space-2) var(--space-3);
+  height: 100%;
+  min-height: 96px;
+  padding: var(--space-3) var(--space-4);
   font: inherit;
-  text-align: start;
   color: inherit;
-  background: transparent;
-  border: 0;
-  border-radius: var(--radius-control);
+  text-align: start;
   cursor: pointer;
-  transition: background-color var(--motion-fast) var(--ease-out);
+  background: var(--surface-1);
+  border: 1px solid var(--border-subtle);
+  border-block-start: 2px solid color-mix(in srgb, var(--kind) 70%, transparent);
+  border-radius: var(--radius-card);
+  transition:
+    border-color var(--motion-fast) var(--ease-out),
+    background var(--motion-fast) var(--ease-out),
+    transform var(--motion-fast) var(--ease-out);
 }
 
-.artifacts__item:hover,
-.artifacts__item[aria-current="true"] {
+.catalog__tile:hover {
   background: var(--surface-2);
+  border-color: var(--border-strong);
+  border-block-start-color: var(--kind);
+  transform: translateY(-1px);
 }
 
-.artifacts__item-name {
+.catalog__tile[aria-current="true"] {
+  background: var(--surface-2);
+  border-color: var(--kind);
+}
+
+.catalog__tile:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.catalog__tile-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.catalog__tile-name {
+  overflow: hidden;
   font-size: var(--text-sm);
   font-weight: 600;
   color: var(--text-primary);
-  overflow-wrap: anywhere;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.catalog__tile-desc {
+  display: -webkit-box;
+  overflow: hidden;
+  font-size: var(--text-xs);
+  line-height: var(--leading-normal);
+  color: var(--text-muted);
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+}
+
+.catalog__tile-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+.artifacts__findings {
+  margin-top: var(--space-3);
+  font-size: var(--text-sm);
+}
+
+.artifacts__findings ul {
+  display: grid;
+  gap: var(--space-2);
+  margin: var(--space-2) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* One line in the list; the full text is the tooltip and the detail. */
+.artifacts__used {
+  margin-inline-start: auto;
 }
 
 .artifacts__health {
@@ -2146,11 +2025,6 @@ body.is-resizing {
   list-style: none;
 }
 
-.artifacts__item-desc {
-  font-size: var(--text-xs);
-  color: var(--text-secondary);
-}
-
 /* Last used (D326): the words carry the meaning, the colour only echoes it. */
 .artifacts__used {
   font-size: var(--text-xs);
@@ -2170,17 +2044,41 @@ body.is-resizing {
   font-style: italic;
 }
 
-.artifacts__detail,
-.artifacts__placeholder {
+.artifacts__detail {
+  border-inline-start: 1px solid var(--border-subtle);
+  background: var(--surface-0);
   min-width: 0;
   min-height: 0;
   padding: var(--space-6) var(--space-6) var(--space-12);
   overflow-y: auto;
 }
 
-.artifacts__placeholder {
+.artifacts__close {
+  position: sticky;
+  top: 0;
+  float: right;
   display: grid;
   place-items: center;
+  width: 32px;
+  height: 32px;
+  font: inherit;
+  font-size: var(--text-lg);
+  line-height: 1;
+  color: var(--text-muted);
+  cursor: pointer;
+  background: var(--surface-1);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-control);
+}
+
+.artifacts__close:hover {
+  color: var(--text-primary);
+  border-color: var(--border-strong);
+}
+
+.artifacts__close:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
 }
 
 .artifacts__back {
@@ -2201,29 +2099,6 @@ body.is-resizing {
   color: var(--text-secondary);
 }
 
-.artifacts__meta {
-  display: grid;
-  gap: var(--space-2);
-  margin: var(--space-4) 0;
-  font-size: var(--text-sm);
-}
-
-.artifacts__meta div {
-  display: grid;
-  grid-template-columns: 120px minmax(0, 1fr);
-  gap: var(--space-3);
-  align-items: baseline;
-}
-
-.artifacts__meta dt {
-  color: var(--text-muted);
-}
-
-.artifacts__meta dd {
-  margin: 0;
-}
-
-.artifacts__meta code,
 .artifacts__path code,
 .artifacts__pre {
   font-family: var(--font-mono);
@@ -2284,154 +2159,102 @@ body.is-resizing {
 
 .artifacts__frontmatter {
   width: 100%;
-  margin-block-end: var(--space-4);
+  margin-block-end: var(--space-6);
   border-collapse: collapse;
-  font-size: var(--text-xs);
+  font-size: var(--text-sm);
 }
 
 .artifacts__frontmatter th,
 .artifacts__frontmatter td {
-  padding: var(--space-2);
+  padding: var(--space-1) var(--space-3) var(--space-1) 0;
   text-align: start;
-  vertical-align: top;
+  vertical-align: baseline;
   white-space: pre-wrap;
-  border-block-end: 1px solid var(--border-subtle);
 }
 
 .artifacts__frontmatter th {
-  width: 140px;
+  width: 120px;
+  font-size: var(--text-xs);
   font-weight: 600;
   color: var(--text-muted);
 }
 
-/* Folded, a count that is not a finding is left out rather than drawn as the
-   alarm-coloured dot the Observatory's uses. */
-.rail--collapsed .rail__badge--neutral {
-  display: none;
+.artifacts__frontmatter td {
+  color: var(--text-secondary);
 }
 
-/* --- Activity: changes_since as a page, the Observatory's sibling. --- */
-.activity {
-  width: 100%;
-  max-width: 880px;
-  margin-inline: auto;
-  padding: var(--space-8) var(--space-6) var(--space-12);
-  overflow-y: auto;
-}
-
-.activity__head {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: var(--space-2);
-}
-
-.activity__title {
+.artifacts__block pre {
   margin: 0;
+  padding: var(--space-2) var(--space-3);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  line-height: var(--leading-normal);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--text-secondary);
+  background: var(--surface-1);
+  border-radius: var(--radius-control);
+}
+
+.artifacts__block[data-open="false"] pre {
+  max-height: 6.5em;
+  overflow: hidden;
+  mask-image: linear-gradient(to bottom, black 55%, transparent);
+}
+
+.artifacts__block .chip--more {
+  margin-block-start: var(--space-1);
+}
+
+.artifacts__values {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.artifacts__values code {
+  display: inline-block;
+  padding: 0 var(--space-2);
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  background: var(--surface-2);
+  border-radius: var(--radius-small);
+}
+
+.artifacts__facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-block-start: var(--space-4);
+}
+
+.artifacts__facts code {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+
+.artifacts__fact-label {
   font-size: var(--text-xs);
   font-weight: 600;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--text-muted);
 }
 
-.activity__window {
-  display: inline-flex;
-  flex: none;
+.artifacts__clients {
+  margin: var(--space-3) 0 var(--space-6);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
 }
 
-.activity__authors {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2);
-  margin: var(--space-6) 0 0;
-  padding: 0;
-  list-style: none;
-}
-
-.activity__list {
-  margin: var(--space-6) 0 0;
-  padding: 0;
-  list-style: none;
-  overflow: hidden;
-  background: var(--surface-1);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-panel);
-}
-
-.activity__list li + li {
-  border-block-start: 1px solid var(--border-subtle);
-}
-
-.activity__row {
-  display: grid;
-  gap: 2px;
-  width: 100%;
-  padding: var(--space-3) var(--space-4);
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-  text-align: start;
-  color: inherit;
-  cursor: pointer;
-}
-
-.activity__row:hover:not(:disabled) {
-  background: var(--surface-2);
-}
-
-.activity__row:disabled {
-  cursor: default;
-  opacity: 0.7;
-}
-
-.activity__row-title {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.artifacts__client {
   color: var(--text-primary);
 }
 
-.activity__row-meta,
-.activity__reason {
-  font-size: var(--text-xs);
-  color: var(--text-muted);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.activity__reason {
-  color: var(--text-secondary);
-  font-style: italic;
-}
-
-.activity__tag--added {
-  color: var(--graph-edge-active);
-}
-
-.activity__tag--deleted {
-  color: var(--sev-error);
-}
-
-.activity__note {
-  margin: var(--space-3) 0 0;
-  font-size: var(--text-sm);
-  color: var(--text-muted);
-}
-
-.activity__foot {
-  font-size: var(--text-xs);
-}
-
-.observatory__misses {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2);
-  margin: var(--space-3) 0 0;
-  padding: 0;
-  list-style: none;
-}
+/* --- Chips that report a state --- */
 
 /* A miss whose search now finds something (D319): closed, kept for the record. */
 .chip--resolved {
@@ -2444,17 +2267,59 @@ body.is-resizing {
   margin-inline-end: var(--space-1);
 }
 
-.observatory__stale {
-  margin-block-start: var(--space-6);
-}
-
 .legend__meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
   margin: var(--space-2) 0 0;
   padding-block-start: var(--space-2);
   border-block-start: 1px solid var(--border-subtle);
   font-size: var(--text-xs);
   color: var(--text-muted);
   font-variant-numeric: tabular-nums;
+}
+
+.legend[data-folded="true"] .legend__meta {
+  margin: 0;
+  padding-block-start: 0;
+  border: 0;
+}
+
+.legend__fold {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  color: var(--text-muted);
+  cursor: pointer;
+  background: none;
+  border: 0;
+  border-radius: var(--radius-small);
+}
+
+.legend__fold:hover {
+  color: var(--text-primary);
+  background: var(--surface-2);
+}
+
+.legend__fold:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.legend__chevron {
+  width: 6px;
+  height: 6px;
+  border-block-end: 1.5px solid currentColor;
+  border-inline-end: 1.5px solid currentColor;
+  transform: rotate(45deg) translate(-1px, -1px);
+  transition: transform var(--motion-fast) var(--ease-out);
+}
+
+.legend[data-folded="true"] .legend__chevron {
+  transform: rotate(-135deg) translate(-1px, -1px);
 }
 
 /* Reading panel: a closed table of contents, links as rows. */
@@ -2571,168 +2436,5 @@ body.is-resizing {
   margin-block-start: var(--space-4);
 }
 
-/* --- Work: work_list as a page (D302), Activity's sibling. A board, so it
-   takes the whole width Activity's reading column leaves empty. --- */
-.activity.work {
-  max-width: none;
-}
+/* Activity, Work and Health live in pages.css, built from the page kit. */
 
-.work__note {
-  margin: 0 0 var(--space-3);
-  color: var(--text-muted);
-  font-size: var(--text-sm);
-}
-
-.work__filters {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2);
-  margin: var(--space-6) 0 0;
-}
-
-.work__filters input[type="search"] {
-  flex: 1 1 12rem;
-  min-width: 0;
-}
-
-.work__stale {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-1);
-  font-size: var(--text-sm);
-  color: var(--text-secondary);
-}
-
-.work__columns {
-  display: grid;
-  grid-auto-flow: column;
-  grid-auto-columns: minmax(18rem, 1fr);
-  align-items: start;
-  gap: var(--space-4);
-  margin-top: var(--space-6);
-  overflow-x: auto;
-  padding-bottom: var(--space-2);
-}
-
-/* By map, each group's cards fill the row instead of stacking in one column. */
-.work__groups .work__list {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(18rem, 1fr));
-  gap: var(--space-2);
-  overflow: visible;
-  background: transparent;
-  border: 0;
-}
-
-.work__groups .work__list li {
-  background: var(--surface-1);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-panel);
-}
-
-.work__groups .work__list li + li {
-  border-block-start: 1px solid var(--border-subtle);
-}
-
-.work__groups {
-  display: grid;
-  gap: var(--space-6);
-  margin-top: var(--space-6);
-}
-
-.work__group-title {
-  margin: 0;
-  font-size: var(--text-xs);
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--text-muted);
-}
-
-.work__list {
-  margin-top: var(--space-2);
-}
-
-.work__items-toggle {
-  margin: 0 var(--space-4) var(--space-2);
-  padding: 0;
-  border: 0;
-  background: transparent;
-  font-size: var(--text-xs);
-  color: var(--text-secondary);
-  cursor: pointer;
-}
-
-.work__items {
-  margin: 0 var(--space-4) var(--space-3);
-  padding-inline-start: var(--space-4);
-  font-size: var(--text-sm);
-  color: var(--text-primary);
-  overflow-wrap: anywhere;
-}
-
-.work__stale-badge {
-  color: var(--sev-warning);
-}
-
-/* --- Maintenance (D323): Activity's sibling, read-only. Each repair and each
-   question is a row with the text to copy beside it; nothing here acts. --- */
-.maintenance h2.work__group-title {
-  margin-block: var(--space-6) 0;
-}
-
-.maintenance__summary {
-  display: grid;
-  gap: var(--space-2);
-  margin: var(--space-3) 0 0;
-  padding: var(--space-3) var(--space-4);
-  background: var(--surface-1);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-panel);
-}
-
-.maintenance__summary div {
-  display: grid;
-  grid-template-columns: minmax(9rem, 14rem) 1fr;
-  gap: var(--space-3);
-}
-
-.maintenance__summary dt {
-  color: var(--text-muted);
-  font-size: var(--text-sm);
-}
-
-.maintenance__summary dd {
-  margin: 0;
-  overflow-wrap: anywhere;
-}
-
-.maintenance__row {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  align-items: center;
-  gap: var(--space-3);
-  padding-inline-end: var(--space-3);
-}
-
-.maintenance__repair {
-  cursor: default;
-}
-
-.maintenance__revert {
-  overflow-wrap: anywhere;
-  font-size: var(--text-xs);
-  color: var(--text-secondary);
-  user-select: all;
-}
-
-.maintenance__copy {
-  white-space: nowrap;
-}
-
-@media (max-width: 40rem) {
-  .maintenance__summary div,
-  .maintenance__row {
-    grid-template-columns: 1fr;
-  }
-}

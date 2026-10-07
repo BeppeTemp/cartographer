@@ -133,6 +133,13 @@ export function stubApi(overrides: Record<string, () => Response> = {}) {
         broken: [],
       });
     }
+    // Health's whole-KB reads and the live revision: absent unless a test
+    // stubs them, the way a narrowed principal sees them (404).
+    if (url.includes("/kbs/") && (url.includes("/status") || url.includes("/maintenance/summary"))) {
+      return json({ error: { code: "not_found", message: "not found" } }, 404);
+    }
+    if (url.includes("/kbs/") && url.includes("/maintenance/questions")) return json({ questions: [] });
+    if (url.includes("/kbs/") && url.includes("/revision")) return json({ revision: "test-1" });
     if (url.endsWith("/kbs")) return json({ kbs: [{ name: "kb-a", status: "normal", ready: true, artifacts: true }] });
     throw new Error(`unstubbed request: ${url}`);
   });

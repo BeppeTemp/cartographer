@@ -311,7 +311,7 @@ decision, not one write per concept. It takes every check a concept can silence 
 `facet_sprawl`, `missing_value_contract`, `map_oversize` and `island`, which no single concept owns; an
 `island` also goes when any member, or a member's map, accepts it. Errors never go; a name a map
 cannot accept is reported as `lint_ignore_invalid` on the `_map.md`. With this, every finding has
-a way out — fixed, or accepted where the KB says so — and an Observatory with nothing to report is
+a way out — fixed, or accepted where the KB says so — and a Health panel with no findings is
 what a finished `kb-doctor` session leaves.
 
 ### Silencing a lint finding on one concept
@@ -336,7 +336,7 @@ suppresses nothing is worse than no opt-out.
 
 Where each check can be accepted (D313) is `lint.CheckAcceptability` — `concept`, `map` (only the
 map's `_map.md`) or `none` — read from the same tables `lint_ignore_invalid` enforces, and shown as
-`kb_status.conformance.acceptability` and as a badge in the Observatory.
+`kb_status.conformance.acceptability` and as a badge on the Health panel.
 
 Structural checks flag defects, not structure (D313): `link_to_retired` is **one finding per retired
 concept**, on the retired concept ("retired, still linked by N live concepts: …"; the declared

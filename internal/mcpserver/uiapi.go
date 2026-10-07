@@ -142,6 +142,8 @@ func (m *MultiKBServer) handleUIAPI(w http.ResponseWriter, r *http.Request) {
 		uiChanges(w, r, srv)
 	case "status":
 		uiStatus(w, r, srv)
+	case "revision":
+		uiRevision(w, r, k)
 	case "work":
 		uiWork(w, r, srv)
 	case "maintenance":
@@ -545,7 +547,7 @@ func findingConcept(f lint.Finding) string {
 // honouring the expanded form ("map/concept/index.md" → "map/concept").
 // Returns "" when the path is not a concept file -- including a map's own
 // index.md, log.md or descriptor: "infra/index.md" is the map's curated index,
-// not a concept "infra", and naming one sent the Observatory to a concept that
+// not a concept "infra", and naming one sent the Health panel to a concept that
 // does not exist instead of saying there is no node to reveal (D228).
 func uiFindingConcept(path string) string {
 	p := strings.ReplaceAll(path, "\\", "/")

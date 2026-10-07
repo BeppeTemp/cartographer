@@ -8,7 +8,7 @@
  * the bearer token never touches it.
  */
 
-export type Panel = "atlas" | "activity" | "work" | "maintenance" | "observatory" | "artifacts";
+export type Panel = "atlas" | "activity" | "work" | "health" | "artifacts";
 
 export interface ViewState {
   kb: string | null;
@@ -24,14 +24,14 @@ export const EMPTY_VIEW: ViewState = { kb: null, scope: null, concept: null, pan
 export function readViewState(search: string = window.location.search): ViewState {
   const params = new URLSearchParams(search);
   const param = params.get("panel");
+  // Observatory and Maintenance became Health (D338): their old links still
+  // land on it rather than on the atlas.
   const panel: Panel =
-    param === "activity" ||
-    param === "work" ||
-    param === "maintenance" ||
-    param === "observatory" ||
-    param === "artifacts"
-      ? param
-      : "atlas";
+    param === "maintenance" || param === "observatory"
+      ? "health"
+      : param === "activity" || param === "work" || param === "health" || param === "artifacts"
+        ? param
+        : "atlas";
   return {
     kb: params.get("kb"),
     scope: params.get("scope"),

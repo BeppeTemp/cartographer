@@ -193,7 +193,7 @@ func doctorDue(lastDoctor string, intervalDays int, now time.Time) bool {
 // see or any review item, once the KB's doctor interval has passed. Time, not
 // the first warning, decides, so the flag does not stay on for good on a real
 // KB. Every finding counts, not only the conformance checks (D336): the
-// Observatory shows them all, every one has a way out, and a doctor session is
+// Health panel shows them all, every one has a way out, and a doctor session is
 // done only at zero — a debt that never calls the doctor never gets there.
 //
 // repairable counts, per check, every finding kb_repair can fix — conformance

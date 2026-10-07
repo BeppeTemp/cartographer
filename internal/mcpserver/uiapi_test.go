@@ -452,7 +452,7 @@ func TestUIAPI_AbsentWhenTheWebSurfaceIsDisabled(t *testing.T) {
 
 // TestUIFindingConcept: only a concept file names a concept. A map's own
 // index.md, log.md or descriptor is not one, and attributing its finding to a
-// concept named after the map sent the Observatory to a node that does not
+// concept named after the map sent the Health panel to a node that does not
 // exist (D228).
 func TestUIFindingConcept(t *testing.T) {
 	cases := map[string]string{
