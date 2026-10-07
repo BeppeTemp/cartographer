@@ -1773,6 +1773,8 @@ func TestCheckAcceptability(t *testing.T) {
 		"machine_path":           AcceptConcept,
 		"map_oversize":           AcceptMap,
 		"missing_value_contract": AcceptMap,
+		"skill_git_command":      AcceptArtifact,
+		"junk_file":              AcceptNone, // deleted, never accepted
 		"missing_required_field": AcceptNone, // an error: fix it
 		"no_such_check":          AcceptNone,
 	} {

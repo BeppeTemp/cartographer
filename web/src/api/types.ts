@@ -193,7 +193,7 @@ export interface LintReport {
   by_severity: Record<string, number>;
   by_check: Record<string, number>;
   /** Where each reported check can be accepted with lint_ignore (D313). */
-  acceptability?: Record<string, "concept" | "map" | "none">;
+  acceptability?: Record<string, "concept" | "map" | "artifact" | "none">;
   severity_min: string;
 }
 

@@ -573,7 +573,7 @@ func uiFindingConcept(path string) string {
 }
 
 // checkAcceptability maps each reported check to where it can be accepted
-// with lint_ignore (D313): "concept", "map" or "none".
+// with lint_ignore or lint_accept (D313, D332): "concept", "map", "artifact" or "none".
 func checkAcceptability(byCheck map[string]int) map[string]string {
 	out := make(map[string]string, len(byCheck))
 	for check := range byCheck {

@@ -299,13 +299,14 @@ var mapOnlyIgnorable = map[string]bool{
 
 // Acceptability levels (D313): who can accept a check with lint_ignore.
 const (
-	AcceptConcept = "concept" // lint_ignore on the concept (or on its map's _map.md)
-	AcceptMap     = "map"     // lint_ignore on the map's _map.md only
-	AcceptNone    = "none"    // cannot be accepted: fix it
+	AcceptConcept  = "concept"  // lint_ignore on the concept (or on its map's _map.md)
+	AcceptMap      = "map"      // lint_ignore on the map's _map.md only
+	AcceptArtifact = "artifact" // lint_accept in instructions.md, keyed by path (D332)
+	AcceptNone     = "none"     // cannot be accepted: fix it
 )
 
 // CheckAcceptability says where a finding of this check can be accepted:
-// "concept", "map" or "none". Errors and unknown checks are "none"; the answer
+// "concept", "map", "artifact" or "none". Errors and unknown checks are "none"; the answer
 // comes from the same tables lint_ignore is validated against, so it cannot
 // drift from what lint_ignore_invalid enforces.
 func CheckAcceptability(check string) string {
@@ -314,6 +315,8 @@ func CheckAcceptability(check string) string {
 		return AcceptConcept
 	case mapOnlyIgnorable[check]:
 		return AcceptMap
+	case artifactAcceptable(check):
+		return AcceptArtifact
 	}
 	return AcceptNone
 }
@@ -655,7 +658,7 @@ func runChecks(k *kb.KB, scope string, scopeNeighbors bool, opts Options) ([]Fin
 			} else if name == "tool_param_field" {
 				reason = "a tool argument is never a legitimate field, so it cannot be declared one"
 			} else if artifactChecks[name] {
-				reason = "a KB-level check (artifacts, junk files), not a per-concept one"
+				reason = "a KB-level check (artifacts, junk files), not a per-concept one: accept it with lint_accept in instructions.md"
 			} else if name == "index_incomplete" || name == "index_stale" || name == "orphan_asset" || name == "oversized_asset" || name == "unlistable_assets" || name == "unused_placeholder" || name == "missing_registry" || strings.HasPrefix(name, "expanded_") {
 				// orphan_asset belongs to an expanded concept's asset set, reported
 				// in the directory pass: there is no single concept frontmatter that

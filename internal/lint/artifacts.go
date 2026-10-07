@@ -115,6 +115,9 @@ type kbInstructions struct {
 	exists      bool
 	perimeter   string
 	legacyPaths []legacyPath // longest prefix first
+	// accept is lint_accept (D332): artifact path (or a directory prefix
+	// ending in "/") → the checks accepted on it.
+	accept map[string]map[string]bool
 }
 
 // legacyPath is one declared prefix rewrite (WP13).
@@ -144,6 +147,118 @@ func readInstructions(k *kb.KB) kbInstructions {
 	if v, ok := fm.Get("legacy_paths"); ok {
 		if b, ok := v.(okf.Block); ok {
 			out.legacyPaths = parseLegacyPaths(string(b))
+		}
+	}
+	if v, ok := fm.Get("lint_accept"); ok {
+		if b, ok := v.(okf.Block); ok {
+			out.accept = parseLintAccept(string(b))
+		}
+	}
+	return out
+}
+
+// parseLintAccept reads the indented `"path": [check, …]` lines of the
+// lint_accept mapping. A bare value is a one-element list, as in lint_ignore.
+func parseLintAccept(block string) map[string]map[string]bool {
+	out := map[string]map[string]bool{}
+	for _, line := range strings.Split(block, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		key, rest, ok := splitYAMLKey(line)
+		if !ok || key == "" {
+			continue
+		}
+		if i := strings.Index(rest, " #"); i >= 0 {
+			rest = rest[:i]
+		}
+		rest = strings.TrimSuffix(strings.TrimPrefix(strings.TrimSpace(rest), "["), "]")
+		for _, name := range strings.Split(rest, ",") {
+			if name = unquote(strings.TrimSpace(name)); name != "" {
+				if out[key] == nil {
+					out[key] = map[string]bool{}
+				}
+				out[key][name] = true
+			}
+		}
+	}
+	return out
+}
+
+// artifactAcceptable are the checks lint_accept may name: the artifact
+// checks reported on a file, plus the per-concept checks checkArtifacts also
+// runs on skills. A junk file is deleted, never accepted, and
+// missing_instructions has no file to key on.
+func artifactAcceptable(check string) bool {
+	switch check {
+	case "junk_file", "junk_asset", "missing_instructions":
+		return false
+	case "sops_format_mismatch", "sops_missing_file", "legacy_path":
+		return true
+	}
+	return artifactChecks[check]
+}
+
+// applyLintAccept drops the artifact findings instructions.md accepts with
+// lint_accept (D332): an artifact has no frontmatter lint can own — a skill's
+// is read by every client — so the KB's own instructions file holds the
+// operator's judgement, keyed by path. A key ending in "/" covers every file
+// under it. Errors never go. A name that cannot be accepted, or a key that
+// matches no finding, is itself reported on instructions.md.
+func applyLintAccept(findings []Finding, accept map[string]map[string]bool) []Finding {
+	if len(accept) == 0 {
+		return findings
+	}
+	used := map[string]map[string]bool{}
+	matches := func(key, path string) bool {
+		return path == key || (strings.HasSuffix(key, "/") && strings.HasPrefix(path, key))
+	}
+	out := findings[:0]
+	for _, f := range findings {
+		dropped := false
+		if f.Severity != SevError && f.Path != "" && artifactAcceptable(f.Check) {
+			for key, checks := range accept {
+				if checks[f.Check] && matches(key, f.Path) {
+					if used[key] == nil {
+						used[key] = map[string]bool{}
+					}
+					used[key][f.Check] = true
+					dropped = true
+				}
+			}
+		}
+		if !dropped {
+			out = append(out, f)
+		}
+	}
+	keys := make([]string, 0, len(accept))
+	for key := range accept {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		names := make([]string, 0, len(accept[key]))
+		for name := range accept[key] {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+		for _, name := range names {
+			reason := ""
+			switch {
+			case !artifactAcceptable(name):
+				reason = "a check lint_accept cannot accept (unknown, a junk file to delete, or not reported on artifacts)"
+			case !used[key][name]:
+				reason = "no such finding on that path, so the entry is stale"
+			default:
+				continue
+			}
+			out = append(out, Finding{
+				Path:     "instructions.md",
+				Check:    "lint_ignore_invalid",
+				Severity: SevWarning,
+				Message:  fmt.Sprintf("lint_accept names %q on %q: %s", name, key, reason),
+			})
 		}
 	}
 	return out
@@ -228,6 +343,7 @@ func checkArtifacts(k *kb.KB, opts Options, instr kbInstructions, conceptCount i
 	findings = append(findings, checkCrossKBPaths(files, opts.CrossKBRoots)...)
 	findings = append(findings, checkSkillMissingPerimeter(skills, instr.perimeter)...)
 	findings = append(findings, checkArtifactUnused(k, skills, opts, time.Now())...)
+	findings = applyLintAccept(findings, instr.accept)
 	for i := range findings {
 		if findings[i].Path != "" {
 			findings[i].Artifact = true
