@@ -604,6 +604,7 @@ export function App() {
             <Activity
               kb={activeKB}
               live={live}
+              collections={overview?.collections}
               snapshot={snapshot}
               onOpen={(conceptId) => navigate({ panel: "atlas", concept: conceptId })}
             />

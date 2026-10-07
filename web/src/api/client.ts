@@ -156,7 +156,7 @@ export function fetchSearch(kb: string, query: string, signal?: AbortSignal): Pr
 }
 
 export function fetchChanges(kb: string, since: string, signal?: AbortSignal): Promise<ChangesResponse> {
-  return get<ChangesResponse>(`/kbs/${encodeURIComponent(kb)}/changes?since=${encodeURIComponent(since)}&limit=40`, signal);
+  return get<ChangesResponse>(`/kbs/${encodeURIComponent(kb)}/changes?since=${encodeURIComponent(since)}&limit=500`, signal);
 }
 
 /** The caller's open work, up to the route's cap (D302). */

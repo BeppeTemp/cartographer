@@ -2424,6 +2424,394 @@ body.is-resizing {
   font-size: var(--text-xs);
 }
 
+/* --- Activity as a timeline: a summary head, then each day's changes on a
+   rail coloured by Map. --map is set per element from the collection hue. --- */
+.timeline__headline {
+  margin: 0;
+  font-family: var(--font-editorial);
+  font-size: var(--text-xl);
+  font-weight: 400;
+  line-height: var(--leading-tight);
+  color: var(--text-primary);
+}
+
+.timeline__summary {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--space-6);
+  align-items: end;
+  margin-block-start: var(--space-6);
+  padding: var(--space-4) var(--space-6);
+  background: var(--surface-1);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-card);
+  box-shadow: var(--elevation-1);
+}
+
+.timeline__stats {
+  display: flex;
+  gap: var(--space-6);
+  margin: 0;
+}
+
+.timeline__stat {
+  display: flex;
+  flex-direction: column-reverse;
+}
+
+.timeline__stat dt {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.timeline__stat dd {
+  margin: 0;
+  font-size: var(--text-xl);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: var(--leading-tight);
+  color: var(--text-primary);
+}
+
+.timeline__chart {
+  margin: 0;
+  min-width: 0;
+}
+
+.timeline__bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 56px;
+}
+
+.timeline__bar-slot {
+  display: flex;
+  flex: 1 1 0;
+  align-items: flex-end;
+  height: 100%;
+  border-radius: var(--radius-small);
+}
+
+.timeline__bar-slot:hover {
+  background: var(--surface-2);
+}
+
+.timeline__bar {
+  width: 100%;
+  min-height: 2px;
+  background: var(--primary);
+  border-radius: var(--radius-small) var(--radius-small) 0 0;
+  transition: height var(--motion-slow) var(--ease-emphasized);
+}
+
+.timeline__bar[data-empty="true"] {
+  background: var(--border-subtle);
+}
+
+.timeline__axis {
+  display: flex;
+  justify-content: space-between;
+  margin-block-start: var(--space-1);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+.timeline__maps {
+  margin-block-start: var(--space-6);
+}
+
+.timeline__mapbar {
+  display: flex;
+  gap: 2px;
+  height: 8px;
+  overflow: hidden;
+  border-radius: var(--radius-pill);
+}
+
+.timeline__mapseg {
+  flex-basis: 0;
+  background: var(--map);
+  transition: opacity var(--motion-base) var(--ease-out);
+}
+
+.timeline__mapseg[data-dim="true"] {
+  opacity: 0.25;
+}
+
+.timeline__filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: var(--space-3) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.timeline__people {
+  margin-block-start: var(--space-2);
+}
+
+.timeline__mapchip,
+.timeline__person {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.timeline__swatch {
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-pill);
+  background: var(--map);
+}
+
+.timeline__avatar {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 20px;
+  height: 20px;
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--map) 30%, var(--surface-2));
+  color: var(--text-primary);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.timeline__days {
+  margin: var(--space-8) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.timeline__day + .timeline__day {
+  margin-block-start: var(--space-8);
+}
+
+.timeline__date {
+  position: sticky;
+  top: calc(-1 * var(--space-8));
+  z-index: 1;
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-3);
+  padding-block: var(--space-2);
+  background: var(--surface-0);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.timeline__date-count {
+  font-weight: 400;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.timeline__entries {
+  position: relative;
+  margin: 0;
+  padding: 0 0 0 var(--space-6);
+  list-style: none;
+}
+
+/* The rail: one hairline the day's entries hang from. */
+.timeline__entries::before {
+  content: "";
+  position: absolute;
+  inset-block: var(--space-2);
+  inset-inline-start: 5px;
+  width: 2px;
+  border-radius: var(--radius-pill);
+  background: var(--border-subtle);
+}
+
+.timeline__entry {
+  position: relative;
+  animation: rise-in var(--motion-base) var(--ease-out) both;
+}
+
+.timeline__entry + .timeline__entry {
+  margin-block-start: var(--space-2);
+}
+
+.timeline__node {
+  position: absolute;
+  inset-block-start: var(--space-4);
+  inset-inline-start: calc(-1 * var(--space-6));
+  width: 12px;
+  height: 12px;
+  border-radius: var(--radius-pill);
+  background: var(--map);
+  box-shadow: 0 0 0 3px var(--surface-0);
+}
+
+.timeline__card {
+  display: grid;
+  gap: var(--space-1);
+  width: 100%;
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--border-subtle);
+  border-inline-start: 3px solid var(--map);
+  border-radius: var(--radius-card);
+  background: var(--surface-1);
+  color: inherit;
+  text-align: start;
+  cursor: pointer;
+  transition:
+    background var(--motion-fast) var(--ease-out),
+    border-color var(--motion-fast) var(--ease-out),
+    transform var(--motion-fast) var(--ease-out),
+    box-shadow var(--motion-fast) var(--ease-out);
+}
+
+.timeline__card:hover:not(:disabled) {
+  background: var(--surface-2);
+  border-color: var(--border-strong);
+  border-inline-start-color: var(--map);
+  box-shadow: var(--elevation-2);
+  transform: translateX(2px);
+}
+
+.timeline__card:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.timeline__card:disabled {
+  cursor: default;
+  opacity: 0.7;
+}
+
+.timeline__card-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  font-size: var(--text-xs);
+}
+
+.timeline__map {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.timeline__time {
+  margin-inline-start: auto;
+  flex: none;
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+}
+
+.timeline__badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  flex: none;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-pill);
+  color: var(--text-muted);
+}
+
+.timeline__badge--added {
+  color: var(--sev-ok);
+  border-color: currentColor;
+}
+
+.timeline__badge--deleted {
+  color: var(--sev-error);
+  border-color: currentColor;
+}
+
+.timeline__title {
+  font-size: var(--text-md);
+  font-weight: 500;
+  line-height: var(--leading-tight);
+  color: var(--text-primary);
+}
+
+.timeline__reason {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+  color: var(--text-secondary);
+}
+
+.timeline__more {
+  color: var(--text-muted);
+}
+
+.timeline__authors {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin-block-start: var(--space-1);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+.timeline__author {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.timeline__author .timeline__avatar {
+  width: 16px;
+  height: 16px;
+  font-size: 8px;
+}
+
+.timeline__skeleton {
+  display: grid;
+  gap: var(--space-3);
+  margin-block-start: var(--space-8);
+}
+
+.timeline__skeleton-row {
+  display: block;
+  height: 84px;
+  border-radius: var(--radius-card);
+}
+
+.timeline__empty {
+  margin-block-start: var(--space-8);
+  padding: var(--space-12) var(--space-6);
+  text-align: center;
+  border: 1px dashed var(--border-subtle);
+  border-radius: var(--radius-card);
+}
+
+.timeline__empty-title {
+  margin: 0;
+  font-family: var(--font-editorial);
+  font-size: var(--text-lg);
+  color: var(--text-secondary);
+}
+
+@media (max-width: 640px) {
+  .timeline__summary {
+    grid-template-columns: 1fr;
+  }
+
+  .timeline__stats {
+    justify-content: space-between;
+  }
+}
+
 .observatory__misses {
   display: flex;
   flex-wrap: wrap;
