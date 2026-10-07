@@ -88,8 +88,8 @@ request and never merges into `main`: repository review policy belongs to the
 remote hosting workflow.
 
 With a remote and `git.sync` on, that branch must be the KB's **canonical
-branch**: the remote's default branch (D264). There is no configuration key for
-it. Cartographer asks the remote on every sync (`git ls-remote --symref`, and
+branch**: `kbs[].git_branch` when the operator set it (D335), otherwise the
+remote's default branch (D264). Without the key, Cartographer asks the remote on every sync (`git ls-remote --symref`, and
 re-points `origin/HEAD` at the answer, since the one `git clone` wrote is never
 refreshed by a fetch); when the remote's `HEAD` names a branch it does not have —
 a self-hosted bare repository initialised with `master` and then pushed `main` —
@@ -99,6 +99,16 @@ remote and never checks out a different branch in the clone. The single exceptio
 is the first push of a KB to an **empty** remote, which creates `main` with
 upstream tracking. A clone of an empty remote (server bootstrap with `--init`) is
 pinned to `main` and given its initial commit, exactly like `kb create`.
+
+With `kbs[].git_branch` set, the remote's default branch plays no part for that
+KB: the configured branch is the only one pulled and pushed, and the first push
+creates it on the remote, with upstream tracking, when it is missing — on an
+empty remote as on one that already has other branches. No other branch is ever
+created. A fresh clone is checked out on it (tracking it when the remote has it,
+branched from the remote's default branch otherwise; the clone of an empty remote
+is pinned to it by `--init`); an existing clone is never switched. The key is not
+valid with the server profile, which has its own branch keys, and a name git would
+not accept fails at config load.
 
 Each commit subject is `<tool_name>: <resource>`, so the history of a KB is
 readable as an audit trail. The resource is built from the arguments that
@@ -169,13 +179,18 @@ canonical branch. An empty remote has nothing to pull and the sync succeeds. A
 different branch is refused with `ErrBranchDiverged`: the state becomes `degraded`,
 the write is not performed, and `last_error` names the clone, both branches and the
 recovery — merge the stray branch into the default branch on the remote, or check
-out the default branch in the clone, then restart. Divergence is never repaired
+out the default branch in the clone, then restart. With `kbs[].git_branch` the
+recovery is to check out the configured branch in the clone, or change the key; a
+configured branch the remote does not have yet is not a divergence, there is just
+nothing to pull. Divergence is never repaired
 automatically, since merging two histories is the operator's decision. Reads keep
 working from the local clone (their background refresh logs the error). `SyncOut`
 repeats the guard for anything that bypassed `SyncIn` (the freshness window, a
 checkout changed in between): it pushes only a branch the remote already has, or
-`main` to an empty remote, and otherwise leaves the commit local and reports the
-same error. `sync_status` shows `branch` and `remote_default_branch` side by side;
+`main` to an empty remote (or the configured branch, which it creates), and
+otherwise leaves the commit local and reports the same error. `sync_status` shows
+`branch` and `remote_default_branch` side by side, with `branch_source` saying
+whether the canonical branch comes from `config` or from the `remote`;
 the next sync that finds the clone back on the canonical branch clears the
 `degraded` state. The server profile keeps its own validated branches and is not
 subject to this check.

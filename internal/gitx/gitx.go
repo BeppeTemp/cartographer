@@ -174,6 +174,12 @@ const DefaultBranch = "main"
 // a KB bootstrapped from it must land where `kb create` does (D264).
 // Repositories with commits keep whatever branch they are on.
 func Init(dir string) error {
+	return InitOnBranch(dir, DefaultBranch)
+}
+
+// InitOnBranch is Init with the unborn HEAD pinned to branch instead of
+// DefaultBranch: a KB configured with kbs[].git_branch (D335) starts there.
+func InitOnBranch(dir, branch string) error {
 	if !IsRepo(dir) {
 		if out, err := runGit(dir, "init"); err != nil {
 			return fmt.Errorf("git init: %w: %s", err, out)
@@ -182,7 +188,7 @@ func Init(dir string) error {
 	if HeadUnborn(dir) {
 		// The repository has no commits yet, so moving HEAD is safe and does
 		// not depend on a git version that supports "init -b".
-		if out, err := runGit(dir, "symbolic-ref", "HEAD", "refs/heads/"+DefaultBranch); err != nil {
+		if out, err := runGit(dir, "symbolic-ref", "HEAD", "refs/heads/"+branch); err != nil {
 			return fmt.Errorf("git symbolic-ref HEAD: %w: %s", err, out)
 		}
 	}

@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/BeppeTemp/cartographer/internal/config"
+	"github.com/BeppeTemp/cartographer/internal/gitx"
 	"github.com/BeppeTemp/cartographer/internal/kb"
 )
 
@@ -70,7 +71,7 @@ func TestEnsureClonedKBFromLocalRemote(t *testing.T) {
 
 	remoteURL := fileURL(bareDir)
 	name := remoteKBName(remoteURL)
-	dest, err := ensureClonedKB(remoteURL, name, dataDir)
+	dest, err := ensureClonedKB(remoteURL, name, dataDir, "")
 	if err != nil {
 		t.Fatalf("ensureClonedKB: %v", err)
 	}
@@ -88,7 +89,7 @@ func TestEnsureClonedKBFromLocalRemote(t *testing.T) {
 	}
 
 	// Second call must be idempotent: destination already has .git, no re-clone.
-	dest2, err := ensureClonedKB(remoteURL, name, dataDir)
+	dest2, err := ensureClonedKB(remoteURL, name, dataDir, "")
 	if err != nil {
 		t.Fatalf("ensureClonedKB (second call): %v", err)
 	}
@@ -129,7 +130,7 @@ func TestEnsureClonedKBUsesExplicitName(t *testing.T) {
 	}
 
 	remoteURL := fileURL(bareDir)
-	dest, err := ensureClonedKB(remoteURL, "custom-name", dataDir)
+	dest, err := ensureClonedKB(remoteURL, "custom-name", dataDir, "")
 	if err != nil {
 		t.Fatalf("ensureClonedKB: %v", err)
 	}
@@ -140,13 +141,13 @@ func TestEnsureClonedKBUsesExplicitName(t *testing.T) {
 }
 
 func TestEnsureClonedKBRequiresDataDir(t *testing.T) {
-	if _, err := ensureClonedKB("ssh://git@host/repo.git", "repo", ""); err == nil {
+	if _, err := ensureClonedKB("ssh://git@host/repo.git", "repo", "", ""); err == nil {
 		t.Fatal("expected error when dataDir is empty, got nil")
 	}
 }
 
 func TestEnsureClonedKBRequiresName(t *testing.T) {
-	if _, err := ensureClonedKB("ssh://git@host/repo.git", "", "/some/data"); err == nil {
+	if _, err := ensureClonedKB("ssh://git@host/repo.git", "", "/some/data", ""); err == nil {
 		t.Fatal("expected error when name is empty, got nil")
 	}
 }
@@ -439,5 +440,50 @@ func unsetEnvForTest(t *testing.T, key string) func() {
 		} else {
 			os.Unsetenv(key)
 		}
+	}
+}
+
+// TestEnsureClonedKBConfiguredBranch: a fresh clone lands on kbs[].git_branch
+// (D335) — tracking it when the remote has it, created from the remote's
+// default branch otherwise — and an existing clone is never switched.
+func TestEnsureClonedKBConfiguredBranch(t *testing.T) {
+	if !hasGit() {
+		t.Skip("git not in PATH")
+	}
+	tmp := t.TempDir()
+	srcDir := filepath.Join(tmp, "src-kb")
+	if _, err := kb.Init(srcDir); err != nil {
+		t.Fatalf("kb.Init(src): %v", err)
+	}
+	bareDir := filepath.Join(tmp, "wiki-kb.git")
+	mustRunGit(t, "", "init", "--bare", bareDir)
+	mustRunGit(t, bareDir, "symbolic-ref", "HEAD", "refs/heads/main")
+	mustRunGit(t, srcDir, "remote", "add", "origin", bareDir)
+	mustRunGit(t, srcDir, "push", "origin", "main:main", "main:existing")
+	remoteURL := fileURL(bareDir)
+
+	for _, branch := range []string{"existing", "missing"} {
+		dest, err := ensureClonedKB(remoteURL, "kb-"+branch, filepath.Join(tmp, "data"), branch)
+		if err != nil {
+			t.Fatalf("ensureClonedKB(%s): %v", branch, err)
+		}
+		got, _ := gitx.Branch(dest)
+		if got != branch {
+			t.Fatalf("%s: branch = %q", branch, got)
+		}
+		// Existing clone: a different configured branch does not switch it.
+		if _, err := ensureClonedKB(remoteURL, "kb-"+branch, filepath.Join(tmp, "data"), "other"); err != nil {
+			t.Fatal(err)
+		}
+		if again, _ := gitx.Branch(dest); again != branch {
+			t.Fatalf("%s: existing clone switched to %q", branch, again)
+		}
+	}
+	out, err := exec.Command("git", "-C", bareDir, "for-each-ref", "--format=%(refname:short)", "refs/heads/").Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(out), "missing") {
+		t.Fatal("cloning created the configured branch on the remote")
 	}
 }

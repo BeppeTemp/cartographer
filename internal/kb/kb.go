@@ -50,6 +50,11 @@ type KB struct {
 	// pre-existing behaviour.
 	GitEnv []string
 
+	// ConfiguredBranch is kbs[].git_branch (D335): when set, the local
+	// profile writes to this branch instead of the remote's default, and the
+	// first push creates it on the remote. Empty keeps D264.
+	ConfiguredBranch string
+
 	// ServerGit is non-nil only for the opt-in server profile. Its dedicated
 	// working branch is the only branch this process may push (D117).
 	ServerGit *ServerGitConfig
@@ -145,9 +150,9 @@ type KB struct {
 	// the fetch for ReadFetchBackoff after it, so a remote that is down costs
 	// one bounded fetch, not one per queued call (#348).
 	lastFetchFail time.Time
-	// remoteDefault is the canonical branch last resolved from the remote by
-	// a local-profile sync (same lock): the remote's default branch, "" when
-	// unknown (D264).
+	// remoteDefault is the canonical branch last resolved by a local-profile
+	// sync (same lock): ConfiguredBranch when set (D335), otherwise the
+	// remote's default branch, "" when unknown (D264).
 	remoteDefault string
 	// gitattrsChecked records that ensureGitAttributes ran in this process
 	// (D311). Guarded by mu, the git-operation lock.
@@ -213,6 +218,9 @@ type GitStatus struct {
 	// RemoteDefaultBranch is the KB's canonical branch as last resolved from
 	// the remote ("" when unknown); a Branch that differs blocks writes (D264).
 	RemoteDefaultBranch string `json:"remote_default_branch,omitempty"`
+	// BranchSource says where the canonical branch comes from: "config"
+	// (kbs[].git_branch, D335) or "remote" (the remote's default, D264).
+	BranchSource string `json:"branch_source,omitempty"`
 }
 
 // Default git author identity used when GitAuthorName/GitAuthorEmail are
@@ -288,6 +296,12 @@ func (k *KB) GitStatusSnapshot() GitStatus {
 	}
 	s.Branch, _ = gitx.Branch(k.Root)
 	s.RemoteDefaultBranch = k.RemoteDefaultBranch()
+	if k.ServerGit == nil {
+		s.BranchSource = "remote"
+		if k.ConfiguredBranch != "" {
+			s.BranchSource = "config"
+		}
+	}
 	_, remote := k.hasRemote()
 	s.IdentityWarning = ShouldWarnGitIdentity(k.GitSync, remote, k.GitAuthorEmail)
 	return s
@@ -367,7 +381,20 @@ func Open(root string) (*KB, error) {
 var (
 	initAuthorName  string
 	initAuthorEmail string
+	// initBranch is the branch InitOnBranch pins an unborn HEAD to, for the
+	// duration of that call; empty means gitx.DefaultBranch.
+	initBranch string
 )
+
+// InitOnBranch is Init with the initial commit on branch rather than
+// gitx.DefaultBranch, for a KB configured with kbs[].git_branch (D335). It
+// only matters for a repository with no commit yet (a new KB, or the clone of
+// an empty remote); an existing history keeps its branch. Empty branch is Init.
+func InitOnBranch(root, branch string) (*KB, error) {
+	initBranch = branch
+	defer func() { initBranch = "" }()
+	return Init(root)
+}
 
 // InitWithIdentity is Init with an explicit author for the KB's initial commit.
 // `cartographer kb create` uses it: the initial commit is the one a forge with
@@ -453,7 +480,11 @@ func Init(root string) (*KB, error) {
 	// on whatever branch the host's git named, with nothing to push, and the
 	// first sync failing on a missing remote ref (D264).
 	if !gitx.IsRepo(abs) || gitx.HeadUnborn(abs) {
-		if initErr := gitx.Init(abs); initErr == nil {
+		branch := initBranch
+		if branch == "" {
+			branch = gitx.DefaultBranch
+		}
+		if initErr := gitx.InitOnBranch(abs, branch); initErr == nil {
 			// Initial commit. Its error is returned (only ErrNothingToCommit is
 			// benign): swallowing it left `kb create` pushing a branch that does
 			// not exist, and the push error blamed authentication (D265).

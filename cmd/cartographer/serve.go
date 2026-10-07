@@ -236,9 +236,12 @@ func runServe(cfg *config.Config) {
 	// global cfg.Git identity).
 	var mounts []kbMount
 	for _, spec := range cfg.KBs {
+		if err := spec.GitBranchProfileError(cfg.Git.Profile); err != nil {
+			log.Fatalf("config: %v", err)
+		}
 		if spec.Remote != "" {
 			name := resolveKBName(spec, "")
-			dest, err := ensureClonedKB(spec.Remote, name, cfg.Data, gitEnvForKB(spec, cfg.Git, name)...)
+			dest, err := ensureClonedKB(spec.Remote, name, cfg.Data, spec.GitBranch, gitEnvForKB(spec, cfg.Git, name)...)
 			if err != nil {
 				log.Fatalf("KB remote %q: %v", spec.Remote, err)
 			}
@@ -291,7 +294,7 @@ func runServe(cfg *config.Config) {
 		var k *kb.KB
 		var err error
 		if cfg.Init {
-			k, err = kb.Init(m.Path)
+			k, err = kb.InitOnBranch(m.Path, m.Spec.GitBranch)
 			if err != nil {
 				log.Fatalf("KB init %q failed: %v", m.Path, err)
 			}
@@ -307,6 +310,7 @@ func runServe(cfg *config.Config) {
 		k.SyncInWindow = cfg.Git.SyncInWindow
 		k.SyncOutDebounce = cfg.Git.SyncOutDebounce
 		k.GitEnv = gitEnvForKB(m.Spec, cfg.Git, m.Name)
+		k.ConfiguredBranch = m.Spec.GitBranch
 		if err := completeIdentity(m.Spec.AuthorName, m.Spec.AuthorEmail, "kbs[]"); err != nil {
 			log.Fatal(err)
 		}

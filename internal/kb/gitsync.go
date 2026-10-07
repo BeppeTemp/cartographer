@@ -43,7 +43,8 @@ func (e *ErrRebaseStatePresent) Error() string {
 }
 
 // ErrBranchDiverged is the sentinel for a local-profile KB whose checked-out
-// branch is not the remote's default branch (D264). errors.Is matches every
+// branch is not its canonical branch: the remote's default branch (D264), or
+// kbs[].git_branch when configured (D335). errors.Is matches every
 // *BranchDivergedError.
 var ErrBranchDiverged = errors.New("KB branch diverges from the remote default branch")
 
@@ -63,10 +64,17 @@ type BranchDivergedError struct {
 	// RemoteEmpty is true when the remote has no refs at all: the only push
 	// allowed then is the first one of gitx.DefaultBranch.
 	RemoteEmpty bool
+	// Configured is true when Default comes from kbs[].git_branch (D335)
+	// rather than from the remote.
+	Configured bool
 }
 
 func (e *BranchDivergedError) Error() string {
 	switch {
+	case e.Configured:
+		return fmt.Sprintf("%s: %s is checked out on branch %q but the KB's configured branch (kbs[].git_branch) is %q, so writes are refused to keep the KB from forking on the remote. "+
+			"Check out %q in %s (`git -C %s checkout %s`, or `checkout -b %s` if it does not exist locally), or change git_branch, then restart the server",
+			ErrBranchDiverged, e.Root, e.Branch, e.Default, e.Default, e.Root, e.Root, e.Default, e.Default)
 	case e.Default != "":
 		return fmt.Sprintf("%s: %s is checked out on branch %q but the remote's default branch is %q, so writes are refused to keep the KB from forking on the remote. "+
 			"Merge %q into %q on the remote, or check out %q in %s, then restart the server",
@@ -99,6 +107,16 @@ func canonicalBranch(refs gitx.RemoteRefs) string {
 		return gitx.DefaultBranch
 	}
 	return ""
+}
+
+// canonical returns the branch a local-profile KB writes to given what the
+// remote advertises: kbs[].git_branch when configured (D335), otherwise the
+// remote's default branch (D264).
+func (k *KB) canonical(refs gitx.RemoteRefs) string {
+	if k.ConfiguredBranch != "" {
+		return k.ConfiguredBranch
+	}
+	return canonicalBranch(refs)
 }
 
 func (k *KB) setRemoteDefault(branch string) {
@@ -308,22 +326,38 @@ func (k *KB) SyncIn() (bool, error) {
 		}
 		return true, nil
 	}
-	// Local profile: the KB's branch is the remote's default branch (D264).
-	refs, err := gitx.LsRemote(k.Root, remote, k.GitEnv...)
-	if err != nil {
-		return true, fmt.Errorf("SyncIn remote default branch: %w", err)
-	}
-	canonical := canonicalBranch(refs)
-	k.setRemoteDefault(canonical)
-	if !refs.HasRefs {
-		// An empty remote has nothing to pull (pulling it fails on the missing
-		// ref); SyncOut makes the first push of main.
-		k.clearDivergedStatus()
-		k.setLastSyncIn(time.Now())
-		return true, nil
-	}
-	if canonical != "" && branch != canonical {
-		return true, k.divergedError(&BranchDivergedError{Root: k.Root, Branch: branch, Default: canonical}, 0)
+	if k.ConfiguredBranch != "" {
+		// Local profile with kbs[].git_branch (D335): the configured branch is
+		// canonical, whatever the remote's default is.
+		k.setRemoteDefault(k.ConfiguredBranch)
+		if branch != k.ConfiguredBranch {
+			return true, k.divergedError(&BranchDivergedError{Root: k.Root, Branch: branch, Default: k.ConfiguredBranch, Configured: true}, 0)
+		}
+		if !gitx.RemoteBranchExists(k.Root, remote, branch) {
+			// Not on the remote yet (the fetch above refreshed the tracking
+			// refs): nothing to pull; SyncOut's first push creates it.
+			k.clearDivergedStatus()
+			k.setLastSyncIn(time.Now())
+			return true, nil
+		}
+	} else {
+		// Local profile: the KB's branch is the remote's default branch (D264).
+		refs, err := gitx.LsRemote(k.Root, remote, k.GitEnv...)
+		if err != nil {
+			return true, fmt.Errorf("SyncIn remote default branch: %w", err)
+		}
+		canonical := canonicalBranch(refs)
+		k.setRemoteDefault(canonical)
+		if !refs.HasRefs {
+			// An empty remote has nothing to pull (pulling it fails on the missing
+			// ref); SyncOut makes the first push of main.
+			k.clearDivergedStatus()
+			k.setLastSyncIn(time.Now())
+			return true, nil
+		}
+		if canonical != "" && branch != canonical {
+			return true, k.divergedError(&BranchDivergedError{Root: k.Root, Branch: branch, Default: canonical}, 0)
+		}
 	}
 	if err := k.pullRebase(remote, branch); err != nil {
 		return true, err
@@ -453,7 +487,13 @@ func (k *KB) SyncOut() error {
 // A refusal comes back as diverged, with nothing pushed; the local commit
 // stays. A failure to ask the remote is returned as pushErr, retried like a
 // failed push.
+//
+// With kbs[].git_branch configured (D335) the configured branch is the only
+// one pushed, and the first push creates it on the remote when it is missing.
 func (k *KB) pushLocal(remote, branch string) (pushErr error, diverged *BranchDivergedError) {
+	if k.ConfiguredBranch != "" {
+		return k.pushConfigured(remote, branch)
+	}
 	if canonical := k.RemoteDefaultBranch(); canonical != "" && branch != canonical {
 		return nil, &BranchDivergedError{Root: k.Root, Branch: branch, Default: canonical}
 	}
@@ -480,6 +520,26 @@ func (k *KB) pushLocal(remote, branch string) (pushErr error, diverged *BranchDi
 	default:
 		return nil, &BranchDivergedError{Root: k.Root, Branch: branch}
 	}
+}
+
+// pushConfigured is pushLocal for a KB with kbs[].git_branch (D335).
+func (k *KB) pushConfigured(remote, branch string) (pushErr error, diverged *BranchDivergedError) {
+	if branch != k.ConfiguredBranch {
+		return nil, &BranchDivergedError{Root: k.Root, Branch: branch, Default: k.ConfiguredBranch, Configured: true}
+	}
+	k.setRemoteDefault(branch)
+	if gitx.RemoteBranchExists(k.Root, remote, branch) {
+		return gitx.Push(k.Root, remote, branch, k.GitEnv...), nil
+	}
+	// No remote-tracking ref: it may just be stale, so ask the remote.
+	refs, err := gitx.LsRemote(k.Root, remote, k.GitEnv...)
+	if err != nil {
+		return err, nil
+	}
+	if refs.HasBranch(branch) {
+		return gitx.Push(k.Root, remote, branch, k.GitEnv...), nil
+	}
+	return gitx.PushSetUpstream(k.Root, remote, branch, k.GitEnv...), nil
 }
 
 // syncOutServer pushes only the dedicated working branch (D117): a
