@@ -283,8 +283,6 @@
 }
 
 .day-area__caption {
-  margin-block-end: var(--space-2);
-  font-size: var(--text-sm);
   color: var(--text-muted);
 }
 
@@ -712,12 +710,10 @@ button.row {
 
 /* --- Activity: each day's changes on a rail coloured by Map --- */
 
-/* Figures and the day area share one line: the summary stays a summary. */
+/* The summary, stacked but compact: figures, then a low day area. */
 .timeline__summary {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  gap: var(--space-8);
-  align-items: end;
+  gap: var(--space-3);
 }
 
 .timeline__summary .figures__item dd {
@@ -725,19 +721,7 @@ button.row {
 }
 
 .timeline__summary .day-area__plot {
-  height: 56px;
-}
-
-.timeline__summary .day-area__caption {
-  margin-block-end: var(--space-1);
-  font-size: var(--text-xs);
-}
-
-@media (max-width: 900px) {
-  .timeline__summary {
-    grid-template-columns: minmax(0, 1fr);
-    gap: var(--space-4);
-  }
+  height: 48px;
 }
 
 .timeline__days {

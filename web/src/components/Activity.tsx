@@ -291,10 +291,6 @@ function DayArea({ bars }: { bars: { key: string; label: string; count: number }
   const shown = hover ?? bars.length - 1;
   return (
     <figure className="day-area" onMouseLeave={() => setHover(null)}>
-      <figcaption className="day-area__caption" aria-live="polite">
-        <strong>{bars[shown]!.count}</strong> {bars[shown]!.count === 1 ? "concept" : "concepts"} ·{" "}
-        {hover === null ? "today" : bars[shown]!.label}
-      </figcaption>
       <div className="day-area__plot">
         <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" aria-hidden="true">
           <defs>
@@ -327,10 +323,15 @@ function DayArea({ bars }: { bars: { key: string; label: string; count: number }
           ))}
         </ol>
       </div>
-      <div className="day-area__axis" aria-hidden="true">
-        <span>{bars[0]!.label}</span>
-        <span>today</span>
-      </div>
+      {/* The axis carries its ends and, between them, the day in focus. */}
+      <figcaption className="day-area__axis">
+        <span aria-hidden="true">{bars[0]!.label}</span>
+        <span className="day-area__caption" aria-live="polite">
+          <strong>{bars[shown]!.count}</strong> {bars[shown]!.count === 1 ? "concept" : "concepts"} ·{" "}
+          {hover === null ? "today" : bars[shown]!.label}
+        </span>
+        <span aria-hidden="true">today</span>
+      </figcaption>
     </figure>
   );
 }
