@@ -32,10 +32,9 @@ AI agents start every session from zero. The usual fixes each solve a third of t
 - **Skills, subagents and instructions** get hand-copied into `.claude/`, `.codex/`, `.kiro/`…
   and drift apart on every machine.
 
-Cartographer puts all three in one place, behind a server that enforces the rules. Your agents
-read and grow a knowledge base **only through MCP tools**; every write is validated, linked and
-committed to git. The same knowledge base also carries **how your agents are set up**, and
-Cartographer installs that into every client you use.
+Cartographer puts all three in one place: your agents read and grow a knowledge base **only
+through MCP tools**, behind a server that enforces the rules, and the same knowledge base carries
+**how your agents are set up**.
 
 ## What you get
 
@@ -46,10 +45,10 @@ Cartographer installs that into every client you use.
   Schema validation, link checks, lint, immutability gates, optimistic concurrency, one commit per write, a signed audit log. The agent cannot leave the KB in a broken state.
 
 - 🧩 **One KB configures every agent**<br>
-  Skills, subagents, hooks and standing instructions live in the KB and are translated into each client's native format — Claude Code, Codex, OpenCode, Kiro, Antigravity, Crush, Hermes. Edit once, every machine converges.
+  Skills, subagents, hooks and standing instructions live in the KB and reach each client in its native format ([below](#one-kb-every-agent)). Edit once, every machine converges.
 
 - 👥 **Built for teams**<br>
-  Several KBs behind one server, per-KB and per-map access with bearer-token roles, git as the sync layer, conflicts turned into a guided workflow, Ed25519-signed artifacts.
+  Several KBs behind one server — a native user service, a container or a Kubernetes workload — per-KB and per-map access with bearer-token roles, git as the sync layer, conflicts turned into a guided workflow, Ed25519-signed artifacts.
 
 - 🗺️ **See it all in the Atlas**<br>
   A read-only web UI in the same binary: a living 3D graph, search, what the agents changed, what the KB ships to them, and what needs fixing. No extra service, no CDN.
@@ -95,31 +94,9 @@ My first knowledge base is at: `<git remote URL>`
 | Hooks | ✓ | ✓ | ✓ | ✓ | ✓ | — | — |
 
 Subagents and hooks are **translated**, not copied. Every `—` is a gap declared for a stated reason,
-never a silent omission. Cartographer re-syncs at session start (or on a timer where there is no
-hook; `setup` and `connect` install that timer themselves when a connected client needs it, and
-`cartographer service sync-timer uninstall` is the remembered opt-out), restores files edited or deleted by hand, and only ever touches what it created. Exact paths
-and reasons: [`docs/sync.md`](docs/sync.md#kind--provider-matrix).
-
-## How it works
-
-```mermaid
-flowchart LR
-    A["🤖 Agents<br/><i>Claude Code, Codex, Kiro…</i>"]
-    S["Cartographer<br/><i>one Go binary</i>"]
-    KB[("KB<br/>Markdown + git")]
-    R[("git remote")]
-    U["🗺️ Atlas UI"]
-    A -- "MCP tools" --> S
-    S -- "skills, subagents,<br/>hooks, instructions" --> A
-    S -- "one commit<br/>per write" --> KB
-    KB -. "sync" .-> R
-    S --> U
-```
-
-The agent never touches the files. **MCP** carries data and capabilities, **skills** carry
-procedural know-how loaded on demand, **hooks** carry zero-token automation. Run it over stdio for
-one client and one KB, or as an HTTP server — a native user service, a container or a Kubernetes
-workload — for many KBs and many people. Design: [`docs/overview.md`](docs/overview.md).
+never a silent omission. Cartographer re-syncs at session start (or on a timer where a client has
+no hook), restores files edited or deleted by hand, and only ever touches what it created. Exact
+paths and reasons: [`docs/sync.md`](docs/sync.md#kind--provider-matrix).
 
 ## Install
 
