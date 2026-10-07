@@ -8,6 +8,21 @@
 
 KB histories with commits authored as `cartographer <cartographer@localhost>` may need a manual author rewrite before a forge with author push rules accepts the first push.
 
+## [0.20.0](https://github.com/BeppeTemp/cartographer/compare/v0.19.2...v0.20.0) (2026-10-07)
+
+
+### Features
+
+* **git:** kbs[].git_branch picks the branch a local-profile KB writes to (D335) ([#574](https://github.com/BeppeTemp/cartographer/issues/574)) ([c69834a](https://github.com/BeppeTemp/cartographer/commit/c69834a754a3aee8508c11ae031da20e798c3073))
+* **kb_status:** say since when an empty usage store has had no report ([#576](https://github.com/BeppeTemp/cartographer/issues/576)) ([e20c04f](https://github.com/BeppeTemp/cartographer/commit/e20c04f367195008eba2d3c4e804ff193230d643))
+* **lint:** accept artifact findings with lint_accept in instructions.md ([#572](https://github.com/BeppeTemp/cartographer/issues/572)) ([1d43839](https://github.com/BeppeTemp/cartographer/commit/1d43839dc409ea3ee110d702dd39a5127f5fd519))
+
+
+### Bug Fixes
+
+* **git:** apply the server git profile at mount instead of ignoring it ([#577](https://github.com/BeppeTemp/cartographer/issues/577)). Behaviour change: a server with `git.profile: server` (or `kbs[].git_profile: server`) used to run the local profile and push directly; it now writes through its working branch and PRs, and an incomplete server config, an empty token variable or a dirty clone stops startup naming the KB ([d1a2f3c](https://github.com/BeppeTemp/cartographer/commit/d1a2f3cd9064200199c0d46b1607f2309bbce705))
+* **kb_status:** count every repairable finding in conformance.repairable ([#569](https://github.com/BeppeTemp/cartographer/issues/569)) ([821c766](https://github.com/BeppeTemp/cartographer/commit/821c7663ff23d8aa7f29bf55dba3a92c57414a87))
+
 ## [0.19.2](https://github.com/BeppeTemp/cartographer/compare/v0.19.1...v0.19.2) (2026-10-06)
 
 
