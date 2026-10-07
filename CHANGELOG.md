@@ -8,6 +8,14 @@
 
 KB histories with commits authored as `cartographer <cartographer@localhost>` may need a manual author rewrite before a forge with author push rules accepts the first push.
 
+## [0.21.0](https://github.com/BeppeTemp/cartographer/compare/v0.20.0...v0.21.0) (2026-10-07)
+
+
+### Features
+
+* **atlas:** live refresh, Health panel and a redesign of the reading panels ([#582](https://github.com/BeppeTemp/cartographer/issues/582)) ([eade711](https://github.com/BeppeTemp/cartographer/commit/eade711884b42ff9bdabcff261287ab53c553cf1))
+* **lint:** call the doctor until the Observatory is empty (D336) ([#579](https://github.com/BeppeTemp/cartographer/issues/579)) ([06df205](https://github.com/BeppeTemp/cartographer/commit/06df2057b8ac1cf32fd5b8ffb020bcd5b035d0db))
+
 ## [0.20.0](https://github.com/BeppeTemp/cartographer/compare/v0.19.2...v0.20.0) (2026-10-07)
 
 
