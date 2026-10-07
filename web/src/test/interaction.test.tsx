@@ -168,8 +168,8 @@ describe("health findings", () => {
     render(health());
     expect(screen.queryByRole("heading", { name: "Upkeep" })).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Knowledge" })).not.toBeInTheDocument();
-    // The band's count and the list itself.
-    expect(screen.getAllByRole("heading", { name: /^Findings/ })).toHaveLength(2);
+    expect(screen.getByRole("heading", { name: /^Findings/ })).toBeInTheDocument();
+    expect(screen.queryByText("Background repair")).not.toBeInTheDocument();
   });
 });
 

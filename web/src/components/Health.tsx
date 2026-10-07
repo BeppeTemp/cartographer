@@ -8,7 +8,7 @@ import type {
   MaintenanceRun,
   MaintenanceSummary,
 } from "../api/types";
-import { Band, Count, Facet, Page, PageHeader, PageSection, Quiet, Segmented, SkeletonRows, Stats, relativeDay } from "./Page";
+import { Count, Figures, Hero, Page, PageHeader, PageSection, Quiet, Segmented, SkeletonRows, relativeDay } from "./Page";
 import { SeverityBadge } from "./SeverityBadge";
 import { ErrorState } from "./States";
 
@@ -119,29 +119,35 @@ export function Health({
         {copied ? "Copied to the clipboard." : ""}
       </p>
 
-      <Band label="Summary">
-        <Facet title="Findings" id="health-findings-count" className="health__counts">
-          {!report ? (
-            error ? null : <SkeletonRows label="Reading the findings" rows={1} />
-          ) : report.total === 0 ? (
-            <Quiet>
-              {scopeTitle
-                ? `${scopeTitle} passes every deterministic lint check. Choose Whole atlas for the rest of the KB.`
-                : "This KB passes every deterministic lint check."}
-            </Quiet>
-          ) : (
-            <Stats
-              items={[
-                { label: errors === 1 ? "error" : "errors", value: errors, tone: errors ? "error" : "muted" },
-                { label: warnings === 1 ? "warning" : "warnings", value: warnings, tone: warnings ? "warning" : "muted" },
-                { label: notes === 1 ? "note" : "notes", value: notes, tone: notes ? undefined : "muted" },
-              ]}
-            />
-          )}
-        </Facet>
-        {(summary || summaryError) && <Upkeep summary={summary} error={summaryError ?? null} />}
-        {status && <KnowledgeFacts status={status} />}
-      </Band>
+      <Hero label="Summary">
+        <div className="health__hero">
+          <StateRing state={stateOf(report, open.length)} />
+          <div className="health__hero-main">
+            {!report ? (
+              error ? null : <SkeletonRows label="Reading the findings" rows={1} />
+            ) : report.total === 0 ? (
+              <Quiet>
+                {scopeTitle
+                  ? `${scopeTitle} passes every deterministic lint check. Choose Whole atlas for the rest of the KB.`
+                  : "This KB passes every deterministic lint check."}
+              </Quiet>
+            ) : (
+              <Figures
+                items={[
+                  { label: errors === 1 ? "error" : "errors", value: errors, tone: errors ? "error" : "muted" },
+                  { label: warnings === 1 ? "warning" : "warnings", value: warnings, tone: warnings ? "warning" : "muted" },
+                  { label: notes === 1 ? "note" : "notes", value: notes, tone: notes ? undefined : "muted" },
+                  ...(open.length
+                    ? [{ label: open.length === 1 ? "question" : "questions", value: open.length, tone: "warning" }]
+                    : []),
+                ]}
+              />
+            )}
+            {status && <KnowledgeLine status={status} />}
+            {(summary || summaryError) && <Upkeep summary={summary} error={summaryError ?? null} />}
+          </div>
+        </div>
+      </Hero>
 
       {/* Only what has something to say gets a section: an empty one would
           repeat what the title and the band already said. */}
@@ -228,46 +234,55 @@ function hasKnowledge(status: KBStatus): boolean {
   return !!status.open_gaps?.total || (status.search_misses ?? []).length > 0 || (status.stale_count ?? 0) > 0;
 }
 
-/** The title answers "how is it": the worst thing first, in words, behind a
- *  mark whose tone and glyph say the same at a glance. */
+type State = { tone: "ok" | "warning" | "error"; glyph: string; word: string };
+
+/** The worst thing first: broken, then attention, then a waiting question. */
+function stateOf(report: LintReport | null, questions: number): State | null {
+  if (!report) return null;
+  if (report.by_severity.error) return { tone: "error", glyph: "✕", word: "Broken" };
+  if (report.by_severity.warning) return { tone: "warning", glyph: "!", word: "Needs attention" };
+  if (questions > 0) return { tone: "warning", glyph: "?", word: "Waiting on you" };
+  return { tone: "ok", glyph: "✓", word: "Healthy" };
+}
+
+/** The state as a ring the eye finds first: its tone, its glyph, its word. */
+function StateRing({ state }: { state: State | null }) {
+  return (
+    <div className={`state-ring state-ring--${state?.tone ?? "loading"}`} aria-hidden="true">
+      <svg viewBox="0 0 120 120">
+        <circle className="state-ring__track" cx="60" cy="60" r="52" />
+        <circle className="state-ring__arc" cx="60" cy="60" r="52" />
+      </svg>
+      <span className="state-ring__glyph">{state?.glyph ?? "…"}</span>
+      <span className="state-ring__word">{state?.word ?? ""}</span>
+    </div>
+  );
+}
+
+/** The title answers "how is it": the worst thing first, in words. */
 function Verdict({ report, questions, where }: { report: LintReport | null; questions: number; where: string }) {
   if (!report) return <>Reading the KB&apos;s health…</>;
   const errors = report.by_severity.error ?? 0;
   const warnings = report.by_severity.warning ?? 0;
-  const [tone, glyph] =
-    errors > 0 ? ["error", "✕"] : warnings > 0 ? ["warning", "!"] : questions > 0 ? ["warning", "?"] : ["ok", "✓"];
-  const mark = (
-    <span className={`health__mark health__mark--${tone}`} aria-hidden="true">
-      {glyph}
-    </span>
-  );
   if (errors > 0)
     return (
       <>
-        {mark}
         <Count>{errors}</Count> {errors === 1 ? "thing is" : "things are"} broken{where}.
       </>
     );
   if (warnings > 0)
     return (
       <>
-        {mark}
         <Count>{warnings}</Count> {warnings === 1 ? "thing needs" : "things need"} attention{where}.
       </>
     );
   if (questions > 0)
     return (
       <>
-        {mark}
         <Count>{questions}</Count> {questions === 1 ? "question waits" : "questions wait"} for you.
       </>
     );
-  return (
-    <>
-      {mark}
-      All clear{where}.
-    </>
-  );
+  return <>All clear{where}.</>;
 }
 
 /** What the title does not say: where the findings were looked for, whether
@@ -289,41 +304,64 @@ function Subtitle({
   return <>{parts.join(" · ")}.</>;
 }
 
-/** The upkeep schedule: background repair and the doctor, as plain facts. */
+/**
+ * The upkeep, as a line and a track: whether the background repair runs and
+ * what it last did, then the doctor's cycle from the last session to the next
+ * with today marked on it.
+ */
 function Upkeep({ summary, error }: { summary: MaintenanceSummary | null; error: string | null }) {
+  if (error) return <p className="page-note">Could not read the maintenance summary: {error}</p>;
+  if (!summary) return null;
+  const on = summary.auto_repair.checks.length > 0 && summary.auto_repair.interval_days !== 0;
   return (
-    <Facet title="Upkeep" id="health-upkeep">
-      {error ? (
-        <p className="page-note">Could not read the maintenance summary: {error}</p>
-      ) : summary ? (
-        <dl className="facts">
-          <div>
-            <dt>Background repair</dt>
-            <dd title={summary.auto_repair.checks.join(", ")}>{autoRepairLine(summary)}</dd>
-          </div>
-          <div>
-            <dt>Last run</dt>
-            <dd title={summary.last_auto_repair?.at}>{runLine(summary.last_auto_repair)}</dd>
-          </div>
-          <div>
-            <dt>Last doctor</dt>
-            <dd>{summary.last_doctor ? <Day iso={summary.last_doctor} /> : "never"}</dd>
-          </div>
-          <div>
-            <dt>Next doctor</dt>
-            <dd>
-              {summary.doctor_interval_days === 0 ? (
-                "not proposed (doctor_interval is 0)"
-              ) : summary.next_doctor ? (
-                <Day iso={summary.next_doctor} />
-              ) : (
-                "as soon as the KB has debt"
-              )}
-            </dd>
-          </div>
-        </dl>
-      ) : null}
-    </Facet>
+    <div className="upkeep">
+      <p className="upkeep__line">
+        <span className="upkeep__pulse" data-on={on} aria-hidden="true" />
+        <span className="upkeep__label">Background repair</span>
+        <span title={summary.auto_repair.checks.join(", ")}>{autoRepairLine(summary)}</span>
+        <span className="upkeep__sep" aria-hidden="true">
+          ·
+        </span>
+        <span className="upkeep__run" title={summary.last_auto_repair?.at}>
+          {runLine(summary.last_auto_repair)}
+        </span>
+      </p>
+      <DoctorTrack summary={summary} />
+    </div>
+  );
+}
+
+/** Last doctor session → today → next one, as a track that fills as the next approaches. */
+function DoctorTrack({ summary }: { summary: MaintenanceSummary }) {
+  const last = summary.last_doctor ? Date.parse(summary.last_doctor) : NaN;
+  const next = summary.next_doctor ? Date.parse(summary.next_doctor) : NaN;
+  const span = next - last;
+  const pct = Number.isFinite(span) && span > 0 ? Math.min(100, Math.max(0, ((Date.now() - last) / span) * 100)) : null;
+  return (
+    <div className="doctor">
+      <div className="doctor__ends">
+        <span>
+          <span className="upkeep__label">Last doctor</span>{" "}
+          {summary.last_doctor ? <Day iso={summary.last_doctor} /> : "never"}
+        </span>
+        <span>
+          <span className="upkeep__label">Next doctor</span>{" "}
+          {summary.doctor_interval_days === 0 ? (
+            "not proposed (doctor_interval is 0)"
+          ) : summary.next_doctor ? (
+            <Day iso={summary.next_doctor} />
+          ) : (
+            "as soon as the KB has debt"
+          )}
+        </span>
+      </div>
+      {pct !== null && (
+        <div className="doctor__track" aria-hidden="true">
+          <span className="doctor__fill" style={{ width: `${pct}%` }} />
+          <span className="doctor__today" style={{ left: `${pct}%` }} />
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -339,24 +377,22 @@ function Day({ iso }: { iso: string }) {
   );
 }
 
-function KnowledgeFacts({ status }: { status: KBStatus }) {
+/** What the KB does not know, as figures — or one line when nothing is missing. */
+function KnowledgeLine({ status }: { status: KBStatus }) {
   const gaps = status.open_gaps?.total ?? 0;
   const misses = (status.search_misses ?? []).filter((m) => !m.resolved).length;
   const stale = status.stale_count ?? 0;
+  if (gaps + misses + stale === 0) {
+    return <Quiet>Nothing missing: no open gap, no unanswered search, nothing past its review date.</Quiet>;
+  }
   return (
-    <Facet title="Knowledge" id="health-knowledge" className="health__knowledge">
-      {gaps + misses + stale === 0 ? (
-        <Quiet>Nothing missing: no open gap, no unanswered search, nothing past its review date.</Quiet>
-      ) : (
-        <Stats
-          items={[
-            { label: gaps === 1 ? "open gap" : "open gaps", value: gaps, tone: gaps ? "warning" : "muted" },
-            { label: "unanswered searches", value: misses, tone: misses ? "warning" : "muted" },
-            { label: "past review", value: stale, tone: stale ? "warning" : "muted" },
-          ]}
-        />
-      )}
-    </Facet>
+    <Figures
+      items={[
+        { label: gaps === 1 ? "open gap" : "open gaps", value: gaps, tone: gaps ? "warning" : "muted" },
+        { label: "unanswered searches", value: misses, tone: misses ? "warning" : "muted" },
+        { label: "past review", value: stale, tone: stale ? "warning" : "muted" },
+      ]}
+    />
   );
 }
 
@@ -566,6 +602,7 @@ function Repairs({
   onCopy(key: string, text: string): void;
 }) {
   const repairs = summary?.repairs ?? [];
+  const most = Math.max(1, ...repairs.map((r) => parseRepair(r).concepts ?? r.files));
   return (
     <PageSection title="Repairs, last 30 days" id="health-repairs" count={summary ? repairs.length : undefined}>
       {!summary ? null : repairs.length === 0 ? (
@@ -591,6 +628,10 @@ function Repairs({
                       </time>
                       <code title={r.sha}>{short}</code>
                     </span>
+                  </span>
+                  <span className="health__repair-bar" aria-hidden="true">
+                    {/* A square-root scale: one sweeping repair must not flatten the rest. */}
+                    <span style={{ width: `${Math.sqrt((concepts ?? r.files) / most) * 100}%` }} />
                   </span>
                 </div>
                 <button
