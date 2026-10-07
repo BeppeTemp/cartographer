@@ -72,8 +72,8 @@ kb-<domain>/                          # git repo = OKF bundle (content directori
 discipline, English, no KB-specific names), only when it creates the KB and before the initial commit,
 so a new KB never raises `missing_instructions`; an existing KB is left alone (D325).
 
-`instructions.md` is folded into the client instructions with its frontmatter discarded (D61). Two
-optional frontmatter keys are read by `lint` only (D316):
+`instructions.md` is folded into the client instructions with its frontmatter discarded (D61). Three
+optional frontmatter keys are read by `lint` only (D316, D332):
 
 ```yaml
 ---
@@ -81,8 +81,19 @@ perimeter: ops                 # the KB's perimeter, named by each skill descrip
 legacy_paths:                  # old path prefix -> replacement, for kb_repair legacy_path
   "wiki/operations/": "ops/"
   "wiki/": ""                  # empty: strip the prefix
+lint_accept:                   # artifact path (or "dir/" prefix) -> checks accepted there
+  "skills/deploy/SKILL.md": [skill_git_command]   # pulls the app repo, not the KB
 ---
 ```
+
+`lint_accept` is how an artifact finding is accepted (D332): a skill's or agent's frontmatter is
+read by every client, so the operator's judgement lives in the KB's own file, keyed by the path
+the finding names. A key ending in `/` covers every file under it. It may name the artifact checks
+reported on a file plus `sops_format_mismatch`, `sops_missing_file` and `legacy_path`; never an
+error, `junk_file`/`junk_asset` (delete them) or `missing_instructions`. A name it cannot accept,
+or one that matches no finding on its key (a stale entry), is reported as `lint_ignore_invalid` on
+`instructions.md`. Write it with `artifact_write`, with the reason in the call's `reason` or a YAML
+comment.
 
 `paths.yaml` is likewise KB-only data, not a concept and not a provisioning artifact: the KB's
 declared placeholder vocabulary, maintained through `artifact_*` or git and served to clients by

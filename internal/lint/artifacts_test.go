@@ -229,6 +229,31 @@ func TestLint_SkillGitCommand(t *testing.T) {
 	}
 }
 
+// D332: instructions.md lint_accept accepts an artifact finding by path; a
+// directory key covers the files under it, and a name that cannot be accepted
+// or matches nothing is reported.
+func TestLint_LintAccept(t *testing.T) {
+	k := tempKB(t)
+	writeFile(t, k.Root, "skills/committer/SKILL.md", skillMD("committer", "c", "Then `git commit -m \"save\"`.\n"))
+	writeFile(t, k.Root, "skills/pusher/SKILL.md", skillMD("pusher", "c", "Then `git push`.\n"))
+	writeFile(t, k.Root, "skills/other/SKILL.md", skillMD("other", "c", "Then `git pull`.\n"))
+	writeFile(t, k.Root, "instructions.md", "---\nlint_accept:\n  \"skills/committer/SKILL.md\": [skill_git_command]  # a code repo, not the KB\n  skills/pusher/: skill_git_command\n  skills/other/SKILL.md: [junk_file, artifact_unused]\n---\n# I\n")
+	findings, err := Run(k, "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := findingsOf(findings, "skill_git_command")
+	if len(got) != 1 || got[0].Path != "skills/other/SKILL.md" {
+		t.Fatalf("want only other's skill_git_command left, got %v", got)
+	}
+	inv := findingsOf(findings, "lint_ignore_invalid")
+	if len(inv) != 2 || inv[0].Path != "instructions.md" ||
+		!strings.Contains(inv[0].Message, `"artifact_unused"`) || !strings.Contains(inv[0].Message, "stale") ||
+		!strings.Contains(inv[1].Message, `"junk_file"`) || !strings.Contains(inv[1].Message, "cannot accept") {
+		t.Fatalf("lint_ignore_invalid = %v", inv)
+	}
+}
+
 func TestLint_SopsFormatMismatch(t *testing.T) {
 	k := tempKB(t)
 	writeFile(t, k.Root, "data/ops/bad.md", "---\ntype: Note\ntitle: B\n---\n# B\n\n`sops decrypt secrets/db.sops.yaml | jq .password`\n")

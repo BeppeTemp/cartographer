@@ -281,9 +281,10 @@ const ACCEPT: Record<string, { glyph: string; label: string; title: string }> = 
   none: { glyph: "⊘", label: "fix", title: "Cannot be accepted: fix it" },
   concept: { glyph: "◌", label: "concept", title: "Accept with lint_ignore on the concept, or on its map" },
   map: { glyph: "◎", label: "map", title: "Accept with lint_ignore in the map's _map.md" },
+  artifact: { glyph: "◇", label: "artifact", title: "Accept with lint_accept in instructions.md, keyed by the artifact's path" },
 };
 
-/** Who can accept a finding of this check (D313): nobody, the concept, or its map. */
+/** Who can accept a finding of this check (D313, D332): nobody, the concept, its map, or instructions.md for an artifact. */
 function AcceptBadge({ level }: { level?: string }) {
   const entry = level ? ACCEPT[level] : undefined;
   if (!entry) return null;
