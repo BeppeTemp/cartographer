@@ -311,6 +311,7 @@ func TestSummarizeConformanceTruthTable(t *testing.T) {
 	got := summarizeConformance([]lint.Finding{
 		f("nonstandard_field", lint.SevWarning, true), f("nonstandard_field", lint.SevWarning, false),
 		f("link_to_retired", lint.SevInfo, false), f("orphan", lint.SevWarning, false),
+		f("stringified_list", lint.SevInfo, true), f("stringified_list", lint.SevInfo, true),
 	}, 0, "2026-09-20", 14, now)
 	// D313: the accept level of every counted check, none for an error-only or
 	// unlisted one.
@@ -324,6 +325,10 @@ func TestSummarizeConformanceTruthTable(t *testing.T) {
 	sev := got["findings"].(map[string]int)
 	if sev[lint.SevWarning] != 2 || sev[lint.SevInfo] != 1 || got["fixable"] != 1 || got["last_doctor"] != "2026-09-20" {
 		t.Fatalf("summary = %v", got)
+	}
+	// D331: repairable counts every fixable finding, conformance check or not.
+	if rep := got["repairable"].(map[string]int); rep["nonstandard_field"] != 1 || rep["stringified_list"] != 2 || len(rep) != 2 {
+		t.Fatalf("repairable = %v", rep)
 	}
 }
 

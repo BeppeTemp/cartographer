@@ -192,11 +192,19 @@ func doctorDue(lastDoctor string, intervalDays int, now time.Time) bool {
 // doctor_suggested is debt && due (D299): any counted finding or review item,
 // once the KB's doctor interval has passed. Time, not the first warning,
 // decides, so the flag does not stay on for good on a real KB.
+//
+// repairable counts, per check, every finding kb_repair can fix — conformance
+// check or not (D331): fixable alone hid stringified_list or title_h1_mismatch
+// from a doctor session planning its mechanical pass.
 func summarizeConformance(findings []lint.Finding, reviewTotal int, lastDoctor string, intervalDays int, now time.Time) map[string]interface{} {
 	bySev := map[string]int{}
 	acceptability := map[string]string{}
 	fixable := 0
+	repairable := map[string]int{}
 	for _, f := range findings {
+		if f.Fix != nil {
+			repairable[f.Check]++
+		}
 		if !conformanceChecks[f.Check] {
 			continue
 		}
@@ -210,6 +218,7 @@ func summarizeConformance(findings []lint.Finding, reviewTotal int, lastDoctor s
 	out := map[string]interface{}{
 		"findings":         bySev,
 		"fixable":          fixable,
+		"repairable":       repairable,
 		"acceptability":    acceptability,
 		"doctor_suggested": (total+reviewTotal) > 0 && doctorDue(lastDoctor, intervalDays, now),
 	}
