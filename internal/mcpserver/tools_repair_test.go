@@ -290,7 +290,8 @@ func TestSummarizeConformanceTruthTable(t *testing.T) {
 		want     bool
 	}{
 		{"clean, never run", nil, 0, "", 14, false},
-		{"unrelated finding ignored", []lint.Finding{f("orphan", lint.SevWarning, false)}, 0, "", 14, false},
+		{"content finding counts too (D336)", []lint.Finding{f("orphan", lint.SevWarning, false)}, 0, "", 14, true},
+		{"content finding, run recently", []lint.Finding{f("artifact_unused", lint.SevInfo, false)}, 0, "2026-09-30", 14, false},
 		{"warning, never run", warn, 0, "", 14, true},
 		{"warning, run recently", warn, 0, "2026-09-30", 14, false},
 		{"fixable, run long ago", []lint.Finding{f("tool_param_field", lint.SevInfo, true)}, 0, "2026-09-01", 14, true},

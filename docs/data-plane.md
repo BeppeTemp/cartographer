@@ -492,6 +492,8 @@ only in a whole-KB lint, and their findings name the artifact file (`skills/<nam
   ago* (the only signal is a Codex catalogue load, which proves availability, not use), and
   *last activated N days ago*. With no usage report at all the check is silent — the absence
   of a signal is not evidence of disuse. The usage is local state, below.
+  An artifact added (or renamed into place) inside the threshold, by the KB's git history, is
+  never reported as *never activated*: it has not had the time to be used (D336).
 - `legacy_path` (warning, per concept, suppressible, fix `replace_prefix`): a concept body contains
   a prefix declared in `instructions.md` `legacy_paths`. One finding per prefix found; the repair
   rewrites every occurrence, all prefixes in one pass, longest first.
