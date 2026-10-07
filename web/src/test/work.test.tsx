@@ -72,9 +72,9 @@ describe("the Work panel", () => {
     expect(within(panel).queryByText("Alpha")).not.toBeInTheDocument();
     expect(within(panel).getByText("Gamma")).toBeInTheDocument();
     await user.clear(within(panel).getByRole("searchbox", { name: "Filter work" }));
-    await user.click(within(panel).getByRole("checkbox", { name: "Stale only" }));
+    await user.click(within(panel).getByRole("checkbox", { name: /^Stale only/ }));
     expect(within(panel).queryByText("Gamma")).not.toBeInTheDocument();
-    await user.click(within(panel).getByRole("checkbox", { name: "Stale only" }));
+    await user.click(within(panel).getByRole("checkbox", { name: /^Stale only/ }));
     const byStatus = within(panel).getByRole("list", { name: "Filter by status" });
     await user.click(within(byStatus).getByRole("button", { name: /in-progress/ }));
     expect(within(panel).getByText("Beta")).toBeInTheDocument();

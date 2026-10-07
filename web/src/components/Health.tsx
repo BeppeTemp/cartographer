@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { useMemo, useState } from "react";
 import type {
   KBStatus,
   LintFinding,
@@ -100,7 +100,7 @@ export function Health({
       <PageHeader
         eyebrow="Health"
         title={<Verdict report={report} questions={open.length} where={where} />}
-        subtitle={<Subtitle report={report} summary={summary} scopeTitle={scopeTitle} />}
+        subtitle={<Subtitle questions={questions} summary={summary} scopeTitle={scopeTitle} />}
         help={
           <>
             <p>
@@ -120,127 +120,106 @@ export function Health({
       </p>
 
       <Band label="Summary">
-        <Facet className="health__score">
-          {report && <Mark errors={errors} warnings={warnings} questions={open.length} />}
-          {report ? (
+        <Facet title="Findings" id="health-findings-count" className="health__counts">
+          {!report ? (
+            error ? null : <SkeletonRows label="Reading the findings" rows={1} />
+          ) : report.total === 0 ? (
+            <Quiet>
+              {scopeTitle
+                ? `${scopeTitle} passes every deterministic lint check. Choose Whole atlas for the rest of the KB.`
+                : "This KB passes every deterministic lint check."}
+            </Quiet>
+          ) : (
             <Stats
               items={[
                 { label: errors === 1 ? "error" : "errors", value: errors, tone: errors ? "error" : "muted" },
                 { label: warnings === 1 ? "warning" : "warnings", value: warnings, tone: warnings ? "warning" : "muted" },
                 { label: notes === 1 ? "note" : "notes", value: notes, tone: notes ? undefined : "muted" },
-                {
-                  label: open.length === 1 ? "question" : "questions",
-                  value: questions ? open.length : "–",
-                  tone: open.length ? "warning" : "muted",
-                },
               ]}
             />
-          ) : (
-            <SkeletonRows label="Reading the findings" rows={1} />
           )}
-          <p className="health__scope">
-            {report ? (
-              <>
-                {Object.keys(report.by_check).length === 0
-                  ? "Every check passes"
-                  : `${plural(Object.keys(report.by_check).length, "check")} with findings`}{" "}
-                over {scopeTitle ? <strong className="health__scope-name">{scopeTitle}</strong> : "the whole KB"}
-              </>
-            ) : null}
-          </p>
         </Facet>
         {(summary || summaryError) && <Upkeep summary={summary} error={summaryError ?? null} />}
         {status && <KnowledgeFacts status={status} />}
       </Band>
 
-      <div className="health__grid">
-        <div className="health__main">
-          {(questions || questionsError) && (
-            <PageSection title="Questions for you" id="health-questions" count={questions ? open.length : undefined}>
-              {questionsError ? (
-                <p className="page-note">Could not read the questions: {questionsError}</p>
-              ) : open.length === 0 ? (
-                <Quiet>No open question: the doctor has nothing waiting on you.</Quiet>
-              ) : (
-                <>
-                  <ul className="rows rows--actions" aria-label="Open questions">
-                    {open.map((q) => (
-                      <li key={q.id}>
-                        <button type="button" className="row" onClick={() => onOpen(q.id)}>
-                          <span className="health__glyph health__glyph--question" aria-hidden="true">
-                            ?
-                          </span>
-                          <span className="row__body">
-                            <span className="row__title">{q.title ?? q.id}</span>
-                            <span className="row__meta">
-                              <code>{q.id}</code>
-                              {q.involves?.length ? <span>involves {q.involves.join(", ")}</span> : null}
-                            </span>
-                          </span>
-                        </button>
-                        <button
-                          type="button"
-                          className="row-action"
-                          data-done={copied === `q:${q.id}`}
-                          aria-label={`Copy ID of ${q.title ?? q.id}`}
-                          title={q.id}
-                          onClick={() => copy(`q:${q.id}`, q.id)}
-                        >
-                          {copied === `q:${q.id}` ? "Copied" : "Copy ID"}
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                  <p className="page-note">
-                    Answer from an agent session: <code>concept_patch</code> the answer into the question, then set its
-                    resolution_status to resolved.
-                  </p>
-                </>
-              )}
-            </PageSection>
-          )}
-
-          <Findings
-            report={report}
-            loading={loading}
-            error={error}
-            scopeTitle={scopeTitle}
-            severityMin={severityMin}
-            onSeverityChange={onSeverityChange}
-            onReveal={onReveal}
-            onRetry={onRetry}
-          />
-
-          {status && hasKnowledge(status) && <Knowledge status={status} onReveal={onReveal} />}
-        </div>
-
-        {(summary || summaryError) && (
-          <aside className="health__side" aria-label="Upkeep log">
-            <Repairs summary={summary} copied={copied} onCopy={copy} />
-          </aside>
-        )}
-      </div>
+      {/* Only what has something to say gets a section: an empty one would
+          repeat what the title and the band already said. */}
+      {(() => {
+        const asks = !!questionsError || open.length > 0;
+        const finds = !!error || (report !== null && report.total > 0);
+        const knows = !!status && hasKnowledge(status);
+        const log = !!(summary || summaryError);
+        const main = asks || finds || knows;
+        return (
+          <div className={main && log ? "health__grid" : "health__grid health__grid--single"}>
+            {main && (
+              <div className="health__main">
+                {asks && (
+                  <PageSection title="Questions for you" id="health-questions" count={questions ? open.length : undefined}>
+                    {questionsError ? (
+                      <p className="page-note">Could not read the questions: {questionsError}</p>
+                    ) : (
+                      <>
+                        <ul className="rows rows--actions" aria-label="Open questions">
+                          {open.map((q) => (
+                            <li key={q.id}>
+                              <button type="button" className="row" onClick={() => onOpen(q.id)}>
+                                <span className="health__glyph health__glyph--question" aria-hidden="true">
+                                  ?
+                                </span>
+                                <span className="row__body">
+                                  <span className="row__title">{q.title ?? q.id}</span>
+                                  <span className="row__meta">
+                                    <code>{q.id}</code>
+                                    {q.involves?.length ? <span>involves {q.involves.join(", ")}</span> : null}
+                                  </span>
+                                </span>
+                              </button>
+                              <button
+                                type="button"
+                                className="row-action"
+                                data-done={copied === `q:${q.id}`}
+                                aria-label={`Copy ID of ${q.title ?? q.id}`}
+                                title={q.id}
+                                onClick={() => copy(`q:${q.id}`, q.id)}
+                              >
+                                {copied === `q:${q.id}` ? "Copied" : "Copy ID"}
+                              </button>
+                            </li>
+                          ))}
+                        </ul>
+                        <p className="page-note">
+                          Answer from an agent session: <code>concept_patch</code> the answer into the question, then set
+                          its resolution_status to resolved.
+                        </p>
+                      </>
+                    )}
+                  </PageSection>
+                )}
+                {finds && (
+                  <Findings
+                    report={report}
+                    loading={loading}
+                    error={error}
+                    severityMin={severityMin}
+                    onSeverityChange={onSeverityChange}
+                    onReveal={onReveal}
+                    onRetry={onRetry}
+                  />
+                )}
+                {knows && <Knowledge status={status!} onReveal={onReveal} />}
+              </div>
+            )}
+            {log && (
+              <aside className="health__side" aria-label="Upkeep log">
+                <Repairs summary={summary} copied={copied} onCopy={copy} />
+              </aside>
+            )}
+          </div>
+        );
+      })()}
     </Page>
-  );
-}
-
-/** The worst state as a mark the eye finds first: tone, glyph and a word. */
-function Mark({ errors, warnings, questions }: { errors: number; warnings: number; questions: number }) {
-  const [tone, glyph, word] =
-    errors > 0
-      ? (["error", "✕", "Broken"] as const)
-      : warnings > 0
-        ? (["warning", "!", "Needs attention"] as const)
-        : questions > 0
-          ? (["warning", "?", "Waiting on you"] as const)
-          : (["ok", "✓", "Healthy"] as const);
-  return (
-    <p className={`health__mark health__mark--${tone}`}>
-      <span className="health__mark-glyph" aria-hidden="true">
-        {glyph}
-      </span>
-      {word}
-    </p>
   );
 }
 
@@ -249,55 +228,65 @@ function hasKnowledge(status: KBStatus): boolean {
   return !!status.open_gaps?.total || (status.search_misses ?? []).length > 0 || (status.stale_count ?? 0) > 0;
 }
 
-/** The title answers "how is it": the worst thing first, in words. */
+/** The title answers "how is it": the worst thing first, in words, behind a
+ *  mark whose tone and glyph say the same at a glance. */
 function Verdict({ report, questions, where }: { report: LintReport | null; questions: number; where: string }) {
   if (!report) return <>Reading the KB&apos;s health…</>;
   const errors = report.by_severity.error ?? 0;
   const warnings = report.by_severity.warning ?? 0;
+  const [tone, glyph] =
+    errors > 0 ? ["error", "✕"] : warnings > 0 ? ["warning", "!"] : questions > 0 ? ["warning", "?"] : ["ok", "✓"];
+  const mark = (
+    <span className={`health__mark health__mark--${tone}`} aria-hidden="true">
+      {glyph}
+    </span>
+  );
   if (errors > 0)
     return (
       <>
+        {mark}
         <Count>{errors}</Count> {errors === 1 ? "thing is" : "things are"} broken{where}.
       </>
     );
   if (warnings > 0)
     return (
       <>
+        {mark}
         <Count>{warnings}</Count> {warnings === 1 ? "thing needs" : "things need"} attention{where}.
       </>
     );
   if (questions > 0)
     return (
       <>
+        {mark}
         <Count>{questions}</Count> {questions === 1 ? "question waits" : "questions wait"} for you.
       </>
     );
-  return <>All clear{where}.</>;
+  return (
+    <>
+      {mark}
+      All clear{where}.
+    </>
+  );
 }
 
+/** What the title does not say: where the findings were looked for, whether
+ *  anything waits on the reader, and when the doctor comes next. */
 function Subtitle({
-  report,
+  questions,
   summary,
   scopeTitle,
 }: {
-  report: LintReport | null;
+  questions: MaintenanceQuestions | null;
   summary: MaintenanceSummary | null;
   scopeTitle: string | null;
 }) {
-  const parts: ReactNode[] = [];
-  if (report && report.total === 0) {
-    parts.push(
-      scopeTitle
-        ? `${scopeTitle} passes every deterministic check`
-        : "Every deterministic check passes",
-    );
-  } else if (report && (report.by_severity.info ?? 0) > 0 && !(report.by_severity.error || report.by_severity.warning)) {
-    parts.push(`${plural(report.by_severity.info ?? 0, "note")}, nothing broken`);
+  const parts: string[] = [scopeTitle ? `Findings over ${scopeTitle}` : "Findings over the whole KB"];
+  if (questions && questions.questions.length === 0) parts.push("no open question");
+  if (summary?.next_doctor && summary.doctor_interval_days !== 0) {
+    parts.push(`next doctor session ${relativeDay(summary.next_doctor)}`);
   }
-  if (summary?.next_doctor) parts.push(`next doctor session ${relativeDay(summary.next_doctor)}`);
-  if (parts.length === 0) return null;
-  const text = parts.join(" · ");
-  return <>{text.charAt(0).toUpperCase() + text.slice(1)}.</>;
+  return <>{parts.join(" · ")}.</>;
 }
 
 /** The upkeep schedule: background repair and the doctor, as plain facts. */
@@ -314,19 +303,11 @@ function Upkeep({ summary, error }: { summary: MaintenanceSummary | null; error:
           </div>
           <div>
             <dt>Last run</dt>
-            <dd>{runLine(summary.last_auto_repair)}</dd>
+            <dd title={summary.last_auto_repair?.at}>{runLine(summary.last_auto_repair)}</dd>
           </div>
           <div>
             <dt>Last doctor</dt>
-            <dd>
-              {summary.last_doctor ? (
-                <>
-                  {summary.last_doctor} <span className="facts__aside">· {relativeDay(summary.last_doctor)}</span>
-                </>
-              ) : (
-                "never"
-              )}
-            </dd>
+            <dd>{summary.last_doctor ? <Day iso={summary.last_doctor} /> : "never"}</dd>
           </div>
           <div>
             <dt>Next doctor</dt>
@@ -334,9 +315,7 @@ function Upkeep({ summary, error }: { summary: MaintenanceSummary | null; error:
               {summary.doctor_interval_days === 0 ? (
                 "not proposed (doctor_interval is 0)"
               ) : summary.next_doctor ? (
-                <>
-                  {summary.next_doctor} <span className="facts__aside">· {relativeDay(summary.next_doctor)}</span>
-                </>
+                <Day iso={summary.next_doctor} />
               ) : (
                 "as soon as the KB has debt"
               )}
@@ -345,6 +324,18 @@ function Upkeep({ summary, error }: { summary: MaintenanceSummary | null; error:
         </dl>
       ) : null}
     </Facet>
+  );
+}
+
+/** A date said as a person would, the calendar date beside it, the ISO in the tooltip. */
+function Day({ iso }: { iso: string }) {
+  const t = Date.parse(iso);
+  if (!Number.isFinite(t)) return <>{iso}</>;
+  return (
+    <time dateTime={iso} title={iso}>
+      {relativeDay(iso)}{" "}
+      <span className="facts__aside">· {new Date(t).toLocaleDateString("en", { day: "numeric", month: "short" })}</span>
+    </time>
   );
 }
 
@@ -373,7 +364,6 @@ function Findings({
   report,
   loading,
   error,
-  scopeTitle,
   severityMin,
   onSeverityChange,
   onReveal,
@@ -382,7 +372,6 @@ function Findings({
   report: LintReport | null;
   loading: boolean;
   error: unknown;
-  scopeTitle: string | null;
   severityMin: string;
   onSeverityChange(severity: string): void;
   onReveal(concept: string | null, message: string): void;
@@ -416,13 +405,7 @@ function Findings({
         loading ? <SkeletonRows label="Loading lint findings" rows={3} /> : null
       ) : report.findings.length === 0 ? (
         <>
-          <Quiet>
-            {report.total > 0
-              ? "No findings at or above this severity. Lower the floor to see the rest."
-              : scopeTitle
-                ? `${scopeTitle} passes every deterministic lint check. Choose Whole atlas for the rest of the KB.`
-                : "This KB passes every deterministic lint check."}
-          </Quiet>
+          <Quiet tone="neutral">No findings at or above this severity. Lower the floor to see the rest.</Quiet>
           {report.count < report.total && (
             <p className="page-note">
               Showing {report.count} of {report.total} findings at this severity floor.
@@ -640,18 +623,21 @@ function autoRepairLine(s: MaintenanceSummary): string {
   const a = s.auto_repair;
   if (a.checks.length === 0) return "off: auto_repair is explicitly empty";
   if (a.interval_days === 0) return "off: doctor_auto_interval is 0";
-  const every = a.interval_days === 1 ? "every day" : `every ${a.interval_days} days`;
-  return `on, ${every}: ${plural(a.checks.length, "check")}${a.default ? " (the default list)" : ""}`;
+  const every = a.interval_days === 1 ? "daily" : `every ${a.interval_days} days`;
+  return `On, ${every} · ${plural(a.checks.length, "check")}${a.default ? " (default)" : ""}`;
 }
 
 function runLine(run: MaintenanceRun | null): string {
   if (!run) return "none yet";
-  const when = run.at.slice(0, 16).replace("T", " ") + " UTC";
-  if (run.skipped) return `${when}: skipped (${run.skipped})`;
+  const t = Date.parse(run.at);
+  const when = Number.isFinite(t)
+    ? `${relativeDay(run.at)}, ${new Date(t).toLocaleTimeString("en", { hour: "2-digit", minute: "2-digit", hour12: false })}`
+    : run.at;
+  if (run.skipped) return `${when} · skipped (${run.skipped})`;
   const applied = (run.checks ?? []).reduce((n, c) => n + c.applied, 0);
   const failed = (run.checks ?? []).filter((c) => c.error).length;
   const repaired = applied === 0 ? "nothing to repair" : `${plural(applied, "concept")} repaired`;
-  return `${when}: ${repaired}${failed ? `, ${plural(failed, "check")} failed` : ""}`;
+  return `${when} · ${repaired}${failed ? `, ${plural(failed, "check")} failed` : ""}`;
 }
 
 function plural(n: number, word: string): string {

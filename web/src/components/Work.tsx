@@ -15,7 +15,6 @@ import {
   Quiet,
   Segmented,
   SkeletonRows,
-  Stats,
 } from "./Page";
 
 type Layout = "status" | "map";
@@ -113,7 +112,6 @@ export function Work({
     [all],
   );
   const stale = all.filter((e) => e.stale).length;
-  const deciding = all.filter((e) => e.open_phase && e.status === "decision-needed").length;
 
   return (
     <Page label="Open work" className="work">
@@ -146,17 +144,6 @@ export function Work({
 
       {data && data.total > 0 && (
         <Band label="Summary and filters">
-          <Facet className="work__summary">
-            <Stats
-              items={[
-                { label: data.open_concepts === 1 ? "open concept" : "open concepts", value: data.open_concepts },
-                { label: data.open_items === 1 ? "unchecked item" : "unchecked items", value: data.open_items },
-                { label: "need a decision", value: deciding, tone: deciding ? "warning" : "muted" },
-                { label: "stale", value: stale, tone: stale ? "warning" : "muted" },
-              ]}
-            />
-          </Facet>
-
           <Facet title="Where" id="work-where">
             <MapBar maps={maps} active={map} />
             <FacetRows label="Filter by Map" columns={2}>
@@ -192,6 +179,7 @@ export function Work({
             <label className="work__stale-toggle">
               <input type="checkbox" checked={staleOnly} onChange={(e) => setStaleOnly(e.target.checked)} />
               Stale only
+              <span className="facet-row__count">{stale}</span>
             </label>
           </Facet>
         </Band>

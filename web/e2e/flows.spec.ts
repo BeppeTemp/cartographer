@@ -184,8 +184,10 @@ test("Health loads the upkeep schedule and the questions, and offers no write", 
   const panel = page.getByRole("region", { name: "Health" });
   // A KB served with no doctor settings is maintained by default (D323).
   await expect(panel.getByText("Background repair", { exact: true })).toBeVisible();
-  await expect(panel.getByText(/^on, every day: \d+ checks/)).toBeVisible();
-  await expect(panel.getByRole("heading", { name: /^Questions for you/ })).toBeVisible();
+  await expect(panel.getByText(/^On, daily · \d+ checks/)).toBeVisible();
+  // The fixture has no open question: one clause says so, no empty section.
+  await expect(panel.getByText(/no open question/)).toBeVisible();
+  await expect(panel.getByRole("heading", { name: /^Questions for you/ })).toHaveCount(0);
   await expect(panel.getByRole("heading", { name: /^Repairs, last 30 days/ })).toBeVisible();
   await expect(panel.getByText(/Could not read/)).toHaveCount(0);
 });

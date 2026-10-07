@@ -1848,8 +1848,31 @@ body.is-resizing {
 
 .artifacts__list {
   height: 100%;
-  padding: var(--space-6) var(--space-4) var(--space-8);
+  padding: 0 var(--space-4) var(--space-8);
   overflow-y: auto;
+}
+
+/* Title, search and kind stay put while the list scrolls under them. */
+.artifacts__controls {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: grid;
+  gap: var(--space-3);
+  margin-inline: calc(-1 * var(--space-4));
+  margin-block-end: var(--space-3);
+  padding: var(--space-6) var(--space-4) var(--space-3);
+  background: var(--surface-0);
+  border-block-end: 1px solid var(--border-subtle);
+}
+
+.artifacts__kinds {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }
 
 .artifacts--narrow .artifacts__list {
@@ -1857,7 +1880,8 @@ body.is-resizing {
 }
 
 .artifacts__intro {
-  margin-block-end: var(--space-4);
+  display: grid;
+  gap: var(--space-1);
 }
 
 .artifacts__group-title {
@@ -1885,7 +1909,6 @@ body.is-resizing {
 
 .artifacts__filter {
   width: 100%;
-  margin-block-end: var(--space-4);
 }
 
 .artifacts__group + .artifacts__group {
@@ -2005,8 +2028,19 @@ body.is-resizing {
   overflow-y: auto;
 }
 
-.artifacts__overview-note {
+.artifacts__overview-lead {
   grid-column: 1 / -1;
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+
+.artifacts__overview > .quiet {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+
+.artifacts__facet-note {
   margin: 0 0 var(--space-2);
 }
 

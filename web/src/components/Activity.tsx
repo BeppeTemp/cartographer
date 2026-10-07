@@ -126,7 +126,6 @@ export function Activity({
             <Facet className="timeline__summary">
               <Stats
                 items={[
-                  { label: "concepts", value: rows.length },
                   { label: "new", value: added, tone: added ? "ok" : "muted" },
                   { label: "removed", value: deleted, tone: deleted ? "error" : "muted" },
                   { label: data.commit_count === 1 ? "commit" : "commits", value: data.commit_count },

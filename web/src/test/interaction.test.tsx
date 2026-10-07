@@ -168,7 +168,8 @@ describe("health findings", () => {
     render(health());
     expect(screen.queryByRole("heading", { name: "Upkeep" })).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Knowledge" })).not.toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: /^Findings/ })).toBeInTheDocument();
+    // The band's count and the list itself.
+    expect(screen.getAllByRole("heading", { name: /^Findings/ })).toHaveLength(2);
   });
 });
 
@@ -203,7 +204,7 @@ describe("health scope", () => {
   it("names the Map it is scoped to, in the headline and the summary", () => {
     render(health({ scopeTitle: "Infrastructure" }));
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("1 thing is broken in Infrastructure.");
-    expect(screen.getByText(/with findings over/)).toHaveTextContent("2 checks with findings over Infrastructure");
+    expect(screen.getByText(/^Findings over/)).toHaveTextContent("Findings over Infrastructure.");
   });
 
   it("does not let a clean Map read as a clean KB", () => {

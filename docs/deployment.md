@@ -488,12 +488,14 @@ Activity, Work and Health are reading panels built from one page kit (D338):
 a header that says the answer in a sentence with its count in bold (long
 explanations behind a *?*), a band of cards that sums it up side by side and
 filters it, then dense rows. They share one width, Map colours mark every
-row, and an empty answer is said in one line with a check rather than left as
-an empty page.
+row, and nothing is said twice: a count in the title is not repeated in the
+band, a section with nothing in it is left out rather than shown empty, and an
+empty answer is said in one line with a check.
 
 The **Activity** panel is `changes_since` for the reader: the concepts changed
-in the last day, week or month (up to 500). The band counts the concepts,
-additions, removals and commits with one bar per day of the window, and offers
+in the last day, week or month (up to 500). The title counts the concepts; the
+band counts additions, removals and commits with one bar per day of the
+window, and offers
 *Where* (a bar split by Map, one row per Map) and *Who* (one row per author) as
 filters. Below it the timeline groups the concepts by the day each one last
 changed, newest first, one row each on a rail in its Map's colour: time, title,
@@ -502,9 +504,9 @@ and the authors. Changing the window keeps the current answer on screen,
 dimmed, until the new one arrives. A row opens the concept on the atlas.
 
 The **Work** panel is `work_list` for the reader (D302): open-phase concepts and
-unchecked items. The band counts open concepts, unchecked items, those that
-need a decision and the stale ones, and filters by Map (*Where*), by status and
-by staleness; a search box filters titles and items. The board lays the work
+unchecked items, counted in the title. The band filters by Map (*Where*), by
+status and by staleness, each with its count; a search box filters titles and
+items. The board lays the work
 out by status, as columns in the order work moves (decision-needed, blocked,
 in-progress, open, proposed, then *unchecked items* for a closed concept listed
 only for its items), or by Map, as one card per Map, busiest first. A card
@@ -513,10 +515,12 @@ and opens the concept on the atlas. It is read-only: work changes through the
 agents' write tools.
 
 The **Health** panel (D337) is how the KB is doing, on one page. Its title
-gives the worst state in words — broken, needs attention, questions waiting, or
-all clear — and the band shows it as a mark with the counts of errors,
-warnings, notes and open questions, the *Upkeep* schedule and the *Knowledge*
-counts. Below, in order of what to act on:
+gives the worst state in words behind a mark — broken, needs attention,
+questions waiting, or all clear — and the line under it says where the
+findings were looked for, that no question waits when none does, and when the
+doctor comes next. The band shows the *Findings* by severity (or one line when
+there are none), the *Upkeep* schedule and the *Knowledge* counts. Below, only
+the sections with something in them, in order of what to act on:
 
 - *Questions for you*: the `open_question` concepts the doctor deferred, each
   with a *Copy ID* action — they are answered from an agent session;
@@ -537,7 +541,8 @@ counts. Below, in order of what to act on:
 
 *Upkeep* says whether the background repair is on and how many checks it runs
 (and whether that is the default list), the last run, and the last and next
-doctor session. Like the rest of the UI the panel writes nothing: no button
+doctor session, each date said relative to today with the calendar date
+beside it. Like the rest of the UI the panel writes nothing: no button
 reverts, answers or repairs. The status, upkeep and repairs are whole-KB: a
 caller that cannot see the whole KB gets the findings and its questions, and
 the rest is left out rather than reported as an error. The former Observatory
@@ -545,12 +550,16 @@ and Maintenance links (`panel=observatory`, `panel=maintenance`) open Health.
 
 The **Artifacts** panel, last in the rail, shows what the KB ships to agent
 clients: skills, subagents, hooks, MCP descriptors in the allowlist, the
-curated `instructions.md` and templates, grouped by kind with a filter; each
-row shows its name, findings, last use and the first line of its description.
-Bundled skills are not listed: they belong to the binary. Before a selection
-the other side gives an overview: how many of each kind ship, the skills and
-agents used recently, the idle ones (never used, or not in the last 42 days)
-and those with findings, each opening its artifact. Selecting one opens its
+curated `instructions.md` and templates, grouped by kind. The title, a text
+filter and one chip per kind (*All*, *Skills 22*, …) stay at the top of the
+list while it scrolls, so any kind is one click away; each row shows its name,
+findings, last use (only once some use has been reported) and the first line
+of its description. Bundled skills are not listed: they belong to the binary.
+Before a selection the other side maps the KB's artifacts: one card per kind
+saying what that kind is, with its first names and a *more* chip that narrows
+the list to it; then the skills and agents used recently, the idle ones (never
+used, or not in the last 42 days) and those with findings, each opening its
+artifact. Selecting one opens its
 description, signature state, content hash, the clients sync writes it to, and
 its files: Markdown rendered (frontmatter as a table, without the name and
 description the header already shows), anything else as plain text, a binary

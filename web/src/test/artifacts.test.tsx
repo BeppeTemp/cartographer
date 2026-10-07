@@ -50,6 +50,13 @@ describe("the Artifacts panel", () => {
     // Nothing selected: the other side sums the KB's artifacts up.
     expect(within(panel).getByRole("region", { name: "Artifacts overview" })).toBeInTheDocument();
 
+    // One kind at a time, without scrolling past the others; pressed again, all.
+    const kinds = within(nav).getByRole("list", { name: "Show kind" });
+    await user.click(within(kinds).getByRole("button", { name: /^Subagents/ }));
+    expect(within(nav).getAllByRole("heading", { level: 2 }).map((h) => h.textContent)).toEqual(["Subagents 1"]);
+    await user.click(within(kinds).getByRole("button", { name: /^Subagents/ }));
+    expect(within(nav).getAllByRole("heading", { level: 2 })).toHaveLength(3);
+
     await user.type(within(panel).getByRole("searchbox", { name: "Filter artifacts" }), "sorts");
     expect(within(nav).queryByRole("button", { name: /review/ })).not.toBeInTheDocument();
     expect(within(nav).getByRole("button", { name: /triage/ })).toBeInTheDocument();

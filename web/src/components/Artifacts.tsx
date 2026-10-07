@@ -3,10 +3,20 @@ import { fetchArtifact } from "../api/client";
 import type { Artifact, ArtifactFile, ArtifactFinding, ArtifactList } from "../api/types";
 import { readWidth, writeWidth } from "../lib/panels";
 import { Markdown } from "./Markdown";
-import { Count, Facet, Stats } from "./Page";
+import { Count, Facet, Quiet } from "./Page";
 import { SeverityBadge } from "./SeverityBadge";
 import { Splitter } from "./Splitter";
 import { EmptyState, ErrorState, Skeleton } from "./States";
+
+/** What each kind is, said once where the overview introduces it. */
+const KIND_ABOUT: Record<string, string> = {
+  skill: "Procedures an agent loads when its description matches the task.",
+  agent: "Subagents a client can hand a task to.",
+  hook: "Commands a client runs on its own events.",
+  mcp: "MCP servers the KB asks its clients to connect.",
+  instructions: "The KB's standing orders, written into each client's instruction file.",
+  template: "The shape a new concept of a type starts from.",
+};
 
 /** Kinds in reading order: what an agent does, then what it is told. */
 const KINDS: [string, string][] = [
@@ -97,6 +107,9 @@ export function Artifacts({
   onFailure(err: unknown): boolean;
 }) {
   const [filter, setFilter] = useState("");
+  // One kind at a time, or all of them: a KB with twenty skills must not make
+  // its two hooks a scroll away.
+  const [kind, setKind] = useState<string | null>(null);
   const [width, setWidth] = useState(() =>
     Math.min(LIST_MAX, Math.max(LIST_MIN, readWidth("artifacts.width", LIST_DEFAULT))),
   );
@@ -109,12 +122,17 @@ export function Artifacts({
     const needle = filter.trim().toLowerCase();
     const match = (a: Artifact) =>
       !needle || a.name.toLowerCase().includes(needle) || (a.description ?? "").toLowerCase().includes(needle);
-    return KINDS.map(([kind, title]) => ({
-      kind,
-      title,
-      items: (list?.artifacts ?? []).filter((a) => a.kind === kind && match(a)),
-    })).filter((g) => g.items.length > 0);
-  }, [list, filter]);
+    return KINDS.filter(([k]) => kind === null || k === kind)
+      .map(([k, title]) => ({
+        kind: k,
+        title,
+        items: (list?.artifacts ?? []).filter((a) => a.kind === k && match(a)),
+      }))
+      .filter((g) => g.items.length > 0);
+  }, [list, filter, kind]);
+  // "never used" on every row says nothing when no use was ever reported (no
+  // client scanner): the overview says it once instead.
+  const anyUse = (list?.artifacts ?? []).some((a) => !!a.last_used);
 
   if (loading && !list) return <Skeleton lines={6} label="Loading artifacts" />;
   if (error) return <ErrorState error={error} onRetry={onRetry} />;
@@ -130,13 +148,42 @@ export function Artifacts({
 
   const listPane = (
     <nav id="artifact-list" className="artifacts__list" aria-label="Artifacts by kind">
-      <header className="artifacts__intro">
-        <p className="page__eyebrow">Artifacts</p>
-        <h1 className="page__title">
-          <Count>{list.artifacts.length}</Count> artifact{list.artifacts.length === 1 ? "" : "s"} ship with this KB
-        </h1>
-      </header>
-      <FindingSummary list={list} />
+      <div className="artifacts__controls">
+        <header className="artifacts__intro">
+          <p className="page__eyebrow">Artifacts</p>
+          <h1 className="page__title">
+            <Count>{list.artifacts.length}</Count> artifact{list.artifacts.length === 1 ? "" : "s"} ship with this KB
+          </h1>
+          <FindingSummary list={list} />
+        </header>
+        <input
+          className="input artifacts__filter"
+          type="search"
+          placeholder="Filter by name or description"
+          aria-label="Filter artifacts"
+          value={filter}
+          onChange={(e) => setFilter(e.target.value)}
+        />
+        <ul className="artifacts__kinds" aria-label="Show kind">
+          <li>
+            <button type="button" className="chip" aria-pressed={kind === null} onClick={() => setKind(null)}>
+              All <span className="chip__count">{list.artifacts.length}</span>
+            </button>
+          </li>
+          {KINDS.filter(([k]) => (list.counts[k] ?? 0) > 0).map(([k, title]) => (
+            <li key={k}>
+              <button
+                type="button"
+                className="chip"
+                aria-pressed={kind === k}
+                onClick={() => setKind(kind === k ? null : k)}
+              >
+                {title} <span className="chip__count">{list.counts[k]}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      </div>
       {list.issues.length > 0 && (
         <ul className="artifacts__issues" aria-label="Artifacts left out">
           {list.issues.map((issue) => (
@@ -144,14 +191,6 @@ export function Artifacts({
           ))}
         </ul>
       )}
-      <input
-        className="input artifacts__filter"
-        type="search"
-        placeholder="Filter by name or description"
-        aria-label="Filter artifacts"
-        value={filter}
-        onChange={(e) => setFilter(e.target.value)}
-      />
       {groups.length === 0 && <p className="rail__empty">No artifact matches this filter.</p>}
       {groups.map((group) => (
         <section key={group.kind} className="artifacts__group" aria-label={group.title}>
@@ -174,7 +213,7 @@ export function Artifacts({
                       {!!a.findings?.length && (
                         <SeverityBadge severity={worstSeverity(a.findings)} count={a.findings.length} />
                       )}
-                      <LastUsed artifact={a} />
+                      {anyUse && <LastUsed artifact={a} />}
                     </span>
                     {a.description && (
                       <span className="artifacts__item-desc" title={a.description}>
@@ -204,7 +243,7 @@ export function Artifacts({
       onFilterType={onFilterType}
     />
   ) : (
-    <Overview list={list} onSelect={onSelect} />
+    <Overview list={list} onSelect={onSelect} onKind={setKind} />
   );
 
   if (narrow) {
@@ -485,7 +524,7 @@ function FileContent({ file, known = {} }: { file: ArtifactFile; known?: Record<
 function FindingSummary({ list }: { list: ArtifactList }) {
   const bySeverity = list.finding_severities ?? {};
   const total = Object.values(bySeverity).reduce((a, b) => a + b, 0);
-  if (total === 0) return <p className="artifacts__health">No artifact findings</p>;
+  if (total === 0) return <p className="artifacts__health">No artifact findings.</p>;
   return (
     <p className="artifacts__health">
       {SEVERITIES.filter((s) => (bySeverity[s] ?? 0) > 0).map((s, i) => (
@@ -503,12 +542,22 @@ function FindingSummary({ list }: { list: ArtifactList }) {
 }
 
 /**
- * What the KB ships, before anything is selected: how many of each kind, how
- * the skills and agents are used, and what needs a look — so the empty side
- * of the panel answers something instead of asking for a click.
+ * Before anything is selected, the other side answers what the list cannot:
+ * which skills and agents are used, which sit idle, and which carry findings —
+ * each a way into its artifact. The counts per kind are on the list's own
+ * filter, so they are not repeated here.
  */
-function Overview({ list, onSelect }: { list: ArtifactList; onSelect(id: string): void }) {
+function Overview({
+  list,
+  onSelect,
+  onKind,
+}: {
+  list: ArtifactList;
+  onSelect(id: string): void;
+  onKind(kind: string): void;
+}) {
   const tracked = list.artifacts.filter((a) => lastUsed(a) !== null);
+  const anyUse = tracked.some((a) => !!a.last_used);
   const used = tracked
     .filter((a) => a.last_used_days_ago != null && !a.last_used_catalog_only)
     .sort((a, b) => (a.last_used_days_ago ?? 0) - (b.last_used_days_ago ?? 0));
@@ -525,30 +574,41 @@ function Overview({ list, onSelect }: { list: ArtifactList; onSelect(id: string)
       </button>
     </li>
   );
+  const PREVIEW = 8;
   return (
     <div className="artifacts__overview" aria-label="Artifacts overview" role="region">
-      <Facet title="Shipped" id="artifacts-shipped">
-        <Stats
-          items={KINDS.filter(([kind]) => (list.counts[kind] ?? 0) > 0).map(([kind, title]) => ({
-            label: title.toLowerCase(),
-            value: list.counts[kind] ?? 0,
-          }))}
-        />
-      </Facet>
-      {tracked.length > 0 && (
-        <Facet title="In use" id="artifacts-used">
-          {used.length === 0 ? (
-            <p className="page-note">No skill or agent has a recorded use yet.</p>
-          ) : (
-            <ul className="artifacts__chips" aria-label="Recently used">
-              {used.slice(0, 10).map((a) => chip(a, a.last_used_days_ago === 0 ? "today" : `${a.last_used_days_ago}d`))}
+      <p className="artifacts__overview-lead">Select an artifact to read its files.</p>
+      {KINDS.filter(([k]) => (list.counts[k] ?? 0) > 0).map(([k, title]) => {
+        const items = list.artifacts.filter((a) => a.kind === k);
+        return (
+          <Facet key={k} title={`${title} · ${list.counts[k]}`} id={`artifacts-kind-${k}`} className="artifacts__kind">
+            <p className="page-note artifacts__facet-note">{KIND_ABOUT[k]}</p>
+            <ul className="artifacts__chips" aria-label={title}>
+              {items.slice(0, PREVIEW).map((a) => chip(a))}
+              {items.length > PREVIEW && (
+                <li>
+                  <button type="button" className="chip chip--more" onClick={() => onKind(k)}>
+                    +{items.length - PREVIEW} more
+                  </button>
+                </li>
+              )}
             </ul>
-          )}
+          </Facet>
+        );
+      })}
+      {tracked.length > 0 && !anyUse && (
+        <Quiet tone="neutral">No skill or agent use has been reported yet: usage appears once a client reports it.</Quiet>
+      )}
+      {anyUse && (
+        <Facet title={`Recently used · ${used.length}`} id="artifacts-used">
+          <ul className="artifacts__chips" aria-label="Recently used">
+            {used.slice(0, 12).map((a) => chip(a, a.last_used_days_ago === 0 ? "today" : `${a.last_used_days_ago}d`))}
+          </ul>
         </Facet>
       )}
-      {idle.length > 0 && (
+      {anyUse && idle.length > 0 && (
         <Facet title={`Idle · ${idle.length}`} id="artifacts-idle">
-          <p className="page-note artifacts__overview-note">
+          <p className="page-note artifacts__facet-note">
             Never used, or not in the last {STALE_DAYS} days: candidates to improve or retire.
           </p>
           <ul className="artifacts__chips" aria-label="Idle artifacts">
@@ -557,13 +617,12 @@ function Overview({ list, onSelect }: { list: ArtifactList; onSelect(id: string)
         </Facet>
       )}
       {flagged.length > 0 && (
-        <Facet title="Findings" id="artifacts-flagged">
+        <Facet title={`With findings · ${flagged.length}`} id="artifacts-flagged">
           <ul className="artifacts__chips" aria-label="Artifacts with findings">
             {flagged.map((a) => chip(a, String(a.findings!.length)))}
           </ul>
         </Facet>
       )}
-      <p className="page-note artifacts__overview-note">Select an artifact to read its files.</p>
     </div>
   );
 }

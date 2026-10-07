@@ -903,65 +903,36 @@ button.row {
   grid-template-columns: minmax(300px, 1.1fr) minmax(0, 1.2fr) minmax(260px, 1fr);
 }
 
-.health__score {
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  gap: var(--space-4);
-}
-
+/* The verdict's mark: tone and glyph say the title's word at a glance. */
 .health__mark {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  margin: 0;
-  font-size: var(--text-lg);
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-.health__mark-glyph {
   display: inline-grid;
-  flex: none;
   place-items: center;
-  width: 36px;
-  height: 36px;
-  font-size: var(--text-md);
+  width: 28px;
+  height: 28px;
+  margin-inline-end: var(--space-3);
+  font-size: var(--text-sm);
   font-weight: 700;
+  vertical-align: 2px;
   border-radius: var(--radius-pill);
 }
 
-.health__mark--ok .health__mark-glyph {
+.health__mark--ok {
   color: var(--sev-ok);
   background: color-mix(in srgb, var(--sev-ok) 18%, transparent);
-  box-shadow: 0 0 0 4px color-mix(in srgb, var(--sev-ok) 8%, transparent);
 }
 
-.health__mark--warning .health__mark-glyph {
+.health__mark--warning {
   color: var(--sev-warning);
   background: color-mix(in srgb, var(--sev-warning) 18%, transparent);
-  box-shadow: 0 0 0 4px color-mix(in srgb, var(--sev-warning) 8%, transparent);
 }
 
-.health__mark--error .health__mark-glyph {
+.health__mark--error {
   color: var(--sev-error);
   background: color-mix(in srgb, var(--sev-error) 18%, transparent);
-  box-shadow: 0 0 0 4px color-mix(in srgb, var(--sev-error) 8%, transparent);
 }
 
-.health__score .stats__item dd {
-  font-size: var(--text-lg);
-}
-
-.health__scope {
+.health__counts .quiet {
   margin: 0;
-  font-size: var(--text-xs);
-  color: var(--text-muted);
-}
-
-.health__scope-name {
-  font-weight: 600;
-  color: var(--text-secondary);
 }
 
 .health__knowledge .quiet {
@@ -979,6 +950,11 @@ button.row {
   grid-template-columns: minmax(0, 1fr) minmax(300px, 380px);
   gap: var(--space-8);
   align-items: start;
+}
+
+/* Nothing to act on: the upkeep log takes the page. */
+.health__grid.health__grid--single {
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .health__main {
@@ -1157,12 +1133,7 @@ button.row {
 
 .work .band {
   grid-auto-columns: auto;
-  grid-template-columns: minmax(280px, 1fr) minmax(0, 1.5fr) minmax(220px, 0.9fr);
-}
-
-.work__summary .stats {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 2fr) minmax(240px, 1fr);
 }
 
 .work__stale-toggle {
@@ -1175,6 +1146,10 @@ button.row {
   color: var(--text-secondary);
   cursor: pointer;
   border-block-start: 1px solid var(--border-subtle);
+}
+
+.work__stale-toggle .facet-row__count {
+  margin-inline-start: auto;
 }
 
 .work__stale-toggle input {
