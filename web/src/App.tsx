@@ -651,7 +651,7 @@ export function App() {
               onOpen={(conceptId) => navigate({ panel: "atlas", concept: conceptId })}
             />
           ) : view.panel === "work" && activeKB ? (
-            <Work kb={activeKB} live={live} onOpen={(conceptId) => navigate({ panel: "atlas", concept: conceptId })} />
+            <Work kb={activeKB} live={live} collections={overview?.collections} onOpen={(conceptId) => navigate({ panel: "atlas", concept: conceptId })} />
           ) : view.panel === "health" ? (
             <Health
               report={lint}
