@@ -13,7 +13,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strings"
 	"sync"
 	"time"
 
@@ -61,13 +60,6 @@ type Server struct {
 	// so New() keeps its historical behavior; `serve` sets it from
 	// config.ToolsProfile (default "agent").
 	agentProfile bool
-	// toolPrefix, when non-empty, is prepended (as "<toolPrefix>__") to
-	// every tool name at RegisterTool time (D102: opt-in per-KB tool-name
-	// namespacing for MCP clients with a flat tool namespace, e.g. Kiro).
-	// Zero value = unprefixed, byte-identical to pre-D102 behaviour. Set via
-	// SetToolNamePrefix, before RegisterKBTools/setupFn runs — see
-	// MultiKBServer.MountKBWithPrefix.
-	toolPrefix string
 	// displayName, when non-empty, overrides the "cartographer" literal
 	// reported as serverInfo.name by initialize (D102). Set via
 	// SetDisplayName.
@@ -183,25 +175,6 @@ func (s *Server) SetToolsProfile(profile string) {
 	s.agentProfile = profile == "agent"
 }
 
-// SetToolNamePrefix sets the opt-in per-KB tool-name prefix (D102): every
-// tool registered afterwards via RegisterTool is renamed
-// "<prefix>__<name>". Must be called before the tools are registered
-// (RegisterKBTools/setupFn) — it does not rename tools already registered.
-// Empty (the default) leaves tool names unchanged.
-func (s *Server) SetToolNamePrefix(prefix string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.toolPrefix = prefix
-}
-
-// ToolNamePrefix returns the tool-name prefix set by SetToolNamePrefix, or
-// "" when tools are registered unprefixed.
-func (s *Server) ToolNamePrefix() string {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.toolPrefix
-}
-
 // SetDisplayName overrides the serverInfo.name reported by initialize
 // (D102). Empty (the default) keeps the historical "cartographer".
 func (s *Server) SetDisplayName(name string) {
@@ -261,37 +234,10 @@ func (s *Server) ClientStats() ([]ClientStat, int64) {
 	return s.roster.stats()
 }
 
-// stripToolPrefixLocked removes this server's tool-name prefix (see
-// SetToolNamePrefix) from name, if name carries it; otherwise returns name
-// unchanged. Callers must already hold s.mu (it does not lock itself, to
-// stay reentrant-safe when called from handleToolsList).
-func (s *Server) stripToolPrefixLocked(name string) string {
-	if s.toolPrefix == "" {
-		return name
-	}
-	p := s.toolPrefix + "__"
-	if strings.HasPrefix(name, p) {
-		return name[len(p):]
-	}
-	return name
-}
-
-// StripToolPrefix removes this server's tool-name prefix (SetToolNamePrefix,
-// D102) from name, if name carries it; otherwise returns name unchanged. The
-// transport-neutral policy resolver (installPolicy) always receives this
-// canonical name.
-func (s *Server) StripToolPrefix(name string) string {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.stripToolPrefixLocked(name)
-}
-
-// ToolRequiresWrite reports whether name — which may carry this server's
-// tool-name prefix (SetToolNamePrefix) — requires write access to the KB.
-// It strips the prefix, if any, then delegates to the package-level
-// ToolRequiresWrite classification.
+// ToolRequiresWrite reports whether the tool name requires write access to
+// the KB, delegating to the package-level ToolRequiresWrite classification.
 func (s *Server) ToolRequiresWrite(name string) bool {
-	return ToolRequiresWrite(s.StripToolPrefix(name))
+	return ToolRequiresWrite(name)
 }
 
 // Tools returns a snapshot of all registered tools, keyed by name (for
@@ -307,17 +253,10 @@ func (s *Server) Tools() map[string]Tool {
 }
 
 // RegisterTool registers an MCP tool. Overwrites if the same name is already
-// registered. If a tool-name prefix is set (SetToolNamePrefix, D102), t.Name
-// is rewritten to "<prefix>__<name>" here — the single injection point that
-// covers every tool, including conditionally-registered ones
-// (skill_install, sync_*, artifact_*), without touching individual toolXxx
-// constructors.
+// registered.
 func (s *Server) RegisterTool(t Tool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.toolPrefix != "" {
-		t.Name = s.toolPrefix + "__" + t.Name
-	}
 	if _, exists := s.tools[t.Name]; !exists {
 		s.toolsOrd = append(s.toolsOrd, t.Name)
 	}

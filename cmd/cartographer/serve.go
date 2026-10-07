@@ -386,7 +386,7 @@ func runServe(cfg *config.Config) {
 			// writes — and looks identical to a configured one from every client
 			// surface, which is how one deployment ran for a whole migration with
 			// artifact writes and tool prefixes silently off (D151).
-			log.Printf("warning: KB %q was discovered under data:, so no kbs[] entry governs it — tool_prefix, allow_artifact_write, sops_age_key_file and machine_path allow-prefixes are all at their defaults", name)
+			log.Printf("warning: KB %q was discovered under data:, so no kbs[] entry governs it — allow_artifact_write, sops_age_key_file and machine_path allow-prefixes are all at their defaults", name)
 		}
 		if _, ok := k.HasRemote(); kb.ShouldWarnGitIdentity(k.GitSync, ok, k.GitAuthorEmail) {
 			log.Printf("WARNING: KB %q commits will be authored as cartographer@localhost; forges with author push rules will reject the push", name)
@@ -514,7 +514,7 @@ func serveHTTP(addr string, kbs []*kb.KB, names []string, artifactSigners []ed25
 	for i, k := range kbs {
 		k := k
 		name := names[i]
-		err := multi.MountKBWithPrefix(name, "", func(s *mcpserver.Server) {
+		multi.MountKB(name, func(s *mcpserver.Server) {
 			if multiKB {
 				s.SetDisplayName("cartographer:" + name)
 			}
@@ -527,9 +527,6 @@ func serveHTTP(addr string, kbs []*kb.KB, names []string, artifactSigners []ed25
 			s.SetLatestVersionSource(latestVersion)
 			s.StartAutoRepair(repairCtx)
 		})
-		if err != nil {
-			log.Fatal(err)
-		}
 		multi.SetKBCapabilities(name, mcpserver.KBCapabilitiesFor(k))
 		log.Printf("mounted KB %q at %s (tools profile: %s)", name, k.Root, toolsProfile)
 	}

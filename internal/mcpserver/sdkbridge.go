@@ -23,7 +23,7 @@ import (
 //
 // The registry stays the source of truth rather than registering tools
 // directly on an sdk.Server: Cartographer's authorization, audit and client
-// roster are keyed on the *canonical* (prefix-stripped) tool name, the agent
+// roster are keyed on the tool name, the agent
 // profile hides tools from tools/list while keeping them callable, and an
 // unknown tool has a deliberately informative message (D151). None of those
 // are protocol concerns, so they stay on this side of the seam and are applied
@@ -113,10 +113,10 @@ func (s *Server) buildSDKServer() *sdk.Server {
 // Go error out of an SDK ToolHandler becomes a JSON-RPC protocol error, which
 // is a different thing on the wire and would change what every existing client
 // sees for an ordinary denial or a failing tool.
-func (s *Server) sdkToolHandler(registeredName string) sdk.ToolHandler {
+func (s *Server) sdkToolHandler(name string) sdk.ToolHandler {
 	return func(ctx context.Context, req *sdk.CallToolRequest) (*sdk.CallToolResult, error) {
 		ctx = withCallerClient(ctx, req)
-		return sdkResult(s.callTool(ctx, registeredName, json.RawMessage(req.Params.Arguments))), nil
+		return sdkResult(s.callTool(ctx, name, json.RawMessage(req.Params.Arguments))), nil
 	}
 }
 
@@ -130,20 +130,15 @@ func (s *Server) sdkToolHandler(registeredName string) sdk.ToolHandler {
 // Go error out of an SDK ToolHandler becomes a JSON-RPC protocol error, which
 // is a different thing on the wire and would change what every existing client
 // sees for an ordinary denial or a failing tool.
-func (s *Server) callTool(ctx context.Context, registeredName string, args json.RawMessage) ToolResult {
+func (s *Server) callTool(ctx context.Context, name string, args json.RawMessage) ToolResult {
 	if len(args) == 0 {
 		args = json.RawMessage(`{}`)
 	}
 
-	canonicalName := s.StripToolPrefix(registeredName)
-	externalName := ""
-	if canonicalName != registeredName {
-		externalName = registeredName
-	}
 	principal := auth.PrincipalFromContext(ctx).ID
 
 	s.mu.Lock()
-	tool := s.tools[registeredName]
+	tool := s.tools[name]
 	s.mu.Unlock()
 
 	if tool == nil {
@@ -151,12 +146,12 @@ func (s *Server) callTool(ctx context.Context, registeredName string, args json.
 		// agent profile" and "absent from this build", and only the server can
 		// tell them apart. Arguments are deliberately not resolved or recorded
 		// for a name this server has no allow-list entry for.
-		msg := s.legacyToolMessage(canonicalName)
+		msg := s.legacyToolMessage(name)
 		if msg == "" {
-			msg = unknownToolMessage(canonicalName)
+			msg = unknownToolMessage(name)
 		}
 		result := errorResult(msg)
-		call, rejected, ok := s.beginAuditCall(principal, canonicalName, externalName, false, nil)
+		call, rejected, ok := s.beginAuditCall(principal, name, false, nil)
 		if !ok {
 			return rejected
 		}
@@ -164,15 +159,15 @@ func (s *Server) callTool(ctx context.Context, registeredName string, args json.
 		return result
 	}
 
-	if err := s.authorize(ctx, canonicalName, args); err != nil {
+	if err := s.authorize(ctx, name, args); err != nil {
 		// D119/D132: the denial is audited at the point the decision happens,
 		// not where the call would have been dispatched.
-		s.auditDenied(principal, registeredName, args)
+		s.auditDenied(principal, name, args)
 		return errorResult(err.Error())
 	}
 
-	resources := extractResources(canonicalName, args)
-	call, rejected, ok := s.beginAuditCall(principal, canonicalName, externalName, tool.ReadOnly, resources)
+	resources := extractResources(name, args)
+	call, rejected, ok := s.beginAuditCall(principal, name, tool.ReadOnly, resources)
 	if !ok {
 		// Required mode, attempt-phase append failed: reject before the tool
 		// ever runs — see beginAuditCall.
@@ -184,7 +179,7 @@ func (s *Server) callTool(ctx context.Context, registeredName string, args json.
 	if err != nil {
 		return errorResult("internal error: " + err.Error())
 	}
-	return s.withDoctorNudge(ctx, canonicalName, result)
+	return s.withDoctorNudge(ctx, name, result)
 }
 
 // sdkResult converts Cartographer's ToolResult into the SDK's.
@@ -297,7 +292,7 @@ func (s *Server) agentProfileMiddleware() sdk.Middleware {
 			}
 			kept := make([]*sdk.Tool, 0, len(list.Tools))
 			for _, t := range list.Tools {
-				if ToolAdvanced(s.StripToolPrefix(t.Name)) {
+				if ToolAdvanced(t.Name) {
 					continue
 				}
 				kept = append(kept, t)

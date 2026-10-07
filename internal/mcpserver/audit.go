@@ -150,7 +150,6 @@ type auditCall struct {
 	requestID string
 	principal string
 	tool      string
-	external  string
 	readOnly  bool
 	resources map[string]string
 	start     time.Time
@@ -166,13 +165,13 @@ type auditCall struct {
 //   - sink attached, append fails, required mode: (call, rejected, false) —
 //     the caller must return rejected to the client WITHOUT ever invoking the
 //     tool handler (fail closed) and must not call end.
-func (s *Server) beginAuditCall(principal, tool, external string, readOnly bool, resources map[string]string) (call auditCall, rejected ToolResult, ok bool) {
+func (s *Server) beginAuditCall(principal, tool string, readOnly bool, resources map[string]string) (call auditCall, rejected ToolResult, ok bool) {
 	s.mu.Lock()
 	log, kbName, transport := s.auditLog, s.kbName, s.transport
 	s.mu.Unlock()
 
 	call = auditCall{
-		requestID: newAuditRequestID(), principal: principal, tool: tool, external: external,
+		requestID: newAuditRequestID(), principal: principal, tool: tool,
 		readOnly: readOnly, resources: resources, start: time.Now(),
 	}
 	if log == nil {
@@ -180,7 +179,7 @@ func (s *Server) beginAuditCall(principal, tool, external string, readOnly bool,
 	}
 	_, err := log.AppendEvent(audit.Entry{
 		RequestID: call.requestID, PrincipalID: principal, Transport: transport, KB: kbName,
-		Tool: tool, ExternalTool: external, ReadOnly: readOnly, Resources: resources,
+		Tool: tool, ReadOnly: readOnly, Resources: resources,
 		Phase: audit.PhaseAttempt,
 	})
 	if err != nil {
@@ -216,7 +215,7 @@ func (c auditCall) end(s *Server, outcome string, result ToolResult) {
 	}
 	_, _ = log.AppendEvent(audit.Entry{
 		RequestID: c.requestID, PrincipalID: c.principal, Transport: transport, KB: kbName,
-		Tool: c.tool, ExternalTool: c.external, ReadOnly: c.readOnly, Resources: c.resources,
+		Tool: c.tool, ReadOnly: c.readOnly, Resources: c.resources,
 		Phase: audit.PhaseCompletion, Outcome: outcome,
 		DurationMs: time.Since(c.start).Milliseconds(), CommitSHA: result.CommitSHA,
 		ResultBytes: resultBytes(result),
@@ -251,11 +250,7 @@ func (s *Server) auditDenied(principal, toolName string, rawArgs json.RawMessage
 		return
 	}
 
-	canonical := s.StripToolPrefix(toolName)
-	external := ""
-	if canonical != toolName {
-		external = toolName
-	}
+	canonical := toolName
 	readOnly := false
 	if t, ok := s.Tools()[toolName]; ok {
 		readOnly = t.ReadOnly
@@ -266,7 +261,7 @@ func (s *Server) auditDenied(principal, toolName string, rawArgs json.RawMessage
 
 	_, err := log.AppendEvent(audit.Entry{
 		RequestID: requestID, PrincipalID: principal, Transport: transport, KB: kbName,
-		Tool: canonical, ExternalTool: external, ReadOnly: readOnly, Resources: resources,
+		Tool: canonical, ReadOnly: readOnly, Resources: resources,
 		Phase: audit.PhaseAttempt,
 	})
 	if err != nil {
@@ -278,7 +273,7 @@ func (s *Server) auditDenied(principal, toolName string, rawArgs json.RawMessage
 	}
 	_, _ = log.AppendEvent(audit.Entry{
 		RequestID: requestID, PrincipalID: principal, Transport: transport, KB: kbName,
-		Tool: canonical, ExternalTool: external, ReadOnly: readOnly, Resources: resources,
+		Tool: canonical, ReadOnly: readOnly, Resources: resources,
 		Phase: audit.PhaseCompletion, Outcome: audit.OutcomeUnauthorized,
 		DurationMs: time.Since(start).Milliseconds(),
 	})

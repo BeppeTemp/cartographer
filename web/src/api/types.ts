@@ -11,7 +11,6 @@ export interface KBSummary {
   name: string;
   status: string;
   ready: boolean;
-  tool_prefix?: string;
   capabilities?: Record<string, KBCapability>;
   /** Whether this principal may open the Artifacts panel: artifacts are
    *  whole-KB resources (D238). */
