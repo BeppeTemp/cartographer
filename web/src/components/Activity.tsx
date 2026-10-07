@@ -33,22 +33,34 @@ export function Activity({
   const [author, setAuthor] = useState<string | null>(null);
   const [map, setMap] = useState<string | null>(null);
   const [data, setData] = useState<ChangesResponse | null>(null);
+  // The window the data on screen answers: while a new window loads, the
+  // old answer stays (dimmed) and keeps describing itself correctly.
+  const [shown, setShown] = useState<Window>(since);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // A new KB or window starts blank; a live refetch (D336) keeps what is
-  // on screen until the fresh answer replaces it.
+  // A new KB starts blank. A new window or a live refetch (D336) keeps what
+  // is on screen until the fresh answer replaces it: no flash of skeleton.
   useEffect(() => {
     setData(null);
     setError(null);
-  }, [kb, since]);
+  }, [kb]);
 
   useEffect(() => {
     const controller = new AbortController();
+    setLoading(true);
     fetchChanges(kb, since, controller.signal)
-      .then(setData)
+      .then((res) => {
+        setData(res);
+        setShown(since);
+        setError(null);
+      })
       .catch((err: unknown) => {
         if (err instanceof DOMException && err.name === "AbortError") return;
         setError(err instanceof Error ? err.message : String(err));
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoading(false);
       });
     return () => controller.abort();
   }, [kb, since, live]);
@@ -74,16 +86,16 @@ export function Activity({
 
   const rows = all.filter((c) => (!author || c.authors?.includes(author)) && (!map || mapOf(c) === map));
   const days = useMemo(() => groupByDay(rows), [rows]);
-  const histogram = useMemo(() => perDay(rows, DAYS[since]), [rows, since]);
+  const histogram = useMemo(() => perDay(rows, DAYS[shown]), [rows, shown]);
   const added = rows.filter((c) => c.change === "added").length;
   const deleted = rows.filter((c) => c.change === "deleted").length;
 
   return (
-    <section className="activity timeline" aria-label="Recent activity">
+    <section className="activity timeline" aria-label="Recent activity" aria-busy={loading}>
       <header className="activity__head">
         <div>
           <p className="observatory__eyebrow">Activity</p>
-          <h1 className="timeline__headline">{headline(data, rows.length, since, author, map && mapTitles.get(map))}</h1>
+          <Headline data={data} n={rows.length} since={shown} author={author} mapTitle={map ? mapTitles.get(map) : null} />
         </div>
         <div className="legend__switch activity__window" role="group" aria-label="Changes since">
           {WINDOWS.map((v) => (
@@ -94,106 +106,114 @@ export function Activity({
         </div>
       </header>
 
-      {data && all.length > 0 && (
-        <div className="timeline__summary">
-          <dl className="timeline__stats">
-            <Stat label="concepts" value={rows.length} />
-            <Stat label="new" value={added} />
-            <Stat label="removed" value={deleted} />
-            <Stat label={data.commit_count === 1 ? "commit" : "commits"} value={data.commit_count} />
-          </dl>
-          {histogram.length > 1 && <DayBars bars={histogram} />}
-        </div>
-      )}
-
-      {maps.length > 0 && (
-        <div className="timeline__maps">
-          <div className="timeline__mapbar" aria-hidden="true">
-            {maps.map(([name, count]) => (
-              <span
-                key={name}
-                className="timeline__mapseg"
-                data-dim={map !== null && map !== name}
-                style={{ flexGrow: count, "--map": collectionVar(name) } as CSSProperties}
-              />
-            ))}
+      <div className="timeline__body" data-loading={loading && data !== null}>
+        {data && all.length > 0 && (
+          <div className="timeline__summary">
+            <dl className="timeline__stats">
+              <Stat label="concepts" value={rows.length} />
+              <Stat label="new" value={added} />
+              <Stat label="removed" value={deleted} />
+              <Stat label={data.commit_count === 1 ? "commit" : "commits"} value={data.commit_count} />
+            </dl>
+            {histogram.length > 1 && <DayBars bars={histogram} />}
           </div>
-          <ul className="timeline__filters" aria-label="Filter by Map">
-            {maps.map(([name, count]) => (
-              <li key={name}>
-                <button
-                  type="button"
-                  className="chip timeline__mapchip"
-                  aria-pressed={map === name}
-                  style={{ "--map": collectionVar(name) } as CSSProperties}
-                  onClick={() => setMap(map === name ? null : name)}
-                >
-                  <span className="timeline__swatch" aria-hidden="true" />
-                  {mapTitles.get(name) ?? name}
-                  <span className="chip__count">{count}</span>
-                </button>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
+        )}
 
-      {authors.length > 1 && (
-        <ul className="timeline__filters timeline__people" aria-label="Filter by author">
-          {authors.map(([name, count]) => (
-            <li key={name}>
-              <button
-                type="button"
-                className="chip timeline__person"
-                aria-pressed={author === name}
-                onClick={() => setAuthor(author === name ? null : name)}
-              >
-                <Avatar name={name} />
-                {name}
-                <span className="chip__count">{count}</span>
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
-
-      {error ? (
-        <p className="activity__note">Could not read the history: {error}</p>
-      ) : !data ? (
-        <TimelineSkeleton />
-      ) : rows.length === 0 ? (
-        <div className="timeline__empty">
-          <p className="timeline__empty-title">Quiet {since === "1d" ? "day" : "stretch"}.</p>
-          <p className="activity__note">No concept changed {when(since)}{author ? ` by ${author}` : ""}.</p>
-        </div>
-      ) : (
-        <ol className="timeline__days">
-          {days.map((day) => (
-            <li key={day.key} className="timeline__day">
-              <h2 className="timeline__date">
-                <span>{day.label}</span>
-                <span className="timeline__date-count">{day.items.length}</span>
-              </h2>
-              <ol className="timeline__entries">
-                {day.items.map((c) => (
-                  <Entry
-                    key={c.id}
-                    change={c}
-                    title={titles.get(c.id) ?? c.id}
-                    mapTitle={mapTitles.get(mapOf(c)) ?? mapOf(c)}
-                    onOpen={onOpen}
+        {data && all.length > 0 && (
+          <div className="timeline__breakdown">
+            <section className="timeline__facet" aria-labelledby="timeline-where">
+              <h2 id="timeline-where" className="timeline__facet-title">Where</h2>
+              <div className="timeline__mapbar" aria-hidden="true">
+                {maps.map(([name, count]) => (
+                  <span
+                    key={name}
+                    className="timeline__mapseg"
+                    data-dim={map !== null && map !== name}
+                    style={{ flexGrow: count, "--map": collectionVar(name) } as CSSProperties}
                   />
                 ))}
-              </ol>
-            </li>
-          ))}
-        </ol>
-      )}
-      {data?.truncated && (
-        <p className="activity__note activity__foot">
-          Showing the {all.length} most recent changes: narrow the window to see the rest.
-        </p>
-      )}
+              </div>
+              <ul className="timeline__filters" aria-label="Filter by Map">
+                {maps.map(([name, count]) => (
+                  <li key={name}>
+                    <button
+                      type="button"
+                      className="chip timeline__mapchip"
+                      aria-pressed={map === name}
+                      style={{ "--map": collectionVar(name) } as CSSProperties}
+                      onClick={() => setMap(map === name ? null : name)}
+                    >
+                      <span className="timeline__swatch" aria-hidden="true" />
+                      {mapTitles.get(name) ?? name}
+                      <span className="chip__count">{count}</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </section>
+            <section className="timeline__facet" aria-labelledby="timeline-who">
+              <h2 id="timeline-who" className="timeline__facet-title">Who</h2>
+              <ul className="timeline__people" aria-label="Filter by author">
+                {authors.map(([name, count]) => (
+                  <li key={name}>
+                    <button
+                      type="button"
+                      className="timeline__person"
+                      aria-pressed={author === name}
+                      onClick={() => setAuthor(author === name ? null : name)}
+                    >
+                      <Avatar name={name} />
+                      <span className="timeline__person-name">{name}</span>
+                      <span className="timeline__person-count">{count}</span>
+                      <span className="timeline__person-bar" aria-hidden="true">
+                        <span style={{ width: `${(count / Math.max(1, all.length)) * 100}%` }} />
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          </div>
+        )}
+
+        {error ? (
+          <p className="activity__note">Could not read the history: {error}</p>
+        ) : !data ? (
+          <TimelineSkeleton />
+        ) : rows.length === 0 ? (
+          <div className="timeline__empty">
+            <p className="timeline__empty-title">Quiet {since === "1d" ? "day" : "stretch"}.</p>
+            <p className="activity__note">No concept changed {when(since)}{author ? ` by ${author}` : ""}.</p>
+          </div>
+        ) : (
+          <ol className="timeline__days">
+            {days.map((day) => (
+              <li key={day.key} className="timeline__day">
+                <h2 className="timeline__date">
+                  <span>{day.label}</span>
+                  <span className="timeline__date-count">{day.items.length}</span>
+                </h2>
+                <ol className="timeline__entries">
+                  {day.items.map((c) => (
+                    <Entry
+                      key={c.id}
+                      change={c}
+                      title={titles.get(c.id) ?? c.id}
+                      mapTitle={mapTitles.get(mapOf(c)) ?? mapOf(c)}
+                      onOpen={onOpen}
+                    />
+                  ))}
+                </ol>
+              </li>
+            ))}
+          </ol>
+        )}
+        {data?.truncated && (
+          <p className="activity__note activity__foot">
+            Showing the {all.length} most recent changes: narrow the window to see the rest.
+          </p>
+        )}
+      </div>
     </section>
   );
 }
@@ -375,20 +395,31 @@ function when(since: string): string {
   return since === "1d" ? "today" : `in the last ${since.replace("d", " days")}`;
 }
 
-/** The headline says it in words, like the Observatory's. */
-function headline(
-  data: ChangesResponse | null,
-  n: number,
-  since: string,
-  author: string | null,
-  mapTitle: string | null | undefined,
-): string {
-  if (!data) return "Reading the history…";
+/** The headline says it in words, like the Observatory's; the count leads. */
+function Headline({
+  data,
+  n,
+  since,
+  author,
+  mapTitle,
+}: {
+  data: ChangesResponse | null;
+  n: number;
+  since: string;
+  author: string | null;
+  mapTitle: string | null | undefined;
+}) {
+  if (!data) return <h1 className="timeline__headline">Reading the history…</h1>;
   const who = author ? ` by ${author}` : "";
   const where = mapTitle ? ` in ${mapTitle}` : "";
-  if (n === 0) return `Nothing changed${where}${who} ${when(since)}.`;
-  const count = data.truncated ? `More than ${n} concepts` : n === 1 ? "One concept" : `${n} concepts`;
-  return `${count} changed${where}${who} ${when(since)}.`;
+  if (n === 0) return <h1 className="timeline__headline">Nothing changed{where}{who} {when(since)}.</h1>;
+  const count = data.truncated ? `${n}+` : String(n);
+  return (
+    <h1 className="timeline__headline">
+      <span className="timeline__headline-count">{count}</span> {n === 1 ? "concept" : "concepts"} changed{where}
+      {who} {when(since)}.
+    </h1>
+  );
 }
 
 function clock(iso: string): string {

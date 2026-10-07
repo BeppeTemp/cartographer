@@ -488,7 +488,9 @@ in the last day, week or month (up to 500), as a timeline grouped by the day
 each one last changed, newest first, every entry marked with its Map's colour,
 its kind of change, its authors and the reasons the writes recorded. A summary
 head counts the concepts, additions, removals and commits and draws one bar per
-day of the window; a bar split by Map and the author chips filter the timeline.
+day of the window; below it, *Where* (a bar split by Map, with a chip per Map)
+and *Who* (each author with their share) filter the timeline. Changing the
+window keeps the current answer on screen, dimmed, until the new one arrives.
 An entry opens the concept on the atlas.
 
 The **Work** panel is `work_list` for the reader (D302): open-phase concepts and
