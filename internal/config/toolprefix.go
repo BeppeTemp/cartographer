@@ -32,9 +32,8 @@ func SanitizeToolPrefix(raw string) string {
 
 // ValidateToolPrefixShape rejects a sanitised prefix that is empty or starts
 // with a digit — either would produce an empty or invalid tool name once
-// combined with "__<tool>". It does not check the resulting tool-name
-// length budget: that needs the KB's actual registered tool names, checked
-// separately at KB-mount time (mcpserver.MultiKBServer.MountKBWithPrefix).
+// combined with "__<tool>". The server never prefixes since D325; the client
+// uses it on the tool_prefix a pre-D288 server advertises in /health.
 func ValidateToolPrefixShape(sanitized string) error {
 	if sanitized == "" {
 		return fmt.Errorf("empty after sanitisation")

@@ -223,14 +223,6 @@ type KBInfo struct {
 	Name   string `json:"name"`
 	Root   string `json:"root"`
 	Status string `json:"status"` // "normal", "syncing", "needs-resolution"
-	// ToolPrefix is the effective tool-name prefix (D102) this KB's tools were
-	// registered under, e.g. "eng_team" for tools named "eng_team__concept_read".
-	// Empty (omitted) for an unprefixed KB — the same shape a pre-D120 client
-	// already tolerates (see client.HealthKB). Set once, at mount time, from
-	// the exact sanitised value MountKBWithPrefix passed to
-	// Server.SetToolNamePrefix (D120): clients discover it here rather than
-	// re-deriving config.ResolveToolPrefix themselves.
-	ToolPrefix string `json:"tool_prefix,omitempty"`
 	// Capabilities is what this KB is allowed to do, keyed by gate name, with
 	// the configuration key that controls each one (D151). Advertised here so
 	// `cartographer doctor` can report a capability that is off without a
@@ -337,12 +329,14 @@ func NewMultiKBServer(version string) *MultiKBServer {
 	}
 }
 
-// MountKB registers a KB with the given name, tool names unprefixed. Creates
-// a dedicated MCP server for it.
+// MountKB registers a KB with the given name and creates a dedicated MCP
+// server for it.
 func (m *MultiKBServer) MountKB(name string, setupFn func(s *Server)) {
-	// prefix == "" never fails MountKBWithPrefix's validation (no tool name
-	// grows), so the error is unreachable here.
-	_ = m.MountKBWithPrefix(name, "", setupFn)
+	srv := New(m.version)
+	srv.SetPolicyKB(name)
+	setupFn(srv)
+	m.servers[name] = srv
+	m.kbs = append(m.kbs, KBInfo{Name: name, Status: "normal"})
 }
 
 // maxToolNameLen is the conservative per-tool-name budget (D102) enforced
@@ -352,46 +346,13 @@ func (m *MultiKBServer) MountKB(name string, setupFn func(s *Server)) {
 const maxToolNameLen = 48
 
 // MaxBareToolNameLen is the length of the longest tool name the registry
-// registers, before any tool_prefix. The client uses it to compute a tool
+// registers. The client uses it to compute a tool
 // identifier budget without listing tools (D201); TestMaxBareToolNameLen
 // fails when a longer tool is added without raising it.
 const MaxBareToolNameLen = 20
 
-// MountKBWithPrefix mounts a KB whose tool names are all rewritten to
-// "<prefix>__<tool>" (D102: opt-in per-KB tool-name namespacing for MCP
-// clients with a flat tool namespace, e.g. Kiro CLI — Claude Code, Codex and
-// OpenCode already namespace tools per server and need no prefix). An empty
-// prefix leaves tool names unchanged — the default, byte-identical to
-// pre-D102 behaviour.
-//
-// prefix is assumed already sanitised and shape-validated (see
-// config.ResolveToolPrefix): this only enforces the tool-name length budget
-// (maxToolNameLen), which needs the KB's actual registered tool names and so
-// can only be checked after setupFn runs. On a budget violation the KB is
-// not mounted and an error naming the KB and the offending tool is
-// returned.
-func (m *MultiKBServer) MountKBWithPrefix(name, prefix string, setupFn func(s *Server)) error {
-	srv := New(m.version)
-	srv.SetPolicyKB(name)
-	if prefix != "" {
-		srv.SetToolNamePrefix(prefix)
-	}
-	setupFn(srv)
-	if prefix != "" {
-		for _, toolName := range srv.toolsOrd {
-			if len(toolName) > maxToolNameLen {
-				return fmt.Errorf("KB %q: tool name %q (%d chars) exceeds the %d-char budget after applying tool_prefix %q; use a shorter prefix",
-					name, toolName, len(toolName), maxToolNameLen, prefix)
-			}
-		}
-	}
-	m.servers[name] = srv
-	m.kbs = append(m.kbs, KBInfo{Name: name, Status: "normal", ToolPrefix: prefix})
-	return nil
-}
-
 // SetKBCapabilities records a mounted KB's capability map for /health. Called
-// after MountKBWithPrefix by the caller that owns the *kb.KB, so the mount
+// after MountKB by the caller that owns the *kb.KB, so the mount
 // signature stays unchanged (D151).
 func (m *MultiKBServer) SetKBCapabilities(name string, caps map[string]KBCapability) {
 	for i := range m.kbs {

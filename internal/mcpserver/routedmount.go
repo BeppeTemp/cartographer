@@ -21,7 +21,7 @@ import (
 //
 // The routed mount registers the union of the mounted KBs' tool descriptors
 // exactly once and carries the KB as an explicit `kb` tool argument. It is
-// additive over the per-KB plumbing: MountKB/MountKBWithPrefix and the ?kb=/
+// additive over the per-KB plumbing: MountKB and the ?kb=/
 // /mcp/<name> endpoints keep answering as before. Since D288 it is the only
 // topology written into agent clients, and a connection may narrow it to a
 // subset of the KBs with ?kbs= (one KB: no `kb` argument at all).
@@ -43,7 +43,7 @@ const RoutedMountPath = "/mcp/routed"
 const routedKBArgument = "kb"
 
 // EnableRoutedMount builds the routed mount over the KBs already mounted on m.
-// Call it after every MountKB/MountKBWithPrefix. It returns an error when no KB
+// Call it after every MountKB. It returns an error when no KB
 // is mounted; on success the routed endpoint is served alongside the per-KB
 // ones.
 //

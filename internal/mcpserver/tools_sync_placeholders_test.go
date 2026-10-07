@@ -58,7 +58,7 @@ func pullAs(t *testing.T, s *Server, k *kb.KB, admin bool) pullPlaceholders {
 			t.Fatalf("sync_pull: %s", text)
 		}
 	} else {
-		res, err := toolSyncPull(k, fstest.MapFS{}, "", false, nil, nil).Handler(narrowCtx, json.RawMessage(`{}`))
+		res, err := toolSyncPull(k, fstest.MapFS{}, false, nil, nil).Handler(narrowCtx, json.RawMessage(`{}`))
 		if err != nil || res.IsError {
 			t.Fatalf("sync_pull handler: %v %+v", err, res)
 		}

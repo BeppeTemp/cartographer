@@ -824,60 +824,23 @@ func instructionsContent(t *testing.T, m provisioning.Manifest, kbName string) s
 	return string(a.Files[0].Content)
 }
 
-// D144: with a tool prefix configured the managed block must name the tools the
-// agent can actually call, and without one it must stay byte-identical.
-func TestBuildManifest_Instructions_ToolPrefix(t *testing.T) {
+// D144: the managed block names the tools by their bare names, the only names
+// a server registers (D325). Golden: the operational lines, verbatim.
+func TestBuildManifest_Instructions_ToolNames(t *testing.T) {
 	kbRoot := makeKBWithArchives(t, map[string][]string{"entities": {"router.md"}})
-
 	plain, err := provisioning.BuildManifest(nil, map[string]string{"homelab": kbRoot}, provisioning.BuildOptions{})
 	if err != nil {
-		t.Fatalf("BuildManifest plain: %v", err)
+		t.Fatalf("BuildManifest: %v", err)
 	}
 	plainContent := instructionsContent(t, plain, "homelab")
-
-	// An empty map, and a map without this KB's key, are both "unprefixed".
-	for name, opts := range map[string]provisioning.BuildOptions{
-		"empty map":   {ToolPrefixes: map[string]string{}},
-		"other KB":    {ToolPrefixes: map[string]string{"other": "other"}},
-		"empty value": {ToolPrefixes: map[string]string{"homelab": ""}},
-	} {
-		m, err := provisioning.BuildManifest(nil, map[string]string{"homelab": kbRoot}, opts)
-		if err != nil {
-			t.Fatalf("BuildManifest %s: %v", name, err)
-		}
-		if got := instructionsContent(t, m, "homelab"); got != plainContent {
-			t.Errorf("%s: instructions changed for an unprefixed KB:\n%s", name, got)
-		}
-	}
-
-	// Golden: the operational lines of an unprefixed block, verbatim.
 	for _, want := range []string{
 		"- consult it autonomously when you need historical or architectural context: `search` (keyword) or `atlas_overview` to orient yourself, `concept_read` to read;\n",
 		"- write or update a page with `concept_write` when you discover something relevant; close relevant sessions with `log_append`;\n",
+		"- never run git commands in the KB's clone: report replication problems from `sync_status` to the operator instead.\n",
+		"- when `kb_status` reports a `latest_version`",
 	} {
 		if !strings.Contains(plainContent, want) {
-			t.Errorf("unprefixed block missing %q:\n%s", want, plainContent)
-		}
-	}
-
-	prefixed, err := provisioning.BuildManifest(nil, map[string]string{"homelab": kbRoot},
-		provisioning.BuildOptions{ToolPrefixes: map[string]string{"homelab": "homelab"}})
-	if err != nil {
-		t.Fatalf("BuildManifest prefixed: %v", err)
-	}
-	prefixedContent := instructionsContent(t, prefixed, "homelab")
-	if prefixedContent == plainContent {
-		t.Fatal("instructions identical with and without a tool prefix")
-	}
-	if findInstructionsArtifact(t, prefixed, "homelab").ContentHash == findInstructionsArtifact(t, plain, "homelab").ContentHash {
-		t.Error("ContentHash identical with and without a tool prefix: the block would not re-materialize")
-	}
-	for _, base := range []string{"search", "atlas_overview", "concept_read", "concept_write", "log_append"} {
-		if !strings.Contains(prefixedContent, "`homelab__"+base+"`") {
-			t.Errorf("prefixed block does not name `homelab__%s`:\n%s", base, prefixedContent)
-		}
-		if strings.Contains(prefixedContent, "`"+base+"`") {
-			t.Errorf("prefixed block still names the bare tool `%s`:\n%s", base, prefixedContent)
+			t.Errorf("block missing %q:\n%s", want, plainContent)
 		}
 	}
 }

@@ -208,52 +208,20 @@ func TestMultiKB_Health_IncludesReady(t *testing.T) {
 	}
 }
 
-// TestMultiKB_Health_AdvertisesToolPrefix is D120: /health must expose each
-// mounted KB's effective tool-name prefix so clients discover it instead of
-// re-deriving config.ResolveToolPrefix themselves.
-func TestMultiKB_Health_AdvertisesToolPrefix(t *testing.T) {
+// TestMultiKB_Health_NoToolPrefix: /health never emits a tool_prefix (D325).
+// The client still parses the field to read an older server.
+func TestMultiKB_Health_NoToolPrefix(t *testing.T) {
 	multi := NewMultiKBServer("test")
 	k1 := setupTestKB(t)
-	if err := multi.MountKBWithPrefix("alpha", "", func(s *Server) { RegisterKBTools(s, k1, Deps{}) }); err != nil {
-		t.Fatalf("MountKBWithPrefix(alpha): %v", err)
-	}
-	k2 := setupTestKB(t)
-	if err := multi.MountKBWithPrefix("beta", "custom_name", func(s *Server) { RegisterKBTools(s, k2, Deps{}) }); err != nil {
-		t.Fatalf("MountKBWithPrefix(beta): %v", err)
-	}
-
+	multi.MountKB("alpha", func(s *Server) { RegisterKBTools(s, k1, Deps{}) })
 	req := httptest.NewRequest(http.MethodGet, "/health", nil)
 	rr := httptest.NewRecorder()
 	multi.Handler().ServeHTTP(rr, req)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("/health: status = %d, want 200; body=%s", rr.Code, rr.Body.String())
 	}
-
-	var body struct {
-		KBs []struct {
-			Name       string `json:"name"`
-			ToolPrefix string `json:"tool_prefix"`
-		} `json:"kbs"`
-	}
-	if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
-		t.Fatalf("invalid JSON body: %v; body=%s", err, rr.Body.String())
-	}
-	byName := make(map[string]string, len(body.KBs))
-	for _, kb := range body.KBs {
-		byName[kb.Name] = kb.ToolPrefix
-	}
-	if got := byName["alpha"]; got != "" {
-		t.Fatalf("alpha tool_prefix = %q, want empty (unprefixed)", got)
-	}
-	if got := byName["beta"]; got != "custom_name" {
-		t.Fatalf("beta tool_prefix = %q, want \"custom_name\"", got)
-	}
-
-	// The raw body must carry exactly one "tool_prefix" occurrence (beta's):
-	// the unprefixed KB (alpha) omits the field entirely (json:",omitempty"),
-	// preserving the exact shape a pre-D120 client already tolerates.
-	if n := strings.Count(rr.Body.String(), `"tool_prefix"`); n != 1 {
-		t.Fatalf(`"tool_prefix" occurrences = %d, want 1 (only beta's); body=%s`, n, rr.Body.String())
+	if strings.Contains(rr.Body.String(), `"tool_prefix"`) {
+		t.Fatalf("/health must not carry tool_prefix; body=%s", rr.Body.String())
 	}
 }
 
@@ -411,12 +379,8 @@ func TestClients_HandlerConstructors(t *testing.T) {
 	multi := NewMultiKBServer("test")
 	k1 := setupTestKB(t)
 	k2 := setupTestKB(t)
-	if err := multi.MountKBWithPrefix("alpha", "", func(s *Server) { RegisterKBTools(s, k1, Deps{}) }); err != nil {
-		t.Fatalf("MountKBWithPrefix(alpha): %v", err)
-	}
-	if err := multi.MountKBWithPrefix("beta", "", func(s *Server) { RegisterKBTools(s, k2, Deps{}) }); err != nil {
-		t.Fatalf("MountKBWithPrefix(beta): %v", err)
-	}
+	multi.MountKB("alpha", func(s *Server) { RegisterKBTools(s, k1, Deps{}) })
+	multi.MountKB("beta", func(s *Server) { RegisterKBTools(s, k2, Deps{}) })
 	// Hit /mcp?kb=alpha to populate its roster.
 	for i := 0; i < 2; i++ {
 		req := httptest.NewRequest(http.MethodPost, "/mcp?kb=alpha", bytes.NewReader([]byte(mcpBody)))

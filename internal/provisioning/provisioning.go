@@ -69,12 +69,6 @@ type Artifact struct {
 type BuildOptions struct {
 	Signers       map[string]ed25519.PrivateKey
 	MCPAllowlists map[string][]MCPAllowlistEntry
-	// ToolPrefixes is the effective MCP tool-name prefix (D102) of each
-	// mounted KB, keyed by KB name. A missing key or an empty value means
-	// unprefixed. It is what the generated instructions block names the tools
-	// with (D144), so a prefixed KB does not imprint tools the agent cannot
-	// call.
-	ToolPrefixes map[string]string
 	// RoutedMount reports that this server serves its KBs through a single
 	// routed endpoint (D187): the tools are advertised once, unprefixed, and
 	// every call carries the KB as a `kb` argument. The generated instructions
@@ -761,7 +755,7 @@ func BuildManifest(bundleFS fs.FS, kbRoots map[string]string, opts BuildOptions)
 		// timestamp) and placed directly in Artifact.Files, so ReadArtifactFiles
 		// doesn't need to read anything from the KB for this kind (see its
 		// "len(a.Files) > 0" check at the top of the function).
-		instrContent := []byte(generateKBInstructions(kbName, kbRoot, opts.ToolPrefixes[kbName], opts.RoutedMount))
+		instrContent := []byte(generateKBInstructions(kbName, kbRoot, opts.RoutedMount))
 		artifacts = append(artifacts, Artifact{
 			Kind:        "instructions",
 			Name:        kbName,
@@ -878,9 +872,8 @@ func countMarkdownFiles(dir string) int {
 // on the result of this function, see BuildManifest) changes only when the
 // set of archives/agents or instructions.md changes, not on every page
 // added.
-func generateKBInstructions(kbName, kbRoot, toolPrefix string, routed bool) string {
+func generateKBInstructions(kbName, kbRoot string, routed bool) string {
 	var sb strings.Builder
-	tool := func(base string) string { return qualifyToolName(toolPrefix, base) }
 
 	fmt.Fprintf(&sb, "The %q KB is served via MCP by the \"cartographer\" server.", kbName)
 	if routed {
@@ -906,23 +899,19 @@ func generateKBInstructions(kbName, kbRoot, toolPrefix string, routed bool) stri
 
 	if !skipPreamble {
 		sb.WriteString("Operational instructions:\n")
-		fmt.Fprintf(&sb, "- consult it autonomously when you need historical or architectural context: `%s` (keyword) or `%s` to orient yourself, `%s` to read;\n",
-			tool("search"), tool("atlas_overview"), tool("concept_read"))
-		fmt.Fprintf(&sb, "- write or update a page with `%s` when you discover something relevant; close relevant sessions with `%s`;\n",
-			tool("concept_write"), tool("log_append"))
+		sb.WriteString("- consult it autonomously when you need historical or architectural context: `search` (keyword) or `atlas_overview` to orient yourself, `concept_read` to read;\n")
+		sb.WriteString("- write or update a page with `concept_write` when you discover something relevant; close relevant sessions with `log_append`;\n")
 		sb.WriteString("- write responses carry structural findings (broken links, missing index entry, orphan): fix them before moving on or the KB drifts;\n")
 		// D321: one meaning for `active`, said once, true for every KB.
 		sb.WriteString("- status convention: `active` means the page is valid and current; open work uses `open`, `in-progress` or `blocked`, and a wait is declared with `waiting_on` and `review_after`;\n")
 		sb.WriteString("- every write is a git commit, revertible.\n")
 		// D264: an agent's own git in the clone (init, checkout -b, push) is
 		// what forks a KB on its remote; the server owns that clone.
-		fmt.Fprintf(&sb, "- never run git commands in the KB's clone: report replication problems from `%s` to the operator instead.\n",
-			tool("sync_status"))
+		sb.WriteString("- never run git commands in the KB's clone: report replication problems from `sync_status` to the operator instead.\n")
 		// D320: the fallback update channel for every client whose
 		// SessionStart hook does not fire (Kiro default chat, timer-only
 		// clients): kb_status carries latest_version (D254).
-		fmt.Fprintf(&sb, "- when `%s` reports a `latest_version` that differs from `server_version`, tell the user once: the installed version, the available version and the upgrade command for this channel (`cartographer update check` prints it); offer to run it, run it only on explicit consent, then follow the cartographer-ops skill (§Upgrade).\n",
-			tool("kb_status"))
+		sb.WriteString("- when `kb_status` reports a `latest_version` that differs from `server_version`, tell the user once: the installed version, the available version and the upgrade command for this channel (`cartographer update check` prints it); offer to run it, run it only on explicit consent, then follow the cartographer-ops skill (§Upgrade).\n")
 	}
 
 	// The subagent sentence is NOT emitted here (D154). This function has no
@@ -949,18 +938,6 @@ func generateKBInstructions(kbName, kbRoot, toolPrefix string, routed bool) stri
 	}
 
 	return sb.String()
-}
-
-// qualifyToolName returns the tool name an agent must call for a KB whose
-// effective tool prefix is prefix: the base name unchanged when unprefixed,
-// "<prefix>__<base>" otherwise. Mirrors Server.RegisterTool's renaming (D102)
-// and the client-side qualifyTool (D120). prefix is already sanitised by
-// config.ResolveToolPrefix when it reaches here.
-func qualifyToolName(prefix, base string) string {
-	if prefix == "" {
-		return base
-	}
-	return prefix + "__" + base
 }
 
 // preambleNoneRe matches the opt-out directive on the FIRST line of

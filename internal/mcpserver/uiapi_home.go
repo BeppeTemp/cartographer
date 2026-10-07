@@ -37,14 +37,10 @@ func uiRelay(w http.ResponseWriter, context string, res ToolResult, err error) {
 	writeUIJSON(w, http.StatusOK, payload)
 }
 
-// uiTool finds a tool by its canonical name, whatever prefix this server
-// registers its tools under (D102).
+// uiTool finds a registered tool by name.
 func uiTool(srv *Server, name string) (*Tool, bool) {
 	srv.mu.Lock()
 	defer srv.mu.Unlock()
-	if srv.toolPrefix != "" {
-		name = srv.toolPrefix + "__" + name
-	}
 	t, ok := srv.tools[name]
 	return t, ok
 }

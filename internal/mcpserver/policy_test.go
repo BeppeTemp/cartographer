@@ -110,7 +110,7 @@ func TestResourceClassInventory(t *testing.T) {
 		if tool.ResourceClass == "" {
 			t.Fatalf("registered tool %q has no resource class", name)
 		}
-		if resourceClassForTool(s.StripToolPrefix(name)) != tool.ResourceClass {
+		if resourceClassForTool(name) != tool.ResourceClass {
 			t.Fatalf("tool %q resource class %q diverges from resolver inventory", name, tool.ResourceClass)
 		}
 	}
@@ -130,25 +130,20 @@ func toolCallBodyWithArgs(name string, args map[string]any) string {
 }
 
 // TestMultiKBIsolation_FineGrainedPermissionDoesNotCrossKBBoundary mounts two
-// independent KBs on one MultiKBServer (the pattern from
-// TestMountKBWithPrefix_TwoKBs_DisjointNames) and grants a principal a
+// independent KBs on one MultiKBServer and grants a principal a
 // fine-grained (map+type scoped, not just a legacy whole-KB scope) permission
 // on only one of them. It must not see, read, or write the other KB's
 // concept, even though both KBs happen to share the same concept ID.
 func TestMultiKBIsolation_FineGrainedPermissionDoesNotCrossKBBoundary(t *testing.T) {
 	multi := NewMultiKBServer("test")
 	kX := setupTestKB(t)
-	if err := multi.MountKBWithPrefix("kb-x", "", func(s *Server) {
+	multi.MountKB("kb-x", func(s *Server) {
 		RegisterKBTools(s, kX, Deps{})
-	}); err != nil {
-		t.Fatalf("MountKBWithPrefix(kb-x): %v", err)
-	}
+	})
 	kY := setupTestKB(t)
-	if err := multi.MountKBWithPrefix("kb-y", "", func(s *Server) {
+	multi.MountKB("kb-y", func(s *Server) {
 		RegisterKBTools(s, kY, Deps{})
-	}); err != nil {
-		t.Fatalf("MountKBWithPrefix(kb-y): %v", err)
-	}
+	})
 	ts := auth.NewScopedTokenStore([]auth.ScopedToken{
 		{Token: "x-tok", Policy: auth.Policy{Permissions: []auth.Permission{
 			{KB: "kb-x", Write: true, Maps: []string{"manutenzione"}, Types: []string{"Runbook"}},

@@ -334,30 +334,6 @@ func TestConceptBatch_VisibleUnderAgentAndFullProfile(t *testing.T) {
 	}
 }
 
-// TestConceptBatch_PrefixedNaming verifies concept_batch is reachable and
-// correctly listed under a configured multi-KB tool-name prefix
-// (D125 WP3, D318), the same shape as TestServer_ToolsProfile_Prefixed.
-func TestConceptBatch_PrefixedNaming(t *testing.T) {
-	k := setupTestKB(t)
-	s := New("test")
-	s.SetToolNamePrefix("engteam")
-	RegisterKBTools(s, k, Deps{})
-	s.SetToolsProfile("agent")
-
-	resps := runMCPSequence(t, s, []string{toolsListBody})
-	names := toolNamesFromToolsList(t, resps[0])
-	if _, ok := names["engteam__concept_batch"]; !ok {
-		t.Error("engteam__concept_batch must be listed under the agent profile (D318)")
-	}
-
-	callResp := runMCPSequence(t, s, []string{initMsg, artifactCallMsg(t, 2, "engteam__concept_batch", map[string]any{
-		"operations": []map[string]any{{"op": "write", "id": "batch/prefixed", "frontmatter": map[string]any{"type": "Note"}, "body": "x"}},
-	})})
-	if tr := decodeToolResult(t, callResp[1]); tr.IsError {
-		t.Fatalf("prefixed concept_batch call: %+v", tr.Content)
-	}
-}
-
 // --- helpers ---
 
 func readHash(t *testing.T, k *kb.KB, id string) string {

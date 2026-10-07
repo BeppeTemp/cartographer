@@ -196,7 +196,6 @@ func (m *MultiKBServer) uiListKBs(w http.ResponseWriter, r *http.Request) {
 		Name         string                  `json:"name"`
 		Status       string                  `json:"status"`
 		Ready        bool                    `json:"ready"`
-		ToolPrefix   string                  `json:"tool_prefix,omitempty"`
 		Capabilities map[string]KBCapability `json:"capabilities,omitempty"`
 		// Artifacts says whether this principal may open the Artifacts
 		// panel: they are whole-KB resources (D238).
@@ -212,7 +211,6 @@ func (m *MultiKBServer) uiListKBs(w http.ResponseWriter, r *http.Request) {
 			Name:         info.Name,
 			Status:       info.Status,
 			Ready:        info.Status == "normal",
-			ToolPrefix:   info.ToolPrefix,
 			Capabilities: info.Capabilities,
 			Artifacts:    uiArtifactsVisible(ctx, srv.kbRef),
 		})
