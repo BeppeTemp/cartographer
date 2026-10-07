@@ -30,6 +30,7 @@ import { TopBar } from "./components/TopBar";
 import { applyTheme, onSystemThemeChange, prefersReducedMotion, readTheme, useAppliedTheme, type Theme } from "./lib/theme";
 import { initialMotion } from "./lib/graph3d/motion";
 import { hasWebGL } from "./lib/webgl";
+import { useLiveRevision } from "./lib/live";
 import { snapshotCommunities, type Communities } from "./lib/communities";
 import { readColorBy, writeColorBy, type ColorBy } from "./lib/palette";
 import { pushView, readViewState, replaceView, type ViewState } from "./lib/viewstate";
@@ -98,6 +99,7 @@ export function App() {
   const [notice, setNotice] = useState<string>("");
   const [offline, setOffline] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
+  const loadedConcept = useRef<string | null>(null);
   const [colorBy, setColorBy] = useState<ColorBy>(readColorBy);
   const narrow = useMediaQuery(NARROW_QUERY);
   const [sheet, setSheet] = useState<SheetName>(null);
@@ -243,6 +245,9 @@ export function App() {
   // cannot let a stale response overwrite a newer one. ---
 
   const activeKB = view.kb;
+  // Bumps when the KB changes under the open page (D336): every data effect
+  // below lists it, so the views refetch in place without a reload.
+  const live = useLiveRevision(activeKB, phase === "ready");
 
   useEffect(() => {
     if (!activeKB || phase !== "ready") return;
@@ -257,7 +262,7 @@ export function App() {
         if (!handleFailure(err)) setOverview(null);
       });
     return () => controller.abort();
-  }, [activeKB, phase, handleFailure, reloadKey]);
+  }, [activeKB, phase, handleFailure, reloadKey, live]);
 
   useEffect(() => {
     if (!activeKB || phase !== "ready") return;
@@ -277,18 +282,22 @@ export function App() {
         if (!controller.signal.aborted) setGraphLoading(false);
       });
     return () => controller.abort();
-  }, [activeKB, view.scope, phase, handleFailure, reloadKey]);
+  }, [activeKB, view.scope, phase, handleFailure, reloadKey, live]);
 
   useEffect(() => {
     if (!activeKB || !view.concept || phase !== "ready") {
+      loadedConcept.current = null;
       setConcept(null);
       setConceptError(null);
       return;
     }
     const controller = new AbortController();
-    setConceptLoading(true);
-    fetchConcept(activeKB, view.concept, controller.signal)
+    // A live refetch of the concept already shown keeps it on screen.
+    if (loadedConcept.current !== view.concept) setConceptLoading(true);
+    const id = view.concept;
+    fetchConcept(activeKB, id, controller.signal)
       .then((data) => {
+        loadedConcept.current = id;
         setConcept(data);
         setConceptError(null);
       })
@@ -303,7 +312,7 @@ export function App() {
         if (!controller.signal.aborted) setConceptLoading(false);
       });
     return () => controller.abort();
-  }, [activeKB, view.concept, phase, handleFailure]);
+  }, [activeKB, view.concept, phase, handleFailure, live]);
 
   useEffect(() => {
     if (!activeKB || phase !== "ready") return;
@@ -324,7 +333,7 @@ export function App() {
         if (!controller.signal.aborted) setLintLoading(false);
       });
     return () => controller.abort();
-  }, [activeKB, severityMin, view.scope, phase, handleFailure, reloadKey]);
+  }, [activeKB, severityMin, view.scope, phase, handleFailure, reloadKey, live]);
 
   // Artifacts are whole-KB resources (D238): a principal that cannot see the
   // whole KB gets no panel, and a link to one falls back to the atlas.
@@ -350,7 +359,7 @@ export function App() {
         if (!controller.signal.aborted) setArtifactsLoading(false);
       });
     return () => controller.abort();
-  }, [activeKB, artifactsAllowed, phase, handleFailure, reloadKey]);
+  }, [activeKB, artifactsAllowed, phase, handleFailure, reloadKey, live]);
   useEffect(() => {
     if (view.panel !== "artifacts" || !activeKB || kbs.length === 0 || artifactsAllowed) return;
     const next = { ...view, panel: "atlas" as const, artifact: null };
@@ -359,14 +368,16 @@ export function App() {
   }, [view, activeKB, kbs, artifactsAllowed]);
 
   useEffect(() => {
-    setKbStatus(null);
-    if (view.panel !== "observatory" || !activeKB || phase !== "ready") return;
+    if (view.panel !== "observatory" || !activeKB || phase !== "ready") {
+      setKbStatus(null);
+      return;
+    }
     const controller = new AbortController();
     fetchStatus(activeKB, controller.signal)
       .then(setKbStatus)
       .catch(() => undefined);
     return () => controller.abort();
-  }, [view.panel, activeKB, phase, reloadKey]);
+  }, [view.panel, activeKB, phase, reloadKey, live]);
 
   // --- Derived view ---
 
@@ -592,13 +603,14 @@ export function App() {
           ) : view.panel === "activity" && activeKB ? (
             <Activity
               kb={activeKB}
+              live={live}
               snapshot={snapshot}
               onOpen={(conceptId) => navigate({ panel: "atlas", concept: conceptId })}
             />
           ) : view.panel === "work" && activeKB ? (
-            <Work kb={activeKB} onOpen={(conceptId) => navigate({ panel: "atlas", concept: conceptId })} />
+            <Work kb={activeKB} live={live} onOpen={(conceptId) => navigate({ panel: "atlas", concept: conceptId })} />
           ) : view.panel === "maintenance" && activeKB ? (
-            <Maintenance kb={activeKB} onOpen={(conceptId) => navigate({ panel: "atlas", concept: conceptId })} />
+            <Maintenance kb={activeKB} live={live} onOpen={(conceptId) => navigate({ panel: "atlas", concept: conceptId })} />
           ) : view.panel === "observatory" ? (
             <Observatory
               report={lint}

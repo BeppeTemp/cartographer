@@ -12,9 +12,11 @@ const WINDOWS = ["1d", "7d", "30d"] as const;
 export function Activity({
   kb,
   snapshot,
+  live = 0,
   onOpen,
 }: {
   kb: string;
+  live?: number;
   snapshot: GraphSnapshot | null;
   onOpen(conceptId: string): void;
 }) {
@@ -23,10 +25,15 @@ export function Activity({
   const [data, setData] = useState<ChangesResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  // A new KB or window starts blank; a live refetch (D336) keeps what is
+  // on screen until the fresh answer replaces it.
   useEffect(() => {
-    const controller = new AbortController();
     setData(null);
     setError(null);
+  }, [kb, since]);
+
+  useEffect(() => {
+    const controller = new AbortController();
     fetchChanges(kb, since, controller.signal)
       .then(setData)
       .catch((err: unknown) => {
@@ -34,7 +41,7 @@ export function Activity({
         setError(err instanceof Error ? err.message : String(err));
       });
     return () => controller.abort();
-  }, [kb, since]);
+  }, [kb, since, live]);
 
   const titles = useMemo(
     () => new Map((snapshot?.nodes ?? []).filter((n) => n.title).map((n) => [n.id, n.title!])),

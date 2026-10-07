@@ -9,7 +9,7 @@ type Layout = "status" | "map";
  * and unchecked items in any concept. A read-only view of `work_list`: work
  * changes through the agents' ordinary write tools, so there is no drag here.
  */
-export function Work({ kb, onOpen }: { kb: string; onOpen(conceptId: string): void }) {
+export function Work({ kb, live = 0, onOpen }: { kb: string; live?: number; onOpen(conceptId: string): void }) {
   const [data, setData] = useState<WorkResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [layout, setLayout] = useState<Layout>("status");
@@ -18,10 +18,15 @@ export function Work({ kb, onOpen }: { kb: string; onOpen(conceptId: string): vo
   const [staleOnly, setStaleOnly] = useState(false);
   const [text, setText] = useState("");
 
+  // A new KB or window starts blank; a live refetch (D336) keeps what is
+  // on screen until the fresh answer replaces it.
   useEffect(() => {
-    const controller = new AbortController();
     setData(null);
     setError(null);
+  }, [kb]);
+
+  useEffect(() => {
+    const controller = new AbortController();
     fetchWork(kb, controller.signal)
       .then(setData)
       .catch((err: unknown) => {
@@ -29,7 +34,7 @@ export function Work({ kb, onOpen }: { kb: string; onOpen(conceptId: string): vo
         setError(err instanceof Error ? err.message : String(err));
       });
     return () => controller.abort();
-  }, [kb]);
+  }, [kb, live]);
 
   const entries = useMemo(() => {
     const needle = text.trim().toLowerCase();

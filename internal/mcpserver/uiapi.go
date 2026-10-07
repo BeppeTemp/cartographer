@@ -142,6 +142,8 @@ func (m *MultiKBServer) handleUIAPI(w http.ResponseWriter, r *http.Request) {
 		uiChanges(w, r, srv)
 	case "status":
 		uiStatus(w, r, srv)
+	case "revision":
+		uiRevision(w, r, k)
 	case "work":
 		uiWork(w, r, srv)
 	case "maintenance":

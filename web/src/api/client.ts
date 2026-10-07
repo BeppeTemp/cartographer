@@ -174,6 +174,11 @@ export function fetchMaintenanceQuestions(kb: string, signal?: AbortSignal): Pro
   return get<MaintenanceQuestions>(`/kbs/${encodeURIComponent(kb)}/maintenance/questions`, signal);
 }
 
+/** An opaque token that changes whenever the KB's concepts do (D336). */
+export function fetchRevision(kb: string, signal?: AbortSignal): Promise<{ revision: string }> {
+  return get<{ revision: string }>(`/kbs/${encodeURIComponent(kb)}/revision`, signal);
+}
+
 export function fetchStatus(kb: string, signal?: AbortSignal): Promise<KBStatus> {
   return get<KBStatus>(`/kbs/${encodeURIComponent(kb)}/status`, signal);
 }

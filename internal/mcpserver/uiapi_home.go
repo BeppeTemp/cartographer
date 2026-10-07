@@ -5,6 +5,9 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
+
+	"github.com/BeppeTemp/cartographer/internal/kb"
 )
 
 // The Atlas's reader routes (D286): the reader's questions — find a concept, see what
@@ -143,4 +146,27 @@ func uiWork(w http.ResponseWriter, r *http.Request, srv *Server) {
 	})
 	res, err := tool.Handler(r.Context(), args)
 	uiRelay(w, "work", res, err)
+}
+
+// uiRevisionBoot prefixes every revision: the graph generation restarts at 1
+// with the process, so a server restarted across a change could otherwise
+// hand back the very value the page already holds.
+var uiRevisionBoot = strconv.FormatInt(time.Now().UnixNano(), 36)
+
+// GET /kbs/{kb}/revision — an opaque token that changes whenever a concept
+// file is added, removed or edited, by this server or out of band (a pull, an
+// editor): the Atlas polls it to know when to reload (D336). It counts changes
+// anywhere in the KB, so a narrowed principal would learn when a hidden
+// collection moves: like /status it is only for a caller that sees all of it.
+func uiRevision(w http.ResponseWriter, r *http.Request, k *kb.KB) {
+	if !WholeVisible(r.Context(), k, false) {
+		writeUINotFound(w)
+		return
+	}
+	gen, err := k.GraphGeneration()
+	if err != nil {
+		writeUIInternal(w, "revision", err)
+		return
+	}
+	writeUIJSON(w, http.StatusOK, map[string]string{"revision": uiRevisionBoot + "-" + strconv.FormatUint(gen, 10)})
 }

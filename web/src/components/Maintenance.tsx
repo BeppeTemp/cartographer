@@ -9,19 +9,24 @@ import type { MaintenanceQuestions, MaintenanceRun, MaintenanceSummary } from ".
  * question answered, from an agent session or the CLI, so each row carries the
  * text to copy rather than a button that acts.
  */
-export function Maintenance({ kb, onOpen }: { kb: string; onOpen(conceptId: string): void }) {
+export function Maintenance({ kb, live = 0, onOpen }: { kb: string; live?: number; onOpen(conceptId: string): void }) {
   const [summary, setSummary] = useState<MaintenanceSummary | null>(null);
   const [questions, setQuestions] = useState<MaintenanceQuestions | null>(null);
   const [summaryError, setSummaryError] = useState<string | null>(null);
   const [questionsError, setQuestionsError] = useState<string | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
 
+  // A new KB or window starts blank; a live refetch (D336) keeps what is
+  // on screen until the fresh answer replaces it.
   useEffect(() => {
-    const controller = new AbortController();
     setSummary(null);
     setQuestions(null);
     setSummaryError(null);
     setQuestionsError(null);
+  }, [kb]);
+
+  useEffect(() => {
+    const controller = new AbortController();
     const fail = (set: (m: string) => void) => (err: unknown) => {
       if (err instanceof DOMException && err.name === "AbortError") return;
       set(err instanceof Error ? err.message : String(err));
@@ -29,7 +34,7 @@ export function Maintenance({ kb, onOpen }: { kb: string; onOpen(conceptId: stri
     fetchMaintenanceSummary(kb, controller.signal).then(setSummary).catch(fail(setSummaryError));
     fetchMaintenanceQuestions(kb, controller.signal).then(setQuestions).catch(fail(setQuestionsError));
     return () => controller.abort();
-  }, [kb]);
+  }, [kb, live]);
 
   async function copy(key: string, text: string) {
     try {

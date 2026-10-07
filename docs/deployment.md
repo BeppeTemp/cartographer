@@ -437,6 +437,13 @@ script and no eval. `web.enabled: false` registers neither route.
 
 Stdio mode never serves the UI, whatever the setting says.
 
+An open Atlas follows the KB live (D336): while the tab is visible it asks
+`/api/ui/v1/kbs/<kb>/revision` every ten seconds and, when the answer changes,
+refetches the open view in place — graph, concept, findings and lists — without
+a reload or a blank frame. A hidden tab does not poll and checks once on
+return. A caller that cannot see the whole KB gets no revision, so its Atlas
+does not refresh by itself.
+
 Behind an SSO reverse proxy that protects `/ui` and `/api/ui` only (leave `/mcp`
 on bearer auth) and injects a read-only bearer, the Atlas opens without the token
 prompt. The UI sends same-origin cookies so the proxy session reaches the API

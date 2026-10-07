@@ -153,3 +153,36 @@ func TestUIAPI_WorkFiltersLikeTheTool(t *testing.T) {
 		t.Fatalf("bad include: %d", rr.Code)
 	}
 }
+
+func TestUIAPI_RevisionMovesOnAnOutOfBandEdit(t *testing.T) {
+	k := uiFixtureKB(t, "docs")
+	ts := auth.NewScopedTokenStore([]auth.ScopedToken{
+		{Token: "whole", Policy: auth.Policy{Permissions: []auth.Permission{{KB: "docs"}}}},
+		{Token: "narrow", Policy: auth.Policy{Permissions: []auth.Permission{{KB: "docs", Maps: []string{"visible"}}}}},
+	})
+	multi := NewMultiKBServer("test")
+	multi.MountKB("docs", func(s *Server) { RegisterKBTools(s, k, Deps{MCPAllowlist: []provisioning.MCPAllowlistEntry{}}) })
+	multi.EnableWeb(nil)
+	handler := ts.Middleware(multi.Handler())
+
+	// A narrowed reader would learn when a hidden Map moves.
+	if rr := getUI(t, handler, UIAPIPrefix+"/kbs/docs/revision", "narrow"); rr.Code != http.StatusNotFound {
+		t.Fatalf("narrow revision: %d, want 404", rr.Code)
+	}
+	revision := func() string {
+		t.Helper()
+		return decodeUI(t, getUI(t, handler, UIAPIPrefix+"/kbs/docs/revision", "whole"))["revision"].(string)
+	}
+	before := revision()
+	if again := revision(); again != before {
+		t.Fatalf("revision moved with nothing changed: %q → %q", before, again)
+	}
+	// A pull or an editor writes behind the server's back.
+	page := "---\ntype: Topic\ntitle: Pulled\n---\nArrived with a git pull.\n"
+	if err := os.WriteFile(filepath.Join(k.DataRoot(), "visible", "pulled.md"), []byte(page), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if after := revision(); after == before {
+		t.Fatalf("revision did not move after an out-of-band edit: %q", after)
+	}
+}

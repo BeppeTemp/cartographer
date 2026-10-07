@@ -284,6 +284,9 @@ toolchain (D227). What they hold:
 - Markdown from a concept body renders inert — a raw `<script>` and an
   `onerror` attribute must not survive;
 - the bearer token reaches neither `localStorage` nor a URL;
+- the live refresh bumps only when the KB revision changes, stops for good on a
+  `404` (a narrowed principal has no revision) and never polls while disabled
+  (D336);
 - the graph layout is deterministic for identical input, and the community
   colouring reads the server's communities (D244), which are deterministic
   themselves: the same KB state paints the same node the same colour;
