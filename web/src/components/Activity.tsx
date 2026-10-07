@@ -107,6 +107,64 @@ export function Activity({
       </header>
 
       <div className="timeline__body" data-loading={loading && data !== null}>
+        {data && all.length > 0 && (
+          <div className="timeline__band" aria-label="Summary and filters" role="region">
+            <section className="timeline__facet timeline__summary">
+              <dl className="timeline__stats">
+                <Stat label="concepts" value={rows.length} />
+                <Stat label="new" value={added} />
+                <Stat label="removed" value={deleted} />
+                <Stat label={data.commit_count === 1 ? "commit" : "commits"} value={data.commit_count} />
+              </dl>
+              {histogram.length > 1 && <DayBars bars={histogram} />}
+            </section>
+
+            <section className="timeline__facet" aria-labelledby="timeline-where">
+              <h2 id="timeline-where" className="timeline__facet-title">Where</h2>
+              <div className="timeline__mapbar" aria-hidden="true">
+                {maps.map(([name, count]) => (
+                  <span
+                    key={name}
+                    className="timeline__mapseg"
+                    data-dim={map !== null && map !== name}
+                    style={{ flexGrow: count, "--map": collectionVar(name) } as CSSProperties}
+                  />
+                ))}
+              </div>
+              <ul className="timeline__rows timeline__rows--two" aria-label="Filter by Map">
+                {maps.map(([name, count]) => (
+                  <li key={name}>
+                    <FacetRow
+                      label={mapTitles.get(name) ?? name}
+                      count={count}
+                      pressed={map === name}
+                      hue={collectionVar(name)}
+                      mark={<span className="timeline__swatch" aria-hidden="true" />}
+                      onToggle={() => setMap(map === name ? null : name)}
+                    />
+                  </li>
+                ))}
+              </ul>
+            </section>
+
+            <section className="timeline__facet" aria-labelledby="timeline-who">
+              <h2 id="timeline-who" className="timeline__facet-title">Who</h2>
+              <ul className="timeline__rows" aria-label="Filter by author">
+                {authors.map(([name, count]) => (
+                  <li key={name}>
+                    <FacetRow
+                      label={name}
+                      count={count}
+                      pressed={author === name}
+                      mark={<Avatar name={name} />}
+                      onToggle={() => setAuthor(author === name ? null : name)}
+                    />
+                  </li>
+                ))}
+              </ul>
+            </section>
+          </div>
+        )}
         <div className="timeline__main">
           {error ? (
             <p className="activity__note">Could not read the history: {error}</p>
@@ -150,66 +208,6 @@ export function Activity({
           )}
         </div>
 
-        {data && all.length > 0 && (
-          <aside className="timeline__aside" aria-label="Summary and filters">
-            <section className="timeline__facet timeline__summary">
-              <dl className="timeline__stats">
-                <Stat label="concepts" value={rows.length} />
-                <Stat label="new" value={added} />
-                <Stat label="removed" value={deleted} />
-                <Stat label={data.commit_count === 1 ? "commit" : "commits"} value={data.commit_count} />
-              </dl>
-              {histogram.length > 1 && <DayBars bars={histogram} />}
-            </section>
-
-            <section className="timeline__facet" aria-labelledby="timeline-where">
-              <h2 id="timeline-where" className="timeline__facet-title">Where</h2>
-              <div className="timeline__mapbar" aria-hidden="true">
-                {maps.map(([name, count]) => (
-                  <span
-                    key={name}
-                    className="timeline__mapseg"
-                    data-dim={map !== null && map !== name}
-                    style={{ flexGrow: count, "--map": collectionVar(name) } as CSSProperties}
-                  />
-                ))}
-              </div>
-              <ul className="timeline__rows" aria-label="Filter by Map">
-                {maps.map(([name, count]) => (
-                  <li key={name}>
-                    <FacetRow
-                      label={mapTitles.get(name) ?? name}
-                      count={count}
-                      total={all.length}
-                      pressed={map === name}
-                      hue={collectionVar(name)}
-                      mark={<span className="timeline__swatch" aria-hidden="true" />}
-                      onToggle={() => setMap(map === name ? null : name)}
-                    />
-                  </li>
-                ))}
-              </ul>
-            </section>
-
-            <section className="timeline__facet" aria-labelledby="timeline-who">
-              <h2 id="timeline-who" className="timeline__facet-title">Who</h2>
-              <ul className="timeline__rows" aria-label="Filter by author">
-                {authors.map(([name, count]) => (
-                  <li key={name}>
-                    <FacetRow
-                      label={name}
-                      count={count}
-                      total={all.length}
-                      pressed={author === name}
-                      mark={<Avatar name={name} />}
-                      onToggle={() => setAuthor(author === name ? null : name)}
-                    />
-                  </li>
-                ))}
-              </ul>
-            </section>
-          </aside>
-        )}
       </div>
     </section>
   );
@@ -229,28 +227,31 @@ function Entry({
   const [first, ...more] = c.reasons ?? [];
   return (
     <li className="timeline__entry" style={{ "--map": collectionVar(mapOf(c)) } as CSSProperties}>
-      <span className="timeline__node" aria-hidden="true" />
-      <button type="button" className="timeline__card" onClick={() => onOpen(c.id)} disabled={c.change === "deleted"}>
-        <span className="timeline__card-head">
-          <span className="timeline__map">{mapTitle}</span>
-          <ChangeBadge change={c.change} />
-          <time className="timeline__time" dateTime={c.last_at} title={new Date(c.last_at).toLocaleString()}>
-            {clock(c.last_at)}
-          </time>
+      <button type="button" className="timeline__item" onClick={() => onOpen(c.id)} disabled={c.change === "deleted"}>
+        <time className="timeline__time" dateTime={c.last_at} title={new Date(c.last_at).toLocaleString()}>
+          {clock(c.last_at)}
+        </time>
+        <span className="timeline__track" aria-hidden="true">
+          <span className="timeline__node" />
         </span>
-        <span className="timeline__title">{title}</span>
-        {first && (
-          <span className="timeline__reason" title={c.reasons!.join("\n")}>
-            {first}
-            {more.length > 0 && <span className="timeline__more"> +{more.length} more</span>}
+        <span className="timeline__item-body">
+          <span className="timeline__item-head">
+            <span className="timeline__title">{title}</span>
+            <span className="timeline__map">{mapTitle}</span>
+            <ChangeBadge change={c.change} />
           </span>
-        )}
+          {first && (
+            <span className="timeline__reason" title={c.reasons!.join("\n")}>
+              {first}
+              {more.length > 0 && <span className="timeline__more"> +{more.length}</span>}
+            </span>
+          )}
+        </span>
         {c.authors?.length ? (
-          <span className="timeline__authors">
+          <span className="timeline__authors" aria-label={`By ${c.authors.join(", ")}`}>
             {c.authors.map((a) => (
-              <span key={a} className="timeline__author">
+              <span key={a} title={a}>
                 <Avatar name={a} />
-                {a}
               </span>
             ))}
           </span>
@@ -271,11 +272,10 @@ function ChangeBadge({ change }: { change: string }) {
   );
 }
 
-/** One filter row: a mark, a name, a count and a bar of its share. */
+/** One filter row: a mark, a name and a count. */
 function FacetRow({
   label,
   count,
-  total,
   pressed,
   hue,
   mark,
@@ -283,7 +283,6 @@ function FacetRow({
 }: {
   label: string;
   count: number;
-  total: number;
   pressed: boolean;
   hue?: string;
   mark: ReactNode;
@@ -300,9 +299,6 @@ function FacetRow({
       {mark}
       <span className="timeline__row-name">{label}</span>
       <span className="timeline__row-count">{count}</span>
-      <span className="timeline__row-bar" aria-hidden="true">
-        <span style={{ width: `${(count / Math.max(1, total)) * 100}%` }} />
-      </span>
     </button>
   );
 }

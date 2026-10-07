@@ -484,15 +484,15 @@ tab lists links by title — *Links to*, *Linked from*, and *Used by* for the
 artifacts that reference the concept.
 
 The **Activity** panel is `changes_since` for the reader: the concepts changed
-in the last day, week or month (up to 500), as a timeline grouped by the day
-each one last changed, newest first, every entry marked with its Map's colour,
-its kind of change, its authors and the reasons the writes recorded. A summary
-column beside the timeline, sticky while the days scroll (above it on a
-narrow screen), counts the concepts, additions, removals and commits, draws one
-bar per day of the window, and offers *Where* (a bar split by Map, one row per
-Map) and *Who* (one row per author), each row with its share, as filters. Changing the
-window keeps the current answer on screen, dimmed, until the new one arrives.
-An entry opens the concept on the atlas.
+in the last day, week or month (up to 500). A band across the top counts the
+concepts, additions, removals and commits with one bar per day of the window,
+and offers *Where* (a bar split by Map, one row per Map) and *Who* (one row per
+author) as filters. Below it the timeline groups the concepts by the day each
+one last changed, newest first, one row each on a rail in its Map's colour:
+time, title, Map, the kind of change when it is not a plain edit, the first
+recorded reason and the authors. Changing the window keeps the current answer
+on screen, dimmed, until the new one arrives. A row opens the concept on the
+atlas.
 
 The **Work** panel is `work_list` for the reader (D302): open-phase concepts and
 unchecked items, filterable by map, status, staleness and free text, grouped by
