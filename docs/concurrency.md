@@ -124,7 +124,10 @@ name of an environment variable holding a token. On mount Cartographer fetches
 refuses dirty, detached, ambiguous, mismatched or shared-working-branch checkouts.
 The `origin` path must exactly match the configured `github_owner/github_repository`
 for both HTTPS and SSH remotes (credentials are never logged). The base branch is
-never a push target.
+never a push target. The profile is resolved per KB (`kbs[].git_profile`, then
+`git.profile`); an unknown profile, a missing field, a forge other than `github` or
+an empty token variable stops startup naming the KB — a server never falls back to
+direct pushes when it was asked for a review boundary.
 
 Each successful server-profile push creates or reuses exactly one open PR from the
 working branch to the base. `pr_status` and `sync_status` expose the non-secret PR
