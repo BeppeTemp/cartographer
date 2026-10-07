@@ -230,7 +230,7 @@ func TestKBStatus_IncludesUsage(t *testing.T) {
 		}
 		return m.Usage
 	}
-	if u := status(); u["scanner_enabled"] != false || u["no_data"] != true {
+	if u := status(); u["scanner_enabled"] != false || u["no_data"] != true || u["no_report_since"] != processStartedAt {
 		t.Fatalf("no reports: usage = %v", u)
 	}
 	if _, err := k.MergeUsage([]kb.UsageEntry{
