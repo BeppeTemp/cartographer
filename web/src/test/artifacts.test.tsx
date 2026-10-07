@@ -44,21 +44,25 @@ describe("the Artifacts panel", () => {
     const panel = await screen.findByRole("region", { name: "Artifacts" });
     expect(window.location.search).toContain("panel=artifacts");
 
-    const groups = within(panel).getAllByRole("heading", { level: 2 }).map((h) => h.textContent);
-    expect(groups).toEqual(["Skills1", "Subagents1", "Templates1"]);
+    const nav = within(panel).getByRole("navigation", { name: "Artifacts by kind" });
+    const groups = within(nav).getAllByRole("heading", { level: 2 }).map((h) => h.textContent);
+    expect(groups).toEqual(["Skills 1", "Subagents 1", "Templates 1"]);
+    // Nothing selected: the other side sums the KB's artifacts up.
+    expect(within(panel).getByRole("region", { name: "Artifacts overview" })).toBeInTheDocument();
 
     await user.type(within(panel).getByRole("searchbox", { name: "Filter artifacts" }), "sorts");
-    expect(within(panel).queryByRole("button", { name: /review/ })).not.toBeInTheDocument();
-    expect(within(panel).getByRole("button", { name: /triage/ })).toBeInTheDocument();
+    expect(within(nav).queryByRole("button", { name: /review/ })).not.toBeInTheDocument();
+    expect(within(nav).getByRole("button", { name: /triage/ })).toBeInTheDocument();
     await user.clear(within(panel).getByRole("searchbox", { name: "Filter artifacts" }));
 
-    await user.click(within(panel).getByRole("button", { name: /review/ }));
+    await user.click(within(nav).getByRole("button", { name: /review/ }));
     await waitFor(() => expect(window.location.search).toContain("artifact=skill%2Freview"));
     const detail = await screen.findByRole("article", { name: "Artifact skill/review" });
     expect(within(detail).getByText("Signed")).toBeInTheDocument();
     expect(within(detail).getByText("Codex CLI")).toBeInTheDocument();
-    // Frontmatter as rows, the body as Markdown.
-    expect(within(detail).getByRole("rowheader", { name: "description" })).toBeInTheDocument();
+    // The body as Markdown; frontmatter the header already shows is not said twice.
+    expect(within(detail).queryByRole("rowheader", { name: "description" })).not.toBeInTheDocument();
+    expect(within(detail).getAllByText("Reviews a change")).toHaveLength(1);
     expect(within(detail).getByRole("heading", { name: "Review steps" })).toBeInTheDocument();
 
     await user.click(within(detail).getByRole("tab", { name: "logo.bin" }));

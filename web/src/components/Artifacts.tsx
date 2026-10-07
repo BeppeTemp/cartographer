@@ -3,6 +3,7 @@ import { fetchArtifact } from "../api/client";
 import type { Artifact, ArtifactFile, ArtifactFinding, ArtifactList } from "../api/types";
 import { readWidth, writeWidth } from "../lib/panels";
 import { Markdown } from "./Markdown";
+import { Count, Facet, Stats } from "./Page";
 import { SeverityBadge } from "./SeverityBadge";
 import { Splitter } from "./Splitter";
 import { EmptyState, ErrorState, Skeleton } from "./States";
@@ -128,11 +129,11 @@ export function Artifacts({
   }
 
   const listPane = (
-    <div id="artifact-list" className="artifacts__list">
+    <nav id="artifact-list" className="artifacts__list" aria-label="Artifacts by kind">
       <header className="artifacts__intro">
-        <p className="observatory__eyebrow">Artifacts</p>
-        <h1 className="artifacts__title">
-          {list.artifacts.length} artifact{list.artifacts.length === 1 ? "" : "s"} ship with this KB
+        <p className="page__eyebrow">Artifacts</p>
+        <h1 className="page__title">
+          <Count>{list.artifacts.length}</Count> artifact{list.artifacts.length === 1 ? "" : "s"} ship with this KB
         </h1>
       </header>
       <FindingSummary list={list} />
@@ -154,9 +155,8 @@ export function Artifacts({
       {groups.length === 0 && <p className="rail__empty">No artifact matches this filter.</p>}
       {groups.map((group) => (
         <section key={group.kind} className="artifacts__group" aria-label={group.title}>
-          <h2 className="observatory__group-title">
-            {group.title}
-            <span className="observatory__group-count">{list.counts[group.kind] ?? group.items.length}</span>
+          <h2 className="artifacts__group-title">
+            {group.title} <span className="page-section__count">{list.counts[group.kind] ?? group.items.length}</span>
           </h2>
           <ul className="artifacts__items">
             {group.items.map((a) => {
@@ -169,17 +169,18 @@ export function Artifacts({
                     aria-current={selected === id ? "true" : undefined}
                     onClick={() => onSelect(id)}
                   >
-                    <span className="artifacts__item-name">
-                      {a.name}
+                    <span className="artifacts__item-head">
+                      <span className="artifacts__item-name">{a.name}</span>
                       {!!a.findings?.length && (
-                        <>
-                          {" "}
-                          <SeverityBadge severity={worstSeverity(a.findings)} count={a.findings.length} />
-                        </>
+                        <SeverityBadge severity={worstSeverity(a.findings)} count={a.findings.length} />
                       )}
+                      <LastUsed artifact={a} />
                     </span>
-                    {a.description && <span className="artifacts__item-desc">{a.description}</span>}
-                    <LastUsed artifact={a} />
+                    {a.description && (
+                      <span className="artifacts__item-desc" title={a.description}>
+                        {a.description}
+                      </span>
+                    )}
                   </button>
                 </li>
               );
@@ -187,7 +188,7 @@ export function Artifacts({
           </ul>
         </section>
       ))}
-    </div>
+    </nav>
   );
 
   const detail = selected ? (
@@ -203,9 +204,7 @@ export function Artifacts({
       onFilterType={onFilterType}
     />
   ) : (
-    <div className="artifacts__placeholder">
-      <p className="state__detail">Select an artifact to read its files.</p>
-    </div>
+    <Overview list={list} onSelect={onSelect} />
   );
 
   if (narrow) {
@@ -300,7 +299,7 @@ function ArtifactDetail({
     <article className="artifacts__detail" aria-label={`Artifact ${id}`}>
       {back}
       <header className="artifacts__head">
-        <p className="observatory__eyebrow">{artifact.kind}</p>
+        <p className="page__eyebrow">{artifact.kind}</p>
         <h2 className="artifacts__name">{artifact.name}</h2>
         {artifact.description && <p className="artifacts__desc">{artifact.description}</p>}
         <dl className="artifacts__meta">
@@ -412,7 +411,7 @@ function ArtifactDetail({
             <code>{current.path}</code> · {formatBytes(current.size)}
             {current.executable && " · executable"}
           </p>
-          <FileContent file={current} />
+          <FileContent file={current} known={{ name: artifact.name, description: artifact.description ?? "" }} />
         </div>
       )}
       {!!artifact.findings?.length && (
@@ -452,18 +451,23 @@ function splitFrontmatter(text: string): { fields: [string, string][]; body: str
   return { fields, body: text.slice(m[0].length) };
 }
 
-function FileContent({ file }: { file: ArtifactFile }) {
+/**
+ * A file's content. Frontmatter fields the header already shows (name,
+ * description) are left out of the table rather than said twice.
+ */
+function FileContent({ file, known = {} }: { file: ArtifactFile; known?: Record<string, string> }) {
   if (file.binary) return <p className="artifacts__notice">Binary file — not shown.</p>;
   if (file.truncated) return <p className="artifacts__notice">Larger than 256 KiB — not shown.</p>;
   const text = file.content ?? "";
   if (!file.path.endsWith(".md")) return <pre className="artifacts__pre">{text}</pre>;
   const split = splitFrontmatter(text);
+  const fields = (split?.fields ?? []).filter(([key, value]) => known[key] === undefined || known[key] !== value);
   return (
     <>
-      {split && split.fields.length > 0 && (
+      {fields.length > 0 && (
         <table className="artifacts__frontmatter">
           <tbody>
-            {split.fields.map(([key, value], i) => (
+            {fields.map(([key, value], i) => (
               <tr key={`${key}-${i}`}>
                 <th scope="row">{key}</th>
                 <td>{value}</td>
@@ -495,5 +499,71 @@ function FindingSummary({ list }: { list: ArtifactList }) {
         — {total} finding{total === 1 ? "" : "s"} across artifacts
       </span>
     </p>
+  );
+}
+
+/**
+ * What the KB ships, before anything is selected: how many of each kind, how
+ * the skills and agents are used, and what needs a look — so the empty side
+ * of the panel answers something instead of asking for a click.
+ */
+function Overview({ list, onSelect }: { list: ArtifactList; onSelect(id: string): void }) {
+  const tracked = list.artifacts.filter((a) => lastUsed(a) !== null);
+  const used = tracked
+    .filter((a) => a.last_used_days_ago != null && !a.last_used_catalog_only)
+    .sort((a, b) => (a.last_used_days_ago ?? 0) - (b.last_used_days_ago ?? 0));
+  const idle = tracked.filter((a) => {
+    const tone = lastUsed(a)?.tone;
+    return tone === "never" || tone === "stale";
+  });
+  const flagged = list.artifacts.filter((a) => a.findings?.length);
+  const chip = (a: Artifact, extra?: string) => (
+    <li key={artifactId(a)}>
+      <button type="button" className="chip" onClick={() => onSelect(artifactId(a))}>
+        {a.name}
+        {extra && <span className="chip__count">{extra}</span>}
+      </button>
+    </li>
+  );
+  return (
+    <div className="artifacts__overview" aria-label="Artifacts overview" role="region">
+      <Facet title="Shipped" id="artifacts-shipped">
+        <Stats
+          items={KINDS.filter(([kind]) => (list.counts[kind] ?? 0) > 0).map(([kind, title]) => ({
+            label: title.toLowerCase(),
+            value: list.counts[kind] ?? 0,
+          }))}
+        />
+      </Facet>
+      {tracked.length > 0 && (
+        <Facet title="In use" id="artifacts-used">
+          {used.length === 0 ? (
+            <p className="page-note">No skill or agent has a recorded use yet.</p>
+          ) : (
+            <ul className="artifacts__chips" aria-label="Recently used">
+              {used.slice(0, 10).map((a) => chip(a, a.last_used_days_ago === 0 ? "today" : `${a.last_used_days_ago}d`))}
+            </ul>
+          )}
+        </Facet>
+      )}
+      {idle.length > 0 && (
+        <Facet title={`Idle · ${idle.length}`} id="artifacts-idle">
+          <p className="page-note artifacts__overview-note">
+            Never used, or not in the last {STALE_DAYS} days: candidates to improve or retire.
+          </p>
+          <ul className="artifacts__chips" aria-label="Idle artifacts">
+            {idle.map((a) => chip(a))}
+          </ul>
+        </Facet>
+      )}
+      {flagged.length > 0 && (
+        <Facet title="Findings" id="artifacts-flagged">
+          <ul className="artifacts__chips" aria-label="Artifacts with findings">
+            {flagged.map((a) => chip(a, String(a.findings!.length)))}
+          </ul>
+        </Facet>
+      )}
+      <p className="page-note artifacts__overview-note">Select an artifact to read its files.</p>
+    </div>
   );
 }
