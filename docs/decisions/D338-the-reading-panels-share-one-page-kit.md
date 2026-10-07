@@ -12,8 +12,10 @@ answer up — large figures, a chart where there is a series, filters as pills
 and a Map bar; sections of dense rows without a box around them, with row actions shown on hover or focus; and a one-line,
 positive note where a list would be empty. The pages share one width (1,360px),
 mark rows with their Map's colour, and keep the previous answer on screen,
-dimmed, while a new one loads. Artifacts keeps its two-pane layout but uses the
-same header, counts and chips.
+dimmed, while a new one loads. Artifacts is a catalog page of the same kit —
+header, kind filters in the hero, a section of tiles per kind — and opens an
+artifact in a panel beside it, the way the atlas opens a concept. No glow and no
+decorative shadow: colour, glyphs and hairlines carry the emphasis.
 
 **Why.** Each panel had grown its own header, width, list style and empty state:
 880px columns beside full-width boards, bordered grey boxes, serif headings on

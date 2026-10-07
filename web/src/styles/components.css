@@ -1828,77 +1828,26 @@ body.is-resizing {
    selected artifact's metadata and files. The list width is the viewer's,
    set with the same splitter as the reading panel (D239). */
 
+/* --- Artifacts: a catalog page, the detail opening beside it (D338) --- */
+
 .artifacts {
   display: grid;
-  grid-template-columns: var(--artifacts-list-width) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
   width: 100%;
   min-height: 0;
   overflow: hidden;
 }
 
-.artifacts--narrow {
-  grid-template-columns: minmax(0, 1fr);
+.artifacts--open {
+  grid-template-columns: minmax(0, 1fr) minmax(420px, 46%);
 }
 
-.artifacts__side {
-  position: relative;
+.artifacts > .page {
   min-height: 0;
-  border-inline-end: 1px solid var(--border-subtle);
-}
-
-.artifacts__list {
-  height: 100%;
-  padding: 0 var(--space-4) var(--space-8);
-  overflow-y: auto;
-}
-
-/* Title, search and kind stay put while the list scrolls under them. */
-.artifacts__controls {
-  position: sticky;
-  top: 0;
-  z-index: 1;
-  display: grid;
-  gap: var(--space-3);
-  margin-inline: calc(-1 * var(--space-4));
-  margin-block-end: var(--space-3);
-  padding: var(--space-6) var(--space-4) var(--space-3);
-  background: var(--surface-0);
-  border-block-end: 1px solid var(--border-subtle);
-}
-
-.artifacts__kinds {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-1);
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.artifacts--narrow .artifacts__list {
-  height: auto;
-}
-
-.artifacts__intro {
-  display: grid;
-  gap: var(--space-1);
-}
-
-.artifacts__group-title {
-  display: flex;
-  align-items: baseline;
-  gap: var(--space-2);
-  margin: 0 0 var(--space-1);
-  padding-inline: var(--space-3);
-  font-size: var(--text-xs);
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--text-muted);
 }
 
 .artifacts__issues {
-  margin: 0 0 var(--space-4);
+  margin: 0 0 var(--space-6);
   padding: var(--space-3) var(--space-4);
   font-size: var(--text-xs);
   color: var(--sev-warning);
@@ -1907,60 +1856,154 @@ body.is-resizing {
   list-style: none;
 }
 
-.artifacts__filter {
-  width: 100%;
+.artifacts__health {
+  color: var(--text-muted);
 }
 
-.artifacts__group + .artifacts__group {
-  margin-block-start: var(--space-4);
+.kind-mark {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  font-size: 11px;
+  line-height: 1;
+  color: var(--kind);
+  background: color-mix(in srgb, var(--kind) 16%, transparent);
+  border-radius: var(--radius-small);
 }
 
-.artifacts__items {
+.catalog__group + .catalog__group {
+  margin-block-start: var(--space-8);
+}
+
+.catalog__group-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-1) var(--space-3);
+  margin-block-end: var(--space-3);
+}
+
+.catalog__group-title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.catalog__about {
+  margin: 0;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+.catalog__tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: var(--space-3);
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
-.artifacts__item {
+/* A tile: the name, two lines of what it does, where it goes. Its kind's
+   colour is a hairline on top, never a fill. */
+.catalog__tile {
   display: grid;
-  gap: 2px;
+  grid-template-rows: auto 1fr auto;
+  gap: var(--space-2);
   width: 100%;
-  padding: var(--space-2) var(--space-3);
+  height: 100%;
+  min-height: 96px;
+  padding: var(--space-3) var(--space-4);
   font: inherit;
-  text-align: start;
   color: inherit;
-  background: transparent;
-  border: 0;
-  border-radius: var(--radius-control);
+  text-align: start;
   cursor: pointer;
-  transition: background-color var(--motion-fast) var(--ease-out);
+  background: var(--surface-1);
+  border: 1px solid var(--border-subtle);
+  border-block-start: 2px solid color-mix(in srgb, var(--kind) 70%, transparent);
+  border-radius: var(--radius-card);
+  transition:
+    border-color var(--motion-fast) var(--ease-out),
+    background var(--motion-fast) var(--ease-out),
+    transform var(--motion-fast) var(--ease-out);
 }
 
-.artifacts__item:hover,
-.artifacts__item[aria-current="true"] {
+.catalog__tile:hover {
   background: var(--surface-2);
+  border-color: var(--border-strong);
+  border-block-start-color: var(--kind);
+  transform: translateY(-1px);
 }
 
-.artifacts__item-head {
+.catalog__tile[aria-current="true"] {
+  background: var(--surface-2);
+  border-color: var(--kind);
+}
+
+.catalog__tile:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.catalog__tile-head {
   display: flex;
-  flex-wrap: wrap;
   align-items: baseline;
-  gap: var(--space-1) var(--space-2);
+  justify-content: space-between;
+  gap: var(--space-2);
+  min-width: 0;
 }
 
-.artifacts__item-head .artifacts__used {
-  margin-inline-start: auto;
-}
-
-.artifacts__item-name {
+.catalog__tile-name {
+  overflow: hidden;
   font-size: var(--text-sm);
   font-weight: 600;
   color: var(--text-primary);
-  overflow-wrap: anywhere;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.artifacts__item[aria-current="true"] {
-  box-shadow: inset 2px 0 0 var(--primary);
+.catalog__tile-desc {
+  display: -webkit-box;
+  overflow: hidden;
+  font-size: var(--text-xs);
+  line-height: var(--leading-normal);
+  color: var(--text-muted);
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+}
+
+.catalog__tile-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+.artifacts__findings {
+  margin-top: var(--space-3);
+  font-size: var(--text-sm);
+}
+
+.artifacts__findings ul {
+  display: grid;
+  gap: var(--space-2);
+  margin: var(--space-2) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* One line in the list; the full text is the tooltip and the detail. */
+.artifacts__used {
+  margin-inline-start: auto;
 }
 
 .artifacts__health {
@@ -1980,15 +2023,6 @@ body.is-resizing {
   margin: var(--space-2) 0 0;
   padding: 0;
   list-style: none;
-}
-
-/* One line in the list; the full text is the tooltip and the detail. */
-.artifacts__item-desc {
-  overflow: hidden;
-  font-size: var(--text-xs);
-  color: var(--text-muted);
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 /* Last used (D326): the words carry the meaning, the colour only echoes it. */
@@ -2011,67 +2045,40 @@ body.is-resizing {
 }
 
 .artifacts__detail {
+  border-inline-start: 1px solid var(--border-subtle);
+  background: var(--surface-0);
   min-width: 0;
   min-height: 0;
   padding: var(--space-6) var(--space-6) var(--space-12);
   overflow-y: auto;
 }
 
-.artifacts__overview {
+.artifacts__close {
+  position: sticky;
+  top: 0;
+  float: right;
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: var(--space-4);
-  align-content: start;
-  min-width: 0;
-  min-height: 0;
-  padding: var(--space-6) var(--space-6) var(--space-12);
-  overflow-y: auto;
-}
-
-.artifacts__overview-lead {
-  grid-column: 1 / -1;
-  margin: 0;
-  font-size: var(--text-sm);
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  font: inherit;
+  font-size: var(--text-lg);
+  line-height: 1;
   color: var(--text-muted);
-}
-
-.artifacts__overview > .quiet {
-  grid-column: 1 / -1;
-  margin: 0;
-}
-
-.artifacts__facet-note {
-  margin: 0 0 var(--space-2);
-}
-
-.artifacts__chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-1);
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-/* The overview is a map, not a wall of cards: open sections under a
-   hairline, names as light links. */
-.artifacts__overview .facet {
-  padding: var(--space-3) 0 0;
-  background: none;
-  border: 0;
-  border-block-start: 1px solid var(--border-subtle);
-  border-radius: 0;
-}
-
-.artifacts__chips .chip {
-  color: var(--text-secondary);
+  cursor: pointer;
   background: var(--surface-1);
-  border-color: transparent;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-control);
 }
 
-.artifacts__chips .chip:hover {
+.artifacts__close:hover {
   color: var(--text-primary);
   border-color: var(--border-strong);
+}
+
+.artifacts__close:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
 }
 
 .artifacts__back {
@@ -2245,12 +2252,6 @@ body.is-resizing {
 
 .artifacts__client {
   color: var(--text-primary);
-}
-
-/* Folded, a count that is not a finding is left out rather than drawn as the
-   alarm-coloured dot the Health badge uses. */
-.rail--collapsed .rail__badge--neutral {
-  display: none;
 }
 
 /* --- Chips that report a state --- */

@@ -1,11 +1,9 @@
-import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import { fetchArtifact } from "../api/client";
 import type { Artifact, ArtifactFile, ArtifactFinding, ArtifactList } from "../api/types";
-import { readWidth, writeWidth } from "../lib/panels";
 import { Markdown } from "./Markdown";
-import { Count, Facet, Quiet } from "./Page";
+import { Count, FilterChip, FilterChips, Hero, HeroRow, Page, PageHeader } from "./Page";
 import { SeverityBadge } from "./SeverityBadge";
-import { Splitter } from "./Splitter";
 import { EmptyState, ErrorState, Skeleton } from "./States";
 
 /** What each kind is, said once where the overview introduces it. */
@@ -28,9 +26,27 @@ const KINDS: [string, string][] = [
   ["template", "Templates"],
 ];
 
-const LIST_DEFAULT = 320;
-const LIST_MIN = 240;
-const LIST_MAX = 560;
+/** Each kind's mark: a glyph and a fixed hue from the wheel, so a kind is
+ *  recognised at a glance on its tile, its filter and its detail. */
+const KIND_MARK: Record<string, { glyph: string; hue: string }> = {
+  skill: { glyph: "◆", hue: "var(--hue-1)" },
+  agent: { glyph: "◉", hue: "var(--hue-3)" },
+  hook: { glyph: "↯", hue: "var(--hue-2)" },
+  mcp: { glyph: "⌁", hue: "var(--hue-8)" },
+  instructions: { glyph: "¶", hue: "var(--hue-5)" },
+  template: { glyph: "▢", hue: "var(--hue-4)" },
+};
+
+function KindMark({ kind }: { kind: string }) {
+  const mark = KIND_MARK[kind] ?? { glyph: "•", hue: "var(--text-muted)" };
+  return (
+    <span className="kind-mark" aria-hidden="true" style={{ "--kind": mark.hue } as CSSProperties}>
+      {mark.glyph}
+    </span>
+  );
+}
+
+type Slice = "used" | "idle" | "flagged" | null;
 
 export const artifactId = (a: Pick<Artifact, "kind" | "name">) => `${a.kind}/${a.name}`;
 
@@ -110,29 +126,28 @@ export function Artifacts({
   // One kind at a time, or all of them: a KB with twenty skills must not make
   // its two hooks a scroll away.
   const [kind, setKind] = useState<string | null>(null);
-  const [width, setWidth] = useState(() =>
-    Math.min(LIST_MAX, Math.max(LIST_MIN, readWidth("artifacts.width", LIST_DEFAULT))),
-  );
-  const commitWidth = useCallback((px: number) => {
-    setWidth(px);
-    writeWidth("artifacts.width", px);
-  }, []);
+  const [slice, setSlice] = useState<Slice>(null);
 
+  const all = useMemo(() => list?.artifacts ?? [], [list]);
+  // "never used" on every tile says nothing when no use was ever reported
+  // (no client scanner): the subtitle says it once instead.
+  const anyUse = all.some((a) => !!a.last_used);
+  const inSlice = (a: Artifact, sl: Slice) => {
+    const tone = lastUsed(a)?.tone;
+    if (sl === "used") return tone === "active" || tone === "normal";
+    if (sl === "idle") return tone === "never" || tone === "stale";
+    if (sl === "flagged") return !!a.findings?.length;
+    return true;
+  };
   const groups = useMemo(() => {
     const needle = filter.trim().toLowerCase();
     const match = (a: Artifact) =>
-      !needle || a.name.toLowerCase().includes(needle) || (a.description ?? "").toLowerCase().includes(needle);
+      (!needle || a.name.toLowerCase().includes(needle) || (a.description ?? "").toLowerCase().includes(needle)) &&
+      inSlice(a, slice);
     return KINDS.filter(([k]) => kind === null || k === kind)
-      .map(([k, title]) => ({
-        kind: k,
-        title,
-        items: (list?.artifacts ?? []).filter((a) => a.kind === k && match(a)),
-      }))
+      .map(([k, title]) => ({ kind: k, title, items: all.filter((a) => a.kind === k && match(a)) }))
       .filter((g) => g.items.length > 0);
-  }, [list, filter, kind]);
-  // "never used" on every row says nothing when no use was ever reported (no
-  // client scanner): the overview says it once instead.
-  const anyUse = (list?.artifacts ?? []).some((a) => !!a.last_used);
+  }, [all, filter, kind, slice]);
 
   if (loading && !list) return <Skeleton lines={6} label="Loading artifacts" />;
   if (error) return <ErrorState error={error} onRetry={onRetry} />;
@@ -146,44 +161,74 @@ export function Artifacts({
     );
   }
 
-  const listPane = (
-    <nav id="artifact-list" className="artifacts__list" aria-label="Artifacts by kind">
-      <div className="artifacts__controls">
-        <header className="artifacts__intro">
-          <p className="page__eyebrow">Artifacts</p>
-          <h1 className="page__title">
-            <Count>{list.artifacts.length}</Count> artifact{list.artifacts.length === 1 ? "" : "s"} ship with this KB
-          </h1>
-          <FindingSummary list={list} />
-        </header>
-        <input
-          className="input artifacts__filter"
-          type="search"
-          placeholder="Filter by name or description"
-          aria-label="Filter artifacts"
-          value={filter}
-          onChange={(e) => setFilter(e.target.value)}
-        />
-        <ul className="artifacts__kinds" aria-label="Show kind">
-          <li>
-            <button type="button" className="chip" aria-pressed={kind === null} onClick={() => setKind(null)}>
-              All <span className="chip__count">{list.artifacts.length}</span>
-            </button>
-          </li>
-          {KINDS.filter(([k]) => (list.counts[k] ?? 0) > 0).map(([k, title]) => (
-            <li key={k}>
-              <button
-                type="button"
-                className="chip"
-                aria-pressed={kind === k}
-                onClick={() => setKind(kind === k ? null : k)}
-              >
-                {title} <span className="chip__count">{list.counts[k]}</span>
-              </button>
-            </li>
-          ))}
-        </ul>
-      </div>
+  // When every artifact of a kind goes to the same clients, the kind's
+  // header says it once instead of every tile.
+  const sharedClients = (items: Artifact[]) =>
+    new Set(items.map((a) => a.clients.map((c) => c.id).sort().join(","))).size === 1
+      ? (items[0]?.clients.length ?? 0)
+      : null;
+  const count = (sl: Slice) => all.filter((a) => inSlice(a, sl)).length;
+  const slices: [Slice, string, number][] = (
+    [
+      ["used", "Recently used", anyUse ? count("used") : 0],
+      ["idle", "Idle", anyUse ? count("idle") : 0],
+      ["flagged", "With findings", count("flagged")],
+    ] as [Slice, string, number][]
+  ).filter(([, , n]) => n > 0);
+
+  const catalog = (
+    <Page label="Artifact catalog" className="catalog">
+      <PageHeader
+        eyebrow="Artifacts"
+        title={
+          <>
+            <Count>{all.length}</Count> artifact{all.length === 1 ? "" : "s"} ship with this KB.
+          </>
+        }
+        subtitle={
+          <>
+            <FindingSummary list={list} />
+            {!anyUse && all.some((a) => lastUsed(a) !== null) && " · no client has reported a use yet"}
+          </>
+        }
+        actions={
+          <input
+            className="page-search"
+            type="search"
+            placeholder="Filter by name or description"
+            aria-label="Filter artifacts"
+            value={filter}
+            onChange={(e) => setFilter(e.target.value)}
+          />
+        }
+      />
+      <Hero label="Filters">
+        <HeroRow label="Kind">
+          <FilterChips label="Show kind">
+            <FilterChip label="All" count={all.length} pressed={kind === null} onToggle={() => setKind(null)} />
+            {KINDS.filter(([k]) => (list.counts[k] ?? 0) > 0).map(([k, title]) => (
+              <FilterChip
+                key={k}
+                label={title}
+                count={list.counts[k] ?? 0}
+                pressed={kind === k}
+                hue={KIND_MARK[k]?.hue}
+                mark={<KindMark kind={k} />}
+                onToggle={() => setKind(kind === k ? null : k)}
+              />
+            ))}
+          </FilterChips>
+        </HeroRow>
+        {slices.length > 0 && (
+          <HeroRow label="Show">
+            <FilterChips label="Show only">
+              {slices.map(([sl, label, n]) => (
+                <FilterChip key={sl} label={label} count={n} pressed={slice === sl} onToggle={() => setSlice(slice === sl ? null : sl)} />
+              ))}
+            </FilterChips>
+          </HeroRow>
+        )}
+      </Hero>
       {list.issues.length > 0 && (
         <ul className="artifacts__issues" aria-label="Artifacts left out">
           {list.issues.map((issue) => (
@@ -191,43 +236,68 @@ export function Artifacts({
           ))}
         </ul>
       )}
-      {groups.length === 0 && <p className="rail__empty">No artifact matches this filter.</p>}
-      {groups.map((group) => (
-        <section key={group.kind} className="artifacts__group" aria-label={group.title}>
-          <h2 className="artifacts__group-title">
-            {group.title} <span className="page-section__count">{list.counts[group.kind] ?? group.items.length}</span>
-          </h2>
-          <ul className="artifacts__items">
-            {group.items.map((a) => {
-              const id = artifactId(a);
-              return (
-                <li key={id}>
-                  <button
-                    type="button"
-                    className="artifacts__item"
-                    aria-current={selected === id ? "true" : undefined}
-                    onClick={() => onSelect(id)}
-                  >
-                    <span className="artifacts__item-head">
-                      <span className="artifacts__item-name">{a.name}</span>
-                      {!!a.findings?.length && (
-                        <SeverityBadge severity={worstSeverity(a.findings)} count={a.findings.length} />
-                      )}
-                      {anyUse && <LastUsed artifact={a} />}
-                    </span>
-                    {a.description && (
-                      <span className="artifacts__item-desc" title={a.description}>
-                        {a.description}
-                      </span>
-                    )}
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
-        </section>
-      ))}
-    </nav>
+      <nav id="artifact-list" aria-label="Artifacts by kind">
+        {groups.length === 0 && <p className="page-note">No artifact matches these filters.</p>}
+        {groups.map((group) => {
+          const shared = sharedClients(group.items);
+          return (
+            <section key={group.kind} className="catalog__group" aria-label={group.title}>
+              <header className="catalog__group-head">
+                <h2 className="catalog__group-title">
+                  <KindMark kind={group.kind} />
+                  {group.title} <span className="page-section__count">{list.counts[group.kind] ?? group.items.length}</span>
+                </h2>
+                <p className="catalog__about">
+                  {KIND_ABOUT[group.kind]}
+                  {shared !== null &&
+                    (shared === 0 ? " Kept in the KB, synced to no client." : ` Synced to ${shared} client${shared === 1 ? "" : "s"}.`)}
+                </p>
+              </header>
+              <ul className="catalog__tiles">
+                {group.items.map((a) => {
+                  const id = artifactId(a);
+                  return (
+                    <li key={id}>
+                      <button
+                        type="button"
+                        className="catalog__tile"
+                        aria-current={selected === id ? "true" : undefined}
+                        style={{ "--kind": KIND_MARK[a.kind]?.hue } as CSSProperties}
+                        onClick={() => onSelect(selected === id ? null : id)}
+                      >
+                        <span className="catalog__tile-head">
+                          <span className="catalog__tile-name">{a.name}</span>
+                          {!!a.findings?.length && (
+                            <SeverityBadge severity={worstSeverity(a.findings)} count={a.findings.length} />
+                          )}
+                        </span>
+                        {a.description && (
+                          <span className="catalog__tile-desc" title={a.description}>
+                            {a.description}
+                          </span>
+                        )}
+                        {(shared === null || anyUse) && (
+                          <span className="catalog__tile-foot">
+                            {shared === null && (
+                              <span>
+                                {a.clients.length === 0
+                                  ? "stays in the KB"
+                                  : `${a.clients.length} client${a.clients.length === 1 ? "" : "s"}`}
+                              </span>
+                            )}
+                            {anyUse && <LastUsed artifact={a} />}
+                          </span>
+                        )}
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            </section>
+          );
+        })}
+      </nav>
+    </Page>
   );
 
   const detail = selected ? (
@@ -235,40 +305,28 @@ export function Artifacts({
       key={`${kb}:${selected}`}
       kb={kb}
       id={selected}
-      onBack={narrow ? () => onSelect(null) : undefined}
+      narrow={narrow}
+      onClose={() => onSelect(null)}
       onFailure={onFailure}
       titleOf={titleOf}
       typeCount={typeCount}
       onOpenConcept={onOpenConcept}
       onFilterType={onFilterType}
     />
-  ) : (
-    <Overview list={list} onSelect={onSelect} onKind={setKind} />
-  );
+  ) : null;
 
   if (narrow) {
-    return <section className="artifacts artifacts--narrow" aria-label="Artifacts">{selected ? detail : listPane}</section>;
+    return (
+      <section className="artifacts artifacts--narrow" aria-label="Artifacts">
+        {selected ? detail : catalog}
+      </section>
+    );
   }
+  // The detail opens beside the catalog, like the atlas's reading panel
+  // beside the graph: the catalog stays where the reader left it.
   return (
-    <section
-      className="artifacts"
-      aria-label="Artifacts"
-      style={{ "--artifacts-list-width": `${width}px` } as CSSProperties}
-    >
-      <div className="artifacts__side">
-        {listPane}
-        <Splitter
-          value={width}
-          min={LIST_MIN}
-          max={LIST_MAX}
-          defaultValue={LIST_DEFAULT}
-          edge="end"
-          controls="artifact-list"
-          label="Resize artifact list"
-          onChange={setWidth}
-          onCommit={commitWidth}
-        />
-      </div>
+    <section className={selected ? "artifacts artifacts--open" : "artifacts"} aria-label="Artifacts">
+      {catalog}
       {detail}
     </section>
   );
@@ -277,7 +335,8 @@ export function Artifacts({
 function ArtifactDetail({
   kb,
   id,
-  onBack,
+  narrow,
+  onClose,
   onFailure,
   titleOf,
   typeCount,
@@ -286,7 +345,8 @@ function ArtifactDetail({
 }: {
   kb: string;
   id: string;
-  onBack?: () => void;
+  narrow: boolean;
+  onClose(): void;
   onFailure(err: unknown): boolean;
   titleOf(id: string): string | undefined;
   typeCount(type: string): number;
@@ -311,9 +371,13 @@ function ArtifactDetail({
     return () => controller.abort();
   }, [kb, id, onFailure]);
 
-  const back = onBack && (
-    <button type="button" className="button artifacts__back" onClick={onBack}>
+  const back = narrow ? (
+    <button type="button" className="button artifacts__back" onClick={onClose}>
       Back to artifacts
+    </button>
+  ) : (
+    <button type="button" className="artifacts__close" aria-label="Close the artifact" title="Close" onClick={onClose}>
+      ×
     </button>
   );
   if (error) {
@@ -338,7 +402,10 @@ function ArtifactDetail({
     <article className="artifacts__detail" aria-label={`Artifact ${id}`}>
       {back}
       <header className="artifacts__head">
-        <p className="page__eyebrow">{artifact.kind}</p>
+        <p className="page__eyebrow">
+          <KindMark kind={artifact.kind} />
+          {artifact.kind}
+        </p>
         <h2 className="artifacts__name">{artifact.name}</h2>
         {artifact.description && <p className="artifacts__desc">{artifact.description}</p>}
         {/* The facts in one line of pills, the clients as a sentence: a
@@ -583,9 +650,9 @@ function FileContent({ file, known = {} }: { file: ArtifactFile; known?: Record<
 function FindingSummary({ list }: { list: ArtifactList }) {
   const bySeverity = list.finding_severities ?? {};
   const total = Object.values(bySeverity).reduce((a, b) => a + b, 0);
-  if (total === 0) return <p className="artifacts__health">No artifact findings.</p>;
+  if (total === 0) return <span className="artifacts__health">No artifact findings</span>;
   return (
-    <p className="artifacts__health">
+    <span className="artifacts__health">
       {SEVERITIES.filter((s) => (bySeverity[s] ?? 0) > 0).map((s, i) => (
         <span key={s}>
           {i > 0 && <span aria-hidden="true"> · </span>}
@@ -596,92 +663,6 @@ function FindingSummary({ list }: { list: ArtifactList }) {
         {" "}
         — {total} finding{total === 1 ? "" : "s"} across artifacts
       </span>
-    </p>
-  );
-}
-
-/**
- * Before anything is selected, the other side answers what the list cannot:
- * which skills and agents are used, which sit idle, and which carry findings —
- * each a way into its artifact. The counts per kind are on the list's own
- * filter, so they are not repeated here.
- */
-function Overview({
-  list,
-  onSelect,
-  onKind,
-}: {
-  list: ArtifactList;
-  onSelect(id: string): void;
-  onKind(kind: string): void;
-}) {
-  const tracked = list.artifacts.filter((a) => lastUsed(a) !== null);
-  const anyUse = tracked.some((a) => !!a.last_used);
-  const used = tracked
-    .filter((a) => a.last_used_days_ago != null && !a.last_used_catalog_only)
-    .sort((a, b) => (a.last_used_days_ago ?? 0) - (b.last_used_days_ago ?? 0));
-  const idle = tracked.filter((a) => {
-    const tone = lastUsed(a)?.tone;
-    return tone === "never" || tone === "stale";
-  });
-  const flagged = list.artifacts.filter((a) => a.findings?.length);
-  const chip = (a: Artifact, extra?: string) => (
-    <li key={artifactId(a)}>
-      <button type="button" className="chip" onClick={() => onSelect(artifactId(a))}>
-        {a.name}
-        {extra && <span className="chip__count">{extra}</span>}
-      </button>
-    </li>
-  );
-  const PREVIEW = 8;
-  return (
-    <div className="artifacts__overview" aria-label="Artifacts overview" role="region">
-      <p className="artifacts__overview-lead">Select an artifact to read its files.</p>
-      {KINDS.filter(([k]) => (list.counts[k] ?? 0) > 0).map(([k, title]) => {
-        const items = list.artifacts.filter((a) => a.kind === k);
-        return (
-          <Facet key={k} title={`${title} · ${list.counts[k]}`} id={`artifacts-kind-${k}`} className="artifacts__kind">
-            <p className="page-note artifacts__facet-note">{KIND_ABOUT[k]}</p>
-            <ul className="artifacts__chips" aria-label={title}>
-              {items.slice(0, PREVIEW).map((a) => chip(a))}
-              {items.length > PREVIEW && (
-                <li>
-                  <button type="button" className="chip chip--more" onClick={() => onKind(k)}>
-                    +{items.length - PREVIEW} more
-                  </button>
-                </li>
-              )}
-            </ul>
-          </Facet>
-        );
-      })}
-      {tracked.length > 0 && !anyUse && (
-        <Quiet tone="neutral">No skill or agent use has been reported yet: usage appears once a client reports it.</Quiet>
-      )}
-      {anyUse && (
-        <Facet title={`Recently used · ${used.length}`} id="artifacts-used">
-          <ul className="artifacts__chips" aria-label="Recently used">
-            {used.slice(0, 12).map((a) => chip(a, a.last_used_days_ago === 0 ? "today" : `${a.last_used_days_ago}d`))}
-          </ul>
-        </Facet>
-      )}
-      {anyUse && idle.length > 0 && (
-        <Facet title={`Idle · ${idle.length}`} id="artifacts-idle">
-          <p className="page-note artifacts__facet-note">
-            Never used, or not in the last {STALE_DAYS} days: candidates to improve or retire.
-          </p>
-          <ul className="artifacts__chips" aria-label="Idle artifacts">
-            {idle.map((a) => chip(a))}
-          </ul>
-        </Facet>
-      )}
-      {flagged.length > 0 && (
-        <Facet title={`With findings · ${flagged.length}`} id="artifacts-flagged">
-          <ul className="artifacts__chips" aria-label="Artifacts with findings">
-            {flagged.map((a) => chip(a, String(a.findings!.length)))}
-          </ul>
-        </Facet>
-      )}
-    </div>
+    </span>
   );
 }

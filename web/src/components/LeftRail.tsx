@@ -118,7 +118,7 @@ export function LeftRail({
             <button
               type="button"
               className="rail__panel"
-              aria-label={`Artifacts, ${artifactsTotal}`}
+              aria-label="Artifacts"
               title={collapsed ? "Artifacts" : undefined}
               aria-current={panel === "artifacts" ? "page" : undefined}
               onClick={() => onPanel("artifacts")}
@@ -127,7 +127,6 @@ export function LeftRail({
                 <Icon name="artifacts" />
               </span>
               <span className="rail__label">Artifacts</span>
-              {artifactsTotal > 0 && <span className="rail__badge rail__badge--neutral">{artifactsTotal}</span>}
             </button>
           </li>
         )}

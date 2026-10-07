@@ -57,7 +57,9 @@ for (const viewport of [
         await page.getByRole("button", { name: "Back to artifacts" }).click();
         await expect(page.getByRole("searchbox", { name: "Filter artifacts" })).toBeVisible();
       } else {
-        await expect(page.getByRole("separator", { name: "Resize artifact list" })).toBeVisible();
+        // The detail opens beside the catalog and closes back to it.
+        await page.getByRole("button", { name: "Close the artifact" }).click();
+        await expect(page.getByRole("article", { name: /^Artifact / })).toHaveCount(0);
       }
     });
 

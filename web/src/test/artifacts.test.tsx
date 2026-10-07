@@ -40,22 +40,21 @@ describe("the Artifacts panel", () => {
     stubApi();
     const user = userEvent.setup();
     render(<App />);
-    await user.click(await screen.findByRole("button", { name: "Artifacts, 3" }));
+    await user.click(await screen.findByRole("button", { name: "Artifacts" }));
     const panel = await screen.findByRole("region", { name: "Artifacts" });
     expect(window.location.search).toContain("panel=artifacts");
 
     const nav = within(panel).getByRole("navigation", { name: "Artifacts by kind" });
-    const groups = within(nav).getAllByRole("heading", { level: 2 }).map((h) => h.textContent);
-    expect(groups).toEqual(["Skills 1", "Subagents 1", "Templates 1"]);
-    // Nothing selected: the other side sums the KB's artifacts up.
-    expect(within(panel).getByRole("region", { name: "Artifacts overview" })).toBeInTheDocument();
+    // Each heading carries its kind's mark (aria-hidden) before the words.
+    const heads = () => within(nav).getAllByRole("heading", { level: 2 }).map((h) => h.textContent?.slice(1));
+    expect(heads()).toEqual(["Skills 1", "Subagents 1", "Templates 1"]);
 
     // One kind at a time, without scrolling past the others; pressed again, all.
-    const kinds = within(nav).getByRole("list", { name: "Show kind" });
-    await user.click(within(kinds).getByRole("button", { name: /^Subagents/ }));
-    expect(within(nav).getAllByRole("heading", { level: 2 }).map((h) => h.textContent)).toEqual(["Subagents 1"]);
-    await user.click(within(kinds).getByRole("button", { name: /^Subagents/ }));
-    expect(within(nav).getAllByRole("heading", { level: 2 })).toHaveLength(3);
+    const kinds = within(panel).getByRole("list", { name: "Show kind" });
+    await user.click(within(kinds).getByRole("button", { name: /Subagents/ }));
+    expect(heads()).toEqual(["Subagents 1"]);
+    await user.click(within(kinds).getByRole("button", { name: /Subagents/ }));
+    expect(heads()).toHaveLength(3);
 
     await user.type(within(panel).getByRole("searchbox", { name: "Filter artifacts" }), "sorts");
     expect(within(nav).queryByRole("button", { name: /review/ })).not.toBeInTheDocument();

@@ -521,7 +521,7 @@ gives the worst state in words behind a mark — broken, needs attention,
 questions waiting, or all clear — and the line under it says where the
 findings were looked for, that no question waits when none does, and when the
 doctor comes next. The hero shows the state as a ring (healthy, needs
-attention, waiting on you, broken), the findings by severity (or one line when
+attention, waiting on you, broken; no glow: colour and the glyph carry it), the findings by severity (or one line when
 there are none), the knowledge counts, whether the background repair is on
 (a live dot) and what its last run did, and the doctor's cycle as a track
 from the last session to the next with today on it. Below, only
@@ -556,33 +556,34 @@ and Maintenance links (`panel=observatory`, `panel=maintenance`) open Health.
 
 The **Artifacts** panel, last in the rail, shows what the KB ships to agent
 clients: skills, subagents, hooks, MCP descriptors in the allowlist, the
-curated `instructions.md` and templates, grouped by kind. The title, a text
-filter and one chip per kind (*All*, *Skills 22*, …) stay at the top of the
-list while it scrolls, so any kind is one click away; each row shows its name,
-findings, last use (only once some use has been reported) and the first line
-of its description. Bundled skills are not listed: they belong to the binary.
-Before a selection the other side maps the KB's artifacts: one card per kind
-saying what that kind is, with its first names and a *more* chip that narrows
-the list to it; then the skills and agents used recently, the idle ones (never
-used, or not in the last 42 days) and those with findings, each opening its
-artifact. Selecting one opens its
-description, its signature, content hash and last use as one line of pills,
-the clients sync writes it to as a sentence, and its files: Markdown rendered
-(frontmatter as a light table without the name and description the header
-already shows, list values such as `tools` as chips folded past eight, nested
-values as a folded YAML block), anything else as plain text, a binary or
-over-256-KiB file named but not shown. Skills left out for
-failing validation are listed above. The artifact lint findings (D316, `docs/data-plane.md`
-§Artifact checks) are summarised above the list by severity ("No artifact findings" when clean,
-`finding_counts`/`finding_severities` in `GET …/artifacts`, counting those no listed artifact
-owns), marked on each artifact with its worst severity, and listed in the detail under
-**Findings**. A skill, agent or hook lists the concepts
-it reads, each opening on the atlas; a template offers the atlas filtered to
-the concepts of its type. The selection is in the URL
-(`panel=artifacts&artifact=<kind>/<name>`); the list width is remembered in
-`cartographer.artifacts.width`. The panel exists only for a principal that can
-read the whole KB, since artifacts are whole-KB resources; on a narrow screen
-the list and the detail take turns (D238).
+curated `instructions.md` and templates. It is a catalog page built like the
+others (D338): its title counts the artifacts, the line under it gives the
+artifact findings ("No artifact findings" when clean, `finding_counts`/
+`finding_severities` in `GET …/artifacts`, counting those no listed artifact
+owns) and says when no client has reported a use yet, and a search box filters
+names and descriptions. The hero filters by kind (each with its own mark and
+colour) and, when there is something to show, to the recently used, the idle
+(never used, or not in the last 42 days) or those with findings. Below, each
+kind is a section saying what that kind is — and, when all its artifacts go to
+the same clients, how many — with one tile per artifact: name, worst finding,
+two lines of description, its clients when they differ, and its last use once
+any use has been reported. Bundled skills are not listed: they belong to the
+binary; skills left out for failing validation are listed above the catalog.
+
+Selecting a tile opens the artifact beside the catalog, as the reading panel
+opens beside the atlas, with a close button; on a narrow screen it takes the
+whole width with a way back. The detail gives its description, its signature,
+content hash and last use as one line of pills, the clients sync writes it to
+as a sentence, and its files: Markdown rendered (frontmatter as a light table
+without the name and description the header already shows, list values such
+as `tools` as chips folded past eight, nested values as a folded YAML block),
+anything else as plain text, a binary or over-256-KiB file named but not shown.
+Its findings are listed under **Findings**. A skill, agent or hook lists the
+concepts it reads, each opening on the atlas; a template offers the atlas
+filtered to the concepts of its type. The selection is in the URL
+(`panel=artifacts&artifact=<kind>/<name>`). The panel exists only for a
+principal that can read the whole KB, since artifacts are whole-KB resources
+(D238); the rail entry carries no count.
 
 ### Runtime secrets
 

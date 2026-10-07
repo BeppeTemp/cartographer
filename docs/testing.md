@@ -421,7 +421,7 @@ What it holds, beyond the component tests:
   Health findings revealing their concept or saying there is no node;
   Health's findings scoped by the rail's Map, and its node filters stepping aside;
   Health loading its upkeep schedule and questions (D323, D337); the Artifacts
-  list beside its overview;
+  catalog opening an artifact beside it and closing it;
   the reading panel's splitter (D239, D281): a drag persists across a reload,
   a wider panel keeps its close button at the head's right edge and reframes
   the selection in the strip it now leaves, and the panel stops growing at the

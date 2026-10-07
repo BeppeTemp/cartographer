@@ -143,7 +143,7 @@ test("the hero tour: graph, search, a concept's links, artifacts, health", async
   await beat(page, 600);
 
   // 5. What the KB ships to agents: a skill and the concepts it reads.
-  await page.getByRole("button", { name: /^Artifacts, / }).click();
+  await page.getByRole("button", { name: "Artifacts", exact: true }).click();
   await beat(page, 700);
   await page.getByRole("button", { name: new RegExp(`^${ARTIFACT}\\b`) }).first().click();
   await expect(page.getByText(`skills/${ARTIFACT}/SKILL.md`).first()).toBeVisible();

@@ -152,15 +152,15 @@ test("the reading panel stops growing where its prose stops", async ({ page }) =
 test("the Artifacts panel lists what the KB ships and opens a skill", async ({ page }) => {
   await page.goto(ATLAS);
   await waitForAtlas(page);
-  await page.getByRole("button", { name: /^Artifacts, \d+/ }).click();
+  await page.getByRole("button", { name: "Artifacts", exact: true }).click();
   const panel = page.getByRole("region", { name: "Artifacts" });
   const nav = panel.getByRole("navigation", { name: "Artifacts by kind" });
   await expect(nav.getByRole("heading", { level: 2 })).toHaveText([
-    /^Skills/,
-    /^Subagents/,
-    /^Hooks/,
-    /^Instructions/,
-    /^Templates/,
+    /Skills/,
+    /Subagents/,
+    /Hooks/,
+    /Instructions/,
+    /Templates/,
   ]);
 
   await nav.getByRole("button", { name: /review/ }).click();

@@ -334,9 +334,7 @@
   pointer-events: none;
   background: var(--primary);
   border-radius: var(--radius-pill);
-  box-shadow:
-    0 0 0 3px var(--surface-0),
-    0 0 12px var(--primary);
+  box-shadow: 0 0 0 3px var(--surface-0);
   transition:
     left var(--motion-fast) var(--ease-out),
     top var(--motion-fast) var(--ease-out);
@@ -714,6 +712,34 @@ button.row {
 
 /* --- Activity: each day's changes on a rail coloured by Map --- */
 
+/* Figures and the day area share one line: the summary stays a summary. */
+.timeline__summary {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: var(--space-8);
+  align-items: end;
+}
+
+.timeline__summary .figures__item dd {
+  font-size: var(--text-xl);
+}
+
+.timeline__summary .day-area__plot {
+  height: 56px;
+}
+
+.timeline__summary .day-area__caption {
+  margin-block-end: var(--space-1);
+  font-size: var(--text-xs);
+}
+
+@media (max-width: 900px) {
+  .timeline__summary {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-4);
+  }
+}
+
 .timeline__days {
   margin: 0;
   padding: 0;
@@ -994,7 +1020,6 @@ button.row {
   stroke-width: 8;
   stroke-linecap: round;
   stroke-dasharray: 327 327;
-  filter: drop-shadow(0 0 8px color-mix(in srgb, var(--ring) 55%, transparent));
   animation: ring-draw var(--motion-deliberate) var(--ease-emphasized) both;
 }
 
@@ -1115,9 +1140,7 @@ button.row {
   margin: -6px 0 0 -6px;
   background: var(--primary);
   border-radius: var(--radius-pill);
-  box-shadow:
-    0 0 0 3px var(--surface-0),
-    0 0 10px var(--primary);
+  box-shadow: 0 0 0 3px var(--surface-0);
 }
 
 .health__repair-bar {

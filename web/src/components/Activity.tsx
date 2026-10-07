@@ -123,7 +123,7 @@ export function Activity({
       <div className="page__body" data-loading={loading && data !== null}>
         {data && all.length > 0 && (
           <Hero label="Summary and filters">
-            <div className="timeline__figures">
+            <div className="timeline__summary">
               <Figures
                 items={[
                   { label: "new", value: added, sign: added ? "+" : undefined, tone: added ? "ok" : "muted" },
@@ -132,8 +132,8 @@ export function Activity({
                   { label: authors.length === 1 ? "author" : "authors", value: authors.length },
                 ]}
               />
+              {histogram.length > 1 && <DayArea bars={histogram} />}
             </div>
-            {histogram.length > 1 && <DayArea bars={histogram} />}
             <HeroRow label="Where">
               <MapBar maps={maps} active={map} />
               <FilterChips label="Filter by Map">
