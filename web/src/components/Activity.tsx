@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import { fetchChanges } from "../api/client";
 import type { ChangesResponse, CollectionSummary, ConceptChange, GraphSnapshot } from "../api/types";
 import { collectionVar } from "../lib/palette";
@@ -107,20 +107,61 @@ export function Activity({
       </header>
 
       <div className="timeline__body" data-loading={loading && data !== null}>
-        {data && all.length > 0 && (
-          <div className="timeline__summary">
-            <dl className="timeline__stats">
-              <Stat label="concepts" value={rows.length} />
-              <Stat label="new" value={added} />
-              <Stat label="removed" value={deleted} />
-              <Stat label={data.commit_count === 1 ? "commit" : "commits"} value={data.commit_count} />
-            </dl>
-            {histogram.length > 1 && <DayBars bars={histogram} />}
-          </div>
-        )}
+        <div className="timeline__main">
+          {error ? (
+            <p className="activity__note">Could not read the history: {error}</p>
+          ) : !data ? (
+            <TimelineSkeleton />
+          ) : rows.length === 0 ? (
+            <div className="timeline__empty">
+              <p className="timeline__empty-title">Quiet {shown === "1d" ? "day" : "stretch"}.</p>
+              <p className="activity__note">
+                No concept changed {when(shown)}
+                {author ? ` by ${author}` : ""}.
+              </p>
+            </div>
+          ) : (
+            <ol className="timeline__days">
+              {days.map((day) => (
+                <li key={day.key} className="timeline__day">
+                  <h2 className="timeline__date">
+                    <span>{day.label}</span>
+                    <span className="timeline__date-count">{day.items.length}</span>
+                  </h2>
+                  <ol className="timeline__entries">
+                    {day.items.map((c) => (
+                      <Entry
+                        key={c.id}
+                        change={c}
+                        title={titles.get(c.id) ?? c.id}
+                        mapTitle={mapTitles.get(mapOf(c)) ?? mapOf(c)}
+                        onOpen={onOpen}
+                      />
+                    ))}
+                  </ol>
+                </li>
+              ))}
+            </ol>
+          )}
+          {data?.truncated && (
+            <p className="activity__note activity__foot">
+              Showing the {all.length} most recent changes: narrow the window to see the rest.
+            </p>
+          )}
+        </div>
 
         {data && all.length > 0 && (
-          <div className="timeline__breakdown">
+          <aside className="timeline__aside" aria-label="Summary and filters">
+            <section className="timeline__facet timeline__summary">
+              <dl className="timeline__stats">
+                <Stat label="concepts" value={rows.length} />
+                <Stat label="new" value={added} />
+                <Stat label="removed" value={deleted} />
+                <Stat label={data.commit_count === 1 ? "commit" : "commits"} value={data.commit_count} />
+              </dl>
+              {histogram.length > 1 && <DayBars bars={histogram} />}
+            </section>
+
             <section className="timeline__facet" aria-labelledby="timeline-where">
               <h2 id="timeline-where" className="timeline__facet-title">Where</h2>
               <div className="timeline__mapbar" aria-hidden="true">
@@ -133,85 +174,41 @@ export function Activity({
                   />
                 ))}
               </div>
-              <ul className="timeline__filters" aria-label="Filter by Map">
+              <ul className="timeline__rows" aria-label="Filter by Map">
                 {maps.map(([name, count]) => (
                   <li key={name}>
-                    <button
-                      type="button"
-                      className="chip timeline__mapchip"
-                      aria-pressed={map === name}
-                      style={{ "--map": collectionVar(name) } as CSSProperties}
-                      onClick={() => setMap(map === name ? null : name)}
-                    >
-                      <span className="timeline__swatch" aria-hidden="true" />
-                      {mapTitles.get(name) ?? name}
-                      <span className="chip__count">{count}</span>
-                    </button>
+                    <FacetRow
+                      label={mapTitles.get(name) ?? name}
+                      count={count}
+                      total={all.length}
+                      pressed={map === name}
+                      hue={collectionVar(name)}
+                      mark={<span className="timeline__swatch" aria-hidden="true" />}
+                      onToggle={() => setMap(map === name ? null : name)}
+                    />
                   </li>
                 ))}
               </ul>
             </section>
+
             <section className="timeline__facet" aria-labelledby="timeline-who">
               <h2 id="timeline-who" className="timeline__facet-title">Who</h2>
-              <ul className="timeline__people" aria-label="Filter by author">
+              <ul className="timeline__rows" aria-label="Filter by author">
                 {authors.map(([name, count]) => (
                   <li key={name}>
-                    <button
-                      type="button"
-                      className="timeline__person"
-                      aria-pressed={author === name}
-                      onClick={() => setAuthor(author === name ? null : name)}
-                    >
-                      <Avatar name={name} />
-                      <span className="timeline__person-name">{name}</span>
-                      <span className="timeline__person-count">{count}</span>
-                      <span className="timeline__person-bar" aria-hidden="true">
-                        <span style={{ width: `${(count / Math.max(1, all.length)) * 100}%` }} />
-                      </span>
-                    </button>
+                    <FacetRow
+                      label={name}
+                      count={count}
+                      total={all.length}
+                      pressed={author === name}
+                      mark={<Avatar name={name} />}
+                      onToggle={() => setAuthor(author === name ? null : name)}
+                    />
                   </li>
                 ))}
               </ul>
             </section>
-          </div>
-        )}
-
-        {error ? (
-          <p className="activity__note">Could not read the history: {error}</p>
-        ) : !data ? (
-          <TimelineSkeleton />
-        ) : rows.length === 0 ? (
-          <div className="timeline__empty">
-            <p className="timeline__empty-title">Quiet {since === "1d" ? "day" : "stretch"}.</p>
-            <p className="activity__note">No concept changed {when(since)}{author ? ` by ${author}` : ""}.</p>
-          </div>
-        ) : (
-          <ol className="timeline__days">
-            {days.map((day) => (
-              <li key={day.key} className="timeline__day">
-                <h2 className="timeline__date">
-                  <span>{day.label}</span>
-                  <span className="timeline__date-count">{day.items.length}</span>
-                </h2>
-                <ol className="timeline__entries">
-                  {day.items.map((c) => (
-                    <Entry
-                      key={c.id}
-                      change={c}
-                      title={titles.get(c.id) ?? c.id}
-                      mapTitle={mapTitles.get(mapOf(c)) ?? mapOf(c)}
-                      onOpen={onOpen}
-                    />
-                  ))}
-                </ol>
-              </li>
-            ))}
-          </ol>
-        )}
-        {data?.truncated && (
-          <p className="activity__note activity__foot">
-            Showing the {all.length} most recent changes: narrow the window to see the rest.
-          </p>
+          </aside>
         )}
       </div>
     </section>
@@ -271,6 +268,42 @@ function ChangeBadge({ change }: { change: string }) {
       <span aria-hidden="true">{GLYPH[change] ?? "•"}</span>
       {change}
     </span>
+  );
+}
+
+/** One filter row: a mark, a name, a count and a bar of its share. */
+function FacetRow({
+  label,
+  count,
+  total,
+  pressed,
+  hue,
+  mark,
+  onToggle,
+}: {
+  label: string;
+  count: number;
+  total: number;
+  pressed: boolean;
+  hue?: string;
+  mark: ReactNode;
+  onToggle(): void;
+}) {
+  return (
+    <button
+      type="button"
+      className="timeline__row"
+      aria-pressed={pressed}
+      style={hue ? ({ "--map": hue } as CSSProperties) : undefined}
+      onClick={onToggle}
+    >
+      {mark}
+      <span className="timeline__row-name">{label}</span>
+      <span className="timeline__row-count">{count}</span>
+      <span className="timeline__row-bar" aria-hidden="true">
+        <span style={{ width: `${(count / Math.max(1, total)) * 100}%` }} />
+      </span>
+    </button>
   );
 }
 
