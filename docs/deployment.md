@@ -172,7 +172,9 @@ the destination doesn't already exist** — an existing clone is left untouched:
 directory for clones. A remote that is still empty clones to a branch with no commit, named by the
 host's git (often `master`); with `--init` the KB is pinned to `main` and given its initial commit,
 which the first write pushes as the remote's first branch. From then on writes follow the remote's
-default branch (`concurrency.md` §Git profiles, D264).
+default branch (`concurrency.md` §Git profiles, D264), unless `kbs[].git_branch` names another one
+(D335): a fresh clone is then checked out on that branch, `--init` pins an empty clone to it, and
+the first push creates it on the remote if it is missing. An existing clone is never switched.
 
 `GIT_SSH_COMMAND` for the clone is built from `git.ssh_key`/`git.known_hosts` (`ssh -i <key>
 -o UserKnownHostsFile=<known_hosts> -o StrictHostKeyChecking=yes`); if `GIT_SSH_COMMAND` is already

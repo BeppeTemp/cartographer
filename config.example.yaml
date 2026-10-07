@@ -24,6 +24,8 @@ kbs:
                             # (kb:wiki-kb:*), the clone dir (/data/wiki-kb), and the
                             # git.token_dir/sops.age_key_dir conventions below.
   - path: /data/kb-locale
+    # git_branch: kb-data      # local git profile: write to this branch instead of the
+                               # remote's default one; the first push creates it (D335)
     # artifact_signing_seed: ${CARTOGRAPHER_ARTIFACT_SIGNING_SEED}
     # 32-byte hexadecimal Ed25519 seed from a secret mount; never commit it.
     # mcp_allowlist:             # deny all KB-provided MCP endpoints by default

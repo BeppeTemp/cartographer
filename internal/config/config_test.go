@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 )
@@ -555,5 +556,46 @@ func TestLoadAuditRetention(t *testing.T) {
 	}
 	if cfg.Audit.Log != "/tmp/a.log" || cfg.Audit.KeySeed != "abc" {
 		t.Errorf("Audit = %+v, want log and key_seed kept", cfg.Audit)
+	}
+}
+
+// D335: kbs[].git_branch is loaded, a malformed name fails at load, and the
+// key is refused on a KB whose effective profile is server.
+func TestKBGitBranch(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "c.yaml")
+	if err := os.WriteFile(path, []byte("kbs:\n  - path: /data/kb-a\n    git_branch: team/kb-data\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if got := cfg.KBs[0].GitBranch; got != "team/kb-data" {
+		t.Fatalf("GitBranch = %q", got)
+	}
+	if err := cfg.KBs[0].GitBranchProfileError("local"); err != nil {
+		t.Fatalf("local profile: %v", err)
+	}
+	if err := cfg.KBs[0].GitBranchProfileError("server"); err == nil || !strings.Contains(err.Error(), "git_branch") {
+		t.Fatalf("global server profile: err = %v", err)
+	}
+	spec := KBSpec{Name: "kb-a", GitBranch: "x", GitProfile: "Server"}
+	if err := spec.GitBranchProfileError("local"); err == nil || !strings.Contains(err.Error(), "kb-a") {
+		t.Fatalf("per-KB server profile: err = %v", err)
+	}
+	if err := (KBSpec{GitProfile: "server"}).GitBranchProfileError("server"); err != nil {
+		t.Fatalf("unset key: %v", err)
+	}
+
+	for _, bad := range []string{"HEAD", "-x", "a..b", "a b", "a~1", "x.lock", ".hidden", "a/", "a//b", "a.", "a@{1}", "a:b"} {
+		if ValidateGitBranch(bad) == nil {
+			t.Errorf("ValidateGitBranch(%q) accepted", bad)
+		}
+	}
+	if err := os.WriteFile(path, []byte("kbs:\n  - path: /data/kb-a\n    git_branch: \"a..b\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(path); err == nil || !strings.Contains(err.Error(), "git_branch") {
+		t.Fatalf("Load with a malformed branch: err = %v", err)
 	}
 }

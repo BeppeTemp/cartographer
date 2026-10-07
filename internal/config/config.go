@@ -178,6 +178,13 @@ type KBSpec struct {
 	GitHubAPIURL     string `yaml:"github_api_url,omitempty"`
 	GitHubTokenEnv   string `yaml:"github_token_env,omitempty"`
 
+	// GitBranch is the branch a local-profile KB writes to, in place of the
+	// remote's default branch (D335): the first push creates it on the
+	// remote when it is missing. Empty keeps D264 (follow the remote
+	// default). Not valid with the server profile, which has its own
+	// branch keys; checked by ValidateGitBranch and GitBranchProfileError.
+	GitBranch string `yaml:"git_branch,omitempty"`
+
 	// AllowArtifactWrite enables the artifact_write/artifact_delete MCP tools
 	// (D71) for this KB — writing a provisioning artifact (skill/agent/hook/
 	// mcp) injects instructions a client agent will execute, so the
@@ -411,6 +418,9 @@ func Load(path string) (*Config, error) {
 		if _, err := spec.DoctorAutoIntervalDays(); err != nil {
 			return nil, fmt.Errorf("config: doctor_auto_interval: %w", err)
 		}
+		if err := ValidateGitBranch(spec.GitBranch); err != nil {
+			return nil, fmt.Errorf("config: kbs[] %q: git_branch: %w", firstNonEmptyStr(spec.Name, spec.Remote, spec.Path), err)
+		}
 		if spec.UsageStaleDays != nil && *spec.UsageStaleDays < 0 {
 			return nil, fmt.Errorf("config: usage_stale_days: %d is negative (a number of days, or 0 to disable)", *spec.UsageStaleDays)
 		}
@@ -611,6 +621,62 @@ func ApplyFlags(cfg *Config, o FlagOverrides) {
 	if o.UpdateCheck != nil {
 		cfg.UpdateCheck = *o.UpdateCheck
 	}
+}
+
+// ValidateGitBranch rejects a kbs[].git_branch that git would not accept as a
+// branch name (the rules of `git check-ref-format --branch`), so a typo fails
+// at load instead of at the first push. Empty is valid: the key is unset.
+func ValidateGitBranch(name string) error {
+	if name == "" {
+		return nil
+	}
+	bad := func(why string) error { return fmt.Errorf("%q is not a valid branch name: %s", name, why) }
+	switch {
+	case name == "HEAD" || name == "@":
+		return bad("reserved name")
+	case strings.HasPrefix(name, "-"):
+		return bad("starts with '-'")
+	case strings.HasPrefix(name, "/") || strings.HasSuffix(name, "/") || strings.Contains(name, "//"):
+		return bad("empty path component")
+	case strings.HasSuffix(name, "."):
+		return bad("ends with '.'")
+	case strings.Contains(name, "..") || strings.Contains(name, "@{"):
+		return bad("contains '..' or '@{'")
+	}
+	for _, r := range name {
+		if r < 0x20 || r == 0x7f || strings.ContainsRune(" ~^:?*[\\", r) {
+			return bad(fmt.Sprintf("contains %q", r))
+		}
+	}
+	for _, part := range strings.Split(name, "/") {
+		if strings.HasPrefix(part, ".") || strings.HasSuffix(part, ".lock") {
+			return bad("a component starts with '.' or ends with '.lock'")
+		}
+	}
+	return nil
+}
+
+// GitBranchProfileError reports a kbs[].git_branch set on a KB whose
+// effective git profile is "server" (D335): that profile writes through its
+// own base/working branches, and a third branch key would be ignored.
+func (s KBSpec) GitBranchProfileError(globalProfile string) error {
+	profile := globalProfile
+	if s.GitProfile != "" {
+		profile = normalizeGitProfile(s.GitProfile)
+	}
+	if s.GitBranch != "" && profile == "server" {
+		return fmt.Errorf("kbs[] %q: git_branch is for the local git profile; the server profile uses git_base_branch and git_working_branch", firstNonEmptyStr(s.Name, s.Remote, s.Path))
+	}
+	return nil
+}
+
+func firstNonEmptyStr(vs ...string) string {
+	for _, v := range vs {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 // normalizeGitProfile canonicalizes the profile spelling. It intentionally

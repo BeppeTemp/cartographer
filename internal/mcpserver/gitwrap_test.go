@@ -1161,7 +1161,7 @@ func TestGitWrap_DivergedBranchRefusesWriteAndSyncStatusNamesBranches(t *testing
 		t.Fatalf("remote heads = %q, want main only", out)
 	}
 	status := syncStatus(t, k)
-	if status["state"] != "degraded" || status["branch"] != "feature" || status["remote_default_branch"] != "main" {
+	if status["state"] != "degraded" || status["branch"] != "feature" || status["remote_default_branch"] != "main" || status["branch_source"] != "remote" {
 		t.Fatalf("sync_status = %+v", status)
 	}
 }

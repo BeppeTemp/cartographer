@@ -155,7 +155,13 @@ func gitEnvForKB(spec config.KBSpec, g config.GitConfig, name string) []string {
 // untouched: the existing git-autocommit/git-sync flow handles fetch/push on
 // subsequent writes. env is the per-KB git environment from gitEnvForKB
 // (GIT_SSH_COMMAND, credential.helper, etc.).
-func ensureClonedKB(remote, name, dataDir string, env ...string) (string, error) {
+//
+// branch is kbs[].git_branch (D335): a fresh clone is checked out on it —
+// tracking it when the remote has it, created from the remote's default
+// branch otherwise. The clone of an empty remote is left unborn for
+// kb.InitOnBranch. An existing clone is never switched: SyncIn refuses its
+// writes if it sits on another branch.
+func ensureClonedKB(remote, name, dataDir, branch string, env ...string) (string, error) {
 	if dataDir == "" {
 		return "", fmt.Errorf("remote KB %q requires a data directory to clone into (--data, CARTOGRAPHER_DATA, or data: in the YAML config)", remote)
 	}
@@ -172,8 +178,25 @@ func ensureClonedKB(remote, name, dataDir string, env ...string) (string, error)
 		if err := gitx.Clone(context.Background(), remote, dest, env...); err != nil {
 			return "", fmt.Errorf("clone %s: %w", remote, err)
 		}
+		if err := checkoutConfiguredBranch(dest, branch, env...); err != nil {
+			return "", fmt.Errorf("clone %s: %w", remote, err)
+		}
 	}
 	return dest, nil
+}
+
+// checkoutConfiguredBranch puts a fresh clone on kbs[].git_branch (D335).
+func checkoutConfiguredBranch(dest, branch string, env ...string) error {
+	if branch == "" || gitx.HeadUnborn(dest) {
+		return nil
+	}
+	if current, _ := gitx.Branch(dest); current == branch {
+		return nil
+	}
+	if gitx.RemoteBranchExists(dest, "origin", branch) {
+		return gitx.CheckoutNewBranch(dest, branch, "origin/"+branch, env...)
+	}
+	return gitx.CheckoutNewBranch(dest, branch, "HEAD", env...)
 }
 
 // remoteKBName derives a KB name from the last path segment of a git remote
