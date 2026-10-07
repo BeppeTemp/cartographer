@@ -11,6 +11,13 @@ import react from "@vitejs/plugin-react";
 export default defineConfig({
   base: "/ui/",
   plugins: [react()],
+  // `npm run dev` serves the UI with hot reload and sends /api to a running
+  // server: `cartographer serve --http :39273` by default, any other with
+  // CARTOGRAPHER_DEV_API. A local config file under web/ would do the same but
+  // enter the bundle's provenance hash and fail web-check in CI.
+  server: {
+    proxy: { "/api": process.env.CARTOGRAPHER_DEV_API ?? "http://127.0.0.1:39273" },
+  },
   build: {
     outDir: "../internal/webui/dist",
     emptyOutDir: true,

@@ -265,6 +265,14 @@ GoReleaser environment, which is out of the deterministic gate (see below).
 
 ### Frontend (`make web-test`, `make web-check`)
 
+To work on the UI live, run a server (`cartographer serve --http :39273 --kb …`)
+and `cd web && npm run dev`: Vite serves the UI with hot reload on
+`http://localhost:5173/ui/` and proxies `/api` to the server
+(`CARTOGRAPHER_DEV_API` for another address); the Atlas follows the KB live
+(D337). Keep no local file under `web/`: every file there enters the bundle's
+provenance hash, so an untracked one makes `make web` record a hash CI cannot
+reproduce and `web-check` fails.
+
 The Atlas UI's own tests: Vitest with Testing Library, under `web/`. They run in
 the `web` CI job, not in `make gate`, so a pure-Go change needs no Node
 toolchain (D227). What they hold:
