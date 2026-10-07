@@ -4,18 +4,18 @@ import type { ChangesResponse, CollectionSummary, ConceptChange, GraphSnapshot }
 import { collectionVar } from "../lib/palette";
 import {
   Avatar,
-  Band,
   Count,
-  Facet,
-  FacetRow,
-  FacetRows,
+  Figures,
+  FilterChip,
+  FilterChips,
+  Hero,
+  HeroRow,
   MapBar,
   MapDot,
   Page,
   PageHeader,
   Segmented,
   SkeletonRows,
-  Stats,
 } from "./Page";
 
 const WINDOWS = [
@@ -122,52 +122,49 @@ export function Activity({
 
       <div className="page__body" data-loading={loading && data !== null}>
         {data && all.length > 0 && (
-          <Band label="Summary and filters">
-            <Facet className="timeline__summary">
-              <Stats
+          <Hero label="Summary and filters">
+            <div className="timeline__figures">
+              <Figures
                 items={[
-                  { label: "new", value: added, tone: added ? "ok" : "muted" },
-                  { label: "removed", value: deleted, tone: deleted ? "error" : "muted" },
+                  { label: "new", value: added, sign: added ? "+" : undefined, tone: added ? "ok" : "muted" },
+                  { label: "removed", value: deleted, sign: deleted ? "−" : undefined, tone: deleted ? "error" : "muted" },
                   { label: data.commit_count === 1 ? "commit" : "commits", value: data.commit_count },
+                  { label: authors.length === 1 ? "author" : "authors", value: authors.length },
                 ]}
               />
-              {histogram.length > 1 && <DayBars bars={histogram} />}
-            </Facet>
-
-            <Facet title="Where" id="activity-where">
+            </div>
+            {histogram.length > 1 && <DayArea bars={histogram} />}
+            <HeroRow label="Where">
               <MapBar maps={maps} active={map} />
-              <FacetRows label="Filter by Map" columns={2}>
+              <FilterChips label="Filter by Map">
                 {maps.map(([name, count]) => (
-                  <li key={name}>
-                    <FacetRow
-                      label={mapTitles.get(name) ?? name}
-                      count={count}
-                      pressed={map === name}
-                      hue={collectionVar(name)}
-                      mark={<MapDot map={name} />}
-                      onToggle={() => setMap(map === name ? null : name)}
-                    />
-                  </li>
+                  <FilterChip
+                    key={name}
+                    label={mapTitles.get(name) ?? name}
+                    count={count}
+                    pressed={map === name}
+                    hue={collectionVar(name)}
+                    mark={<MapDot map={name} />}
+                    onToggle={() => setMap(map === name ? null : name)}
+                  />
                 ))}
-              </FacetRows>
-            </Facet>
-
-            <Facet title="Who" id="activity-who">
-              <FacetRows label="Filter by author">
+              </FilterChips>
+            </HeroRow>
+            <HeroRow label="Who">
+              <FilterChips label="Filter by author">
                 {authors.map(([name, count]) => (
-                  <li key={name}>
-                    <FacetRow
-                      label={name}
-                      count={count}
-                      pressed={author === name}
-                      mark={<Avatar name={name} size="small" />}
-                      onToggle={() => setAuthor(author === name ? null : name)}
-                    />
-                  </li>
+                  <FilterChip
+                    key={name}
+                    label={name}
+                    count={count}
+                    pressed={author === name}
+                    mark={<Avatar name={name} size="small" />}
+                    onToggle={() => setAuthor(author === name ? null : name)}
+                  />
                 ))}
-              </FacetRows>
-            </Facet>
-          </Band>
+              </FilterChips>
+            </HeroRow>
+          </Hero>
         )}
 
         {error ? (
@@ -276,26 +273,64 @@ function ChangePill({ change }: { change: string }) {
   );
 }
 
-/** Concepts last touched per day: one series, one colour, a tooltip per bar. */
-function DayBars({ bars }: { bars: { key: string; label: string; count: number }[] }) {
+/**
+ * Concepts last touched per day, as one area across the page: a single
+ * series in the accent, a gradient under it, and the day under the pointer
+ * named with its count. Every day is also a labelled hit target, so the
+ * numbers reach a screen reader and a keyboard as well as the eye.
+ */
+function DayArea({ bars }: { bars: { key: string; label: string; count: number }[] }) {
+  const [hover, setHover] = useState<number | null>(null);
+  const W = 1000;
+  const H = 100;
   const max = Math.max(1, ...bars.map((b) => b.count));
+  const step = W / (bars.length - 1);
+  const pts = bars.map((b, i) => [i * step, H - 6 - (b.count / max) * (H - 16)] as const);
+  const line = pts.map(([x, y], i) => `${i === 0 ? "M" : "L"}${x.toFixed(1)},${y.toFixed(1)}`).join(" ");
+  const area = `${line} L${W},${H} L0,${H} Z`;
+  const shown = hover ?? bars.length - 1;
   return (
-    <figure className="timeline__chart">
-      <div
-        className="timeline__bars"
-        role="img"
-        aria-label={`Changes per day: ${bars.map((b) => `${b.label} ${b.count}`).join(", ")}`}
-      >
-        {bars.map((b) => (
-          <span key={b.key} className="timeline__bar-slot" title={`${b.label}: ${b.count}`}>
-            <span className="timeline__bar" data-empty={b.count === 0} style={{ height: `${(b.count / max) * 100}%` }} />
-          </span>
-        ))}
+    <figure className="day-area" onMouseLeave={() => setHover(null)}>
+      <figcaption className="day-area__caption" aria-live="polite">
+        <strong>{bars[shown]!.count}</strong> {bars[shown]!.count === 1 ? "concept" : "concepts"} ·{" "}
+        {hover === null ? "today" : bars[shown]!.label}
+      </figcaption>
+      <div className="day-area__plot">
+        <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" aria-hidden="true">
+          <defs>
+            <linearGradient id="day-area-fill" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" className="day-area__stop-top" />
+              <stop offset="100%" className="day-area__stop-bottom" />
+            </linearGradient>
+          </defs>
+          <path d={area} className="day-area__fill" />
+          <path d={line} className="day-area__line" vectorEffect="non-scaling-stroke" />
+        </svg>
+        <span
+          className="day-area__dot"
+          style={{ left: `${(pts[shown]![0] / W) * 100}%`, top: `${(pts[shown]![1] / H) * 100}%` }}
+          aria-hidden="true"
+        />
+        <ol className="day-area__days" aria-label="Changes per day">
+          {bars.map((b, i) => (
+            <li key={b.key}>
+              <button
+                type="button"
+                className="day-area__day"
+                aria-label={`${b.label}: ${b.count}`}
+                onMouseEnter={() => setHover(i)}
+                onFocus={() => setHover(i)}
+                onBlur={() => setHover(null)}
+                tabIndex={-1}
+              />
+            </li>
+          ))}
+        </ol>
       </div>
-      <figcaption className="timeline__axis">
+      <div className="day-area__axis" aria-hidden="true">
         <span>{bars[0]!.label}</span>
         <span>today</span>
-      </figcaption>
+      </div>
     </figure>
   );
 }

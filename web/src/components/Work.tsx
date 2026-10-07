@@ -3,11 +3,11 @@ import { fetchWork } from "../api/client";
 import type { CollectionSummary, WorkEntry, WorkResponse } from "../api/types";
 import { collectionVar } from "../lib/palette";
 import {
-  Band,
   Count,
-  Facet,
-  FacetRow,
-  FacetRows,
+  FilterChip,
+  FilterChips,
+  Hero,
+  HeroRow,
   MapBar,
   MapDot,
   Page,
@@ -143,46 +143,45 @@ export function Work({
       />
 
       {data && data.total > 0 && (
-        <Band label="Summary and filters">
-          <Facet title="Where" id="work-where">
+        <Hero label="Summary and filters">
+          <HeroRow label="Where">
             <MapBar maps={maps} active={map} />
-            <FacetRows label="Filter by Map" columns={2}>
+            <FilterChips label="Filter by Map">
               {maps.map(([name, n]) => (
-                <li key={name || "(root)"}>
-                  <FacetRow
-                    label={titleOfMap(name)}
-                    count={n}
-                    pressed={map === name}
-                    hue={collectionVar(name || "(root)")}
-                    mark={<MapDot map={name} />}
-                    onToggle={() => setMap(map === name ? null : name)}
-                  />
-                </li>
+                <FilterChip
+                  key={name || "(root)"}
+                  label={titleOfMap(name)}
+                  count={n}
+                  pressed={map === name}
+                  hue={collectionVar(name || "(root)")}
+                  mark={<MapDot map={name} />}
+                  onToggle={() => setMap(map === name ? null : name)}
+                />
               ))}
-            </FacetRows>
-          </Facet>
-
-          <Facet title="Status" id="work-status">
-            <FacetRows label="Filter by status">
+            </FilterChips>
+          </HeroRow>
+          <HeroRow label="Status">
+            <FilterChips label="Filter by status">
               {statuses.map(([name, n]) => (
-                <li key={name}>
-                  <FacetRow
-                    label={name}
-                    count={n}
-                    pressed={status === name}
-                    mark={<StatusDot status={name} />}
-                    onToggle={() => setStatus(status === name ? null : name)}
-                  />
-                </li>
+                <FilterChip
+                  key={name}
+                  label={name}
+                  count={n}
+                  pressed={status === name}
+                  mark={<StatusDot status={name} />}
+                  onToggle={() => setStatus(status === name ? null : name)}
+                />
               ))}
-            </FacetRows>
-            <label className="work__stale-toggle">
-              <input type="checkbox" checked={staleOnly} onChange={(e) => setStaleOnly(e.target.checked)} />
-              Stale only
-              <span className="facet-row__count">{stale}</span>
-            </label>
-          </Facet>
-        </Band>
+              <li>
+                <label className="filter-chip filter-chip--check" data-checked={staleOnly}>
+                  <input type="checkbox" checked={staleOnly} onChange={(e) => setStaleOnly(e.target.checked)} />
+                  <span className="filter-chip__name">Stale only</span>
+                  <span className="filter-chip__count">{stale}</span>
+                </label>
+              </li>
+            </FilterChips>
+          </HeroRow>
+        </Hero>
       )}
 
       {error ? (

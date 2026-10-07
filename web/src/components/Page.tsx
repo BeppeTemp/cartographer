@@ -144,10 +144,60 @@ export function Stats({ items }: { items: { label: string; value: number | strin
 }
 
 /**
- * One filter row: a mark, a name and a count. Pressed means "only this";
- * pressing it again clears the filter.
+ * The open band at the top of a page: no box around it, rows of numbers, a
+ * chart and filters, separated by space and a hairline below. Boxes are kept
+ * for content that is dense enough to fill them.
  */
-export function FacetRow({
+export function Hero({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="hero" role="region" aria-label={label}>
+      {children}
+    </div>
+  );
+}
+
+/** One labelled line of the hero: "Where", "Who", "Status"… */
+export function HeroRow({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="hero__row">
+      <span className="hero__label">{label}</span>
+      <div className="hero__content">{children}</div>
+    </div>
+  );
+}
+
+/** Big numbers set in a line: the band's headline figures. */
+export function Figures({ items }: { items: { label: string; value: number | string; tone?: string; sign?: string }[] }) {
+  return (
+    <dl className="figures">
+      {items.map((s) => (
+        <div key={s.label} className="figures__item" data-tone={s.tone}>
+          <dt>{s.label}</dt>
+          <dd>
+            {s.sign && <span className="figures__sign">{s.sign}</span>}
+            {s.value}
+          </dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+/** A wrapping line of filter chips. */
+export function FilterChips({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <ul className="filter-chips" aria-label={label}>
+      {children}
+    </ul>
+  );
+}
+
+/**
+ * A filter as a pill: a mark, a name and a count. Pressed means "only this";
+ * pressing it again clears the filter. The Map's colour, when it has one,
+ * lights its edge when pressed.
+ */
+export function FilterChip({
   label,
   count,
   pressed,
@@ -159,30 +209,23 @@ export function FacetRow({
   count: number;
   pressed: boolean;
   hue?: string;
-  mark: ReactNode;
+  mark?: ReactNode;
   onToggle(): void;
 }) {
   return (
-    <button
-      type="button"
-      className="facet-row"
-      aria-pressed={pressed}
-      style={hue ? ({ "--map": hue } as CSSProperties) : undefined}
-      onClick={onToggle}
-    >
-      {mark}
-      <span className="facet-row__name">{label}</span>
-      <span className="facet-row__count">{count}</span>
-    </button>
-  );
-}
-
-/** The filter rows of a facet, in one column or two. */
-export function FacetRows({ label, columns = 1, children }: { label: string; columns?: 1 | 2; children: ReactNode }) {
-  return (
-    <ul className={columns === 2 ? "facet-rows facet-rows--two" : "facet-rows"} aria-label={label}>
-      {children}
-    </ul>
+    <li>
+      <button
+        type="button"
+        className="filter-chip"
+        aria-pressed={pressed}
+        style={hue ? ({ "--map": hue } as CSSProperties) : undefined}
+        onClick={onToggle}
+      >
+        {mark}
+        <span className="filter-chip__name">{label}</span>
+        <span className="filter-chip__count">{count}</span>
+      </button>
+    </li>
   );
 }
 
