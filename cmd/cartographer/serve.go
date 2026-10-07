@@ -352,6 +352,16 @@ func runServe(cfg *config.Config) {
 			continue
 		}
 		seenNames[name] = m.Path
+		serverGit, err := serverGitConfigFor(m.Spec, cfg.Git, name)
+		if err != nil {
+			log.Fatalf("config: %v", err)
+		}
+		if serverGit != nil {
+			if err := k.ConfigureServerGit(*serverGit); err != nil {
+				log.Fatalf("KB %q: %v", name, err)
+			}
+			log.Printf("KB %q: server git profile, working branch %s → PRs to %s", name, serverGit.WorkingBranch, serverGit.BaseBranch)
+		}
 		var artifactSigner ed25519.PrivateKey
 		if m.Spec.ArtifactSigningSeed != "" {
 			artifactSigner, err = artifactsig.ParseSeed(m.Spec.ArtifactSigningSeed)
