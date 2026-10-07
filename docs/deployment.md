@@ -42,7 +42,11 @@ The server process is **ephemeral** (k8s pod or local service); what persists on
   searches that found nothing, disposable, lost harmlessly with the volume.
   An entry ages out after 30 days; one whose search finds something now is
   reported `resolved` by `kb_status` before that (D319). Deleting the file is
-  the only manual reset.
+  the only manual reset. `usage.json` (D326) holds the artifact usage clients
+  report on `sync`: on an `emptyDir` it is lost at every restart, and until each
+  client syncs again `kb_status.usage` is `no_data` (with `no_report_since`, the
+  start time, D333) and `artifact_unused` is silent. Keep `.cartographer/` on
+  the KB's persistent volume when that signal matters.
 
 When `audit.log` is set, MCP tool execution appends an attempt+completion event
 pair per call, so the file is a complete operational request log (D119). See

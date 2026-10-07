@@ -504,7 +504,9 @@ The Atlas Artifacts panel shows these findings beside each artifact (`docs/deplo
 agents: one row per (artifact, provider) with `last_used` and `count`. Like the rest of
 `.cartographer/` it is **local state, never committed** (excluded through `.git/info/exclude`)
 and not replicated between servers: "is this skill used?" is a question about one operator's
-machines. Losing it loses nothing durable; the next `sync` of each client rebuilds it. It feeds
+machines. Losing it loses nothing durable; the next `sync` of each client rebuilds it. On a data
+dir that does not survive a restart, `kb_status.usage` reports `no_data` with `no_report_since`
+(the server's start) until then (D333, `docs/deployment.md` §State and volumes). It feeds
 `artifact_unused`, the `usage` section of `kb_status` and the Atlas Artifacts panel's "Last used"
 column. Written only by `POST /api/usage` (`docs/control-plane.md` §Usage reports).
 

@@ -1148,10 +1148,13 @@ func reservedStrategyError(k *kb.KB, conceptID, strategy string) string {
 // once any client has reported: the scan is client-side and the server cannot
 // see whether one is switched off, only that nothing has arrived — in which
 // case no_data is true and every count would be a guess, so none is given.
+// no_report_since is the process start (D333): the store is local state, and
+// on an ephemeral data dir a restart empties it, so "nothing since the server
+// started a minute ago" must not read as "no client ever reported".
 func usageSummary(k *kb.KB, now time.Time) map[string]interface{} {
 	entries, err := k.LoadUsage()
 	if err != nil || len(entries) == 0 {
-		return map[string]interface{}{"scanner_enabled": false, "no_data": true}
+		return map[string]interface{}{"scanner_enabled": false, "no_data": true, "no_report_since": processStartedAt}
 	}
 	supported, partial, unsupported := provisioning.UsageProviders()
 	usage := kb.SummarizeUsage(entries)
