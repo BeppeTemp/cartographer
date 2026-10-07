@@ -103,8 +103,8 @@ export function App() {
   const [railCollapsed, setRailCollapsed] = useState(() =>
     readPanel("rail", !(window.matchMedia?.("(min-width: 1200px)").matches ?? false)),
   );
-  // kb_status's knowledge signals for the Observatory; a principal that
-  // cannot see the whole KB gets a 404 and the section is simply absent.
+  // kb_status's knowledge signals for Health; a principal that cannot see
+  // the whole KB gets a 404 and those parts are simply absent.
   const [kbStatus, setKbStatus] = useState<KBStatus | null>(null);
   const [maintenance, setMaintenance] = useState<MaintenanceSummary | null>(null);
   const [maintenanceError, setMaintenanceError] = useState<string | null>(null);

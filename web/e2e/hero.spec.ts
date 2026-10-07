@@ -98,7 +98,7 @@ async function orbit(page: Page, dx: number, steps: number): Promise<void> {
   await page.mouse.up();
 }
 
-test("the hero tour: graph, search, a concept's links, artifacts, observatory", async ({ page }, testInfo) => {
+test("the hero tour: graph, search, a concept's links, artifacts, health", async ({ page }, testInfo) => {
   await page.addInitScript(() => {
     localStorage.setItem("cartographer.theme", "dark");
     localStorage.setItem("cartographer.colorBy", "community");
@@ -150,8 +150,8 @@ test("the hero tour: graph, search, a concept's links, artifacts, observatory", 
   await beat(page, 1600);
 
   // 6. What needs attention.
-  await page.getByRole("button", { name: /^Observatory/ }).click();
-  await expect(page.getByRole("heading", { name: /need attention|nothing to fix/i })).toBeVisible();
+  await page.getByRole("button", { name: /^Health/ }).click();
+  await expect(page.getByRole("heading", { name: /broken|attention|wait|all clear/i })).toBeVisible();
   await beat(page, 1400);
 
   // Back where the loop starts.

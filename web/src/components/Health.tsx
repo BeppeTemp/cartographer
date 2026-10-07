@@ -119,7 +119,7 @@ export function Health({
         {copied ? "Copied to the clipboard." : ""}
       </p>
 
-      <Band label="Health summary">
+      <Band label="Summary">
         <Facet className="health__score">
           {report && <Mark errors={errors} warnings={warnings} questions={open.length} />}
           {report ? (

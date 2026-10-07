@@ -11,7 +11,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/gitx"
 )
 
-// The Atlas's Maintenance panel (D323): what the server repaired by itself,
+// The Atlas's Health panel, its upkeep half (D323, D337): what the server repaired by itself,
 // what the last doctor session left, and the questions the doctor deferred to
 // a person. Read-only like the rest of the UI API: the panel shows the exact
 // command that undoes a repair, it never runs it.

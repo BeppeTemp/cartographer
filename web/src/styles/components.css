@@ -45,8 +45,6 @@
   display: none;
 }
 
-
-
 /* One field family for the top bar (the KB picker and the search): same
    height, edge, radius and type, so the two read as a pair. */
 .field {
@@ -1225,38 +1223,7 @@ body.is-resizing {
   box-shadow: var(--focus-ring);
 }
 
-/* --- Observatory --- */
-
-.observatory {
-  width: 100%;
-  max-width: 880px;
-  margin-inline: auto;
-  padding: var(--space-8) var(--space-6) var(--space-12);
-  overflow-y: auto;
-}
-
-.observatory__eyebrow {
-  margin: 0 0 var(--space-2);
-  font-size: var(--text-xs);
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--text-muted);
-}
-
-.observatory__title {
-  margin: 0;
-  font-size: var(--text-lg);
-  font-weight: 600;
-  line-height: var(--leading-tight);
-  color: var(--text-primary);
-}
-
-.observatory__summary {
-  margin: var(--space-2) 0 0;
-  font-size: var(--text-sm);
-  color: var(--text-secondary);
-}
+/* --- Severity marks (Health, Artifacts) --- */
 
 .severity {
   display: inline-flex;
@@ -1294,183 +1261,6 @@ body.is-resizing {
 .severity--info .severity__mark {
   background: var(--sev-info);
   border-radius: 50%;
-}
-
-.observatory__summary .severity {
-  font-size: var(--text-sm);
-  text-transform: none;
-  letter-spacing: 0;
-}
-
-.observatory__summary-rest {
-  color: var(--text-muted);
-}
-
-.observatory__bar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-4);
-  margin-block: var(--space-6) 0;
-}
-
-.observatory__note {
-  margin: 0;
-  font-size: var(--text-sm);
-  color: var(--text-muted);
-}
-
-.observatory__group {
-  margin-block-start: var(--space-6);
-}
-
-.observatory__group-title {
-  display: flex;
-  align-items: baseline;
-  gap: var(--space-2);
-  margin: 0 0 var(--space-2);
-  font-size: var(--text-xs);
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--text-muted);
-}
-
-.observatory__group-count {
-  font-variant-numeric: tabular-nums;
-  letter-spacing: 0;
-}
-
-.observatory__findings {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  overflow: hidden;
-  background: var(--surface-1);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-card);
-}
-
-.observatory__findings li + li {
-  border-block-start: 1px solid var(--border-subtle);
-}
-
-.observatory__finding {
-  display: grid;
-  grid-template-columns: 88px minmax(0, 1fr) auto;
-  align-items: baseline;
-  gap: var(--space-3);
-  width: 100%;
-  padding: var(--space-3) var(--space-4);
-  font: inherit;
-  text-align: start;
-  color: inherit;
-  background: transparent;
-  border: 0;
-  cursor: pointer;
-  transition: background-color var(--motion-fast) var(--ease-out);
-}
-
-.observatory__finding:hover {
-  background: var(--surface-2);
-}
-
-.observatory__body {
-  display: grid;
-  gap: var(--space-1);
-  min-width: 0;
-}
-
-.observatory__message {
-  font-size: var(--text-sm);
-  line-height: var(--leading-normal);
-  color: var(--text-primary);
-}
-
-.observatory__meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-3);
-  font-size: var(--text-xs);
-  color: var(--text-muted);
-}
-
-.observatory__check,
-.observatory__path {
-  font-family: var(--font-mono);
-  word-break: break-all;
-}
-
-.observatory__accept {
-  font-size: var(--text-xs);
-  color: var(--text-muted);
-  white-space: nowrap;
-}
-
-.observatory__go {
-  font-size: var(--text-xs);
-  color: var(--text-muted);
-  white-space: nowrap;
-}
-
-.observatory__finding:hover .observatory__go {
-  color: var(--primary);
-}
-
-.observatory__checks {
-  margin-block-start: var(--space-8);
-  font-size: var(--text-sm);
-  color: var(--text-secondary);
-}
-
-.observatory__checks summary {
-  cursor: pointer;
-  color: var(--text-secondary);
-}
-
-.observatory__bycheck {
-  display: grid;
-  gap: 0;
-  margin: var(--space-2) 0 0;
-  overflow: hidden;
-  background: var(--surface-1);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-card);
-}
-
-.observatory__bycheck div {
-  display: flex;
-  justify-content: space-between;
-  padding: var(--space-2) var(--space-4);
-}
-
-.observatory__bycheck div + div {
-  border-block-start: 1px solid var(--border-subtle);
-}
-
-.observatory__bycheck dt,
-.observatory__bycheck dd {
-  margin: 0;
-}
-
-.observatory__bycheck code {
-  font-family: var(--font-mono);
-  font-size: var(--text-xs);
-}
-
-@media (max-width: 767px) {
-  .observatory {
-    padding: var(--space-6) var(--space-4);
-  }
-
-  .observatory__finding {
-    grid-template-columns: minmax(0, 1fr);
-    gap: var(--space-2);
-  }
-
-  .observatory__go {
-    display: none;
-  }
 }
 
 /* --- Command palette --- */
@@ -2033,7 +1823,6 @@ body.is-resizing {
   border-radius: var(--radius-control);
 }
 
-
 /* --- Artifacts (D238) ---
    What the KB ships to agent clients: a list grouped by kind beside the
    selected artifact's metadata and files. The list width is the viewer's,
@@ -2352,133 +2141,12 @@ body.is-resizing {
 }
 
 /* Folded, a count that is not a finding is left out rather than drawn as the
-   alarm-coloured dot the Observatory's uses. */
+   alarm-coloured dot the Health badge uses. */
 .rail--collapsed .rail__badge--neutral {
   display: none;
 }
 
-/* --- Activity: changes_since as a page, the Observatory's sibling. --- */
-.activity {
-  width: 100%;
-  max-width: 880px;
-  margin-inline: auto;
-  padding: var(--space-8) var(--space-6) var(--space-12);
-  overflow-y: auto;
-}
-
-.activity__head {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: var(--space-2);
-}
-
-.activity__title {
-  margin: 0;
-  font-size: var(--text-xs);
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--text-muted);
-}
-
-.activity__window {
-  display: inline-flex;
-  flex: none;
-}
-
-.activity__authors {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2);
-  margin: var(--space-6) 0 0;
-  padding: 0;
-  list-style: none;
-}
-
-.activity__list {
-  margin: var(--space-6) 0 0;
-  padding: 0;
-  list-style: none;
-  overflow: hidden;
-  background: var(--surface-1);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-panel);
-}
-
-.activity__list li + li {
-  border-block-start: 1px solid var(--border-subtle);
-}
-
-.activity__row {
-  display: grid;
-  gap: 2px;
-  width: 100%;
-  padding: var(--space-3) var(--space-4);
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-  text-align: start;
-  color: inherit;
-  cursor: pointer;
-}
-
-.activity__row:hover:not(:disabled) {
-  background: var(--surface-2);
-}
-
-.activity__row:disabled {
-  cursor: default;
-  opacity: 0.7;
-}
-
-.activity__row-title {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--text-primary);
-}
-
-.activity__row-meta,
-.activity__reason {
-  font-size: var(--text-xs);
-  color: var(--text-muted);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.activity__reason {
-  color: var(--text-secondary);
-  font-style: italic;
-}
-
-.activity__tag--added {
-  color: var(--graph-edge-active);
-}
-
-.activity__tag--deleted {
-  color: var(--sev-error);
-}
-
-.activity__note {
-  margin: var(--space-3) 0 0;
-  font-size: var(--text-sm);
-  color: var(--text-muted);
-}
-
-.activity__foot {
-  font-size: var(--text-xs);
-}
-
-.observatory__misses {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2);
-  margin: var(--space-3) 0 0;
-  padding: 0;
-  list-style: none;
-}
+/* --- Chips that report a state --- */
 
 /* A miss whose search now finds something (D319): closed, kept for the record. */
 .chip--resolved {
@@ -2491,17 +2159,59 @@ body.is-resizing {
   margin-inline-end: var(--space-1);
 }
 
-.observatory__stale {
-  margin-block-start: var(--space-6);
-}
-
 .legend__meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
   margin: var(--space-2) 0 0;
   padding-block-start: var(--space-2);
   border-block-start: 1px solid var(--border-subtle);
   font-size: var(--text-xs);
   color: var(--text-muted);
   font-variant-numeric: tabular-nums;
+}
+
+.legend[data-folded="true"] .legend__meta {
+  margin: 0;
+  padding-block-start: 0;
+  border: 0;
+}
+
+.legend__fold {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  color: var(--text-muted);
+  cursor: pointer;
+  background: none;
+  border: 0;
+  border-radius: var(--radius-small);
+}
+
+.legend__fold:hover {
+  color: var(--text-primary);
+  background: var(--surface-2);
+}
+
+.legend__fold:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.legend__chevron {
+  width: 6px;
+  height: 6px;
+  border-block-end: 1.5px solid currentColor;
+  border-inline-end: 1.5px solid currentColor;
+  transform: rotate(45deg) translate(-1px, -1px);
+  transition: transform var(--motion-fast) var(--ease-out);
+}
+
+.legend[data-folded="true"] .legend__chevron {
+  transform: rotate(-135deg) translate(-1px, -1px);
 }
 
 /* Reading panel: a closed table of contents, links as rows. */
@@ -2618,168 +2328,5 @@ body.is-resizing {
   margin-block-start: var(--space-4);
 }
 
-/* --- Work: work_list as a page (D302), Activity's sibling. A board, so it
-   takes the whole width Activity's reading column leaves empty. --- */
-.activity.work {
-  max-width: none;
-}
+/* Activity, Work and Health live in pages.css, built from the page kit. */
 
-.work__note {
-  margin: 0 0 var(--space-3);
-  color: var(--text-muted);
-  font-size: var(--text-sm);
-}
-
-.work__filters {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2);
-  margin: var(--space-6) 0 0;
-}
-
-.work__filters input[type="search"] {
-  flex: 1 1 12rem;
-  min-width: 0;
-}
-
-.work__stale {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-1);
-  font-size: var(--text-sm);
-  color: var(--text-secondary);
-}
-
-.work__columns {
-  display: grid;
-  grid-auto-flow: column;
-  grid-auto-columns: minmax(18rem, 1fr);
-  align-items: start;
-  gap: var(--space-4);
-  margin-top: var(--space-6);
-  overflow-x: auto;
-  padding-bottom: var(--space-2);
-}
-
-/* By map, each group's cards fill the row instead of stacking in one column. */
-.work__groups .work__list {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(18rem, 1fr));
-  gap: var(--space-2);
-  overflow: visible;
-  background: transparent;
-  border: 0;
-}
-
-.work__groups .work__list li {
-  background: var(--surface-1);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-panel);
-}
-
-.work__groups .work__list li + li {
-  border-block-start: 1px solid var(--border-subtle);
-}
-
-.work__groups {
-  display: grid;
-  gap: var(--space-6);
-  margin-top: var(--space-6);
-}
-
-.work__group-title {
-  margin: 0;
-  font-size: var(--text-xs);
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--text-muted);
-}
-
-.work__list {
-  margin-top: var(--space-2);
-}
-
-.work__items-toggle {
-  margin: 0 var(--space-4) var(--space-2);
-  padding: 0;
-  border: 0;
-  background: transparent;
-  font-size: var(--text-xs);
-  color: var(--text-secondary);
-  cursor: pointer;
-}
-
-.work__items {
-  margin: 0 var(--space-4) var(--space-3);
-  padding-inline-start: var(--space-4);
-  font-size: var(--text-sm);
-  color: var(--text-primary);
-  overflow-wrap: anywhere;
-}
-
-.work__stale-badge {
-  color: var(--sev-warning);
-}
-
-/* --- Maintenance (D323): Activity's sibling, read-only. Each repair and each
-   question is a row with the text to copy beside it; nothing here acts. --- */
-.maintenance h2.work__group-title {
-  margin-block: var(--space-6) 0;
-}
-
-.maintenance__summary {
-  display: grid;
-  gap: var(--space-2);
-  margin: var(--space-3) 0 0;
-  padding: var(--space-3) var(--space-4);
-  background: var(--surface-1);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-panel);
-}
-
-.maintenance__summary div {
-  display: grid;
-  grid-template-columns: minmax(9rem, 14rem) 1fr;
-  gap: var(--space-3);
-}
-
-.maintenance__summary dt {
-  color: var(--text-muted);
-  font-size: var(--text-sm);
-}
-
-.maintenance__summary dd {
-  margin: 0;
-  overflow-wrap: anywhere;
-}
-
-.maintenance__row {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  align-items: center;
-  gap: var(--space-3);
-  padding-inline-end: var(--space-3);
-}
-
-.maintenance__repair {
-  cursor: default;
-}
-
-.maintenance__revert {
-  overflow-wrap: anywhere;
-  font-size: var(--text-xs);
-  color: var(--text-secondary);
-  user-select: all;
-}
-
-.maintenance__copy {
-  white-space: nowrap;
-}
-
-@media (max-width: 40rem) {
-  .maintenance__summary div,
-  .maintenance__row {
-    grid-template-columns: 1fr;
-  }
-}

@@ -471,7 +471,8 @@ outside its neighbourhood recedes. The skills, agents and hooks that reference
 concepts are drawn as diamonds linked to them; clicking one opens it on the
 Artifacts panel (D286). The legend colours nodes by community or by Map, never by
 lint severity: on a real KB a severity colour painted most of the graph one
-colour, and a KB's health is read in the Observatory (D307). Ctrl/Cmd+K searches titles and ids at once and, after a
+colour, and a KB's health is read on the Health panel (D307). The legend folds to its
+switch and counts, remembered per browser (`cartographer.panel.legend`). Ctrl/Cmd+K searches titles and ids at once and, after a
 pause in typing, the full text through the `search` tool, showing the excerpt
 that matched; it is the way to a concept, and there is no concept list beside
 the canvas. The brand in the top bar returns to the atlas; the connection
@@ -483,49 +484,77 @@ that lists nothing the *Links* tab does not already show (D287). The *Links*
 tab lists links by title — *Links to*, *Linked from*, and *Used by* for the
 artifacts that reference the concept.
 
+Activity, Work and Health are reading panels built from one page kit (D338):
+a header that says the answer in a sentence with its count in bold (long
+explanations behind a *?*), a band of cards that sums it up side by side and
+filters it, then dense rows. They share one width, Map colours mark every
+row, and an empty answer is said in one line with a check rather than left as
+an empty page.
+
 The **Activity** panel is `changes_since` for the reader: the concepts changed
-in the last day, week or month (up to 500). A band across the top counts the
-concepts, additions, removals and commits with one bar per day of the window,
-and offers *Where* (a bar split by Map, one row per Map) and *Who* (one row per
-author) as filters. Below it the timeline groups the concepts by the day each
-one last changed, newest first, one row each on a rail in its Map's colour:
-time, title, Map, the kind of change when it is not a plain edit, the first
-recorded reason and the authors. Changing the window keeps the current answer
-on screen, dimmed, until the new one arrives. A row opens the concept on the
-atlas.
+in the last day, week or month (up to 500). The band counts the concepts,
+additions, removals and commits with one bar per day of the window, and offers
+*Where* (a bar split by Map, one row per Map) and *Who* (one row per author) as
+filters. Below it the timeline groups the concepts by the day each one last
+changed, newest first, one row each on a rail in its Map's colour: time, title,
+Map, the kind of change when it is not a plain edit, the first recorded reason
+and the authors. Changing the window keeps the current answer on screen,
+dimmed, until the new one arrives. A row opens the concept on the atlas.
 
 The **Work** panel is `work_list` for the reader (D302): open-phase concepts and
-unchecked items, filterable by map, status, staleness and free text, grouped by
-status, as a board of columns across the page (a closed concept listed only for
-its items goes under *unchecked items*), or by map, as a grid of cards; a card expands to its items and opens the concept on the atlas.
-It is read-only: work changes through the agents' write tools.
+unchecked items. The band counts open concepts, unchecked items, those that
+need a decision and the stale ones, and filters by Map (*Where*), by status and
+by staleness; a search box filters titles and items. The board lays the work
+out by status, as columns in the order work moves (decision-needed, blocked,
+in-progress, open, proposed, then *unchecked items* for a closed concept listed
+only for its items), or by Map, as one card per Map, busiest first. A card
+shows its Map, title, type and age (stale ones flagged), expands to its items,
+and opens the concept on the atlas. It is read-only: work changes through the
+agents' write tools.
 
-The **Maintenance** panel, between Work and the Observatory, shows what keeps the KB in
-repair (D323): whether the background repair is on and which checks it runs (and whether that is the
-default list), the last run, the last and next doctor session; the open questions the doctor deferred
-(`open_question` concepts, each with a *Copy ID* button: they are answered from an agent session);
-and the repair commits of the last 30 days with their SHA and the exact `cartographer kb repair <kb>
---revert <sha>` command behind a *Copy revert command* button. Like the rest of the UI it writes
-nothing: no button reverts, answers or repairs. The summary is whole-KB.
+The **Health** panel (D337) is how the KB is doing, on one page. Its title
+gives the worst state in words — broken, needs attention, questions waiting, or
+all clear — and the band shows it as a mark with the counts of errors,
+warnings, notes and open questions, the *Upkeep* schedule and the *Knowledge*
+counts. Below, in order of what to act on:
 
-The **Observatory** panel lists the lint findings the caller may see. The Map or
-Journal selected in the rail scopes them (`GET /api/ui/v1/kbs/<kb>/lint?scope=`),
-and the headline and summary name that scope, so a clean Map never reads as a
-clean KB; *Whole atlas* returns to the KB-wide list. The Type and Status filters
-apply to graph nodes only, so the rail hides them in the Observatory and keeps
-their selection for the way back to the Atlas. Below the findings, for a caller
-that can see the whole KB, the Observatory lists what the KB does not know
-(`GET /api/ui/v1/kbs/<kb>/status`): open knowledge gaps, the searches agents
-made that found nothing (ticked and muted once the same search finds something,
-D319), and how many concepts are past their review date.
+- *Questions for you*: the `open_question` concepts the doctor deferred, each
+  with a *Copy ID* action — they are answered from an agent session;
+- *Findings*: the lint findings the caller may see, grouped by severity with a
+  severity floor. The Map or Journal selected in the rail scopes them
+  (`GET /api/ui/v1/kbs/<kb>/lint?scope=`), and the title and summary name that
+  scope, so a clean Map never reads as a clean KB; *Whole atlas* returns to the
+  KB-wide list. The Type and Status filters apply to graph nodes only, so the
+  rail hides them here and keeps their selection for the way back to the
+  Atlas;
+- *Knowledge* (listed when there is any): open knowledge gaps, the searches
+  agents made that found nothing (ticked and muted once the same search finds
+  something, D319), and how many concepts are past their review date
+  (`GET /api/ui/v1/kbs/<kb>/status`);
+- beside them, *Repairs, last 30 days* (D323): each repair commit with its
+  check, concepts, background or by hand, and date, and a *Copy revert* action
+  holding the exact `cartographer kb repair <kb> --revert <sha>` command.
+
+*Upkeep* says whether the background repair is on and how many checks it runs
+(and whether that is the default list), the last run, and the last and next
+doctor session. Like the rest of the UI the panel writes nothing: no button
+reverts, answers or repairs. The status, upkeep and repairs are whole-KB: a
+caller that cannot see the whole KB gets the findings and its questions, and
+the rest is left out rather than reported as an error. The former Observatory
+and Maintenance links (`panel=observatory`, `panel=maintenance`) open Health.
 
 The **Artifacts** panel, last in the rail, shows what the KB ships to agent
 clients: skills, subagents, hooks, MCP descriptors in the allowlist, the
-curated `instructions.md` and templates, grouped by kind with a filter. Bundled
-skills are not listed: they belong to the binary. Selecting one opens its
+curated `instructions.md` and templates, grouped by kind with a filter; each
+row shows its name, findings, last use and the first line of its description.
+Bundled skills are not listed: they belong to the binary. Before a selection
+the other side gives an overview: how many of each kind ship, the skills and
+agents used recently, the idle ones (never used, or not in the last 42 days)
+and those with findings, each opening its artifact. Selecting one opens its
 description, signature state, content hash, the clients sync writes it to, and
-its files: Markdown rendered (frontmatter as a table), anything else as plain
-text, a binary or over-256-KiB file named but not shown. Skills left out for
+its files: Markdown rendered (frontmatter as a table, without the name and
+description the header already shows), anything else as plain text, a binary
+or over-256-KiB file named but not shown. Skills left out for
 failing validation are listed above. The artifact lint findings (D316, `docs/data-plane.md`
 §Artifact checks) are summarised above the list by severity ("No artifact findings" when clean,
 `finding_counts`/`finding_severities` in `GET …/artifacts`, counting those no listed artifact

@@ -1,7 +1,9 @@
+import { useState } from "react";
 import type { GraphSnapshot } from "../api/types";
 import { OTHER_SLOT, type Communities } from "../lib/communities";
 import { shortLabel } from "../lib/encoding";
 import { nameOf } from "../lib/names";
+import { readPanel, writePanel } from "../lib/panels";
 import { collectionHue, slotVar, type ColorBy } from "../lib/palette";
 
 /** Legend rows shown before the rest are summarised: past this a legend is a
@@ -34,11 +36,18 @@ export function Legend({
 }) {
   const { rows, tail } =
     colorBy === "community" ? communityRows(communities, snapshot) : collectionRows(snapshot);
+  // Folded, the legend keeps the switch and the counts and gives the graph
+  // its corner back; remembered per browser like the rail.
+  const [folded, setFolded] = useState(() => readPanel("legend", false));
+  const toggle = () => {
+    setFolded(!folded);
+    writePanel("legend", !folded);
+  };
   const shown = rows.slice(0, ROWS);
   const rest = rows.slice(ROWS).reduce((sum, row) => sum + row.count, tail);
 
   return (
-    <section className="legend" aria-label="Graph legend">
+    <section className="legend" aria-label="Graph legend" data-folded={folded}>
       <div className="legend__switch" role="group" aria-label="Colour nodes by">
         {(
           [
@@ -57,34 +66,48 @@ export function Legend({
           </button>
         ))}
       </div>
-      <ul className="legend__rows">
-        {shown.map((row) => (
-          <li key={row.key} className="legend__row">
-            <span
-              className="legend__swatch"
-              aria-hidden="true"
-              style={{ background: slotVar(row.slot) }}
-            />
-            <span className="legend__label">{row.label}</span>
-            <span className="legend__count">{row.count}</span>
-          </li>
-        ))}
-        {rest > 0 && (
-          <li className="legend__row legend__row--rest">
-            {/* No swatch: the summarised groups do not share one colour. */}
-            <span className="legend__swatch legend__swatch--none" aria-hidden="true" />
-            <span className="legend__label">
-              {colorBy === "community" ? "Smaller groups" : "Other Maps"}
-            </span>
-            <span className="legend__count">{rest}</span>
-          </li>
-        )}
-      </ul>
+      {!folded && (
+        <ul className="legend__rows">
+          {shown.map((row) => (
+            <li key={row.key} className="legend__row">
+              <span
+                className="legend__swatch"
+                aria-hidden="true"
+                style={{ background: slotVar(row.slot) }}
+              />
+              <span className="legend__label">{row.label}</span>
+              <span className="legend__count">{row.count}</span>
+            </li>
+          ))}
+          {rest > 0 && (
+            <li className="legend__row legend__row--rest">
+              {/* No swatch: the summarised groups do not share one colour. */}
+              <span className="legend__swatch legend__swatch--none" aria-hidden="true" />
+              <span className="legend__label">
+                {colorBy === "community" ? "Smaller groups" : "Other Maps"}
+              </span>
+              <span className="legend__count">{rest}</span>
+            </li>
+          )}
+        </ul>
+      )}
       {/* The size of what is drawn belongs with the key to it, not in the
           navigation rail. */}
       <p className="legend__meta">
-        {snapshot.nodes.length} node{snapshot.nodes.length === 1 ? "" : "s"} · {snapshot.edges.length} link
-        {snapshot.edges.length === 1 ? "" : "s"}
+        <span>
+          {snapshot.nodes.length} node{snapshot.nodes.length === 1 ? "" : "s"} · {snapshot.edges.length} link
+          {snapshot.edges.length === 1 ? "" : "s"}
+        </span>
+        <button
+          type="button"
+          className="legend__fold"
+          aria-expanded={!folded}
+          aria-label={folded ? "Show the legend" : "Hide the legend"}
+          title={folded ? "Show the legend" : "Hide the legend"}
+          onClick={toggle}
+        >
+          <span className="legend__chevron" aria-hidden="true" />
+        </button>
       </p>
     </section>
   );

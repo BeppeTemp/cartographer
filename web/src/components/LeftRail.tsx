@@ -43,7 +43,7 @@ export function LeftRail({
   const activeCount = typeFilter.size + statusFilter.size;
   const filtersActive = activeCount > 0;
   // Type and Status filter the graph's nodes, so they exist only on the Atlas:
-  // the Observatory lists findings (some with no concept and so no type) and
+  // Health lists findings (some with no concept and so no type) and
   // Artifacts lists files, and neither reads the filters. The chips step aside
   // there rather than look applied while doing nothing. The selection lives
   // in App, so it is still applied on the way back to the Atlas.

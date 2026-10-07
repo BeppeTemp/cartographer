@@ -50,7 +50,7 @@ what is allowed:
    usually already done: run them again only when `capabilities.doctor_auto_interval` is disabled or
    findings remain after the last write (a `skipped` entry, or a KB with more than 50 per check). To
    undo a repair commit, `repair_revert` with its `sha` (only `kb_repair` and auto-repair commits are
-   accepted; the Atlas Maintenance panel lists them with the exact command). Any other: show the plan (`found_total` is the whole
+   accepted; the Atlas Health panel lists them with the exact command). Any other: show the plan (`found_total` is the whole
    job, `planned_total` what this call covers under `limit`), apply on confirmation. One call is
    one commit. A `skipped` entry is either a concept changed since it was listed (run the check
    again) or a fix that needs a person — two synonyms of one field holding different values: pick
@@ -101,7 +101,7 @@ what is allowed:
      visible (D321). Never touch `timestamp` to restart the clock.
    Never invent content: what the KB does not know becomes a `contradiction_report` of kind
    `open_question`: `title` is the question in one sentence, the body the evidence and the options,
-   `involves` the concepts it concerns. It stays open across sessions, the Atlas Maintenance panel
+   `involves` the concepts it concerns. It stays open across sessions, the Atlas Health panel
    lists it for the operator, and the next session's step 1 reads it back. Run `gate_check` with `changed_ids` set to the concepts you wrote.
    Write responses surface per-concept findings inline; the `gate_check` at session end is the
    complementary pass.

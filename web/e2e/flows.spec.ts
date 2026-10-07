@@ -154,7 +154,8 @@ test("the Artifacts panel lists what the KB ships and opens a skill", async ({ p
   await waitForAtlas(page);
   await page.getByRole("button", { name: /^Artifacts, \d+/ }).click();
   const panel = page.getByRole("region", { name: "Artifacts" });
-  await expect(panel.getByRole("heading", { level: 2 })).toHaveText([
+  const nav = panel.getByRole("navigation", { name: "Artifacts by kind" });
+  await expect(nav.getByRole("heading", { level: 2 })).toHaveText([
     /^Skills/,
     /^Subagents/,
     /^Hooks/,
@@ -162,7 +163,7 @@ test("the Artifacts panel lists what the KB ships and opens a skill", async ({ p
     /^Templates/,
   ]);
 
-  await panel.getByRole("button", { name: /review/ }).click();
+  await nav.getByRole("button", { name: /review/ }).click();
   await expect(page).toHaveURL(/panel=artifacts&artifact=skill%2Freview/);
   const detail = page.getByRole("article", { name: "Artifact skill/review" });
   await expect(detail.getByRole("heading", { name: "Review", exact: true })).toBeVisible();
@@ -172,33 +173,33 @@ test("the Artifacts panel lists what the KB ships and opens a skill", async ({ p
   await page.goBack();
   await expect(page).not.toHaveURL(/artifact=/);
   await expect(page.getByRole("article", { name: /^Artifact / })).toHaveCount(0);
-  await expect(panel.getByRole("button", { name: /review/ })).toBeVisible();
+  await expect(nav.getByRole("button", { name: /review/ })).toBeVisible();
 });
 
-test("the Maintenance panel loads the summary and the questions, and offers no write", async ({ page }) => {
+test("Health loads the upkeep schedule and the questions, and offers no write", async ({ page }) => {
   await page.goto(ATLAS);
   await waitForAtlas(page);
-  await page.getByRole("button", { name: "Maintenance" }).click();
-  await expect(page).toHaveURL(/panel=maintenance/);
-  const panel = page.getByRole("region", { name: "Maintenance" });
+  await page.getByRole("button", { name: /^Health/ }).click();
+  await expect(page).toHaveURL(/panel=health/);
+  const panel = page.getByRole("region", { name: "Health" });
   // A KB served with no doctor settings is maintained by default (D323).
-  await expect(panel.getByText("Background repair")).toBeVisible();
-  await expect(panel.getByText(/^on, every day: nonstandard_field/)).toBeVisible();
-  await expect(panel.getByRole("heading", { name: "Questions for you" })).toBeVisible();
-  await expect(panel.getByRole("heading", { name: /^Recent repairs/ })).toBeVisible();
+  await expect(panel.getByText("Background repair", { exact: true })).toBeVisible();
+  await expect(panel.getByText(/^on, every day: \d+ checks/)).toBeVisible();
+  await expect(panel.getByRole("heading", { name: /^Questions for you/ })).toBeVisible();
+  await expect(panel.getByRole("heading", { name: /^Repairs, last 30 days/ })).toBeVisible();
   await expect(panel.getByText(/Could not read/)).toHaveCount(0);
 });
 
-test("the Observatory's severity floor updates its count", async ({ page }) => {
-  await page.goto(`${ATLAS}&panel=observatory`);
-  const observatory = page.getByRole("region", { name: "Observatory" });
-  await expect(observatory.getByRole("button", { name: /broken_link/ }).first()).toBeVisible();
-  const before = await observatory.locator(".observatory__finding").count();
+test("Health's severity floor updates its count", async ({ page }) => {
+  await page.goto(`${ATLAS}&panel=health`);
+  const health = page.getByRole("region", { name: "Health" });
+  await expect(health.getByRole("button", { name: /broken_link/ }).first()).toBeVisible();
+  const before = await health.locator(".health__finding").count();
   expect(before).toBeGreaterThan(0);
 
-  await observatory.getByRole("group", { name: "Minimum severity" }).getByRole("button", { name: "Errors only" }).click();
-  await expect(observatory.getByText("Nothing to report")).toBeVisible();
-  await expect(observatory.getByText(`Showing 0 of ${before} findings`)).toBeVisible();
+  await health.getByRole("group", { name: "Minimum severity" }).getByRole("button", { name: "Errors only" }).click();
+  await expect(health.getByText("No findings at or above this severity. Lower the floor to see the rest.")).toBeVisible();
+  await expect(health.getByText(`Showing 0 of ${before} findings`)).toBeVisible();
 });
 
 test("the command palette finds a concept and reveals it", async ({ page }) => {
@@ -259,44 +260,44 @@ test("the inspector names a broken target as having no node", async ({ page }) =
   await expect(inspector.getByText("they have no node in the graph")).toBeVisible();
 });
 
-test("an Observatory finding reveals its concept, or explains there is none", async ({ page }) => {
-  await page.goto(`${ATLAS}&panel=observatory`);
-  const observatory = page.getByRole("region", { name: "Observatory" });
+test("a Health finding reveals its concept, or explains there is none", async ({ page }) => {
+  await page.goto(`${ATLAS}&panel=health`);
+  const health = page.getByRole("region", { name: "Health" });
 
   // A finding about a map's own index is about no concept.
-  await observatory.getByRole("button", { name: /infra\/index\.md/ }).click();
+  await health.getByRole("button", { name: /infra\/index\.md/ }).click();
   await expect(page.getByRole("status").filter({ hasText: "no node to reveal" })).toBeAttached();
-  await expect(observatory).toBeVisible();
+  await expect(health).toBeVisible();
 
-  await observatory.getByRole("button", { name: /infra\/firewall\.md/ }).click();
+  await health.getByRole("button", { name: /infra\/firewall\.md/ }).click();
   await expect(page).toHaveURL(/concept=infra%2Ffirewall/);
   await expect(page.getByRole("complementary", { name: "Inspector for infra/firewall" })).toBeVisible();
   await expect(page).toHaveURL(selectedIn("infra/firewall"));
 });
 
-test("the Observatory follows the rail's Map, and hides the node filters (#364)", async ({ page }) => {
-  await page.goto(`${ATLAS}&panel=observatory`);
-  const observatory = page.getByRole("region", { name: "Observatory" });
+test("Health's findings follow the rail's Map, and hide the node filters (#364)", async ({ page }) => {
+  await page.goto(`${ATLAS}&panel=health`);
+  const health = page.getByRole("region", { name: "Health" });
   const rail = page.getByRole("navigation", { name: "Atlas navigation" });
-  await expect(observatory.getByRole("button", { name: /infra\/firewall\.md/ })).toBeVisible();
+  await expect(health.getByRole("button", { name: /infra\/firewall\.md/ })).toBeVisible();
   // Type and Status filter nodes, not findings: they step aside here.
   await expect(rail.getByRole("heading", { name: "Type" })).toHaveCount(0);
 
   // Another Map's findings leave the list, and the page names the scope.
   await rail.getByRole("button", { name: /Applications/ }).click();
-  await expect(observatory.getByRole("heading", { level: 1 })).toContainText("in Applications");
-  await expect(observatory.getByRole("button", { name: /infra\/firewall\.md/ })).toHaveCount(0);
+  await expect(health.getByRole("heading", { level: 1 })).toContainText("in Applications");
+  await expect(health.getByRole("button", { name: /infra\/firewall\.md/ })).toHaveCount(0);
 
   await rail.getByRole("button", { name: /Infrastructure/ }).click();
-  await expect(observatory.getByRole("heading", { level: 1 })).toContainText("in Infrastructure");
-  await expect(observatory.getByRole("button", { name: /infra\/firewall\.md/ })).toBeVisible();
-  const paths = await observatory.locator(".observatory__path").allTextContents();
+  await expect(health.getByRole("heading", { level: 1 })).toContainText("in Infrastructure");
+  await expect(health.getByRole("button", { name: /infra\/firewall\.md/ })).toBeVisible();
+  const paths = await health.locator(".health__path").allTextContents();
   expect(paths.every((path) => path.startsWith("infra/"))).toBe(true);
 
   // Whole atlas restores the KB-wide list; the Atlas gets its filters back.
   await rail.getByRole("button", { name: /Whole atlas/ }).click();
-  await expect(observatory.getByRole("heading", { level: 1 })).not.toContainText("Infrastructure");
-  await expect(observatory.getByText(/run over the whole KB/)).toBeVisible();
+  await expect(health.getByRole("heading", { level: 1 })).not.toContainText("Infrastructure");
+  await expect(health.getByText(/over the whole KB/)).toBeVisible();
   await rail.getByRole("button", { name: "Atlas", exact: true }).click();
   await expect(rail.getByRole("heading", { name: "Type" })).toBeVisible();
 });
