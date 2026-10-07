@@ -1,7 +1,7 @@
 ---
 name: kb-doctor
 description: Keep a Knowledge Base from rotting - a short, budgeted session that applies mechanical repairs and walks the operator through the server's ranked review list. Use when a tool result proposes a kb-doctor session, when kb_status reports conformance.doctor_suggested, when the operator asks to tidy or align a KB, or after a Cartographer upgrade.
-version: "2.8"
+version: "2.9"
 ---
 # KB Doctor - Skill
 
@@ -34,16 +34,15 @@ what is allowed:
 
 ## Procedure
 
-1. **Signal.** `kb_status`: read `conformance` (`findings`, `fixable`, `last_doctor`,
+1. **Signal.** `kb_status`: read `conformance` (`findings`, `fixable`, `repairable`, `last_doctor`,
    `next_doctor`, `doctor_suggested`), `review` (`total`, `by_kind`), `open_markers`, `read_cost`,
    and `capabilities.auto_repair`. Stop if nothing is suggested and the operator did not ask. Read
    the questions earlier sessions deferred: `contradiction_report` with `kind: "open_question"`
    (status open). Answer the ones the KB or the operator can now settle: `concept_patch` the answer
    into the question and set `resolution_status: resolved`. Tell the operator in two lines what the
    session will cover.
-2. **Mechanical.** For each check with a fix (`nonstandard_field`, `tool_param_field`, `broken_link`,
-   `duplicate_link`, `invalid_field_value`, `prose_value`, `title_h1_mismatch`): `kb_repair` with
-   `dry_run: true`. Checks listed in `capabilities.auto_repair.checks` the operator already trusts:
+2. **Mechanical.** For each check in `conformance.repairable` (every check with a fixable finding,
+   drift or not; `fixable` counts only the conformance ones): `kb_repair` with `dry_run: true`. Checks listed in `capabilities.auto_repair.checks` the operator already trusts:
    apply them (`dry_run: false`) and report the counts. While `capabilities.auto_repair.default` is
    true (the operator never wrote the list) it is `nonstandard_field`, `tool_param_field`,
    `invalid_field_value`, `duplicate_link` and `prose_value`: deterministic, never rewrite body text or
