@@ -747,6 +747,12 @@ source `index.md` is still rejected as a reserved destination filename. `--commi
 the scaffold (`_map.md`, `index.md`, `log.md`) created for each new destination map; on partial
 write failures it commits only successful paths and reports that the batch had errors.
 
+### `cartographer peer enable|disable|status`
+
+Agent peers (beta, D341, [`peers.md`](peers.md)). `enable` records `peers: true` in `.cartographer.yaml`, installs the two reserved hooks `cartographer-peers-start` (SessionStart) and `cartographer-peers-stop` (Stop) for every connected Claude Code, Codex and Kiro client — same materialization and registration as the bootstrap hook, recorded in the lockfile — and registers the Claude Code channel server through `claude mcp add --scope user cartographer-peers -- cartographer peer channel`. It prints how to launch Claude Code as a channel and warns when the server does not serve peers. `disable` reverses all of it, under the client lock. `status` prints the opt-in, whether the server serves peers, whether the relay runs, and the sessions on every known KB.
+
+`peer hook <provider> <event>`, `peer relay` and `peer channel` are the internal entry points of the hooks, the delivery relay and the Claude Code channel; they print nothing an agent did not ask for and always exit 0 from a hook.
+
 ### `cartographer resolve repo:<key>|path:<name>`
 
 Resolves a path portability placeholder (D75) and prints the local path to stdout. It doesn't talk to the

@@ -156,6 +156,16 @@ See `docs/sync.md` for the full model (Manifest, Lock, Diff, layered triggers).
 
 > Multi-KB: agent clients use the routed endpoint `/mcp/routed`, where the KB is a `kb` tool argument (required for 2+ KBs in the connection's `?kbs=` set, absent for one) — see the paragraph above. On the per-KB plumbing endpoints `?kb=<name>` (query param) or `/mcp/<name>` (path) select one KB's isolated `Server` for the whole session and no tool takes a `kb` argument. Tool names are never prefixed (D288; the `tool_prefix` keys were removed by D325).
 
+### Agent peers (beta, D341)
+
+Registered only when the server runs with `peers.enabled` ([`peers.md`](peers.md)). Whole-KB tools: they need access to the whole KB, read for **[R]**, write for `peer_send`. A session id is the agent client's own; the hub binds each to the principal that registered it, so another token's call naming it is refused.
+
+| Tool | Purpose |
+|---|---|
+| `peer_list()` **[R]** | Sessions registered on this KB: `id`, `provider`, `label`, `host`, `cwd`, `kbs`, `since`, `last_seen`, `pending`. |
+| `peer_send(from, to, text)` | Leaves `text` (UTF-8, at most 8000 bytes) in the inbox of `to`, or of every other session on the KB with `to: "*"`. `from` must be a session the caller registered on this KB, and so must every recipient be registered on it. Refused when an inbox already holds 100 messages. Returns `{sent, to}`. |
+| `peer_wait(session, [timeout_seconds])` **[R]** | Returns and removes `session`'s pending messages, waiting up to `timeout_seconds` (default 50, max 600) for one to arrive; `{"messages": []}` on timeout. Refreshes the session's presence. |
+
 ### Enforced limits
 
 Each of these is a hard limit a caller hits as a failure unless it reads it first, so every one is
@@ -328,6 +338,20 @@ predicates as the MCP read path, so the API cannot return a node, edge, count,
 finding or concept body that the same principal is refused through a tool. A
 concept that is hidden but exists is dropped silently rather than reported as a
 broken target, which would disclose its id.
+
+### Peer API (`POST /api/peer/v1/*`, D341)
+
+The client half of agent peers: the hooks, the relay and the Claude Code channel use it; agents use the `peer_*` tools. Routed only with `peers.enabled`, otherwise `404`; in the same auth chain as `/mcp`. Every route is `POST` with a JSON body, answers `{"error": {code, message, field}}` on failure, and acts for the calling principal:
+
+| Route | Body | Answer |
+|---|---|---|
+| `/register` | a session: `id` (`[A-Za-z0-9._:-]`, at most 128), `provider` (`claude`, `codex`, `kiro`, `opencode`), `label`, `host`, `cwd`, `kbs` | `{session, peers: {kb: [sessions]}}`. Every KB must be readable by the caller (`404` otherwise); re-registering keeps the inbox, under the same principal only (`403`) |
+| `/list` | `{kb}` | `{sessions}` |
+| `/take` | `{ids, touch}` | `{messages: {id: [messages]}}`, removing them; `touch` refreshes presence |
+| `/wait` | `{ids, touch, timeout_seconds}` | as `/take`, after waiting up to the timeout (default 50 s, max 600 s) for mail |
+| `/leave` | `{id}` | `{left: true}`; pending mail is dropped |
+
+An unknown or expired session is `404`, a session of another principal `403`, a full hub (256 sessions) `503`. A session expires two hours after it was last seen.
 
 ## Search index
 

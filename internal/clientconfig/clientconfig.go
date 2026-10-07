@@ -132,6 +132,11 @@ type Config struct {
 	// themselves. Cleared by an explicit `sync-timer install`. A removal
 	// because no client needs the timer any more does not set it.
 	SyncTimerOptOut bool `yaml:"-"`
+
+	// Peers opts this machine into agent-to-agent messaging (D341, beta):
+	// the peer hooks register sessions and deliver messages only when it is
+	// set. Written by `peer enable`, cleared by `peer disable`. USER-owned.
+	Peers bool `yaml:"-"`
 	// Update is the client-wide update-notice setting (D254), USER-owned.
 	// The zero value is the default: check, and only notify.
 	Update UpdateSettings `yaml:"-"`
@@ -204,6 +209,7 @@ type yamlConfig struct {
 	Update           *UpdateSettings                   `yaml:"update,omitempty"`
 	UsageScan        *bool                             `yaml:"usage_scan,omitempty"`
 	SyncTimerOptOut  bool                              `yaml:"sync_timer_opt_out,omitempty"`
+	Peers            bool                              `yaml:"peers,omitempty"`
 }
 
 // Default returns a Config with the same defaults as configurator.DefaultConfig.
@@ -283,6 +289,7 @@ func Load(dir string) (*Config, error) {
 		SigningKeys:      y.SigningKeys,
 		MCPApprovals:     y.MCPApprovals,
 		SyncTimerOptOut:  y.SyncTimerOptOut,
+		Peers:            y.Peers,
 		Extra:            extra,
 	}
 	if y.KnownKBs != nil {
@@ -342,6 +349,7 @@ func Save(dir string, cfg *Config) error {
 		SigningKeys:      cfg.SigningKeys,
 		MCPApprovals:     cfg.MCPApprovals,
 		SyncTimerOptOut:  cfg.SyncTimerOptOut,
+		Peers:            cfg.Peers,
 	}
 	// Emitted only when off: a default machine's file stays byte-identical.
 	if !cfg.UsageScan {

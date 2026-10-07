@@ -9,6 +9,7 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/gitx"
 	"github.com/BeppeTemp/cartographer/internal/kb"
+	"github.com/BeppeTemp/cartographer/internal/peers"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
 	"github.com/BeppeTemp/cartographer/internal/sqlindex"
 )
@@ -25,6 +26,9 @@ type Deps struct {
 	// the `kb` value to pass — a wrong name there is worse than the duplication
 	// routing removes.
 	RoutedMount bool
+	// Peers is the agent-messaging hub (D341). Nil -- the default -- registers
+	// no peer_* tool, so a server with the beta off advertises nothing new.
+	Peers *peers.Hub
 }
 
 // RegisterKBTools registers all KB tools on the server, including search,
@@ -180,5 +184,10 @@ func RegisterKBTools(s *Server, k *kb.KB, deps Deps) {
 		register(toolSyncPull(k, deps.BundleFS, deps.RoutedMount, deps.ArtifactSigner, deps.MCPAllowlist))
 	} else {
 		register(toolSkillList(k))
+	}
+	if deps.Peers != nil {
+		register(toolPeerList(k, deps.Peers))
+		register(toolPeerSend(k, deps.Peers))
+		register(toolPeerWait(k, deps.Peers))
 	}
 }

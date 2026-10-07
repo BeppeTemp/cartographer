@@ -379,6 +379,11 @@ Bearer tokens authorize requests; they do not become git signing identities.
 Git author/committer and SSH settings are configured globally or per KB as
 described in [deployment](deployment.md).
 
+Agent peers (D341) name sessions by their agent client's own id, which is not a
+credential: the hub binds each session to the principal (token) that registered
+it, and refuses another principal's attempt to read its mail or send as it. With
+auth off every caller is `local-admin`, the single-user case. → [peers](peers.md).
+
 ## Operational audit
 
 When `audit.log` is configured, every `tools/call` received over HTTP or

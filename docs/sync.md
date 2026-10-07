@@ -82,6 +82,8 @@ on macOS, the journal on Linux.
 Beyond the revision comparison, every `sync` also verifies the managed files on disk and restores
 what diverged — see §On-disk verification and healing.
 
+**Peer hooks (D341).** `cartographer-peers-start` and `cartographer-peers-stop` are reserved client hooks like the bootstrap: installed by `cartographer peer enable` (never by `connect`/`sync`), carried through every sync untouched, and a KB hook with either name is ignored with a warning. They register on `SessionStart` and `Stop` for Claude Code, Codex and Kiro (`provisioning.SupportsPeerHooks`); OpenCode is served by the peer relay instead. → [`peers.md`](peers.md).
+
 ### Layer 2 — On-demand MCP tools
 
 | Tool | What it does |

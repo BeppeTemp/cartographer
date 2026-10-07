@@ -10,6 +10,7 @@ import (
 	"testing/fstest"
 
 	"github.com/BeppeTemp/cartographer/internal/auth"
+	"github.com/BeppeTemp/cartographer/internal/peers"
 )
 
 // newScopedTestHandler mounts two KBs ("kbx" and "kby") on a MultiKBServer
@@ -304,7 +305,7 @@ func TestReadOnlyToolsGolden(t *testing.T) {
 			Data: []byte("---\nname: kb-create\ndescription: Guide KB creation\nversion: \"1.0\"\n---\nBody here.\n"),
 		},
 	}
-	RegisterKBTools(s, k, Deps{BundleFS: bundleFS})
+	RegisterKBTools(s, k, Deps{BundleFS: bundleFS, Peers: peers.New(0)})
 
 	got := map[string]bool{}
 	for name, tool := range s.Tools() {
@@ -335,7 +336,7 @@ func TestMaxBareToolNameLen(t *testing.T) {
 			Data: []byte("---\nname: kb-create\ndescription: Guide KB creation\nversion: \"1.0\"\n---\nBody here.\n"),
 		},
 	}
-	RegisterKBTools(s, setupTestKB(t), Deps{BundleFS: bundleFS})
+	RegisterKBTools(s, setupTestKB(t), Deps{BundleFS: bundleFS, Peers: peers.New(0)})
 	longest := 0
 	for name := range s.Tools() {
 		longest = max(longest, len(name))
