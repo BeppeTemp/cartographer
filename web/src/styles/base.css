@@ -246,9 +246,11 @@ a {
   color: var(--text-secondary);
 }
 
+/* Sans like every other heading of the shell: the editorial serif is kept for
+   the wordmark and for prose a reader reads (a concept's body). */
 .state__title {
-  font-family: var(--font-editorial);
   font-size: var(--text-lg);
+  font-weight: 600;
   color: var(--text-primary);
 }
 

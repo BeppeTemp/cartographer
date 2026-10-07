@@ -1,19 +1,38 @@
-import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import { fetchChanges } from "../api/client";
 import type { ChangesResponse, CollectionSummary, ConceptChange, GraphSnapshot } from "../api/types";
 import { collectionVar } from "../lib/palette";
+import {
+  Avatar,
+  Band,
+  Count,
+  Facet,
+  FacetRow,
+  FacetRows,
+  MapBar,
+  MapDot,
+  Page,
+  PageHeader,
+  Segmented,
+  SkeletonRows,
+  Stats,
+} from "./Page";
 
-const WINDOWS = ["1d", "7d", "30d"] as const;
-type Window = (typeof WINDOWS)[number];
+const WINDOWS = [
+  ["1d", "1d"],
+  ["7d", "7d"],
+  ["30d", "30d"],
+] as const;
+type Window = (typeof WINDOWS)[number][0];
 const DAYS: Record<Window, number> = { "1d": 1, "7d": 7, "30d": 30 };
 const DAY_MS = 86_400_000;
 
 /**
  * What changed in the KB, and who changed it: the agents' own
- * `changes_since`, as a page beside the Observatory. The head sums the window
- * up — how much, by whom, where, and on which days — and the timeline below
- * groups each concept under the day it last changed. A reader reviewing a
- * session narrows it to one author or one Map and opens each concept on the
+ * `changes_since`, as a page beside Work and Health. The band sums the
+ * window up — how much, where, by whom, and on which days — and the timeline
+ * below groups each concept under the day it last changed. A reader reviewing
+ * a session narrows it to one author or one Map and opens each concept on the
  * atlas.
  */
 export function Activity({
@@ -70,7 +89,7 @@ export function Activity({
     [snapshot],
   );
   const mapTitles = useMemo(() => new Map(collections.map((c) => [c.name, c.title || c.name])), [collections]);
-  const all = data?.concepts ?? [];
+  const all = useMemo(() => data?.concepts ?? [], [data]);
 
   // Authors and Maps by how much they changed: the busiest first.
   const authors = useMemo(() => rank(all.flatMap((c) => c.authors ?? [])), [all]);
@@ -84,54 +103,41 @@ export function Activity({
     if (map && !maps.some(([m]) => m === map)) setMap(null);
   }, [map, maps]);
 
-  const rows = all.filter((c) => (!author || c.authors?.includes(author)) && (!map || mapOf(c) === map));
+  const rows = useMemo(
+    () => all.filter((c) => (!author || c.authors?.includes(author)) && (!map || mapOf(c) === map)),
+    [all, author, map],
+  );
   const days = useMemo(() => groupByDay(rows), [rows]);
   const histogram = useMemo(() => perDay(rows, DAYS[shown]), [rows, shown]);
   const added = rows.filter((c) => c.change === "added").length;
   const deleted = rows.filter((c) => c.change === "deleted").length;
 
   return (
-    <section className="activity timeline" aria-label="Recent activity" aria-busy={loading}>
-      <header className="activity__head">
-        <div>
-          <p className="observatory__eyebrow">Activity</p>
-          <Headline data={data} n={rows.length} since={shown} author={author} mapTitle={map ? mapTitles.get(map) : null} />
-        </div>
-        <div className="legend__switch activity__window" role="group" aria-label="Changes since">
-          {WINDOWS.map((v) => (
-            <button key={v} type="button" className="legend__option" aria-pressed={since === v} onClick={() => setSince(v)}>
-              {v}
-            </button>
-          ))}
-        </div>
-      </header>
+    <Page label="Recent activity" busy={loading} className="timeline">
+      <PageHeader
+        eyebrow="Activity"
+        title={<Headline data={data} n={rows.length} since={shown} author={author} mapTitle={map ? mapTitles.get(map) : null} />}
+        actions={<Segmented<Window> label="Changes since" value={since} options={WINDOWS} onChange={setSince} />}
+      />
 
-      <div className="timeline__body" data-loading={loading && data !== null}>
+      <div className="page__body" data-loading={loading && data !== null}>
         {data && all.length > 0 && (
-          <div className="timeline__band" aria-label="Summary and filters" role="region">
-            <section className="timeline__facet timeline__summary">
-              <dl className="timeline__stats">
-                <Stat label="concepts" value={rows.length} />
-                <Stat label="new" value={added} />
-                <Stat label="removed" value={deleted} />
-                <Stat label={data.commit_count === 1 ? "commit" : "commits"} value={data.commit_count} />
-              </dl>
+          <Band label="Summary and filters">
+            <Facet className="timeline__summary">
+              <Stats
+                items={[
+                  { label: "concepts", value: rows.length },
+                  { label: "new", value: added, tone: added ? "ok" : "muted" },
+                  { label: "removed", value: deleted, tone: deleted ? "error" : "muted" },
+                  { label: data.commit_count === 1 ? "commit" : "commits", value: data.commit_count },
+                ]}
+              />
               {histogram.length > 1 && <DayBars bars={histogram} />}
-            </section>
+            </Facet>
 
-            <section className="timeline__facet" aria-labelledby="timeline-where">
-              <h2 id="timeline-where" className="timeline__facet-title">Where</h2>
-              <div className="timeline__mapbar" aria-hidden="true">
-                {maps.map(([name, count]) => (
-                  <span
-                    key={name}
-                    className="timeline__mapseg"
-                    data-dim={map !== null && map !== name}
-                    style={{ flexGrow: count, "--map": collectionVar(name) } as CSSProperties}
-                  />
-                ))}
-              </div>
-              <ul className="timeline__rows timeline__rows--two" aria-label="Filter by Map">
+            <Facet title="Where" id="activity-where">
+              <MapBar maps={maps} active={map} />
+              <FacetRows label="Filter by Map" columns={2}>
                 {maps.map(([name, count]) => (
                   <li key={name}>
                     <FacetRow
@@ -139,77 +145,72 @@ export function Activity({
                       count={count}
                       pressed={map === name}
                       hue={collectionVar(name)}
-                      mark={<span className="timeline__swatch" aria-hidden="true" />}
+                      mark={<MapDot map={name} />}
                       onToggle={() => setMap(map === name ? null : name)}
                     />
                   </li>
                 ))}
-              </ul>
-            </section>
+              </FacetRows>
+            </Facet>
 
-            <section className="timeline__facet" aria-labelledby="timeline-who">
-              <h2 id="timeline-who" className="timeline__facet-title">Who</h2>
-              <ul className="timeline__rows" aria-label="Filter by author">
+            <Facet title="Who" id="activity-who">
+              <FacetRows label="Filter by author">
                 {authors.map(([name, count]) => (
                   <li key={name}>
                     <FacetRow
                       label={name}
                       count={count}
                       pressed={author === name}
-                      mark={<Avatar name={name} />}
+                      mark={<Avatar name={name} size="small" />}
                       onToggle={() => setAuthor(author === name ? null : name)}
                     />
                   </li>
                 ))}
-              </ul>
-            </section>
-          </div>
+              </FacetRows>
+            </Facet>
+          </Band>
         )}
-        <div className="timeline__main">
-          {error ? (
-            <p className="activity__note">Could not read the history: {error}</p>
-          ) : !data ? (
-            <TimelineSkeleton />
-          ) : rows.length === 0 ? (
-            <div className="timeline__empty">
-              <p className="timeline__empty-title">Quiet {shown === "1d" ? "day" : "stretch"}.</p>
-              <p className="activity__note">
-                No concept changed {when(shown)}
-                {author ? ` by ${author}` : ""}.
-              </p>
-            </div>
-          ) : (
-            <ol className="timeline__days">
-              {days.map((day) => (
-                <li key={day.key} className="timeline__day">
-                  <h2 className="timeline__date">
-                    <span>{day.label}</span>
-                    <span className="timeline__date-count">{day.items.length}</span>
-                  </h2>
-                  <ol className="timeline__entries">
-                    {day.items.map((c) => (
-                      <Entry
-                        key={c.id}
-                        change={c}
-                        title={titles.get(c.id) ?? c.id}
-                        mapTitle={mapTitles.get(mapOf(c)) ?? mapOf(c)}
-                        onOpen={onOpen}
-                      />
-                    ))}
-                  </ol>
-                </li>
-              ))}
-            </ol>
-          )}
-          {data?.truncated && (
-            <p className="activity__note activity__foot">
-              Showing the {all.length} most recent changes: narrow the window to see the rest.
-            </p>
-          )}
-        </div>
 
+        {error ? (
+          <p className="page-note">Could not read the history: {error}</p>
+        ) : !data ? (
+          <SkeletonRows label="Reading the history" />
+        ) : rows.length === 0 ? (
+          <div className="timeline__empty">
+            <p className="timeline__empty-title">Quiet {shown === "1d" ? "day" : "stretch"}.</p>
+            <p className="page-note">
+              No concept changed {when(shown)}
+              {author ? ` by ${author}` : ""}.
+            </p>
+          </div>
+        ) : (
+          <ol className="timeline__days">
+            {days.map((day) => (
+              <li key={day.key} className="timeline__day">
+                <h2 className="timeline__date">
+                  <span>{day.label}</span>
+                  <span className="timeline__date-count">{day.items.length}</span>
+                </h2>
+                <ol className="timeline__entries">
+                  {day.items.map((c) => (
+                    <Entry
+                      key={c.id}
+                      change={c}
+                      title={titles.get(c.id) ?? c.id}
+                      mapTitle={mapTitles.get(mapOf(c)) ?? mapOf(c)}
+                      onOpen={onOpen}
+                    />
+                  ))}
+                </ol>
+              </li>
+            ))}
+          </ol>
+        )}
+        {data?.truncated && (
+          <p className="page-note">Showing the {all.length} most recent changes: narrow the window to see the rest.</p>
+        )}
       </div>
-    </section>
+    </Page>
   );
 }
 
@@ -237,13 +238,16 @@ function Entry({
         <span className="timeline__item-body">
           <span className="timeline__item-head">
             <span className="timeline__title">{title}</span>
-            <span className="timeline__map">{mapTitle}</span>
-            <ChangeBadge change={c.change} />
+            <span className="timeline__map">
+              <MapDot map={mapOf(c)} />
+              {mapTitle}
+            </span>
+            <ChangePill change={c.change} />
           </span>
           {first && (
             <span className="timeline__reason" title={c.reasons!.join("\n")}>
               {first}
-              {more.length > 0 && <span className="timeline__more"> +{more.length}</span>}
+              {more.length > 0 && ` +${more.length}`}
             </span>
           )}
         </span>
@@ -251,7 +255,7 @@ function Entry({
           <span className="timeline__authors" aria-label={`By ${c.authors.join(", ")}`}>
             {c.authors.map((a) => (
               <span key={a} title={a}>
-                <Avatar name={a} />
+                <Avatar name={a} size="small" />
               </span>
             ))}
           </span>
@@ -262,53 +266,14 @@ function Entry({
 }
 
 const GLYPH: Record<string, string> = { added: "+", modified: "~", deleted: "−", renamed: "→" };
+const TONE: Record<string, string> = { added: "pill--ok", deleted: "pill--error" };
 
-function ChangeBadge({ change }: { change: string }) {
+function ChangePill({ change }: { change: string }) {
   return (
-    <span className={`timeline__badge timeline__badge--${change}`}>
+    <span className={`pill ${TONE[change] ?? ""} timeline__change--${change}`}>
       <span aria-hidden="true">{GLYPH[change] ?? "•"}</span>
       {change}
     </span>
-  );
-}
-
-/** One filter row: a mark, a name and a count. */
-function FacetRow({
-  label,
-  count,
-  pressed,
-  hue,
-  mark,
-  onToggle,
-}: {
-  label: string;
-  count: number;
-  pressed: boolean;
-  hue?: string;
-  mark: ReactNode;
-  onToggle(): void;
-}) {
-  return (
-    <button
-      type="button"
-      className="timeline__row"
-      aria-pressed={pressed}
-      style={hue ? ({ "--map": hue } as CSSProperties) : undefined}
-      onClick={onToggle}
-    >
-      {mark}
-      <span className="timeline__row-name">{label}</span>
-      <span className="timeline__row-count">{count}</span>
-    </button>
-  );
-}
-
-function Stat({ label, value }: { label: string; value: number }) {
-  return (
-    <div className="timeline__stat">
-      <dt>{label}</dt>
-      <dd>{value}</dd>
-    </div>
   );
 }
 
@@ -317,7 +282,11 @@ function DayBars({ bars }: { bars: { key: string; label: string; count: number }
   const max = Math.max(1, ...bars.map((b) => b.count));
   return (
     <figure className="timeline__chart">
-      <div className="timeline__bars" role="img" aria-label={`Changes per day: ${bars.map((b) => `${b.label} ${b.count}`).join(", ")}`}>
+      <div
+        className="timeline__bars"
+        role="img"
+        aria-label={`Changes per day: ${bars.map((b) => `${b.label} ${b.count}`).join(", ")}`}
+      >
         {bars.map((b) => (
           <span key={b.key} className="timeline__bar-slot" title={`${b.label}: ${b.count}`}>
             <span className="timeline__bar" data-empty={b.count === 0} style={{ height: `${(b.count / max) * 100}%` }} />
@@ -329,31 +298,6 @@ function DayBars({ bars }: { bars: { key: string; label: string; count: number }
         <span>today</span>
       </figcaption>
     </figure>
-  );
-}
-
-/** Initials on a hue the name picks: the same person, the same disc. */
-function Avatar({ name }: { name: string }) {
-  const initials = name
-    .split(/[\s._-]+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((p) => p[0]!.toUpperCase())
-    .join("");
-  return (
-    <span className="timeline__avatar" aria-hidden="true" style={{ "--map": collectionVar(name) } as CSSProperties}>
-      {initials || "?"}
-    </span>
-  );
-}
-
-function TimelineSkeleton() {
-  return (
-    <div className="timeline__skeleton" aria-busy="true" aria-label="Reading the history">
-      {[0, 1, 2].map((i) => (
-        <span key={i} className="skeleton timeline__skeleton-row" />
-      ))}
-    </div>
   );
 }
 
@@ -424,7 +368,7 @@ function when(since: string): string {
   return since === "1d" ? "today" : `in the last ${since.replace("d", " days")}`;
 }
 
-/** The headline says it in words, like the Observatory's; the count leads. */
+/** The headline says it in words; the count leads. */
 function Headline({
   data,
   n,
@@ -438,20 +382,21 @@ function Headline({
   author: string | null;
   mapTitle: string | null | undefined;
 }) {
-  if (!data) return <h1 className="timeline__headline">Reading the history…</h1>;
+  if (!data) return <>Reading the history…</>;
   const who = author ? ` by ${author}` : "";
   const where = mapTitle ? ` in ${mapTitle}` : "";
-  if (n === 0) return <h1 className="timeline__headline">Nothing changed{where}{who} {when(since)}.</h1>;
-  const count = data.truncated ? `${n}+` : String(n);
+  if (n === 0) return <>{`Nothing changed${where}${who} ${when(since)}.`}</>;
   return (
-    <h1 className="timeline__headline">
-      <span className="timeline__headline-count">{count}</span> {n === 1 ? "concept" : "concepts"} changed{where}
+    <>
+      <Count>{data.truncated ? `${n}+` : n}</Count> {n === 1 ? "concept" : "concepts"} changed{where}
       {who} {when(since)}.
-    </h1>
+    </>
   );
 }
 
 function clock(iso: string): string {
   const t = Date.parse(iso);
-  return Number.isFinite(t) ? new Date(t).toLocaleTimeString("en", { hour: "2-digit", minute: "2-digit", hour12: false }) : "";
+  return Number.isFinite(t)
+    ? new Date(t).toLocaleTimeString("en", { hour: "2-digit", minute: "2-digit", hour12: false })
+    : "";
 }
