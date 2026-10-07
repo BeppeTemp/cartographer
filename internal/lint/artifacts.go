@@ -655,7 +655,7 @@ func checkSkillGitCommands(skills []skill.Skill) []Finding {
 					Path:     skillFile(s),
 					Check:    "skill_git_command",
 					Severity: SevInfo,
-					Message:  fmt.Sprintf("skill instructs git %s on the KB clone — the KB is written only via MCP tools", m[1]),
+					Message:  fmt.Sprintf("skill instructs git %s — if it targets the KB clone, write through the MCP tools instead; if it targets another repository, accept it in instructions.md lint_accept", m[1]),
 				})
 			}
 		}
@@ -893,6 +893,26 @@ func UsageState(u kb.UsageSummary, seen bool, staleDays int, now time.Time) stri
 	return UsageActive
 }
 
+// recentlyAdded returns the KB-root-relative paths added (or renamed into
+// place) since the given instant, from one git log over that window. A KB
+// that is not a git repository, or whose history cannot be read, has none:
+// the check then reports as before rather than going silent.
+func recentlyAdded(root string, since time.Time) map[string]bool {
+	commits, err := gitx.LogNameStatus(root, since)
+	if err != nil {
+		return nil
+	}
+	out := map[string]bool{}
+	for _, c := range commits {
+		for _, f := range c.Files {
+			if f.Status == "A" || f.Status == "R" {
+				out[f.Path] = true
+			}
+		}
+	}
+	return out
+}
+
 // UsageArtifact is a skill or agent the KB ships, as usage tracking sees it.
 type UsageArtifact struct {
 	Kind, Name string
@@ -932,12 +952,19 @@ func checkArtifactUnused(k *kb.KB, skills []skill.Skill, opts Options, now time.
 	if opts.Usage == nil || opts.UsageStaleDays <= 0 {
 		return nil
 	}
+	recent := recentlyAdded(k.Root, now.AddDate(0, 0, -opts.UsageStaleDays))
 	var findings []Finding
 	for _, it := range usageArtifacts(k, skills) {
 		u, seen := opts.Usage[kb.UsageKey(it.Kind, it.Name)]
 		days := int(now.Sub(u.LastUsed).Hours() / 24)
 		f := Finding{Path: it.Path, Check: "artifact_unused", Severity: SevInfo}
-		switch UsageState(u, seen, opts.UsageStaleDays, now) {
+		state := UsageState(u, seen, opts.UsageStaleDays, now)
+		// D336: an artifact added inside the threshold has not had the time
+		// to be used — "never" says nothing yet, as "stale" would not.
+		if (state == UsageNever || state == UsageCatalog) && recent[it.Path] {
+			continue
+		}
+		switch state {
 		case UsageNever:
 			f.Message = fmt.Sprintf("%s %q has never been activated by any client (no signal in session transcripts)", it.Kind, it.Name)
 		case UsageCatalog:

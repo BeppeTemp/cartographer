@@ -670,6 +670,33 @@ func TestNoLinkUsesTheOldDecisionAnchors(t *testing.T) {
 	}
 }
 
+// A merge or rebase resolved by hand can leave its markers behind in a text
+// file that nothing compiles: docs/control-plane.md carried two
+// "||||||| parent of" blocks and three copies of a table row through a
+// release. A Go file would fail to build; a document fails here.
+func TestNoTextFileKeepsConflictMarkers(t *testing.T) {
+	root := repoRoot(t)
+	marker := regexp.MustCompile(`(?m)^(<<<<<<<|\|\|\|\|\|\|\||>>>>>>>)( |$)`)
+
+	files, err := TextFiles(root)
+	if err != nil {
+		t.Fatalf("collecting the text files: %v", err)
+	}
+
+	var offenders []string
+	for _, rel := range files {
+		text := readFile(t, root, rel)
+		for _, loc := range marker.FindAllStringIndex(text, -1) {
+			line := 1 + strings.Count(text[:loc[0]], "\n")
+			offenders = append(offenders, fmt.Sprintf("%s:%d", rel, line))
+		}
+	}
+	if len(offenders) > 0 {
+		t.Errorf("conflict markers left in the tree; keep the resolved text and drop the rest:\n  %s",
+			strings.Join(offenders, "\n  "))
+	}
+}
+
 // The corpus definitions are load-bearing for four gates, and their failure mode
 // is to quietly scan nothing. These assertions are cheap and they are what makes
 // "the check is not doing anything" impossible to reach unnoticed.

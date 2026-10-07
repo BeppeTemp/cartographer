@@ -3,6 +3,7 @@ package lint
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -544,5 +545,33 @@ func TestLint_ArtifactUnused_ReadsTheKBStore(t *testing.T) {
 	}
 	if got := findingsOf(findings, "artifact_unused"); len(got) != 1 || got[0].Path != "skills/ops-tool/SKILL.md" {
 		t.Fatalf("got %v", got)
+	}
+}
+
+// D336: an artifact added inside the threshold is not reported as never used
+// — it has not had the time to be — while one added before it still is.
+func TestLint_ArtifactUnused_NewArtifactHasGrace(t *testing.T) {
+	k := usageKB(t)
+	git := func(date string, args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		cmd.Dir = k.Root
+		cmd.Env = append(os.Environ(), "GIT_AUTHOR_DATE="+date, "GIT_COMMITTER_DATE="+date,
+			"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@example.com", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@example.com")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v: %s", args, err, out)
+		}
+	}
+	git("", "init", "-q")
+	git(agoDays(100).Format(time.RFC3339), "add", "skills")
+	git(agoDays(100).Format(time.RFC3339), "commit", "-qm", "old skill")
+	git(agoDays(3).Format(time.RFC3339), "add", "-A")
+	git(agoDays(3).Format(time.RFC3339), "commit", "-qm", "new agent")
+	// Some data exists, about neither artifact.
+	got := unusedFindings(t, k, map[string]kb.UsageSummary{
+		kb.UsageKey("skill", "other"): {LastUsed: agoDays(1), Provider: "claude", Count: 1},
+	}, 42)
+	if len(got) != 1 || got[0].Path != "skills/ops-tool/SKILL.md" {
+		t.Fatalf("only the skill added 100 days ago is reported, got %v", got)
 	}
 }

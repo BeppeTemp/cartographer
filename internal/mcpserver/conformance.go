@@ -189,9 +189,12 @@ func doctorDue(lastDoctor string, intervalDays int, now time.Time) bool {
 // see into the kb_status conformance object. A pure function of its inputs, so
 // the doctor_suggested truth table is testable without a KB.
 //
-// doctor_suggested is debt && due (D299): any counted finding or review item,
-// once the KB's doctor interval has passed. Time, not the first warning,
-// decides, so the flag does not stay on for good on a real KB.
+// doctor_suggested is debt && due (D299): any lint finding the caller can
+// see or any review item, once the KB's doctor interval has passed. Time, not
+// the first warning, decides, so the flag does not stay on for good on a real
+// KB. Every finding counts, not only the conformance checks (D336): the
+// Observatory shows them all, every one has a way out, and a doctor session is
+// done only at zero — a debt that never calls the doctor never gets there.
 //
 // repairable counts, per check, every finding kb_repair can fix — conformance
 // check or not (D331): fixable alone hid stringified_list or title_h1_mismatch
@@ -214,13 +217,13 @@ func summarizeConformance(findings []lint.Finding, reviewTotal int, lastDoctor s
 			fixable++
 		}
 	}
-	total := bySev[lint.SevError] + bySev[lint.SevWarning] + bySev[lint.SevInfo]
 	out := map[string]interface{}{
 		"findings":         bySev,
 		"fixable":          fixable,
 		"repairable":       repairable,
 		"acceptability":    acceptability,
-		"doctor_suggested": (total+reviewTotal) > 0 && doctorDue(lastDoctor, intervalDays, now),
+		"lint_findings":    len(findings),
+		"doctor_suggested": (len(findings)+reviewTotal) > 0 && doctorDue(lastDoctor, intervalDays, now),
 	}
 	if lastDoctor != "" {
 		out["last_doctor"] = lastDoctor
