@@ -2,7 +2,7 @@
 topic: control-plane
 ---
 
-# D337 — Health merges the Observatory and Maintenance panels
+# D338 — Health merges the Observatory and Maintenance panels
 
 **Decision.** The Atlas has one **Health** panel where it had an Observatory
 (lint findings and knowledge gaps, D307, D319) and a Maintenance panel (background

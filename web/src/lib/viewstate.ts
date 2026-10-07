@@ -24,7 +24,7 @@ export const EMPTY_VIEW: ViewState = { kb: null, scope: null, concept: null, pan
 export function readViewState(search: string = window.location.search): ViewState {
   const params = new URLSearchParams(search);
   const param = params.get("panel");
-  // Observatory and Maintenance became Health (D337): their old links still
+  // Observatory and Maintenance became Health (D338): their old links still
   // land on it rather than on the atlas.
   const panel: Panel =
     param === "maintenance" || param === "observatory"

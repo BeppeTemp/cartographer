@@ -2,7 +2,7 @@
 topic: control-plane
 ---
 
-# D336 — The Atlas follows the KB by polling a revision
+# D337 — The Atlas follows the KB by polling a revision
 
 **Decision.** `GET /api/ui/v1/kbs/{kb}/revision` returns an opaque token built
 from the link-graph cache's generation (`kb.GraphGeneration`, D294) and a

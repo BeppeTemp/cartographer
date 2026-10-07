@@ -2,7 +2,7 @@
 topic: control-plane
 ---
 
-# D338 — The reading panels share one page kit
+# D339 — The reading panels share one page kit
 
 **Decision.** Activity, Work and Health are built from one set of components
 (`web/src/components/Page.tsx`) and one stylesheet (`web/src/styles/pages.css`):

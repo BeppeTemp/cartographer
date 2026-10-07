@@ -21,7 +21,7 @@ const FLOORS = [
 ] as const;
 
 /**
- * Health (D337): how the KB is doing, on one page. What is wrong with it (the
+ * Health (D338): how the KB is doing, on one page. What is wrong with it (the
  * lint findings), what it does not know (gaps, unanswered searches, pages past
  * review), what waits on a person (the doctor's questions) and what keeps it
  * in repair (the background repairs, the doctor sessions and their log). It

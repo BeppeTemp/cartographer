@@ -155,7 +155,7 @@ var uiRevisionBoot = strconv.FormatInt(time.Now().UnixNano(), 36)
 
 // GET /kbs/{kb}/revision — an opaque token that changes whenever a concept
 // file is added, removed or edited, by this server or out of band (a pull, an
-// editor): the Atlas polls it to know when to reload (D336). It counts changes
+// editor): the Atlas polls it to know when to reload (D337). It counts changes
 // anywhere in the KB, so a narrowed principal would learn when a hidden
 // collection moves: like /status it is only for a caller that sees all of it.
 func uiRevision(w http.ResponseWriter, r *http.Request, k *kb.KB) {

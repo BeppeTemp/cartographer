@@ -6,7 +6,7 @@ import { ApiError, fetchRevision } from "../api/client";
 export const LIVE_INTERVAL_MS = 10_000;
 
 /**
- * Polls the KB's revision (D336) while the tab is visible and returns a
+ * Polls the KB's revision (D337) while the tab is visible and returns a
  * counter that bumps each time it changes: data effects list it among their
  * dependencies and refetch in place. A hidden tab does not poll, and comes
  * back with an immediate check. A 404 is a principal that cannot see the

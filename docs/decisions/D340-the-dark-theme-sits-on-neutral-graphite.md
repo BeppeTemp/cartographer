@@ -2,7 +2,7 @@
 topic: control-plane
 ---
 
-# D339 — The dark theme sits on neutral graphite
+# D340 — The dark theme sits on neutral graphite
 
 **Decision.** The Atlas's dark surfaces are a neutral graphite (`--surface-0`
 `#131416` up to `--surface-3` `#2b2c31`, borders `#2f3036`/`#7c7e86`) instead of

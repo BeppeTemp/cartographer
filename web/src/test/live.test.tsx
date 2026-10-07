@@ -15,7 +15,7 @@ async function beat() {
   });
 }
 
-describe("useLiveRevision (D336)", () => {
+describe("useLiveRevision (D337)", () => {
   beforeEach(() => {
     vi.useFakeTimers();
     fetchRevision.mockReset();

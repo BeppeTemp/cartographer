@@ -437,7 +437,7 @@ script and no eval. `web.enabled: false` registers neither route.
 
 Stdio mode never serves the UI, whatever the setting says.
 
-An open Atlas follows the KB live (D336): while the tab is visible it asks
+An open Atlas follows the KB live (D337): while the tab is visible it asks
 `/api/ui/v1/kbs/<kb>/revision` every ten seconds and, when the answer changes,
 refetches the open view in place — graph, concept, findings and lists — without
 a reload or a blank frame. A hidden tab does not poll and checks once on
@@ -484,7 +484,7 @@ that lists nothing the *Links* tab does not already show (D287). The *Links*
 tab lists links by title — *Links to*, *Linked from*, and *Used by* for the
 artifacts that reference the concept.
 
-Activity, Work and Health are reading panels built from one page kit (D338):
+Activity, Work and Health are reading panels built from one page kit (D339):
 a header that says the answer in a sentence with its count in bold (long
 explanations behind a *?*), an open hero with no box around it — large
 figures, a chart where there is a series, and filters as pills (a pressed one
@@ -516,7 +516,7 @@ shows its Map, title, type and age (stale ones flagged), expands to its items,
 and opens the concept on the atlas. It is read-only: work changes through the
 agents' write tools.
 
-The **Health** panel (D337) is how the KB is doing, on one page. Its title
+The **Health** panel (D338) is how the KB is doing, on one page. Its title
 gives the worst state in words behind a mark — broken, needs attention,
 questions waiting, or all clear — and the line under it says where the
 findings were looked for, that no question waits when none does, and when the
@@ -557,7 +557,7 @@ and Maintenance links (`panel=observatory`, `panel=maintenance`) open Health.
 The **Artifacts** panel, last in the rail, shows what the KB ships to agent
 clients: skills, subagents, hooks, MCP descriptors in the allowlist, the
 curated `instructions.md` and templates. It is a catalog page built like the
-others (D338): its title counts the artifacts, the line under it gives the
+others (D339): its title counts the artifacts, the line under it gives the
 artifact findings ("No artifact findings" when clean, `finding_counts`/
 `finding_severities` in `GET …/artifacts`, counting those no listed artifact
 owns) and says when no client has reported a use yet, and a search box filters

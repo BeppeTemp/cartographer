@@ -58,7 +58,7 @@ export function Activity({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // A new KB starts blank. A new window or a live refetch (D336) keeps what
+  // A new KB starts blank. A new window or a live refetch (D337) keeps what
   // is on screen until the fresh answer replaces it: no flash of skeleton.
   useEffect(() => {
     setData(null);

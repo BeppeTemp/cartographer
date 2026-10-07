@@ -20,7 +20,7 @@ describe("view state round-trips through the URL", () => {
     expect(viewStateToSearch({ kb: "kb", scope: null, concept: null, panel: "atlas", artifact: null })).toBe("?kb=kb");
   });
 
-  it("sends the old Observatory and Maintenance links to Health (D337)", () => {
+  it("sends the old Observatory and Maintenance links to Health (D338)", () => {
     expect(readViewState("?panel=observatory").panel).toBe("health");
     expect(readViewState("?panel=maintenance").panel).toBe("health");
     expect(viewStateToSearch({ kb: "k", scope: null, concept: null, panel: "health", artifact: null })).toBe(

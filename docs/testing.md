@@ -286,8 +286,8 @@ toolchain (D227). What they hold:
 - the bearer token reaches neither `localStorage` nor a URL;
 - the live refresh bumps only when the KB revision changes, stops for good on a
   `404` (a narrowed principal has no revision) and never polls while disabled
-  (D336);
-- Health (D337): findings by severity with their accept badges and floor,
+  (D337);
+- Health (D338): findings by severity with their accept badges and floor,
   revealing a concept or saying there is none, scoped by the rail's Map so a
   clean Map never reads as a clean KB; the upkeep, questions and repairs, each
   copy action a clipboard write and every request a `GET`; a whole-KB `404`
@@ -420,7 +420,7 @@ What it holds, beyond the component tests:
   palette; URL state with Back/Forward and deep links; backlink chips;
   Health findings revealing their concept or saying there is no node;
   Health's findings scoped by the rail's Map, and its node filters stepping aside;
-  Health loading its upkeep schedule and questions (D323, D337); the Artifacts
+  Health loading its upkeep schedule and questions (D323, D338); the Artifacts
   catalog opening an artifact beside it and closing it;
   the reading panel's splitter (D239, D281): a drag persists across a reload,
   a wider panel keeps its close button at the head's right edge and reframes

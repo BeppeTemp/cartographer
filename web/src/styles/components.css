@@ -1828,7 +1828,7 @@ body.is-resizing {
    selected artifact's metadata and files. The list width is the viewer's,
    set with the same splitter as the reading panel (D239). */
 
-/* --- Artifacts: a catalog page, the detail opening beside it (D338) --- */
+/* --- Artifacts: a catalog page, the detail opening beside it (D339) --- */
 
 .artifacts {
   display: grid;

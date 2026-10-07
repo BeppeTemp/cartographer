@@ -262,7 +262,7 @@ export function App() {
   // cannot let a stale response overwrite a newer one. ---
 
   const activeKB = view.kb;
-  // Bumps when the KB changes under the open page (D336): every data effect
+  // Bumps when the KB changes under the open page (D337): every data effect
   // below lists it, so the views refetch in place without a reload.
   const live = useLiveRevision(activeKB, phase === "ready");
 
@@ -384,7 +384,7 @@ export function App() {
     replaceView(next);
   }, [view, activeKB, kbs, artifactsAllowed]);
 
-  // Health's whole-KB reads (D337): kb_status and the maintenance summary
+  // Health's whole-KB reads (D338): kb_status and the maintenance summary
   // answer 404 to a principal that cannot see the whole KB, which is not an
   // error to show — the page leaves those parts out. The questions are
   // filtered per principal and always answer.

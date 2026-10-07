@@ -43,7 +43,7 @@ const questions: MaintenanceQuestions = {
   ],
 };
 
-/** Health (D337), the maintenance half (D323): what the doctor did and what it asks. Read-only. */
+/** Health (D338), the maintenance half (D323): what the doctor did and what it asks. Read-only. */
 describe("the Health panel's upkeep", () => {
   beforeEach(() => {
     window.history.replaceState(null, "", "/ui/?kb=kb-a&panel=health");

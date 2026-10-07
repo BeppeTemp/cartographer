@@ -59,7 +59,7 @@ export function Work({
   const [staleOnly, setStaleOnly] = useState(false);
   const [text, setText] = useState("");
 
-  // A new KB starts blank; a live refetch (D336) keeps what is on screen
+  // A new KB starts blank; a live refetch (D337) keeps what is on screen
   // until the fresh answer replaces it.
   useEffect(() => {
     setData(null);
