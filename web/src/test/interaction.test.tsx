@@ -4,8 +4,8 @@ import { describe, expect, it, vi } from "vitest";
 import { CommandPalette } from "../components/CommandPalette";
 import { NodeList } from "../components/NodeList";
 import { LeftRail } from "../components/LeftRail";
-import { Observatory } from "../components/Observatory";
-import type { GraphNode, LintReport, Overview } from "../api/types";
+import { Health } from "../components/Health";
+import type { GraphNode, KBStatus, LintReport, MaintenanceQuestions, MaintenanceSummary, Overview } from "../api/types";
 
 const nodes: GraphNode[] = [
   { id: "infra/gateway", collection: "infra", type: "Service", in_degree: 4, out_degree: 1 },
@@ -99,40 +99,47 @@ const report: LintReport = {
   severity_min: "info",
 };
 
-describe("observatory", () => {
+/** Health with neutral defaults: the findings tests only change what they are about. */
+function health(
+  props: Partial<{
+    report: LintReport;
+    scopeTitle: string | null;
+    status: KBStatus | null;
+    summary: MaintenanceSummary | null;
+    questions: MaintenanceQuestions | null;
+    severityMin: string;
+    onReveal: (concept: string | null, message: string) => void;
+  }> = {},
+) {
+  return (
+    <Health
+      report={props.report ?? report}
+      status={props.status ?? null}
+      summary={props.summary ?? null}
+      questions={props.questions ?? null}
+      scopeTitle={props.scopeTitle ?? null}
+      loading={false}
+      error={null}
+      severityMin={props.severityMin ?? "info"}
+      onSeverityChange={vi.fn()}
+      onReveal={props.onReveal ?? vi.fn()}
+      onOpen={vi.fn()}
+      onRetry={vi.fn()}
+    />
+  );
+}
+
+describe("health findings", () => {
   it("tells who can accept each check", () => {
-    render(
-      <Observatory
-        report={report}
-        scopeTitle={null}
-        loading={false}
-        error={null}
-        severityMin="info"
-        onSeverityChange={vi.fn()}
-        onReveal={vi.fn()}
-        onRetry={vi.fn()}
-      />,
-    );
+    render(health());
     expect(screen.getAllByTitle(/Accept with lint_ignore on the concept/).length).toBeGreaterThan(0);
     expect(screen.getAllByTitle(/Cannot be accepted/).length).toBeGreaterThan(0);
   });
 
-
   it("reveals the concept behind a finding", async () => {
     const user = userEvent.setup();
     const onReveal = vi.fn();
-    render(
-      <Observatory
-        report={report}
-        scopeTitle={null}
-        loading={false}
-        error={null}
-        severityMin="info"
-        onSeverityChange={vi.fn()}
-        onReveal={onReveal}
-        onRetry={vi.fn()}
-      />,
-    );
+    render(health({ onReveal }));
     await user.click(screen.getByRole("button", { name: /broken_link/ }));
     expect(onReveal).toHaveBeenCalledWith("infra/gateway", "");
   });
@@ -140,118 +147,71 @@ describe("observatory", () => {
   it("explains that a finding with no concept has no node to reveal", async () => {
     const user = userEvent.setup();
     const onReveal = vi.fn();
-    render(
-      <Observatory
-        report={report}
-        scopeTitle={null}
-        loading={false}
-        error={null}
-        severityMin="info"
-        onSeverityChange={vi.fn()}
-        onReveal={onReveal}
-        onRetry={vi.fn()}
-      />,
-    );
+    render(health({ onReveal }));
     await user.click(screen.getByRole("button", { name: /index_incomplete/ }));
     expect(onReveal).toHaveBeenCalledWith(null, expect.stringContaining("no node to reveal"));
   });
 
   it("says how many findings it is not showing", () => {
-    render(
-      <Observatory
-        report={report}
-        scopeTitle={null}
-        loading={false}
-        error={null}
-        severityMin="warning"
-        onSeverityChange={vi.fn()}
-        onReveal={vi.fn()}
-        onRetry={vi.fn()}
-      />,
-    );
+    render(health({ severityMin: "warning" }));
     expect(screen.getByText(/showing 2 of 9 findings/i)).toBeInTheDocument();
   });
 
   it("carries severity as text, not colour alone", () => {
-    render(
-      <Observatory
-        report={report}
-        scopeTitle={null}
-        loading={false}
-        error={null}
-        severityMin="info"
-        onSeverityChange={vi.fn()}
-        onReveal={vi.fn()}
-        onRetry={vi.fn()}
-      />,
-    );
-    const totals = screen.getByRole("region", { name: "Observatory" });
-    expect(within(totals).getAllByText("error").length).toBeGreaterThan(0);
-    expect(within(totals).getAllByText("warning").length).toBeGreaterThan(0);
+    render(health());
+    const page = screen.getByRole("region", { name: "Health" });
+    expect(within(page).getAllByText("error").length).toBeGreaterThan(0);
+    expect(within(page).getAllByText("warning").length).toBeGreaterThan(0);
+  });
+
+  it("leaves out what a narrowed principal cannot read, and keeps the findings", () => {
+    render(health());
+    expect(screen.queryByRole("heading", { name: "Upkeep" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Knowledge" })).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /^Findings/ })).toBeInTheDocument();
   });
 });
 
-describe("observatory search misses", () => {
+describe("health knowledge", () => {
   it("marks a miss whose search now finds something as resolved", () => {
     render(
-      <Observatory
-        report={report}
-        scopeTitle={null}
-        status={{
+      health({
+        status: {
           search_misses: [
             { query: "zephyr", count: 1 },
             { query: "kafka", count: 3, resolved: true },
           ],
-        }}
-        loading={false}
-        error={null}
-        severityMin="info"
-        onSeverityChange={vi.fn()}
-        onReveal={vi.fn()}
-        onRetry={vi.fn()}
-      />,
+        },
+      }),
     );
     const resolved = screen.getByText("kafka").closest("li");
     expect(resolved).toHaveClass("chip--resolved");
     expect(resolved).toHaveTextContent("(now found)");
     expect(screen.getByText("zephyr").closest("li")).not.toHaveClass("chip--resolved");
   });
+
+  it("says so in one line when the KB knows what it is asked", () => {
+    render(health({ status: { open_gaps: { total: 0 }, search_misses: [], stale_count: 0 } }));
+    expect(
+      screen.getByText("Nothing missing: no open gap, no unanswered search, nothing past its review date."),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: /^Knowledge \d/ })).not.toBeInTheDocument();
+  });
 });
 
-describe("observatory scope", () => {
+describe("health scope", () => {
   it("names the Map it is scoped to, in the headline and the summary", () => {
-    render(
-      <Observatory
-        report={report}
-        scopeTitle="Infrastructure"
-        loading={false}
-        error={null}
-        severityMin="info"
-        onSeverityChange={vi.fn()}
-        onReveal={vi.fn()}
-        onRetry={vi.fn()}
-      />,
-    );
-    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("One thing is broken in Infrastructure.");
-    expect(screen.getByText(/run over/)).toHaveTextContent("run over Infrastructure.");
+    render(health({ scopeTitle: "Infrastructure" }));
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("1 thing is broken in Infrastructure.");
+    expect(screen.getByText(/with findings over/)).toHaveTextContent("2 checks with findings over Infrastructure");
   });
 
   it("does not let a clean Map read as a clean KB", () => {
     const clean: LintReport = { ...report, findings: [], count: 0, total: 0, by_severity: {}, by_check: {} };
-    render(
-      <Observatory
-        report={clean}
-        scopeTitle="Infrastructure"
-        loading={false}
-        error={null}
-        severityMin="info"
-        onSeverityChange={vi.fn()}
-        onReveal={vi.fn()}
-        onRetry={vi.fn()}
-      />,
-    );
-    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Nothing to report in Infrastructure.");
+    render(health({ report: clean, scopeTitle: "Infrastructure" }));
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("All clear in Infrastructure.");
     expect(screen.queryByText(/This KB passes/)).not.toBeInTheDocument();
+    expect(screen.getByText(/Infrastructure passes every deterministic lint check/)).toBeInTheDocument();
   });
 });
 
@@ -261,7 +221,7 @@ describe("left rail outside the Atlas", () => {
     collections: [{ name: "infra", title: "Infrastructure", kind: "map", concepts: 2 }],
     lint: { total: 0 },
   } as unknown as Overview;
-  const rail = (panel: "atlas" | "observatory" | "artifacts") => (
+  const rail = (panel: "atlas" | "health" | "artifacts") => (
     <LeftRail
       overview={overview}
       scope={null}
@@ -280,7 +240,7 @@ describe("left rail outside the Atlas", () => {
   );
 
   it("keeps the Maps, which scope the findings, and hides the node filters", () => {
-    render(rail("observatory"));
+    render(rail("health"));
     expect(screen.getByRole("button", { name: /Infrastructure/ })).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Type" })).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Status" })).not.toBeInTheDocument();

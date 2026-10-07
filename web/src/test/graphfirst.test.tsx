@@ -75,7 +75,7 @@ describe("graph-first layout", () => {
     stubApi();
     render(<App />);
     expect(await screen.findByRole("button", { name: "Atlas" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /^Observatory/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^Health/ })).toBeInTheDocument();
   });
 });
 

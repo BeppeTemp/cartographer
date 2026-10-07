@@ -43,29 +43,40 @@ const questions: MaintenanceQuestions = {
   ],
 };
 
-/** The Maintenance panel (D323): what the doctor did and what it asks. Read-only. */
-describe("the Maintenance panel", () => {
+/** Health (D337), the maintenance half (D323): what the doctor did and what it asks. Read-only. */
+describe("the Health panel's upkeep", () => {
   beforeEach(() => {
-    window.history.replaceState(null, "", "/ui/?kb=kb-a&panel=maintenance");
+    window.history.replaceState(null, "", "/ui/?kb=kb-a&panel=health");
     localStorage.clear();
     localStorage.setItem("cartographer.panel.rail", "0");
     sessionStorage.clear();
   });
   afterEach(() => vi.unstubAllGlobals());
 
-  it("shows the summary, the questions and the repairs with their revert command", async () => {
+  it("shows the schedule, the questions and the repairs with their revert command", async () => {
     stubApi({
       "/maintenance/summary": () => json(summary),
       "/maintenance/questions": () => json(questions),
     });
     render(<App />);
-    const panel = await screen.findByRole("region", { name: "Maintenance" });
-    expect(await within(panel).findByText(/on, every day: nonstandard_field, duplicate_link \(the default list\)/)).toBeInTheDocument();
+    const panel = await screen.findByRole("region", { name: "Health" });
+    expect(await within(panel).findByText("on, every day: 2 checks (the default list)")).toBeInTheDocument();
+    expect(within(panel).getByTitle("nonstandard_field, duplicate_link")).toBeInTheDocument();
     expect(within(panel).getByText(/2026-10-05 08:00 UTC: 3 concepts repaired/)).toBeInTheDocument();
-    expect(within(panel).getByText("2026-09-20")).toBeInTheDocument();
+    expect(within(panel).getByText(/2026-09-20/)).toBeInTheDocument();
     expect(within(panel).getByText("Which port does the proxy listen on?")).toBeInTheDocument();
-    expect(within(panel).getByText("kb_repair: nonstandard_field (3 concepts)")).toBeInTheDocument();
-    expect(within(panel).getByText(`cartographer kb repair kb-a --revert ${SHA.slice(0, 7)}`)).toBeInTheDocument();
+    expect(within(panel).getByText("nonstandard_field")).toBeInTheDocument();
+    expect(within(panel).getByTitle(`cartographer kb repair kb-a --revert ${SHA.slice(0, 7)}`)).toBeInTheDocument();
+  });
+
+  it("lands the old Maintenance and Observatory links on Health", async () => {
+    stubApi({
+      "/maintenance/summary": () => json(summary),
+      "/maintenance/questions": () => json(questions),
+    });
+    window.history.replaceState(null, "", "/ui/?kb=kb-a&panel=maintenance");
+    render(<App />);
+    expect(await screen.findByRole("region", { name: "Health" })).toBeInTheDocument();
   });
 
   it("copies an ID and a revert command, and has no button that writes", async () => {
@@ -77,7 +88,7 @@ describe("the Maintenance panel", () => {
     const user = userEvent.setup();
     const writeText = vi.spyOn(navigator.clipboard, "writeText");
     render(<App />);
-    const panel = await screen.findByRole("region", { name: "Maintenance" });
+    const panel = await screen.findByRole("region", { name: "Health" });
     await user.click(await within(panel).findByRole("button", { name: /^Copy ID of/ }));
     expect(writeText).toHaveBeenLastCalledWith("ops/q1");
     await user.click(within(panel).getByRole("button", { name: `Copy revert command for ${SHA.slice(0, 7)}` }));
@@ -98,10 +109,10 @@ describe("the Maintenance panel", () => {
     });
     const user = userEvent.setup();
     render(<App />);
-    const panel = await screen.findByRole("region", { name: "Maintenance" });
+    const panel = await screen.findByRole("region", { name: "Health" });
     await user.click(await within(panel).findByText("Which port does the proxy listen on?"));
     expect(window.location.search).toContain("concept=ops%2Fq1");
-    expect(window.location.search).not.toContain("panel=maintenance");
+    expect(window.location.search).not.toContain("panel=health");
   });
 
   it("says plainly when nothing waits and nothing was repaired", async () => {
@@ -111,21 +122,33 @@ describe("the Maintenance panel", () => {
       "/maintenance/questions": () => json({ questions: [] }),
     });
     render(<App />);
-    const panel = await screen.findByRole("region", { name: "Maintenance" });
+    const panel = await screen.findByRole("region", { name: "Health" });
     expect(await within(panel).findByText("No open question: the doctor has nothing waiting on you.")).toBeInTheDocument();
     expect(within(panel).getByText("No repair commit in the last 30 days.")).toBeInTheDocument();
     expect(within(panel).getByText("off: auto_repair is explicitly empty")).toBeInTheDocument();
     expect(within(panel).getByText("never")).toBeInTheDocument();
   });
 
-  it("reports a summary the principal may not read without hiding the questions", async () => {
+  it("leaves out a summary the principal may not read without hiding the questions", async () => {
     stubApi({
       "/maintenance/summary": () => json({ error: { code: "not_found", message: "not found" } }, 404),
       "/maintenance/questions": () => json(questions),
     });
     render(<App />);
-    const panel = await screen.findByRole("region", { name: "Maintenance" });
-    expect(await within(panel).findByText(/Could not read the maintenance summary/)).toBeInTheDocument();
+    const panel = await screen.findByRole("region", { name: "Health" });
     expect(await within(panel).findByText("Which port does the proxy listen on?")).toBeInTheDocument();
+    expect(within(panel).queryByRole("heading", { name: "Upkeep" })).not.toBeInTheDocument();
+    expect(within(panel).queryByText(/Could not read the maintenance summary/)).not.toBeInTheDocument();
+  });
+
+  it("reports a summary that failed for another reason", async () => {
+    stubApi({
+      "/maintenance/summary": () => json({ error: { code: "internal", message: "internal error" } }, 500),
+      "/maintenance/questions": () => json(questions),
+    });
+    render(<App />);
+    const panel = await screen.findByRole("region", { name: "Health" });
+    expect(await within(panel).findByText(/Could not read the maintenance summary/)).toBeInTheDocument();
+    expect(within(panel).getByText("Which port does the proxy listen on?")).toBeInTheDocument();
   });
 });

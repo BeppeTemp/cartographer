@@ -30,7 +30,7 @@ describe("the Artifacts panel", () => {
       return route(url);
     });
     render(<App />);
-    expect(await screen.findByRole("button", { name: "Observatory" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Health" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /^Artifacts/ })).not.toBeInTheDocument();
     await waitFor(() => expect(window.location.search).not.toContain("panel=artifacts"));
     expect(requested.some((url) => url.includes("/artifact"))).toBe(false);
