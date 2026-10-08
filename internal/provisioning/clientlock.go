@@ -1,7 +1,6 @@
 package provisioning
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -71,31 +70,4 @@ func LockClientState(dir string, timeout time.Duration) (func() error, error) {
 		}
 		time.Sleep(clientLockPollInterval)
 	}
-}
-
-// ErrLockHeld is TryLockPath's answer when another process holds the lock.
-var ErrLockHeld = errors.New("lock held by another process")
-
-// TryLockPath takes an exclusive advisory lock on path without waiting, for a
-// singleton process (the peer relay, D341) rather than a critical section: the
-// lock lives as long as the holder, and a second instance simply goes away.
-func TryLockPath(path string) (func() error, error) {
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
-	if err != nil {
-		return nil, fmt.Errorf("open lock %s: %w", path, err)
-	}
-	if err := tryLockFile(f); err != nil {
-		f.Close()
-		if isLockBusy(err) {
-			return nil, ErrLockHeld
-		}
-		return nil, fmt.Errorf("lock %s: %w", path, err)
-	}
-	return func() error {
-		unlockErr := unlockFile(f)
-		if closeErr := f.Close(); unlockErr == nil {
-			return closeErr
-		}
-		return unlockErr
-	}, nil
 }

@@ -39,15 +39,6 @@ type Config struct {
 	// YAML `update_check`, env CARTOGRAPHER_UPDATE_CHECK, flag --update-check.
 	// A dev build never checks, whatever this says.
 	UpdateCheck bool
-	// Peers enables agent-to-agent messaging between the sessions connected
-	// to this server (D341, beta). Default false; YAML `peers.enabled`, env
-	// CARTOGRAPHER_PEERS_ENABLED. HTTP only: a stdio server has one client.
-	Peers PeersConfig
-}
-
-// PeersConfig controls the agent-messaging hub.
-type PeersConfig struct {
-	Enabled bool
 }
 
 // WebConfig controls the embedded web UI.
@@ -349,7 +340,6 @@ type rawConfig struct {
 	Tools rawTools   `yaml:"tools"`
 	MCP   rawMCP     `yaml:"mcp"`
 	Web   rawWeb     `yaml:"web"`
-	Peers rawPeers   `yaml:"peers"`
 	// UpdateCheck is a pointer for the same reason rawWeb.Enabled is: the
 	// default is true.
 	UpdateCheck *bool `yaml:"update_check"`
@@ -361,10 +351,6 @@ type rawConfig struct {
 // false".
 type rawWeb struct {
 	Enabled *bool `yaml:"enabled"`
-}
-
-type rawPeers struct {
-	Enabled bool `yaml:"enabled"`
 }
 
 type rawTools struct {
@@ -499,7 +485,6 @@ func Load(path string) (*Config, error) {
 	if raw.UpdateCheck != nil {
 		cfg.UpdateCheck = *raw.UpdateCheck
 	}
-	cfg.Peers.Enabled = raw.Peers.Enabled
 	if raw.Tools.Profile != "" {
 		cfg.ToolsProfile = normalizeToolsProfile(raw.Tools.Profile)
 	}
@@ -548,9 +533,6 @@ func FromEnv(cfg *Config) {
 	}
 	if v := os.Getenv("CARTOGRAPHER_UPDATE_CHECK"); v != "" {
 		cfg.UpdateCheck = parseBool(v, cfg.UpdateCheck)
-	}
-	if v := os.Getenv("CARTOGRAPHER_PEERS_ENABLED"); v != "" {
-		cfg.Peers.Enabled = parseBool(v, cfg.Peers.Enabled)
 	}
 	if v := os.Getenv("CARTOGRAPHER_GIT_PROFILE"); v != "" {
 		cfg.Git.Profile = normalizeGitProfile(v)
