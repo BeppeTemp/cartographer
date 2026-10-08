@@ -1506,7 +1506,7 @@ func ComputeDiff(m Manifest, lock Lock) Diff {
 	// it disappear on every sync instead of staying stable between one
 	// EnsureBootstrapHook and the next (see also the twin carry-forward in Apply).
 	for _, mf := range lock.Managed {
-		if mf.Kind == "hook" && isClientHook(mf.Name) {
+		if mf.Kind == "hook" && mf.Name == BootstrapHookName {
 			continue
 		}
 		k := mf.Kind + "\x00" + mf.Name
@@ -1742,7 +1742,7 @@ func Apply(m Manifest, opts ApplyOptions) (AppliedResult, error) {
 		// preserved through Apply — see EnsureBootstrapHook, which
 		// regenerates/registers it separately and expects to find it here again
 		// next round (same principle as the twin carry-forward in ComputeDiff).
-		if mf.Kind == "hook" && isClientHook(mf.Name) {
+		if mf.Kind == "hook" && mf.Name == BootstrapHookName {
 			newManaged = append(newManaged, mf)
 			continue
 		}
@@ -1763,17 +1763,13 @@ func Apply(m Manifest, opts ApplyOptions) (AppliedResult, error) {
 			// Handled as a group by applyInstructionsGroup below, not here.
 			continue
 		}
-		if a.Kind == "hook" && isClientHook(a.Name) {
-			// Names reserved for the client-side hooks (D60 bootstrap, D341
-			// peers): a KB defining a hook with one of them would otherwise be
-			// written over the files the client manages on its own — ignored
-			// with a warning, never materialized.
-			kind := "bootstrap"
-			if a.Name != BootstrapHookName {
-				kind = "peers"
-			}
+		if a.Kind == "hook" && a.Name == BootstrapHookName {
+			// Name reserved for the client-side bootstrap (D60, EnsureBootstrapHook):
+			// a KB defining a hook with this very name would otherwise be
+			// written over the files EnsureBootstrapHook manages on its own —
+			// ignored with a warning, never materialized.
 			result.Warnings = append(result.Warnings, fmt.Sprintf(
-				"hook %q: name reserved by Cartographer (%s), KB artifact ignored", a.Name, kind))
+				"hook %q: name reserved by Cartographer (bootstrap), KB artifact ignored", a.Name))
 			continue
 		}
 		if !artifactAuthorized(a, opts) {

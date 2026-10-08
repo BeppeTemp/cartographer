@@ -44,7 +44,7 @@ func resourceClassForTool(name string) string {
 		return resourceBatch
 	case "index_patch":
 		return resourceCuratedIndex
-	case "index_get", "log_tail", "conflicts_list", "skill_list", "artifact_list", "template_list", "map_create", "map_update", "map_delete", "log_append", "source_register", "snapshot", "commit_gate", "conflict_resolve", "git_conflict_resolve", "sync_status", "sync_check", "sync_apply", "sync_pull", "reindex", "kb_status", "pr_status", "pr_finalize", "secret_resolve", "secret_set", "skill_install", "artifact_read", "artifact_write", "artifact_delete", "validate", "lint", "gate_check", "kb_repair", "repair_revert", "kb_review", "peer_list", "peer_send", "peer_wait":
+	case "index_get", "log_tail", "conflicts_list", "skill_list", "artifact_list", "template_list", "map_create", "map_update", "map_delete", "log_append", "source_register", "snapshot", "commit_gate", "conflict_resolve", "git_conflict_resolve", "sync_status", "sync_check", "sync_apply", "sync_pull", "reindex", "kb_status", "pr_status", "pr_finalize", "secret_resolve", "secret_set", "skill_install", "artifact_read", "artifact_write", "artifact_delete", "validate", "lint", "gate_check", "kb_repair", "repair_revert", "kb_review":
 		return resourceWhole
 	default:
 		return ""
@@ -92,7 +92,7 @@ func authorizeTool(policy auth.Policy, k *kb.KB, name, tool string, args json.Ra
 	// Whole-KB tools have no safe partial semantics. The list is deliberately
 	// conservative; adding an unclassified tool can only deny a restricted caller.
 	switch tool {
-	case "index_get", "log_tail", "conflicts_list", "skill_list", "artifact_list", "template_list", "map_create", "map_update", "map_delete", "log_append", "source_register", "snapshot", "commit_gate", "conflict_resolve", "git_conflict_resolve", "sync_status", "sync_check", "sync_apply", "sync_pull", "skill_install", "artifact_read", "artifact_write", "artifact_delete", "secret_set", "secret_resolve", "pr_finalize", "reindex", "kb_status", "pr_status", "validate", "lint", "gate_check", "kb_repair", "repair_revert", "kb_review", "peer_list", "peer_send", "peer_wait":
+	case "index_get", "log_tail", "conflicts_list", "skill_list", "artifact_list", "template_list", "map_create", "map_update", "map_delete", "log_append", "source_register", "snapshot", "commit_gate", "conflict_resolve", "git_conflict_resolve", "sync_status", "sync_check", "sync_apply", "sync_pull", "skill_install", "artifact_read", "artifact_write", "artifact_delete", "secret_set", "secret_resolve", "pr_finalize", "reindex", "kb_status", "pr_status", "validate", "lint", "gate_check", "kb_repair", "repair_revert", "kb_review":
 		if policy.AllowsWholeKB(name, write) {
 			return nil
 		}

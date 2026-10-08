@@ -23,7 +23,6 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/gitx"
 	"github.com/BeppeTemp/cartographer/internal/kb"
 	"github.com/BeppeTemp/cartographer/internal/mcpserver"
-	"github.com/BeppeTemp/cartographer/internal/peers"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
 	"github.com/BeppeTemp/cartographer/internal/skillbundle"
 	"github.com/BeppeTemp/cartographer/internal/sqlindex"
@@ -422,7 +421,7 @@ func runServe(cfg *config.Config) {
 
 	latestVersion := startServerUpdateCheck(cfg, version)
 	if cfg.HTTP != "" {
-		serveHTTP(cfg.HTTP, kbs, kbNames, kbArtifactSigners, kbMCPAllowlists, cfg.Auth, cfg.MCP.AllowedOrigins, cfg.ToolsProfile, cfg.Web.Enabled, cfg.Peers.Enabled, sqlIdxs, auditLog, latestVersion)
+		serveHTTP(cfg.HTTP, kbs, kbNames, kbArtifactSigners, kbMCPAllowlists, cfg.Auth, cfg.MCP.AllowedOrigins, cfg.ToolsProfile, cfg.Web.Enabled, sqlIdxs, auditLog, latestVersion)
 	} else {
 		serveStdio(kbs[0], kbArtifactSigners[0], kbMCPAllowlists[0], cfg.ToolsProfile, sqlIdxs, auditLog, latestVersion)
 	}
@@ -454,7 +453,7 @@ func serveStdio(k *kb.KB, artifactSigner ed25519.PrivateKey, allowlist []provisi
 	}
 }
 
-func serveHTTP(addr string, kbs []*kb.KB, names []string, artifactSigners []ed25519.PrivateKey, allowlists [][]provisioning.MCPAllowlistEntry, authCfg config.AuthConfig, allowedOrigins []string, toolsProfile string, webEnabled, peersEnabled bool, sqlIdxs map[string]*sqlindex.Index, auditLog *audit.Log, latestVersion func() string) {
+func serveHTTP(addr string, kbs []*kb.KB, names []string, artifactSigners []ed25519.PrivateKey, allowlists [][]provisioning.MCPAllowlistEntry, authCfg config.AuthConfig, allowedOrigins []string, toolsProfile string, webEnabled bool, sqlIdxs map[string]*sqlindex.Index, auditLog *audit.Log, latestVersion func() string) {
 	if auditLog != nil {
 		log.Printf("audit log active")
 	}
@@ -492,15 +491,6 @@ func serveHTTP(addr string, kbs []*kb.KB, names []string, artifactSigners []ed25
 
 	multi := mcpserver.NewMultiKBServer(version)
 	multi.SetLatestVersionSource(latestVersion)
-	// The agent-messaging hub (D341): one per process, shared by every KB's
-	// tools and the client API, so sessions on different KBs live in one
-	// roster and the KB check happens per message.
-	var peerHub *peers.Hub
-	if peersEnabled {
-		peerHub = peers.New(0)
-		multi.EnablePeers(peerHub)
-		log.Printf("agent peers enabled (beta): %s and peer_* tools", mcpserver.PeerAPIPrefix)
-	}
 	// The background repair (D323) of every mounted KB stops with the server:
 	// cancelled before the drain, so no run starts while it shuts down.
 	repairCtx, stopRepair := context.WithCancel(context.Background())
@@ -529,7 +519,7 @@ func serveHTTP(addr string, kbs []*kb.KB, names []string, artifactSigners []ed25
 				s.SetDisplayName("cartographer:" + name)
 			}
 			sqlIdx := sqlIdxs[filepath.Clean(k.Root)]
-			mcpserver.RegisterKBTools(s, k, mcpserver.Deps{SQLIndex: sqlIdx, BundleFS: skillbundle.FS, ArtifactSigner: artifactSigners[i], MCPAllowlist: allowlists[i], RoutedMount: true, Peers: peerHub})
+			mcpserver.RegisterKBTools(s, k, mcpserver.Deps{SQLIndex: sqlIdx, BundleFS: skillbundle.FS, ArtifactSigner: artifactSigners[i], MCPAllowlist: allowlists[i], RoutedMount: true})
 			s.SetToolsProfile(toolsProfile)
 			s.SetAuditLog(auditLog)
 			s.SetKBName(name)
