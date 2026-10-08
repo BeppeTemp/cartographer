@@ -16,6 +16,10 @@ auth:
   #     scopes: ["kb:wiki-kb:r"]                # read-only on wiki-kb
   #   - token: "writer-token"
   #     scopes: ["kb:wiki-kb:rw", "kb:notes:r"]
+  #   - token: "bot-token"
+  #     id: bot
+  #     author_name: bot                        # git author of this token's commits;
+  #     author_email: bot@example.com           # committer stays the KB's (D341)
 data: /data
 kbs:
   - remote: https://gitea.example.com/user/wiki-kb.git

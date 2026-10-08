@@ -465,3 +465,11 @@ func TestUnrequiredEmptyStoreStillDisablesAuth(t *testing.T) {
 		t.Error("an empty store with no requirement must leave auth disabled")
 	}
 }
+
+func TestScopedTokenStoreCarriesAuthorIdentity(t *testing.T) {
+	ts := NewScopedTokenStore([]ScopedToken{{Token: "secret", Principal: "bot", Policy: Policy{Admin: true}, AuthorName: "bot", AuthorEmail: "bot@example.com"}})
+	p, ok := ts.PrincipalOf("secret")
+	if !ok || p.AuthorName != "bot" || p.AuthorEmail != "bot@example.com" {
+		t.Fatalf("PrincipalOf = %+v, %v; want the token's author identity", p, ok)
+	}
+}

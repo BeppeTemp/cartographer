@@ -44,6 +44,9 @@ func ValidateAuth(a AuthConfig) error {
 			// stopped enforcing.
 			return fmt.Errorf("%s: empty token value", where)
 		}
+		if (tok.AuthorName == "") != (tok.AuthorEmail == "") {
+			return fmt.Errorf("%s: author_name and author_email must be configured together", where)
+		}
 		for _, scope := range tok.Scopes {
 			if _, err := auth.ParseScopesStrict(scope); err != nil {
 				return fmt.Errorf("%s: %w", where, err)

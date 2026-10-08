@@ -130,3 +130,15 @@ func TestValidateAuthNamesTheToken(t *testing.T) {
 		t.Errorf("error = %q, want it to name the offending principal", err)
 	}
 }
+
+func TestValidateAuthTokenAuthorIdentity(t *testing.T) {
+	ok := config.AuthConfig{Tokens: []config.TokenSpec{{Token: "t", ID: "bot", AuthorName: "bot", AuthorEmail: "bot@example.com"}}}
+	if err := config.ValidateAuth(ok); err != nil {
+		t.Fatalf("complete identity: %v", err)
+	}
+	half := config.AuthConfig{Tokens: []config.TokenSpec{{Token: "t", ID: "bot", AuthorName: "bot"}}}
+	err := config.ValidateAuth(half)
+	if err == nil || !strings.Contains(err.Error(), `token "bot"`) || !strings.Contains(err.Error(), "author_email") {
+		t.Fatalf("half identity: err = %v, want a refusal naming the token", err)
+	}
+}
