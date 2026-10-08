@@ -190,6 +190,13 @@ test("Health loads the upkeep schedule and the questions, and offers no write", 
   await expect(panel.getByRole("heading", { name: /^Questions for you/ })).toHaveCount(0);
   await expect(panel.getByRole("heading", { name: /^Repairs, last 30 days/ })).toBeVisible();
   await expect(panel.getByText(/Could not read/)).toHaveCount(0);
+  // The state word stays inside the ring: within its inner chord (~85px at
+  // the word's height, the ring being 136px wide) and centred on it.
+  const ring = (await panel.locator(".state-ring").boundingBox())!;
+  const word = (await panel.locator(".state-ring__word").boundingBox())!;
+  expect(word.width).toBeLessThanOrEqual(85);
+  expect(word.x).toBeGreaterThanOrEqual(ring.x);
+  expect(word.x + word.width).toBeLessThanOrEqual(ring.x + ring.width);
 });
 
 test("Health's severity floor updates its count", async ({ page }) => {
