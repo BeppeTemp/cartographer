@@ -236,12 +236,16 @@ function hasKnowledge(status: KBStatus): boolean {
 
 type State = { tone: "ok" | "warning" | "error"; glyph: string; word: string };
 
-/** The worst thing first: broken, then attention, then a waiting question. */
+/**
+ * The worst thing first: broken, then attention, then a waiting question.
+ * Each word sits on one line inside the ring, whose chord at that height is
+ * ~85px: about nine uppercase characters. The Verdict title says the rest.
+ */
 function stateOf(report: LintReport | null, questions: number): State | null {
   if (!report) return null;
   if (report.by_severity.error) return { tone: "error", glyph: "✕", word: "Broken" };
-  if (report.by_severity.warning) return { tone: "warning", glyph: "!", word: "Needs attention" };
-  if (questions > 0) return { tone: "warning", glyph: "?", word: "Waiting on you" };
+  if (report.by_severity.warning) return { tone: "warning", glyph: "!", word: "Attention" };
+  if (questions > 0) return { tone: "warning", glyph: "?", word: "Waiting" };
   return { tone: "ok", glyph: "✓", word: "Healthy" };
 }
 
