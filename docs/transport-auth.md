@@ -375,9 +375,31 @@ resolver — pre-D118 deployments are unaffected.
 
 ## Identity and audit boundaries
 
-Bearer tokens authorize requests; they do not become git signing identities.
-Git author/committer and SSH settings are configured globally or per KB as
-described in [deployment](deployment.md).
+Bearer tokens authorize requests. Git author/committer and SSH settings are
+configured globally or per KB as described in [deployment](deployment.md).
+
+A token may also declare the git **author** of the commits its writes produce,
+so the history of a KB shared by several agents says which one wrote what
+(D341):
+
+```yaml
+auth:
+  tokens:
+    - token: ${CARTOGRAPHER_TOKEN_OPERATOR}
+      id: operator                  # no identity: commits as the KB
+    - token: ${CARTOGRAPHER_TOKEN_BOT}
+      id: bot
+      author_name: bot
+      author_email: bot@example.com
+```
+
+`author_name` and `author_email` go together: one without the other refuses
+startup. The committer stays the KB's identity (`kbs[].committer_*`, then
+`git.*`), so the history still shows which server recorded the write. A token
+without an identity commits as the KB, exactly as before. The identity is
+attribution, not a signature: whoever holds the token can write under that
+name. The flat `CARTOGRAPHER_TOKENS` form cannot carry one; declare such
+tokens in the YAML `auth.tokens` list.
 
 ## Operational audit
 

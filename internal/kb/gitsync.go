@@ -658,6 +658,14 @@ func RedactRemoteURL(raw string) string {
 // racier HEAD query). sha is empty when no commit was made (autocommit off,
 // not a repo, clean tree, or "nothing to commit").
 func (k *KB) CommitOp(message string) (sha string, err error) {
+	return k.CommitOpAs(message, "", "")
+}
+
+// CommitOpAs is CommitOp with an explicit author: a non-empty authorName and
+// authorEmail replace the KB's author identity for this one commit, while the
+// committer stays the KB's (GIT_COMMITTER_* in GitEnv). Empty values behave
+// exactly like CommitOp. Used to attribute a write to the token that made it.
+func (k *KB) CommitOpAs(message, overrideName, overrideEmail string) (sha string, err error) {
 	if !k.AutoCommit || !gitx.IsRepo(k.Root) {
 		return "", nil
 	}
@@ -671,6 +679,9 @@ func (k *KB) CommitOp(message string) (sha string, err error) {
 		authorName, authorEmail = k.gitAuthor()
 	} else if _, _, identErr := gitx.AuthorIdent(k.Root, k.GitEnv...); identErr != nil {
 		authorName, authorEmail = defaultGitAuthorName, defaultGitAuthorEmail
+	}
+	if overrideName != "" && overrideEmail != "" {
+		authorName, authorEmail = overrideName, overrideEmail
 	}
 	if err := gitx.Commit(k.Root, message, authorName, authorEmail, k.GitEnv...); err != nil {
 		if errors.Is(err, gitx.ErrNothingToCommit) {

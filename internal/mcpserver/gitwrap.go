@@ -11,6 +11,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/BeppeTemp/cartographer/internal/auth"
 	"github.com/BeppeTemp/cartographer/internal/gitx"
 	"github.com/BeppeTemp/cartographer/internal/kb"
 )
@@ -93,7 +94,8 @@ func gitWrap(k *kb.KB, t Tool) Tool {
 					msg += "\n\n" + commitReasonKey + ": " + reason
 				}
 				commitStart := time.Now()
-				sha, commitErr := k.CommitOp(msg)
+				p := auth.PrincipalFromContext(ctx)
+				sha, commitErr := k.CommitOpAs(msg, p.AuthorName, p.AuthorEmail)
 				commitDur = time.Since(commitStart)
 				if commitErr == nil {
 					res.CommitSHA = sha

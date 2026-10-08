@@ -682,10 +682,12 @@ func scopedTokensWithRoles(specs []config.TokenSpec, roles []config.RoleSpec) []
 			policy.Admin = true
 		}
 		out[i] = auth.ScopedToken{
-			Token:     spec.Token,
-			Scopes:    scopes,
-			Principal: principalID(spec),
-			Policy:    policy,
+			Token:       spec.Token,
+			Scopes:      scopes,
+			Principal:   principalID(spec),
+			Policy:      policy,
+			AuthorName:  spec.AuthorName,
+			AuthorEmail: spec.AuthorEmail,
 		}
 	}
 	return out

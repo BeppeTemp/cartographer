@@ -116,6 +116,12 @@ type TokenSpec struct {
 	// audit records. When empty a non-secret ID is derived from the token
 	// hash, never from a plaintext prefix.
 	ID string `yaml:"id,omitempty"`
+	// AuthorName/AuthorEmail, when set, are the git author of every commit a
+	// write through this token produces, so an agent's edits are attributed
+	// to it rather than to the KB's identity. The committer stays the KB's
+	// identity (kbs[].committer_*/git.*). Both or neither (D341).
+	AuthorName  string `yaml:"author_name,omitempty"`
+	AuthorEmail string `yaml:"author_email,omitempty"`
 }
 
 // UnmarshalYAML accepts both a bare scalar ("tok1", legacy `tokens: [...]`
