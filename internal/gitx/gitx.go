@@ -861,7 +861,10 @@ type CommitChanges struct {
 	// Reason is the value of the commit's Reason: trailer (D272), empty when
 	// absent. With several trailers only the first is kept.
 	Reason string
-	Files  []FileChange
+	// AcceptedFindings are the values of the commit's Accepted-Finding:
+	// trailers (D350), "<check>: <reason>" each, in commit order.
+	AcceptedFindings []string
+	Files            []FileChange
 }
 
 // LogNameStatus returns commits since the supplied instant with their changed
@@ -881,7 +884,7 @@ func LogNameStatus(dir string, since time.Time) ([]CommitChanges, error) {
 	// The record separator gives each commit an unambiguous boundary while the
 	// NUL-separated header keeps subjects with spaces intact. --name-status is
 	// deliberately left line-oriented to match git's ordinary path format.
-	format := "%x1e%H%x00%aI%x00%an%x00%s%x00%(trailers:key=Reason,valueonly,separator=%x1f)"
+	format := "%x1e%H%x00%aI%x00%an%x00%s%x00%(trailers:key=Accepted-Finding,valueonly,separator=%x1f)%x00%(trailers:key=Reason,valueonly,separator=%x1f)"
 	out, err := runGitEnv(dir, nil, "log", "--since="+since.Format(time.RFC3339), "--name-status", "-M", "--pretty=format:"+format)
 	if err != nil {
 		return nil, fmt.Errorf("git log --name-status: %w: %s", err, out)
@@ -892,8 +895,8 @@ func LogNameStatus(dir string, since time.Time) ([]CommitChanges, error) {
 		if record == "" {
 			continue
 		}
-		head := strings.SplitN(record, "\x00", 5)
-		if len(head) != 5 {
+		head := strings.SplitN(record, "\x00", 6)
+		if len(head) != 6 {
 			continue
 		}
 		at, err := time.Parse(time.RFC3339, head[1])
@@ -902,9 +905,10 @@ func LogNameStatus(dir string, since time.Time) ([]CommitChanges, error) {
 		}
 		// The trailers value ends with a newline that precedes the name-status
 		// block, so the block is whatever follows the first newline.
-		reasonAndFiles := strings.SplitN(head[4], "\n", 2)
+		reasonAndFiles := strings.SplitN(head[5], "\n", 2)
+		accepted := splitTrailerValues(head[4])
 		reason, _, _ := strings.Cut(reasonAndFiles[0], "\x1f")
-		commit := CommitChanges{SHA: head[0], At: at, Author: head[2], Subject: head[3], Reason: strings.TrimSpace(reason)}
+		commit := CommitChanges{SHA: head[0], At: at, Author: head[2], Subject: head[3], Reason: strings.TrimSpace(reason), AcceptedFindings: accepted}
 		if len(reasonAndFiles) == 2 {
 			for _, line := range strings.Split(reasonAndFiles[1], "\n") {
 				if line == "" {
@@ -937,6 +941,8 @@ type FileRevision struct {
 	// Reason is the value of the commit's Reason: trailer (D272), empty when
 	// absent.
 	Reason string
+	// AcceptedFindings are the commit's Accepted-Finding: trailer values (D350).
+	AcceptedFindings []string
 	// Path is the file's path in that commit (the destination for a rename),
 	// relative to the repository root.
 	Path string
@@ -956,7 +962,7 @@ func FileHistory(dir, path string, limit int) ([]FileRevision, error) {
 	if _, err := HeadSHA(dir); err != nil {
 		return []FileRevision{}, nil
 	}
-	format := "%x1e%H%x00%aI%x00%an%x00%s%x00%(trailers:key=Reason,valueonly,separator=%x1f)"
+	format := "%x1e%H%x00%aI%x00%an%x00%s%x00%(trailers:key=Accepted-Finding,valueonly,separator=%x1f)%x00%(trailers:key=Reason,valueonly,separator=%x1f)"
 	args := []string{"-c", "core.quotepath=off", "log", "--follow", "-M", "--name-status", "--pretty=format:" + format}
 	if limit > 0 {
 		args = append(args, "-n", strconv.Itoa(limit))
@@ -971,17 +977,18 @@ func FileHistory(dir, path string, limit int) ([]FileRevision, error) {
 		if record == "" {
 			continue
 		}
-		head := strings.SplitN(record, "\x00", 5)
-		if len(head) != 5 {
+		head := strings.SplitN(record, "\x00", 6)
+		if len(head) != 6 {
 			continue
 		}
 		at, err := time.Parse(time.RFC3339, head[1])
 		if err != nil {
 			return nil, fmt.Errorf("parse git commit time %q: %w", head[1], err)
 		}
-		reasonAndFiles := strings.SplitN(head[4], "\n", 2)
+		reasonAndFiles := strings.SplitN(head[5], "\n", 2)
+		accepted := splitTrailerValues(head[4])
 		reason, _, _ := strings.Cut(reasonAndFiles[0], "\x1f")
-		rev := FileRevision{SHA: head[0], At: at, Author: head[2], Subject: head[3], Reason: strings.TrimSpace(reason), Path: path, Status: "M"}
+		rev := FileRevision{SHA: head[0], At: at, Author: head[2], Subject: head[3], Reason: strings.TrimSpace(reason), AcceptedFindings: accepted, Path: path, Status: "M"}
 		if len(reasonAndFiles) == 2 {
 			for _, line := range strings.Split(reasonAndFiles[1], "\n") {
 				parts := strings.Split(line, "\t")
@@ -1165,4 +1172,78 @@ func RevertNoCommit(dir, sha string, env ...string) error {
 		return fmt.Errorf("git revert %s: %w: %s", sha, err, strings.TrimSpace(out))
 	}
 	return nil
+}
+
+// StagedChanges stages every change of the working tree (git add -A) and
+// returns what differs from HEAD, renames detected (-M), parsed from the
+// NUL-separated form so a path with spaces or unusual bytes survives. The
+// existing DiffNameStatus splits on whitespace and is not safe for that
+// (D350). The index is left staged; DiscardChanges or a commit clears it.
+func StagedChanges(dir string) ([]FileChange, error) {
+	if out, err := runGit(dir, "add", "-A"); err != nil {
+		return nil, fmt.Errorf("git add -A: %w: %s", err, out)
+	}
+	out, err := runGit(dir, "-c", "core.quotepath=off", "diff", "--cached", "-M", "--name-status", "-z", "HEAD")
+	if err != nil {
+		return nil, fmt.Errorf("git diff --cached: %w: %s", err, out)
+	}
+	fields := strings.Split(out, "\x00")
+	var changes []FileChange
+	for i := 0; i < len(fields); i++ {
+		st := fields[i]
+		if st == "" {
+			continue
+		}
+		switch st[0] {
+		case 'R', 'C':
+			if i+2 >= len(fields) {
+				return changes, nil
+			}
+			changes = append(changes, FileChange{Status: "R", OldPath: fields[i+1], Path: fields[i+2]})
+			i += 2
+		default:
+			if i+1 >= len(fields) {
+				return changes, nil
+			}
+			changes = append(changes, FileChange{Status: string(st[0]), Path: fields[i+1]})
+			i++
+		}
+	}
+	return changes, nil
+}
+
+// DiscardChanges returns the working tree and index to HEAD, untracked files
+// included (git reset --hard HEAD + git clean -fd). It is deliberately narrow,
+// like ResetHardTo: the caller holds the KB lock and has checked the tree was
+// clean before the write it undoes (D350). Ignored files are kept.
+func DiscardChanges(dir string) error {
+	if out, err := runGit(dir, "reset", "--hard", "HEAD"); err != nil {
+		return fmt.Errorf("git reset --hard HEAD: %w: %s", err, out)
+	}
+	if out, err := runGit(dir, "clean", "-fd"); err != nil {
+		return fmt.Errorf("git clean -fd: %w: %s", err, out)
+	}
+	return nil
+}
+
+// StashPushAll stashes every uncommitted change including untracked files, so
+// the tree is at HEAD until StashPop (StashPush leaves untracked files behind).
+func StashPushAll(dir string) error {
+	out, err := runGit(dir, "stash", "push", "--include-untracked")
+	if err != nil {
+		return fmt.Errorf("git stash push --include-untracked: %w: %s", err, out)
+	}
+	return nil
+}
+
+// splitTrailerValues splits the value-only rendering of a repeated trailer
+// (separator %x1f) into its non-empty, trimmed values.
+func splitTrailerValues(raw string) []string {
+	var out []string
+	for _, v := range strings.Split(raw, "\x1f") {
+		if v = strings.TrimSpace(v); v != "" {
+			out = append(out, v)
+		}
+	}
+	return out
 }

@@ -350,6 +350,8 @@ to them). `missing_value_contract` skips a field whose every value is a date.
 
 ### Conformance checks (D289)
 
+Findings report on every write and never fail it by default; a KB can opt in to refusing a write that introduces one (`kbs[].write_gate`, D350, `control-plane.md` §Commit per logical operation).
+
 A write response carries these checks for the concept it wrote, plus the body, link and light graph checks `lint.ScopedCheck` runs without walking the KB (D312, `control-plane.md` §`concept_write`); the whole-KB structural checks stay with `lint` and `gate_check`.
 
 Lint also compares a KB with the standard fields the server reads, not only with the contracts the KB declared. All are warning or info, so `gate_check` never fails on them, and a check fires only on a field the KB actually has.

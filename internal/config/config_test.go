@@ -599,3 +599,32 @@ func TestKBGitBranch(t *testing.T) {
 		t.Fatalf("Load with a malformed branch: err = %v", err)
 	}
 }
+
+func TestLoadWriteGate(t *testing.T) {
+	load := func(v string) (*Config, error) {
+		path := filepath.Join(t.TempDir(), "config.yaml")
+		body := "kbs:\n  - path: /tmp/kb\n"
+		if v != "" {
+			body += "    write_gate: " + v + "\n"
+		}
+		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return Load(path)
+	}
+	for in, want := range map[string]string{"": "off", "off": "off", "error": "error", "warning": "warning"} {
+		cfg, err := load(in)
+		if err != nil {
+			t.Fatalf("write_gate %q: %v", in, err)
+		}
+		if got := cfg.KBs[0].WriteGateMode(); got != want {
+			t.Errorf("write_gate %q resolves to %q, want %q", in, got, want)
+		}
+	}
+	for _, bad := range []string{"Error", "strict"} {
+		_, err := load(bad)
+		if err == nil || !strings.Contains(err.Error(), "write_gate: "+bad+": must be off, error or warning") {
+			t.Errorf("write_gate %q: err = %v", bad, err)
+		}
+	}
+}

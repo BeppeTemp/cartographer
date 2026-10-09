@@ -214,6 +214,12 @@ type KBSpec struct {
 	// pointer so absent and false differ. Read it through RepairOnWriteEnabled.
 	RepairOnWrite *bool `yaml:"repair_on_write,omitempty"`
 
+	// WriteGate makes a content write refuse, and roll back, when it
+	// introduces a finding at or above the floor (D350): "off" (default,
+	// also empty), "error" (findings of severity error) or "warning" (error
+	// and warning). Read it through WriteGateMode.
+	WriteGate string `yaml:"write_gate,omitempty"`
+
 	// DoctorAutoInterval is how often the server runs the auto_repair checks
 	// by itself, with no agent session (D323): "<n>d" or "<n>" days, "0"
 	// turns the heartbeat off, empty means DefaultDoctorAutoIntervalDays.
@@ -423,6 +429,9 @@ func Load(path string) (*Config, error) {
 		}
 		if err := ValidateAutoRepair(spec.AutoRepair); err != nil {
 			return nil, fmt.Errorf("config: auto_repair: %w", err)
+		}
+		if err := ValidateWriteGate(spec.WriteGate); err != nil {
+			return nil, err
 		}
 		if _, err := spec.DoctorIntervalDays(); err != nil {
 			return nil, fmt.Errorf("config: doctor_interval: %w", err)
@@ -927,6 +936,24 @@ func (s KBSpec) RepairOnWriteEnabled() bool {
 	}
 	checks, _ := s.AutoRepairChecks()
 	return len(checks) > 0
+}
+
+// ValidateWriteGate rejects a write_gate value other than off, error or
+// warning (empty is off) (D350).
+func ValidateWriteGate(v string) error {
+	switch v {
+	case "", "off", "error", "warning":
+		return nil
+	}
+	return fmt.Errorf("config: write_gate: %s: must be off, error or warning", v)
+}
+
+// WriteGateMode resolves WriteGate: "off" when unset.
+func (s KBSpec) WriteGateMode() string {
+	if s.WriteGate == "" {
+		return "off"
+	}
+	return s.WriteGate
 }
 
 // DefaultUsageStaleDays is the artifact_unused threshold of a KB that does not

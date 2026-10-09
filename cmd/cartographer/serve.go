@@ -325,6 +325,7 @@ func bootstrapKBs(cfg *config.Config, phase func(string)) kbBootstrap {
 		k.AllowArtifactWrite = m.Spec.AllowArtifactWrite
 		k.AutoRepair, k.AutoRepairDefault = m.Spec.AutoRepairChecks()
 		k.RepairOnWrite = m.Spec.RepairOnWriteEnabled()
+		k.WriteGate = m.Spec.WriteGateMode()
 		// Validated by config.Load; a discovered KB's zero spec yields the default.
 		k.DoctorIntervalDays, _ = m.Spec.DoctorIntervalDays()
 		k.DoctorAutoIntervalDays, _ = m.Spec.DoctorAutoIntervalDays()
