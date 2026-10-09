@@ -69,6 +69,7 @@ matching file **in the same session/PR** as the change:
 | New MCP tool or change to its interface | `control-plane.md` §MCP tools |
 | Change to the KB model / OKF / filesystem layout | `data-plane.md` |
 | Change to transport, auth or scopes | `transport-auth.md` |
+| New or changed lint check | `internal/lint/registry.go` (the one spec), then regenerate the `data-plane.md` §Check catalogue (`CONTRIBUTING.md` §Adding a lint check) |
 | Change to concurrency / git-sync logic | `concurrency.md` |
 | New skill, service or secret handling | `skills-services-secrets.md` |
 | Client provisioning/sync logic | `sync.md` |

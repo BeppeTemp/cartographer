@@ -28,7 +28,7 @@ func repairOnWriteChecks(k *kb.KB) []string {
 	}
 	var out []string
 	for _, c := range k.AutoRepair {
-		if c == "broken_link" || c == "reciprocal_link_item" || artifactRepairChecks[c] {
+		if c == "broken_link" || c == "reciprocal_link_item" || lint.ArtifactRepairCheck(c) {
 			continue
 		}
 		out = append(out, c)

@@ -137,8 +137,8 @@ func decayFindings(in conceptInput, sections []string) []Finding {
 		if ts, ok := frontmatterValue(in.Parsed, "timestamp").(string); ok && days > 0 && len(ts) >= 10 {
 			if t, err := time.Parse("2006-01-02", ts[:10]); err == nil {
 				if age := int(Now().Sub(t).Hours() / 24); age > days {
-					out = append(out, Finding{Path: in.RelPath, Check: "stale_open", Severity: SevInfo,
-						Message: fmt.Sprintf("%s %q and untouched for %d days (stale after %d): close it, update it, or say why it is still open", stateName, status, age, days)})
+					out = append(out, newFinding("stale_open", Finding{Path: in.RelPath,
+						Message: fmt.Sprintf("%s %q and untouched for %d days (stale after %d): close it, update it, or say why it is still open", stateName, status, age, days)}))
 				}
 			}
 		}
@@ -147,8 +147,8 @@ func decayFindings(in conceptInput, sections []string) []Finding {
 	// --- closed_with_open_items ---
 	if closedPhase(in.Parsed, in.Contract) {
 		if n := countOpenItems(masked, in.Contract); n > 0 {
-			out = append(out, Finding{Path: in.RelPath, Check: "closed_with_open_items", Severity: SevInfo,
-				Message: fmt.Sprintf("%s %q but %d unchecked item(s) in the body: tick them, move them, or reopen", stateName, status, n)})
+			out = append(out, newFinding("closed_with_open_items", Finding{Path: in.RelPath,
+				Message: fmt.Sprintf("%s %q but %d unchecked item(s) in the body: tick them, move them, or reopen", stateName, status, n)}))
 		}
 	}
 
@@ -165,8 +165,8 @@ func decayFindings(in conceptInput, sections []string) []Finding {
 			}
 		}
 		if len(missing) > 0 {
-			out = append(out, Finding{Path: in.RelPath, Check: "template_section_missing", Severity: SevInfo,
-				Message: fmt.Sprintf("missing %d section(s) of its %q template: %s", len(missing), in.Parsed.Type(), strings.Join(missing, ", "))})
+			out = append(out, newFinding("template_section_missing", Finding{Path: in.RelPath,
+				Message: fmt.Sprintf("missing %d section(s) of its %q template: %s", len(missing), in.Parsed.Type(), strings.Join(missing, ", "))}))
 		}
 	}
 
@@ -202,8 +202,8 @@ func decayFindings(in conceptInput, sections []string) []Finding {
 			if len([]rune(first)) > 100 {
 				first = string([]rune(first)[:100]) + "…"
 			}
-			out = append(out, Finding{Path: in.RelPath, Check: "open_marker", Severity: SevInfo, Count: count,
-				Message: fmt.Sprintf("%d open marker(s), first: %q — answer them, or record an open_question", count, first)})
+			out = append(out, newFinding("open_marker", Finding{Path: in.RelPath, Count: count,
+				Message: fmt.Sprintf("%d open marker(s), first: %q — answer them, or record an open_question", count, first)}))
 		}
 	}
 	return out
@@ -331,6 +331,6 @@ func facetSprawlFindings(mapName string, concepts map[okf.ConceptID]string) []Fi
 	if len(tags) > 10 {
 		tags = tags[:10]
 	}
-	return []Finding{{Path: mapName + "/_map.md", Check: "facet_sprawl", Severity: SevInfo,
-		Message: fmt.Sprintf("tags: %d distinct values, %d used once — a facet nobody can filter on; the most used, a likely vocabulary: %s", len(counts), single, strings.Join(tags, ", "))}}
+	return []Finding{newFinding("facet_sprawl", Finding{Path: mapName + "/_map.md",
+		Message: fmt.Sprintf("tags: %d distinct values, %d used once — a facet nobody can filter on; the most used, a likely vocabulary: %s", len(counts), single, strings.Join(tags, ", "))})}
 }

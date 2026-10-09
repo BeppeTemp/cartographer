@@ -14,6 +14,7 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/blocktext"
 	"github.com/BeppeTemp/cartographer/internal/configurator"
+	"github.com/BeppeTemp/cartographer/internal/lint"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
 )
 
@@ -768,5 +769,64 @@ func TestHarnessLedgerCoversEveryProvider(t *testing.T) {
 		if !known[id] {
 			t.Errorf("docs/harnesses.md has a `## %s` section, but configurator.Providers() has no such provider", id)
 		}
+	}
+}
+
+const (
+	lintCatalogueBegin = "<!-- lint:catalogue:begin — generated from internal/lint/registry.go; run `go test ./internal/repodocs -run TestLintCatalogueIsUpToDate -args -update` -->"
+	lintCatalogueEnd   = "<!-- lint:catalogue:end -->"
+)
+
+// renderLintCatalogue is the table of every registered check (D354). The
+// registry is the source of truth, so the table is generated, not maintained.
+func renderLintCatalogue() string {
+	yes := func(b bool) string {
+		if b {
+			return "yes"
+		}
+		return "-"
+	}
+	var b strings.Builder
+	b.WriteString("| Check | Severity | Level | Accept | Fix | Auto-repair safe | On write |\n")
+	b.WriteString("|---|---|---|---|---|---|---|\n")
+	for _, c := range lint.Checks() {
+		fix := "-"
+		if len(c.FixKinds) > 0 {
+			fix = "`" + strings.Join(c.FixKinds, "`, `") + "`"
+		}
+		fmt.Fprintf(&b, "| `%s` | %s | %s | %s | %s | %s | %s |\n",
+			c.Name, c.Severity, c.Level, c.Accept, fix, yes(c.AutoRepairSafe), yes(c.OnWrite))
+	}
+	return b.String()
+}
+
+// The check catalogue in docs/data-plane.md is generated from the registry, so
+// a registered check cannot be missing from it and a name in it cannot be
+// unregistered (D354). The second half re-reads the table the way a person
+// would, so a hand edit that survives -update by accident still fails.
+func TestLintCatalogueIsUpToDate(t *testing.T) {
+	root := repoRoot(t)
+	checkGeneratedBlock(t, root, "docs/data-plane.md",
+		lintCatalogueBegin, lintCatalogueEnd, renderLintCatalogue(),
+		"go test ./internal/repodocs -run TestLintCatalogueIsUpToDate -args -update")
+
+	body, err := BlockBody(readFile(t, root, "docs/data-plane.md"), lintCatalogueBegin, lintCatalogueEnd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	documented := map[string]bool{}
+	for _, line := range strings.Split(body, "\n") {
+		if cells := strings.Split(line, "|"); len(cells) > 2 && strings.HasPrefix(strings.TrimSpace(cells[1]), "`") {
+			documented[strings.Trim(strings.TrimSpace(cells[1]), "`")] = true
+		}
+	}
+	for _, c := range lint.Checks() {
+		if !documented[c.Name] {
+			t.Errorf("check %q is registered but not in the docs/data-plane.md catalogue", c.Name)
+		}
+		delete(documented, c.Name)
+	}
+	for name := range documented {
+		t.Errorf("docs/data-plane.md catalogue lists %q, which is not registered", name)
 	}
 }

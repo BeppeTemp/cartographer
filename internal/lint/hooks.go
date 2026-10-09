@@ -45,12 +45,10 @@ func checkHooks(k *kb.KB) []Finding {
 		default:
 			continue
 		}
-		findings = append(findings, Finding{
-			Path:     rel,
-			Check:    "hook_invalid",
-			Severity: SevWarning,
-			Message:  msg,
-		})
+		findings = append(findings, newFinding("hook_invalid", Finding{
+			Path:    rel,
+			Message: msg,
+		}))
 	}
 	sort.Slice(findings, func(i, j int) bool { return findings[i].Path < findings[j].Path })
 	return findings

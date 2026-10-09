@@ -70,17 +70,8 @@ type uiArtifactFinding struct {
 	Message  string `json:"message"`
 }
 
-// uiArtifactFindingChecks are the lint checks the Artifacts panel reports
-// (D316): the ones about what the KB ships, not about its concepts.
-var uiArtifactFindingChecks = map[string]bool{
-	"skill_invalid": true, "skill_warning": true, "legacy_tool_name": true,
-	"skill_broken_ref": true, "skill_git_command": true, "hook_invalid": true,
-	"junk_file": true, "junk_asset": true, "missing_instructions": true,
-	"sops_format_mismatch": true, "sops_missing_file": true, "cross_kb_path": true,
-	"skill_missing_perimeter": true, "artifact_unused": true,
-}
-
-// artifactFindings returns the KB's artifact findings, from the whole-KB lint
+// artifactFindings returns the KB's artifact findings (the registry's Panel
+// checks, D316: what the KB ships, not its concepts), from the whole-KB lint
 // cache when the server has one. A finding on a concept (a sops pipeline in a
 // concept body) is not an artifact's.
 func artifactFindings(srv *Server) ([]lint.Finding, error) {
@@ -97,7 +88,7 @@ func artifactFindings(srv *Server) ([]lint.Finding, error) {
 	var out []lint.Finding
 	for _, f := range all {
 		// sops_* also fire on concept bodies: only the artifact ones count.
-		if uiArtifactFindingChecks[f.Check] && (f.Artifact || !strings.HasPrefix(f.Check, "sops_")) {
+		if lint.ArtifactPanelCheck(f.Check) && (f.Artifact || !strings.HasPrefix(f.Check, "sops_")) {
 			out = append(out, f)
 		}
 	}

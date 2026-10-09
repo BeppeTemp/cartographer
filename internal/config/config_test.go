@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/BeppeTemp/cartographer/internal/lint"
 )
 
 func TestDefault(t *testing.T) {
@@ -625,6 +627,16 @@ func TestLoadWriteGate(t *testing.T) {
 		_, err := load(bad)
 		if err == nil || !strings.Contains(err.Error(), "write_gate: "+bad+": must be off, error or warning") {
 			t.Errorf("write_gate %q: err = %v", bad, err)
+		}
+	}
+}
+
+// DefaultAutoRepair stays a literal here (D323), but each entry must be a
+// check whose registered fix may run with no person (D354).
+func TestDefaultAutoRepairIsAutoRepairSafe(t *testing.T) {
+	for _, check := range DefaultAutoRepair {
+		if !lint.AutoRepairSafe(check) {
+			t.Errorf("%s is in DefaultAutoRepair but its lint spec is not AutoRepairSafe", check)
 		}
 	}
 }

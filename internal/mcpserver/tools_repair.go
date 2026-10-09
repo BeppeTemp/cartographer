@@ -262,11 +262,6 @@ func applyPrefixReplacements(body *string, fixes []*lint.Fix, handled map[*lint.
 	return len(prefixes)
 }
 
-// artifactRepairChecks are the fixable checks whose findings name a KB-root
-// artifact file rather than a concept (D316). Their repair rewrites that file
-// the way artifact_write would, so it needs the same per-KB opt-in.
-var artifactRepairChecks = map[string]bool{"legacy_tool_name": true}
-
 // artifactRepairTarget is one artifact file with every fix it needs and the
 // sha256 read when the plan was made.
 type artifactRepairTarget struct {
@@ -736,7 +731,7 @@ func toolKBRepair(k *kb.KB) Tool {
 					params.Check, strings.Join(lint.FixableChecks, ", "))), nil
 			}
 			dryRun := params.DryRun == nil || *params.DryRun
-			if artifactRepairChecks[params.Check] {
+			if lint.ArtifactRepairCheck(params.Check) {
 				return kbRepairArtifacts(k, params.Check, params.Scope, dryRun, params.Limit)
 			}
 
