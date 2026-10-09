@@ -81,7 +81,9 @@ func toolConceptWrite(k *kb.KB, sim *similarFinder) Tool {
 				"id":           params.ID,
 				"content_hash": newHash,
 			}
-			result["findings"] = findingsOrEmpty(writeFindings(k, params.ID))
+			findings, repaired, hashes := repairWritten(k, []string{params.ID}, nil)
+			result["findings"] = findingsOrEmpty(findings)
+			applyRepairResult(result, params.ID, repaired, hashes)
 			if isNew {
 				if similar := sim.find(ctx, params.ID, frontmatterTitle(k, params.ID)); len(similar) > 0 {
 					result["similar"] = similar
@@ -206,7 +208,9 @@ func toolConceptNew(k *kb.KB, sim *similarFinder) Tool {
 				return errorResult(fmt.Sprintf("concept_new %q: %v", params.ID, err)), nil
 			}
 			result := map[string]interface{}{"id": params.ID, "template": params.Template, "content_hash": newHash}
-			result["findings"] = findingsOrEmpty(writeFindings(k, params.ID))
+			findings, repaired, hashes := repairWritten(k, []string{params.ID}, nil)
+			result["findings"] = findingsOrEmpty(findings)
+			applyRepairResult(result, params.ID, repaired, hashes)
 			if similar := sim.find(ctx, params.ID, frontmatterTitle(k, params.ID)); len(similar) > 0 {
 				result["similar"] = similar
 			}
@@ -509,7 +513,9 @@ func toolConceptPatch(k *kb.KB) Tool {
 			if hasEdits && len(editMatches) > 0 {
 				result["edit_matches"] = editMatches
 			}
-			result["findings"] = findingsOrEmpty(append(writeFindings(k, params.ID), droppedFinding(params.ID, dropped)...))
+			findings, repaired, hashes := repairWritten(k, []string{params.ID}, nil)
+			result["findings"] = findingsOrEmpty(append(findings, droppedFinding(params.ID, dropped)...))
+			applyRepairResult(result, params.ID, repaired, hashes)
 			out, _ := json.MarshalIndent(result, "", "  ")
 			return textResult(string(out)), nil
 		},
@@ -1419,9 +1425,14 @@ func toolSupersede(k *kb.KB) Tool {
 
 			_ = k.AppendLog(fmt.Sprintf("supersede: %s → %s", params.SourceID, params.TargetID), time.Now())
 			text := fmt.Sprintf("superseded %s → %s", params.SourceID, params.TargetID)
-			if f := writeFindings(k, params.SourceID); f != nil {
+			f, repaired, _ := repairWritten(k, []string{params.SourceID}, nil)
+			if f != nil {
 				enc, _ := json.MarshalIndent(f, "", "  ")
 				text += "\nfindings:\n" + string(enc)
+			}
+			if len(repaired) > 0 {
+				enc, _ := json.MarshalIndent(repaired, "", "  ")
+				text += "\nrepaired:\n" + string(enc)
 			}
 			return textResult(text), nil
 		},
@@ -1767,8 +1778,12 @@ func toolConceptMove(k *kb.KB) Tool {
 			}
 			sort.Strings(written)
 			sort.Strings(gone)
-			if f := writeFindingsFor(k, written, gone); f != nil {
+			f, repaired, _ := repairWritten(k, written, gone)
+			if f != nil {
 				result["findings"] = f
+			}
+			if len(repaired) > 0 {
+				result["repaired"] = repaired
 			}
 
 			out, _ := json.MarshalIndent(result, "", "  ")
@@ -2298,9 +2313,10 @@ func batchOpBytes(op batchOperationRequest, hasEdits bool, body string, fm *okf.
 
 // batchResultEntry is one applied operation's reported outcome, in request order.
 type batchResultEntry struct {
-	ID          string       `json:"id"`
-	ContentHash string       `json:"content_hash"`
-	Findings    []findingOut `json:"findings,omitempty"`
+	ID          string        `json:"id"`
+	ContentHash string        `json:"content_hash"`
+	Findings    []findingOut  `json:"findings,omitempty"`
+	Repaired    []repairedOut `json:"repaired,omitempty"`
 }
 
 func toolConceptBatch(k *kb.KB) Tool {
@@ -2523,7 +2539,12 @@ func toolConceptBatch(k *kb.KB) Tool {
 
 			entries := make([]batchResultEntry, len(results))
 			for i, r := range results {
-				entries[i] = batchResultEntry{ID: r.ID, ContentHash: r.ContentHash, Findings: append(writeFindings(k, r.ID), droppedByID[r.ID]...)}
+				findings, repaired, hashes := repairWritten(k, []string{r.ID}, nil)
+				hash := r.ContentHash
+				if h, ok := hashes[r.ID]; ok {
+					hash = h
+				}
+				entries[i] = batchResultEntry{ID: r.ID, ContentHash: hash, Findings: append(findings, droppedByID[r.ID]...), Repaired: repaired}
 			}
 			out, _ := json.MarshalIndent(map[string]interface{}{"results": entries}, "", "  ")
 			return textResult(string(out)), nil

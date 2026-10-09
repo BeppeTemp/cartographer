@@ -603,7 +603,9 @@ func kbCapabilities(k *kb.KB) map[string]KBCapability {
 		"mount": {State: mount, Setting: "kbs[]"},
 		// D299: what `cartographer kb repair --apply` may apply unattended,
 		// and when the server proposes the next kb-doctor session.
-		"auto_repair":     {State: onOff(len(k.AutoRepair) > 0), Setting: "kbs[].auto_repair", Checks: k.AutoRepair, Default: k.AutoRepairDefault},
+		"auto_repair": {State: onOff(len(k.AutoRepair) > 0), Setting: "kbs[].auto_repair", Checks: k.AutoRepair, Default: k.AutoRepairDefault},
+		// D349: a write applies the mechanical auto_repair fixes to what it wrote.
+		"repair_on_write": {State: onOff(k.RepairOnWrite && len(k.AutoRepair) > 0), Setting: "kbs[].repair_on_write"},
 		"doctor_interval": {State: interval, Setting: "kbs[].doctor_interval"},
 		// D323: the server applies auto_repair by itself on this interval.
 		"doctor_auto_interval": {State: autoInterval, Setting: "kbs[].doctor_auto_interval"},

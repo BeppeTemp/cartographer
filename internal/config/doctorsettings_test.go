@@ -115,3 +115,31 @@ func TestLoadDoctorAutoInterval(t *testing.T) {
 		}
 	}
 }
+
+// repair_on_write absent follows auto_repair (D349); an explicit false is the
+// opt-out. Pinned through the YAML loader, as AutoRepairChecks is.
+func TestLoadRepairOnWrite(t *testing.T) {
+	dir := t.TempDir()
+	for name, tc := range map[string]struct {
+		body string
+		want bool
+	}{
+		"absent":          {"kbs:\n  - path: /tmp/kb\n", true},
+		"empty_auto":      {"kbs:\n  - path: /tmp/kb\n    auto_repair: []\n", false},
+		"explicit_false":  {"kbs:\n  - path: /tmp/kb\n    repair_on_write: false\n", false},
+		"true_empty_auto": {"kbs:\n  - path: /tmp/kb\n    auto_repair: []\n    repair_on_write: true\n", true},
+		"explicit_list":   {"kbs:\n  - path: /tmp/kb\n    auto_repair: [duplicate_link]\n", true},
+	} {
+		path := filepath.Join(dir, name+".yaml")
+		if err := os.WriteFile(path, []byte(tc.body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		cfg, err := Load(path)
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if got := cfg.KBs[0].RepairOnWriteEnabled(); got != tc.want {
+			t.Errorf("%s: RepairOnWriteEnabled() = %v, want %v", name, got, tc.want)
+		}
+	}
+}

@@ -95,7 +95,12 @@ type KB struct {
 	// list the operator wrote (D323); DoctorAutoIntervalDays is how often the
 	// server applies AutoRepair by itself (0 = never). A KB opened any other
 	// way leaves both at zero, which is off.
-	AutoRepairDefault      bool
+	AutoRepairDefault bool
+
+	// RepairOnWrite makes the write tools apply the mechanical AutoRepair
+	// fixes to the concepts they just wrote (D349). Zero value off: a KB
+	// opened without a spec never repairs on write.
+	RepairOnWrite          bool
 	DoctorAutoIntervalDays int
 
 	// UsageStaleDays is the per-KB threshold (D326, config.KBSpec) past which

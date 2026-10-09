@@ -112,6 +112,11 @@ kbs:                          # (kbs[]) explicit KBs, local path or remote git (
                                                       # nonstandard_field, tool_param_field,
                                                       # invalid_field_value, duplicate_link,
                                                       # prose_value); [] means none
+    repair_on_write: true                            # (kbs[].repair_on_write) a write applies the
+                                                      # auto_repair fixes (except broken_link and
+                                                      # reciprocal_link_item) to the concepts it wrote,
+                                                      # in the same commit (D349); absent follows
+                                                      # auto_repair, false = timer only
     doctor_auto_interval: 1d                         # (kbs[].doctor_auto_interval) how often the server
                                                       # applies auto_repair by itself, at most 50
                                                       # concepts per check (D323, HTTP serve only);
