@@ -130,7 +130,7 @@ what is allowed:
    answered yet, and the session is done only when nothing is left — fixed, or accepted where the
    KB says so. Fix what is a defect (`orphan`: link the page with `link_suggest`; `bare_link_list`:
    one reason per link; `link_to_retired` in a live page: update the sentence or point at the
-   successor). Accept what is a choice with `lint_ignore` and a `reason`: on the concept for a
+   successor; `index_lists_retired`: remove the entry; to retire a page use `concept_archive`, not patch + move + `index_patch`). Accept what is a choice with `lint_ignore` and a `reason`: on the concept for a
    one-off, map-wide with `map_update` `lint_ignore` (the list replaces the map's: extend the
    `lint_ignore` that `map_list` shows) when the whole map follows that style. An artifact finding
    (a skill, an agent: `acceptability` says `artifact`) is accepted in `instructions.md`

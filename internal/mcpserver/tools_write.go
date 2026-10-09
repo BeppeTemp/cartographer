@@ -1535,273 +1535,308 @@ func toolConceptMove(k *kb.KB) Tool {
 				rewriteLinks = *params.RewriteLinks
 			}
 
-			// --- validation pass: every entry must pass before anything is applied. ---
-			type validMove struct {
-				sourceID string
-				targetID string
-				fm       *okf.Frontmatter
-				body     string
-				expanded bool
-				source   kb.ConceptLocation
-				target   kb.ConceptLocation
-				mappings map[string]string
+			result, errRes := applyConceptMoves(k, moves, rewriteLinks, moveOptions{})
+			if errRes != nil {
+				return *errRes, nil
 			}
-			seenSources := map[string]bool{}
-			seenTargets := map[string]bool{}
-			valid := make([]validMove, 0, len(moves))
-
-			for _, m := range moves {
-				if m.SourceID == "" {
-					return errorResult("'source_id' is required for every move"), nil
-				}
-				if m.TargetID == "" {
-					return errorResult("'target_id' is required for every move"), nil
-				}
-				if seenSources[m.SourceID] {
-					return errorResult("duplicate source_id in batch: " + m.SourceID), nil
-				}
-				seenSources[m.SourceID] = true
-				if seenTargets[m.TargetID] {
-					return errorResult("duplicate target_id in batch: " + m.TargetID), nil
-				}
-				seenTargets[m.TargetID] = true
-				if _, err := okf.PathToID(m.TargetID + ".md"); err != nil {
-					return errorResult("invalid target_id: " + m.TargetID), nil
-				}
-
-				// Both ends are resolved by the KB, never joined onto
-				// DataRoot() here: services/ is rooted at the KB root, and a
-				// hand-built path removed data/services/<x>.md while the real
-				// services/<x>.md survived, leaving two copies (D269). The
-				// resolver also carries the path-confinement check.
-				targetLoc, err := k.LocateConcept(okf.ConceptID(m.TargetID))
-				if err != nil {
-					if errors.Is(err, okf.ErrInvalidPath) {
-						return errorResult("target_id resolves outside KB root: " + m.TargetID), nil
-					}
-					return errorResult(fmt.Sprintf("concept_move: resolve target %q: %v", m.TargetID, err)), nil
-				}
-
-				data, err := k.ReadConcept(okf.ConceptID(m.SourceID))
-				if err != nil {
-					return errorResult(fmt.Sprintf("concept_move: read source %q: %v", m.SourceID, err)), nil
-				}
-				sourceLoc, err := k.LocateConcept(okf.ConceptID(m.SourceID))
-				if err != nil {
-					return errorResult(fmt.Sprintf("concept_move: resolve source %q: %v", m.SourceID, err)), nil
-				}
-
-				// Check that target does not already exist to prevent silent overwrite.
-				if _, terr := k.ReadConcept(okf.ConceptID(m.TargetID)); terr == nil {
-					return errorResult("conflict: target already exists: " + m.TargetID), nil
-				} else if !errors.Is(terr, okf.ErrNotFound) {
-					return errorResult(fmt.Sprintf("concept_move: check target %q: %v", m.TargetID, terr)), nil
-				}
-				// Occupied also means a file ReadConcept cannot parse, or an
-				// "<id>/" directory holding only assets: moving onto either
-				// would silently adopt or shadow what is there.
-				if _, statErr := os.Lstat(targetLoc.File); statErr == nil {
-					return errorResult("conflict: target already exists: " + m.TargetID), nil
-				} else if !os.IsNotExist(statErr) {
-					return errorResult(fmt.Sprintf("concept_move: check target %q: %v", m.TargetID, statErr)), nil
-				}
-				if _, statErr := os.Lstat(targetLoc.Dir); statErr == nil {
-					return errorResult("conflict: target directory already exists: " + m.TargetID), nil
-				} else if !os.IsNotExist(statErr) {
-					return errorResult(fmt.Sprintf("concept_move: check target directory %q: %v", m.TargetID, statErr)), nil
-				}
-
-				fm, err := okf.ParseFrontmatter(data.FrontmatterRaw)
-				if err != nil {
-					return errorResult(fmt.Sprintf("concept_move: parse frontmatter %q: %v", m.SourceID, err)), nil
-				}
-
-				vm := validMove{sourceID: m.SourceID, targetID: m.TargetID, fm: fm, body: data.Body, source: sourceLoc, target: targetLoc, mappings: map[string]string{m.SourceID: m.TargetID}}
-				if sourceLoc.Expanded {
-					if len(strings.Split(m.SourceID, "/")) != 2 || len(strings.Split(m.TargetID, "/")) != 2 {
-						return errorResult("expanded concept moves require two-segment source_id and target_id"), nil
-					}
-					if strings.HasPrefix(m.TargetID+"/", m.SourceID+"/") || strings.HasPrefix(m.SourceID+"/", m.TargetID+"/") {
-						return errorResult("expanded concept target cannot be inside, above, or equal to its source"), nil
-					}
-					vm.expanded = true
-					if err := k.WalkConcepts(func(id okf.ConceptID, _ string) error {
-						idStr := string(id)
-						if idStr == m.SourceID || strings.HasPrefix(idStr, m.SourceID+"/") {
-							vm.mappings[idStr] = m.TargetID + strings.TrimPrefix(idStr, m.SourceID)
-						}
-						return nil
-					}); err != nil {
-						return errorResult(fmt.Sprintf("concept_move: list expanded source %q: %v", m.SourceID, err)), nil
-					}
-				}
-
-				valid = append(valid, vm)
-			}
-			for i, left := range valid {
-				if !left.expanded {
-					continue
-				}
-				for j, right := range valid {
-					if i == j {
-						continue
-					}
-					if strings.HasPrefix(right.sourceID+"/", left.sourceID+"/") || strings.HasPrefix(left.sourceID+"/", right.sourceID+"/") ||
-						strings.HasPrefix(right.targetID+"/", left.sourceID+"/") || strings.HasPrefix(left.targetID+"/", right.sourceID+"/") ||
-						strings.HasPrefix(right.sourceID+"/", left.targetID+"/") || strings.HasPrefix(left.sourceID+"/", right.targetID+"/") {
-						return errorResult("expanded concept moves cannot overlap, swap, or use ancestor/descendant paths in one batch"), nil
-					}
-				}
-			}
-
-			// --- apply pass: all entries already validated above. ---
-			moveMap := make(map[string]string, len(valid))
-			applied := make([]conceptMoveEntry, 0, len(valid))
-			logLines := make([]string, 0, len(valid)+1)
-
-			// A failure from here on is late: earlier entries (and, for a flat
-			// move, this entry's target) are already on disk and are not rolled
-			// back. It must still be an explicit application error — gitWrap
-			// then neither commits nor logs success — and say what is where.
-			appliedNote := func() string {
-				if len(applied) == 0 {
-					return ""
-				}
-				return fmt.Sprintf("; %d earlier move(s) in this batch were already applied and are not rolled back", len(applied))
-			}
-			for _, mv := range valid {
-				if mv.expanded {
-					if err := os.MkdirAll(filepath.Dir(mv.target.Dir), 0o755); err != nil {
-						return errorResult(fmt.Sprintf("concept_move: create target parent %q: %v%s", mv.targetID, err, appliedNote())), nil
-					}
-					if err := conceptMoveRename(mv.source.Dir, mv.target.Dir); err != nil {
-						return errorResult(fmt.Sprintf("concept_move: could not move expanded concept %q to %q: %v; its directory was not moved%s", mv.sourceID, mv.targetID, err, appliedNote())), nil
-					}
-				} else {
-					if _, err := k.WriteConcept(okf.ConceptID(mv.targetID), mv.fm, mv.body, ""); err != nil {
-						return errorResult(fmt.Sprintf("concept_move: write target %q: %v%s", mv.targetID, err, appliedNote())), nil
-					}
-
-					// The source was resolved and read in preflight, so even
-					// not-found here is a failure: ignoring it is how the move
-					// used to report success with the source still in place.
-					if err := conceptMoveRemove(mv.source.File); err != nil {
-						return errorResult(fmt.Sprintf("concept_move: target %q was already written but source %q could not be removed: %v; both now exist and nothing was rolled back — delete one of them%s", mv.targetID, mv.sourceID, err, appliedNote())), nil
-					}
-				}
-
-				for oldID, newID := range mv.mappings {
-					moveMap[oldID] = newID
-				}
-				applied = append(applied, conceptMoveEntry{SourceID: mv.sourceID, TargetID: mv.targetID})
-				logLines = append(logLines, fmt.Sprintf("- %s → %s", mv.sourceID, mv.targetID))
-			}
-
-			result := map[string]interface{}{
-				"moves": applied,
-			}
-
-			// The moved concept's OWN relative links break when the directory
-			// depth changes: concept_move rewrote inbound links only, which is a
-			// half-move (D160). No flag: a move that leaves the moved body's links
-			// broken is simply incomplete, and a flag would preserve that as a
-			// supported mode.
-			outboundFixed := 0
-			for _, mv := range applied {
-				oldBase, newBase := okf.IDToPath(okf.ConceptID(mv.SourceID)), okf.IDToPath(okf.ConceptID(mv.TargetID))
-				if relPath, expanded := k.ConceptRelPath(okf.ConceptID(mv.TargetID)); expanded {
-					newBase = relPath
-					oldBase = filepath.ToSlash(filepath.Join(mv.SourceID, "index.md"))
-				}
-				data, readErr := k.ReadConcept(okf.ConceptID(mv.TargetID))
-				if readErr != nil {
-					continue
-				}
-				newBody, n := kb.RewriteOutboundLinks(data.Body, oldBase, newBase, moveMap)
-				if n == 0 {
-					continue
-				}
-				fm, parseErr := okf.ParseFrontmatter(data.FrontmatterRaw)
-				if parseErr != nil {
-					continue
-				}
-				if _, err := k.WriteConcept(okf.ConceptID(mv.TargetID), fm, newBody, data.ContentHash); err != nil {
-					return errorResult(fmt.Sprintf("concept_move: applied the move but could not rewrite %q's own links: %v", mv.TargetID, err)), nil
-				}
-				outboundFixed += n
-			}
-			if outboundFixed > 0 {
-				result["outbound_rewritten"] = outboundFixed
-				logLines = append(logLines, fmt.Sprintf("outbound_links: %d replacement(s) in the moved concept(s)", outboundFixed))
-			}
-
-			if rewriteLinks {
-				// Curated indexes are not links between concepts, so the backlink
-				// pass below never touched them: the source map's index kept
-				// listing the moved concept (broken_link) and the destination's did
-				// not mention it (index_incomplete). Only maps that asked for a
-				// curated index are edited — rewriting prose nobody declared as
-				// curated would be an assumption, not a fix (D160).
-				if notes := maintainCuratedIndexes(k, applied); len(notes) > 0 {
-					result["curated_indexes"] = notes
-					logLines = append(logLines, notes...)
-				}
-			}
-
-			if rewriteLinks {
-				touched, totalReplacements, err := rewriteBacklinks(k, moveMap)
-				if err != nil {
-					// Moves are already applied (and will still be committed by
-					// gitWrap only on success); surface the rewrite failure so the
-					// caller knows some backlinks may be stale.
-					return errorResult(fmt.Sprintf("concept_move: applied %d move(s) but rewrite_links failed: %v", len(applied), err)), nil
-				}
-				result["rewritten"] = touched
-				if len(touched) > 0 {
-					logLines = append(logLines, fmt.Sprintf("rewrite_links: %d concept(s), %d replacement(s)", len(touched), totalReplacements))
-				}
-				indexes, err := rewriteIndexLinks(k, moveMap)
-				if err != nil {
-					return errorResult(fmt.Sprintf("concept_move: applied %d move(s) but rewriting index links failed: %v", len(applied), err)), nil
-				}
-				if len(indexes) > 0 {
-					result["rewritten_indexes"] = indexes
-					logLines = append(logLines, "rewrite_links: index(es) "+strings.Join(indexes, ", "))
-				}
-			} else {
-				var warnings []string
-				for _, mv := range valid {
-					warnings = append(warnings, fmt.Sprintf("Warning: inbound links to %s are not updated — run lint to find broken links", mv.sourceID))
-				}
-				result["warning"] = strings.Join(warnings, "\n")
-			}
-
-			_ = k.AppendLog(fmt.Sprintf("concept_move (%d move(s)):\n%s", len(applied), strings.Join(logLines, "\n")), time.Now())
-
-			// D312: what the move left behind. Every moved ID is checked, and
-			// every old ID as a gone one: a page still linking it (rewrite_links
-			// false, or a link the rewrite could not follow) is broken now.
-			written := make([]string, 0, len(moveMap))
-			gone := make([]string, 0, len(moveMap))
-			for oldID, newID := range moveMap {
-				written = append(written, newID)
-				gone = append(gone, oldID)
-			}
-			sort.Strings(written)
-			sort.Strings(gone)
-			f, repaired, _ := repairWritten(k, written, gone)
-			if f != nil {
-				result["findings"] = f
-			}
-			if len(repaired) > 0 {
-				result["repaired"] = repaired
-			}
-
 			out, _ := json.MarshalIndent(result, "", "  ")
 			return textResult(string(out)), nil
 		},
 	}
 }
+
+// moveOptions are the two things concept_archive changes about the shared move
+// core (D344).
+type moveOptions struct {
+	// ForceSourceIndexRemoval removes the moved concept's entry from the source
+	// map's curated index even when that map never declared require_index_entry.
+	ForceSourceIndexRemoval bool
+	// LogTitle replaces the "concept_move (n move(s))" header of the log entry.
+	LogTitle string
+}
+
+// applyConceptMoves validates every move, applies them, rebases the moved
+// concepts' own links, maintains curated indexes, rewrites inbound links, logs
+// and computes the findings. Shared by concept_move and concept_archive; an
+// application error comes back as the non-nil ToolResult, nothing else is
+// returned in that case.
+func applyConceptMoves(k *kb.KB, moves []conceptMoveEntry, rewriteLinks bool, opts moveOptions) (map[string]interface{}, *ToolResult) {
+	// --- validation pass: every entry must pass before anything is applied. ---
+	type validMove struct {
+		sourceID string
+		targetID string
+		fm       *okf.Frontmatter
+		body     string
+		expanded bool
+		source   kb.ConceptLocation
+		target   kb.ConceptLocation
+		mappings map[string]string
+	}
+	seenSources := map[string]bool{}
+	seenTargets := map[string]bool{}
+	valid := make([]validMove, 0, len(moves))
+
+	for _, m := range moves {
+		if m.SourceID == "" {
+			return nil, errRes(errorResult("'source_id' is required for every move"))
+		}
+		if m.TargetID == "" {
+			return nil, errRes(errorResult("'target_id' is required for every move"))
+		}
+		if seenSources[m.SourceID] {
+			return nil, errRes(errorResult("duplicate source_id in batch: " + m.SourceID))
+		}
+		seenSources[m.SourceID] = true
+		if seenTargets[m.TargetID] {
+			return nil, errRes(errorResult("duplicate target_id in batch: " + m.TargetID))
+		}
+		seenTargets[m.TargetID] = true
+		if _, err := okf.PathToID(m.TargetID + ".md"); err != nil {
+			return nil, errRes(errorResult("invalid target_id: " + m.TargetID))
+		}
+
+		// Both ends are resolved by the KB, never joined onto
+		// DataRoot() here: services/ is rooted at the KB root, and a
+		// hand-built path removed data/services/<x>.md while the real
+		// services/<x>.md survived, leaving two copies (D269). The
+		// resolver also carries the path-confinement check.
+		targetLoc, err := k.LocateConcept(okf.ConceptID(m.TargetID))
+		if err != nil {
+			if errors.Is(err, okf.ErrInvalidPath) {
+				return nil, errRes(errorResult("target_id resolves outside KB root: " + m.TargetID))
+			}
+			return nil, errRes(errorResult(fmt.Sprintf("concept_move: resolve target %q: %v", m.TargetID, err)))
+		}
+
+		data, err := k.ReadConcept(okf.ConceptID(m.SourceID))
+		if err != nil {
+			return nil, errRes(errorResult(fmt.Sprintf("concept_move: read source %q: %v", m.SourceID, err)))
+		}
+		sourceLoc, err := k.LocateConcept(okf.ConceptID(m.SourceID))
+		if err != nil {
+			return nil, errRes(errorResult(fmt.Sprintf("concept_move: resolve source %q: %v", m.SourceID, err)))
+		}
+
+		if msg := targetOccupied(k, m.TargetID, targetLoc); msg != "" {
+			return nil, errRes(errorResult(msg))
+		}
+
+		fm, err := okf.ParseFrontmatter(data.FrontmatterRaw)
+		if err != nil {
+			return nil, errRes(errorResult(fmt.Sprintf("concept_move: parse frontmatter %q: %v", m.SourceID, err)))
+		}
+
+		vm := validMove{sourceID: m.SourceID, targetID: m.TargetID, fm: fm, body: data.Body, source: sourceLoc, target: targetLoc, mappings: map[string]string{m.SourceID: m.TargetID}}
+		if sourceLoc.Expanded {
+			if len(strings.Split(m.SourceID, "/")) != 2 || len(strings.Split(m.TargetID, "/")) != 2 {
+				return nil, errRes(errorResult("expanded concept moves require two-segment source_id and target_id"))
+			}
+			if strings.HasPrefix(m.TargetID+"/", m.SourceID+"/") || strings.HasPrefix(m.SourceID+"/", m.TargetID+"/") {
+				return nil, errRes(errorResult("expanded concept target cannot be inside, above, or equal to its source"))
+			}
+			vm.expanded = true
+			if err := k.WalkConcepts(func(id okf.ConceptID, _ string) error {
+				idStr := string(id)
+				if idStr == m.SourceID || strings.HasPrefix(idStr, m.SourceID+"/") {
+					vm.mappings[idStr] = m.TargetID + strings.TrimPrefix(idStr, m.SourceID)
+				}
+				return nil
+			}); err != nil {
+				return nil, errRes(errorResult(fmt.Sprintf("concept_move: list expanded source %q: %v", m.SourceID, err)))
+			}
+		}
+
+		valid = append(valid, vm)
+	}
+	for i, left := range valid {
+		if !left.expanded {
+			continue
+		}
+		for j, right := range valid {
+			if i == j {
+				continue
+			}
+			if strings.HasPrefix(right.sourceID+"/", left.sourceID+"/") || strings.HasPrefix(left.sourceID+"/", right.sourceID+"/") ||
+				strings.HasPrefix(right.targetID+"/", left.sourceID+"/") || strings.HasPrefix(left.targetID+"/", right.sourceID+"/") ||
+				strings.HasPrefix(right.sourceID+"/", left.targetID+"/") || strings.HasPrefix(left.sourceID+"/", right.targetID+"/") {
+				return nil, errRes(errorResult("expanded concept moves cannot overlap, swap, or use ancestor/descendant paths in one batch"))
+			}
+		}
+	}
+
+	// --- apply pass: all entries already validated above. ---
+	moveMap := make(map[string]string, len(valid))
+	applied := make([]conceptMoveEntry, 0, len(valid))
+	logLines := make([]string, 0, len(valid)+1)
+
+	// A failure from here on is late: earlier entries (and, for a flat
+	// move, this entry's target) are already on disk and are not rolled
+	// back. It must still be an explicit application error — gitWrap
+	// then neither commits nor logs success — and say what is where.
+	appliedNote := func() string {
+		if len(applied) == 0 {
+			return ""
+		}
+		return fmt.Sprintf("; %d earlier move(s) in this batch were already applied and are not rolled back", len(applied))
+	}
+	for _, mv := range valid {
+		if mv.expanded {
+			if err := os.MkdirAll(filepath.Dir(mv.target.Dir), 0o755); err != nil {
+				return nil, errRes(errorResult(fmt.Sprintf("concept_move: create target parent %q: %v%s", mv.targetID, err, appliedNote())))
+			}
+			if err := conceptMoveRename(mv.source.Dir, mv.target.Dir); err != nil {
+				return nil, errRes(errorResult(fmt.Sprintf("concept_move: could not move expanded concept %q to %q: %v; its directory was not moved%s", mv.sourceID, mv.targetID, err, appliedNote())))
+			}
+		} else {
+			if _, err := k.WriteConcept(okf.ConceptID(mv.targetID), mv.fm, mv.body, ""); err != nil {
+				return nil, errRes(errorResult(fmt.Sprintf("concept_move: write target %q: %v%s", mv.targetID, err, appliedNote())))
+			}
+
+			// The source was resolved and read in preflight, so even
+			// not-found here is a failure: ignoring it is how the move
+			// used to report success with the source still in place.
+			if err := conceptMoveRemove(mv.source.File); err != nil {
+				return nil, errRes(errorResult(fmt.Sprintf("concept_move: target %q was already written but source %q could not be removed: %v; both now exist and nothing was rolled back — delete one of them%s", mv.targetID, mv.sourceID, err, appliedNote())))
+			}
+		}
+
+		for oldID, newID := range mv.mappings {
+			moveMap[oldID] = newID
+		}
+		applied = append(applied, conceptMoveEntry{SourceID: mv.sourceID, TargetID: mv.targetID})
+		logLines = append(logLines, fmt.Sprintf("- %s → %s", mv.sourceID, mv.targetID))
+	}
+
+	result := map[string]interface{}{
+		"moves": applied,
+	}
+
+	// The moved concept's OWN relative links break when the directory
+	// depth changes: concept_move rewrote inbound links only, which is a
+	// half-move (D160). No flag: a move that leaves the moved body's links
+	// broken is simply incomplete, and a flag would preserve that as a
+	// supported mode.
+	outboundFixed := 0
+	for _, mv := range applied {
+		oldBase, newBase := okf.IDToPath(okf.ConceptID(mv.SourceID)), okf.IDToPath(okf.ConceptID(mv.TargetID))
+		if relPath, expanded := k.ConceptRelPath(okf.ConceptID(mv.TargetID)); expanded {
+			newBase = relPath
+			oldBase = filepath.ToSlash(filepath.Join(mv.SourceID, "index.md"))
+		}
+		data, readErr := k.ReadConcept(okf.ConceptID(mv.TargetID))
+		if readErr != nil {
+			continue
+		}
+		newBody, n := kb.RewriteOutboundLinks(data.Body, oldBase, newBase, moveMap)
+		if n == 0 {
+			continue
+		}
+		fm, parseErr := okf.ParseFrontmatter(data.FrontmatterRaw)
+		if parseErr != nil {
+			continue
+		}
+		if _, err := k.WriteConcept(okf.ConceptID(mv.TargetID), fm, newBody, data.ContentHash); err != nil {
+			return nil, errRes(errorResult(fmt.Sprintf("concept_move: applied the move but could not rewrite %q's own links: %v", mv.TargetID, err)))
+		}
+		outboundFixed += n
+	}
+	if outboundFixed > 0 {
+		result["outbound_rewritten"] = outboundFixed
+		logLines = append(logLines, fmt.Sprintf("outbound_links: %d replacement(s) in the moved concept(s)", outboundFixed))
+	}
+
+	if rewriteLinks {
+		// Curated indexes are not links between concepts, so the backlink
+		// pass below never touched them: the source map's index kept
+		// listing the moved concept (broken_link) and the destination's did
+		// not mention it (index_incomplete). Only maps that asked for a
+		// curated index are edited — rewriting prose nobody declared as
+		// curated would be an assumption, not a fix (D160).
+		if notes := maintainCuratedIndexes(k, applied, opts.ForceSourceIndexRemoval); len(notes) > 0 {
+			result["curated_indexes"] = notes
+			logLines = append(logLines, notes...)
+		}
+	}
+
+	if rewriteLinks {
+		touched, totalReplacements, err := rewriteBacklinks(k, moveMap)
+		if err != nil {
+			// Moves are already applied (and will still be committed by
+			// gitWrap only on success); surface the rewrite failure so the
+			// caller knows some backlinks may be stale.
+			return nil, errRes(errorResult(fmt.Sprintf("concept_move: applied %d move(s) but rewrite_links failed: %v", len(applied), err)))
+		}
+		result["rewritten"] = touched
+		if len(touched) > 0 {
+			logLines = append(logLines, fmt.Sprintf("rewrite_links: %d concept(s), %d replacement(s)", len(touched), totalReplacements))
+		}
+		indexes, err := rewriteIndexLinks(k, moveMap)
+		if err != nil {
+			return nil, errRes(errorResult(fmt.Sprintf("concept_move: applied %d move(s) but rewriting index links failed: %v", len(applied), err)))
+		}
+		if len(indexes) > 0 {
+			result["rewritten_indexes"] = indexes
+			logLines = append(logLines, "rewrite_links: index(es) "+strings.Join(indexes, ", "))
+		}
+	} else {
+		var warnings []string
+		for _, mv := range valid {
+			warnings = append(warnings, fmt.Sprintf("Warning: inbound links to %s are not updated — run lint to find broken links", mv.sourceID))
+		}
+		result["warning"] = strings.Join(warnings, "\n")
+	}
+
+	title := opts.LogTitle
+	if title == "" {
+		title = fmt.Sprintf("concept_move (%d move(s))", len(applied))
+	}
+	_ = k.AppendLog(title+":\n"+strings.Join(logLines, "\n"), time.Now())
+
+	// D312: what the move left behind. Every moved ID is checked, and
+	// every old ID as a gone one: a page still linking it (rewrite_links
+	// false, or a link the rewrite could not follow) is broken now.
+	written := make([]string, 0, len(moveMap))
+	gone := make([]string, 0, len(moveMap))
+	for oldID, newID := range moveMap {
+		written = append(written, newID)
+		gone = append(gone, oldID)
+	}
+	sort.Strings(written)
+	sort.Strings(gone)
+	f, repaired, _ := repairWritten(k, written, gone)
+	if f != nil {
+		result["findings"] = f
+	}
+	if len(repaired) > 0 {
+		result["repaired"] = repaired
+	}
+	return result, nil
+}
+
+// targetOccupied explains why a move cannot land on targetID, or "" when the
+// slot is free. Occupied also means a file ReadConcept cannot parse, or an
+// "<id>/" directory holding only assets: moving onto either would silently
+// adopt or shadow what is there.
+func targetOccupied(k *kb.KB, targetID string, loc kb.ConceptLocation) string {
+	if _, err := k.ReadConcept(okf.ConceptID(targetID)); err == nil {
+		return "conflict: target already exists: " + targetID
+	} else if !errors.Is(err, okf.ErrNotFound) {
+		return fmt.Sprintf("concept_move: check target %q: %v", targetID, err)
+	}
+	if _, err := os.Lstat(loc.File); err == nil {
+		return "conflict: target already exists: " + targetID
+	} else if !os.IsNotExist(err) {
+		return fmt.Sprintf("concept_move: check target %q: %v", targetID, err)
+	}
+	if _, err := os.Lstat(loc.Dir); err == nil {
+		return "conflict: target directory already exists: " + targetID
+	} else if !os.IsNotExist(err) {
+		return fmt.Sprintf("concept_move: check target directory %q: %v", targetID, err)
+	}
+	return ""
+}
+
+func errRes(r ToolResult) *ToolResult { return &r }
 
 // toolConceptMerge folds a satellite into its expanded parent (D160). Consolidating
 // a dossier is a routine refactor with no primitive: done by hand it breaks links
@@ -2036,12 +2071,28 @@ func toolConceptCollapse(k *kb.KB) Tool {
 // right thematic section, and a wrong placement in a curated document is worse
 // than an obvious one at the end. Only maps that declared require_index_entry are
 // touched: editing an index nobody called curated would be an assumption.
-func maintainCuratedIndexes(k *kb.KB, applied []conceptMoveEntry) []string {
+func maintainCuratedIndexes(k *kb.KB, applied []conceptMoveEntry, forceSourceRemoval bool) []string {
 	var notes []string
-	requiresIndex := func(mapName string) bool {
+	// A generated index (D301) is the server's: gitWrap rewrites it.
+	curated := func(mapName string) (contract kb.MapContract, ok bool) {
 		contract, err := k.ReadMapContract(mapName)
-		// A generated index (D301) is the server's: gitWrap rewrites it.
-		return err == nil && contract.RequireIndexEntry && contract.Index != kb.IndexGenerated
+		return contract, err == nil && contract.Index != kb.IndexGenerated
+	}
+	requiresIndex := func(mapName string) bool {
+		contract, ok := curated(mapName)
+		return ok && contract.RequireIndexEntry
+	}
+	// TRAP (D344): the two sides are gated differently on purpose. A generic
+	// rename (concept_move) edits the SOURCE index only when the map opted in
+	// with require_index_entry; a retirement (concept_archive) is explicit
+	// intent, so it removes the entry from any non-generated index. The
+	// destination side stays opt-in for both.
+	srcEdited := func(mapName string) bool {
+		if forceSourceRemoval {
+			_, ok := curated(mapName)
+			return ok
+		}
+		return requiresIndex(mapName)
 	}
 	for _, mv := range applied {
 		srcMap, srcOK := conceptMapName(mv.SourceID)
@@ -2049,7 +2100,7 @@ func maintainCuratedIndexes(k *kb.KB, applied []conceptMoveEntry) []string {
 		if !srcOK || !dstOK || srcMap == dstMap {
 			continue
 		}
-		if requiresIndex(srcMap) {
+		if srcEdited(srcMap) {
 			removed, kept, err := removeCuratedEntry(k, srcMap, okf.ConceptID(mv.SourceID))
 			switch {
 			case err != nil:

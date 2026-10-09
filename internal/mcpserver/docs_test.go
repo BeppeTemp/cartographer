@@ -39,6 +39,7 @@ var docsNonTools = map[string]bool{
 	"template_unusable":        true, // policy denial code (D343), not a tool
 	"sync_timer_opt_out":       true, // client config key (D325), not a tool
 	"open_gaps":                true, // kb_status field (D273), not a tool
+	"index_lists_retired":      true, // lint check (D344), not a tool
 	"template_section_missing": true, // lint check (D297), not a tool
 	// artifact lint checks (D316), not tools
 	"skill_invalid": true, "skill_warning": true, "skill_broken_ref": true,

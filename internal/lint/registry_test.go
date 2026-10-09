@@ -17,8 +17,8 @@ import (
 // as the regression: the derived tables must hold exactly these names.
 var legacyTables = map[string]string{
 	"perConcept":         `bare_link_list broken_link broken_relation closed_with_open_items concept_oversize cut_concept duplicate_candidate duplicate_link forbidden_term glossary_gap harvest_candidate imported_draft island legacy_path link_to_retired lint_judgement machine_path malformed_frontmatter mangled_placeholder map_misfit map_naming missing_title nonstandard_field open_marker orphan promotion_candidate prose_value read_hotspot reciprocal_link_item repeated_fact scattered_work secrets_on_non_service sops_format_mismatch sops_missing_file source_uncited stale_claim stale_open status_reclassify status_semantics stringified_list template_section_missing title_h1_mismatch title_quality unknown_placeholder zombie_work`,
-	"mapOnly":            `facet_sprawl map_oversize missing_value_contract`,
-	"wholeGraph":         `cut_concept island link_to_retired map_misfit`,
+	"mapOnly":            `facet_sprawl index_lists_retired map_oversize missing_value_contract`,
+	"wholeGraph":         `cut_concept index_lists_retired island link_to_retired map_misfit`,
 	"lintJudgement":      `bare_link_list broken_link closed_with_open_items concept_oversize map_misfit stale_open template_section_missing`,
 	"artifactChecks":     `artifact_unused cross_kb_path junk_asset junk_file legacy_tool_name missing_instructions skill_broken_ref skill_git_command skill_invalid skill_missing_perimeter skill_warning`,
 	"artifactAcceptable": `artifact_unused cross_kb_path legacy_path legacy_tool_name skill_broken_ref skill_git_command skill_invalid skill_missing_perimeter skill_warning sops_format_mismatch sops_missing_file`,
@@ -29,7 +29,7 @@ var legacyTables = map[string]string{
 // the registry (no_such_check is unknown, hence none).
 var legacyAcceptability = map[string]string{
 	"concept":  `bare_link_list broken_link broken_relation closed_with_open_items concept_oversize cut_concept duplicate_candidate duplicate_link forbidden_term glossary_gap harvest_candidate imported_draft island legacy_path link_to_retired lint_judgement machine_path malformed_frontmatter mangled_placeholder map_misfit map_naming missing_title nonstandard_field open_marker orphan promotion_candidate prose_value read_hotspot reciprocal_link_item repeated_fact scattered_work secrets_on_non_service sops_format_mismatch sops_missing_file source_uncited stale_claim stale_open status_reclassify status_semantics stringified_list template_section_missing title_h1_mismatch title_quality unknown_placeholder zombie_work`,
-	"map":      `facet_sprawl map_oversize missing_value_contract`,
+	"map":      `facet_sprawl index_lists_retired map_oversize missing_value_contract`,
 	"artifact": `artifact_unused cross_kb_path legacy_tool_name skill_broken_ref skill_git_command skill_invalid skill_missing_perimeter skill_warning`,
 	"none":     `contract_malformed expanded_ambiguous expanded_as_category expanded_missing_index forbidden_field hook_invalid index_incomplete index_link_form index_stale invalid_field_value junk_asset junk_file legacy_archive_descriptor lint_ignore_invalid missing_instructions missing_registry missing_required_field no_such orphan_asset oversized_asset tool_param_field unlistable_assets unused_placeholder`,
 }

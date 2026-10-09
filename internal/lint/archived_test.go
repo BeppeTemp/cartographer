@@ -129,3 +129,75 @@ func TestHarvestCandidate_EvidenceNamesDurableSections(t *testing.T) {
 		}
 	}
 }
+
+// D344: a curated index of a live map that links a retired concept is one
+// finding, with or without require_index_entry.
+func TestIndexListsRetired(t *testing.T) {
+	setup := func(t *testing.T, mapFM, idx string, extra map[string]string) []Finding {
+		t.Helper()
+		k := tempKB(t)
+		writeFile(t, k.DataRoot(), "ops/_map.md", "---\ntype: Map\ntitle: Ops\nkind: map\n"+mapFM+"---\n")
+		writeFile(t, k.DataRoot(), "ops/index.md", "---\ntype: Index\ntitle: Ops\n---\n"+idx)
+		writeFile(t, k.DataRoot(), "ops/live.md", "---\ntype: Note\ntitle: Live\n---\n# Live\n")
+		writeFile(t, k.DataRoot(), "ops/old.md", "---\ntype: Note\ntitle: Old\nstatus: deprecated\n---\n# Old\n")
+		writeFile(t, k.DataRoot(), "ops/old2.md", "---\ntype: Note\ntitle: Old2\nstatus: deprecated\n---\n# Old2\n")
+		for p, c := range extra {
+			writeFile(t, k.DataRoot(), p, c)
+		}
+		got, err := Run(k, "", false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return got
+	}
+	count := func(fs []Finding) (n int) {
+		for _, f := range fs {
+			if f.Check == "index_lists_retired" {
+				n++
+			}
+		}
+		return
+	}
+	idx := "- [Live](live.md)\n- [Old](old.md)\n- [Old2](old2.md)\n"
+	// Two retired of three top-level is "at least half": use a third live page.
+	live3 := map[string]string{
+		"ops/live2.md": "---\ntype: Note\ntitle: L2\n---\n# L2\n",
+		"ops/live3.md": "---\ntype: Note\ntitle: L3\n---\n# L3\n",
+	}
+	if n := count(setup(t, "", idx, live3)); n != 1 {
+		t.Errorf("one finding per index, got %d", n)
+	}
+	if n := count(setup(t, "require_index_entry: true\n", idx, live3)); n != 1 {
+		t.Errorf("with require_index_entry, got %d", n)
+	}
+	if n := count(setup(t, "lint_ignore: [index_lists_retired]\n", idx, live3)); n != 0 {
+		t.Errorf("lint_ignore in _map.md must silence it, got %d", n)
+	}
+	if n := count(setup(t, "index: generated\n", idx, live3)); n != 0 {
+		t.Errorf("generated index is skipped, got %d", n)
+	}
+	if n := count(setup(t, "", "- [Live](live.md)\n", live3)); n != 0 {
+		t.Errorf("no retired link, got %d", n)
+	}
+	// Archive-like: at least half of the top-level concepts are retired.
+	if n := count(setup(t, "", idx, nil)); n != 0 {
+		t.Errorf("a map that is mostly retired lists them by design, got %d", n)
+	}
+	// Journal exempt.
+	if n := count(setup(t, "", idx, live3)); n != 1 {
+		t.Fatalf("control, got %d", n)
+	}
+	k := tempKB(t)
+	writeFile(t, k.DataRoot(), "j/_map.md", "---\ntype: Map\ntitle: J\nkind: journal\n---\n")
+	writeFile(t, k.DataRoot(), "j/index.md", "---\ntype: Index\ntitle: J\n---\n- [A](a.md)\n")
+	writeFile(t, k.DataRoot(), "j/a.md", "---\ntype: Note\ntitle: A\nstatus: archived\n---\n# A\n")
+	writeFile(t, k.DataRoot(), "j/b.md", "---\ntype: Note\ntitle: B\n---\n# B\n")
+	writeFile(t, k.DataRoot(), "j/c.md", "---\ntype: Note\ntitle: C\n---\n# C\n")
+	got, err := Run(k, "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count(got) != 0 {
+		t.Errorf("a journal is exempt: %v", got)
+	}
+}

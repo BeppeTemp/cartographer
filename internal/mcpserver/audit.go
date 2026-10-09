@@ -40,6 +40,7 @@ var auditResourceFields = map[string][]string{
 	"concept_merge":        {"satellite_id"},
 	"concept_delete":       {"id"},
 	"concept_move":         {"source_id", "target_id"},
+	"concept_archive":      {"id", "to"},
 	"supersede":            {"source_id", "target_id"},
 	"map_create":           {"name", "kind"},
 	"map_update":           {"map"},

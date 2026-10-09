@@ -121,8 +121,10 @@ var advancedToolNames = map[string]bool{
 	// concept_batch — consolidating a dossier or undoing an expansion is not part
 	// of a normal agent session, and the default working set stays small. Both
 	// stay callable by name.
-	"concept_merge":        true,
-	"concept_collapse":     true,
+	"concept_merge":    true,
+	"concept_collapse": true,
+	// concept_archive (D344): retiring a page is rare, deliberate and whole-KB.
+	"concept_archive":      true,
 	"commit_gate":          true,
 	"contradiction_report": true,
 	"conflict_resolve":     true,

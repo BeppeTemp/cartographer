@@ -41,6 +41,8 @@ func TestPolicyDenialsCarryReasonCodes(t *testing.T) {
 		{"scoped whole-kb", ro, "kb_status", `{}`, "needs_whole_kb"},
 		{"service secrets", rw, "service_get", `{"service_id":"s","resolve_secrets":true}`, "needs_whole_kb"},
 		{"move rewrite", rw, "concept_move", `{"source_id":"manutenzione/test-runbook","target_id":"manutenzione/m"}`, "needs_whole_kb"},
+		{"archive scoped", rw, "concept_archive", `{"id":"manutenzione/test-runbook","if_match":"x"}`, "needs_whole_kb"},
+		{"archive bad args", rw, "concept_archive", `{}`, "bad_arguments"},
 		{"root index", rw, "index_patch", `{"path":"","old_string":"a","new_string":"b"}`, "needs_whole_kb"},
 		{"bad args", rw, "concept_write", `[1]`, "bad_arguments"},
 		{"bad batch op", rw, "concept_batch", `{"operations":[1]}`, "bad_arguments"},

@@ -136,6 +136,7 @@ func RegisterKBTools(s *Server, k *kb.KB, deps Deps) {
 	register(toolGateCheck(k))
 	register(gitWrap(k, toolSupersede(k)))
 	register(gitWrap(k, toolConceptMove(k)))
+	register(gitWrap(k, toolConceptArchive(k)))
 	register(gitWrap(k, toolConceptBatch(k, facts)))
 	register(gitWrap(k, toolConceptDelete(k)))
 	register(gitWrap(k, toolConflictResolve(k)))
