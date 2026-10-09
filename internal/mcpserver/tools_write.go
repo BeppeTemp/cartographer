@@ -81,9 +81,7 @@ func toolConceptWrite(k *kb.KB, sim *similarFinder) Tool {
 				"id":           params.ID,
 				"content_hash": newHash,
 			}
-			if f := writeFindings(k, params.ID); f != nil {
-				result["findings"] = f
-			}
+			result["findings"] = findingsOrEmpty(writeFindings(k, params.ID))
 			if isNew {
 				if similar := sim.find(ctx, params.ID, frontmatterTitle(k, params.ID)); len(similar) > 0 {
 					result["similar"] = similar
@@ -208,9 +206,7 @@ func toolConceptNew(k *kb.KB, sim *similarFinder) Tool {
 				return errorResult(fmt.Sprintf("concept_new %q: %v", params.ID, err)), nil
 			}
 			result := map[string]interface{}{"id": params.ID, "template": params.Template, "content_hash": newHash}
-			if f := writeFindings(k, params.ID); f != nil {
-				result["findings"] = f
-			}
+			result["findings"] = findingsOrEmpty(writeFindings(k, params.ID))
 			if similar := sim.find(ctx, params.ID, frontmatterTitle(k, params.ID)); len(similar) > 0 {
 				result["similar"] = similar
 			}
@@ -296,22 +292,6 @@ func applyFrontmatterMap(fm *okf.Frontmatter, m map[string]interface{}) {
 	}
 }
 
-// applyUnset removes each key of a patch's 'unset' array (D309): the same
-// removal a null value asks for, for clients that strip null values from the
-// arguments before sending them. 'type' is required and cannot be removed; a
-// tool-parameter key may be, as with null — removing it is the repair.
-func applyUnset(fm *okf.Frontmatter, keys []string) error {
-	for _, key := range keys {
-		if key == "type" {
-			return fmt.Errorf("'unset' cannot remove %q: the field is required", key)
-		}
-	}
-	for _, key := range keys {
-		fm.Delete(key)
-	}
-	return nil
-}
-
 // writeConceptAndLog writes a concept via k.WriteConcept and appends its
 // log.md line. Shared write-path for concept_write, concept_new and
 // concept_patch (D70). It does no index work: the next search reconciles the
@@ -346,12 +326,12 @@ type patchEditItem struct {
 func applyPatchEdit(body, oldString, newString string, replaceAll bool) (newBody string, replacements int, err error) {
 	count := strings.Count(body, oldString)
 	if count == 0 {
-		return "", 0, errors.New("old_string_not_found: no match for old_string")
+		return "", 0, errors.New("old_string_not_found: no match for old_string" + closestLineHint(body, oldString))
 	}
 	if count > 1 && !replaceAll {
 		return "", 0, fmt.Errorf(
-			"old_string_ambiguous: old_string matches %d times; pass replace_all=true or provide more surrounding context",
-			count,
+			"old_string_ambiguous: old_string matches %d times (lines %s); pass replace_all=true or provide more surrounding context",
+			count, matchLines(body, oldString),
 		)
 	}
 	if replaceAll {
@@ -363,7 +343,7 @@ func applyPatchEdit(body, oldString, newString string, replaceAll bool) (newBody
 func toolConceptPatch(k *kb.KB) Tool {
 	return Tool{
 		Name: "concept_patch",
-		Description: "Edit-style patch of a concept body: old_string/new_string/replace_all, or an edits array applied atomically in order. if_match required (stale_write). Errors old_string_not_found / old_string_ambiguous; a failed batch writes nothing. frontmatter is shallow-merged (null removes a key) and may be the only change. Returns content_hash, findings. " +
+		Description: "Edit-style patch of a concept body: old_string/new_string/replace_all, or an edits array applied atomically in order. if_match required (stale_write). frontmatter is shallow-merged and may be the only change; frontmatter_append/frontmatter_remove add or drop list items (idempotent). Returns content_hash, findings. " +
 			fmt.Sprintf("Many concepts: concept_batch, up to %d operations in one commit.", conceptBatchMaxOps),
 		InputSchema: json.RawMessage(`{
 			"type": "object",
@@ -403,6 +383,12 @@ func toolConceptPatch(k *kb.KB) Tool {
 					"type": "object",
 					"description": "Keys to shallow-merge; null removes a key"
 				},
+				"frontmatter_append": {
+					"type": "object"
+				},
+				"frontmatter_remove": {
+					"type": "object"
+				},
 				"unset": {
 					"type": "array",
 					"items": {"type": "string"},
@@ -419,6 +405,8 @@ func toolConceptPatch(k *kb.KB) Tool {
 				Edits       []patchEditItem        `json:"edits"`
 				IfMatch     string                 `json:"if_match"`
 				Frontmatter map[string]interface{} `json:"frontmatter"`
+				FMAppend    map[string]interface{} `json:"frontmatter_append"`
+				FMRemove    map[string]interface{} `json:"frontmatter_remove"`
 				Unset       []string               `json:"unset"`
 			}
 			if err := json.Unmarshal(args, &params); err != nil {
@@ -446,9 +434,10 @@ func toolConceptPatch(k *kb.KB) Tool {
 			// A frontmatter-only patch (no body edit) is legitimate: setting a
 			// missing title or fixing a type should not need a fake no-op edit
 			// or a full concept_write of a body the caller did not touch (#321).
-			hasFM := len(params.Frontmatter) > 0 || len(params.Unset) > 0
+			pfm := patchFrontmatter{Merge: params.Frontmatter, Append: params.FMAppend, Remove: params.FMRemove, Unset: params.Unset}
+			hasFM := pfm.any()
 			if !hasEdits && !hasSingle && !hasFM {
-				return errorResult("'old_string' is required (or provide 'edits' for a batch of edits, or 'frontmatter'/'unset' alone)"), nil
+				return errorResult("'old_string' is required (or provide 'edits' for a batch of edits, or 'frontmatter'/'frontmatter_append'/'frontmatter_remove'/'unset' alone)"), nil
 			}
 			if hasEdits && len(params.Edits) == 0 && !hasFM {
 				return errorResult("'edits' cannot be empty"), nil
@@ -470,6 +459,7 @@ func toolConceptPatch(k *kb.KB) Tool {
 			// succeed, so a failure mid-batch leaves the concept untouched.
 			body := data.Body
 			replacements := 0
+			var editMatches []int
 			if hasEdits {
 				for i, e := range params.Edits {
 					if e.OldString == "" {
@@ -481,6 +471,7 @@ func toolConceptPatch(k *kb.KB) Tool {
 					}
 					body = newBody
 					replacements += n
+					editMatches = append(editMatches, n)
 				}
 			} else if hasSingle {
 				newBody, n, err := applyPatchEdit(body, params.OldString, params.NewString, params.ReplaceAll)
@@ -495,14 +486,10 @@ func toolConceptPatch(k *kb.KB) Tool {
 			if err != nil {
 				return errorResult(fmt.Sprintf("concept_patch: parse frontmatter: %v", err)), nil
 			}
-			if params.Frontmatter != nil {
-				if err := rejectToolParamKeys(params.Frontmatter, true); err != nil {
-					return errorResult("concept_patch: " + err.Error()), nil
-				}
-				applyFrontmatterMap(fm, params.Frontmatter)
-			}
-			// After the merge: 'unset' wins over a same-key frontmatter entry.
-			if err := applyUnset(fm, params.Unset); err != nil {
+			// Merge, append, remove, then unset (which wins) — one helper shared
+			// with concept_batch (D342).
+			dropped, err := applyPatchFrontmatter(fm, pfm)
+			if err != nil {
 				return errorResult("concept_patch: " + err.Error()), nil
 			}
 
@@ -519,9 +506,10 @@ func toolConceptPatch(k *kb.KB) Tool {
 				"content_hash": newHash,
 				"replacements": replacements,
 			}
-			if f := writeFindings(k, params.ID); f != nil {
-				result["findings"] = f
+			if hasEdits && len(editMatches) > 0 {
+				result["edit_matches"] = editMatches
 			}
+			result["findings"] = findingsOrEmpty(append(writeFindings(k, params.ID), droppedFinding(params.ID, dropped)...))
 			out, _ := json.MarshalIndent(result, "", "  ")
 			return textResult(string(out)), nil
 		},
@@ -2240,6 +2228,8 @@ type batchOperationRequest struct {
 	Op          string                 `json:"op"`
 	ID          string                 `json:"id"`
 	Frontmatter map[string]interface{} `json:"frontmatter"`
+	FMAppend    map[string]interface{} `json:"frontmatter_append"`
+	FMRemove    map[string]interface{} `json:"frontmatter_remove"`
 	Unset       []string               `json:"unset"`
 	Body        string                 `json:"body"`
 	IfMatch     string                 `json:"if_match"`
@@ -2265,7 +2255,7 @@ func batchOpBytes(op batchOperationRequest, hasEdits bool, body string, fm *okf.
 			n += len(e.OldString) + len(e.NewString)
 		}
 	}
-	if len(op.Frontmatter) > 0 || len(op.Unset) > 0 {
+	if len(op.Frontmatter) > 0 || len(op.FMAppend) > 0 || len(op.FMRemove) > 0 || len(op.Unset) > 0 {
 		n += len(fm.Serialize())
 	}
 	return max(n, 1)
@@ -2283,8 +2273,8 @@ func toolConceptBatch(k *kb.KB) Tool {
 		Name: "concept_batch",
 		Description: "All-or-nothing write/patch of distinct concepts: one commit and log entry; a failure leaves the KB untouched. " +
 			fmt.Sprintf("At most %d operations and %s of decoded content per call (a patch counts its edits). ", conceptBatchMaxOps, byteBudget(conceptBatchMaxTotalBytes)) +
-			"Each operation is 'write' (frontmatter, body, if_match optional = create-only) or 'patch' (if_match required; frontmatter merge; old_string/new_string/replace_all or 'edits', as concept_patch). " +
-			"Not covered: delete, move, expand, assets, Map/root indexes. Returns id, content_hash and findings per operation.",
+			"Each operation is 'write' (frontmatter, body, if_match optional = create-only) or 'patch' (if_match required; the concept_patch fields). " +
+			"Not covered: delete, move, expand, assets, indexes. Returns id, content_hash and findings per operation.",
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"required": ["operations"],
@@ -2299,6 +2289,8 @@ func toolConceptBatch(k *kb.KB) Tool {
 							"op": {"type": "string"},
 							"id": {"type": "string"},
 							"frontmatter": {"type": "object"},
+							"frontmatter_append": {"type": "object"},
+							"frontmatter_remove": {"type": "object"},
 							"unset": {"type": "array", "items": {"type": "string"}},
 							"body": {"type": "string"},
 							"if_match": {"type": "string"},
@@ -2339,6 +2331,7 @@ func toolConceptBatch(k *kb.KB) Tool {
 			ops := make([]kb.BatchWriteOp, 0, len(params.Operations))
 			seen := make(map[string]bool, len(params.Operations))
 			totalBytes := 0
+			droppedByID := map[string][]findingOut{}
 
 			for i, raw := range params.Operations {
 				label := fmt.Sprintf("operation %d of %d", i+1, len(params.Operations))
@@ -2417,9 +2410,10 @@ func toolConceptBatch(k *kb.KB) Tool {
 						return errorResult(fmt.Sprintf("%s: 'edits' is mutually exclusive with top-level 'old_string'/'new_string'/'replace_all'", label)), nil
 					}
 					// Frontmatter-only is legitimate, as in concept_patch (#321).
-					hasFM := len(op.Frontmatter) > 0 || len(op.Unset) > 0
+					pfm := patchFrontmatter{Merge: op.Frontmatter, Append: op.FMAppend, Remove: op.FMRemove, Unset: op.Unset}
+					hasFM := pfm.any()
 					if !hasEdits && !hasSingle && !hasFM {
-						return errorResult(fmt.Sprintf("%s: 'old_string' is required (or provide 'edits' for a batch of edits, or 'frontmatter'/'unset' alone)", label)), nil
+						return errorResult(fmt.Sprintf("%s: 'old_string' is required (or provide 'edits' for a batch of edits, or 'frontmatter'/'frontmatter_append'/'frontmatter_remove'/'unset' alone)", label)), nil
 					}
 					if hasEdits && len(op.Edits) == 0 && !hasFM {
 						return errorResult(fmt.Sprintf("%s: 'edits' cannot be empty", label)), nil
@@ -2453,14 +2447,12 @@ func toolConceptBatch(k *kb.KB) Tool {
 					if err != nil {
 						return errorResult(fmt.Sprintf("%s: parse frontmatter: %v", label, err)), nil
 					}
-					if op.Frontmatter != nil {
-						if err := rejectToolParamKeys(op.Frontmatter, true); err != nil {
-							return errorResult(fmt.Sprintf("%s: %v", label, err)), nil
-						}
-						applyFrontmatterMap(fm, op.Frontmatter)
-					}
-					if err := applyUnset(fm, op.Unset); err != nil {
+					dropped, err := applyPatchFrontmatter(fm, pfm)
+					if err != nil {
 						return errorResult(fmt.Sprintf("%s: %v", label, err)), nil
+					}
+					if msg := droppedFinding(op.ID, dropped); msg != nil {
+						droppedByID[op.ID] = msg
 					}
 
 				case "":
@@ -2496,7 +2488,7 @@ func toolConceptBatch(k *kb.KB) Tool {
 
 			entries := make([]batchResultEntry, len(results))
 			for i, r := range results {
-				entries[i] = batchResultEntry{ID: r.ID, ContentHash: r.ContentHash, Findings: writeFindings(k, r.ID)}
+				entries[i] = batchResultEntry{ID: r.ID, ContentHash: r.ContentHash, Findings: append(writeFindings(k, r.ID), droppedByID[r.ID]...)}
 			}
 			out, _ := json.MarshalIndent(map[string]interface{}{"results": entries}, "", "  ")
 			return textResult(string(out)), nil

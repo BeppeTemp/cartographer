@@ -110,10 +110,10 @@ func TestWriteResponsesCarryFindings(t *testing.T) {
 		t.Fatalf("write did not persist: %v", err)
 	}
 
-	// A clean write has no findings key.
+	// A clean write carries an empty findings array (D342).
 	clean := decodeJSON(t, mustText(t, s, "concept_write",
 		`{"id":"ops/b","frontmatter":{"type":"Note","title":"B","status":"open"},"body":"See [a](a.md)."}`))
-	if _, has := clean["findings"]; has {
+	if f, has := clean["findings"].([]interface{}); !has || len(f) != 0 {
 		t.Errorf("clean write carries findings: %v", clean["findings"])
 	}
 

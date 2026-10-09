@@ -759,8 +759,13 @@ func TestServer_ConceptRead_FullResponse_ContentIsOptIn(t *testing.T) {
 	if content != raw {
 		t.Errorf("concept_read with_content: content is not the file's bytes\ngot:  %q\nwant: %q", content, raw)
 	}
-	if body := withContent["body"].(string); !strings.HasSuffix(content, body) {
-		t.Errorf("concept_read with_content: content must end with body\ncontent: %q\nbody: %q", content, body)
+	if _, ok := withContent["body"]; ok {
+		t.Errorf("concept_read with_content: 'body' must be omitted (the concept would travel twice): %v", withContent)
+	}
+	for _, want := range []string{"content_hash", "frontmatter_raw", "frontmatter"} {
+		if _, ok := withContent[want]; !ok {
+			t.Errorf("concept_read with_content: missing %q: %v", want, withContent)
+		}
 	}
 }
 

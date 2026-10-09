@@ -56,6 +56,15 @@ func rejectToolParamKeys(fm map[string]interface{}, allowNull bool) error {
 	return nil
 }
 
+// findingsOrEmpty is the findings array a write answers with: always present,
+// empty when there is nothing to say (D342).
+func findingsOrEmpty(f []findingOut) []findingOut {
+	if f == nil {
+		return []findingOut{}
+	}
+	return f
+}
+
 // writeFindings returns the lint findings of a concept just written (D289,
 // D312), lint_ignore applied: the frontmatter-driven checks of that concept
 // plus the structural ones lint.ScopedCheck computes on it and its graph

@@ -191,7 +191,7 @@ func headingsToOutline(headings []okf.Heading) []map[string]interface{} {
 func toolConceptRead(k *kb.KB, reads *readAccessLog) Tool {
 	return Tool{
 		Name:        "concept_read",
-		Description: "Reads a concept: content_hash, frontmatter (parsed) and _raw, body. with_content: true also returns content (exact bytes). section returns one section; outline: true only the headings. Bodies over 60 KB come as an outline; full: true forces them. rev reads a past version; its content_hash is not an if_match.",
+		Description: "Reads a concept: content_hash, frontmatter (parsed) and _raw, body. with_content: true returns content (exact bytes) instead of body. section returns one section; outline: true only the headings; match greps body lines (with context).",
 		ReadOnly:    true,
 		InputSchema: json.RawMessage(`{
 			"type": "object",
@@ -208,14 +208,23 @@ func toolConceptRead(k *kb.KB, reads *readAccessLog) Tool {
 					"type": "boolean"
 				},
 				"full": {
-					"type": "boolean"
+					"type": "boolean",
+					"description": "Body over 60 KB comes as outline; true forces it"
 				},
 				"with_content": {
 					"type": "boolean"
 				},
+				"match": {
+					"type": "string",
+					"description": "Grep body lines, case-insensitive"
+				},
+				"context": {
+					"type": "integer",
+					"description": "Lines around a match (max 20)"
+				},
 				"rev": {
 					"type": "string",
-					"description": "Commit SHA (7-40 hex) from concept_history"
+					"description": "Past version SHA (concept_history); its hash is no if_match"
 				}
 			}
 		}`),
@@ -227,12 +236,30 @@ func toolConceptRead(k *kb.KB, reads *readAccessLog) Tool {
 				Full        bool   `json:"full"`
 				WithContent bool   `json:"with_content"`
 				Rev         string `json:"rev"`
+				Match       string `json:"match"`
+				Context     int    `json:"context"`
 			}
 			if err := json.Unmarshal(args, &params); err != nil {
 				return errorResult("invalid params: " + err.Error()), nil
 			}
 			if params.ID == "" {
 				return errorResult("'id' is required"), nil
+			}
+			var rawKeys map[string]json.RawMessage
+			_ = json.Unmarshal(args, &rawKeys)
+			_, hasMatch := rawKeys["match"]
+			if hasMatch {
+				if params.Match == "" {
+					return errorResult("'match' must not be empty"), nil
+				}
+				for _, pair := range []struct {
+					name string
+					set  bool
+				}{{"section", params.Section != ""}, {"outline", params.Outline}, {"with_content", params.WithContent}} {
+					if pair.set {
+						return errorResult(fmt.Sprintf("'match' is exclusive with '%s'", pair.name)), nil
+					}
+				}
 			}
 
 			var data *kb.ConceptData
@@ -258,6 +285,21 @@ func toolConceptRead(k *kb.KB, reads *readAccessLog) Tool {
 					m["rev"] = params.Rev
 				}
 				return m
+			}
+
+			if hasMatch {
+				matches, omitted := matchBodyLines(data.Body, params.Match, params.Context)
+				result := withRev(map[string]interface{}{
+					"id":           params.ID,
+					"content_hash": data.ContentHash,
+					"match":        params.Match,
+					"matches":      matches,
+				})
+				if omitted > 0 {
+					result["matches_omitted"] = omitted
+				}
+				out, _ := json.MarshalIndent(result, "", "  ")
+				return textResult(string(out)), nil
 			}
 
 			if params.Outline {
@@ -316,27 +358,73 @@ func toolConceptRead(k *kb.KB, reads *readAccessLog) Tool {
 			// 'body' is what every caller consumes and what the size guard above
 			// measures; 'content' is frontmatter+body, so returning both put the
 			// concept in the response twice (measured 2.06x on a real read).
-			// It stays available, opt-in, for a caller that must re-write the
-			// exact bytes.
+			// with_content (D342) therefore replaces 'body' with 'content', for a
+			// caller that must re-write the exact bytes.
 			result := withRev(map[string]interface{}{
 				"id":              params.ID,
 				"content_hash":    data.ContentHash,
 				"frontmatter_raw": data.FrontmatterRaw,
-				"body":            data.Body,
 			})
+			if params.WithContent {
+				result["content"] = data.Content
+			} else {
+				result["body"] = data.Body
+			}
 			// The parsed form (D309), so a caller that rewrites the frontmatter
 			// need not parse OKF YAML itself; frontmatter_raw stays for exact
 			// round-trip control. Omitted when the raw text does not parse.
 			if fm, err := okf.ParseFrontmatter(data.FrontmatterRaw); err == nil {
 				result["frontmatter"] = frontmatterToMap(fm)
 			}
-			if params.WithContent {
-				result["content"] = data.Content
-			}
 			out, _ := json.MarshalIndent(result, "", "  ")
 			return textResult(string(out)), nil
 		},
 	}
+}
+
+// Caps of concept_read's match form (D342).
+const (
+	matchMaxContext = 20
+	matchMaxEntries = 50
+)
+
+// matchEntry is one merged window of lines around a hit.
+type matchEntry struct {
+	Line  int    `json:"line"`
+	Start int    `json:"start"`
+	Text  string `json:"text"`
+}
+
+// matchBodyLines greps body for needle (case-insensitive substring) and
+// returns the hit windows: context lines either side, windows that touch or
+// overlap merged into one entry whose line is the first hit. At most
+// matchMaxEntries entries; the rest is counted in omitted.
+func matchBodyLines(body, needle string, context int) (entries []matchEntry, omitted int) {
+	context = min(max(context, 0), matchMaxContext)
+	lines := strings.Split(body, "\n")
+	low := strings.ToLower(needle)
+	type window struct{ hit, from, to int } // 0-based, inclusive
+	var wins []window
+	for i, l := range lines {
+		if !strings.Contains(strings.ToLower(l), low) {
+			continue
+		}
+		from, to := max(i-context, 0), min(i+context, len(lines)-1)
+		if n := len(wins); n > 0 && from <= wins[n-1].to+1 {
+			wins[n-1].to = to
+			continue
+		}
+		wins = append(wins, window{i, from, to})
+	}
+	entries = []matchEntry{}
+	for _, w := range wins {
+		if len(entries) == matchMaxEntries {
+			omitted++
+			continue
+		}
+		entries = append(entries, matchEntry{Line: w.hit + 1, Start: w.from + 1, Text: strings.Join(lines[w.from:w.to+1], "\n")})
+	}
+	return entries, omitted
 }
 
 // frontmatterToMap converts parsed frontmatter to its JSON form: strings stay
