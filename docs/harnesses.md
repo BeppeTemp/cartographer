@@ -41,11 +41,10 @@ would flip a matrix cell is confirmed with a probe
     as the documented fallback (D267).
   - Write-findings feedback (D353): a `PostToolUse` entry (matcher on the MCP
     tool name) whose command exits 2 with a message on stderr returns that
-    message to the agent. Payload: `tool_name` and `tool_response`. This is the
-    only client where the payload, the matcher and the feedback channel are
-    verified; codex, opencode and antigravity declare `PostToolUse` but are
-    unverified for it, and kiro's `PostToolUse` was never probed. Each is added
-    by a probe, not by inference.
+    message to the agent. Payload: `tool_name` and `tool_response`. The other
+    clients were probed on 2026-10-09 (#637–#640): codex and opencode carry the
+    findings through a different channel (their sections), antigravity and kiro
+    cannot carry them at all.
   - `CLAUDE.md` → `@AGENTS.md` import and per-directory loading (D213). Since
     2.1.277 the built-in `agents-md@builtin` plugin (on by default) reads a
     project `AGENTS.md` itself, but **only when no `CLAUDE.md`/`CLAUDE.local.md`
@@ -75,7 +74,8 @@ would flip a matrix cell is confirmed with a probe
 
 ## codex
 
-- **Aligned with**: `0.159.3` — 2026-10-01 (documentary review). Probed on
+- **Aligned with**: `0.162.0` — 2026-10-09 for the write-findings probe (#637,
+  below); `0.159.3` — 2026-10-01 (documentary review). Probed on
   `0.158.0` — 2026-10-01: `codex debug prompt-input` catalogues skills from both
   `~/.codex/skills` and `~/.agents/skills` (D192 still holds); a user-layer
   `SessionStart` hook fires in `codex exec`, but only for a trusted hook
@@ -104,6 +104,17 @@ would flip a matrix cell is confirmed with a probe
     (`AGENTS.override.md` in the same directory wins, first non-empty file only);
     hook trust is keyed by the exact hook definition, and a project's `.codex/`
     layer is inactive unless the project is trusted (D193).
+  - write-findings feedback (D353, probed on 0.162.0, #637): a user-layer
+    `PostToolUse` entry with Claude's matcher (`mcp__.*__(concept_write|…)$`)
+    fires for an MCP tool named `mcp__<server>__<tool>`; the payload carries
+    `tool_name` and `tool_response` as the MCP result object (`content` blocks),
+    which `cartographer hook write-findings` already parses. **Exit 2 is the wrong
+    channel here**: Codex reports `PostToolUse Blocked`, replaces the tool result
+    with the stderr text, and the agent, seeing a failed call, repeats the write.
+    `{"hookSpecificOutput":{"hookEventName":"PostToolUse","additionalContext":"…"}}`
+    on stdout with exit 0 reaches the model and keeps the result; exit 0 with
+    stderr only does not reach it (negative control). Plan:
+    [#645](https://github.com/BeppeTemp/cartographer/issues/645).
   - session transcripts, read by the usage scan (D326):
     `~/.codex/sessions/**/rollout-*.jsonl`. Codex records no per-activation skill event:
     a `world_state` event whose `payload.state.host_skills` is non-empty proves the
@@ -122,7 +133,9 @@ would flip a matrix cell is confirmed with a probe
 
 ## kiro
 
-- **Aligned with**: `2.27.0` — 2026-10-02 for the `hook` cell (D300: the default
+- **Aligned with**: `2.28.0` — 2026-10-09 for the write-findings probe (#640,
+  below; `chat` without flags still runs the v2 engine and announces V3 as an
+  early release); `2.27.0` — 2026-10-02 for the `hook` cell (D300: the default
   interactive TUI, `--no-interactive`, `--v3 --tui`, the default-agent probe);
   `2.26.1` — 2026-10-01 for the first hook re-probe (KAS `0.66.15`); `2.21.3` —
   2026-09-11 for the agent and hook cells (D195); `2.21.4` for skill symlinks
@@ -139,6 +152,13 @@ would flip a matrix cell is confirmed with a probe
     `kiro-cli chat --v3 --tui`, so the scheduled timer stays advised. The loader
     must stay non-recursive, or the cell has to move out of `~/.kiro/hooks/`.
     The workspace cell stays unsupported.
+  - write-findings feedback (D353): **not supportable** (probed on 2.28.0,
+    `chat --v3 --tui` with workspace `.kiro/hooks/*.json`, #640). `PostToolUse`
+    fires, for `tool_load` as well as for the MCP call, and an MCP tool is named
+    `mcp_<server>_<tool>` (single underscores; Claude's matcher never matches);
+    `tool_response` is the result text. No output reaches the model: exit 2 with
+    stderr, plain stdout, `additionalContext` JSON and `{"decision":"block"}` all
+    left the agent unaware.
   - `skill` in `~/.kiro/skills/` (project `.kiro/skills/`), `mcp` in
     `~/.kiro/settings/mcp.json`, `instructions` in `~/.kiro/steering/cartographer.md`.
   - session transcripts, read by the usage scan (D326): `~/.kiro/sessions/**/*.jsonl`.
@@ -163,15 +183,18 @@ would flip a matrix cell is confirmed with a probe
   Probe both on a machine that has them before any matrix cell claims them.
 - **Probe notes**: run the real binary
   (`"/Applications/Kiro CLI.app/Contents/MacOS/kiro-cli"` on macOS; the Homebrew
-  symlink breaks its launcher). Three agent engines coexist (`--agent-engine
+  symlink breaks its launcher). The V3 TUI asks before running an MCP tool, and a
+  scripted `\r` does not answer it; use `-a` and accept its warning (down arrow,
+  then Enter) before typing the prompt. A first run on a clean profile creates
+  `~/.kiro/{logs,sessions,session-index,agents}`: remove them afterwards. Three agent engines coexist (`--agent-engine
   v1|v2|v3`, default `v2`): a feature present in a non-default engine is not
   "supported". An interactive probe needs a pty. Details in the probe recipe.
 
 ## opencode
 
-- **Aligned with**: `1.18.34` — 2026-10-01 (documentary review, client not
-  installed, cells not re-probed; no release from 1.18.21 touches a Cartographer
-  surface). Last probed: `1.18.20`, date `unknown` (D192).
+- **Aligned with**: `2.0.25` — 2026-10-09, probed (#478, #638): global skill and
+  agent discovery, agent `permission`, the write-findings channel. `1.18.34` —
+  2026-10-01 (documentary review). Earlier probe: `1.18.20`, date `unknown` (D192).
 - **Sources**: repository <https://github.com/anomalyco/opencode> (`sst/opencode`
   redirects there), releases <https://github.com/anomalyco/opencode/releases>,
   changelog <https://opencode.ai/changelog>; version: npm `opencode-ai`; docs
@@ -186,25 +209,43 @@ would flip a matrix cell is confirmed with a probe
     is no longer shown in the agents doc: use `permission` instead, `tools` may
     still work but is undocumented (D320).
   - `skill` project `.opencode/skills/` (documented). Global `~/.opencode/skills/`
-    is not in the documented global list (`~/.config/opencode/skills`,
-    `~/.claude/skills`, `~/.agents/skills`): `unverified`. Hooks fire through a
+    is not read by 2.0.25 (below). Hooks fire through a
     generated JS plugin in `~/.config/opencode/plugins/` (documented, autoloaded;
     D59; shape per installed major, 1.x and 2.x, D359: 2.x rejects the 1.x shape,
     sources `opencode.ai/v2/docs/build/plugins/` and `/migrate-v1`), files kept in `~/.opencode/hooks/`; sync layer 1 is the documented
     `session.created` event.
   - `mcp` under the `mcp` key of `opencode.json`; `instructions` in
     `~/.config/opencode/AGENTS.md` (both documented).
-- **Watch items**: [#478](https://github.com/BeppeTemp/cartographer/issues/478) lists the probes for this client. Probe the undocumented global
-  `~/.opencode/skills/` when the client is installed; 1.18.24 introduced a V2
-  config format (watch the `mcp` key shape).
-- **Probe notes**: `opencode agent list` and `opencode debug config` print what the
-  client discovers; `debug config` redacts credentials and sensitive headers since
-  1.18.33.
+- **Probed on 2.0.25** (2026-10-09):
+  - **the global `skill` and `agent` cells are not loaded**: a skill in
+    `~/.opencode/skills/` is missing from the skill tool ("Unable to load skill"),
+    an agent in `~/.opencode/agent/` is missing from `opencode debug agents`;
+    the same files in `~/.config/opencode/{skills,agents}/` load. KB skills reach
+    OpenCode today only through its `~/.claude/skills` scan. Plan:
+    [#644](https://github.com/BeppeTemp/cartographer/issues/644).
+  - agent `permission: {edit: deny, bash: deny}` resolves to `edit`/`shell` deny
+    rules in `opencode debug agents`; the behaviour was not verifiable (the free
+    tier refused to run that agent).
+  - write-findings (D353, #638): `ctx.tool.hook("execute.after")` fires for the
+    code-mode `execute` tool and for the inner MCP call, named `<server>_<tool>`
+    with the result text in `result.output`. Appending to `event.result.output`
+    reaches the model and keeps the result; throwing reaches it as a tool error
+    and the agent retries the write. The generic plugin passes no payload on
+    stdin. Plan: [#646](https://github.com/BeppeTemp/cartographer/issues/646).
+  - 2.x `opencode.json` is translated on load (`mcp` → `mcp.servers`,
+    `permission` map → `permissions` list), so the 1.x shape still works.
+- **Watch items**: project cells (`.opencode/skills`, `.opencode/agent`) not
+  re-probed on 2.x (the 2.x docs name `.opencode/agents`).
+- **Probe notes**: 2.x has no `opencode agent list`: use `opencode debug agents`
+  (JSON) and `opencode debug paths`. A background service caches the
+  configuration: run `opencode reload` after changing a file. `opencode run -m
+  opencode/big-pickle` works without credentials, but the free tier refuses some
+  custom primary agents ("can only be used from within OpenCode").
 
 ## hermes
 
-- **Aligned with**: `v2026.9.24` (v0.21.5) — 2026-10-01 (documentary review,
-  client not installed, cells not re-probed).
+- **Aligned with**: `v2026.9.24` (v0.21.5) — 2026-10-09, probed in an isolated
+  `HERMES_HOME` (#478).
 - **Sources**: releases <https://github.com/NousResearch/hermes-agent/releases>;
   docs <https://hermes-agent.nousresearch.com/docs/> (skills, curator, hooks, mcp,
   personality under `/docs/user-guide/features/`); version: `hermes --version`.
@@ -219,24 +260,34 @@ would flip a matrix cell is confirmed with a probe
     Ansible role, `SOUL.md` operator-owned).
   - No project-local cell; no session hook: sync layer 1 is the scheduled timer
     (D140/D141).
-- **Watch items**: [#478](https://github.com/BeppeTemp/cartographer/issues/478) lists the probes for this client. The docs now describe surfaces D141 states as
-  absent; none probed, so no cell changes:
-  - gateway hooks in `$HERMES_HOME/hooks/<name>/` (`HOOK.yaml` + `handler.py`,
-    `session:start`, documented as gateway-only) and shell hooks in the
-    `config.yaml` `hooks:` block;
-  - project-local skills in `.hermes/skills/` and `.agents/skills/` (after
-    `hermes skills trust`) and a project `AGENTS.md`;
-  - `skills.external_dirs` in `config.yaml` as an alternative to the inbox.
-- **Probe notes**: the skill probe checks the inbox, and that `$HERMES_HOME/skills/`
+- **Probed on v0.21.5** (2026-10-09):
+  - nothing upstream reads `skill-inbox/` (no reference in the installed source);
+    adoption is `hermes curator adopt <name>`. The D141 delivery still works as a
+    hand-off the agent completes, not as a client feature.
+  - shell hooks in the `config.yaml` `hooks:` block fire in the CLI
+    (`on_session_start` in `hermes -z`), once allowlisted (`--accept-hooks` or
+    the allowlist); the command is not run through a shell (`>>` is passed as an
+    argument). No cell: `config.yaml` is operator-owned (D141).
+  - gateway hooks (`$HERMES_HOME/hooks/<name>/`, `HOOK.yaml` + `handler.py`,
+    `session:start`) did not fire from the CLI: gateway-only.
+  - project skills in `.hermes/skills/` and `.agents/skills/` load only after
+    `hermes skills trust <dir>` (`skills.trusted_project_dirs`); untrusted, they
+    are absent. A project `AGENTS.md` is read. Plan:
+    [#648](https://github.com/BeppeTemp/cartographer/issues/648).
+- **Watch items**: `skills.external_dirs` in `config.yaml` as an alternative to
+  the inbox (not probed).
+- **Probe notes**: probe in a copy of the profile (`HERMES_HOME=/tmp/<dir>`
+  holding copies of `config.yaml`, `auth.json`, `.env`, owned by the user the
+  client runs as), never in the live one. The skill probe checks the inbox, and that `$HERMES_HOME/skills/`
   is untouched; the agent's adoption may be gated by `skills.write_approval` and
   by protected-file approval (v2026.8.31). Hooks and project-local skills need a
   sentinel plus an untrusted negative control.
 
 ## antigravity
 
-- **Aligned with**: `2.19.1` — 2026-10-01 (documentary review, client not
-  installed, cells not re-probed). The Antigravity CLI is a separate product,
-  versioned separately (`1.2.14` at review time).
+- **Aligned with**: CLI `agy` `1.3.2` — 2026-10-09, probed (#478, #639). App
+  `2.19.1` — 2026-10-01 (documentary review; the app was not available for the
+  probe). The CLI is versioned separately (`agy --version`).
 - **Sources**: changelog <https://antigravity.google/docs/changelog/>; CLI
   changelog
   <https://github.com/google-antigravity/antigravity-cli/blob/main/CHANGELOG.md>;
@@ -253,21 +304,33 @@ would flip a matrix cell is confirmed with a probe
     PreToolUse, PostToolUse, PreInvocation, PostInvocation, Stop): sync layer 1 is
     the timer (D140, D194, D284). Agent frontmatter documents `tools`, `model`
     and `commandExecutionPolicy` (candidate D291 keys, not verified).
-- **Watch items**: [#478](https://github.com/BeppeTemp/cartographer/issues/478) lists the probes for this client. The docs now describe a workspace scope that
-  would flip several cells if a probe confirms it: `.agents/skills/`,
-  `.agents/agents/`, `.agents/hooks.json`, `.agents/mcp_config.json`,
-  `.agents/rules/*.md`, native `AGENTS.md`/`GEMINI.md` reading up to the
-  workspace root, and repository settings in `.gemini/config.json` (2.17.0). The
-  CLI uses `~/.gemini/antigravity-cli/{skills,rules}` rather than `config/*`. A
-  `SessionStart` event would change the layer-1 trigger.
-- **Probe notes**: a workspace probe plants a token in each `.agents/*` surface and
-  repeats in a directory without `.agents/` (negative control), on both the app
-  and the CLI; needs an install.
+- **Probed on CLI 1.3.2** (2026-10-09):
+  - workspace scope confirmed: `.agents/skills/`, `.agents/agents/`,
+    `.agents/hooks.json`, `.agents/mcp_config.json` (used in the session even
+    though `agy mcp list` shows only global servers), `AGENTS.md`, and
+    `.agents/rules/*.md` only with frontmatter `trigger: always_on`; nothing in
+    a directory without `.agents/`. Plan: [#648](https://github.com/BeppeTemp/cartographer/issues/648).
+  - globals: the CLI reads `~/.gemini/config/{skills,agents}` (the current
+    cells), not `~/.gemini/antigravity-cli/{skills,agents}` as its docs say.
+  - agent `tools: [view_file]` + `commandExecutionPolicy: never` did not
+    restrict the agent (it ran a shell command): not D291 keys.
+  - write-findings (D353, #639): **not supportable**. `PostToolUse` fires for an
+    MCP call as tool `call_mcp_tool` (args `ServerName`, `ToolName`,
+    `Arguments`), so Claude's matcher never matches, and the payload
+    (`toolCall`, `error`, `conversationId`, `stepIdx`, `transcriptPath`,
+    `workspacePaths`, …) **has no tool result**. A failed hook (exit 2, stderr)
+    does reach the model; exit 0 with stderr does not.
+- **Watch items**: the app's workspace scope and `.gemini/config.json` (2.17.0),
+  not probed; a `SessionStart` event would change the layer-1 trigger; a tool
+  result in the `PostToolUse` payload would reopen write-findings.
+- **Probe notes**: `agy -p "<prompt>" --print-timeout 240s
+  --dangerously-skip-permissions </dev/null`; the MCP test server must be global
+  (`~/.gemini/config/mcp_config.json`) or in `.agents/mcp_config.json`. Back up
+  and restore `~/.gemini/config/*` around a global probe.
 
 ## crush
 
-- **Aligned with**: `v0.97.1` — 2026-10-01 (documentary review, client not
-  installed, cells not re-probed).
+- **Aligned with**: `v0.98.0` — 2026-10-09, probed (#478).
 - **Sources**: releases <https://github.com/charmbracelet/crush/releases>; README
   <https://github.com/charmbracelet/crush>; config
   <https://github.com/charmbracelet/crush/tree/main/docs/config>; hooks
@@ -285,14 +348,19 @@ would flip a matrix cell is confirmed with a probe
     the `.agents`/`.claude`/`.cursor` project skill directories).
   - `agent` unsupported (no documented subagent mechanism); sync layer 1 is the
     timer.
-- **Watch items**: [#478](https://github.com/BeppeTemp/cartographer/issues/478) lists the probes for this client. Documented since D225, not probed:
-  - hooks: a `hooks` map in `crush.json`/`.crush.json` (global and project), one
-    event, `PreToolUse` (`{name, matcher, command, timeout}`, Claude
-    Code-compatible payload) — D225's "no hook mechanism is documented" no longer
-    holds; a probe plus a decision on mapping a per-name `hook` artifact to a JSON
-    map entry are needed, and `PreToolUse` cannot replace the session trigger;
-  - project JSON configuration (`.crush.json`/`crush.json` next to `.crushrc`):
-    would allow the project `mcp`/`hook` cells (D193/D225);
-  - `crush.json` becoming unreadable, or `crushrc` the only format, would remove
-    the `mcp` cell.
-- **Probe notes**: none recorded; client not installed.
+- **Probed on v0.98.0** (2026-10-09):
+  - hooks: `hooks.PreToolUse` in `~/.config/crush/crush.json` and in a project
+    `.crush.json` fire (negative control: none); of six events tried only
+    `PreToolUse` fires. Exit 2 blocks the tool and its stderr reaches the model.
+    Payload: `cwd`, `event`, `session_id`, `tool_input`, `tool_name` (lowercase,
+    e.g. `bash`). D225's "no hook mechanism" no longer holds; no session event.
+  - a project `.crush.json` `mcp` entry is used by the session.
+  - the global `crush.json` is still read when a `crushrc` exists.
+  Plan: [#647](https://github.com/BeppeTemp/cartographer/issues/647).
+- **Watch items**: `crush.json` becoming unreadable, or `crushrc` the only
+  format, would remove the `mcp` cell; a session event would allow the bootstrap
+  hook.
+- **Probe notes**: `crush run -q -m openai/gpt-5.5 "<prompt>" </dev/null` (the
+  default model may be refused by a ChatGPT account); `--yolo` is a root flag,
+  not accepted by `run`. `~/.config/crush/` may not exist: create it for a global
+  probe and remove it afterwards.

@@ -13,6 +13,33 @@ A probe that needs an install, upgrade or login stops and asks the operator.
 Probe the global location and the project-local one separately; a matrix cell is
 one or the other.
 
+## Write-findings probe (D353, any client)
+
+Seeded from #637–#640 (2026-10-09). The question is three-fold: does a
+`PostToolUse` hook fire for an MCP write, does its payload carry the tool
+result, and which output channel reaches the model **without** making the agent
+believe the write failed.
+
+1. Server: `cartographer serve --kb <tmp>/kb --init` once, then the client's MCP
+   entry runs `cartographer serve --kb <tmp>/kb` (stdio). A `concept_write` whose
+   body links to a missing page returns findings (`broken_link`, `orphan`).
+2. Hook: a script that saves stdin to a file, logs its argv, and answers per a
+   mode file: `2` (stderr, exit 2), `0` (stderr, exit 0: the negative control),
+   `ctx` (`{"hookSpecificOutput":{"hookEventName":"PostToolUse","additionalContext":…}}`
+   on stdout, exit 0), `out` (plain stdout), `block` (`{"decision":"block",…}`).
+   The message carries a random token. Register it twice: no matcher (to learn
+   the tool name) and Claude's matcher.
+3. Prompt: "call concept_write … then answer `RESULT=` followed by any secret word
+   a hook told you, or NONE". Grep `RESULT=<token>`; count the hook calls (a
+   retried write doubles them).
+4. Feed a saved payload to `cartographer hook write-findings` to see whether the
+   parser needs a change.
+
+Outcomes on 2026-10-09: codex `ctx` (exit 2 replaces the result, the agent
+retries); opencode 2.x, plugin mutating `event.result.output` (throw = retry);
+kiro none; antigravity none (no result in the payload). Per-client detail in
+`docs/harnesses.md`.
+
 ## Kiro
 
 Run the real binary, not the Homebrew symlink (it breaks the launcher):
