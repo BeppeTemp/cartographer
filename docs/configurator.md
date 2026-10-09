@@ -1042,8 +1042,9 @@ config must be non-destructive, which a JSON object allows and a script does not
 ([D225](decisions/D225-crush-is-a-provider-and-its-config-is-the-json.md)). Because Crush evaluates
 config values, a header or `env` value carrying a `$(command)` substitution is **refused** with an
 error naming the server and the key, instead of being written for Crush to execute on its next start.
-Crush also has no documented user-level subagent directory and no hook mechanism, so those two
-artifact kinds are unsupported for it and its bootstrap trigger is the scheduled timer.
+Crush has no documented user-level subagent directory, so that artifact kind is unsupported for it.
+Its hooks (`hooks.PreToolUse` in `crush.json`, D363) are registered by name; only `PreToolUse` fires,
+so there is no session event and its bootstrap trigger is the scheduled timer.
 
 The six formats above are generated from the same provider-neutral core,
 `configurator.EmitServer(name, spec ServerSpec, provider)` (D69): `Emit(cfg, provider)` is a

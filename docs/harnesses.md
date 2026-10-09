@@ -349,6 +349,9 @@ would flip a matrix cell is confirmed with a probe
     `~/.config/AGENTS.md`); `skill` in `~/.config/crush/skills/` (project
     `.crush/skills/`; Crush also scans `~/.claude/skills`, `~/.agents/skills` and
     the `.agents`/`.claude`/`.cursor` project skill directories).
+  - `hook` in `~/.config/crush/hooks/<name>/`, registered as `hooks.PreToolUse`
+    entry `cartographer-<name>` in `crush.json` (D363); project: `.crush.json` and
+    `.crush/hooks/`. `mcp` also has a project cell, `.crush.json`.
   - `agent` unsupported (no documented subagent mechanism); sync layer 1 is the
     timer.
 - **Probed on v0.98.0** (2026-10-09):
@@ -356,13 +359,13 @@ would flip a matrix cell is confirmed with a probe
     `.crush.json` fire (negative control: none); of six events tried only
     `PreToolUse` fires. Exit 2 blocks the tool and its stderr reaches the model.
     Payload: `cwd`, `event`, `session_id`, `tool_input`, `tool_name` (lowercase,
-    e.g. `bash`). D225's "no hook mechanism" no longer holds; no session event.
-  - a project `.crush.json` `mcp` entry is used by the session.
+    e.g. `bash`). D225's "no hook mechanism" no longer holds (D363); no session event.
+  - a project `.crush.json` `mcp` entry is used by the session (D363: project
+    `mcp` and `hook` cells; `agent` and `instructions` not probed).
   - the global `crush.json` is still read when a `crushrc` exists.
-  Plan: [#647](https://github.com/BeppeTemp/cartographer/issues/647).
 - **Watch items**: `crush.json` becoming unreadable, or `crushrc` the only
   format, would remove the `mcp` cell; a session event would allow the bootstrap
-  hook.
+  hook, a `PostToolUse` that fires the write-findings hook.
 - **Probe notes**: `crush run -q -m openai/gpt-5.5 "<prompt>" </dev/null` (the
   default model may be refused by a ChatGPT account); `--yolo` is a root flag,
   not accepted by `run`. `~/.config/crush/` may not exist: create it for a global

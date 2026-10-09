@@ -95,12 +95,13 @@ func TestProjectScopeDivergesWhereItMust(t *testing.T) {
 		{"instructions", configurator.ProviderOpenCode, "AGENTS.md"},
 		{"skill", configurator.ProviderClaudeCode, ".claude/skills/demo"},
 		{"skill", configurator.ProviderKiro, ".kiro/skills/demo"},
-		// crush scans .crush/skills in a project by default; its project
-		// *configuration* is documented only in crushrc form, so the mcp cell
-		// fails closed rather than guessing a JSON filename (D225).
+		// crush: a project .crush.json carries mcp and hooks (probed on v0.98.0,
+		// D363); agents and instructions were not probed and fail closed.
 		{"skill", configurator.ProviderCrush, ".crush/skills/demo"},
-		{"mcp", configurator.ProviderCrush, ""},
+		{"mcp", configurator.ProviderCrush, ".crush.json"},
+		{"hook", configurator.ProviderCrush, ".crush/hooks/demo"},
 		{"instructions", configurator.ProviderCrush, ""},
+		{"agent", configurator.ProviderCrush, ""},
 	}
 	for _, tc := range cases {
 		if got := destDirScoped(tc.kind, "demo", tc.provider, ScopeProject); got != tc.want {

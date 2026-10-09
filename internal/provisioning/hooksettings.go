@@ -542,6 +542,8 @@ func hookProviderFromPath(path string) string {
 		return "antigravity"
 	case strings.HasPrefix(slash, ".kiro/hooks/"):
 		return "kiro"
+	case strings.HasPrefix(slash, crushGlobalHooksPrefix), strings.HasPrefix(slash, crushProjectHooksPrefix):
+		return "crush"
 	default:
 		return ""
 	}
