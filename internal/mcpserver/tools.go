@@ -169,7 +169,7 @@ func RegisterKBTools(s *Server, k *kb.KB, deps Deps) {
 	register(toolAssetList(k))
 	register(gitWrap(k, toolAssetWrite(k)))
 	register(gitWrap(k, toolAssetDelete(k)))
-	if k.AllowArtifactWrite {
+	if k.AllowArtifactWrite || k.AllowTemplateWrite {
 		register(gitWrap(k, toolArtifactWrite(k)))
 		register(gitWrap(k, toolArtifactDelete(k)))
 	}

@@ -323,6 +323,7 @@ func bootstrapKBs(cfg *config.Config, phase func(string)) kbBootstrap {
 		}
 		k.SopsAgeKeyFile = resolveSopsAgeKeyFile(m.Spec, cfg.Sops, m.Name)
 		k.AllowArtifactWrite = m.Spec.AllowArtifactWrite
+		k.AllowTemplateWrite = m.Spec.TemplateWriteEnabled()
 		k.AutoRepair, k.AutoRepairDefault = m.Spec.AutoRepairChecks()
 		k.RepairOnWrite = m.Spec.RepairOnWriteEnabled()
 		k.WriteGate = m.Spec.WriteGateMode()

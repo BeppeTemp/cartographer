@@ -70,6 +70,17 @@ what is allowed:
 4. **Vocabulary proposals.** A `missing_value_contract` finding carries a `proposal` (values and the
    synonyms it maps). One numbered decision per map; after approval `map_update` with those
    `field_values`, then `kb_repair invalid_field_value` and `kb_repair prose_value`.
+4b. **Template proposals.** A `template_proposal` review item names a map (`<map>/_map`) whose pages
+   already share a structure no template declares, and carries the ready `template` text, its
+   `template_slug` and the `map_update` arguments. One numbered decision per item: after approval
+   `artifact_write` `templates/<template_slug>.md` with the text (an existing slug is already
+   written: only the `map_update`), then `map_update` with the arguments, then `kb_repair
+   template_missing` binds the pages. Do not edit the proposal's sections; the operator may drop an
+   optional one. Under a strict map (`require_template`), the checks that remain are yours: a
+   `template_extra_section` page needs its text merged into a template section or moved to another
+   page, never deleted; a `template_section_missing` section is filled from the sources or, when no
+   source exists, recorded as a `missing_context` gap naming it. Never add an empty heading to
+   silence it.
 5. **Review items.** `kb_review` with `limit: 10` (the budget, minus the decisions steps 3-4 used). Present
    **one numbered list**; for each item the kind, the concepts, the evidence and 2-3 options:
    - **act** with the ordinary tools: `concept_merge` or a cross-link (`duplicate_candidate`), close

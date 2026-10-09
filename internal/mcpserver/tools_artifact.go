@@ -24,6 +24,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/BeppeTemp/cartographer/internal/kb"
+	"github.com/BeppeTemp/cartographer/internal/lint"
 	"github.com/BeppeTemp/cartographer/internal/okf"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
 	"github.com/BeppeTemp/cartographer/internal/skill"
@@ -271,6 +272,15 @@ type templateListEntry struct {
 	Type  string   `json:"type"`
 	Title string   `json:"title"`
 	Vars  []string `json:"vars"`
+	// The template's schema (D352), from its x-template.* keys.
+	Description      string              `json:"description,omitempty"`
+	Sections         []string            `json:"sections,omitempty"`
+	OptionalSections []string            `json:"optional_sections,omitempty"`
+	SectionAliases   map[string][]string `json:"section_aliases,omitempty"`
+	RequiredFields   []string            `json:"required_fields,omitempty"`
+	OptionalFields   []string            `json:"optional_fields,omitempty"`
+	FieldValues      map[string][]string `json:"field_values,omitempty"`
+	OpenSections     bool                `json:"open_sections,omitempty"`
 }
 
 // artifactFilePrefix maps a (kind, name) to the path prefix used to turn a
@@ -377,7 +387,13 @@ func scanTemplates(k *kb.KB) ([]templateListEntry, error) {
 		}
 		title, _ := fm.Get("title")
 		titleString, _ := title.(string)
-		out = append(out, templateListEntry{Slug: slug, Type: fm.Type(), Title: titleString, Vars: vars})
+		entry := templateListEntry{Slug: slug, Type: fm.Type(), Title: titleString, Vars: vars}
+		if info, ok := kb.ParseTemplate(slug, string(data)); ok {
+			entry.Description, entry.Sections, entry.OptionalSections = info.Description, info.Sections, info.OptionalSections
+			entry.SectionAliases, entry.RequiredFields, entry.OptionalFields = info.Aliases, info.RequiredFields, info.OptionalFields
+			entry.FieldValues, entry.OpenSections = info.FieldValues, info.OpenSections
+		}
+		out = append(out, entry)
 	}
 	return out, nil
 }
@@ -445,6 +461,9 @@ func toolArtifactWrite(k *kb.KB) Tool {
 			info, err := classifyArtifactPath(params.Path)
 			if err != nil {
 				return errorResult(err.Error()), nil
+			}
+			if msg := templateOnlyRefusal(k, "artifact_write", info); msg != "" {
+				return errorResult(msg), nil
 			}
 
 			if params.Encoding != "" && params.Encoding != "text" && params.Encoding != "base64" {
@@ -532,6 +551,17 @@ func toolArtifactWrite(k *kb.KB) Tool {
 			return textResult(string(out)), nil
 		},
 	}
+}
+
+// templateOnlyRefusal is the refusal of an artifact write or delete outside
+// templates/ on a KB that only has the template right (allow_template_write,
+// D352); "" when the path is allowed. The full right (allow_artifact_write) lifts
+// the limit.
+func templateOnlyRefusal(k *kb.KB, tool string, info artifactPathInfo) string {
+	if k.AllowArtifactWrite || info.Kind == "template" {
+		return ""
+	}
+	return tool + ": only templates/ is writable on this KB (set kbs[].allow_artifact_write for the rest)"
 }
 
 // validateArtifactContent runs the per-kind validation required before a
@@ -666,6 +696,11 @@ func validateTemplateArtifact(data []byte) (*okf.Frontmatter, string, []string, 
 		return nil
 	}
 	for _, key := range fm.Keys() {
+		// Template metadata (D352) is the template's own, never a page's: no
+		// variable, and it is validated on its own terms.
+		if strings.HasPrefix(key, kb.TemplateMetaPrefix) {
+			continue
+		}
 		if err := addVars(key); err != nil {
 			return nil, "", nil, fmt.Errorf("frontmatter key %q: %w", key, err)
 		}
@@ -686,6 +721,9 @@ func validateTemplateArtifact(data []byte) (*okf.Frontmatter, string, []string, 
 			}
 		}
 	}
+	if err := validateTemplateMeta(fm, body); err != nil {
+		return nil, "", nil, err
+	}
 	if typeVars, err := validateTemplateText(fm.Type()); err != nil || len(typeVars) > 0 {
 		return nil, "", nil, fmt.Errorf("frontmatter 'type' must be a non-empty literal string")
 	}
@@ -698,6 +736,101 @@ func validateTemplateArtifact(data []byte) (*okf.Frontmatter, string, []string, 
 	}
 	sort.Strings(out)
 	return fm, body, out, nil
+}
+
+// foldName folds a section name the way lint matches headings.
+func foldName(s string) string { return lint.FoldHeading(s) }
+
+// validateTemplateMeta checks the x-template.* keys of a template (D352):
+// exactly the declared keys, of the right value kind, with no placeholder, and
+// consistent with the template's own sections (an optional section and an
+// alias's canonical must be sections; an alias is never the name of another
+// section nor listed under two).
+func validateTemplateMeta(fm *okf.Frontmatter, body string) error {
+	info, _ := kb.ParseTemplate("template", "---\n"+fm.Serialize()+"\n---\n"+body)
+	sections := map[string]bool{}
+	for _, sec := range info.Sections {
+		sections[foldName(sec)] = true
+	}
+	aliasOwner := map[string]string{}
+	for _, key := range fm.Keys() {
+		if !strings.HasPrefix(key, kb.TemplateMetaPrefix) {
+			continue
+		}
+		value, _ := fm.Get(key)
+		list, isList := value.([]string)
+		str, isStr := value.(string)
+		for _, text := range append([]string{key, str}, list...) {
+			if strings.Contains(text, "{{") || strings.Contains(text, "}}") {
+				return fmt.Errorf("template variables are not allowed in %s", key)
+			}
+		}
+		needList := func() error {
+			if !isList || len(list) == 0 {
+				return fmt.Errorf("%s must be a non-empty list", key)
+			}
+			for _, item := range list {
+				if strings.TrimSpace(item) == "" {
+					return fmt.Errorf("%s must not contain empty entries", key)
+				}
+			}
+			return nil
+		}
+		switch {
+		case key == kb.TemplateMetaDescription:
+			if !isStr || strings.TrimSpace(str) == "" {
+				return fmt.Errorf("%s must be a non-empty string", key)
+			}
+		case key == kb.TemplateMetaRequiredFields || key == kb.TemplateMetaOptionalFields:
+			if err := needList(); err != nil {
+				return err
+			}
+		case key == kb.TemplateMetaOptionalSection:
+			if err := needList(); err != nil {
+				return err
+			}
+			for _, item := range list {
+				if !sections[foldName(item)] {
+					return fmt.Errorf("%s names %q, which is not an H2 section of the template", key, item)
+				}
+			}
+		case key == kb.TemplateMetaOpenSections:
+			if !isStr || (str != "true" && str != "false") {
+				return fmt.Errorf("%s must be true or false", key)
+			}
+		case strings.HasPrefix(key, kb.TemplateMetaFieldValues):
+			field := strings.TrimPrefix(key, kb.TemplateMetaFieldValues)
+			if strings.TrimSpace(field) == "" || strings.Contains(field, ".") {
+				return fmt.Errorf("%s: the field name must be non-empty and contain no '.'", key)
+			}
+			if err := needList(); err != nil {
+				return err
+			}
+		case strings.HasPrefix(key, kb.TemplateMetaSectionAliases):
+			canon := strings.TrimPrefix(key, kb.TemplateMetaSectionAliases)
+			if !sections[foldName(canon)] {
+				return fmt.Errorf("%s: %q is not an H2 section of the template", key, canon)
+			}
+			if err := needList(); err != nil {
+				return err
+			}
+			for _, alias := range list {
+				f := foldName(alias)
+				if sections[f] {
+					return fmt.Errorf("%s: alias %q is the name of a section of the template", key, alias)
+				}
+				if owner, dup := aliasOwner[f]; dup {
+					return fmt.Errorf("%s: alias %q is already an alias of %q", key, alias, owner)
+				}
+				aliasOwner[f] = canon
+			}
+		default:
+			return fmt.Errorf("unknown template metadata key %q (accepted: %s, %s, %s, %s<field>, %s, %s<section>, %s)",
+				key, kb.TemplateMetaDescription, kb.TemplateMetaRequiredFields, kb.TemplateMetaOptionalFields,
+				kb.TemplateMetaFieldValues, kb.TemplateMetaOptionalSection, kb.TemplateMetaSectionAliases, kb.TemplateMetaOpenSections)
+		}
+	}
+	return nil
 }
 
 // validateTemplateFrontmatterRaw closes the permissive parser's raw-line gap:
@@ -847,6 +980,9 @@ func toolArtifactDelete(k *kb.KB) Tool {
 			info, err := classifyArtifactPath(params.Path)
 			if err != nil {
 				return errorResult(err.Error()), nil
+			}
+			if msg := templateOnlyRefusal(k, "artifact_delete", info); msg != "" {
+				return errorResult(msg), nil
 			}
 			if params.IfMatch == "" {
 				return errorResult("'if_match' is required"), nil

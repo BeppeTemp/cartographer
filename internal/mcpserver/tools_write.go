@@ -105,7 +105,7 @@ func toolConceptWrite(k *kb.KB, sim *similarFinder, facts *factFinder) Tool {
 func toolConceptNew(k *kb.KB, sim *similarFinder, facts *factFinder) Tool {
 	return Tool{
 		Name:        "concept_new",
-		Description: "Creates a concept from a KB-only template (see template_list); variables are substituted literally. Refuses an existing id (use concept_write/concept_patch). No strict-ontology pre-check, no index curation. Returns findings.",
+		Description: "Creates a concept from a KB template (template_list) and records it as its shape. Refuses an existing id. Returns findings.",
 		InputSchema: json.RawMessage(`{
 			"type":"object", "required":["template", "id"],
 			"properties": {
@@ -174,6 +174,13 @@ func toolConceptNew(k *kb.KB, sim *similarFinder, facts *factFinder) Tool {
 			if err != nil {
 				return errorResult(fmt.Sprintf("concept_new: template %q is invalid: %v", params.Template, err)), nil
 			}
+			// The template's schema describes the template, not the page (D352);
+			// the page records which template it follows instead.
+			for _, key := range fm.Keys() {
+				if strings.HasPrefix(key, kb.TemplateMetaPrefix) {
+					fm.Delete(key)
+				}
+			}
 			provided := make([]string, 0, len(params.Vars))
 			for name := range params.Vars {
 				provided = append(provided, name)
@@ -205,6 +212,11 @@ func toolConceptNew(k *kb.KB, sim *similarFinder, facts *factFinder) Tool {
 					return errorResult(fmt.Sprintf("concept_new: template %q: frontmatter key %q is a tool parameter, not a field — pass it as a top-level argument", params.Template, key)), nil
 				}
 			}
+			// Stamped after rendering, over any shape the template carries: the
+			// slug is the one the caller chose. A template outside the map's
+			// templates is not refused; the write response carries
+			// template_not_allowed (D352).
+			fm.Set(kb.ShapeField, params.Template)
 			newHash, err := writeConceptAndLog(k, "concept_new", params.ID, fm, body, "")
 			if err != nil {
 				return errorResult(fmt.Sprintf("concept_new %q: %v", params.ID, err)), nil
@@ -732,7 +744,7 @@ var (
 func toolMapCreate(k *kb.KB) Tool {
 	return Tool{
 		Name:        "map_create",
-		Description: "Creates a Map (themed) or Journal (kind: journal, chronological, e.g. incidents) with _map.md, index.md, log.md. ontology_mode: strict (concept_types enforced) or flexible (default). Concepts grow via concept_expand. 'services' is reserved. Contract options are lint contracts, not a write gate.",
+		Description: "Creates a Map or Journal (kind: journal) with _map.md, index.md, log.md. ontology_mode: strict (enforces concept_types) or flexible. templates (slugs) make every page follow one. Contract options are lint only, not a write gate.",
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"required": ["name", "title"],
@@ -779,7 +791,9 @@ func toolMapCreate(k *kb.KB) Tool {
 				"machine_path_allow_prefixes": {
 					"type": "array",
 					"items": {"type": "string"}
-					}
+					},
+				"templates": {"type": "array", "items": {"type": "string"}},
+				"default_template": {"type": "string"}
 			}
 		}`),
 		Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
@@ -796,6 +810,8 @@ func toolMapCreate(k *kb.KB) Tool {
 				ForbiddenFields          []string                       `json:"forbidden_fields"`
 				RequireIndexEntry        *bool                          `json:"require_index_entry"`
 				MachinePathAllowPrefixes []string                       `json:"machine_path_allow_prefixes"`
+				Templates                []string                       `json:"templates"`
+				DefaultTemplate          string                         `json:"default_template"`
 			}
 			if err := json.Unmarshal(args, &params); err != nil {
 				return errorResult("invalid params: " + err.Error()), nil
@@ -813,7 +829,13 @@ func toolMapCreate(k *kb.KB) Tool {
 				return errorResult(msg), nil
 			}
 
+			if msg := validateTemplateParams(params.Templates, params.DefaultTemplate); msg != "" {
+				return errorResult(msg), nil
+			}
 			contract := kb.MapContract{
+				Templates:            params.Templates,
+				DefaultTemplate:      params.DefaultTemplate,
+				RequireTemplate:      len(params.Templates) > 0, // a new map starts strict (D352)
 				RequiredFields:       params.RequiredFields,
 				RequiredFieldsByType: params.RequiredFieldsByType,
 				FieldValues:          params.FieldValues,
@@ -838,6 +860,29 @@ func toolMapCreate(k *kb.KB) Tool {
 			return textResult(string(out)), nil
 		},
 	}
+}
+
+// validateTemplateParams rejects a templates / default_template pair a map
+// contract cannot hold (D352): slugs only, and the default one of the list.
+// Shared by map_create and map_update.
+func validateTemplateParams(templates []string, def string) string {
+	for _, slug := range templates {
+		if !kb.ValidTemplateSlug(slug) {
+			return fmt.Sprintf("'templates': %q is not a template slug (lowercase words and hyphens)", slug)
+		}
+	}
+	if def == "" {
+		return ""
+	}
+	if !kb.ValidTemplateSlug(def) {
+		return fmt.Sprintf("'default_template': %q is not a template slug (lowercase words and hyphens)", def)
+	}
+	for _, slug := range templates {
+		if slug == def {
+			return ""
+		}
+	}
+	return "'default_template' must be one of 'templates'"
 }
 
 // validateContractParams rejects the empty entries a map contract must not
@@ -935,7 +980,7 @@ func generatedBlockEdited(k *kb.KB, mapName, before, after string) string {
 func toolMapUpdate(k *kb.KB) Tool {
 	return Tool{
 		Name:        "map_update",
-		Description: "Changes a map's or journal's title or lint contract: given keys are replaced whole; an empty list, \"\", false or {} removes it. title renames the index. stale_after 0 = off, -1 = default. Returns it.",
+		Description: "Changes a map's title or lint contract: given keys are replaced whole, an empty list, \"\", false or {} removes one. stale_after 0 = off, -1 = default.",
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"required": ["map"],
@@ -982,6 +1027,9 @@ func toolMapUpdate(k *kb.KB) Tool {
 				"concept_types": {"type": "array", "items": {"type": "string"}},
 				"ontology_mode": {"type": "string", "enum": ["strict", "flexible", ""]},
 				"template_sections": {"type": "boolean"},
+				"templates": {"type": "array", "items": {"type": "string"}},
+				"default_template": {"type": "string"},
+				"require_template": {"type": "boolean"},
 				"promote_to": {"type": "string"},
 				"procedure_headings": {"type": "array", "items": {"type": "string"}},
 				"glossary": {"type": "boolean"},
@@ -1019,6 +1067,9 @@ func toolMapUpdate(k *kb.KB) Tool {
 				ConceptTypes             *[]string                      `json:"concept_types"`
 				OntologyMode             *string                        `json:"ontology_mode"`
 				TemplateSections         *bool                          `json:"template_sections"`
+				Templates                *[]string                      `json:"templates"`
+				DefaultTemplate          *string                        `json:"default_template"`
+				RequireTemplate          *bool                          `json:"require_template"`
 				PromoteTo                *string                        `json:"promote_to"`
 				ProcedureHeadings        *[]string                      `json:"procedure_headings"`
 				Glossary                 *bool                          `json:"glossary"`
@@ -1043,10 +1094,10 @@ func toolMapUpdate(k *kb.KB) Tool {
 			if params.RequiredFields == nil && params.RequiredFieldsByType == nil &&
 				params.FieldValues == nil && params.FieldValuesByType == nil && params.ForbiddenFields == nil &&
 				params.RequireIndexEntry == nil && params.MachinePathAllowPrefixes == nil && params.ValueSynonyms == nil &&
-				params.OpenStatuses == nil && params.OpenField == nil && params.OpenMarkers == nil && params.StaleAfter == nil && params.HarvestAfter == nil && params.ConceptTypes == nil && params.OntologyMode == nil && params.TemplateSections == nil &&
+				params.OpenStatuses == nil && params.OpenField == nil && params.OpenMarkers == nil && params.StaleAfter == nil && params.HarvestAfter == nil && params.ConceptTypes == nil && params.OntologyMode == nil && params.TemplateSections == nil && params.Templates == nil && params.DefaultTemplate == nil && params.RequireTemplate == nil &&
 				params.PromoteTo == nil && params.ProcedureHeadings == nil && params.Glossary == nil &&
 				params.Index == nil && params.RepeatedFactMin == nil && params.HotspotInDegree == nil && params.HotspotBytes == nil && params.OversizeBytes == nil && params.OversizeConcepts == nil && params.WorkMap == nil && params.TitleMaxLength == nil && params.ForbiddenTitleTerms == nil && params.Title == nil && params.LintIgnore == nil {
-				return errorResult("nothing to change: pass at least one of title, lint_ignore, require_index_entry, required_fields, required_fields_by_type, field_values, field_values_by_type, forbidden_fields, machine_path_allow_prefixes, value_synonyms, open_statuses, open_field, open_markers, stale_after, harvest_after, concept_types, ontology_mode, template_sections, promote_to, procedure_headings, glossary, index, repeated_fact_min, hotspot_in_degree, hotspot_bytes, oversize_bytes, oversize_concepts, work_map, title_max_length, forbidden_title_terms"), nil
+				return errorResult("nothing to change: pass at least one of title, lint_ignore, require_index_entry, required_fields, required_fields_by_type, field_values, field_values_by_type, forbidden_fields, machine_path_allow_prefixes, value_synonyms, open_statuses, open_field, open_markers, stale_after, harvest_after, concept_types, ontology_mode, template_sections, templates, default_template, require_template, promote_to, procedure_headings, glossary, index, repeated_fact_min, hotspot_in_degree, hotspot_bytes, oversize_bytes, oversize_concepts, work_map, title_max_length, forbidden_title_terms"), nil
 			}
 			var fields, prefixes, forbidden []string
 			if params.ForbiddenFields != nil {
@@ -1067,6 +1118,15 @@ func toolMapUpdate(k *kb.KB) Tool {
 			if _, err := k.ReadArchiveMeta(params.Map); err != nil {
 				return errorResult(fmt.Sprintf("map_update %q: not found", params.Map)), nil
 			}
+			if params.Templates != nil {
+				def := ""
+				if params.DefaultTemplate != nil {
+					def = *params.DefaultTemplate
+				}
+				if msg := validateTemplateParams(*params.Templates, def); msg != "" {
+					return errorResult(msg), nil
+				}
+			}
 
 			contract, err := k.UpdateMapContract(params.Map, kb.MapContractUpdate{
 				RequiredFields:           params.RequiredFields,
@@ -1085,6 +1145,9 @@ func toolMapUpdate(k *kb.KB) Tool {
 				ConceptTypes:             params.ConceptTypes,
 				OntologyMode:             params.OntologyMode,
 				TemplateSections:         params.TemplateSections,
+				Templates:                params.Templates,
+				DefaultTemplate:          params.DefaultTemplate,
+				RequireTemplate:          params.RequireTemplate,
 				PromoteTo:                params.PromoteTo,
 				ProcedureHeadings:        params.ProcedureHeadings,
 				Glossary:                 params.Glossary,
@@ -1162,6 +1225,11 @@ func toolMapUpdate(k *kb.KB) Tool {
 			}
 			echo["value_synonyms"] = valueSyn
 			echo["template_sections"] = contract.TemplateSections
+			echo["templates"] = nonNilStrings(contract.Templates)
+			echo["require_template"] = contract.RequireTemplate
+			if contract.DefaultTemplate != "" {
+				echo["default_template"] = contract.DefaultTemplate
+			}
 			echo["glossary"] = contract.Glossary
 			for k, v := range map[string]string{"kind": contract.Kind, "ontology_mode": contract.OntologyMode, "promote_to": contract.PromoteTo, "open_field": contract.OpenField, "work_map": contract.WorkMap} {
 				if v != "" {

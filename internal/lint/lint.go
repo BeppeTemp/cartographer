@@ -442,7 +442,8 @@ func runChecks(k *kb.KB, scope string, scopeNeighbors bool, opts Options) ([]Fin
 	// Contracts are descriptor-level data. Cache them once per map for this
 	// run, so a map with many concepts does not repeatedly parse _map.md.
 	contracts := make(map[string]kb.MapContract, len(archives))
-	templateSections := map[string][]string{} // type → its template's H2s, read once per run (D297)
+	var catalog kb.TemplateCatalog // the KB's templates, read once per run and only if a map asks (D352)
+	catalogLoaded := false
 	for _, archive := range archives {
 		contract, contractErr := k.ReadMapContract(archive)
 		if contractErr != nil {
@@ -644,12 +645,11 @@ func runChecks(k *kb.KB, scope string, scopeNeighbors bool, opts Options) ([]Fin
 		if len(parts) > 1 && archiveSet[parts[0]] {
 			c := contracts[parts[0]]
 			in.MapName, in.Contract = parts[0], &c
-			if c.TemplateSections && parsed != nil {
-				typ := parsed.Type()
-				if _, done := templateSections[typ]; !done {
-					templateSections[typ] = k.TemplateSections(typ)
+			if c.HasTemplateKeys() {
+				if !catalogLoaded {
+					catalog, catalogLoaded = k.TemplateCatalog(), true
 				}
-				in.Sections = templateSections[typ]
+				in.Catalog = catalog
 			}
 		}
 		for _, f := range conceptFindings(conceptCtx{
@@ -703,6 +703,23 @@ func runChecks(k *kb.KB, scope string, scopeNeighbors bool, opts Options) ([]Fin
 			// --- facet_sprawl (info, D297) ---
 			if _, ok := contracts[archiveName]; ok {
 				findings = append(findings, facetSprawlFindings(archiveName, allConcepts)...)
+			}
+
+			// --- map_without_templates, and templates against the map's values (D352) ---
+			if c, ok := contracts[archiveName]; ok {
+				topLevel := 0
+				for id := range allConcepts {
+					if rest, ok := strings.CutPrefix(string(id), archiveName+"/"); ok && !strings.Contains(rest, "/") {
+						if i, ok := st.lg.Index[id]; ok && st.lg.Facets[i].Status == kb.StatusArchived {
+							continue
+						}
+						topLevel++
+					}
+				}
+				if len(c.Templates) > 0 && !catalogLoaded {
+					catalog, catalogLoaded = k.TemplateCatalog(), true
+				}
+				findings = append(findings, mapTemplateFindings(archiveName+"/_map.md", archiveName, c, topLevel, catalog)...)
 			}
 
 			// --- map_oversize (info, D313) ---

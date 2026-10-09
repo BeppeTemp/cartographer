@@ -198,6 +198,12 @@ type KBSpec struct {
 	// Default false. Propagated to kb.KB.AllowArtifactWrite (see serve.go).
 	AllowArtifactWrite bool `yaml:"allow_artifact_write,omitempty"`
 
+	// AllowTemplateWrite (D352) lets artifact_write/artifact_delete write
+	// templates/<slug>.md and nothing else when AllowArtifactWrite is off.
+	// Absent means on: templates are KB-only and never provisioned to a client.
+	// A pointer so absent and false differ. Read it through TemplateWriteEnabled.
+	AllowTemplateWrite *bool `yaml:"allow_template_write,omitempty"`
+
 	// AutoRepair lists the lint checks whose mechanical fix
 	// `cartographer kb repair --apply` may apply without a human reviewing
 	// the plan (D299). Each name must be in lint.FixableChecks. There is
@@ -923,6 +929,11 @@ var DefaultAutoRepair = []string{
 	"index_link_form", "legacy_tool_name", "missing_frontmatter", "unparseable_frontmatter",
 	"missing_type", "nonslug_file_name", "missing_title", "repeated_link",
 	"value_case_variant", "unmapped_folder",
+	// D352, in the order a page needs them: bind it, set its type, its values,
+	// reorder its sections, then rename the aliases (a reorder lists headings
+	// as written, so it runs before the rename changes them).
+	"template_missing", "template_type_mismatch", "template_field_value",
+	"template_section_order", "template_section_alias",
 }
 
 // AutoRepairChecks resolves AutoRepair: DefaultAutoRepair when the key is
@@ -934,6 +945,11 @@ func (s KBSpec) AutoRepairChecks() (checks []string, isDefault bool) {
 		return append([]string{}, DefaultAutoRepair...), true
 	}
 	return s.AutoRepair, false
+}
+
+// TemplateWriteEnabled resolves AllowTemplateWrite (D352): on unless set false.
+func (s KBSpec) TemplateWriteEnabled() bool {
+	return s.AllowTemplateWrite == nil || *s.AllowTemplateWrite
 }
 
 // RepairOnWriteEnabled resolves RepairOnWrite (D349): the explicit value when

@@ -88,6 +88,18 @@ var registry = []CheckSpec{
 	{Name: "stale_open", Severity: SevInfo, Level: LevelConcept, Accept: AcceptConcept, OnWrite: true, Judgement: true},
 	{Name: "closed_with_open_items", Severity: SevInfo, Level: LevelConcept, Accept: AcceptConcept, OnWrite: true, Judgement: true},
 	{Name: "template_section_missing", Severity: SevInfo, Level: LevelConcept, Accept: AcceptConcept, OnWrite: true, Judgement: true},
+	// Templates are closed page schemas a map's pages bind to (D352). Evaluated
+	// only on a map that sets require_template, except template_section_missing,
+	// which template_sections: true also turns on.
+	{Name: "template_missing", Severity: SevWarning, Level: LevelConcept, Accept: AcceptConcept, OnWrite: true, FixKinds: []string{FixSetValue}, AutoRepairSafe: true, Judgement: true},
+	{Name: "template_unknown", Severity: SevWarning, Level: LevelConcept, Accept: AcceptConcept, OnWrite: true, Judgement: true},
+	{Name: "template_not_allowed", Severity: SevWarning, Level: LevelConcept, Accept: AcceptConcept, OnWrite: true, Judgement: true},
+	{Name: "template_type_mismatch", Severity: SevWarning, Level: LevelConcept, Accept: AcceptConcept, OnWrite: true, FixKinds: []string{FixSetValue}, AutoRepairSafe: true},
+	{Name: "template_field_missing", Severity: SevWarning, Level: LevelConcept, Accept: AcceptConcept, OnWrite: true, Judgement: true},
+	{Name: "template_field_value", Severity: SevWarning, Level: LevelConcept, Accept: AcceptConcept, OnWrite: true, FixKinds: []string{FixSetValue}, AutoRepairSafe: true, Judgement: true},
+	{Name: "template_extra_section", Severity: SevWarning, Level: LevelConcept, Accept: AcceptConcept, OnWrite: true, Judgement: true},
+	{Name: "template_section_alias", Severity: SevWarning, Level: LevelConcept, Accept: AcceptConcept, OnWrite: true, FixKinds: []string{FixRenameHeading}, AutoRepairSafe: true, Judgement: true},
+	{Name: "template_section_order", Severity: SevInfo, Level: LevelConcept, Accept: AcceptConcept, OnWrite: true, FixKinds: []string{FixReorderSections}, AutoRepairSafe: true},
 	{Name: "open_marker", Severity: SevInfo, Level: LevelConcept, Accept: AcceptConcept, OnWrite: true},
 	{Name: "repeated_link", Severity: SevInfo, Level: LevelConcept, Accept: AcceptConcept, OnWrite: true, FixKinds: []string{FixUnlinkRepeat}, AutoRepairSafe: true},
 	// What the write path refuses about a page, as lint (D356): the repair and
@@ -130,6 +142,7 @@ var registry = []CheckSpec{
 	{Name: "contract_malformed", Severity: SevInfo, Level: LevelMap, Accept: AcceptNone},
 	{Name: "facet_sprawl", Severity: SevInfo, Level: LevelMap, Accept: AcceptMap},
 	{Name: "missing_value_contract", Severity: SevInfo, Level: LevelMap, Accept: AcceptMap},
+	{Name: "map_without_templates", Severity: SevInfo, Level: LevelMap, Accept: AcceptMap},
 	{Name: "map_oversize", Severity: SevInfo, Level: LevelMap, Accept: AcceptMap},
 	{Name: "legacy_archive_descriptor", Severity: SevWarning, Level: LevelMap, Accept: AcceptNone},
 	{Name: "index_incomplete", Severity: SevWarning, Level: LevelMap, Accept: AcceptNone, OnWrite: true},
@@ -179,6 +192,7 @@ var registry = []CheckSpec{
 	{Name: ReviewScatteredWork, Severity: SevInfo, Level: LevelKB, Accept: AcceptConcept},
 	{Name: ReviewStatusReclassify, Severity: SevInfo, Level: LevelKB, Accept: AcceptConcept},
 	{Name: ReviewHarvestCandidate, Severity: SevInfo, Level: LevelKB, Accept: AcceptConcept},
+	{Name: ReviewTemplateProposal, Severity: SevInfo, Level: LevelKB, Accept: AcceptConcept},
 	// Dismissed in a map's _map.md, not on a concept (D304).
 	{Name: ReviewMapNaming, Severity: SevInfo, Level: LevelKB, Accept: AcceptConcept},
 }

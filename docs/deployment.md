@@ -105,6 +105,13 @@ kbs:                          # (kbs[]) explicit KBs, local path or remote git (
                                                       # clients will execute — the capability must be
                                                       # granted per-KB by the operator; an rw token alone
                                                       # does not imply it
+    allow_template_write: true                       # (kbs[].allow_template_write) artifact_write/
+                                                      # artifact_delete accept templates/<slug>.md and
+                                                      # nothing else when allow_artifact_write is off
+                                                      # (default true, D352): a template is KB-only and
+                                                      # never provisioned to a client, so the risk the
+                                                      # full right guards against does not apply; false
+                                                      # removes the tools again
     auto_repair: [nonstandard_field, duplicate_link] # (kbs[].auto_repair) checks `cartographer kb repair
                                                       # --apply` may apply unattended (D299); each must be
                                                       # a check with a mechanical fix, listed by name (no

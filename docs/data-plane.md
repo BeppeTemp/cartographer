@@ -62,7 +62,7 @@ kb-<domain>/                          # git repo = OKF bundle (content directori
 
 `services/` is included in `WalkConcepts` (search, graph, lint all see it) but its root is `kb.Root`, not `kb.DataRoot()`. Service concept IDs carry the `services/` prefix. `ResolvePath` is the one place that picks the root for an ID, and every operation that turns an ID into a file — read, write, collision check, removal, `concept_move` — goes through it (`LocateConcept` for callers that move files themselves). For the same reason `services` is not a valid map or journal name: `map_create` refuses it, since the scaffold would land under `data/services/`, where no read looks (D269). A `data/services/` left by an older version is neither read nor cleaned up. `agents/` and `hooks/` are not concepts (no OKF frontmatter, they don't go through `WalkConcepts`): they are provisioning artifacts materialized client-side — see `docs/sync.md` §Agents and hooks.
 
-`templates/` is outside `WalkConcepts`: templates have no ConceptID and are never indexed, linted or added to the graph. A template is a KB-only artifact, not a provisioning kind: it is maintained through `artifact_*`, discovered with `template_list`, and used once by `concept_new`; it never affects a provisioning manifest or its revision.
+`templates/` is outside `WalkConcepts`: templates have no ConceptID and are never indexed, linted or added to the graph. A template is a KB-only artifact, not a provisioning kind: it is maintained through `artifact_*` (templates alone with `allow_template_write`, default on, D352), discovered with `template_list`, and used once by `concept_new`; it never affects a provisioning manifest or its revision. A template is also a closed page schema that a map's pages bind to (§Templates are page schemas).
 
 `kb create` writes `data/.gitignore` with the junk patterns (`.DS_Store`, `__pycache__/`, `*.pyc`,
 `*.pyo`, `*~`, `*.swp`, `Thumbs.db` — `kb.JunkPatterns`), only when it creates the KB: the root
@@ -404,6 +404,15 @@ projections of it. This catalogue is generated from it (a test fails when it dri
 | `stale_open` | info | concept | concept | - | - | yes |
 | `closed_with_open_items` | info | concept | concept | - | - | yes |
 | `template_section_missing` | info | concept | concept | - | - | yes |
+| `template_missing` | warning | concept | concept | `set_value` | yes | yes |
+| `template_unknown` | warning | concept | concept | - | - | yes |
+| `template_not_allowed` | warning | concept | concept | - | - | yes |
+| `template_type_mismatch` | warning | concept | concept | `set_value` | yes | yes |
+| `template_field_missing` | warning | concept | concept | - | - | yes |
+| `template_field_value` | warning | concept | concept | `set_value` | yes | yes |
+| `template_extra_section` | warning | concept | concept | - | - | yes |
+| `template_section_alias` | warning | concept | concept | `rename_heading` | yes | yes |
+| `template_section_order` | info | concept | concept | `reorder_sections` | yes | yes |
 | `open_marker` | info | concept | concept | - | - | yes |
 | `repeated_link` | info | concept | concept | `unlink_repeat` | yes | yes |
 | `missing_frontmatter` | error | concept | none | `add_frontmatter` | yes | - |
@@ -437,6 +446,7 @@ projections of it. This catalogue is generated from it (a test fails when it dri
 | `contract_malformed` | info | map | none | - | - | - |
 | `facet_sprawl` | info | map | map | - | - | - |
 | `missing_value_contract` | info | map | map | - | - | - |
+| `map_without_templates` | info | map | map | - | - | - |
 | `map_oversize` | info | map | map | - | - | - |
 | `legacy_archive_descriptor` | warning | map | none | - | - | - |
 | `index_incomplete` | warning | map | none | - | - | yes |
@@ -475,6 +485,7 @@ projections of it. This catalogue is generated from it (a test fails when it dri
 | `scattered_work` | info | kb | concept | - | - | - |
 | `status_reclassify` | info | kb | concept | - | - | - |
 | `harvest_candidate` | info | kb | concept | - | - | - |
+| `template_proposal` | info | kb | concept | - | - | - |
 | `map_naming` | info | kb | concept | - | - | - |
 <!-- lint:catalogue:end -->
 
@@ -564,15 +575,44 @@ Lint also sees a KB **decaying**: work never closed, closed work not finished, p
 | `open_field: <key>` | frontmatter key that carries the open/closed state of a concept of this map (D347); `open_statuses` lists its open values | `status` |
 | `stale_after: <days>` | age after which an open concept is stale | 60 in a journal; 30 in a map that holds work (`open_statuses` set, or a `status` vocabulary in `field_values`/`field_values_by_type` with an open value, D346); none in a reference map (a reference page is not stale by age). `0` is an explicit off. The default is computed at read time, never written to `_map.md`; `map_list` shows the effective value (`stale_after`, `stale_after_defaulted`) |
 | `harvest_after: <days>` | age after which a closed journal entry is a `harvest_candidate` (D322); `0` = off (D347) | 45 |
-| `template_sections: true` | pages must carry the H2 sections of `templates/<type>.md` | off: many KBs use templates as guidance, not a schema |
+| `template_sections: true` | pages must carry the required H2 sections of their template (§Templates are page schemas) | off: many KBs use templates as guidance, not a schema |
 | `open_markers: [...]` | words that mark an open question, in the KB's language | `TODO`, `TBD`, `FIXME` |
 
 - `stale_open` (suppressible): open status and `timestamp` older than the effective `stale_after` (`map_update` resets an explicit value with `-1`; `kb_status.stale_count` is a different signal, past `review_after`), unless the concept declares a `review_after` today or later: that suspends the timer (D321); a past `review_after` does not, it makes the wait overdue (and `stale_claim` fires). `waiting_on` is a free-text field naming who or what blocks the work, with no vocabulary; the doctor sets both on a finding only the operator can resolve.
 - `status_semantics` (warning, suppressible, D321): `status` in the `active` family on a concept of a journal whose `open_statuses` does not list it, which is checked on write too; never raised in a map with `open_field`, where `status` is the lifecycle (D347). The review kind `status_reclassify` proposes the replacement.
 - `closed_with_open_items` (suppressible): a status of the `done` or `resolved` family with unchecked `- [ ]` items outside code and outside a section whose H2 matches the map's `procedure_headings` (default `procedure`, `steps`, `how to`: a procedure's checklist is a reusable template, D313).
-- `template_section_missing` (suppressible): sections of the type's template the page lacks, compared folding case and accents; headings inside fenced code in the template are ignored.
+- `template_section_missing` (suppressible, D352): required sections of the page's template (optional ones subtracted, an alias counts as the section) the page lacks, compared folding case and accents; headings inside fenced code are ignored. Info under `template_sections: true`, warning under `require_template: true`; closed pages are exempt. No fix: an empty heading is a hollow promise.
 - `open_marker` (suppressible): marker occurrences outside code, outside heading lines, outside table rows of a concept in an open phase (D313), and outside struck-through `~~text~~` (closed or cancelled, D307), whole words, case- and accent-folded; `kb_status.open_markers` totals them as `{concepts, markers}`.
 - `facet_sprawl` (on `_map.md`, directory-level): `tags` with at least 30 distinct values, half or more used once; the message lists the ten most used as the likely vocabulary.
+
+### Templates are page schemas (D352)
+
+A page names the template it follows in the frontmatter field `shape` (a template slug; `shape` is a page field, never a tool parameter, unlike the `template` argument of `concept_new`). A map declares which shapes it accepts, and a template is a **closed schema**. Nothing below is evaluated, and no template is read, for a map that sets none of `templates`, `default_template`, `require_template`, `template_sections`.
+
+| Map key | Meaning |
+|---|---|
+| `templates: [slug, ...]` | the shapes the map accepts (templates are a KB-wide library: several maps may share one, one map may hold several for one `type`) |
+| `default_template: <slug>` | the one a page of the template's `type` follows when it names none; must be in `templates` (else `contract_malformed`) |
+| `require_template: true` | every page binds to a template of the map: the checks below run. `map_create` with `templates` writes it |
+
+A page's template resolves in this order: its `shape` when it names an existing template; else the map's `default_template` when the page's `type` is that template's type; else `templates/<lowercased type>.md`; else none. An unresolvable `shape` falls back to the last two for the section checks, so a typo does not hide missing sections.
+
+A template declares its schema with flat dotted keys in its own frontmatter (a nested block stays opaque to the parser); `artifact_write` refuses an unknown `x-template.*` key, a wrong value kind, a placeholder in metadata, an optional section or alias canonical that is not an H2, and an alias that is another section's name or listed twice. `concept_new` strips every one before rendering and stamps `shape`; `template_list` returns them.
+
+| Key | Meaning |
+|---|---|
+| `x-template.description` | one line |
+| `x-template.required_fields` / `optional_fields` | fields the page must carry (non-empty) / may carry |
+| `x-template.field_values.<field>` | allowed values; must be a subset of the map's `field_values.<field>` (else `contract_malformed` on the map) |
+| `x-template.optional_sections` | H2 names a page may omit; the template's H2 headings, in order, are its sections, required = all minus these |
+| `x-template.section_aliases.<Canonical H2>` | accepted alternative names |
+| `x-template.open_sections` | `true`: H2 headings the template does not name are allowed (default `false`) |
+
+Under `require_template: true`, all `AcceptConcept`, warning unless noted, none an error (D289), all evaluated on the write path: `template_missing` (no `shape`, nothing resolves; fix `set_value shape` when exactly one template of the map has the page's type, or the `default_template` when the page has no type), `template_unknown` (`shape` not a slug, not a string, or no such file), `template_not_allowed` (the resolved template is not in `templates`), `template_type_mismatch` (a bound page's `type` differs from its template's: `shape` is the specific choice, `type` follows it; fix `set_value type`), `template_field_missing`, `template_field_value` (fix `set_value` when one allowed value matches after folding), `template_extra_section` (an H2 that is no section, optional section or alias; merge its text into a section or move it, never delete it), `template_section_alias` (fix `rename_heading` to the canonical name, none when the page has both), `template_section_order` (info; fix `reorder_sections`), and `template_section_missing` (above). Closed pages are exempt from `template_section_missing`, `template_field_missing` and `template_extra_section`; the binding checks still run. `map_without_templates` (info, on `_map.md`) marks a map of at least three pages with no `templates`.
+
+`reorder_sections` moves whole H2 blocks into template order, keeps extra sections after the last template section in their relative order, keeps the text before the first H2 first, never treats a heading inside fenced code as a section, and normalises the blank lines between blocks; `rename_heading` rewrites one heading line. Neither writes section text. `template_missing`, `template_type_mismatch`, `template_field_value`, `template_section_order` and `template_section_alias` are in the default `auto_repair` list, in that order (a reorder lists the headings as written, so it runs before the rename).
+
+**Induction.** `kb_review` kind `template_proposal` (ranked after `duplicate_candidate`) is one item per map and type: with at least three pages and no `templates` on the map, or most of them unbound. Sections are the H2 headings (folded) present in at least 60 % of the group's pages, ordered by median position, optional from 20 %; spellings of one folded heading become aliases; fields are required from 90 % of pages; values are the group's own when the map already constrains the field or there are at most eight and one repeats. The item carries `template_slug`, the ready `template` text (empty when `templates/<slug>.md` exists) and the `map_update` arguments (`templates`, `default_template`, `require_template: true`). The server never writes it (D14): the doctor does, with `artifact_write`. It is dismissed with `lint_ignore: [template_proposal]` in the map's `_map.md`.
 
 ### The `archived` status (D322)
 
