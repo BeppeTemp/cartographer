@@ -24,12 +24,40 @@ const (
 
 var defaultOpenMarkers = []string{"TODO", "TBD", "FIXME"}
 
-// openPhase reports whether status means "not finished" for this map. A
+// statusOf is the concept's real status value.
+func statusOf(fm *okf.Frontmatter) string {
+	s, _ := frontmatterValue(fm, "status").(string)
+	return s
+}
+
+// effectiveState is the value that says whether a concept is open or closed
+// (D347): the map's open_field when the contract names one and the concept
+// carries a non-empty string there, else status. name is the key it came from,
+// for messages; fromField is true when open_field supplied it.
+func effectiveState(fm *okf.Frontmatter, contract *kb.MapContract) (value, name string, fromField bool) {
+	if fm != nil && contract != nil && contract.OpenField != "" {
+		if v, ok := frontmatterValue(fm, contract.OpenField).(string); ok && strings.TrimSpace(v) != "" {
+			return v, contract.OpenField, true
+		}
+	}
+	return statusOf(fm), "status", false
+}
+
+// openPhase reports whether the concept's state means "not finished" for this map. A
 // contract's open_statuses decide; otherwise the in-progress, blocked,
 // proposed and draft families, open and decision-needed. The active family is
 // never open by default, in a journal or a map: active means the page is valid
 // (D321); a KB that reads it as work lists it in open_statuses.
-func openPhase(status string, contract *kb.MapContract) bool {
+func openPhase(fm *okf.Frontmatter, contract *kb.MapContract) bool {
+	status, _, fromField := effectiveState(fm, contract)
+	if fromField && NormValue(statusOf(fm)) == kb.StatusArchived {
+		return false // archived ends the lifecycle whatever the outcome says (D347)
+	}
+	return openValue(status, contract)
+}
+
+// openValue is openPhase on an already-chosen state value.
+func openValue(status string, contract *kb.MapContract) bool {
 	n := NormValue(status)
 	if n == "" {
 		return false
@@ -78,9 +106,15 @@ func reviewSuspended(fm *okf.Frontmatter) bool {
 // closedPhase reports whether status means "finished". archived is finished
 // too (D322), by the reserved word rather than a family: it is a lifecycle
 // stage after done, not a synonym of it.
-func closedPhase(status string, contract *kb.MapContract) bool {
-	if NormValue(status) == kb.StatusArchived {
+func closedPhase(fm *okf.Frontmatter, contract *kb.MapContract) bool {
+	if NormValue(statusOf(fm)) == kb.StatusArchived {
 		return true
+	}
+	status, _, fromField := effectiveState(fm, contract)
+	if fromField {
+		// D347: any non-open outcome is a finished state; requiring it in
+		// the done/resolved families would hide a KB's own vocabulary.
+		return !openPhase(fm, contract)
 	}
 	fam, ok := familiesFor(contract).member(status)
 	return ok && (fam == "done" || fam == "resolved")
@@ -94,27 +128,27 @@ func decayFindings(in conceptInput, sections []string) []Finding {
 		return nil
 	}
 	var out []Finding
-	status, _ := frontmatterValue(in.Parsed, "status").(string)
+	status, stateName, _ := effectiveState(in.Parsed, in.Contract)
 	masked := kb.MaskCodeSpans(in.Body)
 
 	// --- stale_open ---
-	if in.Contract != nil && openPhase(status, in.Contract) && !reviewSuspended(in.Parsed) {
+	if in.Contract != nil && openPhase(in.Parsed, in.Contract) && !reviewSuspended(in.Parsed) {
 		days, _ := EffectiveStaleAfter(in.Contract)
 		if ts, ok := frontmatterValue(in.Parsed, "timestamp").(string); ok && days > 0 && len(ts) >= 10 {
 			if t, err := time.Parse("2006-01-02", ts[:10]); err == nil {
 				if age := int(Now().Sub(t).Hours() / 24); age > days {
 					out = append(out, Finding{Path: in.RelPath, Check: "stale_open", Severity: SevInfo,
-						Message: fmt.Sprintf("status %q and untouched for %d days (stale after %d): close it, update it, or say why it is still open", status, age, days)})
+						Message: fmt.Sprintf("%s %q and untouched for %d days (stale after %d): close it, update it, or say why it is still open", stateName, status, age, days)})
 				}
 			}
 		}
 	}
 
 	// --- closed_with_open_items ---
-	if closedPhase(status, in.Contract) {
+	if closedPhase(in.Parsed, in.Contract) {
 		if n := countOpenItems(masked, in.Contract); n > 0 {
 			out = append(out, Finding{Path: in.RelPath, Check: "closed_with_open_items", Severity: SevInfo,
-				Message: fmt.Sprintf("status %q but %d unchecked item(s) in the body: tick them, move them, or reopen", status, n)})
+				Message: fmt.Sprintf("%s %q but %d unchecked item(s) in the body: tick them, move them, or reopen", stateName, status, n)})
 		}
 	}
 
@@ -148,7 +182,7 @@ func decayFindings(in conceptInput, sections []string) []Finding {
 		lines := strings.Split(unstruck, "\n")
 		// D313: a heading is a section name ("## Todo list"), not an open
 		// question; a table row of an open concept is tracking its status.
-		tableRowsTracked := openPhase(status, in.Contract)
+		tableRowsTracked := openPhase(in.Parsed, in.Contract)
 		for i, l := range lines {
 			if headingLine.MatchString(l) || (tableRowsTracked && tableRowLine.MatchString(l)) {
 				lines[i] = ""

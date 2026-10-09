@@ -132,6 +132,9 @@ func runWorkQuery(ctx requestContext, k *kb.KB, cc *conformanceCache, q workQuer
 	for _, e := range sel {
 		if e.OpenPhase {
 			status := e.Status
+			if e.State != "" {
+				status = e.State // D347: group by the open_field value
+			}
 			if status == "" {
 				status = "none"
 			}

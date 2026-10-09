@@ -173,7 +173,7 @@ func frontmatterFindings(in conceptInput) []Finding {
 
 	// --- status_semantics (warning, D321) ---
 	if parsed != nil {
-		if status, _ := frontmatterValue(parsed, "status").(string); activeNotOpen(status, in.Contract) {
+		if status, _ := frontmatterValue(parsed, "status").(string); activeNotOpen(parsed, in.Contract) {
 			out = append(out, Finding{Path: in.RelPath, Check: "status_semantics", Severity: SevWarning,
 				Message: fmt.Sprintf("status %q in a journal means the page is valid, not that work is open — use open, in-progress, blocked or another work status; if this journal reads it as open, list it in open_statuses", status)})
 		}

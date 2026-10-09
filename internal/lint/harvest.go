@@ -35,8 +35,11 @@ func harvestCandidateItems(concepts []*reviewConcept, contracts map[string]kb.Ma
 		if !ok || contract.Kind != "journal" {
 			continue
 		}
-		if NormValue(c.status) == kb.StatusArchived || !closedPhase(c.status, &contract) {
+		if NormValue(c.status) == kb.StatusArchived || !closedPhase(c.fm, &contract) {
 			continue
+		}
+		if contract.HarvestAfterDays < 0 {
+			continue // harvest_after: 0, off (D347)
 		}
 		if len(c.timestamp) < 10 {
 			continue
@@ -59,7 +62,8 @@ func harvestCandidateItems(concepts []*reviewConcept, contracts map[string]kb.Ma
 				durable = append(durable, h)
 			}
 		}
-		evidence := fmt.Sprintf("status %s, %d days old (harvest after %d); ", c.status, age, after)
+		state, stateName, _ := effectiveState(c.fm, &contract)
+		evidence := fmt.Sprintf("%s %s, %d days old (harvest after %d); ", stateName, state, age, after)
 		if len(durable) > 0 {
 			evidence += fmt.Sprintf("%d durable-looking section(s): %s", len(durable), strings.Join(durable, ", "))
 		} else {

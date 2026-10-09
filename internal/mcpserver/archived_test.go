@@ -183,8 +183,27 @@ func TestMapUpdate_HarvestAfter(t *testing.T) {
 		t.Fatalf("harvest_after not written: %+v %v", c, err)
 	}
 	callOK(t, s, "map_update", `{"map":"ops","harvest_after":0}`)
+	if c, _ := k.ReadMapContract("ops"); c.HarvestAfterDays != -1 || len(c.Malformed) != 0 {
+		t.Fatalf("harvest_after 0 must read back as off: %+v", c)
+	}
+	callOK(t, s, "map_update", `{"map":"ops","harvest_after":-1}`)
 	if c, _ := k.ReadMapContract("ops"); c.HarvestAfterDays != 0 {
 		t.Fatalf("harvest_after not removed: %+v", c)
+	}
+}
+
+func TestMapUpdate_OpenField(t *testing.T) {
+	k, s := repairKB(t, 0)
+	callOK(t, s, "map_update", `{"map":"ops","open_field":"outcome"}`)
+	if c, err := k.ReadMapContract("ops"); err != nil || c.OpenField != "outcome" {
+		t.Fatalf("open_field not written: %+v %v", c, err)
+	}
+	if res := callTool(t, s, "map_update", `{"map":"ops","open_field":"a b"}`); !res.IsError {
+		t.Fatal("a non-flat open_field must be refused")
+	}
+	callOK(t, s, "map_update", `{"map":"ops","open_field":""}`)
+	if c, _ := k.ReadMapContract("ops"); c.OpenField != "" {
+		t.Fatalf("open_field not cleared: %+v", c)
 	}
 }
 
