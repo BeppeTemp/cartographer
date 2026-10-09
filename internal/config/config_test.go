@@ -634,9 +634,17 @@ func TestLoadWriteGate(t *testing.T) {
 // DefaultAutoRepair stays a literal here (D323), but each entry must be a
 // check whose registered fix may run with no person (D354).
 func TestDefaultAutoRepairIsAutoRepairSafe(t *testing.T) {
+	in := map[string]bool{}
 	for _, check := range DefaultAutoRepair {
+		in[check] = true
 		if !lint.AutoRepairSafe(check) {
 			t.Errorf("%s is in DefaultAutoRepair but its lint spec is not AutoRepairSafe", check)
+		}
+	}
+	// D355: the default is every safe check, not a subset that drifts.
+	for _, s := range lint.Checks() {
+		if s.AutoRepairSafe && !in[s.Name] {
+			t.Errorf("%s is AutoRepairSafe but missing from DefaultAutoRepair", s.Name)
 		}
 	}
 }

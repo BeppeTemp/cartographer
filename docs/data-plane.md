@@ -371,6 +371,17 @@ projections of it. This catalogue is generated from it (a test fails when it dri
   check may be listed in `auto_repair`. **On write**: a write response evaluates it
   (`CheckConcept` for `concept`, `ScopedCheck` for `graph` and `map`).
 - Severity is the registry's default; every finding is built through one constructor that reads it.
+- **Auto-repair runs to a fixpoint (D355).** Repairs depend on each other (a field rename exposes a
+  prose value, a split exposes an invalid value), so the unattended paths never apply one check per
+  pass. Stage 1 repairs each concept to a fixpoint: re-evaluate the in-memory content with
+  `CheckConcept`, apply the allowed checks' fixes, repeat until none is left (at most 8 passes; a content
+  seen twice is an oscillation), then write the concept once. A concept that does not converge is not
+  written and is reported as `did not converge: <checks>` (stderr and the run log). Stage 2 runs the
+  `CrossConcept` checks one by one through the per-check applier (it keeps the mutual-pair guard); if it
+  changed anything, stage 1 runs once more on the concepts it touched. Only `Auto-repair safe` checks run
+  unattended; one named in `auto_repair` that is not safe is ignored and listed in
+  `kb_status.capabilities.auto_repair.ignored`. The operator's `kb_repair` tool is unchanged (any
+  fixable check, one at a time, dry run by default).
 
 <!-- lint:catalogue:begin — generated from internal/lint/registry.go; run `go test ./internal/repodocs -run TestLintCatalogueIsUpToDate -args -update` -->
 | Check | Severity | Level | Accept | Fix | Auto-repair safe | On write |

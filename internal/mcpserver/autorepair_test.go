@@ -40,8 +40,12 @@ func TestAutoRepairQuotaAppliesOnlyTheListedChecks(t *testing.T) {
 	if commitCount(t, k) != before+1 {
 		t.Fatalf("want one commit per check that changed something, got %d", commitCount(t, k)-before)
 	}
-	if got := gitOut(t, k, "log", "-1", "--format=%s"); got != "kb_repair: nonstandard_field (3 concepts)" {
+	// One commit per run (D355): the subject names the run, the body one line per check.
+	if got := gitOut(t, k, "log", "-1", "--format=%s"); got != autoRepairReason {
 		t.Fatalf("subject = %q", got)
+	}
+	if got := gitOut(t, k, "log", "-1", "--format=%b"); !strings.Contains(got, "nonstandard_field: 3") {
+		t.Fatalf("body = %q", got)
 	}
 	if got := gitOut(t, k, "log", "-1", "--format=%(trailers:key=Reason,valueonly)"); got != autoRepairReason {
 		t.Fatalf("reason trailer = %q", got)
@@ -65,7 +69,7 @@ func TestAutoRepairQuotaAppliesOnlyTheListedChecks(t *testing.T) {
 	}
 }
 
-func TestAutoRepairQuotaIsBoundedPerCheck(t *testing.T) {
+func TestAutoRepairQuotaIsBoundedPerRun(t *testing.T) {
 	k, s := repairKB(t, autoRepairLimit+7)
 	k.AutoRepair = []string{"nonstandard_field"}
 	run := s.runAutoRepairQuota(context.Background())

@@ -255,27 +255,34 @@ Parameter details not repeated in the schema:
   doctor loop (D299): `auto_repair` (`enabled`/`disabled`, with `checks` listing what `cartographer kb
   repair --apply` and the background repair may apply unattended, and `default: true` when it is the
   product default and not a list the operator wrote, D323) and `doctor_interval` (`<n> days` or
-  `disabled`); a third, `doctor_auto_interval` (D323), says how often the server applies `auto_repair`
+  `disabled`; `ignored` lists the entries that are not safe to run unattended and are skipped, D355); a third, `doctor_auto_interval` (D323), says how often the server applies `auto_repair`
   by itself (`<n> days`, or `disabled` when the interval is 0 or the list is empty); a fourth,
   `repair_on_write` (D349, setting `kbs[].repair_on_write`), is `enabled` when a write applies the
   mechanical `auto_repair` fixes to what it wrote; a fifth, `write_gate` (D350, setting
   `kbs[].write_gate`), is `off`, `error` or `warning`, or `inactive` when it is set but the KB has no
   auto-commit git repository to roll back to.
-- **Background repair** (D323): every `doctor_auto_interval` (default 1 day, HTTP serve only; the first
-  run follows startup by a minute, or the last logged run plus the interval) the server calls
-  `kb_repair` with `dry_run: false`, `limit: 50` for each `auto_repair` check, through the same
-  write path as an agent: the KB lock, one commit per check that changed something (`kb_repair: <check>
-  (<n> concepts)`, trailer `Reason: auto-repair (background)`), the git sync and the stale-write
-  guard. A KB with an open git conflict, or whose sync is `degraded`, is skipped. Each run is one line
-  of `.cartographer/auto-repair-log.jsonl` (`{at, skipped?, checks: [{check, applied, skipped, commit,
-  error}]}`; local, never committed). It is not a doctor session: it writes no `kb-doctor` log entry,
-  so `last_doctor` does not move. Stopping the server stops it. `auto_repair` absent means the default
-  list (`nonstandard_field`, `tool_param_field`, `invalid_field_value`, `duplicate_link`, `prose_value`:
-  deterministic, no body rewrite, no dropped link); `auto_repair: []` means none; either way
-  `doctor_auto_interval: "0"` turns the heartbeat off.
-- **Repair on write** (D349): `concept_write`, `concept_new`, `concept_patch`, `supersede`,
+- **Background repair** (D323, D355): every `doctor_auto_interval` (default 1 day, HTTP serve only; the
+  first run follows startup by a minute, or the last logged run plus the interval), and once more
+  shortly after a git pull that moved `HEAD` (at least 10 minutes after the previous run, so edits that
+  bypass MCP are repaired within minutes), the server repairs the KB in two stages (`docs/data-plane.md`
+  §Check registry): every concept with a concept-local finding of an `auto_repair` check is repaired to
+  a fixpoint and written once (at most 500 concepts per run, all checks together), then the
+  cross-concept checks run, then the concepts they touched run through stage 1 again. It goes through
+  the same write path as an agent: the KB lock, **one commit per run** (subject `auto-repair
+  (background)`, one body line `<check>: <n>` per check that changed something, trailer `Reason:
+  auto-repair (background)`), the git sync and the stale-write guard. A KB with an open git conflict,
+  or whose sync is `degraded`, is skipped. Each run is one line of
+  `.cartographer/auto-repair-log.jsonl` (`{at, skipped?, checks: [{check, applied, skipped, commit,
+  error}]}`, per-check entries kept; local, never committed). It is not a doctor session: it writes no
+  `kb-doctor` log entry, so `last_doctor` does not move. Stopping the server stops it. Only checks whose
+  registered fix is safe to run unattended run here and on write; others named in `auto_repair` are
+  ignored (one stderr line at startup, `capabilities.auto_repair.ignored`), while `kb_repair` still
+  applies them on request. `auto_repair` absent means every such check (`config.DefaultAutoRepair`);
+  `auto_repair: []` means none; either way `doctor_auto_interval: "0"` turns the heartbeat off.
+- **Repair on write** (D349, D355): `concept_write`, `concept_new`, `concept_patch`, `supersede`,
   `concept_move` and `concept_batch` apply the `auto_repair` fixes to the concepts the call left on
-  disk, inside the write handler and so in the same commit, in both stdio and HTTP. Only those
+  disk, inside the write handler and so in the same commit, in both stdio and HTTP, each concept
+  repaired to a fixpoint (a chain of dependent fixes is one write). Only those
   concepts: a neighbour that `findings` reports (a linker with a new `broken_link`) is never rewritten.
   `broken_link` and `reciprocal_link_item` are never applied on write even when listed (they drop or
   rewrite links, D309); they stay with the timer and `kb_repair`, and so do artifact checks. The

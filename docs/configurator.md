@@ -575,7 +575,7 @@ installs a schedule. It calls `kb_status`, then `kb_repair` with `dry_run: true`
 mechanical fix, and prints per check the planned count and up to 5 examples. With `--apply` it re-runs
 **only** the checks listed in the KB's `kbs[].auto_repair` with `dry_run: false` (`[auto]` in the
 report); a check outside it is never applied. A KB that never wrote `auto_repair` has the default list
-(`nonstandard_field`, `tool_param_field`, `invalid_field_value`, `duplicate_link`, `prose_value`, D323):
+(every check whose fix is safe to run unattended, D323, D355; an artifact check is planned but applied only where `allow_artifact_write` is on):
 the report says so, and says that earlier releases applied none, so an upgrade followed by `--apply` is not
 a surprise; an explicit `auto_repair: []` is reported as such. The server applies the same list by
 itself every `doctor_auto_interval`, and each write already repairs the concepts it wrote

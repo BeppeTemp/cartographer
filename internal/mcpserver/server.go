@@ -112,6 +112,13 @@ type Server struct {
 	now func() time.Time
 	mu  sync.Mutex
 
+	// autoRepairTrigger asks the background repair for a run after a git pull
+	// moved HEAD (D355). Buffered, so a signal never blocks the pull; created
+	// by StartAutoRepair. autoRepairPullGap is the debounce between runs
+	// (overridable in tests).
+	autoRepairTrigger chan struct{}
+	autoRepairPullGap time.Duration
+
 	// sdkOnce/sdkSrv memoise the official-SDK server this Server is served
 	// through (D168). Built on first use, from the tools registered at mount.
 	sdkOnce sync.Once
