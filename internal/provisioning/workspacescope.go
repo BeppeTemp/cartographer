@@ -36,19 +36,24 @@ const (
 // projectDestinationMatrix is destinationMatrix's project-local counterpart.
 //
 // Sources (D193 audit):
+//
 //   - Claude Code: .claude/skills/, .claude/agents/, .claude/settings.json,
 //     .mcp.json, ./CLAUDE.md — https://code.claude.com/docs/en/skills,
 //     /memory, /sub-agents, /hooks, /mcp.
+//
 //   - Codex: .agents/skills and .codex/{agents,hooks.json,config.toml} along
 //     cwd→repository root — https://developers.openai.com/codex/skills,
 //     /subagents, /hooks, /mcp. The project must be *trusted* or Codex ignores
 //     the .codex/ layer entirely, which is why the projection reports itself
 //     inactive there rather than claiming success (see CodexProjectTrusted).
+//
 //   - Kiro: .kiro/skills/ (workspace wins over global) —
 //     https://kiro.dev/docs/skills/.
+//
 //   - OpenCode: .opencode/skills, .opencode/agent, .opencode/plugins, project
 //     opencode.json and AGENTS.md — https://opencode.ai/docs/skills, /rules,
 //     /agents, /plugins.
+//
 //   - Crush: .crush/skills, one of the project skill directories it scans by
 //     default — https://github.com/charmbracelet/crush/tree/main/docs/config.
 //     Its project `.crush.json` was probed on v0.98.0 (D363): its `mcp` and
@@ -57,13 +62,20 @@ const (
 //     agent and instructions cells are not probed and still fail closed
 //     (docs/harnesses.md, ## crush).
 //
-// Two providers have **no** project-local cells at all, and say so rather than
-// pretending (decision 11): hermes renders its configuration from an Ansible
-// role and delivers skills to an inbox with no per-directory notion, and
-// antigravity documents only a global configuration root. A provider in
-// workspace scope that cannot project is reported as
-// "strict isolation unsupported", never silently degraded to the global
-// catalogue — degrading is exactly the exposure this plan exists to prevent.
+//   - Antigravity (D364, `agy` 1.3.2): the workspace `.agents/` layer — skills,
+//     agents, hooks.json, mcp_config.json — plus AGENTS.md, all probed against a
+//     negative control. Its rules directory is deliberately not used: a rule is
+//     read only with `trigger: always_on` frontmatter, which is why the
+//     instructions cell is the AGENTS.md block instead.
+//
+//   - Hermes (D364, v0.21.5): `.hermes/skills` only, and it loads only after the
+//     workspace is listed in `skills.trusted_project_dirs` (HermesProjectTrusted).
+//     Its config.yaml and gateway hooks stay operator-owned (D141), so the other
+//     kinds remain unsupported.
+//
+// A provider in workspace scope that cannot project a kind reports it as
+// unsupported, never silently degraded to the global catalogue — degrading is
+// exactly the exposure this plan exists to prevent.
 var projectDestinationMatrix = map[string]map[configurator.Provider]destination{
 	"mcp": {
 		configurator.ProviderClaudeCode: at(".mcp.json"),
@@ -71,10 +83,10 @@ var projectDestinationMatrix = map[string]map[configurator.Provider]destination{
 		configurator.ProviderOpenCode:   at("opencode.json"),
 		configurator.ProviderKiro:       at(".kiro", "settings", "mcp.json"),
 		configurator.ProviderHermes:     unsupportedDest,
-		// antigravity documents a single global configuration root
-		// (~/.gemini/config); no project-local equivalent was found in the
-		// D193 audit, so the cell fails closed rather than inventing a path.
-		configurator.ProviderAntigravity: unsupportedDest,
+		// antigravity: the global shape (`mcpServers`) in the workspace's
+		// .agents/mcp_config.json; `agy mcp list` shows only the global servers
+		// but the session has the project ones (probed on 1.3.2, D364).
+		configurator.ProviderAntigravity: at(".agents", "mcp_config.json"),
 		configurator.ProviderCrush:       at(".crush.json"),
 	},
 	"instructions": {
@@ -85,12 +97,15 @@ var projectDestinationMatrix = map[string]map[configurator.Provider]destination{
 		// D293: creating this file hides a project's AGENTS.md from the
 		// built-in agents-md@builtin plugin (on by default since 2.1.277),
 		// so the managed block prepends an @AGENTS.md import when one exists.
-		configurator.ProviderClaudeCode:  at("CLAUDE.md"),
-		configurator.ProviderCodex:       at("AGENTS.md"),
-		configurator.ProviderOpenCode:    at("AGENTS.md"),
-		configurator.ProviderKiro:        at(".kiro", "steering", "cartographer.md"),
-		configurator.ProviderHermes:      unsupportedDest,
-		configurator.ProviderAntigravity: unsupportedDest,
+		configurator.ProviderClaudeCode: at("CLAUDE.md"),
+		configurator.ProviderCodex:      at("AGENTS.md"),
+		configurator.ProviderOpenCode:   at("AGENTS.md"),
+		configurator.ProviderKiro:       at(".kiro", "steering", "cartographer.md"),
+		configurator.ProviderHermes:     unsupportedDest,
+		// antigravity: AGENTS.md, read by `agy` (D364). Not .agents/rules/: a
+		// rule is read only with `trigger: always_on` in its frontmatter, so a
+		// plain rule file would be written and silently ignored.
+		configurator.ProviderAntigravity: at("AGENTS.md"),
 		configurator.ProviderCrush:       unsupportedDest,
 	},
 	"agent": {
@@ -102,7 +117,7 @@ var projectDestinationMatrix = map[string]map[configurator.Provider]destination{
 		// as "Workspace" and which wins over the global one (D195).
 		configurator.ProviderKiro:        perName(".json", ".kiro", "agents"),
 		configurator.ProviderHermes:      unsupportedDest,
-		configurator.ProviderAntigravity: unsupportedDest,
+		configurator.ProviderAntigravity: perName(".md", ".agents", "agents"),
 		configurator.ProviderCrush:       unsupportedDest,
 	},
 	"hook": {
@@ -114,9 +129,12 @@ var projectDestinationMatrix = map[string]map[configurator.Provider]destination{
 		// 2.26.1), so a project-local copy of the global registration (D300)
 		// would reach no session the global one misses. Kept unsupported until
 		// a mode fires one and not the other.
-		configurator.ProviderKiro:        unsupportedDest,
-		configurator.ProviderHermes:      unsupportedDest,
-		configurator.ProviderAntigravity: unsupportedDest,
+		configurator.ProviderKiro:   unsupportedDest,
+		configurator.ProviderHermes: unsupportedDest,
+		// antigravity: the files live in .agents/hooks/<n>/ and the entry in
+		// .agents/hooks.json (same schema as the global file); the registration
+		// file is picked from the hook's path (antigravitySettingsRel).
+		configurator.ProviderAntigravity: perName("", ".agents", "hooks"),
 		configurator.ProviderCrush:       perName("", ".crush", "hooks"),
 	},
 	"skill": {
@@ -124,11 +142,18 @@ var projectDestinationMatrix = map[string]map[configurator.Provider]destination{
 		// The repository path Codex documents for skills. The global cell still
 		// points at .codex/skills for the reason D192 records; this is the
 		// target that only became reachable once a workspace scope existed.
-		configurator.ProviderCodex:       perName("", ".agents", "skills"),
-		configurator.ProviderKiro:        perName("", ".kiro", "skills"),
-		configurator.ProviderOpenCode:    perName("", ".opencode", "skills"),
-		configurator.ProviderHermes:      unsupportedDest,
-		configurator.ProviderAntigravity: unsupportedDest,
+		configurator.ProviderCodex:    perName("", ".agents", "skills"),
+		configurator.ProviderKiro:     perName("", ".kiro", "skills"),
+		configurator.ProviderOpenCode: perName("", ".opencode", "skills"),
+		// hermes: loaded only once the workspace is in skills.trusted_project_dirs
+		// (HermesProjectTrusted); .hermes/skills rather than .agents/skills, which
+		// Codex and Antigravity already project into (D364). Written, not
+		// delivered to the inbox: a project skill has no curator to fight.
+		configurator.ProviderHermes: perName("", ".hermes", "skills"),
+		// The .agents/skills directory `agy` scans in a workspace, shared with
+		// Codex: both write the same bytes, and a prune keeps what another
+		// projection of the workspace still records (ApplyOptions.CoOwnedPaths).
+		configurator.ProviderAntigravity: perName("", ".agents", "skills"),
 		configurator.ProviderCrush:       perName("", ".crush", "skills"),
 	},
 }
@@ -178,14 +203,16 @@ func ProjectScopeUnsupportedReason(provider configurator.Provider) string {
 	if SupportsProjectScope(provider) {
 		return ""
 	}
-	switch provider {
-	case configurator.ProviderHermes:
-		return "hermes has no per-directory configuration: its MCP endpoints and instructions are rendered by its own Ansible role, and skills are delivered to a single inbox its curator owns"
-	case configurator.ProviderAntigravity:
-		return "antigravity documents only a global configuration root (~/.gemini/config); no project-local scope was found"
-	default:
-		return "this provider declares no project-local destination"
-	}
+	return "this provider declares no project-local destination"
+}
+
+// projectRegistrationFiles are files a projection writes into without a cell
+// of their own: the registration an artifact kind needs beside its directory.
+// They are owned (excluded from git, checked for collisions, listed by doctor)
+// exactly like a cell path.
+var projectRegistrationFiles = map[configurator.Provider][]string{
+	// The hook entries (D364); the same schema as the global hooks.json.
+	configurator.ProviderAntigravity: {antigravityProjectHooksRel},
 }
 
 // ManagedProjectRoots is ManagedDestinationRoots for the project scope: the
@@ -210,6 +237,13 @@ func ManagedProjectRoots(provider configurator.Provider, workspaceDir string) []
 		seen[abs] = true
 		out = append(out, abs)
 	}
+	for _, rel := range projectRegistrationFiles[provider] {
+		abs := filepath.Join(workspaceDir, filepath.FromSlash(rel))
+		if !seen[abs] {
+			seen[abs] = true
+			out = append(out, abs)
+		}
+	}
 	sort.Strings(out)
 	return out
 }
@@ -233,6 +267,12 @@ func ProjectOwnedPaths(provider configurator.Provider) []string {
 		}
 		seen[rel] = true
 		out = append(out, rel)
+	}
+	for _, rel := range projectRegistrationFiles[provider] {
+		if !seen[rel] {
+			seen[rel] = true
+			out = append(out, rel)
+		}
 	}
 	sort.Strings(out)
 	return out
@@ -398,6 +438,43 @@ func (lf LockFile) WorkspaceProjections(workspace string) []Projection {
 	for _, p := range lf.Projections() {
 		if p.Workspace == workspace {
 			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// CoOwnedPaths returns the managed paths (slash form) that projections of p's
+// workspace other than p itself still record (D364). Two providers can project
+// the same path into one workspace — `.agents/skills/<n>/` for Codex and
+// Antigravity, the AGENTS.md block for Codex, OpenCode and Antigravity — and
+// write it identically, so one of them leaving must not delete what the other
+// still depends on. Empty for the global projection, which shares nothing.
+func (lf LockFile) CoOwnedPaths(p Projection) map[string]bool {
+	if p.Global() {
+		return nil
+	}
+	out := map[string]bool{}
+	for provider, lock := range lf.Workspaces[p.Workspace].Providers {
+		if provider == p.Provider {
+			continue
+		}
+		for _, mf := range lock.Managed {
+			out[filepath.ToSlash(mf.Path)] = true
+		}
+	}
+	return out
+}
+
+// WithoutCoOwned drops from managed every file whose path is in coOwned: the
+// files a prune must leave because another projection still records them.
+func WithoutCoOwned(managed []ManagedFile, coOwned map[string]bool) []ManagedFile {
+	if len(coOwned) == 0 {
+		return managed
+	}
+	out := make([]ManagedFile, 0, len(managed))
+	for _, mf := range managed {
+		if !coOwned[filepath.ToSlash(mf.Path)] {
+			out = append(out, mf)
 		}
 	}
 	return out

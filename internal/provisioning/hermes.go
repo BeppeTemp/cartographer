@@ -28,7 +28,10 @@ func generatedArtifactFiles(a Artifact, opts ApplyOptions, files []ArtifactFile)
 	if a.Kind != "skill" {
 		return nil, "", true
 	}
-	if opts.Provider == configurator.ProviderHermes {
+	// Only the global cell is an inbox. A workspace skill (D364) is written to
+	// .hermes/skills like any other client's, and a "proposal, nothing is
+	// active" note there would be false.
+	if opts.Provider == configurator.ProviderHermes && opts.Scope != ScopeProject {
 		generated = []ArtifactFile{{Path: hermesSourceFile, Content: hermesSourceDoc(a)}}
 	} else if kbName, fromKB := kbSourceName(a); fromKB {
 		generated = []ArtifactFile{{Path: skillSourceEnvFile, Content: skillSourceEnv(kbName, opts.KBRoots[kbName])}}
