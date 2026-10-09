@@ -175,7 +175,7 @@ func (sf *similarFinder) find(ctx requestContext, id, title string) []similarHit
 	hits, _, _ := expandedKeywordHits(ctx, sf.k, sf.rec, sf.deps, title, "", similarSearchWindow, false)
 	var out []similarHit
 	for _, h := range hits {
-		if h.ID == id || lint.Jaccard(want, lint.TitleTokens(h.Title)) < lint.TitleJaccardMin {
+		if h.ID == id || lint.Jaccard(want, lint.TitleTokens(h.Title)) < lint.TitleJaccardMin || lint.SeriesSiblings(title, id, h.Title, h.ID) {
 			continue
 		}
 		out = append(out, similarHit{ID: h.ID, Title: h.Title, Score: h.Score})

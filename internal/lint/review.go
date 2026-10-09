@@ -105,6 +105,76 @@ func Jaccard(a, b map[string]bool) float64 {
 	return float64(inter) / float64(len(a)+len(b)-inter)
 }
 
+var quarterHalfRe = regexp.MustCompile(`^[qh][1-4]$`)
+
+// isPeriodToken reports a folded token that names a period or a number in a
+// series: it holds a digit (2026, 08, v2, q2) or is a quarter/half (D345).
+// Month names are not included: they are language-dependent.
+func isPeriodToken(t string) bool {
+	return quarterHalfRe.MatchString(t) || strings.ContainsFunc(t, unicode.IsDigit)
+}
+
+// SeriesSiblings reports two concepts that are consecutive pages of one
+// series ("Archive 2026 Q2" / "Archive 2026 Q3"): their titles differ only in
+// period tokens and their id basenames differ only in the same positions
+// (D345). Shared by duplicate_candidate and the `similar` advice on creation,
+// so the two never disagree. Anything unclear is false: it stays a candidate.
+func SeriesSiblings(titleA, idA, titleB, idB string) bool {
+	split := func(title string) (period, rest map[string]bool) {
+		period, rest = map[string]bool{}, map[string]bool{}
+		for t := range TitleTokens(title) {
+			if isPeriodToken(t) {
+				period[t] = true
+			} else {
+				rest[t] = true
+			}
+		}
+		return
+	}
+	pa, ra := split(titleA)
+	pb, rb := split(titleB)
+	if len(ra) == 0 || len(ra) != len(rb) {
+		return false
+	}
+	for t := range ra {
+		if !rb[t] {
+			return false
+		}
+	}
+	if len(pa) == len(pb) {
+		same := true
+		for t := range pa {
+			if !pb[t] {
+				same = false
+			}
+		}
+		if same {
+			return false
+		}
+	}
+	base := func(id string) []string {
+		if i := strings.LastIndex(id, "/"); i >= 0 {
+			id = id[i+1:]
+		}
+		return strings.FieldsFunc(strings.ToLower(id), func(r rune) bool { return r == '-' || r == '_' || r == ' ' })
+	}
+	ba, bb := base(idA), base(idB)
+	if len(ba) == 0 || len(ba) != len(bb) {
+		return false
+	}
+	differ := false
+	for i := range ba {
+		if ba[i] == bb[i] {
+			continue
+		}
+		if !isPeriodToken(ba[i]) || !isPeriodToken(bb[i]) {
+			return false
+		}
+		differ = true
+	}
+	return differ
+}
+
 // ReviewItem is one entry of the doctor's work list.
 type ReviewItem struct {
 	Kind            string   `json:"kind"`
@@ -133,6 +203,9 @@ type reviewConcept struct {
 	typ     string
 	title   string
 	status  string
+	// path is the KB-relative file holding the concept: the base its relative
+	// links resolve against ("<id>/index.md" for an expanded concept).
+	path string
 	// timestamp is the frontmatter timestamp, verbatim (harvest_candidate).
 	timestamp string
 	resource  string
@@ -147,12 +220,12 @@ type reviewConcept struct {
 func Review(k *kb.KB, findings []Finding) ([]ReviewItem, error) {
 	var concepts []*reviewConcept
 	byID := map[okf.ConceptID]*reviewConcept{}
-	if err := k.WalkConceptPaths(func(id okf.ConceptID, _ string, content string) error {
+	if err := k.WalkConceptPaths(func(id okf.ConceptID, physicalPath string, content string) error {
 		if _, dup := byID[id]; dup {
 			return nil // direct form wins, as in Run
 		}
 		fmRaw, body, _ := okf.SplitFrontmatter(content)
-		c := &reviewConcept{id: id, body: body}
+		c := &reviewConcept{id: id, body: body, path: physicalPath}
 		if parts := strings.Split(string(id), "/"); len(parts) > 1 {
 			c.mapName = parts[0]
 		}
@@ -213,7 +286,7 @@ func Review(k *kb.KB, findings []Finding) ([]ReviewItem, error) {
 
 	var items []ReviewItem
 	items = append(items, duplicateItems(concepts)...)
-	zombies, zombieItems := zombieWorkItems(byID, concepts, contracts, byConcept, links)
+	zombies, zombieItems := zombieWorkItems(k, byID, concepts, contracts, byConcept, links)
 	items = append(items, zombieItems...)
 	items = append(items, harvestCandidateItems(concepts, contracts)...)
 	items = append(items, statusReclassifyItems(concepts, contracts)...)
@@ -418,7 +491,7 @@ func duplicateItems(concepts []*reviewConcept) []ReviewItem {
 				}
 				seen[other] = true
 				pair := [2]okf.ConceptID{c.id, other}
-				if paired[pair] || namedAfterParent(c.id, other, titles) {
+				if paired[pair] || namedAfterParent(c.id, other, titles) || SeriesSiblings(titles[c.id], string(c.id), titles[other], string(other)) {
 					continue
 				}
 				j := Jaccard(ts, tokens[other])
@@ -478,11 +551,44 @@ func idStrings(ids []okf.ConceptID) []string {
 
 // --- zombie_work ---
 
+// originHeadings are the headings (any level) whose section carries what an
+// open concept came from or waits on (D345). English and Italian, matched as
+// folded prefixes like the procedure headings; "prerequisit" covers the
+// Italian plural. Another language, or a page that differs on purpose, uses
+// lint_ignore: [zombie_work].
+var originHeadings = []string{"origin", "origine", "depends on", "dipende da", "blocked by", "bloccato da", "derived from", "derivato da", "prerequisite", "prerequisit"}
+
+var atxHeading = regexp.MustCompile(`^(#{1,6})\s+(.*?)\s*#*\s*$`)
+
+// originSections joins the sections of masked whose heading is in
+// originHeadings, each running to the next heading of the same or higher
+// level.
+func originSections(masked string) string {
+	var out []string
+	depth := 0 // level of the open origin section, 0 when none
+	for _, line := range strings.Split(masked, "\n") {
+		if m := atxHeading.FindStringSubmatch(line); m != nil {
+			level := len(m[1])
+			if depth != 0 && level <= depth {
+				depth = 0
+			}
+			if depth == 0 && isProcedureHeading(m[2], originHeadings) {
+				depth = level
+			}
+			continue
+		}
+		if depth != 0 {
+			out = append(out, line)
+		}
+	}
+	return strings.Join(out, "\n")
+}
+
 // zombieSharedMin is how many open concepts linking one retired concept make
 // it their common origin rather than each one's subject.
 const zombieSharedMin = 3
 
-func zombieWorkItems(byID map[okf.ConceptID]*reviewConcept, concepts []*reviewConcept, contracts map[string]kb.MapContract, byConcept map[okf.ConceptID][]Finding, links kb.Links) (map[okf.ConceptID]bool, []ReviewItem) {
+func zombieWorkItems(k *kb.KB, byID map[okf.ConceptID]*reviewConcept, concepts []*reviewConcept, contracts map[string]kb.MapContract, byConcept map[okf.ConceptID][]Finding, links kb.Links) (map[okf.ConceptID]bool, []ReviewItem) {
 	type opener struct {
 		id      okf.ConceptID
 		status  string
@@ -499,8 +605,20 @@ func zombieWorkItems(byID map[okf.ConceptID]*reviewConcept, concepts []*reviewCo
 		// open work that still points at it.
 		if kind := contracts[c.mapName].Kind; c.mapName != "" && (kind == "" || kind == "map") && !retired(c.status) {
 			var targets []okf.ConceptID
+			// Only a link in an origin/dependency section is a dependency (D345):
+			// a precedent cited in prose is history, not unfinished work.
+			inOrigin := map[okf.ConceptID]bool{}
+			if sec := originSections(kb.MaskCodeSpans(c.body)); sec != "" {
+				base := c.path
+				if base == "" {
+					base = okf.IDToPath(c.id)
+				}
+				for _, id := range kb.ExtractLinks(sec, base, k.AssetExists) {
+					inOrigin[id] = true
+				}
+			}
 			for t := range links.Out[c.id] {
-				if tc := byID[t]; tc != nil && retired(tc.status) && t != c.id {
+				if tc := byID[t]; tc != nil && retired(tc.status) && t != c.id && inOrigin[t] {
 					targets = append(targets, t)
 				}
 			}
@@ -579,7 +697,7 @@ func zombieWorkItems(byID map[okf.ConceptID]*reviewConcept, concepts []*reviewCo
 		out = append(out, ReviewItem{
 			Kind:            ReviewZombie,
 			Concepts:        []string{string(o.id)},
-			Evidence:        fmt.Sprintf("status %q, still open, and it links to retired concepts: %s", o.status, strings.Join(own, "; ")),
+			Evidence:        fmt.Sprintf("status %q, still open, and it links to retired concepts in an origin/dependency section: %s", o.status, strings.Join(own, "; ")),
 			SuggestedAction: "close it as obsolete, or retarget it at what replaced the retired concept",
 			Weight:          len(own),
 			wholeGraph:      true,

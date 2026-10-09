@@ -217,3 +217,23 @@ func TestKBReviewReportsClampedLimit(t *testing.T) {
 		t.Fatalf("an in-range limit must not be flagged: %v", out)
 	}
 }
+
+// D345: the second page of a period series is not advised as similar to the
+// first, a real near-duplicate still is.
+func TestConceptWriteSimilarSkipsSeriesPages(t *testing.T) {
+	k := setupTestKB(t)
+	writeKBFile(t, k, "manutenzione/archive-2026-q2.md", "---\ntype: Runbook\ntitle: Archived incidents — 2026 Q2\n---\n# A\n")
+	writeKBFile(t, k, "manutenzione/restore-backup.md", "---\ntype: Runbook\ntitle: Restore backup procedure\n---\n# R\n")
+	s := New("test")
+	RegisterKBTools(s, k, Deps{})
+	write := func(id, title string) similarOut {
+		args, _ := json.Marshal(map[string]interface{}{"id": id, "frontmatter": map[string]interface{}{"type": "Runbook", "title": title}, "body": "# T\n"})
+		return writeResult(t, callTool(t, s, "concept_write", string(args)))
+	}
+	if out := write("manutenzione/archive-2026-q3", "Archived incidents — 2026 Q3"); len(out.Similar) != 0 {
+		t.Fatalf("series page advised similar: %+v", out)
+	}
+	if out := write("manutenzione/backup-restore", "Backup restore procedure"); len(out.Similar) != 1 {
+		t.Fatalf("near-duplicate not advised: %+v", out)
+	}
+}
