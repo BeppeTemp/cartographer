@@ -61,9 +61,9 @@ var bootstrapContentHash = contentHashBytes(append(bootstrapHookJSON(), []byte(b
 // lets a later session self-heal once it comes back.
 //
 // A provider that cannot run a hook at session start is a no-op here, lock
-// returned unchanged: hermes and crush have no hook mechanism at all
-// (destDir("hook", _, p) == ""), antigravity has one but no session-start
-// event (noSessionStartEvent). They sync on the scheduled trigger instead
+// returned unchanged: hermes has no hook mechanism at all
+// (destDir("hook", _, p) == ""), antigravity and crush have one but no
+// session-start event (noSessionStartEvent). They sync on the scheduled trigger instead
 // (D140). Kiro gets the hook, which fires only in some of its sessions
 // (SessionHookLimit, D300).
 //
@@ -226,7 +226,7 @@ type hookMechanism struct {
 	// noSessionStartEvent marks a provider whose hook engine has no event
 	// firing once at session start. It registers KB hooks normally, but the
 	// bootstrap hook (D60) cannot exist for it: its trigger is the scheduled
-	// timer instead (D140). True for antigravity, whose five events
+	// timer instead (D140). True for crush (only PreToolUse fires, D363) and antigravity, whose five events
 	// (PreToolUse, PostToolUse, PreInvocation, PostInvocation, Stop) all fire
 	// per tool call or per model invocation — mapping SessionStart onto one of
 	// them would run `sync` on every turn, which is a different behaviour
@@ -318,6 +318,19 @@ var hookMechanisms = map[configurator.Provider]hookMechanism{
 			warning, err := registerAntigravityHook(baseDir, name, fullDestDir)
 			if err != nil {
 				return "", "", fmt.Errorf("provisioning: register hook %s in Antigravity hooks.json: %w", name, err)
+			}
+			return "", warning, nil
+		},
+	},
+	configurator.ProviderCrush: {
+		settingsFile: []string{".config", "crush", "crush.json"},
+		// Probed on v0.98.0 (D363): of six events only PreToolUse fires, so there
+		// is no session-start event, and no PostToolUse for the write-findings hook.
+		noSessionStartEvent: true,
+		register: func(baseDir, name, fullDestDir string) (string, string, error) {
+			warning, err := registerCrushHook(baseDir, name, fullDestDir)
+			if err != nil {
+				return "", "", fmt.Errorf("provisioning: register hook %s in crush.json: %w", name, err)
 			}
 			return "", warning, nil
 		},

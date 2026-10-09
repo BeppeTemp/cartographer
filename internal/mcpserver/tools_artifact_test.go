@@ -863,9 +863,10 @@ func TestArtifactWrite_HookJSONIsValidated(t *testing.T) {
 	if tr := write("hooks/guard/run.sh", "#!/bin/sh\n"); tr.IsError {
 		t.Fatalf("script write: %+v", tr.Content)
 	}
-	// A valid hook.json is accepted without warnings when every client fires it...
+	// A valid hook.json is accepted; Stop is fired by every client but Crush,
+	// which fires only PreToolUse (D363), and the warning names just that one...
 	tr := write("hooks/guard/hook.json", `{"event":"Stop","command":"./run.sh"}`)
-	if tr.IsError || strings.Contains(tr.Content[0].Text, "warnings") {
+	if tr.IsError || !strings.Contains(tr.Content[0].Text, "not fired by: crush (") {
 		t.Fatalf("valid hook: %+v", tr.Content)
 	}
 	// An event outside the vocabulary is accepted with a warning: a client may

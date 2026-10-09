@@ -271,6 +271,7 @@ func TestSupportsSessionHook(t *testing.T) {
 		{configurator.ProviderKiro, true},
 		{configurator.ProviderHermes, false},
 		{configurator.ProviderAntigravity, false},
+		{configurator.ProviderCrush, false},
 	} {
 		if got := provisioning.SupportsSessionHook(tc.provider); got != tc.want {
 			t.Errorf("SupportsSessionHook(%s) = %v; want %v", tc.provider, got, tc.want)

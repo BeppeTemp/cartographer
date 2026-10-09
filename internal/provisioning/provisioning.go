@@ -1865,7 +1865,7 @@ func Apply(m Manifest, opts ApplyOptions) (AppliedResult, error) {
 					result.Warnings = append(result.Warnings, fmt.Sprintf(
 						"mcp %q: %s does not support headers for MCP servers, ignored", a.Name, d.Provider))
 				}
-				rp, warnings, regErr := registerMCPServer(opts.BaseDir, a.Name, spec, opts.Provider)
+				rp, warnings, regErr := registerMCPServer(opts.BaseDir, a.Name, spec, opts.Provider, opts.Scope)
 				if regErr != nil {
 					return AppliedResult{}, fmt.Errorf("provisioning: register mcp %s: %w", a.Name, regErr)
 				}
@@ -2981,7 +2981,7 @@ func PruneManaged(managed []ManagedFile, baseDir string, dryRun bool) ([]Managed
 			// but the dedup by name stays for consistency with the same pattern.
 			if !dryRun && !mcpDone[mf.Name] {
 				if provider := mcpProviderFromPath(mf.Path); provider != "" {
-					if err := removeMCPServer(baseDir, mf.Name, provider); err != nil {
+					if err := removeMCPServer(baseDir, mf.Name, provider, filepath.ToSlash(mf.Path)); err != nil {
 						return nil, fmt.Errorf("provisioning: prune mcp %s: %w", mf.Name, err)
 					}
 				}
@@ -3012,6 +3012,10 @@ func PruneManaged(managed []ManagedFile, baseDir string, dryRun bool) ([]Managed
 				case "antigravity":
 					if err := removeAntigravityHook(baseDir, mf.Name); err != nil {
 						return nil, fmt.Errorf("provisioning: prune entry Antigravity hooks.json hook %s: %w", mf.Name, err)
+					}
+				case "crush":
+					if err := removeCrushHook(baseDir, mf.Name, mf.Path); err != nil {
+						return nil, fmt.Errorf("provisioning: prune entry Crush hook %s: %w", mf.Name, err)
 					}
 				case "kiro":
 					if err := removeKiroHook(baseDir, mf.Name); err != nil {
@@ -3095,8 +3099,8 @@ var unsupportedDest = destination{unsupported: true}
 //   - hermes supports exactly one kind, "skill", and delivers it to an inbox
 //     for the agent to adopt rather than installing it (D141). Its four other
 //     cells are unsupported for stated reasons, not by omission.
-//   - crush documents neither a user-level subagent directory nor a hook
-//     mechanism, so those two cells are unsupported (D225).
+//   - crush documents no user-level subagent directory, so that cell is
+//     unsupported (D225); its hook cell is supported since D363.
 var destinationMatrix = map[string]map[configurator.Provider]destination{
 	"mcp": {
 		configurator.ProviderClaudeCode: at(".claude.json"),
@@ -3172,10 +3176,10 @@ var destinationMatrix = map[string]map[configurator.Provider]destination{
 		// start, so its trigger is the scheduled timer (D140/D141).
 		configurator.ProviderHermes:      unsupportedDest,
 		configurator.ProviderAntigravity: perName("", ".gemini", "config", "hooks"),
-		// crush: no hook mechanism is documented at all, so nothing fires at
-		// conversation start and its trigger is the scheduled timer, as for
-		// kiro and hermes.
-		configurator.ProviderCrush: unsupportedDest,
+		// crush: hooks fire from `hooks` in crush.json, PreToolUse only (probed
+		// on v0.98.0, D363), registered by registerCrushHook. No session event,
+		// so its sync trigger stays the scheduled timer.
+		configurator.ProviderCrush: perName("", ".config", "crush", "hooks"),
 	},
 	"skill": {
 		configurator.ProviderClaudeCode: perName("", ".claude", "skills"),

@@ -51,10 +51,11 @@ const (
 //     /agents, /plugins.
 //   - Crush: .crush/skills, one of the project skill directories it scans by
 //     default — https://github.com/charmbracelet/crush/tree/main/docs/config.
-//     Its project *configuration* was documented only in `crushrc` form when
-//     D225 was written; the docs now also name `.crush.json`/`crush.json` in
-//     the project directory, but no probe has confirmed Crush reads them, so the
-//     four other cells still fail closed (docs/harnesses.md, ## crush).
+//     Its project `.crush.json` was probed on v0.98.0 (D363): its `mcp` and
+//     `hooks` entries are used by the session, so the mcp and hook cells are
+//     supported (hooks live in .crush/hooks/, registered in .crush.json). The
+//     agent and instructions cells are not probed and still fail closed
+//     (docs/harnesses.md, ## crush).
 //
 // Two providers have **no** project-local cells at all, and say so rather than
 // pretending (decision 11): hermes renders its configuration from an Ansible
@@ -74,7 +75,7 @@ var projectDestinationMatrix = map[string]map[configurator.Provider]destination{
 		// (~/.gemini/config); no project-local equivalent was found in the
 		// D193 audit, so the cell fails closed rather than inventing a path.
 		configurator.ProviderAntigravity: unsupportedDest,
-		configurator.ProviderCrush:       unsupportedDest,
+		configurator.ProviderCrush:       at(".crush.json"),
 	},
 	"instructions": {
 		// The project root's own CLAUDE.md is the file Claude Code reads for a
@@ -116,7 +117,7 @@ var projectDestinationMatrix = map[string]map[configurator.Provider]destination{
 		configurator.ProviderKiro:        unsupportedDest,
 		configurator.ProviderHermes:      unsupportedDest,
 		configurator.ProviderAntigravity: unsupportedDest,
-		configurator.ProviderCrush:       unsupportedDest,
+		configurator.ProviderCrush:       perName("", ".crush", "hooks"),
 	},
 	"skill": {
 		configurator.ProviderClaudeCode: perName("", ".claude", "skills"),

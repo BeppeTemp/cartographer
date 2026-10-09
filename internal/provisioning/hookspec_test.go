@@ -44,12 +44,13 @@ func TestValidateHookJSON_ReportsClientsThatWillNotFire(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := strings.Join(misses, ","); got != "claude,codex,opencode,kiro" {
-		t.Errorf("PreInvocation misses = %q, want claude,codex,opencode,kiro", got)
+	if got := strings.Join(misses, ","); got != "claude,codex,opencode,kiro,crush" {
+		t.Errorf("PreInvocation misses = %q, want claude,codex,opencode,kiro,crush", got)
 	}
 	misses, _ = ValidateHookJSON([]byte(`{"event":"Stop","command":"./x.sh"}`))
-	if len(misses) != 0 {
-		t.Errorf("Stop reaches every hook client, got misses %v", misses)
+	// Crush fires only PreToolUse (probed on v0.98.0, D363).
+	if got := strings.Join(misses, ","); got != "crush" {
+		t.Errorf("Stop misses = %q, want crush", got)
 	}
 	// Kiro's tool events were never probed (D300): not claimed.
 	misses, _ = ValidateHookJSON([]byte(`{"event":"PreToolUse","command":"./x.sh"}`))

@@ -48,10 +48,17 @@ func mcpServerMarkers(name string) (begin, end string) {
 // `cartographer connect` itself writes Cartographer's own "cartographer" entry
 // into (see destDir(kind:"mcp", ...)) — plus any non-fatal warnings from
 // EmitServer (e.g. a header codex cannot represent, D69 WP3).
-func registerMCPServer(baseDir, name string, spec configurator.ServerSpec, provider configurator.Provider) (relPath string, warnings []string, err error) {
+func registerMCPServer(baseDir, name string, spec configurator.ServerSpec, provider configurator.Provider, scope Scope) (relPath string, warnings []string, err error) {
 	r, err := configurator.EmitServer(name, spec, provider)
 	if err != nil {
 		return "", nil, err
+	}
+	// The emitter knows the global file only. In a workspace the entry goes to
+	// the project cell of the destination matrix (D363: Crush's .crush.json).
+	if scope == ScopeProject {
+		if dest := destDirScoped("mcp", "", provider, scope); dest != "" {
+			r.FilePath = dest
+		}
 	}
 
 	if filepath.Ext(r.FilePath) == ".toml" {
@@ -106,8 +113,7 @@ func registerMCPServer(baseDir, name string, spec configurator.ServerSpec, provi
 // server-map key (and, for opencode, the "$schema" hint), the file itself is
 // removed instead of left as an empty shell; claude.json is never deleted
 // (Claude Code's own shared state file, D63's absolute rule), only reduced.
-func removeMCPServer(baseDir, name string, provider configurator.Provider) error {
-	filePath := destDir("mcp", "", provider)
+func removeMCPServer(baseDir, name string, provider configurator.Provider, filePath string) error {
 	if filePath == "" {
 		return nil
 	}
@@ -178,6 +184,13 @@ func isEmptyMCPProviderShell(settings map[string]interface{}) bool {
 // (same pattern as hookProviderFromPath).
 func mcpProviderFromPath(path string) configurator.Provider {
 	slash := filepath.ToSlash(path)
+	// Project cells whose file differs from the global one (workspacescope.go).
+	switch slash {
+	case ".mcp.json":
+		return configurator.ProviderClaudeCode
+	case crushProjectConfigRel:
+		return configurator.ProviderCrush
+	}
 	for _, d := range configurator.Providers() {
 		if slash == d.MCPConfigPath {
 			return d.Provider

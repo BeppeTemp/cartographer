@@ -14,7 +14,7 @@ import (
 
 // hookEventReach is the one declared vocabulary of hook.json events (D284): every
 // canonical event name, with the providers whose hook mechanism can fire it.
-// Validation on write (ValidateHookJSON), lint, and the claude/codex/kiro
+// Validation on write (ValidateHookJSON), lint, and the claude/codex/kiro/crush
 // registrars all read this table; the OpenCode and Antigravity registrars keep their own
 // mapping data (openCodeHookEvents, antigravityHookEvents) because it carries
 // more than a yes/no, and a test pins that the two agree with this table.
@@ -31,7 +31,7 @@ var hookEventReach = map[string][]configurator.Provider{
 	// this vocabulary, so neither is claimed.
 	"SessionStart":     {configurator.ProviderClaudeCode, configurator.ProviderCodex, configurator.ProviderOpenCode, configurator.ProviderKiro},
 	"UserPromptSubmit": {configurator.ProviderClaudeCode, configurator.ProviderCodex, configurator.ProviderKiro},
-	"PreToolUse":       {configurator.ProviderClaudeCode, configurator.ProviderCodex, configurator.ProviderOpenCode, configurator.ProviderAntigravity},
+	"PreToolUse":       {configurator.ProviderClaudeCode, configurator.ProviderCodex, configurator.ProviderOpenCode, configurator.ProviderAntigravity, configurator.ProviderCrush},
 	"PostToolUse":      {configurator.ProviderClaudeCode, configurator.ProviderCodex, configurator.ProviderOpenCode, configurator.ProviderAntigravity},
 	"Stop":             {configurator.ProviderClaudeCode, configurator.ProviderCodex, configurator.ProviderOpenCode, configurator.ProviderAntigravity, configurator.ProviderKiro},
 	"SubagentStop":     {configurator.ProviderClaudeCode, configurator.ProviderCodex},
@@ -50,6 +50,7 @@ var hookCapableProviders = []configurator.Provider{
 	configurator.ProviderOpenCode,
 	configurator.ProviderAntigravity,
 	configurator.ProviderKiro,
+	configurator.ProviderCrush,
 }
 
 // HookEventNames returns the declared event vocabulary, sorted.

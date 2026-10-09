@@ -96,7 +96,7 @@ func TestDestDirPaths(t *testing.T) {
 		{"instructions", configurator.ProviderCrush, ".config/crush/CRUSH.md"},
 		{"skill", configurator.ProviderCrush, ".config/crush/skills/demo"},
 		{"agent", configurator.ProviderCrush, ""},
-		{"hook", configurator.ProviderCrush, ""},
+		{"hook", configurator.ProviderCrush, ".config/crush/hooks/demo"},
 		// A kind or provider this binary does not know is not materializable:
 		// a manifest from a newer server must not land somewhere arbitrary.
 		{"newkind", configurator.ProviderClaudeCode, ""},
