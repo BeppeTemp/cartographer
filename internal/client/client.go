@@ -148,6 +148,11 @@ type Health struct {
 	// means unknown or up to date; the server never names a command, since
 	// how it was deployed is not knowable from inside.
 	LatestVersion string `json:"latest_version,omitempty"`
+	// Bootstrapping is true only while the server is still cloning and
+	// indexing its KBs (D348). Health turns it into an error: the answer
+	// carries no KB list, and reading it as "zero KBs" would let sync prune
+	// managed files against an empty list.
+	Bootstrapping bool `json:"bootstrapping,omitempty"`
 }
 
 // Routed reports whether this server serves a routed mount (D187).
@@ -483,6 +488,10 @@ func (c *MCPClient) Health(timeout time.Duration) (*Health, error) {
 	if err := json.NewDecoder(io.LimitReader(resp.Body, 8*1024*1024)).Decode(&health); err != nil {
 		return nil, &RemoteError{State: RemoteFailed, Code: CodeMCPFailed,
 			Message: fmt.Sprintf("invalid health response from %s", u), Cause: err}
+	}
+	if health.Bootstrapping {
+		return nil, &RemoteError{State: RemoteUnavailable, Code: CodeHTTPFailed,
+			Message: "server is bootstrapping its KBs, retry shortly"}
 	}
 	return &health, nil
 }

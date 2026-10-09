@@ -601,3 +601,19 @@ func TestHealth_DecodesLatestVersion(t *testing.T) {
 		}
 	}
 }
+
+// D348: a bootstrapping server answers /health 200 with no KB list yet. Health
+// must report "could not ask", never a value a caller could read as zero KBs.
+func TestHealth_BootstrappingIsAnError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{"status":"ok","version":"v1","kbs":[],"ready":false,"bootstrapping":true,"phase":"cloning"}`))
+	}))
+	defer srv.Close()
+	health, err := client.New(srv.URL+"/mcp", "").Health(time.Second)
+	if err == nil || health != nil {
+		t.Fatalf("Health = %v, %v; want an error", health, err)
+	}
+	if !strings.Contains(err.Error(), "bootstrapping") {
+		t.Errorf("error = %v", err)
+	}
+}

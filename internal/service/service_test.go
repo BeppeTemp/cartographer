@@ -1439,3 +1439,43 @@ func TestDialAddr(t *testing.T) {
 		}
 	}
 }
+
+// D348: a process that is up but still cloning/indexing answers /health with
+// bootstrapping:true. Replace must keep polling through it, not stop (protocol
+// error) and not accept it as the replacement.
+func TestReplace_RetriesThroughBootstrapping(t *testing.T) {
+	home := withTestHome(t, "linux")
+	var n int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if atomic.AddInt32(&n, 1) <= 3 {
+			fmt.Fprint(w, `{"status":"ok","version":"v1.2.3","bootstrapping":true,"phase":"cloning"}`)
+			return
+		}
+		fmt.Fprint(w, `{"status":"ok","version":"v1.2.3"}`)
+	}))
+	defer srv.Close()
+	configPath := writeReplaceConfig(t, home, serverAddr(srv))
+
+	m, _ := newTestManager()
+	if err := m.Replace(ReplaceOptions{ConfigPath: configPath, ExpectedVersion: "v1.2.3", Timeout: 2 * time.Second, PollInterval: 5 * time.Millisecond}); err != nil {
+		t.Fatalf("Replace: %v", err)
+	}
+	if got := atomic.LoadInt32(&n); got < 4 {
+		t.Errorf("Replace accepted a bootstrapping answer after %d probes", got)
+	}
+}
+
+func TestReplace_TimeoutNamesBootstrapping(t *testing.T) {
+	home := withTestHome(t, "linux")
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, `{"status":"ok","version":"v1.2.3","bootstrapping":true}`)
+	}))
+	defer srv.Close()
+	configPath := writeReplaceConfig(t, home, serverAddr(srv))
+
+	m, _ := newTestManager()
+	err := m.Replace(ReplaceOptions{ConfigPath: configPath, ExpectedVersion: "v1.2.3", Timeout: 100 * time.Millisecond, PollInterval: 10 * time.Millisecond})
+	if err == nil || !strings.Contains(err.Error(), "still bootstrapping") {
+		t.Fatalf("want a timeout naming bootstrapping, got %v", err)
+	}
+}

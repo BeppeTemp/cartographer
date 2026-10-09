@@ -586,6 +586,10 @@ type healthInfo struct {
 	// StartedAt identifies the answering process (D266); empty from a server
 	// that predates the field.
 	StartedAt string `json:"started_at"`
+	// Bootstrapping is set while the server still clones and indexes its KBs
+	// (D348); fetchHealth reports it as an error so no caller reads the empty
+	// kbs list of that window as "no KB mounted".
+	Bootstrapping bool `json:"bootstrapping"`
 }
 
 // healthKB is one entry of /health's kbs array. Only the name is decoded:
@@ -625,6 +629,9 @@ func fetchHealth(baseURL string) (*healthInfo, error) {
 	var h healthInfo
 	if err := json.NewDecoder(resp.Body).Decode(&h); err != nil {
 		return nil, err
+	}
+	if h.Bootstrapping {
+		return nil, fmt.Errorf("%s/health: server is bootstrapping its KBs, retry shortly", baseURL)
 	}
 	return &h, nil
 }

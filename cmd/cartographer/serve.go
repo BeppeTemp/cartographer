@@ -13,6 +13,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -200,40 +201,27 @@ func resolveSopsAgeKeyFile(spec config.KBSpec, sops config.SopsConfig, name stri
 	return sops.AgeKeyFile
 }
 
-// runServe opens/bootstraps all configured KBs and starts the server.
-func runServe(cfg *config.Config) {
-	var auditLog *audit.Log
-	if cfg.Audit.Log != "" {
-		opts := auditOptions(cfg.Audit)
-		if cfg.Audit.KeySeed != "" {
-			kp, err := audit.KeyPairFromSeed(cfg.Audit.KeySeed)
-			if err != nil {
-				log.Fatalf("audit key seed invalid: %v", err)
-			}
-			al, err := audit.OpenWithKeyAndOptions(cfg.Audit.Log, kp, opts)
-			if err != nil {
-				log.Fatalf("audit log open: %v", err)
-			}
-			auditLog = al
-			log.Printf("audit log: %s (mode %s, signing enabled)", cfg.Audit.Log, auditLog.ModeName())
-		} else {
-			al, err := audit.OpenWithOptions(cfg.Audit.Log, opts)
-			if err != nil {
-				log.Fatalf("audit log open: %v", err)
-			}
-			auditLog = al
-			log.Printf("audit log: %s (mode %s)", cfg.Audit.Log, auditLog.ModeName())
-		}
-	}
+// kbBootstrap is what bootstrapKBs hands to the transport: the mounted KBs and
+// their per-KB wiring, index-aligned (D348).
+type kbBootstrap struct {
+	kbs             []*kb.KB
+	names           []string
+	artifactSigners []ed25519.PrivateKey
+	allowlists      [][]provisioning.MCPAllowlistEntry
+	sqlIdxs         map[string]*sqlindex.Index
+}
 
-	if err := setupGitSSH(cfg.Git); err != nil {
-		log.Fatalf("git SSH setup: %v", err)
-	}
-
+// bootstrapKBs clones remote KBs, opens every mount, wires it and reconciles
+// its SQL index. It is the slow part of startup: in HTTP mode it runs after
+// the listener is up (D348), in stdio before the transport. phase reports
+// "cloning", "mounting" and "indexing" for /health. Failures are fatal, as
+// they always were.
+func bootstrapKBs(cfg *config.Config, phase func(string)) kbBootstrap {
 	// Collect all KB mounts: explicit KBSpec paths first (local, then
 	// remote clones — each carrying its own spec for per-KB git identity),
 	// then auto-discovered from Data (zero-value spec = fallback to the
 	// global cfg.Git identity).
+	phase("cloning")
 	var mounts []kbMount
 	for _, spec := range cfg.KBs {
 		if err := spec.GitBranchProfileError(cfg.Git.Profile); err != nil {
@@ -285,6 +273,7 @@ func runServe(cfg *config.Config) {
 		log.Printf("warning: data dir %s has no KBs yet — serving 0 KBs; create a subdirectory (or add kbs: entries) and restart", cfg.Data)
 	}
 
+	phase("mounting")
 	seenNames := make(map[string]string) // name → first path seen
 	var kbs []*kb.KB
 	var kbNames []string                                   // index-aligned with kbs
@@ -399,6 +388,7 @@ func runServe(cfg *config.Config) {
 
 	log.Printf("cartographer %s — %d KB(s) mounted (git-autocommit=%v git-sync=%v)", version, len(kbs), cfg.Git.Autocommit, cfg.Git.Sync)
 
+	phase("indexing")
 	// Open per-KB SQLite search index (best-effort; falls back to in-memory).
 	sqlIdxs := make(map[string]*sqlindex.Index, len(kbs))
 	for _, k := range kbs {
@@ -418,12 +408,45 @@ func runServe(cfg *config.Config) {
 			log.Printf("sqlindex: reconciled at startup: indexed=%d updated=%d removed=%d", stats.Indexed, stats.Updated, stats.Removed)
 		}
 	}
+	return kbBootstrap{kbs: kbs, names: kbNames, artifactSigners: kbArtifactSigners, allowlists: kbMCPAllowlists, sqlIdxs: sqlIdxs}
+}
+
+// runServe opens/bootstraps all configured KBs and starts the server.
+func runServe(cfg *config.Config) {
+	var auditLog *audit.Log
+	if cfg.Audit.Log != "" {
+		opts := auditOptions(cfg.Audit)
+		if cfg.Audit.KeySeed != "" {
+			kp, err := audit.KeyPairFromSeed(cfg.Audit.KeySeed)
+			if err != nil {
+				log.Fatalf("audit key seed invalid: %v", err)
+			}
+			al, err := audit.OpenWithKeyAndOptions(cfg.Audit.Log, kp, opts)
+			if err != nil {
+				log.Fatalf("audit log open: %v", err)
+			}
+			auditLog = al
+			log.Printf("audit log: %s (mode %s, signing enabled)", cfg.Audit.Log, auditLog.ModeName())
+		} else {
+			al, err := audit.OpenWithOptions(cfg.Audit.Log, opts)
+			if err != nil {
+				log.Fatalf("audit log open: %v", err)
+			}
+			auditLog = al
+			log.Printf("audit log: %s (mode %s)", cfg.Audit.Log, auditLog.ModeName())
+		}
+	}
+
+	if err := setupGitSSH(cfg.Git); err != nil {
+		log.Fatalf("git SSH setup: %v", err)
+	}
 
 	latestVersion := startServerUpdateCheck(cfg, version)
 	if cfg.HTTP != "" {
-		serveHTTP(cfg.HTTP, kbs, kbNames, kbArtifactSigners, kbMCPAllowlists, cfg.Auth, cfg.MCP.AllowedOrigins, cfg.ToolsProfile, cfg.Web.Enabled, sqlIdxs, auditLog, latestVersion)
+		serveHTTP(cfg.HTTP, func(phase func(string)) kbBootstrap { return bootstrapKBs(cfg, phase) }, cfg.Auth, cfg.MCP.AllowedOrigins, cfg.ToolsProfile, cfg.Web.Enabled, auditLog, latestVersion)
 	} else {
-		serveStdio(kbs[0], kbArtifactSigners[0], kbMCPAllowlists[0], cfg.ToolsProfile, sqlIdxs, auditLog, latestVersion)
+		bs := bootstrapKBs(cfg, func(string) {})
+		serveStdio(bs.kbs[0], bs.artifactSigners[0], bs.allowlists[0], cfg.ToolsProfile, bs.sqlIdxs, auditLog, latestVersion)
 	}
 }
 
@@ -453,7 +476,12 @@ func serveStdio(k *kb.KB, artifactSigner ed25519.PrivateKey, allowlist []provisi
 	}
 }
 
-func serveHTTP(addr string, kbs []*kb.KB, names []string, artifactSigners []ed25519.PrivateKey, allowlists [][]provisioning.MCPAllowlistEntry, authCfg config.AuthConfig, allowedOrigins []string, toolsProfile string, webEnabled bool, sqlIdxs map[string]*sqlindex.Index, auditLog *audit.Log, latestVersion func() string) {
+// serveHTTP binds the port first and bootstraps the KBs in the background
+// (D348): until boot returns and the real handler is built, a BootGate answers
+// /health (live, bootstrapping) and /ready (503) and refuses everything else
+// with a retryable 503. A bad auth configuration still fails before the
+// listener starts; a failure inside boot stays fatal.
+func serveHTTP(addr string, boot func(phase func(string)) kbBootstrap, authCfg config.AuthConfig, allowedOrigins []string, toolsProfile string, webEnabled bool, auditLog *audit.Log, latestVersion func() string) {
 	if auditLog != nil {
 		log.Printf("audit log active")
 	}
@@ -489,96 +517,12 @@ func serveHTTP(addr string, kbs []*kb.KB, names []string, artifactSigners []ed25
 		}
 	}
 
-	multi := mcpserver.NewMultiKBServer(version)
-	multi.SetLatestVersionSource(latestVersion)
+	gate := mcpserver.NewBootGate(version)
 	// The background repair (D323) of every mounted KB stops with the server:
 	// cancelled before the drain, so no run starts while it shuts down.
 	repairCtx, stopRepair := context.WithCancel(context.Background())
 	defer stopRepair()
-	// serverInfo.name (D102) identifies the mounted KB only when more than
-	// one is mounted — a single-KB HTTP server keeps the historical bare
-	// "cartographer" (asserted verbatim in server_test.go).
-	multiKB := len(kbs) > 1
-	// Each KB learns its siblings' roots for lint's cross_kb_path (D316).
-	if multiKB {
-		for i, k := range kbs {
-			siblings := make(map[string]string, len(kbs)-1)
-			for j, other := range kbs {
-				if j != i {
-					siblings[names[j]] = other.Root
-				}
-			}
-			k.SiblingRoots = siblings
-		}
-	}
-	for i, k := range kbs {
-		k := k
-		name := names[i]
-		multi.MountKB(name, func(s *mcpserver.Server) {
-			if multiKB {
-				s.SetDisplayName("cartographer:" + name)
-			}
-			sqlIdx := sqlIdxs[filepath.Clean(k.Root)]
-			mcpserver.RegisterKBTools(s, k, mcpserver.Deps{SQLIndex: sqlIdx, BundleFS: skillbundle.FS, ArtifactSigner: artifactSigners[i], MCPAllowlist: allowlists[i], RoutedMount: true})
-			s.SetToolsProfile(toolsProfile)
-			s.SetAuditLog(auditLog)
-			s.SetKBName(name)
-			s.SetTransport("http")
-			s.SetLatestVersionSource(latestVersion)
-			s.StartAutoRepair(repairCtx)
-		})
-		multi.SetKBCapabilities(name, mcpserver.KBCapabilitiesFor(k))
-		log.Printf("mounted KB %q at %s (tools profile: %s)", name, k.Root, toolsProfile)
-	}
 
-	// D187/D288: the routed mount is the one agent-facing topology, always
-	// served. The per-KB endpoints above stay as plumbing (the routed mount
-	// dispatches into them) and for clients not yet re-synced. It is enabled
-	// after every KB is mounted because it registers the union of what they
-	// registered. A server with no KB yet has nothing to route: the next
-	// restart, with KBs, serves it.
-	if len(names) > 0 {
-		err := multi.EnableRoutedMount(version, func(s *mcpserver.Server) {
-			s.SetToolsProfile(toolsProfile)
-			s.SetTransport("http")
-		})
-		if err != nil {
-			log.Fatal(err)
-		}
-		log.Printf("routed mount enabled at %s (%d KB(s), one copy of the tools, kb as a tool argument)",
-			mcpserver.RoutedMountPath, len(names))
-	}
-
-	// The read-only Atlas UI (D227). Mounted only in HTTP mode and only when
-	// enabled: with web.enabled off, /ui/ and /api/ui/v1 are not routed at all
-	// and the HTTP surface is byte-identical to what it was before the UI.
-	webMounted := false
-	if webEnabled {
-		static, err := webui.Handler()
-		if err != nil {
-			// The bundle is embedded at build time, so a failure here means a
-			// broken binary rather than a misconfiguration: serving the rest
-			// without the UI is better than refusing to start.
-			log.Printf("warning: the embedded web UI is unusable, serving without it: %v", err)
-		} else {
-			multi.EnableWeb(static)
-			webMounted = true
-			log.Printf("Atlas UI on http://%s%s", displayAddr(addr), webui.MountPath)
-		}
-	}
-
-	// The origin check sits outside authentication (D128): a page that is not
-	// allowed to talk to this server should be turned away before its token is
-	// looked at.
-	handler := mcpserver.OriginGuard(allowedOrigins, store.Middleware(multi.Handler()))
-	if webMounted {
-		// Outside the auth chain: the browser that types the bare address has
-		// no token yet (webui.RedirectRoot).
-		handler = mcpserver.OriginGuard(allowedOrigins, webui.RedirectRoot(store.Middleware(multi.Handler())))
-	}
-	if len(allowedOrigins) > 0 {
-		log.Printf("MCP origin allow-list: %s", strings.Join(allowedOrigins, ", "))
-	}
 	// Timeouts are set explicitly: http.Server's zero value has none, so a
 	// client that opens a connection and never finishes its request headers
 	// holds a goroutine and a file descriptor indefinitely (the classic
@@ -589,7 +533,7 @@ func serveHTTP(addr string, kbs []*kb.KB, names []string, artifactSigners []ed25
 	// are already bounded per-operation.
 	httpSrv := &http.Server{
 		Addr:              addr,
-		Handler:           handler,
+		Handler:           gate.Handler(),
 		ReadHeaderTimeout: 15 * time.Second,
 		ReadTimeout:       60 * time.Second,
 		IdleTimeout:       120 * time.Second,
@@ -611,6 +555,105 @@ func serveHTTP(addr string, kbs []*kb.KB, names []string, artifactSigners []ed25
 	go func() {
 		log.Printf("HTTP server listening on %s", addr)
 		serveErrCh <- httpSrv.ListenAndServe()
+	}()
+
+	// published for the shutdown flush; nil until the bootstrap has finished.
+	var mounted atomic.Pointer[[]*kb.KB]
+	go func() {
+		bs := boot(gate.SetPhase)
+		kbs, names, artifactSigners, allowlists, sqlIdxs := bs.kbs, bs.names, bs.artifactSigners, bs.allowlists, bs.sqlIdxs
+		multi := mcpserver.NewMultiKBServer(version)
+		multi.SetLatestVersionSource(latestVersion)
+		// serverInfo.name (D102) identifies the mounted KB only when more than
+		// one is mounted — a single-KB HTTP server keeps the historical bare
+		// "cartographer" (asserted verbatim in server_test.go).
+		multiKB := len(kbs) > 1
+		// Each KB learns its siblings' roots for lint's cross_kb_path (D316).
+		if multiKB {
+			for i, k := range kbs {
+				siblings := make(map[string]string, len(kbs)-1)
+				for j, other := range kbs {
+					if j != i {
+						siblings[names[j]] = other.Root
+					}
+				}
+				k.SiblingRoots = siblings
+			}
+		}
+		for i, k := range kbs {
+			k := k
+			name := names[i]
+			multi.MountKB(name, func(s *mcpserver.Server) {
+				if multiKB {
+					s.SetDisplayName("cartographer:" + name)
+				}
+				sqlIdx := sqlIdxs[filepath.Clean(k.Root)]
+				mcpserver.RegisterKBTools(s, k, mcpserver.Deps{SQLIndex: sqlIdx, BundleFS: skillbundle.FS, ArtifactSigner: artifactSigners[i], MCPAllowlist: allowlists[i], RoutedMount: true})
+				s.SetToolsProfile(toolsProfile)
+				s.SetAuditLog(auditLog)
+				s.SetKBName(name)
+				s.SetTransport("http")
+				s.SetLatestVersionSource(latestVersion)
+				s.StartAutoRepair(repairCtx)
+			})
+			multi.SetKBCapabilities(name, mcpserver.KBCapabilitiesFor(k))
+			log.Printf("mounted KB %q at %s (tools profile: %s)", name, k.Root, toolsProfile)
+		}
+
+		// D187/D288: the routed mount is the one agent-facing topology, always
+		// served. The per-KB endpoints above stay as plumbing (the routed mount
+		// dispatches into them) and for clients not yet re-synced. It is enabled
+		// after every KB is mounted because it registers the union of what they
+		// registered. A server with no KB yet has nothing to route: the next
+		// restart, with KBs, serves it.
+		if len(names) > 0 {
+			err := multi.EnableRoutedMount(version, func(s *mcpserver.Server) {
+				s.SetToolsProfile(toolsProfile)
+				s.SetTransport("http")
+			})
+			if err != nil {
+				log.Fatal(err)
+			}
+			log.Printf("routed mount enabled at %s (%d KB(s), one copy of the tools, kb as a tool argument)",
+				mcpserver.RoutedMountPath, len(names))
+		}
+
+		// The read-only Atlas UI (D227). Mounted only in HTTP mode and only when
+		// enabled: with web.enabled off, /ui/ and /api/ui/v1 are not routed at all
+		// and the HTTP surface is byte-identical to what it was before the UI.
+		webMounted := false
+		if webEnabled {
+			static, err := webui.Handler()
+			if err != nil {
+				// The bundle is embedded at build time, so a failure here means a
+				// broken binary rather than a misconfiguration: serving the rest
+				// without the UI is better than refusing to start.
+				log.Printf("warning: the embedded web UI is unusable, serving without it: %v", err)
+			} else {
+				multi.EnableWeb(static)
+				webMounted = true
+				log.Printf("Atlas UI on http://%s%s", displayAddr(addr), webui.MountPath)
+			}
+		}
+
+		// The origin check sits outside authentication (D128): a page that is not
+		// allowed to talk to this server should be turned away before its token is
+		// looked at.
+		handler := mcpserver.OriginGuard(allowedOrigins, store.Middleware(multi.Handler()))
+		if webMounted {
+			// Outside the auth chain: the browser that types the bare address has
+			// no token yet (webui.RedirectRoot).
+			handler = mcpserver.OriginGuard(allowedOrigins, webui.RedirectRoot(store.Middleware(multi.Handler())))
+		}
+		if len(allowedOrigins) > 0 {
+			log.Printf("MCP origin allow-list: %s", strings.Join(allowedOrigins, ", "))
+		}
+
+		// The handler is complete before the gate opens, so no request can
+		// reach a half-mounted server.
+		mounted.Store(&kbs)
+		gate.Open(handler)
+		log.Printf("bootstrap complete: %d KB(s) ready", len(kbs))
 	}()
 
 	// One shutdown path, whatever asked for it: a second copy is how the drain
@@ -637,9 +680,12 @@ func serveHTTP(addr string, kbs []*kb.KB, names []string, artifactSigners []ed25
 		shutdown()
 	}
 
-	for _, k := range kbs {
-		if err := k.FlushPush(shutdownPushFlushTimeout); err != nil {
-			log.Printf("flush pending push for KB %s: %v", k.Root, err)
+	// Nil while bootstrapping: nothing was mounted, so nothing to flush.
+	if kbs := mounted.Load(); kbs != nil {
+		for _, k := range *kbs {
+			if err := k.FlushPush(shutdownPushFlushTimeout); err != nil {
+				log.Printf("flush pending push for KB %s: %v", k.Root, err)
+			}
 		}
 	}
 }
