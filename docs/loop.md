@@ -91,6 +91,52 @@ ingested`, `ingested_at`). `lint` flags an ingested source nobody cites
 the source (D278). The bundled `kb-ingest` skill runs this whole step as one procedure — register,
 distil, patch the owning pages, cite, record gaps, verify, close — for any new primary source (D279).
 
+## The maintenance loop
+
+A KB maintains itself, transparently to the people who read it (D358). People see
+the result and an audit trail; they are asked only what the KB cannot know. Four
+layers, cheapest first, none of which runs a model on the server (D14):
+
+1. **Write-time repair** (D349, D355): a write applies the mechanical
+   `auto_repair` fixes to the concepts it just wrote, to a fixpoint, and the
+   write gate (D350) refuses what introduces findings.
+2. **Background repair** (D323): once per `doctor_auto_interval` the server
+   applies `auto_repair` over the KB, in one commit, with no agent.
+3. **Unattended doctor**: the server cannot decide, so it nudges. With
+   `doctor_mode: unattended` (the default) the first tool result of each MCP
+   session that starts while debt exists and the last `kb-doctor` log entry is
+   older than `doctor_interval` (1 day) carries a notice telling the agent to run
+   the `kb-doctor` skill now. The agent decides the items under the skill's
+   rules (it may merge a subset duplicate, place a section, write a template,
+   fill a section from cited sources; it never deletes a concept, renames a map
+   folder or invents content), up to `doctor_budget` review items (40) plus every
+   mechanical repair, then closes with a `log_append` listing every decision and
+   gap. A KB with more debt than one budget simply gets the next session at the
+   next nudge. `doctor_mode: assisted` restores the previous behavior: a notice
+   per 14 days asking the agent to propose a session to the operator.
+4. **Gaps for people**: an item only a person can settle becomes a
+   `Contradiction` of kind `missing_context` or `open_question` naming the
+   concept and the question, and the review item is dismissed with `lint_ignore`
+   citing the gap. Gaps never block a gate (D273); `kb_status.open_gaps` and the
+   Atlas Health panel are the queue people answer.
+
+### A KB no agent session ever touches
+
+The nudge needs a client session to land in. For a KB nobody reads through an
+agent, run a scheduled headless agent session instead: a cron entry (or any
+scheduler) that starts one supported client non-interactively, connected to the
+KB, with the prompt `Run the kb-doctor skill on kb "kb-a" unattended.` The
+client, model and credentials are the operator's choice, and nothing in this
+repository schedules it: the server has no model (D14). Example shape, with the
+client's own non-interactive flag in place of `<headless-flag>`:
+
+```
+0 6 * * *  cd $HOME/work && <client> <headless-flag> 'Run the kb-doctor skill on kb "kb-a" unattended.'
+```
+
+The session is an ordinary one, so the nudge, the budget, the closing log entry
+and the gaps work exactly as above.
+
 ## Compound useful results
 
 When a result should survive the session, write it back as a focused concept

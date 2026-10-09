@@ -54,8 +54,12 @@ kbs:
                                    # to run unattended (D323, D355); [] means none
     # doctor_auto_interval: 1d     # how often the server applies auto_repair by
                                    # itself (D323); "0" disables, default 1d
-    # doctor_interval: 14d         # days before the server proposes the next
-                                   # kb-doctor session (D299); "0" disables
+    # doctor_interval: 1d          # days before the server proposes the next
+                                   # kb-doctor session (D299); "0" disables;
+                                   # default 1d unattended, 14d assisted
+    # doctor_mode: unattended      # unattended (default): the agent runs the
+                                   # session itself; assisted: it asks first (D358)
+    # doctor_budget: 40            # review items per session (10 when assisted)
     # usage_stale_days: 42         # days a skill or agent may go unused by every
                                    # client before artifact_unused reports it (D326);
                                    # 0 disables the finding

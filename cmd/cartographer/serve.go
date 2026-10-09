@@ -330,6 +330,8 @@ func bootstrapKBs(cfg *config.Config, phase func(string)) kbBootstrap {
 		// Validated by config.Load; a discovered KB's zero spec yields the default.
 		k.DoctorIntervalDays, _ = m.Spec.DoctorIntervalDays()
 		k.DoctorAutoIntervalDays, _ = m.Spec.DoctorAutoIntervalDays()
+		k.DoctorMode = m.Spec.DoctorModeValue()
+		k.DoctorBudget = m.Spec.DoctorBudgetItems()
 		k.UsageStaleDays = m.Spec.UsageStale()
 		k.Discovered = m.Discovered
 		name := m.Name

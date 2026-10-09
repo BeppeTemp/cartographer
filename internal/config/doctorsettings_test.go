@@ -14,13 +14,17 @@ func TestLoadDoctorSettings(t *testing.T) {
 		wantErr  string
 		wantDays int
 	}{
-		"default":   {body: "kbs:\n  - path: /tmp/kb\n", wantDays: DefaultDoctorIntervalDays},
+		"default":   {body: "kbs:\n  - path: /tmp/kb\n", wantDays: DefaultUnattendedDoctorIntervalDays},
+		"assisted":  {body: "kbs:\n  - path: /tmp/kb\n    doctor_mode: assisted\n", wantDays: DefaultDoctorIntervalDays},
+		"assisted7": {body: "kbs:\n  - path: /tmp/kb\n    doctor_mode: assisted\n    doctor_interval: 7d\n", wantDays: 7},
+		"badmode":   {body: "kbs:\n  - path: /tmp/kb\n    doctor_mode: auto\n", wantErr: "doctor_mode"},
+		"budget0":   {body: "kbs:\n  - path: /tmp/kb\n    doctor_budget: 0\n", wantErr: "doctor_budget"},
 		"suffix":    {body: "kbs:\n  - path: /tmp/kb\n    doctor_interval: 7d\n", wantDays: 7},
 		"bare":      {body: "kbs:\n  - path: /tmp/kb\n    doctor_interval: \"30\"\n", wantDays: 30},
 		"disabled":  {body: "kbs:\n  - path: /tmp/kb\n    doctor_interval: \"0\"\n", wantDays: 0},
 		"negative":  {body: "kbs:\n  - path: /tmp/kb\n    doctor_interval: -3d\n", wantErr: "doctor_interval"},
 		"duration":  {body: "kbs:\n  - path: /tmp/kb\n    doctor_interval: 2w\n", wantErr: "doctor_interval"},
-		"checks":    {body: "kbs:\n  - path: /tmp/kb\n    auto_repair: [nonstandard_field, duplicate_link]\n", wantDays: DefaultDoctorIntervalDays},
+		"checks":    {body: "kbs:\n  - path: /tmp/kb\n    auto_repair: [nonstandard_field, duplicate_link]\n", wantDays: DefaultUnattendedDoctorIntervalDays},
 		"unknown":   {body: "kbs:\n  - path: /tmp/kb\n    auto_repair: [nonstandard_field, stale_open]\n", wantErr: `"stale_open"`},
 		"no-all":    {body: "kbs:\n  - path: /tmp/kb\n    auto_repair: [all]\n", wantErr: `no "all"`},
 		"judgement": {body: "kbs:\n  - path: /tmp/kb\n    auto_repair: [map_misfit]\n", wantErr: `"map_misfit"`},
@@ -140,6 +144,25 @@ func TestLoadRepairOnWrite(t *testing.T) {
 		}
 		if got := cfg.KBs[0].RepairOnWriteEnabled(); got != tc.want {
 			t.Errorf("%s: RepairOnWriteEnabled() = %v, want %v", name, got, tc.want)
+		}
+	}
+}
+
+func TestDoctorModeAndBudgetDefaults(t *testing.T) {
+	if (KBSpec{}).DoctorModeValue() != DoctorModeUnattended {
+		t.Fatal("default doctor_mode is not unattended")
+	}
+	five := 5
+	for name, tc := range map[string]struct {
+		spec KBSpec
+		want int
+	}{
+		"unattended": {KBSpec{}, 40},
+		"assisted":   {KBSpec{DoctorMode: "assisted"}, 10},
+		"explicit":   {KBSpec{DoctorMode: "assisted", DoctorBudget: &five}, 5},
+	} {
+		if got := tc.spec.DoctorBudgetItems(); got != tc.want {
+			t.Errorf("%s: budget = %d, want %d", name, got, tc.want)
 		}
 	}
 }
