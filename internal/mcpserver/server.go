@@ -10,7 +10,6 @@ package mcpserver
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"io"
 	"net/http"
 	"sync"
@@ -151,7 +150,7 @@ func (s *Server) authorize(ctx context.Context, name string, args json.RawMessag
 		if auth.PrincipalFromContext(ctx).Policy.Admin {
 			return nil
 		}
-		return fmt.Errorf("forbidden")
+		return deny(denyNoPrincipal)
 	}
 	return fn(ctx, name, args)
 }

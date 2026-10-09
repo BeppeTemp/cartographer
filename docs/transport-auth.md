@@ -352,7 +352,11 @@ Two properties are load-bearing:
 
 - **Non-disclosure.** A forbidden exact resource returns the same generic
   `not found` as a missing one. Existence of a concept outside the perimeter is
-  not observable.
+  not observable. Every other denial reads `forbidden: <code>: <hint>` (D343:
+  `unclassified_tool`, `bad_arguments`, `read_only_token`, `needs_whole_kb`,
+  `outside_scope`, `template_unusable`, `missing_id`, `no_kb_access`,
+  `no_principal`); the reason describes the caller's own token and arguments,
+  never hidden content, and a `concept_batch` denial never names the operation.
 - **Filtering before limiting.** Collection tools apply the permission
   predicate before the result limit, in the in-memory index, in SQLite FTS
   (which reads further ranked pages when hidden candidates would leave a page

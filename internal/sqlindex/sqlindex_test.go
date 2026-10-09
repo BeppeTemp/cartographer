@@ -99,8 +99,8 @@ func TestSearchFTS_MultiTermFallback(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SearchFTS AND: %v", err)
 	}
-	if len(hits) != 1 || hits[0].ID != "both" {
-		t.Fatalf("AND search got %+v, want only both", hits)
+	if len(hits) != 3 || hits[0].ID != "both" || hits[0].Partial || !hits[1].Partial || !hits[2].Partial {
+		t.Fatalf("AND search got %+v, want both first, then partial hits", hits)
 	}
 
 	hits, err = ix.SearchFTS("provisions maintenance", "", 10)
@@ -382,5 +382,48 @@ func TestSearchFTSScopeTreatsLikeMetacharactersLiterally(t *testing.T) {
 				t.Fatalf("scope %q: want exactly [%s], got %v", tc.scope, tc.inScope, hits)
 			}
 		})
+	}
+}
+
+func TestSearchFTS_OrFloor(t *testing.T) {
+	ix, err := Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer ix.Close()
+	for id, body := range map[string]string{
+		"full": "alphaterm betaterm gammaterm",
+		"p1":   "alphaterm alphaterm alphaterm alphaterm",
+		"p2":   "betaterm betaterm betaterm betaterm",
+	} {
+		if err := ix.Upsert(id, "h-"+id, body, ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+	hits, err := ix.SearchFTS("alphaterm betaterm", "", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hits) != 3 || hits[0].ID != "full" || hits[0].Partial || !hits[1].Partial || !hits[2].Partial {
+		t.Fatalf("one AND hit: got %+v", hits)
+	}
+	// A limit under the floor still runs the pass and cuts at the end.
+	hits, err = ix.SearchFTS("alphaterm betaterm", "", 1)
+	if err != nil || len(hits) != 1 || hits[0].ID != "full" || hits[0].Partial {
+		t.Fatalf("limit 1: got %+v, %v", hits, err)
+	}
+	for _, id := range []string{"full2", "full3"} {
+		if err := ix.Upsert(id, "h-"+id, "alphaterm betaterm "+id, ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+	hits, err = ix.SearchFTS("alphaterm betaterm", "", 10)
+	if err != nil || len(hits) != 3 {
+		t.Fatalf("three AND hits: got %+v, %v", hits, err)
+	}
+	for _, h := range hits {
+		if h.Partial {
+			t.Fatalf("partial with 3 AND hits: %+v", hits)
+		}
 	}
 }

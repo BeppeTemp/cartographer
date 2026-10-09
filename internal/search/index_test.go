@@ -41,8 +41,9 @@ func TestIndex_SearchMultiTerm(t *testing.T) {
 	idx.Add("c", "bar baz")
 
 	hits := idx.Search("foo bar", "", 10)
-	if len(hits) != 1 {
-		t.Fatalf("Search 'foo bar': got %d hits, want 1", len(hits))
+	// One full match is under the OR floor: the OR-only pages follow, marked.
+	if len(hits) != 3 || hits[1].Partial != true || hits[0].Partial {
+		t.Fatalf("Search 'foo bar': got %+v, want a first, then two partial", hits)
 	}
 	if hits[0].ID != "a" {
 		t.Errorf("Search 'foo bar': got %q, want 'a'", hits[0].ID)
@@ -56,8 +57,8 @@ func TestIndex_SearchMultiTermORFallback(t *testing.T) {
 	idx.Add("second", "downscaler schedules maintenance")
 
 	hits := idx.Search("karpenter downscaler", "", 10)
-	if len(hits) != 1 || hits[0].ID != "both" {
-		t.Fatalf("AND search got %+v, want only both", hits)
+	if len(hits) != 3 || hits[0].ID != "both" || hits[0].Partial || !hits[1].Partial || !hits[2].Partial {
+		t.Fatalf("AND search got %+v, want both first, then partial hits", hits)
 	}
 	hits = idx.Search("provisions maintenance", "", 10)
 	if len(hits) != 2 {
@@ -246,5 +247,28 @@ func TestAddWithAssets(t *testing.T) {
 	idx.AddWithAssets("dossier/inv", "---\ntitle: Inventory\n---\nDevices list.\n", "")
 	if hits := idx.Search("gw1", "", 10); len(hits) != 0 {
 		t.Fatalf("stale asset text after re-add: %+v", hits)
+	}
+}
+
+func TestIndex_SearchOrFloor(t *testing.T) {
+	idx := New()
+	idx.Add("full", "alpha beta gamma")
+	idx.Add("p1", "alpha alpha alpha alpha")
+	idx.Add("p2", "beta beta beta beta")
+	hits := idx.Search("alpha beta", "", 10)
+	if len(hits) != 3 || hits[0].ID != "full" || hits[0].Partial || !hits[1].Partial || !hits[2].Partial {
+		t.Fatalf("one AND hit: got %+v, want full first then two partial", hits)
+	}
+
+	idx.Add("full2", "alpha beta two")
+	idx.Add("full3", "alpha beta three")
+	hits = idx.Search("alpha beta", "", 10)
+	if len(hits) != 3 {
+		t.Fatalf("three AND hits: got %+v, want no OR pass", hits)
+	}
+	for _, h := range hits {
+		if h.Partial {
+			t.Fatalf("partial hit with %d AND hits: %+v", OrFallbackFloor, hits)
+		}
 	}
 }

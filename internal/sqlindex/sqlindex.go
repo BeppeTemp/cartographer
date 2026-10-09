@@ -32,6 +32,9 @@ type Hit struct {
 	ID      string
 	Score   float64
 	Snippet string // excerpt around the match, from FTS5's native snippet()
+	// Partial marks an OR-pass hit that matched only some terms (D343); it is
+	// always listed after every full match.
+	Partial bool
 }
 
 // Index is a persistent SQLite-backed search and embedding index.
@@ -275,15 +278,34 @@ func (ix *Index) SearchFTSFiltered(query, scope string, limit int, allow func(id
 		return nil, nil
 	}
 
-	hits, found, err := ix.searchFTSFiltered(sanitizeFTSQuery(q), scope, limit, allow)
+	// The AND pass is asked for at least the floor so that a small limit
+	// cannot make full matches beyond the page look like OR-only ones.
+	hits, _, err := ix.searchFTSFiltered(sanitizeFTSQuery(q), scope, max(limit, search.OrFallbackFloor), allow)
 	if err != nil {
 		return nil, err
 	}
 
 	tokens := ftsTokens(strings.ReplaceAll(q, "\"", ""))
-	if !found && len(tokens) >= 2 {
-		fallback, _, err := ix.searchFTSFiltered(`"`+strings.Join(tokens, `" OR "`)+`"`, scope, limit, allow)
-		return fallback, err
+	if len(hits) < search.OrFallbackFloor && len(tokens) >= 2 {
+		seen := make(map[string]bool, len(hits))
+		for _, h := range hits {
+			seen[h.ID] = true
+		}
+		// The OR query also returns the full matches: ask for enough extra
+		// rows that `limit` OR-only hits survive the de-duplication.
+		fallback, _, err := ix.searchFTSFiltered(`"`+strings.Join(tokens, `" OR "`)+`"`, scope, limit+len(hits), allow)
+		if err != nil {
+			return nil, err
+		}
+		for _, h := range fallback {
+			if !seen[h.ID] {
+				h.Partial = true
+				hits = append(hits, h)
+			}
+		}
+	}
+	if len(hits) > limit {
+		hits = hits[:limit]
 	}
 	return hits, nil
 }

@@ -28,6 +28,9 @@ type ConceptEntry struct {
 	// Timestamp is the raw frontmatter value, unparsed: the query filters on
 	// it, a client displays it, and neither should have to agree on a layout.
 	Timestamp string `json:"timestamp,omitempty"`
+	// Fields holds the frontmatter keys the query asked for (D343): a string
+	// for a scalar, a []string for a list; absent or other types are omitted.
+	Fields map[string]any `json:"fields,omitempty"`
 }
 
 // ConceptQuery selects concepts from a KB. It holds no authorization logic:
@@ -37,6 +40,7 @@ type ConceptQuery struct {
 	// Scope is a path prefix relative to the KB root, without a trailing
 	// slash. Empty means the whole KB.
 	Scope   string
+	Fields  []string
 	Filters []conceptListFilter
 	Before  *time.Time
 	After   *time.Time
@@ -88,6 +92,20 @@ func queryConcepts(k *kb.KB, q ConceptQuery) (ConceptQueryResult, error) {
 			entry.Type = fm.Type()
 			entry.Status = frontmatterString(fm, "status")
 			entry.Timestamp = frontmatterString(fm, "timestamp")
+			for _, key := range q.Fields {
+				switch v := fieldValue(fm, key).(type) {
+				case string:
+					if entry.Fields == nil {
+						entry.Fields = map[string]any{}
+					}
+					entry.Fields[key] = v
+				case []string:
+					if entry.Fields == nil {
+						entry.Fields = map[string]any{}
+					}
+					entry.Fields[key] = v
+				}
+			}
 		}
 		if filtersApplied {
 			// Malformed frontmatter is examined but cannot match a filter.
@@ -146,4 +164,10 @@ func frontmatterString(fm *okf.Frontmatter, key string) string {
 		return ""
 	}
 	return s
+}
+
+// fieldValue is the raw frontmatter value for key, nil when absent.
+func fieldValue(fm *okf.Frontmatter, key string) any {
+	v, _ := fm.Get(key)
+	return v
 }
