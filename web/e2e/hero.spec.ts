@@ -17,6 +17,9 @@ const QUERY = process.env.HERO_QUERY ?? "gateway";
 const ARTIFACT = process.env.HERO_ARTIFACT ?? "review";
 
 const VIEWPORT = { width: 1280, height: 760 };
+// In a headed window the screencast frame is the window surface, not this
+// viewport: the page sits in part of it. film() writes where, from the frame
+// metadata, and record-hero.sh crops to it and refuses a capture that is off.
 test.use({
   viewport: VIEWPORT,
   colorScheme: "dark",
@@ -44,7 +47,9 @@ async function film(page: Page, testInfo: TestInfo): Promise<{ stop(): Promise<v
   mkdirSync(dir, { recursive: true });
   const cdp = await page.context().newCDPSession(page);
   const frames: { file: string; at: number }[] = [];
-  cdp.on("Page.screencastFrame", ({ data, sessionId }) => {
+  let meta: { deviceWidth: number; deviceHeight: number; offsetTop: number } | undefined;
+  cdp.on("Page.screencastFrame", ({ data, sessionId, metadata }) => {
+    meta = metadata;
     const file = `${String(frames.length).padStart(5, "0")}.jpg`;
     writeFileSync(join(dir, file), Buffer.from(data, "base64"));
     // Arrival time, not metadata.timestamp: stop() closes the last frame with
@@ -54,7 +59,9 @@ async function film(page: Page, testInfo: TestInfo): Promise<{ stop(): Promise<v
   });
   // JPEG at 95 is cheaper to hand over than PNG, and the WebP pass loses far
   // more than it does. maxWidth/maxHeight must be explicit: without them a
-  // headed window's screencast is a cropped corner of the page.
+  // headed window's screencast is a cropped corner of the page. Even with
+  // them the frame is the window's surface, not the viewport: stop() writes
+  // where the page sits in it (crop.txt) and record-hero.sh crops to that.
   await cdp.send("Page.startScreencast", {
     format: "jpeg",
     quality: 95,
@@ -66,6 +73,17 @@ async function film(page: Page, testInfo: TestInfo): Promise<{ stop(): Promise<v
     async stop() {
       await cdp.send("Page.stopScreencast");
       const end = Date.now() / 1000;
+      // The page rectangle as fractions of the frame, from the last frame's
+      // metadata (deviceWidth/Height is the surface in CSS px, offsetTop the
+      // browser chrome above the page) and the page's own inner size. Fractions,
+      // so the script needs no frame size: ffmpeg's crop knows iw/ih.
+      if (meta) {
+        const inner = await page.evaluate(() => ({ w: innerWidth, h: innerHeight }));
+        const { deviceWidth: dw, deviceHeight: dh, offsetTop: top } = meta;
+        const f = (n: number) => Math.min(Math.max(n, 0), 1).toFixed(6);
+        const rect = [Math.min(inner.w, dw) / dw, Math.min(inner.h, dh - top) / dh, 0, top / dh];
+        writeFileSync(join(dir, "crop.txt"), rect.map(f).join(" ") + "\n");
+      }
       const lines = ["ffconcat version 1.0"];
       frames.forEach((frame, i) => {
         const next = i + 1 < frames.length ? frames[i + 1].at : end;
