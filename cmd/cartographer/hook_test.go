@@ -185,3 +185,24 @@ func TestWriteFindingsHook_ContextChannelRecoversFromPanic(t *testing.T) {
 type panicReader struct{}
 
 func (panicReader) Read([]byte) (int, error) { panic("boom") }
+
+// TestWriteFindingsHook_OpenCodeToolNames: the OpenCode 2.0.25 probe (D362) delivers
+// the inner MCP call as <server>_<tool> with the result as a plain string.
+func TestWriteFindingsHook_OpenCodeToolNames(t *testing.T) {
+	resp := `{\"findings\":[{\"path\":\"kb-a/a\",\"check\":\"broken_link\",\"message\":\"m1\"},{\"path\":\"kb-a/b\",\"check\":\"orphan\",\"message\":\"m2\"}]}`
+	code, _, stderr := runHook(t, `{"tool_name":"kb_concept_write","tool_response":"`+resp+`"}`)
+	if code != 2 || !strings.Contains(stderr, "2 finding(s)") || !strings.Contains(stderr, "broken_link kb-a/a") {
+		t.Fatalf("code %d:\n%s", code, stderr)
+	}
+	// OpenCode joins the content blocks: the sync-state block follows the JSON.
+	joined := `{\"findings\":[{\"path\":\"kb-a/a\",\"check\":\"orphan\",\"message\":\"m\"}]}\n{\"last_error\":\"\",\"sync_state\":\"pending\"}`
+	code, _, stderr = runHook(t, `{"tool_name":"kb_concept_write","tool_response":"`+joined+`"}`)
+	if code != 2 || !strings.Contains(stderr, "1 finding(s)") {
+		t.Fatalf("joined blocks: code %d:\n%s", code, stderr)
+	}
+	for _, name := range []string{"kb_execute", "kb_concept_read", "concept_writer"} {
+		if code, _, stderr := runHook(t, `{"tool_name":"`+name+`","tool_response":"`+resp+`"}`); code != 0 || stderr != "" {
+			t.Errorf("%s: code %d stderr %q, want silent", name, code, stderr)
+		}
+	}
+}

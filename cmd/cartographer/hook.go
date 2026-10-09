@@ -125,7 +125,7 @@ func writeFindingsFeedback(payload []byte) string {
 
 func isWriteFindingsTool(name string) bool {
 	for _, t := range provisioning.WriteFindingsTools {
-		if strings.HasSuffix(name, "__"+t) || name == t {
+		if name == t || strings.HasSuffix(name, "__"+t) || strings.HasSuffix(name, "_"+t) {
 			return true
 		}
 	}
@@ -204,10 +204,18 @@ func findingsFromText(s string, depth int) []hookFinding {
 		return nil
 	}
 	if t[0] == '{' || t[0] == '[' {
-		if json.Valid([]byte(t)) {
-			return collectFindings(json.RawMessage(t), depth+1)
+		// A client that joins the result's content blocks into one string
+		// (OpenCode 2.x, D362) delivers the write response followed by the
+		// server's sync-state block: several JSON values, one per line.
+		var out []hookFinding
+		dec := json.NewDecoder(strings.NewReader(t))
+		for {
+			var v json.RawMessage
+			if dec.Decode(&v) != nil {
+				return out
+			}
+			out = append(out, collectFindings(v, depth+1)...)
 		}
-		return nil
 	}
 	const marker = "\nfindings:\n"
 	i := strings.Index(s, marker)

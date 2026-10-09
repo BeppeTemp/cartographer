@@ -35,9 +35,9 @@ errors. `service status` retains 0 running, 3 stopped and 4 not installed.
 ### `cartographer hook write-findings [--channel stderr|context]` (internal)
 
 Not in the usage text. The logic of the client-generated `cartographer-write-findings` hook
-([D353](decisions/D353-write-findings-hook.md), `docs/sync.md` §Layer 1): reads a Claude Code or Codex
+([D353](decisions/D353-write-findings-hook.md), `docs/sync.md` §Layer 1): reads a Claude Code, Codex or OpenCode 2.x
 `PostToolUse` payload on stdin and looks in `tool_response` (the result object, a content-block
-array, or JSON in a `text` block; `supersede` appends `findings:` as plain text) for a `findings`
+array, or JSON in a `text` block, or a string of several JSON values as OpenCode joins them; `supersede` appends `findings:` as plain text) for a `findings`
 array or `results[].findings` (`concept_batch`). With at least one finding it writes a fixed English
 message (a header with the count, up to 10 `<check> <path>: <message>` lines, `+N more`, and the
 instruction to fix or `lint_ignore`). `--channel stderr` (default, Claude Code) writes it to stderr
@@ -45,7 +45,7 @@ and exits 2; `--channel context` (Codex, [D361](decisions/D361-codex-write-findi
 prints `{"hookSpecificOutput":{"hookEventName":"PostToolUse","additionalContext":"<message>"}}` on
 stdout and exits 0, never 2. Anything else (no findings, an unknown shape, a parse error, a panic,
 an unknown flag or channel) is silent exit 0; with the stderr channel stdout is always empty. A wrong
-subcommand name exits 2.
+subcommand name exits 2. `tool_name` may be `mcp__<server>__<tool>`, `<server>_<tool>` (OpenCode, [D362](decisions/D362-opencode-write-findings-plugin.md)) or the bare tool name.
 
 ### `cartographer update check|notice`
 
