@@ -661,7 +661,7 @@ func TestApply_Idempotente(t *testing.T) {
 
 func TestApply_OpenCode_Materializza(t *testing.T) {
 	// Bundled skill (Signed:true) with Provider=opencode:
-	// must be materialized in .opencode/skills/<name>/ and NOT in NeedsApproval.
+	// must be materialized in .config/opencode/skills/<name>/ and NOT in NeedsApproval.
 	baseDir := t.TempDir()
 	bundleFS := makeBundleFS("OpenCode test body.")
 
@@ -689,8 +689,8 @@ func TestApply_OpenCode_Materializza(t *testing.T) {
 		t.Errorf("Apply opencode: expected empty NeedsApproval, got: %v", res.NeedsApproval)
 	}
 
-	// SKILL.md must be written under .opencode/skills/<name>/.
-	skillPath := filepath.Join(baseDir, ".opencode", "skills", "kb-create", "SKILL.md")
+	// SKILL.md must be written under .config/opencode/skills/<name>/.
+	skillPath := filepath.Join(baseDir, ".config", "opencode", "skills", "kb-create", "SKILL.md")
 	if _, err := os.Stat(skillPath); err != nil {
 		t.Errorf("Apply opencode: SKILL.md not found at %s: %v", skillPath, err)
 	}

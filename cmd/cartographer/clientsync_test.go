@@ -92,7 +92,7 @@ func TestFetchMergedManifest_PreservesBinaryExecutableFilesThroughApply(t *testi
 		"claude":   ".claude/skills/wire/run.bin",
 		"codex":    ".codex/skills/wire/run.bin",
 		"kiro":     ".kiro/skills/wire/run.bin",
-		"opencode": ".opencode/skills/wire/run.bin",
+		"opencode": ".config/opencode/skills/wire/run.bin",
 	} {
 		base := t.TempDir()
 		res, err := provisioning.Apply(m, provisioning.ApplyOptions{
