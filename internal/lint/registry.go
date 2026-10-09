@@ -120,6 +120,7 @@ var registry = []CheckSpec{
 	{Name: "map_oversize", Severity: SevInfo, Level: LevelMap, Accept: AcceptMap},
 	{Name: "legacy_archive_descriptor", Severity: SevWarning, Level: LevelMap, Accept: AcceptNone},
 	{Name: "index_incomplete", Severity: SevWarning, Level: LevelMap, Accept: AcceptNone, OnWrite: true},
+	{Name: "index_lists_retired", Severity: SevInfo, Level: LevelMap, Accept: AcceptMap, WholeGraph: true},
 	{Name: "index_stale", Severity: SevInfo, Level: LevelMap, Accept: AcceptNone},
 	{Name: "expanded_missing_index", Severity: SevWarning, Level: LevelMap, Accept: AcceptNone},
 	{Name: "expanded_ambiguous", Severity: SevError, Level: LevelMap, Accept: AcceptNone},

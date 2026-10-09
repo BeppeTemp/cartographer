@@ -152,6 +152,7 @@ var conformanceChecks = map[string]bool{
 	"broken_link":               true,
 	"broken_relation":           true,
 	"link_to_retired":           true,
+	"index_lists_retired":       true,
 	"map_misfit":                true,
 	"prose_value":               true,
 	"invalid_field_value":       true,

@@ -78,7 +78,7 @@ func resourceClassForTool(name string) string {
 		return resourceCollection
 	case "concept_read", "concept_history", "concept_write", "concept_new", "concept_patch", "concept_expand", "concept_collapse", "concept_merge", "concept_delete", "supersede", "asset_read", "asset_list", "asset_write", "asset_delete", "service_get":
 		return resourceExact
-	case "concept_move":
+	case "concept_move", "concept_archive":
 		return resourceMove
 	case "concept_batch":
 		return resourceBatch
@@ -174,6 +174,28 @@ func authorizeTool(policy auth.Policy, k *kb.KB, name, tool string, args json.Ra
 			return deny(denyTemplateUnusable)
 		}
 		if !allowedID(policy, k, name, id, true, proposedType) {
+			return deny(denyOutsideScope)
+		}
+		return nil
+	}
+	// concept_archive is a move to <to>/<last segment> with links always
+	// rewritten (D344): whole-KB write, then the single pair must pass.
+	if tool == "concept_archive" {
+		var a struct {
+			ID string `json:"id"`
+			To string `json:"to"`
+		}
+		if json.Unmarshal(args, &a) != nil || a.ID == "" {
+			return deny(denyBadArguments)
+		}
+		if !policy.AllowsWholeKB(name, true) {
+			return deny(denyNeedsWholeKB)
+		}
+		to := a.To
+		if to == "" {
+			to = "archive"
+		}
+		if !allowedMove(policy, k, name, a.ID, archiveTarget(a.ID, to)) {
 			return deny(denyOutsideScope)
 		}
 		return nil

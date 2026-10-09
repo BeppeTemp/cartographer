@@ -241,6 +241,8 @@ Cartographer does not attempt to place the destination entry in the right themat
 know, and a wrong placement in a curated document is worse than an obvious one at the end.
 `rewrite_links: false` still means "touch no other concept", so it skips the index maintenance too.
 
+`concept_archive` (D344) is the move of a retirement and is deliberately less conservative on the **source** side: it removes the entry from any non-generated source index, `require_index_entry` or not, because retiring is explicit intent (a generic rename is not). A line citing several concepts is still kept and reported. The destination side stays opt-in.
+
 None of this depends on the namespace: a move from a map into the KB-root `services/`, the reverse,
 or a rename within `services/` has the same postconditions as one between two maps — the old ID is not
 found, the new one is readable, an expanded concept carries its satellites and asset bytes, and search
@@ -342,6 +344,8 @@ Where each check can be accepted (D313) is `lint.CheckAcceptability` — `concep
 map's `_map.md`) or `none` — read from the same tables `lint_ignore_invalid` enforces, and shown as
 `kb_status.conformance.acceptability` and as a badge on the Health panel.
 
+`index_lists_retired` (D344, info, accept in `_map.md`) is one finding per curated index of a live map that still links a retired concept, with or without `require_index_entry`; journals, generated indexes and maps where at least half of the top-level concepts are retired (an archive) are exempt. `concept_archive` removes the entry; the finding catches a hand-made retirement.
+
 Structural checks flag defects, not structure (D313): `link_to_retired` is **one finding per retired
 concept**, on the retired concept ("retired, still linked by N live concepts: …"; the declared
 `superseded_by` successor and linkers in a journal are not counted), so retiring a component is one
@@ -416,6 +420,7 @@ projections of it. This catalogue is generated from it (a test fails when it dri
 | `map_oversize` | info | map | map | - | - | - |
 | `legacy_archive_descriptor` | warning | map | none | - | - | - |
 | `index_incomplete` | warning | map | none | - | - | yes |
+| `index_lists_retired` | info | map | map | - | - | - |
 | `index_stale` | info | map | none | - | - | - |
 | `expanded_missing_index` | warning | map | none | - | - | - |
 | `expanded_ambiguous` | error | map | none | - | - | - |
