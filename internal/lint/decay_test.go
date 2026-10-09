@@ -186,7 +186,7 @@ func contains(s, sub string) bool { return strings.Contains(s, sub) }
 func TestTemplateSectionsFromFencedSample(t *testing.T) {
 	k := tempKB(t)
 	writeFile(t, k.Root, "templates/repo.md", "---\ntype: repo\ntitle: x\n---\nIntro.\n\n```markdown\n# <name>\n\n## One\n## Two\nRules.\n\n```markdown\n## Other\n```\n")
-	if got := k.TemplateSections("repo"); len(got) != 2 || got[0] != "One" || got[1] != "Two" {
+	if got := k.TemplateCatalog()["repo"].Sections; len(got) != 2 || got[0] != "One" || got[1] != "Two" {
 		t.Fatalf("got %v", got)
 	}
 }

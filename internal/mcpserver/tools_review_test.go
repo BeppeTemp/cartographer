@@ -45,8 +45,8 @@ func reviewServer(t *testing.T) (*Server, *kb.KB) {
 	}
 	writeKBFile(t, k, "visible/a.md", "---\ntype: Service\ntitle: Alpha service\nresource: https://example.com/a\n---\n# A\n")
 	writeKBFile(t, k, "visible/b.md", "---\ntype: Service\ntitle: Beta service\nresource: https://example.com/a\n---\n# B\n\n[x](gone.md)\n")
-	writeKBFile(t, k, "visible/c.md", "---\ntype: Service\ntitle: Gamma\nresource: https://example.com/c\n---\n# C\n\n[y](gone.md)\n")
-	writeKBFile(t, k, "hidden/c.md", "---\ntype: Service\ntitle: Hidden gamma\nresource: https://example.com/c\n---\n# C\n")
+	writeKBFile(t, k, "visible/c.md", "---\ntype: Runbook\ntitle: Gamma\nresource: https://example.com/c\n---\n# C\n\n[y](gone.md)\n")
+	writeKBFile(t, k, "hidden/c.md", "---\ntype: Runbook\ntitle: Hidden gamma\nresource: https://example.com/c\n---\n# C\n")
 	s := New("test")
 	RegisterKBTools(s, k, Deps{})
 	return s, k

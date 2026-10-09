@@ -63,6 +63,12 @@ var docsNonTools = map[string]bool{
 	"index_incomplete": true,
 	"index_stale":      true,
 	"map_naming":       true,
+	// template checks, review kind and fields (D352), not tools
+	"template_missing": true, "template_unknown": true, "template_not_allowed": true,
+	"template_type_mismatch": true, "template_field_missing": true, "template_field_value": true,
+	"template_extra_section": true, "template_section_alias": true, "template_section_order": true,
+	"map_without_templates": true, "template_proposal": true, "template_slug": true,
+	"template_write": true, "template_sections": true,
 	// gate_check response field (D186), not a tool
 	"gate_blockers": true,
 	// frontmatter fields and schema keys

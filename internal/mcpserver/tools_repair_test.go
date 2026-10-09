@@ -285,6 +285,23 @@ func seedDriftFixes(t *testing.T, k *kb.KB) {
 	write("data/free/untitled.md", "---\ntype: Service\n---\n# Untitled one\n")
 	write("data/free/typo.md", "---\ntype: service\ntitle: T\n---\n# T\n")
 	write("data/loose/a.md", "---\ntype: Service\ntitle: A\n---\n# A\n")
+	seedTemplateFixes(t, write)
+}
+
+// seedTemplateFixes plants one page for each fixable template check (D352): a
+// strict map with two templates of two types, a page with no shape, a shape of
+// another type, an alias, sections out of order, and a synonym of an allowed
+// value.
+func seedTemplateFixes(t *testing.T, write func(rel, content string)) {
+	t.Helper()
+	write("templates/server.md", "---\ntype: Host\ntitle: \"{{title}}\"\nx-template.field_values.state: [up, down]\nx-template.section_aliases.Purpose: [Objective]\n---\n# {{title}}\n\n## Purpose\n\n## Operations\n")
+	write("templates/runbook.md", "---\ntype: Runbook\ntitle: \"{{title}}\"\n---\n# {{title}}\n\n## Steps\n")
+	write("data/strict/_map.md", "---\ntype: Map\nkind: map\ntitle: Strict\ntemplates: [server, runbook]\nrequire_template: true\n---\n# Strict\n")
+	write("data/strict/unbound.md", "---\ntype: Host\ntitle: U\n---\n# U\n\n## Purpose\n\n## Operations\n")
+	write("data/strict/wrongtype.md", "---\ntype: Runbook\ntitle: W\nshape: server\n---\n# W\n\n## Purpose\n\n## Operations\n")
+	write("data/strict/alias.md", "---\ntype: Host\ntitle: A\nshape: server\n---\n# A\n\n## Objective\n\n## Operations\n")
+	write("data/strict/order.md", "---\ntype: Host\ntitle: O\nshape: server\n---\n# O\n\n## Operations\n\n## Purpose\n")
+	write("data/strict/value.md", "---\ntype: Host\ntitle: V\nshape: server\nstate: UP\n---\n# V\n\n## Purpose\n\n## Operations\n")
 }
 
 func TestFrontmatterRenameKeepsPosition(t *testing.T) {

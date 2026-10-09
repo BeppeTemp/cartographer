@@ -626,6 +626,7 @@ func kbCapabilities(k *kb.KB) map[string]KBCapability {
 	_, ignoredAuto := autoRepairSplit(k)
 	return map[string]KBCapability{
 		"artifact_write": {State: onOff(k.AllowArtifactWrite), Setting: "kbs[].allow_artifact_write"},
+		"template_write": {State: templateWriteState(k), Setting: "kbs[].allow_template_write"},
 		"secrets":        {State: onOff(k.SopsAgeKeyFile != ""), Setting: "kbs[].sops_age_key_file or sops.age_key_file"},
 		"git_sync":       {State: onOff(k.GitSync), Setting: "git.sync"},
 		"git_workflow":   {State: workflow, Setting: "kbs[].server_git"},
@@ -643,6 +644,18 @@ func kbCapabilities(k *kb.KB) map[string]KBCapability {
 		// D323: the server applies auto_repair by itself on this interval.
 		"doctor_auto_interval": {State: autoInterval, Setting: "kbs[].doctor_auto_interval"},
 	}
+}
+
+// templateWriteState is the kb_status view of D352: artifact_write limited to
+// templates/, "full" when allow_artifact_write already lifts the limit.
+func templateWriteState(k *kb.KB) string {
+	switch {
+	case k.AllowArtifactWrite:
+		return "full"
+	case k.AllowTemplateWrite:
+		return "enabled"
+	}
+	return "disabled"
 }
 
 func toolKBStatus(k *kb.KB, misses *searchMissLog, reads *readAccessLog, serverVersion string, latestVersion func() string, cc *conformanceCache) Tool {

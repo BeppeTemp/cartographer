@@ -299,6 +299,23 @@ func applyFixes(id okf.ConceptID, fm *okf.Frontmatter, body *string, fixes []*li
 				continue
 			}
 			*body = nb
+		case lint.FixRenameHeading:
+			nb, ok := lint.RenameHeading(*body, fx.Field, fx.To)
+			if !ok {
+				changed-- // already renamed: idempotent
+				continue
+			}
+			*body = nb
+		case lint.FixReorderSections:
+			// Idempotent and tolerant: a page whose headings are no longer the
+			// ones the finding listed (an earlier fix of this pass renamed one)
+			// is left for the next pass, which recomputes the order.
+			nb, ok := lint.ReorderSections(*body, strings.Split(fx.To, "\n"))
+			if !ok {
+				changed--
+				continue
+			}
+			*body = nb
 		case lint.FixDropLinkItem:
 			*body = lint.DropLinkItem(*body, fx.Field)
 		case lint.FixRewriteLinkItem:

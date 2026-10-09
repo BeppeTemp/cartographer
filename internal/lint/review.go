@@ -38,7 +38,7 @@ const (
 // always comes before one of a later kind.
 // Repeated facts and hotspots rank before promotion (D301): a duplicated fact
 // is cheaper to fix than to keep updating in every copy.
-var ReviewKinds = []string{ReviewDuplicate, ReviewZombie, ReviewHarvestCandidate, ReviewStatusReclassify, ReviewRepeatedFact, ReviewReadHotspot, ReviewPromotion, ReviewScatteredWork, ReviewMapNaming, ReviewGlossary, ReviewLintJudgement}
+var ReviewKinds = []string{ReviewDuplicate, ReviewTemplateProposal, ReviewZombie, ReviewHarvestCandidate, ReviewStatusReclassify, ReviewRepeatedFact, ReviewReadHotspot, ReviewPromotion, ReviewScatteredWork, ReviewMapNaming, ReviewGlossary, ReviewLintJudgement}
 
 // Thresholds of the review generators.
 const (
@@ -179,6 +179,13 @@ type ReviewItem struct {
 	Term string `json:"term,omitempty"`
 	// Weight orders items of one kind, heavier first.
 	Weight int `json:"weight"`
+	// TemplateSlug, Template and MapUpdate are the payload of a
+	// template_proposal item (D352): the slug and full text of the template to
+	// write ("" when one of that slug already exists) and the map_update
+	// arguments that bind the map to it.
+	TemplateSlug string                 `json:"template_slug,omitempty"`
+	Template     string                 `json:"template,omitempty"`
+	MapUpdate    map[string]interface{} `json:"map_update,omitempty"`
 	// wholeGraph marks an item derived from a check that reads the whole
 	// graph (WholeGraphChecks): a caller who cannot see the whole KB must not
 	// receive it.
@@ -281,6 +288,7 @@ func Review(k *kb.KB, findings []Finding) ([]ReviewItem, error) {
 
 	var items []ReviewItem
 	items = append(items, duplicateItems(concepts)...)
+	items = append(items, templateProposalItems(concepts, contracts, k.TemplateCatalog())...)
 	zombies, zombieItems := zombieWorkItems(k, byID, concepts, contracts, byConcept, links)
 	items = append(items, zombieItems...)
 	items = append(items, harvestCandidateItems(concepts, contracts)...)

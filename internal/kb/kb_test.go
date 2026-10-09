@@ -2096,3 +2096,111 @@ func TestCreateMapJournalDefaultOpenStatuses(t *testing.T) {
 		t.Fatalf("map: %+v", c.OpenStatuses)
 	}
 }
+
+func TestMapContractTemplateKeys(t *testing.T) {
+	k := mustInitKB(t)
+	if err := k.CreateMapWithContract("m", "M", "map", nil, "", MapContract{Templates: []string{"b-tpl", "a-tpl"}, DefaultTemplate: "a-tpl", RequireTemplate: true}); err != nil {
+		t.Fatal(err)
+	}
+	c, err := k.ReadMapContract("m")
+	if err != nil || len(c.Malformed) != 0 {
+		t.Fatalf("%v %+v", err, c.Malformed)
+	}
+	if strings.Join(c.Templates, ",") != "a-tpl,b-tpl" || c.DefaultTemplate != "a-tpl" || !c.RequireTemplate {
+		t.Fatalf("contract = %+v", c)
+	}
+	empty, no := []string{}, ""
+	f := false
+	c, err = k.UpdateMapContract("m", MapContractUpdate{DefaultTemplate: &no, RequireTemplate: &f})
+	if err != nil || c.DefaultTemplate != "" || c.RequireTemplate || len(c.Templates) != 2 {
+		t.Fatalf("removal: %v %+v", err, c)
+	}
+	def := "zzz"
+	if _, err := k.UpdateMapContract("m", MapContractUpdate{DefaultTemplate: &def}); err == nil {
+		t.Fatal("a default_template outside templates must be refused")
+	}
+	bad := []string{"Not A Slug"}
+	if _, err := k.UpdateMapContract("m", MapContractUpdate{Templates: &bad}); err == nil {
+		t.Fatal("a non-slug template must be refused")
+	}
+	c, err = k.UpdateMapContract("m", MapContractUpdate{Templates: &empty})
+	if err != nil || len(c.Templates) != 0 {
+		t.Fatalf("an empty list removes the key: %v %+v", err, c)
+	}
+}
+
+func TestMapContractTemplateKeysMalformed(t *testing.T) {
+	k := mustInitKB(t)
+	if err := os.MkdirAll(filepath.Join(k.DataRoot(), "m"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	desc := "---\ntype: Map\nkind: map\ntitle: M\ntemplates: [ok, \"../x\"]\ndefault_template: other\nrequire_template: maybe\n---\n"
+	if err := os.WriteFile(filepath.Join(k.DataRoot(), "m", "_map.md"), []byte(desc), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	c, err := k.ReadMapContract("m")
+	if err != nil {
+		t.Fatal(err)
+	}
+	bad := map[string]bool{}
+	for _, m := range c.Malformed {
+		bad[m.Key] = true
+	}
+	for _, key := range []string{"templates", "default_template", "require_template"} {
+		if !bad[key] {
+			t.Errorf("%s should be malformed: %+v", key, c.Malformed)
+		}
+	}
+	if strings.Join(c.Templates, ",") != "ok" || c.DefaultTemplate != "" || c.RequireTemplate {
+		t.Errorf("tolerant read: %+v", c)
+	}
+}
+
+func TestTemplateCatalogAndResolve(t *testing.T) {
+	k := mustInitKB(t)
+	write := func(name, content string) {
+		t.Helper()
+		if err := os.MkdirAll(filepath.Join(k.Root, "templates"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(k.Root, "templates", name), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("server.md", "---\ntype: Host\ntitle: S\nx-template.description: A host\nx-template.required_fields: [owner]\nx-template.optional_fields: [rack]\nx-template.field_values.state: [up, down]\nx-template.optional_sections: [Notes]\nx-template.section_aliases.Purpose: [Objective]\nx-template.open_sections: true\n---\n# S\n\n## Purpose\n\n## Notes\n")
+	write("host.md", "---\ntype: Host\ntitle: H\n---\n## One\n")
+	write("Bad_Name.md", "---\ntype: X\ntitle: B\n---\n## One\n")
+	write("nofm.md", "no frontmatter\n")
+	cat := k.TemplateCatalog()
+	if got := strings.Join(cat.Slugs(), ","); got != "host,server" {
+		t.Fatalf("slugs = %s (an invalid slug and a page without frontmatter are skipped)", got)
+	}
+	s := cat["server"]
+	if s.Type != "Host" || s.Description != "A host" || strings.Join(s.Sections, ",") != "Purpose,Notes" ||
+		strings.Join(s.OptionalSections, ",") != "Notes" || strings.Join(s.RequiredSections(), ",") != "Purpose" ||
+		strings.Join(s.Aliases["Purpose"], ",") != "Objective" || strings.Join(s.RequiredFields, ",") != "owner" ||
+		strings.Join(s.OptionalFields, ",") != "rack" || strings.Join(s.FieldValues["state"], ",") != "up,down" || !s.OpenSections {
+		t.Fatalf("server = %+v", s)
+	}
+	contract := &MapContract{Templates: []string{"server"}, DefaultTemplate: "server"}
+	cases := []struct {
+		name, shape, typ, want string
+		c                      *MapContract
+	}{
+		{"shape wins", "server", "Host", "server", contract},
+		{"shape wins over the type default", "server", "Host", "server", nil},
+		{"default template by type", "", "Host", "server", contract},
+		{"type default", "", "Host", "host", nil},
+		{"unresolvable shape falls back", "typo", "Host", "server", contract},
+		{"unresolvable shape, type default", "typo", "Host", "host", nil},
+		{"no template for the type", "", "Service", "", contract},
+		{"empty type, no shape", "", "", "", contract},
+		{"a path is no slug", "../server", "Service", "", nil},
+	}
+	for _, c := range cases {
+		got, ok := cat.Resolve(c.shape, c.typ, c.c)
+		if (c.want == "") == ok || (ok && got.Slug != c.want) {
+			t.Errorf("%s: got %q ok=%v, want %q", c.name, got.Slug, ok, c.want)
+		}
+	}
+}

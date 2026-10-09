@@ -76,6 +76,14 @@ type KB struct {
 	// alone. Default false. artifact_read/artifact_list are unaffected.
 	AllowArtifactWrite bool
 
+	// AllowTemplateWrite (D352) registers artifact_write/artifact_delete for
+	// templates/<slug>.md only, when AllowArtifactWrite is off: a template is
+	// KB-only and never provisioned to a client (D109), so the risk the full
+	// right guards against does not apply, and an unattended doctor needs it to
+	// act on a template_proposal. The config default is on
+	// (config.KBSpec.TemplateWriteEnabled); the zero value here is off.
+	AllowTemplateWrite bool
+
 	// SiblingRoots maps every other KB the same server mounts to its absolute
 	// root (D316). Set by the HTTP server at mount time when it mounts more
 	// than one KB; nil otherwise. Lint reads it for cross_kb_path: an
@@ -1647,6 +1655,12 @@ type MapContract struct {
 	HarvestAfterDays int
 	TemplateSections bool
 	OpenMarkers      []string
+	// Template keys (D352): the shapes (template slugs) this map accepts, the
+	// one a page of the matching type follows when it names none, and whether
+	// every page must bind to one of them.
+	Templates       []string
+	DefaultTemplate string
+	RequireTemplate bool
 	// Review keys (D298): the map a journal's reusable procedures belong in,
 	// the H2 prefixes that mark a procedure, and whether this map is where
 	// the KB defines its terms.
@@ -1823,6 +1837,15 @@ func (kb *KB) writeMapFiles(mapAbs, title, kind string, conceptTypes []string, o
 	if len(contract.MachinePathAllowPrefixes) > 0 {
 		mapFM.WriteString("machine_path_allow_prefixes: [" + strings.Join(sortedUnique(contract.MachinePathAllowPrefixes), ", ") + "]\n")
 	}
+	if len(contract.Templates) > 0 {
+		mapFM.WriteString("templates: [" + strings.Join(sortedUnique(contract.Templates), ", ") + "]\n")
+		if contract.DefaultTemplate != "" {
+			mapFM.WriteString("default_template: " + contract.DefaultTemplate + "\n")
+		}
+		if contract.RequireTemplate {
+			mapFM.WriteString("require_template: true\n")
+		}
+	}
 	// A journal declares what "open" means (D321): the server default is the
 	// minimum every work journal uses; map_update changes it.
 	if kind == "journal" && len(contract.OpenStatuses) == 0 {
@@ -1961,6 +1984,11 @@ type MapContractUpdate struct {
 	HarvestAfterDays *int // D322/D347: nil leaves; >0 sets, 0 writes an explicit off, <0 removes
 	TemplateSections *bool
 	OpenMarkers      *[]string
+	// D352 template keys: nil leaves the key, an empty list / "" / false
+	// removes it.
+	Templates       *[]string
+	DefaultTemplate *string
+	RequireTemplate *bool
 	// D298 review keys: nil leaves the key, "" / an empty list / false
 	// removes it.
 	PromoteTo         *string
@@ -2120,6 +2148,31 @@ func (kb *KB) UpdateMapContract(name string, upd MapContractUpdate) (MapContract
 			fm.Delete("template_sections")
 		}
 	}
+	if upd.Templates != nil {
+		for _, slug := range *upd.Templates {
+			if !ValidTemplateSlug(slug) {
+				return MapContract{}, fmt.Errorf("templates: %q is not a template slug (lowercase, hyphenated)", slug)
+			}
+		}
+		setList("templates", *upd.Templates)
+	}
+	if upd.DefaultTemplate != nil {
+		if v := strings.TrimSpace(*upd.DefaultTemplate); v != "" {
+			if !ValidTemplateSlug(v) {
+				return MapContract{}, fmt.Errorf("default_template: %q is not a template slug (lowercase, hyphenated)", v)
+			}
+			fm.Set("default_template", v)
+		} else {
+			fm.Delete("default_template")
+		}
+	}
+	if upd.RequireTemplate != nil {
+		if *upd.RequireTemplate {
+			fm.Set("require_template", "true")
+		} else {
+			fm.Delete("require_template")
+		}
+	}
 	if upd.PromoteTo != nil {
 		if v := strings.TrimSpace(*upd.PromoteTo); v != "" {
 			if _, err := okf.PathToID(v + ".md"); err != nil || strings.Contains(v, "/") {
@@ -2225,6 +2278,22 @@ func (kb *KB) UpdateMapContract(name string, upd MapContractUpdate) (MapContract
 	}
 	if upd.MachinePathAllowPrefixes != nil {
 		setList("machine_path_allow_prefixes", *upd.MachinePathAllowPrefixes)
+	}
+
+	if upd.Templates != nil || upd.DefaultTemplate != nil {
+		if v, ok := fm.Get("default_template"); ok {
+			def, _ := v.(string)
+			listed := false
+			if tv, ok := fm.Get("templates"); ok {
+				ts, _ := tv.([]string)
+				for _, t := range ts {
+					listed = listed || t == def
+				}
+			}
+			if def != "" && !listed {
+				return MapContract{}, fmt.Errorf("UpdateMapContract %s: default_template %q must be one of the map's templates", name, def)
+			}
+		}
 	}
 
 	abs, err := kb.ResolvePath(relPath, false)
@@ -2594,6 +2663,7 @@ func (kb *KB) ReadMapContract(archive string) (MapContract, error) {
 			key != "require_index_entry" && key != "machine_path_allow_prefixes" &&
 			!strings.HasPrefix(key, "value_synonyms.") &&
 			key != "open_statuses" && key != "open_field" && key != "stale_after" && key != "harvest_after" && key != "template_sections" && key != "open_markers" &&
+			key != "templates" && key != "default_template" && key != "require_template" &&
 			key != "promote_to" && key != "procedure_headings" && key != "glossary" &&
 			key != "index" && !costIntKeys[key] && key != "work_map" &&
 			key != "title_max_length" && key != "forbidden_title_terms" {
@@ -2750,6 +2820,38 @@ func (kb *KB) ReadMapContract(archive string) (MapContract, error) {
 			} else {
 				contract.TemplateSections = v == "true"
 			}
+		case key == "templates":
+			vals, ok := value.([]string)
+			if !ok {
+				bad(key)
+				continue
+			}
+			seen := map[string]bool{}
+			for _, v := range vals {
+				v = strings.TrimSpace(v)
+				if !ValidTemplateSlug(v) || seen[v] {
+					bad(key)
+					continue
+				}
+				seen[v] = true
+				contract.Templates = append(contract.Templates, v)
+			}
+			sort.Strings(contract.Templates)
+		case key == "default_template":
+			v, ok := value.(string)
+			v = strings.TrimSpace(v)
+			if !ok || !ValidTemplateSlug(v) {
+				bad(key)
+				continue
+			}
+			contract.DefaultTemplate = v
+		case key == "require_template":
+			v, ok := value.(string)
+			if !ok || (v != "true" && v != "false") {
+				bad(key)
+				continue
+			}
+			contract.RequireTemplate = v == "true"
 		case key == "promote_to":
 			v, ok := value.(string)
 			v = strings.TrimSpace(v)
@@ -2854,6 +2956,17 @@ func (kb *KB) ReadMapContract(archive string) (MapContract, error) {
 				continue
 			}
 			contract.RequiredFieldsByType[typ] = valid
+		}
+	}
+	// default_template names one of the shapes the map accepts (D352).
+	if contract.DefaultTemplate != "" {
+		listed := false
+		for _, t := range contract.Templates {
+			listed = listed || t == contract.DefaultTemplate
+		}
+		if !listed {
+			bad("default_template")
+			contract.DefaultTemplate = ""
 		}
 	}
 	return contract, nil
@@ -3011,23 +3124,6 @@ func (kb *KB) listMDFiles(relDir string) ([]string, error) {
 		return nil
 	})
 	return files, err
-}
-
-// TemplateSections returns the H2 headings of templates/<type>.md, the
-// sections a concept of that type promises (D297). The slug is the type
-// lowercased; a missing or unreadable template returns nil. Headings inside
-// fenced code are ignored.
-func (kb *KB) TemplateSections(conceptType string) []string {
-	slug := strings.ToLower(strings.TrimSpace(conceptType))
-	if slug == "" || strings.ContainsAny(slug, "/\\.") {
-		return nil
-	}
-	data, err := os.ReadFile(filepath.Join(kb.Root, "templates", slug+".md"))
-	if err != nil {
-		return nil
-	}
-	_, body, _ := okf.SplitFrontmatter(string(data))
-	return templateH2(body)
 }
 
 // TemplateTexts returns the bodies of the KB's templates/*.md, in name

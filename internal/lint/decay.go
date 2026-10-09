@@ -123,7 +123,7 @@ func closedPhase(fm *okf.Frontmatter, contract *kb.MapContract) bool {
 var openCheckbox = regexp.MustCompile(`(?m)^\s*[-*+]\s+\[ \]\s`)
 
 // decayFindings are the per-concept lifecycle checks (D297), all info.
-func decayFindings(in conceptInput, sections []string) []Finding {
+func decayFindings(in conceptInput) []Finding {
 	if in.Parsed == nil {
 		return nil
 	}
@@ -149,24 +149,6 @@ func decayFindings(in conceptInput, sections []string) []Finding {
 		if n := countOpenItems(masked, in.Contract); n > 0 {
 			out = append(out, newFinding("closed_with_open_items", Finding{Path: in.RelPath,
 				Message: fmt.Sprintf("%s %q but %d unchecked item(s) in the body: tick them, move them, or reopen", stateName, status, n)}))
-		}
-	}
-
-	// --- template_section_missing ---
-	if in.Contract != nil && in.Contract.TemplateSections && len(sections) > 0 {
-		have := map[string]bool{}
-		for _, h := range kb.H2Headings(in.Body) {
-			have[foldHeading(h)] = true
-		}
-		var missing []string
-		for _, s := range sections {
-			if !have[foldHeading(s)] {
-				missing = append(missing, s)
-			}
-		}
-		if len(missing) > 0 {
-			out = append(out, newFinding("template_section_missing", Finding{Path: in.RelPath,
-				Message: fmt.Sprintf("missing %d section(s) of its %q template: %s", len(missing), in.Parsed.Type(), strings.Join(missing, ", "))}))
 		}
 	}
 
@@ -255,6 +237,9 @@ func countOpenItems(masked string, contract *kb.MapContract) int {
 }
 
 var struckRe = regexp.MustCompile(`~~[^~\n]+~~`)
+
+// FoldHeading folds a heading for matching: case, accents and spacing.
+func FoldHeading(h string) string { return foldHeading(h) }
 
 func foldHeading(h string) string {
 	return strings.Join(strings.Fields(search.Fold(strings.ToLower(h))), " ")

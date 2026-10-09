@@ -56,6 +56,8 @@ const (
 	// the title to give it (unmapped_folder, D357). The repair writes the
 	// descriptor map_create would, with no contract.
 	FixScaffoldMap = "scaffold_map"
+	// FixRenameHeading and FixReorderSections (D352) are declared with the
+	// template checks, in template.go.
 )
 
 // Fix is the machine-readable remedy of a finding whose repair is mechanical.
@@ -138,7 +140,9 @@ type conceptInput struct {
 	Registry       registryLint
 	MapName        string          // "" outside a map
 	Contract       *kb.MapContract // nil outside a map
-	Sections       []string        // the H2 sections of the concept's template (D297)
+	// Catalog is the KB's templates (D352); nil unless the page's map sets a
+	// template key, so a map without them reads no template.
+	Catalog kb.TemplateCatalog
 }
 
 // frontmatterFindings computes the checks that depend only on one concept's
@@ -286,7 +290,8 @@ func frontmatterFindings(in conceptInput) []Finding {
 	if parsed != nil {
 		out = append(out, nonstandardFieldFindings(in)...)
 		out = append(out, proseValueFindings(in)...)
-		out = append(out, decayFindings(in, in.Sections)...)
+		out = append(out, decayFindings(in)...)
+		out = append(out, templateFindings(in)...)
 		out = append(out, toolParamFieldFindings(in.RelPath, parsed)...)
 	}
 	return out
@@ -363,8 +368,8 @@ func CheckConcept(k *kb.KB, id okf.ConceptID, content string) []Finding {
 		if contract, err := k.ReadMapContract(parts[0]); err == nil {
 			in.MapName, in.Contract = parts[0], &contract
 			in.AllowPrefixes = contract.MachinePathAllowPrefixes
-			if contract.TemplateSections && parsed != nil {
-				in.Sections = k.TemplateSections(parsed.Type())
+			if contract.HasTemplateKeys() {
+				in.Catalog = k.TemplateCatalog()
 			}
 		}
 	}

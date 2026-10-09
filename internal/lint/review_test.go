@@ -142,6 +142,14 @@ var reviewFixtures = map[string]func(t *testing.T, dismiss bool) (*kb.KB, string
 		writeFile(t, k.DataRoot(), "c/_map.md", "---\ntype: Map\ntitle: Gamma\n---\n")
 		return k, "a/_map"
 	},
+	ReviewTemplateProposal: func(t *testing.T, dismiss bool) (*kb.KB, string) {
+		k := tempKB(t)
+		writeFile(t, k.DataRoot(), "m/_map.md", "---\ntype: Map\ntitle: M\n"+ignoreLine(ReviewTemplateProposal, dismiss)+"---\n")
+		for _, n := range []string{"a", "b", "c"} {
+			writeFile(t, k.DataRoot(), "m/"+n+".md", "---\ntype: Note\ntitle: "+n+"\n---\n# "+n+"\n\n## Purpose\n\ntext\n")
+		}
+		return k, "m/_map"
+	},
 	ReviewLintJudgement: func(t *testing.T, dismiss bool) (*kb.KB, string) {
 		k := tempKB(t)
 		writeFile(t, k.DataRoot(), "m/_map.md", "---\ntype: Map\ntitle: M\n---\n")
