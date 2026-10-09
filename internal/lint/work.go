@@ -88,7 +88,7 @@ func Work(k *kb.KB) ([]WorkEntry, error) {
 				e.AgeDays = &age
 				// The stale_open threshold (D297), extended to a concept
 				// whose unchecked items are as old.
-				if days := staleAfterDays(contract); days > 0 && age > days && !reviewSuspended(e.Frontmatter) {
+				if days, _ := EffectiveStaleAfter(contract); days > 0 && age > days && !reviewSuspended(e.Frontmatter) {
 					e.Stale = true
 				}
 			}
@@ -119,19 +119,48 @@ func workPhase(status string, contract *kb.MapContract) bool {
 	return !ok || fam != "draft"
 }
 
-// staleAfterDays is stale_open's threshold for a map: the contract's
-// stale_after, else journalStaleAfterDays in a journal, else none.
-func staleAfterDays(contract *kb.MapContract) int {
+// EffectiveStaleAfter is the one place that decides stale_open's threshold
+// (D346): an explicit stale_after wins, 0 is off, else 60 in a journal, 30 in
+// a map that holds work, none in a reference map. defaulted is true when the
+// value comes from the default, never written to _map.md.
+func EffectiveStaleAfter(contract *kb.MapContract) (days int, defaulted bool) {
 	if contract == nil {
-		return 0
+		return 0, false
 	}
 	if contract.StaleAfterDays > 0 {
-		return contract.StaleAfterDays
+		return contract.StaleAfterDays, false
+	}
+	if contract.StaleAfterOff {
+		return 0, false
 	}
 	if contract.Kind == "journal" {
-		return journalStaleAfterDays
+		return journalStaleAfterDays, true
 	}
-	return 0
+	if holdsWork(contract) {
+		return workMapStaleAfterDays, true
+	}
+	return 0, false
+}
+
+// holdsWork reports whether a map's contract declares an open phase: the only
+// contract-level signal that its pages are meant to be open or closed.
+func holdsWork(contract *kb.MapContract) bool {
+	if len(contract.OpenStatuses) > 0 {
+		return true
+	}
+	for _, v := range contract.FieldValues["status"] {
+		if openPhase(v, contract) {
+			return true
+		}
+	}
+	for _, fv := range contract.FieldValuesByType {
+		for _, v := range fv["status"] {
+			if openPhase(v, contract) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // workItems returns the unchecked items of a body outside code, each with the

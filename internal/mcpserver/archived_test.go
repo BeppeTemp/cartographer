@@ -253,3 +253,59 @@ func TestReadsAreTracked(t *testing.T) {
 		t.Fatalf("read_access = %+v, %v (only ops/live was read or hit)", ra, err)
 	}
 }
+
+// D346: stale_after 0 is an explicit off, -1 resets to the default, the
+// response echoes what was written, and map_list shows the effective value.
+func TestMapUpdate_StaleAfterOffAndReset(t *testing.T) {
+	k, s := repairKB(t, 0)
+	out := callOK(t, s, "map_update", `{"map":"ops","open_statuses":["open"],"harvest_after":90,"stale_after":90}`)
+	for _, want := range []string{`"stale_after": 90`, `"open_statuses": [`, `"harvest_after": 90`} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("echo lacks %s: %s", want, out)
+		}
+	}
+	if strings.Contains(out, "stale_after_defaulted") {
+		t.Fatalf("explicit value reported as defaulted: %s", out)
+	}
+	callOK(t, s, "map_update", `{"map":"ops","stale_after":0}`)
+	if c, err := k.ReadMapContract("ops"); err != nil || !c.StaleAfterOff || c.StaleAfterDays != 0 || len(c.Malformed) != 0 {
+		t.Fatalf("stale_after 0 must persist as off: %+v %v", c, err)
+	}
+	if out := callOK(t, s, "map_list", `{}`); strings.Contains(out, `"stale_after"`) {
+		t.Fatalf("off must be omitted from map_list: %s", out)
+	}
+	out = callOK(t, s, "map_update", `{"map":"ops","stale_after":-1}`)
+	if !strings.Contains(out, `"stale_after": 30`) || !strings.Contains(out, `"stale_after_defaulted": true`) {
+		t.Fatalf("-1 must fall back to the work-map default: %s", out)
+	}
+	if c, _ := k.ReadMapContract("ops"); c.StaleAfterOff || c.StaleAfterDays != 0 {
+		t.Fatalf("-1 must delete the key: %+v", c)
+	}
+	if out := callOK(t, s, "map_list", `{}`); !strings.Contains(out, `"stale_after": 30`) || !strings.Contains(out, `"stale_after_defaulted": true`) {
+		t.Fatalf("map_list lacks the effective value: %s", out)
+	}
+	if res := callTool(t, s, "map_update", `{"map":"ops","stale_after":-2}`); !res.IsError || !strings.Contains(res.Content[0].Text, "stale_after must be") {
+		t.Fatalf("-2 must be refused: %+v", res)
+	}
+}
+
+func TestMapList_StaleAfterJournalAndReference(t *testing.T) {
+	s, _ := strictMapServer(t) // jr is a journal; ops is a plain map
+	out := callOK(t, s, "map_list", `{}`)
+	var infos []map[string]interface{}
+	if err := json.Unmarshal([]byte(out), &infos); err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range infos {
+		switch m["name"] {
+		case "jr":
+			if m["stale_after"] != float64(60) || m["stale_after_defaulted"] != true {
+				t.Fatalf("journal: %v", m)
+			}
+		case "ops":
+			if _, ok := m["stale_after"]; ok {
+				t.Fatalf("reference map must omit stale_after: %v", m)
+			}
+		}
+	}
+}
