@@ -806,3 +806,49 @@ func TestDoctorIgnoresNonLegacyDoubleUnderscore(t *testing.T) {
 		t.Fatalf("non-legacy names flagged: %+v", f)
 	}
 }
+
+// --- D359: OpenCode hook plugin shape vs installed major ---
+
+func TestCheckOpenCodePluginShape(t *testing.T) {
+	dir := t.TempDir()
+	writePlugin := func(shape string) {
+		p := filepath.Join(dir, ".config", "opencode", "plugins", "cartographer-notify.js")
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		body := "// cartographer:hook:notify\n"
+		if shape != "" {
+			body += "// cartographer:opencode-plugin-shape=" + shape + "\n"
+		}
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	lockFile := provisioning.LockFile{Providers: map[string]provisioning.Lock{
+		"opencode": {Provider: "opencode", Managed: []provisioning.ManagedFile{{Kind: "hook", Name: "notify", Path: "x"}}},
+	}}
+	run := func(major int) []doctorFinding {
+		prev := installedOpenCodeMajor
+		installedOpenCodeMajor = func() int { return major }
+		defer func() { installedOpenCodeMajor = prev }()
+		return checkOpenCodePluginShape(dir, []string{"opencode"}, lockFile)
+	}
+
+	writePlugin("") // written before D359: shape 1
+	if f := run(2); len(f) != 1 || f[0].Severity != doctorError || !strings.Contains(f[0].Message, "written for OpenCode 1.x but 2.x") {
+		t.Errorf("2.x installed, 1.x plugin: %+v", f)
+	}
+	if f := run(1); len(f) != 0 {
+		t.Errorf("matching shape must be silent: %+v", f)
+	}
+	if f := run(0); len(f) != 0 {
+		t.Errorf("unknown version must be silent: %+v", f)
+	}
+	if f := run(3); len(f) != 1 || f[0].Severity != doctorWarning {
+		t.Errorf("unsupported major should warn: %+v", f)
+	}
+	writePlugin("2")
+	if f := run(2); len(f) != 0 {
+		t.Errorf("2.x plugin on 2.x: %+v", f)
+	}
+}

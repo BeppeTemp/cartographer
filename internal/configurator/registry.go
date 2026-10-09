@@ -90,6 +90,11 @@ type Descriptor struct {
 	// standalone CLI installs `kiro-cli`, and either is evidence that the
 	// provider is on this machine.
 	Binaries []string
+	// HookPluginMajors are the major versions of the client whose hook plugin
+	// shape the generator knows (D359). Empty for a provider whose hooks are not
+	// generated plugins. A client outside the list is reported by doctor rather
+	// than served a shape nobody checked.
+	HookPluginMajors []int
 	// ConfigDirs are directories relative to the user's home, probed in this
 	// order when the binary is absent.
 	ConfigDirs [][]string
@@ -208,6 +213,7 @@ var descriptors = []Descriptor{
 		DeletableWhenEmpty: true,
 		SupportsMCPHeaders: true,
 		Binaries:           []string{"opencode"},
+		HookPluginMajors:   []int{1, 2},
 		ConfigDirs:         [][]string{{".config", "opencode"}, {".opencode"}},
 		// %APPDATA%\opencode is where a Windows install keeps this, and neither
 		// of the two home-relative entries above can name it.
