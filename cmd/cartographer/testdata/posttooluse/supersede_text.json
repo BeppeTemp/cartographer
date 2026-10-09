@@ -1,0 +1,1 @@
+{"hook_event_name":"PostToolUse","tool_name":"mcp__cartographer__supersede","tool_response":[{"type":"text","text":"superseded kb-a/old → kb-a/new\nfindings:\n[\n  {\"path\": \"kb-a/old\", \"check\": \"link_to_retired\", \"severity\": \"info\", \"message\": \"links a retired page\"}\n]\nrepaired:\n[]"}]}

@@ -39,6 +39,13 @@ would flip a matrix cell is confirmed with a probe
   - Sync layer 1: `SessionStart` entry in `~/.claude/settings.json`
     (`docs/sync.md` §Layer 1); hooks run through Git Bash on Windows, PowerShell
     as the documented fallback (D267).
+  - Write-findings feedback (D353): a `PostToolUse` entry (matcher on the MCP
+    tool name) whose command exits 2 with a message on stderr returns that
+    message to the agent. Payload: `tool_name` and `tool_response`. This is the
+    only client where the payload, the matcher and the feedback channel are
+    verified; codex, opencode and antigravity declare `PostToolUse` but are
+    unverified for it, and kiro's `PostToolUse` was never probed. Each is added
+    by a probe, not by inference.
   - `CLAUDE.md` → `@AGENTS.md` import and per-directory loading (D213). Since
     2.1.277 the built-in `agents-md@builtin` plugin (on by default) reads a
     project `AGENTS.md` itself, but **only when no `CLAUDE.md`/`CLAUDE.local.md`
@@ -51,6 +58,10 @@ would flip a matrix cell is confirmed with a probe
     carry a materialised skill path). The format is undocumented: an unknown shape is
     skipped, never fatal.
 - **Watch items**:
+  - the `PostToolUse` payload shape of an MCP result (`tool_response`) is not
+    documented to the byte: the write-findings hook accepts the result object, a
+    content-block array and JSON in a text block, and is silent on any other
+    shape, so a change shows up as the hook going quiet.
   - ~~[#476](https://github.com/BeppeTemp/cartographer/issues/476)~~: resolved by
     [D293](decisions/D293-claude-md-imports-agents-md.md) — the project
     `instructions` block prepends `@AGENTS.md` when the project root has one, so

@@ -1,0 +1,1 @@
+{"hook_event_name":"PostToolUse","tool_name":"mcp__cartographer__search","tool_response":{"findings":[{"path":"x","check":"orphan","message":"m"}]}}

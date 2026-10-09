@@ -1,0 +1,192 @@
+package main
+
+import (
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"io"
+	"os"
+	"strings"
+
+	"github.com/BeppeTemp/cartographer/internal/provisioning"
+)
+
+// `cartographer hook write-findings` (D353) is the logic of the client-generated
+// cartographer-write-findings hook (internal/provisioning/writefindings.go): it
+// reads a Claude Code PostToolUse payload on stdin and, when the write response
+// carries findings, returns them to the agent as feedback (stderr, exit 2).
+// Internal: not listed in printUsage, like `update apply`.
+//
+// Every other outcome is silent exit 0 — no findings, unknown payload shape,
+// parse error, even a panic: a hook must never break a session. Stdout stays
+// empty always (some hooks' stdout reaches the model as a different channel).
+
+var (
+	hookStdin  io.Reader = os.Stdin
+	hookStderr io.Writer = os.Stderr
+)
+
+// maxHookPayload bounds what the hook reads: a batch response can be large, a
+// payload past this is skipped, not buffered without limit.
+const maxHookPayload = 8 << 20
+
+// maxFeedbackFindings caps the lines in the message: the agent has the full
+// response anyway.
+const maxFeedbackFindings = 10
+
+func cmdHook(args []string) (code int) {
+	if len(args) != 1 || args[0] != "write-findings" {
+		fmt.Fprintln(os.Stderr, "usage: cartographer hook write-findings   (internal: reads a PostToolUse payload on stdin)")
+		return 2
+	}
+	defer func() {
+		// A Go panic exits 2, which a PostToolUse hook reads as feedback.
+		if recover() != nil {
+			code = 0
+		}
+	}()
+	raw, err := io.ReadAll(io.LimitReader(hookStdin, maxHookPayload))
+	if err != nil {
+		return 0
+	}
+	if msg := writeFindingsFeedback(raw); msg != "" {
+		fmt.Fprintln(hookStderr, msg)
+		return 2
+	}
+	return 0
+}
+
+// hookFinding is the part of a write response's finding entry the message uses.
+type hookFinding struct {
+	Path    string `json:"path"`
+	Check   string `json:"check"`
+	Message string `json:"message"`
+}
+
+// writeFindingsFeedback returns the feedback message for a PostToolUse payload,
+// or "" when there is nothing to say.
+func writeFindingsFeedback(payload []byte) string {
+	var p struct {
+		ToolName     string          `json:"tool_name"`
+		ToolResponse json.RawMessage `json:"tool_response"`
+	}
+	if json.Unmarshal(payload, &p) != nil || len(p.ToolResponse) == 0 {
+		return ""
+	}
+	if p.ToolName != "" && !isWriteFindingsTool(p.ToolName) {
+		return ""
+	}
+	findings := collectFindings(p.ToolResponse, 0)
+	if len(findings) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "This write returned %d finding(s). A write is done when its response has none.\n", len(findings))
+	for i, f := range findings {
+		if i == maxFeedbackFindings {
+			fmt.Fprintf(&b, "+%d more (see the write response)\n", len(findings)-maxFeedbackFindings)
+			break
+		}
+		fmt.Fprintf(&b, "%s %s: %s\n", f.Check, f.Path, f.Message)
+	}
+	b.WriteString("Fix them in your next write, or record why with a `lint_ignore` entry (check + reason) on the concept.")
+	return b.String()
+}
+
+func isWriteFindingsTool(name string) bool {
+	for _, t := range provisioning.WriteFindingsTools {
+		if strings.HasSuffix(name, "__"+t) || name == t {
+			return true
+		}
+	}
+	return false
+}
+
+// collectFindings walks a tool_response in any of the shapes Claude Code
+// delivers an MCP result in: the result object, a content-block array, or a
+// JSON (or "text\nfindings:\n[...]") string in a text block. It looks for a
+// top-level `findings` array or results[].findings (concept_batch).
+func collectFindings(raw json.RawMessage, depth int) []hookFinding {
+	if depth > 4 {
+		return nil
+	}
+	raw = bytes.TrimSpace(raw)
+	if len(raw) == 0 {
+		return nil
+	}
+	switch raw[0] {
+	case '"':
+		var s string
+		if json.Unmarshal(raw, &s) != nil {
+			return nil
+		}
+		return findingsFromText(s, depth)
+	case '[':
+		var items []json.RawMessage
+		if json.Unmarshal(raw, &items) != nil {
+			return nil
+		}
+		var out []hookFinding
+		for _, it := range items {
+			out = append(out, collectFindings(it, depth+1)...)
+		}
+		return out
+	case '{':
+		var o map[string]json.RawMessage
+		if json.Unmarshal(raw, &o) != nil {
+			return nil
+		}
+		var out []hookFinding
+		if f, ok := o["findings"]; ok {
+			var fs []hookFinding
+			if json.Unmarshal(f, &fs) == nil {
+				out = append(out, fs...)
+			}
+		}
+		if r, ok := o["results"]; ok {
+			var rs []struct {
+				Findings []hookFinding `json:"findings"`
+			}
+			if json.Unmarshal(r, &rs) == nil {
+				for _, e := range rs {
+					out = append(out, e.Findings...)
+				}
+			}
+		}
+		if len(out) > 0 {
+			return out
+		}
+		for _, key := range []string{"content", "structuredContent", "text"} {
+			if v, ok := o[key]; ok {
+				out = append(out, collectFindings(v, depth+1)...)
+			}
+		}
+		return out
+	}
+	return nil
+}
+
+// findingsFromText handles a text block: a JSON document, or the plain-text
+// form supersede uses ("... \nfindings:\n<json array>").
+func findingsFromText(s string, depth int) []hookFinding {
+	t := strings.TrimSpace(s)
+	if t == "" {
+		return nil
+	}
+	if t[0] == '{' || t[0] == '[' {
+		if json.Valid([]byte(t)) {
+			return collectFindings(json.RawMessage(t), depth+1)
+		}
+		return nil
+	}
+	const marker = "\nfindings:\n"
+	i := strings.Index(s, marker)
+	if i < 0 {
+		return nil
+	}
+	var fs []hookFinding
+	if json.NewDecoder(strings.NewReader(s[i+len(marker):])).Decode(&fs) != nil {
+		return nil
+	}
+	return fs
+}

@@ -80,15 +80,44 @@ func EnsureBootstrapHook(baseDir string, provider configurator.Provider, lock Lo
 	if !SupportsSessionHook(provider) {
 		return lock, nil
 	}
-	destRel := destDir("hook", BootstrapHookName, provider)
+	return ensureSyntheticHook(baseDir, provider, lock, bootstrapHook, dryRun)
+}
+
+// syntheticHook is a hook generated entirely by the client (bootstrap, D60;
+// write-findings, D353): its two files are constants, not read from a KB.
+// ensureSyntheticHook is the one code path that materializes them, so both go
+// through the same no-follow writers, registration and lock bookkeeping.
+type syntheticHook struct {
+	name          string
+	hookJSON      func() []byte
+	scriptName    string
+	scriptContent string
+	contentHash   string
+	// warningBlocks makes a non-fatal registration warning fatal when the
+	// provider's mechanism says so (warningBlocksBootstrap): true for the
+	// bootstrap hook only, whose event is always mapped.
+	warningBlocks bool
+}
+
+var bootstrapHook = syntheticHook{
+	name:          BootstrapHookName,
+	hookJSON:      bootstrapHookJSON,
+	scriptName:    bootstrapScriptName,
+	scriptContent: bootstrapScriptContent,
+	contentHash:   bootstrapContentHash,
+	warningBlocks: true,
+}
+
+func ensureSyntheticHook(baseDir string, provider configurator.Provider, lock Lock, h syntheticHook, dryRun bool) (Lock, error) {
+	destRel := destDir("hook", h.name, provider)
 
 	var relPaths []string
 	if dryRun {
 		relPaths = []string{
 			filepath.Join(destRel, "hook.json"),
-			filepath.Join(destRel, bootstrapScriptName),
+			filepath.Join(destRel, h.scriptName),
 		}
-		if pluginRel := HookPluginRelPath(provider, BootstrapHookName); pluginRel != "" {
+		if pluginRel := HookPluginRelPath(provider, h.name); pluginRel != "" {
 			relPaths = append(relPaths, pluginRel)
 		}
 	} else {
@@ -97,16 +126,16 @@ func EnsureBootstrapHook(baseDir string, provider configurator.Provider, lock Lo
 			return Lock{}, fmt.Errorf("provisioning: mkdir %s: %w", fullDestDir, err)
 		}
 		hookJSONPath := filepath.Join(fullDestDir, "hook.json")
-		if err := writeFileNoFollow(hookJSONPath, bootstrapHookJSON(), 0o644); err != nil {
+		if err := writeFileNoFollow(hookJSONPath, h.hookJSON(), 0o644); err != nil {
 			return Lock{}, fmt.Errorf("provisioning: write %s: %w", hookJSONPath, err)
 		}
-		scriptPath := filepath.Join(fullDestDir, bootstrapScriptName)
-		if err := writeFileNoFollow(scriptPath, []byte(bootstrapScriptContent), 0o755); err != nil {
+		scriptPath := filepath.Join(fullDestDir, h.scriptName)
+		if err := writeFileNoFollow(scriptPath, []byte(h.scriptContent), 0o755); err != nil {
 			return Lock{}, fmt.Errorf("provisioning: write %s: %w", scriptPath, err)
 		}
 		// WriteFile applies the mode only on creation: a pre-existing
-		// bootstrap.sh (e.g. written 0600 by an earlier version) would stay
-		// non-executable → Permission denied on every SessionStart.
+		// script (e.g. written 0600 by an earlier version) would stay
+		// non-executable → Permission denied on every run.
 		//
 		// Guarded on the one place that knows whether this filesystem has an
 		// execute bit (internal/execbit). Where it has none, os.Chmod only
@@ -120,19 +149,19 @@ func EnsureBootstrapHook(baseDir string, provider configurator.Provider, lock Lo
 		}
 		relPaths = []string{
 			filepath.Join(destRel, "hook.json"),
-			filepath.Join(destRel, bootstrapScriptName),
+			filepath.Join(destRel, h.scriptName),
 		}
 
 		// Register in the provider's native mechanism, reusing exactly the
 		// D57/D58/D59 primitives — the very same code Apply uses for KB
 		// hooks, with the hook.json just written above acting as the bridge.
 		if mechanism, ok := hookMechanisms[provider]; ok {
-			pluginRel, warning, err := mechanism.register(baseDir, BootstrapHookName, fullDestDir)
+			pluginRel, warning, err := mechanism.register(baseDir, h.name, fullDestDir)
 			if err != nil {
 				return Lock{}, err
 			}
-			if warning != "" && mechanism.warningBlocksBootstrap {
-				return Lock{}, fmt.Errorf("provisioning: bootstrap hook: %s", warning)
+			if warning != "" && h.warningBlocks && mechanism.warningBlocksBootstrap {
+				return Lock{}, fmt.Errorf("provisioning: %s hook: %s", h.name, warning)
 			}
 			if pluginRel != "" {
 				relPaths = append(relPaths, pluginRel)
@@ -141,15 +170,15 @@ func EnsureBootstrapHook(baseDir string, provider configurator.Provider, lock Lo
 	}
 
 	// The hash of what is on disk (D138), so on-disk verification (D139) and
-	// `cartographer doctor` (D143) cover the bootstrap hook like any other
-	// managed artifact instead of reporting it as unverifiable forever. It is
+	// `cartographer doctor` (D143) cover the hook like any other managed
+	// artifact instead of reporting it as unverifiable forever. It is
 	// computed from the same constants written above, never read back, and a
 	// dry run records nothing: there is nothing on disk to describe.
 	materializedHash := ""
 	if !dryRun {
 		materializedHash = hashArtifactFiles([]ArtifactFile{
-			{Path: "hook.json", Content: bootstrapHookJSON()},
-			{Path: bootstrapScriptName, Content: []byte(bootstrapScriptContent), Executable: true},
+			{Path: "hook.json", Content: h.hookJSON()},
+			{Path: h.scriptName, Content: []byte(h.scriptContent), Executable: true},
 		})
 	}
 
@@ -157,20 +186,20 @@ func EnsureBootstrapHook(baseDir string, provider configurator.Provider, lock Lo
 	for _, rp := range relPaths {
 		managed = append(managed, ManagedFile{
 			Kind:             "hook",
-			Name:             BootstrapHookName,
+			Name:             h.name,
 			Path:             rp,
-			ContentHash:      bootstrapContentHash,
+			ContentHash:      h.contentHash,
 			MaterializedHash: materializedHash,
 			// The one file hashed as executable above. Recorded like any other
 			// artifact's, so a client whose filesystem has no execute bit can
 			// still reproduce this hash (ManagedFile.ExecutablePaths).
-			ExecutablePaths: []string{bootstrapScriptName},
+			ExecutablePaths: []string{h.scriptName},
 		})
 	}
 
 	newManaged := make([]ManagedFile, 0, len(lock.Managed)+len(managed))
 	for _, mf := range lock.Managed {
-		if mf.Kind == "hook" && mf.Name == BootstrapHookName {
+		if mf.Kind == "hook" && mf.Name == h.name {
 			continue
 		}
 		newManaged = append(newManaged, mf)
@@ -217,6 +246,11 @@ type hookMechanism struct {
 	// it (SessionHookLimit), because a sync that runs only in some sessions
 	// is not a trigger an operator can rely on (D300).
 	sessionHookLimit string
+	// writeFindingsHook marks a provider whose PostToolUse feedback channel
+	// (exit 2 + stderr reaches the agent) was verified, so the write-findings
+	// hook (D353) is installed for it. Declared, never inferred: a client is
+	// added by a probe of its payload, matcher and feedback semantics.
+	writeFindingsHook bool
 	// register performs the registration, returning the relative path of any
 	// generated artifact (so it is tracked as a managed file) plus any
 	// non-fatal warning for the caller to surface.
@@ -225,7 +259,8 @@ type hookMechanism struct {
 
 var hookMechanisms = map[configurator.Provider]hookMechanism{
 	configurator.ProviderClaudeCode: {
-		settingsFile: []string{".claude", "settings.json"},
+		settingsFile:      []string{".claude", "settings.json"},
+		writeFindingsHook: true,
 		register: func(baseDir, name, fullDestDir string) (string, string, error) {
 			warning, err := registerHookSettings(baseDir, name, fullDestDir)
 			if err != nil {

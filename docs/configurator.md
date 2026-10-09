@@ -32,6 +32,18 @@ automation; a wrapped low-level `cause` is retained in JSON only. `status`
 keeps exit 0 for in-sync, 1 for drift and 2 for configuration or operational
 errors. `service status` retains 0 running, 3 stopped and 4 not installed.
 
+### `cartographer hook write-findings` (internal)
+
+Not in the usage text. The logic of the client-generated `cartographer-write-findings` hook
+([D353](decisions/D353-write-findings-hook.md), `docs/sync.md` §Layer 1): reads a Claude Code
+`PostToolUse` payload on stdin and looks in `tool_response` (the result object, a content-block
+array, or JSON in a `text` block; `supersede` appends `findings:` as plain text) for a `findings`
+array or `results[].findings` (`concept_batch`). With at least one finding it writes a fixed English
+message to stderr (a header with the count, up to 10 `<check> <path>: <message>` lines, `+N more`,
+and the instruction to fix or `lint_ignore`) and exits 2. Anything else (no findings, an unknown
+shape, a parse error, a panic) is silent exit 0; stdout is always empty. Any other subcommand
+exits 2.
+
 ### `cartographer update check|notice`
 
 Tells an agent, and its user, that a newer release exists
@@ -1074,6 +1086,7 @@ ignored_paths: []               # placeholder ids known to be absent on this mac
 update:                         # D254; omitted entirely when both are the default
   check: true                   # false: no update lookup at all
   policy: notify                # notify | auto-patch (patch releases via homebrew/install.sh/install.ps1 install themselves)
+write_findings_hook: true       # D353; written only when false. false: sync removes the Claude Code write-findings hook (docs/sync.md §Layer 1)
 usage_scan: true                # D326; written only when false. false: sync reads no session transcript and reports no skill usage (docs/sync.md §Usage scan)
 ```
 

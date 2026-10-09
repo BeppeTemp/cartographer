@@ -672,7 +672,8 @@ func BuildManifest(bundleFS fs.FS, kbRoots map[string]string, opts BuildOptions)
 
 		// 4. Hook (hooks/<name>/, script + hook.json — aggregate hash like
 		// multi-file skills). No hooks/ folder → zero hook artifacts. A KB
-		// that named a hook BootstrapHookName ("cartographer-bootstrap", D60) is
+		// that named a hook BootstrapHookName ("cartographer-bootstrap", D60) or
+		// WriteFindingsHookName ("cartographer-write-findings", D353) is
 		// not filtered out here: BuildManifest stays a pure scan, with no notion
 		// of reservation — the collision check (warning, artifact ignored) lives
 		// entirely in Apply, the only place that materializes.
@@ -901,7 +902,7 @@ func generateKBInstructions(kbName, kbRoot string, routed bool) string {
 		sb.WriteString("Operational instructions:\n")
 		sb.WriteString("- consult it autonomously when you need historical or architectural context: `search` (keyword) or `atlas_overview` to orient yourself, `concept_read` to read;\n")
 		sb.WriteString("- write or update a page with `concept_write` when you discover something relevant; close relevant sessions with `log_append`;\n")
-		sb.WriteString("- write responses carry structural findings (broken links, missing index entry, orphan): fix them before moving on or the KB drifts;\n")
+		sb.WriteString("- a write is done when its response has no findings (broken links, missing index entry, orphan): fix them, or `lint_ignore` them with a reason;\n")
 		// D321: one meaning for `active`, said once, true for every KB.
 		sb.WriteString("- status convention: `active` means the page is valid and current; open work uses `open`, `in-progress` or `blocked`, and a wait is declared with `waiting_on` and `review_after`;\n")
 		sb.WriteString("- every write is a git commit, revertible.\n")
@@ -1501,12 +1502,12 @@ func ComputeDiff(m Manifest, lock Lock) Diff {
 	}
 
 	// Removed: managed files no longer in the manifest. The bootstrap hook (D60,
-	// BootstrapHookName) is excluded: it's a client-side artifact, never present in
+	// BootstrapHookName, and the write-findings hook of D353) is excluded: it's a client-side artifact, never present in
 	// the server manifest by construction — treating it as "removed" would make
 	// it disappear on every sync instead of staying stable between one
 	// EnsureBootstrapHook and the next (see also the twin carry-forward in Apply).
 	for _, mf := range lock.Managed {
-		if mf.Kind == "hook" && mf.Name == BootstrapHookName {
+		if isReservedHook(mf.Kind, mf.Name) {
 			continue
 		}
 		k := mf.Kind + "\x00" + mf.Name
@@ -1742,7 +1743,7 @@ func Apply(m Manifest, opts ApplyOptions) (AppliedResult, error) {
 		// preserved through Apply — see EnsureBootstrapHook, which
 		// regenerates/registers it separately and expects to find it here again
 		// next round (same principle as the twin carry-forward in ComputeDiff).
-		if mf.Kind == "hook" && mf.Name == BootstrapHookName {
+		if isReservedHook(mf.Kind, mf.Name) {
 			newManaged = append(newManaged, mf)
 			continue
 		}
@@ -1763,13 +1764,13 @@ func Apply(m Manifest, opts ApplyOptions) (AppliedResult, error) {
 			// Handled as a group by applyInstructionsGroup below, not here.
 			continue
 		}
-		if a.Kind == "hook" && a.Name == BootstrapHookName {
+		if isReservedHook(a.Kind, a.Name) {
 			// Name reserved for the client-side bootstrap (D60, EnsureBootstrapHook):
 			// a KB defining a hook with this very name would otherwise be
 			// written over the files EnsureBootstrapHook manages on its own —
 			// ignored with a warning, never materialized.
 			result.Warnings = append(result.Warnings, fmt.Sprintf(
-				"hook %q: name reserved by Cartographer (bootstrap), KB artifact ignored", a.Name))
+				"hook %q: name reserved by Cartographer (client-generated hook), KB artifact ignored", a.Name))
 			continue
 		}
 		if !artifactAuthorized(a, opts) {

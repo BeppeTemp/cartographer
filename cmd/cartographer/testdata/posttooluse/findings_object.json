@@ -1,0 +1,1 @@
+{"hook_event_name":"PostToolUse","tool_name":"mcp__cartographer__concept_new","tool_response":{"id":"kb-a/page","findings":[{"path":"kb-a/page","check":"orphan","severity":"info","message":"nothing links here"}]}}
