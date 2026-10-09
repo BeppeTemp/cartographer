@@ -234,7 +234,7 @@ func TestBuildManifest_Instructions_NessunaSezioneSenzaAgentNeCurato(t *testing.
 		"Operational instructions:\n" +
 		"- consult it autonomously when you need historical or architectural context: `search` (keyword) or `atlas_overview` to orient yourself, `concept_read` to read;\n" +
 		"- write or update a page with `concept_write` when you discover something relevant; close relevant sessions with `log_append`;\n" +
-		"- write responses carry structural findings (broken links, missing index entry, orphan): fix them before moving on or the KB drifts;\n" +
+		"- a write is done when its response has no findings (broken links, missing index entry, orphan): fix them, or `lint_ignore` them with a reason;\n" +
 		"- status convention: `active` means the page is valid and current; open work uses `open`, `in-progress` or `blocked`, and a wait is declared with `waiting_on` and `review_after`;\n" +
 		"- every write is a git commit, revertible.\n" +
 		"- never run git commands in the KB's clone: report replication problems from `sync_status` to the operator instead.\n" +
@@ -1527,7 +1527,7 @@ func TestGenerateKBInstructions_ContainsWriteFindingsGuidance(t *testing.T) {
 		t.Fatalf("BuildManifest: %v", err)
 	}
 	content := string(findInstructionsArtifact(t, m, "homelab").Files[0].Content)
-	if !strings.Contains(content, "write responses carry structural findings") || !strings.Contains(content, "fix them before moving on") {
+	if !strings.Contains(content, "a write is done when its response has no findings") || !strings.Contains(content, "`lint_ignore` them with a reason") {
 		t.Errorf("write-findings guidance missing:\n%s", content)
 	}
 }

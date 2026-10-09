@@ -668,3 +668,32 @@ func TestUsageScan_DefaultsOnAndOnlyOffIsWritten(t *testing.T) {
 		t.Error("usage_scan leaked into Extra")
 	}
 }
+
+func TestWriteFindingsHook_DefaultsOnAndOnlyOffIsWritten(t *testing.T) {
+	dir := t.TempDir()
+	if !clientconfig.Default().WriteFindingsHookEnabled() || !(&clientconfig.Config{}).WriteFindingsHookEnabled() {
+		t.Fatal("the hook must be enabled for a default and for a zero-value Config")
+	}
+	if err := clientconfig.Save(dir, clientconfig.Default()); err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := os.ReadFile(clientconfig.Path(dir))
+	if strings.Contains(string(raw), "write_findings_hook") {
+		t.Errorf("a default config wrote the key:\n%s", raw)
+	}
+	loaded, err := clientconfig.Load(dir)
+	if err != nil || !loaded.WriteFindingsHookEnabled() {
+		t.Fatalf("absent key must load as on: %+v, %v", loaded, err)
+	}
+	loaded.WriteFindingsHookOff = true
+	if err := clientconfig.Save(dir, loaded); err != nil {
+		t.Fatal(err)
+	}
+	again, err := clientconfig.Load(dir)
+	if err != nil || again.WriteFindingsHookEnabled() {
+		t.Fatalf("write_findings_hook: false did not round-trip: %+v, %v", again, err)
+	}
+	if _, stray := again.Extra["write_findings_hook"]; stray {
+		t.Error("write_findings_hook leaked into Extra")
+	}
+}

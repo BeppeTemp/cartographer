@@ -79,6 +79,7 @@ var (
 	workspaceFn     = cmdWorkspace
 	setupFn         = cmdSetup
 	updateFn        = cmdUpdate
+	hookFn          = cmdHook
 )
 
 func main() {
@@ -113,6 +114,9 @@ func run(args []string) int {
 		return versionFn()
 	case "update":
 		return updateFn(rest)
+	case "hook":
+		// Internal (D353), not in printUsage: the client-generated hooks call it.
+		return hookFn(rest)
 	case "help", "-h", "--help":
 		printUsage(os.Stdout)
 		return 0

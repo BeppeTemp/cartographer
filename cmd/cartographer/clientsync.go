@@ -760,11 +760,22 @@ func ensureBootstrapForProviders(providers []string, targetDir string, dryRun bo
 		return fmt.Errorf("read lockfile: %w", err)
 	}
 
+	// A config that cannot be read counts as enabled (D353): this hook only
+	// adds feedback, unlike the sync timer (D325) whose absence is the safe side.
+	writeFindings := true
+	if cfg, err := clientconfig.Load(targetDir); err == nil {
+		writeFindings = cfg.WriteFindingsHookEnabled()
+	}
+
 	for _, p := range providers {
 		lock := lockFile.ForProvider(p)
 		newLock, err := provisioning.EnsureBootstrapHook(targetDir, configurator.Provider(p), lock, dryRun)
 		if err != nil {
 			return fmt.Errorf("ensure bootstrap hook (%s): %w", p, err)
+		}
+		newLock, err = provisioning.EnsureWriteFindingsHook(targetDir, configurator.Provider(p), newLock, writeFindings, dryRun)
+		if err != nil {
+			return fmt.Errorf("ensure write-findings hook (%s): %w", p, err)
 		}
 		lockFile.SetProvider(p, newLock)
 	}

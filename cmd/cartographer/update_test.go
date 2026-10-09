@@ -496,3 +496,44 @@ func TestServerUpdateCheckRetriesSoonAfterAFailure(t *testing.T) {
 		t.Fatalf("latest = %q after a failed first check: the retry waited the full interval", src())
 	}
 }
+
+// D353: the write-findings hook follows `write_findings_hook` in the client
+// config: installed by default, gone on the next sync once the key is false.
+func TestEnsureBootstrapForProviders_WriteFindingsOptOut(t *testing.T) {
+	dir := t.TempDir()
+	claude := []string{string(configurator.ProviderClaudeCode)}
+	hookDir := filepath.Join(dir, ".claude", "hooks", provisioning.WriteFindingsHookName)
+
+	if err := ensureBootstrapForProviders(claude, dir, false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(hookDir); err != nil {
+		t.Fatalf("hook not installed by default: %v", err)
+	}
+
+	cfg := clientconfig.Default()
+	cfg.WriteFindingsHookOff = true
+	if err := clientconfig.Save(dir, cfg); err != nil {
+		t.Fatal(err)
+	}
+	if err := ensureBootstrapForProviders(claude, dir, false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(hookDir); !os.IsNotExist(err) {
+		t.Fatalf("hook survived the opt-out: %v", err)
+	}
+	lf, err := provisioning.ReadLockFile(lockFilePath(dir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var boot bool
+	for _, mf := range lf.ForProvider(claude[0]).Managed {
+		if mf.Name == provisioning.WriteFindingsHookName {
+			t.Errorf("lock still records it: %+v", mf)
+		}
+		boot = boot || mf.Name == provisioning.BootstrapHookName
+	}
+	if !boot {
+		t.Error("the bootstrap hook must stay")
+	}
+}

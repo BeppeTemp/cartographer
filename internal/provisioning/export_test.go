@@ -14,3 +14,8 @@ const BootstrapScriptNameForTest = bootstrapScriptName
 // three guarantees (silent, always exit 0, exits when cartographer is not
 // resolvable) per platform without pinning the exact text.
 const BootstrapScriptContentForTest = bootstrapScriptContent
+
+// WriteFindingsScriptNameForTest and WriteFindingsScriptContentForTest are the
+// write-findings hook's platform script (D353), for the same reason as above.
+const WriteFindingsScriptNameForTest = writeFindingsScriptName
+const WriteFindingsScriptContentForTest = writeFindingsScriptContent

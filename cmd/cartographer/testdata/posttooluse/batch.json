@@ -1,0 +1,1 @@
+{"hook_event_name":"PostToolUse","tool_name":"mcp__cartographer__concept_batch","tool_response":{"results":[{"id":"kb-a/one","content_hash":"a"},{"id":"kb-a/two","content_hash":"b","findings":[{"path":"kb-a/two","check":"orphan","severity":"info","message":"nothing links here"}]}]}}

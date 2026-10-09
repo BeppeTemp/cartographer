@@ -1,0 +1,1 @@
+{"hook_event_name":"PostToolUse","tool_name":"mcp__work-kb__concept_patch","tool_response":{"content":[{"type":"text","text":"{\"content_hash\":\"abc\",\"findings\":[{\"path\":\"kb-a/page\",\"check\":\"index_incomplete\",\"severity\":\"info\",\"message\":\"missing from the index\"}]}"}],"isError":false}}

@@ -127,6 +127,17 @@ type Config struct {
 	// data". USER-owned: sync never writes it.
 	UsageScan bool `yaml:"-"`
 
+	// WriteFindingsHook is the opt-out of the client-side hook that returns a
+	// write response's findings to the agent as feedback (D353). Defaults to
+	// true; only an explicit `write_findings_hook: false` turns it off, and the
+	// next sync/connect then removes the installed hook. USER-owned: sync never
+	// writes it. The hook lives in this machine's client directory and fires for
+	// every KB it talks to, which is why the switch is here and not per KB.
+	//
+	// Held as the negation so a Config built from the zero value (several call
+	// sites do) is enabled, not silently switched off on the next Save.
+	WriteFindingsHookOff bool `yaml:"-"`
+
 	// SyncTimerOptOut remembers that the operator ran `service sync-timer
 	// uninstall` (D325): connect and setup then stop installing the timer
 	// themselves. Cleared by an explicit `sync-timer install`. A removal
@@ -182,29 +193,34 @@ type ClientBinding struct {
 // pre-D169 client. KBs itself is read-only — Save never emits it again, so the
 // first write after the upgrade completes the migration.
 type yamlConfig struct {
-	ServerURL        string                            `yaml:"server_url"`
-	ServerName       string                            `yaml:"server_name"`
-	Auth             bool                              `yaml:"auth"`
-	TokenEnv         string                            `yaml:"token_env"`
-	Agents           []string                          `yaml:"agents"`
-	KBs              []string                          `yaml:"kbs,omitempty"`
-	KnownKBs         *[]string                         `yaml:"known_kbs,omitempty"`
-	ServerMountMode  string                            `yaml:"server_mount_mode,omitempty"`
-	ServerRoutedPath string                            `yaml:"server_routed_path,omitempty"`
-	Clients          map[string]ClientBinding          `yaml:"clients,omitempty"`
-	Scopes           map[string]string                 `yaml:"scopes,omitempty"`
-	Workspaces       map[string][]WorkspaceBinding     `yaml:"workspaces,omitempty"`
-	Trust            *bool                             `yaml:"trust,omitempty"`
-	SearchRoots      []string                          `yaml:"search_roots,omitempty"`
-	SearchDepth      int                               `yaml:"search_depth,omitempty"`
-	Paths            map[string]string                 `yaml:"paths,omitempty"`
-	IgnoredPaths     []string                          `yaml:"ignored_paths,omitempty"`
-	SigningKeys      map[string][]string               `yaml:"signing_keys,omitempty"`
-	MCPApprovals     map[string]map[string]MCPApproval `yaml:"mcp_approvals,omitempty"`
-	Update           *UpdateSettings                   `yaml:"update,omitempty"`
-	UsageScan        *bool                             `yaml:"usage_scan,omitempty"`
-	SyncTimerOptOut  bool                              `yaml:"sync_timer_opt_out,omitempty"`
+	ServerURL         string                            `yaml:"server_url"`
+	ServerName        string                            `yaml:"server_name"`
+	Auth              bool                              `yaml:"auth"`
+	TokenEnv          string                            `yaml:"token_env"`
+	Agents            []string                          `yaml:"agents"`
+	KBs               []string                          `yaml:"kbs,omitempty"`
+	KnownKBs          *[]string                         `yaml:"known_kbs,omitempty"`
+	ServerMountMode   string                            `yaml:"server_mount_mode,omitempty"`
+	ServerRoutedPath  string                            `yaml:"server_routed_path,omitempty"`
+	Clients           map[string]ClientBinding          `yaml:"clients,omitempty"`
+	Scopes            map[string]string                 `yaml:"scopes,omitempty"`
+	Workspaces        map[string][]WorkspaceBinding     `yaml:"workspaces,omitempty"`
+	Trust             *bool                             `yaml:"trust,omitempty"`
+	SearchRoots       []string                          `yaml:"search_roots,omitempty"`
+	SearchDepth       int                               `yaml:"search_depth,omitempty"`
+	Paths             map[string]string                 `yaml:"paths,omitempty"`
+	IgnoredPaths      []string                          `yaml:"ignored_paths,omitempty"`
+	SigningKeys       map[string][]string               `yaml:"signing_keys,omitempty"`
+	MCPApprovals      map[string]map[string]MCPApproval `yaml:"mcp_approvals,omitempty"`
+	Update            *UpdateSettings                   `yaml:"update,omitempty"`
+	UsageScan         *bool                             `yaml:"usage_scan,omitempty"`
+	WriteFindingsHook *bool                             `yaml:"write_findings_hook,omitempty"`
+	SyncTimerOptOut   bool                              `yaml:"sync_timer_opt_out,omitempty"`
 }
+
+// WriteFindingsHookEnabled reports whether the write-findings hook (D353) is
+// wanted on this machine: true unless `write_findings_hook: false`.
+func (c *Config) WriteFindingsHookEnabled() bool { return c == nil || !c.WriteFindingsHookOff }
 
 // Default returns a Config with the same defaults as configurator.DefaultConfig.
 func Default() *Config {
@@ -257,7 +273,7 @@ func Load(dir string) (*Config, error) {
 	if err := yaml.Unmarshal(data, &extra); err != nil {
 		return nil, fmt.Errorf("clientconfig: parse extras %s: %w", Path(dir), err)
 	}
-	for _, key := range []string{"server_url", "server_name", "auth", "token_env", "agents", "kbs", "known_kbs", "clients", "trust", "search_roots", "search_depth", "paths", "ignored_paths", "signing_keys", "mcp_approvals", "update", "usage_scan", "sync_timer_opt_out"} {
+	for _, key := range []string{"server_url", "server_name", "auth", "token_env", "agents", "kbs", "known_kbs", "clients", "trust", "search_roots", "search_depth", "paths", "ignored_paths", "signing_keys", "mcp_approvals", "update", "usage_scan", "write_findings_hook", "sync_timer_opt_out"} {
 		delete(extra, key)
 	}
 	cfg := Config{
@@ -276,14 +292,15 @@ func Load(dir string) (*Config, error) {
 		Workspaces:       y.Workspaces,
 		Trust:            true, // absent `trust` key defaults to true, see yamlConfig doc
 		UsageScan:        true, // absent `usage_scan` key defaults to true
-		SearchRoots:      y.SearchRoots,
-		SearchDepth:      y.SearchDepth,
-		Paths:            y.Paths,
-		IgnoredPaths:     y.IgnoredPaths,
-		SigningKeys:      y.SigningKeys,
-		MCPApprovals:     y.MCPApprovals,
-		SyncTimerOptOut:  y.SyncTimerOptOut,
-		Extra:            extra,
+
+		SearchRoots:     y.SearchRoots,
+		SearchDepth:     y.SearchDepth,
+		Paths:           y.Paths,
+		IgnoredPaths:    y.IgnoredPaths,
+		SigningKeys:     y.SigningKeys,
+		MCPApprovals:    y.MCPApprovals,
+		SyncTimerOptOut: y.SyncTimerOptOut,
+		Extra:           extra,
 	}
 	if y.KnownKBs != nil {
 		// Present — including present and empty — always wins over the legacy
@@ -295,6 +312,9 @@ func Load(dir string) (*Config, error) {
 	}
 	if y.UsageScan != nil {
 		cfg.UsageScan = *y.UsageScan
+	}
+	if y.WriteFindingsHook != nil {
+		cfg.WriteFindingsHookOff = !*y.WriteFindingsHook
 	}
 	if y.Update != nil {
 		// An unknown policy is a load error, not a silent default: this
@@ -347,6 +367,10 @@ func Save(dir string, cfg *Config) error {
 	if !cfg.UsageScan {
 		off := false
 		y.UsageScan = &off
+	}
+	if cfg.WriteFindingsHookOff {
+		off := false
+		y.WriteFindingsHook = &off
 	}
 	// Emitted only when set: a default machine's file stays byte-identical.
 	if cfg.Update.Check != nil || cfg.Update.Policy != "" {

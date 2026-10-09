@@ -41,6 +41,12 @@ modifies files a user did not ask about.
   lockfile materialised, or an explicit activation event. `TestScanUsage_*IgnoresUserMessages`
   pin it. It is read-only on client directories, and a transcript shape it does not know
   is skipped, never fatal.
+- **A synthetic hook is written by `ensureSyntheticHook` and nowhere else.**
+  `cartographer-bootstrap` (D60) and `cartographer-write-findings` (D353) share
+  the no-follow writers, registration and lock bookkeeping; a new one is a
+  `syntheticHook` value plus its name in `reservedHookNames`, which keeps a KB
+  hook of that name out and the entry out of `ComputeDiff`'s orphans. Its script
+  never fails a session: a hook's non-zero exit is feedback or a block.
 - The lockfile is the client-side record of applied state. Changing its shape is a
   migration, and an empty new field must keep meaning what the files written
   before it meant (see `base_dir`, D141).
