@@ -99,6 +99,7 @@ var ToolParamFields = []string{
 	"id", "frontmatter", "body", "if_match",
 	"template", "vars",
 	"old_string", "new_string", "replace_all", "edits", "unset",
+	"frontmatter_append", "frontmatter_remove",
 	"operations", "op",
 }
 
