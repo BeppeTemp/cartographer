@@ -480,7 +480,9 @@ rectangle from the frame metadata and the script crops to it. The script also
 refuses to write `hero.webp` when the encoded aspect differs from the
 viewport's (1280/760) by more than 1%, or when `cropdetect` finds a dark border
 wider than a few pixels in the first frames (a window too small for the
-viewport fails there rather than reaching the README).
+viewport fails there rather than reaching the README). A tiling window
+manager shrinks the headed window below the viewport: suspend it for the
+recording (AeroSpace: `aerospace enable off`, then `on`).
 
 ## What is deliberately not in CI
 
