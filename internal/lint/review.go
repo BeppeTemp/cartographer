@@ -60,7 +60,7 @@ const (
 var defaultProcedureHeadings = []string{"procedure", "steps", "how to"}
 
 // lintJudgementChecks are the lint findings that need judgement and that the
-// doctor works from the same list (lint_judgement). broken_link counts only
+// doctor works from the same list (lint_judgement). A finding counts only
 // without a mechanical fix: one with a fix is kb_repair's.
 var lintJudgementChecks = checkSet(func(s CheckSpec) bool { return s.Judgement })
 
@@ -1164,10 +1164,19 @@ func glossaryItems(concepts []*reviewConcept, contracts map[string]kb.MapContrac
 
 // --- lint_judgement ---
 
+// suggestedLintAction is what the doctor is told to do with a judgement
+// finding: an error cannot be accepted (D306), so it is fixed.
+func suggestedLintAction(check string) string {
+	if CheckAcceptability(check) == AcceptNone {
+		return "fix it by hand: an error cannot be accepted with lint_ignore"
+	}
+	return "judge the finding: act on it, or record why with lint_ignore and a reason"
+}
+
 func lintJudgementItems(findings []Finding, zombies map[okf.ConceptID]bool) []ReviewItem {
 	var out []ReviewItem
 	for _, f := range findings {
-		if !lintJudgementChecks[f.Check] || (f.Check == "broken_link" && f.Fix != nil) {
+		if !lintJudgementChecks[f.Check] || f.Fix != nil {
 			continue
 		}
 		id := findingConceptID(f.Path)
@@ -1182,7 +1191,7 @@ func lintJudgementItems(findings []Finding, zombies map[okf.ConceptID]bool) []Re
 			Concepts:        []string{string(id)},
 			Check:           f.Check,
 			Evidence:        f.Check + ": " + f.Message,
-			SuggestedAction: "judge the finding: act on it, or record why with lint_ignore and a reason",
+			SuggestedAction: suggestedLintAction(f.Check),
 			Weight:          severityRank(f.Severity),
 			wholeGraph:      WholeGraphChecks[f.Check],
 		})

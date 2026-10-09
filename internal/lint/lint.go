@@ -428,6 +428,16 @@ func runChecks(k *kb.KB, scope string, scopeNeighbors bool, opts Options) ([]Fin
 		archiveSet[a] = true
 	}
 
+	// D356: the type each map's pages agree on, and whether a slug target is
+	// free, for the invalid-page checks' fixes.
+	types := newMapTypes(allConcepts)
+	slugTargetFree := func(target okf.ConceptID) bool {
+		if _, ok := allConcepts[target]; ok {
+			return false
+		}
+		return !exists(target)
+	}
+
 	var findings []Finding
 	// Contracts are descriptor-level data. Cache them once per map for this
 	// run, so a map with many concepts does not repeatedly parse _map.md.
@@ -643,6 +653,9 @@ func runChecks(k *kb.KB, scope string, scopeNeighbors bool, opts Options) ([]Fin
 			ID: id, In: in, Oversize: oversize,
 			KBRoot: k.Root, HasSecretsDir: hasSecretsDir, LegacyPaths: instr.legacyPaths,
 		}) {
+			emit(f)
+		}
+		for _, f := range validityFindings(id, content, types, slugTargetFree) {
 			emit(f)
 		}
 

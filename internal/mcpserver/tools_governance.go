@@ -313,6 +313,32 @@ func toolCommitGate(k *kb.KB) Tool {
 
 // --- gate_check ---
 
+// mirroredValidationChecks are the lint checks that restate an error of
+// KB.Validate (D356).
+var mirroredValidationChecks = map[string]bool{
+	"missing_frontmatter": true, "unparseable_frontmatter": true, "missing_type": true,
+}
+
+// dropMirroredValidation removes the lint findings that repeat a validation
+// error already reported for the same path.
+func dropMirroredValidation(findings []lint.Finding, valErrs []kb.ValidationError) []lint.Finding {
+	if len(valErrs) == 0 {
+		return findings
+	}
+	reported := map[string]bool{}
+	for _, e := range valErrs {
+		reported[e.Path] = true
+	}
+	kept := findings[:0:0]
+	for _, f := range findings {
+		if mirroredValidationChecks[f.Check] && reported[f.Path] {
+			continue
+		}
+		kept = append(kept, f)
+	}
+	return kept
+}
+
 func toolGateCheck(k *kb.KB) Tool {
 	return Tool{
 		Name:        "gate_check",
@@ -414,6 +440,10 @@ func toolGateCheck(k *kb.KB) Tool {
 					return errorResult(fmt.Sprintf("gate_check: lint: %v", err)), nil
 				}
 			}
+			// validate and lint report the same invalid pages (D356): a lint
+			// finding that mirrors a validation error on the same path is the
+			// same fact, listed once, under validation_errors.
+			lintFindings = dropMirroredValidation(lintFindings, valErrs)
 			// pass is decided on the unfiltered findings, before severity_min is
 			// applied below: a response budget must never be able to change a
 			// verdict.

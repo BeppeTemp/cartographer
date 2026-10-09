@@ -77,7 +77,7 @@ what is allowed:
      map's template and links both ways (`promotion_candidate`), a glossary entry
      (`glossary_gap`), `concept_move` (`map_misfit`), `concept_expand` or a split
      (`concept_oversize`); a `lint_judgement` item is a `lint` finding of that check, so decide it
-     from `lint` (the check is the actionable unit) and do not count it twice; for `repeated_fact` choose the owner concept with the operator, keep the
+     from `lint` (the check is the actionable unit) and do not count it twice; `concept_too_deep` (error): decide where the page belongs and `concept_move` it; `empty_concept`: write the page or retire it (`concept_archive`), never delete it blindly; `missing_type` / `missing_frontmatter` with no fix: the map's pages disagree on a type, so ask the operator which one and `concept_patch` it; for `repeated_fact` choose the owner concept with the operator, keep the
      fact there and replace each copy with a link (never rewrite the fact); for `read_hotspot`
      `concept_expand` into satellites with a short summary page, or turn it into an index page;
      for `scattered_work` create a concept in the contract's `work_map` from its template (one per

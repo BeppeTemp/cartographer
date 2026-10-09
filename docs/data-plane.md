@@ -405,6 +405,12 @@ projections of it. This catalogue is generated from it (a test fails when it dri
 | `closed_with_open_items` | info | concept | concept | - | - | yes |
 | `template_section_missing` | info | concept | concept | - | - | yes |
 | `open_marker` | info | concept | concept | - | - | yes |
+| `missing_frontmatter` | error | concept | none | `add_frontmatter` | yes | - |
+| `unparseable_frontmatter` | error | concept | none | `quote_value` | yes | - |
+| `missing_type` | error | concept | none | `set_value` | yes | - |
+| `concept_too_deep` | error | concept | none | - | - | - |
+| `nonslug_file_name` | warning | concept | concept | `move` | yes | - |
+| `empty_concept` | warning | concept | concept | - | - | - |
 | `concept_oversize` | info | concept | concept | - | - | - |
 | `imported_draft` | warning | concept | concept | - | - | - |
 | `secrets_on_non_service` | info | concept | concept | - | - | - |
@@ -522,6 +528,21 @@ D289 converges field names; D296 converges **values**, starting with `status`. T
 - `invalid_field_value` carries `set_value` when the value is, up to folding or by family, exactly one allowed value. Two candidates, or none, give no fix.
 - `prose_value` (warning, suppressible): `status`, or a field the contract constrains, holds a sentence (a separator such as ` — `, `;`, `: `, or more than three words). It carries `split_value` when the leading token is a contract value or, with no contract, a family member: the field keeps the token and `kb_repair` writes the rest as `> <field>: <rest>` after the first heading, so nothing is lost.
 
+### Invalid pages are lint checks (D356)
+
+`validate` reports what the write path would refuse about a page; lint reports the same facts so the repair, the heartbeat, `kb_review` and the doctor see them. `validate` itself is unchanged.
+
+- `missing_frontmatter` (error): no frontmatter block (an empty file included). Fix `add_frontmatter`: `type` is the resolved type, `title` the first H1, else the file stem with `-`/`_` turned into spaces. No fix when the type does not resolve.
+- `missing_type` (error): a block with no `type` (delimiters and zero keys are this, not `missing_frontmatter`). Fix `set_value type` with the resolved type.
+- `unparseable_frontmatter` (error): the block does not parse. Fix `quote_value`: only when exactly one line fails, the lines after it are plain top-level entries, and double-quoting that line's value (escaping `"` and `\`) makes the block parse with the same key set.
+- `concept_too_deep` (error): more than three ID segments outside `services/`. No fix (where a page belongs is judgement): a `lint_judgement` item.
+- `nonslug_file_name` (warning): the file stem (the directory name of an expanded concept) is not `^[a-z0-9]+(-{1,2}[a-z0-9]+)*$`. Fix `move` to the slugified ID (lowercase, accents folded, runs of other characters → `-`), applied through `concept_move`'s code path so inbound links are rewritten; `CrossConcept`, stage 2 of the heartbeat. No fix, and a message naming it, when the target exists.
+- `empty_concept` (warning): no non-whitespace body. No fix: nothing is ever deleted automatically; a `lint_judgement` item.
+
+The four errors are not acceptable (D306) and are evaluated by `Run` only (a write that would produce one is refused before it lints). **Type resolution**, shared by both type fixes: the type used by every typed page of the map, when there are at least two and they all agree; otherwise none (the map's `default_template` type comes first once a map declares one). A majority is not enough: a wrong `type` silently changes contracts. Pages without a type are neither votes nor disagreement.
+
+**Repairs may write an invalid page as long as they do not make it worse.** `kb.RepairConcept` has `WriteConcept`'s path resolution, lock and stale guard, but accepts a write when the validation errors after are a subset of those before: a page with no `type` may be rewritten without one, so an unrelated `nonstandard_field` fix is no longer blocked by it; a page too deep keeps its path; a path that does not exist is never created. It backs `kb_repair`, the fixpoint applier and repair-on-write only. Every agent-facing write tool keeps `WriteConcept`'s full validation.
+
 ### Decay checks (D297)
 
 Lint also sees a KB **decaying**: work never closed, closed work not finished, pages without the shape their template promises, open questions nobody counts, facets that stopped being facets. All are `info`, never a gate, and judgement (no fix): they feed the doctor. A map contract tunes them with four keys, also settable through `map_update`:
@@ -563,7 +584,7 @@ Lint also sees a KB **decaying**: work never closed, closed work not finished, p
 
 A review item is dismissed by `lint_ignore: [<kind>]` on a concept it names — for a pair, either member; a `glossary_gap` instead stops counting the concept carrying it, and the item goes when fewer than 10 remain. The agent writes the dismissal with the reason in the same commit, so the history says why; there is no review state besides the KB itself.
 
-A finding whose remedy is mechanical carries `fix: {kind, field, to?}` (`rename_field`, `drop_field`, `rebase_link`, `drop_link_item`, `rewrite_wiki_link`, `set_value`, `split_value`, `sync_h1`); the rest carry none. `lint.CheckConcept` computes the frontmatter-driven checks of one concept without walking the KB (`missing_required_field`, `invalid_field_value`, `forbidden_field`, `nonstandard_field`, `tool_param_field`, `missing_title`, `title_h1_mismatch`, `title_quality`, `machine_path`, `stale_claim`); `Run` calls the same function, and the write tools return its result.
+A finding whose remedy is mechanical carries `fix: {kind, field, to?}` (`rename_field`, `drop_field`, `rebase_link`, `drop_link_item`, `rewrite_wiki_link`, `set_value`, `split_value`, `sync_h1`, `add_frontmatter`, `quote_value`, `move`); the rest carry none. `lint.CheckConcept` computes the frontmatter-driven checks of one concept without walking the KB (`missing_required_field`, `invalid_field_value`, `forbidden_field`, `nonstandard_field`, `tool_param_field`, `missing_title`, `title_h1_mismatch`, `title_quality`, `machine_path`, `stale_claim`); `Run` calls the same function, and the write tools return its result.
 
 `machine_path_allow_prefixes` accepts **`~/`-anchored** prefixes as well as POSIX- and
 Windows-absolute ones: `~/.ssh/config` means "your ssh config" on every machine, exactly as `/etc/…`
