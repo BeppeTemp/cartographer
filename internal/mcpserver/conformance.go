@@ -101,11 +101,15 @@ func scopedFindings(k *kb.KB, ids []string, check string) []findingOut {
 // pages that still link them are what the write broke). One ScopedCheck
 // serves them all.
 func writeFindingsFor(k *kb.KB, written, gone []string) []findingOut {
-	uniq := writeLintFindings(k, written, gone)
-	if len(uniq) == 0 {
+	return findingsOrNil(writeLintFindings(k, written, gone))
+}
+
+// findingsOrNil is findingsOut with nil for an empty list.
+func findingsOrNil(f []lint.Finding) []findingOut {
+	if len(f) == 0 {
 		return nil
 	}
-	return findingsOut(uniq)
+	return findingsOut(f)
 }
 
 // writeLintFindings is writeFindingsFor before the response shape: gate_check's

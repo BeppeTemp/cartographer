@@ -208,6 +208,12 @@ type KBSpec struct {
 	// through AutoRepairChecks.
 	AutoRepair []string `yaml:"auto_repair,omitempty"`
 
+	// RepairOnWrite makes a write tool apply the mechanical auto_repair fixes
+	// to the concepts it just wrote, in the same commit (D349). Absent follows
+	// auto_repair (on when it resolves non-empty); false = timer-only. A
+	// pointer so absent and false differ. Read it through RepairOnWriteEnabled.
+	RepairOnWrite *bool `yaml:"repair_on_write,omitempty"`
+
 	// DoctorAutoInterval is how often the server runs the auto_repair checks
 	// by itself, with no agent session (D323): "<n>d" or "<n>" days, "0"
 	// turns the heartbeat off, empty means DefaultDoctorAutoIntervalDays.
@@ -911,6 +917,16 @@ func (s KBSpec) AutoRepairChecks() (checks []string, isDefault bool) {
 		return append([]string{}, DefaultAutoRepair...), true
 	}
 	return s.AutoRepair, false
+}
+
+// RepairOnWriteEnabled resolves RepairOnWrite (D349): the explicit value when
+// set, otherwise on exactly when auto_repair resolves to a non-empty list.
+func (s KBSpec) RepairOnWriteEnabled() bool {
+	if s.RepairOnWrite != nil {
+		return *s.RepairOnWrite
+	}
+	checks, _ := s.AutoRepairChecks()
+	return len(checks) > 0
 }
 
 // DefaultUsageStaleDays is the artifact_unused threshold of a KB that does not

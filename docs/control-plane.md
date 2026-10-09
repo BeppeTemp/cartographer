@@ -252,7 +252,9 @@ Parameter details not repeated in the schema:
   repair --apply` and the background repair may apply unattended, and `default: true` when it is the
   product default and not a list the operator wrote, D323) and `doctor_interval` (`<n> days` or
   `disabled`); a third, `doctor_auto_interval` (D323), says how often the server applies `auto_repair`
-  by itself (`<n> days`, or `disabled` when the interval is 0 or the list is empty).
+  by itself (`<n> days`, or `disabled` when the interval is 0 or the list is empty); a fourth,
+  `repair_on_write` (D349, setting `kbs[].repair_on_write`), is `enabled` when a write applies the
+  mechanical `auto_repair` fixes to what it wrote.
 - **Background repair** (D323): every `doctor_auto_interval` (default 1 day, HTTP serve only; the first
   run follows startup by a minute, or the last logged run plus the interval) the server calls
   `kb_repair` with `dry_run: false`, `limit: 50` for each `auto_repair` check, through the same
@@ -265,6 +267,18 @@ Parameter details not repeated in the schema:
   list (`nonstandard_field`, `tool_param_field`, `invalid_field_value`, `duplicate_link`, `prose_value`:
   deterministic, no body rewrite, no dropped link); `auto_repair: []` means none; either way
   `doctor_auto_interval: "0"` turns the heartbeat off.
+- **Repair on write** (D349): `concept_write`, `concept_new`, `concept_patch`, `supersede`,
+  `concept_move` and `concept_batch` apply the `auto_repair` fixes to the concepts the call left on
+  disk, inside the write handler and so in the same commit, in both stdio and HTTP. Only those
+  concepts: a neighbour that `findings` reports (a linker with a new `broken_link`) is never rewritten.
+  `broken_link` and `reciprocal_link_item` are never applied on write even when listed (they drop or
+  rewrite links, D309); they stay with the timer and `kb_repair`, and so do artifact checks. The
+  response adds `repaired: [{check, count}]` (sorted by check, omitted when nothing was repaired; per
+  entry in `concept_batch`, aggregated at the top level in `concept_move`, a `repaired:` block in
+  `supersede`), `findings` lists only what remains, and `content_hash` is the hash after the repair so
+  an `if_match` chain works. A repair that fails never fails the write: the content stays as sent, the
+  finding stays, the error goes to stderr. `kbs[].repair_on_write: false` opts out (timer only);
+  absent follows `auto_repair` (on when it resolves non-empty).
 - **Doctor nudge** (D299): after a successful tool result, the server appends one extra text block
   proposing a `kb-doctor` session when the KB's `doctor_suggested` is true for that caller. At most one
   caller per KB receives it per 24 hours (an in-memory window, re-armed by a restart); never a caller
