@@ -930,7 +930,7 @@ func generatedBlockEdited(k *kb.KB, mapName, before, after string) string {
 func toolMapUpdate(k *kb.KB) Tool {
 	return Tool{
 		Name:        "map_update",
-		Description: "Changes a map's or journal's title or lint contract: given keys are replaced whole (as in map_create); an empty list, \"\", false or {} removes it. title renames the index. stale_after 0 = off, -1 = default. Returns it.",
+		Description: "Changes a map's or journal's title or lint contract: given keys are replaced whole; an empty list, \"\", false or {} removes it. title renames the index. stale_after 0 = off, -1 = default. Returns it.",
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"required": ["map"],
@@ -970,6 +970,7 @@ func toolMapUpdate(k *kb.KB) Tool {
 					"additionalProperties": {"type": "array", "items": {"type": "string"}}
 				},
 				"open_statuses": {"type": "array", "items": {"type": "string"}},
+				"open_field": {"type": "string"},
 				"open_markers": {"type": "array", "items": {"type": "string"}},
 				"stale_after": {"type": "integer"},
 				"harvest_after": {"type": "integer"},
@@ -1006,6 +1007,7 @@ func toolMapUpdate(k *kb.KB) Tool {
 				MachinePathAllowPrefixes *[]string                      `json:"machine_path_allow_prefixes"`
 				ValueSynonyms            map[string][]string            `json:"value_synonyms"`
 				OpenStatuses             *[]string                      `json:"open_statuses"`
+				OpenField                *string                        `json:"open_field"`
 				OpenMarkers              *[]string                      `json:"open_markers"`
 				StaleAfter               *int                           `json:"stale_after"`
 				HarvestAfter             *int                           `json:"harvest_after"`
@@ -1036,10 +1038,10 @@ func toolMapUpdate(k *kb.KB) Tool {
 			if params.RequiredFields == nil && params.RequiredFieldsByType == nil &&
 				params.FieldValues == nil && params.FieldValuesByType == nil && params.ForbiddenFields == nil &&
 				params.RequireIndexEntry == nil && params.MachinePathAllowPrefixes == nil && params.ValueSynonyms == nil &&
-				params.OpenStatuses == nil && params.OpenMarkers == nil && params.StaleAfter == nil && params.HarvestAfter == nil && params.ConceptTypes == nil && params.OntologyMode == nil && params.TemplateSections == nil &&
+				params.OpenStatuses == nil && params.OpenField == nil && params.OpenMarkers == nil && params.StaleAfter == nil && params.HarvestAfter == nil && params.ConceptTypes == nil && params.OntologyMode == nil && params.TemplateSections == nil &&
 				params.PromoteTo == nil && params.ProcedureHeadings == nil && params.Glossary == nil &&
 				params.Index == nil && params.RepeatedFactMin == nil && params.HotspotInDegree == nil && params.HotspotBytes == nil && params.OversizeBytes == nil && params.OversizeConcepts == nil && params.WorkMap == nil && params.TitleMaxLength == nil && params.ForbiddenTitleTerms == nil && params.Title == nil && params.LintIgnore == nil {
-				return errorResult("nothing to change: pass at least one of title, lint_ignore, require_index_entry, required_fields, required_fields_by_type, field_values, field_values_by_type, forbidden_fields, machine_path_allow_prefixes, value_synonyms, open_statuses, open_markers, stale_after, harvest_after, concept_types, ontology_mode, template_sections, promote_to, procedure_headings, glossary, index, repeated_fact_min, hotspot_in_degree, hotspot_bytes, oversize_bytes, oversize_concepts, work_map, title_max_length, forbidden_title_terms"), nil
+				return errorResult("nothing to change: pass at least one of title, lint_ignore, require_index_entry, required_fields, required_fields_by_type, field_values, field_values_by_type, forbidden_fields, machine_path_allow_prefixes, value_synonyms, open_statuses, open_field, open_markers, stale_after, harvest_after, concept_types, ontology_mode, template_sections, promote_to, procedure_headings, glossary, index, repeated_fact_min, hotspot_in_degree, hotspot_bytes, oversize_bytes, oversize_concepts, work_map, title_max_length, forbidden_title_terms"), nil
 			}
 			var fields, prefixes, forbidden []string
 			if params.ForbiddenFields != nil {
@@ -1071,6 +1073,7 @@ func toolMapUpdate(k *kb.KB) Tool {
 				MachinePathAllowPrefixes: params.MachinePathAllowPrefixes,
 				ValueSynonyms:            params.ValueSynonyms,
 				OpenStatuses:             params.OpenStatuses,
+				OpenField:                params.OpenField,
 				OpenMarkers:              params.OpenMarkers,
 				StaleAfterDays:           params.StaleAfter,
 				HarvestAfterDays:         params.HarvestAfter,
@@ -1155,7 +1158,7 @@ func toolMapUpdate(k *kb.KB) Tool {
 			echo["value_synonyms"] = valueSyn
 			echo["template_sections"] = contract.TemplateSections
 			echo["glossary"] = contract.Glossary
-			for k, v := range map[string]string{"kind": contract.Kind, "ontology_mode": contract.OntologyMode, "promote_to": contract.PromoteTo, "work_map": contract.WorkMap} {
+			for k, v := range map[string]string{"kind": contract.Kind, "ontology_mode": contract.OntologyMode, "promote_to": contract.PromoteTo, "open_field": contract.OpenField, "work_map": contract.WorkMap} {
 				if v != "" {
 					echo[k] = v
 				}
@@ -1164,6 +1167,9 @@ func toolMapUpdate(k *kb.KB) Tool {
 				if v > 0 {
 					echo[k] = v
 				}
+			}
+			if contract.HarvestAfterDays < 0 {
+				echo["harvest_after"] = 0 // D347: explicit off
 			}
 			if contract.TitleMaxLength != nil {
 				echo["title_max_length"] = *contract.TitleMaxLength

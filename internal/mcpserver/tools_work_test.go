@@ -131,3 +131,20 @@ func TestWorkListDescriptionBudget(t *testing.T) {
 		t.Fatalf("work_list description is %d chars, cap 350 (D302)", n)
 	}
 }
+
+// D347: with an open_field, by_status groups by the field's value.
+func TestWorkList_OpenFieldState(t *testing.T) {
+	k, err := kb.Init(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeKBFile(t, k, "j/_map.md", "---\ntype: Map\ntitle: J\nkind: journal\nopen_field: outcome\nopen_statuses: [open]\n---\n")
+	writeKBFile(t, k, "j/a.md", "---\ntype: Incident\ntitle: A\nstatus: active\noutcome: open\n---\n# A\n")
+	writeKBFile(t, k, "j/b.md", "---\ntype: Incident\ntitle: B\nstatus: active\noutcome: resolved\n---\n# B\n")
+	s := New("test")
+	RegisterKBTools(s, k, Deps{})
+	r := workCall(t, s, `{}`)
+	if r.OpenConcepts != 1 || r.ByStatus["open"] != 1 || len(r.ByStatus) != 1 {
+		t.Fatalf("by_status: %+v", r)
+	}
+}

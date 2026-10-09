@@ -203,6 +203,8 @@ type reviewConcept struct {
 	typ     string
 	title   string
 	status  string
+	// fm is the parsed frontmatter, for the open/closed readers (D347).
+	fm *okf.Frontmatter
 	// path is the KB-relative file holding the concept: the base its relative
 	// links resolve against ("<id>/index.md" for an expanded concept).
 	path string
@@ -230,6 +232,7 @@ func Review(k *kb.KB, findings []Finding) ([]ReviewItem, error) {
 			c.mapName = parts[0]
 		}
 		if parsed, _ := okf.ParseFrontmatter(fmRaw); parsed != nil {
+			c.fm = parsed
 			c.typ = parsed.Type()
 			c.title, _ = frontmatterValue(parsed, "title").(string)
 			c.status, _ = frontmatterValue(parsed, "status").(string)
@@ -641,7 +644,7 @@ func zombieWorkItems(k *kb.KB, byID map[okf.ConceptID]*reviewConcept, concepts [
 		if ct, ok := contracts[c.mapName]; ok {
 			contract = &ct
 		}
-		if !staleOpen && !openPhase(c.status, contract) {
+		if !staleOpen && !openPhase(c.fm, contract) {
 			continue
 		}
 		o.id, o.status = c.id, c.status
@@ -780,14 +783,16 @@ func promotionItems(concepts []*reviewConcept, contracts map[string]kb.MapContra
 // whose contract does not list it in open_statuses: the page says "valid" where
 // the journal's reader reads "work". status_semantics and status_reclassify
 // share it.
-func activeNotOpen(status string, contract *kb.MapContract) bool {
-	if contract == nil || contract.Kind != "journal" {
+func activeNotOpen(fm *okf.Frontmatter, contract *kb.MapContract) bool {
+	// D347: with an open_field, status is the lifecycle, not the work state.
+	if contract == nil || contract.Kind != "journal" || contract.OpenField != "" {
 		return false
 	}
+	status := statusOf(fm)
 	if fam, ok := familiesFor(contract).member(status); !ok || fam != "active" {
 		return false
 	}
-	return !openPhase(status, contract)
+	return !openPhase(fm, contract)
 }
 
 var (
@@ -804,7 +809,7 @@ func statusReclassifyItems(concepts []*reviewConcept, contracts map[string]kb.Ma
 	var out []ReviewItem
 	for _, c := range concepts {
 		contract, ok := contracts[c.mapName]
-		if !ok || !activeNotOpen(c.status, &contract) {
+		if !ok || !activeNotOpen(c.fm, &contract) {
 			continue
 		}
 		proposed, signal := reclassifySignal(c)
@@ -866,7 +871,7 @@ func scatteredWorkItems(concepts []*reviewConcept, contracts map[string]kb.MapCo
 			continue
 		}
 		items := workItems(c.body)
-		open := openPhase(c.status, &contract)
+		open := openPhase(c.fm, &contract)
 		if len(items) == 0 && !open {
 			continue
 		}
@@ -887,7 +892,8 @@ func scatteredWorkItems(concepts []*reviewConcept, contracts map[string]kb.MapCo
 				evidence += fmt.Sprintf(", first under %q", items[0].Section)
 			}
 		} else {
-			evidence = fmt.Sprintf("status %q", c.status)
+			state, name, _ := effectiveState(c.fm, &contract)
+			evidence = fmt.Sprintf("%s %q", name, state)
 		}
 		out = append(out, ReviewItem{
 			Kind:            ReviewScatteredWork,

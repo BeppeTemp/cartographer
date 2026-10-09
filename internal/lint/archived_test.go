@@ -6,15 +6,17 @@ import (
 	"testing"
 
 	"github.com/BeppeTemp/cartographer/internal/kb"
+	"github.com/BeppeTemp/cartographer/internal/okf"
 )
 
 // D322: archived is a reserved lifecycle stage after done: finished, retired,
 // never open, and in no synonym family.
 func TestArchivedLifecycle(t *testing.T) {
-	if !closedPhase("archived", nil) {
+	fm, _ := okf.ParseFrontmatter("type: Note\nstatus: archived")
+	if !closedPhase(fm, nil) {
 		t.Error("archived must be closed")
 	}
-	if openPhase("archived", nil) {
+	if openPhase(fm, nil) {
 		t.Error("archived must never be open")
 	}
 	if !retired("archived") {
@@ -97,6 +99,9 @@ func TestHarvestCandidate(t *testing.T) {
 		{"only 30 days old", "", "---\ntype: Note\ntitle: E\nstatus: done\ntimestamp: 2026-09-01\n---\n# E\n", false},
 		{"contract harvest_after 90", "harvest_after: 90\n", old, false},
 		{"open entry", "", "---\ntype: Note\ntitle: E\nstatus: open\ntimestamp: 2026-08-02\n---\n# E\n", false},
+		{"harvest_after 0 is off", "harvest_after: 0\n", old, false},
+		{"resolved outcome", "open_field: outcome\nopen_statuses: [open]\n", "---\ntype: Note\ntitle: E\nstatus: active\noutcome: resolved\ntimestamp: 2026-08-02\n---\n# E\n", true},
+		{"open outcome, active status", "open_field: outcome\nopen_statuses: [open]\n", "---\ntype: Note\ntitle: E\nstatus: active\noutcome: open\ntimestamp: 2026-08-02\n---\n# E\n", false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

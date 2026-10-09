@@ -1576,15 +1576,20 @@ type MapContract struct {
 	// statuses that mean "not finished", the age after which such a concept
 	// is stale, whether pages must carry their template's H2 sections, and
 	// the words that mark an open question.
-	Kind           string
-	OpenStatuses   []string
+	Kind         string
+	OpenStatuses []string
+	// OpenField names the frontmatter key that carries a concept's open or
+	// closed state in this map (D347); open_statuses then lists that field's
+	// open values. A concept without the field falls back to status.
+	OpenField      string
 	StaleAfterDays int
 	// StaleAfterOff is an explicit stale_after: 0 (D346): the map is never
 	// stale, whatever its kind or statuses. Unset is not off: it takes the
 	// default for the map's kind.
 	StaleAfterOff bool
 	// HarvestAfterDays is the age after which a closed journal entry is a
-	// harvest candidate (D322); 0 means the default, DefaultHarvestAfterDays.
+	// harvest candidate (D322); 0 means the default, DefaultHarvestAfterDays,
+	// and -1 is an explicit harvest_after: 0 in _map.md, harvesting off (D347).
 	HarvestAfterDays int
 	TemplateSections bool
 	OpenMarkers      []string
@@ -1827,6 +1832,12 @@ const IndexGenerated = "generated"
 // costIntKeys are the D301 positive-integer threshold overrides.
 var costIntKeys = map[string]bool{"repeated_fact_min": true, "hotspot_in_degree": true, "hotspot_bytes": true, "oversize_bytes": true, "oversize_concepts": true}
 
+// validOpenField reports whether s can name an open_field (D347): a flat
+// frontmatter key, so non-empty, one line, no whitespace and no '.'.
+func validOpenField(s string) bool {
+	return s != "" && !strings.ContainsAny(s, " \t\r\n.")
+}
+
 // DefaultHarvestAfterDays is how long a closed journal entry rests before
 // kb_review offers it for harvesting (D322).
 const DefaultHarvestAfterDays = 45
@@ -1852,8 +1863,9 @@ type MapContractUpdate struct {
 	// D297 lifecycle keys: nil leaves the key, an empty list, 0 or false
 	// removes it.
 	OpenStatuses     *[]string
+	OpenField        *string // D347: nil leaves, "" removes
 	StaleAfterDays   *int
-	HarvestAfterDays *int // D322: nil leaves the key, 0 or less removes it
+	HarvestAfterDays *int // D322/D347: nil leaves; >0 sets, 0 writes an explicit off, <0 removes
 	TemplateSections *bool
 	OpenMarkers      *[]string
 	// D298 review keys: nil leaves the key, "" / an empty list / false
@@ -1972,6 +1984,17 @@ func (kb *KB) UpdateMapContract(name string, upd MapContractUpdate) (MapContract
 	if upd.OpenStatuses != nil {
 		setList("open_statuses", *upd.OpenStatuses)
 	}
+	if upd.OpenField != nil {
+		f := strings.TrimSpace(*upd.OpenField)
+		switch {
+		case f == "":
+			fm.Delete("open_field")
+		case !validOpenField(f):
+			return MapContract{}, fmt.Errorf("open_field must be a flat frontmatter key: one word, no whitespace or '.'")
+		default:
+			fm.Set("open_field", f)
+		}
+	}
 	if upd.OpenMarkers != nil {
 		setList("open_markers", *upd.OpenMarkers)
 	}
@@ -1988,7 +2011,7 @@ func (kb *KB) UpdateMapContract(name string, upd MapContractUpdate) (MapContract
 		}
 	}
 	if upd.HarvestAfterDays != nil {
-		if *upd.HarvestAfterDays > 0 {
+		if *upd.HarvestAfterDays >= 0 {
 			fm.Set("harvest_after", strconv.Itoa(*upd.HarvestAfterDays))
 		} else {
 			fm.Delete("harvest_after")
@@ -2477,7 +2500,7 @@ func (kb *KB) ReadMapContract(archive string) (MapContract, error) {
 			key != "forbidden_fields" && !strings.HasPrefix(key, "field_values.") &&
 			key != "require_index_entry" && key != "machine_path_allow_prefixes" &&
 			!strings.HasPrefix(key, "value_synonyms.") &&
-			key != "open_statuses" && key != "stale_after" && key != "harvest_after" && key != "template_sections" && key != "open_markers" &&
+			key != "open_statuses" && key != "open_field" && key != "stale_after" && key != "harvest_after" && key != "template_sections" && key != "open_markers" &&
 			key != "promote_to" && key != "procedure_headings" && key != "glossary" &&
 			key != "index" && !costIntKeys[key] && key != "work_map" &&
 			key != "title_max_length" && key != "forbidden_title_terms" {
@@ -2566,6 +2589,14 @@ func (kb *KB) ReadMapContract(archive string) (MapContract, error) {
 			} else {
 				contract.OpenMarkers = vals
 			}
+		case key == "open_field":
+			v, _ := value.(string)
+			v = strings.TrimSpace(v)
+			if !validOpenField(v) {
+				bad(key)
+				continue
+			}
+			contract.OpenField = v
 		case key == "index":
 			v, _ := value.(string)
 			switch strings.TrimSpace(v) {
@@ -2607,9 +2638,12 @@ func (kb *KB) ReadMapContract(archive string) (MapContract, error) {
 		case key == "harvest_after":
 			s, _ := value.(string)
 			n, err := strconv.Atoi(strings.TrimSpace(s))
-			if err != nil || n <= 0 {
+			if err != nil || n < 0 {
 				bad(key)
 				continue
+			}
+			if n == 0 {
+				n = -1 // D347: explicit off
 			}
 			contract.HarvestAfterDays = n
 		case key == "template_sections" || key == "glossary":
