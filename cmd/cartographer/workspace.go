@@ -648,6 +648,16 @@ func workspaceStatuses(cfg *clientconfig.Config, provider, clientBaseDir string)
 			st.State = "inactive"
 			st.Detail = "codex does not trust this project, so it ignores its .codex/ layer — trust it from a codex session in this directory"
 		}
+		// Hermes loads a project's skills only from a directory listed in
+		// skills.trusted_project_dirs (D364). An unresolvable $HERMES_HOME
+		// means the same as an absent config: nothing is known to be trusted.
+		if provider == string(configurator.ProviderHermes) {
+			home, err := provisioning.BaseDirFor(configurator.ProviderHermes, clientBaseDir)
+			if err != nil || !provisioning.HermesProjectTrusted(home, w.Path) {
+				st.State = "inactive"
+				st.Detail = "hermes does not trust this project, so it does not load its .hermes/skills — run `hermes skills trust " + w.Path + "`"
+			}
+		}
 		out = append(out, st)
 	}
 	return out
@@ -710,12 +720,20 @@ func checkWorkspaceProjections(dir string, cfg *clientconfig.Config, providers [
 				out = append(out, doctorFinding{
 					Check: "workspace", Severity: doctorWarning, Path: w.Path,
 					Message: fmt.Sprintf("%s: %s", provider, w.Detail),
-					Fix:     "trust the project from a codex session in that directory",
+					Fix:     trustFix(provider, w.Path),
 				})
 			}
 		}
 	}
 	return out
+}
+
+// trustFix is the doctor hint for an inactive projection, per client.
+func trustFix(provider, workspace string) string {
+	if provider == string(configurator.ProviderHermes) {
+		return "hermes skills trust " + workspace
+	}
+	return "trust the project from a codex session in that directory"
 }
 
 // pruneOrphanProjections removes the files of every projection the lockfile
@@ -752,7 +770,10 @@ func pruneOrphanProjections(lockFile *provisioning.LockFile, declared []syncProj
 		}
 		lock := lockFile.ForProjection(key)
 		base := provisioning.LockBaseDir(lock, clientBaseDir)
-		if _, err := provisioning.PruneManaged(lock.Managed, base, false); err != nil {
+		// Not what another provider's projection of this workspace still
+		// records (D364): .agents/skills/<n>/ is Codex's and Antigravity's.
+		keep := lockFile.CoOwnedPaths(key)
+		if _, err := provisioning.PruneManaged(provisioning.WithoutCoOwned(lock.Managed, keep), base, false); err != nil {
 			return nil, fmt.Errorf("prune %s: %w", key.String(), err)
 		}
 		// The exclusions go with the files: leaving the block behind would keep

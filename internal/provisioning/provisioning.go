@@ -296,6 +296,10 @@ type ApplyOptions struct {
 	// workspace. Nothing else about Apply changes: the diff, the trust chain,
 	// the placeholder expansion and the safepath refusals are the same.
 	Scope Scope
+	// CoOwnedPaths are managed paths (slash form) that another projection of
+	// the same workspace still records (LockFile.CoOwnedPaths, D364). Apply
+	// never prunes them: the file stays for the projection that owns it too.
+	CoOwnedPaths map[string]bool
 
 	// SkipLockWrite, if true, computes AppliedResult.NewLock but does not persist
 	// it to <BaseDir>/LockFileName. Used by the multi-provider clients
@@ -2031,6 +2035,7 @@ func Apply(m Manifest, opts ApplyOptions) (AppliedResult, error) {
 		}
 	}
 	genericRemoved = append(genericRemoved, orphaned...)
+	genericRemoved = WithoutCoOwned(genericRemoved, opts.CoOwnedPaths)
 	pruned, err := PruneManaged(genericRemoved, opts.BaseDir, opts.DryRun)
 	if err != nil {
 		return AppliedResult{}, err
@@ -2399,7 +2404,9 @@ func applyInstructionsGroup(m Manifest, diff Diff, opts ApplyOptions, tracker *e
 	fullPath := filepath.Join(opts.BaseDir, destRel)
 
 	if len(signed) == 0 {
-		if !opts.DryRun {
+		// A block another projection of this workspace still renders into the
+		// same file stays (D364): Codex, OpenCode and Antigravity share AGENTS.md.
+		if !opts.DryRun && !opts.CoOwnedPaths[filepath.ToSlash(destRel)] {
 			if err := removeInstructionsBlock(fullPath); err != nil {
 				return fmt.Errorf("provisioning: remove instructions block %s: %w", destRel, err)
 			}
@@ -3010,7 +3017,7 @@ func PruneManaged(managed []ManagedFile, baseDir string, dryRun bool) ([]Managed
 						return nil, fmt.Errorf("provisioning: prune plugin opencode hook %s: %w", mf.Name, err)
 					}
 				case "antigravity":
-					if err := removeAntigravityHook(baseDir, mf.Name); err != nil {
+					if err := removeAntigravityHook(baseDir, mf.Name, mf.Path); err != nil {
 						return nil, fmt.Errorf("provisioning: prune entry Antigravity hooks.json hook %s: %w", mf.Name, err)
 					}
 				case "crush":

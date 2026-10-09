@@ -190,6 +190,8 @@ func mcpProviderFromPath(path string) configurator.Provider {
 		return configurator.ProviderClaudeCode
 	case crushProjectConfigRel:
 		return configurator.ProviderCrush
+	case ".agents/mcp_config.json":
+		return configurator.ProviderAntigravity
 	}
 	for _, d := range configurator.Providers() {
 		if slash == d.MCPConfigPath {

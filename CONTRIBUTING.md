@@ -58,9 +58,8 @@ run is not a gate.
 
 This repository is developed with coding agents and is set up so that **the
 instructions exist once**. `AGENTS.md` is the only real instruction file; Codex
-and Kiro read it natively, and Antigravity is documented to (see the table, and
-read the caveat under it). Claude Code is the only client that will not read that
-filename, so `CLAUDE.md` is a one-line `@AGENTS.md` import — an import rather than
+and Kiro read it natively, and Antigravity too (see the table). Claude Code is
+the only client that will not read that filename, so `CLAUDE.md` is a one-line `@AGENTS.md` import — an import rather than
 a symlink because git does not materialise symlinks on a Windows checkout without
 Developer Mode, and a public repository does not get to choose the operating
 system of the people who clone it.
@@ -72,14 +71,13 @@ Nothing else is needed to start. Concretely:
 | **Codex** | `AGENTS.md`, natively | `.agents/skills/`, natively | Do not add an `AGENTS.override.md`: it *replaces* `AGENTS.md` in the same directory rather than adding to it |
 | **Kiro** | `AGENTS.md`, natively | `.kiro/skills/` → symlinks | Do not put a copy of `AGENTS.md` under `.kiro/steering/`: it is already always included, and a steering file that re-includes it would load it twice. A steering file with *other* content is fine — `cartographer sync` legitimately owns `.kiro/steering/cartographer.md` when this workspace is bound to a KB |
 | **Claude Code** | `CLAUDE.md` → `@AGENTS.md` | `.claude/skills/` → symlinks | Every directory with an `AGENTS.md` has its own one-line `CLAUDE.md` import, which Claude loads on its first read of a file there (D213) |
-| **Antigravity** | `AGENTS.md`, per its own documentation — not audited here | **global only**: `~/.gemini/config/skills/`; no project-local directory | Its whole configuration root is global (`~/.gemini/GEMINI.md`, `~/.gemini/config/{skills,agents,hooks,mcp_config.json}`), so the repo-local skills below are *not* reachable from a clone and no repo-local path would make them so |
+| **Antigravity** (CLI `agy`) | `AGENTS.md`, natively (probed on 1.3.2) | `.agents/skills/`, natively | Its workspace layer is `.agents/{skills,agents,hooks.json,mcp_config.json}` (D364). Do not add `.agents/rules/*.md` for instructions: a rule is read only with `trigger: always_on` in its frontmatter. The app was not probed |
 
-The Antigravity row is the one to be careful with. Where a client reads its
-instructions and its skills is a fact this repository already owns, audited, in
-`internal/provisioning/workspacescope.go` and `internal/configurator/registry.go`
-(D193) — and that matrix records **no project-local cell of any kind** for
-Antigravity. `TestClientSkillSurfacesMatchTheProviderRegistry` checks this table
-against the matrix, so if you re-audit a client, change both together (D207).
+Where a client reads its instructions and its skills is a fact this repository
+already owns, audited, in `internal/provisioning/workspacescope.go` and
+`internal/configurator/registry.go` (D193, D364).
+`TestClientSkillSurfacesMatchTheProviderRegistry` checks this table against the
+matrix, so if you re-audit a client, change both together (D207).
 
 The repo-local skills (`plan-issue`, `implement-issue`, `harness-watch`: the directories of `.agents/skills/`) exist **once** in
 `.agents/skills/`; `.claude/skills/<name>` and `.kiro/skills/<name>` are

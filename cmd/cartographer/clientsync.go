@@ -689,6 +689,7 @@ func materializeForProviders(manifests map[string]provisioning.Manifest, project
 			AutoTrust:          autoTrust,
 			ApprovedMCP:        approvedMCP,
 			Lock:               previous,
+			CoOwnedPaths:       lockFile.CoOwnedPaths(p.Key()),
 			SkipLockWrite:      true,
 			ExpandPlaceholders: true,
 			SearchRoots:        portability.SearchRoots,

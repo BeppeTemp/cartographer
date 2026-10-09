@@ -261,7 +261,12 @@ would flip a matrix cell is confirmed with a probe
     dedicated inbox and adoption is `hermes curator adopt` (v2026.8.3). The four
     other kinds are unsupported for stated reasons (`config.yaml` rendered by an
     Ansible role, `SOUL.md` operator-owned).
-  - No project-local cell; no session hook: sync layer 1 is the scheduled timer
+  - Project-local cell (D364): `skill` only, written to `.hermes/skills/<name>/`
+    (not the inbox), active only when the workspace is in
+    `skills.trusted_project_dirs` of `$HERMES_HOME/config.yaml` (read-only check,
+    `HermesProjectTrusted`; otherwise `inactive` with the hint
+    `hermes skills trust <dir>`). `.agents/skills` is not used: Codex and
+    Antigravity own it. No session hook: sync layer 1 is the scheduled timer
     (D140/D141).
 - **Probed on v0.21.5** (2026-10-09):
   - nothing upstream reads `skill-inbox/` (no reference in the installed source);
@@ -275,8 +280,7 @@ would flip a matrix cell is confirmed with a probe
     `session:start`) did not fire from the CLI: gateway-only.
   - project skills in `.hermes/skills/` and `.agents/skills/` load only after
     `hermes skills trust <dir>` (`skills.trusted_project_dirs`); untrusted, they
-    are absent. A project `AGENTS.md` is read. Plan:
-    [#648](https://github.com/BeppeTemp/cartographer/issues/648).
+    are absent. A project `AGENTS.md` is read.
 - **Watch items**: `skills.external_dirs` in `config.yaml` as an alternative to
   the inbox (not probed).
 - **Probe notes**: probe in a copy of the profile (`HERMES_HOME=/tmp/<dir>`
@@ -298,21 +302,26 @@ would flip a matrix cell is confirmed with a probe
   there), `/docs/skills`, `/docs/subagents`, `/docs/hooks`, `/docs/mcp`; installed
   version source: `unverified`.
 - **Depends on** (what the matrix encodes; D193/D207, not re-probed):
-  - Global only, under `~/.gemini`: `skill` `config/skills`, `agent`
+  - Global, under `~/.gemini`: `skill` `config/skills`, `agent`
     `config/agents` (Markdown: `name`, `description`, `mainAgent: false`,
     `subagent: true`), `hook` `config/hooks` registered in
     `~/.gemini/config/hooks.json`, `mcp` `config/mcp_config.json`, `instructions`
-    `GEMINI.md`. No project-local cell of any kind.
+    `GEMINI.md`.
+  - Project-local (D364): `skill` `.agents/skills`, `agent` `.agents/agents`
+    (same translation), `hook` `.agents/hooks/<n>/` registered in
+    `.agents/hooks.json` (the file is picked from the hook's path), `mcp`
+    `.agents/mcp_config.json`, `instructions` the `AGENTS.md` block. Rules
+    (`.agents/rules/`) are deliberately unused: they need `trigger: always_on`.
   - Native hooks exist but there is no `SessionStart` event (documented:
     PreToolUse, PostToolUse, PreInvocation, PostInvocation, Stop): sync layer 1 is
     the timer (D140, D194, D284). Agent frontmatter documents `tools`, `model`
     and `commandExecutionPolicy` (candidate D291 keys, not verified).
 - **Probed on CLI 1.3.2** (2026-10-09):
-  - workspace scope confirmed: `.agents/skills/`, `.agents/agents/`,
+  - workspace scope confirmed (now the project cells above): `.agents/skills/`, `.agents/agents/`,
     `.agents/hooks.json`, `.agents/mcp_config.json` (used in the session even
     though `agy mcp list` shows only global servers), `AGENTS.md`, and
     `.agents/rules/*.md` only with frontmatter `trigger: always_on`; nothing in
-    a directory without `.agents/`. Plan: [#648](https://github.com/BeppeTemp/cartographer/issues/648).
+    a directory without `.agents/`.
   - globals: the CLI reads `~/.gemini/config/{skills,agents}` (the current
     cells), not `~/.gemini/antigravity-cli/{skills,agents}` as its docs say.
   - agent `tools: [view_file]` + `commandExecutionPolicy: never` did not

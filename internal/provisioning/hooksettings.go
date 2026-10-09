@@ -538,7 +538,7 @@ func hookProviderFromPath(path string) string {
 		return "codex"
 	case strings.HasPrefix(slash, ".opencode/hooks/"):
 		return "opencode"
-	case strings.HasPrefix(slash, ".gemini/config/hooks/"):
+	case strings.HasPrefix(slash, ".gemini/config/hooks/"), strings.HasPrefix(slash, antigravityProjectHooksPrefix):
 		return "antigravity"
 	case strings.HasPrefix(slash, ".kiro/hooks/"):
 		return "kiro"
@@ -550,7 +550,8 @@ func hookProviderFromPath(path string) string {
 }
 
 // registerAntigravityHook registers a materialized hook in Antigravity's
-// shared ~/.gemini/config/hooks.json. Tool events use matcher groups; lifecycle
+// shared ~/.gemini/config/hooks.json (or, for a hook materialized under a
+// workspace's .agents/hooks/, that workspace's .agents/hooks.json, D364). Tool events use matcher groups; lifecycle
 // events use the direct command-handler list required by Antigravity.
 func registerAntigravityHook(baseDir, hookName, fullDestDir string) (string, error) {
 	spec, specErr := loadHookSpec(fullDestDir)
@@ -561,7 +562,7 @@ func registerAntigravityHook(baseDir, hookName, fullDestDir string) (string, err
 		return fmt.Sprintf("antigravity: hook %q — event %q has no native equivalent; files were installed but the hook was not registered", hookName, spec.Event), nil
 	}
 
-	path := antigravityHooksPath(baseDir)
+	path := antigravityHooksPath(baseDir, crushHookRel(baseDir, fullDestDir))
 	settings, err := loadJSONObject(path)
 	if err != nil {
 		return "", err
@@ -594,12 +595,31 @@ var antigravityHookEvents = map[string]bool{
 
 func antigravityHookKey(hookName string) string { return "cartographer-" + hookName }
 
-func antigravityHooksPath(baseDir string) string {
-	return filepath.Join(baseDir, ".gemini", "config", "hooks.json")
+const (
+	antigravityProjectHooksPrefix = ".agents/hooks/"
+	antigravityProjectHooksRel    = ".agents/hooks.json"
+	antigravityGlobalHooksRel     = ".gemini/config/hooks.json"
+)
+
+// antigravityHooksPath returns the file that registers a hook whose files live
+// under hookRel (slash form, relative to baseDir): the workspace's
+// .agents/hooks.json for a project hook directory, the global one otherwise.
+// The same pattern as crushSettingsPath: the register/remove signatures carry
+// no scope, the hook's own path does.
+func antigravityHooksPath(baseDir, hookRel string) string {
+	rel := antigravityGlobalHooksRel
+	if strings.HasPrefix(filepath.ToSlash(hookRel), antigravityProjectHooksPrefix) {
+		rel = antigravityProjectHooksRel
+	}
+	return filepath.Join(baseDir, filepath.FromSlash(rel))
 }
 
-func removeAntigravityHook(baseDir, hookName string) error {
-	path := antigravityHooksPath(baseDir)
+// removeAntigravityHook strips hookName's entry from the file that matches
+// hookRel (the managed path of one of its files). A workspace hooks.json the
+// removal leaves empty is deleted: it holds nothing but what Cartographer
+// wrote. The global file is never deleted, it is the user's shared one.
+func removeAntigravityHook(baseDir, hookName, hookRel string) error {
+	path := antigravityHooksPath(baseDir, hookRel)
 	settings, err := loadJSONObject(path)
 	if err != nil {
 		return err
@@ -609,6 +629,12 @@ func removeAntigravityHook(baseDir, hookName string) error {
 		return nil
 	}
 	delete(settings, key)
+	if len(settings) == 0 && strings.HasPrefix(filepath.ToSlash(hookRel), antigravityProjectHooksPrefix) {
+		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+		return nil
+	}
 	return saveJSONObject(path, settings)
 }
 

@@ -1,6 +1,7 @@
 package provisioning
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -102,6 +103,18 @@ func TestProjectScopeDivergesWhereItMust(t *testing.T) {
 		{"hook", configurator.ProviderCrush, ".crush/hooks/demo"},
 		{"instructions", configurator.ProviderCrush, ""},
 		{"agent", configurator.ProviderCrush, ""},
+		// antigravity (D364, `agy` 1.3.2): the workspace .agents/ layer.
+		{"skill", configurator.ProviderAntigravity, ".agents/skills/demo"},
+		{"agent", configurator.ProviderAntigravity, ".agents/agents/demo.md"},
+		{"hook", configurator.ProviderAntigravity, ".agents/hooks/demo"},
+		{"mcp", configurator.ProviderAntigravity, ".agents/mcp_config.json"},
+		{"instructions", configurator.ProviderAntigravity, "AGENTS.md"},
+		// hermes (D364): skills only, in its own directory.
+		{"skill", configurator.ProviderHermes, ".hermes/skills/demo"},
+		{"agent", configurator.ProviderHermes, ""},
+		{"hook", configurator.ProviderHermes, ""},
+		{"mcp", configurator.ProviderHermes, ""},
+		{"instructions", configurator.ProviderHermes, ""},
 	}
 	for _, tc := range cases {
 		if got := destDirScoped(tc.kind, "demo", tc.provider, ScopeProject); got != tc.want {
@@ -117,7 +130,7 @@ func TestSupportsProjectScope_FailsClosed(t *testing.T) {
 	for _, p := range []configurator.Provider{
 		configurator.ProviderClaudeCode, configurator.ProviderCodex,
 		configurator.ProviderOpenCode, configurator.ProviderKiro,
-		configurator.ProviderCrush,
+		configurator.ProviderCrush, configurator.ProviderAntigravity, configurator.ProviderHermes,
 	} {
 		if !SupportsProjectScope(p) {
 			t.Errorf("%s should support a project scope", p)
@@ -126,9 +139,10 @@ func TestSupportsProjectScope_FailsClosed(t *testing.T) {
 			t.Errorf("%s reports an unsupported reason while supporting the scope: %s", p, r)
 		}
 	}
-	for _, p := range []configurator.Provider{configurator.ProviderHermes, configurator.ProviderAntigravity} {
+	// A provider the matrix does not know projects nothing, and says why.
+	for _, p := range []configurator.Provider{"unknown-client"} {
 		if SupportsProjectScope(p) {
-			t.Errorf("%s claims a project scope the audit did not find", p)
+			t.Errorf("%s claims a project scope it has no cell for", p)
 		}
 		if ProjectScopeUnsupportedReason(p) == "" {
 			t.Errorf("%s cannot project and gives no reason", p)
@@ -153,7 +167,32 @@ func TestProjectOwnedPaths(t *testing.T) {
 			t.Errorf("owned path %q is missing: the hygiene pass would not exclude it", p)
 		}
 	}
-	if len(ProjectOwnedPaths(configurator.ProviderHermes)) != 0 {
+	if len(ProjectOwnedPaths("unknown-client")) != 0 {
 		t.Error("a provider with no project scope owns paths")
+	}
+}
+
+// TestAntigravityProjectRoots: everything an Antigravity workspace projection
+// writes is named, the hooks.json registration included, which has no cell of
+// its own (D364).
+func TestAntigravityProjectRoots(t *testing.T) {
+	ws := filepath.Join("work", "app")
+	var rels []string
+	for _, abs := range ManagedProjectRoots(configurator.ProviderAntigravity, ws) {
+		rel, err := filepath.Rel(ws, abs)
+		if err != nil {
+			t.Fatal(err)
+		}
+		rels = append(rels, filepath.ToSlash(rel))
+	}
+	want := ".agents/agents,.agents/hooks,.agents/hooks.json,.agents/mcp_config.json,.agents/skills,AGENTS.md"
+	if got := strings.Join(rels, ","); got != want {
+		t.Errorf("roots = %s, want %s", got, want)
+	}
+	if got := strings.Join(ProjectOwnedPaths(configurator.ProviderAntigravity), ","); got != want {
+		t.Errorf("owned paths = %s, want %s", got, want)
+	}
+	if got := strings.Join(ProjectOwnedPaths(configurator.ProviderHermes), ","); got != ".hermes/skills" {
+		t.Errorf("hermes owned paths = %s", got)
 	}
 }
