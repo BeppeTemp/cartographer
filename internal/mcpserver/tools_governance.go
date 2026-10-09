@@ -641,10 +641,40 @@ func kbCapabilities(k *kb.KB) map[string]KBCapability {
 		// D350: a write that introduces findings at or above the floor is refused.
 		"write_gate":      {State: writeGateState(k), Setting: "kbs[].write_gate"},
 		"doctor_interval": {State: interval, Setting: "kbs[].doctor_interval"},
+		// D358: who runs the proposed kb-doctor session, and its budget.
+		"doctor_mode":   {State: doctorModeState(k), Setting: "kbs[].doctor_mode"},
+		"doctor_budget": {State: fmt.Sprintf("%d review items", doctorBudget(k)), Setting: "kbs[].doctor_budget"},
 		// D323: the server applies auto_repair by itself on this interval.
 		"doctor_auto_interval": {State: autoInterval, Setting: "kbs[].doctor_auto_interval"},
 	}
 }
+
+// doctorModeState is the kb_status view of D358: unattended unless opted out.
+func doctorModeState(k *kb.KB) string {
+	if k.DoctorAssisted() {
+		return "assisted"
+	}
+	return "unattended"
+}
+
+// doctorBudget is the review items a kb-doctor session decides (D358); a KB
+// opened without a spec gets the default of its mode.
+func doctorBudget(k *kb.KB) int {
+	if k.DoctorBudget > 0 {
+		return k.DoctorBudget
+	}
+	if k.DoctorAssisted() {
+		return defaultAssistedBudget
+	}
+	return defaultUnattendedBudget
+}
+
+// The budgets of config.DefaultDoctorBudget*, repeated because this package
+// does not import config; TestDoctorBudgetDefaultsMatchConfig pins them equal.
+const (
+	defaultUnattendedBudget = 40
+	defaultAssistedBudget   = 10
+)
 
 // templateWriteState is the kb_status view of D352: artifact_write limited to
 // templates/, "full" when allow_artifact_write already lifts the limit.

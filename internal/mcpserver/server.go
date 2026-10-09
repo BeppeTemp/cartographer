@@ -73,10 +73,10 @@ type Server struct {
 	// allowlist and the artifact signer. Set with kbRef.
 	kbArtifacts artifactSource
 	// conformance is the KB's lint and review cache, shared by kb_status and
-	// the doctor nudge (D299); nudgedAt is when the nudge last went out,
-	// guarded by mu. Set with kbRef.
+	// the doctor nudge (D299); nudgedAt is when the nudge last went out to
+	// each MCP session (D358), guarded by mu. Set with kbRef.
 	conformance *conformanceCache
-	nudgedAt    time.Time
+	nudgedAt    map[string]time.Time
 	// uiSearch is the search tool's handler without the search-miss log: the
 	// Atlas searches as the reader types, and every keystroke that matches
 	// nothing would otherwise be recorded as a knowledge gap. Set with kbRef.

@@ -134,9 +134,16 @@ kbs:                          # (kbs[]) explicit KBs, local path or remote git (
                                                       # (D323, D355, HTTP serve only); it also runs
                                                       # shortly after a pull that changed HEAD (at most
                                                       # once per 10 min); "0" disables, default 1d
-    doctor_interval: 14d                             # (kbs[].doctor_interval) days after the last
+    doctor_interval: 1d                              # (kbs[].doctor_interval) days after the last
                                                       # kb-doctor session before the server proposes the
-                                                      # next one (D299); "0" disables, default 14d
+                                                      # next one (D299); "0" disables; default 1d
+                                                      # unattended, 14d assisted (D358)
+    doctor_mode: unattended                          # (kbs[].doctor_mode) unattended (default): the
+                                                      # agent runs the proposed session itself and
+                                                      # records what only a person can answer as a
+                                                      # gap; assisted: it asks the operator first (D358)
+    doctor_budget: 40                                # (kbs[].doctor_budget) review items one session
+                                                      # decides; default 40 unattended, 10 assisted
     usage_stale_days: 42                             # (kbs[].usage_stale_days) days without a client
                                                       # activating a skill or agent before the
                                                       # artifact_unused lint reports it (D326); "0"

@@ -257,7 +257,7 @@ Parameter details not repeated in the schema:
   doctor loop (D299): `auto_repair` (`enabled`/`disabled`, with `checks` listing what `cartographer kb
   repair --apply` and the background repair may apply unattended, and `default: true` when it is the
   product default and not a list the operator wrote, D323) and `doctor_interval` (`<n> days` or
-  `disabled`; `ignored` lists the entries that are not safe to run unattended and are skipped, D355); a third, `doctor_auto_interval` (D323), says how often the server applies `auto_repair`
+  `disabled`; `ignored` lists the entries that are not safe to run unattended and are skipped, D355; its default is 1 day in `doctor_mode: unattended` and 14 in `assisted`, D358); `doctor_mode` (D358; `unattended`, the default, or `assisted`) and `doctor_budget` (`<n> review items` one kb-doctor session decides: 40 unattended, 10 assisted); a further one, `doctor_auto_interval` (D323), says how often the server applies `auto_repair`
   by itself (`<n> days`, or `disabled` when the interval is 0 or the list is empty); a fourth,
   `repair_on_write` (D349, setting `kbs[].repair_on_write`), is `enabled` when a write applies the
   mechanical `auto_repair` fixes to what it wrote; a fifth, `write_gate` (D350, setting
@@ -296,7 +296,12 @@ Parameter details not repeated in the schema:
   absent follows `auto_repair` (on when it resolves non-empty).
 - **Doctor nudge** (D299): after a successful tool result, the server appends one extra text block
   proposing a `kb-doctor` session when the KB's `doctor_suggested` is true for that caller. At most one
-  caller per KB receives it per 24 hours (an in-memory window, re-armed by a restart); never a caller
+  nudge per MCP session (the SDK session ID, so each client session that starts while a kb-doctor
+  session is due gets one) per 24 hours (an in-memory window, re-armed by a restart; a transport
+  with no session ID shares one window, D358); the text follows `doctor_mode`: `unattended` (the
+  default) says to run a kb-doctor session now, deciding every item and recording what only a person
+  can answer as a gap; `assisted` says to propose a session to the operator and not start it without
+  their agreement; never a caller
   without write access to the KB, never on `kb_status` or an error, and never the Cartographer CLI
   (clientInfo name `cartographer`: `client.Call` would turn the answer into a JSON array). The block
   starts with `cartographer: KB <name>` and carries counts only — warnings, fixable, review items, the
