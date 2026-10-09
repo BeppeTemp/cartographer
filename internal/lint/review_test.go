@@ -72,7 +72,7 @@ var reviewFixtures = map[string]func(t *testing.T, dismiss bool) (*kb.KB, string
 		k := tempKB(t)
 		writeFile(t, k.DataRoot(), "b/_map.md", "---\ntype: Map\ntitle: B\n---\n")
 		writeFile(t, k.DataRoot(), "b/old.md", "---\ntype: Service\ntitle: Old\nstatus: deprecated\n---\n# Old\n")
-		writeFile(t, k.DataRoot(), "b/task.md", "---\ntype: Task\ntitle: Task\nstatus: open\n"+ignoreLine(ReviewZombie, dismiss)+"---\n# Task\n\nSee [old](old.md).\n")
+		writeFile(t, k.DataRoot(), "b/task.md", "---\ntype: Task\ntitle: Task\nstatus: open\n"+ignoreLine(ReviewZombie, dismiss)+"---\n# Task\n\n## Origin\n\nSee [old](old.md).\n")
 		return k, "b/task"
 	},
 	ReviewPromotion: func(t *testing.T, dismiss bool) (*kb.KB, string) {
@@ -236,7 +236,7 @@ func TestReviewDuplicateActionSatellite(t *testing.T) {
 
 func TestReviewZombieWork(t *testing.T) {
 	k, _ := reviewFixtures[ReviewZombie](t, false)
-	writeFile(t, k.DataRoot(), "b/closed.md", "---\ntype: Task\ntitle: Closed\nstatus: done\n---\n# Closed\n\nSee [old](old.md).\n")
+	writeFile(t, k.DataRoot(), "b/closed.md", "---\ntype: Task\ntitle: Closed\nstatus: done\n---\n# Closed\n\n## Origin\n\nSee [old](old.md).\n")
 	items := itemsOf(review(t, k), ReviewZombie)
 	if !names(items, "b/task") || names(items, "b/closed") {
 		t.Fatalf("zombie items: %+v", items)
@@ -607,7 +607,7 @@ func TestReviewZombieSharedOrigin(t *testing.T) {
 		if n == "t1" {
 			extra = " About [gone](gone.md)."
 		}
-		writeFile(t, k.DataRoot(), "b/"+n+".md", "---\ntype: Task\ntitle: "+n+"\nstatus: open\n---\n# "+n+"\n\nFrom [the old list](oldlist.md)."+extra+"\n")
+		writeFile(t, k.DataRoot(), "b/"+n+".md", "---\ntype: Task\ntitle: "+n+"\nstatus: open\n---\n# "+n+"\n\n## Origin\n\nFrom [the old list](oldlist.md)."+extra+"\n")
 	}
 	got := itemsOf(review(t, k), ReviewZombie)
 	if len(got) != 2 {
@@ -629,7 +629,7 @@ func TestReviewZombieSharedOrigin(t *testing.T) {
 	}
 	// A member dismissing zombie_work on itself does not dismiss the group
 	// (found on a real KB: two members' own dismissals hid the group item).
-	writeFile(t, k.DataRoot(), "b/t2.md", "---\ntype: Task\ntitle: t2\nstatus: open\nlint_ignore: [zombie_work]\n---\n# t2\n\nFrom [the old list](oldlist.md).\n")
+	writeFile(t, k.DataRoot(), "b/t2.md", "---\ntype: Task\ntitle: t2\nstatus: open\nlint_ignore: [zombie_work]\n---\n# t2\n\n## Origin\n\nFrom [the old list](oldlist.md).\n")
 	if got := itemsOf(review(t, k), ReviewZombie); len(got) != 2 {
 		t.Fatalf("a member's dismissal hid the group: %+v", got)
 	}
@@ -705,6 +705,84 @@ func TestStatusReclassify(t *testing.T) {
 		w, ok := want[it.Concepts[0]]
 		if !ok || !strings.HasPrefix(it.SuggestedAction, w) {
 			t.Errorf("%s: %q, want prefix %q", it.Concepts[0], it.SuggestedAction, w)
+		}
+	}
+}
+
+// D345: a precedent cited in prose is history, not a dependency.
+func TestReviewZombieOnlyOriginSections(t *testing.T) {
+	k := tempKB(t)
+	writeFile(t, k.DataRoot(), "b/_map.md", "---\ntype: Map\ntitle: B\n---\n")
+	writeFile(t, k.DataRoot(), "b/old.md", "---\ntype: Topic\ntitle: Old\nstatus: deprecated\n---\n# Old\n")
+	open := func(name, body string) {
+		writeFile(t, k.DataRoot(), "b/"+name+".md", "---\ntype: Task\ntitle: "+name+"\nstatus: open\n---\n# "+name+"\n\n"+body)
+	}
+	open("prose", "Same pattern as [old](old.md).\n")
+	open("english", "## Depends on (draft)\n\n[old](old.md)\n")
+	open("italian", "## Origine\n\n[old](old.md)\n\n### Nota\n\nx\n")
+	open("fenced", "## Origin\n\n```\n[old](old.md)\n```\n")
+	open("after", "## Origin\n\nnone\n\n## Notes\n\n[old](old.md)\n")
+	open("both", "See [old](old.md).\n\n## Blocked by\n\n[old](old.md)\n")
+	items := itemsOf(review(t, k), ReviewZombie)
+	for id, want := range map[string]bool{"b/prose": false, "b/english": true, "b/italian": true, "b/fenced": false, "b/after": false, "b/both": true} {
+		if got := names(items, id); got != want {
+			t.Errorf("%s: zombie = %v, want %v (%+v)", id, got, want, items)
+		}
+	}
+}
+
+func TestReviewZombieSharedOriginNeedsOriginSections(t *testing.T) {
+	k := tempKB(t)
+	writeFile(t, k.DataRoot(), "b/_map.md", "---\ntype: Map\ntitle: B\n---\n")
+	writeFile(t, k.DataRoot(), "b/old.md", "---\ntype: Topic\ntitle: Old\nstatus: deprecated\n---\n# Old\n")
+	for _, n := range []string{"t1", "t2", "t3"} {
+		writeFile(t, k.DataRoot(), "b/"+n+".md", "---\ntype: Task\ntitle: "+n+"\nstatus: open\n---\n# "+n+"\n\nFrom [old](old.md).\n")
+	}
+	if got := itemsOf(review(t, k), ReviewZombie); len(got) != 0 {
+		t.Fatalf("prose links must not group: %+v", got)
+	}
+}
+
+func TestReviewDuplicateSkipsSeriesPages(t *testing.T) {
+	k := tempKB(t)
+	writeFile(t, k.DataRoot(), "m/_map.md", "---\ntype: Map\ntitle: M\n---\n")
+	for id, title := range map[string]string{
+		"archive-2026-q2": "Archived incidents — 2026 Q2", "archive-2026-q3": "Archived incidents — 2026 Q3",
+		"2026-08": "Journal 2026-08", "2026-09": "Journal 2026-09",
+		"spec-v1": "Gateway spec v1", "spec-v2": "Gateway spec v2",
+		"x-a": "Network backup plan", "y-b": "Network backup plan",
+		"notes-a": "Backup plan 2026 Q2", "other-b": "Backup plan 2026 Q3",
+		"word-a": "Disk image 2026 Q2", "word-b": "Disk image 2026 Q3 draft",
+	} {
+		writeFile(t, k.DataRoot(), "m/"+id+".md", "---\ntype: Note\ntitle: "+title+"\n---\n")
+	}
+	got := map[string]bool{}
+	for _, it := range itemsOf(review(t, k), ReviewDuplicate) {
+		got[strings.Join(it.Concepts, "|")] = true
+	}
+	want := map[string]bool{"m/x-a|m/y-b": true, "m/notes-a|m/other-b": true}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("duplicate items = %v, want %v", got, want)
+	}
+}
+
+func TestSeriesSiblings(t *testing.T) {
+	for _, c := range []struct {
+		ta, ia, tb, ib string
+		want           bool
+	}{
+		{"Archive 2026 Q2", "j/archive-2026-q2", "Archive 2026 Q3", "j/archive-2026-q3", true},
+		{"Spec v1", "m/spec-v1", "Spec v2", "m/spec_v2", true},
+		{"Archive 2026 Q2", "j/a", "Archive 2026 Q3", "j/b", false},
+		{"Archive 2026 Q2", "j/x-q2", "Archive 2026 Q2", "j/y-q2", false},
+		{"Plan", "m/plan", "Plan", "m/plan2", false},
+		{"Archive Q2", "j/archive-q2", "Archive Q3 draft", "j/archive-q3", false},
+		{"Archive Q2", "j/archive-q2", "Archive Q3", "j/archive-q3-x", false},
+		{"", "a-1", "", "a-2", false},
+		{"Archive Q2", "", "Archive Q3", "", false},
+	} {
+		if got := SeriesSiblings(c.ta, c.ia, c.tb, c.ib); got != c.want {
+			t.Errorf("SeriesSiblings(%q,%q,%q,%q) = %v, want %v", c.ta, c.ia, c.tb, c.ib, got, c.want)
 		}
 	}
 }
