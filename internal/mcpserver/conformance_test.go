@@ -27,7 +27,7 @@ func TestToolParamFieldsCoverWriteSchemas(t *testing.T) {
 		}
 		return out
 	}
-	for _, tool := range []Tool{toolConceptWrite(k, nil), toolConceptNew(k, nil), toolConceptPatch(k), toolConceptBatch(k)} {
+	for _, tool := range []Tool{toolConceptWrite(k, nil, nil), toolConceptNew(k, nil, nil), toolConceptPatch(k, nil), toolConceptBatch(k, nil)} {
 		var schema map[string]interface{}
 		if err := json.Unmarshal(tool.InputSchema, &schema); err != nil {
 			t.Fatal(err)
