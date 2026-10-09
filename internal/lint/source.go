@@ -23,10 +23,8 @@ func uncitedSourceFinding(relPath string, id okf.ConceptID, content string, cite
 	if v, _ := fm.Get("ingest_status"); v != "ingested" || len(cited[string(id)]) > 0 {
 		return Finding{}, false
 	}
-	return Finding{
-		Path:     relPath,
-		Check:    "source_uncited",
-		Severity: SevWarning,
-		Message:  fmt.Sprintf("source %s is marked ingested but no concept lists it in provenance — cite it from the pages built on it, or set ingest_status back to pending", id),
-	}, true
+	return newFinding("source_uncited", Finding{
+		Path:    relPath,
+		Message: fmt.Sprintf("source %s is marked ingested but no concept lists it in provenance — cite it from the pages built on it, or set ingest_status back to pending", id),
+	}), true
 }

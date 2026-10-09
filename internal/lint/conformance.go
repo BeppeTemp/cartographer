@@ -60,7 +60,7 @@ type Fix struct {
 // FixableChecks are the checks whose findings carry a Fix, which is what
 // kb_repair accepts (D290). A check that gains a Fix is added here: the list
 // is the repair tool's contract, and a test pins it to what the checks emit.
-var FixableChecks = []string{"broken_link", "duplicate_link", "index_link_form", "invalid_field_value", "legacy_path", "legacy_tool_name", "nonstandard_field", "prose_value", "reciprocal_link_item", "stringified_list", "title_h1_mismatch", "tool_param_field"}
+var FixableChecks = checkNames(func(s CheckSpec) bool { return len(s.FixKinds) > 0 })
 
 // StandardFieldSynonyms maps each standard frontmatter field to the synonyms
 // KBs are known to use for it (nonstandard_field). Keys are matched
@@ -160,12 +160,10 @@ func frontmatterFindings(in conceptInput) []Finding {
 			if dateStr, ok := raVal.(string); ok {
 				t, parseErr := time.Parse("2006-01-02", dateStr)
 				if parseErr == nil && t.Before(Now()) {
-					out = append(out, Finding{
-						Path:     in.RelPath,
-						Check:    "stale_claim",
-						Severity: SevWarning,
-						Message:  fmt.Sprintf("review_after %s is in the past", dateStr),
-					})
+					out = append(out, newFinding("stale_claim", Finding{
+						Path:    in.RelPath,
+						Message: fmt.Sprintf("review_after %s is in the past", dateStr),
+					}))
 				}
 			}
 		}
@@ -174,8 +172,8 @@ func frontmatterFindings(in conceptInput) []Finding {
 	// --- status_semantics (warning, D321) ---
 	if parsed != nil {
 		if status, _ := frontmatterValue(parsed, "status").(string); activeNotOpen(parsed, in.Contract) {
-			out = append(out, Finding{Path: in.RelPath, Check: "status_semantics", Severity: SevWarning,
-				Message: fmt.Sprintf("status %q in a journal means the page is valid, not that work is open — use open, in-progress, blocked or another work status; if this journal reads it as open, list it in open_statuses", status)})
+			out = append(out, newFinding("status_semantics", Finding{Path: in.RelPath,
+				Message: fmt.Sprintf("status %q in a journal means the page is valid, not that work is open — use open, in-progress, blocked or another work status; if this journal reads it as open, list it in open_statuses", status)}))
 		}
 	}
 
@@ -197,7 +195,7 @@ func frontmatterFindings(in conceptInput) []Finding {
 		if s := in.Registry.suggestion(disallowed); s != "" {
 			msg += fmt.Sprintf(" — use `%s`, declared in %s", s, kb.PathRegistryFile)
 		}
-		out = append(out, Finding{Path: in.RelPath, Check: "machine_path", Severity: SevWarning, Message: msg})
+		out = append(out, newFinding("machine_path", Finding{Path: in.RelPath, Message: msg}))
 	}
 
 	// --- mangled_placeholder (warning, D314) ---
@@ -215,7 +213,7 @@ func frontmatterFindings(in conceptInput) []Finding {
 		if h1 := firstH1(in.Body); h1 != "" {
 			msg += fmt.Sprintf(" — suggested: title: %q (its first heading)", h1)
 		}
-		out = append(out, Finding{Path: in.RelPath, Check: "missing_title", Severity: SevWarning, Message: msg})
+		out = append(out, newFinding("missing_title", Finding{Path: in.RelPath, Message: msg}))
 	}
 
 	// --- title_h1_mismatch (warning, D315) ---
@@ -224,13 +222,11 @@ func frontmatterFindings(in conceptInput) []Finding {
 	if parsed != nil {
 		title := titleOf(parsed)
 		if h1 := firstH1(in.Body); title != "" && h1 != "" && h1 != title {
-			out = append(out, Finding{
-				Path:     in.RelPath,
-				Check:    "title_h1_mismatch",
-				Severity: SevWarning,
-				Message:  fmt.Sprintf("title %q and first heading %q differ: the title is the label shown in concept_list, search and the Atlas; the heading should match", title, h1),
-				Fix:      &Fix{Kind: FixSyncH1, To: title},
-			})
+			out = append(out, newFinding("title_h1_mismatch", Finding{
+				Path:    in.RelPath,
+				Message: fmt.Sprintf("title %q and first heading %q differ: the title is the label shown in concept_list, search and the Atlas; the heading should match", title, h1),
+				Fix:     &Fix{Kind: FixSyncH1, To: title},
+			}))
 		}
 		out = append(out, titleQualityFindings(in, parsed, title)...)
 	}
@@ -248,12 +244,10 @@ func frontmatterFindings(in conceptInput) []Finding {
 				missing = !exists || emptyFrontmatterValue(value)
 			}
 			if missing {
-				out = append(out, Finding{
-					Path:     in.RelPath,
-					Check:    "missing_required_field",
-					Severity: SevError,
-					Message:  fmt.Sprintf("missing required field %q required by map %q", field, in.MapName),
-				})
+				out = append(out, newFinding("missing_required_field", Finding{
+					Path:    in.RelPath,
+					Message: fmt.Sprintf("missing required field %q required by map %q", field, in.MapName),
+				}))
 			}
 		}
 		out = append(out, mapFieldContractFindings(in.RelPath, in.MapName, *in.Contract, parsed)...)
@@ -285,7 +279,7 @@ func nonstandardFieldFindings(in conceptInput) []Finding {
 				continue
 			}
 		}
-		f := Finding{Path: in.RelPath, Check: "nonstandard_field", Severity: SevWarning}
+		f := newFinding("nonstandard_field", Finding{Path: in.RelPath})
 		if _, both := in.Parsed.Get(std); both {
 			f.Message = fmt.Sprintf("has both %q and the standard field %q — merge the values by hand and drop %q", key, std, key)
 		} else {
@@ -313,19 +307,18 @@ func toolParamFieldFindings(relPath string, parsed *okf.Frontmatter) []Finding {
 		if !IsToolParamField(key) {
 			continue
 		}
-		out = append(out, Finding{
-			Path:     relPath,
-			Check:    "tool_param_field",
-			Severity: SevWarning,
-			Message:  fmt.Sprintf("frontmatter key %q is a write-tool parameter, not a field — it was probably passed inside the frontmatter object by mistake", key),
-			Fix:      &Fix{Kind: FixDropField, Field: key},
-		})
+		out = append(out, newFinding("tool_param_field", Finding{
+			Path:    relPath,
+			Message: fmt.Sprintf("frontmatter key %q is a write-tool parameter, not a field — it was probably passed inside the frontmatter object by mistake", key),
+			Fix:     &Fix{Kind: FixDropField, Field: key},
+		}))
 	}
 	return out
 }
 
-// CheckConcept computes the frontmatter-driven checks for one concept without
-// walking the KB (D289): the ones a write response can return. lint_ignore is
+// CheckConcept computes the page-level checks for one concept without walking
+// the KB (D289): conceptFindings restricted to the OnWrite checks (D354), the
+// ones a write response can return. lint_ignore is
 // applied; errors are never suppressed. Graph checks are out of scope, they
 // need the whole KB.
 func CheckConcept(k *kb.KB, id okf.ConceptID, content string) []Finding {
@@ -347,7 +340,7 @@ func CheckConcept(k *kb.KB, id okf.ConceptID, content string) []Finding {
 	}
 	ignores := lintIgnoreSet(parsed)
 	var out []Finding
-	for _, f := range frontmatterFindings(in) {
+	for _, f := range conceptFindings(conceptCtx{ID: id, In: in, Write: true}) {
 		if suppressed(f, ignores) {
 			continue
 		}
@@ -500,13 +493,11 @@ func valueContractFindings(mapName string, contract kb.MapContract, concepts map
 		if typed {
 			p.Type = dominant
 		}
-		out = append(out, Finding{
+		out = append(out, newFinding("missing_value_contract", Finding{
 			Path:     mapName + "/_map.md",
-			Check:    "missing_value_contract",
-			Severity: SevInfo,
 			Message:  msg,
 			Proposal: p,
-		})
+		}))
 	}
 	return out
 }
@@ -550,12 +541,10 @@ func detectMalformedFrontmatter(relPath, fmRaw string) []Finding {
 			}
 			// Indented (leading spaces) and starts with "- " after trimming.
 			if len(next) > 0 && (next[0] == ' ' || next[0] == '\t') && strings.HasPrefix(strings.TrimSpace(next), "- ") {
-				out = append(out, Finding{
-					Path:     relPath,
-					Check:    "malformed_frontmatter",
-					Severity: SevWarning,
-					Message:  fmt.Sprintf("key %q has a scalar value followed by indented list lines (line %d): the parser silently truncates the value", key, j+1),
-				})
+				out = append(out, newFinding("malformed_frontmatter", Finding{
+					Path:    relPath,
+					Message: fmt.Sprintf("key %q has a scalar value followed by indented list lines (line %d): the parser silently truncates the value", key, j+1),
+				}))
 			}
 			break // only check the immediately following non-blank line
 		}
@@ -564,7 +553,11 @@ func detectMalformedFrontmatter(relPath, fmRaw string) []Finding {
 }
 
 func suppressed(f Finding, ignores map[string]bool) bool {
-	return f.Severity != SevError && f.Check != "tool_param_field" && f.Check != "malformed_frontmatter" && f.Check != "stringified_list" && ignores[f.Check]
+	if f.Severity == SevError || !ignores[f.Check] {
+		return false
+	}
+	spec, _ := Spec(f.Check)
+	return !spec.NeverSuppress
 }
 
 // dateShaped reports whether v is a scalar string that parses as YYYY-MM-DD or
@@ -652,13 +645,11 @@ func detectStringifiedLists(relPath string, fm *okf.Frontmatter) []Finding {
 		if !isStr || !looksStringified(str) {
 			continue
 		}
-		out = append(out, Finding{
-			Path:     relPath,
-			Check:    "stringified_list",
-			Severity: SevWarning,
-			Message:  fmt.Sprintf("key %q is a string that looks like a list — rewrite it as a proper YAML list", key),
-			Fix:      &Fix{Kind: FixListifyField, Field: key},
-		})
+		out = append(out, newFinding("stringified_list", Finding{
+			Path:    relPath,
+			Message: fmt.Sprintf("key %q is a string that looks like a list — rewrite it as a proper YAML list", key),
+			Fix:     &Fix{Kind: FixListifyField, Field: key},
+		}))
 	}
 	return out
 }
@@ -697,12 +688,10 @@ func detectMangledPlaceholders(relPath, body string) (Finding, bool) {
 	if len(matches) == 0 {
 		return Finding{}, false
 	}
-	return Finding{
-		Path:     relPath,
-		Check:    "mangled_placeholder",
-		Severity: SevWarning,
-		Message:  fmt.Sprintf("body contains what looks like a placeholder rewritten as prose: %s — restore the {{…}} syntax", strings.Join(matches, "; ")),
-	}, true
+	return newFinding("mangled_placeholder", Finding{
+		Path:    relPath,
+		Message: fmt.Sprintf("body contains what looks like a placeholder rewritten as prose: %s — restore the {{…}} syntax", strings.Join(matches, "; ")),
+	}), true
 }
 
 // titleOf is a concept's frontmatter title with its whitespace collapsed, or
@@ -731,7 +720,7 @@ func titleQualityFindings(in conceptInput, fm *okf.Frontmatter, title string) []
 	}
 	var out []Finding
 	add := func(msg string) {
-		out = append(out, Finding{Path: in.RelPath, Check: "title_quality", Severity: SevInfo, Message: msg})
+		out = append(out, newFinding("title_quality", Finding{Path: in.RelPath, Message: msg}))
 	}
 	var deco []string
 	for _, r := range title {

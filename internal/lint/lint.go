@@ -124,7 +124,8 @@ const (
 	conceptOversizeThreshold = okf.ConceptReadSizeGuard / 2
 )
 
-// perConceptChecks are the checks a concept may silence with lint_ignore, i.e.
+// perConceptChecks (derived from the registry, D354: Accept concept) are the
+// checks a concept may silence with lint_ignore, i.e.
 // the warning/info ones driven by that concept's own body or frontmatter. Kept in
 // one place so an unknown name in lint_ignore can be reported rather than
 // silently suppressing nothing.
@@ -135,78 +136,7 @@ const (
 // excluded: the directory-based checks (map_oversize, index_incomplete,
 // expanded_*), which belong to a map or a directory and have no concept
 // frontmatter to read.
-var perConceptChecks = map[string]bool{
-	"broken_link":            true,
-	"machine_path":           true,
-	"concept_oversize":       true,
-	"stale_claim":            true,
-	"imported_draft":         true,
-	"secrets_on_non_service": true,
-	"orphan":                 true,
-	"missing_title":          true,
-	"title_h1_mismatch":      true,
-	"title_quality":          true,
-	"duplicate_link":         true,
-	"bare_link_list":         true,
-	// Structural checks (D243). island is deliberately absent: it belongs to
-	// a component, not to one concept.
-	"cut_concept":     true,
-	"link_to_retired": true,
-	"broken_relation": true,
-	"map_misfit":      true,
-	// Path placeholder registry (D263): a concept documenting an old key on
-	// purpose must be writable. unused_placeholder belongs to paths.yaml.
-	"unknown_placeholder": true,
-	// Glossary (D276): a migration note may quote the old name on purpose.
-	"forbidden_term": true,
-	// Conformance (D289). tool_param_field is deliberately absent: a concept
-	// cannot declare a tool argument a legitimate field.
-	"nonstandard_field": true,
-	// D296: a sentence in a vocabulary field.
-	"prose_value": true,
-	// D297: lifecycle decay.
-	"stale_open":               true,
-	"closed_with_open_items":   true,
-	"template_section_missing": true,
-	"open_marker":              true,
-	// D295: malformed_frontmatter is not suppressible (like tool_param_field),
-	// but is a per-concept check so it appears here.
-	"malformed_frontmatter": true,
-	// D314: not suppressible either (see suppressed); a warning a concept
-	// may silence only for mangled_placeholder, a page documenting the syntax.
-	"stringified_list":    true,
-	"mangled_placeholder": true,
-	// D278: an ingested Source nothing cites.
-	"source_uncited": true,
-	// D298: kb_review kinds. Dismissing a review item is lint_ignore on a
-	// concept it names; TestReviewKindsDismissible pins every kind here.
-	ReviewDuplicate:     true,
-	ReviewZombie:        true,
-	ReviewPromotion:     true,
-	ReviewGlossary:      true,
-	ReviewLintJudgement: true,
-	// D301: cost kinds.
-	ReviewRepeatedFact: true,
-	ReviewReadHotspot:  true,
-	// D302.
-	ReviewScatteredWork: true,
-	// D321.
-	ReviewStatusReclassify: true,
-	// D322.
-	ReviewHarvestCandidate: true,
-	"status_semantics":     true,
-	// D304: dismissed in a map's _map.md, not on a concept.
-	ReviewMapNaming: true,
-	// D301: an efficiency choice a concept may decline.
-	"reciprocal_link_item": true,
-	// D306: a member of an island accepts the whole island (applyMapIgnores).
-	"island": true,
-	// D316: a concept may show the wrong sops pipeline on purpose, or quote
-	// an old path in a migration note.
-	"sops_format_mismatch": true,
-	"sops_missing_file":    true,
-	"legacy_path":          true,
-}
+var perConceptChecks = checkSet(func(s CheckSpec) bool { return s.Accept == AcceptConcept })
 
 // lintIgnoreSet reads a concept's lint_ignore frontmatter key (D159). A bare
 // string is accepted as a one-element list: the frontmatter parser distinguishes
@@ -290,12 +220,7 @@ func RunWithOptions(k *kb.KB, scope string, scopeNeighbors bool, opts Options) (
 // mapOnlyIgnorable are the checks a map's _map.md may accept that no single
 // concept owns: they are reported on the map, or on one member of a graph
 // component, so lint_ignore on a concept could never reach them.
-var mapOnlyIgnorable = map[string]bool{
-	"facet_sprawl":           true,
-	"missing_value_contract": true,
-	"island":                 true,
-	"map_oversize":           true,
-}
+var mapOnlyIgnorable = checkSet(func(s CheckSpec) bool { return s.Accept == AcceptMap })
 
 // Acceptability levels (D313): who can accept a check with lint_ignore.
 const (
@@ -354,12 +279,10 @@ func applyMapIgnores(k *kb.KB, findings []Finding) []Finding {
 			if perConceptChecks[name] || mapOnlyIgnorable[name] {
 				continue
 			}
-			invalid = append(invalid, Finding{
-				Path:     a + "/_map.md",
-				Check:    "lint_ignore_invalid",
-				Severity: SevWarning,
-				Message:  fmt.Sprintf("lint_ignore names %q, which a map cannot accept (unknown, an error, or a directory-level check), so nothing is suppressed", name),
-			})
+			invalid = append(invalid, newFinding("lint_ignore_invalid", Finding{
+				Path:    a + "/_map.md",
+				Message: fmt.Sprintf("lint_ignore names %q, which a map cannot accept (unknown, an error, or a directory-level check), so nothing is suppressed", name),
+			}))
 		}
 	}
 	mapOf := func(path string) string {
@@ -518,12 +441,10 @@ func runChecks(k *kb.KB, scope string, scopeNeighbors bool, opts Options) ([]Fin
 		contracts[archive] = contract
 		if scopeMatchesDir(scopeNorm, archive) {
 			for _, malformed := range contract.Malformed {
-				findings = append(findings, Finding{
-					Path:     malformed.Descriptor,
-					Check:    "contract_malformed",
-					Severity: SevInfo,
-					Message:  fmt.Sprintf("malformed lint contract key %q", malformed.Key),
-				})
+				findings = append(findings, newFinding("contract_malformed", Finding{
+					Path:    malformed.Descriptor,
+					Message: fmt.Sprintf("malformed lint contract key %q", malformed.Key),
+				}))
 			}
 		}
 	}
@@ -552,21 +473,17 @@ func runChecks(k *kb.KB, scope string, scopeNeighbors bool, opts Options) ([]Fin
 		// without it nothing says the vocabulary is undeclared. A file that
 		// exists but is unreadable is contract_malformed, not this.
 		if !registry.state.Present && len(registryFindings) == 0 && len(cited) > 0 {
-			findings = append(findings, Finding{
-				Path:     kb.PathRegistryFile,
-				Check:    "missing_registry",
-				Severity: SevInfo,
+			findings = append(findings, newFinding("missing_registry", Finding{
+				Path: kb.PathRegistryFile,
 				Message: fmt.Sprintf("%d placeholder(s) cited but %s does not exist — create it to get unknown_placeholder and unused_placeholder checks (D263)",
 					len(cited), kb.PathRegistryFile),
-			})
+			}))
 		}
 		for _, id := range registry.unused(cited) {
-			findings = append(findings, Finding{
-				Path:     kb.PathRegistryFile,
-				Check:    "unused_placeholder",
-				Severity: SevInfo,
-				Message:  fmt.Sprintf("{{%s}} is declared but no concept or artifact cites it — drop it, or merge it into the key that is used", id),
-			})
+			findings = append(findings, newFinding("unused_placeholder", Finding{
+				Path:    kb.PathRegistryFile,
+				Message: fmt.Sprintf("{{%s}} is declared but no concept or artifact cites it — drop it, or merge it into the key that is used", id),
+			}))
 		}
 	}
 
@@ -666,12 +583,10 @@ func runChecks(k *kb.KB, scope string, scopeNeighbors bool, opts Options) ([]Fin
 				// implementation does not keep.
 				reason = "a directory-level check, not a per-concept one"
 			}
-			findings = append(findings, Finding{
-				Path:     relPath,
-				Check:    "lint_ignore_invalid",
-				Severity: SevWarning,
-				Message:  fmt.Sprintf("lint_ignore names %q: %s, so nothing is suppressed", name, reason),
-			})
+			findings = append(findings, newFinding("lint_ignore_invalid", Finding{
+				Path:    relPath,
+				Message: fmt.Sprintf("lint_ignore names %q: %s, so nothing is suppressed", name, reason),
+			}))
 		}
 		parts := strings.Split(string(id), "/")
 		var allowPrefixes []string
@@ -700,81 +615,18 @@ func runChecks(k *kb.KB, scope string, scopeNeighbors bool, opts Options) ([]Fin
 			emit(f)
 		}
 
-		// --- concept_oversize (info) ---
-		// A map's contract may set its own threshold (oversize_bytes, D301).
-		oversize := conceptOversizeThreshold
-		if len(parts) > 1 && contracts[parts[0]].OversizeBytes > 0 {
-			oversize = contracts[parts[0]].OversizeBytes
-		}
-		if len(body) > oversize {
-			// concept_expand requires exactly two segments and the write path caps
-			// depth at three, so for a satellite the remedy this check used to
-			// advise is structurally unavailable — and the two largest concepts in
-			// the reporting KB were satellites (D159).
-			remedy := "consider concept_expand to split it into a dossier"
-			if len(parts) > 2 {
-				remedy = "this is a satellite, so concept_expand does not apply: split it into sibling satellites of the same expanded concept and link them from its index"
-			}
-			emit(Finding{
-				Path:     string(id),
-				Check:    "concept_oversize",
-				Severity: SevInfo,
-				Message:  fmt.Sprintf("%d bytes in one concept (threshold %d; concept_read returns an outline instead of the body above %d) — %s", len(body), oversize, okf.ConceptReadSizeGuard, remedy),
-			})
-		}
-
-		// --- sops_format_mismatch / sops_missing_file / legacy_path (D316) ---
-		for _, f := range sopsFindings(body, relPath, k.Root, hasSecretsDir) {
-			emit(f)
-		}
-		for _, f := range legacyPathFindings(body, relPath, instr.legacyPaths) {
-			emit(f)
-		}
-
-		// --- stale_claim / imported_draft / missing_required_field ---
+		// --- the page-level checks: one evaluator shared with CheckConcept (D354) ---
 		// services/ concepts are rooted outside data/ and therefore have no map
 		// descriptor to contract against.
 		var parsed *okf.Frontmatter
 		if hasFM {
 			parsed, _ = okf.ParseFrontmatter(fmRaw)
-			if parsed != nil {
-				// D74 WP1: a concept imported via `cartographer import` (or the
-				// agent-side fallback) is marked status: imported until curated.
-				// The finding keeps the curation backlog visible and resumable
-				// across sessions instead of a big-bang rewrite.
-				if statusVal, ok := parsed.Get("status"); ok {
-					if statusStr, ok := statusVal.(string); ok && statusStr == "imported" {
-						emit(Finding{
-							Path:     relPath,
-							Check:    "imported_draft",
-							Severity: SevWarning,
-							Message:  "imported concept awaiting curation",
-						})
-					}
-				}
-
-				// --- secrets_on_non_service (info, D158, D313) ---
-				// service_list/service_get match type Service (case-insensitively
-				// since D158): a concept declaring secrets under any other type is
-				// not listed there. Info, not warning: a dossier with a legitimate
-				// bundle is resolved by concept ID with secret_resolve.
-				if !strings.EqualFold(parsed.Type(), "Service") {
-					for _, field := range []string{"secrets_source", "secret_refs"} {
-						if v, ok := parsed.Get(field); ok && !emptyFrontmatterValue(v) {
-							emit(Finding{
-								Path:     relPath,
-								Check:    "secrets_on_non_service",
-								Severity: SevInfo,
-								Message:  fmt.Sprintf("declares %s but type is %q — service_get only resolves type Service; use secret_resolve for this concept, or move the secrets bundle to a dedicated Service", field, parsed.Type()),
-							})
-						}
-					}
-				}
-			}
 		}
-		// --- stale_claim, machine_path, missing_title, map contracts,
-		// nonstandard_field, tool_param_field: one implementation shared with
-		// CheckConcept (D289) ---
+		// A map's contract may set its own threshold (oversize_bytes, D301).
+		oversize := conceptOversizeThreshold
+		if len(parts) > 1 && contracts[parts[0]].OversizeBytes > 0 {
+			oversize = contracts[parts[0]].OversizeBytes
+		}
 		in := conceptInput{RelPath: relPath, Body: body, FrontmatterRaw: fmRaw, Parsed: parsed, AllowPrefixes: allowPrefixes, Registry: registry}
 		if len(parts) > 1 && archiveSet[parts[0]] {
 			c := contracts[parts[0]]
@@ -787,7 +639,10 @@ func runChecks(k *kb.KB, scope string, scopeNeighbors bool, opts Options) ([]Fin
 				in.Sections = templateSections[typ]
 			}
 		}
-		for _, f := range frontmatterFindings(in) {
+		for _, f := range conceptFindings(conceptCtx{
+			ID: id, In: in, Oversize: oversize,
+			KBRoot: k.Root, HasSecretsDir: hasSecretsDir, LegacyPaths: instr.legacyPaths,
+		}) {
 			emit(f)
 		}
 
@@ -815,12 +670,10 @@ func runChecks(k *kb.KB, scope string, scopeNeighbors bool, opts Options) ([]Fin
 			// keeps it working; the finding is the migration backlog.
 			if _, mapErr := k.ReadRaw(archiveName + "/_map.md"); errors.Is(mapErr, okf.ErrNotFound) {
 				if _, legacyErr := k.ReadRaw(archiveName + "/_archive.md"); legacyErr == nil {
-					findings = append(findings, Finding{
-						Path:     archiveName + "/_archive.md",
-						Check:    "legacy_archive_descriptor",
-						Severity: SevWarning,
-						Message:  "legacy _archive.md descriptor — rewrite as _map.md with a kind (D77)",
-					})
+					findings = append(findings, newFinding("legacy_archive_descriptor", Finding{
+						Path:    archiveName + "/_archive.md",
+						Message: "legacy _archive.md descriptor — rewrite as _map.md with a kind (D77)",
+					}))
 				}
 			}
 
@@ -856,12 +709,10 @@ func runChecks(k *kb.KB, scope string, scopeNeighbors bool, opts Options) ([]Fin
 					}
 				}
 				if mapConcepts > threshold {
-					findings = append(findings, Finding{
-						Path:     archiveName + "/_map.md",
-						Check:    "map_oversize",
-						Severity: SevInfo,
-						Message:  fmt.Sprintf("%d top-level concepts in one map (threshold %d) — consider a thematic split into a new map, raise oversize_concepts, or accept with lint_ignore: [map_oversize] in _map.md", mapConcepts, threshold),
-					})
+					findings = append(findings, newFinding("map_oversize", Finding{
+						Path:    archiveName + "/_map.md",
+						Message: fmt.Sprintf("%d top-level concepts in one map (threshold %d) — consider a thematic split into a new map, raise oversize_concepts, or accept with lint_ignore: [map_oversize] in _map.md", mapConcepts, threshold),
+					}))
 				}
 			}
 		}
@@ -879,12 +730,10 @@ func runChecks(k *kb.KB, scope string, scopeNeighbors bool, opts Options) ([]Fin
 				if content, err := k.ReadIndex(archiveName); err == nil {
 					want, werr := k.ExpectedIndexBlock(archiveName, contract)
 					if got, _ := kb.IndexBlock(content); werr == nil && got != want {
-						findings = append(findings, Finding{
-							Path:     archiveName + "/index.md",
-							Check:    "index_stale",
-							Severity: SevInfo,
-							Message:  "generated index block differs from the map's concepts (edited out of band or written by an older server) — the next write regenerates it",
-						})
+						findings = append(findings, newFinding("index_stale", Finding{
+							Path:    archiveName + "/index.md",
+							Message: "generated index block differs from the map's concepts (edited out of band or written by an older server) — the next write regenerates it",
+						}))
 					}
 					_, body, _ := okf.SplitFrontmatter(content)
 					checkIndexLinks(k, archiveName+"/index.md", body, &findings, exists)
@@ -945,12 +794,10 @@ func runChecks(k *kb.KB, scope string, scopeNeighbors bool, opts Options) ([]Fin
 			// fires for directories predating those fixes.
 			_, indexErr := k.ReadIndex(string(expandedID))
 			if indexErr != nil && errors.Is(indexErr, okf.ErrNotFound) {
-				findings = append(findings, Finding{
-					Path:     string(expandedID) + "/index.md",
-					Check:    "expanded_missing_index",
-					Severity: SevWarning,
-					Message:  "expanded concept missing index.md",
-				})
+				findings = append(findings, newFinding("expanded_missing_index", Finding{
+					Path:    string(expandedID) + "/index.md",
+					Message: "expanded concept missing index.md",
+				}))
 			}
 
 			// --- expanded_ambiguous (error) ---
@@ -959,12 +806,10 @@ func runChecks(k *kb.KB, scope string, scopeNeighbors bool, opts Options) ([]Fin
 			// so this is the place that surfaces the conflict.
 			if indexErr == nil {
 				if _, directErr := k.ReadRaw(string(expandedID) + ".md"); directErr == nil {
-					findings = append(findings, Finding{
-						Path:     string(expandedID) + ".md",
-						Check:    "expanded_ambiguous",
-						Severity: SevError,
-						Message:  fmt.Sprintf("both %s.md and %s/index.md exist — writes to %s are blocked until one form is removed", expandedID, expandedID, expandedID),
-					})
+					findings = append(findings, newFinding("expanded_ambiguous", Finding{
+						Path:    string(expandedID) + ".md",
+						Message: fmt.Sprintf("both %s.md and %s/index.md exist — writes to %s are blocked until one form is removed", expandedID, expandedID, expandedID),
+					}))
 				}
 			}
 
@@ -1000,12 +845,10 @@ func runChecks(k *kb.KB, scope string, scopeNeighbors bool, opts Options) ([]Fin
 					}
 				}
 				if linked*2 < len(children) {
-					findings = append(findings, Finding{
-						Path:     string(expandedID),
-						Check:    "expanded_as_category",
-						Severity: SevWarning,
-						Message:  fmt.Sprintf("%d children, only %d linked to the concept's index — directory used as a category; categories belong to curated indexes, not the filesystem (D77)", len(children), linked),
-					})
+					findings = append(findings, newFinding("expanded_as_category", Finding{
+						Path:    string(expandedID),
+						Message: fmt.Sprintf("%d children, only %d linked to the concept's index — directory used as a category; categories belong to curated indexes, not the filesystem (D77)", len(children), linked),
+					}))
 				}
 			}
 
@@ -1040,45 +883,37 @@ func runChecks(k *kb.KB, scope string, scopeNeighbors bool, opts Options) ([]Fin
 				// one finding on its owner, never an aborted run (D270).
 				assets, assetErr := k.ListAssets(expandedID)
 				if assetErr != nil {
-					findings = append(findings, Finding{
-						Path:     string(expandedID),
-						Check:    "unlistable_assets",
-						Severity: SevWarning,
-						Message:  fmt.Sprintf("the concept's assets cannot be listed: %v", assetErr),
-					})
+					findings = append(findings, newFinding("unlistable_assets", Finding{
+						Path:    string(expandedID),
+						Message: fmt.Sprintf("the concept's assets cannot be listed: %v", assetErr),
+					}))
 					continue
 				}
 				for _, asset := range assets {
 					assetPath := string(expandedID) + "/" + asset.Path
 					if asset.Oversized {
-						findings = append(findings, Finding{
-							Path:     assetPath,
-							Check:    "oversized_asset",
-							Severity: SevWarning,
-							Message:  fmt.Sprintf("asset is %d bytes, above the %d MiB worth versioning in git — move it outside the KB and cite it by link (D270)", asset.Size, kb.AssetMaxFileSize>>20),
-						})
+						findings = append(findings, newFinding("oversized_asset", Finding{
+							Path:    assetPath,
+							Message: fmt.Sprintf("asset is %d bytes, above the %d MiB worth versioning in git — move it outside the KB and cite it by link (D270)", asset.Size, kb.AssetMaxFileSize>>20),
+						}))
 					}
 					// A junk file is not an asset to cite (D316): orphan_asset's
 					// advice was once followed literally on a .pyc.
 					if kb.IsJunkPath(asset.Path) {
 						junkAssets[assetPath] = true
-						findings = append(findings, Finding{
-							Path:     assetPath,
-							Check:    "junk_asset",
-							Severity: SevWarning,
-							Message:  "junk file tracked as asset; delete it with asset_delete",
-						})
+						findings = append(findings, newFinding("junk_asset", Finding{
+							Path:    assetPath,
+							Message: "junk file tracked as asset; delete it with asset_delete",
+						}))
 						continue
 					}
 					if referenced[assetPath] {
 						continue
 					}
-					findings = append(findings, Finding{
-						Path:     assetPath,
-						Check:    "orphan_asset",
-						Severity: SevInfo,
-						Message:  "asset is not cited by its owning dossier document; cite dossier artifacts from the document that owns them",
-					})
+					findings = append(findings, newFinding("orphan_asset", Finding{
+						Path:    assetPath,
+						Message: "asset is not cited by its owning dossier document; cite dossier artifacts from the document that owns them",
+					}))
 				}
 			}
 		}
@@ -1110,12 +945,10 @@ func linkFindings(k *kb.KB, id okf.ConceptID, relPath, linkBase, body string, ex
 	for _, target := range kb.ExtractLinks(body, linkBase, k.AssetExists) {
 		targetPath := okf.IDToPath(target)
 		if !exists(target) {
-			f := Finding{
-				Path:     relPath,
-				Check:    "broken_link",
-				Severity: SevWarning,
-				Message:  fmt.Sprintf("broken link to %s", targetPath),
-			}
+			f := newFinding("broken_link", Finding{
+				Path:    relPath,
+				Message: fmt.Sprintf("broken link to %s", targetPath),
+			})
 			if fix, ok := rebasable[targetPath]; ok {
 				f.Fix = fix
 				f.Message += "; fix: rebase relative to the expanded index"
@@ -1138,12 +971,10 @@ func linkFindings(k *kb.KB, id okf.ConceptID, relPath, linkBase, body string, ex
 	if heading, dups, fixableDups, bare, n := linksSectionIssues(body, linkBase, k.AssetExists); heading != "" {
 		if len(dups) > 0 {
 			for _, d := range dups {
-				f := Finding{
-					Path:     relPath,
-					Check:    "duplicate_link",
-					Severity: SevInfo,
-					Message:  fmt.Sprintf("linked both in the text and under %q: %s — keep the link where the text says why", heading, d),
-				}
+				f := newFinding("duplicate_link", Finding{
+					Path:    relPath,
+					Message: fmt.Sprintf("linked both in the text and under %q: %s — keep the link where the text says why", heading, d),
+				})
 				if fix, ok := fixableDups[d]; ok {
 					f.Fix = fix
 				}
@@ -1160,21 +991,17 @@ func linkFindings(k *kb.KB, id okf.ConceptID, relPath, linkBase, body string, ex
 		}
 		sort.Slice(recipIDs, func(i, j int) bool { return recipIDs[i] < recipIDs[j] })
 		for _, target := range recipIDs {
-			emit(Finding{
-				Path:     relPath,
-				Check:    "reciprocal_link_item",
-				Severity: SevInfo,
-				Message:  fmt.Sprintf("%s already links back here, so the backlink shows this edge — the item under %q is a second write to keep in sync", target, heading),
-				Fix:      &Fix{Kind: FixDropLinkItem, Field: recips[target]},
-			})
+			emit(newFinding("reciprocal_link_item", Finding{
+				Path:    relPath,
+				Message: fmt.Sprintf("%s already links back here, so the backlink shows this edge — the item under %q is a second write to keep in sync", target, heading),
+				Fix:     &Fix{Kind: FixDropLinkItem, Field: recips[target]},
+			}))
 		}
 		if bare {
-			emit(Finding{
-				Path:     relPath,
-				Check:    "bare_link_list",
-				Severity: SevInfo,
-				Message:  fmt.Sprintf("%q lists %d link(s) with no word on why each matters — add a short reason per link", heading, n),
-			})
+			emit(newFinding("bare_link_list", Finding{
+				Path:    relPath,
+				Message: fmt.Sprintf("%q lists %d link(s) with no word on why each matters — add a short reason per link", heading, n),
+			}))
 		}
 	}
 }
@@ -1200,19 +1027,15 @@ func orphanFinding(id okf.ConceptID, relPath string, in, out map[okf.ConceptID]m
 	}
 	switch {
 	case !atArchiveTop:
-		return Finding{
-			Path:     relPath,
-			Check:    "orphan",
-			Severity: SevWarning,
-			Message:  "no incoming links",
-		}, true
+		return newFinding("orphan", Finding{
+			Path:    relPath,
+			Message: "no incoming links",
+		}), true
 	case outgoing == 0:
-		return Finding{
-			Path:     relPath,
-			Check:    "orphan",
-			Severity: SevWarning,
-			Message:  "no links in or out: a node connected to nothing in the graph (the map's index is not a link) — link it to the concepts it relates to (link_suggest may propose some by title similarity)",
-		}, true
+		return newFinding("orphan", Finding{
+			Path:    relPath,
+			Message: "no links in or out: a node connected to nothing in the graph (the map's index is not a link) — link it to the concepts it relates to (link_suggest may propose some by title similarity)",
+		}), true
 	}
 	return Finding{}, false
 }
@@ -1322,12 +1145,10 @@ func indexLinkForms(body, linkBase string, exists func(okf.ConceptID) bool) []Fi
 		}
 		seen[pathPart] = true
 		to := kb.RelLink(baseDir, parent+".md")
-		out = append(out, Finding{
-			Check:    "index_link_form",
-			Severity: SevInfo,
-			Message:  fmt.Sprintf("link to %s — the concept is %s; write %s", pathPart, parent, to),
-			Fix:      &Fix{Kind: FixRebaseLink, Field: pathPart, To: to},
-		})
+		out = append(out, newFinding("index_link_form", Finding{
+			Message: fmt.Sprintf("link to %s — the concept is %s; write %s", pathPart, parent, to),
+			Fix:     &Fix{Kind: FixRebaseLink, Field: pathPart, To: to},
+		}))
 	}
 	for _, m := range wikiLinkPat.FindAllStringSubmatch(masked, -1) {
 		raw := m[1]
@@ -1336,12 +1157,10 @@ func indexLinkForms(body, linkBase string, exists func(okf.ConceptID) bool) []Fi
 			continue
 		}
 		seen["[["+raw] = true
-		out = append(out, Finding{
-			Check:    "index_link_form",
-			Severity: SevInfo,
-			Message:  fmt.Sprintf("link to [[%s]] — the concept is %s; write [[%s]]", raw, parent, parent),
-			Fix:      &Fix{Kind: FixRewriteWikiLink, Field: raw, To: parent},
-		})
+		out = append(out, newFinding("index_link_form", Finding{
+			Message: fmt.Sprintf("link to [[%s]] — the concept is %s; write [[%s]]", raw, parent, parent),
+			Fix:     &Fix{Kind: FixRewriteWikiLink, Field: raw, To: parent},
+		}))
 	}
 	return out
 }
@@ -1471,12 +1290,10 @@ func firstH1(body string) string {
 func checkCuratedIndex(k *kb.KB, folder, indexPath string, candidates []okf.ConceptID, validateLinks bool, findings *[]Finding, exists func(okf.ConceptID) bool) {
 	content, err := k.ReadIndex(folder)
 	if err != nil {
-		*findings = append(*findings, Finding{
-			Path:     indexPath,
-			Check:    "index_incomplete",
-			Severity: SevWarning,
-			Message:  "curated index is missing or unreadable",
-		})
+		*findings = append(*findings, newFinding("index_incomplete", Finding{
+			Path:    indexPath,
+			Message: "curated index is missing or unreadable",
+		}))
 		return
 	}
 	_, body, _ := okf.SplitFrontmatter(content)
@@ -1498,12 +1315,10 @@ func checkCuratedIndex(k *kb.KB, folder, indexPath string, candidates []okf.Conc
 	sort.Slice(candidates, func(i, j int) bool { return candidates[i] < candidates[j] })
 	for _, candidate := range candidates {
 		if !targets[candidate] {
-			*findings = append(*findings, Finding{
-				Path:     indexPath,
-				Check:    "index_incomplete",
-				Severity: SevWarning,
-				Message:  fmt.Sprintf("missing curated index entry for %s", candidate),
-			})
+			*findings = append(*findings, newFinding("index_incomplete", Finding{
+				Path:    indexPath,
+				Message: fmt.Sprintf("missing curated index entry for %s", candidate),
+			}))
 		}
 	}
 }
@@ -1515,12 +1330,10 @@ func checkIndexLinks(k *kb.KB, indexPath, body string, findings *[]Finding, exis
 		// A link target is broken iff it was not among the enumerated
 		// concepts (D294): this avoids an os.Stat per link.
 		if !exists(target) {
-			*findings = append(*findings, Finding{
-				Path:     indexPath,
-				Check:    "broken_link",
-				Severity: SevWarning,
-				Message:  fmt.Sprintf("broken link to %s", okf.IDToPath(target)),
-			})
+			*findings = append(*findings, newFinding("broken_link", Finding{
+				Path:    indexPath,
+				Message: fmt.Sprintf("broken link to %s", okf.IDToPath(target)),
+			}))
 		}
 	}
 }
@@ -1587,12 +1400,10 @@ func mapFieldContractFindings(relPath, mapName string, contract kb.MapContract, 
 		for _, g := range got {
 			g = strings.TrimSpace(g)
 			if !fieldValueAllowed(allowed, g) {
-				f := Finding{
-					Path:     relPath,
-					Check:    "invalid_field_value",
-					Severity: SevError,
-					Message:  fmt.Sprintf("field %q has value %q, allowed by map %q: %s", field, g, mapName, strings.Join(allowed, ", ")),
-				}
+				f := newFinding("invalid_field_value", Finding{
+					Path:    relPath,
+					Message: fmt.Sprintf("field %q has value %q, allowed by map %q: %s", field, g, mapName, strings.Join(allowed, ", ")),
+				})
 				// D296: a synonym of exactly one allowed value is mechanical.
 				if _, scalar := value.(string); scalar {
 					if to, ok := familiesFor(&contract).canonicalIn(g, allowed); ok {
@@ -1607,12 +1418,10 @@ func mapFieldContractFindings(relPath, mapName string, contract kb.MapContract, 
 	}
 	for _, field := range contract.ForbiddenFields {
 		if _, exists := parsed.Get(field); exists {
-			out = append(out, Finding{
-				Path:     relPath,
-				Check:    "forbidden_field",
-				Severity: SevError,
-				Message:  fmt.Sprintf("field %q is forbidden by map %q", field, mapName),
-			})
+			out = append(out, newFinding("forbidden_field", Finding{
+				Path:    relPath,
+				Message: fmt.Sprintf("field %q is forbidden by map %q", field, mapName),
+			}))
 		}
 	}
 	return out

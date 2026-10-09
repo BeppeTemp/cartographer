@@ -27,12 +27,10 @@ type registryLint struct {
 func loadRegistryLint(k *kb.KB) (registryLint, []Finding) {
 	st, err := k.ReadPathRegistry()
 	if err != nil {
-		return registryLint{}, []Finding{{
-			Path:     kb.PathRegistryFile,
-			Check:    "contract_malformed",
-			Severity: SevInfo,
-			Message:  fmt.Sprintf("path placeholder registry unreadable: %v", err),
-		}}
+		return registryLint{}, []Finding{newFinding("contract_malformed", Finding{
+			Path:    kb.PathRegistryFile,
+			Message: fmt.Sprintf("path placeholder registry unreadable: %v", err),
+		})}
 	}
 	var findings []Finding
 	for _, m := range st.Malformed {
@@ -40,12 +38,10 @@ func loadRegistryLint(k *kb.KB) (registryLint, []Finding) {
 		if m.Entry != "" {
 			msg += fmt.Sprintf(" entry %q", m.Entry)
 		}
-		findings = append(findings, Finding{
-			Path:     kb.PathRegistryFile,
-			Check:    "contract_malformed",
-			Severity: SevInfo,
-			Message:  msg + ": " + m.Reason,
-		})
+		findings = append(findings, newFinding("contract_malformed", Finding{
+			Path:    kb.PathRegistryFile,
+			Message: msg + ": " + m.Reason,
+		}))
 	}
 	return registryLint{state: st, enforced: st.Present && !st.Unparseable}, findings
 }
@@ -76,13 +72,11 @@ func unknownPlaceholderFinding(relPath string, ids []string) Finding {
 	for i, id := range ids {
 		quoted[i] = "{{" + id + "}}"
 	}
-	return Finding{
-		Path:     relPath,
-		Check:    "unknown_placeholder",
-		Severity: SevWarning,
+	return newFinding("unknown_placeholder", Finding{
+		Path: relPath,
 		Message: fmt.Sprintf("cites %s, not declared in %s — reuse a declared key, or declare this one in the same change (D263)",
 			strings.Join(quoted, ", "), kb.PathRegistryFile),
-	}
+	})
 }
 
 // unused returns the declared ids that nothing cites, given every id cited by
@@ -160,12 +154,10 @@ func (r registryLint) suggestion(flagged string) string {
 func loadGlossaryLint(k *kb.KB) (kb.Glossary, []Finding) {
 	st, err := k.ReadGlossary()
 	if err != nil {
-		return kb.Glossary{}, []Finding{{
-			Path:     kb.GlossaryFile,
-			Check:    "contract_malformed",
-			Severity: SevInfo,
-			Message:  fmt.Sprintf("glossary unreadable: %v", err),
-		}}
+		return kb.Glossary{}, []Finding{newFinding("contract_malformed", Finding{
+			Path:    kb.GlossaryFile,
+			Message: fmt.Sprintf("glossary unreadable: %v", err),
+		})}
 	}
 	var findings []Finding
 	for _, m := range st.Malformed {
@@ -173,12 +165,10 @@ func loadGlossaryLint(k *kb.KB) (kb.Glossary, []Finding) {
 		if m.Entry != "" {
 			msg += fmt.Sprintf(" entry %q", m.Entry)
 		}
-		findings = append(findings, Finding{
-			Path:     kb.GlossaryFile,
-			Check:    "contract_malformed",
-			Severity: SevInfo,
-			Message:  msg + ": " + m.Reason,
-		})
+		findings = append(findings, newFinding("contract_malformed", Finding{
+			Path:    kb.GlossaryFile,
+			Message: msg + ": " + m.Reason,
+		}))
 	}
 	return st.Glossary, findings
 }
@@ -190,12 +180,10 @@ func loadGlossaryLint(k *kb.KB) (kb.Glossary, []Finding) {
 func forbiddenTermFindings(relPath, body string, g kb.Glossary) []Finding {
 	var out []Finding
 	for _, u := range g.ForbiddenUses(kb.MaskCodeSpans(body)) {
-		out = append(out, Finding{
-			Path:     relPath,
-			Check:    "forbidden_term",
-			Severity: SevWarning,
-			Message:  fmt.Sprintf("uses %q — the glossary's canonical term is %q", u.Term, u.Canonical),
-		})
+		out = append(out, newFinding("forbidden_term", Finding{
+			Path:    relPath,
+			Message: fmt.Sprintf("uses %q — the glossary's canonical term is %q", u.Term, u.Canonical),
+		}))
 	}
 	return out
 }

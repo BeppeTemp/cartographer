@@ -323,15 +323,17 @@ only** (D159). It exists because a concept documenting a false positive — a `~
 a deliberately-broken example link — could not be written without generating the findings it
 describes, so a KB's own "known false positives" page was impossible.
 
-Suppressible: `broken_link`, `machine_path`, `concept_oversize`, `stale_claim`, `imported_draft`,
-`secrets_on_non_service`, `orphan`, `missing_title`, `unknown_placeholder`, `forbidden_term`, `sops_format_mismatch`, `sops_missing_file`, `legacy_path`, `nonstandard_field`, `prose_value`, `stale_open`, `closed_with_open_items`, `status_semantics` (D321), `template_section_missing`, `open_marker`, `source_uncited`, `mangled_placeholder` (D314), `title_h1_mismatch` and `title_quality` (D315), `duplicate_link`, `bare_link_list`, and the structural
-`cut_concept`, `link_to_retired`, `broken_relation`, `map_misfit`, `reciprocal_link_item` (D301), and the `kb_review` kinds (D298, D301) `duplicate_candidate`, `zombie_work`, `harvest_candidate` (D322), `repeated_fact`, `read_hotspot`, `promotion_candidate`, `glossary_gap`, `lint_judgement` — there the name dismisses a review item that names the concept (see §Review keys). **Not** suppressible: `stringified_list` (D314), `tool_param_field` (a tool argument is never a legitimate field), every `error`-severity check
-(`missing_required_field`, `invalid_field_value`, `forbidden_field`, `expanded_ambiguous`) — those are contract violations, not judgements, and
-letting a concept declare its own contract void would be a hole rather than an escape hatch — and the
-directory-level checks (`index_incomplete`, `index_stale`, `expanded_*`, `orphan_asset`,
-`oversized_asset`, `unlistable_assets`, `unused_placeholder`, `facet_sprawl`) and the artifact checks
-below (`skill_*`, `legacy_tool_name`, `missing_instructions`, `junk_*`, `cross_kb_path`), which belong to a map, an expanded concept or `paths.yaml` and have no single
-concept frontmatter that owns them (a map accepts `facet_sprawl` and `map_oversize` in its `_map.md`, above).
+Suppressible is every check whose **Accept** is `concept` in the [catalogue](#check-catalogue-d354)
+(the structural ones and the `kb_review` kinds included: for a review kind the name dismisses a
+review item that names the concept, see §Review keys). **Not** suppressible: `stringified_list`
+(D314), `malformed_frontmatter` and `tool_param_field` (a tool argument is never a legitimate
+field), every `error`-severity check (`missing_required_field`, `invalid_field_value`,
+`forbidden_field`, `expanded_ambiguous`) — those are contract violations, not judgements, and
+letting a concept declare its own contract void would be a hole rather than an escape hatch — and
+the directory-level, KB-level and artifact checks (Accept `none`, `map` or `artifact`), which
+belong to a map, an expanded concept, `paths.yaml` or a KB-root file and have no single concept
+frontmatter that owns them (a map accepts `facet_sprawl` and `map_oversize` in its `_map.md`,
+above).
 `island` is accepted by any of its members. Naming
 an unsuppressible or unknown check is itself reported as `lint_ignore_invalid`: a typo that silently
 suppresses nothing is worse than no opt-out.
@@ -349,6 +351,105 @@ nodes a vertex separates; `secrets_on_non_service` is `info` and points at `secr
 `machine_path` never fires for the conventional tool paths `~/.ssh/`, `~/.kube/`, `~/.m2/`,
 `~/.config/`, `~/.cache/`, `~/.local/`, `~/.gnupg/` (a map's `machine_path_allow_prefixes` only adds
 to them). `missing_value_contract` skips a field whose every value is a date.
+
+### Check catalogue (D354)
+
+Every lint check is one entry in `internal/lint/registry.go`; the tables that say who may accept
+a check, which are fixable, which are never suppressed or listed on the Artifacts panel are
+projections of it. This catalogue is generated from it (a test fails when it drifts):
+
+- **Level**: `concept` (one page, its map contract; evaluated by one function for `lint` and for the
+  write path), `graph` (needs the link graph or KB-wide data), `map` (a map or an expanded concept's
+  directory), `artifact` (a KB-root file, only an unscoped lint), `kb` (a KB-level file or a
+  `kb_review` kind).
+- **Accept**: where `lint_ignore` / `lint_accept` can accept it (D313); `none` is fix-it.
+- **Fix**: the fix kinds `kb_repair` applies. **Auto-repair safe**: the fix needs no person, so the
+  check may be listed in `auto_repair`. **On write**: a write response evaluates it
+  (`CheckConcept` for `concept`, `ScopedCheck` for `graph` and `map`).
+- Severity is the registry's default; every finding is built through one constructor that reads it.
+
+<!-- lint:catalogue:begin — generated from internal/lint/registry.go; run `go test ./internal/repodocs -run TestLintCatalogueIsUpToDate -args -update` -->
+| Check | Severity | Level | Accept | Fix | Auto-repair safe | On write |
+|---|---|---|---|---|---|---|
+| `malformed_frontmatter` | warning | concept | concept | - | - | yes |
+| `stringified_list` | warning | concept | concept | `listify_field` | yes | yes |
+| `stale_claim` | warning | concept | concept | - | - | yes |
+| `status_semantics` | warning | concept | concept | - | - | yes |
+| `machine_path` | warning | concept | concept | - | - | yes |
+| `mangled_placeholder` | warning | concept | concept | - | - | yes |
+| `missing_title` | warning | concept | concept | - | - | yes |
+| `title_h1_mismatch` | warning | concept | concept | `sync_h1` | yes | yes |
+| `title_quality` | info | concept | concept | - | - | yes |
+| `missing_required_field` | error | concept | none | - | - | yes |
+| `invalid_field_value` | error | concept | none | `set_value` | yes | yes |
+| `forbidden_field` | error | concept | none | - | - | yes |
+| `nonstandard_field` | warning | concept | concept | `rename_field` | yes | yes |
+| `tool_param_field` | warning | concept | none | `drop_field` | yes | yes |
+| `prose_value` | warning | concept | concept | `split_value` | yes | yes |
+| `stale_open` | info | concept | concept | - | - | yes |
+| `closed_with_open_items` | info | concept | concept | - | - | yes |
+| `template_section_missing` | info | concept | concept | - | - | yes |
+| `open_marker` | info | concept | concept | - | - | yes |
+| `concept_oversize` | info | concept | concept | - | - | - |
+| `imported_draft` | warning | concept | concept | - | - | - |
+| `secrets_on_non_service` | info | concept | concept | - | - | - |
+| `sops_format_mismatch` | warning | concept | concept | - | - | - |
+| `sops_missing_file` | warning | concept | concept | - | - | - |
+| `legacy_path` | warning | concept | concept | `replace_prefix` | yes | - |
+| `broken_link` | warning | graph | concept | `rebase_link` | - | yes |
+| `duplicate_link` | info | graph | concept | `drop_link_item`, `rewrite_link_item` | yes | yes |
+| `reciprocal_link_item` | info | graph | concept | `drop_link_item` | - | yes |
+| `bare_link_list` | info | graph | concept | - | - | yes |
+| `index_link_form` | info | graph | none | `rebase_link`, `rewrite_wiki_link` | yes | yes |
+| `orphan` | warning | graph | concept | - | - | yes |
+| `broken_relation` | warning | graph | concept | - | - | yes |
+| `link_to_retired` | info | graph | concept | - | - | yes |
+| `unknown_placeholder` | warning | graph | concept | - | - | yes |
+| `forbidden_term` | warning | graph | concept | - | - | yes |
+| `source_uncited` | warning | graph | concept | - | - | - |
+| `cut_concept` | info | graph | concept | - | - | - |
+| `island` | info | graph | concept | - | - | - |
+| `map_misfit` | info | graph | concept | - | - | - |
+| `contract_malformed` | info | map | none | - | - | - |
+| `facet_sprawl` | info | map | map | - | - | - |
+| `missing_value_contract` | info | map | map | - | - | - |
+| `map_oversize` | info | map | map | - | - | - |
+| `legacy_archive_descriptor` | warning | map | none | - | - | - |
+| `index_incomplete` | warning | map | none | - | - | yes |
+| `index_stale` | info | map | none | - | - | - |
+| `expanded_missing_index` | warning | map | none | - | - | - |
+| `expanded_ambiguous` | error | map | none | - | - | - |
+| `expanded_as_category` | warning | map | none | - | - | - |
+| `unlistable_assets` | warning | map | none | - | - | - |
+| `oversized_asset` | warning | map | none | - | - | - |
+| `orphan_asset` | info | map | none | - | - | - |
+| `skill_invalid` | warning | artifact | artifact | - | - | - |
+| `skill_warning` | info | artifact | artifact | - | - | - |
+| `legacy_tool_name` | warning | artifact | artifact | `strip_tool_prefix` | yes | - |
+| `skill_broken_ref` | warning | artifact | artifact | - | - | - |
+| `skill_git_command` | info | artifact | artifact | - | - | - |
+| `skill_missing_perimeter` | info | artifact | artifact | - | - | - |
+| `cross_kb_path` | warning | artifact | artifact | - | - | - |
+| `artifact_unused` | info | artifact | artifact | - | - | - |
+| `junk_file` | warning | artifact | none | - | - | - |
+| `junk_asset` | warning | artifact | none | - | - | - |
+| `missing_instructions` | warning | artifact | none | - | - | - |
+| `hook_invalid` | warning | kb | none | - | - | - |
+| `missing_registry` | info | kb | none | - | - | - |
+| `unused_placeholder` | info | kb | none | - | - | - |
+| `lint_ignore_invalid` | warning | kb | none | - | - | - |
+| `duplicate_candidate` | info | kb | concept | - | - | - |
+| `zombie_work` | info | kb | concept | - | - | - |
+| `promotion_candidate` | info | kb | concept | - | - | - |
+| `glossary_gap` | info | kb | concept | - | - | - |
+| `lint_judgement` | info | kb | concept | - | - | - |
+| `repeated_fact` | info | kb | concept | - | - | - |
+| `read_hotspot` | info | kb | concept | - | - | - |
+| `scattered_work` | info | kb | concept | - | - | - |
+| `status_reclassify` | info | kb | concept | - | - | - |
+| `harvest_candidate` | info | kb | concept | - | - | - |
+| `map_naming` | info | kb | concept | - | - | - |
+<!-- lint:catalogue:end -->
 
 ### Conformance checks (D289)
 

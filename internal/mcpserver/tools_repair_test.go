@@ -241,6 +241,15 @@ func TestFixableChecksCoverEveryEmittedFix(t *testing.T) {
 			if !listed[f.Check] {
 				t.Errorf("check %q emits a fix but is not in lint.FixableChecks", f.Check)
 			}
+			// D354: the registry names the fix kinds a check may carry.
+			spec, _ := lint.Spec(f.Check)
+			kindOK := false
+			for _, kind := range spec.FixKinds {
+				kindOK = kindOK || kind == f.Fix.Kind
+			}
+			if !kindOK {
+				t.Errorf("check %q emitted fix kind %q, not in its FixKinds %v", f.Check, f.Fix.Kind, spec.FixKinds)
+			}
 		}
 	}
 	if len(seen) != len(listed) {

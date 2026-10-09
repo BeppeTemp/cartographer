@@ -127,13 +127,11 @@ func AddedRepeatedFacts(k *kb.KB, id okf.ConceptID, prevBody, newBody string, bu
 			more = fmt.Sprintf(" and %d more", len(shown)-repeatedFactOwnersShown)
 			shown = shown[:repeatedFactOwnersShown]
 		}
-		out = append(out, Finding{
-			Path:     path,
-			Check:    ReviewRepeatedFact,
-			Severity: SevInfo,
+		out = append(out, newFinding(ReviewRepeatedFact, Finding{
+			Path: path,
 			Message: fmt.Sprintf("the same line is already in %s%s: %q; keep the fact in one concept (the one whose subject it is) and link to it from the others",
 				strings.Join(shown, ", "), more, cutBytes(cur[key], repeatedFactEvidenceBytes)),
-		})
+		}))
 	}
 	return out, used
 }

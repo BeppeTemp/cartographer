@@ -62,15 +62,7 @@ var defaultProcedureHeadings = []string{"procedure", "steps", "how to"}
 // lintJudgementChecks are the lint findings that need judgement and that the
 // doctor works from the same list (lint_judgement). broken_link counts only
 // without a mechanical fix: one with a fix is kb_repair's.
-var lintJudgementChecks = map[string]bool{
-	"stale_open":               true,
-	"closed_with_open_items":   true,
-	"template_section_missing": true,
-	"bare_link_list":           true,
-	"map_misfit":               true,
-	"concept_oversize":         true,
-	"broken_link":              true,
-}
+var lintJudgementChecks = checkSet(func(s CheckSpec) bool { return s.Judgement })
 
 // titleStopWords are dropped before comparing titles: words that carry no
 // subject. A short English list; a KB's own language only lowers recall.

@@ -129,6 +129,25 @@ make worktree-add SLUG=my-change    # branches feat/my-change from origin/main
 make worktree-rm  SLUG=my-change    # after the PR is merged; --force, so check first
 ```
 
+## Adding a lint check
+
+A check is declared once, in `internal/lint/registry.go` (D354); every table that used to list
+checks by hand (who may accept it, whether `kb_repair` can fix it, whether `auto_repair` may run it,
+the Artifacts panel, what a write response evaluates) is derived from that entry. Three edits, nothing else:
+
+1. **Register the spec**: a `CheckSpec` with its `Name`, default `Severity`, `Level`, `Accept`, and the
+   flags that apply (`FixKinds`, `AutoRepairSafe`, `OnWrite`, `Judgement`…). A `LevelConcept` check
+   is computed in `conceptFindings` (`internal/lint/conceptcheck.go`), which `lint` and the write path
+   share; graph, map and artifact checks keep their dedicated pass and only register here.
+2. **Emit through the constructor**: `newFinding("<name>", Finding{Path: …, Message: …})`. It fills the
+   severity from the spec (an unregistered name panics under test); a `Finding{…}` literal that sets
+   `Check` fails `TestNoFindingLiteralOutsideRegistry`.
+3. **Regenerate the catalogue** in `docs/data-plane.md`:
+   `go test ./internal/repodocs -run TestLintCatalogueIsUpToDate -args -update`, then add the prose
+   that explains the check where its family is described.
+
+`make gate` fails until all three are done. The check's decision (`make decisions-new`) is the usual one.
+
 ## Pull requests
 
 - Fork and open a PR against `main`. Direct pushes are disabled; every change

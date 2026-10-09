@@ -180,8 +180,8 @@ func proseValueFindings(in conceptInput) []Finding {
 		if !prose {
 			continue
 		}
-		f := Finding{Path: in.RelPath, Check: "prose_value", Severity: SevWarning,
-			Message: fmt.Sprintf("field %q holds a sentence (%q): a vocabulary field is one token, so filters on it miss this concept", field, v)}
+		f := newFinding("prose_value", Finding{Path: in.RelPath,
+			Message: fmt.Sprintf("field %q holds a sentence (%q): a vocabulary field is one token, so filters on it miss this concept", field, v)})
 		var allowed []string
 		if in.Contract != nil {
 			allowed, _ = in.Contract.AllowedValues(in.Parsed.Type(), field)

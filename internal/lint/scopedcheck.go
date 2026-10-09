@@ -148,12 +148,10 @@ func ScopedCheck(k *kb.KB, ids []okf.ConceptID) []Finding {
 				if u == id || isInput[u] || !present(u) {
 					continue
 				}
-				emitFor(u)(Finding{
-					Path:     okf.IDToPath(u),
-					Check:    "broken_link",
-					Severity: SevWarning,
-					Message:  "broken link to " + okf.IDToPath(id),
-				})
+				emitFor(u)(newFinding("broken_link", Finding{
+					Path:    okf.IDToPath(u),
+					Message: "broken link to " + okf.IDToPath(id),
+				}))
 			}
 			continue
 		}

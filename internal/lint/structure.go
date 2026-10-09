@@ -35,12 +35,7 @@ const (
 // them: a cut_concept on a visible page counts, and names, the hidden ones it
 // cuts off. broken_relation is not among them — it reads only the concept's
 // own frontmatter.
-var WholeGraphChecks = map[string]bool{
-	"island":          true,
-	"cut_concept":     true,
-	"link_to_retired": true,
-	"map_misfit":      true,
-}
+var WholeGraphChecks = checkSet(func(s CheckSpec) bool { return s.WholeGraph })
 
 // retired is the status vocabulary's "no longer current" (docs/data-plane.md):
 // deprecated, superseded — what supersede writes — or archived (D322).
@@ -242,7 +237,7 @@ func (s *structure) conceptChecks(id okf.ConceptID, relPath string) []Finding {
 
 	// --- cut_concept (info) ---
 	if msg, ok := s.cut[id]; ok {
-		out = append(out, Finding{Path: relPath, Check: "cut_concept", Severity: SevInfo, Message: msg})
+		out = append(out, newFinding("cut_concept", Finding{Path: relPath, Message: msg}))
 	}
 
 	out = append(out, s.brokenRelation(id, relPath, facets)...)
@@ -278,8 +273,8 @@ func (s *structure) conceptChecks(id okf.ConceptID, relPath string) []Finding {
 					if !s.admitsType(m, conceptType) {
 						continue
 					}
-					out = append(out, Finding{Path: relPath, Check: "map_misfit", Severity: SevInfo,
-						Message: fmt.Sprintf("%d of %d linked concepts are in map %s: consider concept_move", counts[m], n, m)})
+					out = append(out, newFinding("map_misfit", Finding{Path: relPath,
+						Message: fmt.Sprintf("%d of %d linked concepts are in map %s: consider concept_move", counts[m], n, m)}))
 					break
 				}
 			}
@@ -295,11 +290,11 @@ func (s *structure) brokenRelation(id okf.ConceptID, relPath string, facets kb.N
 	if sb := facets.SupersededBy; sb != "" {
 		switch {
 		case sb == string(id):
-			out = append(out, Finding{Path: relPath, Check: "broken_relation", Severity: SevWarning,
-				Message: fmt.Sprintf("superseded_by %q names this concept itself", sb)})
+			out = append(out, newFinding("broken_relation", Finding{Path: relPath,
+				Message: fmt.Sprintf("superseded_by %q names this concept itself", sb)}))
 		case !s.resolves(sb):
-			out = append(out, Finding{Path: relPath, Check: "broken_relation", Severity: SevWarning,
-				Message: fmt.Sprintf("superseded_by %q is not a concept", sb)})
+			out = append(out, newFinding("broken_relation", Finding{Path: relPath,
+				Message: fmt.Sprintf("superseded_by %q is not a concept", sb)}))
 		}
 	}
 	return out
@@ -348,9 +343,9 @@ func (s *structure) linkToRetired(i int, relPath string, facets kb.NodeFacets) [
 	if len(shown) > 5 {
 		shown, more = shown[:5], ", …"
 	}
-	return []Finding{{Path: relPath, Check: "link_to_retired", Severity: SevInfo,
+	return []Finding{newFinding("link_to_retired", Finding{Path: relPath,
 		Message: fmt.Sprintf("retired (status: %s) but still linked by %d live concepts: %s%s — update the ones that rely on it; accept with lint_ignore: [link_to_retired] on this concept if the remaining mentions are historical",
-			facets.Status, len(linkers), strings.Join(shown, ", "), more)}}
+			facets.Status, len(linkers), strings.Join(shown, ", "), more)})}
 }
 
 // islandFindings are emitted once per island, on its anchor, when the anchor
@@ -370,13 +365,11 @@ func (s *structure) islandFindings(inScope func(okf.ConceptID) bool) []Finding {
 			}
 			names = append(names, string(m))
 		}
-		out = append(out, Finding{
-			Path:     okf.IDToPath(isl.anchor),
-			Check:    "island",
-			Severity: SevInfo,
-			Message:  fmt.Sprintf("%d concepts form an island disconnected from the main graph: %s", len(isl.members), strings.Join(names, ", ")),
-			members:  isl.members,
-		})
+		out = append(out, newFinding("island", Finding{
+			Path:    okf.IDToPath(isl.anchor),
+			Message: fmt.Sprintf("%d concepts form an island disconnected from the main graph: %s", len(isl.members), strings.Join(names, ", ")),
+			members: isl.members,
+		}))
 	}
 	return out
 }

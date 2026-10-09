@@ -43,19 +43,7 @@ type Options struct {
 
 // artifactChecks are the KB-level checks of this file: no concept's
 // lint_ignore can reach them, so naming one there is reported as invalid.
-var artifactChecks = map[string]bool{
-	"skill_invalid":           true,
-	"skill_warning":           true,
-	"legacy_tool_name":        true,
-	"skill_broken_ref":        true,
-	"skill_git_command":       true,
-	"missing_instructions":    true,
-	"junk_file":               true,
-	"junk_asset":              true,
-	"cross_kb_path":           true,
-	"skill_missing_perimeter": true,
-	"artifact_unused":         true,
-}
+var artifactChecks = checkSet(func(s CheckSpec) bool { return s.Level == LevelArtifact })
 
 // missingInstructionsThreshold is the concept count above which a KB with no
 // instructions.md is reported: below it sit the demo and freshly-created KBs,
@@ -191,13 +179,8 @@ func parseLintAccept(block string) map[string]map[string]bool {
 // runs on skills. A junk file is deleted, never accepted, and
 // missing_instructions has no file to key on.
 func artifactAcceptable(check string) bool {
-	switch check {
-	case "junk_file", "junk_asset", "missing_instructions":
-		return false
-	case "sops_format_mismatch", "sops_missing_file", "legacy_path":
-		return true
-	}
-	return artifactChecks[check]
+	s, ok := Spec(check)
+	return ok && (s.Accept == AcceptArtifact || s.AlsoArtifact)
 }
 
 // applyLintAccept drops the artifact findings instructions.md accepts with
@@ -253,12 +236,10 @@ func applyLintAccept(findings []Finding, accept map[string]map[string]bool) []Fi
 			default:
 				continue
 			}
-			out = append(out, Finding{
-				Path:     "instructions.md",
-				Check:    "lint_ignore_invalid",
-				Severity: SevWarning,
-				Message:  fmt.Sprintf("lint_accept names %q on %q: %s", name, key, reason),
-			})
+			out = append(out, newFinding("lint_ignore_invalid", Finding{
+				Path:    "instructions.md",
+				Message: fmt.Sprintf("lint_accept names %q on %q: %s", name, key, reason),
+			}))
 		}
 	}
 	return out
@@ -385,21 +366,19 @@ func loadSkills(k *kb.KB) (skills []skill.Skill, missing []string) {
 func checkSkills(skills []skill.Skill, missing []string) []Finding {
 	var findings []Finding
 	for _, dir := range missing {
-		findings = append(findings, Finding{
-			Path:     dir,
-			Check:    "skill_invalid",
-			Severity: SevWarning,
-			Message:  fmt.Sprintf("skill directory %s has no SKILL.md: no client can catalogue it", dir),
-		})
+		findings = append(findings, newFinding("skill_invalid", Finding{
+			Path:    dir,
+			Message: fmt.Sprintf("skill directory %s has no SKILL.md: no client can catalogue it", dir),
+		}))
 	}
 	for i := range skills {
 		s := &skills[i]
 		for _, issue := range skill.Validate(s) {
-			f := Finding{Path: skillFile(*s), Check: "skill_invalid", Severity: SevWarning, Message: issue.Message}
+			check := "skill_invalid"
 			if issue.Warning {
-				f.Check, f.Severity = "skill_warning", SevInfo
+				check = "skill_warning"
 			}
-			findings = append(findings, f)
+			findings = append(findings, newFinding(check, Finding{Path: skillFile(*s), Message: issue.Message}))
 		}
 	}
 	return findings
@@ -499,13 +478,11 @@ func checkLegacyToolNames(files []artifactText, kbNames []string) []Finding {
 					break
 				}
 			}
-			findings = append(findings, Finding{
-				Path:     f.rel,
-				Check:    "legacy_tool_name",
-				Severity: SevWarning,
-				Message:  fmt.Sprintf("references pre-D288 prefixed tool name %q; the prefix no longer exists — use the bare tool name with kb: %q", m, kbArg),
-				Fix:      &Fix{Kind: FixStripToolPrefix, Field: m, To: bare},
-			})
+			findings = append(findings, newFinding("legacy_tool_name", Finding{
+				Path:    f.rel,
+				Message: fmt.Sprintf("references pre-D288 prefixed tool name %q; the prefix no longer exists — use the bare tool name with kb: %q", m, kbArg),
+				Fix:     &Fix{Kind: FixStripToolPrefix, Field: m, To: bare},
+			}))
 		}
 	}
 	return findings
@@ -602,12 +579,10 @@ func checkSkillInternalRefs(k *kb.KB, skills []skill.Skill) []Finding {
 				if refExists(k.Root, ref) || refExists(filepath.Join(k.Root, filepath.FromSlash(s.DirPath)), ref) {
 					continue
 				}
-				findings = append(findings, Finding{
-					Path:     skillFile(s),
-					Check:    "skill_broken_ref",
-					Severity: SevWarning,
-					Message:  fmt.Sprintf("references %s, which exists neither under the KB root nor in the skill's directory", ref),
-				})
+				findings = append(findings, newFinding("skill_broken_ref", Finding{
+					Path:    skillFile(s),
+					Message: fmt.Sprintf("references %s, which exists neither under the KB root nor in the skill's directory", ref),
+				}))
 			}
 		}
 	}
@@ -629,12 +604,10 @@ func checkInstructions(instr kbInstructions, conceptCount int) []Finding {
 	if instr.exists || conceptCount <= missingInstructionsThreshold {
 		return nil
 	}
-	return []Finding{{
-		Path:     "",
-		Check:    "missing_instructions",
-		Severity: SevWarning,
-		Message:  fmt.Sprintf("this KB has %d concepts but no instructions.md — agents receive no routing or field rules", conceptCount),
-	}}
+	return []Finding{newFinding("missing_instructions", Finding{
+		Path:    "",
+		Message: fmt.Sprintf("this KB has %d concepts but no instructions.md — agents receive no routing or field rules", conceptCount),
+	})}
 }
 
 // checkSkillGitCommands reports a skill whose code runs a git mutation (WP6):
@@ -651,12 +624,10 @@ func checkSkillGitCommands(skills []skill.Skill) []Finding {
 					continue
 				}
 				seen[m[1]] = true
-				findings = append(findings, Finding{
-					Path:     skillFile(s),
-					Check:    "skill_git_command",
-					Severity: SevInfo,
-					Message:  fmt.Sprintf("skill instructs git %s — if it targets the KB clone, write through the MCP tools instead; if it targets another repository, accept it in instructions.md lint_accept", m[1]),
-				})
+				findings = append(findings, newFinding("skill_git_command", Finding{
+					Path:    skillFile(s),
+					Message: fmt.Sprintf("skill instructs git %s — if it targets the KB clone, write through the MCP tools instead; if it targets another repository, accept it in instructions.md lint_accept", m[1]),
+				}))
 			}
 		}
 	}
@@ -683,12 +654,10 @@ func sopsFindings(body, path, kbRoot string, hasSecretsDir bool) []Finding {
 				}
 				if piped && !mismatch && !sopsJSONOutRe.MatchString(cmd) && jsonConsumerRe.MatchString(after) {
 					mismatch = true
-					findings = append(findings, Finding{
-						Path:     path,
-						Check:    "sops_format_mismatch",
-						Severity: SevWarning,
-						Message:  "sops decrypt piped to jq/json.load without --output-type json — the default output is YAML",
-					})
+					findings = append(findings, newFinding("sops_format_mismatch", Finding{
+						Path:    path,
+						Message: "sops decrypt piped to jq/json.load without --output-type json — the default output is YAML",
+					}))
 				}
 				if !hasSecretsDir {
 					continue
@@ -696,12 +665,10 @@ func sopsFindings(body, path, kbRoot string, hasSecretsDir bool) []Finding {
 				if file := sopsFileArg(cmd); file != "" && !missing[file] {
 					if _, err := os.Stat(filepath.Join(kbRoot, filepath.FromSlash(file))); err != nil {
 						missing[file] = true
-						findings = append(findings, Finding{
-							Path:     path,
-							Check:    "sops_missing_file",
-							Severity: SevWarning,
-							Message:  fmt.Sprintf("sops decrypt cites %q, which does not exist under secrets/", file),
-						})
+						findings = append(findings, newFinding("sops_missing_file", Finding{
+							Path:    path,
+							Message: fmt.Sprintf("sops decrypt cites %q, which does not exist under secrets/", file),
+						}))
 					}
 				}
 			}
@@ -743,13 +710,11 @@ func legacyPathFindings(body, path string, mapping []legacyPath) []Finding {
 		if !strings.Contains(body, lp.from) {
 			continue
 		}
-		findings = append(findings, Finding{
-			Path:     path,
-			Check:    "legacy_path",
-			Severity: SevWarning,
-			Message:  fmt.Sprintf("body contains legacy path prefix %q — declare the mapping in instructions.md and run kb_repair legacy_path", lp.from),
-			Fix:      &Fix{Kind: FixReplacePrefix, Field: lp.from, To: lp.to},
-		})
+		findings = append(findings, newFinding("legacy_path", Finding{
+			Path:    path,
+			Message: fmt.Sprintf("body contains legacy path prefix %q — declare the mapping in instructions.md and run kb_repair legacy_path", lp.from),
+			Fix:     &Fix{Kind: FixReplacePrefix, Field: lp.from, To: lp.to},
+		}))
 	}
 	return findings
 }
@@ -783,12 +748,10 @@ func checkCrossKBPaths(files []artifactText, siblings map[string]string) []Findi
 				if withinAnySpan(span, urlSpans) {
 					continue
 				}
-				findings = append(findings, Finding{
-					Path:     f.rel,
-					Check:    "cross_kb_path",
-					Severity: SevWarning,
-					Message:  fmt.Sprintf("references KB %q's local root %s — use a {{repo:…}} or {{path:…}} placeholder, or move this artifact to that KB", n, siblings[n]),
-				})
+				findings = append(findings, newFinding("cross_kb_path", Finding{
+					Path:    f.rel,
+					Message: fmt.Sprintf("references KB %q's local root %s — use a {{repo:…}} or {{path:…}} placeholder, or move this artifact to that KB", n, siblings[n]),
+				}))
 				break // one finding per sibling per file
 			}
 		}
@@ -810,12 +773,10 @@ func checkSkillMissingPerimeter(skills []skill.Skill, perimeter string) []Findin
 		if strings.Contains(strings.ToLower(s.Description), want) {
 			continue
 		}
-		findings = append(findings, Finding{
-			Path:     skillFile(s),
-			Check:    "skill_missing_perimeter",
-			Severity: SevInfo,
-			Message:  fmt.Sprintf("skill description does not mention the KB's perimeter %q — agents on other KBs may activate it by mistake", perimeter),
-		})
+		findings = append(findings, newFinding("skill_missing_perimeter", Finding{
+			Path:    skillFile(s),
+			Message: fmt.Sprintf("skill description does not mention the KB's perimeter %q — agents on other KBs may activate it by mistake", perimeter),
+		}))
 	}
 	return findings
 }
@@ -836,13 +797,11 @@ func checkJunkFiles(k *kb.KB, junkAssets map[string]bool) []Finding {
 		if dataRel, ok := strings.CutPrefix(rel, "data/"); ok && junkAssets[dataRel] {
 			continue
 		}
-		findings = append(findings, Finding{
+		findings = append(findings, newFinding("junk_file", Finding{
 			Path:     rel,
-			Check:    "junk_file",
-			Severity: SevWarning,
 			Message:  "junk file tracked in git; remove it with git rm",
 			Artifact: true,
-		})
+		}))
 	}
 	sort.Slice(findings, func(i, j int) bool { return findings[i].Path < findings[j].Path })
 	return findings
@@ -957,7 +916,7 @@ func checkArtifactUnused(k *kb.KB, skills []skill.Skill, opts Options, now time.
 	for _, it := range usageArtifacts(k, skills) {
 		u, seen := opts.Usage[kb.UsageKey(it.Kind, it.Name)]
 		days := int(now.Sub(u.LastUsed).Hours() / 24)
-		f := Finding{Path: it.Path, Check: "artifact_unused", Severity: SevInfo}
+		f := newFinding("artifact_unused", Finding{Path: it.Path})
 		state := UsageState(u, seen, opts.UsageStaleDays, now)
 		// D336: an artifact added inside the threshold has not had the time
 		// to be used — "never" says nothing yet, as "stale" would not.
