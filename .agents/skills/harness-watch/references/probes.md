@@ -148,10 +148,11 @@ unique token; ask the client to repeat it.
 
 ## OpenCode
 
-- Discovery: `opencode agent list` and `opencode debug config` list agents,
-  skills and MCP servers as the client sees them (D192, `clientcompat_test.go`).
-- Agent: `$HOME/.opencode/agent/<name>.md` (documented path is
-  `.opencode/agents`; check both on a new release).
+- Discovery: `opencode debug paths` reports the config directory the global
+  skills and agents must sit under (D360, `clientcompat_test.go`); `opencode
+  debug agents` lists agents (2.x needs `opencode reload` first). `opencode agent
+  list` no longer exists on 2.x.
+- Skill and agent: `$HOME/.config/opencode/skills/<name>/` and `agents/<name>.md`.
 - Hook: the generated plugin in `$HOME/.config/opencode/plugins/` fires on
   `session.created`; sentinel plus negative control.
 - MCP: `opencode.json`; instructions: `$HOME/.config/opencode/AGENTS.md`.

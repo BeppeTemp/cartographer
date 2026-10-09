@@ -3,12 +3,12 @@ package provisioning
 // clientcompat_test.go (D192 WP5) — the alarm for a divergence between the path
 // Cartographer writes and the path the client actually reads.
 //
-// Two destinations are known to differ from what the provider documents, and
-// both were proven working against the real clients: Codex skills under
-// .codex/skills (documented: $HOME/.agents/skills) and OpenCode agents under
-// .opencode/agent (documented: .opencode/agents). Neither is a fault today, but
-// both are paths the vendor no longer presents as canonical, so they can break
-// on a client release with nothing in CI to catch it.
+// One destination is known to differ from what the provider documents, proven
+// working against the real client: Codex skills under .codex/skills
+// (documented: $HOME/.agents/skills). It is a path the vendor no longer
+// presents as canonical, so it can break on a client release with nothing in CI
+// to catch it. (OpenCode's former divergence, .opencode/agent, did break on 2.x
+// and was moved to its config directory, D360.)
 //
 // These tests assert the **declared destination against the client's own
 // discovery output**, never a hardcoded path — so they survive D193 moving the
@@ -91,18 +91,43 @@ func TestCodexDiscoversDeclaredSkillDestination(t *testing.T) {
 	}
 }
 
-func TestOpenCodeDiscoversDeclaredAgentDestination(t *testing.T) {
-	if !clientInstalled(configurator.ProviderOpenCode) {
+// TestOpenCodeDeclaresItsConfigDirectory asserts the global skill and agent
+// cells sit under the `config` directory `opencode debug paths` reports
+// (D360). It FAILS, not skips, when the binary is present but the command
+// errors or has no `config` line: the former skip-on-error is how 2.x silently
+// stopped loading `.opencode/agent` unnoticed.
+func TestOpenCodeDeclaresItsConfigDirectory(t *testing.T) {
+	if _, err := exec.LookPath("opencode"); err != nil {
 		t.Skip("opencode is not installed on this machine")
 	}
-	dest := destDir("agent", "probe", configurator.ProviderOpenCode)
-	if dest == "" {
-		t.Skip("opencode declares no agent destination")
+	ctx, cancel := context.WithTimeout(context.Background(), discoveryTimeout)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "opencode", "debug", "paths").CombinedOutput()
+	if err != nil {
+		t.Fatalf("`opencode debug paths` failed (%v): the declared destinations cannot be checked\n%s", err, out)
 	}
-	dir := strings.SplitN(filepath.ToSlash(dest), "/", 2)[0]
-	out := runDiscovery(t, "opencode", "agent", "list")
-	if !strings.Contains(out, dir) {
-		t.Errorf("`opencode agent list` does not mention %q, the directory Cartographer writes agents into.\n"+
-			"Either the client changed its discovery path or its output format did — check https://opencode.ai/docs/agents", dir)
+	var home, config string
+	for _, line := range strings.Split(string(out), "\n") {
+		f := strings.Fields(line)
+		if len(f) == 2 && f[0] == "home" {
+			home = f[1]
+		}
+		if len(f) == 2 && f[0] == "config" {
+			config = f[1]
+		}
+	}
+	if config == "" || home == "" {
+		t.Fatalf("`opencode debug paths` printed no home/config line: its output format changed\n%s", out)
+	}
+	for _, kind := range []string{"skill", "agent"} {
+		dest := destDir(kind, "probe", configurator.ProviderOpenCode)
+		if dest == "" {
+			t.Errorf("opencode declares no global %s destination", kind)
+			continue
+		}
+		full := filepath.Join(home, filepath.FromSlash(dest))
+		if full != config && !strings.HasPrefix(full, config+string(filepath.Separator)) {
+			t.Errorf("global %s destination %s is not under OpenCode's config directory %s (`opencode debug paths`)", kind, full, config)
+		}
 	}
 }

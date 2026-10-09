@@ -58,9 +58,9 @@ duplicate a dated market-wide capability matrix. The maintained sources are:
 
 ### Known divergences from the documented path (D192)
 
-Two destinations differ from the path the provider's own documentation
-currently presents as canonical. Both were proven working against the real
-client, so neither is a fault today — but both can break on a client release,
+One destination differs from the path the provider's own documentation
+currently presents as canonical. It was proven working against the real
+client, so it is not a fault today — but it can break on a client release,
 which is why `internal/provisioning/clientcompat_test.go` asserts the declared
 destination against the client's own discovery output on a machine that has the
 client installed (and skips where it does not).
@@ -68,10 +68,8 @@ client installed (and skips where it does not).
 | Kind × provider | Cartographer writes | Provider documents | Last verified |
 |---|---|---|---|
 | `skill` × codex | `~/.codex/skills/<name>/` | `$HOME/.agents/skills` ([source](https://developers.openai.com/codex/skills)) | client 0.153.4 |
-| `agent` × opencode | `~/.opencode/agent/<name>.md` | `.opencode/agents` ([source](https://opencode.ai/docs/agents)) | client 1.18.20 |
 
-Neither is moved here: a destination change is a migration (prune the old
-files, re-key the lockfile), and what was missing was the alarm, not the move.
+It is not moved here: a destination change is a migration (the lockfile-driven relocation of D360 does it), and what was missing was the alarm, not the move. OpenCode used to be the second row: its `.opencode/agent` cell stopped loading on 2.x, was moved to `~/.config/opencode/agents/` (skills likewise) and is now asserted against `opencode debug paths` (D360).
 The Codex case is now half-resolved: the workspace scope (D193) does use the
 repository path the vendor documents, `.agents/skills/<name>/`, because that
 scope is new and has no installed base to migrate. The **global** cell stays at

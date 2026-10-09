@@ -4,7 +4,7 @@
 # Uses the kb-homelab-lite fixture, which contains the domain skill query-rete.
 # Verifies that:
 #   (a) `cartographer connect opencode --auto-trust` materializes the skill in
-#       .opencode/skills/<name>/SKILL.md (via sync_pull) and writes the v2 lockfile.
+#       .config/opencode/skills/<name>/SKILL.md (via sync_pull) and writes the v2 lockfile.
 #   (b) After the skill is removed from the KB (server unchanged — sync_pull reads
 #       the KB filesystem on every call), `cartographer sync` prunes it from the
 #       client.
@@ -51,7 +51,7 @@ trap 'server_stop' EXIT
 SERVER_URL="http://127.0.0.1:${E2E_HTTP_PORT}/mcp"
 SKILL_NAME="query-rete"
 SKILL_SRC="${KB_DIR}/skills/${SKILL_NAME}"
-SKILL_DEST="${SANDBOX_DIR}/.opencode/skills/${SKILL_NAME}/SKILL.md"
+SKILL_DEST="${SANDBOX_DIR}/.config/opencode/skills/${SKILL_NAME}/SKILL.md"
 LOCK_FILE="${SANDBOX_DIR}/.cartographer-sync.lock.json"
 
 # --- (a) initial connect with --auto-trust ---
@@ -82,7 +82,7 @@ echo "--- Assertions (b): prune ---"
 if [[ -f "$SKILL_DEST" ]]; then
     _assert_fail "skill '${SKILL_NAME}' not pruned from ${SKILL_DEST}"
 else
-    _assert_pass "skill '${SKILL_NAME}' correctly pruned from .opencode/skills/"
+    _assert_pass "skill '${SKILL_NAME}' correctly pruned from .config/opencode/skills/"
 fi
 
 # The lockfile must still exist (updated)

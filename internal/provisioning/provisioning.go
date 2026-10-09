@@ -369,6 +369,10 @@ type AppliedResult struct {
 	// Written: a restore means someone's local change was discarded, which
 	// must be visible rather than folded into "3 updated".
 	Healed []ManagedFile
+	// Relocated: artifacts rewritten at the provider's current destination
+	// because the lockfile recorded them elsewhere (D360); their old files
+	// are in Pruned. Distinct from Healed: nothing local was discarded.
+	Relocated []ManagedFile
 	// Divergent: on-disk divergence detected but NOT restored, because
 	// opts.NoHeal was set.
 	Divergent []DriftFinding
@@ -1624,7 +1628,7 @@ func KindCounts(m Manifest, lock Lock) map[string]KindCount {
 //   - claude: skill in .claude/skills/<name>/, agent in .claude/agents/<name>.md,
 //     hook in .claude/hooks/<name>/ — and registered/updated in
 //     .claude/settings.json (D57, see registerHookSettings)
-//   - opencode: skill in .opencode/skills/<name>/, agent in .opencode/agent/<name>.md
+//   - opencode: skill in .config/opencode/skills/<name>/, agent in .config/opencode/agents/<name>.md
 //     (D55 — translated content, see translateAgentForProvider, not verbatim);
 //     hook in .opencode/hooks/<name>/ — and, if the event has an equivalent in
 //     OpenCode's plugin engine, a generated JS plugin in
@@ -1684,9 +1688,28 @@ func Apply(m Manifest, opts ApplyOptions) (AppliedResult, error) {
 	// of truth and sync restores, no merge and no backup copy. This also
 	// covers executable-mode drift, which is part of the materialized hash:
 	// a chmod alone is a modified artifact.
+	// Relocation (D360): an artifact still in the manifest whose recorded files
+	// sit outside the provider's current destination (the destination moved in
+	// a release) is rewritten at the new one; the old files leave through the
+	// orphan path below. Decided before the heal loop so a moved skill is not
+	// also reported as "missing" at its new path.
+	relocated := make(map[string]bool)
+	for _, a := range m.Artifacts {
+		key := a.Kind + "\x00" + a.Name
+		if toWriteKeys[key] || !artifactAuthorized(a, opts) {
+			continue
+		}
+		destRel := destDirScoped(a.Kind, a.Name, opts.Provider, opts.Scope)
+		if len(movedArtifactFiles(opts.Lock.Managed, a, destRel)) == 0 {
+			continue
+		}
+		toWrite = append(toWrite, a)
+		toWriteKeys[key] = true
+		relocated[key] = true
+	}
 	healed := make(map[string]bool)
 	for _, f := range VerifyManaged(opts.Lock, opts.Provider, opts.BaseDir) {
-		if !f.Healable() {
+		if !f.Healable() || relocated[f.Kind+"\x00"+f.Name] {
 			continue
 		}
 		if opts.NoHeal {
@@ -1947,6 +1970,9 @@ func Apply(m Manifest, opts ApplyOptions) (AppliedResult, error) {
 			written = declaredRelPaths(a, destRel)
 		}
 		orphaned = append(orphaned, droppedArtifactFiles(opts.Lock.Managed, a, destRel, written)...)
+		if relocated[a.Kind+"\x00"+a.Name] {
+			orphaned = append(orphaned, movedArtifactFiles(opts.Lock.Managed, a, destRel)...)
+		}
 
 		for _, rp := range relPaths {
 			mf := ManagedFile{
@@ -1962,6 +1988,9 @@ func Apply(m Manifest, opts ApplyOptions) (AppliedResult, error) {
 			result.Written = append(result.Written, mf)
 			if healed[a.Kind+"\x00"+a.Name] {
 				result.Healed = append(result.Healed, mf)
+			}
+			if relocated[a.Kind+"\x00"+a.Name] {
+				result.Relocated = append(result.Relocated, mf)
 			}
 		}
 	}
@@ -2106,6 +2135,32 @@ func droppedArtifactFiles(previous []ManagedFile, a Artifact, destDirRel string,
 		}
 		clean := filepath.Clean(mf.Path)
 		if keep[clean] || !strings.HasPrefix(clean, prefix) {
+			continue
+		}
+		out = append(out, mf)
+	}
+	return out
+}
+
+// movedArtifactFiles returns the lockfile entries of artifact a that sit
+// outside destDirRel, the destination the provider declares today (D360).
+// Non-empty means the destination moved since the artifact was written. Never
+// applies to the shared-file kinds (instructions, mcp: no directory of their
+// own), to the reserved client-generated hooks, nor to hooks at all: a hook's
+// entries include generated companions (an OpenCode plugin under
+// .config/opencode/plugins) that live outside its directory by design.
+func movedArtifactFiles(previous []ManagedFile, a Artifact, destDirRel string) []ManagedFile {
+	if destDirRel == "" || a.Kind == "instructions" || a.Kind == "mcp" || a.Kind == "hook" || isReservedHook(a.Kind, a.Name) {
+		return nil
+	}
+	dest := filepath.Clean(destDirRel)
+	var out []ManagedFile
+	for _, mf := range previous {
+		if mf.Kind != a.Kind || mf.Name != a.Name {
+			continue
+		}
+		clean := filepath.Clean(mf.Path)
+		if clean == dest || strings.HasPrefix(clean, dest+string(filepath.Separator)) {
 			continue
 		}
 		out = append(out, mf)
@@ -3072,14 +3127,11 @@ var destinationMatrix = map[string]map[configurator.Provider]destination{
 	},
 	"agent": {
 		configurator.ProviderClaudeCode: perName(".md", ".claude", "agents"),
-		// Divergence from the documented path, working and deliberate (D192):
-		// OpenCode's current documentation prefers `.opencode/agents` (plural,
-		// https://opencode.ai/docs/agents), while `opencode agent list` and
-		// `opencode debug config` detect all four here with client 1.18.20.
-		// Moving it is a migration (prune the old files, re-key the lockfile),
-		// not an edit — see TestClientDiscoversDeclaredDestinations, which
-		// fails from CI if a client release stops recognizing this path.
-		configurator.ProviderOpenCode: perName(".md", ".opencode", "agent"),
+		// The global config directory OpenCode reports (`opencode debug paths`,
+		// 2.0.25) and the documented 1.x global path, so one cell serves both
+		// majors (D360). The former `.opencode/agent` (D192) is not read by
+		// 2.x; TestOpenCodeDeclaresItsConfigDirectory fails if it drifts again.
+		configurator.ProviderOpenCode: perName(".md", ".config", "opencode", "agents"),
 		configurator.ProviderCodex:    perName(".toml", ".codex", "agents"),
 		// kiro: a JSON agent config in the global agent directory (D195).
 		// D140 read this cell as unsupported because Kiro's agents were
@@ -3134,9 +3186,11 @@ var destinationMatrix = map[string]map[configurator.Provider]destination{
 		// here. The right target is the *repository* path, which only exists
 		// once a workspace scope does (D193), so moving it now would mean doing
 		// the migration twice.
-		configurator.ProviderCodex:    perName("", ".codex", "skills"),
-		configurator.ProviderKiro:     perName("", ".kiro", "skills"),
-		configurator.ProviderOpenCode: perName("", ".opencode", "skills"),
+		configurator.ProviderCodex: perName("", ".codex", "skills"),
+		configurator.ProviderKiro:  perName("", ".kiro", "skills"),
+		// Under the config directory `opencode debug paths` reports; 2.0.25 does
+		// not list skills under `.opencode/skills` globally (D360).
+		configurator.ProviderOpenCode: perName("", ".config", "opencode", "skills"),
 		// hermes: DELIVERED, not installed (D141). HERMES_HOME/skills/ belongs
 		// to the agent's own curator, which rewrites what it owns; writing
 		// there would destroy its learning. The proposal lands in the inbox
@@ -3253,7 +3307,7 @@ func destDir(kind, name string, provider configurator.Provider) string {
 // translateAgentForProvider adapts an "agent" artifact's content (a Claude Code
 // subagent .md, see docs/sync.md §Agent e hook) for materialization under a
 // specific provider (D55). Claude receives the content verbatim (native format).
-// OpenCode has its own native subagent format (.opencode/agent/<name>.md,
+// OpenCode has its own native subagent format (.config/opencode/agents/<name>.md,
 // mode: subagent) which is *not* a superset of Claude's frontmatter: fields like
 // `tools` (comma-separated, Claude-specific syntax), `model` (Claude model names)
 // and `name` (OpenCode derives the agent name from the filename) are not

@@ -67,7 +67,7 @@ func TestDestDirPaths(t *testing.T) {
 		{"instructions", configurator.ProviderCodex, ".codex/AGENTS.md"},
 		{"instructions", configurator.ProviderKiro, ".kiro/steering/cartographer.md"},
 		{"agent", configurator.ProviderClaudeCode, ".claude/agents/demo.md"},
-		{"agent", configurator.ProviderOpenCode, ".opencode/agent/demo.md"},
+		{"agent", configurator.ProviderOpenCode, ".config/opencode/agents/demo.md"},
 		{"agent", configurator.ProviderCodex, ".codex/agents/demo.toml"},
 		{"agent", configurator.ProviderKiro, ".kiro/agents/demo.json"},
 		{"hook", configurator.ProviderClaudeCode, ".claude/hooks/demo"},
@@ -77,7 +77,7 @@ func TestDestDirPaths(t *testing.T) {
 		{"skill", configurator.ProviderClaudeCode, ".claude/skills/demo"},
 		{"skill", configurator.ProviderCodex, ".codex/skills/demo"},
 		{"skill", configurator.ProviderKiro, ".kiro/skills/demo"},
-		{"skill", configurator.ProviderOpenCode, ".opencode/skills/demo"},
+		{"skill", configurator.ProviderOpenCode, ".config/opencode/skills/demo"},
 		// hermes delivers skills to its inbox and supports nothing else (D141).
 		{"skill", configurator.ProviderHermes, "skill-inbox/demo/cartographer"},
 		{"agent", configurator.ProviderHermes, ""},

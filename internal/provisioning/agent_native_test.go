@@ -44,7 +44,7 @@ func TestApply_ProvidersFieldsReachEachNativeFileVerbatim(t *testing.T) {
 		file string
 		want []string
 	}{
-		{configurator.ProviderOpenCode, ".opencode/agent/auditor.md", []string{"mode: subagent\npermission:\n  edit: deny\n  bash: deny\n---\n"}},
+		{configurator.ProviderOpenCode, ".config/opencode/agents/auditor.md", []string{"mode: subagent\npermission:\n  edit: deny\n  bash: deny\n---\n"}},
 		{configurator.ProviderCodex, ".codex/agents/auditor.toml", []string{`sandbox_mode = "read-only"`, `approval_policy = "never"`}},
 		{configurator.ProviderAntigravity, ".gemini/config/agents/auditor.md", []string{"subagent: true\nreadonly: true\n---\n"}},
 	}

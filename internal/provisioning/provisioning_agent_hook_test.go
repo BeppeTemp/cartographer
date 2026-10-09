@@ -251,12 +251,12 @@ func TestApply_DestDir_Matrix(t *testing.T) {
 		wantSuffix   string // expected suffix of the written path (only if materializes)
 	}{
 		{"skill", configurator.ProviderClaudeCode, true, ".claude/skills/art/SKILL.md"},
-		{"skill", configurator.ProviderOpenCode, true, ".opencode/skills/art/SKILL.md"},
+		{"skill", configurator.ProviderOpenCode, true, ".config/opencode/skills/art/SKILL.md"},
 		{"skill", configurator.ProviderCodex, true, ".codex/skills/art/SKILL.md"},
 		{"skill", configurator.ProviderKiro, true, ".kiro/skills/art/SKILL.md"},
 		{"skill", configurator.ProviderAntigravity, true, ".gemini/config/skills/art/SKILL.md"},
 		{"agent", configurator.ProviderClaudeCode, true, ".claude/agents/art.md"},
-		{"agent", configurator.ProviderOpenCode, true, ".opencode/agent/art.md"},
+		{"agent", configurator.ProviderOpenCode, true, ".config/opencode/agents/art.md"},
 		{"agent", configurator.ProviderCodex, true, ".codex/agents/art.toml"},
 		{"agent", configurator.ProviderKiro, true, ".kiro/agents/art.json"},
 		{"agent", configurator.ProviderAntigravity, true, ".gemini/config/agents/art.md"},
@@ -401,7 +401,7 @@ func TestApply_OpenCode_MaterializzaAgent_ConFrontmatter(t *testing.T) {
 		t.Fatalf("Apply opencode agent: atteso materializzato, NeedsApproval=%v Unsupported=%v", res.NeedsApproval, res.Unsupported)
 	}
 
-	agentPath := filepath.Join(baseDir, ".opencode", "agent", "reviewer.md")
+	agentPath := filepath.Join(baseDir, ".config", "opencode", "agents", "reviewer.md")
 	data, err := os.ReadFile(agentPath)
 	if err != nil {
 		t.Fatalf("agent not materialized at %s: %v", agentPath, err)
@@ -475,7 +475,7 @@ func TestApply_OpenCode_MaterializzaAgent_SenzaFrontmatter(t *testing.T) {
 		t.Fatalf("Apply: %v", err)
 	}
 
-	agentPath := filepath.Join(baseDir, ".opencode", "agent", "plain.md")
+	agentPath := filepath.Join(baseDir, ".config", "opencode", "agents", "plain.md")
 	data, err := os.ReadFile(agentPath)
 	if err != nil {
 		t.Fatalf("agent not materialized at %s: %v", agentPath, err)
@@ -508,7 +508,7 @@ func TestApply_OpenCode_MaterializzaAgent_DescriptionQuotataConDuePunti(t *testi
 		t.Fatalf("Apply: %v", err)
 	}
 
-	agentPath := filepath.Join(baseDir, ".opencode", "agent", "tricky.md")
+	agentPath := filepath.Join(baseDir, ".config", "opencode", "agents", "tricky.md")
 	data, err := os.ReadFile(agentPath)
 	if err != nil {
 		t.Fatalf("agent not materialized at %s: %v", agentPath, err)

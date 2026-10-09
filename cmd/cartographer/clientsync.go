@@ -842,6 +842,15 @@ func printApplySummary(dir string, results map[string]provisioning.AppliedResult
 			healedArtifacts[key] = true
 			fmt.Printf("[%s] %s %s from the server (local changes discarded)\n", p, verb("restored", "would restore"), key)
 		}
+		movedArtifacts := map[string]bool{}
+		for _, h := range r.Relocated {
+			key := h.Kind + "/" + h.Name
+			if movedArtifacts[key] {
+				continue
+			}
+			movedArtifacts[key] = true
+			fmt.Printf("[%s] %s %s to its current location\n", p, verb("moved", "would move"), key)
+		}
 		for _, d := range r.Divergent {
 			fmt.Printf("[%s] diverged locally (%s): %s/%s at %s — `cartographer sync` restores it\n", p, d.Reason, d.Kind, d.Name, d.Path)
 		}

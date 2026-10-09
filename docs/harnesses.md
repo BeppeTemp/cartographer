@@ -201,28 +201,27 @@ would flip a matrix cell is confirmed with a probe
   <https://opencode.ai/docs/agents>, `/skills`, `/plugins`, `/mcp-servers`,
   `/rules`, `/config`.
 - **Depends on**:
-  - `agent` global `~/.opencode/agent/` (deliberate divergence, D192, guarded by
-    `clientcompat_test.go`; the docs name `~/.config/opencode/agents/` and
-    `.opencode/agents/`, and accept `agent/` for backwards compatibility):
+  - `agent` global `~/.config/opencode/agents/` (the `config` directory of
+    `opencode debug paths`, probed on 2.0.25 and the documented 1.x path, D360,
+    guarded by `clientcompat_test.go`; `~/.opencode/agent/` is not loaded on 2.x):
     Markdown with `description` + `mode: subagent`. Native restriction key
     `permission` (`edit`, `bash`, … allow/ask/deny) is documented (D291); `tools`
     is no longer shown in the agents doc: use `permission` instead, `tools` may
     still work but is undocumented (D320).
-  - `skill` project `.opencode/skills/` (documented). Global `~/.opencode/skills/`
-    is not read by 2.0.25 (below). Hooks fire through a
+  - `skill` global `~/.config/opencode/skills/` (probed on 2.0.25, D360); project
+    `.opencode/skills/` (documented, not probed on 2.x). Hooks fire through a
     generated JS plugin in `~/.config/opencode/plugins/` (documented, autoloaded;
     D59; shape per installed major, 1.x and 2.x, D359: 2.x rejects the 1.x shape,
-    sources `opencode.ai/v2/docs/build/plugins/` and `/migrate-v1`), files kept in `~/.opencode/hooks/`; sync layer 1 is the documented
+    sources `opencode.ai/v2/docs/build/plugins/` and `/migrate-v1`), files kept in `~/.opencode/hooks/` (never discovered by the client, run by path); sync layer 1 is the documented
     `session.created` event.
   - `mcp` under the `mcp` key of `opencode.json`; `instructions` in
     `~/.config/opencode/AGENTS.md` (both documented).
 - **Probed on 2.0.25** (2026-10-09):
-  - **the global `skill` and `agent` cells are not loaded**: a skill in
-    `~/.opencode/skills/` is missing from the skill tool ("Unable to load skill"),
+  - **the former global `skill` and `agent` cells were not loaded** (moved by
+    D360): a skill in `~/.opencode/skills/` is missing from the skill tool ("Unable to load skill"),
     an agent in `~/.opencode/agent/` is missing from `opencode debug agents`;
     the same files in `~/.config/opencode/{skills,agents}/` load. KB skills reach
-    OpenCode today only through its `~/.claude/skills` scan. Plan:
-    [#644](https://github.com/BeppeTemp/cartographer/issues/644).
+    OpenCode only through its `~/.claude/skills` scan.
   - agent `permission: {edit: deny, bash: deny}` resolves to `edit`/`shell` deny
     rules in `opencode debug agents`; the behaviour was not verifiable (the free
     tier refused to run that agent).
