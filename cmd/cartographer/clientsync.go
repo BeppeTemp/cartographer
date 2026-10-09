@@ -653,7 +653,7 @@ func materializeForProviders(manifests map[string]provisioning.Manifest, project
 		if err := provisioning.PreflightStdioMCP(manifests[projectionKey(p)], provisioning.ApplyOptions{Provider: configurator.Provider(p.Provider), BaseDir: p.BaseDir, Scope: p.Scope, AutoTrust: autoTrust, ApprovedMCP: approvedMCP}); err != nil {
 			return nil, err
 		}
-		if err := prepareWorkspace(p, dryRun); err != nil {
+		if err := prepareWorkspace(p, workspaceProviders(lockFile, projections, p.Workspace), dryRun); err != nil {
 			return nil, err
 		}
 	}

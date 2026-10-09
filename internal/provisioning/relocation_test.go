@@ -94,3 +94,73 @@ func TestApply_RelocatesArtifactWhoseDestinationMoved(t *testing.T) {
 		t.Errorf("second Apply not a no-op: relocated=%v written=%v pruned=%v", res3.Relocated, res3.Written, res3.Pruned)
 	}
 }
+
+// #654: a workspace Claude Code MCP entry written to <ws>/.claude.json before
+// D363 (the writer ignored the scope) is re-registered in the project cell,
+// .mcp.json, and removed from the old file on the next Apply; a third Apply is
+// a no-op.
+func TestApply_RelocatesWorkspaceMCPEntryToProjectCell(t *testing.T) {
+	kbRoot := t.TempDir()
+	writeMCPFixture(t, kbRoot, "tools", `{"type":"http","url":"https://tools.example.com/mcp"}`)
+	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, mcpAllow("tools", "https://tools.example.com/mcp"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := findMCPArtifact(t, m, "tools")
+	ws := t.TempDir()
+	opts := provisioning.ApplyOptions{
+		KBRoots: map[string]string{"kb": kbRoot}, Provider: configurator.ProviderClaudeCode,
+		BaseDir: ws, Scope: provisioning.ScopeProject,
+		ApprovedMCP: map[string]string{"kb:kb\x00tools": a.ContentHash},
+	}
+	res, err := provisioning.Apply(m, opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Rebuild the pre-D363 state: the entry in <ws>/.claude.json, next to an
+	// entry of the user's, and the lock recording that file.
+	old := filepath.Join(ws, ".claude.json")
+	if err := os.WriteFile(old, []byte(`{"mcpServers":{"tools":{"type":"http","url":"https://tools.example.com/mcp"},"mine":{"type":"http","url":"https://example.com/mcp"}}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(ws, ".mcp.json")); err != nil {
+		t.Fatal(err)
+	}
+	lock := res.NewLock
+	for i := range lock.Managed {
+		if lock.Managed[i].Kind == "mcp" {
+			lock.Managed[i].Path = ".claude.json"
+		}
+	}
+
+	opts.Lock = lock
+	res, err = provisioning.Apply(m, opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Relocated) == 0 {
+		t.Errorf("Relocated is empty, want the mcp entry reported as moved")
+	}
+	if servers, _ := readJSONFile(t, filepath.Join(ws, ".mcp.json"))["mcpServers"].(map[string]any); servers["tools"] == nil {
+		t.Errorf(".mcp.json has no tools entry: %v", servers)
+	}
+	servers, _ := readJSONFile(t, old)["mcpServers"].(map[string]any)
+	if servers["tools"] != nil || servers["mine"] == nil {
+		t.Errorf(".claude.json = %v, want only the user's entry left", servers)
+	}
+	for _, mf := range res.NewLock.Managed {
+		if mf.Kind == "mcp" && filepath.ToSlash(mf.Path) != ".mcp.json" {
+			t.Errorf("lock still records %s", mf.Path)
+		}
+	}
+
+	opts.Lock = res.NewLock
+	res, err = provisioning.Apply(m, opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Relocated) != 0 || len(res.Pruned) != 0 {
+		t.Errorf("third Apply moved again: Relocated=%v Pruned=%v", res.Relocated, res.Pruned)
+	}
+}

@@ -1,0 +1,7 @@
+{
+  "tool_name": "Bash",
+  "tool_input_preview": "{\"command\":\"grep -rn \\\"func TrackedPaths\\\" -A12 internal/provisioning/repohygiene.go | head -16; ls cmd/cartographer/*workspace*_test.go\",\"description\":\"Check TrackedPaths behaviour and workspace test...",
+  "error": "Exit code 1\ninternal/provisioning/repohygiene.go:235:func TrackedPaths(dir string) (map[string]bool, error) { return gitTrackedFn(dir) }\n(eval):1: no matches found: cmd/cartographer/*workspace*_test.go",
+  "timestamp": "2026-10-09T16:53:37.471Z",
+  "retry_count": 1
+}

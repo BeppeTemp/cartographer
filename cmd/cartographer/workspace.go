@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
@@ -564,51 +565,89 @@ func needsAny(kbs []string, unavailable map[string]bool) bool {
 // prepareWorkspace runs the repository-hygiene checks and exclusions for one
 // project-scoped projection, before anything is written there (WP5). A refusal
 // here costs nothing: no file has been touched yet.
-func prepareWorkspace(p syncProjection, dryRun bool) error {
+func prepareWorkspace(p syncProjection, providers []string, dryRun bool) error {
 	if p.Scope != provisioning.ScopeProject {
 		return nil
 	}
 	provider := configurator.Provider(p.Provider)
-	owned := provisioning.ProjectOwnedPaths(provider)
-	// The files Cartographer writes a marker-delimited *block* into are the
-	// user's own; a repository legitimately tracks them, and they are neither
-	// refused nor excluded.
+	if err := provisioning.CheckWorkspaceHygiene(p.Provider, p.Workspace, provisioning.ProjectOwnedPaths(provider), workspaceBlockFiles(provider)); err != nil {
+		return err
+	}
+	if dryRun {
+		return nil
+	}
+	return writeWorkspaceExclusions(p.Workspace, providers)
+}
+
+// workspaceBlockFiles are the files Cartographer writes a marker-delimited
+// *block* into for provider: the user's own; a repository legitimately tracks
+// them, and they are neither refused nor excluded.
+func workspaceBlockFiles(provider configurator.Provider) []string {
 	var blocks []string
 	for _, kind := range []string{"instructions"} {
 		if rel := provisioning.ProjectDestination(kind, "", provider); rel != "" {
 			blocks = append(blocks, rel)
 		}
 	}
-	if err := provisioning.CheckWorkspaceHygiene(p.Provider, p.Workspace, owned, blocks); err != nil {
-		return err
+	return blocks
+}
+
+// writeWorkspaceExclusions writes the workspace's exclude block for EVERY
+// provider bound to it, not only the one being prepared: the block is one per
+// workspace, so writing one provider's paths would drop the others' (#656).
+// No provider left removes the block.
+//
+// Decision 10: exclude Cartographer's OWN untracked paths. A shared file the
+// repository already tracks (a CLAUDE.md the team wrote) is the user's:
+// Cartographer writes a marker-delimited block in it and must not tell git to
+// ignore their own file. One it created itself, because the repository had
+// none, is untracked and is ours to exclude — otherwise every sync leaves the
+// working tree dirty.
+func writeWorkspaceExclusions(workspace string, providers []string) error {
+	if len(providers) == 0 {
+		return provisioning.RemoveWorkspaceExclusions(workspace)
 	}
-	if dryRun {
-		return nil
-	}
-	// Decision 10: exclude Cartographer's OWN untracked paths. A shared file
-	// the repository already tracks (a CLAUDE.md the team wrote) is the user's:
-	// Cartographer writes a marker-delimited block in it and must not tell git
-	// to ignore their own file. One it created itself, because the repository
-	// had none, is untracked and is ours to exclude — otherwise every sync
-	// leaves the working tree dirty.
-	tracked, err := provisioning.TrackedPaths(p.Workspace)
+	tracked, err := provisioning.TrackedPaths(workspace)
 	if err != nil {
 		return err
 	}
 	var excluded []string
-	for _, o := range owned {
-		isBlock := false
-		for _, b := range blocks {
-			if o == b {
-				isBlock = true
+	for _, name := range providers {
+		provider := configurator.Provider(name)
+		blocks := workspaceBlockFiles(provider)
+		for _, o := range provisioning.ProjectOwnedPaths(provider) {
+			if slices.Contains(blocks, o) && tracked[filepath.ToSlash(o)] {
+				continue
 			}
+			excluded = append(excluded, o)
 		}
-		if isBlock && tracked[filepath.ToSlash(o)] {
-			continue
-		}
-		excluded = append(excluded, o)
 	}
-	return provisioning.EnsureWorkspaceExcluded(p.Workspace, excluded)
+	return provisioning.EnsureWorkspaceExcluded(workspace, excluded)
+}
+
+// workspaceProviders returns the providers bound to workspace after this run:
+// those declared in it, plus those the lockfile records there that this run
+// does not touch (`sync --client` names a subset). A provider this run touches
+// but no longer declares there is leaving and is not included.
+func workspaceProviders(lockFile provisioning.LockFile, declared []syncProjection, workspace string) []string {
+	inPlay := map[string]bool{}
+	seen := map[string]bool{}
+	var out []string
+	for _, p := range declared {
+		inPlay[p.Provider] = true
+		if p.Scope == provisioning.ScopeProject && p.Workspace == workspace && !seen[p.Provider] {
+			seen[p.Provider] = true
+			out = append(out, p.Provider)
+		}
+	}
+	for _, key := range lockFile.WorkspaceProjections(workspace) {
+		if !inPlay[key.Provider] && !seen[key.Provider] {
+			seen[key.Provider] = true
+			out = append(out, key.Provider)
+		}
+	}
+	sort.Strings(out)
+	return out
 }
 
 // workspaceStatuses reports one provider's workspace projections for `status`
@@ -776,12 +815,12 @@ func pruneOrphanProjections(lockFile *provisioning.LockFile, declared []syncProj
 		if _, err := provisioning.PruneManaged(provisioning.WithoutCoOwned(lock.Managed, keep), base, false); err != nil {
 			return nil, fmt.Errorf("prune %s: %w", key.String(), err)
 		}
-		// The exclusions go with the files: leaving the block behind would keep
-		// git ignoring paths nothing writes any more.
-		if err := provisioning.RemoveWorkspaceExclusions(key.Workspace); err != nil {
+		// The exclusions go with the files, but only this provider's: another
+		// provider still bound to the workspace keeps its paths excluded (#656).
+		lockFile.RemoveProjection(key)
+		if err := writeWorkspaceExclusions(key.Workspace, workspaceProviders(*lockFile, declared, key.Workspace)); err != nil {
 			return nil, fmt.Errorf("prune %s: %w", key.String(), err)
 		}
-		lockFile.RemoveProjection(key)
 		pruned = append(pruned, key.String())
 		fmt.Printf("[%s] pruned the projection in %s\n", key.Provider, key.Workspace)
 	}

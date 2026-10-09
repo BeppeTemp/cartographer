@@ -2149,13 +2149,18 @@ func droppedArtifactFiles(previous []ManagedFile, a Artifact, destDirRel string,
 
 // movedArtifactFiles returns the lockfile entries of artifact a that sit
 // outside destDirRel, the destination the provider declares today (D360).
-// Non-empty means the destination moved since the artifact was written. Never
-// applies to the shared-file kinds (instructions, mcp: no directory of their
-// own), to the reserved client-generated hooks, nor to hooks at all: a hook's
-// entries include generated companions (an OpenCode plugin under
+// Non-empty means the destination moved since the artifact was written. For
+// an mcp server destDirRel is the config file itself, so an entry recorded in
+// another file (a workspace Claude entry written to .claude.json before D363,
+// #654) is moved: registered in the current file, removed from the old one by
+// the mcp prune, which addresses the recorded path. The emitter's file equals
+// the mcp cell for every provider, so a global entry never reads as moved.
+// Never applies to instructions (a group block, no per-artifact path), to the
+// reserved client-generated hooks, nor to hooks at all: a hook's entries
+// include generated companions (an OpenCode plugin under
 // .config/opencode/plugins) that live outside its directory by design.
 func movedArtifactFiles(previous []ManagedFile, a Artifact, destDirRel string) []ManagedFile {
-	if destDirRel == "" || a.Kind == "instructions" || a.Kind == "mcp" || a.Kind == "hook" || isReservedHook(a.Kind, a.Name) {
+	if destDirRel == "" || a.Kind == "instructions" || a.Kind == "hook" || isReservedHook(a.Kind, a.Name) {
 		return nil
 	}
 	dest := filepath.Clean(destDirRel)
