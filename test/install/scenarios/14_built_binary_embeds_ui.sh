@@ -82,7 +82,9 @@ env -i HOME="$TMP" PATH="${TMP}/path" CARTOGRAPHER_AUTH=false \
 SERVER_PID=$!
 i=0
 while [ $i -lt 40 ]; do
-    curl -sf "${BASE}/health" >/dev/null 2>&1 && break
+    # Past bootstrap, not just listening (D348): until then /ui/ is 503.
+    # Not /ready: with no KB it stays 503.
+    H=$(curl -sf "${BASE}/health" 2>/dev/null) && ! printf '%s' "$H" | grep -q '"bootstrapping"' && break
     i=$((i + 1))
     sleep 0.25
 done
