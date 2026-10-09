@@ -142,7 +142,7 @@ func TestSearchFTS_AssetText(t *testing.T) {
 	}
 	// A body match keeps the body excerpt.
 	hits, err = ix.SearchFTS("devices of the lab", "", 10)
-	if err != nil || len(hits) != 1 || !strings.Contains(hits[0].Snippet, "devices of the lab") {
+	if err != nil || len(hits) == 0 || hits[0].ID != "lab/inventory" || !strings.Contains(hits[0].Snippet, "devices of the lab") {
 		t.Fatalf("body match = %+v, %v", hits, err)
 	}
 	// Re-upserting without assets drops the asset text.

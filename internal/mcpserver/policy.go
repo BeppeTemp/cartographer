@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"strings"
 
@@ -13,6 +14,45 @@ import (
 )
 
 const genericNotFound = "not found"
+
+// Denial codes (D343). A denial reads "forbidden: <code>: <hint>": the
+// "forbidden" prefix is what existing clients match on, the code is what an
+// agent branches on. Non-disclosure rule: the reason describes the caller's own
+// token and its own arguments, never hidden content, and the exact-concept
+// sites that answer genericNotFound must keep answering it (a reason there
+// would confirm that the id exists). A batch denial never names the operation.
+const (
+	denyUnclassifiedTool = "unclassified_tool"
+	denyBadArguments     = "bad_arguments"
+	denyReadOnlyToken    = "read_only_token"
+	denyNeedsWholeKB     = "needs_whole_kb"
+	denyOutsideScope     = "outside_scope"
+	denyTemplateUnusable = "template_unusable"
+	denyMissingID        = "missing_id"
+	denyNoKBAccess       = "no_kb_access"
+	denyNoPrincipal      = "no_principal"
+)
+
+var denyHints = map[string]string{
+	denyUnclassifiedTool: "the tool has no policy class",
+	denyBadArguments:     "the arguments are not valid JSON for this tool",
+	denyReadOnlyToken:    "the token has no write grant on this KB",
+	denyNeedsWholeKB:     "the token is scoped to maps, journals or types and this call needs an unscoped grant",
+	denyOutsideScope:     "the target is outside the maps, journals or types the token grants",
+	denyTemplateUnusable: "template missing, unreadable or without a literal type",
+	denyMissingID:        "this write needs a non-empty id",
+	denyNoKBAccess:       "the token has no access to this KB",
+	denyNoPrincipal:      "no principal resolved for this connection",
+}
+
+// deny builds the reasoned denial for code, with an optional replacement hint.
+func deny(code string, hint ...string) error {
+	h := denyHints[code]
+	if len(hint) > 0 {
+		h = hint[0]
+	}
+	return fmt.Errorf("forbidden: %s: %s", code, h)
+}
 
 const (
 	resourceCollection   = "collection"
@@ -67,7 +107,7 @@ func installPolicy(s *Server, k *kb.KB) {
 			if p.Policy.HasKBAccess(name, false) {
 				return nil
 			}
-			return errors.New("forbidden")
+			return deny(denyNoKBAccess)
 		}
 		return authorizeTool(p.Policy, k, name, tool, args)
 	})
@@ -87,7 +127,15 @@ func reauthorizeUnderLock(ctx context.Context, k *kb.KB, tool string, args json.
 func authorizeTool(policy auth.Policy, k *kb.KB, name, tool string, args json.RawMessage) error {
 	write := ToolRequiresWrite(tool)
 	if resourceClassForTool(tool) == "" {
-		return errors.New("forbidden")
+		return deny(denyUnclassifiedTool)
+	}
+	// Tested before the whole-KB switch so every write tool, scoped or not,
+	// names the missing write grant rather than a scope problem. A token with
+	// no grant on this KB at all is not told its token is read-only: that
+	// would confirm the KB exists, and the exact-concept sites must answer
+	// genericNotFound to it (TestMultiKBIsolation_...).
+	if write && policy.HasKBAccess(name, false) && !policy.HasKBAccess(name, true) {
+		return deny(denyReadOnlyToken)
 	}
 	// Whole-KB tools have no safe partial semantics. The list is deliberately
 	// conservative; adding an unclassified tool can only deny a restricted caller.
@@ -96,29 +144,37 @@ func authorizeTool(policy auth.Policy, k *kb.KB, name, tool string, args json.Ra
 		if policy.AllowsWholeKB(name, write) {
 			return nil
 		}
-		return errors.New("forbidden")
+		return deny(denyNeedsWholeKB)
 	}
 
 	var raw map[string]json.RawMessage
 	if err := json.Unmarshal(args, &raw); err != nil {
-		return errors.New("forbidden")
+		return deny(denyBadArguments)
 	}
 	if resourceClassForTool(tool) == resourceCollection && !policy.HasKBAccess(name, false) {
-		return errors.New("forbidden")
+		return deny(denyNoKBAccess)
 	}
 	if tool == "service_get" {
 		var serviceArgs struct {
 			ResolveSecrets bool `json:"resolve_secrets"`
 		}
-		if json.Unmarshal(args, &serviceArgs) != nil || (serviceArgs.ResolveSecrets && !policy.AllowsWholeKB(name, true)) {
-			return errors.New("forbidden")
+		if json.Unmarshal(args, &serviceArgs) != nil {
+			return deny(denyBadArguments)
+		}
+		if serviceArgs.ResolveSecrets && !policy.AllowsWholeKB(name, true) {
+			return deny(denyNeedsWholeKB)
 		}
 	}
 	if tool == "concept_new" {
 		id := stringField(raw, "id")
 		proposedType, ok := templateType(k, stringField(raw, "template"))
-		if !ok || !allowedID(policy, k, name, id, true, proposedType) {
-			return errors.New("forbidden")
+		if !ok {
+			// One text for a missing, unreadable or untyped template, so a
+			// scoped token cannot probe templates/.
+			return deny(denyTemplateUnusable)
+		}
+		if !allowedID(policy, k, name, id, true, proposedType) {
+			return deny(denyOutsideScope)
 		}
 		return nil
 	}
@@ -135,12 +191,12 @@ func authorizeTool(policy auth.Policy, k *kb.KB, name, tool string, args json.Ra
 			RewriteLinks *bool `json:"rewrite_links"`
 		}
 		if json.Unmarshal(args, &moves) != nil {
-			return errors.New("forbidden")
+			return deny(denyBadArguments)
 		}
 		// Link rewriting walks and writes arbitrary inbound concepts. A bounded
 		// source/destination grant is sufficient only when it is disabled.
 		if (moves.RewriteLinks == nil || *moves.RewriteLinks) && !policy.AllowsWholeKB(name, true) {
-			return errors.New("forbidden")
+			return deny(denyNeedsWholeKB, "pass rewrite_links=false for a scoped token")
 		}
 		pairs := moves.Moves
 		if len(pairs) == 0 {
@@ -150,11 +206,11 @@ func authorizeTool(policy auth.Policy, k *kb.KB, name, tool string, args json.Ra
 			}{moves.SourceID, moves.TargetID})
 		}
 		if len(pairs) == 0 {
-			return errors.New("forbidden")
+			return deny(denyBadArguments)
 		}
 		for _, pair := range pairs {
 			if !allowedMove(policy, k, name, pair.SourceID, pair.TargetID) {
-				return errors.New("forbidden")
+				return deny(denyOutsideScope)
 			}
 		}
 		return nil
@@ -169,17 +225,17 @@ func authorizeTool(policy auth.Policy, k *kb.KB, name, tool string, args json.Ra
 			Operations []json.RawMessage `json:"operations"`
 		}
 		if json.Unmarshal(args, &batchArgs) != nil || len(batchArgs.Operations) == 0 {
-			return errors.New("forbidden")
+			return deny(denyBadArguments)
 		}
 		for _, opRaw := range batchArgs.Operations {
 			var opFields map[string]json.RawMessage
 			if json.Unmarshal(opRaw, &opFields) != nil {
-				return errors.New("forbidden")
+				return deny(denyBadArguments)
 			}
 			id := stringField(opFields, "id")
 			proposedType := frontmatterType(opFields["frontmatter"])
 			if !allowedID(policy, k, name, id, true, proposedType) {
-				return errors.New("forbidden")
+				return deny(denyOutsideScope, "an operation is outside the maps, journals or types the token grants")
 			}
 		}
 		return nil
@@ -196,13 +252,13 @@ func authorizeTool(policy auth.Policy, k *kb.KB, name, tool string, args json.Ra
 			Path string `json:"path"`
 		}
 		if json.Unmarshal(args, &indexArgs) != nil {
-			return errors.New("forbidden")
+			return deny(denyBadArguments)
 		}
 		if normalizeIndexPath(indexArgs.Path) == "" {
 			if policy.AllowsWholeKB(name, true) {
 				return nil
 			}
-			return errors.New("forbidden")
+			return deny(denyNeedsWholeKB)
 		}
 		mapName, journalName := normalizeIndexPath(indexArgs.Path), ""
 		if meta, err := k.ReadArchiveMeta(mapName); err == nil {
@@ -213,15 +269,18 @@ func authorizeTool(policy auth.Policy, k *kb.KB, name, tool string, args json.Ra
 		if policy.Allows(name, mapName, journalName, "", true) {
 			return nil
 		}
-		return errors.New("forbidden")
+		return deny(denyOutsideScope)
 	}
 	if tool == "supersede" {
 		var relation struct {
 			SourceID string `json:"source_id"`
 			TargetID string `json:"target_id"`
 		}
-		if json.Unmarshal(args, &relation) != nil || !allowedID(policy, k, name, relation.SourceID, true, "") || !allowedID(policy, k, name, relation.TargetID, true, "") {
-			return errors.New("forbidden")
+		if json.Unmarshal(args, &relation) != nil {
+			return deny(denyBadArguments)
+		}
+		if !allowedID(policy, k, name, relation.SourceID, true, "") || !allowedID(policy, k, name, relation.TargetID, true, "") {
+			return deny(denyOutsideScope)
 		}
 		return nil
 	}
@@ -230,7 +289,7 @@ func authorizeTool(policy auth.Policy, k *kb.KB, name, tool string, args json.Ra
 	// fields. Missing or forbidden resources intentionally collapse to not found.
 	id := stringField(raw, "id", "concept_id", "service_id")
 	if id == "" && resourceClassForTool(tool) == resourceExact && write {
-		return errors.New("forbidden")
+		return deny(denyMissingID)
 	}
 	if id != "" {
 		proposedType := frontmatterType(raw["frontmatter"])
@@ -252,7 +311,7 @@ func authorizeTool(policy auth.Policy, k *kb.KB, name, tool string, args json.Ra
 	// A caller may only request an explicitly scoped collection inside an
 	// allowed map/journal. Unscoped collection reads are filtered by Visible.
 	if scope := stringField(raw, "scope", "map", "journal"); scope != "" && !policy.Allows(name, scope, "", "", false) && !policy.Allows(name, "", scope, "", false) {
-		return errors.New("forbidden")
+		return deny(denyOutsideScope)
 	}
 	return nil
 }

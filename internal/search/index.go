@@ -32,7 +32,15 @@ const (
 type Hit struct {
 	ID    string  // concept ID
 	Score float64 // relevance score (higher = better)
+	// Partial marks a hit that matched only some of the query terms: it came
+	// from the OR pass and always ranks after every full match (D343).
+	Partial bool
 }
+
+// OrFallbackFloor is the number of allowed full-match (AND) hits below which a
+// query of two or more terms also runs the OR pass (D343). Both backends
+// reference this one constant so they cannot drift.
+const OrFallbackFloor = 3
 
 // New creates an empty Index.
 func New() *Index {
@@ -122,8 +130,28 @@ func (idx *Index) SearchFiltered(query string, scope string, limit int, allow fu
 	}
 
 	candidates := idx.andCandidates(terms)
-	if len(candidates) == 0 && len(terms) >= 2 {
-		candidates = idx.orCandidates(terms)
+	// The floor counts allowed hits only: a hidden concept must not change
+	// whether the OR pass runs.
+	full := 0
+	for id := range candidates {
+		if scope != "" && !strings.HasPrefix(id, scope) {
+			continue
+		}
+		if allow == nil || allow(id) {
+			full++
+		}
+	}
+	partial := map[string]bool{}
+	if full < OrFallbackFloor && len(terms) >= 2 {
+		for id := range idx.orCandidates(terms) {
+			if _, ok := candidates[id]; !ok {
+				if candidates == nil {
+					candidates = map[string]int{}
+				}
+				candidates[id] = 1
+				partial[id] = true
+			}
+		}
 	}
 
 	var hits []Hit
@@ -143,10 +171,13 @@ func (idx *Index) SearchFiltered(query string, scope string, limit int, allow fu
 			}
 			score += float64(tf) / float64(dl)
 		}
-		hits = append(hits, Hit{ID: id, Score: score})
+		hits = append(hits, Hit{ID: id, Score: score, Partial: partial[id]})
 	}
 
 	sort.Slice(hits, func(i, j int) bool {
+		if hits[i].Partial != hits[j].Partial {
+			return !hits[i].Partial
+		}
 		if hits[i].Score != hits[j].Score {
 			return hits[i].Score > hits[j].Score
 		}

@@ -51,6 +51,21 @@ type searchHit struct {
 	// Archived marks a hit that is an archived concept (D322): only the
 	// archived fallback and include_archived return those.
 	Archived bool `json:"archived,omitempty"`
+	// Partial marks a hit that matched only some query terms (D343): it comes
+	// from the OR pass and ranks after every full match.
+	Partial bool `json:"partial,omitempty"`
+}
+
+// searchHitLess orders hits: full matches before partial ones whatever the
+// score (D343), then score, then id.
+func searchHitLess(a, b searchHit) bool {
+	if a.Partial != b.Partial {
+		return !a.Partial
+	}
+	if a.Score != b.Score {
+		return a.Score > b.Score
+	}
+	return a.ID < b.ID
 }
 
 // toolSearch returns the keyword search tool (D135: keyword is the only mode).
@@ -64,7 +79,7 @@ func toolSearch(k *kb.KB, rec *searchReconciler, misses *searchMissLog, reads *r
 	if deps.SQLIndex != nil {
 		description = "Keyword search over concepts (SQLite FTS5, substring matching); returns IDs ranked by relevance."
 	}
-	description += " Glossary terms are also searched by canonical form and aliases; variants are listed in expanded_to."
+	description += " Glossary aliases are searched too (expanded_to)."
 
 	return Tool{
 		Name:        "search",
@@ -153,9 +168,20 @@ func handleSearch(ctx requestContext, k *kb.KB, rec *searchReconciler, misses *s
 	if len(expandedTo) > 0 {
 		result["expanded_to"] = expandedTo
 	}
+	var notes []string
 	if archivedFallback {
 		result["archived_fallback"] = true
-		result["note"] = "no live concept matches; these are archived entries"
+		notes = append(notes, "no live concept matches; these are archived entries")
+	}
+	for _, h := range hits {
+		if h.Partial {
+			result["or_fallback"] = true
+			notes = append(notes, "some terms matched only partially")
+			break
+		}
+	}
+	if len(notes) > 0 {
+		result["note"] = strings.Join(notes, " ")
 	}
 	out, _ := json.MarshalIndent(result, "", "  ")
 	return textResult(string(out)), nil
@@ -196,7 +222,7 @@ func expandedKeywordHits(ctx requestContext, k *kb.KB, rec *searchReconciler, de
 	for _, v := range variants[1:] {
 		vh, _ := keywordHits(ctx, k, rec, deps, v, scope, limit, skipArchived)
 		for _, h := range vh {
-			if cur, ok := best[h.ID]; !ok || h.Score > cur.Score {
+			if cur, ok := best[h.ID]; !ok || (cur.Partial && !h.Partial) || (cur.Partial == h.Partial && h.Score > cur.Score) {
 				best[h.ID] = h
 			}
 		}
@@ -205,12 +231,7 @@ func expandedKeywordHits(ctx requestContext, k *kb.KB, rec *searchReconciler, de
 	for _, h := range best {
 		merged = append(merged, h)
 	}
-	sort.Slice(merged, func(i, j int) bool {
-		if merged[i].Score != merged[j].Score {
-			return merged[i].Score > merged[j].Score
-		}
-		return merged[i].ID < merged[j].ID
-	})
+	sort.Slice(merged, func(i, j int) bool { return searchHitLess(merged[i], merged[j]) })
 	if len(merged) > limit {
 		merged = merged[:limit]
 	}
@@ -268,14 +289,14 @@ func keywordHitsReconciled(ctx requestContext, k *kb.KB, rec *searchReconciler, 
 			mode = "keyword_fts5"
 			for _, h := range sqlHits {
 				if scope == "" || strings.HasPrefix(h.ID, scope) {
-					kwHits = append(kwHits, searchHit{ID: h.ID, Score: h.Score, Snippet: h.Snippet})
+					kwHits = append(kwHits, searchHit{ID: h.ID, Score: h.Score, Snippet: h.Snippet, Partial: h.Partial})
 				}
 			}
 		}
 	}
 	if useMem {
 		for _, h := range live.searchFiltered(query, scope, window, pick) {
-			kwHits = append(kwHits, searchHit{ID: h.ID, Score: h.Score})
+			kwHits = append(kwHits, searchHit{ID: h.ID, Score: h.Score, Partial: h.Partial})
 		}
 	}
 
@@ -294,12 +315,9 @@ func keywordHitsReconciled(ctx requestContext, k *kb.KB, rec *searchReconciler, 
 		fmt.Fprintf(os.Stderr, "cartographer: search centrality: %v\n", err)
 	}
 
-	sort.Slice(kwHits, func(i, j int) bool {
-		if kwHits[i].Score != kwHits[j].Score {
-			return kwHits[i].Score > kwHits[j].Score
-		}
-		return kwHits[i].ID < kwHits[j].ID
-	})
+	// Trap: the partial-last order must be applied after the prior, which
+	// multiplies scores and could otherwise lift an OR-only hit over a full one.
+	sort.Slice(kwHits, func(i, j int) bool { return searchHitLess(kwHits[i], kwHits[j]) })
 	if len(kwHits) > limit {
 		kwHits = kwHits[:limit]
 	}

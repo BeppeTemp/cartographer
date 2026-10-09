@@ -909,6 +909,12 @@ func toolMapList(k *kb.KB) Tool {
 				// map's kind, not a stale_after in _map.md.
 				StaleAfter          int  `json:"stale_after,omitempty"`
 				StaleAfterDefaulted bool `json:"stale_after_defaulted,omitempty"`
+				// FieldValues / FieldValuesByType are the map contract's
+				// allowed values, readable before a write (D343). A by-type
+				// list replaces the map-wide one for that type; the server
+				// does not merge them.
+				FieldValues       map[string][]string            `json:"field_values,omitempty"`
+				FieldValuesByType map[string]map[string][]string `json:"field_values_by_type,omitempty"`
 			}
 
 			var infos []mapInfo
@@ -945,6 +951,7 @@ func toolMapList(k *kb.KB) Tool {
 				}
 				if c, cerr := k.ReadMapContract(name); cerr == nil {
 					info.StaleAfter, info.StaleAfterDefaulted = lint.EffectiveStaleAfter(&c)
+					info.FieldValues, info.FieldValuesByType = c.FieldValues, c.FieldValuesByType
 				}
 				infos = append(infos, info)
 			}
@@ -959,6 +966,10 @@ func toolMapList(k *kb.KB) Tool {
 // defaultConceptListLimit caps the number of results returned by
 // concept_list when the caller does not pass an explicit limit (D72 WP3).
 const defaultConceptListLimit = 500
+
+// maxConceptListFields bounds the frontmatter keys one concept_list call may
+// return per entry (D343).
+const maxConceptListFields = 8
 
 type conceptListFilter struct {
 	key   string
@@ -1025,7 +1036,7 @@ func parseConceptListTimestamp(value string) (time.Time, error) {
 func toolConceptList(k *kb.KB) Tool {
 	return Tool{
 		Name:        "concept_list",
-		Description: "Exhaustive inventory (id, title, type) under a scope prefix, sorted by id; empty = whole KB. where and timestamp filters apply before limit. A bounded 'ls -R'; for curated navigation use index_get.",
+		Description: "Exhaustive inventory (id, title, type, status; fields adds keys) under a scope prefix, sorted by id; empty = whole KB. where and timestamp filters apply before limit. For curated navigation use index_get.",
 		ReadOnly:    true,
 		InputSchema: json.RawMessage(`{
 			"type": "object",
@@ -1036,6 +1047,7 @@ func toolConceptList(k *kb.KB) Tool {
 				"limit": {
 					"type": "integer"
 				},
+				"fields": {"type": "array", "items": {"type": "string"}},
 				"where": {
 					"type": "array",
 					"items": {"type": "string"},
@@ -1043,11 +1055,11 @@ func toolConceptList(k *kb.KB) Tool {
 				},
 				"timestamp_before": {
 					"type": "string",
-					"description": "Strict upper bound, RFC3339 or YYYY-MM-DD"
+					"description": "Exclusive, RFC3339 or YYYY-MM-DD"
 				},
 				"timestamp_after": {
 					"type": "string",
-					"description": "Strict lower bound, RFC3339 or YYYY-MM-DD"
+					"description": "Exclusive, RFC3339 or YYYY-MM-DD"
 				}
 			}
 		}`),
@@ -1056,11 +1068,20 @@ func toolConceptList(k *kb.KB) Tool {
 				Scope           string   `json:"scope"`
 				Limit           int      `json:"limit"`
 				Where           []string `json:"where"`
+				Fields          []string `json:"fields"`
 				TimestampBefore *string  `json:"timestamp_before"`
 				TimestampAfter  *string  `json:"timestamp_after"`
 			}
 			if err := json.Unmarshal(args, &params); err != nil {
 				return errorResult("invalid params: " + err.Error()), nil
+			}
+			if len(params.Fields) > maxConceptListFields {
+				return errorResult("concept_list: fields: at most 8 non-empty keys"), nil
+			}
+			for _, f := range params.Fields {
+				if strings.TrimSpace(f) == "" {
+					return errorResult("concept_list: fields: at most 8 non-empty keys"), nil
+				}
 			}
 
 			limit := params.Limit
@@ -1094,11 +1115,14 @@ func toolConceptList(k *kb.KB) Tool {
 				after = &parsed
 			}
 			type conceptEntry struct {
-				ID    string `json:"id"`
-				Title string `json:"title,omitempty"`
-				Type  string `json:"type,omitempty"`
+				ID     string         `json:"id"`
+				Title  string         `json:"title,omitempty"`
+				Type   string         `json:"type,omitempty"`
+				Status string         `json:"status,omitempty"`
+				Fields map[string]any `json:"fields,omitempty"`
 			}
 			res, err := queryConcepts(k, ConceptQuery{
+				Fields:  params.Fields,
 				Scope:   scope,
 				Filters: filters,
 				Before:  before,
@@ -1110,7 +1134,7 @@ func toolConceptList(k *kb.KB) Tool {
 			}
 			entries := make([]conceptEntry, 0, len(res.Entries))
 			for _, e := range res.Entries {
-				entries = append(entries, conceptEntry{ID: e.ID, Title: e.Title, Type: e.Type})
+				entries = append(entries, conceptEntry{ID: e.ID, Title: e.Title, Type: e.Type, Status: e.Status, Fields: e.Fields})
 			}
 			filtersApplied := len(filters) > 0 || before != nil || after != nil
 			timestampFilter := before != nil || after != nil

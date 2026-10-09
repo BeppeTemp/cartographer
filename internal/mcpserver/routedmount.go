@@ -87,7 +87,7 @@ func (m *MultiKBServer) buildRouted(set []string) *Server {
 		if tool != "" {
 			return nil
 		}
-		var lastErr error = errors.New("forbidden")
+		var lastErr error = deny(denyNoPrincipal)
 		for _, name := range set {
 			if err := m.servers[name].authorize(ctx, "", args); err == nil {
 				return nil
