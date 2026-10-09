@@ -308,25 +308,33 @@ export function App() {
           (err: unknown) => ({ data: null, error: err }),
         )
       : Promise.resolve(null);
+    // The rail and the artifacts do not depend on the graph: a graph that fails
+    // still leaves the Maps to choose from (the error stays in the graph panel).
+    const applySide = (ov: Overview | null, arts: Awaited<typeof artifactsP>) => {
+      setOverview(ov);
+      if (!artifactsAllowed) {
+        setArtifacts(null);
+        setArtifactsError(null);
+      } else if (arts && !(controller.signal.aborted || (arts.error && handleFailure(arts.error)))) {
+        setArtifacts(arts.data);
+        setArtifactsError(arts.error);
+      }
+    };
     Promise.all([fetchGraph(activeKB, view.scope, controller.signal), overviewP, artifactsP])
       .then(([graph, ov, arts]) => {
         viewCache.current.set(key, { graph, overview: ov, artifacts: arts?.data ?? null });
         setSnapshot(graph);
         setSnapshotKey(key);
         setGraphError(null);
-        setOverview(ov);
-        if (!artifactsAllowed) {
-          setArtifacts(null);
-          setArtifactsError(null);
-        } else if (arts && !(controller.signal.aborted || (arts.error && handleFailure(arts.error)))) {
-          setArtifacts(arts.data);
-          setArtifactsError(arts.error);
-        }
+        applySide(ov, arts);
         setOffline(false);
       })
-      .catch((err) => {
+      .catch(async (err) => {
         if (controller.signal.aborted) return;
-        if (!handleFailure(err)) setGraphError(err);
+        if (handleFailure(err)) return;
+        setGraphError(err);
+        const [ov, arts] = await Promise.all([overviewP, artifactsP]);
+        if (!controller.signal.aborted) applySide(ov, arts);
       })
       .finally(() => {
         if (controller.signal.aborted) return;

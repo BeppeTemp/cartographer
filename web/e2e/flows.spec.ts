@@ -1,4 +1,5 @@
 import { expect, listedConcepts, LOCAL_URL, openConcept, selectedIn, test, waitForAtlas, withPanelsOpen } from "./support";
+import type { Locator } from "@playwright/test";
 
 // The flows a sighted mouse user takes, against the auth-off server. Motion is
 // reduced for the whole file: the assertions are about state, and a camera
@@ -176,6 +177,19 @@ test("the Artifacts panel lists what the KB ships and opens a skill", async ({ p
   await expect(nav.getByRole("button", { name: /review/ })).toBeVisible();
 });
 
+/** Health folds each check's findings into a row (D365): open them all.
+ *  With a target, retry until it shows: a scope change re-renders the rows
+ *  closed once its findings arrive. */
+async function openFindings(health: Locator, target?: Locator) {
+  await expect(async () => {
+    await expect(health.locator(".health__check").first()).toBeVisible({ timeout: 1000 });
+    await health
+      .locator(".health__check details")
+      .evaluateAll((els) => els.forEach((el) => ((el as HTMLDetailsElement).open = true)));
+    if (target) await expect(target).toBeVisible({ timeout: 1000 });
+  }).toPass();
+}
+
 test("Health loads the upkeep schedule and the questions, and offers no write", async ({ page }) => {
   await page.goto(ATLAS);
   await waitForAtlas(page);
@@ -183,12 +197,12 @@ test("Health loads the upkeep schedule and the questions, and offers no write", 
   await expect(page).toHaveURL(/panel=health/);
   const panel = page.getByRole("region", { name: "Health" });
   // A KB served with no doctor settings is maintained by default (D323).
-  await expect(panel.getByText("Background repair", { exact: true })).toBeVisible();
-  await expect(panel.getByText(/^On, daily · \d+ checks/)).toBeVisible();
-  // The fixture has no open question: one clause says so, no empty section.
-  await expect(panel.getByText(/no open question/)).toBeVisible();
+  const automatic = panel.getByRole("region", { name: /Automatic/ });
+  await expect(automatic).toContainText("daily");
+  // The fixture has no open question: its lane says so, no empty section.
+  await expect(panel.getByText("Nothing waits on you.")).toBeVisible();
   await expect(panel.getByRole("heading", { name: /^Questions for you/ })).toHaveCount(0);
-  await expect(panel.getByRole("heading", { name: /^Repairs, last 30 days/ })).toBeVisible();
+  await expect(panel.getByRole("heading", { name: /^Done by Cartographer/ })).toBeVisible();
   await expect(panel.getByText(/Could not read/)).toHaveCount(0);
   // The state word stays inside the ring: within its inner chord (~85px at
   // the word's height, the ring being 136px wide) and centred on it.
@@ -199,16 +213,17 @@ test("Health loads the upkeep schedule and the questions, and offers no write", 
   expect(word.x + word.width).toBeLessThanOrEqual(ring.x + ring.width);
 });
 
-test("Health's severity floor updates its count", async ({ page }) => {
+test("Health groups findings by check and lists every check on its own tab (D365)", async ({ page }) => {
   await page.goto(`${ATLAS}&panel=health`);
   const health = page.getByRole("region", { name: "Health" });
-  await expect(health.getByRole("button", { name: /broken_link/ }).first()).toBeVisible();
-  const before = await health.locator(".health__finding").count();
-  expect(before).toBeGreaterThan(0);
+  const broken = health.locator("#check-broken_link");
+  await expect(broken).toContainText("Broken links");
 
-  await health.getByRole("group", { name: "Minimum severity" }).getByRole("button", { name: "Errors only" }).click();
-  await expect(health.getByText("No findings at or above this severity. Lower the floor to see the rest.")).toBeVisible();
-  await expect(health.getByText(`Showing 0 of ${before} findings`)).toBeVisible();
+  await health.getByRole("button", { name: /^Checks · \d+$/ }).click();
+  const checks = health.getByRole("region", { name: "Checks" });
+  await expect(checks).toContainText("Pages nothing links to");
+  await checks.getByRole("button", { name: "Broken links" }).click();
+  await expect(broken.locator("details")).toHaveAttribute("open", "");
 });
 
 test("the command palette finds a concept and reveals it", async ({ page }) => {
@@ -240,7 +255,7 @@ test("URL state and Back/Forward restore KB, scope and selection", async ({ page
 
   await page.goBack();
   await expect(page).not.toHaveURL(/scope=/);
-  await expect(page.getByRole("button", { name: /Whole atlas/ })).toHaveAttribute("aria-current", "true");
+  await expect(page.getByRole("button", { name: /^All\s*\d/ })).toHaveAttribute("aria-current", "true");
 
   await page.goForward();
   await page.goForward();
@@ -274,11 +289,13 @@ test("a Health finding reveals its concept, or explains there is none", async ({
   const health = page.getByRole("region", { name: "Health" });
 
   // A finding about a map's own index is about no concept.
-  await health.getByRole("button", { name: /infra\/index\.md/ }).click();
+  await openFindings(health);
+  await health.getByRole("button", { name: /infra\/index\.md/ }).first().click();
   await expect(page.getByRole("status").filter({ hasText: "no node to reveal" })).toBeAttached();
   await expect(health).toBeVisible();
 
-  await health.getByRole("button", { name: /infra\/firewall\.md/ }).click();
+  await openFindings(health);
+  await health.getByRole("button", { name: /infra\/firewall/ }).first().click();
   await expect(page).toHaveURL(/concept=infra%2Ffirewall/);
   await expect(page.getByRole("complementary", { name: "Inspector for infra/firewall" })).toBeVisible();
   await expect(page).toHaveURL(selectedIn("infra/firewall"));
@@ -288,25 +305,30 @@ test("Health's findings follow the rail's Map, and hide the node filters (#364)"
   await page.goto(`${ATLAS}&panel=health`);
   const health = page.getByRole("region", { name: "Health" });
   const rail = page.getByRole("navigation", { name: "Atlas navigation" });
-  await expect(health.getByRole("button", { name: /infra\/firewall\.md/ })).toBeVisible();
+  await openFindings(health, health.getByRole("button", { name: /infra\/firewall/ }).first());
   // Type and Status filter nodes, not findings: they step aside here.
   await expect(rail.getByRole("heading", { name: "Type" })).toHaveCount(0);
 
   // Another Map's findings leave the list, and the page names the scope.
   await rail.getByRole("button", { name: /Applications/ }).click();
   await expect(health.getByRole("heading", { level: 1 })).toContainText("in Applications");
-  await expect(health.getByRole("button", { name: /infra\/firewall\.md/ })).toHaveCount(0);
+  await openFindings(health);
+  await expect(health.getByRole("button", { name: /infra\/firewall/ })).toHaveCount(0);
 
   await rail.getByRole("button", { name: /Infrastructure/ }).click();
   await expect(health.getByRole("heading", { level: 1 })).toContainText("in Infrastructure");
-  await expect(health.getByRole("button", { name: /infra\/firewall\.md/ })).toBeVisible();
-  const paths = await health.locator(".health__path").allTextContents();
+  await openFindings(health, health.getByRole("button", { name: /infra\/firewall/ }).first());
+  const paths = [
+    ...(await health.locator(".health__path").allTextContents()),
+    ...(await health.locator(".health__page").evaluateAll((els) => els.map((el) => el.getAttribute("title") ?? ""))),
+  ];
+  expect(paths.length).toBeGreaterThan(0);
   expect(paths.every((path) => path.startsWith("infra/"))).toBe(true);
 
-  // Whole atlas restores the KB-wide list; the Atlas gets its filters back.
-  await rail.getByRole("button", { name: /Whole atlas/ }).click();
+  // All restores the KB-wide list; the Atlas gets its filters back.
+  await rail.getByRole("button", { name: /^All\s*\d/ }).click();
   await expect(health.getByRole("heading", { level: 1 })).not.toContainText("Infrastructure");
-  await expect(health.getByText(/over the whole KB/)).toBeVisible();
+  await expect(health.getByText(/^Over .* only\.$/)).toHaveCount(0);
   await rail.getByRole("button", { name: "Atlas", exact: true }).click();
   await expect(rail.getByRole("heading", { name: "Type" })).toBeVisible();
 });

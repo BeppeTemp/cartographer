@@ -39,6 +39,13 @@
   white-space: nowrap;
 }
 
+/* A phone has no room for it: the top bar must fit 390px (a11y e2e). */
+@media (max-width: 767px) {
+  .topbar__version {
+    display: none;
+  }
+}
+
 .topbar__mark {
   width: 28px;
   height: 28px;

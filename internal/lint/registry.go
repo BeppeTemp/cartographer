@@ -153,9 +153,11 @@ var registry = []CheckSpec{
 	{Name: "cut_concept", Severity: SevInfo, Level: LevelGraph, Accept: AcceptConcept, WholeGraph: true, Category: CategoryLinks},
 	{Name: "island", Severity: SevInfo, Level: LevelGraph, Accept: AcceptConcept, WholeGraph: true, Category: CategoryLinks},
 	{Name: "map_misfit", Severity: SevInfo, Level: LevelGraph, Accept: AcceptConcept, WholeGraph: true, Judgement: true, Category: CategoryLinks},
-	// KB-wide values (D357): the type palette and the spellings in use.
-	{Name: "unknown_type", Severity: SevWarning, Level: LevelGraph, Accept: AcceptConcept, FixKinds: []string{FixSetValue}, Judgement: true, Category: CategoryValues},
-	{Name: "value_case_variant", Severity: SevWarning, Level: LevelGraph, Accept: AcceptConcept, FixKinds: []string{FixSetValue}, AutoRepairSafe: true, Category: CategoryValues},
+	// KB-wide values (D357): the type palette and the spellings in use. Their
+	// messages name the KB's types and values, hidden pages' included, so a
+	// caller that cannot see the whole KB does not get them (WholeGraph).
+	{Name: "unknown_type", Severity: SevWarning, Level: LevelGraph, Accept: AcceptConcept, FixKinds: []string{FixSetValue}, Judgement: true, WholeGraph: true, Category: CategoryValues},
+	{Name: "value_case_variant", Severity: SevWarning, Level: LevelGraph, Accept: AcceptConcept, FixKinds: []string{FixSetValue}, AutoRepairSafe: true, WholeGraph: true, Category: CategoryValues},
 
 	// Maps and expanded concepts.
 	{Name: "contract_malformed", Severity: SevInfo, Level: LevelMap, Accept: AcceptNone, Category: CategoryMaps},
