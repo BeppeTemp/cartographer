@@ -48,7 +48,12 @@ type maintenanceSummary struct {
 	LastDoctor     string                `json:"last_doctor,omitempty"`
 	NextDoctor     string                `json:"next_doctor,omitempty"`
 	DoctorInterval int                   `json:"doctor_interval_days"`
-	Repairs        []maintenanceRepair   `json:"repairs"`
+	// DoctorMode is who runs the doctor sessions (D358): "unattended" or "assisted".
+	DoctorMode string `json:"doctor_mode"`
+	// Runs are the background repair's runs of the last 30 days, newest first
+	// (D365): what each fixed, by check, with the commit that undoes it.
+	Runs    []autoRepairRun     `json:"runs"`
+	Repairs []maintenanceRepair `json:"repairs"`
 }
 
 // GET /kbs/{kb}/maintenance/{summary,questions}.
@@ -82,11 +87,17 @@ func uiMaintenance(w http.ResponseWriter, r *http.Request, srv *Server, what str
 				IntervalDays: k.DoctorAutoIntervalDays,
 			},
 			DoctorInterval: k.DoctorIntervalDays,
+			DoctorMode:     "unattended",
 			Repairs:        []maintenanceRepair{},
+			Runs:           []autoRepairRun{},
+		}
+		if k.DoctorAssisted() {
+			out.DoctorMode = "assisted"
 		}
 		if run, ok := lastAutoRepairRun(k); ok {
 			out.LastAutoRepair = &run
 		}
+		out.Runs = autoRepairRunsSince(k, srv.now().Add(-maintenanceRepairWindow), maintenanceRepairCap)
 		out.LastDoctor = lastDoctorDate(k)
 		if srv.conformance != nil {
 			out.LastDoctor = srv.conformance.cachedDoctorDate(k)

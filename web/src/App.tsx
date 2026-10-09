@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties }
 import {
   ApiError,
   clearToken,
+  fetchBirths,
+  fetchChecks,
   fetchConcept,
   fetchGraph,
   fetchKBs,
@@ -16,6 +18,7 @@ import {
 } from "./api/client";
 import type {
   ArtifactList,
+  CheckCatalog,
   Concept,
   GraphSnapshot,
   KBStatus,
@@ -38,7 +41,7 @@ import { Activity } from "./components/Activity";
 import { Work } from "./components/Work";
 import { NodeList } from "./components/NodeList";
 import { Health } from "./components/Health";
-import { EmptyState, ErrorState, Skeleton } from "./components/States";
+import { EmptyState, ErrorState, GraphSeed, Skeleton } from "./components/States";
 import { TopBar } from "./components/TopBar";
 import { applyTheme, onSystemThemeChange, prefersReducedMotion, readTheme, useAppliedTheme, type Theme } from "./lib/theme";
 import { initialMotion } from "./lib/graph3d/motion";
@@ -78,6 +81,9 @@ export function App() {
 
   const [overview, setOverview] = useState<Overview | null>(null);
   const [snapshot, setSnapshot] = useState<GraphSnapshot | null>(null);
+  // The KB and Map the snapshot on screen was fetched for: the graph keeps its
+  // layout while this holds and starts a fresh one when it changes.
+  const [snapshotKey, setSnapshotKey] = useState("");
   const [graphError, setGraphError] = useState<unknown>(null);
   const [graphLoading, setGraphLoading] = useState(false);
 
@@ -91,7 +97,6 @@ export function App() {
   const [artifacts, setArtifacts] = useState<ArtifactList | null>(null);
   const [artifactsError, setArtifactsError] = useState<unknown>(null);
   const [artifactsLoading, setArtifactsLoading] = useState(false);
-  const [severityMin, setSeverityMin] = useState("info");
 
   const [typeFilter, setTypeFilter] = useState<Set<string>>(new Set());
   const [statusFilter, setStatusFilter] = useState<Set<string>>(new Set());
@@ -107,6 +112,7 @@ export function App() {
   // the whole KB gets a 404 and those parts are simply absent.
   const [kbStatus, setKbStatus] = useState<KBStatus | null>(null);
   const [maintenance, setMaintenance] = useState<MaintenanceSummary | null>(null);
+  const [checks, setChecks] = useState<CheckCatalog | null>(null);
   const [maintenanceError, setMaintenanceError] = useState<string | null>(null);
   const [questions, setQuestions] = useState<MaintenanceQuestions | null>(null);
   const [questionsError, setQuestionsError] = useState<string | null>(null);
@@ -266,29 +272,56 @@ export function App() {
   // below lists it, so the views refetch in place without a reload.
   const live = useLiveRevision(activeKB, phase === "ready");
 
+  // The overview, the graph and the artifacts drawn on it land together: the
+  // rail, the canvas and the diamonds change in one commit instead of one
+  // after another, and on a KB switch the previous KB stays on screen (dimmed,
+  // see `switching`) until the new one is complete.
+  const artifactsAllowed = kbs.find((kb) => kb.name === activeKB)?.artifacts ?? false;
+  // The last view of every KB and Map this tab has opened: going back to one
+  // shows it at once, and the request below brings it up to date in place,
+  // like a live refresh.
+  const viewCache = useRef(
+    new Map<string, { graph: GraphSnapshot; overview: Overview | null; artifacts: ArtifactList | null }>(),
+  );
   useEffect(() => {
     if (!activeKB || phase !== "ready") return;
     const controller = new AbortController();
-    fetchOverview(activeKB, controller.signal)
-      .then((data) => {
-        setOverview(data);
-        setOffline(false);
-      })
-      .catch((err) => {
-        if (controller.signal.aborted) return;
-        if (!handleFailure(err)) setOverview(null);
-      });
-    return () => controller.abort();
-  }, [activeKB, phase, handleFailure, reloadKey, live]);
-
-  useEffect(() => {
-    if (!activeKB || phase !== "ready") return;
-    const controller = new AbortController();
-    setGraphLoading(true);
-    fetchGraph(activeKB, view.scope, controller.signal)
-      .then((data) => {
-        setSnapshot(data);
+    const key = `${activeKB}\u0000${view.scope ?? ""}`;
+    const cached = viewCache.current.get(key);
+    if (cached) {
+      setSnapshot(cached.graph);
+      setSnapshotKey(key);
+      setOverview(cached.overview);
+      if (artifactsAllowed) setArtifacts(cached.artifacts);
+      setGraphError(null);
+    }
+    // Only a view with nothing to show waits dimmed (`switching`).
+    setGraphLoading(!cached);
+    if (artifactsAllowed && !cached) setArtifactsLoading(true);
+    const overviewP = fetchOverview(activeKB, controller.signal).catch((err) => {
+      if (!controller.signal.aborted) handleFailure(err);
+      return null;
+    });
+    const artifactsP = artifactsAllowed
+      ? fetchArtifacts(activeKB, controller.signal).then(
+          (data) => ({ data, error: null as unknown }),
+          (err: unknown) => ({ data: null, error: err }),
+        )
+      : Promise.resolve(null);
+    Promise.all([fetchGraph(activeKB, view.scope, controller.signal), overviewP, artifactsP])
+      .then(([graph, ov, arts]) => {
+        viewCache.current.set(key, { graph, overview: ov, artifacts: arts?.data ?? null });
+        setSnapshot(graph);
+        setSnapshotKey(key);
         setGraphError(null);
+        setOverview(ov);
+        if (!artifactsAllowed) {
+          setArtifacts(null);
+          setArtifactsError(null);
+        } else if (arts && !(controller.signal.aborted || (arts.error && handleFailure(arts.error)))) {
+          setArtifacts(arts.data);
+          setArtifactsError(arts.error);
+        }
         setOffline(false);
       })
       .catch((err) => {
@@ -296,10 +329,14 @@ export function App() {
         if (!handleFailure(err)) setGraphError(err);
       })
       .finally(() => {
-        if (!controller.signal.aborted) setGraphLoading(false);
+        if (controller.signal.aborted) return;
+        setGraphLoading(false);
+        setArtifactsLoading(false);
       });
     return () => controller.abort();
-  }, [activeKB, view.scope, phase, handleFailure, reloadKey, live]);
+  }, [activeKB, view.scope, artifactsAllowed, phase, handleFailure, reloadKey, live]);
+  // A KB switch in flight: what is on screen still belongs to the previous KB.
+  const switching = graphLoading && snapshotKey !== "" && !snapshotKey.startsWith(`${activeKB}\u0000`);
 
   useEffect(() => {
     if (!activeKB || !view.concept || phase !== "ready") {
@@ -337,7 +374,8 @@ export function App() {
     setLintLoading(true);
     // The rail's Map selection scopes the findings too: the server
     // answers the same scope the graph is drawn for.
-    fetchLint(activeKB, severityMin, view.scope, controller.signal)
+    // Every severity: Health groups them itself, suggestions folded away.
+    fetchLint(activeKB, "info", view.scope, controller.signal)
       .then((data) => {
         setLint(data);
         setLintError(null);
@@ -350,33 +388,11 @@ export function App() {
         if (!controller.signal.aborted) setLintLoading(false);
       });
     return () => controller.abort();
-  }, [activeKB, severityMin, view.scope, phase, handleFailure, reloadKey, live]);
+  }, [activeKB, view.scope, phase, handleFailure, reloadKey, live]);
 
-  // Artifacts are whole-KB resources (D238): a principal that cannot see the
-  // whole KB gets no panel, and a link to one falls back to the atlas.
-  const artifactsAllowed = kbs.find((kb) => kb.name === activeKB)?.artifacts ?? false;
-  useEffect(() => {
-    if (!activeKB || phase !== "ready" || !artifactsAllowed) {
-      setArtifacts(null);
-      setArtifactsError(null);
-      return;
-    }
-    const controller = new AbortController();
-    setArtifactsLoading(true);
-    fetchArtifacts(activeKB, controller.signal)
-      .then((data) => {
-        setArtifacts(data);
-        setArtifactsError(null);
-      })
-      .catch((err) => {
-        if (controller.signal.aborted) return;
-        if (!handleFailure(err)) setArtifactsError(err);
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) setArtifactsLoading(false);
-      });
-    return () => controller.abort();
-  }, [activeKB, artifactsAllowed, phase, handleFailure, reloadKey, live]);
+  // Artifacts are whole-KB resources (D238), loaded with the graph above: a
+  // principal that cannot see the whole KB gets no panel, and a link to one
+  // falls back to the atlas.
   useEffect(() => {
     if (view.panel !== "artifacts" || !activeKB || kbs.length === 0 || artifactsAllowed) return;
     const next = { ...view, panel: "atlas" as const, artifact: null };
@@ -393,6 +409,7 @@ export function App() {
       setKbStatus(null);
       setMaintenance(null);
       setMaintenanceError(null);
+      setChecks(null);
       setQuestions(null);
       setQuestionsError(null);
       return;
@@ -412,6 +429,10 @@ export function App() {
         setMaintenanceError(null);
       })
       .catch(quiet404(setMaintenanceError));
+    // The coverage list: without it Health simply leaves the section out.
+    fetchChecks(activeKB, controller.signal)
+      .then(setChecks)
+      .catch(() => undefined);
     fetchMaintenanceQuestions(activeKB, controller.signal)
       .then((data) => {
         setQuestions(data);
@@ -559,6 +580,7 @@ export function App() {
   const rail = (inSheet: boolean) => (
     <LeftRail
       overview={overview}
+      overviewKB={snapshotKey.split("\u0000")[0]}
       scope={view.scope}
       panel={view.panel}
       artifactsTotal={artifactsAllowed ? (artifacts?.artifacts.length ?? 0) : null}
@@ -627,7 +649,7 @@ export function App() {
         onOpenInspector={() => setSheet("inspector")}
       />
 
-      <div ref={bodyRef} className={bodyClass}>
+      <div ref={bodyRef} className={bodyClass} data-switching={switching || undefined} aria-busy={switching || undefined}>
         <div ref={readingRef} className="inspector__measure" aria-hidden="true" />
         {!narrow && rail(false)}
 
@@ -657,6 +679,7 @@ export function App() {
               report={lint}
               status={kbStatus}
               summary={maintenance}
+              checks={checks}
               summaryError={maintenanceError}
               questions={questions}
               questionsError={questionsError}
@@ -667,8 +690,6 @@ export function App() {
               }
               loading={lintLoading}
               error={lintError}
-              severityMin={severityMin}
-              onSeverityChange={setSeverityMin}
               onRetry={() => setReloadKey((k) => k + 1)}
               onOpen={(conceptId) => navigate({ panel: "atlas", concept: conceptId })}
               onReveal={(conceptId, message) => {
@@ -697,7 +718,9 @@ export function App() {
               onFailure={handleFailure}
             />
           ) : graphLoading && !snapshot ? (
-            <Skeleton lines={4} label="Loading the graph" />
+            <div className="graph">
+              <GraphSeed label="Loading the graph" />
+            </div>
           ) : graphError ? (
             <ErrorState error={graphError} onRetry={() => setReloadKey((k) => k + 1)} />
           ) : !snapshot || snapshot.nodes.length === 0 ? (
@@ -727,6 +750,8 @@ export function App() {
               ) : (
                 <GraphView
                   snapshot={snapshot}
+                  layoutKey={snapshotKey}
+                  loadBirths={activeKB ? () => fetchBirths(activeKB).then((r) => r.births) : undefined}
                   artifacts={graphArtifacts}
                   onOpenArtifact={(kind, name) => navigate({ panel: "artifacts", artifact: `${kind}/${name}` })}
                   communities={communities}

@@ -39,6 +39,14 @@ a {
 
 :focus-visible {
   outline: none;
+}
+
+/* A region that takes focus only from code (the skip link's target, the
+   place focus returns to when a panel closes) is not a control: a ring
+   around the whole page would point at nothing, so only what a user can
+   tab to wears one. :where keeps the specificity of a bare :focus-visible,
+   so component rules still override it as before. */
+:focus-visible:where(:not([tabindex="-1"])) {
   box-shadow: var(--focus-ring);
   border-radius: var(--radius-control);
 }
@@ -321,4 +329,16 @@ a {
 * {
   scrollbar-width: thin;
   scrollbar-color: var(--border-strong) transparent;
+}
+
+/* A KB switch in flight: the previous KB stays, dimmed, until the new one
+   has fully arrived and replaces it in one go. */
+.shell__body[data-switching] > .main,
+.shell__body[data-switching] > .rail {
+  opacity: 0.45;
+  transition: opacity var(--motion-base) var(--ease-out);
+}
+.shell__body > .main,
+.shell__body > .rail {
+  transition: opacity var(--motion-base) var(--ease-out);
 }

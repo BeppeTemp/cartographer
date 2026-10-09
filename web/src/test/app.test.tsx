@@ -39,7 +39,7 @@ describe("the shell boots", () => {
     stubApi();
     render(<App />);
     expect(await screen.findByRole("button", { name: /Infrastructure/ })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Whole atlas/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^All\d/ })).toBeInTheDocument();
   });
 
   it("shows the auth prompt on a 401 instead of a blank page", async () => {

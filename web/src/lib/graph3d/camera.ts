@@ -96,3 +96,71 @@ export function framePose(centroid: Vec3, radius: number, camera: Vec3, lookAt: 
 export function zoomLimits(radius: number): { min: number; max: number } {
   return { min: 12, max: Math.max(600, radius * 5) };
 }
+
+/** A point to keep in frame and how far around it must show too. */
+export interface Body extends Vec3 {
+  radius: number;
+}
+
+/** Breathing room around a fitted graph, as a share of the view. */
+const FIT_MARGIN = 0.08;
+/** The closest a fit comes, whatever the graph. */
+export const FIT_MIN_DISTANCE = 140;
+/** The largest a node is drawn by a fit, in screen pixels of radius: a KB of
+ *  a handful of concepts is framed as a small constellation, not blown up
+ *  until its spheres fill the canvas. */
+export const FIT_MAX_NODE_PX = 14;
+
+/**
+ * The pose that shows every body in the strip the panels leave, as tight as
+ * the view allows, from the current viewing direction. Unlike framePose's
+ * bounding sphere -- which must hold the graph from any side and so leaves a
+ * flat or elongated graph floating in space -- it measures the graph as the
+ * camera sees it: across, up and in depth, each against its own half-angle.
+ */
+export function fitPose(bodies: readonly Body[], camera: Vec3, lookAt: Vec3, view: Viewport): Pose | null {
+  if (bodies.length === 0) return null;
+  const back = normalize(sub(camera, lookAt));
+  const worldUp = Math.abs(back.y) > 0.99 ? { x: 0, y: 0, z: 1 } : { x: 0, y: 1, z: 0 };
+  const right = normalize(cross(worldUp, back));
+  const up = cross(back, right);
+  const dot = (a: Vec3, b: Vec3) => a.x * b.x + a.y * b.y + a.z * b.z;
+
+  // Centre the graph across and up, as the camera sees it.
+  const origin = bodies[0]!;
+  const local = bodies.map((b) => {
+    const d = sub(b, origin);
+    return { x: dot(d, right), y: dot(d, up), z: dot(d, back), r: b.radius };
+  });
+  const span = (key: "x" | "y") => {
+    let lo = Infinity;
+    let hi = -Infinity;
+    for (const p of local) {
+      lo = Math.min(lo, p[key] - p.r);
+      hi = Math.max(hi, p[key] + p.r);
+    }
+    return (lo + hi) / 2;
+  };
+  const cx = span("x");
+  const cy = span("y");
+  let zMid = 0;
+  for (const p of local) zMid += p.z / local.length;
+  const centre = add(origin, add(add(scale(right, cx), scale(up, cy)), scale(back, zMid)));
+
+  // The nearest distance at which every body fits both half-angles.
+  const tanV = Math.tan(((view.fov / 2) * Math.PI) / 180) * (1 - FIT_MARGIN);
+  const visible = Math.max(1, view.width - Math.max(0, view.occludedRight) - Math.max(0, view.occludedLeft ?? 0));
+  const tanH = tanV * (visible / Math.max(1, view.height));
+  const largest = Math.max(...local.map((p) => p.r));
+  const pixelsPerUnitAt1 = view.height / 2 / (tanV / (1 - FIT_MARGIN));
+  let distance = Math.max(FIT_MIN_DISTANCE, (largest * pixelsPerUnitAt1) / FIT_MAX_NODE_PX);
+  for (const p of local) {
+    const depth = p.z - zMid;
+    distance = Math.max(
+      distance,
+      depth + (Math.abs(p.x - cx) + p.r) / tanH,
+      depth + (Math.abs(p.y - cy) + p.r) / tanV,
+    );
+  }
+  return { position: add(centre, scale(back, distance)), lookAt: centre };
+}

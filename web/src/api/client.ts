@@ -1,4 +1,4 @@
-import type { Artifact, ArtifactList, Concept, GraphSnapshot, KBSummary, LintReport, Overview, ChangesResponse, KBStatus, MaintenanceQuestions, MaintenanceSummary, SearchResponse, WorkResponse } from "./types";
+import type { Artifact, ArtifactList, Concept, GraphSnapshot, KBSummary, LintReport, Overview, ChangesResponse, KBStatus, MaintenanceQuestions, MaintenanceSummary, SearchResponse, WorkResponse, CheckCatalog } from "./types";
 
 const BASE = "/api/ui/v1";
 
@@ -81,6 +81,22 @@ export function clearToken(): void {
     sessionStorage.removeItem(SESSION_KEY);
   } catch {
     // Nothing to clear.
+  }
+}
+
+/** The server's version, from the unauthenticated /health beside /ui/; null
+ *  when it cannot be read, which the page simply leaves out. */
+export async function fetchServerVersion(signal?: AbortSignal): Promise<string | null> {
+  try {
+    const response = await fetch(new URL("../health", new URL(import.meta.env.BASE_URL, window.location.href)).pathname, {
+      headers: { Accept: "application/json" },
+      signal,
+    });
+    if (!response.ok) return null;
+    const body = (await response.json()) as { version?: unknown };
+    return typeof body.version === "string" && body.version ? body.version : null;
+  } catch {
+    return null;
   }
 }
 
@@ -169,6 +185,11 @@ export function fetchMaintenanceSummary(kb: string, signal?: AbortSignal): Promi
   return get<MaintenanceSummary>(`/kbs/${encodeURIComponent(kb)}/maintenance/summary`, signal);
 }
 
+/** Every lint check the server runs, by category (D365). */
+export function fetchChecks(kb: string, signal?: AbortSignal): Promise<CheckCatalog> {
+  return get<CheckCatalog>(`/kbs/${encodeURIComponent(kb)}/checks`, signal);
+}
+
 /** The questions the doctor deferred to a person: open_question concepts. */
 export function fetchMaintenanceQuestions(kb: string, signal?: AbortSignal): Promise<MaintenanceQuestions> {
   return get<MaintenanceQuestions>(`/kbs/${encodeURIComponent(kb)}/maintenance/questions`, signal);
@@ -177,6 +198,11 @@ export function fetchMaintenanceQuestions(kb: string, signal?: AbortSignal): Pro
 /** An opaque token that changes whenever the KB's concepts do (D337). */
 export function fetchRevision(kb: string, signal?: AbortSignal): Promise<{ revision: string }> {
   return get<{ revision: string }>(`/kbs/${encodeURIComponent(kb)}/revision`, signal);
+}
+
+/** When each visible concept entered the KB (its first commit), by id. */
+export function fetchBirths(kb: string, signal?: AbortSignal): Promise<{ births: Record<string, string> }> {
+  return get<{ births: Record<string, string> }>(`/kbs/${encodeURIComponent(kb)}/births`, signal);
 }
 
 export function fetchStatus(kb: string, signal?: AbortSignal): Promise<KBStatus> {

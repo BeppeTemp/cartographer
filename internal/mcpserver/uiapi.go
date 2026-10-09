@@ -125,13 +125,13 @@ func (m *MultiKBServer) handleUIAPI(w http.ResponseWriter, r *http.Request) {
 
 	switch segments[2] {
 	case "overview":
-		m.uiOverview(w, r, k)
+		m.uiOverview(w, r, srv)
 	case "graph":
 		uiGraph(w, r, k)
 	case "concept":
 		uiConcept(w, r, k, srv)
 	case "lint":
-		uiLint(w, r, k)
+		uiLint(w, r, srv)
 	case "artifacts":
 		m.uiArtifacts(w, r, srv)
 	case "artifact":
@@ -144,6 +144,10 @@ func (m *MultiKBServer) handleUIAPI(w http.ResponseWriter, r *http.Request) {
 		uiStatus(w, r, srv)
 	case "revision":
 		uiRevision(w, r, k)
+	case "births":
+		uiBirths(w, r, k)
+	case "checks":
+		uiChecks(w, k)
 	case "work":
 		uiWork(w, r, srv)
 	case "maintenance":
@@ -221,7 +225,8 @@ func (m *MultiKBServer) uiListKBs(w http.ResponseWriter, r *http.Request) {
 	writeUIJSON(w, http.StatusOK, map[string]interface{}{"kbs": rows})
 }
 
-func (m *MultiKBServer) uiOverview(w http.ResponseWriter, r *http.Request, k *kb.KB) {
+func (m *MultiKBServer) uiOverview(w http.ResponseWriter, r *http.Request, srv *Server) {
+	k := srv.kbRef
 	ctx := r.Context()
 	res, err := queryConcepts(k, ConceptQuery{Include: func(id string) bool { return Visible(ctx, k, id) }})
 	if err != nil {
@@ -287,7 +292,7 @@ func (m *MultiKBServer) uiOverview(w http.ResponseWriter, r *http.Request, k *kb
 		collections = append(collections, row)
 	}
 
-	findings, err := uiVisibleFindings(ctx, k, "")
+	findings, err := uiWholeFindings(ctx, srv)
 	if err != nil {
 		writeUIInternal(w, "overview: lint", err)
 		return
@@ -436,7 +441,8 @@ func uiVisibleNeighbors(ctx requestContext, k *kb.KB, graph kb.Links, links map[
 	return neighbours, broken
 }
 
-func uiLint(w http.ResponseWriter, r *http.Request, k *kb.KB) {
+func uiLint(w http.ResponseWriter, r *http.Request, srv *Server) {
+	k := srv.kbRef
 	ctx := r.Context()
 	severityMin := r.URL.Query().Get("severity_min")
 	if severityMin == "" {
@@ -449,7 +455,13 @@ func uiLint(w http.ResponseWriter, r *http.Request, k *kb.KB) {
 	}
 	scope := strings.TrimSuffix(strings.ReplaceAll(r.URL.Query().Get("scope"), "\\", "/"), "/")
 
-	findings, err := uiVisibleFindings(ctx, k, scope)
+	var findings []lint.Finding
+	var err error
+	if scope == "" {
+		findings, err = uiWholeFindings(ctx, srv)
+	} else {
+		findings, err = uiVisibleFindings(ctx, k, scope)
+	}
 	if err != nil {
 		writeUIInternal(w, "lint: run", err)
 		return
@@ -467,7 +479,9 @@ func uiLint(w http.ResponseWriter, r *http.Request, k *kb.KB) {
 		Check    string `json:"check"`
 		Severity string `json:"severity"`
 		Message  string `json:"message"`
+		Handler  string `json:"handler"`
 	}
+	auto := uiAutoChecks(k)
 	rows := make([]findingRow, 0, len(kept))
 	for _, f := range kept {
 		rows = append(rows, findingRow{
@@ -476,6 +490,7 @@ func uiLint(w http.ResponseWriter, r *http.Request, k *kb.KB) {
 			Check:    f.Check,
 			Severity: f.Severity,
 			Message:  f.Message,
+			Handler:  findingHandler(f, auto),
 		})
 	}
 	writeUIJSON(w, http.StatusOK, map[string]interface{}{
@@ -489,10 +504,83 @@ func uiLint(w http.ResponseWriter, r *http.Request, k *kb.KB) {
 	})
 }
 
+// Who acts on a finding (D365): "auto" when the background repair will fix it
+// by itself (it carries a fix of a check the heartbeat runs unattended), else
+// "doctor", the agent session that decides it or records it as a question for
+// a person.
+const (
+	findingHandlerAuto   = "auto"
+	findingHandlerDoctor = "doctor"
+)
+
+// uiAutoChecks is the set of checks the background repair runs on this KB:
+// none when the heartbeat is off.
+func uiAutoChecks(k *kb.KB) map[string]bool {
+	out := map[string]bool{}
+	if k.DoctorAutoIntervalDays <= 0 {
+		return out
+	}
+	safe, _ := autoRepairSplit(k)
+	for _, c := range safe {
+		out[c] = true
+	}
+	return out
+}
+
+// uiChecks lists every lint check the server runs (D365), by category, with
+// whether it can be fixed mechanically and whether this KB's background repair
+// fixes it by itself. It says what the KB is checked for; the counts come from
+// /lint, so a caller sees the coverage of exactly the findings it may see.
+func uiChecks(w http.ResponseWriter, k *kb.KB) {
+	type checkRow struct {
+		Name     string `json:"name"`
+		Category string `json:"category"`
+		Severity string `json:"severity"`
+		Fixable  bool   `json:"fixable"`
+		Auto     bool   `json:"auto"`
+	}
+	auto := uiAutoChecks(k)
+	rows := []checkRow{}
+	for _, s := range lint.Checks() {
+		if s.Category == "" {
+			continue // a kb_review kind, not a lint check
+		}
+		rows = append(rows, checkRow{
+			Name: s.Name, Category: s.Category, Severity: s.Severity,
+			Fixable: len(s.FixKinds) > 0, Auto: auto[s.Name],
+		})
+	}
+	writeUIJSON(w, http.StatusOK, map[string]any{"categories": lint.Categories, "checks": rows})
+}
+
+func findingHandler(f lint.Finding, auto map[string]bool) string {
+	if f.Fix != nil && auto[f.Check] {
+		return findingHandlerAuto
+	}
+	return findingHandlerDoctor
+}
+
 // uiVisibleFindings runs lint (or uses precomputed findings when provided) and
 // drops every finding the caller may not see. A finding that does not name a
 // concept — a directory-level check — is only for a caller that can see the
 // whole KB: its message can describe files the caller has no access to.
+// uiWholeFindings is uiVisibleFindings over the whole KB, from kb_status'
+// lint cache (D294) when the server has one: the overview asks for it on
+// every page load, KB switch and live refresh, and an uncached whole-KB lint
+// is most of what those cost. The visibility filter stays outside the cache.
+func uiWholeFindings(ctx requestContext, srv *Server) ([]lint.Finding, error) {
+	if srv.conformance != nil {
+		if all, err := srv.conformance.lintFindings(srv.kbRef); err == nil {
+			if all == nil {
+				// A clean KB: nil would mean "no precomputed findings" below.
+				all = []lint.Finding{}
+			}
+			return uiVisibleFindingsFrom(ctx, srv.kbRef, "", all)
+		}
+	}
+	return uiVisibleFindings(ctx, srv.kbRef, "")
+}
+
 func uiVisibleFindings(ctx requestContext, k *kb.KB, scope string) ([]lint.Finding, error) {
 	return uiVisibleFindingsFrom(ctx, k, scope, nil)
 }

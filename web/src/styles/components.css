@@ -32,6 +32,13 @@
   letter-spacing: -0.005em;
 }
 
+.topbar__version {
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+}
+
 .topbar__mark {
   width: 28px;
   height: 28px;
@@ -418,7 +425,22 @@
   padding-inline-end: var(--space-3);
   padding-block-end: var(--space-4);
   scrollbar-gutter: stable;
-  /* Rows fade out under the panel switcher instead of being cut by it. */
+  /* A thin scrollbar that shows only while the pointer is over the list:
+     the rail is navigation, not a document, and a permanent system bar
+     beside its rows is noise. */
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+  transition: scrollbar-color var(--motion-base) var(--ease-out);
+}
+
+.rail__scroll:hover,
+.rail__scroll:focus-within {
+  scrollbar-color: var(--border-strong) transparent;
+}
+
+/* Rows fade out under the panel switcher once the list is scrolled, instead
+   of being cut by it; at the top nothing is under it, so nothing fades. */
+.rail__scroll[data-scrolled] {
   mask-image: linear-gradient(to bottom, transparent, black var(--space-3));
 }
 
@@ -483,22 +505,12 @@
   border-radius: 3px;
 }
 
+/* All: the whole atlas, marked by the atlas glyph instead of a Map colour. */
 .rail__swatch--all {
-  background: linear-gradient(135deg, var(--primary), var(--clay));
-}
-
-/* The whole atlas sits apart from the Maps it contains: a hairline under it. */
-.rail__whole {
-  position: relative;
-}
-
-.rail__whole::after {
-  content: "";
-  position: absolute;
-  inset-inline: var(--space-2);
-  inset-block-end: calc(-1 * var(--space-3));
-  height: 1px;
-  background: var(--border-subtle);
+  display: grid;
+  place-items: center;
+  background: none;
+  color: var(--text-muted);
 }
 
 /* Clearing filters is a quiet line of text above them, not a boxed button:
@@ -537,9 +549,8 @@
   white-space: nowrap;
 }
 
-.rail__kind {
-  color: var(--text-muted);
-  font-size: var(--text-xs);
+.rail__group + .rail__group {
+  margin-top: var(--space-3);
 }
 
 .rail__collection-count {
@@ -737,6 +748,105 @@ body.is-resizing {
 .graph__canvas {
   position: absolute;
   inset: 0;
+}
+
+/* The growth replay's timeline, where the legend was. */
+.growth-timeline {
+  position: absolute;
+  z-index: 2;
+  inset-block-end: var(--space-4);
+  inset-inline-start: var(--space-4);
+  inset-inline-end: var(--space-4);
+  max-width: 720px;
+  margin-inline: auto;
+  padding: var(--space-1) var(--space-2);
+  background: color-mix(in srgb, var(--surface-1) 85%, transparent);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-card);
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: var(--space-2);
+  animation: rise-in var(--motion-base) var(--ease-emphasized);
+}
+
+.growth-timeline__body {
+  min-width: 0;
+}
+
+.growth-timeline__track {
+  position: relative;
+  height: 14px;
+  margin-block-start: var(--space-1);
+  border-block-end: 1px solid var(--border-subtle);
+  cursor: ew-resize;
+  touch-action: none;
+  border-radius: var(--radius-small) var(--radius-small) 0 0;
+}
+
+.growth-timeline__track:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 4px;
+}
+
+.growth-timeline__bar {
+  position: absolute;
+  bottom: 0;
+  width: 2px;
+  margin-left: -1px;
+  border-radius: 1px 1px 0 0;
+  background: var(--text-muted);
+  opacity: 0.35;
+  transition: opacity var(--motion-base) var(--ease-out), background var(--motion-base) var(--ease-out);
+}
+
+.growth-timeline__bar[data-past] {
+  background: var(--graph-signal);
+  opacity: 0.9;
+}
+
+.growth-timeline__fill {
+  position: absolute;
+  bottom: -1px;
+  left: 0;
+  height: 2px;
+  background: var(--graph-signal);
+}
+
+.growth-timeline__head {
+  position: absolute;
+  bottom: -4px;
+  width: 1px;
+  height: calc(100% + 8px);
+  background: var(--text-primary);
+}
+
+.growth-timeline__now {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  font-family: var(--font-editorial);
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.growth-timeline__count {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+.growth-timeline__scale {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-block-start: 2px;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
 }
 
 .graph__controls-sep {
@@ -1718,49 +1828,57 @@ body.is-resizing {
 }
 
 .graph__loading[data-drawn="true"] {
-  opacity: 0;
-  visibility: hidden;
   pointer-events: none;
+  visibility: hidden;
+  background: transparent;
+  transition:
+    background var(--motion-fast) var(--ease-out),
+    visibility 0s linear var(--motion-base);
 }
 
-.graph__loading-orbit {
-  position: relative;
-  width: 56px;
-  height: 56px;
-  border: 1px solid var(--border-subtle);
-  border-radius: 50%;
-  animation: graph-orbit 2.4s linear infinite;
+/* The graph bursts out of the seed: the canvas shows through at once and
+   the seed gives way to the nodes leaving from it. */
+.graph__loading[data-drawn="true"] .graph-seed {
+  background: transparent;
+  transition: background var(--motion-fast) var(--ease-out);
 }
 
-.graph__loading-orbit span {
+.graph__loading[data-drawn="true"] .graph-seed__dot {
+  animation: none;
+  opacity: 0;
+  transition: opacity var(--motion-fast) var(--ease-out);
+}
+
+.graph-seed {
   position: absolute;
-  top: -4px;
-  left: calc(50% - 4px);
-  width: 8px;
-  height: 8px;
-  background: var(--primary);
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: var(--surface-0);
+}
+
+/* A slow breath, not a beacon: the seed is the size of a node and only
+   just alive. */
+.graph-seed__dot {
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
-  transform-origin: 4px 32px;
+  background: var(--text-muted);
+  animation: graph-seed 2.8s ease-in-out infinite;
 }
 
-.graph__loading-orbit span:nth-child(2) {
-  transform: rotate(120deg) scale(0.75);
-  opacity: 0.7;
-}
-
-.graph__loading-orbit span:nth-child(3) {
-  transform: rotate(240deg) scale(0.5);
-  opacity: 0.45;
-}
-
-@keyframes graph-orbit {
-  to {
-    transform: rotate(360deg);
+@keyframes graph-seed {
+  0%,
+  100% {
+    opacity: 0.45;
+  }
+  50% {
+    opacity: 0.8;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .graph__loading-orbit {
+  .graph-seed__dot {
     animation: none;
   }
 }
@@ -2438,3 +2556,55 @@ body.is-resizing {
 
 /* Activity, Work and Health live in pages.css, built from the page kit. */
 
+
+/* The growth replay has the canvas to itself: the legend and the camera
+   controls slide away while it is open and come back when it closes, and
+   the timeline takes the width they leave. */
+.graph .legend,
+.graph .graph__controls {
+  transition:
+    opacity var(--motion-base) var(--ease-out),
+    transform var(--motion-base) var(--ease-out),
+    visibility 0s linear 0s;
+}
+.graph[data-growing] .graph__controls {
+  opacity: 0;
+  transform: translateX(16px);
+  visibility: hidden;
+  transition:
+    opacity var(--motion-base) var(--ease-in),
+    transform var(--motion-base) var(--ease-in),
+    visibility 0s linear var(--motion-base);
+}
+.graph[data-growing] .legend {
+  opacity: 0;
+  transform: translateY(16px);
+  visibility: hidden;
+  transition:
+    opacity var(--motion-base) var(--ease-in),
+    transform var(--motion-base) var(--ease-in),
+    visibility 0s linear var(--motion-base);
+}
+
+.growth-timeline .button--icon {
+  padding: 6px;
+  border-color: transparent;
+}
+
+/* A KB's Maps and Journals are dealt in one after another when it opens. */
+.rail__deal {
+  animation: rail-deal var(--motion-base) var(--ease-out) both;
+  animation-delay: calc(var(--deal, 0) * 35ms);
+}
+
+@keyframes rail-deal {
+  from {
+    opacity: 0;
+    transform: translateX(-8px);
+  }
+}
+
+.rail__collection-count,
+.rail__badge {
+  font-variant-numeric: tabular-nums;
+}

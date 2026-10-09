@@ -1,3 +1,5 @@
+import { useEffect, useState } from "react";
+import { fetchServerVersion } from "../api/client";
 import type { KBSummary } from "../api/types";
 import type { Theme } from "../lib/theme";
 import { Icon, type IconName } from "./Icon";
@@ -42,6 +44,12 @@ export function TopBar({
   onOpenInspector,
 }: Props) {
   const nextTheme: Record<Theme, Theme> = { system: "light", light: "dark", dark: "system" };
+  const [version, setVersion] = useState<string | null>(null);
+  useEffect(() => {
+    const controller = new AbortController();
+    void fetchServerVersion(controller.signal).then(setVersion);
+    return () => controller.abort();
+  }, []);
 
   return (
     <header className="topbar">
@@ -109,6 +117,11 @@ export function TopBar({
           <span aria-hidden="true">●</span>
           <span className="topbar__status-text">{offline ? "Disconnected" : "Connected"}</span>
         </span>
+        {version && (
+          <span className="topbar__version" title="Server version">
+            {/^\d/.test(version) ? `v${version}` : version}
+          </span>
+        )}
         <button
           type="button"
           className="button button--icon"

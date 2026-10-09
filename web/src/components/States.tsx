@@ -25,6 +25,17 @@ export function Skeleton({ lines = 3, label }: { lines?: number; label: string }
   );
 }
 
+/** The graph before it exists: a point of light pulsing where it will open
+ *  out from (scene bloom), so loading and the first frame are one motion. */
+export function GraphSeed({ label }: { label: string }) {
+  return (
+    <div className="graph-seed" role="status" aria-live="polite">
+      <span className="sr-only">{label}</span>
+      <span className="graph-seed__dot" aria-hidden="true" />
+    </div>
+  );
+}
+
 export function EmptyState({
   title,
   detail,

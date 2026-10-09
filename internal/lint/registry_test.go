@@ -270,3 +270,25 @@ func TestCheckConceptAgreesWithRun(t *testing.T) {
 		}
 	}
 }
+
+// Every lint check has a reader's category (D365); kb_review kinds have none.
+func TestRegistryCategories(t *testing.T) {
+	known := map[string]bool{}
+	for _, c := range Categories {
+		known[c] = true
+	}
+	review := map[string]bool{}
+	for _, k := range ReviewKinds {
+		review[k] = true
+	}
+	for _, s := range Checks() {
+		switch {
+		case review[s.Name] || s.Name == ReviewRepeatedFact || s.Name == ReviewTemplateProposal:
+			if s.Category != "" {
+				t.Errorf("%s is a review kind but has category %q", s.Name, s.Category)
+			}
+		case !known[s.Category]:
+			t.Errorf("%s has category %q, not one of %v", s.Name, s.Category, Categories)
+		}
+	}
+}

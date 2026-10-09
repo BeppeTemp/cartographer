@@ -89,6 +89,37 @@ func appendAutoRepairRun(k *kb.KB, run autoRepairRun) error {
 	return err
 }
 
+// autoRepairRunsSince returns the runs logged at or after since, newest first,
+// at most limit of them. A line that does not parse is skipped.
+func autoRepairRunsSince(k *kb.KB, since time.Time, limit int) []autoRepairRun {
+	out := []autoRepairRun{}
+	f, err := os.Open(autoRepairLogPath(k))
+	if err != nil {
+		return out
+	}
+	defer f.Close()
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 0, 64*1024), 1<<20)
+	for sc.Scan() {
+		var run autoRepairRun
+		if json.Unmarshal(sc.Bytes(), &run) != nil || run.At == "" {
+			continue
+		}
+		if at, err := time.Parse(time.RFC3339, run.At); err != nil || at.Before(since) {
+			continue
+		}
+		out = append(out, run)
+	}
+	// The log is appended in time order: newest first is the reverse.
+	for i, j := 0, len(out)-1; i < j; i, j = i+1, j-1 {
+		out[i], out[j] = out[j], out[i]
+	}
+	if len(out) > limit {
+		out = out[:limit]
+	}
+	return out
+}
+
 // lastAutoRepairRun returns the newest run in the log, or false.
 func lastAutoRepairRun(k *kb.KB) (autoRepairRun, bool) {
 	f, err := os.Open(autoRepairLogPath(k))

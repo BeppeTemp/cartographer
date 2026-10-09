@@ -88,15 +88,25 @@ describe("node list", () => {
 
 const report: LintReport = {
   findings: [
-    { path: "infra/gateway.md", concept: "infra/gateway", check: "broken_link", severity: "error", message: "target missing" },
-    { path: "maps/infra", check: "index_incomplete", severity: "warning", message: "index is stale" },
+    { path: "infra/gateway.md", concept: "infra/gateway", check: "broken_link", severity: "error", message: "target missing", handler: "doctor" },
+    { path: "maps/infra", check: "index_incomplete", severity: "warning", message: "index is stale", handler: "doctor" },
+    { path: "infra/a.md", concept: "infra/a", check: "nonstandard_field", severity: "warning", message: "field aggiornato", handler: "auto" },
+    { path: "infra/b.md", concept: "infra/b", check: "nonstandard_field", severity: "warning", message: "field aggiornato", handler: "auto" },
+    { path: "infra/c.md", concept: "infra/c", check: "title_quality", severity: "info", message: "title is long", handler: "doctor" },
   ],
-  count: 2,
-  total: 9,
-  by_severity: { error: 1, warning: 1, info: 7 },
-  by_check: { broken_link: 1, index_incomplete: 1 },
-  acceptability: { broken_link: "concept", index_incomplete: "none" },
+  count: 5,
+  total: 5,
+  by_severity: { error: 1, warning: 3, info: 1 },
+  by_check: { broken_link: 1, index_incomplete: 1, nonstandard_field: 2, title_quality: 1 },
   severity_min: "info",
+};
+
+const upkeep: MaintenanceSummary = {
+  auto_repair: { enabled: true, default: true, checks: ["nonstandard_field"], interval_days: 1 },
+  last_auto_repair: null,
+  doctor_interval_days: 1,
+  doctor_mode: "unattended",
+  repairs: [],
 };
 
 /** Health with neutral defaults: the findings tests only change what they are about. */
@@ -107,7 +117,6 @@ function health(
     status: KBStatus | null;
     summary: MaintenanceSummary | null;
     questions: MaintenanceQuestions | null;
-    severityMin: string;
     onReveal: (concept: string | null, message: string) => void;
   }> = {},
 ) {
@@ -120,8 +129,6 @@ function health(
       scopeTitle={props.scopeTitle ?? null}
       loading={false}
       error={null}
-      severityMin={props.severityMin ?? "info"}
-      onSeverityChange={vi.fn()}
       onReveal={props.onReveal ?? vi.fn()}
       onOpen={vi.fn()}
       onRetry={vi.fn()}
@@ -130,17 +137,34 @@ function health(
 }
 
 describe("health findings", () => {
-  it("tells who can accept each check", () => {
+  it("groups the findings by cause and says who acts on each", () => {
     render(health());
-    expect(screen.getAllByTitle(/Accept with lint_ignore on the concept/).length).toBeGreaterThan(0);
-    expect(screen.getAllByTitle(/Cannot be accepted/).length).toBeGreaterThan(0);
+    const problems = screen.getByRole("list", { name: "Findings by cause" });
+    // One row per check, the worst first; the same message on two pages is one line.
+    const rows = within(problems).getAllByRole("listitem").filter((li) => li.classList.contains("health__check"));
+    expect(rows.map((r) => r.querySelector("code")?.textContent)).toEqual([
+      "broken_link",
+      "nonstandard_field",
+      "index_incomplete",
+      "title_quality",
+    ]);
+    expect(rows[1]).toHaveTextContent("Automatic");
+    expect(rows[0]).toHaveTextContent("Doctor");
+    expect(within(rows[1]!).getByText(/× 2/)).toBeInTheDocument();
+  });
+
+  it("counts an info finding as an improvement in the doctor's queue, not a pile of its own", () => {
+    render(health({ report: { ...report, findings: report.findings.filter((f) => f.severity === "info") }, summary: upkeep }));
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("1 improvement waits for the doctor.");
+    expect(screen.getByText(/\+ 1 improvement/)).toBeInTheDocument();
   });
 
   it("reveals the concept behind a finding", async () => {
     const user = userEvent.setup();
     const onReveal = vi.fn();
     render(health({ onReveal }));
-    await user.click(screen.getByRole("button", { name: /broken_link/ }));
+    await user.click(screen.getByText("Broken links"));
+    await user.click(screen.getByRole("button", { name: /infra\/gateway/ }));
     expect(onReveal).toHaveBeenCalledWith("infra/gateway", "");
   });
 
@@ -148,13 +172,9 @@ describe("health findings", () => {
     const user = userEvent.setup();
     const onReveal = vi.fn();
     render(health({ onReveal }));
-    await user.click(screen.getByRole("button", { name: /index_incomplete/ }));
+    await user.click(screen.getByText("Indexes missing pages"));
+    await user.click(screen.getByRole("button", { name: /maps\/infra/ }));
     expect(onReveal).toHaveBeenCalledWith(null, expect.stringContaining("no node to reveal"));
-  });
-
-  it("says how many findings it is not showing", () => {
-    render(health({ severityMin: "warning" }));
-    expect(screen.getByText(/showing 2 of 9 findings/i)).toBeInTheDocument();
   });
 
   it("carries severity as text, not colour alone", () => {
@@ -166,10 +186,63 @@ describe("health findings", () => {
 
   it("leaves out what a narrowed principal cannot read, and keeps the findings", () => {
     render(health());
-    expect(screen.queryByRole("heading", { name: "Upkeep" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: /^Done by Cartographer/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Knowledge" })).not.toBeInTheDocument();
     expect(screen.getByRole("heading", { name: /^Findings/ })).toBeInTheDocument();
-    expect(screen.queryByText("Background repair")).not.toBeInTheDocument();
+  });
+});
+
+describe("health coverage", () => {
+  it("lists every check by category on a tab of its own, a zero too, and jumps to a check's findings", async () => {
+    const user = userEvent.setup();
+    render(
+      <Health
+        report={report}
+        status={null}
+        summary={null}
+        checks={{
+          categories: ["pages", "links"],
+          checks: [
+            { name: "nonstandard_field", category: "pages", severity: "warning", fixable: true, auto: true },
+            { name: "machine_path", category: "pages", severity: "warning", fixable: false, auto: false },
+            { name: "broken_link", category: "links", severity: "warning", fixable: true, auto: false },
+            { name: "orphan", category: "links", severity: "warning", fixable: false, auto: false },
+          ],
+        }}
+        questions={null}
+        scopeTitle={null}
+        loading={false}
+        error={null}
+        onReveal={vi.fn()}
+        onOpen={vi.fn()}
+        onRetry={vi.fn()}
+      />,
+    );
+    expect(screen.queryByText("Paths of one machine in the text")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Checks · 4" }));
+    const machine = screen.getByText("Paths of one machine in the text").closest("li")!;
+    expect(machine).toHaveTextContent("0");
+    expect(machine).not.toHaveAttribute("data-found");
+    expect(screen.getByText("Non-standard field names", { selector: ".coverage__name" }).closest("li")).toHaveTextContent("automatic");
+    expect(screen.getByText(/2 checks clean · 2 checks with findings · 1 fixed/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Broken links" }));
+    expect(screen.getByRole("list", { name: "Findings by cause" })).toBeInTheDocument();
+  });
+});
+
+describe("health verdict", () => {
+  const warnings: LintReport = { ...report, findings: report.findings.filter((f) => f.severity !== "error") };
+
+  it("says the problems wait for a doctor that never ran", () => {
+    render(health({ report: warnings, summary: upkeep }));
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("1 problem waits for the doctor.");
+    expect(screen.getByText("Starts when an agent next connects.")).toBeInTheDocument();
+  });
+
+  it("says nothing needs the reader while the doctor keeps up", () => {
+    const today = new Date().toISOString().slice(0, 10);
+    render(health({ report: warnings, summary: { ...upkeep, last_doctor: today, next_doctor: today } }));
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Nothing needs you: Cartographer is on it.");
   });
 });
 
@@ -204,7 +277,7 @@ describe("health scope", () => {
   it("names the Map it is scoped to, in the headline and the summary", () => {
     render(health({ scopeTitle: "Infrastructure" }));
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("1 thing is broken in Infrastructure.");
-    expect(screen.getByText(/^Findings over/)).toHaveTextContent("Findings over Infrastructure.");
+    expect(screen.getByText("Over Infrastructure only.")).toBeInTheDocument();
   });
 
   it("does not let a clean Map read as a clean KB", () => {

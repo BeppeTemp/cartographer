@@ -267,7 +267,7 @@ GoReleaser environment, which is out of the deterministic gate (see below).
 
 To work on the UI live, run a server (`cartographer serve --http :39273 --kb …`)
 and `cd web && npm run dev`: Vite serves the UI with hot reload on
-`http://localhost:5173/ui/` and proxies `/api` to the server
+`http://localhost:5173/ui/` and proxies `/api` and `/health` (the version beside the theme switch) to the server
 (`CARTOGRAPHER_DEV_API` for another address); the Atlas follows the KB live
 (D337). Keep no local file under `web/`: every file there enters the bundle's
 provenance hash, so an untracked one makes `make web` record a hash CI cannot
@@ -295,8 +295,9 @@ toolchain (D227). What they hold:
 - the live refresh bumps only when the KB revision changes, stops for good on a
   `404` (a narrowed principal has no revision) and never polls while disabled
   (D337);
-- Health (D338): findings by severity with their accept badges and floor,
-  revealing a concept or saying there is none, scoped by the rail's Map so a
+- Health (D338, D365): findings grouped by check with who acts on each,
+  info findings counted as the doctor's improvements, the verdict for a doctor that never ran and one
+  that keeps up, revealing a concept or saying there is none, scoped by the rail's Map so a
   clean Map never reads as a clean KB; the upkeep, questions and repairs, each
   copy action a clipboard write and every request a `GET`; a whole-KB `404`
   left out silently while another failure is reported; the old

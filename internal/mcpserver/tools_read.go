@@ -641,9 +641,17 @@ const (
 )
 
 type changesSinceConcept struct {
-	ID      string   `json:"id"`
-	Change  string   `json:"change"`
-	LastAt  string   `json:"last_at"`
+	ID     string `json:"id"`
+	Change string `json:"change"`
+	LastAt string `json:"last_at"`
+	// LastEditAt is the newest commit in the window that was not the
+	// server's own upkeep (auto-repair): when the concept's content last
+	// changed. Absent when only upkeep touched it.
+	LastEditAt string `json:"last_edit_at,omitempty"`
+	// Added says the concept was created inside the window, whatever its
+	// newest change was: over a long window most new concepts have been
+	// edited since, and Change only reports that newest one.
+	Added   bool     `json:"added,omitempty"`
 	Authors []string `json:"authors"`
 	Ops     []string `json:"ops"`
 	// Reasons are the distinct Reason: trailers of the commits that touched the
@@ -701,6 +709,13 @@ func changeSinceStatus(status string) string {
 	default:
 		return "modified"
 	}
+}
+
+// isUpkeepCommit reports whether a commit is the server's own maintenance
+// (the background auto-repair, autorepair.go), not a change anyone made to
+// what the KB says (D368).
+func isUpkeepCommit(subject string) bool {
+	return strings.HasPrefix(subject, "auto-repair")
 }
 
 func isCartographerPath(path string) bool {
@@ -799,6 +814,12 @@ func toolChangesSince(k *kb.KB) Tool {
 						authorSeen[id] = map[string]bool{}
 						opSeen[id] = map[string]bool{}
 						reasonSeen[id] = map[string]bool{}
+					}
+					if file.Status == "A" {
+						info.Added = true
+					}
+					if info.LastEditAt == "" && !isUpkeepCommit(commit.Subject) {
+						info.LastEditAt = commit.At.UTC().Format(time.RFC3339)
 					}
 					if !authorSeen[id][commit.Author] {
 						authorSeen[id][commit.Author] = true

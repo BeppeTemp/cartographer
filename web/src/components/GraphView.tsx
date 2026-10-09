@@ -3,6 +3,7 @@ import type { GraphSnapshot } from "../api/types";
 import { communitySlot, type Communities } from "../lib/communities";
 import { fade } from "../lib/encoding";
 import type { Pose } from "../lib/graph3d/camera";
+import { growthOrder, growthPace, type GrowthStep } from "../lib/graph3d/growth";
 import { planBursts } from "../lib/graph3d/motion";
 import { seedPosition } from "../lib/graph3d/physics";
 import type { LivingScene, SceneLink, SceneNode } from "../lib/graph3d/scene";
@@ -10,6 +11,8 @@ import { collectionHue, cssVar, resolveSlots, type ColorBy } from "../lib/palett
 import { nameOf, shortNameOf } from "../lib/names";
 import { prefersReducedMotion } from "../lib/theme";
 import type { ReactNode } from "react";
+import { GrowthTimeline } from "./GrowthTimeline";
+import { GraphSeed } from "./States";
 import { Icon } from "./Icon";
 
 /** The 3D view draws every visible concept up to this many (D234): the graph
@@ -36,9 +39,24 @@ export interface GraphArtifact {
 }
 
 const ARTIFACT_PREFIX = "artifact:";
+/** The band kept clear for the replay's timeline before it has a measured
+ *  height: its usual height plus the gap above it. */
+const GROWTH_BAND_PX = 75;
+/** The closest the replay's camera comes, as a share of the whole graph's
+ *  fit: low enough to follow a KB as it grows, high enough that a handful of
+ *  first concepts is not blown up. */
+const GROWTH_MIN_ZOOM = 0.6;
+
 
 interface Props {
   snapshot: GraphSnapshot;
+  /** What the layout belongs to (the KB and Map): a new key starts a fresh
+   *  scene, while a new snapshot under the same key -- a live refresh --
+   *  updates the one on screen, keeping every node where it is. */
+  layoutKey: string;
+  /** When each concept entered the KB, by id: offered, the graph can replay
+   *  its own growth from the first concept. */
+  loadBirths?(): Promise<Record<string, string>>;
   /** Artifacts to draw beside the concepts; empty draws none. */
   artifacts?: GraphArtifact[];
   /** A click on an artifact's diamond. */
@@ -116,11 +134,13 @@ function View({
   highlighted = null,
   onExpand,
   children,
-  snapshot,
+  snapshot: snap,
+  layoutKey,
+  loadBirths,
   communities,
   colorBy,
   selected,
-  hiddenIds,
+  hiddenIds: filtered,
   themeKey,
   live,
   onToggleLive,
@@ -139,6 +159,73 @@ function View({
   // the renderer and the synchronous warm-up take seconds on a large KB, and a
   // cover keeps that from reading as a blank canvas.
   const [drawn, setDrawn] = useState(false);
+  const snapshot = snap;
+
+  // The growth replay: the concepts in birth order and how many are out. A
+  // concept not yet born is hidden like a filtered one, so every effect below
+  // draws the replay without knowing about it.
+  const [growth, setGrowth] = useState<{ order: GrowthStep[]; shown: number; playing: boolean } | null>(null);
+  // The fit of the whole graph, taken before the replay hides it: the replay
+  // never comes closer than a share of it, so its first concepts start small
+  // in the middle instead of filling the canvas.
+  const growthFloor = useRef(0);
+  const hiddenIds = useMemo(() => {
+    if (!growth) return filtered;
+    const hidden = new Set(filtered);
+    for (let i = growth.shown; i < growth.order.length; i++) hidden.add(growth.order[i]!.id);
+    return hidden;
+  }, [filtered, growth]);
+  const startGrowth = () => {
+    if (growth) return setGrowth(null);
+    growthFloor.current = (sceneRef.current?.fitDistance(GROWTH_BAND_PX) ?? 0) * GROWTH_MIN_ZOOM;
+    void loadBirths?.()
+      .then((births) => setGrowth({ order: growthOrder(snapshot.nodes, snapshot.edges, births), shown: 1, playing: true }))
+      .catch((err) => console.warn("Atlas: the growth replay could not start", err));
+  };
+  useEffect(() => {
+    if (!growth?.playing) return;
+    const done = growth.shown >= growth.order.length;
+    const pace = growthPace(growth.order.length);
+    // At the end it pauses on the last day and stays open: the timeline is
+    // still there to scrub, and the close button ends the replay.
+    const timer = window.setTimeout(
+      () =>
+        setGrowth(
+          done
+            ? { ...growth, playing: false }
+            : { ...growth, shown: Math.min(growth.order.length, growth.shown + pace.perTick) },
+        ),
+      done ? 0 : pace.tickMs,
+    );
+    return () => window.clearTimeout(timer);
+  }, [growth]);
+  const seekGrowth = (shown: number) => setGrowth((g) => (g ? { ...g, shown, playing: false } : g));
+  // Play from where it is; at the end, play starts over.
+  const togglePlay = () =>
+    setGrowth((g) =>
+      g ? { ...g, playing: !g.playing, shown: !g.playing && g.shown >= g.order.length ? 1 : g.shown } : g,
+    );
+  // The camera keeps every concept that is out in sight, above the
+  // timeline: while it plays, easing after the graph as it grows; paused,
+  // once after each move along the timeline and again when the knock has
+  // settled.
+  const growthFrame = growth ? (growth.playing ? "playing" : `paused:${growth.shown}`) : null;
+  useEffect(() => {
+    if (!growthFrame) return;
+    const fit = () => {
+      const band = containerRef.current?.parentElement?.querySelector<HTMLElement>(".growth-timeline");
+      sceneRef.current?.fitEverything(band ? band.offsetHeight + 24 : GROWTH_BAND_PX, 900, growthFloor.current);
+    };
+    fit();
+    const timer =
+      growthFrame === "playing" ? window.setInterval(fit, 500) : window.setTimeout(fit, 1200);
+    return () => {
+      window.clearInterval(timer);
+      window.clearTimeout(timer);
+    };
+  }, [growthFrame]);
+  // A new layout (another KB or Map) ends a replay.
+  useEffect(() => setGrowth(null), [layoutKey]);
 
   // What the long-lived scene reads, through refs: a new callback identity from
   // the parent must never rebuild it.
@@ -156,6 +243,9 @@ function View({
   occludedRef.current = { left: occludedLeft, right: occludedRight };
   // The occlusion the current selection was last framed for.
   const focusedOcclusion = useRef<{ left: number; right: number } | null>(null);
+  // The node the camera was last sent to: a refresh re-places the labels but
+  // never re-runs the move, which would restart the camera on every update.
+  const focusedId = useRef<string | null>(null);
 
   const reducedMotion = useMemo(() => prefersReducedMotion(), []);
   const savedPose = useRef<Pose | null>(null);
@@ -165,25 +255,48 @@ function View({
   const byIdRef = useRef(byId);
   byIdRef.current = byId;
 
-  // Node objects for this snapshot: they outlive filter changes, so a node
-  // keeps its place when it is hidden and shown again.
+  // Node objects for this layout: they outlive filter changes and live
+  // refreshes, so a node keeps its place when it is hidden and shown again or
+  // when the KB moves under it. A node new to the layout starts beside a
+  // neighbour already placed, and the simulation pulls it in from there.
+  const nodeStore = useRef({
+    key: "",
+    nodes: new Map<string, SceneNode>(),
+    artifacts: new Map<string, SceneNode>(),
+  });
+  if (nodeStore.current.key !== layoutKey) {
+    nodeStore.current = { key: layoutKey, nodes: new Map(), artifacts: new Map() };
+  }
   const nodes = useMemo(() => {
+    const store = nodeStore.current.nodes;
     const max = Math.max(1, ...snapshot.nodes.map((n) => n.in_degree + n.out_degree));
-    return new Map<string, SceneNode>(
-      snapshot.nodes.map((n) => [
-        n.id,
-        {
-          id: n.id,
-          weight: Math.sqrt((n.in_degree + n.out_degree) / max),
-          ...seedPosition(n.id, snapshot.nodes.length, 3),
-        },
-      ]),
-    );
-  }, [snapshot]);
+    const placed = store.size > 0;
+    const adjacent = new Map<string, string[]>();
+    if (placed) {
+      for (const e of snapshot.edges) {
+        (adjacent.get(e.source) ?? adjacent.set(e.source, []).get(e.source)!).push(e.target);
+        (adjacent.get(e.target) ?? adjacent.set(e.target, []).get(e.target)!).push(e.source);
+      }
+    }
+    const next = new Map<string, SceneNode>();
+    for (const n of snapshot.nodes) {
+      const weight = Math.sqrt((n.in_degree + n.out_degree) / max);
+      const kept = store.get(n.id);
+      if (kept) {
+        kept.weight = weight;
+        next.set(n.id, kept);
+        continue;
+      }
+      const anchor = placed ? (adjacent.get(n.id) ?? []).map((id) => store.get(id)).find(Boolean) : undefined;
+      next.set(n.id, { id: n.id, weight, ...(anchor ? beside(anchor, n.id) : seedPosition(n.id, snapshot.nodes.length, 3)) });
+    }
+    nodeStore.current.nodes = next;
+    return next;
+  }, [snapshot, layoutKey]);
 
-  // Artifact nodes: kept across toggles like concept nodes, so a diamond
-  // shown again returns to its place.
-  const artifactNodes = useMemo(() => new Map<string, SceneNode>(), [snapshot]);
+  // Artifact nodes: kept across toggles and refreshes like concept nodes, so
+  // a diamond shown again returns to its place.
+  const artifactNodes = nodeStore.current.artifacts;
   // The artifacts drawn now: only those that reference a visible concept,
   // each with its links to those concepts.
   const drawnArtifacts = useMemo(() => {
@@ -209,8 +322,9 @@ function View({
     const container = containerRef.current;
     if (!container) return;
     let disposed = false;
-    let refit: number | undefined;
     setDrawn(false);
+    setReady(0);
+    focusedId.current = null;
     void import("../lib/graph3d/scene")
       .then(({ LivingScene }) => {
         if (disposed) return;
@@ -247,9 +361,6 @@ function View({
         );
         sceneRef.current = scene;
         setReady((n) => n + 1);
-        // The warm-up leaves the graph still contracting: frame it once more
-        // when it has settled, unless the reader has taken the camera.
-        refit = window.setTimeout(() => scene.refitIfUntouched(), 1800);
       })
       .catch((err) => {
         console.warn("Atlas: the 3D view could not start", err);
@@ -260,18 +371,36 @@ function View({
       });
     return () => {
       disposed = true;
-      window.clearTimeout(refit);
       sceneRef.current?.dispose();
       sceneRef.current = null;
     };
-  }, [snapshot, reducedMotion]);
+    // Built once: a new snapshot -- a refresh, or another KB or Map -- goes
+    // through setData below and keeps the scene and the camera, so a switch
+    // is an animation of the graph, never a blank canvas.
+  }, [reducedMotion]);
 
   // The visible set.
+  const lastVisible = useRef(new Set<string>());
+  const lastLayout = useRef("");
   useEffect(() => {
     const scene = sceneRef.current;
-    if (!scene) return;
+    if (!scene || !ready) return;
+    const replace = lastLayout.current !== "" && lastLayout.current !== layoutKey;
+    lastLayout.current = layoutKey;
     const visible = snapshot.nodes.filter((n) => !hiddenIds.has(n.id)).map((n) => nodes.get(n.id)!);
     const ids = new Set(visible.map((n) => n.id));
+    if (growth) {
+      // A concept born in the replay sprouts beside one already out, not
+      // where the full layout had it, and the knock spreads it from there.
+      for (const node of visible) {
+        if (lastVisible.current.has(node.id)) continue;
+        const anchor = snapshot.edges
+          .flatMap((e) => (e.source === node.id ? [e.target] : e.target === node.id ? [e.source] : []))
+          .find((id) => lastVisible.current.has(id));
+        Object.assign(node, anchor ? beside(nodes.get(anchor)!, node.id) : { x: 0, y: 0, z: 0 }, { vx: 0, vy: 0, vz: 0 });
+      }
+    }
+    lastVisible.current = ids;
     const links: SceneLink[] = snapshot.edges
       .filter((e) => ids.has(e.source) && ids.has(e.target))
       .map((e) => ({ source: e.source, target: e.target }));
@@ -279,10 +408,15 @@ function View({
       visible.push(a.node);
       for (const t of a.targets) links.push({ source: a.node.id, target: t });
     }
-    // Warm-up runs before the first frame: long enough that the graph opens
-    // nearly settled, short enough on a large KB not to block.
-    const warmup = Math.round(Math.max(80, Math.min(300, 600_000 / Math.max(1, visible.length))));
-    scene.setData(visible, links, warmup);
+    // Warm-up runs before the first frame and blocks it, so it is kept short:
+    // the burst opens the graph while the simulation, still warm, finishes
+    // settling it in view. Without the burst (reduced motion) it opens
+    // nearly settled instead.
+    const budget = reducedMotion ? 600_000 : 300_000;
+    const warmup = Math.round(Math.max(60, Math.min(reducedMotion ? 300 : 150, budget / Math.max(1, visible.length))));
+    scene.setData(visible, links, warmup, replace);
+    // A new layout opens out of its centre and the camera follows it as it
+    // settles (scene.setData): no timed refit, which would jump.
     // Two frames: the first renders the scene, the second runs after it is painted.
     let frame = requestAnimationFrame(() => {
       frame = requestAnimationFrame(() => setDrawn(true));
@@ -343,18 +477,22 @@ function View({
     scene.setSelection(shown);
     const node = shown ? scene.nodeById(shown) : undefined;
     if (!node) {
-      scene.unfocus(savedPose.current);
+      if (focusedId.current !== null) scene.unfocus(savedPose.current);
+      focusedId.current = null;
       savedPose.current = null;
       return;
     }
-    focusedOcclusion.current = occludedRef.current;
-    scene.focus(node.id, occludedRef.current, () => {
-      if (!savedPose.current) savedPose.current = scene.pose();
-    });
+    if (focusedId.current !== node.id) {
+      focusedId.current = node.id;
+      focusedOcclusion.current = occludedRef.current;
+      scene.focus(node.id, occludedRef.current, () => {
+        if (!savedPose.current) savedPose.current = scene.pose();
+      });
 
-    const plain = scene.linksOf(node.id).map((link) => ({ source: endpoint(link.source), target: endpoint(link.target), link }));
-    const plan = planBursts(node.id, plain, (id) => scene.neighboursOf(id).length, liveRef.current && !reducedMotion);
-    scene.sendSignals(plan.map((s) => ({ link: s.link.link, delayMs: s.delayMs })));
+      const plain = scene.linksOf(node.id).map((link) => ({ source: endpoint(link.source), target: endpoint(link.target), link }));
+      const plan = planBursts(node.id, plain, (id) => scene.neighboursOf(id).length, liveRef.current && !reducedMotion);
+      scene.sendSignals(plan.map((s) => ({ link: s.link.link, delayMs: s.delayMs })));
+    }
 
     // Labels: the selection and its neighbours, placed after every frame.
     const byDegree = [...scene.neighboursOf(node.id)].sort(
@@ -424,19 +562,15 @@ function View({
       className="graph graph--view"
       data-testid="graph-view"
       data-motion={live && !reducedMotion ? "live" : "still"}
+      data-growing={growth !== null || undefined}
     >
       <div ref={containerRef} className="graph3d">
         <div ref={labelsRef} className="graph3d__labels" aria-hidden="true" />
         <span ref={tooltipRef} className="graph3d__label graph3d__tooltip" aria-hidden="true" hidden />
       </div>
-      <div className="graph__loading" data-drawn={drawn} role="status" aria-live="polite">
-        <div className="graph__loading-orbit" aria-hidden="true">
-          <span />
-          <span />
-          <span />
-        </div>
-        {/* Kept through the fade-out; visibility: hidden then drops it from the tree. */}
-        <p className="state__detail">Charting {snapshot.nodes.length} concepts…</p>
+      {/* Kept through the fade-out; visibility: hidden then drops it from the tree. */}
+      <div className="graph__loading" data-drawn={drawn}>
+        <GraphSeed label={`Charting ${snapshot.nodes.length} concepts`} />
       </div>
       <div className="graph__controls" role="group" aria-label="Graph camera">
         <button type="button" className="button button--icon" onClick={() => scene()?.zoomBy(1 / 1.35)} aria-label="Zoom in">
@@ -448,6 +582,18 @@ function View({
         <button type="button" className="button button--icon" onClick={() => scene()?.frameAll()} aria-label="Fit graph to view">
           <Icon name="fit" size={16} />
         </button>
+        {loadBirths && (
+          <button
+            type="button"
+            className="button button--icon"
+            onClick={startGrowth}
+            aria-label="Replay growth"
+            aria-pressed={growth !== null}
+            title={growth ? "Stop the replay" : "Watch the KB grow from its first concept"}
+          >
+            <Icon name="grow" size={16} />
+          </button>
+        )}
         {onToggleLive && (
           <>
             <span className="graph__controls-sep" aria-hidden="true" />
@@ -465,6 +611,16 @@ function View({
         )}
       </div>
       {children}
+      {growth && (
+        <GrowthTimeline
+          order={growth.order}
+          shown={growth.shown}
+          playing={growth.playing}
+          onSeek={seekGrowth}
+          onTogglePlay={togglePlay}
+          onClose={() => setGrowth(null)}
+        />
+      )}
       {snapshot.truncated && (
         <div className="graph__banner banner" role="status">
           <span className="banner__glyph">
@@ -478,6 +634,14 @@ function View({
       )}
     </div>
   );
+}
+
+/** A start for a node new to a layout already on screen: a short, stable
+ *  offset from a neighbour, so it grows out of the graph rather than flying in
+ *  from the seed ball. */
+function beside(anchor: SceneNode, id: string): { x: number; y: number; z: number } {
+  const p = seedPosition(id, 1, 3);
+  return { x: (anchor.x ?? 0) + p.x * 0.5, y: (anchor.y ?? 0) + p.y * 0.5, z: (anchor.z ?? 0) + p.z * 0.5 };
 }
 
 /** Names `named` on the label layer, following them every frame; returns the

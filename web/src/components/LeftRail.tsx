@@ -1,10 +1,14 @@
+import type { CSSProperties } from "react";
 import type { Overview } from "../api/types";
 import type { Panel } from "../lib/viewstate";
 import { collectionVar } from "../lib/palette";
+import { Count } from "./Count";
 import { Icon } from "./Icon";
 
 interface Props {
   overview: Overview | null;
+  /** The KB the overview belongs to: a new one deals the list in again. */
+  overviewKB?: string;
   scope: string | null;
   panel: Panel;
   /** The KB's artifact count, or null when this principal may not open the
@@ -25,6 +29,7 @@ interface Props {
 
 export function LeftRail({
   overview,
+  overviewKB = "",
   scope,
   panel,
   artifactsTotal,
@@ -110,7 +115,11 @@ export function LeftRail({
               <Icon name="health" />
             </span>
             <span className="rail__label">Health</span>
-            {lintTotal > 0 && <span className="rail__badge">{lintTotal}</span>}
+            {lintTotal > 0 && (
+              <span className="rail__badge">
+                <Count value={lintTotal} />
+              </span>
+            )}
           </button>
         </li>
         {artifactsTotal !== null && (
@@ -133,47 +142,68 @@ export function LeftRail({
       </ul>
 
       {!collapsed && (
-        <div className="rail__scroll">
-          {/* The whole atlas is not one Map among the others: it stands apart,
-              above the list it contains. */}
-          <button
-            type="button"
-            className="rail__collection rail__whole"
-            aria-current={scope === null ? "true" : undefined}
-            onClick={() => onScope(null)}
-          >
-            <span className="rail__swatch rail__swatch--all" aria-hidden="true" />
-            <span className="rail__collection-name">Whole atlas</span>
-            <span className="rail__collection-count">{overview?.concepts.total ?? 0}</span>
-          </button>
-
+        <div
+          className="rail__scroll"
+          onScroll={(event) => {
+            const el = event.currentTarget;
+            if ((el.scrollTop > 0) !== el.hasAttribute("data-scrolled")) el.toggleAttribute("data-scrolled", el.scrollTop > 0);
+          }}
+        >
           <section className="rail__section">
-            <h2 className="rail__title">Maps &amp; Journals</h2>
-            <ul className="rail__collections">
-              {(overview?.collections ?? []).map((collection) => (
-                <li key={collection.name}>
-                  <button
-                    type="button"
-                    className="rail__collection"
-                    aria-current={scope === collection.name ? "true" : undefined}
-                    onClick={() => onScope(collection.name)}
-                  >
-                    <span
-                      className="rail__swatch"
-                      aria-hidden="true"
-                      style={{ background: collectionVar(collection.name) }}
-                    />
-                    <span className="rail__collection-name">
-                      {collection.title || collection.name}
-                      {collection.kind === "journal" && (
-                        <span className="rail__kind"> journal</span>
-                      )}
-                    </span>
-                    <span className="rail__collection-count">{collection.concepts}</span>
-                  </button>
-                </li>
-              ))}
-            </ul>
+            {(["map", "journal"] as const).map((kind, groupIndex, kinds) => {
+              const group = (overview?.collections ?? []).filter((c) => (c.kind === "journal" ? "journal" : "map") === kind);
+              if (group.length === 0) return null;
+              // The whole atlas heads the first list shown: one row among the
+              // others, set apart only by its mark.
+              const first = kinds.slice(0, groupIndex).every(
+                (k) => !(overview?.collections ?? []).some((c) => (c.kind === "journal" ? "journal" : "map") === k),
+              );
+              return (
+                <div key={`${overviewKB}:${kind}`} className="rail__group">
+                  <h2 className="rail__title">{kind === "journal" ? "Journals" : "Maps"}</h2>
+                  <ul className="rail__collections">
+                    {first && (
+                      <li className="rail__deal">
+                        <button
+                          type="button"
+                          className="rail__collection"
+                          aria-current={scope === null ? "true" : undefined}
+                          onClick={() => onScope(null)}
+                        >
+                          <span className="rail__swatch rail__swatch--all" aria-hidden="true">
+                            <Icon name="atlas" size={12} />
+                          </span>
+                          <span className="rail__collection-name">All</span>
+                          <span className="rail__collection-count">
+                            <Count value={overview?.concepts.total ?? 0} />
+                          </span>
+                        </button>
+                      </li>
+                    )}
+                    {group.map((collection, i) => (
+                      <li key={collection.name} className="rail__deal" style={{ "--deal": i + (first ? 1 : 0) } as CSSProperties}>
+                        <button
+                          type="button"
+                          className="rail__collection"
+                          aria-current={scope === collection.name ? "true" : undefined}
+                          onClick={() => onScope(collection.name)}
+                        >
+                          <span
+                            className="rail__swatch"
+                            aria-hidden="true"
+                            style={{ background: collectionVar(collection.name) }}
+                          />
+                          <span className="rail__collection-name">{collection.title || collection.name}</span>
+                          <span className="rail__collection-count">
+                            <Count value={collection.concepts} />
+                          </span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              );
+            })}
             {overview?.collections.length === 0 && (
               <p className="rail__empty">No Maps are visible to you in this KB.</p>
             )}
