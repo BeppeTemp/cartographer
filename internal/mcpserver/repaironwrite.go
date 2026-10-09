@@ -18,17 +18,19 @@ type repairedOut struct {
 	Count int    `json:"count"`
 }
 
-// repairOnWriteChecks is the auto_repair list a write may apply (D349):
-// broken_link and reciprocal_link_item drop or rewrite links (D309), and a
-// single write has no cross-concept state for the mutual-pair guard, so they
-// stay with the timer and kb_repair; artifact checks never concern a concept.
+// repairOnWriteChecks is the auto_repair list a write may apply (D349, D355):
+// only checks whose fix is safe to run unattended (D354) and stays inside the
+// concept. broken_link and reciprocal_link_item drop or rewrite links (D309),
+// and a single write has no cross-concept state for the mutual-pair guard, so
+// they stay with kb_repair; artifact checks never concern a concept.
 func repairOnWriteChecks(k *kb.KB) []string {
 	if !k.RepairOnWrite {
 		return nil
 	}
 	var out []string
 	for _, c := range k.AutoRepair {
-		if c == "broken_link" || c == "reciprocal_link_item" || lint.ArtifactRepairCheck(c) {
+		s, ok := lint.Spec(c)
+		if !ok || !s.AutoRepairSafe || s.CrossConcept || lint.ArtifactRepairCheck(c) {
 			continue
 		}
 		out = append(out, c)
@@ -59,8 +61,8 @@ func repairWritten(k *kb.KB, written, gone []string) (findings []findingOut, rep
 	for _, id := range written {
 		isWritten[id] = true
 	}
-	byConcept := map[string]map[string][]int{} // concept -> check -> indexes into found
-	for i, f := range found {
+	byConcept := map[string][]lint.Finding{} // concept -> its repairable findings
+	for _, f := range found {
 		if f.Fix == nil || f.Artifact || !inChecks[f.Check] {
 			continue
 		}
@@ -68,10 +70,7 @@ func repairWritten(k *kb.KB, written, gone []string) (findings []findingOut, rep
 		if id == "" || !isWritten[id] {
 			continue
 		}
-		if byConcept[id] == nil {
-			byConcept[id] = map[string][]int{}
-		}
-		byConcept[id][f.Check] = append(byConcept[id][f.Check], i)
+		byConcept[id] = append(byConcept[id], f)
 	}
 	if len(byConcept) == 0 {
 		return findingsOrNil(found), nil, nil
@@ -84,55 +83,21 @@ func repairWritten(k *kb.KB, written, gone []string) (findings []findingOut, rep
 	sort.Strings(ids)
 	counts := map[string]int{}
 	for _, id := range ids {
-		cd, err := k.ReadConcept(okf.ConceptID(id))
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "cartographer: repair-on-write %s: %v\n", id, err)
+		// The stage-1 applier (D355): the concept is repaired to a fixpoint
+		// and written once, so a chain (rename, split, normalise) is one write.
+		out, skip := repairConceptFixpoint(k, okf.ConceptID(id), checks, byConcept[id])
+		if skip != nil {
+			fmt.Fprintf(os.Stderr, "cartographer: repair-on-write %s: %s\n", id, skip.Reason)
 			continue
 		}
-		fm, err := okf.ParseFrontmatter(cd.FrontmatterRaw)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "cartographer: repair-on-write %s: %v\n", id, err)
-			continue
-		}
-		body := cd.Body
-		perCheck := map[string]int{}
-		total := 0
-		for _, check := range checks { // k.AutoRepair order
-			idx := byConcept[id][check]
-			if len(idx) == 0 {
-				continue
-			}
-			fixes := make([]*lint.Fix, 0, len(idx))
-			for _, i := range idx {
-				fixes = append(fixes, found[i].Fix)
-			}
-			savedFM, savedBody := fm.Serialize(), body
-			changed, partial, fatal := applyFixes(fm, &body, fixes)
-			if fatal != "" || len(partial) > 0 {
-				// Not a clean mechanical fix: leave it to a person, finding stays.
-				if restored, perr := okf.ParseFrontmatter(savedFM); perr == nil {
-					fm, body = restored, savedBody
-				}
-				continue
-			}
-			if changed > 0 {
-				perCheck[check] += changed
-				total += changed
-			}
-		}
-		if total == 0 {
-			continue
-		}
-		newHash, err := k.WriteConcept(okf.ConceptID(id), fm, body, cd.ContentHash)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "cartographer: repair-on-write %s: %v\n", id, err)
+		if out.Hash == "" {
 			continue
 		}
 		if hashes == nil {
 			hashes = map[string]string{}
 		}
-		hashes[id] = newHash
-		for c, n := range perCheck {
+		hashes[id] = out.Hash
+		for c, n := range out.Changed {
 			counts[c] += n
 		}
 	}

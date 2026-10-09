@@ -593,6 +593,7 @@ func kbCapabilities(k *kb.KB) map[string]KBCapability {
 	if k.ServerGit != nil {
 		workflow = "pr"
 	}
+	_, ignoredAuto := autoRepairSplit(k)
 	return map[string]KBCapability{
 		"artifact_write": {State: onOff(k.AllowArtifactWrite), Setting: "kbs[].allow_artifact_write"},
 		"secrets":        {State: onOff(k.SopsAgeKeyFile != ""), Setting: "kbs[].sops_age_key_file or sops.age_key_file"},
@@ -603,7 +604,7 @@ func kbCapabilities(k *kb.KB) map[string]KBCapability {
 		"mount": {State: mount, Setting: "kbs[]"},
 		// D299: what `cartographer kb repair --apply` may apply unattended,
 		// and when the server proposes the next kb-doctor session.
-		"auto_repair": {State: onOff(len(k.AutoRepair) > 0), Setting: "kbs[].auto_repair", Checks: k.AutoRepair, Default: k.AutoRepairDefault},
+		"auto_repair": {State: onOff(len(k.AutoRepair) > 0), Setting: "kbs[].auto_repair", Checks: k.AutoRepair, Default: k.AutoRepairDefault, Ignored: ignoredAuto},
 		// D349: a write applies the mechanical auto_repair fixes to what it wrote.
 		"repair_on_write": {State: onOff(k.RepairOnWrite && len(k.AutoRepair) > 0), Setting: "kbs[].repair_on_write"},
 		// D350: a write that introduces findings at or above the floor is refused.

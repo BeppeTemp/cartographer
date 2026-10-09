@@ -17,8 +17,9 @@ Three trust levels, never mixed: **mechanical** fixes (`kb_repair`) are determin
 operator's choice per item. The server proposes a session when the KB's `doctor_interval` has passed
 since the last one; it never runs one by itself. What it does run by itself, once per
 `doctor_auto_interval` (default daily), is the **background repair** (D323): the KB's `auto_repair`
-checks, at most 50 concepts per check, one commit each with reason "auto-repair (background)". It is
-not a session: it writes no `kb-doctor` log entry and cannot make a judgement.
+checks, each concept repaired to a fixpoint (dependent fixes in one write), at most 500 concepts per
+run, one commit per run with reason "auto-repair (background)"; it also runs shortly after a git pull
+that moved HEAD. It is not a session: it writes no `kb-doctor` log entry and cannot make a judgement.
 
 **Delegation.** The operator may hand the session over ("do it yourself"), or the KB's
 `instructions.md` may say doctor sessions run unattended. Then you decide every item yourself,

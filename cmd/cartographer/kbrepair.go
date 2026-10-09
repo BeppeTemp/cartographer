@@ -138,6 +138,9 @@ func runKBRepair(c toolCaller, apply, asJSON bool, out, errOut io.Writer) int {
 				Checks  []string `json:"checks"`
 				Default bool     `json:"default"`
 			} `json:"auto_repair"`
+			ArtifactWrite struct {
+				State string `json:"state"`
+			} `json:"artifact_write"`
 		} `json:"capabilities"`
 		Review struct {
 			Total  int            `json:"total"`
@@ -169,7 +172,11 @@ func runKBRepair(c toolCaller, apply, asJSON bool, out, errOut io.Writer) int {
 			return kbRepairExitError
 		}
 		dc.Auto = auto[check]
-		if apply && dc.Auto && dc.Planned > 0 {
+		// An artifact check rewrites KB-root files, which the server allows
+		// only with kbs[].allow_artifact_write: without it the plan is shown
+		// and the apply is left to the operator (the default list names one).
+		artifactBlocked := lint.ArtifactRepairCheck(check) && status.Capabilities.ArtifactWrite.State != "enabled"
+		if apply && dc.Auto && dc.Planned > 0 && !artifactBlocked {
 			done, err := kbRepairRun(c, check, false)
 			if err != nil {
 				fmt.Fprintf(errOut, "kb repair: kb_repair %s: %v\n", check, err)

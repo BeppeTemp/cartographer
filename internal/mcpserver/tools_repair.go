@@ -802,3 +802,186 @@ func toolKBRepair(k *kb.KB) Tool {
 		},
 	}
 }
+
+// fixpointCheck evaluates the rewritten content of a concept on every pass but
+// the first; a variable so a test can feed it synthetic fixes (a cycle cannot
+// be built from the real checks).
+var fixpointCheck = lint.CheckConcept
+
+// repairFixpointMax bounds the apply passes of repairConceptFixpoint (D355):
+// real chains are three or four links long (rename a field, split its prose,
+// normalise the value), so more than this is a cycle, not a long chain.
+const repairFixpointMax = 8
+
+// fixpointOutcome is what repairConceptFixpoint did to one concept.
+type fixpointOutcome struct {
+	// Changed counts, per check, the fixes applied across all passes.
+	Changed map[string]int
+	// Renames are the rename_field fixes that took effect, for the map
+	// contracts that name the renamed field (renameInContracts).
+	Renames []*lint.Fix
+	// Stuck lists the checks left with a finding the applier could not fix on
+	// its own (a person's call, or a fix that does nothing): reported once.
+	Stuck []string
+	// Notes says why, one line per stuck check.
+	Notes []string
+	// Hash is the content hash after the write ("" when nothing was written).
+	Hash string
+}
+
+// conceptContent is the file text WriteConcept produces for fm and body: what
+// lint.CheckConcept must be fed to judge a rewrite before it is written.
+func conceptContent(fm *okf.Frontmatter, body string) string {
+	if body != "" && !strings.HasSuffix(body, "\n") {
+		body += "\n"
+	}
+	return "---\n" + fm.Serialize() + "\n---\n" + body
+}
+
+// repairConceptFixpoint applies the allowed checks' mechanical fixes to one
+// concept until none is left (D355). Deterministic repairs depend on each
+// other (a rename exposes a prose value, a split exposes an invalid value), so
+// one pass converges a KB only over several runs; here the loop runs on the
+// in-memory content and the concept is written once, whatever the number of
+// passes.
+//
+// Pass 0 uses seed (the findings the caller already has, which can include
+// graph-level checks such as duplicate_link that CheckConcept does not
+// compute); later passes re-evaluate the rewritten content with
+// lint.CheckConcept. Cross-concept checks, artifact findings and checks outside
+// allowed are never applied here: stage 2 of the heartbeat owns them. allowed
+// is also the order checks are applied in within a pass.
+//
+// At most repairFixpointMax passes; a content seen twice is an oscillation.
+// Both write nothing and return a skip naming the checks. The caller holds the
+// KB lock (gitWrap).
+func repairConceptFixpoint(k *kb.KB, id okf.ConceptID, allowed []string, seed []lint.Finding) (fixpointOutcome, *repairSkip) {
+	out := fixpointOutcome{Changed: map[string]int{}}
+	path := okf.IDToPath(id)
+	skip := func(reason string) (fixpointOutcome, *repairSkip) {
+		return fixpointOutcome{Changed: map[string]int{}}, &repairSkip{Path: path, Reason: reason}
+	}
+	allow := map[string]bool{}
+	for _, c := range allowed {
+		allow[c] = true
+	}
+	cd, err := k.ReadConcept(id)
+	if err != nil {
+		return skip(err.Error())
+	}
+	fm, err := okf.ParseFrontmatter(cd.FrontmatterRaw)
+	if err != nil {
+		return skip("unreadable frontmatter: " + err.Error())
+	}
+	body := cd.Body
+	content := conceptContent(fm, body)
+	origHash := okf.ContentHash(content)
+	last := origHash
+	seen := map[string]bool{origHash: true}
+	stuck := map[string]bool{}
+
+	for pass := 0; ; pass++ {
+		var found []lint.Finding
+		if pass == 0 && seed != nil {
+			found = seed
+		} else {
+			found = fixpointCheck(k, id, content)
+		}
+		byCheck := map[string][]*lint.Fix{}
+		for _, f := range found {
+			if f.Fix == nil || f.Artifact || !allow[f.Check] || stuck[f.Check] {
+				continue
+			}
+			if s, ok := lint.Spec(f.Check); !ok || s.CrossConcept {
+				continue
+			}
+			if pass == 0 && seed != nil && uiFindingConcept(f.Path) != string(id) {
+				continue
+			}
+			byCheck[f.Check] = append(byCheck[f.Check], f.Fix)
+		}
+		if len(byCheck) == 0 {
+			break
+		}
+		if pass == repairFixpointMax {
+			return skip(nonConvergence(byCheck, id, "did not converge"))
+		}
+		passChanged := 0
+		for _, check := range allowed {
+			fixes := byCheck[check]
+			if len(fixes) == 0 {
+				continue
+			}
+			savedFM, savedBody := fm.Serialize(), body
+			changed, partial, fatal := applyFixes(fm, &body, fixes)
+			if fatal != "" {
+				if restored, perr := okf.ParseFrontmatter(savedFM); perr == nil {
+					fm, body = restored, savedBody
+				}
+				stuck[check] = true
+				out.Notes = append(out.Notes, check+": "+fatal)
+				continue
+			}
+			// A fix that needs a person does not hold back the others, and is
+			// reported once instead of being retried on every pass.
+			if len(partial) > 0 || changed == 0 {
+				stuck[check] = true
+				for _, p := range partial {
+					out.Notes = append(out.Notes, check+": "+p)
+				}
+			}
+			if changed > 0 {
+				out.Changed[check] += changed
+				passChanged += changed
+				for _, fx := range fixes {
+					if fx.Kind == lint.FixRenameField {
+						out.Renames = append(out.Renames, fx)
+					}
+				}
+			}
+		}
+		if passChanged == 0 {
+			break
+		}
+		content = conceptContent(fm, body)
+		h := okf.ContentHash(content)
+		if h == last {
+			break // the fixes cancelled out: converged on what was already there
+		}
+		if seen[h] {
+			return skip(nonConvergence(byCheck, id, "did not converge"))
+		}
+		seen[h], last = true, h
+	}
+	for c := range stuck {
+		out.Stuck = append(out.Stuck, c)
+	}
+	sort.Strings(out.Stuck)
+	if okf.ContentHash(content) == origHash {
+		out.Changed, out.Renames = map[string]int{}, nil
+		return out, nil
+	}
+	hash, err := k.WriteConcept(id, fm, body, cd.ContentHash)
+	if err != nil {
+		reason := err.Error()
+		if errors.Is(err, okf.ErrStaleWrite) {
+			reason = "stale_write: the concept changed since it was read"
+		}
+		return skip(reason)
+	}
+	out.Hash = hash
+	return out, nil
+}
+
+// nonConvergence is the skip reason of a concept the fixpoint left alone, and
+// the stderr line that tells an operator which fixes keep undoing each other.
+func nonConvergence(byCheck map[string][]*lint.Fix, id okf.ConceptID, what string) string {
+	names := make([]string, 0, len(byCheck))
+	for c := range byCheck {
+		names = append(names, c)
+	}
+	sort.Strings(names)
+	reason := what + ": " + strings.Join(names, ", ")
+	fmt.Fprintf(os.Stderr, "cartographer: repair %s: %s\n", id, reason)
+	return reason
+}

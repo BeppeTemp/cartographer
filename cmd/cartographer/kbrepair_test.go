@@ -162,7 +162,7 @@ type fakeCaller string
 func (f fakeCaller) Invoke(string, any) (json.RawMessage, error) { return json.RawMessage(f), nil }
 
 // The product default (D323) is what --apply runs when the operator never
-// wrote an auto_repair: the five safe checks, and the report says it is the
+// wrote an auto_repair: every safe check (D355), and the report says it is the
 // default so an upgrading operator is not surprised.
 func TestKBRepairApplyRunsDefaultChecks(t *testing.T) {
 	c, concept := repairTestKB(t, config.DefaultAutoRepair)
@@ -191,7 +191,7 @@ func TestKBRepairApplyRunsDefaultChecks(t *testing.T) {
 func TestKBRepairReportsTheDefaultList(t *testing.T) {
 	var out bytes.Buffer
 	printKBRepairReport(&out, kbRepairReport{KB: "kb-a", AutoRepair: config.DefaultAutoRepair, AutoRepairDefault: true})
-	if !strings.Contains(out.String(), "auto_repair uses the default (5 checks") {
+	if !strings.Contains(out.String(), "auto_repair uses the default (10 checks") {
 		t.Fatalf("report:\n%s", out.String())
 	}
 }

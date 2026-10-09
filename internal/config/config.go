@@ -908,14 +908,20 @@ func parseDays(v string, def int) (int, error) {
 	return n, nil
 }
 
-// DefaultAutoRepair is the auto_repair of a KB that does not set one (D323):
-// the checks whose fix is deterministic, never rewrites body text and never
-// removes a link, so running it unattended cannot lose a graph edge.
-// broken_link and reciprocal_link_item are deliberately absent: they rewrite
-// or drop links, and D309 showed a mutual-pair drop can lose hundreds of
-// edges in one commit. A fixable check added later is not added here without
-// a decision. Do not mutate the returned slice: use AutoRepairChecks.
-var DefaultAutoRepair = []string{"nonstandard_field", "tool_param_field", "invalid_field_value", "duplicate_link", "prose_value"}
+// DefaultAutoRepair is the auto_repair of a KB that does not set one (D323,
+// D355): every check whose registered fix may run with no person
+// (AutoRepairSafe, D354). Each is mechanical and already guarded; leaving one
+// off by default is what keeps imported KBs drifting. broken_link and
+// reciprocal_link_item are deliberately absent: they rewrite or drop links,
+// and D309 showed a mutual-pair drop can lose hundreds of edges in one commit.
+// The list is a literal, pinned equal to the AutoRepairSafe set by a test, so
+// a check added to the registry as safe fails that test until someone decides
+// it belongs here. Do not mutate the returned slice: use AutoRepairChecks.
+var DefaultAutoRepair = []string{
+	"nonstandard_field", "tool_param_field", "prose_value", "invalid_field_value",
+	"stringified_list", "title_h1_mismatch", "legacy_path", "duplicate_link",
+	"index_link_form", "legacy_tool_name",
+}
 
 // AutoRepairChecks resolves AutoRepair: DefaultAutoRepair when the key is
 // absent (nil), the operator's list when set, none when it is an explicit

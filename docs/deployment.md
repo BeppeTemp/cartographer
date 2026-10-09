@@ -108,10 +108,10 @@ kbs:                          # (kbs[]) explicit KBs, local path or remote git (
     auto_repair: [nonstandard_field, duplicate_link] # (kbs[].auto_repair) checks `cartographer kb repair
                                                       # --apply` may apply unattended (D299); each must be
                                                       # a check with a mechanical fix, listed by name (no
-                                                      # "all"). Absent: the default list (D323,
-                                                      # nonstandard_field, tool_param_field,
-                                                      # invalid_field_value, duplicate_link,
-                                                      # prose_value); [] means none
+                                                      # "all"). Absent: every check whose fix is safe to
+                                                      # run unattended (D323, D355); [] means none. A
+                                                      # listed check that is not safe is ignored by the
+                                                      # background repair and repair on write
     repair_on_write: true                            # (kbs[].repair_on_write) a write applies the
                                                       # auto_repair fixes (except broken_link and
                                                       # reciprocal_link_item) to the concepts it wrote,
@@ -122,9 +122,11 @@ kbs:                          # (kbs[]) explicit KBs, local path or remote git (
                                                       # severity or worse is refused and rolled back
                                                       # (D350); needs auto-commit on a git repository
     doctor_auto_interval: 1d                         # (kbs[].doctor_auto_interval) how often the server
-                                                      # applies auto_repair by itself, at most 50
-                                                      # concepts per check (D323, HTTP serve only);
-                                                      # "0" disables, default 1d
+                                                      # applies auto_repair by itself, to a fixpoint,
+                                                      # at most 500 concepts per run, one commit per run
+                                                      # (D323, D355, HTTP serve only); it also runs
+                                                      # shortly after a pull that changed HEAD (at most
+                                                      # once per 10 min); "0" disables, default 1d
     doctor_interval: 14d                             # (kbs[].doctor_interval) days after the last
                                                       # kb-doctor session before the server proposes the
                                                       # next one (D299); "0" disables, default 14d
