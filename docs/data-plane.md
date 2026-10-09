@@ -392,8 +392,8 @@ projections of it. This catalogue is generated from it (a test fails when it dri
 | `status_semantics` | warning | concept | concept | - | - | yes |
 | `machine_path` | warning | concept | concept | - | - | yes |
 | `mangled_placeholder` | warning | concept | concept | - | - | yes |
-| `missing_title` | warning | concept | concept | - | - | yes |
-| `title_h1_mismatch` | warning | concept | concept | `sync_h1` | yes | yes |
+| `missing_title` | warning | concept | concept | `set_value` | yes | yes |
+| `title_h1_mismatch` | warning | concept | concept | `sync_h1`, `set_value` | yes | yes |
 | `title_quality` | info | concept | concept | - | - | yes |
 | `missing_required_field` | error | concept | none | - | - | yes |
 | `invalid_field_value` | error | concept | none | `set_value` | yes | yes |
@@ -405,6 +405,7 @@ projections of it. This catalogue is generated from it (a test fails when it dri
 | `closed_with_open_items` | info | concept | concept | - | - | yes |
 | `template_section_missing` | info | concept | concept | - | - | yes |
 | `open_marker` | info | concept | concept | - | - | yes |
+| `repeated_link` | info | concept | concept | `unlink_repeat` | yes | yes |
 | `missing_frontmatter` | error | concept | none | `add_frontmatter` | yes | - |
 | `unparseable_frontmatter` | error | concept | none | `quote_value` | yes | - |
 | `missing_type` | error | concept | none | `set_value` | yes | - |
@@ -431,6 +432,8 @@ projections of it. This catalogue is generated from it (a test fails when it dri
 | `cut_concept` | info | graph | concept | - | - | - |
 | `island` | info | graph | concept | - | - | - |
 | `map_misfit` | info | graph | concept | - | - | - |
+| `unknown_type` | warning | graph | concept | `set_value` | - | - |
+| `value_case_variant` | warning | graph | concept | `set_value` | yes | - |
 | `contract_malformed` | info | map | none | - | - | - |
 | `facet_sprawl` | info | map | map | - | - | - |
 | `missing_value_contract` | info | map | map | - | - | - |
@@ -445,6 +448,8 @@ projections of it. This catalogue is generated from it (a test fails when it dri
 | `unlistable_assets` | warning | map | none | - | - | - |
 | `oversized_asset` | warning | map | none | - | - | - |
 | `orphan_asset` | info | map | none | - | - | - |
+| `unmapped_folder` | warning | map | none | `scaffold_map` | yes | - |
+| `stray_file` | warning | map | concept | - | - | - |
 | `skill_invalid` | warning | artifact | artifact | - | - | - |
 | `skill_warning` | info | artifact | artifact | - | - | - |
 | `legacy_tool_name` | warning | artifact | artifact | `strip_tool_prefix` | yes | - |
@@ -499,8 +504,14 @@ Lint also compares a KB with the standard fields the server reads, not only with
 - `missing_value_contract` (info, on the map's `_map.md`): a scalar string field present in at least 5 concepts of the map, with at most 8 distinct values (no cap for `status`, the vocabulary every reader assumes) and no `field_values` for it (map-wide or for the dominant type). The message lists the observed values with their counts and the line to add, typed (`field_values.<Type>.<field>`) when at least 90 % of the carrying concepts share one type. `title`, `type`, `description`, `timestamp`, `review_after`, `superseded_by`, the free-form or list-shaped `provenance`, `tags`, `resource`, `secrets_source`, and the synonyms above are never suggested (D295). No fix: declaring a vocabulary is a judgement.
 
 - `malformed_frontmatter` (warning, not suppressible, no fix, D295): a top-level key with a scalar value followed by indented `- ` lines. The stdlib-only parser (D8) keeps the scalar and drops the lines, so the value is silently truncated; the message names the key and the line.
-- `stringified_list` (warning, not suppressible, fix `listify_field`, D314): a list field (`provenance`, `tags`, `related`, `lint_ignore`, `open`, `secrets_source`) whose parsed value is a string that looks like a list: `"[a, b]"`, `"[a]; [b]"` or `"- a"`. The parser reads a quoted flow list as a scalar, so nothing else sees it. `kb_repair` rewrites it as a real list.
-- `title_h1_mismatch` (warning, suppressible, fix `sync_h1`, D315): the frontmatter `title` and the body's first `# ` heading both exist and differ. The title is the label `concept_list`, search and the Atlas show, so the heading is the wrong one: `kb_repair title_h1_mismatch` overwrites it with `# <title>` (plain text: formatting in the old heading goes; only the first heading, never one in a code fence).
+- `stringified_list` (warning, not suppressible, fix `listify_field`, D314, D357): a list field (`provenance`, `tags`, `related`, `lint_ignore`, `open`, `secrets_source`) whose parsed value is a string, whatever it looks like: `"[a, b]"`, `"[a]; [b]"`, `"- a"`, but also the commonest shape, a bare `tags: "x, y"` or `tags: backup`. The parser reads a quoted flow list as a scalar, so nothing else sees it. `kb_repair` rewrites it as a real list: a written list splits as written; a bare string splits on commas only for the identifier fields (`tags`, `related`, `lint_ignore`, `open`), while `provenance` and `secrets_source` become a one-element list with no split, since a source citation may contain commas (`"Talk, 2024"`).
+- `title_h1_mismatch` (warning, suppressible, fix `sync_h1` or `set_value`, D315, D357): the frontmatter `title` and the body's first `# ` heading both exist and differ. The title is the label `concept_list`, search and the Atlas show, so the heading is normally the wrong one: `kb_repair title_h1_mismatch` overwrites it with `# <title>` (plain text: formatting in the old heading goes; only the first heading, never one in a code fence). When the title is the one `title_quality` rejects (decorative characters, over-long, a status word, a forbidden term) and the heading is not, the heading is the good side: the fix is `set_value title` with the heading's text. When both fail the predicate there is no fix (judgement). `title_quality` and this check share one predicate (`titleTextIssues`).
+- `missing_title` (warning, suppressible, fix `set_value title`, D357): no title. The fix is the first heading when it passes the `title_quality` predicate, else, for a file name that is a slug, the name with `-` and `_` turned into spaces and the first letter upper-cased; a heading that fails the predicate and a non-slug name give no fix.
+- `repeated_link` (info, suppressible, fix `unlink_repeat`, D357): the same target linked more than once in one paragraph (a list item or heading is its own paragraph; code and images are skipped; `duplicate_link` covers text against "See also"). One finding per target; the fix keeps the first link in each paragraph and turns the later ones into their label text.
+- `unknown_type` (warning, suppressible, fix `set_value type` when one known type matches case-insensitively, else judgement, D357): a `type` outside the KB's palette, the union of the types its `templates/*.md` declare and the `concept_types` of its strict maps. A KB with an empty palette (no template with a literal type, no strict map) is not checked.
+- `value_case_variant` (warning, suppressible, fix `set_value status` to the majority spelling, D357): a `status`, in a map whose contract does not constrain it (`invalid_field_value` owns a constrained one), that equals case-folded a different spelling used by more concepts KB-wide. A tie reports both sides and fixes neither.
+- `unmapped_folder` (warning, not suppressible, on the folder, fix `scaffold_map`, D357): a top-level `data/` folder that holds concepts and has no `_map.md` (nor legacy `_archive.md`): `map_list` shows it with no title or kind and no contract applies. The fix writes the descriptor `map_create` writes for `kind: map` (`type: Map`, `title` from the folder name, no contract; `index.md` and `log.md` only when missing), through the same KB function (`ScaffoldMap`). It repairs folders, not concepts: the response of `kb_repair` says `found_folders`, and repair-on-write never runs it.
+- `stray_file` (warning, accepted in the map's `lint_ignore`, no fix, D357): a non-Markdown regular file in `data/` outside any expanded concept (at the top of `data/` or directly in a map), neither junk (`junk_file`) nor hidden. Moving or deleting it is judgement, so it is a `lint_judgement` review item.
 - `title_quality` (info, suppressible, no fix, D315): the title carries a decorative character (Unicode symbol or modifier, emoji included), is longer than the map's `title_max_length`, holds a lifecycle word (`attivo`, `active`, `dismesso`, `deprecated`, `draft`, `superseded`, `preparazione`, `archiviato`, `archived`, `declassato`, whole words) while the concept has a `status` field, holds one of the map's `forbidden_title_terms`, or the concept's own slug starts `YYYY-MM` in a map that is not `kind: journal`. One finding per rule that fires; a KB that wants it stricter promotes nothing here, it fixes the titles.
 - `mangled_placeholder` (warning, suppressible, no fix, D314): the body holds a `` `repo:key` `` or `` `path:key` `` code span followed within 40 characters by "between double braces" (or its Italian/French forms): a `{{…}}` placeholder an import unwrapped into prose. Fenced blocks and lines containing `{{` are skipped.
 
@@ -584,7 +595,7 @@ Lint also sees a KB **decaying**: work never closed, closed work not finished, p
 
 A review item is dismissed by `lint_ignore: [<kind>]` on a concept it names — for a pair, either member; a `glossary_gap` instead stops counting the concept carrying it, and the item goes when fewer than 10 remain. The agent writes the dismissal with the reason in the same commit, so the history says why; there is no review state besides the KB itself.
 
-A finding whose remedy is mechanical carries `fix: {kind, field, to?}` (`rename_field`, `drop_field`, `rebase_link`, `drop_link_item`, `rewrite_wiki_link`, `set_value`, `split_value`, `sync_h1`, `add_frontmatter`, `quote_value`, `move`); the rest carry none. `lint.CheckConcept` computes the frontmatter-driven checks of one concept without walking the KB (`missing_required_field`, `invalid_field_value`, `forbidden_field`, `nonstandard_field`, `tool_param_field`, `missing_title`, `title_h1_mismatch`, `title_quality`, `machine_path`, `stale_claim`); `Run` calls the same function, and the write tools return its result.
+A finding whose remedy is mechanical carries `fix: {kind, field, to?}` (`rename_field`, `drop_field`, `rebase_link`, `drop_link_item`, `rewrite_wiki_link`, `set_value`, `split_value`, `sync_h1`, `unlink_repeat`, `scaffold_map`, `add_frontmatter`, `quote_value`, `move`); the rest carry none. `lint.CheckConcept` computes the frontmatter-driven checks of one concept without walking the KB (`missing_required_field`, `invalid_field_value`, `forbidden_field`, `nonstandard_field`, `tool_param_field`, `missing_title`, `title_h1_mismatch`, `title_quality`, `machine_path`, `stale_claim`); `Run` calls the same function, and the write tools return its result.
 
 `machine_path_allow_prefixes` accepts **`~/`-anchored** prefixes as well as POSIX- and
 Windows-absolute ones: `~/.ssh/config` means "your ssh config" on every machine, exactly as `/etc/…`

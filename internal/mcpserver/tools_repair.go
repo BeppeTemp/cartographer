@@ -278,7 +278,7 @@ func applyFixes(id okf.ConceptID, fm *okf.Frontmatter, body *string, fixes []*li
 				changed-- // already a list: idempotent
 				continue
 			}
-			items := lint.ListItems(v)
+			items := lint.ListItems(fx.Field, v)
 			if len(items) == 0 {
 				partial = append(partial, fx.Field+": no items to extract from the string")
 				changed--
@@ -289,6 +289,13 @@ func applyFixes(id okf.ConceptID, fm *okf.Frontmatter, body *string, fixes []*li
 			nb, ok := replaceFirstH1(*body, fx.To)
 			if !ok {
 				changed-- // no heading, or already equal: idempotent
+				continue
+			}
+			*body = nb
+		case lint.FixUnlinkRepeat:
+			nb, ok := lint.UnlinkRepeats(*body, fx.Field)
+			if !ok {
+				changed-- // already unlinked: idempotent
 				continue
 			}
 			*body = nb
@@ -433,6 +440,101 @@ func applyArtifactRepair(k *kb.KB, targets []artifactRepairTarget) (applied []ar
 		applied = append(applied, t)
 	}
 	return applied, skipped
+}
+
+// mapRepairTarget is one data/ folder with the title its descriptor gets.
+type mapRepairTarget struct {
+	Folder, Title string
+}
+
+// planMapRepair is planRepair for a check whose findings name a data/ folder
+// (unmapped_folder, D357). It reads, never writes.
+func planMapRepair(k *kb.KB, check, scope string) ([]mapRepairTarget, []repairItem, error) {
+	findings, err := lint.Run(k, scope, false)
+	if err != nil {
+		return nil, nil, err
+	}
+	var targets []mapRepairTarget
+	var items []repairItem
+	for _, f := range findings {
+		if f.Check != check || f.Fix == nil || f.Fix.Kind != lint.FixScaffoldMap {
+			continue
+		}
+		targets = append(targets, mapRepairTarget{Folder: f.Fix.Field, Title: f.Fix.To})
+		items = append(items, repairItem{Path: f.Path, Fix: f.Fix})
+	}
+	sort.Slice(targets, func(i, j int) bool { return targets[i].Folder < targets[j].Folder })
+	sort.SliceStable(items, func(i, j int) bool { return items[i].Path < items[j].Path })
+	return targets, items, nil
+}
+
+// applyMapRepair writes the descriptor of each folder through the code map_create
+// uses (kb.ScaffoldMap). A folder that gained a descriptor since the plan, or
+// vanished, is skipped. The caller holds the KB lock (gitWrap).
+func applyMapRepair(k *kb.KB, targets []mapRepairTarget) (applied []mapRepairTarget, skipped []repairSkip) {
+	for _, t := range targets {
+		if err := k.ScaffoldMap(t.Folder, t.Title); err != nil {
+			skipped = append(skipped, repairSkip{t.Folder, err.Error()})
+			continue
+		}
+		applied = append(applied, t)
+	}
+	return applied, skipped
+}
+
+// kbRepairMaps is kb_repair for a map check: the same response shape, counted
+// in folders.
+func kbRepairMaps(k *kb.KB, check, scope string, dryRun bool, limit int) (ToolResult, error) {
+	targets, items, err := planMapRepair(k, check, scope)
+	if err != nil {
+		return errorResult(fmt.Sprintf("kb_repair: %v", err)), nil
+	}
+	foundTotal := len(items)
+	if limit > 0 && len(targets) > limit {
+		targets = targets[:limit]
+		keep := map[string]bool{}
+		for _, t := range targets {
+			keep[t.Folder] = true
+		}
+		kept := items[:0]
+		for _, it := range items {
+			if keep[it.Path] {
+				kept = append(kept, it)
+			}
+		}
+		items = kept
+	}
+	planned := items
+	if len(planned) > repairPlannedCap {
+		planned = planned[:repairPlannedCap]
+	}
+	result := map[string]interface{}{
+		"check":         check,
+		"dry_run":       dryRun,
+		"planned":       planned,
+		"planned_total": len(items),
+		"found_total":   foundTotal,
+		"found_folders": foundTotal,
+		"applied":       0,
+		"skipped":       []repairSkip{},
+	}
+	res := ToolResult{}
+	if !dryRun && len(targets) > 0 {
+		applied, skipped := applyMapRepair(k, targets)
+		if len(applied) > 0 {
+			entry := fmt.Sprintf("kb_repair: %s (%d folders)\n\n%d applied, %d skipped", check, len(applied), len(applied), len(skipped))
+			_ = k.AppendLog(entry, time.Now())
+			res.CommitSubject = fmt.Sprintf("kb_repair: %s (%d folders)", check, len(applied))
+		}
+		result["applied"] = len(applied)
+		delete(result, "planned")
+		if skipped != nil {
+			result["skipped"] = skipped
+		}
+	}
+	out, _ := json.MarshalIndent(result, "", "  ")
+	res.Content = textResult(string(out)).Content
+	return res, nil
 }
 
 // kbRepairArtifacts is kb_repair for an artifact check: the same response
@@ -801,6 +903,9 @@ func toolKBRepair(k *kb.KB) Tool {
 			dryRun := params.DryRun == nil || *params.DryRun
 			if lint.ArtifactRepairCheck(params.Check) {
 				return kbRepairArtifacts(k, params.Check, params.Scope, dryRun, params.Limit)
+			}
+			if lint.MapRepairCheck(params.Check) {
+				return kbRepairMaps(k, params.Check, params.Scope, dryRun, params.Limit)
 			}
 
 			targets, items, err := planRepair(k, params.Check, params.Scope)

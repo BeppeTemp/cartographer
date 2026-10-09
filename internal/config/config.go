@@ -921,7 +921,8 @@ var DefaultAutoRepair = []string{
 	"nonstandard_field", "tool_param_field", "prose_value", "invalid_field_value",
 	"stringified_list", "title_h1_mismatch", "legacy_path", "duplicate_link",
 	"index_link_form", "legacy_tool_name", "missing_frontmatter", "unparseable_frontmatter",
-	"missing_type", "nonslug_file_name",
+	"missing_type", "nonslug_file_name", "missing_title", "repeated_link",
+	"value_case_variant", "unmapped_folder",
 }
 
 // AutoRepairChecks resolves AutoRepair: DefaultAutoRepair when the key is

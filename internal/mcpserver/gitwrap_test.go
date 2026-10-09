@@ -199,6 +199,9 @@ func TestGitWrap_ConceptNew_CreatesOneCommit(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(k.Root, "templates", "note.md"), []byte("---\ntype: Note\ntitle: {{title}}\n---\n# Details\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	// AutoCommit on before the seed commit: a template left uncommitted would be
+	// committed as "external changes" first (D357), a second commit.
+	k.AutoCommit = true
 	if _, err := k.CommitOp("test: add template"); err != nil {
 		t.Fatal(err)
 	}

@@ -2314,6 +2314,11 @@ func TestServer_GateCheck_Scope(t *testing.T) {
 		[]byte("---\ntype: Note\ntitle: Pulito\n---\nNiente da segnalare, vedi [[altrove/vicino]].\n"), 0o644); err != nil {
 		t.Fatalf("write pulito: %v", err)
 	}
+	// A folder with concepts and no descriptor is an unmapped_folder (D357).
+	if err := os.WriteFile(filepath.Join(k.DataRoot(), "altrove", "_map.md"),
+		[]byte("---\ntype: Map\nkind: map\ntitle: Altrove\n---\n# Altrove\n"), 0o644); err != nil {
+		t.Fatalf("write altrove map: %v", err)
+	}
 	// A clean page is linked: an isolated one is an orphan wherever it sits.
 	if err := os.WriteFile(filepath.Join(k.DataRoot(), "altrove", "vicino.md"),
 		[]byte("---\ntype: Note\ntitle: Vicino\n---\nTorna a [[altrove/pulito]].\n"), 0o644); err != nil {
