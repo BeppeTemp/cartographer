@@ -679,3 +679,28 @@ func TestWaitHealthy_WaitsForANewProcess(t *testing.T) {
 		t.Error("waitHealthy with no previous start time = false, want true")
 	}
 }
+
+// D348: a bootstrapping answer carries no KB list and is not a restarted
+// service yet; waitHealthy keeps waiting and fetchHealth reports an error.
+func TestWaitHealthy_DoesNotAcceptBootstrapping(t *testing.T) {
+	var n int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if atomic.AddInt32(&n, 1) <= 2 {
+			fmt.Fprint(w, `{"status":"ok","started_at":"new","kbs":[],"bootstrapping":true}`)
+			return
+		}
+		fmt.Fprint(w, `{"status":"ok","started_at":"new","kbs":[]}`)
+	}))
+	defer srv.Close()
+
+	if _, err := fetchHealth(srv.URL); err == nil {
+		t.Fatal("fetchHealth accepted a bootstrapping answer")
+	}
+	atomic.StoreInt32(&n, 0)
+	if !waitHealthy(srv.URL, "old") {
+		t.Fatal("waitHealthy = false, want true once bootstrap ends")
+	}
+	if got := atomic.LoadInt32(&n); got < 3 {
+		t.Errorf("waitHealthy returned after %d probes, during bootstrap", got)
+	}
+}

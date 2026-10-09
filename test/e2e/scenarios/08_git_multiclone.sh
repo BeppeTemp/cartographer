@@ -47,7 +47,11 @@ trap cleanup EXIT
 wait_health() {
     local port="$1" elapsed=0
     while [[ $elapsed -lt 20 ]]; do
-        if curl -sf "http://127.0.0.1:${port}/health" 2>/dev/null | grep -q '"kbs"'; then
+        # Past bootstrap too (D348): /health answers while the KB is still
+        # being mounted, and /mcp is 503 until then.
+        local body
+        body=$(curl -sf "http://127.0.0.1:${port}/health" 2>/dev/null) || body=""
+        if printf '%s' "$body" | grep -q '"kbs"' && ! printf '%s' "$body" | grep -q '"bootstrapping"'; then
             return 0
         fi
         sleep 1; elapsed=$((elapsed + 1))

@@ -494,7 +494,15 @@ type HealthStatus struct {
 	// a replacement means the old process answered. Empty from a server that
 	// predates the field.
 	StartedAt string `json:"started_at,omitempty"`
+	// Bootstrapping is true while the process is alive but still cloning and
+	// indexing its KBs (D348).
+	Bootstrapping bool `json:"bootstrapping,omitempty"`
 }
+
+// errBootstrapping is ProbeHealth's answer for a process that is up but not
+// done mounting its KBs. A plain error on purpose, not a healthProtocolError:
+// Replace must keep polling until the new process is past bootstrap.
+var errBootstrapping = errors.New("service: server is still bootstrapping its KBs")
 
 // isReplacement reports whether after comes from a different process than
 // before. Only a known previous start time can prove the contrary: an absent
@@ -536,6 +544,9 @@ func ProbeHealth(addr string, timeout time.Duration) (HealthStatus, error) {
 	var hs HealthStatus
 	if err := json.NewDecoder(resp.Body).Decode(&hs); err != nil {
 		return HealthStatus{}, &healthProtocolError{fmt.Errorf("service: decode %s response: %w", url, err)}
+	}
+	if hs.Status == "ok" && hs.Bootstrapping {
+		return hs, errBootstrapping
 	}
 	if hs.Status != "ok" {
 		return hs, &healthProtocolError{fmt.Errorf("service: %s reported status %q, want \"ok\"", url, hs.Status)}
@@ -627,7 +638,7 @@ func (m *Manager) Replace(opts ReplaceOptions) error {
 	deadline := time.Now().Add(timeout)
 	var lastStatus, lastVersion string
 	var lastErr error
-	var sameProcess bool
+	var sameProcess, bootstrapping bool
 	for {
 		hs, err := ProbeHealth(cfg.HTTP, healthTimeout)
 		if err != nil {
@@ -636,7 +647,9 @@ func (m *Manager) Replace(opts ReplaceOptions) error {
 				return fmt.Errorf("service: %s did not prove a healthy replacement (endpoint %s, expected version %s): %w", configPath, endpoint, displayVersion(opts.ExpectedVersion), err)
 			}
 			lastErr, sameProcess = err, false
+			bootstrapping = errors.Is(err, errBootstrapping)
 		} else {
+			bootstrapping = false
 			lastStatus, lastVersion = hs.Status, hs.Version
 			sameProcess = !isReplacement(before, hs)
 			if versionSatisfies(hs.Version, opts.ExpectedVersion) && !sameProcess {
@@ -650,6 +663,9 @@ func (m *Manager) Replace(opts ReplaceOptions) error {
 	}
 	if sameProcess {
 		return fmt.Errorf("service: timed out waiting for %s to serve version %s from a new process: the one answering started at %s, before the restart (last observed version=%q)", endpoint, displayVersion(opts.ExpectedVersion), before.StartedAt, lastVersion)
+	}
+	if bootstrapping {
+		return fmt.Errorf("service: timed out waiting for %s to serve version %s: the new process is still bootstrapping its KBs (clone and index); retry, or raise the timeout", endpoint, displayVersion(opts.ExpectedVersion))
 	}
 	return fmt.Errorf("service: timed out waiting for %s to serve version %s (last observed status=%q version=%q, last error=%v)", endpoint, displayVersion(opts.ExpectedVersion), lastStatus, lastVersion, lastErr)
 }

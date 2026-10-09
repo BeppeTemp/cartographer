@@ -487,3 +487,67 @@ func TestEnsureClonedKBConfiguredBranch(t *testing.T) {
 		t.Fatal("cloning created the configured branch on the remote")
 	}
 }
+
+// bareRemoteWithKB builds a bare repository holding a minimal KB and returns
+// its file:// URL (shared by the atomic-clone and listen-first tests).
+func bareRemoteWithKB(t *testing.T, tmp string) string {
+	t.Helper()
+	srcDir := filepath.Join(tmp, "src-kb")
+	if _, err := kb.Init(srcDir); err != nil {
+		t.Fatalf("kb.Init(src): %v", err)
+	}
+	out, err := exec.Command("git", "-C", srcDir, "symbolic-ref", "--short", "HEAD").Output()
+	if err != nil {
+		t.Fatalf("git symbolic-ref: %v", err)
+	}
+	branch := strings.TrimSpace(string(out))
+	bareDir := filepath.Join(tmp, "wiki-kb.git")
+	mustRunGit(t, "", "init", "--bare", bareDir)
+	mustRunGit(t, srcDir, "remote", "add", "origin", bareDir)
+	mustRunGit(t, srcDir, "push", "origin", branch+":"+branch)
+	mustRunGit(t, bareDir, "symbolic-ref", "HEAD", "refs/heads/"+branch)
+	return fileURL(bareDir)
+}
+
+// TestEnsureClonedKBIsAtomic: a clone killed mid-way must never look finished
+// (D348). The clone goes to a dot-prefixed sibling and is renamed into place.
+func TestEnsureClonedKBIsAtomic(t *testing.T) {
+	if !hasGit() {
+		t.Skip("git not in PATH")
+	}
+	tmp := t.TempDir()
+	remote := bareRemoteWithKB(t, tmp)
+	dataDir := filepath.Join(tmp, "data")
+	if err := os.MkdirAll(dataDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	// A leftover from a killed run is replaced, not reused.
+	stale := filepath.Join(dataDir, ".wiki-kb.cloning")
+	if err := os.MkdirAll(filepath.Join(stale, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	dest, err := ensureClonedKB(remote, "wiki-kb", dataDir, "")
+	if err != nil {
+		t.Fatalf("ensureClonedKB: %v", err)
+	}
+	if _, err := kb.Open(dest); err != nil {
+		t.Fatalf("kb.Open: %v", err)
+	}
+	entries, _ := os.ReadDir(dataDir)
+	if len(entries) != 1 || entries[0].Name() != "wiki-kb" {
+		t.Errorf("data dir after success = %v, want only wiki-kb", entries)
+	}
+
+	// A failed clone leaves neither dest nor the temporary directory.
+	bad := filepath.Join(tmp, "data2")
+	if err := os.MkdirAll(bad, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ensureClonedKB(fileURL(filepath.Join(tmp, "missing.git")), "gone", bad, ""); err == nil || !strings.Contains(err.Error(), "clone ") {
+		t.Fatalf("want a clone error, got %v", err)
+	}
+	if entries, _ := os.ReadDir(bad); len(entries) != 0 {
+		t.Errorf("failed clone left %v", entries)
+	}
+}

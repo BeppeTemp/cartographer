@@ -180,10 +180,12 @@ default branch (`concurrency.md` §Git profiles, D264), unless `kbs[].git_branch
 (D335): a fresh clone is then checked out on that branch, `--init` pins an empty clone to it, and
 the first push creates it on the remote if it is missing. An existing clone is never switched.
 
+The clone is atomic (D348): it lands in `<data>/.<name>.cloning` and is renamed to `<data>/<name>` only when complete, so a process killed mid-clone leaves no half-clone that the next start would take for a finished one. A half-clone left at `<data>/<name>` by an older binary is not detected (an existing clone is never touched): remove that directory.
+
 `GIT_SSH_COMMAND` for the clone is built from `git.ssh_key`/`git.known_hosts` (`ssh -i <key>
 -o UserKnownHostsFile=<known_hosts> -o StrictHostKeyChecking=yes`); if `GIT_SSH_COMMAND` is already
 present in the environment, it wins and the YAML config is ignored. This removes the need for
-a separate Kubernetes init container for the initial clone (see §K8s example).
+a separate Kubernetes init container for the initial clone.
 
 **Per-KB git identity (D46)**: each `kbs[]` entry can override, for that one KB, the SSH key
 (`ssh_key`/`known_hosts`) and the author/committer identity (`author_name`/`author_email`,
@@ -593,7 +595,7 @@ key (`git.ssh_key`): mount or configure it outside committed YAML.
 
 ### Cold start
 
-`clone`/`pull` of the KBs (including bootstrapping the remotes in `kbs:`, §Bootstrapping a KB from a git remote) + rebuilding missing indices. **Per-KB incremental** startup (a KB is served as soon as it's ready); with many KBs, the first startup is not instant.
+`clone`/`pull` of the KBs (including bootstrapping the remotes in `kbs:`, §Bootstrapping a KB from a git remote) + rebuilding missing indices. **Listener first, then all KBs at once** (D348): in HTTP mode `serve` binds the port before any clone or index work, so `/health` answers within a second of start. Until every KB is cloned, opened and reconciled, `/health` stays `200 status:"ok"` with `bootstrapping:true` and a `phase` (`cloning`, `mounting`, `indexing`), `/ready` is `503`, and every other path (`/mcp`, `/ui/`, …) is `503 kb bootstrapping, retry` with `Retry-After: 5`; then all KBs become available together (the routed mount registers the union of the KBs' tools, so a half-mounted server cannot be routed). On a cold `emptyDir` this window is the whole clone plus the first index build (minutes for a KB of ~16k objects); a restart that keeps the data pays only the reconcile. A failure during bootstrap (wrong remote, bad key) still ends the process, so it crash-loops visibly. stdio mode is unchanged: no listener, bootstrap runs before the transport.
 
 The persisted SQLite index (`<kb>/.cartographer/index.db`) is excluded from git via `.git/info/exclude` (D62, never versioned): after a fresh clone (e.g. pod restart) it starts empty even if the concepts are already on disk. At startup, for every mounted KB, the server reconciles content hashes from the `.md` files against the persisted index, adding new concepts, refreshing changed ones, and removing vanished ones — keyword/FTS5 only. The same reconciliation runs after a `SyncIn` pull that moves HEAD. Best-effort: an error doesn't block startup, it is logged to stderr.
 
@@ -691,6 +693,7 @@ probe that restarted the process on `status != "ok"` must never fire from a KB-m
 also carries a `ready: <bool>` field for callers that want both signals from one request. `/ready`
 is the dedicated readiness endpoint: `200 {"ready":true}`, or `503` otherwise. Point k8s
 `livenessProbe` at `/health` and `readinessProbe` at `/ready`. `/health` also carries
+`bootstrapping: true` and `phase` **only while the KBs are still being cloned and indexed** (D348; absent afterwards, so the steady-state shape is unchanged) — a client that reads `bootstrapping` treats the answer as "could not ask, retry", never as "zero KBs". `/ready` during that window is `503 {"ready":false,"kbs":0,"bootstrapping":true,"phase":"…"}`; every other path answers `503 kb bootstrapping, retry` with `Retry-After: 5`. Probe recipe: `livenessProbe` on `/health`, `readinessProbe` on `/ready`, plus a `startupProbe` on `/health` sized to the worst clone-plus-reconcile (`failureThreshold` × `periodSeconds` of several minutes for a large KB) so liveness only starts once the port is up. With listen-first, `/health` answers in seconds, so the `startupProbe` is a safety net rather than a requirement. `/health` also carries
 `started_at`, the RFC 3339 instant the answering process started, which is how a restart proves the
 new process answers rather than the old one before it exits
 ([D266](decisions/D266-a-windows-restart-waits-for-the-old-process-and-proves-the-new-one.md)), and

@@ -34,8 +34,10 @@ echo "→ starting server on :$PORT"
 # (client-side token), which in "auto" auth mode would turn on server auth.
 CARTOGRAPHER_AUTH=false "$BIN" serve --data="$DATA" --init --http="127.0.0.1:$PORT" >/dev/null 2>&1 &
 SERVER_PID=$!
+# /ready, not /health: since D348 /health answers while the KBs are still
+# being mounted, and /mcp is 503 until /ready turns 200.
 for _ in $(seq 1 20); do
-  curl -sf "http://127.0.0.1:$PORT/health" >/dev/null 2>&1 && break
+  curl -sf "http://127.0.0.1:$PORT/ready" >/dev/null 2>&1 && break
   sleep 0.5
 done
 

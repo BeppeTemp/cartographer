@@ -172,13 +172,34 @@ func ensureClonedKB(remote, name, dataDir, branch string, env ...string) (string
 
 	if !isGitRepoDir(dest) {
 		log.Printf("cloning KB %q from %s to %s", name, remote, dest)
+		// Clone beside the destination and rename when done (D348): git
+		// creates .git first, so a process killed mid-clone (an emptyDir
+		// survives a container restart) would leave a dest that the next
+		// start takes for a finished clone. The dot prefix keeps the
+		// temporary directory out of KB discovery.
+		tmp := filepath.Join(dataDir, "."+name+".cloning")
+		if err := os.RemoveAll(tmp); err != nil {
+			return "", fmt.Errorf("clone %s: remove stale %s: %w", remote, tmp, err)
+		}
 		// No deadline here: a server bootstrapping a large KB must not have
 		// its clone killed mid-way. Clone's non-interactive environment is
 		// what keeps this from hanging on a prompt (D173).
-		if err := gitx.Clone(context.Background(), remote, dest, env...); err != nil {
+		if err := gitx.Clone(context.Background(), remote, tmp, env...); err != nil {
+			_ = os.RemoveAll(tmp)
 			return "", fmt.Errorf("clone %s: %w", remote, err)
 		}
-		if err := checkoutConfiguredBranch(dest, branch, env...); err != nil {
+		if err := checkoutConfiguredBranch(tmp, branch, env...); err != nil {
+			_ = os.RemoveAll(tmp)
+			return "", fmt.Errorf("clone %s: %w", remote, err)
+		}
+		// dest may exist without .git (an empty directory): clear it so the
+		// rename is portable.
+		if err := os.Remove(dest); err != nil && !os.IsNotExist(err) {
+			_ = os.RemoveAll(tmp)
+			return "", fmt.Errorf("clone %s: %w", remote, err)
+		}
+		if err := os.Rename(tmp, dest); err != nil {
+			_ = os.RemoveAll(tmp)
 			return "", fmt.Errorf("clone %s: %w", remote, err)
 		}
 	}

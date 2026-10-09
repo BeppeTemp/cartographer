@@ -37,7 +37,10 @@ free_port() {
 wait_health() {
     local url="$1" log="$2"
     for _ in $(seq 1 60); do
-        if curl -sf "${url}/health" 2>/dev/null | grep -q '"kbs"'; then return 0; fi
+        # Past bootstrap too (D348): until then /ui/ and /api are 503.
+        local body
+        body=$(curl -sf "${url}/health" 2>/dev/null) || body=""
+        if printf '%s' "$body" | grep -q '"kbs"' && ! printf '%s' "$body" | grep -q '"bootstrapping"'; then return 0; fi
         sleep 0.5
     done
     echo "[e2e-web] server at ${url} never became healthy; its log:" >&2

@@ -59,7 +59,11 @@ server_wait_health() {
 
     echo "[server] waiting for /health on ${url} (timeout ${timeout}s)..." >&2
     while [[ $elapsed -lt $timeout ]]; do
-        if curl -sf "$url" 2>/dev/null | grep -q '"kbs"'; then
+        # Past bootstrap too (D348): /health answers while the KBs are still
+        # being mounted, and every other path is 503 until then.
+        local body
+        body=$(curl -sf "$url" 2>/dev/null) || body=""
+        if printf '%s' "$body" | grep -q '"kbs"' && ! printf '%s' "$body" | grep -q '"bootstrapping"'; then
             echo "[server] /health OK (cartographer) after ${elapsed}s" >&2
             return 0
         fi
