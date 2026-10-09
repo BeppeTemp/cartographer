@@ -126,7 +126,7 @@ func TestEnsureWriteFindingsHook_DryRunWritesNothing(t *testing.T) {
 
 func TestEnsureWriteFindingsHook_OtherProvidersAreNoOps(t *testing.T) {
 	for _, p := range []configurator.Provider{
-		configurator.ProviderCodex, configurator.ProviderOpenCode,
+		configurator.ProviderOpenCode,
 		configurator.ProviderAntigravity, configurator.ProviderKiro,
 	} {
 		baseDir := t.TempDir()
@@ -261,5 +261,89 @@ func TestWriteFindingsScript_Guarantees(t *testing.T) {
 	}
 	if strings.Contains(s, "command -v cartographer") == strings.Contains(s, "where cartographer") {
 		t.Error("must check that cartographer is resolvable (exactly the platform's spelling)")
+	}
+}
+
+func TestEnsureWriteFindingsHook_Codex_UsesContextChannel(t *testing.T) {
+	baseDir := t.TempDir()
+	hooksJSON := `{"hooks":{"PostToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"/usr/bin/true"}]}]}}`
+	if err := os.MkdirAll(filepath.Join(baseDir, ".codex"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(baseDir, ".codex", "hooks.json"), []byte(hooksJSON), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	lock, err := provisioning.EnsureWriteFindingsHook(baseDir, configurator.ProviderCodex, provisioning.Lock{}, true, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hookDir := filepath.Join(baseDir, ".codex", "hooks", provisioning.WriteFindingsHookName)
+	for _, f := range []string{"hook.json", provisioning.WriteFindingsScriptNameForTest} {
+		if _, err := os.Stat(filepath.Join(hookDir, f)); err != nil {
+			t.Errorf("missing %s: %v", f, err)
+		}
+	}
+	spec, _ := os.ReadFile(filepath.Join(hookDir, "hook.json"))
+	if !strings.Contains(string(spec), "--channel context") {
+		t.Errorf("hook.json lacks the channel argument: %s", spec)
+	}
+	data, err := os.ReadFile(filepath.Join(baseDir, ".codex", "hooks.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var s struct {
+		Hooks map[string][]struct {
+			Matcher string `json:"matcher"`
+			Hooks   []struct {
+				Command string `json:"command"`
+			} `json:"hooks"`
+		} `json:"hooks"`
+	}
+	if err := json.Unmarshal(data, &s); err != nil {
+		t.Fatal(err)
+	}
+	var ours, user int
+	for _, g := range s.Hooks["PostToolUse"] {
+		if g.Matcher == "Bash" {
+			user++
+			continue
+		}
+		ours++
+		if !strings.HasPrefix(g.Matcher, "mcp__.*__(") {
+			t.Errorf("matcher %q", g.Matcher)
+		}
+		if len(g.Hooks) != 1 || !strings.Contains(g.Hooks[0].Command, provisioning.WriteFindingsScriptNameForTest) || !strings.HasSuffix(strings.SplitN(g.Hooks[0].Command, " #", 2)[0], "--channel context") {
+			t.Errorf("command %+v lacks the shim + channel argument", g.Hooks)
+		}
+	}
+	if ours != 1 || user != 1 {
+		t.Errorf("want 1 own + 1 user entry, got own=%d user=%d", ours, user)
+	}
+
+	// Claude's registration keeps the default channel.
+	claudeDir := t.TempDir()
+	if _, err := provisioning.EnsureWriteFindingsHook(claudeDir, configurator.ProviderClaudeCode, provisioning.Lock{}, true, false); err != nil {
+		t.Fatal(err)
+	}
+	cs, _ := os.ReadFile(filepath.Join(claudeDir, ".claude", "hooks", provisioning.WriteFindingsHookName, "hook.json"))
+	if strings.Contains(string(cs), "--channel") {
+		t.Errorf("claude hook.json must keep the default channel: %s", cs)
+	}
+
+	// enabled=false removes it, foreign entry preserved.
+	for i := 0; i < 2; i++ {
+		if lock, err = provisioning.EnsureWriteFindingsHook(baseDir, configurator.ProviderCodex, lock, false, false); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(lock.Managed) != 0 {
+		t.Errorf("entries survived: %+v", lock.Managed)
+	}
+	if _, err := os.Stat(hookDir); !os.IsNotExist(err) {
+		t.Errorf("hook dir still there: %v", err)
+	}
+	data, _ = os.ReadFile(filepath.Join(baseDir, ".codex", "hooks.json"))
+	if strings.Contains(string(data), provisioning.WriteFindingsHookName) || !strings.Contains(string(data), "/usr/bin/true") {
+		t.Errorf("hooks.json after removal: %s", data)
 	}
 }

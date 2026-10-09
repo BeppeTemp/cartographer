@@ -247,9 +247,11 @@ type hookMechanism struct {
 	// is not a trigger an operator can rely on (D300).
 	sessionHookLimit string
 	// writeFindingsHook marks a provider whose PostToolUse feedback channel
-	// (exit 2 + stderr reaches the agent) was verified, so the write-findings
-	// hook (D353) is installed for it. Declared, never inferred: a client is
-	// added by a probe of its payload, matcher and feedback semantics.
+	// was verified, so the write-findings hook (D353) is installed for it. The
+	// channel is per provider (writeFindingsCommandArgs): exit 2 + stderr for
+	// Claude Code, additionalContext on stdout for Codex (D361). Declared,
+	// never inferred: a client is added by a probe of its payload, matcher and
+	// feedback semantics.
 	writeFindingsHook bool
 	// register performs the registration, returning the relative path of any
 	// generated artifact (so it is tracked as a managed file) plus any
@@ -271,6 +273,11 @@ var hookMechanisms = map[configurator.Provider]hookMechanism{
 	},
 	configurator.ProviderCodex: {
 		settingsFile: []string{".codex", "hooks.json"},
+		// Trap (D361): Codex must NOT get the Claude channel. On exit 2 it
+		// replaces the tool result the model sees with the stderr text, and the
+		// agent, reading a failed call, repeats the write and loses its
+		// content_hash. The hook uses `--channel context` (additionalContext).
+		writeFindingsHook: true,
 		register: func(baseDir, name, fullDestDir string) (string, string, error) {
 			warning, err := registerCodexHook(baseDir, name, fullDestDir)
 			if err != nil {
