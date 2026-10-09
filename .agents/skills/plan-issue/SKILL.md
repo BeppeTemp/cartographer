@@ -54,6 +54,11 @@ the two places where the clients genuinely differ.
    body to reference siblings as `D<n> (#<issue>)` — the numbers exist only
    after creation. A pointer into a sibling's not-yet-implemented artifact
    cites the plan (`D<n> WP<m>`), never an invented `file:line`.
+8. A plan written from a request issue (bug or enhancement) replaces it: state
+   `Supersedes #<m>` in the body, then close the request right after creating
+   the plan — `gh issue close <m> --reason "not planned" -c "Superseded by plan #<n>"`.
+   `Supersedes` is not a GitHub closing keyword: left open, the request outlives
+   the plan's `Closes #<n>` and the backlog counts the same work twice.
 
 ## Consuming a plan (implementing session)
 
