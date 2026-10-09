@@ -48,6 +48,14 @@ const (
 	// D315). The repair overwrites the body's first level-1 heading with it:
 	// the title is the source of truth, the H1 its rendering.
 	FixSyncH1 = "sync_h1"
+	// FixUnlinkRepeat: Field = the href linked more than once in a paragraph
+	// (repeated_link, D357). In every paragraph, the occurrences after the first
+	// become their label text.
+	FixUnlinkRepeat = "unlink_repeat"
+	// FixScaffoldMap: Field = a data/ folder with concepts and no _map.md, To =
+	// the title to give it (unmapped_folder, D357). The repair writes the
+	// descriptor map_create would, with no contract.
+	FixScaffoldMap = "scaffold_map"
 )
 
 // Fix is the machine-readable remedy of a finding whose repair is mechanical.
@@ -207,29 +215,51 @@ func frontmatterFindings(in conceptInput) []Finding {
 	// validate only requires a type, yet the title is the label concept_list,
 	// search results and curated indexes show: an untitled concept is listed
 	// with an empty one. The first H1 is the value an author almost always
-	// meant, so the message offers it.
+	// meant; without a usable one, a slug file name is the label (D357).
 	if parsed == nil || emptyFrontmatterValue(frontmatterValue(parsed, "title")) {
 		msg := "no title in frontmatter: concept_list and search show it with an empty label"
+		f := Finding{Path: in.RelPath}
 		if h1 := firstH1(in.Body); h1 != "" {
 			msg += fmt.Sprintf(" — suggested: title: %q (its first heading)", h1)
 		}
-		out = append(out, newFinding("missing_title", Finding{Path: in.RelPath, Message: msg}))
+		if to := suggestedTitle(in); to != "" && parsed != nil {
+			f.Fix = &Fix{Kind: FixSetValue, Field: "title", To: to}
+		}
+		f.Message = msg
+		out = append(out, newFinding("missing_title", f))
 	}
 
-	// --- title_h1_mismatch (warning, D315) ---
-	// Both exist and differ: the title is what listings, search and the
-	// Atlas show, so the heading is the one that is wrong.
+	// --- title_h1_mismatch (warning, D315, D357) ---
+	// Both exist and differ. The title is what listings, search and the Atlas
+	// show, so the heading is normally the one that is wrong; but when the
+	// title is the one title_quality rejects and the heading is not, the
+	// heading is the good side and the title takes its text.
 	if parsed != nil {
 		title := titleOf(parsed)
 		if h1 := firstH1(in.Body); title != "" && h1 != "" && h1 != title {
-			out = append(out, newFinding("title_h1_mismatch", Finding{
+			f := Finding{
 				Path:    in.RelPath,
 				Message: fmt.Sprintf("title %q and first heading %q differ: the title is the label shown in concept_list, search and the Atlas; the heading should match", title, h1),
-				Fix:     &Fix{Kind: FixSyncH1, To: title},
-			}))
+			}
+			_, hasStatus := parsed.Get("status")
+			titleBad := len(titleTextIssues(in.Contract, hasStatus, title)) > 0
+			h1Bad := len(titleTextIssues(in.Contract, hasStatus, h1)) > 0
+			switch {
+			case titleBad && h1Bad:
+				f.Message += "; both fail title_quality, so neither is picked for you"
+			case titleBad:
+				f.Fix = &Fix{Kind: FixSetValue, Field: "title", To: h1}
+				f.Message += "; the title fails title_quality and the heading does not, so the title takes the heading's text"
+			default:
+				f.Fix = &Fix{Kind: FixSyncH1, To: title}
+			}
+			out = append(out, newFinding("title_h1_mismatch", f))
 		}
 		out = append(out, titleQualityFindings(in, parsed, title)...)
 	}
+
+	// --- repeated_link (info, D357) ---
+	out = append(out, repeatedLinkFindings(in.RelPath, in.Body)...)
 
 	// --- missing_required_field / invalid_field_value / forbidden_field ---
 	if in.Contract != nil {
@@ -595,12 +625,12 @@ var listFields = map[string]bool{
 // random, and lint output is compared by tests and diffed by people).
 var listFieldOrder = []string{"provenance", "tags", "related", "lint_ignore", "open", "secrets_source"}
 
-// looksStringified reports whether a string value was meant as a list: a
-// bracketed flow list, several of them joined by "; " ("[a]; [b]"), or a
-// block-list item that lost its siblings ("- a"). The OKF parser sends a
-// quoted "[a, b]" to the scalar branch (a leading quote is not "["), so the
-// value reaches lint as a string, not a []string (D314).
-func looksStringified(v string) bool {
+// listLike reports whether a string value is written as a list: a bracketed
+// flow list, several of them joined by "; " ("[a]; [b]"), or a block-list item
+// that lost its siblings ("- a"). The OKF parser sends a quoted "[a, b]" to the
+// scalar branch (a leading quote is not "["), so the value reaches lint as a
+// string, not a []string (D314).
+func listLike(v string) bool {
 	v = strings.TrimSpace(v)
 	if strings.HasPrefix(v, "- ") {
 		return true
@@ -611,29 +641,58 @@ func looksStringified(v string) bool {
 	return strings.Contains(v, "; [")
 }
 
-// ListItems extracts the items of a stringified list: "[a, b]", "[a]; [b]"
-// and "- a" all give their elements, trimmed of brackets, quotes and spaces.
-func ListItems(v string) []string {
+// looksStringified reports whether a string stored under a list field is the
+// wrong type (D357): any non-blank string is, whether it is written as a list
+// or is a bare scalar (`tags: "x, y"`, `tags: backup`).
+func looksStringified(v string) bool { return strings.TrimSpace(v) != "" }
+
+// splitFields are the list fields whose items are identifiers, so a bare
+// "x, y" is two items. provenance and secrets_source hold citations, which may
+// contain commas ("Talk, 2024"): a bare string there is one item (D357).
+var splitFields = map[string]bool{"tags": true, "related": true, "lint_ignore": true, "open": true}
+
+// ListItems extracts the items of a string stored under the list field
+// `field`. A written list ("[a, b]", "[a]; [b]", "- a") gives its elements,
+// trimmed of brackets, quotes and spaces. A bare string gives its
+// comma-separated items for an identifier field and itself, whole, for a
+// citation field.
+func ListItems(field, v string) []string {
 	v = strings.TrimSpace(v)
+	if !listLike(v) {
+		if !splitFields[field] {
+			if v = strings.Trim(v, `"'`); strings.TrimSpace(v) == "" {
+				return nil
+			}
+			return []string{strings.TrimSpace(v)}
+		}
+		return splitItems(v)
+	}
 	v = strings.TrimPrefix(v, "- ")
 	var items []string
 	for _, group := range strings.Split(v, "; ") {
 		group = strings.TrimSpace(group)
 		group = strings.TrimPrefix(group, "[")
 		group = strings.TrimSuffix(group, "]")
-		for _, it := range strings.Split(group, ",") {
-			it = strings.Trim(strings.TrimSpace(it), `"'`)
-			if it = strings.TrimSpace(it); it != "" {
-				items = append(items, it)
-			}
+		items = append(items, splitItems(group)...)
+	}
+	return items
+}
+
+// splitItems splits on commas, trimming spaces and quotes, dropping empties.
+func splitItems(s string) []string {
+	var items []string
+	for _, it := range strings.Split(s, ",") {
+		it = strings.Trim(strings.TrimSpace(it), `"'`)
+		if it = strings.TrimSpace(it); it != "" {
+			items = append(items, it)
 		}
 	}
 	return items
 }
 
-// detectStringifiedLists implements stringified_list (D314): a list field
-// whose parsed value is a string that looks like a list. The data type is
-// wrong, and no other check sees it.
+// detectStringifiedLists implements stringified_list (D314, D357): a list field
+// whose parsed value is a string. The data type is wrong, and no other check
+// sees it.
 func detectStringifiedLists(relPath string, fm *okf.Frontmatter) []Finding {
 	var out []Finding
 	for _, key := range listFieldOrder {
@@ -647,7 +706,7 @@ func detectStringifiedLists(relPath string, fm *okf.Frontmatter) []Finding {
 		}
 		out = append(out, newFinding("stringified_list", Finding{
 			Path:    relPath,
-			Message: fmt.Sprintf("key %q is a string that looks like a list — rewrite it as a proper YAML list", key),
+			Message: fmt.Sprintf("key %q is a string where a list is expected — rewrite it as a proper YAML list", key),
 			Fix:     &Fix{Kind: FixListifyField, Field: key},
 		}))
 	}
@@ -722,6 +781,27 @@ func titleQualityFindings(in conceptInput, fm *okf.Frontmatter, title string) []
 	add := func(msg string) {
 		out = append(out, newFinding("title_quality", Finding{Path: in.RelPath, Message: msg}))
 	}
+	_, hasStatus := fm.Get("status")
+	for _, msg := range titleTextIssues(in.Contract, hasStatus, title) {
+		add(msg)
+	}
+	slug := strings.TrimSuffix(path.Base(in.RelPath), ".md")
+	if in.MapName != "" && datePrefixedSlug.MatchString(slug) && (in.Contract == nil || in.Contract.Kind != "journal") {
+		add("date-prefixed ID in a non-journal map; journal entries belong in a journal, map concepts use a descriptive slug")
+	}
+	return out
+}
+
+// titleTextIssues is the title_quality predicate over a text (D357): what is
+// wrong with it as a label, one message per problem. title_quality reports it
+// for the title, and title_h1_mismatch / missing_title ask it of the heading
+// they would copy into the title, so the two checks cannot disagree about
+// what a good title is. hasStatus: the concept carries a status field.
+func titleTextIssues(contract *kb.MapContract, hasStatus bool, title string) []string {
+	if title == "" {
+		return nil
+	}
+	var out []string
 	var deco []string
 	for _, r := range title {
 		if unicode.Is(unicode.So, r) || unicode.Is(unicode.Sk, r) || r == '\uFE0F' || r == '\u200D' {
@@ -729,36 +809,64 @@ func titleQualityFindings(in conceptInput, fm *okf.Frontmatter, title string) []
 		}
 	}
 	if len(deco) > 0 {
-		add(fmt.Sprintf("title contains decorative characters (%s); titles are labels shown in listings and the Atlas: prefer plain text", strings.Join(deco, " ")))
+		out = append(out, fmt.Sprintf("title contains decorative characters (%s); titles are labels shown in listings and the Atlas: prefer plain text", strings.Join(deco, " ")))
 	}
 	limit := defaultTitleMaxLength
-	if in.Contract != nil && in.Contract.TitleMaxLength != nil {
-		limit = *in.Contract.TitleMaxLength
+	if contract != nil && contract.TitleMaxLength != nil {
+		limit = *contract.TitleMaxLength
 	}
 	if n := len([]rune(title)); limit > 0 && n > limit {
-		add(fmt.Sprintf("title is %d characters (limit %d for this map); a title is a label, not a sentence", n, limit))
+		out = append(out, fmt.Sprintf("title is %d characters (limit %d for this map); a title is a label, not a sentence", n, limit))
 	}
 	lower := strings.ToLower(title)
-	if _, ok := fm.Get("status"); ok {
+	if hasStatus {
 		for _, w := range titleStatusWords {
 			if containsWord(lower, w) {
-				add(fmt.Sprintf("title contains status word %q; the status field tracks lifecycle — a status in the title decays with the page", w))
+				out = append(out, fmt.Sprintf("title contains status word %q; the status field tracks lifecycle — a status in the title decays with the page", w))
 				break
 			}
 		}
 	}
-	if in.Contract != nil {
-		for _, term := range in.Contract.ForbiddenTitleTerms {
+	if contract != nil {
+		for _, term := range contract.ForbiddenTitleTerms {
 			if t := strings.ToLower(strings.TrimSpace(term)); t != "" && strings.Contains(lower, t) {
-				add(fmt.Sprintf("title contains forbidden term %q (declared in the map contract)", term))
+				out = append(out, fmt.Sprintf("title contains forbidden term %q (declared in the map contract)", term))
 			}
 		}
 	}
-	slug := strings.TrimSuffix(path.Base(in.RelPath), ".md")
-	if in.MapName != "" && datePrefixedSlug.MatchString(slug) && (in.Contract == nil || in.Contract.Kind != "journal") {
-		add("date-prefixed ID in a non-journal map; journal entries belong in a journal, map concepts use a descriptive slug")
-	}
 	return out
+}
+
+// suggestedTitle is the value missing_title's fix gives a concept (D357): its
+// first heading when that passes the title_quality predicate, else the
+// humanized file stem when the stem is a slug, else "" (nothing to derive).
+func suggestedTitle(in conceptInput) string {
+	hasStatus := false
+	if in.Parsed != nil {
+		_, hasStatus = in.Parsed.Get("status")
+	}
+	if h1 := firstH1(in.Body); h1 != "" && len(titleTextIssues(in.Contract, hasStatus, h1)) == 0 {
+		return h1
+	}
+	stem := strings.TrimSuffix(path.Base(in.RelPath), ".md")
+	if slugPattern.MatchString(stem) {
+		return HumanizeName(stem)
+	}
+	return ""
+}
+
+// HumanizeName turns a slug-like name into a label: separators become spaces
+// and the first letter is upper-cased ("server-b" → "Server b"). Used for the
+// title missing_title derives from a file name and the one unmapped_folder's
+// scaffold gives a folder (D357).
+func HumanizeName(name string) string {
+	s := strings.Join(strings.Fields(strings.NewReplacer("-", " ", "_", " ").Replace(name)), " ")
+	if s == "" {
+		return ""
+	}
+	r := []rune(s)
+	r[0] = unicode.ToUpper(r[0])
+	return string(r)
 }
 
 // containsWord reports whether word occurs in s delimited by non-letters, so

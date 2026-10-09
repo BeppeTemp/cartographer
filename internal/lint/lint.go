@@ -459,6 +459,9 @@ func runChecks(k *kb.KB, scope string, scopeNeighbors bool, opts Options) ([]Fin
 		}
 	}
 
+	// D357: the type palette and the status spellings, KB-wide.
+	drift := newDriftData(k, allConcepts, contracts)
+
 	// The KB's path placeholder registry (D263). Its own findings — a
 	// malformed entry, a declared key nothing cites — belong to paths.yaml,
 	// a KB-level file, so only an unscoped lint reports them.
@@ -656,6 +659,9 @@ func runChecks(k *kb.KB, scope string, scopeNeighbors bool, opts Options) ([]Fin
 			emit(f)
 		}
 		for _, f := range validityFindings(id, content, types, slugTargetFree) {
+			emit(f)
+		}
+		for _, f := range drift.conceptFindings(relPath, parsed, in.Contract) {
 			emit(f)
 		}
 
@@ -941,6 +947,10 @@ func runChecks(k *kb.KB, scope string, scopeNeighbors bool, opts Options) ([]Fin
 	if scopeNorm == "" {
 		findings = append(findings, checkJunkFiles(k, junkAssets)...)
 	}
+
+	// --- unmapped_folder, stray_file (D357) ---
+	findings = append(findings, unmappedFolderFindings(k, archives, allConcepts, func(name string) bool { return scopeMatchesDir(scopeNorm, name) })...)
+	findings = append(findings, strayFileFindings(k, scopeNorm)...)
 
 	return findings, nil
 }

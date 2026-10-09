@@ -1750,10 +1750,41 @@ func (kb *KB) CreateMapWithContract(name, title, kind string, conceptTypes []str
 		return fmt.Errorf("CreateMap: invalid kind %q (must be \"map\" or \"journal\")", kind)
 	}
 
+	return kb.writeMapFiles(mapAbs, title, kind, conceptTypes, ontologyMode, contract, false)
+}
+
+// ScaffoldMap writes the descriptor of a data/ folder that holds concepts and
+// has none (unmapped_folder, D357): exactly what map_create writes for a map of
+// kind "map", with no contract. index.md and log.md are written only when the
+// folder lacks them. A folder that already has a descriptor, or does not
+// exist, is refused: nothing is overwritten.
+func (kb *KB) ScaffoldMap(name, title string) error {
+	if _, err := okf.PathToID(name + ".md"); err != nil {
+		return fmt.Errorf("%w: invalid map name %q", okf.ErrInvalidPath, name)
+	}
+	if name == ServicesNamespace {
+		return fmt.Errorf("%w: map name %q is reserved for service descriptors", okf.ErrInvalidPath, name)
+	}
+	mapAbs := filepath.Join(kb.DataRoot(), name)
+	if fi, err := os.Stat(mapAbs); err != nil || !fi.IsDir() {
+		return fmt.Errorf("ScaffoldMap: folder %q does not exist: %w", name, okf.ErrNotFound)
+	}
+	for _, d := range []string{"_map.md", "_archive.md"} {
+		if _, err := os.Stat(filepath.Join(mapAbs, d)); err == nil {
+			return fmt.Errorf("ScaffoldMap: folder %q already has %s", name, d)
+		}
+	}
+	return kb.writeMapFiles(mapAbs, title, "map", nil, "", MapContract{}, true)
+}
+
+// writeMapFiles writes a map's _map.md, index.md and log.md into mapAbs
+// (CreateMapWithContract and ScaffoldMap share it, so a scaffolded map is the
+// map map_create would have made). onlyMissing keeps an index.md or log.md
+// that is already there.
+func (kb *KB) writeMapFiles(mapAbs, title, kind string, conceptTypes []string, ontologyMode string, contract MapContract, onlyMissing bool) error {
 	if ontologyMode == "" {
 		ontologyMode = "flexible"
 	}
-
 	if err := os.MkdirAll(mapAbs, 0o755); err != nil {
 		return fmt.Errorf("CreateMap: mkdir: %w", err)
 	}
@@ -1805,13 +1836,21 @@ func (kb *KB) CreateMapWithContract(name, title, kind string, conceptTypes []str
 		return fmt.Errorf("CreateMap: write _map.md: %w", err)
 	}
 
+	present := func(name string) bool {
+		_, err := os.Stat(filepath.Join(mapAbs, name))
+		return onlyMissing && err == nil
+	}
 	indexMD := "---\ntype: Index\ntitle: " + title + "\n---\n# " + title + "\n"
-	if err := writeFileAtomic(filepath.Join(mapAbs, "index.md"), []byte(indexMD)); err != nil {
-		return fmt.Errorf("CreateMap: write index.md: %w", err)
+	if !present("index.md") {
+		if err := writeFileAtomic(filepath.Join(mapAbs, "index.md"), []byte(indexMD)); err != nil {
+			return fmt.Errorf("CreateMap: write index.md: %w", err)
+		}
 	}
 
-	if err := writeFileAtomic(filepath.Join(mapAbs, "log.md"), []byte("# Log\n\n")); err != nil {
-		return fmt.Errorf("CreateMap: write log.md: %w", err)
+	if !present("log.md") {
+		if err := writeFileAtomic(filepath.Join(mapAbs, "log.md"), []byte("# Log\n\n")); err != nil {
+			return fmt.Errorf("CreateMap: write log.md: %w", err)
+		}
 	}
 
 	return nil
@@ -3012,6 +3051,46 @@ func (kb *KB) TemplateTexts() []string {
 		_, body, _ := okf.SplitFrontmatter(string(data))
 		out = append(out, body)
 	}
+	return out
+}
+
+// TemplateTypes returns, sorted and without duplicates, the concept types the
+// KB's templates/*.md declare in their frontmatter (D357): with the
+// concept_types of its strict maps, the palette unknown_type compares a
+// concept's type with. A template without a literal type (empty, or a
+// placeholder) declares none; unreadable entries and symlinks are skipped.
+func (kb *KB) TemplateTypes() []string {
+	dir := filepath.Join(kb.Root, "templates")
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil
+	}
+	seen := map[string]bool{}
+	var out []string
+	for _, e := range entries {
+		if !e.Type().IsRegular() || !strings.HasSuffix(e.Name(), ".md") {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(dir, e.Name()))
+		if err != nil {
+			continue
+		}
+		raw, _, ok := okf.SplitFrontmatter(string(data))
+		if !ok {
+			continue
+		}
+		fm, err := okf.ParseFrontmatter(raw)
+		if err != nil {
+			continue
+		}
+		t := strings.TrimSpace(fm.Type())
+		if t == "" || strings.Contains(t, "{{") || seen[t] {
+			continue
+		}
+		seen[t] = true
+		out = append(out, t)
+	}
+	sort.Strings(out)
 	return out
 }
 

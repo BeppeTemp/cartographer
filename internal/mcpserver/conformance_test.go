@@ -138,7 +138,7 @@ func TestWriteResponsesCarryFindings(t *testing.T) {
 func TestLintOutputFixShape(t *testing.T) {
 	s := graphToolKB(t, map[string]string{
 		"ops/syn.md": "---\ntype: Note\ntitle: S\naggiornato: 2026-01-01\n---\nx\n",
-		"ops/nt.md":  "---\ntype: Note\n---\nx\n",
+		"ops/nt.md":  "---\ntype: Note\ntitle: \"🚀\"\n---\n# Deploy 🚀 now\nx\n",
 	})
 	for _, tool := range []string{"lint", "gate_check"} {
 		args := `{}`
@@ -157,7 +157,7 @@ func TestLintOutputFixShape(t *testing.T) {
 			switch m["check"] {
 			case "nonstandard_field":
 				withFix = has
-			case "missing_title":
+			case "title_h1_mismatch": // both sides fail title_quality: no fix (D357)
 				withoutFix = !has
 			}
 		}

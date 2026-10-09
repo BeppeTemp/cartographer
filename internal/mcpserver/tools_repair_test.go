@@ -227,6 +227,7 @@ func TestFixableChecksCoverEveryEmittedFix(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	seedDriftFixes(t, k) // D357
 	findings, err := lint.Run(k, "", false)
 	if err != nil {
 		t.Fatal(err)
@@ -256,6 +257,34 @@ func TestFixableChecksCoverEveryEmittedFix(t *testing.T) {
 	if len(seen) != len(listed) {
 		t.Errorf("fixture did not exercise every fixable check: saw %v", seen)
 	}
+}
+
+// seedDriftFixes plants one page for each fixable check D357 adds: a missing
+// title, a repeated link, an unknown type with a case-variant twin in the
+// palette, a status spelled against the majority, a folder with no descriptor.
+func seedDriftFixes(t *testing.T, k *kb.KB) {
+	t.Helper()
+	write := func(rel, content string) {
+		t.Helper()
+		abs := filepath.Join(k.Root, rel)
+		if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(abs, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("templates/service.md", "---\ntype: Service\ntitle: Service\n---\n# {{title}}\n")
+	write("data/free/_map.md", "---\ntype: Map\nkind: map\ntitle: Free\n---\n# Free\n")
+	page := func(extra string) string {
+		return "---\ntype: Service\ntitle: P\n" + extra + "---\n# P\n\nSee [x](x.md) and [x again](x.md).\n"
+	}
+	write("data/free/a.md", page("status: active\n"))
+	write("data/free/b.md", page("status: active\n"))
+	write("data/free/c.md", page("status: Active\n"))
+	write("data/free/untitled.md", "---\ntype: Service\n---\n# Untitled one\n")
+	write("data/free/typo.md", "---\ntype: service\ntitle: T\n---\n# T\n")
+	write("data/loose/a.md", "---\ntype: Service\ntitle: A\n---\n# A\n")
 }
 
 func TestFrontmatterRenameKeepsPosition(t *testing.T) {

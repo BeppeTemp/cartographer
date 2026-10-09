@@ -214,29 +214,33 @@ func TestWriteGate_InvalidAcceptRejectedBeforeWrite(t *testing.T) {
 	}
 }
 
-func TestWriteGate_DirtyTreeSkipsGate(t *testing.T) {
+// D357: the foreign change is committed on its own before the write, so the
+// tree is clean when the gate looks (it used to skip the gate on a dirty tree).
+func TestWriteGate_DirtyTreeIsCommittedFirst(t *testing.T) {
 	k, _ := gateKB(t, "error")
 	s := gateSeed(t, k, map[string]string{"ops/p": draftPage})
-	// A foreign uncommitted change: rolling back would destroy it.
 	if err := os.WriteFile(filepath.Join(k.DataRoot(), "ops", "foreign.md"), []byte("---\ntype: Note\ntitle: F\n---\nx\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	r, w, _ := os.Pipe()
 	old := os.Stderr
 	os.Stderr = w
-	text, isErr := callJSON(t, s, adminCtx, "concept_move", `{"source_id":"ops/p","target_id":"arch/p"}`)
+	text, isErr := callJSON(t, s, adminCtx, "concept_move", `{"source_id":"ops/p","target_id":"ops/p2"}`)
 	w.Close()
 	os.Stderr = old
 	buf := make([]byte, 1<<16)
 	n, _ := r.Read(buf)
 	if isErr {
-		t.Fatalf("dirty-tree write refused: %s", text)
+		t.Fatalf("write refused: %s", text)
 	}
-	if !strings.Contains(string(buf[:n]), "write_gate skipped: working tree not clean before write") {
-		t.Fatalf("stderr lacks the skip line:\n%s", buf[:n])
+	if strings.Contains(string(buf[:n]), "write_gate skipped") {
+		t.Fatalf("the gate was skipped:\n%s", buf[:n])
 	}
-	if _, err := k.ReadConcept("arch/p"); err != nil {
+	if _, err := k.ReadConcept("ops/p2"); err != nil {
 		t.Fatalf("write did not happen: %v", err)
+	}
+	if subjects := gitOut(t, k, "log", "-2", "--format=%s"); !strings.HasPrefix(subjects, "concept_move") || !strings.HasSuffix(subjects, externalChangesSubject) {
+		t.Fatalf("history:\n%s", subjects)
 	}
 }
 

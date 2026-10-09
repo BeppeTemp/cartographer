@@ -142,6 +142,11 @@ what is allowed:
      title); `title_quality` is an info finding with no fix, because the wording is a judgement:
      show the operator the title and a shorter label, and accept it with `lint_ignore` when the
      title is deliberate.
+   - **Drift** (D357): `stray_file` (a non-Markdown file in `data/`) and an `unknown_type` with no unique
+     case match are judgement: show the operator the file or the type with the palette the message
+     lists, then move or delete the file (`asset_write` under an expanded concept if it belongs to
+     one), `concept_patch` the type, or accept with `lint_ignore` when it is deliberate. A tie in
+     `value_case_variant` is the same: ask which spelling wins, then patch the minority.
    - **Boilerplate** (D314, D317): a `repeated_fact` whose evidence line comes from a template is
      structural. The fix is in the template (`artifact_read` `templates/`), not in each concept:
      one decision, not one per copy.

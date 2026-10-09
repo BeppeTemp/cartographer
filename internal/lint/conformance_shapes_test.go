@@ -49,9 +49,32 @@ func TestStringifiedList_NotSuppressible(t *testing.T) {
 }
 
 func TestListItems(t *testing.T) {
-	for in, want := range map[string]string{"[a, b]": "a|b", "[a]; [b]": "a|b", "- a": "a", `["x y", 'z']`: "x y|z"} {
-		if got := strings.Join(ListItems(in), "|"); got != want {
-			t.Errorf("ListItems(%q) = %q, want %q", in, got, want)
+	for _, c := range []struct{ field, in, want string }{
+		{"tags", "[a, b]", "a|b"},
+		{"tags", "[a]; [b]", "a|b"},
+		{"tags", "- a", "a"},
+		{"tags", `["x y", 'z']`, "x y|z"},
+		// D357: a bare string. Identifier fields split on commas…
+		{"tags", "x, y", "x|y"},
+		{"related", "a/b, c/d", "a/b|c/d"},
+		{"tags", "backup", "backup"},
+		// …citation fields keep it whole, a written list still splits.
+		{"provenance", "Talk, 2024", "Talk, 2024"},
+		{"secrets_source", "vault, prod", "vault, prod"},
+		{"provenance", "[Talk, 2024]", "Talk|2024"},
+	} {
+		if got := strings.Join(ListItems(c.field, c.in), "|"); got != c.want {
+			t.Errorf("ListItems(%s, %q) = %q, want %q", c.field, c.in, got, c.want)
+		}
+	}
+}
+
+// D357: a string in a list field is always the wrong type, bracketed or not.
+func TestStringifiedList_BareScalarDetected(t *testing.T) {
+	for _, fm := range []string{"tags: \"x, y\"\n", "provenance: \"a, b, c\"\n", "tags: backup\n", "related: other/page\n"} {
+		got := findingsOf(shapeFindings(t, fm, "x"), "stringified_list")
+		if len(got) != 1 || got[0].Fix == nil || got[0].Fix.Kind != FixListifyField {
+			t.Errorf("%q -> %+v", fm, got)
 		}
 	}
 }

@@ -76,8 +76,8 @@ var registry = []CheckSpec{
 	{Name: "status_semantics", Severity: SevWarning, Level: LevelConcept, Accept: AcceptConcept, OnWrite: true},
 	{Name: "machine_path", Severity: SevWarning, Level: LevelConcept, Accept: AcceptConcept, OnWrite: true},
 	{Name: "mangled_placeholder", Severity: SevWarning, Level: LevelConcept, Accept: AcceptConcept, OnWrite: true},
-	{Name: "missing_title", Severity: SevWarning, Level: LevelConcept, Accept: AcceptConcept, OnWrite: true},
-	{Name: "title_h1_mismatch", Severity: SevWarning, Level: LevelConcept, Accept: AcceptConcept, OnWrite: true, FixKinds: []string{FixSyncH1}, AutoRepairSafe: true},
+	{Name: "missing_title", Severity: SevWarning, Level: LevelConcept, Accept: AcceptConcept, OnWrite: true, FixKinds: []string{FixSetValue}, AutoRepairSafe: true},
+	{Name: "title_h1_mismatch", Severity: SevWarning, Level: LevelConcept, Accept: AcceptConcept, OnWrite: true, FixKinds: []string{FixSyncH1, FixSetValue}, AutoRepairSafe: true},
 	{Name: "title_quality", Severity: SevInfo, Level: LevelConcept, Accept: AcceptConcept, OnWrite: true},
 	{Name: "missing_required_field", Severity: SevError, Level: LevelConcept, Accept: AcceptNone, OnWrite: true},
 	{Name: "invalid_field_value", Severity: SevError, Level: LevelConcept, Accept: AcceptNone, OnWrite: true, FixKinds: []string{FixSetValue}, AutoRepairSafe: true},
@@ -89,6 +89,7 @@ var registry = []CheckSpec{
 	{Name: "closed_with_open_items", Severity: SevInfo, Level: LevelConcept, Accept: AcceptConcept, OnWrite: true, Judgement: true},
 	{Name: "template_section_missing", Severity: SevInfo, Level: LevelConcept, Accept: AcceptConcept, OnWrite: true, Judgement: true},
 	{Name: "open_marker", Severity: SevInfo, Level: LevelConcept, Accept: AcceptConcept, OnWrite: true},
+	{Name: "repeated_link", Severity: SevInfo, Level: LevelConcept, Accept: AcceptConcept, OnWrite: true, FixKinds: []string{FixUnlinkRepeat}, AutoRepairSafe: true},
 	// What the write path refuses about a page, as lint (D356): the repair and
 	// the doctor act on it. Not OnWrite: a write that would produce one of them
 	// is refused before it lints.
@@ -121,6 +122,9 @@ var registry = []CheckSpec{
 	{Name: "cut_concept", Severity: SevInfo, Level: LevelGraph, Accept: AcceptConcept, WholeGraph: true},
 	{Name: "island", Severity: SevInfo, Level: LevelGraph, Accept: AcceptConcept, WholeGraph: true},
 	{Name: "map_misfit", Severity: SevInfo, Level: LevelGraph, Accept: AcceptConcept, WholeGraph: true, Judgement: true},
+	// KB-wide values (D357): the type palette and the spellings in use.
+	{Name: "unknown_type", Severity: SevWarning, Level: LevelGraph, Accept: AcceptConcept, FixKinds: []string{FixSetValue}, Judgement: true},
+	{Name: "value_case_variant", Severity: SevWarning, Level: LevelGraph, Accept: AcceptConcept, FixKinds: []string{FixSetValue}, AutoRepairSafe: true},
 
 	// Maps and expanded concepts.
 	{Name: "contract_malformed", Severity: SevInfo, Level: LevelMap, Accept: AcceptNone},
@@ -137,6 +141,9 @@ var registry = []CheckSpec{
 	{Name: "unlistable_assets", Severity: SevWarning, Level: LevelMap, Accept: AcceptNone},
 	{Name: "oversized_asset", Severity: SevWarning, Level: LevelMap, Accept: AcceptNone},
 	{Name: "orphan_asset", Severity: SevInfo, Level: LevelMap, Accept: AcceptNone},
+	// The data/ tree (D357). unmapped_folder is on a folder, not a page.
+	{Name: "unmapped_folder", Severity: SevWarning, Level: LevelMap, Accept: AcceptNone, FixKinds: []string{FixScaffoldMap}, AutoRepairSafe: true},
+	{Name: "stray_file", Severity: SevWarning, Level: LevelMap, Accept: AcceptConcept, Judgement: true},
 
 	// KB-root artifacts (lint_accept in instructions.md, D332).
 	{Name: "skill_invalid", Severity: SevWarning, Level: LevelArtifact, Accept: AcceptArtifact, Panel: true},
@@ -228,6 +235,22 @@ func AutoRepairSafe(check string) bool {
 func ArtifactPanelCheck(check string) bool {
 	s, ok := Spec(check)
 	return ok && s.Panel
+}
+
+// MapRepairCheck reports whether a fixable check's findings name a data/ folder
+// rather than a concept (unmapped_folder, D357): its repair writes the folder's
+// descriptor.
+func MapRepairCheck(check string) bool {
+	s, ok := Spec(check)
+	if !ok {
+		return false
+	}
+	for _, k := range s.FixKinds {
+		if k == FixScaffoldMap {
+			return true
+		}
+	}
+	return false
 }
 
 // ArtifactRepairCheck reports whether a fixable check's findings name a

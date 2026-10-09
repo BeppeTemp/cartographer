@@ -278,12 +278,14 @@ func (r *stagedRepair) fixpoint(k *kb.KB, id okf.ConceptID, local []string, seed
 // caller holds the KB lock.
 func stagedAutoRepair(ctx context.Context, k *kb.KB, checks []string, quota int) *stagedRepair {
 	r := newStagedRepair()
-	var local, cross, artifact []string
+	var local, cross, artifact, folders []string
 	for _, c := range checks {
 		s, _ := lint.Spec(c)
 		switch {
 		case lint.ArtifactRepairCheck(c):
 			artifact = append(artifact, c)
+		case lint.MapRepairCheck(c):
+			folders = append(folders, c)
 		case s.CrossConcept:
 			cross = append(cross, c)
 		default:
@@ -327,6 +329,28 @@ func stagedAutoRepair(ctx context.Context, k *kb.KB, checks []string, quota int)
 			}
 		}
 		return out
+	}
+
+	// A folder with no descriptor is repaired first: it needs nothing from the
+	// concept stages, and its own pages are then in a map when they are fixed.
+	for _, check := range folders {
+		if ctx.Err() != nil {
+			return r
+		}
+		targets, _, err := planMapRepair(k, check, "")
+		if err != nil {
+			r.errs = append(r.errs, check+": "+err.Error())
+			continue
+		}
+		if len(targets) > quota {
+			targets = targets[:quota]
+		}
+		if len(targets) == 0 {
+			continue
+		}
+		applied, skipped := applyMapRepair(k, targets)
+		r.applied[check] += len(applied)
+		r.skipped[check] += len(skipped)
 	}
 
 	if len(local) > 0 {

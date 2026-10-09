@@ -1180,6 +1180,9 @@ func lintJudgementItems(findings []Finding, zombies map[okf.ConceptID]bool) []Re
 			continue
 		}
 		id := findingConceptID(f.Path)
+		if f.Check == "stray_file" {
+			id = okf.ConceptID(f.Path) // a file, named as it is: the doctor decides what to do with it
+		}
 		if id == "" || f.Artifact {
 			continue // a map index or descriptor: not a concept the doctor opens
 		}

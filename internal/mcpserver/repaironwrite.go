@@ -30,7 +30,7 @@ func repairOnWriteChecks(k *kb.KB) []string {
 	var out []string
 	for _, c := range k.AutoRepair {
 		s, ok := lint.Spec(c)
-		if !ok || !s.AutoRepairSafe || s.CrossConcept || lint.ArtifactRepairCheck(c) {
+		if !ok || !s.AutoRepairSafe || s.CrossConcept || lint.ArtifactRepairCheck(c) || lint.MapRepairCheck(c) {
 			continue
 		}
 		out = append(out, c)

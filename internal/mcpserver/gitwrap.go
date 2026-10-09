@@ -87,6 +87,7 @@ func gitWrap(k *kb.KB, t Tool) Tool {
 				res = errorResult(authErr.Error())
 				return nil
 			}
+			commitExternalChanges(k, orig.Name)
 			gateOn := gated && writeGateActive(k) && gatePrecheck(k)
 			handlerStart := time.Now()
 			res, handlerErr = orig.Handler(ctx, args)
@@ -174,6 +175,34 @@ func gitWrap(k *kb.KB, t Tool) Tool {
 		return res, handlerErr
 	}
 	return t
+}
+
+// externalChangesSubject is the subject of the commit that records changes the
+// working tree held before a write began (D357).
+const externalChangesSubject = "external changes"
+
+// commitExternalChanges commits, as their own commit, whatever the working tree
+// already holds when a write starts (D357). The write's commit stages
+// everything (git add -A), so without this a call that changed nothing, or one
+// file, would commit an editor's unrelated work under its own name, and history
+// would credit a tool (or the unattended doctor) with changes it did not make.
+// The commit is authored by the KB's default git identity, never the caller's,
+// and says why in the Reason trailer. It runs under the git lock before the
+// handler, after the pull; a KB with open conflicts is left alone (the write
+// is refused as before, and a conflict marker must not be committed). A
+// failure is logged and never fails the write. A clean tree, an AutoCommit-off
+// KB or a non-repository make it a no-op (CommitOpAs).
+func commitExternalChanges(k *kb.KB, tool string) {
+	if !k.AutoCommit {
+		return
+	}
+	if conflicts, err := k.ListConflicts(); err == nil && len(conflicts) > 0 {
+		return
+	}
+	msg := externalChangesSubject + "\n\n" + commitReasonKey + ": uncommitted changes found before " + tool
+	if _, err := k.CommitOpAs(msg, "", ""); err != nil {
+		fmt.Fprintf(os.Stderr, "cartographer: commit of external changes before %s failed: %v\n", tool, err)
+	}
 }
 
 // commitReasonKey is the git trailer key that carries the reason of a write
