@@ -920,7 +920,8 @@ func parseDays(v string, def int) (int, error) {
 var DefaultAutoRepair = []string{
 	"nonstandard_field", "tool_param_field", "prose_value", "invalid_field_value",
 	"stringified_list", "title_h1_mismatch", "legacy_path", "duplicate_link",
-	"index_link_form", "legacy_tool_name",
+	"index_link_form", "legacy_tool_name", "missing_frontmatter", "unparseable_frontmatter",
+	"missing_type", "nonslug_file_name",
 }
 
 // AutoRepairChecks resolves AutoRepair: DefaultAutoRepair when the key is

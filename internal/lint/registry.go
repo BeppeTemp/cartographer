@@ -89,6 +89,15 @@ var registry = []CheckSpec{
 	{Name: "closed_with_open_items", Severity: SevInfo, Level: LevelConcept, Accept: AcceptConcept, OnWrite: true, Judgement: true},
 	{Name: "template_section_missing", Severity: SevInfo, Level: LevelConcept, Accept: AcceptConcept, OnWrite: true, Judgement: true},
 	{Name: "open_marker", Severity: SevInfo, Level: LevelConcept, Accept: AcceptConcept, OnWrite: true},
+	// What the write path refuses about a page, as lint (D356): the repair and
+	// the doctor act on it. Not OnWrite: a write that would produce one of them
+	// is refused before it lints.
+	{Name: "missing_frontmatter", Severity: SevError, Level: LevelConcept, Accept: AcceptNone, FixKinds: []string{FixAddFrontmatter}, AutoRepairSafe: true, Judgement: true},
+	{Name: "unparseable_frontmatter", Severity: SevError, Level: LevelConcept, Accept: AcceptNone, FixKinds: []string{FixQuoteValue}, AutoRepairSafe: true, Judgement: true},
+	{Name: "missing_type", Severity: SevError, Level: LevelConcept, Accept: AcceptNone, FixKinds: []string{FixSetValue}, AutoRepairSafe: true, Judgement: true},
+	{Name: "concept_too_deep", Severity: SevError, Level: LevelConcept, Accept: AcceptNone, Judgement: true},
+	{Name: "nonslug_file_name", Severity: SevWarning, Level: LevelConcept, Accept: AcceptConcept, FixKinds: []string{FixMove}, AutoRepairSafe: true, CrossConcept: true},
+	{Name: "empty_concept", Severity: SevWarning, Level: LevelConcept, Accept: AcceptConcept, Judgement: true},
 	// One page, but only a whole-KB run has the inputs.
 	{Name: "concept_oversize", Severity: SevInfo, Level: LevelConcept, Accept: AcceptConcept, Judgement: true},
 	{Name: "imported_draft", Severity: SevWarning, Level: LevelConcept, Accept: AcceptConcept},

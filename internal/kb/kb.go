@@ -1217,6 +1217,14 @@ type ValidationError struct {
 // ResolvePath) is exempt: it has its own, shallower shape.
 const maxConceptDepth = 3
 
+// MaxConceptDepth is maxConceptDepth for the lint check concept_too_deep (D356),
+// which reports a page the write path would refuse.
+const MaxConceptDepth = maxConceptDepth
+
+// IsServicesID reports whether id belongs to the services/ tree, which is
+// exempt from the depth guard (see maxConceptDepth).
+func IsServicesID(id okf.ConceptID) bool { return isServicesID(id) }
+
 // isServicesID reports whether id belongs to the services/ tree, which is
 // exempt from the data/ depth guard (see maxConceptDepth) and from implicit
 // dossier stubbing (it has no archivio/dossier structure).
@@ -1278,6 +1286,23 @@ func (kb *KB) WriteExpandedConcept(id okf.ConceptID, fm *okf.Frontmatter, body s
 	return kb.writeConcept(id, fm, body, ifMatch, true)
 }
 
+// RepairConcept rewrites an existing concept on behalf of a repair (D356). It
+// has WriteConcept's path resolution, lock discipline and stale guard, but the
+// validity rule is "the errors after are a subset of the errors before": a page
+// that already lacks a type may be written without one (a fix for an unrelated
+// finding must not wait on a type nobody can resolve), and a page deeper than
+// maxConceptDepth keeps its path. It never creates a path: the concept must
+// exist. It exists for the repair paths alone (kb_repair, the heartbeat,
+// repair-on-write) and must never back an agent-facing write tool, which keeps
+// WriteConcept's full validation.
+func (kb *KB) RepairConcept(id okf.ConceptID, fm *okf.Frontmatter, body string, ifMatch string) (string, error) {
+	plan, err := kb.prepareWriteConceptMode(id, fm, body, ifMatch, false, true)
+	if err != nil {
+		return "", err
+	}
+	return kb.commitWriteConceptPlan(plan)
+}
+
 func (kb *KB) writeConcept(id okf.ConceptID, fm *okf.Frontmatter, body string, ifMatch string, forceExpanded bool) (string, error) {
 	plan, err := kb.prepareWriteConcept(id, fm, body, ifMatch, forceExpanded)
 	if err != nil {
@@ -1305,6 +1330,13 @@ type writeConceptPlan struct {
 // split out of writeConcept so a batch of operations (WriteConceptBatch) can
 // be fully validated in memory before the first byte is written to disk.
 func (kb *KB) prepareWriteConcept(id okf.ConceptID, fm *okf.Frontmatter, body string, ifMatch string, forceExpanded bool) (*writeConceptPlan, error) {
+	return kb.prepareWriteConceptMode(id, fm, body, ifMatch, forceExpanded, false)
+}
+
+// prepareWriteConceptMode is prepareWriteConcept with the repair mode of
+// RepairConcept (D356): the concept must exist, and the type and depth rules
+// reject only what the write would add to the errors the page already has.
+func (kb *KB) prepareWriteConceptMode(id okf.ConceptID, fm *okf.Frontmatter, body string, ifMatch string, forceExpanded, repair bool) (*writeConceptPlan, error) {
 	if id == "" {
 		return nil, fmt.Errorf("%w: empty ConceptID", okf.ErrInvalidConcept)
 	}
@@ -1342,11 +1374,13 @@ func (kb *KB) prepareWriteConcept(id okf.ConceptID, fm *okf.Frontmatter, body st
 		return nil, fmt.Errorf("%w: %s is a reserved file", okf.ErrInvalidConcept, filepath.Base(relPath))
 	}
 
-	if fm.Type() == "" {
+	if fm.Type() == "" && !(repair && kb.storedTypeMissing(relPath)) {
 		return nil, fmt.Errorf("%w: type field is required", okf.ErrInvalidConcept)
 	}
 
-	if !inServices && len(segments) > maxConceptDepth {
+	// The path of an existing concept is not changed by a repair, so a depth
+	// error it already has cannot grow.
+	if !inServices && len(segments) > maxConceptDepth && !repair {
 		return nil, fmt.Errorf("%w: concept depth (%d segments) exceeds the max of %d (map/concept/child): %s",
 			okf.ErrInvalidPath, len(segments), maxConceptDepth, id)
 	}
@@ -1358,6 +1392,9 @@ func (kb *KB) prepareWriteConcept(id okf.ConceptID, fm *okf.Frontmatter, body st
 
 	_, statErr := os.Stat(absPath)
 	fileExists := statErr == nil
+	if repair && !fileExists {
+		return nil, fmt.Errorf("%w: %s", okf.ErrNotFound, id)
+	}
 
 	if fileExists && ifMatch != "" {
 		data, err := os.ReadFile(absPath)
@@ -1393,6 +1430,23 @@ func (kb *KB) prepareWriteConcept(id okf.ConceptID, fm *okf.Frontmatter, body st
 	}
 
 	return &writeConceptPlan{absPath: absPath, content: []byte(content), newExpandedDir: newExpandedDir}, nil
+}
+
+// storedTypeMissing reports whether the file at relPath has no usable type
+// today: no frontmatter, an unparseable one, or none that sets type. It is the
+// "before" half of RepairConcept's validity rule; an unreadable file counts as
+// missing, since a repair never makes it worse.
+func (kb *KB) storedTypeMissing(relPath string) bool {
+	content, err := kb.ReadRaw(relPath)
+	if err != nil {
+		return true
+	}
+	raw, _, ok := okf.SplitFrontmatter(content)
+	if !ok {
+		return true
+	}
+	parsed, err := okf.ParseFrontmatter(raw)
+	return err != nil || parsed.Type() == ""
 }
 
 // commitWriteConceptPlan performs the actual disk I/O for an already

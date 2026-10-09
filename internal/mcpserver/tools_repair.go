@@ -79,9 +79,10 @@ func planRepair(k *kb.KB, check, scope string) ([]repairTarget, []repairItem, er
 	return targets, items, nil
 }
 
-// applyRepair writes each target through k.WriteConcept with the hash read at
-// planning time as if_match: a concept that changed since is skipped, never
-// overwritten. It returns the targets written and the skipped ones. The caller
+// applyRepair writes each target through k.RepairConcept (D356: a page may stay
+// as invalid as it was, never worse) with the hash read at planning time as
+// if_match: a concept that changed since is skipped, never overwritten. A move
+// (nonslug_file_name) goes through concept_move's code path instead. It returns the targets written and the skipped ones. The caller
 // holds the KB lock (gitWrap).
 //
 // mutualGuard (reciprocal_link_item, D309) keeps at most one side of a mutual
@@ -115,13 +116,21 @@ func applyRepair(k *kb.KB, targets []repairTarget, mutualGuard bool) (applied []
 			skipped = append(skipped, repairSkip{t.Path, err.Error()})
 			continue
 		}
-		fm, err := okf.ParseFrontmatter(cd.FrontmatterRaw)
+		if len(t.Fixes) > 0 && t.Fixes[0].Kind == lint.FixMove {
+			if reason := applyMoveRepair(k, t, cd.ContentHash); reason != "" {
+				skipped = append(skipped, repairSkip{t.Path, reason})
+				continue
+			}
+			applied = append(applied, t)
+			continue
+		}
+		fm, _, err := parseForRepair(cd.FrontmatterRaw, hasFixKind(t.Fixes, lint.FixQuoteValue))
 		if err != nil {
 			skipped = append(skipped, repairSkip{t.Path, "unreadable frontmatter: " + err.Error()})
 			continue
 		}
 		body := cd.Body
-		changed, partial, reason := applyFixes(fm, &body, t.Fixes)
+		changed, partial, reason := applyFixes(t.ID, fm, &body, t.Fixes)
 		if reason == "" && changed == 0 && len(partial) > 0 {
 			reason = strings.Join(partial, "; ")
 			partial = nil
@@ -135,7 +144,7 @@ func applyRepair(k *kb.KB, targets []repairTarget, mutualGuard bool) (applied []
 		for _, p := range partial {
 			skipped = append(skipped, repairSkip{t.Path, p})
 		}
-		if _, err := k.WriteConcept(t.ID, fm, body, t.Hash); err != nil {
+		if _, err := k.RepairConcept(t.ID, fm, body, t.Hash); err != nil {
 			reason := err.Error()
 			if errors.Is(err, okf.ErrStaleWrite) {
 				reason = "stale_write: the concept changed since it was listed"
@@ -149,6 +158,53 @@ func applyRepair(k *kb.KB, targets []repairTarget, mutualGuard bool) (applied []
 		applied = append(applied, t)
 	}
 	return applied, skipped
+}
+
+// parseForRepair parses a raw frontmatter block for a repair. A block that does
+// not parse is repaired in memory when quote is set and the answer is unique
+// (lint.QuoteBrokenValue, unparseable_frontmatter): quoted reports it. A page
+// without frontmatter has an empty raw block, which parses to an empty
+// Frontmatter: add_frontmatter fills it.
+func parseForRepair(raw string, quote bool) (fm *okf.Frontmatter, quoted bool, err error) {
+	fm, err = okf.ParseFrontmatter(raw)
+	if err == nil || !quote {
+		return fm, false, err
+	}
+	fixed, _, ok := lint.QuoteBrokenValue(raw)
+	if !ok {
+		return nil, false, err
+	}
+	fm, err = okf.ParseFrontmatter(fixed)
+	return fm, err == nil, err
+}
+
+func hasFixKind(fixes []*lint.Fix, kind string) bool {
+	for _, fx := range fixes {
+		if fx.Kind == kind {
+			return true
+		}
+	}
+	return false
+}
+
+// applyMoveRepair renames a concept to its slug through the concept_move code
+// path, so inbound links are rewritten (nonslug_file_name, D356). hash is the
+// content hash read now; the plan's own hash must still match. It returns the
+// reason the move was not made, or "".
+func applyMoveRepair(k *kb.KB, t repairTarget, hash string) string {
+	if t.Hash != "" && t.Hash != hash {
+		return "stale_write: the concept changed since it was listed"
+	}
+	fx := t.Fixes[0]
+	_, errRes := applyConceptMoves(k, []conceptMoveEntry{{SourceID: fx.Field, TargetID: fx.To}}, true,
+		moveOptions{LogTitle: "kb_repair: nonslug_file_name"})
+	if errRes != nil {
+		if len(errRes.Content) > 0 {
+			return errRes.Content[0].Text
+		}
+		return "move failed"
+	}
+	return ""
 }
 
 // linkItemTarget is the concept a drop_link_item fix unlinks, or "" for any
@@ -168,7 +224,7 @@ func linkItemTarget(path string, fx *lint.Fix) okf.ConceptID {
 // applyFixes applies fixes to fm and body in place. It returns how many
 // fixes it applied, the fixes it left for a person (partial: the others still
 // apply), and a non-empty fatal reason when the concept must not be written.
-func applyFixes(fm *okf.Frontmatter, body *string, fixes []*lint.Fix) (changed int, partial []string, fatal string) {
+func applyFixes(id okf.ConceptID, fm *okf.Frontmatter, body *string, fixes []*lint.Fix) (changed int, partial []string, fatal string) {
 	handled, renamed, partial := applyRenameGroups(fm, fixes)
 	changed += renamed
 	changed += applyPrefixReplacements(body, fixes, handled)
@@ -191,6 +247,18 @@ func applyFixes(fm *okf.Frontmatter, body *string, fixes []*lint.Fix) (changed i
 			*body = rewriteWikiLinkInBody(*body, fx.Field, fx.To)
 		case lint.FixSetValue:
 			fm.Set(fx.Field, fx.To)
+		case lint.FixQuoteValue:
+			// Done when the block was parsed (parseForRepair): the fix only
+			// makes the page be written.
+		case lint.FixAddFrontmatter:
+			if fm.Type() != "" {
+				changed-- // already has a type: idempotent
+				continue
+			}
+			fm.Set("type", fx.To)
+			if _, has := fm.Get("title"); !has {
+				fm.Set("title", lint.DeriveTitle(*body, id))
+			}
 		case lint.FixSplitValue:
 			raw, ok := fm.Get(fx.Field)
 			v, isStr := raw.(string)
@@ -869,15 +937,20 @@ func repairConceptFixpoint(k *kb.KB, id okf.ConceptID, allowed []string, seed []
 	if err != nil {
 		return skip(err.Error())
 	}
-	fm, err := okf.ParseFrontmatter(cd.FrontmatterRaw)
+	fm, quoted, err := parseForRepair(cd.FrontmatterRaw, allow["unparseable_frontmatter"])
 	if err != nil {
 		return skip("unreadable frontmatter: " + err.Error())
 	}
 	body := cd.Body
 	content := conceptContent(fm, body)
-	origHash := okf.ContentHash(content)
-	last := origHash
-	seen := map[string]bool{origHash: true}
+	last := okf.ContentHash(content)
+	origHash := last
+	if quoted {
+		// The block was repaired in memory: what is on disk differs from it
+		// even if no other fix changes anything.
+		origHash = cd.ContentHash
+	}
+	seen := map[string]bool{last: true}
 	stuck := map[string]bool{}
 
 	for pass := 0; ; pass++ {
@@ -913,7 +986,7 @@ func repairConceptFixpoint(k *kb.KB, id okf.ConceptID, allowed []string, seed []
 				continue
 			}
 			savedFM, savedBody := fm.Serialize(), body
-			changed, partial, fatal := applyFixes(fm, &body, fixes)
+			changed, partial, fatal := applyFixes(id, fm, &body, fixes)
 			if fatal != "" {
 				if restored, perr := okf.ParseFrontmatter(savedFM); perr == nil {
 					fm, body = restored, savedBody
@@ -953,6 +1026,9 @@ func repairConceptFixpoint(k *kb.KB, id okf.ConceptID, allowed []string, seed []
 		}
 		seen[h], last = true, h
 	}
+	if quoted && out.Changed["unparseable_frontmatter"] == 0 {
+		out.Changed["unparseable_frontmatter"] = 1 // no seed named it, the repair still happened
+	}
 	for c := range stuck {
 		out.Stuck = append(out.Stuck, c)
 	}
@@ -961,7 +1037,7 @@ func repairConceptFixpoint(k *kb.KB, id okf.ConceptID, allowed []string, seed []
 		out.Changed, out.Renames = map[string]int{}, nil
 		return out, nil
 	}
-	hash, err := k.WriteConcept(id, fm, body, cd.ContentHash)
+	hash, err := k.RepairConcept(id, fm, body, cd.ContentHash)
 	if err != nil {
 		reason := err.Error()
 		if errors.Is(err, okf.ErrStaleWrite) {

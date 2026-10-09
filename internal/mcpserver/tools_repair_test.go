@@ -206,6 +206,7 @@ func TestFixableChecksCoverEveryEmittedFix(t *testing.T) {
 	}
 	seedBodyFixes(t, k)
 	seedLegacyFixes(t, k)
+	seedInvalidPages(t, k) // D356
 	sf := newFM()
 	sf.Set("type", "Note")
 	sf.Set("title", "S")
