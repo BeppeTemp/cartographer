@@ -650,6 +650,8 @@ func toolKBStatus(k *kb.KB, misses *searchMissLog, reads *readAccessLog, serverV
 					}
 				}
 
+				// stale_count counts review_after in the past, not stale_after /
+				// stale_open (D346): a Task without review_after stays 0.
 				if ra, ok := fm.Get("review_after"); ok {
 					if raStr, ok := ra.(string); ok && raStr != "" && raStr < today {
 						staleCount++

@@ -1571,6 +1571,10 @@ type MapContract struct {
 	Kind           string
 	OpenStatuses   []string
 	StaleAfterDays int
+	// StaleAfterOff is an explicit stale_after: 0 (D346): the map is never
+	// stale, whatever its kind or statuses. Unset is not off: it takes the
+	// default for the map's kind.
+	StaleAfterOff bool
 	// HarvestAfterDays is the age after which a closed journal entry is a
 	// harvest candidate (D322); 0 means the default, DefaultHarvestAfterDays.
 	HarvestAfterDays int
@@ -1964,10 +1968,15 @@ func (kb *KB) UpdateMapContract(name string, upd MapContractUpdate) (MapContract
 		setList("open_markers", *upd.OpenMarkers)
 	}
 	if upd.StaleAfterDays != nil {
-		if *upd.StaleAfterDays > 0 {
-			fm.Set("stale_after", strconv.Itoa(*upd.StaleAfterDays))
-		} else {
+		// D346: N>0 sets, 0 writes an explicit off, -1 deletes (back to the
+		// default). An integer schema cannot carry null, so -1 is the reset.
+		switch n := *upd.StaleAfterDays; {
+		case n >= 0:
+			fm.Set("stale_after", strconv.Itoa(n))
+		case n == -1:
 			fm.Delete("stale_after")
+		default:
+			return MapContract{}, fmt.Errorf("stale_after must be a positive number of days, 0 (off) or -1 (default)")
 		}
 	}
 	if upd.HarvestAfterDays != nil {
@@ -2581,11 +2590,12 @@ func (kb *KB) ReadMapContract(archive string) (MapContract, error) {
 		case key == "stale_after":
 			s, _ := value.(string)
 			n, err := strconv.Atoi(strings.TrimSpace(s))
-			if err != nil || n <= 0 {
+			if err != nil || n < 0 {
 				bad(key)
 				continue
 			}
 			contract.StaleAfterDays = n
+			contract.StaleAfterOff = n == 0 // D346
 		case key == "harvest_after":
 			s, _ := value.(string)
 			n, err := strconv.Atoi(strings.TrimSpace(s))

@@ -12,6 +12,7 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/gitx"
 	"github.com/BeppeTemp/cartographer/internal/kb"
+	"github.com/BeppeTemp/cartographer/internal/lint"
 	"github.com/BeppeTemp/cartographer/internal/okf"
 )
 
@@ -891,6 +892,11 @@ func toolMapList(k *kb.KB) Tool {
 				// map_update replaces the list, so this is what to extend.
 				LintIgnore []string `json:"lint_ignore,omitempty"`
 				Expanded   int      `json:"expanded_concepts"`
+				// StaleAfter is the effective stale_open threshold in days
+				// (D346); StaleAfterDefaulted says it is the default for the
+				// map's kind, not a stale_after in _map.md.
+				StaleAfter          int  `json:"stale_after,omitempty"`
+				StaleAfterDefaulted bool `json:"stale_after_defaulted,omitempty"`
 			}
 
 			var infos []mapInfo
@@ -924,6 +930,9 @@ func toolMapList(k *kb.KB) Tool {
 					if v, ok := meta.Get("lint_ignore"); ok {
 						info.LintIgnore, _ = v.([]string)
 					}
+				}
+				if c, cerr := k.ReadMapContract(name); cerr == nil {
+					info.StaleAfter, info.StaleAfterDefaulted = lint.EffectiveStaleAfter(&c)
 				}
 				infos = append(infos, info)
 			}

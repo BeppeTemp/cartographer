@@ -12,11 +12,13 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/search"
 )
 
-// Lifecycle defaults (D297). A journal is a log of work, so an unfinished
-// entry ages; a map holds reference pages, which are not stale by age unless
-// the contract says so.
+// Lifecycle defaults (D297, D346). A journal is a log of work, so an
+// unfinished entry ages; a map that holds work (an open phase in its
+// contract) ages faster; a reference map is not stale by age unless the
+// contract says so.
 const (
 	journalStaleAfterDays = 60
+	workMapStaleAfterDays = 30
 	facetSprawlMinValues  = 30
 )
 
@@ -97,10 +99,7 @@ func decayFindings(in conceptInput, sections []string) []Finding {
 
 	// --- stale_open ---
 	if in.Contract != nil && openPhase(status, in.Contract) && !reviewSuspended(in.Parsed) {
-		days := in.Contract.StaleAfterDays
-		if days == 0 && in.Contract.Kind == "journal" {
-			days = journalStaleAfterDays
-		}
+		days, _ := EffectiveStaleAfter(in.Contract)
 		if ts, ok := frontmatterValue(in.Parsed, "timestamp").(string); ok && days > 0 && len(ts) >= 10 {
 			if t, err := time.Parse("2006-01-02", ts[:10]); err == nil {
 				if age := int(Now().Sub(t).Hours() / 24); age > days {

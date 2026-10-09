@@ -924,7 +924,7 @@ func generatedBlockEdited(k *kb.KB, mapName, before, after string) string {
 func toolMapUpdate(k *kb.KB) Tool {
 	return Tool{
 		Name:        "map_update",
-		Description: "Changes an existing map's or journal's title or lint contract: only the keys given (as in map_create) change, each replaced whole; an empty list, \"\", false or {} removes it. title also renames the index. Returns the contract.",
+		Description: "Changes a map's or journal's title or lint contract: given keys are replaced whole (as in map_create); an empty list, \"\", false or {} removes it. title renames the index. stale_after 0 = off, -1 = default. Returns it.",
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"required": ["map"],
@@ -1130,8 +1130,43 @@ func toolMapUpdate(k *kb.KB) Tool {
 					"machine_path_allow_prefixes": nonNilStrings(contract.MachinePathAllowPrefixes),
 				},
 			}
+			echo := result["contract"].(map[string]interface{})
 			if contract.Index != "" {
-				result["contract"].(map[string]interface{})["index"] = contract.Index
+				echo["index"] = contract.Index
+			}
+			// D346: the same view as map_list, so a caller sees from the
+			// response that a key was written. Lists as [] when empty,
+			// scalars omitted when unset.
+			echo["open_statuses"] = nonNilStrings(contract.OpenStatuses)
+			echo["open_markers"] = nonNilStrings(contract.OpenMarkers)
+			echo["forbidden_title_terms"] = nonNilStrings(contract.ForbiddenTitleTerms)
+			echo["concept_types"] = nonNilStrings(contract.ConceptTypes)
+			echo["procedure_headings"] = nonNilStrings(contract.ProcedureHeadings)
+			valueSyn := contract.ValueSynonyms
+			if valueSyn == nil {
+				valueSyn = map[string][]string{}
+			}
+			echo["value_synonyms"] = valueSyn
+			echo["template_sections"] = contract.TemplateSections
+			echo["glossary"] = contract.Glossary
+			for k, v := range map[string]string{"kind": contract.Kind, "ontology_mode": contract.OntologyMode, "promote_to": contract.PromoteTo, "work_map": contract.WorkMap} {
+				if v != "" {
+					echo[k] = v
+				}
+			}
+			for k, v := range map[string]int{"harvest_after": contract.HarvestAfterDays, "repeated_fact_min": contract.RepeatedFactMin, "hotspot_in_degree": contract.HotspotInDegree, "hotspot_bytes": contract.HotspotBytes, "oversize_bytes": contract.OversizeBytes, "oversize_concepts": contract.OversizeConcepts} {
+				if v > 0 {
+					echo[k] = v
+				}
+			}
+			if contract.TitleMaxLength != nil {
+				echo["title_max_length"] = *contract.TitleMaxLength
+			}
+			if days, defaulted := lint.EffectiveStaleAfter(&contract); days > 0 {
+				echo["stale_after"] = days
+				if defaulted {
+					echo["stale_after_defaulted"] = true
+				}
 			}
 			out, _ := json.MarshalIndent(result, "", "  ")
 			return textResult(string(out)), nil
