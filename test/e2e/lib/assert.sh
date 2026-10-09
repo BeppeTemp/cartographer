@@ -128,10 +128,14 @@ assert_mcp_ok() {
 # assert_mcp_error_text <desc> <response_body> <expected_text>
 #   Verifies a tools/call response is an application error whose content
 #   text is exactly <expected_text> (e.g. "forbidden" or the D118 generic
-#   non-disclosure string "not found").
+#   non-disclosure string "not found"). "forbidden" also accepts the reasoned
+#   form "forbidden: <code>: <hint>" (D343); "not found" stays exact, since a
+#   reason there would confirm the id exists.
 assert_mcp_error_text() {
     local desc="$1" body="$2" want="$3"
-    if echo "$body" | grep -q '"isError":true' && echo "$body" | grep -qF "\"text\":\"${want}\""; then
+    local reasoned="\"text\":\"${want}\""
+    [ "$want" = "forbidden" ] && reasoned="\"text\":\"forbidden: "
+    if echo "$body" | grep -q '"isError":true' && { echo "$body" | grep -qF "\"text\":\"${want}\"" || echo "$body" | grep -qF "$reasoned"; }; then
         _assert_pass "$desc"
     else
         _assert_fail "${desc} — expected isError with text '${want}', got: ${body}"
