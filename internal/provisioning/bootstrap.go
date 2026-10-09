@@ -289,6 +289,8 @@ var hookMechanisms = map[configurator.Provider]hookMechanism{
 	configurator.ProviderOpenCode: {
 		pluginPath:             openCodePluginRelPath,
 		warningBlocksBootstrap: true,
+		// writeFindingsHook stays false: support depends on the installed major
+		// (SupportsWriteFindingsHook, D362) and the hook is a dedicated plugin.
 		register: func(baseDir, name, fullDestDir string) (string, string, error) {
 			// Unlike claude/codex (patching an existing shared file), here the
 			// registration produces a NEW dedicated file (the generated

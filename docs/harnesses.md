@@ -231,7 +231,10 @@ would flip a matrix cell is confirmed with a probe
     with the result text in `result.output`. Appending to `event.result.output`
     reaches the model and keeps the result; throwing reaches it as a tool error
     and the agent retries the write. The generic plugin passes no payload on
-    stdin. Plan: [#646](https://github.com/BeppeTemp/cartographer/issues/646).
+    stdin. Implemented as a dedicated plugin for 2.x only (D362): it appends the
+    message to `result.output` on exit 2 and never throws; 1.x was not probed and
+    gets nothing. The inner call's output joins the write response and the
+    server's sync-state block with a newline; the subcommand reads both values.
   - 2.x `opencode.json` is translated on load (`mcp` → `mcp.servers`,
     `permission` map → `permissions` list), so the 1.x shape still works.
 - **Watch items**: project cells (`.opencode/skills`, `.opencode/agent`) not

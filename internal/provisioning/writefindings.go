@@ -76,8 +76,12 @@ func writeFindingsSyntheticFor(provider configurator.Provider) syntheticHook {
 
 // SupportsWriteFindingsHook reports whether the write-findings hook (D353) is
 // installed for provider: only clients whose PostToolUse payload and feedback
-// channel were verified (claude, codex).
+// channel were verified (claude, codex, and OpenCode 2.x, D362). OpenCode 1.x
+// was never probed, so it gets nothing, and neither does an unreadable version.
 func SupportsWriteFindingsHook(provider configurator.Provider) bool {
+	if provider == configurator.ProviderOpenCode {
+		return openCodeMajor() >= 2
+	}
 	return hookMechanisms[provider].writeFindingsHook
 }
 
@@ -95,15 +99,16 @@ func isReservedHook(kind, name string) bool {
 
 // EnsureWriteFindingsHook materializes and registers the write-findings hook
 // for provider and returns lock with its ManagedFile entries refreshed
-// (idempotent). A provider without the verified feedback channel is a no-op.
+// (idempotent). A provider without the verified feedback channel gets none and
+// loses a previously installed one.
 // enabled=false (`write_findings_hook: false` in .cartographer.yaml) removes a
 // previously installed hook through PruneManaged, the path `disconnect` uses;
 // idempotent when absent. dryRun performs no I/O.
 func EnsureWriteFindingsHook(baseDir string, provider configurator.Provider, lock Lock, enabled, dryRun bool) (Lock, error) {
-	if !SupportsWriteFindingsHook(provider) {
-		return lock, nil
-	}
-	if enabled {
+	// An unsupported client is pruned like an opt-out: OpenCode downgraded to
+	// 1.x (or unreadable) must not keep a 2.x-only plugin (D362). Absent entry:
+	// a no-op for every other provider.
+	if enabled && SupportsWriteFindingsHook(provider) {
 		return ensureSyntheticHook(baseDir, provider, lock, writeFindingsSyntheticFor(provider), dryRun)
 	}
 	var drop, keep []ManagedFile

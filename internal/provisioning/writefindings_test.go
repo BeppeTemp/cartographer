@@ -347,3 +347,96 @@ func TestEnsureWriteFindingsHook_Codex_UsesContextChannel(t *testing.T) {
 		t.Errorf("hooks.json after removal: %s", data)
 	}
 }
+
+func TestEnsureWriteFindingsHook_OpenCode2_DedicatedPlugin(t *testing.T) {
+	defer provisioning.SetOpenCodeVersionForTest("2.0.25")()
+	baseDir := t.TempDir()
+	lock, err := provisioning.EnsureWriteFindingsHook(baseDir, configurator.ProviderOpenCode, provisioning.Lock{}, true, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plugin := filepath.Join(baseDir, ".config", "opencode", "plugins", "cartographer-"+provisioning.WriteFindingsHookName+".js")
+	data, err := os.ReadFile(plugin)
+	if err != nil {
+		t.Fatalf("plugin: %v", err)
+	}
+	src := string(data)
+	var tools []string
+	tools = append(tools, provisioning.WriteFindingsTools...)
+	for _, want := range []string{
+		"cartographer:hook:" + provisioning.WriteFindingsHookName,
+		"cartographer:opencode-plugin-shape=2",
+		`ctx.tool.hook("execute.after"`,
+		"/_(" + strings.Join(tools, "|") + ")$/",
+		`event.status !== "completed"`,
+		`typeof output !== "string"`,
+		"input: JSON.stringify({ tool_name: event.tool, tool_response: output })",
+		"r.status !== 2",
+		"event.result = { ...event.result, output: output +",
+		"write-findings.sh",
+	} {
+		if !strings.Contains(src, want) {
+			t.Errorf("plugin lacks %q:\n%s", want, src)
+		}
+	}
+	if strings.Contains(src, "throw") {
+		t.Errorf("the plugin must never throw (a throw makes the agent retry the write):\n%s", src)
+	}
+	if strings.Contains(src, "--channel") {
+		t.Errorf("OpenCode reads stderr on exit 2, no --channel:\n%s", src)
+	}
+	if _, err := os.Stat(filepath.Join(baseDir, ".opencode", "hooks", provisioning.WriteFindingsHookName, provisioning.WriteFindingsScriptNameForTest)); err != nil {
+		t.Errorf("hook files not written: %v", err)
+	}
+
+	// Deterministic across runs, and an opt-out removes plugin and files.
+	if _, err := provisioning.EnsureWriteFindingsHook(baseDir, configurator.ProviderOpenCode, lock, true, false); err != nil {
+		t.Fatal(err)
+	}
+	again, _ := os.ReadFile(plugin)
+	if string(again) != src {
+		t.Error("plugin not deterministic")
+	}
+	if _, err := provisioning.EnsureWriteFindingsHook(baseDir, configurator.ProviderOpenCode, lock, false, false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(plugin); !os.IsNotExist(err) {
+		t.Errorf("plugin survived the opt-out: %v", err)
+	}
+}
+
+func TestEnsureWriteFindingsHook_OpenCode1_NothingAndPrunes(t *testing.T) {
+	baseDir := t.TempDir()
+	restore := provisioning.SetOpenCodeVersionForTest("2.0.25")
+	lock, err := provisioning.EnsureWriteFindingsHook(baseDir, configurator.ProviderOpenCode, provisioning.Lock{}, true, false)
+	restore()
+	if err != nil || len(lock.Managed) == 0 {
+		t.Fatalf("setup: %v %+v", err, lock)
+	}
+	plugin := filepath.Join(baseDir, ".config", "opencode", "plugins", "cartographer-"+provisioning.WriteFindingsHookName+".js")
+
+	for _, v := range []string{"1.18.34", ""} {
+		t.Run("version "+v, func(t *testing.T) {
+			if v != "" {
+				defer provisioning.SetOpenCodeVersionForTest(v)()
+			}
+			if provisioning.SupportsWriteFindingsHook(configurator.ProviderOpenCode) {
+				t.Fatal("supported on an unprobed or unreadable version")
+			}
+			got, err := provisioning.EnsureWriteFindingsHook(baseDir, configurator.ProviderOpenCode, lock, true, false)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(got.Managed) != 0 {
+				t.Errorf("managed entries kept: %+v", got.Managed)
+			}
+			if _, err := os.Stat(plugin); !os.IsNotExist(err) {
+				t.Errorf("plugin not pruned: %v", err)
+			}
+			// Reinstall for the next sub-test.
+			restore := provisioning.SetOpenCodeVersionForTest("2.0.25")
+			lock, _ = provisioning.EnsureWriteFindingsHook(baseDir, configurator.ProviderOpenCode, provisioning.Lock{}, true, false)
+			restore()
+		})
+	}
+}
