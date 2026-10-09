@@ -273,3 +273,73 @@ func TestApply_OpenCode_Hook_EventoNonMappato_NessunPluginNessunErrore(t *testin
 		t.Errorf("non-descriptive warning: %q", res.Warnings[0])
 	}
 }
+
+func applyOpenCodeHook(t *testing.T, version, event, matcher string) string {
+	t.Helper()
+	defer provisioning.SetOpenCodeVersionForTest(version)()
+	kbRoot := t.TempDir()
+	writeHookKB(t, kbRoot, "notify", event, matcher, "./notify.sh")
+	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, provisioning.BuildOptions{})
+	if err != nil {
+		t.Fatalf("BuildManifest: %v", err)
+	}
+	baseDir := t.TempDir()
+	if _, err := provisioning.Apply(m, provisioning.ApplyOptions{
+		AutoTrust: true, KBRoots: map[string]string{"kb": kbRoot},
+		Provider: configurator.ProviderOpenCode, BaseDir: baseDir, Lock: provisioning.Lock{},
+	}); err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	data, err := os.ReadFile(pluginPath(baseDir, "notify"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(data)
+}
+
+// D359: OpenCode 2.x needs a default export with an id and a setup function.
+func TestApply_OpenCode2_PluginShape(t *testing.T) {
+	for _, tc := range []struct{ event, matcher, want string }{
+		{"PreToolUse", "Bash", `ctx.tool.hook("execute.before"`},
+		{"PostToolUse", "Bash", `ctx.tool.hook("execute.after"`},
+		{"SessionStart", "", `ctx.event.subscribe`},
+	} {
+		got := applyOpenCodeHook(t, "2.0.20\n", tc.event, tc.matcher)
+		for _, w := range []string{"export default {", `id: "cartographer.notify"`, "setup(ctx)", tc.want, "opencode-plugin-shape=2"} {
+			if !strings.Contains(got, w) {
+				t.Errorf("%s: missing %q in:\n%s", tc.event, w, got)
+			}
+		}
+		if strings.Contains(got, "export const") {
+			t.Errorf("%s: 1.x named export in a 2.x plugin:\n%s", tc.event, got)
+		}
+		if provisioning.OpenCodePluginShape(got) != 2 {
+			t.Errorf("%s: shape not read back as 2", tc.event)
+		}
+	}
+}
+
+func TestApply_OpenCode1AndUnknown_KeepV1Shape(t *testing.T) {
+	for _, version := range []string{"1.18.34", ""} {
+		got := applyOpenCodeHook(t, version, "PreToolUse", "Bash")
+		if !strings.Contains(got, "export const CartographerHookNotify = async ({ $ })") || strings.Contains(got, "export default") {
+			t.Errorf("version %q: expected the 1.x shape:\n%s", version, got)
+		}
+		if provisioning.OpenCodePluginShape(got) != 1 {
+			t.Errorf("version %q: shape not read back as 1", version)
+		}
+	}
+}
+
+func TestOpenCodePluginShape_NoMarkerIsV1(t *testing.T) {
+	if provisioning.OpenCodePluginShape("export const X = async () => ({})") != 1 {
+		t.Error("a file written before D359 is shape 1")
+	}
+}
+
+func TestOpenCodeRegistry_DeclaresPluginMajors(t *testing.T) {
+	d, ok := configurator.Lookup(configurator.ProviderOpenCode)
+	if !ok || len(d.HookPluginMajors) != 2 || d.HookPluginMajors[0] != 1 || d.HookPluginMajors[1] != 2 {
+		t.Errorf("HookPluginMajors = %v, want [1 2]", d.HookPluginMajors)
+	}
+}

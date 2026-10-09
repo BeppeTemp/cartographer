@@ -189,7 +189,8 @@ would flip a matrix cell is confirmed with a probe
     is not in the documented global list (`~/.config/opencode/skills`,
     `~/.claude/skills`, `~/.agents/skills`): `unverified`. Hooks fire through a
     generated JS plugin in `~/.config/opencode/plugins/` (documented, autoloaded;
-    D59), files kept in `~/.opencode/hooks/`; sync layer 1 is the documented
+    D59; shape per installed major, 1.x and 2.x, D359: 2.x rejects the 1.x shape,
+    sources `opencode.ai/v2/docs/build/plugins/` and `/migrate-v1`), files kept in `~/.opencode/hooks/`; sync layer 1 is the documented
     `session.created` event.
   - `mcp` under the `mcp` key of `opencode.json`; `instructions` in
     `~/.config/opencode/AGENTS.md` (both documented).

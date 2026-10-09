@@ -190,6 +190,7 @@ func runDoctor(dir, only string) doctorReport {
 			findings = append(findings, checkManagedFiles(dir, providers, lockFile)...)
 			findings = append(findings, checkInstructionsBlock(dir, providers, lockFile)...)
 			findings = append(findings, checkHookRegistrations(dir, providers, lockFile)...)
+			findings = append(findings, checkOpenCodePluginShape(dir, providers, lockFile)...)
 		}
 		findings = append(findings, checkMCPEntries(dir, cfg, providers)...)
 		findings = append(findings, checkServer(dir, cfg, providers)...)
@@ -571,6 +572,58 @@ func checkHookRegistrations(dir string, providers []string, lockFile provisionin
 				out = append(out, doctorFinding{
 					Check: "hooks", Severity: doctorError, Path: path,
 					Message: fmt.Sprintf("[%s] hook %q is registered %d times", p, name, managed),
+					Fix:     "cartographer sync",
+				})
+			}
+		}
+	}
+	return out
+}
+
+// installedOpenCodeMajor is indirected so tests state an installed version.
+var installedOpenCodeMajor = provisioning.OpenCodeMajor
+
+// checkOpenCodePluginShape compares the OpenCode major installed with the
+// plugin shape each generated hook plugin was written for (D359). OpenCode 2.x
+// rejects a 1.x plugin at load ("failed to load plugin"), and the file on disk
+// looks fine, so the on-disk verification cannot notice. An unknown version
+// (client not on PATH) is silent: nothing to compare against.
+func checkOpenCodePluginShape(dir string, providers []string, lockFile provisioning.LockFile) []doctorFinding {
+	var out []doctorFinding
+	for _, p := range providers {
+		if p != string(configurator.ProviderOpenCode) {
+			continue
+		}
+		major := installedOpenCodeMajor()
+		if major == 0 {
+			continue
+		}
+		supported := false
+		if d, ok := configurator.Lookup(configurator.ProviderOpenCode); ok {
+			for _, m := range d.HookPluginMajors {
+				supported = supported || m == major
+			}
+		}
+		lock := lockFile.ForProvider(p)
+		baseDir := provisioning.LockBaseDir(lock, dir)
+		for _, name := range managedHookNames(lock) {
+			path := filepath.Join(baseDir, filepath.FromSlash(provisioning.OpenCodePluginRelPath(name)))
+			data, err := os.ReadFile(path)
+			if err != nil {
+				continue // absent or unreadable: managed-files reports it
+			}
+			shape := provisioning.OpenCodePluginShape(string(data))
+			switch {
+			case !supported:
+				out = append(out, doctorFinding{
+					Check: "hooks", Severity: doctorWarning, Path: path,
+					Message: fmt.Sprintf("[opencode] installed OpenCode %d.x has no known hook plugin shape: plugin %q may fail to load", major, name),
+					Fix:     "update cartographer, then cartographer sync",
+				})
+			case shape != major:
+				out = append(out, doctorFinding{
+					Check: "hooks", Severity: doctorError, Path: path,
+					Message: fmt.Sprintf("[opencode] hook plugin %q is written for OpenCode %d.x but %d.x is installed: OpenCode rejects it at load, the hook never runs", name, shape, major),
 					Fix:     "cartographer sync",
 				})
 			}
