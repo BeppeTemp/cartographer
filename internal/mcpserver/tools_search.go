@@ -229,6 +229,13 @@ func keywordHits(ctx requestContext, k *kb.KB, rec *searchReconciler, deps Deps,
 	if _, err := rec.reconcile(); err != nil {
 		fmt.Fprintf(os.Stderr, "cartographer: search: %v\n", err)
 	}
+	return keywordHitsReconciled(ctx, k, rec, deps, query, scope, limit, skipArchived)
+}
+
+// keywordHitsReconciled is keywordHits for a caller that has just reconciled
+// and runs several queries in a row (the write-time repeated_fact lookups,
+// D351): the reconcile walks every file, so it is paid once per call.
+func keywordHitsReconciled(ctx requestContext, k *kb.KB, rec *searchReconciler, deps Deps, query, scope string, limit int, skipArchived bool) ([]searchHit, string) {
 	live := rec.live
 	visible := func(id string) bool { return Visible(ctx, k, id) }
 	// skipArchived (D322) drops archived concepts inside the backend's own

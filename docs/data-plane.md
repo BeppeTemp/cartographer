@@ -285,7 +285,7 @@ to add new pages to the index is the `kb-doctor` skill's to update, not the serv
 | Key | Meaning | Default |
 |---|---|---|
 | `index: generated` | the server keeps the map's concept list (§Generated indexes) | `curated` |
-| `repeated_fact_min: <n>` | concepts that must carry a line for a `repeated_fact` review item; with owners in several maps the lowest threshold among them applies | 3 |
+| `repeated_fact_min: <n>` | concepts that must carry a line for a `repeated_fact` review item, and for the write-time `repeated_fact` finding of the written concept's map (D351); with owners in several maps the lowest threshold among them applies | 3 |
 | `hotspot_in_degree: <n>` | inbound links that, with `hotspot_bytes`, make a `read_hotspot` | 50 |
 | `hotspot_bytes: <n>` | body size that, with `hotspot_in_degree`, makes a `read_hotspot` | 16384 |
 | `oversize_bytes: <n>` | this map's `concept_oversize` threshold | half the 60 KB read guard |

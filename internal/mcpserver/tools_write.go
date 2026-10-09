@@ -17,7 +17,7 @@ import (
 
 // --- concept_write ---
 
-func toolConceptWrite(k *kb.KB, sim *similarFinder) Tool {
+func toolConceptWrite(k *kb.KB, sim *similarFinder, facts *factFinder) Tool {
 	return Tool{
 		Name:        "concept_write",
 		Description: "Creates or updates a concept from frontmatter (YAML map, type required) and a markdown body. if_match (content hash) gives optimistic concurrency: stale_write if changed. Returns content_hash and structural findings too (links, orphan, index): fix them.",
@@ -69,6 +69,7 @@ func toolConceptWrite(k *kb.KB, sim *similarFinder) Tool {
 			applyFrontmatterMap(fm, params.Frontmatter)
 
 			isNew := conceptIsNew(k, params.ID)
+			prev := priorBody(k, params.ID)
 			newHash, err := writeConceptAndLog(k, "concept_write", params.ID, fm, params.Body, params.IfMatch)
 			if err != nil {
 				if errors.Is(err, okf.ErrStaleWrite) {
@@ -82,6 +83,7 @@ func toolConceptWrite(k *kb.KB, sim *similarFinder) Tool {
 				"content_hash": newHash,
 			}
 			findings, repaired, hashes := repairWritten(k, []string{params.ID}, nil)
+			findings = withFacts(findings, facts, ctx, params.ID, prev, newFactBudget())
 			result["findings"] = findingsOrEmpty(findings)
 			applyRepairResult(result, params.ID, repaired, hashes)
 			if isNew {
@@ -100,7 +102,7 @@ func toolConceptWrite(k *kb.KB, sim *similarFinder) Tool {
 // toolConceptNew creates a concept from a KB-owned template. Unlike
 // concept_write it is deliberately create-only: rendering is a one-shot,
 // literal substitution and never carries if_match overwrite semantics.
-func toolConceptNew(k *kb.KB, sim *similarFinder) Tool {
+func toolConceptNew(k *kb.KB, sim *similarFinder, facts *factFinder) Tool {
 	return Tool{
 		Name:        "concept_new",
 		Description: "Creates a concept from a KB-only template (see template_list); variables are substituted literally. Refuses an existing id (use concept_write/concept_patch). No strict-ontology pre-check, no index curation. Returns findings.",
@@ -209,6 +211,7 @@ func toolConceptNew(k *kb.KB, sim *similarFinder) Tool {
 			}
 			result := map[string]interface{}{"id": params.ID, "template": params.Template, "content_hash": newHash}
 			findings, repaired, hashes := repairWritten(k, []string{params.ID}, nil)
+			findings = withFacts(findings, facts, ctx, params.ID, "", newFactBudget())
 			result["findings"] = findingsOrEmpty(findings)
 			applyRepairResult(result, params.ID, repaired, hashes)
 			if similar := sim.find(ctx, params.ID, frontmatterTitle(k, params.ID)); len(similar) > 0 {
@@ -344,7 +347,7 @@ func applyPatchEdit(body, oldString, newString string, replaceAll bool) (newBody
 	return strings.Replace(body, oldString, newString, 1), 1, nil
 }
 
-func toolConceptPatch(k *kb.KB) Tool {
+func toolConceptPatch(k *kb.KB, facts *factFinder) Tool {
 	return Tool{
 		Name: "concept_patch",
 		Description: "Edit-style patch of a concept body: old_string/new_string/replace_all, or an edits array applied atomically in order. if_match required (stale_write). frontmatter is shallow-merged and may be the only change; frontmatter_append/frontmatter_remove add or drop list items (idempotent). Returns content_hash, findings. " +
@@ -514,7 +517,9 @@ func toolConceptPatch(k *kb.KB) Tool {
 				result["edit_matches"] = editMatches
 			}
 			findings, repaired, hashes := repairWritten(k, []string{params.ID}, nil)
-			result["findings"] = findingsOrEmpty(append(findings, droppedFinding(params.ID, dropped)...))
+			findings = append(findings, droppedFinding(params.ID, dropped)...)
+			findings = withFacts(findings, facts, ctx, params.ID, data.Body, newFactBudget())
+			result["findings"] = findingsOrEmpty(findings)
 			applyRepairResult(result, params.ID, repaired, hashes)
 			out, _ := json.MarshalIndent(result, "", "  ")
 			return textResult(string(out)), nil
@@ -2325,7 +2330,7 @@ type batchResultEntry struct {
 	Repaired    []repairedOut `json:"repaired,omitempty"`
 }
 
-func toolConceptBatch(k *kb.KB) Tool {
+func toolConceptBatch(k *kb.KB, facts *factFinder) Tool {
 	return Tool{
 		Name: "concept_batch",
 		Description: "All-or-nothing write/patch of distinct concepts: one commit and log entry; a failure leaves the KB untouched. " +
@@ -2389,6 +2394,7 @@ func toolConceptBatch(k *kb.KB) Tool {
 			seen := make(map[string]bool, len(params.Operations))
 			totalBytes := 0
 			droppedByID := map[string][]findingOut{}
+			prevByID := map[string]string{} // body before the batch: read before the write (D351)
 
 			for i, raw := range params.Operations {
 				label := fmt.Sprintf("operation %d of %d", i+1, len(params.Operations))
@@ -2416,6 +2422,9 @@ func toolConceptBatch(k *kb.KB) Tool {
 
 				existing, readErr := k.ReadConcept(okf.ConceptID(op.ID))
 				existed := readErr == nil
+				if existed {
+					prevByID[op.ID] = existing.Body
+				}
 				if readErr != nil && !errors.Is(readErr, okf.ErrNotFound) {
 					return errorResult(fmt.Sprintf("%s: %v", label, readErr)), nil
 				}
@@ -2544,13 +2553,16 @@ func toolConceptBatch(k *kb.KB) Tool {
 			}
 
 			entries := make([]batchResultEntry, len(results))
+			factBudget := newFactBudget() // one lookup budget for the whole batch
 			for i, r := range results {
 				findings, repaired, hashes := repairWritten(k, []string{r.ID}, nil)
+				findings = append(findings, droppedByID[r.ID]...)
+				findings = withFacts(findings, facts, ctx, r.ID, prevByID[r.ID], factBudget)
 				hash := r.ContentHash
 				if h, ok := hashes[r.ID]; ok {
 					hash = h
 				}
-				entries[i] = batchResultEntry{ID: r.ID, ContentHash: hash, Findings: append(findings, droppedByID[r.ID]...), Repaired: repaired}
+				entries[i] = batchResultEntry{ID: r.ID, ContentHash: hash, Findings: findings, Repaired: repaired}
 			}
 			out, _ := json.MarshalIndent(map[string]interface{}{"results": entries}, "", "  ")
 			return textResult(string(out)), nil
