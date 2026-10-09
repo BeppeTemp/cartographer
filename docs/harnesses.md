@@ -104,6 +104,7 @@ would flip a matrix cell is confirmed with a probe
     (`AGENTS.override.md` in the same directory wins, first non-empty file only);
     hook trust is keyed by the exact hook definition, and a project's `.codex/`
     layer is inactive unless the project is trusted (D193).
+  - `PostToolUse` write-findings hook (D361), registered in the same `hooks.json`.
   - write-findings feedback (D353, probed on 0.162.0, #637): a user-layer
     `PostToolUse` entry with Claude's matcher (`mcp__.*__(concept_write|…)$`)
     fires for an MCP tool named `mcp__<server>__<tool>`; the payload carries
@@ -113,8 +114,8 @@ would flip a matrix cell is confirmed with a probe
     with the stderr text, and the agent, seeing a failed call, repeats the write.
     `{"hookSpecificOutput":{"hookEventName":"PostToolUse","additionalContext":"…"}}`
     on stdout with exit 0 reaches the model and keeps the result; exit 0 with
-    stderr only does not reach it (negative control). Plan:
-    [#645](https://github.com/BeppeTemp/cartographer/issues/645).
+    stderr only does not reach it (negative control). **Supported** (D361): the
+    hook is installed with `--channel context`; the user approves it once.
   - session transcripts, read by the usage scan (D326):
     `~/.codex/sessions/**/rollout-*.jsonl`. Codex records no per-activation skill event:
     a `world_state` event whose `payload.state.host_skills` is non-empty proves the

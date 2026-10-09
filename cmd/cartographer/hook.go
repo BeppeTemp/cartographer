@@ -13,13 +13,20 @@ import (
 
 // `cartographer hook write-findings` (D353) is the logic of the client-generated
 // cartographer-write-findings hook (internal/provisioning/writefindings.go): it
-// reads a Claude Code PostToolUse payload on stdin and, when the write response
-// carries findings, returns them to the agent as feedback (stderr, exit 2).
-// Internal: not listed in printUsage, like `update apply`.
+// reads a PostToolUse payload on stdin (Claude Code or Codex: same fields) and,
+// when the write response carries findings, returns them to the agent as
+// feedback. Internal: not listed in printUsage, like `update apply`.
+//
+// The feedback channel is chosen by --channel, never sniffed from the payload
+// (D361): "stderr" (default, Claude Code) prints the message on stderr and
+// exits 2; "context" (Codex) prints {"hookSpecificOutput":{"hookEventName":
+// "PostToolUse","additionalContext":msg}} on stdout and exits 0, because Codex
+// replaces the tool result with the stderr text of an exit-2 hook and the agent
+// then repeats the write.
 //
 // Every other outcome is silent exit 0 — no findings, unknown payload shape,
-// parse error, even a panic: a hook must never break a session. Stdout stays
-// empty always (some hooks' stdout reaches the model as a different channel).
+// parse error, bad flag, even a panic: a hook must never break a session. With
+// the stderr channel stdout stays empty; with "context" exit 2 is never returned.
 
 var (
 	hookStdin  io.Reader = os.Stdin
@@ -35,8 +42,9 @@ const maxHookPayload = 8 << 20
 const maxFeedbackFindings = 10
 
 func cmdHook(args []string) (code int) {
-	if len(args) != 1 || args[0] != "write-findings" {
-		fmt.Fprintln(os.Stderr, "usage: cartographer hook write-findings   (internal: reads a PostToolUse payload on stdin)")
+	const usage = "usage: cartographer hook write-findings [--channel stderr|context]   (internal: reads a PostToolUse payload on stdin)"
+	if len(args) == 0 || args[0] != "write-findings" {
+		fmt.Fprintln(os.Stderr, usage)
 		return 2
 	}
 	defer func() {
@@ -45,15 +53,37 @@ func cmdHook(args []string) (code int) {
 			code = 0
 		}
 	}()
+	channel := "stderr"
+	switch rest := args[1:]; {
+	case len(rest) == 0:
+	case len(rest) == 2 && rest[0] == "--channel" && (rest[1] == "stderr" || rest[1] == "context"):
+		channel = rest[1]
+	default:
+		// A hook must never break a session: a bad flag is exit 0, not 2.
+		fmt.Fprintln(os.Stderr, usage)
+		return 0
+	}
 	raw, err := io.ReadAll(io.LimitReader(hookStdin, maxHookPayload))
 	if err != nil {
 		return 0
 	}
-	if msg := writeFindingsFeedback(raw); msg != "" {
-		fmt.Fprintln(hookStderr, msg)
-		return 2
+	msg := writeFindingsFeedback(raw)
+	if msg == "" {
+		return 0
 	}
-	return 0
+	if channel == "context" {
+		out, err := json.Marshal(map[string]any{"hookSpecificOutput": map[string]string{
+			"hookEventName":     "PostToolUse",
+			"additionalContext": msg,
+		}})
+		if err != nil {
+			return 0
+		}
+		fmt.Fprintln(os.Stdout, string(out))
+		return 0
+	}
+	fmt.Fprintln(hookStderr, msg)
+	return 2
 }
 
 // hookFinding is the part of a write response's finding entry the message uses.

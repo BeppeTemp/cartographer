@@ -36,11 +36,23 @@ func writeFindingsMatcher() string {
 	return "mcp__.*__(" + strings.Join(WriteFindingsTools, "|") + ")$"
 }
 
-func writeFindingsHookJSON() []byte {
+// writeFindingsCommandArgs is the per-provider argument line the hook command
+// carries after the shim (D361): the feedback channel differs by client. Absent
+// means the default (stderr + exit 2, Claude Code). A new client is one more
+// entry here.
+var writeFindingsCommandArgs = map[configurator.Provider]string{
+	configurator.ProviderCodex: "--channel context",
+}
+
+func writeFindingsHookJSON(provider configurator.Provider) []byte {
+	command := "./" + writeFindingsScriptName
+	if args := writeFindingsCommandArgs[provider]; args != "" {
+		command += " " + args
+	}
 	data, err := json.Marshal(hookSpec{
 		Event:   "PostToolUse",
 		Matcher: writeFindingsMatcher(),
-		Command: "./" + writeFindingsScriptName,
+		Command: command,
 	})
 	if err != nil {
 		// hookSpec is a plain struct of strings: Marshal cannot fail on it.
@@ -49,19 +61,22 @@ func writeFindingsHookJSON() []byte {
 	return data
 }
 
-var writeFindingsContentHash = contentHashBytes(append(writeFindingsHookJSON(), []byte(writeFindingsScriptContent)...))
-
-var writeFindingsSynthetic = syntheticHook{
-	name:          WriteFindingsHookName,
-	hookJSON:      writeFindingsHookJSON,
-	scriptName:    writeFindingsScriptName,
-	scriptContent: writeFindingsScriptContent,
-	contentHash:   writeFindingsContentHash,
+// writeFindingsSyntheticFor is the hook definition for provider: same shim, a
+// provider-specific hook.json (and so content hash).
+func writeFindingsSyntheticFor(provider configurator.Provider) syntheticHook {
+	hookJSON := writeFindingsHookJSON(provider)
+	return syntheticHook{
+		name:          WriteFindingsHookName,
+		hookJSON:      func() []byte { return hookJSON },
+		scriptName:    writeFindingsScriptName,
+		scriptContent: writeFindingsScriptContent,
+		contentHash:   contentHashBytes(append(append([]byte{}, hookJSON...), []byte(writeFindingsScriptContent)...)),
+	}
 }
 
 // SupportsWriteFindingsHook reports whether the write-findings hook (D353) is
 // installed for provider: only clients whose PostToolUse payload and feedback
-// channel were verified (claude).
+// channel were verified (claude, codex).
 func SupportsWriteFindingsHook(provider configurator.Provider) bool {
 	return hookMechanisms[provider].writeFindingsHook
 }
@@ -89,7 +104,7 @@ func EnsureWriteFindingsHook(baseDir string, provider configurator.Provider, loc
 		return lock, nil
 	}
 	if enabled {
-		return ensureSyntheticHook(baseDir, provider, lock, writeFindingsSynthetic, dryRun)
+		return ensureSyntheticHook(baseDir, provider, lock, writeFindingsSyntheticFor(provider), dryRun)
 	}
 	var drop, keep []ManagedFile
 	for _, mf := range lock.Managed {

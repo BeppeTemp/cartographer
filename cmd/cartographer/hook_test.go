@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -20,6 +21,11 @@ func fixture(t *testing.T, name string) string {
 
 func runHook(t *testing.T, stdin string) (code int, stdout, stderr string) {
 	t.Helper()
+	return runHookArgs(t, stdin, "write-findings")
+}
+
+func runHookArgs(t *testing.T, stdin string, args ...string) (code int, stdout, stderr string) {
+	t.Helper()
 	oldIn, oldErr := hookStdin, hookStderr
 	defer func() { hookStdin, hookStderr = oldIn, oldErr }()
 	var errBuf bytes.Buffer
@@ -28,7 +34,7 @@ func runHook(t *testing.T, stdin string) (code int, stdout, stderr string) {
 	r, w, _ := os.Pipe()
 	oldOut := os.Stdout
 	os.Stdout = w
-	code = cmdHook([]string{"write-findings"})
+	code = cmdHook(args)
 	w.Close()
 	os.Stdout = oldOut
 	var outBuf bytes.Buffer
@@ -100,7 +106,7 @@ func TestWriteFindingsHook_SilentOnGarbage(t *testing.T) {
 }
 
 func TestWriteFindingsHook_UsageErrors(t *testing.T) {
-	for _, args := range [][]string{nil, {"other"}, {"write-findings", "x"}} {
+	for _, args := range [][]string{nil, {"other"}} {
 		if got := cmdHook(args); got != 2 {
 			t.Errorf("args %v: exit %d, want 2", args, got)
 		}
@@ -109,3 +115,73 @@ func TestWriteFindingsHook_UsageErrors(t *testing.T) {
 		t.Errorf("run hook = %d", got)
 	}
 }
+
+// codexPayload is the shape the Codex 0.162.0 probe delivered (D361): an MCP
+// result object with content blocks, tool named mcp__<server>__<tool>.
+const codexPayload = `{"session_id":"s","turn_id":"t","cwd":"/work","model":"m","permission_mode":"default","tool_use_id":"u",` +
+	`"tool_name":"mcp__kb__concept_write","tool_input":{"path":"kb-a/page"},` +
+	`"tool_response":{"content":[{"type":"text","text":"{\"findings\":[{\"path\":\"kb-a/page\",\"check\":\"broken_link\",\"message\":\"links to kb-a/missing\"}]}"}]}}`
+
+func TestWriteFindingsHook_ContextChannel(t *testing.T) {
+	code, stdout, stderr := runHookArgs(t, codexPayload, "write-findings", "--channel", "context")
+	if code != 0 || stderr != "" {
+		t.Fatalf("code %d stderr %q, want 0 and silent stderr", code, stderr)
+	}
+	var out struct {
+		H struct {
+			Event string `json:"hookEventName"`
+			Ctx   string `json:"additionalContext"`
+		} `json:"hookSpecificOutput"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &out); err != nil {
+		t.Fatalf("stdout %q is not JSON: %v", stdout, err)
+	}
+	if out.H.Event != "PostToolUse" || !strings.Contains(out.H.Ctx, "1 finding(s)") || !strings.Contains(out.H.Ctx, "broken_link kb-a/page") {
+		t.Errorf("bad output: %+v", out)
+	}
+}
+
+func TestWriteFindingsHook_StderrChannelOnCodexPayload(t *testing.T) {
+	for _, args := range [][]string{{"write-findings"}, {"write-findings", "--channel", "stderr"}} {
+		code, stdout, stderr := runHookArgs(t, codexPayload, args...)
+		if code != 2 || stdout != "" || !strings.Contains(stderr, "broken_link kb-a/page") {
+			t.Errorf("args %v: code %d stdout %q stderr %q", args, code, stdout, stderr)
+		}
+	}
+}
+
+func TestWriteFindingsHook_ContextChannelSilentWithoutFindings(t *testing.T) {
+	for _, in := range []string{fixture(t, "clean.json"), fixture(t, "other_tool.json"), "", "not json"} {
+		code, stdout, stderr := runHookArgs(t, in, "write-findings", "--channel", "context")
+		if code != 0 || stdout != "" || stderr != "" {
+			t.Errorf("input %q: code %d stdout %q stderr %q", in, code, stdout, stderr)
+		}
+	}
+}
+
+// A hook must never break a session: a bad flag is exit 0, not usage exit 2.
+func TestWriteFindingsHook_BadFlagNeverReturns2(t *testing.T) {
+	for _, args := range [][]string{
+		{"write-findings", "x"},
+		{"write-findings", "--channel"},
+		{"write-findings", "--channel", "nope"},
+	} {
+		code, stdout, _ := runHookArgs(t, codexPayload, args...)
+		if code != 0 || stdout != "" {
+			t.Errorf("args %v: code %d stdout %q", args, code, stdout)
+		}
+	}
+}
+
+func TestWriteFindingsHook_ContextChannelRecoversFromPanic(t *testing.T) {
+	old := hookStdin
+	defer func() { hookStdin = old }()
+	hookStdin = panicReader{}
+	if got := cmdHook([]string{"write-findings", "--channel", "context"}); got != 0 {
+		t.Errorf("panic exit = %d, want 0", got)
+	}
+}
+
+type panicReader struct{}
+
+func (panicReader) Read([]byte) (int, error) { panic("boom") }
