@@ -606,6 +606,8 @@ func kbCapabilities(k *kb.KB) map[string]KBCapability {
 		"auto_repair": {State: onOff(len(k.AutoRepair) > 0), Setting: "kbs[].auto_repair", Checks: k.AutoRepair, Default: k.AutoRepairDefault},
 		// D349: a write applies the mechanical auto_repair fixes to what it wrote.
 		"repair_on_write": {State: onOff(k.RepairOnWrite && len(k.AutoRepair) > 0), Setting: "kbs[].repair_on_write"},
+		// D350: a write that introduces findings at or above the floor is refused.
+		"write_gate":      {State: writeGateState(k), Setting: "kbs[].write_gate"},
 		"doctor_interval": {State: interval, Setting: "kbs[].doctor_interval"},
 		// D323: the server applies auto_repair by itself on this interval.
 		"doctor_auto_interval": {State: autoInterval, Setting: "kbs[].doctor_auto_interval"},

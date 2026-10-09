@@ -554,3 +554,75 @@ func TestFileHistory_NotARepo(t *testing.T) {
 		t.Fatalf("FileHistory outside a repository = %#v, %v; want empty", revs, err)
 	}
 }
+
+func TestAcceptedFindingTrailerAndStagedChanges(t *testing.T) {
+	if !hasGit() {
+		t.Skip("git not in PATH, skipping gitx tests")
+	}
+	dir := t.TempDir()
+	if err := Init(dir); err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "data"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	write := func(name string) {
+		if err := os.WriteFile(filepath.Join(dir, "data", name), []byte("content of "+name+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("a b.md")
+	if err := Commit(dir, "seed", "Author", "a@example.test"); err != nil {
+		t.Fatal(err)
+	}
+
+	// StagedChanges: a rename (path with a space), an add and a delete.
+	if err := os.Rename(filepath.Join(dir, "data", "a b.md"), filepath.Join(dir, "data", "c d.md")); err != nil {
+		t.Fatal(err)
+	}
+	write("new.md")
+	changes, err := StagedChanges(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]FileChange{}
+	for _, c := range changes {
+		got[c.Path] = c
+	}
+	if c := got["data/c d.md"]; c.Status != "R" || c.OldPath != "data/a b.md" {
+		t.Errorf("rename = %+v", c)
+	}
+	if c := got["data/new.md"]; c.Status != "A" {
+		t.Errorf("add = %+v", c)
+	}
+
+	// DiscardChanges returns to HEAD, untracked files included.
+	if err := DiscardChanges(dir); err != nil {
+		t.Fatal(err)
+	}
+	if st, _ := Status(dir); strings.TrimSpace(st) != "" {
+		t.Errorf("tree not clean after DiscardChanges: %q", st)
+	}
+
+	// The trailer round-trips through LogNameStatus and FileHistory; a commit
+	// without it, or with only a Reason, reports none.
+	write("t.md")
+	msg := "concept_write: t\n\nReason: why\nAccepted-Finding: duplicate_link: kept on purpose\nAccepted-Finding: bare_link_list: legacy"
+	if err := Commit(dir, msg, "Author", "a@example.test"); err != nil {
+		t.Fatal(err)
+	}
+	commits, err := LogNameStatus(dir, time.Now().Add(-time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c := commits[0]; c.Reason != "why" || len(c.AcceptedFindings) != 2 || c.AcceptedFindings[0] != "duplicate_link: kept on purpose" {
+		t.Errorf("commit = %+v", c)
+	}
+	if c := commits[1]; len(c.AcceptedFindings) != 0 {
+		t.Errorf("seed commit carries %v", c.AcceptedFindings)
+	}
+	revs, err := FileHistory(dir, "data/t.md", 0)
+	if err != nil || len(revs) != 1 || revs[0].Reason != "why" || len(revs[0].AcceptedFindings) != 2 {
+		t.Errorf("FileHistory = %+v (%v)", revs, err)
+	}
+}

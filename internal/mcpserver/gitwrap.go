@@ -46,10 +46,21 @@ const pushFlushTimeout = 5 * time.Second
 func gitWrap(k *kb.KB, t Tool) Tool {
 	orig := t
 	t.InputSchema = withReasonProperty(t.Name, t.InputSchema)
+	gated := acceptsFindings(t.Name) && writeGateActive(k)
+	if gated {
+		t.InputSchema = withAcceptFindingsProperty(t.Name, t.InputSchema)
+	}
 	t.GitWrapped = true
 	t.Handler = func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
 		var res ToolResult
 		var handlerErr error
+		var accepts []acceptedFinding
+		if gated {
+			var perr error
+			if accepts, perr = parseAcceptFindings(args); perr != nil {
+				return errorResult(perr.Error()), nil
+			}
+		}
 		var syncInDur, handlerDur, commitDur, pushDur time.Duration
 		var pushAsync bool
 		start := time.Now()
@@ -76,6 +87,7 @@ func gitWrap(k *kb.KB, t Tool) Tool {
 				res = errorResult(authErr.Error())
 				return nil
 			}
+			gateOn := gated && writeGateActive(k) && gatePrecheck(k)
 			handlerStart := time.Now()
 			res, handlerErr = orig.Handler(ctx, args)
 			handlerDur = time.Since(handlerStart)
@@ -86,12 +98,30 @@ func gitWrap(k *kb.KB, t Tool) Tool {
 				if _, regenErr := k.RegenerateIndexes(); regenErr != nil {
 					fmt.Fprintf(os.Stderr, "cartographer: generated index (%s): %v\n", orig.Name, regenErr)
 				}
+				// Write gate (D350): after the regeneration above and the
+				// handler's own repair-on-write (D349), before anything is
+				// committed. A refusal has already rolled the tree back.
+				var trailers []string
+				if gateOn {
+					out := judgeWrite(k, orig.Name, accepts)
+					if out.Refusal != nil {
+						res = *out.Refusal
+						return nil
+					}
+					trailers = out.Trailers
+				}
 				msg := commitMessage(orig.Name, args)
 				if res.CommitSubject != "" {
 					msg = res.CommitSubject
 				}
 				if reason := commitReason(args); reason != "" {
 					msg += "\n\n" + commitReasonKey + ": " + reason
+				}
+				for i, tr := range trailers {
+					if i == 0 && commitReason(args) == "" {
+						msg += "\n"
+					}
+					msg += "\n" + tr
 				}
 				commitStart := time.Now()
 				p := auth.PrincipalFromContext(ctx)
@@ -199,6 +229,13 @@ func commitReason(args json.RawMessage) string {
 		return ""
 	}
 	raw, _ := p.Reason.(string)
+	return normalizeReason(raw)
+}
+
+// normalizeReason is the shared normalisation of a free-text reason: whitespace
+// collapsed, cut to maxCommitReasonBytes at a rune boundary with an ellipsis
+// (the Reason trailer, D272, and accept_findings reasons, D350).
+func normalizeReason(raw string) string {
 	reason := strings.Join(strings.Fields(raw), " ")
 	if len(reason) > maxCommitReasonBytes {
 		cut := maxCommitReasonBytes

@@ -107,6 +107,37 @@ func (kb *KB) conceptFiles() ([]conceptFile, error) {
 	return out, nil
 }
 
+// ConceptIDOfPath maps a KB-root-relative file path (as git reports it) to the
+// concept ID conceptFiles would emit for it, applying the same rules: only
+// .md files under data/ or services/, a reserved name is never a concept, and
+// only a two-segment index.md (an expanded concept) is one (D350). It does not
+// touch the disk, so a deleted file maps too.
+func ConceptIDOfPath(rel string) (okf.ConceptID, bool) {
+	rel = filepath.ToSlash(rel)
+	if !strings.HasSuffix(rel, ".md") {
+		return "", false
+	}
+	switch {
+	case strings.HasPrefix(rel, "data/"):
+		rel = strings.TrimPrefix(rel, "data/")
+	case strings.HasPrefix(rel, "services/"):
+	default:
+		return "", false
+	}
+	base := path.Base(rel)
+	if base == "index.md" {
+		dir := path.Dir(rel)
+		if dir == "." || len(strings.Split(dir, "/")) != 2 {
+			return "", false
+		}
+		return okf.ConceptID(dir), true
+	}
+	if okf.IsReserved(base) {
+		return "", false
+	}
+	return okf.ConceptID(strings.TrimSuffix(rel, ".md")), true
+}
+
 // fileSig is what a file's cache entry is validated against. The mode is
 // part of it because a chmod changes neither size nor mtime, yet decides
 // whether the uncached walk can read the file at all.

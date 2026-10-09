@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -576,6 +577,9 @@ func toolConceptHistory(k *kb.KB) Tool {
 				if r.Reason != "" {
 					e["reason"] = r.Reason
 				}
+				if len(r.AcceptedFindings) > 0 {
+					e["accepted_findings"] = r.AcceptedFindings
+				}
 				revisions = append(revisions, e)
 			}
 			result["revisions"] = revisions
@@ -645,6 +649,9 @@ type changesSinceConcept struct {
 	// Reasons are the distinct Reason: trailers of the commits that touched the
 	// concept, newest first, at most 5 (D272).
 	Reasons []string `json:"reasons,omitempty"`
+	// AcceptedFindings are the distinct Accepted-Finding: trailers (D350) of
+	// those commits, newest first, at most 5.
+	AcceptedFindings []string `json:"accepted_findings,omitempty"`
 }
 
 type changesSinceResult struct {
@@ -804,6 +811,11 @@ func toolChangesSince(k *kb.KB) Tool {
 					if commit.Reason != "" && !reasonSeen[id][commit.Reason] && len(info.Reasons) < 5 {
 						reasonSeen[id][commit.Reason] = true
 						info.Reasons = append(info.Reasons, commit.Reason)
+					}
+					for _, af := range commit.AcceptedFindings {
+						if len(info.AcceptedFindings) < 5 && !slices.Contains(info.AcceptedFindings, af) {
+							info.AcceptedFindings = append(info.AcceptedFindings, af)
+						}
 					}
 				}
 			}

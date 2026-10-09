@@ -117,6 +117,10 @@ kbs:                          # (kbs[]) explicit KBs, local path or remote git (
                                                       # reciprocal_link_item) to the concepts it wrote,
                                                       # in the same commit (D349); absent follows
                                                       # auto_repair, false = timer only
+    write_gate: error                                # (kbs[].write_gate) off (default), error or warning:
+                                                      # a concept write that introduces a finding of that
+                                                      # severity or worse is refused and rolled back
+                                                      # (D350); needs auto-commit on a git repository
     doctor_auto_interval: 1d                         # (kbs[].doctor_auto_interval) how often the server
                                                       # applies auto_repair by itself, at most 50
                                                       # concepts per check (D323, HTTP serve only);

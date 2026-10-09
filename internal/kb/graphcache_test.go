@@ -462,3 +462,26 @@ func TestBuildGraphView_NormalisesIndexTarget(t *testing.T) {
 		})
 	}
 }
+
+func TestConceptIDOfPathMatchesConceptFiles(t *testing.T) {
+	for rel, want := range map[string]string{
+		"data/ops/a.md":           "ops/a",
+		"data/ops/x/index.md":     "ops/x",
+		"data/ops/index.md":       "",
+		"data/index.md":           "",
+		"data/ops/log.md":         "",
+		"data/ops/_map.md":        "",
+		"services/svc/a.md":       "services/svc/a",
+		"services/svc/index.md":   "services/svc",
+		"services/svc/x/index.md": "",
+		"services/index.md":       "",
+		"templates/t.md":          "",
+		"data/ops/asset.png":      "",
+		"index.md":                "",
+	} {
+		id, ok := ConceptIDOfPath(rel)
+		if string(id) != want || ok != (want != "") {
+			t.Errorf("ConceptIDOfPath(%q) = %q, %v; want %q", rel, id, ok, want)
+		}
+	}
+}
