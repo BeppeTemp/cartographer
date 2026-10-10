@@ -6,6 +6,7 @@ package main
 import (
 	"errors"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -84,11 +85,14 @@ func TestDoctorSchedule_Install(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit %d: %s", code, out)
 	}
-	want := "doctor run --kb kb-a --client claude --client-bin /opt/agents/claude --at 06:30 --client-flag --allowedTools --client-flag mcp"
+	// The client path is made absolute: on Windows that adds the drive and
+	// turns the separators, so the expectation goes through the same call.
+	bin, _ := filepath.Abs("/opt/agents/claude")
+	want := "doctor run --kb kb-a --client claude --client-bin " + bin + " --at 06:30 --client-flag --allowedTools --client-flag mcp"
 	if got := strings.Join(s.installed, " "); got != want {
 		t.Errorf("job args = %q, want %q", got, want)
 	}
-	if s.hour != 6 || s.min != 30 || s.binDir != "/opt/agents" {
+	if s.hour != 6 || s.min != 30 || s.binDir != filepath.Dir(bin) {
 		t.Errorf("hour/min/dir = %d %d %q", s.hour, s.min, s.binDir)
 	}
 	// Now is 08:00 UTC, so 06:30 is tomorrow.

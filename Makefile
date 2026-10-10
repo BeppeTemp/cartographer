@@ -18,7 +18,9 @@ build: ## Build the binary into bin/cartographer
 	go build -ldflags "-X main.version=$(VERSION)" -o bin/cartographer ./cmd/cartographer
 
 test: ## Run all tests
-	go test ./...
+	# 20m, not go test's default 10m: internal/mcpserver alone takes ~10m on the
+	# Windows runner (git is slow there), and the timeout then kills the package.
+	go test -timeout 20m ./...
 
 vet: ## Run go vet (also for Windows: test-windows runs on main only, so a PR catches its compile errors here)
 	go vet ./...
