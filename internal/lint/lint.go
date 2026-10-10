@@ -802,9 +802,7 @@ func runChecks(k *kb.KB, scope string, scopeNeighbors bool, opts Options) ([]Fin
 		}
 
 		if scopeNorm == "" || scopeNorm == archiveName {
-			if f, ok := indexListsRetired(k, archiveName, contracts[archiveName], allConcepts, st.lg); ok {
-				findings = append(findings, f)
-			}
+			findings = append(findings, indexListsRetired(k, archiveName, contracts[archiveName], allConcepts, st.lg)...)
 		}
 
 		expandedDirs, err := k.ListExpanded(archiveName)
@@ -1484,15 +1482,19 @@ func fieldValueAllowed(allowed []string, v string) bool {
 
 // indexListsRetired is the index_lists_retired check (D344): the curated index of
 // a live map still links a retired concept, which is what a hand-made retirement
-// (status patch, move, no index edit) leaves behind. One finding per index,
-// whether or not the map declared require_index_entry. Exempt: journals, a
+// (status patch, move, no index edit) leaves behind. One finding per retired
+// concept listed (D366: each carries its own fix), whether or not the map declared require_index_entry. Exempt: journals, a
 // generated index (the server owns it), and a map where at least half of the
 // top-level concepts are retired, which lists them by design (an archive map,
 // including its "Moved here" entries). Not a write-path check: it is not tied
 // to the written concept, and concept_archive already removes the entry.
-func indexListsRetired(k *kb.KB, mapName string, contract kb.MapContract, concepts map[okf.ConceptID]string, lg *kb.LinkGraph) (Finding, bool) {
+//
+// The finding carries drop_index_entry (D366) when a line of the index lists
+// the concept and nothing else, the same rule concept_archive applies; a
+// concept cited only on lines with other links keeps no fix.
+func indexListsRetired(k *kb.KB, mapName string, contract kb.MapContract, concepts map[okf.ConceptID]string, lg *kb.LinkGraph) []Finding {
 	if contract.Kind == "journal" || contract.Index == kb.IndexGenerated {
-		return Finding{}, false
+		return nil
 	}
 	isRetired := func(id okf.ConceptID) bool {
 		i, ok := lg.Index[id]
@@ -1508,31 +1510,37 @@ func indexListsRetired(k *kb.KB, mapName string, contract kb.MapContract, concep
 		}
 	}
 	if top > 0 && retiredTop*2 >= top {
-		return Finding{}, false
+		return nil
 	}
 	content, err := k.ReadIndex(mapName)
 	if err != nil {
-		return Finding{}, false
+		return nil
 	}
 	_, body, _ := okf.SplitFrontmatter(content)
-	var hits []string
+	var hits []okf.ConceptID
+	alone := map[okf.ConceptID]bool{} // listed on a line with no other link
 	seen := map[okf.ConceptID]bool{}
 	for _, t := range kb.ExtractLinks(body, mapName+"/index.md", k.AssetExists) {
 		if !seen[t] && isRetired(t) {
-			hits = append(hits, string(t))
+			hits = append(hits, t)
 		}
 		seen[t] = true
 	}
-	if len(hits) == 0 {
-		return Finding{}, false
+	for _, line := range strings.Split(body, "\n") {
+		if ids := kb.ExtractLinks(line, mapName+"/index.md", k.AssetExists); len(ids) == 1 {
+			alone[ids[0]] = true
+		}
 	}
-	shown := hits
-	more := ""
-	if len(shown) > 5 {
-		shown, more = shown[:5], fmt.Sprintf(" and %d more", len(hits)-5)
+	var out []Finding
+	for _, h := range hits {
+		f := newFinding("index_lists_retired", Finding{
+			Path:    mapName + "/index.md",
+			Message: fmt.Sprintf("the index lists 1 retired concept(s): %s — retire pages with concept_archive (it drops the entry), remove the lines, or accept with lint_ignore: [index_lists_retired] in _map.md", h),
+		})
+		if alone[h] {
+			f.Fix = &Fix{Kind: FixDropIndexEntry, Field: string(h)}
+		}
+		out = append(out, f)
 	}
-	return newFinding("index_lists_retired", Finding{
-		Path:    mapName + "/index.md",
-		Message: fmt.Sprintf("the index lists %d retired concept(s): %s%s — retire pages with concept_archive (it drops the entry), remove the lines, or accept with lint_ignore: [index_lists_retired] in _map.md", len(hits), strings.Join(shown, ", "), more),
-	}), true
+	return out
 }

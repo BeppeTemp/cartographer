@@ -130,8 +130,8 @@ func TestHarvestCandidate_EvidenceNamesDurableSections(t *testing.T) {
 	}
 }
 
-// D344: a curated index of a live map that links a retired concept is one
-// finding, with or without require_index_entry.
+// D344: a curated index of a live map that links a retired concept is a
+// finding per retired concept listed (D366), with or without require_index_entry.
 func TestIndexListsRetired(t *testing.T) {
 	setup := func(t *testing.T, mapFM, idx string, extra map[string]string) []Finding {
 		t.Helper()
@@ -164,10 +164,10 @@ func TestIndexListsRetired(t *testing.T) {
 		"ops/live2.md": "---\ntype: Note\ntitle: L2\n---\n# L2\n",
 		"ops/live3.md": "---\ntype: Note\ntitle: L3\n---\n# L3\n",
 	}
-	if n := count(setup(t, "", idx, live3)); n != 1 {
-		t.Errorf("one finding per index, got %d", n)
+	if n := count(setup(t, "", idx, live3)); n != 2 {
+		t.Errorf("one finding per retired concept, got %d", n)
 	}
-	if n := count(setup(t, "require_index_entry: true\n", idx, live3)); n != 1 {
+	if n := count(setup(t, "require_index_entry: true\n", idx, live3)); n != 2 {
 		t.Errorf("with require_index_entry, got %d", n)
 	}
 	if n := count(setup(t, "lint_ignore: [index_lists_retired]\n", idx, live3)); n != 0 {
@@ -184,7 +184,7 @@ func TestIndexListsRetired(t *testing.T) {
 		t.Errorf("a map that is mostly retired lists them by design, got %d", n)
 	}
 	// Journal exempt.
-	if n := count(setup(t, "", idx, live3)); n != 1 {
+	if n := count(setup(t, "", idx, live3)); n != 2 {
 		t.Fatalf("control, got %d", n)
 	}
 	k := tempKB(t)

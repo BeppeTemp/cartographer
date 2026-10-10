@@ -56,6 +56,17 @@ const (
 	// the title to give it (unmapped_folder, D357). The repair writes the
 	// descriptor map_create would, with no contract.
 	FixScaffoldMap = "scaffold_map"
+	// FixRetargetLinks: Field = a retired concept, To = the live concept its
+	// superseded_by names, Targets = the live concepts linking it
+	// (link_to_retired, D366). The finding sits on the retired concept; the
+	// repair edits the Targets, pointing every link to Field at To with the
+	// label kept.
+	FixRetargetLinks = "retarget_links"
+	// FixDropIndexEntry: Field = a retired concept listed in the finding's
+	// curated map index (index_lists_retired, D366). The repair drops the
+	// index line whose only link is Field; the path is the index's, not a
+	// concept's.
+	FixDropIndexEntry = "drop_index_entry"
 	// FixRenameHeading and FixReorderSections (D352) are declared with the
 	// template checks, in template.go.
 )
@@ -65,6 +76,9 @@ type Fix struct {
 	Kind  string `json:"kind"`
 	Field string `json:"field"`
 	To    string `json:"to,omitempty"`
+	// Targets are the concepts a fix edits when they are not the finding's own
+	// (retarget_links, D366); empty for every other kind.
+	Targets []string `json:"targets,omitempty"`
 }
 
 // FixableChecks are the checks whose findings carry a Fix, which is what
@@ -777,7 +791,8 @@ var datePrefixedSlug = regexp.MustCompile(`^\d{4}-\d{2}`)
 // titleQualityFindings implements title_quality (info, D315): decorative
 // characters, over-long titles, a status word where the status field already
 // says it, a term the map forbids, and a date-prefixed slug outside a
-// journal. No fix: each is a judgement about wording.
+// journal. Only the decorative-characters case has a fix (D366): stripping
+// them leaves one possible title. The rest are judgements about wording.
 func titleQualityFindings(in conceptInput, fm *okf.Frontmatter, title string) []Finding {
 	if title == "" {
 		return nil
@@ -788,6 +803,16 @@ func titleQualityFindings(in conceptInput, fm *okf.Frontmatter, title string) []
 	}
 	_, hasStatus := fm.Get("status")
 	for _, msg := range titleTextIssues(in.Contract, hasStatus, title) {
+		if strings.HasPrefix(msg, decorativeTitleMsg) {
+			f := newFinding("title_quality", Finding{Path: in.RelPath, Message: msg})
+			// Only when something usable is left: a title that is all
+			// decoration has no unique replacement.
+			if to := StripDecoration(title); to != "" && to != title {
+				f.Fix = &Fix{Kind: FixSetValue, Field: "title", To: to}
+			}
+			out = append(out, f)
+			continue
+		}
 		add(msg)
 	}
 	slug := strings.TrimSuffix(path.Base(in.RelPath), ".md")
@@ -809,12 +834,12 @@ func titleTextIssues(contract *kb.MapContract, hasStatus bool, title string) []s
 	var out []string
 	var deco []string
 	for _, r := range title {
-		if unicode.Is(unicode.So, r) || unicode.Is(unicode.Sk, r) || r == '\uFE0F' || r == '\u200D' {
+		if isDecorative(r) {
 			deco = append(deco, string(r))
 		}
 	}
 	if len(deco) > 0 {
-		out = append(out, fmt.Sprintf("title contains decorative characters (%s); titles are labels shown in listings and the Atlas: prefer plain text", strings.Join(deco, " ")))
+		out = append(out, fmt.Sprintf(decorativeTitleMsg+" (%s); titles are labels shown in listings and the Atlas: prefer plain text", strings.Join(deco, " ")))
 	}
 	limit := defaultTitleMaxLength
 	if contract != nil && contract.TitleMaxLength != nil {
@@ -840,6 +865,25 @@ func titleTextIssues(contract *kb.MapContract, hasStatus bool, title string) []s
 		}
 	}
 	return out
+}
+
+// decorativeTitleMsg opens the title_quality message about decorative
+// characters; titleQualityFindings recognises the case by it.
+const decorativeTitleMsg = "title contains decorative characters"
+
+func isDecorative(r rune) bool {
+	return unicode.Is(unicode.So, r) || unicode.Is(unicode.Sk, r) || r == '\uFE0F' || r == '\u200D'
+}
+
+// StripDecoration removes the decorative characters title_quality reports
+// (D366) and collapses the whitespace they leave. Idempotent.
+func StripDecoration(title string) string {
+	return strings.Join(strings.Fields(strings.Map(func(r rune) rune {
+		if isDecorative(r) {
+			return -1
+		}
+		return r
+	}, title)), " ")
 }
 
 // suggestedTitle is the value missing_title's fix gives a concept (D357): its

@@ -286,6 +286,15 @@ func seedDriftFixes(t *testing.T, k *kb.KB) {
 	write("data/free/typo.md", "---\ntype: service\ntitle: T\n---\n# T\n")
 	write("data/loose/a.md", "---\ntype: Service\ntitle: A\n---\n# A\n")
 	seedTemplateFixes(t, write)
+	// D366: a decorative title, a retired concept with a live successor that
+	// is still linked and still listed in the curated index.
+	write("data/free/deco.md", "---\ntype: Service\ntitle: \"🚀 Deploy notes\"\n---\n# 🚀 Deploy notes\n")
+	write("data/retire/_map.md", "---\ntype: Map\nkind: map\ntitle: Retire\n---\n# Retire\n")
+	write("data/retire/index.md", "---\ntype: Index\ntitle: Retire\n---\n- [Old](old.md)\n- [New](new.md)\n- [L1](l1.md)\n- [L2](l2.md)\n")
+	write("data/retire/old.md", "---\ntype: Service\ntitle: Old\nstatus: deprecated\nsuperseded_by: retire/new\n---\n# Old\n")
+	write("data/retire/new.md", "---\ntype: Service\ntitle: New\n---\n# New\n")
+	write("data/retire/l1.md", "---\ntype: Service\ntitle: L1\n---\n# L1\n\nRuns on [old](old.md).\n")
+	write("data/retire/l2.md", "---\ntype: Service\ntitle: L2\n---\n# L2\n\nSee [new](new.md).\n")
 }
 
 // seedTemplateFixes plants one page for each fixable template check (D352): a
