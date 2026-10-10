@@ -5,9 +5,11 @@ topic: control-plane
 # D704 — An agent works on a KB only when the operator asks
 
 **Decision.** Cartographer never starts a `kb-doctor` session by itself. The scheduled headless
-doctor (D369, D690) is removed, and `connect` and `upgrade-repair` delete the job 0.22 and 0.23
-installed. The nudge always asks the agent to *propose* a session (the old `assisted` mode);
-`doctor_mode` is still validated but ignored, so the `unattended` default of D358 is gone. The
+doctor (D369, D690) is removed, and `connect`, `sync` and `upgrade-repair` delete the job 0.22
+and 0.23 installed (a Homebrew upgrade runs only the scheduled `sync`). The nudge always asks the agent to *propose* a session (the old `assisted` mode);
+`doctor_mode` is still validated but ignored, so the `unattended` default of D358 is gone;
+`kb_status` reports the capability as `assisted`, because a skill synced before 0.24 reads a
+missing one as `unattended`. The
 server's mechanical repair runs once at every start, as well as after a pull and on its interval,
 so a fix does not wait a day in a queue. The Atlas Health panel follows: it shows what was found,
 by kind, including the `kb_review` proposals a session decides (a read-only

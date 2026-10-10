@@ -121,9 +121,10 @@ export function App() {
   const [kbStatus, setKbStatus] = useState<KBStatus | null>(null);
   const [maintenance, setMaintenance] = useState<MaintenanceSummary | null>(null);
   const [checks, setChecks] = useState<CheckCatalog | null>(null);
-  const [maintenanceError, setMaintenanceError] = useState<string | null>(null);
   // The doctor's agenda beyond lint (D704); null leaves it out of Health.
   const [review, setReview] = useState<MaintenanceReview | null>(null);
+  // The KB Health's reads above belong to (D704).
+  const healthKB = useRef<string | null>(null);
   const [motion, setMotion] = useState(() => initialMotion(readPanel("motion", true), prefersReducedMotion()));
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [preview, setPreview] = useState<string | null>(null);
@@ -420,26 +421,28 @@ export function App() {
     if (view.panel !== "health" || !activeKB || phase !== "ready") {
       setKbStatus(null);
       setMaintenance(null);
-      setMaintenanceError(null);
       setChecks(null);
       setReview(null);
       return;
     }
+    // Another KB: nothing of the previous one may stay on screen while (or if)
+    // the new reads fail. A live refresh of the same KB keeps what it shows.
+    if (healthKB.current !== activeKB) {
+      healthKB.current = activeKB;
+      setKbStatus(null);
+      setMaintenance(null);
+      setChecks(null);
+      setReview(null);
+    }
     const controller = new AbortController();
-    const quiet404 = (set: (m: string | null) => void) => (err: unknown) => {
-      if (controller.signal.aborted || handleFailure(err)) return;
-      if (err instanceof ApiError && err.status === 404) return set(null);
-      set(err instanceof Error ? err.message : String(err));
-    };
     fetchStatus(activeKB, controller.signal)
       .then(setKbStatus)
       .catch(() => undefined);
     fetchMaintenanceSummary(activeKB, controller.signal)
-      .then((data) => {
-        setMaintenance(data);
-        setMaintenanceError(null);
-      })
-      .catch(quiet404(setMaintenanceError));
+      .then(setMaintenance)
+      .catch((err) => {
+        if (!controller.signal.aborted) handleFailure(err);
+      });
     // The coverage list: without it Health simply leaves the section out.
     fetchChecks(activeKB, controller.signal)
       .then(setChecks)
@@ -695,9 +698,7 @@ export function App() {
               status={kbStatus}
               summary={maintenance}
               checks={checks}
-              summaryError={maintenanceError}
               review={review}
-              kbName={activeKB}
               scopeTitle={
                 view.hmap ? overview?.collections.find((c) => c.name === view.hmap)?.title || view.hmap : null
               }
@@ -708,7 +709,6 @@ export function App() {
               loading={lintLoading}
               error={lintError}
               onRetry={() => setReloadKey((k) => k + 1)}
-              onOpen={(conceptId) => navigate({ panel: "atlas", concept: conceptId })}
               onReveal={(conceptId, message) => {
                 if (conceptId) navigate({ panel: "atlas", concept: conceptId });
                 else announce(message);

@@ -103,7 +103,7 @@ func (m *MultiKBServer) handleUIAPI(w http.ResponseWriter, r *http.Request) {
 		m.uiListKBs(w, r)
 		return
 	}
-	// The one four-segment route family: maintenance/{summary,questions}.
+	// The one four-segment route family: maintenance/{summary,questions,review}.
 	if len(segments) == 4 && segments[0] == "kbs" && segments[2] == "maintenance" {
 		segments = []string{segments[0], segments[1], "maintenance", segments[3]}
 	} else if len(segments) != 3 || segments[0] != "kbs" {

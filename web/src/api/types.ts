@@ -310,7 +310,6 @@ export interface MaintenanceSummary {
   repairs: MaintenanceRepair[];
 }
 
-/** GET /kbs/{kb}/checks: every lint check the server runs (D365). */
 /** GET /kbs/{kb}/maintenance/review (D704): the doctor's agenda beyond lint. */
 export interface ReviewItem {
   kind: string;
@@ -325,6 +324,7 @@ export interface MaintenanceReview {
   items: ReviewItem[];
 }
 
+/** GET /kbs/{kb}/checks: every lint check the server runs (D365). */
 export interface CheckCatalog {
   categories: string[];
   checks: {

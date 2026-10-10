@@ -641,6 +641,10 @@ func kbCapabilities(k *kb.KB) map[string]KBCapability {
 		// D350: a write that introduces findings at or above the floor is refused.
 		"write_gate":      {State: writeGateState(k), Setting: "kbs[].write_gate"},
 		"doctor_interval": {State: interval, Setting: "kbs[].doctor_interval"},
+		// D704: always assisted. Still reported because a kb-doctor skill
+		// synced before 0.24 reads a missing doctor_mode as unattended and would
+		// start a session by itself.
+		"doctor_mode": {State: "assisted", Setting: "kbs[].doctor_mode (ignored)"},
 		// D358: how many review items a kb-doctor session decides.
 		"doctor_budget": {State: fmt.Sprintf("%d review items", doctorBudget(k)), Setting: "kbs[].doctor_budget"},
 		// D323: the server applies auto_repair by itself on this interval.

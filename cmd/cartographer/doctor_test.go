@@ -317,6 +317,14 @@ func TestCmdDoctor_UnknownProvider(t *testing.T) {
 	}
 }
 
+// The removed `doctor run|schedule|…` subcommands are a usage error: a job left
+// by 0.22/0.23 must not run every check instead (D704).
+func TestCmdDoctor_RemovedSubcommand(t *testing.T) {
+	if code := cmdDoctor([]string{"run", "--kb", "kb-a"}); code != 2 {
+		t.Errorf("cmdDoctor(run) = %d, want 2", code)
+	}
+}
+
 // Errors sort before warnings, which sort before informational findings.
 func TestSortDoctorFindings(t *testing.T) {
 	findings := []doctorFinding{

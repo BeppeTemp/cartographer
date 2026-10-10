@@ -930,12 +930,6 @@ func validateRule(role string, i int, rule RuleSpec) error {
 	return nil
 }
 
-// Doctor modes (D358).
-const (
-	DoctorModeUnattended = "unattended"
-	DoctorModeAssisted   = "assisted"
-)
-
 // DefaultDoctorIntervalDays is how long after the last kb-doctor session the
 // server proposes the next one when doctor_interval is not set (D299).
 const DefaultDoctorIntervalDays = 14

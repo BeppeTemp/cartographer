@@ -28,17 +28,15 @@ import { LintTrend } from "./LintTrend";
 import { ErrorState } from "./States";
 
 /**
- * Health (D338, D365, D704): what the KB needs from its operator, and nothing
- * the operator cannot act on. The page answers one question first -- is there
- * anything to decide? -- and says how to get it decided: a kb-doctor session
- * the operator starts. Below that, one agenda in the doctor's own units: a row
- * per cause (a lint check, or a kind of kb_review proposal), problems first,
- * then proposals, then improvements. What Cartographer fixes by itself and what
- * the checks look for are there for whoever asks, folded at the bottom.
+ * Health (D338, D365, D704): what Cartographer found, and on a second tab what
+ * it checks. *Issues* counts the kinds of issue and their occurrences, shows a
+ * page field (one square per page, clustered by Map) and lists one row per
+ * kind -- a lint check or a kind of kb_review proposal -- problems first, then
+ * suggestions; an open row says what it is and how to fix it. *What it checks*
+ * explains the rules by category, with the result on this KB and the trend.
  *
- * Like the rest of the Atlas it reads and never writes: the next step is a
- * prompt to copy, a repair is undone from the CLI, a question answered from an
- * agent session.
+ * Like the rest of the Atlas it reads and never writes: a fix happens in a
+ * kb-doctor session the operator starts from an agent.
  *
  * The agenda is filtered by the page's own Map picker (the rail only
  * navigates). Status and the maintenance summary describe the whole KB, so a
@@ -66,13 +64,10 @@ export function Health({
   status: KBStatus | null;
   /** The maintenance summary (D323); null when not visible or not arrived. */
   summary: MaintenanceSummary | null;
-  summaryError?: string | null;
   /** Every check the server runs (D365); null leaves the reference out. */
   checks?: CheckCatalog | null;
   /** The doctor's proposals beyond lint (D704); null leaves them out. */
   review?: MaintenanceReview | null;
-  /** Kept for the caller. */
-  kbName?: string | null;
   /** Title of the Map the agenda is scoped to; null = whole KB. */
   scopeTitle: string | null;
   /** The unfiltered findings: the picker counts over them, so a filter never hides its siblings. */
@@ -83,8 +78,6 @@ export function Health({
   loading: boolean;
   error: unknown;
   onReveal(concept: string | null, message: string): void;
-  /** Kept for the caller; a concept opens through onReveal. */
-  onOpen?(conceptId: string): void;
   onRetry(): void;
 }) {
   // The agenda is the page; what the checks look for is a tab beside it (D365).

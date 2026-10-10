@@ -183,9 +183,10 @@ server is unreachable, the MCP configs and `.cartographer.yaml` are still writte
 is **deferred** (warning, exit 0) — it must be completed with `cartographer sync` once the
 server is up. Materialized hooks are also **automatically registered** in the
 provider's native mechanism (`settings.json` / `config.toml` / JS plugin — `sync.md` §Agents and
-hooks); `connect`/`sync` print an info line for each one. `connect` (and `upgrade-repair`) also remove the
+hooks); `connect`/`sync` print an info line for each one. `connect`, `sync` and `upgrade-repair` also remove the
 scheduled headless doctor job 0.22 and 0.23 installed, printing one line when there was one:
-Cartographer no longer starts an agent by itself (D704).
+Cartographer no longer starts an agent by itself (D704). `sync` matters after a Homebrew upgrade, which
+runs neither of the others; `doctor run|schedule|unschedule|status` now fail as unknown arguments.
 
 **Token file (D699).** With `auth: true` and `$token_env` set, `connect` (so `reconnect` and `setup`) also copies
 the token to a `.cartographer-token` file next to `.cartographer.yaml` (`0600`, atomic, never through a symlink), because the sync
