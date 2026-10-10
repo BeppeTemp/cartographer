@@ -178,7 +178,8 @@ export function Health({
               const row = document.getElementById(`check-${name}`);
               const details = row?.querySelector("details");
               if (details) details.open = true;
-              row?.scrollIntoView({ behavior: "smooth", block: "center" });
+              // Optional call: jsdom has no scrollIntoView (as in CommandPalette).
+              row?.scrollIntoView?.({ behavior: "smooth", block: "center" });
             }, 50);
           }}
         />
