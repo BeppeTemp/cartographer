@@ -856,6 +856,12 @@ func toolKBStatus(k *kb.KB, misses *searchMissLog, reads *readAccessLog, serverV
 			if allFindings, lerr := cc.lintFindings(k); lerr == nil {
 				vis, _ := uiVisibleFindingsFrom(ctx, k, "", allFindings)
 				result["conformance"] = summarizeConformance(vis, reviewTotal, cc.cachedDoctorDate(k), k.DoctorIntervalDays, time.Now().UTC())
+				// D370: the trend of the whole-KB totals, whole-KB callers only.
+				if WholeVisible(ctx, k, false) {
+					if tr := lintTrend(readLintHistory(k), time.Now().UTC()); tr != nil {
+						result["lint_trend"] = tr
+					}
+				}
 				// D297: open questions the KB marks in its own words.
 				concepts, markers := 0, 0
 				for _, f := range vis {

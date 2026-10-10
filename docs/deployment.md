@@ -42,7 +42,12 @@ The server process is **ephemeral** (k8s pod or local service); what persists on
   searches that found nothing, disposable, lost harmlessly with the volume.
   An entry ages out after 30 days; one whose search finds something now is
   reported `resolved` by `kb_status` before that (D319). Deleting the file is
-  the only manual reset. `usage.json` (D326) holds the artifact usage clients
+  the only manual reset. `lint-history.jsonl` (D370) holds one sample a day of
+  the whole-KB lint totals (`{at, total, by_severity, by_handler}`, the latest
+  of the UTC day, 90 days kept, pruned on write): derived state for the Health
+  trend and `kb_status.lint_trend`, rewritten whole, never in the KB's git
+  history, and lost harmlessly with the volume (the trend restarts from the
+  next lint). `usage.json` (D326) holds the artifact usage clients
   report on `sync`: on an `emptyDir` it is lost at every restart, and until each
   client syncs again `kb_status.usage` is `no_data` (with `no_report_since`, the
   start time, D333) and `artifact_unused` is silent. Keep `.cartographer/` on
@@ -580,7 +585,10 @@ findings the next background run fixes, its next and last run, and what the
 last one fixed),
 *Doctor* (the problems and improvements it has to deal with, its mode, its last session, and how it
 starts when it is due) and *You* (the open questions), then the knowledge
-counts. Under the hero two tabs, *Findings* and *Checks*. *Checks* lists
+counts. Beside the upkeep log, *Trend* (D370) says how the total moved over the
+last week ("188 → 40 this week") with a sparkline of the daily samples
+(`lint_history` of the maintenance summary); it is absent with fewer than two
+samples. Under the hero two tabs, *Findings* and *Checks*. *Checks* lists
 every check the server runs (`GET /api/ui/v1/kbs/<kb>/checks`), by category —
 pages, templates, valid pages, links and graph, vocabularies, maps and
 indexes, artifacts, KB files — each with its count, a zero too, and a mark

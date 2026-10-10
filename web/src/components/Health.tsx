@@ -23,6 +23,7 @@ import {
   relativeDay,
 } from "./Page";
 import { Icon } from "./Icon";
+import { LintTrend } from "./LintTrend";
 import { SeverityBadge } from "./SeverityBadge";
 import { ErrorState } from "./States";
 
@@ -268,6 +269,7 @@ export function Health({
                 )}
                 {log && (
                   <aside className="health__side" aria-label="Upkeep log">
+                    <LintTrend history={summary?.lint_history} />
                     <Done summary={summary} copied={copied} onCopy={copy} />
                   </aside>
                 )}

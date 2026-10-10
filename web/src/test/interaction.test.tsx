@@ -192,6 +192,24 @@ describe("health findings", () => {
   });
 });
 
+describe("health trend", () => {
+  const day = (daysAgo: number, total: number) => ({
+    at: new Date(Date.now() - daysAgo * 86_400_000).toISOString(),
+    total,
+    by_severity: {},
+    by_handler: {},
+  });
+  it("shows the week's movement beside the upkeep log, and nothing with one sample", () => {
+    const { unmount } = render(health({ summary: { ...upkeep, lint_history: [day(0, 40)] } }));
+    expect(screen.queryByRole("heading", { name: /^Trend/ })).not.toBeInTheDocument();
+    unmount();
+    render(health({ summary: { ...upkeep, lint_history: [day(6, 188), day(0, 40)] } }));
+    expect(screen.getByRole("heading", { name: /^Trend/ })).toBeInTheDocument();
+    expect(screen.getByText("188 → 40 this week")).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: /Findings over the last 2 samples/ })).toBeInTheDocument();
+  });
+});
+
 describe("health coverage", () => {
   it("lists every check by category on a tab of its own, a zero too, and jumps to a check's findings", async () => {
     const user = userEvent.setup();

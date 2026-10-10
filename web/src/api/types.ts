@@ -286,6 +286,13 @@ export interface MaintenanceRun {
   skipped?: string;
   checks?: { check: string; applied: number; skipped?: number; commit?: string; error?: string }[];
 }
+/** One daily sample of the whole-KB lint totals (D370). */
+export interface LintSample {
+  at: string;
+  total: number;
+  by_severity: Record<string, number>;
+  by_handler: Record<string, number>;
+}
 export interface MaintenanceSummary {
   auto_repair: { enabled: boolean; default: boolean; checks: string[]; interval_days: number };
   last_auto_repair: MaintenanceRun | null;
@@ -298,6 +305,8 @@ export interface MaintenanceSummary {
   doctor_mode?: "unattended" | "assisted";
   /** The background repair's runs of the last 30 days, newest first (D365). */
   runs?: MaintenanceRun[];
+  /** One sample a day of the lint totals, oldest first, 90 days at most (D370). */
+  lint_history?: LintSample[];
   repairs: MaintenanceRepair[];
 }
 

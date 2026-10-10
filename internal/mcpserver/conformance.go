@@ -266,6 +266,9 @@ type conformanceCache struct {
 	logMtime   int64
 	logSize    int64
 
+	// clock replaces time.Now for the lint history in tests.
+	clock func() time.Time
+
 	// lintCalls counts how many times lint.Run was actually called (for tests).
 	lintCalls int
 
@@ -424,6 +427,13 @@ func (cc *conformanceCache) lintFindings(k *kb.KB) ([]lint.Finding, error) {
 		cc.gen, cc.stamp, cc.findings, cc.cached = gen, stamp, findings, true
 		cc.lintCalls++
 		cc.mu.Unlock()
+		// D370: one sample a day of the unfiltered totals, taken where the
+		// whole-KB lint is recomputed and cached.
+		now := time.Now()
+		if cc.clock != nil {
+			now = cc.clock()
+		}
+		_ = recordLintSample(k, newLintSample(k, findings, now), now)
 	} else {
 		cc.mu.Lock()
 		cc.lintCalls++
@@ -444,7 +454,10 @@ func lintInputsStamp(k *kb.KB) string {
 			return nil
 		}
 		if d.IsDir() {
-			if d.Name() == ".git" {
+			// .cartographer is the server's own state (lint skips it): the lint
+			// history is written there on every recompute (D370), and counting
+			// it would invalidate the cache it was written from.
+			if d.Name() == ".git" || d.Name() == ".cartographer" {
 				return filepath.SkipDir
 			}
 			return nil
