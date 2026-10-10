@@ -343,9 +343,18 @@ func (s *structure) linkToRetired(i int, relPath string, facets kb.NodeFacets) [
 	if len(shown) > 5 {
 		shown, more = shown[:5], ", …"
 	}
-	return []Finding{newFinding("link_to_retired", Finding{Path: relPath,
+	f := newFinding("link_to_retired", Finding{Path: relPath,
 		Message: fmt.Sprintf("retired (status: %s) but still linked by %d live concepts: %s%s — update the ones that rely on it; accept with lint_ignore: [link_to_retired] on this concept if the remaining mentions are historical",
-			facets.Status, len(linkers), strings.Join(shown, ", "), more)})}
+			facets.Status, len(linkers), strings.Join(shown, ", "), more)})
+	// D366: pointing the links at the declared successor is mechanical when
+	// that is a live concept, one hop away. Without one (none, unresolvable,
+	// itself retired) whether a mention is historical is judgement.
+	if sb := facets.SupersededBy; sb != "" && sb != string(s.lg.IDs[i]) {
+		if j, ok := s.lg.Index[okf.ConceptID(sb)]; ok && !retired(s.lg.Facets[j].Status) {
+			f.Fix = &Fix{Kind: FixRetargetLinks, Field: string(s.lg.IDs[i]), To: sb, Targets: linkers}
+		}
+	}
+	return []Finding{f}
 }
 
 // islandFindings are emitted once per island, on its anchor, when the anchor

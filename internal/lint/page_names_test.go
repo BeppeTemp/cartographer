@@ -40,6 +40,8 @@ func TestTitleH1Mismatch(t *testing.T) {
 
 func TestTitleQuality(t *testing.T) {
 	long := func(n int) string { return strings.Repeat("a", n) }
+	// The one case with a fix (D366): the title the repair sets.
+	fixTo := map[string]string{"emoji": "Launch day", "heart": "Launch"}
 	for name, tc := range map[string]struct {
 		mapFM, file, fm string
 		want            string // "" = no finding
@@ -67,8 +69,14 @@ func TestTitleQuality(t *testing.T) {
 				}
 				return
 			}
-			if len(got) != 1 || got[0].Severity != SevInfo || got[0].Fix != nil || !strings.Contains(got[0].Message, tc.want) {
+			if len(got) != 1 || got[0].Severity != SevInfo || !strings.Contains(got[0].Message, tc.want) {
 				t.Fatalf("finding: %+v", got)
+			}
+			if fixTo[name] == "" && got[0].Fix != nil {
+				t.Fatalf("unexpected fix: %+v", got[0].Fix)
+			}
+			if fixTo[name] != "" && (got[0].Fix == nil || got[0].Fix.Kind != FixSetValue || got[0].Fix.Field != "title" || got[0].Fix.To != fixTo[name]) {
+				t.Fatalf("fix = %+v, want set_value title %q", got[0].Fix, fixTo[name])
 			}
 		})
 	}

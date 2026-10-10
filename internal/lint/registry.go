@@ -97,7 +97,7 @@ var registry = []CheckSpec{
 	{Name: "mangled_placeholder", Severity: SevWarning, Level: LevelConcept, Accept: AcceptConcept, OnWrite: true, Category: CategoryPages},
 	{Name: "missing_title", Severity: SevWarning, Level: LevelConcept, Accept: AcceptConcept, OnWrite: true, FixKinds: []string{FixSetValue}, AutoRepairSafe: true, Category: CategoryPages},
 	{Name: "title_h1_mismatch", Severity: SevWarning, Level: LevelConcept, Accept: AcceptConcept, OnWrite: true, FixKinds: []string{FixSyncH1, FixSetValue}, AutoRepairSafe: true, Category: CategoryPages},
-	{Name: "title_quality", Severity: SevInfo, Level: LevelConcept, Accept: AcceptConcept, OnWrite: true, Category: CategoryPages},
+	{Name: "title_quality", Severity: SevInfo, Level: LevelConcept, Accept: AcceptConcept, OnWrite: true, FixKinds: []string{FixSetValue}, AutoRepairSafe: true, Category: CategoryPages},
 	{Name: "missing_required_field", Severity: SevError, Level: LevelConcept, Accept: AcceptNone, OnWrite: true, Category: CategoryPages},
 	{Name: "invalid_field_value", Severity: SevError, Level: LevelConcept, Accept: AcceptNone, OnWrite: true, FixKinds: []string{FixSetValue}, AutoRepairSafe: true, Category: CategoryPages},
 	{Name: "forbidden_field", Severity: SevError, Level: LevelConcept, Accept: AcceptNone, OnWrite: true, Category: CategoryPages},
@@ -146,7 +146,7 @@ var registry = []CheckSpec{
 	{Name: "index_link_form", Severity: SevInfo, Level: LevelGraph, Accept: AcceptNone, OnWrite: true, FixKinds: []string{FixRebaseLink, FixRewriteWikiLink}, AutoRepairSafe: true, CrossConcept: true, Category: CategoryLinks},
 	{Name: "orphan", Severity: SevWarning, Level: LevelGraph, Accept: AcceptConcept, OnWrite: true, Category: CategoryLinks},
 	{Name: "broken_relation", Severity: SevWarning, Level: LevelGraph, Accept: AcceptConcept, OnWrite: true, Category: CategoryLinks},
-	{Name: "link_to_retired", Severity: SevInfo, Level: LevelGraph, Accept: AcceptConcept, OnWrite: true, WholeGraph: true, Category: CategoryLinks},
+	{Name: "link_to_retired", Severity: SevInfo, Level: LevelGraph, Accept: AcceptConcept, OnWrite: true, WholeGraph: true, FixKinds: []string{FixRetargetLinks}, AutoRepairSafe: true, CrossConcept: true, Category: CategoryLinks},
 	{Name: "unknown_placeholder", Severity: SevWarning, Level: LevelGraph, Accept: AcceptConcept, OnWrite: true, Category: CategoryLinks},
 	{Name: "forbidden_term", Severity: SevWarning, Level: LevelGraph, Accept: AcceptConcept, OnWrite: true, Category: CategoryLinks},
 	{Name: "source_uncited", Severity: SevWarning, Level: LevelGraph, Accept: AcceptConcept, Category: CategoryLinks},
@@ -167,7 +167,7 @@ var registry = []CheckSpec{
 	{Name: "map_oversize", Severity: SevInfo, Level: LevelMap, Accept: AcceptMap, Category: CategoryMaps},
 	{Name: "legacy_archive_descriptor", Severity: SevWarning, Level: LevelMap, Accept: AcceptNone, Category: CategoryMaps},
 	{Name: "index_incomplete", Severity: SevWarning, Level: LevelMap, Accept: AcceptNone, OnWrite: true, Category: CategoryMaps},
-	{Name: "index_lists_retired", Severity: SevInfo, Level: LevelMap, Accept: AcceptMap, WholeGraph: true, Category: CategoryMaps},
+	{Name: "index_lists_retired", Severity: SevInfo, Level: LevelMap, Accept: AcceptMap, WholeGraph: true, FixKinds: []string{FixDropIndexEntry}, AutoRepairSafe: true, Category: CategoryMaps},
 	{Name: "index_stale", Severity: SevInfo, Level: LevelMap, Accept: AcceptNone, Category: CategoryMaps},
 	{Name: "expanded_missing_index", Severity: SevWarning, Level: LevelMap, Accept: AcceptNone, Category: CategoryMaps},
 	{Name: "expanded_ambiguous", Severity: SevError, Level: LevelMap, Accept: AcceptNone, Category: CategoryMaps},
@@ -273,15 +273,16 @@ func ArtifactPanelCheck(check string) bool {
 }
 
 // MapRepairCheck reports whether a fixable check's findings name a data/ folder
-// rather than a concept (unmapped_folder, D357): its repair writes the folder's
-// descriptor.
+// or a map's index rather than a concept (unmapped_folder, D357: its repair
+// writes the folder's descriptor; index_lists_retired, D366: it drops an entry
+// from the index).
 func MapRepairCheck(check string) bool {
 	s, ok := Spec(check)
 	if !ok {
 		return false
 	}
 	for _, k := range s.FixKinds {
-		if k == FixScaffoldMap {
+		if k == FixScaffoldMap || k == FixDropIndexEntry {
 			return true
 		}
 	}

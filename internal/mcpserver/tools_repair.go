@@ -54,21 +54,32 @@ func planRepair(k *kb.KB, check, scope string) ([]repairTarget, []repairItem, er
 		if f.Check != check || f.Fix == nil || f.Artifact {
 			continue
 		}
-		concept := uiFindingConcept(f.Path)
-		if concept == "" {
-			continue
-		}
-		t := byPath[f.Path]
-		if t == nil {
-			cd, err := k.ReadConcept(okf.ConceptID(concept))
-			if err != nil {
-				continue // vanished since the walk: nothing to repair
+		// A fix that edits other concepts than the finding's own (D366) is
+		// planned against those: each is a target with the fix attached.
+		edited := []string{f.Path}
+		if len(f.Fix.Targets) > 0 {
+			edited = edited[:0]
+			for _, id := range f.Fix.Targets {
+				edited = append(edited, okf.IDToPath(okf.ConceptID(id)))
 			}
-			t = &repairTarget{ID: okf.ConceptID(concept), Path: f.Path, Hash: cd.ContentHash}
-			byPath[f.Path] = t
 		}
-		t.Fixes = append(t.Fixes, f.Fix)
-		items = append(items, repairItem{Path: f.Path, Fix: f.Fix})
+		for _, path := range edited {
+			concept := uiFindingConcept(path)
+			if concept == "" {
+				continue
+			}
+			t := byPath[path]
+			if t == nil {
+				cd, err := k.ReadConcept(okf.ConceptID(concept))
+				if err != nil {
+					continue // vanished since the walk: nothing to repair
+				}
+				t = &repairTarget{ID: okf.ConceptID(concept), Path: path, Hash: cd.ContentHash}
+				byPath[path] = t
+			}
+			t.Fixes = append(t.Fixes, f.Fix)
+			items = append(items, repairItem{Path: path, Fix: f.Fix})
+		}
 	}
 	targets := make([]repairTarget, 0, len(byPath))
 	for _, t := range byPath {
@@ -130,7 +141,7 @@ func applyRepair(k *kb.KB, targets []repairTarget, mutualGuard bool) (applied []
 			continue
 		}
 		body := cd.Body
-		changed, partial, reason := applyFixes(t.ID, fm, &body, t.Fixes)
+		changed, partial, reason := applyFixes(k, t.ID, fm, &body, t.Fixes)
 		if reason == "" && changed == 0 && len(partial) > 0 {
 			reason = strings.Join(partial, "; ")
 			partial = nil
@@ -224,7 +235,7 @@ func linkItemTarget(path string, fx *lint.Fix) okf.ConceptID {
 // applyFixes applies fixes to fm and body in place. It returns how many
 // fixes it applied, the fixes it left for a person (partial: the others still
 // apply), and a non-empty fatal reason when the concept must not be written.
-func applyFixes(id okf.ConceptID, fm *okf.Frontmatter, body *string, fixes []*lint.Fix) (changed int, partial []string, fatal string) {
+func applyFixes(k *kb.KB, id okf.ConceptID, fm *okf.Frontmatter, body *string, fixes []*lint.Fix) (changed int, partial []string, fatal string) {
 	handled, renamed, partial := applyRenameGroups(fm, fixes)
 	changed += renamed
 	changed += applyPrefixReplacements(body, fixes, handled)
@@ -313,6 +324,18 @@ func applyFixes(id okf.ConceptID, fm *okf.Frontmatter, body *string, fixes []*li
 			nb, ok := lint.ReorderSections(*body, strings.Split(fx.To, "\n"))
 			if !ok {
 				changed--
+				continue
+			}
+			*body = nb
+		case lint.FixRetargetLinks:
+			// Every link to the retired concept, markdown or wiki-link, now
+			// names its successor: label, anchor and alias stay (D366). The
+			// base is the file that holds the body, which for an expanded
+			// concept is its index.md.
+			base, _ := k.ConceptRelPath(id)
+			nb, n := kb.RewriteLinks(*body, base, map[string]string{fx.Field: fx.To}, k.AssetExists)
+			if n == 0 {
+				changed-- // already retargeted: idempotent
 				continue
 			}
 			*body = nb
@@ -462,6 +485,17 @@ func applyArtifactRepair(k *kb.KB, targets []artifactRepairTarget) (applied []ar
 // mapRepairTarget is one data/ folder with the title its descriptor gets.
 type mapRepairTarget struct {
 	Folder, Title string
+	// Entry, when set, makes the target a curated index (Folder is its map):
+	// the entry of that concept is dropped (index_lists_retired, D366).
+	Entry string
+}
+
+// key is what the target's finding path is, for the limit filter.
+func (t mapRepairTarget) key() string {
+	if t.Entry != "" {
+		return t.Folder + "/index.md"
+	}
+	return t.Folder
 }
 
 // planMapRepair is planRepair for a check whose findings name a data/ folder
@@ -474,13 +508,26 @@ func planMapRepair(k *kb.KB, check, scope string) ([]mapRepairTarget, []repairIt
 	var targets []mapRepairTarget
 	var items []repairItem
 	for _, f := range findings {
-		if f.Check != check || f.Fix == nil || f.Fix.Kind != lint.FixScaffoldMap {
+		if f.Check != check || f.Fix == nil {
 			continue
 		}
-		targets = append(targets, mapRepairTarget{Folder: f.Fix.Field, Title: f.Fix.To})
+		switch f.Fix.Kind {
+		case lint.FixScaffoldMap:
+			targets = append(targets, mapRepairTarget{Folder: f.Fix.Field, Title: f.Fix.To})
+		case lint.FixDropIndexEntry:
+			mapName, _, _ := strings.Cut(f.Path, "/")
+			targets = append(targets, mapRepairTarget{Folder: mapName, Entry: f.Fix.Field})
+		default:
+			continue
+		}
 		items = append(items, repairItem{Path: f.Path, Fix: f.Fix})
 	}
-	sort.Slice(targets, func(i, j int) bool { return targets[i].Folder < targets[j].Folder })
+	sort.Slice(targets, func(i, j int) bool {
+		if targets[i].Folder != targets[j].Folder {
+			return targets[i].Folder < targets[j].Folder
+		}
+		return targets[i].Entry < targets[j].Entry
+	})
 	sort.SliceStable(items, func(i, j int) bool { return items[i].Path < items[j].Path })
 	return targets, items, nil
 }
@@ -490,6 +537,18 @@ func planMapRepair(k *kb.KB, check, scope string) ([]mapRepairTarget, []repairIt
 // vanished, is skipped. The caller holds the KB lock (gitWrap).
 func applyMapRepair(k *kb.KB, targets []mapRepairTarget) (applied []mapRepairTarget, skipped []repairSkip) {
 	for _, t := range targets {
+		if t.Entry != "" {
+			removed, _, err := removeCuratedEntry(k, t.Folder, okf.ConceptID(t.Entry))
+			switch {
+			case err != nil:
+				skipped = append(skipped, repairSkip{t.key(), err.Error()})
+			case !removed:
+				skipped = append(skipped, repairSkip{t.key(), "no line lists only " + t.Entry + " any more"})
+			default:
+				applied = append(applied, t)
+			}
+			continue
+		}
 		if err := k.ScaffoldMap(t.Folder, t.Title); err != nil {
 			skipped = append(skipped, repairSkip{t.Folder, err.Error()})
 			continue
@@ -511,7 +570,7 @@ func kbRepairMaps(k *kb.KB, check, scope string, dryRun bool, limit int) (ToolRe
 		targets = targets[:limit]
 		keep := map[string]bool{}
 		for _, t := range targets {
-			keep[t.Folder] = true
+			keep[t.key()] = true
 		}
 		kept := items[:0]
 		for _, it := range items {
@@ -1108,7 +1167,7 @@ func repairConceptFixpoint(k *kb.KB, id okf.ConceptID, allowed []string, seed []
 				continue
 			}
 			savedFM, savedBody := fm.Serialize(), body
-			changed, partial, fatal := applyFixes(id, fm, &body, fixes)
+			changed, partial, fatal := applyFixes(k, id, fm, &body, fixes)
 			if fatal != "" {
 				if restored, perr := okf.ParseFrontmatter(savedFM); perr == nil {
 					fm, body = restored, savedBody

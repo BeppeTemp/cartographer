@@ -998,6 +998,8 @@ var DefaultAutoRepair = []string{
 	"index_link_form", "legacy_tool_name", "missing_frontmatter", "unparseable_frontmatter",
 	"missing_type", "nonslug_file_name", "missing_title", "repeated_link",
 	"value_case_variant", "unmapped_folder",
+	// D366: the unambiguous part of three doctor-only checks.
+	"index_lists_retired", "link_to_retired", "title_quality",
 	// D352, in the order a page needs them: bind it, set its type, its values,
 	// reorder its sections, then rename the aliases (a reorder lists headings
 	// as written, so it runs before the rename changes them).

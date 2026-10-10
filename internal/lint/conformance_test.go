@@ -2,6 +2,7 @@ package lint
 
 import (
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -26,7 +27,7 @@ func TestNonstandardField(t *testing.T) {
 		t.Fatal(err)
 	}
 	f := findingFor(findings, "kb-a/alone.md", "nonstandard_field")
-	if f == nil || f.Severity != SevWarning || f.Fix == nil || *f.Fix != (Fix{Kind: FixRenameField, Field: "aggiornato", To: "timestamp"}) {
+	if f == nil || f.Severity != SevWarning || f.Fix == nil || !reflect.DeepEqual(*f.Fix, Fix{Kind: FixRenameField, Field: "aggiornato", To: "timestamp"}) {
 		t.Fatalf("alone: %+v", f)
 	}
 	f = findingFor(findings, "kb-a/both.md", "nonstandard_field")
@@ -72,7 +73,7 @@ func TestToolParamField(t *testing.T) {
 	writeFile(t, k.DataRoot(), "kb-a/bad.md", "---\ntype: Note\ntitle: B\nif_match: abc\nlint_ignore: [tool_param_field]\n---\nx\n")
 	findings, _ := Run(k, "", false)
 	f := findingFor(findings, "kb-a/bad.md", "tool_param_field")
-	if f == nil || f.Severity != SevWarning || f.Fix == nil || *f.Fix != (Fix{Kind: FixDropField, Field: "if_match"}) {
+	if f == nil || f.Severity != SevWarning || f.Fix == nil || !reflect.DeepEqual(*f.Fix, Fix{Kind: FixDropField, Field: "if_match"}) {
 		t.Fatalf("%+v", f)
 	}
 	// Not suppressible: naming it in lint_ignore is itself reported.
@@ -206,7 +207,7 @@ func TestNonstandardField_TimestampSynonymNeedsDateValue(t *testing.T) {
 	}
 	for p, field := range map[string]string{"kb-a/day.md": "data", "kb-a/rfc.md": "updated"} {
 		f := findingFor(findings, p, "nonstandard_field")
-		if f == nil || f.Fix == nil || *f.Fix != (Fix{Kind: FixRenameField, Field: field, To: "timestamp"}) {
+		if f == nil || f.Fix == nil || !reflect.DeepEqual(*f.Fix, Fix{Kind: FixRenameField, Field: field, To: "timestamp"}) {
 			t.Errorf("%s: %+v", p, f)
 		}
 	}

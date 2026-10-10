@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -191,7 +192,7 @@ func TestKBRepairApplyRunsDefaultChecks(t *testing.T) {
 func TestKBRepairReportsTheDefaultList(t *testing.T) {
 	var out bytes.Buffer
 	printKBRepairReport(&out, kbRepairReport{KB: "kb-a", AutoRepair: config.DefaultAutoRepair, AutoRepairDefault: true})
-	if !strings.Contains(out.String(), "auto_repair uses the default (23 checks") {
+	if !strings.Contains(out.String(), fmt.Sprintf("auto_repair uses the default (%d checks", len(config.DefaultAutoRepair))) {
 		t.Fatalf("report:\n%s", out.String())
 	}
 }
