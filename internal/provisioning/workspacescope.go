@@ -73,6 +73,11 @@ const (
 //     Its config.yaml and gateway hooks stay operator-owned (D141), so the other
 //     kinds remain unsupported.
 //
+//   - Copilot CLI (D676, 1.0.94): AGENTS.md ("Repository instructions") and
+//     .agents/skills/ ("Project skills") are listed natively. The mcp, agent
+//     and hook cells are documented under .mcp.json / .github/ but were not
+//     observed working without folder trust, so they stay unsupported.
+//
 // A provider in workspace scope that cannot project a kind reports it as
 // unsupported, never silently degraded to the global catalogue — degrading is
 // exactly the exposure this plan exists to prevent.
@@ -88,6 +93,10 @@ var projectDestinationMatrix = map[string]map[configurator.Provider]destination{
 		// but the session has the project ones (probed on 1.3.2, D364).
 		configurator.ProviderAntigravity: at(".agents", "mcp_config.json"),
 		configurator.ProviderCrush:       at(".crush.json"),
+		// copilot: `.mcp.json` / `.github/mcp.json` are documented but
+		// `copilot mcp list` does not list them in an untrusted folder, and a
+		// destination is declared, never invented (probed on 1.0.94, D676).
+		configurator.ProviderCopilot: unsupportedDest,
 	},
 	"instructions": {
 		// The project root's own CLAUDE.md is the file Claude Code reads for a
@@ -107,6 +116,9 @@ var projectDestinationMatrix = map[string]map[configurator.Provider]destination{
 		// plain rule file would be written and silently ignored.
 		configurator.ProviderAntigravity: at("AGENTS.md"),
 		configurator.ProviderCrush:       unsupportedDest,
+		// copilot: AGENTS.md is read natively as "Repository instructions"
+		// (probed on 1.0.94, D676).
+		configurator.ProviderCopilot: at("AGENTS.md"),
 	},
 	"agent": {
 		configurator.ProviderClaudeCode: perName(".md", ".claude", "agents"),
@@ -119,6 +131,9 @@ var projectDestinationMatrix = map[string]map[configurator.Provider]destination{
 		configurator.ProviderHermes:      unsupportedDest,
 		configurator.ProviderAntigravity: perName(".md", ".agents", "agents"),
 		configurator.ProviderCrush:       unsupportedDest,
+		// copilot: .github/agents is gated on folder trust (`copilot --help`),
+		// so nothing is observed working without it (D676).
+		configurator.ProviderCopilot: unsupportedDest,
 	},
 	"hook": {
 		configurator.ProviderClaudeCode: perName("", ".claude", "hooks"),
@@ -136,6 +151,8 @@ var projectDestinationMatrix = map[string]map[configurator.Provider]destination{
 		// file is picked from the hook's path (antigravitySettingsRel).
 		configurator.ProviderAntigravity: perName("", ".agents", "hooks"),
 		configurator.ProviderCrush:       perName("", ".crush", "hooks"),
+		// copilot: .github/hooks is gated on folder trust (`copilot --help`) (D676).
+		configurator.ProviderCopilot: unsupportedDest,
 	},
 	"skill": {
 		configurator.ProviderClaudeCode: perName("", ".claude", "skills"),
@@ -155,6 +172,9 @@ var projectDestinationMatrix = map[string]map[configurator.Provider]destination{
 		// projection of the workspace still records (ApplyOptions.CoOwnedPaths).
 		configurator.ProviderAntigravity: perName("", ".agents", "skills"),
 		configurator.ProviderCrush:       perName("", ".crush", "skills"),
+		// copilot: ".agents/skills/" is listed as "Project skills", shared with
+		// Codex and Antigravity (probed on 1.0.94, D676).
+		configurator.ProviderCopilot: perName("", ".agents", "skills"),
 	},
 }
 

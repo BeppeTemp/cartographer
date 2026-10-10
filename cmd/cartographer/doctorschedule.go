@@ -53,6 +53,7 @@ var headlessClients = map[string]headlessClient{
 	string(configurator.ProviderKiro):        {[]string{"kiro-cli", "kiro"}, func(p string) []string { return []string{"chat", "--no-interactive", p} }},
 	string(configurator.ProviderAntigravity): {[]string{"agy"}, func(p string) []string { return []string{"-p", p} }},
 	string(configurator.ProviderCrush):       {[]string{"crush"}, func(p string) []string { return []string{"run", "-q", p} }},
+	string(configurator.ProviderCopilot):     {[]string{"copilot"}, func(p string) []string { return []string{"-p", p, "-s"} }},
 }
 
 func headlessClientNames() string {

@@ -95,6 +95,7 @@ the citation lives next to it in `internal/provisioning/workspacescope.go`.
 | OpenCode | `.opencode/skills`, `.opencode/agent`, `.opencode/hooks`, `opencode.json`, `AGENTS.md` | [skills](https://opencode.ai/docs/skills), [rules](https://opencode.ai/docs/rules), [agents](https://opencode.ai/docs/agents), [plugins](https://opencode.ai/docs/plugins) |
 | Hermes | **none** | its configuration is rendered by its own Ansible role and skills go to one inbox (D141) |
 | Antigravity | **none** | only a global configuration root is documented (D194) |
+| Copilot CLI | `AGENTS.md`, `.agents/skills` | the project mcp, agent and hook locations are gated on folder trust (D676) |
 
 A subagent's `tools` allow-list is enforced by Claude Code only. The other
 clients receive the agent without it, and therefore with every tool that client
@@ -102,7 +103,7 @@ has; each `sync` warns per agent, and `strict_tools: true` in the agent's
 frontmatter skips it on those clients instead
 ([D283](decisions/D283-a-dropped-tools-allow-list-is-reported-and-can-opt-out.md)).
 An agent can instead carry each client's own restriction in a `providers:` frontmatter
-block (`opencode`, `codex`, `kiro`, `antigravity`), copied **verbatim** into that client's native
+block (`opencode`, `codex`, `kiro`, `antigravity`, `copilot`), copied **verbatim** into that client's native
 agent file; a client with an entry is not widened, so it is neither warned about nor skipped
 ([D291](decisions/D291-an-agent-can-carry-each-clients-own-restriction-verbatim.md)). Cartographer
 does not infer the syntax, and which native keys each client honours has **not been verified

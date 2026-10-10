@@ -213,6 +213,39 @@ func TestScanUsage_Kiro_FileRead(t *testing.T) {
 	}
 }
 
+// The Copilot event shape is the one probed on 1.0.94 (D676): a skill
+// activation is a tool.execution_start whose toolName is "skill"; an MCP call
+// (toolName "<server>-<tool>") names no managed artifact and counts for nothing.
+func TestScanUsage_Copilot_SkillActivation(t *testing.T) {
+	home, lf := usageHome(t, "copilot", ".copilot/skills", "ops-tool", "idle-tool")
+	ev := func(at string, data map[string]any) string {
+		b, err := json.Marshal(map[string]any{"type": "tool.execution_start", "id": "e1", "timestamp": at, "data": data})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(b)
+	}
+	writeLines(t, filepath.Join(home, ".copilot/session-state/s1/events.jsonl"),
+		ev(ts(2*time.Hour), map[string]any{"toolName": "skill", "arguments": map[string]any{"skill": "ops-tool"}}),
+		ev(ts(time.Hour), map[string]any{"toolName": "kb-a-concept_new", "arguments": map[string]any{"skill": "idle-tool"}}),
+		ev(ts(time.Hour), map[string]any{"toolName": "skill", "arguments": map[string]any{"skill": "unmanaged"}}),
+		`{"type":"assistant.message","data":{"content":"skill ops-tool"}}`)
+	got, err := provisioning.ScanUsage(lf, home, 90*24*time.Hour, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if u := got[provisioning.UsageKey("skill", "ops-tool")]; u.Count != 1 || u.Provider != "copilot" {
+		t.Errorf("ops-tool = %+v, want one copilot activation", u)
+	}
+	if len(got) != 1 {
+		t.Errorf("only the skill activation of a managed skill may count: %+v", got)
+	}
+	supported, _, _ := provisioning.UsageProviders()
+	if !strings.Contains(strings.Join(supported, ","), "copilot") {
+		t.Errorf("supported = %v, want copilot", supported)
+	}
+}
+
 func TestScanUsage_UnsupportedProvidersContributeNothing(t *testing.T) {
 	for _, p := range []string{"opencode", "hermes", "antigravity", "crush"} {
 		home, lf := usageHome(t, p, "."+p+"/skills", "ops-tool")

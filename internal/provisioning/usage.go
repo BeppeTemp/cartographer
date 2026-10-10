@@ -89,13 +89,14 @@ var usageScanners = map[string]usageScanner{
 	"hermes":      scanNone("hermes: no session transcript, and skills arrive through an inbox, not a scannable directory"),
 	"antigravity": scanNone("antigravity: no documented session transcript"),
 	"crush":       scanNone("crush: no documented session transcript"),
+	"copilot":     scanCopilot,
 }
 
 // UsageProviders reports which providers contribute what, for kb_status and
 // the docs: full per-activation, partial (catalogue timestamp plus path
 // reads), or none.
 func UsageProviders() (supported, partial, unsupported []string) {
-	supported = []string{"claude", "kiro"}
+	supported = []string{"claude", "copilot", "kiro"}
 	partial = []string{"codex"}
 	unsupported = []string{"antigravity", "crush", "hermes", "opencode"}
 	return
@@ -620,6 +621,62 @@ func scanKiro(base string, targets []usageTarget, cutoff time.Time) []usageEvent
 					}
 				}
 			}
+		})
+	}
+	return events
+}
+
+// --- GitHub Copilot CLI ---
+
+// scanCopilot reads <base>/.copilot/session-state/<session>/events.jsonl, one
+// {type, data, id, timestamp} event per line (probed on 1.0.94, D676). A skill
+// activation is a tool.execution_start whose data.toolName is "skill" and
+// data.arguments.skill the skill's name. The MCP calls in the same file
+// (toolName "<server>-<tool>") name no managed artifact, so they are not read;
+// agent activations were not probed and are not claimed.
+func scanCopilot(base string, targets []usageTarget, cutoff time.Time) []usageEvent {
+	skills := map[string]string{}
+	for _, t := range targets {
+		if t.kind == "skill" {
+			skills[t.name] = UsageKey(t.kind, t.name)
+		}
+	}
+	if len(skills) == 0 {
+		return nil
+	}
+	var events []usageEvent
+	files := transcriptFiles(filepath.Join(base, ".copilot", "session-state"), cutoff, func(name string) bool { return name == "events.jsonl" })
+	for _, file := range files {
+		mtime := fileMTime(file)
+		eachLine(file, func(line []byte) {
+			if !bytes.Contains(line, []byte(`"tool.execution_start"`)) {
+				return
+			}
+			var rec struct {
+				Type      string          `json:"type"`
+				Timestamp json.RawMessage `json:"timestamp"`
+				Data      struct {
+					ToolName  string `json:"toolName"`
+					Arguments struct {
+						Skill string `json:"skill"`
+					} `json:"arguments"`
+				} `json:"data"`
+			}
+			if json.Unmarshal(line, &rec) != nil || rec.Type != "tool.execution_start" || rec.Data.ToolName != "skill" {
+				return
+			}
+			key, ok := skills[rec.Data.Arguments.Skill]
+			if !ok {
+				return
+			}
+			at, ok := parseTranscriptTime(rec.Timestamp)
+			if !ok {
+				at = mtime
+			}
+			if at.Before(cutoff) {
+				return
+			}
+			events = append(events, usageEvent{key: key, at: at, provider: "copilot"})
 		})
 	}
 	return events

@@ -97,6 +97,12 @@ func TestDestDirPaths(t *testing.T) {
 		{"skill", configurator.ProviderCrush, ".config/crush/skills/demo"},
 		{"agent", configurator.ProviderCrush, ""},
 		{"hook", configurator.ProviderCrush, ".config/crush/hooks/demo"},
+		// copilot (D676, probed on 1.0.94): every kind has a global cell.
+		{"mcp", configurator.ProviderCopilot, ".copilot/mcp-config.json"},
+		{"instructions", configurator.ProviderCopilot, ".copilot/copilot-instructions.md"},
+		{"skill", configurator.ProviderCopilot, ".copilot/skills/demo"},
+		{"agent", configurator.ProviderCopilot, ".copilot/agents/demo.agent.md"},
+		{"hook", configurator.ProviderCopilot, ".copilot/cartographer-hooks/demo"},
 		// A kind or provider this binary does not know is not materializable:
 		// a manifest from a newer server must not land somewhere arbitrary.
 		{"newkind", configurator.ProviderClaudeCode, ""},

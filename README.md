@@ -85,13 +85,13 @@ My first knowledge base is at: `<git remote URL>`
 
 `cartographer connect` detects your installed clients and writes, in each one's own format:
 
-| | Claude Code | Codex | OpenCode | Kiro | Antigravity | Crush | Hermes |
-|---|:-:|:-:|:-:|:-:|:-:|:-:|:-:|
-| MCP endpoint | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | — |
-| Instructions | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | — |
-| Skills | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | inbox |
-| Subagents | ✓ | ✓ | ✓ | ✓ | ✓ | — | — |
-| Hooks | ✓ | ✓ | ✓ | ✓ | ✓ | — | — |
+| | Claude Code | Codex | OpenCode | Kiro | Antigravity | Crush | Copilot CLI | Hermes |
+|---|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|
+| MCP endpoint | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | — |
+| Instructions | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | — |
+| Skills | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | inbox |
+| Subagents | ✓ | ✓ | ✓ | ✓ | ✓ | — | ✓ | — |
+| Hooks | ✓ | ✓ | ✓ | ✓ | ✓ | — | ✓ | — |
 
 Subagents and hooks are **translated**, not copied. Every `—` is a gap declared for a stated reason,
 never a silent omission. Cartographer re-syncs at session start (or on a timer where a client has

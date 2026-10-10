@@ -22,7 +22,11 @@ import (
 // exits 2; "context" (Codex) prints {"hookSpecificOutput":{"hookEventName":
 // "PostToolUse","additionalContext":msg}} on stdout and exits 0, because Codex
 // replaces the tool result with the stderr text of an exit-2 hook and the agent
-// then repeats the write.
+// then repeats the write; "copilot" (GitHub Copilot CLI, D676) prints
+// {"additionalContext":msg} at the top level of stdout and exits 0, which
+// Copilot appends to the tool result as "Additional guidance from postToolUse
+// hooks". Its payload is camelCase ({toolName, toolResult:{textResultForLlm}}),
+// and an MCP tool is named <server>-<tool>.
 //
 // Every other outcome is silent exit 0 — no findings, unknown payload shape,
 // parse error, bad flag, even a panic: a hook must never break a session. With
@@ -42,7 +46,7 @@ const maxHookPayload = 8 << 20
 const maxFeedbackFindings = 10
 
 func cmdHook(args []string) (code int) {
-	const usage = "usage: cartographer hook write-findings [--channel stderr|context]   (internal: reads a PostToolUse payload on stdin)"
+	const usage = "usage: cartographer hook write-findings [--channel stderr|context|copilot]   (internal: reads a PostToolUse payload on stdin)"
 	if len(args) == 0 || args[0] != "write-findings" {
 		fmt.Fprintln(os.Stderr, usage)
 		return 2
@@ -56,7 +60,7 @@ func cmdHook(args []string) (code int) {
 	channel := "stderr"
 	switch rest := args[1:]; {
 	case len(rest) == 0:
-	case len(rest) == 2 && rest[0] == "--channel" && (rest[1] == "stderr" || rest[1] == "context"):
+	case len(rest) == 2 && rest[0] == "--channel" && (rest[1] == "stderr" || rest[1] == "context" || rest[1] == "copilot"):
 		channel = rest[1]
 	default:
 		// A hook must never break a session: a bad flag is exit 0, not 2.
@@ -69,6 +73,14 @@ func cmdHook(args []string) (code int) {
 	}
 	msg := writeFindingsFeedback(raw)
 	if msg == "" {
+		return 0
+	}
+	if channel == "copilot" {
+		out, err := json.Marshal(map[string]string{"additionalContext": msg})
+		if err != nil {
+			return 0
+		}
+		fmt.Fprintln(os.Stdout, string(out))
 		return 0
 	}
 	if channel == "context" {
@@ -99,8 +111,19 @@ func writeFindingsFeedback(payload []byte) string {
 	var p struct {
 		ToolName     string          `json:"tool_name"`
 		ToolResponse json.RawMessage `json:"tool_response"`
+		// Copilot CLI's payload (D676).
+		CopilotTool   string `json:"toolName"`
+		CopilotResult struct {
+			Text json.RawMessage `json:"textResultForLlm"`
+		} `json:"toolResult"`
 	}
-	if json.Unmarshal(payload, &p) != nil || len(p.ToolResponse) == 0 {
+	if json.Unmarshal(payload, &p) != nil {
+		return ""
+	}
+	if p.ToolName == "" && len(p.ToolResponse) == 0 {
+		p.ToolName, p.ToolResponse = p.CopilotTool, p.CopilotResult.Text
+	}
+	if len(p.ToolResponse) == 0 {
 		return ""
 	}
 	if p.ToolName != "" && !isWriteFindingsTool(p.ToolName) {
@@ -125,7 +148,7 @@ func writeFindingsFeedback(payload []byte) string {
 
 func isWriteFindingsTool(name string) bool {
 	for _, t := range provisioning.WriteFindingsTools {
-		if name == t || strings.HasSuffix(name, "__"+t) || strings.HasSuffix(name, "_"+t) {
+		if name == t || strings.HasSuffix(name, "__"+t) || strings.HasSuffix(name, "_"+t) || strings.HasSuffix(name, "-"+t) {
 			return true
 		}
 	}

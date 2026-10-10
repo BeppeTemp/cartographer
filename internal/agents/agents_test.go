@@ -222,6 +222,32 @@ func TestDetect_CrushBinary(t *testing.T) {
 	}
 }
 
+func TestDetect_CopilotBinaryAndConfigDir(t *testing.T) {
+	home := t.TempDir()
+	binPath := "/usr/local/bin/copilot"
+	withStubs(t, home, map[string]string{"copilot": binPath}, "linux")
+	for _, a := range Detect() {
+		if a.Provider == configurator.ProviderCopilot {
+			if !a.Installed || a.Evidence != binPath {
+				t.Errorf("copilot: expected Installed=true evidence=%s, got %+v", binPath, a)
+			}
+		} else if a.Installed {
+			t.Errorf("%s: expected not installed", a.Name)
+		}
+	}
+
+	home = t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, ".copilot"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	withStubs(t, home, nil, "linux")
+	for _, a := range Detect() {
+		if a.Provider == configurator.ProviderCopilot && (!a.Installed || a.Evidence != filepath.Join(home, ".copilot")) {
+			t.Errorf("copilot: expected config-dir evidence, got %+v", a)
+		}
+	}
+}
+
 func TestDetect_CrushConfigDirFallback(t *testing.T) {
 	home := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(home, ".config", "crush"), 0o755); err != nil {
@@ -341,6 +367,7 @@ func TestDescriptorsKeepTheirUnixDetection(t *testing.T) {
 		configurator.ProviderOpenCode:    {{".config", "opencode"}, {".opencode"}},
 		configurator.ProviderAntigravity: {{".gemini", "config"}, {".gemini", "antigravity"}, {".gemini", "antigravity-cli"}},
 		configurator.ProviderCrush:       {{".config", "crush"}},
+		configurator.ProviderCopilot:     {{".copilot"}},
 	}
 	wantBinaries := map[configurator.Provider][]string{
 		configurator.ProviderClaudeCode:  {"claude"},
@@ -350,6 +377,7 @@ func TestDescriptorsKeepTheirUnixDetection(t *testing.T) {
 		configurator.ProviderOpenCode:    {"opencode"},
 		configurator.ProviderAntigravity: {"agy"},
 		configurator.ProviderCrush:       {"crush"},
+		configurator.ProviderCopilot:     {"copilot"},
 	}
 
 	for _, d := range configurator.Providers() {

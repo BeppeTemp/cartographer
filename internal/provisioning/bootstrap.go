@@ -335,6 +335,20 @@ var hookMechanisms = map[configurator.Provider]hookMechanism{
 			return "", warning, nil
 		},
 	},
+	configurator.ProviderCopilot: {
+		// A dedicated file of our own, never ~/.copilot/settings.json (D676).
+		// It is returned as a managed file, so it is pruned like OpenCode's
+		// generated plugin.
+		pluginPath:        copilotHookRelPath,
+		writeFindingsHook: true,
+		register: func(baseDir, name, fullDestDir string) (string, string, error) {
+			rel, warning, err := registerCopilotHook(baseDir, name, fullDestDir)
+			if err != nil {
+				return "", "", fmt.Errorf("provisioning: register hook %s as a Copilot hook file: %w", name, err)
+			}
+			return rel, warning, nil
+		},
+	},
 	configurator.ProviderKiro: {
 		settingsFile: kiroHooksRelPath,
 		// Probed on 2.26.1 and 2.27.0: the standalone hook files load only

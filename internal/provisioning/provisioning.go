@@ -3025,6 +3025,10 @@ func PruneManaged(managed []ManagedFile, baseDir string, dryRun bool) ([]Managed
 					if err := removeAntigravityHook(baseDir, mf.Name, mf.Path); err != nil {
 						return nil, fmt.Errorf("provisioning: prune entry Antigravity hooks.json hook %s: %w", mf.Name, err)
 					}
+				case "copilot":
+					if err := removeCopilotHook(baseDir, mf.Name); err != nil {
+						return nil, fmt.Errorf("provisioning: prune Copilot hook file %s: %w", mf.Name, err)
+					}
 				case "crush":
 					if err := removeCrushHook(baseDir, mf.Name, mf.Path); err != nil {
 						return nil, fmt.Errorf("provisioning: prune entry Crush hook %s: %w", mf.Name, err)
@@ -3113,6 +3117,7 @@ var unsupportedDest = destination{unsupported: true}
 //     cells are unsupported for stated reasons, not by omission.
 //   - crush documents no user-level subagent directory, so that cell is
 //     unsupported (D225); its hook cell is supported since D363.
+//   - copilot fills all five cells (D676); its agent files end in ".agent.md".
 var destinationMatrix = map[string]map[configurator.Provider]destination{
 	"mcp": {
 		configurator.ProviderClaudeCode: at(".claude.json"),
@@ -3124,6 +3129,8 @@ var destinationMatrix = map[string]map[configurator.Provider]destination{
 		configurator.ProviderHermes:      unsupportedDest,
 		configurator.ProviderAntigravity: at(".gemini", "config", "mcp_config.json"),
 		configurator.ProviderCrush:       at(".config", "crush", "crush.json"),
+		// copilot: probed on 1.0.94, D676.
+		configurator.ProviderCopilot: at(".copilot", "mcp-config.json"),
 	},
 	"instructions": {
 		configurator.ProviderClaudeCode: at(".claude", "CLAUDE.md"),
@@ -3140,6 +3147,9 @@ var destinationMatrix = map[string]map[configurator.Provider]destination{
 		// whatever else the user runs.
 		// https://github.com/charmbracelet/crush#global-context-files
 		configurator.ProviderCrush: at(".config", "crush", "CRUSH.md"),
+		// copilot: `copilot instruction list` reports it as "Personal
+		// instructions" (probed on 1.0.94, D676).
+		configurator.ProviderCopilot: at(".copilot", "copilot-instructions.md"),
 	},
 	"agent": {
 		configurator.ProviderClaudeCode: perName(".md", ".claude", "agents"),
@@ -3165,6 +3175,9 @@ var destinationMatrix = map[string]map[configurator.Provider]destination{
 		// user-level subagent directory, and a destination is declared, never
 		// invented.
 		configurator.ProviderCrush: unsupportedDest,
+		// copilot: `~/.copilot/agents/<name>.agent.md`, frontmatter name and
+		// description; a session reported seeing the agent (probed on 1.0.94, D676).
+		configurator.ProviderCopilot: perName(".agent.md", ".copilot", "agents"),
 	},
 	"hook": {
 		configurator.ProviderClaudeCode: perName("", ".claude", "hooks"),
@@ -3192,6 +3205,13 @@ var destinationMatrix = map[string]map[configurator.Provider]destination{
 		// on v0.98.0, D363), registered by registerCrushHook. No session event,
 		// so its sync trigger stays the scheduled timer.
 		configurator.ProviderCrush: perName("", ".config", "crush", "hooks"),
+		// copilot: Copilot loads ~/.copilot/hooks/ RECURSIVELY and parses every
+		// *.json below it (probed on 1.0.94: a foreign JSON in a subdirectory
+		// logs "Invalid hook configuration"), so the KB hook's own hook.json
+		// must not live there. The files go to ~/.copilot/cartographer-hooks/<n>/
+		// and only the registration, ~/.copilot/hooks/cartographer-<n>.json,
+		// sits in hooks/ (registerCopilotHook, D676).
+		configurator.ProviderCopilot: perName("", ".copilot", "cartographer-hooks"),
 	},
 	"skill": {
 		configurator.ProviderClaudeCode: perName("", ".claude", "skills"),
@@ -3218,6 +3238,8 @@ var destinationMatrix = map[string]map[configurator.Provider]destination{
 		// convention; its own is the one Cartographer owns.
 		// https://github.com/charmbracelet/crush#agent-skills
 		configurator.ProviderCrush: perName("", ".config", "crush", "skills"),
+		// copilot: "Personal skills" (probed on 1.0.94, D676).
+		configurator.ProviderCopilot: perName("", ".copilot", "skills"),
 	},
 }
 
@@ -3348,6 +3370,8 @@ func translateAgentForProvider(provider configurator.Provider, name string, cont
 		return translateAgentForCodex(name, content)
 	case configurator.ProviderAntigravity:
 		return translateAgentForAntigravity(name, content)
+	case configurator.ProviderCopilot:
+		return translateAgentForCopilot(name, content)
 	case configurator.ProviderKiro:
 		return translateAgentForKiro(name, content)
 	default:
@@ -3425,6 +3449,48 @@ func translateAgentForAntigravity(name string, content []byte) ([]byte, error) {
 	sb.WriteString("\ndescription: ")
 	sb.WriteString(yamlQuoteScalar(description))
 	sb.WriteString("\nmainAgent: false\nsubagent: true\n")
+	sb.WriteString(extra)
+	sb.WriteString("---\n")
+	sb.WriteString(body)
+	return []byte(sb.String()), nil
+}
+
+// translateAgentForCopilot emits ~/.copilot/agents/<name>.agent.md (D676,
+// probed on 1.0.94): frontmatter `name` and `description`, then the body.
+// Claude-only keys (`tools`, `model`) are not copied — their names are not
+// portable, as for the other translators — and the `providers.copilot` entry
+// is appended through nativeFieldsFor.
+func translateAgentForCopilot(name string, content []byte) ([]byte, error) {
+	fmRaw, body, hasFM := okf.SplitFrontmatter(string(content))
+	description := name
+	var native []nativeField
+	if hasFM {
+		fm, err := okf.ParseFrontmatter(fmRaw)
+		if err != nil {
+			return nil, fmt.Errorf("provisioning: parse frontmatter agent %s: %w", name, err)
+		}
+		if v, ok := fm.Get("description"); ok {
+			if s, ok := v.(string); ok && strings.TrimSpace(s) != "" {
+				description = s
+			}
+		}
+		if native, err = nativeFieldsFor(fm, configurator.ProviderCopilot); err != nil {
+			return nil, fmt.Errorf("provisioning: agent %s: %w", name, err)
+		}
+	} else {
+		body = string(content)
+	}
+	extra, err := renderNativeYAML(native)
+	if err != nil {
+		return nil, fmt.Errorf("provisioning: agent %s: %w", name, err)
+	}
+
+	var sb strings.Builder
+	sb.WriteString("---\nname: ")
+	sb.WriteString(yamlQuoteScalar(name))
+	sb.WriteString("\ndescription: ")
+	sb.WriteString(yamlQuoteScalar(description))
+	sb.WriteString("\n")
 	sb.WriteString(extra)
 	sb.WriteString("---\n")
 	sb.WriteString(body)

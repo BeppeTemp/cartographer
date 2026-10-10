@@ -44,14 +44,16 @@ func TestValidateHookJSON_ReportsClientsThatWillNotFire(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := strings.Join(misses, ","); got != "claude,codex,opencode,kiro,crush" {
-		t.Errorf("PreInvocation misses = %q, want claude,codex,opencode,kiro,crush", got)
+	if got := strings.Join(misses, ","); got != "claude,codex,opencode,kiro,crush,copilot" {
+		t.Errorf("PreInvocation misses = %q, want claude,codex,opencode,kiro,crush,copilot", got)
 	}
 	misses, _ = ValidateHookJSON([]byte(`{"event":"Stop","command":"./x.sh"}`))
 	// Crush fires only PreToolUse (probed on v0.98.0, D363).
-	if got := strings.Join(misses, ","); got != "crush" {
-		t.Errorf("Stop misses = %q, want crush", got)
+	if got := strings.Join(misses, ","); got != "crush,copilot" {
+		t.Errorf("Stop misses = %q, want crush,copilot", got)
 	}
+	// Copilot fires only SessionStart, PreToolUse and PostToolUse (probed on
+	// 1.0.94, D676).
 	// Kiro's tool events were never probed (D300): not claimed.
 	misses, _ = ValidateHookJSON([]byte(`{"event":"PreToolUse","command":"./x.sh"}`))
 	if got := strings.Join(misses, ","); got != "kiro" {

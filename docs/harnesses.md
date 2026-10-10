@@ -379,3 +379,56 @@ would flip a matrix cell is confirmed with a probe
   default model may be refused by a ChatGPT account); `--yolo` is a root flag,
   not accepted by `run`. `~/.config/crush/` may not exist: create it for a global
   probe and remove it afterwards.
+
+## copilot
+
+- **Aligned with**: `1.0.94` — 2026-10-10, probed (#676). The GitHub Copilot CLI
+  (`copilot`), not Copilot in VS Code.
+- **Sources** (`unverified`): releases <https://github.com/github/copilot-cli/releases>;
+  docs <https://docs.github.com/copilot/how-tos/use-copilot-agents/use-copilot-cli>.
+  Every cell below comes from a probe with `COPILOT_HOME` pointed at a scratch
+  directory, not from these pages.
+- **Depends on**:
+  - `mcp` in `~/.copilot/mcp-config.json` (`mcpServers`, `type: "http"`, `headers`,
+    `"tools": ["*"]`); `${VAR}` in a header value is expanded from the environment.
+    Without `tools` a non-interactive session is offered nothing from the server.
+  - `instructions` in `~/.copilot/copilot-instructions.md` ("Personal instructions"
+    in `copilot instruction list`); project `AGENTS.md` ("Repository instructions").
+  - `skill` in `~/.copilot/skills/<name>/` ("Personal skills"); project
+    `.agents/skills/<name>/` ("Project skills"; `.github/skills/` is listed too).
+  - `agent` in `~/.copilot/agents/<name>.agent.md` (frontmatter `name`,
+    `description`); a session reported seeing it.
+  - `hook` in a dedicated `~/.copilot/hooks/cartographer-<name>.json`
+    (`{"version":1,"hooks":{"<event>":[{"type":"command","bash":…,"powershell":…}]}}`);
+    `~/.copilot/settings.json` also takes inline hooks and is never patched (D676).
+    The KB hook's own files go to `~/.copilot/cartographer-hooks/<name>/`, outside
+    `hooks/`: Copilot loads `~/.copilot/hooks/` recursively and parses every
+    `*.json` below it (probed: a non-Copilot JSON in a subdirectory logged
+    "Invalid hook configuration … hooks must be an object").
+  - Project `mcp`, `agent` and `hook` cells unsupported: `.mcp.json` /
+    `.github/mcp.json` are documented but not listed by `copilot mcp list` in an
+    untrusted folder, and `.github/agents` and `.github/hooks` are gated on folder
+    trust (`--help`).
+  - `COPILOT_HOME` is not honoured: paths are `$HOME/.copilot`, like every provider.
+- **Probed on 1.0.94** (2026-10-10):
+  - hooks: `sessionStart`, `preToolUse`, `postToolUse` fire (other events not
+    probed, not claimed). Payload (camelCase): `sessionId`, `timestamp`, `cwd`,
+    `toolName`, `toolArgs`; `postToolUse` adds `toolResult: {resultType,
+    textResultForLlm}`. No matcher field: a hook fires for every tool.
+  - `preToolUse` stdout `{"permissionDecision":"deny","permissionDecisionReason":…}`
+    blocks the call; `postToolUse` stdout `{"additionalContext":…}` (top level) is
+    appended to the tool result the model reads (the write-findings hook, D676).
+  - MCP tools are `<server_name>-<tool>` in hook payloads. `textResultForLlm` is the
+    response JSON followed, with no separator, by a second object
+    (`{"last_error":"","sync_state":"pending"}`).
+  - session transcripts: `~/.copilot/session-state/<session>/events.jsonl`; a skill
+    activation is `tool.execution_start` with `data.toolName: "skill"` and
+    `data.arguments.skill`.
+  - non-interactive: `copilot -p "<prompt>" -s`; tools need a grant
+    (`--allow-tool <server_name>`, `--allow-all-tools`), passed with `--client-flag`.
+- **Watch items**: project cells under folder trust (they would flip the three
+  unsupported project cells); whether `sessionStart` output reaches the model (the
+  bootstrap hook only needs its side effect); a matcher field.
+- **Probe notes**: `COPILOT_HOME=<scratch> copilot instruction list | skill list |
+  mcp list` show the cells without a model; hooks need `copilot -p … -s
+  --allow-all-tools`. Never point the probe at `$HOME/.copilot`.

@@ -39,7 +39,7 @@ func TestConnectFormModel_Prefill(t *testing.T) {
 func TestConnectFormModel_TabCyclesFocus(t *testing.T) {
 	m := newConnectFormModel("Connect claude", connectOptions{}, false)
 
-	order := []connectField{fieldAgentClaude, fieldAgentOpenCode, fieldAgentCodex, fieldAgentKiro, fieldAgentAntigravity, fieldAgentCrush, fieldTokenEnv, fieldAuth, fieldTrust, fieldSubmit, fieldServerURL}
+	order := []connectField{fieldAgentClaude, fieldAgentOpenCode, fieldAgentCodex, fieldAgentKiro, fieldAgentAntigravity, fieldAgentCrush, fieldAgentCopilot, fieldTokenEnv, fieldAuth, fieldTrust, fieldSubmit, fieldServerURL}
 	for i, want := range order {
 		tm, _ := m.Update(tea.KeyMsg{Type: tea.KeyTab})
 		m = tm.(connectFormModel)
@@ -283,5 +283,21 @@ func TestConnectFormModel_StandaloneQuitsOnSubmitAndCancel(t *testing.T) {
 	}
 	if _, ok := cmd2().(tea.QuitMsg); !ok {
 		t.Fatalf("expected tea.QuitMsg, got %T", cmd2())
+	}
+}
+
+// providerForField indexes formProviders by the field's offset: every agent
+// field must name the provider its row shows, or its toggle silently selects
+// nothing.
+func TestProviderForFieldCoversEveryAgentField(t *testing.T) {
+	want := map[connectField]string{
+		fieldAgentClaude: "claude", fieldAgentOpenCode: "opencode", fieldAgentCodex: "codex",
+		fieldAgentKiro: "kiro", fieldAgentAntigravity: "antigravity",
+		fieldAgentCrush: "crush", fieldAgentCopilot: "copilot",
+	}
+	for field, provider := range want {
+		if got, ok := providerForField(field); !ok || got != provider {
+			t.Errorf("providerForField(%d) = %q, %v; want %q", field, got, ok, provider)
+		}
 	}
 }

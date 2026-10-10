@@ -41,7 +41,8 @@ func writeFindingsMatcher() string {
 // means the default (stderr + exit 2, Claude Code). A new client is one more
 // entry here.
 var writeFindingsCommandArgs = map[configurator.Provider]string{
-	configurator.ProviderCodex: "--channel context",
+	configurator.ProviderCodex:   "--channel context",
+	configurator.ProviderCopilot: "--channel copilot",
 }
 
 func writeFindingsHookJSON(provider configurator.Provider) []byte {
@@ -49,9 +50,15 @@ func writeFindingsHookJSON(provider configurator.Provider) []byte {
 	if args := writeFindingsCommandArgs[provider]; args != "" {
 		command += " " + args
 	}
+	matcher := writeFindingsMatcher()
+	if provider == configurator.ProviderCopilot {
+		// Copilot has no matcher: the hook fires for every tool and the
+		// command filters on the tool name itself (D676).
+		matcher = ""
+	}
 	data, err := json.Marshal(hookSpec{
 		Event:   "PostToolUse",
-		Matcher: writeFindingsMatcher(),
+		Matcher: matcher,
 		Command: command,
 	})
 	if err != nil {
