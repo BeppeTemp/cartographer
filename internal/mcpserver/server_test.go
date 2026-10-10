@@ -6082,3 +6082,69 @@ func TestChangesSinceLastEditAt(t *testing.T) {
 		t.Errorf("a concept only auto-repair touched has no last_edit_at: %+v", upkept)
 	}
 }
+
+// A page moved away and back within the window (A→B, then B→A) made the
+// rename chain a cycle, and changes_since spun forever at 100% CPU (#695).
+func TestChangesSinceRenameBackAndForth(t *testing.T) {
+	k := setupTestKB(t)
+	if !gitx.IsRepo(k.Root) {
+		t.Skip("git not in PATH")
+	}
+	since := time.Now().UTC().Truncate(time.Second).Add(-time.Minute)
+	if err := gitx.Commit(k.Root, "test: fixture", "Fixture", "fixture@example.test"); err != nil {
+		t.Fatalf("commit fixture: %v", err)
+	}
+	a, b := filepath.Join(k.Root, "data", "one", "page.md"), filepath.Join(k.Root, "data", "two", "page.md")
+	for _, d := range []string{filepath.Dir(a), filepath.Dir(b)} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	content := "---\ntype: Note\ntitle: Page\n---\n# Page\n\nsame content so git sees a rename\n"
+	if err := os.WriteFile(a, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	mustCommit := func(msg string) {
+		t.Helper()
+		if err := gitx.Commit(k.Root, msg, "Alice", "alice@example.test"); err != nil {
+			t.Fatalf("commit %q: %v", msg, err)
+		}
+	}
+	mustCommit("concept_new: one/page")
+	if err := os.Rename(a, b); err != nil {
+		t.Fatal(err)
+	}
+	mustCommit("concept_move: one/page -> two/page")
+	if err := os.Rename(b, a); err != nil {
+		t.Fatal(err)
+	}
+	mustCommit("concept_move: two/page -> one/page")
+
+	done := make(chan changesSinceResult, 1)
+	go func() {
+		tr, err := toolChangesSince(k).Handler(authLocalContext(), json.RawMessage(fmt.Sprintf(`{"since":%q}`, since.Format(time.RFC3339))))
+		if err != nil || tr.IsError {
+			t.Errorf("changes_since: %+v %v", tr, err)
+			done <- changesSinceResult{}
+			return
+		}
+		var r changesSinceResult
+		_ = json.Unmarshal([]byte(tr.Content[0].Text), &r)
+		done <- r
+	}()
+	select {
+	case r := <-done:
+		found := false
+		for _, c := range r.Concepts {
+			if c.ID == "two/page" {
+				t.Errorf("two/page reported, but the page is back at one/page")
+			}
+			found = found || c.ID == "one/page"
+		}
+		if !found {
+			t.Errorf("one/page missing from %+v", r.Concepts)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("changes_since did not return: the rename chain loops")
+	}
+}
