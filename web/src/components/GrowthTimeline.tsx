@@ -11,6 +11,8 @@ interface Props {
   onSeek(shown: number): void;
   onTogglePlay(): void;
   onClose(): void;
+  /** Offered where the browser can encode video: opens the export dialog. */
+  onExport?(): void;
 }
 
 const DAY_MS = 86_400_000;
@@ -25,7 +27,7 @@ export const formatDay = (ms: number) =>
  * stands out. The track is a slider: drag or click it to move through the
  * KB's history, the arrows step through it, Space plays and pauses.
  */
-export function GrowthTimeline({ order, shown, playing, onSeek, onTogglePlay, onClose }: Props) {
+export function GrowthTimeline({ order, shown, playing, onSeek, onTogglePlay, onClose, onExport }: Props) {
   const trackRef = useRef<HTMLDivElement>(null);
   const { start, span, days, peak, times } = useMemo(() => {
     // Birth instants in replay order (non-decreasing; no history is last).
@@ -144,6 +146,17 @@ export function GrowthTimeline({ order, shown, playing, onSeek, onTogglePlay, on
           <span>{formatDay(end)}</span>
         </div>
       </div>
+      {onExport && (
+        <button
+          type="button"
+          className="button button--icon"
+          onClick={onExport}
+          aria-label="Export video"
+          title="Save the KB's growth as a video"
+        >
+          <Icon name="download" size={16} />
+        </button>
+      )}
       <button type="button" className="button button--icon" onClick={onClose} aria-label="Close the replay">
         <Icon name="close" size={16} />
       </button>

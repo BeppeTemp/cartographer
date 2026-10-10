@@ -514,14 +514,25 @@ be paused, dragged or stepped with the arrow keys, keeps every node in frame,
 hides the legend and the camera controls while it runs, and stays open at the
 end until closed.
 
-*Export video* records that replay as a clip to share (D677), entirely in the
-browser: 16:9 (1920×1080), 9:16 (1080×1920, the default) or 1:1 (1080×1080) at
-30 fps, as MP4 where the browser records it (Chrome and Edge from 126, Safari)
-and WebM where it does not (Firefox), which the dialog says. The clip carries
-the KB name, the date being replayed and the concept count, without node
-labels, and ends on a 2.5 s card with the Cartographer mark; the tab must stay
-visible while it records, since a hidden tab pauses both the replay and the
-recording.
+*Export video*, a button of the replay's control bar, renders that replay as a
+clip to share (D691, which replaces D677's recorder), entirely in the browser
+and in the background: the Atlas stays usable while it runs, a hidden tab does
+not slow it, and switching KB or Map does not end it. A small progress pill
+("Exporting video 42 %", Cancel) shows how far it is, and the file downloads
+when it is done. The frames are not captured from the screen: a second scene,
+in a detached container, is advanced by a virtual clock of exactly 1/60 s and
+drawn at twice the export size, then downsampled, so every frame is rendered
+and encoded at 60 fps, sharp on thin edges. Frames go through WebCodecs and
+the mediabunny muxer: H.264 High (level 4.2) in an MP4 where the browser
+encodes it (Chrome and Edge, Safari), else VP9 in a WebM (Firefox, Chromium
+builds without H.264), which the dialog says; no WebCodecs, no button. Sizes
+are 16:9 (1920×1080), 9:16 (1080×1920, the default) or 1:1 (1080×1080), at
+at most about 8 Mbit/s for 1080p (variable rate, a keyframe every 2 s), so a
+clip stays under some 25 MB and is far smaller on a small KB. The clip opens on a 1 s card with
+the Cartographer mark and the KB name (frame 0, so the thumbnail a messaging
+app shows is the logo, not a black frame), then the replay at its own pace
+(8 to 20 s) with the KB name, the date being replayed and the concept count
+(no node labels), 1.5 s on the full graph, and a 2.5 s end card.
 
 A selected concept is the orbit's pivot: dragging turns the graph around it,
 while it stays centred in the strip the panels leave visible, and everything

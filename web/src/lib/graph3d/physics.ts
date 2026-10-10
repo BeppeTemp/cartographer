@@ -209,3 +209,11 @@ export function boundingRadius(nodes: readonly SimNode[]): number {
   const d = placed.map((n) => Math.hypot(n.x! - cx, n.y! - cy, n.z! - cz)).sort((a, b) => a - b);
   return Math.max(LINK_DISTANCE * 2, d[Math.min(d.length - 1, Math.floor(d.length * 0.95))]!);
 }
+
+/** A start for a node new to a layout already on screen: a short, stable
+ *  offset from a neighbour, so it grows out of the graph rather than flying in
+ *  from the seed ball. */
+export function beside(anchor: { x?: number; y?: number; z?: number }, id: string): { x: number; y: number; z: number } {
+  const p = seedPosition(id, 1, 3);
+  return { x: (anchor.x ?? 0) + p.x * 0.5, y: (anchor.y ?? 0) + p.y * 0.5, z: (anchor.z ?? 0) + p.z * 0.5 };
+}

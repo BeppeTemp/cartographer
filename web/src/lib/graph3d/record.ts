@@ -1,9 +1,10 @@
 /**
- * The growth replay as a video (D677): the pure parts (which container, the
- * file name, where the text goes) and the recorder that composes each frame
- * -- the 3D canvas plus a drawn overlay -- into a 2D canvas and records that
- * canvas with MediaRecorder. Everything runs in the browser; the server is
- * not involved.
+ * The growth replay as a video (D691, superseding D677's recorder): the pure
+ * parts (which codec, the file name, where the text goes) and the encoder that
+ * composes each frame -- the offline 3D canvas plus a drawn overlay -- into a
+ * 2D canvas and encodes it with WebCodecs, 60 frames a second, into an MP4
+ * (H.264) or a WebM (VP9) muxed by mediabunny. Everything runs in the
+ * browser; the server is not involved.
  */
 
 export type Aspect = "16:9" | "9:16" | "1:1";
@@ -14,26 +15,59 @@ export const ASPECTS: Record<Aspect, { width: number; height: number; slug: stri
   "1:1": { width: 1080, height: 1080, slug: "1x1" },
 };
 
-export const RECORD_FPS = 30;
-/** Held on the full graph once the replay is over, then the end card. */
+export const FPS = 60;
+export const FRAME_MS = 1000 / FPS;
+/** The opening card (frame 0 is its first frame, so it is the thumbnail), the
+ *  hold on the full graph once the replay is over, and the end card. */
+export const OPENING_MS = 1000;
 export const HOLD_MS = 1500;
 export const END_CARD_MS = 2500;
+/** A keyframe every two seconds. */
+export const KEYFRAME_EVERY = 2 * FPS;
+/** How many frames may wait in the encoder before the renderer waits for it. */
+const MAX_QUEUE = 8;
 
-/** MP4 first (H.264 in branded Chrome and Edge from 126, and Safari), then
- *  WebM. Chromium builds without a proprietary codec -- Playwright's, Firefox
- *  -- accept only WebM, so the fallback is real, not theoretical. */
-const MIME_CANDIDATES: { mime: string; ext: "mp4" | "webm" }[] = [
-  { mime: "video/mp4;codecs=avc1.640028", ext: "mp4" },
-  { mime: "video/mp4;codecs=avc1", ext: "mp4" },
-  { mime: "video/mp4", ext: "mp4" },
-  { mime: "video/webm;codecs=vp9", ext: "webm" },
-  { mime: "video/webm", ext: "webm" },
-];
+export type Codec = "avc" | "vp9";
+export interface CodecChoice {
+  config: VideoEncoderConfig;
+  codec: Codec;
+  ext: "mp4" | "webm";
+}
 
-export function pickMimeType(isSupported: (mime: string) => boolean): { mime: string; ext: "mp4" | "webm" } {
-  // A browser that claims nothing still records its own default: the blob
-  // then carries whatever type the recorder reports.
-  return MIME_CANDIDATES.find((c) => isSupported(c.mime)) ?? { mime: "video/webm", ext: "webm" };
+/** 8 Mbit/s at 1920x1080, scaled by pixel count. */
+export const bitrateFor = (width: number, height: number) => Math.round((8_000_000 * width * height) / (1920 * 1080));
+
+/**
+ * H.264 High level 4.2 into an MP4 where the browser encodes it (branded
+ * Chrome and Edge, Safari), else VP9 into a WebM (Chromium builds without a
+ * proprietary codec -- Playwright's -- and Firefox), else null. Asks the
+ * browser per codec, which is why it is async.
+ */
+export async function pickCodec(
+  isConfigSupported: (config: VideoEncoderConfig) => Promise<{ supported?: boolean }>,
+  width = 1920,
+  height = 1080,
+): Promise<CodecChoice | null> {
+  const common = {
+    width,
+    height,
+    framerate: FPS,
+    bitrate: bitrateFor(width, height),
+    bitrateMode: "variable",
+    latencyMode: "quality",
+  } as const;
+  const candidates: CodecChoice[] = [
+    { codec: "avc", ext: "mp4", config: { ...common, codec: "avc1.64002A", avc: { format: "avc" } } },
+    { codec: "vp9", ext: "webm", config: { ...common, codec: "vp09.00.41.08" } },
+  ];
+  for (const c of candidates) {
+    try {
+      if ((await isConfigSupported(c.config)).supported) return c;
+    } catch {
+      /* a codec string this browser rejects outright is just unsupported */
+    }
+  }
+  return null;
 }
 
 export function exportFileName(kb: string, aspect: Aspect, ext: string): string {
@@ -74,67 +108,120 @@ export interface RecorderTheme {
   font: string;
 }
 
-export interface RecorderOptions {
+export interface EncoderOptions {
   width: number;
   height: number;
-  mime: string;
   theme: RecorderTheme;
-  /** The Cartographer mark for the end card, loaded before recording. */
+  /** The Cartographer mark for the cards, loaded before encoding. */
   mark?: CanvasImageSource | null;
 }
 
+/** What GrowthEncoder needs from the muxer (mediabunny, loaded on demand). */
+interface Muxer {
+  add(chunk: EncodedVideoChunk, meta?: EncodedVideoChunkMetadata): Promise<void>;
+  finish(): Promise<Blob>;
+  cancel(): Promise<void>;
+}
+
+async function createMuxer(choice: CodecChoice): Promise<Muxer> {
+  const mb = await import("mediabunny");
+  const target = new mb.BufferTarget();
+  const mp4 = choice.ext === "mp4";
+  const output = new mb.Output({ format: mp4 ? new mb.Mp4OutputFormat({ fastStart: "in-memory" }) : new mb.WebMOutputFormat(), target });
+  const source = new mb.EncodedVideoPacketSource(choice.codec);
+  output.addVideoTrack(source, { frameRate: FPS });
+  await output.start();
+  const type = mp4 ? "video/mp4" : "video/webm";
+  return {
+    add: (chunk, meta) => source.add(mb.EncodedPacket.fromEncodedChunk(chunk), meta),
+    async finish() {
+      await output.finalize();
+      return new Blob([target.buffer!], { type });
+    },
+    cancel: () => output.cancel(),
+  };
+}
+
+/** Lets the event loop run without a timer: timers are throttled to a crawl
+ *  in a hidden tab, a message is not. */
+const yieldTask = () =>
+  new Promise<void>((resolve) => {
+    const { port1, port2 } = new MessageChannel();
+    port1.onmessage = () => {
+      port1.close();
+      resolve();
+    };
+    port2.postMessage(null);
+    port2.close();
+  });
+
 /**
- * Composes and records. The caller feeds it a frame per render
- * (`drawFrame`) from the scene's frame listener -- the one moment the WebGL
- * canvas can be copied, since the renderer keeps no drawing buffer -- and ends
- * with `stop()`, which resolves the recording.
+ * Composes and encodes. Each `draw*` call composes one frame on a 2D canvas
+ * and encodes it with the next timestamp (frame n at n * 1e6 / 60 us), a
+ * keyframe every KEYFRAME_EVERY frames; frame 0 is the opening card. It waits
+ * for the encoder's queue to drain, so the renderer can run as fast as it can
+ * without outrunning memory. `finish()` resolves the file.
  */
-export class GrowthRecorder {
+export class GrowthEncoder {
   private readonly canvas: HTMLCanvasElement;
   private readonly ctx: CanvasRenderingContext2D;
-  private readonly recorder: MediaRecorder;
-  private readonly chunks: Blob[] = [];
-  private readonly done: Promise<Blob>;
+  private frames = 0;
+  private cancelled = false;
   private failure: Error | null = null;
-  /** Reports a recorder error that happens mid-recording. */
-  onError: ((err: Error) => void) | null = null;
+  private pending: Promise<void> = Promise.resolve();
 
-  constructor(private readonly opts: RecorderOptions) {
+  private constructor(
+    private readonly opts: EncoderOptions,
+    private readonly encoder: VideoEncoder,
+    private readonly muxer: Muxer,
+    readonly ext: "mp4" | "webm",
+  ) {
     this.canvas = document.createElement("canvas");
     this.canvas.width = opts.width;
     this.canvas.height = opts.height;
     const ctx = this.canvas.getContext("2d");
     if (!ctx) throw new Error("This browser cannot compose the video");
     this.ctx = ctx;
-    const stream = this.canvas.captureStream(RECORD_FPS);
-    this.recorder = new MediaRecorder(stream, {
-      mimeType: opts.mime,
-      videoBitsPerSecond: Math.round((8_000_000 * opts.width * opts.height) / (1920 * 1080)),
-    });
-    this.done = new Promise<Blob>((resolve, reject) => {
-      this.recorder.ondataavailable = (e) => {
-        if (e.data && e.data.size > 0) this.chunks.push(e.data);
-      };
-      this.recorder.onstop = () => {
-        if (this.failure) reject(this.failure);
-        else resolve(new Blob(this.chunks, { type: this.recorder.mimeType || opts.mime }));
-      };
-      this.recorder.onerror = (e) => {
-        this.failure = new Error((e as Event & { error?: Error }).error?.message ?? "The recorder failed");
-        this.onError?.(this.failure);
-      };
-    });
-    // A rejection nobody awaited (a cancel) is not an unhandled one.
-    this.done.catch(() => {});
-    this.recorder.start();
   }
 
-  /** Copies the 3D canvas, which must be the export's size, then the overlay. */
-  drawFrame(source: CanvasImageSource, overlay: Overlay): void {
+  /** Null where the browser can encode neither H.264 nor VP9. */
+  static async create(opts: EncoderOptions): Promise<GrowthEncoder | null> {
+    const choice = await pickCodec((c) => VideoEncoder.isConfigSupported(c), opts.width, opts.height);
+    if (!choice) return null;
+    const muxer = await createMuxer(choice);
+    let self: GrowthEncoder | null = null;
+    const encoder = new VideoEncoder({
+      output: (chunk, meta) => {
+        // The muxer is asynchronous; chunks are added in order.
+        const done = self!.pending.then(() => muxer.add(chunk, meta));
+        self!.pending = done.catch((err) => self!.fail(err));
+      },
+      error: (err) => self!.fail(err),
+    });
+    encoder.configure({ ...choice.config, width: opts.width, height: opts.height });
+    self = new GrowthEncoder(opts, encoder, muxer, choice.ext);
+    return self;
+  }
+
+  private fail(err: unknown): void {
+    this.failure ??= err instanceof Error ? err : new Error(String(err));
+  }
+
+  /** The opening card: the mark and the KB name. */
+  async drawOpening(kb: string): Promise<void> {
+    this.card(kb, null);
+    await this.push();
+  }
+
+  /** Copies the 3D canvas (any size: it is downsampled to the frame's), then
+   *  draws the overlay at the frame's own size, so the text stays crisp. */
+  async drawFrame(source: CanvasImageSource, overlay: Overlay): Promise<void> {
     const { width, height, theme } = this.opts;
     const ctx = this.ctx;
     ctx.fillStyle = theme.background;
     ctx.fillRect(0, 0, width, height);
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = "high";
     ctx.drawImage(source, 0, 0, width, height);
     const lay = overlayLayout(width, height);
     // A soft veil under the text, so it reads over a dense graph.
@@ -146,7 +233,6 @@ export class GrowthRecorder {
 
     ctx.textBaseline = "top";
     ctx.fillStyle = theme.text;
-    ctx.font = `600 ${lay.title}px ${theme.font}`;
     ctx.textAlign = "left";
     const count = countLabel(overlay.count);
     ctx.font = `500 ${lay.small}px ${theme.font}`;
@@ -161,10 +247,16 @@ export class GrowthRecorder {
     ctx.textAlign = "right";
     ctx.fillStyle = theme.text;
     ctx.fillText(count, width - lay.margin, lay.margin + (lay.title - lay.small) / 2);
+    await this.push();
   }
 
   /** The closing card: the mark, the KB name and the final count. */
-  drawEndCard(kb: string, count: number): void {
+  async drawEndCard(kb: string, count: number): Promise<void> {
+    this.card(kb, count);
+    await this.push();
+  }
+
+  private card(kb: string, count: number | null): void {
     const { width, height, theme, mark } = this.opts;
     const ctx = this.ctx;
     const lay = overlayLayout(width, height);
@@ -178,28 +270,55 @@ export class GrowthRecorder {
     ctx.fillStyle = theme.text;
     ctx.font = `600 ${Math.round(lay.title * 1.4)}px ${theme.font}`;
     ctx.fillText(fit(ctx, kb, width - lay.margin * 2), width / 2, cy + markSize * 0.2);
+    if (count === null) return;
     ctx.fillStyle = theme.muted;
     ctx.font = `500 ${Math.round(lay.small * 1.3)}px ${theme.font}`;
     ctx.fillText(countLabel(count), width / 2, cy + markSize * 0.2 + lay.title * 2);
   }
 
-  pause(): void {
-    if (this.recorder.state === "recording") this.recorder.pause();
+  /** Encodes what is on the canvas as the next frame, then waits for room. */
+  private async push(): Promise<void> {
+    if (this.cancelled) return;
+    if (this.failure) throw this.failure;
+    const n = this.frames++;
+    const frame = new VideoFrame(this.canvas, {
+      timestamp: Math.round((n * 1e6) / FPS),
+      duration: Math.round(1e6 / FPS),
+    });
+    try {
+      this.encoder.encode(frame, { keyFrame: n % KEYFRAME_EVERY === 0 });
+    } finally {
+      frame.close();
+    }
+    // Backpressure by events and messages, never setTimeout: a hidden tab
+    // throttles timers (to once a second or worse) but not these.
+    while (!this.cancelled && this.encoder.encodeQueueSize >= MAX_QUEUE) {
+      await new Promise<void>((resolve) => this.encoder.addEventListener("dequeue", () => resolve(), { once: true }));
+    }
+    await yieldTask();
+    if (this.failure) throw this.failure;
   }
 
-  resume(): void {
-    if (this.recorder.state === "paused") this.recorder.resume();
+  /** Flushes the encoder and resolves the finished file. */
+  async finish(): Promise<Blob> {
+    if (this.cancelled) throw new Error("cancelled");
+    await this.encoder.flush();
+    this.encoder.close();
+    await this.pending;
+    if (this.failure) throw this.failure;
+    return this.muxer.finish();
   }
 
-  stop(): Promise<Blob> {
-    if (this.recorder.state !== "inactive") this.recorder.stop();
-    return this.done;
-  }
-
-  /** Abandons the recording: nothing is kept. */
+  /** Abandons the video: nothing more is encoded and nothing is kept. */
   cancel(): void {
-    this.failure = new Error("cancelled");
-    if (this.recorder.state !== "inactive") this.recorder.stop();
+    if (this.cancelled) return;
+    this.cancelled = true;
+    try {
+      if (this.encoder.state !== "closed") this.encoder.close();
+    } catch {
+      /* already closed */
+    }
+    void this.muxer.cancel().catch(() => {});
   }
 }
 
@@ -228,7 +347,7 @@ export function isDark(colour: string): boolean {
   return (0.2126 * (n >> 16) + 0.7152 * ((n >> 8) & 255) + 0.0722 * (n & 255)) / 255 < 0.5;
 }
 
-/** Loads the brand mark for the end card; null if it cannot be had (the card
+/** Loads the brand mark for the cards; null if it cannot be had (the card
  *  then goes without it rather than failing the export). */
 export function loadMark(url: string): Promise<HTMLImageElement | null> {
   return new Promise((resolve) => {
@@ -239,7 +358,7 @@ export function loadMark(url: string): Promise<HTMLImageElement | null> {
   });
 }
 
-/** Hands the recording to the browser's download, then frees the URL. */
+/** Hands the video to the browser's download, then frees the URL. */
 export function downloadBlob(blob: Blob, name: string): void {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");

@@ -287,10 +287,14 @@ toolchain (D227). What they hold:
 - the graph's appearance functions never emit a node or edge type stock Sigma
   has no program for (an unknown type throws inside the renderer and blanks the
   page);
-- the growth replay's video export (D677): the scene's capture mode restores
-  the view exactly and fits to the export's frame, the recorder picks MP4 or
-  WebM and composes the overlay, and a cancelled or failed export leaves the
-  view as it was (`capture.test.ts`, `export.test.tsx`, `record.test.ts`);
+- the growth replay's video export (D691): an offscreen scene has no frame
+  loop, observer or input and runs on the virtual clock it is given, the
+  encoder picks H.264/MP4 or VP9/WebM, stamps frame n at n/60 s with a keyframe
+  every 120, opens on the logo card and encodes nothing once cancelled, and the
+  export runs in the background on its own scene (the button is in the replay's
+  bar, a second export is refused, cancel, error and unmount dispose the offline
+  scene, switching KB does not cancel it) (`offscreen.test.ts`, `record.test.ts`,
+  `export.test.tsx`);
 - the shell boots, and degrades to a named state rather than a blank page on a
   401, an unreachable server or an empty KB;
 - the atlas starts graph-only — rail folded, no inspector until a selection —
@@ -463,7 +467,13 @@ What it holds, beyond the component tests:
   and inspector still work; the Motion toggle is remembered and reduced motion
   starts it paused; a selection names the selected node and each neighbour
   once; a hidden tab stops the render loop; `touch-action: none` is on the
-  canvas only;
+  canvas only; the growth video export (D691) produces a download with the
+  page hidden halfway through, and the downloaded file is decoded in a blank
+  page: 1080x1080, a duration of 13 s (a 1 s opening card, the 8 s replay of a
+  small KB, a 1.5 s hold, a 2.5 s end card), frame 0 showing the logo rather
+  than a dark frame, a mid-replay frame with the graph drawn, and presentation
+  times 1/60 s apart (the regression test for the black videos; MP4 where the
+  browser encodes H.264, WebM otherwise);
 - the README's hero tour (`hero.spec.ts`, D330): graph, search, a concept's
   links, colour by Map, a skill in the Artifacts panel, Health — so a
   step the recorded animation shows and the UI no longer offers fails here;

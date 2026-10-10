@@ -3,9 +3,9 @@ import type { GraphSnapshot } from "../api/types";
 import { communitySlot, type Communities } from "../lib/communities";
 import { fade } from "../lib/encoding";
 import type { Pose } from "../lib/graph3d/camera";
-import { growthOrder, growthPace, type GrowthStep } from "../lib/graph3d/growth";
+import { GROWTH_MIN_ZOOM, growthOrder, growthPace, type GrowthStep } from "../lib/graph3d/growth";
 import { planBursts } from "../lib/graph3d/motion";
-import { seedPosition } from "../lib/graph3d/physics";
+import { beside, seedPosition } from "../lib/graph3d/physics";
 import type { LivingScene, SceneLink, SceneNode } from "../lib/graph3d/scene";
 import { collectionHue, cssVar, resolveSlots, type ColorBy } from "../lib/palette";
 import { nameOf, shortNameOf } from "../lib/names";
@@ -44,11 +44,6 @@ const ARTIFACT_PREFIX = "artifact:";
 /** The band kept clear for the replay's timeline before it has a measured
  *  height: its usual height plus the gap above it. */
 const GROWTH_BAND_PX = 75;
-/** The closest the replay's camera comes, as a share of the whole graph's
- *  fit: low enough to follow a KB as it grows, high enough that a handful of
- *  first concepts is not blown up. */
-const GROWTH_MIN_ZOOM = 0.6;
-
 
 interface Props {
   snapshot: GraphSnapshot;
@@ -166,6 +161,8 @@ function View({
   const [drawn, setDrawn] = useState(false);
   const snapshot = snap;
 
+  const reducedMotion = useMemo(() => prefersReducedMotion(), []);
+
   // The growth replay: the concepts in birth order and how many are out. A
   // concept not yet born is hidden like a filtered one, so every effect below
   // draws the replay without knowing about it.
@@ -181,22 +178,36 @@ function View({
     return hidden;
   }, [filtered, growth]);
   const exp = useGrowthExport({
-    sceneRef,
     loadBirths,
     nodes: snapshot.nodes,
     edges: snapshot.edges,
     kbName,
-    growth,
-    setGrowth,
-    layoutKey,
-    // The fit of the whole graph at the export's frame, taken before the
-    // replay hides it (the fit depends on the frame's aspect).
-    setFloor: (scene) => {
-      growthFloor.current = scene.fitDistance(0) * GROWTH_MIN_ZOOM;
+    live: live && !reducedMotion,
+    // What the video starts from, read when the export begins: the layout on
+    // screen and the colours the graph wears now.
+    layout: () => {
+      const slots = resolveSlots();
+      const positions = new Map<string, { x: number; y: number; z: number }>();
+      const weights = new Map<string, number>();
+      for (const [id, n] of nodes) {
+        positions.set(id, { x: n.x ?? 0, y: n.y ?? 0, z: n.z ?? 0 });
+        weights.set(id, n.weight);
+      }
+      return {
+        positions,
+        weights,
+        colourOf: (id) =>
+          slots[colorBy === "community" ? communitySlot(communities, id) : collectionHue(byId.get(id)?.collection ?? "")]!,
+        palette: {
+          background: cssVar("--surface-0"),
+          edge: cssVar("--graph-edge-3d"),
+          edgeActive: cssVar("--graph-edge-3d-active"),
+          signal: cssVar("--graph-signal"),
+          ring: cssVar("--graph-ring"),
+        },
+      };
     },
   });
-  const exportingRef = useRef(false);
-  exportingRef.current = exp.recording !== null;
   const startGrowth = () => {
     if (growth) return setGrowth(null);
     growthFloor.current = (sceneRef.current?.fitDistance(GROWTH_BAND_PX) ?? 0) * GROWTH_MIN_ZOOM;
@@ -236,8 +247,7 @@ function View({
     if (!growthFrame) return;
     const fit = () => {
       const band = containerRef.current?.parentElement?.querySelector<HTMLElement>(".growth-timeline");
-      // The export has no timeline: its overlay is drawn in the frame itself.
-      const reserve = exportingRef.current ? 0 : band ? band.offsetHeight + 24 : GROWTH_BAND_PX;
+      const reserve = band ? band.offsetHeight + 24 : GROWTH_BAND_PX;
       sceneRef.current?.fitEverything(reserve, 900, growthFloor.current);
     };
     fit();
@@ -271,7 +281,6 @@ function View({
   // never re-runs the move, which would restart the camera on every update.
   const focusedId = useRef<string | null>(null);
 
-  const reducedMotion = useMemo(() => prefersReducedMotion(), []);
   const savedPose = useRef<Pose | null>(null);
 
   // Names by id: the canvas labels a concept by its title where it has one.
@@ -618,17 +627,6 @@ function View({
             <Icon name="grow" size={16} />
           </button>
         )}
-        {exp.supported && (
-          <button
-            type="button"
-            className="button button--icon"
-            onClick={exp.openDialog}
-            aria-label="Export video"
-            title="Save the KB's growth as a video"
-          >
-            <Icon name="download" size={16} />
-          </button>
-        )}
         {onToggleLive && (
           <>
             <span className="graph__controls-sep" aria-hidden="true" />
@@ -647,18 +645,20 @@ function View({
       </div>
       {children}
       {exp.dialog && (
-        <ExportDialog webm={exp.webm} onRecord={(aspect) => void exp.start(aspect)} onClose={exp.closeDialog} />
+        <ExportDialog webm={exp.webm} onExport={(aspect) => void exp.start(aspect)} onClose={exp.closeDialog} />
       )}
-      {exp.recording && (
+      {exp.status && (
         <div className="growth-export" role="status">
           <span>
-            {exp.recording.paused
-              ? "Paused: keep this tab visible to record"
-              : `Recording ${exp.recording.aspect} \u2014 ${exp.recording.seconds} s`}
+            {exp.status.done
+              ? `Video saved (${exp.status.aspect})`
+              : `Exporting video ${Math.floor(exp.status.progress * 100)} %`}
           </span>
-          <button type="button" className="button" onClick={exp.cancel}>
-            Cancel
-          </button>
+          {!exp.status.done && (
+            <button type="button" className="button" onClick={exp.cancel}>
+              Cancel
+            </button>
+          )}
         </div>
       )}
       {exp.error && (
@@ -672,7 +672,7 @@ function View({
           </button>
         </div>
       )}
-      {growth && !exp.recording && (
+      {growth && (
         <GrowthTimeline
           order={growth.order}
           shown={growth.shown}
@@ -680,6 +680,7 @@ function View({
           onSeek={seekGrowth}
           onTogglePlay={togglePlay}
           onClose={() => setGrowth(null)}
+          onExport={exp.supported ? exp.openDialog : undefined}
         />
       )}
       {snapshot.truncated && (
@@ -697,9 +698,9 @@ function View({
   );
 }
 
-/** The choice made before recording: the frame, and what this browser will
- *  record. */
-function ExportDialog({ webm, onRecord, onClose }: { webm: boolean; onRecord(aspect: Aspect): void; onClose(): void }) {
+/** The choice made before exporting: the frame, and what this browser will
+ *  encode. */
+function ExportDialog({ webm, onExport, onClose }: { webm: boolean; onExport(aspect: Aspect): void; onClose(): void }) {
   const [aspect, setAspect] = useState<Aspect>("9:16");
   const first = useRef<HTMLInputElement | null>(null);
   useEffect(() => first.current?.focus(), []);
@@ -723,27 +724,18 @@ function ExportDialog({ webm, onRecord, onClose }: { webm: boolean; onRecord(asp
             </label>
           ))}
         </fieldset>
-        {webm && <p className="export-dialog__note">This browser records WebM; Chrome, Edge or Safari record MP4.</p>}
-        <p className="export-dialog__note">Keep this tab visible while it records.</p>
+        {webm && <p className="export-dialog__note">This browser encodes WebM; Chrome, Edge or Safari encode MP4.</p>}
         <div className="export-dialog__actions">
           <button type="button" className="button" onClick={onClose}>
             Cancel
           </button>
-          <button type="button" className="button button--primary" onClick={() => onRecord(aspect)}>
-            Record
+          <button type="button" className="button button--primary" onClick={() => onExport(aspect)}>
+            Export
           </button>
         </div>
       </div>
     </div>
   );
-}
-
-/** A start for a node new to a layout already on screen: a short, stable
- *  offset from a neighbour, so it grows out of the graph rather than flying in
- *  from the seed ball. */
-function beside(anchor: SceneNode, id: string): { x: number; y: number; z: number } {
-  const p = seedPosition(id, 1, 3);
-  return { x: (anchor.x ?? 0) + p.x * 0.5, y: (anchor.y ?? 0) + p.y * 0.5, z: (anchor.z ?? 0) + p.z * 0.5 };
 }
 
 /** Names `named` on the label layer, following them every frame; returns the

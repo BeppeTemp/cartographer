@@ -8,9 +8,12 @@
 export const sceneStub = {
   fail: false,
   created: 0,
-  calls: { focus: [] as string[], unfocus: 0, colours: [] as string[][], capture: [] as string[] },
+  calls: { focus: [] as string[], unfocus: 0, colours: [] as string[][] },
+  /** The offline scenes the video export made (D691), and what became of them. */
+  offline: { created: 0, frames: [] as number[], disposed: 0, seeded: 0 },
   reset() {
-    this.calls = { focus: [], unfocus: 0, colours: [], capture: [] };
+    this.calls = { focus: [], unfocus: 0, colours: [] };
+    this.offline = { created: 0, frames: [], disposed: 0, seeded: 0 };
   },
 };
 
@@ -19,9 +22,18 @@ export class LivingScene {
   readonly canvas = document.createElement("canvas");
   private nodes: { id: string }[] = [];
   private links: { source: string; target: string }[] = [];
-  constructor() {
+  private readonly offscreen: boolean;
+  constructor(_container?: unknown, _callbacks?: unknown, options?: { offscreen?: unknown }) {
     if (sceneStub.fail) throw new Error("stub: no WebGL");
     sceneStub.created++;
+    this.offscreen = !!options?.offscreen;
+    if (this.offscreen) sceneStub.offline.created++;
+  }
+  renderFrame(ms: number): void {
+    sceneStub.offline.frames.push(ms);
+  }
+  seedPositions(): void {
+    sceneStub.offline.seeded++;
   }
   setData(nodes: { id: string }[], links: { source: string; target: string }[] = []): void {
     this.nodes = nodes;
@@ -47,12 +59,6 @@ export class LivingScene {
   fitDistance(): number {
     return 100;
   }
-  beginCapture(width: number, height: number): void {
-    sceneStub.calls.capture.push(`begin ${width}x${height}`);
-  }
-  endCapture(): void {
-    sceneStub.calls.capture.push("end");
-  }
   zoomBy(): void {}
   linksOf(): never[] {
     return [];
@@ -72,5 +78,7 @@ export class LivingScene {
   radiusOf() {
     return 1;
   }
-  dispose(): void {}
+  dispose(): void {
+    if (this.offscreen) sceneStub.offline.disposed++;
+  }
 }

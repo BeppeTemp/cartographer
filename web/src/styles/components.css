@@ -2669,9 +2669,9 @@ body.is-resizing {
 .growth-export {
   position: absolute;
   z-index: 2;
-  inset-block-end: var(--space-4);
+  inset-block-start: var(--space-4);
   inset-inline: var(--space-4);
-  max-width: 480px;
+  max-width: 320px;
   margin-inline: auto;
   padding: var(--space-1) var(--space-2);
   display: flex;

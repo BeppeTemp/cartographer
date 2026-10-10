@@ -65,3 +65,8 @@ export function growthPace(steps: number): { tickMs: number; perTick: number } {
   const tickMs = Math.max(GROWTH_TICK_MIN_MS, total / Math.max(1, steps));
   return { tickMs, perTick: Math.max(1, Math.round((steps * tickMs) / total)) };
 }
+
+/** The closest the replay's camera comes, as a share of the whole graph's
+ *  fit: low enough to follow a KB as it grows, high enough that a handful of
+ *  first concepts is not blown up. */
+export const GROWTH_MIN_ZOOM = 0.6;
