@@ -665,7 +665,10 @@ cartographer service sync-timer status   # exit: 0 active, 3 installed but inact
 | Windows | `%LOCALAPPDATA%\cartographer\tasks\sync.xml` → Scheduled Task `\Cartographer\Sync` | `%LOCALAPPDATA%\cartographer\Logs\sync.log` (via `sync --log-file`) |
 
 `install` is idempotent (it overwrites and re-registers); uninstalling a timer that is not
-installed is a success. The timer runs `cartographer sync` **without** `--auto-trust`: an
+installed is a success. The per-user scheduler belongs to the account, not to `$HOME`: when
+`$HOME` is not the account's home directory (a sandboxed run, the e2e suite), the server service,
+the sync timer and the doctor timer write their unit files under `$HOME` and register nothing,
+so a sandbox never replaces the account's own jobs (#683). The timer runs `cartographer sync` **without** `--auto-trust`: an
 unattended job must not grant a trust the user never gave, while the persisted `trust` setting
 still applies. `setup` and `connect` install the timer themselves when a connected provider has no
 session hook, or one limited to some sessions (D325); `setup` lists it in its plan. `uninstall` is
