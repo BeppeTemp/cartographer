@@ -1,0 +1,4 @@
+interface:
+  display_name: "Live Development Session"
+  short_description: "Iterate on a running instance with the user, land one PR"
+  default_prompt: "Use $live-dev to work on this change live, on a running instance."

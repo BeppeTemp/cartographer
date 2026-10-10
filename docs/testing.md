@@ -269,8 +269,9 @@ GoReleaser environment, which is out of the deterministic gate (see below).
 
 ### Frontend (`make web-test`, `make web-check`)
 
-To work on the UI live, run a server (`cartographer serve --http :39273 --kb …`)
-and `cd web && npm run dev`: Vite serves the UI with hot reload on
+To work on the UI live, `make dev` from a worktree runs both halves and rebuilds
+the server on every Go change (`CONTRIBUTING.md` §Live sessions). By hand: run a
+server (`cartographer serve --http :39273 --kb …`) and `cd web && npm run dev`: Vite serves the UI with hot reload on
 `http://localhost:5173/ui/` and proxies `/api` and `/health` (the version beside the theme switch) to the server
 (`CARTOGRAPHER_DEV_API` for another address); the Atlas follows the KB live
 (D337). Keep no local file under `web/`: every file there enters the bundle's
