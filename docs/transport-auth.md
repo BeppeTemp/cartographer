@@ -403,7 +403,11 @@ startup. The committer stays the KB's identity (`kbs[].committer_*`, then
 without an identity commits as the KB, exactly as before. The identity is
 attribution, not a signature: whoever holds the token can write under that
 name. The flat `CARTOGRAPHER_TOKENS` form cannot carry one; declare such
-tokens in the YAML `auth.tokens` list.
+tokens in the YAML `auth.tokens` list. A `token:` written as exactly
+`${NAME}` is read from the environment, so the file never holds the secret; an
+unset or empty variable refuses startup (#680). `CARTOGRAPHER_TOKENS`, when
+set, replaces the whole YAML list, so a deployment moving to YAML tokens drops
+that variable.
 
 ## Operational audit
 
