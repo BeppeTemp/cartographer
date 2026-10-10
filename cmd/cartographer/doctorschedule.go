@@ -1,9 +1,9 @@
 package main
 
-// `cartographer doctor schedule|unschedule|status|run` (D369): an opt-in daily
-// headless agent session that runs the kb-doctor skill, so a KB nobody opens an
-// agent on still converges. Nothing here runs by itself: connect, setup and sync
-// never install it, and the server (which has no model, D14) only learns that
+// `cartographer doctor schedule|unschedule|status|run` (D369): a daily headless
+// agent session that runs the kb-doctor skill, so a KB nobody opens an agent on
+// still converges. connect and setup install it by default when eligible (D690),
+// sync never does, an explicit unschedule is remembered, and the server (which has no model, D14) only learns that
 // it exists through the declaration this file posts.
 //
 // The scheduler job is `cartographer doctor run ...`, not the client: the
@@ -159,8 +159,7 @@ func doctorScheduleInstall(args []string) int {
 	fs.Var(&extra, "client-flag", "Extra argument passed to the client before the prompt (repeatable), e.g. a permission flag the client needs unattended")
 	fs.Parse(args)
 
-	hour, minute, err := parseAt(*at)
-	if err != nil {
+	if _, _, err := parseAt(*at); err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		return exitStatusError
 	}
@@ -183,8 +182,7 @@ func doctorScheduleInstall(args []string) int {
 		}
 		name = capable[0]
 	}
-	hc, ok := headlessClients[name]
-	if !ok {
+	if _, ok := headlessClients[name]; !ok {
 		fmt.Fprintf(os.Stderr, "Error: client %q has no documented headless mode (want %s)\n", name, headlessClientNames())
 		return exitStatusError
 	}
@@ -196,26 +194,38 @@ func doctorScheduleInstall(args []string) int {
 		}
 		kbn = cfg.KnownKBs[0]
 	}
+	if err := installDoctorTimer(cfg, name, kbn, *at, extra); err != nil {
+		fmt.Fprintln(os.Stderr, "Error:", err)
+		return exitStatusError
+	}
+	setDoctorTimerOptOut(false)
+	return 0
+}
+
+// installDoctorTimer is the one place the scheduled job is built, shared by
+// `doctor schedule` and the connect-time default (D690): the job arguments, the
+// log path and the server declaration are written once.
+func installDoctorTimer(cfg *clientconfig.Config, name, kbn, at string, extra []string) error {
+	hour, minute, err := parseAt(at)
+	if err != nil {
+		return err
+	}
+	hc, ok := headlessClients[name]
+	if !ok {
+		return fmt.Errorf("client %q has no documented headless mode (want %s)", name, headlessClientNames())
+	}
 	if !kbNameRe.MatchString(kbn) {
-		fmt.Fprintf(os.Stderr, "Error: invalid KB name %q\n", kbn)
-		return exitStatusError
+		return fmt.Errorf("invalid KB name %q", kbn)
 	}
-	var binPath string
-	for _, b := range hc.bins {
-		if p, err := doctorLookPathFn(b); err == nil {
-			binPath = p
-			break
-		}
-	}
+	binPath := lookupClientBin(hc)
 	if binPath == "" {
-		fmt.Fprintf(os.Stderr, "Error: %s not found on PATH (looked for %s)\n", name, strings.Join(hc.bins, ", "))
-		return exitStatusError
+		return fmt.Errorf("%s not found on PATH (looked for %s)", name, strings.Join(hc.bins, ", "))
 	}
 	if abs, err := filepath.Abs(binPath); err == nil {
 		binPath = abs
 	}
 
-	jobArgs := []string{"doctor", "run", "--kb", kbn, "--client", name, "--client-bin", binPath, "--at", *at}
+	jobArgs := []string{"doctor", "run", "--kb", kbn, "--client", name, "--client-bin", binPath, "--at", at}
 	for _, e := range extra {
 		jobArgs = append(jobArgs, "--client-flag", e)
 	}
@@ -223,8 +233,7 @@ func doctorScheduleInstall(args []string) int {
 		jobArgs = append(jobArgs, "--log-file", lp)
 	}
 	if err := doctorTimerInstallFn(jobArgs, hour, minute, filepath.Dir(binPath)); err != nil {
-		fmt.Fprintln(os.Stderr, "Error:", err)
-		return exitStatusError
+		return err
 	}
 	next := nextOccurrence(doctorNowFn(), hour, minute)
 	fmt.Printf("scheduled: %s runs the kb-doctor skill on %q daily at %02d:%02d (next %s)\n", name, kbn, hour, minute, next.Format("2006-01-02 15:04 MST"))
@@ -232,7 +241,122 @@ func doctorScheduleInstall(args []string) int {
 	if err := doctorDeclareFn(cfg, kbn, name, next); err != nil {
 		fmt.Printf("warning: the server was not told (%v); the first run will declare it\n", err)
 	}
-	return 0
+	return nil
+}
+
+func lookupClientBin(hc headlessClient) string {
+	for _, b := range hc.bins {
+		if p, err := doctorLookPathFn(b); err == nil {
+			return p
+		}
+	}
+	return ""
+}
+
+// defaultDoctorGrant is the narrowest permission that lets an unattended run
+// use the KB: the Cartographer MCP server's tools only (D690). Only clients
+// with a documented per-server flag have one; none gets a permission-bypassing
+// flag.
+func defaultDoctorGrant(client, serverName string) []string {
+	if serverName == "" {
+		serverName = "cartographer"
+	}
+	switch client {
+	case string(configurator.ProviderClaudeCode):
+		return []string{"--allowedTools", "mcp__" + serverName + "__*"}
+	case string(configurator.ProviderCopilot):
+		return []string{"--allow-tool", serverName}
+	}
+	return nil
+}
+
+const doctorScheduleHint = "the scheduled doctor is not installed — set it up with `cartographer doctor schedule`"
+
+// ensureDoctorTimer installs the scheduled headless doctor when connect has
+// just configured an eligible client (D690, reversing D369's opt-in): the timer
+// is missing, no opt-out is recorded, the machine knows exactly one KB (one
+// machine holds one doctor job) and a connected client has a default grant.
+// Otherwise it installs nothing and, when the operator could still act on it,
+// prints one hint. A config that cannot be read counts as opted out, like
+// ensureSyncTimer: a corrupt file must never be why a background job appears.
+func ensureDoctorTimer(dir string, providers []string, dryRun bool) {
+	if st, err := doctorTimerStatusFn(); err == nil && st.Installed {
+		return
+	}
+	cfg, err := clientconfig.Load(dir)
+	if err != nil {
+		if !errors.Is(err, os.ErrNotExist) {
+			fmt.Printf("note: the client config cannot be read (%v) — not installing the scheduled doctor\n", err)
+		}
+		return
+	}
+	if cfg.DoctorTimerOptOut {
+		return
+	}
+	connected := map[string]bool{}
+	capable := false
+	for _, p := range providers {
+		connected[p] = true
+		if _, ok := headlessClients[p]; ok {
+			capable = true
+		}
+	}
+	if len(cfg.KnownKBs) != 1 {
+		if capable && len(cfg.KnownKBs) > 1 {
+			fmt.Printf("%s (this machine knows %d KBs and runs one doctor job: pick with --kb)\n", doctorScheduleHint, len(cfg.KnownKBs))
+		}
+		return
+	}
+	kbn := cfg.KnownKBs[0]
+	var name string
+	var grant []string
+	for _, d := range configurator.DetectionOrder() {
+		p := string(d.Provider)
+		if !connected[p] {
+			continue
+		}
+		if g := defaultDoctorGrant(p, cfg.ServerName); g != nil && lookupClientBin(headlessClients[p]) != "" {
+			name, grant = p, g
+			break
+		}
+	}
+	if name == "" {
+		if capable {
+			fmt.Printf("%s (no connected client with a default grant on PATH: claude, copilot)\n", doctorScheduleHint)
+		}
+		return
+	}
+	if dryRun {
+		fmt.Printf("[dry-run] would schedule the headless doctor: %s on %q daily at %s\n", name, kbn, defaultDoctorAt)
+		return
+	}
+	fmt.Printf("scheduling the headless doctor: %s on %q daily at %s, granted only %s; undo it with `cartographer doctor unschedule`\n",
+		name, kbn, defaultDoctorAt, strings.Join(grant[1:], " "))
+	if err := installDoctorTimer(cfg, name, kbn, defaultDoctorAt, grant); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: scheduled doctor install failed: %v; install it manually with `cartographer doctor schedule`\n", err)
+	}
+}
+
+// setDoctorTimerOptOut persists the operator's choice about the doctor timer
+// (D690), mirroring setSyncTimerOptOut: best effort, a missing config is
+// created only to record an opt-out.
+func setDoctorTimerOptOut(optOut bool) bool {
+	dir, err := clientconfig.TargetDir()
+	if err != nil {
+		return false
+	}
+	cfg, err := clientconfig.Load(dir)
+	if err != nil {
+		if !errors.Is(err, os.ErrNotExist) || !optOut {
+			return false
+		}
+		cfg = clientconfig.Default()
+	}
+	if cfg.DoctorTimerOptOut == optOut {
+		return optOut
+	}
+	cfg.DoctorTimerOptOut = optOut
+	return clientconfig.Save(dir, cfg) == nil && optOut
 }
 
 var tagRe = regexp.MustCompile(`<[^>]*>`)
@@ -264,6 +388,9 @@ func doctorScheduleRemove(args []string) int {
 		return exitStatusError
 	}
 	fmt.Println("scheduled doctor removed")
+	if setDoctorTimerOptOut(true) {
+		fmt.Println("opt-out remembered: connect will not reinstall it (reset with `cartographer doctor schedule`)")
+	}
 	if kbn != "" {
 		if cfg, err := loadClientConfig(); err == nil {
 			if err := doctorWithdrawFn(cfg, kbn); err != nil {

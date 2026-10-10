@@ -183,7 +183,8 @@ server is unreachable, the MCP configs and `.cartographer.yaml` are still writte
 is **deferred** (warning, exit 0) — it must be completed with `cartographer sync` once the
 server is up. Materialized hooks are also **automatically registered** in the
 provider's native mechanism (`settings.json` / `config.toml` / JS plugin — `sync.md` §Agents and
-hooks); `connect`/`sync` print an info line for each one.
+hooks); `connect`/`sync` print an info line for each one. When eligible, `connect` also schedules
+the headless doctor by default (D690, §Scheduled headless sessions).
 
 **Multi-KB servers (D92).** `connect` reads `GET /health` before emitting MCP
 configuration. With one mounted KB (or an older single-KB server that omits
@@ -549,8 +550,20 @@ noise and a doctor that silently fixes things is a doctor nobody can predict.
 
 The same command family also installs the one scheduled job Cartographer offers for the
 `kb-doctor` skill: a daily headless agent session, for a KB nobody opens an agent on
-(`docs/loop.md` §A KB no agent session ever touches). It is **opt-in only**: `connect`, `setup`
-and `sync` never install it, and it spends the chosen client's model quota unattended.
+(`docs/loop.md` §A KB no agent session ever touches). `connect` and `setup` install it **by
+default** when eligible (D690); `sync` never does. It spends the chosen client's model quota
+unattended.
+
+Eligible means: the timer is not installed, no opt-out is recorded, the machine knows exactly one
+KB (one machine holds one doctor job), and a client just connected has a default grant. The client
+is the first eligible one in detection order, at `06:00`, with only the Cartographer server's tools
+granted: Claude Code `--allowedTools mcp__<server_name>__*`, Copilot CLI `--allow-tool <server_name>`.
+No client gets a permission-bypassing flag; codex, opencode, kiro, antigravity and crush keep the
+explicit `--client-flag` path. When not eligible (several KBs, no client with a grant on `PATH`)
+`connect` prints one hint naming `doctor schedule` and installs nothing; `connect --dry-run` prints
+`[dry-run] would schedule …`. `doctor unschedule` records `doctor_timer_opt_out: true` in
+`.cartographer.yaml` and `connect` then leaves it alone; `doctor schedule` clears it. A config that
+cannot be read counts as opted out.
 
 ```bash
 cartographer doctor schedule [--client claude] [--kb kb-a] [--at 06:00] [--client-flag <arg>]...

@@ -232,16 +232,113 @@ func TestNextOccurrence(t *testing.T) {
 	}
 }
 
-// Scheduling is opt-in: the headless table is the only place a client is named,
-// and no other command installs the timer.
-func TestDoctorSchedule_IsNeverImplicit(t *testing.T) {
-	for _, f := range []string{"connect.go", "setup.go", "sync.go", "reconnect.go", "upgradeRepair.go", "upgraderepair.go"} {
+// sync, upgrade and repair never install the scheduled doctor: only connect
+// (and setup, which runs it) does, through ensureDoctorTimer (D690).
+func TestDoctorSchedule_OnlyConnectInstalls(t *testing.T) {
+	for _, f := range []string{"sync.go", "reconnect.go", "upgraderepair.go", "update.go"} {
 		data, err := os.ReadFile(f)
 		if err != nil {
 			continue
 		}
-		if strings.Contains(string(data), "doctorTimerInstallFn") || strings.Contains(string(data), "InstallDoctorTimer") {
-			t.Errorf("%s installs the scheduled doctor; it is opt-in only (D369)", f)
+		if strings.Contains(string(data), "doctorTimerInstallFn") || strings.Contains(string(data), "InstallDoctorTimer") || strings.Contains(string(data), "ensureDoctorTimer") {
+			t.Errorf("%s installs the scheduled doctor; only connect does (D690)", f)
 		}
+	}
+}
+
+func TestEnsureDoctorTimer_InstallsWithDefaultGrant(t *testing.T) {
+	s := stubDoctorSchedule(t, []string{"claude"}, []string{"kb-a"})
+	dir, _ := clientconfig.TargetDir()
+	out := withStdout(t, func() { ensureDoctorTimer(dir, []string{"codex", "copilot", "claude"}, false) })
+	bin, _ := filepath.Abs("/opt/agents/claude")
+	want := "doctor run --kb kb-a --client claude --client-bin " + bin + " --at 06:00 --client-flag --allowedTools --client-flag mcp__cartographer__*"
+	if got := strings.Join(s.installed, " "); got != want {
+		t.Errorf("job args = %q, want %q", got, want)
+	}
+	if !strings.Contains(out, "doctor unschedule") || !strings.Contains(out, "unattended") {
+		t.Errorf("output must say how to undo and the quota: %q", out)
+	}
+}
+
+func TestEnsureDoctorTimer_CopilotGrantUsesServerName(t *testing.T) {
+	s := stubDoctorSchedule(t, nil, []string{"kb-a"})
+	dir, _ := clientconfig.TargetDir()
+	cfg, _ := clientconfig.Load(dir)
+	cfg.ServerName = "kb-server"
+	if err := clientconfig.Save(dir, cfg); err != nil {
+		t.Fatal(err)
+	}
+	withStdout(t, func() { ensureDoctorTimer(dir, []string{"copilot"}, false) })
+	if got := strings.Join(s.installed, " "); !strings.HasSuffix(got, "--client-flag --allow-tool --client-flag kb-server") {
+		t.Errorf("job args = %q", got)
+	}
+}
+
+func TestEnsureDoctorTimer_Skips(t *testing.T) {
+	cases := []struct {
+		name      string
+		kbs       []string
+		providers []string
+		optOut    bool
+		installed bool
+		dryRun    bool
+		corrupt   bool
+		wantHint  bool
+		wantNote  string
+	}{
+		{name: "opt-out", kbs: []string{"kb-a"}, providers: []string{"claude"}, optOut: true},
+		{name: "two KBs", kbs: []string{"kb-a", "kb-b"}, providers: []string{"claude"}, wantHint: true},
+		{name: "only codex", kbs: []string{"kb-a"}, providers: []string{"codex"}, wantHint: true},
+		{name: "already installed", kbs: []string{"kb-a"}, providers: []string{"claude"}, installed: true},
+		{name: "dry run", kbs: []string{"kb-a"}, providers: []string{"claude"}, dryRun: true, wantNote: "[dry-run] would schedule"},
+		{name: "unreadable config", kbs: []string{"kb-a"}, providers: []string{"claude"}, corrupt: true, wantNote: "cannot be read"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			s := stubDoctorSchedule(t, c.providers, c.kbs)
+			dir, _ := clientconfig.TargetDir()
+			if c.optOut {
+				cfg, _ := clientconfig.Load(dir)
+				cfg.DoctorTimerOptOut = true
+				if err := clientconfig.Save(dir, cfg); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if c.corrupt {
+				if err := os.WriteFile(clientconfig.Path(dir), []byte("agents: [unclosed"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			s.status.Installed = c.installed
+			out := withStdout(t, func() { ensureDoctorTimer(dir, c.providers, c.dryRun) })
+			if s.installed != nil {
+				t.Errorf("installed %v, want nothing", s.installed)
+			}
+			if got := strings.Contains(out, "cartographer doctor schedule"); got != c.wantHint {
+				t.Errorf("hint = %v, want %v: %q", got, c.wantHint, out)
+			}
+			if c.wantNote != "" && !strings.Contains(out, c.wantNote) {
+				t.Errorf("output %q lacks %q", out, c.wantNote)
+			}
+		})
+	}
+}
+
+func TestDoctorUnscheduleSetsOptOutAndScheduleClearsIt(t *testing.T) {
+	stubDoctorSchedule(t, []string{"claude"}, []string{"kb-a"})
+	dir, _ := clientconfig.TargetDir()
+	withStdout(t, func() { cmdDoctor([]string{"unschedule"}) })
+	cfg, err := clientconfig.Load(dir)
+	if err != nil || !cfg.DoctorTimerOptOut {
+		t.Fatalf("unschedule must remember the opt-out: %+v %v", cfg, err)
+	}
+	data, _ := os.ReadFile(clientconfig.Path(dir))
+	if !strings.Contains(string(data), "doctor_timer_opt_out: true") {
+		t.Errorf("opt-out not persisted: %s", data)
+	}
+	withStdout(t, func() { cmdDoctor([]string{"schedule"}) })
+	cfg, err = clientconfig.Load(dir)
+	if err != nil || cfg.DoctorTimerOptOut {
+		t.Fatalf("schedule must clear the opt-out: %+v %v", cfg, err)
 	}
 }
