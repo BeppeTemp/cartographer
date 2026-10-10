@@ -8,6 +8,58 @@
 
 KB histories with commits authored as `cartographer <cartographer@localhost>` may need a manual author rewrite before a forge with author push rules accepts the first push.
 
+## [0.22.0](https://github.com/BeppeTemp/cartographer/compare/v0.21.0...v0.22.0) (2026-10-10)
+
+
+### Features
+
+* **auth:** a token may name the git author of its writes ([#594](https://github.com/BeppeTemp/cartographer/issues/594)) ([445454d](https://github.com/BeppeTemp/cartographer/commit/445454dc429426ac40b3e628a4b4025957bb858b))
+* **cli:** scheduled headless doctor sessions (D369) ([#665](https://github.com/BeppeTemp/cartographer/issues/665)) ([26b738c](https://github.com/BeppeTemp/cartographer/commit/26b738c89325a0046246bf43c6caaefec311b843)), closes [#660](https://github.com/BeppeTemp/cartographer/issues/660)
+* **configurator:** GitHub Copilot CLI as a supported provider (D676) ([#679](https://github.com/BeppeTemp/cartographer/issues/679)) ([1b6b7a5](https://github.com/BeppeTemp/cartographer/commit/1b6b7a5e4788c54c5d7926ea51fe79c740de2760))
+* **health:** history of lint totals and trend (D370) ([#667](https://github.com/BeppeTemp/cartographer/issues/667)) ([11c0999](https://github.com/BeppeTemp/cartographer/commit/11c0999cb66b5e6a5a9c0d4c9f09ea377f0d22de))
+* **kb:** every page follows a template its map allows (D352) ([#635](https://github.com/BeppeTemp/cartographer/issues/635)) ([6abd2a9](https://github.com/BeppeTemp/cartographer/commit/6abd2a95532416ceebf83691359a2ce30e4913e1))
+* **lint:** drift audit closes blind spots; writes commit only their own changes (D357) ([#634](https://github.com/BeppeTemp/cartographer/issues/634)) ([bfdd531](https://github.com/BeppeTemp/cartographer/commit/bfdd5310a0ffd475072fcce0bf8b538ae133c952))
+* **lint:** every check active by default, inactive ones say why (D371) ([#668](https://github.com/BeppeTemp/cartographer/issues/668)) ([e777181](https://github.com/BeppeTemp/cartographer/commit/e777181e7045b5726ab5ad10115840cead7946ea))
+* **lint:** invalid pages are lint checks and repairable (D356) ([#633](https://github.com/BeppeTemp/cartographer/issues/633)) ([243cde5](https://github.com/BeppeTemp/cartographer/commit/243cde570ff73d4147c71e62d98f3d9b5482a40a))
+* **lint:** journal open state from a contract open_field, harvest_after 0 is off (D347) ([#627](https://github.com/BeppeTemp/cartographer/issues/627)) ([8df8465](https://github.com/BeppeTemp/cartographer/commit/8df8465d5f797969080106bc5fe3483700e2be8a))
+* **lint:** mechanical fixes for index_lists_retired, link_to_retired and decorative titles (D366) ([#666](https://github.com/BeppeTemp/cartographer/issues/666)) ([bcd9e52](https://github.com/BeppeTemp/cartographer/commit/bcd9e52ed5cd9ee9da71501b45383ca81a57c398))
+* **lint:** work maps default stale_after to 30 days, 0 is off (D346) ([#624](https://github.com/BeppeTemp/cartographer/issues/624)) ([c076b92](https://github.com/BeppeTemp/cartographer/commit/c076b9208d4451c4262e41ac88bc50b77f5ece47))
+* **mcpserver:** append/remove list items on patch, read grep, patch hints (D342) ([#621](https://github.com/BeppeTemp/cartographer/issues/621)) ([405e548](https://github.com/BeppeTemp/cartographer/commit/405e54809ea95892df79376a93f6e23139a5d532))
+* **mcpserver:** concept_archive retires a page in one commit; lint index_lists_retired (D344) ([#631](https://github.com/BeppeTemp/cartographer/issues/631)) ([1eb59d9](https://github.com/BeppeTemp/cartographer/commit/1eb59d99e08201c05dd1b75efce18efa4a33069f))
+* **mcpserver:** opt-in write gate refusing writes that introduce findings (D350) ([#626](https://github.com/BeppeTemp/cartographer/issues/626)) ([49e5b0c](https://github.com/BeppeTemp/cartographer/commit/49e5b0cc6057d7ce9f01bc000e1c4db2697871da))
+* **mcpserver:** reasoned denials, field vocabularies in map_list, concept_list fields, search OR floor (D343) ([#629](https://github.com/BeppeTemp/cartographer/issues/629)) ([d138783](https://github.com/BeppeTemp/cartographer/commit/d1387834e66829f9918312b69dd47103b5d63703))
+* **mcpserver:** repair on write for auto_repair checks (D349) ([#625](https://github.com/BeppeTemp/cartographer/issues/625)) ([8bcbd86](https://github.com/BeppeTemp/cartographer/commit/8bcbd86abf4d98a47581c05996a5d1d7661e35cf))
+* **mcpserver:** repairs run to a per-concept fixpoint, in stages (D355) ([#632](https://github.com/BeppeTemp/cartographer/issues/632)) ([e13e573](https://github.com/BeppeTemp/cartographer/commit/e13e5738bd145cff3e48c584bc9ee5942610ebc8))
+* **mcpserver:** the kb-doctor session runs unattended by default (D358) ([#641](https://github.com/BeppeTemp/cartographer/issues/641)) ([7f07187](https://github.com/BeppeTemp/cartographer/commit/7f071873acf3f608a486cba7a9c2cb5fc979381a))
+* **mcpserver:** write response reports repeated facts (D351) ([#628](https://github.com/BeppeTemp/cartographer/issues/628)) ([c49d5db](https://github.com/BeppeTemp/cartographer/commit/c49d5db90dec9078781d5ad0d63b88f117bad6c4))
+* **peers:** agent sessions on one server message each other (beta, D341) ([#584](https://github.com/BeppeTemp/cartographer/issues/584)) ([7e2d764](https://github.com/BeppeTemp/cartographer/commit/7e2d76465288c31935f521131f2d1c9a2d9b869f))
+* **provisioning:** Codex write-findings hook through additionalContext (D361) ([#651](https://github.com/BeppeTemp/cartographer/issues/651)) ([443c68a](https://github.com/BeppeTemp/cartographer/commit/443c68a20cb2289757eb07ac9c8fa231d57dfa5e))
+* **provisioning:** Crush hooks and project configuration (D363) ([#653](https://github.com/BeppeTemp/cartographer/issues/653)) ([d02e75f](https://github.com/BeppeTemp/cartographer/commit/d02e75fb79ebd377393b2b1e1979219b8c2628d4))
+* **provisioning:** OpenCode 2.x write-findings hook through a dedicated plugin (D362) ([#652](https://github.com/BeppeTemp/cartographer/issues/652)) ([d7eb0b3](https://github.com/BeppeTemp/cartographer/commit/d7eb0b30d66cde4c2246633b3d0585bf1727f0a1))
+* **provisioning:** project-local cells for Antigravity and Hermes (D364) ([#655](https://github.com/BeppeTemp/cartographer/issues/655)) ([77a66ad](https://github.com/BeppeTemp/cartographer/commit/77a66addc68f68d7feeb43ed293b44dfabe2b7a8))
+* **provisioning:** write findings reach the agent through a client-generated hook (D353) ([#636](https://github.com/BeppeTemp/cartographer/issues/636)) ([5f0e0bb](https://github.com/BeppeTemp/cartographer/commit/5f0e0bb5f993888a71bf782ecb3356ae20272385))
+* **serve:** listen before the KBs are cloned and indexed (D348) ([#620](https://github.com/BeppeTemp/cartographer/issues/620)) ([c079b22](https://github.com/BeppeTemp/cartographer/commit/c079b22b40b74161cf29e74a62e80efcda865d6a))
+* **webui:** export the growth replay as a shareable video (D677) ([#678](https://github.com/BeppeTemp/cartographer/issues/678)) ([ec9085b](https://github.com/BeppeTemp/cartographer/commit/ec9085b6c27bd54479f2c96d8e4aa53a6e18693a))
+* **webui:** live graph growth, growth replay, Activity and Health rework ([#664](https://github.com/BeppeTemp/cartographer/issues/664)) ([4c3f61c](https://github.com/BeppeTemp/cartographer/commit/4c3f61cfbc7b03c68cb5c3a4930e0f0be22a62f5))
+
+
+### Bug Fixes
+
+* **ci:** build the listen-first test off Windows only, vet for Windows in the gate ([#670](https://github.com/BeppeTemp/cartographer/issues/670)) ([8d723fb](https://github.com/BeppeTemp/cartographer/commit/8d723fbed73838de4c35b5e8fa93f099407e7dd2))
+* **ci:** Windows-portable expectations in two tests, 20m go test timeout ([#671](https://github.com/BeppeTemp/cartographer/issues/671)) ([821e42a](https://github.com/BeppeTemp/cartographer/commit/821e42acac45d79f73e3ac4f77a1375da4b73e4e))
+* **hero:** crop the screencast to the page from its metadata ([#642](https://github.com/BeppeTemp/cartographer/issues/642)) ([d506849](https://github.com/BeppeTemp/cartographer/commit/d5068491d0532c7bdde6e69ee1e13252d85bd4ef))
+* **provisioning:** generate OpenCode 2.x plugin shape ([#643](https://github.com/BeppeTemp/cartographer/issues/643)) ([0b83ed6](https://github.com/BeppeTemp/cartographer/commit/0b83ed6af1880e6cd53536ebfc15ab244b57fcab))
+* **provisioning:** move pre-D363 workspace MCP entries and keep every provider's exclusions ([#657](https://github.com/BeppeTemp/cartographer/issues/657)) ([6ce340e](https://github.com/BeppeTemp/cartographer/commit/6ce340e41a193a1a2920f8e06f2b6d882d29ac59))
+* **provisioning:** OpenCode skills and agents move to its config directory (D360) ([#650](https://github.com/BeppeTemp/cartographer/issues/650)) ([d00b61d](https://github.com/BeppeTemp/cartographer/commit/d00b61d3aa6399f3d53244e5f4bc43d2b227f43f))
+* **review:** kb_review ignores series pages and historical links (D345) ([#622](https://github.com/BeppeTemp/cartographer/issues/622)) ([1a964c0](https://github.com/BeppeTemp/cartographer/commit/1a964c013e4b5e2ee26268b795c8fce67ee4d7e2))
+* **webui:** Health's jump to a check survives an engine without scrollIntoView ([#669](https://github.com/BeppeTemp/cartographer/issues/669)) ([00613df](https://github.com/BeppeTemp/cartographer/commit/00613df72ee3fde4105563b3b832425fc4bb40d8))
+* **webui:** keep the Health state word inside its ring ([#587](https://github.com/BeppeTemp/cartographer/issues/587)) ([df0d001](https://github.com/BeppeTemp/cartographer/commit/df0d0010ffa2bde3f87f5f6a6e5ab73372cfea2a))
+
+
+### Reverts
+
+* agent-to-agent messaging (D341) ([#586](https://github.com/BeppeTemp/cartographer/issues/586)) ([0ed639f](https://github.com/BeppeTemp/cartographer/commit/0ed639f08cfcd4d4292982879c9f7b630117c3b2))
+
 ## [0.21.0](https://github.com/BeppeTemp/cartographer/compare/v0.20.0...v0.21.0) (2026-10-07)
 
 
