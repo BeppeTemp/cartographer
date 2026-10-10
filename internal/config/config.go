@@ -6,6 +6,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -102,6 +103,27 @@ func (a AuthConfig) TokenStrings() []string {
 		out[i] = t.Token
 	}
 	return out
+}
+
+// envRef matches a value that is exactly a reference to an environment
+// variable, "${NAME}" (#680).
+var envRef = regexp.MustCompile(`^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$`)
+
+// expandEnvRef resolves a secret field written as "${NAME}" from the
+// environment, so the YAML file never has to carry the secret itself. Only
+// the whole value is a reference: anything else is returned as written. An
+// unset or empty variable is an error rather than an empty secret: an empty
+// token or seed would fail open or silently disable signing.
+func expandEnvRef(v string) (string, error) {
+	m := envRef.FindStringSubmatch(strings.TrimSpace(v))
+	if m == nil {
+		return v, nil
+	}
+	val := os.Getenv(m[1])
+	if val == "" {
+		return "", fmt.Errorf("environment variable %s is unset or empty", m[1])
+	}
+	return val, nil
 }
 
 // TokenSpec is a bearer token with optional per-KB scopes ("kb:<name>:r|rw").
@@ -471,7 +493,11 @@ func Load(path string) (*Config, error) {
 		}
 	}
 	cfg.Audit.Log = raw.Audit.Log
-	cfg.Audit.KeySeed = raw.Audit.KeySeed
+	seed, err := expandEnvRef(raw.Audit.KeySeed)
+	if err != nil {
+		return nil, fmt.Errorf("config: audit.key_seed: %w", err)
+	}
+	cfg.Audit.KeySeed = seed
 	cfg.Audit.Mode = raw.Audit.Mode
 	cfg.Audit.MaxSegmentBytes = raw.Audit.MaxSegmentBytes
 	cfg.Audit.ArchiveDir = raw.Audit.ArchiveDir
@@ -483,6 +509,13 @@ func Load(path string) (*Config, error) {
 		cfg.Auth.Mode = normalizeAuthMode(raw.Auth.Mode)
 	}
 	cfg.Auth.Tokens = raw.Auth.Tokens
+	for i := range cfg.Auth.Tokens {
+		tok, err := expandEnvRef(cfg.Auth.Tokens[i].Token)
+		if err != nil {
+			return nil, fmt.Errorf("config: auth.tokens[%d].token: %w", i, err)
+		}
+		cfg.Auth.Tokens[i].Token = tok
+	}
 	cfg.Auth.Roles = raw.Auth.Roles
 	if err := ValidateAuthRoles(cfg.Auth); err != nil {
 		return nil, fmt.Errorf("config: auth: %w", err)

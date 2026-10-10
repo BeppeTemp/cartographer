@@ -717,6 +717,10 @@ auth:
       roles: [runbook-editor]
 ```
 
+`${NAME}` as the whole value of `token` (and of `audit.key_seed`) is read from
+the environment at startup; an unset or empty variable refuses startup, naming
+the field (#680). Any other value is taken literally.
+
 Rollout notes:
 
 - **Nothing changes until you opt in.** Tokens without `roles` behave exactly as
