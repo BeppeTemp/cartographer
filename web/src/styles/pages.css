@@ -1307,7 +1307,7 @@ button.row {
   background: var(--surface-3);
 }
 
-button.pfield__dot {
+.pfield__dot[data-page] {
   cursor: pointer;
 }
 
@@ -1323,7 +1323,7 @@ button.pfield__dot {
   background: color-mix(in srgb, var(--sev-info) 70%, transparent);
 }
 
-button.pfield__dot:hover {
+.pfield__dot[data-page]:hover {
   outline: 2px solid var(--text-primary);
   outline-offset: 1px;
 }

@@ -169,7 +169,7 @@ test("the hero tour: graph, search, a concept's links, artifacts, health", async
 
   // 6. What needs attention.
   await page.getByRole("button", { name: /^Health/ }).click();
-  await expect(page.getByRole("heading", { name: /broken|attention|wait|all clear/i })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: /found/i })).toBeVisible();
   await beat(page, 1400);
 
   // Back where the loop starts.

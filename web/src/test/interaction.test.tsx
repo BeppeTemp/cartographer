@@ -242,7 +242,7 @@ describe("health page field", () => {
     const { container } = render(health({ report: both, collections }));
     expect(container.querySelector('.pfield__dot[title="infra/gateway"]')).toHaveAttribute("data-both");
     expect(container.querySelector('.pfield__dot[title="infra/c"]')).toHaveAttribute("data-tone", "info");
-    expect(container.querySelectorAll("span.pfield__dot")).toHaveLength(1);
+    expect(container.querySelectorAll(".pfield__dot:not([data-page])")).toHaveLength(1);
   });
 
   it("lights the pages of the row under the pointer, in that row's colour", async () => {

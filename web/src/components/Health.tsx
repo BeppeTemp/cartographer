@@ -177,7 +177,9 @@ export function Health({
         <Coverage catalog={checks} report={report} review={review?.items ?? []} trend={summary?.lint_history} />
       ) : (
         <>
-          {report && field.length > 0 && issues > 0 && (
+          {/* Over the whole KB, not the chosen Map: a clean Map must not take
+            away the field, which is also the way back to every Map. */}
+          {report && touched > 0 && (
             <div className="hfield">
               <PageField
                 field={field}
@@ -378,16 +380,19 @@ function PageField({
               {m.title}
             </button>
             <span className="pfield__dots">
+              {/* A mouse shortcut, not a control: a 9px square fails the WCAG
+                target size, and every page it opens is also a button in the
+                list below (the 2.5.8 equivalent-control exception). */}
               {m.marks.map((d) => (
-                <button
+                <span
                   key={d.id}
-                  type="button"
                   className="pfield__dot"
+                  data-page
                   data-tone={d.problem ?? "info"}
                   data-both={(d.problem && d.suggestion) || undefined}
                   data-lit={whole || focus?.has(d.id) || undefined}
                   title={d.id}
-                  aria-label={`${d.id}: ${[d.problem && (d.problem === "error" ? "broken" : "a problem"), d.suggestion && "a suggestion"].filter(Boolean).join(" and ")}`}
+                  aria-hidden="true"
                   onClick={() => onReveal(d.id, "")}
                 />
               ))}
