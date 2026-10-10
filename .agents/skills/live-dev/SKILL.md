@@ -66,7 +66,7 @@ mandate; while they run, the coordinator does not edit those files.
 feat/<slug>` + `gh pr create --draft`. Its number is the decision number (D672):
 run `make decisions-new N=<pr>` then and fill it as the choices are made. Never
 guess the next number from the issue and PR lists: another session can take it
-first.
+first (D703).
 
 ### Mandate (self-contained: the subagent never sees the conversation)
 
