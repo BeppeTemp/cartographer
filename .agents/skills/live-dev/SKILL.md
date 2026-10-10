@@ -7,7 +7,8 @@ description: Run a live development session - change Cartographer while the user
 
 The other way to land a change. `plan-issue` → `implement-issue` separates the
 design from the implementation and hands it over in an issue; a live session
-keeps them together, because the user decides by seeing the result. The rules
+keeps them together, because the user decides by seeing the result, and always
+ends in one PR that lands in the release changelog (§The record). The rules
 of the repository do not change: `main` is protected, one PR, `make gate`,
 docs and decision in the same PR (`AGENTS.md`, `CONTRIBUTING.md` §Pull requests).
 
@@ -91,11 +92,29 @@ first.
 3. Review the whole diff against `main` with an independent pass — `/code-review`
    in Claude Code, a reviewing subagent elsewhere. The user tried the behaviour,
    nobody has read the code.
-4. Final commit, PR title as a conventional commit, body ending with what the
-   user verified live; `gh pr ready`. Merge (`gh pr merge --squash --delete-branch --auto`)
-   only on the user's decision.
+4. Write the record (below), then `gh pr ready`. Merge
+   (`gh pr merge --squash --delete-branch --auto`) only on the user's decision.
 5. Stop `make dev`; after the merge, `make worktree-rm SLUG=<slug>` from the main
    working copy, then `git pull --ff-only`.
+
+## The record — every live session ends in the changelog
+
+A live session leaves no plan issue, so the PR is the whole record of what was
+done, and it is what the release changelog is built from. The repository squashes
+with the PR title as the commit subject and the PR body as its message;
+release-please reads both.
+
+- **Title**: a conventional commit that names the user-visible change, `feat:` or
+  `fix:` when a user would notice it. `docs:`, `chore:`, `refactor:` and `test:` do not
+  appear in the changelog: use them only when that is true of the whole PR.
+- **Several user-visible changes** in one session: one extra conventional-commit
+  line per change in the PR body, each at the start of its own paragraph — release-please
+  turns each into a changelog entry. Changes that are unrelated go in separate PRs.
+  Conversely, no prose line in the body may start with `feat:`/`fix:` by accident.
+- **Body**: what changed and why, step by step as it was accepted; what the user
+  verified on the instance; what was tried and dropped, when a reader would
+  re-propose it; the decision file; the follow-ups opened as `idea` issues.
+  The `wip:` commits are squashed away: the body is what remains.
 
 ## Traps
 

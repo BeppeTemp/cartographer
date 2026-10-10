@@ -259,7 +259,9 @@ with hot reload on `http://localhost:5173/ui/`. `DATA` is copied with its git
 remotes removed and git sync off, so nothing the session writes leaves the
 machine; `API_PORT`/`UI_PORT` keep two sessions apart. The PR is opened as a
 draft after the first accepted step, and its number is the decision number
-(D672). Everything else — `make gate`, docs and decision in the same PR, an
+(D672). With no plan issue, the PR is the record: its title (`feat:`/`fix:` for
+what a user notices) and its body become the squashed commit, and so the
+release changelog — the skill says what the body must hold. Everything else — `make gate`, docs and decision in the same PR, an
 independent read of the diff before the merge — is the same as for a plan.
 
 ## Reporting bugs
