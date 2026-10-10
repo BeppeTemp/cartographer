@@ -16,6 +16,7 @@ import {
   restoreToken,
   setToken,
 } from "./api/client";
+import { filterReportByMap } from "./lib/health";
 import type {
   ArtifactList,
   CheckCatalog,
@@ -91,7 +92,7 @@ export function App() {
   const [conceptError, setConceptError] = useState<unknown>(null);
   const [conceptLoading, setConceptLoading] = useState(false);
 
-  const [lint, setLint] = useState<LintReport | null>(null);
+  const [lintAll, setLintAll] = useState<LintReport | null>(null);
   const [lintError, setLintError] = useState<unknown>(null);
   const [lintLoading, setLintLoading] = useState(false);
   const [artifacts, setArtifacts] = useState<ArtifactList | null>(null);
@@ -241,7 +242,7 @@ export function App() {
   useEffect(() => {
     if (kbs.length === 0) return;
     if (view.kb && kbs.some((kb) => kb.name === view.kb)) return;
-    const next = { ...view, kb: kbs[0]!.name, scope: null, concept: null };
+    const next = { ...view, kb: kbs[0]!.name, scope: null, concept: null, hmap: null };
     setView(next);
     replaceView(next);
   }, [kbs, view]);
@@ -380,12 +381,11 @@ export function App() {
     if (!activeKB || phase !== "ready") return;
     const controller = new AbortController();
     setLintLoading(true);
-    // The rail's Map selection scopes the findings too: the server
-    // answers the same scope the graph is drawn for.
-    // Every severity: Health groups them itself, suggestions folded away.
-    fetchLint(activeKB, "info", view.scope, controller.signal)
+    // The whole KB, every severity: Health groups them itself, suggestions
+    // folded away, and its Map chips filter this report in the page.
+    fetchLint(activeKB, "info", null, controller.signal)
       .then((data) => {
-        setLint(data);
+        setLintAll(data);
         setLintError(null);
       })
       .catch((err) => {
@@ -396,7 +396,7 @@ export function App() {
         if (!controller.signal.aborted) setLintLoading(false);
       });
     return () => controller.abort();
-  }, [activeKB, view.scope, phase, handleFailure, reloadKey, live]);
+  }, [activeKB, phase, handleFailure, reloadKey, live]);
 
   // Artifacts are whole-KB resources (D238), loaded with the graph above: a
   // principal that cannot see the whole KB gets no panel, and a link to one
@@ -451,6 +451,8 @@ export function App() {
   }, [view.panel, activeKB, phase, handleFailure, reloadKey, live]);
 
   // --- Derived view ---
+
+  const lint = useMemo(() => filterReportByMap(lintAll, view.hmap), [lintAll, view.hmap]);
 
   const findingsByConcept = useMemo(() => {
     const map = new Map<string, LintReport["findings"]>();
@@ -589,7 +591,7 @@ export function App() {
     <LeftRail
       overview={overview}
       overviewKB={snapshotKey.split("\u0000")[0]}
-      scope={view.scope}
+      scope={view.panel === "atlas" ? view.scope : null}
       panel={view.panel}
       artifactsTotal={artifactsAllowed ? (artifacts?.artifacts.length ?? 0) : null}
       collapsed={inSheet ? false : railCollapsed}
@@ -597,11 +599,12 @@ export function App() {
       typeFilter={typeFilter}
       statusFilter={statusFilter}
       onScope={(scope) => {
-        navigate({ scope, concept: null });
+        // The rail navigates, the pages filter: a Map always opens the Atlas on it.
+        navigate({ panel: "atlas", scope, concept: null, artifact: null });
         if (inSheet) setSheet(null);
       }}
       onPanel={(panel) => {
-        navigate({ panel, artifact: null });
+        navigate({ panel, artifact: null, hmap: null });
         if (inSheet) setSheet(null);
       }}
       onToggleCollapsed={() => setRailCollapsed((c) => !c)}
@@ -649,7 +652,7 @@ export function App() {
         offline={offline}
         narrow={narrow}
         hasSelection={view.panel === "atlas" && view.concept !== null}
-        onKBChange={(name) => navigate({ kb: name, scope: null, concept: null, artifact: null })}
+        onKBChange={(name) => navigate({ kb: name, scope: null, concept: null, artifact: null, hmap: null })}
         onThemeChange={setTheme}
         onOpenPalette={() => setPaletteOpen(true)}
         onHome={() => navigate({ panel: "atlas", concept: null, artifact: null })}
@@ -692,10 +695,14 @@ export function App() {
               questions={questions}
               questionsError={questionsError}
               scopeTitle={
-                view.scope
-                  ? (overview?.collections.find((c) => c.name === view.scope)?.title || view.scope)
+                view.hmap
+                  ? (overview?.collections.find((c) => c.name === view.hmap)?.title || view.hmap)
                   : null
               }
+              allFindings={lintAll?.findings ?? null}
+              collections={overview?.collections}
+              hmap={view.hmap}
+              onMap={(hmap) => navigate({ hmap })}
               loading={lintLoading}
               error={lintError}
               onRetry={() => setReloadKey((k) => k + 1)}

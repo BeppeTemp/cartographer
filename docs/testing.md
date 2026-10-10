@@ -309,7 +309,7 @@ toolchain (D227). What they hold:
   (D337);
 - Health (D338, D365): findings grouped by check with who acts on each,
   info findings counted as the doctor's improvements, the verdict for a doctor that never ran and one
-  that keeps up, revealing a concept or saying there is none, scoped by the rail's Map so a
+  that keeps up, revealing a concept or saying there is none, scoped by its own Map chips so a
   clean Map never reads as a clean KB; the lint trend (shown from two samples, absent with one), the upkeep, questions and repairs, each
   copy action a clipboard write and every request a `GET`; a whole-KB `404`
   left out silently while another failure is reported; the old
@@ -440,7 +440,7 @@ What it holds, beyond the component tests:
   type/status filters and Health's severity floor; the command
   palette; URL state with Back/Forward and deep links; backlink chips;
   Health findings revealing their concept or saying there is no node;
-  Health's findings scoped by the rail's Map, and its node filters stepping aside;
+  Health's findings scoped by its Map chips (`hmap`), the rail's Maps opening the Atlas, and the node filters stepping aside;
   Health loading its upkeep schedule and questions (D323, D338); the Artifacts
   catalog opening an artifact beside it and closing it;
   the reading panel's splitter (D239, D281): a drag persists across a reload,
