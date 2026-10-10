@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import type {
   CheckCatalog,
+  CollectionSummary,
   KBStatus,
   LintFinding,
   LintReport,
@@ -9,11 +10,14 @@ import type {
   MaintenanceRun,
   MaintenanceSummary,
 } from "../api/types";
-import { checkLabel, groupFindings, type CheckGroup } from "../lib/health";
+import { checkLabel, groupFindings, inMap, type CheckGroup } from "../lib/health";
 import {
   Count,
   Figures,
+  FilterChip,
+  FilterChips,
   Hero,
+  HeroRow,
   Page,
   PageHeader,
   PageSection,
@@ -22,6 +26,7 @@ import {
   SkeletonRows,
   relativeDay,
 } from "./Page";
+import { collectionVar } from "../lib/palette";
 import { Icon } from "./Icon";
 import { LintTrend } from "./LintTrend";
 import { SeverityBadge } from "./SeverityBadge";
@@ -43,7 +48,8 @@ const DAY_MS = 86_400_000;
  * a question answered, from an agent session or the CLI, so a row carries the
  * text to copy rather than a button that acts.
  *
- * The findings follow the rail's Map selection. Everything else describes the
+ * The findings are filtered by the page's own Map chips (the rail only navigates).
+ * Everything else describes the
  * whole KB, so a principal that cannot see all of it gets no status and no
  * summary (both 404) and the page shows what it can.
  */
@@ -56,6 +62,10 @@ export function Health({
   questions,
   questionsError,
   scopeTitle,
+  allFindings = null,
+  collections = [],
+  hmap = null,
+  onMap,
   loading,
   error,
   onReveal,
@@ -74,6 +84,11 @@ export function Health({
   questionsError?: string | null;
   /** Title of the Map the findings are scoped to; null = whole KB. */
   scopeTitle: string | null;
+  /** The unfiltered findings: the chips count over them, so a filter never hides its siblings. */
+  allFindings?: LintFinding[] | null;
+  collections?: CollectionSummary[];
+  hmap?: string | null;
+  onMap?(map: string | null): void;
   loading: boolean;
   error: unknown;
   onReveal(concept: string | null, message: string): void;
@@ -98,6 +113,17 @@ export function Health({
 
   const groups = useMemo(() => groupFindings(report?.findings ?? []), [report]);
 
+  // Findings per Map, over the unfiltered report: a finding belongs to the Map
+  // whose folder holds its path. Every Map is listed, a clean one at zero, so it can still be chosen.
+  const mapCounts = useMemo(() => {
+    const out: [string, string, number][] = [];
+    for (const c of collections) {
+      const n = (allFindings ?? []).filter((f) => inMap(f, c.name)).length;
+      out.push([c.name, c.title || c.name, n]);
+    }
+    return out.sort((a, b) => b[2] - a[2] || a[0].localeCompare(b[0]));
+  }, [collections, allFindings, hmap]);
+
   if (error && !report) return <ErrorState error={error} onRetry={onRetry} />;
 
   const open = questions?.questions ?? [];
@@ -119,7 +145,7 @@ export function Health({
               neither can decide becomes a <strong>question for you</strong>.
             </p>
             <p>
-              <strong>Findings</strong> are grouped by cause and follow the Map chosen in the rail: problems (errors and
+              <strong>Findings</strong> are grouped by cause; the Map chips narrow them to one Map: problems (errors and
               warnings) first, then improvements (notes), which the doctor fixes or accepts as a deliberate choice.
               Every repair is a commit, undone with the command on its row.
             </p>
@@ -151,6 +177,22 @@ export function Health({
             {status && <KnowledgeLine status={status} />}
           </div>
         </div>
+        {onMap && mapCounts.length > 0 && (
+          <HeroRow label="Where">
+            <FilterChips label="Filter by Map">
+              {mapCounts.map(([name, title, n]) => (
+                <FilterChip
+                  key={name}
+                  label={title}
+                  count={n}
+                  pressed={hmap === name}
+                  hue={collectionVar(name)}
+                  onToggle={() => onMap(hmap === name ? null : name)}
+                />
+              ))}
+            </FilterChips>
+          </HeroRow>
+        )}
       </Hero>
 
       {checks && report && (

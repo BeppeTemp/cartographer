@@ -1,4 +1,4 @@
-import type { LintFinding } from "../api/types";
+import type { LintFinding, LintReport } from "../api/types";
 
 /** One cause on the Health page: a check's findings, folded by message. */
 export interface CheckGroup {
@@ -165,4 +165,22 @@ export function trendOf(history: { at: string; total: number }[], now: number): 
     span: days >= 6 ? "this week" : `over ${days} ${days === 1 ? "day" : "days"}`,
     points: win.map((s) => s.total),
   };
+}
+
+/** Whether a finding's path lies in the Map (the server's own scope rule: the folder or beneath it). */
+export function inMap(f: { path: string }, map: string): boolean {
+  return f.path === map || f.path.startsWith(`${map}/`);
+}
+
+/** The report narrowed to one Map in the page, totals recomputed; null map = whole report. */
+export function filterReportByMap(report: LintReport | null, map: string | null): LintReport | null {
+  if (!report || !map) return report;
+  const findings = report.findings.filter((f) => inMap(f, map));
+  const by_severity: Record<string, number> = {};
+  const by_check: Record<string, number> = {};
+  for (const f of findings) {
+    by_severity[f.severity] = (by_severity[f.severity] ?? 0) + 1;
+    by_check[f.check] = (by_check[f.check] ?? 0) + 1;
+  }
+  return { ...report, findings, count: findings.length, total: findings.length, by_severity, by_check };
 }

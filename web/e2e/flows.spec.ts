@@ -304,21 +304,23 @@ test("a Health finding reveals its concept, or explains there is none", async ({
   await expect(page).toHaveURL(selectedIn("infra/firewall"));
 });
 
-test("Health's findings follow the rail's Map, and hide the node filters (#364)", async ({ page }) => {
+test("the rail's Maps open the Atlas; Health filters by Map in the page (#364, #697)", async ({ page }) => {
   await page.goto(`${ATLAS}&panel=health`);
   const health = page.getByRole("region", { name: "Health" });
   const rail = page.getByRole("navigation", { name: "Atlas navigation" });
+  const chips = health.getByRole("list", { name: "Filter by Map" });
   await openFindings(health, health.getByRole("button", { name: /infra\/firewall/ }).first());
   // Type and Status filter nodes, not findings: they step aside here.
   await expect(rail.getByRole("heading", { name: "Type" })).toHaveCount(0);
 
   // Another Map's findings leave the list, and the page names the scope.
-  await rail.getByRole("button", { name: /Applications/ }).click();
+  await chips.getByRole("button", { name: /Applications/ }).click();
   await expect(health.getByRole("heading", { level: 1 })).toContainText("in Applications");
+  await expect(page).toHaveURL(/hmap=/);
   await openFindings(health);
   await expect(health.getByRole("button", { name: /infra\/firewall/ })).toHaveCount(0);
 
-  await rail.getByRole("button", { name: /Infrastructure/ }).click();
+  await chips.getByRole("button", { name: /Infrastructure/ }).click();
   await expect(health.getByRole("heading", { level: 1 })).toContainText("in Infrastructure");
   await openFindings(health, health.getByRole("button", { name: /infra\/firewall/ }).first());
   const paths = [
@@ -328,11 +330,15 @@ test("Health's findings follow the rail's Map, and hide the node filters (#364)"
   expect(paths.length).toBeGreaterThan(0);
   expect(paths.every((path) => path.startsWith("infra/"))).toBe(true);
 
-  // All restores the KB-wide list; the Atlas gets its filters back.
-  await rail.getByRole("button", { name: /^All\s*\d/ }).click();
+  // Pressing the chip again restores the KB-wide list.
+  await chips.getByRole("button", { name: /Infrastructure/ }).click();
   await expect(health.getByRole("heading", { level: 1 })).not.toContainText("Infrastructure");
   await expect(health.getByText(/^Over .* only\.$/)).toHaveCount(0);
-  await rail.getByRole("button", { name: "Atlas", exact: true }).click();
+
+  // The rail navigates: a Map opens the Atlas on it, and the node filters return.
+  await rail.getByRole("button", { name: /Applications/ }).click();
+  await expect(page).not.toHaveURL(/panel=health/);
+  await expect(page).toHaveURL(/scope=/);
   await expect(rail.getByRole("heading", { name: "Type" })).toBeVisible();
 });
 

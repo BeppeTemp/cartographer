@@ -167,7 +167,7 @@ export function LeftRail({
                         <button
                           type="button"
                           className="rail__collection"
-                          aria-current={scope === null ? "true" : undefined}
+                          aria-current={scope === null && panel === "atlas" ? "true" : undefined}
                           onClick={() => onScope(null)}
                         >
                           <span className="rail__swatch rail__swatch--all" aria-hidden="true">

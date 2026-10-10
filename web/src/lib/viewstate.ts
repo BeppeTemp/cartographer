@@ -17,9 +17,11 @@ export interface ViewState {
   panel: Panel;
   /** The selected artifact, `kind/name`: only on the Artifacts panel. */
   artifact: string | null;
+  /** Health's own Map filter: only on the Health panel; the rail's scope never reaches it. */
+  hmap: string | null;
 }
 
-export const EMPTY_VIEW: ViewState = { kb: null, scope: null, concept: null, panel: "atlas", artifact: null };
+export const EMPTY_VIEW: ViewState = { kb: null, scope: null, concept: null, panel: "atlas", artifact: null, hmap: null };
 
 export function readViewState(search: string = window.location.search): ViewState {
   const params = new URLSearchParams(search);
@@ -39,6 +41,7 @@ export function readViewState(search: string = window.location.search): ViewStat
     panel,
     // An artifact without its panel is ignored, not carried to another one.
     artifact: panel === "artifacts" ? params.get("artifact") : null,
+    hmap: panel === "health" ? params.get("hmap") : null,
   };
 }
 
@@ -49,6 +52,7 @@ export function viewStateToSearch(view: ViewState): string {
   if (view.concept) params.set("concept", view.concept);
   if (view.panel !== "atlas") params.set("panel", view.panel);
   if (view.panel === "artifacts" && view.artifact) params.set("artifact", view.artifact);
+  if (view.panel === "health" && view.hmap) params.set("hmap", view.hmap);
   const query = params.toString();
   return query ? `?${query}` : "";
 }
@@ -59,7 +63,8 @@ export function sameView(a: ViewState, b: ViewState): boolean {
     a.scope === b.scope &&
     a.concept === b.concept &&
     a.panel === b.panel &&
-    a.artifact === b.artifact
+    a.artifact === b.artifact &&
+    a.hmap === b.hmap
   );
 }
 

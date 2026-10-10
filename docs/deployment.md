@@ -547,7 +547,9 @@ that matched; it is the way to a concept, and there is no concept list beside
 the canvas. The brand in the top bar returns to the atlas, the server's version
 sits beside the theme switch, and the connection status appears only when the
 server is unreachable. The rail lists the KB's Maps and Journals in two
-groups, *All* first, each with its count.
+groups, *All* first, each with its count; a click always opens the Atlas on
+that Map, and the rail marks a Map only while the Atlas is open (Work, Activity
+and Health filter by Map inside the page).
 
 The reading panel folds the concept's outline into *On this page*, drops the
 body's leading title (the header shows it) and hides a trailing links section
@@ -598,7 +600,7 @@ session decides the rest (D358), and only what neither can decide waits on a
 person. Its title answers "does anything need me?", the worst first — things
 broken, questions waiting for you, problems waiting for a doctor session that
 never ran or is overdue, *Nothing needs you: Cartographer is on it*, or all
-clear — with a line under it only when a Map scopes the findings. The
+clear — with a line under it only when a Map chip scopes the findings. The
 hero shows the state as a ring (broken, waiting, attention, tending, healthy;
 no glow: colour and the glyph carry it) beside three lanes: *Automatic* (the
 findings the next background run fixes, its next and last run, and what the
@@ -626,12 +628,15 @@ them:
   the pages that carry the same message folded into one line of page chips.
   Severity is a priority, not a separate pile: an info finding is an
   improvement the doctor fixes or accepts (its *Advice* step). The Map or
-  Journal selected in the rail scopes them
-  (`GET /api/ui/v1/kbs/<kb>/lint?scope=`), and the title and summary name that
-  scope, so a clean Map never reads as a clean KB; *All* returns to the
-  KB-wide list. The Type and Status filters apply to graph nodes only, so the
-  rail hides them here and keeps their selection for the way back to the
-  Atlas;
+  Journal chosen in the page's own *Where* chips (counted over the unfiltered
+  findings, so a filter never hides its siblings; `hmap=` in the URL) narrows
+  them in the page (one whole-KB `GET /api/ui/v1/kbs/<kb>/lint`, filtered by
+  path, so a click costs no request), and the title and summary name
+  that scope, so a clean Map never reads as a clean KB; pressing the chip
+  again returns to the KB-wide list. The rail does not filter here: a Map
+  click opens the Atlas on it. The Type and Status filters apply to graph
+  nodes only, so the rail hides them here and keeps their selection for the
+  way back to the Atlas;
 - *Knowledge* (listed when there is any): open knowledge gaps, the searches
   agents made that found nothing (ticked and muted once the same search finds
   something, D319), and how many concepts are past their review date

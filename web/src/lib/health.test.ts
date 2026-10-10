@@ -1,4 +1,4 @@
-import { checkLabel, groupFindings, trendOf } from "./health";
+import { checkLabel, filterReportByMap, groupFindings, trendOf } from "./health";
 
 describe("groupFindings", () => {
   it("folds one cause on many pages into one group, worst and largest first", () => {
@@ -42,5 +42,26 @@ describe("trendOf", () => {
       points: [188, 90, 40],
     });
     expect(trendOf([at(2, 9), at(0, 4)], now)?.span).toBe("over 2 days");
+  });
+});
+
+describe("filterReportByMap", () => {
+  const report = {
+    findings: [
+      { path: "infra/a.md", check: "broken_link", severity: "error", message: "m" },
+      { path: "infra-old/b.md", check: "orphan", severity: "warning", message: "m" },
+    ],
+    count: 2,
+    total: 2,
+    by_severity: { error: 1, warning: 1 },
+    by_check: { broken_link: 1, orphan: 1 },
+    severity_min: "info",
+  };
+  it("keeps the Map's folder and beneath, not a sibling sharing the prefix, and recounts", () => {
+    const out = filterReportByMap(report, "infra")!;
+    expect(out.findings.map((f) => f.path)).toEqual(["infra/a.md"]);
+    expect(out.total).toBe(1);
+    expect(out.by_severity).toEqual({ error: 1 });
+    expect(filterReportByMap(report, null)).toBe(report);
   });
 });
