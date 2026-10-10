@@ -1,4 +1,4 @@
-.PHONY: help build test vet fmt fmt-check run run-http smoke smoke-http docker clean e2e test-install worktree-add worktree-rm gate decisions-index decisions-new codemap web web-test web-check e2e-web hero
+.PHONY: help build test vet fmt fmt-check run run-http smoke smoke-http docker clean e2e test-install worktree-add worktree-rm dev gate decisions-index decisions-new codemap web web-test web-check e2e-web hero
 
 VERSION ?= $(shell git describe --tags --always 2>/dev/null || echo dev)
 
@@ -121,6 +121,11 @@ worktree-rm: ## Remove a plan worktree and its stale local branch: make worktree
 	@git worktree remove --force ".worktrees/$(SLUG)"
 	@git branch -D "feat/$(SLUG)" 2>/dev/null || true
 	@echo "worktree removed: .worktrees/$(SLUG)"
+
+# The live session's instance (the live-dev skill): Go rebuilt and restarted on
+# change, the UI hot-reloaded by Vite. DATA is copied, never served in place.
+dev: ## Live instance from this worktree: make dev [DATA=<data dir>] [API_PORT=39280] [UI_PORT=5173]
+	@DATA="$(DATA)" API_PORT="$(API_PORT)" UI_PORT="$(UI_PORT)" ./scripts/dev.sh
 
 # Deliberately Go-only: a contributor changing Go code must not need a Node
 # toolchain. The committed UI bundle is kept honest by a pure-Go staleness test

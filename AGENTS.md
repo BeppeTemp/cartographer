@@ -23,6 +23,7 @@ make decisions-new N=<issue> SLUG=my-choice TOPIC=control-plane   # D<n> = plan 
 make decisions-index # regenerate docs/decisions.md locally (the release PR does it, D328)
 make worktree-add SLUG=my-change   # isolated worktree for a plan branch
 make worktree-rm  SLUG=my-change   # remove it (force: discards uncommitted work)
+make dev [DATA=<data dir>]         # live instance from a worktree: Go rebuilt on change, UI hot-reloaded
 ```
 
 ```bash
@@ -116,6 +117,7 @@ Not duplicated here:
 - **This repository is public**: before any commit, doc, test, issue, PR or comment, replace what came from a real setup — KB names → `kb-a`/`work-kb`, hosts and remotes → `example.com`/`gitlab.example.com`, users → `user`, paths → `$HOME/…` — and drop employer, client and project names; in doubt, a name is private. The `privacy` workflow is a net, not the filter: a hit already left a public revision (D259).
 - **Done** means: `make gate` green; the docs named in `docs/index.md` §Documentation maintenance rules updated in the same session; every trap you hit fixed where it bites — a test if it can be checked, a comment next to the code if it is about that code, otherwise one line in the area `AGENTS.md` or in the skill of the procedure (D214); one decision file per architectural or contract choice (D672).
 - Analysis/design and implementation often happen in separate sessions: the handoff is a **plan issue** — a self-contained GitHub issue from the `Plan` template, label `plan` (an `idea` or `bug` issue is promoted to one in place) (procedure and self-sufficiency test in `CONTRIBUTING.md` §Plan issues). The implementing session reads it with `gh issue view <n>` and the implementation PR closes it (`Closes #<n>`).
+- A change whose outcome is found by trying it (Atlas UI, UX, output to tune) needs no plan: it is a **live session** on a running instance with the user, landing one PR (`live-dev` skill).
 - Server and client releases (release-please PR merge, pipeline, rollout, local client update) → maintainer-local tooling, not versioned here.
 - **Documentation is updated in the same session in which the code is changed — never afterward.** The "what changes → which file to update" table is in `docs/index.md` §Documentation maintenance rules: use it for every change.
 - Conventions → `docs/conventions.md`. Every architectural or contract choice → one file `docs/decisions/D<n>-<slug>.md`, numbered after its plan issue or PR (D672), never regenerate `docs/decisions.md` in a feature PR (D328).

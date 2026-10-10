@@ -1,0 +1,118 @@
+---
+name: live-dev
+description: Run a live development session - change Cartographer while the user tries it on a running instance, iterate on their feedback, and land one PR. Use when the outcome is found by trying rather than specified up front (Atlas UI, UX, CLI output, a behaviour to tune), or when the user asks to work live, with a live instance, or without a plan issue. Sibling of plan-issue and implement-issue, which cover changes that can be specified before they are built.
+---
+
+# live-dev — a running instance, the user's feedback, one PR
+
+The other way to land a change. `plan-issue` → `implement-issue` separates the
+design from the implementation and hands it over in an issue; a live session
+keeps them together, because the user decides by seeing the result. The rules
+of the repository do not change: `main` is protected, one PR, `make gate`,
+docs and decision in the same PR (`AGENTS.md`, `CONTRIBUTING.md` §Pull requests).
+
+Choose it when the result can only be judged on the instance. If the change
+can be written down completely before it is built, write a plan instead.
+
+This file is the single copy for every client; `.claude/skills/live-dev` and
+`.kiro/skills/live-dev` are symlinks to it.
+
+## Roles
+
+- **Coordinator** — the session talking with the user. It owns the conversation,
+  the worktree, the live instance, every git operation and the decision record.
+  It turns feedback into changes and reads every diff before the user sees it.
+- **`live-implementer`** — a coding subagent on a cheaper model, pinned in its
+  definition (`.claude/agents/`, `.codex/agents/`, `.kiro/agents/`, same text).
+  It makes **one** bounded change in the coordinator's worktree and stops: it
+  never commits, never runs `make dev`, never touches a file outside its mandate.
+- **Explore** (or the client's context-gathering subagent) — answers "where is X"
+  for an area the coordinator does not know, so the files are not read into the
+  conversation.
+
+Delegate when a change spans several files, needs tests, or can run while the
+user is trying the previous one. Do it yourself when it is a line or two: the
+spawn costs more than the edit, and the user is waiting to see it.
+
+## 1 — Start
+
+1. `git pull --ff-only` on `main`, then `make worktree-add SLUG=<slug>` and work
+   from `.worktrees/<slug>`.
+2. `make dev` from the worktree, in the background. `DATA=<data dir>` serves a
+   copy of real KBs (remotes removed, git sync off, deleted on exit); without it
+   a demo KB. Another live session on the machine → pick other ports:
+   `API_PORT=39281 UI_PORT=5174`.
+3. Give the user the UI address: `http://localhost:<UI_PORT>/ui/` — `localhost`,
+   not `127.0.0.1`, which Vite does not listen on. Go changes restart the
+   server within seconds; `web/` changes reload in the browser.
+
+## 2 — Iterate
+
+For each piece of feedback:
+
+1. Derive the `file:line` pointers yourself (or with Explore), then either edit
+   or spawn a `live-implementer` with the mandate below.
+2. Read `git diff` when it reports. Trust the disk, not the report.
+3. Tell the user what to look at, in one line. A build failure keeps the previous
+   server running: the `make dev` log says so.
+4. When the user accepts a step, commit it on `feat/<slug>` (`wip:` messages are
+   fine, the merge squashes them): every accepted step is a point to go back to.
+
+Two implementers may run at once only on **disjoint** file sets, each named in its
+mandate; while they run, the coordinator does not edit those files.
+
+**Open the PR as a draft after the first accepted commit**: `git push -u origin
+feat/<slug>` + `gh pr create --draft`. Its number is the decision number (D672):
+run `make decisions-new N=<pr>` then and fill it as the choices are made. Never
+guess the next number from the issue and PR lists: another session can take it
+first.
+
+### Mandate (self-contained: the subagent never sees the conversation)
+
+- Worktree: `<absolute path>`; every command runs there (`git -C`, `make -C`,
+  `cd <path>/web`). Another agent may be editing other files in it: touch only
+  the files listed here.
+- The change: the behaviour wanted, in the user's terms plus the exact semantics;
+  the `file:line` pointers; the files you may edit.
+- Tests: which to add, and the targeted command to run — `go test ./internal/<pkg>/ -run <Name>`
+  or `cd web && npx vitest run <file>`. Not `make gate`: it runs at closing.
+- Do not commit, push, start a server or edit a file outside the list.
+- Report, at most 8 lines: files changed; tests run and their outcome; every
+  assumption you made where the mandate was silent; every trap you hit.
+
+## 3 — Close
+
+1. Agree the scope with the user: what is in this PR, what becomes an `idea` issue.
+2. Closing mandate to one `live-implementer` (or yourself): the docs named in
+   `docs/index.md` §Documentation maintenance rules for what changed, the tests
+   still missing, `make web` if `web/` changed (the bundle is committed), then
+   `make gate` until green. The coordinator writes the decision file: it holds
+   the why.
+3. Review the whole diff against `main` with an independent pass — `/code-review`
+   in Claude Code, a reviewing subagent elsewhere. The user tried the behaviour,
+   nobody has read the code.
+4. Final commit, PR title as a conventional commit, body ending with what the
+   user verified live; `gh pr ready`. Merge (`gh pr merge --squash --delete-branch --auto`)
+   only on the user's decision.
+5. Stop `make dev`; after the merge, `make worktree-rm SLUG=<slug>` from the main
+   working copy, then `git pull --ff-only`.
+
+## Traps
+
+- A `D<n>` cited in code or docs before `docs/decisions/D<n>-*.md` exists fails
+  `TestEveryDecisionCitedResolves`: create the file as soon as the draft PR has a number.
+- A test that passes in CI and fails on your machine is reading your real home
+  (a token file, a client config): isolate it with `setHome(t, t.TempDir())`.
+- Removing a feature that has shipped is a migration: what it installed on users'
+  machines (a scheduled job, a file) must be removed by the new version.
+- Keep no file of your own under `web/`: it enters the bundle's provenance hash
+  and `web-check` fails in CI (`docs/testing.md` §Frontend).
+
+## Per-client mechanics
+
+| | How to spawn the implementer |
+|---|---|
+| **Claude Code** | `Agent` with `subagent_type: live-implementer`, `run_in_background: true`; act on the completion notification |
+| **Codex** | `collaboration.spawn_agent` with the `live-implementer` agent |
+| **Kiro** | `orchestrate_subagent` with the `live-implementer` agent |
+| **Antigravity** | no project agent: make the change yourself |
