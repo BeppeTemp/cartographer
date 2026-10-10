@@ -8,6 +8,15 @@
 
 KB histories with commits authored as `cartographer <cartographer@localhost>` may need a manual author rewrite before a forge with author push rules accepts the first push.
 
+## [0.22.2](https://github.com/BeppeTemp/cartographer/compare/v0.22.1...v0.22.2) (2026-10-10)
+
+
+### Bug Fixes
+
+* **mcpserver:** changes_since no longer loops when a page moves away and back ([#696](https://github.com/BeppeTemp/cartographer/issues/696)) ([0796406](https://github.com/BeppeTemp/cartographer/commit/0796406c100a3408cd8b090e02a358e95b794a1a))
+* **mcpserver:** list_items_dropped no longer fires when a scalar replaces a scalar ([#689](https://github.com/BeppeTemp/cartographer/issues/689)) ([4bc9c61](https://github.com/BeppeTemp/cartographer/commit/4bc9c6184b5d14f2934e6721a902a17c62257d20))
+* **service:** a sandboxed HOME never registers with the account's per-user scheduler ([#684](https://github.com/BeppeTemp/cartographer/issues/684)) ([2196c88](https://github.com/BeppeTemp/cartographer/commit/2196c8880ebbef75a8465cea87612ea1f1b08337))
+
 ## [0.22.1](https://github.com/BeppeTemp/cartographer/compare/v0.22.0...v0.22.1) (2026-10-10)
 
 
