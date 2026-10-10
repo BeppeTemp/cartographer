@@ -370,8 +370,16 @@ func preflightEnvironment(cfg *clientconfig.Config, targets []string, clientBase
 	// The same condition resolveToken applies: auth off, or no token_env
 	// declared, means no credential is sent and none is required here. An
 	// exported-but-empty variable is a missing one — it sends nothing.
-	if cfg.Auth && cfg.TokenEnv != "" && resolveToken(cfg) == "" {
-		missing = append(missing, fmt.Sprintf("  $%s — bearer token for %s", cfg.TokenEnv, cfg.ServerURL))
+	// The token file (D699) counts as present: it is how an unattended run
+	// gets the token. An unusable file is named, not reported as plain absent.
+	if cfg.Auth && cfg.TokenEnv != "" {
+		if tok, terr := resolveTokenErr(cfg); tok == "" {
+			line := fmt.Sprintf("  $%s — bearer token for %s (or a private token file: run `cartographer reconnect` with $%[1]s set to write it)", cfg.TokenEnv, cfg.ServerURL)
+			if terr != nil {
+				line += "\n    token file unusable: " + terr.Error()
+			}
+			missing = append(missing, line)
+		}
 	}
 
 	if len(missing) == 0 {

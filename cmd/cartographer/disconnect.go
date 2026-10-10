@@ -80,6 +80,9 @@ type disconnectOptions struct {
 	Providers []string
 	Dir       string
 	DryRun    bool
+	// KeepToken leaves the private token file in place when the last provider
+	// goes (reconnect, D699).
+	KeepToken bool
 }
 
 // disconnectProviderResult is the per-provider outcome of a disconnect pass.
@@ -170,6 +173,14 @@ func doDisconnect(opts disconnectOptions) (disconnectResult, error) {
 	}
 
 	if len(lockFile.Providers) == 0 {
+		// The token file goes with the last provider (D699). reconnect keeps it:
+		// it disconnects every provider and connects them again, possibly from
+		// a shell without the variable.
+		if !opts.KeepToken {
+			if err := clientconfig.RemoveToken(opts.Dir); err != nil {
+				return disconnectResult{}, err
+			}
+		}
 		if err := os.Remove(lockPath); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return disconnectResult{}, fmt.Errorf("remove lockfile: %w", err)
 		}

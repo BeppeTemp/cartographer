@@ -42,6 +42,7 @@ func TestPreflightEnvironment_MissingBaseDirOnly(t *testing.T) {
 // TestPreflightEnvironment_MissingTokenOnly: auth is on and the token variable
 // is unset, so no credential would be sent — reported before the server says 401.
 func TestPreflightEnvironment_MissingTokenOnly(t *testing.T) {
+	setHome(t, t.TempDir()) // no token file (D699) from the real home
 	t.Setenv("CARTOGRAPHER_TEST_TOKEN", "")
 
 	cfg := &clientconfig.Config{

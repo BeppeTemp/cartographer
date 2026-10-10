@@ -58,13 +58,31 @@ func lockFilePath(targetDir string) string {
 	return filepath.Join(targetDir, provisioning.LockFileName)
 }
 
-// resolveToken returns the bearer token for cfg, read from cfg.TokenEnv when
-// cfg.Auth is true; empty otherwise (no Authorization header is sent).
+// resolveToken returns the bearer token for cfg when cfg.Auth is true: the
+// environment variable cfg.TokenEnv when set, otherwise the private token file
+// `connect` wrote next to .cartographer.yaml (D699), otherwise "" (no
+// Authorization header is sent). The file exists because an unattended run
+// (sync timer, scheduled doctor) never inherits a login shell's exports.
 func resolveToken(cfg *clientconfig.Config) string {
+	tok, _ := resolveTokenErr(cfg)
+	return tok
+}
+
+// resolveTokenErr is resolveToken plus the reason the token file was not
+// usable (unsafe mode, symlink), so the preflight can name it instead of
+// reporting a plain "not set".
+func resolveTokenErr(cfg *clientconfig.Config) (string, error) {
 	if !cfg.Auth || cfg.TokenEnv == "" {
-		return ""
+		return "", nil
 	}
-	return os.Getenv(cfg.TokenEnv)
+	if v := os.Getenv(cfg.TokenEnv); v != "" {
+		return v, nil
+	}
+	dir, err := clientconfig.TargetDir()
+	if err != nil {
+		return "", nil
+	}
+	return clientconfig.ReadToken(dir)
 }
 
 // tokenEnvName returns the environment variable resolveToken reads for cfg, or
