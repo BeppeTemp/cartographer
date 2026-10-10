@@ -1333,6 +1333,20 @@ button.row {
   color: var(--text-primary);
 }
 
+/* The lint trend (D370): totals then and now, a sparkline of the daily samples. */
+.health__trend {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.health__trend[data-trend="better"] {
+  color: var(--sev-ok);
+}
+.health__spark {
+  flex: none;
+}
+
 /* The upkeep timeline: one row per run that fixed something. */
 .health__done-line {
   margin: 0 0 var(--space-2);

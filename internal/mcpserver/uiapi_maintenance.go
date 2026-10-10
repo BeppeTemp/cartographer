@@ -60,8 +60,11 @@ type maintenanceSummary struct {
 	DoctorMode string `json:"doctor_mode"`
 	// Runs are the background repair's runs of the last 30 days, newest first
 	// (D365): what each fixed, by check, with the commit that undoes it.
-	Runs    []autoRepairRun     `json:"runs"`
-	Repairs []maintenanceRepair `json:"repairs"`
+	Runs []autoRepairRun `json:"runs"`
+	// LintHistory is one sample of the whole-KB lint totals per day, oldest
+	// first (D370): the Health trend.
+	LintHistory []lintSample        `json:"lint_history"`
+	Repairs     []maintenanceRepair `json:"repairs"`
 }
 
 // GET /kbs/{kb}/maintenance/{summary,questions}.
@@ -98,6 +101,7 @@ func uiMaintenance(w http.ResponseWriter, r *http.Request, srv *Server, what str
 			DoctorMode:     "unattended",
 			Repairs:        []maintenanceRepair{},
 			Runs:           []autoRepairRun{},
+			LintHistory:    readLintHistory(k),
 		}
 		if k.DoctorAssisted() {
 			out.DoctorMode = "assisted"

@@ -266,6 +266,9 @@ type conformanceCache struct {
 	logMtime   int64
 	logSize    int64
 
+	// clock replaces time.Now for the lint history in tests.
+	clock func() time.Time
+
 	// lintCalls counts how many times lint.Run was actually called (for tests).
 	lintCalls int
 
@@ -424,6 +427,13 @@ func (cc *conformanceCache) lintFindings(k *kb.KB) ([]lint.Finding, error) {
 		cc.gen, cc.stamp, cc.findings, cc.cached = gen, stamp, findings, true
 		cc.lintCalls++
 		cc.mu.Unlock()
+		// D370: one sample a day of the unfiltered totals, taken where the
+		// whole-KB lint is recomputed and cached.
+		now := time.Now()
+		if cc.clock != nil {
+			now = cc.clock()
+		}
+		_ = recordLintSample(k, newLintSample(k, findings, now), now)
 	} else {
 		cc.mu.Lock()
 		cc.lintCalls++
@@ -451,6 +461,12 @@ func lintInputsStamp(k *kb.KB) string {
 		}
 		rel, _ := filepath.Rel(root, path)
 		name := d.Name()
+		// The lint history is written on every recompute (D370): counting it
+		// would invalidate the cache it was written from. The rest of
+		// .cartographer stays in: usage.json feeds artifact_unused.
+		if strings.HasPrefix(name, lintHistoryName) {
+			return nil
+		}
 		if strings.HasSuffix(name, ".md") && name != "index.md" && name != "_map.md" && name != "_archive.md" && strings.HasPrefix(filepath.ToSlash(rel), "data/") {
 			return nil
 		}

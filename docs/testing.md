@@ -298,7 +298,7 @@ toolchain (D227). What they hold:
 - Health (D338, D365): findings grouped by check with who acts on each,
   info findings counted as the doctor's improvements, the verdict for a doctor that never ran and one
   that keeps up, revealing a concept or saying there is none, scoped by the rail's Map so a
-  clean Map never reads as a clean KB; the upkeep, questions and repairs, each
+  clean Map never reads as a clean KB; the lint trend (shown from two samples, absent with one), the upkeep, questions and repairs, each
   copy action a clipboard write and every request a `GET`; a whole-KB `404`
   left out silently while another failure is reported; the old
   `panel=observatory` and `panel=maintenance` links landing on Health;

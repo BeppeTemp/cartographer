@@ -139,3 +139,30 @@ export function checkLabel(check: string): string {
   const words = check.replace(/_/g, " ");
   return words.charAt(0).toUpperCase() + words.slice(1);
 }
+
+/** What the trend line says: the total at the start and end of the window, and the daily totals between. */
+export interface Trend {
+  from: number;
+  to: number;
+  /** "this week" when the window covers the last 7 days, else "over N days". */
+  span: string;
+  points: number[];
+}
+
+/**
+ * The trend of the lint totals (D370): samples of the last 7 days, or all of
+ * them when the history is younger than a week. Null with fewer than two.
+ */
+export function trendOf(history: { at: string; total: number }[], now: number): Trend | null {
+  const week = 7 * 86_400_000;
+  const win = history.filter((s) => now - Date.parse(s.at) <= week);
+  if (win.length < 2) return null;
+  const first = win[0]!;
+  const days = Math.max(1, Math.round((Date.parse(win[win.length - 1]!.at) - Date.parse(first.at)) / 86_400_000));
+  return {
+    from: first.total,
+    to: win[win.length - 1]!.total,
+    span: days >= 6 ? "this week" : `over ${days} ${days === 1 ? "day" : "days"}`,
+    points: win.map((s) => s.total),
+  };
+}
