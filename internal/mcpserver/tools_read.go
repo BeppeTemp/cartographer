@@ -774,10 +774,15 @@ func toolChangesSince(k *kb.KB) Tool {
 			authorSeen := map[string]map[string]bool{}
 			opSeen := map[string]map[string]bool{}
 			reasonSeen := map[string]map[string]bool{}
+			// movedTo maps an old concept ID to its final one. Commits come
+			// newest first, so a rename's target is resolved before it is
+			// stored, and a rename back to where the page started (A→B, then
+			// B→A) is not stored at all: every value is a final ID, never a key,
+			// so the chain cannot loop (#695: it did, and spun forever).
 			movedTo := map[string]string{}
 			resolveMovedID := func(id string) string {
-				for movedTo[id] != "" {
-					id = movedTo[id]
+				if to := movedTo[id]; to != "" {
+					return to
 				}
 				return id
 			}
@@ -794,7 +799,16 @@ func toolChangesSince(k *kb.KB) Tool {
 					}
 					if file.Status == "R" {
 						if oldID, oldOK := kb.GitPathToConceptID(file.OldPath); oldOK {
-							movedTo[oldID] = id
+							if final := resolveMovedID(id); final != oldID {
+								movedTo[oldID] = final
+								for k, v := range movedTo {
+									if v == oldID {
+										movedTo[k] = final
+									}
+								}
+							} else {
+								delete(movedTo, oldID)
+							}
 						}
 					}
 					id = resolveMovedID(id)
