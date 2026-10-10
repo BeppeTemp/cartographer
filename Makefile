@@ -1,4 +1,4 @@
-.PHONY: help build test vet fmt fmt-check run run-http smoke smoke-http docker clean e2e test-install worktree-add worktree-rm gate decisions-index decisions-next decisions-new codemap web web-test web-check e2e-web hero
+.PHONY: help build test vet fmt fmt-check run run-http smoke smoke-http docker clean e2e test-install worktree-add worktree-rm gate decisions-index decisions-new codemap web web-test web-check e2e-web hero
 
 VERSION ?= $(shell git describe --tags --always 2>/dev/null || echo dev)
 
@@ -22,7 +22,7 @@ test: ## Run all tests
 	# Windows runner (git is slow there), and the timeout then kills the package.
 	go test -timeout 20m ./...
 
-vet: ## Run go vet (also for Windows: test-windows runs on main only, so a PR catches its compile errors here)
+vet: ## Run go vet (also for Windows: test-windows skips PRs outside platform-specific code, so a PR catches its compile errors here)
 	go vet ./...
 	GOOS=windows go vet ./...
 
@@ -139,11 +139,7 @@ decisions-index: ## Regenerate the decision index in docs/decisions.md
 codemap: ## Regenerate the code map in AGENTS.md from the package doc comments
 	@go test ./internal/repodocs -run TestCodeMapIsUpToDate -count=1 -args -update
 
-decisions-next: ## Print the next free decision number on disk
-	@ls docs/decisions/D*.md 2>/dev/null | sed -E 's#.*/D([0-9]+)-.*#\1#' \
-		| sort -n | tail -1 | awk '{print $$1 + 1}'
-
-decisions-new: ## New decision from the template: make decisions-new N=202 SLUG=my-choice TOPIC=control-plane
+decisions-new: ## New decision from the template: make decisions-new N=<plan issue or PR number> SLUG=my-choice TOPIC=control-plane (D673)
 	@test -n "$(N)" -a -n "$(SLUG)" -a -n "$(TOPIC)" || \
 		(echo "decisions-new: N, SLUG and TOPIC are all required" && exit 1)
 	@test ! -e "docs/decisions/D$(N)-$(SLUG).md" || \

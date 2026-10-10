@@ -22,17 +22,10 @@ the two places where the clients genuinely differ.
    implemented on `main`) is reported back, not re-planned; a partial overlap
    means extending/amending the existing issue or stating the relationship
    (execution order, shared files) in the new one.
-2. Reserve the next free D number. Inspect both the implemented records and
-   every plan issue title, then choose the next number above both maxima:
-
-   ```bash
-   make decisions-next          # highest implemented D number + 1
-   gh issue list --label plan --state all --limit 1000
-   ```
-
-   An issue title reserves its number even before the entry exists. Use
-   `Plan: <title> (D<n>)`; the decision file is written **at the end of
-   implementation**, not now — the plan is its draft.
+2. Nothing to reserve: the plan's decision number is its issue number (D673).
+   Title it `Plan: <title>`. Whether it needs a decision file at all (an
+   architectural or contract choice) is stated in its Closing section; the file
+   is written **at the end of implementation**, not now — the plan is its draft.
 3. Derive the real `file:line` pointers before writing, with your client's
    symbol search rather than by reading whole files, and read only the located
    ranges. For an area you do not already know, send a context-gathering
@@ -40,7 +33,7 @@ the two places where the clients genuinely differ.
    pointers, not paraphrases.
 4. Write the body (in English) to a scratch file following the template
    structure, then:
-   `gh issue create --title "Plan: <title> (D<n>)" --label plan --body-file <file>`.
+   `gh issue create --title "Plan: <title>" --label plan --body-file <file>`.
    Delete the scratch file afterwards — it is not a repository artifact.
 5. Apply the self-sufficiency test from `CONTRIBUTING.md` before submitting, and
    replace every real KB name, host, username, employer or client with a
@@ -51,21 +44,23 @@ the two places where the clients genuinely differ.
    while nothing is implemented yet; once implementation starts, amend via
    comments only.
 7. Sibling cross-links: create the issues in execution order, then amend each
-   body to reference siblings as `D<n> (#<issue>)` — the numbers exist only
-   after creation. A pointer into a sibling's not-yet-implemented artifact
-   cites the plan (`D<n> WP<m>`), never an invented `file:line`.
-8. A plan written from a request issue (bug or enhancement) replaces it: state
-   `Supersedes #<m>` in the body, then close the request right after creating
-   the plan — `gh issue close <m> --reason "not planned" -c "Superseded by plan #<n>"`.
-   `Supersedes` is not a GitHub closing keyword: left open, the request outlives
-   the plan's `Closes #<n>` and the backlog counts the same work twice.
+   body to reference siblings as `#<issue>` — the numbers exist only after
+   creation. A pointer into a sibling's not-yet-implemented artifact cites the
+   plan (`#<issue> WP<m>`), never an invented `file:line`.
+8. A plan written from an `idea` or `bug` issue is **promoted in place**, not
+   filed anew: rewrite that issue's body from the template (keep a one-line
+   summary of the original request at the top), retitle it `Plan: <title>`, and
+   `gh issue edit <m> --add-label plan --remove-label idea`. One issue, one
+   history, nothing to close by hand. Only an analysis that splits one request
+   into several plans files new issues; it then closes the request with
+   `-c "Split into #<a>, #<b>"`.
 
 ## Consuming a plan (implementing session)
 
 1. `gh issue view <n>` (add `--comments`: later amendments live there).
 2. Execute the WPs in order, `make gate` after each.
-3. Update the docs per the closing checklist and write the decision file
-   `docs/decisions/D<n>-<slug>.md` (never regenerate `docs/decisions.md` in the
+3. Update the docs per the closing checklist and, if it names one, write the
+   decision file `docs/decisions/D<issue>-<slug>.md` (never regenerate `docs/decisions.md` in the
    PR: the release PR regenerates the index (D328)); the implementation PR body includes `Closes #<n>`.
 4. Contradiction between plan and code → **stop and flag it** in an issue
    comment: the plan may be stale relative to `main`.

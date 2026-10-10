@@ -20,7 +20,7 @@ is non-deterministic, costly and dependent on external providers.
 parsing, KB invariants, tools, authorization, git behavior, provisioning and
 client configuration.
 
-`make vet` runs `go vet ./...` twice, natively and with `GOOS=windows` (the `test-windows` job is skipped on feature PRs, so a test that does not compile on Windows would otherwise reach `main`), and `make fmt-check` fails on anything not
+`make vet` runs `go vet ./...` twice, natively and with `GOOS=windows` (the `test-windows` job is skipped on feature PRs outside platform-specific code, so a test that does not compile on Windows would otherwise reach `main`), and `make fmt-check` fails on anything not
 gofmt-clean. All three are `make gate`, which is the single command CI runs.
 
 `make gate` runs on **two operating systems**: the `test` job on `ubuntu-latest`
@@ -32,12 +32,16 @@ It sets `shell: bash` for every step — the Makefile recipes are POSIX shell �
 installs `make`, which is not on the runner image, and turns off Defender's
 real-time scanning (about a fifth of the gate's time; the git-backed packages
 stay far slower than on Linux, from process creation). It runs on every push
-to `main` and on the release-please PR, never on a feature PR (D328): it was
-the whole wait of each PR, and the release stays blocked on it. A Windows
-regression therefore shows on `main` right after the merge that caused it, not
-before. The `web` job runs on PRs only, and only when the PR touches its paths:
-a `changes` job decides, failing open, and the release-please PR always runs it
-(D255); its Playwright browser is cached by version. `docs/decisions.md`'s
+to `main`, on the release-please PR, and on a feature PR that touches a package
+with platform-specific code — `cmd/`, `internal/{service,provisioning,configurator,clientconfig,agents,execbit,gitx,kb,repoindex,defaults}`,
+the installers, any `*_windows.go` (D673). A regression elsewhere still shows
+on `main` right after the merge. The `web` job runs after every push to `main`
+and on a PR that touches its paths (D673, D255); its Playwright browser is
+cached by version. A `changes` job decides both, failing open, and the
+release-please PR always runs everything. `test`, `test-windows`, `web` and
+`pr-title` are required checks; a job skipped by its path condition reports as
+passed. On `main`, the `main-status` job opens a `ci-red` issue on the first
+failing push, comments on later ones, and closes it on the next green push. `docs/decisions.md`'s
 generated index is checked only on the release PR, which regenerates it. The working tree is LF on both
 legs (`.gitattributes`): gofmt is line-ending-sensitive, so a CRLF checkout fails
 `fmt-check` on every file at once.

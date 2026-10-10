@@ -1,15 +1,16 @@
 ---
 name: Plan
 about: Self-contained implementation plan (design → implementation handoff)
-title: 'Plan: <title> (D<n>)'
+title: 'Plan: <title>'
 labels: plan
 ---
 
-> **Status**: approved, not implemented. On completion: add the decision file
-> `docs/decisions/D<n>-<slug>.md` (`make decisions-new`; the release PR
-> regenerates the index, D328), update the affected current-state docs
-> (`docs/index.md` §Documentation maintenance rules), then close this issue from
-> the implementation PR (`Closes #<n>`).
+> **Status**: approved, not implemented. Its decision number is this issue's
+> number (D673). On completion: update the affected current-state docs
+> (`docs/index.md` §Documentation maintenance rules), add
+> `docs/decisions/D<issue>-<slug>.md` only if the plan makes an architectural or
+> contract choice, then close this issue from the implementation PR
+> (`Closes #<issue>`).
 
 ## Context and diagnosis
 
@@ -27,6 +28,6 @@ semantics and error cases; tests to add; acceptance criterion.
 <!-- Replace every placeholder. -->
 
 - [ ] Current-state docs: `docs/<page>.md`
-- [ ] Decision file: `docs/decisions/D<n>-<slug>.md`, `topic: <topic>`
+- [ ] Decision file: `docs/decisions/D<issue>-<slug>.md`, `topic: <topic>`, or `none` (no architectural or contract choice)
 - [ ] Traps: fixed with a test or a comment next to the code, or `none`
 - [ ] Release impact: `<none | describe>`

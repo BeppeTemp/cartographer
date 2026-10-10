@@ -78,7 +78,7 @@ matching file **in the same session/PR** as the change:
 | New provisioning `kind` (beyond skill/agent/hook) or per-provider destination | `configurator.md` (client) + `sync.md` (manifest/diff) |
 | A feature is **not** implemented (deferred, planned, "future work") | A GitHub issue labelled `enhancement` — never prose in `docs/`. The page keeps only the current limit, with a link to the issue |
 | Project status, milestone, task or bug changes | GitHub issue / pull request / release; update `CHANGELOG.md` only through the release workflow |
-| Any non-obvious choice (why X and not Y) | One new file `docs/decisions/D<n>-<slug>.md` (`make decisions-new`; the release PR regenerates `docs/decisions.md`, D328); never a second entry for the same choice |
+| An architectural or contract choice (why X and not Y) | One new file `docs/decisions/D<n>-<slug>.md`, `<n>` = the plan issue or PR number (D673; `make decisions-new`; the release PR regenerates `docs/decisions.md`, D328); never a second entry for the same choice |
 | New external dependency | A decision file under `docs/decisions/` + `conventions.md` §dependencies |
 | New test level or pre-release checklist change | `testing.md` |
 | Atlas UI (`web/`) or its routes/config | `make web` to rebuild the committed bundle; `deployment.md` §The embedded Atlas UI; `testing.md` §Frontend; `make hero` when the README's hero tour looks different (D330) |
