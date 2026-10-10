@@ -274,102 +274,7 @@
   height: 12px;
   margin: 0 0 0 var(--space-1);
   accent-color: var(--primary);
-}
-
-/* --- The day area: one series across the page --- */
-
-.day-area {
-  margin: 0;
-}
-
-.day-area__caption {
-  color: var(--text-muted);
-}
-
-.day-area__caption strong {
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-.day-area__plot {
-  position: relative;
-  height: 96px;
-}
-
-.day-area__plot svg {
-  display: block;
-  width: 100%;
-  height: 100%;
-  overflow: visible;
-}
-
-.day-area__stop-top {
-  stop-color: var(--primary);
-  stop-opacity: 0.35;
-}
-
-.day-area__stop-bottom {
-  stop-color: var(--primary);
-  stop-opacity: 0;
-}
-
-.day-area__fill {
-  fill: url(#day-area-fill);
-}
-
-.day-area__line {
-  fill: none;
-  stroke: var(--primary);
-  stroke-width: 2;
-  stroke-linejoin: round;
-}
-
-.day-area__dot {
-  position: absolute;
-  width: 10px;
-  height: 10px;
-  margin: -5px 0 0 -5px;
-  pointer-events: none;
-  background: var(--primary);
-  border-radius: var(--radius-pill);
-  box-shadow: 0 0 0 3px var(--surface-0);
-  transition:
-    left var(--motion-fast) var(--ease-out),
-    top var(--motion-fast) var(--ease-out);
-}
-
-.day-area__days {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.day-area__days li {
-  flex: 1 1 0;
-}
-
-.day-area__day {
-  display: block;
-  width: 100%;
-  height: 100%;
-  padding: 0;
-  cursor: crosshair;
-  background: none;
-  border: 0;
-}
-
-.day-area__axis {
-  display: flex;
-  justify-content: space-between;
-  margin-block-start: var(--space-1);
-  font-size: var(--text-xs);
-  color: var(--text-muted);
-}
-
-/* --- A titled block --- */
+}/* --- A titled block --- */
 
 .facet {
   min-width: 0;
@@ -601,6 +506,7 @@ button.row {
 }
 
 .rows li:hover .row-action,
+.upkeep-log li:hover .row-action,
 .row-action:focus-visible,
 .row-action[data-done="true"] {
   opacity: 1;
@@ -718,13 +624,7 @@ button.row {
 
 .timeline__summary .figures__item dd {
   font-size: var(--text-xl);
-}
-
-.timeline__summary .day-area__plot {
-  height: 48px;
-}
-
-.timeline__days {
+}.timeline__days {
   margin: 0;
   padding: 0;
   list-style: none;
@@ -984,6 +884,11 @@ button.row {
   --ring: var(--sev-error);
 }
 
+/* In hand: Cartographer is on it, nothing to worry about. */
+.state-ring--tending {
+  --ring: var(--primary);
+}
+
 .state-ring svg {
   position: absolute;
   inset: 0;
@@ -1035,23 +940,44 @@ button.row {
   color: var(--text-secondary);
 }
 
-/* Upkeep: a line for the background repair, a track for the doctor's cycle. */
-.upkeep {
+/* The three hands: background repair, doctor, the reader. */
+.lanes {
   display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: var(--space-3);
 }
 
-.upkeep__line {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-1) var(--space-2);
-  margin: 0;
-  font-size: var(--text-sm);
-  color: var(--text-primary);
+.lane {
+  --lane: var(--text-muted);
+  display: grid;
+  align-content: start;
+  gap: var(--space-1);
+  min-width: 0;
+  padding: var(--space-3) var(--space-4);
+  background: var(--surface-1);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-card);
 }
 
-.upkeep__label {
+.lane[data-tone="auto"] {
+  --lane: var(--sev-ok);
+}
+
+.lane[data-tone="doctor"] {
+  --lane: var(--primary);
+}
+
+.lane[data-tone="due"],
+.lane[data-tone="you"] {
+  --lane: var(--sev-warning);
+  border-color: color-mix(in srgb, var(--sev-warning) 45%, var(--border-subtle));
+}
+
+.lane__title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
   font-size: var(--text-xs);
   font-weight: 600;
   letter-spacing: 0.06em;
@@ -1059,87 +985,448 @@ button.row {
   color: var(--text-muted);
 }
 
-.upkeep__sep,
-.upkeep__run {
-  color: var(--text-secondary);
-}
-
-/* On: a live dot that breathes; off: a hollow one. */
-.upkeep__pulse {
-  width: 8px;
-  height: 8px;
+.lane__icon {
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  color: var(--lane);
+  background: color-mix(in srgb, var(--lane) 14%, transparent);
   border-radius: var(--radius-pill);
-  box-shadow: inset 0 0 0 1.5px var(--text-muted);
 }
 
-.upkeep__pulse[data-on="true"] {
-  background: var(--sev-ok);
-  box-shadow: 0 0 0 0 color-mix(in srgb, var(--sev-ok) 60%, transparent);
-  animation: pulse 2.4s var(--ease-out) infinite;
-}
-
-@keyframes pulse {
-  70% {
-    box-shadow: 0 0 0 7px color-mix(in srgb, var(--sev-ok) 0%, transparent);
-  }
-  100% {
-    box-shadow: 0 0 0 0 color-mix(in srgb, var(--sev-ok) 0%, transparent);
-  }
-}
-
-.doctor {
+/* Next and last, as two aligned lines: a muted label, the moment, a chip. */
+.lane__times {
   display: grid;
-  gap: var(--space-2);
+  gap: var(--space-1);
+  margin: var(--space-1) 0 0;
 }
 
-.doctor__ends {
+.lane__times > div {
+  display: grid;
+  grid-template-columns: 4ch minmax(0, 1fr);
+  gap: var(--space-2);
+  align-items: baseline;
+}
+
+.lane__times dt {
+  font-size: var(--text-xs);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.lane__times dd {
   display: flex;
   flex-wrap: wrap;
-  justify-content: space-between;
-  gap: var(--space-2) var(--space-6);
+  align-items: baseline;
+  gap: var(--space-1) var(--space-2);
+  margin: 0;
   font-size: var(--text-sm);
   color: var(--text-primary);
 }
 
-.doctor__track {
-  position: relative;
-  height: 6px;
-  background: var(--surface-2);
+.lane__chip {
+  padding: 0 var(--space-2);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+  color: var(--sev-ok);
+  background: color-mix(in srgb, var(--sev-ok) 14%, transparent);
   border-radius: var(--radius-pill);
 }
 
-.doctor__fill {
-  position: absolute;
-  inset-block: 0;
-  inset-inline-start: 0;
-  background: linear-gradient(90deg, color-mix(in srgb, var(--primary) 30%, transparent), var(--primary));
-  border-radius: var(--radius-pill);
+.lane__chip--error {
+  color: var(--sev-error);
+  background: color-mix(in srgb, var(--sev-error) 14%, transparent);
 }
 
-.doctor__today {
-  position: absolute;
-  top: 50%;
-  width: 12px;
-  height: 12px;
-  margin: -6px 0 0 -6px;
-  background: var(--primary);
-  border-radius: var(--radius-pill);
-  box-shadow: 0 0 0 3px var(--surface-0);
+.lane__mode {
+  margin-inline-start: auto;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
 }
 
-.health__repair-bar {
-  width: 72px;
-  height: 4px;
+.lane__figure {
+  margin: var(--space-1) 0 0;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+.lane__value {
+  font-size: var(--text-2xl);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+  color: var(--text-primary);
+}
+
+.lane[data-tone="due"] .lane__value,
+.lane[data-tone="you"] .lane__value {
+  color: var(--sev-warning);
+}
+
+.lane__extra {
+  color: var(--text-muted);
+}
+
+.lane__note {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+}
+
+.lane__note--due {
+  color: var(--sev-warning);
+}
+
+/* Problems: one row per cause, opened to its pages. */
+.health__checks-list {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.health__check > details {
+  background: var(--surface-1);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-control);
+  transition: border-color var(--motion-fast) var(--ease-out);
+}
+
+.health__check > details:hover,
+.health__check > details[open] {
+  border-color: var(--border-strong);
+}
+
+.health__check-summary {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr) auto;
+  gap: var(--space-3);
+  align-items: center;
+  padding: var(--space-3);
+  cursor: pointer;
+  list-style: none;
+}
+
+.health__check-summary::-webkit-details-marker {
+  display: none;
+}
+
+.health__check-body {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.health__check-title {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.health__check-count {
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+}
+
+.health__check-meta {
+  display: flex;
+  gap: var(--space-2);
+  min-width: 0;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+.health__check-meta code {
+  flex: none;
+  font-family: var(--font-mono);
+}
+
+.health__check-sample {
   overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.health__handler[data-handler="auto"] {
+  color: var(--sev-ok);
+}
+
+.health__handler[data-handler="doctor"] {
+  color: var(--primary);
+}
+
+.health__check-rows {
+  margin: 0;
+  padding: 0 var(--space-2) var(--space-2);
+  border-block-start: 1px solid var(--border-subtle);
+}
+
+.health__check-rows .health__finding {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.health__check-rows .health__finding--many {
+  grid-template-columns: minmax(0, 1fr);
+  cursor: default;
+}
+
+.health__times {
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+}
+
+.health__pages {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  margin-block-start: var(--space-1);
+}
+
+.health__page {
+  padding: 1px var(--space-2);
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  cursor: pointer;
   background: var(--surface-2);
+  border: 0;
   border-radius: var(--radius-pill);
 }
 
-.health__repair-bar > span {
-  display: block;
-  height: 100%;
-  background: var(--primary);
+.health__page:hover {
+  color: var(--primary);
+}
+
+.health__page-more {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+.health__tabs {
+  margin-block-end: var(--space-4);
+}
+
+/* Coverage: every check, by category, a zero too. */
+.health__coverage-line {
+  margin: 0 0 var(--space-3);
+}
+
+.coverage {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.coverage__group {
+  background: var(--surface-1);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-control);
+}
+
+.coverage__title {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.coverage__tally {
+  font-size: var(--text-xs);
+  font-weight: 500;
+  color: var(--sev-warning);
+}
+
+.coverage__tally[data-clean="true"] {
+  color: var(--sev-ok);
+}
+
+.coverage__checks {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 2px var(--space-4);
+  margin: 0;
+  padding: 0 var(--space-3) var(--space-3);
+  list-style: none;
+}
+
+.coverage__check {
+  display: grid;
+  /* Fixed slots: the repair mark never pushes the count out of line. */
+  grid-template-columns: 14px minmax(0, 1fr) 14px 3ch;
+  gap: var(--space-2);
+  align-items: center;
+  min-height: 26px;
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+
+.coverage__mark {
+  font-size: var(--text-xs);
+  color: var(--sev-ok);
+  text-align: center;
+}
+
+.coverage__check[data-found] .coverage__mark::before {
+  content: "";
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  background: var(--sev-info);
   border-radius: var(--radius-pill);
+}
+
+.coverage__check[data-found][data-severity="warning"] .coverage__mark::before {
+  background: var(--sev-warning);
+}
+
+.coverage__check[data-found][data-severity="error"] .coverage__mark::before {
+  background: var(--sev-error);
+}
+
+.coverage__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.coverage__check[data-found] .coverage__name {
+  padding: 0;
+  font: inherit;
+  text-align: start;
+  color: var(--text-primary);
+  cursor: pointer;
+  background: none;
+  border: 0;
+}
+
+.coverage__check[data-found] .coverage__name:hover {
+  color: var(--primary);
+}
+
+.coverage__auto {
+  display: inline-flex;
+  color: var(--sev-ok);
+}
+
+.coverage__count {
+  grid-column: 4;
+  font-variant-numeric: tabular-nums;
+  text-align: end;
+}
+
+.coverage__check[data-found] .coverage__count {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+/* The upkeep timeline: one row per run that fixed something. */
+.health__done-line {
+  margin: 0 0 var(--space-2);
+}
+
+.upkeep-log {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.upkeep-log__entry {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--space-2);
+  align-items: start;
+  padding: var(--space-2) 0;
+  border-block-end: 1px solid var(--border-subtle);
+}
+
+.upkeep-log__head {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: var(--space-3);
+  align-items: start;
+  list-style: none;
+  cursor: pointer;
+}
+
+.upkeep-log__head::-webkit-details-marker {
+  display: none;
+}
+
+div.upkeep-log__head {
+  cursor: default;
+}
+
+.upkeep-log__body {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.upkeep-log__when {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.upkeep-log__what {
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+}
+
+.upkeep-log__bar {
+  display: flex;
+  gap: 2px;
+  height: 5px;
+  margin-block-start: var(--space-1);
+}
+
+.upkeep-log__bar > span {
+  flex-basis: 0;
+  min-width: 3px;
+  background: var(--sev-ok);
+  border-radius: var(--radius-pill);
+}
+
+.health__fixed {
+  display: grid;
+  gap: 2px;
+  margin: var(--space-2) 0 0 calc(24px + var(--space-3));
+  padding: 0;
+  list-style: none;
+}
+
+.health__fixed li {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+}
+
+.health__fixed-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-primary);
+}
+
+.health__fixed-count {
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary);
 }
 
 /* What to act on runs wide; the upkeep log rides beside it. */
@@ -1203,10 +1490,6 @@ button.row {
   color: var(--primary);
 }
 
-.health__floor-note {
-  margin: 0 0 var(--space-2);
-}
-
 .health__glyph {
   display: inline-grid;
   flex: none;
@@ -1230,10 +1513,6 @@ button.row {
   background: color-mix(in srgb, var(--primary) 16%, transparent);
 }
 
-.health__repair {
-  cursor: default;
-}
-
 .health__concepts {
   font-weight: 400;
   color: var(--text-muted);
@@ -1246,39 +1525,6 @@ button.row {
   margin: var(--space-2) 0 0;
   padding: 0 var(--space-3);
   list-style: none;
-}
-
-.health__checks {
-  margin-block-start: var(--space-4);
-  padding-inline: var(--space-3);
-  font-size: var(--text-sm);
-  color: var(--text-secondary);
-}
-
-.health__checks summary {
-  cursor: pointer;
-}
-
-.health__bycheck {
-  display: grid;
-  margin: var(--space-2) 0 0;
-}
-
-.health__bycheck div {
-  display: flex;
-  justify-content: space-between;
-  padding: var(--space-1) 0;
-  border-block-end: 1px solid var(--border-subtle);
-}
-
-.health__bycheck dt,
-.health__bycheck dd {
-  margin: 0;
-}
-
-.health__bycheck code {
-  font-family: var(--font-mono);
-  font-size: var(--text-xs);
 }
 
 @media (max-width: 1100px) {
@@ -1295,6 +1541,18 @@ button.row {
 
   .health__finding {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .lanes {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .health__check-summary {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .health__check-summary .severity {
+    display: none;
   }
 }
 
@@ -1344,24 +1602,12 @@ button.row {
   overflow-x: auto;
 }
 
-/* By map: one card per Map, as many per row as fit. */
-.work__maps {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-  gap: var(--space-4);
-  align-items: start;
-}
-
 .work__column {
   min-width: 0;
   padding: var(--space-3);
   background: var(--surface-1);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-card);
-}
-
-.work__maps .work__column {
-  border-block-start: 3px solid var(--map);
 }
 
 .work__column-title {
@@ -1533,4 +1779,125 @@ button.row {
 /* A calendar date beside a relative one: the quieter of the two. */
 .day__aside {
   color: var(--text-muted);
+}
+
+/* Activity: the concept worked on most, and the maintenance kept apart. */
+.activity-top {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+
+.activity-top__label {
+  font-size: var(--text-xs);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.activity-top__title {
+  overflow: hidden;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.activity-top:hover .activity-top__title {
+  text-decoration: underline;
+}
+
+.activity-top__count {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.activity-upkeep {
+  justify-self: start;
+  padding: 0;
+  border: 0;
+  background: none;
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.activity-upkeep:hover {
+  color: var(--text-secondary);
+}
+
+/* Changes per day: the growth replay's bars, the reader's changes below and
+   the server's upkeep above in a quieter tone. */
+.activity-bars {
+  margin: 0;
+}
+
+.activity-bars__track {
+  position: relative;
+  height: 40px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border-block-end: 1px solid var(--border-subtle);
+}
+
+.activity-bars__track li {
+  position: absolute;
+  inset-block: 0;
+  transform: translateX(-50%);
+}
+
+.activity-bars__day {
+  display: flex;
+  align-items: flex-end;
+  width: 9px;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: default;
+}
+
+.activity-bars__bar {
+  display: flex;
+  flex-direction: column;
+  width: 2px;
+  margin-inline: auto;
+  border-radius: 1px 1px 0 0;
+  background: var(--graph-signal);
+  opacity: 0.85;
+  transition: opacity var(--motion-fast) var(--ease-out);
+}
+
+.activity-bars__day[data-hover] .activity-bars__bar {
+  opacity: 1;
+  box-shadow: 0 0 0 1px var(--graph-signal);
+}
+
+.activity-bars__upkeep {
+  width: 100%;
+  border-radius: inherit;
+  background: var(--text-muted);
+}
+
+.activity-bars__axis {
+  display: flex;
+  justify-content: space-between;
+  margin-block-start: var(--space-1);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+.activity-bars__caption strong {
+  color: var(--text-primary);
 }

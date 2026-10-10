@@ -6025,3 +6025,60 @@ func TestServer_Lint_CheckAndPagination(t *testing.T) {
 		t.Errorf("check + limit + offset do not compose: %+v", p)
 	}
 }
+
+// TestChangesSinceLastEditAt: the Atlas places a concept on the day its
+// content last changed, not on the day the background auto-repair last
+// touched it, so changes_since says when that was.
+func TestChangesSinceLastEditAt(t *testing.T) {
+	k := setupTestKB(t)
+	if !gitx.IsRepo(k.Root) {
+		t.Skip("git not in PATH, skipping changes_since test")
+	}
+	base := time.Now().UTC().Truncate(time.Second).Add(5 * time.Minute)
+	if err := gitx.Commit(k.Root, "test: fixture", "Fixture", "fixture@example.test"); err != nil {
+		t.Fatalf("commit fixture: %v", err)
+	}
+	step := func(at time.Time, rel, content, subject string) {
+		t.Helper()
+		path := filepath.Join(k.Root, rel)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatalf("MkdirAll: %v", err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatalf("WriteFile: %v", err)
+		}
+		if err := gitx.Commit(k.Root, subject, "Alice", "alice@example.test",
+			"GIT_AUTHOR_DATE="+at.Format(time.RFC3339), "GIT_COMMITTER_DATE="+at.Format(time.RFC3339)); err != nil {
+			t.Fatalf("commit %q: %v", subject, err)
+		}
+	}
+	step(base.Add(time.Minute), "data/edits/edited.md", "first\n", "concept_write: edits/edited")
+	step(base.Add(2*time.Minute), "data/edits/edited.md", "repaired\n", "auto-repair (background)")
+	step(base.Add(3*time.Minute), "data/edits/upkept.md", "repaired\n", "auto-repair (background)")
+
+	tr, err := toolChangesSince(k).Handler(authLocalContext(), json.RawMessage(fmt.Sprintf(`{"since":%q}`, base.Format(time.RFC3339))))
+	if err != nil || tr.IsError {
+		t.Fatalf("changes_since: %+v %v", tr, err)
+	}
+	var result changesSinceResult
+	if err := json.Unmarshal([]byte(tr.Content[0].Text), &result); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	byID := map[string]changesSinceConcept{}
+	for _, c := range result.Concepts {
+		byID[c.ID] = c
+	}
+	edited, upkept := byID["edits/edited"], byID["edits/upkept"]
+	if want := base.Add(2 * time.Minute).Format(time.RFC3339); edited.LastAt != want {
+		t.Errorf("edited last_at = %q, want the auto-repair %q", edited.LastAt, want)
+	}
+	if want := base.Add(time.Minute).Format(time.RFC3339); edited.LastEditAt != want {
+		t.Errorf("edited last_edit_at = %q, want the concept_write %q", edited.LastEditAt, want)
+	}
+	if !edited.Added || edited.Change != "modified" {
+		t.Errorf("edited was created in the window and changed since: added=%v change=%q", edited.Added, edited.Change)
+	}
+	if upkept.ID == "" || upkept.LastEditAt != "" {
+		t.Errorf("a concept only auto-repair touched has no last_edit_at: %+v", upkept)
+	}
+}

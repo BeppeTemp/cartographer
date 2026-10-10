@@ -342,7 +342,7 @@ suppresses nothing is worse than no opt-out.
 
 Where each check can be accepted (D313) is `lint.CheckAcceptability` — `concept`, `map` (only the
 map's `_map.md`) or `none` — read from the same tables `lint_ignore_invalid` enforces, and shown as
-`kb_status.conformance.acceptability` and as a badge on the Health panel.
+`kb_status.conformance.acceptability`.
 
 `index_lists_retired` (D344, info, accept in `_map.md`) is one finding per curated index of a live map that still links a retired concept, with or without `require_index_entry`; journals, generated indexes and maps where at least half of the top-level concepts are retired (an archive) are exempt. `concept_archive` removes the entry; the finding catches a hand-made retirement.
 

@@ -60,13 +60,13 @@ describe("the Health panel's upkeep", () => {
     });
     render(<App />);
     const panel = await screen.findByRole("region", { name: "Health" });
-    expect(await within(panel).findByText("On, daily · 2 checks (default)")).toBeInTheDocument();
-    expect(within(panel).getByTitle("nonstandard_field, duplicate_link")).toBeInTheDocument();
     // Dates read as a person says them; the exact instant is in the tooltip.
-    expect(within(panel).getByTitle("2026-10-05T08:00:00Z")).toHaveTextContent(/3 concepts repaired$/);
+    const lane = await within(panel).findByRole("region", { name: /Automatic/ });
+    expect(within(lane).getByTitle("2026-10-05T08:00:00Z")).toHaveTextContent(/Last.*3 fixes/);
     expect(within(panel).getByTitle("2026-09-20")).toHaveTextContent(/Sep 20|20 Sep/);
     expect(within(panel).getByText("Which port does the proxy listen on?")).toBeInTheDocument();
-    expect(within(panel).getByText("nonstandard_field")).toBeInTheDocument();
+    // The last run by check, and the commit that made it.
+    expect(within(within(panel).getByRole("list", { name: "Fixed in this run" })).getByText("Non-standard field names")).toBeInTheDocument();
     expect(within(panel).getByTitle(`cartographer kb repair kb-a --revert ${SHA.slice(0, 7)}`)).toBeInTheDocument();
   });
 
@@ -124,11 +124,11 @@ describe("the Health panel's upkeep", () => {
     });
     render(<App />);
     const panel = await screen.findByRole("region", { name: "Health" });
-    // Nothing waits: no section for it, one clause in the subtitle.
-    expect(await within(panel).findByText(/no open question/)).toBeInTheDocument();
+    // Nothing waits: no section for it, one line in its lane.
+    expect(await within(panel).findByText("Nothing waits on you.")).toBeInTheDocument();
     expect(within(panel).queryByRole("heading", { name: /^Questions for you/ })).not.toBeInTheDocument();
-    expect(within(panel).getByText("No repair commit in the last 30 days.")).toBeInTheDocument();
-    expect(within(panel).getByText("off: auto_repair is explicitly empty")).toBeInTheDocument();
+    expect(within(panel).getByText("Nothing repaired in the last 30 days.")).toBeInTheDocument();
+    expect(await within(panel).findByText("Off: auto_repair is explicitly empty")).toBeInTheDocument();
     expect(within(panel).getByText("never")).toBeInTheDocument();
   });
 

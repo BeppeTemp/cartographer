@@ -194,7 +194,7 @@ export function Work({
         <Quiet tone="neutral">Nothing matches these filters.</Quiet>
       ) : (
         <div
-          className={layout === "status" ? "work__board" : "work__maps"}
+          className="work__board"
           role="region"
           aria-label={layout === "status" ? "Work by status" : "Work by map"}
         >

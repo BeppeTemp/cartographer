@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import { fetchChanges } from "../api/client";
 import type { ChangesResponse, CollectionSummary, ConceptChange, GraphSnapshot } from "../api/types";
+import { changedAt, changeKind, mostWorked, shownReasons, type ChangeKind } from "../lib/activity";
 import { collectionVar } from "../lib/palette";
 import {
   Avatar,
@@ -22,9 +23,30 @@ const WINDOWS = [
   ["1d", "1d"],
   ["7d", "7d"],
   ["30d", "30d"],
+  ["90d", "90d"],
+  ["1y", "1y"],
+  ["all", "All"],
 ] as const;
 type Window = (typeof WINDOWS)[number][0];
-const DAYS: Record<Window, number> = { "1d": 1, "7d": 7, "30d": 30 };
+/** The window's length in days; null for the whole history. */
+const DAYS: Record<Window, number | null> = {
+  "1d": 1,
+  "7d": 7,
+  "30d": 30,
+  "90d": 90,
+  "1y": 365,
+  all: null,
+};
+/** What changes_since is asked: it takes <N>d, and "all" reaches further
+ *  back than any KB has existed. */
+const SINCE: Record<Window, string> = {
+  "1d": "1d",
+  "7d": "7d",
+  "30d": "30d",
+  "90d": "90d",
+  "1y": "365d",
+  all: "36500d",
+};
 const DAY_MS = 86_400_000;
 
 /**
@@ -57,6 +79,9 @@ export function Activity({
   const [shown, setShown] = useState<Window>(since);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // The server's own upkeep is counted apart and listed only on request: it
+  // can touch every concept in a morning without anyone learning anything.
+  const [showUpkeep, setShowUpkeep] = useState(false);
 
   // A new KB starts blank. A new window or a live refetch (D337) keeps what
   // is on screen until the fresh answer replaces it: no flash of skeleton.
@@ -68,7 +93,7 @@ export function Activity({
   useEffect(() => {
     const controller = new AbortController();
     setLoading(true);
-    fetchChanges(kb, since, controller.signal)
+    fetchChanges(kb, SINCE[since], controller.signal)
       .then((res) => {
         setData(res);
         setShown(since);
@@ -90,10 +115,16 @@ export function Activity({
   );
   const mapTitles = useMemo(() => new Map(collections.map((c) => [c.name, c.title || c.name])), [collections]);
   const all = useMemo(() => data?.concepts ?? [], [data]);
+  // What the filters and the "Where" bar count: the reader's changes, and the
+  // server's upkeep only when it is on show.
+  const counted = useMemo(
+    () => (showUpkeep ? all : all.filter((c) => changeKind(c) !== "maintenance")),
+    [all, showUpkeep],
+  );
 
   // Authors and Maps by how much they changed: the busiest first.
-  const authors = useMemo(() => rank(all.flatMap((c) => c.authors ?? [])), [all]);
-  const maps = useMemo(() => rank(all.map(mapOf)), [all]);
+  const authors = useMemo(() => rank(counted.flatMap((c) => c.authors ?? [])), [counted]);
+  const maps = useMemo(() => rank(counted.map(mapOf)), [counted]);
 
   // A filter with no change in the new window is not a filter any more.
   useEffect(() => {
@@ -103,20 +134,34 @@ export function Activity({
     if (map && !maps.some(([m]) => m === map)) setMap(null);
   }, [map, maps]);
 
-  const rows = useMemo(
+  const filtered = useMemo(
     () => all.filter((c) => (!author || c.authors?.includes(author)) && (!map || mapOf(c) === map)),
     [all, author, map],
   );
+  const kinds = useMemo(() => new Map(filtered.map((c) => [c, changeKind(c)])), [filtered]);
+  const count = (k: ChangeKind) => filtered.filter((c) => kinds.get(c) === k).length;
+  const upkeep = count("maintenance");
+  const rows = useMemo(
+    () => (showUpkeep ? filtered : filtered.filter((c) => kinds.get(c) !== "maintenance")),
+    [filtered, kinds, showUpkeep],
+  );
   const days = useMemo(() => groupByDay(rows), [rows]);
-  const histogram = useMemo(() => perDay(rows, DAYS[shown]), [rows, shown]);
-  const added = rows.filter((c) => c.change === "added").length;
-  const deleted = rows.filter((c) => c.change === "deleted").length;
+  const histogram = useMemo(() => perDay(filtered, kinds, DAYS[shown]), [filtered, kinds, shown]);
+  const top = useMemo(() => mostWorked(filtered), [filtered]);
 
   return (
     <Page label="Recent activity" busy={loading} className="timeline">
       <PageHeader
         eyebrow="Activity"
-        title={<Headline data={data} n={rows.length} since={shown} author={author} mapTitle={map ? mapTitles.get(map) : null} />}
+        title={
+          <Headline
+            data={data}
+            n={filtered.length - upkeep}
+            since={shown}
+            author={author}
+            mapTitle={map ? mapTitles.get(map) : null}
+          />
+        }
         actions={<Segmented<Window> label="Changes since" value={since} options={WINDOWS} onChange={setSince} />}
       />
 
@@ -126,44 +171,80 @@ export function Activity({
             <div className="timeline__summary">
               <Figures
                 items={[
-                  { label: "new", value: added, sign: added ? "+" : undefined, tone: added ? "ok" : "muted" },
-                  { label: "removed", value: deleted, sign: deleted ? "−" : undefined, tone: deleted ? "error" : "muted" },
-                  { label: data.commit_count === 1 ? "commit" : "commits", value: data.commit_count },
-                  { label: authors.length === 1 ? "author" : "authors", value: authors.length },
+                  {
+                    label: "edited",
+                    value: count("edited"),
+                    tone: count("edited") ? undefined : "muted",
+                  },
+                  {
+                    label: "new",
+                    value: count("new"),
+                    sign: count("new") ? "+" : undefined,
+                    tone: count("new") ? "ok" : "muted",
+                  },
+                  {
+                    label: "reorganised",
+                    value: count("reorganised"),
+                    tone: count("reorganised") ? undefined : "muted",
+                  },
+                  ...(authors.length > 1 ? [{ label: "authors", value: authors.length }] : []),
                 ]}
               />
-              {histogram.length > 1 && <DayArea bars={histogram} />}
+              {top && (
+                <button type="button" className="activity-top" onClick={() => onOpen(top.change.id)}>
+                  <span className="activity-top__label">Most worked on</span>
+                  <span className="activity-top__title">{titles.get(top.change.id) ?? top.change.id}</span>
+                  <span className="activity-top__count">
+                    {top.count} {top.count === 1 ? "change" : "changes"}
+                  </span>
+                </button>
+              )}
+              {upkeep > 0 && (
+                <button
+                  type="button"
+                  className="activity-upkeep"
+                  aria-pressed={showUpkeep}
+                  onClick={() => setShowUpkeep((v) => !v)}
+                >
+                  + {upkeep} touched by automatic maintenance · {showUpkeep ? "hide" : "show"}
+                </button>
+              )}
+              {histogram.length > 1 && <ActivityBars bars={histogram} />}
             </div>
-            <HeroRow label="Where">
-              <MapBar maps={maps} active={map} />
-              <FilterChips label="Filter by Map">
-                {maps.map(([name, count]) => (
-                  <FilterChip
-                    key={name}
-                    label={mapTitles.get(name) ?? name}
-                    count={count}
-                    pressed={map === name}
-                    hue={collectionVar(name)}
-                    mark={<MapDot map={name} />}
-                    onToggle={() => setMap(map === name ? null : name)}
-                  />
-                ))}
-              </FilterChips>
-            </HeroRow>
-            <HeroRow label="Who">
-              <FilterChips label="Filter by author">
-                {authors.map(([name, count]) => (
-                  <FilterChip
-                    key={name}
-                    label={name}
-                    count={count}
-                    pressed={author === name}
-                    mark={<Avatar name={name} size="small" />}
-                    onToggle={() => setAuthor(author === name ? null : name)}
-                  />
-                ))}
-              </FilterChips>
-            </HeroRow>
+            {maps.length > 0 && (
+              <HeroRow label="Where">
+                <MapBar maps={maps} active={map} />
+                <FilterChips label="Filter by Map">
+                  {maps.map(([name, count]) => (
+                    <FilterChip
+                      key={name}
+                      label={mapTitles.get(name) ?? name}
+                      count={count}
+                      pressed={map === name}
+                      hue={collectionVar(name)}
+                      mark={<MapDot map={name} />}
+                      onToggle={() => setMap(map === name ? null : name)}
+                    />
+                  ))}
+                </FilterChips>
+              </HeroRow>
+            )}
+            {authors.length > 1 && (
+              <HeroRow label="Who">
+                <FilterChips label="Filter by author">
+                  {authors.map(([name, count]) => (
+                    <FilterChip
+                      key={name}
+                      label={name}
+                      count={count}
+                      pressed={author === name}
+                      mark={<Avatar name={name} size="small" />}
+                      onToggle={() => setAuthor(author === name ? null : name)}
+                    />
+                  ))}
+                </FilterChips>
+              </HeroRow>
+            )}
           </Hero>
         )}
 
@@ -175,7 +256,7 @@ export function Activity({
           <div className="timeline__empty">
             <p className="timeline__empty-title">Quiet {shown === "1d" ? "day" : "stretch"}.</p>
             <p className="page-note">
-              No concept changed {when(shown)}
+              No concept edited {when(shown)}
               {author ? ` by ${author}` : ""}.
             </p>
           </div>
@@ -221,12 +302,13 @@ function Entry({
   mapTitle: string;
   onOpen(conceptId: string): void;
 }) {
-  const [first, ...more] = c.reasons ?? [];
+  const reasons = shownReasons(c);
+  const [first, ...more] = reasons;
   return (
     <li className="timeline__entry" style={{ "--map": collectionVar(mapOf(c)) } as CSSProperties}>
       <button type="button" className="timeline__item" onClick={() => onOpen(c.id)} disabled={c.change === "deleted"}>
-        <time className="timeline__time" dateTime={c.last_at} title={new Date(c.last_at).toLocaleString()}>
-          {clock(c.last_at)}
+        <time className="timeline__time" dateTime={changedAt(c)} title={new Date(changedAt(c)).toLocaleString()}>
+          {clock(changedAt(c))}
         </time>
         <span className="timeline__track" aria-hidden="true">
           <span className="timeline__node" />
@@ -241,7 +323,7 @@ function Entry({
             <ChangePill change={c.change} />
           </span>
           {first && (
-            <span className="timeline__reason" title={c.reasons!.join("\n")}>
+            <span className="timeline__reason" title={reasons.join("\n")}>
               {first}
               {more.length > 0 && ` +${more.length}`}
             </span>
@@ -261,8 +343,16 @@ function Entry({
   );
 }
 
-const GLYPH: Record<string, string> = { added: "+", modified: "~", deleted: "−", renamed: "→" };
-const TONE: Record<string, string> = { added: "pill--ok", deleted: "pill--error" };
+const GLYPH: Record<string, string> = {
+  added: "+",
+  modified: "~",
+  deleted: "−",
+  renamed: "→",
+};
+const TONE: Record<string, string> = {
+  added: "pill--ok",
+  deleted: "pill--error",
+};
 
 function ChangePill({ change }: { change: string }) {
   return (
@@ -273,62 +363,55 @@ function ChangePill({ change }: { change: string }) {
   );
 }
 
+type DayBar = { day: number; label: string; work: number; upkeep: number };
+
 /**
- * Concepts last touched per day, as one area across the page: a single
- * series in the accent, a gradient under it, and the day under the pointer
- * named with its count. Every day is also a labelled hit target, so the
- * numbers reach a screen reader and a keyboard as well as the eye.
+ * Concepts last touched per day, as a bar per day placed by real time -- the
+ * look of the growth replay's timeline. A bar's lower part is the reader's
+ * changes, its upper part the server's upkeep; heights follow the square root
+ * of the count, so a quiet day still shows beside a busy one. Every bar is a
+ * labelled hit target, so the numbers reach a keyboard and a screen reader.
  */
-function DayArea({ bars }: { bars: { key: string; label: string; count: number }[] }) {
+function ActivityBars({ bars }: { bars: DayBar[] }) {
   const [hover, setHover] = useState<number | null>(null);
-  const W = 1000;
-  const H = 100;
-  const max = Math.max(1, ...bars.map((b) => b.count));
-  const step = W / (bars.length - 1);
-  const pts = bars.map((b, i) => [i * step, H - 6 - (b.count / max) * (H - 16)] as const);
-  const line = pts.map(([x, y], i) => `${i === 0 ? "M" : "L"}${x.toFixed(1)},${y.toFixed(1)}`).join(" ");
-  const area = `${line} L${W},${H} L0,${H} Z`;
-  const shown = hover ?? bars.length - 1;
+  const peak = Math.max(1, ...bars.map((b) => b.work + b.upkeep));
+  const height = (n: number) => (n === 0 ? 0 : Math.max(8, Math.sqrt(n / peak) * 100));
+  const shown = bars[hover ?? bars.length - 1]!;
+  const at = (i: number) => `${((i + 0.5) / bars.length) * 100}%`;
   return (
-    <figure className="day-area" onMouseLeave={() => setHover(null)}>
-      <div className="day-area__plot">
-        <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" aria-hidden="true">
-          <defs>
-            <linearGradient id="day-area-fill" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" className="day-area__stop-top" />
-              <stop offset="100%" className="day-area__stop-bottom" />
-            </linearGradient>
-          </defs>
-          <path d={area} className="day-area__fill" />
-          <path d={line} className="day-area__line" vectorEffect="non-scaling-stroke" />
-        </svg>
-        <span
-          className="day-area__dot"
-          style={{ left: `${(pts[shown]![0] / W) * 100}%`, top: `${(pts[shown]![1] / H) * 100}%` }}
-          aria-hidden="true"
-        />
-        <ol className="day-area__days" aria-label="Changes per day">
-          {bars.map((b, i) => (
-            <li key={b.key}>
-              <button
-                type="button"
-                className="day-area__day"
-                aria-label={`${b.label}: ${b.count}`}
-                onMouseEnter={() => setHover(i)}
-                onFocus={() => setHover(i)}
-                onBlur={() => setHover(null)}
-                tabIndex={-1}
-              />
-            </li>
-          ))}
-        </ol>
-      </div>
-      {/* The axis carries its ends and, between them, the day in focus. */}
-      <figcaption className="day-area__axis">
+    <figure className="activity-bars" onMouseLeave={() => setHover(null)}>
+      <ol className="activity-bars__track" aria-label="Changes per day">
+        {bars.map((b, i) => (
+          <li key={b.day} style={{ left: at(i) }}>
+            <button
+              type="button"
+              className="activity-bars__day"
+              data-hover={hover === i || undefined}
+              aria-label={`${b.label}: ${b.work} changed${b.upkeep ? `, ${b.upkeep} maintenance` : ""}`}
+              onMouseEnter={() => setHover(i)}
+              onFocus={() => setHover(i)}
+              onBlur={() => setHover(null)}
+              tabIndex={-1}
+            >
+              <span className="activity-bars__bar" style={{ height: `${height(b.work + b.upkeep)}%` }}>
+                {b.upkeep > 0 && (
+                  <span
+                    className="activity-bars__upkeep"
+                    style={{
+                      height: `${(b.upkeep / (b.work + b.upkeep)) * 100}%`,
+                    }}
+                  />
+                )}
+              </span>
+            </button>
+          </li>
+        ))}
+      </ol>
+      <figcaption className="activity-bars__axis">
         <span aria-hidden="true">{bars[0]!.label}</span>
-        <span className="day-area__caption" aria-live="polite">
-          <strong>{bars[shown]!.count}</strong> {bars[shown]!.count === 1 ? "concept" : "concepts"} ·{" "}
-          {hover === null ? "today" : bars[shown]!.label}
+        <span className="activity-bars__caption" aria-live="polite">
+          {hover === null ? "today" : shown.label} · <strong>{shown.work}</strong> changed
+          {shown.upkeep > 0 && <> · {shown.upkeep} maintenance</>}
         </span>
         <span aria-hidden="true">today</span>
       </figcaption>
@@ -363,19 +446,27 @@ function dayLabel(t: number, now = Date.now()): string {
   const diff = Math.round((startOfDay(now) - startOfDay(t)) / DAY_MS);
   if (diff === 0) return "Today";
   if (diff === 1) return "Yesterday";
-  return new Date(t).toLocaleDateString("en", { weekday: "long", day: "numeric", month: "short" });
+  return new Date(t).toLocaleDateString("en", {
+    weekday: "long",
+    day: "numeric",
+    month: "short",
+  });
 }
 
 /** The newest day first, each day's concepts newest first. */
 function groupByDay(rows: ConceptChange[]): { key: string; label: string; items: ConceptChange[] }[] {
-  const sorted = [...rows].sort((a, b) => Date.parse(b.last_at) - Date.parse(a.last_at));
+  const sorted = [...rows].sort((a, b) => Date.parse(changedAt(b)) - Date.parse(changedAt(a)));
   const out: { key: string; label: string; items: ConceptChange[] }[] = [];
   for (const c of sorted) {
-    const t = Date.parse(c.last_at);
+    const t = Date.parse(changedAt(c));
     const key = Number.isFinite(t) ? dayKey(t) : "unknown";
     let day = out[out.length - 1];
     if (!day || day.key !== key) {
-      day = { key, label: Number.isFinite(t) ? dayLabel(t) : "Undated", items: [] };
+      day = {
+        key,
+        label: Number.isFinite(t) ? dayLabel(t) : "Undated",
+        items: [],
+      };
       out.push(day);
     }
     day.items.push(c);
@@ -383,24 +474,44 @@ function groupByDay(rows: ConceptChange[]): { key: string; label: string; items:
   return out;
 }
 
-/** One bar per day of the window, oldest first, today last. */
-function perDay(rows: ConceptChange[], days: number): { key: string; label: string; count: number }[] {
+/** One bar per day of the window -- or, for the whole history, from the
+ *  oldest change on -- oldest first, today last. */
+function perDay(rows: ConceptChange[], kinds: Map<ConceptChange, ChangeKind>, days: number | null): DayBar[] {
   const today = startOfDay(Date.now());
-  const bars = Array.from({ length: days }, (_, i) => {
-    const t = today - (days - 1 - i) * DAY_MS;
-    return { key: dayKey(t), label: new Date(t).toLocaleDateString("en", { day: "numeric", month: "short" }), count: 0 };
+  let span = days;
+  if (span === null) {
+    const oldest = Math.min(today, ...rows.map((c) => Date.parse(changedAt(c))).filter(Number.isFinite));
+    span = Math.max(2, Math.round((today - startOfDay(oldest)) / DAY_MS) + 1);
+  }
+  const bars: DayBar[] = Array.from({ length: span }, (_, i) => {
+    const t = today - (span! - 1 - i) * DAY_MS;
+    return {
+      day: t,
+      label: new Date(t).toLocaleDateString("en", {
+        day: "numeric",
+        month: "short",
+        year: span! > 365 ? "numeric" : undefined,
+      }),
+      work: 0,
+      upkeep: 0,
+    };
   });
-  const index = new Map(bars.map((b, i) => [b.key, i]));
+  const index = new Map(bars.map((b, i) => [dayKey(b.day), i]));
   for (const c of rows) {
-    const t = Date.parse(c.last_at);
+    const t = Date.parse(changedAt(c));
     const i = Number.isFinite(t) ? index.get(dayKey(t)) : undefined;
-    if (i !== undefined) bars[i]!.count++;
+    if (i === undefined) continue;
+    if (kinds.get(c) === "maintenance") bars[i]!.upkeep++;
+    else bars[i]!.work++;
   }
   return bars;
 }
 
-function when(since: string): string {
-  return since === "1d" ? "today" : `in the last ${since.replace("d", " days")}`;
+function when(since: Window): string {
+  if (since === "1d") return "today";
+  if (since === "1y") return "in the last year";
+  if (since === "all") return "since the KB began";
+  return `in the last ${since.replace("d", " days")}`;
 }
 
 /** The headline says it in words; the count leads. */
@@ -413,17 +524,17 @@ function Headline({
 }: {
   data: ChangesResponse | null;
   n: number;
-  since: string;
+  since: Window;
   author: string | null;
   mapTitle: string | null | undefined;
 }) {
   if (!data) return <>Reading the history…</>;
   const who = author ? ` by ${author}` : "";
   const where = mapTitle ? ` in ${mapTitle}` : "";
-  if (n === 0) return <>{`Nothing changed${where}${who} ${when(since)}.`}</>;
+  if (n === 0) return <>{`Nothing edited${where}${who} ${when(since)}.`}</>;
   return (
     <>
-      <Count>{data.truncated ? `${n}+` : n}</Count> {n === 1 ? "concept" : "concepts"} changed{where}
+      <Count>{data.truncated ? `${n}+` : n}</Count> {n === 1 ? "concept" : "concepts"} edited{where}
       {who} {when(since)}.
     </>
   );
@@ -432,6 +543,10 @@ function Headline({
 function clock(iso: string): string {
   const t = Date.parse(iso);
   return Number.isFinite(t)
-    ? new Date(t).toLocaleTimeString("en", { hour: "2-digit", minute: "2-digit", hour12: false })
+    ? new Date(t).toLocaleTimeString("en", {
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: false,
+      })
     : "";
 }

@@ -40,10 +40,12 @@ export class IdleRotation {
   }
 
   setSelected(selected: boolean): void {
-    this.selected = selected;
     // Leaving a concept is input too: the panorama does not lurch into motion
-    // the instant the reader closes the inspector.
-    this.input();
+    // the instant the reader closes the inspector. Only a change counts: the
+    // scene re-applies the selection on every data update, and treating that
+    // as input would stop the panorama for IDLE_RESUME_MS after each refresh.
+    if (this.selected && !selected) this.input();
+    this.selected = selected;
   }
 
   setFocusing(focusing: boolean): void {

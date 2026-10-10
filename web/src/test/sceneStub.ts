@@ -42,7 +42,6 @@ export class LivingScene {
     return { position: { x: 0, y: 0, z: 0 }, lookAt: { x: 0, y: 0, z: 0 } };
   }
   frameAll(): void {}
-  refitIfUntouched(): void {}
   zoomBy(): void {}
   linksOf(): never[] {
     return [];

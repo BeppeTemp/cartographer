@@ -133,8 +133,9 @@ A check is declared once, in `internal/lint/registry.go` (D354); every table tha
 checks by hand (who may accept it, whether `kb_repair` can fix it, whether `auto_repair` may run it,
 the Artifacts panel, what a write response evaluates) is derived from that entry. Three edits, nothing else:
 
-1. **Register the spec**: a `CheckSpec` with its `Name`, default `Severity`, `Level`, `Accept`, and the
-   flags that apply (`FixKinds`, `AutoRepairSafe`, `OnWrite`, `Judgement`…). A `LevelConcept` check
+1. **Register the spec**: a `CheckSpec` with its `Name`, default `Severity`, `Level`, `Accept`, its
+   reader's `Category` (D365: the Atlas Health panel lists every check by it; give the check a
+   plain-words label in `web/src/lib/health.ts` too), and the flags that apply (`FixKinds`, `AutoRepairSafe`, `OnWrite`, `Judgement`…). A `LevelConcept` check
    is computed in `conceptFindings` (`internal/lint/conceptcheck.go`), which `lint` and the write path
    share; graph, map and artifact checks keep their dedicated pass and only register here.
 2. **Emit through the constructor**: `newFinding("<name>", Finding{Path: …, Message: …})`. It fills the

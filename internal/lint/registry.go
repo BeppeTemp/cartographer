@@ -62,7 +62,26 @@ type CheckSpec struct {
 	WholeGraph bool
 	// Panel: the Artifacts panel lists the findings (what the KB ships).
 	Panel bool
+	// Category groups the check for a reader (D365): the Atlas Health panel
+	// lists every check by category with its count. Empty for kb_review kinds,
+	// which are not lint checks.
+	Category string
 }
+
+// Check categories (D365), in reading order.
+const (
+	CategoryPages     = "pages"
+	CategoryTemplates = "templates"
+	CategoryValidity  = "validity"
+	CategoryLinks     = "links"
+	CategoryValues    = "values"
+	CategoryMaps      = "maps"
+	CategoryArtifacts = "artifacts"
+	CategoryKB        = "kb"
+)
+
+// Categories is the reading order of the check categories.
+var Categories = []string{CategoryPages, CategoryTemplates, CategoryValidity, CategoryLinks, CategoryValues, CategoryMaps, CategoryArtifacts, CategoryKB}
 
 // registry is the single list of checks (D354). Order is for reading: the
 // catalogue in docs/data-plane.md follows it. Adding a check is this entry, a
@@ -70,114 +89,116 @@ type CheckSpec struct {
 // check).
 var registry = []CheckSpec{
 	// Frontmatter and body of one page (conceptFindings, on the write path).
-	{Name: "malformed_frontmatter", Severity: SevWarning, Level: LevelConcept, Accept: AcceptConcept, OnWrite: true, NeverSuppress: true},
-	{Name: "stringified_list", Severity: SevWarning, Level: LevelConcept, Accept: AcceptConcept, OnWrite: true, NeverSuppress: true, FixKinds: []string{FixListifyField}, AutoRepairSafe: true},
-	{Name: "stale_claim", Severity: SevWarning, Level: LevelConcept, Accept: AcceptConcept, OnWrite: true},
-	{Name: "status_semantics", Severity: SevWarning, Level: LevelConcept, Accept: AcceptConcept, OnWrite: true},
-	{Name: "machine_path", Severity: SevWarning, Level: LevelConcept, Accept: AcceptConcept, OnWrite: true},
-	{Name: "mangled_placeholder", Severity: SevWarning, Level: LevelConcept, Accept: AcceptConcept, OnWrite: true},
-	{Name: "missing_title", Severity: SevWarning, Level: LevelConcept, Accept: AcceptConcept, OnWrite: true, FixKinds: []string{FixSetValue}, AutoRepairSafe: true},
-	{Name: "title_h1_mismatch", Severity: SevWarning, Level: LevelConcept, Accept: AcceptConcept, OnWrite: true, FixKinds: []string{FixSyncH1, FixSetValue}, AutoRepairSafe: true},
-	{Name: "title_quality", Severity: SevInfo, Level: LevelConcept, Accept: AcceptConcept, OnWrite: true},
-	{Name: "missing_required_field", Severity: SevError, Level: LevelConcept, Accept: AcceptNone, OnWrite: true},
-	{Name: "invalid_field_value", Severity: SevError, Level: LevelConcept, Accept: AcceptNone, OnWrite: true, FixKinds: []string{FixSetValue}, AutoRepairSafe: true},
-	{Name: "forbidden_field", Severity: SevError, Level: LevelConcept, Accept: AcceptNone, OnWrite: true},
-	{Name: "nonstandard_field", Severity: SevWarning, Level: LevelConcept, Accept: AcceptConcept, OnWrite: true, FixKinds: []string{FixRenameField}, AutoRepairSafe: true},
-	{Name: "tool_param_field", Severity: SevWarning, Level: LevelConcept, Accept: AcceptNone, OnWrite: true, NeverSuppress: true, FixKinds: []string{FixDropField}, AutoRepairSafe: true},
-	{Name: "prose_value", Severity: SevWarning, Level: LevelConcept, Accept: AcceptConcept, OnWrite: true, FixKinds: []string{FixSplitValue}, AutoRepairSafe: true},
-	{Name: "stale_open", Severity: SevInfo, Level: LevelConcept, Accept: AcceptConcept, OnWrite: true, Judgement: true},
-	{Name: "closed_with_open_items", Severity: SevInfo, Level: LevelConcept, Accept: AcceptConcept, OnWrite: true, Judgement: true},
-	{Name: "template_section_missing", Severity: SevInfo, Level: LevelConcept, Accept: AcceptConcept, OnWrite: true, Judgement: true},
+	{Name: "malformed_frontmatter", Severity: SevWarning, Level: LevelConcept, Accept: AcceptConcept, OnWrite: true, NeverSuppress: true, Category: CategoryPages},
+	{Name: "stringified_list", Severity: SevWarning, Level: LevelConcept, Accept: AcceptConcept, OnWrite: true, NeverSuppress: true, FixKinds: []string{FixListifyField}, AutoRepairSafe: true, Category: CategoryPages},
+	{Name: "stale_claim", Severity: SevWarning, Level: LevelConcept, Accept: AcceptConcept, OnWrite: true, Category: CategoryPages},
+	{Name: "status_semantics", Severity: SevWarning, Level: LevelConcept, Accept: AcceptConcept, OnWrite: true, Category: CategoryPages},
+	{Name: "machine_path", Severity: SevWarning, Level: LevelConcept, Accept: AcceptConcept, OnWrite: true, Category: CategoryPages},
+	{Name: "mangled_placeholder", Severity: SevWarning, Level: LevelConcept, Accept: AcceptConcept, OnWrite: true, Category: CategoryPages},
+	{Name: "missing_title", Severity: SevWarning, Level: LevelConcept, Accept: AcceptConcept, OnWrite: true, FixKinds: []string{FixSetValue}, AutoRepairSafe: true, Category: CategoryPages},
+	{Name: "title_h1_mismatch", Severity: SevWarning, Level: LevelConcept, Accept: AcceptConcept, OnWrite: true, FixKinds: []string{FixSyncH1, FixSetValue}, AutoRepairSafe: true, Category: CategoryPages},
+	{Name: "title_quality", Severity: SevInfo, Level: LevelConcept, Accept: AcceptConcept, OnWrite: true, Category: CategoryPages},
+	{Name: "missing_required_field", Severity: SevError, Level: LevelConcept, Accept: AcceptNone, OnWrite: true, Category: CategoryPages},
+	{Name: "invalid_field_value", Severity: SevError, Level: LevelConcept, Accept: AcceptNone, OnWrite: true, FixKinds: []string{FixSetValue}, AutoRepairSafe: true, Category: CategoryPages},
+	{Name: "forbidden_field", Severity: SevError, Level: LevelConcept, Accept: AcceptNone, OnWrite: true, Category: CategoryPages},
+	{Name: "nonstandard_field", Severity: SevWarning, Level: LevelConcept, Accept: AcceptConcept, OnWrite: true, FixKinds: []string{FixRenameField}, AutoRepairSafe: true, Category: CategoryPages},
+	{Name: "tool_param_field", Severity: SevWarning, Level: LevelConcept, Accept: AcceptNone, OnWrite: true, NeverSuppress: true, FixKinds: []string{FixDropField}, AutoRepairSafe: true, Category: CategoryPages},
+	{Name: "prose_value", Severity: SevWarning, Level: LevelConcept, Accept: AcceptConcept, OnWrite: true, FixKinds: []string{FixSplitValue}, AutoRepairSafe: true, Category: CategoryPages},
+	{Name: "stale_open", Severity: SevInfo, Level: LevelConcept, Accept: AcceptConcept, OnWrite: true, Judgement: true, Category: CategoryPages},
+	{Name: "closed_with_open_items", Severity: SevInfo, Level: LevelConcept, Accept: AcceptConcept, OnWrite: true, Judgement: true, Category: CategoryPages},
+	{Name: "template_section_missing", Severity: SevInfo, Level: LevelConcept, Accept: AcceptConcept, OnWrite: true, Judgement: true, Category: CategoryTemplates},
 	// Templates are closed page schemas a map's pages bind to (D352). Evaluated
 	// only on a map that sets require_template, except template_section_missing,
 	// which template_sections: true also turns on.
-	{Name: "template_missing", Severity: SevWarning, Level: LevelConcept, Accept: AcceptConcept, OnWrite: true, FixKinds: []string{FixSetValue}, AutoRepairSafe: true, Judgement: true},
-	{Name: "template_unknown", Severity: SevWarning, Level: LevelConcept, Accept: AcceptConcept, OnWrite: true, Judgement: true},
-	{Name: "template_not_allowed", Severity: SevWarning, Level: LevelConcept, Accept: AcceptConcept, OnWrite: true, Judgement: true},
-	{Name: "template_type_mismatch", Severity: SevWarning, Level: LevelConcept, Accept: AcceptConcept, OnWrite: true, FixKinds: []string{FixSetValue}, AutoRepairSafe: true},
-	{Name: "template_field_missing", Severity: SevWarning, Level: LevelConcept, Accept: AcceptConcept, OnWrite: true, Judgement: true},
-	{Name: "template_field_value", Severity: SevWarning, Level: LevelConcept, Accept: AcceptConcept, OnWrite: true, FixKinds: []string{FixSetValue}, AutoRepairSafe: true, Judgement: true},
-	{Name: "template_extra_section", Severity: SevWarning, Level: LevelConcept, Accept: AcceptConcept, OnWrite: true, Judgement: true},
-	{Name: "template_section_alias", Severity: SevWarning, Level: LevelConcept, Accept: AcceptConcept, OnWrite: true, FixKinds: []string{FixRenameHeading}, AutoRepairSafe: true, Judgement: true},
-	{Name: "template_section_order", Severity: SevInfo, Level: LevelConcept, Accept: AcceptConcept, OnWrite: true, FixKinds: []string{FixReorderSections}, AutoRepairSafe: true},
-	{Name: "open_marker", Severity: SevInfo, Level: LevelConcept, Accept: AcceptConcept, OnWrite: true},
-	{Name: "repeated_link", Severity: SevInfo, Level: LevelConcept, Accept: AcceptConcept, OnWrite: true, FixKinds: []string{FixUnlinkRepeat}, AutoRepairSafe: true},
+	{Name: "template_missing", Severity: SevWarning, Level: LevelConcept, Accept: AcceptConcept, OnWrite: true, FixKinds: []string{FixSetValue}, AutoRepairSafe: true, Judgement: true, Category: CategoryTemplates},
+	{Name: "template_unknown", Severity: SevWarning, Level: LevelConcept, Accept: AcceptConcept, OnWrite: true, Judgement: true, Category: CategoryTemplates},
+	{Name: "template_not_allowed", Severity: SevWarning, Level: LevelConcept, Accept: AcceptConcept, OnWrite: true, Judgement: true, Category: CategoryTemplates},
+	{Name: "template_type_mismatch", Severity: SevWarning, Level: LevelConcept, Accept: AcceptConcept, OnWrite: true, FixKinds: []string{FixSetValue}, AutoRepairSafe: true, Category: CategoryTemplates},
+	{Name: "template_field_missing", Severity: SevWarning, Level: LevelConcept, Accept: AcceptConcept, OnWrite: true, Judgement: true, Category: CategoryTemplates},
+	{Name: "template_field_value", Severity: SevWarning, Level: LevelConcept, Accept: AcceptConcept, OnWrite: true, FixKinds: []string{FixSetValue}, AutoRepairSafe: true, Judgement: true, Category: CategoryTemplates},
+	{Name: "template_extra_section", Severity: SevWarning, Level: LevelConcept, Accept: AcceptConcept, OnWrite: true, Judgement: true, Category: CategoryTemplates},
+	{Name: "template_section_alias", Severity: SevWarning, Level: LevelConcept, Accept: AcceptConcept, OnWrite: true, FixKinds: []string{FixRenameHeading}, AutoRepairSafe: true, Judgement: true, Category: CategoryTemplates},
+	{Name: "template_section_order", Severity: SevInfo, Level: LevelConcept, Accept: AcceptConcept, OnWrite: true, FixKinds: []string{FixReorderSections}, AutoRepairSafe: true, Category: CategoryTemplates},
+	{Name: "open_marker", Severity: SevInfo, Level: LevelConcept, Accept: AcceptConcept, OnWrite: true, Category: CategoryPages},
+	{Name: "repeated_link", Severity: SevInfo, Level: LevelConcept, Accept: AcceptConcept, OnWrite: true, FixKinds: []string{FixUnlinkRepeat}, AutoRepairSafe: true, Category: CategoryPages},
 	// What the write path refuses about a page, as lint (D356): the repair and
 	// the doctor act on it. Not OnWrite: a write that would produce one of them
 	// is refused before it lints.
-	{Name: "missing_frontmatter", Severity: SevError, Level: LevelConcept, Accept: AcceptNone, FixKinds: []string{FixAddFrontmatter}, AutoRepairSafe: true, Judgement: true},
-	{Name: "unparseable_frontmatter", Severity: SevError, Level: LevelConcept, Accept: AcceptNone, FixKinds: []string{FixQuoteValue}, AutoRepairSafe: true, Judgement: true},
-	{Name: "missing_type", Severity: SevError, Level: LevelConcept, Accept: AcceptNone, FixKinds: []string{FixSetValue}, AutoRepairSafe: true, Judgement: true},
-	{Name: "concept_too_deep", Severity: SevError, Level: LevelConcept, Accept: AcceptNone, Judgement: true},
-	{Name: "nonslug_file_name", Severity: SevWarning, Level: LevelConcept, Accept: AcceptConcept, FixKinds: []string{FixMove}, AutoRepairSafe: true, CrossConcept: true},
-	{Name: "empty_concept", Severity: SevWarning, Level: LevelConcept, Accept: AcceptConcept, Judgement: true},
+	{Name: "missing_frontmatter", Severity: SevError, Level: LevelConcept, Accept: AcceptNone, FixKinds: []string{FixAddFrontmatter}, AutoRepairSafe: true, Judgement: true, Category: CategoryValidity},
+	{Name: "unparseable_frontmatter", Severity: SevError, Level: LevelConcept, Accept: AcceptNone, FixKinds: []string{FixQuoteValue}, AutoRepairSafe: true, Judgement: true, Category: CategoryValidity},
+	{Name: "missing_type", Severity: SevError, Level: LevelConcept, Accept: AcceptNone, FixKinds: []string{FixSetValue}, AutoRepairSafe: true, Judgement: true, Category: CategoryValidity},
+	{Name: "concept_too_deep", Severity: SevError, Level: LevelConcept, Accept: AcceptNone, Judgement: true, Category: CategoryValidity},
+	{Name: "nonslug_file_name", Severity: SevWarning, Level: LevelConcept, Accept: AcceptConcept, FixKinds: []string{FixMove}, AutoRepairSafe: true, CrossConcept: true, Category: CategoryValidity},
+	{Name: "empty_concept", Severity: SevWarning, Level: LevelConcept, Accept: AcceptConcept, Judgement: true, Category: CategoryValidity},
 	// One page, but only a whole-KB run has the inputs.
-	{Name: "concept_oversize", Severity: SevInfo, Level: LevelConcept, Accept: AcceptConcept, Judgement: true},
-	{Name: "imported_draft", Severity: SevWarning, Level: LevelConcept, Accept: AcceptConcept},
-	{Name: "secrets_on_non_service", Severity: SevInfo, Level: LevelConcept, Accept: AcceptConcept},
-	{Name: "sops_format_mismatch", Severity: SevWarning, Level: LevelConcept, Accept: AcceptConcept, AlsoArtifact: true, Panel: true},
-	{Name: "sops_missing_file", Severity: SevWarning, Level: LevelConcept, Accept: AcceptConcept, AlsoArtifact: true, Panel: true},
-	{Name: "legacy_path", Severity: SevWarning, Level: LevelConcept, Accept: AcceptConcept, AlsoArtifact: true, FixKinds: []string{FixReplacePrefix}, AutoRepairSafe: true},
+	{Name: "concept_oversize", Severity: SevInfo, Level: LevelConcept, Accept: AcceptConcept, Judgement: true, Category: CategoryPages},
+	{Name: "imported_draft", Severity: SevWarning, Level: LevelConcept, Accept: AcceptConcept, Category: CategoryPages},
+	{Name: "secrets_on_non_service", Severity: SevInfo, Level: LevelConcept, Accept: AcceptConcept, Category: CategoryPages},
+	{Name: "sops_format_mismatch", Severity: SevWarning, Level: LevelConcept, Accept: AcceptConcept, AlsoArtifact: true, Panel: true, Category: CategoryPages},
+	{Name: "sops_missing_file", Severity: SevWarning, Level: LevelConcept, Accept: AcceptConcept, AlsoArtifact: true, Panel: true, Category: CategoryPages},
+	{Name: "legacy_path", Severity: SevWarning, Level: LevelConcept, Accept: AcceptConcept, AlsoArtifact: true, FixKinds: []string{FixReplacePrefix}, AutoRepairSafe: true, Category: CategoryPages},
 
 	// Links and the graph (ScopedCheck on the write path).
-	{Name: "broken_link", Severity: SevWarning, Level: LevelGraph, Accept: AcceptConcept, OnWrite: true, FixKinds: []string{FixRebaseLink}, CrossConcept: true, Judgement: true},
-	{Name: "duplicate_link", Severity: SevInfo, Level: LevelGraph, Accept: AcceptConcept, OnWrite: true, FixKinds: []string{FixDropLinkItem, FixRewriteLinkItem}, AutoRepairSafe: true},
-	{Name: "reciprocal_link_item", Severity: SevInfo, Level: LevelGraph, Accept: AcceptConcept, OnWrite: true, FixKinds: []string{FixDropLinkItem}, CrossConcept: true},
-	{Name: "bare_link_list", Severity: SevInfo, Level: LevelGraph, Accept: AcceptConcept, OnWrite: true, Judgement: true},
-	{Name: "index_link_form", Severity: SevInfo, Level: LevelGraph, Accept: AcceptNone, OnWrite: true, FixKinds: []string{FixRebaseLink, FixRewriteWikiLink}, AutoRepairSafe: true, CrossConcept: true},
-	{Name: "orphan", Severity: SevWarning, Level: LevelGraph, Accept: AcceptConcept, OnWrite: true},
-	{Name: "broken_relation", Severity: SevWarning, Level: LevelGraph, Accept: AcceptConcept, OnWrite: true},
-	{Name: "link_to_retired", Severity: SevInfo, Level: LevelGraph, Accept: AcceptConcept, OnWrite: true, WholeGraph: true},
-	{Name: "unknown_placeholder", Severity: SevWarning, Level: LevelGraph, Accept: AcceptConcept, OnWrite: true},
-	{Name: "forbidden_term", Severity: SevWarning, Level: LevelGraph, Accept: AcceptConcept, OnWrite: true},
-	{Name: "source_uncited", Severity: SevWarning, Level: LevelGraph, Accept: AcceptConcept},
-	{Name: "cut_concept", Severity: SevInfo, Level: LevelGraph, Accept: AcceptConcept, WholeGraph: true},
-	{Name: "island", Severity: SevInfo, Level: LevelGraph, Accept: AcceptConcept, WholeGraph: true},
-	{Name: "map_misfit", Severity: SevInfo, Level: LevelGraph, Accept: AcceptConcept, WholeGraph: true, Judgement: true},
-	// KB-wide values (D357): the type palette and the spellings in use.
-	{Name: "unknown_type", Severity: SevWarning, Level: LevelGraph, Accept: AcceptConcept, FixKinds: []string{FixSetValue}, Judgement: true},
-	{Name: "value_case_variant", Severity: SevWarning, Level: LevelGraph, Accept: AcceptConcept, FixKinds: []string{FixSetValue}, AutoRepairSafe: true},
+	{Name: "broken_link", Severity: SevWarning, Level: LevelGraph, Accept: AcceptConcept, OnWrite: true, FixKinds: []string{FixRebaseLink}, CrossConcept: true, Judgement: true, Category: CategoryLinks},
+	{Name: "duplicate_link", Severity: SevInfo, Level: LevelGraph, Accept: AcceptConcept, OnWrite: true, FixKinds: []string{FixDropLinkItem, FixRewriteLinkItem}, AutoRepairSafe: true, Category: CategoryLinks},
+	{Name: "reciprocal_link_item", Severity: SevInfo, Level: LevelGraph, Accept: AcceptConcept, OnWrite: true, FixKinds: []string{FixDropLinkItem}, CrossConcept: true, Category: CategoryLinks},
+	{Name: "bare_link_list", Severity: SevInfo, Level: LevelGraph, Accept: AcceptConcept, OnWrite: true, Judgement: true, Category: CategoryLinks},
+	{Name: "index_link_form", Severity: SevInfo, Level: LevelGraph, Accept: AcceptNone, OnWrite: true, FixKinds: []string{FixRebaseLink, FixRewriteWikiLink}, AutoRepairSafe: true, CrossConcept: true, Category: CategoryLinks},
+	{Name: "orphan", Severity: SevWarning, Level: LevelGraph, Accept: AcceptConcept, OnWrite: true, Category: CategoryLinks},
+	{Name: "broken_relation", Severity: SevWarning, Level: LevelGraph, Accept: AcceptConcept, OnWrite: true, Category: CategoryLinks},
+	{Name: "link_to_retired", Severity: SevInfo, Level: LevelGraph, Accept: AcceptConcept, OnWrite: true, WholeGraph: true, Category: CategoryLinks},
+	{Name: "unknown_placeholder", Severity: SevWarning, Level: LevelGraph, Accept: AcceptConcept, OnWrite: true, Category: CategoryLinks},
+	{Name: "forbidden_term", Severity: SevWarning, Level: LevelGraph, Accept: AcceptConcept, OnWrite: true, Category: CategoryLinks},
+	{Name: "source_uncited", Severity: SevWarning, Level: LevelGraph, Accept: AcceptConcept, Category: CategoryLinks},
+	{Name: "cut_concept", Severity: SevInfo, Level: LevelGraph, Accept: AcceptConcept, WholeGraph: true, Category: CategoryLinks},
+	{Name: "island", Severity: SevInfo, Level: LevelGraph, Accept: AcceptConcept, WholeGraph: true, Category: CategoryLinks},
+	{Name: "map_misfit", Severity: SevInfo, Level: LevelGraph, Accept: AcceptConcept, WholeGraph: true, Judgement: true, Category: CategoryLinks},
+	// KB-wide values (D357): the type palette and the spellings in use. Their
+	// messages name the KB's types and values, hidden pages' included, so a
+	// caller that cannot see the whole KB does not get them (WholeGraph).
+	{Name: "unknown_type", Severity: SevWarning, Level: LevelGraph, Accept: AcceptConcept, FixKinds: []string{FixSetValue}, Judgement: true, WholeGraph: true, Category: CategoryValues},
+	{Name: "value_case_variant", Severity: SevWarning, Level: LevelGraph, Accept: AcceptConcept, FixKinds: []string{FixSetValue}, AutoRepairSafe: true, WholeGraph: true, Category: CategoryValues},
 
 	// Maps and expanded concepts.
-	{Name: "contract_malformed", Severity: SevInfo, Level: LevelMap, Accept: AcceptNone},
-	{Name: "facet_sprawl", Severity: SevInfo, Level: LevelMap, Accept: AcceptMap},
-	{Name: "missing_value_contract", Severity: SevInfo, Level: LevelMap, Accept: AcceptMap},
-	{Name: "map_without_templates", Severity: SevInfo, Level: LevelMap, Accept: AcceptMap},
-	{Name: "map_oversize", Severity: SevInfo, Level: LevelMap, Accept: AcceptMap},
-	{Name: "legacy_archive_descriptor", Severity: SevWarning, Level: LevelMap, Accept: AcceptNone},
-	{Name: "index_incomplete", Severity: SevWarning, Level: LevelMap, Accept: AcceptNone, OnWrite: true},
-	{Name: "index_lists_retired", Severity: SevInfo, Level: LevelMap, Accept: AcceptMap, WholeGraph: true},
-	{Name: "index_stale", Severity: SevInfo, Level: LevelMap, Accept: AcceptNone},
-	{Name: "expanded_missing_index", Severity: SevWarning, Level: LevelMap, Accept: AcceptNone},
-	{Name: "expanded_ambiguous", Severity: SevError, Level: LevelMap, Accept: AcceptNone},
-	{Name: "expanded_as_category", Severity: SevWarning, Level: LevelMap, Accept: AcceptNone},
-	{Name: "unlistable_assets", Severity: SevWarning, Level: LevelMap, Accept: AcceptNone},
-	{Name: "oversized_asset", Severity: SevWarning, Level: LevelMap, Accept: AcceptNone},
-	{Name: "orphan_asset", Severity: SevInfo, Level: LevelMap, Accept: AcceptNone},
+	{Name: "contract_malformed", Severity: SevInfo, Level: LevelMap, Accept: AcceptNone, Category: CategoryMaps},
+	{Name: "facet_sprawl", Severity: SevInfo, Level: LevelMap, Accept: AcceptMap, Category: CategoryMaps},
+	{Name: "missing_value_contract", Severity: SevInfo, Level: LevelMap, Accept: AcceptMap, Category: CategoryMaps},
+	{Name: "map_without_templates", Severity: SevInfo, Level: LevelMap, Accept: AcceptMap, Category: CategoryMaps},
+	{Name: "map_oversize", Severity: SevInfo, Level: LevelMap, Accept: AcceptMap, Category: CategoryMaps},
+	{Name: "legacy_archive_descriptor", Severity: SevWarning, Level: LevelMap, Accept: AcceptNone, Category: CategoryMaps},
+	{Name: "index_incomplete", Severity: SevWarning, Level: LevelMap, Accept: AcceptNone, OnWrite: true, Category: CategoryMaps},
+	{Name: "index_lists_retired", Severity: SevInfo, Level: LevelMap, Accept: AcceptMap, WholeGraph: true, Category: CategoryMaps},
+	{Name: "index_stale", Severity: SevInfo, Level: LevelMap, Accept: AcceptNone, Category: CategoryMaps},
+	{Name: "expanded_missing_index", Severity: SevWarning, Level: LevelMap, Accept: AcceptNone, Category: CategoryMaps},
+	{Name: "expanded_ambiguous", Severity: SevError, Level: LevelMap, Accept: AcceptNone, Category: CategoryMaps},
+	{Name: "expanded_as_category", Severity: SevWarning, Level: LevelMap, Accept: AcceptNone, Category: CategoryMaps},
+	{Name: "unlistable_assets", Severity: SevWarning, Level: LevelMap, Accept: AcceptNone, Category: CategoryMaps},
+	{Name: "oversized_asset", Severity: SevWarning, Level: LevelMap, Accept: AcceptNone, Category: CategoryMaps},
+	{Name: "orphan_asset", Severity: SevInfo, Level: LevelMap, Accept: AcceptNone, Category: CategoryMaps},
 	// The data/ tree (D357). unmapped_folder is on a folder, not a page.
-	{Name: "unmapped_folder", Severity: SevWarning, Level: LevelMap, Accept: AcceptNone, FixKinds: []string{FixScaffoldMap}, AutoRepairSafe: true},
-	{Name: "stray_file", Severity: SevWarning, Level: LevelMap, Accept: AcceptConcept, Judgement: true},
+	{Name: "unmapped_folder", Severity: SevWarning, Level: LevelMap, Accept: AcceptNone, FixKinds: []string{FixScaffoldMap}, AutoRepairSafe: true, Category: CategoryMaps},
+	{Name: "stray_file", Severity: SevWarning, Level: LevelMap, Accept: AcceptConcept, Judgement: true, Category: CategoryMaps},
 
 	// KB-root artifacts (lint_accept in instructions.md, D332).
-	{Name: "skill_invalid", Severity: SevWarning, Level: LevelArtifact, Accept: AcceptArtifact, Panel: true},
-	{Name: "skill_warning", Severity: SevInfo, Level: LevelArtifact, Accept: AcceptArtifact, Panel: true},
-	{Name: "legacy_tool_name", Severity: SevWarning, Level: LevelArtifact, Accept: AcceptArtifact, Panel: true, FixKinds: []string{FixStripToolPrefix}, AutoRepairSafe: true},
-	{Name: "skill_broken_ref", Severity: SevWarning, Level: LevelArtifact, Accept: AcceptArtifact, Panel: true},
-	{Name: "skill_git_command", Severity: SevInfo, Level: LevelArtifact, Accept: AcceptArtifact, Panel: true},
-	{Name: "skill_missing_perimeter", Severity: SevInfo, Level: LevelArtifact, Accept: AcceptArtifact, Panel: true},
-	{Name: "cross_kb_path", Severity: SevWarning, Level: LevelArtifact, Accept: AcceptArtifact, Panel: true},
-	{Name: "artifact_unused", Severity: SevInfo, Level: LevelArtifact, Accept: AcceptArtifact, Panel: true},
+	{Name: "skill_invalid", Severity: SevWarning, Level: LevelArtifact, Accept: AcceptArtifact, Panel: true, Category: CategoryArtifacts},
+	{Name: "skill_warning", Severity: SevInfo, Level: LevelArtifact, Accept: AcceptArtifact, Panel: true, Category: CategoryArtifacts},
+	{Name: "legacy_tool_name", Severity: SevWarning, Level: LevelArtifact, Accept: AcceptArtifact, Panel: true, FixKinds: []string{FixStripToolPrefix}, AutoRepairSafe: true, Category: CategoryArtifacts},
+	{Name: "skill_broken_ref", Severity: SevWarning, Level: LevelArtifact, Accept: AcceptArtifact, Panel: true, Category: CategoryArtifacts},
+	{Name: "skill_git_command", Severity: SevInfo, Level: LevelArtifact, Accept: AcceptArtifact, Panel: true, Category: CategoryArtifacts},
+	{Name: "skill_missing_perimeter", Severity: SevInfo, Level: LevelArtifact, Accept: AcceptArtifact, Panel: true, Category: CategoryArtifacts},
+	{Name: "cross_kb_path", Severity: SevWarning, Level: LevelArtifact, Accept: AcceptArtifact, Panel: true, Category: CategoryArtifacts},
+	{Name: "artifact_unused", Severity: SevInfo, Level: LevelArtifact, Accept: AcceptArtifact, Panel: true, Category: CategoryArtifacts},
 	// A junk file is deleted, never accepted; missing_instructions has no file
 	// to key on.
-	{Name: "junk_file", Severity: SevWarning, Level: LevelArtifact, Accept: AcceptNone, Panel: true},
-	{Name: "junk_asset", Severity: SevWarning, Level: LevelArtifact, Accept: AcceptNone, Panel: true},
-	{Name: "missing_instructions", Severity: SevWarning, Level: LevelArtifact, Accept: AcceptNone, Panel: true},
+	{Name: "junk_file", Severity: SevWarning, Level: LevelArtifact, Accept: AcceptNone, Panel: true, Category: CategoryArtifacts},
+	{Name: "junk_asset", Severity: SevWarning, Level: LevelArtifact, Accept: AcceptNone, Panel: true, Category: CategoryArtifacts},
+	{Name: "missing_instructions", Severity: SevWarning, Level: LevelArtifact, Accept: AcceptNone, Panel: true, Category: CategoryArtifacts},
 
 	// KB-level files.
-	{Name: "hook_invalid", Severity: SevWarning, Level: LevelKB, Accept: AcceptNone, Panel: true},
-	{Name: "missing_registry", Severity: SevInfo, Level: LevelKB, Accept: AcceptNone},
-	{Name: "unused_placeholder", Severity: SevInfo, Level: LevelKB, Accept: AcceptNone},
-	{Name: "lint_ignore_invalid", Severity: SevWarning, Level: LevelKB, Accept: AcceptNone},
+	{Name: "hook_invalid", Severity: SevWarning, Level: LevelKB, Accept: AcceptNone, Panel: true, Category: CategoryKB},
+	{Name: "missing_registry", Severity: SevInfo, Level: LevelKB, Accept: AcceptNone, Category: CategoryKB},
+	{Name: "unused_placeholder", Severity: SevInfo, Level: LevelKB, Accept: AcceptNone, Category: CategoryKB},
+	{Name: "lint_ignore_invalid", Severity: SevWarning, Level: LevelKB, Accept: AcceptNone, Category: CategoryKB},
 
 	// kb_review kinds (D298): registered for acceptability only. They are not
 	// lint findings, except repeated_fact which a write response also reports

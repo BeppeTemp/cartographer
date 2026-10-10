@@ -467,7 +467,10 @@ Stdio mode never serves the UI, whatever the setting says.
 An open Atlas follows the KB live (D337): while the tab is visible it asks
 `/api/ui/v1/kbs/<kb>/revision` every ten seconds and, when the answer changes,
 refetches the open view in place — graph, concept, findings and lists — without
-a reload or a blank frame. A hidden tab does not poll and checks once on
+a reload or a blank frame. The graph keeps every node it already has: new
+concepts appear beside a neighbour, removed ones go, and every change —
+nodes or links — gives the whole network a small knock that fades with
+distance, while the camera and its slow turn carry on undisturbed. A hidden tab does not poll and checks once on
 return. A caller that cannot see the whole KB gets no revision, so its Atlas
 does not refresh by itself.
 
@@ -492,6 +495,18 @@ the concept's prose can use — its 68ch reading measure plus padding (D281).
 Widening the panel reframes the selected concept in the graph it still shows;
 on a narrow screen the panel is a sheet and has no splitter (D239).
 
+Opening a KB, switching to another or choosing a Map grows the graph from a
+seed at the orbit's centre: the nodes burst outward to their places, the
+edges fade in behind them, and the camera settles on a framing fitted to the
+KB's size, whatever it is. A view seen before in the session is shown at once
+from memory while it refreshes. The *Replay growth* control replays how the KB
+grew (D367): the concepts appear in the order their files were first committed,
+those born in one commit along their links, in 8 to 20 seconds whatever the
+KB's size, under a timeline with one bar per day that saw concepts born. It can
+be paused, dragged or stepped with the arrow keys, keeps every node in frame,
+hides the legend and the camera controls while it runs, and stays open at the
+end until closed.
+
 A selected concept is the orbit's pivot: dragging turns the graph around it,
 while it stays centred in the strip the panels leave visible, and everything
 outside its neighbourhood recedes. The skills, agents and hooks that reference
@@ -502,8 +517,10 @@ colour, and a KB's health is read on the Health panel (D307). The legend folds t
 switch and counts, remembered per browser (`cartographer.panel.legend`). Ctrl/Cmd+K searches titles and ids at once and, after a
 pause in typing, the full text through the `search` tool, showing the excerpt
 that matched; it is the way to a concept, and there is no concept list beside
-the canvas. The brand in the top bar returns to the atlas; the connection
-status appears only when the server is unreachable.
+the canvas. The brand in the top bar returns to the atlas, the server's version
+sits beside the theme switch, and the connection status appears only when the
+server is unreachable. The rail lists the KB's Maps and Journals in two
+groups, *All* first, each with its count.
 
 The reading panel folds the concept's outline into *On this page*, drops the
 body's leading title (the header shows it) and hides a trailing links section
@@ -521,16 +538,20 @@ band, a section with nothing in it is left out rather than shown empty, and an
 empty answer is said in one line with a check.
 
 The **Activity** panel is `changes_since` for the reader: the concepts changed
-in the last day, week or month (up to 500). The title counts the concepts; the
-band counts additions, removals and commits with one bar per day of the
-window drawn as one area across the page (the day under the pointer named with
-its count), and offers
-*Where* (a bar split by Map, one row per Map) and *Who* (one row per author) as
-filters. Below it the timeline groups the concepts by the day each one last
-changed, newest first, one row each on a rail in its Map's colour: time, title,
-Map, the kind of change when it is not a plain edit, the first recorded reason
-and the authors. Changing the window keeps the current answer on screen,
-dimmed, until the new one arrives. A row opens the concept on the atlas.
+in the last day, week, month, quarter, year or ever (up to 500). It tells the
+reader's changes from the server's upkeep: a concept is *edited*, *new* or
+*reorganised* (moved, superseded, removed) by its latest content change
+(`last_edit_at`, `added`), and one only the background repair touched is
+*maintenance*, hidden unless the reader shows it. The band counts edited, new
+and reorganised concepts (and authors, when more than one), names the concept
+worked on most, and draws one bar per day of the window, stacked by kind. It
+offers *Where* (a bar split by Map, one row per Map) and *Who* (one row per
+author) as filters. Below it the timeline groups the concepts by the day each
+one last changed, newest first, one row each on a rail in its Map's colour:
+time, title, Map, the kind of change when it is not a plain edit, the first
+recorded reason (upkeep reasons dropped when there is another) and the
+authors. Changing the window keeps the current answer on screen, dimmed,
+until the new one arrives. A row opens the concept on the atlas.
 
 The **Work** panel is `work_list` for the reader (D302): open-phase concepts and
 unchecked items, counted in the title. The band filters by Map (*Where*), by
@@ -538,28 +559,45 @@ status and by staleness, each with its count; a search box filters titles and
 items. The board lays the work
 out by status, as columns in the order work moves (decision-needed, blocked,
 in-progress, open, proposed, then *unchecked items* for a closed concept listed
-only for its items), or by Map, as one card per Map, busiest first. A card
+only for its items), or by Map, as one column per Map, busiest first, with the
+same cards. A card
 shows its Map, title, type and age (stale ones flagged), expands to its items,
 and opens the concept on the atlas. It is read-only: work changes through the
 agents' write tools.
 
-The **Health** panel (D338) is how the KB is doing, on one page. Its title
-gives the worst state in words behind a mark — broken, needs attention,
-questions waiting, or all clear — and the line under it says where the
-findings were looked for, that no question waits when none does, and when the
-doctor comes next. The hero shows the state as a ring (healthy, needs
-attention, waiting on you, broken; no glow: colour and the glyph carry it), the findings by severity (or one line when
-there are none), the knowledge counts, whether the background repair is on
-(a live dot) and what its last run did, and the doctor's cycle as a track
-from the last session to the next with today on it. Below, only
-the sections with something in them, in order of what to act on:
+The **Health** panel (D338, D365) is how the KB is doing, said by who acts on
+it: the background repair fixes the mechanical findings by itself, a doctor
+session decides the rest (D358), and only what neither can decide waits on a
+person. Its title answers "does anything need me?", the worst first — things
+broken, questions waiting for you, problems waiting for a doctor session that
+never ran or is overdue, *Nothing needs you: Cartographer is on it*, or all
+clear — with a line under it only when a Map scopes the findings. The
+hero shows the state as a ring (broken, waiting, attention, tending, healthy;
+no glow: colour and the glyph carry it) beside three lanes: *Automatic* (the
+findings the next background run fixes, its next and last run, and what the
+last one fixed),
+*Doctor* (the problems and improvements it has to deal with, its mode, its last session, and how it
+starts when it is due) and *You* (the open questions), then the knowledge
+counts. Under the hero two tabs, *Findings* and *Checks*. *Checks* lists
+every check the server runs (`GET /api/ui/v1/kbs/<kb>/checks`), by category —
+pages, templates, valid pages, links and graph, vocabularies, maps and
+indexes, artifacts, KB files — each with its count, a zero too, and a mark
+when the background repair fixes it by itself; a check with findings opens
+its row on *Findings*. *Findings* shows only the sections with something in
+them:
 
 - *Questions for you*: the `open_question` concepts the doctor deferred, each
   with a *Copy ID* action — they are answered from an agent session;
-- *Findings*: the lint findings the caller may see, grouped by severity with a
-  severity floor. The Map or Journal selected in the rail scopes them
+- *Findings*: the lint findings the caller may see, one row per check, the
+  worst severity first —
+  named in words, its count, a sample message and who acts on it
+  (*Automatic*, *Doctor*, or *Partly automatic*) — opened to its messages,
+  the pages that carry the same message folded into one line of page chips.
+  Severity is a priority, not a separate pile: an info finding is an
+  improvement the doctor fixes or accepts (its *Advice* step). The Map or
+  Journal selected in the rail scopes them
   (`GET /api/ui/v1/kbs/<kb>/lint?scope=`), and the title and summary name that
-  scope, so a clean Map never reads as a clean KB; *Whole atlas* returns to the
+  scope, so a clean Map never reads as a clean KB; *All* returns to the
   KB-wide list. The Type and Status filters apply to graph nodes only, so the
   rail hides them here and keeps their selection for the way back to the
   Atlas;
@@ -567,15 +605,15 @@ the sections with something in them, in order of what to act on:
   agents made that found nothing (ticked and muted once the same search finds
   something, D319), and how many concepts are past their review date
   (`GET /api/ui/v1/kbs/<kb>/status`);
-- beside them, *Repairs, last 30 days* (D323): each repair commit with its
-  check, concepts (with a bar of its size), background or by hand, and date,
-  and a *Copy revert* action
-  holding the exact `cartographer kb repair <kb> --revert <sha>` command.
+- beside them, *Done by Cartographer* (D323): a timeline of the last 30 days,
+  one row per background run that fixed something — when, how many fixes on
+  how many pages, a bar split by check, opened to the list — and per repair
+  someone ran by hand, each with a *Copy revert* action holding the exact
+  `cartographer kb repair <kb> --revert <sha>` command; runs that found
+  nothing are counted in one line.
 
-*Upkeep* says whether the background repair is on and how many checks it runs
-(and whether that is the default list), the last run, and the last and next
-doctor session, each date said relative to today with the calendar date
-beside it. Like the rest of the UI the panel writes nothing: no button
+Dates are said relative to today with the calendar date or the instant
+beside them. Like the rest of the UI the panel writes nothing: no button
 reverts, answers or repairs. The status, upkeep and repairs are whole-KB: a
 caller that cannot see the whole KB gets the findings and its questions, and
 the rest is left out rather than reported as an error. The former Observatory

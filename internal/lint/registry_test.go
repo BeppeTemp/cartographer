@@ -18,7 +18,7 @@ import (
 var legacyTables = map[string]string{
 	"perConcept":         `bare_link_list broken_link broken_relation closed_with_open_items concept_oversize cut_concept duplicate_candidate duplicate_link empty_concept forbidden_term glossary_gap harvest_candidate imported_draft island legacy_path link_to_retired lint_judgement machine_path malformed_frontmatter mangled_placeholder map_misfit map_naming missing_title nonslug_file_name nonstandard_field open_marker orphan promotion_candidate prose_value read_hotspot reciprocal_link_item repeated_fact repeated_link scattered_work secrets_on_non_service sops_format_mismatch sops_missing_file source_uncited stale_claim stale_open status_reclassify status_semantics stray_file stringified_list template_extra_section template_field_missing template_field_value template_missing template_not_allowed template_proposal template_section_alias template_section_missing template_section_order template_type_mismatch template_unknown title_h1_mismatch title_quality unknown_placeholder unknown_type value_case_variant zombie_work`,
 	"mapOnly":            `facet_sprawl index_lists_retired map_oversize map_without_templates missing_value_contract`,
-	"wholeGraph":         `cut_concept index_lists_retired island link_to_retired map_misfit`,
+	"wholeGraph":         `cut_concept index_lists_retired island link_to_retired map_misfit unknown_type value_case_variant`,
 	"lintJudgement":      `bare_link_list broken_link closed_with_open_items concept_oversize concept_too_deep empty_concept map_misfit missing_frontmatter missing_type stale_open stray_file template_extra_section template_field_missing template_field_value template_missing template_not_allowed template_section_alias template_section_missing template_unknown unknown_type unparseable_frontmatter`,
 	"artifactChecks":     `artifact_unused cross_kb_path junk_asset junk_file legacy_tool_name missing_instructions skill_broken_ref skill_git_command skill_invalid skill_missing_perimeter skill_warning`,
 	"artifactAcceptable": `artifact_unused cross_kb_path legacy_path legacy_tool_name skill_broken_ref skill_git_command skill_invalid skill_missing_perimeter skill_warning sops_format_mismatch sops_missing_file`,
@@ -267,6 +267,28 @@ func TestCheckConceptAgreesWithRun(t *testing.T) {
 			if s, _ := Spec(f.Check); !s.OnWrite {
 				t.Errorf("%s: CheckConcept returned %s, which is not OnWrite", id, f.Check)
 			}
+		}
+	}
+}
+
+// Every lint check has a reader's category (D365); kb_review kinds have none.
+func TestRegistryCategories(t *testing.T) {
+	known := map[string]bool{}
+	for _, c := range Categories {
+		known[c] = true
+	}
+	review := map[string]bool{}
+	for _, k := range ReviewKinds {
+		review[k] = true
+	}
+	for _, s := range Checks() {
+		switch {
+		case review[s.Name] || s.Name == ReviewRepeatedFact || s.Name == ReviewTemplateProposal:
+			if s.Category != "" {
+				t.Errorf("%s is a review kind but has category %q", s.Name, s.Category)
+			}
+		case !known[s.Category]:
+			t.Errorf("%s has category %q, not one of %v", s.Name, s.Category, Categories)
 		}
 	}
 }

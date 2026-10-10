@@ -18,6 +18,16 @@ describe("autonomous motion", () => {
     expect(initialMotion(false, false)).toBe(false);
   });
 
+  it("keeps turning when a data update re-applies no selection", () => {
+    let now = 0;
+    const idle = new IdleRotation(true, () => now);
+    // The scene re-applies the selection on every setData: with nothing
+    // selected that is not the reader doing anything.
+    idle.setSelected(false);
+    idle.setSelected(false);
+    expect(idle.shouldRotate()).toBe(true);
+  });
+
   it("turns the panorama only after quiet time in the overview", () => {
     let now = 0;
     const idle = new IdleRotation(true, () => now);

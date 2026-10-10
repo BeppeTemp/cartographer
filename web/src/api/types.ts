@@ -183,6 +183,8 @@ export interface LintFinding {
   check: string;
   severity: string;
   message: string;
+  /** Who acts on it (D365): the background repair, or the doctor session. */
+  handler?: "auto" | "doctor";
 }
 
 export interface LintReport {
@@ -214,6 +216,11 @@ export interface ConceptChange {
   id: string;
   change: string;
   last_at: string;
+  /** The newest change in the window that was not the server's upkeep:
+   *  when the content last changed. Absent when only upkeep touched it. */
+  last_edit_at?: string;
+  /** Created inside the window, whatever its newest change was. */
+  added?: boolean;
   authors?: string[];
   ops?: string[];
   reasons?: string[];
@@ -285,6 +292,10 @@ export interface MaintenanceSummary {
   last_doctor?: string;
   next_doctor?: string;
   doctor_interval_days: number;
+  /** Who runs the doctor sessions (D358). */
+  doctor_mode?: "unattended" | "assisted";
+  /** The background repair's runs of the last 30 days, newest first (D365). */
+  runs?: MaintenanceRun[];
   repairs: MaintenanceRepair[];
 }
 
@@ -298,4 +309,10 @@ export interface MaintenanceQuestion {
 }
 export interface MaintenanceQuestions {
   questions: MaintenanceQuestion[];
+}
+
+/** GET /kbs/{kb}/checks: every lint check the server runs (D365). */
+export interface CheckCatalog {
+  categories: string[];
+  checks: { name: string; category: string; severity: string; fixable: boolean; auto: boolean }[];
 }

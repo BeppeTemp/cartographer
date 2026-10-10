@@ -15,6 +15,7 @@ export type IconName =
   | "list"
   | "motion"
   | "pause"
+  | "grow"
   | "search"
   | "chevron"
   | "sun"
@@ -25,7 +26,10 @@ export type IconName =
   | "minus"
   | "fit"
   | "close"
-  | "check";
+  | "check"
+  | "repair"
+  | "doctor"
+  | "person";
 
 const PATHS: Record<IconName, string> = {
   // Three places and the routes between them.
@@ -39,6 +43,8 @@ const PATHS: Record<IconName, string> = {
   list: "M9 7h11 M9 12h11 M9 17h11 M4.5 7h.01 M4.5 12h.01 M4.5 17h.01",
   motion: "M8 5.5v13l10.5-6.5z",
   pause: "M8.5 5.5v13 M15.5 5.5v13",
+  // A seedling: the KB growing from its first concept.
+  grow: "M12 20v-8 M12 12c0-3.5 2.5-6 6-6 0 3.5-2.5 6-6 6z M12 14c0-2.8-2-5-5-5 0 2.8 2 5 5 5z",
   activity: "M12 20a8 8 0 1 0 0-16 8 8 0 0 0 0 16z M12 8v4l2.5 2.5",
   // A checklist: open items and the work still to do.
   work: "M10 7h10 M10 12h10 M10 17h10 M4 7l1.5 1.5L8 6 M4.5 12h2 M4.5 17h2",
@@ -55,6 +61,12 @@ const PATHS: Record<IconName, string> = {
   fit: "M4 9V4h5 M15 4h5v5 M20 15v5h-5 M9 20H4v-5",
   close: "M7 7l10 10 M17 7L7 17",
   check: "M5.5 12.5l4 4 9-9",
+  // Two arrows chasing each other: the background repair's daily round.
+  repair: "M19.5 10.5A7.5 7.5 0 0 0 6 7 M5 3.5V7h3.5 M4.5 13.5A7.5 7.5 0 0 0 18 17 M19 20.5V17h-3.5",
+  // A medical cross: the doctor session.
+  doctor: "M9.5 4h5v5.5H20v5h-5.5V20h-5v-5.5H4v-5h5.5z",
+  // A head and shoulders: the reader.
+  person: "M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8z M4.5 20c.6-3.4 3.7-5.5 7.5-5.5s6.9 2.1 7.5 5.5",
 };
 
 const DOTS: Partial<Record<IconName, [number, number, number][]>> = {

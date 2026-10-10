@@ -16,7 +16,9 @@ export default defineConfig({
   // CARTOGRAPHER_DEV_API. A local config file under web/ would do the same but
   // enter the bundle's provenance hash and fail web-check in CI.
   server: {
-    proxy: { "/api": process.env.CARTOGRAPHER_DEV_API ?? "http://127.0.0.1:39273" },
+    proxy: Object.fromEntries(
+      ["/api", "/health"].map((path) => [path, process.env.CARTOGRAPHER_DEV_API ?? "http://127.0.0.1:39273"]),
+    ),
   },
   build: {
     outDir: "../internal/webui/dist",
