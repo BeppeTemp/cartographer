@@ -49,12 +49,8 @@ func TestMain(m *testing.M) {
 	syncTimerInstallFn = func(time.Duration) error { return nil }
 	syncTimerUninstallFn = func() error { return nil }
 	syncTimerStatusFn = func() (service.SyncTimerStatus, error) { return service.SyncTimerStatus{}, nil }
-	// Same for the doctor timer connect now installs by default (D690).
-	doctorTimerInstallFn = func([]string, int, int, string) error { return nil }
-	doctorTimerRemoveFn = func() error { return nil }
-	doctorTimerStatusFn = func() (service.DoctorTimerStatus, error) { return service.DoctorTimerStatus{}, nil }
-	doctorDeclareFn = func(*clientconfig.Config, string, string, time.Time) error { return nil }
-	doctorWithdrawFn = func(*clientconfig.Config, string) error { return nil }
+	// Same for the leftover doctor job connect and upgrade-repair remove (D703).
+	removeLegacyDoctorTimerFn = func() (bool, error) { return false, nil }
 	code := m.Run()
 	os.RemoveAll(cache)
 	os.Exit(code)

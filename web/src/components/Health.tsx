@@ -507,9 +507,7 @@ function Lanes({
           <p className="lane__note lane__note--due">
             {assisted
               ? "Run the kb-doctor skill with an agent."
-              : summary?.doctor_schedule
-                ? `Next doctor session: ${when(Date.parse(summary.doctor_schedule.next_run))}.`
-                : "Starts when an agent next connects."}
+              : "Starts when an agent next connects."}
           </p>
         )}
       </section>

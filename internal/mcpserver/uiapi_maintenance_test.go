@@ -163,9 +163,6 @@ func TestUIAPI_FindingHandler(t *testing.T) {
 	}
 
 	handler := maintenanceHandler(t, auth.NewTokenStore(nil))
-	if mode := decodeUI(t, getUI(t, handler, UIAPIPrefix+"/kbs/docs/maintenance/summary", ""))["doctor_mode"]; mode != "unattended" {
-		t.Errorf("doctor_mode = %v", mode)
-	}
 	for _, raw := range decodeUI(t, getUI(t, handler, UIAPIPrefix+"/kbs/docs/lint", ""))["findings"].([]any) {
 		if h := raw.(map[string]any)["handler"]; h != findingHandlerAuto && h != findingHandlerDoctor {
 			t.Errorf("finding without a handler: %v", raw)

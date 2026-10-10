@@ -117,22 +117,18 @@ func (s *Server) withDoctorNudge(ctx context.Context, tool string, res ToolResul
 	if summary["doctor_suggested"] != true {
 		return res
 	}
-	res.Content = append(res.Content, ContentBlock{Type: "text", Text: doctorNudgeText(kbName(k), lastDoctor, summary["findings"].(map[string]int), summary["fixable"].(int), review, k.DoctorAssisted())})
+	res.Content = append(res.Content, ContentBlock{Type: "text", Text: doctorNudgeText(kbName(k), lastDoctor, summary["findings"].(map[string]int), summary["fixable"].(int), review)})
 	return res
 }
 
-// doctorNudgeText is the notice: counts only, never KB content. Unattended
-// (the default, D358) tells the agent to run the session itself; assisted
-// keeps the operator in the loop.
-func doctorNudgeText(kbName, lastDoctor string, bySev map[string]int, fixable, review int, assisted bool) string {
+// doctorNudgeText is the notice: counts only, never KB content. It asks the
+// agent to propose a session, never to start one (D703): an agent works on a
+// KB only when the operator asked for it.
+func doctorNudgeText(kbName, lastDoctor string, bySev map[string]int, fixable, review int) string {
 	if lastDoctor == "" {
 		lastDoctor = "never"
 	}
-	action := "Run a kb-doctor session now (skill kb-doctor, unattended): decide every item yourself under its rules, " +
-		"record what only a person can answer as a gap, report at the end."
-	if assisted {
-		action = "Propose a kb-doctor session to the operator (skill kb-doctor); do not start it without their agreement."
-	}
-	return fmt.Sprintf("cartographer: KB %s - last kb-doctor session %s; %d warnings, %d fixable, %d review items. %s",
-		kbName, lastDoctor, bySev[lint.SevWarning], fixable, review, action)
+	return fmt.Sprintf("cartographer: KB %s - last kb-doctor session %s; %d warnings, %d fixable, %d review items. "+
+		"Propose a kb-doctor session to the operator (skill kb-doctor); do not start it without their agreement.",
+		kbName, lastDoctor, bySev[lint.SevWarning], fixable, review)
 }
