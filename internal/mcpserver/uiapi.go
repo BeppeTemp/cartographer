@@ -531,6 +531,8 @@ func uiAutoChecks(k *kb.KB) map[string]bool {
 // whether it can be fixed mechanically and whether this KB's background repair
 // fixes it by itself. It says what the KB is checked for; the counts come from
 // /lint, so a caller sees the coverage of exactly the findings it may see.
+// Every check is active (D371) unless it has nothing to compare against on this
+// KB or every map able to run it opted out; the row then says why.
 func uiChecks(w http.ResponseWriter, k *kb.KB) {
 	type checkRow struct {
 		Name     string `json:"name"`
@@ -538,8 +540,13 @@ func uiChecks(w http.ResponseWriter, k *kb.KB) {
 		Severity string `json:"severity"`
 		Fixable  bool   `json:"fixable"`
 		Auto     bool   `json:"auto"`
+		// Active is false when the check cannot run on this KB (D371): Reason
+		// says why, so a zero count is not read as "clean".
+		Active bool   `json:"active"`
+		Reason string `json:"reason,omitempty"`
 	}
 	auto := uiAutoChecks(k)
+	inactive := lint.Inactive(k)
 	rows := []checkRow{}
 	for _, s := range lint.Checks() {
 		if s.Category == "" {
@@ -548,6 +555,7 @@ func uiChecks(w http.ResponseWriter, k *kb.KB) {
 		rows = append(rows, checkRow{
 			Name: s.Name, Category: s.Category, Severity: s.Severity,
 			Fixable: len(s.FixKinds) > 0, Auto: auto[s.Name],
+			Active: inactive[s.Name] == "", Reason: inactive[s.Name],
 		})
 	}
 	writeUIJSON(w, http.StatusOK, map[string]any{"categories": lint.Categories, "checks": rows})

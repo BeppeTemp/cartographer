@@ -248,6 +248,42 @@ describe("health coverage", () => {
   });
 });
 
+describe("health coverage of a check that cannot run", () => {
+  it("greys it out with its reason instead of showing a zero that would read as clean (D371)", async () => {
+    const user = userEvent.setup();
+    render(
+      <Health
+        report={report}
+        status={null}
+        summary={null}
+        checks={{
+          categories: ["pages", "links"],
+          checks: [
+            { name: "machine_path", category: "pages", severity: "warning", fixable: false, auto: false, active: true },
+            { name: "forbidden_term", category: "links", severity: "warning", fixable: false, auto: false, active: false, reason: "glossary.yaml declares no forbidden term" },
+            { name: "orphan", category: "links", severity: "warning", fixable: false, auto: false, active: true },
+          ],
+        }}
+        questions={null}
+        scopeTitle={null}
+        loading={false}
+        error={null}
+        onReveal={vi.fn()}
+        onOpen={vi.fn()}
+        onRetry={vi.fn()}
+      />,
+    );
+    await user.click(screen.getByRole("button", { name: "Checks · 3" }));
+    const idle = screen.getByText("Terms the map forbids", { selector: ".coverage__name" }).closest("li")!;
+    expect(idle).toHaveAttribute("data-inactive");
+    expect(idle).toHaveAttribute("title", "glossary.yaml declares no forbidden term");
+    expect(idle).toHaveTextContent("–");
+    expect(idle).not.toHaveTextContent(/\b0\b/);
+    expect(screen.getByText(/1 not checked here/)).toBeInTheDocument();
+    expect(screen.getByText("all 1 checked clean")).toBeInTheDocument();
+  });
+});
+
 describe("health verdict", () => {
   const warnings: LintReport = { ...report, findings: report.findings.filter((f) => f.severity !== "error") };
 

@@ -1226,7 +1226,7 @@ func toolMapUpdate(k *kb.KB) Tool {
 			echo["value_synonyms"] = valueSyn
 			echo["template_sections"] = contract.TemplateSections
 			echo["templates"] = nonNilStrings(contract.Templates)
-			echo["require_template"] = contract.RequireTemplate
+			echo["require_template"] = contract.StrictTemplates()
 			if contract.DefaultTemplate != "" {
 				echo["default_template"] = contract.DefaultTemplate
 			}

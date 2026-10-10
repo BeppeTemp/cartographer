@@ -231,6 +231,14 @@ func TestUIAPI_ChecksAndRuns(t *testing.T) {
 	if _, ok := byName[lint.ReviewLintJudgement]; ok {
 		t.Error("a kb_review kind is listed as a check")
 	}
+	// D371: a check with nothing to compare against says so; one that always
+	// runs carries no reason.
+	if row := byName["forbidden_term"]; row == nil || row["active"] != false || row["reason"] == nil || row["reason"] == "" {
+		t.Errorf("forbidden_term = %v, want inactive with a reason", row)
+	}
+	if row := byName["orphan"]; row["active"] != true || row["reason"] != nil {
+		t.Errorf("orphan = %v, want active with no reason", row)
+	}
 
 	summary := decodeUI(t, getUI(t, handler, UIAPIPrefix+"/kbs/docs/maintenance/summary", ""))
 	runs := summary["runs"].([]any)

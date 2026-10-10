@@ -1667,7 +1667,11 @@ type MapContract struct {
 	// every page must bind to one of them.
 	Templates       []string
 	DefaultTemplate string
-	RequireTemplate bool
+	// RequireTemplate is an explicit require_template: true; RequireTemplateOff
+	// an explicit false, the map's opt-out (D371). Read the effective value with
+	// StrictTemplates, never these two.
+	RequireTemplate    bool
+	RequireTemplateOff bool
 	// Review keys (D298): the map a journal's reusable procedures belong in,
 	// the H2 prefixes that mark a procedure, and whether this map is where
 	// the KB defines its terms.
@@ -2177,7 +2181,9 @@ func (kb *KB) UpdateMapContract(name string, upd MapContractUpdate) (MapContract
 		if *upd.RequireTemplate {
 			fm.Set("require_template", "true")
 		} else {
-			fm.Delete("require_template")
+			// Not a delete: a map that declares templates is strict by default
+			// (D371), so the opt-out is written down.
+			fm.Set("require_template", "false")
 		}
 	}
 	if upd.PromoteTo != nil {
@@ -2859,6 +2865,7 @@ func (kb *KB) ReadMapContract(archive string) (MapContract, error) {
 				continue
 			}
 			contract.RequireTemplate = v == "true"
+			contract.RequireTemplateOff = v == "false"
 		case key == "promote_to":
 			v, ok := value.(string)
 			v = strings.TrimSpace(v)
