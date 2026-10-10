@@ -373,7 +373,7 @@ func TestEnsureWriteFindingsHook_OpenCode2_DedicatedPlugin(t *testing.T) {
 		"input: JSON.stringify({ tool_name: event.tool, tool_response: output })",
 		"r.status !== 2",
 		"event.result = { ...event.result, output: output +",
-		"write-findings.sh",
+		provisioning.WriteFindingsScriptNameForTest, // .cmd on Windows
 	} {
 		if !strings.Contains(src, want) {
 			t.Errorf("plugin lacks %q:\n%s", want, src)

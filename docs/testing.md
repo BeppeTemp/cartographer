@@ -16,7 +16,7 @@ is non-deterministic, costly and dependent on external providers.
 
 ### Go tests
 
-`make test` runs `go test ./...`. Tests live beside their packages and cover
+`make test` runs `go test -timeout 20m ./...` (`internal/mcpserver` alone takes about 10 minutes on the Windows runner, the default timeout). Tests live beside their packages and cover
 parsing, KB invariants, tools, authorization, git behavior, provisioning and
 client configuration.
 
