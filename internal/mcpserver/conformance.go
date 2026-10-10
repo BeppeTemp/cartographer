@@ -454,16 +454,19 @@ func lintInputsStamp(k *kb.KB) string {
 			return nil
 		}
 		if d.IsDir() {
-			// .cartographer is the server's own state (lint skips it): the lint
-			// history is written there on every recompute (D370), and counting
-			// it would invalidate the cache it was written from.
-			if d.Name() == ".git" || d.Name() == ".cartographer" {
+			if d.Name() == ".git" {
 				return filepath.SkipDir
 			}
 			return nil
 		}
 		rel, _ := filepath.Rel(root, path)
 		name := d.Name()
+		// The lint history is written on every recompute (D370): counting it
+		// would invalidate the cache it was written from. The rest of
+		// .cartographer stays in: usage.json feeds artifact_unused.
+		if strings.HasPrefix(name, lintHistoryName) {
+			return nil
+		}
 		if strings.HasSuffix(name, ".md") && name != "index.md" && name != "_map.md" && name != "_archive.md" && strings.HasPrefix(filepath.ToSlash(rel), "data/") {
 			return nil
 		}

@@ -2,6 +2,8 @@ package mcpserver
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -153,5 +155,26 @@ func TestUIAPI_MaintenanceSummaryLintHistory(t *testing.T) {
 	body := decodeUI(t, getUI(t, handler, UIAPIPrefix+"/kbs/docs/maintenance/summary", ""))
 	if h, ok := body["lint_history"].([]any); !ok || h == nil {
 		t.Fatalf("lint_history = %v", body["lint_history"])
+	}
+}
+
+// The history never invalidates the lint cache it is written from, but the
+// rest of .cartographer does: usage.json is an input of artifact_unused.
+func TestLintHistoryOutsideTheStampUsageInside(t *testing.T) {
+	k := cacheTestKB(t)
+	before := lintInputsStamp(k)
+	now := time.Now()
+	if err := recordLintSample(k, sampleAt(now, 1), now); err != nil {
+		t.Fatal(err)
+	}
+	if got := lintInputsStamp(k); got != before {
+		t.Fatal("writing the lint history changed the lint inputs stamp")
+	}
+	usage := filepath.Join(k.Root, ".cartographer", "usage.json")
+	if err := os.WriteFile(usage, []byte("[]"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := lintInputsStamp(k); got == before {
+		t.Fatal("writing usage.json left the lint inputs stamp unchanged")
 	}
 }

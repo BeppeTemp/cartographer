@@ -32,9 +32,10 @@ them without disclosing counts of pages it cannot see.
 - A history for narrowed principals, computed per caller: it would need a lint
   per principal per day; the trend is for whoever tends the KB.
 
-**Consequences.** `.cartographer/` is excluded from the lint cache key
+**Consequences.** The history file alone is excluded from the lint cache key
 (`lintInputsStamp`): recording a sample must not invalidate the cache it was
-taken from (lint never reads that directory). The history is lost with an
+taken from. The rest of `.cartographer/` stays in the key, because
+`usage.json` is an input of `artifact_unused`. The history is lost with an
 ephemeral volume and restarts from the next lint; the trend simply stays
 hidden until two samples exist. A failed write is ignored: the history is never
 a reason to fail a lint.
