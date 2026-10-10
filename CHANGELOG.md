@@ -8,6 +8,20 @@
 
 KB histories with commits authored as `cartographer <cartographer@localhost>` may need a manual author rewrite before a forge with author push rules accepts the first push.
 
+## [0.23.0](https://github.com/BeppeTemp/cartographer/compare/v0.22.2...v0.23.0) (2026-10-10)
+
+
+### Features
+
+* **cli:** connect schedules the headless doctor by default (D690) ([#693](https://github.com/BeppeTemp/cartographer/issues/693)) ([f373058](https://github.com/BeppeTemp/cartographer/commit/f373058356143c419f0cb171baf490809ab402cd))
+* **webui:** growth video rendered offline at 60 fps, in the background (D691) ([#694](https://github.com/BeppeTemp/cartographer/issues/694)) ([071b27e](https://github.com/BeppeTemp/cartographer/commit/071b27eccaee7a6c55a4526894053fc62a465e0f))
+
+
+### Bug Fixes
+
+* **cli:** unattended sync and scheduled doctor read the client token from a private file (D699) ([#701](https://github.com/BeppeTemp/cartographer/issues/701)) ([3c7a400](https://github.com/BeppeTemp/cartographer/commit/3c7a400f26eaa3a7a29793e3ca344fd07c4f46a3))
+* **webui:** the rail's Maps open the Atlas; Health filters by Map in the page ([#698](https://github.com/BeppeTemp/cartographer/issues/698)) ([79b7600](https://github.com/BeppeTemp/cartographer/commit/79b7600b7ded952d60035a514d93c537f757ae4a))
+
 ## [0.22.2](https://github.com/BeppeTemp/cartographer/compare/v0.22.1...v0.22.2) (2026-10-10)
 
 
