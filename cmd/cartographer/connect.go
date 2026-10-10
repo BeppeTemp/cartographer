@@ -542,8 +542,12 @@ func printConnectResult(dir string, providers []string, opts connectOptions, res
 	}
 	if !opts.DryRun {
 		ensureSyncTimer(dir, providers)
+		ensureDoctorTimer(dir, providers, false)
 	} else if hookless := hooklessProviders(providers); len(hookless) > 0 {
 		fmt.Printf("[dry-run] would install the sync timer: %s\n", describeHookless(hookless))
+	}
+	if opts.DryRun {
+		ensureDoctorTimer(dir, providers, true)
 	}
 	if !opts.DryRun {
 		ackSessionHookLimit(dir, providers)

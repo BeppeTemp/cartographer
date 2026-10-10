@@ -143,6 +143,9 @@ type Config struct {
 	// themselves. Cleared by an explicit `sync-timer install`. A removal
 	// because no client needs the timer any more does not set it.
 	SyncTimerOptOut bool `yaml:"-"`
+	// DoctorTimerOptOut is the same for `doctor unschedule` (D690): connect
+	// and setup stop scheduling the headless doctor; `doctor schedule` clears it.
+	DoctorTimerOptOut bool `yaml:"-"`
 	// Update is the client-wide update-notice setting (D254), USER-owned.
 	// The zero value is the default: check, and only notify.
 	Update UpdateSettings `yaml:"-"`
@@ -216,6 +219,7 @@ type yamlConfig struct {
 	UsageScan         *bool                             `yaml:"usage_scan,omitempty"`
 	WriteFindingsHook *bool                             `yaml:"write_findings_hook,omitempty"`
 	SyncTimerOptOut   bool                              `yaml:"sync_timer_opt_out,omitempty"`
+	DoctorTimerOptOut bool                              `yaml:"doctor_timer_opt_out,omitempty"`
 }
 
 // WriteFindingsHookEnabled reports whether the write-findings hook (D353) is
@@ -273,7 +277,7 @@ func Load(dir string) (*Config, error) {
 	if err := yaml.Unmarshal(data, &extra); err != nil {
 		return nil, fmt.Errorf("clientconfig: parse extras %s: %w", Path(dir), err)
 	}
-	for _, key := range []string{"server_url", "server_name", "auth", "token_env", "agents", "kbs", "known_kbs", "clients", "trust", "search_roots", "search_depth", "paths", "ignored_paths", "signing_keys", "mcp_approvals", "update", "usage_scan", "write_findings_hook", "sync_timer_opt_out"} {
+	for _, key := range []string{"server_url", "server_name", "auth", "token_env", "agents", "kbs", "known_kbs", "clients", "trust", "search_roots", "search_depth", "paths", "ignored_paths", "signing_keys", "mcp_approvals", "update", "usage_scan", "write_findings_hook", "sync_timer_opt_out", "doctor_timer_opt_out"} {
 		delete(extra, key)
 	}
 	cfg := Config{
@@ -293,14 +297,15 @@ func Load(dir string) (*Config, error) {
 		Trust:            true, // absent `trust` key defaults to true, see yamlConfig doc
 		UsageScan:        true, // absent `usage_scan` key defaults to true
 
-		SearchRoots:     y.SearchRoots,
-		SearchDepth:     y.SearchDepth,
-		Paths:           y.Paths,
-		IgnoredPaths:    y.IgnoredPaths,
-		SigningKeys:     y.SigningKeys,
-		MCPApprovals:    y.MCPApprovals,
-		SyncTimerOptOut: y.SyncTimerOptOut,
-		Extra:           extra,
+		SearchRoots:       y.SearchRoots,
+		SearchDepth:       y.SearchDepth,
+		Paths:             y.Paths,
+		IgnoredPaths:      y.IgnoredPaths,
+		SigningKeys:       y.SigningKeys,
+		MCPApprovals:      y.MCPApprovals,
+		SyncTimerOptOut:   y.SyncTimerOptOut,
+		DoctorTimerOptOut: y.DoctorTimerOptOut,
+		Extra:             extra,
 	}
 	if y.KnownKBs != nil {
 		// Present — including present and empty — always wins over the legacy
@@ -343,25 +348,26 @@ func Save(dir string, cfg *Config) error {
 		return fmt.Errorf("clientconfig: mkdir %s: %w", dir, err)
 	}
 	y := yamlConfig{
-		ServerURL:        cfg.ServerURL,
-		ServerName:       cfg.ServerName,
-		Auth:             cfg.Auth,
-		TokenEnv:         cfg.TokenEnv,
-		Agents:           cfg.Agents,
-		KnownKBs:         &cfg.KnownKBs, // always emitted; the legacy `kbs` key is not written again (D169)
-		ServerMountMode:  cfg.ServerMountMode,
-		ServerRoutedPath: cfg.ServerRoutedPath,
-		Clients:          cfg.Clients,
-		Scopes:           cfg.Scopes,
-		Workspaces:       cfg.Workspaces,
-		Trust:            &cfg.Trust,
-		SearchRoots:      cfg.SearchRoots,
-		SearchDepth:      cfg.SearchDepth,
-		Paths:            cfg.Paths,
-		IgnoredPaths:     cfg.IgnoredPaths,
-		SigningKeys:      cfg.SigningKeys,
-		MCPApprovals:     cfg.MCPApprovals,
-		SyncTimerOptOut:  cfg.SyncTimerOptOut,
+		ServerURL:         cfg.ServerURL,
+		ServerName:        cfg.ServerName,
+		Auth:              cfg.Auth,
+		TokenEnv:          cfg.TokenEnv,
+		Agents:            cfg.Agents,
+		KnownKBs:          &cfg.KnownKBs, // always emitted; the legacy `kbs` key is not written again (D169)
+		ServerMountMode:   cfg.ServerMountMode,
+		ServerRoutedPath:  cfg.ServerRoutedPath,
+		Clients:           cfg.Clients,
+		Scopes:            cfg.Scopes,
+		Workspaces:        cfg.Workspaces,
+		Trust:             &cfg.Trust,
+		SearchRoots:       cfg.SearchRoots,
+		SearchDepth:       cfg.SearchDepth,
+		Paths:             cfg.Paths,
+		IgnoredPaths:      cfg.IgnoredPaths,
+		SigningKeys:       cfg.SigningKeys,
+		MCPApprovals:      cfg.MCPApprovals,
+		SyncTimerOptOut:   cfg.SyncTimerOptOut,
+		DoctorTimerOptOut: cfg.DoctorTimerOptOut,
 	}
 	// Emitted only when off: a default machine's file stays byte-identical.
 	if !cfg.UsageScan {
