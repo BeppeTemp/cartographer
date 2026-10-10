@@ -72,6 +72,14 @@ export interface ScenePalette {
   ring: string;
 }
 
+/** An offline scene (D691): `width` x `height` CSS pixels drawn at
+ *  `pixelRatio`, advanced only by `renderFrame`. */
+export interface OffscreenOptions {
+  width: number;
+  height: number;
+  pixelRatio: number;
+}
+
 export interface SceneCallbacks {
   onSelect(id: string | null): void;
   /** A double click on a node. */
@@ -187,26 +195,36 @@ export class LivingScene {
   private shift = 0;
   private follow: Vector3 | null = null;
   private touched = false;
-  /** Set between beginCapture and endCapture: the renderer holds the export's
-   *  size, not the container's. */
-  private capture: { width: number; height: number } | null = null;
   private radius = LINK_DISTANCE * 4;
+  /** Set for a scene drawn frame by frame for a video (D691): no frame loop,
+   *  no observers, no input; the frame size is fixed. */
+  private readonly offscreen: OffscreenOptions | null;
+  private virtualNow = 0;
+  /** The scene's time in milliseconds: every tween, the burst and the
+   *  settle read it, never the wall clock, so a scene driven by
+   *  `renderFrame` is deterministic whatever the machine's speed. */
+  clock: () => number = () => performance.now();
   private readonly cleanups: (() => void)[] = [];
 
   constructor(
     private readonly container: HTMLElement,
     private readonly callbacks: SceneCallbacks,
-    options: { live: boolean; reducedMotion: boolean },
+    options: { live: boolean; reducedMotion: boolean; offscreen?: OffscreenOptions },
   ) {
     this.driftForce = drift<SceneNode>(3);
     this.live = options.live && !options.reducedMotion;
     this.reducedMotion = options.reducedMotion;
-    this.idle = new IdleRotation(this.live);
+    this.offscreen = options.offscreen ?? null;
+    // Offscreen, time is the caller's: renderFrame sets it, frame by frame.
+    if (this.offscreen) this.clock = () => this.virtualNow;
+    this.idle = new IdleRotation(this.live, () => this.clock());
 
     this.renderer = new WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
     this.canvas = this.renderer.domElement;
     container.appendChild(this.canvas);
     this.controls = new OrbitControls(this.camera, this.canvas);
+    // No input reaches an offline scene: nobody orbits a render.
+    if (this.offscreen) this.controls.disconnect();
     this.controls.enableDamping = true;
     this.controls.dampingFactor = 0.08;
     this.controls.rotateSpeed = 0.6;
@@ -226,6 +244,14 @@ export class LivingScene {
     this.ring.visible = false;
     this.scene.add(this.ring);
 
+    if (this.offscreen) {
+      const { width, height, pixelRatio } = this.offscreen;
+      this.renderer.setPixelRatio(pixelRatio);
+      this.renderer.setSize(width, height, false);
+      this.camera.aspect = width / height;
+      this.camera.updateProjectionMatrix();
+      return;
+    }
     this.bindGestures();
     this.bindLifecycle();
     this.resize();
@@ -280,7 +306,7 @@ export class LivingScene {
       sim.alpha(1);
       sim.tick(warmupTicks);
       this.touched = false;
-      if (!this.reducedMotion) {
+      if (!this.reducedMotion && !this.offscreen) {
         // Kept warm while it opens (applyMotion): the nodes are already
         // moving as the graph unfolds, and when it is open the motion cools
         // into the usual drift with no seam between the two.
@@ -296,7 +322,7 @@ export class LivingScene {
           const h = hashUnit(n.id);
           flight.set(n, { delay: h * BLOOM_STAGGER, span: 1 - BLOOM_STAGGER - ((h * 7.31) % 1) * BLOOM_SPEED_SPREAD });
         }
-        this.bloom = { start: performance.now(), centre: c, flight };
+        this.bloom = { start: this.clock(), centre: c, flight };
       }
     } else {
       // Every change to a graph already on screen knocks it from where it
@@ -365,7 +391,7 @@ export class LivingScene {
     }
     if (first || replace) {
       this.radius = boundingRadius(this.nodes);
-      this.settleUntil = this.reducedMotion ? 0 : performance.now() + SETTLE_MS;
+      this.settleUntil = this.reducedMotion || this.offscreen ? 0 : this.clock() + SETTLE_MS;
       if (this.reducedMotion && replace) this.frameAll(0);
     } else this.radius = boundingRadius(this.linkedNodes());
   }
@@ -442,7 +468,7 @@ export class LivingScene {
 
   /** Signals for the current selection (planned by motion.planBursts). */
   sendSignals(plan: Signal<SceneLink>[]): void {
-    this.burst = plan.length ? { start: performance.now(), plan: plan.slice(0, MAX_SIGNALS * 3) } : null;
+    this.burst = plan.length ? { start: this.clock(), plan: plan.slice(0, MAX_SIGNALS * 3) } : null;
   }
 
   /** The drawn links touching a node, in their data orientation. */
@@ -587,7 +613,6 @@ export class LivingScene {
     const bodies = this.nodes
       .filter((n) => Number.isFinite(n.x) && Number.isFinite(n.y) && Number.isFinite(n.z))
       .map((n) => ({ x: n.x!, y: n.y!, z: n.z!, radius: this.radiusOf(n) }));
-    // While capturing, the camera sees the export's frame, not the container's.
     const { width, height } = this.viewSize();
     // The view stays centred on the canvas, so a band at the bottom is kept
     // clear by fitting the height left once it is taken off both edges.
@@ -626,7 +651,7 @@ export class LivingScene {
       this.applyPose(to());
       return;
     }
-    this.tween = { from, to, start: performance.now(), ms, shiftFrom: this.shift, shiftTo: shift };
+    this.tween = { from, to, start: this.clock(), ms, shiftFrom: this.shift, shiftTo: shift };
     this.idle.setFocusing(true);
   }
 
@@ -663,7 +688,7 @@ export class LivingScene {
   // --- frame loop ---------------------------------------------------------
 
   private start(): void {
-    if (this.frame === null) this.frame = requestAnimationFrame(this.tick);
+    if (this.frame === null && !this.offscreen) this.frame = requestAnimationFrame(this.tick);
   }
 
   private stop(): void {
@@ -672,8 +697,34 @@ export class LivingScene {
   }
 
   private ticks = 0;
-  private readonly tick = (now: number): void => {
+  private readonly tick = (): void => {
     this.frame = requestAnimationFrame(this.tick);
+    this.step(this.clock());
+  };
+
+  /**
+   * Advances an offline scene to `nowMs` on its virtual clock and renders one
+   * frame: the same body as a live frame (simulation, tweens, fit easing,
+   * sync, render). The canvas holds the frame until the caller's task ends,
+   * so it must be copied before awaiting anything.
+   */
+  renderFrame(nowMs: number): void {
+    if (!this.offscreen) throw new Error("renderFrame needs an offscreen scene");
+    this.virtualNow = nowMs;
+    this.step(nowMs);
+  }
+
+  /** Where the nodes start, by id (the visible scene's layout): the offline
+   *  scene draws the video from the picture on screen. */
+  seedPositions(positions: Map<string, { x: number; y: number; z: number }>): void {
+    for (const n of this.nodes) {
+      const p = positions.get(n.id);
+      if (p) Object.assign(n, { x: p.x, y: p.y, z: p.z, vx: 0, vy: 0, vz: 0 });
+    }
+    this.sync();
+  }
+
+  private step(now: number): void {
     const sim = this.sim;
     // Still mode lets the simulation cool and then stops ticking it: at rest
     // the frame costs only the draw.
@@ -721,7 +772,7 @@ export class LivingScene {
     this.sync(now);
     this.renderer.render(this.scene, this.camera);
     for (const listener of this.frameListeners) listener();
-  };
+  }
 
   /** Called after each rendered frame (the component places its labels). */
   readonly frameListeners = new Set<() => void>();
@@ -738,7 +789,7 @@ export class LivingScene {
   /** Until when a new graph is followed by the camera as it settles. */
   private settleUntil = 0;
 
-  private sync(now = performance.now()): void {
+  private sync(now = this.clock()): void {
     const mesh = this.nodeMesh;
     if (!mesh) return;
     const d = this.dummy;
@@ -967,40 +1018,15 @@ export class LivingScene {
     });
   }
 
+  /** The frame the camera sees: the canvas, or the video's own frame offline
+   *  (a detached canvas has no layout box). */
   private viewSize(): { width: number; height: number } {
-    return this.capture ?? { width: this.canvas.clientWidth, height: this.canvas.clientHeight };
-  }
-
-  /**
-   * Sizes the renderer to an export frame (pixel ratio 1, `width` x `height`)
-   * and the camera to its aspect, leaving the canvas's CSS box alone: on
-   * screen it letterboxes. Pointer events are off while it lasts, so a drag
-   * cannot move the camera mid-recording. `endCapture` restores everything:
-   * the container's size, the device pixel ratio and the camera aspect all
-   * come back through resize().
-   */
-  beginCapture(width: number, height: number): void {
-    if (this.capture) return;
-    this.capture = { width, height };
-    this.renderer.setPixelRatio(1);
-    this.renderer.setSize(width, height, false);
-    this.camera.aspect = width / height;
-    this.camera.updateProjectionMatrix();
-    this.canvas.style.objectFit = "contain";
-    this.canvas.style.pointerEvents = "none";
-  }
-
-  endCapture(): void {
-    if (!this.capture) return;
-    this.capture = null;
-    this.canvas.style.objectFit = "";
-    this.canvas.style.pointerEvents = "";
-    this.resize();
+    return this.offscreen ?? { width: this.canvas.clientWidth, height: this.canvas.clientHeight };
   }
 
   private resize(): void {
-    // The export owns the renderer's size until endCapture.
-    if (this.capture) return;
+    // An offline scene keeps the size it was made with.
+    if (this.offscreen) return;
     const w = Math.max(1, this.container.clientWidth);
     const h = Math.max(1, this.container.clientHeight);
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
@@ -1020,6 +1046,9 @@ export class LivingScene {
     for (const g of [this.sphere, this.diamond, this.edgeGeometry, this.activeGeometry, this.signalGeometry, this.ring.geometry]) g.dispose();
     for (const m of [this.nodeMaterial, this.edgeMaterial, this.activeMaterial, this.signalMaterial, this.ring.material as MeshBasicMaterial]) m.dispose();
     this.renderer.dispose();
+    // An offline scene is one of two contexts alive at once (the visible one
+    // is the other): release it now, not when the collector gets to it.
+    if (this.offscreen) this.renderer.forceContextLoss();
     this.canvas.remove();
   }
 }
