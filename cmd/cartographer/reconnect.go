@@ -124,7 +124,7 @@ func doReconnect(opts reconnectOptions) (reconnectResult, error) {
 		}
 	}
 
-	disconnected, err := doDisconnect(disconnectOptions{Providers: providers, Dir: opts.Dir, DryRun: opts.DryRun})
+	disconnected, err := doDisconnect(disconnectOptions{Providers: providers, Dir: opts.Dir, DryRun: opts.DryRun, KeepToken: true})
 	if err != nil {
 		return res, err
 	}

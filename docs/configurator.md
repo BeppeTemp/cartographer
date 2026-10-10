@@ -186,6 +186,12 @@ provider's native mechanism (`settings.json` / `config.toml` / JS plugin — `sy
 hooks); `connect`/`sync` print an info line for each one. When eligible, `connect` also schedules
 the headless doctor by default (D690, §Scheduled headless sessions).
 
+**Token file (D699).** With `auth: true` and `$token_env` set, `connect` (so `reconnect` and `setup`) also copies
+the token to a `.cartographer-token` file next to `.cartographer.yaml` (`0600`, atomic, never through a symlink), because the sync
+timer and the scheduled doctor run without a login shell's exports. The environment variable stays the source
+whenever it is set; rotate it and run `cartographer reconnect` to refresh the copy. A file readable by group or
+others is refused (`chmod 600` fixes it). `disconnect` removes it with the last provider; `reconnect` keeps it.
+
 **Multi-KB servers (D92).** `connect` reads `GET /health` before emitting MCP
 configuration. With one mounted KB (or an older single-KB server that omits
 `kbs`) it keeps the compatible single entry, `<server_name>`, pointed at the
@@ -456,7 +462,7 @@ the same code, and reports the provider sync as pending
 Before anything else — before the client-state lock and before the first network call, `--dry-run`
 included — `sync` checks the environment variables the targeted providers need: each provider's own
 base-directory variable (§Hermes Agent, `$HERMES_HOME`) and, when `.cartographer.yaml` has `auth: true` with a
-`token_env`, that variable. Missing ones are reported **together, in one error naming each**, so an
+`token_env`, that variable **or the token file** (D699). Missing ones are reported **together, in one error naming each**, so an
 unattended run (session-start hook, sync timer, CI — none of which inherit a login shell's exports)
 diagnoses its whole misconfiguration in a single run
 ([D222](decisions/D222-sync-checks-the-environment-once-and-the-401-names.md)). The check is
@@ -552,7 +558,9 @@ The same command family also installs the one scheduled job Cartographer offers 
 `kb-doctor` skill: a daily headless agent session, for a KB nobody opens an agent on
 (`docs/loop.md` §A KB no agent session ever touches). `connect` and `setup` install it **by
 default** when eligible (D690); `sync` never does. It spends the chosen client's model quota
-unattended.
+unattended. On an `auth: true` install, `doctor run` hands the client the token from the token file
+(§connect, D699) through its environment when `$token_env` is not set, so the `${VAR}` header
+expansion works under a scheduler; the token never appears on the command line.
 
 Eligible means: the timer is not installed, no opt-out is recorded, the machine knows exactly one
 KB (one machine holds one doctor job), and a client just connected has a default grant. The client
@@ -662,7 +670,8 @@ Exit codes: `0` nothing left to do, `3` only judgement work or checks outside `a
 ### `cartographer service sync-timer <action>`
 
 The scheduled sync trigger (D140) for clients with no session-start hook, or one that fires only in
-some sessions (Kiro, D300). It is distinct from the
+some sessions (Kiro, D300). With `auth: true` it authenticates from the token file `connect` wrote
+(D699), since a timer inherits no shell exports. It is distinct from the
 **server** service below, with its own unit files:
 
 ```bash

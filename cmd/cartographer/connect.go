@@ -964,9 +964,26 @@ func doConnect(opts connectOptions) (connectResult, error) {
 		if err := clientconfig.Save(opts.Dir, existing); err != nil {
 			return connectResult{}, err
 		}
+		if err := syncTokenFile(opts); err != nil {
+			return connectResult{}, err
+		}
 	}
 
 	return res, nil
+}
+
+// syncTokenFile keeps the private token file (D699) in step with connect: with
+// auth on and the env var set, the file gets a copy for unattended runs; with
+// auth off, a stale copy goes away. With auth on and the variable unset (a
+// reconnect from a bare shell) the existing file is left alone.
+func syncTokenFile(opts connectOptions) error {
+	if !opts.Auth || opts.TokenEnv == "" {
+		return clientconfig.RemoveToken(opts.Dir)
+	}
+	if tok := os.Getenv(opts.TokenEnv); tok != "" {
+		return clientconfig.WriteToken(opts.Dir, tok)
+	}
+	return nil
 }
 
 // printMCPEntryLines reports the MCP entries emitted for providers, in the

@@ -467,6 +467,25 @@ func doctorScheduleRun(args []string) int {
 	return 0
 }
 
+// headlessClientEnv adds the client token to the child's environment when the
+// scheduler did not provide it (D699): clients expand ${VAR} in the MCP header
+// from their own environment, and a launchd/systemd/Task Scheduler job has none
+// of a login shell's exports. The token goes in the environment, never argv
+// (visible to other processes).
+func headlessClientEnv(env []string) []string {
+	cfg, err := loadClientConfig()
+	if err != nil || !cfg.Auth || cfg.TokenEnv == "" {
+		return env
+	}
+	if os.Getenv(cfg.TokenEnv) != "" {
+		return env
+	}
+	if tok := resolveToken(cfg); tok != "" {
+		return append(env, cfg.TokenEnv+"="+tok)
+	}
+	return env
+}
+
 func runHeadlessClient(bin string, argv []string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), doctorRunTimeout)
 	defer cancel()
@@ -475,6 +494,7 @@ func runHeadlessClient(bin string, argv []string) error {
 		cmd.Dir = home
 	}
 	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
+	cmd.Env = headlessClientEnv(os.Environ())
 	// stdin stays nil (the null device): `codex exec` waits on an open stdin.
 	err := cmd.Run()
 	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
