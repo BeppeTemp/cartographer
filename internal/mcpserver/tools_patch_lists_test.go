@@ -181,6 +181,7 @@ func TestPatch_ListItemsDropped(t *testing.T) {
 		{"list to scalar", "p: [a, b]\n", map[string]any{"frontmatter": map[string]any{"p": "a"}}, `p (1): "b"`},
 		{"list to scalar kept", "p: [a]\n", map[string]any{"frontmatter": map[string]any{"p": "a"}}, ""},
 		{"truncated", "p: [a1, a2, a3, a4, a5, a6, a7]\n", map[string]any{"frontmatter": map[string]any{"p": []string{"z"}}}, "p (7): \"a1\", \"a2\", \"a3\", \"a4\", \"a5\", +2 more"},
+		{"scalar to scalar", "p: a\n", map[string]any{"frontmatter": map[string]any{"p": "b"}}, ""},
 		{"body only", "p: [a, b]\n", map[string]any{"old_string": "alpha", "new_string": "ALPHA"}, ""},
 	}
 	for _, tc := range cases {

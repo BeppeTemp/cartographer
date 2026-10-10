@@ -64,6 +64,21 @@ func currentList(fm *okf.Frontmatter, param, key string) ([]string, error) {
 	return nil, fmt.Errorf("%s: %s is not a list", param, key)
 }
 
+// isList reports whether a frontmatter value is a YAML sequence.
+func isList(v interface{}) bool {
+	_, ok := v.([]string)
+	return ok
+}
+
+// isListValue reports whether a patch value is a list (as decoded from JSON).
+func isListValue(v interface{}) bool {
+	switch v.(type) {
+	case []string, []interface{}:
+		return true
+	}
+	return false
+}
+
 func sortedKeys(m map[string]interface{}) []string {
 	keys := make([]string, 0, len(m))
 	for k := range m {
@@ -114,9 +129,15 @@ func applyPatchFrontmatter(fm *okf.Frontmatter, p patchFrontmatter) (dropped str
 	}
 
 	// "Before" values of the merged keys, for the list_items_dropped guard.
+	// A scalar replaced by a scalar is skipped: currentList reads a scalar as
+	// a one-item list (right for append), but a timestamp bump or a new title
+	// drops nothing (#685). A scalar turned into a list still counts.
 	before := map[string][]string{}
 	for key, val := range p.Merge {
 		if val == nil {
+			continue
+		}
+		if cur, _ := fm.Get(key); !isList(cur) && !isListValue(val) {
 			continue
 		}
 		if old, err := currentList(fm, "", key); err == nil && len(old) > 0 {
