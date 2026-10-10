@@ -172,16 +172,11 @@ func (s *Server) StartAutoRepair(ctx context.Context) {
 		return
 	}
 	interval := time.Duration(k.DoctorAutoIntervalDays) * 24 * time.Hour
+	// Every start runs once, shortly after boot (D704): a start is an
+	// upgrade, a config change or a fresh clone, each of which can make pages
+	// nobody wrote fixable, and a fix waiting a day is a queue the Atlas would
+	// have to show. A run with nothing to fix commits nothing.
 	delay := autoRepairStartupDelay
-	// A restart must not push the next run a whole interval away, nor run
-	// again when one just happened: schedule from the last logged run.
-	if last, ok := lastAutoRepairRun(k); ok {
-		if at, err := time.Parse(time.RFC3339, last.At); err == nil {
-			if wait := at.Add(interval).Sub(s.now()); wait > delay {
-				delay = wait
-			}
-		}
-	}
 	// Edits that bypass MCP (an editor, a push) arrive through a pull: when it
 	// moves HEAD, the repair runs soon instead of at the next tick (D355).
 	// SyncIn calls OnSyncIn only after a pull that changed HEAD.

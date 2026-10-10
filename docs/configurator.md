@@ -183,12 +183,14 @@ server is unreachable, the MCP configs and `.cartographer.yaml` are still writte
 is **deferred** (warning, exit 0) — it must be completed with `cartographer sync` once the
 server is up. Materialized hooks are also **automatically registered** in the
 provider's native mechanism (`settings.json` / `config.toml` / JS plugin — `sync.md` §Agents and
-hooks); `connect`/`sync` print an info line for each one. When eligible, `connect` also schedules
-the headless doctor by default (D690, §Scheduled headless sessions).
+hooks); `connect`/`sync` print an info line for each one. `connect`, `sync` and `upgrade-repair` also remove the
+scheduled headless doctor job 0.22 and 0.23 installed, printing one line when there was one:
+Cartographer no longer starts an agent by itself (D704). `sync` matters after a Homebrew upgrade, which
+runs neither of the others; `doctor run|schedule|unschedule|status` now fail as unknown arguments.
 
 **Token file (D699).** With `auth: true` and `$token_env` set, `connect` (so `reconnect` and `setup`) also copies
 the token to a `.cartographer-token` file next to `.cartographer.yaml` (`0600`, atomic, never through a symlink), because the sync
-timer and the scheduled doctor run without a login shell's exports. The environment variable stays the source
+timer runs without a login shell's exports. The environment variable stays the source
 whenever it is set; rotate it and run `cartographer reconnect` to refresh the copy. A file readable by group or
 others is refused (`chmod 600` fixes it). `disconnect` removes it with the last provider; `reconnect` keeps it.
 
@@ -552,58 +554,6 @@ refresh. Every finding names a real path on this machine and the command that fi
 `reconnect`, `connect`, `service sync-timer install`), because a diagnosis nobody can act on is
 noise and a doctor that silently fixes things is a doctor nobody can predict.
 
-#### Scheduled headless sessions (`doctor schedule`, D369)
-
-The same command family also installs the one scheduled job Cartographer offers for the
-`kb-doctor` skill: a daily headless agent session, for a KB nobody opens an agent on
-(`docs/loop.md` §A KB no agent session ever touches). `connect` and `setup` install it **by
-default** when eligible (D690); `sync` never does. It spends the chosen client's model quota
-unattended. On an `auth: true` install, `doctor run` hands the client the token from the token file
-(§connect, D699) through its environment when `$token_env` is not set, so the `${VAR}` header
-expansion works under a scheduler; the token never appears on the command line.
-
-Eligible means: the timer is not installed, no opt-out is recorded, the machine knows exactly one
-KB (one machine holds one doctor job), and a client just connected has a default grant. The client
-is the first eligible one in detection order, at `06:00`, with only the Cartographer server's tools
-granted: Claude Code `--allowedTools mcp__<server_name>__*`, Copilot CLI `--allow-tool <server_name>`.
-No client gets a permission-bypassing flag; codex, opencode, kiro, antigravity and crush keep the
-explicit `--client-flag` path. When not eligible (several KBs, no client with a grant on `PATH`)
-`connect` prints one hint naming `doctor schedule` and installs nothing; `connect --dry-run` prints
-`[dry-run] would schedule …`. `doctor unschedule` records `doctor_timer_opt_out: true` in
-`.cartographer.yaml` and `connect` then leaves it alone; `doctor schedule` clears it. A config that
-cannot be read counts as opted out.
-
-```bash
-cartographer doctor schedule [--client claude] [--kb kb-a] [--at 06:00] [--client-flag <arg>]...
-cartographer doctor unschedule
-cartographer doctor status
-```
-
-| Flag | Default | Description |
-|------|---------|-------------|
-| `--client` | the only connected client that can | Client to run headless: `claude` (`-p`), `codex` (`exec`), `opencode` (`run`), `kiro` (`kiro-cli chat --no-interactive`), `antigravity` (`agy -p`), `crush` (`run -q`), `copilot` (`-p <prompt> -s`). Hermes has no documented non-interactive mode and is refused |
-| `--kb` | the only KB this client knows | KB the session runs on; a client with several needs it named |
-| `--at` | `06:00` | Local time of day, `HH:MM` |
-| `--client-flag` | *(none)* | Extra argument passed to the client before the prompt, repeatable. Cartographer adds no permission-bypassing flag of its own: an unattended client that needs one (to allow MCP tools) gets it from the operator, explicitly (Copilot CLI: `--client-flag --allow-tool --client-flag <server_name>`, where `<server_name>` is the name the KB is connected under) |
-
-There is one schedule per machine; scheduling again replaces it. The scheduler is the native
-per-user one, the same as the sync timer (`internal/service/doctortimer.go`): a launchd agent
-`com.cartographer.doctor` on macOS (`~/Library/LaunchAgents`), a systemd user timer
-`cartographer-doctor.timer` on Linux, a Scheduled Task `\Cartographer\Doctor` on Windows. Each
-fires `cartographer doctor run ...` at the chosen time (a missed slot runs when the machine is
-back), which runs the client in `$HOME`, closed stdin, with a 2-hour limit and the prompt
-`Run the kb-doctor skill on kb "<kb>" unattended.` The client is resolved to an absolute path when
-scheduling, because a scheduler's `PATH` is minimal; an authenticated server needs its token
-variable visible to the job, as for the sync timer. `unschedule` unregisters the job, deletes
-exactly those files and withdraws the declaration; `status` reads the definition back (client, KB,
-time, next run; exit `0` active, `3` installed but inactive, `4` not installed). A definition path
-that is a symlink is refused (D148).
-
-**The server learns of it** by a declaration, not by polling: `schedule` and every successful run
-`POST /api/doctor-schedule?kb=<name>` (`docs/control-plane.md` §Doctor schedule declarations).
-A failed declaration is a warning; a client that keeps failing never re-declares, so the Atlas
-falls back to its old text a day after the missed run.
-
 The checks:
 
 | Check | What it looks at |
@@ -660,7 +610,7 @@ silence the server's doctor proposal while the judgement work is undone (each ap
 leaves `kb_repair`'s own entry).
 
 `--revert <sha>` replaces the repair: it calls `repair_revert`, which undoes one `kb_repair` or
-auto-repair commit (the SHA the Atlas Health panel shows) as a new commit through the server's
+auto-repair commit (its SHA is in the KB's `git log`, reason "auto-repair (background)") as a new commit through the server's
 ordinary write path, and refuses any other commit.
 
 Exit codes: `0` nothing left to do, `3` only judgement work or checks outside `auto_repair` remain,

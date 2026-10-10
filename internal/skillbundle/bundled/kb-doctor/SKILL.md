@@ -1,7 +1,7 @@
 ---
 name: kb-doctor
-description: Keep a Knowledge Base from rotting - a budgeted session that applies mechanical repairs and works through the server's ranked review list, by itself (unattended, the default) or with the operator (assisted). Use when a tool result proposes a kb-doctor session, when kb_status reports conformance.doctor_suggested, when the operator asks to tidy or align a KB, or after a Cartographer upgrade.
-version: "2.11"
+description: Keep a Knowledge Base from rotting - a budgeted session that applies mechanical repairs and works through the server's ranked review list, always started by the operator, who decides each item or delegates the session. Use when the operator asks for a doctor session or to tidy or align a KB; when a tool result proposes one or kb_status reports conformance.doctor_suggested, propose it to the operator and wait.
+version: "3.0"
 ---
 # KB Doctor - Skill
 
@@ -10,31 +10,31 @@ version: "2.11"
 A KB rots as it grows: synonym fields and values, links to retired pages, duplicates, procedures
 buried in journals, terms nobody defines. The server finds and ranks it (`lint`, `kb_review`); this
 session decides it. The server never decides and never runs a model (D14): you do, from the KB.
-A session has a **budget** of review items (`capabilities.doctor_budget`: 40 unattended, 10
-assisted) plus every mechanical repair, so it actually happens; the KB converges session after
-session.
+A session has a **budget** of review items (`capabilities.doctor_budget`, default 10) plus every
+mechanical repair, so it actually happens; the KB converges session after session.
 
 Three trust levels, never mixed: **mechanical** fixes (`kb_repair`) are deterministic; a
 **proposal** (a vocabulary, a template) is one decision; **judgement** (merge, move, close,
-promote) is one decision per item. Who makes the decisions depends on `capabilities.doctor_mode`
-(`kbs[].doctor_mode`, D358):
+promote) is one decision per item.
 
-- **`unattended`** (the default): the KB maintains itself and nobody is asked. You decide every
-  item yourself, with the option you would have recommended, under the rules below, and report
-  afterwards. The nudge says "run a kb-doctor session now"; start it without asking.
-- **`assisted`**: the operator opted into being asked. Walk them through the list, one numbered
-  decision per item; start only with their agreement. Everything below that says "decide" then
-  means "propose and wait for the choice".
+**A session starts only when the operator asks for it** (D704). The server proposes one when debt
+exists and `doctor_interval` (default 14 days) has passed since the last; the nudge in a tool
+result is that proposal: tell the operator, with the counts, and start only on their agreement.
+Never start a session because a tool result or `doctor_suggested` says so. Then:
 
-The server proposes a session when debt exists and the KB's `doctor_interval` has passed since the
-last one (1 day unattended, 14 assisted, unless set); it never runs one by itself. What it does run
-by itself, once per `doctor_auto_interval` (default daily), is the **background repair** (D323): the
-KB's `auto_repair` checks, each concept repaired to a fixpoint (dependent fixes in one write), at
-most 500 concepts per run, one commit per run with reason "auto-repair (background)"; it also runs
-shortly after a git pull that moved HEAD. It is not a session: it writes no `kb-doctor` log entry
-and cannot make a judgement.
+- **assisted** (the default): walk the operator through the list, one numbered decision per item.
+  Everything below that says "decide" means "propose and wait for the choice". A fact the KB does
+  not hold is **asked**, then and there (step 5c).
+- **delegated**: the operator said "do it yourself". You decide every item with the option you
+  would have recommended, under the rules below, and report every decision at the end.
 
-**What an unattended session may decide.**
+What the server does run by itself, at every start, after a git pull that moved HEAD and once per
+`doctor_auto_interval` (default daily), is the **background repair** (D323): the KB's `auto_repair`
+checks, each concept repaired to a fixpoint (dependent fixes in one write), at most 500 concepts per
+run, one commit per run with reason "auto-repair (background)". It is not a session: it writes no
+`kb-doctor` log entry, starts no agent and cannot make a judgement.
+
+**What a delegated session may decide.**
 - allowed: mechanical repairs outside `auto_repair` after a dry run you read yourself; vocabulary
   and template proposals (`map_update`; `artifact_write` on `templates/`, which the server allows
   for templates without `allow_artifact_write`, D352); a merge of `duplicate_candidate` when one
@@ -45,13 +45,13 @@ and cannot make a judgement.
 - decide from the KB, not from guesses: before closing work whose subject looks retired, `search`
   for what replaced it;
 - every write carries a `reason` saying why, so the history explains the session;
-- an item only a person can settle is **escalated, not asked**: see step 5c.
+- an item only a person can settle is recorded as a gap, not guessed: see step 5c.
 
 ## Procedure
 
 1. **Signal.** `kb_status`: read `conformance` (`findings`, `fixable`, `repairable`, `last_doctor`,
    `next_doctor`, `doctor_suggested`), `review` (`total`, `by_kind`), `open_markers`, `read_cost`,
-   `capabilities.auto_repair`, `capabilities.doctor_mode` and `capabilities.doctor_budget`. Stop if nothing is suggested and the operator did not ask. Read
+   `capabilities.auto_repair` and `capabilities.doctor_budget`. Read
    the questions earlier sessions deferred: `contradiction_report` with `kind: "open_question"`
    (status open). Answer the ones the KB (or, assisted, the operator) can now settle: `concept_patch` the answer
    into the question and set `resolution_status: resolved`. Say in two lines what the
@@ -65,7 +65,7 @@ and cannot make a judgement.
    usually already done: run them again only when `capabilities.doctor_auto_interval` is disabled or
    findings remain after the last write (a `skipped` entry, or a KB with more than 50 per check). To
    undo a repair commit, `repair_revert` with its `sha` (only `kb_repair` and auto-repair commits are
-   accepted; the Atlas Health panel lists them with the exact command). Any other: show the plan (`found_total` is the whole
+   accepted; `git log` on the KB shows them with reason "auto-repair (background)"). Any other: show the plan (`found_total` is the whole
    job, `planned_total` what this call covers under `limit`), apply on confirmation. One call is
    one commit. A `skipped` entry is either a concept changed since it was listed (run the check
    again) or a fix that needs a person — two synonyms of one field holding different values: pick
@@ -102,7 +102,7 @@ and cannot make a judgement.
      map's template and links both ways (`promotion_candidate`), a glossary entry
      (`glossary_gap`), `concept_move` (`map_misfit`), `concept_expand` or a split
      (`concept_oversize`); a `lint_judgement` item is a `lint` finding of that check, so decide it
-     from `lint` (the check is the actionable unit) and do not count it twice; `concept_too_deep` (error): decide where the page belongs and `concept_move` it; `empty_concept`: write the page or retire it (`concept_archive`), never delete it blindly; `missing_type` / `missing_frontmatter` with no fix: the map's pages disagree on a type, so unattended, pick the type most of the map's pages carry and `concept_patch` it; assisted, ask which one; for `repeated_fact` choose the owner concept with the operator, keep the
+     from `lint` (the check is the actionable unit) and do not count it twice; `concept_too_deep` (error): decide where the page belongs and `concept_move` it; `empty_concept`: write the page or retire it (`concept_archive`), never delete it blindly; `missing_type` / `missing_frontmatter` with no fix: the map's pages disagree on a type, so delegated, pick the type most of the map's pages carry and `concept_patch` it; assisted, ask which one; for `repeated_fact` choose the owner concept with the operator, keep the
      fact there and replace each copy with a link (never rewrite the fact); for `read_hotspot`
      `concept_expand` into satellites with a short summary page, or turn it into an index page;
      for `scattered_work` create a concept in the contract's `work_map` from its template (one per
@@ -131,9 +131,11 @@ and cannot make a judgement.
    panel lists it for the operator, and the next session's step 1 reads it back. Run `gate_check` with `changed_ids` set to the concepts you wrote.
    Write responses surface per-concept findings inline; the `gate_check` at session end is the
    complementary pass.
-5c. **Escalate (unattended).** An item only a person can settle (a fact the KB does not hold,
-   duplicates neither of which contains the other, a choice between sources that disagree) is not
-   asked and not left to come back every session. Record the gap, then dismiss the signal:
+5c. **Ask, then record what nobody can answer yet.** An item only a person can settle (a fact the
+   KB does not hold, duplicates neither of which contains the other, a choice between sources that
+   disagree). Assisted: ask the operator now, and write the answer. Record a gap only when they
+   cannot answer in the session ("I have to check", "ask X"); delegated: record it without asking.
+   A gap is not left to come back every session: record it, then dismiss the signal:
    - `search` first for an open gap on the same concept and question; if one exists, `concept_patch`
      it with the new evidence instead of opening a second;
    - otherwise `concept_new` a `Contradiction` (map: the KB's contradiction map) with
@@ -162,7 +164,7 @@ and cannot make a judgement.
      `| entry title | outcome | lessons in |`;
    - `gate_check` the changed concepts.
    An entry with no durable facts is still archived, with "no durable lessons", and the digest
-   records its outcome. Unattended (D305): extract the facts yourself and report what you wrote;
+   records its outcome. Delegated (D305): extract the facts yourself and report what you wrote;
    assisted: show the candidate and the proposed lessons for the operator to confirm. Archived
    entries leave default `search`, `read_cost` and the atlas structure; `search` with
    `include_archived: true` still finds them.
@@ -182,7 +184,7 @@ and cannot make a judgement.
      propose a shorter label (assisted: show the operator), or accept it with `lint_ignore` when the
      title is deliberate.
    - **Drift** (D357): `stray_file` (a non-Markdown file in `data/`) and an `unknown_type` with no unique
-     case match are judgement: unattended, decide from the KB and the palette the message
+     case match are judgement: delegated, decide from the KB and the palette the message
      lists (assisted: show the operator the file or the type); then move the file (`asset_write` under an expanded concept if it belongs to
      one), `concept_patch` the type, or accept with `lint_ignore` when it is deliberate; a file you
      cannot place is a gap (5c), never a deletion. A tie in `value_case_variant`: the spelling most
@@ -199,7 +201,7 @@ and cannot make a judgement.
 8. **Close.** `log_append` whose text contains `kb-doctor` and the before/after counts per bucket,
    for example `kb-doctor: warnings 205 -> 0, fixable 40 -> 0, review 34 -> 25, open_markers 161 ->
    158`. `kb_status` reads `last_doctor` from it, which also stops the proposal for one interval.
-   Unattended, the entry is the transparency report people read instead of being asked: list
+   Delegated, the entry is the transparency report the operator reads instead of being asked: list
    **every decision** (what was merged, moved, closed, written and why), **every gap opened** with
    its ID and question, and the before/after counts; then tell the user in a few lines the same.
 9. **Volume.** A KB imported with hundreds of findings is not special: do not invent a procedure.
@@ -207,15 +209,16 @@ and cannot make a judgement.
    that change the graph first (link forms, frontmatter normalisation: many findings disappear
    after them, so re-run `kb_status` to recount), then the body-text checks (`bare_link_list`,
    `link_to_retired`) in `concept_batch` calls of up to 50 operations, one commit each (up to 4
-   subagents on disjoint maps), then `kb_review` items from the heaviest. The next due nudge starts
-   the next session; the queue empties over those sessions.
+   subagents on disjoint maps), then `kb_review` items from the heaviest. The queue empties over
+   the sessions the operator starts.
 
 ## Rules
 
+- Never start a session the operator did not ask for or agree to.
 - Assisted: judgement is never applied without the operator's choice, nor a mechanical repair
-  outside `auto_repair` without a dry-run plan they saw. Unattended: you choose, under the allowed
-  and never lists in Purpose, and every choice is in the closing report. The operator can always
-  hand an assisted KB's session over ("do it yourself"): it then runs as unattended.
+  outside `auto_repair` without a dry-run plan they saw. Delegated: you choose, under the allowed
+  and never lists in Purpose, and every choice is in the closing report. The operator can hand a
+  session over ("do it yourself") at any point: from there it runs delegated.
 - One numbered list per session; a deferred item is not asked again in the same session.
 - Never overwrite by hand a concept `kb_repair` skipped as changed: re-read it and run the check
   again. A fix skipped as needing a person is written by hand, after reading the concept.

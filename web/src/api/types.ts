@@ -263,7 +263,11 @@ export interface WorkResponse {
 /** GET /kbs/{kb}/status: the parts of kb_status the home reads. Both are
  *  omitted by the server when empty. */
 export interface KBStatus {
-  open_gaps?: { total: number; by_kind?: Record<string, number>; recent?: { id: string; title?: string; kind?: string; subjects?: string[] }[] };
+  open_gaps?: {
+    total: number;
+    by_kind?: Record<string, number>;
+    recent?: { id: string; title?: string; kind?: string; subjects?: string[] }[];
+  };
   /** resolved: the same search now finds something (D319); sorted last. */
   search_misses?: { query: string; count: number; last_seen?: string; resolved?: boolean }[];
   stale_count?: number;
@@ -299,10 +303,6 @@ export interface MaintenanceSummary {
   last_doctor?: string;
   next_doctor?: string;
   doctor_interval_days: number;
-  /** A client-declared scheduled headless doctor session; absent once stale (D369). */
-  doctor_schedule?: { client: string; next_run: string };
-  /** Who runs the doctor sessions (D358). */
-  doctor_mode?: "unattended" | "assisted";
   /** The background repair's runs of the last 30 days, newest first (D365). */
   runs?: MaintenanceRun[];
   /** One sample a day of the lint totals, oldest first, 90 days at most (D370). */
@@ -310,16 +310,18 @@ export interface MaintenanceSummary {
   repairs: MaintenanceRepair[];
 }
 
-/** GET /kbs/{kb}/maintenance/questions: the open_question concepts. */
-export interface MaintenanceQuestion {
-  id: string;
-  title?: string;
-  involves?: string[];
-  contradiction_kind?: string;
-  resolution_status: string;
+/** GET /kbs/{kb}/maintenance/review (D704): the doctor's agenda beyond lint. */
+export interface ReviewItem {
+  kind: string;
+  concepts: string[];
+  evidence: string;
+  suggested_action: string;
+  term?: string;
+  template_slug?: string;
+  weight: number;
 }
-export interface MaintenanceQuestions {
-  questions: MaintenanceQuestion[];
+export interface MaintenanceReview {
+  items: ReviewItem[];
 }
 
 /** GET /kbs/{kb}/checks: every lint check the server runs (D365). */

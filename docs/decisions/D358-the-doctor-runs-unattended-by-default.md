@@ -4,6 +4,8 @@ topic: control-plane
 
 # D358 — The kb-doctor session runs unattended by default
 
+> **Superseded by D704** for who starts a session: it is always the operator, and the `unattended` default is gone; a session the operator hands over runs as described here, called *delegated*.
+
 **Decision.** Per KB, `doctor_mode: unattended | assisted` (default `unattended`) says who runs the
 kb-doctor session the server proposes. Unattended, the nudge tells the agent to run it now, decide
 every item under the skill's rules, record what only a person can answer as a gap

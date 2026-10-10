@@ -542,12 +542,9 @@ func printConnectResult(dir string, providers []string, opts connectOptions, res
 	}
 	if !opts.DryRun {
 		ensureSyncTimer(dir, providers)
-		ensureDoctorTimer(dir, providers, false)
+		removeLegacyDoctorTimer()
 	} else if hookless := hooklessProviders(providers); len(hookless) > 0 {
 		fmt.Printf("[dry-run] would install the sync timer: %s\n", describeHookless(hookless))
-	}
-	if opts.DryRun {
-		ensureDoctorTimer(dir, providers, true)
 	}
 	if !opts.DryRun {
 		ackSessionHookLimit(dir, providers)
@@ -622,6 +619,20 @@ func providersNeedingSyncTimer(providers []string) ([]string, service.SyncTimerS
 		return nil, st
 	}
 	return hookless, st
+}
+
+// removeLegacyDoctorTimer removes the scheduled headless doctor job that 0.22
+// and 0.23 installed (D369, D690): Cartographer no longer starts an agent by
+// itself (D704), and the job would fire a `doctor run` that no longer exists.
+// Called by connect, sync and upgrade-repair; best effort, it never fails either.
+func removeLegacyDoctorTimer() {
+	removed, err := removeLegacyDoctorTimerFn()
+	switch {
+	case err != nil:
+		fmt.Fprintf(os.Stderr, "warning: removing the old scheduled doctor job failed: %v\n", err)
+	case removed:
+		fmt.Println("removed the old scheduled doctor job: kb-doctor sessions now start only when you ask an agent for one")
+	}
 }
 
 // ensureSyncTimer installs the scheduled trigger when a provider being

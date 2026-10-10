@@ -81,9 +81,10 @@ func printServiceUsage(w io.Writer) {
 // syncTimerFns are indirected so the dispatch is testable without a real
 // launchctl/systemctl/PowerShell.
 var (
-	syncTimerInstallFn   = func(interval time.Duration) error { return service.NewManager().InstallSyncTimer(interval) }
-	syncTimerUninstallFn = func() error { return service.NewManager().UninstallSyncTimer() }
-	syncTimerStatusFn    = func() (service.SyncTimerStatus, error) { return service.NewManager().SyncTimerStatus() }
+	syncTimerInstallFn        = func(interval time.Duration) error { return service.NewManager().InstallSyncTimer(interval) }
+	removeLegacyDoctorTimerFn = func() (bool, error) { return service.NewManager().RemoveLegacyDoctorTimer() }
+	syncTimerUninstallFn      = func() error { return service.NewManager().UninstallSyncTimer() }
+	syncTimerStatusFn         = func() (service.SyncTimerStatus, error) { return service.NewManager().SyncTimerStatus() }
 )
 
 // cmdServiceSyncTimer manages the scheduled client sync (D140): the supported

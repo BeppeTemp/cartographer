@@ -4,6 +4,8 @@ topic: client-configurator
 
 # D690 — The scheduled doctor is installed by `connect`, by default
 
+> **Superseded by D704**: the doctor timer is no longer installed, and `connect` removes it.
+
 **Decision.** `connect` (and `setup`, which runs it) schedules the headless `kb-doctor` job the way it installs the
 sync timer (D325): when the timer is missing, no `doctor_timer_opt_out` is recorded, the machine knows exactly one KB,
 and a connected client has a default grant (first in detection order). Time is `06:00`. The grant is the narrowest that

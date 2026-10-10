@@ -145,24 +145,19 @@ func TestDoctorNudgePerMCPSession(t *testing.T) {
 	}
 }
 
-func TestDoctorNudgeTextPerMode(t *testing.T) {
-	s, _ := nudgeKB(t) // zero DoctorMode: unattended, the default
+// TestDoctorNudgeOnlyProposes: the nudge never tells the agent to start a
+// session by itself (D704).
+func TestDoctorNudgeOnlyProposes(t *testing.T) {
+	s, _ := nudgeKB(t)
 	res := s.callTool(inSession("a"), "search", json.RawMessage(`{"query":"N0"}`))
 	text := res.Content[len(res.Content)-1].Text
-	if !strings.Contains(text, "Run a kb-doctor session now") || strings.Contains(text, "operator") {
-		t.Fatalf("unattended text = %q", text)
-	}
-	s2, _ := nudgeKB(t)
-	s2.kbRef.DoctorMode = "assisted"
-	res = s2.callTool(inSession("a"), "search", json.RawMessage(`{"query":"N0"}`))
-	text = res.Content[len(res.Content)-1].Text
 	if !strings.Contains(text, "Propose a kb-doctor session to the operator") || !strings.Contains(text, "do not start it") {
-		t.Fatalf("assisted text = %q", text)
+		t.Fatalf("nudge text = %q", text)
 	}
 }
 
 func TestDoctorBudgetDefaultsMatchConfig(t *testing.T) {
-	if defaultUnattendedBudget != config.DefaultDoctorBudgetUnattended || defaultAssistedBudget != config.DefaultDoctorBudgetAssisted {
-		t.Fatal("mcpserver budget defaults drifted from config")
+	if defaultDoctorBudget != config.DefaultDoctorBudget {
+		t.Fatal("mcpserver budget default drifted from config")
 	}
 }

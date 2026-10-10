@@ -56,26 +56,28 @@ describe("the rail's Maps open the Atlas", () => {
 });
 
 describe("Health filters by Map in the page", () => {
-  it("narrows with the chips, keeps their counts stable and round-trips through the URL", async () => {
+  it("narrows with the page field's Maps and round-trips through the URL", async () => {
     open("?kb=kb-a&panel=health");
     const fetchMock = stubLint();
     const user = userEvent.setup();
     render(<App />);
-    const chips = await screen.findByRole("list", { name: "Filter by Map" });
-    const infra = await within(chips).findByRole("button", { name: /Infrastructure/ });
-    expect(infra).toHaveTextContent("2");
+    const field = await screen.findByRole("group", { name: "Pages by Map" });
+    const infra = await within(field).findByRole("button", { name: /Infrastructure/ });
+    expect(infra).toHaveAttribute("title", expect.stringMatching(/^2 of \d+ pages with an issue/));
     await user.click(infra);
     expect(window.location.search).toContain("hmap=infra");
     expect(infra).toHaveAttribute("aria-pressed", "true");
-    // The chip filters in the page: one whole-KB fetch, none scoped.
+    // The field filters in the page: one whole-KB fetch, none scoped.
     await waitFor(() => expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(/in Infrastructure/));
     const lintUrls = () => fetchMock.mock.calls.map(([u]) => String(u)).filter((u) => u.includes("/lint"));
     expect(lintUrls()).toHaveLength(1);
     expect(lintUrls().some((u) => u.includes("scope="))).toBe(false);
-    // The counts come from the unfiltered findings, so they do not move.
-    expect(within(chips).getByRole("button", { name: /Infrastructure/ })).toHaveTextContent("2");
-    expect(within(chips).getByRole("button", { name: /notes/ })).toHaveTextContent("1");
-    await user.click(within(chips).getByRole("button", { name: /Infrastructure/ }));
+    // The field counts the unfiltered findings, so its numbers do not move.
+    expect(within(field).getByRole("button", { name: /Infrastructure/ })).toHaveAttribute(
+      "title",
+      expect.stringMatching(/^2 of /),
+    );
+    await user.click(within(field).getByRole("button", { name: /Infrastructure/ }));
     expect(window.location.search).not.toContain("hmap");
   });
 

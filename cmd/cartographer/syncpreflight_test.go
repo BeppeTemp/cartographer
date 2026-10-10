@@ -67,6 +67,9 @@ func TestPreflightEnvironment_BothMissing_ReportedTogether(t *testing.T) {
 	baseDirEnv := hermesBaseDirEnv(t)
 	t.Setenv(baseDirEnv, "")
 	t.Setenv("CARTOGRAPHER_TEST_TOKEN", "")
+	// The token falls back to the private file in the home directory (D699):
+	// a machine that ran connect has one, and the variable would not be missing.
+	setHome(t, t.TempDir())
 
 	cfg := &clientconfig.Config{
 		ServerURL: "https://example.test/mcp",
@@ -147,6 +150,9 @@ func TestPreflightEnvironment_AllPresent_Silent(t *testing.T) {
 // (the server URL below points nowhere).
 func TestRunSync_DryRun_StopsOnPreflight(t *testing.T) {
 	t.Setenv("CARTOGRAPHER_TEST_TOKEN", "")
+	// The token falls back to the private file in the home directory (D699):
+	// a machine that ran connect has one, and the variable would not be missing.
+	setHome(t, t.TempDir())
 
 	cfg := &clientconfig.Config{
 		ServerURL: "http://127.0.0.1:1/mcp",

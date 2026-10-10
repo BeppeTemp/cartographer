@@ -5,62 +5,50 @@ import type {
   KBStatus,
   LintFinding,
   LintReport,
-  MaintenanceQuestions,
-  MaintenanceRepair,
-  MaintenanceRun,
+  LintSample,
+  MaintenanceReview,
   MaintenanceSummary,
+  ReviewItem,
 } from "../api/types";
-import { checkLabel, groupFindings, inMap, type CheckGroup } from "../lib/health";
 import {
-  Count,
-  Figures,
-  FilterChip,
-  FilterChips,
-  Hero,
-  HeroRow,
-  Page,
-  PageHeader,
-  PageSection,
-  Quiet,
-  Segmented,
-  SkeletonRows,
-  relativeDay,
-} from "./Page";
+  checkFix,
+  checkHelp,
+  checkLabel,
+  groupFindings,
+  groupReview,
+  reviewInfo,
+  reviewKinds,
+  type CheckGroup,
+  type ReviewGroup,
+} from "../lib/health";
+import { Count, Page, PageHeader, PageSection, Quiet, Segmented, SkeletonRows } from "./Page";
 import { collectionVar } from "../lib/palette";
 import { Icon } from "./Icon";
 import { LintTrend } from "./LintTrend";
-import { SeverityBadge } from "./SeverityBadge";
 import { ErrorState } from "./States";
 
-const DAY_MS = 86_400_000;
-
 /**
- * Health (D338, D365): how the KB is doing, said by who acts on it. The
- * server repairs the mechanical findings by itself (D349, D355), a doctor
- * session decides the rest (D358), and only what neither can decide waits on
- * a person. So the page answers "does anything need me?" first, then shows
- * the findings grouped by cause -- one row per check, not one per page -- each
- * with who will deal with it, and what Cartographer already did. Severity is
- * a priority, not a pile of its own: an info finding is an improvement in the
- * doctor's queue (its Advice step), not homework for the reader.
+ * Health (D338, D365, D704): what Cartographer found, and on a second tab what
+ * it checks. *Issues* counts the kinds of issue and their occurrences, shows a
+ * page field (one square per page, clustered by Map) and lists one row per
+ * kind -- a lint check or a kind of kb_review proposal -- problems first, then
+ * suggestions; an open row says what it is and how to fix it. *What it checks*
+ * explains the rules by category, with the result on this KB and the trend.
  *
- * Like the rest of the Atlas it reads and never writes: a repair is undone, and
- * a question answered, from an agent session or the CLI, so a row carries the
- * text to copy rather than a button that acts.
+ * Like the rest of the Atlas it reads and never writes: a fix happens in a
+ * kb-doctor session the operator starts from an agent.
  *
- * The findings are filtered by the page's own Map chips (the rail only navigates).
- * Everything else describes the
- * whole KB, so a principal that cannot see all of it gets no status and no
- * summary (both 404) and the page shows what it can.
+ * The agenda is filtered by the page's own Map picker (the rail only
+ * navigates). Status and the maintenance summary describe the whole KB, so a
+ * principal that cannot see all of it gets neither (both 404) and the page
+ * shows what it can.
  */
 export function Health({
   report,
   status,
   summary,
-  summaryError,
   checks,
-  questions,
-  questionsError,
+  review = null,
   scopeTitle,
   allFindings = null,
   collections = [],
@@ -69,7 +57,6 @@ export function Health({
   loading,
   error,
   onReveal,
-  onOpen,
   onRetry,
 }: {
   report: LintReport | null;
@@ -77,14 +64,13 @@ export function Health({
   status: KBStatus | null;
   /** The maintenance summary (D323); null when not visible or not arrived. */
   summary: MaintenanceSummary | null;
-  summaryError?: string | null;
-  /** Every check the server runs (D365); null leaves the coverage out. */
+  /** Every check the server runs (D365); null leaves the reference out. */
   checks?: CheckCatalog | null;
-  questions: MaintenanceQuestions | null;
-  questionsError?: string | null;
-  /** Title of the Map the findings are scoped to; null = whole KB. */
+  /** The doctor's proposals beyond lint (D704); null leaves them out. */
+  review?: MaintenanceReview | null;
+  /** Title of the Map the agenda is scoped to; null = whole KB. */
   scopeTitle: string | null;
-  /** The unfiltered findings: the chips count over them, so a filter never hides its siblings. */
+  /** The unfiltered findings: the picker counts over them, so a filter never hides its siblings. */
   allFindings?: LintFinding[] | null;
   collections?: CollectionSummary[];
   hmap?: string | null;
@@ -92,280 +78,338 @@ export function Health({
   loading: boolean;
   error: unknown;
   onReveal(concept: string | null, message: string): void;
-  onOpen(conceptId: string): void;
   onRetry(): void;
 }) {
-  const [copied, setCopied] = useState<string | null>(null);
-  // Findings is what to act on; Checks is what the KB is checked for (D365).
-  const [tab, setTab] = useState<"findings" | "checks">("findings");
-
-  async function copy(key: string, text: string) {
-    try {
-      await navigator.clipboard.writeText(text);
-      setCopied(key);
-    } catch {
-      // No clipboard (an insecure origin, a denied permission): the text is
-      // in the button's title, selectable from the tooltip, and that is the
-      // fallback.
-      setCopied(null);
-    }
-  }
+  // The agenda is the page; what the checks look for is a tab beside it (D365).
+  const [tab, setTab] = useState<"agenda" | "checks">("agenda");
+  // The pages of the agenda row under the pointer: the field lights only those.
+  const [focus, setFocusRaw] = useState<Set<string> | null>(null);
+  // A row about no page (a map's index, a KB file) lights nothing: dimming the
+  // whole field for it would read as "every page is clean".
+  // Which half of a two-colour square the row lights: its own colour only.
+  const [focusTone, setFocusTone] = useState<Tone>("problem");
+  const setFocus = (pages: Set<string> | null, tone: Tone = "problem") => {
+    setFocusRaw(pages && pages.size > 0 ? pages : null);
+    setFocusTone(tone);
+  };
 
   const groups = useMemo(() => groupFindings(report?.findings ?? []), [report]);
+  const proposals = useMemo(() => groupReview(review?.items ?? [], hmap), [review, hmap]);
 
-  // Findings per Map, over the unfiltered report: a finding belongs to the Map
-  // whose folder holds its path. Every Map is listed, a clean one at zero, so it can still be chosen.
-  const mapCounts = useMemo(() => {
-    const out: [string, string, number][] = [];
-    for (const c of collections) {
-      const n = (allFindings ?? []).filter((f) => inMap(f, c.name)).length;
-      out.push([c.name, c.title || c.name, n]);
-    }
-    return out.sort((a, b) => b[2] - a[2] || a[0].localeCompare(b[0]));
-  }, [collections, allFindings, hmap]);
+  // The page field: every page of every Map, marked by its worst finding.
+  // Over the unfiltered findings, so choosing a Map never empties the others.
+  const field = useMemo(
+    () => pageField(collections, allFindings ?? report?.findings ?? [], review?.items ?? []),
+    [collections, allFindings, report, review],
+  );
 
   if (error && !report) return <ErrorState error={error} onRetry={onRetry} />;
 
-  const open = questions?.questions ?? [];
-  const tally = tallyOf(report, summary);
   const where = scopeTitle ? ` in ${scopeTitle}` : "";
+  // One row per cause. map_without_templates is the lint face of a
+  // template_proposal: while the review carries the proposal, it is listed once.
+  const proposing = proposals.some((p) => p.kind === "template_proposal");
+  const causes = groups.filter((g) => !(proposing && g.check === "map_without_templates"));
+  // Broken first, then the heaviest: the bar's order is the reading order.
+  const bySize = (a: CheckGroup, b: CheckGroup) =>
+    Number(b.severity === "error") - Number(a.severity === "error") || rowSize(b) - rowSize(a);
+  const problems = causes.filter((g) => g.severity !== "info").sort(bySize);
+  const improvements = causes.filter((g) => g.severity === "info").sort(bySize);
+  const issues = causes.length + proposals.length;
+  const touched = field.reduce((n, m) => n + m.marks.length, 0);
+  // Every single finding and proposal: the kinds are what to read, this is how much there is.
+  const occurrences = causes.reduce((n, g) => n + g.count, 0) + proposals.reduce((n, p) => n + p.items.length, 0);
+  const pages = field.reduce((n, m) => n + m.total, 0);
+  // Bars are relative to the heaviest row: what matters is which issue weighs most.
+  const heaviest = Math.max(1, ...causes.map(rowSize), ...proposals.map((p) => p.items.length));
 
   return (
     <Page label="Health" busy={loading} className="health">
       <PageHeader
         eyebrow="Health"
-        title={<Verdict report={report} tally={tally} questions={open.length} where={where} />}
-        subtitle={scopeTitle ? `Over ${scopeTitle} only.` : undefined}
+        title={
+          !report ? (
+            <>Reading the KB&apos;s health…</>
+          ) : tab === "checks" ? (
+            <>What Cartographer checks</>
+          ) : issues > 0 ? (
+            <>
+              Cartographer found <Count>{issues}</Count> {issues === 1 ? "kind of issue" : "kinds of issues"}
+              {where}
+            </>
+          ) : (
+            <>No issues found{where}</>
+          )
+        }
+        actions={
+          checks && report ? (
+            <Segmented<"agenda" | "checks">
+              label="Health view"
+              value={tab}
+              options={[
+                ["agenda", "Issues"],
+                ["checks", "What it checks"],
+              ]}
+              onChange={setTab}
+            />
+          ) : undefined
+        }
         help={
-          <>
-            <p>
-              Cartographer looks after the KB in three hands. The <strong>background repair</strong> fixes the
-              mechanical problems by itself, daily. The <strong>doctor</strong> is an agent session that decides what
-              needs judgement: it runs by itself when an agent connects (unattended) or with you (assisted). What
-              neither can decide becomes a <strong>question for you</strong>.
-            </p>
-            <p>
-              <strong>Findings</strong> are grouped by cause; the Map chips narrow them to one Map: problems (errors and
-              warnings) first, then improvements (notes), which the doctor fixes or accepts as a deliberate choice.
-              Every repair is a commit, undone with the command on its row.
-            </p>
-          </>
+          <p>
+            The checks are fixed rules, no AI involved. Mechanical problems Cartographer fixes by itself; the rest you
+            fix with your agent, which proposes each change and waits for your yes.
+          </p>
         }
       />
-      <p className="sr-only" role="status" aria-live="polite">
-        {copied ? "Copied to the clipboard." : ""}
-      </p>
-
-      <Hero label="Summary">
-        <div className="health__hero">
-          <StateRing state={stateOf(report, tally, open.length)} />
-          <div className="health__hero-main">
-            {!report ? (
-              error ? null : (
-                <SkeletonRows label="Reading the findings" rows={1} />
-              )
-            ) : (
-              <Lanes tally={tally} summary={summary} summaryError={summaryError ?? null} questions={open.length} />
-            )}
-            {report?.total === 0 && (
-              <Quiet>
-                {scopeTitle
-                  ? `${scopeTitle} passes every deterministic lint check. Choose All for the rest of the KB.`
-                  : "This KB passes every deterministic lint check."}
-              </Quiet>
-            )}
-            {status && <KnowledgeLine status={status} />}
-          </div>
-        </div>
-        {onMap && mapCounts.length > 0 && (
-          <HeroRow label="Where">
-            <FilterChips label="Filter by Map">
-              {mapCounts.map(([name, title, n]) => (
-                <FilterChip
-                  key={name}
-                  label={title}
-                  count={n}
-                  pressed={hmap === name}
-                  hue={collectionVar(name)}
-                  onToggle={() => onMap(hmap === name ? null : name)}
-                />
-              ))}
-            </FilterChips>
-          </HeroRow>
-        )}
-      </Hero>
-
-      {checks && report && (
-        <div className="health__tabs">
-          <Segmented<"findings" | "checks">
-            label="Health view"
-            value={tab}
-            options={[
-              ["findings", `Findings · ${report.findings.length}`],
-              ["checks", `Checks · ${checks.checks.length}`],
-            ]}
-            onChange={setTab}
-          />
-        </div>
+      {/* Below the header, not its subtitle: the header's controls sit on the
+        title line on every page, and a subtitle would push them down. */}
+      {report && (
+        <p className="health__lede">
+          {tab === "checks"
+            ? "Every page is read against fixed rules. This is what they look for, and what they found here."
+            : issues > 0 && pages > 0
+              ? `${plural(occurrences, "occurrence")} in all, on ${touched} of ${pages} pages. Open one to see where.`
+              : "Every page is read against fixed rules, and none of them found anything."}
+        </p>
       )}
 
       {tab === "checks" && checks && report ? (
-        <Coverage
-          catalog={checks}
-          report={report}
-          onJump={(name) => {
-            setTab("findings");
-            // The row exists once the Findings tab has rendered.
-            window.setTimeout(() => {
-              const row = document.getElementById(`check-${name}`);
-              const details = row?.querySelector("details");
-              if (details) details.open = true;
-              // Optional call: jsdom has no scrollIntoView (as in CommandPalette).
-              row?.scrollIntoView?.({ behavior: "smooth", block: "center" });
-            }, 50);
-          }}
-        />
+        <Coverage catalog={checks} report={report} review={review?.items ?? []} trend={summary?.lint_history} />
       ) : (
         <>
-          {/* Only what has something to say gets a section: an empty one would
-            repeat what the title and the lanes already said. */}
-          {(() => {
-            const asks = !!questionsError || open.length > 0;
-            const finds = !!error || groups.length > 0;
-            const knows = !!status && hasKnowledge(status);
-            const log = !!(summary || summaryError);
-            const main = asks || finds || knows;
-            return (
-              <div className={main && log ? "health__grid" : "health__grid health__grid--single"}>
-                {main && (
-                  <div className="health__main">
-                    {asks && (
-                      <PageSection
-                        title="Questions for you"
-                        id="health-questions"
-                        count={questions ? open.length : undefined}
-                      >
-                        {questionsError ? (
-                          <p className="page-note">Could not read the questions: {questionsError}</p>
-                        ) : (
-                          <>
-                            <ul className="rows rows--actions" aria-label="Open questions">
-                              {open.map((q) => (
-                                <li key={q.id}>
-                                  <button type="button" className="row" onClick={() => onOpen(q.id)}>
-                                    <span className="health__glyph health__glyph--question" aria-hidden="true">
-                                      ?
-                                    </span>
-                                    <span className="row__body">
-                                      <span className="row__title">{q.title ?? q.id}</span>
-                                      <span className="row__meta">
-                                        <code>{q.id}</code>
-                                        {q.involves?.length ? <span>involves {q.involves.join(", ")}</span> : null}
-                                      </span>
-                                    </span>
-                                  </button>
-                                  <button
-                                    type="button"
-                                    className="row-action"
-                                    data-done={copied === `q:${q.id}`}
-                                    aria-label={`Copy ID of ${q.title ?? q.id}`}
-                                    title={q.id}
-                                    onClick={() => copy(`q:${q.id}`, q.id)}
-                                  >
-                                    {copied === `q:${q.id}` ? "Copied" : "Copy ID"}
-                                  </button>
-                                </li>
-                              ))}
-                            </ul>
-                            <p className="page-note">
-                              The doctor could not decide these alone. Answer from an agent session:{" "}
-                              <code>concept_patch</code> the answer into the question, then set its resolution_status to
-                              resolved.
-                            </p>
-                          </>
-                        )}
-                      </PageSection>
-                    )}
-                    {finds && (
-                      <PageSection
-                        title="Findings"
-                        id="health-findings"
-                        count={report ? report.findings.length : undefined}
-                      >
-                        {error ? (
-                          <ErrorState error={error} onRetry={onRetry} />
-                        ) : !report ? (
-                          loading ? (
-                            <SkeletonRows label="Loading lint findings" rows={3} />
-                          ) : null
-                        ) : (
-                          <ul className="health__checks-list" aria-label="Findings by cause">
-                            {groups.map((g) => (
-                              <CheckRow key={g.check} group={g} onReveal={onReveal} />
-                            ))}
-                          </ul>
-                        )}
-                      </PageSection>
-                    )}
-                    {knows && <Knowledge status={status!} onReveal={onReveal} />}
-                  </div>
-                )}
-                {log && (
-                  <aside className="health__side" aria-label="Upkeep log">
-                    <LintTrend history={summary?.lint_history} />
-                    <Done summary={summary} copied={copied} onCopy={copy} />
-                  </aside>
-                )}
-              </div>
-            );
-          })()}
+          {/* Over the whole KB, not the chosen Map: a clean Map must not take
+            away the field, which is also the way back to every Map. */}
+          {report && touched > 0 && (
+            <div className="hfield">
+              <PageField
+                field={field}
+                focus={focus}
+                focusTone={focusTone}
+                hmap={hmap}
+                onMap={onMap}
+                onReveal={onReveal}
+              />
+              <p className="pfield__legend">
+                <span className="pfield__key" data-tone="warning" /> a problem
+                <span className="pfield__key" data-tone="info" /> a suggestion
+                <span className="pfield__key" data-both /> both
+                <span className="pfield__key" /> fine
+                <span className="pfield__hint">· one square per page · click a map to see only its pages</span>
+              </p>
+            </div>
+          )}
+
+          {error ? (
+            <ErrorState error={error} onRetry={onRetry} />
+          ) : !report ? (
+            loading ? (
+              <SkeletonRows label="Loading the issues" rows={4} />
+            ) : null
+          ) : issues === 0 ? (
+            <Quiet>{scopeTitle ? `${scopeTitle} passes every check.` : "This KB passes every check."}</Quiet>
+          ) : (
+            <div className="agenda-list" aria-label="Issues">
+              {problems.length > 0 && (
+                <AgendaGroup tone="problem" title="Problems" count={problems.length}>
+                  {problems.map((g) => (
+                    <CheckRow
+                      key={g.check}
+                      group={g}
+                      tone="problem"
+                      heaviest={heaviest}
+                      onFocus={setFocus}
+                      onReveal={onReveal}
+                    />
+                  ))}
+                </AgendaGroup>
+              )}
+              {proposals.length + improvements.length > 0 && (
+                <AgendaGroup tone="suggestion" title="Suggestions" count={proposals.length + improvements.length}>
+                  {proposals.map((p) => (
+                    <ProposalRow key={p.kind} group={p} heaviest={heaviest} onFocus={setFocus} onReveal={onReveal} />
+                  ))}
+                  {improvements.map((g) => (
+                    <CheckRow
+                      key={g.check}
+                      group={g}
+                      tone="suggestion"
+                      heaviest={heaviest}
+                      onFocus={setFocus}
+                      onReveal={onReveal}
+                    />
+                  ))}
+                </AgendaGroup>
+              )}
+            </div>
+          )}
+
+          {status && hasKnowledge(status) && <Knowledge status={status} onReveal={onReveal} />}
         </>
       )}
     </Page>
   );
 }
 
-/** The findings counted by who acts on them. */
-interface Tally {
-  errors: number;
-  /** Errors and warnings: what is wrong. */
-  problems: number;
-  /** Info findings: what could be better. */
-  improvements: number;
-  /** Findings the background repair will fix by itself. */
-  auto: number;
-  /** Problems a doctor session will decide. */
-  doctor: number;
-  /** Improvements a doctor session will fix or accept. */
-  doctorImprovements: number;
-  /** The doctor has findings to deal with and its session is overdue (or never ran). */
-  doctorDue: boolean;
+type Tone = "problem" | "suggestion";
+
+/** One band of the agenda: its mark, its name, how many rows. */
+function AgendaGroup({
+  tone,
+  title,
+  count,
+  children,
+}: {
+  tone: Tone;
+  title: string;
+  count: number;
+  children: React.ReactNode;
+}) {
+  return (
+    // Open on arrival; the reader folds a band to read the other.
+    <details className="agenda" data-tone={tone} aria-label={title} open>
+      <summary className="agenda__head">
+        <span className="agenda__mark" aria-hidden="true" />
+        <h2 className="agenda__title">{title}</h2>
+        <span className="agenda__n">{count}</span>
+      </summary>
+      <ul className="agenda__rows">{children}</ul>
+    </details>
+  );
 }
 
-function tallyOf(report: LintReport | null, summary: MaintenanceSummary | null): Tally {
-  const t: Tally = {
-    errors: 0,
-    problems: 0,
-    improvements: 0,
-    auto: 0,
-    doctor: 0,
-    doctorImprovements: 0,
-    doctorDue: false,
-  };
-  for (const f of report?.findings ?? []) {
-    if (f.severity === "info") t.improvements++;
-    else t.problems++;
-    if (f.severity === "error") t.errors++;
-    if (f.handler === "auto") t.auto++;
-    else if (f.severity !== "info") t.doctor++;
-    else t.doctorImprovements++;
+/** One page of the field: the most serious problem it has, if any, and whether it also has a suggestion. */
+interface FieldMark {
+  id: string;
+  problem: "error" | "warning" | null;
+  suggestion: boolean;
+}
+
+/** One Map of the page field: its pages, and the marked ones by id. */
+interface FieldMap {
+  name: string;
+  title: string;
+  total: number;
+  marks: FieldMark[];
+}
+
+const markRank = (m: FieldMark) =>
+  (m.problem === "error" ? 0 : m.problem === "warning" ? 1 : 2) + (m.suggestion ? 0 : 0.5);
+
+/**
+ * Every page of every Map with what the list shows for it: its most serious
+ * problem and whether it also has a suggestion (a note, or a proposal naming
+ * the page). The field and the list count the same things, so a Map with
+ * suggestions in the list never looks clean here.
+ */
+function pageField(collections: CollectionSummary[], findings: LintFinding[], review: ReviewItem[]): FieldMap[] {
+  const marks = new Map<string, FieldMark>();
+  const at = (id: string) => marks.get(id) ?? marks.set(id, { id, problem: null, suggestion: false }).get(id)!;
+  for (const f of findings) {
+    if (!f.concept) continue;
+    const m = at(f.concept);
+    if (f.severity === "error") m.problem = "error";
+    else if (f.severity === "warning") m.problem = m.problem ?? "warning";
+    else m.suggestion = true;
   }
-  if (t.doctor + t.doctorImprovements > 0 && summary && summary.doctor_interval_days !== 0) {
-    const next = summary.next_doctor ? Date.parse(summary.next_doctor) : NaN;
-    // Never ran, or past the day it was due: nobody is on these findings.
-    t.doctorDue = !summary.last_doctor || (Number.isFinite(next) && next + DAY_MS <= Date.now());
+  for (const it of review) {
+    for (const c of it.concepts) {
+      // A suggestion about a whole Map (`<map>/_map`: a template to adopt) is no
+      // page's: its row lights the whole cluster on hover instead.
+      if (!c.endsWith("/_map")) at(c).suggestion = true;
+    }
   }
-  return t;
+  return collections
+    .map((c) => {
+      const mine = [...marks.values()]
+        .filter((m) => m.id === c.name || m.id.startsWith(`${c.name}/`))
+        .sort((a, b) => markRank(a) - markRank(b) || a.id.localeCompare(b.id));
+      return {
+        name: c.name,
+        title: c.title || c.name,
+        total: Math.max(c.concepts, mine.length),
+        marks: mine,
+      };
+    })
+    .filter((m) => m.total > 0)
+    .sort((a, b) => b.total - a.total || a.name.localeCompare(b.name));
+}
+
+/**
+ * The KB at a glance: a square per page, one cluster per Map in the Map's hue,
+ * coloured by what the page has -- a problem, a suggestion, or both, split on
+ * the diagonal. A cluster is the Map filter; a coloured square opens its page.
+ */
+function PageField({
+  field,
+  focus,
+  focusTone,
+  hmap,
+  onMap,
+  onReveal,
+}: {
+  field: FieldMap[];
+  /** Pages to light, the rest dimmed; null shows every mark. */
+  focus: Set<string> | null;
+  /** The colour the lit pages show: a problem row lights the problem half of a two-colour square. */
+  focusTone: Tone;
+  hmap: string | null;
+  onMap?(map: string | null): void;
+  onReveal(concept: string | null, message: string): void;
+}) {
+  return (
+    <div className="pfield" role="group" aria-label="Pages by Map" data-focus={focus ? focusTone : undefined}>
+      {field.map((m) => {
+        // A row about the whole Map (a template to adopt) lights the whole cluster.
+        const whole = focus?.has(`map:${m.name}`) || undefined;
+        const clean = Math.max(0, m.total - m.marks.length);
+        return (
+          <div
+            key={m.name}
+            className="pfield__map"
+            data-chosen={hmap === m.name || undefined}
+            data-dim={(hmap && hmap !== m.name) || undefined}
+            style={{ "--map-hue": collectionVar(m.name) } as React.CSSProperties}
+          >
+            <button
+              type="button"
+              className="pfield__label"
+              aria-pressed={hmap === m.name}
+              title={`${m.marks.length} of ${m.total} pages with an issue · ${hmap === m.name ? "click to show every map" : "click to see only these"}`}
+              onClick={() => onMap?.(hmap === m.name ? null : m.name)}
+            >
+              {m.title}
+            </button>
+            <span className="pfield__dots">
+              {/* A mouse shortcut, not a control: a 9px square fails the WCAG
+                target size, and every page it opens is also a button in the
+                list below (the 2.5.8 equivalent-control exception). */}
+              {m.marks.map((d) => (
+                <span
+                  key={d.id}
+                  className="pfield__dot"
+                  data-page
+                  data-tone={d.problem ?? "info"}
+                  data-both={(d.problem && d.suggestion) || undefined}
+                  data-lit={whole || focus?.has(d.id) || undefined}
+                  title={d.id}
+                  aria-hidden="true"
+                  onClick={() => onReveal(d.id, "")}
+                />
+              ))}
+              {Array.from({ length: clean }, (_, i) => (
+                <span key={i} className="pfield__dot" data-lit={whole} aria-hidden="true" />
+              ))}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/** The pages (or maps, or files) a check row touches. */
+function rowSize(g: CheckGroup): number {
+  return new Set(g.messages.flatMap((m) => m.findings.map((f) => f.concept ?? f.path ?? ""))).size;
 }
 
 /** Whether there is anything to list below the Knowledge facet's counts. */
@@ -373,405 +417,411 @@ function hasKnowledge(status: KBStatus): boolean {
   return !!status.open_gaps?.total || (status.search_misses ?? []).length > 0 || (status.stale_count ?? 0) > 0;
 }
 
-type State = { tone: "ok" | "tending" | "warning" | "error"; glyph: string; word: string };
-
 /**
- * The worst thing first: broken, then waiting on a person, then a doctor
- * nobody runs, then work in hand. Each word sits on one line inside the ring,
- * whose chord at that height is ~85px: about nine uppercase characters.
+ * The line every agenda row shares: what it is, a bar for how much of the KB
+ * it weighs against the heaviest row, and the count in its own unit. What it
+ * means and where it is are one click away, in the row's detail.
  */
-function stateOf(report: LintReport | null, tally: Tally, questions: number): State | null {
-  if (!report) return null;
-  if (tally.errors) return { tone: "error", glyph: "✕", word: "Broken" };
-  if (questions > 0) return { tone: "warning", glyph: "?", word: "Waiting" };
-  if (tally.doctorDue) return { tone: "warning", glyph: "!", word: "Attention" };
-  if (tally.problems > 0 || tally.improvements > 0) return { tone: "tending", glyph: "↻", word: "Tending" };
-  return { tone: "ok", glyph: "✓", word: "Healthy" };
-}
-
-/** The title answers "does anything need me?": the worst thing first, in words. */
-function Verdict({
-  report,
-  tally,
-  questions,
-  where,
+function AgendaLine({
+  label,
+  size,
+  unit,
+  heaviest,
+  broken,
+  auto,
 }: {
-  report: LintReport | null;
-  tally: Tally;
-  questions: number;
-  where: string;
+  label: string;
+  size: number;
+  unit: readonly [string, string];
+  heaviest: number;
+  broken?: boolean;
+  /** Cartographer fixes it by itself: shown, so the list is everything found, but nobody's to do. */
+  auto?: boolean;
 }) {
-  if (!report) return <>Reading the KB&apos;s health…</>;
-  if (tally.errors > 0)
-    return (
-      <>
-        <Count>{tally.errors}</Count> {tally.errors === 1 ? "thing is" : "things are"} broken{where}.
-      </>
-    );
-  if (questions > 0)
-    return (
-      <>
-        <Count>{questions}</Count> {questions === 1 ? "question waits" : "questions wait"} for you.
-      </>
-    );
-  if (tally.doctorDue) {
-    const [n, what] = tally.doctor ? [tally.doctor, "problem"] : [tally.doctorImprovements, "improvement"];
-    return (
-      <>
-        <Count>{n}</Count> {n === 1 ? `${what} waits` : `${what}s wait`} for the doctor{where}.
-      </>
-    );
-  }
-  if (tally.problems > 0 || tally.improvements > 0) return <>Nothing needs you{where}: Cartographer is on it.</>;
-  return <>All clear{where}.</>;
-}
-
-/**
- * The three hands, side by side: what the background repair has queued and
- * when it runs, what the doctor has to decide and when it last came, and what
- * waits on the reader.
- */
-function Lanes({
-  tally,
-  summary,
-  summaryError,
-  questions,
-}: {
-  tally: Tally;
-  summary: MaintenanceSummary | null;
-  summaryError: string | null;
-  questions: number;
-}) {
-  const auto = summary?.auto_repair;
-  const autoOn = !!auto && auto.checks.length > 0 && auto.interval_days !== 0;
-  const assisted = summary?.doctor_mode === "assisted";
   return (
-    <div className="lanes">
-      <section className="lane" aria-labelledby="lane-auto" data-tone={autoOn ? "auto" : "off"}>
-        <h3 className="lane__title" id="lane-auto">
-          <span className="lane__icon" aria-hidden="true">
-            <Icon name="repair" size={14} />
+    <summary className="arow">
+      <span className="arow__label">
+        {broken && <span className="agenda__broken">broken</span>}
+        {label}
+        {auto && (
+          <span className="arow__auto" title="Cartographer fixes it by itself at its next run">
+            <Icon name="repair" size={12} /> fixes itself
           </span>
-          Automatic
-          {summary && <span className="lane__mode">{autoOn ? every(summary.auto_repair.interval_days) : "off"}</span>}
-        </h3>
-        <p className="lane__figure">
-          <span className="lane__value">{tally.auto}</span> {tally.auto === 1 ? "fix" : "fixes"} queued
-        </p>
-        {summaryError ? (
-          <p className="lane__note">Could not read the maintenance summary: {summaryError}</p>
-        ) : summary && !autoOn ? (
-          <p className="lane__note">{autoRepairOff(summary)}</p>
-        ) : summary ? (
-          <dl className="lane__times">
-            <div>
-              <dt>Next</dt>
-              <dd>{nextAutoRun(summary)}</dd>
-            </div>
-            {summary.last_auto_repair && (
-              <div title={summary.last_auto_repair.at}>
-                <dt>Last</dt>
-                <dd>
-                  {when(Date.parse(summary.last_auto_repair.at))}
-                  <RunOutcome run={summary.last_auto_repair} />
-                </dd>
-              </div>
-            )}
-          </dl>
-        ) : null}
-      </section>
-
-      <section className="lane" aria-labelledby="lane-doctor" data-tone={tally.doctorDue ? "due" : "doctor"}>
-        <h3 className="lane__title" id="lane-doctor">
-          <span className="lane__icon" aria-hidden="true">
-            <Icon name="doctor" size={14} />
-          </span>
-          Doctor
-          {summary && <span className="lane__mode">{assisted ? "assisted" : "unattended"}</span>}
-        </h3>
-        <p className="lane__figure">
-          <span className="lane__value">{tally.doctor}</span> {tally.doctor === 1 ? "problem" : "problems"}
-          {tally.doctorImprovements > 0 && (
-            <span className="lane__extra"> + {plural(tally.doctorImprovements, "improvement")}</span>
-          )}
-        </p>
-        {summary && (
-          <dl className="lane__times">
-            <div>
-              <dt>Last</dt>
-              <dd>{summary.last_doctor ? <Day iso={summary.last_doctor} /> : "never"}</dd>
-            </div>
-          </dl>
         )}
-        {tally.doctorDue && (
-          <p className="lane__note lane__note--due">
-            {assisted
-              ? "Run the kb-doctor skill with an agent."
-              : summary?.doctor_schedule
-                ? `Next doctor session: ${when(Date.parse(summary.doctor_schedule.next_run))}.`
-                : "Starts when an agent next connects."}
-          </p>
-        )}
-      </section>
+      </span>
+      <span className="arow__bar" aria-hidden="true">
+        <span style={{ width: `${Math.max(2, Math.round((size / heaviest) * 100))}%` }} />
+      </span>
+      <span className="arow__count">
+        {size} <span className="arow__unit">{size === 1 ? unit[0] : unit[1]}</span>
+      </span>
+    </summary>
+  );
+}
 
-      <section className="lane" aria-labelledby="lane-you" data-tone={questions ? "you" : "idle"}>
-        <h3 className="lane__title" id="lane-you">
-          <span className="lane__icon" aria-hidden="true">
-            <Icon name="person" size={14} />
-          </span>
-          You
-        </h3>
-        <p className="lane__figure">
-          <span className="lane__value">{questions}</span> {questions === 1 ? "question" : "questions"}
+/** One specific case of an issue: what was found, and the pages it was found on. */
+interface Case {
+  key: string;
+  what: string;
+  /** Concepts: each opens on the Atlas. */
+  pages: string[];
+  /** Files that are no concept (a map's index, a KB file): named, with nothing to open. */
+  files?: string[];
+}
+
+/**
+ * An open issue: two short lines -- what it is, how it gets fixed -- then one
+ * line per case with its page count. The pages themselves wait behind the
+ * count: forty page ids under every case is a wall, not an answer.
+ */
+function IssueDetail({
+  what,
+  fix,
+  cases,
+  rule,
+  onReveal,
+}: {
+  what: string;
+  fix: string;
+  cases: Case[];
+  rule?: string;
+  onReveal(concept: string | null, message: string): void;
+}) {
+  return (
+    <div className="arow__detail">
+      <dl className="issue__about">
+        {what && (
+          <div>
+            <dt>What it is</dt>
+            <dd>{what}</dd>
+          </div>
+        )}
+        <div>
+          <dt>To fix</dt>
+          <dd>{fix}</dd>
+        </div>
+      </dl>
+      <ul className="issue__cases">
+        {cases.slice(0, MESSAGE_CAP).map((c) => (
+          <CaseRow key={c.key} item={c} onReveal={onReveal} />
+        ))}
+      </ul>
+      {cases.length > MESSAGE_CAP && (
+        <p className="page-note">and {plural(cases.length - MESSAGE_CAP, "more")}: your agent lists them all.</p>
+      )}
+      {rule && (
+        <p className="arow__check">
+          rule <code>{rule}</code>
         </p>
-        <p className="lane__note">{questions ? "The doctor could not decide these alone." : "Nothing waits on you."}</p>
-      </section>
+      )}
     </div>
   );
 }
 
-/** What a background run did, as a chip: its fixes, or why it did nothing. */
-function RunOutcome({ run }: { run: MaintenanceRun }) {
-  if (run.skipped) return <span className="lane__chip">skipped</span>;
-  const applied = (run.checks ?? []).reduce((n, c) => n + c.applied, 0);
-  const failed = (run.checks ?? []).filter((c) => c.error).length;
+/** A page id as a reader names it: its last segment, the map in the tooltip. */
+function shortPage(id: string): string {
+  return id.split("/").pop() || id;
+}
+
+/** One case: what was found and where; one page opens directly, several unfold on click, a file is only named. */
+function CaseRow({ item, onReveal }: { item: Case; onReveal(concept: string | null, message: string): void }) {
+  const [open, setOpen] = useState(false);
+  const one = item.pages.length === 1 ? item.pages[0]! : null;
+  const files = item.files ?? [];
   return (
-    <>
-      <span className="lane__chip">{applied ? plural(applied, "fix", "fixes") : "nothing to fix"}</span>
-      {failed > 0 && <span className="lane__chip lane__chip--error">{plural(failed, "check")} failed</span>}
-    </>
+    <li className="issue__case">
+      <span className="issue__what">{item.what}</span>
+      {one ? (
+        <button type="button" className="issue__page" title={one} onClick={() => onReveal(one, "")}>
+          {shortPage(one)}
+        </button>
+      ) : item.pages.length > 1 ? (
+        <button type="button" className="issue__toggle" aria-expanded={open} onClick={() => setOpen(!open)}>
+          {plural(item.pages.length, "page")} {open ? "▴" : "▾"}
+        </button>
+      ) : files.length > 0 ? (
+        <code className="issue__file" title="Not a page: open it from an agent session">
+          {files[0]}
+          {files.length > 1 && ` +${files.length - 1}`}
+        </code>
+      ) : (
+        <span />
+      )}
+      {open && (
+        <span className="issue__pages">
+          {item.pages.map((p) => (
+            <button key={p} type="button" className="issue__page" title={p} onClick={() => onReveal(p, "")}>
+              {shortPage(p)}
+            </button>
+          ))}
+        </span>
+      )}
+    </li>
   );
 }
 
-function every(days: number): string {
-  return days === 1 ? "daily" : `every ${days} days`;
-}
-
-/** "today · 19:05": the day as a person says it, then the time. */
-function when(ms: number): string {
-  if (!Number.isFinite(ms)) return "";
-  return `${relativeDay(new Date(ms).toISOString())} · ${clock(ms)}`;
-}
-
-/** When the background repair runs next: an interval after its last run. */
-function nextAutoRun(s: MaintenanceSummary): string {
-  const last = s.last_auto_repair ? Date.parse(s.last_auto_repair.at) : NaN;
-  if (!Number.isFinite(last)) return "shortly";
-  const next = last + s.auto_repair.interval_days * DAY_MS;
-  if (next <= Date.now()) return "shortly";
-  return when(next);
-}
-
-function autoRepairOff(s: MaintenanceSummary): string {
-  if (s.auto_repair.checks.length === 0) return "Off: auto_repair is explicitly empty";
-  return "Off: doctor_auto_interval is 0";
-}
-
-/** One cause: its checks' findings folded into one row, opened to the pages. */
-function CheckRow({ group, onReveal }: { group: CheckGroup; onReveal(concept: string | null, message: string): void }) {
-  const auto = group.handler === "auto";
+/** One cause: its check's findings folded into one row, opened to what it is, how to fix it, and where. */
+function CheckRow({
+  group,
+  tone,
+  heaviest,
+  onFocus,
+  onReveal,
+}: {
+  group: CheckGroup;
+  tone: Tone;
+  heaviest: number;
+  onFocus(pages: Set<string> | null, tone?: Tone): void;
+  onReveal(concept: string | null, message: string): void;
+}) {
+  const all = group.messages.flatMap((m) => m.findings);
+  // What one finding is about: a page, a map (its contract or its index), or a file of the KB.
+  const ofMap = (path = "") => path.endsWith("_map.md") || /(^|\/)index\.md$/.test(path);
+  const unit = all.every((f) => !f.concept && ofMap(f.path))
+    ? (["map", "maps"] as const)
+    : all.every((f) => f.concept)
+      ? (["page", "pages"] as const)
+      : (["file", "files"] as const);
+  const fix =
+    group.handler === "auto"
+      ? "Nothing to do: Cartographer fixes it by itself at its next run."
+      : (checkFix(group.check) || "Your agent proposes a fix and waits for your yes.") +
+        (group.handler === "mixed" ? " Cartographer fixes some of them by itself." : "");
   return (
-    <li className="health__check" id={`check-${group.check}`}>
+    <li
+      className="arow-item"
+      id={`check-${group.check}`}
+      data-tone={tone}
+      onMouseEnter={() => onFocus(new Set(all.flatMap((f) => (f.concept ? [f.concept] : []))), tone)}
+      onMouseLeave={() => onFocus(null)}
+    >
       <details>
-        <summary className="health__check-summary">
-          <SeverityBadge severity={group.severity} />
-          <span className="health__check-body">
-            <span className="health__check-title">
-              {checkLabel(group.check)}
-              <span className="health__check-count">{group.count}</span>
-            </span>
-            <span className="health__check-meta">
-              <code>{group.check}</code>
-              {group.messages[0] && (
-                <span className="health__check-sample">
-                  {group.messages[0].message}
-                  {group.messages.length > 1 ? " …" : ""}
-                </span>
-              )}
-            </span>
-          </span>
-          <span
-            className="pill health__handler"
-            data-handler={group.handler}
-            title={auto ? "Fixed by the background repair" : "Decided by a doctor session"}
-          >
-            {auto ? "Automatic" : group.handler === "mixed" ? "Partly automatic" : "Doctor"}
-          </span>
-        </summary>
-        <ul className="rows health__check-rows">
-          {group.messages.slice(0, MESSAGE_CAP).map((m) => (
-            <li key={m.message}>
-              <MessageRow message={m.message} findings={m.findings} onReveal={onReveal} />
-            </li>
-          ))}
-        </ul>
-        {group.messages.length > MESSAGE_CAP && (
-          <p className="page-note">
-            and {plural(group.messages.length - MESSAGE_CAP, "more")}: ask an agent for <code>lint</code> on this check.
-          </p>
-        )}
+        <AgendaLine
+          label={checkLabel(group.check)}
+          size={rowSize(group)}
+          unit={unit}
+          heaviest={heaviest}
+          broken={group.severity === "error"}
+          auto={group.handler === "auto"}
+        />
+        <IssueDetail
+          what={checkHelp(group.check)}
+          fix={fix}
+          rule={group.check}
+          cases={group.messages.map((m) => ({
+            key: m.message,
+            what: m.message,
+            pages: [...new Set(m.findings.flatMap((f) => (f.concept ? [f.concept] : [])))],
+            files: [...new Set(m.findings.flatMap((f) => (f.concept ? [] : [f.path])))],
+          }))}
+          onReveal={onReveal}
+        />
+      </details>
+    </li>
+  );
+}
+
+/** The pages an item names: a map's contract (`<map>/_map`) is no page to open, and its evidence names the map. */
+function pagesOf(it: ReviewItem): string[] {
+  return it.concepts.filter((c) => !c.endsWith("/_map"));
+}
+
+/** One kind of kb_review proposal, folded into one row, opened to what it is, how to act, and where. */
+function ProposalRow({
+  group,
+  heaviest,
+  onFocus,
+  onReveal,
+}: {
+  group: ReviewGroup;
+  heaviest: number;
+  onFocus(pages: Set<string> | null, tone?: Tone): void;
+  onReveal(concept: string | null, message: string): void;
+}) {
+  const info = reviewInfo(group.kind);
+  return (
+    <li
+      className="arow-item"
+      id={`review-${group.kind}`}
+      data-tone="suggestion"
+      onMouseEnter={() =>
+        onFocus(
+          new Set(
+            group.items.flatMap((it) => it.concepts.map((c) => (c.endsWith("/_map") ? `map:${c.slice(0, -5)}` : c))),
+          ),
+          "suggestion",
+        )
+      }
+      onMouseLeave={() => onFocus(null)}
+    >
+      <details>
+        <AgendaLine label={info.label} size={group.items.length} unit={info.unit} heaviest={heaviest} />
+        <IssueDetail
+          what={info.help}
+          fix={info.fix}
+          cases={group.items.map((it, i) => ({
+            key: `${it.term ?? ""}${it.concepts.join(",")}${i}`,
+            // A glossary gap is its term; the rest say it in their evidence.
+            what: it.term ?? it.evidence,
+            pages: pagesOf(it),
+          }))}
+          onReveal={onReveal}
+        />
       </details>
     </li>
   );
 }
 
 const MESSAGE_CAP = 30;
-const PAGE_CAP = 12;
 
-/** A message and the pages that carry it: one page opens directly, several list. */
-function MessageRow({
-  message,
-  findings,
-  onReveal,
-}: {
-  message: string;
-  findings: LintFinding[];
-  onReveal(concept: string | null, message: string): void;
-}) {
-  const reveal = (f: LintFinding) =>
-    onReveal(f.concept ?? null, f.concept ? "" : "This finding is not about a concept, so there is no node to reveal.");
-  if (findings.length === 1) {
-    const f = findings[0]!;
-    return (
-      <button type="button" className="row health__finding" onClick={() => reveal(f)}>
-        <span className="row__body">
-          <span className="health__message">{message}</span>
-          <span className="row__meta">
-            <code className="health__path">{f.path}</code>
-          </span>
-        </span>
-        <span className="row__end health__go">{f.concept ? "Open" : ""}</span>
-      </button>
-    );
-  }
-  return (
-    <div className="row health__finding health__finding--many">
-      <span className="row__body">
-        <span className="health__message">
-          {message} <span className="health__times">× {findings.length}</span>
-        </span>
-        <span className="health__pages">
-          {findings.slice(0, PAGE_CAP).map((f, i) => (
-            <button
-              key={`${f.path}-${i}`}
-              type="button"
-              className="health__page"
-              onClick={() => reveal(f)}
-              title={f.path}
-            >
-              {f.concept ?? f.path}
-            </button>
-          ))}
-          {findings.length > PAGE_CAP && <span className="health__page-more">+{findings.length - PAGE_CAP}</span>}
-        </span>
-      </span>
-    </div>
-  );
-}
-
-/** A category's name for a reader. */
-const CATEGORY: Record<string, string> = {
-  pages: "Pages",
-  templates: "Templates",
-  validity: "Valid pages",
-  links: "Links and graph",
-  values: "Vocabularies",
-  maps: "Maps and indexes",
-  artifacts: "Artifacts",
-  kb: "KB files",
+/** A category's name for a reader, and one line on what its rules read. */
+const CATEGORY: Record<string, [string, string]> = {
+  pages: ["Pages", "Each page on its own: its fields, its title, its text, its secrets."],
+  templates: ["Templates", "Pages against the template their map asks them to follow."],
+  validity: ["Readable pages", "Whether a file is a page the tools can read at all."],
+  links: ["Links", "Links between pages, and pages left out of the web of links."],
+  values: ["Types and values", "The types and values pages use, across the KB."],
+  maps: ["Maps", "Maps, their indexes, their folders and their files."],
+  artifacts: ["Agent files", "The skills, agents and instructions the KB hands to agents."],
+  kb: ["KB settings", "KB-wide files: placeholders, hooks, exemptions."],
 };
 
+/** One rule as the reference lists it: its name, what it looks for, who fixes it, what it found here. */
+interface Rule {
+  key: string;
+  name: string;
+  help: string;
+  auto?: boolean;
+  /** Findings here; null when the rule has nothing to read in this KB. */
+  n: number | null;
+  title?: string;
+}
+
 /**
- * What the KB is checked for (D365): every check the server runs, by
- * category, with its count -- a zero too, because a check that finds nothing
- * is as much an answer as one that does. It has a tab of its own, beside the
- * findings; a check with findings jumps to its row there.
+ * What Cartographer checks, told so a newcomer understands it: how checking
+ * works in three steps, then one line per category -- what its rules read and
+ * what they found here -- folded until the reader opens it. Rules that found something
+ * come first; the ones with nothing to read here wait at the end.
  */
 function Coverage({
   catalog,
   report,
-  onJump,
+  review,
+  trend,
 }: {
   catalog: CheckCatalog;
   report: LintReport;
-  onJump(check: string): void;
+  review: ReviewItem[];
+  trend?: LintSample[];
 }) {
   const count = (name: string) => report.by_check[name] ?? 0;
   // A check that cannot run here (D371) is neither clean nor dirty: its zero would lie.
   const idle = (c: CheckCatalog["checks"][number]) => c.active === false;
-  const dirty = catalog.checks.filter((c) => count(c.name) > 0).length;
-  const skipped = catalog.checks.filter(idle).length;
   const auto = catalog.checks.filter((c) => c.auto).length;
+  const found = catalog.checks.filter((c) => count(c.name) > 0).length;
+  const skipped = catalog.checks.filter(idle).length;
+  const suggested = new Map<string, number>();
+  for (const it of review) suggested.set(it.kind, (suggested.get(it.kind) ?? 0) + 1);
+  const groups: [string, string, Rule[]][] = catalog.categories
+    .map((category): [string, string, Rule[]] => {
+      const [title, about] = CATEGORY[category] ?? [category, ""];
+      const rules = catalog.checks
+        .filter((c) => c.category === category)
+        .map((c) => ({
+          key: c.name,
+          name: checkLabel(c.name),
+          help: checkHelp(c.name),
+          auto: c.auto,
+          n: idle(c) ? null : count(c.name),
+          title: idle(c) ? c.reason : c.name,
+        }));
+      return [title, about, rules];
+    })
+    .filter(([, , rules]) => rules.length > 0);
+  groups.push([
+    "Suggestions",
+    "Patterns across many pages: never wrong, but worth a decision.",
+    reviewKinds().map((kind) => ({
+      key: kind,
+      name: reviewInfo(kind).label,
+      help: reviewInfo(kind).help,
+      n: suggested.get(kind) ?? 0,
+      title: kind,
+    })),
+  ]);
   return (
     <section className="health__coverage" id="health-coverage" aria-label="Checks">
-      <p className="page-note health__coverage-line">
-        {plural(catalog.checks.length - dirty - skipped, "check")} clean · {plural(dirty, "check")} with findings
-        {skipped > 0 && <> · {skipped} not checked here</>} · {auto} fixed by the background repair
+      <ol className="howto" aria-label="How checking works">
+        <li>
+          <Icon name="search" size={16} />
+          <strong>It reads every page</strong>
+          <span>{catalog.checks.length} fixed rules, on every write and at every start. No AI.</span>
+        </li>
+        <li>
+          <Icon name="repair" size={16} />
+          <strong>It fixes the sure ones</strong>
+          <span>{auto} rules have a fix that cannot go wrong: Cartographer applies it by itself.</span>
+        </li>
+        <li>
+          <Icon name="doctor" size={16} />
+          <strong>It shows you the rest</strong>
+          <span>They appear under Issues, and your agent fixes them with you.</span>
+        </li>
+      </ol>
+
+      <p className="coverage__summary">
+        In this KB: <strong>{catalog.checks.length - found - skipped}</strong> rules pass · <strong>{found}</strong>{" "}
+        found something
+        {skipped > 0 && (
+          <>
+            {" "}
+            · <strong>{skipped}</strong> have nothing to read here
+          </>
+        )}
       </p>
-      <div className="coverage">
-        {catalog.categories.map((category) => {
-          const list = catalog.checks
-            .filter((c) => c.category === category)
-            .sort(
-              (a, b) =>
-                Number(idle(a)) - Number(idle(b)) ||
-                count(b.name) - count(a.name) ||
-                checkLabel(a.name).localeCompare(checkLabel(b.name)),
-            );
-          if (list.length === 0) return null;
-          const found = list.filter((c) => count(c.name) > 0).length;
-          const live = list.filter((c) => !idle(c)).length;
+      <LintTrend history={trend} />
+
+      <div className="rules">
+        {groups.map(([title, about, rules]) => {
+          const hits = rules.filter((r) => (r.n ?? 0) > 0).length;
+          const sorted = [...rules].sort(
+            (a, b) =>
+              Number(a.n === null) - Number(b.n === null) || (b.n ?? 0) - (a.n ?? 0) || a.name.localeCompare(b.name),
+          );
           return (
-            <details key={category} className="coverage__group" open>
-              <summary className="coverage__title">
-                {CATEGORY[category] ?? category}
-                <span className="coverage__tally" data-clean={found === 0}>
-                  {found > 0
-                    ? `${found} of ${list.length} with findings`
-                    : live === 0
-                      ? `none of ${list.length} checked here`
-                      : live < list.length
-                        ? `all ${live} checked clean`
-                        : `all ${list.length} clean`}
+            <details key={title} className="rules__group">
+              <summary className="rules__head">
+                <span className="rules__title">{title}</span>
+                <span className="rules__about">{about}</span>
+                <span className="rules__tally" data-hits={hits > 0 || undefined}>
+                  {hits > 0 ? `${hits} of ${rules.length} found something` : `${rules.length} rules, all clear`}
                 </span>
               </summary>
-              <ul className="coverage__checks">
-                {list.map((c) => {
-                  const n = count(c.name);
-                  const label = checkLabel(c.name);
-                  const off = idle(c);
-                  return (
-                    <li
-                      key={c.name}
-                      className="coverage__check"
-                      data-found={n > 0 || undefined}
-                      data-inactive={off || undefined}
-                      data-severity={c.severity}
-                      title={off ? c.reason : undefined}
-                    >
-                      <span className="coverage__mark" aria-hidden="true">
-                        {off ? "–" : n > 0 ? "" : "✓"}
-                      </span>
-                      {n > 0 ? (
-                        <button type="button" className="coverage__name" title={c.name} onClick={() => onJump(c.name)}>
-                          {label}
-                        </button>
-                      ) : (
-                        <span className="coverage__name" title={c.name}>
-                          {label}
-                        </span>
-                      )}
-                      {c.auto && (
-                        <span className="coverage__auto" title="Fixed by the background repair">
+              <ul className="rules__list">
+                {sorted.map((r) => (
+                  <li
+                    key={r.key}
+                    className="rule"
+                    data-found={(r.n ?? 0) > 0 || undefined}
+                    data-inactive={r.n === null || undefined}
+                    title={r.title}
+                  >
+                    <span className="rule__mark" aria-hidden="true">
+                      {r.n === null ? "–" : r.n > 0 ? "●" : "✓"}
+                    </span>
+                    <span className="rule__name">
+                      {r.name}
+                      {r.auto && (
+                        <span className="rule__auto" title="Cartographer fixes it by itself">
                           <Icon name="repair" size={12} />
                           <span className="sr-only">automatic</span>
                         </span>
                       )}
-                      {off && <span className="sr-only">not checked: {c.reason}</span>}
-                      <span className="coverage__count">{off ? "–" : n}</span>
-                    </li>
-                  );
-                })}
+                    </span>
+                    <span className="rule__help">{r.n === null ? `Nothing to read here: ${r.title}` : r.help}</span>
+                    <span className="rule__count">{r.n === null ? "–" : r.n}</span>
+                  </li>
+                ))}
               </ul>
             </details>
           );
@@ -781,199 +831,8 @@ function Coverage({
   );
 }
 
-/** One entry of the upkeep timeline: a background run, or a repair someone ran. */
-type Entry =
-  | { kind: "run"; at: string; run: MaintenanceRun; fixes: number; commit?: MaintenanceRepair }
-  | { kind: "manual"; at: string; repair: MaintenanceRepair };
-
-/**
- * What Cartographer did by itself, as a timeline of the last 30 days: one row
- * per background run that fixed something -- its fixes as a bar split by check,
- * opened to the list -- and per repair someone ran by hand, each with the
- * command that undoes it. Runs that found nothing are one line at the end.
- */
-function Done({
-  summary,
-  copied,
-  onCopy,
-}: {
-  summary: MaintenanceSummary | null;
-  copied: string | null;
-  onCopy(key: string, text: string): void;
-}) {
-  const repairs = summary?.repairs ?? [];
-  const runs = summary?.runs ?? (summary?.last_auto_repair ? [summary.last_auto_repair] : []);
-  const bySha = new Map(repairs.map((r) => [r.sha, r]));
-  const entries: Entry[] = [];
-  let idle = 0;
-  for (const run of runs) {
-    const fixes = (run.checks ?? []).reduce((n, c) => n + c.applied, 0);
-    if (!fixes) {
-      idle++;
-      continue;
-    }
-    const sha = run.checks?.find((c) => c.commit)?.commit;
-    entries.push({ kind: "run", at: run.at, run, fixes, commit: sha ? bySha.get(sha) : undefined });
-  }
-  for (const r of repairs) if (!r.background) entries.push({ kind: "manual", at: r.at, repair: r });
-  entries.sort((a, b) => Date.parse(b.at) - Date.parse(a.at));
-  const total = entries.reduce((n, e) => n + (e.kind === "run" ? e.fixes : 0), 0);
-
-  const revert = (r: MaintenanceRepair | undefined) =>
-    r && (
-      <button
-        type="button"
-        className="row-action"
-        data-done={copied === `r:${r.sha}`}
-        aria-label={`Copy revert command for ${r.sha.slice(0, 7)}`}
-        title={r.revert}
-        onClick={() => onCopy(`r:${r.sha}`, r.revert)}
-      >
-        {copied === `r:${r.sha}` ? "Copied" : "Copy revert"}
-      </button>
-    );
-
-  return (
-    <PageSection title="Done by Cartographer" id="health-repairs" count={summary ? entries.length : undefined}>
-      {!summary ? null : entries.length === 0 ? (
-        <Quiet tone="neutral">Nothing repaired in the last 30 days.</Quiet>
-      ) : (
-        <>
-          <p className="page-note health__done-line">
-            Last 30 days: {plural(total, "fix", "fixes")} in {plural(entries.length, "run")}
-          </p>
-          <ol className="upkeep-log" aria-label="Recent repairs">
-            {entries.map((e) =>
-              e.kind === "run" ? (
-                <li key={e.at} className="upkeep-log__entry">
-                  <details>
-                    <summary className="upkeep-log__head" title={e.at}>
-                      <span className="health__glyph health__glyph--auto" aria-hidden="true">
-                        <Icon name="repair" size={13} />
-                      </span>
-                      <span className="upkeep-log__body">
-                        <span className="upkeep-log__when">{when(Date.parse(e.at))}</span>
-                        <span className="upkeep-log__what">
-                          {plural(e.fixes, "fix", "fixes")}
-                          {e.commit && <> · {plural(e.commit.files, "page")}</>}
-                        </span>
-                        <RunBar run={e.run} fixes={e.fixes} />
-                      </span>
-                    </summary>
-                    <ul className="health__fixed" aria-label="Fixed in this run">
-                      {(e.run.checks ?? [])
-                        .filter((c) => c.applied > 0)
-                        .sort((a, b) => b.applied - a.applied)
-                        .map((c) => (
-                          <li key={c.check} title={c.check}>
-                            <span className="health__fixed-label">{checkLabel(c.check)}</span>
-                            <span className="health__fixed-count">{c.applied}</span>
-                          </li>
-                        ))}
-                    </ul>
-                  </details>
-                  {revert(e.commit)}
-                </li>
-              ) : (
-                <li key={e.repair.sha} className="upkeep-log__entry">
-                  <div className="upkeep-log__head" title={e.repair.subject}>
-                    <span className="health__glyph" aria-hidden="true">
-                      ✎
-                    </span>
-                    <span className="upkeep-log__body">
-                      <span className="upkeep-log__when">{when(Date.parse(e.at))}</span>
-                      <span className="upkeep-log__what">
-                        {checkLabel(parseRepair(e.repair).check)} ·{" "}
-                        {plural(parseRepair(e.repair).concepts ?? e.repair.files, "page")} · by hand
-                      </span>
-                    </span>
-                  </div>
-                  {revert(e.repair)}
-                </li>
-              ),
-            )}
-          </ol>
-          {idle > 0 && <p className="page-note">and {plural(idle, "run")} with nothing to fix.</p>}
-        </>
-      )}
-    </PageSection>
-  );
-}
-
-/** A run's fixes as one bar split by check, the largest first. */
-function RunBar({ run, fixes }: { run: MaintenanceRun; fixes: number }) {
-  const parts = (run.checks ?? []).filter((c) => c.applied > 0).sort((a, b) => b.applied - a.applied);
-  return (
-    <span className="upkeep-log__bar" aria-hidden="true">
-      {parts.map((c, i) => (
-        <span
-          key={c.check}
-          title={`${checkLabel(c.check)}: ${c.applied}`}
-          style={{ flexGrow: c.applied / fixes, opacity: Math.max(0.35, 1 - i * 0.18) }}
-        />
-      ))}
-    </span>
-  );
-}
-
-/** "kb_repair: duplicate_link (67 concepts)" → the check and the count. */
-export function parseRepair(r: Pick<MaintenanceRepair, "subject">): { check: string; concepts: number | null } {
-  const m = /^kb_repair:\s*([\w-]+)\s*(?:\((\d+) concepts?\))?/.exec(r.subject);
-  if (!m) return { check: r.subject, concepts: null };
-  return { check: m[1]!, concepts: m[2] ? Number(m[2]) : null };
-}
-
-function clock(ms: number): string {
-  return new Date(ms).toLocaleTimeString("en", { hour: "2-digit", minute: "2-digit", hour12: false });
-}
-
 function plural(n: number, word: string, many = `${word}s`): string {
   return `${n} ${n === 1 ? word : many}`;
-}
-
-/** The state as a ring the eye finds first: its tone, its glyph, its word. */
-function StateRing({ state }: { state: State | null }) {
-  return (
-    <div className={`state-ring state-ring--${state?.tone ?? "loading"}`} aria-hidden="true">
-      <svg viewBox="0 0 120 120">
-        <circle className="state-ring__track" cx="60" cy="60" r="52" />
-        <circle className="state-ring__arc" cx="60" cy="60" r="52" />
-      </svg>
-      <span className="state-ring__glyph">{state?.glyph ?? "…"}</span>
-      <span className="state-ring__word">{state?.word ?? ""}</span>
-    </div>
-  );
-}
-
-/** A date said as a person would, the calendar date beside it, the ISO in the tooltip. */
-function Day({ iso }: { iso: string }) {
-  const t = Date.parse(iso);
-  if (!Number.isFinite(t)) return <>{iso}</>;
-  return (
-    <time dateTime={iso} title={iso}>
-      {relativeDay(iso)}{" "}
-      <span className="day__aside">· {new Date(t).toLocaleDateString("en", { day: "numeric", month: "short" })}</span>
-    </time>
-  );
-}
-
-/** What the KB does not know, as figures — or one line when nothing is missing. */
-function KnowledgeLine({ status }: { status: KBStatus }) {
-  const gaps = status.open_gaps?.total ?? 0;
-  const misses = (status.search_misses ?? []).filter((m) => !m.resolved).length;
-  const stale = status.stale_count ?? 0;
-  if (gaps + misses + stale === 0) {
-    return <Quiet>Nothing missing: no open gap, no unanswered search, nothing past its review date.</Quiet>;
-  }
-  return (
-    <Figures
-      items={[
-        { label: gaps === 1 ? "open gap" : "open gaps", value: gaps, tone: gaps ? "warning" : "muted" },
-        { label: "unanswered searches", value: misses, tone: misses ? "warning" : "muted" },
-        { label: "past review", value: stale, tone: stale ? "warning" : "muted" },
-      ]}
-    />
-  );
 }
 
 /**
@@ -994,12 +853,12 @@ function Knowledge({
   const stale = status.stale_count ?? 0;
   const total = (gaps?.total ?? 0) + misses.filter((m) => !m.resolved).length + stale;
   return (
-    <PageSection title="Knowledge" id="health-gaps" count={total}>
+    <PageSection title="What the KB doesn't know" id="health-gaps" count={total}>
       <>
         {!!gaps?.total && (
           <div className="health__group" role="group" aria-labelledby="health-open-gaps">
             <h3 className="health__group-title" id="health-open-gaps">
-              Open knowledge gaps
+              Open questions and gaps
               <span className="page-section__count">{gaps.total}</span>
             </h3>
             <ul className="rows">

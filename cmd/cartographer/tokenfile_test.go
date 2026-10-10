@@ -6,8 +6,6 @@ package main
 
 import (
 	"os"
-	"os/exec"
-	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
@@ -127,43 +125,5 @@ func TestPreflightNamesBothPlacesAndUnsafeFile(t *testing.T) {
 	err = preflightEnvironment(cfg, cfg.Agents, t.TempDir())
 	if err == nil || !strings.Contains(err.Error(), "chmod 600") {
 		t.Fatalf("unsafe token file must be named: %v", err)
-	}
-}
-
-// TestRunHeadlessClient_TokenInEnvNotArgv runs the real runHeadlessClient
-// against a stub "client" script that prints its environment and argv.
-func TestRunHeadlessClient_TokenInEnvNotArgv(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("shell stub")
-	}
-	home := t.TempDir()
-	setHome(t, home)
-	t.Setenv("CARTOGRAPHER_TEST_TOKEN", "")
-	cfg := authCfg()
-	cfg.KnownKBs = []string{"kb-a"}
-	if err := clientconfig.Save(home, cfg); err != nil {
-		t.Fatal(err)
-	}
-	if err := clientconfig.WriteToken(home, "file-secret"); err != nil {
-		t.Fatal(err)
-	}
-	out := filepath.Join(t.TempDir(), "out")
-	stub := filepath.Join(t.TempDir(), "stub-client")
-	script := "#!/bin/sh\nprintf 'ARGV=%s\\nTOK=%s\\n' \"$*\" \"$CARTOGRAPHER_TEST_TOKEN\" > " + out + "\n"
-	if err := os.WriteFile(stub, []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := exec.LookPath("sh"); err != nil {
-		t.Skip("no sh")
-	}
-	if err := runHeadlessClient(stub, []string{"-p", "run the doctor"}); err != nil {
-		t.Fatal(err)
-	}
-	got, _ := os.ReadFile(out)
-	if !strings.Contains(string(got), "TOK=file-secret") {
-		t.Fatalf("child did not get the token in its environment:\n%s", got)
-	}
-	if strings.Contains(strings.SplitN(string(got), "\n", 2)[0], "file-secret") {
-		t.Fatalf("token leaked into argv:\n%s", got)
 	}
 }

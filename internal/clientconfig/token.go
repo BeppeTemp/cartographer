@@ -11,7 +11,7 @@ import (
 
 // TokenFileName is the private copy of the bearer token (D699), next to
 // FileName. Launchd, systemd user units and the Task Scheduler do not inherit a
-// login shell's exports, so an unattended sync or doctor run cannot read
+// login shell's exports, so an unattended sync cannot read
 // `token_env`; the file is what they read instead.
 const TokenFileName = ".cartographer-token"
 

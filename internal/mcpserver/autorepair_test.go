@@ -164,6 +164,11 @@ func TestCapabilitiesReportAutoRepairDefaultAndInterval(t *testing.T) {
 	if c := kbCapabilities(k)["doctor_auto_interval"]; c.State != "disabled" {
 		t.Fatalf("doctor_auto_interval = %+v", c)
 	}
+	// A kb-doctor skill synced before 0.24 reads a missing doctor_mode as
+	// unattended (D704).
+	if c := caps["doctor_mode"]; c.State != "assisted" {
+		t.Fatalf("doctor_mode = %+v", c)
+	}
 	raw, _ := json.Marshal(caps["auto_repair"])
 	if !strings.Contains(string(raw), `"default":true`) {
 		t.Fatalf("default is not on the wire: %s", raw)

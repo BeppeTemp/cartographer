@@ -71,14 +71,17 @@ type doctorReport struct {
 // cmdDoctor runs every check and reports. Exit 0 clean, 1 findings, 2 error —
 // the same convention `status` uses, so CI treats them identically.
 func cmdDoctor(args []string) int {
-	if code, ok := cmdDoctorSchedule(args); ok {
-		return code
-	}
 	fs := flag.NewFlagSet("doctor", flag.ExitOnError)
 	asJSON := fs.Bool("json", false, "Emit the findings as JSON")
 	provider := fs.String("provider", "", "Narrow the run to one provider")
 	repairHashes := fs.Bool("repair-hashes", false, "Re-record the content hash of managed artifacts that have none, from the bytes already on disk (D157)")
 	fs.Parse(args)
+	// `doctor run|schedule|unschedule|status` were removed (D704): without this
+	// a leftover job's `doctor run --kb …` would run every check instead.
+	if fs.NArg() > 0 {
+		fmt.Fprintf(os.Stderr, "Error: unknown argument %q: the scheduled doctor was removed in 0.24; `cartographer sync` removes a leftover job\n", fs.Arg(0))
+		return 2
+	}
 
 	dir, err := clientconfig.TargetDir()
 	if err != nil {

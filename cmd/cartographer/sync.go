@@ -65,6 +65,9 @@ func cmdSync(args []string) int {
 	// lock is released before the detached apply's own upgrade-repair needs
 	// it; the scheduled sync timer reaches this without any change of its own.
 	if !*dryRun {
+		// A brew upgrade runs neither connect nor upgrade-repair: the scheduled
+		// sync is what reaches those clients (D704).
+		removeLegacyDoctorTimer()
 		maybeAutoPatch()
 	}
 	return 0

@@ -163,9 +163,6 @@ func TestUIAPI_FindingHandler(t *testing.T) {
 	}
 
 	handler := maintenanceHandler(t, auth.NewTokenStore(nil))
-	if mode := decodeUI(t, getUI(t, handler, UIAPIPrefix+"/kbs/docs/maintenance/summary", ""))["doctor_mode"]; mode != "unattended" {
-		t.Errorf("doctor_mode = %v", mode)
-	}
 	for _, raw := range decodeUI(t, getUI(t, handler, UIAPIPrefix+"/kbs/docs/lint", ""))["findings"].([]any) {
 		if h := raw.(map[string]any)["handler"]; h != findingHandlerAuto && h != findingHandlerDoctor {
 			t.Errorf("finding without a handler: %v", raw)
@@ -247,5 +244,44 @@ func TestUIAPI_ChecksAndRuns(t *testing.T) {
 	}
 	if checks := runs[0].(map[string]any)["checks"].([]any); len(checks) != 1 {
 		t.Errorf("run checks = %v", checks)
+	}
+}
+
+// TestUIAPI_MaintenanceReview: the doctor's agenda beyond lint (D704) — the
+// review items without the lint_judgement ones, which /lint already lists, and
+// without a template proposal's payload, which is the agent's.
+func TestUIAPI_MaintenanceReview(t *testing.T) {
+	k, _ := autoRepairKB(t, "nonstandard_field")
+	k.AuthName = "docs"
+	for id, title := range map[string]string{"infra/k3s-worker-gpu-node": "K3s Worker GPU Node", "infra/k3s-worker-vpn-node": "K3s Worker VPN Node"} {
+		fm := newFM()
+		fm.Set("type", "Entity")
+		fm.Set("title", title)
+		if _, err := k.WriteConcept(okf.ConceptID(id), fm, "# "+title+"\n", ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := k.CommitOp("test: near duplicates"); err != nil {
+		t.Fatal(err)
+	}
+	multi := NewMultiKBServer("test")
+	multi.MountKB("docs", func(s *Server) { RegisterKBTools(s, k, Deps{}) })
+	multi.EnableWeb(nil)
+	handler := auth.NewTokenStore(nil).Middleware(multi.Handler())
+
+	items := decodeUI(t, getUI(t, handler, UIAPIPrefix+"/kbs/docs/maintenance/review", ""))["items"].([]any)
+	kinds := map[string]bool{}
+	for _, raw := range items {
+		it := raw.(map[string]any)
+		kinds[it["kind"].(string)] = true
+		if _, ok := it["template"]; ok {
+			t.Errorf("item carries its template text: %v", it)
+		}
+	}
+	if kinds["lint_judgement"] {
+		t.Error("lint_judgement items are listed by /lint, not here")
+	}
+	if !kinds["duplicate_candidate"] {
+		t.Errorf("no duplicate_candidate among %v", kinds)
 	}
 }

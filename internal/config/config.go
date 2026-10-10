@@ -256,20 +256,19 @@ type KBSpec struct {
 
 	// DoctorInterval is how long after the last kb-doctor session the server
 	// starts proposing the next one (D299): "<n>d" or "<n>" days, "0"
-	// disables it, empty means the default of the doctor_mode (D358). Read it
-	// through DoctorIntervalDays.
+	// disables it, empty means DefaultDoctorIntervalDays. Read it through
+	// DoctorIntervalDays.
 	DoctorInterval string `yaml:"doctor_interval,omitempty"`
 
-	// DoctorMode is who runs the kb-doctor sessions the server proposes
-	// (D358): "unattended" (empty, the default) tells the agent to run the
-	// session itself and record what only a person can answer as a gap,
-	// "assisted" tells it to ask the operator first. Read it through
-	// DoctorModeValue.
+	// DoctorMode is accepted and ignored (D704): a kb-doctor session starts
+	// only when the operator asks for one, so the old "unattended" mode (D358),
+	// in which the nudge told the agent to start it by itself, is gone. Still
+	// validated, so a typo in a config that sets it keeps failing loudly.
 	DoctorMode string `yaml:"doctor_mode,omitempty"`
 
 	// DoctorBudget is how many review items one kb-doctor session decides
-	// before it closes (D358): nil means DefaultDoctorBudgetUnattended or
-	// DefaultDoctorBudgetAssisted by mode. Read it through DoctorBudgetItems.
+	// before it closes (D358): nil means DefaultDoctorBudget. Read it through
+	// DoctorBudgetItems.
 	DoctorBudget *int `yaml:"doctor_budget,omitempty"`
 
 	// UsageStaleDays is how many days without a client activating a skill or
@@ -931,65 +930,36 @@ func validateRule(role string, i int, rule RuleSpec) error {
 	return nil
 }
 
-// Doctor modes (D358).
-const (
-	DoctorModeUnattended = "unattended"
-	DoctorModeAssisted   = "assisted"
-)
+// DefaultDoctorIntervalDays is how long after the last kb-doctor session the
+// server proposes the next one when doctor_interval is not set (D299).
+const DefaultDoctorIntervalDays = 14
 
-// DefaultDoctorIntervalDays is the doctor interval of an assisted KB that does
-// not set doctor_interval (D299); DefaultUnattendedDoctorIntervalDays is the
-// one of an unattended KB (D358): a session is due again a day after the last.
-const (
-	DefaultDoctorIntervalDays           = 14
-	DefaultUnattendedDoctorIntervalDays = 1
-)
+// DefaultDoctorBudget is the review items one kb-doctor session decides before
+// it closes (D358): the operator's attention is the limit, not the backlog.
+const DefaultDoctorBudget = 10
 
-// DefaultDoctorBudgetUnattended and DefaultDoctorBudgetAssisted are the review
-// items one kb-doctor session decides before it closes (D358): work, not
-// questions, so an unattended session clears a backlog while an assisted one
-// keeps the operator's attention bounded.
-const (
-	DefaultDoctorBudgetUnattended = 40
-	DefaultDoctorBudgetAssisted   = 10
-)
-
-// ValidateDoctorMode rejects a doctor_mode other than unattended or assisted.
+// ValidateDoctorMode rejects a doctor_mode other than the two values 0.23
+// accepted; either is then ignored (D704).
 func ValidateDoctorMode(v string) error {
 	switch v {
-	case "", DoctorModeUnattended, DoctorModeAssisted:
+	case "", "unattended", "assisted":
 		return nil
 	}
-	return fmt.Errorf("config: doctor_mode: %s: must be unattended or assisted", v)
+	return fmt.Errorf("config: doctor_mode: %s: must be unattended or assisted (ignored since D704)", v)
 }
 
-// DoctorModeValue resolves DoctorMode: unattended when unset (D358).
-func (s KBSpec) DoctorModeValue() string {
-	if s.DoctorMode == "" {
-		return DoctorModeUnattended
-	}
-	return s.DoctorMode
-}
-
-// DoctorBudgetItems resolves DoctorBudget by mode.
+// DoctorBudgetItems resolves DoctorBudget.
 func (s KBSpec) DoctorBudgetItems() int {
 	if s.DoctorBudget != nil {
 		return *s.DoctorBudget
 	}
-	if s.DoctorModeValue() == DoctorModeAssisted {
-		return DefaultDoctorBudgetAssisted
-	}
-	return DefaultDoctorBudgetUnattended
+	return DefaultDoctorBudget
 }
 
-// DoctorIntervalDays resolves DoctorInterval: the default of the mode when
-// empty (D358), 0 when disabled.
+// DoctorIntervalDays resolves DoctorInterval: DefaultDoctorIntervalDays when
+// empty, 0 when disabled.
 func (s KBSpec) DoctorIntervalDays() (int, error) {
-	def := DefaultUnattendedDoctorIntervalDays
-	if s.DoctorModeValue() == DoctorModeAssisted {
-		def = DefaultDoctorIntervalDays
-	}
-	return parseDays(s.DoctorInterval, def)
+	return parseDays(s.DoctorInterval, DefaultDoctorIntervalDays)
 }
 
 // DefaultDoctorAutoIntervalDays is how often the server runs a KB's

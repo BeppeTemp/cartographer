@@ -93,61 +93,31 @@ distil, patch the owning pages, cite, record gaps, verify, close — for any new
 
 ## The maintenance loop
 
-A KB maintains itself, transparently to the people who read it (D358). People see
-the result and an audit trail; they are asked only what the KB cannot know. Four
-layers, cheapest first, none of which runs a model on the server (D14):
+The server finds the problems; an agent works on them only when the operator asks (D704). Discovery
+is deterministic (`lint`, `kb_review`) and never runs a model on the server (D14). Four layers,
+cheapest first:
 
 1. **Write-time repair** (D349, D355): a write applies the mechanical
    `auto_repair` fixes to the concepts it just wrote, to a fixpoint, and the
    write gate (D350) refuses what introduces findings.
-2. **Background repair** (D323): once per `doctor_auto_interval` the server
-   applies `auto_repair` over the KB, in one commit, with no agent.
-3. **Unattended doctor**: the server cannot decide, so it nudges. With
-   `doctor_mode: unattended` (the default) the first tool result of each MCP
-   session that starts while debt exists and the last `kb-doctor` log entry is
-   older than `doctor_interval` (1 day) carries a notice telling the agent to run
-   the `kb-doctor` skill now. The agent decides the items under the skill's
-   rules (it may merge a subset duplicate, place a section, write a template,
-   fill a section from cited sources; it never deletes a concept, renames a map
-   folder or invents content), up to `doctor_budget` review items (40) plus every
-   mechanical repair, then closes with a `log_append` listing every decision and
-   gap. A KB with more debt than one budget simply gets the next session at the
-   next nudge. `doctor_mode: assisted` restores the previous behavior: a notice
-   per 14 days asking the agent to propose a session to the operator.
-4. **Gaps for people**: an item only a person can settle becomes a
-   `Contradiction` of kind `missing_context` or `open_question` naming the
-   concept and the question, and the review item is dismissed with `lint_ignore`
-   citing the gap. Gaps never block a gate (D273); `kb_status.open_gaps` and the
-   Atlas Health panel are the queue people answer.
+2. **Background repair** (D323): the server applies `auto_repair` over the KB, in one commit, with
+   no agent: at every start (an upgrade or a config change can make untouched pages fixable), after
+   a pull that moved HEAD, and once per `doctor_auto_interval`.
+3. **Doctor session**: what needs judgement. The server proposes one: the first tool result of an
+   MCP session that starts while debt exists and the last `kb-doctor` log entry is older than
+   `doctor_interval` (14 days) carries a notice asking the agent to propose a `kb-doctor` session
+   to the operator. The agent never starts it without their agreement. In the session the
+   operator decides each item (assisted) or hands it over ("do it yourself", delegated), up to
+   `doctor_budget` review items (10) plus every mechanical repair; the session closes with a
+   `log_append` listing every decision.
+4. **What the KB does not know**: a fact nobody in the session can supply yet becomes a
+   `Contradiction` of kind `missing_context` or `open_question` naming the concept and the
+   question, and the review item is dismissed with `lint_ignore` citing the gap. Ingest and any
+   other session record gaps the same way. Gaps never block a gate (D273); `kb_status.open_gaps`
+   and the Atlas Health panel list them.
 
-### A KB no agent session ever touches
-
-The nudge needs a client session to land in. For a KB nobody reads through an
-agent, schedule a headless agent session instead (D369):
-
-```
-cartographer doctor schedule --client <client> --kb kb-a --at 06:00
-```
-
-This is opt-in and never done by `connect`: it installs a native per-user daily job (launchd,
-systemd user timer or Task Scheduler) that starts the chosen client non-interactively with the
-prompt `Run the kb-doctor skill on kb "kb-a" unattended.`, spending that client's model quota
-without anyone watching. `cartographer doctor status` shows it and `cartographer doctor
-unschedule` removes it entirely; flags, clients and details are in `configurator.md`
-§Scheduled headless sessions. The client declares the schedule to the server, so the Atlas Health
-panel says "Next doctor session: tomorrow · 06:00" instead of "Starts when an agent next
-connects"; a declaration more than a day past its run is dropped and the old text returns. The
-server still has no model (D14): it only knows when the client says the next session is due.
-
-The fallback, for a client `doctor schedule` does not cover or a scheduler of your own, is the same
-job by hand, with the client's own non-interactive flag in place of `<headless-flag>`:
-
-```
-0 6 * * *  cd $HOME/work && <client> <headless-flag> 'Run the kb-doctor skill on kb "kb-a" unattended.'
-```
-
-Either way the session is an ordinary one, so the nudge, the budget, the closing log entry
-and the gaps work exactly as above.
+The Atlas Health panel lists what layer 3 has to decide, by kind (lint findings and `kb_review`
+proposals), and layer 4 apart, under *What the KB doesn't know*.
 
 ## Compound useful results
 

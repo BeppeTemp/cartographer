@@ -99,11 +99,8 @@ type KB struct {
 	AutoRepair         []string
 	DoctorIntervalDays int
 
-	// DoctorMode and DoctorBudget are the per-KB doctor session settings
-	// (D358, config.KBSpec): who runs the proposed session, and how many
-	// review items it decides. The zero value reads as unattended with
-	// DefaultBudget, so a KB opened without a spec behaves as the default.
-	DoctorMode   string
+	// DoctorBudget is how many review items a kb-doctor session decides
+	// (D358, config.KBSpec); zero reads as the default.
 	DoctorBudget int
 
 	// AutoRepairDefault says AutoRepair is the product default rather than a
@@ -3271,7 +3268,3 @@ const defaultInstructionsContent = "# How to use this KB\n\n" +
 	"- Act on every finding a write returns: fix or acknowledge it before moving on.\n" +
 	"- Run `gate_check` at the end of a session and resolve what it reports.\n" +
 	"- Every write is a git commit, revertible. Close sessions with `log_append`.\n"
-
-// DoctorAssisted reports whether the operator opted into being asked before a
-// kb-doctor session (D358). Anything else is unattended.
-func (k *KB) DoctorAssisted() bool { return k.DoctorMode == "assisted" }
