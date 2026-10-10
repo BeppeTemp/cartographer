@@ -1,4 +1,20 @@
-import type { Artifact, ArtifactList, Concept, GraphSnapshot, KBSummary, LintReport, Overview, ChangesResponse, KBStatus, MaintenanceQuestions, MaintenanceSummary, SearchResponse, WorkResponse, CheckCatalog } from "./types";
+import type {
+  Artifact,
+  ArtifactList,
+  Concept,
+  GraphSnapshot,
+  KBSummary,
+  LintReport,
+  Overview,
+  ChangesResponse,
+  KBStatus,
+  MaintenanceQuestions,
+  MaintenanceReview,
+  MaintenanceSummary,
+  SearchResponse,
+  WorkResponse,
+  CheckCatalog,
+} from "./types";
 
 const BASE = "/api/ui/v1";
 
@@ -88,10 +104,13 @@ export function clearToken(): void {
  *  when it cannot be read, which the page simply leaves out. */
 export async function fetchServerVersion(signal?: AbortSignal): Promise<string | null> {
   try {
-    const response = await fetch(new URL("../health", new URL(import.meta.env.BASE_URL, window.location.href)).pathname, {
-      headers: { Accept: "application/json" },
-      signal,
-    });
+    const response = await fetch(
+      new URL("../health", new URL(import.meta.env.BASE_URL, window.location.href)).pathname,
+      {
+        headers: { Accept: "application/json" },
+        signal,
+      },
+    );
     if (!response.ok) return null;
     const body = (await response.json()) as { version?: unknown };
     return typeof body.version === "string" && body.version ? body.version : null;
@@ -141,11 +160,7 @@ export function fetchOverview(kb: string, signal?: AbortSignal): Promise<Overvie
   return get<Overview>(`/kbs/${encodeURIComponent(kb)}/overview`, signal);
 }
 
-export function fetchGraph(
-  kb: string,
-  scope: string | null,
-  signal?: AbortSignal,
-): Promise<GraphSnapshot> {
+export function fetchGraph(kb: string, scope: string | null, signal?: AbortSignal): Promise<GraphSnapshot> {
   const query = scope ? `?scope=${encodeURIComponent(scope)}` : "";
   return get<GraphSnapshot>(`/kbs/${encodeURIComponent(kb)}/graph${query}`, signal);
 }
@@ -172,7 +187,10 @@ export function fetchSearch(kb: string, query: string, signal?: AbortSignal): Pr
 }
 
 export function fetchChanges(kb: string, since: string, signal?: AbortSignal): Promise<ChangesResponse> {
-  return get<ChangesResponse>(`/kbs/${encodeURIComponent(kb)}/changes?since=${encodeURIComponent(since)}&limit=500`, signal);
+  return get<ChangesResponse>(
+    `/kbs/${encodeURIComponent(kb)}/changes?since=${encodeURIComponent(since)}&limit=500`,
+    signal,
+  );
 }
 
 /** The caller's open work, up to the route's cap (D302). */
@@ -188,6 +206,11 @@ export function fetchMaintenanceSummary(kb: string, signal?: AbortSignal): Promi
 /** Every lint check the server runs, by category (D365). */
 export function fetchChecks(kb: string, signal?: AbortSignal): Promise<CheckCatalog> {
   return get<CheckCatalog>(`/kbs/${encodeURIComponent(kb)}/checks`, signal);
+}
+
+/** What a doctor session decides beyond lint: kb_review's proposals (D704). */
+export function fetchMaintenanceReview(kb: string, signal?: AbortSignal): Promise<MaintenanceReview> {
+  return get<MaintenanceReview>(`/kbs/${encodeURIComponent(kb)}/maintenance/review`, signal);
 }
 
 /** The questions the doctor deferred to a person: open_question concepts. */

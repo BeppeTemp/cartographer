@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/gitx"
+	"github.com/BeppeTemp/cartographer/internal/lint"
 )
 
 // The Atlas's Health panel, its upkeep half (D323, D338): what the server repaired by itself,
@@ -57,10 +58,32 @@ type maintenanceSummary struct {
 	Repairs     []maintenanceRepair `json:"repairs"`
 }
 
-// GET /kbs/{kb}/maintenance/{summary,questions}.
+// GET /kbs/{kb}/maintenance/{summary,questions,review}.
 func uiMaintenance(w http.ResponseWriter, r *http.Request, srv *Server, what string) {
 	k := srv.kbRef
 	switch what {
+	case "review":
+		// The doctor's agenda beyond lint (D704): the kb_review items a
+		// session decides, filtered like the tool. lint_judgement items are
+		// lint findings the Atlas already lists by check, so they are left
+		// out; a template's text and map_update arguments are the agent's
+		// payload, not something the Atlas shows.
+		items := []lint.ReviewItem{}
+		if srv.conformance != nil {
+			all, err := visibleReview(r.Context(), k, srv.conformance)
+			if err != nil {
+				writeUIInternal(w, "maintenance review", err)
+				return
+			}
+			for _, it := range all {
+				if it.Kind == "lint_judgement" {
+					continue
+				}
+				it.Template, it.MapUpdate = "", nil
+				items = append(items, it)
+			}
+		}
+		writeUIJSON(w, http.StatusOK, map[string]any{"items": items})
 	case "questions":
 		// The deferred doctor questions: open_question Contradiction concepts,
 		// through the same walk as contradiction_report, so what the caller

@@ -9,7 +9,7 @@ import {
   fetchKBs,
   fetchArtifacts,
   fetchLint,
-  fetchMaintenanceQuestions,
+  fetchMaintenanceReview,
   fetchMaintenanceSummary,
   fetchOverview,
   fetchStatus,
@@ -25,7 +25,7 @@ import type {
   KBStatus,
   KBSummary,
   LintReport,
-  MaintenanceQuestions,
+  MaintenanceReview,
   MaintenanceSummary,
   Overview,
 } from "./api/types";
@@ -44,7 +44,14 @@ import { NodeList } from "./components/NodeList";
 import { Health } from "./components/Health";
 import { EmptyState, ErrorState, GraphSeed, Skeleton } from "./components/States";
 import { TopBar } from "./components/TopBar";
-import { applyTheme, onSystemThemeChange, prefersReducedMotion, readTheme, useAppliedTheme, type Theme } from "./lib/theme";
+import {
+  applyTheme,
+  onSystemThemeChange,
+  prefersReducedMotion,
+  readTheme,
+  useAppliedTheme,
+  type Theme,
+} from "./lib/theme";
 import { initialMotion } from "./lib/graph3d/motion";
 import { hasWebGL } from "./lib/webgl";
 import { useLiveRevision } from "./lib/live";
@@ -115,8 +122,8 @@ export function App() {
   const [maintenance, setMaintenance] = useState<MaintenanceSummary | null>(null);
   const [checks, setChecks] = useState<CheckCatalog | null>(null);
   const [maintenanceError, setMaintenanceError] = useState<string | null>(null);
-  const [questions, setQuestions] = useState<MaintenanceQuestions | null>(null);
-  const [questionsError, setQuestionsError] = useState<string | null>(null);
+  // The doctor's agenda beyond lint (D704); null leaves it out of Health.
+  const [review, setReview] = useState<MaintenanceReview | null>(null);
   const [motion, setMotion] = useState(() => initialMotion(readPanel("motion", true), prefersReducedMotion()));
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [preview, setPreview] = useState<string | null>(null);
@@ -254,16 +261,13 @@ export function App() {
     return () => window.removeEventListener("popstate", onPop);
   }, []);
 
-  const navigate = useCallback(
-    (next: Partial<ViewState>) => {
-      setView((current) => {
-        const merged = { ...current, ...next };
-        pushView(merged);
-        return merged;
-      });
-    },
-    [],
-  );
+  const navigate = useCallback((next: Partial<ViewState>) => {
+    setView((current) => {
+      const merged = { ...current, ...next };
+      pushView(merged);
+      return merged;
+    });
+  }, []);
 
   // --- Data loading. Every request is abortable, so a fast click sequence
   // cannot let a stale response overwrite a newer one. ---
@@ -410,7 +414,7 @@ export function App() {
 
   // Health's whole-KB reads (D338): kb_status and the maintenance summary
   // answer 404 to a principal that cannot see the whole KB, which is not an
-  // error to show — the page leaves those parts out. The questions are
+  // error to show — the page leaves those parts out. The review items are
   // filtered per principal and always answer.
   useEffect(() => {
     if (view.panel !== "health" || !activeKB || phase !== "ready") {
@@ -418,8 +422,7 @@ export function App() {
       setMaintenance(null);
       setMaintenanceError(null);
       setChecks(null);
-      setQuestions(null);
-      setQuestionsError(null);
+      setReview(null);
       return;
     }
     const controller = new AbortController();
@@ -441,12 +444,9 @@ export function App() {
     fetchChecks(activeKB, controller.signal)
       .then(setChecks)
       .catch(() => undefined);
-    fetchMaintenanceQuestions(activeKB, controller.signal)
-      .then((data) => {
-        setQuestions(data);
-        setQuestionsError(null);
-      })
-      .catch(quiet404(setQuestionsError));
+    fetchMaintenanceReview(activeKB, controller.signal)
+      .then(setReview)
+      .catch(() => undefined);
     return () => controller.abort();
   }, [view.panel, activeKB, phase, handleFailure, reloadKey, live]);
 
@@ -470,8 +470,7 @@ export function App() {
     if (!snapshot || (typeFilter.size === 0 && statusFilter.size === 0)) return hidden;
     for (const node of snapshot.nodes) {
       const typeOK = typeFilter.size === 0 || (node.type ? typeFilter.has(node.type) : false);
-      const statusOK =
-        statusFilter.size === 0 || (node.status ? statusFilter.has(node.status) : false);
+      const statusOK = statusFilter.size === 0 || (node.status ? statusFilter.has(node.status) : false);
       if (!typeOK || !statusOK) hidden.add(node.id);
     }
     return hidden;
@@ -485,10 +484,7 @@ export function App() {
   // The server's communities (D244), for the whole visible graph, not the
   // filtered view: a filter must not recolour what remains, or toggling a chip
   // reshuffles every colour.
-  const communities = useMemo(
-    () => (snapshot ? snapshotCommunities(snapshot) : NO_COMMUNITIES),
-    [snapshot],
-  );
+  const communities = useMemo(() => (snapshot ? snapshotCommunities(snapshot) : NO_COMMUNITIES), [snapshot]);
 
   // Skills, agents and hooks that reference concepts: what the atlas can
   // draw as diamonds. Templates and instructions have no single concept.
@@ -551,9 +547,7 @@ export function App() {
     selectConcept(null);
     setSheet(null);
     window.requestAnimationFrame(() => {
-      const row = id
-        ? document.querySelector<HTMLElement>(`[data-concept-id="${CSS.escape(id)}"]`)
-        : null;
+      const row = id ? document.querySelector<HTMLElement>(`[data-concept-id="${CSS.escape(id)}"]`) : null;
       (row ?? document.getElementById("main"))?.focus();
     });
   }, [selectConcept, view.concept]);
@@ -660,7 +654,12 @@ export function App() {
         onOpenInspector={() => setSheet("inspector")}
       />
 
-      <div ref={bodyRef} className={bodyClass} data-switching={switching || undefined} aria-busy={switching || undefined}>
+      <div
+        ref={bodyRef}
+        className={bodyClass}
+        data-switching={switching || undefined}
+        aria-busy={switching || undefined}
+      >
         <div ref={readingRef} className="inspector__measure" aria-hidden="true" />
         {!narrow && rail(false)}
 
@@ -684,7 +683,12 @@ export function App() {
               onOpen={(conceptId) => navigate({ panel: "atlas", concept: conceptId })}
             />
           ) : view.panel === "work" && activeKB ? (
-            <Work kb={activeKB} live={live} collections={overview?.collections} onOpen={(conceptId) => navigate({ panel: "atlas", concept: conceptId })} />
+            <Work
+              kb={activeKB}
+              live={live}
+              collections={overview?.collections}
+              onOpen={(conceptId) => navigate({ panel: "atlas", concept: conceptId })}
+            />
           ) : view.panel === "health" ? (
             <Health
               report={lint}
@@ -692,12 +696,10 @@ export function App() {
               summary={maintenance}
               checks={checks}
               summaryError={maintenanceError}
-              questions={questions}
-              questionsError={questionsError}
+              review={review}
+              kbName={activeKB}
               scopeTitle={
-                view.hmap
-                  ? (overview?.collections.find((c) => c.name === view.hmap)?.title || view.hmap)
-                  : null
+                view.hmap ? overview?.collections.find((c) => c.name === view.hmap)?.title || view.hmap : null
               }
               allFindings={lintAll?.findings ?? null}
               collections={overview?.collections}
@@ -754,8 +756,8 @@ export function App() {
                   <div className="state">
                     <p className="state__title">This browser cannot draw the graph</p>
                     <p className="state__detail">
-                      The graph needs WebGL, which is turned off or missing here. Every concept is still in
-                      the list and the search, and the inspector shows its links.
+                      The graph needs WebGL, which is turned off or missing here. Every concept is still in the list and
+                      the search, and the inspector shows its links.
                     </p>
                   </div>
                   {/* Without a canvas the list is the only way to browse the
@@ -783,12 +785,7 @@ export function App() {
                   onExpand={expandConcept}
                   onUnavailable={markWebglLost}
                 >
-                  <Legend
-                    snapshot={snapshot}
-                    communities={communities}
-                    colorBy={colorBy}
-                    onColorBy={setColorBy}
-                  />
+                  <Legend snapshot={snapshot} communities={communities} colorBy={colorBy} onColorBy={setColorBy} />
                 </GraphView>
               )}
             </>

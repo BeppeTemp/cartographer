@@ -1,4 +1,4 @@
-import type { LintFinding, LintReport } from "../api/types";
+import type { LintFinding, LintReport, ReviewItem } from "../api/types";
 
 /** One cause on the Health page: a check's findings, folded by message. */
 export interface CheckGroup {
@@ -34,7 +34,9 @@ export function groupFindings(findings: LintFinding[]): CheckGroup[] {
         .sort((a, b) => b.findings.length - a.findings.length || a.message.localeCompare(b.message)),
     });
   }
-  return groups.sort((a, b) => rank(a.severity) - rank(b.severity) || b.count - a.count || a.check.localeCompare(b.check));
+  return groups.sort(
+    (a, b) => rank(a.severity) - rank(b.severity) || b.count - a.count || a.check.localeCompare(b.check),
+  );
 }
 
 function rank(severity: string): number {
@@ -45,7 +47,7 @@ function rank(severity: string): number {
 const LABELS: Record<string, string> = {
   unknown_type: "Pages with a type the KB does not declare",
   broken_link: "Broken links",
-  broken_relation: "Relations to a missing concept",
+  broken_relation: "Fields pointing to a missing page",
   orphan: "Pages nothing links to",
   island: "Groups of pages cut off from the rest",
   junk_file: "Junk files",
@@ -142,18 +144,18 @@ const LABELS: Record<string, string> = {
 const HELP: Record<string, string> = {
   // Pages
   malformed_frontmatter: "Frontmatter YAML that parses only by luck: bad indentation, tabs, unquoted colons.",
-  stringified_list: "A list field written as one string (\"a, b\") instead of a YAML list.",
+  stringified_list: 'A list field written as one string ("a, b") instead of a YAML list.',
   stale_claim: "A page whose review date has passed: what it says may no longer be true.",
-  status_semantics: "An \"active\"-like status on a page whose map treats that status as open work.",
+  status_semantics: 'An "active"-like status on a page whose map treats that status as open work.',
   machine_path: "A path that exists only on one machine (~/…, /Users/…): use a {{repo:…}} or {{path:…}} placeholder.",
   mangled_placeholder: "A placeholder an editor rewrote in words, so it no longer resolves.",
   missing_title: "A page with no title field.",
   title_h1_mismatch: "The title field and the page's # heading say different things.",
-  title_quality: "A title that is too long or carries a status word (\"old\", \"dismissed\") that will go stale.",
+  title_quality: 'A title that is too long or carries a status word ("old", "dismissed") that will go stale.',
   missing_required_field: "A field the map's contract requires is missing.",
   invalid_field_value: "A field value outside the vocabulary the map declares.",
   forbidden_field: "A field the map's contract forbids.",
-  nonstandard_field: "A synonym of a standard field (\"updated\" for timestamp): tools read only the standard name.",
+  nonstandard_field: 'A synonym of a standard field ("updated" for timestamp): tools read only the standard name.',
   tool_param_field: "A tool argument saved into the frontmatter by mistake.",
   prose_value: "A sentence where a single value belongs, e.g. in status.",
   stale_open: "Open work nobody has touched for a long time.",
@@ -186,7 +188,7 @@ const HELP: Record<string, string> = {
   // Links
   broken_link: "A link to a page that does not exist.",
   duplicate_link: "The same link listed twice in one list.",
-  reciprocal_link_item: "A \"see also\" entry the graph already shows as a back-link: one more thing to keep in sync.",
+  reciprocal_link_item: 'A "see also" entry the graph already shows as a back-link: one more thing to keep in sync.',
   bare_link_list: "A list of links with no word on why each one matters.",
   index_link_form: "An index link spelled in an unusual form (…/index.md).",
   orphan: "A page nothing links to and that links to nothing.",
@@ -237,6 +239,58 @@ const HELP: Record<string, string> = {
   unused_placeholder: "A placeholder declared in paths.yaml that no page uses.",
   lint_ignore_invalid: "An exemption that exempts nothing: the check it names never fires there.",
 };
+
+/**
+ * What a doctor session decides about a check, as the options it weighs: the
+ * agenda row shows this under the label, which already says what is wrong. A
+ * check missing here falls back to what it looks for.
+ */
+const DECIDE: Record<string, string> = {
+  unknown_type: "Declare the type in the KB, or give the pages one it already has.",
+  orphan: "Link each page to what it relates to, or retire it.",
+  island: "Link the group to the rest of the KB, or accept it as separate.",
+  broken_link: "Point the link at the right page, or remove it.",
+  broken_relation: "Point the field at the right page, or clear it.",
+  index_incomplete: "Add the page to its map's index, or let the server keep the index.",
+  index_lists_retired: "Drop the retired page from the index.",
+  link_to_retired: "Point the sentence at what replaced the page, or keep it where the mention is history.",
+  bare_link_list: "Say in a few words why each link matters, or accept the list as it is.",
+  reciprocal_link_item: "Drop the entry and rely on the back-link, or keep both in sync.",
+  map_misfit: "Move the page to the map it links to, or keep it where it is.",
+  missing_value_contract: "Declare the field's vocabulary, or leave it free.",
+  facet_sprawl: "Agree a short vocabulary for the field, or stop using it.",
+  title_quality: "Shorten the title or drop the status word, or keep it as it is.",
+  concept_oversize: "Split the page, or accept its length.",
+  machine_path: "Replace the path with a placeholder, or accept it if it is not on this machine.",
+  junk_file: "Remove the file from git.",
+  junk_asset: "Remove the file.",
+  missing_registry: "Create paths.yaml declaring the placeholders the pages cite.",
+  skill_git_command: "Rewrite the step to use the tools, or accept it if it targets another repository.",
+  stale_claim: "Check the page is still true, then set a new review date.",
+  stale_open: "Close the work, update it, or say who it waits on.",
+  closed_with_open_items: "Tick or move the open boxes, or reopen the work.",
+  open_marker: "Do the TODO, or turn it into a work item.",
+  empty_concept: "Write the page, or retire it.",
+  imported_draft: "Review the page and mark it ready, or retire it.",
+  status_semantics: "Set the status the map uses for that state.",
+  value_case_variant: "Pick one spelling for the value.",
+  stray_file: "Attach the file to the page it belongs to, or remove it.",
+  unmapped_folder: "Make the folder a map, or move its pages into one.",
+  map_oversize: "Split the map by theme.",
+  expanded_as_category: "Link the children from the page's index, or move them to a map.",
+  cut_concept: "Add a second path to the pages that hang on it.",
+  source_uncited: "Cite the source where it is used, or drop it.",
+  forbidden_term: "Use the term the glossary prefers.",
+  template_missing: "Bind the page to its map's template, or keep it free-form.",
+  template_section_missing: "Fill the section from the sources, or record what is missing.",
+  template_extra_section: "Move the section's text into a template section or another page.",
+  artifact_unused: "Remove the skill or agent, or keep it for later.",
+};
+
+/** How a check's findings get fixed, as the options a doctor session weighs; empty when unknown. */
+export function checkFix(check: string): string {
+  return DECIDE[check] ?? "";
+}
 
 /** One sentence on what a check looks for; empty when there is none. */
 export function checkHelp(check: string): string {
@@ -292,4 +346,112 @@ export function filterReportByMap(report: LintReport | null, map: string | null)
     by_check[f.check] = (by_check[f.check] ?? 0) + 1;
   }
   return { ...report, findings, count: findings.length, total: findings.length, by_severity, by_check };
+}
+
+/** One kind of kb_review proposal on the Health agenda (D704). */
+export interface ReviewGroup {
+  kind: string;
+  items: ReviewItem[];
+}
+
+/**
+ * The review items by kind, heaviest kind first; a Map keeps the items that
+ * touch one of its pages. lint_judgement items never arrive: the agenda lists
+ * them by check.
+ */
+export function groupReview(items: ReviewItem[], map: string | null): ReviewGroup[] {
+  const byKind = new Map<string, ReviewItem[]>();
+  for (const it of items) {
+    if (map && !it.concepts.some((c) => inMap({ path: c }, map))) continue;
+    (byKind.get(it.kind) ?? byKind.set(it.kind, []).get(it.kind)!).push(it);
+  }
+  return [...byKind]
+    .map(([kind, list]) => ({ kind, items: list.sort((a, b) => b.weight - a.weight) }))
+    .sort((a, b) => b.items.length - a.items.length || a.kind.localeCompare(b.kind));
+}
+
+/** A proposal kind in words: what it is, how to act on it, and what one item is called. */
+const REVIEW: Record<string, { label: string; help: string; fix: string; unit: [string, string] }> = {
+  template_proposal: {
+    label: "Templates to adopt",
+    help: "Pages in a map already share a structure that no template declares.",
+    fix: "Adopt it as the map's template, so new pages follow it, or keep the map free-form.",
+    unit: ["template", "templates"],
+  },
+  glossary_gap: {
+    label: "Terms nobody defines",
+    help: "A word many pages use and none explains.",
+    fix: "Define it once in the glossary, or accept it as common knowledge.",
+    unit: ["term", "terms"],
+  },
+  repeated_fact: {
+    label: "Facts copied into many pages",
+    help: "The same line, word for word, in several pages.",
+    fix: "Keep it in the page it is about and link to it from the others.",
+    unit: ["fact", "facts"],
+  },
+  zombie_work: {
+    label: "Open work tied to retired pages",
+    help: "Work still open that depends on something already retired.",
+    fix: "Close it, or point it at what replaced the retired page.",
+    unit: ["item", "items"],
+  },
+  duplicate_candidate: {
+    label: "Possible duplicates",
+    help: "Two pages of one map with nearly the same title.",
+    fix: "Merge them, or link them saying how they differ.",
+    unit: ["pair", "pairs"],
+  },
+  map_naming: {
+    label: "Map names to align",
+    help: "Map titles mix languages, shapes or capitals.",
+    fix: "Agree one naming scheme and rename the maps' titles to it.",
+    unit: ["scheme", "schemes"],
+  },
+  harvest_candidate: {
+    label: "Old journal entries to archive",
+    help: "Closed entries past the age their journal keeps them live.",
+    fix: "Move their lasting lessons to the live pages, then archive them.",
+    unit: ["entry", "entries"],
+  },
+  status_reclassify: {
+    label: "Statuses to correct",
+    help: "Pages marked active that read as something else.",
+    fix: "Set the status the page really has.",
+    unit: ["page", "pages"],
+  },
+  read_hotspot: {
+    label: "Pages read too often whole",
+    help: "Long pages agents keep reading end to end.",
+    fix: "Split them, or turn them into an index of shorter pages.",
+    unit: ["page", "pages"],
+  },
+  promotion_candidate: {
+    label: "Procedures hidden in journals",
+    help: "A journal entry that holds a step-by-step procedure.",
+    fix: "Give the procedure a page of its own and link it from the entry.",
+    unit: ["entry", "entries"],
+  },
+  scattered_work: {
+    label: "Work scattered in checklists",
+    help: "Open checkboxes spread across pages.",
+    fix: "Turn them into work items in the map that tracks work.",
+    unit: ["page", "pages"],
+  },
+};
+
+/** Every proposal kind the Atlas can name, in reading order. */
+export function reviewKinds(): string[] {
+  return Object.keys(REVIEW);
+}
+
+export function reviewInfo(kind: string): { label: string; help: string; fix: string; unit: [string, string] } {
+  return (
+    REVIEW[kind] ?? {
+      label: checkLabel(kind),
+      help: "",
+      fix: "Your agent proposes what to do.",
+      unit: ["item", "items"],
+    }
+  );
 }

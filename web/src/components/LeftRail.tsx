@@ -44,7 +44,10 @@ export function LeftRail({
   onToggleStatus,
   onClearFilters,
 }: Props) {
-  const lintTotal = overview?.lint.total ?? 0;
+  // Health's mark is "something is wrong", not a count: the page counts in
+  // decisions, the overview only knows findings, and two numbers for one
+  // thing read as a contradiction (D704). Notes alone are no reason to look.
+  const problems = (overview?.lint.by_severity.error ?? 0) + (overview?.lint.by_severity.warning ?? 0);
   const activeCount = typeFilter.size + statusFilter.size;
   const filtersActive = activeCount > 0;
   // Type and Status filter the graph's nodes, so they exist only on the Atlas:
@@ -106,7 +109,7 @@ export function LeftRail({
           <button
             type="button"
             className="rail__panel"
-            aria-label={lintTotal > 0 ? `Health, ${lintTotal} findings` : "Health"}
+            aria-label={problems > 0 ? "Health, problems to decide" : "Health"}
             title={collapsed ? "Health" : undefined}
             aria-current={panel === "health" ? "page" : undefined}
             onClick={() => onPanel("health")}
@@ -115,11 +118,7 @@ export function LeftRail({
               <Icon name="health" />
             </span>
             <span className="rail__label">Health</span>
-            {lintTotal > 0 && (
-              <span className="rail__badge">
-                <Count value={lintTotal} />
-              </span>
-            )}
+            {problems > 0 && <span className="rail__dot" aria-hidden="true" />}
           </button>
         </li>
         {artifactsTotal !== null && (
@@ -146,18 +145,23 @@ export function LeftRail({
           className="rail__scroll"
           onScroll={(event) => {
             const el = event.currentTarget;
-            if ((el.scrollTop > 0) !== el.hasAttribute("data-scrolled")) el.toggleAttribute("data-scrolled", el.scrollTop > 0);
+            if (el.scrollTop > 0 !== el.hasAttribute("data-scrolled"))
+              el.toggleAttribute("data-scrolled", el.scrollTop > 0);
           }}
         >
           <section className="rail__section">
             {(["map", "journal"] as const).map((kind, groupIndex, kinds) => {
-              const group = (overview?.collections ?? []).filter((c) => (c.kind === "journal" ? "journal" : "map") === kind);
+              const group = (overview?.collections ?? []).filter(
+                (c) => (c.kind === "journal" ? "journal" : "map") === kind,
+              );
               if (group.length === 0) return null;
               // The whole atlas heads the first list shown: one row among the
               // others, set apart only by its mark.
-              const first = kinds.slice(0, groupIndex).every(
-                (k) => !(overview?.collections ?? []).some((c) => (c.kind === "journal" ? "journal" : "map") === k),
-              );
+              const first = kinds
+                .slice(0, groupIndex)
+                .every(
+                  (k) => !(overview?.collections ?? []).some((c) => (c.kind === "journal" ? "journal" : "map") === k),
+                );
               return (
                 <div key={`${overviewKB}:${kind}`} className="rail__group">
                   <h2 className="rail__title">{kind === "journal" ? "Journals" : "Maps"}</h2>
@@ -181,7 +185,11 @@ export function LeftRail({
                       </li>
                     )}
                     {group.map((collection, i) => (
-                      <li key={collection.name} className="rail__deal" style={{ "--deal": i + (first ? 1 : 0) } as CSSProperties}>
+                      <li
+                        key={collection.name}
+                        className="rail__deal"
+                        style={{ "--deal": i + (first ? 1 : 0) } as CSSProperties}
+                      >
                         <button
                           type="button"
                           className="rail__collection"
@@ -231,7 +239,6 @@ export function LeftRail({
               />
             </>
           )}
-
         </div>
       )}
 
@@ -271,12 +278,7 @@ function FilterSection({
       <ul className="rail__chips">
         {entries.map(([value, count]) => (
           <li key={value}>
-            <button
-              type="button"
-              className="chip"
-              aria-pressed={active.has(value)}
-              onClick={() => onToggle(value)}
-            >
+            <button type="button" className="chip" aria-pressed={active.has(value)} onClick={() => onToggle(value)}>
               {value}
               <span className="chip__count">{count}</span>
             </button>

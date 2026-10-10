@@ -263,7 +263,11 @@ export interface WorkResponse {
 /** GET /kbs/{kb}/status: the parts of kb_status the home reads. Both are
  *  omitted by the server when empty. */
 export interface KBStatus {
-  open_gaps?: { total: number; by_kind?: Record<string, number>; recent?: { id: string; title?: string; kind?: string; subjects?: string[] }[] };
+  open_gaps?: {
+    total: number;
+    by_kind?: Record<string, number>;
+    recent?: { id: string; title?: string; kind?: string; subjects?: string[] }[];
+  };
   /** resolved: the same search now finds something (D319); sorted last. */
   search_misses?: { query: string; count: number; last_seen?: string; resolved?: boolean }[];
   stale_count?: number;
@@ -319,6 +323,20 @@ export interface MaintenanceQuestions {
 }
 
 /** GET /kbs/{kb}/checks: every lint check the server runs (D365). */
+/** GET /kbs/{kb}/maintenance/review (D704): the doctor's agenda beyond lint. */
+export interface ReviewItem {
+  kind: string;
+  concepts: string[];
+  evidence: string;
+  suggested_action: string;
+  term?: string;
+  template_slug?: string;
+  weight: number;
+}
+export interface MaintenanceReview {
+  items: ReviewItem[];
+}
+
 export interface CheckCatalog {
   categories: string[];
   checks: {

@@ -1276,7 +1276,6 @@ button.row {
   font-size: var(--text-sm);
   font-weight: 600;
   color: var(--text-primary);
-  cursor: pointer;
 }
 
 .coverage__tally {
@@ -1300,10 +1299,10 @@ button.row {
 
 .coverage__check {
   display: grid;
-  /* Fixed slots: the repair mark never pushes the count out of line. */
-  grid-template-columns: 14px minmax(0, 1fr) 14px 3ch;
+  /* Mark, the rule and its sentence, the count: the count never moves. */
+  grid-template-columns: 14px minmax(0, 1fr) 3ch;
   gap: var(--space-2);
-  align-items: center;
+  align-items: baseline;
   min-height: 26px;
   font-size: var(--text-sm);
   color: var(--text-muted);
@@ -1971,4 +1970,834 @@ div.upkeep-log__head {
 
 .activity-bars__caption strong {
   color: var(--text-primary);
+}
+
+/* --- Health as an agenda (D704) --- */
+
+/* The KB at a glance: the page field, and the one line that reads it. */
+.hfield {
+  display: grid;
+  gap: var(--space-3);
+  margin-block-end: var(--space-5, 20px);
+}
+
+.pfield__legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-2);
+  align-items: center;
+  margin: 0;
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+}
+
+.pfield__key {
+  width: 9px;
+  height: 9px;
+  margin-inline-start: var(--space-2);
+  border-radius: 2px;
+  background: var(--surface-3);
+}
+
+.pfield__key:first-child {
+  margin-inline-start: 0;
+}
+
+.pfield__key[data-tone="warning"] {
+  background: var(--sev-warning);
+}
+
+.pfield__key[data-tone="info"] {
+  background: color-mix(in srgb, var(--sev-info) 70%, transparent);
+}
+
+.pfield__hint {
+  color: var(--text-muted);
+}
+
+.pfield {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3) var(--space-5, 20px);
+}
+
+.pfield__map {
+  display: grid;
+  gap: 6px;
+  align-content: start;
+  max-width: 260px;
+  transition: opacity var(--motion-fast) var(--ease-out);
+}
+
+.pfield__map[data-dim] {
+  opacity: 0.35;
+}
+
+.pfield__label {
+  display: flex;
+  gap: var(--space-2);
+  align-items: baseline;
+  padding: 0 0 3px;
+  border: 0;
+  border-block-end: 2px solid var(--map-hue);
+  background: none;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  text-align: start;
+  cursor: pointer;
+}
+
+.pfield__map[data-chosen] .pfield__label,
+.pfield__label:hover {
+  color: var(--text-primary);
+}
+
+.pfield__count {
+  margin-inline-start: auto;
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+}
+
+.pfield__dots {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+}
+
+.pfield__dot {
+  width: 9px;
+  height: 9px;
+  padding: 0;
+  border: 0;
+  border-radius: 2px;
+  background: var(--surface-3);
+}
+
+button.pfield__dot {
+  cursor: pointer;
+}
+
+.pfield__dot[data-tone="warning"] {
+  background: var(--sev-warning);
+}
+
+.pfield__dot[data-tone="error"] {
+  background: var(--sev-error);
+}
+
+.pfield__dot[data-tone="info"] {
+  background: color-mix(in srgb, var(--sev-info) 70%, transparent);
+}
+
+button.pfield__dot:hover {
+  outline: 2px solid var(--text-primary);
+  outline-offset: 1px;
+}
+
+.hfield__stats {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 150px;
+  margin: 0;
+}
+
+.hfield__stats > div {
+  padding-inline-start: var(--space-3);
+  border-inline-start: 2px solid var(--border-subtle);
+}
+
+.hfield__stats > div[data-tone="warning"] {
+  border-color: var(--sev-warning);
+}
+
+.hfield__stats > div[data-tone="auto"] {
+  border-color: var(--sev-ok);
+}
+
+.hfield__stats > div[data-tone="doctor"] {
+  border-color: var(--primary);
+}
+
+.hfield__stats dt {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+.hfield__stats dd {
+  margin: 0;
+  font-size: var(--text-xl);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.15;
+  color: var(--text-primary);
+}
+
+.hfield__stats dd.hfield__when {
+  font-size: var(--text-md);
+}
+
+.hfield__of {
+  margin-inline-start: 4px;
+  font-size: var(--text-xs);
+  font-weight: 400;
+  color: var(--text-muted);
+}
+
+/* The one thing to do next: a prompt to paste into an agent. */
+.next-step {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-3);
+  align-items: center;
+  margin-block-end: var(--space-5, 20px);
+  padding: var(--space-2) var(--space-2) var(--space-2) var(--space-3);
+  background: color-mix(in srgb, var(--primary) 9%, var(--surface-1));
+  border: 1px solid color-mix(in srgb, var(--primary) 35%, transparent);
+  border-radius: var(--radius-card);
+  color: var(--primary);
+}
+
+.next-step__title {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.next-step__text {
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+
+.next-step__prompt {
+  display: flex;
+  gap: var(--space-3);
+  align-items: center;
+  margin-inline-start: auto;
+  padding: 6px var(--space-3);
+  background: var(--surface-0);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-control);
+  color: var(--text-primary);
+  font: inherit;
+  cursor: pointer;
+}
+
+.next-step__prompt:hover {
+  border-color: var(--border-strong);
+}
+
+.next-step__prompt code {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+
+.next-step__copy {
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--primary);
+}
+
+.next-step__prompt[data-done="true"] .next-step__copy {
+  color: var(--sev-ok);
+}
+
+/* The agenda: three bands, one line per decision. */
+.agenda-list {
+  display: grid;
+  gap: var(--space-5, 20px);
+}
+
+.agenda {
+  --tone: var(--sev-warning);
+}
+
+.agenda[data-tone="suggestion"] {
+  --tone: var(--sev-info);
+}
+
+.agenda__head {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  margin: 0 0 var(--space-1);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+.agenda__mark {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  background: var(--tone);
+}
+
+.agenda__n {
+  font-weight: 400;
+  color: var(--text-muted);
+}
+
+.agenda__rows {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.arow-item > details {
+  border-block-end: 1px solid var(--border-subtle);
+}
+
+.arow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(80px, 34%) 13ch;
+  gap: var(--space-4);
+  align-items: center;
+  padding: 7px var(--space-2);
+  border-radius: var(--radius-control);
+  cursor: pointer;
+  list-style: none;
+}
+
+.arow::-webkit-details-marker {
+  display: none;
+}
+
+.arow:hover,
+.arow-item > details[open] > .arow {
+  background: var(--surface-1);
+}
+
+.arow__label {
+  overflow: hidden;
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.arow__bar {
+  height: 6px;
+  background: var(--surface-2);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.arow__bar > span {
+  display: block;
+  height: 100%;
+  background: var(--tone);
+  border-radius: 3px;
+}
+
+.arow__count {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  text-align: end;
+  color: var(--text-primary);
+}
+
+.arow__unit {
+  font-weight: 400;
+  color: var(--text-muted);
+}
+
+.agenda__broken {
+  margin-inline-end: var(--space-2);
+  padding: 0 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--sev-error) 18%, transparent);
+  color: var(--sev-error);
+  font-size: var(--text-xs);
+  font-weight: 600;
+}
+
+.arow__detail {
+  padding: var(--space-1) var(--space-2) var(--space-3);
+}
+
+/* The options, said once, where the reader is deciding. */
+.arow__decide {
+  margin: var(--space-1) 0 var(--space-2);
+  padding-inline-start: var(--space-3);
+  border-inline-start: 2px solid var(--tone);
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+}
+
+.arow__check {
+  margin: var(--space-2) 0 0;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+.arow__check code {
+  font-family: var(--font-mono);
+}
+
+.arow__detail .health__check-rows {
+  padding: 0;
+  border-block-start: 0;
+}
+
+.agenda__item {
+  display: grid;
+  gap: var(--space-1);
+  padding: var(--space-2) 0;
+}
+
+.agenda__evidence {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+/* Reference the reader opens on purpose: what Cartographer did, what is checked. */
+.health__fold {
+  margin-block-start: var(--space-5, 20px);
+  border-block-start: 1px solid var(--border-subtle);
+}
+
+.health__fold + .health__fold {
+  margin-block-start: 0;
+}
+
+.health__fold > summary {
+  display: flex;
+  gap: var(--space-3);
+  align-items: baseline;
+  padding: var(--space-3) 0;
+  cursor: pointer;
+  list-style: none;
+}
+
+.health__fold > summary::-webkit-details-marker {
+  display: none;
+}
+
+.health__fold > summary::before {
+  content: "▸";
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+}
+
+.health__fold[open] > summary::before {
+  content: "▾";
+}
+
+.health__fold-title {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.health__fold-meta {
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+
+.coverage__group + .coverage__group {
+  margin-block-start: var(--space-3);
+}
+
+.coverage__body {
+  display: grid;
+  min-width: 0;
+}
+
+.coverage__help {
+  font-size: var(--text-xs);
+  line-height: 1.35;
+  color: var(--text-muted);
+}
+
+.health__coverage .page-note .icon,
+.coverage__name .icon,
+.hfield__stats .icon {
+  display: inline-block;
+  vertical-align: -2px;
+}
+
+@media (max-width: 760px) {
+  .hfield {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .arow {
+    grid-template-columns: minmax(0, 1fr) 9ch;
+  }
+
+  .arow__bar {
+    display: none;
+  }
+}
+
+/* An agenda row under the pointer lights its pages; the rest of the field steps back. */
+.pfield[data-focus] .pfield__dot {
+  opacity: 0.25;
+}
+
+.pfield[data-focus] .pfield__dot[data-lit] {
+  opacity: 1;
+  background: var(--text-primary);
+}
+
+.health .page__head {
+  margin-block-end: var(--space-5, 20px);
+}
+
+/* "What it checks": how checking works, in three steps a newcomer reads first. */
+.howto {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-3);
+  margin: 0 0 var(--space-4);
+  padding: 0;
+  list-style: none;
+  counter-reset: howto;
+}
+
+.howto > li {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 2px var(--space-2);
+  align-items: center;
+  padding: var(--space-3) var(--space-4);
+  background: var(--surface-1);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-card);
+  color: var(--primary);
+}
+
+.howto > li:nth-child(2) {
+  color: var(--sev-ok);
+}
+
+.howto > li:nth-child(3) {
+  color: var(--sev-warning);
+}
+
+.howto strong {
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+}
+
+.howto span {
+  grid-column: 1 / -1;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+.coverage__summary {
+  margin: 0 0 var(--space-3);
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+
+.coverage__summary strong {
+  color: var(--text-primary);
+}
+
+.coverage__title {
+  flex-wrap: wrap;
+  justify-content: flex-start;
+}
+
+.coverage__about {
+  font-weight: 400;
+  color: var(--text-muted);
+}
+
+/* An open issue: what the rule found, the pages, then how it gets fixed. */
+.arow__what {
+  margin: var(--space-1) 0 var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+.arow__auto {
+  display: inline-flex;
+  gap: 3px;
+  align-items: center;
+  margin-inline-start: var(--space-2);
+  font-size: var(--text-xs);
+  color: var(--sev-ok);
+}
+
+.arow__auto .icon {
+  display: inline-block;
+}
+
+@media (max-width: 760px) {
+  .howto {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* The page's one sentence, under the header so the header's controls stay on the title line. */
+.health__lede {
+  margin: calc(-1 * var(--space-2)) 0 var(--space-4);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+/* Suggestions about a whole Map (a template to adopt): beside its name, not on a page. */
+.pfield__maplevel {
+  padding: 0 5px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--sev-info) 22%, transparent);
+  color: var(--sev-info);
+  font-size: 10px;
+  font-weight: 600;
+}
+
+/* A page with a problem and a suggestion: both colours, split on the diagonal. */
+.pfield__dot[data-both],
+.pfield__key[data-both] {
+  background: linear-gradient(
+    135deg,
+    var(--sev-warning) 0 50%,
+    color-mix(in srgb, var(--sev-info) 70%, transparent) 50% 100%
+  );
+}
+
+.pfield__dot[data-both][data-tone="error"] {
+  background: linear-gradient(
+    135deg,
+    var(--sev-error) 0 50%,
+    color-mix(in srgb, var(--sev-info) 70%, transparent) 50% 100%
+  );
+}
+
+/* The field and its legend are the overview; the list below is the detail. */
+.hfield {
+  padding-block-end: var(--space-5, 20px);
+  border-block-end: 1px solid var(--border-subtle);
+}
+
+/* An open issue: what it is and how to fix it, then one line per case. */
+.issue__about {
+  display: grid;
+  gap: var(--space-1);
+  margin: var(--space-1) 0 var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  background: var(--surface-1);
+  border-inline-start: 2px solid var(--tone);
+  border-radius: 0 var(--radius-control) var(--radius-control) 0;
+}
+
+.issue__about > div {
+  display: grid;
+  grid-template-columns: 9ch minmax(0, 1fr);
+  gap: var(--space-3);
+}
+
+.issue__about dt {
+  font-size: var(--text-xs);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  line-height: 1.7;
+}
+
+.issue__about dd {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+}
+
+.issue__cases {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.issue__case {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--space-1) var(--space-4);
+  align-items: baseline;
+  padding: 6px 0;
+  border-block-end: 1px dashed var(--border-subtle);
+}
+
+.issue__case:last-child {
+  border-block-end: 0;
+}
+
+.issue__what {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+.issue__toggle,
+.issue__page {
+  padding: 1px 8px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  background: var(--surface-1);
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: var(--text-xs);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.issue__toggle:hover,
+.issue__page:hover {
+  border-color: var(--border-strong);
+  color: var(--text-primary);
+}
+
+.issue__pages {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+/* "What it checks": one line per category, opened to its rules. */
+.rules {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.rules__group {
+  background: var(--surface-1);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-card);
+}
+
+.rules__head {
+  display: grid;
+  grid-template-columns: 16ch minmax(0, 1fr) auto;
+  gap: var(--space-4);
+  align-items: baseline;
+  padding: var(--space-3) var(--space-4);
+  cursor: pointer;
+  list-style: none;
+}
+
+.rules__head::-webkit-details-marker {
+  display: none;
+}
+
+.rules__title {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.rules__title::before {
+  content: "▸ ";
+  color: var(--text-muted);
+}
+
+.rules__group[open] .rules__title::before {
+  content: "▾ ";
+}
+
+.rules__about {
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+
+.rules__tally {
+  font-size: var(--text-xs);
+  color: var(--sev-ok);
+}
+
+.rules__tally[data-hits] {
+  color: var(--sev-warning);
+}
+
+.rules__list {
+  margin: 0;
+  padding: 0 var(--space-4) var(--space-3);
+  list-style: none;
+  border-block-start: 1px solid var(--border-subtle);
+}
+
+/* One rule on one line: mark, name, what it looks for, what it found here. */
+.rule {
+  display: grid;
+  grid-template-columns: 14px minmax(16ch, 28ch) minmax(0, 1fr) 4ch;
+  gap: var(--space-3);
+  align-items: baseline;
+  padding: 6px 0;
+  border-block-end: 1px dashed var(--border-subtle);
+  font-size: var(--text-sm);
+}
+
+.rule:last-child {
+  border-block-end: 0;
+}
+
+.rule__mark {
+  font-size: var(--text-xs);
+  color: var(--sev-ok);
+}
+
+.rule[data-found] .rule__mark {
+  color: var(--sev-warning);
+}
+
+.rule__name {
+  color: var(--text-primary);
+}
+
+.rule[data-found] .rule__name {
+  font-weight: 600;
+}
+
+.rule__auto {
+  margin-inline-start: 4px;
+  color: var(--sev-ok);
+}
+
+.rule__auto .icon {
+  display: inline-block;
+  vertical-align: -2px;
+}
+
+.rule__help {
+  color: var(--text-muted);
+}
+
+.rule__count {
+  font-variant-numeric: tabular-nums;
+  text-align: end;
+  color: var(--text-muted);
+}
+
+.rule[data-found] .rule__count {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.rule[data-inactive] {
+  opacity: 0.55;
+}
+
+@media (max-width: 760px) {
+  .rules__head,
+  .rule {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .rules__about,
+  .rule__help,
+  .rule__mark {
+    display: none;
+  }
 }
