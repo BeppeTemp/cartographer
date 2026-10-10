@@ -145,6 +145,10 @@ the Artifacts panel, what a write response evaluates) is derived from that entry
    `go test ./internal/repodocs -run TestLintCatalogueIsUpToDate -args -update`, then add the prose
    that explains the check where its family is described.
 
+A check that only runs when the KB gives it something to compare against (a glossary, a contract key…)
+also gets its precondition in `lint.Inactive` (`internal/lint/activity.go`, D371), so `/checks` and the
+Health coverage say "not checked here" instead of a zero; never make a check silent by an opt-in.
+
 `make gate` fails until all three are done. The check's decision (`make decisions-new`) is the usual one.
 
 ## Pull requests

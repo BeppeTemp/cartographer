@@ -654,42 +654,60 @@ function Coverage({
   onJump(check: string): void;
 }) {
   const count = (name: string) => report.by_check[name] ?? 0;
+  // A check that cannot run here (D371) is neither clean nor dirty: its zero would lie.
+  const idle = (c: CheckCatalog["checks"][number]) => c.active === false;
   const dirty = catalog.checks.filter((c) => count(c.name) > 0).length;
+  const skipped = catalog.checks.filter(idle).length;
   const auto = catalog.checks.filter((c) => c.auto).length;
   return (
     <section className="health__coverage" id="health-coverage" aria-label="Checks">
       <p className="page-note health__coverage-line">
-        {plural(catalog.checks.length - dirty, "check")} clean · {plural(dirty, "check")} with findings · {auto} fixed
-        by the background repair
+        {plural(catalog.checks.length - dirty - skipped, "check")} clean · {plural(dirty, "check")} with findings
+        {skipped > 0 && <> · {skipped} not checked here</>} · {auto} fixed by the background repair
       </p>
       <div className="coverage">
         {catalog.categories.map((category) => {
           const list = catalog.checks
             .filter((c) => c.category === category)
-            .sort((a, b) => count(b.name) - count(a.name) || checkLabel(a.name).localeCompare(checkLabel(b.name)));
+            .sort(
+              (a, b) =>
+                Number(idle(a)) - Number(idle(b)) ||
+                count(b.name) - count(a.name) ||
+                checkLabel(a.name).localeCompare(checkLabel(b.name)),
+            );
           if (list.length === 0) return null;
           const found = list.filter((c) => count(c.name) > 0).length;
+          const live = list.filter((c) => !idle(c)).length;
           return (
             <details key={category} className="coverage__group" open>
               <summary className="coverage__title">
                 {CATEGORY[category] ?? category}
                 <span className="coverage__tally" data-clean={found === 0}>
-                  {found === 0 ? `all ${list.length} clean` : `${found} of ${list.length} with findings`}
+                  {found > 0
+                    ? `${found} of ${list.length} with findings`
+                    : live === 0
+                      ? `none of ${list.length} checked here`
+                      : live < list.length
+                        ? `all ${live} checked clean`
+                        : `all ${list.length} clean`}
                 </span>
               </summary>
               <ul className="coverage__checks">
                 {list.map((c) => {
                   const n = count(c.name);
                   const label = checkLabel(c.name);
+                  const off = idle(c);
                   return (
                     <li
                       key={c.name}
                       className="coverage__check"
                       data-found={n > 0 || undefined}
+                      data-inactive={off || undefined}
                       data-severity={c.severity}
+                      title={off ? c.reason : undefined}
                     >
                       <span className="coverage__mark" aria-hidden="true">
-                        {n > 0 ? "" : "✓"}
+                        {off ? "–" : n > 0 ? "" : "✓"}
                       </span>
                       {n > 0 ? (
                         <button type="button" className="coverage__name" title={c.name} onClick={() => onJump(c.name)}>
@@ -706,7 +724,8 @@ function Coverage({
                           <span className="sr-only">automatic</span>
                         </span>
                       )}
-                      <span className="coverage__count">{n}</span>
+                      {off && <span className="sr-only">not checked: {c.reason}</span>}
+                      <span className="coverage__count">{off ? "–" : n}</span>
                     </li>
                   );
                 })}

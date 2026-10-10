@@ -1347,6 +1347,15 @@ button.row {
   flex: none;
 }
 
+/* A check that cannot run on this KB (D371): greyed, its zero is not an answer. */
+.coverage__check[data-inactive] {
+  opacity: 0.55;
+}
+
+.coverage__check[data-inactive] .coverage__mark {
+  color: var(--text-muted);
+}
+
 /* The upkeep timeline: one row per run that fixed something. */
 .health__done-line {
   margin: 0 0 var(--space-2);

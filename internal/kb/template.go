@@ -204,3 +204,14 @@ func (c TemplateCatalog) Resolve(shape, pageType string, contract *MapContract) 
 func (c MapContract) HasTemplateKeys() bool {
 	return c.TemplateSections || len(c.Templates) > 0 || c.DefaultTemplate != "" || c.RequireTemplate
 }
+
+// StrictTemplates reports whether every page of the map must follow one of its
+// templates (D352, D371): a map that declares templates or a default template
+// is strict unless it says require_template: false; require_template: true
+// makes any map strict.
+func (c MapContract) StrictTemplates() bool {
+	if c.RequireTemplateOff {
+		return false
+	}
+	return c.RequireTemplate || len(c.Templates) > 0 || c.DefaultTemplate != ""
+}

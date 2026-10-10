@@ -592,7 +592,8 @@ samples. Under the hero two tabs, *Findings* and *Checks*. *Checks* lists
 every check the server runs (`GET /api/ui/v1/kbs/<kb>/checks`), by category —
 pages, templates, valid pages, links and graph, vocabularies, maps and
 indexes, artifacts, KB files — each with its count, a zero too, and a mark
-when the background repair fixes it by itself; a check with findings opens
+when the background repair fixes it by itself; a check that cannot run on this KB
+is greyed out with its reason (D371) instead of showing a zero; a check with findings opens
 its row on *Findings*. *Findings* shows only the sections with something in
 them:
 

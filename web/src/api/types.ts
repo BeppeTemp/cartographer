@@ -325,5 +325,14 @@ export interface MaintenanceQuestions {
 /** GET /kbs/{kb}/checks: every lint check the server runs (D365). */
 export interface CheckCatalog {
   categories: string[];
-  checks: { name: string; category: string; severity: string; fixable: boolean; auto: boolean }[];
+  checks: {
+    name: string;
+    category: string;
+    severity: string;
+    fixable: boolean;
+    auto: boolean;
+    /** False when the check cannot run on this KB (D371): `reason` says why, and a zero would not mean clean. */
+    active?: boolean;
+    reason?: string;
+  }[];
 }

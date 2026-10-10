@@ -140,7 +140,7 @@ func templateFindings(in conceptInput) []Finding {
 	if in.Parsed == nil || c == nil || !c.HasTemplateKeys() {
 		return nil
 	}
-	x := templateCtx{in: in, strict: c.RequireTemplate, pageType: strings.TrimSpace(in.Parsed.Type())}
+	x := templateCtx{in: in, strict: c.StrictTemplates(), pageType: strings.TrimSpace(in.Parsed.Type())}
 	if v, ok := in.Parsed.Get(kb.ShapeField); ok {
 		x.hasShape = true
 		x.shape, _ = v.(string)
