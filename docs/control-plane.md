@@ -360,6 +360,22 @@ day ahead is clamped to now. It needs the whole KB in write scope; any other cal
 `404` of an unknown KB (no existence oracle), a missing token `401`, a non-POST `405`. The
 store is `.cartographer/usage.json` (`docs/data-plane.md`).
 
+### Doctor schedule declarations (`/api/doctor-schedule`, D369)
+
+A client that installed the scheduled headless doctor (`docs/configurator.md` §Scheduled
+headless sessions) tells the server when the next session is due, so the Atlas can name it. Same
+contract as usage: client-to-server metadata, HTTP and not an MCP tool, always routed, same auth
+chain, whole KB in write scope or the `404` of an unknown KB.
+
+`POST /api/doctor-schedule?kb=<name>` takes `{"client": "<name>", "next_run": "<RFC 3339>"}`
+(`client` lowercase letters, digits and `-`, at most 32; `next_run` at most 8 days ahead; at most
+4 KiB) and answers `{declared: true}`; it replaces any previous declaration. `DELETE` withdraws it.
+The store is `.cartographer/doctor-schedule.json` (local, never committed, like `usage.json`). The
+maintenance summary (`GET /kbs/{kb}/maintenance/summary`) carries `doctor_schedule: {client,
+next_run}` only while the declaration is live: more than 24 hours past `next_run` it is treated
+as absent, because a client re-declares after every successful run and a stale one means the job
+stopped.
+
 Filtering uses the same `Visible` / `VisibleCollection` / `WholeVisible`
 predicates as the MCP read path, so the API cannot return a node, edge, count,
 finding or concept body that the same principal is refused through a tool. A

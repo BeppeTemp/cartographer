@@ -46,7 +46,9 @@ The server process is **ephemeral** (k8s pod or local service); what persists on
   report on `sync`: on an `emptyDir` it is lost at every restart, and until each
   client syncs again `kb_status.usage` is `no_data` (with `no_report_since`, the
   start time, D333) and `artifact_unused` is silent. Keep `.cartographer/` on
-  the KB's persistent volume when that signal matters.
+  the KB's persistent volume when that signal matters. `doctor-schedule.json` (D369)
+  holds the client-declared next scheduled doctor session; losing it only returns Health
+  to "starts when an agent next connects" until the next run re-declares.
 
 When `audit.log` is set, MCP tool execution appends an attempt+completion event
 pair per call, so the file is a complete operational request log (D119). See

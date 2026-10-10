@@ -123,18 +123,30 @@ layers, cheapest first, none of which runs a model on the server (D14):
 ### A KB no agent session ever touches
 
 The nudge needs a client session to land in. For a KB nobody reads through an
-agent, run a scheduled headless agent session instead: a cron entry (or any
-scheduler) that starts one supported client non-interactively, connected to the
-KB, with the prompt `Run the kb-doctor skill on kb "kb-a" unattended.` The
-client, model and credentials are the operator's choice, and nothing in this
-repository schedules it: the server has no model (D14). Example shape, with the
-client's own non-interactive flag in place of `<headless-flag>`:
+agent, schedule a headless agent session instead (D369):
+
+```
+cartographer doctor schedule --client <client> --kb kb-a --at 06:00
+```
+
+This is opt-in and never done by `connect`: it installs a native per-user daily job (launchd,
+systemd user timer or Task Scheduler) that starts the chosen client non-interactively with the
+prompt `Run the kb-doctor skill on kb "kb-a" unattended.`, spending that client's model quota
+without anyone watching. `cartographer doctor status` shows it and `cartographer doctor
+unschedule` removes it entirely; flags, clients and details are in `configurator.md`
+§Scheduled headless sessions. The client declares the schedule to the server, so the Atlas Health
+panel says "Next doctor session: tomorrow · 06:00" instead of "Starts when an agent next
+connects"; a declaration more than a day past its run is dropped and the old text returns. The
+server still has no model (D14): it only knows when the client says the next session is due.
+
+The fallback, for a client `doctor schedule` does not cover or a scheduler of your own, is the same
+job by hand, with the client's own non-interactive flag in place of `<headless-flag>`:
 
 ```
 0 6 * * *  cd $HOME/work && <client> <headless-flag> 'Run the kb-doctor skill on kb "kb-a" unattended.'
 ```
 
-The session is an ordinary one, so the nudge, the budget, the closing log entry
+Either way the session is an ordinary one, so the nudge, the budget, the closing log entry
 and the gaps work exactly as above.
 
 ## Compound useful results

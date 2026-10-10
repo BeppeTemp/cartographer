@@ -708,6 +708,15 @@ dir that does not survive a restart, `kb_status.usage` reports `no_data` with `n
 `artifact_unused`, the `usage` section of `kb_status` and the Atlas Artifacts panel's "Last used"
 column. Written only by `POST /api/usage` (`docs/control-plane.md` §Usage reports).
 
+## Doctor schedule (`.cartographer/doctor-schedule.json`, D369)
+
+`<root>/.cartographer/doctor-schedule.json` holds the one declaration a client made for the KB's
+scheduled headless doctor session: `client`, `next_run`, `declared_at`. Local state like
+`usage.json`: never committed, not replicated, and losing it loses nothing durable (the next
+run re-declares). Written only by `/api/doctor-schedule` (`docs/control-plane.md` §Doctor schedule
+declarations); read by the maintenance summary, which ignores it once it is more than a day past
+`next_run`.
+
 ## The path placeholder registry (`paths.yaml`)
 
 A KB may declare, in `paths.yaml` at its root (beside `instructions.md`), the

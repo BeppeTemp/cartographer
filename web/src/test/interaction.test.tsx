@@ -239,6 +239,13 @@ describe("health verdict", () => {
     expect(screen.getByText("Starts when an agent next connects.")).toBeInTheDocument();
   });
 
+  it("names the scheduled doctor session when a client declared one (D369)", () => {
+    const next = new Date(Date.now() + 5 * 3600_000).toISOString();
+    render(health({ report: warnings, summary: { ...upkeep, doctor_schedule: { client: "claude", next_run: next } } }));
+    expect(screen.getByText(/^Next doctor session: /)).toBeInTheDocument();
+    expect(screen.queryByText("Starts when an agent next connects.")).not.toBeInTheDocument();
+  });
+
   it("says nothing needs the reader while the doctor keeps up", () => {
     const today = new Date().toISOString().slice(0, 10);
     render(health({ report: warnings, summary: { ...upkeep, last_doctor: today, next_doctor: today } }));

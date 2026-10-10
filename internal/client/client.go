@@ -505,29 +505,57 @@ const usagePath = "/api/usage"
 // best-effort by design — the caller logs and goes on — so any non-2xx, 404
 // from an older server included, is an error the caller is free to ignore.
 func (c *MCPClient) ReportUsage(kbName string, entries any, timeout time.Duration) error {
+	return c.apiCall(http.MethodPost, usagePath, kbName, entries, timeout)
+}
+
+// doctorSchedulePath is the server route a scheduled-doctor declaration goes to (D369).
+const doctorSchedulePath = "/api/doctor-schedule"
+
+// DeclareDoctorSchedule tells the server that a headless kb-doctor session of
+// client is due at next, for one KB. Best-effort like ReportUsage: a server too
+// old for the route answers 404, which the caller is free to ignore.
+func (c *MCPClient) DeclareDoctorSchedule(kbName, clientName string, next time.Time, timeout time.Duration) error {
+	body := map[string]string{"client": clientName, "next_run": next.UTC().Format(time.RFC3339)}
+	return c.apiCall(http.MethodPost, doctorSchedulePath, kbName, body, timeout)
+}
+
+// WithdrawDoctorSchedule removes the declaration, when `doctor unschedule` undoes it.
+func (c *MCPClient) WithdrawDoctorSchedule(kbName string, timeout time.Duration) error {
+	return c.apiCall(http.MethodDelete, doctorSchedulePath, kbName, nil, timeout)
+}
+
+// apiCall sends one request to a server /api route (client-to-server metadata,
+// not an MCP call) with the same auth and error mapping for every caller.
+func (c *MCPClient) apiCall(method, route, kbName string, body any, timeout time.Duration) error {
 	u, err := url.Parse(c.ServerURL)
 	if err != nil {
 		return fmt.Errorf("client: invalid server URL %q: %w", c.ServerURL, err)
 	}
 	u.Path = strings.TrimSuffix(strings.TrimRight(u.Path, "/"), "/mcp")
-	u.Path = strings.TrimRight(u.Path, "/") + usagePath
+	u.Path = strings.TrimRight(u.Path, "/") + route
 	u.Fragment = ""
 	q := url.Values{}
 	if kbName != "" {
 		q.Set("kb", kbName)
 	}
 	u.RawQuery = q.Encode()
-	body, err := json.Marshal(entries)
-	if err != nil {
-		return fmt.Errorf("client: encode usage report: %w", err)
+	var reader io.Reader
+	if body != nil {
+		raw, err := json.Marshal(body)
+		if err != nil {
+			return fmt.Errorf("client: encode %s body: %w", route, err)
+		}
+		reader = bytes.NewReader(raw)
 	}
 	hc := *c.HTTP
 	hc.Timeout = timeout
-	req, err := http.NewRequest(http.MethodPost, u.String(), bytes.NewReader(body))
+	req, err := http.NewRequest(method, u.String(), reader)
 	if err != nil {
-		return fmt.Errorf("client: build usage request: %w", err)
+		return fmt.Errorf("client: build %s request: %w", route, err)
 	}
-	req.Header.Set("Content-Type", "application/json")
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
 	if c.Token != "" {
 		req.Header.Set("Authorization", "Bearer "+c.Token)
 	}
