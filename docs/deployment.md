@@ -514,6 +514,15 @@ be paused, dragged or stepped with the arrow keys, keeps every node in frame,
 hides the legend and the camera controls while it runs, and stays open at the
 end until closed.
 
+*Export video* records that replay as a clip to share (D677), entirely in the
+browser: 16:9 (1920×1080), 9:16 (1080×1920, the default) or 1:1 (1080×1080) at
+30 fps, as MP4 where the browser records it (Chrome and Edge from 126, Safari)
+and WebM where it does not (Firefox), which the dialog says. The clip carries
+the KB name, the date being replayed and the concept count, without node
+labels, and ends on a 2.5 s card with the Cartographer mark; the tab must stay
+visible while it records, since a hidden tab pauses both the replay and the
+recording.
+
 A selected concept is the orbit's pivot: dragging turns the graph around it,
 while it stays centred in the strip the panels leave visible, and everything
 outside its neighbourhood recedes. The skills, agents and hooks that reference

@@ -14,7 +14,7 @@ interface Props {
 }
 
 const DAY_MS = 86_400_000;
-const formatDay = (ms: number) =>
+export const formatDay = (ms: number) =>
   new Date(ms).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
 
 /**

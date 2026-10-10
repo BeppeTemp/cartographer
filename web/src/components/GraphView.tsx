@@ -11,7 +11,9 @@ import { collectionHue, cssVar, resolveSlots, type ColorBy } from "../lib/palett
 import { nameOf, shortNameOf } from "../lib/names";
 import { prefersReducedMotion } from "../lib/theme";
 import type { ReactNode } from "react";
+import { ASPECTS, type Aspect } from "../lib/graph3d/record";
 import { GrowthTimeline } from "./GrowthTimeline";
+import { useGrowthExport } from "./useGrowthExport";
 import { GraphSeed } from "./States";
 import { Icon } from "./Icon";
 
@@ -57,6 +59,8 @@ interface Props {
   /** When each concept entered the KB, by id: offered, the graph can replay
    *  its own growth from the first concept. */
   loadBirths?(): Promise<Record<string, string>>;
+  /** The KB's name: on the exported video and in its file name. */
+  kbName?: string;
   /** Artifacts to draw beside the concepts; empty draws none. */
   artifacts?: GraphArtifact[];
   /** A click on an artifact's diamond. */
@@ -137,6 +141,7 @@ function View({
   snapshot: snap,
   layoutKey,
   loadBirths,
+  kbName = "Knowledge base",
   communities,
   colorBy,
   selected,
@@ -175,6 +180,23 @@ function View({
     for (let i = growth.shown; i < growth.order.length; i++) hidden.add(growth.order[i]!.id);
     return hidden;
   }, [filtered, growth]);
+  const exp = useGrowthExport({
+    sceneRef,
+    loadBirths,
+    nodes: snapshot.nodes,
+    edges: snapshot.edges,
+    kbName,
+    growth,
+    setGrowth,
+    layoutKey,
+    // The fit of the whole graph at the export's frame, taken before the
+    // replay hides it (the fit depends on the frame's aspect).
+    setFloor: (scene) => {
+      growthFloor.current = scene.fitDistance(0) * GROWTH_MIN_ZOOM;
+    },
+  });
+  const exportingRef = useRef(false);
+  exportingRef.current = exp.recording !== null;
   const startGrowth = () => {
     if (growth) return setGrowth(null);
     growthFloor.current = (sceneRef.current?.fitDistance(GROWTH_BAND_PX) ?? 0) * GROWTH_MIN_ZOOM;
@@ -214,7 +236,9 @@ function View({
     if (!growthFrame) return;
     const fit = () => {
       const band = containerRef.current?.parentElement?.querySelector<HTMLElement>(".growth-timeline");
-      sceneRef.current?.fitEverything(band ? band.offsetHeight + 24 : GROWTH_BAND_PX, 900, growthFloor.current);
+      // The export has no timeline: its overlay is drawn in the frame itself.
+      const reserve = exportingRef.current ? 0 : band ? band.offsetHeight + 24 : GROWTH_BAND_PX;
+      sceneRef.current?.fitEverything(reserve, 900, growthFloor.current);
     };
     fit();
     const timer =
@@ -594,6 +618,17 @@ function View({
             <Icon name="grow" size={16} />
           </button>
         )}
+        {exp.supported && (
+          <button
+            type="button"
+            className="button button--icon"
+            onClick={exp.openDialog}
+            aria-label="Export video"
+            title="Save the KB's growth as a video"
+          >
+            <Icon name="download" size={16} />
+          </button>
+        )}
         {onToggleLive && (
           <>
             <span className="graph__controls-sep" aria-hidden="true" />
@@ -611,7 +646,33 @@ function View({
         )}
       </div>
       {children}
-      {growth && (
+      {exp.dialog && (
+        <ExportDialog webm={exp.webm} onRecord={(aspect) => void exp.start(aspect)} onClose={exp.closeDialog} />
+      )}
+      {exp.recording && (
+        <div className="growth-export" role="status">
+          <span>
+            {exp.recording.paused
+              ? "Paused: keep this tab visible to record"
+              : `Recording ${exp.recording.aspect} \u2014 ${exp.recording.seconds} s`}
+          </span>
+          <button type="button" className="button" onClick={exp.cancel}>
+            Cancel
+          </button>
+        </div>
+      )}
+      {exp.error && (
+        <div className="graph__banner banner" role="alert">
+          <span className="banner__glyph">
+            <Icon name="info" size={16} />
+          </span>
+          <span>{exp.error}</span>
+          <button type="button" className="button button--icon" onClick={exp.dismissError} aria-label="Dismiss">
+            <Icon name="close" size={16} />
+          </button>
+        </div>
+      )}
+      {growth && !exp.recording && (
         <GrowthTimeline
           order={growth.order}
           shown={growth.shown}
@@ -632,6 +693,47 @@ function View({
           </span>
         </div>
       )}
+    </div>
+  );
+}
+
+/** The choice made before recording: the frame, and what this browser will
+ *  record. */
+function ExportDialog({ webm, onRecord, onClose }: { webm: boolean; onRecord(aspect: Aspect): void; onClose(): void }) {
+  const [aspect, setAspect] = useState<Aspect>("9:16");
+  const first = useRef<HTMLInputElement | null>(null);
+  useEffect(() => first.current?.focus(), []);
+  return (
+    <div className="sheet" onKeyDown={(e) => e.key === "Escape" && (e.stopPropagation(), onClose())}>
+      <div className="sheet__scrim" onClick={onClose} />
+      <div className="export-dialog" role="dialog" aria-modal="true" aria-label="Export video">
+        <h2 className="export-dialog__title">Export video</h2>
+        <fieldset className="export-dialog__aspects">
+          <legend>Frame</legend>
+          {(Object.keys(ASPECTS) as Aspect[]).map((a) => (
+            <label key={a}>
+              <input
+                ref={a === "9:16" ? first : undefined}
+                type="radio"
+                name="export-aspect"
+                checked={aspect === a}
+                onChange={() => setAspect(a)}
+              />
+              {a} <span className="export-dialog__size">{ASPECTS[a].width}&times;{ASPECTS[a].height}</span>
+            </label>
+          ))}
+        </fieldset>
+        {webm && <p className="export-dialog__note">This browser records WebM; Chrome, Edge or Safari record MP4.</p>}
+        <p className="export-dialog__note">Keep this tab visible while it records.</p>
+        <div className="export-dialog__actions">
+          <button type="button" className="button" onClick={onClose}>
+            Cancel
+          </button>
+          <button type="button" className="button button--primary" onClick={() => onRecord(aspect)}>
+            Record
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

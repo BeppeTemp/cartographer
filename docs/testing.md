@@ -287,6 +287,10 @@ toolchain (D227). What they hold:
 - the graph's appearance functions never emit a node or edge type stock Sigma
   has no program for (an unknown type throws inside the renderer and blanks the
   page);
+- the growth replay's video export (D677): the scene's capture mode restores
+  the view exactly and fits to the export's frame, the recorder picks MP4 or
+  WebM and composes the overlay, and a cancelled or failed export leaves the
+  view as it was (`capture.test.ts`, `export.test.tsx`, `record.test.ts`);
 - the shell boots, and degrades to a named state rather than a blank page on a
   401, an unreachable server or an empty KB;
 - the atlas starts graph-only — rail folded, no inspector until a selection —

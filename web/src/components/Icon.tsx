@@ -16,6 +16,7 @@ export type IconName =
   | "motion"
   | "pause"
   | "grow"
+  | "download"
   | "search"
   | "chevron"
   | "sun"
@@ -45,6 +46,8 @@ const PATHS: Record<IconName, string> = {
   pause: "M8.5 5.5v13 M15.5 5.5v13",
   // A seedling: the KB growing from its first concept.
   grow: "M12 20v-8 M12 12c0-3.5 2.5-6 6-6 0 3.5-2.5 6-6 6z M12 14c0-2.8-2-5-5-5 0 2.8 2 5 5 5z",
+  // A tray with an arrow into it: save the replay as a video.
+  download: "M12 4v11 M7.5 10.5 12 15l4.5-4.5 M5 19.5h14",
   activity: "M12 20a8 8 0 1 0 0-16 8 8 0 0 0 0 16z M12 8v4l2.5 2.5",
   // A checklist: open items and the work still to do.
   work: "M10 7h10 M10 12h10 M10 17h10 M4 7l1.5 1.5L8 6 M4.5 12h2 M4.5 17h2",

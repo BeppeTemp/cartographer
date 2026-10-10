@@ -8,14 +8,15 @@
 export const sceneStub = {
   fail: false,
   created: 0,
-  calls: { focus: [] as string[], unfocus: 0, colours: [] as string[][] },
+  calls: { focus: [] as string[], unfocus: 0, colours: [] as string[][], capture: [] as string[] },
   reset() {
-    this.calls = { focus: [], unfocus: 0, colours: [] };
+    this.calls = { focus: [], unfocus: 0, colours: [], capture: [] };
   },
 };
 
 export class LivingScene {
   readonly frameListeners = new Set<() => void>();
+  readonly canvas = document.createElement("canvas");
   private nodes: { id: string }[] = [];
   private links: { source: string; target: string }[] = [];
   constructor() {
@@ -42,6 +43,16 @@ export class LivingScene {
     return { position: { x: 0, y: 0, z: 0 }, lookAt: { x: 0, y: 0, z: 0 } };
   }
   frameAll(): void {}
+  fitEverything(): void {}
+  fitDistance(): number {
+    return 100;
+  }
+  beginCapture(width: number, height: number): void {
+    sceneStub.calls.capture.push(`begin ${width}x${height}`);
+  }
+  endCapture(): void {
+    sceneStub.calls.capture.push("end");
+  }
   zoomBy(): void {}
   linksOf(): never[] {
     return [];

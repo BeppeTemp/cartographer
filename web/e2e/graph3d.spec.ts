@@ -44,6 +44,28 @@ test("without WebGL the list, search and inspector still work", async ({ page })
   await expect(page.getByRole("complementary", { name: "Inspector for infra/gateway" })).toBeVisible();
 });
 
+test("the growth replay exports as a video download", async ({ page }) => {
+  // The replay lasts 8 s at least, then the hold and the end card.
+  test.setTimeout(90_000);
+  await open3D(page);
+  await page.getByRole("button", { name: "Export video" }).click();
+  await page.getByRole("radio", { name: /1:1/ }).check();
+  // MP4 is covered by the unit test of pickMimeType: the Chromium Playwright
+  // drives ships no H.264 encoder, so here it is WebM by construction. The
+  // expectation asks the browser, so a branded Chrome passes with .mp4.
+  const mp4 = await page.evaluate(() => MediaRecorder.isTypeSupported("video/mp4;codecs=avc1"));
+  const download = page.waitForEvent("download", { timeout: 60_000 });
+  await page.getByRole("button", { name: "Record" }).click();
+  await expect(page.getByText(/Recording 1:1/)).toBeVisible();
+  const file = await download;
+  expect(file.suggestedFilename()).toMatch(new RegExp(`-growth-1x1\\.${mp4 ? "mp4" : "webm"}$`));
+  const path = await file.path();
+  expect((await import("node:fs")).statSync(path).size).toBeGreaterThan(0);
+  // The view is back as it was.
+  await expect(page.getByRole("button", { name: "Export video" })).toBeVisible();
+  await expect(page.locator("[data-testid=graph-view]")).not.toHaveAttribute("data-growing", /.*/);
+});
+
 test.describe("motion", () => {
   test("is live by default and the toggle is remembered", async ({ page }) => {
     await open3D(page);
