@@ -146,7 +146,7 @@ func TestDoctorNudgePerMCPSession(t *testing.T) {
 }
 
 // TestDoctorNudgeOnlyProposes: the nudge never tells the agent to start a
-// session by itself (D703).
+// session by itself (D704).
 func TestDoctorNudgeOnlyProposes(t *testing.T) {
 	s, _ := nudgeKB(t)
 	res := s.callTool(inSession("a"), "search", json.RawMessage(`{"query":"N0"}`))

@@ -257,7 +257,7 @@ Parameter details not repeated in the schema:
   doctor loop (D299): `auto_repair` (`enabled`/`disabled`, with `checks` listing what `cartographer kb
   repair --apply` and the background repair may apply unattended, and `default: true` when it is the
   product default and not a list the operator wrote, D323) and `doctor_interval` (`<n> days` or
-  `disabled`; `ignored` lists the entries that are not safe to run unattended and are skipped, D355; its default is 1 day in `doctor_mode: unattended` and 14 in `assisted`, D358); `doctor_mode` (D358; `unattended`, the default, or `assisted`) and `doctor_budget` (`<n> review items` one kb-doctor session decides: 40 unattended, 10 assisted); a further one, `doctor_auto_interval` (D323), says how often the server applies `auto_repair`
+  `disabled`; `ignored` lists the entries that are not safe to run unattended and are skipped, D355; its default is 14 days) and `doctor_budget` (`<n> review items` one kb-doctor session decides, default 10, D358); a further one, `doctor_auto_interval` (D323), says how often the server applies `auto_repair`
   by itself (`<n> days`, or `disabled` when the interval is 0 or the list is empty); a fourth,
   `repair_on_write` (D349, setting `kbs[].repair_on_write`), is `enabled` when a write applies the
   mechanical `auto_repair` fixes to what it wrote; a fifth, `write_gate` (D350, setting
@@ -298,10 +298,8 @@ Parameter details not repeated in the schema:
   proposing a `kb-doctor` session when the KB's `doctor_suggested` is true for that caller. At most one
   nudge per MCP session (the SDK session ID, so each client session that starts while a kb-doctor
   session is due gets one) per 24 hours (an in-memory window, re-armed by a restart; a transport
-  with no session ID shares one window, D358); the text follows `doctor_mode`: `unattended` (the
-  default) says to run a kb-doctor session now, deciding every item and recording what only a person
-  can answer as a gap; `assisted` says to propose a session to the operator and not start it without
-  their agreement; never a caller
+  with no session ID shares one window, D358); the text asks the agent to propose a session to the operator and not start it without their
+  agreement (D704: an agent works on a KB only when the operator asks); never a caller
   without write access to the KB, never on `kb_status` or an error, and never the Cartographer CLI
   (clientInfo name `cartographer`: `client.Call` would turn the answer into a JSON array). The block
   starts with `cartographer: KB <name>` and carries counts only — warnings, fixable, review items, the
@@ -324,7 +322,7 @@ public either — it sits inside the same `OriginGuard` → bearer-token chain a
 | `GET /api/ui/v1/kbs/{kb}/search?q=&scope=&limit=` | The `search` tool's own response (`results` with `id`, `title`, `snippet`, `score`), filtered with the caller's principal. `q` is required; `limit` defaults to 20 and is clamped to 100. Unlike the tool, it **never records a search miss**: the Atlas searches as the reader types (D286). |
 | `GET /api/ui/v1/kbs/{kb}/changes?since=&limit=` | `changes_since`'s own response for the caller: concepts changed since `since` (default `7d`), each with authors, operations and recorded reasons. `limit` defaults to 50, clamped to 500. |
 | `GET /api/ui/v1/kbs/{kb}/work?scope=&include=&stale=&where=&order_by=&fields=&limit=&offset=` | `work_list`'s own response for the caller's principal (D302); `where` repeats, `order_by` and `fields` repeat or take a comma list. `404` for a KB the caller cannot see. |
-| `GET /api/ui/v1/kbs/{kb}/maintenance/summary` | What keeps the KB in repair (D323): `auto_repair` (`enabled`, `default`, `checks`, `interval_days`), `last_auto_repair` (the newest line of the background log, or `null`), `last_doctor`, `next_doctor`, `doctor_interval_days`, `doctor_mode` (D358: `unattended` or `assisted`), `runs` (D365: the background repair's runs of the last 30 days from its log, newest first, at most 50, each like `last_auto_repair`), `lint_history` (D370: one `{at, total, by_severity, by_handler}` sample of the whole-KB lint totals per UTC day, oldest first, 90 days at most; `[]` before the first lint), and `repairs`: the `kb_repair` and auto-repair commits of the last 30 days, newest first (at most 50), each `{sha, at, subject, reason, files, background, revert}` where `revert` is the exact `cartographer kb repair <kb> --revert <sha7>` command. A whole-KB resource: `404` for a caller that cannot see the whole KB. |
+| `GET /api/ui/v1/kbs/{kb}/maintenance/summary` | What keeps the KB in repair (D323): `auto_repair` (`enabled`, `default`, `checks`, `interval_days`), `last_auto_repair` (the newest line of the background log, or `null`; the background repair runs at every start, after a pull that moved HEAD and once per interval, D704), `last_doctor`, `next_doctor`, `doctor_interval_days`, `runs` (D365: the background repair's runs of the last 30 days from its log, newest first, at most 50, each like `last_auto_repair`), `lint_history` (D370: one `{at, total, by_severity, by_handler}` sample of the whole-KB lint totals per UTC day, oldest first, 90 days at most; `[]` before the first lint), and `repairs`: the `kb_repair` and auto-repair commits of the last 30 days, newest first (at most 50), each `{sha, at, subject, reason, files, background, revert}` where `revert` is the exact `cartographer kb repair <kb> --revert <sha7>` command. A whole-KB resource: `404` for a caller that cannot see the whole KB. |
 | `GET /api/ui/v1/kbs/{kb}/maintenance/questions` | The open `open_question` concepts the caller can see, as `contradiction_report` lists them: `{questions: [{id, title, involves, contradiction_kind, resolution_status}]}`. |
 | `GET /api/ui/v1/kbs/{kb}/status` | `kb_status`'s response (open knowledge gaps, search misses, stale count and the rest). A whole-KB resource like the artifact routes: `404` for a caller that cannot see the whole KB. |
 | `GET /api/ui/v1/kbs/{kb}/checks` | `{categories, checks}` (D365): every lint check the server runs — `kb_review` kinds excluded — in registry order, each `{name, category, severity, fixable, auto, active, reason?}`: `fixable` when the check has a mechanical fix, `auto` when this KB's background repair applies it by itself, `active: false` with a short `reason` when the check cannot run on this KB (nothing to compare against, or every map able to run it opted out, D371; `docs/data-plane.md` §Active checks). The categories are the registry's (`lint.Categories`), in reading order. Counts are not here: they come from `/lint`, so a scoped or narrowed caller sees the coverage of exactly its findings. |
@@ -359,28 +357,6 @@ artifact, a row with no `last_used`, an unknown kind are dropped; a `last_used` 
 day ahead is clamped to now. It needs the whole KB in write scope; any other caller gets the
 `404` of an unknown KB (no existence oracle), a missing token `401`, a non-POST `405`. The
 store is `.cartographer/usage.json` (`docs/data-plane.md`).
-
-### Doctor schedule declarations (`/api/doctor-schedule`, D369)
-
-A client that installed the scheduled headless doctor (`docs/configurator.md` §Scheduled
-headless sessions) tells the server when the next session is due, so the Atlas can name it. Same
-contract as usage: client-to-server metadata, HTTP and not an MCP tool, always routed, same auth
-chain, whole KB in write scope or the `404` of an unknown KB.
-
-`POST /api/doctor-schedule?kb=<name>` takes `{"client": "<name>", "next_run": "<RFC 3339>"}`
-(`client` lowercase letters, digits and `-`, at most 32; `next_run` at most 8 days ahead; at most
-4 KiB) and answers `{declared: true}`; it replaces any previous declaration. `DELETE` withdraws it.
-The store is `.cartographer/doctor-schedule.json` (local, never committed, like `usage.json`). The
-maintenance summary (`GET /kbs/{kb}/maintenance/summary`) carries `doctor_schedule: {client,
-next_run}` only while the declaration is live: more than 24 hours past `next_run` it is treated
-as absent, because a client re-declares after every successful run and a stale one means the job
-stopped.
-
-Filtering uses the same `Visible` / `VisibleCollection` / `WholeVisible`
-predicates as the MCP read path, so the API cannot return a node, edge, count,
-finding or concept body that the same principal is refused through a tool. A
-concept that is hidden but exists is dropped silently rather than reported as a
-broken target, which would disclose its id.
 
 ## Search index
 

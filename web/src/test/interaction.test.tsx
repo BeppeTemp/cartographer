@@ -105,7 +105,6 @@ const upkeep: MaintenanceSummary = {
   auto_repair: { enabled: true, default: true, checks: ["nonstandard_field"], interval_days: 1 },
   last_auto_repair: null,
   doctor_interval_days: 1,
-  doctor_mode: "unattended",
   repairs: [],
 };
 
@@ -155,8 +154,8 @@ describe("health findings", () => {
 
   it("counts an info finding as an improvement in the doctor's queue, not a pile of its own", () => {
     render(health({ report: { ...report, findings: report.findings.filter((f) => f.severity === "info") }, summary: upkeep }));
-    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("1 improvement waits for the doctor.");
-    expect(screen.getByText(/\+ 1 improvement/)).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("1 decision waits for a doctor session.");
+    expect(screen.getByText("1 finding · you start it")).toBeInTheDocument();
   });
 
   it("reveals the concept behind a finding", async () => {
@@ -287,15 +286,17 @@ describe("health coverage of a check that cannot run", () => {
 describe("health verdict", () => {
   const warnings: LintReport = { ...report, findings: report.findings.filter((f) => f.severity !== "error") };
 
-  it("says the problems wait for a doctor that never ran", () => {
+  // A cause is one decision however many pages it touches, and nobody runs it
+  // but the operator (D704): the headline counts decisions, never "on it".
+  it("counts the doctor's work in decisions, one per cause", () => {
     render(health({ report: warnings, summary: upkeep }));
-    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("1 problem waits for the doctor.");
-    expect(screen.getByText("Starts when an agent next connects.")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(/^\d+ decisions? waits? for a doctor session\.$/);
+    expect(screen.getByText(/· you start it$/)).toBeInTheDocument();
   });
 
-  it("says nothing needs the reader while the doctor keeps up", () => {
-    const today = new Date().toISOString().slice(0, 10);
-    render(health({ report: warnings, summary: { ...upkeep, last_doctor: today, next_doctor: today } }));
+  it("says nothing needs the reader when only automatic fixes are left", () => {
+    const auto = { ...report, findings: report.findings.filter((f) => f.check === "nonstandard_field").map((f) => ({ ...f, handler: "auto" as const })) };
+    render(health({ report: auto, summary: upkeep }));
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Nothing needs you: Cartographer is on it.");
   });
 });
@@ -318,12 +319,25 @@ describe("health knowledge", () => {
     expect(screen.getByText("zephyr").closest("li")).not.toHaveClass("chip--resolved");
   });
 
-  it("says so in one line when the KB knows what it is asked", () => {
+  it("leaves the section out when the KB knows what it is asked", () => {
     render(health({ status: { open_gaps: { total: 0 }, search_misses: [], stale_count: 0 } }));
-    expect(
-      screen.getByText("Nothing missing: no open gap, no unanswered search, nothing past its review date."),
-    ).toBeInTheDocument();
-    expect(screen.queryByRole("heading", { name: /^Knowledge \d/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: /^What the KB doesn.t know/ })).not.toBeInTheDocument();
+  });
+
+  // Open questions are what the KB does not know, whoever asked them: listed
+  // apart from the upkeep flow, never as a step of it (D704).
+  it("lists an open question apart from the flow and opens its concept", async () => {
+    const user = userEvent.setup();
+    const onReveal = vi.fn();
+    render(
+      health({
+        onReveal,
+        status: { open_gaps: { total: 1, recent: [{ id: "ops/q1", title: "Which port does the proxy listen on?", kind: "open_question" }] } },
+      }),
+    );
+    expect(screen.getByRole("heading", { name: /^What the KB doesn.t know/ })).toBeInTheDocument();
+    await user.click(screen.getByText("Which port does the proxy listen on?"));
+    expect(onReveal).toHaveBeenCalledWith("ops/q1", "");
   });
 });
 

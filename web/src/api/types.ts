@@ -299,8 +299,6 @@ export interface MaintenanceSummary {
   last_doctor?: string;
   next_doctor?: string;
   doctor_interval_days: number;
-  /** Who runs the doctor sessions (D358). */
-  doctor_mode?: "unattended" | "assisted";
   /** The background repair's runs of the last 30 days, newest first (D365). */
   runs?: MaintenanceRun[];
   /** One sample a day of the lint totals, oldest first, 90 days at most (D370). */

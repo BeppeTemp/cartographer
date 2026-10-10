@@ -134,6 +134,115 @@ const LABELS: Record<string, string> = {
   lint_ignore_invalid: "Exemptions that exempt nothing",
 };
 
+/**
+ * What a check looks for, in one plain sentence: the Checks tab shows it under
+ * the label, so the catalogue explains itself without a trip to the docs. A
+ * check missing here shows its label alone.
+ */
+const HELP: Record<string, string> = {
+  // Pages
+  malformed_frontmatter: "Frontmatter YAML that parses only by luck: bad indentation, tabs, unquoted colons.",
+  stringified_list: "A list field written as one string (\"a, b\") instead of a YAML list.",
+  stale_claim: "A page whose review date has passed: what it says may no longer be true.",
+  status_semantics: "An \"active\"-like status on a page whose map treats that status as open work.",
+  machine_path: "A path that exists only on one machine (~/…, /Users/…): use a {{repo:…}} or {{path:…}} placeholder.",
+  mangled_placeholder: "A placeholder an editor rewrote in words, so it no longer resolves.",
+  missing_title: "A page with no title field.",
+  title_h1_mismatch: "The title field and the page's # heading say different things.",
+  title_quality: "A title that is too long or carries a status word (\"old\", \"dismissed\") that will go stale.",
+  missing_required_field: "A field the map's contract requires is missing.",
+  invalid_field_value: "A field value outside the vocabulary the map declares.",
+  forbidden_field: "A field the map's contract forbids.",
+  nonstandard_field: "A synonym of a standard field (\"updated\" for timestamp): tools read only the standard name.",
+  tool_param_field: "A tool argument saved into the frontmatter by mistake.",
+  prose_value: "A sentence where a single value belongs, e.g. in status.",
+  stale_open: "Open work nobody has touched for a long time.",
+  closed_with_open_items: "Work marked done that still has unchecked boxes.",
+  open_marker: "TODO or FIXME left in the text.",
+  repeated_link: "The same link written several times in one page.",
+  missing_frontmatter: "A page without frontmatter: no type, no title, nothing the tools can read.",
+  unparseable_frontmatter: "Frontmatter that is not valid YAML.",
+  missing_type: "A page without a type.",
+  concept_too_deep: "A page nested deeper than three folders.",
+  nonslug_file_name: "A file name with spaces, capitals or accents: links to it break easily.",
+  empty_concept: "A page with nothing in it: write it or retire it.",
+  concept_oversize: "A page too long to read in one go: split it.",
+  imported_draft: "A page brought in by an import and never reviewed.",
+  secrets_on_non_service: "Secrets attached to a page that is not a service.",
+  sops_format_mismatch: "An encrypted secret file whose format does not match its extension.",
+  sops_missing_file: "A page cites a secret file that does not exist.",
+  legacy_path: "A path written in an old KB layout.",
+  // Templates
+  template_section_missing: "A section the page's template expects is missing.",
+  template_missing: "A page in a map with templates that follows none.",
+  template_unknown: "A page names a template that does not exist.",
+  template_not_allowed: "A page uses a template its map does not allow.",
+  template_type_mismatch: "The page's type and its template's type disagree.",
+  template_field_missing: "A field the template requires is missing.",
+  template_field_value: "A field value the template does not allow.",
+  template_extra_section: "A section the template does not have.",
+  template_section_alias: "A template section written under another name.",
+  template_section_order: "The template's sections in a different order.",
+  // Links
+  broken_link: "A link to a page that does not exist.",
+  duplicate_link: "The same link listed twice in one list.",
+  reciprocal_link_item: "A \"see also\" entry the graph already shows as a back-link: one more thing to keep in sync.",
+  bare_link_list: "A list of links with no word on why each one matters.",
+  index_link_form: "An index link spelled in an unusual form (…/index.md).",
+  orphan: "A page nothing links to and that links to nothing.",
+  broken_relation: "A relation field (superseded_by, part_of…) pointing at a page that does not exist.",
+  link_to_retired: "Live pages still linking to a retired one.",
+  unknown_placeholder: "A {{repo:…}} or {{path:…}} placeholder not declared in paths.yaml.",
+  forbidden_term: "A term the map's glossary says not to use.",
+  source_uncited: "A registered source no page cites.",
+  cut_concept: "A page the graph hangs on: remove it and part of the KB is cut off.",
+  island: "A group of pages linked to each other but to nothing else.",
+  map_misfit: "A page whose links point mostly into another map: it may belong there.",
+  // Vocabularies
+  unknown_type: "A type the KB does not declare.",
+  value_case_variant: "One value spelled in different cases (Active, active).",
+  contract_malformed: "A map's _map.md contract that does not parse.",
+  facet_sprawl: "A field such as tags with so many one-off values nobody can filter on it.",
+  missing_value_contract: "A field used with a few recurring values but no declared vocabulary.",
+  // Maps and indexes
+  map_without_templates: "A map whose pages share a shape but declare no template.",
+  map_oversize: "A map with too many pages at the top level: split it by theme.",
+  legacy_archive_descriptor: "An archive described in the old format.",
+  index_incomplete: "A page missing from its map's index.",
+  index_lists_retired: "An index still listing a retired page.",
+  index_stale: "A generated index out of date.",
+  expanded_missing_index: "A page expanded into a folder without its index.md.",
+  expanded_ambiguous: "A page that exists both as a file and as a folder.",
+  expanded_as_category: "A page folder used as a category: many children its index never links.",
+  unlistable_assets: "An asset folder that cannot be read.",
+  oversized_asset: "An asset above the size limit.",
+  orphan_asset: "An asset no page cites.",
+  unmapped_folder: "A folder of pages that is not a declared map.",
+  stray_file: "A non-Markdown file among the pages.",
+  // Artifacts
+  skill_invalid: "A skill that fails validation and no agent can load.",
+  skill_warning: "A skill that loads but breaks a recommendation.",
+  legacy_tool_name: "An artifact naming an old MCP tool name.",
+  skill_broken_ref: "A skill pointing at a script or file that does not exist.",
+  skill_git_command: "A skill telling the agent to run git on the KB: writes go through the tools.",
+  skill_missing_perimeter: "Instructions that do not say which part of the KB they govern.",
+  cross_kb_path: "An artifact hard-coding another KB's location.",
+  artifact_unused: "A skill or agent no client has used for a long time.",
+  hook_invalid: "A hook definition that does not parse.",
+  // KB files
+  junk_file: "A system or editor file tracked in git (.DS_Store, backups).",
+  junk_asset: "A system or editor file among the assets.",
+  missing_instructions: "No instructions.md telling agents how to work on this KB.",
+  missing_registry: "Placeholders are cited but paths.yaml does not exist.",
+  unused_placeholder: "A placeholder declared in paths.yaml that no page uses.",
+  lint_ignore_invalid: "An exemption that exempts nothing: the check it names never fires there.",
+};
+
+/** One sentence on what a check looks for; empty when there is none. */
+export function checkHelp(check: string): string {
+  return HELP[check] ?? "";
+}
+
 export function checkLabel(check: string): string {
   if (LABELS[check]) return LABELS[check];
   const words = check.replace(/_/g, " ");

@@ -172,7 +172,7 @@ func (s *Server) StartAutoRepair(ctx context.Context) {
 		return
 	}
 	interval := time.Duration(k.DoctorAutoIntervalDays) * 24 * time.Hour
-	// Every start runs once, shortly after boot (D703): a start is an
+	// Every start runs once, shortly after boot (D704): a start is an
 	// upgrade, a config change or a fresh clone, each of which can make pages
 	// nobody wrote fixable, and a fix waiting a day is a queue the Atlas would
 	// have to show. A run with nothing to fix commits nothing.

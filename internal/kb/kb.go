@@ -3268,4 +3268,3 @@ const defaultInstructionsContent = "# How to use this KB\n\n" +
 	"- Act on every finding a write returns: fix or acknowledge it before moving on.\n" +
 	"- Run `gate_check` at the end of a session and resolve what it reports.\n" +
 	"- Every write is a git commit, revertible. Close sessions with `log_append`.\n"
-

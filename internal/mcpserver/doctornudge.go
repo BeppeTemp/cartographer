@@ -122,7 +122,7 @@ func (s *Server) withDoctorNudge(ctx context.Context, tool string, res ToolResul
 }
 
 // doctorNudgeText is the notice: counts only, never KB content. It asks the
-// agent to propose a session, never to start one (D703): an agent works on a
+// agent to propose a session, never to start one (D704): an agent works on a
 // KB only when the operator asked for it.
 func doctorNudgeText(kbName, lastDoctor string, bySev map[string]int, fixable, review int) string {
 	if lastDoctor == "" {

@@ -274,7 +274,7 @@ func Load(dir string) (*Config, error) {
 		return nil, fmt.Errorf("clientconfig: parse extras %s: %w", Path(dir), err)
 	}
 	for _, key := range []string{"server_url", "server_name", "auth", "token_env", "agents", "kbs", "known_kbs", "clients", "trust", "search_roots", "search_depth", "paths", "ignored_paths", "signing_keys", "mcp_approvals", "update", "usage_scan", "write_findings_hook", "sync_timer_opt_out",
-		// No longer a field (D703): listed so a file written by 0.22/0.23
+		// No longer a field (D704): listed so a file written by 0.22/0.23
 		// drops it on the next save instead of carrying it as an extra.
 		"doctor_timer_opt_out"} {
 		delete(extra, key)

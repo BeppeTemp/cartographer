@@ -51,9 +51,7 @@ The server process is **ephemeral** (k8s pod or local service); what persists on
   report on `sync`: on an `emptyDir` it is lost at every restart, and until each
   client syncs again `kb_status.usage` is `no_data` (with `no_report_since`, the
   start time, D333) and `artifact_unused` is silent. Keep `.cartographer/` on
-  the KB's persistent volume when that signal matters. `doctor-schedule.json` (D369)
-  holds the client-declared next scheduled doctor session; losing it only returns Health
-  to "starts when an agent next connects" until the next run re-declares.
+  the KB's persistent volume when that signal matters.
 
 When `audit.log` is set, MCP tool execution appends an attempt+completion event
 pair per call, so the file is a complete operational request log (D119). See
@@ -139,18 +137,16 @@ kbs:                          # (kbs[]) explicit KBs, local path or remote git (
                                                       # applies auto_repair by itself, to a fixpoint,
                                                       # at most 500 concepts per run, one commit per run
                                                       # (D323, D355, HTTP serve only); it also runs
-                                                      # shortly after a pull that changed HEAD (at most
-                                                      # once per 10 min); "0" disables, default 1d
-    doctor_interval: 1d                              # (kbs[].doctor_interval) days after the last
-                                                      # kb-doctor session before the server proposes the
-                                                      # next one (D299); "0" disables; default 1d
-                                                      # unattended, 14d assisted (D358)
-    doctor_mode: unattended                          # (kbs[].doctor_mode) unattended (default): the
-                                                      # agent runs the proposed session itself and
-                                                      # records what only a person can answer as a
-                                                      # gap; assisted: it asks the operator first (D358)
-    doctor_budget: 40                                # (kbs[].doctor_budget) review items one session
-                                                      # decides; default 40 unattended, 10 assisted
+                                                      # shortly after every start and after a pull that
+                                                      # changed HEAD (at most once per 10 min, D704);
+                                                      # "0" disables, default 1d
+    doctor_interval: 14d                             # (kbs[].doctor_interval) days after the last
+                                                      # kb-doctor session before the agent proposes the
+                                                      # next one to the operator (D299, D704); "0"
+                                                      # disables; default 14d. doctor_mode is accepted
+                                                      # and ignored: a session never starts by itself
+    doctor_budget: 10                                # (kbs[].doctor_budget) review items one session
+                                                      # decides; default 10
     usage_stale_days: 42                             # (kbs[].usage_stale_days) days without a client
                                                       # activating a skill or agent before the
                                                       # artifact_unused lint reports it (D326); "0"

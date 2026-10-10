@@ -16,7 +16,7 @@ func TestLoadDoctorSettings(t *testing.T) {
 	}{
 		"default":  {body: "kbs:\n  - path: /tmp/kb\n", wantDays: DefaultDoctorIntervalDays},
 		"assisted": {body: "kbs:\n  - path: /tmp/kb\n    doctor_mode: assisted\n", wantDays: DefaultDoctorIntervalDays},
-		// Accepted and ignored since D703: a 0.23 config keeps loading.
+		// Accepted and ignored since D704: a 0.23 config keeps loading.
 		"unattended": {body: "kbs:\n  - path: /tmp/kb\n    doctor_mode: unattended\n", wantDays: DefaultDoctorIntervalDays},
 		"assisted7":  {body: "kbs:\n  - path: /tmp/kb\n    doctor_mode: assisted\n    doctor_interval: 7d\n", wantDays: 7},
 		"badmode":    {body: "kbs:\n  - path: /tmp/kb\n    doctor_mode: auto\n", wantErr: "doctor_mode"},

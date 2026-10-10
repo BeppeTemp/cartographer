@@ -53,18 +53,22 @@ describe("the Health panel's upkeep", () => {
   });
   afterEach(() => vi.unstubAllGlobals());
 
-  it("shows the schedule, the questions and the repairs with their revert command", async () => {
+  it("shows the flow and the repairs with their revert command", async () => {
     stubApi({
       "/maintenance/summary": () => json(summary),
       "/maintenance/questions": () => json(questions),
     });
     render(<App />);
     const panel = await screen.findByRole("region", { name: "Health" });
-    // Dates read as a person says them; the exact instant is in the tooltip.
-    const lane = await within(panel).findByRole("region", { name: /Automatic/ });
-    expect(within(lane).getByTitle("2026-10-05T08:00:00Z")).toHaveTextContent(/Last.*3 fixes/);
-    expect(within(panel).getByTitle("2026-09-20")).toHaveTextContent(/Sep 20|20 Sep/);
-    expect(within(panel).getByText("Which port does the proxy listen on?")).toBeInTheDocument();
+    // Three steps, a number and a word each; the sentences are in the tooltips (D704).
+    const flow = await within(panel).findByRole("list", { name: "How the KB is looked after" });
+    const steps = within(flow).getAllByRole("listitem");
+    expect(steps.map((li) => li.textContent)).toEqual([
+      expect.stringMatching(/^Checks/),
+      expect.stringMatching(/^Fixed3 fixes/),
+      expect.stringMatching(/^Doctor/),
+    ]);
+    expect(steps[2]!.title).toMatch(/kb-doctor skill.*Last session: 2026-09-20/);
     // The last run by check, and the commit that made it.
     expect(within(within(panel).getByRole("list", { name: "Fixed in this run" })).getByText("Non-standard field names")).toBeInTheDocument();
     expect(within(panel).getByTitle(`cartographer kb repair kb-a --revert ${SHA.slice(0, 7)}`)).toBeInTheDocument();
@@ -80,7 +84,7 @@ describe("the Health panel's upkeep", () => {
     expect(await screen.findByRole("region", { name: "Health" })).toBeInTheDocument();
   });
 
-  it("copies an ID and a revert command, and has no button that writes", async () => {
+  it("copies a revert command, and has no button that writes", async () => {
     stubApi({
       "/maintenance/summary": () => json(summary),
       "/maintenance/questions": () => json(questions),
@@ -90,9 +94,7 @@ describe("the Health panel's upkeep", () => {
     const writeText = vi.spyOn(navigator.clipboard, "writeText");
     render(<App />);
     const panel = await screen.findByRole("region", { name: "Health" });
-    await user.click(await within(panel).findByRole("button", { name: /^Copy ID of/ }));
-    expect(writeText).toHaveBeenLastCalledWith("ops/q1");
-    await user.click(within(panel).getByRole("button", { name: `Copy revert command for ${SHA.slice(0, 7)}` }));
+    await user.click(await within(panel).findByRole("button", { name: `Copy revert command for ${SHA.slice(0, 7)}` }));
     expect(writeText).toHaveBeenLastCalledWith(`cartographer kb repair kb-a --revert ${SHA.slice(0, 7)}`);
     expect(await within(panel).findByText("Copied to the clipboard.")).toBeInTheDocument();
     // Every request the panel made was a read.
@@ -103,19 +105,6 @@ describe("the Health panel's upkeep", () => {
     }
   });
 
-  it("opens the question's concept on the atlas", async () => {
-    stubApi({
-      "/maintenance/summary": () => json(summary),
-      "/maintenance/questions": () => json(questions),
-    });
-    const user = userEvent.setup();
-    render(<App />);
-    const panel = await screen.findByRole("region", { name: "Health" });
-    await user.click(await within(panel).findByText("Which port does the proxy listen on?"));
-    expect(window.location.search).toContain("concept=ops%2Fq1");
-    expect(window.location.search).not.toContain("panel=health");
-  });
-
   it("says plainly when nothing waits and nothing was repaired", async () => {
     stubApi({
       "/maintenance/summary": () =>
@@ -124,22 +113,19 @@ describe("the Health panel's upkeep", () => {
     });
     render(<App />);
     const panel = await screen.findByRole("region", { name: "Health" });
-    // Nothing waits: no section for it, one line in its lane.
-    expect(await within(panel).findByText("Nothing waits on you.")).toBeInTheDocument();
-    expect(within(panel).queryByRole("heading", { name: /^Questions for you/ })).not.toBeInTheDocument();
-    expect(within(panel).getByText("Nothing repaired in the last 30 days.")).toBeInTheDocument();
-    expect(await within(panel).findByText("Off: auto_repair is explicitly empty")).toBeInTheDocument();
-    expect(within(panel).getByText("never")).toBeInTheDocument();
+    expect(await within(panel).findByText("Nothing repaired in the last 30 days.")).toBeInTheDocument();
+    expect(await within(panel).findByTitle("Off: auto_repair is explicitly empty")).toHaveTextContent(/off$/);
+    expect(within(panel).getByTitle(/Last session: never/)).toBeInTheDocument();
   });
 
-  it("leaves out a summary the principal may not read without hiding the questions", async () => {
+  it("leaves out a summary the principal may not read", async () => {
     stubApi({
       "/maintenance/summary": () => json({ error: { code: "not_found", message: "not found" } }, 404),
       "/maintenance/questions": () => json(questions),
     });
     render(<App />);
     const panel = await screen.findByRole("region", { name: "Health" });
-    expect(await within(panel).findByText("Which port does the proxy listen on?")).toBeInTheDocument();
+    expect(await within(panel).findByRole("list", { name: "How the KB is looked after" })).toBeInTheDocument();
     expect(within(panel).queryByRole("heading", { name: "Upkeep" })).not.toBeInTheDocument();
     expect(within(panel).queryByText(/Could not read the maintenance summary/)).not.toBeInTheDocument();
   });
@@ -151,7 +137,6 @@ describe("the Health panel's upkeep", () => {
     });
     render(<App />);
     const panel = await screen.findByRole("region", { name: "Health" });
-    expect(await within(panel).findByText(/Could not read the maintenance summary/)).toBeInTheDocument();
-    expect(within(panel).getByText("Which port does the proxy listen on?")).toBeInTheDocument();
+    expect(await within(panel).findByText("summary unavailable")).toBeInTheDocument();
   });
 });

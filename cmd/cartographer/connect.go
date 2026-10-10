@@ -623,7 +623,7 @@ func providersNeedingSyncTimer(providers []string) ([]string, service.SyncTimerS
 
 // removeLegacyDoctorTimer removes the scheduled headless doctor job that 0.22
 // and 0.23 installed (D369, D690): Cartographer no longer starts an agent by
-// itself (D703), and the job would fire a `doctor run` that no longer exists.
+// itself (D704), and the job would fire a `doctor run` that no longer exists.
 // Called by connect and upgrade-repair; best effort, it never fails either.
 func removeLegacyDoctorTimer() {
 	removed, err := removeLegacyDoctorTimerFn()

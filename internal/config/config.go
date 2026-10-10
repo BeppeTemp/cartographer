@@ -260,7 +260,7 @@ type KBSpec struct {
 	// DoctorIntervalDays.
 	DoctorInterval string `yaml:"doctor_interval,omitempty"`
 
-	// DoctorMode is accepted and ignored (D703): a kb-doctor session starts
+	// DoctorMode is accepted and ignored (D704): a kb-doctor session starts
 	// only when the operator asks for one, so the old "unattended" mode (D358),
 	// in which the nudge told the agent to start it by itself, is gone. Still
 	// validated, so a typo in a config that sets it keeps failing loudly.
@@ -945,13 +945,13 @@ const DefaultDoctorIntervalDays = 14
 const DefaultDoctorBudget = 10
 
 // ValidateDoctorMode rejects a doctor_mode other than the two values 0.23
-// accepted; either is then ignored (D703).
+// accepted; either is then ignored (D704).
 func ValidateDoctorMode(v string) error {
 	switch v {
 	case "", "unattended", "assisted":
 		return nil
 	}
-	return fmt.Errorf("config: doctor_mode: %s: must be unattended or assisted (ignored since D703)", v)
+	return fmt.Errorf("config: doctor_mode: %s: must be unattended or assisted (ignored since D704)", v)
 }
 
 // DoctorBudgetItems resolves DoctorBudget.

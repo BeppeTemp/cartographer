@@ -49,7 +49,7 @@ func TestMain(m *testing.M) {
 	syncTimerInstallFn = func(time.Duration) error { return nil }
 	syncTimerUninstallFn = func() error { return nil }
 	syncTimerStatusFn = func() (service.SyncTimerStatus, error) { return service.SyncTimerStatus{}, nil }
-	// Same for the leftover doctor job connect and upgrade-repair remove (D703).
+	// Same for the leftover doctor job connect and upgrade-repair remove (D704).
 	removeLegacyDoctorTimerFn = func() (bool, error) { return false, nil }
 	code := m.Run()
 	os.RemoveAll(cache)

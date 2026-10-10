@@ -4,6 +4,8 @@ topic: client-configurator
 
 # D369 — A scheduled headless doctor is a client-side opt-in, declared to the server
 
+> **Superseded by D704**: the scheduled headless doctor is removed; `connect` and `upgrade-repair` delete the job it installed.
+
 **Decision.** `cartographer doctor schedule` installs a daily native per-user job (launchd agent,
 systemd user timer, Scheduled Task) that runs `cartographer doctor run`, which starts one agent
 client headless with the `kb-doctor` skill in unattended mode (D358) and a 2-hour limit.
