@@ -8,6 +8,13 @@
 
 KB histories with commits authored as `cartographer <cartographer@localhost>` may need a manual author rewrite before a forge with author push rules accepts the first push.
 
+## [0.22.1](https://github.com/BeppeTemp/cartographer/compare/v0.22.0...v0.22.1) (2026-10-10)
+
+
+### Bug Fixes
+
+* **config:** read ${NAME} secrets in auth.tokens and audit.key_seed from the environment ([#681](https://github.com/BeppeTemp/cartographer/issues/681)) ([7c843fc](https://github.com/BeppeTemp/cartographer/commit/7c843fc0378127adb893ab5128471c2c5f333806))
+
 ## [0.22.0](https://github.com/BeppeTemp/cartographer/compare/v0.21.0...v0.22.0) (2026-10-10)
 
 
