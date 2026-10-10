@@ -34,9 +34,9 @@ real-time scanning (about a fifth of the gate's time; the git-backed packages
 stay far slower than on Linux, from process creation). It runs on every push
 to `main`, on the release-please PR, and on a feature PR that touches a package
 with platform-specific code — `cmd/`, `internal/{service,provisioning,configurator,clientconfig,agents,execbit,gitx,kb,repoindex,defaults}`,
-the installers, any `*_windows.go` (D673). A regression elsewhere still shows
+the installers, any `*_windows.go` (D672). A regression elsewhere still shows
 on `main` right after the merge. The `web` job runs after every push to `main`
-and on a PR that touches its paths (D673, D255); its Playwright browser is
+and on a PR that touches its paths (D672, D255); its Playwright browser is
 cached by version. A `changes` job decides both, failing open, and the
 release-please PR always runs everything. `test`, `test-windows`, `web` and
 `pr-title` are required checks; a job skipped by its path condition reports as

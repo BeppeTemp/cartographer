@@ -22,7 +22,7 @@ the two places where the clients genuinely differ.
    implemented on `main`) is reported back, not re-planned; a partial overlap
    means extending/amending the existing issue or stating the relationship
    (execution order, shared files) in the new one.
-2. Nothing to reserve: the plan's decision number is its issue number (D673).
+2. Nothing to reserve: the plan's decision number is its issue number (D672).
    Title it `Plan: <title>`. Whether it needs a decision file at all (an
    architectural or contract choice) is stated in its Closing section; the file
    is written **at the end of implementation**, not now — the plan is its draft.

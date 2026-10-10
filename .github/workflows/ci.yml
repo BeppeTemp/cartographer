@@ -16,7 +16,7 @@ concurrency:
 
 # On main every job runs, and a red main opens (or updates) a `ci-red` issue.
 # On a feature PR `test-windows` runs only when the PR touches a package with
-# platform-specific code (D673): at 8-13 minutes it would be the whole wait of
+# platform-specific code (D672): at 8-13 minutes it would be the whole wait of
 # every PR, but leaving it off every PR let a Windows-only break sit on main for
 # two days. The release PR runs everything, so no release ships without it.
 jobs:
@@ -89,7 +89,7 @@ jobs:
     name: test-windows
     needs: changes
     # Push to main, the release PR, and a feature PR that touches
-    # platform-specific code (D673). Skipped, it counts as passed for the
+    # platform-specific code (D672). Skipped, it counts as passed for the
     # required check. On push `changes` is skipped, hence `result != success`;
     # a failed `changes` runs it too rather than letting a PR through untested.
     if: "!cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.windows == 'true')"
@@ -143,7 +143,7 @@ jobs:
   # provenance test in internal/webui. This job is what actually builds the
   # frontend and runs its tests, and it only needs to run when the frontend
   # changed (the `changes` job decides), and after every merge on main, so a
-  # browser regression is seen on the merge that caused it (D673). It is a
+  # browser regression is seen on the merge that caused it (D672). It is a
   # required check: a red `web` blocks the merge like a red `test`.
   web:
     name: web
@@ -197,7 +197,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  # A red main is a signal, not something the next PR discovers (D673): the
+  # A red main is a signal, not something the next PR discovers (D672): the
   # first failing push opens a `ci-red` issue, later ones comment on it, and the
   # first green push closes it.
   main-status:

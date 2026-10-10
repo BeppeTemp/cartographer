@@ -45,7 +45,7 @@ state; the plans are read by the subagents that implement them.
 
 ## 1 — Wave planning (coordinator)
 
-1. Collect the target issues: `gh issue list --label plan` (or the subset the user named). A plan's decision number, when it has one, is its issue number (D673).
+1. Collect the target issues: `gh issue list --label plan` (or the subset the user named). A plan's decision number, when it has one, is its issue number (D672).
 2. Extract, per plan, only the **execution order** paragraph and the **file-set**, from one bulk fetch:
 
    ```bash

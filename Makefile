@@ -139,7 +139,7 @@ decisions-index: ## Regenerate the decision index in docs/decisions.md
 codemap: ## Regenerate the code map in AGENTS.md from the package doc comments
 	@go test ./internal/repodocs -run TestCodeMapIsUpToDate -count=1 -args -update
 
-decisions-new: ## New decision from the template: make decisions-new N=<plan issue or PR number> SLUG=my-choice TOPIC=control-plane (D673)
+decisions-new: ## New decision from the template: make decisions-new N=<plan issue or PR number> SLUG=my-choice TOPIC=control-plane (D672)
 	@test -n "$(N)" -a -n "$(SLUG)" -a -n "$(TOPIC)" || \
 		(echo "decisions-new: N, SLUG and TOPIC are all required" && exit 1)
 	@test ! -e "docs/decisions/D$(N)-$(SLUG).md" || \

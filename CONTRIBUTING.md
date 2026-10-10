@@ -171,7 +171,7 @@ Health coverage say "not checked here" instead of a zero; never make a check sil
   §Documentation maintenance rules). An **architectural or contract** choice
   (an invariant, an interface, a rejected alternative a reader would otherwise
   re-propose) gets **one** decision file, numbered after its plan issue or,
-  without one, after the PR (D673): `make decisions-new N=<n> SLUG=<slug> TOPIC=<topic>`.
+  without one, after the PR (D672): `make decisions-new N=<n> SLUG=<slug> TOPIC=<topic>`.
   Smaller choices need no file — the plan issue and the PR that closes it are
   their record. Do not regenerate `docs/decisions.md` in a feature PR: the
   release PR regenerates the index (D328).
@@ -227,7 +227,7 @@ only the issue and the repo must be able to implement without asking questions.
   (those land sequentially, never in parallel). Amendments made before
 implementation starts go in the issue body; later ones in comments.
 
-A plan's decision number is its issue number (D673): nothing to reserve, and
+A plan's decision number is its issue number (D672): nothing to reserve, and
 two sessions planning in parallel cannot collide. The issue's Closing section
 says whether the plan makes a choice worth a decision file, and its topic.
 

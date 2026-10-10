@@ -11,7 +11,7 @@ test or a decision record: none of them is a preference.
 4. Test in `server_test.go`.
 5. `make gate` green.
 6. Update `docs/control-plane.md` §API MCP, and add a decision file if the choice
-   is architectural or a contract (D673) (`make decisions-new`; the release PR regenerates the index (D328)).
+   is architectural or a contract (D672) (`make decisions-new`; the release PR regenerates the index (D328)).
 
 ## What you must not get wrong
 

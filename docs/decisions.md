@@ -32,7 +32,7 @@ them resolves.
 1. **Only for an architectural or contract choice** — an invariant, an
    interface, an alternative a reader would otherwise re-propose. Smaller
    choices live in the plan issue and the PR that closes it. **The number is the
-   plan issue's**, or the PR's when there is no plan (D673): nothing to reserve,
+   plan issue's**, or the PR's when there is no plan (D672): nothing to reserve,
    and parallel sessions cannot collide. Records up to D371 were numbered
    sequentially; the numbers between the last of them and the first issue-numbered
    record are simply unused.

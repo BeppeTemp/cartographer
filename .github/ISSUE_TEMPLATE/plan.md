@@ -6,7 +6,7 @@ labels: plan
 ---
 
 > **Status**: approved, not implemented. Its decision number is this issue's
-> number (D673). On completion: update the affected current-state docs
+> number (D672). On completion: update the affected current-state docs
 > (`docs/index.md` §Documentation maintenance rules), add
 > `docs/decisions/D<issue>-<slug>.md` only if the plan makes an architectural or
 > contract choice, then close this issue from the implementation PR
