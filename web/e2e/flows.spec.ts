@@ -179,10 +179,11 @@ test("the Artifacts panel lists what the KB ships and opens a skill", async ({ p
 
 /** Health folds each check's findings into a row (D365): open them all.
  *  With a target, retry until it shows: a scope change re-renders the rows
- *  closed once its findings arrive. */
+ *  closed once its findings arrive. Without one the scope may have no
+ *  findings at all, and then Health drops the section: there is no row to wait for. */
 async function openFindings(health: Locator, target?: Locator) {
   await expect(async () => {
-    await expect(health.locator(".health__check").first()).toBeVisible({ timeout: 1000 });
+    if (target) await expect(health.locator(".health__check").first()).toBeVisible({ timeout: 1000 });
     await health
       .locator(".health__check details")
       .evaluateAll((els) => els.forEach((el) => ((el as HTMLDetailsElement).open = true)));
@@ -289,13 +290,15 @@ test("a Health finding reveals its concept, or explains there is none", async ({
   const health = page.getByRole("region", { name: "Health" });
 
   // A finding about a map's own index is about no concept.
-  await openFindings(health);
-  await health.getByRole("button", { name: /infra\/index\.md/ }).first().click();
+  const index = health.getByRole("button", { name: /infra\/index\.md/ }).first();
+  await openFindings(health, index);
+  await index.click();
   await expect(page.getByRole("status").filter({ hasText: "no node to reveal" })).toBeAttached();
   await expect(health).toBeVisible();
 
-  await openFindings(health);
-  await health.getByRole("button", { name: /infra\/firewall/ }).first().click();
+  const firewall = health.getByRole("button", { name: /infra\/firewall/ }).first();
+  await openFindings(health, firewall);
+  await firewall.click();
   await expect(page).toHaveURL(/concept=infra%2Ffirewall/);
   await expect(page.getByRole("complementary", { name: "Inspector for infra/firewall" })).toBeVisible();
   await expect(page).toHaveURL(selectedIn("infra/firewall"));
