@@ -1,8 +1,7 @@
 import { render, screen, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "../App";
-import type { MaintenanceQuestions, MaintenanceSummary } from "../api/types";
+import type { MaintenanceSummary } from "../api/types";
 import { json, stubApi } from "./fixtures";
 
 const SHA = "8baf4f51d431b9183afb238a0075d139257cadb7";
@@ -37,14 +36,8 @@ const summary: MaintenanceSummary = {
   ],
 };
 
-const questions: MaintenanceQuestions = {
-  questions: [
-    { id: "ops/q1", title: "Which port does the proxy listen on?", involves: ["infra/a"], contradiction_kind: "open_question", resolution_status: "open" },
-  ],
-};
-
-/** Health (D338), the maintenance half (D323): what the doctor did and what it asks. Read-only. */
-describe("the Health panel's upkeep", () => {
+/** Health (D338, D704) through the App: what was found, what is checked, and nothing that writes. */
+describe("the Health panel", () => {
   beforeEach(() => {
     window.history.replaceState(null, "", "/ui/?kb=kb-a&panel=health");
     localStorage.clear();
@@ -53,51 +46,30 @@ describe("the Health panel's upkeep", () => {
   });
   afterEach(() => vi.unstubAllGlobals());
 
-  it("shows the flow and the repairs with their revert command", async () => {
+  it("lists the review's proposals beside the lint issues", async () => {
     stubApi({
       "/maintenance/summary": () => json(summary),
-      "/maintenance/questions": () => json(questions),
+      "/maintenance/review": () =>
+        json({
+          items: [{ kind: "duplicate_candidate", concepts: ["infra/a", "infra/b"], evidence: "two titles", suggested_action: "", weight: 1 }],
+        }),
     });
     render(<App />);
     const panel = await screen.findByRole("region", { name: "Health" });
-    // Three steps, a number and a word each; the sentences are in the tooltips (D704).
-    const flow = await within(panel).findByRole("list", { name: "How the KB is looked after" });
-    const steps = within(flow).getAllByRole("listitem");
-    expect(steps.map((li) => li.textContent)).toEqual([
-      expect.stringMatching(/^Checks/),
-      expect.stringMatching(/^Fixed3 fixes/),
-      expect.stringMatching(/^Doctor/),
-    ]);
-    expect(steps[2]!.title).toMatch(/kb-doctor skill.*Last session: 2026-09-20/);
-    // The last run by check, and the commit that made it.
-    expect(within(within(panel).getByRole("list", { name: "Fixed in this run" })).getByText("Non-standard field names")).toBeInTheDocument();
-    expect(within(panel).getByTitle(`cartographer kb repair kb-a --revert ${SHA.slice(0, 7)}`)).toBeInTheDocument();
+    expect(await within(panel).findByText("Possible duplicates")).toBeInTheDocument();
   });
 
   it("lands the old Maintenance and Observatory links on Health", async () => {
-    stubApi({
-      "/maintenance/summary": () => json(summary),
-      "/maintenance/questions": () => json(questions),
-    });
+    stubApi({ "/maintenance/summary": () => json(summary) });
     window.history.replaceState(null, "", "/ui/?kb=kb-a&panel=maintenance");
     render(<App />);
     expect(await screen.findByRole("region", { name: "Health" })).toBeInTheDocument();
   });
 
-  it("copies a revert command, and has no button that writes", async () => {
-    stubApi({
-      "/maintenance/summary": () => json(summary),
-      "/maintenance/questions": () => json(questions),
-    });
-    // setup() installs the clipboard stub the spy wraps.
-    const user = userEvent.setup();
-    const writeText = vi.spyOn(navigator.clipboard, "writeText");
+  it("only ever reads", async () => {
+    stubApi({ "/maintenance/summary": () => json(summary) });
     render(<App />);
-    const panel = await screen.findByRole("region", { name: "Health" });
-    await user.click(await within(panel).findByRole("button", { name: `Copy revert command for ${SHA.slice(0, 7)}` }));
-    expect(writeText).toHaveBeenLastCalledWith(`cartographer kb repair kb-a --revert ${SHA.slice(0, 7)}`);
-    expect(await within(panel).findByText("Copied to the clipboard.")).toBeInTheDocument();
-    // Every request the panel made was a read.
+    await screen.findByRole("region", { name: "Health" });
     const fetchMock = globalThis.fetch as unknown as ReturnType<typeof vi.fn>;
     for (const call of fetchMock.mock.calls) {
       const init = call[1] as RequestInit | undefined;
@@ -105,38 +77,10 @@ describe("the Health panel's upkeep", () => {
     }
   });
 
-  it("says plainly when nothing waits and nothing was repaired", async () => {
-    stubApi({
-      "/maintenance/summary": () =>
-        json({ ...summary, auto_repair: { enabled: false, default: false, checks: [], interval_days: 1 }, last_auto_repair: null, last_doctor: undefined, next_doctor: undefined, repairs: [] }),
-      "/maintenance/questions": () => json({ questions: [] }),
-    });
+  it("shows the page when the principal may not read the summary", async () => {
+    stubApi({ "/maintenance/summary": () => json({ error: { code: "not_found", message: "not found" } }, 404) });
     render(<App />);
     const panel = await screen.findByRole("region", { name: "Health" });
-    expect(await within(panel).findByText("Nothing repaired in the last 30 days.")).toBeInTheDocument();
-    expect(await within(panel).findByTitle("Off: auto_repair is explicitly empty")).toHaveTextContent(/off$/);
-    expect(within(panel).getByTitle(/Last session: never/)).toBeInTheDocument();
-  });
-
-  it("leaves out a summary the principal may not read", async () => {
-    stubApi({
-      "/maintenance/summary": () => json({ error: { code: "not_found", message: "not found" } }, 404),
-      "/maintenance/questions": () => json(questions),
-    });
-    render(<App />);
-    const panel = await screen.findByRole("region", { name: "Health" });
-    expect(await within(panel).findByRole("list", { name: "How the KB is looked after" })).toBeInTheDocument();
-    expect(within(panel).queryByRole("heading", { name: "Upkeep" })).not.toBeInTheDocument();
-    expect(within(panel).queryByText(/Could not read the maintenance summary/)).not.toBeInTheDocument();
-  });
-
-  it("reports a summary that failed for another reason", async () => {
-    stubApi({
-      "/maintenance/summary": () => json({ error: { code: "internal", message: "internal error" } }, 500),
-      "/maintenance/questions": () => json(questions),
-    });
-    render(<App />);
-    const panel = await screen.findByRole("region", { name: "Health" });
-    expect(await within(panel).findByText("summary unavailable")).toBeInTheDocument();
+    expect(within(panel).getByRole("heading", { level: 1 })).toBeInTheDocument();
   });
 });

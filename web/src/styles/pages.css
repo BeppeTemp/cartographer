@@ -490,51 +490,6 @@ button.row {
   color: var(--text-muted);
 }
 
-/* An action that belongs to a row shows on hover or focus, and is always
-   reachable by keyboard. */
-.row-action {
-  padding: 2px var(--space-2);
-  font: inherit;
-  font-size: var(--text-xs);
-  color: var(--text-secondary);
-  cursor: pointer;
-  background: var(--surface-2);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-control);
-  opacity: 0;
-  transition: opacity var(--motion-fast) var(--ease-out);
-}
-
-.rows li:hover .row-action,
-.upkeep-log li:hover .row-action,
-.row-action:focus-visible,
-.row-action[data-done="true"] {
-  opacity: 1;
-}
-
-.row-action:hover {
-  color: var(--text-primary);
-  border-color: var(--border-strong);
-}
-
-.row-action:focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
-}
-
-@media (hover: none) {
-  .row-action {
-    opacity: 1;
-  }
-}
-
-.rows--actions > li {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: var(--space-2);
-}
-
 /* "Nothing is wrong" is news: one line with a check, not an empty page. */
 .quiet {
   display: flex;
@@ -842,542 +797,15 @@ button.row {
   }
 }
 
-/* --- Health: findings, knowledge and upkeep on one page (D338) --- */
-
-/* The hero: a ring that says the state at a glance, the figures and the
-   upkeep beside it. */
-.health__hero {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  gap: var(--space-8);
-  align-items: center;
-}
-
-.health__hero-main {
-  display: grid;
-  gap: var(--space-4);
-  min-width: 0;
-}
-
-.health__hero-main .quiet {
-  margin: 0;
-}
-
-.state-ring {
-  --ring: var(--text-muted);
-  position: relative;
-  display: grid;
-  place-items: center;
-  width: 136px;
-  height: 136px;
-}
-
-.state-ring--ok {
-  --ring: var(--sev-ok);
-}
-
-.state-ring--warning {
-  --ring: var(--sev-warning);
-}
-
-.state-ring--error {
-  --ring: var(--sev-error);
-}
-
-/* In hand: Cartographer is on it, nothing to worry about. */
-.state-ring--tending {
-  --ring: var(--primary);
-}
-
-.state-ring svg {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  transform: rotate(-90deg);
-}
-
-.state-ring__track {
-  fill: none;
-  stroke: var(--surface-2);
-  stroke-width: 8;
-}
-
-.state-ring__arc {
-  fill: color-mix(in srgb, var(--ring) 8%, transparent);
-  stroke: var(--ring);
-  stroke-width: 8;
-  stroke-linecap: round;
-  stroke-dasharray: 327 327;
-  animation: ring-draw var(--motion-deliberate) var(--ease-emphasized) both;
-}
-
-.state-ring--loading .state-ring__arc {
-  stroke-dasharray: 60 327;
-}
-
 @keyframes ring-draw {
   from {
     stroke-dasharray: 0 327;
   }
 }
 
-.state-ring__glyph {
-  margin-block-end: var(--space-4);
-  font-size: var(--text-2xl);
-  font-weight: 700;
-  line-height: 1;
-  color: var(--ring);
-}
-
-.state-ring__word {
-  position: absolute;
-  inset-block-end: 34px;
-  font-size: var(--text-xs);
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--text-secondary);
-}
-
-/* The three hands: background repair, doctor, the reader. */
-.lanes {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: var(--space-3);
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-/* The steps run left to right: an arrow between two says one feeds the next. */
-.lanes > .lane + .lane::before {
-  content: "→";
-  position: absolute;
-  left: calc(-1 * var(--space-3) + 1px);
-  top: 50%;
-  transform: translate(-50%, -50%);
-  color: var(--text-muted);
-  font-size: 12px;
-}
-
-/* A step that leads somewhere is the whole tile, not a link inside it. */
-.lane__button {
-  display: grid;
-  align-content: start;
-  gap: var(--space-1);
-  margin: calc(-1 * var(--space-3)) calc(-1 * var(--space-4));
-  padding: var(--space-3) var(--space-4);
-  border: 0;
-  border-radius: inherit;
-  background: none;
-  color: inherit;
-  font: inherit;
-  text-align: start;
-  cursor: pointer;
-}
-
-.lane__button:hover {
-  background: var(--surface-2, transparent);
-}
-
-.lane {
-  --lane: var(--text-muted);
-  display: grid;
-  align-content: start;
-  gap: var(--space-1);
-  position: relative;
-  min-width: 0;
-  padding: var(--space-3) var(--space-4);
-  background: var(--surface-1);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-card);
-}
-
-.lane[data-tone="auto"] {
-  --lane: var(--sev-ok);
-}
-
-.lane[data-tone="doctor"] {
-  --lane: var(--primary);
-}
-
-.lane[data-tone="due"],
-.lane[data-tone="you"] {
-  --lane: var(--sev-warning);
-  border-color: color-mix(in srgb, var(--sev-warning) 45%, var(--border-subtle));
-}
-
-.lane__title {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  margin: 0;
-  font-size: var(--text-xs);
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--text-muted);
-}
-
-.lane__icon {
-  display: inline-grid;
-  place-items: center;
-  width: 22px;
-  height: 22px;
-  color: var(--lane);
-  background: color-mix(in srgb, var(--lane) 14%, transparent);
-  border-radius: var(--radius-pill);
-}
-
-/* Next and last, as two aligned lines: a muted label, the moment, a chip. */
-.lane__times {
-  display: grid;
-  gap: var(--space-1);
-  margin: var(--space-1) 0 0;
-}
-
-.lane__times > div {
-  display: grid;
-  grid-template-columns: 4ch minmax(0, 1fr);
-  gap: var(--space-2);
-  align-items: baseline;
-}
-
-.lane__times dt {
-  font-size: var(--text-xs);
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--text-muted);
-}
-
-.lane__times dd {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: var(--space-1) var(--space-2);
-  margin: 0;
-  font-size: var(--text-sm);
-  color: var(--text-primary);
-}
-
-.lane__chip {
-  padding: 0 var(--space-2);
-  font-size: var(--text-xs);
-  font-variant-numeric: tabular-nums;
-  color: var(--sev-ok);
-  background: color-mix(in srgb, var(--sev-ok) 14%, transparent);
-  border-radius: var(--radius-pill);
-}
-
-.lane__chip--error {
-  color: var(--sev-error);
-  background: color-mix(in srgb, var(--sev-error) 14%, transparent);
-}
-
-.lane__mode {
-  margin-inline-start: auto;
-  font-weight: 500;
-  letter-spacing: 0;
-  text-transform: none;
-}
-
-.lane__figure {
-  margin: var(--space-1) 0 0;
-  font-size: var(--text-sm);
-  color: var(--text-secondary);
-}
-
-.lane__value {
-  font-size: var(--text-2xl);
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-  line-height: 1.1;
-  color: var(--text-primary);
-}
-
-.lane[data-tone="due"] .lane__value,
-.lane[data-tone="you"] .lane__value {
-  color: var(--sev-warning);
-}
-
-.lane__extra {
-  color: var(--text-muted);
-}
-
-.lane__note {
-  margin: 0;
-  font-size: var(--text-sm);
-  color: var(--text-primary);
-}
-
-.lane__note--due {
-  color: var(--sev-warning);
-}
-
-/* Problems: one row per cause, opened to its pages. */
-.health__checks-list {
-  display: grid;
-  gap: var(--space-2);
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.health__check > details {
-  background: var(--surface-1);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-control);
-  transition: border-color var(--motion-fast) var(--ease-out);
-}
-
-.health__check > details:hover,
-.health__check > details[open] {
-  border-color: var(--border-strong);
-}
-
-.health__check-summary {
-  display: grid;
-  grid-template-columns: 96px minmax(0, 1fr) auto;
-  gap: var(--space-3);
-  align-items: center;
-  padding: var(--space-3);
-  cursor: pointer;
-  list-style: none;
-}
-
-.health__check-summary::-webkit-details-marker {
-  display: none;
-}
-
-.health__check-body {
-  display: grid;
-  gap: 2px;
-  min-width: 0;
-}
-
-.health__check-title {
-  display: flex;
-  align-items: baseline;
-  gap: var(--space-2);
-  font-size: var(--text-sm);
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-.health__check-count {
-  font-weight: 500;
-  font-variant-numeric: tabular-nums;
-  color: var(--text-muted);
-}
-
-.health__check-meta {
-  display: flex;
-  gap: var(--space-2);
-  min-width: 0;
-  font-size: var(--text-xs);
-  color: var(--text-muted);
-}
-
-.health__check-meta code {
-  flex: none;
-  font-family: var(--font-mono);
-}
-
-.health__check-sample {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.health__handler[data-handler="auto"] {
-  color: var(--sev-ok);
-}
-
-.health__handler[data-handler="doctor"] {
-  color: var(--primary);
-}
-
-.health__check-rows {
-  margin: 0;
-  padding: 0 var(--space-2) var(--space-2);
-  border-block-start: 1px solid var(--border-subtle);
-}
-
-.health__check-rows .health__finding {
-  grid-template-columns: minmax(0, 1fr) auto;
-}
-
-.health__check-rows .health__finding--many {
-  grid-template-columns: minmax(0, 1fr);
-  cursor: default;
-}
-
-.health__times {
-  font-variant-numeric: tabular-nums;
-  color: var(--text-muted);
-}
-
-.health__pages {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-1);
-  margin-block-start: var(--space-1);
-}
-
-.health__page {
-  padding: 1px var(--space-2);
-  white-space: nowrap;
-  font-family: var(--font-mono);
-  font-size: var(--text-xs);
-  color: var(--text-secondary);
-  cursor: pointer;
-  background: var(--surface-2);
-  border: 0;
-  border-radius: var(--radius-pill);
-}
-
-.health__page:hover {
-  color: var(--primary);
-}
-
-.health__page-more {
-  font-size: var(--text-xs);
-  color: var(--text-muted);
-}
-
-.health__tabs {
-  margin-block-end: var(--space-4);
-}
-
-/* Coverage: every check, by category, a zero too. */
-.health__coverage-line {
-  margin: 0 0 var(--space-3);
-}
-
 .coverage {
   display: grid;
   gap: var(--space-2);
-}
-
-.coverage__group {
-  background: var(--surface-1);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-control);
-}
-
-.coverage__title {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: var(--space-3);
-  padding: var(--space-2) var(--space-3);
-  font-size: var(--text-sm);
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-.coverage__tally {
-  font-size: var(--text-xs);
-  font-weight: 500;
-  color: var(--sev-warning);
-}
-
-.coverage__tally[data-clean="true"] {
-  color: var(--sev-ok);
-}
-
-.coverage__checks {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-  gap: 2px var(--space-4);
-  margin: 0;
-  padding: 0 var(--space-3) var(--space-3);
-  list-style: none;
-}
-
-.coverage__check {
-  display: grid;
-  /* Mark, the rule and its sentence, the count: the count never moves. */
-  grid-template-columns: 14px minmax(0, 1fr) 3ch;
-  gap: var(--space-2);
-  align-items: baseline;
-  min-height: 26px;
-  font-size: var(--text-sm);
-  color: var(--text-muted);
-}
-
-.coverage__mark {
-  font-size: var(--text-xs);
-  color: var(--sev-ok);
-  text-align: center;
-}
-
-.coverage__check[data-found] .coverage__mark::before {
-  content: "";
-  display: inline-block;
-  width: 7px;
-  height: 7px;
-  background: var(--sev-info);
-  border-radius: var(--radius-pill);
-}
-
-.coverage__check[data-found][data-severity="warning"] .coverage__mark::before {
-  background: var(--sev-warning);
-}
-
-.coverage__check[data-found][data-severity="error"] .coverage__mark::before {
-  background: var(--sev-error);
-}
-
-.health__coverage-line .icon {
-  display: inline-block;
-  vertical-align: -2px;
-}
-
-/* What the check looks for, once its row is open. */
-.health__check-help {
-  margin: 0 0 var(--space-2);
-  padding: 0 var(--space-3);
-  font-size: var(--text-sm);
-  color: var(--text-secondary);
-}
-
-.coverage__name {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.coverage__check[data-found] .coverage__name {
-  padding: 0;
-  font: inherit;
-  text-align: start;
-  color: var(--text-primary);
-  cursor: pointer;
-  background: none;
-  border: 0;
-}
-
-.coverage__check[data-found] .coverage__name:hover {
-  color: var(--primary);
-}
-
-.coverage__auto {
-  display: inline-flex;
-  color: var(--sev-ok);
-}
-
-.coverage__count {
-  grid-column: 4;
-  font-variant-numeric: tabular-nums;
-  text-align: end;
-}
-
-.coverage__check[data-found] .coverage__count {
-  font-weight: 600;
-  color: var(--text-primary);
 }
 
 /* The lint trend (D370): totals then and now, a sparkline of the daily samples. */
@@ -1387,137 +815,13 @@ button.row {
   gap: 12px;
   flex-wrap: wrap;
 }
+
 .health__trend[data-trend="better"] {
   color: var(--sev-ok);
 }
+
 .health__spark {
   flex: none;
-}
-
-/* A check that cannot run on this KB (D371): greyed, its zero is not an answer. */
-.coverage__check[data-inactive] {
-  opacity: 0.55;
-}
-
-.coverage__check[data-inactive] .coverage__mark {
-  color: var(--text-muted);
-}
-
-/* The upkeep timeline: one row per run that fixed something. */
-.health__done-line {
-  margin: 0 0 var(--space-2);
-}
-
-.upkeep-log {
-  display: grid;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.upkeep-log__entry {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: var(--space-2);
-  align-items: start;
-  padding: var(--space-2) 0;
-  border-block-end: 1px solid var(--border-subtle);
-}
-
-.upkeep-log__head {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  gap: var(--space-3);
-  align-items: start;
-  list-style: none;
-  cursor: pointer;
-}
-
-.upkeep-log__head::-webkit-details-marker {
-  display: none;
-}
-
-div.upkeep-log__head {
-  cursor: default;
-}
-
-.upkeep-log__body {
-  display: grid;
-  gap: 2px;
-  min-width: 0;
-}
-
-.upkeep-log__when {
-  font-size: var(--text-sm);
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-.upkeep-log__what {
-  font-size: var(--text-xs);
-  color: var(--text-secondary);
-}
-
-.upkeep-log__bar {
-  display: flex;
-  gap: 2px;
-  height: 5px;
-  margin-block-start: var(--space-1);
-}
-
-.upkeep-log__bar > span {
-  flex-basis: 0;
-  min-width: 3px;
-  background: var(--sev-ok);
-  border-radius: var(--radius-pill);
-}
-
-.health__fixed {
-  display: grid;
-  gap: 2px;
-  margin: var(--space-2) 0 0 calc(24px + var(--space-3));
-  padding: 0;
-  list-style: none;
-}
-
-.health__fixed li {
-  display: flex;
-  justify-content: space-between;
-  gap: var(--space-2);
-  font-size: var(--text-sm);
-}
-
-.health__fixed-label {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--text-primary);
-}
-
-.health__fixed-count {
-  font-variant-numeric: tabular-nums;
-  color: var(--text-secondary);
-}
-
-/* What to act on runs wide; the upkeep log rides beside it. */
-.health__grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(300px, 380px);
-  gap: var(--space-8);
-  align-items: start;
-}
-
-/* Nothing to act on: the upkeep log takes the page. */
-.health__grid.health__grid--single {
-  grid-template-columns: minmax(0, 1fr);
-}
-
-.health__main {
-  min-width: 0;
-}
-
-.health__side .page-section__title {
-  white-space: nowrap;
 }
 
 .health__group + .health__group {
@@ -1535,21 +839,6 @@ div.upkeep-log__head {
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--text-muted);
-}
-
-.health__finding {
-  grid-template-columns: 96px minmax(0, 1fr) auto;
-  align-items: start;
-}
-
-.health__message {
-  font-size: var(--text-sm);
-  line-height: var(--leading-normal);
-  color: var(--text-primary);
-}
-
-.health__path {
-  word-break: break-all;
 }
 
 .health__go {
@@ -1572,22 +861,6 @@ div.upkeep-log__head {
   border-radius: var(--radius-pill);
 }
 
-.health__glyph--question {
-  font-weight: 700;
-  color: var(--sev-warning);
-  background: color-mix(in srgb, var(--sev-warning) 16%, transparent);
-}
-
-.health__glyph--auto {
-  color: var(--primary);
-  background: color-mix(in srgb, var(--primary) 16%, transparent);
-}
-
-.health__concepts {
-  font-weight: 400;
-  color: var(--text-muted);
-}
-
 .health__misses {
   display: flex;
   flex-wrap: wrap;
@@ -1595,35 +868,6 @@ div.upkeep-log__head {
   margin: var(--space-2) 0 0;
   padding: 0 var(--space-3);
   list-style: none;
-}
-
-@media (max-width: 1100px) {
-  .health__grid {
-    grid-template-columns: minmax(0, 1fr);
-  }
-}
-
-@media (max-width: 640px) {
-  .health__hero {
-    grid-template-columns: minmax(0, 1fr);
-    justify-items: start;
-  }
-
-  .health__finding {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .lanes {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .health__check-summary {
-    grid-template-columns: minmax(0, 1fr) auto;
-  }
-
-  .health__check-summary .severity {
-    display: none;
-  }
 }
 
 /* --- Status: a dot whose tone says how urgent, the word beside it says what --- */
@@ -1845,12 +1089,6 @@ div.upkeep-log__head {
   color: var(--text-muted);
 }
 
-
-/* A calendar date beside a relative one: the quieter of the two. */
-.day__aside {
-  color: var(--text-muted);
-}
-
 /* Activity: the concept worked on most, and the maintenance kept apart. */
 .activity-top {
   display: flex;
@@ -2054,13 +1292,6 @@ div.upkeep-log__head {
   color: var(--text-primary);
 }
 
-.pfield__count {
-  margin-inline-start: auto;
-  font-weight: 400;
-  font-variant-numeric: tabular-nums;
-  color: var(--text-muted);
-}
-
 .pfield__dots {
   display: flex;
   flex-wrap: wrap;
@@ -2095,116 +1326,6 @@ button.pfield__dot {
 button.pfield__dot:hover {
   outline: 2px solid var(--text-primary);
   outline-offset: 1px;
-}
-
-.hfield__stats {
-  display: grid;
-  gap: var(--space-3);
-  min-width: 150px;
-  margin: 0;
-}
-
-.hfield__stats > div {
-  padding-inline-start: var(--space-3);
-  border-inline-start: 2px solid var(--border-subtle);
-}
-
-.hfield__stats > div[data-tone="warning"] {
-  border-color: var(--sev-warning);
-}
-
-.hfield__stats > div[data-tone="auto"] {
-  border-color: var(--sev-ok);
-}
-
-.hfield__stats > div[data-tone="doctor"] {
-  border-color: var(--primary);
-}
-
-.hfield__stats dt {
-  display: flex;
-  gap: 4px;
-  align-items: center;
-  font-size: var(--text-xs);
-  color: var(--text-muted);
-}
-
-.hfield__stats dd {
-  margin: 0;
-  font-size: var(--text-xl);
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-  line-height: 1.15;
-  color: var(--text-primary);
-}
-
-.hfield__stats dd.hfield__when {
-  font-size: var(--text-md);
-}
-
-.hfield__of {
-  margin-inline-start: 4px;
-  font-size: var(--text-xs);
-  font-weight: 400;
-  color: var(--text-muted);
-}
-
-/* The one thing to do next: a prompt to paste into an agent. */
-.next-step {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2) var(--space-3);
-  align-items: center;
-  margin-block-end: var(--space-5, 20px);
-  padding: var(--space-2) var(--space-2) var(--space-2) var(--space-3);
-  background: color-mix(in srgb, var(--primary) 9%, var(--surface-1));
-  border: 1px solid color-mix(in srgb, var(--primary) 35%, transparent);
-  border-radius: var(--radius-card);
-  color: var(--primary);
-}
-
-.next-step__title {
-  font-size: var(--text-sm);
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-.next-step__text {
-  font-size: var(--text-sm);
-  color: var(--text-muted);
-}
-
-.next-step__prompt {
-  display: flex;
-  gap: var(--space-3);
-  align-items: center;
-  margin-inline-start: auto;
-  padding: 6px var(--space-3);
-  background: var(--surface-0);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-control);
-  color: var(--text-primary);
-  font: inherit;
-  cursor: pointer;
-}
-
-.next-step__prompt:hover {
-  border-color: var(--border-strong);
-}
-
-.next-step__prompt code {
-  font-family: var(--font-mono);
-  font-size: var(--text-xs);
-}
-
-.next-step__copy {
-  font-size: var(--text-xs);
-  font-weight: 600;
-  color: var(--primary);
-}
-
-.next-step__prompt[data-done="true"] .next-step__copy {
-  color: var(--sev-ok);
 }
 
 /* The agenda: three bands, one line per decision. */
@@ -2324,15 +1445,6 @@ button.pfield__dot:hover {
   padding: var(--space-1) var(--space-2) var(--space-3);
 }
 
-/* The options, said once, where the reader is deciding. */
-.arow__decide {
-  margin: var(--space-1) 0 var(--space-2);
-  padding-inline-start: var(--space-3);
-  border-inline-start: 2px solid var(--tone);
-  font-size: var(--text-sm);
-  color: var(--text-primary);
-}
-
 .arow__check {
   margin: var(--space-2) 0 0;
   font-size: var(--text-xs);
@@ -2343,85 +1455,7 @@ button.pfield__dot:hover {
   font-family: var(--font-mono);
 }
 
-.arow__detail .health__check-rows {
-  padding: 0;
-  border-block-start: 0;
-}
-
-.agenda__item {
-  display: grid;
-  gap: var(--space-1);
-  padding: var(--space-2) 0;
-}
-
-.agenda__evidence {
-  margin: 0;
-  font-size: var(--text-sm);
-  color: var(--text-secondary);
-}
-
-/* Reference the reader opens on purpose: what Cartographer did, what is checked. */
-.health__fold {
-  margin-block-start: var(--space-5, 20px);
-  border-block-start: 1px solid var(--border-subtle);
-}
-
-.health__fold + .health__fold {
-  margin-block-start: 0;
-}
-
-.health__fold > summary {
-  display: flex;
-  gap: var(--space-3);
-  align-items: baseline;
-  padding: var(--space-3) 0;
-  cursor: pointer;
-  list-style: none;
-}
-
-.health__fold > summary::-webkit-details-marker {
-  display: none;
-}
-
-.health__fold > summary::before {
-  content: "▸";
-  color: var(--text-muted);
-  font-size: var(--text-xs);
-}
-
-.health__fold[open] > summary::before {
-  content: "▾";
-}
-
-.health__fold-title {
-  font-size: var(--text-sm);
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-.health__fold-meta {
-  font-size: var(--text-sm);
-  color: var(--text-muted);
-}
-
-.coverage__group + .coverage__group {
-  margin-block-start: var(--space-3);
-}
-
-.coverage__body {
-  display: grid;
-  min-width: 0;
-}
-
-.coverage__help {
-  font-size: var(--text-xs);
-  line-height: 1.35;
-  color: var(--text-muted);
-}
-
-.health__coverage .page-note .icon,
-.coverage__name .icon,
-.hfield__stats .icon {
+.health__coverage .page-note .icon {
   display: inline-block;
   vertical-align: -2px;
 }
@@ -2528,23 +1562,6 @@ button.pfield__dot:hover {
   color: var(--text-primary);
 }
 
-.coverage__title {
-  flex-wrap: wrap;
-  justify-content: flex-start;
-}
-
-.coverage__about {
-  font-weight: 400;
-  color: var(--text-muted);
-}
-
-/* An open issue: what the rule found, the pages, then how it gets fixed. */
-.arow__what {
-  margin: var(--space-1) 0 var(--space-2);
-  font-size: var(--text-sm);
-  color: var(--text-secondary);
-}
-
 .arow__auto {
   display: inline-flex;
   gap: 3px;
@@ -2570,7 +1587,6 @@ button.pfield__dot:hover {
   font-size: var(--text-sm);
   color: var(--text-secondary);
 }
-
 
 /* A page with a problem and a suggestion: both colours, split on the diagonal. */
 .pfield__dot[data-both],
@@ -2813,4 +1829,35 @@ button.pfield__dot:hover {
   .rule__mark {
     display: none;
   }
+}
+
+.issue__file {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.agenda > .agenda__head {
+  cursor: pointer;
+  list-style: none;
+  padding-block: var(--space-1);
+}
+
+.agenda > .agenda__head::-webkit-details-marker {
+  display: none;
+}
+
+.agenda > .agenda__head::before {
+  content: "▸";
+  color: var(--text-muted);
+}
+
+.agenda[open] > .agenda__head::before {
+  content: "▾";
+}
+
+.agenda__title {
+  margin: 0;
+  font: inherit;
 }

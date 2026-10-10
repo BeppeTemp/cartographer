@@ -5,7 +5,7 @@ import { CommandPalette } from "../components/CommandPalette";
 import { NodeList } from "../components/NodeList";
 import { LeftRail } from "../components/LeftRail";
 import { Health } from "../components/Health";
-import type { GraphNode, KBStatus, LintReport, MaintenanceQuestions, MaintenanceSummary, Overview } from "../api/types";
+import type { GraphNode, KBStatus, LintReport, MaintenanceReview, MaintenanceSummary, Overview } from "../api/types";
 
 const nodes: GraphNode[] = [
   { id: "infra/gateway", collection: "infra", type: "Service", in_degree: 4, out_degree: 1 },
@@ -108,14 +108,26 @@ const upkeep: MaintenanceSummary = {
   repairs: [],
 };
 
-/** Health with neutral defaults: the findings tests only change what they are about. */
+const catalog = {
+  categories: ["pages", "links"],
+  checks: [
+    { name: "nonstandard_field", category: "pages", severity: "warning", fixable: true, auto: true },
+    { name: "machine_path", category: "pages", severity: "warning", fixable: false, auto: false },
+    { name: "broken_link", category: "links", severity: "warning", fixable: true, auto: false },
+    { name: "orphan", category: "links", severity: "warning", fixable: false, auto: false },
+  ],
+};
+
+/** Health with neutral defaults: the tests only change what they are about. */
 function health(
   props: Partial<{
     report: LintReport;
     scopeTitle: string | null;
     status: KBStatus | null;
     summary: MaintenanceSummary | null;
-    questions: MaintenanceQuestions | null;
+    checks: typeof catalog | null;
+    review: MaintenanceReview | null;
+    collections: { name: string; title: string; kind: string; concepts: number; expanded_concepts: number }[];
     onReveal: (concept: string | null, message: string) => void;
   }> = {},
 ) {
@@ -124,180 +136,181 @@ function health(
       report={props.report ?? report}
       status={props.status ?? null}
       summary={props.summary ?? null}
-      questions={props.questions ?? null}
+      checks={props.checks ?? null}
+      review={props.review ?? null}
+      collections={props.collections}
+      allFindings={(props.report ?? report).findings}
       scopeTitle={props.scopeTitle ?? null}
       loading={false}
       error={null}
       onReveal={props.onReveal ?? vi.fn()}
-      onOpen={vi.fn()}
       onRetry={vi.fn()}
     />
   );
 }
 
-describe("health findings", () => {
-  it("groups the findings by cause and says who acts on each", () => {
+const rowLabels = (group: string) =>
+  within(screen.getByRole("group", { name: group }))
+    .getAllByRole("listitem")
+    .filter((li) => li.classList.contains("arow-item"))
+    .map((li) => li.querySelector(".arow__label")?.textContent);
+
+describe("health issues", () => {
+  // What was found, one row per kind (D704): the headline counts kinds, the line under it occurrences.
+  it("counts kinds in the headline and every occurrence under it", () => {
+    render(health({ collections: [{ name: "infra", title: "Infrastructure", kind: "map", concepts: 5, expanded_concepts: 0 }] }));
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Cartographer found 4 kinds of issues");
+    expect(screen.getByText(/^5 occurrences in all/)).toBeInTheDocument();
+  });
+
+  it("lists problems broken-first then heaviest, and the notes as suggestions", () => {
     render(health());
-    const problems = screen.getByRole("list", { name: "Findings by cause" });
-    // One row per check, the worst first; the same message on two pages is one line.
-    const rows = within(problems).getAllByRole("listitem").filter((li) => li.classList.contains("health__check"));
-    expect(rows.map((r) => r.querySelector("code")?.textContent)).toEqual([
-      "broken_link",
-      "nonstandard_field",
-      "index_incomplete",
-      "title_quality",
+    expect(rowLabels("Problems").map((l) => l?.replace(/\s+/g, " ").trim())).toEqual([
+      "brokenBroken links",
+      "Non-standard field names fixes itself",
+      "Indexes missing pages",
     ]);
-    expect(rows[1]).toHaveTextContent("Automatic");
-    expect(rows[0]).toHaveTextContent("Doctor");
-    expect(within(rows[1]!).getByText(/× 2/)).toBeInTheDocument();
+    expect(rowLabels("Suggestions")).toEqual(["Titles to tighten"]);
   });
 
-  it("counts an info finding as an improvement in the doctor's queue, not a pile of its own", () => {
-    render(health({ report: { ...report, findings: report.findings.filter((f) => f.severity === "info") }, summary: upkeep }));
-    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("1 decision waits for a doctor session.");
-    expect(screen.getByText("1 finding · you start it")).toBeInTheDocument();
-  });
-
-  it("reveals the concept behind a finding", async () => {
+  it("opens a row to what it is, how to fix it, and the page", async () => {
     const user = userEvent.setup();
     const onReveal = vi.fn();
     render(health({ onReveal }));
     await user.click(screen.getByText("Broken links"));
-    await user.click(screen.getByRole("button", { name: /infra\/gateway/ }));
+    const row = document.getElementById("check-broken_link")!;
+    expect(within(row).getByText("What it is")).toBeInTheDocument();
+    expect(within(row).getByText("To fix")).toBeInTheDocument();
+    await user.click(within(row).getByRole("button", { name: "gateway" }));
     expect(onReveal).toHaveBeenCalledWith("infra/gateway", "");
   });
 
-  it("explains that a finding with no concept has no node to reveal", async () => {
+  it("names a file that is no page instead of offering to open it", async () => {
     const user = userEvent.setup();
-    const onReveal = vi.fn();
-    render(health({ onReveal }));
+    render(health());
     await user.click(screen.getByText("Indexes missing pages"));
-    await user.click(screen.getByRole("button", { name: /maps\/infra/ }));
-    expect(onReveal).toHaveBeenCalledWith(null, expect.stringContaining("no node to reveal"));
+    expect(screen.getByText("maps/infra")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /maps\/infra/ })).not.toBeInTheDocument();
   });
 
-  it("carries severity as text, not colour alone", () => {
+  it("says nothing needs doing for what Cartographer fixes by itself", async () => {
+    const user = userEvent.setup();
     render(health());
-    const page = screen.getByRole("region", { name: "Health" });
-    expect(within(page).getAllByText("error").length).toBeGreaterThan(0);
-    expect(within(page).getAllByText("warning").length).toBeGreaterThan(0);
+    await user.click(screen.getByText("Non-standard field names"));
+    expect(screen.getByText(/Nothing to do: Cartographer fixes it by itself/)).toBeInTheDocument();
   });
 
-  it("leaves out what a narrowed principal cannot read, and keeps the findings", () => {
+  it("lists the review's proposals as suggestions, a map's contract not as a page", async () => {
+    const user = userEvent.setup();
+    render(
+      health({
+        review: {
+          items: [
+            { kind: "glossary_gap", term: "LXC", concepts: ["infra/a", "infra/b"], evidence: "", suggested_action: "", weight: 2 },
+            { kind: "template_proposal", concepts: ["infra/_map"], evidence: "4 pages share a shape", suggested_action: "", weight: 1 },
+          ],
+        },
+      }),
+    );
+    expect(rowLabels("Suggestions")).toEqual(expect.arrayContaining(["Terms nobody defines", "Templates to adopt"]));
+    await user.click(screen.getByText("Terms nobody defines"));
+    const terms = document.getElementById("review-glossary_gap")!;
+    await user.click(within(terms).getByRole("button", { name: /2 pages/ }));
+    expect(within(terms).getByRole("button", { name: "a" })).toHaveAttribute("title", "infra/a");
+    await user.click(screen.getByText("Templates to adopt"));
+    expect(screen.queryByRole("button", { name: "_map" })).not.toBeInTheDocument();
+  });
+
+  it("leaves out what a narrowed principal cannot read, and keeps the issues", () => {
     render(health());
-    expect(screen.queryByRole("heading", { name: /^Done by Cartographer/ })).not.toBeInTheDocument();
-    expect(screen.queryByRole("heading", { name: "Knowledge" })).not.toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: /^Findings/ })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: /^What the KB doesn.t know/ })).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Problems" })).toBeInTheDocument();
   });
 });
 
-describe("health trend", () => {
+describe("health page field", () => {
+  const collections = [{ name: "infra", title: "Infrastructure", kind: "map", concepts: 5, expanded_concepts: 0 }];
+  const both: LintReport = {
+    ...report,
+    findings: [
+      ...report.findings,
+      { path: "infra/gateway.md", concept: "infra/gateway", check: "title_quality", severity: "info", message: "long", handler: "doctor" },
+    ],
+  };
+
+  it("splits a page with a problem and a suggestion, and leaves the clean ones plain", () => {
+    const { container } = render(health({ report: both, collections }));
+    expect(container.querySelector('.pfield__dot[title="infra/gateway"]')).toHaveAttribute("data-both");
+    expect(container.querySelector('.pfield__dot[title="infra/c"]')).toHaveAttribute("data-tone", "info");
+    expect(container.querySelectorAll("span.pfield__dot")).toHaveLength(1);
+  });
+
+  it("lights the pages of the row under the pointer, in that row's colour", async () => {
+    const user = userEvent.setup();
+    const { container } = render(health({ report: both, collections }));
+    await user.hover(screen.getByText("Broken links"));
+    expect(container.querySelector(".pfield")).toHaveAttribute("data-focus", "problem");
+    expect(container.querySelector('.pfield__dot[title="infra/gateway"]')).toHaveAttribute("data-lit");
+    expect(container.querySelector('.pfield__dot[title="infra/c"]')).not.toHaveAttribute("data-lit");
+    await user.hover(screen.getByText("Titles to tighten"));
+    expect(container.querySelector(".pfield")).toHaveAttribute("data-focus", "suggestion");
+  });
+});
+
+describe("health: what it checks", () => {
   const day = (daysAgo: number, total: number) => ({
     at: new Date(Date.now() - daysAgo * 86_400_000).toISOString(),
     total,
     by_severity: {},
     by_handler: {},
   });
-  it("shows the week's movement beside the upkeep log, and nothing with one sample", () => {
-    const { unmount } = render(health({ summary: { ...upkeep, lint_history: [day(0, 40)] } }));
-    expect(screen.queryByRole("heading", { name: /^Trend/ })).not.toBeInTheDocument();
-    unmount();
-    render(health({ summary: { ...upkeep, lint_history: [day(6, 188), day(0, 40)] } }));
-    expect(screen.getByRole("heading", { name: /^Trend/ })).toBeInTheDocument();
-    expect(screen.getByText("188 → 40 this week")).toBeInTheDocument();
-    expect(screen.getByRole("img", { name: /Findings over the last 2 samples/ })).toBeInTheDocument();
-  });
-});
 
-describe("health coverage", () => {
-  it("lists every check by category on a tab of its own, a zero too, and jumps to a check's findings", async () => {
+  it("explains how checking works, folds every category, and lists each rule with its sentence", async () => {
     const user = userEvent.setup();
-    render(
-      <Health
-        report={report}
-        status={null}
-        summary={null}
-        checks={{
-          categories: ["pages", "links"],
-          checks: [
-            { name: "nonstandard_field", category: "pages", severity: "warning", fixable: true, auto: true },
-            { name: "machine_path", category: "pages", severity: "warning", fixable: false, auto: false },
-            { name: "broken_link", category: "links", severity: "warning", fixable: true, auto: false },
-            { name: "orphan", category: "links", severity: "warning", fixable: false, auto: false },
-          ],
-        }}
-        questions={null}
-        scopeTitle={null}
-        loading={false}
-        error={null}
-        onReveal={vi.fn()}
-        onOpen={vi.fn()}
-        onRetry={vi.fn()}
-      />,
-    );
-    expect(screen.queryByText("Paths of one machine in the text")).not.toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Checks · 4" }));
+    render(health({ checks: catalog }));
+    await user.click(screen.getByRole("button", { name: "What it checks" }));
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("What Cartographer checks");
+    expect(screen.getByRole("list", { name: "How checking works" })).toBeInTheDocument();
+    expect(screen.getByText(/In this KB:/)).toHaveTextContent("2 rules pass · 2 found something");
+    const groups = document.querySelectorAll("details.rules__group");
+    expect([...groups].every((d) => !(d as HTMLDetailsElement).open)).toBe(true);
     const machine = screen.getByText("Paths of one machine in the text").closest("li")!;
     expect(machine).toHaveTextContent("0");
     expect(machine).not.toHaveAttribute("data-found");
-    expect(screen.getByText("Non-standard field names", { selector: ".coverage__name" }).closest("li")).toHaveTextContent("automatic");
-    expect(screen.getByText(/2 checks clean · 2 checks with findings · 1 fixed/)).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Broken links" }));
-    expect(screen.getByRole("list", { name: "Findings by cause" })).toBeInTheDocument();
+    expect(screen.getByText("Non-standard field names", { selector: ".rule__name" }).closest("li")).toHaveTextContent(
+      "automatic",
+    );
   });
-});
 
-describe("health coverage of a check that cannot run", () => {
-  it("greys it out with its reason instead of showing a zero that would read as clean (D371)", async () => {
+  it("greys a rule with nothing to read here, with its reason, instead of a zero that reads as clean (D371)", async () => {
     const user = userEvent.setup();
     render(
-      <Health
-        report={report}
-        status={null}
-        summary={null}
-        checks={{
-          categories: ["pages", "links"],
+      health({
+        checks: {
+          categories: ["links"],
           checks: [
-            { name: "machine_path", category: "pages", severity: "warning", fixable: false, auto: false, active: true },
-            { name: "forbidden_term", category: "links", severity: "warning", fixable: false, auto: false, active: false, reason: "glossary.yaml declares no forbidden term" },
-            { name: "orphan", category: "links", severity: "warning", fixable: false, auto: false, active: true },
+            { name: "forbidden_term", category: "links", severity: "warning", fixable: false, auto: false, active: false, reason: "glossary.yaml declares no forbidden term" } as (typeof catalog)["checks"][number],
           ],
-        }}
-        questions={null}
-        scopeTitle={null}
-        loading={false}
-        error={null}
-        onReveal={vi.fn()}
-        onOpen={vi.fn()}
-        onRetry={vi.fn()}
-      />,
+        },
+      }),
     );
-    await user.click(screen.getByRole("button", { name: "Checks · 3" }));
-    const idle = screen.getByText("Terms the map forbids", { selector: ".coverage__name" }).closest("li")!;
+    await user.click(screen.getByRole("button", { name: "What it checks" }));
+    const idle = screen.getByText("Terms the map forbids", { selector: ".rule__name" }).closest("li")!;
     expect(idle).toHaveAttribute("data-inactive");
     expect(idle).toHaveAttribute("title", "glossary.yaml declares no forbidden term");
-    expect(idle).toHaveTextContent("–");
     expect(idle).not.toHaveTextContent(/\b0\b/);
-    expect(screen.getByText(/1 not checked here/)).toBeInTheDocument();
-    expect(screen.getByText("all 1 checked clean")).toBeInTheDocument();
-  });
-});
-
-describe("health verdict", () => {
-  const warnings: LintReport = { ...report, findings: report.findings.filter((f) => f.severity !== "error") };
-
-  // A cause is one decision however many pages it touches, and nobody runs it
-  // but the operator (D704): the headline counts decisions, never "on it".
-  it("counts the doctor's work in decisions, one per cause", () => {
-    render(health({ report: warnings, summary: upkeep }));
-    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(/^\d+ decisions? waits? for a doctor session\.$/);
-    expect(screen.getByText(/· you start it$/)).toBeInTheDocument();
+    expect(screen.getByText(/In this KB:/)).toHaveTextContent("1 have nothing to read here");
   });
 
-  it("says nothing needs the reader when only automatic fixes are left", () => {
-    const auto = { ...report, findings: report.findings.filter((f) => f.check === "nonstandard_field").map((f) => ({ ...f, handler: "auto" as const })) };
-    render(health({ report: auto, summary: upkeep }));
-    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Nothing needs you: Cartographer is on it.");
+  it("shows the week's movement, and nothing with one sample", async () => {
+    const user = userEvent.setup();
+    const { unmount } = render(health({ checks: catalog, summary: { ...upkeep, lint_history: [day(0, 40)] } }));
+    await user.click(screen.getByRole("button", { name: "What it checks" }));
+    expect(screen.queryByRole("heading", { name: /^Trend/ })).not.toBeInTheDocument();
+    unmount();
+    render(health({ checks: catalog, summary: { ...upkeep, lint_history: [day(6, 188), day(0, 40)] } }));
+    await user.click(screen.getByRole("button", { name: "What it checks" }));
+    expect(screen.getByText("188 → 40 this week")).toBeInTheDocument();
   });
 });
 
@@ -325,8 +338,8 @@ describe("health knowledge", () => {
   });
 
   // Open questions are what the KB does not know, whoever asked them: listed
-  // apart from the upkeep flow, never as a step of it (D704).
-  it("lists an open question apart from the flow and opens its concept", async () => {
+  // apart from the issues, never as a step of upkeep (D704).
+  it("lists an open question apart from the issues and opens its concept", async () => {
     const user = userEvent.setup();
     const onReveal = vi.fn();
     render(
@@ -342,18 +355,17 @@ describe("health knowledge", () => {
 });
 
 describe("health scope", () => {
-  it("names the Map it is scoped to, in the headline and the summary", () => {
+  it("names the Map it is scoped to in the headline", () => {
     render(health({ scopeTitle: "Infrastructure" }));
-    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("1 thing is broken in Infrastructure.");
-    expect(screen.getByText("Over Infrastructure only.")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Cartographer found 4 kinds of issues in Infrastructure");
   });
 
   it("does not let a clean Map read as a clean KB", () => {
     const clean: LintReport = { ...report, findings: [], count: 0, total: 0, by_severity: {}, by_check: {} };
     render(health({ report: clean, scopeTitle: "Infrastructure" }));
-    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("All clear in Infrastructure.");
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("No issues found in Infrastructure");
     expect(screen.queryByText(/This KB passes/)).not.toBeInTheDocument();
-    expect(screen.getByText(/Infrastructure passes every deterministic lint check/)).toBeInTheDocument();
+    expect(screen.getByText("Infrastructure passes every check.")).toBeInTheDocument();
   });
 });
 

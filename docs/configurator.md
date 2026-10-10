@@ -609,7 +609,7 @@ silence the server's doctor proposal while the judgement work is undone (each ap
 leaves `kb_repair`'s own entry).
 
 `--revert <sha>` replaces the repair: it calls `repair_revert`, which undoes one `kb_repair` or
-auto-repair commit (the SHA the Atlas Health panel shows) as a new commit through the server's
+auto-repair commit (its SHA is in the KB's `git log`, reason "auto-repair (background)") as a new commit through the server's
 ordinary write path, and refuses any other commit.
 
 Exit codes: `0` nothing left to do, `3` only judgement work or checks outside `auto_repair` remain,

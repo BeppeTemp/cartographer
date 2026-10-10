@@ -310,18 +310,6 @@ export interface MaintenanceSummary {
   repairs: MaintenanceRepair[];
 }
 
-/** GET /kbs/{kb}/maintenance/questions: the open_question concepts. */
-export interface MaintenanceQuestion {
-  id: string;
-  title?: string;
-  involves?: string[];
-  contradiction_kind?: string;
-  resolution_status: string;
-}
-export interface MaintenanceQuestions {
-  questions: MaintenanceQuestion[];
-}
-
 /** GET /kbs/{kb}/checks: every lint check the server runs (D365). */
 /** GET /kbs/{kb}/maintenance/review (D704): the doctor's agenda beyond lint. */
 export interface ReviewItem {

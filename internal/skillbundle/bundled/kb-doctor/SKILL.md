@@ -65,7 +65,7 @@ run, one commit per run with reason "auto-repair (background)". It is not a sess
    usually already done: run them again only when `capabilities.doctor_auto_interval` is disabled or
    findings remain after the last write (a `skipped` entry, or a KB with more than 50 per check). To
    undo a repair commit, `repair_revert` with its `sha` (only `kb_repair` and auto-repair commits are
-   accepted; the Atlas Health panel lists them with the exact command). Any other: show the plan (`found_total` is the whole
+   accepted; `git log` on the KB shows them with reason "auto-repair (background)"). Any other: show the plan (`found_total` is the whole
    job, `planned_total` what this call covers under `limit`), apply on confirmation. One call is
    one commit. A `skipped` entry is either a concept changed since it was listed (run the check
    again) or a fix that needs a person — two synonyms of one field holding different values: pick

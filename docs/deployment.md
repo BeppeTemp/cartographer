@@ -590,66 +590,48 @@ shows its Map, title, type and age (stale ones flagged), expands to its items,
 and opens the concept on the atlas. It is read-only: work changes through the
 agents' write tools.
 
-The **Health** panel (D338, D365) is how the KB is doing, said by who acts on
-it: the background repair fixes the mechanical findings by itself, a doctor
-session decides the rest (D358), and only what neither can decide waits on a
-person. Its title answers "does anything need me?", the worst first — things
-broken, questions waiting for you, problems waiting for a doctor session that
-never ran or is overdue, *Nothing needs you: Cartographer is on it*, or all
-clear — with a line under it only when a Map chip scopes the findings. The
-hero shows the state as a ring (broken, waiting, attention, tending, healthy;
-no glow: colour and the glyph carry it) beside three lanes: *Automatic* (the
-findings the next background run fixes, its next and last run, and what the
-last one fixed),
-*Doctor* (the problems and improvements it has to deal with, its mode, its last session, and how it
-starts when it is due) and *You* (the open questions), then the knowledge
-counts. Beside the upkeep log, *Trend* (D370) says how the total moved over the
-last week ("188 → 40 this week") with a sparkline of the daily samples
-(`lint_history` of the maintenance summary); it is absent with fewer than two
-samples. Under the hero two tabs, *Findings* and *Checks*. *Checks* lists
-every check the server runs (`GET /api/ui/v1/kbs/<kb>/checks`), by category —
-pages, templates, valid pages, links and graph, vocabularies, maps and
-indexes, artifacts, KB files — each with its count, a zero too, and a mark
-when the background repair fixes it by itself; a check that cannot run on this KB
-is greyed out with its reason (D371) instead of showing a zero; a check with findings opens
-its row on *Findings*. *Findings* shows only the sections with something in
-them:
+The **Health** panel (D338, D365, D704) shows what Cartographer found, and on a
+second tab what it checks. Two buttons in the header switch them, *Issues* and
+*What it checks*.
 
-- *Questions for you*: the `open_question` concepts the doctor deferred, each
-  with a *Copy ID* action — they are answered from an agent session;
-- *Findings*: the lint findings the caller may see, one row per check, the
-  worst severity first —
-  named in words, its count, a sample message and who acts on it
-  (*Automatic*, *Doctor*, or *Partly automatic*) — opened to its messages,
-  the pages that carry the same message folded into one line of page chips.
-  Severity is a priority, not a separate pile: an info finding is an
-  improvement the doctor fixes or accepts (its *Advice* step). The Map or
-  Journal chosen in the page's own *Where* chips (counted over the unfiltered
-  findings, so a filter never hides its siblings; `hmap=` in the URL) narrows
-  them in the page (one whole-KB `GET /api/ui/v1/kbs/<kb>/lint`, filtered by
-  path, so a click costs no request), and the title and summary name
-  that scope, so a clean Map never reads as a clean KB; pressing the chip
-  again returns to the KB-wide list. The rail does not filter here: a Map
-  click opens the Atlas on it. The Type and Status filters apply to graph
-  nodes only, so the rail hides them here and keeps their selection for the
-  way back to the Atlas;
-- *Knowledge* (listed when there is any): open knowledge gaps, the searches
-  agents made that found nothing (ticked and muted once the same search finds
-  something, D319), and how many concepts are past their review date
-  (`GET /api/ui/v1/kbs/<kb>/status`);
-- beside them, *Done by Cartographer* (D323): a timeline of the last 30 days,
-  one row per background run that fixed something — when, how many fixes on
-  how many pages, a bar split by check, opened to the list — and per repair
-  someone ran by hand, each with a *Copy revert* action holding the exact
-  `cartographer kb repair <kb> --revert <sha>` command; runs that found
-  nothing are counted in one line.
+*Issues*: the title counts the kinds of issue found ("Cartographer found 25 kinds
+of issues"), the line under it every occurrence and how many pages carry one.
+The **page field** draws one square per page, clustered by Map under the Map's
+hue: amber for a problem (red when broken), blue for a suggestion, both split on
+the diagonal when a page has both, dark when fine; a lit square opens its page,
+a Map's name filters the page to it (`hmap=` in the URL, one whole-KB
+`GET /api/ui/v1/kbs/<kb>/lint` filtered by path, counts over the unfiltered
+findings) and pressing it again returns to the KB. Under it two open, foldable
+bands: *Problems* (errors and warnings) and *Suggestions* (notes, and the
+proposals of `kb_review` from `GET /api/ui/v1/kbs/<kb>/maintenance/review`).
+One row per kind: its name, a bar for its weight against the heaviest row, and
+its count in its own unit (pages, maps, files, terms, templates…); a kind
+Cartographer fixes by itself says *fixes itself*. Hovering a row lights its pages
+in the field, in the row's colour only. An open row says *What it is* and *To
+fix*, then one line per case with its page count; the pages unfold on click,
+named by their last segment, and a file that is no page is named without a link.
+A `map_without_templates` finding is not listed while a `template_proposal`
+carries the same decision. *What the KB doesn't know* follows when there is
+any: open questions and gaps, searches that found nothing (ticked once they find
+something, D319), and the pages past their review date
+(`GET /api/ui/v1/kbs/<kb>/status`). The rail does not filter here: a Map click
+opens the Atlas on it, and the Type and Status filters step aside.
 
-Dates are said relative to today with the calendar date or the instant
-beside them. Like the rest of the UI the panel writes nothing: no button
-reverts, answers or repairs. The status, upkeep and repairs are whole-KB: a
-caller that cannot see the whole KB gets the findings and its questions, and
-the rest is left out rather than reported as an error. The former Observatory
-and Maintenance links (`panel=observatory`, `panel=maintenance`) open Health.
+*What it checks*: how checking works in three steps (fixed rules, no AI; the
+sure fixes applied by Cartographer; the rest shown under *Issues*), the result on
+this KB (rules that pass, that found something, that have nothing to read here),
+*Trend* (D370: how the total moved over the last week, absent with fewer than
+two samples), then one folded line per category with what its rules read and
+what they found. Open, each rule is one line — its name, what it looks for, a
+mark when Cartographer fixes it by itself, its count — those that found
+something first; a rule that cannot run on this KB is greyed out with its reason
+(D371) instead of a zero. The last category lists the `kb_review` suggestion kinds.
+
+Like the rest of the UI the panel writes nothing. The status and the summary are
+whole-KB: a caller that cannot see the whole KB gets the issues it can see, and
+the rest is left out rather than reported as an error. The rail marks Health with
+a dot while there are problems (errors or warnings). The former Observatory and
+Maintenance links (`panel=observatory`, `panel=maintenance`) open Health.
 
 The **Artifacts** panel, last in the rail, shows what the KB ships to agent
 clients: skills, subagents, hooks, MCP descriptors in the allowlist, the

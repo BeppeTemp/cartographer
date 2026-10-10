@@ -270,14 +270,15 @@ function AgendaGroup({
   children: React.ReactNode;
 }) {
   return (
-    <section className="agenda" data-tone={tone} aria-label={title}>
-      <h2 className="agenda__head">
+    // Open on arrival; the reader folds a band to read the other.
+    <details className="agenda" data-tone={tone} aria-label={title} open>
+      <summary className="agenda__head">
         <span className="agenda__mark" aria-hidden="true" />
-        {title}
+        <h2 className="agenda__title">{title}</h2>
         <span className="agenda__n">{count}</span>
-      </h2>
+      </summary>
       <ul className="agenda__rows">{children}</ul>
-    </section>
+    </details>
   );
 }
 
@@ -464,7 +465,10 @@ function AgendaLine({
 interface Case {
   key: string;
   what: string;
+  /** Concepts: each opens on the Atlas. */
   pages: string[];
+  /** Files that are no concept (a map's index, a KB file): named, with nothing to open. */
+  files?: string[];
 }
 
 /**
@@ -521,10 +525,11 @@ function shortPage(id: string): string {
   return id.split("/").pop() || id;
 }
 
-/** One case: what was found and where; one page opens directly, several unfold on click. */
+/** One case: what was found and where; one page opens directly, several unfold on click, a file is only named. */
 function CaseRow({ item, onReveal }: { item: Case; onReveal(concept: string | null, message: string): void }) {
   const [open, setOpen] = useState(false);
   const one = item.pages.length === 1 ? item.pages[0]! : null;
+  const files = item.files ?? [];
   return (
     <li className="issue__case">
       <span className="issue__what">{item.what}</span>
@@ -536,6 +541,11 @@ function CaseRow({ item, onReveal }: { item: Case; onReveal(concept: string | nu
         <button type="button" className="issue__toggle" aria-expanded={open} onClick={() => setOpen(!open)}>
           {plural(item.pages.length, "page")} {open ? "▴" : "▾"}
         </button>
+      ) : files.length > 0 ? (
+        <code className="issue__file" title="Not a page: open it from an agent session">
+          {files[0]}
+          {files.length > 1 && ` +${files.length - 1}`}
+        </code>
       ) : (
         <span />
       )}
@@ -603,7 +613,8 @@ function CheckRow({
           cases={group.messages.map((m) => ({
             key: m.message,
             what: m.message,
-            pages: [...new Set(m.findings.map((f) => f.concept ?? f.path ?? ""))].filter(Boolean),
+            pages: [...new Set(m.findings.flatMap((f) => (f.concept ? [f.concept] : [])))],
+            files: [...new Set(m.findings.flatMap((f) => (f.concept ? [] : [f.path])))],
           }))}
           onReveal={onReveal}
         />

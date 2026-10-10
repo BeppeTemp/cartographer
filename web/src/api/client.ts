@@ -8,7 +8,6 @@ import type {
   Overview,
   ChangesResponse,
   KBStatus,
-  MaintenanceQuestions,
   MaintenanceReview,
   MaintenanceSummary,
   SearchResponse,
@@ -211,11 +210,6 @@ export function fetchChecks(kb: string, signal?: AbortSignal): Promise<CheckCata
 /** What a doctor session decides beyond lint: kb_review's proposals (D704). */
 export function fetchMaintenanceReview(kb: string, signal?: AbortSignal): Promise<MaintenanceReview> {
   return get<MaintenanceReview>(`/kbs/${encodeURIComponent(kb)}/maintenance/review`, signal);
-}
-
-/** The questions the doctor deferred to a person: open_question concepts. */
-export function fetchMaintenanceQuestions(kb: string, signal?: AbortSignal): Promise<MaintenanceQuestions> {
-  return get<MaintenanceQuestions>(`/kbs/${encodeURIComponent(kb)}/maintenance/questions`, signal);
 }
 
 /** An opaque token that changes whenever the KB's concepts do (D337). */

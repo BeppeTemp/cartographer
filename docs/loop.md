@@ -116,8 +116,8 @@ cheapest first:
    other session record gaps the same way. Gaps never block a gate (D273); `kb_status.open_gaps`
    and the Atlas Health panel list them.
 
-The Atlas Health panel shows layers 1-3 as one flow (checks, fixed by Cartographer, doctor
-decisions) and layer 4 apart, under *What the KB doesn't know*.
+The Atlas Health panel lists what layer 3 has to decide, by kind (lint findings and `kb_review`
+proposals), and layer 4 apart, under *What the KB doesn't know*.
 
 ## Compound useful results
 
