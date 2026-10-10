@@ -350,6 +350,3 @@ func withKBProperty(schema json.RawMessage, set []string) json.RawMessage {
 	}
 	return out
 }
-
-// RoutedMounted reports whether a routed mount is configured on this server.
-func (m *MultiKBServer) RoutedMounted() bool { return m.routed != nil }

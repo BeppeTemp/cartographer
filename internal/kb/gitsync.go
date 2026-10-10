@@ -109,16 +109,6 @@ func canonicalBranch(refs gitx.RemoteRefs) string {
 	return ""
 }
 
-// canonical returns the branch a local-profile KB writes to given what the
-// remote advertises: kbs[].git_branch when configured (D335), otherwise the
-// remote's default branch (D264).
-func (k *KB) canonical(refs gitx.RemoteRefs) string {
-	if k.ConfiguredBranch != "" {
-		return k.ConfiguredBranch
-	}
-	return canonicalBranch(refs)
-}
-
 func (k *KB) setRemoteDefault(branch string) {
 	k.lastSyncInMu.Lock()
 	k.remoteDefault = branch

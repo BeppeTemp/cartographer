@@ -1,5 +1,8 @@
 version: 2
 updates:
+  # No npm entry for web/: package-lock.json is hashed into the committed
+  # bundle's provenance, so a bot bump without `make web` fails `test`.
+  # npm security alerts are fixed by hand (docs/deployment.md).
   # Grouped weekly PRs: one chore(deps) entry per round in the release-please
   # changelog instead of one per dependency.
   - package-ecosystem: gomod

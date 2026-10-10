@@ -65,17 +65,7 @@ func findingsOrEmpty(f []findingOut) []findingOut {
 	return f
 }
 
-// writeFindings returns the lint findings of a concept just written (D289,
-// D312), lint_ignore applied: the frontmatter-driven checks of that concept
-// plus the structural ones lint.ScopedCheck computes on it and its graph
-// neighbours (broken links, orphan, missing index entry, links to retired
-// concepts). The write has already succeeded: findings never fail it. Nil when
-// there is nothing to say, so the response omits the key.
-func writeFindings(k *kb.KB, id string) []findingOut {
-	return writeFindingsFor(k, []string{id}, nil)
-}
-
-// scopedFindings is the structural half of writeFindings alone, for a write
+// scopedFindings is the structural half of writeLintFindings alone, for a write
 // that changed no concept's own content (an index_patch, D312), keeping only
 // the findings of the check named: what the patch did, not what was already
 // there.
@@ -96,14 +86,6 @@ func scopedFindings(k *kb.KB, ids []string, check string) []findingOut {
 	return findingsOut(kept)
 }
 
-// writeFindingsFor is writeFindings for several concepts at once: written is
-// every ID the call left on disk, gone every ID it removed or moved away (the
-// pages that still link them are what the write broke). One ScopedCheck
-// serves them all.
-func writeFindingsFor(k *kb.KB, written, gone []string) []findingOut {
-	return findingsOrNil(writeLintFindings(k, written, gone))
-}
-
 // findingsOrNil is findingsOut with nil for an empty list.
 func findingsOrNil(f []lint.Finding) []findingOut {
 	if len(f) == 0 {
@@ -112,7 +94,8 @@ func findingsOrNil(f []lint.Finding) []findingOut {
 	return findingsOut(f)
 }
 
-// writeLintFindings is writeFindingsFor before the response shape: gate_check's
+// writeLintFindings returns the lint findings of the concepts a write left on
+// disk (written) or removed (gone), lint_ignore applied (D289, D312); gate_check's
 // changed_ids path (D312) decides pass on the severities.
 func writeLintFindings(k *kb.KB, written, gone []string) []lint.Finding {
 	var found []lint.Finding
