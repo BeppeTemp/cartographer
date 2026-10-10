@@ -71,6 +71,9 @@ type doctorReport struct {
 // cmdDoctor runs every check and reports. Exit 0 clean, 1 findings, 2 error —
 // the same convention `status` uses, so CI treats them identically.
 func cmdDoctor(args []string) int {
+	if code, ok := cmdDoctorSchedule(args); ok {
+		return code
+	}
 	fs := flag.NewFlagSet("doctor", flag.ExitOnError)
 	asJSON := fs.Bool("json", false, "Emit the findings as JSON")
 	provider := fs.String("provider", "", "Narrow the run to one provider")

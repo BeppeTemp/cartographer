@@ -553,6 +553,11 @@ func (m *MultiKBServer) Handler() http.Handler {
 			m.handleUsage(w, r)
 			return
 
+		// A client's scheduled doctor declaration (D369), same contract as usage.
+		case r.URL.Path == DoctorSchedulePath:
+			m.handleDoctorSchedule(w, r)
+			return
+
 		// The read-only UI API (D226). It sits inside the same auth chain as
 		// /mcp and below every endpoint above, so a KB named "api" keeps its
 		// own /mcp/<name> route and nothing here shadows /health or the OAuth

@@ -42,12 +42,20 @@ type maintenanceRepair struct {
 	Revert string `json:"revert"`
 }
 
+type maintenanceDoctorSchedule struct {
+	Client  string `json:"client"`
+	NextRun string `json:"next_run"`
+}
+
 type maintenanceSummary struct {
 	AutoRepair     maintenanceAutoRepair `json:"auto_repair"`
 	LastAutoRepair *autoRepairRun        `json:"last_auto_repair"`
 	LastDoctor     string                `json:"last_doctor,omitempty"`
 	NextDoctor     string                `json:"next_doctor,omitempty"`
 	DoctorInterval int                   `json:"doctor_interval_days"`
+	// DoctorSchedule is the client-declared scheduled headless doctor session
+	// (D369), present only while the declaration is not stale.
+	DoctorSchedule *maintenanceDoctorSchedule `json:"doctor_schedule,omitempty"`
 	// DoctorMode is who runs the doctor sessions (D358): "unattended" or "assisted".
 	DoctorMode string `json:"doctor_mode"`
 	// Runs are the background repair's runs of the last 30 days, newest first
@@ -104,6 +112,9 @@ func uiMaintenance(w http.ResponseWriter, r *http.Request, srv *Server, what str
 		}
 		if t, err := time.Parse("2006-01-02", out.LastDoctor); err == nil && k.DoctorIntervalDays > 0 {
 			out.NextDoctor = t.AddDate(0, 0, k.DoctorIntervalDays).Format("2006-01-02")
+		}
+		if s := k.LiveDoctorSchedule(srv.now()); s != nil {
+			out.DoctorSchedule = &maintenanceDoctorSchedule{Client: s.Client, NextRun: s.NextRun.Format(time.RFC3339)}
 		}
 		commits, err := gitx.LogNameStatus(k.Root, srv.now().Add(-maintenanceRepairWindow))
 		if err != nil {
