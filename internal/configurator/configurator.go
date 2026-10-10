@@ -1,5 +1,5 @@
 // Package configurator generates MCP configuration files for multiple LLM providers
-// (Claude Code, Codex CLI, Kiro, OpenCode, Hermes, Antigravity, Crush).
+// (Claude Code, Codex CLI, Kiro, OpenCode, Hermes, Antigravity, Crush, GitHub Copilot CLI).
 package configurator
 
 import (
@@ -80,6 +80,9 @@ const (
 	ProviderHermes      Provider = "hermes"
 	ProviderAntigravity Provider = "antigravity"
 	ProviderCrush       Provider = "crush"
+	// ProviderCopilot is the GitHub Copilot CLI (the `copilot` binary, D676), not
+	// Copilot in VS Code.
+	ProviderCopilot Provider = "copilot"
 )
 
 // EmitResult contains the generated config for a provider.
@@ -536,6 +539,45 @@ func emitClaudeCodeServer(name string, spec ServerSpec) (*EmitResult, error) {
 	return &EmitResult{
 		Provider: ProviderClaudeCode,
 		FilePath: ".claude.json",
+		Content:  content,
+	}, nil
+}
+
+// emitCopilotServer generates the ~/.copilot/mcp-config.json entry (D676,
+// probed on copilot 1.0.94). Header values are passed through verbatim:
+// Copilot expands "${VAR}" in a header value from its own environment, like
+// Claude Code. "tools":["*"] is not optional: without it a non-interactive
+// session is offered no tool of the server.
+func emitCopilotServer(name string, spec ServerSpec) (*EmitResult, error) {
+	entry := map[string]any{}
+	switch spec.Type {
+	case "http":
+		entry["type"] = "http"
+		entry["url"] = spec.URL
+		if len(spec.Headers) > 0 {
+			entry["headers"] = spec.Headers
+		}
+	case "stdio":
+		entry["type"] = "stdio"
+		entry["command"] = spec.Command
+		if len(spec.Args) > 0 {
+			entry["args"] = spec.Args
+		}
+		if len(spec.Env) > 0 {
+			entry["env"] = spec.Env
+		}
+	default:
+		return nil, fmt.Errorf("mcp %q: unsupported transport %q", name, spec.Type)
+	}
+	entry["tools"] = []string{"*"}
+
+	content, err := json.MarshalIndent(map[string]any{"mcpServers": map[string]any{name: entry}}, "", "  ")
+	if err != nil {
+		return nil, err
+	}
+	return &EmitResult{
+		Provider: ProviderCopilot,
+		FilePath: ".copilot/mcp-config.json",
 		Content:  content,
 	}, nil
 }

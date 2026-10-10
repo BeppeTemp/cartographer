@@ -17,7 +17,7 @@ ask about anything that has a default (port, data directory, server name).
    which setup mounts. Only if they explicitly accept a throwaway local-only KB (not backed up,
    never synced) do you proceed without one — and say that limitation back to them.
 2. **Which agent clients to connect.** Default: the one you are running in — name it (`claude`,
-   `codex`, `opencode`, `kiro`, `antigravity`, `hermes`, `crush`). Offer to add the others they
+   `codex`, `opencode`, `kiro`, `antigravity`, `hermes`, `crush`, `copilot`). Offer to add the others they
    use on this machine.
 3. **Where the KB should be visible.** By default a connected KB is readable from **every**
    directory on the machine. If they keep separate perimeters (work and personal repositories, a

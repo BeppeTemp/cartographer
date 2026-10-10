@@ -109,6 +109,13 @@ func TestProjectScopeDivergesWhereItMust(t *testing.T) {
 		{"hook", configurator.ProviderAntigravity, ".agents/hooks/demo"},
 		{"mcp", configurator.ProviderAntigravity, ".agents/mcp_config.json"},
 		{"instructions", configurator.ProviderAntigravity, "AGENTS.md"},
+		// copilot (D676, 1.0.94): AGENTS.md and .agents/skills are read natively;
+		// the other cells are gated on folder trust and fail closed.
+		{"instructions", configurator.ProviderCopilot, "AGENTS.md"},
+		{"skill", configurator.ProviderCopilot, ".agents/skills/demo"},
+		{"mcp", configurator.ProviderCopilot, ""},
+		{"agent", configurator.ProviderCopilot, ""},
+		{"hook", configurator.ProviderCopilot, ""},
 		// hermes (D364): skills only, in its own directory.
 		{"skill", configurator.ProviderHermes, ".hermes/skills/demo"},
 		{"agent", configurator.ProviderHermes, ""},
@@ -131,6 +138,7 @@ func TestSupportsProjectScope_FailsClosed(t *testing.T) {
 		configurator.ProviderClaudeCode, configurator.ProviderCodex,
 		configurator.ProviderOpenCode, configurator.ProviderKiro,
 		configurator.ProviderCrush, configurator.ProviderAntigravity, configurator.ProviderHermes,
+		configurator.ProviderCopilot,
 	} {
 		if !SupportsProjectScope(p) {
 			t.Errorf("%s should support a project scope", p)

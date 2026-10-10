@@ -2,7 +2,7 @@
 
 From zero to a working agentic wiki in a few minutes: one local server running
 as a native service, one KB, your agents (Claude Code in this walkthrough —
-OpenCode, Codex CLI, Kiro, Antigravity, Hermes and Crush work the same way).
+OpenCode, Codex CLI, Kiro, Antigravity, Hermes, Crush and GitHub Copilot CLI work the same way).
 Two commands: install the binary, then `cartographer setup`.
 
 You need **git**, and an empty git repository you own to be the first KB's

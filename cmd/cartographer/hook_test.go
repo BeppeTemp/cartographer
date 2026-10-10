@@ -206,3 +206,39 @@ func TestWriteFindingsHook_OpenCodeToolNames(t *testing.T) {
 		}
 	}
 }
+
+// The Copilot CLI payload as probed on 1.0.94 (D676): camelCase fields, an MCP
+// tool named <server>-<tool>, and textResultForLlm holding the response text
+// with a second JSON object appended and no separator.
+func TestWriteFindingsHook_CopilotChannel(t *testing.T) {
+	resp := `{"findings":[{"path":"kb-a/page","check":"broken_link","message":"links to kb-a/missing"}]}{"last_error":"","sync_state":"pending"}`
+	text, _ := json.Marshal(resp)
+	payload := `{"sessionId":"s","timestamp":1,"cwd":"/work/project","toolName":"cartographer-concept_new","toolArgs":{},` +
+		`"toolResult":{"resultType":"success","textResultForLlm":` + string(text) + `}}`
+
+	code, stdout, stderr := runHookArgs(t, payload, "write-findings", "--channel", "copilot")
+	if code != 0 || stderr != "" {
+		t.Fatalf("code %d stderr %q, want 0 and silent stderr", code, stderr)
+	}
+	var out map[string]string
+	if err := json.Unmarshal([]byte(stdout), &out); err != nil {
+		t.Fatalf("stdout %q is not JSON: %v", stdout, err)
+	}
+	if len(out) != 1 || !strings.Contains(out["additionalContext"], "1 finding(s)") || !strings.Contains(out["additionalContext"], "broken_link kb-a/page") {
+		t.Errorf("additionalContext must be the only top-level key and carry the finding: %v", out)
+	}
+
+	// Every tool reaches the hook (no matcher): a tool that is not a write is silent.
+	for _, name := range []string{"cartographer-concept_read", "bash", "cartographer-concept_writer"} {
+		other := strings.Replace(payload, "cartographer-concept_new", name, 1)
+		if code, stdout, stderr := runHookArgs(t, other, "write-findings", "--channel", "copilot"); code != 0 || stdout != "" || stderr != "" {
+			t.Errorf("%s: code %d stdout %q stderr %q, want silent", name, code, stdout, stderr)
+		}
+	}
+	// A write without findings is silent too.
+	cleanText, _ := json.Marshal(`{"findings":[]}{"last_error":"","sync_state":"pending"}`)
+	cleanPayload := `{"toolName":"cartographer-concept_write","toolResult":{"resultType":"success","textResultForLlm":` + string(cleanText) + `}}`
+	if code, stdout, _ := runHookArgs(t, cleanPayload, "write-findings", "--channel", "copilot"); code != 0 || stdout != "" {
+		t.Errorf("clean write: code %d stdout %q, want silent", code, stdout)
+	}
+}

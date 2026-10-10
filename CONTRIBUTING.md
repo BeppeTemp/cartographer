@@ -72,6 +72,7 @@ Nothing else is needed to start. Concretely:
 | **Kiro** | `AGENTS.md`, natively | `.kiro/skills/` → symlinks | Do not put a copy of `AGENTS.md` under `.kiro/steering/`: it is already always included, and a steering file that re-includes it would load it twice. A steering file with *other* content is fine — `cartographer sync` legitimately owns `.kiro/steering/cartographer.md` when this workspace is bound to a KB |
 | **Claude Code** | `CLAUDE.md` → `@AGENTS.md` | `.claude/skills/` → symlinks | Every directory with an `AGENTS.md` has its own one-line `CLAUDE.md` import, which Claude loads on its first read of a file there (D213) |
 | **Antigravity** (CLI `agy`) | `AGENTS.md`, natively (probed on 1.3.2) | `.agents/skills/`, natively | Its workspace layer is `.agents/{skills,agents,hooks.json,mcp_config.json}` (D364). Do not add `.agents/rules/*.md` for instructions: a rule is read only with `trigger: always_on` in its frontmatter. The app was not probed |
+| **Copilot CLI** (`copilot`) | `AGENTS.md`, natively ("Repository instructions", probed on 1.0.94) | `.agents/skills/`, natively ("Project skills") | Its project `mcp`, agent and hook locations (`.mcp.json`, `.github/agents`, `.github/hooks`) are gated on folder trust and are not used (D676) |
 
 Where a client reads its instructions and its skills is a fact this repository
 already owns, audited, in `internal/provisioning/workspacescope.go` and

@@ -277,7 +277,7 @@ cartographer connect all --auto-trust --dry-run
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| (positional) | `all` | `claude` \| `opencode` \| `codex` \| `kiro` \| `hermes` \| `antigravity` \| `all` (all detected agents) |
+| (positional) | `all` | `claude` \| `opencode` \| `codex` \| `kiro` \| `hermes` \| `antigravity` \| `crush` \| `copilot` \| `all` (all detected agents) |
 | `--agents` | *(unset)* | Comma-separated subset (`claude,codex`); cannot be combined with the positional provider |
 | `--kb` | *(unset)* | Which KBs this client may receive (repeatable, or comma-separated; `all` for every mounted KB). Required on a **first** connect against a server mounting two or more KBs — see below (D190) |
 | `--server-url` | `http://127.0.0.1:39273/mcp` | Cartographer server URL |
@@ -355,7 +355,7 @@ cartographer disconnect all --dry-run  # preview without writing
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| (positional) | `all` | `claude` \| `opencode` \| `codex` \| `kiro` \| `hermes` \| `antigravity` \| `all` (every connected provider) |
+| (positional) | `all` | `claude` \| `opencode` \| `codex` \| `kiro` \| `hermes` \| `antigravity` \| `crush` \| `copilot` \| `all` (every connected provider) |
 | `--agents` | *(unset)* | Comma-separated subset (`claude,codex`); cannot be combined with the positional provider |
 | `--dry-run` | `false` | Prints without removing |
 
@@ -496,7 +496,7 @@ cartographer reconnect --dry-run       # preview both halves, write nothing
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| (positional) | `all` | `claude` \| `opencode` \| `codex` \| `kiro` \| `hermes` \| `antigravity` \| `all` (every connected provider) |
+| (positional) | `all` | `claude` \| `opencode` \| `codex` \| `kiro` \| `hermes` \| `antigravity` \| `crush` \| `copilot` \| `all` (every connected provider) |
 | `--agents` | *(unset)* | Comma-separated subset; cannot be combined with the positional provider |
 | `--dry-run` | `false` | Both halves simulate, nothing is written |
 
@@ -560,10 +560,10 @@ cartographer doctor status
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--client` | the only connected client that can | Client to run headless: `claude` (`-p`), `codex` (`exec`), `opencode` (`run`), `kiro` (`kiro-cli chat --no-interactive`), `antigravity` (`agy -p`), `crush` (`run -q`). Hermes has no documented non-interactive mode and is refused |
+| `--client` | the only connected client that can | Client to run headless: `claude` (`-p`), `codex` (`exec`), `opencode` (`run`), `kiro` (`kiro-cli chat --no-interactive`), `antigravity` (`agy -p`), `crush` (`run -q`), `copilot` (`-p <prompt> -s`). Hermes has no documented non-interactive mode and is refused |
 | `--kb` | the only KB this client knows | KB the session runs on; a client with several needs it named |
 | `--at` | `06:00` | Local time of day, `HH:MM` |
-| `--client-flag` | *(none)* | Extra argument passed to the client before the prompt, repeatable. Cartographer adds no permission-bypassing flag of its own: an unattended client that needs one (to allow MCP tools) gets it from the operator, explicitly |
+| `--client-flag` | *(none)* | Extra argument passed to the client before the prompt, repeatable. Cartographer adds no permission-bypassing flag of its own: an unattended client that needs one (to allow MCP tools) gets it from the operator, explicitly (Copilot CLI: `--client-flag --allow-tool --client-flag <server_name>`, where `<server_name>` is the name the KB is connected under) |
 
 There is one schedule per machine; scheduling again replaces it. The scheduler is the native
 per-user one, the same as the sync timer (`internal/service/doctortimer.go`): a launchd agent
@@ -937,12 +937,14 @@ the providers whose MCP configuration `connect` writes.
 | OpenCode | `opencode.json` | `mcp` (JSON) |
 | Google Antigravity | `.gemini/config/mcp_config.json` | `mcpServers` (JSON) |
 | Crush | `.config/crush/crush.json` | `mcp` (JSON) |
+| GitHub Copilot CLI | `.copilot/mcp-config.json` | `mcpServers` (JSON) |
 | Hermes Agent | none — see below | — |
 
 KB-provided stdio descriptors (D116) share these same files with per-name ownership. Claude Code,
 Codex and Kiro receive native `command`, `args` and `env` fields (Kiro also keeps `autoApprove: []`);
 OpenCode uses `type: "local"`, an ordered command array and `environment` with `{env:VAR}` references;
 Crush uses `type: "stdio"` with a string `command` plus a separate `args` array.
+Copilot CLI uses `type: "stdio"` with `command`, `args` and `env`, and every entry carries `"tools": ["*"]`.
 Cartographer only preflights the local executable before writing: it never runs it, and never resolves
 an environment reference into its value.
 
@@ -1084,7 +1086,35 @@ Crush has no documented user-level subagent directory, so that artifact kind is 
 Its hooks (`hooks.PreToolUse` in `crush.json`, D363) are registered by name; only `PreToolUse` fires,
 so there is no session event and its bootstrap trigger is the scheduled timer.
 
-The six formats above are generated from the same provider-neutral core,
+**GitHub Copilot CLI** (`copilot`, D676; probed on 1.0.94) — with auth. The file is
+`~/.copilot/mcp-config.json`; Copilot expands `${VAR}` in a header value from its environment, so the
+header is written as for Claude Code. `"tools": ["*"]` is required: without it a non-interactive
+session is offered no tool of the server:
+```json
+{
+  "mcpServers": {
+    "cartographer": {
+      "type": "http",
+      "url": "http://127.0.0.1:39273/mcp",
+      "headers": { "Authorization": "Bearer ${CARTOGRAPHER_TOKENS}" },
+      "tools": ["*"]
+    }
+  }
+}
+```
+
+Copilot's MCP tools are named `<server>-<tool>` (for example `cartographer-concept_new`). Its other
+global cells are `~/.copilot/copilot-instructions.md` (a managed block), `~/.copilot/skills/<name>/`,
+`~/.copilot/agents/<name>.agent.md` (frontmatter `name` and `description`) and hooks. A hook is a
+dedicated file `~/.copilot/hooks/cartographer-<name>.json`
+(`{"version":1,"hooks":{"<event>":[{"type":"command","bash":…,"powershell":…}]}}`) that Cartographer
+owns whole (the hook's own files sit in `~/.copilot/cartographer-hooks/<name>/`, since Copilot parses every `*.json` below `~/.copilot/hooks/`): it never edits `~/.copilot/settings.json`. Only `SessionStart`, `PreToolUse` and
+`PostToolUse` are registered (`sessionStart`, `preToolUse`, `postToolUse`); Copilot has no matcher, so a
+KB hook that declares one is installed but not registered, with a warning. Cartographer reads
+`$HOME/.copilot` like every other provider and ignores `COPILOT_HOME`. The project-local MCP, agent and
+hook locations are gated on folder trust and are unsupported ([D676](decisions/D676-github-copilot-cli-is-a-provider.md)).
+
+The seven formats above are generated from the same provider-neutral core,
 `configurator.EmitServer(name, spec ServerSpec, provider)` (D69): `Emit(cfg, provider)` is a
 thin wrapper around `EmitServer(cfg.Name, cfg.toSpec(), provider)`. The same `EmitServer` is
 reused by `internal/provisioning` to materialize the third-party MCP servers a KB

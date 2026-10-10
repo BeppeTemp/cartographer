@@ -182,3 +182,15 @@ unique token; ask the client to repeat it.
   `$HOME/.config/crush/CRUSH.md`.
 - Watch for a documented subagent directory, a hook mechanism, or `crushrc` becoming
   the only supported config (D225).
+
+## Copilot CLI
+
+- Always set `COPILOT_HOME` to a scratch directory; never touch `$HOME/.copilot`.
+- Skill, instructions and MCP need no model: `copilot skill list`,
+  `copilot instruction list`, `copilot mcp list` report the cell ("Personal skills",
+  "Personal instructions", "User servers"). Hooks and agents need
+  `copilot -p "<prompt>" -s --allow-all-tools`.
+- Global cells under `$COPILOT_HOME`: `mcp-config.json`, `copilot-instructions.md`,
+  `skills/`, `agents/<name>.agent.md`, `hooks/<file>.json`.
+- Watch for the project mcp, agent and hook cells working without folder trust
+  (flips the three unsupported project cells) and for a hook matcher (D676).

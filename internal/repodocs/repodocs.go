@@ -131,6 +131,7 @@ var ClientSurfaces = []struct {
 	{configurator.ProviderKiro, "Kiro", ".kiro/skills", ".kiro/skills"},
 	{configurator.ProviderClaudeCode, "Claude Code", ".claude/skills", ".claude/skills"},
 	{configurator.ProviderAntigravity, "Antigravity", CanonicalSkillDir, CanonicalSkillDir},
+	{configurator.ProviderCopilot, "Copilot CLI", CanonicalSkillDir, CanonicalSkillDir},
 }
 
 // SupportedClients are the clients that need a *bridge* to reach the canonical

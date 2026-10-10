@@ -270,12 +270,30 @@ var descriptors = []Descriptor{
 		// https://github.com/charmbracelet/crush#global-context-files
 		emit: emitCrushServer,
 	},
+	{
+		Provider:           ProviderCopilot,
+		DisplayName:        "GitHub Copilot CLI",
+		MCPConfigPath:      ".copilot/mcp-config.json",
+		MCPFormat:          FormatJSON,
+		MCPServerKey:       "mcpServers",
+		DeletableWhenEmpty: true,
+		SupportsMCPHeaders: true,
+		// Not a flat tool namespace: hook payloads and the model see
+		// <server>-<tool> (probed on 1.0.94, D676).
+		FlatToolNamespace: false,
+		Binaries:          []string{"copilot"},
+		ConfigDirs:        [][]string{{".copilot"}},
+		// No AppDirs: a terminal program, `copilot` on PATH is the detection.
+		// No InstructionsPrecedence: ~/.copilot/copilot-instructions.md is
+		// reported as "Personal instructions" and nothing shadows it.
+		emit: emitCopilotServer,
+	},
 }
 
 // detectionOrder is the order `cartographer agents` and the TUI list agents
 // in. It differs from the registry order above and is equally user-visible:
 // both are preserved deliberately rather than unified (D137).
-var detectionOrder = []Provider{ProviderClaudeCode, ProviderOpenCode, ProviderCodex, ProviderKiro, ProviderHermes, ProviderAntigravity, ProviderCrush}
+var detectionOrder = []Provider{ProviderClaudeCode, ProviderOpenCode, ProviderCodex, ProviderKiro, ProviderHermes, ProviderAntigravity, ProviderCrush, ProviderCopilot}
 
 // Providers returns every supported provider's descriptor, in registry order.
 func Providers() []Descriptor {
