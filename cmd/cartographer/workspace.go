@@ -155,29 +155,6 @@ func (cs candidateSet) forProjection(cfg *clientconfig.Config, p syncProjection)
 	return out
 }
 
-// workspaceKBUnion is boundKBUnion's workspace half: every KB any bound
-// workspace of any listed provider asks for. A KB no workspace is bound to is
-// never fetched.
-func workspaceKBUnion(cfg *clientconfig.Config, providers []string) []string {
-	seen := map[string]bool{}
-	var names []string
-	for _, provider := range providers {
-		if cfg.WorkspaceScope(provider) != clientconfig.ScopeWorkspace {
-			continue
-		}
-		for _, w := range cfg.WorkspaceBindings(provider) {
-			for _, kb := range w.KBs {
-				if !seen[kb] {
-					seen[kb] = true
-					names = append(names, kb)
-				}
-			}
-		}
-	}
-	sort.Strings(names)
-	return names
-}
-
 // --- `cartographer workspace` ---
 
 func cmdWorkspace(args []string) int {
@@ -378,15 +355,6 @@ func cmdWorkspaceList(args []string) int {
 		fmt.Println("no provider is in workspace scope (bind one with `cartographer workspace bind`)")
 	}
 	return 0
-}
-
-// workspaceRelPath renders a managed path for a message: relative to the
-// workspace when it is inside one, absolute otherwise.
-func workspaceRelPath(base, path string) string {
-	if rel, err := filepath.Rel(base, path); err == nil && !strings.HasPrefix(rel, "..") {
-		return rel
-	}
-	return path
 }
 
 // nonEmpty drops the empty elements splitCommaList preserves. It preserves them

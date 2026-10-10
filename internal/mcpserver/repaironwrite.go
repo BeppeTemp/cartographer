@@ -38,7 +38,7 @@ func repairOnWriteChecks(k *kb.KB) []string {
 	return out
 }
 
-// repairWritten replaces writeFindingsFor in the write handlers (D349): it
+// repairWritten is what the write handlers report findings through (D349): it
 // applies the mechanical auto_repair fixes of the concepts the call left on
 // disk, then reports what remains. It must run inside gitWrap (the handler
 // holds the KB lock and the repair lands in the same commit; a handler still

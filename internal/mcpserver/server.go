@@ -240,12 +240,6 @@ func (s *Server) ClientStats() ([]ClientStat, int64) {
 	return s.roster.stats()
 }
 
-// ToolRequiresWrite reports whether the tool name requires write access to
-// the KB, delegating to the package-level ToolRequiresWrite classification.
-func (s *Server) ToolRequiresWrite(name string) bool {
-	return ToolRequiresWrite(name)
-}
-
 // Tools returns a snapshot of all registered tools, keyed by name (for
 // introspection/tests, e.g. the ReadOnly golden test).
 func (s *Server) Tools() map[string]Tool {
