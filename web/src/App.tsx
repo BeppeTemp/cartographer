@@ -760,6 +760,7 @@ export function App() {
                   snapshot={snapshot}
                   layoutKey={snapshotKey}
                   loadBirths={activeKB ? () => fetchBirths(activeKB).then((r) => r.births) : undefined}
+                  kbName={activeKB ?? undefined}
                   artifacts={graphArtifacts}
                   onOpenArtifact={(kind, name) => navigate({ panel: "artifacts", artifact: `${kind}/${name}` })}
                   communities={communities}

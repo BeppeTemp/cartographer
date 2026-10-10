@@ -187,6 +187,9 @@ export class LivingScene {
   private shift = 0;
   private follow: Vector3 | null = null;
   private touched = false;
+  /** Set between beginCapture and endCapture: the renderer holds the export's
+   *  size, not the container's. */
+  private capture: { width: number; height: number } | null = null;
   private radius = LINK_DISTANCE * 4;
   private readonly cleanups: (() => void)[] = [];
 
@@ -584,13 +587,14 @@ export class LivingScene {
     const bodies = this.nodes
       .filter((n) => Number.isFinite(n.x) && Number.isFinite(n.y) && Number.isFinite(n.z))
       .map((n) => ({ x: n.x!, y: n.y!, z: n.z!, radius: this.radiusOf(n) }));
-    const height = this.canvas.clientHeight;
+    // While capturing, the camera sees the export's frame, not the container's.
+    const { width, height } = this.viewSize();
     // The view stays centred on the canvas, so a band at the bottom is kept
     // clear by fitting the height left once it is taken off both edges.
     const usable = Math.max(1, height - 2 * Math.max(0, occludedBottom));
     const fov = (2 * Math.atan(Math.tan((this.camera.fov * Math.PI) / 360) * (usable / Math.max(1, height))) * 180) / Math.PI;
     const pose = fitPose(bodies, this.camera.position, this.controls.target, {
-      width: this.canvas.clientWidth,
+      width,
       height: usable,
       fov,
       occludedRight: 0,
@@ -963,7 +967,40 @@ export class LivingScene {
     });
   }
 
+  private viewSize(): { width: number; height: number } {
+    return this.capture ?? { width: this.canvas.clientWidth, height: this.canvas.clientHeight };
+  }
+
+  /**
+   * Sizes the renderer to an export frame (pixel ratio 1, `width` x `height`)
+   * and the camera to its aspect, leaving the canvas's CSS box alone: on
+   * screen it letterboxes. Pointer events are off while it lasts, so a drag
+   * cannot move the camera mid-recording. `endCapture` restores everything:
+   * the container's size, the device pixel ratio and the camera aspect all
+   * come back through resize().
+   */
+  beginCapture(width: number, height: number): void {
+    if (this.capture) return;
+    this.capture = { width, height };
+    this.renderer.setPixelRatio(1);
+    this.renderer.setSize(width, height, false);
+    this.camera.aspect = width / height;
+    this.camera.updateProjectionMatrix();
+    this.canvas.style.objectFit = "contain";
+    this.canvas.style.pointerEvents = "none";
+  }
+
+  endCapture(): void {
+    if (!this.capture) return;
+    this.capture = null;
+    this.canvas.style.objectFit = "";
+    this.canvas.style.pointerEvents = "";
+    this.resize();
+  }
+
   private resize(): void {
+    // The export owns the renderer's size until endCapture.
+    if (this.capture) return;
     const w = Math.max(1, this.container.clientWidth);
     const h = Math.max(1, this.container.clientHeight);
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
