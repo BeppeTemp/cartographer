@@ -14,15 +14,41 @@ set -euo pipefail
 
 API_PORT=${API_PORT:-39280}
 UI_PORT=${UI_PORT:-5173}
+# Resolved before the cd below, so a relative DATA means relative to the caller.
+if [ -n "${DATA:-}" ]; then
+	test -d "$DATA" || { echo "dev: DATA=$DATA is not a directory" >&2; exit 1; }
+	DATA=$(cd "$DATA" && pwd -P)
+fi
 root=$(git rev-parse --show-toplevel)
 cd "$root"
 
+pid=
+vite=
 work=$(mktemp -d "${TMPDIR:-/tmp}/cartographer-dev.XXXXXX")
+stop() {
+	if [ -n "$pid" ]; then kill "$pid" 2>/dev/null || true; fi
+	if [ -n "$vite" ]; then kill "$vite" 2>/dev/null || true; fi
+	rm -rf "$work"
+}
+# Installed before anything can fail: every early exit would otherwise leave a
+# full copy of the KB data behind in the temp directory.
+trap stop EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
 if [ -n "${DATA:-}" ]; then
-	test -d "$DATA" || { echo "dev: DATA=$DATA is not a directory" >&2; exit 1; }
-	cp -R "$DATA" "$work/data"
+	# The contents, not the path: a DATA that is a symlink must not be copied as
+	# a link, or the server and the remote removal below would act on the source.
+	mkdir "$work/data"
+	cp -R "$DATA/." "$work/data/"
 	find "$work/data" -name .git -prune -print | while read -r g; do
 		repo=$(dirname "$g")
+		# A .git file points at a repository elsewhere (a worktree, a submodule):
+		# removing its remotes would edit that repository's shared config.
+		if [ ! -d "$g" ]; then
+			echo "dev: $repo is a linked checkout (.git is a file); copy a standalone clone instead" >&2
+			exit 1
+		fi
 		for r in $(git -C "$repo" remote); do git -C "$repo" remote remove "$r"; done
 	done
 	kbargs=(--data "$work/data")
@@ -33,28 +59,32 @@ fi
 [ -d web/node_modules ] || (cd web && npm ci --silent)
 
 stamp="$work/stamp"
-pid=
-vite=
-stop() {
-	[ -n "$pid" ] && kill "$pid" 2>/dev/null
-	[ -n "$vite" ] && kill "$vite" 2>/dev/null
-	rm -rf "$work"
-}
-trap 'stop; exit' INT TERM
-trap stop EXIT
-
 start() {
 	touch "$stamp"
 	if ! go build -o "$work/cartographer" ./cmd/cartographer; then
+		if [ -z "$pid" ]; then echo "[dev] build failed" >&2; exit 1; fi
 		echo "[dev] build failed $(date +%T): the previous server keeps running" >&2
 		return
 	fi
 	if [ -n "$pid" ]; then kill "$pid" 2>/dev/null || true; wait "$pid" 2>/dev/null || true; fi
+	# The port must be free once our previous server is gone. A server that fails
+	# to bind logs it and stays up, and the health check below would then be
+	# answered by whatever holds the port: another session's instance, another KB.
+	if curl -s -o /dev/null "http://127.0.0.1:$API_PORT/health"; then
+		echo "[dev] 127.0.0.1:$API_PORT is taken: pick another API_PORT" >&2
+		exit 1
+	fi
 	# Loopback only and no tokens: the instance holds a private copy, not a
-	# shared server. An exported CARTOGRAPHER_TOKENS would otherwise apply here.
+	# shared server. An exported CARTOGRAPHER_TOKENS would otherwise apply here,
+	# and the UI's API calls would answer 401.
 	env -u CARTOGRAPHER_TOKENS "$work/cartographer" serve "${kbargs[@]}" \
 		--http "127.0.0.1:$API_PORT" --git-sync=false --update-check=false &
 	pid=$!
+	for _ in $(seq 1 30); do
+		kill -0 "$pid" 2>/dev/null || { echo "[dev] the server exited: its log is above" >&2; exit 1; }
+		curl -sf "http://127.0.0.1:$API_PORT/health" >/dev/null 2>&1 && break
+		sleep 1
+	done
 	echo "[dev] server up on 127.0.0.1:$API_PORT (pid $pid) $(date +%T)"
 }
 
@@ -64,8 +94,14 @@ start
 vite=$!
 echo "[dev] UI on http://localhost:$UI_PORT/ui/ — Ctrl-C stops both"
 
+# What the binary is built from: Go sources (not tests: an implementer editing
+# a test must not restart the server under the user) and the embedded files.
 while sleep 1; do
-	if [ -n "$(find cmd internal go.mod go.sum \( -name '*.go' -o -name 'go.*' \) -newer "$stamp" -print -quit)" ]; then
+	kill -0 "$vite" 2>/dev/null || { echo "[dev] Vite exited: is $UI_PORT taken? (UI_PORT=…)" >&2; exit 1; }
+	if [ -n "$(find cmd internal go.mod go.sum -newer "$stamp" \( \
+		\( -name '*.go' ! -name '*_test.go' \) -o -name 'go.*' \
+		-o -path 'internal/skillbundle/bundled/*' -o -path 'internal/webui/dist/*' \) \
+		-type f -print -quit)" ]; then
 		start
 	fi
 done

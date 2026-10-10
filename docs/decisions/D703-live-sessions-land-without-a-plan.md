@@ -22,8 +22,8 @@ rewritten after every try, and the issue-to-subagent handoff adds a round trip
 to every iteration. Without a plan issue, nothing else records what was done,
 so the PR has to: its title and body become the squashed commit and the
 changelog entry. What this costs is the second reader of the design: the user
-judges the behaviour, so an independent read of the diff before the merge is
-required, as in `implement-issue` §3.
+judges the behaviour, so the coordinator reads the diff and an independent
+review runs before the merge, as in `implement-issue` §3.
 
 **Alternatives rejected.**
 
@@ -43,4 +43,5 @@ required, as in `implement-issue` §3.
 user would notice the change, and one body line per further user-visible change.
 `live-implementer` never commits: git, the instance and the decision stay with
 the coordinator. Two live sessions on one machine need distinct `API_PORT` and
-`UI_PORT`. The three `live-implementer` definitions must say the same thing.
+`UI_PORT`. The three definitions of each repository subagent must say the same thing,
+which `TestRepoSubagentsSayTheSameThingOnEveryClient` now checks.

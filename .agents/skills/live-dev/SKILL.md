@@ -89,12 +89,19 @@ first (D703).
    still missing, `make web` if `web/` changed (the bundle is committed), then
    `make gate` until green. The coordinator writes the decision file: it holds
    the why.
-3. Review the whole diff against `main` with an independent pass — `/code-review`
-   in Claude Code, a reviewing subagent elsewhere. The user tried the behaviour,
-   nobody has read the code.
-4. Write the record (below), then `gh pr ready`. Merge
-   (`gh pr merge --squash --delete-branch --auto`) only on the user's decision.
-5. Stop `make dev`; after the merge, `make worktree-rm SLUG=<slug>` from the main
+3. Review, as in `implement-issue` §3: read `gh pr diff <pr>` yourself, and add
+   an independent pass on top — `/code-review` in Claude Code, a reviewing
+   subagent elsewhere. The user tried the behaviour; nobody has read the code.
+   A review that returns no findings after no work has not happened: check that
+   it read the diff before you count it.
+4. Before the merge, as in `implement-issue` §4: `git fetch origin`, rebase on
+   `origin/main` in the worktree (a conflict in `internal/webui/dist/` → take
+   `main`'s side, then `make web`; any other non-append conflict → stop and ask),
+   the full `make gate` on the rebased tree, `git push --force-with-lease`.
+5. Write the record (below), then `gh pr ready`. Merge only on the user's
+   decision: `gh pr merge --squash --delete-branch --auto` merges once the
+   required checks are green; confirm with `gh pr view <pr> --json state`.
+6. Stop `make dev`; after the merge, `make worktree-rm SLUG=<slug>` from the main
    working copy, then `git pull --ff-only`.
 
 ## The record — every live session ends in the changelog
