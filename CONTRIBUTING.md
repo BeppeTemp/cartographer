@@ -15,7 +15,7 @@ response-time SLA.
 make gate     # gofmt + vet + test — everything that must be green before a PR
 make build    # → bin/cartographer
 make test     # go test ./...
-make vet      # go vet ./...
+make vet      # go vet ./..., also GOOS=windows
 make fmt      # gofmt -w .
 make smoke    # quick stdio smoke test
 ```

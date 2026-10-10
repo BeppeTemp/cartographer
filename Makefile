@@ -20,8 +20,9 @@ build: ## Build the binary into bin/cartographer
 test: ## Run all tests
 	go test ./...
 
-vet: ## Run go vet
+vet: ## Run go vet (also for Windows: test-windows runs on main only, so a PR catches its compile errors here)
 	go vet ./...
+	GOOS=windows go vet ./...
 
 fmt: ## Format the code with gofmt
 	@gofmt -w $(GO_DIRS)

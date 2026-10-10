@@ -8,7 +8,7 @@ Go MCP server for the *Agentic Wiki* (Karpathy pattern + OKF). The agent never t
 make gate            # gofmt + vet + test: everything green before a PR (and what CI runs)
 make build           # → bin/cartographer
 make test            # go test ./...
-make vet             # go vet ./...
+make vet             # go vet ./..., also GOOS=windows
 make fmt             # gofmt -w .
 make run             # stdio with demo KB
 make run-http        # HTTP on :39273 with demo KB

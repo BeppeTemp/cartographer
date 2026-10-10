@@ -1,3 +1,8 @@
+//go:build !windows
+
+// The test stops serve with a SIGTERM to its own process (syscall.Kill), which
+// Windows has no equivalent of.
+
 package main
 
 import (

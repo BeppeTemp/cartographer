@@ -20,7 +20,7 @@ is non-deterministic, costly and dependent on external providers.
 parsing, KB invariants, tools, authorization, git behavior, provisioning and
 client configuration.
 
-`make vet` runs `go vet ./...` and `make fmt-check` fails on anything not
+`make vet` runs `go vet ./...` twice, natively and with `GOOS=windows` (the `test-windows` job is skipped on feature PRs, so a test that does not compile on Windows would otherwise reach `main`), and `make fmt-check` fails on anything not
 gofmt-clean. All three are `make gate`, which is the single command CI runs.
 
 `make gate` runs on **two operating systems**: the `test` job on `ubuntu-latest`
