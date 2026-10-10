@@ -29,20 +29,20 @@ them resolves.
 
 ## Adding a decision
 
-1. **Reserve the number.** Survey open `plan` issues as well as the files: a
-   plan title reserves its `D<n>` until it is implemented or abandoned.
-
-   ```bash
-   make decisions-next                                   # highest on disk + 1
-   gh issue list --label plan --state all --limit 1000    # and reserved by a plan
-   ```
+1. **Only for an architectural or contract choice** — an invariant, an
+   interface, an alternative a reader would otherwise re-propose. Smaller
+   choices live in the plan issue and the PR that closes it. **The number is the
+   plan issue's**, or the PR's when there is no plan (D672): nothing to reserve,
+   and parallel sessions cannot collide. Records up to D371 were numbered
+   sequentially; the numbers between the last of them and the first issue-numbered
+   record are simply unused.
 
 2. **Write it at the end of implementation, not before.** The plan issue is the
    draft; the decision file records what was actually built, including any
    deviation from the plan.
 
    ```bash
-   make decisions-new N=202 SLUG=my-choice TOPIC=control-plane
+   make decisions-new N=<issue> SLUG=my-choice TOPIC=control-plane
    ```
 
 3. **Record the decision, the rationale, and the consequences** — including the

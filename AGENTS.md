@@ -19,8 +19,7 @@ make test-install    # network-free install.sh/Cask packaging suite + goreleaser
 make docker          # build Docker image
 make clean           # removes bin/ and demo-kb/
 
-make decisions-next  # next free decision number
-make decisions-new N=202 SLUG=my-choice TOPIC=control-plane
+make decisions-new N=<issue> SLUG=my-choice TOPIC=control-plane   # D<n> = plan issue (or PR) number
 make decisions-index # regenerate docs/decisions.md locally (the release PR does it, D328)
 make worktree-add SLUG=my-change   # isolated worktree for a plan branch
 make worktree-rm  SLUG=my-change   # remove it (force: discards uncommitted work)
@@ -112,13 +111,13 @@ Not duplicated here:
 
 ## Working rules
 
-- All changes land via PR: `main` is protected (required `test` check, squash-merge only, no direct pushes). Branch `feat/<slug>` → `gh pr create` → merge on green CI. PR titles are conventional commits (linted in CI): release-please computes the semver bump from them.
+- All changes land via PR: `main` is protected (required `test`, `test-windows`, `web` and `pr-title` checks, squash-merge only, no direct pushes). Branch `feat/<slug>` → `gh pr create` → merge on green CI. PR titles are conventional commits (linted in CI): release-please computes the semver bump from them.
 - Isolable code may be delegated to a coding subagent; the coordinator verifies `make gate`.
 - **This repository is public**: before any commit, doc, test, issue, PR or comment, replace what came from a real setup — KB names → `kb-a`/`work-kb`, hosts and remotes → `example.com`/`gitlab.example.com`, users → `user`, paths → `$HOME/…` — and drop employer, client and project names; in doubt, a name is private. The `privacy` workflow is a net, not the filter: a hit already left a public revision (D259).
-- **Done** means: `make gate` green; the docs named in `docs/index.md` §Documentation maintenance rules updated in the same session; every trap you hit fixed where it bites — a test if it can be checked, a comment next to the code if it is about that code, otherwise one line in the area `AGENTS.md` or in the skill of the procedure (D214); one decision file per non-obvious choice.
-- Analysis/design and implementation often happen in separate sessions: the handoff is a **plan issue** — a self-contained GitHub issue from the `Plan` template, label `plan` (procedure and self-sufficiency test in `CONTRIBUTING.md` §Plan issues). The implementing session reads it with `gh issue view <n>` and the implementation PR closes it (`Closes #<n>`).
+- **Done** means: `make gate` green; the docs named in `docs/index.md` §Documentation maintenance rules updated in the same session; every trap you hit fixed where it bites — a test if it can be checked, a comment next to the code if it is about that code, otherwise one line in the area `AGENTS.md` or in the skill of the procedure (D214); one decision file per architectural or contract choice (D672).
+- Analysis/design and implementation often happen in separate sessions: the handoff is a **plan issue** — a self-contained GitHub issue from the `Plan` template, label `plan` (an `idea` or `bug` issue is promoted to one in place) (procedure and self-sufficiency test in `CONTRIBUTING.md` §Plan issues). The implementing session reads it with `gh issue view <n>` and the implementation PR closes it (`Closes #<n>`).
 - Server and client releases (release-please PR merge, pipeline, rollout, local client update) → maintainer-local tooling, not versioned here.
 - **Documentation is updated in the same session in which the code is changed — never afterward.** The "what changes → which file to update" table is in `docs/index.md` §Documentation maintenance rules: use it for every change.
-- Conventions → `docs/conventions.md`. Every non-obvious choice → one file `docs/decisions/D<n>-<slug>.md`, never regenerate `docs/decisions.md` in a feature PR (D328).
+- Conventions → `docs/conventions.md`. Every architectural or contract choice → one file `docs/decisions/D<n>-<slug>.md`, numbered after its plan issue or PR (D672), never regenerate `docs/decisions.md` in a feature PR (D328).
 - Project status and backlog live in GitHub issues, pull requests and releases; user-visible completed work lives in `CHANGELOG.md`.
 - **This file is stable imprinting**: no mutable state, versions, counts or changelog here. Topic docs describe the **current state**; "how we got here" lives in `docs/decisions/` and the git log. Its size is a gate — `internal/repodocs` fails the build past 120 lines of hand-written text (generated blocks excluded) or 12.000 characters in total, because past that a client starts dropping instructions without saying so.

@@ -14,10 +14,11 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
-# On main `test` and `test-windows` run. Windows is not run on feature PRs
-# (D328): at ~8 minutes it was the whole wait of every PR, and it catches a
-# platform regression rarely. It runs after every merge on main and on the
-# release PR, which stays blocked on it, so no release ships without it.
+# On main every job runs, and a red main opens (or updates) a `ci-red` issue.
+# On a feature PR `test-windows` runs only when the PR touches a package with
+# platform-specific code (D672): at 8-13 minutes it would be the whole wait of
+# every PR, but leaving it off every PR let a Windows-only break sit on main for
+# two days. The release PR runs everything, so no release ships without it.
 jobs:
   # Which of the slower jobs this PR needs. A path filter at the workflow level
   # would leave a required check that never reports, blocking the PR; a job
@@ -30,6 +31,7 @@ jobs:
       pull-requests: read
     outputs:
       web: ${{ steps.filter.outputs.web }}
+      windows: ${{ steps.filter.outputs.windows }}
     steps:
       - id: filter
         env:
@@ -46,6 +48,10 @@ jobs:
           if [[ "$HEAD_REF" == release-please--* ]]; then any() { echo true; }; fi
           # Web: the frontend, and the Go server the browser suite drives.
           echo "web=$(any '^(web/|cmd/|internal/|go\.(mod|sum)$|Makefile$|\.github/workflows/ci\.yml$)')" >> "$GITHUB_OUTPUT"
+          # Windows: the packages that carry platform-specific files or
+          # behaviour (process, service, paths in client configs, git, the
+          # execute bit), the installers, and anything named *_windows.go.
+          echo "windows=$(any '^(cmd/|internal/(service|provisioning|configurator|clientconfig|agents|execbit|gitx|kb|repoindex|defaults)/|install\.(sh|ps1)$|test/install/|go\.(mod|sum)$|Makefile$|\.github/workflows/ci\.yml$)|_windows(_test)?\.go$')" >> "$GITHUB_OUTPUT"
 
   test:
     name: test
@@ -82,11 +88,11 @@ jobs:
   test-windows:
     name: test-windows
     needs: changes
-    # Push to main, and the release PR (D328). On a feature PR the job is
-    # skipped, which a required check counts as passed; on the release PR it
-    # is required for real. `!cancelled()` keeps it running on push, where
-    # `changes` is skipped.
-    if: "!cancelled() && (github.event_name == 'push' || startsWith(github.head_ref, 'release-please--'))"
+    # Push to main, the release PR, and a feature PR that touches
+    # platform-specific code (D672). Skipped, it counts as passed for the
+    # required check. On push `changes` is skipped, hence `result != success`;
+    # a failed `changes` runs it too rather than letting a PR through untested.
+    if: "!cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.windows == 'true')"
     runs-on: windows-latest
     defaults:
       run:
@@ -136,11 +142,13 @@ jobs:
   # toolchain (D227); what protects the committed bundle there is a pure-Go
   # provenance test in internal/webui. This job is what actually builds the
   # frontend and runs its tests, and it only needs to run when the frontend
-  # changed (the `changes` job decides).
+  # changed (the `changes` job decides), and after every merge on main, so a
+  # browser regression is seen on the merge that caused it (D672). It is a
+  # required check: a red `web` blocks the merge like a red `test`.
   web:
     name: web
     needs: changes
-    if: github.event_name == 'pull_request' && !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.web == 'true')
+    if: "!cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.web == 'true')"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -188,3 +196,34 @@ jobs:
       - uses: amannn/action-semantic-pull-request@v6
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # A red main is a signal, not something the next PR discovers (D672): the
+  # first failing push opens a `ci-red` issue, later ones comment on it, and the
+  # first green push closes it.
+  main-status:
+    name: main-status
+    needs: [test, test-windows, web]
+    if: github.event_name == 'push' && !cancelled()
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RED: ${{ contains(needs.*.result, 'failure') }}
+          RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          SHA: ${{ github.sha }}
+        run: |
+          open=$(gh issue list -R "$REPO" --label ci-red --state open --json number -q '.[0].number')
+          if [ "$RED" = true ]; then
+            body="CI failed on main at $SHA: $RUN"
+            if [ -n "$open" ]; then
+              gh issue comment "$open" -R "$REPO" -b "$body"
+            else
+              gh label create ci-red -R "$REPO" -c B60205 -d "main is red" 2>/dev/null || true
+              gh issue create -R "$REPO" -t "main is red" -l ci-red -b "$body"
+            fi
+          elif [ -n "$open" ]; then
+            gh issue close "$open" -R "$REPO" -c "Green again at $SHA: $RUN"
+          fi

@@ -45,7 +45,7 @@ state; the plans are read by the subagents that implement them.
 
 ## 1 — Wave planning (coordinator)
 
-1. Collect the target issues: `gh issue list --label plan` (or the subset the user named). Each title already carries its reserved `D<n>`.
+1. Collect the target issues: `gh issue list --label plan` (or the subset the user named). A plan's decision number, when it has one, is its issue number (D672).
 2. Extract, per plan, only the **execution order** paragraph and the **file-set**, from one bulk fetch:
 
    ```bash
@@ -94,7 +94,7 @@ Canonical mandate (self-contained — the subagent never sees this conversation)
 - Read the plan: `gh issue view <n> --comments` — later amendments live in the comments.
 - Implement **all** WPs exactly, starting from the `file:line` pointers in the plan; do not re-explore from scratch.
 - Write the tests in the plan's "Tests" section.
-- **Same session**: update the docs in the "Closing" section per `docs/index.md` §Documentation maintenance rules, and add the decision file `docs/decisions/D<n>-<slug>.md` from `docs/decisions/TEMPLATE.md`; never regenerate `docs/decisions.md` (the release PR does, D328). Every trap you hit is fixed where it bites: a test if it can be checked, a comment next to the code otherwise (D214).
+- **Same session**: update the docs in the "Closing" section per `docs/index.md` §Documentation maintenance rules, and, if the Closing section names one, add the decision file `docs/decisions/D<issue>-<slug>.md` (`make decisions-new`); never regenerate `docs/decisions.md` (the release PR does, D328). Every trap you hit is fixed where it bites: a test if it can be checked, a comment next to the code otherwise (D214).
 - `make gate` green — iterate until it is.
 - Single commit on `feat/<slug>` (the branch already exists in the worktree), message = PR title (conventional commit, the plan gives it), Co-Authored-By trailer.
 - `git push -u origin feat/<slug>` + `gh pr create` with a body ending `Closes #<n>`.
