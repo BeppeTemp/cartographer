@@ -93,7 +93,12 @@ export function Health({
   const [focus, setFocusRaw] = useState<Set<string> | null>(null);
   // A row about no page (a map's index, a KB file) lights nothing: dimming the
   // whole field for it would read as "every page is clean".
-  const setFocus = (pages: Set<string> | null) => setFocusRaw(pages && pages.size > 0 ? pages : null);
+  // Which half of a two-colour square the row lights: its own colour only.
+  const [focusTone, setFocusTone] = useState<Tone>("problem");
+  const setFocus = (pages: Set<string> | null, tone: Tone = "problem") => {
+    setFocusRaw(pages && pages.size > 0 ? pages : null);
+    setFocusTone(tone);
+  };
 
   const groups = useMemo(() => groupFindings(report?.findings ?? []), [report]);
   const proposals = useMemo(() => groupReview(review?.items ?? [], hmap), [review, hmap]);
@@ -181,15 +186,20 @@ export function Health({
         <>
           {report && field.length > 0 && issues > 0 && (
             <div className="hfield">
-              <PageField field={field} focus={focus} hmap={hmap} onMap={onMap} onReveal={onReveal} />
+              <PageField
+                field={field}
+                focus={focus}
+                focusTone={focusTone}
+                hmap={hmap}
+                onMap={onMap}
+                onReveal={onReveal}
+              />
               <p className="pfield__legend">
                 <span className="pfield__key" data-tone="warning" /> a problem
                 <span className="pfield__key" data-tone="info" /> a suggestion
                 <span className="pfield__key" data-both /> both
                 <span className="pfield__key" /> fine
-                <span className="pfield__hint">
-                  · one square per page · click a map to see only its pages
-                </span>
+                <span className="pfield__hint">· one square per page · click a map to see only its pages</span>
               </p>
             </div>
           )}
@@ -284,8 +294,6 @@ interface FieldMap {
   title: string;
   total: number;
   marks: FieldMark[];
-  /** Suggestions about the Map as a whole (a template to adopt), not about one page. */
-  mapLevel: number;
 }
 
 const markRank = (m: FieldMark) =>
@@ -307,11 +315,11 @@ function pageField(collections: CollectionSummary[], findings: LintFinding[], re
     else if (f.severity === "warning") m.problem = m.problem ?? "warning";
     else m.suggestion = true;
   }
-  const mapLevel = new Map<string, number>();
   for (const it of review) {
     for (const c of it.concepts) {
-      if (c.endsWith("/_map")) mapLevel.set(c.slice(0, -5), (mapLevel.get(c.slice(0, -5)) ?? 0) + 1);
-      else at(c).suggestion = true;
+      // A suggestion about a whole Map (`<map>/_map`: a template to adopt) is no
+      // page's: its row lights the whole cluster on hover instead.
+      if (!c.endsWith("/_map")) at(c).suggestion = true;
     }
   }
   return collections
@@ -324,10 +332,9 @@ function pageField(collections: CollectionSummary[], findings: LintFinding[], re
         title: c.title || c.name,
         total: Math.max(c.concepts, mine.length),
         marks: mine,
-        mapLevel: mapLevel.get(c.name) ?? 0,
       };
     })
-    .filter((m) => m.total > 0 || m.mapLevel > 0)
+    .filter((m) => m.total > 0)
     .sort((a, b) => b.total - a.total || a.name.localeCompare(b.name));
 }
 
@@ -339,6 +346,7 @@ function pageField(collections: CollectionSummary[], findings: LintFinding[], re
 function PageField({
   field,
   focus,
+  focusTone,
   hmap,
   onMap,
   onReveal,
@@ -346,12 +354,14 @@ function PageField({
   field: FieldMap[];
   /** Pages to light, the rest dimmed; null shows every mark. */
   focus: Set<string> | null;
+  /** The colour the lit pages show: a problem row lights the problem half of a two-colour square. */
+  focusTone: Tone;
   hmap: string | null;
   onMap?(map: string | null): void;
   onReveal(concept: string | null, message: string): void;
 }) {
   return (
-    <div className="pfield" role="group" aria-label="Pages by Map" data-focus={focus ? "" : undefined}>
+    <div className="pfield" role="group" aria-label="Pages by Map" data-focus={focus ? focusTone : undefined}>
       {field.map((m) => {
         // A row about the whole Map (a template to adopt) lights the whole cluster.
         const whole = focus?.has(`map:${m.name}`) || undefined;
@@ -372,14 +382,6 @@ function PageField({
               onClick={() => onMap?.(hmap === m.name ? null : m.name)}
             >
               {m.title}
-              {m.mapLevel > 0 && (
-                <span
-                  className="pfield__maplevel"
-                  title={`${plural(m.mapLevel, "suggestion")} about the whole map, such as a template to adopt`}
-                >
-                  +{m.mapLevel}
-                </span>
-              )}
             </button>
             <span className="pfield__dots">
               {m.marks.map((d) => (
@@ -561,7 +563,7 @@ function CheckRow({
   group: CheckGroup;
   tone: Tone;
   heaviest: number;
-  onFocus(pages: Set<string> | null): void;
+  onFocus(pages: Set<string> | null, tone?: Tone): void;
   onReveal(concept: string | null, message: string): void;
 }) {
   const all = group.messages.flatMap((m) => m.findings);
@@ -582,7 +584,7 @@ function CheckRow({
       className="arow-item"
       id={`check-${group.check}`}
       data-tone={tone}
-      onMouseEnter={() => onFocus(new Set(all.flatMap((f) => (f.concept ? [f.concept] : []))))}
+      onMouseEnter={() => onFocus(new Set(all.flatMap((f) => (f.concept ? [f.concept] : []))), tone)}
       onMouseLeave={() => onFocus(null)}
     >
       <details>
@@ -624,7 +626,7 @@ function ProposalRow({
 }: {
   group: ReviewGroup;
   heaviest: number;
-  onFocus(pages: Set<string> | null): void;
+  onFocus(pages: Set<string> | null, tone?: Tone): void;
   onReveal(concept: string | null, message: string): void;
 }) {
   const info = reviewInfo(group.kind);
@@ -638,6 +640,7 @@ function ProposalRow({
           new Set(
             group.items.flatMap((it) => it.concepts.map((c) => (c.endsWith("/_map") ? `map:${c.slice(0, -5)}` : c))),
           ),
+          "suggestion",
         )
       }
       onMouseLeave={() => onFocus(null)}

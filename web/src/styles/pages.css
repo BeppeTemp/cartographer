@@ -2442,12 +2442,34 @@ button.pfield__dot:hover {
 
 /* An agenda row under the pointer lights its pages; the rest of the field steps back. */
 .pfield[data-focus] .pfield__dot {
-  opacity: 0.25;
+  opacity: 0.2;
 }
 
 .pfield[data-focus] .pfield__dot[data-lit] {
   opacity: 1;
-  background: var(--text-primary);
+}
+
+/* A lit square shows the colour of the row under the pointer, full and with a
+   halo; on a two-colour square only that half lights, the other goes dark. */
+.pfield[data-focus="problem"] .pfield__dot[data-lit] {
+  box-shadow: 0 0 6px color-mix(in srgb, var(--sev-warning) 70%, transparent);
+}
+
+.pfield[data-focus="problem"] .pfield__dot[data-lit][data-both] {
+  background: linear-gradient(135deg, var(--sev-warning) 0 50%, var(--surface-3) 50% 100%);
+}
+
+.pfield[data-focus="problem"] .pfield__dot[data-lit][data-both][data-tone="error"] {
+  background: linear-gradient(135deg, var(--sev-error) 0 50%, var(--surface-3) 50% 100%);
+}
+
+.pfield[data-focus="suggestion"] .pfield__dot[data-lit] {
+  background: var(--sev-info);
+  box-shadow: 0 0 6px color-mix(in srgb, var(--sev-info) 70%, transparent);
+}
+
+.pfield[data-focus="suggestion"] .pfield__dot[data-lit][data-both] {
+  background: linear-gradient(135deg, var(--surface-3) 0 50%, var(--sev-info) 50% 100%);
 }
 
 .health .page__head {
@@ -2549,15 +2571,6 @@ button.pfield__dot:hover {
   color: var(--text-secondary);
 }
 
-/* Suggestions about a whole Map (a template to adopt): beside its name, not on a page. */
-.pfield__maplevel {
-  padding: 0 5px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--sev-info) 22%, transparent);
-  color: var(--sev-info);
-  font-size: 10px;
-  font-weight: 600;
-}
 
 /* A page with a problem and a suggestion: both colours, split on the diagonal. */
 .pfield__dot[data-both],
