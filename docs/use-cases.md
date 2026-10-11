@@ -50,7 +50,7 @@ before any write. The agent reads the source; the server never does.
 
 A KB written on earlier releases, or by agents that never saw today's conventions, drifts: synonym
 fields (`updated` for `timestamp`), tool parameters stored as fields, links to retired pages.
-`kb_status` reports it as `conformance` and sets `doctor_suggested`; the bundled `kb-doctor` skill
+`kb_status` reports it as `conformance` and sets `doctor_suggested` (only for `warning`/`error` findings or review items, D721); the bundled `kb-doctor` skill
 then runs `kb_repair` as a dry run per check, applies it after the operator confirms (one commit per
 check, however many concepts), and walks the judgement fixes with the agent. Nothing runs by itself.
 

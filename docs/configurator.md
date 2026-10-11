@@ -1157,7 +1157,7 @@ warning, not a failure.
 |---|---|
 | `client list` | one row per connected provider: resolved KBs and the origin of the answer (`explicit` / `default (all known)`) |
 | `client show <provider>` | that provider's bound KBs, its origin, and the known KBs it is **not** bound to |
-| `client bind <provider> <kb>[,<kb>...]` | adds; creating the first binding narrows the provider from "every known KB" to only those listed, and the output says so |
+| `client bind <provider> <kb>[,<kb>...]` | adds; creating the first binding narrows the provider from "every known KB" to only those listed, and the output says so; before warning that a KB is unknown it refreshes the KB list from the server once (D721) |
 | `client unbind <provider> <kb>[,<kb>...]` | removes; removing the last KB leaves the provider bound to **no** KBs |
 | `client reset <provider>` | deletes the binding, returning the provider to the default |
 | `client update [--check=true\|false] [--policy notify\|auto-patch]` | shows, or sets, the client-wide `update:` block (D254) |

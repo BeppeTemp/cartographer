@@ -24,6 +24,8 @@ For each mounted KB, the server keeps only a **rebuildable derived index** and a
 
 **Write gate (D350)**: `kbs[].write_gate: error|warning` (default `off`; capability `write_gate` in `kb_status`, `inactive` when auto-commit or git is missing, which behaves as off) makes `gitWrap` judge every `concept_*` write and `supersede` after the handler, the generated-index regeneration and repair-on-write (D349), before the commit. The floor is severity `error` (`error`) or `error` and `warning` (`warning`); `info` never gates. A finding counts as *introduced* when the concepts the call wrote or removed (a moved one under its old path) did not already have the same `(path, check, message)` at `HEAD`, so pre-existing findings never block a repair. A refusal rolls the tree back to `HEAD`, commits nothing and answers an error: `write_gate (<state>): refused, nothing was written. This call introduced <n> finding(s):` plus the findings as in `findings` (with their `fix`). `concept_batch` is judged as one result. Only concept files are judged: `_map.md`, `index.md`, `log.md`, assets and artifacts never are. A gate-on KB adds `accept_findings: [{check, reason}]` to those tools (a gate-off KB's schemas are unchanged): every introduced finding of a named check is accepted for that call, and each matched entry adds an `Accepted-Finding: <check>: <reason>` trailer to the commit (reason normalised as `reason`, below); an entry without a check name or a reason is rejected before anything runs. The gate skips a call whose working tree was not clean before the handler (one stderr line), and `concept_history` (`accepted_findings`) and `changes_since` (`accepted_findings`, up to 5 distinct, newest first) show the trailers.
 
+**Degraded and refused writes say where the commit is (D721)**: when the commit succeeded but the push failed, the response also reports that it was committed, the commit SHA, the number of unpushed commits (when known) and a hint that the change is safe in the local clone and the push is retried on the next write or `sync`. A write refused because the pull failed while local commits are unpushed (D311) answers `nothing was written: N local commit(s) are not yet pushed and the remote is unreachable; retry when it is back (…)`.
+
 **A write commits only its own changes (D357)**: under the git lock, after the pull and before the handler, `gitWrap` commits whatever the working tree already holds as its own commit, subject `external changes`, author the KB's default git identity, trailer `Reason: uncommitted changes found before <tool>`. The write's commit (`git add -A`) therefore holds only the write: an editor's uncommitted work is no longer filed under `kb_repair` or the doctor, a call that changes nothing makes no commit, and the write gate (D350), which skips a dirty tree, sees a clean one. It is a no-op on a clean tree, with auto-commit off, outside a git repository, and while git conflicts are open (the write is refused as before and a conflict marker is never committed); a failure is logged and never fails the write. A KB edited outside MCP shows one extra `external changes` commit per write that finds it dirty.
 
 **Why a write happened (D272)**: every git-wrapped write tool accepts an optional `reason` string (incident, source, decision), added to its schema by `gitWrap`; `supersede` and `conflict_resolve` keep their own `reason` entry and the same value also feeds the commit. The commit subject is unchanged; the reason is stored as a `Reason: <text>` trailer in the commit body (`git log --format='%(trailers:key=Reason,valueonly)'`), trimmed and with whitespace and newlines collapsed to single spaces, cut at 500 bytes with `…`. An empty reason writes no trailer. It is not written to the audit log (free text may carry anything) nor to `log.md` (the curated narrative); `changes_since` shows it.
@@ -241,6 +243,8 @@ Parameter details not repeated in the schema:
   `machine_path` lint treats as operational targets (D124), `require_index_entry` accepts `<c>.md` or
   `<c>/index.md` for an expanded concept. `map_update` replaces each given key whole and removes it when
   given an empty list, `false` or `{}`.
+  Both return `warnings` (advisory, the write is not refused) when the title is one `kb_review` would flag as
+  `map_naming` (D721; the rule is `lint.MapTitleIssues`).
 - **`gate_check` / `lint`**: `severity_min` defaults to `warning` for `gate_check` and `info` for `lint`;
   `pass` and `count` are always computed on the unfiltered results (D186). `scope_neighbors` also lints
   the 1-hop graph neighbours of the concepts in scope. With `changed_ids` and no `scope`, `gate_check` lints only those concepts (`lint_scope: changed_ids`, D312; without the write-time `repeated_fact`, D351); an empty `changed_ids` is the whole-KB gate.
@@ -248,11 +252,13 @@ Parameter details not repeated in the schema:
 - **`source_register`**: `locator` is a URL or a `{{path:<key>}}` placeholder, never a raw machine path;
   `sha256` is the lowercase hex digest of the original bytes, computed by the caller; `source_kind` is free
   text (document, transcript, ticket, thread, web, dataset); `timestamp` is the source's own date.
+  The response carries `warnings` when the title is longer than the sources map's effective `title_quality`
+  limit (`lint.EffectiveTitleMaxLength`, D721); the Source is registered anyway.
 - **`kb_status`**: besides the concept metrics (per-type and per-status counts, stale concepts, open
   contradictions, `open_gaps`) it reports git replication (`has_remote`, `remote_url`, push state, unpushed
   commits, `git_workflow`), `capabilities` (each per-KB gate, state and controlling key), `sources`
   `{pending, ingested, skipped}`, `read_access` (D322: `{tracked_concepts, oldest, newest}` of the read-access log; absent until a read is recorded), `search_misses` (the 10 most frequent zero-result queries of the last 30
-  days), `conformance` (D290; follow the `kb-doctor` skill when `doctor_suggested` is true), `server_version`
+  days), `conformance` (D290; follow the `kb-doctor` skill when `doctor_suggested` is true, which counts only `warning`/`error` findings and review items, never `info`, D721), `server_version`
   and `latest_version`. It is read-only and never hits the network. Two capabilities describe the
   doctor loop (D299): `auto_repair` (`enabled`/`disabled`, with `checks` listing what `cartographer kb
   repair --apply` and the background repair may apply unattended, and `default: true` when it is the
