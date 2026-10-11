@@ -6,11 +6,18 @@ import type { Pose } from "../lib/graph3d/camera";
 import { GROWTH_MIN_ZOOM, growthOrder, growthPace, type GrowthStep } from "../lib/graph3d/growth";
 import { planBursts } from "../lib/graph3d/motion";
 import { beside, seedPosition } from "../lib/graph3d/physics";
+import {
+  recallLayout,
+  rememberLayout,
+  sameKB,
+  snapshotPositions,
+  type LayoutMemory,
+} from "../lib/graph3d/transition";
 import type { LivingScene, SceneLink, SceneNode } from "../lib/graph3d/scene";
 import { collectionHue, cssVar, resolveSlots, type ColorBy } from "../lib/palette";
 import { nameOf, shortNameOf } from "../lib/names";
 import { prefersReducedMotion } from "../lib/theme";
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { ASPECTS, type Aspect } from "../lib/graph3d/record";
 import { GrowthTimeline } from "./GrowthTimeline";
 import { useGrowthExport } from "./useGrowthExport";
@@ -44,6 +51,9 @@ const ARTIFACT_PREFIX = "artifact:";
 /** The band kept clear for the replay's timeline before it has a measured
  *  height: its usual height plus the gap above it. */
 const GROWTH_BAND_PX = 75;
+/** How long the camera keeps following after the replay pauses or is moved
+ *  along its timeline: the time the knock of the move takes to settle. */
+const GROWTH_SETTLE_MS = 2500;
 
 interface Props {
   snapshot: GraphSnapshot;
@@ -239,24 +249,20 @@ function View({
       g ? { ...g, playing: !g.playing, shown: !g.playing && g.shown >= g.order.length ? 1 : g.shown } : g,
     );
   // The camera keeps every concept that is out in sight, above the
-  // timeline: while it plays, easing after the graph as it grows; paused,
-  // once after each move along the timeline and again when the knock has
-  // settled.
+  // timeline, easing after the graph continuously (scene.followFit): while it
+  // plays, until it pauses; paused, until the knock of a move along the
+  // timeline has settled.
   const growthFrame = growth ? (growth.playing ? "playing" : `paused:${growth.shown}`) : null;
   useEffect(() => {
-    if (!growthFrame) return;
-    const fit = () => {
-      const band = containerRef.current?.parentElement?.querySelector<HTMLElement>(".growth-timeline");
-      const reserve = band ? band.offsetHeight + 24 : GROWTH_BAND_PX;
-      sceneRef.current?.fitEverything(reserve, 900, growthFloor.current);
-    };
-    fit();
-    const timer =
-      growthFrame === "playing" ? window.setInterval(fit, 500) : window.setTimeout(fit, 1200);
-    return () => {
-      window.clearInterval(timer);
-      window.clearTimeout(timer);
-    };
+    const scene = sceneRef.current;
+    if (!scene) return;
+    if (!growthFrame) {
+      scene.stopFollowingFit();
+      return;
+    }
+    const band = containerRef.current?.parentElement?.querySelector<HTMLElement>(".growth-timeline");
+    const reserve = band ? band.offsetHeight + 24 : GROWTH_BAND_PX;
+    scene.followFit(reserve, growthFloor.current, growthFrame === "playing" ? Infinity : GROWTH_SETTLE_MS);
   }, [growthFrame]);
   // A new layout (another KB or Map) ends a replay.
   useEffect(() => setGrowth(null), [layoutKey]);
@@ -298,8 +304,37 @@ function View({
     artifacts: new Map<string, SceneNode>(),
   });
   if (nodeStore.current.key !== layoutKey) {
-    nodeStore.current = { key: layoutKey, nodes: new Map(), artifacts: new Map() };
+    const before = nodeStore.current;
+    if (before.key === "") {
+      // First layout of this mount: a layout the Atlas was left on comes back
+      // where it settled, not from a seed.
+      const memory = recallLayout(layoutKey);
+      const place = (positions: Map<string, { x: number; y: number; z: number }>, artifact: boolean) =>
+        new Map<string, SceneNode>(
+          [...positions].map(([id, p]) => {
+            const node: SceneNode = { id, weight: artifact ? 0.35 : 0, ...p, vx: 0, vy: 0, vz: 0 };
+            if (artifact) node.artifact = true;
+            return [id, node];
+          }),
+        );
+      nodeStore.current = {
+        key: layoutKey,
+        nodes: memory ? place(memory.nodes, false) : new Map(),
+        artifacts: memory ? place(memory.artifacts, true) : new Map(),
+      };
+    } else if (sameKB(before.key, layoutKey)) {
+      // Another Map of the same KB: the concepts both views draw keep their
+      // places and the scene morphs (setData), instead of growing from a point.
+      nodeStore.current = { key: layoutKey, nodes: before.nodes, artifacts: before.artifacts };
+    } else {
+      nodeStore.current = { key: layoutKey, nodes: new Map(), artifacts: new Map() };
+    }
   }
+  const layoutKeyRef = useRef(layoutKey);
+  layoutKeyRef.current = layoutKey;
+  // Set for the first data a new scene receives: only then is a remembered
+  // camera restored.
+  const restoreNext = useRef<LayoutMemory | null>(null);
   const nodes = useMemo(() => {
     const store = nodeStore.current.nodes;
     const max = Math.max(1, ...snapshot.nodes.map((n) => n.in_degree + n.out_degree));
@@ -393,6 +428,8 @@ function View({
           { live: liveRef.current, reducedMotion },
         );
         sceneRef.current = scene;
+        const memory = recallLayout(layoutKeyRef.current);
+        restoreNext.current = memory;
         setReady((n) => n + 1);
       })
       .catch((err) => {
@@ -404,7 +441,24 @@ function View({
       });
     return () => {
       disposed = true;
-      sceneRef.current?.dispose();
+      const leaving = sceneRef.current;
+      if (leaving) {
+        // The Atlas is being left (another panel, or a scene rebuilt): keep
+        // the settled layout and the camera for the way back. The scene itself
+        // is disposed -- a hidden WebGL context and frame loop is not worth a
+        // faster return.
+        // With a concept open, the camera kept is the overview it left, not
+        // its close-up beside the inspector: the way back may have nothing
+        // selected, and a selection is framed anew when it opens.
+        const overview = savedPose.current;
+        rememberLayout(nodeStore.current.key, {
+          nodes: snapshotPositions(nodeStore.current.nodes),
+          artifacts: snapshotPositions(nodeStore.current.artifacts),
+          pose: overview ?? leaving.pose(),
+          shift: overview ? 0 : leaving.shiftPx(),
+        });
+      }
+      leaving?.dispose();
       sceneRef.current = null;
     };
     // Built once: a new snapshot -- a refresh, or another KB or Map -- goes
@@ -419,6 +473,14 @@ function View({
     const scene = sceneRef.current;
     if (!scene || !ready) return;
     const replace = lastLayout.current !== "" && lastLayout.current !== layoutKey;
+    // A Map of the same KB sharing concepts with what is drawn morphs; any
+    // other new layout (another KB, or nothing in common) opens from its centre.
+    const morph =
+      replace &&
+      sameKB(lastLayout.current, layoutKey) &&
+      snapshot.nodes.some((n) => !hiddenIds.has(n.id) && lastVisible.current.has(n.id));
+    const restore = restoreNext.current;
+    restoreNext.current = null;
     lastLayout.current = layoutKey;
     const visible = snapshot.nodes.filter((n) => !hiddenIds.has(n.id)).map((n) => nodes.get(n.id)!);
     const ids = new Set(visible.map((n) => n.id));
@@ -447,7 +509,10 @@ function View({
     // nearly settled instead.
     const budget = reducedMotion ? 600_000 : 300_000;
     const warmup = Math.round(Math.max(60, Math.min(reducedMotion ? 300 : 150, budget / Math.max(1, visible.length))));
-    scene.setData(visible, links, warmup, replace);
+    scene.setData(visible, links, warmup, replace, {
+      morph,
+      restore: restore ? { pose: restore.pose, shift: restore.shift } : undefined,
+    });
     // A new layout opens out of its centre and the camera follows it as it
     // settles (scene.setData): no timed refit, which would jump.
     // Two frames: the first renders the scene, the second runs after it is painted.
@@ -648,16 +713,22 @@ function View({
         <ExportDialog webm={exp.webm} onExport={(aspect) => void exp.start(aspect)} onClose={exp.closeDialog} />
       )}
       {exp.status && (
-        <div className="growth-export" role="status">
-          <span>
-            {exp.status.done
-              ? `Video saved (${exp.status.aspect})`
-              : `Exporting video ${Math.floor(exp.status.progress * 100)} %`}
+        <div
+          className="growth-export"
+          role="status"
+          data-done={exp.status.done || undefined}
+          style={{ "--progress": `${exp.status.progress * 100}%` } as CSSProperties}
+        >
+          <span className="growth-export__label">
+            {exp.status.done ? `Video saved (${exp.status.aspect})` : `Exporting video (${exp.status.aspect})`}
           </span>
           {!exp.status.done && (
-            <button type="button" className="button" onClick={exp.cancel}>
-              Cancel
-            </button>
+            <>
+              <span className="growth-export__pct">{Math.floor(exp.status.progress * 100)}%</span>
+              <button type="button" className="button button--icon" onClick={exp.cancel} aria-label="Cancel the export">
+                <Icon name="close" size={14} />
+              </button>
+            </>
           )}
         </div>
       )}
@@ -711,18 +782,34 @@ function ExportDialog({ webm, onExport, onClose }: { webm: boolean; onExport(asp
         <h2 className="export-dialog__title">Export video</h2>
         <fieldset className="export-dialog__aspects">
           <legend>Frame</legend>
-          {(Object.keys(ASPECTS) as Aspect[]).map((a) => (
-            <label key={a}>
-              <input
-                ref={a === "9:16" ? first : undefined}
-                type="radio"
-                name="export-aspect"
-                checked={aspect === a}
-                onChange={() => setAspect(a)}
-              />
-              {a} <span className="export-dialog__size">{ASPECTS[a].width}&times;{ASPECTS[a].height}</span>
-            </label>
-          ))}
+          <div className="export-dialog__tiles">
+            {(Object.keys(ASPECTS) as Aspect[]).map((a) => {
+              const { width, height } = ASPECTS[a];
+              const long = Math.max(width, height);
+              return (
+                <label key={a} className="export-dialog__aspect" data-checked={aspect === a || undefined}>
+                  <input
+                    ref={a === "9:16" ? first : undefined}
+                    className="sr-only"
+                    type="radio"
+                    name="export-aspect"
+                    checked={aspect === a}
+                    onChange={() => setAspect(a)}
+                  />
+                  {/* The frame to scale, its longer side 28px. */}
+                  <span
+                    className="export-dialog__frame"
+                    aria-hidden="true"
+                    style={{ width: (28 * width) / long, height: (28 * height) / long }}
+                  />
+                  <span className="export-dialog__ratio">{a}</span>
+                  <span className="export-dialog__size">
+                    {width}&times;{height}
+                  </span>
+                </label>
+              );
+            })}
+          </div>
         </fieldset>
         {webm && <p className="export-dialog__note">This browser encodes WebM; Chrome, Edge or Safari encode MP4.</p>}
         <div className="export-dialog__actions">

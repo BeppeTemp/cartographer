@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { ApiError } from "../api/client";
+import { Icon } from "./Icon";
 
 /**
  * Every non-happy path is a designed state, not a blank panel. They live
@@ -20,6 +21,84 @@ export function Skeleton({ lines = 3, label }: { lines?: number; label: string }
             style={{ height: "var(--space-4)", width: `${100 - i * 12}%` }}
           />
         ))}
+      </div>
+    </div>
+  );
+}
+
+/** The shell before the first answer: the real top bar, rail and canvas
+ *  outline with skeleton blocks where content will land, so the first paint
+ *  already has the final layout and only content fills in. Built from the
+ *  shell's own classes, so nothing moves when the real shell replaces it. */
+export function ShellSkeleton({
+  label,
+  narrow = false,
+  railCollapsed = false,
+}: {
+  label: string;
+  narrow?: boolean;
+  railCollapsed?: boolean;
+}) {
+  const bodyClass = [
+    "shell__body",
+    railCollapsed ? "shell__body--rail-collapsed" : "",
+    narrow ? "shell__body--narrow" : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+  const block = (width: string, height = "var(--space-4)") => (
+    <span className="skeleton shell-skeleton__block" aria-hidden="true" style={{ width, height }} />
+  );
+  return (
+    <div className="shell" aria-busy="true">
+      <header className="topbar">
+        <div className="topbar__brand shell-skeleton__brand">
+          <img
+            className="topbar__mark topbar__mark--light"
+            src={`${import.meta.env.BASE_URL}brand/coordinate-pine.svg`}
+            alt=""
+            width={28}
+            height={28}
+          />
+          <img
+            className="topbar__mark topbar__mark--dark"
+            src={`${import.meta.env.BASE_URL}brand/coordinate-sage.svg`}
+            alt=""
+            width={28}
+            height={28}
+          />
+          <span className="topbar__name">Cartographer</span>
+        </div>
+        {!narrow && <div className="skeleton shell-skeleton__picker" aria-hidden="true" />}
+        <div className="topbar__search field shell-skeleton__search" aria-hidden="true" />
+      </header>
+      <div className={bodyClass}>
+        {!narrow && (
+          <nav className="rail" aria-label="Loading navigation">
+            <ul className="rail__panels" aria-hidden="true">
+              {[0, 1, 2].map((i) => (
+                <li key={i}>
+                  <div className="rail__panel">
+                    {railCollapsed ? block("var(--space-5)") : block(`${70 - i * 12}%`)}
+                  </div>
+                </li>
+              ))}
+            </ul>
+            {!railCollapsed && (
+              <div className="rail__group" aria-hidden="true">
+                {block("40%", "var(--space-3)")}
+                {[0, 1, 2, 3].map((i) => (
+                  <div key={i} className="rail__collection">
+                    {block(`${80 - i * 10}%`)}
+                  </div>
+                ))}
+              </div>
+            )}
+          </nav>
+        )}
+        <main id="main" className="main" tabIndex={-1}>
+          <GraphSeed label={label} />
+        </main>
       </div>
     </div>
   );
@@ -62,16 +141,29 @@ export function EmptyState({
  */
 export function ErrorState({ error, onRetry }: { error: unknown; onRetry?: () => void }) {
   const { title, detail } = describe(error);
+  const offline = error instanceof ApiError && error.isOffline;
+  const tech = error instanceof ApiError && error.status > 0 ? `HTTP ${error.status} · ${error.code}` : null;
   return (
     <div className="state state--error" role="alert">
+      <ErrorGlyph name={offline ? "offline" : "alert"} />
       <p className="state__title">{title}</p>
       <p className="state__detail">{detail}</p>
+      {tech && <p className="state__tech">{tech}</p>}
       {onRetry && (
         <button type="button" className="button" onClick={onRetry}>
           Try again
         </button>
       )}
     </div>
+  );
+}
+
+/** The soft tinted circle above an error title; shared with the ErrorBoundary page. */
+export function ErrorGlyph({ name = "alert" }: { name?: "alert" | "offline" }) {
+  return (
+    <span className="state__glyph" aria-hidden="true">
+      <Icon name={name} size={22} />
+    </span>
   );
 }
 

@@ -93,7 +93,9 @@ export function Inspector({
       <header className="inspector__head">
         <div className="inspector__identity">
           <p className="inspector__eyebrow">{concept?.collection || conceptId.split("/")[0]}</p>
-          <h2 className="inspector__title">{concept?.title || shortName(conceptId)}</h2>
+          <h2 className="inspector__title" tabIndex={-1}>
+            {concept?.title || titleOf(conceptId) || shortName(conceptId)}
+          </h2>
           <code className="inspector__id">{conceptId}</code>
         </div>
         <button type="button" className="button button--icon" onClick={onClose} aria-label="Close inspector">

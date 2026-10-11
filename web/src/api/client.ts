@@ -1,6 +1,7 @@
 import type {
   Artifact,
   ArtifactList,
+  SecretList,
   Concept,
   GraphSnapshot,
   KBSummary,
@@ -235,4 +236,8 @@ export function fetchArtifact(kb: string, kind: string, name: string, signal?: A
     `/kbs/${encodeURIComponent(kb)}/artifact?kind=${encodeURIComponent(kind)}&name=${encodeURIComponent(name)}`,
     signal,
   );
+}
+
+export function fetchSecrets(kb: string, signal?: AbortSignal): Promise<SecretList> {
+  return get<SecretList>(`/kbs/${encodeURIComponent(kb)}/secrets`, signal);
 }

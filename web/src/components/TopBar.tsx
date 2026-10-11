@@ -17,7 +17,7 @@ interface Props {
   onKBChange(name: string): void;
   onThemeChange(theme: Theme): void;
   onOpenPalette(): void;
-  /** The brand leads back to the atlas: the graph, nothing selected. */
+  /** The brand leads back to the atlas: the whole graph (All), nothing selected. */
   onHome?(): void;
   onOpenNav?(): void;
   onOpenInspector?(): void;
@@ -64,7 +64,7 @@ export function TopBar({
           <Icon name="list" />
         </button>
       )}
-      <button type="button" className="topbar__brand" onClick={onHome} aria-label="Cartographer — back to the atlas">
+      <button type="button" className="topbar__brand" onClick={onHome} aria-label="Cartographer — back to the atlas, all Maps">
         {/* The brand's master SVGs (docs/brand, D232), one per theme; CSS shows
             the one for the resolved theme, so a switch never waits on a load. */}
         <img

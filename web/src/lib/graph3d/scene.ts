@@ -25,6 +25,7 @@ import {
 } from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { fitPose, focusPose, FOCUS_MS, zoomLimits, type Pose } from "./camera";
+import { smooth } from "./transition";
 import { AUTO_ROTATE_SPEED, IdleRotation, MAX_SIGNALS, SIGNAL_PASS_MS, type Signal } from "./motion";
 import {
   LINK_DISTANCE,
@@ -112,11 +113,27 @@ function easeOutBack(t: number): number {
 }
 
 /** A stable value in [0, 1) for an id. */
+function distanceOf(pose: Pose): number {
+  return Math.hypot(
+    pose.position.x - pose.lookAt.x,
+    pose.position.y - pose.lookAt.y,
+    pose.position.z - pose.lookAt.z,
+  );
+}
+
 function hashUnit(id: string): number {
   let h = 2166136261;
   for (let i = 0; i < id.length; i++) h = Math.imul(h ^ id.charCodeAt(i), 16777619);
   return (h >>> 0) / 4294967296;
 }
+/** A Map change keeps the nodes both views share where they are: leavers shrink
+ *  away and newcomers grow in over MORPH_MS, while the simulation relaxes the
+ *  rest from MORPH_ALPHA (gently: nothing is rebuilt from a point). */
+const MORPH_MS = 900;
+const MORPH_ALPHA = 0.2;
+/** A layout come back from memory is already settled: only what is new to it
+ *  needs the simulation. */
+const RESTORE_ALPHA = 0.04;
 /** How warm the simulation starts as it opens, and how warm it is kept
  *  until it is open. */
 const BLOOM_ALPHA = 0.3;
@@ -139,6 +156,10 @@ const HIT_RADIUS_PX = 14;
  *  selection's own links carry the picture. */
 const EDGE_REST = 0.22;
 const EDGE_BEHIND_SELECTION = 0.06;
+/** A selection made or cleared recedes the rest of the graph, or brings it
+ *  back, over this long: with the camera easing at the same time, a colour
+ *  snapped at once reads as the whole picture jumping. */
+const RECEDE_MS = 450;
 
 const endpoint = (end: string | SceneNode) => (typeof end === "object" ? end.id : end);
 
@@ -180,6 +201,12 @@ export class LivingScene {
   private readonly ring = new Mesh(new SphereGeometry(1, 10, 6), new MeshBasicMaterial({ wireframe: true, transparent: true, opacity: 0.75 }));
 
   private colours: string[] = [];
+  /** Node colours as drawn: what a colour change fades from. */
+  private drawn: Color[] = [];
+  /** The nodes `drawn` belongs to: another set is painted at once. */
+  private drawnFor: SceneNode[] | null = null;
+  private colourFade: { start: number; from: Color[] } | null = null;
+  private edgeFade: { start: number; from: number } | null = null;
   private palette: ScenePalette | null = null;
   private selected: string | null = null;
   private activeLinks: SceneLink[] = [];
@@ -265,8 +292,20 @@ export class LivingScene {
    * kept across calls, so a node hidden by a filter and shown again keeps its
    * place; the simulation is rebuilt around them and only lightly reheated.
    */
-  setData(nodes: SceneNode[], links: SceneLink[], warmupTicks: number, replace = false): void {
+  setData(
+    nodes: SceneNode[],
+    links: SceneLink[],
+    warmupTicks: number,
+    replace = false,
+    opts: { morph?: boolean; restore?: { pose: Pose; shift: number } } = {},
+  ): void {
     const first = this.sim === null;
+    // A morph needs a graph on screen to start from; with reduced motion the
+    // swap is instant, as every other replacement is.
+    const morph = !!opts.morph && !first && !this.reducedMotion && !this.offscreen;
+    const restore = first && !this.offscreen ? opts.restore : undefined;
+    const oldNodes = this.nodes;
+    const oldColours = this.colours;
     const linkKey = (l: SceneLink) => `${endpoint(l.source)}\u0000${endpoint(l.target)}`;
     const beforeNodes = new Set(this.nodes.map((n) => n.id));
     const beforeLinks = new Set(this.links.map(linkKey));
@@ -302,7 +341,22 @@ export class LivingScene {
     // (see bloom) while the camera eases onto it, and the camera is the
     // reader's again. An update to a graph already on screen is never ticked
     // ahead, so every move it causes is drawn and nothing jumps.
-    if (first || replace) {
+    if (morph) {
+      const now = new Set(nodes.map((n) => n.id));
+      this.bloom = null;
+      this.edgeMaterial.opacity = this.selected ? EDGE_BEHIND_SELECTION : EDGE_REST;
+      sim.alpha(MORPH_ALPHA);
+      this.touched = false;
+      this.morph = {
+        start: this.clock(),
+        leaving: oldNodes.filter((n) => !now.has(n.id)),
+        entering: new Set(nodes.filter((n) => !beforeNodes.has(n.id))),
+      };
+    } else if (restore) {
+      sim.alpha(RESTORE_ALPHA);
+      this.touched = true;
+    } else if (first || replace) {
+      this.morph = null;
       sim.alpha(1);
       sim.tick(warmupTicks);
       this.touched = false;
@@ -360,6 +414,20 @@ export class LivingScene {
     const sphereSlot = new Map(this.sphereNodes.map((n, i) => [n, i]));
     const diamondSlot = new Map(this.diamondNodes.map((n, i) => [n, i]));
     this.slot = nodes.map((n) => (n.artifact ? diamondSlot.get(n)! : sphereSlot.get(n)!));
+    // Leavers keep a slot after the live ones, and are drawn shrinking until
+    // the morph ends (sync).
+    let spheres = this.sphereNodes.length;
+    let diamonds = this.diamondNodes.length;
+    // Looked up by node, not searched: All to a small Map leaves thousands.
+    const ghostColour = new Map(this.ghosts.map((g) => [g.node, g.colour]));
+    const oldIndex = new Map(oldNodes.map((n, i) => [n, i]));
+    this.ghosts = (this.morph?.leaving ?? []).map((node) => ({
+      node,
+      slot: node.artifact ? diamonds++ : spheres++,
+      // A leaver keeps the colour it was drawn with. A ghost carried over from
+      // an earlier call already has it; a new one reads it off the old order.
+      colour: ghostColour.get(node) ?? oldColours[oldIndex.get(node) ?? -1],
+    }));
     const build = (geometry: SphereGeometry | OctahedronGeometry, count: number) => {
       const mesh = new InstancedMesh(geometry, this.nodeMaterial, Math.max(1, count));
       mesh.count = count;
@@ -375,13 +443,17 @@ export class LivingScene {
       old?.removeFromParent();
       old?.dispose();
     }
-    this.nodeMesh = build(this.sphere, this.sphereNodes.length);
-    this.artifactMesh = build(this.diamond, this.diamondNodes.length);
+    this.nodeMesh = build(this.sphere, spheres);
+    this.artifactMesh = build(this.diamond, diamonds);
     this.edgeGeometry.setAttribute("position", new BufferAttribute(new Float32Array(links.length * 6), 3).setUsage(DynamicDrawUsage));
+    this.colourFade = null;
     this.applyColours();
+    // The colours just painted were laid out for the previous node order: the
+    // colours that follow for this one are painted at once, not faded into.
+    this.drawnFor = null;
     this.setSelection(this.selected);
     this.sync();
-    if (first) this.frameAll(0);
+    if (first && !restore) this.frameAll(0);
     // The burst leaves from the middle of the screen -- where the seed was
     // drawn while the graph loaded -- not from the graph's own centroid,
     // which the framing puts somewhere near it but rarely on it.
@@ -389,9 +461,27 @@ export class LivingScene {
       const t = this.controls.target;
       this.bloom.centre = { x: t.x, y: t.y, z: t.z };
     }
-    if (first || replace) {
+    if (morph) {
+      this.radius = boundingRadius(this.nodes);
+      this.settleUntil = this.clock() + SETTLE_MS;
+      // The camera follows the new set as it settles (step), its pull rising
+      // from nothing over the morph: no tween, so there is no hand-over from a
+      // tween's end to the follow, where the camera would stop and set off again.
+      this.settleFrom = this.clock();
+      const fit = this.fitPoseFor(0);
+      if (fit) this.setLimits(distanceOf(fit));
+    } else if (restore) {
+      // Back where the reader left it: the camera as it was, no opening, no
+      // following (the layout is already settled).
+      this.radius = boundingRadius(this.nodes);
+      this.settleUntil = 0;
+      this.applyPose(restore.pose);
+      this.setShift(restore.shift);
+      this.setLimits(distanceOf(restore.pose));
+    } else if (first || replace) {
       this.radius = boundingRadius(this.nodes);
       this.settleUntil = this.reducedMotion || this.offscreen ? 0 : this.clock() + SETTLE_MS;
+      this.settleFrom = 0;
       if (this.reducedMotion && replace) this.frameAll(0);
     } else this.radius = boundingRadius(this.linkedNodes());
   }
@@ -426,8 +516,16 @@ export class LivingScene {
   }
 
   setColours(colours: string[], palette: ScenePalette): void {
+    // The same nodes recoloured (a selection made or cleared) fade to their
+    // new colours; anything else -- a new graph, a theme -- is painted at once.
+    const same = this.drawnFor === this.nodes && this.palette?.background === palette.background;
     this.colours = colours;
     this.palette = palette;
+    if (same && !this.reducedMotion && !this.offscreen && this.drawn.length) {
+      this.colourFade = { start: this.clock(), from: this.drawn.map((c) => c.clone()) };
+    } else {
+      this.colourFade = null;
+    }
     this.applyColours();
   }
 
@@ -435,10 +533,10 @@ export class LivingScene {
     const mesh = this.nodeMesh;
     const palette = this.palette;
     if (!mesh || !palette) return;
+    this.paintNodes(this.colourFade ? 0 : 1);
     const colour = new Color();
-    for (let i = 0; i < this.nodes.length; i++) {
-      const target = this.nodes[i]!.artifact ? this.artifactMesh : mesh;
-      target?.setColorAt(this.slot[i]!, colour.set(this.colours[i] ?? palette.edge));
+    for (const g of this.ghosts) {
+      (g.node.artifact ? this.artifactMesh : mesh)?.setColorAt(g.slot, colour.set(g.colour ?? palette.edge));
     }
     for (const m of [mesh, this.artifactMesh]) if (m?.instanceColor) m.instanceColor.needsUpdate = true;
     const background = new Color(palette.background);
@@ -451,6 +549,27 @@ export class LivingScene {
     this.updateFog();
   }
 
+  /** Writes the node colours, `k` of the way from the fade's start to the
+   *  colours asked (1: the colours asked). */
+  private paintNodes(k: number): void {
+    const mesh = this.nodeMesh;
+    const palette = this.palette;
+    if (!mesh || !palette) return;
+    const from = this.colourFade?.from;
+    const to = new Color();
+    // Painted every frame of a fade: the colours are reused, not reallocated.
+    if (this.drawn.length !== this.nodes.length) this.drawn = this.nodes.map(() => new Color());
+    this.nodes.forEach((n, i) => {
+      to.set(this.colours[i] ?? palette.edge);
+      const c = this.drawn[i]!;
+      if (from?.[i] && k < 1) c.copy(from[i]!).lerp(to, k);
+      else c.copy(to);
+      (n.artifact ? this.artifactMesh : mesh)?.setColorAt(this.slot[i]!, c);
+    });
+    this.drawnFor = this.nodes;
+    for (const m of [mesh, this.artifactMesh]) if (m?.instanceColor) m.instanceColor.needsUpdate = true;
+  }
+
   // --- selection ----------------------------------------------------------
 
   setSelection(id: string | null): void {
@@ -460,7 +579,14 @@ export class LivingScene {
     this.activeGeometry.setAttribute("position", new BufferAttribute(new Float32Array(this.activeLinks.length * 6), 3).setUsage(DynamicDrawUsage));
     this.ring.visible = !!node;
     this.idle.setSelected(!!node);
-    this.edgeMaterial.opacity = node ? EDGE_BEHIND_SELECTION : EDGE_REST;
+    const opacity = node ? EDGE_BEHIND_SELECTION : EDGE_REST;
+    // Faded like the node colours (see setColours), unless nothing is on
+    // screen yet to fade from.
+    this.edgeFade =
+      opacity !== this.edgeMaterial.opacity && !this.reducedMotion && !this.offscreen && this.drawn.length && !this.bloom
+        ? { start: this.clock(), from: this.edgeMaterial.opacity }
+        : null;
+    this.edgeMaterial.opacity = this.edgeFade ? this.edgeFade.from : opacity;
     this.burst = null;
     this.signalGeometry.setAttribute("position", new BufferAttribute(new Float32Array(MAX_SIGNALS * 3), 3).setUsage(DynamicDrawUsage));
     this.signals.visible = false;
@@ -544,8 +670,22 @@ export class LivingScene {
 
   unfocus(pose: Pose | null): void {
     this.follow = null;
-    if (pose) this.animateTo(() => pose, this.reducedMotion ? 0 : FOCUS_MS, 0);
-    else this.setShift(0);
+    if (!pose) {
+      this.setShift(0);
+      return;
+    }
+    // A pose saved while the graph was still settling is a stale picture of
+    // it: returning there would end with the camera sliding on to the fit, a
+    // second move after the first. Ease straight onto the fit, from the same
+    // direction, instead (the settle then has nothing left to do).
+    let to = pose;
+    if (!this.touched && this.clock() < this.settleUntil) to = this.fitPoseFor(0, pose) ?? pose;
+    this.animateTo(() => to, this.reducedMotion ? 0 : FOCUS_MS, 0);
+  }
+
+  /** The screen shift now in force, in CSS pixels (see `shift`). */
+  shiftPx(): number {
+    return this.shift;
   }
 
   pose(): Pose {
@@ -578,8 +718,40 @@ export class LivingScene {
    *  canvas above `occludedBottom` pixels, from the current viewpoint: the
    *  growth replay keeps the whole graph in sight with it as it grows. */
   fitEverything(occludedBottom: number, ms = this.reducedMotion ? 0 : FOCUS_MS, minDistance = 0): void {
-    const pose = this.fitPoseFor(occludedBottom);
+    const pose = this.fitWithFloor(occludedBottom, minDistance);
     if (!pose) return;
+    this.radius = boundingRadius(this.nodes);
+    this.setLimits(distanceOf(pose));
+    this.animateTo(() => pose, ms);
+  }
+
+  /**
+   * Keeps every node in frame above `occludedBottom` pixels, never nearer
+   * than `minDistance`, for `ms` (until stopFollowingFit without one): the
+   * camera eases a little of the way to the fit on every frame, as a settling
+   * graph is followed. The growth replay uses it while the graph grows: a
+   * tween restarted on each step would set off from rest every time, and a
+   * camera that stops and starts again is what the eye reads as a cut.
+   * Called again while following, it keeps its momentum.
+   */
+  followFit(occludedBottom: number, minDistance = 0, ms = Infinity): void {
+    const now = this.clock();
+    if (!this.fitFollow || now >= this.fitFollow.until) this.settleFrom = now;
+    this.cancelTween();
+    this.fitFollow = { occludedBottom, minDistance, until: now + ms };
+    if (this.reducedMotion) {
+      const pose = this.fitWithFloor(occludedBottom, minDistance);
+      if (pose) this.applyPose(pose);
+    }
+  }
+
+  stopFollowingFit(): void {
+    this.fitFollow = null;
+  }
+
+  private fitWithFloor(occludedBottom: number, minDistance: number): Pose | null {
+    const pose = this.fitPoseFor(occludedBottom);
+    if (!pose) return null;
     const along = {
       x: pose.position.x - pose.lookAt.x,
       y: pose.position.y - pose.lookAt.y,
@@ -590,11 +762,13 @@ export class LivingScene {
       const k = minDistance / distance;
       pose.position = { x: pose.lookAt.x + along.x * k, y: pose.lookAt.y + along.y * k, z: pose.lookAt.z + along.z * k };
     }
-    this.radius = boundingRadius(this.nodes);
+    return pose;
+  }
+
+  private setLimits(distance: number): void {
     const limits = zoomLimits(this.radius);
     this.controls.minDistance = limits.min;
-    this.controls.maxDistance = Math.max(limits.max, Math.max(distance, minDistance) * 1.5);
-    this.animateTo(() => pose, ms);
+    this.controls.maxDistance = Math.max(limits.max, distance * 1.5);
   }
 
   /** How far fitEverything would put the camera now: the growth replay reads
@@ -609,7 +783,7 @@ export class LivingScene {
     );
   }
 
-  private fitPoseFor(occludedBottom: number): Pose | null {
+  private fitPoseFor(occludedBottom: number, from?: Pose): Pose | null {
     const bodies = this.nodes
       .filter((n) => Number.isFinite(n.x) && Number.isFinite(n.y) && Number.isFinite(n.z))
       .map((n) => ({ x: n.x!, y: n.y!, z: n.z!, radius: this.radiusOf(n) }));
@@ -618,7 +792,9 @@ export class LivingScene {
     // clear by fitting the height left once it is taken off both edges.
     const usable = Math.max(1, height - 2 * Math.max(0, occludedBottom));
     const fov = (2 * Math.atan(Math.tan((this.camera.fov * Math.PI) / 360) * (usable / Math.max(1, height))) * 180) / Math.PI;
-    const pose = fitPose(bodies, this.camera.position, this.controls.target, {
+    const eye = from ? new Vector3(from.position.x, from.position.y, from.position.z) : this.camera.position;
+    const look = from ? new Vector3(from.lookAt.x, from.lookAt.y, from.lookAt.z) : this.controls.target;
+    const pose = fitPose(bodies, eye, look, {
       width,
       height: usable,
       fov,
@@ -753,16 +929,21 @@ export class LivingScene {
         this.controls.target.add(d);
         this.follow.set(node.x!, node.y!, node.z!);
       }
-    } else if (now < this.settleUntil && !this.touched && !this.selected) {
-      // A graph still settling: ease a little of the way to its fit every
-      // frame, so the camera follows it without a jump and arrives as it
-      // comes to rest.
-      const pose = this.fitPoseFor(0);
+    } else if (
+      !this.selected &&
+      ((this.fitFollow && now < this.fitFollow.until) || (now < this.settleUntil && !this.touched))
+    ) {
+      // A graph still settling (or growing, see followFit): ease a little of
+      // the way to its fit every frame, so the camera follows it without a
+      // jump and arrives as it comes to rest.
+      const follow = this.fitFollow && now < this.fitFollow.until ? this.fitFollow : null;
+      const pose = follow ? this.fitWithFloor(follow.occludedBottom, follow.minDistance) : this.fitPoseFor(0);
       if (pose) {
         const p = this.camera.position;
         const t = this.controls.target;
-        p.set(p.x + (pose.position.x - p.x) * SETTLE_EASE, p.y + (pose.position.y - p.y) * SETTLE_EASE, p.z + (pose.position.z - p.z) * SETTLE_EASE);
-        t.set(t.x + (pose.lookAt.x - t.x) * SETTLE_EASE, t.y + (pose.lookAt.y - t.y) * SETTLE_EASE, t.z + (pose.lookAt.z - t.z) * SETTLE_EASE);
+        const e = SETTLE_EASE * smooth((now - this.settleFrom) / MORPH_MS);
+        p.set(p.x + (pose.position.x - p.x) * e, p.y + (pose.position.y - p.y) * e, p.z + (pose.position.z - p.z) * e);
+        t.set(t.x + (pose.lookAt.x - t.x) * e, t.y + (pose.lookAt.y - t.y) * e, t.z + (pose.lookAt.z - t.z) * e);
         this.controls.maxDistance = Math.max(this.controls.maxDistance, p.distanceTo(t) * 1.5);
       }
     }
@@ -788,6 +969,15 @@ export class LivingScene {
   } | null = null;
   /** Until when a new graph is followed by the camera as it settles. */
   private settleUntil = 0;
+  /** When the follow's pull started rising (a morph); 0 pulls at full
+   *  strength at once (a new graph, whose camera already starts on its fit). */
+  private settleFrom = 0;
+  /** The growth replay's framing, followed until `until` (see followFit). */
+  private fitFollow: { occludedBottom: number; minDistance: number; until: number } | null = null;
+  /** A Map change in progress: what leaves shrinks (drawn from `ghosts`),
+   *  what enters grows. Only the drawing animates. */
+  private morph: { start: number; leaving: SceneNode[]; entering: Set<SceneNode> } | null = null;
+  private ghosts: { node: SceneNode; slot: number; colour: string | undefined }[] = [];
 
   private sync(now = this.clock()): void {
     const mesh = this.nodeMesh;
@@ -815,6 +1005,26 @@ export class LivingScene {
       const fade = Math.min(1, Math.max(0, (t - 0.35) / 0.55));
       this.edgeMaterial.opacity = base * fade * fade;
     }
+    if (this.colourFade) {
+      const k = smooth((now - this.colourFade.start) / RECEDE_MS);
+      this.paintNodes(k);
+      if (k >= 1) this.colourFade = null;
+    }
+    if (this.edgeFade && !bloom) {
+      const k = smooth((now - this.edgeFade.start) / RECEDE_MS);
+      const to = this.selected ? EDGE_BEHIND_SELECTION : EDGE_REST;
+      this.edgeMaterial.opacity = this.edgeFade.from + (to - this.edgeFade.from) * k;
+      if (k >= 1) this.edgeFade = null;
+    }
+    // The morph: a node entering grows from nothing, a node leaving shrinks
+    // to it; a link to a growing node is drawn growing out of its other end.
+    let grow: (n: SceneNode) => number = () => 1;
+    let morphT = 1;
+    if (this.morph) {
+      const m = this.morph;
+      morphT = smooth((now - m.start) / MORPH_MS);
+      grow = (n) => (m.entering.has(n) ? morphT : 1);
+    }
     const kOf = (n: SceneNode) => {
       if (!bloom || t >= 1) return 1;
       const f = bloom.flight.get(n);
@@ -826,23 +1036,48 @@ export class LivingScene {
     for (let i = 0; i < this.nodes.length; i++) {
       const n = this.nodes[i]!;
       d.position.set(px(n), py(n), pz(n));
-      d.scale.setScalar(this.radiusOf(n) * (n.artifact ? 1.5 : 1) * (0.2 + 0.8 * Math.min(1, kOf(n))));
+      d.scale.setScalar(this.radiusOf(n) * (n.artifact ? 1.5 : 1) * (0.2 + 0.8 * Math.min(1, kOf(n))) * grow(n));
       d.updateMatrix();
       (n.artifact ? diamonds : mesh)?.setMatrixAt(this.slot[i]!, d.matrix);
     }
+    for (const g of this.ghosts) {
+      d.position.set(g.node.x ?? 0, g.node.y ?? 0, g.node.z ?? 0);
+      d.scale.setScalar(this.radiusOf(g.node) * (g.node.artifact ? 1.5 : 1) * (1 - morphT));
+      d.updateMatrix();
+      (g.node.artifact ? diamonds : mesh)?.setMatrixAt(g.slot, d.matrix);
+    }
     mesh.instanceMatrix.needsUpdate = true;
     if (diamonds) diamonds.instanceMatrix.needsUpdate = true;
+    if (this.morph && morphT >= 1) {
+      // Done: leavers are no longer drawn, and their slots no longer counted.
+      this.morph = null;
+      this.ghosts = [];
+      mesh.count = this.sphereNodes.length;
+      if (diamonds) diamonds.count = this.diamondNodes.length;
+    }
 
     const write = (attr: BufferAttribute, i: number, l: SceneLink) => {
       const a = l.source as SceneNode;
       const b = l.target as SceneNode;
       const arr = attr.array as Float32Array;
-      arr[i * 6] = px(a);
-      arr[i * 6 + 1] = py(a);
-      arr[i * 6 + 2] = pz(a);
-      arr[i * 6 + 3] = px(b);
-      arr[i * 6 + 4] = py(b);
-      arr[i * 6 + 5] = pz(b);
+      const ga = grow(a);
+      const gb = grow(b);
+      const [ax, ay, az, bx, by, bz] = [px(a), py(a), pz(a), px(b), py(b), pz(b)];
+      // The more grown end stays; the other is reached the share of the way
+      // its own growth allows.
+      const s = Math.min(ga, gb);
+      const [ex, ey, ez, fx, fy, fz] =
+        s >= 1
+          ? [ax, ay, az, bx, by, bz]
+          : ga >= gb
+            ? [ax, ay, az, ax + (bx - ax) * s, ay + (by - ay) * s, az + (bz - az) * s]
+            : [bx + (ax - bx) * s, by + (ay - by) * s, bz + (az - bz) * s, bx, by, bz];
+      arr[i * 6] = ex;
+      arr[i * 6 + 1] = ey;
+      arr[i * 6 + 2] = ez;
+      arr[i * 6 + 3] = fx;
+      arr[i * 6 + 4] = fy;
+      arr[i * 6 + 5] = fz;
     };
     const edges = this.edgeGeometry.getAttribute("position") as BufferAttribute;
     this.links.forEach((l, i) => write(edges, i, l));

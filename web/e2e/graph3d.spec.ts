@@ -53,7 +53,9 @@ test("the growth replay exports a real video, in the background, with the tab hi
   // The button lives in the replay's control bar, not in the camera controls.
   await expect(page.getByRole("group", { name: "Graph camera" }).getByRole("button", { name: "Export video" })).toHaveCount(0);
   await page.getByRole("group", { name: "Growth replay" }).getByRole("button", { name: "Export video" }).click();
-  await page.getByRole("radio", { name: /1:1/ }).check();
+  // The radio is visually hidden inside its tile: a reader clicks the tile.
+  await page.getByText("1:1", { exact: true }).click();
+  await expect(page.getByRole("radio", { name: /1:1/ })).toBeChecked();
   // H.264 is covered by the unit test of pickCodec: the Chromium Playwright
   // drives may ship no H.264 encoder, so here it is VP9 in a WebM by
   // construction. The expectation asks the browser, so a branded Chrome passes
@@ -72,7 +74,8 @@ test("the growth replay exports a real video, in the background, with the tab hi
   );
   const download = page.waitForEvent("download", { timeout: 450_000 });
   await page.getByRole("button", { name: "Export", exact: true }).click();
-  const pill = page.getByText(/Exporting video \d+ %/);
+  // The pill: "Exporting video (1:1)", then its percentage ("42%").
+  const pill = page.getByRole("status").filter({ hasText: /Exporting video \(1:1\)/ });
   await expect(pill).toBeVisible();
   // The Atlas stays usable while it renders: the replay is still scrubbable.
   await expect(page.getByRole("slider", { name: "Replay position" })).toBeVisible();
@@ -80,7 +83,7 @@ test("the growth replay exports a real video, in the background, with the tab hi
   // Hide the page halfway through. The render loop waits on events and
   // messages, never timers, so a hidden tab must not slow or stop it.
   await expect
-    .poll(async () => Number(/(\d+) %/.exec((await pill.textContent()) ?? "")?.[1] ?? 0), { timeout: 300_000 })
+    .poll(async () => Number(/(\d+)%/.exec((await pill.textContent()) ?? "")?.[1] ?? 0), { timeout: 300_000 })
     .toBeGreaterThanOrEqual(40);
   await page.evaluate(() => {
     Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "hidden" });

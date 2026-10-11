@@ -1,4 +1,5 @@
 import { Component, type ErrorInfo, type ReactNode } from "react";
+import { ErrorGlyph } from "./States";
 
 /**
  * The last line of defence. A React error thrown during render unmounts the
@@ -29,6 +30,7 @@ export class ErrorBoundary extends Component<
     if (!error) return this.props.children;
     return (
       <main className="state state--error" role="alert">
+        <ErrorGlyph />
         <p className="state__title">The Atlas UI stopped</p>
         <p className="state__detail">
           Something in the interface failed and the page could not continue. The browser console

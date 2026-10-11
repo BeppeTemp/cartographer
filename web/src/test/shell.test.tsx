@@ -2,7 +2,7 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "../App";
-import { stubApi, openPanels } from "./fixtures";
+import { stubApi, openPanels, graph, json } from "./fixtures";
 
 
 /**
@@ -255,5 +255,47 @@ describe("the reading panel splitter", () => {
     await user.click(await screen.findByRole("button", { name: /open inspector/i }));
     expect(await screen.findByRole("dialog", { name: "Inspector" })).toBeInTheDocument();
     expect(screen.queryByRole("separator", { name: "Resize reading panel" })).not.toBeInTheDocument();
+  });
+});
+
+describe("transitions", () => {
+  it("boots as a skeleton of the shell, with the top bar and rail already in place", async () => {
+    viewport(false);
+    const fetchMock = stubApi();
+    // The first answer never comes: the page stays in its booting state.
+    fetchMock.mockImplementation(() => new Promise<Response>(() => {}));
+    render(<App />);
+
+    expect(screen.getByText("Connecting to Cartographer")).toBeInTheDocument();
+    expect(screen.getByRole("banner")).toBeInTheDocument();
+    expect(screen.getByRole("navigation", { name: /loading navigation/i })).toBeInTheDocument();
+    expect(screen.getByRole("main")).toBeInTheDocument();
+    expect(document.querySelector(".shell[aria-busy='true']")).not.toBeNull();
+  });
+
+  it("keeps the snapshot's title in the inspector while the concept loads, and focuses it after the palette", async () => {
+    viewport(false);
+    const titled = { ...graph, nodes: graph.nodes.map((n) => (n.id === "infra/a" ? { ...n, title: "Alpha Name" } : n)) };
+    const fetchMock = stubApi({ "/graph": () => json(titled) });
+    const base = fetchMock.getMockImplementation()!;
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    fetchMock.mockImplementation(async (url: string) => {
+      if (url.includes("/concept")) await gate;
+      return base(url);
+    });
+    const user = userEvent.setup();
+    render(<App />);
+    await screen.findByTestId("graph-view");
+    await screen.findByRole("button", { name: /^Service/ });
+
+    await user.keyboard("{Control>}k{/Control}");
+    await user.keyboard("infra/a{Enter}");
+    const inspector = await screen.findByRole("complementary", { name: /inspector for infra\/a/i });
+    expect(within(inspector).getByRole("heading", { level: 2 })).toHaveTextContent("Alpha Name");
+
+    release();
+    await waitFor(() => expect(within(inspector).getByRole("heading", { level: 2 })).toHaveTextContent("Alpha"));
+    await waitFor(() => expect(inspector.contains(document.activeElement)).toBe(true));
   });
 });

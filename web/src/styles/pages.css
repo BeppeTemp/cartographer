@@ -1483,12 +1483,8 @@ button.row {
   opacity: 1;
 }
 
-/* A lit square shows the colour of the row under the pointer, full and with a
-   halo; on a two-colour square only that half lights, the other goes dark. */
-.pfield[data-focus="problem"] .pfield__dot[data-lit] {
-  box-shadow: 0 0 6px color-mix(in srgb, var(--sev-warning) 70%, transparent);
-}
-
+/* A lit square shows the colour of the row under the pointer, flat, no halo;
+   on a two-colour square only that half lights, the other goes dark. */
 .pfield[data-focus="problem"] .pfield__dot[data-lit][data-both] {
   background: linear-gradient(135deg, var(--sev-warning) 0 50%, var(--surface-3) 50% 100%);
 }
@@ -1499,7 +1495,6 @@ button.row {
 
 .pfield[data-focus="suggestion"] .pfield__dot[data-lit] {
   background: var(--sev-info);
-  box-shadow: 0 0 6px color-mix(in srgb, var(--sev-info) 70%, transparent);
 }
 
 .pfield[data-focus="suggestion"] .pfield__dot[data-lit][data-both] {

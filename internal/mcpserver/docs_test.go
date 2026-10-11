@@ -77,7 +77,7 @@ var docsNonTools = map[string]bool{
 	// identifies the resource a write touched (commit subjects)
 	"contradiction_id": true, "source_id": true, "source_kind": true, "source_uncited": true,
 	"contradiction_kind": true, "service_ref": true, "secret_refs": true,
-	"secrets_source": true, "review_after": true, "asserted_by": true,
+	"secrets_source": true, "source_of": true, "review_after": true, "asserted_by": true,
 	"last_indexed_commit": true, "content_hash": true, "applied_revision": true,
 	"allow_artifact_write": true, "sops_age_key_file": true, "token_env": true,
 	"search_roots": true, "search_depth": true, "resolution_strategy": true, "resolution_body": true,

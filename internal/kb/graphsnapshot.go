@@ -49,12 +49,14 @@ type GraphNode struct {
 
 // SnapshotCommunity is one community of the caller's visible graph (D244):
 // its rank (0 = largest), size, anchor (the member a legend names it after)
-// and colour slot (1..12, or 0 for singletons and the long tail).
+// and colour slot (1..12, or 0 for singletons and the long tail). AnchorTitle
+// travels with it because a Map's snapshot rarely holds the anchor's node.
 type SnapshotCommunity struct {
-	Rank   int           `json:"rank"`
-	Size   int           `json:"size"`
-	Anchor okf.ConceptID `json:"anchor"`
-	Slot   int           `json:"slot"`
+	Rank        int           `json:"rank"`
+	Size        int           `json:"size"`
+	Anchor      okf.ConceptID `json:"anchor"`
+	AnchorTitle string        `json:"anchor_title,omitempty"`
+	Slot        int           `json:"slot"`
 }
 
 // GraphEdge is a directed link between two concepts both present in the
@@ -291,7 +293,8 @@ func (kb *KB) GraphSnapshot(opts GraphSnapshotOptions) (GraphSnapshot, error) {
 
 	snap.Communities = make([]SnapshotCommunity, len(communities))
 	for i, c := range communities {
-		snap.Communities[i] = SnapshotCommunity{Rank: c.Rank, Size: c.Size, Anchor: ids[c.Anchor], Slot: c.Slot}
+		anchor := ids[c.Anchor]
+		snap.Communities[i] = SnapshotCommunity{Rank: c.Rank, Size: c.Size, Anchor: anchor, AnchorTitle: metas[anchor].title, Slot: c.Slot}
 	}
 
 	kept := scoped

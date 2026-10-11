@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties }
 import {
   ApiError,
   clearToken,
+  hasToken,
   fetchBirths,
   fetchChecks,
   fetchConcept,
@@ -30,6 +31,7 @@ import type {
   Overview,
 } from "./api/types";
 import { Artifacts } from "./components/Artifacts";
+import { Secrets } from "./components/Secrets";
 import { AuthPrompt } from "./components/AuthPrompt";
 import { CommandPalette } from "./components/CommandPalette";
 import { GraphView } from "./components/GraphView";
@@ -42,7 +44,7 @@ import { Activity } from "./components/Activity";
 import { Work } from "./components/Work";
 import { NodeList } from "./components/NodeList";
 import { Health } from "./components/Health";
-import { EmptyState, ErrorState, GraphSeed, Skeleton } from "./components/States";
+import { EmptyState, ErrorState, GraphSeed, ShellSkeleton } from "./components/States";
 import { TopBar } from "./components/TopBar";
 import {
   applyTheme,
@@ -123,6 +125,8 @@ export function App() {
   const [checks, setChecks] = useState<CheckCatalog | null>(null);
   // The doctor's agenda beyond lint (D704); null leaves it out of Health.
   const [review, setReview] = useState<MaintenanceReview | null>(null);
+  // Health's review and checks have answered (or failed) for the current read.
+  const [healthSettled, setHealthSettled] = useState(false);
   // The KB Health's reads above belong to (D704).
   const healthKB = useRef<string | null>(null);
   const [motion, setMotion] = useState(() => initialMotion(readPanel("motion", true), prefersReducedMotion()));
@@ -212,8 +216,13 @@ export function App() {
    *  user comes back to the concept they were reading, not to a blank atlas. */
   const handleFailure = useCallback((err: unknown) => {
     if (err instanceof ApiError && err.isUnauthorized) {
+      // Only a token that was actually sent and refused is a rejection; the
+      // first call to a protected server carries none.
+      const sent = hasToken();
       clearToken();
-      setAuthRejected(true);
+      // Several requests fail at once when a token is revoked: the first
+      // clears it, so the ones after it must not unsay the rejection.
+      setAuthRejected((rejected) => rejected || sent);
       setPhase("auth");
       return true;
     }
@@ -283,6 +292,7 @@ export function App() {
   // after another, and on a KB switch the previous KB stays on screen (dimmed,
   // see `switching`) until the new one is complete.
   const artifactsAllowed = kbs.find((kb) => kb.name === activeKB)?.artifacts ?? false;
+  const secretsAllowed = kbs.find((kb) => kb.name === activeKB)?.secrets ?? false;
   // The last view of every KB and Map this tab has opened: going back to one
   // shows it at once, and the request below brings it up to date in place,
   // like a live refresh.
@@ -413,6 +423,15 @@ export function App() {
     replaceView(next);
   }, [view, activeKB, kbs, artifactsAllowed]);
 
+  // The Secrets panel is whole-KB too: without the right, a link falls back
+  // to the atlas.
+  useEffect(() => {
+    if (view.panel !== "secrets" || !activeKB || kbs.length === 0 || secretsAllowed) return;
+    const next = { ...view, panel: "atlas" as const };
+    setView(next);
+    replaceView(next);
+  }, [view, activeKB, kbs, secretsAllowed]);
+
   // Health's whole-KB reads (D338): kb_status and the maintenance summary
   // answer 404 to a principal that cannot see the whole KB, which is not an
   // error to show — the page leaves those parts out. The review items are
@@ -423,6 +442,7 @@ export function App() {
       setMaintenance(null);
       setChecks(null);
       setReview(null);
+      setHealthSettled(false);
       return;
     }
     // Another KB: nothing of the previous one may stay on screen while (or if)
@@ -433,6 +453,7 @@ export function App() {
       setMaintenance(null);
       setChecks(null);
       setReview(null);
+      setHealthSettled(false);
     }
     const controller = new AbortController();
     fetchStatus(activeKB, controller.signal)
@@ -444,12 +465,13 @@ export function App() {
         if (!controller.signal.aborted) handleFailure(err);
       });
     // The coverage list: without it Health simply leaves the section out.
-    fetchChecks(activeKB, controller.signal)
-      .then(setChecks)
-      .catch(() => undefined);
-    fetchMaintenanceReview(activeKB, controller.signal)
-      .then(setReview)
-      .catch(() => undefined);
+    const sources = [
+      fetchChecks(activeKB, controller.signal).then(setChecks),
+      fetchMaintenanceReview(activeKB, controller.signal).then(setReview),
+    ];
+    void Promise.allSettled(sources).then(() => {
+      if (!controller.signal.aborted) setHealthSettled(true);
+    });
     return () => controller.abort();
   }, [view.panel, activeKB, phase, handleFailure, reloadKey, live]);
 
@@ -555,6 +577,21 @@ export function App() {
     });
   }, [selectConcept, view.concept]);
 
+  /** The palette opened a concept: on the Atlas, whatever panel it was
+   *  opened from (only the Atlas shows a selection), and focus goes to the
+   *  inspector's heading, not back to whatever had it before (the rail's
+   *  "All"); to the page when there is no heading to take it (a narrow screen). */
+  const openFromPalette = useCallback(
+    (id: string) => {
+      navigate({ panel: "atlas", concept: id, artifact: null });
+      if (narrow) setSheet("inspector");
+      window.requestAnimationFrame(() =>
+        (document.querySelector<HTMLElement>(".inspector__title") ?? document.getElementById("main"))?.focus(),
+      );
+    },
+    [navigate, narrow],
+  );
+
   const expandConcept = useCallback(
     (id: string) => {
       const collection = snapshot?.nodes.find((node) => node.id === id)?.collection;
@@ -564,7 +601,7 @@ export function App() {
   );
 
   if (phase === "booting") {
-    return <Skeleton lines={4} label="Connecting to Cartographer" />;
+    return <ShellSkeleton label="Connecting to Cartographer" narrow={narrow} railCollapsed={railCollapsed} />;
   }
 
   if (phase === "auth") {
@@ -591,6 +628,7 @@ export function App() {
       scope={view.panel === "atlas" ? view.scope : null}
       panel={view.panel}
       artifactsTotal={artifactsAllowed ? (artifacts?.artifacts.length ?? 0) : null}
+      secretsAllowed={secretsAllowed}
       collapsed={inSheet ? false : railCollapsed}
       collapsible={!inSheet}
       typeFilter={typeFilter}
@@ -652,7 +690,7 @@ export function App() {
         onKBChange={(name) => navigate({ kb: name, scope: null, concept: null, artifact: null, hmap: null })}
         onThemeChange={setTheme}
         onOpenPalette={() => setPaletteOpen(true)}
-        onHome={() => navigate({ panel: "atlas", concept: null, artifact: null })}
+        onHome={() => navigate({ panel: "atlas", scope: null, concept: null, artifact: null })}
         onOpenNav={() => setSheet("nav")}
         onOpenInspector={() => setSheet("inspector")}
       />
@@ -699,6 +737,7 @@ export function App() {
               summary={maintenance}
               checks={checks}
               review={review}
+              pending={!healthSettled}
               scopeTitle={
                 view.hmap ? overview?.collections.find((c) => c.name === view.hmap)?.title || view.hmap : null
               }
@@ -713,6 +752,15 @@ export function App() {
                 if (conceptId) navigate({ panel: "atlas", concept: conceptId });
                 else announce(message);
               }}
+            />
+          ) : view.panel === "secrets" && activeKB ? (
+            <Secrets
+              kb={activeKB}
+              reloadKey={`${reloadKey}:${live}`}
+              titleOf={(id) => nodeTitles.get(id)}
+              onOpenConcept={(id) => navigate({ panel: "atlas", concept: id })}
+              onRetry={() => setReloadKey((k) => k + 1)}
+              onFailure={handleFailure}
             />
           ) : view.panel === "artifacts" && activeKB ? (
             <Artifacts
@@ -830,7 +878,7 @@ export function App() {
         kb={activeKB}
         nodes={visibleNodes}
         onClose={() => setPaletteOpen(false)}
-        onSelect={selectConcept}
+        onSelect={openFromPalette}
       />
     </div>
   );

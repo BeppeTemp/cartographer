@@ -169,6 +169,7 @@ export class GrowthEncoder {
   private cancelled = false;
   private failure: Error | null = null;
   private pending: Promise<void> = Promise.resolve();
+  private wake: (() => void) | null = null;
 
   private constructor(
     private readonly opts: EncoderOptions,
@@ -205,6 +206,8 @@ export class GrowthEncoder {
 
   private fail(err: unknown): void {
     this.failure ??= err instanceof Error ? err : new Error(String(err));
+    // A failed encoder closes and never dequeues again: wake the wait.
+    this.wake?.();
   }
 
   /** The opening card: the mark and the KB name. */
@@ -292,8 +295,12 @@ export class GrowthEncoder {
     }
     // Backpressure by events and messages, never setTimeout: a hidden tab
     // throttles timers (to once a second or worse) but not these.
-    while (!this.cancelled && this.encoder.encodeQueueSize >= MAX_QUEUE) {
-      await new Promise<void>((resolve) => this.encoder.addEventListener("dequeue", () => resolve(), { once: true }));
+    while (!this.cancelled && !this.failure && this.encoder.encodeQueueSize >= MAX_QUEUE) {
+      await new Promise<void>((resolve) => {
+        this.wake = resolve;
+        this.encoder.addEventListener("dequeue", () => resolve(), { once: true });
+      });
+      this.wake = null;
     }
     await yieldTask();
     if (this.failure) throw this.failure;
@@ -313,6 +320,7 @@ export class GrowthEncoder {
   cancel(): void {
     if (this.cancelled) return;
     this.cancelled = true;
+    this.wake?.();
     try {
       if (this.encoder.state !== "closed") this.encoder.close();
     } catch {

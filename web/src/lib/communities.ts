@@ -34,6 +34,8 @@ export interface Community {
   /** The member with the most links (then the smallest id): what the legend
    *  names the community after, since communities have no name of their own. */
   anchor: string;
+  /** The anchor's title, from the server: a Map's snapshot rarely holds the anchor. */
+  anchorTitle?: string;
 }
 
 export interface Communities {
@@ -51,6 +53,7 @@ export function snapshotCommunities(snapshot: GraphSnapshot): Communities {
     slot: c.slot,
     size: c.size,
     anchor: c.anchor,
+    anchorTitle: c.anchor_title,
   }));
   const rankOf = new Map<string, number>();
   for (const node of snapshot.nodes) {
