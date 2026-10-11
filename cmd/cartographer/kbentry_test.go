@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/BeppeTemp/cartographer/internal/config"
+	"github.com/BeppeTemp/cartographer/internal/execbit"
 )
 
 func writeCfg(t *testing.T, body string) string {
@@ -60,7 +61,8 @@ func TestApplyKBEntryAppendKeepsCommentsAndUnknownKeys(t *testing.T) {
 	if got, n := artifactWriteOf(t, cfg, kbPath); !got || n != 1 {
 		t.Errorf("allow_artifact_write=%v entries=%d, want true/1", got, n)
 	}
-	if st, _ := os.Stat(cfg); st.Mode().Perm() != 0o600 {
+	// Windows has no POSIX permission bits: os.Stat reports 0666 there.
+	if st, _ := os.Stat(cfg); execbit.Supported && st.Mode().Perm() != 0o600 {
 		t.Errorf("mode = %v, want 0600", st.Mode().Perm())
 	}
 }
