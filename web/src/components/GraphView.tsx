@@ -51,6 +51,9 @@ const ARTIFACT_PREFIX = "artifact:";
 /** The band kept clear for the replay's timeline before it has a measured
  *  height: its usual height plus the gap above it. */
 const GROWTH_BAND_PX = 75;
+/** How long the camera keeps following after the replay pauses or is moved
+ *  along its timeline: the time the knock of the move takes to settle. */
+const GROWTH_SETTLE_MS = 2500;
 
 interface Props {
   snapshot: GraphSnapshot;
@@ -246,24 +249,20 @@ function View({
       g ? { ...g, playing: !g.playing, shown: !g.playing && g.shown >= g.order.length ? 1 : g.shown } : g,
     );
   // The camera keeps every concept that is out in sight, above the
-  // timeline: while it plays, easing after the graph as it grows; paused,
-  // once after each move along the timeline and again when the knock has
-  // settled.
+  // timeline, easing after the graph continuously (scene.followFit): while it
+  // plays, until it pauses; paused, until the knock of a move along the
+  // timeline has settled.
   const growthFrame = growth ? (growth.playing ? "playing" : `paused:${growth.shown}`) : null;
   useEffect(() => {
-    if (!growthFrame) return;
-    const fit = () => {
-      const band = containerRef.current?.parentElement?.querySelector<HTMLElement>(".growth-timeline");
-      const reserve = band ? band.offsetHeight + 24 : GROWTH_BAND_PX;
-      sceneRef.current?.fitEverything(reserve, 900, growthFloor.current);
-    };
-    fit();
-    const timer =
-      growthFrame === "playing" ? window.setInterval(fit, 500) : window.setTimeout(fit, 1200);
-    return () => {
-      window.clearInterval(timer);
-      window.clearTimeout(timer);
-    };
+    const scene = sceneRef.current;
+    if (!scene) return;
+    if (!growthFrame) {
+      scene.stopFollowingFit();
+      return;
+    }
+    const band = containerRef.current?.parentElement?.querySelector<HTMLElement>(".growth-timeline");
+    const reserve = band ? band.offsetHeight + 24 : GROWTH_BAND_PX;
+    scene.followFit(reserve, growthFloor.current, growthFrame === "playing" ? Infinity : GROWTH_SETTLE_MS);
   }, [growthFrame]);
   // A new layout (another KB or Map) ends a replay.
   useEffect(() => setGrowth(null), [layoutKey]);

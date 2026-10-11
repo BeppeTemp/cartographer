@@ -498,11 +498,18 @@ the concept's prose can use — its 68ch reading measure plus padding (D281).
 Widening the panel reframes the selected concept in the graph it still shows;
 on a narrow screen the panel is a sheet and has no splitter (D239).
 
-Opening a KB, switching to another or choosing a Map grows the graph from a
-seed at the orbit's centre: the nodes burst outward to their places, the
-edges fade in behind them, and the camera settles on a framing fitted to the
-KB's size, whatever it is. A view seen before in the session is shown at once
-from memory while it refreshes. The *Replay growth* control replays how the KB
+Opening a KB, or switching to another, grows the graph from a seed at the
+orbit's centre: the nodes burst outward to their places, the edges fade in
+behind them, and the camera settles on a framing fitted to the KB's size,
+whatever it is. A view seen before in the session is shown at once from memory
+while it refreshes. Choosing another Map of the same KB does not regrow it: the
+concepts both views draw keep their places, those leaving shrink away, those
+entering grow in beside a neighbour already placed, and the camera eases onto
+the new set (with reduced motion the swap is instant). Leaving the Atlas for
+another panel and coming back shows the graph settled where it was left, camera
+included. Selecting a concept, or closing the reading panel, fades the rest of
+the graph out or back in while the camera moves, rather than recolouring it at
+once. The *Replay growth* control replays how the KB
 grew (D367): the concepts appear in the order their files were first committed,
 those born in one commit along their links, in 8 to 20 seconds whatever the
 KB's size, under a timeline with one bar per day that saw concepts born. It can
@@ -663,6 +670,18 @@ filtered to the concepts of its type. The selection is in the URL
 (`panel=artifacts&artifact=<kind>/<name>`). The panel exists only for a
 principal that can read the whole KB, since artifacts are whole-KB resources
 (D238); the rail entry carries no count.
+
+The **Secrets** panel lists the KB's `secrets/*.sops.yaml` files (D708): per
+file its path, value count, last change and age recipients, then one row per
+value — its JSON pointer, its type and the concepts whose `secret_refs` name it —
+with the values masked. Key names are readable without a key, as they are in
+git. Pasting an age identity (`AGE-SECRET-KEY-1…`) and pressing *Decrypt* opens
+the values **in the browser**: the server only serves the ciphertext, never sees
+the key and never runs sops. Each value can then be shown or copied; *Lock*, closing
+the panel or switching KB forgets them, and the identity itself is not kept
+after the decryption. A key that is not a recipient of any file is reported as
+such. Like the Artifacts panel it exists only for a principal that can read the
+whole KB.
 
 ### Runtime secrets
 

@@ -113,6 +113,14 @@ function easeOutBack(t: number): number {
 }
 
 /** A stable value in [0, 1) for an id. */
+function distanceOf(pose: Pose): number {
+  return Math.hypot(
+    pose.position.x - pose.lookAt.x,
+    pose.position.y - pose.lookAt.y,
+    pose.position.z - pose.lookAt.z,
+  );
+}
+
 function hashUnit(id: string): number {
   let h = 2166136261;
   for (let i = 0; i < id.length; i++) h = Math.imul(h ^ id.charCodeAt(i), 16777619);
@@ -453,8 +461,12 @@ export class LivingScene {
     if (morph) {
       this.radius = boundingRadius(this.nodes);
       this.settleUntil = this.clock() + SETTLE_MS;
-      // The camera eases onto the new set; the graph itself never jumped.
-      if (!this.selected) this.fitEverything(0, MORPH_MS);
+      // The camera follows the new set as it settles (step), its pull rising
+      // from nothing over the morph: no tween, so there is no hand-over from a
+      // tween's end to the follow, where the camera would stop and set off again.
+      this.settleFrom = this.clock();
+      const fit = this.fitPoseFor(0);
+      if (fit) this.setLimits(distanceOf(fit));
     } else if (restore) {
       // Back where the reader left it: the camera as it was, no opening, no
       // following (the layout is already settled).
@@ -462,14 +474,11 @@ export class LivingScene {
       this.settleUntil = 0;
       this.applyPose(restore.pose);
       this.setShift(restore.shift);
-      this.setLimits(Math.hypot(
-        restore.pose.position.x - restore.pose.lookAt.x,
-        restore.pose.position.y - restore.pose.lookAt.y,
-        restore.pose.position.z - restore.pose.lookAt.z,
-      ));
+      this.setLimits(distanceOf(restore.pose));
     } else if (first || replace) {
       this.radius = boundingRadius(this.nodes);
       this.settleUntil = this.reducedMotion || this.offscreen ? 0 : this.clock() + SETTLE_MS;
+      this.settleFrom = 0;
       if (this.reducedMotion && replace) this.frameAll(0);
     } else this.radius = boundingRadius(this.linkedNodes());
   }
@@ -703,8 +712,40 @@ export class LivingScene {
    *  canvas above `occludedBottom` pixels, from the current viewpoint: the
    *  growth replay keeps the whole graph in sight with it as it grows. */
   fitEverything(occludedBottom: number, ms = this.reducedMotion ? 0 : FOCUS_MS, minDistance = 0): void {
-    const pose = this.fitPoseFor(occludedBottom);
+    const pose = this.fitWithFloor(occludedBottom, minDistance);
     if (!pose) return;
+    this.radius = boundingRadius(this.nodes);
+    this.setLimits(distanceOf(pose));
+    this.animateTo(() => pose, ms);
+  }
+
+  /**
+   * Keeps every node in frame above `occludedBottom` pixels, never nearer
+   * than `minDistance`, for `ms` (until stopFollowingFit without one): the
+   * camera eases a little of the way to the fit on every frame, as a settling
+   * graph is followed. The growth replay uses it while the graph grows: a
+   * tween restarted on each step would set off from rest every time, and a
+   * camera that stops and starts again is what the eye reads as a cut.
+   * Called again while following, it keeps its momentum.
+   */
+  followFit(occludedBottom: number, minDistance = 0, ms = Infinity): void {
+    const now = this.clock();
+    if (!this.fitFollow || now >= this.fitFollow.until) this.settleFrom = now;
+    this.cancelTween();
+    this.fitFollow = { occludedBottom, minDistance, until: now + ms };
+    if (this.reducedMotion) {
+      const pose = this.fitWithFloor(occludedBottom, minDistance);
+      if (pose) this.applyPose(pose);
+    }
+  }
+
+  stopFollowingFit(): void {
+    this.fitFollow = null;
+  }
+
+  private fitWithFloor(occludedBottom: number, minDistance: number): Pose | null {
+    const pose = this.fitPoseFor(occludedBottom);
+    if (!pose) return null;
     const along = {
       x: pose.position.x - pose.lookAt.x,
       y: pose.position.y - pose.lookAt.y,
@@ -715,9 +756,7 @@ export class LivingScene {
       const k = minDistance / distance;
       pose.position = { x: pose.lookAt.x + along.x * k, y: pose.lookAt.y + along.y * k, z: pose.lookAt.z + along.z * k };
     }
-    this.radius = boundingRadius(this.nodes);
-    this.setLimits(Math.max(distance, minDistance));
-    this.animateTo(() => pose, ms);
+    return pose;
   }
 
   private setLimits(distance: number): void {
@@ -884,16 +923,21 @@ export class LivingScene {
         this.controls.target.add(d);
         this.follow.set(node.x!, node.y!, node.z!);
       }
-    } else if (now < this.settleUntil && !this.touched && !this.selected) {
-      // A graph still settling: ease a little of the way to its fit every
-      // frame, so the camera follows it without a jump and arrives as it
-      // comes to rest.
-      const pose = this.fitPoseFor(0);
+    } else if (
+      !this.selected &&
+      ((this.fitFollow && now < this.fitFollow.until) || (now < this.settleUntil && !this.touched))
+    ) {
+      // A graph still settling (or growing, see followFit): ease a little of
+      // the way to its fit every frame, so the camera follows it without a
+      // jump and arrives as it comes to rest.
+      const follow = this.fitFollow && now < this.fitFollow.until ? this.fitFollow : null;
+      const pose = follow ? this.fitWithFloor(follow.occludedBottom, follow.minDistance) : this.fitPoseFor(0);
       if (pose) {
         const p = this.camera.position;
         const t = this.controls.target;
-        p.set(p.x + (pose.position.x - p.x) * SETTLE_EASE, p.y + (pose.position.y - p.y) * SETTLE_EASE, p.z + (pose.position.z - p.z) * SETTLE_EASE);
-        t.set(t.x + (pose.lookAt.x - t.x) * SETTLE_EASE, t.y + (pose.lookAt.y - t.y) * SETTLE_EASE, t.z + (pose.lookAt.z - t.z) * SETTLE_EASE);
+        const e = SETTLE_EASE * smooth((now - this.settleFrom) / MORPH_MS);
+        p.set(p.x + (pose.position.x - p.x) * e, p.y + (pose.position.y - p.y) * e, p.z + (pose.position.z - p.z) * e);
+        t.set(t.x + (pose.lookAt.x - t.x) * e, t.y + (pose.lookAt.y - t.y) * e, t.z + (pose.lookAt.z - t.z) * e);
         this.controls.maxDistance = Math.max(this.controls.maxDistance, p.distanceTo(t) * 1.5);
       }
     }
@@ -919,6 +963,11 @@ export class LivingScene {
   } | null = null;
   /** Until when a new graph is followed by the camera as it settles. */
   private settleUntil = 0;
+  /** When the follow's pull started rising (a morph); 0 pulls at full
+   *  strength at once (a new graph, whose camera already starts on its fit). */
+  private settleFrom = 0;
+  /** The growth replay's framing, followed until `until` (see followFit). */
+  private fitFollow: { occludedBottom: number; minDistance: number; until: number } | null = null;
   /** A Map change in progress: what leaves shrinks (drawn from `ghosts`),
    *  what enters grows. Only the drawing animates. */
   private morph: { start: number; leaving: SceneNode[]; entering: Set<SceneNode> } | null = null;

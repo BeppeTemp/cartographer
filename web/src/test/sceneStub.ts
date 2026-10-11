@@ -93,6 +93,8 @@ export class LivingScene {
   fitEverything(_occluded?: number, ms?: number): void {
     sceneStub.calls.fit.push(ms ?? -1);
   }
+  followFit(): void {}
+  stopFollowingFit(): void {}
   fitDistance(): number {
     return 100;
   }
