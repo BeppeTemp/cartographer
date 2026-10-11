@@ -2203,7 +2203,7 @@ func maintainCuratedIndexes(k *kb.KB, applied []conceptMoveEntry, forceSourceRem
 			}
 		}
 		if requiresIndex(dstMap) {
-			if err := appendCuratedEntry(k, dstMap, okf.ConceptID(mv.TargetID), mv.SourceID); err != nil {
+			if err := appendCuratedEntry(k, dstMap, okf.ConceptID(mv.TargetID)); err != nil {
 				notes = append(notes, fmt.Sprintf("curated index %s/index.md: %v", dstMap, err))
 			} else {
 				notes = append(notes, fmt.Sprintf("curated index %s/index.md: added an entry for %s", dstMap, mv.TargetID))
@@ -2259,7 +2259,7 @@ func removeCuratedEntry(k *kb.KB, mapName string, id okf.ConceptID) (removed boo
 }
 
 // appendCuratedEntry adds an entry for id under a "## Moved here" heading.
-func appendCuratedEntry(k *kb.KB, mapName string, id okf.ConceptID, from string) error {
+func appendCuratedEntry(k *kb.KB, mapName string, id okf.ConceptID) error {
 	content, hash, err := k.IndexHash(mapName)
 	if err != nil {
 		return fmt.Errorf("unreadable: %w", err)
@@ -2278,7 +2278,7 @@ func appendCuratedEntry(k *kb.KB, mapName string, id okf.ConceptID, from string)
 	// From a map index an expanded concept is "<concept>.md" — the form D149 WP3
 	// settled, and the one require_index_entry accepts.
 	rel := strings.TrimPrefix(string(id), mapName+"/") + ".md"
-	entry := fmt.Sprintf("- [%s](%s): moved from %s", title, rel, from)
+	entry := fmt.Sprintf("- [%s](%s)", title, rel)
 
 	const heading = "## Moved here"
 	if strings.Contains(body, heading) {

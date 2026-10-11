@@ -614,3 +614,12 @@ func TestBuildImportPlan_MapPrefixMatching(t *testing.T) {
 		}
 	})
 }
+
+// A label may hold one level of brackets, as kb's mdLinkRe parses it (D720):
+// the old pattern found no link there and left the href unrewritten.
+func TestImportMDLinkRe_BracketedLabel(t *testing.T) {
+	m := importMDLinkRe.FindStringSubmatch("see [Issue [RFC] x](old/x.md).")
+	if m == nil || m[1] != "Issue [RFC] x" || m[2] != "old/x.md" {
+		t.Fatalf("match = %q", m)
+	}
+}

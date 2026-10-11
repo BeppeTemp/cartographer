@@ -186,6 +186,10 @@ type ReviewItem struct {
 	TemplateSlug string                 `json:"template_slug,omitempty"`
 	Template     string                 `json:"template,omitempty"`
 	MapUpdate    map[string]interface{} `json:"map_update,omitempty"`
+	// MapUpdates replaces MapUpdate when the one template is proposed for
+	// several maps (#687): one map_update per map, each declaring the slugs
+	// that map binds to.
+	MapUpdates []map[string]interface{} `json:"map_updates,omitempty"`
 	// wholeGraph marks an item derived from a check that reads the whole
 	// graph (WholeGraphChecks): a caller who cannot see the whole KB must not
 	// receive it.

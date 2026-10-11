@@ -11,7 +11,8 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/okf"
 )
 
-var mdLinkRe = regexp.MustCompile(`\[([^\]]*)\]\(([^)]+)\)`)
+// The label may hold one level of balanced brackets ("[RFC] foo"); groups stay (label, href).
+var mdLinkRe = regexp.MustCompile(`\[((?:[^\[\]]|\[[^\[\]]*\])*)\]\(([^)]+)\)`)
 
 // wikiLinkRe matches wiki-links [[id]], [[id#section]] and the alias forms
 // [[id|text]] / [[id#section|text]] (D150). The ID is capture group 1: whatever

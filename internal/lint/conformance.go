@@ -457,6 +457,10 @@ func valueContractFindings(mapName string, contract kb.MapContract, concepts map
 		if field != "status" && allDateShaped(counts) {
 			continue
 		}
+		// #686: an identifier (every value its own, or a URL) is not a vocabulary.
+		if field != "status" && identifierValued(counts, len(carriers)) {
+			continue
+		}
 		// D295 WP3: status is always eligible (vocabulary every reader
 		// assumes), with no distinct-value cap.
 		if field != "status" && len(counts) > valueContractMaxValues {
@@ -609,8 +613,28 @@ func suppressed(f Finding, ignores map[string]bool) bool {
 	return !spec.NeverSuppress
 }
 
-// dateShaped reports whether v is a scalar string that parses as YYYY-MM-DD or
-// RFC3339. Anything else (other text, a list) is not a timestamp.
+// identifierMinCarriers is the fewest carriers for "every value distinct" to
+// mean an identifier: two distinct values could still be a two-member vocabulary.
+const identifierMinCarriers = 3
+
+// identifierValued reports whether a field's values (value → carriers count,
+// carriers in total) are identifiers, not a vocabulary (#686): every value is
+// URL-shaped, or each carrier holds a value of its own (at least
+// identifierMinCarriers carriers). A vocabulary is a field whose values repeat.
+func identifierValued(counts map[string]int, carriers int) bool {
+	if len(counts) == 0 {
+		return false
+	}
+	urls := true
+	for v := range counts {
+		if !strings.HasPrefix(v, "http://") && !strings.HasPrefix(v, "https://") {
+			urls = false
+			break
+		}
+	}
+	return urls || (carriers >= identifierMinCarriers && len(counts) == carriers)
+}
+
 func allDateShaped(counts map[string]int) bool {
 	for v := range counts {
 		if !dateShaped(v) {
@@ -620,6 +644,8 @@ func allDateShaped(counts map[string]int) bool {
 	return len(counts) > 0
 }
 
+// dateShaped reports whether v is a scalar string that parses as YYYY-MM-DD or
+// RFC3339. Anything else (other text, a list) is not a timestamp.
 func dateShaped(v interface{}) bool {
 	str, ok := v.(string)
 	if !ok {

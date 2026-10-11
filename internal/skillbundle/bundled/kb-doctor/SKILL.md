@@ -84,9 +84,10 @@ run, one commit per run with reason "auto-repair (background)". It is not a sess
 4. **Vocabulary proposals.** A `missing_value_contract` finding carries a `proposal` (values and the
    synonyms it maps). One numbered decision per map; after approval `map_update` with those
    `field_values`, then `kb_repair invalid_field_value` and `kb_repair prose_value`.
-4b. **Template proposals.** A `template_proposal` review item names a map (`<map>/_map`) whose pages
-   already share a structure no template declares, and carries the ready `template` text, its
-   `template_slug` and the `map_update` arguments. One numbered decision per item: after approval
+4b. **Template proposals.** A `template_proposal` review item names the maps (`<map>/_map`) whose
+   pages already share a structure no template declares, one item per template slug, and carries
+   the ready `template` text, its `template_slug` and the `map_update` arguments — `map_updates`,
+   one per map, when it spans several maps: apply each. One numbered decision per item: after approval
    `artifact_write` `templates/<template_slug>.md` with the text (an existing slug is already
    written: only the `map_update`), then `map_update` with the arguments, then `kb_repair
    template_missing` binds the pages. Do not edit the proposal's sections; the operator may drop an

@@ -143,3 +143,17 @@ func TestScopedCheck_CleanIsNil(t *testing.T) {
 		t.Fatalf("want nil, got %v", got)
 	}
 }
+
+// A Source cited only from another concept's provenance is no orphan.
+func TestScopedCheck_Orphan_ProvenanceCited(t *testing.T) {
+	k := tempKB(t)
+	writeFile(t, k.DataRoot(), "ops/_map.md", "---\ntype: Map\n---\n")
+	writeFile(t, k.DataRoot(), "notes/deep/src.md", noteHead+"---\nBody.\n")
+	if got := ScopedCheck(k, ids("notes/deep/src")); !hasCheck(got, "notes/deep/src.md", "orphan") {
+		t.Fatalf("want orphan before any citation: %v", got)
+	}
+	writeFile(t, k.DataRoot(), "ops/y.md", "---\ntype: Note\ntitle: Y\nprovenance:\n  - notes/deep/src\n---\nBody.\n")
+	if got := ScopedCheck(k, ids("notes/deep/src")); hasCheck(got, "notes/deep/src.md", "orphan") {
+		t.Fatalf("provenance-cited concept is no orphan: %v", got)
+	}
+}

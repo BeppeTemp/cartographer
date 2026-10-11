@@ -68,7 +68,7 @@ func fmString(fm *okf.Frontmatter, key string) string {
 func toolSourceRegister(k *kb.KB) Tool {
 	return Tool{
 		Name:        "source_register",
-		Description: "Records a primary source in the ledger BEFORE ingesting it: a Source concept in a journal (default 'sources', created with map_create kind journal). Dedupes by sha256, else locator: a duplicate returns {id, duplicate: true, ingest_status} and writes nothing. Never fetches the source; body is your distillation. Cite its ID in provenance, then set ingest_status via concept_patch.",
+		Description: "Records a primary source BEFORE ingesting it: a Source concept in a journal (default 'sources', map_create kind journal). Dedupes by sha256, else locator: a duplicate returns {id, duplicate: true, ingest_status}, writes nothing, adding locator_mismatch + existing_locator if the locator differs. Never fetches; body is your distillation. Cite its ID in provenance, then concept_patch ingest_status.",
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"required": ["title", "source_kind"],
@@ -137,7 +137,7 @@ func toolSourceRegister(k *kb.KB) Tool {
 
 			// Dedup: sha256 is authoritative when both sides have it, otherwise
 			// an exact locator match.
-			var dupID, dupStatus string
+			var dupID, dupStatus, dupLoc string
 			err = k.WalkConcepts(func(id okf.ConceptID, content string) error {
 				if dupID != "" {
 					return nil
@@ -157,6 +157,7 @@ func toolSourceRegister(k *kb.KB) Tool {
 				if match {
 					dupID = string(id)
 					dupStatus = fmString(fm, "ingest_status")
+					dupLoc = loc
 				}
 				return nil
 			})
@@ -164,7 +165,12 @@ func toolSourceRegister(k *kb.KB) Tool {
 				return errorResult(fmt.Sprintf("source_register: walk: %v", err)), nil
 			}
 			if dupID != "" {
-				out, _ := json.Marshal(map[string]interface{}{"id": dupID, "duplicate": true, "ingest_status": dupStatus})
+				res := map[string]interface{}{"id": dupID, "duplicate": true, "ingest_status": dupStatus}
+				if p.Locator != "" && dupLoc != "" && p.Locator != dupLoc {
+					res["locator_mismatch"] = true
+					res["existing_locator"] = dupLoc
+				}
+				out, _ := json.Marshal(res)
 				return textResult(string(out)), nil
 			}
 
@@ -223,7 +229,7 @@ func toolSourceRegister(k *kb.KB) Tool {
 func toolSourceList(k *kb.KB) Tool {
 	return Tool{
 		Name:        "source_list",
-		Description: "Source ledger (Source concepts), oldest first: {id, title, source_kind, ingest_status, timestamp?, cited_by (concepts citing it in provenance)}. status defaults to pending ('*' = all). Read-only.",
+		Description: "Source ledger (Source concepts), oldest first: {id, title, source_kind, ingest_status, timestamp?, cited_by (count), cited_by_ids (concepts citing it in provenance)}. status defaults to pending ('*' = all). Read-only.",
 		ReadOnly:    true,
 		InputSchema: json.RawMessage(`{
 			"type": "object",
@@ -258,15 +264,17 @@ func toolSourceList(k *kb.KB) Tool {
 			}
 
 			type entry struct {
-				ID           string `json:"id"`
-				Title        string `json:"title,omitempty"`
-				SourceKind   string `json:"source_kind,omitempty"`
-				IngestStatus string `json:"ingest_status"`
-				Timestamp    string `json:"timestamp,omitempty"`
-				CitedBy      int    `json:"cited_by"`
+				ID           string   `json:"id"`
+				Title        string   `json:"title,omitempty"`
+				SourceKind   string   `json:"source_kind,omitempty"`
+				IngestStatus string   `json:"ingest_status"`
+				Timestamp    string   `json:"timestamp,omitempty"`
+				CitedBy      int      `json:"cited_by"`
+				CitedByIDs   []string `json:"cited_by_ids"`
 			}
 			var entries []entry
 			cited := map[string]int{}
+			citedIDs := map[string][]string{}
 			err := k.WalkConcepts(func(id okf.ConceptID, content string) error {
 				fmRaw, _, _ := okf.SplitFrontmatter(content)
 				fm, perr := okf.ParseFrontmatter(fmRaw)
@@ -280,6 +288,7 @@ func toolSourceList(k *kb.KB) Tool {
 						if r != sid && !seen[r] {
 							seen[r] = true
 							cited[r]++
+							citedIDs[r] = append(citedIDs[r], sid)
 						}
 					}
 				}
@@ -311,6 +320,9 @@ func toolSourceList(k *kb.KB) Tool {
 			}
 			for i := range entries {
 				entries[i].CitedBy = cited[entries[i].ID]
+				ids := append([]string{}, citedIDs[entries[i].ID]...)
+				sort.Strings(ids)
+				entries[i].CitedByIDs = ids
 			}
 			if entries == nil {
 				entries = []entry{}
