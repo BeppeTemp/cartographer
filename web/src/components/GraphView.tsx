@@ -6,6 +6,13 @@ import type { Pose } from "../lib/graph3d/camera";
 import { GROWTH_MIN_ZOOM, growthOrder, growthPace, type GrowthStep } from "../lib/graph3d/growth";
 import { planBursts } from "../lib/graph3d/motion";
 import { beside, seedPosition } from "../lib/graph3d/physics";
+import {
+  recallLayout,
+  rememberLayout,
+  sameKB,
+  snapshotPositions,
+  type LayoutMemory,
+} from "../lib/graph3d/transition";
 import type { LivingScene, SceneLink, SceneNode } from "../lib/graph3d/scene";
 import { collectionHue, cssVar, resolveSlots, type ColorBy } from "../lib/palette";
 import { nameOf, shortNameOf } from "../lib/names";
@@ -298,8 +305,37 @@ function View({
     artifacts: new Map<string, SceneNode>(),
   });
   if (nodeStore.current.key !== layoutKey) {
-    nodeStore.current = { key: layoutKey, nodes: new Map(), artifacts: new Map() };
+    const before = nodeStore.current;
+    if (before.key === "") {
+      // First layout of this mount: a layout the Atlas was left on comes back
+      // where it settled, not from a seed.
+      const memory = recallLayout(layoutKey);
+      const place = (positions: Map<string, { x: number; y: number; z: number }>, artifact: boolean) =>
+        new Map<string, SceneNode>(
+          [...positions].map(([id, p]) => {
+            const node: SceneNode = { id, weight: artifact ? 0.35 : 0, ...p, vx: 0, vy: 0, vz: 0 };
+            if (artifact) node.artifact = true;
+            return [id, node];
+          }),
+        );
+      nodeStore.current = {
+        key: layoutKey,
+        nodes: memory ? place(memory.nodes, false) : new Map(),
+        artifacts: memory ? place(memory.artifacts, true) : new Map(),
+      };
+    } else if (sameKB(before.key, layoutKey)) {
+      // Another Map of the same KB: the concepts both views draw keep their
+      // places and the scene morphs (setData), instead of growing from a point.
+      nodeStore.current = { key: layoutKey, nodes: before.nodes, artifacts: before.artifacts };
+    } else {
+      nodeStore.current = { key: layoutKey, nodes: new Map(), artifacts: new Map() };
+    }
   }
+  const layoutKeyRef = useRef(layoutKey);
+  layoutKeyRef.current = layoutKey;
+  // Set for the first data a new scene receives: only then is a remembered
+  // camera restored.
+  const restoreNext = useRef<LayoutMemory | null>(null);
   const nodes = useMemo(() => {
     const store = nodeStore.current.nodes;
     const max = Math.max(1, ...snapshot.nodes.map((n) => n.in_degree + n.out_degree));
@@ -393,6 +429,9 @@ function View({
           { live: liveRef.current, reducedMotion },
         );
         sceneRef.current = scene;
+        const memory = recallLayout(layoutKeyRef.current);
+        restoreNext.current = memory;
+        if (memory) savedPose.current = memory.overview;
         setReady((n) => n + 1);
       })
       .catch((err) => {
@@ -404,7 +443,21 @@ function View({
       });
     return () => {
       disposed = true;
-      sceneRef.current?.dispose();
+      const leaving = sceneRef.current;
+      if (leaving) {
+        // The Atlas is being left (another panel, or a scene rebuilt): keep
+        // the settled layout and the camera for the way back. The scene itself
+        // is disposed -- a hidden WebGL context and frame loop is not worth a
+        // faster return.
+        rememberLayout(nodeStore.current.key, {
+          nodes: snapshotPositions(nodeStore.current.nodes),
+          artifacts: snapshotPositions(nodeStore.current.artifacts),
+          pose: leaving.pose(),
+          shift: leaving.shiftPx(),
+          overview: savedPose.current,
+        });
+      }
+      leaving?.dispose();
       sceneRef.current = null;
     };
     // Built once: a new snapshot -- a refresh, or another KB or Map -- goes
@@ -419,6 +472,14 @@ function View({
     const scene = sceneRef.current;
     if (!scene || !ready) return;
     const replace = lastLayout.current !== "" && lastLayout.current !== layoutKey;
+    // A Map of the same KB sharing concepts with what is drawn morphs; any
+    // other new layout (another KB, or nothing in common) opens from its centre.
+    const morph =
+      replace &&
+      sameKB(lastLayout.current, layoutKey) &&
+      snapshot.nodes.some((n) => !hiddenIds.has(n.id) && lastVisible.current.has(n.id));
+    const restore = restoreNext.current;
+    restoreNext.current = null;
     lastLayout.current = layoutKey;
     const visible = snapshot.nodes.filter((n) => !hiddenIds.has(n.id)).map((n) => nodes.get(n.id)!);
     const ids = new Set(visible.map((n) => n.id));
@@ -447,7 +508,10 @@ function View({
     // nearly settled instead.
     const budget = reducedMotion ? 600_000 : 300_000;
     const warmup = Math.round(Math.max(60, Math.min(reducedMotion ? 300 : 150, budget / Math.max(1, visible.length))));
-    scene.setData(visible, links, warmup, replace);
+    scene.setData(visible, links, warmup, replace, {
+      morph,
+      restore: restore ? { pose: restore.pose, shift: restore.shift } : undefined,
+    });
     // A new layout opens out of its centre and the camera follows it as it
     // settles (scene.setData): no timed refit, which would jump.
     // Two frames: the first renders the scene, the second runs after it is painted.

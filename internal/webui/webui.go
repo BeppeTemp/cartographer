@@ -81,10 +81,11 @@ func ReadProvenance() (Provenance, error) {
 
 // skipDir names the directories SourceHash never descends into: npm's install
 // tree, the build output (hashing the bundle into its own provenance would be
-// circular) and editor droppings.
+// circular), editor droppings and agent state an agent session writes into its
+// working directory (.omc), which would make a local bundle disagree with CI.
 func skipDir(name string) bool {
 	switch name {
-	case "node_modules", "dist", ".vite", ".git", "coverage", "playwright-report", "test-results":
+	case "node_modules", "dist", ".vite", ".git", ".omc", "coverage", "playwright-report", "test-results":
 		return true
 	}
 	return false

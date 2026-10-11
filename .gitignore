@@ -39,4 +39,4 @@ dist/
 !internal/webui/dist/
 
 # Local agent-tooling state (oh-my-claudecode), never versioned.
-/.omc/
+.omc/
