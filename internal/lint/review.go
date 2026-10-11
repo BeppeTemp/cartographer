@@ -1011,28 +1011,35 @@ type poorTitle struct{ name, title, reason string }
 func poorMapTitles(named []mapTitle) []poorTitle {
 	var out []poorTitle
 	for _, m := range named {
-		var reasons []string
-		if n := len([]rune(m.title)); n > mapTitleMaxRunes {
-			reasons = append(reasons, fmt.Sprintf("%d characters; map titles are 1-3 words", n))
-		}
-		head := m.title
-		if loc := subtitleSep.FindStringIndex(m.title); loc != nil {
-			head = m.title[:loc[0]]
-			if rest := strings.TrimSpace(m.title[loc[1]:]); len([]rune(rest)) > mapSubtitleMaxRunes {
-				reasons = append(reasons, fmt.Sprintf("a %d-character subtitle is a description, not a qualifier", len([]rune(rest))))
-			}
-		}
-		if i := strings.Index(head, " ("); i >= 0 {
-			head = head[:i]
-		}
-		if slug, folder := slugOf(head), slugOf(m.name); slug != "" && !strings.HasPrefix(slug, folder) && !strings.HasPrefix(folder, slug) {
-			reasons = append(reasons, fmt.Sprintf("does not match folder %q", m.name))
-		}
-		if len(reasons) > 0 {
+		if reasons := MapTitleIssues(m.name, m.title); len(reasons) > 0 {
 			out = append(out, poorTitle{m.name, m.title, strings.Join(reasons, ", ")})
 		}
 	}
 	return out
+}
+
+// MapTitleIssues is the single-title predicate behind poorMapTitles: every
+// reason a map's title is off for the map folder name, empty when it is fine.
+// map_create and map_update use it to warn at write time.
+func MapTitleIssues(name, title string) []string {
+	var reasons []string
+	if n := len([]rune(title)); n > mapTitleMaxRunes {
+		reasons = append(reasons, fmt.Sprintf("%d characters; map titles are 1-3 words", n))
+	}
+	head := title
+	if loc := subtitleSep.FindStringIndex(title); loc != nil {
+		head = title[:loc[0]]
+		if rest := strings.TrimSpace(title[loc[1]:]); len([]rune(rest)) > mapSubtitleMaxRunes {
+			reasons = append(reasons, fmt.Sprintf("a %d-character subtitle is a description, not a qualifier", len([]rune(rest))))
+		}
+	}
+	if i := strings.Index(head, " ("); i >= 0 {
+		head = head[:i]
+	}
+	if slug, folder := slugOf(head), slugOf(name); slug != "" && !strings.HasPrefix(slug, folder) && !strings.HasPrefix(folder, slug) {
+		reasons = append(reasons, fmt.Sprintf("does not match folder %q", name))
+	}
+	return reasons
 }
 
 // slugOf lowercases s, turns spaces into hyphens and drops what is neither a

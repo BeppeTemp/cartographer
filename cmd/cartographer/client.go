@@ -197,14 +197,37 @@ func clientBind(dir string, cfg *clientconfig.Config, args []string) int {
 		fmt.Printf("%s now receives only the KBs bound to it (it previously received every known KB)\n", provider)
 	}
 	// A KB absent from the cached set is not an error: it may be mounted later,
-	// and this command must keep working with no server reachable.
+	// and this command must keep working with no server reachable. The cache is
+	// only refreshed by connect and sync, so a KB created since then is asked
+	// of the server before warning; an unreachable server falls back to it.
 	known := make(map[string]bool, len(cfg.KnownKBs))
 	for _, kb := range cfg.KnownKBs {
 		known[kb] = true
 	}
+	stale := false
+	for _, kb := range kbs {
+		stale = stale || !known[kb]
+	}
+	suffix := ""
+	if stale {
+		facts, err := enumerateKBs(cfg.ServerURL, cfg.Auth, cfg.TokenEnv)
+		switch {
+		case err != nil:
+			suffix = " (server unreachable, using cached list)"
+		case facts.Listed:
+			cfg.KnownKBs = facts.Names
+			known = make(map[string]bool, len(facts.Names))
+			for _, kb := range facts.Names {
+				known[kb] = true
+			}
+			if code := saveClientConfig(dir, cfg); code != 0 {
+				return code
+			}
+		}
+	}
 	for _, kb := range kbs {
 		if !known[kb] {
-			fmt.Fprintf(os.Stderr, "warning: KB %q is not among the KBs the server last advertised\n", kb)
+			fmt.Fprintf(os.Stderr, "warning: KB %q is not among the KBs the server last advertised%s\n", kb, suffix)
 		}
 	}
 

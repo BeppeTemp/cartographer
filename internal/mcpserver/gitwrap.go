@@ -76,7 +76,7 @@ func gitWrap(k *kb.KB, t Tool) Tool {
 					// Step 3: rebase conflict — register conflicts, mark concepts degraded.
 					res = errorResult(conflictMessage(handleConflictError(k, rce)))
 				} else {
-					res = errorResult("git sync (fetch/pull) failed: " + syncErr.Error())
+					res = errorResult(syncFailureMessage(k, syncErr))
 				}
 				return nil
 			}
@@ -276,12 +276,31 @@ func normalizeReason(raw string) string {
 	return reason
 }
 
+// syncFailureMessage words a refused write: when local commits are waiting to
+// be pushed (D311 refuses a write on a base it cannot verify), say plainly that
+// nothing was written and why.
+func syncFailureMessage(k *kb.KB, syncErr error) string {
+	if n := k.GitStatusSnapshot().UnpushedCommits; n != nil && *n > 0 {
+		return fmt.Sprintf("nothing was written: %d local commit(s) are not yet pushed and the remote is unreachable; retry when it is back (git sync (fetch/pull) failed: %s)", *n, syncErr.Error())
+	}
+	return "git sync (fetch/pull) failed: " + syncErr.Error()
+}
+
 func appendSyncWarning(res *ToolResult, k *kb.KB) {
 	s := k.GitStatusSnapshot()
 	if s.State != "failed" && s.State != "pending" && s.State != "degraded" {
 		return
 	}
-	b, _ := json.Marshal(map[string]any{"sync_state": s.State, "last_error": s.LastError})
+	info := map[string]any{"sync_state": s.State, "last_error": s.LastError}
+	if res.CommitSHA != "" {
+		info["committed"] = true
+		info["commit_sha"] = res.CommitSHA
+		if s.UnpushedCommits != nil {
+			info["unpushed_commits"] = *s.UnpushedCommits
+		}
+		info["hint"] = "the change is committed and safe in the local clone; the push is retried on the next write or sync"
+	}
+	b, _ := json.Marshal(info)
 	res.Content = append(res.Content, ContentBlock{Type: "text", Text: string(b)})
 }
 

@@ -856,10 +856,23 @@ func toolMapCreate(k *kb.KB) Tool {
 				"map":    params.Name,
 				"status": "created",
 			}
+			if w := mapTitleWarning(params.Name, params.Title); w != "" {
+				result["warnings"] = []string{w}
+			}
 			out, _ := json.MarshalIndent(result, "", "  ")
 			return textResult(string(out)), nil
 		},
 	}
+}
+
+// mapTitleWarning explains, without refusing, why a map title would be flagged
+// by kb_review (map_naming): "" when the title is fine.
+func mapTitleWarning(name, title string) string {
+	reasons := lint.MapTitleIssues(name, title)
+	if len(reasons) == 0 {
+		return ""
+	}
+	return fmt.Sprintf("map title %q will be flagged by kb_review (%s): a map title is a short name (1-3 words, at most 30 characters, recognisable from the folder %q); put the explanation in the description. Rename with map_update title", title, strings.Join(reasons, "; "), name)
 }
 
 // validateTemplateParams rejects a templates / default_template pair a map
@@ -1206,6 +1219,11 @@ func toolMapUpdate(k *kb.KB) Tool {
 					"forbidden_fields":            nonNilStrings(contract.ForbiddenFields),
 					"machine_path_allow_prefixes": nonNilStrings(contract.MachinePathAllowPrefixes),
 				},
+			}
+			if params.Title != nil {
+				if w := mapTitleWarning(params.Map, title); w != "" {
+					result["warnings"] = []string{w}
+				}
 			}
 			echo := result["contract"].(map[string]interface{})
 			if contract.Index != "" {

@@ -794,3 +794,15 @@ func TestSeriesSiblings(t *testing.T) {
 		}
 	}
 }
+
+func TestMapTitleIssues(t *testing.T) {
+	if got := MapTitleIssues("infra", "Infra"); len(got) != 0 {
+		t.Fatalf("short matching title flagged: %v", got)
+	}
+	if got := MapTitleIssues("infra", "Infrastructure and everything that runs on the cluster"); len(got) == 0 {
+		t.Fatal("long title not flagged")
+	}
+	if got := MapTitleIssues("infra", "Cooking"); len(got) != 1 {
+		t.Fatalf("folder mismatch = %v", got)
+	}
+}

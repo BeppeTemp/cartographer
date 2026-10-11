@@ -233,3 +233,41 @@ func TestConceptDeleteSourceForce(t *testing.T) {
 		t.Fatalf("want deleted with warning: %+v", res)
 	}
 }
+
+func TestSourceRegisterWarnsOverTitleLimit(t *testing.T) {
+	_, s := sourceFixture(t, true)
+	callOK(t, s, "map_update", `{"map":"sources","title_max_length":10}`)
+	out := registerSource(t, s, `{"title":"A title well over ten characters","source_kind":"document"}`)
+	w, _ := out["warnings"].([]interface{})
+	if len(w) != 1 || !strings.Contains(w[0].(string), "title_max_length") || !strings.Contains(w[0].(string), "10") {
+		t.Fatalf("warnings = %v", out["warnings"])
+	}
+	if out := registerSource(t, s, `{"title":"Short","source_kind":"document"}`); out["warnings"] != nil {
+		t.Fatalf("short title warned: %v", out)
+	}
+}
+
+func TestMapCreateUpdateWarnOnPoorTitle(t *testing.T) {
+	_, s := sourceFixture(t, false)
+	var out map[string]interface{}
+	if err := json.Unmarshal([]byte(callOK(t, s, "map_create", `{"name":"infra","title":"Infrastructure: everything that runs on the cluster"}`)), &out); err != nil {
+		t.Fatal(err)
+	}
+	if out["status"] != "created" || out["warnings"] == nil {
+		t.Fatalf("map_create = %v", out)
+	}
+	out = nil
+	if err := json.Unmarshal([]byte(callOK(t, s, "map_update", `{"map":"infra","title":"Infra"}`)), &out); err != nil {
+		t.Fatal(err)
+	}
+	if out["warnings"] != nil {
+		t.Fatalf("good title warned: %v", out["warnings"])
+	}
+	out = nil
+	if err := json.Unmarshal([]byte(callOK(t, s, "map_update", `{"map":"infra","title":"Infrastructure: everything that runs on the cluster"}`)), &out); err != nil {
+		t.Fatal(err)
+	}
+	if out["warnings"] == nil {
+		t.Fatalf("map_update = %v", out)
+	}
+}

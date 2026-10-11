@@ -128,3 +128,34 @@ func TestGitWrap_UnreachableRemoteWriteSucceedsDegraded(t *testing.T) {
 		t.Fatalf("remote %s != local %s: the deferred commit was not pushed", remote, local)
 	}
 }
+
+// A write refused because the fetch failed with local commits unpushed says
+// plainly that nothing was written; the write before it reports the commit as
+// safe locally (committed, commit_sha, unpushed_commits, hint).
+func TestGitWrap_UnreachableRemoteMessagesAreExplicit(t *testing.T) {
+	k, bare := setupGitKBWithRemote(t)
+	k.AutoCommit, k.GitSync, k.SyncOutDebounce = true, true, time.Hour
+	if err := k.SyncOut(); err != nil {
+		t.Fatalf("seed SyncOut: %v", err)
+	}
+	if err := os.Rename(bare, bare+".away"); err != nil {
+		t.Fatal(err)
+	}
+	res := writeWrappedTool(t, k, "test_write", nil)
+	warning := syncWarning(t, res)
+	if warning["committed"] != true || warning["commit_sha"] == "" || warning["hint"] == nil {
+		t.Fatalf("warning = %+v", warning)
+	}
+	if _, ok := warning["unpushed_commits"]; !ok {
+		t.Fatalf("warning lacks unpushed_commits: %+v", warning)
+	}
+	k.SyncInWindow = 0
+	res = writeWrappedTool(t, k, "test_write_again", nil)
+	if !res.IsError {
+		t.Fatalf("second write on an unpushed base accepted: %+v", res)
+	}
+	msg := res.Content[0].Text
+	if !strings.Contains(msg, "nothing was written") || !strings.Contains(msg, "not yet pushed") {
+		t.Fatalf("message = %q", msg)
+	}
+}

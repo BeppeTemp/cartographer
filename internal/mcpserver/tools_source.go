@@ -204,7 +204,15 @@ func toolSourceRegister(k *kb.KB) Tool {
 				return errorResult(fmt.Sprintf("source_register %q: %v", id, err)), nil
 			}
 			_ = k.AppendLog("source_register: "+id, time.Now())
-			out, _ := json.Marshal(map[string]interface{}{"id": id, "duplicate": false})
+			resp := map[string]interface{}{"id": id, "duplicate": false}
+			if contract, cerr := k.ReadMapContract(p.Map); cerr == nil {
+				if limit := lint.EffectiveTitleMaxLength(&contract); limit > 0 {
+					if n := len([]rune(p.Title)); n > limit {
+						resp["warnings"] = []string{fmt.Sprintf("title is %d characters, over the %d-character limit of map %q: lint will flag it (title_quality); shorten it, or raise the limit for this journal with map_update(map: %q, title_max_length: <n>)", n, limit, p.Map, p.Map)}
+					}
+				}
+			}
+			out, _ := json.Marshal(resp)
 			return textResult(string(out)), nil
 		},
 	}

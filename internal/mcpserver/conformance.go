@@ -189,9 +189,12 @@ func doctorDue(lastDoctor string, intervalDays int, now time.Time) bool {
 // doctor_suggested is debt && due (D299): any lint finding the caller can
 // see or any review item, once the KB's doctor interval has passed. Time, not
 // the first warning, decides, so the flag does not stay on for good on a real
-// KB. Every finding counts, not only the conformance checks (D336): the
-// Health panel shows them all, every one has a way out, and a doctor session is
-// done only at zero — a debt that never calls the doctor never gets there.
+// KB. Every warning or error finding counts, not only the conformance checks
+// (D336): the Health panel shows them all, every one has a way out, and a
+// doctor session is done only at zero — a debt that never calls the doctor
+// never gets there. info findings do not count: on a brand-new KB they are
+// the whole list and no session ever ran, so the flag would be on at once and a
+// small model takes the nudge literally. Review items still count.
 //
 // repairable counts, per check, every finding kb_repair can fix — conformance
 // check or not (D331): fixable alone hid stringified_list or title_h1_mismatch
@@ -201,7 +204,11 @@ func summarizeConformance(findings []lint.Finding, reviewTotal int, lastDoctor s
 	acceptability := map[string]string{}
 	fixable := 0
 	repairable := map[string]int{}
+	actionable := 0
 	for _, f := range findings {
+		if f.Severity != "info" {
+			actionable++
+		}
 		if f.Fix != nil {
 			repairable[f.Check]++
 		}
@@ -220,7 +227,7 @@ func summarizeConformance(findings []lint.Finding, reviewTotal int, lastDoctor s
 		"repairable":       repairable,
 		"acceptability":    acceptability,
 		"lint_findings":    len(findings),
-		"doctor_suggested": (len(findings)+reviewTotal) > 0 && doctorDue(lastDoctor, intervalDays, now),
+		"doctor_suggested": (actionable+reviewTotal) > 0 && doctorDue(lastDoctor, intervalDays, now),
 	}
 	if lastDoctor != "" {
 		out["last_doctor"] = lastDoctor

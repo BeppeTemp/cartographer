@@ -225,3 +225,41 @@ func TestCmdClientMutationsDoNotTouchKnownKBs(t *testing.T) {
 		t.Errorf("KnownKBs = %v, want the untouched cache [alpha beta]", cfg.KnownKBs)
 	}
 }
+
+// TestCmdClientBindRefreshesStaleCache: a KB mounted after the last
+// connect/sync is known to the server, so bind must not warn and must cache it.
+func TestCmdClientBindRefreshesStaleCache(t *testing.T) {
+	srv := multiKBServer(t, `{"status":"ok","kbs":[{"name":"alpha"},{"name":"fresh"}]}`)
+	defer srv.Close()
+	dir := writeClientCfg(t, []string{"claude"}, []string{"alpha"}, nil)
+	cfg := loadClientCfg(t, dir)
+	cfg.ServerURL = srv.URL + "/mcp"
+	if err := clientconfig.Save(dir, cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	errOut := withStderr(t, func() {
+		if code := cmdClient([]string{"bind", "claude", "fresh"}); code != 0 {
+			t.Errorf("cmdClient bind = %d, want 0", code)
+		}
+	})
+	if strings.Contains(errOut, "not among the KBs") {
+		t.Errorf("unexpected warning for a mounted KB:\n%s", errOut)
+	}
+	if got := strings.Join(loadClientCfg(t, dir).KnownKBs, ","); got != "alpha,fresh" {
+		t.Errorf("cache not refreshed: %q", got)
+	}
+}
+
+// TestCmdClientBindUnreachableServerKeepsWarning: with no server the cached
+// list decides and the warning says so.
+func TestCmdClientBindUnreachableServerKeepsWarning(t *testing.T) {
+	writeClientCfg(t, []string{"claude"}, []string{"alpha"}, nil)
+	errOut := withStderr(t, func() {
+		cmdClient([]string{"bind", "claude", "ghost"})
+	})
+	if !strings.Contains(errOut, "not among the KBs the server last advertised") ||
+		!strings.Contains(errOut, "server unreachable, using cached list") {
+		t.Errorf("expected the cached-list warning, got:\n%s", errOut)
+	}
+}
