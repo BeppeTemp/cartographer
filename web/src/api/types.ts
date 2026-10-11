@@ -212,7 +212,8 @@ export interface SearchHit {
 export interface SearchResponse {
   query: string;
   count: number;
-  results: SearchHit[];
+  /** null when nothing matched. */
+  results: SearchHit[] | null;
 }
 
 /** GET /kbs/{kb}/changes: changes_since's own response. */

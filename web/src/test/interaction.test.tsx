@@ -1,10 +1,11 @@
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { CommandPalette } from "../components/CommandPalette";
 import { NodeList } from "../components/NodeList";
 import { LeftRail } from "../components/LeftRail";
 import { Health } from "../components/Health";
+import { json, stubApi } from "./fixtures";
 import type { GraphNode, KBStatus, LintReport, MaintenanceReview, MaintenanceSummary, Overview } from "../api/types";
 
 const nodes: GraphNode[] = [
@@ -55,6 +56,17 @@ describe("command palette", () => {
     render(<CommandPalette open nodes={nodes} onClose={vi.fn()} onSelect={vi.fn()} />);
     await user.type(screen.getByRole("textbox", { name: /search concepts/i }), "zzz");
     expect(screen.getByText(/no concept matches/i)).toBeInTheDocument();
+  });
+
+  it("survives a full-text search that finds nothing (the server sends results: null)", async () => {
+    const fetchMock = stubApi({ "/search": () => json({ query: "zzz", count: 0, results: null }) });
+    const user = userEvent.setup();
+    render(<CommandPalette open kb="kb-a" nodes={nodes} onClose={vi.fn()} onSelect={vi.fn()} />);
+    await user.type(screen.getByRole("textbox", { name: /search concepts/i }), "zzz");
+    await waitFor(() => expect(fetchMock.mock.calls.some(([u]) => String(u).includes("/search"))).toBe(true));
+    await new Promise((r) => setTimeout(r, 20));
+    expect(screen.getByText(/no concept matches/i)).toBeInTheDocument();
+    vi.unstubAllGlobals();
   });
 });
 

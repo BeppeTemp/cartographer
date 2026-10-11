@@ -78,7 +78,8 @@ export function CommandPalette({ open, kb = null, nodes, onClose, onSelect }: Pr
     const controller = new AbortController();
     const timer = window.setTimeout(() => {
       fetchSearch(kb, needle, controller.signal)
-        .then((r) => setTextHits(r.results))
+        // No hit comes back as `results: null` (the search tool's own encoding).
+        .then((r) => setTextHits(r.results ?? []))
         .catch(() => undefined);
     }, TEXT_DEBOUNCE_MS);
     return () => {
