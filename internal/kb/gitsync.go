@@ -408,6 +408,7 @@ func (k *KB) SyncOut() error {
 			return k.divergedError(diverged, attempt)
 		}
 		if pushErr == nil {
+			k.recordPushSuccess()
 			k.setGitStatus("clean", nil, attempt)
 			return nil
 		}
@@ -546,6 +547,7 @@ func (k *KB) syncOutServer(remote string) error {
 	for attempt := 1; attempt <= syncOutMaxAttempts; attempt++ {
 		pushErr := gitx.Push(k.Root, remote, branch, k.GitEnv...)
 		if pushErr == nil {
+			k.recordPushSuccess() // the push happened even if the forge step fails
 			ctx, cancel := serverGitContext()
 			forgeErr := k.syncServerPR(ctx)
 			cancel()

@@ -2074,6 +2074,9 @@ func TestServer_KBStatus_NoRemote(t *testing.T) {
 		"git_profile":      `"local"`,
 		"git_sync":         "false",
 		"unpushed_commits": "null",
+		"behind_commits":   "null",
+		"last_push_at":     "null",
+		"last_sync_in_at":  "null",
 	} {
 		got, ok := result[field]
 		if !ok {
