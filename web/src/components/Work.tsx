@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import { fetchWork } from "../api/client";
 import type { CollectionSummary, WorkEntry, WorkResponse } from "../api/types";
 import { collectionVar } from "../lib/palette";
+import { ErrorState } from "./States";
 import {
   Count,
   FilterChip,
@@ -52,7 +53,8 @@ export function Work({
   onOpen(conceptId: string): void;
 }) {
   const [data, setData] = useState<WorkResponse | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<unknown>(null);
+  const [attempt, setAttempt] = useState(0);
   const [layout, setLayout] = useState<Layout>("status");
   const [map, setMap] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
@@ -69,13 +71,16 @@ export function Work({
   useEffect(() => {
     const controller = new AbortController();
     fetchWork(kb, controller.signal)
-      .then(setData)
+      .then((res) => {
+        setData(res);
+        setError(null);
+      })
       .catch((err: unknown) => {
         if (err instanceof DOMException && err.name === "AbortError") return;
-        setError(err instanceof Error ? err.message : String(err));
+        setError(err);
       });
     return () => controller.abort();
-  }, [kb, live]);
+  }, [kb, live, attempt]);
 
   const mapTitles = useMemo(() => new Map(collections.map((c) => [c.name, c.title || c.name])), [collections]);
   const titleOfMap = (m: string) => (m ? (mapTitles.get(m) ?? m) : "(root)");
@@ -117,7 +122,7 @@ export function Work({
     <Page label="Open work" className="work">
       <PageHeader
         eyebrow="Work"
-        title={<Headline data={data} />}
+        title={<Headline data={data} failed={error !== null} />}
         help={
           <p>
             A concept is open work when its status is listed in the map&apos;s open_statuses, or is one of the default open
@@ -185,7 +190,7 @@ export function Work({
       )}
 
       {error ? (
-        <p className="page-note">Could not read the work list: {error}</p>
+        <ErrorState error={error} onRetry={() => setAttempt((n) => n + 1)} />
       ) : !data ? (
         <SkeletonRows label="Reading the work list" />
       ) : data.total === 0 ? (
@@ -341,8 +346,8 @@ function groupOf(e: WorkEntry): string {
   return e.open_phase ? statusOf(e) : ITEMS_ONLY;
 }
 
-function Headline({ data }: { data: WorkResponse | null }) {
-  if (!data) return <>Reading the work list…</>;
+function Headline({ data, failed }: { data: WorkResponse | null; failed: boolean }) {
+  if (!data) return <>{failed ? "Work list unavailable" : "Reading the work list…"}</>;
   if (data.total === 0) return <>Nothing is open.</>;
   return (
     <>

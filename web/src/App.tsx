@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties }
 import {
   ApiError,
   clearToken,
+  hasToken,
   fetchBirths,
   fetchChecks,
   fetchConcept,
@@ -213,8 +214,11 @@ export function App() {
    *  user comes back to the concept they were reading, not to a blank atlas. */
   const handleFailure = useCallback((err: unknown) => {
     if (err instanceof ApiError && err.isUnauthorized) {
+      // Only a token that was actually sent and refused is a rejection; the
+      // first call to a protected server carries none.
+      const sent = hasToken();
       clearToken();
-      setAuthRejected(true);
+      setAuthRejected(sent);
       setPhase("auth");
       return true;
     }

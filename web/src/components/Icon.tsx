@@ -36,7 +36,9 @@ export type IconName =
   | "eye-off"
   | "copy"
   | "lock"
-  | "unlock";
+  | "unlock"
+  | "alert"
+  | "offline";
 
 const PATHS: Record<IconName, string> = {
   // Three places and the routes between them.
@@ -83,6 +85,8 @@ const PATHS: Record<IconName, string> = {
     "M2.5 12s3.5-6.5 9.5-6.5 9.5 6.5 9.5 6.5-3.5 6.5-9.5 6.5S2.5 12 2.5 12z M12 14.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5z M4 4l16 16",
   copy: "M9 9h10.5v10.5H9z M5 15V4.5h10.5",
   lock: "M6 11h12v9H6z M8.5 11V8a3.5 3.5 0 0 1 7 0v3",
+  alert: "M12 4 3.5 19h17z M12 10v4 M12 16.5h.01",
+  offline: "M3.5 3.5l17 17 M7 18.5h9.5a3.5 3.5 0 0 0 1.6-6.6 M6.2 9.4A5.5 5.5 0 0 0 7 18.5 M9.5 6.2A5.5 5.5 0 0 1 17.8 10.2",
   unlock: "M6 11h12v9H6z M8.5 11V8a3.5 3.5 0 0 1 6.8-1.2",
 };
 

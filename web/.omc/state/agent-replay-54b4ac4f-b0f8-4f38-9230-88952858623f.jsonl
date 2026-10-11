@@ -1,0 +1,3 @@
+{"t":0,"agent":"ae1ccd0","agent_type":"live-implementer","event":"agent_start","parent_mode":"none"}
+{"t":0,"agent":"ae8babf","agent_type":"live-implementer","event":"agent_stop","success":true,"duration_ms":31696}
+{"t":0,"agent":"ae1ccd0","agent_type":"live-implementer","event":"agent_stop","success":true,"duration_ms":59208}

@@ -3,6 +3,7 @@ import { fetchChanges } from "../api/client";
 import type { ChangesResponse, CollectionSummary, ConceptChange, GraphSnapshot } from "../api/types";
 import { changedAt, changeKind, mostWorked, shownReasons, type ChangeKind } from "../lib/activity";
 import { collectionVar } from "../lib/palette";
+import { ErrorState } from "./States";
 import {
   Avatar,
   Count,
@@ -78,7 +79,8 @@ export function Activity({
   // old answer stays (dimmed) and keeps describing itself correctly.
   const [shown, setShown] = useState<Window>(since);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<unknown>(null);
+  const [attempt, setAttempt] = useState(0);
   // The server's own upkeep is counted apart and listed only on request: it
   // can touch every concept in a morning without anyone learning anything.
   const [showUpkeep, setShowUpkeep] = useState(false);
@@ -101,13 +103,13 @@ export function Activity({
       })
       .catch((err: unknown) => {
         if (err instanceof DOMException && err.name === "AbortError") return;
-        setError(err instanceof Error ? err.message : String(err));
+        setError(err);
       })
       .finally(() => {
         if (!controller.signal.aborted) setLoading(false);
       });
     return () => controller.abort();
-  }, [kb, since, live]);
+  }, [kb, since, live, attempt]);
 
   const titles = useMemo(
     () => new Map((snapshot?.nodes ?? []).filter((n) => n.title).map((n) => [n.id, n.title!])),
@@ -156,6 +158,7 @@ export function Activity({
         title={
           <Headline
             data={data}
+            failed={error !== null}
             n={filtered.length - upkeep}
             since={shown}
             author={author}
@@ -249,7 +252,7 @@ export function Activity({
         )}
 
         {error ? (
-          <p className="page-note">Could not read the history: {error}</p>
+          <ErrorState error={error} onRetry={() => setAttempt((n) => n + 1)} />
         ) : !data ? (
           <SkeletonRows label="Reading the history" />
         ) : rows.length === 0 ? (
@@ -517,18 +520,20 @@ function when(since: Window): string {
 /** The headline says it in words; the count leads. */
 function Headline({
   data,
+  failed,
   n,
   since,
   author,
   mapTitle,
 }: {
   data: ChangesResponse | null;
+  failed: boolean;
   n: number;
   since: Window;
   author: string | null;
   mapTitle: string | null | undefined;
 }) {
-  if (!data) return <>Reading the history…</>;
+  if (!data) return <>{failed ? "History unavailable" : "Reading the history…"}</>;
   const who = author ? ` by ${author}` : "";
   const where = mapTitle ? ` in ${mapTitle}` : "";
   if (n === 0) return <>{`Nothing edited${where}${who} ${when(since)}.`}</>;

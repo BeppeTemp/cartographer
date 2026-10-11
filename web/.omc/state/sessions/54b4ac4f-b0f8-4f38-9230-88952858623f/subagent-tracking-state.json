@@ -1,0 +1,17 @@
+{
+  "agents": [
+    {
+      "agent_id": "ae1ccd0eb2b0c142c",
+      "agent_type": "live-implementer",
+      "started_at": "2026-10-11T06:42:32.684Z",
+      "parent_mode": "none",
+      "status": "completed",
+      "completed_at": "2026-10-11T06:43:31.892Z",
+      "duration_ms": 59208
+    }
+  ],
+  "total_spawned": 1,
+  "total_completed": 2,
+  "total_failed": 0,
+  "last_updated": "2026-10-11T06:43:31.896Z"
+}

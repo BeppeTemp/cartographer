@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { ApiError } from "../api/client";
+import { Icon } from "./Icon";
 
 /**
  * Every non-happy path is a designed state, not a blank panel. They live
@@ -62,16 +63,29 @@ export function EmptyState({
  */
 export function ErrorState({ error, onRetry }: { error: unknown; onRetry?: () => void }) {
   const { title, detail } = describe(error);
+  const offline = error instanceof ApiError && error.isOffline;
+  const tech = error instanceof ApiError && error.status > 0 ? `HTTP ${error.status} · ${error.code}` : null;
   return (
     <div className="state state--error" role="alert">
+      <ErrorGlyph name={offline ? "offline" : "alert"} />
       <p className="state__title">{title}</p>
       <p className="state__detail">{detail}</p>
+      {tech && <p className="state__tech">{tech}</p>}
       {onRetry && (
         <button type="button" className="button" onClick={onRetry}>
           Try again
         </button>
       )}
     </div>
+  );
+}
+
+/** The soft tinted circle above an error title; shared with the ErrorBoundary page. */
+export function ErrorGlyph({ name = "alert" }: { name?: "alert" | "offline" }) {
+  return (
+    <span className="state__glyph" aria-hidden="true">
+      <Icon name={name} size={22} />
+    </span>
   );
 }
 
