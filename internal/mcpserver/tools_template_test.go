@@ -202,3 +202,94 @@ func TestConceptNewMissingTemplateListsSortedAndTruncated(t *testing.T) {
 		t.Fatalf("missing template response: %+v", tr.Content)
 	}
 }
+
+func TestConceptNewListVars(t *testing.T) {
+	k := setupTestKB(t)
+	if err := os.MkdirAll(filepath.Join(k.Root, "templates"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	templates := map[string]string{
+		"whole":    "---\ntype: Note\ntitle: t\nroles: {{roles}}\n---\nbody\n",
+		"flow":     "---\ntype: Note\ntitle: t\nroles: [owner, {{roles}}, last]\n---\nbody\n",
+		"block":    "---\ntype: Note\ntitle: t\nroles:\n- owner\n- {{roles}}\n- last\n---\nbody\n",
+		"single":   "---\ntype: Note\ntitle: t\nroles: [{{roles}}]\n---\nbody\n",
+		"embedded": "---\ntype: Note\ntitle: Runbook {{roles}}\n---\nbody\n",
+		"itemtext": "---\ntype: Note\ntitle: t\nroles: [x {{roles}}]\n---\nbody\n",
+		"inbody":   "---\ntype: Note\ntitle: t\nroles: [x]\n---\nuse {{roles}}\n",
+	}
+	for name, content := range templates {
+		if err := os.WriteFile(filepath.Join(k.Root, "templates", name+".md"), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	s := New("test")
+	RegisterKBTools(s, k, Deps{})
+	call := func(args map[string]any) ToolResult {
+		return decodeToolResult(t, runMCPSequence(t, s, []string{initMsg, artifactCallMsg(t, 2, "concept_new", args)})[1])
+	}
+	roles := func(id string) []string {
+		t.Helper()
+		data, err := k.ReadConcept(okf.ConceptID(id))
+		if err != nil {
+			t.Fatal(err)
+		}
+		fm, err := okf.ParseFrontmatter(data.FrontmatterRaw)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got, _ := fm.Get("roles")
+		switch v := got.(type) {
+		case []string:
+			return v
+		case nil:
+			return nil
+		}
+		t.Fatalf("roles = %#v, not a list", got)
+		return nil
+	}
+	ok := func(tpl, id string, vars map[string]any) []string {
+		t.Helper()
+		if tr := call(map[string]any{"template": tpl, "id": id, "vars": vars}); tr.IsError {
+			t.Fatalf("%s: %+v", tpl, tr.Content)
+		}
+		return roles(id)
+	}
+	eq := func(got, want []string) {
+		t.Helper()
+		if strings.Join(got, "|") != strings.Join(want, "|") || len(got) != len(want) {
+			t.Fatalf("got %#v want %#v", got, want)
+		}
+	}
+	eq(ok("whole", "n/whole", map[string]any{"roles": []string{"a", "b, c", "{{x}}"}}), []string{"a", "b, c", "{{x}}"})
+	eq(ok("flow", "n/flow", map[string]any{"roles": []string{"a", "b"}}), []string{"owner", "a", "b", "last"})
+	eq(ok("block", "n/block", map[string]any{"roles": []string{"a", "b"}}), []string{"owner", "a", "b", "last"})
+	eq(ok("whole", "n/empty-whole", map[string]any{"roles": []string{}}), []string{})
+	eq(ok("flow", "n/empty-flow", map[string]any{"roles": []string{}}), []string{"owner", "last"})
+	// Regression: a string stays one scalar item.
+	eq(ok("single", "n/string", map[string]any{"roles": "a, b"}), []string{"a, b"})
+
+	for _, c := range []struct{ tpl, where string }{
+		{"embedded", `frontmatter "title"`}, {"itemtext", `frontmatter "roles"`}, {"inbody", "body"},
+	} {
+		id := "n/bad-" + c.tpl
+		tr := call(map[string]any{"template": c.tpl, "id": id, "vars": map[string]any{"roles": []string{"a"}}})
+		if !tr.IsError || !containsText(tr, `"roles"`) || !containsText(tr, c.where) {
+			t.Fatalf("%s: %+v", c.tpl, tr.Content)
+		}
+		if _, err := k.ReadConcept(okf.ConceptID(id)); !errors.Is(err, okf.ErrNotFound) {
+			t.Fatalf("%s: concept written, err=%v", c.tpl, err)
+		}
+	}
+	for _, bad := range []any{1, nil, []any{1}, []any{nil}, map[string]any{}} {
+		tr := call(map[string]any{"template": "whole", "id": "n/invalid", "vars": map[string]any{"roles": bad}})
+		if !tr.IsError || !containsText(tr, "invalid params") {
+			t.Fatalf("%#v: %+v", bad, tr.Content)
+		}
+	}
+	if tr := call(map[string]any{"template": "whole", "id": "n/m", "vars": map[string]any{}}); !tr.IsError || !containsText(tr, "missing") {
+		t.Fatalf("missing: %+v", tr.Content)
+	}
+	if tr := call(map[string]any{"template": "whole", "id": "n/e", "vars": map[string]any{"roles": []string{"a"}, "oops": []string{"x"}}}); !tr.IsError || !containsText(tr, "unexpected") {
+		t.Fatalf("extra: %+v", tr.Content)
+	}
+}
