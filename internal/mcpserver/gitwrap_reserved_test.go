@@ -155,7 +155,56 @@ func TestGitWrap_UnreachableRemoteMessagesAreExplicit(t *testing.T) {
 		t.Fatalf("second write on an unpushed base accepted: %+v", res)
 	}
 	msg := res.Content[0].Text
-	if !strings.Contains(msg, "nothing was written") || !strings.Contains(msg, "not yet pushed") {
+	if !strings.Contains(msg, "nothing was written") || !strings.Contains(msg, "not yet pushed") || strings.Contains(msg, "unreachable") {
 		t.Fatalf("message = %q", msg)
+	}
+}
+
+// Pending is the normal debounced push: the response keeps the pre-hint shape.
+func TestGitWrap_PendingPushHasNoCommitHint(t *testing.T) {
+	k, _ := setupGitKBWithRemote(t)
+	k.AutoCommit, k.GitSync, k.SyncOutDebounce = true, true, time.Hour
+	res := writeWrappedTool(t, k, "test_write", nil)
+	if res.IsError {
+		t.Fatalf("write failed: %+v", res)
+	}
+	if len(res.Content) != 2 {
+		return // clean: nothing to warn about, also the pre-hint shape
+	}
+	w := syncWarning(t, res)
+	if w["sync_state"] != "pending" {
+		t.Fatalf("warning = %+v", w)
+	}
+	for _, key := range []string{"committed", "commit_sha", "unpushed_commits", "hint"} {
+		if _, ok := w[key]; ok {
+			t.Fatalf("pending warning carries %q: %+v", key, w)
+		}
+	}
+}
+
+// A degraded state from a registered rebase conflict refuses the next write:
+// the "retried on the next write" hint would be false.
+func TestGitWrap_ConflictDegradedHasNoCommitHint(t *testing.T) {
+	k, bare := setupGitKBWithRemote(t)
+	k.AutoCommit, k.GitSync, k.SyncOutDebounce = true, true, time.Hour
+	if err := k.SyncOut(); err != nil {
+		t.Fatalf("seed SyncOut: %v", err)
+	}
+	if err := os.Rename(bare, bare+".away"); err != nil {
+		t.Fatal(err)
+	}
+	res := writeWrappedTool(t, k, "test_write", func() {
+		if err := k.RegisterConflict(kb.Conflict{ConceptID: "ops/runbook"}); err != nil {
+			t.Fatal(err)
+		}
+	})
+	w := syncWarning(t, res)
+	if w["sync_state"] != "degraded" {
+		t.Fatalf("warning = %+v", w)
+	}
+	for _, key := range []string{"committed", "commit_sha", "unpushed_commits", "hint"} {
+		if _, ok := w[key]; ok {
+			t.Fatalf("conflict-degraded warning carries %q: %+v", key, w)
+		}
 	}
 }

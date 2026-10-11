@@ -856,7 +856,7 @@ func toolMapCreate(k *kb.KB) Tool {
 				"map":    params.Name,
 				"status": "created",
 			}
-			if w := mapTitleWarning(params.Name, params.Title); w != "" {
+			if w := mapTitleWarning(k, params.Name, params.Title); w != "" {
 				result["warnings"] = []string{w}
 			}
 			out, _ := json.MarshalIndent(result, "", "  ")
@@ -865,14 +865,19 @@ func toolMapCreate(k *kb.KB) Tool {
 	}
 }
 
-// mapTitleWarning explains, without refusing, why a map title would be flagged
-// by kb_review (map_naming): "" when the title is fine.
-func mapTitleWarning(name, title string) string {
+// mapTitleWarning explains, without refusing, why kb_review would flag a map
+// title (map_naming): "" when the title is fine or the map's own lint_ignore
+// dismisses map_naming.
+func mapTitleWarning(k *kb.KB, name, title string) string {
+	title = strings.TrimSpace(title)
 	reasons := lint.MapTitleIssues(name, title)
 	if len(reasons) == 0 {
 		return ""
 	}
-	return fmt.Sprintf("map title %q will be flagged by kb_review (%s): a map title is a short name (1-3 words, at most 30 characters, recognisable from the folder %q); put the explanation in the description. Rename with map_update title", title, strings.Join(reasons, "; "), name)
+	if meta, err := k.ReadArchiveMeta(name); err == nil && lint.MapIgnoresCheck(meta, "map_naming") {
+		return ""
+	}
+	return fmt.Sprintf("kb_review flags map titles like this (map_naming): %q is off (%s); a map title is a short name recognisable from the folder %q, the explanation goes in the description. Rename with map_update title", title, strings.Join(reasons, "; "), name)
 }
 
 // validateTemplateParams rejects a templates / default_template pair a map
@@ -1221,7 +1226,7 @@ func toolMapUpdate(k *kb.KB) Tool {
 				},
 			}
 			if params.Title != nil {
-				if w := mapTitleWarning(params.Map, title); w != "" {
+				if w := mapTitleWarning(k, params.Map, title); w != "" {
 					result["warnings"] = []string{w}
 				}
 			}

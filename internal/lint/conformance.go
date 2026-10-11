@@ -942,3 +942,16 @@ func containsWord(s, word string) bool {
 		from = end
 	}
 }
+
+// TitleTextIssues exports titleTextIssues for the write-time warnings
+// (source_register): every title_quality problem of a title under a map
+// contract, one message each. hasStatus: the concept carries a status field.
+func TitleTextIssues(contract *kb.MapContract, hasStatus bool, title string) []string {
+	return titleTextIssues(contract, hasStatus, title)
+}
+
+// MapIgnoresCheck reports whether a map descriptor's lint_ignore (D306)
+// silences check for the whole map.
+func MapIgnoresCheck(meta *okf.Frontmatter, check string) bool {
+	return lintIgnoreSet(meta)[check]
+}

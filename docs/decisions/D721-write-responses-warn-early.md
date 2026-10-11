@@ -7,12 +7,13 @@ topic: control-plane
 **Decision.** A write response says what the agent would otherwise learn later and by
 other means. `map_create` and `map_update` add a `warnings` entry when the title is one
 `kb_review` would flag as `map_naming`. `source_register` adds one when the title is
-longer than the effective `title_quality` limit of the sources map. A write whose push
-failed reports `committed`, `commit_sha`, `unpushed_commits` and a hint that the
+flagged `title_quality` (length, decoration, forbidden terms) under the sources map contract. A write whose push
+failed for a reason other than a conflict reports `committed`, `commit_sha`, `unpushed_commits` and a hint that the
 commit is safe in the local clone. A write refused by D311, because local commits are
-unpushed and the remote is unreachable, says that nothing was written and why.
-`doctor_suggested` no longer counts `info` findings. `client bind` asks the server for
-the mounted KBs before it warns that a KB is unknown.
+unpushed, says that nothing was written and that syncing failed, with the error.
+`doctor_suggested` ignores `info` findings only while no doctor session has ever run.
+`client bind` asks the server for the mounted KBs before it warns that a KB is unknown,
+without rewriting the cached list (`sync` owns it).
 
 **Why.** An agent importing a large source corpus learned each of these only
 afterwards: from a `kb_review` run over hundreds of pages, from `git status` in a clone
@@ -30,11 +31,14 @@ already existed in each case; the agent just heard about it too late.
 - Leaving `info` findings in `doctor_suggested` and waiting a grace period after the
   KB is created: on a new KB `info` findings are the whole list, so the grace period
   would only delay the same false nudge.
-- Refreshing the `client bind` cache on every bind: one more round trip in the common
-  case, where the KB is already in the cache.
+- Refreshing the `client bind` cache on every bind, or persisting the fresh list: the
+  cache belongs to `sync` together with the routed path.
+- Excluding `info` findings from `doctor_suggested` for good: an established KB with
+  only repairable info debt (`link_to_retired`) would never be nudged (D336).
 
 **Consequences.** `MapTitleIssues` and `EffectiveTitleMaxLength` in `internal/lint`
 are now the single home of these rules: `kb_review`, `title_quality` and the write
 warnings must keep calling them, never copies. Every `warnings` array is advisory: a
-client that ignores it behaves as before. `doctor_suggested` turns on only for
-warning or error findings, or for review items.
+client that ignores it behaves as before. Before the first doctor session
+`doctor_suggested` turns on only for warning or error findings, or for review items;
+afterwards every finding counts.

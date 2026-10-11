@@ -192,9 +192,11 @@ func doctorDue(lastDoctor string, intervalDays int, now time.Time) bool {
 // KB. Every warning or error finding counts, not only the conformance checks
 // (D336): the Health panel shows them all, every one has a way out, and a
 // doctor session is done only at zero — a debt that never calls the doctor
-// never gets there. info findings do not count: on a brand-new KB they are
-// the whole list and no session ever ran, so the flag would be on at once and a
-// small model takes the nudge literally. Review items still count.
+// never gets there. info findings count only once a doctor session
+// has run: on a brand-new KB they are the whole list and no session ever ran,
+// so the flag would be on at once and a small model takes the nudge literally;
+// an established KB with only repairable info debt is still nudged. Review
+// items always count.
 //
 // repairable counts, per check, every finding kb_repair can fix — conformance
 // check or not (D331): fixable alone hid stringified_list or title_h1_mismatch
@@ -206,7 +208,7 @@ func summarizeConformance(findings []lint.Finding, reviewTotal int, lastDoctor s
 	repairable := map[string]int{}
 	actionable := 0
 	for _, f := range findings {
-		if f.Severity != "info" {
+		if f.Severity != "info" || lastDoctor != "" {
 			actionable++
 		}
 		if f.Fix != nil {

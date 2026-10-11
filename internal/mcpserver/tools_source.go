@@ -206,10 +206,12 @@ func toolSourceRegister(k *kb.KB) Tool {
 			_ = k.AppendLog("source_register: "+id, time.Now())
 			resp := map[string]interface{}{"id": id, "duplicate": false}
 			if contract, cerr := k.ReadMapContract(p.Map); cerr == nil {
-				if limit := lint.EffectiveTitleMaxLength(&contract); limit > 0 {
-					if n := len([]rune(p.Title)); n > limit {
-						resp["warnings"] = []string{fmt.Sprintf("title is %d characters, over the %d-character limit of map %q: lint will flag it (title_quality); shorten it, or raise the limit for this journal with map_update(map: %q, title_max_length: <n>)", n, limit, p.Map, p.Map)}
-					}
+				ignored := false
+				if meta, merr := k.ReadArchiveMeta(p.Map); merr == nil {
+					ignored = lint.MapIgnoresCheck(meta, "title_quality")
+				}
+				if issues := lint.TitleTextIssues(&contract, false, p.Title); len(issues) > 0 && !ignored {
+					resp["warnings"] = []string{fmt.Sprintf("lint will flag this title (title_quality): %s; shorten or rename it, or for length raise the limit of this journal with map_update(map: %q, title_max_length: <n>)", strings.Join(issues, "; "), p.Map)}
 				}
 			}
 			out, _ := json.Marshal(resp)

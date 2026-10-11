@@ -281,7 +281,7 @@ func normalizeReason(raw string) string {
 // nothing was written and why.
 func syncFailureMessage(k *kb.KB, syncErr error) string {
 	if n := k.GitStatusSnapshot().UnpushedCommits; n != nil && *n > 0 {
-		return fmt.Sprintf("nothing was written: %d local commit(s) are not yet pushed and the remote is unreachable; retry when it is back (git sync (fetch/pull) failed: %s)", *n, syncErr.Error())
+		return fmt.Sprintf("nothing was written: %d local commit(s) are not yet pushed and syncing with the remote failed: %s; fix the cause, then retry", *n, syncErr.Error())
 	}
 	return "git sync (fetch/pull) failed: " + syncErr.Error()
 }
@@ -292,7 +292,16 @@ func appendSyncWarning(res *ToolResult, k *kb.KB) {
 		return
 	}
 	info := map[string]any{"sync_state": s.State, "last_error": s.LastError}
-	if res.CommitSHA != "" {
+	// The commit hint only when the push failed for a non-conflict reason:
+	// pending is the normal debounced push, and a conflict-degraded KB refuses
+	// the next write, so "retried on the next write" would be false.
+	pushFailed := s.State == "failed"
+	if s.State == "degraded" {
+		if cs, err := k.ListConflicts(); err == nil && len(cs) == 0 {
+			pushFailed = true
+		}
+	}
+	if res.CommitSHA != "" && pushFailed {
 		info["committed"] = true
 		info["commit_sha"] = res.CommitSHA
 		if s.UnpushedCommits != nil {

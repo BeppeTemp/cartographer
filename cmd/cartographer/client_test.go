@@ -227,7 +227,8 @@ func TestCmdClientMutationsDoNotTouchKnownKBs(t *testing.T) {
 }
 
 // TestCmdClientBindRefreshesStaleCache: a KB mounted after the last
-// connect/sync is known to the server, so bind must not warn and must cache it.
+// connect/sync is known to the server, so bind must not warn; the cache stays
+// as it was (sync owns it).
 func TestCmdClientBindRefreshesStaleCache(t *testing.T) {
 	srv := multiKBServer(t, `{"status":"ok","kbs":[{"name":"alpha"},{"name":"fresh"}]}`)
 	defer srv.Close()
@@ -246,8 +247,8 @@ func TestCmdClientBindRefreshesStaleCache(t *testing.T) {
 	if strings.Contains(errOut, "not among the KBs") {
 		t.Errorf("unexpected warning for a mounted KB:\n%s", errOut)
 	}
-	if got := strings.Join(loadClientCfg(t, dir).KnownKBs, ","); got != "alpha,fresh" {
-		t.Errorf("cache not refreshed: %q", got)
+	if got := strings.Join(loadClientCfg(t, dir).KnownKBs, ","); got != "alpha" {
+		t.Errorf("bind rewrote the cache: %q", got)
 	}
 }
 
@@ -259,7 +260,8 @@ func TestCmdClientBindUnreachableServerKeepsWarning(t *testing.T) {
 		cmdClient([]string{"bind", "claude", "ghost"})
 	})
 	if !strings.Contains(errOut, "not among the KBs the server last advertised") ||
-		!strings.Contains(errOut, "server unreachable, using cached list") {
+		!strings.Contains(errOut, "could not read the server's KB list") ||
+		!strings.Contains(errOut, "using the cached list") {
 		t.Errorf("expected the cached-list warning, got:\n%s", errOut)
 	}
 }

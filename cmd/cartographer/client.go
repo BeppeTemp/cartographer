@@ -199,7 +199,9 @@ func clientBind(dir string, cfg *clientconfig.Config, args []string) int {
 	// A KB absent from the cached set is not an error: it may be mounted later,
 	// and this command must keep working with no server reachable. The cache is
 	// only refreshed by connect and sync, so a KB created since then is asked
-	// of the server before warning; an unreachable server falls back to it.
+	// of the server before warning; the fresh list only decides the warning,
+	// as sync owns the cache with the routed path. If the list cannot be read
+	// the cached one decides.
 	known := make(map[string]bool, len(cfg.KnownKBs))
 	for _, kb := range cfg.KnownKBs {
 		known[kb] = true
@@ -213,15 +215,11 @@ func clientBind(dir string, cfg *clientconfig.Config, args []string) int {
 		facts, err := enumerateKBs(cfg.ServerURL, cfg.Auth, cfg.TokenEnv)
 		switch {
 		case err != nil:
-			suffix = " (server unreachable, using cached list)"
+			suffix = fmt.Sprintf(" (could not read the server's KB list: %v; using the cached list)", err)
 		case facts.Listed:
-			cfg.KnownKBs = facts.Names
 			known = make(map[string]bool, len(facts.Names))
 			for _, kb := range facts.Names {
 				known[kb] = true
-			}
-			if code := saveClientConfig(dir, cfg); code != 0 {
-				return code
 			}
 		}
 	}
