@@ -30,6 +30,7 @@ would flip a matrix cell is confirmed with a probe
   (dist-tags `latest`, `next`, `stable`); docs <https://code.claude.com/docs/en/memory>,
   `/sub-agents`, `/skills`, `/hooks`, `/mcp`, `/settings` under the same prefix.
 - **Depends on**:
+  - Project server over the global one (D717 WP0): `shadows` — unverified, docs only (2026-10-11): <https://code.claude.com/docs/en/mcp> §Scope hierarchy, local > project > user, matched by name, the whole entry from the winning scope is used, fields are not merged. Not probed: what a session uses while the project entry is still pending approval. The only client that gets a workspace entry.
   - `skill`/`agent`/`hook` in `~/.claude/{skills,agents,hooks}/`, project-local in
     `.claude/…` (D137, D193); `mcp` in `~/.claude.json` (project: `.mcp.json`);
     `instructions` in `~/.claude/CLAUDE.md` (project: `CLAUDE.md`).
@@ -91,6 +92,7 @@ would flip a matrix cell is confirmed with a probe
   <https://learn.chatgpt.com/docs/hooks>,
   <https://learn.chatgpt.com/docs/extend/mcp?surface=cli>.
 - **Depends on**:
+  - Project server over the global one (D717 WP0): `untestable`, treated as not shadowing — unverified (2026-10-11): <https://learn.chatgpt.com/docs/config-file/config-basic> ranks a trusted project `.codex/config.toml` above the global one but does not say whether `mcp_servers.<name>` is replaced or field-merged. No workspace entry until probed.
   - `skill` global `~/.codex/skills/` (deliberate divergence from the documented
     `$HOME/.agents/skills`, still the only documented user path, D192, guarded by
     `clientcompat_test.go`); project `.agents/skills/` (D193).
@@ -145,6 +147,7 @@ would flip a matrix cell is confirmed with a probe
   <https://kiro.dev/docs/hooks/> and <https://kiro.dev/docs/cli/v3/hooks-migration/>
   (all cited in D195/D140); version: `brew info --cask kiro-cli`.
 - **Depends on**:
+  - Project server over the global one (D717 WP0): `untestable`, treated as not shadowing — unverified (2026-10-11): <https://kiro.dev/docs/mcp/configuration/> says configurations are merged, workspace first, without saying entry-level or field-level. No workspace entry until probed.
   - `agent` as JSON (`name`/`description`/`prompt`) in `~/.kiro/agents/`,
     workspace `.kiro/agents/` wins over global (D195); native restriction keys
     believed to be `tools`/`allowedTools` (D291, not verified).
@@ -202,6 +205,7 @@ would flip a matrix cell is confirmed with a probe
   <https://opencode.ai/docs/agents>, `/skills`, `/plugins`, `/mcp-servers`,
   `/rules`, `/config`.
 - **Depends on**:
+  - Project server over the global one (D717 WP0): `untestable`, treated as not shadowing — unverified (2026-10-11): <https://opencode.ai/docs/config> merges files, project highest, only conflicting keys overridden; deep vs shallow merge of `mcp` not documented (a global `headers` could survive). No workspace entry until probed.
   - `agent` global `~/.config/opencode/agents/` (the `config` directory of
     `opencode debug paths`, probed on 2.0.25 and the documented 1.x path, D360,
     guarded by `clientcompat_test.go`; `~/.opencode/agent/` is not loaded on 2.x):
@@ -302,6 +306,7 @@ would flip a matrix cell is confirmed with a probe
   there), `/docs/skills`, `/docs/subagents`, `/docs/hooks`, `/docs/mcp`; installed
   version source: `unverified`.
 - **Depends on** (what the matrix encodes; D193/D207, not re-probed):
+  - Project server over the global one (D717 WP0): `untestable`, treated as not shadowing — unverified (2026-10-11): <https://antigravity.google/docs/mcp> lists both files with no precedence or merge rule. No workspace entry until probed.
   - Global, under `~/.gemini`: `skill` `config/skills`, `agent`
     `config/agents` (Markdown: `name`, `description`, `mainAgent: false`,
     `subagent: true`), `hook` `config/hooks` registered in
@@ -350,6 +355,7 @@ would flip a matrix cell is confirmed with a probe
   <https://charm.land/crush.json>; package: Homebrew tap
   `charmbracelet/tap/crush`, npm `@charmland/crush` (not in homebrew-core).
 - **Depends on**:
+  - Project server over the global one (D717 WP0): `untestable`, treated as not shadowing — unverified (2026-10-11): JSON precedence and same-name `mcp` entries are not documented. No workspace entry until probed.
   - `mcp` in `~/.config/crush/crush.json` — JSON Crush documents as deprecated (no
     new options) in favour of `crushrc`, a Bash file Cartographer refuses to
     write; `$VAR` form for values, `$(` refused (D225). JSON is still read and
