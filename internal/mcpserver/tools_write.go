@@ -1,6 +1,7 @@
 package mcpserver
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -111,16 +112,20 @@ func toolConceptNew(k *kb.KB, sim *similarFinder, facts *factFinder) Tool {
 			"properties": {
 				"template":{"type":"string"},
 				"id":{"type":"string"},
-				"vars":{"type":"object","additionalProperties":{"type":"string"}}
+				"vars":{"type":"object","additionalProperties":{"type":["string","array"],"items":{"type":"string"}}}
 			}
 		}`),
 		Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
 			var params struct {
-				Template string            `json:"template"`
-				ID       string            `json:"id"`
-				Vars     map[string]string `json:"vars"`
+				Template string                     `json:"template"`
+				ID       string                     `json:"id"`
+				Vars     map[string]json.RawMessage `json:"vars"`
 			}
 			if err := json.Unmarshal(args, &params); err != nil {
+				return errorResult("invalid params: " + err.Error()), nil
+			}
+			scalars, lists, err := splitTemplateVars(params.Vars)
+			if err != nil {
 				return errorResult("invalid params: " + err.Error()), nil
 			}
 			if params.Template == "" {
@@ -195,18 +200,36 @@ func toolConceptNew(k *kb.KB, sim *similarFinder, facts *factFinder) Tool {
 			}
 			for _, key := range fm.Keys() {
 				value, _ := fm.Get(key)
+				where := fmt.Sprintf("frontmatter %q", key)
 				switch v := value.(type) {
 				case string:
-					fm.Set(key, renderTemplateText(v, params.Vars))
+					if items, ok := wholeListVar(v, lists); ok {
+						fm.Set(key, append([]string{}, items...))
+						continue
+					}
+					if err := refuseListVar(v, lists, where); err != nil {
+						return errorResult(err.Error()), nil
+					}
+					fm.Set(key, renderTemplateText(v, scalars))
 				case []string:
-					rendered := make([]string, len(v))
-					for i, item := range v {
-						rendered[i] = renderTemplateText(item, params.Vars)
+					rendered := make([]string, 0, len(v))
+					for _, item := range v {
+						if items, ok := wholeListVar(item, lists); ok {
+							rendered = append(rendered, items...)
+							continue
+						}
+						if err := refuseListVar(item, lists, where); err != nil {
+							return errorResult(err.Error()), nil
+						}
+						rendered = append(rendered, renderTemplateText(item, scalars))
 					}
 					fm.Set(key, rendered)
 				}
 			}
-			body = renderTemplateText(body, params.Vars)
+			if err := refuseListVar(body, lists, "body"); err != nil {
+				return errorResult(err.Error()), nil
+			}
+			body = renderTemplateText(body, scalars)
 			for _, key := range fm.Keys() {
 				if lint.IsToolParamField(key) {
 					return errorResult(fmt.Sprintf("concept_new: template %q: frontmatter key %q is a tool parameter, not a field — pass it as a top-level argument", params.Template, key)), nil
@@ -233,6 +256,71 @@ func toolConceptNew(k *kb.KB, sim *similarFinder, facts *factFinder) Tool {
 			return textResult(string(out)), nil
 		},
 	}
+}
+
+// splitTemplateVars sorts the raw vars into string and list-of-strings values;
+// anything else (number, null, object, a non-string list item) is an error.
+func splitTemplateVars(raw map[string]json.RawMessage) (map[string]string, map[string][]string, error) {
+	scalars := map[string]string{}
+	lists := map[string][]string{}
+	for name, msg := range raw {
+		bad := fmt.Errorf("vars[%q] must be a string or a list of strings", name)
+		trimmed := bytes.TrimSpace(msg)
+		if len(trimmed) == 0 {
+			return nil, nil, bad
+		}
+		switch trimmed[0] {
+		case '"':
+			var v string
+			if err := json.Unmarshal(trimmed, &v); err != nil {
+				return nil, nil, bad
+			}
+			scalars[name] = v
+		case '[':
+			var v []*string
+			if err := json.Unmarshal(trimmed, &v); err != nil {
+				return nil, nil, bad
+			}
+			items := make([]string, len(v))
+			for i, item := range v {
+				if item == nil {
+					return nil, nil, bad
+				}
+				items[i] = *item
+			}
+			lists[name] = items
+		default:
+			return nil, nil, bad
+		}
+	}
+	return scalars, lists, nil
+}
+
+// wholeListVar reports the items of a list var when text is exactly its
+// placeholder: the only position with one unambiguous YAML rendering (D715).
+func wholeListVar(text string, lists map[string][]string) (items []string, ok bool) {
+	text = strings.TrimSpace(text)
+	if !strings.HasPrefix(text, "{{") || !strings.HasSuffix(text, "}}") {
+		return nil, false
+	}
+	items, ok = lists[text[2:len(text)-2]]
+	return items, ok
+}
+
+// refuseListVar errors when text references a list var anywhere but as a
+// whole value; no separator is invented. Names come from validateTemplateText
+// (the template is already validated, so it cannot fail).
+func refuseListVar(text string, lists map[string][]string, where string) error {
+	if len(lists) == 0 {
+		return nil
+	}
+	names, _ := validateTemplateText(text)
+	for _, name := range names {
+		if _, isList := lists[name]; isList {
+			return fmt.Errorf("concept_new: template var %q is a list but the template uses it outside a whole frontmatter value (%s)", name, where)
+		}
+	}
+	return nil
 }
 
 func templateVariableDiff(wanted, provided []string) (missing, extra []string) {

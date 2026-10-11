@@ -25,7 +25,10 @@ const (
 	//
 	// 25.5 KiB since D315: map_update gained title_max_length and
 	// forbidden_title_terms (+0.1 KiB of schema, no description grew).
-	toolsListBudgetBytes   = 25*1024 + 512
+	//
+	// 26 KiB since D715: concept_new's vars schema accepts a string or a list
+	// of strings (+17 bytes over the budget; no description grew).
+	toolsListBudgetBytes   = 26 * 1024
 	toolDescriptionMaxChar = 600
 )
 

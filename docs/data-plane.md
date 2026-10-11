@@ -605,6 +605,8 @@ A page's template resolves in this order: its `shape` when it names an existing 
 
 A template declares its schema with flat dotted keys in its own frontmatter (a nested block stays opaque to the parser); `artifact_write` refuses an unknown `x-template.*` key, a wrong value kind, a placeholder in metadata, an optional section or alias canonical that is not an H2, and an alias that is another section's name or listed twice. `concept_new` strips every one before rendering and stamps `shape`; `template_list` returns them.
 
+A template variable can also take a list of strings from `concept_new` (D715): write `key: {{name}}` or a list item `- {{name}}` / `[a, {{name}}]` as the whole value; the caller's value decides the kind, a list anywhere else is refused.
+
 | Key | Meaning |
 |---|---|
 | `x-template.description` | one line |
