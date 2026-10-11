@@ -55,6 +55,20 @@ describe("the rail's Maps open the Atlas", () => {
   });
 });
 
+describe("the brand", () => {
+  it("returns to the Atlas on All, nothing selected", async () => {
+    open("?kb=kb-a&scope=infra&concept=infra/a");
+    stubLint();
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: /back to the atlas/ }));
+    expect(window.location.search).not.toContain("scope=");
+    expect(window.location.search).not.toContain("concept=");
+    const rail = await screen.findByRole("navigation", { name: "Atlas navigation" });
+    expect(within(rail).getByRole("button", { name: /^All/ })).toHaveAttribute("aria-current", "true");
+  });
+});
+
 describe("Health filters by Map in the page", () => {
   it("narrows with the page field's Maps and round-trips through the URL", async () => {
     open("?kb=kb-a&panel=health");

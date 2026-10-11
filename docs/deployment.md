@@ -547,7 +547,7 @@ colour, and a KB's health is read on the Health panel (D307). The legend folds t
 switch and counts, remembered per browser (`cartographer.panel.legend`). Ctrl/Cmd+K searches titles and ids at once and, after a
 pause in typing, the full text through the `search` tool, showing the excerpt
 that matched; it is the way to a concept, and there is no concept list beside
-the canvas. The brand in the top bar returns to the atlas, the server's version
+the canvas. The brand in the top bar returns to the atlas on *All*, nothing selected; the server's version
 sits beside the theme switch, and the connection status appears only when the
 server is unreachable. The rail lists the KB's Maps and Journals in two
 groups, *All* first, each with its count; a click always opens the Atlas on

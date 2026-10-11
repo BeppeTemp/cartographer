@@ -683,7 +683,7 @@ export function App() {
         onKBChange={(name) => navigate({ kb: name, scope: null, concept: null, artifact: null, hmap: null })}
         onThemeChange={setTheme}
         onOpenPalette={() => setPaletteOpen(true)}
-        onHome={() => navigate({ panel: "atlas", concept: null, artifact: null })}
+        onHome={() => navigate({ panel: "atlas", scope: null, concept: null, artifact: null })}
         onOpenNav={() => setSheet("nav")}
         onOpenInspector={() => setSheet("inspector")}
       />
