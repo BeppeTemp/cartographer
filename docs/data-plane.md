@@ -445,7 +445,7 @@ projections of it. This catalogue is generated from it (a test fails when it dri
 | `cut_concept` | info | graph | concept | - | - | - |
 | `island` | info | graph | concept | - | - | - |
 | `map_misfit` | info | graph | concept | - | - | - |
-| `unknown_type` | warning (info outside strict maps, D688) | graph | concept | `set_value` | - | - |
+| `unknown_type` | warning | graph | concept | `set_value` | - | - |
 | `value_case_variant` | warning | graph | concept | `set_value` | yes | - |
 | `contract_malformed` | info | map | none | - | - | - |
 | `facet_sprawl` | info | map | map | - | - | - |
