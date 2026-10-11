@@ -58,4 +58,5 @@ Rules to keep the code consistent. New code should resemble the existing code.
   (tests). The shipped bundle vendors
   every asset: no CDN, no remote font, no runtime network call outside the
   Cartographer origin.
+- `web/` formatting: `web/.prettierrc` sets Prettier's print width to 120, the style of `web/src`; `web/.prettierignore` leaves out `web/src/test`. Prettier is not a dependency and no gate checks it: format the files you touch (`cd web && npx prettier --write <file>`), never the whole tree (#706).
 - Platform-specific code is a build-tagged file pair with an identical helper surface (`internal/kb/lockfile_unix.go` and `lockfile_windows.go`), never a `runtime.GOOS` branch inside shared code: the compiler then checks both platforms and `GOOS=windows go vet ./...` is a real gate.
