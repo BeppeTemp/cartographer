@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type PointerEvent } from "react";
 import { TAKO_CONFETTI, TAKO_LINES, TAKO_TICKER, TAKO_TIPS, type Egg } from "../lib/eggs";
 
 /**
@@ -7,13 +7,16 @@ import { TAKO_CONFETTI, TAKO_LINES, TAKO_TICKER, TAKO_TIPS, type Egg } from "../
  * the mirror ball; in tako mode the octopus mascot, the confetti, the ticker
  * and the button every vibe-coded app ships with.
  */
-export function Eggs({ on, onOff }: { on: ReadonlySet<Egg>; onOff(egg: Egg): void }) {
+export function Eggs({ on, still, onOff }: { on: ReadonlySet<Egg>; still: boolean; onOff(egg: Egg): void }) {
   useEffect(() => {
     for (const egg of ["glass", "tako"] as const) document.body.classList.toggle(`egg-${egg}`, on.has(egg));
-  }, [on]);
+    // The Atlas's own Motion switch stills them too, not only the system's
+    // reduced-motion setting (eggs.css).
+    document.body.classList.toggle("egg-still", still);
+  }, [on, still]);
   useEffect(
     () => () => {
-      document.body.classList.remove("egg-glass", "egg-tako");
+      document.body.classList.remove("egg-glass", "egg-tako", "egg-still");
     },
     [],
   );
@@ -54,21 +57,25 @@ function TakoBanner({ onOff }: { onOff(): void }) {
     const timer = window.setInterval(() => setLine((l) => (l + 1) % TAKO_LINES.length), 2600);
     return () => window.clearInterval(timer);
   }, []);
-  // The button runs from the pointer; after a few tries it gives up and
-  // lets itself be pressed, which turns the mode off.
-  const flee = () => {
-    if (++dodges.current > 6) return;
-    setDodge({ x: Math.round((Math.random() - 0.5) * 260), y: Math.round((Math.random() - 0.5) * 80) });
+  // The button runs from a mouse (never from a touch, where the tap would be
+  // lost), a little, inside its card; after a few tries it gives up and lets
+  // itself be pressed, which turns the mode off. The ✕ always does.
+  const flee = (event: PointerEvent<HTMLButtonElement>) => {
+    if (event.pointerType !== "mouse" || ++dodges.current > 6) return;
+    setDodge({ x: Math.round((Math.random() - 0.5) * 140), y: Math.round((Math.random() - 0.5) * 16) });
   };
   return (
     <div className="eggs__card eggs__card--tako">
+      <button type="button" className="eggs__off eggs__off--corner" onClick={onOff} aria-label="Turn tako mode off">
+        ✕
+      </button>
       <span className="eggs__tako-title">✨ UI perfetta, generata in 3 minuti ✨</span>
       <span className="eggs__tako-line">{TAKO_LINES[line]}</span>
       <button
         type="button"
         className="eggs__ship"
         style={{ transform: `translate(${dodge.x}px, ${dodge.y}px)` }}
-        onMouseEnter={flee}
+        onPointerEnter={flee}
         onClick={onOff}
       >
         Ship it 🚀

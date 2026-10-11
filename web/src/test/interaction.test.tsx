@@ -58,6 +58,27 @@ describe("command palette", () => {
     expect(screen.getByText(/no concept matches/i)).toBeInTheDocument();
   });
 
+  it("puts a secret phrase's row on top and keeps a concept named like it reachable", async () => {
+    const onEgg = vi.fn();
+    const onSelect = vi.fn();
+    const user = userEvent.setup();
+    const named: GraphNode[] = [...nodes, { id: "notes/glass", title: "Liquid glass", collection: "notes", type: "Note", in_degree: 0, out_degree: 0 }];
+    const { unmount } = render(<CommandPalette open nodes={named} onClose={vi.fn()} onSelect={onSelect} onEgg={onEgg} />);
+    const input = screen.getByRole("textbox", { name: /search concepts/i });
+    await user.type(input, "liquid glass");
+    expect(screen.getAllByRole("option")).toHaveLength(2);
+    await user.keyboard("{ArrowDown}{Enter}");
+    expect(onSelect).toHaveBeenCalledWith("notes/glass");
+    expect(onEgg).not.toHaveBeenCalled();
+    unmount();
+
+    render(<CommandPalette open nodes={named} onClose={vi.fn()} onSelect={onSelect} onEgg={onEgg} />);
+    await user.type(screen.getByRole("textbox", { name: /search concepts/i }), "liquid glass");
+    expect(screen.getByRole("textbox", { name: /search concepts/i })).toHaveAttribute("aria-activedescendant", "palette-option-0");
+    await user.keyboard("{Enter}");
+    expect(onEgg).toHaveBeenCalledWith(["glass"]);
+  });
+
   it("survives a full-text search that finds nothing (the server sends results: null)", async () => {
     const fetchMock = stubApi({ "/search": () => json({ query: "zzz", count: 0, results: null }) });
     const user = userEvent.setup();

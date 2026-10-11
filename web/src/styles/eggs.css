@@ -39,14 +39,12 @@
    round every edge, lights sweeping the page and a mirror ball hung under
    the top bar. */
 
+/* Not inherited, and animated only on what reads it (the rims, the rays,
+   the ball): animated on <body>, every element would restyle every frame. */
 @property --egg-angle {
   syntax: "<angle>";
-  inherits: true;
+  inherits: false;
   initial-value: 0deg;
-}
-
-body.egg-glass {
-  animation: egg-spin 8s linear infinite;
 }
 
 @keyframes egg-spin {
@@ -119,6 +117,7 @@ body.egg-glass :is(.topbar, .rail, .overlay, .legend, .graph-toolbar, .palette, 
   -webkit-mask-composite: xor;
   pointer-events: none;
   filter: drop-shadow(0 0 6px rgb(240 171 252 / 0.8));
+  animation: egg-spin 8s linear infinite;
 }
 
 /* Inside them, every control and box is a bubble of the same glass. */
@@ -213,6 +212,7 @@ body.egg-glass .main canvas {
     transparent 16deg 30deg
   );
   mask-image: radial-gradient(circle, black 0 15%, transparent 55%);
+  animation: egg-spin 8s linear infinite;
 }
 
 @keyframes egg-sweep {
@@ -268,7 +268,9 @@ body.egg-glass .main canvas {
     0 0 30px rgb(255 255 255 / 0.55),
     0 0 90px rgb(240 171 252 / 0.45),
     0 0 160px rgb(147 197 253 / 0.35);
-  animation: egg-turn 2.4s linear infinite;
+  animation:
+    egg-turn 2.4s linear infinite,
+    egg-spin 8s linear infinite;
 }
 
 /* Glints on the mirrors, twinkling. */
@@ -564,5 +566,54 @@ body.egg-tako .main canvas {
 
   .egg-confetti {
     display: none;
+  }
+}
+
+/* The Atlas's Motion switch off stills them as the system setting does. */
+body.egg-still,
+body.egg-still .shell,
+body.egg-still .egg-lights,
+body.egg-still .egg-disco,
+body.egg-still .egg-disco__ball,
+body.egg-still .egg-disco__ball::after,
+body.egg-still .eggs__card--tako {
+  animation: none;
+}
+
+body.egg-still .eggs__ship {
+  transition: none;
+}
+
+body.egg-still .tako-mascot__octopus,
+body.egg-still .tako-mascot__bubble,
+body.egg-still .egg-ticker span {
+  animation: none;
+}
+
+body.egg-still .egg-confetti {
+  display: none;
+}
+
+.eggs__card--tako {
+  position: relative;
+}
+
+.eggs__off--corner {
+  position: absolute;
+  inset-block-start: var(--space-1);
+  inset-inline-end: var(--space-2);
+  color: white;
+}
+
+/* The rims and the rays turn on their own animation (see @property above). */
+body.egg-still :is(.topbar, .rail, .overlay, .legend, .graph-toolbar, .palette, .eggs__card--glass)::before,
+body.egg-still .egg-lights::before {
+  animation: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body.egg-glass :is(.topbar, .rail, .overlay, .legend, .graph-toolbar, .palette, .eggs__card--glass)::before,
+  .egg-lights::before {
+    animation: none;
   }
 }

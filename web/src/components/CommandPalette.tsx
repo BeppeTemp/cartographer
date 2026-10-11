@@ -77,7 +77,8 @@ export function CommandPalette({ open, kb = null, nodes, onClose, onSelect, onEg
   useEffect(() => {
     const needle = query.trim();
     setTextHits([]);
-    if (!open || !kb || needle.length < 2) return;
+    // A secret phrase (lib/eggs.ts) is not a search worth sending.
+    if (!open || !kb || needle.length < 2 || eggsFor(needle)) return;
     const controller = new AbortController();
     const timer = window.setTimeout(() => {
       fetchSearch(kb, needle, controller.signal)
@@ -148,7 +149,11 @@ export function CommandPalette({ open, kb = null, nodes, onClose, onSelect, onEg
   }, [cursor]);
 
   if (!open) return null;
+  // A secret phrase adds its row on top; the concepts it matches stay below,
+  // so a concept named like it can still be opened.
   const egg = onEgg ? eggsFor(query) : null;
+  const offset = egg ? 1 : 0;
+  const rows = results.length + offset;
 
   const commit = (id: string | undefined) => {
     if (!id) return;
@@ -181,45 +186,57 @@ export function CommandPalette({ open, kb = null, nodes, onClose, onSelect, onEg
           placeholder="Search concepts — titles, ids and full text"
           aria-label="Search concepts by title, id or text"
           aria-controls="palette-results"
-          aria-activedescendant={results[cursor] ? `palette-option-${cursor}` : undefined}
+          aria-activedescendant={cursor < rows ? `palette-option-${cursor}` : undefined}
           autoComplete="off"
           spellCheck={false}
           onChange={(event) => setQuery(event.target.value)}
           onKeyDown={(event) => {
             if (event.key === "ArrowDown") {
               event.preventDefault();
-              setCursor((c) => Math.min(c + 1, results.length - 1));
+              setCursor((c) => Math.min(c + 1, rows - 1));
             } else if (event.key === "ArrowUp") {
               event.preventDefault();
               setCursor((c) => Math.max(c - 1, 0));
             } else if (event.key === "Enter") {
               event.preventDefault();
-              if (egg) {
+              if (egg && cursor === 0) {
                 onEgg?.(egg);
                 onClose();
-              } else commit(results[cursor]?.id);
+              } else commit(results[cursor - offset]?.id);
             }
           }}
         />
         <ul id="palette-results" className="palette__results" role="listbox" ref={listRef}>
-          {egg ? (
-            <li id="palette-option-0" className="palette__result palette__result--egg" role="option" aria-selected="true">
+          {egg && (
+            <li
+              id="palette-option-0"
+              className="palette__result palette__result--egg"
+              role="option"
+              aria-selected={cursor === 0}
+              onMouseEnter={() => setCursor(0)}
+              onMouseDown={(event) => {
+                event.preventDefault();
+                onEgg?.(egg);
+                onClose();
+              }}
+            >
               <span className="palette__text">
                 <span className="palette__label">✨ Something is hiding here — press Enter</span>
               </span>
             </li>
-          ) : results.length === 0 ? (
+          )}
+          {egg && results.length === 0 ? null : results.length === 0 ? (
             <li className="palette__empty">No concept matches &ldquo;{query}&rdquo;.</li>
           ) : (
             results.map((row, index) => (
               <li
                 key={row.id}
-                id={`palette-option-${index}`}
+                id={`palette-option-${index + offset}`}
                 data-concept-id={row.id}
                 role="option"
-                aria-selected={index === cursor}
+                aria-selected={index + offset === cursor}
                 className="palette__result"
-                onMouseEnter={() => setCursor(index)}
+                onMouseEnter={() => setCursor(index + offset)}
                 onMouseDown={(event) => {
                   event.preventDefault();
                   commit(row.id);

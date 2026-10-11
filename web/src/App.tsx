@@ -885,16 +885,7 @@ export function App() {
         onSelect={openFromPalette}
         onEgg={(asked) => setEggs((on) => toggleEggs(on, asked))}
       />
-      <Eggs
-        on={eggs}
-        onOff={(egg) =>
-          setEggs((on) => {
-            const next = new Set(on);
-            next.delete(egg);
-            return next;
-          })
-        }
-      />
+      <Eggs on={eggs} still={!motion} onOff={(egg) => setEggs((on) => toggleEggs(on, [egg]))} />
     </div>
   );
 }
