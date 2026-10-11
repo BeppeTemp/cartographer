@@ -51,10 +51,14 @@ export function CommandPalette({ open, kb = null, nodes, onClose, onSelect }: Pr
   const inputRef = useRef<HTMLInputElement | null>(null);
   const listRef = useRef<HTMLUListElement | null>(null);
   const restoreFocusTo = useRef<Element | null>(null);
+  // A pick hands focus to its target (the inspector), so the close must not
+  // pull it back to the element that opened the palette.
+  const picked = useRef(false);
 
   useEffect(() => {
     if (!open) return;
     restoreFocusTo.current = document.activeElement;
+    picked.current = false;
     setQuery("");
     setCursor(0);
     // The effect runs after mount, so the input is already in the tree: focus
@@ -63,7 +67,7 @@ export function CommandPalette({ open, kb = null, nodes, onClose, onSelect }: Pr
     return () => {
       // Focus goes back where it came from: leaving it on <body> strands a
       // keyboard user at the top of the document.
-      (restoreFocusTo.current as HTMLElement | null)?.focus?.();
+      if (!picked.current) (restoreFocusTo.current as HTMLElement | null)?.focus?.();
     };
   }, [open]);
 
@@ -143,6 +147,7 @@ export function CommandPalette({ open, kb = null, nodes, onClose, onSelect }: Pr
 
   const commit = (id: string | undefined) => {
     if (!id) return;
+    picked.current = true;
     onSelect(id);
     onClose();
   };

@@ -30,9 +30,11 @@ describe("the shell boots", () => {
 
     // If this never appears, the tree threw during render -- the black-page
     // failure this test exists for.
-    expect(await screen.findByRole("banner")).toBeInTheDocument();
-    expect(await screen.findByRole("navigation", { name: /atlas navigation/i })).toBeInTheDocument();
+    // The booting skeleton already has a banner and a rail, so wait for the
+    // graph first: only the real shell has it.
     expect(await screen.findByTestId("graph-view")).toBeInTheDocument();
+    expect(screen.getByRole("banner")).toBeInTheDocument();
+    expect(screen.getByRole("navigation", { name: /atlas navigation/i })).toBeInTheDocument();
   });
 
   it("lists the visible collections with their counts", async () => {

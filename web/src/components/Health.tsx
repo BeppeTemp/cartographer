@@ -49,6 +49,7 @@ export function Health({
   summary,
   checks,
   review = null,
+  pending = false,
   scopeTitle,
   allFindings = null,
   collections = [],
@@ -68,6 +69,9 @@ export function Health({
   checks?: CheckCatalog | null;
   /** The doctor's proposals beyond lint (D704); null leaves them out. */
   review?: MaintenanceReview | null;
+  /** The review and the checks are still being read: the headline, which
+   *  counts the review and sits beside the checks' switch, waits for them. */
+  pending?: boolean;
   /** Title of the Map the agenda is scoped to; null = whole KB. */
   scopeTitle: string | null;
   /** The unfiltered findings: the picker counts over them, so a filter never hides its siblings. */
@@ -92,6 +96,11 @@ export function Health({
     setFocusRaw(pages && pages.size > 0 ? pages : null);
     setFocusTone(tone);
   };
+
+  // The headline counts lint and the doctor's proposals, which arrive in
+  // separate requests: it waits until both have answered or failed, so the
+  // numbers never change under the reader.
+  const settled = !!report && !pending;
 
   const groups = useMemo(() => groupFindings(report?.findings ?? []), [report]);
   const proposals = useMemo(() => groupReview(review?.items ?? [], hmap), [review, hmap]);
@@ -128,7 +137,7 @@ export function Health({
       <PageHeader
         eyebrow="Health"
         title={
-          !report ? (
+          !settled ? (
             <>Reading the KB&apos;s health…</>
           ) : tab === "checks" ? (
             <>What Cartographer checks</>
@@ -142,7 +151,7 @@ export function Health({
           )
         }
         actions={
-          checks && report ? (
+          checks && settled ? (
             <Segmented<"agenda" | "checks">
               label="Health view"
               value={tab}
@@ -163,7 +172,7 @@ export function Health({
       />
       {/* Below the header, not its subtitle: the header's controls sit on the
         title line on every page, and a subtitle would push them down. */}
-      {report && (
+      {settled && (
         <p className="health__lede">
           {tab === "checks"
             ? "Every page is read against fixed rules. This is what they look for, and what they found here."
@@ -173,7 +182,7 @@ export function Health({
         </p>
       )}
 
-      {tab === "checks" && checks && report ? (
+      {tab === "checks" && checks && settled ? (
         <Coverage catalog={checks} report={report} review={review?.items ?? []} trend={summary?.lint_history} />
       ) : (
         <>

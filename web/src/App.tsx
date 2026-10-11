@@ -44,7 +44,7 @@ import { Activity } from "./components/Activity";
 import { Work } from "./components/Work";
 import { NodeList } from "./components/NodeList";
 import { Health } from "./components/Health";
-import { EmptyState, ErrorState, GraphSeed, Skeleton } from "./components/States";
+import { EmptyState, ErrorState, GraphSeed, ShellSkeleton } from "./components/States";
 import { TopBar } from "./components/TopBar";
 import {
   applyTheme,
@@ -125,6 +125,8 @@ export function App() {
   const [checks, setChecks] = useState<CheckCatalog | null>(null);
   // The doctor's agenda beyond lint (D704); null leaves it out of Health.
   const [review, setReview] = useState<MaintenanceReview | null>(null);
+  // Health's review and checks have answered (or failed) for the current read.
+  const [healthSettled, setHealthSettled] = useState(false);
   // The KB Health's reads above belong to (D704).
   const healthKB = useRef<string | null>(null);
   const [motion, setMotion] = useState(() => initialMotion(readPanel("motion", true), prefersReducedMotion()));
@@ -438,6 +440,7 @@ export function App() {
       setMaintenance(null);
       setChecks(null);
       setReview(null);
+      setHealthSettled(false);
       return;
     }
     // Another KB: nothing of the previous one may stay on screen while (or if)
@@ -448,6 +451,7 @@ export function App() {
       setMaintenance(null);
       setChecks(null);
       setReview(null);
+      setHealthSettled(false);
     }
     const controller = new AbortController();
     fetchStatus(activeKB, controller.signal)
@@ -459,12 +463,13 @@ export function App() {
         if (!controller.signal.aborted) handleFailure(err);
       });
     // The coverage list: without it Health simply leaves the section out.
-    fetchChecks(activeKB, controller.signal)
-      .then(setChecks)
-      .catch(() => undefined);
-    fetchMaintenanceReview(activeKB, controller.signal)
-      .then(setReview)
-      .catch(() => undefined);
+    const sources = [
+      fetchChecks(activeKB, controller.signal).then(setChecks),
+      fetchMaintenanceReview(activeKB, controller.signal).then(setReview),
+    ];
+    void Promise.allSettled(sources).then(() => {
+      if (!controller.signal.aborted) setHealthSettled(true);
+    });
     return () => controller.abort();
   }, [view.panel, activeKB, phase, handleFailure, reloadKey, live]);
 
@@ -570,6 +575,16 @@ export function App() {
     });
   }, [selectConcept, view.concept]);
 
+  /** The palette opened a concept: focus goes to the inspector's heading, not
+   *  back to whatever had it before (the rail's "All"). */
+  const openFromPalette = useCallback(
+    (id: string) => {
+      selectConcept(id);
+      window.requestAnimationFrame(() => document.querySelector<HTMLElement>(".inspector__title")?.focus());
+    },
+    [selectConcept],
+  );
+
   const expandConcept = useCallback(
     (id: string) => {
       const collection = snapshot?.nodes.find((node) => node.id === id)?.collection;
@@ -579,7 +594,7 @@ export function App() {
   );
 
   if (phase === "booting") {
-    return <Skeleton lines={4} label="Connecting to Cartographer" />;
+    return <ShellSkeleton label="Connecting to Cartographer" narrow={narrow} railCollapsed={railCollapsed} />;
   }
 
   if (phase === "auth") {
@@ -715,6 +730,7 @@ export function App() {
               summary={maintenance}
               checks={checks}
               review={review}
+              pending={!healthSettled}
               scopeTitle={
                 view.hmap ? overview?.collections.find((c) => c.name === view.hmap)?.title || view.hmap : null
               }
@@ -855,7 +871,7 @@ export function App() {
         kb={activeKB}
         nodes={visibleNodes}
         onClose={() => setPaletteOpen(false)}
-        onSelect={selectConcept}
+        onSelect={openFromPalette}
       />
     </div>
   );

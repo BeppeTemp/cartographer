@@ -326,6 +326,26 @@ a {
   }
 }
 
+/* Shell skeleton: the real shell's classes carry the layout; these only size
+   the placeholders that stand where content will land. */
+.shell-skeleton__brand {
+  cursor: default;
+}
+
+.shell-skeleton__block {
+  display: block;
+  max-width: 100%;
+}
+
+.shell-skeleton__picker {
+  width: 180px;
+  height: 36px;
+}
+
+.shell-skeleton__search {
+  cursor: default;
+}
+
 .banner {
   display: flex;
   align-items: flex-start;

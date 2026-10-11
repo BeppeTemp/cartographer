@@ -123,7 +123,7 @@ function communityRows(communities: Communities, snapshot: GraphSnapshot): { row
   let tail = 0;
   for (const c of communities.list) {
     if (c.slot === OTHER_SLOT) tail += c.size;
-    else rows.push({ key: `c${c.rank}`, slot: c.slot, label: titles.get(c.anchor) ?? shortLabel(c.anchor), count: c.size });
+    else rows.push({ key: `c${c.rank}`, slot: c.slot, label: c.anchorTitle || titles.get(c.anchor) || shortLabel(c.anchor), count: c.size });
   }
   return { rows, tail };
 }

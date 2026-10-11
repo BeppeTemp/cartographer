@@ -323,7 +323,8 @@ func (kb *KB) oracleSnapshot(opts GraphSnapshotOptions) (GraphSnapshot, error) {
 
 	snap.Communities = make([]SnapshotCommunity, len(communities))
 	for i, c := range communities {
-		snap.Communities[i] = SnapshotCommunity{Rank: c.Rank, Size: c.Size, Anchor: ids[c.Anchor], Slot: c.Slot}
+		anchor := ids[c.Anchor]
+		snap.Communities[i] = SnapshotCommunity{Rank: c.Rank, Size: c.Size, Anchor: anchor, AnchorTitle: metas[anchor].title, Slot: c.Slot}
 	}
 	kept := scoped
 	if len(kept) > limit {

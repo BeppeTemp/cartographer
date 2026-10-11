@@ -127,6 +127,8 @@ export interface SnapshotCommunity {
   size: number;
   /** The member a legend names the community after. */
   anchor: string;
+  /** The anchor's title: a Map's snapshot rarely holds the anchor's node. */
+  anchor_title?: string;
   /** 1..12, or 0 for singletons and the long tail. */
   slot: number;
 }

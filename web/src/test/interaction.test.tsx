@@ -136,8 +136,8 @@ function health(
       report={props.report ?? report}
       status={props.status ?? null}
       summary={props.summary ?? null}
-      checks={props.checks ?? null}
-      review={props.review ?? null}
+      checks={"checks" in props ? props.checks : catalog}
+      review={"review" in props ? props.review : { items: [] }}
       collections={props.collections}
       allFindings={(props.report ?? report).findings}
       scopeTitle={props.scopeTitle ?? null}
