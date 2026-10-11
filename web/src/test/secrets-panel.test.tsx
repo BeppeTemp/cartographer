@@ -44,7 +44,7 @@ describe("the Secrets panel", () => {
     await waitFor(() => expect(window.location.search).not.toContain("panel=secrets"));
   });
 
-  it("lists the structure masked, then decrypts with a pasted key without sending it anywhere", async () => {
+  it("lists the structure masked, then decrypts with a pasted key without sending it anywhere", { timeout: 20_000 }, async () => {
     const requested = stub(true);
     const user = userEvent.setup();
     render(<App />);
@@ -56,13 +56,19 @@ describe("the Secrets panel", () => {
     const field = screen.getByLabelText("Age secret key");
     await user.type(field, await generateIdentity());
     await user.click(screen.getByRole("button", { name: "Decrypt" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent(/not one of their recipients/);
+    // Decryption runs real crypto: under a loaded test run it can take longer
+    // than findBy's default second.
+    expect(await screen.findByRole("alert", undefined, { timeout: 5000 })).toHaveTextContent(/not one of their recipients/);
     expect(screen.getByLabelText("Value of /demo/username")).toHaveTextContent("••••••••");
 
     await user.clear(field);
     await user.type(field, FIXTURE_KEY);
     await user.click(screen.getByRole("button", { name: "Decrypt" }));
-    await user.click(await screen.findByRole("button", { name: "Reveal value of /demo/username" }));
+    // The button is there, disabled, before the values are open: wait for it to
+    // be enabled, or the click lands on a disabled button while decrypting.
+    const reveal = screen.getByRole("button", { name: "Reveal value of /demo/username" });
+    await waitFor(() => expect(reveal).toBeEnabled(), { timeout: 5000 });
+    await user.click(reveal);
     expect(screen.getByLabelText("Value of /demo/username")).toHaveTextContent("fake-user");
     expect(screen.getByLabelText("Value of /demo/password")).toHaveTextContent("••••••••");
     expect(screen.queryByLabelText("Age secret key")).not.toBeInTheDocument();
