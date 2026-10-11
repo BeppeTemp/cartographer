@@ -113,10 +113,12 @@ func TestUnknownType(t *testing.T) {
 	if len(got) != 2 {
 		t.Fatalf("findings: %+v", got)
 	}
-	if got[0].Path != "arch/a.md" || got[0].Fix == nil || got[0].Fix.Field != "type" || got[0].Fix.To != "Service" {
+	if got[0].Path != "arch/a.md" || got[0].Fix == nil || got[0].Fix.Field != "type" || got[0].Fix.To != "Service" || got[0].Severity != SevWarning {
 		t.Errorf("case variant: %+v", got[0])
 	}
-	if got[1].Path != "arch/b.md" || got[1].Fix != nil {
+	// An undeclared type in a map that has not adopted types: info, and the
+	// message names the fix (#688).
+	if got[1].Path != "arch/b.md" || got[1].Fix != nil || got[1].Severity != SevInfo || !strings.Contains(got[1].Message, "template_proposal") {
 		t.Errorf("unknown: %+v", got[1])
 	}
 }
@@ -124,9 +126,10 @@ func TestUnknownType(t *testing.T) {
 func TestUnknownType_StrictMapPalette(t *testing.T) {
 	f := findingsOf(driftRun(t, map[string]string{
 		"strict/_map.md": "---\ntype: Map\nkind: map\ntitle: S\nontology_mode: strict\nconcept_types: [Alpha, Beta]\n---\n# S\n",
+		"strict/y.md":    "---\ntype: Gamma\ntitle: Y\n---\n# Y\n",
 		"other/x.md":     "---\ntype: Gamma\ntitle: X\n---\n# X\n",
 	}), "unknown_type")
-	if len(f) != 1 || f[0].Path != "other/x.md" {
+	if len(f) != 2 || f[0].Path != "other/x.md" || f[0].Severity != SevInfo || f[1].Path != "strict/y.md" || f[1].Severity != SevWarning {
 		t.Fatalf("findings: %+v", f)
 	}
 }

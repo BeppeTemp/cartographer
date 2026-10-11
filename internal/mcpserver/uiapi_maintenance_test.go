@@ -79,23 +79,12 @@ func TestUIAPI_MaintenanceSummary(t *testing.T) {
 	}
 }
 
-func TestUIAPI_MaintenanceQuestionsListsOpenOnes(t *testing.T) {
-	handler := maintenanceHandler(t, auth.NewTokenStore(nil))
-	rr := getUI(t, handler, UIAPIPrefix+"/kbs/docs/maintenance/questions", "")
-	if rr.Code != http.StatusOK {
-		t.Fatalf("status %d: %s", rr.Code, rr.Body.String())
-	}
-	qs := decodeUI(t, rr)["questions"].([]any)
-	if len(qs) != 1 || qs[0].(map[string]any)["id"] != "ops/q1" {
-		t.Fatalf("questions = %v", qs)
-	}
-}
-
 func TestUIAPI_MaintenanceUnknownRouteAndMethods(t *testing.T) {
 	handler := maintenanceHandler(t, auth.NewTokenStore(nil))
 	for _, path := range []string{
 		UIAPIPrefix + "/kbs/docs/maintenance",
 		UIAPIPrefix + "/kbs/docs/maintenance/revert",
+		UIAPIPrefix + "/kbs/docs/maintenance/questions", // removed: open gaps of kb_status (#707)
 		UIAPIPrefix + "/kbs/docs/maintenance/summary/extra",
 		UIAPIPrefix + "/kbs/docs/overview/summary",
 	} {
@@ -104,7 +93,7 @@ func TestUIAPI_MaintenanceUnknownRouteAndMethods(t *testing.T) {
 		}
 	}
 	// No route of the UI API writes, the maintenance ones included.
-	for _, path := range []string{"/kbs", "/kbs/docs/maintenance/summary", "/kbs/docs/maintenance/questions", "/kbs/docs/maintenance/revert", "/kbs/docs/work", "/kbs/docs/overview"} {
+	for _, path := range []string{"/kbs", "/kbs/docs/maintenance/summary", "/kbs/docs/maintenance/review", "/kbs/docs/maintenance/revert", "/kbs/docs/work", "/kbs/docs/overview"} {
 		for _, method := range []string{http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete} {
 			rr := httptest.NewRecorder()
 			handler.ServeHTTP(rr, httptest.NewRequest(method, UIAPIPrefix+path, nil))
@@ -128,11 +117,6 @@ func TestUIAPI_MaintenanceSummaryNeedsAWholeKBView(t *testing.T) {
 	}
 	if rr := getUI(t, handler, UIAPIPrefix+"/kbs/docs/maintenance/summary", "part"); rr.Code != http.StatusNotFound {
 		t.Errorf("partial token: %d, want 404", rr.Code)
-	}
-	// The questions are concepts, filtered one by one like contradiction_report.
-	rr := getUI(t, handler, UIAPIPrefix+"/kbs/docs/maintenance/questions", "part")
-	if qs := decodeUI(t, rr)["questions"].([]any); rr.Code != http.StatusOK || len(qs) != 1 {
-		t.Errorf("partial token questions: %d %v", rr.Code, qs)
 	}
 }
 
