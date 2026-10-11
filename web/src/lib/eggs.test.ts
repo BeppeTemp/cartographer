@@ -4,10 +4,10 @@ import { eggsFor, toggleEggs, vibeColour } from "./eggs";
 describe("easter eggs", () => {
   it("answer only their whole phrase, in any case and spacing", () => {
     expect(eggsFor("Liquid   Glass ")).toEqual(["glass"]);
-    expect(eggsFor("vibe")).toEqual(["vibe"]);
-    expect(eggsFor("liquid vibe")).toEqual(["glass", "vibe"]);
+    expect(eggsFor("Tako Mode")).toEqual(["vibe"]);
+    expect(eggsFor("liquid tako")).toEqual(["glass", "vibe"]);
     expect(eggsFor("liquid")).toBeNull();
-    expect(eggsFor("vibes in the KB")).toBeNull();
+    expect(eggsFor("tako")).toBeNull();
   });
 
   it("turn on, and off when typed again", () => {

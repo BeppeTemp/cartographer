@@ -34,80 +34,286 @@
   cursor: pointer;
 }
 
-/* --- Glass: every surface is frosted glass over whatever is behind it --- */
+/* --- Glass: everything is glass, under disco lights ---
+   Over the top on purpose: every surface transparent, rainbow rims turning
+   round every edge, lights sweeping the page and a mirror ball hung under
+   the top bar. */
 
-.eggs__card--glass {
-  color: var(--text-primary);
-  background: color-mix(in srgb, var(--surface-1) 35%, transparent);
-  border: 1px solid color-mix(in srgb, white 28%, transparent);
-  border-radius: 999px;
-  box-shadow:
-    inset 0 1px 0 color-mix(in srgb, white 45%, transparent),
-    0 12px 40px rgb(0 0 0 / 0.25);
-  backdrop-filter: blur(24px) saturate(180%);
+@property --egg-angle {
+  syntax: "<angle>";
+  inherits: true;
+  initial-value: 0deg;
 }
 
-body.egg-glass .topbar,
-body.egg-glass .rail,
-body.egg-glass .overlay,
-body.egg-glass .legend,
-body.egg-glass .graph-toolbar,
-body.egg-glass .palette,
-body.egg-glass .growth-export {
-  background: color-mix(in srgb, var(--surface-1) 38%, transparent) !important;
-  border: 1px solid color-mix(in srgb, white 22%, transparent) !important;
-  box-shadow:
-    inset 0 1px 0 color-mix(in srgb, white 40%, transparent),
-    inset 0 -1px 0 color-mix(in srgb, white 8%, transparent),
-    0 18px 50px rgb(0 0 0 / 0.28);
-  backdrop-filter: blur(28px) saturate(190%);
-  -webkit-backdrop-filter: blur(28px) saturate(190%);
+body.egg-glass {
+  animation: egg-spin 8s linear infinite;
 }
 
-/* Panels float off the edges, rounded like drops. */
+@keyframes egg-spin {
+  to {
+    --egg-angle: 360deg;
+  }
+}
+
+/* An aurora behind everything, so the glass has something to bend. */
+body.egg-glass .shell {
+  background:
+    radial-gradient(40% 50% at 15% 20%, rgb(236 72 153 / 0.55), transparent 70%),
+    radial-gradient(45% 55% at 85% 15%, rgb(56 189 248 / 0.5), transparent 70%),
+    radial-gradient(50% 60% at 60% 90%, rgb(167 139 250 / 0.55), transparent 70%),
+    radial-gradient(35% 45% at 10% 85%, rgb(250 204 21 / 0.35), transparent 70%),
+    #0b0b1a;
+  background-size: 160% 160%;
+  animation: egg-aurora 14s ease-in-out infinite alternate;
+}
+
+@keyframes egg-aurora {
+  from {
+    background-position: 0% 0%;
+  }
+  to {
+    background-position: 100% 100%;
+  }
+}
+
+/* Every surface: clear glass, lit from the top edge. */
+body.egg-glass :is(.topbar, .rail, .overlay, .legend, .graph-toolbar, .palette, .growth-export, .eggs__card--glass) {
+  color: white !important;
+  background: linear-gradient(
+    160deg,
+    rgb(255 255 255 / 0.16),
+    rgb(255 255 255 / 0.03) 40%,
+    rgb(255 255 255 / 0.01) 60%,
+    rgb(255 255 255 / 0.1)
+  ) !important;
+  border: 0 !important;
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.75),
+    inset 0 -1px 0 rgb(255 255 255 / 0.15),
+    inset 0 0 30px rgb(255 255 255 / 0.06),
+    0 0 30px rgb(240 171 252 / 0.3),
+    0 24px 70px rgb(0 0 0 / 0.4) !important;
+  backdrop-filter: blur(16px) saturate(240%) brightness(1.2);
+  -webkit-backdrop-filter: blur(16px) saturate(240%) brightness(1.2);
+  text-shadow: 0 0 10px rgb(255 255 255 / 0.6);
+}
+
+body.egg-glass :is(.topbar, .rail, .palette) {
+  position: relative;
+}
+
+/* ...with a rainbow rim turning round its edge: a ring drawn by a mask, so
+   the glass itself stays clear. */
+body.egg-glass :is(.topbar, .rail, .overlay, .legend, .graph-toolbar, .palette, .eggs__card--glass)::before {
+  content: "";
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  padding: 2px;
+  border-radius: inherit;
+  background: conic-gradient(from var(--egg-angle), #f0abfc, #93c5fd, #a7f3d0, #fde68a, #fca5a5, #f0abfc);
+  mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  -webkit-mask-composite: xor;
+  pointer-events: none;
+  filter: drop-shadow(0 0 6px rgb(240 171 252 / 0.8));
+}
+
+/* Inside them, every control and box is a bubble of the same glass. */
+body.egg-glass :is(.topbar, .rail, .overlay, .legend, .palette)
+  :is(button, input, select, .field, .chip, .pill, .kbd, blockquote, pre, aside, [role="tab"], .inspector__finding) {
+  color: white !important;
+  background: linear-gradient(170deg, rgb(255 255 255 / 0.2), rgb(255 255 255 / 0.04)) !important;
+  border: 1px solid rgb(255 255 255 / 0.35) !important;
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.8),
+    0 4px 14px rgb(0 0 0 / 0.25) !important;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  text-shadow: 0 0 8px rgb(255 255 255 / 0.5);
+}
+
+body.egg-glass :is(.overlay, .legend, .palette) :is(*) {
+  border-color: rgb(255 255 255 / 0.25);
+}
+
+body.egg-glass :is(.overlay, .legend, .palette, .rail) :is(a, p, li, span, h1, h2, h3, strong, code) {
+  color: white !important;
+}
+
+body.egg-glass .inspector,
+body.egg-glass .main,
+body.egg-glass .shell__body {
+  background: transparent !important;
+}
+
+/* Panels float off the edges, rounded like drops; buttons are bubbles. */
 body.egg-glass .overlay--inspector {
   inset-block: var(--space-3);
   inset-inline-end: var(--space-3);
+  border-radius: 32px;
+}
+
+body.egg-glass .rail {
+  margin: var(--space-2);
   border-radius: 28px;
 }
 
-body.egg-glass .legend,
-body.egg-glass .graph-toolbar,
-body.egg-glass .palette {
-  border-radius: 24px;
-}
-
-body.egg-glass .inspector {
-  background: transparent;
-}
-
-body.egg-glass .button,
-body.egg-glass .chip {
-  border-radius: 999px;
-  background: color-mix(in srgb, white 10%, transparent);
-  border-color: color-mix(in srgb, white 25%, transparent);
-  backdrop-filter: blur(12px);
-}
-
-/* A specular glint drifting across the top bar. */
 body.egg-glass .topbar {
-  background-image: linear-gradient(
-    110deg,
-    transparent 30%,
-    color-mix(in srgb, white 14%, transparent) 45%,
-    transparent 60%
-  ) !important;
-  background-size: 250% 100%;
-  animation: egg-glint 6s ease-in-out infinite;
+  margin: var(--space-2) var(--space-2) 0;
+  border-radius: 999px;
 }
 
-@keyframes egg-glint {
+body.egg-glass :is(.legend, .graph-toolbar, .palette) {
+  border-radius: 28px;
+}
+
+body.egg-glass :is(.topbar, .rail, .overlay, .legend, .palette) :is(button, input, .chip, .field, [role="tab"]) {
+  border-radius: 999px !important;
+}
+
+/* The graph shows through, a little dreamy. */
+body.egg-glass .main canvas {
+  filter: saturate(1.5) brightness(1.15) drop-shadow(0 0 6px rgb(240 171 252 / 0.6));
+}
+
+/* Disco lights: coloured spots sweeping the whole page, over everything. */
+.egg-lights {
+  position: fixed;
+  z-index: 48;
+  inset: 0;
+  pointer-events: none;
+  mix-blend-mode: screen;
+  background:
+    radial-gradient(9% 12% at 20% 30%, rgb(236 72 153 / 0.55), transparent 70%),
+    radial-gradient(8% 11% at 70% 25%, rgb(56 189 248 / 0.55), transparent 70%),
+    radial-gradient(10% 13% at 45% 75%, rgb(250 204 21 / 0.45), transparent 70%),
+    radial-gradient(7% 10% at 85% 70%, rgb(167 139 250 / 0.55), transparent 70%),
+    radial-gradient(6% 9% at 30% 85%, rgb(52 211 153 / 0.5), transparent 70%);
+  background-size: 140% 140%;
+  animation: egg-sweep 7s ease-in-out infinite alternate;
+}
+
+/* Rays from the ball, turning. */
+.egg-lights::before {
+  content: "";
+  position: absolute;
+  inset-block-start: calc(var(--topbar-height) + 116px);
+  inset-inline-start: 50%;
+  width: 260vmax;
+  height: 260vmax;
+  translate: -50% -50%;
+  background: repeating-conic-gradient(
+    from var(--egg-angle),
+    rgb(255 255 255 / 0.13) 0deg 2deg,
+    transparent 2deg 14deg,
+    rgb(240 171 252 / 0.12) 14deg 16deg,
+    transparent 16deg 30deg
+  );
+  mask-image: radial-gradient(circle, black 0 15%, transparent 55%);
+}
+
+@keyframes egg-sweep {
+  0% {
+    background-position: 0% 0%;
+  }
+  33% {
+    background-position: 100% 30%;
+  }
+  66% {
+    background-position: 20% 100%;
+  }
+  100% {
+    background-position: 90% 80%;
+  }
+}
+
+/* The mirror ball, hung from the top bar on a wire. */
+.egg-disco {
+  position: fixed;
+  z-index: 49;
+  inset-block-start: var(--topbar-height);
+  inset-inline-start: 50%;
+  translate: -50% 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  pointer-events: none;
+  animation: egg-swing 4s ease-in-out infinite alternate;
+  transform-origin: top center;
+}
+
+.egg-disco::before {
+  content: "";
+  width: 2px;
+  height: 56px;
+  background: linear-gradient(#e5e7eb, #9ca3af);
+}
+
+.egg-disco__ball {
+  position: relative;
+  width: 116px;
+  height: 116px;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 33% 28%, rgb(255 255 255 / 0.95) 0 5%, transparent 20%),
+    radial-gradient(circle at 50% 50%, transparent 52%, rgb(0 0 0 / 0.6) 100%),
+    repeating-linear-gradient(0deg, rgb(0 0 0 / 0.35) 0 1px, transparent 1px 9px),
+    repeating-linear-gradient(90deg, rgb(0 0 0 / 0.35) 0 1px, transparent 1px 9px),
+    conic-gradient(from var(--egg-angle), #d1d5db, #fff, #9ca3af, #f0abfc, #fff, #93c5fd, #e5e7eb, #fff, #a7f3d0, #d1d5db);
+  background-size: auto, auto, auto, 9px 100%, auto;
+  box-shadow:
+    0 0 30px rgb(255 255 255 / 0.55),
+    0 0 90px rgb(240 171 252 / 0.45),
+    0 0 160px rgb(147 197 253 / 0.35);
+  animation: egg-turn 2.4s linear infinite;
+}
+
+/* Glints on the mirrors, twinkling. */
+.egg-disco__ball::after {
+  content: "";
+  position: absolute;
+  top: 30%;
+  left: 60%;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: white;
+  box-shadow:
+    -40px -10px 0 1px white,
+    -18px 34px 0 0 #f0abfc,
+    10px 22px 0 1px white,
+    -52px 30px 0 0 #93c5fd,
+    -28px -28px 0 0 white,
+    16px -12px 0 0 #fde68a;
+  animation: egg-twinkle 0.9s steps(2) infinite;
+}
+
+@keyframes egg-turn {
+  to {
+    background-position: 0 0, 0 0, 0 0, 9px 0, 0 0;
+  }
+}
+
+@keyframes egg-twinkle {
+  50% {
+    opacity: 0.15;
+  }
+}
+
+@keyframes egg-swing {
   from {
-    background-position: 120% 0;
+    rotate: -4deg;
   }
   to {
-    background-position: -120% 0;
+    rotate: 4deg;
   }
+}
+
+body.egg-glass .eggs {
+  inset-block-start: calc(var(--topbar-height) + 190px);
 }
 
 /* --- Vibe: the UI a vibe-coded app is sure is perfect --- */
@@ -220,7 +426,12 @@ body.egg-vibe .main canvas {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  body.egg-glass .topbar,
+  body.egg-glass,
+  body.egg-glass .shell,
+  .egg-lights,
+  .egg-disco,
+  .egg-disco__ball,
+  .egg-disco__ball::after,
   .eggs__card--vibe {
     animation: none;
   }
@@ -228,4 +439,8 @@ body.egg-vibe .main canvas {
   .eggs__ship {
     transition: none;
   }
+}
+
+.eggs__card--glass {
+  border-radius: 999px;
 }

@@ -4,16 +4,15 @@
  * its own (styles/eggs.css) dresses the UI with; the graph reads `vibe` for
  * its colours. They change how the page looks, never what it does.
  *
- * - `glass`: every panel turns to frosted glass over the graph.
- * - `vibe`: the UI as a proud vibe-coded app would draw it.
+ * - `glass` ("liquid glass"): everything turns to glass under disco lights.
+ * - `vibe` ("tako mode"): the UI as a proud vibe-coded app would draw it.
  */
 export type Egg = "glass" | "vibe";
 
 const PHRASES: Record<string, Egg[]> = {
   "liquid glass": ["glass"],
-  vibe: ["vibe"],
-  "vibe coding": ["vibe"],
-  "liquid vibe": ["glass", "vibe"],
+  "tako mode": ["vibe"],
+  "liquid tako": ["glass", "vibe"],
 };
 
 /** The eggs a palette query asks for, or null when it is an ordinary search.

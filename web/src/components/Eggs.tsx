@@ -3,8 +3,8 @@ import { VIBE_LINES, type Egg } from "../lib/eggs";
 
 /**
  * What the easter eggs add to the page besides their stylesheet: a card for
- * each that says it is on, with a way off, and, in vibe mode, the button
- * every vibe-coded app ships with.
+ * each that says it is on, with a way off; in glass mode the disco lights and
+ * the mirror ball; in vibe mode the button every vibe-coded app ships with.
  */
 export function Eggs({ on, onOff }: { on: ReadonlySet<Egg>; onOff(egg: Egg): void }) {
   useEffect(() => {
@@ -18,19 +18,29 @@ export function Eggs({ on, onOff }: { on: ReadonlySet<Egg>; onOff(egg: Egg): voi
   );
   if (on.size === 0) return null;
   return (
-    <div className="eggs" role="status">
-      {on.has("vibe") && <VibeBanner onOff={() => onOff("vibe")} />}
+    <>
       {on.has("glass") && (
-        <div className="eggs__card eggs__card--glass">
-          <span>
-            <strong>Glass mode.</strong> Approved by Ippo.
-          </span>
-          <button type="button" className="eggs__off" onClick={() => onOff("glass")} aria-label="Turn glass mode off">
-            ✕
-          </button>
-        </div>
+        <>
+          <div className="egg-lights" aria-hidden="true" />
+          <div className="egg-disco" aria-hidden="true">
+            <span className="egg-disco__ball" />
+          </div>
+        </>
       )}
-    </div>
+      <div className="eggs" role="status">
+        {on.has("vibe") && <VibeBanner onOff={() => onOff("vibe")} />}
+        {on.has("glass") && (
+          <div className="eggs__card eggs__card--glass">
+            <span>
+              <strong>Glass mode.</strong> Approved by Ippo.
+            </span>
+            <button type="button" className="eggs__off" onClick={() => onOff("glass")} aria-label="Turn glass mode off">
+              ✕
+            </button>
+          </div>
+        )}
+      </div>
+    </>
   );
 }
 
