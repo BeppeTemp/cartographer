@@ -318,33 +318,33 @@ body.egg-glass .eggs {
 
 /* --- Vibe: the UI a vibe-coded app is sure is perfect --- */
 
-body.egg-vibe,
-body.egg-vibe * {
+body.egg-tako,
+body.egg-tako * {
   font-family: "Comic Sans MS", "Comic Sans", "Chalkboard SE", "Comic Neue", cursive !important;
 }
 
-body.egg-vibe .topbar {
+body.egg-tako .topbar {
   background: linear-gradient(90deg, #7c3aed, #db2777, #f59e0b) !important;
   color: white;
 }
 
-body.egg-vibe .topbar__brand {
+body.egg-tako .topbar__brand {
   transform: rotate(-4deg) scale(1.08);
   text-shadow: 3px 3px 0 #22d3ee;
 }
 
-body.egg-vibe .rail {
+body.egg-tako .rail {
   background: linear-gradient(180deg, #fdf4ff, #e0e7ff) !important;
   color: #4c1d95;
   text-align: center;
 }
 
-body.egg-vibe .rail button::after {
+body.egg-tako .rail button::after {
   content: " ✨";
 }
 
-body.egg-vibe .button,
-body.egg-vibe .chip {
+body.egg-tako .button,
+body.egg-tako .chip {
   background: linear-gradient(135deg, #a855f7, #ec4899) !important;
   color: white !important;
   border: 3px solid #facc15 !important;
@@ -353,8 +353,8 @@ body.egg-vibe .chip {
   padding-inline: 1.4em 0.6em;
 }
 
-body.egg-vibe .overlay,
-body.egg-vibe .legend {
+body.egg-tako .overlay,
+body.egg-tako .legend {
   background: #fffbeb !important;
   color: #831843;
   border: 4px dashed #ec4899 !important;
@@ -362,13 +362,13 @@ body.egg-vibe .legend {
   box-shadow: 14px 14px 0 #a78bfa;
 }
 
-body.egg-vibe .inspector {
+body.egg-tako .inspector {
   background: transparent;
 }
 
-body.egg-vibe h1,
-body.egg-vibe h2,
-body.egg-vibe h3 {
+body.egg-tako h1,
+body.egg-tako h2,
+body.egg-tako h3 {
   text-align: center;
   background: linear-gradient(90deg, #ef4444, #f59e0b, #22c55e, #3b82f6, #a855f7);
   -webkit-background-clip: text;
@@ -376,15 +376,15 @@ body.egg-vibe h3 {
   color: transparent !important;
 }
 
-body.egg-vibe .legend {
+body.egg-tako .legend {
   transform: rotate(1.5deg);
 }
 
-body.egg-vibe .main canvas {
+body.egg-tako .main canvas {
   filter: saturate(1.6) contrast(1.1);
 }
 
-.eggs__card--vibe {
+.eggs__card--tako {
   flex-direction: column;
   gap: var(--space-1);
   padding: var(--space-3) var(--space-6);
@@ -395,10 +395,10 @@ body.egg-vibe .main canvas {
   border: 3px solid #facc15;
   border-radius: 28px;
   box-shadow: 0 12px 0 #6d28d9, 0 24px 50px rgb(219 39 119 / 0.55);
-  animation: egg-vibe-flow 5s linear infinite;
+  animation: egg-tako-flow 5s linear infinite;
 }
 
-.eggs__vibe-title {
+.eggs__tako-title {
   font-size: var(--text-lg);
   font-weight: 700;
 }
@@ -416,7 +416,7 @@ body.egg-vibe .main canvas {
   transition: transform var(--motion-fast) var(--ease-out);
 }
 
-@keyframes egg-vibe-flow {
+@keyframes egg-tako-flow {
   from {
     background-position: 0% 0;
   }
@@ -432,7 +432,7 @@ body.egg-vibe .main canvas {
   .egg-disco,
   .egg-disco__ball,
   .egg-disco__ball::after,
-  .eggs__card--vibe {
+  .eggs__card--tako {
     animation: none;
   }
 
@@ -443,4 +443,126 @@ body.egg-vibe .main canvas {
 
 .eggs__card--glass {
   border-radius: 999px;
+}
+
+/* --- Tako mode's party: the octopus mascot, the confetti, the ticker --- */
+
+.tako-mascot {
+  position: fixed;
+  z-index: 49;
+  inset-block-end: 56px;
+  inset-inline-end: 72px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--space-2);
+  pointer-events: none;
+}
+
+.tako-mascot__octopus {
+  position: relative;
+  font-size: 96px;
+  line-height: 1;
+  filter: drop-shadow(0 8px 0 #7e22ce) drop-shadow(0 0 24px #ec4899);
+  animation: egg-tako-dance 0.8s ease-in-out infinite alternate;
+  transform-origin: bottom center;
+}
+
+/* Sunglasses, of course. */
+.tako-mascot__shades {
+  position: absolute;
+  inset-block-start: 22px;
+  inset-inline-start: 50%;
+  translate: -50% 0;
+  font-size: 44px;
+  clip-path: inset(30% 0 35% 0);
+}
+
+.tako-mascot__bubble {
+  max-width: 240px;
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--text-sm);
+  font-weight: 700;
+  color: #4c1d95;
+  background: #fef08a;
+  border: 3px solid #4c1d95;
+  border-radius: 18px 18px 4px 18px;
+  box-shadow: 6px 6px 0 #ec4899;
+  animation: egg-pop 0.35s cubic-bezier(0.3, 1.6, 0.5, 1);
+}
+
+@keyframes egg-tako-dance {
+  from {
+    transform: rotate(-12deg) translateY(0) scale(1);
+  }
+  to {
+    transform: rotate(12deg) translateY(-14px) scale(1.08);
+  }
+}
+
+@keyframes egg-pop {
+  from {
+    transform: scale(0.4);
+    opacity: 0;
+  }
+}
+
+.egg-confetti {
+  position: fixed;
+  z-index: 47;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.egg-confetti span {
+  position: absolute;
+  inset-block-start: -48px;
+  inset-inline-start: var(--x);
+  font-size: 28px;
+  animation: egg-fall var(--dur) linear var(--delay) infinite;
+}
+
+@keyframes egg-fall {
+  to {
+    transform: translateY(calc(100vh + 96px)) rotate(720deg);
+  }
+}
+
+.egg-ticker {
+  position: fixed;
+  z-index: 49;
+  inset-inline: 0;
+  inset-block-end: 0;
+  overflow: hidden;
+  padding-block: 6px;
+  font-weight: 700;
+  color: #fef08a;
+  white-space: nowrap;
+  background: repeating-linear-gradient(45deg, #db2777 0 20px, #7c3aed 20px 40px);
+  border-block-start: 3px solid #facc15;
+  pointer-events: none;
+}
+
+.egg-ticker span {
+  display: inline-block;
+  animation: egg-marquee 16s linear infinite;
+}
+
+@keyframes egg-marquee {
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tako-mascot__octopus,
+  .tako-mascot__bubble,
+  .egg-ticker span {
+    animation: none;
+  }
+
+  .egg-confetti {
+    display: none;
+  }
 }

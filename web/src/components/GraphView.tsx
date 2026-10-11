@@ -6,7 +6,7 @@ import type { Pose } from "../lib/graph3d/camera";
 import { GROWTH_MIN_ZOOM, growthOrder, growthPace, type GrowthStep } from "../lib/graph3d/growth";
 import { planBursts } from "../lib/graph3d/motion";
 import { beside, seedPosition } from "../lib/graph3d/physics";
-import { VIBE_EDGE, vibeColour } from "../lib/eggs";
+import { TAKO_EDGE, takoColour } from "../lib/eggs";
 import {
   recallLayout,
   rememberLayout,
@@ -93,8 +93,8 @@ interface Props {
   occludedRight: number;
   /** Pixels on the left covered by the concept list. */
   occludedLeft?: number;
-  /** The vibe easter egg (lib/eggs.ts): a rainbow graph. */
-  vibe?: boolean;
+  /** The tako easter egg (lib/eggs.ts): a rainbow graph. */
+  tako?: boolean;
   onSelect(id: string | null): void;
   /** WebGL is missing or was lost: the caller says so and keeps the list. */
   onUnavailable?(): void;
@@ -159,7 +159,7 @@ function View({
   onToggleLive,
   occludedRight,
   occludedLeft = 0,
-  vibe = false,
+  tako = false,
   onSelect,
   onUnavailable,
 }: Props) {
@@ -545,8 +545,8 @@ function View({
     const drawn = snapshot.nodes.filter((n) => !hiddenIds.has(n.id));
     const colours = drawn
       .map((n, i) => {
-        const base = vibe
-          ? vibeColour(i, drawn.length)
+        const base = tako
+          ? takoColour(i, drawn.length)
           : slots[colorBy === "community" ? communitySlot(communities, n.id) : collectionHue(n.collection ?? "")]!;
         return !shown || near.has(n.id) ? base : fade(base, RECEDED, canvas);
       });
@@ -558,12 +558,12 @@ function View({
     }
     scene.setColours(colours, {
       background: canvas,
-      edge: vibe ? VIBE_EDGE : cssVar("--graph-edge-3d"),
+      edge: tako ? TAKO_EDGE : cssVar("--graph-edge-3d"),
       edgeActive: cssVar("--graph-edge-3d-active"),
       signal: cssVar("--graph-signal"),
       ring: cssVar("--graph-ring"),
     });
-  }, [ready, snapshot, hiddenIds, colorBy, communities, themeKey, shown, drawnArtifacts, vibe]);
+  }, [ready, snapshot, hiddenIds, colorBy, communities, themeKey, shown, drawnArtifacts, tako]);
 
   // Motion on or off.
   useEffect(() => {
