@@ -626,3 +626,61 @@ func TestAcceptedFindingTrailerAndStagedChanges(t *testing.T) {
 		t.Errorf("FileHistory = %+v (%v)", revs, err)
 	}
 }
+
+func TestAheadBehind(t *testing.T) {
+	if !hasGit() {
+		t.Skip("git not in PATH")
+	}
+	g := func(dir string, args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", append([]string{"-C", dir, "-c", "user.email=user@example.com", "-c", "user.name=user"}, args...)...)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	commit := func(dir, name string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(name), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		g(dir, "add", ".")
+		g(dir, "commit", "-q", "-m", name)
+	}
+	base := t.TempDir()
+	bare := filepath.Join(base, "remote.git")
+	g(base, "init", "-q", "--bare", "-b", "main", bare)
+	work := filepath.Join(base, "work")
+	g(base, "clone", "-q", bare, work)
+	g(work, "checkout", "-q", "-B", "main")
+	commit(work, "a")
+	g(work, "push", "-q", "origin", "main")
+	other := filepath.Join(base, "other")
+	g(base, "clone", "-q", bare, other)
+
+	tests := []struct {
+		name          string
+		setup         func()
+		branch        string
+		ahead, behind int
+		known         bool
+	}{
+		{"empty branch", func() {}, "", 0, 0, false},
+		{"no tracking ref", func() {}, "nope", 0, 0, false},
+		{"equal", func() {}, "main", 0, 0, true},
+		{"local ahead 1", func() { commit(work, "b") }, "main", 1, 0, true},
+		{"remote ahead 1 after fetch only", func() {
+			g(work, "reset", "-q", "--hard", "origin/main")
+			commit(other, "c")
+			g(other, "push", "-q", "origin", "main")
+			g(work, "fetch", "-q", "origin")
+		}, "main", 0, 1, true},
+		{"diverged", func() { commit(work, "d") }, "main", 1, 1, true},
+	}
+	for _, tt := range tests {
+		tt.setup()
+		ahead, behind, known, err := AheadBehind(work, "origin", tt.branch)
+		if err != nil || ahead != tt.ahead || behind != tt.behind || known != tt.known {
+			t.Errorf("%s: got (%d,%d,%v,%v), want (%d,%d,%v,nil)", tt.name, ahead, behind, known, err, tt.ahead, tt.behind, tt.known)
+		}
+	}
+}

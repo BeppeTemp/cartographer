@@ -311,22 +311,30 @@ func AuthorIdent(dir string, env ...string) (name, email string, err error) {
 // known is false when the remote-tracking ref is absent, so callers never
 // mistake an unavailable comparison for zero unpushed commits.
 func AheadCount(dir, remote, branch string) (count int, known bool, err error) {
+	ahead, _, known, err := AheadBehind(dir, remote, branch)
+	return ahead, known, err
+}
+
+// AheadBehind returns how many commits HEAD is ahead of and behind
+// <remote>/<branch> in one rev-list call. Behind is relative to the
+// remote-tracking ref as the last fetch left it: no network is touched.
+// known is false when the ref is absent or branch is empty.
+func AheadBehind(dir, remote, branch string) (ahead, behind int, known bool, err error) {
 	if branch == "" {
-		return 0, false, nil
+		return 0, 0, false, nil
 	}
 	ref := remote + "/" + branch
 	if _, err := runGit(dir, "rev-parse", "--verify", "refs/remotes/"+ref); err != nil {
-		return 0, false, nil
+		return 0, 0, false, nil
 	}
-	out, err := runGit(dir, "rev-list", "--count", ref+"..HEAD")
+	out, err := runGit(dir, "rev-list", "--left-right", "--count", ref+"...HEAD")
 	if err != nil {
-		return 0, false, fmt.Errorf("git rev-list %s..HEAD: %w: %s", ref, err, out)
+		return 0, 0, false, fmt.Errorf("git rev-list %s...HEAD: %w: %s", ref, err, out)
 	}
-	var n int
-	if _, err := fmt.Sscanf(strings.TrimSpace(out), "%d", &n); err != nil {
-		return 0, false, fmt.Errorf("git rev-list count %q: %w", out, err)
+	if _, err := fmt.Sscanf(strings.TrimSpace(out), "%d %d", &behind, &ahead); err != nil {
+		return 0, 0, false, fmt.Errorf("git rev-list count %q: %w", out, err)
 	}
-	return n, true, nil
+	return ahead, behind, true, nil
 }
 
 // HeadUnborn reports whether dir is a git repository whose HEAD names a branch

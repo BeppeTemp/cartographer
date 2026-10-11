@@ -136,6 +136,11 @@ func TestSyncStatus_MissingRemoteTrackingRefUsesJSONNull(t *testing.T) {
 	if status["unpushed_commits"] != nil {
 		t.Fatalf("sync_status unpushed_commits = %#v, want null", status["unpushed_commits"])
 	}
+	for _, f := range []string{"behind_commits", "last_push_at", "last_sync_in_at"} {
+		if v, ok := status[f]; !ok || v != nil {
+			t.Fatalf("sync_status %s = %#v (present=%v), want explicit null", f, v, ok)
+		}
+	}
 }
 
 // setupGitKB initialises a temp KB and verifies the initial git commit was made.
@@ -1279,5 +1284,27 @@ func TestGitWrap_EveryWrappedToolExposesReason(t *testing.T) {
 	}
 	if wrapped == 0 {
 		t.Fatal("no git-wrapped tools found in the registry")
+	}
+}
+
+// D713: after a push, kb_status reports behind 0 and a non-null last_push_at.
+func TestKBStatus_BehindAndLastPushAfterPush(t *testing.T) {
+	k, _ := setupGitKBWithRemote(t)
+	k.GitSync = true
+	if err := k.SyncOut(); err != nil {
+		t.Fatalf("SyncOut: %v", err)
+	}
+	s := New("0.7.0")
+	RegisterKBTools(s, k, Deps{})
+	result := kbStatusResult(t, s)
+	if string(result["behind_commits"]) != "0" {
+		t.Errorf("behind_commits = %s, want 0", result["behind_commits"])
+	}
+	var at string
+	if err := json.Unmarshal(result["last_push_at"], &at); err != nil {
+		t.Fatalf("last_push_at = %s: %v", result["last_push_at"], err)
+	}
+	if _, err := time.Parse(time.RFC3339Nano, at); err != nil {
+		t.Errorf("last_push_at %q is not RFC 3339: %v", at, err)
 	}
 }

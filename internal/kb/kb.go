@@ -178,6 +178,11 @@ type KB struct {
 
 	gitStatusMu sync.RWMutex
 	gitStatus   GitStatus
+	// lastPushAt is when a push last succeeded in this process (zero: none
+	// yet). It is deliberately NOT inside gitStatus: setGitStatus replaces
+	// that whole struct on every transition, so a failure would erase it.
+	// Guarded by gitStatusMu.
+	lastPushAt time.Time
 
 	// pushMu guards all async-push-worker bookkeeping below (see
 	// pushworker.go). It is a distinct lock from mu/WithGitLock, which the
@@ -229,6 +234,14 @@ type GitStatus struct {
 	LastAttemptAt   *time.Time `json:"last_attempt_at,omitempty"`
 	HeadSHA         string     `json:"head_sha,omitempty"`
 	UnpushedCommits *int       `json:"unpushed_commits"`
+	// BehindCommits is how far HEAD is behind the remote-tracking ref as of
+	// the last fetch (no network on read); nil when unknown.
+	BehindCommits *int `json:"behind_commits"`
+	// LastPushAt is the last successful push since this process started (nil
+	// after a restart until the next push); LastSyncInAt is the last
+	// successful fetch+pull, i.e. how fresh BehindCommits is.
+	LastPushAt      *time.Time `json:"last_push_at"`
+	LastSyncInAt    *time.Time `json:"last_sync_in_at"`
 	IdentityWarning bool       `json:"identity_warning,omitempty"`
 	Attempts        int        `json:"attempts"`
 	// Branch is the checked-out branch ("" when HEAD is detached).
@@ -275,14 +288,21 @@ func (k *KB) setGitStatus(state string, err error, attempts int) {
 		s.HeadSHA = sha
 	}
 	if branch, _ := gitx.Branch(k.Root); branch != "" {
-		if n, known, countErr := gitx.AheadCount(k.Root, "origin", branch); countErr == nil && known {
-			s.UnpushedCommits = &n
+		if a, b, known, countErr := gitx.AheadBehind(k.Root, "origin", branch); countErr == nil && known {
+			s.UnpushedCommits, s.BehindCommits = &a, &b
 		}
 	}
 	_, remote := k.hasRemote()
 	s.IdentityWarning = ShouldWarnGitIdentity(k.GitSync, remote, k.GitAuthorEmail)
 	k.gitStatusMu.Lock()
 	k.gitStatus = s
+	k.gitStatusMu.Unlock()
+}
+
+// recordPushSuccess stamps the time a push succeeded (see lastPushAt).
+func (k *KB) recordPushSuccess() {
+	k.gitStatusMu.Lock()
+	k.lastPushAt = time.Now().UTC()
 	k.gitStatusMu.Unlock()
 }
 
@@ -303,14 +323,23 @@ func (k *KB) GitStatusSnapshot() GitStatus {
 	if sha, err := gitx.HeadSHA(k.Root); err == nil {
 		s.HeadSHA = sha
 	}
-	s.UnpushedCommits = nil
+	s.UnpushedCommits, s.BehindCommits = nil, nil
 	if branch, _ := gitx.Branch(k.Root); branch != "" {
-		if n, known, err := gitx.AheadCount(k.Root, "origin", branch); err == nil && known {
-			s.UnpushedCommits = &n
+		if n, b, known, err := gitx.AheadBehind(k.Root, "origin", branch); err == nil && known {
+			s.UnpushedCommits, s.BehindCommits = &n, &b
 			if s.State == "clean" && n > 0 {
 				s.State = "pending"
 			}
 		}
+	}
+	k.gitStatusMu.RLock()
+	if p := k.lastPushAt; !p.IsZero() {
+		s.LastPushAt = &p
+	}
+	k.gitStatusMu.RUnlock()
+	s.LastSyncInAt = nil
+	if t := k.lastSyncInAt(); !t.IsZero() {
+		s.LastSyncInAt = &t
 	}
 	s.Branch, _ = gitx.Branch(k.Root)
 	s.RemoteDefaultBranch = k.RemoteDefaultBranch()

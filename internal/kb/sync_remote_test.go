@@ -103,6 +103,9 @@ func TestGitStatusSnapshot_MissingRemoteTrackingRefHasUnknownAheadCount(t *testi
 	if s := k.GitStatusSnapshot(); s.UnpushedCommits != nil {
 		t.Fatalf("unpushed commits = %v, want nil without origin tracking ref", *s.UnpushedCommits)
 	}
+	if s := k.GitStatusSnapshot(); s.BehindCommits != nil || s.LastPushAt != nil || s.LastSyncInAt != nil {
+		t.Fatalf("behind/last_push/last_sync_in = %v/%v/%v, want all nil", s.BehindCommits, s.LastPushAt, s.LastSyncInAt)
+	}
 }
 
 func TestSyncOut_PushFailureRecordsAllAttemptsWithoutBackoff(t *testing.T) {
@@ -244,5 +247,79 @@ func TestSyncIn_NoRemote_NoOp(t *testing.T) {
 
 	if _, err := k.SyncIn(); err != nil {
 		t.Fatalf("SyncIn without a remote must be a no-op, err: %v", err)
+	}
+}
+
+// D713: last_push_at survives a later failed push, and behind counts against
+// the remote-tracking ref as the last fetch left it.
+func TestGitStatusSnapshot_BehindAndLastPush(t *testing.T) {
+	if !haveGit() {
+		t.Skip("git not in PATH")
+	}
+	k, bare := setupKBWithRemote(t)
+	k.GitSync = true
+	if err := k.SyncOut(); err != nil {
+		t.Fatalf("SyncOut: %v", err)
+	}
+	s := k.GitStatusSnapshot()
+	if s.LastPushAt == nil || s.BehindCommits == nil || *s.BehindCommits != 0 {
+		t.Fatalf("after push: last_push_at=%v behind=%v", s.LastPushAt, s.BehindCommits)
+	}
+	first := *s.LastPushAt
+
+	// A second clone pushes one commit; fetching alone makes k one behind.
+	// Clone k's branch explicitly: the bare remote's HEAD follows the host's
+	// init.defaultBranch, which need not match the branch k pushed.
+	branch, err := gitx.Branch(k.Root)
+	if err != nil {
+		t.Fatalf("Branch: %v", err)
+	}
+	other := filepath.Join(t.TempDir(), "other")
+	gitIn(t, filepath.Dir(other), "clone", "-q", "-b", branch, bare, other)
+	gitHere(t, other, "config", "user.email", "user@example.com")
+	gitHere(t, other, "config", "user.name", "user")
+	if err := os.WriteFile(filepath.Join(other, "extra.txt"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitHere(t, other, "add", ".")
+	gitHere(t, other, "commit", "-q", "-m", "extra")
+	gitHere(t, other, "push", "-q", "origin", "HEAD")
+	if err := gitx.Fetch(k.Root, "origin"); err != nil {
+		t.Fatalf("Fetch: %v", err)
+	}
+	if s := k.GitStatusSnapshot(); s.BehindCommits == nil || *s.BehindCommits != 1 {
+		t.Fatalf("behind = %v, want 1", s.BehindCommits)
+	}
+
+	// A failed push must not erase the last successful one.
+	if err := os.RemoveAll(bare); err != nil {
+		t.Fatal(err)
+	}
+	oldAttempts, oldBackoff, oldSleep := syncOutMaxAttempts, syncOutInitialBackoff, syncOutSleep
+	syncOutMaxAttempts, syncOutInitialBackoff, syncOutSleep = 1, 0, func(time.Duration) {}
+	t.Cleanup(func() { syncOutMaxAttempts, syncOutInitialBackoff, syncOutSleep = oldAttempts, oldBackoff, oldSleep })
+	if err := k.SyncOut(); err == nil {
+		t.Fatal("SyncOut to a removed remote succeeded")
+	}
+	s = k.GitStatusSnapshot()
+	if s.State != "failed" || s.LastPushAt == nil || !s.LastPushAt.Equal(first) {
+		t.Fatalf("after failed push: state=%s last_push_at=%v want %v", s.State, s.LastPushAt, first)
+	}
+}
+
+func TestSyncIn_RecordsLastSyncInAt(t *testing.T) {
+	if !haveGit() {
+		t.Skip("git not in PATH")
+	}
+	k, _ := setupKBWithRemote(t)
+	k.GitSync = true
+	if err := k.SyncOut(); err != nil {
+		t.Fatalf("SyncOut: %v", err)
+	}
+	if _, err := k.SyncIn(); err != nil {
+		t.Fatalf("SyncIn: %v", err)
+	}
+	if s := k.GitStatusSnapshot(); s.LastSyncInAt == nil {
+		t.Fatal("last_sync_in_at is nil after a successful SyncIn")
 	}
 }
