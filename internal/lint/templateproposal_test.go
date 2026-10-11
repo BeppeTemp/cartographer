@@ -9,14 +9,14 @@ import (
 )
 
 // proposalKB: ten Host pages with Purpose, Operations and Recovery in every one,
-// Notes in four of them (40%), Trivia in one; plus two Runbook pages (too few).
+// Notes in five of them (50%), Trivia in one; plus two Runbook pages (too few).
 func proposalKB(t *testing.T) *kb.KB {
 	t.Helper()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "infra/_map.md", "---\ntype: Map\nkind: map\ntitle: Infra\n---\n")
 	for i := 0; i < 10; i++ {
 		body := "## Purpose\n\np\n\n## Operations\n\no\n\n## Recovery\n\nr\n"
-		if i < 4 {
+		if i < 5 {
 			body += "\n## Notes\n\nn\n"
 		}
 		if i == 0 {
@@ -46,7 +46,7 @@ func TestTemplateProposal(t *testing.T) {
 		t.Fatalf("proposal text does not parse:\n%s", it.Template)
 	}
 	if strings.Join(info.Sections, ",") != "Purpose,Operations,Recovery,Notes" {
-		t.Errorf("sections = %v (Trivia is under the 20%% floor)", info.Sections)
+		t.Errorf("sections = %v (Trivia is under the 50%% floor)", info.Sections)
 	}
 	if len(info.RequiredSections()) != 3 || strings.Join(info.OptionalSections, ",") != "Notes" {
 		t.Errorf("3 required and Notes optional, got required %v optional %v", info.RequiredSections(), info.OptionalSections)
@@ -86,5 +86,56 @@ func TestTemplateProposalSilentOnceBound(t *testing.T) {
 		if it.TemplateSlug == "host" {
 			t.Errorf("Host pages resolve to templates/host.md: nothing to propose: %+v", it)
 		}
+	}
+}
+
+// twoMapKB: two maps whose Topic pages bind to the one slug "topic". Every page
+// carries Purpose; "Lonely" is one page of the four of alpha; alpha's pages are
+// active and beta's deprecated; a heading with a run of spaces is the same
+// section as its single-space spelling.
+func twoMapKB(t *testing.T) *kb.KB {
+	t.Helper()
+	k := tempKB(t)
+	for _, m := range []string{"alpha", "beta"} {
+		writeFile(t, k.DataRoot(), m+"/_map.md", "---\ntype: Map\nkind: map\ntitle: "+m+"\n---\n")
+	}
+	for i := 0; i < 4; i++ {
+		body := "## Purpose\n\np\n"
+		if i == 0 {
+			body += "\n## Lonely\n\nl\n"
+		}
+		writeFile(t, k.DataRoot(), fmt.Sprintf("alpha/a%d.md", i), "---\ntype: Topic\ntitle: A\nstatus: active\ntags: [x]\n---\n# A\n\n"+body)
+	}
+	for i := 0; i < 4; i++ {
+		h := "Purpose"
+		if i%2 == 1 {
+			h = "Purpose  "
+		}
+		writeFile(t, k.DataRoot(), fmt.Sprintf("beta/b%d.md", i), "---\ntype: Topic\ntitle: B\nstatus: deprecated\ntags: [x]\n---\n# B\n\n## "+h+"\n\np\n")
+	}
+	return k
+}
+
+func TestTemplateProposalOnePerSlugAcrossMaps(t *testing.T) {
+	got := itemsOf(review(t, twoMapKB(t)), ReviewTemplateProposal)
+	if len(got) != 1 {
+		t.Fatalf("two maps, one slug: want one proposal, got %d: %+v", len(got), got)
+	}
+	it := got[0]
+	if strings.Join(it.Concepts, ",") != "alpha/_map,beta/_map" || it.Weight != 8 || len(it.MapUpdates) != 2 {
+		t.Fatalf("item should list both maps and carry one map_update each: %+v", it)
+	}
+	info, ok := kb.ParseTemplate("topic", it.Template)
+	if !ok {
+		t.Fatalf("does not parse:\n%s", it.Template)
+	}
+	if strings.Join(info.Sections, ",") != "Purpose" {
+		t.Errorf("sections = %v: Lonely is one page of eight", info.Sections)
+	}
+	if _, has := info.FieldValues["status"]; has {
+		t.Errorf("status differs per map, it belongs to the map contracts: %v", info.FieldValues)
+	}
+	if strings.Join(info.RequiredFields, ",") != "status,tags" {
+		t.Errorf("required fields = %v", info.RequiredFields)
 	}
 }
