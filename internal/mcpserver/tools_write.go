@@ -856,10 +856,28 @@ func toolMapCreate(k *kb.KB) Tool {
 				"map":    params.Name,
 				"status": "created",
 			}
+			if w := mapTitleWarning(k, params.Name, params.Title); w != "" {
+				result["warnings"] = []string{w}
+			}
 			out, _ := json.MarshalIndent(result, "", "  ")
 			return textResult(string(out)), nil
 		},
 	}
+}
+
+// mapTitleWarning explains, without refusing, why kb_review would flag a map
+// title (map_naming): "" when the title is fine or the map's own lint_ignore
+// dismisses map_naming.
+func mapTitleWarning(k *kb.KB, name, title string) string {
+	title = strings.TrimSpace(title)
+	reasons := lint.MapTitleIssues(name, title)
+	if len(reasons) == 0 {
+		return ""
+	}
+	if meta, err := k.ReadArchiveMeta(name); err == nil && lint.MapIgnoresCheck(meta, "map_naming") {
+		return ""
+	}
+	return fmt.Sprintf("kb_review flags map titles like this (map_naming): %q is off (%s); a map title is a short name recognisable from the folder %q, the explanation goes in the description. Rename with map_update title", title, strings.Join(reasons, "; "), name)
 }
 
 // validateTemplateParams rejects a templates / default_template pair a map
@@ -1206,6 +1224,11 @@ func toolMapUpdate(k *kb.KB) Tool {
 					"forbidden_fields":            nonNilStrings(contract.ForbiddenFields),
 					"machine_path_allow_prefixes": nonNilStrings(contract.MachinePathAllowPrefixes),
 				},
+			}
+			if params.Title != nil {
+				if w := mapTitleWarning(k, params.Map, title); w != "" {
+					result["warnings"] = []string{w}
+				}
 			}
 			echo := result["contract"].(map[string]interface{})
 			if contract.Index != "" {

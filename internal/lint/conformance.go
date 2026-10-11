@@ -783,6 +783,15 @@ func titleOf(fm *okf.Frontmatter) string {
 // a label (title_quality). A map overrides it with title_max_length.
 const defaultTitleMaxLength = 100
 
+// EffectiveTitleMaxLength is the title length limit of a map: its
+// title_max_length, else the default. 0 or less means no limit.
+func EffectiveTitleMaxLength(contract *kb.MapContract) int {
+	if contract != nil && contract.TitleMaxLength != nil {
+		return *contract.TitleMaxLength
+	}
+	return defaultTitleMaxLength
+}
+
 // titleStatusWords are lifecycle words that decay when embedded in a title.
 var titleStatusWords = []string{"attivo", "active", "dismesso", "deprecated", "draft", "superseded", "preparazione", "archiviato", "archived", "declassato"}
 
@@ -841,10 +850,7 @@ func titleTextIssues(contract *kb.MapContract, hasStatus bool, title string) []s
 	if len(deco) > 0 {
 		out = append(out, fmt.Sprintf(decorativeTitleMsg+" (%s); titles are labels shown in listings and the Atlas: prefer plain text", strings.Join(deco, " ")))
 	}
-	limit := defaultTitleMaxLength
-	if contract != nil && contract.TitleMaxLength != nil {
-		limit = *contract.TitleMaxLength
-	}
+	limit := EffectiveTitleMaxLength(contract)
 	if n := len([]rune(title)); limit > 0 && n > limit {
 		out = append(out, fmt.Sprintf("title is %d characters (limit %d for this map); a title is a label, not a sentence", n, limit))
 	}
@@ -935,4 +941,17 @@ func containsWord(s, word string) bool {
 		}
 		from = end
 	}
+}
+
+// TitleTextIssues exports titleTextIssues for the write-time warnings
+// (source_register): every title_quality problem of a title under a map
+// contract, one message each. hasStatus: the concept carries a status field.
+func TitleTextIssues(contract *kb.MapContract, hasStatus bool, title string) []string {
+	return titleTextIssues(contract, hasStatus, title)
+}
+
+// MapIgnoresCheck reports whether a map descriptor's lint_ignore (D306)
+// silences check for the whole map.
+func MapIgnoresCheck(meta *okf.Frontmatter, check string) bool {
+	return lintIgnoreSet(meta)[check]
 }

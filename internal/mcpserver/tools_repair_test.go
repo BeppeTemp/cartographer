@@ -362,6 +362,9 @@ func TestSummarizeConformanceTruthTable(t *testing.T) {
 		{"fixable, run long ago", []lint.Finding{f("tool_param_field", lint.SevInfo, true)}, 0, "2026-09-01", 14, true},
 		{"info, interval just passed", info, 0, "2026-09-17", 14, true},
 		{"info, a day short", info, 0, "2026-09-18", 14, false},
+		{"info only, never run (fresh KB)", info, 0, "", 14, false},
+		{"info only, old session (established KB)", info, 0, "2026-09-01", 14, true},
+		{"info plus review item, never run", info, 1, "", 14, true},
 		{"review only, due", nil, 3, "2026-08-01", 14, true},
 		{"debt, interval off", warn, 5, "", 0, false},
 	}

@@ -204,7 +204,17 @@ func toolSourceRegister(k *kb.KB) Tool {
 				return errorResult(fmt.Sprintf("source_register %q: %v", id, err)), nil
 			}
 			_ = k.AppendLog("source_register: "+id, time.Now())
-			out, _ := json.Marshal(map[string]interface{}{"id": id, "duplicate": false})
+			resp := map[string]interface{}{"id": id, "duplicate": false}
+			if contract, cerr := k.ReadMapContract(p.Map); cerr == nil {
+				ignored := false
+				if meta, merr := k.ReadArchiveMeta(p.Map); merr == nil {
+					ignored = lint.MapIgnoresCheck(meta, "title_quality")
+				}
+				if issues := lint.TitleTextIssues(&contract, false, p.Title); len(issues) > 0 && !ignored {
+					resp["warnings"] = []string{fmt.Sprintf("lint will flag this title (title_quality): %s; shorten or rename it, or for length raise the limit of this journal with map_update(map: %q, title_max_length: <n>)", strings.Join(issues, "; "), p.Map)}
+				}
+			}
+			out, _ := json.Marshal(resp)
 			return textResult(string(out)), nil
 		},
 	}
