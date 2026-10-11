@@ -53,7 +53,9 @@ test("the growth replay exports a real video, in the background, with the tab hi
   // The button lives in the replay's control bar, not in the camera controls.
   await expect(page.getByRole("group", { name: "Graph camera" }).getByRole("button", { name: "Export video" })).toHaveCount(0);
   await page.getByRole("group", { name: "Growth replay" }).getByRole("button", { name: "Export video" }).click();
-  await page.getByRole("radio", { name: /1:1/ }).check();
+  // The radio is visually hidden inside its tile: a reader clicks the tile.
+  await page.getByText("1:1", { exact: true }).click();
+  await expect(page.getByRole("radio", { name: /1:1/ })).toBeChecked();
   // H.264 is covered by the unit test of pickCodec: the Chromium Playwright
   // drives may ship no H.264 encoder, so here it is VP9 in a WebM by
   // construction. The expectation asks the browser, so a branded Chrome passes
