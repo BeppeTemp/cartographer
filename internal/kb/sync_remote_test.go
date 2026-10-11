@@ -268,8 +268,14 @@ func TestGitStatusSnapshot_BehindAndLastPush(t *testing.T) {
 	first := *s.LastPushAt
 
 	// A second clone pushes one commit; fetching alone makes k one behind.
+	// Clone k's branch explicitly: the bare remote's HEAD follows the host's
+	// init.defaultBranch, which need not match the branch k pushed.
+	branch, err := gitx.Branch(k.Root)
+	if err != nil {
+		t.Fatalf("Branch: %v", err)
+	}
 	other := filepath.Join(t.TempDir(), "other")
-	gitIn(t, filepath.Dir(other), "clone", "-q", bare, other)
+	gitIn(t, filepath.Dir(other), "clone", "-q", "-b", branch, bare, other)
 	gitHere(t, other, "config", "user.email", "user@example.com")
 	gitHere(t, other, "config", "user.name", "user")
 	if err := os.WriteFile(filepath.Join(other, "extra.txt"), []byte("x"), 0o644); err != nil {
