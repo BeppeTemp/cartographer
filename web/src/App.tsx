@@ -57,6 +57,8 @@ import {
 import { initialMotion } from "./lib/graph3d/motion";
 import { hasWebGL } from "./lib/webgl";
 import { useLiveRevision } from "./lib/live";
+import { toggleEggs, type Egg } from "./lib/eggs";
+import { Eggs } from "./components/Eggs";
 import { snapshotCommunities, type Communities } from "./lib/communities";
 import { readColorBy, writeColorBy, type ColorBy } from "./lib/palette";
 import { pushView, readViewState, replaceView, type ViewState } from "./lib/viewstate";
@@ -131,6 +133,7 @@ export function App() {
   const healthKB = useRef<string | null>(null);
   const [motion, setMotion] = useState(() => initialMotion(readPanel("motion", true), prefersReducedMotion()));
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [eggs, setEggs] = useState<Set<Egg>>(() => new Set());
   const [preview, setPreview] = useState<string | null>(null);
   const [notice, setNotice] = useState<string>("");
   const [offline, setOffline] = useState(false);
@@ -814,6 +817,7 @@ export function App() {
                 </div>
               ) : (
                 <GraphView
+                  vibe={eggs.has("vibe")}
                   snapshot={snapshot}
                   layoutKey={snapshotKey}
                   loadBirths={activeKB ? () => fetchBirths(activeKB).then((r) => r.births) : undefined}
@@ -879,6 +883,17 @@ export function App() {
         nodes={visibleNodes}
         onClose={() => setPaletteOpen(false)}
         onSelect={openFromPalette}
+        onEgg={(asked) => setEggs((on) => toggleEggs(on, asked))}
+      />
+      <Eggs
+        on={eggs}
+        onOff={(egg) =>
+          setEggs((on) => {
+            const next = new Set(on);
+            next.delete(egg);
+            return next;
+          })
+        }
       />
     </div>
   );

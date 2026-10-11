@@ -1,0 +1,231 @@
+/* --- Easter eggs (lib/eggs.ts) ---
+   Each lives under a class on <body>: nothing here applies to the normal UI.
+   They are jokes about taste, kept off every code path the Atlas relies on. */
+
+/* The cards that say an egg is on, top centre over the graph. */
+.eggs {
+  position: fixed;
+  z-index: 50;
+  inset-block-start: calc(var(--topbar-height) + var(--space-3));
+  inset-inline: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+  pointer-events: none;
+}
+
+.eggs__card {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-2) var(--space-2) var(--space-4);
+  font-size: var(--text-sm);
+  pointer-events: auto;
+  animation: rise-in var(--motion-base) var(--ease-emphasized);
+}
+
+.eggs__off {
+  padding: var(--space-1) var(--space-2);
+  color: inherit;
+  background: none;
+  border: 0;
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+/* --- Glass: every surface is frosted glass over whatever is behind it --- */
+
+.eggs__card--glass {
+  color: var(--text-primary);
+  background: color-mix(in srgb, var(--surface-1) 35%, transparent);
+  border: 1px solid color-mix(in srgb, white 28%, transparent);
+  border-radius: 999px;
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, white 45%, transparent),
+    0 12px 40px rgb(0 0 0 / 0.25);
+  backdrop-filter: blur(24px) saturate(180%);
+}
+
+body.egg-glass .topbar,
+body.egg-glass .rail,
+body.egg-glass .overlay,
+body.egg-glass .legend,
+body.egg-glass .graph-toolbar,
+body.egg-glass .palette,
+body.egg-glass .growth-export {
+  background: color-mix(in srgb, var(--surface-1) 38%, transparent) !important;
+  border: 1px solid color-mix(in srgb, white 22%, transparent) !important;
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, white 40%, transparent),
+    inset 0 -1px 0 color-mix(in srgb, white 8%, transparent),
+    0 18px 50px rgb(0 0 0 / 0.28);
+  backdrop-filter: blur(28px) saturate(190%);
+  -webkit-backdrop-filter: blur(28px) saturate(190%);
+}
+
+/* Panels float off the edges, rounded like drops. */
+body.egg-glass .overlay--inspector {
+  inset-block: var(--space-3);
+  inset-inline-end: var(--space-3);
+  border-radius: 28px;
+}
+
+body.egg-glass .legend,
+body.egg-glass .graph-toolbar,
+body.egg-glass .palette {
+  border-radius: 24px;
+}
+
+body.egg-glass .inspector {
+  background: transparent;
+}
+
+body.egg-glass .button,
+body.egg-glass .chip {
+  border-radius: 999px;
+  background: color-mix(in srgb, white 10%, transparent);
+  border-color: color-mix(in srgb, white 25%, transparent);
+  backdrop-filter: blur(12px);
+}
+
+/* A specular glint drifting across the top bar. */
+body.egg-glass .topbar {
+  background-image: linear-gradient(
+    110deg,
+    transparent 30%,
+    color-mix(in srgb, white 14%, transparent) 45%,
+    transparent 60%
+  ) !important;
+  background-size: 250% 100%;
+  animation: egg-glint 6s ease-in-out infinite;
+}
+
+@keyframes egg-glint {
+  from {
+    background-position: 120% 0;
+  }
+  to {
+    background-position: -120% 0;
+  }
+}
+
+/* --- Vibe: the UI a vibe-coded app is sure is perfect --- */
+
+body.egg-vibe,
+body.egg-vibe * {
+  font-family: "Comic Sans MS", "Comic Sans", "Chalkboard SE", "Comic Neue", cursive !important;
+}
+
+body.egg-vibe .topbar {
+  background: linear-gradient(90deg, #7c3aed, #db2777, #f59e0b) !important;
+  color: white;
+}
+
+body.egg-vibe .topbar__brand {
+  transform: rotate(-4deg) scale(1.08);
+  text-shadow: 3px 3px 0 #22d3ee;
+}
+
+body.egg-vibe .rail {
+  background: linear-gradient(180deg, #fdf4ff, #e0e7ff) !important;
+  color: #4c1d95;
+  text-align: center;
+}
+
+body.egg-vibe .rail button::after {
+  content: " ✨";
+}
+
+body.egg-vibe .button,
+body.egg-vibe .chip {
+  background: linear-gradient(135deg, #a855f7, #ec4899) !important;
+  color: white !important;
+  border: 3px solid #facc15 !important;
+  border-radius: 999px;
+  box-shadow: 0 10px 0 #7e22ce, 0 18px 30px rgb(236 72 153 / 0.6);
+  padding-inline: 1.4em 0.6em;
+}
+
+body.egg-vibe .overlay,
+body.egg-vibe .legend {
+  background: #fffbeb !important;
+  color: #831843;
+  border: 4px dashed #ec4899 !important;
+  border-radius: 36px 8px 36px 8px;
+  box-shadow: 14px 14px 0 #a78bfa;
+}
+
+body.egg-vibe .inspector {
+  background: transparent;
+}
+
+body.egg-vibe h1,
+body.egg-vibe h2,
+body.egg-vibe h3 {
+  text-align: center;
+  background: linear-gradient(90deg, #ef4444, #f59e0b, #22c55e, #3b82f6, #a855f7);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent !important;
+}
+
+body.egg-vibe .legend {
+  transform: rotate(1.5deg);
+}
+
+body.egg-vibe .main canvas {
+  filter: saturate(1.6) contrast(1.1);
+}
+
+.eggs__card--vibe {
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-3) var(--space-6);
+  color: white;
+  text-align: center;
+  background: linear-gradient(120deg, #7c3aed, #db2777, #f59e0b, #7c3aed);
+  background-size: 300% 100%;
+  border: 3px solid #facc15;
+  border-radius: 28px;
+  box-shadow: 0 12px 0 #6d28d9, 0 24px 50px rgb(219 39 119 / 0.55);
+  animation: egg-vibe-flow 5s linear infinite;
+}
+
+.eggs__vibe-title {
+  font-size: var(--text-lg);
+  font-weight: 700;
+}
+
+.eggs__ship {
+  margin-block-start: var(--space-1);
+  padding: var(--space-1) var(--space-4);
+  font-weight: 700;
+  color: #4c1d95;
+  background: #facc15;
+  border: 0;
+  border-radius: 999px;
+  box-shadow: 0 6px 0 #ca8a04;
+  cursor: pointer;
+  transition: transform var(--motion-fast) var(--ease-out);
+}
+
+@keyframes egg-vibe-flow {
+  from {
+    background-position: 0% 0;
+  }
+  to {
+    background-position: 300% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body.egg-glass .topbar,
+  .eggs__card--vibe {
+    animation: none;
+  }
+
+  .eggs__ship {
+    transition: none;
+  }
+}

@@ -3,6 +3,7 @@ import { fetchSearch } from "../api/client";
 import { nameOf } from "../lib/names";
 import type { GraphNode, SearchHit } from "../api/types";
 import { collectionVar } from "../lib/palette";
+import { eggsFor, type Egg } from "../lib/eggs";
 
 interface Props {
   open: boolean;
@@ -11,6 +12,8 @@ interface Props {
   nodes: GraphNode[];
   onClose(): void;
   onSelect(id: string): void;
+  /** A secret phrase was entered (lib/eggs.ts). */
+  onEgg?(eggs: Egg[]): void;
 }
 
 const MAX_RESULTS = 40;
@@ -44,7 +47,7 @@ function cleanSnippet(s: string): string {
  * reader's queries as knowledge gaps) adds the concepts whose *text* matches,
  * each with the excerpt that matched.
  */
-export function CommandPalette({ open, kb = null, nodes, onClose, onSelect }: Props) {
+export function CommandPalette({ open, kb = null, nodes, onClose, onSelect, onEgg }: Props) {
   const [textHits, setTextHits] = useState<SearchHit[]>([]);
   const [query, setQuery] = useState("");
   const [cursor, setCursor] = useState(0);
@@ -145,6 +148,7 @@ export function CommandPalette({ open, kb = null, nodes, onClose, onSelect }: Pr
   }, [cursor]);
 
   if (!open) return null;
+  const egg = onEgg ? eggsFor(query) : null;
 
   const commit = (id: string | undefined) => {
     if (!id) return;
@@ -190,12 +194,21 @@ export function CommandPalette({ open, kb = null, nodes, onClose, onSelect }: Pr
               setCursor((c) => Math.max(c - 1, 0));
             } else if (event.key === "Enter") {
               event.preventDefault();
-              commit(results[cursor]?.id);
+              if (egg) {
+                onEgg?.(egg);
+                onClose();
+              } else commit(results[cursor]?.id);
             }
           }}
         />
         <ul id="palette-results" className="palette__results" role="listbox" ref={listRef}>
-          {results.length === 0 ? (
+          {egg ? (
+            <li id="palette-option-0" className="palette__result palette__result--egg" role="option" aria-selected="true">
+              <span className="palette__text">
+                <span className="palette__label">✨ Something is hiding here — press Enter</span>
+              </span>
+            </li>
+          ) : results.length === 0 ? (
             <li className="palette__empty">No concept matches &ldquo;{query}&rdquo;.</li>
           ) : (
             results.map((row, index) => (
