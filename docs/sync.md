@@ -457,6 +457,20 @@ all. "No KBs" and "several KBs" are distinct explicit states; neither is ever "e
 bound path that is gone or whose git remote has changed is an **error**, never a fall-back — falling
 back is the exposure the scope exists to close.
 
+**Cartographer's own entry (D717).** Skills are scoped by the projection; the tools would not be,
+because the global `cartographer` MCP entry lists every KB of the global binding. So `sync` also
+writes, into each bound workspace's project `mcp` cell, an entry with the **same name** as the global
+one and the routed URL restricted to the workspace's KBs (`…/mcp/routed?kbs=<kb>,…`). A same-named
+project server replaces the user-scoped one, so a session in the workspace sees only those KBs. The
+entry is recorded in the workspace lock as `kind: mcp`, `source: client`, so a manifest never
+removes it and `workspace unbind` prunes it with the rest. Nothing is written, and `sync` prints one
+line per projection, when: the server predates the routed endpoint; the workspace is bound with
+`--no-kb`; every bound KB is unmounted (`?kbs=` cannot say "none", and an entry without it would
+widen to every KB); or the client is not known to let a project server replace the global one. Only
+Claude Code qualifies today; the per-client outcomes are in [harnesses.md](harnesses.md). A KB `mcp`
+artifact named like the server is ignored with a warning. Claude Code asks once to approve a project
+server; Codex reads its project config only in a trusted project (`doctor` hints at it).
+
 **A projection is not an authorization boundary.** A process running as the same user can read any
 file on the machine ([D169](decisions/D169-per-provider-kb-binding-a-user-owned-preference-beside.md)). What this prevents is accidental
 exposure and activation, and that is all it claims.

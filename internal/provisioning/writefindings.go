@@ -104,6 +104,15 @@ func isReservedHook(kind, name string) bool {
 	return kind == "hook" && reservedHookNames[name]
 }
 
+// SourceClient marks a lock entry the client generates itself rather than
+// takes from a KB manifest (D717): ComputeDiff never lists it as removed and
+// Apply carries it forward, like a reserved hook.
+const SourceClient = "client"
+
+func isClientOwned(mf ManagedFile) bool {
+	return isReservedHook(mf.Kind, mf.Name) || mf.Source == SourceClient
+}
+
 // EnsureWriteFindingsHook materializes and registers the write-findings hook
 // for provider and returns lock with its ManagedFile entries refreshed
 // (idempotent). A provider without the verified feedback channel gets none and

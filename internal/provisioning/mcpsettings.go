@@ -14,6 +14,8 @@
 package provisioning
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -199,4 +201,77 @@ func mcpProviderFromPath(path string) configurator.Provider {
 		}
 	}
 	return ""
+}
+
+// ServerEntry is Cartographer's own server entry as a workspace projection
+// writes it into the project mcp cell (D717): same name as the global one,
+// URL already restricted to the workspace's KBs.
+type ServerEntry struct {
+	Name     string
+	URL      string
+	Auth     bool
+	TokenEnv string
+}
+
+// EnsureServerEntry writes, refreshes or removes Cartographer's own entry in
+// the provider's project mcp cell and returns lock with the matching
+// client-owned ManagedFile (Source: SourceClient) recorded, so ComputeDiff and
+// Apply leave it alone and PruneManaged strips it on unbind (D717).
+//
+// A provider with no project cell, no MCP config, or whose project entry does
+// not shadow the global one (configurator.ProjectMCPShadowsGlobal) gets no
+// entry, and a previous client-owned one is removed. entry == nil removes too.
+func EnsureServerEntry(baseDir string, provider configurator.Provider, lock Lock, entry *ServerEntry, dryRun bool) (Lock, []string, error) {
+	cell := destDirScoped("mcp", "", provider, ScopeProject)
+	if cell == "" || !configurator.ManagesMCPConfig(provider) {
+		return lock, nil, nil
+	}
+	if !configurator.ProjectMCPShadowsGlobal(provider) {
+		entry = nil
+	}
+
+	var previous *ManagedFile
+	kept := make([]ManagedFile, 0, len(lock.Managed))
+	for i := range lock.Managed {
+		mf := lock.Managed[i]
+		if mf.Kind == "mcp" && mf.Source == SourceClient {
+			previous = &lock.Managed[i]
+			continue
+		}
+		kept = append(kept, mf)
+	}
+
+	// A renamed server, or no entry any more: the old one goes first.
+	if previous != nil && (entry == nil || previous.Name != entry.Name) && !dryRun {
+		if err := removeMCPServer(baseDir, previous.Name, provider, filepath.ToSlash(previous.Path)); err != nil {
+			return lock, nil, fmt.Errorf("provisioning: remove workspace entry %s: %w", previous.Name, err)
+		}
+	}
+	if entry == nil {
+		lock.Managed = kept
+		return lock, nil, nil
+	}
+
+	cfg := configurator.ServerConfig{URL: entry.URL, AuthEnabled: entry.Auth, TokenEnv: entry.TokenEnv}
+	rel := cell
+	var warnings []string
+	if !dryRun {
+		var err error
+		rel, warnings, err = registerMCPServer(baseDir, entry.Name, cfg.Spec(), provider, ScopeProject)
+		if err != nil {
+			return lock, nil, fmt.Errorf("provisioning: write workspace entry %s: %w", entry.Name, err)
+		}
+	}
+	sum := sha256.Sum256([]byte(fmt.Sprintf("%s\x00%t\x00%s", entry.URL, entry.Auth, entry.TokenEnv)))
+	lock.Managed = append(kept, ManagedFile{
+		Kind: "mcp", Name: entry.Name, Path: rel,
+		ContentHash: "sha256:" + hex.EncodeToString(sum[:]), Source: SourceClient,
+	})
+	return lock, warnings, nil
+}
+
+// HasProjectMCPCell reports whether provider has a project-local mcp cell that
+// Cartographer manages (everything but hermes and copilot).
+func HasProjectMCPCell(provider configurator.Provider) bool {
+	return destDirScoped("mcp", "", provider, ScopeProject) != "" && configurator.ManagesMCPConfig(provider)
 }

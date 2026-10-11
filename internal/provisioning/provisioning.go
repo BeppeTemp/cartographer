@@ -288,6 +288,9 @@ type ApplyOptions struct {
 	// It is authorization, not verification; Signed is never mutated by it.
 	ApprovedMCP map[string]string
 	Lock        Lock // current lockfile
+	// ReservedMCPName is the name of Cartographer's own server entry in this
+	// workspace (D717): a KB mcp artifact carrying it is ignored with a warning.
+	ReservedMCPName string
 
 	// Scope selects which half of the destination matrix this apply writes
 	// through (D193). The zero value is ScopeGlobal, so every existing caller
@@ -1515,7 +1518,7 @@ func ComputeDiff(m Manifest, lock Lock) Diff {
 	// it disappear on every sync instead of staying stable between one
 	// EnsureBootstrapHook and the next (see also the twin carry-forward in Apply).
 	for _, mf := range lock.Managed {
-		if isReservedHook(mf.Kind, mf.Name) {
+		if isClientOwned(mf) {
 			continue
 		}
 		k := mf.Kind + "\x00" + mf.Name
@@ -1770,7 +1773,7 @@ func Apply(m Manifest, opts ApplyOptions) (AppliedResult, error) {
 		// preserved through Apply — see EnsureBootstrapHook, which
 		// regenerates/registers it separately and expects to find it here again
 		// next round (same principle as the twin carry-forward in ComputeDiff).
-		if isReservedHook(mf.Kind, mf.Name) {
+		if isClientOwned(mf) {
 			newManaged = append(newManaged, mf)
 			continue
 		}
@@ -1798,6 +1801,11 @@ func Apply(m Manifest, opts ApplyOptions) (AppliedResult, error) {
 			// ignored with a warning, never materialized.
 			result.Warnings = append(result.Warnings, fmt.Sprintf(
 				"hook %q: name reserved by Cartographer (client-generated hook), KB artifact ignored", a.Name))
+			continue
+		}
+		if a.Kind == "mcp" && opts.ReservedMCPName != "" && a.Name == opts.ReservedMCPName {
+			result.Warnings = append(result.Warnings, fmt.Sprintf(
+				"mcp %q: name reserved by Cartographer's own entry in this workspace, KB artifact ignored", a.Name))
 			continue
 		}
 		if !artifactAuthorized(a, opts) {

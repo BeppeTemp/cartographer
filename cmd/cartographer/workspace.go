@@ -44,6 +44,11 @@ type syncProjection struct {
 	BundleOnly bool
 	// Scope is the destination matrix half this projection writes through.
 	Scope provisioning.Scope
+	// ServerEntry is Cartographer's own MCP entry for this workspace, restricted
+	// to its KBs (D717). Nil means none is written (and a previous one removed);
+	// EntryNote then says why, when there is something to say.
+	ServerEntry *provisioning.ServerEntry
+	EntryNote   string
 }
 
 // Key is the lockfile projection this state is recorded under.
@@ -101,16 +106,54 @@ func projectionsFor(cfg *clientconfig.Config, provider, clientBaseDir string) ([
 			return nil, fmt.Errorf("%s: bound workspace %s is gone — rebind it, or remove the binding with `cartographer workspace unbind %s %s`",
 				provider, w.Path, provider, w.Path)
 		}
-		out = append(out, syncProjection{
+		sp := syncProjection{
 			Provider:  provider,
 			Workspace: w.Path,
 			BaseDir:   w.Path,
 			Remote:    w.Remote,
 			KBs:       w.KBs,
 			Scope:     provisioning.ScopeProject,
-		})
+		}
+		entry, note, err := workspaceServerEntry(cfg, p, w.KBs)
+		if err != nil {
+			return nil, fmt.Errorf("%s: workspace %s: %w", provider, w.Path, err)
+		}
+		sp.ServerEntry, sp.EntryNote = entry, note
+		out = append(out, sp)
 	}
 	return out, nil
+}
+
+// workspaceServerEntry derives Cartographer's own entry for one bound
+// workspace (D717): the global entry's name and the routed URL restricted to the
+// workspace's KBs. No entry is returned, with a note, when the client does not
+// let a project server replace the global one, when the server predates the
+// routed endpoint, or when the binding cannot be expressed as ?kbs= — an entry
+// without kbs would widen to every KB, so it is never written.
+func workspaceServerEntry(cfg *clientconfig.Config, p configurator.Provider, bound []string) (*provisioning.ServerEntry, string, error) {
+	if !provisioning.HasProjectMCPCell(p) {
+		return nil, "", nil
+	}
+	if !configurator.ProjectMCPShadowsGlobal(p) {
+		return nil, fmt.Sprintf("%s does not let a project server replace the global one; Cartographer's own entry is not written here and the session still sees every KB of the global binding", p), nil
+	}
+	if cfg.ServerRoutedPath == "" {
+		return nil, "the server has no routed endpoint (pre-D288), so a per-workspace entry could not replace the global one; Cartographer's own entry is not written here", nil
+	}
+	if len(bound) == 0 {
+		return nil, "no KB is bound here (--no-kb), so Cartographer's own entry is not written; the global entry still applies", nil
+	}
+	if len(routedBinding(cfg.KnownKBs, bound)) == 0 {
+		return nil, "every KB bound here is unmounted on the server, so Cartographer's own entry is not written; the global entry still applies", nil
+	}
+	entries, err := entriesForKBs(cfg.ServerName, cfg.ServerURL, cfg.KnownKBs, bound, cfg.ServerRoutedPath, true)
+	if err != nil {
+		return nil, "", err
+	}
+	if len(entries) != 1 || !strings.Contains(entries[0].URL, "kbs=") {
+		return nil, "", fmt.Errorf("workspace entry for %s is not restricted to its KBs", cfg.ServerName)
+	}
+	return &provisioning.ServerEntry{Name: entries[0].Name, URL: entries[0].URL, Auth: cfg.Auth, TokenEnv: cfg.TokenEnv}, "", nil
 }
 
 // artifactsForProjection narrows the fetched candidates to what one projection

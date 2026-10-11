@@ -719,6 +719,9 @@ func materializeForProviders(manifests map[string]provisioning.Manifest, project
 			PathRegistries: manifest.PathRegistries,
 			KBOrder:        kbOrder[p.Provider],
 		}
+		if p.Scope == provisioning.ScopeProject && p.ServerEntry != nil {
+			opts.ReservedMCPName = p.ServerEntry.Name
+		}
 		// Apply only the artifacts the provider knows how to materialize in
 		// this scope: unsupported kinds are neither drift nor pending, they
 		// simply don't concern it.
@@ -730,6 +733,19 @@ func materializeForProviders(manifests map[string]provisioning.Manifest, project
 				return nil, fmt.Errorf("apply %s: %w (already applied and recorded: %s)", p.Label(), err, strings.Join(appliedSoFar, ", "))
 			}
 			return nil, fmt.Errorf("apply %s: %w", p.Label(), err)
+		}
+		// D717: Cartographer's own entry in the workspace's project mcp cell,
+		// recorded in the lock as client-owned. Global projections never get one.
+		if p.Scope == provisioning.ScopeProject {
+			lock, entryWarnings, err := provisioning.EnsureServerEntry(p.BaseDir, configurator.Provider(p.Provider), applied.NewLock, p.ServerEntry, dryRun)
+			if err != nil {
+				return nil, fmt.Errorf("apply %s: %w", p.Label(), err)
+			}
+			applied.NewLock = lock
+			applied.Warnings = append(applied.Warnings, entryWarnings...)
+			if p.EntryNote != "" {
+				applied.Warnings = append(applied.Warnings, p.Workspace+": "+p.EntryNote)
+			}
 		}
 		// Record the base dir only when it is not the lockfile's own
 		// directory: every existing lockfile keeps its current meaning and no

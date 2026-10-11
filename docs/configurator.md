@@ -226,7 +226,9 @@ that repository's own project-local directories and nothing KB-sourced is writte
 more. `connect --workspace <repo>` makes the same choice at connect time, which is the only moment
 it is free — a provider-global connect materializes every selected KB into `$HOME` first, and moving
 them afterwards is a migration. `workspace unbind` removes the declaration and the next `sync`
-prunes what was projected there. `workspace list` shows the bindings, with `[gone]` next to a
+prunes what was projected there. `sync` also writes Cartographer's own MCP entry, restricted to the
+workspace's KBs, into the project `mcp` cell of the clients that let it replace the global one (D717).
+`workspace list` shows the bindings, with `[gone]` next to a
 directory that is not there any more.
 
 Existing configurations are untouched: the scope is per provider, absent means the historical global

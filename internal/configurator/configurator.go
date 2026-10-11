@@ -55,6 +55,10 @@ type ServerSpec struct {
 	Env     map[string]string
 }
 
+// Spec is the exported form of toSpec, for callers that write the entry into a
+// file the emitter does not know (a workspace's project cell, D717).
+func (cfg *ServerConfig) Spec() ServerSpec { return cfg.toSpec() }
+
 // toSpec converts cfg into the provider-neutral ServerSpec EmitServer consumes.
 func (cfg *ServerConfig) toSpec() ServerSpec {
 	spec := ServerSpec{Type: "http", URL: cfg.URL}
