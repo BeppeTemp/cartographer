@@ -20,6 +20,9 @@ describe("withoutRedundantLinksSection", () => {
   it("keeps it when it carries authored text", () => {
     expect(strip(body("- [[a/b]] — why it matters"), "x/y", ["a/b"])).toContain("Collegamenti");
   });
+  it("reads a label holding brackets as one link (D720)", () => {
+    expect(strip(body("- [Issue [RFC] x](../b/x.md)"), "a/k", ["b/x"])).not.toContain("Collegamenti");
+  });
   it("keeps it when it links outside the KB", () => {
     expect(strip(body("- [Docs](https://example.com)"), "x/y", [])).toContain("Collegamenti");
   });

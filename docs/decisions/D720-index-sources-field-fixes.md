@@ -43,7 +43,7 @@ a rule written for a hand-built KB, and the scale made it visible.
 - Returning an error from `index_get` over the size guard with `with_hash`: the caller asked for
   the content in order to patch it.
 
-**Consequences.** Every link reader must use the bracket-aware pattern (`internal/kb/graph.go`,
+**Consequences.** Every link reader must use the bracket-aware pattern (`internal/kb/graph.go`, `cmd/cartographer/import.go`, `web/src/lib/linksection.ts`,
 `internal/lint`): a new copy of the old regex brings the false findings back. The `kb-doctor`
 skill applies every `map_updates` entry of a multi-map proposal. Scoped lint reads every concept's
 frontmatter once when an orphan candidate appears, which costs one KB walk on that write.

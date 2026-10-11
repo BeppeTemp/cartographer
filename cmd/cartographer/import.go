@@ -553,7 +553,7 @@ func prepareFrontmatter(fmRaw string, hasFM bool, body string, fallbackTitle str
 
 // importMDLinkRe matches markdown links [text](href), mirroring kb's
 // (unexported) mdLinkRe.
-var importMDLinkRe = regexp.MustCompile(`\[([^\]]*)\]\(([^)]+)\)`)
+var importMDLinkRe = regexp.MustCompile(`\[((?:[^\[\]]|\[[^\[\]]*\])*)\]\(([^)]+)\)`)
 
 // rewriteMarkdownLinks rewrites, in body, every relative markdown link whose
 // resolved target (relative to srcRel's own directory) is a key in moveMap,

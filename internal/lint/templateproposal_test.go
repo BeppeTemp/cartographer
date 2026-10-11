@@ -139,3 +139,16 @@ func TestTemplateProposalOnePerSlugAcrossMaps(t *testing.T) {
 		t.Errorf("required fields = %v", info.RequiredFields)
 	}
 }
+
+// Two type spellings in one map share a slug: the proposal names that map once.
+func TestTemplateProposalOneMapTwoSpellings(t *testing.T) {
+	k := tempKB(t)
+	writeFile(t, k.DataRoot(), "ops/_map.md", "---\ntype: Map\nkind: map\ntitle: Ops\n---\n")
+	for i, typ := range []string{"Runbook", "Runbook", "Runbook", "runbook", "runbook", "runbook"} {
+		writeFile(t, k.DataRoot(), fmt.Sprintf("ops/r%d.md", i), "---\ntype: "+typ+"\ntitle: R\n---\n# R\n\n## Steps\n\ns\n")
+	}
+	got := itemsOf(review(t, k), ReviewTemplateProposal)
+	if len(got) != 1 || strings.Join(got[0].Concepts, ",") != "ops/_map" || len(got[0].MapUpdates) > 1 {
+		t.Fatalf("want one proposal naming ops once: %+v", got)
+	}
+}

@@ -2,6 +2,7 @@ package lint
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 
@@ -133,7 +134,10 @@ func templateProposalItems(concepts []*reviewConcept, contracts map[string]kb.Ma
 			slugOrder = append(slugOrder, slug)
 		}
 		sg.pages = append(sg.pages, g.pages...)
-		sg.maps = append(sg.maps, g.mapName)
+		// Two type spellings in one map share a slug: the map counts once.
+		if !slices.Contains(sg.maps, g.mapName) {
+			sg.maps = append(sg.maps, g.mapName)
+		}
 		if mapSlugs[g.mapName] == nil {
 			mapSlugs[g.mapName] = map[string]int{}
 		}

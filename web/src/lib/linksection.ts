@@ -37,7 +37,8 @@ export function withoutRedundantLinksSection(body: string, conceptId: string, ou
     targets.push(id.trim());
     return "";
   });
-  rest = rest.replace(/\[[^\]]*\]\(([^)\s]+)\)/g, (whole, href: string) => {
+  // One level of brackets in a label, as the server parses it (D720).
+  rest = rest.replace(/\[(?:[^[\]]|\[[^[\]]*\])*\]\(([^)\s]+)\)/g, (whole, href: string) => {
     if (/^[a-z][a-z0-9+.-]*:/i.test(href)) {
       targets.push("\u0000external");
       return whole;

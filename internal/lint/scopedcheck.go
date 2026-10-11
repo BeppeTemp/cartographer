@@ -90,13 +90,17 @@ func ScopedCheck(k *kb.KB, ids []okf.ConceptID) []Finding {
 	// Provenance citations need every concept's frontmatter: read once, and
 	// only when an orphan candidate asks.
 	var citedSet map[string][]string
+	var citedErr bool
 	provCited := func(t okf.ConceptID) bool {
 		if citedSet == nil {
 			all := map[okf.ConceptID]string{}
-			_ = k.WalkConcepts(func(cid okf.ConceptID, content string) error { all[cid] = content; return nil })
+			if err := k.WalkConcepts(func(cid okf.ConceptID, content string) error { all[cid] = content; return nil }); err != nil {
+				// Unknown citations: never call a page orphan on partial data.
+				citedErr = true
+			}
 			citedSet = kb.SourceCitations(all)
 		}
-		return len(citedSet[string(t)]) > 0
+		return citedErr || len(citedSet[string(t)]) > 0
 	}
 
 	var findings []Finding

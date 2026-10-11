@@ -87,7 +87,7 @@ func toolAtlasOverview(k *kb.KB) Tool {
 func toolIndexGet(k *kb.KB) Tool {
 	return Tool{
 		Name:        "index_get",
-		Description: "Reads a folder's index.md (root if empty). with_hash: true returns {path, content, content_hash} (if_match for index_patch), never an outline. Else over 60 KB: outline; full: true forces content.",
+		Description: "Reads a folder's index.md (root if empty). with_hash: {path, content, content_hash} (if_match for index_patch). Over 60 KB: outline, unless full or with_hash; outline: true forces it.",
 		ReadOnly:    true,
 		InputSchema: json.RawMessage(`{
 			"type": "object",

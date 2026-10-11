@@ -417,7 +417,8 @@ func runChecks(k *kb.KB, scope string, scopeNeighbors bool, opts Options) ([]Fin
 	// The reverse-link graph for the orphan check. It retains self-links,
 	// preserving the pre-D108 orphan behaviour.
 	incomingLinks := graph.In
-	provCited := kb.SourceCitations(allConcepts)
+	// Source citations (D278), over the whole KB whatever the scope.
+	sourceCited := kb.SourceCitations(allConcepts)
 
 	// Archive name set for orphan skip rule.
 	archives, err := k.ListArchives()
@@ -530,9 +531,6 @@ func runChecks(k *kb.KB, scope string, scopeNeighbors bool, opts Options) ([]Fin
 	// junkAssets are the junk files the expanded-concept pass reported as
 	// junk_asset, so the whole-tree junk_file pass does not report them twice.
 	junkAssets := map[string]bool{}
-
-	// Source citations (D278), over the whole KB whatever the scope.
-	sourceCited := kb.SourceCitations(allConcepts)
 
 	// The structural analysis runs on the whole graph whatever the scope, so
 	// a scoped lint gives a concept the verdict a whole-KB lint gives it;
@@ -667,7 +665,7 @@ func runChecks(k *kb.KB, scope string, scopeNeighbors bool, opts Options) ([]Fin
 		}
 
 		// --- orphan (warning) ---
-		if f, ok := orphanFinding(id, relPath, incomingLinks, graph.Out, archiveSet, func(t okf.ConceptID) bool { _, ok := relPathOf[t]; return ok }, func(t okf.ConceptID) bool { return len(provCited[string(t)]) > 0 }); ok {
+		if f, ok := orphanFinding(id, relPath, incomingLinks, graph.Out, archiveSet, func(t okf.ConceptID) bool { _, ok := relPathOf[t]; return ok }, func(t okf.ConceptID) bool { return len(sourceCited[string(t)]) > 0 }); ok {
 			emit(f)
 		}
 
