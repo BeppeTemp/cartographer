@@ -75,8 +75,11 @@ export class LivingScene {
   setSelection(): void {}
   sendSignals(): void {}
   setLive(): void {}
+  /** After a focus the camera is somewhere else: a close-up, shifted beside the inspector. */
+  private focused = false;
   focus(id: string, _occluded?: unknown, savePose?: () => void): void {
     savePose?.();
+    this.focused = true;
     sceneStub.calls.focus.push(id);
   }
   unfocus(pose?: unknown): void {
@@ -84,10 +87,12 @@ export class LivingScene {
     sceneStub.calls.unfocusArgs.push(pose);
   }
   pose() {
-    return { position: { x: 1, y: 2, z: 3 }, lookAt: { x: 0, y: 0, z: 0 } };
+    return this.focused
+      ? { position: { x: 9, y: 9, z: 9 }, lookAt: { x: 5, y: 5, z: 5 } }
+      : { position: { x: 1, y: 2, z: 3 }, lookAt: { x: 0, y: 0, z: 0 } };
   }
   shiftPx(): number {
-    return 0;
+    return this.focused ? 200 : 0;
   }
   frameAll(): void {}
   fitEverything(_occluded?: number, ms?: number): void {

@@ -15,10 +15,8 @@ export interface LayoutMemory {
   nodes: Map<string, Point>;
   artifacts: Map<string, Point>;
   pose: Pose;
-  /** The screen shift the pose was drawn with (a selection beside the inspector). */
+  /** The screen shift the pose was drawn with. */
   shift: number;
-  /** The pose a selection returns to, when one was open. */
-  overview: Pose | null;
 }
 
 /** Layouts kept, oldest dropped first: a few KBs and Maps, not every one visited. */

@@ -16,7 +16,6 @@ const entry = (): LayoutMemory => ({
   artifacts: new Map(),
   pose: { position: { x: 0, y: 0, z: 1 }, lookAt: { x: 0, y: 0, z: 0 } },
   shift: 0,
-  overview: null,
 });
 
 describe("transitionSets", () => {

@@ -220,7 +220,9 @@ export function App() {
       // first call to a protected server carries none.
       const sent = hasToken();
       clearToken();
-      setAuthRejected(sent);
+      // Several requests fail at once when a token is revoked: the first
+      // clears it, so the ones after it must not unsay the rejection.
+      setAuthRejected((rejected) => rejected || sent);
       setPhase("auth");
       return true;
     }
@@ -575,14 +577,19 @@ export function App() {
     });
   }, [selectConcept, view.concept]);
 
-  /** The palette opened a concept: focus goes to the inspector's heading, not
-   *  back to whatever had it before (the rail's "All"). */
+  /** The palette opened a concept: on the Atlas, whatever panel it was
+   *  opened from (only the Atlas shows a selection), and focus goes to the
+   *  inspector's heading, not back to whatever had it before (the rail's
+   *  "All"); to the page when there is no heading to take it (a narrow screen). */
   const openFromPalette = useCallback(
     (id: string) => {
-      selectConcept(id);
-      window.requestAnimationFrame(() => document.querySelector<HTMLElement>(".inspector__title")?.focus());
+      navigate({ panel: "atlas", concept: id, artifact: null });
+      if (narrow) setSheet("inspector");
+      window.requestAnimationFrame(() =>
+        (document.querySelector<HTMLElement>(".inspector__title") ?? document.getElementById("main"))?.focus(),
+      );
     },
-    [selectConcept],
+    [navigate, narrow],
   );
 
   const expandConcept = useCallback(

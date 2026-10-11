@@ -418,12 +418,15 @@ export class LivingScene {
     // the morph ends (sync).
     let spheres = this.sphereNodes.length;
     let diamonds = this.diamondNodes.length;
+    // Looked up by node, not searched: All to a small Map leaves thousands.
+    const ghostColour = new Map(this.ghosts.map((g) => [g.node, g.colour]));
+    const oldIndex = new Map(oldNodes.map((n, i) => [n, i]));
     this.ghosts = (this.morph?.leaving ?? []).map((node) => ({
       node,
       slot: node.artifact ? diamonds++ : spheres++,
       // A leaver keeps the colour it was drawn with. A ghost carried over from
       // an earlier call already has it; a new one reads it off the old order.
-      colour: this.ghosts.find((g) => g.node === node)?.colour ?? oldColours[oldNodes.indexOf(node)],
+      colour: ghostColour.get(node) ?? oldColours[oldIndex.get(node) ?? -1],
     }));
     const build = (geometry: SphereGeometry | OctahedronGeometry, count: number) => {
       const mesh = new InstancedMesh(geometry, this.nodeMaterial, Math.max(1, count));
@@ -554,11 +557,14 @@ export class LivingScene {
     if (!mesh || !palette) return;
     const from = this.colourFade?.from;
     const to = new Color();
-    this.drawn = this.nodes.map((n, i) => {
+    // Painted every frame of a fade: the colours are reused, not reallocated.
+    if (this.drawn.length !== this.nodes.length) this.drawn = this.nodes.map(() => new Color());
+    this.nodes.forEach((n, i) => {
       to.set(this.colours[i] ?? palette.edge);
-      const c = from?.[i] && k < 1 ? from[i]!.clone().lerp(to, k) : to.clone();
+      const c = this.drawn[i]!;
+      if (from?.[i] && k < 1) c.copy(from[i]!).lerp(to, k);
+      else c.copy(to);
       (n.artifact ? this.artifactMesh : mesh)?.setColorAt(this.slot[i]!, c);
-      return c;
     });
     this.drawnFor = this.nodes;
     for (const m of [mesh, this.artifactMesh]) if (m?.instanceColor) m.instanceColor.needsUpdate = true;

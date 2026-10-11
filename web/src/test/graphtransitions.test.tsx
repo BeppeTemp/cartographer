@@ -73,6 +73,17 @@ describe("graph transitions", () => {
     for (const [id, p] of placed) expect(back.positions.get(id)).toEqual(p);
   });
 
+  it("left with a concept open, comes back on the overview, not on the close-up", async () => {
+    const first = render(<GraphView {...props(graph, "kb-a\u0000", { selected: "infra/a" })} />);
+    await waitFor(() => expect(sceneStub.calls.focus).toContain("infra/a"));
+    const n = await settled();
+    first.unmount();
+
+    render(<GraphView {...props(graph, "kb-a\u0000")} />);
+    await waitFor(() => expect(drawn()).toBeGreaterThan(n));
+    expect(sceneStub.calls.data[n]!.restore).toMatchObject({ pose: { position: { x: 1, y: 2, z: 3 } }, shift: 0 });
+  });
+
   it("does not restore across layouts", async () => {
     const first = render(<GraphView {...props(graph, "kb-a\u0000")} />);
     const n = await settled();

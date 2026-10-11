@@ -69,6 +69,21 @@ describe("the brand", () => {
   });
 });
 
+describe("the search palette", () => {
+  it("opens a concept on the Atlas from another panel, where it can be seen", async () => {
+    open("?kb=kb-a&panel=health");
+    stubLint();
+    const user = userEvent.setup();
+    render(<App />);
+    await screen.findByRole("navigation", { name: "Atlas navigation" });
+    await user.keyboard("{Control>}k{/Control}");
+    await user.type(await screen.findByRole("textbox", { name: /search concepts/i }), "infra/a");
+    await user.keyboard("{Enter}");
+    await waitFor(() => expect(window.location.search).toContain("concept=infra"));
+    expect(window.location.search).not.toContain("panel=");
+  });
+});
+
 describe("Health filters by Map in the page", () => {
   it("narrows with the page field's Maps and round-trips through the URL", async () => {
     open("?kb=kb-a&panel=health");

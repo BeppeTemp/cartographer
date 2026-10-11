@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { fetchSecrets } from "../api/client";
 import type { SecretFile, SecretList } from "../api/types";
 import { decryptFile, encType, InvalidKeyError, looksLikeAgeKey, WrongKeyError } from "../lib/secrets";
@@ -50,6 +50,9 @@ export function Secrets({
   const [identity, setIdentity] = useState("");
   const [keyError, setKeyError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // The KB on screen, for a decryption that finishes after a switch.
+  const kbNow = useRef(kb);
+  kbNow.current = kb;
 
   // A KB switch drops the key material and the values of the previous one.
   useEffect(() => {
@@ -80,6 +83,17 @@ export function Secrets({
   }, [kb, reloadKey]);
 
   const files = useMemo(() => list?.files ?? [], [list]);
+
+  // A refresh after an edit re-encrypts the values it touched (sops draws a
+  // new IV): the plaintext of a ciphertext no longer served is dropped, and
+  // with nothing left the panel is locked again and asks for the key.
+  useEffect(() => {
+    const served = new Set(files.flatMap((f) => f.entries.map((e) => e.enc)));
+    setPlain((prev) => {
+      const kept = new Map([...prev].filter(([enc]) => served.has(enc)));
+      return kept.size === prev.size ? prev : kept;
+    });
+  }, [files]);
   const unlocked = plain.size > 0;
 
   async function unlock() {
@@ -90,6 +104,7 @@ export function Secrets({
     }
     setBusy(true);
     setKeyError(null);
+    const forKB = kb;
     try {
       const next = new Map<string, string>();
       let opened = 0;
@@ -107,10 +122,16 @@ export function Secrets({
           else throw err;
         }
       }
+      // Switched to another KB meanwhile: these values are not its own.
+      if (kbNow.current !== forKB) return;
       if (opened === 0) {
         setKeyError(
           wrong > 0 ? "This key does not open any of the files: it is not one of their recipients." : "Nothing to decrypt.",
         );
+        return;
+      }
+      if (next.size === 0) {
+        setKeyError("The key opens the files, but none of their values could be read.");
         return;
       }
       setPlain(next);

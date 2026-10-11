@@ -430,7 +430,6 @@ function View({
         sceneRef.current = scene;
         const memory = recallLayout(layoutKeyRef.current);
         restoreNext.current = memory;
-        if (memory) savedPose.current = memory.overview;
         setReady((n) => n + 1);
       })
       .catch((err) => {
@@ -448,12 +447,15 @@ function View({
         // the settled layout and the camera for the way back. The scene itself
         // is disposed -- a hidden WebGL context and frame loop is not worth a
         // faster return.
+        // With a concept open, the camera kept is the overview it left, not
+        // its close-up beside the inspector: the way back may have nothing
+        // selected, and a selection is framed anew when it opens.
+        const overview = savedPose.current;
         rememberLayout(nodeStore.current.key, {
           nodes: snapshotPositions(nodeStore.current.nodes),
           artifacts: snapshotPositions(nodeStore.current.artifacts),
-          pose: leaving.pose(),
-          shift: leaving.shiftPx(),
-          overview: savedPose.current,
+          pose: overview ?? leaving.pose(),
+          shift: overview ? 0 : leaving.shiftPx(),
         });
       }
       leaving?.dispose();

@@ -109,3 +109,39 @@ func TestUIAPI_SecretsHiddenFromNarrowToken(t *testing.T) {
 		t.Fatalf("flag leaked: %s", rr.Body.String())
 	}
 }
+
+func TestParseSecretFile_KeyGroups(t *testing.T) {
+	doc := `token: ENC[AES256_GCM,data:AAAA,iv:BBBB,tag:CCCC,type:str]
+sops:
+    key_groups:
+        - age:
+            - recipient: age1first
+              enc: first-stanza
+        - age:
+            - recipient: age1second
+              enc: second-stanza
+    shamir_threshold: 2
+`
+	var f uiSecretFile
+	if err := parseSecretFile([]byte(doc), &f, nil); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(f.Recipients, ",") != "age1first,age1second" || len(f.AgeStanzas) != 2 {
+		t.Fatalf("key_groups recipients not read: %+v", f)
+	}
+}
+
+func TestUISecretRefs_SourceAsList(t *testing.T) {
+	k := uiFixtureKB(t, "docs")
+	svc := "---\ntype: Service\ntitle: Svc\nsecrets_source:\n  - secrets/db.sops.yaml\n---\nBody\n"
+	if err := os.WriteFile(filepath.Join(k.DataRoot(), "visible", "db.md"), []byte(svc), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, sources, err := uiSecretRefs(k)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := sources["secrets/db.sops.yaml"]; len(got) != 1 {
+		t.Fatalf("a list secrets_source must count: %v", sources)
+	}
+}

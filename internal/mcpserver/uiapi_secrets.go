@@ -135,13 +135,13 @@ func parseSecretFile(data []byte, f *uiSecretFile, refs map[string][]string) err
 		case "lastmodified":
 			f.LastModified = meta.Content[i+1].Value
 		case "age":
-			for _, st := range meta.Content[i+1].Content {
-				for j := 0; j+1 < len(st.Content); j += 2 {
-					switch st.Content[j].Value {
-					case "recipient":
-						f.Recipients = append(f.Recipients, st.Content[j+1].Value)
-					case "enc":
-						f.AgeStanzas = append(f.AgeStanzas, st.Content[j+1].Value)
+			readAgeStanzas(meta.Content[i+1], f)
+		case "key_groups":
+			// Shamir key groups carry their age recipients one level down.
+			for _, group := range meta.Content[i+1].Content {
+				for j := 0; j+1 < len(group.Content); j += 2 {
+					if group.Content[j].Value == "age" {
+						readAgeStanzas(group.Content[j+1], f)
 					}
 				}
 			}
@@ -155,6 +155,21 @@ func parseSecretFile(data []byte, f *uiSecretFile, refs map[string][]string) err
 		walkSecretNode(root.Content[i+1], []string{k}, []string{escapePointerToken(k)}, f, refs)
 	}
 	return nil
+}
+
+// readAgeStanzas appends the recipients and wrapped data keys of a sops `age`
+// list to f.
+func readAgeStanzas(list *yaml.Node, f *uiSecretFile) {
+	for _, st := range list.Content {
+		for j := 0; j+1 < len(st.Content); j += 2 {
+			switch st.Content[j].Value {
+			case "recipient":
+				f.Recipients = append(f.Recipients, st.Content[j+1].Value)
+			case "enc":
+				f.AgeStanzas = append(f.AgeStanzas, st.Content[j+1].Value)
+			}
+		}
+	}
 }
 
 func escapePointerToken(s string) string {
@@ -226,9 +241,23 @@ func uiSecretRefs(k *kb.KB) (refs, sources map[string][]string, err error) {
 				}
 			}
 		}
+		// A string, or a list (lint's stringified_list rewrites it into one).
 		if src, ok := fm.Get("secrets_source"); ok {
-			if s, ok := src.(string); ok && s != "" {
-				add(sources, s, string(id))
+			switch v := src.(type) {
+			case string:
+				if v != "" {
+					add(sources, v, string(id))
+				}
+			case []string:
+				for _, s := range v {
+					add(sources, s, string(id))
+				}
+			case []any:
+				for _, e := range v {
+					if s, ok := e.(string); ok && s != "" {
+						add(sources, s, string(id))
+					}
+				}
 			}
 		}
 		return nil
