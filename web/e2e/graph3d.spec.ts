@@ -74,7 +74,8 @@ test("the growth replay exports a real video, in the background, with the tab hi
   );
   const download = page.waitForEvent("download", { timeout: 450_000 });
   await page.getByRole("button", { name: "Export", exact: true }).click();
-  const pill = page.getByText(/Exporting video \d+ %/);
+  // The pill: "Exporting video (1:1)", then its percentage ("42%").
+  const pill = page.getByRole("status").filter({ hasText: /Exporting video \(1:1\)/ });
   await expect(pill).toBeVisible();
   // The Atlas stays usable while it renders: the replay is still scrubbable.
   await expect(page.getByRole("slider", { name: "Replay position" })).toBeVisible();
@@ -82,7 +83,7 @@ test("the growth replay exports a real video, in the background, with the tab hi
   // Hide the page halfway through. The render loop waits on events and
   // messages, never timers, so a hidden tab must not slow or stop it.
   await expect
-    .poll(async () => Number(/(\d+) %/.exec((await pill.textContent()) ?? "")?.[1] ?? 0), { timeout: 300_000 })
+    .poll(async () => Number(/(\d+)%/.exec((await pill.textContent()) ?? "")?.[1] ?? 0), { timeout: 300_000 })
     .toBeGreaterThanOrEqual(40);
   await page.evaluate(() => {
     Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "hidden" });
