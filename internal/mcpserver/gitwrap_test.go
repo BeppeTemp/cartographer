@@ -1057,11 +1057,12 @@ func TestReadSyncWrap_SilentRemoteFetchesOnceThenServesLocal(t *testing.T) {
 		t.Fatalf("set-url: %v\n%s", err, out)
 	}
 	defer func(d time.Duration) { gitx.FetchTimeout = d }(gitx.FetchTimeout)
-	// Long enough for git to start and dial before the timeout kills it: at
-	// 300ms a slow Windows runner sometimes killed the fetch before git.exe
-	// had connected, so no dial was counted. The remote never answers, so the
-	// fetch still ends at the timeout; the second read backs off without one.
-	gitx.FetchTimeout = 2 * time.Second
+	// Long enough for git to start and dial before the timeout kills it: a
+	// slow Windows runner has killed the fetch before git.exe connected at
+	// 300ms and again at 2s, so no dial was counted. The remote never
+	// answers, so the fetch still ends at the timeout: this test costs it
+	// once, and the second read backs off without one.
+	gitx.FetchTimeout = 10 * time.Second
 
 	s := New("test")
 	RegisterKBTools(s, k, Deps{})
