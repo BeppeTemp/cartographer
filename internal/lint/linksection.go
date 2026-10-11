@@ -23,7 +23,7 @@ var linksSectionHeading = regexp.MustCompile(`(?im)^(#{2,6})\s+(collegamenti|lin
 
 var (
 	wikiLinkRe = regexp.MustCompile(`\[\[[^\]]*\]\]`)
-	mdLinkRe   = regexp.MustCompile(`\[[^\]]*\]\([^)]*\)`)
+	mdLinkRe   = regexp.MustCompile(`\[(?:[^\[\]]|\[[^\[\]]*\])*\]\([^)]*\)`)
 	listMarkRe = regexp.MustCompile(`(?m)^\s*(?:[-*+]|\d+[.)])\s*`)
 )
 

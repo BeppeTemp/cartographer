@@ -1885,3 +1885,20 @@ func TestLint_BrokenLinkSelfLinkIsDropped(t *testing.T) {
 	}
 	t.Fatal("no broken_link finding")
 }
+
+func TestRun_Orphan_ProvenanceCited_Clean(t *testing.T) {
+	k := tempKB(t)
+	writeFile(t, k.DataRoot(), "arch/_archive.md",
+		"---\ntype: Archive\ntitle: Arch\narchive_type: ops\nontology_mode: flexible\n---\n")
+	writeFile(t, k.DataRoot(), "arch/dossier/index.md", "---\ntype: Index\ntitle: Dossier\n---\n")
+	writeFile(t, k.DataRoot(), "arch/dossier/src.md", "---\ntype: Note\n---\nA source.\n")
+	writeFile(t, k.DataRoot(), "arch/dossier/user.md",
+		"---\ntype: Note\nprovenance:\n  - arch/dossier/src\n---\nCites it.\n")
+	findings, err := Run(k, "", false)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if hasCheck(findings, "arch/dossier/src.md", "orphan") {
+		t.Errorf("provenance-cited concept flagged orphan: %v", findings)
+	}
+}

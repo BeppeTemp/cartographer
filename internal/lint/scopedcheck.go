@@ -87,6 +87,18 @@ func ScopedCheck(k *kb.KB, ids []okf.ConceptID) []Finding {
 		return set
 	}
 
+	// Provenance citations need every concept's frontmatter: read once, and
+	// only when an orphan candidate asks.
+	var citedSet map[string][]string
+	provCited := func(t okf.ConceptID) bool {
+		if citedSet == nil {
+			all := map[okf.ConceptID]string{}
+			_ = k.WalkConcepts(func(cid okf.ConceptID, content string) error { all[cid] = content; return nil })
+			citedSet = kb.SourceCitations(all)
+		}
+		return len(citedSet[string(t)]) > 0
+	}
+
 	var findings []Finding
 	emitFor := func(id okf.ConceptID) func(Finding) {
 		return func(f Finding) {
@@ -170,7 +182,7 @@ func ScopedCheck(k *kb.KB, ids []okf.ConceptID) []Finding {
 		for _, f := range forbiddenTermFindings(relPath, data.Body, glossary) {
 			emit(f)
 		}
-		if f, ok := orphanFinding(id, relPath, links.In, links.Out, archiveSet, present); ok {
+		if f, ok := orphanFinding(id, relPath, links.In, links.Out, archiveSet, present, provCited); ok {
 			emit(f)
 		}
 		for _, f := range st.brokenRelation(id, relPath, lg.Facets[node]) {

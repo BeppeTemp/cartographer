@@ -306,3 +306,20 @@ func TestMissingValueContract_DateFieldSkipped(t *testing.T) {
 		t.Error("a field with a non-date value must still fire")
 	}
 }
+
+// #686: an identifier field (every value its own, or URLs) is no vocabulary;
+// a field whose values repeat still is.
+func TestMissingValueContract_IdentifierFieldSkipped(t *testing.T) {
+	distinct := []string{"alpha", "beta", "gamma", "delta", "epsilon", "zeta"}
+	if msg := valueContractKBField(t, "", distinct, "deploy"); msg != "" {
+		t.Errorf("all-distinct field proposed a vocabulary: %q", msg)
+	}
+	urls := []string{"https://a.example.com", "https://a.example.com", "http://b.example.com", "https://a.example.com", "http://b.example.com", "https://a.example.com"}
+	if msg := valueContractKBField(t, "", urls, "url"); msg != "" {
+		t.Errorf("URL field proposed a vocabulary: %q", msg)
+	}
+	repeated := []string{"alpha", "alpha", "beta", "beta", "gamma", "gamma"}
+	if msg := valueContractKBField(t, "", repeated, "deploy"); msg == "" {
+		t.Error("a repeated-value field must still fire")
+	}
+}

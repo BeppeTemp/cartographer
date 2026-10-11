@@ -417,6 +417,7 @@ func runChecks(k *kb.KB, scope string, scopeNeighbors bool, opts Options) ([]Fin
 	// The reverse-link graph for the orphan check. It retains self-links,
 	// preserving the pre-D108 orphan behaviour.
 	incomingLinks := graph.In
+	provCited := kb.SourceCitations(allConcepts)
 
 	// Archive name set for orphan skip rule.
 	archives, err := k.ListArchives()
@@ -666,7 +667,7 @@ func runChecks(k *kb.KB, scope string, scopeNeighbors bool, opts Options) ([]Fin
 		}
 
 		// --- orphan (warning) ---
-		if f, ok := orphanFinding(id, relPath, incomingLinks, graph.Out, archiveSet, func(t okf.ConceptID) bool { _, ok := relPathOf[t]; return ok }); ok {
+		if f, ok := orphanFinding(id, relPath, incomingLinks, graph.Out, archiveSet, func(t okf.ConceptID) bool { _, ok := relPathOf[t]; return ok }, func(t okf.ConceptID) bool { return len(provCited[string(t)]) > 0 }); ok {
 			emit(f)
 		}
 
@@ -1053,8 +1054,10 @@ func linkFindings(k *kb.KB, id okf.ConceptID, relPath, linkBase, body string, ex
 // orphanFinding is the orphan check for one concept (shared with ScopedCheck,
 // D312). in and out are the link graph's edges; present says whether a link
 // target is an existing concept.
-func orphanFinding(id okf.ConceptID, relPath string, in, out map[okf.ConceptID]map[okf.ConceptID]struct{}, archiveSet map[string]bool, present func(okf.ConceptID) bool) (Finding, bool) {
-	if len(in[id]) != 0 {
+func orphanFinding(id okf.ConceptID, relPath string, in, out map[okf.ConceptID]map[okf.ConceptID]struct{}, archiveSet map[string]bool, present func(okf.ConceptID) bool, cited func(okf.ConceptID) bool) (Finding, bool) {
+	// A concept another cites in its frontmatter provenance (a Source in the
+	// sources journal) is reached, though no body link says so.
+	if len(in[id]) != 0 || (cited != nil && cited(id)) {
 		return Finding{}, false
 	}
 	parts := strings.Split(string(id), "/")
@@ -1155,7 +1158,7 @@ func matchesAllowedPrefix(candidate string, allowPrefixes []string) bool {
 var builtinAllowPrefixes = []string{"~/.ssh/", "~/.kube/", "~/.m2/", "~/.config/", "~/.cache/", "~/.local/", "~/.gnupg/"}
 
 var (
-	mdLinkPat   = regexp.MustCompile(`\[([^\]]*)\]\(([^)]+)\)`)
+	mdLinkPat   = regexp.MustCompile(`\[((?:[^\[\]]|\[[^\[\]]*\])*)\]\(([^)]+)\)`)
 	wikiLinkPat = regexp.MustCompile(`\[\[([^\[\]|#]+)(#[^\[\]|]*)?(\|[^\[\]]*)?\]\]`)
 )
 
@@ -1218,7 +1221,7 @@ func indexLinkForms(body, linkBase string, exists func(okf.ConceptID) bool) []Fi
 func brokenLinkRebaseFixes(body, newBase, oldBase string, self okf.ConceptID, exists func(okf.ConceptID) bool) map[string]*Fix {
 	oldDir, newDir := path.Dir(oldBase), path.Dir(newBase)
 	masked := kb.MaskCodeSpans(body)
-	mdLinkPat := regexp.MustCompile(`\[([^\]]*)\]\(([^)]+)\)`)
+	mdLinkPat := regexp.MustCompile(`\[((?:[^\[\]]|\[[^\[\]]*\])*)\]\(([^)]+)\)`)
 	out := map[string]*Fix{}
 	for _, m := range mdLinkPat.FindAllStringSubmatch(masked, -1) {
 		href := m[2]
