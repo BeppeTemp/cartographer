@@ -87,7 +87,7 @@ func toolAtlasOverview(k *kb.KB) Tool {
 func toolIndexGet(k *kb.KB) Tool {
 	return Tool{
 		Name:        "index_get",
-		Description: "Reads a folder's index.md (root if path empty). with_hash: true returns {path, content, content_hash}, the if_match for index_patch. Over 60 KB it returns an outline; full: true forces the content, outline: true forces the outline.",
+		Description: "Reads a folder's index.md (root if empty). with_hash: true returns {path, content, content_hash} (if_match for index_patch), never an outline. Else over 60 KB: outline; full: true forces content.",
 		ReadOnly:    true,
 		InputSchema: json.RawMessage(`{
 			"type": "object",
@@ -135,7 +135,7 @@ func toolIndexGet(k *kb.KB) Tool {
 			// index's frontmatter is three lines, and splitting it off would only
 			// add a code path. Same threshold concept_read has used since D78 —
 			// a third number would have to be reconciled with the lint one too.
-			if !params.Full && len(content) > conceptReadSizeGuard {
+			if !params.Full && !params.WithHash && len(content) > conceptReadSizeGuard {
 				result := map[string]interface{}{
 					"path":          params.Path,
 					"content_hash":  okf.ContentHash(content),
