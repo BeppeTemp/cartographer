@@ -134,6 +134,8 @@ func (m *MultiKBServer) handleUIAPI(w http.ResponseWriter, r *http.Request) {
 		uiLint(w, r, srv)
 	case "artifacts":
 		m.uiArtifacts(w, r, srv)
+	case "secrets":
+		m.uiSecrets(w, r, srv)
 	case "artifact":
 		m.uiArtifact(w, r, srv)
 	case "search":
@@ -206,6 +208,8 @@ func (m *MultiKBServer) uiListKBs(w http.ResponseWriter, r *http.Request) {
 		// Artifacts says whether this principal may open the Artifacts
 		// panel: they are whole-KB resources (D238).
 		Artifacts bool `json:"artifacts"`
+		// Secrets says whether this principal may open the Secrets panel.
+		Secrets bool `json:"secrets"`
 	}
 	rows := []kbRow{}
 	for _, info := range infos {
@@ -219,6 +223,7 @@ func (m *MultiKBServer) uiListKBs(w http.ResponseWriter, r *http.Request) {
 			Ready:        info.Status == "normal",
 			Capabilities: info.Capabilities,
 			Artifacts:    uiArtifactsVisible(ctx, srv.kbRef),
+			Secrets:      uiSecretsVisible(ctx, srv.kbRef),
 		})
 	}
 	sort.Slice(rows, func(i, j int) bool { return rows[i].Name < rows[j].Name })

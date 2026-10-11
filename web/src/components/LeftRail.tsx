@@ -14,6 +14,8 @@ interface Props {
   /** The KB's artifact count, or null when this principal may not open the
    *  Artifacts panel (D238): the entry is then not drawn at all. */
   artifactsTotal: number | null;
+  /** Whether this principal may open the Secrets panel (whole-KB, like Artifacts). */
+  secretsAllowed?: boolean;
   collapsed: boolean;
   /** False inside the narrow-layout sheet, which closes instead. */
   collapsible?: boolean;
@@ -33,6 +35,7 @@ export function LeftRail({
   scope,
   panel,
   artifactsTotal,
+  secretsAllowed = false,
   collapsed,
   collapsible = true,
   typeFilter,
@@ -135,6 +138,23 @@ export function LeftRail({
                 <Icon name="artifacts" />
               </span>
               <span className="rail__label">Artifacts</span>
+            </button>
+          </li>
+        )}
+        {secretsAllowed && (
+          <li>
+            <button
+              type="button"
+              className="rail__panel"
+              aria-label="Secrets"
+              title={collapsed ? "Secrets" : undefined}
+              aria-current={panel === "secrets" ? "page" : undefined}
+              onClick={() => onPanel("secrets")}
+            >
+              <span className="rail__glyph">
+                <Icon name="key" />
+              </span>
+              <span className="rail__label">Secrets</span>
             </button>
           </li>
         )}

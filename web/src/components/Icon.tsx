@@ -10,6 +10,7 @@ export type IconName =
   | "work"
   | "health"
   | "artifacts"
+  | "key"
   | "panel-open"
   | "panel-close"
   | "list"
@@ -30,7 +31,12 @@ export type IconName =
   | "check"
   | "repair"
   | "doctor"
-  | "person";
+  | "person"
+  | "eye"
+  | "eye-off"
+  | "copy"
+  | "lock"
+  | "unlock";
 
 const PATHS: Record<IconName, string> = {
   // Three places and the routes between them.
@@ -38,6 +44,8 @@ const PATHS: Record<IconName, string> = {
   // A pulse over a baseline: the health of the atlas.
   health: "M3 12h4l2-5 4 10 2-5h6",
   // A packed box: what the KB ships to its agents.
+  // A key: the secrets a KB keeps encrypted.
+  key: "M10.5 12.5a4 4 0 1 1 1.5-1.5 M11 12l8.5 8.5 M16 17l2-2 M13.5 14.5l1.5-1.5",
   artifacts: "M4 8l8-4 8 4v8l-8 4-8-4z M4 8l8 4 8-4 M12 12v8",
   "panel-open": "M4 5h16v14H4z M9 5v14 M13 10l2 2-2 2",
   "panel-close": "M4 5h16v14H4z M9 5v14 M15 10l-2 2 2 2",
@@ -70,6 +78,12 @@ const PATHS: Record<IconName, string> = {
   doctor: "M9.5 4h5v5.5H20v5h-5.5V20h-5v-5.5H4v-5h5.5z",
   // A head and shoulders: the reader.
   person: "M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8z M4.5 20c.6-3.4 3.7-5.5 7.5-5.5s6.9 2.1 7.5 5.5",
+  eye: "M2.5 12s3.5-6.5 9.5-6.5 9.5 6.5 9.5 6.5-3.5 6.5-9.5 6.5S2.5 12 2.5 12z M12 14.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5z",
+  "eye-off":
+    "M2.5 12s3.5-6.5 9.5-6.5 9.5 6.5 9.5 6.5-3.5 6.5-9.5 6.5S2.5 12 2.5 12z M12 14.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5z M4 4l16 16",
+  copy: "M9 9h10.5v10.5H9z M5 15V4.5h10.5",
+  lock: "M6 11h12v9H6z M8.5 11V8a3.5 3.5 0 0 1 7 0v3",
+  unlock: "M6 11h12v9H6z M8.5 11V8a3.5 3.5 0 0 1 6.8-1.2",
 };
 
 const DOTS: Partial<Record<IconName, [number, number, number][]>> = {

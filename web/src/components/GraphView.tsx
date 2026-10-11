@@ -10,7 +10,7 @@ import type { LivingScene, SceneLink, SceneNode } from "../lib/graph3d/scene";
 import { collectionHue, cssVar, resolveSlots, type ColorBy } from "../lib/palette";
 import { nameOf, shortNameOf } from "../lib/names";
 import { prefersReducedMotion } from "../lib/theme";
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { ASPECTS, type Aspect } from "../lib/graph3d/record";
 import { GrowthTimeline } from "./GrowthTimeline";
 import { useGrowthExport } from "./useGrowthExport";
@@ -648,16 +648,22 @@ function View({
         <ExportDialog webm={exp.webm} onExport={(aspect) => void exp.start(aspect)} onClose={exp.closeDialog} />
       )}
       {exp.status && (
-        <div className="growth-export" role="status">
-          <span>
-            {exp.status.done
-              ? `Video saved (${exp.status.aspect})`
-              : `Exporting video ${Math.floor(exp.status.progress * 100)} %`}
+        <div
+          className="growth-export"
+          role="status"
+          data-done={exp.status.done || undefined}
+          style={{ "--progress": `${exp.status.progress * 100}%` } as CSSProperties}
+        >
+          <span className="growth-export__label">
+            {exp.status.done ? `Video saved (${exp.status.aspect})` : `Exporting video (${exp.status.aspect})`}
           </span>
           {!exp.status.done && (
-            <button type="button" className="button" onClick={exp.cancel}>
-              Cancel
-            </button>
+            <>
+              <span className="growth-export__pct">{Math.floor(exp.status.progress * 100)}%</span>
+              <button type="button" className="button button--icon" onClick={exp.cancel} aria-label="Cancel the export">
+                <Icon name="close" size={14} />
+              </button>
+            </>
           )}
         </div>
       )}
@@ -711,18 +717,34 @@ function ExportDialog({ webm, onExport, onClose }: { webm: boolean; onExport(asp
         <h2 className="export-dialog__title">Export video</h2>
         <fieldset className="export-dialog__aspects">
           <legend>Frame</legend>
-          {(Object.keys(ASPECTS) as Aspect[]).map((a) => (
-            <label key={a}>
-              <input
-                ref={a === "9:16" ? first : undefined}
-                type="radio"
-                name="export-aspect"
-                checked={aspect === a}
-                onChange={() => setAspect(a)}
-              />
-              {a} <span className="export-dialog__size">{ASPECTS[a].width}&times;{ASPECTS[a].height}</span>
-            </label>
-          ))}
+          <div className="export-dialog__tiles">
+            {(Object.keys(ASPECTS) as Aspect[]).map((a) => {
+              const { width, height } = ASPECTS[a];
+              const long = Math.max(width, height);
+              return (
+                <label key={a} className="export-dialog__aspect" data-checked={aspect === a || undefined}>
+                  <input
+                    ref={a === "9:16" ? first : undefined}
+                    className="sr-only"
+                    type="radio"
+                    name="export-aspect"
+                    checked={aspect === a}
+                    onChange={() => setAspect(a)}
+                  />
+                  {/* The frame to scale, its longer side 28px. */}
+                  <span
+                    className="export-dialog__frame"
+                    aria-hidden="true"
+                    style={{ width: (28 * width) / long, height: (28 * height) / long }}
+                  />
+                  <span className="export-dialog__ratio">{a}</span>
+                  <span className="export-dialog__size">
+                    {width}&times;{height}
+                  </span>
+                </label>
+              );
+            })}
+          </div>
         </fieldset>
         {webm && <p className="export-dialog__note">This browser encodes WebM; Chrome, Edge or Safari encode MP4.</p>}
         <div className="export-dialog__actions">

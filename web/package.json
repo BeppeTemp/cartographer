@@ -16,6 +16,7 @@
     "budget": "node scripts/budget.mjs"
   },
   "dependencies": {
+    "age-encryption": "^0.3.1",
     "d3-force-3d": "^3.0.6",
     "mediabunny": "^1.61.3",
     "react": "^19.2.0",

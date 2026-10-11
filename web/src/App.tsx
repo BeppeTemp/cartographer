@@ -30,6 +30,7 @@ import type {
   Overview,
 } from "./api/types";
 import { Artifacts } from "./components/Artifacts";
+import { Secrets } from "./components/Secrets";
 import { AuthPrompt } from "./components/AuthPrompt";
 import { CommandPalette } from "./components/CommandPalette";
 import { GraphView } from "./components/GraphView";
@@ -283,6 +284,7 @@ export function App() {
   // after another, and on a KB switch the previous KB stays on screen (dimmed,
   // see `switching`) until the new one is complete.
   const artifactsAllowed = kbs.find((kb) => kb.name === activeKB)?.artifacts ?? false;
+  const secretsAllowed = kbs.find((kb) => kb.name === activeKB)?.secrets ?? false;
   // The last view of every KB and Map this tab has opened: going back to one
   // shows it at once, and the request below brings it up to date in place,
   // like a live refresh.
@@ -412,6 +414,15 @@ export function App() {
     setView(next);
     replaceView(next);
   }, [view, activeKB, kbs, artifactsAllowed]);
+
+  // The Secrets panel is whole-KB too: without the right, a link falls back
+  // to the atlas.
+  useEffect(() => {
+    if (view.panel !== "secrets" || !activeKB || kbs.length === 0 || secretsAllowed) return;
+    const next = { ...view, panel: "atlas" as const };
+    setView(next);
+    replaceView(next);
+  }, [view, activeKB, kbs, secretsAllowed]);
 
   // Health's whole-KB reads (D338): kb_status and the maintenance summary
   // answer 404 to a principal that cannot see the whole KB, which is not an
@@ -591,6 +602,7 @@ export function App() {
       scope={view.panel === "atlas" ? view.scope : null}
       panel={view.panel}
       artifactsTotal={artifactsAllowed ? (artifacts?.artifacts.length ?? 0) : null}
+      secretsAllowed={secretsAllowed}
       collapsed={inSheet ? false : railCollapsed}
       collapsible={!inSheet}
       typeFilter={typeFilter}
@@ -713,6 +725,15 @@ export function App() {
                 if (conceptId) navigate({ panel: "atlas", concept: conceptId });
                 else announce(message);
               }}
+            />
+          ) : view.panel === "secrets" && activeKB ? (
+            <Secrets
+              kb={activeKB}
+              reloadKey={`${reloadKey}:${live}`}
+              titleOf={(id) => nodeTitles.get(id)}
+              onOpenConcept={(id) => navigate({ panel: "atlas", concept: id })}
+              onRetry={() => setReloadKey((k) => k + 1)}
+              onFailure={handleFailure}
             />
           ) : view.panel === "artifacts" && activeKB ? (
             <Artifacts

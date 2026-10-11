@@ -15,6 +15,8 @@ export interface KBSummary {
   /** Whether this principal may open the Artifacts panel: artifacts are
    *  whole-KB resources (D238). */
   artifacts: boolean;
+  /** Whether this principal may open the Secrets panel (whole-KB, like artifacts). */
+  secrets?: boolean;
 }
 
 /** An agent client an artifact is materialized for. */
@@ -337,4 +339,29 @@ export interface CheckCatalog {
     active?: boolean;
     reason?: string;
   }[];
+}
+
+/** One sops-encrypted value: the ciphertext and what the browser needs to open it. */
+export interface SecretEntry {
+  /** RFC 6901 pointer, list indices included. */
+  pointer: string;
+  /** The additional data sops authenticated the value with. */
+  aad_path: string;
+  /** The raw ENC[AES256_GCM,...] string. */
+  enc: string;
+  referenced_by: string[];
+}
+
+export interface SecretFile {
+  path: string;
+  entries: SecretEntry[];
+  recipients: string[];
+  age_stanzas: string[];
+  lastmodified?: string;
+  source_of: string[];
+  error?: string;
+}
+
+export interface SecretList {
+  files: SecretFile[];
 }

@@ -149,7 +149,7 @@ describe("Export video", () => {
     await openReplay();
     const camera = sceneStub.calls.focus.length;
     await startExport();
-    expect(await screen.findByText(/Exporting video \d+ %/)).toBeInTheDocument();
+    expect(await screen.findByText(/^\d+%$/)).toBeInTheDocument();
     // The replay is still there and still the user's.
     expect(screen.getByRole("group", { name: "Growth replay" })).toBeInTheDocument();
     expect(screen.getByRole("slider", { name: "Replay position" })).toBeInTheDocument();
@@ -175,7 +175,7 @@ describe("Export video", () => {
     await openReplay();
     await startExport();
     await waitFor(() => expect(sceneStub.offline.created).toBe(1));
-    await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    await userEvent.click(screen.getByRole("button", { name: "Cancel the export" }));
     await waitFor(() => expect(sceneStub.offline.disposed).toBe(1));
     expect(screen.queryByText(/Exporting video/)).toBeNull();
     expect(document.querySelector("a[download]")).toBeNull();
@@ -194,7 +194,7 @@ describe("Export video", () => {
     await startExport();
     await new Promise((r) => setTimeout(r, 50));
     expect(sceneStub.offline.created).toBe(1);
-    await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    await userEvent.click(screen.getByRole("button", { name: "Cancel the export" }));
     await waitFor(() => expect(sceneStub.offline.disposed).toBe(1));
   });
 
@@ -207,7 +207,7 @@ describe("Export video", () => {
     await new Promise((r) => setTimeout(r, 50));
     expect(sceneStub.offline.disposed).toBe(0);
     expect(screen.getByText(/Exporting video/)).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    await userEvent.click(screen.getByRole("button", { name: "Cancel the export" }));
     await waitFor(() => expect(sceneStub.offline.disposed).toBe(1));
   });
 
