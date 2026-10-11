@@ -87,9 +87,19 @@ func (d driftData) conceptFindings(relPath string, fm *okf.Frontmatter, contract
 		}
 		sort.Strings(known)
 		f.Message = fmt.Sprintf("type %q is not one the KB declares (templates and strict maps: %s)", typ, strings.Join(known, ", "))
-		if len(match) == 1 {
+		switch {
+		case len(match) == 1:
 			f.Fix = &Fix{Kind: FixSetValue, Field: "type", To: match[0]}
 			f.Message += fmt.Sprintf(" — fix: set it to %q", match[0])
+		default:
+			f.Message += fmt.Sprintf(" — fix: declare a %s template (kb_review kind=template_proposal proposes one), or set type to a declared one", typ)
+			// A page in a map that has not adopted types (not strict, no
+			// templates required) is a type the KB has not declared yet, not
+			// drift: info, so a KB written before templates does not light a
+			// warning per page on upgrade (#688).
+			if contract == nil || (contract.OntologyMode != "strict" && !contract.StrictTemplates()) {
+				f.Severity = SevInfo
+			}
 		}
 		out = append(out, newFinding("unknown_type", f))
 	}

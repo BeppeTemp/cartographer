@@ -13,8 +13,8 @@ import (
 )
 
 // The Atlas's Health panel, its upkeep half (D323, D338): what the server repaired by itself,
-// what the last doctor session left, and the questions the doctor deferred to
-// a person. Read-only like the rest of the UI API: the panel shows the exact
+// and what the last doctor session left (the questions it deferred to a person
+// are open gaps of kb_status). Read-only like the rest of the UI API: the panel shows the exact
 // command that undoes a repair, it never runs it.
 
 // maintenanceRepairWindow is how far back the panel lists repair commits.
@@ -58,7 +58,7 @@ type maintenanceSummary struct {
 	Repairs     []maintenanceRepair `json:"repairs"`
 }
 
-// GET /kbs/{kb}/maintenance/{summary,questions,review}.
+// GET /kbs/{kb}/maintenance/{summary,review}.
 func uiMaintenance(w http.ResponseWriter, r *http.Request, srv *Server, what string) {
 	k := srv.kbRef
 	switch what {
@@ -84,19 +84,6 @@ func uiMaintenance(w http.ResponseWriter, r *http.Request, srv *Server, what str
 			}
 		}
 		writeUIJSON(w, http.StatusOK, map[string]any{"items": items})
-	case "questions":
-		// The deferred doctor questions: open_question Contradiction concepts,
-		// through the same walk as contradiction_report, so what the caller
-		// cannot see in the tool it cannot see here.
-		entries, err := listContradictions(r.Context(), k, "", "open", "open_question")
-		if err != nil {
-			writeUIInternal(w, "maintenance questions", err)
-			return
-		}
-		if entries == nil {
-			entries = []contradictionEntry{}
-		}
-		writeUIJSON(w, http.StatusOK, map[string]any{"questions": entries})
 	case "summary":
 		// It describes the whole KB's history and settings, like status.
 		if !WholeVisible(r.Context(), k, false) {
