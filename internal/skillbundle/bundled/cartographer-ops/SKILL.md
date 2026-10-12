@@ -19,7 +19,7 @@ around writes.
 | `cartographer setup` | First-time setup of this machine: service, first KB and agents, verified (see below). |
 | `cartographer serve` | Starting the server directly, for development or a custom deployment. |
 | `cartographer service install\|status\|restart` | Installing, checking, or restarting the native local service. |
-| `cartographer kb create <name> --remote <url>` | Creating the first local KB in the service data directory, pushed to an empty repository that becomes its `origin`. `--no-remote` opts out into a local-only KB that is neither durable nor synced; the choice is mandatory. `--artifact-write` (also on `kb clone`) records a `kbs[]` entry with `allow_artifact_write: true`, the alternative to hand-editing `kbs[]` for a KB that would otherwise mount discovered with artifact writes off. |
+| `cartographer kb create <name> --remote <url>` | Creating the first local KB in the service data directory, pushed to an empty repository (or one holding only a forge's initial README/LICENSE/.gitignore commit, which is adopted) that becomes its `origin`; any other non-empty remote is refused before the push. `--no-remote` opts out into a local-only KB that is neither durable nor synced; the choice is mandatory. `--artifact-write` (also on `kb clone`) records a `kbs[]` entry with `allow_artifact_write: true`, the alternative to hand-editing `kbs[]` for a KB that would otherwise mount discovered with artifact writes off. |
 | `cartographer kb clone <remote> [name]` | Mounting an existing OKF KB remote in the service data directory. |
 | `cartographer connect [provider\|all] [--agents a,b]` | Connecting one or more detected agent clients to a server. |
 | `cartographer status` | Checking client configuration and provisioning drift. |
@@ -79,7 +79,7 @@ variables or the platform secret store, not in a committed YAML file.
    process from a usable server.
 2. If `ready` is false or no KBs are mounted, ask for the git remote the KB belongs to, then run
    `cartographer kb create <name> --remote <url>` (or `cartographer kb clone <url>` if that
-   repository already holds a KB) and `cartographer service restart` for a local service.
+   repository already holds a KB; a forge-initialized one is adopted by `kb create`) and `cartographer service restart` for a local service.
 3. If client artifacts are stale or missing, run `cartographer sync`, then restart the affected
    agent session so it reloads MCP configuration and skills.
 4. If concepts are degraded after a git conflict, use the `kb-conflict-resolve` skill; do not

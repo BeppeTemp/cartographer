@@ -111,7 +111,7 @@ func cmdKBCreate(args []string) int {
 	dataFlag := fs.String("data", "", "KB data directory (default: the server config's data:, or "+defaultDataDir()+")")
 	configFlag := fs.String("config", "", "Server config YAML to read data: from (default: the standard path)")
 	localFlag := fs.Bool("local", false, "Act on the local data dir even though the client points at a remote server")
-	remoteFlag := fs.String("remote", "", "Git remote URL of an empty repository: attached as origin and pushed to")
+	remoteFlag := fs.String("remote", "", "Git remote URL of an empty repository, or one holding only a forge's initial commit (README/LICENSE/.gitignore), which is kept: attached as origin and pushed to")
 	noRemoteFlag := fs.Bool("no-remote", false, "Create a local-only KB with no origin (not durable, never synced)")
 	restartFlag := fs.Bool("restart", false, "Restart the local service and wait until healthy after creating the KB")
 	artifactWriteFlag := fs.Bool("artifact-write", false, "Record a kbs[] entry with allow_artifact_write: true in the server config, so the KB mounts configured with artifact writes on (artifacts reach client machines via sync)")
@@ -165,6 +165,8 @@ func cmdKBCreate(args []string) int {
 
 	// kb.Init creates <path> (and its parents, i.e. dataDir too) itself —
 	// no separate MkdirAll(dataDir) needed.
+	var originBranch string
+	var adopted []string
 	if _, err := kb.InitWithIdentity(path, authorName, authorEmail); err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		// A failed initial commit stops here, before the push: pushing an
@@ -176,16 +178,28 @@ func cmdKBCreate(args []string) int {
 		return 1
 	}
 	if remote != "" {
-		if code := attachOrigin(path, remote); code != 0 {
+		res := attachOrigin(path, remote, authorName, authorEmail)
+		if res.code != 0 {
+			if res.discard {
+				// Nothing was pushed and the next step is a rerun of this
+				// command, which an existing directory would block (D710).
+				_ = os.RemoveAll(path)
+				return res.code
+			}
 			// The scaffold is complete and valid; only the push failed, so
 			// deleting it turns a recoverable state into no KB at all (D156).
-			printUnpushedScaffoldGuidance(path, authorName, authorEmail, dataDir)
-			return code
+			printUnpushedScaffoldGuidance(path, res.branch, authorName, authorEmail, dataDir)
+			return res.code
 		}
+		originBranch, adopted = res.branch, res.adopted
 	}
 	fmt.Printf("KB %q created at %s\n", name, path)
 	if remote != "" {
-		fmt.Printf("origin: %s\n", remote)
+		if len(adopted) > 0 {
+			fmt.Printf("origin: %s (adopted the forge's initial commit on %s: %s)\n", remote, originBranch, strings.Join(adopted, ", "))
+		} else {
+			fmt.Printf("origin: %s\n", remote)
+		}
 	} else {
 		printNoRemoteWarning(path)
 	}
@@ -222,17 +236,17 @@ func resolveCreateIdentity(path string) (name, email string) {
 // printUnpushedScaffoldGuidance explains what to do with a KB whose scaffold is
 // valid but whose first push failed. The scaffold is deliberately kept (D156):
 // the local work is correct and re-doing it by hand was the reported cost.
-func printUnpushedScaffoldGuidance(path, authorName, authorEmail, dataDir string) {
-	writeUnpushedScaffoldGuidance(os.Stderr, runtime.GOOS, path, authorName, authorEmail, dataDir)
+func printUnpushedScaffoldGuidance(path, branch, authorName, authorEmail, dataDir string) {
+	writeUnpushedScaffoldGuidance(os.Stderr, runtime.GOOS, path, branch, authorName, authorEmail, dataDir)
 }
 
 // writeUnpushedScaffoldGuidance takes goos so the Windows wording is testable
 // on any host.
-func writeUnpushedScaffoldGuidance(w io.Writer, goos, path, authorName, authorEmail, dataDir string) {
+func writeUnpushedScaffoldGuidance(w io.Writer, goos, path, branch, authorName, authorEmail, dataDir string) {
 	fmt.Fprintf(w, "\nThe KB at %s is complete and valid; only the push failed. Finish it with:\n", path)
 	fmt.Fprintf(w, "  git -C %s commit --amend --author %q   # if the forge rejected the author\n",
 		path, fmt.Sprintf("%s <%s>", authorName, authorEmail))
-	fmt.Fprintf(w, "  git -C %s push -u origin %s\n", path, gitx.DefaultBranch)
+	fmt.Fprintf(w, "  git -C %s push -u origin %s\n", path, branch)
 	fmt.Fprintf(w, "Or remove it: %s   (a server started with data: %s would otherwise mount it)\n", removeDirCommand(goos, path), dataDir)
 }
 
@@ -256,7 +270,7 @@ func checkRemoteChoice(remote string, noRemote bool) int {
 	}
 	if remote == "" && !noRemote {
 		fmt.Fprintln(os.Stderr, "Error: a KB needs a git remote — that is what makes it durable and syncable.")
-		fmt.Fprintln(os.Stderr, "  cartographer kb create <name> --remote <url>   empty repository, becomes this KB's origin")
+		fmt.Fprintln(os.Stderr, "  cartographer kb create <name> --remote <url>   empty repository (or a forge's initial commit only), becomes this KB's origin")
 		fmt.Fprintln(os.Stderr, "  cartographer kb clone <remote>                 repository that already holds a KB")
 		fmt.Fprintln(os.Stderr, "  cartographer kb create <name> --no-remote      local-only KB (not durable, never synced)")
 		return 2
@@ -264,31 +278,128 @@ func checkRemoteChoice(remote string, noRemote bool) int {
 	return 0
 }
 
+// originResult is what attachOrigin tells cmdKBCreate: the exit code, the
+// branch the KB ended up on, and what to do with the local KB on failure.
+type originResult struct {
+	code int
+	// discard: the failure happened before any push was attempted, so the
+	// just-created local KB is deleted (a rerun of the same command would
+	// otherwise stop on "already exists"). A push failure keeps it (D156).
+	discard bool
+	// branch is the branch the KB lives on (the remote's default when the
+	// forge's initial commit was adopted, D264).
+	branch string
+	// adopted lists the files of the forge's initial commit that were kept.
+	adopted []string
+}
+
 // attachOrigin wires the freshly scaffolded KB at path to remote as "origin"
 // and pushes its initial commit with upstream tracking, so the KB is
-// reconstructible from its repository the moment it exists. Returns the exit
-// code to use (0 on success); on failure the caller removes the scaffold.
-func attachOrigin(path, remote string) int {
+// reconstructible from its repository the moment it exists. An empty remote
+// gets the scaffold as is; a remote holding only a forge's initial commit
+// (README/LICENSE/.gitignore, D710) gets the scaffold rebuilt on top of it, on
+// the remote's own default branch (D264), by a fast-forward; any other
+// non-empty remote is refused before the push. An unreachable remote falls
+// through to the push, whose failure keeps the scaffold (D156).
+func attachOrigin(path, remote, authorName, authorEmail string) originResult {
 	if err := gitx.AddRemote(path, "origin", remote); err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)
-		return 1
+		return originResult{code: 1}
 	}
 	branch, err := gitx.Branch(path)
 	if err != nil || branch == "" {
 		branch = gitx.DefaultBranch
+	}
+	var adopted []string
+	if refs, lsErr := gitx.LsRemote(path, "origin"); lsErr == nil && refs.HasRefs {
+		var res *originResult
+		if branch, adopted, res = adoptForgeCommit(path, remote, branch, refs, authorName, authorEmail); res != nil {
+			return *res
+		}
 	}
 	if err := gitx.PushSetUpstream(path, "origin", branch); err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		if strings.Contains(err.Error(), "src refspec") {
 			// Not an authentication problem: the branch has no commit yet.
 			fmt.Fprintf(os.Stderr, "Hint: the KB has no commit to push — git could not make the initial commit (often: committer identity unknown). Commit it, which also shows why it failed: git -C %s commit -m %q\n", path, "init: KB initialized")
-			return 1
+			return originResult{code: 1, branch: branch}
 		}
 		fmt.Fprintln(os.Stderr, "Hint: authenticate git with your SSH agent or credential helper, then retry.")
 		fmt.Fprintf(os.Stderr, "Hint: if the remote already holds a KB, mount it instead: cartographer kb clone %s\n", remote)
-		return 1
+		return originResult{code: 1, branch: branch}
 	}
-	return 0
+	return originResult{branch: branch, adopted: adopted}
+}
+
+// adoptForgeCommit handles a remote that already has refs. It returns the
+// branch to push and the adopted files, or a non-nil result when the create
+// must stop: a remote that holds content, a path collision, or a failed fetch
+// or rebase — all before anything was pushed, so the local KB is discarded.
+func adoptForgeCommit(path, remote, branch string, refs gitx.RemoteRefs, authorName, authorEmail string) (string, []string, *originResult) {
+	refuse := func() (string, []string, *originResult) {
+		return branch, nil, &originResult{code: 1, discard: true}
+	}
+	if err := gitx.Fetch(path, "origin"); err != nil {
+		fmt.Fprintln(os.Stderr, "Error:", err)
+		return refuse()
+	}
+	target := refs.Default
+	if target == "" && len(refs.Branches) == 1 {
+		target = refs.Branches[0]
+	}
+	var forgePaths []string
+	forgeInit := false
+	if target != "" && len(refs.Branches) == 1 {
+		var err error
+		if forgePaths, forgeInit, err = gitx.ForgeInitialized(path, "origin/"+target); err != nil {
+			fmt.Fprintln(os.Stderr, "Error:", err)
+			return refuse()
+		}
+	}
+	if !forgeInit {
+		fmt.Fprintf(os.Stderr, "Error: the remote %s already has commits, so a new KB cannot be created in it.\n", remote)
+		fmt.Fprintf(os.Stderr, "Hint: if it holds a KB, mount it: cartographer kb clone %s\n", remote)
+		fmt.Fprintln(os.Stderr, "Hint: otherwise import its content with the kb-import skill, or point --remote at an empty repository.")
+		return refuse()
+	}
+
+	scaffold, err := gitx.TreePaths(path, "HEAD")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "Error:", err)
+		return refuse()
+	}
+	taken := map[string]bool{}
+	for _, p := range forgePaths {
+		taken[strings.ToLower(p)] = true
+	}
+	var collisions []string
+	for _, p := range scaffold {
+		if taken[strings.ToLower(p)] {
+			collisions = append(collisions, p)
+		}
+	}
+	if len(collisions) > 0 {
+		fmt.Fprintf(os.Stderr, "Error: the remote's initial commit already has %s, which the KB scaffold also writes; Cartographer will not merge them.\n", strings.Join(collisions, ", "))
+		fmt.Fprintln(os.Stderr, "Hint: empty the repository, then retry — delete and re-create it without \"initialize with README\":")
+		fmt.Fprintln(os.Stderr, "  gh repo delete <owner>/<repo> && gh repo create <owner>/<repo>")
+		fmt.Fprintln(os.Stderr, "  glab repo delete <owner>/<repo> && glab repo create <owner>/<repo>")
+		return refuse()
+	}
+
+	// The rebased commit is created by this git, so its committer must be the
+	// resolved identity too (D265), not whatever git would guess.
+	env := []string{"GIT_COMMITTER_NAME=" + authorName, "GIT_COMMITTER_EMAIL=" + authorEmail}
+	if err := gitx.RebaseOntoAutostash(path, "origin", target, env...); err != nil {
+		fmt.Fprintln(os.Stderr, "Error:", err)
+		return refuse()
+	}
+	if target != branch {
+		if err := gitx.RenameBranch(path, target); err != nil {
+			fmt.Fprintln(os.Stderr, "Error:", err)
+			return refuse()
+		}
+	}
+	return target, forgePaths, nil
 }
 
 // printNoRemoteWarning states what --no-remote costs, on stderr: the KB is a
@@ -383,6 +494,12 @@ func cmdKBClone(args []string) int {
 		return 1
 	}
 	if _, err := kb.Open(path); err != nil {
+		// A forge's initial commit is not a KB to import but an empty project
+		// to build one in: point at kb create, which adopts it (D710).
+		if forgeInitClone(path) {
+			fmt.Fprintf(os.Stderr, "Error: %s holds only a forge's initial commit — create the KB in it: cartographer kb create <name> --remote %s\n", remote, remote)
+			return 1
+		}
 		fmt.Fprintln(os.Stderr, "Error: not an OKF KB — import it with the kb-import skill, push, then retry")
 		return 1
 	}
@@ -396,6 +513,17 @@ func cmdKBClone(args []string) int {
 	}
 	printPostCreateGuidanceFn(*configFlag, *restartFlag)
 	return 0
+}
+
+// forgeInitClone reports whether the fresh clone at path holds only a forge's
+// initial commit on its single branch (gitx.ForgeInitialized).
+func forgeInitClone(path string) bool {
+	refs, err := gitx.LsRemote(path, "origin")
+	if err != nil || len(refs.Branches) != 1 {
+		return false
+	}
+	_, ok, err := gitx.ForgeInitialized(path, "HEAD")
+	return err == nil && ok
 }
 
 // kbRow is one direct subdirectory of the data dir, as `kb list` sees it.

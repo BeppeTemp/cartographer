@@ -236,6 +236,169 @@ func TestCmdKBCreateRemoteFailureKeepsScaffold(t *testing.T) {
 	}
 }
 
+// seedForgeRemote builds a bare remote the way a forge does for a project
+// created with "initialize with README": branch holds commits commits, the
+// first writing files; the bare repo's HEAD points at it.
+func seedForgeRemote(t *testing.T, tmp, branch string, files []string, commits int) string {
+	t.Helper()
+	src := filepath.Join(tmp, "forge-src")
+	mustRunGit(t, "", "init", "-b", branch, src)
+	mustRunGit(t, src, "config", "user.email", "forge@example.com")
+	mustRunGit(t, src, "config", "user.name", "Forge")
+	for _, f := range files {
+		if err := os.WriteFile(filepath.Join(src, f), []byte("x\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mustRunGit(t, src, "add", ".")
+	mustRunGit(t, src, "commit", "-m", "Initial commit")
+	for i := 1; i < commits; i++ {
+		mustRunGit(t, src, "commit", "--allow-empty", "-m", fmt.Sprintf("more %d", i))
+	}
+	bare := filepath.Join(tmp, "forge.git")
+	mustRunGit(t, "", "init", "--bare", bare)
+	mustRunGit(t, bare, "symbolic-ref", "HEAD", "refs/heads/"+branch)
+	mustRunGit(t, src, "push", bare, branch)
+	return bare
+}
+
+func gitOut(t *testing.T, dir string, args ...string) string {
+	t.Helper()
+	out, err := exec.Command("git", append([]string{"-C", dir}, args...)...).Output()
+	if err != nil {
+		t.Fatalf("git %v: %v", args, err)
+	}
+	return strings.TrimSpace(string(out))
+}
+
+func TestCmdKBCreateAdoptsForgeInitialCommit(t *testing.T) {
+	if !hasGit() {
+		t.Skip("git not in PATH")
+	}
+	for _, branch := range []string{"main", "master"} {
+		t.Run(branch, func(t *testing.T) {
+			tmp := t.TempDir()
+			bare := seedForgeRemote(t, tmp, branch, []string{"README.md", "LICENSE"}, 1)
+			forgeSHA := gitOut(t, bare, "rev-parse", branch)
+			// A committer different from the author must not leak into the
+			// rebased commit (D265).
+			t.Setenv("GIT_AUTHOR_NAME", "Kb User")
+			t.Setenv("GIT_AUTHOR_EMAIL", "user@example.com")
+			t.Setenv("GIT_COMMITTER_NAME", "Someone Else")
+			t.Setenv("GIT_COMMITTER_EMAIL", "else@example.com")
+
+			dataDir := filepath.Join(tmp, "data")
+			var code int
+			out := withStdout(t, func() {
+				withNoGuidance(t, func() {
+					code = cmdKBCreate([]string{"alpha", "--data", dataDir, "--remote", fileURL(bare)})
+				})
+			})
+			if code != 0 {
+				t.Fatalf("cmdKBCreate = %d, want 0", code)
+			}
+			if !strings.Contains(out, "adopted the forge's initial commit") {
+				t.Errorf("stdout lacks the adoption line:\n%s", out)
+			}
+			kbPath := filepath.Join(dataDir, "alpha")
+			if got := gitOut(t, kbPath, "symbolic-ref", "--short", "HEAD"); got != branch {
+				t.Errorf("local branch = %q, want %q", got, branch)
+			}
+			if got := gitOut(t, bare, "rev-list", "--count", branch); got != "2" {
+				t.Errorf("remote %s has %s commits, want 2", branch, got)
+			}
+			if got := gitOut(t, bare, "rev-parse", branch+"^"); got != forgeSHA {
+				t.Errorf("parent = %s, want the forge commit %s", got, forgeSHA)
+			}
+			tree := gitOut(t, bare, "ls-tree", "-r", "--name-only", branch)
+			for _, f := range []string{"README.md", "LICENSE", "instructions.md"} {
+				if !strings.Contains(tree, f) {
+					t.Errorf("remote tree lacks %s:\n%s", f, tree)
+				}
+			}
+			au := gitOut(t, bare, "log", "-1", "--format=%an <%ae>", branch)
+			cm := gitOut(t, bare, "log", "-1", "--format=%cn <%ce>", branch)
+			if au != cm {
+				t.Errorf("author %q != committer %q: committer must be the resolved identity", au, cm)
+			}
+			if branch == "master" && strings.Contains(gitOut(t, bare, "branch", "--list"), "main") {
+				t.Error("a main branch was pushed beside the forge's master (D264)")
+			}
+		})
+	}
+}
+
+func TestCmdKBCreateForgeCommitCollisionRefused(t *testing.T) {
+	if !hasGit() {
+		t.Skip("git not in PATH")
+	}
+	tmp := t.TempDir()
+	bare := seedForgeRemote(t, tmp, "main", []string{"README.md", ".gitattributes"}, 1)
+	before := gitOut(t, bare, "rev-parse", "main")
+	dataDir := filepath.Join(tmp, "data")
+	var code int
+	errOut := withStderr(t, func() {
+		withNoGuidance(t, func() {
+			code = cmdKBCreate([]string{"alpha", "--data", dataDir, "--remote", fileURL(bare)})
+		})
+	})
+	if code != 1 || !strings.Contains(errOut, ".gitattributes") {
+		t.Errorf("code=%d stderr=%q, want 1 naming .gitattributes", code, errOut)
+	}
+	if _, err := os.Stat(filepath.Join(dataDir, "alpha")); !os.IsNotExist(err) {
+		t.Errorf("local KB still exists: %v", err)
+	}
+	if got := gitOut(t, bare, "rev-parse", "main"); got != before {
+		t.Error("remote changed")
+	}
+}
+
+func TestCmdKBCreateNonEmptyRemoteRefused(t *testing.T) {
+	if !hasGit() {
+		t.Skip("git not in PATH")
+	}
+	tmp := t.TempDir()
+	bare := seedForgeRemote(t, tmp, "main", []string{"README.md"}, 2)
+	before := gitOut(t, bare, "rev-parse", "main")
+	dataDir := filepath.Join(tmp, "data")
+	var code int
+	errOut := withStderr(t, func() {
+		withNoGuidance(t, func() {
+			code = cmdKBCreate([]string{"alpha", "--data", dataDir, "--remote", fileURL(bare)})
+		})
+	})
+	if code != 1 || !strings.Contains(errOut, "kb clone") {
+		t.Errorf("code=%d stderr=%q, want 1 with a kb clone hint", code, errOut)
+	}
+	if _, err := os.Stat(filepath.Join(dataDir, "alpha")); !os.IsNotExist(err) {
+		t.Errorf("local KB still exists: %v", err)
+	}
+	if got := gitOut(t, bare, "rev-parse", "main"); got != before {
+		t.Error("remote changed")
+	}
+}
+
+func TestCmdKBCloneForgeInitializedPointsAtCreate(t *testing.T) {
+	if !hasGit() {
+		t.Skip("git not in PATH")
+	}
+	tmp := t.TempDir()
+	bare := seedForgeRemote(t, tmp, "main", []string{"README.md", "LICENSE"}, 1)
+	data := filepath.Join(tmp, "data")
+	var code int
+	errOut := withStderr(t, func() {
+		withNoGuidance(t, func() {
+			code = cmdKBClone([]string{fileURL(bare), "--data", data})
+		})
+	})
+	if code != 1 || !strings.Contains(errOut, "kb create") || !strings.Contains(errOut, "--remote") {
+		t.Errorf("code=%d stderr=%q, want 1 pointing at kb create --remote", code, errOut)
+	}
+	if _, err := os.Stat(filepath.Join(data, "forge")); !os.IsNotExist(err) {
+		t.Errorf("clone destination left behind: %v", err)
+	}
+}
+
 func TestCmdKBClone(t *testing.T) {
 	if !hasGit() {
 		t.Skip("git not in PATH, skipping KB clone test")
@@ -642,7 +805,7 @@ func TestUnpushedScaffoldGuidanceRemovalCommand(t *testing.T) {
 	}
 	for _, c := range cases {
 		var b strings.Builder
-		writeUnpushedScaffoldGuidance(&b, c.goos, c.path, "user", "user@example.com", "data")
+		writeUnpushedScaffoldGuidance(&b, c.goos, c.path, gitx.DefaultBranch, "user", "user@example.com", "data")
 		if !strings.Contains(b.String(), c.want) {
 			t.Errorf("%s: guidance lacks %q:\n%s", c.goos, c.want, b.String())
 		}
