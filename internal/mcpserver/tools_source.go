@@ -333,31 +333,36 @@ func toolSourceList(k *kb.KB) Tool {
 	}
 }
 
-// sourceCounts returns the kb_status `sources` block, or nil when the KB has no
-// Source concept.
-func sourceCounts(k *kb.KB) map[string]int {
-	counts := map[string]int{"pending": 0, "ingested": 0, "skipped": 0}
-	n := 0
-	_ = k.WalkConcepts(func(_ okf.ConceptID, content string) error {
-		fmRaw, _, _ := okf.SplitFrontmatter(content)
-		fm, err := okf.ParseFrontmatter(fmRaw)
-		if err != nil || fm.Type() != kb.SourceType {
-			return nil
-		}
-		n++
-		st := fmString(fm, "ingest_status")
-		if st == "" {
-			st = "pending"
-		}
-		if _, ok := counts[st]; ok {
-			counts[st]++
-		}
-		return nil
-	})
-	if n == 0 {
+// sourceTally counts the Source concepts by ingest_status, fed by the
+// caller's own walk (kb_status reads every concept once for all its counts).
+type sourceTally struct {
+	n      int
+	counts map[string]int
+}
+
+func (t *sourceTally) add(fm *okf.Frontmatter) {
+	if fm.Type() != kb.SourceType {
+		return
+	}
+	if t.counts == nil {
+		t.counts = map[string]int{"pending": 0, "ingested": 0, "skipped": 0}
+	}
+	t.n++
+	st := fmString(fm, "ingest_status")
+	if st == "" {
+		st = "pending"
+	}
+	if _, ok := t.counts[st]; ok {
+		t.counts[st]++
+	}
+}
+
+// result is nil for a KB without Sources.
+func (t *sourceTally) result() map[string]int {
+	if t.n == 0 {
 		return nil
 	}
-	return counts
+	return t.counts
 }
 
 // deleteBlockers is what concept_delete treats as "still linked to id": the

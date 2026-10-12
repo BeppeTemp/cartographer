@@ -554,7 +554,9 @@ func PullRebaseAutostash(dir, remote, branch string, env ...string) error {
 
 // Branch returns the current branch name, or "" if detached HEAD.
 func Branch(dir string) (string, error) {
-	out, err := runGit(dir, "symbolic-ref", "--short", "HEAD")
+	out, err := branchMemo.do(dir, func() (string, error) {
+		return runGit(dir, "symbolic-ref", "--short", "HEAD")
+	})
 	if err != nil {
 		// detached HEAD — not an error for the caller
 		return "", nil

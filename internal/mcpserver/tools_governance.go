@@ -700,6 +700,7 @@ func toolKBStatus(k *kb.KB, misses *searchMissLog, reads *readAccessLog, serverV
 			var gaps []gapEntry
 			gapsByKind := map[string]int{}
 
+			var sources sourceTally
 			err := k.WalkConcepts(func(id okf.ConceptID, content string) error {
 				total++
 				fmRaw, _, _ := okf.SplitFrontmatter(content)
@@ -707,6 +708,7 @@ func toolKBStatus(k *kb.KB, misses *searchMissLog, reads *readAccessLog, serverV
 				if err != nil {
 					return nil
 				}
+				sources.add(fm)
 
 				t := fm.Type()
 				typeCounts[t]++
@@ -871,7 +873,7 @@ func toolKBStatus(k *kb.KB, misses *searchMissLog, reads *readAccessLog, serverV
 			if WholeVisible(ctx, k, false) {
 				result["usage"] = usageSummary(k, time.Now())
 			}
-			if src := sourceCounts(k); src != nil {
+			if src := sources.result(); src != nil {
 				result["sources"] = src
 			}
 			if n, oldest, newest := reads.summary(); n > 0 {

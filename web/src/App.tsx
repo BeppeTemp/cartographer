@@ -290,10 +290,12 @@ export function App() {
   // below lists it, so the views refetch in place without a reload.
   const live = useLiveRevision(activeKB, phase === "ready");
 
-  // The overview, the graph and the artifacts drawn on it land together: the
-  // rail, the canvas and the diamonds change in one commit instead of one
-  // after another, and on a KB switch the previous KB stays on screen (dimmed,
-  // see `switching`) until the new one is complete.
+  // The graph and the artifacts drawn on it land together: the canvas and the
+  // diamonds change in one commit instead of one after another, and on a KB
+  // switch the previous KB stays on screen (dimmed, see `switching`) until the
+  // new one is complete. The overview (the rail) lands on its own: it walks
+  // the lint findings, which on a large KB costs the server seconds the first
+  // time, and the graph must not wait for it.
   const artifactsAllowed = kbs.find((kb) => kb.name === activeKB)?.artifacts ?? false;
   const secretsAllowed = kbs.find((kb) => kb.name === activeKB)?.secrets ?? false;
   // The last view of every KB and Map this tab has opened: going back to one
@@ -302,6 +304,8 @@ export function App() {
   const viewCache = useRef(
     new Map<string, { graph: GraphSnapshot; overview: Overview | null; artifacts: ArtifactList | null }>(),
   );
+  // Which KB the overview on screen belongs to.
+  const overviewKB = useRef<string | null>(null);
   useEffect(() => {
     if (!activeKB || phase !== "ready") return;
     const controller = new AbortController();
@@ -311,8 +315,13 @@ export function App() {
       setSnapshot(cached.graph);
       setSnapshotKey(key);
       setOverview(cached.overview);
+      overviewKB.current = activeKB;
       if (artifactsAllowed) setArtifacts(cached.artifacts);
       setGraphError(null);
+    } else if (overviewKB.current !== activeKB) {
+      // Another KB's Maps must not sit in the rail beside this KB's graph.
+      setOverview(null);
+      overviewKB.current = null;
     }
     // Only a view with nothing to show waits dimmed (`switching`).
     setGraphLoading(!cached);
@@ -321,16 +330,30 @@ export function App() {
       if (!controller.signal.aborted) handleFailure(err);
       return null;
     });
+    // The overview is shown when it lands, except during a switch: while the
+    // canvas still holds another KB, this KB's Maps wait for its graph.
+    let landedOverview: { ov: Overview | null } | null = null;
+    let graphSettled = false;
+    const showOverview = () => {
+      if (!landedOverview || controller.signal.aborted) return;
+      setOverview(landedOverview.ov);
+      overviewKB.current = activeKB;
+      const entry = viewCache.current.get(key);
+      if (entry) entry.overview = landedOverview.ov;
+    };
+    void overviewP.then((ov) => {
+      landedOverview = { ov };
+      if (graphSettled || overviewKB.current === activeKB) showOverview();
+    });
     const artifactsP = artifactsAllowed
       ? fetchArtifacts(activeKB, controller.signal).then(
           (data) => ({ data, error: null as unknown }),
           (err: unknown) => ({ data: null, error: err }),
         )
       : Promise.resolve(null);
-    // The rail and the artifacts do not depend on the graph: a graph that fails
-    // still leaves the Maps to choose from (the error stays in the graph panel).
-    const applySide = (ov: Overview | null, arts: Awaited<typeof artifactsP>) => {
-      setOverview(ov);
+    // The artifacts do not depend on the graph: a graph that fails still
+    // leaves them to show (the error stays in the graph panel).
+    const applyArtifacts = (arts: Awaited<typeof artifactsP>) => {
       if (!artifactsAllowed) {
         setArtifacts(null);
         setArtifactsError(null);
@@ -339,26 +362,33 @@ export function App() {
         setArtifactsError(arts.error);
       }
     };
-    Promise.all([fetchGraph(activeKB, view.scope, controller.signal), overviewP, artifactsP])
-      .then(([graph, ov, arts]) => {
-        viewCache.current.set(key, { graph, overview: ov, artifacts: arts?.data ?? null });
+    Promise.all([fetchGraph(activeKB, view.scope, controller.signal), artifactsP])
+      .then(([graph, arts]) => {
+        const prev = viewCache.current.get(key);
+        viewCache.current.set(key, {
+          graph,
+          overview: landedOverview?.ov ?? prev?.overview ?? null,
+          artifacts: arts?.data ?? null,
+        });
         setSnapshot(graph);
         setSnapshotKey(key);
         setGraphError(null);
-        applySide(ov, arts);
+        applyArtifacts(arts);
         setOffline(false);
       })
       .catch(async (err) => {
         if (controller.signal.aborted) return;
         if (handleFailure(err)) return;
         setGraphError(err);
-        const [ov, arts] = await Promise.all([overviewP, artifactsP]);
-        if (!controller.signal.aborted) applySide(ov, arts);
+        const arts = await artifactsP;
+        if (!controller.signal.aborted) applyArtifacts(arts);
       })
       .finally(() => {
         if (controller.signal.aborted) return;
         setGraphLoading(false);
         setArtifactsLoading(false);
+        graphSettled = true;
+        showOverview();
       });
     return () => controller.abort();
   }, [activeKB, view.scope, artifactsAllowed, phase, handleFailure, reloadKey, live]);

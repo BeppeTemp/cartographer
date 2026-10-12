@@ -414,7 +414,8 @@ of a relationship — the inspector lists every link.
   more than with size. The scene draws every node
   in one instanced mesh and every link in one line set, so the frame cost
   barely moves with size; the load time is the synchronous warm-up of the
-  simulation. 5,000 is not reported; the view accepts it (the API's ceiling)
+  simulation, which a live view stops after 120 ms and lets the opening burst
+  finish (D736; reduced motion and the video export run it whole). 5,000 is not reported; the view accepts it (the API's ceiling)
   without a measured budget.
 
 ### Browser (`make e2e-web`)

@@ -497,12 +497,14 @@ func duplicateItems(concepts []*reviewConcept) []ReviewItem {
 					continue
 				}
 				seen[other] = true
-				pair := [2]okf.ConceptID{c.id, other}
-				if paired[pair] || namedAfterParent(c.id, other, titles) || SeriesSiblings(titles[c.id], string(c.id), titles[other], string(other)) {
-					continue
-				}
+				// The overlap first: it is cheap on the tokens already built and
+				// rules out almost every pair, where SeriesSiblings re-tokenizes.
 				j := Jaccard(ts, tokens[other])
 				if j < TitleJaccardMin {
+					continue
+				}
+				pair := [2]okf.ConceptID{c.id, other}
+				if paired[pair] || namedAfterParent(c.id, other, titles) || SeriesSiblings(titles[c.id], string(c.id), titles[other], string(other)) {
 					continue
 				}
 				paired[pair] = true
@@ -1138,8 +1140,8 @@ func glossaryItems(concepts []*reviewConcept, contracts map[string]kb.MapContrac
 		text := urlRe.ReplaceAllString(kb.MaskCodeSpans(c.body), " ")
 		terms := map[string]bool{}
 		lower := map[string]bool{}
-		for _, w := range wordRe.FindAllString(text, -1) {
-			if acronymRe.MatchString(w) || mixedCaseRe.MatchString(w) {
+		for _, w := range asciiWords(text) {
+			if isAcronym(w) || isMixedCase(w) {
 				terms[w] = true
 			} else if w == strings.ToLower(w) {
 				lower[w] = true
@@ -1179,6 +1181,55 @@ func glossaryItems(concepts []*reviewConcept, contracts map[string]kb.MapContrac
 		})
 	}
 	return out
+}
+
+// asciiWords is wordRe.FindAllString(text, -1) without the regexp engine:
+// glossaryItems runs it on every page, and it was most of a review.
+func asciiWords(text string) []string {
+	var out []string
+	for i := 0; i < len(text); {
+		if !isASCIILetter(text[i]) {
+			i++
+			continue
+		}
+		j := i + 1
+		for j < len(text) && (isASCIILetter(text[j]) || (text[j] >= '0' && text[j] <= '9')) {
+			j++
+		}
+		out = append(out, text[i:j])
+		i = j
+	}
+	return out
+}
+
+func isASCIILetter(b byte) bool { return (b >= 'A' && b <= 'Z') || (b >= 'a' && b <= 'z') }
+func isASCIIUpper(b byte) bool  { return b >= 'A' && b <= 'Z' }
+func isASCIILower(b byte) bool  { return b >= 'a' && b <= 'z' }
+
+// isAcronym is acronymRe.MatchString for a word from asciiWords.
+func isAcronym(w string) bool {
+	if len(w) < 2 || len(w) > 8 || !isASCIIUpper(w[0]) {
+		return false
+	}
+	for i := 1; i < len(w); i++ {
+		if !isASCIIUpper(w[i]) && !(w[i] >= '0' && w[i] <= '9') {
+			return false
+		}
+	}
+	return true
+}
+
+// isMixedCase is mixedCaseRe.MatchString for a word from asciiWords: a
+// capital, one or more lower-case letters, then a capital.
+func isMixedCase(w string) bool {
+	if len(w) < 3 || !isASCIIUpper(w[0]) || !isASCIILower(w[1]) {
+		return false
+	}
+	i := 2
+	for i < len(w) && isASCIILower(w[i]) {
+		i++
+	}
+	return i < len(w) && isASCIIUpper(w[i])
 }
 
 // --- lint_judgement ---

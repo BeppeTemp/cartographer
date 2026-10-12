@@ -8,8 +8,11 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"sort"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/kb"
@@ -445,7 +448,7 @@ func runChecks(k *kb.KB, scope string, scopeNeighbors bool, opts Options) ([]Fin
 	// run, so a map with many concepts does not repeatedly parse _map.md.
 	contracts := make(map[string]kb.MapContract, len(archives))
 	var catalog kb.TemplateCatalog // the KB's templates, read once per run and only if a map asks (D352)
-	catalogLoaded := false
+	var catalogOnce sync.Once
 	for _, archive := range archives {
 		contract, contractErr := k.ReadMapContract(archive)
 		if contractErr != nil {
@@ -544,7 +547,10 @@ func runChecks(k *kb.KB, scope string, scopeNeighbors bool, opts Options) ([]Fin
 	// (D309): the target's text, not its links section, must link back. The
 	// split is cached across the run — a hub is the target of many pages.
 	targetBodies := map[okf.ConceptID]string{}
+	var targetMu sync.Mutex
 	readTargetBody := func(target okf.ConceptID) (string, string) {
+		targetMu.Lock()
+		defer targetMu.Unlock()
 		b, ok := targetBodies[target]
 		if !ok {
 			_, b, _ = okf.SplitFrontmatter(allConcepts[target])
@@ -553,7 +559,11 @@ func runChecks(k *kb.KB, scope string, scopeNeighbors bool, opts Options) ([]Fin
 		return b, relPathOf[target]
 	}
 
-	for id, content := range toCheck {
+	// Each concept's checks read the run's shared data and write only their
+	// own findings, so they run on every core: on a KB of a thousand pages
+	// this is most of a whole-KB lint (the Atlas waits on it).
+	checkOne := func(id okf.ConceptID, content string) []Finding {
+		var findings []Finding
 		relPath := okf.IDToPath(id)
 		// Relative links resolve against the file that contains them, which for
 		// an expanded concept is "<id>/index.md", not "<id>.md" (D149). relPath
@@ -645,9 +655,7 @@ func runChecks(k *kb.KB, scope string, scopeNeighbors bool, opts Options) ([]Fin
 			c := contracts[parts[0]]
 			in.MapName, in.Contract = parts[0], &c
 			if c.HasTemplateKeys() {
-				if !catalogLoaded {
-					catalog, catalogLoaded = k.TemplateCatalog(), true
-				}
+				catalogOnce.Do(func() { catalog = k.TemplateCatalog() })
 				in.Catalog = catalog
 			}
 		}
@@ -673,6 +681,39 @@ func runChecks(k *kb.KB, scope string, scopeNeighbors bool, opts Options) ([]Fin
 		for _, f := range st.conceptChecks(id, relPath) {
 			emit(f)
 		}
+		return findings
+	}
+	ids := make([]okf.ConceptID, 0, len(toCheck))
+	for id := range toCheck {
+		ids = append(ids, id)
+	}
+	perConcept := make([][]Finding, len(ids))
+	var next atomic.Int64
+	var wg sync.WaitGroup
+	// A panic in a check is re-raised on the caller's goroutine, where the
+	// HTTP server's per-request recover catches it, as before the workers:
+	// in a worker it would take the whole process down.
+	var panicked atomic.Value
+	for w := 0; w < min(runtime.GOMAXPROCS(0), len(ids)); w++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			defer func() {
+				if r := recover(); r != nil {
+					panicked.CompareAndSwap(nil, fmt.Sprint(r))
+				}
+			}()
+			for i := int(next.Add(1)) - 1; i < len(ids); i = int(next.Add(1)) - 1 {
+				perConcept[i] = checkOne(ids[i], toCheck[ids[i]])
+			}
+		}()
+	}
+	wg.Wait()
+	if r := panicked.Load(); r != nil {
+		panic(fmt.Sprintf("lint: concept check: %v", r))
+	}
+	for _, f := range perConcept {
+		findings = append(findings, f...)
 	}
 	findings = append(findings, st.islandFindings(func(id okf.ConceptID) bool {
 		_, ok := toCheck[id]
@@ -715,8 +756,8 @@ func runChecks(k *kb.KB, scope string, scopeNeighbors bool, opts Options) ([]Fin
 						topLevel++
 					}
 				}
-				if len(c.Templates) > 0 && !catalogLoaded {
-					catalog, catalogLoaded = k.TemplateCatalog(), true
+				if len(c.Templates) > 0 {
+					catalogOnce.Do(func() { catalog = k.TemplateCatalog() })
 				}
 				findings = append(findings, mapTemplateFindings(archiveName+"/_map.md", archiveName, c, topLevel, catalog)...)
 			}

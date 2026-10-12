@@ -130,6 +130,12 @@ function hashUnit(id: string): number {
  *  away and newcomers grow in over MORPH_MS, while the simulation relaxes the
  *  rest from MORPH_ALPHA (gently: nothing is rebuilt from a point). */
 const MORPH_MS = 900;
+/** The simulation's rate, the one its forces are tuned for (physics.ts). */
+const SIM_HZ = 60;
+/** At most this many ticks run in one frame. */
+const SIM_MAX_CATCHUP = 3;
+/** The longest the warm-up may hold the first frame of a new graph. */
+const WARMUP_BUDGET_MS = 120;
 const MORPH_ALPHA = 0.2;
 /** A layout come back from memory is already settled: only what is new to it
  *  needs the simulation. */
@@ -358,7 +364,17 @@ export class LivingScene {
     } else if (first || replace) {
       this.morph = null;
       sim.alpha(1);
-      sim.tick(warmupTicks);
+      if (!this.live || this.offscreen) {
+        // Still mode never finishes the settling on screen, and the video
+        // export must be deterministic: both run the warm-up whole.
+        sim.tick(warmupTicks);
+      } else {
+        // The warm-up blocks the first frame: on a large KB it stops at
+        // WARMUP_BUDGET_MS, and the burst opens the graph while the still-warm
+        // simulation finishes the settling in view.
+        const until = performance.now() + WARMUP_BUDGET_MS;
+        for (let i = 0; i < warmupTicks && (i < 30 || performance.now() < until); i++) sim.tick();
+      }
       this.touched = false;
       if (!this.reducedMotion && !this.offscreen) {
         // Kept warm while it opens (applyMotion): the nodes are already
@@ -870,12 +886,27 @@ export class LivingScene {
   private stop(): void {
     if (this.frame !== null) cancelAnimationFrame(this.frame);
     this.frame = null;
+    // A restart measures from its first frame, not across the pause.
+    this.lastFrame = null;
+    this.simDebt = 0;
   }
 
   private ticks = 0;
+  /** The simulation runs at a fixed SIM_HZ whatever the display's refresh:
+   *  the forces are tuned per tick at 60 Hz, and a 120-144 Hz screen ticking
+   *  once per frame drifted twice as fast at twice the CPU. Frames between two
+   *  ticks only draw. */
+  private simDebt = 0;
+  private lastFrame: number | null = null;
   private readonly tick = (): void => {
     this.frame = requestAnimationFrame(this.tick);
-    this.step(this.clock());
+    const now = this.clock();
+    // Capped: a tab coming back from the background does not catch up.
+    this.simDebt = Math.min(SIM_MAX_CATCHUP, this.simDebt + (now - (this.lastFrame ?? now)) / (1000 / SIM_HZ));
+    this.lastFrame = now;
+    const ticks = Math.floor(this.simDebt);
+    this.simDebt -= ticks;
+    this.step(now, ticks);
   };
 
   /**
@@ -900,11 +931,11 @@ export class LivingScene {
     this.sync();
   }
 
-  private step(now: number): void {
+  private step(now: number, simTicks = 1): void {
     const sim = this.sim;
     // Still mode lets the simulation cool and then stops ticking it: at rest
     // the frame costs only the draw.
-    if (sim && (this.live || sim.alpha() > 0.002)) {
+    for (let i = 0; i < simTicks && sim && (this.live || sim.alpha() > 0.002); i++) {
       sim.tick();
       if (++this.ticks % 30 === 0) sanitize(this.nodes, this.neighbours);
     }
@@ -950,7 +981,12 @@ export class LivingScene {
     this.controls.autoRotate = !this.tween && this.idle.shouldRotate();
     this.controls.update();
     this.updateFog();
-    this.sync(now);
+    // Live, the simulation ticks at SIM_HZ and a frame between two ticks
+    // finds every position where the last one left it: unless something is
+    // animating, the buffers are already right and only the camera moved.
+    // (Still mode has no ticks, so it always syncs.)
+    const settled = simTicks === 0 && this.live && !this.bloom && !this.morph && !this.colourFade && !this.edgeFade && !this.burst;
+    if (!settled) this.sync(now);
     this.renderer.render(this.scene, this.camera);
     for (const listener of this.frameListeners) listener();
   }

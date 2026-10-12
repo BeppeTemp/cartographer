@@ -16,6 +16,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/kb"
 	"github.com/BeppeTemp/cartographer/internal/lint"
 	"github.com/BeppeTemp/cartographer/internal/okf"
+	"golang.org/x/sync/singleflight"
 )
 
 // findingOut is a lint finding as the tools return it (D289): the optional
@@ -246,6 +247,10 @@ func summarizeConformance(findings []lint.Finding, reviewTotal int, lastDoctor s
 // the cache never leaks a hidden concept.
 type conformanceCache struct {
 	mu sync.Mutex
+	// flight runs one computation per key at a time: the Atlas asks for the
+	// overview, the artifacts, the lint and the status together, and on a cold
+	// cache each would otherwise run its own whole-KB lint.
+	flight singleflight.Group
 
 	// lint findings, cached on graph generation.
 	gen      uint64
@@ -364,6 +369,17 @@ func (cc *conformanceCache) reviewItems(k *kb.KB) ([]lint.ReviewItem, error) {
 		return out, nil
 	}
 	cc.mu.Unlock()
+	v, err, _ := cc.flight.Do(fmt.Sprintf("review|%d|%s", gen, stamp), func() (interface{}, error) {
+		return cc.computeReview(k, gen, stamp)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return v.([]lint.ReviewItem), nil
+}
+
+// computeReview is reviewItems' cache miss, run once per key (flight).
+func (cc *conformanceCache) computeReview(k *kb.KB, gen uint64, stamp string) ([]lint.ReviewItem, error) {
 	findings, err := cc.lintFindings(k)
 	if err != nil {
 		return nil, err
@@ -403,6 +419,17 @@ func (cc *conformanceCache) lintFindings(k *kb.KB) ([]lint.Finding, error) {
 		return out, nil
 	}
 	cc.mu.Unlock()
+	v, err, _ := cc.flight.Do(fmt.Sprintf("lint|%d|%s", gen, stamp), func() (interface{}, error) {
+		return cc.computeLint(k, gen, stamp)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return v.([]lint.Finding), nil
+}
+
+// computeLint is lintFindings' cache miss, run once per key (flight).
+func (cc *conformanceCache) computeLint(k *kb.KB, gen uint64, stamp string) ([]lint.Finding, error) {
 	findings, err := lint.Run(k, "", false)
 	if err != nil {
 		return nil, err
@@ -453,10 +480,12 @@ func lintInputsStamp(k *kb.KB) string {
 		}
 		rel, _ := filepath.Rel(root, path)
 		name := d.Name()
-		// The lint history is written on every recompute (D370): counting it
-		// would invalidate the cache it was written from. The rest of
-		// .cartographer stays in: usage.json feeds artifact_unused.
-		if strings.HasPrefix(name, lintHistoryName) {
+		// .cartographer holds local state the server rewrites as it serves:
+		// the search index, the read and search-miss telemetry, the lint
+		// history (D370) and the repair log. Counting them made every
+		// concept_read or search invalidate the whole-KB lint (D736). The one
+		// file lint reads there is usage.json, which feeds artifact_unused.
+		if strings.HasPrefix(filepath.ToSlash(rel), ".cartographer/") && name != "usage.json" {
 			return nil
 		}
 		if strings.HasSuffix(name, ".md") && name != "index.md" && name != "_map.md" && name != "_archive.md" && strings.HasPrefix(filepath.ToSlash(rel), "data/") {
