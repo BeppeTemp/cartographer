@@ -31,8 +31,9 @@ const scopedNeighbourCap = 200
 // neighbour's own pre-existing findings are never returned.
 //
 // The whole-KB structural analysis stays out: cut_concept, island,
-// map_misfit, map_oversize, facet_sprawl and missing_value_contract need the
-// whole graph and are left to lint and gate_check. lint_ignore applies, on the
+// map_misfit, facet_sprawl and missing_value_contract need the whole graph and
+// are left to lint and gate_check. map_oversize needs a "before" state and the
+// whole created set, so it reaches writes through MapOversizeCrossings (D716). lint_ignore applies, on the
 // concept and on its map. The cost is one cached graph read, the written
 // concepts' own files and at most scopedNeighbourCap neighbours per direction.
 // Nil when there is nothing to report.

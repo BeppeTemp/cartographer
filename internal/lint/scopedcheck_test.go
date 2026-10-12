@@ -2,6 +2,7 @@ package lint
 
 import (
 	"fmt"
+	"github.com/BeppeTemp/cartographer/internal/kb"
 	"testing"
 
 	"github.com/BeppeTemp/cartographer/internal/okf"
@@ -155,5 +156,60 @@ func TestScopedCheck_Orphan_ProvenanceCited(t *testing.T) {
 	writeFile(t, k.DataRoot(), "ops/y.md", "---\ntype: Note\ntitle: Y\nprovenance:\n  - notes/deep/src\n---\nBody.\n")
 	if got := ScopedCheck(k, ids("notes/deep/src")); hasCheck(got, "notes/deep/src.md", "orphan") {
 		t.Fatalf("provenance-cited concept is no orphan: %v", got)
+	}
+}
+
+// --- MapOversizeCrossings (D716) ---
+
+func crossingMap(t *testing.T, k *kb.KB, front string, existing int, extra ...string) {
+	t.Helper()
+	writeFile(t, k.DataRoot(), "m/_map.md", "---\ntype: Map\ntitle: M\n"+front+"---\n")
+	for i := 0; i < existing; i++ {
+		writeFile(t, k.DataRoot(), fmt.Sprintf("m/old-%d.md", i), "---\ntype: Note\n---\nBody.\n")
+	}
+	for _, e := range extra {
+		writeFile(t, k.DataRoot(), e, "---\ntype: Note\n---\nBody.\n")
+	}
+}
+
+func TestMapOversizeCrossings(t *testing.T) {
+	cases := []struct {
+		name     string
+		front    string
+		existing int
+		extra    []string
+		created  []okf.ConceptID
+		want     bool
+	}{
+		{"crossing", "kind: map\noversize_concepts: 3\n", 3, []string{"m/n1.md", "m/n2.md"}, ids("m/n1", "m/n2"), true},
+		{"already over", "kind: map\noversize_concepts: 3\n", 5, []string{"m/n1.md"}, ids("m/n1"), false},
+		{"update only", "kind: map\noversize_concepts: 3\n", 5, nil, nil, false},
+		{"satellite not counted", "kind: map\noversize_concepts: 3\n", 3, []string{"m/a/index.md", "m/a/b.md"}, ids("m/a/b"), false},
+		{"journal exempt", "kind: journal\noversize_concepts: 3\n", 3, []string{"m/n1.md"}, ids("m/n1"), false},
+		{"lint_ignore", "kind: map\noversize_concepts: 3\nlint_ignore: [map_oversize]\n", 3, []string{"m/n1.md"}, ids("m/n1"), false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			k := tempKB(t)
+			crossingMap(t, k, tc.front, tc.existing, tc.extra...)
+			got := MapOversizeCrossings(k, tc.created)
+			if has := hasCheck(got, "m/_map.md", "map_oversize"); has != tc.want {
+				t.Fatalf("map_oversize = %v, want %v: %v", has, tc.want, got)
+			}
+			if tc.want && len(got) != 1 {
+				t.Fatalf("want exactly one finding: %v", got)
+			}
+		})
+	}
+}
+
+func TestMapOversizeCrossings_ArchivedNotCounted(t *testing.T) {
+	k := tempKB(t)
+	crossingMap(t, k, "kind: map\noversize_concepts: 3\n", 2)
+	writeFile(t, k.DataRoot(), "m/done.md", "---\ntype: Note\nstatus: archived\n---\nBody.\n")
+	writeFile(t, k.DataRoot(), "m/n1.md", "---\ntype: Note\n---\nBody.\n")
+	// 3 live + 1 archived: after = 3, not over 3.
+	if got := MapOversizeCrossings(k, ids("m/n1")); hasCheck(got, "m/_map.md", "map_oversize") {
+		t.Fatalf("archived pages must not count: %v", got)
 	}
 }

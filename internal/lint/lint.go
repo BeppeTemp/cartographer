@@ -722,33 +722,10 @@ func runChecks(k *kb.KB, scope string, scopeNeighbors bool, opts Options) ([]Fin
 			}
 
 			// --- map_oversize (info, D313) ---
-			// Counts top-level concepts only: an expanded concept's satellites
-			// are the concept's own content, not siblings to split. A journal
-			// grows by construction and needs harvest, not a split. The check
-			// is on contract.Kind, never on the map's name. Archived concepts
-			// (D322) are closed and harvested: they do not count.
-			if contracts[archiveName].Kind != "journal" {
-				threshold := mapOversizeThreshold
-				if n := contracts[archiveName].OversizeConcepts; n > 0 {
-					threshold = n
-				}
-				mapConcepts := 0
-				for id := range allConcepts {
-					// Exactly one "/" after the map prefix: a naive prefix count
-					// would also count every satellite.
-					if rest, ok := strings.CutPrefix(string(id), archiveName+"/"); ok && !strings.Contains(rest, "/") {
-						if i, ok := st.lg.Index[id]; ok && st.lg.Facets[i].Status == kb.StatusArchived {
-							continue
-						}
-						mapConcepts++
-					}
-				}
-				if mapConcepts > threshold {
-					findings = append(findings, newFinding("map_oversize", Finding{
-						Path:    archiveName + "/_map.md",
-						Message: fmt.Sprintf("%d top-level concepts in one map (threshold %d) — consider a thematic split into a new map, raise oversize_concepts, or accept with lint_ignore: [map_oversize] in _map.md", mapConcepts, threshold),
-					}))
-				}
+			// The count, the journal exemption and the threshold live in
+			// mapOversizeFinding, shared with the write path (D716).
+			if f, ok := mapOversizeFinding(archiveName, contracts[archiveName], mapOversizeCount(st.lg, archiveName)); ok {
+				findings = append(findings, f)
 			}
 		}
 
