@@ -124,7 +124,7 @@ var ToolParamFields = []string{
 	"template", "vars",
 	"old_string", "new_string", "replace_all", "edits", "unset",
 	"frontmatter_append", "frontmatter_remove",
-	"operations", "op",
+	"operations", "op", "index_entry",
 }
 
 // IsToolParamField reports whether key is a concept-write tool parameter name.

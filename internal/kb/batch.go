@@ -114,9 +114,11 @@ func pruneEmptyDirs(dir, root string) error {
 //
 // afterFiles, when non-nil, runs after every file and the log entry are
 // committed, still before WriteConceptBatch returns success; an error from it
-// rolls the files and log back like any other failure. The MCP layer passes
-// nil: the search indexes follow the files by validation (D245), so nothing
-// has to be kept in step at this boundary.
+// rolls the files and log back like any other failure. concept_batch uses it
+// for curated-index entries (D714); it must undo its own index edits before
+// returning an error, since the rollback covers only the files and log written
+// here. The search indexes follow the files by validation (D245), so nothing
+// else has to be kept in step at this boundary.
 //
 // Callers must already hold the KB's write lock (gitWrap's WithGitLock):
 // this is the single acquisition the whole batch runs under, not a second
