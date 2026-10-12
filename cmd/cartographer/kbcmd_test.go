@@ -1032,3 +1032,22 @@ func TestCmdKBCloneArtifactWrite(t *testing.T) {
 		}
 	}
 }
+
+// TestPrintPostCreateGuidance_NamesOpenSessions: the no-restart guidance tells
+// the operator that agent sessions already open need a new session (D712).
+func TestPrintPostCreateGuidance_NamesOpenSessions(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"status":"ok","started_at":"2026-01-01T00:00:00Z"}`))
+	}))
+	defer srv.Close()
+	cfg := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(cfg, []byte("http: "+strings.TrimPrefix(srv.URL, "http://")+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	out := withStdout(t, func() { printPostCreateGuidance(cfg, false) })
+	for _, want := range []string{"cartographer service restart", "On connected client machines, run: cartographer sync", openSessionsLine} {
+		if strings.Count(out, want) != 1 {
+			t.Errorf("want %q exactly once in:\n%s", want, out)
+		}
+	}
+}

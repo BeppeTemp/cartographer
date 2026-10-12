@@ -78,6 +78,8 @@ with the mounted KBs; a name in `kbs` that is not mounted is a `400` naming it
 and the mounted KBs (fail loud: a typo would otherwise silently hide a KB);
 duplicates are ignored.
 
+A KB mounted after a session started reaches it only through `cartographer sync` (plus `client bind` for an explicit binding) and a new agent session: the tool list is fixed per session and HTTP has no list-changed notification. Routed `kb_status` reports the difference in `connection` (D712).
+
 **The schema follows the connection.** With two or more KBs in the effective set,
 every tool's input schema carries `kb`, **required**, as an enum of that set; a
 call without it, or naming a KB outside it, is refused with an error naming the
