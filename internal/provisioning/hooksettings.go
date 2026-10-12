@@ -739,11 +739,17 @@ func registerOpenCodePlugin(baseDir, hookName, fullDestDir string) (relPath, war
 	// The plugin runs the command through `sh -c`, on Windows too (D267).
 	command := posixShellHookCommand(resolveHookCommand(spec.Command, fullDestDir), hookHostWindows)
 	major := openCodeMajor()
+	shape := major
+	if major == 0 {
+		// D719: an unreadable version gets the newest shape, never silently.
+		shape = openCodeLatestShape()
+		warning = fmt.Sprintf("hook %q: "+openCodeVersionUnreadableMarker+" (opencode --version), plugin written for OpenCode %d.x; run cartographer sync once the opencode command is on PATH if this client is another major", hookName, shape)
+	}
 	var content string
 	if hookName == WriteFindingsHookName && major >= 2 {
 		content = generateOpenCodeWriteFindingsPlugin(command)
 	} else {
-		content = generateOpenCodePlugin(hookName, spec, mapping, command, major)
+		content = generateOpenCodePlugin(hookName, spec, mapping, command, shape)
 	}
 
 	fullPath := filepath.Join(baseDir, openCodePluginRelPath(hookName))
@@ -753,7 +759,7 @@ func registerOpenCodePlugin(baseDir, hookName, fullDestDir string) (relPath, war
 	if err := writeFileNoFollow(fullPath, []byte(content), 0o644); err != nil {
 		return "", "", fmt.Errorf("provisioning: write opencode plugin %s: %w", fullPath, err)
 	}
-	return openCodePluginRelPath(hookName), "", nil
+	return openCodePluginRelPath(hookName), warning, nil
 }
 
 // removeOpenCodePlugin removes hookName's generated plugin file (if present)

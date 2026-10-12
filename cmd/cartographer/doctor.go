@@ -589,11 +589,31 @@ func checkHookRegistrations(dir string, providers []string, lockFile provisionin
 // installedOpenCodeMajor is indirected so tests state an installed version.
 var installedOpenCodeMajor = provisioning.OpenCodeMajor
 
+// unreadableOpenCodeVersionFinding is the D719 warning: the first managed hook
+// plugin on disk tells which shape was written; none on disk, nothing at stake.
+func unreadableOpenCodeVersionFinding(dir string, lock provisioning.Lock) []doctorFinding {
+	baseDir := provisioning.LockBaseDir(lock, dir)
+	for _, name := range managedHookNames(lock) {
+		path := filepath.Join(baseDir, filepath.FromSlash(provisioning.OpenCodePluginRelPath(name)))
+		data, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		return []doctorFinding{{
+			Check: "hooks", Severity: doctorWarning, Path: filepath.Dir(path),
+			Message: fmt.Sprintf("[opencode] OpenCode version unreadable: hook plugins cannot be checked against the installed major (written for %d.x)", provisioning.OpenCodePluginShape(string(data))),
+			Fix:     "put the opencode command on PATH (opencode --version), then cartographer sync",
+		}}
+	}
+	return nil
+}
+
 // checkOpenCodePluginShape compares the OpenCode major installed with the
 // plugin shape each generated hook plugin was written for (D359). OpenCode 2.x
 // rejects a 1.x plugin at load ("failed to load plugin"), and the file on disk
 // looks fine, so the on-disk verification cannot notice. An unknown version
-// (client not on PATH) is silent: nothing to compare against.
+// (client not on PATH) cannot be compared: one warning per provider says the
+// shape was guessed (D719), but only when a managed hook plugin exists.
 func checkOpenCodePluginShape(dir string, providers []string, lockFile provisioning.LockFile) []doctorFinding {
 	var out []doctorFinding
 	for _, p := range providers {
@@ -602,6 +622,7 @@ func checkOpenCodePluginShape(dir string, providers []string, lockFile provision
 		}
 		major := installedOpenCodeMajor()
 		if major == 0 {
+			out = append(out, unreadableOpenCodeVersionFinding(dir, lockFile.ForProvider(p))...)
 			continue
 		}
 		supported := false
