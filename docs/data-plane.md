@@ -293,7 +293,7 @@ to add new pages to the index is the `kb-doctor` skill's to update, not the serv
 | `hotspot_in_degree: <n>` | inbound links that, with `hotspot_bytes`, make a `read_hotspot` | 50 |
 | `hotspot_bytes: <n>` | body size that, with `hotspot_in_degree`, makes a `read_hotspot` | 16384 |
 | `oversize_bytes: <n>` | this map's `concept_oversize` threshold | half the 60 KB read guard |
-| `oversize_concepts: <n>` | top-level concepts above which the map is `map_oversize` (D313) | 50 |
+| `oversize_concepts: <n>` | top-level concepts above which the map is `map_oversize` (D313); also reported on the creating write that crosses it (D716) | 50 |
 
 Each is a positive integer (or `generated`/`curated`); anything else is `contract_malformed`.
 
