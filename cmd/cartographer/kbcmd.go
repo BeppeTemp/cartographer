@@ -64,7 +64,7 @@ func cmdKB(args []string) int {
 	case "repair":
 		return cmdKBRepair(rest)
 	default:
-		fmt.Fprintln(os.Stderr, "Error: usage: cartographer kb create <name> (--remote <url> | --no-remote) [--data <dir>] [--restart]\n       cartographer kb clone <remote> [name] [--data <dir>] [--timeout <d>] [--restart]\n       cartographer kb list [--data <dir>] [--config <path>]\n       cartographer kb rename <old> <new> [--data <dir>] [--config <path>] [--restart]\n       cartographer kb repair <kb> [--apply] [--json]")
+		fmt.Fprintln(os.Stderr, "Error: usage: cartographer kb create <name> (--remote <url> | --no-remote) [--data <dir>] [--artifact-write] [--restart]\n       cartographer kb clone <remote> [name] [--data <dir>] [--timeout <d>] [--artifact-write] [--restart]\n       cartographer kb list [--data <dir>] [--config <path>]\n       cartographer kb rename <old> <new> [--data <dir>] [--config <path>] [--restart]\n       cartographer kb repair <kb> [--apply] [--json]")
 		return 2
 	}
 }
@@ -114,10 +114,11 @@ func cmdKBCreate(args []string) int {
 	remoteFlag := fs.String("remote", "", "Git remote URL of an empty repository: attached as origin and pushed to")
 	noRemoteFlag := fs.Bool("no-remote", false, "Create a local-only KB with no origin (not durable, never synced)")
 	restartFlag := fs.Bool("restart", false, "Restart the local service and wait until healthy after creating the KB")
+	artifactWriteFlag := fs.Bool("artifact-write", false, "Record a kbs[] entry with allow_artifact_write: true in the server config, so the KB mounts configured with artifact writes on (artifacts reach client machines via sync)")
 	fs.Parse(rest)
 
 	if name == "" || fs.NArg() != 0 {
-		fmt.Fprintln(os.Stderr, "Usage: cartographer kb create <name> (--remote <url> | --no-remote) [--data <dir>] [--restart]")
+		fmt.Fprintln(os.Stderr, "Usage: cartographer kb create <name> (--remote <url> | --no-remote) [--data <dir>] [--artifact-write] [--restart]")
 		return 2
 	}
 	if err := validateKBName(name); err != nil {
@@ -144,6 +145,14 @@ func cmdKBCreate(args []string) int {
 	} else if !os.IsNotExist(err) {
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		return 1
+	}
+
+	var entryPlan *kbEntryPlan
+	if *artifactWriteFlag {
+		var code int
+		if entryPlan, code = preflightArtifactWrite(name, path, *configFlag); code != 0 {
+			return code
+		}
 	}
 
 	// The identity has to be right before the initial commit exists: it is the
@@ -181,6 +190,11 @@ func cmdKBCreate(args []string) int {
 		printNoRemoteWarning(path)
 	}
 
+	if entryPlan != nil {
+		if code := finishArtifactWrite(entryPlan); code != 0 {
+			return code
+		}
+	}
 	printPostCreateGuidanceFn(*configFlag, *restartFlag)
 	return 0
 }
@@ -300,10 +314,11 @@ func cmdKBClone(args []string) int {
 	localFlag := fs.Bool("local", false, "Act on the local data dir even though the client points at a remote server")
 	timeoutFlag := fs.Duration("timeout", defaultCloneTimeout, "Time budget for the whole clone")
 	restartFlag := fs.Bool("restart", false, "Restart the local service and wait until healthy after mounting the KB")
+	artifactWriteFlag := fs.Bool("artifact-write", false, "Record a kbs[] entry with allow_artifact_write: true in the server config, so the KB mounts configured with artifact writes on (artifacts reach client machines via sync)")
 	fs.Parse(rest)
 
 	if remote == "" || fs.NArg() != 0 {
-		fmt.Fprintln(os.Stderr, "Usage: cartographer kb clone <remote> [name] [--data <dir>] [--restart]")
+		fmt.Fprintln(os.Stderr, "Usage: cartographer kb clone <remote> [name] [--data <dir>] [--artifact-write] [--restart]")
 		return 2
 	}
 	if name == "" {
@@ -328,6 +343,13 @@ func cmdKBClone(args []string) int {
 	} else if !os.IsNotExist(err) {
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		return 1
+	}
+	var entryPlan *kbEntryPlan
+	if *artifactWriteFlag {
+		var code int
+		if entryPlan, code = preflightArtifactWrite(name, path, *configFlag); code != 0 {
+			return code
+		}
 	}
 	if err := os.MkdirAll(dataDir, 0o755); err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)
@@ -367,6 +389,11 @@ func cmdKBClone(args []string) int {
 
 	cloned = true
 	fmt.Printf("KB %q mounted at %s\n", name, path)
+	if entryPlan != nil {
+		if code := finishArtifactWrite(entryPlan); code != 0 {
+			return code
+		}
+	}
 	printPostCreateGuidanceFn(*configFlag, *restartFlag)
 	return 0
 }
