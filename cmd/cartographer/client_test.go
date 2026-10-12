@@ -1,6 +1,7 @@
 package main
 
 import (
+	"net"
 	"strings"
 	"testing"
 
@@ -255,7 +256,20 @@ func TestCmdClientBindRefreshesStaleCache(t *testing.T) {
 // TestCmdClientBindUnreachableServerKeepsWarning: with no server the cached
 // list decides and the warning says so.
 func TestCmdClientBindUnreachableServerKeepsWarning(t *testing.T) {
-	writeClientCfg(t, []string{"claude"}, []string{"alpha"}, nil)
+	home := writeClientCfg(t, []string{"claude"}, []string{"alpha"}, nil)
+	// The default endpoint may have a real server behind it (the native
+	// service on a maintainer machine): point at a port just freed instead.
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	addr := ln.Addr().String()
+	ln.Close()
+	cfg := loadClientCfg(t, home)
+	cfg.ServerURL = "http://" + addr + "/mcp"
+	if err := clientconfig.Save(home, cfg); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
 	errOut := withStderr(t, func() {
 		cmdClient([]string{"bind", "claude", "ghost"})
 	})

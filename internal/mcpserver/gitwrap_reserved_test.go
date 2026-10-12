@@ -104,6 +104,11 @@ func TestGitWrap_UnreachableRemoteWriteSucceedsDegraded(t *testing.T) {
 		t.Fatalf("warning = %+v", warning)
 	}
 
+	// The write scheduled an async push; drain it (it fails, the remote is
+	// still away) before touching SyncOutDebounce, which the worker reads.
+	if err := k.FlushPush(10 * time.Second); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.Rename(moved, bare); err != nil {
 		t.Fatal(err)
 	}
