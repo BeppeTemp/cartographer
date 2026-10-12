@@ -215,8 +215,15 @@ func (m *MultiKBServer) routedHandler(toolName string, set []string) func(contex
 			}
 		}
 		if !containsString(set, kbName) {
-			return errorResult(fmt.Sprintf("kb %q is not available on this connection — allowed: %s",
-				kbName, strings.Join(m.describeRoutedKBs(set), ", "))), nil
+			allowed := strings.Join(m.describeRoutedKBs(set), ", ")
+			if _, mounted := m.servers[kbName]; mounted {
+				return errorResult(fmt.Sprintf("kb %q is mounted on this server but not bound to this connection (allowed: %s): "+
+					"bind it to this client (cartographer client bind), run cartographer sync, then start a new agent session — "+
+					"an open session keeps the tool list it started with", kbName, allowed)), nil
+			}
+			return errorResult(fmt.Sprintf("kb %q is not available on this connection — allowed: %s"+
+				"; a KB created after the server started is mounted only by a server restart (cartographer service restart), "+
+				"then cartographer sync and a new agent session", kbName, allowed)), nil
 		}
 		srv := m.servers[kbName]
 		srv.mu.Lock()
@@ -228,8 +235,64 @@ func (m *MultiKBServer) routedHandler(toolName string, set []string) func(contex
 			// a tool it can see does not exist.
 			return errorResult(fmt.Sprintf("kb %q: %s", kbName, unknownToolMessage(toolName))), nil
 		}
-		return srv.callTool(ctx, toolName, rest), nil
+		res := srv.callTool(ctx, toolName, rest)
+		if toolName == "kb_status" && !res.IsError {
+			res = m.withConnectionNotice(res, set)
+		}
+		return res, nil
 	}
+}
+
+// routedConnectionHint is the fixed text of kb_status.connection.hint.
+const routedConnectionHint = "A KB listed in mounted but missing from your tools' kb enum or your instructions was added after this session started: " +
+	"run cartographer sync (bind it first with cartographer client bind if it is in unbound), then start a new agent session."
+
+// withConnectionNotice adds the routed-only `connection` object to a kb_status
+// result (D712): the connection's set, every mounted KB, the ones the
+// connection does not serve, and the server start time, so an agent whose
+// session predates a KB can spot the difference. It decodes and re-encodes the
+// JSON instead of appending a content block because CLI callers decode
+// Content[0] only and a second block breaks them (doctornudge.go). On any
+// decoding trouble the result is returned unchanged: the notice must never
+// break kb_status.
+func (m *MultiKBServer) withConnectionNotice(res ToolResult, set []string) ToolResult {
+	if len(res.Content) == 0 {
+		return res
+	}
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(res.Content[0].Text), &obj); err != nil || obj == nil {
+		return res
+	}
+	mounted := m.mountedNames()
+	kbs := append([]string(nil), set...)
+	sort.Strings(kbs)
+	conn := map[string]any{
+		"kbs":               kbs,
+		"mounted":           mounted,
+		"server_started_at": processStartedAt,
+		"hint":              routedConnectionHint,
+	}
+	var unbound []string
+	for _, n := range mounted {
+		if !containsString(set, n) {
+			unbound = append(unbound, n)
+		}
+	}
+	if len(unbound) > 0 {
+		conn["unbound"] = unbound
+	}
+	raw, err := json.Marshal(conn)
+	if err != nil {
+		return res
+	}
+	obj["connection"] = raw
+	out, err := json.MarshalIndent(obj, "", "  ")
+	if err != nil {
+		return res
+	}
+	res.Content = append([]ContentBlock(nil), res.Content...)
+	res.Content[0].Text = string(out)
+	return res
 }
 
 func containsString(list []string, s string) bool {

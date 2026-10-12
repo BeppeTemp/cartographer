@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -259,6 +260,103 @@ func TestRoutedMount_UnknownKB(t *testing.T) {
 	}
 	if !strings.Contains(res.Content[0].Text, "kb-one") {
 		t.Errorf("unknown-kb error does not list the mounted KBs: %s", res.Content[0].Text)
+	}
+	if !strings.Contains(res.Content[0].Text, "cartographer service restart") {
+		t.Errorf("not-mounted refusal does not name the fix: %s", res.Content[0].Text)
+	}
+}
+
+// TestRoutedMount_MountedButUnbound: a KB the server mounts but the connection
+// does not bind is refused with the bind/sync/new-session fix (D712).
+func TestRoutedMount_MountedButUnbound(t *testing.T) {
+	handler := newRoutedTestHandler(t, "kb-one", "kb-two", "kb-three")
+	body, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+		"params": map[string]any{"name": "concept_read", "arguments": map[string]any{"kb": "kb-three", "id": "x"}}})
+	var resp Response
+	rr := routedPost(t, handler, RoutedMountPath+"?kbs=kb-one,kb-two", string(body))
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v; %s", err, rr.Body.String())
+	}
+	res := decodeToolResult(t, resp)
+	text := res.Content[0].Text
+	if !res.IsError || !strings.Contains(text, "mounted on this server but not bound") || !strings.Contains(text, "cartographer sync") {
+		t.Fatalf("want mounted-but-unbound refusal, got %+v", res)
+	}
+}
+
+func routedKBStatusConnection(t *testing.T, handler http.Handler, path string, kb string) (map[string]any, map[string]any) {
+	t.Helper()
+	args := map[string]any{}
+	if kb != "" {
+		args["kb"] = kb
+	}
+	body, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+		"params": map[string]any{"name": "kb_status", "arguments": args}})
+	var resp Response
+	rr := routedPost(t, handler, path, string(body))
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v; %s", err, rr.Body.String())
+	}
+	res := decodeToolResult(t, resp)
+	if res.IsError {
+		t.Fatalf("kb_status: %+v", res)
+	}
+	var obj map[string]any
+	if err := json.Unmarshal([]byte(res.Content[0].Text), &obj); err != nil {
+		t.Fatalf("kb_status is not JSON: %v", err)
+	}
+	conn, _ := obj["connection"].(map[string]any)
+	return obj, conn
+}
+
+func TestRoutedMount_KBStatusConnection_Default(t *testing.T) {
+	handler := newRoutedTestHandler(t, "kb-one", "kb-two")
+	obj, conn := routedKBStatusConnection(t, handler, RoutedMountPath, "kb-one")
+	if conn == nil {
+		t.Fatalf("no connection object: %v", obj)
+	}
+	if !reflect.DeepEqual(conn["kbs"], conn["mounted"]) {
+		t.Errorf("kbs %v != mounted %v", conn["kbs"], conn["mounted"])
+	}
+	if _, ok := conn["unbound"]; ok {
+		t.Errorf("unbound present with default binding: %v", conn["unbound"])
+	}
+	if conn["hint"] == "" || conn["hint"] == nil || conn["server_started_at"] != processStartedAt {
+		t.Errorf("hint/server_started_at missing: %v", conn)
+	}
+	for _, k := range []string{"kb", "total"} {
+		if _, ok := obj[k]; !ok {
+			t.Errorf("existing kb_status key %q lost", k)
+		}
+	}
+}
+
+func TestRoutedMount_KBStatusConnection_Unbound(t *testing.T) {
+	handler := newRoutedTestHandler(t, "kb-one", "kb-two", "kb-three")
+	_, conn := routedKBStatusConnection(t, handler, RoutedMountPath+"?kbs=kb-one", "")
+	if conn == nil {
+		t.Fatal("no connection object")
+	}
+	if want := []any{"kb-three", "kb-two"}; !reflect.DeepEqual(conn["unbound"], want) {
+		t.Errorf("unbound = %v, want %v", conn["unbound"], want)
+	}
+	if want := []any{"kb-one"}; !reflect.DeepEqual(conn["kbs"], want) {
+		t.Errorf("kbs = %v, want %v", conn["kbs"], want)
+	}
+}
+
+func TestRoutedMount_PerKBStatusHasNoConnection(t *testing.T) {
+	handler := newRoutedTestHandler(t, "kb-one", "kb-two")
+	body, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+		"params": map[string]any{"name": "kb_status", "arguments": map[string]any{}}})
+	rr := routedPost(t, handler, "/mcp/kb-one", string(body))
+	var resp Response
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v; %s", err, rr.Body.String())
+	}
+	res := decodeToolResult(t, resp)
+	if res.IsError || strings.Contains(res.Content[0].Text, `"connection"`) {
+		t.Fatalf("per-KB kb_status must not carry connection: %+v", res)
 	}
 }
 

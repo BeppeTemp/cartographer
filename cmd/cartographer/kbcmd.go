@@ -855,6 +855,7 @@ func printPostCreateGuidance(configPath string, restart bool) {
 	if !restart {
 		fmt.Println("Restart the service to mount it: cartographer service restart")
 		fmt.Println("On connected client machines, run: cartographer sync")
+		fmt.Println(openSessionsLine)
 		return
 	}
 
@@ -868,7 +869,13 @@ func printPostCreateGuidance(configPath string, restart bool) {
 	} else {
 		fmt.Fprintf(os.Stderr, "Warning: service did not report healthy within %s\n", restartWaitTimeout)
 	}
+	fmt.Println("On connected client machines, run: cartographer sync")
+	fmt.Println(openSessionsLine)
 }
+
+// openSessionsLine tells the operator that agent sessions already open keep
+// the tool list and instructions they started with (D712).
+const openSessionsLine = "Agent sessions already open do not see the new KB: start a new session after cartographer sync."
 
 // waitHealthy polls <baseURL>/health until a new process responds or
 // restartWaitTimeout elapses, returning whether it became healthy in time.
