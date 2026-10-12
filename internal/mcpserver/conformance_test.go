@@ -166,3 +166,29 @@ func TestLintOutputFixShape(t *testing.T) {
 		}
 	}
 }
+
+// The server's own local state under .cartographer — telemetry rewritten by
+// every read and search, the search index — does not invalidate the lint
+// cache; usage.json, which lint reads, does (D736).
+func TestLintInputsStampIgnoresServerState(t *testing.T) {
+	k := setupTestKB(t)
+	dir := filepath.Join(k.Root, ".cartographer")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	before := lintInputsStamp(k)
+	for _, name := range []string{"read-access.json", "search-misses.jsonl", "index.db", "auto-repair-log.jsonl"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := lintInputsStamp(k); got != before {
+		t.Fatal("server state under .cartographer changed the lint stamp")
+	}
+	if err := os.WriteFile(filepath.Join(dir, "usage.json"), []byte("{}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := lintInputsStamp(k); got == before {
+		t.Fatal("usage.json did not change the lint stamp")
+	}
+}

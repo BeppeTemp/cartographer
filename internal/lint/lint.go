@@ -690,16 +690,28 @@ func runChecks(k *kb.KB, scope string, scopeNeighbors bool, opts Options) ([]Fin
 	perConcept := make([][]Finding, len(ids))
 	var next atomic.Int64
 	var wg sync.WaitGroup
+	// A panic in a check is re-raised on the caller's goroutine, where the
+	// HTTP server's per-request recover catches it, as before the workers:
+	// in a worker it would take the whole process down.
+	var panicked atomic.Value
 	for w := 0; w < min(runtime.GOMAXPROCS(0), len(ids)); w++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+			defer func() {
+				if r := recover(); r != nil {
+					panicked.CompareAndSwap(nil, fmt.Sprint(r))
+				}
+			}()
 			for i := int(next.Add(1)) - 1; i < len(ids); i = int(next.Add(1)) - 1 {
 				perConcept[i] = checkOne(ids[i], toCheck[ids[i]])
 			}
 		}()
 	}
 	wg.Wait()
+	if r := panicked.Load(); r != nil {
+		panic(fmt.Sprintf("lint: concept check: %v", r))
+	}
 	for _, f := range perConcept {
 		findings = append(findings, f...)
 	}

@@ -11,8 +11,10 @@ repeats on every call are kept off the files: the concept panel's "used by"
 artifacts are cached on the lint cache's key, the check catalogue reads the
 types from the graph cache, `kb_status` reads every concept once and
 reconciles the search index once per call rather than once per reported miss,
-and `gitx` remembers the branch and the remote URL while `.git/HEAD` and
-`.git/config` keep their modification time and size. In the browser the 3D
+and `gitx` remembers the branch while `.git/HEAD` holds the same bytes. The
+lint cache's stamp no longer counts the server's own state under
+`.cartographer/` (search index, read and search-miss telemetry, repair log):
+every `concept_read` and every search used to invalidate the whole-KB lint. In the browser the 3D
 simulation ticks at a fixed 60 Hz, the warm-up that holds the first frame of
 a new graph stops after 120 ms, and the graph no longer waits for the overview
 to land.
@@ -38,6 +40,9 @@ waiting for two concurrent lints, now behind a mutex).
 - *Tick at 30 Hz once the graph rests*: the remaining idle cost is the
   many-body force, but the drift loses smoothness; proposed in the live
   session and declined.
+- *Memoise the remote URL on `.git/config`'s stat*: `git remote get-url`
+  also applies `insteadOf` rewrites from the global config and from included
+  files, which no stat of `.git/config` sees; the process stays.
 - *Cache `git log` by HEAD for Activity and Health*: `--since` filters on the
   committer date while the parsed commits carry the author date, so an
   in-memory filter would not answer the same question.
@@ -46,7 +51,8 @@ waiting for two concurrent lints, now behind a mutex).
 others: it may read the run's shared data but must not write it (the target
 body cache is the one shared map, behind its own mutex), and `go test -race
 ./internal/lint` is how to check it. Findings are produced in no particular
-order, as before (they came from a map walk). The `gitx` memo trusts a file's
-modification time and size: a filesystem with a coarse clock could serve a
-stale branch or remote URL for one tick, and a repository whose `.git` is a
-file (worktree, submodule) is never memoised.
+order, as before (they came from a map walk). A panic in a check is re-raised
+on the request's goroutine, so it fails one request, not the process. A file
+the lint starts reading under `.cartographer/` must be added back to the
+stamp (`lintInputsStamp`). The branch memo is skipped when `.git` is a file
+(worktree, submodule).

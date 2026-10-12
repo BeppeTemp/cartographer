@@ -330,12 +330,20 @@ export function App() {
       if (!controller.signal.aborted) handleFailure(err);
       return null;
     });
-    void overviewP.then((ov) => {
-      if (controller.signal.aborted) return;
-      setOverview(ov);
+    // The overview is shown when it lands, except during a switch: while the
+    // canvas still holds another KB, this KB's Maps wait for its graph.
+    let landedOverview: { ov: Overview | null } | null = null;
+    let graphSettled = false;
+    const showOverview = () => {
+      if (!landedOverview || controller.signal.aborted) return;
+      setOverview(landedOverview.ov);
       overviewKB.current = activeKB;
       const entry = viewCache.current.get(key);
-      if (entry) entry.overview = ov;
+      if (entry) entry.overview = landedOverview.ov;
+    };
+    void overviewP.then((ov) => {
+      landedOverview = { ov };
+      if (graphSettled || overviewKB.current === activeKB) showOverview();
     });
     const artifactsP = artifactsAllowed
       ? fetchArtifacts(activeKB, controller.signal).then(
@@ -357,7 +365,11 @@ export function App() {
     Promise.all([fetchGraph(activeKB, view.scope, controller.signal), artifactsP])
       .then(([graph, arts]) => {
         const prev = viewCache.current.get(key);
-        viewCache.current.set(key, { graph, overview: prev?.overview ?? null, artifacts: arts?.data ?? null });
+        viewCache.current.set(key, {
+          graph,
+          overview: landedOverview?.ov ?? prev?.overview ?? null,
+          artifacts: arts?.data ?? null,
+        });
         setSnapshot(graph);
         setSnapshotKey(key);
         setGraphError(null);
@@ -375,6 +387,8 @@ export function App() {
         if (controller.signal.aborted) return;
         setGraphLoading(false);
         setArtifactsLoading(false);
+        graphSettled = true;
+        showOverview();
       });
     return () => controller.abort();
   }, [activeKB, view.scope, artifactsAllowed, phase, handleFailure, reloadKey, live]);

@@ -2,8 +2,8 @@ package gitx
 
 import "testing"
 
-// The memoised answers follow the repository: a branch switch and a changed
-// remote URL are seen on the next call, not served from the memo.
+// The memoised branch follows HEAD, and the remote URL is not memoised: a
+// branch switch and a changed remote URL are seen on the next call.
 func TestMemoFollowsHEADAndConfig(t *testing.T) {
 	dir := t.TempDir()
 	mustGit(t, dir, "init", "-q", "-b", "main")

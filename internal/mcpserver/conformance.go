@@ -480,10 +480,12 @@ func lintInputsStamp(k *kb.KB) string {
 		}
 		rel, _ := filepath.Rel(root, path)
 		name := d.Name()
-		// The lint history is written on every recompute (D370): counting it
-		// would invalidate the cache it was written from. The rest of
-		// .cartographer stays in: usage.json feeds artifact_unused.
-		if strings.HasPrefix(name, lintHistoryName) {
+		// .cartographer holds local state the server rewrites as it serves:
+		// the search index, the read and search-miss telemetry, the lint
+		// history (D370) and the repair log. Counting them made every
+		// concept_read or search invalidate the whole-KB lint (D736). The one
+		// file lint reads there is usage.json, which feeds artifact_unused.
+		if strings.HasPrefix(filepath.ToSlash(rel), ".cartographer/") && name != "usage.json" {
 			return nil
 		}
 		if strings.HasSuffix(name, ".md") && name != "index.md" && name != "_map.md" && name != "_archive.md" && strings.HasPrefix(filepath.ToSlash(rel), "data/") {

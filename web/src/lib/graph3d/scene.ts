@@ -364,7 +364,9 @@ export class LivingScene {
     } else if (first || replace) {
       this.morph = null;
       sim.alpha(1);
-      if (this.offscreen || this.reducedMotion) {
+      if (!this.live || this.offscreen) {
+        // Still mode never finishes the settling on screen, and the video
+        // export must be deterministic: both run the warm-up whole.
         sim.tick(warmupTicks);
       } else {
         // The warm-up blocks the first frame: on a large KB it stops at
@@ -884,6 +886,9 @@ export class LivingScene {
   private stop(): void {
     if (this.frame !== null) cancelAnimationFrame(this.frame);
     this.frame = null;
+    // A restart measures from its first frame, not across the pause.
+    this.lastFrame = null;
+    this.simDebt = 0;
   }
 
   private ticks = 0;
