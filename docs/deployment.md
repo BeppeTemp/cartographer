@@ -486,7 +486,9 @@ prompt. The UI sends same-origin cookies so the proxy session reaches the API
 The Atlas draws its graph in 3D, as a live force-directed network (D234, D235): it breathes and turns slowly on its own; drag to orbit, zoom with the
 wheel or a pinch, click a concept to select it (nodes are not dragged). A *Motion* toggle, remembered per browser,
 pauses the drift, the slow panorama and the signals a selection sends along its
-links; `prefers-reduced-motion` starts it paused. There is no 2D view: when
+links; `prefers-reduced-motion` starts it paused. The simulation advances at a
+fixed 60 Hz whatever the display's refresh rate, so the motion has the same
+pace on a 60 Hz and a 120 Hz screen (D736). There is no 2D view: when
 the WebGL context is lost the graph area says so. The view draws up to 5,000 concepts (the graph API's ceiling). A browser without WebGL
 gets the concept list, search and inspector, with a note where the graph would
 be. The UI follows the system's light or dark scheme until the viewer picks one
@@ -502,7 +504,9 @@ on a narrow screen the panel is a sheet and has no splitter (D239).
 Opening a KB, or switching to another, grows the graph from a seed at the
 orbit's centre: the nodes burst outward to their places, the edges fade in
 behind them, and the camera settles on a framing fitted to the KB's size,
-whatever it is. A view seen before in the session is shown at once from memory
+whatever it is. The graph is drawn as soon as it and the KB's artifacts arrive:
+the rail's Maps and counts fill in on their own, since they wait on the whole-KB
+lint (D736). A view seen before in the session is shown at once from memory
 while it refreshes. Choosing another Map of the same KB does not regrow it: the
 concepts both views draw keep their places, those leaving shrink away, those
 entering grow in beside a neighbour already placed, and the camera eases onto
