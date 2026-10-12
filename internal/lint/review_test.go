@@ -806,3 +806,27 @@ func TestMapTitleIssues(t *testing.T) {
 		t.Fatalf("folder mismatch = %v", got)
 	}
 }
+
+// The hand-written word scanner answers exactly what the regexps it replaces
+// answer (glossaryItems).
+func TestASCIIWordsMatchRegexps(t *testing.T) {
+	texts := []string{
+		"", "plain words only", "9abc a9b X Y2K HTTPS2 ABCDEFGHI KubeCtl Kubectl kubeCtl",
+		"àèì naïve Straße — DevOps, GitOps; mTLS IPv6 OAuth2 iOS A B1 Z_9 x__y",
+		"https://example.com/a?b=c ArgoCD's `code` MongoDB.\nNEWLINE\tTAB",
+	}
+	for _, text := range texts {
+		got, want := asciiWords(text), wordRe.FindAllString(text, -1)
+		if strings.Join(got, "|") != strings.Join(want, "|") {
+			t.Fatalf("asciiWords(%q) = %q, want %q", text, got, want)
+		}
+		for _, w := range want {
+			if isAcronym(w) != acronymRe.MatchString(w) {
+				t.Errorf("isAcronym(%q) = %v", w, isAcronym(w))
+			}
+			if isMixedCase(w) != mixedCaseRe.MatchString(w) {
+				t.Errorf("isMixedCase(%q) = %v", w, isMixedCase(w))
+			}
+		}
+	}
+}

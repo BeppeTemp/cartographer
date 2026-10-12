@@ -554,7 +554,9 @@ func PullRebaseAutostash(dir, remote, branch string, env ...string) error {
 
 // Branch returns the current branch name, or "" if detached HEAD.
 func Branch(dir string) (string, error) {
-	out, err := runGit(dir, "symbolic-ref", "--short", "HEAD")
+	out, err := gitMemo.do(dir, "HEAD", "branch", func() (string, error) {
+		return runGit(dir, "symbolic-ref", "--short", "HEAD")
+	})
 	if err != nil {
 		// detached HEAD — not an error for the caller
 		return "", nil
@@ -1137,7 +1139,9 @@ func Status(dir string) (string, error) {
 
 // RemoteURL returns the URL of the given remote, or error if not configured.
 func RemoteURL(dir, remote string) (string, error) {
-	out, err := runGit(dir, "remote", "get-url", remote)
+	out, err := gitMemo.do(dir, "config", "remote-url\x00"+remote, func() (string, error) {
+		return runGit(dir, "remote", "get-url", remote)
+	})
 	if err != nil {
 		return "", fmt.Errorf("git remote get-url %s: %w: %s", remote, err, out)
 	}

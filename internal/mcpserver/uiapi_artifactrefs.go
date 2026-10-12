@@ -4,6 +4,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 	"unicode/utf8"
 
 	"github.com/BeppeTemp/cartographer/internal/kb"
@@ -69,6 +70,18 @@ type uiArtifactRef struct {
 	Name string `json:"name"`
 }
 
+// artifactRefsCache holds, per concept, the artifacts that reference it. The
+// key is the lint cache's (graph generation and the stamp of every
+// non-concept file, artifacts included): building it reads every artifact,
+// too much to redo each time a concept is opened.
+type artifactRefsCache struct {
+	mu        sync.Mutex
+	gen       uint64
+	stamp     string
+	ok        bool
+	byConcept map[string][]uiArtifactRef
+}
+
 // artifactsReading lists the skills, agents and hooks that reference a
 // concept. Only for a principal that sees the whole KB (artifacts are
 // whole-KB resources); nil otherwise.
@@ -76,25 +89,47 @@ func artifactsReading(ctx requestContext, srv *Server, id string) []uiArtifactRe
 	if srv == nil || srv.kbRef == nil || !WholeVisible(ctx, srv.kbRef, false) {
 		return nil
 	}
-	exists, err := conceptIDSet(srv.kbRef)
+	k := srv.kbRef
+	gen, err := k.GraphGeneration()
 	if err != nil {
 		return nil
+	}
+	stamp := lintInputsStamp(k)
+	c := &srv.artifactRefs
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if !c.ok || c.gen != gen || c.stamp != stamp {
+		byConcept, err := artifactRefsByConcept(srv)
+		if err != nil {
+			return nil
+		}
+		c.gen, c.stamp, c.byConcept, c.ok = gen, stamp, byConcept, true
+	}
+	out := c.byConcept[id]
+	if out == nil {
+		out = []uiArtifactRef{}
+	}
+	return out
+}
+
+// artifactRefsByConcept inverts artifactConceptRefs over every artifact.
+func artifactRefsByConcept(srv *Server) (map[string][]uiArtifactRef, error) {
+	exists, err := conceptIDSet(srv.kbRef)
+	if err != nil {
+		return nil, err
 	}
 	catalog, err := listKBArtifacts(srv.kbRef, srv.kbArtifacts.allowlist, srv.kbArtifacts.signer)
 	if err != nil {
-		return nil
+		return nil, err
 	}
-	out := []uiArtifactRef{}
+	out := map[string][]uiArtifactRef{}
 	for _, a := range catalog.Artifacts {
 		if a.Kind == "template" || a.Kind == "instructions" {
 			continue
 		}
 		for _, ref := range artifactConceptRefs(a, exists) {
-			if ref == id {
-				out = append(out, uiArtifactRef{Kind: a.Kind, Name: a.Name})
-				break
-			}
+			out[ref] = append(out[ref], uiArtifactRef{Kind: a.Kind, Name: a.Name})
 		}
 	}
-	return out
+	return out, nil
 }

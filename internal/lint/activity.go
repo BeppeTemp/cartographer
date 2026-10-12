@@ -3,10 +3,8 @@ package lint
 import (
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/BeppeTemp/cartographer/internal/kb"
-	"github.com/BeppeTemp/cartographer/internal/okf"
 )
 
 // Check activity (D371). Every check runs by default; the few that cannot are
@@ -116,21 +114,18 @@ func hasForbiddenTerm(g kb.Glossary) bool {
 	return false
 }
 
-// hasSourceConcept reports whether the KB registers at least one Source.
+// hasSourceConcept reports whether the KB registers at least one Source. It
+// reads the types from the graph cache: a walk reading every concept made the
+// Atlas's check catalog cost a whole-KB read per request.
 func hasSourceConcept(k *kb.KB) bool {
-	found := false
-	_ = k.WalkConceptPaths(func(_ okf.ConceptID, _ string, content string) error {
-		if found || !strings.Contains(content, kb.SourceType) {
-			return nil
+	lg, err := k.LinkGraph(nil)
+	if err != nil {
+		return false
+	}
+	for _, f := range lg.Facets {
+		if f.Type == kb.SourceType {
+			return true
 		}
-		raw, _, ok := okf.SplitFrontmatter(content)
-		if !ok {
-			return nil
-		}
-		if fm, err := okf.ParseFrontmatter(raw); err == nil && fm.Type() == kb.SourceType {
-			found = true
-		}
-		return nil
-	})
-	return found
+	}
+	return false
 }

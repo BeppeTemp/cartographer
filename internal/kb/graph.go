@@ -45,13 +45,24 @@ var inlineCodeRe = regexp.MustCompile("(`+)[^`\n]*?(`+)")
 // are indistinguishable from a continuation line inside a list, which is how
 // most KB bodies indent, so masking them would hide real links.
 func MaskCodeSpans(body string) string {
+	// No backtick and no tilde: no fence and no inline span, nothing to mask.
+	if !strings.ContainsAny(body, "`~") {
+		return body
+	}
 	lines := strings.Split(body, "\n")
 	var fence string // the open fence's delimiter run, empty when outside
 	blank := func(i int) { lines[i] = strings.Repeat(" ", len(lines[i])) }
 
 	for i, line := range lines {
-		m := fenceRe.FindStringSubmatch(line)
+		// The regexps only on a line that can hold a fence or a span.
+		var m []string
+		if strings.ContainsAny(line, "`~") {
+			m = fenceRe.FindStringSubmatch(line)
+		}
 		if fence == "" {
+			if m == nil && !strings.Contains(line, "`") {
+				continue
+			}
 			if m != nil {
 				fence = m[1]
 				blank(i) // a fence line carries no link

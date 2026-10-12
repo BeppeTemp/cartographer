@@ -76,6 +76,9 @@ type Server struct {
 	// the doctor nudge (D299); nudgedAt is when the nudge last went out to
 	// each MCP session (D358), guarded by mu. Set with kbRef.
 	conformance *conformanceCache
+	// artifactRefs caches which artifacts read each concept, for the Atlas's
+	// concept panel (artifactsReading).
+	artifactRefs artifactRefsCache
 	nudgedAt    map[string]time.Time
 	// uiSearch is the search tool's handler without the search-miss log: the
 	// Atlas searches as the reader types, and every keystroke that matches
