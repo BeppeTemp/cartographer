@@ -747,3 +747,51 @@ func TestForgeInitialized(t *testing.T) {
 		t.Error("ForgeInitialized outside a repo returned no error")
 	}
 }
+
+func TestLogNameStatusAndFileHistory_Agent(t *testing.T) {
+	if !hasGit() {
+		t.Skip("git not in PATH, skipping gitx tests")
+	}
+	dir := t.TempDir()
+	if err := Init(dir); err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+	base := time.Now().UTC().Truncate(time.Second).Add(time.Minute)
+	msgs := []string{
+		"concept_write: both\n\nReason: why\nAgent: client-a",
+		"concept_write: agent only\n\nAgent: client-b\nAgent: client-c",
+		"concept_write: neither",
+	}
+	for i, msg := range msgs {
+		if err := os.WriteFile(filepath.Join(dir, "f.md"), []byte(fmt.Sprintf("v%d\n", i)), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		at := base.Add(time.Duration(i) * time.Minute).Format(time.RFC3339)
+		if err := Commit(dir, msg, "Author", "a@example.test", "GIT_AUTHOR_DATE="+at, "GIT_COMMITTER_DATE="+at); err != nil {
+			t.Fatal(err)
+		}
+	}
+	want := []struct{ agent, reason string }{{"", ""}, {"client-b", ""}, {"client-a", "why"}}
+
+	commits, err := LogNameStatus(dir, base.Add(-time.Second))
+	if err != nil || len(commits) != 3 {
+		t.Fatalf("LogNameStatus = %d commits, err %v", len(commits), err)
+	}
+	for i, w := range want {
+		c := commits[i]
+		if c.Agent != w.agent || c.Reason != w.reason || len(c.Files) != 1 || c.Files[0].Path != "f.md" {
+			t.Errorf("commit %d = agent %q reason %q files %#v, want %q / %q", i, c.Agent, c.Reason, c.Files, w.agent, w.reason)
+		}
+	}
+
+	revs, err := FileHistory(dir, "f.md", 0)
+	if err != nil || len(revs) != 3 {
+		t.Fatalf("FileHistory = %d revisions, err %v", len(revs), err)
+	}
+	for i, w := range want {
+		r := revs[i]
+		if r.Agent != w.agent || r.Reason != w.reason || r.Path != "f.md" {
+			t.Errorf("revision %d = agent %q reason %q path %q, want %q / %q", i, r.Agent, r.Reason, r.Path, w.agent, w.reason)
+		}
+	}
+}
