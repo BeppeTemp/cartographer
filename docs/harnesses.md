@@ -216,7 +216,7 @@ would flip a matrix cell is confirmed with a probe
   - `skill` global `~/.config/opencode/skills/` (probed on 2.0.25, D360); project
     `.opencode/skills/` (documented, not probed on 2.x). Hooks fire through a
     generated JS plugin in `~/.config/opencode/plugins/` (documented, autoloaded;
-    D59; shape per installed major, 1.x and 2.x, D359: 2.x rejects the 1.x shape,
+    D59; shape per installed major, 1.x and 2.x, D359: 2.x rejects the 1.x shape; an unreadable version writes the newest shape with a warning, D719;
     sources `opencode.ai/v2/docs/build/plugins/` and `/migrate-v1`), files kept in `~/.opencode/hooks/` (never discovered by the client, run by path); sync layer 1 is the documented
     `session.created` event.
   - `mcp` under the `mcp` key of `opencode.json`; `instructions` in
@@ -239,6 +239,7 @@ would flip a matrix cell is confirmed with a probe
     message to `result.output` on exit 2 and never throws; 1.x was not probed and
     gets nothing. The inner call's output joins the write response and the
     server's sync-state block with a newline; the subcommand reads both values.
+  - `opencode --version` prints `opencode v2.0.25` (seen on both streams); the major parser reads it (D719). The no-`PATH` sync run and `session.created` delivery to `ctx.event.subscribe` are not yet probed.
   - 2.x `opencode.json` is translated on load (`mcp` → `mcp.servers`,
     `permission` map → `permissions` list), so the 1.x shape still works.
 - **Watch items**: project cells (`.opencode/skills`, `.opencode/agent`) not

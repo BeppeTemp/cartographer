@@ -849,8 +849,11 @@ func TestCheckOpenCodePluginShape(t *testing.T) {
 	if f := run(1); len(f) != 0 {
 		t.Errorf("matching shape must be silent: %+v", f)
 	}
-	if f := run(0); len(f) != 0 {
-		t.Errorf("unknown version must be silent: %+v", f)
+	if f := run(0); len(f) != 1 || f[0].Severity != doctorWarning || !strings.Contains(f[0].Message, "version unreadable") || !strings.Contains(f[0].Message, "written for 1.x") {
+		t.Errorf("unknown version must warn once: %+v", f)
+	}
+	if f := checkOpenCodePluginShape(t.TempDir(), []string{"opencode"}, lockFile); len(f) != 0 && installedOpenCodeMajor() == 0 {
+		t.Errorf("no plugin on disk must stay silent: %+v", f)
 	}
 	if f := run(3); len(f) != 1 || f[0].Severity != doctorWarning {
 		t.Errorf("unsupported major should warn: %+v", f)

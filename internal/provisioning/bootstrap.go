@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/execbit"
@@ -160,7 +161,7 @@ func ensureSyntheticHook(baseDir string, provider configurator.Provider, lock Lo
 			if err != nil {
 				return Lock{}, err
 			}
-			if warning != "" && h.warningBlocks && mechanism.warningBlocksBootstrap {
+			if warning != "" && h.warningBlocks && mechanism.warningBlocksBootstrap && !strings.Contains(warning, openCodeVersionUnreadableMarker) {
 				return Lock{}, fmt.Errorf("provisioning: %s hook: %s", h.name, warning)
 			}
 			if pluginRel != "" {

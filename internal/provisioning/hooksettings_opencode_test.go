@@ -23,6 +23,7 @@ func pluginPath(baseDir, name string) string {
 }
 
 func TestApply_OpenCode_Hook_GeneraPluginToolBefore(t *testing.T) {
+	defer provisioning.SetOpenCodeVersionForTest("1.18.34")() // a readable version: no D719 warning
 	kbRoot := t.TempDir()
 	writeHookKB(t, kbRoot, "notify", "PreToolUse", "Bash", "./notify.sh")
 
@@ -96,6 +97,7 @@ func TestApply_OpenCode_Hook_GeneraPluginToolBefore(t *testing.T) {
 }
 
 func TestApply_OpenCode_Hook_GeneraPluginSessionStart(t *testing.T) {
+	defer provisioning.SetOpenCodeVersionForTest("1.18.34")() // a readable version: no D719 warning
 	kbRoot := t.TempDir()
 	writeHookKB(t, kbRoot, "greet", "SessionStart", "", "./notify.sh")
 
@@ -276,6 +278,12 @@ func TestApply_OpenCode_Hook_EventoNonMappato_NessunPluginNessunErrore(t *testin
 
 func applyOpenCodeHook(t *testing.T, version, event, matcher string) string {
 	t.Helper()
+	got, _ := applyOpenCodeHookWarnings(t, version, event, matcher)
+	return got
+}
+
+func applyOpenCodeHookWarnings(t *testing.T, version, event, matcher string) (string, []string) {
+	t.Helper()
 	defer provisioning.SetOpenCodeVersionForTest(version)()
 	kbRoot := t.TempDir()
 	writeHookKB(t, kbRoot, "notify", event, matcher, "./notify.sh")
@@ -284,17 +292,18 @@ func applyOpenCodeHook(t *testing.T, version, event, matcher string) string {
 		t.Fatalf("BuildManifest: %v", err)
 	}
 	baseDir := t.TempDir()
-	if _, err := provisioning.Apply(m, provisioning.ApplyOptions{
+	res, err := provisioning.Apply(m, provisioning.ApplyOptions{
 		AutoTrust: true, KBRoots: map[string]string{"kb": kbRoot},
 		Provider: configurator.ProviderOpenCode, BaseDir: baseDir, Lock: provisioning.Lock{},
-	}); err != nil {
+	})
+	if err != nil {
 		t.Fatalf("Apply: %v", err)
 	}
 	data, err := os.ReadFile(pluginPath(baseDir, "notify"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	return string(data)
+	return string(data), res.Warnings
 }
 
 // D359: OpenCode 2.x needs a default export with an id and a setup function.
@@ -319,15 +328,36 @@ func TestApply_OpenCode2_PluginShape(t *testing.T) {
 	}
 }
 
-func TestApply_OpenCode1AndUnknown_KeepV1Shape(t *testing.T) {
-	for _, version := range []string{"1.18.34", ""} {
-		got := applyOpenCodeHook(t, version, "PreToolUse", "Bash")
-		if !strings.Contains(got, "export const CartographerHookNotify = async ({ $ })") || strings.Contains(got, "export default") {
-			t.Errorf("version %q: expected the 1.x shape:\n%s", version, got)
+func TestApply_OpenCode1_KeepsV1Shape(t *testing.T) {
+	got, warnings := applyOpenCodeHookWarnings(t, "1.18.34", "PreToolUse", "Bash")
+	if !strings.Contains(got, "export const CartographerHookNotify = async ({ $ })") || strings.Contains(got, "export default") {
+		t.Errorf("expected the 1.x shape:\n%s", got)
+	}
+	if provisioning.OpenCodePluginShape(got) != 1 {
+		t.Error("shape not read back as 1")
+	}
+	if len(warnings) != 0 {
+		t.Errorf("readable version must not warn: %v", warnings)
+	}
+}
+
+// D719: an unreadable version writes the newest known shape and says so.
+func TestApply_OpenCodeUnknown_NewestShapeWithWarning(t *testing.T) {
+	got, warnings := applyOpenCodeHookWarnings(t, "", "PreToolUse", "Bash")
+	for _, w := range []string{"export default {", "opencode-plugin-shape=2"} {
+		if !strings.Contains(got, w) {
+			t.Errorf("missing %q in:\n%s", w, got)
 		}
-		if provisioning.OpenCodePluginShape(got) != 1 {
-			t.Errorf("version %q: shape not read back as 1", version)
-		}
+	}
+	if len(warnings) != 1 || !strings.Contains(warnings[0], `"notify"`) || !strings.Contains(warnings[0], "unreadable") {
+		t.Errorf("warnings = %v", warnings)
+	}
+}
+
+func TestWriteFindingsHook_OpenCodeUnknownVersionStaysUnsupported(t *testing.T) {
+	defer provisioning.SetOpenCodeVersionForTest("")()
+	if provisioning.SupportsWriteFindingsHook(configurator.ProviderOpenCode) {
+		t.Error("an unreadable version must not enable the write-findings hook (D362)")
 	}
 }
 

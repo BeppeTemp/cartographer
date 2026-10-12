@@ -60,6 +60,7 @@ func TestApply_MalformedHookJSONWarnsOnEveryProvider(t *testing.T) {
 }
 
 func TestApply_ValidHookJSONDoesNotWarn(t *testing.T) {
+	defer provisioning.SetOpenCodeVersionForTest("1.18.34")() // a readable version: no D719 warning
 	m, kbRoot := hookManifest(t, `{"event":"PreToolUse","command":"./run.sh"}`)
 	for _, p := range hookProviders {
 		res, _ := applyAgents(t, m, kbRoot, p, provisioning.Lock{})
