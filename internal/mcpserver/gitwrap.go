@@ -1,6 +1,7 @@
 package mcpserver
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -115,14 +116,19 @@ func gitWrap(k *kb.KB, t Tool) Tool {
 				if res.CommitSubject != "" {
 					msg = res.CommitSubject
 				}
+				// One trailer paragraph, in order: Reason, Agent, then the
+				// write gate's Accepted-Finding lines (git only parses the
+				// last contiguous block).
+				var block []string
 				if reason := commitReason(args); reason != "" {
-					msg += "\n\n" + commitReasonKey + ": " + reason
+					block = append(block, commitReasonKey+": "+reason)
 				}
-				for i, tr := range trailers {
-					if i == 0 && commitReason(args) == "" {
-						msg += "\n"
-					}
-					msg += "\n" + tr
+				if agent := commitAgent(ctx); agent != "" {
+					block = append(block, commitAgentKey+": "+agent)
+				}
+				block = append(block, trailers...)
+				if len(block) > 0 {
+					msg += "\n\n" + strings.Join(block, "\n")
 				}
 				commitStart := time.Now()
 				p := auth.PrincipalFromContext(ctx)
@@ -208,6 +214,21 @@ func commitExternalChanges(k *kb.KB, tool string) {
 // commitReasonKey is the git trailer key that carries the reason of a write
 // (D272). gitx.LogNameStatus reads it back with the same key.
 const commitReasonKey = "Reason"
+
+// commitAgentKey is the git trailer key that carries the calling agent client
+// (D718). gitx.LogNameStatus and gitx.FileHistory read it back with the same key.
+const commitAgentKey = "Agent"
+
+// commitAgent returns the MCP clientInfo name of the caller, normalised for a
+// commit trailer: empty when the client did not identify itself. The name is
+// self-declared, so it is an attribution hint, not an identity. TRAP: it is
+// client-controlled text going into a commit message; every whitespace run,
+// newlines included, collapses to one space, otherwise a name containing
+// "\nReason: x" would forge a trailer.
+func commitAgent(ctx context.Context) string {
+	name := strings.Join(strings.Fields(callerClient(ctx)), " ")
+	return truncateUTF8(name, maxClientFieldLen)
+}
 
 // maxCommitReasonBytes bounds the stored reason; longer text is cut at a rune
 // boundary and ends with an ellipsis.

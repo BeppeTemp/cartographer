@@ -574,6 +574,9 @@ func toolConceptHistory(k *kb.KB) Tool {
 					"subject": r.Subject,
 					"path":    r.Path,
 				}
+				if r.Agent != "" {
+					e["agent"] = r.Agent
+				}
 				if r.Reason != "" {
 					e["reason"] = r.Reason
 				}
@@ -653,7 +656,10 @@ type changesSinceConcept struct {
 	// edited since, and Change only reports that newest one.
 	Added   bool     `json:"added,omitempty"`
 	Authors []string `json:"authors"`
-	Ops     []string `json:"ops"`
+	// Agents are the distinct Agent: trailers (D718) of the commits that
+	// touched the concept, newest first: which agent clients wrote here.
+	Agents []string `json:"agents,omitempty"`
+	Ops    []string `json:"ops"`
 	// Reasons are the distinct Reason: trailers of the commits that touched the
 	// concept, newest first, at most 5 (D272).
 	Reasons []string `json:"reasons,omitempty"`
@@ -663,13 +669,17 @@ type changesSinceConcept struct {
 }
 
 type changesSinceResult struct {
-	Since        string                `json:"since"`
-	Head         string                `json:"head"`
-	CommitCount  int                   `json:"commit_count"`
-	Concepts     []changesSinceConcept `json:"concepts"`
-	OtherChanges int                   `json:"other_changes"`
-	Truncated    bool                  `json:"truncated"`
-	Note         string                `json:"note,omitempty"`
+	Since       string `json:"since"`
+	Head        string `json:"head"`
+	CommitCount int    `json:"commit_count"`
+	// CommitsByAgent counts the window's commits per Agent: trailer (D718);
+	// commits without one are not counted. Whole-KB figure, so filled under the
+	// same WholeVisible rule as CommitCount.
+	CommitsByAgent map[string]int        `json:"commits_by_agent,omitempty"`
+	Concepts       []changesSinceConcept `json:"concepts"`
+	OtherChanges   int                   `json:"other_changes"`
+	Truncated      bool                  `json:"truncated"`
+	Note           string                `json:"note,omitempty"`
 	// Links and LinksNote are set only by changes_since(links: true), D250.
 	Links     *changesLinks `json:"links,omitempty"`
 	LinksNote string        `json:"links_note,omitempty"`
@@ -725,7 +735,7 @@ func isCartographerPath(path string) bool {
 func toolChangesSince(k *kb.KB) Tool {
 	return Tool{
 		Name:        "changes_since",
-		Description: "Concept changes from git history since a timestamp or duration: each concept's newest change, authors, operations and reasons. links: true also reports links added/removed and pages that became or stopped being orphans.",
+		Description: "Concept changes from git history since a timestamp or duration: each concept's newest change, authors, agent clients, operations and reasons. links: true also reports links added/removed and pages that became or stopped being orphans.",
 		ReadOnly:    true,
 		InputSchema: json.RawMessage(`{
 			"type": "object",
@@ -772,6 +782,7 @@ func toolChangesSince(k *kb.KB) Tool {
 
 			conceptByID := map[string]*changesSinceConcept{}
 			authorSeen := map[string]map[string]bool{}
+			agentSeen := map[string]map[string]bool{}
 			opSeen := map[string]map[string]bool{}
 			reasonSeen := map[string]map[string]bool{}
 			// movedTo maps an old concept ID to its final one. Commits come
@@ -826,6 +837,7 @@ func toolChangesSince(k *kb.KB) Tool {
 						}
 						conceptByID[id] = info
 						authorSeen[id] = map[string]bool{}
+						agentSeen[id] = map[string]bool{}
 						opSeen[id] = map[string]bool{}
 						reasonSeen[id] = map[string]bool{}
 					}
@@ -838,6 +850,10 @@ func toolChangesSince(k *kb.KB) Tool {
 					if !authorSeen[id][commit.Author] {
 						authorSeen[id][commit.Author] = true
 						info.Authors = append(info.Authors, commit.Author)
+					}
+					if commit.Agent != "" && !agentSeen[id][commit.Agent] {
+						agentSeen[id][commit.Agent] = true
+						info.Agents = append(info.Agents, commit.Agent)
 					}
 					if !opSeen[id][commit.Subject] && len(info.Ops) < 5 {
 						opSeen[id][commit.Subject] = true
@@ -880,6 +896,14 @@ func toolChangesSince(k *kb.KB) Tool {
 			}
 			if WholeVisible(ctx, k, false) {
 				result.CommitCount, result.OtherChanges = len(commits), otherChanges
+				for _, c := range commits {
+					if c.Agent != "" {
+						if result.CommitsByAgent == nil {
+							result.CommitsByAgent = map[string]int{}
+						}
+						result.CommitsByAgent[c.Agent]++
+					}
+				}
 			}
 			if len(commits) == 0 {
 				result.Note = fmt.Sprintf("no commits since %s", result.Since)
