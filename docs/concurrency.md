@@ -21,7 +21,10 @@ returned. Unlike `concept_move` — which documents that a `rewrite_links`
 failure leaves the already-applied moves in place — `concept_batch` never
 leaves a partially-applied batch on disk (and the search indexes follow the
 files, D245, so they never see one either): callers
-observe either the complete batch or the exact pre-call KB state. It does
+observe either the complete batch or the exact pre-call KB state. The curated
+index entries a batch asks for (`index_entry`, D714) are part of that: they
+are written last, and a failure restores the indexes already patched before
+the files and log are rolled back. It does
 not open a nested git commit; a rolled-back call also leaves no commit,
 since `gitWrap` only commits after the handler returns success.
 

@@ -106,20 +106,22 @@ func toolConceptWrite(k *kb.KB, sim *similarFinder, facts *factFinder) Tool {
 func toolConceptNew(k *kb.KB, sim *similarFinder, facts *factFinder) Tool {
 	return Tool{
 		Name:        "concept_new",
-		Description: "Creates a concept from a KB template (template_list) and records it as its shape. Refuses an existing id. Returns findings.",
+		Description: "Creates a concept from a KB template (template_list) and records it as its shape. Refuses an existing id. index_entry adds it to the map's curated index. Returns findings.",
 		InputSchema: json.RawMessage(`{
 			"type":"object", "required":["template", "id"],
 			"properties": {
 				"template":{"type":"string"},
 				"id":{"type":"string"},
+				"index_entry":{"type":"boolean"},
 				"vars":{"type":"object","additionalProperties":{"type":["string","array"],"items":{"type":"string"}}}
 			}
 		}`),
 		Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
 			var params struct {
-				Template string                     `json:"template"`
-				ID       string                     `json:"id"`
-				Vars     map[string]json.RawMessage `json:"vars"`
+				Template   string                     `json:"template"`
+				ID         string                     `json:"id"`
+				IndexEntry bool                       `json:"index_entry"`
+				Vars       map[string]json.RawMessage `json:"vars"`
 			}
 			if err := json.Unmarshal(args, &params); err != nil {
 				return errorResult("invalid params: " + err.Error()), nil
@@ -141,6 +143,13 @@ func toolConceptNew(k *kb.KB, sim *similarFinder, facts *factFinder) Tool {
 			segments := strings.Split(params.ID, "/")
 			if !strings.HasPrefix(params.ID, "services/") && len(segments) > 3 {
 				return errorResult(fmt.Sprintf("concept_new %q: invalid ConceptID: concept depth exceeds the max of 3 segments", params.ID)), nil
+			}
+			var indexPlan pendingIndexEntry
+			if params.IndexEntry {
+				var planErr error
+				if indexPlan, planErr = planIndexEntry(k, params.ID); planErr != nil {
+					return errorResult(fmt.Sprintf("concept_new %q: %v", params.ID, planErr)), nil
+				}
 			}
 			if _, err := k.ReadConcept(id); err == nil {
 				return errorResult(fmt.Sprintf("concept_new %q: already exists — use concept_write or concept_patch to update it", params.ID)), nil
@@ -245,6 +254,14 @@ func toolConceptNew(k *kb.KB, sim *similarFinder, facts *factFinder) Tool {
 				return errorResult(fmt.Sprintf("concept_new %q: %v", params.ID, err)), nil
 			}
 			result := map[string]interface{}{"id": params.ID, "template": params.Template, "content_hash": newHash}
+			if params.IndexEntry {
+				// The concept is written: a failure here is a note, not an error
+				// (same contract as concept_move's curated_indexes, D714).
+				if err := applyIndexEntries(k, []pendingIndexEntry{indexPlan}); err != nil {
+					indexPlan.note = fmt.Sprintf("curated index %s/index.md: %v", indexPlan.mapName, err)
+				}
+				result["curated_indexes"] = indexEntryNotes([]pendingIndexEntry{indexPlan})
+			}
 			findings, repaired, hashes := repairWritten(k, []string{params.ID}, nil)
 			findings = withFacts(findings, facts, ctx, params.ID, "", newFactBudget())
 			result["findings"] = findingsOrEmpty(findings)
@@ -2322,13 +2339,7 @@ func removeCuratedEntry(k *kb.KB, mapName string, id okf.ConceptID) (removed boo
 	var out []string
 	for _, line := range strings.Split(body, "\n") {
 		targets := kb.ExtractLinks(line, indexPath, k.AssetExists)
-		hit := false
-		for _, t := range targets {
-			if t == id || strings.TrimSuffix(string(t), "/index") == string(id) {
-				hit = true
-			}
-		}
-		if !hit {
+		if !targetsInclude(targets, id) {
 			out = append(out, line)
 			continue
 		}
@@ -2346,13 +2357,33 @@ func removeCuratedEntry(k *kb.KB, mapName string, id okf.ConceptID) (removed boo
 	return err == nil, kept, err
 }
 
-// appendCuratedEntry adds an entry for id under a "## Moved here" heading.
-func appendCuratedEntry(k *kb.KB, mapName string, id okf.ConceptID) error {
-	content, hash, err := k.IndexHash(mapName)
-	if err != nil {
-		return fmt.Errorf("unreadable: %w", err)
+// targetsInclude reports whether a line's link targets name id, directly or
+// through the expanded "<id>/index" form.
+func targetsInclude(targets []okf.ConceptID, id okf.ConceptID) bool {
+	for _, t := range targets {
+		if t == id || strings.TrimSuffix(string(t), "/index") == string(id) {
+			return true
+		}
 	}
-	fmRaw, body, hasFM := okf.SplitFrontmatter(content)
+	return false
+}
+
+// indexLinks reports whether a line of the map's index content already links id
+// (same matching as removeCuratedEntry).
+func indexLinks(k *kb.KB, mapName, content string, id okf.ConceptID) bool {
+	_, body, _ := okf.SplitFrontmatter(content)
+	indexPath := mapName + "/index.md"
+	for _, line := range strings.Split(body, "\n") {
+		if targetsInclude(kb.ExtractLinks(line, indexPath, k.AssetExists), id) {
+			return true
+		}
+	}
+	return false
+}
+
+// curatedEntryLine renders "- [title](rel.md)" for id, the title falling back
+// to the id.
+func curatedEntryLine(k *kb.KB, mapName string, id okf.ConceptID) string {
 	title := string(id)
 	if data, readErr := k.ReadConcept(id); readErr == nil {
 		if parsed, parseErr := okf.ParseFrontmatter(data.FrontmatterRaw); parseErr == nil && parsed != nil {
@@ -2366,16 +2397,139 @@ func appendCuratedEntry(k *kb.KB, mapName string, id okf.ConceptID) error {
 	// From a map index an expanded concept is "<concept>.md" — the form D149 WP3
 	// settled, and the one require_index_entry accepts.
 	rel := strings.TrimPrefix(string(id), mapName+"/") + ".md"
-	entry := fmt.Sprintf("- [%s](%s)", title, rel)
+	return fmt.Sprintf("- [%s](%s)", title, rel)
+}
 
-	const heading = "## Moved here"
+// appendCuratedEntry adds an entry for id under a "## Moved here" heading.
+func appendCuratedEntry(k *kb.KB, mapName string, id okf.ConceptID) error {
+	_, err := appendCuratedEntries(k, mapName, "## Moved here", []okf.ConceptID{id})
+	return err
+}
+
+// appendCuratedEntries adds one entry per id, in order, under heading (created
+// at the end of the body if absent): one IndexHash and one PatchIndex for the
+// whole list. It returns the index content as it was before the edit, so a
+// caller that must undo it can (concept_batch, D714).
+func appendCuratedEntries(k *kb.KB, mapName, heading string, ids []okf.ConceptID) (before string, err error) {
+	content, hash, err := k.IndexHash(mapName)
+	if err != nil {
+		return "", fmt.Errorf("unreadable: %w", err)
+	}
+	fmRaw, body, hasFM := okf.SplitFrontmatter(content)
+	entries := make([]string, len(ids))
+	for i, id := range ids {
+		entries[i] = curatedEntryLine(k, mapName, id)
+	}
+	block := strings.Join(entries, "\n")
 	if strings.Contains(body, heading) {
-		body = strings.TrimRight(body, "\n") + "\n" + entry + "\n"
+		body = strings.TrimRight(body, "\n") + "\n" + block + "\n"
 	} else {
-		body = strings.TrimRight(body, "\n") + "\n\n" + heading + "\n\n" + entry + "\n"
+		body = strings.TrimRight(body, "\n") + "\n\n" + heading + "\n\n" + block + "\n"
 	}
 	_, err = k.PatchIndex(mapName, hash, joinIndex(fmRaw, hasFM, body))
-	return err
+	return content, err
+}
+
+// newPagesHeading is where index_entry puts a created concept (D714): like
+// "## Moved here", an obvious placement at the end beats a guessed section.
+const newPagesHeading = "## New pages"
+
+// pendingIndexEntry is one concept that asked for an index_entry.
+type pendingIndexEntry struct {
+	id      string
+	mapName string
+	note    string // set at preflight when no edit is needed; else filled on write
+	add     bool   // an entry will be appended
+}
+
+// planIndexEntry decides, before anything is written, what index_entry does
+// for a created concept (D714): refuses a top-level id or an unreadable
+// curated index, notes a generated index or an existing link, else schedules
+// an append.
+func planIndexEntry(k *kb.KB, id string) (pendingIndexEntry, error) {
+	mapName, ok := conceptMapName(id)
+	if !ok {
+		return pendingIndexEntry{}, fmt.Errorf("'index_entry' needs a concept inside a map")
+	}
+	p := pendingIndexEntry{id: id, mapName: mapName}
+	contract, err := k.ReadMapContract(mapName)
+	if err != nil {
+		return p, fmt.Errorf("'index_entry': %s/index.md unreadable: %w", mapName, err)
+	}
+	if contract.Index == kb.IndexGenerated {
+		p.note = fmt.Sprintf("%s/index.md is generated: it lists %s already", mapName, id)
+		return p, nil
+	}
+	content, _, err := k.IndexHash(mapName)
+	if err != nil {
+		return p, fmt.Errorf("'index_entry': %s/index.md unreadable: %w", mapName, err)
+	}
+	if indexLinks(k, mapName, content, okf.ConceptID(id)) {
+		p.note = fmt.Sprintf("curated index %s/index.md: already links %s, no entry added", mapName, id)
+		return p, nil
+	}
+	p.add = true
+	p.note = fmt.Sprintf("curated index %s/index.md: added an entry for %s", mapName, id)
+	return p, nil
+}
+
+// applyIndexEntries appends the scheduled entries, one patch per map, in
+// request order. On failure it restores the indexes it already patched and
+// returns the error. Index files are not covered by WriteConceptBatch's own
+// rollback (it restores only what it wrote), so the restore must happen here.
+func applyIndexEntries(k *kb.KB, pending []pendingIndexEntry) error {
+	var order []string
+	byMap := map[string][]okf.ConceptID{}
+	for _, p := range pending {
+		if !p.add {
+			continue
+		}
+		if _, seen := byMap[p.mapName]; !seen {
+			order = append(order, p.mapName)
+		}
+		byMap[p.mapName] = append(byMap[p.mapName], okf.ConceptID(p.id))
+	}
+	type undo struct{ mapName, before string }
+	var done []undo
+	fail := func(err error) error {
+		for i := len(done) - 1; i >= 0; i-- {
+			u := done[i]
+			_, hash, herr := k.IndexHash(u.mapName)
+			if herr == nil {
+				_, herr = k.PatchIndex(u.mapName, hash, u.before)
+			}
+			if herr != nil {
+				err = fmt.Errorf("%w (and restoring %s/index.md failed: %v)", err, u.mapName, herr)
+			}
+		}
+		return err
+	}
+	for _, mapName := range order {
+		if indexPatchHook != nil {
+			if err := indexPatchHook(mapName); err != nil {
+				return fail(fmt.Errorf("%s/index.md: %w", mapName, err))
+			}
+		}
+		before, err := appendCuratedEntries(k, mapName, newPagesHeading, byMap[mapName])
+		if err != nil {
+			return fail(fmt.Errorf("%s/index.md: %w", mapName, err))
+		}
+		done = append(done, undo{mapName, before})
+	}
+	return nil
+}
+
+// indexPatchHook is a test seam: it runs before each map's index edit in
+// applyIndexEntries so a test can fail the Nth one.
+var indexPatchHook func(mapName string) error
+
+// indexEntryNotes lists the per-concept notes in request order.
+func indexEntryNotes(pending []pendingIndexEntry) []string {
+	var notes []string
+	for _, p := range pending {
+		notes = append(notes, p.note)
+	}
+	return notes
 }
 
 // joinIndex reassembles an index file from its frontmatter and body.
@@ -2528,6 +2682,7 @@ type batchOperationRequest struct {
 	NewString   string                 `json:"new_string"`
 	ReplaceAll  bool                   `json:"replace_all"`
 	Edits       []patchEditItem        `json:"edits"`
+	IndexEntry  bool                   `json:"index_entry"`
 }
 
 // batchOpBytes is what one operation adds to the batch's aggregate size. A
@@ -2566,7 +2721,7 @@ func toolConceptBatch(k *kb.KB, facts *factFinder) Tool {
 		Description: "All-or-nothing write/patch of distinct concepts: one commit and log entry; a failure leaves the KB untouched. " +
 			fmt.Sprintf("At most %d operations and %s of decoded content per call (a patch counts its edits). ", conceptBatchMaxOps, byteBudget(conceptBatchMaxTotalBytes)) +
 			"Each operation is 'write' (frontmatter, body, if_match optional = create-only) or 'patch' (if_match required; the concept_patch fields). " +
-			"Not covered: delete, move, expand, assets, indexes. Returns id, content_hash and findings per operation.",
+			"A creating 'write' may set index_entry to add a curated index entry. Not covered: delete, move, expand, assets, other index edits. Returns id, content_hash and findings per operation.",
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"required": ["operations"],
@@ -2586,6 +2741,7 @@ func toolConceptBatch(k *kb.KB, facts *factFinder) Tool {
 							"unset": {"type": "array", "items": {"type": "string"}},
 							"body": {"type": "string"},
 							"if_match": {"type": "string"},
+							"index_entry": {"type": "boolean"},
 							"old_string": {"type": "string"},
 							"new_string": {"type": "string"},
 							"replace_all": {"type": "boolean"},
@@ -2625,6 +2781,7 @@ func toolConceptBatch(k *kb.KB, facts *factFinder) Tool {
 			totalBytes := 0
 			droppedByID := map[string][]findingOut{}
 			prevByID := map[string]string{} // body before the batch: read before the write (D351)
+			var indexPending []pendingIndexEntry
 
 			for i, raw := range params.Operations {
 				label := fmt.Sprintf("operation %d of %d", i+1, len(params.Operations))
@@ -2764,6 +2921,17 @@ func toolConceptBatch(k *kb.KB, facts *factFinder) Tool {
 					return errorResult(fmt.Sprintf("%s: %v", label, err)), nil
 				}
 
+				if op.IndexEntry {
+					if op.Op != "write" || existed || op.IfMatch != "" {
+						return errorResult(fmt.Sprintf("%s: 'index_entry' applies only to a creation", label)), nil
+					}
+					p, planErr := planIndexEntry(k, op.ID)
+					if planErr != nil {
+						return errorResult(fmt.Sprintf("%s: %v", label, planErr)), nil
+					}
+					indexPending = append(indexPending, p)
+				}
+
 				totalBytes += batchOpBytes(op, hasEdits, body, fm)
 				if totalBytes > conceptBatchMaxTotalBytes {
 					return errorResult(fmt.Sprintf("%s: aggregate batch content exceeds %d bytes", label, conceptBatchMaxTotalBytes)), nil
@@ -2772,9 +2940,20 @@ func toolConceptBatch(k *kb.KB, facts *factFinder) Tool {
 				ops = append(ops, kb.BatchWriteOp{ID: okf.ConceptID(op.ID), FM: fm, Body: body, IfMatch: op.IfMatch})
 			}
 
-			logMessage := fmt.Sprintf("concept_batch (%d operation(s)):\n%s", len(ops), strings.Join(batchLogLines(ops), "\n"))
+			indexed := map[string]bool{}
+			for _, p := range indexPending {
+				if p.add {
+					indexed[p.id] = true
+				}
+			}
+			logMessage := fmt.Sprintf("concept_batch (%d operation(s)):\n%s", len(ops), strings.Join(batchLogLines(ops, indexed), "\n"))
 
-			results, err := k.WriteConceptBatch(ops, logMessage, nil)
+			// TRAP (D714): WriteConceptBatch restores only the files and log it
+			// wrote; applyIndexEntries restores the indexes it patched itself
+			// before returning its error, which then rolls the rest back.
+			results, err := k.WriteConceptBatch(ops, logMessage, func([]kb.BatchWriteResult) error {
+				return applyIndexEntries(k, indexPending)
+			})
 			if err != nil {
 				if errors.Is(err, okf.ErrStaleWrite) {
 					return errorResult("stale_write: " + err.Error()), nil
@@ -2794,7 +2973,11 @@ func toolConceptBatch(k *kb.KB, facts *factFinder) Tool {
 				}
 				entries[i] = batchResultEntry{ID: r.ID, ContentHash: hash, Findings: findings, Repaired: repaired}
 			}
-			out, _ := json.MarshalIndent(map[string]interface{}{"results": entries}, "", "  ")
+			response := map[string]interface{}{"results": entries}
+			if notes := indexEntryNotes(indexPending); len(notes) > 0 {
+				response["curated_indexes"] = notes
+			}
+			out, _ := json.MarshalIndent(response, "", "  ")
 			return textResult(string(out)), nil
 		},
 	}
@@ -2803,10 +2986,13 @@ func toolConceptBatch(k *kb.KB, facts *factFinder) Tool {
 // batchLogLines renders one "- <id>" line per applied operation for the
 // batch's single summary log.md entry (D125 WP2: one entry for the whole
 // call, not one per concept, mirroring concept_move's summary line).
-func batchLogLines(ops []kb.BatchWriteOp) []string {
+func batchLogLines(ops []kb.BatchWriteOp, indexed map[string]bool) []string {
 	lines := make([]string, len(ops))
 	for i, op := range ops {
 		lines[i] = "- " + string(op.ID)
+		if indexed[string(op.ID)] {
+			lines[i] += " (+ index entry)"
+		}
 	}
 	return lines
 }
