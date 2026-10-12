@@ -684,3 +684,66 @@ func TestAheadBehind(t *testing.T) {
 		}
 	}
 }
+
+func TestIsForgeInitPath(t *testing.T) {
+	for p, want := range map[string]bool{
+		"README.md": true, "readme": true, "LICENSE": true, "LICENSE.txt": true,
+		"COPYING": true, ".gitignore": true, ".gitattributes": true,
+		"sub/README.md": false, "index.md": false, "README-old/x": false, "": false,
+	} {
+		if got := isForgeInitPath(p); got != want {
+			t.Errorf("isForgeInitPath(%q) = %v, want %v", p, got, want)
+		}
+	}
+}
+
+func TestForgeInitialized(t *testing.T) {
+	if !hasGit() {
+		t.Skip("git not in PATH")
+	}
+	build := func(files map[string]string, extraCommits int) string {
+		dir := t.TempDir()
+		if err := Init(dir); err != nil {
+			t.Fatal(err)
+		}
+		runGit(dir, "config", "user.email", "t@example.com")
+		runGit(dir, "config", "user.name", "T")
+		for name, body := range files {
+			full := filepath.Join(dir, name)
+			if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(full, []byte(body), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		runGit(dir, "add", ".")
+		if out, err := runGit(dir, "commit", "-m", "Initial commit"); err != nil {
+			t.Fatalf("commit: %v: %s", err, out)
+		}
+		for i := 0; i < extraCommits; i++ {
+			runGit(dir, "commit", "--allow-empty", "-m", "more")
+		}
+		return dir
+	}
+	cases := []struct {
+		name  string
+		files map[string]string
+		extra int
+		want  bool
+	}{
+		{"readme+license", map[string]string{"README.md": "a", "LICENSE": "b"}, 0, true},
+		{"two commits", map[string]string{"README.md": "a"}, 1, false},
+		{"source file", map[string]string{"src/main.go": "package main"}, 0, false},
+	}
+	for _, c := range cases {
+		dir := build(c.files, c.extra)
+		_, ok, err := ForgeInitialized(dir, "HEAD")
+		if err != nil || ok != c.want {
+			t.Errorf("%s: ForgeInitialized = (%v, %v), want (%v, nil)", c.name, ok, err, c.want)
+		}
+	}
+	if _, _, err := ForgeInitialized(t.TempDir(), "HEAD"); err == nil {
+		t.Error("ForgeInitialized outside a repo returned no error")
+	}
+}

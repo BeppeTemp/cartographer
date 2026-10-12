@@ -20,7 +20,7 @@ exists as an ad-hoc runtime mount on an emptyDir is **not durable**.
 
 > **Local/native-service topology.** On a single machine served by the local service, the
 > equivalent one-liner is `cartographer kb create <name> --remote <url>`: it scaffolds the KB and
-> pushes it to the empty repository that becomes its `origin` (the remote is mandatory there too,
+> pushes it to the empty repository (or one holding only a forge's initial commit, which is kept: README/LICENSE/.gitignore) that becomes its `origin` (the remote is mandatory there too,
 > D134). Add `--artifact-write` (also on `kb clone`) when the KB will carry instructions, templates or skills: it records the `kbs[]` entry with `allow_artifact_write: true` in the server config, so no hand-edit or discovered-mount warning (artifacts reach clients via sync, so it is opt-in, D711). This skill remains the procedure for the GitOps/Kubernetes topology below, where the KB
 > also has to be declared in the server's ConfigMap.
 
@@ -37,7 +37,7 @@ what you are doing — not all of them upfront.
 ## Steps
 
 ### 1. Create the Gitea repo and the per-KB service user
-Create an empty repo `<nome>.git` on Gitea. The **KB name** is the `name:` field of its `kbs:`
+Create an empty repo `<nome>.git` on Gitea (for the CLI path `kb create` also accepts a forge's initial README/LICENSE commit). The **KB name** is the `name:` field of its `kbs:`
 entry (D53) — set it explicitly; if omitted it falls back to the repo basename (`resolveKBName` in
 `cmd/cartographer/bootstrap.go`). The name is used everywhere downstream: token scopes
 (`kb:<nome>:rw`/`kb:<nome>:r`), the `?kb=<nome>` query param on multi-KB HTTP, and the

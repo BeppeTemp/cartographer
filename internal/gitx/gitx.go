@@ -670,6 +670,80 @@ func RebaseOntoAutostash(dir, remote, branch string, env ...string) error {
 	return fmt.Errorf("git rebase --autostash %s: %w: %s", target, err, out)
 }
 
+// TreePaths returns the paths of every file in ref's tree, slash-separated
+// ("git ls-tree -r --name-only -z <ref>").
+func TreePaths(dir, ref string) ([]string, error) {
+	cmd := exec.Command("git", "-C", dir, "ls-tree", "-r", "--name-only", "-z", ref)
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("git ls-tree %s: %w", ref, err)
+	}
+	var paths []string
+	for _, p := range strings.Split(string(out), "\x00") {
+		if p != "" {
+			paths = append(paths, p)
+		}
+	}
+	return paths, nil
+}
+
+// ForgeInitialized reports whether ref is what a forge writes when it creates
+// a project with "initialize with README": exactly one commit whose tree holds
+// only top-level README/LICENSE/COPYING/.gitignore/.gitattributes files
+// (isForgeInitPath). It returns the tree's paths either way. A git failure is
+// an error, never a silent false. "Exactly one branch" is the caller's
+// condition (RemoteRefs.Branches).
+func ForgeInitialized(dir, ref string) (paths []string, ok bool, err error) {
+	out, err := runGit(dir, "rev-list", "--count", ref)
+	if err != nil {
+		return nil, false, fmt.Errorf("git rev-list --count %s: %w: %s", ref, err, out)
+	}
+	if strings.TrimSpace(out) != "1" {
+		return nil, false, nil
+	}
+	paths, err = TreePaths(dir, ref)
+	if err != nil {
+		return nil, false, err
+	}
+	if len(paths) == 0 {
+		return paths, false, nil
+	}
+	for _, p := range paths {
+		if !isForgeInitPath(p) {
+			return paths, false, nil
+		}
+	}
+	return paths, true, nil
+}
+
+// isForgeInitPath reports whether p is a top-level file a forge seeds a new
+// project with: README, LICENSE, LICENCE or COPYING (each optionally followed
+// by "." and any extension), .gitignore or .gitattributes, case-insensitive.
+func isForgeInitPath(p string) bool {
+	if p == "" || strings.Contains(p, "/") {
+		return false
+	}
+	base := strings.ToLower(p)
+	if base == ".gitignore" || base == ".gitattributes" {
+		return true
+	}
+	for _, stem := range []string{"readme", "license", "licence", "copying"} {
+		if base == stem || strings.HasPrefix(base, stem+".") {
+			return true
+		}
+	}
+	return false
+}
+
+// RenameBranch renames the checked-out branch ("git branch -m <name>").
+func RenameBranch(dir, name string) error {
+	out, err := runGit(dir, "branch", "-m", name)
+	if err != nil {
+		return fmt.Errorf("git branch -m %s: %w: %s", name, err, out)
+	}
+	return nil
+}
+
 // HeadSHAAt returns the commit SHA for ref.
 func HeadSHAAt(dir, ref string) (string, error) {
 	out, err := runGit(dir, "rev-parse", ref)

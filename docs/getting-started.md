@@ -111,7 +111,7 @@ cartographer setup --remote <url> --dry-run      # print the plan, change nothin
 
 ```bash
 cartographer service install                               # the native service
-cartographer kb create my-kb --remote <git-remote-url> --restart   # a KB in an empty repository
+cartographer kb create my-kb --remote <git-remote-url> --restart   # a KB in an empty repository (or one holding only a forge's initial commit)
 cartographer kb clone <git-remote-url> --restart           # …or mount one that already exists
 cartographer connect claude                                # one agent client
 ```
