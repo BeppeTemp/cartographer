@@ -976,7 +976,12 @@ export class LivingScene {
     this.controls.autoRotate = !this.tween && this.idle.shouldRotate();
     this.controls.update();
     this.updateFog();
-    this.sync(now);
+    // Live, the simulation ticks at SIM_HZ and a frame between two ticks
+    // finds every position where the last one left it: unless something is
+    // animating, the buffers are already right and only the camera moved.
+    // (Still mode has no ticks, so it always syncs.)
+    const settled = simTicks === 0 && this.live && !this.bloom && !this.morph && !this.colourFade && !this.edgeFade && !this.burst;
+    if (!settled) this.sync(now);
     this.renderer.render(this.scene, this.camera);
     for (const listener of this.frameListeners) listener();
   }
