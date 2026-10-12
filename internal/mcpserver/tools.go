@@ -80,10 +80,12 @@ func RegisterKBTools(s *Server, k *kb.KB, deps Deps) {
 	// closes over, and must use the in-memory index only: FTS5 may be absent
 	// or failing, and the live index is always there. No auth filter — this is
 	// the server checking its own telemetry, not a user query.
-	misses.SetChecker(func(query string) bool {
+	misses.SetCheckPrepare(func() {
 		if _, err := rec.reconcile(); err != nil {
 			fmt.Fprintf(os.Stderr, "cartographer: search-miss re-check: %v\n", err)
 		}
+	})
+	misses.SetChecker(func(query string) bool {
 		return len(rec.live.searchFiltered(query, "", 1, nil)) > 0
 	})
 	s.uiSearch = func(ctx requestContext, args json.RawMessage) (ToolResult, error) {

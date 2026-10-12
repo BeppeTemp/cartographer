@@ -5,6 +5,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/kb"
@@ -172,6 +173,11 @@ func decayFindings(in conceptInput) []Finding {
 		}
 		orig := strings.Split(in.Body, "\n")
 		count, first := 0, ""
+		// Most pages carry no marker at all: one substring scan of the folded
+		// page spares them the per-line regexp, the costliest part of a lint.
+		if !containsAnyMarker(search.Fold(unstruck), markers) {
+			lines = nil
+		}
 		for i, l := range lines {
 			if n := len(re.FindAllStringIndex(search.Fold(l), -1)); n > 0 {
 				count += n
@@ -245,11 +251,29 @@ func foldHeading(h string) string {
 	return strings.Join(strings.Fields(search.Fold(strings.ToLower(h))), " ")
 }
 
-var markerCache = map[string]*regexp.Regexp{}
+// markerCache is shared by every lint run, and runs are concurrent (one per
+// request, one per KB): the mutex is what keeps it a cache and not a crash.
+var (
+	markerMu    sync.Mutex
+	markerCache = map[string]*regexp.Regexp{}
+)
+
+// containsAnyMarker reports whether folded holds any marker as a substring:
+// a necessary condition for markerRegexp to match it.
+func containsAnyMarker(folded string, markers []string) bool {
+	for _, m := range markers {
+		if m = strings.TrimSpace(m); m != "" && strings.Contains(folded, search.Fold(strings.ToLower(m))) {
+			return true
+		}
+	}
+	return false
+}
 
 // markerRegexp matches any marker as a whole word, case- and accent-folded.
 func markerRegexp(markers []string) *regexp.Regexp {
 	key := strings.Join(markers, "\x00")
+	markerMu.Lock()
+	defer markerMu.Unlock()
 	if re, ok := markerCache[key]; ok {
 		return re
 	}

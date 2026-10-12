@@ -49,6 +49,10 @@ type searchMissLog struct {
 	// checker reports whether a missed query now has results (D319); nil
 	// skips the re-check. Set once by SetChecker before any request.
 	checker func(query string) bool
+	// prepare runs once before a top() re-checks its queries: it brings the
+	// index up to date, which the per-query checker must not redo — a whole-KB
+	// stat walk per query made kb_status cost a walk per reported miss.
+	prepare func()
 }
 
 // SetChecker installs the re-check top() runs on every reported query, so a
@@ -57,6 +61,13 @@ type searchMissLog struct {
 func (l *searchMissLog) SetChecker(fn func(query string) bool) {
 	if l != nil {
 		l.checker = fn
+	}
+}
+
+// SetCheckPrepare installs what top() runs once before its re-checks.
+func (l *searchMissLog) SetCheckPrepare(fn func()) {
+	if l != nil {
+		l.prepare = fn
 	}
 }
 
@@ -228,6 +239,9 @@ func (l *searchMissLog) top() []searchMissSummary {
 		return out[i].Query < out[j].Query
 	})
 	if l.checker != nil {
+		if l.prepare != nil && len(out) > 0 {
+			l.prepare()
+		}
 		var open, resolved []searchMissSummary
 		for _, s := range out {
 			if len(open) == searchMissTop {
