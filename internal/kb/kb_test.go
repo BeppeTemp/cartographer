@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/BeppeTemp/cartographer/internal/gitx"
 	"github.com/BeppeTemp/cartographer/internal/okf"
 )
 
@@ -170,6 +171,32 @@ func TestInit_InfoExcludeHasCartographerEntry(t *testing.T) {
 	}
 	if !strings.Contains(string(data), ".cartographer/") {
 		t.Errorf(".git/info/exclude missing .cartographer/ entry: %q", string(data))
+	}
+}
+
+// An agent whose cwd is inside a KB clone leaves its state there (.omc/ at
+// any depth): the external-changes commit stages with git add -A, so it must
+// be ignored, not committed and pushed (#757).
+func TestInit_ExcludesAgentStateDirs(t *testing.T) {
+	dir := tempKB(t)
+	if _, err := Init(dir); err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+	for _, p := range []string{".omc/state/s.json", "data/.omc/replay.jsonl", "data/m/.claude/x"} {
+		abs := filepath.Join(dir, filepath.FromSlash(p))
+		if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(abs, []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	changes, err := gitx.StagedChanges(dir)
+	if err != nil {
+		t.Fatalf("StagedChanges: %v", err)
+	}
+	if len(changes) != 0 {
+		t.Fatalf("agent state staged: %+v", changes)
 	}
 }
 

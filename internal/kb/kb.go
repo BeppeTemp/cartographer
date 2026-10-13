@@ -402,6 +402,7 @@ func Open(root string) (*KB, error) {
 	// The advisory process lock is local state too (D155): never versioned, and
 	// excluded the same way rather than through a tracked .gitignore.
 	_ = ensureInfoExclude(abs, LockFileName)
+	excludeAgentStateDirs(abs)
 	return &KB{Root: abs}, nil
 }
 
@@ -564,8 +565,27 @@ func Init(root string) (*KB, error) {
 	// excluded here as well as in Open so it can never show up as a dirty working
 	// tree — which is what blocks a server-profile PR reconciliation.
 	_ = ensureInfoExclude(abs, LockFileName)
+	excludeAgentStateDirs(abs)
 
 	return &KB{Root: abs}, nil
+}
+
+// agentStateDirs are the directories agent clients and their plugins write
+// into their working directory (session state, replay logs, project config).
+// An agent whose shell cwd is inside a KB clone leaves them there, at any
+// depth, and the external-changes commit (D357) would version and push them
+// (#757). A pattern without a leading slash matches at every level. Excluding
+// never untracks a path already committed.
+var agentStateDirs = []string{
+	".omc/", ".claude/", ".codex/", ".kiro/", ".opencode/", ".crush/", ".gemini/", ".cursor/",
+}
+
+// excludeAgentStateDirs adds agentStateDirs to .git/info/exclude, best-effort
+// like the other entries.
+func excludeAgentStateDirs(kbDir string) {
+	for _, d := range agentStateDirs {
+		_ = ensureInfoExclude(kbDir, d)
+	}
 }
 
 // ensureInfoExclude adds entry to <kbDir>/.git/info/exclude if not already
