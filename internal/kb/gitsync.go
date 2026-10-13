@@ -311,8 +311,11 @@ func (k *KB) SyncIn() (bool, error) {
 			return true, err
 		}
 		k.setLastSyncIn(time.Now())
-		if headAfter, err := gitx.HeadSHA(k.Root); err == nil && headAfter != headBefore && k.OnSyncIn != nil {
-			k.OnSyncIn()
+		if headAfter, err := gitx.HeadSHA(k.Root); err == nil && headAfter != headBefore {
+			k.RefreshSettings() // D746: a pull may have changed settings.yaml
+			if k.OnSyncIn != nil {
+				k.OnSyncIn()
+			}
 		}
 		return true, nil
 	}
@@ -355,8 +358,11 @@ func (k *KB) SyncIn() (bool, error) {
 	k.clearDivergedStatus()
 	k.setLastSyncIn(time.Now())
 	k.ensureGitAttributes()
-	if headAfter, err := gitx.HeadSHA(k.Root); err == nil && headAfter != headBefore && k.OnSyncIn != nil {
-		k.OnSyncIn()
+	if headAfter, err := gitx.HeadSHA(k.Root); err == nil && headAfter != headBefore {
+		k.RefreshSettings() // D746: a pull may have changed settings.yaml
+		if k.OnSyncIn != nil {
+			k.OnSyncIn()
+		}
 	}
 	return true, nil
 }

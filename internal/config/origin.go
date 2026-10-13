@@ -56,6 +56,9 @@ func RemoteKBName(remote string) string {
 // ("git.sync", or KBOriginKey for a per-KB key). A path no layer touched is
 // the default.
 func (c *Config) OriginOf(path string) Origin {
+	if c.originFromKB(path) {
+		return OriginKB
+	}
 	if o, ok := c.Origins[path]; ok {
 		return o
 	}
@@ -168,6 +171,12 @@ func (c *Config) Settings(kbNames []string) View {
 				spec = s
 				break
 			}
+		}
+		// The effective spec, with the KB's own settings.yaml laid over it
+		// (D746), when the server has resolved it; a discovered KB has no
+		// kbs[] entry and is only here.
+		if eff, ok := c.kbSpecFor(name); ok {
+			spec = eff
 		}
 		fields := kbFields(spec)
 		section := KBEntries{Name: name, Entries: []Entry{}}

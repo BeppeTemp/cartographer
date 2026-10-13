@@ -248,6 +248,10 @@ type KBCapability struct {
 	// repair-on-write skip because their fix is not safe to run unattended
 	// (D355); kb_repair still applies them on request.
 	Ignored []string `json:"ignored,omitempty"`
+	// IgnoredServerValue is set when the KB's settings.yaml beat a different
+	// value in the server's kbs[] (D746): the KB is authoritative, so the
+	// server value changes nothing.
+	IgnoredServerValue string `json:"ignored_server_value,omitempty"`
 }
 
 // MultiKBServer wraps multiple KB instances served by a single HTTP server.

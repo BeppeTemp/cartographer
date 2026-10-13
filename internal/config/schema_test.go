@@ -99,7 +99,7 @@ func TestSchemaKBScope(t *testing.T) {
 	}
 	want := []string{"allow_artifact_write", "allow_template_write", "write_gate", "auto_repair", "repair_on_write",
 		"doctor_mode", "doctor_interval", "doctor_auto_interval", "doctor_budget", "usage_stale_days",
-		"mcp_allowlist", "git_profile", "git_base_branch", "git_forge", "github_owner", "github_repository", "github_api_url"}
+		"mcp_allowlist", "git_profile", "git_base_branch", "git_forge", "github_owner", "github_repository", "github_api_url", "secrets"}
 	sort.Strings(got)
 	sort.Strings(want)
 	if !reflect.DeepEqual(got, want) {

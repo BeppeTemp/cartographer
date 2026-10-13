@@ -162,6 +162,16 @@ and a structural mistake made now becomes long-lived knowledge debt. So **before
   (turns `<id>.md` into `<id>/index.md` plus satellite concepts) — there is no separate
   "dossier create" step.
 
+### Policy: the KB's own `settings.yaml`
+How the KB behaves (artifact and template writes, write gate, auto-repair, doctor cadence, MCP
+allow-list, how changes land, whether it uses secrets) is the KB's own, so every mount of it
+behaves the same (D746). `cartographer kb create` writes `settings.yaml` at the KB root with every
+key documented and commented out; uncomment and commit what the KB needs. It wins over the same
+key in a server's `kbs[]`, which is then ignored and reported. Machine-bound keys (`ssh_key`,
+`author_*`, `sops_age_key_file`, tokens) stay in the server config. No MCP tool writes the file:
+change it with git, reviewed like a Map contract. On a KB made another way, create the file by hand
+from the same key list (`cartographer config --all` shows each `kbs[]` key with its description).
+
 ### Vocabulary: the path placeholder registry
 Concepts cite machine-local locations as `{{path:<key>}}` and repositories as `{{repo:<key>}}`
 (the client resolves them; D75). Right after the Maps, ask the user which home locations and

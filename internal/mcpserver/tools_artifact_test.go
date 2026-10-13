@@ -304,6 +304,9 @@ func TestClassifyArtifactPath(t *testing.T) {
 		{"data/paths.yaml", false, "", ""},
 		{"paths.yml", false, "", ""},
 		{"glossary.yaml", true, "glossary", ""},
+		// D746: the KB's policy goes through git review, not through a tool.
+		{"settings.yaml", false, "", ""},
+		{"./settings.yaml", false, "", ""},
 		{"data/glossary.yaml", false, "", ""},
 		// Traversal.
 		{"../etc/passwd", false, "", ""},

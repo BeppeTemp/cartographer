@@ -262,7 +262,7 @@ Parameter details not repeated in the schema:
   commits, `git_workflow`), `capabilities` (each per-KB gate, state and controlling key), `sources`
   `{pending, ingested, skipped}`, `read_access` (D322: `{tracked_concepts, oldest, newest}` of the read-access log; absent until a read is recorded), `search_misses` (the 10 most frequent zero-result queries of the last 30
   days), `conformance` (D290; follow the `kb-doctor` skill when `doctor_suggested` is true, which ignores `info` findings only while no doctor session has ever run, D721), `server_version`
-  and `latest_version`. It is read-only and never hits the network. Two capabilities describe the
+  and `latest_version`. It is read-only and never hits the network. When the KB carries a `settings.yaml` (D746) a capability whose key the file sets names `settings.yaml <key>` as its `setting`, `ignored_server_value` says a different `kbs[]` value lost to it, and the top level adds `ignored_server_settings` (`[{key, server_value, kb_value}]`) and `settings_findings` (entries of the file that were left out); `capabilities.secrets` reads `missing key` when the file declares `secrets: true` and the mount has no age key. Two capabilities describe the
   doctor loop (D299): `auto_repair` (`enabled`/`disabled`, with `checks` listing what `cartographer kb
   repair --apply` and the background repair may apply unattended, and `default: true` when it is the
   product default and not a list the operator wrote, D323) and `doctor_interval` (`<n> days` or
